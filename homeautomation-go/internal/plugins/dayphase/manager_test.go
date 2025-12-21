@@ -262,3 +262,94 @@ func TestManagerReset(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotEmpty(t, dayPhase)
 }
+
+func TestManager_ShadowState_NextTransitionUpdated(t *testing.T) {
+	// Test that shadow state outputs.NextTransitionTime and NextTransitionPhase are populated
+	// This test catches the bug where UpdateNextTransition() was never called
+	logger, _ := zap.NewDevelopment()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	configLoader := config.NewLoader("../../../configs", logger)
+	calculator := dayphaselib.NewCalculator(32.85486, -97.50515, logger)
+
+	manager := NewManager(mockClient, stateManager, configLoader, calculator, logger, false)
+
+	// Initialize state
+	err := stateManager.SyncFromHA()
+	assert.NoError(t, err)
+
+	// Update sun event and day phase (which should also update next transition)
+	err = manager.updateSunEventAndDayPhase()
+	assert.NoError(t, err)
+
+	// Get shadow state
+	shadowState := manager.GetShadowState()
+
+	// Verify shadow state outputs are populated (not zero values)
+	// NextTransitionTime should be set
+	assert.False(t, shadowState.Outputs.NextTransitionTime.IsZero(),
+		"Expected NextTransitionTime to be set, got zero time")
+
+	// NextTransitionPhase should be a valid phase
+	validPhases := []string{"morning", "day", "sunset", "dusk", "winddown", "night"}
+	found := false
+	for _, phase := range validPhases {
+		if shadowState.Outputs.NextTransitionPhase == phase {
+			found = true
+			break
+		}
+	}
+	assert.True(t, found,
+		"Expected NextTransitionPhase to be a valid phase, got: %s", shadowState.Outputs.NextTransitionPhase)
+
+	// NextTransitionTime should be in the future (or within a reasonable range)
+	now := time.Now()
+	assert.True(t, shadowState.Outputs.NextTransitionTime.After(now.Add(-1*time.Hour)),
+		"Expected NextTransitionTime to be recent or in the future")
+}
+
+func TestManager_ShadowState_SunEventAndDayPhaseUpdated(t *testing.T) {
+	// Test that shadow state outputs for sun event and day phase are populated
+	logger, _ := zap.NewDevelopment()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	configLoader := config.NewLoader("../../../configs", logger)
+	calculator := dayphaselib.NewCalculator(32.85486, -97.50515, logger)
+
+	manager := NewManager(mockClient, stateManager, configLoader, calculator, logger, false)
+
+	// Initialize state
+	err := stateManager.SyncFromHA()
+	assert.NoError(t, err)
+
+	// Update sun event and day phase
+	err = manager.updateSunEventAndDayPhase()
+	assert.NoError(t, err)
+
+	// Get shadow state
+	shadowState := manager.GetShadowState()
+
+	// Verify SunEvent is set
+	validSunEvents := []string{"morning", "day", "sunset", "dusk", "night"}
+	foundSunEvent := false
+	for _, event := range validSunEvents {
+		if shadowState.Outputs.SunEvent == event {
+			foundSunEvent = true
+			break
+		}
+	}
+	assert.True(t, foundSunEvent,
+		"Expected SunEvent to be a valid value, got: %s", shadowState.Outputs.SunEvent)
+
+	// Verify DayPhase is set
+	validDayPhases := []string{"morning", "day", "sunset", "dusk", "winddown", "night"}
+	foundDayPhase := false
+	for _, phase := range validDayPhases {
+		if shadowState.Outputs.DayPhase == phase {
+			foundDayPhase = true
+			break
+		}
+	}
+	assert.True(t, foundDayPhase,
+		"Expected DayPhase to be a valid value, got: %s", shadowState.Outputs.DayPhase)
+}

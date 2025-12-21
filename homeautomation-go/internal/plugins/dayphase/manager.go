@@ -210,6 +210,9 @@ func (m *Manager) updateSunEventAndDayPhase() error {
 		m.shadowTracker.UpdateDayPhase(dayPhaseStr)
 	}
 
+	// Always update next transition (time changes even when phase doesn't)
+	m.updateNextTransition(dayPhase)
+
 	return nil
 }
 
@@ -248,4 +251,80 @@ func (m *Manager) updateShadowInputs() {
 	}
 
 	m.shadowTracker.UpdateCurrentInputs(inputs)
+}
+
+// updateNextTransition calculates and updates the next phase transition in shadow state
+func (m *Manager) updateNextTransition(currentPhase dayphaselib.DayPhase) {
+	now := time.Now()
+	sunTimes := m.calculator.GetSunTimes()
+
+	var nextTime time.Time
+	var nextPhase string
+
+	// Determine next transition based on current phase
+	// Transition order: night → morning → day → sunset → dusk → winddown → night
+	switch currentPhase {
+	case dayphaselib.DayPhaseNight:
+		// Next: morning at dawn
+		if t, ok := sunTimes["dawn"]; ok && t.After(now) {
+			nextTime = t
+			nextPhase = string(dayphaselib.DayPhaseMorning)
+		} else {
+			// Dawn is tomorrow, use approximate time
+			tomorrow := now.AddDate(0, 0, 1)
+			nextTime = time.Date(tomorrow.Year(), tomorrow.Month(), tomorrow.Day(), 6, 0, 0, 0, now.Location())
+			nextPhase = string(dayphaselib.DayPhaseMorning)
+		}
+
+	case dayphaselib.DayPhaseMorning:
+		// Next: day at goldenHourEnd
+		if t, ok := sunTimes["goldenHourEnd"]; ok && t.After(now) {
+			nextTime = t
+			nextPhase = string(dayphaselib.DayPhaseDay)
+		}
+
+	case dayphaselib.DayPhaseDay:
+		// Next: sunset at goldenHour
+		if t, ok := sunTimes["goldenHour"]; ok && t.After(now) {
+			nextTime = t
+			nextPhase = string(dayphaselib.DayPhaseSunset)
+		}
+
+	case dayphaselib.DayPhaseSunset:
+		// Next: dusk at dusk
+		if t, ok := sunTimes["dusk"]; ok && t.After(now) {
+			nextTime = t
+			nextPhase = string(dayphaselib.DayPhaseDusk)
+		}
+
+	case dayphaselib.DayPhaseDusk:
+		// Next: winddown (or night) at astronomical night
+		if t, ok := sunTimes["night"]; ok && t.After(now) {
+			nextTime = t
+			nextPhase = string(dayphaselib.DayPhaseWinddown)
+		}
+
+	case dayphaselib.DayPhaseWinddown:
+		// Next: night at scheduled night time
+		schedule, err := m.configLoader.GetTodaysSchedule()
+		if err == nil && schedule != nil && schedule.Night.After(now) {
+			nextTime = schedule.Night
+			nextPhase = string(dayphaselib.DayPhaseNight)
+		} else {
+			// Default to 23:00 if no schedule
+			nightTime := time.Date(now.Year(), now.Month(), now.Day(), 23, 0, 0, 0, now.Location())
+			if nightTime.After(now) {
+				nextTime = nightTime
+				nextPhase = string(dayphaselib.DayPhaseNight)
+			}
+		}
+	}
+
+	// Only update if we calculated a valid next transition
+	if !nextTime.IsZero() && nextPhase != "" {
+		m.shadowTracker.UpdateNextTransition(nextTime, nextPhase)
+		m.logger.Debug("Updated next transition",
+			zap.Time("next_time", nextTime),
+			zap.String("next_phase", nextPhase))
+	}
 }

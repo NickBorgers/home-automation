@@ -1079,3 +1079,110 @@ func TestStateTrackingManager_NoAnnouncement_OnStateChangeFromUnknown(t *testing
 		}
 	}
 }
+
+func TestStateTrackingManager_ShadowState_DerivedStatesUpdated(t *testing.T) {
+	// Test that shadow state outputs.derivedStates is populated after plugin operations
+	// This test catches the bug where UpdateDerivedStates() was never called
+	mockHA := ha.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+
+	// Setup: Nick is home
+	if err := stateMgr.SetBool("isNickHome", true); err != nil {
+		t.Fatalf("Failed to set isNickHome: %v", err)
+	}
+	if err := stateMgr.SetBool("isCarolineHome", false); err != nil {
+		t.Fatalf("Failed to set isCarolineHome: %v", err)
+	}
+	if err := stateMgr.SetBool("isMasterAsleep", false); err != nil {
+		t.Fatalf("Failed to set isMasterAsleep: %v", err)
+	}
+	if err := stateMgr.SetBool("isGuestAsleep", false); err != nil {
+		t.Fatalf("Failed to set isGuestAsleep: %v", err)
+	}
+	if err := stateMgr.SetBool("isHaveGuests", true); err != nil {
+		t.Fatalf("Failed to set isHaveGuests: %v", err)
+	}
+
+	// Create and start manager
+	manager := NewManager(mockHA, stateMgr, logger, false, nil)
+	if err := manager.Start(); err != nil {
+		t.Fatalf("Failed to start manager: %v", err)
+	}
+	defer manager.Stop()
+
+	// Get shadow state
+	shadowState := manager.GetShadowState()
+
+	// Verify shadow state outputs are populated (not zero values)
+	if !shadowState.Outputs.DerivedStates.IsAnyOwnerHome {
+		t.Error("Expected shadow state IsAnyOwnerHome=true (Nick is home), got false")
+	}
+	if !shadowState.Outputs.DerivedStates.IsAnyoneHome {
+		t.Error("Expected shadow state IsAnyoneHome=true (Nick is home), got false")
+	}
+	if shadowState.Outputs.DerivedStates.IsAnyoneAsleep {
+		t.Error("Expected shadow state IsAnyoneAsleep=false (nobody asleep), got true")
+	}
+	if shadowState.Outputs.DerivedStates.IsEveryoneAsleep {
+		t.Error("Expected shadow state IsEveryoneAsleep=false (nobody asleep), got true")
+	}
+
+	// Verify LastComputation is set (not zero time)
+	if shadowState.Outputs.LastComputation.IsZero() {
+		t.Error("Expected shadow state LastComputation to be set, got zero time")
+	}
+}
+
+func TestStateTrackingManager_ShadowState_DerivedStatesUpdateOnChange(t *testing.T) {
+	// Test that shadow state updates when derived states change
+	mockHA := ha.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+
+	// Setup: Everyone away
+	if err := stateMgr.SetBool("isNickHome", false); err != nil {
+		t.Fatalf("Failed to set isNickHome: %v", err)
+	}
+	if err := stateMgr.SetBool("isCarolineHome", false); err != nil {
+		t.Fatalf("Failed to set isCarolineHome: %v", err)
+	}
+
+	// Create and start manager
+	manager := NewManager(mockHA, stateMgr, logger, false, nil)
+	if err := manager.Start(); err != nil {
+		t.Fatalf("Failed to start manager: %v", err)
+	}
+	defer manager.Stop()
+
+	// Verify initial shadow state
+	shadowState := manager.GetShadowState()
+	if shadowState.Outputs.DerivedStates.IsAnyOwnerHome {
+		t.Error("Expected initial IsAnyOwnerHome=false")
+	}
+
+	// Get initial computation time
+	initialCompTime := shadowState.Outputs.LastComputation
+
+	// Wait a bit to ensure time difference
+	time.Sleep(10 * time.Millisecond)
+
+	// Nick arrives home
+	if err := stateMgr.SetBool("isNickHome", true); err != nil {
+		t.Fatalf("Failed to update isNickHome: %v", err)
+	}
+
+	// Verify shadow state was updated
+	shadowState = manager.GetShadowState()
+	if !shadowState.Outputs.DerivedStates.IsAnyOwnerHome {
+		t.Error("Expected shadow state IsAnyOwnerHome=true after Nick arrives")
+	}
+	if !shadowState.Outputs.DerivedStates.IsAnyoneHome {
+		t.Error("Expected shadow state IsAnyoneHome=true after Nick arrives")
+	}
+
+	// Verify LastComputation was updated
+	if !shadowState.Outputs.LastComputation.After(initialCompTime) {
+		t.Error("Expected LastComputation to be updated after state change")
+	}
+}
