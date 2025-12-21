@@ -7,11 +7,16 @@ import (
 // Helper functions for derived state computation
 // These implement the logic from Node-RED's State Tracking tab
 
+// DerivedStatesCallback is called when derived states are computed.
+// Parameters: isAnyOwnerHome, isAnyoneHome, isAnyoneAsleep, isEveryoneAsleep
+type DerivedStatesCallback func(anyOwnerHome, anyoneHome, anyoneAsleep, everyoneAsleep bool)
+
 // DerivedStateHelper manages automatic computation of derived states
 type DerivedStateHelper struct {
-	manager *Manager
-	logger  *zap.Logger
-	subs    []Subscription
+	manager  *Manager
+	logger   *zap.Logger
+	subs     []Subscription
+	onUpdate DerivedStatesCallback
 }
 
 // NewDerivedStateHelper creates a new helper for managing derived states
@@ -21,6 +26,12 @@ func NewDerivedStateHelper(manager *Manager, logger *zap.Logger) *DerivedStateHe
 		logger:  logger,
 		subs:    make([]Subscription, 0),
 	}
+}
+
+// SetUpdateCallback sets a callback that is invoked whenever derived states are computed.
+// The callback receives the current values of all four derived states.
+func (h *DerivedStateHelper) SetUpdateCallback(cb DerivedStatesCallback) {
+	h.onUpdate = cb
 }
 
 // Start begins monitoring and updating derived states
@@ -65,6 +76,22 @@ func (h *DerivedStateHelper) Stop() {
 		sub.Unsubscribe()
 	}
 	h.subs = nil
+}
+
+// notifyCallback invokes the update callback with current derived state values.
+// This should be called after any derived state is updated.
+func (h *DerivedStateHelper) notifyCallback() {
+	if h.onUpdate == nil {
+		return
+	}
+
+	// Gather current values of all derived states
+	isAnyOwnerHome, _ := h.manager.GetBool("isAnyOwnerHome")
+	isAnyoneHome, _ := h.manager.GetBool("isAnyoneHome")
+	isAnyoneAsleep, _ := h.manager.GetBool("isAnyoneAsleep")
+	isEveryoneAsleep, _ := h.manager.GetBool("isEveryoneAsleep")
+
+	h.onUpdate(isAnyOwnerHome, isAnyoneHome, isAnyoneAsleep, isEveryoneAsleep)
 }
 
 // setupPresenceTracking subscribes to presence changes and updates isAnyOwnerHome and isAnyoneHome
@@ -187,6 +214,9 @@ func (h *DerivedStateHelper) updateIsAnyOwnerHome() {
 		zap.Bool("isNickHome", isNickHome),
 		zap.Bool("isCarolineHome", isCarolineHome),
 		zap.Bool("isAnyOwnerHome", isAnyOwnerHome))
+
+	// Notify callback with updated derived states
+	h.notifyCallback()
 }
 
 // updateIsAnyoneHome computes: isAnyoneHome = isAnyOwnerHome OR isToriHere
@@ -218,6 +248,9 @@ func (h *DerivedStateHelper) updateIsAnyoneHome() {
 		zap.Bool("isAnyOwnerHome", isAnyOwnerHome),
 		zap.Bool("isToriHere", isToriHere),
 		zap.Bool("isAnyoneHome", isAnyoneHome))
+
+	// Notify callback with updated derived states
+	h.notifyCallback()
 }
 
 // updateIsAnyoneAsleep computes: isAnyoneAsleep = isMasterAsleep OR isGuestAsleep
@@ -249,6 +282,9 @@ func (h *DerivedStateHelper) updateIsAnyoneAsleep() {
 		zap.Bool("isMasterAsleep", isMasterAsleep),
 		zap.Bool("isGuestAsleep", isGuestAsleep),
 		zap.Bool("isAnyoneAsleep", isAnyoneAsleep))
+
+	// Notify callback with updated derived states
+	h.notifyCallback()
 }
 
 // updateIsEveryoneAsleep computes: isEveryoneAsleep = isMasterAsleep AND isGuestAsleep
@@ -280,6 +316,9 @@ func (h *DerivedStateHelper) updateIsEveryoneAsleep() {
 		zap.Bool("isMasterAsleep", isMasterAsleep),
 		zap.Bool("isGuestAsleep", isGuestAsleep),
 		zap.Bool("isEveryoneAsleep", isEveryoneAsleep))
+
+	// Notify callback with updated derived states
+	h.notifyCallback()
 }
 
 // checkAutoGuestSleep checks if guest should be automatically marked as asleep
