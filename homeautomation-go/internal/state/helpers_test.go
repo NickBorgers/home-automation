@@ -201,3 +201,51 @@ func TestDerivedStateHelper_AutoGuestSleepNoGuests(t *testing.T) {
 	isGuestAsleep, _ := manager.GetBool("isGuestAsleep")
 	assert.False(t, isGuestAsleep, "Guest should NOT auto-sleep when no guests present")
 }
+
+func TestDerivedStateHelper_CallbackFiresOnStartup(t *testing.T) {
+	// This test verifies that the callback fires on startup even when
+	// derived values already match current state (issue #155)
+	logger, _ := zap.NewDevelopment()
+	mockClient := ha.NewMockClient()
+	manager := NewManager(mockClient, logger, false)
+
+	// Pre-populate states with values that match what derived computation produces
+	// This simulates the startup scenario where HA sync already has correct values
+	manager.SetBool("isNickHome", true)
+	manager.SetBool("isCarolineHome", false)
+	manager.SetBool("isAnyOwnerHome", true) // Already matches: isNickHome || isCarolineHome
+	manager.SetBool("isAnyoneHome", true)   // Already matches derived value
+	manager.SetBool("isMasterAsleep", false)
+	manager.SetBool("isGuestAsleep", false)
+	manager.SetBool("isAnyoneAsleep", false)   // Already matches derived value
+	manager.SetBool("isEveryoneAsleep", false) // Already matches derived value
+
+	// Track callback invocations
+	callbackCount := 0
+	var lastAnyOwnerHome, lastAnyoneHome, lastAnyoneAsleep, lastEveryoneAsleep bool
+
+	helper := NewDerivedStateHelper(manager, logger)
+	helper.SetUpdateCallback(func(anyOwnerHome, anyoneHome, anyoneAsleep, everyoneAsleep bool) {
+		callbackCount++
+		lastAnyOwnerHome = anyOwnerHome
+		lastAnyoneHome = anyoneHome
+		lastAnyoneAsleep = anyoneAsleep
+		lastEveryoneAsleep = everyoneAsleep
+	})
+
+	err := helper.Start()
+	assert.NoError(t, err)
+	defer helper.Stop()
+
+	// Give startup time to complete
+	time.Sleep(100 * time.Millisecond)
+
+	// Callback should have fired at least once during startup
+	assert.GreaterOrEqual(t, callbackCount, 1, "Callback should fire on startup even if values match")
+
+	// Verify callback received correct values
+	assert.True(t, lastAnyOwnerHome, "Callback should receive correct isAnyOwnerHome value")
+	assert.True(t, lastAnyoneHome, "Callback should receive correct isAnyoneHome value")
+	assert.False(t, lastAnyoneAsleep, "Callback should receive correct isAnyoneAsleep value")
+	assert.False(t, lastEveryoneAsleep, "Callback should receive correct isEveryoneAsleep value")
+}
