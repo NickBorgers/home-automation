@@ -65,6 +65,9 @@ func (h *DerivedStateHelper) Start() error {
 	h.updateIsEveryoneAsleep()
 	h.syncGuestAsleepIfNoGuests() // Initialize auto-sync
 
+	// Ensure shadow state is populated even if no values changed during init
+	h.notifyCallback()
+
 	h.logger.Info("Derived state helper started")
 	return nil
 }
