@@ -47,9 +47,13 @@ RUN chown -R homeautomation:homeautomation /app
 # Switch to non-root user
 USER homeautomation
 
-# The application doesn't expose ports by default (it's a WebSocket client)
-# But we could add health check or metrics endpoints in the future
-# EXPOSE 8080
+# Expose the HTTP port (default 8080, configurable via HTTP_PORT env var)
+EXPOSE 8080
+
+# Health check using the HTTP_PORT env var (defaults to 8080)
+# Uses /health endpoint which returns {"status":"ok"}
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD wget --no-verbose --tries=1 --spider http://localhost:${HTTP_PORT:-8080}/health || exit 1
 
 # Run the application
 CMD ["./homeautomation"]
