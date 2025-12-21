@@ -1,5 +1,5 @@
 {
-  "name": "Internet Connection Monitor",
+  "name": "Home Automation Go",
   "image": "mcr.microsoft.com/devcontainers/go:1.25",
   "features": {
     "ghcr.io/devcontainers/features/common-utils:2": {},
