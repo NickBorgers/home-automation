@@ -1,5 +1,5 @@
 {
-  "name": "Internet Connection Monitor",
+  "name": "Home Automation Go",
   "image": "mcr.microsoft.com/devcontainers/go:1.25",
   "features": {
     "ghcr.io/devcontainers/features/common-utils:2": {},
@@ -19,7 +19,8 @@
       ]
     }
   },
-  "postCreateCommand": "cd homeautomation-go && go mod tidy && go mod download && cd .. && mkdir -p build && bash .githooks/install-hooks.sh",
+  "postCreateCommand": "bash .devcontainer/post-create.sh",
+  "postStartCommand": "bash .devcontainer/fix-dns-order.sh",
   "forwardPorts": [],
   "portsAttributes": {},
   "mounts": [],

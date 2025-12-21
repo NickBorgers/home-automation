@@ -1,22 +1,11 @@
 {
   "permissions": {
     "allow": [
-      "mcp__playwright__browser_navigate",
-      "mcp__playwright__browser_snapshot",
-      "mcp__playwright__browser_close",
-      "mcp__playwright__browser_type",
-      "mcp__playwright__browser_click",
-      "mcp__playwright__browser_wait_for",
-      "mcp__playwright__browser_take_screenshot",
       "Bash(make generate-screenshots:*)",
       "Bash(go doc:*)",
       "Bash(go list:*)",
       "WebSearch",
       "Bash(cat:*)"
     ]
-  },
-  "enableAllProjectMcpServers": true,
-  "enabledMcpjsonServers": [
-    "playwright"
-  ]
+  }
 }
