@@ -6,6 +6,11 @@ set -e
 
 echo "=== Setting up devcontainer ==="
 
+# Fix DNS order to prioritize Tailscale MagicDNS
+# (Also runs via postStartCommand on every container start)
+echo "Checking DNS configuration..."
+bash "$(dirname "$0")/fix-dns-order.sh"
+
 # Go module setup
 echo "Setting up Go modules..."
 cd /workspaces/home-automation/homeautomation-go
