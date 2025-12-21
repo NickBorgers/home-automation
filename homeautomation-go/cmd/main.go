@@ -297,13 +297,6 @@ func main() {
 	}
 	defer resetCoordinator.Stop()
 
-	// Demonstrate setting values (only in read-write mode)
-	if !readOnly {
-		demonstrateStateChanges(stateManager, logger)
-	} else {
-		logger.Info("Running in READ-ONLY mode - state monitoring active")
-	}
-
 	// Setup signal handling for graceful shutdown
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
@@ -391,50 +384,6 @@ func subscribeToChanges(manager *state.Manager, logger *zap.Logger) {
 
 	logger.Info("Subscribed to all state change notifications",
 		zap.Int("variable_count", len(state.AllVariables)))
-}
-
-func demonstrateStateChanges(manager *state.Manager, logger *zap.Logger) {
-	logger.Info("=== Demonstrating State Changes ===")
-
-	// Example 1: Toggle a boolean
-	logger.Info("Example 1: Toggling isExpectingSomeone")
-	currentValue, _ := manager.GetBool("isExpectingSomeone")
-	logger.Info(fmt.Sprintf("  Current value: %v", currentValue))
-
-	newValue := !currentValue
-	if err := manager.SetBool("isExpectingSomeone", newValue); err != nil {
-		logger.Error("Failed to set isExpectingSomeone", zap.Error(err))
-	} else {
-		logger.Info(fmt.Sprintf("  Set to: %v", newValue))
-	}
-
-	time.Sleep(1 * time.Second)
-
-	// Set it back
-	if err := manager.SetBool("isExpectingSomeone", currentValue); err != nil {
-		logger.Error("Failed to restore isExpectingSomeone", zap.Error(err))
-	} else {
-		logger.Info(fmt.Sprintf("  Restored to: %v", currentValue))
-	}
-
-	// Example 2: Update a text value
-	logger.Info("Example 2: Reading dayPhase")
-	dayPhase, _ := manager.GetString("dayPhase")
-	logger.Info(fmt.Sprintf("  Current dayPhase: %s", dayPhase))
-
-	// Example 3: CompareAndSwap
-	logger.Info("Example 3: Using CompareAndSwapBool")
-	currentFade, _ := manager.GetBool("isFadeOutInProgress")
-	swapped, err := manager.CompareAndSwapBool("isFadeOutInProgress", currentFade, !currentFade)
-	if err != nil {
-		logger.Error("Failed to CompareAndSwap", zap.Error(err))
-	} else {
-		logger.Info(fmt.Sprintf("  Swapped: %v (from %v to %v)", swapped, currentFade, !currentFade))
-		// Restore
-		manager.SetBool("isFadeOutInProgress", currentFade)
-	}
-
-	logger.Info("===================================")
 }
 
 func startEnergyManager(client ha.HAClient, stateManager *state.Manager, logger *zap.Logger, readOnly bool, configDir string, timezone *time.Location, registry *shadowstate.SubscriptionRegistry) (*energy.Manager, error) {
