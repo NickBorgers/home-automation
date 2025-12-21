@@ -470,6 +470,8 @@ func (s *Server) handleSitemap(w http.ResponseWriter, r *http.Request) {
         .endpoint { background: #2d2d2d; padding: 15px; margin: 10px 0; border-left: 3px solid #007acc; }
         .method { color: #4ec9b0; font-weight: bold; }
         .path { color: #ce9178; }
+        a.path { color: #ce9178; text-decoration: none; }
+        a.path:hover { text-decoration: underline; }
         .description { color: #9cdcfe; margin-top: 5px; }
         a { color: #569cd6; text-decoration: none; }
         a:hover { text-decoration: underline; }
@@ -482,10 +484,10 @@ func (s *Server) handleSitemap(w http.ResponseWriter, r *http.Request) {
 `)
 		for _, ep := range endpoints {
 			fmt.Fprintf(w, `    <div class="endpoint">
-        <div><span class="method">%s</span> <span class="path">%s</span></div>
+        <div><span class="method">%s</span> <a href="%s" class="path">%s</a></div>
         <div class="description">%s</div>
     </div>
-`, ep.Method, ep.Path, ep.Description)
+`, ep.Method, ep.Path, ep.Path, ep.Description)
 		}
 		fmt.Fprintf(w, `    <h2>Examples</h2>
     <div class="endpoint">
