@@ -166,6 +166,127 @@ HA_TOKEN=your_long_lived_access_token
 READ_ONLY=true
 ```
 
+## Testing UI Changes
+
+The Go application includes a dashboard at `/dashboard` for viewing shadow state. To test UI changes without requiring a real Home Assistant instance, use **DEV_MODE**.
+
+### Quick Start: Local UI Testing
+
+```bash
+# Start the app with mock Home Assistant data
+make dev-ui
+
+# Dashboard available at: http://localhost:8080/dashboard
+# API endpoint at:        http://localhost:8080/api/shadow
+```
+
+DEV_MODE starts a mock Home Assistant WebSocket server with realistic sample data for all plugins. Changes to HTML/CSS in `homeautomation-go/internal/api/templates/` require restarting `make dev-ui`.
+
+### Capturing Screenshots with Playwright
+
+Use Playwright to capture screenshots for PR documentation or visual regression testing:
+
+**1. Start the dev server:**
+```bash
+make dev-ui
+```
+
+**2. Capture a screenshot (example - laptop resolution):**
+```bash
+# Write a Playwright script
+cat > /tmp/playwright-screenshot.js << 'EOF'
+const { chromium } = require('playwright');
+
+(async () => {
+  const browser = await chromium.launch({ headless: true });
+  const page = await browser.newPage();
+
+  // Set viewport (common sizes: 1920x1080 desktop, 1280x800 laptop, 375x667 mobile)
+  await page.setViewportSize({ width: 1280, height: 800 });
+
+  await page.goto('http://localhost:8080/dashboard', { waitUntil: 'networkidle' });
+  await page.waitForTimeout(500); // Allow animations to settle
+
+  await page.screenshot({
+    path: 'docs/screenshots/dashboard-screenshot.png',
+    fullPage: true
+  });
+
+  console.log('Screenshot saved');
+  await browser.close();
+})();
+EOF
+
+# Execute with Playwright skill (if installed)
+cd ~/.claude/plugins/cache/playwright-skill/playwright-skill/*/skills/playwright-skill && \
+  node run.js /tmp/playwright-screenshot.js
+
+# Or with system playwright
+npx playwright test /tmp/playwright-screenshot.js
+```
+
+**3. Responsive testing (multiple viewports):**
+```bash
+cat > /tmp/playwright-responsive.js << 'EOF'
+const { chromium } = require('playwright');
+
+const viewports = [
+  { name: 'desktop', width: 1920, height: 1080 },
+  { name: 'laptop', width: 1280, height: 800 },
+  { name: 'tablet', width: 768, height: 1024 },
+  { name: 'mobile', width: 375, height: 667 }
+];
+
+(async () => {
+  const browser = await chromium.launch({ headless: true });
+  const page = await browser.newPage();
+
+  for (const vp of viewports) {
+    await page.setViewportSize({ width: vp.width, height: vp.height });
+    await page.goto('http://localhost:8080/dashboard', { waitUntil: 'networkidle' });
+    await page.waitForTimeout(300);
+    await page.screenshot({
+      path: `docs/screenshots/dashboard-${vp.name}.png`,
+      fullPage: true
+    });
+    console.log(`Captured ${vp.name} (${vp.width}x${vp.height})`);
+  }
+
+  await browser.close();
+})();
+EOF
+```
+
+### Dashboard UI Details
+
+**Location:** `homeautomation-go/internal/api/templates/dashboard.html`
+
+**Key features:**
+- Responsive grid: 2 columns on laptop+, 1 column on mobile (< 640px)
+- Auto-refresh: Polls `/api/shadow` every 30 seconds
+- Collapsible plugin cards with inputs/outputs/metadata sections
+- Stale data indicators (warning at 5 min, error at 15 min)
+
+**Sample data (DEV_MODE):** Configured in `homeautomation-go/internal/devserver/devserver.go`
+
+### Adding Screenshots to PRs
+
+When making UI changes, capture and commit screenshots:
+
+```bash
+# 1. Start dev server and capture
+make dev-ui &
+sleep 3
+# (run playwright script)
+
+# 2. Commit the screenshot
+git add docs/screenshots/your-screenshot.png
+git commit -m "docs: Add screenshot of [feature]"
+
+# 3. Reference in PR comment with raw GitHub URL
+# ![Description](https://raw.githubusercontent.com/OWNER/REPO/BRANCH/docs/screenshots/your-screenshot.png)
+```
+
 ## Common CI Failures
 
 | Error | Cause | Fix |
