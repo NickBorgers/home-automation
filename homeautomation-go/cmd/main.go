@@ -13,6 +13,7 @@ import (
 	"homeautomation/internal/api"
 	"homeautomation/internal/config"
 	dayphaselib "homeautomation/internal/dayphase"
+	"homeautomation/internal/devserver"
 	"homeautomation/internal/ha"
 	"homeautomation/internal/plugins/dayphase"
 	"homeautomation/internal/plugins/energy"
@@ -45,12 +46,37 @@ func main() {
 		logger.Info("No .env file found, using environment variables")
 	}
 
-	haURL := os.Getenv("HA_URL")
-	haToken := os.Getenv("HA_TOKEN")
-	readOnly := os.Getenv("READ_ONLY") == "true"
+	// Check for development mode
+	devMode := os.Getenv("DEV_MODE") == "true"
 
-	if haURL == "" || haToken == "" {
-		logger.Fatal("HA_URL and HA_TOKEN environment variables must be set")
+	var haURL, haToken string
+	var readOnly bool
+	var devServer *devserver.DevServer
+
+	if devMode {
+		logger.Info("Starting in DEVELOPMENT MODE with mock HA server")
+
+		// Start embedded mock HA server
+		devServer = devserver.NewDevServer(logger, devserver.DefaultDevPort)
+		if err := devServer.Start(); err != nil {
+			logger.Fatal("Failed to start development server", zap.Error(err))
+		}
+
+		haURL = devServer.GetWebSocketURL()
+		haToken = devServer.GetToken()
+		readOnly = true // Dev mode is always read-only for safety
+
+		logger.Info("Mock HA server running",
+			zap.String("url", haURL),
+			zap.Bool("read_only", readOnly))
+	} else {
+		haURL = os.Getenv("HA_URL")
+		haToken = os.Getenv("HA_TOKEN")
+		readOnly = os.Getenv("READ_ONLY") == "true"
+
+		if haURL == "" || haToken == "" {
+			logger.Fatal("HA_URL and HA_TOKEN environment variables must be set (or use DEV_MODE=true for local UI testing)")
+		}
 	}
 
 	// HTTP API port configuration
@@ -312,6 +338,13 @@ func main() {
 	<-sigChan
 
 	logger.Info("Shutting down gracefully...")
+
+	// Stop dev server if running
+	if devServer != nil {
+		if err := devServer.Stop(); err != nil {
+			logger.Error("Failed to stop dev server", zap.Error(err))
+		}
+	}
 }
 
 func displayState(manager *state.Manager, logger *zap.Logger) {

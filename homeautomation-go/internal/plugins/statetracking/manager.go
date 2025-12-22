@@ -133,6 +133,12 @@ func (m *Manager) Start() error {
 
 	// Create and start the derived state helper
 	m.helper = state.NewDerivedStateHelper(m.stateManager, m.logger)
+
+	// Wire up callback to update shadow state when derived states are computed
+	m.helper.SetUpdateCallback(func(anyOwnerHome, anyoneHome, anyoneAsleep, everyoneAsleep bool) {
+		m.shadowTracker.UpdateDerivedStates(anyOwnerHome, anyoneHome, anyoneAsleep, everyoneAsleep)
+	})
+
 	if err := m.helper.Start(); err != nil {
 		return fmt.Errorf("failed to start derived state helper: %w", err)
 	}
