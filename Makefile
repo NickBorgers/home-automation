@@ -140,6 +140,21 @@ validate-docs: validate-mermaid
 build-go:
 	cd homeautomation-go && go build -o homeautomation ./cmd/main.go
 
+#dev-ui: @ Run application with mock HA server for local UI development
+dev-ui: build-go
+	@echo ""
+	@echo "════════════════════════════════════════════════════════════════════════════"
+	@echo "🚀 Starting Home Automation in DEVELOPMENT MODE"
+	@echo ""
+	@echo "   Dashboard: http://localhost:8080/dashboard"
+	@echo "   API:       http://localhost:8080/api/shadow"
+	@echo ""
+	@echo "   The mock Home Assistant server provides sample data for all plugins."
+	@echo "   Changes to UI files require restarting this command."
+	@echo "════════════════════════════════════════════════════════════════════════════"
+	@echo ""
+	cd homeautomation-go && DEV_MODE=true ./homeautomation
+
 #test-go: @ Run Go tests with race detection and coverage
 test-go:
 	cd homeautomation-go && go test ./... -race -v -coverprofile=coverage.out
