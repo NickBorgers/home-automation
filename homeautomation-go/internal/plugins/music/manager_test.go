@@ -1035,6 +1035,9 @@ func TestBuildSpeakerGroup(t *testing.T) {
 	config := &MusicConfig{Music: map[string]MusicMode{}}
 	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
 
+	// Clear any previous calls
+	mockClient.ClearServiceCalls()
+
 	participants := []ParticipantWithVolume{
 		{PlayerName: "Kitchen", Volume: 9},
 		{PlayerName: "Living Room", Volume: 10},
@@ -1044,6 +1047,47 @@ func TestBuildSpeakerGroup(t *testing.T) {
 	err := manager.buildSpeakerGroup(participants, "media_player.kitchen")
 	if err != nil {
 		t.Errorf("buildSpeakerGroup() failed: %v", err)
+	}
+
+	// Verify the service call was made with correct parameters
+	calls := mockClient.GetServiceCalls()
+
+	// Should be exactly one call (single call with all followers)
+	joinCalls := 0
+	for _, call := range calls {
+		if call.Domain == "media_player" && call.Service == "join" {
+			joinCalls++
+
+			// Verify entity_id is the lead speaker (coordinator)
+			entityID, ok := call.Data["entity_id"].(string)
+			if !ok || entityID != "media_player.kitchen" {
+				t.Errorf("Expected entity_id to be lead speaker 'media_player.kitchen', got: %v", call.Data["entity_id"])
+			}
+
+			// Verify group_members contains all followers
+			groupMembers, ok := call.Data["group_members"].([]string)
+			if !ok {
+				t.Errorf("Expected group_members to be []string, got: %T", call.Data["group_members"])
+			} else {
+				if len(groupMembers) != 2 {
+					t.Errorf("Expected 2 group members, got %d", len(groupMembers))
+				}
+				// Check that Living Room and Bedroom are in group_members
+				expectedMembers := map[string]bool{
+					"media_player.living_room": true,
+					"media_player.bedroom":     true,
+				}
+				for _, member := range groupMembers {
+					if !expectedMembers[member] {
+						t.Errorf("Unexpected group member: %s", member)
+					}
+				}
+			}
+		}
+	}
+
+	if joinCalls != 1 {
+		t.Errorf("Expected exactly 1 media_player.join call, got %d", joinCalls)
 	}
 }
 

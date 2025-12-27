@@ -766,22 +766,27 @@ func (m *Manager) executePlayback(musicType string, option PlaybackOption, parti
 func (m *Manager) buildSpeakerGroup(participants []ParticipantWithVolume, leadEntityID string) error {
 	m.logger.Info("Building speaker group", zap.Int("count", len(participants)))
 
-	// Join all other speakers to the lead
+	// Build list of follower entity IDs
+	var groupMembers []string
 	for i, p := range participants {
 		if i == 0 {
 			// Skip lead player
 			continue
 		}
+		groupMembers = append(groupMembers, m.getSpeakerEntityID(p.PlayerName))
+	}
 
-		entityID := m.getSpeakerEntityID(p.PlayerName)
+	// Single call: lead speaker joins all followers to its group
+	if len(groupMembers) > 0 {
 		if err := m.callService("media_player", "join", map[string]interface{}{
-			"entity_id":     entityID,
-			"group_members": []string{leadEntityID},
+			"entity_id":     leadEntityID, // Coordinator
+			"group_members": groupMembers, // All followers
 		}); err != nil {
-			m.logger.Error("Failed to join speaker to group",
-				zap.String("speaker", p.PlayerName),
-				zap.Error(err))
+			return fmt.Errorf("failed to create speaker group: %w", err)
 		}
+		m.logger.Info("Speaker group created",
+			zap.String("lead", leadEntityID),
+			zap.Strings("members", groupMembers))
 	}
 
 	// Wait for group to stabilize
