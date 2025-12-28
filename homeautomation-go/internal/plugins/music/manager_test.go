@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -1620,9 +1621,9 @@ func TestCallServiceWithRetry_Success(t *testing.T) {
 	}
 }
 
-// TestCallServiceWithRetry_FailsAndRetries verifies that callServiceWithRetry
-// refreshes speakers and retries when the first call fails.
-func TestCallServiceWithRetry_FailsAndRetries(t *testing.T) {
+// TestCallServiceWithRetry_PersistentError verifies that callServiceWithRetry
+// returns an error when both the initial call and retry fail.
+func TestCallServiceWithRetry_PersistentError(t *testing.T) {
 	mockHA := ha.NewMockClient()
 	logger := zap.NewNop()
 	stateManager := state.NewManager(mockHA, logger, false)
@@ -1636,49 +1637,25 @@ func TestCallServiceWithRetry_FailsAndRetries(t *testing.T) {
 
 	manager := NewManager(mockHA, stateManager, config, logger, false, nil)
 
-	// Set up a speaker entity so refresh will find it
+	// Set up a speaker entity so refresh will find it (retry path is triggered)
 	mockHA.SetState("media_player.kitchen", "idle", nil)
 
-	// Make first call fail, second succeed
-	callCount := 0
-	// Set error for first call
-	mockHA.SetServiceError("media_player", "volume_set", fmt.Errorf("temporary failure"))
+	// Set persistent error - both initial call and retry will fail
+	mockHA.SetServiceError("media_player", "volume_set", fmt.Errorf("persistent failure"))
 
-	// First call - will fail
 	err := manager.callServiceWithRetry("media_player", "volume_set", map[string]interface{}{
 		"entity_id":    "media_player.kitchen",
 		"volume_level": 0.5,
 	})
 
-	// Clear error for the case where it's retried after refresh
-	// Since the error persists, the retry will also fail
-	// Let's verify the error is returned properly
+	// Error should be returned since both attempts fail
 	if err == nil {
-		t.Error("Expected error when service call fails")
+		t.Error("Expected error when service call persistently fails")
 	}
 
-	// Clear the error and call again - should succeed now
-	mockHA.SetServiceError("media_player", "volume_set", nil)
-	mockHA.ClearServiceCalls()
-
-	err = manager.callServiceWithRetry("media_player", "volume_set", map[string]interface{}{
-		"entity_id":    "media_player.kitchen",
-		"volume_level": 0.5,
-	})
-	if err != nil {
-		t.Errorf("Expected success after clearing error, got: %v", err)
-	}
-
-	// Verify that retry logic works by checking call count
-	calls := mockHA.GetServiceCalls()
-	callCount = 0
-	for _, call := range calls {
-		if call.Domain == "media_player" && call.Service == "volume_set" {
-			callCount++
-		}
-	}
-	if callCount != 1 {
-		t.Errorf("Expected 1 successful call, got %d", callCount)
+	// Verify the error contains useful context
+	if err != nil && !strings.Contains(err.Error(), "persistent failure") {
+		t.Errorf("Expected error to contain 'persistent failure', got: %v", err)
 	}
 }
 
@@ -1713,7 +1690,7 @@ func TestCallServiceWithRetry_SpeakerNotAvailable(t *testing.T) {
 	}
 
 	// Verify error message mentions speaker not available
-	if err != nil && !contains(err.Error(), "not available") {
+	if err != nil && !strings.Contains(err.Error(), "not available") {
 		t.Errorf("Expected 'not available' in error, got: %v", err)
 	}
 }
@@ -1778,18 +1755,4 @@ func TestStartValidatesSpeakers(t *testing.T) {
 	if manager.isSpeakerAvailable("media_player.missing_speaker") {
 		t.Error("Expected media_player.missing_speaker to NOT be available")
 	}
-}
-
-// contains checks if substr is in s
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsHelper(s, substr))
-}
-
-func containsHelper(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
 }
