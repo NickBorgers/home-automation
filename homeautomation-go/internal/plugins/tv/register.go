@@ -1,4 +1,4 @@
-package security
+package tv
 
 import (
 	"fmt"
@@ -10,25 +10,25 @@ import (
 
 func init() {
 	plugin.Register(plugin.PluginInfo{
-		Name:        "security",
-		Description: "Reference security plugin - handles lockdown, doorbell, garage automation",
+		Name:        "tv",
+		Description: "TV monitoring - tracks Apple TV, sync box, and HDMI input states",
 		Priority:    plugin.PriorityDefault,
-		Order:       60, // After state tracking (10), day phase (20), energy (30), music (40), lighting (50)
+		Order:       70, // After security (60)
 		Factory:     createPlugin,
 	})
 }
 
-// createPlugin creates a new security plugin instance from the plugin context.
+// createPlugin creates a new TV plugin instance from the plugin context.
 func createPlugin(ctx *plugin.Context) (plugin.Plugin, error) {
 	// Unwrap the interfaces to get the internal types
 	haClient := pkgha.UnwrapClient(ctx.HAClient)
 	if haClient == nil {
-		return nil, fmt.Errorf("security plugin requires internal ha.HAClient")
+		return nil, fmt.Errorf("tv plugin requires internal ha.HAClient")
 	}
 
 	stateManager := pkgstate.UnwrapManager(ctx.StateManager)
 	if stateManager == nil {
-		return nil, fmt.Errorf("security plugin requires internal state.Manager")
+		return nil, fmt.Errorf("tv plugin requires internal state.Manager")
 	}
 
 	manager := NewManager(haClient, stateManager, ctx.Logger, ctx.ReadOnly, ctx.Registry)
@@ -41,7 +41,7 @@ type pluginAdapter struct {
 }
 
 func (p *pluginAdapter) Name() string {
-	return "security"
+	return "tv"
 }
 
 func (p *pluginAdapter) Start() error {
@@ -52,18 +52,12 @@ func (p *pluginAdapter) Stop() {
 	p.manager.Stop()
 }
 
-// Implement plugin.Resettable
-func (p *pluginAdapter) Reset() error {
-	return p.manager.Reset()
-}
-
 // Implement plugin.ShadowStateProvider
 func (p *pluginAdapter) GetShadowState() interface{} {
 	return p.manager.GetShadowState()
 }
 
 // GetManager returns the underlying Manager instance.
-// This allows access to the full Manager API when needed (e.g., for shadow state registration).
 func (p *pluginAdapter) GetManager() *Manager {
 	return p.manager
 }

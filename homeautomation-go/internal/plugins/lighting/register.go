@@ -1,7 +1,8 @@
-package security
+package lighting
 
 import (
 	"fmt"
+	"path/filepath"
 
 	pkgha "homeautomation/pkg/ha"
 	"homeautomation/pkg/plugin"
@@ -10,28 +11,35 @@ import (
 
 func init() {
 	plugin.Register(plugin.PluginInfo{
-		Name:        "security",
-		Description: "Reference security plugin - handles lockdown, doorbell, garage automation",
+		Name:        "lighting",
+		Description: "Lighting control - manages room scenes based on day phase and presence",
 		Priority:    plugin.PriorityDefault,
-		Order:       60, // After state tracking (10), day phase (20), energy (30), music (40), lighting (50)
+		Order:       50, // After music (40), before security (60)
 		Factory:     createPlugin,
 	})
 }
 
-// createPlugin creates a new security plugin instance from the plugin context.
+// createPlugin creates a new Lighting plugin instance from the plugin context.
 func createPlugin(ctx *plugin.Context) (plugin.Plugin, error) {
 	// Unwrap the interfaces to get the internal types
 	haClient := pkgha.UnwrapClient(ctx.HAClient)
 	if haClient == nil {
-		return nil, fmt.Errorf("security plugin requires internal ha.HAClient")
+		return nil, fmt.Errorf("lighting plugin requires internal ha.HAClient")
 	}
 
 	stateManager := pkgstate.UnwrapManager(ctx.StateManager)
 	if stateManager == nil {
-		return nil, fmt.Errorf("security plugin requires internal state.Manager")
+		return nil, fmt.Errorf("lighting plugin requires internal state.Manager")
 	}
 
-	manager := NewManager(haClient, stateManager, ctx.Logger, ctx.ReadOnly, ctx.Registry)
+	// Load lighting configuration
+	configPath := filepath.Join(ctx.ConfigDir, "hue_config.yaml")
+	config, err := LoadConfig(configPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load lighting config: %w", err)
+	}
+
+	manager := NewManager(haClient, stateManager, config, ctx.Logger, ctx.ReadOnly, ctx.Registry)
 	return &pluginAdapter{manager: manager}, nil
 }
 
@@ -41,7 +49,7 @@ type pluginAdapter struct {
 }
 
 func (p *pluginAdapter) Name() string {
-	return "security"
+	return "lighting"
 }
 
 func (p *pluginAdapter) Start() error {
@@ -63,7 +71,6 @@ func (p *pluginAdapter) GetShadowState() interface{} {
 }
 
 // GetManager returns the underlying Manager instance.
-// This allows access to the full Manager API when needed (e.g., for shadow state registration).
 func (p *pluginAdapter) GetManager() *Manager {
 	return p.manager
 }
