@@ -5,28 +5,30 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"strconv"
 	"syscall"
 	"time"
 
 	"homeautomation/internal/api"
-	"homeautomation/internal/config"
-	dayphaselib "homeautomation/internal/dayphase"
 	"homeautomation/internal/devserver"
 	"homeautomation/internal/ha"
-	"homeautomation/internal/plugins/dayphase"
-	"homeautomation/internal/plugins/energy"
-	"homeautomation/internal/plugins/lighting"
-	"homeautomation/internal/plugins/loadshedding"
-	"homeautomation/internal/plugins/music"
 	"homeautomation/internal/plugins/reset"
-	"homeautomation/internal/plugins/security"
-	"homeautomation/internal/plugins/sleephygiene"
-	"homeautomation/internal/plugins/statetracking"
-	"homeautomation/internal/plugins/tv"
 	"homeautomation/internal/shadowstate"
 	"homeautomation/internal/state"
+	pkgha "homeautomation/pkg/ha"
+	"homeautomation/pkg/plugin"
+	pkgstate "homeautomation/pkg/state"
+
+	// Import plugin packages to trigger init() registrations
+	_ "homeautomation/internal/plugins/dayphase"
+	_ "homeautomation/internal/plugins/energy"
+	_ "homeautomation/internal/plugins/lighting"
+	_ "homeautomation/internal/plugins/loadshedding"
+	_ "homeautomation/internal/plugins/music"
+	_ "homeautomation/internal/plugins/security"
+	_ "homeautomation/internal/plugins/sleephygiene"
+	_ "homeautomation/internal/plugins/statetracking"
+	_ "homeautomation/internal/plugins/tv"
 
 	"github.com/joho/godotenv"
 	"go.uber.org/zap"
@@ -192,132 +194,55 @@ func main() {
 	// Subscribe to interesting state changes
 	subscribeToChanges(stateManager, logger)
 
-	// Start State Tracking Manager (MUST start before other plugins that depend on derived states)
-	stateTrackingManager := statetracking.NewManager(client, stateManager, logger, readOnly, subscriptionRegistry)
-	if err := stateTrackingManager.Start(); err != nil {
-		logger.Fatal("Failed to start State Tracking Manager", zap.Error(err))
-	}
-	defer stateTrackingManager.Stop()
-	logger.Info("State Tracking Manager started - computing derived states and sleep detection")
+	// Create plugin context with all dependencies
+	// Wrap internal types with pkg adapters for the plugin context
+	ctx := plugin.NewContext(pkgha.WrapClient(client), pkgstate.WrapManager(stateManager), logger, readOnly, configDir, timezone)
+	ctx.Registry = subscriptionRegistry
+	ctx.Latitude = latitude
+	ctx.Longitude = longitude
 
-	// Create day phase calculator
-	dayPhaseCalc := dayphaselib.NewCalculator(latitude, longitude, logger)
-
-	// Start Day Phase Manager (sun events and day phase)
-	dayPhaseManager, err := startDayPhaseManager(client, stateManager, logger, readOnly, configDir, dayPhaseCalc)
+	// Create all registered plugins using the plugin registry
+	plugins, err := plugin.CreateAll(ctx)
 	if err != nil {
-		logger.Fatal("Failed to start Day Phase Manager", zap.Error(err))
+		logger.Fatal("Failed to create plugins", zap.Error(err))
 	}
-	defer dayPhaseManager.Stop()
+	logger.Info("Created plugins from registry", zap.Int("count", len(plugins)))
 
-	// Start Energy State Manager
-	energyManager, err := startEnergyManager(client, stateManager, logger, readOnly, configDir, timezone, subscriptionRegistry)
-	if err != nil {
-		logger.Fatal("Failed to start Energy State Manager", zap.Error(err))
+	// Start all plugins and collect resettable ones
+	var resettablePlugins []reset.PluginWithName
+	for _, p := range plugins {
+		if err := p.Start(); err != nil {
+			logger.Fatal("Failed to start plugin", zap.String("plugin", p.Name()), zap.Error(err))
+		}
+		logger.Info("Plugin started successfully", zap.String("plugin", p.Name()))
+
+		// Register shadow state provider if plugin supports it
+		if provider, ok := p.(plugin.ShadowStateProvider); ok {
+			name := p.Name()
+			shadowTracker.RegisterPluginProvider(name, func() shadowstate.PluginShadowState {
+				return provider.GetShadowState()
+			})
+			logger.Info("Registered shadow state provider", zap.String("plugin", name))
+		}
+
+		// Collect resettable plugins for the reset coordinator
+		if resettable, ok := p.(plugin.Resettable); ok {
+			resettablePlugins = append(resettablePlugins, reset.PluginWithName{
+				Name:   p.Name(),
+				Plugin: resettable,
+			})
+		}
 	}
-	defer energyManager.Stop()
 
-	// Start Music Manager
-	musicManager, err := startMusicManager(client, stateManager, logger, readOnly, configDir)
-	if err != nil {
-		logger.Fatal("Failed to start Music Manager", zap.Error(err))
-	}
-	defer musicManager.Stop()
-
-	// Register music shadow state provider with tracker
-	shadowTracker.RegisterPluginProvider("music", func() shadowstate.PluginShadowState {
-		return musicManager.GetShadowState()
-	})
-	logger.Info("Registered music shadow state with tracker")
-
-	// Start Lighting Manager
-	lightingManager, err := startLightingManager(client, stateManager, logger, readOnly, configDir, subscriptionRegistry)
-	if err != nil {
-		logger.Fatal("Failed to start Lighting Manager", zap.Error(err))
-	}
-	defer lightingManager.Stop()
-
-	// Register lighting shadow state provider with tracker
-	shadowTracker.RegisterPluginProvider("lighting", func() shadowstate.PluginShadowState {
-		return lightingManager.GetShadowState()
-	})
-	logger.Info("Registered lighting shadow state with tracker")
-
-	// Start Security Manager
-	securityManager := security.NewManager(client, stateManager, logger, readOnly, subscriptionRegistry)
-	if err := securityManager.Start(); err != nil {
-		logger.Fatal("Failed to start Security Manager", zap.Error(err))
-	}
-	defer securityManager.Stop()
-	logger.Info("Security Manager started successfully")
-
-	// Register security shadow state provider with tracker
-	shadowTracker.RegisterPluginProvider("security", func() shadowstate.PluginShadowState {
-		return securityManager.GetShadowState()
-	})
-	logger.Info("Registered security shadow state with tracker")
-
-	// Start Sleep Hygiene Manager
-	sleepHygieneManager, err := startSleepHygieneManager(client, stateManager, logger, readOnly, configDir)
-	if err != nil {
-		logger.Fatal("Failed to start Sleep Hygiene Manager", zap.Error(err))
-	}
-	defer sleepHygieneManager.Stop()
-
-	// Register sleep hygiene shadow state provider with tracker
-	shadowTracker.RegisterPluginProvider("sleephygiene", func() shadowstate.PluginShadowState {
-		return sleepHygieneManager.GetShadowState()
-	})
-	logger.Info("Registered sleep hygiene shadow state with tracker")
-
-	// Start Load Shedding Manager
-	loadSheddingManager := loadshedding.NewManager(client, stateManager, logger, readOnly, subscriptionRegistry)
-	if err := loadSheddingManager.Start(); err != nil {
-		logger.Fatal("Failed to start Load Shedding Manager", zap.Error(err))
-	}
-	defer loadSheddingManager.Stop()
-	logger.Info("Load Shedding Manager started successfully")
-
-	// Register load shedding shadow state provider with tracker
-	shadowTracker.RegisterPluginProvider("loadshedding", func() shadowstate.PluginShadowState {
-		return loadSheddingManager.GetShadowState()
-	})
-
-	// Start TV Manager
-	tvManager := tv.NewManager(client, stateManager, logger, readOnly, subscriptionRegistry)
-	if err := tvManager.Start(); err != nil {
-		logger.Fatal("Failed to start TV Manager", zap.Error(err))
-	}
-	defer tvManager.Stop()
-	logger.Info("TV Manager started successfully")
-
-	// Register Phase 6 read-heavy plugin shadow state providers
-	shadowTracker.RegisterPluginProvider("energy", func() shadowstate.PluginShadowState {
-		return energyManager.GetShadowState()
-	})
-	logger.Info("Registered energy shadow state with tracker")
-
-	shadowTracker.RegisterPluginProvider("statetracking", func() shadowstate.PluginShadowState {
-		return stateTrackingManager.GetShadowState()
-	})
-	logger.Info("Registered statetracking shadow state with tracker")
-
-	shadowTracker.RegisterPluginProvider("dayphase", func() shadowstate.PluginShadowState {
-		return dayPhaseManager.GetShadowState()
-	})
-	logger.Info("Registered dayphase shadow state with tracker")
+	// Defer stopping all plugins in reverse order
+	defer func() {
+		for i := len(plugins) - 1; i >= 0; i-- {
+			plugins[i].Stop()
+		}
+	}()
 
 	// Start Reset Coordinator (must be last - after all plugins are started)
-	resetCoordinator := reset.NewCoordinator(stateManager, logger, readOnly, []reset.PluginWithName{
-		{Name: "State Tracking", Plugin: stateTrackingManager},
-		{Name: "Day Phase", Plugin: dayPhaseManager},
-		{Name: "Energy", Plugin: energyManager},
-		{Name: "Load Shedding", Plugin: loadSheddingManager},
-		{Name: "Lighting", Plugin: lightingManager},
-		{Name: "Music", Plugin: musicManager},
-		{Name: "Security", Plugin: securityManager},
-		{Name: "Sleep Hygiene", Plugin: sleepHygieneManager},
-	})
+	resetCoordinator := reset.NewCoordinator(stateManager, logger, readOnly, resettablePlugins)
 	if err := resetCoordinator.Start(); err != nil {
 		logger.Fatal("Failed to start Reset Coordinator", zap.Error(err))
 	}
@@ -417,107 +342,4 @@ func subscribeToChanges(manager *state.Manager, logger *zap.Logger) {
 
 	logger.Info("Subscribed to all state change notifications",
 		zap.Int("variable_count", len(state.AllVariables)))
-}
-
-func startEnergyManager(client ha.HAClient, stateManager *state.Manager, logger *zap.Logger, readOnly bool, configDir string, timezone *time.Location, registry *shadowstate.SubscriptionRegistry) (*energy.Manager, error) {
-	// Load energy configuration
-	configPath := filepath.Join(configDir, "energy_config.yaml")
-	energyConfig, err := energy.LoadConfig(configPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load energy config: %w", err)
-	}
-
-	logger.Info("Loaded energy configuration",
-		zap.Int("energy_states", len(energyConfig.Energy.EnergyStates)),
-		zap.String("free_energy_start", energyConfig.Energy.FreeEnergyTime.Start),
-		zap.String("free_energy_end", energyConfig.Energy.FreeEnergyTime.End))
-
-	// Create and start energy manager
-	energyManager := energy.NewManager(client, stateManager, energyConfig, logger, readOnly, timezone, registry)
-	if err := energyManager.Start(); err != nil {
-		return nil, fmt.Errorf("failed to start energy manager: %w", err)
-	}
-
-	return energyManager, nil
-}
-
-func startMusicManager(client ha.HAClient, stateManager *state.Manager, logger *zap.Logger, readOnly bool, configDir string) (*music.Manager, error) {
-	// Load music configuration
-	configPath := filepath.Join(configDir, "music_config.yaml")
-	musicConfig, err := music.LoadConfig(configPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load music config: %w", err)
-	}
-
-	// Count total music modes
-	logger.Info("Loaded music configuration",
-		zap.Int("music_modes", len(musicConfig.Music)))
-
-	// Create and start music manager
-	musicManager := music.NewManager(client, stateManager, musicConfig, logger, readOnly, nil)
-	if err := musicManager.Start(); err != nil {
-		return nil, fmt.Errorf("failed to start music manager: %w", err)
-	}
-
-	logger.Info("Music Manager started successfully")
-	return musicManager, nil
-}
-
-func startLightingManager(client ha.HAClient, stateManager *state.Manager, logger *zap.Logger, readOnly bool, configDir string, registry *shadowstate.SubscriptionRegistry) (*lighting.Manager, error) {
-	// Load lighting configuration
-	configPath := filepath.Join(configDir, "hue_config.yaml")
-	lightingConfig, err := lighting.LoadConfig(configPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load lighting config: %w", err)
-	}
-
-	logger.Info("Loaded lighting configuration",
-		zap.Int("rooms", len(lightingConfig.Rooms)))
-
-	// Create and start lighting manager
-	lightingManager := lighting.NewManager(client, stateManager, lightingConfig, logger, readOnly, registry)
-	if err := lightingManager.Start(); err != nil {
-		return nil, fmt.Errorf("failed to start lighting manager: %w", err)
-	}
-
-	logger.Info("Lighting Manager started successfully")
-	return lightingManager, nil
-}
-
-func startSleepHygieneManager(client ha.HAClient, stateManager *state.Manager, logger *zap.Logger, readOnly bool, configDir string) (*sleephygiene.Manager, error) {
-	// Load schedule configuration
-	configLoader := config.NewLoader(configDir, logger)
-	if err := configLoader.LoadScheduleConfig(); err != nil {
-		return nil, fmt.Errorf("failed to load schedule config: %w", err)
-	}
-
-	logger.Info("Loaded schedule configuration for Sleep Hygiene")
-
-	// Create and start sleep hygiene manager
-	sleepHygieneManager := sleephygiene.NewManager(client, stateManager, configLoader, logger, readOnly, nil)
-	if err := sleepHygieneManager.Start(); err != nil {
-		return nil, fmt.Errorf("failed to start sleep hygiene manager: %w", err)
-	}
-
-	logger.Info("Sleep Hygiene Manager started successfully")
-	return sleepHygieneManager, nil
-}
-
-func startDayPhaseManager(client ha.HAClient, stateManager *state.Manager, logger *zap.Logger, readOnly bool, configDir string, calculator *dayphaselib.Calculator) (*dayphase.Manager, error) {
-	// Load schedule configuration (needed for day phase calculation)
-	configLoader := config.NewLoader(configDir, logger)
-	if err := configLoader.LoadScheduleConfig(); err != nil {
-		return nil, fmt.Errorf("failed to load schedule config: %w", err)
-	}
-
-	logger.Info("Loaded schedule configuration for Day Phase")
-
-	// Create and start day phase manager
-	dayPhaseManager := dayphase.NewManager(client, stateManager, configLoader, calculator, logger, readOnly)
-	if err := dayPhaseManager.Start(); err != nil {
-		return nil, fmt.Errorf("failed to start day phase manager: %w", err)
-	}
-
-	logger.Info("Day Phase Manager started successfully")
-	return dayPhaseManager, nil
 }

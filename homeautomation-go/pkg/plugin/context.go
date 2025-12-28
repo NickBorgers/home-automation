@@ -3,6 +3,7 @@ package plugin
 import (
 	"time"
 
+	"homeautomation/internal/shadowstate"
 	pkgha "homeautomation/pkg/ha"
 	pkgstate "homeautomation/pkg/state"
 
@@ -42,6 +43,20 @@ type Context struct {
 	// Timezone is the configured timezone for time-based calculations.
 	// Plugins that deal with time windows or schedules should use this.
 	Timezone *time.Location
+
+	// Registry is the subscription registry for automatic shadow state input tracking.
+	// Plugins should use this to register their HA and state subscriptions.
+	Registry *shadowstate.SubscriptionRegistry
+
+	// TimeProvider provides testable time for plugins.
+	// When nil, plugins should default to RealTimeProvider.
+	TimeProvider TimeProvider
+
+	// Latitude is the geographic latitude for sun event calculations.
+	Latitude float64
+
+	// Longitude is the geographic longitude for sun event calculations.
+	Longitude float64
 }
 
 // NewContext creates a new plugin context with all required dependencies.
