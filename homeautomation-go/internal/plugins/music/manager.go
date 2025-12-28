@@ -476,35 +476,33 @@ func (m *Manager) handleMuteConditionChange(key string, oldValue, newValue inter
 			zap.Bool("should_unmute", shouldUnmute))
 
 		if shouldUnmute {
-			// Unmute the speaker by setting its volume
+			// Unmute the speaker (volume was already set during initial playback)
 			m.unmuteSpeaker(participant)
 		} else {
-			// Mute the speaker by setting volume to 0
+			// Mute the speaker
 			m.muteSpeaker(participant)
 		}
 	}
 }
 
-// unmuteSpeaker unmutes a speaker by setting its target volume
+// unmuteSpeaker unmutes a Sonos speaker using the volume_mute service.
+// This is used during active playback when a room becomes occupied.
+// Volume was already set during initial playback, so we just need to unmute.
 func (m *Manager) unmuteSpeaker(participant ParticipantWithVolume) {
 	if m.readOnly {
 		m.logger.Debug("Read-only mode: would unmute speaker",
-			zap.String("speaker", participant.PlayerName),
-			zap.Int("target_volume", participant.Volume))
+			zap.String("speaker", participant.PlayerName))
 		return
 	}
 
 	entityID := m.getSpeakerEntityID(participant.PlayerName)
-	volumeLevel := float64(participant.Volume) / 100.0 // Convert to 0.0-1.0 scale
 
 	m.logger.Info("Unmuting speaker",
-		zap.String("speaker", participant.PlayerName),
-		zap.Int("target_volume", participant.Volume),
-		zap.Float64("volume_level", volumeLevel))
+		zap.String("speaker", participant.PlayerName))
 
-	if err := m.callService("media_player", "volume_set", map[string]interface{}{
-		"entity_id":    entityID,
-		"volume_level": volumeLevel,
+	if err := m.callService("media_player", "volume_mute", map[string]interface{}{
+		"entity_id":       entityID,
+		"is_volume_muted": false,
 	}); err != nil {
 		m.logger.Error("Failed to unmute speaker",
 			zap.String("speaker", participant.PlayerName),
@@ -512,7 +510,8 @@ func (m *Manager) unmuteSpeaker(participant ParticipantWithVolume) {
 	}
 }
 
-// muteSpeaker mutes a speaker by setting its volume to 0
+// muteSpeaker mutes a Sonos speaker using the volume_mute service.
+// This is used during active playback when a room becomes unoccupied.
 func (m *Manager) muteSpeaker(participant ParticipantWithVolume) {
 	if m.readOnly {
 		m.logger.Debug("Read-only mode: would mute speaker",
@@ -525,9 +524,9 @@ func (m *Manager) muteSpeaker(participant ParticipantWithVolume) {
 	m.logger.Info("Muting speaker",
 		zap.String("speaker", participant.PlayerName))
 
-	if err := m.callService("media_player", "volume_set", map[string]interface{}{
-		"entity_id":    entityID,
-		"volume_level": 0,
+	if err := m.callService("media_player", "volume_mute", map[string]interface{}{
+		"entity_id":       entityID,
+		"is_volume_muted": true,
 	}); err != nil {
 		m.logger.Error("Failed to mute speaker",
 			zap.String("speaker", participant.PlayerName),
