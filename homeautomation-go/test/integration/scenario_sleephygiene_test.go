@@ -31,7 +31,8 @@ func setupSleepHygieneScenarioTest(t *testing.T) (*MockHAServer, *sleephygiene.M
 	configLoader := config.NewLoader("../../configs", logger)
 
 	// Create sleep hygiene plugin (read-only mode = false for testing service calls)
-	sleepMgr := sleephygiene.NewManager(client, manager, configLoader, logger, false, nil)
+	// Use nil for timezone to default to time.Local
+	sleepMgr := sleephygiene.NewManager(client, manager, configLoader, logger, false, nil, nil)
 
 	// Start the sleep hygiene plugin
 	err := sleepMgr.Start()
@@ -59,7 +60,8 @@ func setupSleepHygieneScenarioTestWithTime(t *testing.T, fixedTime time.Time) (*
 	timeProvider := sleephygiene.FixedTimeProvider{FixedTime: fixedTime}
 
 	// Create sleep hygiene plugin with fixed time
-	sleepMgr := sleephygiene.NewManager(client, manager, configLoader, logger, false, timeProvider)
+	// Use nil for timezone to default to time.Local
+	sleepMgr := sleephygiene.NewManager(client, manager, configLoader, logger, false, timeProvider, nil)
 
 	// Start the sleep hygiene plugin
 	err := sleepMgr.Start()

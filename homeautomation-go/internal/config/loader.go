@@ -63,6 +63,7 @@ type Loader struct {
 	hueConfig      *HueConfig
 	scheduleConfig *ScheduleConfig
 	stopChan       chan struct{}
+	timezone       *time.Location
 }
 
 // NewLoader creates a new configuration loader
@@ -71,6 +72,15 @@ func NewLoader(configDir string, logger *zap.Logger) *Loader {
 		configDir: configDir,
 		logger:    logger,
 		stopChan:  make(chan struct{}),
+		timezone:  time.Local,
+	}
+}
+
+// SetTimezone sets the timezone for schedule parsing and auto-reload scheduling.
+// Should be called before StartAutoReload() if a non-local timezone is needed.
+func (l *Loader) SetTimezone(timezone *time.Location) {
+	if timezone != nil {
+		l.timezone = timezone
 	}
 }
 
@@ -174,12 +184,21 @@ func (l *Loader) GetScheduleConfig() *ScheduleConfig {
 }
 
 // GetTodaysSchedule parses and returns today's schedule with actual timestamps
+// Uses the system's local timezone (time.Local)
 func (l *Loader) GetTodaysSchedule() (*ParsedSchedule, error) {
+	return l.GetTodaysScheduleInTimezone(time.Local)
+}
+
+// GetTodaysScheduleInTimezone parses and returns today's schedule with actual timestamps
+// in the specified timezone. This should be used when the system timezone differs from
+// the desired schedule timezone (e.g., Docker containers running in UTC).
+func (l *Loader) GetTodaysScheduleInTimezone(timezone *time.Location) (*ParsedSchedule, error) {
 	if l.scheduleConfig == nil {
 		return nil, fmt.Errorf("schedule config not loaded")
 	}
 
-	now := time.Now()
+	// Get current time in the specified timezone
+	now := time.Now().In(timezone)
 	weekday := int(now.Weekday())
 
 	if weekday >= len(l.scheduleConfig.Schedule) {
@@ -195,9 +214,9 @@ func (l *Loader) GetTodaysSchedule() (*ParsedSchedule, error) {
 			return time.Time{}, err
 		}
 
-		// Combine with today's date
+		// Combine with today's date in the specified timezone
 		year, month, day := now.Date()
-		return time.Date(year, month, day, t.Hour(), t.Minute(), 0, 0, now.Location()), nil
+		return time.Date(year, month, day, t.Hour(), t.Minute(), 0, 0, timezone), nil
 	}
 
 	beginWake, err := parseTime(entry.BeginWake)
@@ -247,12 +266,14 @@ func (l *Loader) GetTodaysSchedule() (*ParsedSchedule, error) {
 }
 
 // StartAutoReload starts automatic configuration reloading at 00:01 daily
+// Uses the configured timezone (set via SetTimezone) for calculating midnight
 func (l *Loader) StartAutoReload() {
-	l.logger.Info("Starting auto-reload scheduler (daily at 00:01)")
+	l.logger.Info("Starting auto-reload scheduler (daily at 00:01)",
+		zap.String("timezone", l.timezone.String()))
 
-	// Calculate time until next 00:01
-	now := time.Now()
-	next := time.Date(now.Year(), now.Month(), now.Day()+1, 0, 1, 0, 0, now.Location())
+	// Calculate time until next 00:01 in the configured timezone
+	now := time.Now().In(l.timezone)
+	next := time.Date(now.Year(), now.Month(), now.Day()+1, 0, 1, 0, 0, l.timezone)
 	duration := next.Sub(now)
 
 	// Start a goroutine that reloads configs daily

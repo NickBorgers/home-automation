@@ -448,3 +448,53 @@ func TestLoader_GetTodaysSchedule_ParseErrors(t *testing.T) {
 		})
 	}
 }
+
+func TestLoader_GetTodaysScheduleInTimezone(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	configDir := setupTestConfigDir(t)
+
+	loader := NewLoader(configDir, logger)
+	err := loader.LoadScheduleConfig()
+	require.NoError(t, err)
+
+	// Test with America/Chicago timezone (UTC-6 in winter)
+	chicagoTZ, err := time.LoadLocation("America/Chicago")
+	require.NoError(t, err)
+
+	schedule, err := loader.GetTodaysScheduleInTimezone(chicagoTZ)
+	require.NoError(t, err)
+	assert.NotNil(t, schedule)
+
+	// Verify that schedule times are in the Chicago timezone
+	assert.Equal(t, chicagoTZ, schedule.BeginWake.Location())
+	assert.Equal(t, chicagoTZ, schedule.Wake.Location())
+	assert.Equal(t, chicagoTZ, schedule.StopScreens.Location())
+	assert.Equal(t, chicagoTZ, schedule.GoToBed.Location())
+	assert.Equal(t, chicagoTZ, schedule.Night.Location())
+
+	// Verify that the times are for today in Chicago timezone
+	nowChicago := time.Now().In(chicagoTZ)
+	assert.Equal(t, nowChicago.Year(), schedule.BeginWake.Year())
+	assert.Equal(t, nowChicago.Month(), schedule.BeginWake.Month())
+	assert.Equal(t, nowChicago.Day(), schedule.BeginWake.Day())
+}
+
+func TestLoader_SetTimezone(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	configDir := setupTestConfigDir(t)
+
+	loader := NewLoader(configDir, logger)
+
+	// Initial timezone should be Local
+	assert.Equal(t, time.Local, loader.timezone)
+
+	// Set a different timezone
+	chicagoTZ, err := time.LoadLocation("America/Chicago")
+	require.NoError(t, err)
+	loader.SetTimezone(chicagoTZ)
+	assert.Equal(t, chicagoTZ, loader.timezone)
+
+	// Setting nil should not change the timezone
+	loader.SetTimezone(nil)
+	assert.Equal(t, chicagoTZ, loader.timezone)
+}

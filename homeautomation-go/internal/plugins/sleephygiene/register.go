@@ -33,8 +33,9 @@ func createPlugin(ctx *plugin.Context) (plugin.Plugin, error) {
 		return nil, fmt.Errorf("sleephygiene plugin requires internal state.Manager")
 	}
 
-	// Load schedule configuration
+	// Load schedule configuration with timezone for schedule parsing
 	configLoader := config.NewLoader(ctx.ConfigDir, ctx.Logger)
+	configLoader.SetTimezone(ctx.Timezone)
 	if err := configLoader.LoadScheduleConfig(); err != nil {
 		return nil, fmt.Errorf("failed to load schedule config: %w", err)
 	}
@@ -46,7 +47,7 @@ func createPlugin(ctx *plugin.Context) (plugin.Plugin, error) {
 		timeProvider = timeProviderAdapter{ctx.TimeProvider}
 	}
 
-	manager := NewManager(haClient, stateManager, configLoader, ctx.Logger, ctx.ReadOnly, timeProvider)
+	manager := NewManager(haClient, stateManager, configLoader, ctx.Logger, ctx.ReadOnly, timeProvider, ctx.Timezone)
 	return &pluginAdapter{manager: manager}, nil
 }
 
