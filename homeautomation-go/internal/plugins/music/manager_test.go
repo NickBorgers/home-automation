@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -1089,6 +1090,90 @@ func TestBuildSpeakerGroup(t *testing.T) {
 
 	if joinCalls != 1 {
 		t.Errorf("Expected exactly 1 media_player.join call, got %d", joinCalls)
+	}
+}
+
+// TestBuildSpeakerGroupRetrySuccess tests that speaker group building retries on failure and succeeds
+func TestBuildSpeakerGroupRetrySuccess(t *testing.T) {
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	config := &MusicConfig{Music: map[string]MusicMode{}}
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+
+	// Use no-op sleep to make test fast
+	manager.SetSleepFunc(func(d time.Duration) {})
+
+	// Configure mock to fail twice, then succeed (simulating transient Sonos errors)
+	mockClient.SetServiceFailCount("media_player", "join", 2, fmt.Errorf("service call failed: timeout waiting for response"))
+
+	participants := []ParticipantWithVolume{
+		{PlayerName: "Kitchen", Volume: 9},
+		{PlayerName: "Living Room", Volume: 10},
+		{PlayerName: "Bedroom", Volume: 8},
+	}
+
+	// Should succeed after retries
+	err := manager.buildSpeakerGroup(participants, "media_player.kitchen")
+	if err != nil {
+		t.Errorf("buildSpeakerGroup() should have succeeded after retries, got: %v", err)
+	}
+}
+
+// TestBuildSpeakerGroupRetryExhausted tests that speaker group building fails after all retries are exhausted
+func TestBuildSpeakerGroupRetryExhausted(t *testing.T) {
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	config := &MusicConfig{Music: map[string]MusicMode{}}
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+
+	// Use no-op sleep to make test fast
+	manager.SetSleepFunc(func(d time.Duration) {})
+
+	// Configure mock to always fail (permanent error)
+	mockClient.SetServiceError("media_player", "join", fmt.Errorf("service call failed: timeout waiting for response"))
+
+	participants := []ParticipantWithVolume{
+		{PlayerName: "Kitchen", Volume: 9},
+		{PlayerName: "Living Room", Volume: 10},
+	}
+
+	// Should fail after exhausting all retries
+	err := manager.buildSpeakerGroup(participants, "media_player.kitchen")
+	if err == nil {
+		t.Errorf("buildSpeakerGroup() should have failed after exhausting retries")
+	}
+
+	// Verify error message indicates failure
+	if err != nil && !strings.Contains(err.Error(), "failed to create speaker group") {
+		t.Errorf("Expected error to contain 'failed to create speaker group', got: %v", err)
+	}
+}
+
+// TestBuildSpeakerGroupRetryOnSecondAttempt tests successful retry on second attempt
+func TestBuildSpeakerGroupRetryOnSecondAttempt(t *testing.T) {
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	config := &MusicConfig{Music: map[string]MusicMode{}}
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+
+	// Use no-op sleep to make test fast
+	manager.SetSleepFunc(func(d time.Duration) {})
+
+	// Configure mock to fail once, then succeed
+	mockClient.SetServiceFailCount("media_player", "join", 1, fmt.Errorf("service call failed: timeout waiting for response"))
+
+	participants := []ParticipantWithVolume{
+		{PlayerName: "Kitchen", Volume: 9},
+		{PlayerName: "Living Room", Volume: 10},
+	}
+
+	// Should succeed on second attempt
+	err := manager.buildSpeakerGroup(participants, "media_player.kitchen")
+	if err != nil {
+		t.Errorf("buildSpeakerGroup() should have succeeded on retry, got: %v", err)
 	}
 }
 

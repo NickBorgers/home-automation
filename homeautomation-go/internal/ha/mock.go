@@ -24,6 +24,11 @@ type MockClient struct {
 	// Error injection for testing
 	serviceErrors   map[string]error // key: "domain.service"
 	serviceErrorsMu sync.RWMutex
+
+	// Transient error injection: fail N times, then succeed
+	serviceFailCounts   map[string]int // key: "domain.service", value: remaining failures
+	serviceFailError    map[string]error
+	serviceFailCountsMu sync.Mutex
 }
 
 func (m *MockClient) clearSubscribers() {
@@ -55,12 +60,14 @@ func (s *mockSubscription) Unsubscribe() error {
 // NewMockClient creates a new mock HA client
 func NewMockClient() *MockClient {
 	return &MockClient{
-		states:        make(map[string]*State),
-		subscribers:   make(map[string][]subscriberEntry),
-		serviceCalls:  make([]ServiceCall, 0),
-		getStateCalls: make(map[string]int),
-		serviceErrors: make(map[string]error),
-		connected:     false,
+		states:            make(map[string]*State),
+		subscribers:       make(map[string][]subscriberEntry),
+		serviceCalls:      make([]ServiceCall, 0),
+		getStateCalls:     make(map[string]int),
+		serviceErrors:     make(map[string]error),
+		serviceFailCounts: make(map[string]int),
+		serviceFailError:  make(map[string]error),
+		connected:         false,
 	}
 }
 
@@ -75,6 +82,23 @@ func (m *MockClient) SetServiceError(domain, service string, err error) {
 		delete(m.serviceErrors, key)
 	} else {
 		m.serviceErrors[key] = err
+	}
+}
+
+// SetServiceFailCount configures the mock to fail a service call a specific number of times
+// before succeeding. This is useful for testing retry logic.
+// After failCount failures, subsequent calls will succeed.
+// Pass 0 to clear.
+func (m *MockClient) SetServiceFailCount(domain, service string, failCount int, err error) {
+	m.serviceFailCountsMu.Lock()
+	defer m.serviceFailCountsMu.Unlock()
+	key := domain + "." + service
+	if failCount == 0 {
+		delete(m.serviceFailCounts, key)
+		delete(m.serviceFailError, key)
+	} else {
+		m.serviceFailCounts[key] = failCount
+		m.serviceFailError[key] = err
 	}
 }
 
@@ -141,9 +165,20 @@ func (m *MockClient) GetAllStates() ([]*State, error) {
 
 // CallService records a service call
 func (m *MockClient) CallService(domain, service string, data map[string]interface{}) error {
-	// Check for injected errors first
-	m.serviceErrorsMu.RLock()
 	key := domain + "." + service
+
+	// Check for transient failures first (fail N times, then succeed)
+	m.serviceFailCountsMu.Lock()
+	if remainingFailures, exists := m.serviceFailCounts[key]; exists && remainingFailures > 0 {
+		m.serviceFailCounts[key] = remainingFailures - 1
+		err := m.serviceFailError[key]
+		m.serviceFailCountsMu.Unlock()
+		return err
+	}
+	m.serviceFailCountsMu.Unlock()
+
+	// Check for permanent injected errors
+	m.serviceErrorsMu.RLock()
 	if err, exists := m.serviceErrors[key]; exists {
 		m.serviceErrorsMu.RUnlock()
 		return err
