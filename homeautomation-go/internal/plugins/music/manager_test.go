@@ -1,6 +1,7 @@
 package music
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -1289,5 +1290,303 @@ func TestCurrentlyPlayingMusicUri_UpdateOnModeChange(t *testing.T) {
 	}
 	if currentURI != eveningURI {
 		t.Errorf("Expected currentlyPlayingMusicUri = %q for evening, got %q", eveningURI, currentURI)
+	}
+}
+
+// TestFadeInSpeaker_SafeUnmuteSequence verifies that fadeInSpeaker follows the safe sequence:
+// 1. Set volume to 0 (while still muted) to prevent sudden loud noise
+// 2. Unmute the speaker
+// 3. Fade in from 0 to target volume
+// This is critical because Sonos speakers maintain mute state independently of volume,
+// so unmuting before setting volume to 0 could cause sudden loud playback.
+func TestFadeInSpeaker_SafeUnmuteSequence(t *testing.T) {
+	mockHA := ha.NewMockClient()
+	logger := zap.NewNop()
+	stateManager := state.NewManager(mockHA, logger, false)
+
+	config := &MusicConfig{
+		Music: map[string]MusicMode{
+			"evening": {},
+		},
+	}
+
+	fixedTime := time.Date(2025, 1, 6, 9, 0, 0, 0, time.UTC)
+	timeProvider := FixedTimeProvider{FixedTime: fixedTime}
+
+	// NOT read-only so service calls actually go through
+	manager := NewManager(mockHA, stateManager, config, logger, false, timeProvider)
+
+	// Set up musicPlaybackType so fade-in doesn't abort early
+	if err := stateManager.SetString("musicPlaybackType", "evening"); err != nil {
+		t.Fatalf("Failed to set musicPlaybackType: %v", err)
+	}
+
+	// Execute fade-in with a low target volume to complete quickly
+	manager.fadeInSpeaker("Kitchen", 3, "evening")
+
+	// Get all service calls
+	calls := mockHA.GetServiceCalls()
+
+	// Find the indices of key calls
+	var initialVolumeSetIndex, unmuteIndex, firstFadeVolumeSetIndex int = -1, -1, -1
+	for i, call := range calls {
+		if call.Domain == "media_player" && call.Service == "volume_set" {
+			// First volume_set should be the safety set to 0
+			if initialVolumeSetIndex == -1 {
+				initialVolumeSetIndex = i
+				// Verify it sets volume to 0
+				if level, ok := call.Data["volume_level"].(float64); !ok || level != 0.0 {
+					t.Errorf("First volume_set should set volume to 0.0, got %v", call.Data["volume_level"])
+				}
+			} else if firstFadeVolumeSetIndex == -1 {
+				// Second volume_set is the start of the fade
+				firstFadeVolumeSetIndex = i
+			}
+		}
+		if call.Domain == "media_player" && call.Service == "volume_mute" && unmuteIndex == -1 {
+			unmuteIndex = i
+
+			// Verify entity_id
+			if entityID, ok := call.Data["entity_id"].(string); !ok || entityID != "media_player.kitchen" {
+				t.Errorf("Expected entity_id=media_player.kitchen, got %v", call.Data["entity_id"])
+			}
+
+			// Verify is_volume_muted is false (unmuting)
+			if isMuted, ok := call.Data["is_volume_muted"].(bool); !ok || isMuted {
+				t.Errorf("Expected is_volume_muted=false, got %v", call.Data["is_volume_muted"])
+			}
+		}
+	}
+
+	// Verify all expected calls were made
+	if initialVolumeSetIndex == -1 {
+		t.Error("fadeInSpeaker must set volume to 0 before unmuting")
+	}
+	if unmuteIndex == -1 {
+		t.Error("fadeInSpeaker must call volume_mute service to unmute speaker")
+	}
+
+	// CRITICAL: Verify safe ordering - volume must be set to 0 BEFORE unmuting
+	if initialVolumeSetIndex >= unmuteIndex {
+		t.Errorf("SAFETY VIOLATION: volume_set to 0 (index %d) must come BEFORE volume_mute (index %d) to prevent sudden loud noise",
+			initialVolumeSetIndex, unmuteIndex)
+	}
+
+	// Verify unmute happens before fade-in volume sets
+	if firstFadeVolumeSetIndex != -1 && unmuteIndex >= firstFadeVolumeSetIndex {
+		t.Errorf("volume_mute (index %d) must be called before fade-in volume_set (index %d)",
+			unmuteIndex, firstFadeVolumeSetIndex)
+	}
+}
+
+// TestFadeInSpeaker_VolumeNormalization verifies that fadeInSpeaker normalizes
+// volume percentages (0-100) to Home Assistant's 0.0-1.0 scale correctly.
+func TestFadeInSpeaker_VolumeNormalization(t *testing.T) {
+	testCases := []struct {
+		targetVolume  int
+		expectedLevel float64
+	}{
+		{10, 0.10},  // 10% -> 0.10
+		{25, 0.25},  // 25% -> 0.25
+		{50, 0.50},  // 50% -> 0.50
+		{100, 1.00}, // 100% -> 1.00
+	}
+
+	for _, tc := range testCases {
+		t.Run(fmt.Sprintf("volume_%d_percent", tc.targetVolume), func(t *testing.T) {
+			mockHA := ha.NewMockClient()
+			logger := zap.NewNop()
+			stateManager := state.NewManager(mockHA, logger, false)
+
+			config := &MusicConfig{
+				Music: map[string]MusicMode{
+					"evening": {},
+				},
+			}
+
+			fixedTime := time.Date(2025, 1, 6, 9, 0, 0, 0, time.UTC)
+			timeProvider := FixedTimeProvider{FixedTime: fixedTime}
+			manager := NewManager(mockHA, stateManager, config, logger, false, timeProvider)
+
+			// Set up musicPlaybackType so fade-in doesn't abort
+			if err := stateManager.SetString("musicPlaybackType", "evening"); err != nil {
+				t.Fatalf("Failed to set musicPlaybackType: %v", err)
+			}
+
+			manager.fadeInSpeaker("Kitchen", tc.targetVolume, "evening")
+
+			// Get the final volume_set call
+			calls := mockHA.GetServiceCalls()
+			var lastVolumeSetCall *ha.ServiceCall
+			for i := len(calls) - 1; i >= 0; i-- {
+				if calls[i].Domain == "media_player" && calls[i].Service == "volume_set" {
+					lastVolumeSetCall = &calls[i]
+					break
+				}
+			}
+
+			if lastVolumeSetCall == nil {
+				t.Fatal("No volume_set call found")
+			}
+
+			actualLevel, ok := lastVolumeSetCall.Data["volume_level"].(float64)
+			if !ok {
+				t.Fatalf("volume_level is not a float64: %v", lastVolumeSetCall.Data["volume_level"])
+			}
+
+			// Allow small floating point tolerance
+			if actualLevel < tc.expectedLevel-0.01 || actualLevel > tc.expectedLevel+0.01 {
+				t.Errorf("Volume %d%% should normalize to %.2f, got %.2f",
+					tc.targetVolume, tc.expectedLevel, actualLevel)
+			}
+		})
+	}
+}
+
+// TestVolumeNormalization_ConsistentAcrossCodePaths ensures unmuteSpeaker and
+// fadeInSpeaker use the same volume normalization (divide by 100, not 15).
+func TestVolumeNormalization_ConsistentAcrossCodePaths(t *testing.T) {
+	mockHA := ha.NewMockClient()
+	logger := zap.NewNop()
+	stateManager := state.NewManager(mockHA, logger, false)
+
+	config := &MusicConfig{
+		Music: map[string]MusicMode{
+			"evening": {},
+		},
+	}
+
+	fixedTime := time.Date(2025, 1, 6, 9, 0, 0, 0, time.UTC)
+	timeProvider := FixedTimeProvider{FixedTime: fixedTime}
+	manager := NewManager(mockHA, stateManager, config, logger, false, timeProvider)
+
+	// Set up musicPlaybackType
+	if err := stateManager.SetString("musicPlaybackType", "evening"); err != nil {
+		t.Fatalf("Failed to set musicPlaybackType: %v", err)
+	}
+
+	testVolume := 20
+
+	// Test unmuteSpeaker path
+	participant := ParticipantWithVolume{PlayerName: "Kitchen", Volume: testVolume}
+	manager.unmuteSpeaker(participant)
+
+	unmuteCalls := mockHA.GetServiceCalls()
+	var unmuteVolumeLevel float64
+	for _, call := range unmuteCalls {
+		if call.Domain == "media_player" && call.Service == "volume_set" {
+			unmuteVolumeLevel = call.Data["volume_level"].(float64)
+			break
+		}
+	}
+
+	// Clear and test fadeInSpeaker path
+	mockHA.ClearServiceCalls()
+	manager.fadeInSpeaker("Kitchen", testVolume, "evening")
+
+	fadeCalls := mockHA.GetServiceCalls()
+	var fadeVolumeLevel float64
+	for i := len(fadeCalls) - 1; i >= 0; i-- {
+		if fadeCalls[i].Domain == "media_player" && fadeCalls[i].Service == "volume_set" {
+			fadeVolumeLevel = fadeCalls[i].Data["volume_level"].(float64)
+			break
+		}
+	}
+
+	// Both should normalize 20% to 0.20
+	expectedLevel := 0.20
+	if unmuteVolumeLevel < expectedLevel-0.01 || unmuteVolumeLevel > expectedLevel+0.01 {
+		t.Errorf("unmuteSpeaker: expected volume level %.2f, got %.2f", expectedLevel, unmuteVolumeLevel)
+	}
+	if fadeVolumeLevel < expectedLevel-0.01 || fadeVolumeLevel > expectedLevel+0.01 {
+		t.Errorf("fadeInSpeaker: expected volume level %.2f, got %.2f", expectedLevel, fadeVolumeLevel)
+	}
+
+	// Verify they're consistent with each other
+	if unmuteVolumeLevel != fadeVolumeLevel {
+		t.Errorf("Volume normalization inconsistent: unmuteSpeaker=%.2f, fadeInSpeaker=%.2f",
+			unmuteVolumeLevel, fadeVolumeLevel)
+	}
+}
+
+// TestFadeInSpeaker_InitialVolumeSetFailure verifies that fadeInSpeaker aborts safely
+// if the initial volume_set to 0 fails, without attempting to unmute.
+func TestFadeInSpeaker_InitialVolumeSetFailure(t *testing.T) {
+	mockHA := ha.NewMockClient()
+	logger := zap.NewNop()
+	stateManager := state.NewManager(mockHA, logger, false)
+
+	config := &MusicConfig{
+		Music: map[string]MusicMode{
+			"evening": {},
+		},
+	}
+
+	fixedTime := time.Date(2025, 1, 6, 9, 0, 0, 0, time.UTC)
+	timeProvider := FixedTimeProvider{FixedTime: fixedTime}
+	manager := NewManager(mockHA, stateManager, config, logger, false, timeProvider)
+
+	// Set up musicPlaybackType
+	if err := stateManager.SetString("musicPlaybackType", "evening"); err != nil {
+		t.Fatalf("Failed to set musicPlaybackType: %v", err)
+	}
+
+	// Inject error for volume_set service call
+	mockHA.SetServiceError("media_player", "volume_set", fmt.Errorf("simulated failure"))
+
+	// Execute fade-in
+	manager.fadeInSpeaker("Kitchen", 10, "evening")
+
+	// Verify no unmute call was made (safety: don't unmute if we can't control volume)
+	calls := mockHA.GetServiceCalls()
+	for _, call := range calls {
+		if call.Service == "volume_mute" {
+			t.Error("volume_mute should NOT be called if initial volume_set fails")
+		}
+	}
+}
+
+// TestFadeInSpeaker_UnmuteFailure verifies that fadeInSpeaker aborts safely
+// if the unmute call fails, without proceeding to fade-in.
+func TestFadeInSpeaker_UnmuteFailure(t *testing.T) {
+	mockHA := ha.NewMockClient()
+	logger := zap.NewNop()
+	stateManager := state.NewManager(mockHA, logger, false)
+
+	config := &MusicConfig{
+		Music: map[string]MusicMode{
+			"evening": {},
+		},
+	}
+
+	fixedTime := time.Date(2025, 1, 6, 9, 0, 0, 0, time.UTC)
+	timeProvider := FixedTimeProvider{FixedTime: fixedTime}
+	manager := NewManager(mockHA, stateManager, config, logger, false, timeProvider)
+
+	// Set up musicPlaybackType
+	if err := stateManager.SetString("musicPlaybackType", "evening"); err != nil {
+		t.Fatalf("Failed to set musicPlaybackType: %v", err)
+	}
+
+	// Inject error for volume_mute service call only
+	mockHA.SetServiceError("media_player", "volume_mute", fmt.Errorf("simulated unmute failure"))
+
+	// Execute fade-in
+	manager.fadeInSpeaker("Kitchen", 10, "evening")
+
+	calls := mockHA.GetServiceCalls()
+
+	// Should have exactly 1 call: the initial volume_set to 0
+	// (volume_mute fails and returns error, so no further calls)
+	volumeSetCount := 0
+	for _, call := range calls {
+		if call.Service == "volume_set" {
+			volumeSetCount++
+		}
+	}
+
+	// Only the initial safety volume_set to 0 should be recorded
+	if volumeSetCount != 1 {
+		t.Errorf("Expected exactly 1 volume_set call (initial safety set to 0), got %d", volumeSetCount)
 	}
 }
