@@ -238,6 +238,83 @@ func (c *Client) handleEvent(msg *Message) {
 
 ---
 
+## Lesson 7: Message ID Allocation and WebSocket Write Must Be Atomic
+
+**Pattern**: When a protocol requires strictly increasing message IDs, allocate the ID while holding the write lock.
+
+**Why**: Home Assistant's WebSocket API requires message IDs to strictly increase. If ID allocation and writing are protected by different locks, concurrent goroutines can allocate IDs in order but write them out of order.
+
+**Race Condition Scenario** (Fixed in [PR #165](https://github.com/NickBorgersOnLowSecurityNode/home-automation/pull/165)):
+```go
+// ❌ BAD: ID allocation and write protected by different locks
+func (c *Client) CallService(...) error {
+    msgID := c.nextMsgID()  // Gets ID 10, releases msgIDMu
+    // Context switch! Another goroutine gets ID 11 and writes first
+    req := &CallServiceRequest{ID: msgID, ...}
+    _, err := c.sendMessage(req)  // Writes ID 10 AFTER ID 11 was sent
+    return err
+    // HA rejects ID 10: "id_reuse - Identifier values have to increase"
+}
+```
+
+**Error Symptoms**:
+```
+Failed to set volume during fade-in: service call failed: HA error: id_reuse - Identifier values have to increase.
+```
+
+**Interleaving That Causes the Bug**:
+```
+Goroutine A: nextMsgID() → gets ID 10, releases msgIDMu
+Goroutine B: nextMsgID() → gets ID 11, releases msgIDMu
+Goroutine B: sendMessage() → acquires writeMu, writes ID 11
+Goroutine A: sendMessage() → acquires writeMu, writes ID 10
+HA: Rejects ID 10 (already saw ID 11)
+```
+
+**Correct Approach**:
+```go
+// ✅ GOOD: ID allocation inside write lock ensures ordering
+func (c *Client) sendMessage(msg interface{}) (*Message, error) {
+    c.writeMu.Lock()
+
+    // Allocate message ID while holding write lock
+    msgID := c.nextMsgID()
+
+    // Set the ID on the request
+    switch m := msg.(type) {
+    case *CallServiceRequest:
+        m.ID = msgID
+    // ... other request types
+    }
+
+    // Write the message
+    err := conn.WriteJSON(msg)
+    c.writeMu.Unlock()
+
+    // ... handle response
+}
+```
+
+**Key Insight**: The write lock now protects two operations atomically:
+1. Message ID allocation
+2. WebSocket write
+
+This guarantees that if goroutine A allocates ID 10, no other goroutine can allocate ID 11 until A has written its message.
+
+**Where to Apply**:
+- Any WebSocket or TCP protocol with ordered message IDs
+- Request-response protocols where IDs must be unique
+- Any system where multiple goroutines share a monotonic counter for network messages
+
+**Test That Validates This**:
+- `TestClient_ConcurrentCallService` - 50 concurrent calls, verifies strict ID ordering
+
+**Production Impact**:
+- **Before Fix**: Intermittent "id_reuse" errors during speaker fade-in (5+ speakers)
+- **After Fix**: All concurrent service calls succeed with strictly ordered IDs
+
+---
+
 ## Common Pitfalls to Avoid
 
 ### 1. Forgetting to Lock Before Map Access
@@ -296,6 +373,7 @@ func (s *Subscription) Close() {
 4. **Mock external services** - Faster, more reliable concurrency testing
 5. **Event handlers must be async** - Prevents deadlocks when handlers send messages
 6. **Always test with -race** - Catches bugs you can't see in normal runs
+7. **Message ID allocation and write must be atomic** - Prevents out-of-order IDs
 
 ---
 
@@ -306,12 +384,17 @@ func (s *Subscription) Close() {
 - State manager: `internal/state/manager.go`
 - Mock server: `test/integration/mock_ha_server.go`
 
-**Last Updated**: 2025-11-16
+**Last Updated**: 2025-12-28
 **Test Status**: All 11/11 integration tests passing with `-race` flag
 
 ---
 
 ## Change Log
+
+### 2025-12-28
+- **Added Lesson 7**: Message ID Allocation and WebSocket Write Must Be Atomic
+  - Documents fix for race condition causing "id_reuse" errors (PR #165)
+  - Pattern: allocate message IDs while holding write lock
 
 ### 2025-11-16
 - **Added Lesson 5**: Event Handlers Must Not Block Message Processing
