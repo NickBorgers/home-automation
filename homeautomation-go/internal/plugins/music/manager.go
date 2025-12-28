@@ -835,6 +835,12 @@ func (m *Manager) fadeInSpeaker(speakerName string, targetVolume int, startingMu
 
 	entityID := m.getSpeakerEntityID(speakerName)
 
+	// Track failures for better error reporting
+	var consecutiveFailures int
+	var totalFailures int
+	var lastSuccessfulVolume int = -1
+	const maxConsecutiveFailures = 3
+
 	// Gradual fade-in: 0 → targetVolume
 	for currentVolume := 0; currentVolume <= targetVolume; currentVolume++ {
 		// Check if music type changed (stop fade if switched)
@@ -852,10 +858,26 @@ func (m *Manager) fadeInSpeaker(speakerName string, targetVolume int, startingMu
 			"entity_id":    entityID,
 			"volume_level": float64(currentVolume) / 15.0, // Normalize to 0.0-1.0
 		}); err != nil {
+			consecutiveFailures++
+			totalFailures++
 			m.logger.Error("Failed to set volume during fade-in",
 				zap.String("speaker", speakerName),
 				zap.Int("volume", currentVolume),
+				zap.Int("consecutive_failures", consecutiveFailures),
 				zap.Error(err))
+
+			// If too many consecutive failures, abort the fade-in
+			if consecutiveFailures >= maxConsecutiveFailures {
+				m.logger.Error("Aborting fade-in due to repeated failures",
+					zap.String("speaker", speakerName),
+					zap.Int("target_volume", targetVolume),
+					zap.Int("last_successful_volume", lastSuccessfulVolume),
+					zap.Int("total_failures", totalFailures))
+				return
+			}
+		} else {
+			consecutiveFailures = 0
+			lastSuccessfulVolume = currentVolume
 		}
 
 		// Adaptive delay: slower at start, faster as volume increases
@@ -867,9 +889,17 @@ func (m *Manager) fadeInSpeaker(speakerName string, targetVolume int, startingMu
 		time.Sleep(time.Duration(delayMs) * time.Millisecond)
 	}
 
-	m.logger.Info("Fade-in completed",
-		zap.String("speaker", speakerName),
-		zap.Int("final_volume", targetVolume))
+	// Log completion with failure summary if any failures occurred
+	if totalFailures > 0 {
+		m.logger.Warn("Fade-in completed with some failures",
+			zap.String("speaker", speakerName),
+			zap.Int("final_volume", targetVolume),
+			zap.Int("total_failures", totalFailures))
+	} else {
+		m.logger.Info("Fade-in completed",
+			zap.String("speaker", speakerName),
+			zap.Int("final_volume", targetVolume))
+	}
 }
 
 // getSpeakerEntityID converts speaker name to Home Assistant entity ID
