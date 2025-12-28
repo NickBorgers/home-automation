@@ -158,9 +158,9 @@ func TestScenario_NickOfficeOccupied_TurnsOnLights(t *testing.T) {
 			entityID, ok := call.Data["entity_id"].(string)
 			if ok && entityID == "scene.n_office_day" {
 				foundSceneActivation = true
-				// Verify area_id is included for targeting
-				assert.Equal(t, "n_office", call.Data["area_id"],
-					"Scene activation should include area_id")
+				// Note: area_id is intentionally NOT passed for scene.turn_on to match Node-RED behavior
+				assert.Nil(t, call.Data["area_id"],
+					"Scene activation should NOT include area_id")
 				// Verify transition time from config
 				assert.Equal(t, 2, call.Data["transition"],
 					"Scene activation should use configured transition time")
@@ -311,9 +311,9 @@ func TestScenario_KitchenOccupied_TurnsOnLights(t *testing.T) {
 			entityID, ok := call.Data["entity_id"].(string)
 			if ok && entityID == "scene.kitchen_evening" {
 				foundSceneActivation = true
-				// Verify area_id
-				assert.Equal(t, "kitchen", call.Data["area_id"],
-					"Scene activation should include area_id")
+				// Note: area_id is intentionally NOT passed for scene.turn_on to match Node-RED behavior
+				assert.Nil(t, call.Data["area_id"],
+					"Scene activation should NOT include area_id")
 				// Verify transition time from config (kitchen uses 5 seconds)
 				assert.Equal(t, 5, call.Data["transition"],
 					"Scene activation should use configured transition time")

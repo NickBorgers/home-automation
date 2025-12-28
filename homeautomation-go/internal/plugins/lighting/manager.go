@@ -544,9 +544,10 @@ func (m *Manager) activateScene(room *RoomConfig, dayPhase string, trigger strin
 		zap.Any("transition_seconds", room.TransitionSeconds))
 
 	// Call Home Assistant scene.turn_on service (matches Node-RED)
+	// Note: Only pass entity_id for scenes. Passing area_id alongside entity_id
+	// can cause Home Assistant to activate unexpected scenes.
 	serviceData := map[string]interface{}{
 		"entity_id": sceneEntityID,
-		"area_id":   room.HASSAreaID,
 	}
 
 	// Add transition if specified

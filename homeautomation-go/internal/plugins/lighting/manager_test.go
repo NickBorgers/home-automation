@@ -265,7 +265,8 @@ func TestActivateScene(t *testing.T) {
 	assert.Equal(t, "scene", call.Domain)
 	assert.Equal(t, "turn_on", call.Service)
 	assert.Equal(t, "scene.living_room_morning", call.Data["entity_id"])
-	assert.Equal(t, "living_room_2", call.Data["area_id"])
+	// Note: area_id is intentionally NOT passed for scene.turn_on to match Node-RED behavior
+	assert.Nil(t, call.Data["area_id"], "area_id should not be passed for scene activation")
 	assert.Equal(t, 30, call.Data["transition"])
 }
 
