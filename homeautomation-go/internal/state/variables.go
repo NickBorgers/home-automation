@@ -21,9 +21,9 @@ type StateVariable struct {
 	ComputedOutput bool        // If true, can be written even in read-only mode (for computed values)
 }
 
-// AllVariables contains all 37 state variables (35 synced with HA + 2 local-only)
+// AllVariables contains all 38 state variables (36 synced with HA + 2 local-only)
 var AllVariables = []StateVariable{
-	// Booleans (25)
+	// Booleans (26)
 	{Key: "isNickHome", EntityID: "input_boolean.nick_home", Type: TypeBool, Default: false},
 	{Key: "isCarolineHome", EntityID: "input_boolean.caroline_home", Type: TypeBool, Default: false},
 	{Key: "isToriHere", EntityID: "input_boolean.tori_here", Type: TypeBool, Default: false},
@@ -50,6 +50,7 @@ var AllVariables = []StateVariable{
 	{Key: "isCarolineNearHome", EntityID: "input_boolean.caroline_near_home", Type: TypeBool, Default: false},
 	{Key: "isLockdown", EntityID: "input_boolean.lockdown", Type: TypeBool, Default: false},
 	{Key: "reset", EntityID: "input_boolean.reset", Type: TypeBool, Default: false},
+	{Key: "isFrontOfHousePersonPresent", EntityID: "input_boolean.front_of_house_person_present", Type: TypeBool, Default: false},
 
 	// Numbers (3)
 	{Key: "alarmTime", EntityID: "input_number.alarm_time", Type: TypeNumber, Default: 0.0},
