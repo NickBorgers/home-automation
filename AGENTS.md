@@ -4,7 +4,7 @@ This document provides guidance for AI agents and developers working on this hom
 
 ## Project Overview
 
-This repository contains a home automation system migrating from Node-RED to Golang for improved type safety, testability, and maintainability.
+This repository contains a home automation system built in Golang with improved type safety, testability, and maintainability.
 
 ## 🚨 CRITICAL: Pre-Push Hook Active
 
@@ -39,7 +39,6 @@ make lint-go           # Run linters
 │   ├── reference/PLUGIN_SYSTEM.md    # Plugin interfaces
 │   ├── reference/migration_mapping.md # State variable mapping
 │   └── reference/CONCURRENCY_LESSONS.md # Concurrency patterns
-├── flows.json                  # Node-RED legacy implementation (~650KB)
 └── configs/                    # YAML configuration files
 ```
 
@@ -50,32 +49,13 @@ make lint-go           # Run linters
 | [ARCHITECTURE.md](./docs/architecture/ARCHITECTURE.md) | System design, implementation status, migration roadmap |
 | [SHADOW_STATE.md](./docs/reference/SHADOW_STATE.md) | **READ BEFORE WRITING PLUGINS** - Shadow state pattern |
 | [PLUGIN_SYSTEM.md](./docs/reference/PLUGIN_SYSTEM.md) | Plugin interfaces and lifecycle |
-| [migration_mapping.md](./docs/reference/migration_mapping.md) | State variable mapping from Node-RED |
+| [migration_mapping.md](./docs/reference/migration_mapping.md) | State variable mapping reference |
 | [CONCURRENCY_LESSONS.md](./docs/reference/CONCURRENCY_LESSONS.md) | Concurrency patterns and lessons |
 
-## Understanding Node-RED Behavior
+## Plugin to Config Mapping
 
-Before implementing features, understand the current Node-RED behavior.
-
-**⚠️ WARNING:** `flows.json` is ~650KB. Do NOT read it all at once. Use targeted searches:
-
-```bash
-# Generate flow screenshots for visual overview
-make generate-screenshots
-# View: ./automated-rendering/screenshot-capture/screenshots/
-
-# Search patterns
-grep -A 5 '"label":"Music"' flows.json              # Find a flow
-grep -A 20 '"name":"Pick Appropriate Music"' flows.json  # Find function node
-grep -n "isNickHome" flows.json                     # Find state variable usage
-
-# Live instance: https://node-red.featherback-mermaid.ts.net/
-```
-
-**Flow to Config Mapping:**
-
-| Flow | Config File | Key State Variables |
-|------|-------------|---------------------|
+| Plugin | Config File | Key State Variables |
+|--------|-------------|---------------------|
 | State Tracking | N/A | isNickHome, isCarolineHome, isToriHere, isMasterAsleep |
 | Lighting Control | hue_config.yaml | dayPhase, sunevent, isAnyoneHome |
 | Music | music_config.yaml | musicPlaybackType, currentlyPlayingMusic |
@@ -296,22 +276,16 @@ git commit -m "docs: Add screenshot of [feature]"
 | Test timeout/deadlock | Missing mutex | Review with `-race` flag |
 | Tests pass locally, fail CI | Race condition or env diff | Run `go test -race ./...` locally |
 
-## Migration Status
+## Project Status
 
-**Current Phase:** MVP Complete + Integration Testing ✅
+**Current Phase:** Production ✅
 
-- Go implementation ready for parallel testing (READ_ONLY mode)
+- Go implementation running in production
 - All 28 state variables supported
-- All critical bugs fixed (concurrent writes, subscription leak)
-
-**Next Steps:**
-1. Validate behavior matches Node-RED
-2. Migrate helper functions
-3. Switch to read-write mode
-4. Deprecate Node-RED
+- All plugins fully operational
 
 ---
 
-**Last Updated:** 2025-12-21
+**Last Updated:** 2025-12-28
 **Go Version:** 1.23
-**Project Status:** Parallel Testing Phase
+**Project Status:** Production

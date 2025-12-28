@@ -1,23 +1,22 @@
-# Node Red to Home Assistant Variable Mapping
+# State Variable Mapping Reference
 
-This document maps Node Red global state variables to their Home Assistant entity equivalents.
+> **Note:** This document was created during the migration from Node-RED to Go and serves as a historical reference for the state variable mappings.
 
-## Migration Summary
+This document maps state variables to their Home Assistant entity equivalents.
 
-- **Total Node Red state variables**: 64
-- **Variables in disabled flows (SKIP)**: 25
-- **Active variables to migrate**: 39
-- **Already exist in Home Assistant**: 10
-- **Need to create**: 29
+## Summary
+
+- **Total state variables tracked**: 39
+- **Home Assistant entities**: 39 (input_boolean, input_number, input_text)
 
 ---
 
-## ✅ ALREADY EXISTS - Will Sync With Existing Entities (10)
+## Boolean Entities - Existing (10)
 
-These entities already exist in Home Assistant and will be synchronized with Node Red.
+These entities already existed in Home Assistant.
 
-| Node Red Variable | Home Assistant Entity | Type | Action |
-|------------------|----------------------|------|--------|
+| State Variable | Home Assistant Entity | Type |
+|----------------|----------------------|------|
 | isCarolineHome | input_boolean.caroline_home | Boolean | Sync only |
 | isExpectingSomeone | input_boolean.expecting_someone | Boolean | Sync only |
 | isGridAvailable | input_boolean.grid_available | Boolean | Sync only |
@@ -31,10 +30,10 @@ These entities already exist in Home Assistant and will be synchronized with Nod
 
 ---
 
-## 🆕 NEED TO CREATE - Boolean Variables (19)
+## Boolean Entities - Created (19)
 
-| Node Red Variable | Home Assistant Entity | Description | Action |
-|------------------|----------------------|-------------|--------|
+| State Variable | Home Assistant Entity | Description |
+|----------------|----------------------|-------------|
 | isAnyOwnerHome | input_boolean.any_owner_home | Whether any owner is home | Create & sync |
 | isAnyoneAsleep | input_boolean.anyone_asleep | Whether anyone is asleep | Create & sync |
 | isAnyoneHome | input_boolean.anyone_home | Whether anyone is home | Create & sync |
@@ -57,40 +56,40 @@ These entities already exist in Home Assistant and will be synchronized with Nod
 
 ---
 
-## 🆕 NEED TO CREATE - Numeric Variables (3)
+## Numeric Entities (3)
 
-| Node Red Variable | Home Assistant Entity | Type | Min | Max | Step | Unit | Action |
-|------------------|----------------------|------|-----|-----|------|------|--------|
+| State Variable | Home Assistant Entity | Type | Min | Max | Step | Unit |
+|----------------|----------------------|------|-----|-----|------|------|
 | alarmTime | input_number.alarm_time | Number (timestamp) | 0 | 2147483647 | 1 | ms | Create & sync |
 | remainingSolarGeneration | input_number.remaining_solar_generation | Number | 0 | 100000 | 0.1 | kWh | Create & sync |
 | thisHourSolarGeneration | input_number.this_hour_solar_generation | Number | 0 | 100000 | 0.1 | kW | Create & sync |
 
 ---
 
-## 🆕 NEED TO CREATE - Text Variables (1)
+## Text Entities (1)
 
-| Node Red Variable | Home Assistant Entity | Description | Example Values | Action |
-|------------------|----------------------|-------------|----------------|--------|
+| State Variable | Home Assistant Entity | Description | Example Values |
+|----------------|----------------------|-------------|----------------|
 | sunevent | input_text.sunevent | Current sun event | "morning", "day", "sunset", "dusk", "night" | Create & sync |
 
 ---
 
-## 🆕 NEED TO CREATE - JSON Object Variables (1)
+## JSON Object Entities (1)
 
 These are complex objects stored as JSON strings in input_text entities.
 
-| Node Red Variable | Home Assistant Entity | Max Length | Description | Action |
-|------------------|----------------------|------------|-------------|--------|
+| State Variable | Home Assistant Entity | Max Length | Description |
+|----------------|----------------------|------------|-------------|
 | currentlyPlayingMusic | input_text.currently_playing_music | 4096 | Current music playback info (JSON) | Create & sync |
 
 ---
 
-## ⏭️ SKIPPED - Variables Only in Disabled Flows (25)
+## Unused Variables (25)
 
-These variables are only referenced in disabled Node Red flows and will NOT be migrated.
+These variables were only referenced in disabled flows and are not implemented.
 
-| Node Red Variable | Disabled Flow | Reason |
-|------------------|---------------|--------|
+| Variable | Flow | Reason |
+|----------|------|--------|
 | currentClimate | Air Condition | Flow disabled |
 | desiredHumidityOfMasterBedroom | Air Condition | Flow disabled |
 | formaldehydeOfBedroom | Air Condition | Flow disabled |
@@ -128,8 +127,7 @@ These variables are only referenced in disabled Node Red flows and will NOT be m
 - **Trigger**: Automatically activated when `isEveryoneAsleep` becomes `true`
 - **Auto-Reset**: Stays `true` for **5 seconds**, then automatically resets to `false`
 - **Purpose**: Triggers security measures (garage door close, door locks, etc.) when everyone goes to sleep
-- **Implementation**: Node-RED uses a 5-second delay before auto-resetting
-- **Flow**: Security flow (`7097dab4eb91af0f`)
+- **Plugin**: Security plugin
 
 ### isNickNearHome / isCarolineNearHome - Proximity Geofence
 
@@ -140,7 +138,7 @@ These variables are only referenced in disabled Node Red flows and will NOT be m
 - **Important**: Automations (announcements, lights, music) trigger on `isHome`, **NOT** `isNearHome`
 - **Purpose**: Provides advance warning before someone arrives home, allowing preparation time
 - **Implementation**: `isNearHome` is input-only, `isHome` is the computed output used by automations
-- **Flow**: State Tracking flow (`d7a3510d.e93d98`)
+- **Plugin**: State tracking plugin
 
 ### Room Occupancy Sensors
 
@@ -170,13 +168,12 @@ These variables are only referenced in disabled Node Red flows and will NOT be m
 
 ## Implementation Notes
 
-### Entity Creation
-- Entities will be created via Home Assistant REST API
-- input_boolean: Simple on/off entities
-- input_number: Numeric entities with appropriate min/max/step values
-- input_text: Text entities for strings and JSON-serialized objects
+### Entity Types
+- **input_boolean**: Simple on/off entities
+- **input_number**: Numeric entities with appropriate min/max/step values
+- **input_text**: Text entities for strings and JSON-serialized objects
 
 ### Synchronization Strategy
-1. **On Node Red startup**: Read all 39 variables from Home Assistant → initialize Node Red state
-2. **On Node Red variable change**: Write value to corresponding Home Assistant entity
-3. **During migration**: Both systems share state via Home Assistant entities
+1. **On startup**: Read all 39 variables from Home Assistant to initialize state
+2. **On state change**: Write value to corresponding Home Assistant entity
+3. **Bidirectional**: Go application both reads and writes state via Home Assistant entities

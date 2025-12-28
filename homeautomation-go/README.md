@@ -107,7 +107,6 @@ The system manages 30 state variables across 3 types (28 synced with HA + 2 loca
      - The API provides endpoints for querying state (see HTTP API section below)
 
    **Read-Only Mode** is perfect for:
-   - Running alongside your existing Node-RED setup
    - Testing and validation without risk
    - Monitoring state changes without interference
 
