@@ -11,17 +11,29 @@ echo "=== Setting up devcontainer ==="
 echo "Checking DNS configuration..."
 bash "$(dirname "$0")/fix-dns-order.sh"
 
-# Go module setup
-echo "Setting up Go modules..."
-cd /workspaces/home-automation/homeautomation-go
-go mod tidy
-go mod download
+# Compute repository root (parent of .devcontainer) so script works
+# regardless of the local workspace folder name.
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+
+echo "Setting up Go modules... (repo root: $REPO_ROOT)"
+if [ -d "$REPO_ROOT/homeautomation-go" ]; then
+    (cd "$REPO_ROOT/homeautomation-go" && go mod tidy && go mod download)
+else
+    echo "Warning: $REPO_ROOT/homeautomation-go not found; skipping Go module setup."
+fi
 
 # Git hooks
 echo "Installing git hooks..."
-cd /workspaces/home-automation
-mkdir -p build
-bash .githooks/install-hooks.sh
+if [ -d "$REPO_ROOT" ]; then
+    (cd "$REPO_ROOT" && mkdir -p build)
+    if [ -x "$REPO_ROOT/.githooks/install-hooks.sh" ] || [ -f "$REPO_ROOT/.githooks/install-hooks.sh" ]; then
+        (cd "$REPO_ROOT" && bash .githooks/install-hooks.sh)
+    else
+        echo "Warning: .githooks/install-hooks.sh not found or not executable; skipping git hooks installation."
+    fi
+else
+    echo "Warning: repository root $REPO_ROOT not found; skipping git hooks installation."
+fi
 
 # Claude Code playwright-skill plugin
 echo "Installing playwright-skill plugin..."
@@ -45,6 +57,10 @@ sudo apt-get install -y --no-install-recommends \
     libatk-bridge2.0-0 libcups2 libdrm2 libxkbcommon0 libatspi2.0-0 \
     libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libasound2 \
     fonts-liberation fonts-noto-color-emoji
+
+# Playwright host dependencies (recommended)
+sudo apt-get install -y --no-install-recommends \
+    libcairo2 libpango-1.0-0
 
 echo "Setting up Playwright (installing browser)..."
 cd ~/.claude/plugins/marketplaces/playwright-skill/skills/playwright-skill
