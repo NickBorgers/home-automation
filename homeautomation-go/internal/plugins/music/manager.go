@@ -835,6 +835,17 @@ func (m *Manager) fadeInSpeaker(speakerName string, targetVolume int, startingMu
 
 	entityID := m.getSpeakerEntityID(speakerName)
 
+	// Unmute speaker first - Sonos maintains mute state independently of volume
+	if err := m.callService("media_player", "volume_mute", map[string]interface{}{
+		"entity_id":       entityID,
+		"is_volume_muted": false,
+	}); err != nil {
+		m.logger.Error("Failed to unmute speaker before fade-in",
+			zap.String("speaker", speakerName),
+			zap.Error(err))
+		return
+	}
+
 	// Track failures for better error reporting
 	var consecutiveFailures int
 	var totalFailures int
@@ -856,7 +867,7 @@ func (m *Manager) fadeInSpeaker(speakerName string, targetVolume int, startingMu
 		// Set volume
 		if err := m.callService("media_player", "volume_set", map[string]interface{}{
 			"entity_id":    entityID,
-			"volume_level": float64(currentVolume) / 15.0, // Normalize to 0.0-1.0
+			"volume_level": float64(currentVolume) / 100.0, // Normalize percentage (0-100) to 0.0-1.0
 		}); err != nil {
 			consecutiveFailures++
 			totalFailures++
@@ -881,8 +892,8 @@ func (m *Manager) fadeInSpeaker(speakerName string, targetVolume int, startingMu
 		}
 
 		// Adaptive delay: slower at start, faster as volume increases
-		// Matches Node-RED: (100 - current) * 250ms, but scaled for our 0-15 range
-		delayMs := (100 - (currentVolume * 100 / 15)) * 2 // ~2ms per point
+		// At volume 0%: 200ms delay, at 50%: 100ms, at 100%: clamped to 100ms minimum
+		delayMs := (100 - currentVolume) * 2 // 2ms per percentage point remaining
 		if delayMs < 100 {
 			delayMs = 100 // Minimum 100ms between steps
 		}

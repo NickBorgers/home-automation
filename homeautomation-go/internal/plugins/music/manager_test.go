@@ -1291,3 +1291,189 @@ func TestCurrentlyPlayingMusicUri_UpdateOnModeChange(t *testing.T) {
 		t.Errorf("Expected currentlyPlayingMusicUri = %q for evening, got %q", eveningURI, currentURI)
 	}
 }
+
+// TestFadeInSpeaker_UnmutesSpeaker verifies that fadeInSpeaker calls volume_mute service
+// to unmute the speaker before starting the fade-in.
+// This is critical because Sonos speakers maintain mute state independently of volume.
+func TestFadeInSpeaker_UnmutesSpeaker(t *testing.T) {
+	mockHA := ha.NewMockClient()
+	logger := zap.NewNop()
+	stateManager := state.NewManager(mockHA, logger, false)
+
+	config := &MusicConfig{
+		Music: map[string]MusicMode{
+			"evening": {},
+		},
+	}
+
+	fixedTime := time.Date(2025, 1, 6, 9, 0, 0, 0, time.UTC)
+	timeProvider := FixedTimeProvider{FixedTime: fixedTime}
+
+	// NOT read-only so service calls actually go through
+	manager := NewManager(mockHA, stateManager, config, logger, false, timeProvider)
+
+	// Set up musicPlaybackType so fade-in doesn't abort early
+	if err := stateManager.SetString("musicPlaybackType", "evening"); err != nil {
+		t.Fatalf("Failed to set musicPlaybackType: %v", err)
+	}
+
+	// Execute fade-in with a low target volume to complete quickly
+	manager.fadeInSpeaker("Kitchen", 3, "evening")
+
+	// Get all service calls
+	calls := mockHA.GetServiceCalls()
+
+	// Find volume_mute call
+	var foundUnmute bool
+	for _, call := range calls {
+		if call.Domain == "media_player" && call.Service == "volume_mute" {
+			foundUnmute = true
+
+			// Verify entity_id
+			if entityID, ok := call.Data["entity_id"].(string); !ok || entityID != "media_player.kitchen" {
+				t.Errorf("Expected entity_id=media_player.kitchen, got %v", call.Data["entity_id"])
+			}
+
+			// Verify is_volume_muted is false (unmuting)
+			if isMuted, ok := call.Data["is_volume_muted"].(bool); !ok || isMuted {
+				t.Errorf("Expected is_volume_muted=false, got %v", call.Data["is_volume_muted"])
+			}
+
+			break
+		}
+	}
+
+	if !foundUnmute {
+		t.Error("fadeInSpeaker must call volume_mute service to unmute speaker")
+	}
+}
+
+// TestFadeInSpeaker_VolumeNormalization verifies that fadeInSpeaker normalizes
+// volume percentages (0-100) to Home Assistant's 0.0-1.0 scale correctly.
+func TestFadeInSpeaker_VolumeNormalization(t *testing.T) {
+	testCases := []struct {
+		targetVolume  int
+		expectedLevel float64
+	}{
+		{10, 0.10},  // 10% -> 0.10
+		{25, 0.25},  // 25% -> 0.25
+		{50, 0.50},  // 50% -> 0.50
+		{100, 1.00}, // 100% -> 1.00
+	}
+
+	for _, tc := range testCases {
+		t.Run(filepath.Base(t.Name())+"_volume_"+string(rune('0'+tc.targetVolume/10)), func(t *testing.T) {
+			mockHA := ha.NewMockClient()
+			logger := zap.NewNop()
+			stateManager := state.NewManager(mockHA, logger, false)
+
+			config := &MusicConfig{
+				Music: map[string]MusicMode{
+					"evening": {},
+				},
+			}
+
+			fixedTime := time.Date(2025, 1, 6, 9, 0, 0, 0, time.UTC)
+			timeProvider := FixedTimeProvider{FixedTime: fixedTime}
+			manager := NewManager(mockHA, stateManager, config, logger, false, timeProvider)
+
+			// Set up musicPlaybackType so fade-in doesn't abort
+			if err := stateManager.SetString("musicPlaybackType", "evening"); err != nil {
+				t.Fatalf("Failed to set musicPlaybackType: %v", err)
+			}
+
+			manager.fadeInSpeaker("Kitchen", tc.targetVolume, "evening")
+
+			// Get the final volume_set call
+			calls := mockHA.GetServiceCalls()
+			var lastVolumeSetCall *ha.ServiceCall
+			for i := len(calls) - 1; i >= 0; i-- {
+				if calls[i].Domain == "media_player" && calls[i].Service == "volume_set" {
+					lastVolumeSetCall = &calls[i]
+					break
+				}
+			}
+
+			if lastVolumeSetCall == nil {
+				t.Fatal("No volume_set call found")
+			}
+
+			actualLevel, ok := lastVolumeSetCall.Data["volume_level"].(float64)
+			if !ok {
+				t.Fatalf("volume_level is not a float64: %v", lastVolumeSetCall.Data["volume_level"])
+			}
+
+			// Allow small floating point tolerance
+			if actualLevel < tc.expectedLevel-0.01 || actualLevel > tc.expectedLevel+0.01 {
+				t.Errorf("Volume %d%% should normalize to %.2f, got %.2f",
+					tc.targetVolume, tc.expectedLevel, actualLevel)
+			}
+		})
+	}
+}
+
+// TestVolumeNormalization_ConsistentAcrossCodePaths ensures unmuteSpeaker and
+// fadeInSpeaker use the same volume normalization (divide by 100, not 15).
+func TestVolumeNormalization_ConsistentAcrossCodePaths(t *testing.T) {
+	mockHA := ha.NewMockClient()
+	logger := zap.NewNop()
+	stateManager := state.NewManager(mockHA, logger, false)
+
+	config := &MusicConfig{
+		Music: map[string]MusicMode{
+			"evening": {},
+		},
+	}
+
+	fixedTime := time.Date(2025, 1, 6, 9, 0, 0, 0, time.UTC)
+	timeProvider := FixedTimeProvider{FixedTime: fixedTime}
+	manager := NewManager(mockHA, stateManager, config, logger, false, timeProvider)
+
+	// Set up musicPlaybackType
+	if err := stateManager.SetString("musicPlaybackType", "evening"); err != nil {
+		t.Fatalf("Failed to set musicPlaybackType: %v", err)
+	}
+
+	testVolume := 20
+
+	// Test unmuteSpeaker path
+	participant := ParticipantWithVolume{PlayerName: "Kitchen", Volume: testVolume}
+	manager.unmuteSpeaker(participant)
+
+	unmuteCalls := mockHA.GetServiceCalls()
+	var unmuteVolumeLevel float64
+	for _, call := range unmuteCalls {
+		if call.Domain == "media_player" && call.Service == "volume_set" {
+			unmuteVolumeLevel = call.Data["volume_level"].(float64)
+			break
+		}
+	}
+
+	// Clear and test fadeInSpeaker path
+	mockHA.ClearServiceCalls()
+	manager.fadeInSpeaker("Kitchen", testVolume, "evening")
+
+	fadeCalls := mockHA.GetServiceCalls()
+	var fadeVolumeLevel float64
+	for i := len(fadeCalls) - 1; i >= 0; i-- {
+		if fadeCalls[i].Domain == "media_player" && fadeCalls[i].Service == "volume_set" {
+			fadeVolumeLevel = fadeCalls[i].Data["volume_level"].(float64)
+			break
+		}
+	}
+
+	// Both should normalize 20% to 0.20
+	expectedLevel := 0.20
+	if unmuteVolumeLevel < expectedLevel-0.01 || unmuteVolumeLevel > expectedLevel+0.01 {
+		t.Errorf("unmuteSpeaker: expected volume level %.2f, got %.2f", expectedLevel, unmuteVolumeLevel)
+	}
+	if fadeVolumeLevel < expectedLevel-0.01 || fadeVolumeLevel > expectedLevel+0.01 {
+		t.Errorf("fadeInSpeaker: expected volume level %.2f, got %.2f", expectedLevel, fadeVolumeLevel)
+	}
+
+	// Verify they're consistent with each other
+	if unmuteVolumeLevel != fadeVolumeLevel {
+		t.Errorf("Volume normalization inconsistent: unmuteSpeaker=%.2f, fadeInSpeaker=%.2f",
+			unmuteVolumeLevel, fadeVolumeLevel)
+	}
+}
