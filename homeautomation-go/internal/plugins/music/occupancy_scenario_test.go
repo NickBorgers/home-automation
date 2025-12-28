@@ -51,7 +51,7 @@ package music
 // 3. handleMuteConditionChange(): When a subscribed variable changes during playback
 //    - Checks if music is currently playing
 //    - Re-evaluates shouldUnmuteSpeaker() for affected participants
-//    - Calls unmuteSpeaker() or muteSpeaker() as appropriate
+//    - Calls fadeInSpeaker() or muteSpeaker() as appropriate
 //
 // =============================================================================
 
@@ -286,9 +286,9 @@ func TestScenario_OfficeSpeaker_MutedWhenUnoccupied(t *testing.T) {
 // 4. Music Manager should detect the change and unmute the Office speaker
 //
 // EXPECTED BEHAVIOR:
-// - Service call: media_player.volume_set
+// - Service call: media_player.volume_mute with is_volume_muted=false
 // - Entity: media_player.office
-// - Data: { entity_id: "media_player.office", volume_level: 0.06 } (6% = base_volume 6)
+// - No volume_set needed (volume was set during initial playback)
 func TestScenario_OfficeSpeaker_UnmuteOnOccupancyChangeDuringPlayback(t *testing.T) {
 	logger := zap.NewNop()
 	mockClient := ha.NewMockClient()
@@ -328,7 +328,7 @@ func TestScenario_OfficeSpeaker_UnmuteOnOccupancyChangeDuringPlayback(t *testing
 	// This should trigger the Music Manager to:
 	// 1. Detect the isNickOfficeOccupied state change
 	// 2. Re-evaluate speaker mute conditions
-	// 3. Unmute the Office speaker by setting its volume
+	// 3. Unmute the Office speaker via volume_mute service
 	err = stateManager.SetBool("isNickOfficeOccupied", true)
 	assert.NoError(t, err)
 
@@ -336,31 +336,27 @@ func TestScenario_OfficeSpeaker_UnmuteOnOccupancyChangeDuringPlayback(t *testing
 	time.Sleep(200 * time.Millisecond)
 
 	// ==========================================================
-	// VERIFICATION: Office speaker should be unmuted (volume set)
+	// VERIFICATION: Office speaker should be unmuted
 	// ==========================================================
 	calls := mockClient.GetServiceCalls()
 
-	// Look for a volume_set call for the office speaker
-	foundOfficeVolumeSet := false
+	// Look for volume_mute call with is_volume_muted=false (unmute)
+	foundOfficeUnmute := false
 	for _, call := range calls {
-		if call.Domain == "media_player" && call.Service == "volume_set" {
+		if call.Domain == "media_player" && call.Service == "volume_mute" {
 			entityID, ok := call.Data["entity_id"].(string)
 			if ok && entityID == "media_player.office" {
-				volumeLevel, hasVolume := call.Data["volume_level"]
-				if hasVolume {
-					// Should be non-zero volume (unmuting)
-					// Base volume is 6, so expected volume_level is 0.06 (6%)
-					if vol, ok := volumeLevel.(float64); ok && vol > 0 {
-						foundOfficeVolumeSet = true
-					}
+				isMuted, hasMuted := call.Data["is_volume_muted"].(bool)
+				if hasMuted && !isMuted {
+					foundOfficeUnmute = true
 				}
 			}
 		}
 	}
 
-	assert.True(t, foundOfficeVolumeSet,
-		"Expected media_player.volume_set for Office speaker when Nick Office becomes "+
-			"occupied during playback. Calls received: %+v", calls)
+	assert.True(t, foundOfficeUnmute,
+		"Expected media_player.volume_mute for Office speaker with is_volume_muted=false. "+
+			"Calls received: %+v", calls)
 }
 
 // =============================================================================
