@@ -106,7 +106,7 @@ func createOccupancyTestConfig() *HueConfig {
 // The Lighting Manager should activate the office scene based on current dayPhase.
 // - Service call: scene.turn_on
 // - Entity: scene.n_office_day (when dayPhase = "day")
-// - Data: { entity_id: "scene.n_office_day", area_id: "n_office", transition: 2 }
+// - Data: { entity_id: "scene.n_office_day", transition: 2 }
 //
 // NODE-RED BEHAVIOR:
 // In Node-RED, the "Nick Office Occupied" node watches for state changes and
@@ -258,7 +258,7 @@ func TestScenario_NickOfficeUnoccupied_TurnsOffLights(t *testing.T) {
 // The Lighting Manager should activate the kitchen scene based on current dayPhase.
 // - Service call: scene.turn_on
 // - Entity: scene.kitchen_evening (when dayPhase = "evening")
-// - Data: { entity_id: "scene.kitchen_evening", area_id: "kitchen", transition: 5 }
+// - Data: { entity_id: "scene.kitchen_evening", transition: 5 }
 //
 // NOTE: Kitchen has DIFFERENT off condition!
 // - on_if_true: isKitchenOccupied (turns on when someone enters)

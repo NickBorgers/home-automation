@@ -270,6 +270,38 @@ func TestActivateScene(t *testing.T) {
 	assert.Equal(t, 30, call.Data["transition"])
 }
 
+// TestActivateSceneDusk is a regression test for the bug fixed in PR #169.
+// When area_id was incorrectly passed alongside entity_id to scene.turn_on,
+// Home Assistant would activate an unexpected scene (e.g., "energize" instead of "dusk").
+// This test verifies that only entity_id is passed, ensuring the correct scene activates.
+func TestActivateSceneDusk(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	config := createTestConfig()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+
+	room := &config.Rooms[0] // Living Room
+	dayPhase := "Dusk"
+
+	manager.activateScene(room, dayPhase, "reset_trigger")
+
+	// Verify correct scene is activated
+	calls := mockClient.GetServiceCalls()
+	assert.Equal(t, 1, len(calls))
+
+	call := calls[0]
+	assert.Equal(t, "scene", call.Domain)
+	assert.Equal(t, "turn_on", call.Service)
+	// Critical: verify "dusk" scene is activated, not "energize" or other scene
+	assert.Equal(t, "scene.living_room_dusk", call.Data["entity_id"],
+		"Expected dusk scene, not energize or other unexpected scene")
+	// Critical: area_id must NOT be passed - this was the root cause of the bug
+	assert.Nil(t, call.Data["area_id"],
+		"area_id must not be passed; it causes Home Assistant to activate wrong scenes")
+	assert.Equal(t, 30, call.Data["transition"])
+}
+
 func TestTurnOffRoomReadOnly(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
 	config := createTestConfig()
