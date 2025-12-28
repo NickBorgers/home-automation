@@ -29,11 +29,13 @@ rooms:
     on_if_true:
       - isHaveGuests
       - didOwnerJustReturnHome
+      - isFrontOfHousePersonPresent
     on_if_false: ~
     off_if_true: isEveryoneAsleep
     off_if_false:
       - isHaveGuests
       - didOwnerJustReturnHome
+      - isFrontOfHousePersonPresent
     increase_brightness_if_true: ~
     transition_seconds: 120
   - hue_group: Decorative Outdoor Lights
