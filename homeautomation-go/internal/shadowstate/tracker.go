@@ -1000,6 +1000,27 @@ func (tvt *TVTracker) UpdateTVPlaying(isPlaying bool) {
 	tvt.state.Metadata.LastUpdated = time.Now()
 }
 
+// UpdateSyncBoxAvailable updates the sync box availability state
+func (tvt *TVTracker) UpdateSyncBoxAvailable(available bool) {
+	tvt.mu.Lock()
+	defer tvt.mu.Unlock()
+
+	tvt.state.Outputs.SyncBoxAvailable = available
+	tvt.state.Outputs.LastUpdate = time.Now()
+	tvt.state.Metadata.LastUpdated = time.Now()
+}
+
+// UpdateLastRecovery updates the last sync box recovery timestamp and daily count
+func (tvt *TVTracker) UpdateLastRecovery(rebootTime time.Time, dailyCount int) {
+	tvt.mu.Lock()
+	defer tvt.mu.Unlock()
+
+	tvt.state.Outputs.LastSyncBoxReboot = rebootTime
+	tvt.state.Outputs.DailyRebootCount = dailyCount
+	tvt.state.Outputs.LastUpdate = time.Now()
+	tvt.state.Metadata.LastUpdated = time.Now()
+}
+
 // GetState returns the current shadow state (thread-safe copy)
 func (tvt *TVTracker) GetState() *TVShadowState {
 	tvt.mu.RLock()

@@ -670,12 +670,15 @@ type TVInputs struct {
 
 // TVOutputs tracks computed TV states
 type TVOutputs struct {
-	IsAppleTVPlaying bool      `json:"isAppleTVPlaying"`
-	IsTVOn           bool      `json:"isTVOn"`
-	IsTVPlaying      bool      `json:"isTVPlaying"`
-	CurrentHDMIInput string    `json:"currentHDMIInput,omitempty"`
-	AppleTVState     string    `json:"appleTVState,omitempty"`
-	LastUpdate       time.Time `json:"lastUpdate"`
+	IsAppleTVPlaying  bool      `json:"isAppleTVPlaying"`
+	IsTVOn            bool      `json:"isTVOn"`
+	IsTVPlaying       bool      `json:"isTVPlaying"`
+	CurrentHDMIInput  string    `json:"currentHDMIInput,omitempty"`
+	AppleTVState      string    `json:"appleTVState,omitempty"`
+	LastUpdate        time.Time `json:"lastUpdate"`
+	SyncBoxAvailable  bool      `json:"syncBoxAvailable"`
+	LastSyncBoxReboot time.Time `json:"lastSyncBoxReboot,omitempty"`
+	DailyRebootCount  int       `json:"dailyRebootCount"`
 }
 
 // GetCurrentInputs implements PluginShadowState
@@ -705,7 +708,9 @@ func NewTVShadowState() *TVShadowState {
 		Inputs: TVInputs{
 			Current: make(map[string]interface{}),
 		},
-		Outputs: TVOutputs{},
+		Outputs: TVOutputs{
+			SyncBoxAvailable: true, // Assume available until proven otherwise
+		},
 		Metadata: StateMetadata{
 			LastUpdated: time.Now(),
 			PluginName:  "tv",

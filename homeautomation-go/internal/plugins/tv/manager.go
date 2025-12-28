@@ -4,12 +4,35 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
+	"time"
 
 	"homeautomation/internal/ha"
 	"homeautomation/internal/shadowstate"
 	"homeautomation/internal/state"
 
 	"go.uber.org/zap"
+)
+
+// Sync box recovery constants
+const (
+	// SyncBoxDebounceDelay is the time to wait after detecting unavailable state
+	// before initiating recovery (prevents false positives during HA restarts)
+	SyncBoxDebounceDelay = 30 * time.Second
+
+	// SyncBoxRebootCooldown is the minimum time between power cycle attempts
+	SyncBoxRebootCooldown = 10 * time.Minute
+
+	// SyncBoxPowerCycleDelay is the time to wait between turning off and on
+	SyncBoxPowerCycleDelay = 5 * time.Second
+
+	// SyncBoxMaxDailyReboots is the maximum number of reboots allowed per day
+	SyncBoxMaxDailyReboots = 10
+
+	// Entity IDs for sync box recovery
+	SyncBoxSoftwarePowerEntity = "switch.sync_box_power"
+	SyncBoxPhysicalPowerEntity = "switch.hue_sync_box_power"
+	SyncBoxHDMIInputEntity     = "select.sync_box_hdmi_input"
 )
 
 // Manager handles TV monitoring and manipulation
@@ -30,6 +53,17 @@ type Manager struct {
 	pluginName  string
 	registry    *shadowstate.SubscriptionRegistry
 	inputHelper *shadowstate.InputCaptureHelper
+
+	// Sync box recovery state
+	recoveryMu         sync.Mutex
+	lastSyncBoxReboot  time.Time
+	dailyRebootCount   int
+	rebootCountResetAt time.Time
+	recoveryInProgress bool
+
+	// For testing: injectable time and sleep functions
+	timeNow   func() time.Time
+	sleepFunc func(time.Duration)
 }
 
 // NewManager creates a new TV manager
@@ -45,6 +79,9 @@ func NewManager(haClient ha.HAClient, stateManager *state.Manager, logger *zap.L
 		shadowTracker:      shadowstate.NewTVTracker(),
 		pluginName:         pluginName,
 		registry:           registry,
+		// Initialize time functions with defaults
+		timeNow:   time.Now,
+		sleepFunc: time.Sleep,
 	}
 
 	// Create input capture helper if registry is provided
@@ -68,8 +105,9 @@ func (m *Manager) Start() error {
 	if m.registry != nil {
 		// HA subscriptions
 		m.registry.RegisterHASubscription(m.pluginName, "media_player.big_beautiful_oled")
-		m.registry.RegisterHASubscription(m.pluginName, "switch.sync_box_power")
-		m.registry.RegisterHASubscription(m.pluginName, "select.sync_box_hdmi_input")
+		m.registry.RegisterHASubscription(m.pluginName, SyncBoxSoftwarePowerEntity)
+		m.registry.RegisterHASubscription(m.pluginName, SyncBoxHDMIInputEntity)
+		m.registry.RegisterHASubscription(m.pluginName, SyncBoxPhysicalPowerEntity)
 
 		// State subscriptions
 		m.registry.RegisterStateSubscription(m.pluginName, "isAppleTVPlaying")
@@ -83,17 +121,24 @@ func (m *Manager) Start() error {
 	}
 	m.haSubscriptions = append(m.haSubscriptions, appleTVSub)
 
-	// Subscribe to sync box power state changes
-	syncBoxSub, err := m.haClient.SubscribeStateChanges("switch.sync_box_power", m.handleSyncBoxPowerChange)
+	// Subscribe to sync box software power state changes (detects crash/unavailable)
+	syncBoxSub, err := m.haClient.SubscribeStateChanges(SyncBoxSoftwarePowerEntity, m.handleSyncBoxPowerChange)
 	if err != nil {
-		return fmt.Errorf("failed to subscribe to switch.sync_box_power: %w", err)
+		return fmt.Errorf("failed to subscribe to %s: %w", SyncBoxSoftwarePowerEntity, err)
 	}
 	m.haSubscriptions = append(m.haSubscriptions, syncBoxSub)
 
-	// Subscribe to HDMI input selector changes
-	hdmiInputSub, err := m.haClient.SubscribeStateChanges("select.sync_box_hdmi_input", m.handleHDMIInputChange)
+	// Subscribe to sync box physical power switch (Z-Wave smart plug)
+	physicalPowerSub, err := m.haClient.SubscribeStateChanges(SyncBoxPhysicalPowerEntity, m.handlePhysicalPowerChange)
 	if err != nil {
-		return fmt.Errorf("failed to subscribe to select.sync_box_hdmi_input: %w", err)
+		return fmt.Errorf("failed to subscribe to %s: %w", SyncBoxPhysicalPowerEntity, err)
+	}
+	m.haSubscriptions = append(m.haSubscriptions, physicalPowerSub)
+
+	// Subscribe to HDMI input selector changes
+	hdmiInputSub, err := m.haClient.SubscribeStateChanges(SyncBoxHDMIInputEntity, m.handleHDMIInputChange)
+	if err != nil {
+		return fmt.Errorf("failed to subscribe to %s: %w", SyncBoxHDMIInputEntity, err)
 	}
 	m.haSubscriptions = append(m.haSubscriptions, hdmiInputSub)
 
@@ -202,6 +247,20 @@ func (m *Manager) handleSyncBoxPowerChange(entityID string, oldState, newState *
 	// Update shadow state inputs with raw HA entity value
 	m.updateShadowInputs()
 
+	// Check for unavailable state (indicates sync box crash)
+	if newState.State == "unavailable" {
+		m.logger.Warn("Sync box software power is unavailable - may indicate crash",
+			zap.String("entity_id", entityID))
+		m.shadowTracker.UpdateSyncBoxAvailable(false)
+
+		// Trigger recovery check asynchronously
+		go m.checkAndRecoverSyncBox()
+		return
+	}
+
+	// Sync box is available
+	m.shadowTracker.UpdateSyncBoxAvailable(true)
+
 	// Check if sync box is on
 	isTVOn := newState.State == "on"
 
@@ -236,6 +295,20 @@ func (m *Manager) handleSyncBoxPowerChange(entityID string, oldState, newState *
 		// Update shadow state
 		m.shadowTracker.UpdateTVPlaying(false)
 	}
+}
+
+// handlePhysicalPowerChange processes switch.hue_sync_box_power (Z-Wave plug) state changes
+func (m *Manager) handlePhysicalPowerChange(entityID string, oldState, newState *ha.State) {
+	if newState == nil {
+		return
+	}
+
+	// Update shadow state inputs
+	m.updateShadowInputs()
+
+	m.logger.Debug("Sync box physical power state changed",
+		zap.String("entity_id", entityID),
+		zap.String("new_state", newState.State))
 }
 
 // handleHDMIInputChange processes select.sync_box_hdmi_input state changes
@@ -350,4 +423,159 @@ func (m *Manager) calculateTVPlaying(hdmiInput string) {
 
 	// Update shadow state
 	m.shadowTracker.UpdateTVPlaying(isTVPlaying)
+}
+
+// checkAndRecoverSyncBox checks if sync box recovery is needed and performs power cycle
+func (m *Manager) checkAndRecoverSyncBox() {
+	m.recoveryMu.Lock()
+
+	// Check if recovery is already in progress
+	if m.recoveryInProgress {
+		m.logger.Debug("Recovery already in progress, skipping")
+		m.recoveryMu.Unlock()
+		return
+	}
+
+	m.recoveryInProgress = true
+	m.recoveryMu.Unlock()
+
+	defer func() {
+		m.recoveryMu.Lock()
+		m.recoveryInProgress = false
+		m.recoveryMu.Unlock()
+	}()
+
+	// Debounce: wait before checking again (prevents false positives during HA restart)
+	m.logger.Info("Sync box unavailable detected, waiting for debounce period",
+		zap.Duration("delay", SyncBoxDebounceDelay))
+	m.sleepFunc(SyncBoxDebounceDelay)
+
+	// Re-check if sync box is still unavailable
+	syncBoxState, err := m.haClient.GetState(SyncBoxSoftwarePowerEntity)
+	if err != nil {
+		m.logger.Error("Failed to get sync box state during recovery check", zap.Error(err))
+		return
+	}
+	if syncBoxState == nil {
+		m.logger.Error("Sync box state is nil during recovery check")
+		return
+	}
+	if syncBoxState.State != "unavailable" {
+		m.logger.Info("Sync box recovered on its own, no action needed",
+			zap.String("current_state", syncBoxState.State))
+		m.shadowTracker.UpdateSyncBoxAvailable(true)
+		return
+	}
+
+	// Check if physical power is on - only attempt recovery if power is on
+	physicalPowerState, err := m.haClient.GetState(SyncBoxPhysicalPowerEntity)
+	if err != nil {
+		m.logger.Error("Failed to get physical power state", zap.Error(err))
+		return
+	}
+	if physicalPowerState == nil {
+		m.logger.Error("Physical power state is nil during recovery check")
+		return
+	}
+	if physicalPowerState.State != "on" {
+		m.logger.Info("Physical power is off, sync box intentionally unpowered - no recovery needed",
+			zap.String("physical_power_state", physicalPowerState.State))
+		return
+	}
+
+	// Check recovery safeguards
+	if !m.canAttemptRecovery() {
+		return
+	}
+
+	// Perform the power cycle recovery
+	m.performPowerCycleRecovery()
+}
+
+// canAttemptRecovery checks if we're allowed to attempt recovery based on safeguards
+func (m *Manager) canAttemptRecovery() bool {
+	now := m.timeNow()
+
+	m.recoveryMu.Lock()
+	defer m.recoveryMu.Unlock()
+
+	// Reset daily counter if it's a new day
+	if now.Sub(m.rebootCountResetAt) > 24*time.Hour {
+		m.dailyRebootCount = 0
+		m.rebootCountResetAt = now
+	}
+
+	// Check daily limit
+	if m.dailyRebootCount >= SyncBoxMaxDailyReboots {
+		m.logger.Error("Maximum daily reboots reached, skipping recovery",
+			zap.Int("daily_count", m.dailyRebootCount),
+			zap.Int("max_allowed", SyncBoxMaxDailyReboots))
+		return false
+	}
+
+	// Check cooldown
+	if !m.lastSyncBoxReboot.IsZero() && now.Sub(m.lastSyncBoxReboot) < SyncBoxRebootCooldown {
+		m.logger.Warn("Sync box still unavailable but in cooldown period",
+			zap.Duration("time_since_last_reboot", now.Sub(m.lastSyncBoxReboot)),
+			zap.Duration("cooldown_required", SyncBoxRebootCooldown))
+		return false
+	}
+
+	return true
+}
+
+// performPowerCycleRecovery performs the actual power cycle recovery sequence
+func (m *Manager) performPowerCycleRecovery() {
+	// Skip in read-only mode
+	if m.readOnly {
+		m.logger.Info("Skipping sync box power cycle recovery in read-only mode")
+		return
+	}
+
+	m.logger.Warn("Initiating Hue Sync Box power cycle recovery")
+
+	// Update tracking state
+	m.recoveryMu.Lock()
+	m.lastSyncBoxReboot = m.timeNow()
+	m.dailyRebootCount++
+	rebootCount := m.dailyRebootCount
+	m.recoveryMu.Unlock()
+
+	// Update shadow state with recovery info
+	m.shadowTracker.UpdateLastRecovery(m.lastSyncBoxReboot, rebootCount)
+
+	// Step 1: Turn off physical power
+	m.logger.Info("Turning off sync box physical power")
+	err := m.haClient.CallService("switch", "turn_off", map[string]interface{}{
+		"entity_id": SyncBoxPhysicalPowerEntity,
+	})
+	if err != nil {
+		m.logger.Error("Failed to turn off sync box physical power", zap.Error(err))
+		return
+	}
+
+	// Step 2: Wait for power cycle delay
+	m.logger.Info("Waiting for power cycle delay",
+		zap.Duration("delay", SyncBoxPowerCycleDelay))
+	m.sleepFunc(SyncBoxPowerCycleDelay)
+
+	// Step 3: Turn on physical power
+	m.logger.Info("Turning on sync box physical power")
+	err = m.haClient.CallService("switch", "turn_on", map[string]interface{}{
+		"entity_id": SyncBoxPhysicalPowerEntity,
+	})
+	if err != nil {
+		m.logger.Error("Failed to turn on sync box physical power", zap.Error(err))
+		return
+	}
+
+	m.logger.Info("Sync box power cycle recovery completed",
+		zap.Int("daily_reboot_count", rebootCount))
+}
+
+// GetRecoveryState returns the current recovery state for testing
+func (m *Manager) GetRecoveryState() (lastReboot time.Time, dailyCount int, inProgress bool) {
+	m.recoveryMu.Lock()
+	defer m.recoveryMu.Unlock()
+	return m.lastSyncBoxReboot, m.dailyRebootCount, m.recoveryInProgress
 }
