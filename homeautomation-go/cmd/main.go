@@ -204,7 +204,7 @@ func main() {
 	dayPhaseCalc := dayphaselib.NewCalculator(latitude, longitude, logger)
 
 	// Start Day Phase Manager (sun events and day phase)
-	dayPhaseManager, err := startDayPhaseManager(client, stateManager, logger, readOnly, configDir, dayPhaseCalc)
+	dayPhaseManager, err := startDayPhaseManager(client, stateManager, logger, readOnly, configDir, dayPhaseCalc, timezone)
 	if err != nil {
 		logger.Fatal("Failed to start Day Phase Manager", zap.Error(err))
 	}
@@ -258,7 +258,7 @@ func main() {
 	logger.Info("Registered security shadow state with tracker")
 
 	// Start Sleep Hygiene Manager
-	sleepHygieneManager, err := startSleepHygieneManager(client, stateManager, logger, readOnly, configDir)
+	sleepHygieneManager, err := startSleepHygieneManager(client, stateManager, logger, readOnly, configDir, timezone)
 	if err != nil {
 		logger.Fatal("Failed to start Sleep Hygiene Manager", zap.Error(err))
 	}
@@ -484,17 +484,19 @@ func startLightingManager(client ha.HAClient, stateManager *state.Manager, logge
 	return lightingManager, nil
 }
 
-func startSleepHygieneManager(client ha.HAClient, stateManager *state.Manager, logger *zap.Logger, readOnly bool, configDir string) (*sleephygiene.Manager, error) {
+func startSleepHygieneManager(client ha.HAClient, stateManager *state.Manager, logger *zap.Logger, readOnly bool, configDir string, timezone *time.Location) (*sleephygiene.Manager, error) {
 	// Load schedule configuration
 	configLoader := config.NewLoader(configDir, logger)
+	configLoader.SetTimezone(timezone)
 	if err := configLoader.LoadScheduleConfig(); err != nil {
 		return nil, fmt.Errorf("failed to load schedule config: %w", err)
 	}
 
-	logger.Info("Loaded schedule configuration for Sleep Hygiene")
+	logger.Info("Loaded schedule configuration for Sleep Hygiene",
+		zap.String("timezone", timezone.String()))
 
-	// Create and start sleep hygiene manager
-	sleepHygieneManager := sleephygiene.NewManager(client, stateManager, configLoader, logger, readOnly, nil)
+	// Create and start sleep hygiene manager with timezone
+	sleepHygieneManager := sleephygiene.NewManager(client, stateManager, configLoader, logger, readOnly, nil, timezone)
 	if err := sleepHygieneManager.Start(); err != nil {
 		return nil, fmt.Errorf("failed to start sleep hygiene manager: %w", err)
 	}
@@ -503,17 +505,19 @@ func startSleepHygieneManager(client ha.HAClient, stateManager *state.Manager, l
 	return sleepHygieneManager, nil
 }
 
-func startDayPhaseManager(client ha.HAClient, stateManager *state.Manager, logger *zap.Logger, readOnly bool, configDir string, calculator *dayphaselib.Calculator) (*dayphase.Manager, error) {
+func startDayPhaseManager(client ha.HAClient, stateManager *state.Manager, logger *zap.Logger, readOnly bool, configDir string, calculator *dayphaselib.Calculator, timezone *time.Location) (*dayphase.Manager, error) {
 	// Load schedule configuration (needed for day phase calculation)
 	configLoader := config.NewLoader(configDir, logger)
+	configLoader.SetTimezone(timezone)
 	if err := configLoader.LoadScheduleConfig(); err != nil {
 		return nil, fmt.Errorf("failed to load schedule config: %w", err)
 	}
 
-	logger.Info("Loaded schedule configuration for Day Phase")
+	logger.Info("Loaded schedule configuration for Day Phase",
+		zap.String("timezone", timezone.String()))
 
-	// Create and start day phase manager
-	dayPhaseManager := dayphase.NewManager(client, stateManager, configLoader, calculator, logger, readOnly)
+	// Create and start day phase manager with timezone
+	dayPhaseManager := dayphase.NewManager(client, stateManager, configLoader, calculator, logger, readOnly, timezone)
 	if err := dayPhaseManager.Start(); err != nil {
 		return nil, fmt.Errorf("failed to start day phase manager: %w", err)
 	}

@@ -30,9 +30,9 @@ func setupTest(t *testing.T, currentTime time.Time) (*Manager, *ha.MockClient, *
 	// Create a config loader
 	configLoader := config.NewLoader("../../../configs", logger)
 
-	// Create manager with fixed time provider
+	// Create manager with fixed time provider and nil timezone (defaults to time.Local)
 	timeProvider := FixedTimeProvider{FixedTime: currentTime}
-	manager := NewManager(mockHA, stateManager, configLoader, logger, false, timeProvider)
+	manager := NewManager(mockHA, stateManager, configLoader, logger, false, timeProvider, nil)
 
 	return manager, mockHA, stateManager, configLoader
 }
@@ -43,7 +43,7 @@ func TestNewManager(t *testing.T) {
 	stateManager := state.NewManager(mockHA, logger, false)
 	configLoader := config.NewLoader("../../../configs", logger)
 
-	manager := NewManager(mockHA, stateManager, configLoader, logger, false, nil)
+	manager := NewManager(mockHA, stateManager, configLoader, logger, false, nil, nil)
 
 	if manager == nil {
 		t.Fatal("NewManager returned nil")
@@ -337,7 +337,7 @@ func TestReadOnlyMode(t *testing.T) {
 
 	// Create manager in READ-ONLY mode
 	timeProvider := FixedTimeProvider{FixedTime: now}
-	manager := NewManager(mockHA, stateManager, configLoader, logger, true, timeProvider)
+	manager := NewManager(mockHA, stateManager, configLoader, logger, true, timeProvider, nil)
 
 	// Clear previous calls
 	mockHA.ClearServiceCalls()
@@ -444,7 +444,7 @@ func TestCheckTimeTriggers_ErrorGettingSchedule(t *testing.T) {
 	// Use a config loader pointing to non-existent directory
 	configLoader := config.NewLoader("/nonexistent/path", logger)
 	timeProvider := FixedTimeProvider{FixedTime: now}
-	manager := NewManager(mockHA, stateManager, configLoader, logger, false, timeProvider)
+	manager := NewManager(mockHA, stateManager, configLoader, logger, false, timeProvider, nil)
 
 	// Check triggers - should handle error gracefully
 	manager.checkTimeTriggers()
@@ -465,7 +465,7 @@ func TestHandleWake_ErrorGettingState(t *testing.T) {
 	// Don't initialize states - will cause errors
 	configLoader := config.NewLoader("../../../configs", logger)
 	timeProvider := FixedTimeProvider{FixedTime: now}
-	manager := NewManager(mockHA, stateManager, configLoader, logger, false, timeProvider)
+	manager := NewManager(mockHA, stateManager, configLoader, logger, false, timeProvider, nil)
 
 	mockHA.ClearServiceCalls()
 
@@ -493,7 +493,7 @@ func TestHandleBeginWake_ReadOnly(t *testing.T) {
 
 	configLoader := config.NewLoader("../../../configs", logger)
 	timeProvider := FixedTimeProvider{FixedTime: now}
-	manager := NewManager(mockHA, stateManager, configLoader, logger, true, timeProvider) // READ-ONLY
+	manager := NewManager(mockHA, stateManager, configLoader, logger, true, timeProvider, nil) // READ-ONLY
 
 	mockHA.ClearServiceCalls()
 
@@ -525,7 +525,7 @@ func TestHandleWake_ReadOnly(t *testing.T) {
 
 	configLoader := config.NewLoader("../../../configs", logger)
 	timeProvider := FixedTimeProvider{FixedTime: now}
-	manager := NewManager(mockHA, stateManager, configLoader, logger, true, timeProvider) // READ-ONLY
+	manager := NewManager(mockHA, stateManager, configLoader, logger, true, timeProvider, nil) // READ-ONLY
 
 	mockHA.ClearServiceCalls()
 
@@ -552,7 +552,7 @@ func TestHandleStopScreens_ReadOnly(t *testing.T) {
 
 	configLoader := config.NewLoader("../../../configs", logger)
 	timeProvider := FixedTimeProvider{FixedTime: now}
-	manager := NewManager(mockHA, stateManager, configLoader, logger, true, timeProvider) // READ-ONLY
+	manager := NewManager(mockHA, stateManager, configLoader, logger, true, timeProvider, nil) // READ-ONLY
 
 	mockHA.ClearServiceCalls()
 
@@ -1321,7 +1321,7 @@ func TestManagerReset(t *testing.T) {
 	configLoader := config.NewLoader("../../../configs", logger)
 	timeProvider := RealTimeProvider{}
 
-	manager := NewManager(mockClient, stateManager, configLoader, logger, false, timeProvider)
+	manager := NewManager(mockClient, stateManager, configLoader, logger, false, timeProvider, nil)
 
 	err := manager.Start()
 	if err != nil {
