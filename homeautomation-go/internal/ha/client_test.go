@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"sort"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -583,5 +585,125 @@ func TestClient_HandleEventBackpressuresHandlers(t *testing.T) {
 		assert.Equal(t, int32(2), atomic.LoadInt32(&calls))
 	case <-time.After(200 * time.Millisecond):
 		t.Fatal("handlers did not complete in time")
+	}
+}
+
+// TestClient_ConcurrentCallService verifies that concurrent CallService calls
+// result in messages with monotonically increasing IDs being sent in order.
+// This is a regression test for the "id_reuse" race condition where:
+//  1. Goroutine A gets ID 100
+//  2. Goroutine B gets ID 101
+//  3. Goroutine B sends ID 101 first
+//  4. Goroutine A sends ID 100 -> Home Assistant returns "id_reuse" error
+//
+// The fix ensures ID generation and send are atomic (protected by same mutex).
+func TestClient_ConcurrentCallService(t *testing.T) {
+	logger := zap.NewNop()
+	token := "test_token"
+
+	const numConcurrentCalls = 50
+
+	// Track received message IDs in order
+	var receivedIDsMu sync.Mutex
+	receivedIDs := make([]int, 0, numConcurrentCalls)
+	allReceived := make(chan struct{})
+
+	server := mockHAServer(t, func(conn *websocket.Conn) {
+		standardAuthFlow(t, conn, token)
+
+		// Handle subscribe_events
+		var subMsg SubscribeEventsRequest
+		conn.ReadJSON(&subMsg)
+		success := true
+		conn.WriteJSON(Message{
+			ID:      subMsg.ID,
+			Type:    "result",
+			Success: &success,
+		})
+
+		// Handle all service calls - track the order of received IDs
+		for i := 0; i < numConcurrentCalls; i++ {
+			var serviceReq CallServiceRequest
+			if err := conn.ReadJSON(&serviceReq); err != nil {
+				return
+			}
+
+			receivedIDsMu.Lock()
+			receivedIDs = append(receivedIDs, serviceReq.ID)
+			count := len(receivedIDs)
+			receivedIDsMu.Unlock()
+
+			// Send success response
+			conn.WriteJSON(Message{
+				ID:      serviceReq.ID,
+				Type:    "result",
+				Success: &success,
+			})
+
+			if count == numConcurrentCalls {
+				close(allReceived)
+			}
+		}
+
+		// Keep connection alive for responses
+		time.Sleep(100 * time.Millisecond)
+	})
+	defer server.Close()
+
+	url := "ws" + strings.TrimPrefix(server.URL, "http")
+	client := NewClient(url, token, logger)
+
+	err := client.Connect()
+	require.NoError(t, err)
+	defer client.Disconnect()
+
+	// Launch many concurrent CallService calls
+	var wg sync.WaitGroup
+	wg.Add(numConcurrentCalls)
+
+	for i := 0; i < numConcurrentCalls; i++ {
+		go func(n int) {
+			defer wg.Done()
+			err := client.CallService("test", "service", map[string]interface{}{
+				"call_number": n,
+			})
+			// Ignore errors - some may timeout if test is slow
+			_ = err
+		}(i)
+	}
+
+	// Wait for all calls to be received by server
+	select {
+	case <-allReceived:
+		// Good - all messages received
+	case <-time.After(5 * time.Second):
+		t.Fatal("Timeout waiting for all messages to be received")
+	}
+
+	wg.Wait()
+
+	// Verify IDs were received in strictly increasing order
+	// This is the key assertion: if there was a race, IDs would be out of order
+	receivedIDsMu.Lock()
+	idsCopy := make([]int, len(receivedIDs))
+	copy(idsCopy, receivedIDs)
+	receivedIDsMu.Unlock()
+
+	assert.Len(t, idsCopy, numConcurrentCalls, "Should have received all messages")
+
+	// Check that IDs are strictly increasing
+	sortedIDs := make([]int, len(idsCopy))
+	copy(sortedIDs, idsCopy)
+	sort.Ints(sortedIDs)
+
+	assert.Equal(t, sortedIDs, idsCopy,
+		"Message IDs should be received in strictly increasing order. "+
+			"If this fails, there's a race condition between ID generation and send. "+
+			"Received order: %v, Expected (sorted): %v", idsCopy, sortedIDs)
+
+	// Also verify IDs are consecutive (no gaps)
+	for i := 1; i < len(idsCopy); i++ {
+		assert.Equal(t, idsCopy[i-1]+1, idsCopy[i],
+			"Message IDs should be consecutive. Got %d then %d", idsCopy[i-1], idsCopy[i])
 	}
 }

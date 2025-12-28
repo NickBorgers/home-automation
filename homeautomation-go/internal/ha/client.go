@@ -36,11 +36,13 @@ type subscriberEntry struct {
 // Lock ordering (to prevent deadlocks, always acquire in this order):
 //  1. connMu - connection state
 //  2. ctxMu - context for cancellation
-//  3. writeMu - websocket writes
+//  3. writeMu - websocket writes (also protects msgID to ensure ordered sends)
 //  4. pendingMu - pending response channels
 //  5. subsMu - subscribers
-//  6. msgIDMu - message ID counter
-//  7. nextSubIDMu - subscription ID counter
+//  6. nextSubIDMu - subscription ID counter
+//
+// Note: msgIDMu has been eliminated; msgID is now protected by writeMu to ensure
+// message IDs are allocated and sent atomically, preventing out-of-order sends.
 type Client struct {
 	url         string
 	token       string
@@ -48,8 +50,7 @@ type Client struct {
 	conn        *websocket.Conn
 	connected   bool
 	connMu      sync.RWMutex
-	msgID       int
-	msgIDMu     sync.Mutex
+	msgID       int // Protected by writeMu (not separate mutex) to ensure atomic ID+send
 	pending     map[int]chan Message
 	pendingMu   sync.Mutex
 	subscribers map[string][]subscriberEntry
@@ -60,7 +61,7 @@ type Client struct {
 	cancel      context.CancelFunc
 	ctxMu       sync.RWMutex // Protects ctx and cancel
 	reconnect   bool
-	writeMu     sync.Mutex // Protects websocket writes
+	writeMu     sync.Mutex // Protects websocket writes AND msgID counter
 }
 
 func (c *Client) clearSubscribers() {
@@ -113,9 +114,10 @@ func (c *Client) Connect() error {
 
 	// Reset message ID counter for new connection
 	// Each WebSocket session expects message IDs to start from 1
-	c.msgIDMu.Lock()
+	// Protected by writeMu for consistency, though not strictly needed during Connect
+	c.writeMu.Lock()
 	c.msgID = 0
-	c.msgIDMu.Unlock()
+	c.writeMu.Unlock()
 
 	// Connect to WebSocket
 	conn, _, err := websocket.DefaultDialer.Dial(c.url, nil)
@@ -233,15 +235,17 @@ func (c *Client) IsConnected() bool {
 	return c.connected
 }
 
-// nextMsgID returns the next message ID
+// nextMsgID returns the next message ID.
+// IMPORTANT: Caller must hold writeMu to ensure atomic ID allocation + send.
 func (c *Client) nextMsgID() int {
-	c.msgIDMu.Lock()
-	defer c.msgIDMu.Unlock()
 	c.msgID++
 	return c.msgID
 }
 
-// sendMessage sends a message and waits for response
+// sendMessage sends a message and waits for response.
+// The message ID is assigned atomically with the send to prevent out-of-order delivery.
+// This fixes the race condition where goroutines could get sequential IDs but send them
+// out of order, causing Home Assistant to return "id_reuse" errors.
 func (c *Client) sendMessage(msg interface{}) (*Message, error) {
 	// Capture connection reference while holding the lock to prevent race with Disconnect().
 	// Invariant: connected == true implies conn != nil (enforced by Connect/Disconnect).
@@ -258,37 +262,48 @@ func (c *Client) sendMessage(msg interface{}) (*Message, error) {
 	ctx := c.ctx
 	c.ctxMu.RUnlock()
 
-	// Get message ID
-	var msgID int
+	// Create response channel (created before locking writeMu to minimize lock hold time)
+	respChan := make(chan Message, 1)
+
+	// CRITICAL: Hold writeMu from ID generation through send to ensure messages are
+	// sent in ID order. This prevents the race where:
+	//   1. Goroutine A gets ID 100
+	//   2. Goroutine B gets ID 101
+	//   3. Goroutine B sends ID 101 first
+	//   4. Goroutine A sends ID 100 -> HA returns "id_reuse" error
+	c.writeMu.Lock()
+
+	// Generate message ID while holding writeMu
+	msgID := c.nextMsgID()
+
+	// Assign ID to the message
 	switch m := msg.(type) {
 	case *CallServiceRequest:
-		msgID = m.ID
+		m.ID = msgID
 	case *GetStatesRequest:
-		msgID = m.ID
+		m.ID = msgID
 	case *SubscribeEventsRequest:
-		msgID = m.ID
+		m.ID = msgID
 	default:
+		c.writeMu.Unlock()
 		return nil, fmt.Errorf("unsupported message type")
 	}
 
-	// Create response channel
-	respChan := make(chan Message, 1)
+	// Register response channel before sending (still holding writeMu)
 	c.pendingMu.Lock()
 	c.pending[msgID] = respChan
 	c.pendingMu.Unlock()
 
-	// Clean up after timeout
+	// Send message while still holding writeMu
+	err := conn.WriteJSON(msg)
+	c.writeMu.Unlock()
+
+	// Clean up on exit
 	defer func() {
 		c.pendingMu.Lock()
 		delete(c.pending, msgID)
 		c.pendingMu.Unlock()
 	}()
-
-	// Send message (protected by writeMu to prevent concurrent writes)
-	// Use the captured conn reference to avoid race with Disconnect setting c.conn = nil
-	c.writeMu.Lock()
-	err := conn.WriteJSON(msg)
-	c.writeMu.Unlock()
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to send message: %w", err)
@@ -442,9 +457,7 @@ func (c *Client) attemptReconnect() {
 
 // subscribeToStateChanges subscribes to all state_changed events
 func (c *Client) subscribeToStateChanges() error {
-	msgID := c.nextMsgID()
 	req := &SubscribeEventsRequest{
-		ID:        msgID,
 		Type:      "subscribe_events",
 		EventType: "state_changed",
 	}
@@ -471,9 +484,7 @@ func (c *Client) GetState(entityID string) (*State, error) {
 
 // GetAllStates retrieves all entity states
 func (c *Client) GetAllStates() ([]*State, error) {
-	msgID := c.nextMsgID()
 	req := &GetStatesRequest{
-		ID:   msgID,
 		Type: "get_states",
 	}
 
@@ -492,9 +503,7 @@ func (c *Client) GetAllStates() ([]*State, error) {
 
 // CallService calls a Home Assistant service
 func (c *Client) CallService(domain, service string, data map[string]interface{}) error {
-	msgID := c.nextMsgID()
 	req := &CallServiceRequest{
-		ID:          msgID,
 		Type:        "call_service",
 		Domain:      domain,
 		Service:     service,
