@@ -20,6 +20,10 @@ type MockClient struct {
 	callsMu        sync.Mutex
 	getStateCalls  map[string]int // Track GetState calls per entity
 	getStateCallMu sync.Mutex
+
+	// Error injection for testing
+	serviceErrors   map[string]error // key: "domain.service"
+	serviceErrorsMu sync.RWMutex
 }
 
 func (m *MockClient) clearSubscribers() {
@@ -55,7 +59,22 @@ func NewMockClient() *MockClient {
 		subscribers:   make(map[string][]subscriberEntry),
 		serviceCalls:  make([]ServiceCall, 0),
 		getStateCalls: make(map[string]int),
+		serviceErrors: make(map[string]error),
 		connected:     false,
+	}
+}
+
+// SetServiceError configures the mock to return an error for a specific service call.
+// The key format is "domain.service" (e.g., "media_player.volume_mute").
+// Pass nil to clear an error.
+func (m *MockClient) SetServiceError(domain, service string, err error) {
+	m.serviceErrorsMu.Lock()
+	defer m.serviceErrorsMu.Unlock()
+	key := domain + "." + service
+	if err == nil {
+		delete(m.serviceErrors, key)
+	} else {
+		m.serviceErrors[key] = err
 	}
 }
 
@@ -122,6 +141,15 @@ func (m *MockClient) GetAllStates() ([]*State, error) {
 
 // CallService records a service call
 func (m *MockClient) CallService(domain, service string, data map[string]interface{}) error {
+	// Check for injected errors first
+	m.serviceErrorsMu.RLock()
+	key := domain + "." + service
+	if err, exists := m.serviceErrors[key]; exists {
+		m.serviceErrorsMu.RUnlock()
+		return err
+	}
+	m.serviceErrorsMu.RUnlock()
+
 	m.callsMu.Lock()
 	m.serviceCalls = append(m.serviceCalls, ServiceCall{
 		Domain:  domain,

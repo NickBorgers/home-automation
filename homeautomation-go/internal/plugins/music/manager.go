@@ -835,7 +835,20 @@ func (m *Manager) fadeInSpeaker(speakerName string, targetVolume int, startingMu
 
 	entityID := m.getSpeakerEntityID(speakerName)
 
-	// Unmute speaker first - Sonos maintains mute state independently of volume
+	// SAFETY: Set volume to 0 BEFORE unmuting to prevent sudden loud noise.
+	// If the speaker was previously at high volume and muted, unmuting without
+	// lowering volume first would cause an immediate loud playback.
+	if err := m.callService("media_player", "volume_set", map[string]interface{}{
+		"entity_id":    entityID,
+		"volume_level": 0.0,
+	}); err != nil {
+		m.logger.Error("Failed to set initial volume before unmute",
+			zap.String("speaker", speakerName),
+			zap.Error(err))
+		return
+	}
+
+	// Now safe to unmute - Sonos maintains mute state independently of volume
 	if err := m.callService("media_player", "volume_mute", map[string]interface{}{
 		"entity_id":       entityID,
 		"is_volume_muted": false,
