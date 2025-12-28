@@ -456,7 +456,11 @@ func (m *Manager) checkAndRecoverSyncBox() {
 		m.logger.Error("Failed to get sync box state during recovery check", zap.Error(err))
 		return
 	}
-	if syncBoxState == nil || syncBoxState.State != "unavailable" {
+	if syncBoxState == nil {
+		m.logger.Error("Sync box state is nil during recovery check")
+		return
+	}
+	if syncBoxState.State != "unavailable" {
 		m.logger.Info("Sync box recovered on its own, no action needed",
 			zap.String("current_state", syncBoxState.State))
 		m.shadowTracker.UpdateSyncBoxAvailable(true)
@@ -469,7 +473,11 @@ func (m *Manager) checkAndRecoverSyncBox() {
 		m.logger.Error("Failed to get physical power state", zap.Error(err))
 		return
 	}
-	if physicalPowerState == nil || physicalPowerState.State != "on" {
+	if physicalPowerState == nil {
+		m.logger.Error("Physical power state is nil during recovery check")
+		return
+	}
+	if physicalPowerState.State != "on" {
 		m.logger.Info("Physical power is off, sync box intentionally unpowered - no recovery needed",
 			zap.String("physical_power_state", physicalPowerState.State))
 		return
