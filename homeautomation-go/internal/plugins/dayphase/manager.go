@@ -262,7 +262,9 @@ func (m *Manager) updateShadowInputs() {
 
 // updateNextTransition calculates and updates the next phase transition in shadow state
 func (m *Manager) updateNextTransition(currentPhase dayphaselib.DayPhase) {
-	now := time.Now()
+	// Use configured timezone for date calculations to avoid off-by-one-day errors
+	// when the system timezone differs from the configured timezone (e.g., Docker in UTC)
+	now := time.Now().In(m.timezone)
 	sunTimes := m.calculator.GetSunTimes()
 
 	var nextTime time.Time
