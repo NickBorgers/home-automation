@@ -20,11 +20,14 @@ music:
         leave_muted_if:
           - variable: isMasterAsleep
             value: true
-      - player_name: "Dining Room"
+      - player_name: "Sitting Room"
         base_volume: 8
         leave_muted_if:
           - variable: isTVPlaying
             value: true
+      - player_name: "Front Room"
+        base_volume: 8
+        leave_muted_if: []
       - player_name: "Office"
         base_volume: 8
         leave_muted_if:
@@ -67,11 +70,14 @@ music:
         leave_muted_if:
           - variable: isMasterAsleep
             value: true
-      - player_name: "Dining Room"
+      - player_name: "Sitting Room"
         base_volume: 9
         leave_muted_if:
           - variable: isTVPlaying
             value: true
+      - player_name: "Front Room"
+        base_volume: 9
+        leave_muted_if: []
       - player_name: "Office"
         base_volume: 6
         leave_muted_if:
@@ -127,11 +133,14 @@ music:
         leave_muted_if:
           - variable: isMasterAsleep
             value: true
-      - player_name: "Dining Room"
+      - player_name: "Sitting Room"
         base_volume: 8
         leave_muted_if:
           - variable: isTVPlaying
             value: true
+      - player_name: "Front Room"
+        base_volume: 8
+        leave_muted_if: []
       - player_name: "Office"
         base_volume: 8
         leave_muted_if:
@@ -183,11 +192,14 @@ music:
         leave_muted_if:
           - variable: isMasterAsleep
             value: true
-      - player_name: "Dining Room"
+      - player_name: "Sitting Room"
         base_volume: 7
         leave_muted_if:
           - variable: isTVPlaying
             value: true
+      - player_name: "Front Room"
+        base_volume: 7
+        leave_muted_if: []
       - player_name: "Office"
         base_volume: 8
         leave_muted_if:
@@ -211,11 +223,14 @@ music:
       - player_name: "Bedroom"
         base_volume: 16
         leave_muted_if: []
-      - player_name: "Dining Room"
+      - player_name: "Sitting Room"
         base_volume: 9
         leave_muted_if:
           - variable: isTVPlaying
             value: true
+      - player_name: "Front Room"
+        base_volume: 9
+        leave_muted_if: []
       - player_name: "Kitchen"
         base_volume: 16
         leave_muted_if: []
