@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"strings"
 	"sync"
 	"time"
 
@@ -80,6 +81,10 @@ type Manager struct {
 
 	// Subscriptions for cleanup
 	subscriptions []state.Subscription
+
+	// Available media_player entities from Home Assistant
+	availableSpeakers   map[string]bool // entity_id -> exists
+	availableSpeakersMu sync.RWMutex
 }
 
 // NewManager creates a new Music manager
@@ -100,6 +105,7 @@ func NewManager(haClient ha.HAClient, stateManager *state.Manager, config *Music
 		shadowState:        shadowstate.NewMusicShadowState(),
 		subscriptions:      make([]state.Subscription, 0),
 		playbackInProgress: false,
+		availableSpeakers:  make(map[string]bool),
 	}
 }
 
@@ -156,6 +162,14 @@ func (m *Manager) Start() error {
 		m.logger.Debug("Subscribed to mute condition variable",
 			zap.String("variable", varNameCopy))
 	}
+
+	// Refresh available speakers from Home Assistant
+	if err := m.refreshAvailableSpeakers(); err != nil {
+		m.logger.Warn("Failed to refresh available speakers on startup", zap.Error(err))
+	}
+
+	// Validate configured speakers exist in Home Assistant
+	m.validateConfiguredSpeakers()
 
 	// Perform initial music mode selection
 	m.selectAppropriateMusicMode()
@@ -510,7 +524,7 @@ func (m *Manager) unmuteSpeaker(participant ParticipantWithVolume) {
 	m.logger.Info("Unmuting speaker",
 		zap.String("speaker", participant.PlayerName))
 
-	if err := m.callService("media_player", "volume_mute", map[string]interface{}{
+	if err := m.callServiceWithRetry("media_player", "volume_mute", map[string]interface{}{
 		"entity_id":       entityID,
 		"is_volume_muted": false,
 	}); err != nil {
@@ -534,7 +548,7 @@ func (m *Manager) muteSpeaker(participant ParticipantWithVolume) {
 	m.logger.Info("Muting speaker",
 		zap.String("speaker", participant.PlayerName))
 
-	if err := m.callService("media_player", "volume_mute", map[string]interface{}{
+	if err := m.callServiceWithRetry("media_player", "volume_mute", map[string]interface{}{
 		"entity_id":       entityID,
 		"is_volume_muted": true,
 	}); err != nil {
@@ -566,7 +580,7 @@ func (m *Manager) stopPlayback() {
 	for _, mode := range m.config.Music {
 		for _, participant := range mode.Participants {
 			entityID := m.getSpeakerEntityID(participant.PlayerName)
-			if err := m.callService("media_player", "volume_set", map[string]interface{}{
+			if err := m.callServiceWithRetry("media_player", "volume_set", map[string]interface{}{
 				"entity_id":    entityID,
 				"volume_level": 0,
 			}); err != nil {
@@ -719,7 +733,7 @@ func (m *Manager) executePlayback(musicType string, option PlaybackOption, parti
 	// Step 2: Mute all speakers initially
 	for _, p := range participants {
 		entityID := m.getSpeakerEntityID(p.PlayerName)
-		if err := m.callService("media_player", "volume_set", map[string]interface{}{
+		if err := m.callServiceWithRetry("media_player", "volume_set", map[string]interface{}{
 			"entity_id":    entityID,
 			"volume_level": 0,
 		}); err != nil {
@@ -730,7 +744,7 @@ func (m *Manager) executePlayback(musicType string, option PlaybackOption, parti
 	}
 
 	// Step 3: Start playback on lead player
-	if err := m.callService("media_player", "play_media", map[string]interface{}{
+	if err := m.callServiceWithRetry("media_player", "play_media", map[string]interface{}{
 		"entity_id":          leadEntityID,
 		"media_content_id":   option.URI,
 		"media_content_type": option.MediaType,
@@ -740,7 +754,7 @@ func (m *Manager) executePlayback(musicType string, option PlaybackOption, parti
 
 	// Step 4: Enable shuffle for Spotify playlists
 	if option.MediaType == "playlist" {
-		if err := m.callService("media_player", "shuffle_set", map[string]interface{}{
+		if err := m.callServiceWithRetry("media_player", "shuffle_set", map[string]interface{}{
 			"entity_id": leadEntityID,
 			"shuffle":   true,
 		}); err != nil {
@@ -802,7 +816,7 @@ func (m *Manager) buildSpeakerGroup(participants []ParticipantWithVolume, leadEn
 	if len(groupMembers) > 0 {
 		var lastErr error
 		for attempt := 1; attempt <= maxSpeakerGroupRetries; attempt++ {
-			err := m.callService("media_player", "join", map[string]interface{}{
+			err := m.callServiceWithRetry("media_player", "join", map[string]interface{}{
 				"entity_id":     leadEntityID, // Coordinator
 				"group_members": groupMembers, // All followers
 			})
@@ -888,7 +902,7 @@ func (m *Manager) fadeInSpeaker(speakerName string, targetVolume int, startingMu
 	// SAFETY: Set volume to 0 BEFORE unmuting to prevent sudden loud noise.
 	// If the speaker was previously at high volume and muted, unmuting without
 	// lowering volume first would cause an immediate loud playback.
-	if err := m.callService("media_player", "volume_set", map[string]interface{}{
+	if err := m.callServiceWithRetry("media_player", "volume_set", map[string]interface{}{
 		"entity_id":    entityID,
 		"volume_level": 0.0,
 	}); err != nil {
@@ -899,7 +913,7 @@ func (m *Manager) fadeInSpeaker(speakerName string, targetVolume int, startingMu
 	}
 
 	// Now safe to unmute - Sonos maintains mute state independently of volume
-	if err := m.callService("media_player", "volume_mute", map[string]interface{}{
+	if err := m.callServiceWithRetry("media_player", "volume_mute", map[string]interface{}{
 		"entity_id":       entityID,
 		"is_volume_muted": false,
 	}); err != nil {
@@ -928,7 +942,7 @@ func (m *Manager) fadeInSpeaker(speakerName string, targetVolume int, startingMu
 		}
 
 		// Set volume
-		if err := m.callService("media_player", "volume_set", map[string]interface{}{
+		if err := m.callServiceWithRetry("media_player", "volume_set", map[string]interface{}{
 			"entity_id":    entityID,
 			"volume_level": float64(currentVolume) / 100.0, // Normalize percentage (0-100) to 0.0-1.0
 		}); err != nil {
@@ -1053,6 +1067,86 @@ func (m *Manager) callService(domain, service string, serviceData map[string]int
 	}
 
 	return nil
+}
+
+// refreshAvailableSpeakers queries Home Assistant for all media_player entities
+// and caches which ones are available for use
+func (m *Manager) refreshAvailableSpeakers() error {
+	states, err := m.haClient.GetAllStates()
+	if err != nil {
+		return fmt.Errorf("failed to get states from Home Assistant: %w", err)
+	}
+
+	m.availableSpeakersMu.Lock()
+	defer m.availableSpeakersMu.Unlock()
+
+	m.availableSpeakers = make(map[string]bool)
+	for _, state := range states {
+		if strings.HasPrefix(state.EntityID, "media_player.") {
+			m.availableSpeakers[state.EntityID] = true
+		}
+	}
+
+	m.logger.Info("Refreshed available speakers",
+		zap.Int("count", len(m.availableSpeakers)))
+	return nil
+}
+
+// isSpeakerAvailable checks if a speaker entity exists in Home Assistant
+func (m *Manager) isSpeakerAvailable(entityID string) bool {
+	m.availableSpeakersMu.RLock()
+	defer m.availableSpeakersMu.RUnlock()
+	return m.availableSpeakers[entityID]
+}
+
+// validateConfiguredSpeakers logs warnings for any configured speakers not found in Home Assistant
+func (m *Manager) validateConfiguredSpeakers() {
+	for modeName, mode := range m.config.Music {
+		for _, participant := range mode.Participants {
+			entityID := m.getSpeakerEntityID(participant.PlayerName)
+			if !m.isSpeakerAvailable(entityID) {
+				m.logger.Warn("Configured speaker not found in Home Assistant",
+					zap.String("speaker", participant.PlayerName),
+					zap.String("entity_id", entityID),
+					zap.String("mode", modeName))
+			}
+		}
+	}
+}
+
+// callServiceWithRetry wraps callService with refresh-on-error logic
+// If a service call fails, it refreshes the available speakers and retries once
+func (m *Manager) callServiceWithRetry(domain, service string, serviceData map[string]interface{}) error {
+	// First attempt
+	err := m.callService(domain, service, serviceData)
+	if err == nil {
+		return nil
+	}
+
+	// Check if entity might not exist
+	entityID, hasEntity := serviceData["entity_id"].(string)
+	if !hasEntity {
+		return err // No entity_id, can't validate
+	}
+
+	// Refresh available speakers
+	m.logger.Info("Service call failed, refreshing available speakers",
+		zap.String("entity_id", entityID),
+		zap.Error(err))
+
+	if refreshErr := m.refreshAvailableSpeakers(); refreshErr != nil {
+		m.logger.Warn("Failed to refresh speakers", zap.Error(refreshErr))
+		return err // Return original error
+	}
+
+	// Check if entity now exists
+	if !m.isSpeakerAvailable(entityID) {
+		return fmt.Errorf("speaker %s not available in Home Assistant: %w", entityID, err)
+	}
+
+	// Retry once
+	m.logger.Info("Retrying service call after refresh", zap.String("entity_id", entityID))
+	return m.callService(domain, service, serviceData)
 }
 
 // Reset re-evaluates appropriate music mode and triggers playback

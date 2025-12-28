@@ -1609,3 +1609,234 @@ func TestFadeInSpeaker_UnmuteFailure(t *testing.T) {
 		t.Errorf("Expected exactly 1 volume_set call (initial safety set to 0), got %d", volumeSetCount)
 	}
 }
+
+// TestRefreshAvailableSpeakers verifies that refreshAvailableSpeakers correctly
+// caches media_player entities from Home Assistant.
+func TestRefreshAvailableSpeakers(t *testing.T) {
+	mockHA := ha.NewMockClient()
+	logger := zap.NewNop()
+	stateManager := state.NewManager(mockHA, logger, false)
+
+	config := &MusicConfig{
+		Music: map[string]MusicMode{
+			"morning": {}, "day": {}, "evening": {}, "winddown": {},
+			"sleep": {}, "sex": {}, "wakeup": {},
+		},
+	}
+
+	manager := NewManager(mockHA, stateManager, config, logger, false, nil)
+
+	// Set up mock states with various entity types
+	mockHA.SetState("media_player.kitchen", "idle", nil)
+	mockHA.SetState("media_player.bedroom", "playing", nil)
+	mockHA.SetState("light.living_room", "on", nil)
+	mockHA.SetState("sensor.temperature", "22", nil)
+	mockHA.SetState("media_player.soundbar", "off", nil)
+
+	// Refresh speakers
+	err := manager.refreshAvailableSpeakers()
+	if err != nil {
+		t.Fatalf("refreshAvailableSpeakers failed: %v", err)
+	}
+
+	// Verify only media_player entities are in the cache
+	if !manager.isSpeakerAvailable("media_player.kitchen") {
+		t.Error("Expected media_player.kitchen to be available")
+	}
+	if !manager.isSpeakerAvailable("media_player.bedroom") {
+		t.Error("Expected media_player.bedroom to be available")
+	}
+	if !manager.isSpeakerAvailable("media_player.soundbar") {
+		t.Error("Expected media_player.soundbar to be available")
+	}
+
+	// Non-media_player entities should not be available
+	if manager.isSpeakerAvailable("light.living_room") {
+		t.Error("light.living_room should NOT be in speaker cache")
+	}
+	if manager.isSpeakerAvailable("sensor.temperature") {
+		t.Error("sensor.temperature should NOT be in speaker cache")
+	}
+
+	// Non-existent entity should not be available
+	if manager.isSpeakerAvailable("media_player.nonexistent") {
+		t.Error("media_player.nonexistent should NOT be available")
+	}
+}
+
+// TestCallServiceWithRetry_Success verifies that callServiceWithRetry returns
+// success on first attempt when service call succeeds.
+func TestCallServiceWithRetry_Success(t *testing.T) {
+	mockHA := ha.NewMockClient()
+	logger := zap.NewNop()
+	stateManager := state.NewManager(mockHA, logger, false)
+
+	config := &MusicConfig{
+		Music: map[string]MusicMode{
+			"morning": {}, "day": {}, "evening": {}, "winddown": {},
+			"sleep": {}, "sex": {}, "wakeup": {},
+		},
+	}
+
+	manager := NewManager(mockHA, stateManager, config, logger, false, nil)
+
+	// Set up a speaker entity
+	mockHA.SetState("media_player.kitchen", "idle", nil)
+
+	err := manager.callServiceWithRetry("media_player", "volume_set", map[string]interface{}{
+		"entity_id":    "media_player.kitchen",
+		"volume_level": 0.5,
+	})
+
+	if err != nil {
+		t.Errorf("Expected success, got error: %v", err)
+	}
+
+	// Verify only one service call was made (no retry needed)
+	calls := mockHA.GetServiceCalls()
+	count := 0
+	for _, call := range calls {
+		if call.Domain == "media_player" && call.Service == "volume_set" {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Errorf("Expected 1 service call, got %d", count)
+	}
+}
+
+// TestCallServiceWithRetry_PersistentError verifies that callServiceWithRetry
+// returns an error when both the initial call and retry fail.
+func TestCallServiceWithRetry_PersistentError(t *testing.T) {
+	mockHA := ha.NewMockClient()
+	logger := zap.NewNop()
+	stateManager := state.NewManager(mockHA, logger, false)
+
+	config := &MusicConfig{
+		Music: map[string]MusicMode{
+			"morning": {}, "day": {}, "evening": {}, "winddown": {},
+			"sleep": {}, "sex": {}, "wakeup": {},
+		},
+	}
+
+	manager := NewManager(mockHA, stateManager, config, logger, false, nil)
+
+	// Set up a speaker entity so refresh will find it (retry path is triggered)
+	mockHA.SetState("media_player.kitchen", "idle", nil)
+
+	// Set persistent error - both initial call and retry will fail
+	mockHA.SetServiceError("media_player", "volume_set", fmt.Errorf("persistent failure"))
+
+	err := manager.callServiceWithRetry("media_player", "volume_set", map[string]interface{}{
+		"entity_id":    "media_player.kitchen",
+		"volume_level": 0.5,
+	})
+
+	// Error should be returned since both attempts fail
+	if err == nil {
+		t.Error("Expected error when service call persistently fails")
+	}
+
+	// Verify the error contains useful context
+	if err != nil && !strings.Contains(err.Error(), "persistent failure") {
+		t.Errorf("Expected error to contain 'persistent failure', got: %v", err)
+	}
+}
+
+// TestCallServiceWithRetry_SpeakerNotAvailable verifies that callServiceWithRetry
+// returns a clear error when the speaker doesn't exist after refresh.
+func TestCallServiceWithRetry_SpeakerNotAvailable(t *testing.T) {
+	mockHA := ha.NewMockClient()
+	logger := zap.NewNop()
+	stateManager := state.NewManager(mockHA, logger, false)
+
+	config := &MusicConfig{
+		Music: map[string]MusicMode{
+			"morning": {}, "day": {}, "evening": {}, "winddown": {},
+			"sleep": {}, "sex": {}, "wakeup": {},
+		},
+	}
+
+	manager := NewManager(mockHA, stateManager, config, logger, false, nil)
+
+	// Don't set up any media_player entities - speaker doesn't exist
+
+	// Set error to trigger retry logic
+	mockHA.SetServiceError("media_player", "volume_set", fmt.Errorf("entity not found"))
+
+	err := manager.callServiceWithRetry("media_player", "volume_set", map[string]interface{}{
+		"entity_id":    "media_player.nonexistent",
+		"volume_level": 0.5,
+	})
+
+	if err == nil {
+		t.Error("Expected error when speaker doesn't exist")
+	}
+
+	// Verify error message mentions speaker not available
+	if err != nil && !strings.Contains(err.Error(), "not available") {
+		t.Errorf("Expected 'not available' in error, got: %v", err)
+	}
+}
+
+// TestStartValidatesSpeakers verifies that Start() refreshes and validates
+// configured speakers on startup.
+func TestStartValidatesSpeakers(t *testing.T) {
+	mockHA := ha.NewMockClient()
+	logger := zap.NewNop()
+	stateManager := state.NewManager(mockHA, logger, false)
+
+	config := &MusicConfig{
+		Music: map[string]MusicMode{
+			"morning": {
+				Participants: []Participant{
+					{PlayerName: "Kitchen", BaseVolume: 10},
+					{PlayerName: "Missing Speaker", BaseVolume: 5},
+				},
+			},
+			"day":      {},
+			"evening":  {},
+			"winddown": {},
+			"sleep":    {},
+			"sex":      {},
+			"wakeup":   {},
+		},
+	}
+
+	// Set up required state variables
+	if err := stateManager.SetString("dayPhase", "day"); err != nil {
+		t.Fatalf("Failed to set dayPhase: %v", err)
+	}
+	if err := stateManager.SetBool("isAnyoneHome", true); err != nil {
+		t.Fatalf("Failed to set isAnyoneHome: %v", err)
+	}
+	if err := stateManager.SetBool("isAnyoneAsleep", false); err != nil {
+		t.Fatalf("Failed to set isAnyoneAsleep: %v", err)
+	}
+	if err := stateManager.SetString("musicPlaybackType", ""); err != nil {
+		t.Fatalf("Failed to set musicPlaybackType: %v", err)
+	}
+
+	manager := NewManager(mockHA, stateManager, config, logger, false, nil)
+
+	// Set up only one of the configured speakers
+	mockHA.SetState("media_player.kitchen", "idle", nil)
+	// Note: "Missing Speaker" (media_player.missing_speaker) is NOT set up
+
+	// Start should succeed but log warning for missing speaker
+	err := manager.Start()
+	if err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+	defer manager.Stop()
+
+	// Verify Kitchen is available after start
+	if !manager.isSpeakerAvailable("media_player.kitchen") {
+		t.Error("Expected media_player.kitchen to be available after Start")
+	}
+
+	// Verify Missing Speaker is NOT available
+	if manager.isSpeakerAvailable("media_player.missing_speaker") {
+		t.Error("Expected media_player.missing_speaker to NOT be available")
+	}
+}
