@@ -54,6 +54,9 @@ func (f FixedTimeProvider) Now() time.Time {
 	return f.FixedTime
 }
 
+// SleepFunc is a function type for sleeping (allows test injection)
+type SleepFunc func(time.Duration)
+
 // Manager handles music mode selection and playback coordination
 type Manager struct {
 	haClient     ha.HAClient
@@ -62,6 +65,7 @@ type Manager struct {
 	logger       *zap.Logger
 	readOnly     bool
 	timeProvider TimeProvider
+	sleepFunc    SleepFunc // Injectable sleep function for testing
 
 	// Playback state
 	playlistNumbers    map[string]int // Tracks playlist rotation per music type
@@ -91,11 +95,17 @@ func NewManager(haClient ha.HAClient, stateManager *state.Manager, config *Music
 		logger:             logger.Named("music"),
 		readOnly:           readOnly,
 		timeProvider:       timeProvider,
+		sleepFunc:          time.Sleep,
 		playlistNumbers:    make(map[string]int),
 		shadowState:        shadowstate.NewMusicShadowState(),
 		subscriptions:      make([]state.Subscription, 0),
 		playbackInProgress: false,
 	}
+}
+
+// SetSleepFunc allows overriding the sleep function for testing
+func (m *Manager) SetSleepFunc(fn SleepFunc) {
+	m.sleepFunc = fn
 }
 
 // Start begins monitoring state changes and managing music playback
@@ -819,7 +829,7 @@ func (m *Manager) buildSpeakerGroup(participants []ParticipantWithVolume, leadEn
 					zap.Int("max_attempts", maxSpeakerGroupRetries),
 					zap.Duration("retry_delay", retryDelay),
 					zap.Error(err))
-				time.Sleep(retryDelay)
+				m.sleepFunc(retryDelay)
 			} else {
 				m.logger.Error("Failed to create speaker group after all retries",
 					zap.Int("attempts", maxSpeakerGroupRetries),

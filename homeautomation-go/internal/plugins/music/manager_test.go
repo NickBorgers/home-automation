@@ -1101,6 +1101,9 @@ func TestBuildSpeakerGroupRetrySuccess(t *testing.T) {
 	config := &MusicConfig{Music: map[string]MusicMode{}}
 	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
 
+	// Use no-op sleep to make test fast
+	manager.SetSleepFunc(func(d time.Duration) {})
+
 	// Configure mock to fail twice, then succeed (simulating transient Sonos errors)
 	mockClient.SetServiceFailCount("media_player", "join", 2, fmt.Errorf("service call failed: timeout waiting for response"))
 
@@ -1115,19 +1118,6 @@ func TestBuildSpeakerGroupRetrySuccess(t *testing.T) {
 	if err != nil {
 		t.Errorf("buildSpeakerGroup() should have succeeded after retries, got: %v", err)
 	}
-
-	// Verify join was called 3 times (2 failures + 1 success)
-	calls := mockClient.GetServiceCalls()
-	joinCalls := 0
-	for _, call := range calls {
-		if call.Domain == "media_player" && call.Service == "join" {
-			joinCalls++
-		}
-	}
-	if joinCalls != 1 {
-		// Note: Only successful call is recorded in service calls
-		t.Logf("Join calls recorded: %d (only successful calls are recorded)", joinCalls)
-	}
 }
 
 // TestBuildSpeakerGroupRetryExhausted tests that speaker group building fails after all retries are exhausted
@@ -1137,6 +1127,9 @@ func TestBuildSpeakerGroupRetryExhausted(t *testing.T) {
 	stateManager := state.NewManager(mockClient, logger, false)
 	config := &MusicConfig{Music: map[string]MusicMode{}}
 	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+
+	// Use no-op sleep to make test fast
+	manager.SetSleepFunc(func(d time.Duration) {})
 
 	// Configure mock to always fail (permanent error)
 	mockClient.SetServiceError("media_player", "join", fmt.Errorf("service call failed: timeout waiting for response"))
@@ -1165,6 +1158,9 @@ func TestBuildSpeakerGroupRetryOnSecondAttempt(t *testing.T) {
 	stateManager := state.NewManager(mockClient, logger, false)
 	config := &MusicConfig{Music: map[string]MusicMode{}}
 	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+
+	// Use no-op sleep to make test fast
+	manager.SetSleepFunc(func(d time.Duration) {})
 
 	// Configure mock to fail once, then succeed
 	mockClient.SetServiceFailCount("media_player", "join", 1, fmt.Errorf("service call failed: timeout waiting for response"))
