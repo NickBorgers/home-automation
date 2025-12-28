@@ -55,6 +55,9 @@ func (f FixedTimeProvider) Now() time.Time {
 	return f.FixedTime
 }
 
+// SleepFunc is a function type for sleeping (allows test injection)
+type SleepFunc func(time.Duration)
+
 // Manager handles music mode selection and playback coordination
 type Manager struct {
 	haClient     ha.HAClient
@@ -63,6 +66,7 @@ type Manager struct {
 	logger       *zap.Logger
 	readOnly     bool
 	timeProvider TimeProvider
+	sleepFunc    SleepFunc // Injectable sleep function for testing
 
 	// Playback state
 	playlistNumbers    map[string]int // Tracks playlist rotation per music type
@@ -96,12 +100,18 @@ func NewManager(haClient ha.HAClient, stateManager *state.Manager, config *Music
 		logger:             logger.Named("music"),
 		readOnly:           readOnly,
 		timeProvider:       timeProvider,
+		sleepFunc:          time.Sleep,
 		playlistNumbers:    make(map[string]int),
 		shadowState:        shadowstate.NewMusicShadowState(),
 		subscriptions:      make([]state.Subscription, 0),
 		playbackInProgress: false,
 		availableSpeakers:  make(map[string]bool),
 	}
+}
+
+// SetSleepFunc allows overriding the sleep function for testing
+func (m *Manager) SetSleepFunc(fn SleepFunc) {
+	m.sleepFunc = fn
 }
 
 // Start begins monitoring state changes and managing music playback
@@ -775,7 +785,20 @@ func (m *Manager) executePlayback(musicType string, option PlaybackOption, parti
 	return nil
 }
 
-// buildSpeakerGroup creates a Sonos speaker group
+// Speaker group retry configuration
+const (
+	// maxSpeakerGroupRetries is the maximum number of attempts to create a speaker group.
+	// Sonos speaker grouping can fail due to network issues or speaker unavailability.
+	// Home Assistant has a 9.5s timeout for Sonos operations, so retries help recover
+	// from transient failures.
+	maxSpeakerGroupRetries = 3
+
+	// speakerGroupRetryBaseDelay is the base delay between retry attempts.
+	// Uses exponential backoff: 2s, 4s, 8s for attempts 1, 2, 3.
+	speakerGroupRetryBaseDelay = 2 * time.Second
+)
+
+// buildSpeakerGroup creates a Sonos speaker group with retry logic
 func (m *Manager) buildSpeakerGroup(participants []ParticipantWithVolume, leadEntityID string) error {
 	m.logger.Info("Building speaker group", zap.Int("count", len(participants)))
 
@@ -791,15 +814,43 @@ func (m *Manager) buildSpeakerGroup(participants []ParticipantWithVolume, leadEn
 
 	// Single call: lead speaker joins all followers to its group
 	if len(groupMembers) > 0 {
-		if err := m.callServiceWithRetry("media_player", "join", map[string]interface{}{
-			"entity_id":     leadEntityID, // Coordinator
-			"group_members": groupMembers, // All followers
-		}); err != nil {
-			return fmt.Errorf("failed to create speaker group: %w", err)
+		var lastErr error
+		for attempt := 1; attempt <= maxSpeakerGroupRetries; attempt++ {
+			err := m.callServiceWithRetry("media_player", "join", map[string]interface{}{
+				"entity_id":     leadEntityID, // Coordinator
+				"group_members": groupMembers, // All followers
+			})
+
+			if err == nil {
+				if attempt > 1 {
+					m.logger.Info("Speaker group created after retry",
+						zap.String("lead", leadEntityID),
+						zap.Strings("members", groupMembers),
+						zap.Int("attempt", attempt))
+				} else {
+					m.logger.Info("Speaker group created",
+						zap.String("lead", leadEntityID),
+						zap.Strings("members", groupMembers))
+				}
+				break
+			}
+
+			lastErr = err
+			if attempt < maxSpeakerGroupRetries {
+				retryDelay := speakerGroupRetryBaseDelay * time.Duration(1<<(attempt-1)) // Exponential backoff: 2s, 4s, 8s
+				m.logger.Warn("Failed to create speaker group, retrying",
+					zap.Int("attempt", attempt),
+					zap.Int("max_attempts", maxSpeakerGroupRetries),
+					zap.Duration("retry_delay", retryDelay),
+					zap.Error(err))
+				m.sleepFunc(retryDelay)
+			} else {
+				m.logger.Error("Failed to create speaker group after all retries",
+					zap.Int("attempts", maxSpeakerGroupRetries),
+					zap.Error(err))
+				return fmt.Errorf("failed to create speaker group: %w", lastErr)
+			}
 		}
-		m.logger.Info("Speaker group created",
-			zap.String("lead", leadEntityID),
-			zap.Strings("members", groupMembers))
 	}
 
 	// Wait for group to stabilize

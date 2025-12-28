@@ -309,7 +309,10 @@ func (c *Client) sendMessage(msg interface{}) (*Message, error) {
 		return nil, fmt.Errorf("failed to send message: %w", err)
 	}
 
-	// Wait for response with timeout
+	// Wait for response with timeout.
+	// This timeout (10s) is intentionally slightly higher than Home Assistant's
+	// internal timeout for Sonos operations (9.5s), allowing HA to return errors
+	// rather than having the Go client timeout first.
 	select {
 	case resp := <-respChan:
 		if resp.Success != nil && !*resp.Success {
