@@ -20,7 +20,7 @@ func TestNewManager(t *testing.T) {
 	configLoader := config.NewLoader("../../../configs", logger)
 	calculator := dayphaselib.NewCalculator(32.85486, -97.50515, logger)
 
-	manager := NewManager(mockClient, stateManager, configLoader, calculator, logger, false)
+	manager := NewManager(mockClient, stateManager, configLoader, calculator, logger, false, nil)
 
 	assert.NotNil(t, manager)
 	assert.Equal(t, mockClient, manager.haClient)
@@ -37,7 +37,7 @@ func TestManagerStartStop(t *testing.T) {
 	configLoader := config.NewLoader("../../../configs", logger)
 	calculator := dayphaselib.NewCalculator(32.85486, -97.50515, logger)
 
-	manager := NewManager(mockClient, stateManager, configLoader, calculator, logger, false)
+	manager := NewManager(mockClient, stateManager, configLoader, calculator, logger, false, nil)
 
 	// Start the manager
 	err := manager.Start()
@@ -70,7 +70,7 @@ func TestUpdateSunEventAndDayPhase(t *testing.T) {
 
 	calculator := dayphaselib.NewCalculator(32.85486, -97.50515, logger)
 
-	manager := NewManager(mockClient, stateManager, configLoader, calculator, logger, false)
+	manager := NewManager(mockClient, stateManager, configLoader, calculator, logger, false, nil)
 
 	// Update sun event and day phase
 	err = manager.updateSunEventAndDayPhase()
@@ -105,7 +105,7 @@ func TestUpdateSunEventAndDayPhaseReadOnly(t *testing.T) {
 	configLoader := config.NewLoader("../../../configs", logger)
 	calculator := dayphaselib.NewCalculator(32.85486, -97.50515, logger)
 
-	manager := NewManager(mockClient, stateManager, configLoader, calculator, logger, true)
+	manager := NewManager(mockClient, stateManager, configLoader, calculator, logger, true, nil)
 
 	// Update should succeed even in read-only mode (just won't write to HA)
 	err = manager.updateSunEventAndDayPhase()
@@ -119,7 +119,7 @@ func TestManagerPeriodicUpdate(t *testing.T) {
 	configLoader := config.NewLoader("../../../configs", logger)
 	calculator := dayphaselib.NewCalculator(32.85486, -97.50515, logger)
 
-	manager := NewManager(mockClient, stateManager, configLoader, calculator, logger, false)
+	manager := NewManager(mockClient, stateManager, configLoader, calculator, logger, false, nil)
 
 	// Start the manager
 	err := manager.Start()
@@ -150,7 +150,7 @@ func TestManagerWithDifferentCoordinates(t *testing.T) {
 	// Test with different coordinates (San Francisco)
 	calculator := dayphaselib.NewCalculator(37.7749, -122.4194, logger)
 
-	manager := NewManager(mockClient, stateManager, configLoader, calculator, logger, false)
+	manager := NewManager(mockClient, stateManager, configLoader, calculator, logger, false, nil)
 
 	err := manager.Start()
 	assert.NoError(t, err)
@@ -173,7 +173,7 @@ func TestUpdateSunEventNoChange(t *testing.T) {
 	configLoader := config.NewLoader("../../../configs", logger)
 	calculator := dayphaselib.NewCalculator(32.85486, -97.50515, logger)
 
-	manager := NewManager(mockClient, stateManager, configLoader, calculator, logger, false)
+	manager := NewManager(mockClient, stateManager, configLoader, calculator, logger, false, nil)
 
 	// Initialize state
 	err := stateManager.SyncFromHA()
@@ -200,7 +200,7 @@ func TestUpdateDayPhaseNoChange(t *testing.T) {
 	configLoader := config.NewLoader("../../../configs", logger)
 	calculator := dayphaselib.NewCalculator(32.85486, -97.50515, logger)
 
-	manager := NewManager(mockClient, stateManager, configLoader, calculator, logger, false)
+	manager := NewManager(mockClient, stateManager, configLoader, calculator, logger, false, nil)
 
 	// Initialize state
 	err := stateManager.SyncFromHA()
@@ -227,7 +227,7 @@ func TestManagerStopBeforeStart(t *testing.T) {
 	configLoader := config.NewLoader("../../../configs", logger)
 	calculator := dayphaselib.NewCalculator(32.85486, -97.50515, logger)
 
-	manager := NewManager(mockClient, stateManager, configLoader, calculator, logger, false)
+	manager := NewManager(mockClient, stateManager, configLoader, calculator, logger, false, nil)
 
 	// Should not panic if Stop is called before Start
 	assert.NotPanics(t, func() {
@@ -242,7 +242,7 @@ func TestManagerReset(t *testing.T) {
 	configLoader := config.NewLoader("../../../configs", logger)
 	calculator := dayphaselib.NewCalculator(32.85486, -97.50515, logger)
 
-	manager := NewManager(mockClient, stateManager, configLoader, calculator, logger, false)
+	manager := NewManager(mockClient, stateManager, configLoader, calculator, logger, false, nil)
 
 	// Start the manager
 	err := manager.Start()
@@ -272,7 +272,7 @@ func TestManager_ShadowState_NextTransitionUpdated(t *testing.T) {
 	configLoader := config.NewLoader("../../../configs", logger)
 	calculator := dayphaselib.NewCalculator(32.85486, -97.50515, logger)
 
-	manager := NewManager(mockClient, stateManager, configLoader, calculator, logger, false)
+	manager := NewManager(mockClient, stateManager, configLoader, calculator, logger, false, nil)
 
 	// Initialize state
 	err := stateManager.SyncFromHA()
@@ -316,7 +316,7 @@ func TestManager_ShadowState_SunEventAndDayPhaseUpdated(t *testing.T) {
 	configLoader := config.NewLoader("../../../configs", logger)
 	calculator := dayphaselib.NewCalculator(32.85486, -97.50515, logger)
 
-	manager := NewManager(mockClient, stateManager, configLoader, calculator, logger, false)
+	manager := NewManager(mockClient, stateManager, configLoader, calculator, logger, false, nil)
 
 	// Initialize state
 	err := stateManager.SyncFromHA()

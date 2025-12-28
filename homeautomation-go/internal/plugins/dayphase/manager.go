@@ -21,6 +21,7 @@ type Manager struct {
 	calculator   *dayphaselib.Calculator
 	logger       *zap.Logger
 	readOnly     bool
+	timezone     *time.Location
 
 	// Control channels
 	stopChan    chan struct{}
@@ -38,6 +39,7 @@ type Manager struct {
 }
 
 // NewManager creates a new Day Phase manager
+// If timezone is nil, it defaults to time.Local
 func NewManager(
 	haClient ha.HAClient,
 	stateManager *state.Manager,
@@ -45,7 +47,11 @@ func NewManager(
 	calculator *dayphaselib.Calculator,
 	logger *zap.Logger,
 	readOnly bool,
+	timezone *time.Location,
 ) *Manager {
+	if timezone == nil {
+		timezone = time.Local
+	}
 	return &Manager{
 		haClient:      haClient,
 		stateManager:  stateManager,
@@ -53,6 +59,7 @@ func NewManager(
 		calculator:    calculator,
 		logger:        logger.Named("dayphase"),
 		readOnly:      readOnly,
+		timezone:      timezone,
 		stopChan:      make(chan struct{}),
 		stoppedChan:   make(chan struct{}),
 		subscriptions: make([]state.Subscription, 0),
@@ -173,8 +180,8 @@ func (m *Manager) updateSunEventAndDayPhase() error {
 		m.shadowTracker.UpdateSunEvent(sunEventStr)
 	}
 
-	// Calculate day phase based on schedule
-	schedule, err := m.configLoader.GetTodaysSchedule()
+	// Calculate day phase based on schedule (using configured timezone)
+	schedule, err := m.configLoader.GetTodaysScheduleInTimezone(m.timezone)
 	if err != nil {
 		m.logger.Warn("Failed to get schedule, using defaults", zap.Error(err))
 		schedule = nil
@@ -241,8 +248,8 @@ func (m *Manager) updateShadowInputs() {
 		inputs[name] = t.Format(time.RFC3339)
 	}
 
-	// Get current schedule info if available
-	schedule, err := m.configLoader.GetTodaysSchedule()
+	// Get current schedule info if available (using configured timezone)
+	schedule, err := m.configLoader.GetTodaysScheduleInTimezone(m.timezone)
 	if err == nil && schedule != nil {
 		inputs["scheduleWake"] = schedule.Wake.Format(time.RFC3339)
 		inputs["scheduleBeginWake"] = schedule.BeginWake.Format(time.RFC3339)
@@ -255,7 +262,9 @@ func (m *Manager) updateShadowInputs() {
 
 // updateNextTransition calculates and updates the next phase transition in shadow state
 func (m *Manager) updateNextTransition(currentPhase dayphaselib.DayPhase) {
-	now := time.Now()
+	// Use configured timezone for date calculations to avoid off-by-one-day errors
+	// when the system timezone differs from the configured timezone (e.g., Docker in UTC)
+	now := time.Now().In(m.timezone)
 	sunTimes := m.calculator.GetSunTimes()
 
 	var nextTime time.Time
@@ -270,9 +279,9 @@ func (m *Manager) updateNextTransition(currentPhase dayphaselib.DayPhase) {
 			nextTime = t
 			nextPhase = string(dayphaselib.DayPhaseMorning)
 		} else {
-			// Dawn is tomorrow, use approximate time
+			// Dawn is tomorrow, use approximate time (in configured timezone)
 			tomorrow := now.AddDate(0, 0, 1)
-			nextTime = time.Date(tomorrow.Year(), tomorrow.Month(), tomorrow.Day(), 6, 0, 0, 0, now.Location())
+			nextTime = time.Date(tomorrow.Year(), tomorrow.Month(), tomorrow.Day(), 6, 0, 0, 0, m.timezone)
 			nextPhase = string(dayphaselib.DayPhaseMorning)
 		}
 
@@ -305,14 +314,14 @@ func (m *Manager) updateNextTransition(currentPhase dayphaselib.DayPhase) {
 		}
 
 	case dayphaselib.DayPhaseWinddown:
-		// Next: night at scheduled night time
-		schedule, err := m.configLoader.GetTodaysSchedule()
+		// Next: night at scheduled night time (using configured timezone)
+		schedule, err := m.configLoader.GetTodaysScheduleInTimezone(m.timezone)
 		if err == nil && schedule != nil && schedule.Night.After(now) {
 			nextTime = schedule.Night
 			nextPhase = string(dayphaselib.DayPhaseNight)
 		} else {
 			// Default to 23:00 if no schedule
-			nightTime := time.Date(now.Year(), now.Month(), now.Day(), 23, 0, 0, 0, now.Location())
+			nightTime := time.Date(now.Year(), now.Month(), now.Day(), 23, 0, 0, 0, m.timezone)
 			if nightTime.After(now) {
 				nextTime = nightTime
 				nextPhase = string(dayphaselib.DayPhaseNight)

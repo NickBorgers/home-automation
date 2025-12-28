@@ -50,6 +50,7 @@ type Manager struct {
 	logger          *zap.Logger
 	readOnly        bool
 	timeProvider    TimeProvider
+	timezone        *time.Location
 	stopChan        chan struct{}
 	ticker          *time.Ticker
 	subscriptions   []state.Subscription
@@ -64,9 +65,13 @@ type Manager struct {
 
 // NewManager creates a new Sleep Hygiene manager
 // If timeProvider is nil, it defaults to RealTimeProvider
-func NewManager(haClient ha.HAClient, stateManager *state.Manager, configLoader *config.Loader, logger *zap.Logger, readOnly bool, timeProvider TimeProvider) *Manager {
+// If timezone is nil, it defaults to time.Local
+func NewManager(haClient ha.HAClient, stateManager *state.Manager, configLoader *config.Loader, logger *zap.Logger, readOnly bool, timeProvider TimeProvider, timezone *time.Location) *Manager {
 	if timeProvider == nil {
 		timeProvider = RealTimeProvider{}
+	}
+	if timezone == nil {
+		timezone = time.Local
 	}
 	return &Manager{
 		haClient:        haClient,
@@ -75,6 +80,7 @@ func NewManager(haClient ha.HAClient, stateManager *state.Manager, configLoader 
 		logger:          logger.Named("sleephygiene"),
 		readOnly:        readOnly,
 		timeProvider:    timeProvider,
+		timezone:        timezone,
 		stopChan:        make(chan struct{}),
 		subscriptions:   make([]state.Subscription, 0),
 		haSubscriptions: make([]ha.Subscription, 0),
@@ -263,8 +269,10 @@ func (m *Manager) runTimerLoop() {
 func (m *Manager) checkTimeTriggers() {
 	now := m.timeProvider.Now()
 
-	// Get today's schedule
-	schedule, err := m.configLoader.GetTodaysSchedule()
+	// Get today's schedule in the configured timezone
+	// This ensures schedule times (e.g., 22:30 stop_screens) are interpreted
+	// in the correct timezone, not UTC
+	schedule, err := m.configLoader.GetTodaysScheduleInTimezone(m.timezone)
 	if err != nil {
 		m.logger.Error("Failed to get today's schedule", zap.Error(err))
 		return
