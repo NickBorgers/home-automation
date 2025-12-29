@@ -42,6 +42,14 @@ const (
 	eightSleepAlarmState           = "alarm"
 )
 
+// Wake sequence timing constants
+const (
+	// wakeDelayAfterFadeOut is the delay between starting the music fade-out
+	// and turning on the bedroom lights. This matches the Node-RED behavior
+	// which waits 5 minutes after begin_wake before starting the light fade-in.
+	wakeDelayAfterFadeOut = 5 * time.Minute
+)
+
 // Manager handles sleep hygiene automations including wake-up sequences
 type Manager struct {
 	haClient        ha.HAClient
@@ -265,7 +273,8 @@ func (m *Manager) runTimerLoop() {
 }
 
 // checkTimeTriggers checks schedule-based triggers (stop_screens and go_to_bed)
-// Note: Wake-up triggers (begin_wake and wake) are handled by Eight Sleep alarm sensors
+// Note: Wake-up is triggered by Eight Sleep alarm sensors via handleEightSleepAlarm,
+// which calls handleBeginWake (fades music) and schedules handleWake (lights) after a delay
 func (m *Manager) checkTimeTriggers() {
 	now := m.timeProvider.Now()
 
@@ -355,8 +364,13 @@ func (m *Manager) handleBeginWake() {
 
 			go m.fadeOutSpeaker(speaker)
 		}
+
+		// Schedule the wake sequence (lights fade-in) after the delay
+		// This matches Node-RED behavior which waits 5 minutes after begin_wake
+		// before starting the 30-minute light transition
+		go m.scheduleWakeSequence()
 	} else {
-		m.logger.Info("READ-ONLY: Would start fade out")
+		m.logger.Info("READ-ONLY: Would start fade out and schedule wake sequence")
 		// In read-only mode, still record shadow state with estimated volumes
 		for _, speaker := range bedroomSpeakers {
 			m.shadowTracker.RecordFadeOutStart(speaker, 60) // Estimate default volume
@@ -583,6 +597,22 @@ func (m *Manager) updateSpeakerVolumeInState(speakerEntityID string, volume int)
 // Kept for backward compatibility with existing tests
 func (m *Manager) fadeOutBedroomSpeaker() {
 	m.fadeOutSpeaker("media_player.bedroom")
+}
+
+// scheduleWakeSequence waits for the configured delay and then triggers handleWake
+// This implements the Node-RED behavior where lights fade in 5 minutes after
+// the sleep music starts fading out
+func (m *Manager) scheduleWakeSequence() {
+	m.logger.Info("Scheduling wake sequence",
+		zap.Duration("delay", wakeDelayAfterFadeOut))
+
+	select {
+	case <-time.After(wakeDelayAfterFadeOut):
+		m.logger.Info("Wake delay elapsed, triggering wake sequence")
+		m.handleWake()
+	case <-m.stopChan:
+		m.logger.Info("Wake sequence cancelled - manager stopping")
+	}
 }
 
 // handleWake handles the wake trigger (turn on lights, flash, cuddle announcement)
