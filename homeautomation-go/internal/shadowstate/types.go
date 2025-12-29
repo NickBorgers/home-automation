@@ -449,12 +449,23 @@ type EnergyInputs struct {
 
 // EnergyOutputs tracks computed energy state values
 type EnergyOutputs struct {
-	BatteryEnergyLevel         string               `json:"batteryEnergyLevel"`
-	SolarProductionEnergyLevel string               `json:"solarProductionEnergyLevel"`
-	CurrentEnergyLevel         string               `json:"currentEnergyLevel"`
-	IsFreeEnergyAvailable      bool                 `json:"isFreeEnergyAvailable"`
-	LastComputations           EnergyComputations   `json:"lastComputations"`
-	SensorReadings             EnergySensorReadings `json:"sensorReadings"`
+	BatteryEnergyLevel         string                 `json:"batteryEnergyLevel"`
+	SolarProductionEnergyLevel string                 `json:"solarProductionEnergyLevel"`
+	CurrentEnergyLevel         string                 `json:"currentEnergyLevel"`
+	IsFreeEnergyAvailable      bool                   `json:"isFreeEnergyAvailable"`
+	LastComputations           EnergyComputations     `json:"lastComputations"`
+	SensorReadings             EnergySensorReadings   `json:"sensorReadings"`
+	DiscoveredIndicatorLights  []string               `json:"discoveredIndicatorLights,omitempty"`
+	IndicatorLightsAction      *IndicatorLightsAction `json:"indicatorLightsAction,omitempty"`
+}
+
+// IndicatorLightsAction tracks the last action taken to update indicator lights
+type IndicatorLightsAction struct {
+	EnergyLevel   string    `json:"energyLevel"`
+	RGBColor      []int     `json:"rgbColor"`
+	BrightnessPct int       `json:"brightnessPct"`
+	EntityIDs     []string  `json:"entityIds"`
+	Timestamp     time.Time `json:"timestamp"`
 }
 
 // EnergyComputations tracks when various energy calculations were last performed
