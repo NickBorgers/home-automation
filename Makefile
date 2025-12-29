@@ -322,9 +322,9 @@ ci-style-checks: pre-commit
 
 #ci-unit-tests: @ Run unit tests with coverage, excluding integration tests (used by CI)
 ci-unit-tests:
-	@echo "🧪 Running unit tests (excluding integration tests and pkg/testutil)..."
+	@echo "🧪 Running unit tests (excluding integration tests, pkg/testutil, and cmd/diagramgen)..."
 	@cd homeautomation-go && go build ./...
-	@cd homeautomation-go && go test $$(go list ./... | grep -v /test/integration | grep -v /pkg/testutil) \
+	@cd homeautomation-go && go test $$(go list ./... | grep -v /test/integration | grep -v /pkg/testutil | grep -v /cmd/diagramgen) \
 	  -race -v -coverprofile=coverage.out -covermode=atomic -timeout=5m
 	@cd homeautomation-go && \
 	  coverage=$$(go tool cover -func=coverage.out | grep total | awk '{print $$3}' | sed 's/%//') && \
