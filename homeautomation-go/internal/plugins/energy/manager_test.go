@@ -1,6 +1,7 @@
 package energy
 
 import (
+	"fmt"
 	"math"
 	"testing"
 	"time"
@@ -985,4 +986,136 @@ func TestIndicatorLightsDiscoveryCustomPattern(t *testing.T) {
 	// Only the matching entity should be discovered
 	assert.Len(t, manager.indicatorLightEntities, 1)
 	assert.Contains(t, manager.indicatorLightEntities, "light.apollo_bedroom_rgb")
+}
+
+func TestIndicatorLightsServiceCallError(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	config := createTestConfig()
+
+	// Add LightConfig for testing
+	config.Energy.EnergyStates[0].LightConfig = LightConfig{Red: 25, Green: 25, Blue: 112, BrightnessPct: 70}
+
+	// Set up mock light entity
+	mockClient.SetState("light.apollo_bedroom_rgb", "on", map[string]interface{}{
+		"friendly_name": "Apollo Bedroom Radar Light",
+	})
+
+	mockClient.Connect()
+
+	// Create manager NOT in read-only mode
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil, nil)
+
+	err := manager.Start()
+	assert.NoError(t, err)
+	defer manager.Stop()
+
+	// Clear any service calls from startup
+	mockClient.ClearServiceCalls()
+
+	// Configure mock to return an error for light.turn_on AFTER startup
+	// (so startup doesn't fail)
+	mockClient.SetServiceError("light", "turn_on", fmt.Errorf("connection timeout"))
+
+	// Call updateIndicatorLights - should handle error gracefully (not panic)
+	// Note: The mock doesn't record failed service calls, so we can't verify the call was attempted.
+	// Instead, we verify that:
+	// 1. The function doesn't panic
+	// 2. The shadow state was still updated before the service call
+	manager.updateIndicatorLights("black")
+
+	// Shadow state should still be updated even though service call failed
+	// (shadow state is updated BEFORE the service call is made)
+	shadowState := manager.GetShadowState()
+	assert.NotNil(t, shadowState.Outputs.IndicatorLightsAction)
+	assert.Equal(t, "black", shadowState.Outputs.IndicatorLightsAction.EnergyLevel)
+	assert.Equal(t, []int{25, 25, 112}, shadowState.Outputs.IndicatorLightsAction.RGBColor)
+	assert.Equal(t, 70, shadowState.Outputs.IndicatorLightsAction.BrightnessPct)
+}
+
+func TestIndicatorLightsUnknownEnergyLevel(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	config := createTestConfig()
+
+	// Set up mock light entity
+	mockClient.SetState("light.apollo_bedroom_rgb", "on", map[string]interface{}{
+		"friendly_name": "Apollo Bedroom Radar Light",
+	})
+
+	mockClient.Connect()
+
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil, nil)
+
+	err := manager.Start()
+	assert.NoError(t, err)
+	defer manager.Stop()
+
+	// Clear any service calls from startup
+	mockClient.ClearServiceCalls()
+
+	// Call updateIndicatorLights with an unknown energy level
+	manager.updateIndicatorLights("purple") // Not a valid energy level
+
+	// Verify NO light.turn_on service call was made (should return early)
+	calls := mockClient.GetServiceCalls()
+	var lightCalls []ha.ServiceCall
+	for _, c := range calls {
+		if c.Domain == "light" && c.Service == "turn_on" {
+			lightCalls = append(lightCalls, c)
+		}
+	}
+	assert.Len(t, lightCalls, 0, "Expected no light.turn_on service calls for unknown energy level")
+}
+
+func TestIndicatorLightsInitialUpdateOnStartup(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	config := createTestConfig()
+
+	// Add LightConfig for all energy levels
+	config.Energy.EnergyStates[0].LightConfig = LightConfig{Red: 25, Green: 25, Blue: 112, BrightnessPct: 70}    // black
+	config.Energy.EnergyStates[1].LightConfig = LightConfig{Red: 255, Green: 0, Blue: 0, BrightnessPct: 30}      // red
+	config.Energy.EnergyStates[2].LightConfig = LightConfig{Red: 255, Green: 255, Blue: 0, BrightnessPct: 30}    // yellow
+	config.Energy.EnergyStates[3].LightConfig = LightConfig{Red: 0, Green: 255, Blue: 0, BrightnessPct: 60}      // green
+	config.Energy.EnergyStates[4].LightConfig = LightConfig{Red: 255, Green: 255, Blue: 255, BrightnessPct: 100} // white
+
+	// Set up mock light entity
+	mockClient.SetState("light.apollo_bedroom_rgb", "on", map[string]interface{}{
+		"friendly_name": "Apollo Bedroom Radar Light",
+	})
+
+	mockClient.Connect()
+
+	// Pre-initialize state variables to simulate existing state
+	_ = stateManager.SetBool("isGridAvailable", true)
+	_ = stateManager.SetBool("isFreeEnergyAvailable", false)
+	_ = stateManager.SetString("batteryEnergyLevel", "yellow")
+	_ = stateManager.SetString("solarProductionEnergyLevel", "yellow")
+	_ = stateManager.SetString("currentEnergyLevel", "yellow")
+
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil, nil)
+
+	err := manager.Start()
+	assert.NoError(t, err)
+
+	// Give the free energy checker goroutine time to run
+	time.Sleep(100 * time.Millisecond)
+
+	manager.Stop()
+
+	// Verify that a light.turn_on service call was made during startup
+	calls := mockClient.GetServiceCalls()
+	var lightCalls []ha.ServiceCall
+	for _, c := range calls {
+		if c.Domain == "light" && c.Service == "turn_on" {
+			lightCalls = append(lightCalls, c)
+		}
+	}
+
+	// At least one light update should have occurred during startup sequence
+	assert.GreaterOrEqual(t, len(lightCalls), 1, "Expected at least one light.turn_on service call during startup")
 }

@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"homeautomation/internal/ha"
@@ -34,6 +35,8 @@ type Manager struct {
 	// Subscription helper for automatic shadow state input capture
 	subHelper *shadowstate.SubscriptionHelper
 
+	// Mutex protecting indicatorLightEntities
+	indicatorMu sync.RWMutex
 	// Discovered indicator light entities (Apollo sensors with "Radar" in friendly_name)
 	indicatorLightEntities []string
 }
@@ -552,7 +555,10 @@ func (m *Manager) discoverIndicatorLights() {
 		}
 	}
 
+	m.indicatorMu.Lock()
 	m.indicatorLightEntities = discovered
+	m.indicatorMu.Unlock()
+
 	m.logger.Info("Discovered indicator light entities",
 		zap.Int("count", len(discovered)),
 		zap.Strings("entities", discovered))
@@ -563,7 +569,11 @@ func (m *Manager) discoverIndicatorLights() {
 
 // updateIndicatorLights updates the indicator light entities to reflect the current energy level.
 func (m *Manager) updateIndicatorLights(energyLevel string) {
-	if len(m.indicatorLightEntities) == 0 {
+	m.indicatorMu.RLock()
+	entities := m.indicatorLightEntities
+	m.indicatorMu.RUnlock()
+
+	if len(entities) == 0 {
 		m.logger.Debug("No indicator light entities discovered, skipping LED update")
 		return
 	}
@@ -586,20 +596,20 @@ func (m *Manager) updateIndicatorLights(energyLevel string) {
 	rgbColor := []int{lightConfig.Red, lightConfig.Green, lightConfig.Blue}
 
 	// Update shadow state with the action we're about to take (or would take in read-only mode)
-	m.shadowTracker.UpdateIndicatorLightsAction(energyLevel, rgbColor, lightConfig.BrightnessPct, m.indicatorLightEntities)
+	m.shadowTracker.UpdateIndicatorLightsAction(energyLevel, rgbColor, lightConfig.BrightnessPct, entities)
 
 	if m.readOnly {
 		m.logger.Info("READ-ONLY: Would update indicator lights",
 			zap.String("energy_level", energyLevel),
 			zap.Ints("rgb_color", rgbColor),
 			zap.Int("brightness_pct", lightConfig.BrightnessPct),
-			zap.Strings("entities", m.indicatorLightEntities))
+			zap.Strings("entities", entities))
 		return
 	}
 
 	// Call Home Assistant light.turn_on service
 	err := m.haClient.CallService("light", "turn_on", map[string]interface{}{
-		"entity_id":      m.indicatorLightEntities,
+		"entity_id":      entities,
 		"rgb_color":      rgbColor,
 		"brightness_pct": lightConfig.BrightnessPct,
 	})
@@ -615,7 +625,7 @@ func (m *Manager) updateIndicatorLights(energyLevel string) {
 		zap.String("energy_level", energyLevel),
 		zap.Ints("rgb_color", rgbColor),
 		zap.Int("brightness_pct", lightConfig.BrightnessPct),
-		zap.Int("entity_count", len(m.indicatorLightEntities)))
+		zap.Int("entity_count", len(entities)))
 }
 
 // runFreeEnergyChecker runs the free energy checker every minute
