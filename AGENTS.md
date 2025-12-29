@@ -138,7 +138,10 @@ Validate Mermaid diagrams: `make validate-mermaid`
 
 **Mermaid diagrams in `docs/human/VISUAL_ARCHITECTURE.md` must stay synchronized with code.**
 
-A Claude Code hook (`.claude/hooks/check-diagrams.sh`) automatically reminds you when plugin code changes and validates diagram syntax when editing diagram files.
+A Claude Code hook (`.claude/hooks/check-diagrams.sh`) reminds you when plugin code changes or diagram files are edited. The hook is optimized to minimize context window usage:
+- Shows full reminder only once per plugin per session
+- Subsequent edits to the same plugin produce no output
+- Reminds to run validation manually (doesn't auto-run `make validate-mermaid`)
 
 **When to update diagrams:**
 
