@@ -17,6 +17,16 @@ import (
 	"go.uber.org/zap"
 )
 
+// CalibrationState represents the current calibration phase for a device
+type CalibrationState int
+
+const (
+	// CalibrationStateNormal - normal operation, using baseline lux for brightness
+	CalibrationStateNormal CalibrationState = iota
+	// CalibrationStateDimmed - LED has been dimmed, waiting for fresh lux reading
+	CalibrationStateDimmed
+)
+
 // Manager handles energy state calculations and updates
 type Manager struct {
 	haClient     ha.HAClient
@@ -28,6 +38,9 @@ type Manager struct {
 
 	// Control for free energy checker
 	stopChecker chan struct{}
+
+	// Control for baseline calibration
+	stopCalibration chan struct{}
 
 	// Shadow state tracking
 	shadowTracker *shadowstate.EnergyTracker
@@ -49,6 +62,14 @@ type Manager struct {
 	lastBrightnessUpdate map[string]time.Time
 	// Maps light entity ID -> last brightness percentage (for hysteresis)
 	lastBrightnessLevel map[string]int
+
+	// Baseline calibration tracking (protected by indicatorMu)
+	// Maps light entity ID -> baseline lux value (true ambient light, measured with LED dimmed)
+	baselineLuxValues map[string]float64
+	// Maps light entity ID -> time of last successful calibration
+	lastCalibrationTime map[string]time.Time
+	// Maps light entity ID -> current calibration state
+	calibrationState map[string]CalibrationState
 }
 
 // NewManager creates a new Energy State manager
@@ -68,12 +89,16 @@ func NewManager(haClient ha.HAClient, stateManager *state.Manager, config *Energ
 		readOnly:             readOnly,
 		timezone:             timezone,
 		stopChecker:          make(chan struct{}),
+		stopCalibration:      make(chan struct{}),
 		shadowTracker:        shadowTracker,
 		subHelper:            shadowstate.NewSubscriptionHelper(haClient, stateManager, registry, shadowTracker, "energy", logger.Named("energy")),
 		lightToLuxSensor:     make(map[string]string),
 		currentLuxValues:     make(map[string]float64),
 		lastBrightnessUpdate: make(map[string]time.Time),
 		lastBrightnessLevel:  make(map[string]int),
+		baselineLuxValues:    make(map[string]float64),
+		lastCalibrationTime:  make(map[string]time.Time),
+		calibrationState:     make(map[string]CalibrationState),
 	}
 
 	return m
@@ -137,6 +162,11 @@ func (m *Manager) Start() error {
 	// Start free energy check timer (check every minute)
 	go m.runFreeEnergyChecker()
 
+	// Start baseline calibration if enabled
+	if m.config.Energy.IndicatorLights.AdaptiveBrightness.BaselineCalibration.Enabled {
+		go m.runBaselineCalibration()
+	}
+
 	// Capture initial shadow state inputs after all subscriptions are registered
 	m.captureInitialInputs()
 
@@ -162,6 +192,11 @@ func (m *Manager) Stop() {
 
 	// Stop the free energy checker goroutine
 	close(m.stopChecker)
+
+	// Stop the baseline calibration goroutine if enabled
+	if m.config.Energy.IndicatorLights.AdaptiveBrightness.BaselineCalibration.Enabled {
+		close(m.stopCalibration)
+	}
 
 	// Unsubscribe from all subscriptions via helper
 	m.subHelper.UnsubscribeAll()
@@ -614,20 +649,45 @@ func (m *Manager) updateIndicatorLights(energyLevel string) {
 
 	// If adaptive brightness is enabled, update each light individually with per-device brightness
 	if adaptiveEnabled {
+		calibrationEnabled := m.config.Energy.IndicatorLights.AdaptiveBrightness.BaselineCalibration.Enabled
+
 		m.logger.Debug("Updating indicator lights with adaptive brightness",
 			zap.String("energy_level", energyLevel),
-			zap.Int("entity_count", len(entities)))
+			zap.Int("entity_count", len(entities)),
+			zap.Bool("calibration_enabled", calibrationEnabled))
 
 		for _, entity := range entities {
 			brightness := lightConfig.BrightnessPct // default static brightness
 
 			m.indicatorMu.RLock()
 			luxSensor, hasLux := m.lightToLuxSensor[entity]
-			lux, luxExists := m.currentLuxValues[luxSensor]
+			calibState := m.calibrationState[entity]
+			baselineLux, hasBaseline := m.baselineLuxValues[entity]
+			currentLux := m.currentLuxValues[luxSensor]
 			m.indicatorMu.RUnlock()
 
-			if hasLux && luxExists {
-				brightness = m.calculateAdaptiveBrightness(lux, entity)
+			// Skip lights that are currently being calibrated (dimmed)
+			if calibState == CalibrationStateDimmed {
+				m.logger.Debug("Skipping light update - currently calibrating",
+					zap.String("entity", entity))
+				continue
+			}
+
+			if hasLux {
+				// When calibration is enabled, prefer baseline lux over real-time lux
+				// because real-time readings are contaminated by the LED's own emission
+				var luxForBrightness float64
+				if calibrationEnabled && hasBaseline {
+					luxForBrightness = baselineLux
+					m.logger.Debug("Using baseline lux for brightness",
+						zap.String("entity", entity),
+						zap.Float64("baseline_lux", baselineLux),
+						zap.Float64("current_lux_ignored", currentLux))
+				} else {
+					luxForBrightness = currentLux
+				}
+
+				brightness = m.calculateAdaptiveBrightness(luxForBrightness, entity)
 
 				// Update last brightness level (for hysteresis tracking)
 				m.indicatorMu.Lock()
@@ -800,6 +860,236 @@ func (m *Manager) Reset() error {
 
 	m.logger.Info("Successfully reset Energy State")
 	return nil
+}
+
+// ============================================================================
+// Baseline Calibration for LED Self-Interference Detection
+// ============================================================================
+
+// runBaselineCalibration runs periodic calibration cycles to measure true ambient light.
+// The LED's own emission can overwhelm the lux sensor, so we periodically dim the LED
+// to get an accurate baseline reading.
+func (m *Manager) runBaselineCalibration() {
+	calibConfig := m.config.Energy.IndicatorLights.AdaptiveBrightness.BaselineCalibration
+
+	// Get calibration interval (default 5 minutes)
+	intervalSec := calibConfig.CalibrationIntervalSec
+	if intervalSec <= 0 {
+		intervalSec = 300
+	}
+
+	ticker := time.NewTicker(time.Duration(intervalSec) * time.Second)
+	defer ticker.Stop()
+
+	m.logger.Info("Starting baseline calibration",
+		zap.Int("interval_sec", intervalSec),
+		zap.Int("brightness_pct", calibConfig.CalibrationBrightnessPct),
+		zap.Int("wait_sec", calibConfig.CalibrationWaitSec))
+
+	// Run initial calibration cycle shortly after startup
+	// Give the system time to stabilize first, but check for shutdown
+	startupDelay := time.NewTimer(10 * time.Second)
+	select {
+	case <-startupDelay.C:
+		m.runCalibrationCycle()
+	case <-m.stopCalibration:
+		startupDelay.Stop()
+		m.logger.Info("Stopping baseline calibration (during startup delay)")
+		return
+	}
+
+	for {
+		select {
+		case <-ticker.C:
+			m.runCalibrationCycle()
+		case <-m.stopCalibration:
+			m.logger.Info("Stopping baseline calibration")
+			return
+		}
+	}
+}
+
+// runCalibrationCycle runs one calibration cycle for all indicator lights.
+// IMPORTANT: Devices are calibrated one at a time (staggered) so that users can
+// always see the energy state on at least some devices while others calibrate.
+func (m *Manager) runCalibrationCycle() {
+	calibConfig := m.config.Energy.IndicatorLights.AdaptiveBrightness.BaselineCalibration
+
+	// Get calibration parameters with defaults
+	calibBrightness := calibConfig.CalibrationBrightnessPct
+	if calibBrightness <= 0 {
+		calibBrightness = 5
+	}
+
+	waitSec := calibConfig.CalibrationWaitSec
+	if waitSec <= 0 {
+		waitSec = 65
+	}
+
+	m.indicatorMu.RLock()
+	lights := make([]string, len(m.indicatorLightEntities))
+	copy(lights, m.indicatorLightEntities)
+	m.indicatorMu.RUnlock()
+
+	if len(lights) == 0 {
+		return
+	}
+
+	m.logger.Debug("Starting calibration cycle (staggered - one device at a time)",
+		zap.Int("light_count", len(lights)))
+
+	// Calibrate each device one at a time so other devices remain visible
+	for i, lightEntity := range lights {
+		// Check if we should stop
+		select {
+		case <-m.stopCalibration:
+			m.logger.Info("Calibration cycle interrupted by shutdown")
+			return
+		default:
+		}
+
+		m.indicatorMu.RLock()
+		luxSensor, hasLux := m.lightToLuxSensor[lightEntity]
+		m.indicatorMu.RUnlock()
+
+		if !hasLux {
+			continue // Skip lights without lux sensors
+		}
+
+		m.logger.Info("Calibrating device (staggered)",
+			zap.Int("device_num", i+1),
+			zap.Int("total_devices", len(lights)),
+			zap.String("light", lightEntity))
+
+		// Phase 1: Dim this single light
+		m.indicatorMu.Lock()
+		m.calibrationState[lightEntity] = CalibrationStateDimmed
+		m.indicatorMu.Unlock()
+
+		m.logger.Debug("Dimming light for calibration",
+			zap.String("light", lightEntity),
+			zap.String("lux_sensor", luxSensor),
+			zap.Int("calibration_brightness", calibBrightness))
+
+		m.setLightBrightness(lightEntity, calibBrightness)
+
+		// Phase 2: Wait for fresh lux reading
+		// Use a select to allow early exit if shutdown requested
+		waitTimer := time.NewTimer(time.Duration(waitSec) * time.Second)
+		select {
+		case <-waitTimer.C:
+			// Normal wait completed
+		case <-m.stopCalibration:
+			waitTimer.Stop()
+			m.logger.Info("Calibration wait interrupted by shutdown")
+			// Restore this light before exiting
+			m.restoreLightAfterCalibration(lightEntity)
+			return
+		}
+
+		// Phase 3: Record baseline and restore this light
+		m.restoreLightAfterCalibration(lightEntity)
+	}
+
+	m.logger.Debug("Calibration cycle complete for all devices")
+}
+
+// restoreLightAfterCalibration completes calibration for a single light entity.
+func (m *Manager) restoreLightAfterCalibration(lightEntity string) {
+	m.indicatorMu.RLock()
+	luxSensor, hasLux := m.lightToLuxSensor[lightEntity]
+	state := m.calibrationState[lightEntity]
+	m.indicatorMu.RUnlock()
+
+	if !hasLux || state != CalibrationStateDimmed {
+		return
+	}
+
+	// Get the current lux reading - this is our baseline
+	m.indicatorMu.Lock()
+	currentLux := m.currentLuxValues[luxSensor]
+	m.baselineLuxValues[lightEntity] = currentLux
+	m.lastCalibrationTime[lightEntity] = time.Now()
+	m.calibrationState[lightEntity] = CalibrationStateNormal
+	m.indicatorMu.Unlock()
+
+	m.logger.Info("Calibration complete - recorded baseline lux",
+		zap.String("light", lightEntity),
+		zap.Float64("baseline_lux", currentLux))
+
+	// Update shadow state
+	m.shadowTracker.UpdateBaselineLux(lightEntity, currentLux)
+
+	// Calculate and apply new brightness based on baseline
+	newBrightness := m.calculateAdaptiveBrightness(currentLux, lightEntity)
+
+	m.indicatorMu.Lock()
+	m.lastBrightnessLevel[lightEntity] = newBrightness
+	m.indicatorMu.Unlock()
+
+	// Get current energy level for color
+	currentLevel, err := m.stateManager.GetString("currentEnergyLevel")
+	if err != nil {
+		currentLevel = "black"
+	}
+
+	m.logger.Info("Restoring brightness after calibration",
+		zap.String("light", lightEntity),
+		zap.Float64("baseline_lux", currentLux),
+		zap.Int("new_brightness", newBrightness))
+
+	m.updateSingleIndicatorLight(lightEntity, currentLevel, newBrightness)
+}
+
+// setLightBrightness sets only the brightness of a light, preserving its current color.
+func (m *Manager) setLightBrightness(entity string, brightness int) {
+	if m.readOnly {
+		m.logger.Debug("READ-ONLY: Would set light brightness",
+			zap.String("entity", entity),
+			zap.Int("brightness_pct", brightness))
+		return
+	}
+
+	// Get current energy level for color
+	currentLevel, err := m.stateManager.GetString("currentEnergyLevel")
+	if err != nil {
+		currentLevel = "black"
+	}
+
+	lightConfig := m.getLightConfigForLevel(currentLevel)
+	if lightConfig == nil {
+		return
+	}
+
+	rgbColor := []int{lightConfig.Red, lightConfig.Green, lightConfig.Blue}
+
+	err = m.haClient.CallService("light", "turn_on", map[string]interface{}{
+		"entity_id":      entity,
+		"rgb_color":      rgbColor,
+		"brightness_pct": brightness,
+	})
+
+	if err != nil {
+		m.logger.Error("Failed to set light brightness for calibration",
+			zap.String("entity", entity),
+			zap.Int("brightness", brightness),
+			zap.Error(err))
+	}
+}
+
+// isCalibrationEnabled returns true if baseline calibration is enabled
+func (m *Manager) isCalibrationEnabled() bool {
+	return m.config.Energy.IndicatorLights.AdaptiveBrightness.BaselineCalibration.Enabled
+}
+
+// getBaselineLux returns the baseline lux value for a light entity if available.
+// Returns the value and true if a baseline exists, or 0 and false otherwise.
+func (m *Manager) getBaselineLux(lightEntity string) (float64, bool) {
+	m.indicatorMu.RLock()
+	defer m.indicatorMu.RUnlock()
+
+	lux, exists := m.baselineLuxValues[lightEntity]
+	return lux, exists
 }
 
 // ============================================================================

@@ -464,6 +464,14 @@ type PerDeviceBrightness struct {
 	LastUpdate      time.Time `json:"lastUpdate"`
 }
 
+// BaselineCalibration tracks the baseline lux calibration for a single device.
+// Used to detect and correct for LED self-interference (LED light overwhelming the lux sensor).
+type BaselineCalibration struct {
+	LightEntity         string    `json:"lightEntity"`
+	BaselineLux         float64   `json:"baselineLux"`
+	LastCalibrationTime time.Time `json:"lastCalibrationTime"`
+}
+
 // EnergyOutputs tracks computed energy state values
 type EnergyOutputs struct {
 	BatteryEnergyLevel         string                         `json:"batteryEnergyLevel"`
@@ -477,6 +485,7 @@ type EnergyOutputs struct {
 	LuxSensorReadings          map[string]LuxSensorReading    `json:"luxSensorReadings,omitempty"`
 	PerDeviceBrightness        map[string]PerDeviceBrightness `json:"perDeviceBrightness,omitempty"`
 	LightToLuxSensorMapping    map[string]string              `json:"lightToLuxSensorMapping,omitempty"`
+	BaselineCalibrations       map[string]BaselineCalibration `json:"baselineCalibrations,omitempty"`
 }
 
 // IndicatorLightsAction tracks the last action taken to update indicator lights

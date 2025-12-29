@@ -55,6 +55,31 @@ type AdaptiveBrightnessConfig struct {
 	// HysteresisPercent is the percentage band around thresholds to prevent oscillation
 	// Default: 10 (meaning 10% above/below threshold before changing)
 	HysteresisPercent int `yaml:"hysteresis_percent"`
+
+	// BaselineCalibration configures periodic calibration to detect LED self-interference.
+	// The LED's own light can overwhelm the lux sensor, so we periodically dim the LED
+	// to measure true ambient light levels.
+	BaselineCalibration BaselineCalibrationConfig `yaml:"baseline_calibration"`
+}
+
+// BaselineCalibrationConfig configures periodic calibration to detect LED self-interference.
+// Problem: At high brightness, the LED's own emission (2000+ lux) overwhelms the sensor.
+// Solution: Periodically dim the LED, wait for a fresh lux reading, use that as the baseline.
+type BaselineCalibrationConfig struct {
+	// Enabled toggles baseline calibration (default: false)
+	// When enabled, the system periodically dims LEDs to measure true ambient light.
+	Enabled bool `yaml:"enabled"`
+
+	// CalibrationIntervalSec is how often to run calibration cycles (default: 300 = 5 minutes)
+	CalibrationIntervalSec int `yaml:"calibration_interval_sec"`
+
+	// CalibrationBrightnessPct is the brightness level during measurement (default: 5)
+	// Lower values give more accurate ambient readings but may be noticeable to users.
+	CalibrationBrightnessPct int `yaml:"calibration_brightness_pct"`
+
+	// CalibrationWaitSec is how long to wait for a fresh lux reading (default: 65)
+	// Should be slightly longer than the lux sensor update interval (~60 seconds).
+	CalibrationWaitSec int `yaml:"calibration_wait_sec"`
 }
 
 // IndicatorLightsConfig represents the configuration for energy indicator lights

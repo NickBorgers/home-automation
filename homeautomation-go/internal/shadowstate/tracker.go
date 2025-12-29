@@ -777,6 +777,24 @@ func (et *EnergyTracker) UpdatePerDeviceBrightness(lightEntity, luxEntity string
 	et.state.Metadata.LastUpdated = time.Now()
 }
 
+// UpdateBaselineLux updates the baseline lux calibration for a single device.
+// Baseline lux is the true ambient light level measured when the LED is dimmed.
+func (et *EnergyTracker) UpdateBaselineLux(lightEntity string, baselineLux float64) {
+	et.mu.Lock()
+	defer et.mu.Unlock()
+
+	if et.state.Outputs.BaselineCalibrations == nil {
+		et.state.Outputs.BaselineCalibrations = make(map[string]BaselineCalibration)
+	}
+
+	et.state.Outputs.BaselineCalibrations[lightEntity] = BaselineCalibration{
+		LightEntity:         lightEntity,
+		BaselineLux:         baselineLux,
+		LastCalibrationTime: time.Now(),
+	}
+	et.state.Metadata.LastUpdated = time.Now()
+}
+
 // GetState returns the current shadow state (thread-safe copy)
 func (et *EnergyTracker) GetState() *EnergyShadowState {
 	et.mu.RLock()
@@ -827,6 +845,14 @@ func (et *EnergyTracker) GetState() *EnergyShadowState {
 		stateCopy.Outputs.LightToLuxSensorMapping = make(map[string]string)
 		for k, v := range et.state.Outputs.LightToLuxSensorMapping {
 			stateCopy.Outputs.LightToLuxSensorMapping[k] = v
+		}
+	}
+
+	// Copy baseline calibrations
+	if et.state.Outputs.BaselineCalibrations != nil {
+		stateCopy.Outputs.BaselineCalibrations = make(map[string]BaselineCalibration)
+		for k, v := range et.state.Outputs.BaselineCalibrations {
+			stateCopy.Outputs.BaselineCalibrations[k] = v
 		}
 	}
 
