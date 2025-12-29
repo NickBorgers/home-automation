@@ -1611,3 +1611,129 @@ func TestFallbackToStaticBrightness(t *testing.T) {
 		assert.Equal(t, 45, lightCall.Data["brightness_pct"], "Should use static brightness when no lux sensor available")
 	}
 }
+
+func TestHandleLuxChangeWithInvalidValues(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+
+	config := createTestConfig()
+	config.Energy.IndicatorLights.AdaptiveBrightness = AdaptiveBrightnessConfig{
+		Enabled:          true,
+		LuxSensorPattern: "ltr390_light",
+	}
+
+	mockClient.SetState("light.apollo_msr_2_1294c8_rgb_light", "on", map[string]interface{}{
+		"friendly_name": "Test Radar RGB Light",
+	})
+	mockClient.SetState("sensor.apollo_msr_2_1294c8_ltr390_light", "50", map[string]interface{}{})
+
+	mockClient.Connect()
+	stateManager.SetString("currentEnergyLevel", "yellow")
+
+	// Use readOnly=true to avoid side effects from free energy checker
+	manager := NewManager(mockClient, stateManager, config, logger, true, nil, nil)
+	err := manager.Start()
+	assert.NoError(t, err)
+	defer manager.Stop()
+
+	// Helper function to count light service calls
+	countLightCalls := func() int {
+		count := 0
+		for _, c := range mockClient.GetServiceCalls() {
+			if c.Domain == "light" && c.Service == "turn_on" {
+				count++
+			}
+		}
+		return count
+	}
+
+	// Clear service calls from startup
+	mockClient.ClearServiceCalls()
+	initialCount := countLightCalls()
+
+	// Test NaN - should be ignored, no light service call
+	manager.handleLuxChange("sensor.apollo_msr_2_1294c8_ltr390_light", math.NaN())
+	assert.Equal(t, initialCount, countLightCalls(), "NaN lux value should be ignored, no light service call expected")
+
+	// Test positive infinity - should be ignored
+	manager.handleLuxChange("sensor.apollo_msr_2_1294c8_ltr390_light", math.Inf(1))
+	assert.Equal(t, initialCount, countLightCalls(), "Positive infinity lux value should be ignored")
+
+	// Test negative infinity - should be ignored
+	manager.handleLuxChange("sensor.apollo_msr_2_1294c8_ltr390_light", math.Inf(-1))
+	assert.Equal(t, initialCount, countLightCalls(), "Negative infinity lux value should be ignored")
+
+	// Verify currentLuxValues was NOT updated with invalid values
+	manager.indicatorMu.RLock()
+	_, exists := manager.currentLuxValues["sensor.apollo_msr_2_1294c8_ltr390_light"]
+	manager.indicatorMu.RUnlock()
+	assert.False(t, exists, "Invalid lux values should not be stored")
+}
+
+func TestHysteresisDoesNotBlockLargeJumps(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+
+	config := createTestConfig()
+	config.Energy.IndicatorLights.AdaptiveBrightness = AdaptiveBrightnessConfig{
+		Enabled:          true,
+		LuxSensorPattern: "ltr390_light",
+		BrightnessCurve: []BrightnessCurvePoint{
+			{LuxMax: 10, BrightnessPct: 20},
+			{LuxMax: 100, BrightnessPct: 40},
+			{LuxMax: 500, BrightnessPct: 60},
+			{LuxMax: 1000, BrightnessPct: 80},
+		},
+		HysteresisPercent: 10,
+	}
+
+	mockClient.Connect()
+	manager := NewManager(mockClient, stateManager, config, logger, true, nil, nil)
+
+	lightEntity := "light.test"
+
+	// Start at lux=5 (20% brightness)
+	manager.indicatorMu.Lock()
+	manager.lastBrightnessLevel[lightEntity] = 20
+	manager.indicatorMu.Unlock()
+
+	// Jump to lux=800 (should be 80%) - far from any hysteresis band
+	// Hysteresis bands are: 10±1, 100±10, 500±50, 1000±100
+	// lux=800 is not in any of these bands, so it should change
+	brightness := manager.calculateAdaptiveBrightness(800, lightEntity)
+	assert.Equal(t, 80, brightness, "Large lux jump should change brightness despite hysteresis")
+
+	// Update last brightness and test the reverse
+	manager.indicatorMu.Lock()
+	manager.lastBrightnessLevel[lightEntity] = 80
+	manager.indicatorMu.Unlock()
+
+	// Jump back to lux=5 (should be 20%) - far from any hysteresis band
+	brightness = manager.calculateAdaptiveBrightness(5, lightEntity)
+	assert.Equal(t, 20, brightness, "Large lux drop should change brightness despite hysteresis")
+}
+
+func TestNegativeLuxValue(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+
+	config := createTestConfig()
+	config.Energy.IndicatorLights.AdaptiveBrightness = AdaptiveBrightnessConfig{
+		Enabled:          true,
+		LuxSensorPattern: "ltr390_light",
+		BrightnessCurve: []BrightnessCurvePoint{
+			{LuxMax: 10, BrightnessPct: 20},
+			{LuxMax: 100, BrightnessPct: 40},
+		},
+	}
+
+	mockClient.Connect()
+	manager := NewManager(mockClient, stateManager, config, logger, true, nil, nil)
+
+	// Negative lux (unlikely but possible with sensor errors) should use lowest brightness
+	brightness := manager.calculateAdaptiveBrightness(-5, "light.test")
+	assert.Equal(t, 20, brightness, "Negative lux should use lowest brightness tier")
+}
