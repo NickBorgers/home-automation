@@ -158,6 +158,10 @@ func (c *Calculator) GetSunTimes() map[string]time.Time {
 
 // CalculateDayPhase determines the current day phase based on sun event and schedule
 // This implements the logic from Node-RED's Configuration tab
+//
+// Schedule overrides allow delaying transitions past astronomical times:
+// - schedule.Dusk: Don't transition to dusk/winddown until this time (even if sun has set)
+// - schedule.Night: Don't transition to night until this time
 func (c *Calculator) CalculateDayPhase(schedule *config.ParsedSchedule) DayPhase {
 	sunEvent := c.GetSunEvent()
 	now := time.Now()
@@ -166,6 +170,54 @@ func (c *Calculator) CalculateDayPhase(schedule *config.ParsedSchedule) DayPhase
 		zap.String("sun_event", string(sunEvent)),
 		zap.Time("now", now))
 
+	// If schedule overrides are available, use them to delay transitions
+	// This prevents lights from getting too dim too early
+	if schedule != nil {
+		// Before scheduled dusk time: stay at day/sunset regardless of sun
+		if now.Before(schedule.Dusk) {
+			switch sunEvent {
+			case SunEventMorning:
+				return DayPhaseMorning
+			case SunEventDay:
+				return DayPhaseDay
+			case SunEventSunset, SunEventDusk, SunEventNight:
+				// Sun has set but we're before the configured dusk time
+				// Keep lights at sunset level (brighter than dusk)
+				return DayPhaseSunset
+			default:
+				return DayPhaseDay
+			}
+		}
+
+		// After scheduled dusk, before scheduled night
+		if now.Before(schedule.Night) && now.Hour() >= 6 {
+			switch sunEvent {
+			case SunEventMorning:
+				return DayPhaseMorning
+			case SunEventDay:
+				return DayPhaseDay
+			case SunEventSunset:
+				return DayPhaseSunset
+			case SunEventDusk:
+				return DayPhaseDusk
+			case SunEventNight:
+				// Astronomical night but before scheduled night time
+				return DayPhaseWinddown
+			default:
+				return DayPhaseDay
+			}
+		}
+
+		// After scheduled night time (or early morning before 6am)
+		if now.After(schedule.Night) || now.Hour() < 6 {
+			return DayPhaseNight
+		}
+
+		// Fallback for edge cases
+		return DayPhaseWinddown
+	}
+
+	// No schedule available, use sun event directly with simple time-based night logic
 	switch sunEvent {
 	case SunEventMorning:
 		return DayPhaseMorning
@@ -180,14 +232,6 @@ func (c *Calculator) CalculateDayPhase(schedule *config.ParsedSchedule) DayPhase
 		return DayPhaseDusk
 
 	case SunEventNight:
-		// Check if we're past the scheduled "night" time
-		if schedule != nil {
-			if now.After(schedule.Night) || now.Hour() < 6 {
-				return DayPhaseNight
-			}
-			return DayPhaseWinddown
-		}
-		// No schedule available, use simple logic
 		if now.Hour() >= 23 || now.Hour() < 6 {
 			return DayPhaseNight
 		}
