@@ -348,18 +348,20 @@ pre-push:
 	@echo "🔍 Running pre-push validation..."
 	@echo "════════════════════════════════════════════════════════════════════════════"
 	@echo ""
-	@echo "📊 Step 1/4: Validating generated diagrams are up-to-date..."
+	@echo "📊 Step 1/5: Validating generated diagrams are up-to-date..."
 	@$(MAKE) validate-diagrams
 	@echo ""
-	@echo "📦 Step 2/4: Compiling all code (including tests)..."
+	@echo "📦 Step 2/5: Compiling all code (including tests)..."
 	@cd homeautomation-go && go build ./...
 	@echo "✅ All code compiles"
 	@echo ""
-	@echo "🧪 Step 3/4: Running all tests with race detector and coverage..."
-	@cd homeautomation-go && go test ./... -race -coverprofile=coverage.out -covermode=atomic -timeout=5m
-	@echo "✅ All tests passed with race detector"
+	@echo "🧪 Step 3/5: Running unit tests with race detector and coverage..."
+	@echo "   (excluding integration tests, testutil, and diagramgen - same as CI)"
+	@cd homeautomation-go && go test $$(go list ./... | grep -v /test/integration | grep -v /pkg/testutil | grep -v /cmd/diagramgen) \
+	  -race -coverprofile=coverage.out -covermode=atomic -timeout=5m
+	@echo "✅ Unit tests passed with race detector"
 	@echo ""
-	@echo "📊 Step 4/4: Checking test coverage (≥70%)..."
+	@echo "📊 Step 4/5: Checking test coverage (≥70%)..."
 	@cd homeautomation-go && \
 	  coverage=$$(go tool cover -func=coverage.out | grep total | awk '{print $$3}' | sed 's/%//') && \
 	  echo "Total coverage: $${coverage}%" && \
@@ -371,11 +373,16 @@ pre-push:
 	  echo "✅ Test coverage $${coverage}% meets requirement" && \
 	  rm -f coverage.out
 	@echo ""
+	@echo "🔗 Step 5/5: Running integration tests with race detector..."
+	@cd homeautomation-go && go test ./test/integration/... -race -v -timeout=5m
+	@echo "✅ Integration tests passed"
+	@echo ""
 	@echo "════════════════════════════════════════════════════════════════════════════"
 	@echo "🎉 Pre-push validation passed!"
 	@echo ""
 	@echo "✅ Generated diagrams are up-to-date"
 	@echo "✅ All code compiles"
-	@echo "✅ All tests passed with race detector"
+	@echo "✅ Unit tests passed with race detector"
 	@echo "✅ Test coverage meets minimum requirement (≥70%)"
+	@echo "✅ Integration tests passed"
 	@echo "════════════════════════════════════════════════════════════════════════════"
