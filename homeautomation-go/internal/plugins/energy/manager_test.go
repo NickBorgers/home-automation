@@ -2169,3 +2169,142 @@ func TestCalibrationWithNoLuxReadingYet(t *testing.T) {
 	assert.Equal(t, 0.0, baseline, "Baseline should be 0 when no lux reading available")
 	assert.Equal(t, CalibrationStateNormal, calibState, "Should return to Normal state")
 }
+
+func TestSetLightBrightness(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+
+	config := createTestConfig()
+	config.Energy.EnergyStates[0].LightConfig = LightConfig{Red: 25, Green: 25, Blue: 112, BrightnessPct: 70}
+
+	mockClient.SetState("light.test_light", "on", map[string]interface{}{
+		"friendly_name": "Test Light",
+	})
+	mockClient.Connect()
+
+	stateManager.SetString("currentEnergyLevel", "black")
+
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil, nil)
+
+	// Clear service calls
+	mockClient.ClearServiceCalls()
+
+	// Call setLightBrightness
+	manager.setLightBrightness("light.test_light", 5)
+
+	// Verify service call was made
+	calls := mockClient.GetServiceCalls()
+	var lightCall *ha.ServiceCall
+	for i := range calls {
+		if calls[i].Domain == "light" && calls[i].Service == "turn_on" {
+			lightCall = &calls[i]
+			break
+		}
+	}
+
+	assert.NotNil(t, lightCall, "Expected a light.turn_on call")
+	if lightCall != nil {
+		assert.Equal(t, "light.test_light", lightCall.Data["entity_id"])
+		assert.Equal(t, 5, lightCall.Data["brightness_pct"])
+		assert.Equal(t, []int{25, 25, 112}, lightCall.Data["rgb_color"])
+	}
+}
+
+func TestSetLightBrightnessReadOnly(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+
+	config := createTestConfig()
+	config.Energy.EnergyStates[0].LightConfig = LightConfig{Red: 25, Green: 25, Blue: 112, BrightnessPct: 70}
+
+	mockClient.Connect()
+
+	stateManager.SetString("currentEnergyLevel", "black")
+
+	// Create manager in read-only mode
+	manager := NewManager(mockClient, stateManager, config, logger, true, nil, nil)
+
+	// Clear service calls
+	mockClient.ClearServiceCalls()
+
+	// Call setLightBrightness - should not make any service calls
+	manager.setLightBrightness("light.test_light", 5)
+
+	// Verify no service call was made
+	calls := mockClient.GetServiceCalls()
+	assert.Empty(t, calls, "No service calls should be made in read-only mode")
+}
+
+func TestRunCalibrationCycleWithNoLights(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+
+	config := createTestConfig()
+	config.Energy.IndicatorLights.AdaptiveBrightness = AdaptiveBrightnessConfig{
+		Enabled:          true,
+		LuxSensorPattern: "ltr390_light",
+		BaselineCalibration: BaselineCalibrationConfig{
+			Enabled:                  true,
+			CalibrationIntervalSec:   300,
+			CalibrationBrightnessPct: 5,
+			CalibrationWaitSec:       1, // Short for testing
+		},
+	}
+
+	mockClient.Connect()
+
+	manager := NewManager(mockClient, stateManager, config, logger, true, nil, nil)
+
+	// Don't discover any lights - indicatorLightEntities will be empty
+
+	// Clear service calls
+	mockClient.ClearServiceCalls()
+
+	// Call runCalibrationCycle - should return early with no lights
+	manager.runCalibrationCycle()
+
+	// No errors should occur, function should return gracefully
+	calls := mockClient.GetServiceCalls()
+	assert.Empty(t, calls, "No service calls should be made with no lights")
+}
+
+func TestRunCalibrationCycleLightWithoutLuxSensor(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+
+	config := createTestConfig()
+	config.Energy.IndicatorLights.AdaptiveBrightness = AdaptiveBrightnessConfig{
+		Enabled:          true,
+		LuxSensorPattern: "ltr390_light",
+		BaselineCalibration: BaselineCalibrationConfig{
+			Enabled:                  true,
+			CalibrationIntervalSec:   300,
+			CalibrationBrightnessPct: 5,
+			CalibrationWaitSec:       1,
+		},
+	}
+
+	mockClient.Connect()
+
+	manager := NewManager(mockClient, stateManager, config, logger, true, nil, nil)
+
+	// Set up a light entity but no lux sensor mapping
+	manager.indicatorMu.Lock()
+	manager.indicatorLightEntities = []string{"light.test_light"}
+	// Don't add lightToLuxSensor mapping
+	manager.indicatorMu.Unlock()
+
+	// Clear service calls
+	mockClient.ClearServiceCalls()
+
+	// Call runCalibrationCycle - should skip lights without lux sensors
+	manager.runCalibrationCycle()
+
+	// No service calls should be made since light has no lux sensor
+	calls := mockClient.GetServiceCalls()
+	assert.Empty(t, calls, "No service calls should be made for lights without lux sensors")
+}
