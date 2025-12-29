@@ -338,7 +338,9 @@ func TestTurnOffRoom(t *testing.T) {
 	assert.Equal(t, "light", call.Domain)
 	assert.Equal(t, "turn_off", call.Service)
 	assert.Equal(t, "living_room_2", call.Data["area_id"])
-	assert.Equal(t, 30, call.Data["transition"])
+	// Note: turn_off intentionally does NOT include transition_seconds
+	// so lights turn off immediately (especially important for sleep scenarios)
+	assert.Nil(t, call.Data["transition"], "turn_off should not include transition")
 }
 
 func TestEvaluateAndActivateRoom(t *testing.T) {
