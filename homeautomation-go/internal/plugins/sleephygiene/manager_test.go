@@ -402,15 +402,179 @@ func TestCheckTimeTriggers_StopScreens(t *testing.T) {
 	}
 }
 
-// TestHandleGoToBed tests the go_to_bed handler (currently a placeholder)
-func TestHandleGoToBed(t *testing.T) {
-	now := time.Date(2024, 1, 15, 23, 0, 0, 0, time.UTC)
-	manager, _, _, _ := setupTest(t, now)
+// TestHandleGoToBed_SetsSleepMusicAndFlashesLights tests the go_to_bed handler
+// This matches Node-RED behavior: always set musicPlaybackType to "sleep", and
+// flash lights only if someone is home and not everyone is asleep
+func TestHandleGoToBed_SetsSleepMusicAndFlashesLights(t *testing.T) {
+	now := time.Date(2024, 1, 15, 23, 30, 0, 0, time.UTC)
+	manager, mockHA, stateManager, _ := setupTest(t, now)
 
-	// Call handleGoToBed - it's a placeholder so should not error
+	// Set conditions: someone home, not everyone asleep
+	stateManager.SetBool("isAnyoneHome", true)
+	stateManager.SetBool("isEveryoneAsleep", false)
+	stateManager.SetString("musicPlaybackType", "winddown") // Start with winddown
+
+	// Clear previous calls
+	mockHA.ClearServiceCalls()
+
+	// Trigger go_to_bed
 	manager.handleGoToBed()
 
-	// No assertions needed - just ensuring it doesn't panic
+	// Verify musicPlaybackType was set to "sleep"
+	musicType, err := stateManager.GetString("musicPlaybackType")
+	if err != nil {
+		t.Fatal("Failed to get musicPlaybackType:", err)
+	}
+	if musicType != "sleep" {
+		t.Errorf("Expected musicPlaybackType to be 'sleep', got '%s'", musicType)
+	}
+
+	// Verify flash light calls were made
+	calls := mockHA.GetServiceCalls()
+	foundFlash := false
+	for _, call := range calls {
+		if call.Domain == "light" && call.Service == "turn_on" {
+			if flash, ok := call.Data["flash"].(string); ok && flash == "short" {
+				foundFlash = true
+				break
+			}
+		}
+	}
+
+	if !foundFlash {
+		t.Error("Expected light flash calls for go_to_bed")
+	}
+}
+
+// TestHandleGoToBed_SetsSleepMusicEvenWhenEveryoneAsleep tests that sleep music is started
+// even when everyone is already asleep (lights won't flash but music should start)
+func TestHandleGoToBed_SetsSleepMusicEvenWhenEveryoneAsleep(t *testing.T) {
+	now := time.Date(2024, 1, 15, 23, 30, 0, 0, time.UTC)
+	manager, mockHA, stateManager, _ := setupTest(t, now)
+
+	// Set conditions: someone home, everyone asleep
+	stateManager.SetBool("isAnyoneHome", true)
+	stateManager.SetBool("isEveryoneAsleep", true)
+	stateManager.SetString("musicPlaybackType", "winddown")
+
+	// Clear previous calls
+	mockHA.ClearServiceCalls()
+
+	// Trigger go_to_bed
+	manager.handleGoToBed()
+
+	// Verify musicPlaybackType was still set to "sleep"
+	musicType, err := stateManager.GetString("musicPlaybackType")
+	if err != nil {
+		t.Fatal("Failed to get musicPlaybackType:", err)
+	}
+	if musicType != "sleep" {
+		t.Errorf("Expected musicPlaybackType to be 'sleep' even when everyone is asleep, got '%s'", musicType)
+	}
+
+	// Verify NO flash light calls were made (everyone is asleep)
+	calls := mockHA.GetServiceCalls()
+	for _, call := range calls {
+		if call.Domain == "light" && call.Service == "turn_on" {
+			if flash, ok := call.Data["flash"].(string); ok && flash == "short" {
+				t.Error("Should not flash lights when everyone is asleep")
+			}
+		}
+	}
+
+	// Verify shadow state was still recorded (bug fix: shadow state should be recorded even without lights)
+	shadowState := manager.GetShadowState()
+	if shadowState.Outputs.GoToBedReminder == nil {
+		t.Fatal("Expected GoToBedReminder to be recorded even when everyone is asleep")
+	}
+	if !shadowState.Outputs.GoToBedReminder.Triggered {
+		t.Error("Expected GoToBedReminder.Triggered to be true")
+	}
+	if shadowState.Outputs.LastActionType != "go_to_bed" {
+		t.Errorf("Expected LastActionType to be 'go_to_bed', got '%s'", shadowState.Outputs.LastActionType)
+	}
+}
+
+// TestHandleGoToBed_NoOneHome tests go_to_bed when no one is home
+func TestHandleGoToBed_NoOneHome(t *testing.T) {
+	now := time.Date(2024, 1, 15, 23, 30, 0, 0, time.UTC)
+	manager, mockHA, stateManager, _ := setupTest(t, now)
+
+	// Set conditions: no one home
+	stateManager.SetBool("isAnyoneHome", false)
+	stateManager.SetBool("isEveryoneAsleep", false)
+	stateManager.SetString("musicPlaybackType", "winddown")
+
+	// Clear previous calls
+	mockHA.ClearServiceCalls()
+
+	// Trigger go_to_bed
+	manager.handleGoToBed()
+
+	// Verify musicPlaybackType was still set to "sleep" (always set)
+	musicType, err := stateManager.GetString("musicPlaybackType")
+	if err != nil {
+		t.Fatal("Failed to get musicPlaybackType:", err)
+	}
+	if musicType != "sleep" {
+		t.Errorf("Expected musicPlaybackType to be 'sleep' even when no one home, got '%s'", musicType)
+	}
+
+	// Verify NO flash light calls were made (no one home)
+	calls := mockHA.GetServiceCalls()
+	for _, call := range calls {
+		if call.Domain == "light" && call.Service == "turn_on" {
+			if flash, ok := call.Data["flash"].(string); ok && flash == "short" {
+				t.Error("Should not flash lights when no one is home")
+			}
+		}
+	}
+
+	// Verify shadow state was still recorded (bug fix: shadow state should be recorded even without lights)
+	shadowState := manager.GetShadowState()
+	if shadowState.Outputs.GoToBedReminder == nil {
+		t.Fatal("Expected GoToBedReminder to be recorded even when no one is home")
+	}
+	if !shadowState.Outputs.GoToBedReminder.Triggered {
+		t.Error("Expected GoToBedReminder.Triggered to be true")
+	}
+	if shadowState.Outputs.LastActionType != "go_to_bed" {
+		t.Errorf("Expected LastActionType to be 'go_to_bed', got '%s'", shadowState.Outputs.LastActionType)
+	}
+}
+
+// TestHandleGoToBed_ReadOnly tests go_to_bed in read-only mode
+func TestHandleGoToBed_ReadOnly(t *testing.T) {
+	now := time.Date(2024, 1, 15, 23, 30, 0, 0, time.UTC)
+	logger := zap.NewNop()
+	mockHA := ha.NewMockClient()
+	stateManager := state.NewManager(mockHA, logger, false)
+
+	// Set conditions
+	stateManager.SetBool("isAnyoneHome", true)
+	stateManager.SetBool("isEveryoneAsleep", false)
+	stateManager.SetString("musicPlaybackType", "winddown")
+
+	configLoader := config.NewLoader("../../../configs", logger)
+	timeProvider := FixedTimeProvider{FixedTime: now}
+	manager := NewManager(mockHA, stateManager, configLoader, logger, true, timeProvider, nil) // READ-ONLY
+
+	mockHA.ClearServiceCalls()
+
+	// Trigger go_to_bed
+	manager.handleGoToBed()
+
+	// In read-only mode, musicPlaybackType should NOT be changed
+	musicType, _ := stateManager.GetString("musicPlaybackType")
+	if musicType != "winddown" {
+		t.Errorf("In read-only mode, musicPlaybackType should remain 'winddown', got '%s'", musicType)
+	}
+
+	// Verify NO service calls were made
+	calls := mockHA.GetServiceCalls()
+	if len(calls) > 0 {
+		t.Errorf("Expected no service calls in read-only mode, got %d", len(calls))
+	}
 }
 
 // TestRealTimeProvider tests the RealTimeProvider

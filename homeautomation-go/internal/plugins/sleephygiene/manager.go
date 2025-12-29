@@ -660,34 +660,58 @@ func (m *Manager) handleStopScreens() {
 	}
 }
 
-// handleGoToBed handles the go_to_bed trigger (flash lights as bedtime reminder)
+// handleGoToBed handles the go_to_bed trigger (flash lights and start sleep music)
+// This matches Node-RED behavior which does two things:
+// 1. Sets musicPlaybackType to "sleep" (always, triggers music plugin to start sleep music)
+// 2. Flashes lights (conditional on anyone home + not everyone asleep)
 func (m *Manager) handleGoToBed() {
 	m.logger.Info("Handling go_to_bed trigger")
 
-	// Check conditions: anyone home and not everyone asleep
+	// Always set musicPlaybackType to "sleep" - this triggers the music plugin
+	// to start sleep music. Node-RED does this unconditionally at go_to_bed time.
+	if !m.readOnly {
+		if err := m.stateManager.SetString("musicPlaybackType", "sleep"); err != nil {
+			m.logger.Error("Failed to set musicPlaybackType to sleep", zap.Error(err))
+		} else {
+			m.logger.Info("Set musicPlaybackType to sleep for bedtime")
+		}
+	} else {
+		m.logger.Info("READ-ONLY: Would set musicPlaybackType to sleep")
+	}
+
+	// Check conditions for flashing lights: anyone home and not everyone asleep
 	isAnyoneHome, err := m.stateManager.GetBool("isAnyoneHome")
-	if err != nil || !isAnyoneHome {
-		m.logger.Debug("Skipping go_to_bed: no one home")
-		return
+	if err != nil {
+		isAnyoneHome = false
 	}
 
 	isEveryoneAsleep, err := m.stateManager.GetBool("isEveryoneAsleep")
-	if err != nil || isEveryoneAsleep {
-		m.logger.Debug("Skipping go_to_bed: everyone is asleep")
-		return
+	if err != nil {
+		isEveryoneAsleep = false
 	}
 
-	// Conditions met - flash lights
-	m.logger.Info("Conditions met for go_to_bed, flashing lights")
+	shouldFlashLights := isAnyoneHome && !isEveryoneAsleep
 
-	// Record action in shadow state
-	m.recordAction("go_to_bed", "Flashing common area lights as bedtime reminder", "go_to_bed_timer")
+	// Record action in shadow state - always record since music is always started
+	if shouldFlashLights {
+		m.recordAction("go_to_bed", "Starting sleep music and flashing common area lights", "go_to_bed_timer")
+	} else {
+		m.recordAction("go_to_bed", "Starting sleep music (no light flash: conditions not met)", "go_to_bed_timer")
+	}
 	m.shadowTracker.RecordGoToBedReminder()
 
-	if !m.readOnly {
-		m.flashCommonAreaLights()
+	// Flash lights only if conditions are met
+	if shouldFlashLights {
+		m.logger.Info("Conditions met for go_to_bed, flashing lights")
+		if !m.readOnly {
+			m.flashCommonAreaLights()
+		} else {
+			m.logger.Info("READ-ONLY: Would flash common area lights")
+		}
 	} else {
-		m.logger.Info("READ-ONLY: Would flash common area lights")
+		m.logger.Debug("Skipping go_to_bed light flash: conditions not met",
+			zap.Bool("isAnyoneHome", isAnyoneHome),
+			zap.Bool("isEveryoneAsleep", isEveryoneAsleep))
 	}
 }
 

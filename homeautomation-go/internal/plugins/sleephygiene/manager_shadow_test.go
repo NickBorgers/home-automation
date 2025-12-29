@@ -460,39 +460,41 @@ func TestSleepHygieneShadowState_BedroomLightsNoCancel(t *testing.T) {
 }
 
 // TestSleepHygieneShadowState_HandleGoToBed tests go to bed handler with various conditions
+// Shadow state is ALWAYS recorded because sleep music is always started.
+// Lights are only flashed when someone is home and not everyone is asleep.
 func TestSleepHygieneShadowState_HandleGoToBed(t *testing.T) {
 	testCases := []struct {
 		name              string
 		isAnyoneHome      bool
 		isEveryoneAsleep  bool
-		shouldTrigger     bool
+		shouldFlashLights bool
 		setupStateManager func(*state.Manager)
 	}{
 		{
-			name:             "No one home - should not trigger",
-			isAnyoneHome:     false,
-			isEveryoneAsleep: false,
-			shouldTrigger:    false,
+			name:              "No one home - music starts, no lights",
+			isAnyoneHome:      false,
+			isEveryoneAsleep:  false,
+			shouldFlashLights: false,
 			setupStateManager: func(sm *state.Manager) {
 				sm.SetBool("isAnyoneHome", false)
 				sm.SetBool("isEveryoneAsleep", false)
 			},
 		},
 		{
-			name:             "Everyone asleep - should not trigger",
-			isAnyoneHome:     true,
-			isEveryoneAsleep: true,
-			shouldTrigger:    false,
+			name:              "Everyone asleep - music starts, no lights",
+			isAnyoneHome:      true,
+			isEveryoneAsleep:  true,
+			shouldFlashLights: false,
 			setupStateManager: func(sm *state.Manager) {
 				sm.SetBool("isAnyoneHome", true)
 				sm.SetBool("isEveryoneAsleep", true)
 			},
 		},
 		{
-			name:             "Someone home and awake - should trigger",
-			isAnyoneHome:     true,
-			isEveryoneAsleep: false,
-			shouldTrigger:    true,
+			name:              "Someone home and awake - music starts, lights flash",
+			isAnyoneHome:      true,
+			isEveryoneAsleep:  false,
+			shouldFlashLights: true,
 			setupStateManager: func(sm *state.Manager) {
 				sm.SetBool("isAnyoneHome", true)
 				sm.SetBool("isEveryoneAsleep", false)
@@ -516,18 +518,22 @@ func TestSleepHygieneShadowState_HandleGoToBed(t *testing.T) {
 
 			shadowState := manager.GetShadowState()
 
-			if tc.shouldTrigger {
-				// Verify reminder was recorded
-				if shadowState.Outputs.GoToBedReminder == nil {
-					t.Error("Expected GoToBedReminder to be set")
-				}
-				if shadowState.Outputs.LastActionType != "go_to_bed" {
-					t.Errorf("Expected LastActionType to be 'go_to_bed', got %s", shadowState.Outputs.LastActionType)
+			// Shadow state should ALWAYS be recorded (music is always started)
+			if shadowState.Outputs.GoToBedReminder == nil {
+				t.Error("Expected GoToBedReminder to be set (music always starts)")
+			}
+			if shadowState.Outputs.LastActionType != "go_to_bed" {
+				t.Errorf("Expected LastActionType to be 'go_to_bed', got %s", shadowState.Outputs.LastActionType)
+			}
+
+			// Verify action reason reflects whether lights were flashed
+			if tc.shouldFlashLights {
+				if shadowState.Outputs.LastActionReason != "Starting sleep music and flashing common area lights" {
+					t.Errorf("Expected action reason for lights+music, got '%s'", shadowState.Outputs.LastActionReason)
 				}
 			} else {
-				// Verify reminder was NOT recorded
-				if shadowState.Outputs.GoToBedReminder != nil {
-					t.Error("Expected GoToBedReminder to not be set")
+				if shadowState.Outputs.LastActionReason != "Starting sleep music (no light flash: conditions not met)" {
+					t.Errorf("Expected action reason for music only, got '%s'", shadowState.Outputs.LastActionReason)
 				}
 			}
 		})
