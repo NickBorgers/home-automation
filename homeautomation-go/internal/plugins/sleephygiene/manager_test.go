@@ -481,6 +481,18 @@ func TestHandleGoToBed_SetsSleepMusicEvenWhenEveryoneAsleep(t *testing.T) {
 			}
 		}
 	}
+
+	// Verify shadow state was still recorded (bug fix: shadow state should be recorded even without lights)
+	shadowState := manager.GetShadowState()
+	if shadowState.Outputs.GoToBedReminder == nil {
+		t.Fatal("Expected GoToBedReminder to be recorded even when everyone is asleep")
+	}
+	if !shadowState.Outputs.GoToBedReminder.Triggered {
+		t.Error("Expected GoToBedReminder.Triggered to be true")
+	}
+	if shadowState.Outputs.LastActionType != "go_to_bed" {
+		t.Errorf("Expected LastActionType to be 'go_to_bed', got '%s'", shadowState.Outputs.LastActionType)
+	}
 }
 
 // TestHandleGoToBed_NoOneHome tests go_to_bed when no one is home
@@ -516,6 +528,18 @@ func TestHandleGoToBed_NoOneHome(t *testing.T) {
 				t.Error("Should not flash lights when no one is home")
 			}
 		}
+	}
+
+	// Verify shadow state was still recorded (bug fix: shadow state should be recorded even without lights)
+	shadowState := manager.GetShadowState()
+	if shadowState.Outputs.GoToBedReminder == nil {
+		t.Fatal("Expected GoToBedReminder to be recorded even when no one is home")
+	}
+	if !shadowState.Outputs.GoToBedReminder.Triggered {
+		t.Error("Expected GoToBedReminder.Triggered to be true")
+	}
+	if shadowState.Outputs.LastActionType != "go_to_bed" {
+		t.Errorf("Expected LastActionType to be 'go_to_bed', got '%s'", shadowState.Outputs.LastActionType)
 	}
 }
 
