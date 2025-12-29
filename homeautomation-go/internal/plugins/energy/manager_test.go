@@ -893,3 +893,96 @@ func TestIndicatorLightsNoEntitiesDiscovered(t *testing.T) {
 	}
 	assert.Len(t, lightCalls, 0, "Expected no light.turn_on service calls when no entities discovered")
 }
+
+func TestIndicatorLightsDiscoveryCaseInsensitive(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	config := createTestConfig()
+
+	// Set up mock light entities with different casing of "Radar"
+	mockClient.SetState("light.apollo_lower_case", "on", map[string]interface{}{
+		"friendly_name": "Apollo radar sensor", // lowercase "radar"
+	})
+	mockClient.SetState("light.apollo_upper_case", "on", map[string]interface{}{
+		"friendly_name": "Apollo RADAR sensor", // uppercase "RADAR"
+	})
+	mockClient.SetState("light.apollo_mixed_case", "on", map[string]interface{}{
+		"friendly_name": "Apollo RaDaR sensor", // mixed case
+	})
+	mockClient.SetState("light.no_match", "on", map[string]interface{}{
+		"friendly_name": "No match here",
+	})
+
+	mockClient.Connect()
+
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil, nil)
+
+	err := manager.Start()
+	assert.NoError(t, err)
+	defer manager.Stop()
+
+	// Verify all case variations were discovered (case-insensitive matching)
+	assert.Len(t, manager.indicatorLightEntities, 3)
+	assert.Contains(t, manager.indicatorLightEntities, "light.apollo_lower_case")
+	assert.Contains(t, manager.indicatorLightEntities, "light.apollo_upper_case")
+	assert.Contains(t, manager.indicatorLightEntities, "light.apollo_mixed_case")
+}
+
+func TestIndicatorLightsDiscoveryInvalidPattern(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	config := createTestConfig()
+
+	// Set an invalid regex pattern (unclosed bracket)
+	config.Energy.IndicatorLights.FriendlyNamePattern = "[invalid"
+
+	mockClient.SetState("light.test_light", "on", map[string]interface{}{
+		"friendly_name": "Test Radar Light",
+	})
+
+	mockClient.Connect()
+
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil, nil)
+
+	// Start should not fail - invalid pattern is handled gracefully
+	err := manager.Start()
+	assert.NoError(t, err)
+	defer manager.Stop()
+
+	// No entities should be discovered when pattern is invalid
+	assert.Len(t, manager.indicatorLightEntities, 0)
+}
+
+func TestIndicatorLightsDiscoveryCustomPattern(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	config := createTestConfig()
+
+	// Set a custom regex pattern
+	config.Energy.IndicatorLights.FriendlyNamePattern = "^Apollo.*RGB$"
+
+	mockClient.SetState("light.apollo_bedroom_rgb", "on", map[string]interface{}{
+		"friendly_name": "Apollo Bedroom RGB", // matches pattern
+	})
+	mockClient.SetState("light.apollo_kitchen_radar", "on", map[string]interface{}{
+		"friendly_name": "Apollo Kitchen Radar", // doesn't match pattern
+	})
+	mockClient.SetState("light.hue_living_room", "on", map[string]interface{}{
+		"friendly_name": "Hue Living Room RGB", // doesn't start with Apollo
+	})
+
+	mockClient.Connect()
+
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil, nil)
+
+	err := manager.Start()
+	assert.NoError(t, err)
+	defer manager.Stop()
+
+	// Only the matching entity should be discovered
+	assert.Len(t, manager.indicatorLightEntities, 1)
+	assert.Contains(t, manager.indicatorLightEntities, "light.apollo_bedroom_rgb")
+}

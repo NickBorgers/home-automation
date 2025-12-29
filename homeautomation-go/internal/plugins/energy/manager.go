@@ -104,11 +104,13 @@ func (m *Manager) Start() error {
 		return fmt.Errorf("failed to subscribe to free energy available: %w", err)
 	}
 
+	// Discover indicator light entities (Apollo sensors) BEFORE starting the
+	// free energy checker goroutine. This ensures indicatorLightEntities is
+	// populated before any state change handlers call updateIndicatorLights().
+	m.discoverIndicatorLights()
+
 	// Start free energy check timer (check every minute)
 	go m.runFreeEnergyChecker()
-
-	// Discover indicator light entities (Apollo sensors)
-	m.discoverIndicatorLights()
 
 	// Capture initial shadow state inputs after all subscriptions are registered
 	m.captureInitialInputs()
