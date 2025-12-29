@@ -35,10 +35,20 @@ type Manager struct {
 	// Subscription helper for automatic shadow state input capture
 	subHelper *shadowstate.SubscriptionHelper
 
-	// Mutex protecting indicatorLightEntities
+	// Mutex protecting indicator light and lux sensor state
 	indicatorMu sync.RWMutex
 	// Discovered indicator light entities (Apollo sensors with "Radar" in friendly_name)
 	indicatorLightEntities []string
+
+	// Lux sensor tracking (protected by indicatorMu)
+	// Maps light entity ID -> lux sensor entity ID
+	lightToLuxSensor map[string]string
+	// Maps lux sensor entity ID -> current lux value
+	currentLuxValues map[string]float64
+	// Maps light entity ID -> last brightness update time (for debouncing)
+	lastBrightnessUpdate map[string]time.Time
+	// Maps light entity ID -> last brightness percentage (for hysteresis)
+	lastBrightnessLevel map[string]int
 }
 
 // NewManager creates a new Energy State manager
@@ -51,15 +61,19 @@ func NewManager(haClient ha.HAClient, stateManager *state.Manager, config *Energ
 	shadowTracker := shadowstate.NewEnergyTracker()
 
 	m := &Manager{
-		haClient:      haClient,
-		stateManager:  stateManager,
-		config:        config,
-		logger:        logger.Named("energy"),
-		readOnly:      readOnly,
-		timezone:      timezone,
-		stopChecker:   make(chan struct{}),
-		shadowTracker: shadowTracker,
-		subHelper:     shadowstate.NewSubscriptionHelper(haClient, stateManager, registry, shadowTracker, "energy", logger.Named("energy")),
+		haClient:             haClient,
+		stateManager:         stateManager,
+		config:               config,
+		logger:               logger.Named("energy"),
+		readOnly:             readOnly,
+		timezone:             timezone,
+		stopChecker:          make(chan struct{}),
+		shadowTracker:        shadowTracker,
+		subHelper:            shadowstate.NewSubscriptionHelper(haClient, stateManager, registry, shadowTracker, "energy", logger.Named("energy")),
+		lightToLuxSensor:     make(map[string]string),
+		currentLuxValues:     make(map[string]float64),
+		lastBrightnessUpdate: make(map[string]time.Time),
+		lastBrightnessLevel:  make(map[string]int),
 	}
 
 	return m
@@ -111,6 +125,14 @@ func (m *Manager) Start() error {
 	// free energy checker goroutine. This ensures indicatorLightEntities is
 	// populated before any state change handlers call updateIndicatorLights().
 	m.discoverIndicatorLights()
+
+	// Discover lux sensors and associate with indicator lights (for adaptive brightness)
+	m.discoverLuxSensors()
+
+	// Subscribe to lux sensor changes (if adaptive brightness is enabled)
+	if err := m.subscribeLuxSensors(); err != nil {
+		return fmt.Errorf("failed to subscribe to lux sensors: %w", err)
+	}
 
 	// Start free energy check timer (check every minute)
 	go m.runFreeEnergyChecker()
@@ -568,9 +590,12 @@ func (m *Manager) discoverIndicatorLights() {
 }
 
 // updateIndicatorLights updates the indicator light entities to reflect the current energy level.
+// When adaptive brightness is enabled, each light is updated with its own brightness based on lux.
+// Otherwise, all lights are updated with the static brightness from config.
 func (m *Manager) updateIndicatorLights(energyLevel string) {
 	m.indicatorMu.RLock()
 	entities := m.indicatorLightEntities
+	adaptiveEnabled := m.config.Energy.IndicatorLights.AdaptiveBrightness.Enabled
 	m.indicatorMu.RUnlock()
 
 	if len(entities) == 0 {
@@ -578,15 +603,7 @@ func (m *Manager) updateIndicatorLights(energyLevel string) {
 		return
 	}
 
-	// Find the LightConfig for this energy level
-	var lightConfig *LightConfig
-	for _, state := range m.config.Energy.EnergyStates {
-		if state.ConditionName == energyLevel {
-			lightConfig = &state.LightConfig
-			break
-		}
-	}
-
+	lightConfig := m.getLightConfigForLevel(energyLevel)
 	if lightConfig == nil {
 		m.logger.Warn("No light config found for energy level",
 			zap.String("level", energyLevel))
@@ -595,7 +612,38 @@ func (m *Manager) updateIndicatorLights(energyLevel string) {
 
 	rgbColor := []int{lightConfig.Red, lightConfig.Green, lightConfig.Blue}
 
-	// Update shadow state with the action we're about to take (or would take in read-only mode)
+	// If adaptive brightness is enabled, update each light individually with per-device brightness
+	if adaptiveEnabled {
+		m.logger.Debug("Updating indicator lights with adaptive brightness",
+			zap.String("energy_level", energyLevel),
+			zap.Int("entity_count", len(entities)))
+
+		for _, entity := range entities {
+			brightness := lightConfig.BrightnessPct // default static brightness
+
+			m.indicatorMu.RLock()
+			luxSensor, hasLux := m.lightToLuxSensor[entity]
+			lux, luxExists := m.currentLuxValues[luxSensor]
+			m.indicatorMu.RUnlock()
+
+			if hasLux && luxExists {
+				brightness = m.calculateAdaptiveBrightness(lux, entity)
+
+				// Update last brightness level (for hysteresis tracking)
+				m.indicatorMu.Lock()
+				m.lastBrightnessLevel[entity] = brightness
+				m.indicatorMu.Unlock()
+			}
+
+			m.updateSingleIndicatorLight(entity, energyLevel, brightness)
+		}
+
+		// Update shadow state with overall action info
+		m.shadowTracker.UpdateIndicatorLightsAction(energyLevel, rgbColor, -1, entities) // -1 indicates per-device brightness
+		return
+	}
+
+	// Non-adaptive mode: update all lights with the same static brightness
 	m.shadowTracker.UpdateIndicatorLightsAction(energyLevel, rgbColor, lightConfig.BrightnessPct, entities)
 
 	if m.readOnly {
@@ -607,7 +655,7 @@ func (m *Manager) updateIndicatorLights(energyLevel string) {
 		return
 	}
 
-	// Call Home Assistant light.turn_on service
+	// Call Home Assistant light.turn_on service for all lights at once
 	err := m.haClient.CallService("light", "turn_on", map[string]interface{}{
 		"entity_id":      entities,
 		"rgb_color":      rgbColor,
@@ -752,4 +800,341 @@ func (m *Manager) Reset() error {
 
 	m.logger.Info("Successfully reset Energy State")
 	return nil
+}
+
+// ============================================================================
+// Adaptive Brightness for Indicator LEDs
+// ============================================================================
+
+// extractDeviceID extracts the device identifier from an entity ID.
+// Example: "light.apollo_msr_2_1294c8_rgb_light" -> "apollo_msr_2_1294c8"
+// Example: "sensor.apollo_msr_2_1294c8_ltr390_light" -> "apollo_msr_2_1294c8"
+func extractDeviceID(entityID string) string {
+	// Remove domain prefix (light., sensor., etc.)
+	parts := strings.SplitN(entityID, ".", 2)
+	if len(parts) < 2 {
+		return ""
+	}
+	name := parts[1]
+
+	// Extract device ID by removing known suffixes
+	// Pattern: apollo_msr_2_{hex_id}_{suffix}
+	suffixes := []string{"_rgb_light", "_ltr390_light", "_ltr390_uv_index", "_radar_target", "_online"}
+	for _, suffix := range suffixes {
+		if strings.HasSuffix(name, suffix) {
+			return strings.TrimSuffix(name, suffix)
+		}
+	}
+
+	// Fallback: return as-is
+	return name
+}
+
+// discoverLuxSensors discovers lux sensor entities and associates them with indicator lights.
+// Each indicator light is matched to its corresponding lux sensor by device ID.
+func (m *Manager) discoverLuxSensors() {
+	if !m.config.Energy.IndicatorLights.AdaptiveBrightness.Enabled {
+		m.logger.Info("Adaptive brightness disabled, skipping lux sensor discovery")
+		return
+	}
+
+	pattern := m.config.Energy.IndicatorLights.AdaptiveBrightness.LuxSensorPattern
+	if pattern == "" {
+		pattern = "ltr390_light" // Default pattern for Apollo MSR-2 light sensors
+	}
+
+	states, err := m.haClient.GetAllStates()
+	if err != nil {
+		m.logger.Error("Failed to get states for lux sensor discovery", zap.Error(err))
+		return
+	}
+
+	// Build a map of device ID -> lux sensor entity ID
+	luxSensorsByDevice := make(map[string]string)
+	for _, state := range states {
+		if !strings.HasPrefix(state.EntityID, "sensor.") {
+			continue
+		}
+		// Match by pattern in entity_id (not friendly_name)
+		if strings.Contains(state.EntityID, pattern) {
+			deviceID := extractDeviceID(state.EntityID)
+			if deviceID != "" {
+				luxSensorsByDevice[deviceID] = state.EntityID
+				m.logger.Debug("Found lux sensor",
+					zap.String("entity_id", state.EntityID),
+					zap.String("device_id", deviceID))
+			}
+		}
+	}
+
+	// Associate each indicator light with its lux sensor
+	m.indicatorMu.Lock()
+	defer m.indicatorMu.Unlock()
+
+	for _, lightEntity := range m.indicatorLightEntities {
+		lightDeviceID := extractDeviceID(lightEntity)
+		if luxSensor, found := luxSensorsByDevice[lightDeviceID]; found {
+			m.lightToLuxSensor[lightEntity] = luxSensor
+			m.logger.Info("Associated light with lux sensor",
+				zap.String("light", lightEntity),
+				zap.String("lux_sensor", luxSensor),
+				zap.String("device_id", lightDeviceID))
+		} else {
+			m.logger.Warn("No lux sensor found for indicator light",
+				zap.String("light", lightEntity),
+				zap.String("device_id", lightDeviceID))
+		}
+	}
+
+	m.logger.Info("Lux sensor discovery complete",
+		zap.Int("lights_with_lux", len(m.lightToLuxSensor)),
+		zap.Int("total_lights", len(m.indicatorLightEntities)))
+
+	// Update shadow state with light-to-lux mapping
+	m.shadowTracker.UpdateLightToLuxMapping(m.lightToLuxSensor)
+}
+
+// subscribeLuxSensors subscribes to state changes from discovered lux sensors.
+func (m *Manager) subscribeLuxSensors() error {
+	if !m.config.Energy.IndicatorLights.AdaptiveBrightness.Enabled {
+		return nil
+	}
+
+	m.indicatorMu.RLock()
+	// Get unique lux sensor entities
+	luxSensors := make(map[string]bool)
+	for _, luxEntity := range m.lightToLuxSensor {
+		luxSensors[luxEntity] = true
+	}
+	m.indicatorMu.RUnlock()
+
+	for luxEntity := range luxSensors {
+		entity := luxEntity // capture for closure
+		if err := m.subHelper.SubscribeToSensor(entity, func(lux float64) {
+			m.handleLuxChange(entity, lux)
+		}); err != nil {
+			return fmt.Errorf("failed to subscribe to lux sensor %s: %w", entity, err)
+		}
+		m.logger.Info("Subscribed to lux sensor", zap.String("entity_id", entity))
+	}
+
+	return nil
+}
+
+// handleLuxChange processes a lux sensor value change.
+func (m *Manager) handleLuxChange(luxEntity string, lux float64) {
+	// Validate lux value
+	if math.IsNaN(lux) || math.IsInf(lux, 0) {
+		m.logger.Warn("Invalid lux value, ignoring",
+			zap.String("entity", luxEntity),
+			zap.Float64("lux", lux))
+		return
+	}
+
+	// Store current lux value
+	m.indicatorMu.Lock()
+	m.currentLuxValues[luxEntity] = lux
+	m.indicatorMu.Unlock()
+
+	// Update shadow state
+	m.shadowTracker.UpdateLuxReading(luxEntity, lux)
+
+	m.logger.Debug("Lux sensor value updated",
+		zap.String("entity", luxEntity),
+		zap.Float64("lux", lux))
+
+	// Find lights using this lux sensor and update brightness
+	m.indicatorMu.RLock()
+	var lightsToUpdate []string
+	for lightEntity, sensorEntity := range m.lightToLuxSensor {
+		if sensorEntity == luxEntity {
+			lightsToUpdate = append(lightsToUpdate, lightEntity)
+		}
+	}
+	m.indicatorMu.RUnlock()
+
+	for _, lightEntity := range lightsToUpdate {
+		m.updateLightBrightness(lightEntity, lux)
+	}
+}
+
+// getDefaultBrightnessCurve returns the default lux-to-brightness curve from issue #194.
+func getDefaultBrightnessCurve() []BrightnessCurvePoint {
+	return []BrightnessCurvePoint{
+		{LuxMax: 10, BrightnessPct: 20},
+		{LuxMax: 100, BrightnessPct: 40},
+		{LuxMax: 500, BrightnessPct: 60},
+		{LuxMax: 1000, BrightnessPct: 80},
+	}
+}
+
+// calculateAdaptiveBrightness returns the brightness percentage for a given lux value.
+// It applies hysteresis to prevent oscillation at threshold boundaries.
+func (m *Manager) calculateAdaptiveBrightness(lux float64, lightEntity string) int {
+	curve := m.config.Energy.IndicatorLights.AdaptiveBrightness.BrightnessCurve
+	if len(curve) == 0 {
+		curve = getDefaultBrightnessCurve()
+	}
+
+	// Get hysteresis percentage (default 10%)
+	hysteresisPercent := m.config.Energy.IndicatorLights.AdaptiveBrightness.HysteresisPercent
+	if hysteresisPercent == 0 {
+		hysteresisPercent = 10
+	}
+
+	// Get last brightness level for hysteresis check
+	m.indicatorMu.RLock()
+	lastBrightness := m.lastBrightnessLevel[lightEntity]
+	m.indicatorMu.RUnlock()
+
+	// Find new brightness level based on lux value
+	newBrightness := 100 // default for lux >= highest threshold
+	for _, point := range curve {
+		if lux < point.LuxMax {
+			newBrightness = point.BrightnessPct
+			break
+		}
+	}
+
+	// Apply hysteresis: only change if we've crossed threshold significantly
+	if lastBrightness != 0 && newBrightness != lastBrightness {
+		// Find the threshold between old and new brightness levels
+		for _, point := range curve {
+			threshold := point.LuxMax
+			hysteresisBand := threshold * float64(hysteresisPercent) / 100.0
+
+			// Check if we're within the hysteresis band of this threshold
+			if lux >= threshold-hysteresisBand && lux <= threshold+hysteresisBand {
+				// Stay at current level if we're in the hysteresis band
+				m.logger.Debug("Hysteresis: staying at current brightness",
+					zap.String("light", lightEntity),
+					zap.Float64("lux", lux),
+					zap.Float64("threshold", threshold),
+					zap.Int("last_brightness", lastBrightness),
+					zap.Int("would_be_brightness", newBrightness))
+				return lastBrightness
+			}
+		}
+	}
+
+	return newBrightness
+}
+
+// updateLightBrightness updates a single light's brightness based on lux, with debouncing.
+func (m *Manager) updateLightBrightness(lightEntity string, lux float64) {
+	// Check debounce
+	debounceSec := m.config.Energy.IndicatorLights.AdaptiveBrightness.DebounceDurationSec
+	if debounceSec == 0 {
+		debounceSec = 5 // default 5 seconds
+	}
+	debounceDuration := time.Duration(debounceSec) * time.Second
+
+	m.indicatorMu.Lock()
+	lastUpdate, exists := m.lastBrightnessUpdate[lightEntity]
+	if exists && time.Since(lastUpdate) < debounceDuration {
+		m.indicatorMu.Unlock()
+		m.logger.Debug("Skipping brightness update (debounce)",
+			zap.String("light", lightEntity),
+			zap.Duration("since_last", time.Since(lastUpdate)),
+			zap.Duration("debounce", debounceDuration))
+		return
+	}
+	m.indicatorMu.Unlock()
+
+	// Calculate adaptive brightness
+	brightness := m.calculateAdaptiveBrightness(lux, lightEntity)
+
+	// Check if brightness actually changed
+	m.indicatorMu.Lock()
+	oldBrightness := m.lastBrightnessLevel[lightEntity]
+	if brightness == oldBrightness && oldBrightness != 0 {
+		m.indicatorMu.Unlock()
+		m.logger.Debug("Brightness unchanged, skipping update",
+			zap.String("light", lightEntity),
+			zap.Int("brightness", brightness))
+		return
+	}
+	m.lastBrightnessLevel[lightEntity] = brightness
+	m.lastBrightnessUpdate[lightEntity] = time.Now()
+	m.indicatorMu.Unlock()
+
+	// Get current energy level for RGB color
+	currentLevel, err := m.stateManager.GetString("currentEnergyLevel")
+	if err != nil {
+		m.logger.Warn("Failed to get current energy level for brightness update",
+			zap.Error(err))
+		return
+	}
+
+	m.logger.Info("Updating light brightness based on lux",
+		zap.String("light", lightEntity),
+		zap.Float64("lux", lux),
+		zap.Int("old_brightness", oldBrightness),
+		zap.Int("new_brightness", brightness))
+
+	// Update the single light with new brightness
+	m.updateSingleIndicatorLight(lightEntity, currentLevel, brightness)
+}
+
+// getLightConfigForLevel returns the LightConfig for a given energy level.
+func (m *Manager) getLightConfigForLevel(energyLevel string) *LightConfig {
+	for _, state := range m.config.Energy.EnergyStates {
+		if state.ConditionName == energyLevel {
+			return &state.LightConfig
+		}
+	}
+	return nil
+}
+
+// updateSingleIndicatorLight updates a single indicator light with the given color and brightness.
+func (m *Manager) updateSingleIndicatorLight(entity, energyLevel string, brightness int) {
+	lightConfig := m.getLightConfigForLevel(energyLevel)
+	if lightConfig == nil {
+		m.logger.Warn("No light config found for energy level",
+			zap.String("level", energyLevel),
+			zap.String("entity", entity))
+		return
+	}
+
+	rgbColor := []int{lightConfig.Red, lightConfig.Green, lightConfig.Blue}
+
+	// Update shadow state
+	m.indicatorMu.RLock()
+	luxSensor := m.lightToLuxSensor[entity]
+	lux := m.currentLuxValues[luxSensor]
+	isAdaptive := luxSensor != ""
+	m.indicatorMu.RUnlock()
+
+	m.shadowTracker.UpdatePerDeviceBrightness(entity, luxSensor, lux, brightness, isAdaptive)
+
+	if m.readOnly {
+		m.logger.Info("READ-ONLY: Would update single indicator light",
+			zap.String("entity", entity),
+			zap.String("energy_level", energyLevel),
+			zap.Ints("rgb_color", rgbColor),
+			zap.Int("brightness_pct", brightness),
+			zap.Bool("adaptive", isAdaptive))
+		return
+	}
+
+	// Call Home Assistant light.turn_on service for single entity
+	err := m.haClient.CallService("light", "turn_on", map[string]interface{}{
+		"entity_id":      entity,
+		"rgb_color":      rgbColor,
+		"brightness_pct": brightness,
+	})
+
+	if err != nil {
+		m.logger.Error("Failed to update single indicator light",
+			zap.String("entity", entity),
+			zap.String("energy_level", energyLevel),
+			zap.Error(err))
+		return
+	}
+
+	m.logger.Debug("Updated single indicator light",
+		zap.String("entity", entity),
+		zap.String("energy_level", energyLevel),
+		zap.Ints("rgb_color", rgbColor),
+		zap.Int("brightness_pct", brightness))
 }

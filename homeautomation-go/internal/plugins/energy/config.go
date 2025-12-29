@@ -29,11 +29,42 @@ type LightConfig struct {
 	BrightnessPct int `yaml:"brightness_pct"`
 }
 
+// BrightnessCurvePoint defines a single point on the lux-to-brightness curve
+type BrightnessCurvePoint struct {
+	LuxMax        float64 `yaml:"lux_max"`
+	BrightnessPct int     `yaml:"brightness_pct"`
+}
+
+// AdaptiveBrightnessConfig contains settings for lux-based adaptive brightness
+type AdaptiveBrightnessConfig struct {
+	// Enabled toggles adaptive brightness (default: false for backward compatibility)
+	Enabled bool `yaml:"enabled"`
+
+	// LuxSensorPattern is a substring to match lux sensor entities by entity_id
+	// Default: "ltr390_light" (matches Apollo MSR-2 light sensors)
+	LuxSensorPattern string `yaml:"lux_sensor_pattern"`
+
+	// BrightnessCurve defines the lux-to-brightness mapping (must be sorted by LuxMax ascending)
+	// If empty, uses default curve: 10->20%, 100->40%, 500->60%, 1000->80%
+	BrightnessCurve []BrightnessCurvePoint `yaml:"brightness_curve"`
+
+	// DebounceDurationSec is the minimum time between brightness updates per device
+	// Default: 5 seconds
+	DebounceDurationSec int `yaml:"debounce_duration_sec"`
+
+	// HysteresisPercent is the percentage band around thresholds to prevent oscillation
+	// Default: 10 (meaning 10% above/below threshold before changing)
+	HysteresisPercent int `yaml:"hysteresis_percent"`
+}
+
 // IndicatorLightsConfig represents the configuration for energy indicator lights
 type IndicatorLightsConfig struct {
 	// FriendlyNamePattern is a regex to match entities by friendly_name attribute
 	// Default: "Radar" (matches Apollo MTR sensors which have "Radar" in their names)
 	FriendlyNamePattern string `yaml:"friendly_name_pattern"`
+
+	// AdaptiveBrightness configures lux-based brightness adjustment
+	AdaptiveBrightness AdaptiveBrightnessConfig `yaml:"adaptive_brightness"`
 }
 
 // EnergyConfig represents the energy configuration

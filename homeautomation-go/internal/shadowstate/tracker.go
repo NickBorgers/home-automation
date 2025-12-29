@@ -727,6 +727,56 @@ func (et *EnergyTracker) UpdateIndicatorLightsAction(energyLevel string, rgbColo
 	et.state.Metadata.LastUpdated = time.Now()
 }
 
+// UpdateLuxReading updates a single lux sensor reading
+func (et *EnergyTracker) UpdateLuxReading(sensorEntity string, lux float64) {
+	et.mu.Lock()
+	defer et.mu.Unlock()
+
+	if et.state.Outputs.LuxSensorReadings == nil {
+		et.state.Outputs.LuxSensorReadings = make(map[string]LuxSensorReading)
+	}
+
+	et.state.Outputs.LuxSensorReadings[sensorEntity] = LuxSensorReading{
+		EntityID:  sensorEntity,
+		Lux:       lux,
+		Timestamp: time.Now(),
+	}
+	et.state.Metadata.LastUpdated = time.Now()
+}
+
+// UpdateLightToLuxMapping updates the light-to-lux sensor mapping
+func (et *EnergyTracker) UpdateLightToLuxMapping(mapping map[string]string) {
+	et.mu.Lock()
+	defer et.mu.Unlock()
+
+	// Copy the mapping
+	et.state.Outputs.LightToLuxSensorMapping = make(map[string]string)
+	for k, v := range mapping {
+		et.state.Outputs.LightToLuxSensorMapping[k] = v
+	}
+	et.state.Metadata.LastUpdated = time.Now()
+}
+
+// UpdatePerDeviceBrightness updates the brightness info for a single device
+func (et *EnergyTracker) UpdatePerDeviceBrightness(lightEntity, luxEntity string, lux float64, brightness int, isAdaptive bool) {
+	et.mu.Lock()
+	defer et.mu.Unlock()
+
+	if et.state.Outputs.PerDeviceBrightness == nil {
+		et.state.Outputs.PerDeviceBrightness = make(map[string]PerDeviceBrightness)
+	}
+
+	et.state.Outputs.PerDeviceBrightness[lightEntity] = PerDeviceBrightness{
+		LightEntity:     lightEntity,
+		LuxSensorEntity: luxEntity,
+		CurrentLux:      lux,
+		BrightnessPct:   brightness,
+		IsAdaptive:      isAdaptive,
+		LastUpdate:      time.Now(),
+	}
+	et.state.Metadata.LastUpdated = time.Now()
+}
+
 // GetState returns the current shadow state (thread-safe copy)
 func (et *EnergyTracker) GetState() *EnergyShadowState {
 	et.mu.RLock()
@@ -754,6 +804,30 @@ func (et *EnergyTracker) GetState() *EnergyShadowState {
 	// Copy current inputs
 	for k, v := range et.state.Inputs.Current {
 		stateCopy.Inputs.Current[k] = v
+	}
+
+	// Copy lux sensor readings
+	if et.state.Outputs.LuxSensorReadings != nil {
+		stateCopy.Outputs.LuxSensorReadings = make(map[string]LuxSensorReading)
+		for k, v := range et.state.Outputs.LuxSensorReadings {
+			stateCopy.Outputs.LuxSensorReadings[k] = v
+		}
+	}
+
+	// Copy per-device brightness
+	if et.state.Outputs.PerDeviceBrightness != nil {
+		stateCopy.Outputs.PerDeviceBrightness = make(map[string]PerDeviceBrightness)
+		for k, v := range et.state.Outputs.PerDeviceBrightness {
+			stateCopy.Outputs.PerDeviceBrightness[k] = v
+		}
+	}
+
+	// Copy light-to-lux sensor mapping
+	if et.state.Outputs.LightToLuxSensorMapping != nil {
+		stateCopy.Outputs.LightToLuxSensorMapping = make(map[string]string)
+		for k, v := range et.state.Outputs.LightToLuxSensorMapping {
+			stateCopy.Outputs.LightToLuxSensorMapping[k] = v
+		}
 	}
 
 	return stateCopy
