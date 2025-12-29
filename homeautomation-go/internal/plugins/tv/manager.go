@@ -33,6 +33,9 @@ const (
 	SyncBoxSoftwarePowerEntity = "switch.sync_box_power"
 	SyncBoxPhysicalPowerEntity = "switch.hue_sync_box_power"
 	SyncBoxHDMIInputEntity     = "select.sync_box_hdmi_input"
+
+	// Entity ID for sync box light sync control
+	SyncBoxLightSyncEntity = "switch.sync_box_light_sync"
 )
 
 // Manager handles TV monitoring and manipulation
@@ -423,6 +426,40 @@ func (m *Manager) calculateTVPlaying(hdmiInput string) {
 
 	// Update shadow state
 	m.shadowTracker.UpdateTVPlaying(isTVPlaying)
+
+	// Control sync box light sync based on TV playing state
+	m.controlSyncBoxLightSync(isTVPlaying)
+}
+
+// controlSyncBoxLightSync turns the sync box light sync on or off based on TV playing state
+func (m *Manager) controlSyncBoxLightSync(isTVPlaying bool) {
+	if m.readOnly {
+		m.logger.Debug("Skipping sync box light sync control in read-only mode",
+			zap.Bool("would_sync", isTVPlaying))
+		return
+	}
+
+	action := "turn_off"
+	if isTVPlaying {
+		action = "turn_on"
+	}
+
+	m.logger.Info("Controlling sync box light sync",
+		zap.String("action", action),
+		zap.String("entity_id", SyncBoxLightSyncEntity))
+
+	err := m.haClient.CallService("switch", action, map[string]interface{}{
+		"entity_id": SyncBoxLightSyncEntity,
+	})
+	if err != nil {
+		m.logger.Error("Failed to control sync box light sync",
+			zap.String("action", action),
+			zap.Error(err))
+		return
+	}
+
+	m.logger.Debug("Sync box light sync controlled successfully",
+		zap.String("action", action))
 }
 
 // checkAndRecoverSyncBox checks if sync box recovery is needed and performs power cycle
