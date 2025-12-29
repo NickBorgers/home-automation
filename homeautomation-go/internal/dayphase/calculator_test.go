@@ -306,7 +306,13 @@ func TestCalculator_CalculateDayPhaseAllCases(t *testing.T) {
 				)
 			},
 			schedule: schedule,
-			expected: DayPhaseMorning,
+			// Early morning (before 6am) always returns night; otherwise morning
+			expected: func() DayPhase {
+				if now.Hour() < 6 {
+					return DayPhaseNight
+				}
+				return DayPhaseMorning
+			}(),
 		},
 		{
 			name: "day phase",
@@ -326,7 +332,13 @@ func TestCalculator_CalculateDayPhaseAllCases(t *testing.T) {
 				)
 			},
 			schedule: schedule,
-			expected: DayPhaseDay,
+			// Early morning (before 6am) always returns night; otherwise day
+			expected: func() DayPhase {
+				if now.Hour() < 6 {
+					return DayPhaseNight
+				}
+				return DayPhaseDay
+			}(),
 		},
 		{
 			name: "sunset phase",
@@ -346,10 +358,16 @@ func TestCalculator_CalculateDayPhaseAllCases(t *testing.T) {
 				)
 			},
 			schedule: schedule,
-			expected: DayPhaseSunset,
+			// Early morning (before 6am) always returns night; otherwise sunset
+			expected: func() DayPhase {
+				if now.Hour() < 6 {
+					return DayPhaseNight
+				}
+				return DayPhaseSunset
+			}(),
 		},
 		{
-			name: "dusk phase",
+			name: "dusk phase - after scheduled dusk time",
 			setupSunTimes: func(c *Calculator) {
 				// Set sun times so current time falls in dusk period (between dusk and night)
 				setSunTimesForTest(c, now,
@@ -365,8 +383,159 @@ func TestCalculator_CalculateDayPhaseAllCases(t *testing.T) {
 					now.Add(1*time.Hour),                  // night (future - so we're in dusk)
 				)
 			},
-			schedule: schedule,
-			expected: DayPhaseDusk,
+			// Set schedule.Dusk in the past so we're "after" the scheduled dusk time
+			schedule: &config.ParsedSchedule{
+				BeginWake: time.Date(now.Year(), now.Month(), now.Day(), 5, 0, 0, 0, now.Location()),
+				Wake:      time.Date(now.Year(), now.Month(), now.Day(), 7, 0, 0, 0, now.Location()),
+				Dusk:      now.Add(-2 * time.Hour), // Schedule dusk in the past
+				Winddown:  time.Date(now.Year(), now.Month(), now.Day(), 21, 0, 0, 0, now.Location()),
+				Night:     now.Add(2 * time.Hour), // Night in the future
+			},
+			// Expected: dusk if it's daytime hours (6am+), night if it's early morning (before 6am)
+			expected: func() DayPhase {
+				if now.Hour() < 6 {
+					return DayPhaseNight // Early morning hours always return night
+				}
+				return DayPhaseDusk
+			}(),
+		},
+		{
+			name: "sunset phase - after scheduled dusk but sun still at sunset",
+			setupSunTimes: func(c *Calculator) {
+				// Sun is in sunset period (golden hour to dusk)
+				// schedule.Dusk has passed but astronomical dusk hasn't
+				setSunTimesForTest(c, now,
+					now.Add(-14*time.Hour),                // dawn
+					now.Add(-13*time.Hour),                // sunrise
+					now.Add(-12*time.Hour-30*time.Minute), // sunriseEnd
+					now.Add(-12*time.Hour),                // goldenHourEnd
+					now.Add(-1*time.Hour),                 // goldenHour (past - in sunset period)
+					now.Add(-30*time.Minute),              // sunsetStart
+					now.Add(30*time.Minute),               // sunset
+					now.Add(1*time.Hour),                  // dusk (future - still in sunset)
+					now.Add(1*time.Hour+30*time.Minute),   // nauticalDusk
+					now.Add(2*time.Hour),                  // night
+				)
+			},
+			// Schedule dusk has passed, but astronomical sunset is still in progress
+			schedule: &config.ParsedSchedule{
+				BeginWake: time.Date(now.Year(), now.Month(), now.Day(), 5, 0, 0, 0, now.Location()),
+				Wake:      time.Date(now.Year(), now.Month(), now.Day(), 7, 0, 0, 0, now.Location()),
+				Dusk:      now.Add(-30 * time.Minute), // Schedule dusk in the past
+				Winddown:  now.Add(1 * time.Hour),
+				Night:     now.Add(3 * time.Hour), // Night in the future
+			},
+			// After schedule.Dusk but sun says sunset -> should return Sunset
+			expected: func() DayPhase {
+				if now.Hour() < 6 {
+					return DayPhaseNight
+				}
+				return DayPhaseSunset
+			}(),
+		},
+		{
+			name: "dusk override - sun says dusk but before scheduled dusk",
+			setupSunTimes: func(c *Calculator) {
+				// Set sun times so sun event is dusk (past dusk, before night)
+				setSunTimesForTest(c, now,
+					now.Add(-16*time.Hour),                // dawn
+					now.Add(-15*time.Hour),                // sunrise
+					now.Add(-14*time.Hour-30*time.Minute), // sunriseEnd
+					now.Add(-14*time.Hour),                // goldenHourEnd
+					now.Add(-3*time.Hour),                 // goldenHour
+					now.Add(-2*time.Hour-30*time.Minute),  // sunsetStart
+					now.Add(-2*time.Hour),                 // sunset
+					now.Add(-1*time.Hour),                 // dusk (past - sun says dusk)
+					now.Add(-30*time.Minute),              // nauticalDusk (past)
+					now.Add(1*time.Hour),                  // night (future)
+				)
+			},
+			// Schedule dusk is in the FUTURE - we should delay to sunset
+			schedule: &config.ParsedSchedule{
+				BeginWake: time.Date(now.Year(), now.Month(), now.Day(), 5, 0, 0, 0, now.Location()),
+				Wake:      time.Date(now.Year(), now.Month(), now.Day(), 7, 0, 0, 0, now.Location()),
+				Dusk:      now.Add(1 * time.Hour), // Schedule dusk in the future
+				Winddown:  now.Add(2 * time.Hour),
+				Night:     now.Add(3 * time.Hour),
+			},
+			// Early morning (before 6am) always returns night; otherwise delayed to sunset
+			expected: func() DayPhase {
+				if now.Hour() < 6 {
+					return DayPhaseNight
+				}
+				return DayPhaseSunset
+			}(),
+		},
+		{
+			name: "night override - sun says night but before scheduled dusk (evening)",
+			setupSunTimes: func(c *Calculator) {
+				// Set sun times so sun event is night (astronomical night in evening)
+				setSunTimesForTest(c, now,
+					now.Add(6*time.Hour),                 // dawn (next morning)
+					now.Add(7*time.Hour),                 // sunrise
+					now.Add(7*time.Hour+30*time.Minute),  // sunriseEnd
+					now.Add(8*time.Hour),                 // goldenHourEnd
+					now.Add(-4*time.Hour),                // goldenHour
+					now.Add(-3*time.Hour-30*time.Minute), // sunsetStart
+					now.Add(-3*time.Hour),                // sunset
+					now.Add(-2*time.Hour),                // dusk (past)
+					now.Add(-1*time.Hour-30*time.Minute), // nauticalDusk (past)
+					now.Add(-1*time.Hour),                // night (past - sun says night)
+				)
+			},
+			// Schedule dusk is in the FUTURE - we should delay to sunset even though sun says night
+			// BUT only if it's evening (after noon). In the morning, return night.
+			schedule: &config.ParsedSchedule{
+				BeginWake: time.Date(now.Year(), now.Month(), now.Day(), 5, 0, 0, 0, now.Location()),
+				Wake:      time.Date(now.Year(), now.Month(), now.Day(), 7, 0, 0, 0, now.Location()),
+				Dusk:      now.Add(1 * time.Hour), // Schedule dusk in the future
+				Winddown:  now.Add(2 * time.Hour),
+				Night:     now.Add(3 * time.Hour),
+			},
+			// Before 6am: night, 6am-noon: night (pre-dawn), noon+: sunset (evening delay)
+			expected: func() DayPhase {
+				if now.Hour() < 12 {
+					return DayPhaseNight // Pre-dawn or early morning
+				}
+				return DayPhaseSunset // Evening delay
+			}(),
+		},
+		{
+			name: "pre-dawn morning - sun says night but it's 6-11am (before noon)",
+			setupSunTimes: func(c *Calculator) {
+				// Set sun times so sun event is night (before dawn)
+				// This simulates winter morning at 6:30am when dawn is at 7:05am
+				setSunTimesForTest(c, now,
+					now.Add(30*time.Minute),              // dawn (future - sun says night)
+					now.Add(1*time.Hour),                 // sunrise
+					now.Add(1*time.Hour+30*time.Minute),  // sunriseEnd
+					now.Add(2*time.Hour),                 // goldenHourEnd
+					now.Add(10*time.Hour),                // goldenHour
+					now.Add(10*time.Hour+30*time.Minute), // sunsetStart
+					now.Add(11*time.Hour),                // sunset
+					now.Add(11*time.Hour+30*time.Minute), // dusk
+					now.Add(12*time.Hour),                // nauticalDusk
+					now.Add(13*time.Hour),                // night
+				)
+			},
+			// Schedule dusk is in the future (20:00), but this is pre-dawn morning
+			// Should return night, NOT sunset - but only if before noon
+			schedule: &config.ParsedSchedule{
+				BeginWake: time.Date(now.Year(), now.Month(), now.Day(), 5, 0, 0, 0, now.Location()),
+				Wake:      time.Date(now.Year(), now.Month(), now.Day(), 7, 0, 0, 0, now.Location()),
+				Dusk:      time.Date(now.Year(), now.Month(), now.Day(), 20, 0, 0, 0, now.Location()),
+				Winddown:  time.Date(now.Year(), now.Month(), now.Day(), 21, 0, 0, 0, now.Location()),
+				Night:     time.Date(now.Year(), now.Month(), now.Day(), 23, 0, 0, 0, now.Location()),
+			},
+			// Before 6am: always night
+			// 6am-noon + sun says night = pre-dawn = Night
+			// After noon + sun says night = evening delay = Sunset
+			expected: func() DayPhase {
+				if now.Hour() < 12 {
+					return DayPhaseNight // Pre-dawn or early morning
+				}
+				return DayPhaseSunset // Afternoon - this sun config doesn't happen in reality
+			}(),
 		},
 		{
 			name: "night with schedule - after schedule.Night",
@@ -388,6 +557,7 @@ func TestCalculator_CalculateDayPhaseAllCases(t *testing.T) {
 			schedule: &config.ParsedSchedule{
 				BeginWake: time.Date(now.Year(), now.Month(), now.Day(), 5, 0, 0, 0, now.Location()),
 				Wake:      time.Date(now.Year(), now.Month(), now.Day(), 7, 0, 0, 0, now.Location()),
+				Dusk:      now.Add(-4 * time.Hour), // Schedule dusk in the past
 				Night:     now.Add(-2 * time.Hour), // Schedule night time in the past
 			},
 			expected: DayPhaseNight,
@@ -412,7 +582,8 @@ func TestCalculator_CalculateDayPhaseAllCases(t *testing.T) {
 			schedule: &config.ParsedSchedule{
 				BeginWake: time.Date(now.Year(), now.Month(), now.Day(), 5, 0, 0, 0, now.Location()),
 				Wake:      time.Date(now.Year(), now.Month(), now.Day(), 7, 0, 0, 0, now.Location()),
-				Night:     now.Add(2 * time.Hour), // Schedule night time in the future
+				Dusk:      now.Add(-2 * time.Hour), // Schedule dusk in the past (we're past dusk)
+				Night:     now.Add(2 * time.Hour),  // Schedule night time in the future
 			},
 			// Expected phase depends on current time: Night if hour < 6, otherwise Winddown
 			expected: func() DayPhase {
