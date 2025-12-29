@@ -235,9 +235,10 @@ func TestScenario_NickOfficeUnoccupied_TurnsOffLights(t *testing.T) {
 			areaID, ok := call.Data["area_id"].(string)
 			if ok && areaID == "n_office" {
 				foundLightOff = true
-				// Verify transition time from config
-				assert.Equal(t, 2, call.Data["transition"],
-					"Light turn_off should use configured transition time")
+				// Note: turn_off intentionally does NOT include transition_seconds
+				// so lights turn off immediately (especially important for sleep scenarios)
+				assert.Nil(t, call.Data["transition"],
+					"turn_off should not include transition")
 			}
 		}
 	}

@@ -600,13 +600,11 @@ func (m *Manager) turnOffRoom(room *RoomConfig, trigger string) {
 		zap.String("trigger", trigger))
 
 	// Use light.turn_off with area_id
+	// Note: We intentionally do NOT apply transition_seconds to turn_off commands.
+	// The transition setting is designed for pleasant scene changes during waking hours,
+	// but when turning off (especially for sleep), users expect immediate darkness.
 	serviceData := map[string]interface{}{
 		"area_id": room.HASSAreaID,
-	}
-
-	// Add transition if specified
-	if room.TransitionSeconds != nil {
-		serviceData["transition"] = *room.TransitionSeconds
 	}
 
 	err := m.haClient.CallService("light", "turn_off", serviceData)
