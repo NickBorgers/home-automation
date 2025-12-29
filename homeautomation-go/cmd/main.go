@@ -35,8 +35,11 @@ import (
 )
 
 func main() {
-	// Initialize logger
-	logger, err := zap.NewProduction()
+	// Initialize logger with stdout output (better for docker logs)
+	config := zap.NewProductionConfig()
+	config.OutputPaths = []string{"stdout"}
+	config.ErrorOutputPaths = []string{"stdout"}
+	logger, err := config.Build()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to create logger: %v\n", err)
 		os.Exit(1)
