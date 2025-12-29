@@ -33,6 +33,21 @@ type ParticipantWithVolume struct {
 	LeaveMutedIf  []MuteCondition `json:"leave_muted_if"`
 }
 
+// SpeakerResult tracks whether a speaker successfully joined the group
+type SpeakerResult struct {
+	Participant   ParticipantWithVolume
+	Active        bool
+	FailureReason string
+}
+
+// SpeakerGroupResult holds the results of building a speaker group
+type SpeakerGroupResult struct {
+	Results     []SpeakerResult // All speakers with their join status
+	ActiveCount int             // Number of speakers that successfully joined
+	FailedCount int             // Number of speakers that failed to join
+	LeadActive  bool            // Whether the lead speaker is available
+}
+
 // TimeProvider is an interface for getting the current time
 // This allows tests to inject a fixed time instead of using time.Now()
 type TimeProvider interface {
@@ -661,18 +676,19 @@ func (m *Manager) orchestratePlayback(musicType string, trigger string) error {
 			zap.String("type", musicType),
 			zap.String("lead_player", leadPlayer),
 			zap.Int("participant_count", len(participants)))
-		// Record shadow state even in read-only mode
-		m.recordPlaybackShadowState(musicType, playbackOption, participants, leadPlayer, trigger)
+		// Record shadow state even in read-only mode (nil groupResult = all active)
+		m.recordPlaybackShadowState(musicType, playbackOption, participants, leadPlayer, trigger, nil)
 		return nil
 	}
 
 	// Execute playback sequence
-	if err := m.executePlayback(musicType, playbackOption, participants, leadPlayer); err != nil {
+	groupResult, err := m.executePlayback(musicType, playbackOption, participants, leadPlayer)
+	if err != nil {
 		return fmt.Errorf("failed to execute playback: %w", err)
 	}
 
-	// Record shadow state after successful playback
-	m.recordPlaybackShadowState(musicType, playbackOption, participants, leadPlayer, trigger)
+	// Record shadow state after successful playback with speaker status
+	m.recordPlaybackShadowState(musicType, playbackOption, participants, leadPlayer, trigger, groupResult)
 
 	return nil
 }
@@ -714,8 +730,9 @@ func (m *Manager) calculateVolume(baseVolume int, multiplier float64) int {
 	return int(volume)
 }
 
-// executePlayback executes the actual playback sequence
-func (m *Manager) executePlayback(musicType string, option PlaybackOption, participants []ParticipantWithVolume, leadPlayer string) error {
+// executePlayback executes the actual playback sequence.
+// Returns SpeakerGroupResult indicating which speakers are active.
+func (m *Manager) executePlayback(musicType string, option PlaybackOption, participants []ParticipantWithVolume, leadPlayer string) (*SpeakerGroupResult, error) {
 	m.logger.Info("Executing playback sequence",
 		zap.String("type", musicType),
 		zap.String("lead_player", leadPlayer),
@@ -724,21 +741,38 @@ func (m *Manager) executePlayback(musicType string, option PlaybackOption, parti
 	leadEntityID := m.getSpeakerEntityID(leadPlayer)
 
 	// Step 1: Build speaker group if multiple participants
+	var groupResult *SpeakerGroupResult
 	if len(participants) > 1 {
-		if err := m.buildSpeakerGroup(participants, leadEntityID); err != nil {
-			return fmt.Errorf("failed to build speaker group: %w", err)
+		var err error
+		groupResult, err = m.buildSpeakerGroup(participants, leadEntityID)
+		if err != nil {
+			return groupResult, fmt.Errorf("failed to build speaker group: %w", err)
+		}
+	} else {
+		// Single speaker - create result with just the lead
+		groupResult = &SpeakerGroupResult{
+			Results: []SpeakerResult{{
+				Participant: participants[0],
+				Active:      true,
+			}},
+			ActiveCount: 1,
+			FailedCount: 0,
+			LeadActive:  true,
 		}
 	}
 
-	// Step 2: Mute all speakers initially
-	for _, p := range participants {
-		entityID := m.getSpeakerEntityID(p.PlayerName)
+	// Step 2: Mute all ACTIVE speakers initially
+	for _, sr := range groupResult.Results {
+		if !sr.Active {
+			continue // Skip failed speakers
+		}
+		entityID := m.getSpeakerEntityID(sr.Participant.PlayerName)
 		if err := m.callServiceWithRetry("media_player", "volume_set", map[string]interface{}{
 			"entity_id":    entityID,
 			"volume_level": 0,
 		}); err != nil {
 			m.logger.Error("Failed to mute speaker",
-				zap.String("speaker", p.PlayerName),
+				zap.String("speaker", sr.Participant.PlayerName),
 				zap.Error(err))
 		}
 	}
@@ -749,7 +783,7 @@ func (m *Manager) executePlayback(musicType string, option PlaybackOption, parti
 		"media_content_id":   option.URI,
 		"media_content_type": option.MediaType,
 	}); err != nil {
-		return fmt.Errorf("failed to start playback: %w", err)
+		return groupResult, fmt.Errorf("failed to start playback: %w", err)
 	}
 
 	// Step 4: Enable shuffle for Spotify playlists
@@ -764,25 +798,30 @@ func (m *Manager) executePlayback(musicType string, option PlaybackOption, parti
 		}
 	}
 
-	// Step 5: Evaluate mute conditions and unmute eligible speakers
-	for _, p := range participants {
-		if m.shouldUnmuteSpeaker(p) {
+	// Step 5: Evaluate mute conditions and unmute eligible ACTIVE speakers
+	for _, sr := range groupResult.Results {
+		if !sr.Active {
+			continue // Skip failed speakers
+		}
+		if m.shouldUnmuteSpeaker(sr.Participant) {
 			m.logger.Info("Unmuting speaker",
-				zap.String("speaker", p.PlayerName),
-				zap.Int("target_volume", p.Volume))
+				zap.String("speaker", sr.Participant.PlayerName),
+				zap.Int("target_volume", sr.Participant.Volume))
 
 			// Start fade-in in goroutine
-			go m.fadeInSpeaker(p.PlayerName, p.Volume, musicType)
+			go m.fadeInSpeaker(sr.Participant.PlayerName, sr.Participant.Volume, musicType)
 		} else {
 			m.logger.Info("Keeping speaker muted due to conditions",
-				zap.String("speaker", p.PlayerName))
+				zap.String("speaker", sr.Participant.PlayerName))
 		}
 	}
 
 	m.logger.Info("Playback sequence completed successfully",
-		zap.String("type", musicType))
+		zap.String("type", musicType),
+		zap.Int("active_speakers", groupResult.ActiveCount),
+		zap.Int("failed_speakers", groupResult.FailedCount))
 
-	return nil
+	return groupResult, nil
 }
 
 // Speaker group retry configuration
@@ -798,9 +837,35 @@ const (
 	speakerGroupRetryBaseDelay = 2 * time.Second
 )
 
-// buildSpeakerGroup creates a Sonos speaker group with retry logic
-func (m *Manager) buildSpeakerGroup(participants []ParticipantWithVolume, leadEntityID string) error {
+// buildSpeakerGroup creates a Sonos speaker group with retry logic.
+// Returns a SpeakerGroupResult indicating which speakers successfully joined.
+// Continues with partial group if some speakers are unavailable.
+// Only fails entirely if lead speaker is unavailable or all speakers fail.
+func (m *Manager) buildSpeakerGroup(participants []ParticipantWithVolume, leadEntityID string) (*SpeakerGroupResult, error) {
 	m.logger.Info("Building speaker group", zap.Int("count", len(participants)))
+
+	result := &SpeakerGroupResult{
+		Results:     make([]SpeakerResult, len(participants)),
+		LeadActive:  true,
+		ActiveCount: 0,
+		FailedCount: 0,
+	}
+
+	// Initialize all participants as active (will mark failed ones as we go)
+	for i, p := range participants {
+		result.Results[i] = SpeakerResult{
+			Participant: p,
+			Active:      true,
+		}
+	}
+
+	// If only one participant (lead only), no grouping needed
+	if len(participants) <= 1 {
+		if len(participants) == 1 {
+			result.ActiveCount = 1
+		}
+		return result, nil
+	}
 
 	// Build list of follower entity IDs
 	var groupMembers []string
@@ -812,51 +877,118 @@ func (m *Manager) buildSpeakerGroup(participants []ParticipantWithVolume, leadEn
 		groupMembers = append(groupMembers, m.getSpeakerEntityID(p.PlayerName))
 	}
 
-	// Single call: lead speaker joins all followers to its group
-	if len(groupMembers) > 0 {
-		var lastErr error
+	// First attempt: try to add all speakers at once (most efficient)
+	allSucceeded := false
+	var lastErr error
+
+	for attempt := 1; attempt <= maxSpeakerGroupRetries; attempt++ {
+		err := m.callServiceWithRetry("media_player", "join", map[string]interface{}{
+			"entity_id":     leadEntityID,
+			"group_members": groupMembers,
+		})
+
+		if err == nil {
+			allSucceeded = true
+			if attempt > 1 {
+				m.logger.Info("Speaker group created after retry",
+					zap.String("lead", leadEntityID),
+					zap.Strings("members", groupMembers),
+					zap.Int("attempt", attempt))
+			} else {
+				m.logger.Info("Speaker group created",
+					zap.String("lead", leadEntityID),
+					zap.Strings("members", groupMembers))
+			}
+			break
+		}
+
+		lastErr = err
+		if attempt < maxSpeakerGroupRetries {
+			retryDelay := speakerGroupRetryBaseDelay * time.Duration(1<<(attempt-1))
+			m.logger.Warn("Failed to create speaker group, retrying",
+				zap.Int("attempt", attempt),
+				zap.Int("max_attempts", maxSpeakerGroupRetries),
+				zap.Duration("retry_delay", retryDelay),
+				zap.Error(err))
+			m.sleepFunc(retryDelay)
+		}
+	}
+
+	if allSucceeded {
+		// All speakers joined successfully
+		result.ActiveCount = len(participants)
+		time.Sleep(500 * time.Millisecond)
+		return result, nil
+	}
+
+	// Group creation failed - try adding speakers individually to form partial group
+	m.logger.Warn("Full group creation failed, attempting to build partial group",
+		zap.Error(lastErr))
+
+	// Mark lead as active (index 0)
+	result.ActiveCount = 1 // Lead speaker
+
+	// Try each follower individually
+	for i := 1; i < len(participants); i++ {
+		p := participants[i]
+		entityID := m.getSpeakerEntityID(p.PlayerName)
+		speakerJoined := false
+
 		for attempt := 1; attempt <= maxSpeakerGroupRetries; attempt++ {
 			err := m.callServiceWithRetry("media_player", "join", map[string]interface{}{
-				"entity_id":     leadEntityID, // Coordinator
-				"group_members": groupMembers, // All followers
+				"entity_id":     leadEntityID,
+				"group_members": []string{entityID},
 			})
 
 			if err == nil {
-				if attempt > 1 {
-					m.logger.Info("Speaker group created after retry",
-						zap.String("lead", leadEntityID),
-						zap.Strings("members", groupMembers),
-						zap.Int("attempt", attempt))
-				} else {
-					m.logger.Info("Speaker group created",
-						zap.String("lead", leadEntityID),
-						zap.Strings("members", groupMembers))
-				}
+				speakerJoined = true
+				m.logger.Info("Speaker joined group individually",
+					zap.String("speaker", p.PlayerName),
+					zap.Int("attempt", attempt))
 				break
 			}
 
-			lastErr = err
 			if attempt < maxSpeakerGroupRetries {
-				retryDelay := speakerGroupRetryBaseDelay * time.Duration(1<<(attempt-1)) // Exponential backoff: 2s, 4s, 8s
-				m.logger.Warn("Failed to create speaker group, retrying",
+				retryDelay := speakerGroupRetryBaseDelay * time.Duration(1<<(attempt-1))
+				m.logger.Warn("Failed to add speaker to group, retrying",
+					zap.String("speaker", p.PlayerName),
 					zap.Int("attempt", attempt),
 					zap.Int("max_attempts", maxSpeakerGroupRetries),
 					zap.Duration("retry_delay", retryDelay),
 					zap.Error(err))
 				m.sleepFunc(retryDelay)
 			} else {
-				m.logger.Error("Failed to create speaker group after all retries",
-					zap.Int("attempts", maxSpeakerGroupRetries),
+				// Mark this speaker as failed
+				result.Results[i].Active = false
+				result.Results[i].FailureReason = err.Error()
+				result.FailedCount++
+				m.logger.Warn("Speaker unavailable, continuing without it",
+					zap.String("speaker", p.PlayerName),
 					zap.Error(err))
-				return fmt.Errorf("failed to create speaker group: %w", lastErr)
 			}
 		}
+
+		if speakerJoined {
+			result.ActiveCount++
+		}
+	}
+
+	// Check if we have at least the lead speaker
+	if result.ActiveCount == 0 {
+		result.LeadActive = false
+		return result, fmt.Errorf("failed to create speaker group: no speakers available")
+	}
+
+	if result.FailedCount > 0 {
+		m.logger.Warn("Proceeding with partial speaker group",
+			zap.Int("active_speakers", result.ActiveCount),
+			zap.Int("failed_speakers", result.FailedCount))
 	}
 
 	// Wait for group to stabilize
 	time.Sleep(500 * time.Millisecond)
 
-	return nil
+	return result, nil
 }
 
 // shouldUnmuteSpeaker determines if a speaker should be unmuted based on conditions
@@ -1338,18 +1470,38 @@ func (m *Manager) GetShadowState() *shadowstate.MusicShadowState {
 	return &shadowCopy
 }
 
-// recordPlaybackShadowState records shadow state after playback orchestration
-func (m *Manager) recordPlaybackShadowState(musicType string, playbackOption PlaybackOption, participants []ParticipantWithVolume, leadPlayer string, trigger string) {
+// recordPlaybackShadowState records shadow state after playback orchestration.
+// groupResult can be nil (for read-only mode or single speaker), in which case
+// all participants are assumed to be active.
+func (m *Manager) recordPlaybackShadowState(musicType string, playbackOption PlaybackOption, participants []ParticipantWithVolume, leadPlayer string, trigger string, groupResult *SpeakerGroupResult) {
 	// Convert participants to shadow state speaker format
 	speakers := make([]shadowstate.SpeakerState, 0, len(participants))
-	for _, p := range participants {
-		speakers = append(speakers, shadowstate.SpeakerState{
-			PlayerName:    p.PlayerName,
-			Volume:        p.Volume,
-			BaseVolume:    p.BaseVolume,
-			DefaultVolume: p.DefaultVolume,
-			IsLeader:      p.PlayerName == leadPlayer,
-		})
+
+	if groupResult != nil {
+		// Use the group result to populate active status
+		for _, sr := range groupResult.Results {
+			speakers = append(speakers, shadowstate.SpeakerState{
+				PlayerName:    sr.Participant.PlayerName,
+				Volume:        sr.Participant.Volume,
+				BaseVolume:    sr.Participant.BaseVolume,
+				DefaultVolume: sr.Participant.DefaultVolume,
+				IsLeader:      sr.Participant.PlayerName == leadPlayer,
+				Active:        sr.Active,
+				FailureReason: sr.FailureReason,
+			})
+		}
+	} else {
+		// No group result - assume all participants are active
+		for _, p := range participants {
+			speakers = append(speakers, shadowstate.SpeakerState{
+				PlayerName:    p.PlayerName,
+				Volume:        p.Volume,
+				BaseVolume:    p.BaseVolume,
+				DefaultVolume: p.DefaultVolume,
+				IsLeader:      p.PlayerName == leadPlayer,
+				Active:        true,
+			})
+		}
 	}
 
 	// Create playlist info
@@ -1359,8 +1511,15 @@ func (m *Manager) recordPlaybackShadowState(musicType string, playbackOption Pla
 		MediaType: playbackOption.MediaType,
 	}
 
-	// Record the action
-	reason := fmt.Sprintf("Started playback of '%s' in mode '%s'", playbackOption.URI, musicType)
+	// Build reason message with partial group info if applicable
+	var reason string
+	if groupResult != nil && groupResult.FailedCount > 0 {
+		reason = fmt.Sprintf("Started playback of '%s' in mode '%s' (partial group: %d/%d speakers active)",
+			playbackOption.URI, musicType, groupResult.ActiveCount, len(participants))
+	} else {
+		reason = fmt.Sprintf("Started playback of '%s' in mode '%s'", playbackOption.URI, musicType)
+	}
+
 	m.updateShadowState("start_playback", reason, trigger)
 	m.updateShadowOutputs(musicType, playlistInfo, speakers)
 }

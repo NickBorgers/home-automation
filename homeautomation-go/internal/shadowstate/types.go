@@ -152,6 +152,8 @@ type SpeakerState struct {
 	BaseVolume    int    `json:"baseVolume"`
 	DefaultVolume int    `json:"defaultVolume"`
 	IsLeader      bool   `json:"isLeader"`
+	Active        bool   `json:"active"`                  // Whether the speaker successfully joined the group
+	FailureReason string `json:"failureReason,omitempty"` // Reason for failure if Active is false
 }
 
 // GetCurrentInputs implements PluginShadowState

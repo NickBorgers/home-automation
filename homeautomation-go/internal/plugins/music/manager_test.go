@@ -1023,7 +1023,7 @@ func TestExecutePlayback(t *testing.T) {
 		VolumeMultiplier: 1.0,
 	}
 
-	err := manager.executePlayback("day", option, participants, "Kitchen")
+	_, err := manager.executePlayback("day", option, participants, "Kitchen")
 	if err != nil {
 		t.Errorf("executePlayback() failed: %v", err)
 	}
@@ -1046,9 +1046,15 @@ func TestBuildSpeakerGroup(t *testing.T) {
 		{PlayerName: "Bedroom", Volume: 8},
 	}
 
-	err := manager.buildSpeakerGroup(participants, "media_player.kitchen")
+	result, err := manager.buildSpeakerGroup(participants, "media_player.kitchen")
 	if err != nil {
 		t.Errorf("buildSpeakerGroup() failed: %v", err)
+	}
+	if result == nil {
+		t.Fatal("buildSpeakerGroup() returned nil result")
+	}
+	if result.ActiveCount != 3 {
+		t.Errorf("Expected 3 active speakers, got %d", result.ActiveCount)
 	}
 
 	// Verify the service call was made with correct parameters
@@ -1114,14 +1120,21 @@ func TestBuildSpeakerGroupRetrySuccess(t *testing.T) {
 	}
 
 	// Should succeed after retries
-	err := manager.buildSpeakerGroup(participants, "media_player.kitchen")
+	result, err := manager.buildSpeakerGroup(participants, "media_player.kitchen")
 	if err != nil {
 		t.Errorf("buildSpeakerGroup() should have succeeded after retries, got: %v", err)
 	}
+	if result == nil {
+		t.Fatal("buildSpeakerGroup() returned nil result")
+	}
+	if result.ActiveCount != 3 {
+		t.Errorf("Expected 3 active speakers, got %d", result.ActiveCount)
+	}
 }
 
-// TestBuildSpeakerGroupRetryExhausted tests that speaker group building fails after all retries are exhausted
-func TestBuildSpeakerGroupRetryExhausted(t *testing.T) {
+// TestBuildSpeakerGroupPartialSuccess tests that speaker group building succeeds with partial group
+// when some speakers are unavailable but the lead is available
+func TestBuildSpeakerGroupPartialSuccess(t *testing.T) {
 	logger := zap.NewNop()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -1131,23 +1144,49 @@ func TestBuildSpeakerGroupRetryExhausted(t *testing.T) {
 	// Use no-op sleep to make test fast
 	manager.SetSleepFunc(func(d time.Duration) {})
 
-	// Configure mock to always fail (permanent error)
-	mockClient.SetServiceError("media_player", "join", fmt.Errorf("service call failed: timeout waiting for response"))
+	// Configure mock to always fail for join (simulating unreachable speakers)
+	mockClient.SetServiceError("media_player", "join", fmt.Errorf("service call failed: Host is unreachable"))
 
 	participants := []ParticipantWithVolume{
 		{PlayerName: "Kitchen", Volume: 9},
 		{PlayerName: "Living Room", Volume: 10},
 	}
 
-	// Should fail after exhausting all retries
-	err := manager.buildSpeakerGroup(participants, "media_player.kitchen")
-	if err == nil {
-		t.Errorf("buildSpeakerGroup() should have failed after exhausting retries")
+	// Should succeed with partial group (lead speaker only)
+	result, err := manager.buildSpeakerGroup(participants, "media_player.kitchen")
+	if err != nil {
+		t.Errorf("buildSpeakerGroup() should succeed with partial group, got: %v", err)
+	}
+	if result == nil {
+		t.Fatal("buildSpeakerGroup() returned nil result")
 	}
 
-	// Verify error message indicates failure
-	if err != nil && !strings.Contains(err.Error(), "failed to create speaker group") {
-		t.Errorf("Expected error to contain 'failed to create speaker group', got: %v", err)
+	// Verify partial group results
+	if result.ActiveCount != 1 {
+		t.Errorf("Expected 1 active speaker (lead only), got %d", result.ActiveCount)
+	}
+	if result.FailedCount != 1 {
+		t.Errorf("Expected 1 failed speaker, got %d", result.FailedCount)
+	}
+	if !result.LeadActive {
+		t.Error("Expected lead speaker to be active")
+	}
+
+	// Verify individual speaker states
+	if len(result.Results) != 2 {
+		t.Errorf("Expected 2 results, got %d", len(result.Results))
+	}
+
+	// First speaker (Kitchen/lead) should be active
+	if !result.Results[0].Active {
+		t.Error("Expected lead speaker (Kitchen) to be active")
+	}
+	// Second speaker (Living Room) should be failed
+	if result.Results[1].Active {
+		t.Error("Expected Living Room to be marked as failed")
+	}
+	if result.Results[1].FailureReason == "" {
+		t.Error("Expected Living Room to have a failure reason")
 	}
 }
 
@@ -1171,9 +1210,15 @@ func TestBuildSpeakerGroupRetryOnSecondAttempt(t *testing.T) {
 	}
 
 	// Should succeed on second attempt
-	err := manager.buildSpeakerGroup(participants, "media_player.kitchen")
+	result, err := manager.buildSpeakerGroup(participants, "media_player.kitchen")
 	if err != nil {
 		t.Errorf("buildSpeakerGroup() should have succeeded on retry, got: %v", err)
+	}
+	if result == nil {
+		t.Fatal("buildSpeakerGroup() returned nil result")
+	}
+	if result.ActiveCount != 2 {
+		t.Errorf("Expected 2 active speakers, got %d", result.ActiveCount)
 	}
 }
 
