@@ -134,6 +134,35 @@ Update docs when making changes:
 
 Validate Mermaid diagrams: `make validate-mermaid`
 
+### Diagram Maintenance Protocol
+
+**Mermaid diagrams in `docs/human/VISUAL_ARCHITECTURE.md` must stay synchronized with code.**
+
+A Claude Code hook (`.claude/hooks/check-diagrams.sh`) automatically reminds you when plugin code changes and validates diagram syntax when editing diagram files.
+
+**When to update diagrams:**
+
+| Code Change | Diagram Section to Update |
+|-------------|---------------------------|
+| New plugin added | System Architecture, Plugin System Architecture |
+| Plugin removed | System Architecture, Plugin System Architecture |
+| New `Subscribe()` call | State Variable Dependency Graph |
+| State variable added/removed | State Variable Dependency Graph |
+| Plugin logic changed | Relevant logic flow diagram (Music, Lighting, Energy, etc.) |
+
+**Diagram update checklist:**
+1. Identify affected diagrams using the table above
+2. Update the Mermaid source in `docs/human/VISUAL_ARCHITECTURE.md`
+3. Run `make validate-mermaid` to check syntax
+4. Preview rendering (GitHub renders Mermaid natively, or use [Mermaid Live](https://mermaid.live/))
+5. Commit diagram updates **in the same PR** as code changes
+
+**Key diagram sections:**
+- **System Architecture** - High-level component overview
+- **Plugin System Architecture** - Plugin dependencies and data flow
+- **State Variable Dependency Graph** - Which plugins read/write which variables
+- **Individual Logic Flows** - Decision trees for Music, Lighting, Energy, etc.
+
 ## Running Tests
 
 ```bash
@@ -312,6 +341,6 @@ git commit -m "docs: Add screenshot of [feature]"
 
 ---
 
-**Last Updated:** 2025-12-21
+**Last Updated:** 2025-12-29
 **Go Version:** 1.23
 **Project Status:** Parallel Testing Phase
