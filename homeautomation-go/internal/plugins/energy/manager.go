@@ -70,10 +70,6 @@ type Manager struct {
 	lastCalibrationTime map[string]time.Time
 	// Maps light entity ID -> current calibration state
 	calibrationState map[string]CalibrationState
-	// Maps light entity ID -> time when dimming started (for timeout tracking)
-	calibrationDimmedAt map[string]time.Time
-	// Maps light entity ID -> brightness before calibration (to restore after)
-	preCalibrationBrightness map[string]int
 }
 
 // NewManager creates a new Energy State manager
@@ -86,25 +82,23 @@ func NewManager(haClient ha.HAClient, stateManager *state.Manager, config *Energ
 	shadowTracker := shadowstate.NewEnergyTracker()
 
 	m := &Manager{
-		haClient:                 haClient,
-		stateManager:             stateManager,
-		config:                   config,
-		logger:                   logger.Named("energy"),
-		readOnly:                 readOnly,
-		timezone:                 timezone,
-		stopChecker:              make(chan struct{}),
-		stopCalibration:          make(chan struct{}),
-		shadowTracker:            shadowTracker,
-		subHelper:                shadowstate.NewSubscriptionHelper(haClient, stateManager, registry, shadowTracker, "energy", logger.Named("energy")),
-		lightToLuxSensor:         make(map[string]string),
-		currentLuxValues:         make(map[string]float64),
-		lastBrightnessUpdate:     make(map[string]time.Time),
-		lastBrightnessLevel:      make(map[string]int),
-		baselineLuxValues:        make(map[string]float64),
-		lastCalibrationTime:      make(map[string]time.Time),
-		calibrationState:         make(map[string]CalibrationState),
-		calibrationDimmedAt:      make(map[string]time.Time),
-		preCalibrationBrightness: make(map[string]int),
+		haClient:             haClient,
+		stateManager:         stateManager,
+		config:               config,
+		logger:               logger.Named("energy"),
+		readOnly:             readOnly,
+		timezone:             timezone,
+		stopChecker:          make(chan struct{}),
+		stopCalibration:      make(chan struct{}),
+		shadowTracker:        shadowTracker,
+		subHelper:            shadowstate.NewSubscriptionHelper(haClient, stateManager, registry, shadowTracker, "energy", logger.Named("energy")),
+		lightToLuxSensor:     make(map[string]string),
+		currentLuxValues:     make(map[string]float64),
+		lastBrightnessUpdate: make(map[string]time.Time),
+		lastBrightnessLevel:  make(map[string]int),
+		baselineLuxValues:    make(map[string]float64),
+		lastCalibrationTime:  make(map[string]time.Time),
+		calibrationState:     make(map[string]CalibrationState),
 	}
 
 	return m
@@ -893,9 +887,16 @@ func (m *Manager) runBaselineCalibration() {
 		zap.Int("wait_sec", calibConfig.CalibrationWaitSec))
 
 	// Run initial calibration cycle shortly after startup
-	// Give the system time to stabilize first
-	time.Sleep(10 * time.Second)
-	m.runCalibrationCycle()
+	// Give the system time to stabilize first, but check for shutdown
+	startupDelay := time.NewTimer(10 * time.Second)
+	select {
+	case <-startupDelay.C:
+		m.runCalibrationCycle()
+	case <-m.stopCalibration:
+		startupDelay.Stop()
+		m.logger.Info("Stopping baseline calibration (during startup delay)")
+		return
+	}
 
 	for {
 		select {
@@ -962,9 +963,7 @@ func (m *Manager) runCalibrationCycle() {
 
 		// Phase 1: Dim this single light
 		m.indicatorMu.Lock()
-		m.preCalibrationBrightness[lightEntity] = m.lastBrightnessLevel[lightEntity]
 		m.calibrationState[lightEntity] = CalibrationStateDimmed
-		m.calibrationDimmedAt[lightEntity] = time.Now()
 		m.indicatorMu.Unlock()
 
 		m.logger.Debug("Dimming light for calibration",

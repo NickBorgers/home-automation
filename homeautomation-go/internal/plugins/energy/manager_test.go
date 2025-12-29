@@ -2057,3 +2057,115 @@ func TestRestoreLightAfterCalibration(t *testing.T) {
 
 	assert.NotNil(t, lightCall, "Expected a light.turn_on call to restore brightness")
 }
+
+func TestCalibrationShutdownDuringStartupDelay(t *testing.T) {
+	// This test verifies that the calibration goroutine can be stopped during
+	// the initial 10-second startup delay without blocking or racing.
+	logger, _ := zap.NewDevelopment()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+
+	config := createTestConfig()
+	config.Energy.IndicatorLights.AdaptiveBrightness = AdaptiveBrightnessConfig{
+		Enabled:          true,
+		LuxSensorPattern: "ltr390_light",
+		BrightnessCurve: []BrightnessCurvePoint{
+			{LuxMax: 100, BrightnessPct: 40},
+		},
+		BaselineCalibration: BaselineCalibrationConfig{
+			Enabled:                  true,
+			CalibrationIntervalSec:   300,
+			CalibrationBrightnessPct: 5,
+			CalibrationWaitSec:       1, // Short wait for test
+		},
+	}
+
+	// Set up mock light and sensor
+	mockClient.SetState("light.apollo_msr_2_1294c8_rgb_light", "on", map[string]interface{}{
+		"friendly_name": "Test Radar RGB Light",
+	})
+	mockClient.SetState("sensor.apollo_msr_2_1294c8_ltr390_light", "50", map[string]interface{}{})
+	mockClient.Connect()
+
+	manager := NewManager(mockClient, stateManager, config, logger, true, nil, nil)
+	err := manager.Start()
+	assert.NoError(t, err)
+
+	// Stop immediately (during the 10-second startup delay)
+	// This should not block or cause a panic
+	done := make(chan struct{})
+	go func() {
+		manager.Stop()
+		close(done)
+	}()
+
+	// Wait for Stop to complete with a timeout
+	select {
+	case <-done:
+		// Success - Stop completed without blocking
+	case <-time.After(2 * time.Second):
+		t.Fatal("Stop() blocked - likely race condition in calibration startup delay")
+	}
+}
+
+func TestCalibrationWithNoLuxReadingYet(t *testing.T) {
+	// This test verifies behavior when calibration runs but no lux reading has
+	// been received yet (e.g., sensor hasn't updated since dimming).
+	logger, _ := zap.NewDevelopment()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+
+	config := createTestConfig()
+	config.Energy.IndicatorLights.AdaptiveBrightness = AdaptiveBrightnessConfig{
+		Enabled:          true,
+		LuxSensorPattern: "ltr390_light",
+		BrightnessCurve: []BrightnessCurvePoint{
+			{LuxMax: 100, BrightnessPct: 40},
+		},
+		BaselineCalibration: BaselineCalibrationConfig{
+			Enabled: true,
+		},
+	}
+	config.Energy.EnergyStates[0].LightConfig = LightConfig{Red: 25, Green: 25, Blue: 112, BrightnessPct: 70}
+
+	// Set up mock light and sensor
+	mockClient.SetState("light.apollo_msr_2_1294c8_rgb_light", "on", map[string]interface{}{
+		"friendly_name": "Test Radar RGB Light",
+	})
+	mockClient.SetState("sensor.apollo_msr_2_1294c8_ltr390_light", "50", map[string]interface{}{})
+	mockClient.Connect()
+
+	stateManager.SetString("currentEnergyLevel", "black")
+
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil, nil)
+	err := manager.Start()
+	assert.NoError(t, err)
+	defer manager.Stop()
+
+	lightEntity := "light.apollo_msr_2_1294c8_rgb_light"
+	luxSensor := "sensor.apollo_msr_2_1294c8_ltr390_light"
+
+	// Set up calibration state - but don't set currentLuxValues (simulates no reading yet)
+	manager.indicatorMu.Lock()
+	manager.lightToLuxSensor[lightEntity] = luxSensor
+	manager.calibrationState[lightEntity] = CalibrationStateDimmed
+	// Note: currentLuxValues[luxSensor] is NOT set - simulating sensor hasn't updated
+	manager.indicatorMu.Unlock()
+
+	// Clear service calls
+	mockClient.ClearServiceCalls()
+
+	// Call restoreLightAfterCalibration
+	manager.restoreLightAfterCalibration(lightEntity)
+
+	// Verify baseline was recorded as 0 (no panic, graceful handling)
+	manager.indicatorMu.RLock()
+	baseline := manager.baselineLuxValues[lightEntity]
+	calibState := manager.calibrationState[lightEntity]
+	manager.indicatorMu.RUnlock()
+
+	// The baseline will be 0 since no lux reading was available
+	// This is expected behavior - the system records whatever value is current
+	assert.Equal(t, 0.0, baseline, "Baseline should be 0 when no lux reading available")
+	assert.Equal(t, CalibrationStateNormal, calibState, "Should return to Normal state")
+}
