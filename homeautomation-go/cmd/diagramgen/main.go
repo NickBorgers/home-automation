@@ -170,7 +170,7 @@ func analyzeFile(filename, pluginName string) (PluginAnalysis, error) {
 		}
 
 		switch methodName {
-		case "Subscribe":
+		case "Subscribe", "SubscribeToState":
 			subscribes[varName] = true
 		case "GetBool", "GetString", "GetNumber", "GetJSON":
 			reads[varName] = true

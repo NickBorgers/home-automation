@@ -48,6 +48,10 @@ graph LR
     end
 
     %% Subscriptions (plugin listens to variable)
+    batteryEnergyLevel -.-> energy
+    isFreeEnergyAvailable -.-> energy
+    isGridAvailable -.-> energy
+    solarProductionEnergyLevel -.-> energy
     dayPhase -.-> lighting
     isAnyoneHome -.-> lighting
     isEveryoneAsleep -.-> lighting
