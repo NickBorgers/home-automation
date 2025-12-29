@@ -1053,6 +1053,9 @@ func TestIndicatorLightsUnknownEnergyLevel(t *testing.T) {
 	assert.NoError(t, err)
 	defer manager.Stop()
 
+	// Wait for async goroutines (e.g., runFreeEnergyChecker) to complete initial work
+	time.Sleep(50 * time.Millisecond)
+
 	// Clear any service calls from startup
 	mockClient.ClearServiceCalls()
 
