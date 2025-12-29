@@ -187,9 +187,19 @@ func (c *Calculator) CalculateDayPhase(schedule *config.ParsedSchedule) DayPhase
 				return DayPhaseMorning
 			case SunEventDay:
 				return DayPhaseDay
-			case SunEventSunset, SunEventDusk, SunEventNight:
+			case SunEventSunset, SunEventDusk:
 				// Sun has set but we're before the configured dusk time
 				// Keep lights at sunset level (brighter than dusk)
+				return DayPhaseSunset
+			case SunEventNight:
+				// SunEventNight can occur in two contexts:
+				// 1. Pre-dawn morning (before sunrise) - should return Night
+				// 2. Post-sunset evening (after astronomical night) - should delay to Sunset
+				// Use noon as the boundary: if before noon, it's pre-dawn
+				if now.Hour() < 12 {
+					return DayPhaseNight
+				}
+				// Evening: delay transition to sunset per schedule
 				return DayPhaseSunset
 			default:
 				return DayPhaseDay
