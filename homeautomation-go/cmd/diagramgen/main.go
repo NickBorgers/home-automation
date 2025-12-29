@@ -337,8 +337,8 @@ func generateStateMatrix(plugins []PluginAnalysis) string {
 	}
 
 	sb.WriteString("\n## Legend\n\n")
-	sb.WriteString("- **R** = Reads variable (GetBool/GetString/GetNumber)\n")
-	sb.WriteString("- **W** = Writes variable (SetBool/SetString/SetNumber)\n")
+	sb.WriteString("- **R** = Reads variable (GetBool/GetString/GetNumber/GetJSON)\n")
+	sb.WriteString("- **W** = Writes variable (SetBool/SetString/SetNumber/SetJSON)\n")
 	sb.WriteString("- **S** = Subscribes to variable changes\n")
 	sb.WriteString("- **-** = Not used by this plugin\n")
 
