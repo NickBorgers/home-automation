@@ -447,16 +447,36 @@ type EnergyInputs struct {
 	Current map[string]interface{} `json:"current"`
 }
 
+// LuxSensorReading tracks a single lux sensor value
+type LuxSensorReading struct {
+	EntityID  string    `json:"entityId"`
+	Lux       float64   `json:"lux"`
+	Timestamp time.Time `json:"timestamp"`
+}
+
+// PerDeviceBrightness tracks brightness decisions per indicator light device
+type PerDeviceBrightness struct {
+	LightEntity     string    `json:"lightEntity"`
+	LuxSensorEntity string    `json:"luxSensorEntity,omitempty"`
+	CurrentLux      float64   `json:"currentLux,omitempty"`
+	BrightnessPct   int       `json:"brightnessPct"`
+	IsAdaptive      bool      `json:"isAdaptive"`
+	LastUpdate      time.Time `json:"lastUpdate"`
+}
+
 // EnergyOutputs tracks computed energy state values
 type EnergyOutputs struct {
-	BatteryEnergyLevel         string                 `json:"batteryEnergyLevel"`
-	SolarProductionEnergyLevel string                 `json:"solarProductionEnergyLevel"`
-	CurrentEnergyLevel         string                 `json:"currentEnergyLevel"`
-	IsFreeEnergyAvailable      bool                   `json:"isFreeEnergyAvailable"`
-	LastComputations           EnergyComputations     `json:"lastComputations"`
-	SensorReadings             EnergySensorReadings   `json:"sensorReadings"`
-	DiscoveredIndicatorLights  []string               `json:"discoveredIndicatorLights,omitempty"`
-	IndicatorLightsAction      *IndicatorLightsAction `json:"indicatorLightsAction,omitempty"`
+	BatteryEnergyLevel         string                         `json:"batteryEnergyLevel"`
+	SolarProductionEnergyLevel string                         `json:"solarProductionEnergyLevel"`
+	CurrentEnergyLevel         string                         `json:"currentEnergyLevel"`
+	IsFreeEnergyAvailable      bool                           `json:"isFreeEnergyAvailable"`
+	LastComputations           EnergyComputations             `json:"lastComputations"`
+	SensorReadings             EnergySensorReadings           `json:"sensorReadings"`
+	DiscoveredIndicatorLights  []string                       `json:"discoveredIndicatorLights,omitempty"`
+	IndicatorLightsAction      *IndicatorLightsAction         `json:"indicatorLightsAction,omitempty"`
+	LuxSensorReadings          map[string]LuxSensorReading    `json:"luxSensorReadings,omitempty"`
+	PerDeviceBrightness        map[string]PerDeviceBrightness `json:"perDeviceBrightness,omitempty"`
+	LightToLuxSensorMapping    map[string]string              `json:"lightToLuxSensorMapping,omitempty"`
 }
 
 // IndicatorLightsAction tracks the last action taken to update indicator lights
