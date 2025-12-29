@@ -141,6 +141,37 @@ jobs:
           echo "✅ ALL CONFIG TESTS PASSED"
           echo "==============================================="
 
+  diagram-validation:
+    name: Generated Diagram Validation
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache-dependency-path: homeautomation-go/go.sum
+
+      - name: Validate generated diagrams
+        run: make validate-diagrams
+
+      - name: Diagram Validation Summary
+        if: always()
+        run: |
+          echo "==============================================="
+          echo "     GENERATED DIAGRAM VALIDATION SUMMARY"
+          echo "==============================================="
+          echo "✅ Plugin dependency diagrams are up-to-date"
+          echo "✅ State variable matrix is up-to-date"
+          echo ""
+          echo "✅ DIAGRAM VALIDATION PASSED"
+          echo "==============================================="
+
   docker-build:
     name: Docker Build Validation
     needs: changes
@@ -196,7 +227,7 @@ jobs:
   all-tests-passed:
     name: All Required Tests
     runs-on: ubuntu-latest
-    needs: [changes, style-checks, unit-tests, integration-tests, config-tests, docker-build]
+    needs: [changes, style-checks, unit-tests, integration-tests, config-tests, diagram-validation, docker-build]
     if: always()
 
     steps:
@@ -226,6 +257,10 @@ jobs:
             echo "❌ Config Tests: ${{ needs.config-tests.result }}"
             failed=true
           fi
+          if ! check_result "${{ needs.diagram-validation.result }}"; then
+            echo "❌ Diagram Validation: ${{ needs.diagram-validation.result }}"
+            failed=true
+          fi
           if ! check_result "${{ needs.docker-build.result }}"; then
             echo "❌ Docker Build: ${{ needs.docker-build.result }}"
             failed=true
@@ -244,4 +279,5 @@ jobs:
           echo "  Unit Tests: ${{ needs.unit-tests.result }}"
           echo "  Integration Tests: ${{ needs.integration-tests.result }}"
           echo "  Config Tests: ${{ needs.config-tests.result }}"
+          echo "  Diagram Validation: ${{ needs.diagram-validation.result }}"
           echo "  Docker Build: ${{ needs.docker-build.result }}"

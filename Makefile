@@ -133,6 +133,34 @@ validate-docs: validate-mermaid
 	@echo "✅ All documentation validation passed"
 
 # ============================================================================
+# Generated Diagram Targets
+# ============================================================================
+
+#generate-diagrams: @ Generate plugin dependency diagrams from source code using AST analysis
+generate-diagrams:
+	@echo "🔍 Generating diagrams from plugin source code..."
+	@cd homeautomation-go && go run ./cmd/diagramgen/...
+	@echo "✅ Diagrams generated successfully"
+
+#validate-diagrams: @ Validate that generated diagrams are up-to-date with source code
+validate-diagrams:
+	@echo "🔍 Validating generated diagrams are up-to-date..."
+	@$(MAKE) generate-diagrams
+	@if ! git diff --quiet docs/generated/; then \
+		echo ""; \
+		echo "❌ ERROR: Generated diagrams are out of date!"; \
+		echo ""; \
+		echo "The following files need to be regenerated:"; \
+		git diff --name-only docs/generated/; \
+		echo ""; \
+		echo "Run 'make generate-diagrams' and commit the changes."; \
+		echo ""; \
+		git diff docs/generated/; \
+		exit 1; \
+	fi
+	@echo "✅ Generated diagrams are up-to-date"
+
+# ============================================================================
 # Go Application (homeautomation-go) Targets
 # ============================================================================
 
@@ -320,15 +348,18 @@ pre-push:
 	@echo "🔍 Running pre-push validation..."
 	@echo "════════════════════════════════════════════════════════════════════════════"
 	@echo ""
-	@echo "📦 Step 1/3: Compiling all code (including tests)..."
+	@echo "📊 Step 1/4: Validating generated diagrams are up-to-date..."
+	@$(MAKE) validate-diagrams
+	@echo ""
+	@echo "📦 Step 2/4: Compiling all code (including tests)..."
 	@cd homeautomation-go && go build ./...
 	@echo "✅ All code compiles"
 	@echo ""
-	@echo "🧪 Step 2/3: Running all tests with race detector and coverage..."
+	@echo "🧪 Step 3/4: Running all tests with race detector and coverage..."
 	@cd homeautomation-go && go test ./... -race -coverprofile=coverage.out -covermode=atomic -timeout=5m
 	@echo "✅ All tests passed with race detector"
 	@echo ""
-	@echo "📊 Step 3/3: Checking test coverage (≥70%)..."
+	@echo "📊 Step 4/4: Checking test coverage (≥70%)..."
 	@cd homeautomation-go && \
 	  coverage=$$(go tool cover -func=coverage.out | grep total | awk '{print $$3}' | sed 's/%//') && \
 	  echo "Total coverage: $${coverage}%" && \
@@ -343,6 +374,7 @@ pre-push:
 	@echo "════════════════════════════════════════════════════════════════════════════"
 	@echo "🎉 Pre-push validation passed!"
 	@echo ""
+	@echo "✅ Generated diagrams are up-to-date"
 	@echo "✅ All code compiles"
 	@echo "✅ All tests passed with race detector"
 	@echo "✅ Test coverage meets minimum requirement (≥70%)"
