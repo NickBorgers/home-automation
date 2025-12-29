@@ -29,11 +29,19 @@ type LightConfig struct {
 	BrightnessPct int `yaml:"brightness_pct"`
 }
 
+// IndicatorLightsConfig represents the configuration for energy indicator lights
+type IndicatorLightsConfig struct {
+	// FriendlyNamePattern is a regex to match entities by friendly_name attribute
+	// Default: "Radar" (matches Apollo MTR sensors which have "Radar" in their names)
+	FriendlyNamePattern string `yaml:"friendly_name_pattern"`
+}
+
 // EnergyConfig represents the energy configuration
 type EnergyConfig struct {
 	Energy struct {
-		FreeEnergyTime FreeEnergyTime `yaml:"free_energy_time"`
-		EnergyStates   []EnergyState  `yaml:"energy_states"`
+		FreeEnergyTime  FreeEnergyTime        `yaml:"free_energy_time"`
+		IndicatorLights IndicatorLightsConfig `yaml:"indicator_lights"`
+		EnergyStates    []EnergyState         `yaml:"energy_states"`
 	} `yaml:"energy"`
 }
 

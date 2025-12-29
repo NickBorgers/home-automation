@@ -703,6 +703,30 @@ func (et *EnergyTracker) UpdateFreeEnergyAvailable(available bool) {
 	et.state.Metadata.LastUpdated = time.Now()
 }
 
+// UpdateDiscoveredIndicatorLights updates the list of discovered indicator light entities
+func (et *EnergyTracker) UpdateDiscoveredIndicatorLights(entities []string) {
+	et.mu.Lock()
+	defer et.mu.Unlock()
+
+	et.state.Outputs.DiscoveredIndicatorLights = entities
+	et.state.Metadata.LastUpdated = time.Now()
+}
+
+// UpdateIndicatorLightsAction updates the last indicator lights action
+func (et *EnergyTracker) UpdateIndicatorLightsAction(energyLevel string, rgbColor []int, brightnessPct int, entityIDs []string) {
+	et.mu.Lock()
+	defer et.mu.Unlock()
+
+	et.state.Outputs.IndicatorLightsAction = &IndicatorLightsAction{
+		EnergyLevel:   energyLevel,
+		RGBColor:      rgbColor,
+		BrightnessPct: brightnessPct,
+		EntityIDs:     entityIDs,
+		Timestamp:     time.Now(),
+	}
+	et.state.Metadata.LastUpdated = time.Now()
+}
+
 // GetState returns the current shadow state (thread-safe copy)
 func (et *EnergyTracker) GetState() *EnergyShadowState {
 	et.mu.RLock()
@@ -721,6 +745,8 @@ func (et *EnergyTracker) GetState() *EnergyShadowState {
 			IsFreeEnergyAvailable:      et.state.Outputs.IsFreeEnergyAvailable,
 			LastComputations:           et.state.Outputs.LastComputations,
 			SensorReadings:             et.state.Outputs.SensorReadings,
+			DiscoveredIndicatorLights:  et.state.Outputs.DiscoveredIndicatorLights,
+			IndicatorLightsAction:      et.state.Outputs.IndicatorLightsAction,
 		},
 		Metadata: et.state.Metadata,
 	}

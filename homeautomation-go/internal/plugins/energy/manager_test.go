@@ -16,12 +16,16 @@ import (
 func createTestConfig() *EnergyConfig {
 	return &EnergyConfig{
 		Energy: struct {
-			FreeEnergyTime FreeEnergyTime `yaml:"free_energy_time"`
-			EnergyStates   []EnergyState  `yaml:"energy_states"`
+			FreeEnergyTime  FreeEnergyTime        `yaml:"free_energy_time"`
+			IndicatorLights IndicatorLightsConfig `yaml:"indicator_lights"`
+			EnergyStates    []EnergyState         `yaml:"energy_states"`
 		}{
 			FreeEnergyTime: FreeEnergyTime{
 				Start: "21:00",
 				End:   "07:00",
+			},
+			IndicatorLights: IndicatorLightsConfig{
+				FriendlyNamePattern: "Radar",
 			},
 			EnergyStates: []EnergyState{
 				{
@@ -390,8 +394,9 @@ func TestIsFreeEnergyTime_EdgeCases(t *testing.T) {
 	t.Run("invalid_start_time", func(t *testing.T) {
 		config := &EnergyConfig{
 			Energy: struct {
-				FreeEnergyTime FreeEnergyTime `yaml:"free_energy_time"`
-				EnergyStates   []EnergyState  `yaml:"energy_states"`
+				FreeEnergyTime  FreeEnergyTime        `yaml:"free_energy_time"`
+				IndicatorLights IndicatorLightsConfig `yaml:"indicator_lights"`
+				EnergyStates    []EnergyState         `yaml:"energy_states"`
 			}{
 				FreeEnergyTime: FreeEnergyTime{
 					Start: "invalid",
@@ -409,8 +414,9 @@ func TestIsFreeEnergyTime_EdgeCases(t *testing.T) {
 	t.Run("invalid_end_time", func(t *testing.T) {
 		config := &EnergyConfig{
 			Energy: struct {
-				FreeEnergyTime FreeEnergyTime `yaml:"free_energy_time"`
-				EnergyStates   []EnergyState  `yaml:"energy_states"`
+				FreeEnergyTime  FreeEnergyTime        `yaml:"free_energy_time"`
+				IndicatorLights IndicatorLightsConfig `yaml:"indicator_lights"`
+				EnergyStates    []EnergyState         `yaml:"energy_states"`
 			}{
 				FreeEnergyTime: FreeEnergyTime{
 					Start: "21:00",
@@ -514,8 +520,9 @@ func TestTimezoneHandling(t *testing.T) {
 		// Let's use 02:00 to 03:00 for easier testing
 		testConfig := &EnergyConfig{
 			Energy: struct {
-				FreeEnergyTime FreeEnergyTime `yaml:"free_energy_time"`
-				EnergyStates   []EnergyState  `yaml:"energy_states"`
+				FreeEnergyTime  FreeEnergyTime        `yaml:"free_energy_time"`
+				IndicatorLights IndicatorLightsConfig `yaml:"indicator_lights"`
+				EnergyStates    []EnergyState         `yaml:"energy_states"`
 			}{
 				FreeEnergyTime: FreeEnergyTime{
 					Start: "02:00",
@@ -699,4 +706,190 @@ func TestHandleGridAvailabilityChange(t *testing.T) {
 		_ = initialFreeEnergy
 		_ = currentFreeEnergy
 	})
+}
+
+func TestIndicatorLightsDiscovery(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	config := createTestConfig()
+
+	// Set up mock states for light entities - some with "Radar" in friendly_name
+	mockClient.SetState("light.apollo_bedroom_rgb", "on", map[string]interface{}{
+		"friendly_name": "Apollo Bedroom Radar Light",
+	})
+	mockClient.SetState("light.apollo_kitchen_rgb", "on", map[string]interface{}{
+		"friendly_name": "Apollo Kitchen Radar Light",
+	})
+	mockClient.SetState("light.living_room_lamp", "on", map[string]interface{}{
+		"friendly_name": "Living Room Lamp", // No "Radar", should not be discovered
+	})
+	mockClient.SetState("sensor.bedroom_radar", "detected", map[string]interface{}{
+		"friendly_name": "Bedroom Radar", // Sensor, not light - should not be discovered
+	})
+
+	mockClient.Connect()
+
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil, nil)
+
+	// Discovery happens during Start()
+	err := manager.Start()
+	assert.NoError(t, err)
+	defer manager.Stop()
+
+	// Verify only the correct entities were discovered
+	assert.Len(t, manager.indicatorLightEntities, 2)
+	assert.Contains(t, manager.indicatorLightEntities, "light.apollo_bedroom_rgb")
+	assert.Contains(t, manager.indicatorLightEntities, "light.apollo_kitchen_rgb")
+}
+
+func TestIndicatorLightsServiceCall(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+
+	// Create config with light configs for each energy level
+	config := createTestConfig()
+	// The createTestConfig doesn't have LightConfig, so let's update the EnergyStates
+	config.Energy.EnergyStates[0].LightConfig = LightConfig{Red: 25, Green: 25, Blue: 112, BrightnessPct: 70}    // black
+	config.Energy.EnergyStates[1].LightConfig = LightConfig{Red: 255, Green: 0, Blue: 0, BrightnessPct: 30}      // red
+	config.Energy.EnergyStates[2].LightConfig = LightConfig{Red: 255, Green: 255, Blue: 0, BrightnessPct: 30}    // yellow
+	config.Energy.EnergyStates[3].LightConfig = LightConfig{Red: 0, Green: 255, Blue: 0, BrightnessPct: 60}      // green
+	config.Energy.EnergyStates[4].LightConfig = LightConfig{Red: 255, Green: 255, Blue: 255, BrightnessPct: 100} // white
+
+	// Set up mock light entities with "Radar" in friendly_name
+	mockClient.SetState("light.apollo_bedroom_rgb", "on", map[string]interface{}{
+		"friendly_name": "Apollo Bedroom Radar Light",
+	})
+
+	mockClient.Connect()
+
+	// Create manager NOT in read-only mode
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil, nil)
+
+	err := manager.Start()
+	assert.NoError(t, err)
+	defer manager.Stop()
+
+	// Verify entity was discovered
+	assert.Len(t, manager.indicatorLightEntities, 1)
+
+	// Clear any service calls from startup
+	mockClient.ClearServiceCalls()
+
+	// Test updateIndicatorLights directly with a specific energy level
+	// This avoids complications with free energy time and recalculation
+	manager.updateIndicatorLights("yellow")
+
+	// Verify the light service was called
+	calls := mockClient.GetServiceCalls()
+
+	// Find the light.turn_on call (ignore other background calls like input_boolean updates)
+	var lightCall *ha.ServiceCall
+	for i := range calls {
+		if calls[i].Domain == "light" && calls[i].Service == "turn_on" {
+			lightCall = &calls[i]
+			break
+		}
+	}
+
+	assert.NotNil(t, lightCall, "Expected light.turn_on service call")
+	if lightCall != nil {
+		// Verify entity_id (comparing as []string since that's how we pass it)
+		entityIDs, ok := lightCall.Data["entity_id"].([]string)
+		assert.True(t, ok, "entity_id should be []string")
+		assert.Equal(t, []string{"light.apollo_bedroom_rgb"}, entityIDs)
+
+		// Verify rgb_color
+		rgbColor, ok := lightCall.Data["rgb_color"].([]int)
+		assert.True(t, ok, "rgb_color should be []int")
+		assert.Equal(t, []int{255, 255, 0}, rgbColor) // yellow
+
+		// Verify brightness_pct
+		assert.Equal(t, 30, lightCall.Data["brightness_pct"])
+	}
+}
+
+func TestIndicatorLightsReadOnlyMode(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	config := createTestConfig()
+
+	// Add LightConfig
+	config.Energy.EnergyStates[0].LightConfig = LightConfig{Red: 25, Green: 25, Blue: 112, BrightnessPct: 70}
+
+	// Set up mock light entity
+	mockClient.SetState("light.apollo_bedroom_rgb", "on", map[string]interface{}{
+		"friendly_name": "Apollo Bedroom Radar Light",
+	})
+
+	mockClient.Connect()
+
+	// Create manager in READ-ONLY mode
+	manager := NewManager(mockClient, stateManager, config, logger, true, nil, nil)
+
+	err := manager.Start()
+	assert.NoError(t, err)
+	defer manager.Stop()
+
+	// Clear any service calls from startup
+	mockClient.ClearServiceCalls()
+
+	// Trigger updateIndicatorLights directly
+	manager.updateIndicatorLights("black")
+
+	// Verify NO light.turn_on service was called in read-only mode
+	calls := mockClient.GetServiceCalls()
+	var lightCalls []ha.ServiceCall
+	for _, c := range calls {
+		if c.Domain == "light" && c.Service == "turn_on" {
+			lightCalls = append(lightCalls, c)
+		}
+	}
+	assert.Len(t, lightCalls, 0, "Expected no light.turn_on service calls in read-only mode")
+
+	// But shadow state should still be updated
+	shadowState := manager.GetShadowState()
+	assert.NotNil(t, shadowState.Outputs.IndicatorLightsAction)
+	assert.Equal(t, "black", shadowState.Outputs.IndicatorLightsAction.EnergyLevel)
+}
+
+func TestIndicatorLightsNoEntitiesDiscovered(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	config := createTestConfig()
+
+	// Set up mock states with NO "Radar" entities
+	mockClient.SetState("light.living_room_lamp", "on", map[string]interface{}{
+		"friendly_name": "Living Room Lamp",
+	})
+
+	mockClient.Connect()
+
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil, nil)
+
+	err := manager.Start()
+	assert.NoError(t, err)
+	defer manager.Stop()
+
+	// Verify no entities were discovered
+	assert.Len(t, manager.indicatorLightEntities, 0)
+
+	// Clear any service calls
+	mockClient.ClearServiceCalls()
+
+	// Calling updateIndicatorLights should not panic and should not make light.turn_on calls
+	manager.updateIndicatorLights("black")
+
+	// Verify NO light.turn_on service was called when no entities discovered
+	calls := mockClient.GetServiceCalls()
+	var lightCalls []ha.ServiceCall
+	for _, c := range calls {
+		if c.Domain == "light" && c.Service == "turn_on" {
+			lightCalls = append(lightCalls, c)
+		}
+	}
+	assert.Len(t, lightCalls, 0, "Expected no light.turn_on service calls when no entities discovered")
 }
