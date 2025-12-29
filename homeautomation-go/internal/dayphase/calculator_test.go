@@ -306,7 +306,13 @@ func TestCalculator_CalculateDayPhaseAllCases(t *testing.T) {
 				)
 			},
 			schedule: schedule,
-			expected: DayPhaseMorning,
+			// Early morning (before 6am) always returns night; otherwise morning
+			expected: func() DayPhase {
+				if now.Hour() < 6 {
+					return DayPhaseNight
+				}
+				return DayPhaseMorning
+			}(),
 		},
 		{
 			name: "day phase",
@@ -326,7 +332,13 @@ func TestCalculator_CalculateDayPhaseAllCases(t *testing.T) {
 				)
 			},
 			schedule: schedule,
-			expected: DayPhaseDay,
+			// Early morning (before 6am) always returns night; otherwise day
+			expected: func() DayPhase {
+				if now.Hour() < 6 {
+					return DayPhaseNight
+				}
+				return DayPhaseDay
+			}(),
 		},
 		{
 			name: "sunset phase",
@@ -346,7 +358,13 @@ func TestCalculator_CalculateDayPhaseAllCases(t *testing.T) {
 				)
 			},
 			schedule: schedule,
-			expected: DayPhaseSunset,
+			// Early morning (before 6am) always returns night; otherwise sunset
+			expected: func() DayPhase {
+				if now.Hour() < 6 {
+					return DayPhaseNight
+				}
+				return DayPhaseSunset
+			}(),
 		},
 		{
 			name: "dusk phase - after scheduled dusk time",
@@ -406,7 +424,13 @@ func TestCalculator_CalculateDayPhaseAllCases(t *testing.T) {
 				Winddown:  now.Add(2 * time.Hour),
 				Night:     now.Add(3 * time.Hour),
 			},
-			expected: DayPhaseSunset, // Delayed from dusk to sunset
+			// Early morning (before 6am) always returns night; otherwise delayed to sunset
+			expected: func() DayPhase {
+				if now.Hour() < 6 {
+					return DayPhaseNight
+				}
+				return DayPhaseSunset
+			}(),
 		},
 		{
 			name: "night override - sun says night but before scheduled dusk",
@@ -433,7 +457,13 @@ func TestCalculator_CalculateDayPhaseAllCases(t *testing.T) {
 				Winddown:  now.Add(2 * time.Hour),
 				Night:     now.Add(3 * time.Hour),
 			},
-			expected: DayPhaseSunset, // Delayed from night to sunset
+			// Early morning (before 6am) always returns night; otherwise delayed to sunset
+			expected: func() DayPhase {
+				if now.Hour() < 6 {
+					return DayPhaseNight
+				}
+				return DayPhaseSunset
+			}(),
 		},
 		{
 			name: "night with schedule - after schedule.Night",

@@ -173,6 +173,13 @@ func (c *Calculator) CalculateDayPhase(schedule *config.ParsedSchedule) DayPhase
 	// If schedule overrides are available, use them to delay transitions
 	// This prevents lights from getting too dim too early
 	if schedule != nil {
+		// Early morning (before 6am) is always night, regardless of schedule
+		// This prevents returning sunset phase at 3am when schedule.Dusk is "20:00"
+		// (which would be "in the future" relative to 3am today)
+		if now.Hour() < 6 {
+			return DayPhaseNight
+		}
+
 		// Before scheduled dusk time: stay at day/sunset regardless of sun
 		if now.Before(schedule.Dusk) {
 			switch sunEvent {
@@ -190,7 +197,7 @@ func (c *Calculator) CalculateDayPhase(schedule *config.ParsedSchedule) DayPhase
 		}
 
 		// After scheduled dusk, before scheduled night
-		if now.Before(schedule.Night) && now.Hour() >= 6 {
+		if now.Before(schedule.Night) {
 			switch sunEvent {
 			case SunEventMorning:
 				return DayPhaseMorning
@@ -208,13 +215,8 @@ func (c *Calculator) CalculateDayPhase(schedule *config.ParsedSchedule) DayPhase
 			}
 		}
 
-		// After scheduled night time (or early morning before 6am)
-		if now.After(schedule.Night) || now.Hour() < 6 {
-			return DayPhaseNight
-		}
-
-		// Fallback for edge cases
-		return DayPhaseWinddown
+		// After scheduled night time
+		return DayPhaseNight
 	}
 
 	// No schedule available, use sun event directly with simple time-based night logic
