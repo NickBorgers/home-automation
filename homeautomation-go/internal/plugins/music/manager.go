@@ -925,8 +925,10 @@ func (m *Manager) buildSpeakerGroup(participants []ParticipantWithVolume, leadEn
 	m.logger.Warn("Full group creation failed, attempting to build partial group",
 		zap.Error(lastErr))
 
-	// Mark lead as active (index 0)
-	result.ActiveCount = 1 // Lead speaker
+	// Track how many followers we successfully add
+	// Lead is only considered active if at least one follower joins
+	// (which proves the lead is responsive)
+	followersJoined := 0
 
 	// Try each follower individually
 	for i := 1; i < len(participants); i++ {
@@ -969,15 +971,24 @@ func (m *Manager) buildSpeakerGroup(participants []ParticipantWithVolume, leadEn
 		}
 
 		if speakerJoined {
-			result.ActiveCount++
+			followersJoined++
 		}
 	}
 
-	// Check if we have at least the lead speaker
-	if result.ActiveCount == 0 {
+	// Check if any followers joined - this also verifies the lead is responsive
+	// If all followers failed, we can't verify the lead is working, so fail entirely
+	if followersJoined == 0 {
 		result.LeadActive = false
-		return result, fmt.Errorf("failed to create speaker group: no speakers available")
+		result.ActiveCount = 0
+		// Mark lead as failed too since we couldn't verify it works
+		result.Results[0].Active = false
+		result.Results[0].FailureReason = "could not verify lead speaker - all join attempts failed"
+		result.FailedCount = len(participants)
+		return result, fmt.Errorf("failed to create speaker group: all speakers unavailable (batch and individual joins failed)")
 	}
+
+	// At least one follower joined, so lead is verified working
+	result.ActiveCount = 1 + followersJoined // lead + successful followers
 
 	if result.FailedCount > 0 {
 		m.logger.Warn("Proceeding with partial speaker group",

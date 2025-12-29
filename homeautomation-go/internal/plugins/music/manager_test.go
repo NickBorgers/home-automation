@@ -1133,7 +1133,7 @@ func TestBuildSpeakerGroupRetrySuccess(t *testing.T) {
 }
 
 // TestBuildSpeakerGroupPartialSuccess tests that speaker group building succeeds with partial group
-// when some speakers are unavailable but the lead is available
+// when some speakers are unavailable but at least one follower joins (proving lead is responsive)
 func TestBuildSpeakerGroupPartialSuccess(t *testing.T) {
 	logger := zap.NewNop()
 	mockClient := ha.NewMockClient()
@@ -1144,15 +1144,19 @@ func TestBuildSpeakerGroupPartialSuccess(t *testing.T) {
 	// Use no-op sleep to make test fast
 	manager.SetSleepFunc(func(d time.Duration) {})
 
-	// Configure mock to always fail for join (simulating unreachable speakers)
-	mockClient.SetServiceError("media_player", "join", fmt.Errorf("service call failed: Host is unreachable"))
+	// Configure mock to fail first 6 calls then succeed:
+	// - Calls 1-3: batch join retries (all fail)
+	// - Calls 4-6: Living Room individual retries (all fail)
+	// - Call 7+: Bedroom individual (succeeds)
+	mockClient.SetServiceFailCount("media_player", "join", 6, fmt.Errorf("service call failed: Host is unreachable"))
 
 	participants := []ParticipantWithVolume{
 		{PlayerName: "Kitchen", Volume: 9},
 		{PlayerName: "Living Room", Volume: 10},
+		{PlayerName: "Bedroom", Volume: 8},
 	}
 
-	// Should succeed with partial group (lead speaker only)
+	// Should succeed with partial group (lead + Bedroom)
 	result, err := manager.buildSpeakerGroup(participants, "media_player.kitchen")
 	if err != nil {
 		t.Errorf("buildSpeakerGroup() should succeed with partial group, got: %v", err)
@@ -1161,9 +1165,9 @@ func TestBuildSpeakerGroupPartialSuccess(t *testing.T) {
 		t.Fatal("buildSpeakerGroup() returned nil result")
 	}
 
-	// Verify partial group results
-	if result.ActiveCount != 1 {
-		t.Errorf("Expected 1 active speaker (lead only), got %d", result.ActiveCount)
+	// Verify partial group results: lead + Bedroom active, Living Room failed
+	if result.ActiveCount != 2 {
+		t.Errorf("Expected 2 active speakers (lead + Bedroom), got %d", result.ActiveCount)
 	}
 	if result.FailedCount != 1 {
 		t.Errorf("Expected 1 failed speaker, got %d", result.FailedCount)
@@ -1173,8 +1177,8 @@ func TestBuildSpeakerGroupPartialSuccess(t *testing.T) {
 	}
 
 	// Verify individual speaker states
-	if len(result.Results) != 2 {
-		t.Errorf("Expected 2 results, got %d", len(result.Results))
+	if len(result.Results) != 3 {
+		t.Errorf("Expected 3 results, got %d", len(result.Results))
 	}
 
 	// First speaker (Kitchen/lead) should be active
@@ -1187,6 +1191,58 @@ func TestBuildSpeakerGroupPartialSuccess(t *testing.T) {
 	}
 	if result.Results[1].FailureReason == "" {
 		t.Error("Expected Living Room to have a failure reason")
+	}
+	// Third speaker (Bedroom) should be active
+	if !result.Results[2].Active {
+		t.Error("Expected Bedroom to be active")
+	}
+}
+
+// TestBuildSpeakerGroupAllFail tests that speaker group building fails when all speakers are unavailable
+func TestBuildSpeakerGroupAllFail(t *testing.T) {
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	config := &MusicConfig{Music: map[string]MusicMode{}}
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+
+	// Use no-op sleep to make test fast
+	manager.SetSleepFunc(func(d time.Duration) {})
+
+	// Configure mock to always fail for join (simulating all speakers unreachable)
+	mockClient.SetServiceError("media_player", "join", fmt.Errorf("service call failed: Host is unreachable"))
+
+	participants := []ParticipantWithVolume{
+		{PlayerName: "Kitchen", Volume: 9},
+		{PlayerName: "Living Room", Volume: 10},
+	}
+
+	// Should fail when all speakers are unavailable
+	result, err := manager.buildSpeakerGroup(participants, "media_player.kitchen")
+	if err == nil {
+		t.Error("buildSpeakerGroup() should fail when all speakers are unavailable")
+	}
+	if result == nil {
+		t.Fatal("buildSpeakerGroup() returned nil result")
+	}
+
+	// Verify failure results
+	if result.ActiveCount != 0 {
+		t.Errorf("Expected 0 active speakers, got %d", result.ActiveCount)
+	}
+	if result.FailedCount != 2 {
+		t.Errorf("Expected 2 failed speakers, got %d", result.FailedCount)
+	}
+	if result.LeadActive {
+		t.Error("Expected lead speaker to be marked as inactive")
+	}
+
+	// Both speakers should be marked as failed
+	if result.Results[0].Active {
+		t.Error("Expected lead speaker (Kitchen) to be marked as failed")
+	}
+	if result.Results[1].Active {
+		t.Error("Expected Living Room to be marked as failed")
 	}
 }
 
