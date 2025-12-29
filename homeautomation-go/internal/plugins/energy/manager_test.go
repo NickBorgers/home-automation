@@ -1737,3 +1737,323 @@ func TestNegativeLuxValue(t *testing.T) {
 	brightness := manager.calculateAdaptiveBrightness(-5, "light.test")
 	assert.Equal(t, 20, brightness, "Negative lux should use lowest brightness tier")
 }
+
+// ============================================================================
+// Baseline Calibration Tests
+// ============================================================================
+
+func TestBaselineCalibrationEnabled(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+
+	config := createTestConfig()
+	config.Energy.IndicatorLights.AdaptiveBrightness = AdaptiveBrightnessConfig{
+		Enabled:          true,
+		LuxSensorPattern: "ltr390_light",
+		BrightnessCurve: []BrightnessCurvePoint{
+			{LuxMax: 100, BrightnessPct: 40},
+		},
+		BaselineCalibration: BaselineCalibrationConfig{
+			Enabled:                  true,
+			CalibrationIntervalSec:   300,
+			CalibrationBrightnessPct: 5,
+			CalibrationWaitSec:       65,
+		},
+	}
+
+	mockClient.Connect()
+	manager := NewManager(mockClient, stateManager, config, logger, true, nil, nil)
+
+	// Verify calibration is enabled
+	assert.True(t, manager.isCalibrationEnabled())
+}
+
+func TestBaselineCalibrationDisabled(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+
+	config := createTestConfig()
+	config.Energy.IndicatorLights.AdaptiveBrightness = AdaptiveBrightnessConfig{
+		Enabled:          true,
+		LuxSensorPattern: "ltr390_light",
+		BaselineCalibration: BaselineCalibrationConfig{
+			Enabled: false,
+		},
+	}
+
+	mockClient.Connect()
+	manager := NewManager(mockClient, stateManager, config, logger, true, nil, nil)
+
+	// Verify calibration is disabled
+	assert.False(t, manager.isCalibrationEnabled())
+}
+
+func TestGetBaselineLux(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+
+	config := createTestConfig()
+	config.Energy.IndicatorLights.AdaptiveBrightness = AdaptiveBrightnessConfig{
+		Enabled: true,
+		BaselineCalibration: BaselineCalibrationConfig{
+			Enabled: true,
+		},
+	}
+
+	mockClient.Connect()
+	manager := NewManager(mockClient, stateManager, config, logger, true, nil, nil)
+
+	lightEntity := "light.test_device"
+
+	// Initially no baseline should exist
+	lux, exists := manager.getBaselineLux(lightEntity)
+	assert.False(t, exists)
+	assert.Equal(t, 0.0, lux)
+
+	// Set a baseline value
+	manager.indicatorMu.Lock()
+	manager.baselineLuxValues[lightEntity] = 150.5
+	manager.indicatorMu.Unlock()
+
+	// Now baseline should exist
+	lux, exists = manager.getBaselineLux(lightEntity)
+	assert.True(t, exists)
+	assert.Equal(t, 150.5, lux)
+}
+
+func TestCalibrationStateTracking(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+
+	config := createTestConfig()
+	config.Energy.IndicatorLights.AdaptiveBrightness = AdaptiveBrightnessConfig{
+		Enabled: true,
+		BaselineCalibration: BaselineCalibrationConfig{
+			Enabled:                  true,
+			CalibrationBrightnessPct: 5,
+		},
+	}
+
+	mockClient.Connect()
+	manager := NewManager(mockClient, stateManager, config, logger, true, nil, nil)
+
+	lightEntity := "light.test_device"
+
+	// Initially should be in Normal state (or not set)
+	manager.indicatorMu.RLock()
+	state := manager.calibrationState[lightEntity]
+	manager.indicatorMu.RUnlock()
+	assert.Equal(t, CalibrationStateNormal, state)
+
+	// Simulate transitioning to Dimmed state
+	manager.indicatorMu.Lock()
+	manager.calibrationState[lightEntity] = CalibrationStateDimmed
+	manager.indicatorMu.Unlock()
+
+	manager.indicatorMu.RLock()
+	state = manager.calibrationState[lightEntity]
+	manager.indicatorMu.RUnlock()
+	assert.Equal(t, CalibrationStateDimmed, state)
+}
+
+func TestUpdateIndicatorLightsSkipsCalibrating(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+
+	config := createTestConfig()
+	config.Energy.IndicatorLights.AdaptiveBrightness = AdaptiveBrightnessConfig{
+		Enabled:          true,
+		LuxSensorPattern: "ltr390_light",
+		BrightnessCurve: []BrightnessCurvePoint{
+			{LuxMax: 100, BrightnessPct: 40},
+		},
+		BaselineCalibration: BaselineCalibrationConfig{
+			Enabled: true,
+		},
+	}
+	config.Energy.EnergyStates[2].LightConfig = LightConfig{Red: 255, Green: 255, Blue: 0, BrightnessPct: 30}
+
+	// Set up mock light and sensor
+	mockClient.SetState("light.apollo_msr_2_1294c8_rgb_light", "on", map[string]interface{}{
+		"friendly_name": "Test Radar RGB Light",
+	})
+	mockClient.SetState("sensor.apollo_msr_2_1294c8_ltr390_light", "50", map[string]interface{}{})
+	mockClient.Connect()
+
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil, nil)
+	err := manager.Start()
+	assert.NoError(t, err)
+	defer manager.Stop()
+
+	lightEntity := "light.apollo_msr_2_1294c8_rgb_light"
+
+	// Set the light to "calibrating" state
+	manager.indicatorMu.Lock()
+	manager.calibrationState[lightEntity] = CalibrationStateDimmed
+	manager.indicatorMu.Unlock()
+
+	// Clear any service calls
+	mockClient.ClearServiceCalls()
+
+	// Update indicator lights - the calibrating light should be skipped
+	manager.updateIndicatorLights("yellow")
+
+	// Verify no light.turn_on calls were made for this device
+	// (it should skip because it's in calibration mode)
+	calls := mockClient.GetServiceCalls()
+	var lightCallsForDevice []ha.ServiceCall
+	for _, c := range calls {
+		if c.Domain == "light" && c.Service == "turn_on" {
+			entityID, ok := c.Data["entity_id"].(string)
+			if ok && entityID == lightEntity {
+				lightCallsForDevice = append(lightCallsForDevice, c)
+			}
+		}
+	}
+
+	assert.Len(t, lightCallsForDevice, 0, "Should skip updating lights that are currently calibrating")
+}
+
+func TestUpdateIndicatorLightsUsesBaseline(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+
+	config := createTestConfig()
+	config.Energy.IndicatorLights.AdaptiveBrightness = AdaptiveBrightnessConfig{
+		Enabled:          true,
+		LuxSensorPattern: "ltr390_light",
+		BrightnessCurve: []BrightnessCurvePoint{
+			{LuxMax: 100, BrightnessPct: 40},  // lux < 100 -> 40%
+			{LuxMax: 1000, BrightnessPct: 80}, // lux < 1000 -> 80%
+		},
+		BaselineCalibration: BaselineCalibrationConfig{
+			Enabled: true,
+		},
+	}
+	config.Energy.EnergyStates[2].LightConfig = LightConfig{Red: 255, Green: 255, Blue: 0, BrightnessPct: 30}
+
+	// Set up mock light and sensor
+	mockClient.SetState("light.apollo_msr_2_1294c8_rgb_light", "on", map[string]interface{}{
+		"friendly_name": "Test Radar RGB Light",
+	})
+	mockClient.SetState("sensor.apollo_msr_2_1294c8_ltr390_light", "2000", map[string]interface{}{}) // High lux from LED
+	mockClient.Connect()
+
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil, nil)
+	err := manager.Start()
+	assert.NoError(t, err)
+	defer manager.Stop()
+
+	lightEntity := "light.apollo_msr_2_1294c8_rgb_light"
+	luxSensor := "sensor.apollo_msr_2_1294c8_ltr390_light"
+
+	// Set a low baseline lux (true ambient is dark)
+	manager.indicatorMu.Lock()
+	manager.baselineLuxValues[lightEntity] = 50 // Low ambient -> should use 40%
+	manager.currentLuxValues[luxSensor] = 2000  // High reading contaminated by LED
+	manager.indicatorMu.Unlock()
+
+	// Clear any service calls
+	mockClient.ClearServiceCalls()
+
+	// Update indicator lights - should use baseline lux (50) not current lux (2000)
+	manager.updateIndicatorLights("yellow")
+
+	// Find the light.turn_on call for this device
+	calls := mockClient.GetServiceCalls()
+	var lightCall *ha.ServiceCall
+	for i := range calls {
+		if calls[i].Domain == "light" && calls[i].Service == "turn_on" {
+			entityID, ok := calls[i].Data["entity_id"].(string)
+			if ok && entityID == lightEntity {
+				lightCall = &calls[i]
+				break
+			}
+		}
+	}
+
+	assert.NotNil(t, lightCall, "Expected a light.turn_on call")
+	if lightCall != nil {
+		// With baseline lux of 50, brightness should be 40% (from first curve point)
+		// NOT 100% which would be the case with contaminated lux of 2000
+		assert.Equal(t, 40, lightCall.Data["brightness_pct"],
+			"Should use baseline lux (50 -> 40%%) not contaminated lux (2000 -> 100%%)")
+	}
+}
+
+func TestRestoreLightAfterCalibration(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+
+	config := createTestConfig()
+	config.Energy.IndicatorLights.AdaptiveBrightness = AdaptiveBrightnessConfig{
+		Enabled:          true,
+		LuxSensorPattern: "ltr390_light",
+		BrightnessCurve: []BrightnessCurvePoint{
+			{LuxMax: 100, BrightnessPct: 40},
+		},
+		BaselineCalibration: BaselineCalibrationConfig{
+			Enabled: true,
+		},
+	}
+	config.Energy.EnergyStates[0].LightConfig = LightConfig{Red: 25, Green: 25, Blue: 112, BrightnessPct: 70}
+
+	// Set up mock light and sensor
+	mockClient.SetState("light.apollo_msr_2_1294c8_rgb_light", "on", map[string]interface{}{
+		"friendly_name": "Test Radar RGB Light",
+	})
+	mockClient.SetState("sensor.apollo_msr_2_1294c8_ltr390_light", "50", map[string]interface{}{})
+	mockClient.Connect()
+
+	// Set energy level
+	stateManager.SetString("currentEnergyLevel", "black")
+
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil, nil)
+	err := manager.Start()
+	assert.NoError(t, err)
+	defer manager.Stop()
+
+	lightEntity := "light.apollo_msr_2_1294c8_rgb_light"
+	luxSensor := "sensor.apollo_msr_2_1294c8_ltr390_light"
+
+	// Set up calibration state
+	manager.indicatorMu.Lock()
+	manager.lightToLuxSensor[lightEntity] = luxSensor
+	manager.calibrationState[lightEntity] = CalibrationStateDimmed
+	manager.currentLuxValues[luxSensor] = 75 // Baseline reading
+	manager.indicatorMu.Unlock()
+
+	// Clear service calls
+	mockClient.ClearServiceCalls()
+
+	// Call restoreLightAfterCalibration
+	manager.restoreLightAfterCalibration(lightEntity)
+
+	// Verify baseline was recorded
+	manager.indicatorMu.RLock()
+	baseline := manager.baselineLuxValues[lightEntity]
+	calibState := manager.calibrationState[lightEntity]
+	manager.indicatorMu.RUnlock()
+
+	assert.Equal(t, 75.0, baseline, "Baseline should be recorded")
+	assert.Equal(t, CalibrationStateNormal, calibState, "Should return to Normal state")
+
+	// Verify light was updated
+	calls := mockClient.GetServiceCalls()
+	var lightCall *ha.ServiceCall
+	for i := range calls {
+		if calls[i].Domain == "light" && calls[i].Service == "turn_on" {
+			lightCall = &calls[i]
+			break
+		}
+	}
+
+	assert.NotNil(t, lightCall, "Expected a light.turn_on call to restore brightness")
+}
