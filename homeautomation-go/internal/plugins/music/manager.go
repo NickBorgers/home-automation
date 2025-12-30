@@ -844,6 +844,10 @@ const (
 	// speakerUnjoinSettleDelay is the delay after unjoining all speakers
 	// to allow the Sonos system to stabilize before forming new groups.
 	speakerUnjoinSettleDelay = 500 * time.Millisecond
+
+	// speakerGroupSettleDelay is the delay after building a speaker group
+	// to allow the Sonos system to stabilize before starting playback.
+	speakerGroupSettleDelay = 500 * time.Millisecond
 )
 
 // breakSpeakerGroups unjoins all participants from their existing groups.
@@ -960,7 +964,7 @@ func (m *Manager) buildSpeakerGroup(participants []ParticipantWithVolume, leadEn
 	if allSucceeded {
 		// All speakers joined successfully
 		result.ActiveCount = len(participants)
-		time.Sleep(500 * time.Millisecond)
+		m.sleepFunc(speakerGroupSettleDelay)
 		return result, nil
 	}
 
@@ -1040,7 +1044,7 @@ func (m *Manager) buildSpeakerGroup(participants []ParticipantWithVolume, leadEn
 	}
 
 	// Wait for group to stabilize
-	time.Sleep(500 * time.Millisecond)
+	m.sleepFunc(speakerGroupSettleDelay)
 
 	return result, nil
 }
