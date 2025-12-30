@@ -1,26 +1,27 @@
 package shadowstate
 
-import "time"
+import (
+	"time"
 
-// PluginShadowState is the interface that all plugin shadow states must implement
-type PluginShadowState interface {
-	GetCurrentInputs() map[string]interface{}
-	GetLastActionInputs() map[string]interface{}
-	GetOutputs() interface{}
-	GetMetadata() StateMetadata
-}
+	pkgshadow "homeautomation/pkg/shadowstate"
+)
 
-// InputSnapshot represents a snapshot of input values at a specific time
-type InputSnapshot struct {
-	Timestamp time.Time              `json:"timestamp"`
-	Values    map[string]interface{} `json:"values"`
-}
+// Re-export public types from pkg/shadowstate for internal use.
+// This allows internal code to continue importing from internal/shadowstate
+// while the actual interface types are defined in the public pkg/shadowstate.
+type (
+	// PluginShadowState is re-exported from pkg/shadowstate.
+	// See pkg/shadowstate.PluginShadowState for documentation.
+	PluginShadowState = pkgshadow.PluginShadowState
 
-// StateMetadata contains metadata about the shadow state
-type StateMetadata struct {
-	LastUpdated time.Time `json:"lastUpdated"`
-	PluginName  string    `json:"pluginName"`
-}
+	// StateMetadata is re-exported from pkg/shadowstate.
+	// See pkg/shadowstate.StateMetadata for documentation.
+	StateMetadata = pkgshadow.StateMetadata
+
+	// InputSnapshot is re-exported from pkg/shadowstate.
+	// See pkg/shadowstate.InputSnapshot for documentation.
+	InputSnapshot = pkgshadow.InputSnapshot
+)
 
 // ActionRecord represents a single action taken by a plugin
 type ActionRecord struct {
