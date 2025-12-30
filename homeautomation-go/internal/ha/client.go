@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -24,6 +25,18 @@ const (
 
 	// writeWait is the time allowed to write a ping message.
 	writeWait = 10 * time.Second
+)
+
+// Retry constants for service calls
+const (
+	// maxRetries is the number of retry attempts for transient network errors
+	maxRetries = 3
+
+	// initialRetryDelay is the base delay before first retry
+	initialRetryDelay = 500 * time.Millisecond
+
+	// maxRetryDelay caps the exponential backoff
+	maxRetryDelay = 5 * time.Second
 )
 
 // HAClient defines the interface for Home Assistant WebSocket client
@@ -573,17 +586,94 @@ func (c *Client) GetAllStates() ([]*State, error) {
 	return states, nil
 }
 
-// CallService calls a Home Assistant service
-func (c *Client) CallService(domain, service string, data map[string]interface{}) error {
-	req := &CallServiceRequest{
-		Type:        "call_service",
-		Domain:      domain,
-		Service:     service,
-		ServiceData: data,
+// isRetryableError determines if an error is a transient network error worth retrying.
+// Returns true for connection errors, timeouts, and websocket close errors.
+// Returns false for HA application errors (which won't succeed on retry).
+func isRetryableError(err error) bool {
+	if err == nil {
+		return false
+	}
+	errStr := err.Error()
+
+	// Network-level errors that indicate transient issues
+	retryablePatterns := []string{
+		"i/o timeout",
+		"connection reset",
+		"connection refused",
+		"broken pipe",
+		"no such host",
+		"network is unreachable",
+		"not connected",
+		"use of closed network connection",
+		"timeout waiting for response",
 	}
 
-	_, err := c.sendMessage(req)
-	return err
+	for _, pattern := range retryablePatterns {
+		if strings.Contains(errStr, pattern) {
+			return true
+		}
+	}
+
+	// WebSocket close errors are retryable (connection dropped)
+	if websocket.IsCloseError(err, websocket.CloseAbnormalClosure, websocket.CloseGoingAway) {
+		return true
+	}
+
+	return false
+}
+
+// CallService calls a Home Assistant service with automatic retry for transient errors.
+// Uses exponential backoff: 500ms, 1s, 2s between retries (capped at 5s).
+func (c *Client) CallService(domain, service string, data map[string]interface{}) error {
+	var lastErr error
+	delay := initialRetryDelay
+
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		if attempt > 0 {
+			c.logger.Warn("Retrying service call",
+				zap.String("domain", domain),
+				zap.String("service", service),
+				zap.Int("attempt", attempt),
+				zap.Duration("delay", delay),
+				zap.Error(lastErr),
+			)
+			time.Sleep(delay)
+
+			// Exponential backoff
+			delay *= 2
+			if delay > maxRetryDelay {
+				delay = maxRetryDelay
+			}
+		}
+
+		req := &CallServiceRequest{
+			Type:        "call_service",
+			Domain:      domain,
+			Service:     service,
+			ServiceData: data,
+		}
+
+		_, err := c.sendMessage(req)
+		if err == nil {
+			if attempt > 0 {
+				c.logger.Info("Service call succeeded after retry",
+					zap.String("domain", domain),
+					zap.String("service", service),
+					zap.Int("attempts", attempt+1),
+				)
+			}
+			return nil
+		}
+
+		lastErr = err
+
+		// Only retry for transient network errors
+		if !isRetryableError(err) {
+			return err
+		}
+	}
+
+	return fmt.Errorf("service call failed after %d attempts: %w", maxRetries+1, lastErr)
 }
 
 // SubscribeStateChanges subscribes to state changes for a specific entity
