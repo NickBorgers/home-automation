@@ -11,6 +11,21 @@ import (
 	"go.uber.org/zap"
 )
 
+// WebSocket keepalive constants
+const (
+	// pingInterval is how often we send ping frames to keep connection alive.
+	// Set well under typical proxy/load balancer timeouts (often 60-90s).
+	pingInterval = 30 * time.Second
+
+	// pongWait is the max time to wait for a pong response.
+	// If no pong received within this time, connection is considered dead.
+	// Set to 2x pingInterval to tolerate one missed ping.
+	pongWait = 60 * time.Second
+
+	// writeWait is the time allowed to write a ping message.
+	writeWait = 10 * time.Second
+)
+
 // HAClient defines the interface for Home Assistant WebSocket client
 type HAClient interface {
 	Connect() error
@@ -180,6 +195,19 @@ func (c *Client) Connect() error {
 	c.connected = true
 	c.reconnect = true
 	c.logger.Info("Connected to Home Assistant")
+
+	// Set up WebSocket keepalive
+	// Set initial read deadline - will be extended by pong handler
+	c.conn.SetReadDeadline(time.Now().Add(pongWait))
+
+	// Set pong handler to extend read deadline on each pong received
+	c.conn.SetPongHandler(func(string) error {
+		c.conn.SetReadDeadline(time.Now().Add(pongWait))
+		return nil
+	})
+
+	// Start background ping sender
+	go c.sendPings()
 
 	// Start background message receiver
 	go c.receiveMessages()
@@ -455,6 +483,47 @@ func (c *Client) attemptReconnect() {
 
 		c.logger.Info("Reconnected successfully")
 		return
+	}
+}
+
+// sendPings sends periodic ping frames to keep the WebSocket connection alive.
+// This prevents proxies/load balancers from terminating idle connections.
+func (c *Client) sendPings() {
+	// Capture context reference at startup
+	c.ctxMu.RLock()
+	ctx := c.ctx
+	c.ctxMu.RUnlock()
+
+	ticker := time.NewTicker(pingInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			// Check if still connected before attempting ping
+			c.connMu.RLock()
+			if !c.connected {
+				c.connMu.RUnlock()
+				return
+			}
+			conn := c.conn
+			c.connMu.RUnlock()
+
+			// Send ping with write deadline
+			c.writeMu.Lock()
+			conn.SetWriteDeadline(time.Now().Add(writeWait))
+			err := conn.WriteControl(websocket.PingMessage, nil, time.Now().Add(writeWait))
+			c.writeMu.Unlock()
+
+			if err != nil {
+				c.logger.Warn("Failed to send ping", zap.Error(err))
+				// Don't trigger disconnect here - let receiveMessages handle it
+				// when the read deadline expires
+				return
+			}
+		}
 	}
 }
 
