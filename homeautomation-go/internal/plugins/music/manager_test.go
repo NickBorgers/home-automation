@@ -2343,8 +2343,8 @@ func TestSyncPlaylistRotationToHA(t *testing.T) {
 		t.Errorf("Expected first index to be 0, got %d", index)
 	}
 
-	// Wait a bit for the goroutine to complete
-	time.Sleep(50 * time.Millisecond)
+	// Wait for the sync goroutine to complete
+	manager.WaitForSync()
 
 	// Verify the rotation was synced to HA
 	rotationJSON, err := stateManager.GetString("musicPlaylistRotation")
@@ -2369,7 +2369,7 @@ func TestSyncPlaylistRotationToHA(t *testing.T) {
 	}
 
 	// Wait for sync
-	time.Sleep(50 * time.Millisecond)
+	manager.WaitForSync()
 
 	// Verify updated rotation
 	rotationJSON, _ = stateManager.GetString("musicPlaylistRotation")
@@ -2402,7 +2402,7 @@ func TestPlaylistRotationSyncReadOnlyMode(t *testing.T) {
 	}
 
 	// Wait for sync attempt
-	time.Sleep(50 * time.Millisecond)
+	manager.WaitForSync()
 
 	// In read-only mode, the HA value should still be empty (sync skipped)
 	rotationJSON, _ := stateManager.GetString("musicPlaylistRotation")

@@ -101,6 +101,9 @@ type Manager struct {
 	// Available media_player entities from Home Assistant
 	availableSpeakers   map[string]bool // entity_id -> exists
 	availableSpeakersMu sync.RWMutex
+
+	// Sync tracking for tests
+	syncWg sync.WaitGroup // Tracks pending rotation syncs
 }
 
 // NewManager creates a new Music manager
@@ -719,6 +722,7 @@ func (m *Manager) getNextPlaylistIndex(musicType string, optionsCount int) int {
 	m.playlistNumbers[musicType] = nextIndex
 
 	// Sync to Home Assistant (fire and forget, don't block on errors)
+	m.syncWg.Add(1)
 	go m.syncPlaylistRotationToHA()
 
 	return indexToUse
@@ -789,6 +793,8 @@ func (m *Manager) loadPlaylistRotationFromHA() {
 // syncPlaylistRotationToHA persists playlist rotation state to Home Assistant.
 // This should be called after updating playlistNumbers.
 func (m *Manager) syncPlaylistRotationToHA() {
+	defer m.syncWg.Done()
+
 	m.mu.RLock()
 	rotationCopy := make(map[string]int, len(m.playlistNumbers))
 	for k, v := range m.playlistNumbers {
@@ -809,6 +815,12 @@ func (m *Manager) syncPlaylistRotationToHA() {
 			m.logger.Error("Failed to sync playlist rotation to HA", zap.Error(err))
 		}
 	}
+}
+
+// WaitForSync waits for any pending playlist rotation syncs to complete.
+// This is primarily used for testing to avoid sleep-based synchronization.
+func (m *Manager) WaitForSync() {
+	m.syncWg.Wait()
 }
 
 // calculateVolume calculates final volume from base and multiplier
