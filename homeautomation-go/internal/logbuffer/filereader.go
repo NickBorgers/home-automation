@@ -170,13 +170,14 @@ func ReadEventsFromFileReverse(filePath string, maxEvents int) ([]Event, error) 
 			partialLine = nil
 		}
 
-		// Split into lines (reverse order since we're reading backwards)
+		// Split into lines
 		chunkLines := splitLinesReverse(chunk)
 
-		// First "line" might be partial if we're not at start of file
+		// First line in chunk might be partial (its beginning is in an earlier chunk)
+		// Save it to prepend to the next chunk we read
 		if position > 0 && len(chunkLines) > 0 {
-			partialLine = chunkLines[len(chunkLines)-1]
-			chunkLines = chunkLines[:len(chunkLines)-1]
+			partialLine = chunkLines[0]
+			chunkLines = chunkLines[1:]
 		}
 
 		lines = append(chunkLines, lines...)

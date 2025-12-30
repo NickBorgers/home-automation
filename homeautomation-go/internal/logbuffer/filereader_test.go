@@ -1,6 +1,7 @@
 package logbuffer
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -274,4 +275,84 @@ func TestParseLogLineWithFields(t *testing.T) {
 	if enabled, ok := event.Fields["enabled"].(bool); !ok || !enabled {
 		t.Errorf("Fields[enabled] = %v, want true", event.Fields["enabled"])
 	}
+}
+
+func TestReadEventsFromFileReverse_MultiChunk(t *testing.T) {
+	// This test verifies that ReadEventsFromFileReverse correctly handles
+	// log files that span multiple 64KB chunks. A bug in the original
+	// implementation incorrectly saved the last line of each chunk as
+	// partial instead of the first line, causing line corruption when
+	// lines span chunk boundaries.
+
+	tmpDir := t.TempDir()
+	logFile := filepath.Join(tmpDir, "large.log")
+
+	// Create a file larger than 64KB (the internal chunk size)
+	// Each log line is ~100 bytes, so 1000 lines = ~100KB
+	var builder strings.Builder
+	baseTime, _ := time.Parse(time.RFC3339, "2025-01-15T10:00:00.000Z")
+
+	numLines := 1000
+	for i := 0; i < numLines; i++ {
+		ts := baseTime.Add(time.Duration(i) * time.Second)
+		line := fmt.Sprintf(`{"level":"info","ts":"%s","msg":"Log message number %04d with padding to ensure consistent line length"}`,
+			ts.Format(time.RFC3339), i)
+		builder.WriteString(line)
+		builder.WriteByte('\n')
+	}
+
+	if err := os.WriteFile(logFile, []byte(builder.String()), 0644); err != nil {
+		t.Fatalf("failed to write test log file: %v", err)
+	}
+
+	// Verify file is large enough to span multiple chunks
+	stat, _ := os.Stat(logFile)
+	if stat.Size() < 64*1024 {
+		t.Fatalf("test file too small: %d bytes, need > 64KB", stat.Size())
+	}
+	t.Logf("Test file size: %d bytes (%.1f KB)", stat.Size(), float64(stat.Size())/1024)
+
+	t.Run("reads all events in correct order", func(t *testing.T) {
+		events, err := ReadEventsFromFileReverse(logFile, numLines)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if len(events) != numLines {
+			t.Errorf("got %d events, want %d", len(events), numLines)
+		}
+
+		// Verify events are in chronological order (oldest first)
+		for i := 0; i < len(events); i++ {
+			expectedMsg := fmt.Sprintf("Log message number %04d with padding to ensure consistent line length", i)
+			if events[i].Message != expectedMsg {
+				t.Errorf("event[%d].Message = %q, want %q", i, events[i].Message, expectedMsg)
+				// Only show first few errors
+				if i > 5 {
+					t.Fatalf("too many errors, stopping")
+				}
+			}
+		}
+	})
+
+	t.Run("respects maxEvents limit", func(t *testing.T) {
+		events, err := ReadEventsFromFileReverse(logFile, 100)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if len(events) != 100 {
+			t.Errorf("got %d events, want 100", len(events))
+		}
+
+		// Should return the LAST 100 events (most recent)
+		// Events 900-999 in the file
+		for i := 0; i < len(events); i++ {
+			expectedIndex := numLines - 100 + i
+			expectedMsg := fmt.Sprintf("Log message number %04d with padding to ensure consistent line length", expectedIndex)
+			if events[i].Message != expectedMsg {
+				t.Errorf("event[%d].Message = %q, want %q", i, events[i].Message, expectedMsg)
+			}
+		}
+	})
 }
