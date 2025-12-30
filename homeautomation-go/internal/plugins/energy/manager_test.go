@@ -775,6 +775,9 @@ func TestIndicatorLightsServiceCall(t *testing.T) {
 	// Verify entity was discovered
 	assert.Len(t, manager.indicatorLightEntities, 1)
 
+	// Wait for async goroutines (e.g., runFreeEnergyChecker) to complete initial work
+	time.Sleep(50 * time.Millisecond)
+
 	// Clear any service calls from startup
 	mockClient.ClearServiceCalls()
 
@@ -1010,6 +1013,9 @@ func TestIndicatorLightsServiceCallError(t *testing.T) {
 	err := manager.Start()
 	assert.NoError(t, err)
 	defer manager.Stop()
+
+	// Wait for async goroutines (e.g., runFreeEnergyChecker) to complete initial work
+	time.Sleep(50 * time.Millisecond)
 
 	// Clear any service calls from startup
 	mockClient.ClearServiceCalls()
@@ -1381,6 +1387,9 @@ func TestAdaptiveBrightnessDisabled(t *testing.T) {
 	assert.Empty(t, manager.lightToLuxSensor, "Should not discover lux sensors when adaptive disabled")
 	manager.indicatorMu.RUnlock()
 
+	// Wait for async goroutines (e.g., runFreeEnergyChecker) to complete initial work
+	time.Sleep(50 * time.Millisecond)
+
 	// Clear service calls from startup
 	mockClient.ClearServiceCalls()
 
@@ -1442,6 +1451,9 @@ func TestAdaptiveBrightnessPerDevice(t *testing.T) {
 	// Simulate lux sensor updates to populate currentLuxValues
 	manager.handleLuxChange("sensor.apollo_msr_2_1294c8_ltr390_light", 5)
 	manager.handleLuxChange("sensor.apollo_msr_2_27f538_ltr390_light", 800)
+
+	// Wait for async goroutines (e.g., runFreeEnergyChecker) to complete initial work
+	time.Sleep(50 * time.Millisecond)
 
 	// Clear service calls
 	mockClient.ClearServiceCalls()
@@ -1523,7 +1535,9 @@ func TestDebouncing(t *testing.T) {
 		LuxSensorPattern:    "ltr390_light",
 		DebounceDurationSec: 1, // 1 second debounce for faster test
 		BrightnessCurve: []BrightnessCurvePoint{
-			{LuxMax: 100, BrightnessPct: 40},
+			{LuxMax: 50, BrightnessPct: 30},
+			{LuxMax: 100, BrightnessPct: 50},
+			{LuxMax: 200, BrightnessPct: 70},
 		},
 	}
 	config.Energy.EnergyStates[0].LightConfig = LightConfig{Red: 0, Green: 0, Blue: 0, BrightnessPct: 50}
@@ -1543,22 +1557,31 @@ func TestDebouncing(t *testing.T) {
 	assert.NoError(t, err)
 	defer manager.Stop()
 
+	// Wait for async goroutines (e.g., runFreeEnergyChecker) to complete initial work
+	time.Sleep(50 * time.Millisecond)
+
 	// Clear service calls from startup
 	mockClient.ClearServiceCalls()
 
 	lightEntity := "light.apollo_msr_2_1294c8_rgb_light"
 
-	// First update should go through
-	manager.updateLightBrightness(lightEntity, 50)
+	// Reset brightness tracking so test starts fresh (startup may have set values)
+	manager.indicatorMu.Lock()
+	manager.lastBrightnessLevel[lightEntity] = 0
+	manager.lastBrightnessUpdate[lightEntity] = time.Time{}
+	manager.indicatorMu.Unlock()
 
-	// Immediate second update should be debounced
+	// First update should go through (lux=30 → 30% brightness)
+	manager.updateLightBrightness(lightEntity, 30)
+
+	// Immediate second update should be debounced (lux=60 → 50% brightness)
 	manager.updateLightBrightness(lightEntity, 60)
 
 	// Wait for debounce period
 	time.Sleep(1100 * time.Millisecond)
 
-	// Third update should go through after debounce period
-	manager.updateLightBrightness(lightEntity, 70)
+	// Third update should go through after debounce period (lux=150 → 70% brightness)
+	manager.updateLightBrightness(lightEntity, 150)
 
 	// Count service calls (should be 2: first + third)
 	calls := mockClient.GetServiceCalls()
@@ -1596,6 +1619,9 @@ func TestFallbackToStaticBrightness(t *testing.T) {
 	err := manager.Start()
 	assert.NoError(t, err)
 	defer manager.Stop()
+
+	// Wait for async goroutines (e.g., runFreeEnergyChecker) to complete initial work
+	time.Sleep(50 * time.Millisecond)
 
 	// Clear service calls from startup
 	mockClient.ClearServiceCalls()
@@ -1654,6 +1680,9 @@ func TestHandleLuxChangeWithInvalidValues(t *testing.T) {
 		}
 		return count
 	}
+
+	// Wait for async goroutines (e.g., runFreeEnergyChecker) to complete initial work
+	time.Sleep(50 * time.Millisecond)
 
 	// Clear service calls from startup
 	mockClient.ClearServiceCalls()

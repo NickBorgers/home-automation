@@ -1152,6 +1152,7 @@ func TestHandleTimelineEvents(t *testing.T) {
 	})
 
 	t.Run("with since", func(t *testing.T) {
+		// "since" returns events strictly AFTER the timestamp
 		since := baseTime.Add(2 * time.Minute).Format(time.RFC3339)
 		req := httptest.NewRequest(http.MethodGet, "/api/timeline/events?since="+since, nil)
 		w := httptest.NewRecorder()
@@ -1166,8 +1167,9 @@ func TestHandleTimelineEvents(t *testing.T) {
 			t.Fatalf("Failed to decode response: %v", err)
 		}
 
-		if len(response.Events) != 3 {
-			t.Errorf("Expected 3 events (minutes 2,3,4), got %d", len(response.Events))
+		// Events strictly after minute 2 are: minutes 3, 4 (2 events)
+		if len(response.Events) != 2 {
+			t.Errorf("Expected 2 events (minutes 3,4), got %d", len(response.Events))
 		}
 	})
 
