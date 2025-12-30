@@ -27,6 +27,7 @@ import (
 	_ "homeautomation/internal/plugins/loadshedding"
 	_ "homeautomation/internal/plugins/music"
 	_ "homeautomation/internal/plugins/security"
+	_ "homeautomation/internal/plugins/sexmode"
 	_ "homeautomation/internal/plugins/sleephygiene"
 	_ "homeautomation/internal/plugins/statetracking"
 	_ "homeautomation/internal/plugins/tv"

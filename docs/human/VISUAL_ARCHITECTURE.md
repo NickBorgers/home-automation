@@ -46,6 +46,7 @@ graph TB
             TV[TV Manager<br/>internal/plugins/tv/]
             Sleep[Sleep Hygiene<br/>internal/plugins/sleephygiene/]
             Security[Security Manager<br/>internal/plugins/security/]
+            SexMode[Sex Mode<br/>internal/plugins/sexmode/]
             LoadShed[Load Shedding<br/>internal/plugins/loadshedding/]
             ResetCoord[Reset Coordinator<br/>internal/plugins/reset/]
         end
@@ -114,6 +115,10 @@ graph TB
     Security -->|Call Services| HAClient
     Security -.->|Register Shadow| ShadowTracker
 
+    SexMode -->|Get/Set State| StateManager
+    SexMode -->|Call Services| HAClient
+    SexMode -.->|Register Shadow| ShadowTracker
+
     LoadShed -->|Get/Set State| StateManager
     LoadShed -->|Call Services| HAClient
     LoadShed -.->|Register Shadow| ShadowTracker
@@ -138,6 +143,7 @@ graph TB
     style TV fill:#f3e5f5
     style Sleep fill:#f3e5f5
     style Security fill:#f3e5f5
+    style SexMode fill:#f3e5f5
     style LoadShed fill:#f3e5f5
     style StateTracking fill:#f3e5f5
     style DayPhase fill:#f3e5f5
@@ -364,6 +370,8 @@ graph TB
 
         SecurityShadow[SecurityShadowState<br/>- Inputs: current, atLastAction<br/>- Outputs: lockdown, doorbell, garage<br/>- Metadata]
 
+        SexModeShadow[SexModeShadowState<br/>- Inputs: current, atLastAction<br/>- Outputs: isActive, preSexMusicType<br/>- Metadata]
+
         EnergyShadow[EnergyShadowState<br/>- Inputs: current<br/>- Outputs: levels, sensor readings<br/>- Metadata]
 
         StateTrackingShadow[StateTrackingShadowState<br/>- Inputs: current<br/>- Outputs: derived states, timers<br/>- Metadata]
@@ -381,6 +389,7 @@ graph TB
     Providers --> LightingShadow
     Providers --> MusicShadow
     Providers --> SecurityShadow
+    Providers --> SexModeShadow
     Providers --> EnergyShadow
     Providers --> StateTrackingShadow
     Providers --> DayPhaseShadow
@@ -430,12 +439,21 @@ classDiagram
         +Metadata StateMetadata
     }
 
+    class SexModeShadowState {
+        +Plugin string
+        +Inputs SexModeInputs
+        +Outputs SexModeOutputs
+        +Metadata StateMetadata
+    }
+
     PluginShadowState <|.. LightingShadowState
     PluginShadowState <|.. MusicShadowState
     PluginShadowState <|.. SecurityShadowState
+    PluginShadowState <|.. SexModeShadowState
     LightingShadowState --> StateMetadata
     MusicShadowState --> StateMetadata
     SecurityShadowState --> StateMetadata
+    SexModeShadowState --> StateMetadata
 ```
 
 ---
@@ -461,6 +479,7 @@ graph LR
         ShadowState["GET /api/shadow/statetracking"]
         ShadowDayPhase["GET /api/shadow/dayphase"]
         ShadowTV["GET /api/shadow/tv"]
+        ShadowSexMode["GET /api/shadow/sexmode"]
     end
 
     subgraph "Response Types"
@@ -486,6 +505,7 @@ graph LR
     ShadowState --> PluginShadow
     ShadowDayPhase --> PluginShadow
     ShadowTV --> PluginShadow
+    ShadowSexMode --> PluginShadow
 
     style Root fill:#e1f5ff
     style Health fill:#e8f5e9
@@ -833,6 +853,7 @@ graph LR
         NickOffice[isNickOfficeOccupied]
         Kitchen[isKitchenOccupied]
         PrimaryDoor[isPrimaryBedroomDoorOpen]
+        SexModeInput[input_boolean.sex]
     end
 
     subgraph "Computed State Variables"
@@ -870,6 +891,7 @@ graph LR
         SleepHygiene[Sleep Hygiene Plugin]
         TV[TV Plugin]
         Security[Security Plugin]
+        SexModePlugin[Sex Mode Plugin<br/>Order: 65]
         LoadShedding[Load Shedding Plugin]
         ResetCoord[Reset Coordinator<br/>Order: 90]
     end
@@ -935,6 +957,14 @@ graph LR
     Expecting --> Security
     Security --> Lockdown
 
+    SexModeInput --> SexModePlugin
+    MusicType --> SexModePlugin
+    DayPhase --> SexModePlugin
+    MasterAsleep --> SexModePlugin
+    SexModePlugin --> MusicType
+    SexModePlugin -.->|Triggers| Lighting
+    SexModePlugin -.->|Controls| Eight Sleep
+
     CurrentEnergy --> LoadShedding
 
     Reset --> ResetCoord
@@ -945,6 +975,7 @@ graph LR
     ResetCoord -.->|Reset| Lighting
     ResetCoord -.->|Reset| Music
     ResetCoord -.->|Reset| Security
+    ResetCoord -.->|Reset| SexModePlugin
     ResetCoord -.->|Reset| SleepHygiene
 
     style AnyOwnerHome fill:#fff3e0
@@ -1011,7 +1042,7 @@ Follow these conventions:
 
 ---
 
-**Last Updated:** 2025-11-30
+**Last Updated:** 2025-12-30
 **Maintained By:** Development Team
 **Related Documentation:**
 - [ARCHITECTURE.md](../architecture/ARCHITECTURE.md) - Architecture and design decisions

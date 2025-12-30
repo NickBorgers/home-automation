@@ -1067,6 +1067,93 @@ type TVTracker struct {
 	state *TVShadowState
 }
 
+// SexModeTracker manages shadow state for the sex mode plugin
+type SexModeTracker struct {
+	mu    sync.RWMutex
+	state *SexModeShadowState
+}
+
+// NewSexModeTracker creates a new sex mode shadow state tracker
+func NewSexModeTracker() *SexModeTracker {
+	return &SexModeTracker{
+		state: NewSexModeShadowState(),
+	}
+}
+
+// UpdateCurrentInputs updates the current input values
+func (smt *SexModeTracker) UpdateCurrentInputs(inputs map[string]interface{}) {
+	smt.mu.Lock()
+	defer smt.mu.Unlock()
+
+	for key, value := range inputs {
+		smt.state.Inputs.Current[key] = value
+	}
+	smt.state.Metadata.LastUpdated = time.Now()
+}
+
+// SnapshotInputsForAction captures current inputs as the at-last-action snapshot
+func (smt *SexModeTracker) SnapshotInputsForAction() {
+	smt.mu.Lock()
+	defer smt.mu.Unlock()
+
+	// Deep copy current inputs to at-last-action
+	smt.state.Inputs.AtLastAction = make(map[string]interface{})
+	for key, value := range smt.state.Inputs.Current {
+		smt.state.Inputs.AtLastAction[key] = value
+	}
+}
+
+// RecordAction records a sex mode activation or deactivation
+func (smt *SexModeTracker) RecordAction(actionType string, reason string, isActive bool, preSexMusicType string, activatedAt time.Time) {
+	smt.mu.Lock()
+	defer smt.mu.Unlock()
+
+	now := time.Now()
+	smt.state.Outputs.IsActive = isActive
+	smt.state.Outputs.PreSexMusicType = preSexMusicType
+	smt.state.Outputs.ActivatedAt = activatedAt
+	smt.state.Outputs.LastActionType = actionType
+	smt.state.Outputs.LastActionReason = reason
+	smt.state.Outputs.LastActionTime = now
+	smt.state.Metadata.LastUpdated = now
+}
+
+// GetState returns the current shadow state (thread-safe copy)
+func (smt *SexModeTracker) GetState() *SexModeShadowState {
+	smt.mu.RLock()
+	defer smt.mu.RUnlock()
+
+	// Create a deep copy to avoid race conditions
+	stateCopy := &SexModeShadowState{
+		Plugin: smt.state.Plugin,
+		Inputs: SexModeInputs{
+			Current:      make(map[string]interface{}),
+			AtLastAction: make(map[string]interface{}),
+		},
+		Outputs: SexModeOutputs{
+			IsActive:         smt.state.Outputs.IsActive,
+			PreSexMusicType:  smt.state.Outputs.PreSexMusicType,
+			ActivatedAt:      smt.state.Outputs.ActivatedAt,
+			LastActionTime:   smt.state.Outputs.LastActionTime,
+			LastActionType:   smt.state.Outputs.LastActionType,
+			LastActionReason: smt.state.Outputs.LastActionReason,
+		},
+		Metadata: smt.state.Metadata,
+	}
+
+	// Copy current inputs
+	for k, v := range smt.state.Inputs.Current {
+		stateCopy.Inputs.Current[k] = v
+	}
+
+	// Copy at-last-action inputs
+	for k, v := range smt.state.Inputs.AtLastAction {
+		stateCopy.Inputs.AtLastAction[k] = v
+	}
+
+	return stateCopy
+}
+
 // NewTVTracker creates a new TV shadow state tracker
 func NewTVTracker() *TVTracker {
 	return &TVTracker{
