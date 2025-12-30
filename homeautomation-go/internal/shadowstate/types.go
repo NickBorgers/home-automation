@@ -360,14 +360,17 @@ func NewLoadSheddingShadowState() *LoadSheddingShadowState {
 
 // SleepHygieneOutputs tracks the state of sleep hygiene outputs
 type SleepHygieneOutputs struct {
-	WakeSequenceStatus  string                    `json:"wakeSequenceStatus"` // "inactive", "begin_wake", "wake_in_progress", "complete"
-	FadeOutProgress     map[string]SpeakerFadeOut `json:"fadeOutProgress"`    // Speaker entity ID -> fade out state
-	LastTTSAnnouncement *TTSAnnouncement          `json:"lastTTSAnnouncement,omitempty"`
-	StopScreensReminder *ReminderTrigger          `json:"stopScreensReminder,omitempty"`
-	GoToBedReminder     *ReminderTrigger          `json:"goToBedReminder,omitempty"`
-	LastActionTime      time.Time                 `json:"lastActionTime"`
-	LastActionType      string                    `json:"lastActionType,omitempty"` // "begin_wake", "wake", "stop_screens", "go_to_bed", "cancel_wake"
-	LastActionReason    string                    `json:"lastActionReason,omitempty"`
+	WakeSequenceStatus    string                    `json:"wakeSequenceStatus"` // "inactive", "begin_wake", "wake_in_progress", "complete"
+	FadeOutProgress       map[string]SpeakerFadeOut `json:"fadeOutProgress"`    // Speaker entity ID -> fade out state
+	LastTTSAnnouncement   *TTSAnnouncement          `json:"lastTTSAnnouncement,omitempty"`
+	StopScreensReminder   *ReminderTrigger          `json:"stopScreensReminder,omitempty"`
+	GoToBedReminder       *ReminderTrigger          `json:"goToBedReminder,omitempty"`
+	EightSleepAvailable   bool                      `json:"eightSleepAvailable"`             // Whether Eight Sleep alarm can be used
+	BackupWakeEnabled     bool                      `json:"backupWakeEnabled"`               // Whether backup wake is currently enabled (Eight Sleep unavailable)
+	LastAvailabilityCheck time.Time                 `json:"lastAvailabilityCheck,omitempty"` // When Eight Sleep availability was last checked
+	LastActionTime        time.Time                 `json:"lastActionTime"`
+	LastActionType        string                    `json:"lastActionType,omitempty"` // "begin_wake", "wake", "stop_screens", "go_to_bed", "cancel_wake"
+	LastActionReason      string                    `json:"lastActionReason,omitempty"`
 }
 
 // SpeakerFadeOut represents the fade-out state of a single speaker

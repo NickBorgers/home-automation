@@ -524,6 +524,17 @@ func (st *SleepHygieneTracker) RecordGoToBedReminder() {
 	st.state.Metadata.LastUpdated = time.Now()
 }
 
+// UpdateEightSleepAvailability updates the Eight Sleep availability status
+func (st *SleepHygieneTracker) UpdateEightSleepAvailability(available bool, checkTime time.Time) {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+
+	st.state.Outputs.EightSleepAvailable = available
+	st.state.Outputs.BackupWakeEnabled = !available
+	st.state.Outputs.LastAvailabilityCheck = checkTime
+	st.state.Metadata.LastUpdated = time.Now()
+}
+
 // GetState returns the current shadow state (thread-safe copy)
 func (st *SleepHygieneTracker) GetState() *SleepHygieneShadowState {
 	st.mu.RLock()
@@ -537,11 +548,14 @@ func (st *SleepHygieneTracker) GetState() *SleepHygieneShadowState {
 			AtLastAction: make(map[string]interface{}),
 		},
 		Outputs: SleepHygieneOutputs{
-			WakeSequenceStatus: st.state.Outputs.WakeSequenceStatus,
-			FadeOutProgress:    make(map[string]SpeakerFadeOut),
-			LastActionTime:     st.state.Outputs.LastActionTime,
-			LastActionType:     st.state.Outputs.LastActionType,
-			LastActionReason:   st.state.Outputs.LastActionReason,
+			WakeSequenceStatus:    st.state.Outputs.WakeSequenceStatus,
+			FadeOutProgress:       make(map[string]SpeakerFadeOut),
+			EightSleepAvailable:   st.state.Outputs.EightSleepAvailable,
+			BackupWakeEnabled:     st.state.Outputs.BackupWakeEnabled,
+			LastAvailabilityCheck: st.state.Outputs.LastAvailabilityCheck,
+			LastActionTime:        st.state.Outputs.LastActionTime,
+			LastActionType:        st.state.Outputs.LastActionType,
+			LastActionReason:      st.state.Outputs.LastActionReason,
 		},
 		Metadata: st.state.Metadata,
 	}

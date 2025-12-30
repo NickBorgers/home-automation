@@ -32,13 +32,13 @@ type HueConfig struct {
 
 // ScheduleEntry represents a single day's schedule
 type ScheduleEntry struct {
-	BeginWake   string `yaml:"begin_wake"`
-	Wake        string `yaml:"wake"`
-	Dusk        string `yaml:"dusk"`
-	Winddown    string `yaml:"winddown"`
-	StopScreens string `yaml:"stop_screens"`
-	GoToBed     string `yaml:"go_to_bed"`
-	Night       string `yaml:"night"`
+	BeginBackupWake string `yaml:"begin_backup_wake"`
+	BackupWakeTime  string `yaml:"backup_wake_time"`
+	Dusk            string `yaml:"dusk"`
+	Winddown        string `yaml:"winddown"`
+	StopScreens     string `yaml:"stop_screens"`
+	GoToBed         string `yaml:"go_to_bed"`
+	Night           string `yaml:"night"`
 }
 
 // ScheduleConfig represents the schedule_config.yaml structure
@@ -48,13 +48,13 @@ type ScheduleConfig struct {
 
 // ParsedSchedule contains parsed schedule times for the current day
 type ParsedSchedule struct {
-	BeginWake   time.Time `json:"begin_wake"`
-	Wake        time.Time `json:"wake"`
-	Dusk        time.Time `json:"dusk"`
-	Winddown    time.Time `json:"winddown"`
-	StopScreens time.Time `json:"stop_screens"`
-	GoToBed     time.Time `json:"go_to_bed"`
-	Night       time.Time `json:"night"`
+	BeginBackupWake time.Time `json:"begin_backup_wake"`
+	BackupWakeTime  time.Time `json:"backup_wake_time"`
+	Dusk            time.Time `json:"dusk"`
+	Winddown        time.Time `json:"winddown"`
+	StopScreens     time.Time `json:"stop_screens"`
+	GoToBed         time.Time `json:"go_to_bed"`
+	Night           time.Time `json:"night"`
 }
 
 // Loader manages configuration file loading and reloading
@@ -231,14 +231,14 @@ func (l *Loader) GetTodaysScheduleInTimezone(timezone *time.Location) (*ParsedSc
 		return time.Date(year, month, day, t.Hour(), t.Minute(), 0, 0, timezone), nil
 	}
 
-	beginWake, err := parseTime(entry.BeginWake)
+	beginBackupWake, err := parseTime(entry.BeginBackupWake)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse begin_wake: %w", err)
+		return nil, fmt.Errorf("failed to parse begin_backup_wake: %w", err)
 	}
 
-	wake, err := parseTime(entry.Wake)
+	backupWakeTime, err := parseTime(entry.BackupWakeTime)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse wake: %w", err)
+		return nil, fmt.Errorf("failed to parse backup_wake_time: %w", err)
 	}
 
 	dusk, err := parseTime(entry.Dusk)
@@ -267,13 +267,13 @@ func (l *Loader) GetTodaysScheduleInTimezone(timezone *time.Location) (*ParsedSc
 	}
 
 	return &ParsedSchedule{
-		BeginWake:   beginWake,
-		Wake:        wake,
-		Dusk:        dusk,
-		Winddown:    winddown,
-		StopScreens: stopScreens,
-		GoToBed:     goToBed,
-		Night:       night,
+		BeginBackupWake: beginBackupWake,
+		BackupWakeTime:  backupWakeTime,
+		Dusk:            dusk,
+		Winddown:        winddown,
+		StopScreens:     stopScreens,
+		GoToBed:         goToBed,
+		Night:           night,
 	}, nil
 }
 

@@ -1,57 +1,57 @@
 schedule:
--   begin_wake: 09:50
+-   begin_backup_wake: 09:50
+    backup_wake_time: 10:15
     dusk: '20:00'
     go_to_bed: '23:30'
     name: Sunday
     night: '23:00'
     stop_screens: '22:30'
-    wake: 10:15
     winddown: '22:15'
--   begin_wake: 08:50
+-   begin_backup_wake: 08:50
+    backup_wake_time: 09:15
     dusk: '20:00'
     go_to_bed: '23:30'
     name: Monday
     night: '23:00'
     stop_screens: '22:30'
-    wake: 09:15
     winddown: '22:15'
--   begin_wake: 08:50
+-   begin_backup_wake: 08:50
+    backup_wake_time: 09:15
     dusk: '20:00'
     go_to_bed: '23:30'
     name: Tuesday
     night: '23:00'
     stop_screens: '22:30'
-    wake: 09:15
     winddown: '22:15'
--   begin_wake: 08:50
+-   begin_backup_wake: 08:50
+    backup_wake_time: 09:15
     dusk: '20:00'
     go_to_bed: '23:30'
     name: Wednesday
     night: '23:00'
     stop_screens: '22:30'
-    wake: 09:15
     winddown: '22:15'
--   begin_wake: 08:50
+-   begin_backup_wake: 08:50
+    backup_wake_time: 09:15
     dusk: '20:00'
     go_to_bed: '23:30'
     name: Thursday
     night: '23:00'
     stop_screens: '22:30'
-    wake: 09:15
     winddown: '22:15'
--   begin_wake: 08:50
+-   begin_backup_wake: 08:50
+    backup_wake_time: 09:15
     dusk: '20:00'
     go_to_bed: '23:59'
     name: Friday
     night: '23:59'
     stop_screens: '23:00'
-    wake: 09:15
     winddown: '22:00'
--   begin_wake: 09:50
+-   begin_backup_wake: 09:50
+    backup_wake_time: 10:15
     dusk: '20:00'
     go_to_bed: '23:59'
     name: Saturday
     night: '23:59'
     stop_screens: '23:00'
-    wake: 10:15
     winddown: '22:00'

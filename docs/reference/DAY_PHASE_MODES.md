@@ -252,8 +252,12 @@ The schedule config (`configs/schedule_config.yaml`) defines when phase transiti
 | `dusk` | Override sunset→dusk transition | 20:00 | 20:00 |
 | `winddown` | Time when winddown begins | 22:15 | 22:00 |
 | `night` | Force night phase | 23:00 | 23:59 |
-| `begin_wake` | Start wake-up sequence | 08:50 | 09:50 |
-| `wake` | Target wake time | 09:15 | 10:15 |
+| `stop_screens` | Reminder to stop screen time | 22:30 | 22:30 |
+| `go_to_bed` | Start sleep music (rain sounds) | 23:00 | 23:00 |
+| `begin_backup_wake` | **BACKUP** start wake sequence (if Eight Sleep unavailable) | 08:50 | 09:50 |
+| `backup_wake_time` | **BACKUP** target wake time (if Eight Sleep unavailable) | 09:15 | 10:15 |
+
+> **Wake-up behavior**: The primary wake trigger is the Eight Sleep Pod alarm. The `begin_backup_wake` and `backup_wake_time` values are **fallback only** and activate only when the Eight Sleep integration is unavailable (sensor shows `"unavailable"`). This ensures reliable wake-up even during Internet outages.
 
 ## Special Music Modes
 
@@ -263,17 +267,19 @@ These modes are not tied to day phases:
 flowchart LR
     subgraph Triggers["Special Triggers"]
         alarm["Alarm fires"]
+        goToBed["go_to_bed time reached"]
         sleepState["isMasterAsleep = true"]
         manual["Manual selection"]
     end
 
     subgraph SpecialModes["Special Music Modes"]
         wakeup["wakeup"]
-        sleep["sleep"]
+        sleep["sleep<br/>(rain sounds)"]
         sex["sex"]
     end
 
     alarm --> wakeup
+    goToBed --> sleep
     sleepState --> sleep
     manual --> sex
 
@@ -281,6 +287,8 @@ flowchart LR
     style sleep fill:#1a1a2e,color:#fff
     style sex fill:#e84393,color:#fff
 ```
+
+> **Note:** The `go_to_bed` scheduled time automatically starts rain sounds by setting `musicPlaybackType` to `"sleep"`. This happens unconditionally at the configured time, regardless of presence or sleep state. The `isMasterAsleep` trigger also activates sleep music when someone is detected as asleep.
 
 ## Related Documentation
 

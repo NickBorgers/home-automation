@@ -46,50 +46,50 @@ groups:
 
 	// Create sample schedule_config.yaml
 	scheduleConfig := `schedule:
-  - begin_wake: "05:00"
-    wake: "07:00"
+  - begin_backup_wake: "05:00"
+    backup_wake_time: "07:00"
     dusk: "18:00"
     winddown: "21:00"
     stop_screens: "22:00"
     go_to_bed: "22:30"
     night: "23:00"
-  - begin_wake: "05:30"
-    wake: "07:30"
+  - begin_backup_wake: "05:30"
+    backup_wake_time: "07:30"
     dusk: "18:00"
     winddown: "21:00"
     stop_screens: "22:00"
     go_to_bed: "22:30"
     night: "23:00"
-  - begin_wake: "05:00"
-    wake: "07:00"
+  - begin_backup_wake: "05:00"
+    backup_wake_time: "07:00"
     dusk: "18:00"
     winddown: "21:00"
     stop_screens: "22:00"
     go_to_bed: "22:30"
     night: "23:00"
-  - begin_wake: "05:00"
-    wake: "07:00"
+  - begin_backup_wake: "05:00"
+    backup_wake_time: "07:00"
     dusk: "18:00"
     winddown: "21:00"
     stop_screens: "22:00"
     go_to_bed: "22:30"
     night: "23:00"
-  - begin_wake: "05:00"
-    wake: "07:00"
+  - begin_backup_wake: "05:00"
+    backup_wake_time: "07:00"
     dusk: "18:00"
     winddown: "21:00"
     stop_screens: "22:00"
     go_to_bed: "22:30"
     night: "23:00"
-  - begin_wake: "06:00"
-    wake: "08:00"
+  - begin_backup_wake: "06:00"
+    backup_wake_time: "08:00"
     dusk: "18:00"
     winddown: "22:00"
     stop_screens: "23:00"
     go_to_bed: "23:30"
     night: "00:00"
-  - begin_wake: "06:00"
-    wake: "08:00"
+  - begin_backup_wake: "06:00"
+    backup_wake_time: "08:00"
     dusk: "18:00"
     winddown: "22:00"
     stop_screens: "23:00"
@@ -172,8 +172,8 @@ func TestLoader_LoadScheduleConfig(t *testing.T) {
 
 	// Check first entry (Sunday)
 	sunday := config.Schedule[0]
-	assert.Equal(t, "05:00", sunday.BeginWake)
-	assert.Equal(t, "07:00", sunday.Wake)
+	assert.Equal(t, "05:00", sunday.BeginBackupWake)
+	assert.Equal(t, "07:00", sunday.BackupWakeTime)
 	assert.Equal(t, "23:00", sunday.Night)
 }
 
@@ -190,8 +190,8 @@ func TestLoader_GetTodaysSchedule(t *testing.T) {
 	assert.NotNil(t, schedule)
 
 	// Verify times are parsed correctly
-	assert.False(t, schedule.BeginWake.IsZero())
-	assert.False(t, schedule.Wake.IsZero())
+	assert.False(t, schedule.BeginBackupWake.IsZero())
+	assert.False(t, schedule.BackupWakeTime.IsZero())
 	assert.False(t, schedule.Dusk.IsZero())
 	assert.False(t, schedule.Winddown.IsZero())
 	assert.False(t, schedule.Night.IsZero())
@@ -199,15 +199,15 @@ func TestLoader_GetTodaysSchedule(t *testing.T) {
 	// Verify times are for today
 	// The hour will depend on what day of the week it is
 	// Sunday (0): 05:00, Monday (1): 05:30, Tue-Fri (2-5): 05:00, Sat-Sun (6): 06:00
-	hour := schedule.BeginWake.Hour()
-	assert.True(t, hour >= 5 && hour <= 6, "Begin wake hour should be between 5 and 6")
+	hour := schedule.BeginBackupWake.Hour()
+	assert.True(t, hour >= 5 && hour <= 6, "Begin backup wake hour should be between 5 and 6")
 
 	// Expected minute depends on day of week: Monday has 30, all other days have 0
 	expectedMinute := 0
-	if schedule.BeginWake.Weekday() == time.Monday {
+	if schedule.BeginBackupWake.Weekday() == time.Monday {
 		expectedMinute = 30
 	}
-	assert.Equal(t, expectedMinute, schedule.BeginWake.Minute())
+	assert.Equal(t, expectedMinute, schedule.BeginBackupWake.Minute())
 }
 
 func TestLoader_MissingFile(t *testing.T) {
@@ -237,50 +237,50 @@ func TestLoader_GetTodaysSchedule_InvalidTime(t *testing.T) {
 
 	// Create schedule config with invalid time format (7 entries for all days of the week)
 	scheduleConfig := `schedule:
-  - begin_wake: "invalid"
-    wake: "07:00"
+  - begin_backup_wake: "invalid"
+    backup_wake_time: "07:00"
     dusk: "18:00"
     winddown: "21:00"
     stop_screens: "22:00"
     go_to_bed: "22:30"
     night: "23:00"
-  - begin_wake: "invalid"
-    wake: "07:00"
+  - begin_backup_wake: "invalid"
+    backup_wake_time: "07:00"
     dusk: "18:00"
     winddown: "21:00"
     stop_screens: "22:00"
     go_to_bed: "22:30"
     night: "23:00"
-  - begin_wake: "invalid"
-    wake: "07:00"
+  - begin_backup_wake: "invalid"
+    backup_wake_time: "07:00"
     dusk: "18:00"
     winddown: "21:00"
     stop_screens: "22:00"
     go_to_bed: "22:30"
     night: "23:00"
-  - begin_wake: "invalid"
-    wake: "07:00"
+  - begin_backup_wake: "invalid"
+    backup_wake_time: "07:00"
     dusk: "18:00"
     winddown: "21:00"
     stop_screens: "22:00"
     go_to_bed: "22:30"
     night: "23:00"
-  - begin_wake: "invalid"
-    wake: "07:00"
+  - begin_backup_wake: "invalid"
+    backup_wake_time: "07:00"
     dusk: "18:00"
     winddown: "21:00"
     stop_screens: "22:00"
     go_to_bed: "22:30"
     night: "23:00"
-  - begin_wake: "invalid"
-    wake: "07:00"
+  - begin_backup_wake: "invalid"
+    backup_wake_time: "07:00"
     dusk: "18:00"
     winddown: "21:00"
     stop_screens: "22:00"
     go_to_bed: "22:30"
     night: "23:00"
-  - begin_wake: "invalid"
-    wake: "07:00"
+  - begin_backup_wake: "invalid"
+    backup_wake_time: "07:00"
     dusk: "18:00"
     winddown: "21:00"
     stop_screens: "22:00"
@@ -297,7 +297,7 @@ func TestLoader_GetTodaysSchedule_InvalidTime(t *testing.T) {
 	schedule, err := loader.GetTodaysSchedule()
 	assert.Error(t, err)
 	assert.Nil(t, schedule)
-	assert.Contains(t, err.Error(), "failed to parse begin_wake")
+	assert.Contains(t, err.Error(), "failed to parse begin_backup_wake")
 }
 
 func TestLoader_StartAutoReload_Stop(t *testing.T) {
@@ -357,21 +357,21 @@ func TestLoader_GetTodaysSchedule_ParseErrors(t *testing.T) {
 		errorField string
 	}{
 		{
-			name: "invalid wake time",
-			entryYAML: `  - begin_wake: "05:00"
-    wake: "invalid"
+			name: "invalid backup_wake_time",
+			entryYAML: `  - begin_backup_wake: "05:00"
+    backup_wake_time: "invalid"
     dusk: "18:00"
     winddown: "21:00"
     stop_screens: "22:00"
     go_to_bed: "22:30"
     night: "23:00"
 `,
-			errorField: "wake",
+			errorField: "backup_wake_time",
 		},
 		{
 			name: "invalid dusk time",
-			entryYAML: `  - begin_wake: "05:00"
-    wake: "07:00"
+			entryYAML: `  - begin_backup_wake: "05:00"
+    backup_wake_time: "07:00"
     dusk: "99:99"
     winddown: "21:00"
     stop_screens: "22:00"
@@ -382,8 +382,8 @@ func TestLoader_GetTodaysSchedule_ParseErrors(t *testing.T) {
 		},
 		{
 			name: "invalid winddown time",
-			entryYAML: `  - begin_wake: "05:00"
-    wake: "07:00"
+			entryYAML: `  - begin_backup_wake: "05:00"
+    backup_wake_time: "07:00"
     dusk: "18:00"
     winddown: "not a time"
     stop_screens: "22:00"
@@ -394,8 +394,8 @@ func TestLoader_GetTodaysSchedule_ParseErrors(t *testing.T) {
 		},
 		{
 			name: "invalid stop_screens time",
-			entryYAML: `  - begin_wake: "05:00"
-    wake: "07:00"
+			entryYAML: `  - begin_backup_wake: "05:00"
+    backup_wake_time: "07:00"
     dusk: "18:00"
     winddown: "21:00"
     stop_screens: "bad"
@@ -406,8 +406,8 @@ func TestLoader_GetTodaysSchedule_ParseErrors(t *testing.T) {
 		},
 		{
 			name: "invalid go_to_bed time",
-			entryYAML: `  - begin_wake: "05:00"
-    wake: "07:00"
+			entryYAML: `  - begin_backup_wake: "05:00"
+    backup_wake_time: "07:00"
     dusk: "18:00"
     winddown: "21:00"
     stop_screens: "22:00"
@@ -418,8 +418,8 @@ func TestLoader_GetTodaysSchedule_ParseErrors(t *testing.T) {
 		},
 		{
 			name: "invalid night time",
-			entryYAML: `  - begin_wake: "05:00"
-    wake: "07:00"
+			entryYAML: `  - begin_backup_wake: "05:00"
+    backup_wake_time: "07:00"
     dusk: "18:00"
     winddown: "21:00"
     stop_screens: "22:00"
@@ -466,17 +466,17 @@ func TestLoader_GetTodaysScheduleInTimezone(t *testing.T) {
 	assert.NotNil(t, schedule)
 
 	// Verify that schedule times are in the Chicago timezone
-	assert.Equal(t, chicagoTZ, schedule.BeginWake.Location())
-	assert.Equal(t, chicagoTZ, schedule.Wake.Location())
+	assert.Equal(t, chicagoTZ, schedule.BeginBackupWake.Location())
+	assert.Equal(t, chicagoTZ, schedule.BackupWakeTime.Location())
 	assert.Equal(t, chicagoTZ, schedule.StopScreens.Location())
 	assert.Equal(t, chicagoTZ, schedule.GoToBed.Location())
 	assert.Equal(t, chicagoTZ, schedule.Night.Location())
 
 	// Verify that the times are for today in Chicago timezone
 	nowChicago := time.Now().In(chicagoTZ)
-	assert.Equal(t, nowChicago.Year(), schedule.BeginWake.Year())
-	assert.Equal(t, nowChicago.Month(), schedule.BeginWake.Month())
-	assert.Equal(t, nowChicago.Day(), schedule.BeginWake.Day())
+	assert.Equal(t, nowChicago.Year(), schedule.BeginBackupWake.Year())
+	assert.Equal(t, nowChicago.Month(), schedule.BeginBackupWake.Month())
+	assert.Equal(t, nowChicago.Day(), schedule.BeginBackupWake.Day())
 }
 
 func TestLoader_SetTimezone(t *testing.T) {

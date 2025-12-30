@@ -72,13 +72,13 @@ func TestCalculator_CalculateDayPhase(t *testing.T) {
 	// Create a sample schedule
 	now := time.Now()
 	schedule := &config.ParsedSchedule{
-		BeginWake:   time.Date(now.Year(), now.Month(), now.Day(), 5, 0, 0, 0, now.Location()),
-		Wake:        time.Date(now.Year(), now.Month(), now.Day(), 7, 0, 0, 0, now.Location()),
-		Dusk:        time.Date(now.Year(), now.Month(), now.Day(), 18, 0, 0, 0, now.Location()),
-		Winddown:    time.Date(now.Year(), now.Month(), now.Day(), 21, 0, 0, 0, now.Location()),
-		StopScreens: time.Date(now.Year(), now.Month(), now.Day(), 22, 0, 0, 0, now.Location()),
-		GoToBed:     time.Date(now.Year(), now.Month(), now.Day(), 22, 30, 0, 0, now.Location()),
-		Night:       time.Date(now.Year(), now.Month(), now.Day(), 23, 0, 0, 0, now.Location()),
+		BeginBackupWake: time.Date(now.Year(), now.Month(), now.Day(), 5, 0, 0, 0, now.Location()),
+		BackupWakeTime:  time.Date(now.Year(), now.Month(), now.Day(), 7, 0, 0, 0, now.Location()),
+		Dusk:            time.Date(now.Year(), now.Month(), now.Day(), 18, 0, 0, 0, now.Location()),
+		Winddown:        time.Date(now.Year(), now.Month(), now.Day(), 21, 0, 0, 0, now.Location()),
+		StopScreens:     time.Date(now.Year(), now.Month(), now.Day(), 22, 0, 0, 0, now.Location()),
+		GoToBed:         time.Date(now.Year(), now.Month(), now.Day(), 22, 30, 0, 0, now.Location()),
+		Night:           time.Date(now.Year(), now.Month(), now.Day(), 23, 0, 0, 0, now.Location()),
 	}
 
 	dayPhase := calc.CalculateDayPhase(schedule)
@@ -273,13 +273,13 @@ func TestCalculator_CalculateDayPhaseAllCases(t *testing.T) {
 
 	// Create a schedule for testing
 	schedule := &config.ParsedSchedule{
-		BeginWake:   time.Date(now.Year(), now.Month(), now.Day(), 5, 0, 0, 0, now.Location()),
-		Wake:        time.Date(now.Year(), now.Month(), now.Day(), 7, 0, 0, 0, now.Location()),
-		Dusk:        time.Date(now.Year(), now.Month(), now.Day(), 18, 0, 0, 0, now.Location()),
-		Winddown:    time.Date(now.Year(), now.Month(), now.Day(), 21, 0, 0, 0, now.Location()),
-		StopScreens: time.Date(now.Year(), now.Month(), now.Day(), 22, 0, 0, 0, now.Location()),
-		GoToBed:     time.Date(now.Year(), now.Month(), now.Day(), 22, 30, 0, 0, now.Location()),
-		Night:       time.Date(now.Year(), now.Month(), now.Day(), 23, 0, 0, 0, now.Location()),
+		BeginBackupWake: time.Date(now.Year(), now.Month(), now.Day(), 5, 0, 0, 0, now.Location()),
+		BackupWakeTime:  time.Date(now.Year(), now.Month(), now.Day(), 7, 0, 0, 0, now.Location()),
+		Dusk:            time.Date(now.Year(), now.Month(), now.Day(), 18, 0, 0, 0, now.Location()),
+		Winddown:        time.Date(now.Year(), now.Month(), now.Day(), 21, 0, 0, 0, now.Location()),
+		StopScreens:     time.Date(now.Year(), now.Month(), now.Day(), 22, 0, 0, 0, now.Location()),
+		GoToBed:         time.Date(now.Year(), now.Month(), now.Day(), 22, 30, 0, 0, now.Location()),
+		Night:           time.Date(now.Year(), now.Month(), now.Day(), 23, 0, 0, 0, now.Location()),
 	}
 
 	tests := []struct {
@@ -385,11 +385,11 @@ func TestCalculator_CalculateDayPhaseAllCases(t *testing.T) {
 			},
 			// Set schedule.Dusk in the past so we're "after" the scheduled dusk time
 			schedule: &config.ParsedSchedule{
-				BeginWake: time.Date(now.Year(), now.Month(), now.Day(), 5, 0, 0, 0, now.Location()),
-				Wake:      time.Date(now.Year(), now.Month(), now.Day(), 7, 0, 0, 0, now.Location()),
-				Dusk:      now.Add(-2 * time.Hour), // Schedule dusk in the past
-				Winddown:  time.Date(now.Year(), now.Month(), now.Day(), 21, 0, 0, 0, now.Location()),
-				Night:     now.Add(2 * time.Hour), // Night in the future
+				BeginBackupWake: time.Date(now.Year(), now.Month(), now.Day(), 5, 0, 0, 0, now.Location()),
+				BackupWakeTime:  time.Date(now.Year(), now.Month(), now.Day(), 7, 0, 0, 0, now.Location()),
+				Dusk:            now.Add(-2 * time.Hour), // Schedule dusk in the past
+				Winddown:        time.Date(now.Year(), now.Month(), now.Day(), 21, 0, 0, 0, now.Location()),
+				Night:           now.Add(2 * time.Hour), // Night in the future
 			},
 			// Expected: dusk if it's daytime hours (6am+), night if it's early morning (before 6am)
 			expected: func() DayPhase {
@@ -419,11 +419,11 @@ func TestCalculator_CalculateDayPhaseAllCases(t *testing.T) {
 			},
 			// Schedule dusk has passed, but astronomical sunset is still in progress
 			schedule: &config.ParsedSchedule{
-				BeginWake: time.Date(now.Year(), now.Month(), now.Day(), 5, 0, 0, 0, now.Location()),
-				Wake:      time.Date(now.Year(), now.Month(), now.Day(), 7, 0, 0, 0, now.Location()),
-				Dusk:      now.Add(-30 * time.Minute), // Schedule dusk in the past
-				Winddown:  now.Add(1 * time.Hour),
-				Night:     now.Add(3 * time.Hour), // Night in the future
+				BeginBackupWake: time.Date(now.Year(), now.Month(), now.Day(), 5, 0, 0, 0, now.Location()),
+				BackupWakeTime:  time.Date(now.Year(), now.Month(), now.Day(), 7, 0, 0, 0, now.Location()),
+				Dusk:            now.Add(-30 * time.Minute), // Schedule dusk in the past
+				Winddown:        now.Add(1 * time.Hour),
+				Night:           now.Add(3 * time.Hour), // Night in the future
 			},
 			// After schedule.Dusk but sun says sunset -> should return Sunset
 			expected: func() DayPhase {
@@ -452,11 +452,11 @@ func TestCalculator_CalculateDayPhaseAllCases(t *testing.T) {
 			},
 			// Schedule dusk is in the FUTURE - we should delay to sunset
 			schedule: &config.ParsedSchedule{
-				BeginWake: time.Date(now.Year(), now.Month(), now.Day(), 5, 0, 0, 0, now.Location()),
-				Wake:      time.Date(now.Year(), now.Month(), now.Day(), 7, 0, 0, 0, now.Location()),
-				Dusk:      now.Add(1 * time.Hour), // Schedule dusk in the future
-				Winddown:  now.Add(2 * time.Hour),
-				Night:     now.Add(3 * time.Hour),
+				BeginBackupWake: time.Date(now.Year(), now.Month(), now.Day(), 5, 0, 0, 0, now.Location()),
+				BackupWakeTime:  time.Date(now.Year(), now.Month(), now.Day(), 7, 0, 0, 0, now.Location()),
+				Dusk:            now.Add(1 * time.Hour), // Schedule dusk in the future
+				Winddown:        now.Add(2 * time.Hour),
+				Night:           now.Add(3 * time.Hour),
 			},
 			// Early morning (before 6am) always returns night; otherwise delayed to sunset
 			expected: func() DayPhase {
@@ -486,11 +486,11 @@ func TestCalculator_CalculateDayPhaseAllCases(t *testing.T) {
 			// Schedule dusk is in the FUTURE - we should delay to sunset even though sun says night
 			// BUT only if it's evening (after noon). In the morning, return night.
 			schedule: &config.ParsedSchedule{
-				BeginWake: time.Date(now.Year(), now.Month(), now.Day(), 5, 0, 0, 0, now.Location()),
-				Wake:      time.Date(now.Year(), now.Month(), now.Day(), 7, 0, 0, 0, now.Location()),
-				Dusk:      now.Add(1 * time.Hour), // Schedule dusk in the future
-				Winddown:  now.Add(2 * time.Hour),
-				Night:     now.Add(3 * time.Hour),
+				BeginBackupWake: time.Date(now.Year(), now.Month(), now.Day(), 5, 0, 0, 0, now.Location()),
+				BackupWakeTime:  time.Date(now.Year(), now.Month(), now.Day(), 7, 0, 0, 0, now.Location()),
+				Dusk:            now.Add(1 * time.Hour), // Schedule dusk in the future
+				Winddown:        now.Add(2 * time.Hour),
+				Night:           now.Add(3 * time.Hour),
 			},
 			// Before 6am: night, 6am-noon: night (pre-dawn), noon+: sunset (evening delay)
 			expected: func() DayPhase {
@@ -521,11 +521,11 @@ func TestCalculator_CalculateDayPhaseAllCases(t *testing.T) {
 			// Schedule times relative to now to ensure consistent behavior across test run times
 			// Schedule dusk is always in the future so we test the "before scheduled dusk" path
 			schedule: &config.ParsedSchedule{
-				BeginWake: time.Date(now.Year(), now.Month(), now.Day(), 5, 0, 0, 0, now.Location()),
-				Wake:      time.Date(now.Year(), now.Month(), now.Day(), 7, 0, 0, 0, now.Location()),
-				Dusk:      now.Add(4 * time.Hour), // Schedule dusk in the future
-				Winddown:  now.Add(5 * time.Hour), // Schedule winddown in the future
-				Night:     now.Add(6 * time.Hour), // Schedule night in the future
+				BeginBackupWake: time.Date(now.Year(), now.Month(), now.Day(), 5, 0, 0, 0, now.Location()),
+				BackupWakeTime:  time.Date(now.Year(), now.Month(), now.Day(), 7, 0, 0, 0, now.Location()),
+				Dusk:            now.Add(4 * time.Hour), // Schedule dusk in the future
+				Winddown:        now.Add(5 * time.Hour), // Schedule winddown in the future
+				Night:           now.Add(6 * time.Hour), // Schedule night in the future
 			},
 			// Before 6am: always night
 			// 6am-noon + sun says night = pre-dawn = Night (tested with schedule.Dusk in future)
@@ -555,10 +555,10 @@ func TestCalculator_CalculateDayPhaseAllCases(t *testing.T) {
 				)
 			},
 			schedule: &config.ParsedSchedule{
-				BeginWake: time.Date(now.Year(), now.Month(), now.Day(), 5, 0, 0, 0, now.Location()),
-				Wake:      time.Date(now.Year(), now.Month(), now.Day(), 7, 0, 0, 0, now.Location()),
-				Dusk:      now.Add(-4 * time.Hour), // Schedule dusk in the past
-				Night:     now.Add(-2 * time.Hour), // Schedule night time in the past
+				BeginBackupWake: time.Date(now.Year(), now.Month(), now.Day(), 5, 0, 0, 0, now.Location()),
+				BackupWakeTime:  time.Date(now.Year(), now.Month(), now.Day(), 7, 0, 0, 0, now.Location()),
+				Dusk:            now.Add(-4 * time.Hour), // Schedule dusk in the past
+				Night:           now.Add(-2 * time.Hour), // Schedule night time in the past
 			},
 			expected: DayPhaseNight,
 		},
@@ -580,10 +580,10 @@ func TestCalculator_CalculateDayPhaseAllCases(t *testing.T) {
 				)
 			},
 			schedule: &config.ParsedSchedule{
-				BeginWake: time.Date(now.Year(), now.Month(), now.Day(), 5, 0, 0, 0, now.Location()),
-				Wake:      time.Date(now.Year(), now.Month(), now.Day(), 7, 0, 0, 0, now.Location()),
-				Dusk:      now.Add(-2 * time.Hour), // Schedule dusk in the past (we're past dusk)
-				Night:     now.Add(2 * time.Hour),  // Schedule night time in the future
+				BeginBackupWake: time.Date(now.Year(), now.Month(), now.Day(), 5, 0, 0, 0, now.Location()),
+				BackupWakeTime:  time.Date(now.Year(), now.Month(), now.Day(), 7, 0, 0, 0, now.Location()),
+				Dusk:            now.Add(-2 * time.Hour), // Schedule dusk in the past (we're past dusk)
+				Night:           now.Add(2 * time.Hour),  // Schedule night time in the future
 			},
 			// Expected phase depends on current time: Night if hour < 6, otherwise Winddown
 			expected: func() DayPhase {
