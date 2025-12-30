@@ -29,6 +29,7 @@ graph LR
         isTVon["isTVon"]
         isToriHere["isToriHere"]
         musicPlaybackType["musicPlaybackType"]
+        musicPlaylistRotation["musicPlaylistRotation"]
         remainingSolarGeneration["remainingSolarGeneration"]
         solarProductionEnergyLevel["solarProductionEnergyLevel"]
         sunevent["sunevent"]
@@ -81,6 +82,7 @@ graph LR
     energy --> thisHourSolarGeneration
     music --> currentlyPlayingMusicUri
     music --> musicPlaybackType
+    music --> musicPlaylistRotation
     sexmode --> musicPlaybackType
     sleephygiene --> currentlyPlayingMusic
     sleephygiene --> isFadeOutInProgress

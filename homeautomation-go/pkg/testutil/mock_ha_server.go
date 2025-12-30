@@ -212,6 +212,7 @@ func (s *MockHAServer) InitializeStates() {
 	s.SetState("input_text.sun_event", "sunrise", map[string]interface{}{})
 	s.SetState("input_text.music_playback_type", "", map[string]interface{}{})
 	s.SetState("input_text.currently_playing_music_uri", "", map[string]interface{}{})
+	s.SetState("input_text.music_playlist_rotation", "{}", map[string]interface{}{})
 	s.SetState("input_text.battery_energy_level", "green", map[string]interface{}{})
 	s.SetState("input_text.current_energy_level", "green", map[string]interface{}{})
 	s.SetState("input_text.solar_production_energy_level", "white", map[string]interface{}{})
