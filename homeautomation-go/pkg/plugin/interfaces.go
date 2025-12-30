@@ -4,7 +4,7 @@
 // and override mechanisms for private implementations.
 package plugin
 
-import "homeautomation/internal/shadowstate"
+import "homeautomation/pkg/shadowstate"
 
 // Plugin is the core interface that all plugins must implement.
 // Plugins are responsible for automation logic in a specific domain
