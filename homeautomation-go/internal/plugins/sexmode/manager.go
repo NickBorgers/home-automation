@@ -124,8 +124,12 @@ func (m *Manager) handleSexModeChange(entity string, oldState, newState *ha.Stat
 	// Update shadow state current inputs immediately
 	m.updateShadowInputs()
 
+	oldStateStr := "nil"
+	if oldState != nil {
+		oldStateStr = oldState.State
+	}
 	m.logger.Info("Sex mode state changed",
-		zap.String("old", oldState.State),
+		zap.String("old", oldStateStr),
 		zap.String("new", newState.State))
 
 	if newState.State == "on" {
