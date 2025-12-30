@@ -41,8 +41,11 @@ COPY --from=builder /build/.env.example .
 # Copy config files from repository root
 COPY configs ./configs
 
+# Create log directory for persistent logs
+RUN mkdir -p /var/log/homeautomation
+
 # Change ownership
-RUN chown -R homeautomation:homeautomation /app
+RUN chown -R homeautomation:homeautomation /app /var/log/homeautomation
 
 # Switch to non-root user
 USER homeautomation

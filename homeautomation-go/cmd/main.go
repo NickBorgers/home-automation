@@ -37,9 +37,16 @@ import (
 )
 
 func main() {
-	// Create in-memory log buffer for timeline visualization
-	// This stores the last 10,000 log events for the /api/timeline/events endpoint
-	logBuffer := logbuffer.NewBuffer(logbuffer.DefaultBufferSize)
+	// Log file path for persistent log storage
+	// This enables the timeline API to show logs from before the last restart
+	// Default: /var/log/homeautomation/app.log (can be overridden via LOG_FILE env var)
+	logFilePath := os.Getenv("LOG_FILE")
+	if logFilePath == "" {
+		logFilePath = "/var/log/homeautomation/app.log"
+	}
+
+	// Create log buffer backed by the log file for persistence across restarts
+	logBuffer := logbuffer.NewBufferWithFile(logbuffer.DefaultBufferSize, logFilePath)
 
 	// Initialize logger with stdout output (better for docker logs)
 	// and ring buffer capture for timeline visualization
@@ -48,8 +55,8 @@ func main() {
 	config.ErrorOutputPaths = []string{"stdout"}
 	config.EncoderConfig.EncodeTime = zapcore.ISO8601TimeEncoder
 
-	// Build the production logger core for stdout
-	stdoutCore, err := buildStdoutCore(config)
+	// Build the production logger core for stdout (and optionally log file)
+	stdoutCore, err := buildStdoutCore(config, logFilePath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to create logger: %v\n", err)
 		os.Exit(1)
@@ -363,8 +370,8 @@ func subscribeToChanges(manager *state.Manager, logger *zap.Logger) {
 		zap.Int("variable_count", len(state.AllVariables)))
 }
 
-// buildStdoutCore creates a zap core that writes to stdout with the given config.
-func buildStdoutCore(config zap.Config) (zapcore.Core, error) {
+// buildStdoutCore creates a zap core that writes to stdout and a log file.
+func buildStdoutCore(config zap.Config, logFilePath string) (zapcore.Core, error) {
 	encoder := zapcore.NewJSONEncoder(config.EncoderConfig)
 
 	// Create stdout sink
@@ -373,5 +380,14 @@ func buildStdoutCore(config zap.Config) (zapcore.Core, error) {
 		return nil, fmt.Errorf("failed to open stdout: %w", err)
 	}
 
-	return zapcore.NewCore(encoder, stdoutSink, config.Level), nil
+	// Also write to log file for persistence across restarts
+	fileSink, _, err := zap.Open(logFilePath)
+	if err != nil {
+		// If we can't open the log file, just use stdout (graceful degradation)
+		return zapcore.NewCore(encoder, stdoutSink, config.Level), nil
+	}
+
+	// Combine both sinks
+	multiSink := zapcore.NewMultiWriteSyncer(stdoutSink, fileSink)
+	return zapcore.NewCore(encoder, multiSink, config.Level), nil
 }
