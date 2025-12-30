@@ -288,8 +288,8 @@ func TestManagerStartAndHandlers(t *testing.T) {
 	err = manager.Start()
 	assert.NoError(t, err)
 
-	// Give goroutines time to start
-	time.Sleep(100 * time.Millisecond)
+	// Wait for startup goroutines to complete initial work
+	manager.WaitForStartup()
 
 	// Test handler functions by triggering state changes
 	t.Run("handleBatteryChange", func(t *testing.T) {
