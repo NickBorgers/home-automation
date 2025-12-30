@@ -42,6 +42,7 @@ graph LR
         loadshedding["loadshedding"]
         music["music"]
         security["security"]
+        sexmode["sexmode"]
         sleephygiene["sleephygiene"]
         statetracking["statetracking"]
         tv["tv"]
@@ -80,6 +81,7 @@ graph LR
     energy --> thisHourSolarGeneration
     music --> currentlyPlayingMusicUri
     music --> musicPlaybackType
+    sexmode --> musicPlaybackType
     sleephygiene --> currentlyPlayingMusic
     sleephygiene --> isFadeOutInProgress
     sleephygiene --> musicPlaybackType
