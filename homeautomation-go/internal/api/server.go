@@ -6,8 +6,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 	"time"
 
+	"homeautomation/internal/logbuffer"
 	"homeautomation/internal/shadowstate"
 	"homeautomation/internal/state"
 
@@ -24,16 +26,18 @@ var timelineHTML string
 type Server struct {
 	stateManager  *state.Manager
 	shadowTracker *shadowstate.Tracker
+	logBuffer     *logbuffer.Buffer
 	logger        *zap.Logger
 	server        *http.Server
 	timezone      *time.Location
 }
 
 // NewServer creates a new API server
-func NewServer(stateManager *state.Manager, shadowTracker *shadowstate.Tracker, logger *zap.Logger, port int, timezone *time.Location) *Server {
+func NewServer(stateManager *state.Manager, shadowTracker *shadowstate.Tracker, logBuffer *logbuffer.Buffer, logger *zap.Logger, port int, timezone *time.Location) *Server {
 	s := &Server{
 		stateManager:  stateManager,
 		shadowTracker: shadowTracker,
+		logBuffer:     logBuffer,
 		logger:        logger,
 		timezone:      timezone,
 	}
@@ -55,6 +59,7 @@ func NewServer(stateManager *state.Manager, shadowTracker *shadowstate.Tracker, 
 	mux.HandleFunc("/health", s.handleHealth)
 	mux.HandleFunc("/dashboard", s.handleDashboard)
 	mux.HandleFunc("/timeline", s.handleTimeline)
+	mux.HandleFunc("/api/timeline/events", s.handleTimelineEvents)
 
 	s.server = &http.Server{
 		Addr:         fmt.Sprintf(":%d", port),
@@ -446,6 +451,11 @@ func (s *Server) handleSitemap(w http.ResponseWriter, r *http.Request) {
 			Path:        "/timeline",
 			Method:      "GET",
 			Description: "State Timeline - visualize state changes over time for debugging",
+		},
+		{
+			Path:        "/api/timeline/events",
+			Method:      "GET",
+			Description: "Get recent log events from in-memory buffer - query params: since (ISO8601), limit (int, default 1000)",
 		},
 	}
 
@@ -920,4 +930,66 @@ func (s *Server) handleTimeline(w http.ResponseWriter, r *http.Request) {
 
 	s.logger.Debug("Timeline request served",
 		zap.String("remote_addr", r.RemoteAddr))
+}
+
+// TimelineEventsResponse represents the JSON response for the timeline events endpoint
+type TimelineEventsResponse struct {
+	Events   []logbuffer.Event `json:"events"`
+	Count    int               `json:"count"`
+	Capacity int               `json:"capacity"`
+	Overflow bool              `json:"overflow"`
+}
+
+// handleTimelineEvents returns recent log events from the in-memory ring buffer
+// Query parameters:
+//   - since: ISO8601 timestamp to filter events after (optional)
+//   - limit: maximum number of events to return (optional, default 1000)
+func (s *Server) handleTimelineEvents(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Parse query parameters
+	var since time.Time
+	if sinceStr := r.URL.Query().Get("since"); sinceStr != "" {
+		parsed, err := time.Parse(time.RFC3339, sinceStr)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Invalid 'since' parameter: %v", err), http.StatusBadRequest)
+			return
+		}
+		since = parsed
+	}
+
+	limit := 1000 // default limit
+	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
+		parsed, err := strconv.Atoi(limitStr)
+		if err != nil || parsed < 0 {
+			http.Error(w, "Invalid 'limit' parameter: must be a positive integer", http.StatusBadRequest)
+			return
+		}
+		if parsed > 0 {
+			limit = parsed
+		}
+	}
+
+	// Get events from buffer
+	events := s.logBuffer.GetEvents(since, limit)
+
+	response := TimelineEventsResponse{
+		Events:   events,
+		Count:    s.logBuffer.Count(),
+		Capacity: s.logBuffer.Capacity(),
+		Overflow: s.logBuffer.HasOverflowed(),
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		s.logger.Error("Failed to encode timeline events response", zap.Error(err))
+	}
+
+	s.logger.Debug("Timeline events request served",
+		zap.String("remote_addr", r.RemoteAddr),
+		zap.Int("events_returned", len(events)),
+		zap.Int("limit", limit))
 }
