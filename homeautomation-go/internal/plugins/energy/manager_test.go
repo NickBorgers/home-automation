@@ -775,8 +775,8 @@ func TestIndicatorLightsServiceCall(t *testing.T) {
 	// Verify entity was discovered
 	assert.Len(t, manager.indicatorLightEntities, 1)
 
-	// Wait for async goroutines (e.g., runFreeEnergyChecker) to complete initial work
-	time.Sleep(50 * time.Millisecond)
+	// Wait for startup goroutines to complete initial work
+	manager.WaitForStartup()
 
 	// Clear any service calls from startup
 	mockClient.ClearServiceCalls()
@@ -1014,8 +1014,8 @@ func TestIndicatorLightsServiceCallError(t *testing.T) {
 	assert.NoError(t, err)
 	defer manager.Stop()
 
-	// Wait for async goroutines (e.g., runFreeEnergyChecker) to complete initial work
-	time.Sleep(50 * time.Millisecond)
+	// Wait for startup goroutines to complete initial work
+	manager.WaitForStartup()
 
 	// Clear any service calls from startup
 	mockClient.ClearServiceCalls()
@@ -1059,8 +1059,8 @@ func TestIndicatorLightsUnknownEnergyLevel(t *testing.T) {
 	assert.NoError(t, err)
 	defer manager.Stop()
 
-	// Wait for async goroutines (e.g., runFreeEnergyChecker) to complete initial work
-	time.Sleep(50 * time.Millisecond)
+	// Wait for startup goroutines to complete initial work
+	manager.WaitForStartup()
 
 	// Clear any service calls from startup
 	mockClient.ClearServiceCalls()
@@ -1387,8 +1387,8 @@ func TestAdaptiveBrightnessDisabled(t *testing.T) {
 	assert.Empty(t, manager.lightToLuxSensor, "Should not discover lux sensors when adaptive disabled")
 	manager.indicatorMu.RUnlock()
 
-	// Wait for async goroutines (e.g., runFreeEnergyChecker) to complete initial work
-	time.Sleep(50 * time.Millisecond)
+	// Wait for startup goroutines to complete initial work
+	manager.WaitForStartup()
 
 	// Clear service calls from startup
 	mockClient.ClearServiceCalls()
@@ -1452,8 +1452,8 @@ func TestAdaptiveBrightnessPerDevice(t *testing.T) {
 	manager.handleLuxChange("sensor.apollo_msr_2_1294c8_ltr390_light", 5)
 	manager.handleLuxChange("sensor.apollo_msr_2_27f538_ltr390_light", 800)
 
-	// Wait for async goroutines (e.g., runFreeEnergyChecker) to complete initial work
-	time.Sleep(50 * time.Millisecond)
+	// Wait for startup goroutines to complete initial work
+	manager.WaitForStartup()
 
 	// Clear service calls
 	mockClient.ClearServiceCalls()
@@ -1557,8 +1557,8 @@ func TestDebouncing(t *testing.T) {
 	assert.NoError(t, err)
 	defer manager.Stop()
 
-	// Wait for async goroutines (e.g., runFreeEnergyChecker) to complete initial work
-	time.Sleep(50 * time.Millisecond)
+	// Wait for startup goroutines to complete initial work
+	manager.WaitForStartup()
 
 	// Clear service calls from startup
 	mockClient.ClearServiceCalls()
@@ -1620,8 +1620,8 @@ func TestFallbackToStaticBrightness(t *testing.T) {
 	assert.NoError(t, err)
 	defer manager.Stop()
 
-	// Wait for async goroutines (e.g., runFreeEnergyChecker) to complete initial work
-	time.Sleep(50 * time.Millisecond)
+	// Wait for startup goroutines to complete initial work
+	manager.WaitForStartup()
 
 	// Clear service calls from startup
 	mockClient.ClearServiceCalls()
@@ -1681,8 +1681,8 @@ func TestHandleLuxChangeWithInvalidValues(t *testing.T) {
 		return count
 	}
 
-	// Wait for async goroutines (e.g., runFreeEnergyChecker) to complete initial work
-	time.Sleep(50 * time.Millisecond)
+	// Wait for startup goroutines to complete initial work
+	manager.WaitForStartup()
 
 	// Clear service calls from startup
 	mockClient.ClearServiceCalls()
