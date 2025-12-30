@@ -32,6 +32,7 @@ import (
 
 	"github.com/joho/godotenv"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 )
 
 func main() {
@@ -39,6 +40,7 @@ func main() {
 	config := zap.NewProductionConfig()
 	config.OutputPaths = []string{"stdout"}
 	config.ErrorOutputPaths = []string{"stdout"}
+	config.EncoderConfig.EncodeTime = zapcore.ISO8601TimeEncoder
 	logger, err := config.Build()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to create logger: %v\n", err)
