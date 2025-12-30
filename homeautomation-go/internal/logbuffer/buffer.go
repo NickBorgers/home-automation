@@ -20,13 +20,15 @@ type Event struct {
 }
 
 // Buffer is a thread-safe ring buffer for storing log events.
+// If logFilePath is set, it can also read historical events from a log file.
 type Buffer struct {
-	mu       sync.RWMutex
-	events   []Event
-	size     int
-	head     int // next write position
-	count    int // number of events currently stored
-	overflow bool
+	mu          sync.RWMutex
+	events      []Event
+	size        int
+	head        int // next write position
+	count       int // number of events currently stored
+	overflow    bool
+	logFilePath string // optional path to JSON log file for reading historical events
 }
 
 // NewBuffer creates a new ring buffer with the specified capacity.
@@ -37,6 +39,20 @@ func NewBuffer(size int) *Buffer {
 	return &Buffer{
 		events: make([]Event, size),
 		size:   size,
+	}
+}
+
+// NewBufferWithFile creates a ring buffer that also reads from a log file.
+// The log file is read when GetEvents is called to retrieve historical events.
+// The in-memory buffer stores events since application start for quick access.
+func NewBufferWithFile(size int, logFilePath string) *Buffer {
+	if size <= 0 {
+		size = DefaultBufferSize
+	}
+	return &Buffer{
+		events:      make([]Event, size),
+		size:        size,
+		logFilePath: logFilePath,
 	}
 }
 
@@ -58,7 +74,37 @@ func (b *Buffer) Add(event Event) {
 // Events are returned in chronological order (oldest first).
 // If since is zero, all events are considered.
 // If limit is 0, all matching events are returned.
+// If a log file is configured, events are read from the file for persistence across restarts.
 func (b *Buffer) GetEvents(since time.Time, limit int) []Event {
+	// If we have a log file configured, read from it using efficient reverse reading
+	if b.logFilePath != "" {
+		// Use reverse reading to efficiently get only the last N events
+		// instead of parsing the entire file
+		maxEvents := limit
+		if maxEvents <= 0 {
+			maxEvents = DefaultBufferSize
+		}
+		events, err := ReadEventsFromFileReverse(b.logFilePath, maxEvents)
+		if err == nil && len(events) > 0 {
+			// Apply since filter if needed
+			if !since.IsZero() {
+				filtered := make([]Event, 0, len(events))
+				for _, e := range events {
+					if e.Timestamp.After(since) {
+						filtered = append(filtered, e)
+					}
+				}
+				events = filtered
+			}
+			// Apply limit if needed
+			if limit > 0 && len(events) > limit {
+				events = events[len(events)-limit:]
+			}
+			return events
+		}
+		// Fall through to in-memory buffer if file read fails
+	}
+
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
@@ -78,8 +124,8 @@ func (b *Buffer) GetEvents(since time.Time, limit int) []Event {
 		idx := (start + i) % b.size
 		event := b.events[idx]
 
-		// Filter by timestamp
-		if !since.IsZero() && event.Timestamp.Before(since) {
+		// Filter by timestamp - only include events strictly after 'since'
+		if !since.IsZero() && !event.Timestamp.After(since) {
 			continue
 		}
 
@@ -94,7 +140,9 @@ func (b *Buffer) GetEvents(since time.Time, limit int) []Event {
 	return result
 }
 
-// Count returns the number of events currently in the buffer.
+// Count returns the number of events currently in the in-memory buffer.
+// For file-backed buffers, this returns the count since application start,
+// not the total file size (which would require reading the entire file).
 func (b *Buffer) Count() int {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
@@ -107,10 +155,24 @@ func (b *Buffer) Capacity() int {
 }
 
 // HasOverflowed returns true if any events have been dropped due to buffer overflow.
+// For file-backed buffers, this always returns false since the file contains all events.
 func (b *Buffer) HasOverflowed() bool {
+	if b.logFilePath != "" {
+		return false // File-backed buffer keeps all events
+	}
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 	return b.overflow
+}
+
+// IsFileBacked returns true if this buffer reads from a log file.
+func (b *Buffer) IsFileBacked() bool {
+	return b.logFilePath != ""
+}
+
+// LogFilePath returns the path to the log file, or empty string if not file-backed.
+func (b *Buffer) LogFilePath() string {
+	return b.logFilePath
 }
 
 // Clear removes all events from the buffer.

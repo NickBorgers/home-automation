@@ -93,14 +93,15 @@ func TestBuffer_GetEvents(t *testing.T) {
 	})
 
 	t.Run("events since timestamp", func(t *testing.T) {
+		// "since" returns events strictly AFTER the timestamp
 		since := baseTime.Add(2 * time.Minute)
 		events := b.GetEvents(since, 0)
-		if len(events) != 3 {
-			t.Errorf("len(events) = %d, want 3", len(events))
+		if len(events) != 2 {
+			t.Errorf("len(events) = %d, want 2", len(events))
 		}
-		// First event should be at minute 2
-		if events[0].Fields["index"] != 2 {
-			t.Errorf("events[0].Fields[\"index\"] = %v, want 2", events[0].Fields["index"])
+		// First event should be at minute 3 (strictly after minute 2)
+		if events[0].Fields["index"] != 3 {
+			t.Errorf("events[0].Fields[\"index\"] = %v, want 3", events[0].Fields["index"])
 		}
 	})
 
@@ -112,13 +113,15 @@ func TestBuffer_GetEvents(t *testing.T) {
 	})
 
 	t.Run("since and limit combined", func(t *testing.T) {
+		// "since" returns events strictly AFTER the timestamp
 		since := baseTime.Add(1 * time.Minute)
 		events := b.GetEvents(since, 2)
 		if len(events) != 2 {
 			t.Errorf("len(events) = %d, want 2", len(events))
 		}
-		if events[0].Fields["index"] != 1 {
-			t.Errorf("events[0].Fields[\"index\"] = %v, want 1", events[0].Fields["index"])
+		// First event should be at minute 2 (strictly after minute 1)
+		if events[0].Fields["index"] != 2 {
+			t.Errorf("events[0].Fields[\"index\"] = %v, want 2", events[0].Fields["index"])
 		}
 	})
 }
