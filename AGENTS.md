@@ -198,6 +198,17 @@ HA_TOKEN=your_long_lived_access_token
 READ_ONLY=true
 ```
 
+## Production Debugging
+
+**Dashboard (view current state):** https://home-automation.featherback-mermaid.ts.net/
+
+**View recent logs:**
+```bash
+ssh nborgers@dockergeneric.featherback-mermaid.ts.net docker logs --since=1m home-automation
+```
+
+Adjust `--since=1m` as needed (e.g., `--since=5m`, `--since=1h`, or omit for all logs).
+
 ## Testing UI Changes
 
 The Go application includes a dashboard at `/dashboard` for viewing shadow state. To test UI changes without requiring a real Home Assistant instance, use **DEV_MODE**.
