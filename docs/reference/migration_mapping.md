@@ -4,11 +4,11 @@ This document maps Node Red global state variables to their Home Assistant entit
 
 ## Migration Summary
 
-- **Total Node Red state variables**: 64
+- **Total Node Red state variables**: 65
 - **Variables in disabled flows (SKIP)**: 25
-- **Active variables to migrate**: 39
+- **Active variables to migrate**: 40
 - **Already exist in Home Assistant**: 10
-- **Need to create**: 29
+- **Need to create**: 30
 
 ---
 
@@ -75,13 +75,14 @@ These entities already exist in Home Assistant and will be synchronized with Nod
 
 ---
 
-## 🆕 NEED TO CREATE - JSON Object Variables (1)
+## 🆕 NEED TO CREATE - JSON Object Variables (2)
 
 These are complex objects stored as JSON strings in input_text entities.
 
 | Node Red Variable | Home Assistant Entity | Max Length | Description | Action |
 |------------------|----------------------|------------|-------------|--------|
 | currentlyPlayingMusic | input_text.currently_playing_music | 4096 | Current music playback info (JSON) | Create & sync |
+| musicPlaylistRotation | input_text.music_playlist_rotation | 255 | Playlist rotation indices per music type (JSON) | Create & sync |
 
 ---
 

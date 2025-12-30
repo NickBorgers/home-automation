@@ -1,6 +1,7 @@
 package music
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -2175,5 +2176,243 @@ func TestStartValidatesSpeakers(t *testing.T) {
 	// Verify Missing Speaker is NOT available
 	if manager.isSpeakerAvailable("media_player.missing_speaker") {
 		t.Error("Expected media_player.missing_speaker to NOT be available")
+	}
+}
+
+// TestLoadPlaylistRotationFromHA tests loading playlist rotation from Home Assistant
+func TestLoadPlaylistRotationFromHA(t *testing.T) {
+	tests := []struct {
+		name             string
+		haValue          string
+		expectedRotation map[string]int
+		description      string
+	}{
+		{
+			name:             "Valid JSON",
+			haValue:          `{"morning":2,"day":5,"evening":1}`,
+			expectedRotation: map[string]int{"morning": 2, "day": 5, "evening": 1},
+			description:      "Valid JSON should be loaded correctly",
+		},
+		{
+			name:             "Empty string",
+			haValue:          "",
+			expectedRotation: map[string]int{},
+			description:      "Empty string should result in empty map",
+		},
+		{
+			name:             "Empty JSON object",
+			haValue:          "{}",
+			expectedRotation: map[string]int{},
+			description:      "Empty JSON object should result in empty map",
+		},
+		{
+			name:             "Invalid JSON",
+			haValue:          "not valid json",
+			expectedRotation: map[string]int{},
+			description:      "Invalid JSON should result in empty map (graceful fallback)",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logger := zap.NewNop()
+			mockClient := ha.NewMockClient()
+			stateManager := state.NewManager(mockClient, logger, false)
+
+			// Set up the rotation value in HA
+			_ = stateManager.SetString("musicPlaylistRotation", tt.haValue)
+
+			// Create config with music types
+			config := &MusicConfig{
+				Music: map[string]MusicMode{
+					"morning": {PlaybackOptions: []PlaybackOption{{URI: "test1"}, {URI: "test2"}, {URI: "test3"}}},
+					"day":     {PlaybackOptions: []PlaybackOption{{URI: "test1"}, {URI: "test2"}, {URI: "test3"}, {URI: "test4"}, {URI: "test5"}, {URI: "test6"}}},
+					"evening": {PlaybackOptions: []PlaybackOption{{URI: "test1"}, {URI: "test2"}}},
+				},
+			}
+			manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+
+			// Load rotation from HA
+			manager.loadPlaylistRotationFromHA()
+
+			// Verify rotation was loaded correctly
+			for musicType, expectedIndex := range tt.expectedRotation {
+				actualIndex, exists := manager.playlistNumbers[musicType]
+				if !exists {
+					t.Errorf("%s: expected rotation for %s to exist", tt.description, musicType)
+					continue
+				}
+				if actualIndex != expectedIndex {
+					t.Errorf("%s: expected rotation[%s]=%d, got %d", tt.description, musicType, expectedIndex, actualIndex)
+				}
+			}
+
+			// Verify no extra entries
+			if len(manager.playlistNumbers) != len(tt.expectedRotation) {
+				t.Errorf("%s: expected %d entries, got %d", tt.description, len(tt.expectedRotation), len(manager.playlistNumbers))
+			}
+		})
+	}
+}
+
+// TestLoadPlaylistRotationBoundsCheck tests that indices exceeding playlist count are wrapped
+func TestLoadPlaylistRotationBoundsCheck(t *testing.T) {
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+
+	// Set up rotation with index that exceeds playlist count
+	// morning has 3 playlists (indices 0-2), but stored index is 5
+	_ = stateManager.SetString("musicPlaylistRotation", `{"morning":5,"day":10}`)
+
+	// Create config with limited playlists
+	config := &MusicConfig{
+		Music: map[string]MusicMode{
+			"morning": {PlaybackOptions: []PlaybackOption{{URI: "test1"}, {URI: "test2"}, {URI: "test3"}}}, // 3 options
+			"day":     {PlaybackOptions: []PlaybackOption{{URI: "test1"}, {URI: "test2"}, {URI: "test3"}}}, // 3 options
+			"evening": {PlaybackOptions: []PlaybackOption{{URI: "test1"}, {URI: "test2"}, {URI: "test3"}}}, // not in HA
+			"unknown": {PlaybackOptions: []PlaybackOption{}},                                               // empty options
+		},
+	}
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+
+	// Load rotation from HA
+	manager.loadPlaylistRotationFromHA()
+
+	// Verify morning index was wrapped: 5 % 3 = 2
+	if manager.playlistNumbers["morning"] != 2 {
+		t.Errorf("Expected morning index to be wrapped to 2 (5 %% 3), got %d", manager.playlistNumbers["morning"])
+	}
+
+	// Verify day index was wrapped: 10 % 3 = 1
+	if manager.playlistNumbers["day"] != 1 {
+		t.Errorf("Expected day index to be wrapped to 1 (10 %% 3), got %d", manager.playlistNumbers["day"])
+	}
+}
+
+// TestLoadPlaylistRotationUnconfiguredType tests loading rotation for a music type not in config
+func TestLoadPlaylistRotationUnconfiguredType(t *testing.T) {
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+
+	// Set up rotation with a type not in config
+	_ = stateManager.SetString("musicPlaylistRotation", `{"oldtype":3,"morning":1}`)
+
+	// Config doesn't have "oldtype"
+	config := &MusicConfig{
+		Music: map[string]MusicMode{
+			"morning": {PlaybackOptions: []PlaybackOption{{URI: "test1"}, {URI: "test2"}, {URI: "test3"}}},
+		},
+	}
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+
+	// Load rotation from HA
+	manager.loadPlaylistRotationFromHA()
+
+	// The unconfigured type should still be preserved (for future use)
+	if manager.playlistNumbers["oldtype"] != 3 {
+		t.Errorf("Expected unconfigured type 'oldtype' to be preserved with value 3, got %d", manager.playlistNumbers["oldtype"])
+	}
+
+	// Configured type should be loaded normally
+	if manager.playlistNumbers["morning"] != 1 {
+		t.Errorf("Expected morning to be 1, got %d", manager.playlistNumbers["morning"])
+	}
+}
+
+// TestSyncPlaylistRotationToHA tests that playlist rotation is synced to HA after changes
+func TestSyncPlaylistRotationToHA(t *testing.T) {
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+
+	// Initialize the rotation state
+	_ = stateManager.SetString("musicPlaylistRotation", "{}")
+
+	config := &MusicConfig{
+		Music: map[string]MusicMode{
+			"day": {PlaybackOptions: []PlaybackOption{{URI: "test1"}, {URI: "test2"}, {URI: "test3"}}},
+		},
+	}
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+
+	// Call getNextPlaylistIndex which should trigger a sync
+	index := manager.getNextPlaylistIndex("day", 3)
+	if index != 0 {
+		t.Errorf("Expected first index to be 0, got %d", index)
+	}
+
+	// Wait for the sync goroutine to complete
+	manager.WaitForSync()
+
+	// Verify the rotation was synced to HA
+	rotationJSON, err := stateManager.GetString("musicPlaylistRotation")
+	if err != nil {
+		t.Fatalf("Failed to get rotation from state manager: %v", err)
+	}
+
+	var rotation map[string]int
+	if err := json.Unmarshal([]byte(rotationJSON), &rotation); err != nil {
+		t.Fatalf("Failed to parse rotation JSON: %v", err)
+	}
+
+	// After first call, the stored value should be 1 (the NEXT index to use)
+	if rotation["day"] != 1 {
+		t.Errorf("Expected synced rotation[day]=1, got %d", rotation["day"])
+	}
+
+	// Call again to advance rotation
+	index2 := manager.getNextPlaylistIndex("day", 3)
+	if index2 != 1 {
+		t.Errorf("Expected second index to be 1, got %d", index2)
+	}
+
+	// Wait for sync
+	manager.WaitForSync()
+
+	// Verify updated rotation
+	rotationJSON, _ = stateManager.GetString("musicPlaylistRotation")
+	_ = json.Unmarshal([]byte(rotationJSON), &rotation)
+	if rotation["day"] != 2 {
+		t.Errorf("Expected synced rotation[day]=2, got %d", rotation["day"])
+	}
+}
+
+// TestPlaylistRotationSyncReadOnlyMode tests that sync is skipped in read-only mode
+func TestPlaylistRotationSyncReadOnlyMode(t *testing.T) {
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, true) // read-only mode
+
+	// Initialize the rotation state
+	_ = stateManager.SetString("musicPlaylistRotation", "{}")
+
+	config := &MusicConfig{
+		Music: map[string]MusicMode{
+			"day": {PlaybackOptions: []PlaybackOption{{URI: "test1"}, {URI: "test2"}, {URI: "test3"}}},
+		},
+	}
+	manager := NewManager(mockClient, stateManager, config, logger, true, nil)
+
+	// Call getNextPlaylistIndex
+	index := manager.getNextPlaylistIndex("day", 3)
+	if index != 0 {
+		t.Errorf("Expected first index to be 0, got %d", index)
+	}
+
+	// Wait for sync attempt
+	manager.WaitForSync()
+
+	// In read-only mode, the HA value should still be empty (sync skipped)
+	rotationJSON, _ := stateManager.GetString("musicPlaylistRotation")
+	if rotationJSON != "{}" {
+		t.Errorf("Expected rotation to remain '{}' in read-only mode, got %s", rotationJSON)
+	}
+
+	// But the in-memory state should still work
+	index2 := manager.getNextPlaylistIndex("day", 3)
+	if index2 != 1 {
+		t.Errorf("Expected second index to be 1, got %d", index2)
 	}
 }
