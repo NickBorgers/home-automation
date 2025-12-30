@@ -42,6 +42,9 @@ type Manager struct {
 	// Control for baseline calibration
 	stopCalibration chan struct{}
 
+	// Startup synchronization for tests - signals when async goroutines complete initial work
+	startupWg sync.WaitGroup
+
 	// Shadow state tracking
 	shadowTracker *shadowstate.EnergyTracker
 
@@ -160,10 +163,12 @@ func (m *Manager) Start() error {
 	}
 
 	// Start free energy check timer (check every minute)
+	m.startupWg.Add(1)
 	go m.runFreeEnergyChecker()
 
 	// Start baseline calibration if enabled
 	if m.config.Energy.IndicatorLights.AdaptiveBrightness.BaselineCalibration.Enabled {
+		m.startupWg.Add(1)
 		go m.runBaselineCalibration()
 	}
 
@@ -202,6 +207,13 @@ func (m *Manager) Stop() {
 	m.subHelper.UnsubscribeAll()
 
 	m.logger.Info("Energy State Manager stopped")
+}
+
+// WaitForStartup blocks until all startup goroutines have completed their initial work.
+// This is primarily intended for use in tests to avoid arbitrary time.Sleep() calls.
+// In production code, callers typically don't need to wait for startup.
+func (m *Manager) WaitForStartup() {
+	m.startupWg.Wait()
 }
 
 // handleBatteryChange processes battery percentage changes
@@ -744,6 +756,9 @@ func (m *Manager) runFreeEnergyChecker() {
 	// Check immediately on start
 	m.checkFreeEnergy()
 
+	// Signal that startup initialization is complete
+	m.startupWg.Done()
+
 	for {
 		select {
 		case <-ticker.C:
@@ -885,6 +900,9 @@ func (m *Manager) runBaselineCalibration() {
 		zap.Int("interval_sec", intervalSec),
 		zap.Int("brightness_pct", calibConfig.CalibrationBrightnessPct),
 		zap.Int("wait_sec", calibConfig.CalibrationWaitSec))
+
+	// Signal that the goroutine has started (tests can proceed)
+	m.startupWg.Done()
 
 	// Run initial calibration cycle shortly after startup
 	// Give the system time to stabilize first, but check for shutdown
