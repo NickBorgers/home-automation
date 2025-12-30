@@ -216,6 +216,51 @@ clean-go:
 	rm -f homeautomation-go/homeautomation
 	rm -f homeautomation-go/coverage.out
 
+#docker-smoke-test: @ Run container smoke test (builds image and verifies startup in DEV_MODE)
+docker-smoke-test: docker-build-go
+	@echo ""
+	@echo "🚀 Running container startup smoke test..."
+	@echo ""
+	@# Start container in DEV_MODE (uses mock HA server)
+	@docker run -d --name smoke-test \
+		-e DEV_MODE=true \
+		-p 8080:8080 \
+		homeautomation:latest
+	@# Wait for container to either become healthy or crash
+	@echo "Waiting for container to start (max 30 seconds)..."
+	@for i in $$(seq 1 30); do \
+		if ! docker ps -q --filter "name=smoke-test" | grep -q .; then \
+			echo "❌ Container exited unexpectedly!"; \
+			echo ""; \
+			echo "Container logs:"; \
+			docker logs smoke-test; \
+			docker rm smoke-test 2>/dev/null || true; \
+			exit 1; \
+		fi; \
+		if curl -sf http://localhost:8080/health >/dev/null 2>&1; then \
+			echo "✅ Container started successfully (health check passed)"; \
+			break; \
+		fi; \
+		if [ $$i -eq 30 ]; then \
+			echo "❌ Container failed to become healthy within 30 seconds"; \
+			echo ""; \
+			echo "Container logs:"; \
+			docker logs smoke-test; \
+			docker stop smoke-test 2>/dev/null || true; \
+			docker rm smoke-test 2>/dev/null || true; \
+			exit 1; \
+		fi; \
+		sleep 1; \
+	done
+	@# Additional verification
+	@curl -sf http://localhost:8080/dashboard >/dev/null 2>&1 && echo "✅ Dashboard endpoint responding" || echo "⚠️  Dashboard endpoint not responding"
+	@curl -sf http://localhost:8080/api/shadow | jq . >/dev/null 2>&1 && echo "✅ Shadow API returns valid JSON" || echo "⚠️  Shadow API not responding"
+	@# Cleanup
+	@docker stop smoke-test >/dev/null
+	@docker rm smoke-test >/dev/null
+	@echo ""
+	@echo "✅ Container smoke test passed"
+
 #check-coverage: @ Check that test coverage meets minimum requirement (≥70%)
 check-coverage:
 	@echo "📊 Checking test coverage..."

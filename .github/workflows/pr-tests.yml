@@ -211,6 +211,68 @@ jobs:
           '
           echo "✅ Docker image builds and can access configuration paths"
 
+      - name: Container startup smoke test (DEV_MODE)
+        run: |
+          echo "🚀 Running container startup smoke test..."
+
+          # Start container in DEV_MODE (uses mock HA server)
+          # This catches any panics during initialization (e.g., issue #237)
+          docker run -d --name smoke-test \
+            -e DEV_MODE=true \
+            -p 8080:8080 \
+            homeautomation-test:pr
+
+          # Wait for container to either become healthy or crash
+          echo "Waiting for container to start (max 30 seconds)..."
+          for i in $(seq 1 30); do
+            # Check if container is still running
+            if ! docker ps -q --filter "name=smoke-test" | grep -q .; then
+              echo "❌ Container exited unexpectedly!"
+              echo ""
+              echo "Container logs:"
+              docker logs smoke-test
+              docker rm smoke-test || true
+              exit 1
+            fi
+
+            # Check if health endpoint responds
+            if curl -sf http://localhost:8080/health >/dev/null 2>&1; then
+              echo "✅ Container started successfully (health check passed)"
+              break
+            fi
+
+            if [ $i -eq 30 ]; then
+              echo "❌ Container failed to become healthy within 30 seconds"
+              echo ""
+              echo "Container logs:"
+              docker logs smoke-test
+              docker stop smoke-test || true
+              docker rm smoke-test || true
+              exit 1
+            fi
+
+            sleep 1
+          done
+
+          # Additional verification: check dashboard endpoint
+          if curl -sf http://localhost:8080/dashboard >/dev/null 2>&1; then
+            echo "✅ Dashboard endpoint responding"
+          else
+            echo "⚠️  Dashboard endpoint not responding (non-fatal)"
+          fi
+
+          # Check shadow API returns valid JSON
+          if curl -sf http://localhost:8080/api/shadow | jq . >/dev/null 2>&1; then
+            echo "✅ Shadow API returns valid JSON"
+          else
+            echo "⚠️  Shadow API not returning valid JSON (non-fatal)"
+          fi
+
+          # Cleanup
+          docker stop smoke-test
+          docker rm smoke-test
+          echo "✅ Container smoke test passed"
+
       - name: Docker Build Summary
         if: always()
         run: |
@@ -220,6 +282,8 @@ jobs:
           echo "✅ Docker image builds successfully"
           echo "✅ Config files accessible in container"
           echo "✅ Build context correctly set to repository root"
+          echo "✅ Container starts without panic (smoke test)"
+          echo "✅ Health endpoint responds"
           echo ""
           echo "✅ DOCKER BUILD VALIDATION PASSED"
           echo "==============================================="
