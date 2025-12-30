@@ -17,6 +17,9 @@ import (
 //go:embed templates/dashboard.html
 var dashboardHTML string
 
+//go:embed templates/timeline.html
+var timelineHTML string
+
 // Server provides HTTP API endpoints for the home automation system
 type Server struct {
 	stateManager  *state.Manager
@@ -51,6 +54,7 @@ func NewServer(stateManager *state.Manager, shadowTracker *shadowstate.Tracker, 
 	mux.HandleFunc("/api/shadow/tv", s.handleGetTVShadowState)
 	mux.HandleFunc("/health", s.handleHealth)
 	mux.HandleFunc("/dashboard", s.handleDashboard)
+	mux.HandleFunc("/timeline", s.handleTimeline)
 
 	s.server = &http.Server{
 		Addr:         fmt.Sprintf(":%d", port),
@@ -437,6 +441,11 @@ func (s *Server) handleSitemap(w http.ResponseWriter, r *http.Request) {
 			Path:        "/dashboard",
 			Method:      "GET",
 			Description: "Shadow State Dashboard - web UI to visualize plugin states",
+		},
+		{
+			Path:        "/timeline",
+			Method:      "GET",
+			Description: "State Timeline - visualize state changes over time for debugging",
 		},
 	}
 
@@ -896,5 +905,19 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprint(w, dashboardHTML)
 
 	s.logger.Debug("Dashboard request served",
+		zap.String("remote_addr", r.RemoteAddr))
+}
+
+// handleTimeline serves a web UI for visualizing state changes over time
+func (s *Server) handleTimeline(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	fmt.Fprint(w, timelineHTML)
+
+	s.logger.Debug("Timeline request served",
 		zap.String("remote_addr", r.RemoteAddr))
 }
