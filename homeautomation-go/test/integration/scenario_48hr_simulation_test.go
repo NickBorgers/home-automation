@@ -51,16 +51,17 @@ func setupDayPhaseSimulation(t *testing.T, timezone *time.Location, startTime ti
 	// Create logger
 	logger, _ := zap.NewDevelopment()
 
+	// Create mock clock starting at the specified time
+	mockClock := clock.NewMockClock(startTime)
+
 	// Create config loader - tests run from test/integration/ directory,
 	// so configs is at ../../../configs (up to homeautomation-go, up to home-automation-two, into configs)
 	configPath := "../../../configs"
 	configLoader := config.NewLoader(configPath, logger)
+	configLoader.SetClock(mockClock) // Inject mock clock BEFORE loading schedule
 	err := configLoader.LoadScheduleConfig()
 	require.NoError(t, err, "Failed to load schedule config from %s", configPath)
 	configLoader.SetTimezone(timezone)
-
-	// Create mock clock starting at the specified time
-	mockClock := clock.NewMockClock(startTime)
 
 	// Create dayphase calculator with coordinates (Austin, TX area)
 	calculator := dayphase.NewCalculator(32.85486, -97.50515, logger)

@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"time"
 
+	"homeautomation/internal/clock"
+
 	"go.uber.org/zap"
 	"gopkg.in/yaml.v3"
 )
@@ -64,6 +66,7 @@ type Loader struct {
 	scheduleConfig *ScheduleConfig
 	stopChan       chan struct{}
 	timezone       *time.Location
+	clock          clock.Clock
 }
 
 // NewLoader creates a new configuration loader
@@ -73,6 +76,15 @@ func NewLoader(configDir string, logger *zap.Logger) *Loader {
 		logger:    logger,
 		stopChan:  make(chan struct{}),
 		timezone:  time.Local,
+		clock:     clock.NewRealClock(),
+	}
+}
+
+// SetClock sets the clock implementation for schedule parsing.
+// This is primarily used for testing with a mock clock.
+func (l *Loader) SetClock(clk clock.Clock) {
+	if clk != nil {
+		l.clock = clk
 	}
 }
 
@@ -197,8 +209,8 @@ func (l *Loader) GetTodaysScheduleInTimezone(timezone *time.Location) (*ParsedSc
 		return nil, fmt.Errorf("schedule config not loaded")
 	}
 
-	// Get current time in the specified timezone
-	now := time.Now().In(timezone)
+	// Get current time in the specified timezone using the injectable clock
+	now := l.clock.Now().In(timezone)
 	weekday := int(now.Weekday())
 
 	if weekday >= len(l.scheduleConfig.Schedule) {
