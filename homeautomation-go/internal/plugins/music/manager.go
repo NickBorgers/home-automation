@@ -732,6 +732,7 @@ func (m *Manager) calculateVolume(baseVolume int, multiplier float64) int {
 
 // executePlayback executes the actual playback sequence.
 // Returns SpeakerGroupResult indicating which speakers are active.
+// Sequence matches Node-RED: break existing groups → build new group → mute → play → fade in
 func (m *Manager) executePlayback(musicType string, option PlaybackOption, participants []ParticipantWithVolume, leadPlayer string) (*SpeakerGroupResult, error) {
 	m.logger.Info("Executing playback sequence",
 		zap.String("type", musicType),
@@ -740,7 +741,11 @@ func (m *Manager) executePlayback(musicType string, option PlaybackOption, parti
 
 	leadEntityID := m.getSpeakerEntityID(leadPlayer)
 
-	// Step 1: Build speaker group if multiple participants
+	// Step 1: Break speakers from existing groups before building new group
+	// This matches Node-RED behavior where stopMsg routes through "Break group for player"
+	m.breakSpeakerGroups(participants)
+
+	// Step 2: Build speaker group if multiple participants
 	var groupResult *SpeakerGroupResult
 	if len(participants) > 1 {
 		var err error
@@ -761,7 +766,7 @@ func (m *Manager) executePlayback(musicType string, option PlaybackOption, parti
 		}
 	}
 
-	// Step 2: Mute all ACTIVE speakers initially
+	// Step 3: Mute all ACTIVE speakers initially
 	for _, sr := range groupResult.Results {
 		if !sr.Active {
 			continue // Skip failed speakers
@@ -777,7 +782,7 @@ func (m *Manager) executePlayback(musicType string, option PlaybackOption, parti
 		}
 	}
 
-	// Step 3: Start playback on lead player
+	// Step 4: Start playback on lead player
 	if err := m.callServiceWithRetry("media_player", "play_media", map[string]interface{}{
 		"entity_id":          leadEntityID,
 		"media_content_id":   option.URI,
@@ -786,7 +791,7 @@ func (m *Manager) executePlayback(musicType string, option PlaybackOption, parti
 		return groupResult, fmt.Errorf("failed to start playback: %w", err)
 	}
 
-	// Step 4: Enable shuffle for Spotify playlists
+	// Step 5: Enable shuffle for Spotify playlists
 	if option.MediaType == "playlist" {
 		if err := m.callServiceWithRetry("media_player", "shuffle_set", map[string]interface{}{
 			"entity_id": leadEntityID,
@@ -798,7 +803,7 @@ func (m *Manager) executePlayback(musicType string, option PlaybackOption, parti
 		}
 	}
 
-	// Step 5: Evaluate mute conditions and unmute eligible ACTIVE speakers
+	// Step 6: Evaluate mute conditions and unmute eligible ACTIVE speakers
 	for _, sr := range groupResult.Results {
 		if !sr.Active {
 			continue // Skip failed speakers
@@ -835,7 +840,45 @@ const (
 	// speakerGroupRetryBaseDelay is the base delay between retry attempts.
 	// Uses exponential backoff: 2s, 4s, 8s for attempts 1, 2, 3.
 	speakerGroupRetryBaseDelay = 2 * time.Second
+
+	// speakerUnjoinSettleDelay is the delay after unjoining all speakers
+	// to allow the Sonos system to stabilize before forming new groups.
+	speakerUnjoinSettleDelay = 500 * time.Millisecond
 )
+
+// breakSpeakerGroups unjoins all participants from their existing groups.
+// This must be called before building a new speaker group to ensure speakers
+// aren't already grouped together in unpredictable ways.
+// Matches Node-RED behavior: "Break group for player" -> player.become.standalone
+func (m *Manager) breakSpeakerGroups(participants []ParticipantWithVolume) {
+	m.logger.Info("Breaking existing speaker groups before building new group",
+		zap.Int("participant_count", len(participants)))
+
+	// Unjoin each speaker from any existing group
+	for _, p := range participants {
+		entityID := m.getSpeakerEntityID(p.PlayerName)
+
+		m.logger.Debug("Unjoining speaker from existing group",
+			zap.String("speaker", p.PlayerName),
+			zap.String("entity_id", entityID))
+
+		// Use media_player.unjoin to break the speaker out of any existing group
+		// This is equivalent to Sonos "player.become.standalone"
+		if err := m.callServiceWithRetry("media_player", "unjoin", map[string]interface{}{
+			"entity_id": entityID,
+		}); err != nil {
+			// Log warning but continue - speaker might not be in a group
+			m.logger.Warn("Failed to unjoin speaker (may not be in a group)",
+				zap.String("speaker", p.PlayerName),
+				zap.Error(err))
+		}
+	}
+
+	// Allow time for Sonos to process the unjoin commands before building new group
+	m.sleepFunc(speakerUnjoinSettleDelay)
+
+	m.logger.Info("Finished breaking existing speaker groups")
+}
 
 // buildSpeakerGroup creates a Sonos speaker group with retry logic.
 // Returns a SpeakerGroupResult indicating which speakers successfully joined.
