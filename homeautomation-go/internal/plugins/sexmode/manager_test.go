@@ -138,20 +138,20 @@ func TestSexModeManager_ActivationSetsEightSleep(t *testing.T) {
 	carolineFound := false
 
 	for _, call := range calls {
-		if call.Domain == "number" && call.Service == "set_value" {
+		if call.Domain == "climate" && call.Service == "set_temperature" {
 			entityID, ok := call.Data["entity_id"].(string)
 			if !ok {
 				continue
 			}
-			value, valueOk := call.Data["value"].(int)
-			if !valueOk {
+			temp, tempOk := call.Data["temperature"].(int)
+			if !tempOk {
 				continue
 			}
 
-			if entityID == EightSleepNickEntity && value == EightSleepMinTemp {
+			if entityID == EightSleepNickEntity && temp == EightSleepMinTemp {
 				nickFound = true
 			}
-			if entityID == EightSleepCarolineEntity && value == EightSleepMinTemp {
+			if entityID == EightSleepCarolineEntity && temp == EightSleepMinTemp {
 				carolineFound = true
 			}
 		}
