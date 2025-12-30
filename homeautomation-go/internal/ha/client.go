@@ -29,14 +29,17 @@ const (
 
 // Retry constants for service calls
 const (
-	// maxRetries is the number of retry attempts for transient network errors
-	maxRetries = 3
+	// maxRetries is the number of retry attempts for transient network errors.
+	// With exponential backoff (500ms, 1s, 2s, 4s, 8s, 15s, 15s, 15s, 15s),
+	// this provides approximately 75 seconds of retry coverage to handle
+	// network outages lasting up to 1 minute.
+	maxRetries = 9
 
 	// initialRetryDelay is the base delay before first retry
 	initialRetryDelay = 500 * time.Millisecond
 
 	// maxRetryDelay caps the exponential backoff
-	maxRetryDelay = 5 * time.Second
+	maxRetryDelay = 15 * time.Second
 )
 
 // HAClient defines the interface for Home Assistant WebSocket client

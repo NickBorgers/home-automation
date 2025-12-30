@@ -941,11 +941,16 @@ const (
 	// Sonos speaker grouping can fail due to network issues or speaker unavailability.
 	// Home Assistant has a 9.5s timeout for Sonos operations, so retries help recover
 	// from transient failures.
-	maxSpeakerGroupRetries = 3
+	// With exponential backoff (2s, 4s, 8s, 15s, 15s, 15s), this provides approximately
+	// 59 seconds of retry coverage to handle network outages lasting up to 1 minute.
+	maxSpeakerGroupRetries = 6
 
 	// speakerGroupRetryBaseDelay is the base delay between retry attempts.
-	// Uses exponential backoff: 2s, 4s, 8s for attempts 1, 2, 3.
+	// Uses exponential backoff: 2s, 4s, 8s, then capped at speakerGroupRetryMaxDelay.
 	speakerGroupRetryBaseDelay = 2 * time.Second
+
+	// speakerGroupRetryMaxDelay caps the exponential backoff for speaker group operations.
+	speakerGroupRetryMaxDelay = 15 * time.Second
 
 	// speakerUnjoinSettleDelay is the delay after unjoining all speakers
 	// to allow the Sonos system to stabilize before forming new groups.
@@ -1058,6 +1063,9 @@ func (m *Manager) buildSpeakerGroup(participants []ParticipantWithVolume, leadEn
 		lastErr = err
 		if attempt < maxSpeakerGroupRetries {
 			retryDelay := speakerGroupRetryBaseDelay * time.Duration(1<<(attempt-1))
+			if retryDelay > speakerGroupRetryMaxDelay {
+				retryDelay = speakerGroupRetryMaxDelay
+			}
 			m.logger.Warn("Failed to create speaker group, retrying",
 				zap.Int("attempt", attempt),
 				zap.Int("max_attempts", maxSpeakerGroupRetries),
@@ -1105,6 +1113,9 @@ func (m *Manager) buildSpeakerGroup(participants []ParticipantWithVolume, leadEn
 
 			if attempt < maxSpeakerGroupRetries {
 				retryDelay := speakerGroupRetryBaseDelay * time.Duration(1<<(attempt-1))
+				if retryDelay > speakerGroupRetryMaxDelay {
+					retryDelay = speakerGroupRetryMaxDelay
+				}
 				m.logger.Warn("Failed to add speaker to group, retrying",
 					zap.String("speaker", p.PlayerName),
 					zap.Int("attempt", attempt),

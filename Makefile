@@ -364,7 +364,7 @@ lint-go:
 #test-48hr-simulation: @ Run 48-hour timezone simulation tests with verbose output
 test-48hr-simulation:
 	@echo "🕐 Running 48-hour timezone simulation tests..."
-	cd homeautomation-go && go test ./test/integration/... -race -v -run "TestScenario_48Hour" -timeout=5m
+	cd homeautomation-go && go test ./test/integration/... -race -v -run "TestScenario_48Hour" -timeout=10m
 	@echo "✅ 48-hour simulation tests passed"
 
 #ci-style-checks: @ Run style/lint checks (used by CI style-checks job)
@@ -390,7 +390,7 @@ ci-unit-tests:
 #ci-integration-tests: @ Run integration tests with race detector (used by CI)
 ci-integration-tests:
 	@echo "🧪 Running integration tests..."
-	@cd homeautomation-go && go test ./test/integration/... -race -v -timeout=5m
+	@cd homeautomation-go && go test ./test/integration/... -race -v -timeout=10m
 	@echo "✅ Integration tests passed"
 
 #pre-push: @ Run comprehensive pre-push validation (build, tests, race detector, coverage ≥70%)
@@ -425,7 +425,7 @@ pre-push:
 	  rm -f coverage.out
 	@echo ""
 	@echo "🔗 Step 5/5: Running integration tests with race detector..."
-	@cd homeautomation-go && go test ./test/integration/... -race -v -timeout=5m
+	@cd homeautomation-go && go test ./test/integration/... -race -v -timeout=10m
 	@echo "✅ Integration tests passed"
 	@echo ""
 	@echo "════════════════════════════════════════════════════════════════════════════"
