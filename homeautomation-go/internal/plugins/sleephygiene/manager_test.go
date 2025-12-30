@@ -1765,3 +1765,237 @@ func TestStart_SubscribesToEightSleepSensors(t *testing.T) {
 		t.Error("Expected subscription to Caroline's Eight Sleep sensor")
 	}
 }
+
+// Eight Sleep Availability Tests
+
+func TestIsEightSleepUnavailable_BothSensorsAvailable(t *testing.T) {
+	now := time.Date(2024, 1, 15, 8, 0, 0, 0, time.UTC)
+	manager, mockHA, _, _ := setupTest(t, now)
+
+	// Set both sensors to available states (not "unavailable")
+	mockHA.SetState("sensor.nick_s_eight_sleep_side_sleep_stage", "awake", nil)
+	mockHA.SetState("sensor.caroline_s_eight_sleep_side_sleep_stage", "light", nil)
+
+	if manager.isEightSleepUnavailable() {
+		t.Error("isEightSleepUnavailable should return false when both sensors are available")
+	}
+}
+
+func TestIsEightSleepUnavailable_OnlyNickAvailable(t *testing.T) {
+	now := time.Date(2024, 1, 15, 8, 0, 0, 0, time.UTC)
+	manager, mockHA, _, _ := setupTest(t, now)
+
+	// Nick's sensor available, Caroline's unavailable
+	mockHA.SetState("sensor.nick_s_eight_sleep_side_sleep_stage", "deep", nil)
+	mockHA.SetState("sensor.caroline_s_eight_sleep_side_sleep_stage", "unavailable", nil)
+
+	if manager.isEightSleepUnavailable() {
+		t.Error("isEightSleepUnavailable should return false when at least one sensor is available (Nick)")
+	}
+}
+
+func TestIsEightSleepUnavailable_OnlyCarolineAvailable(t *testing.T) {
+	now := time.Date(2024, 1, 15, 8, 0, 0, 0, time.UTC)
+	manager, mockHA, _, _ := setupTest(t, now)
+
+	// Nick's sensor unavailable, Caroline's available
+	mockHA.SetState("sensor.nick_s_eight_sleep_side_sleep_stage", "unavailable", nil)
+	mockHA.SetState("sensor.caroline_s_eight_sleep_side_sleep_stage", "rem", nil)
+
+	if manager.isEightSleepUnavailable() {
+		t.Error("isEightSleepUnavailable should return false when at least one sensor is available (Caroline)")
+	}
+}
+
+func TestIsEightSleepUnavailable_BothSensorsUnavailable(t *testing.T) {
+	now := time.Date(2024, 1, 15, 8, 0, 0, 0, time.UTC)
+	manager, mockHA, _, _ := setupTest(t, now)
+
+	// Both sensors report "unavailable"
+	mockHA.SetState("sensor.nick_s_eight_sleep_side_sleep_stage", "unavailable", nil)
+	mockHA.SetState("sensor.caroline_s_eight_sleep_side_sleep_stage", "unavailable", nil)
+
+	if !manager.isEightSleepUnavailable() {
+		t.Error("isEightSleepUnavailable should return true when both sensors are unavailable")
+	}
+}
+
+func TestIsEightSleepUnavailable_BothSensorsNotFound(t *testing.T) {
+	now := time.Date(2024, 1, 15, 8, 0, 0, 0, time.UTC)
+	manager, _, _, _ := setupTest(t, now)
+
+	// Don't set any state - sensors don't exist in mock
+	// This simulates GetState returning an error
+
+	if !manager.isEightSleepUnavailable() {
+		t.Error("isEightSleepUnavailable should return true when both sensors return errors")
+	}
+}
+
+func TestIsEightSleepUnavailable_NickErrorCarolineAvailable(t *testing.T) {
+	now := time.Date(2024, 1, 15, 8, 0, 0, 0, time.UTC)
+	manager, mockHA, _, _ := setupTest(t, now)
+
+	// Nick's sensor doesn't exist (error), Caroline's is available
+	mockHA.SetState("sensor.caroline_s_eight_sleep_side_sleep_stage", "awake", nil)
+
+	if manager.isEightSleepUnavailable() {
+		t.Error("isEightSleepUnavailable should return false when at least one sensor is available")
+	}
+}
+
+// Backup Wake Trigger Tests
+
+func TestBackupWake_TriggersWhenEightSleepUnavailable(t *testing.T) {
+	// Set time to 9:00 AM on a Monday (begin_backup_wake is 08:50 for Monday)
+	// Jan 15, 2024 is a Monday
+	now := time.Date(2024, 1, 15, 9, 0, 0, 0, time.UTC)
+	manager, mockHA, stateManager, configLoader := setupTest(t, now)
+
+	// Load schedule config
+	if err := configLoader.LoadScheduleConfig(); err != nil {
+		t.Skipf("Skipping test: schedule config not available: %v", err)
+	}
+
+	// Set both Eight Sleep sensors to unavailable
+	mockHA.SetState("sensor.nick_s_eight_sleep_side_sleep_stage", "unavailable", nil)
+	mockHA.SetState("sensor.caroline_s_eight_sleep_side_sleep_stage", "unavailable", nil)
+
+	// Ensure all begin_wake conditions are met
+	stateManager.SetBool("isAnyoneHome", true)
+	stateManager.SetBool("isMasterAsleep", true)
+	stateManager.SetString("musicPlaybackType", "sleep")
+	stateManager.SetBool("isFadeOutInProgress", false)
+
+	// Trigger time-based checks
+	manager.checkTimeTriggers()
+
+	// Verify begin_wake was triggered
+	if _, triggered := manager.triggeredToday["begin_wake"]; !triggered {
+		t.Error("begin_wake should be triggered when Eight Sleep is unavailable and time is in backup wake window")
+	}
+
+	// Verify fade out started
+	fadeOut, _ := stateManager.GetBool("isFadeOutInProgress")
+	if !fadeOut {
+		t.Error("isFadeOutInProgress should be set to true after backup wake triggers")
+	}
+}
+
+func TestBackupWake_DoesNotTriggerWhenEightSleepAvailable(t *testing.T) {
+	// Set time to 9:00 AM on a Monday (begin_backup_wake is 08:50 for Monday)
+	now := time.Date(2024, 1, 15, 9, 0, 0, 0, time.UTC)
+	manager, mockHA, stateManager, configLoader := setupTest(t, now)
+
+	// Load schedule config
+	if err := configLoader.LoadScheduleConfig(); err != nil {
+		t.Skipf("Skipping test: schedule config not available: %v", err)
+	}
+
+	// Set Eight Sleep sensors to available
+	mockHA.SetState("sensor.nick_s_eight_sleep_side_sleep_stage", "awake", nil)
+	mockHA.SetState("sensor.caroline_s_eight_sleep_side_sleep_stage", "light", nil)
+
+	// Ensure all begin_wake conditions are met
+	stateManager.SetBool("isAnyoneHome", true)
+	stateManager.SetBool("isMasterAsleep", true)
+	stateManager.SetString("musicPlaybackType", "sleep")
+	stateManager.SetBool("isFadeOutInProgress", false)
+
+	// Trigger time-based checks
+	manager.checkTimeTriggers()
+
+	// Verify begin_wake was NOT triggered (Eight Sleep should handle it via alarm)
+	if _, triggered := manager.triggeredToday["begin_wake"]; triggered {
+		t.Error("begin_wake should NOT be triggered via backup when Eight Sleep is available")
+	}
+}
+
+func TestBackupWake_DoesNotTriggerOutsideWindow(t *testing.T) {
+	// Set time to 7:00 AM - well before the backup wake window (08:50)
+	now := time.Date(2024, 1, 15, 7, 0, 0, 0, time.UTC)
+	manager, mockHA, stateManager, configLoader := setupTest(t, now)
+
+	// Load schedule config
+	if err := configLoader.LoadScheduleConfig(); err != nil {
+		t.Skipf("Skipping test: schedule config not available: %v", err)
+	}
+
+	// Set both Eight Sleep sensors to unavailable
+	mockHA.SetState("sensor.nick_s_eight_sleep_side_sleep_stage", "unavailable", nil)
+	mockHA.SetState("sensor.caroline_s_eight_sleep_side_sleep_stage", "unavailable", nil)
+
+	// Ensure all begin_wake conditions are met
+	stateManager.SetBool("isAnyoneHome", true)
+	stateManager.SetBool("isMasterAsleep", true)
+	stateManager.SetString("musicPlaybackType", "sleep")
+	stateManager.SetBool("isFadeOutInProgress", false)
+
+	// Trigger time-based checks
+	manager.checkTimeTriggers()
+
+	// Verify begin_wake was NOT triggered (too early)
+	if _, triggered := manager.triggeredToday["begin_wake"]; triggered {
+		t.Error("begin_wake should NOT be triggered before the backup wake window")
+	}
+}
+
+func TestBackupWake_UpdatesShadowState(t *testing.T) {
+	now := time.Date(2024, 1, 15, 9, 0, 0, 0, time.UTC)
+	manager, mockHA, _, configLoader := setupTest(t, now)
+
+	// Load schedule config
+	if err := configLoader.LoadScheduleConfig(); err != nil {
+		t.Skipf("Skipping test: schedule config not available: %v", err)
+	}
+
+	// Set both Eight Sleep sensors to unavailable
+	mockHA.SetState("sensor.nick_s_eight_sleep_side_sleep_stage", "unavailable", nil)
+	mockHA.SetState("sensor.caroline_s_eight_sleep_side_sleep_stage", "unavailable", nil)
+
+	// Trigger time-based checks to update shadow state
+	manager.checkTimeTriggers()
+
+	// Get shadow state and verify availability fields
+	shadowState := manager.GetShadowState()
+
+	if shadowState.Outputs.EightSleepAvailable {
+		t.Error("EightSleepAvailable should be false when sensors are unavailable")
+	}
+
+	if !shadowState.Outputs.BackupWakeEnabled {
+		t.Error("BackupWakeEnabled should be true when Eight Sleep is unavailable")
+	}
+
+	if shadowState.Outputs.LastAvailabilityCheck.IsZero() {
+		t.Error("LastAvailabilityCheck should be set after checkTimeTriggers")
+	}
+}
+
+func TestBackupWake_ShadowStateShowsAvailableWhenSensorsWork(t *testing.T) {
+	now := time.Date(2024, 1, 15, 9, 0, 0, 0, time.UTC)
+	manager, mockHA, _, configLoader := setupTest(t, now)
+
+	// Load schedule config
+	if err := configLoader.LoadScheduleConfig(); err != nil {
+		t.Skipf("Skipping test: schedule config not available: %v", err)
+	}
+
+	// Set Eight Sleep sensors to available
+	mockHA.SetState("sensor.nick_s_eight_sleep_side_sleep_stage", "deep", nil)
+	mockHA.SetState("sensor.caroline_s_eight_sleep_side_sleep_stage", "awake", nil)
+
+	// Trigger time-based checks to update shadow state
+	manager.checkTimeTriggers()
+
+	// Get shadow state and verify availability fields
+	shadowState := manager.GetShadowState()
+
+	if !shadowState.Outputs.EightSleepAvailable {
+		t.Error("EightSleepAvailable should be true when sensors are available")
+	}
+
+	if shadowState.Outputs.BackupWakeEnabled {
+		t.Error("BackupWakeEnabled should be false when Eight Sleep is available")
+	}
+}
