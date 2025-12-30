@@ -109,10 +109,15 @@ func fieldToInterface(f zapcore.Field) interface{} {
 	case zapcore.DurationType:
 		return time.Duration(f.Integer).String()
 	case zapcore.TimeType:
+		// zap stores the timestamp in f.Integer (as nanoseconds since epoch)
+		// and the timezone in f.Interface (as *time.Location, not time.Time)
+		loc := time.UTC
 		if f.Interface != nil {
-			return f.Interface.(time.Time).Format(time.RFC3339)
+			if l, ok := f.Interface.(*time.Location); ok {
+				loc = l
+			}
 		}
-		return time.Unix(0, f.Integer).Format(time.RFC3339)
+		return time.Unix(0, f.Integer).In(loc).Format(time.RFC3339)
 	case zapcore.ReflectType:
 		return f.Interface
 	default:
