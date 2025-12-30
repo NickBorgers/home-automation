@@ -114,7 +114,7 @@ func TestScenario_SexModeActivation_ActivatesNightScene(t *testing.T) {
 }
 
 // TestScenario_SexModeActivation_SetsEightSleepToColdest tests that activating sex mode
-// sets both Eight Sleep beds to the coldest setting (-10)
+// sets both Eight Sleep beds to the coldest setting (-100)
 func TestScenario_SexModeActivation_SetsEightSleepToColdest(t *testing.T) {
 	server, _, _, cleanup := setupSexModeScenarioTest(t)
 	defer cleanup()
@@ -128,24 +128,24 @@ func TestScenario_SexModeActivation_SetsEightSleepToColdest(t *testing.T) {
 	server.SetState("input_boolean.sex", "on", nil)
 	time.Sleep(500 * time.Millisecond)
 
-	t.Log("THEN: Both Eight Sleep sides should be set to coldest (-10)")
+	t.Log("THEN: Both Eight Sleep sides should be set to coldest (-100)")
 
 	calls := server.GetServiceCalls()
 
 	// Find Nick's Eight Sleep call
-	nickCall := FindServiceCallWithEntityID(calls, "number", "set_value", sexmode.EightSleepNickEntity)
+	nickCall := FindServiceCallWithEntityID(calls, "climate", "set_temperature", sexmode.EightSleepNickEntity)
 	assert.NotNil(t, nickCall, "Nick's Eight Sleep should be set")
 	if nickCall != nil {
-		value := getNumericValue(nickCall.ServiceData["value"])
+		value := getNumericValue(nickCall.ServiceData["temperature"])
 		assert.Equal(t, sexmode.EightSleepMinTemp, value, "Nick's Eight Sleep should be set to coldest")
 		t.Logf("✓ Nick's Eight Sleep set to %d", value)
 	}
 
 	// Find Caroline's Eight Sleep call
-	carolineCall := FindServiceCallWithEntityID(calls, "number", "set_value", sexmode.EightSleepCarolineEntity)
+	carolineCall := FindServiceCallWithEntityID(calls, "climate", "set_temperature", sexmode.EightSleepCarolineEntity)
 	assert.NotNil(t, carolineCall, "Caroline's Eight Sleep should be set")
 	if carolineCall != nil {
-		value := getNumericValue(carolineCall.ServiceData["value"])
+		value := getNumericValue(carolineCall.ServiceData["temperature"])
 		assert.Equal(t, sexmode.EightSleepMinTemp, value, "Caroline's Eight Sleep should be set to coldest")
 		t.Logf("✓ Caroline's Eight Sleep set to %d", value)
 	}
@@ -185,7 +185,7 @@ func TestScenario_SexModeActivation_FullCoordination(t *testing.T) {
 
 	// 3. Climate
 	calls := server.GetServiceCalls()
-	eightSleepCalls := FilterServiceCalls(calls, "number", "set_value")
+	eightSleepCalls := FilterServiceCalls(calls, "climate", "set_temperature")
 	assert.Equal(t, 2, len(eightSleepCalls), "Both Eight Sleep beds should be adjusted")
 	t.Log("  ✓ Climate: Eight Sleep beds set to coldest")
 

@@ -14,14 +14,14 @@ import (
 
 // EightSleep climate control constants
 const (
-	// EightSleepMinTemp is the minimum temperature setting for Eight Sleep
-	EightSleepMinTemp = -10 // Coldest setting
+	// EightSleepMinTemp is the minimum temperature setting for Eight Sleep (-100 to 100 range)
+	EightSleepMinTemp = -100 // Coldest setting
 
 	// EightSleepNickEntity is Nick's Eight Sleep climate entity
-	EightSleepNickEntity = "number.nick_s_eight_sleep_side_sleep_stage"
+	EightSleepNickEntity = "climate.nick_s_eight_sleep_side_climate"
 
 	// EightSleepCarolineEntity is Caroline's Eight Sleep climate entity
-	EightSleepCarolineEntity = "number.caroline_s_eight_sleep_side_sleep_stage"
+	EightSleepCarolineEntity = "climate.caroline_s_eight_sleep_side_climate"
 )
 
 // Manager handles sex mode coordination across music, lighting, and climate
@@ -337,10 +337,10 @@ func (m *Manager) setEightSleepToColdest() {
 		return
 	}
 
-	// Set Nick's side
-	err := m.haClient.CallService("number", "set_value", map[string]interface{}{
-		"entity_id": EightSleepNickEntity,
-		"value":     EightSleepMinTemp,
+	// Set Nick's side using climate.set_temperature
+	err := m.haClient.CallService("climate", "set_temperature", map[string]interface{}{
+		"entity_id":   EightSleepNickEntity,
+		"temperature": EightSleepMinTemp,
 	})
 	if err != nil {
 		m.logger.Error("Failed to set Nick's Eight Sleep to coldest", zap.Error(err))
@@ -348,10 +348,10 @@ func (m *Manager) setEightSleepToColdest() {
 		m.logger.Info("Nick's Eight Sleep set to coldest")
 	}
 
-	// Set Caroline's side
-	err = m.haClient.CallService("number", "set_value", map[string]interface{}{
-		"entity_id": EightSleepCarolineEntity,
-		"value":     EightSleepMinTemp,
+	// Set Caroline's side using climate.set_temperature
+	err = m.haClient.CallService("climate", "set_temperature", map[string]interface{}{
+		"entity_id":   EightSleepCarolineEntity,
+		"temperature": EightSleepMinTemp,
 	})
 	if err != nil {
 		m.logger.Error("Failed to set Caroline's Eight Sleep to coldest", zap.Error(err))
