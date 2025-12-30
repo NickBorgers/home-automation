@@ -43,8 +43,8 @@ func setupEnergyScenarioTest(t *testing.T) (*MockHAServer, *energy.Manager, *sta
 	err = energyMgr.Start()
 	require.NoError(t, err, "Failed to start energy manager")
 
-	// Give the plugin time to initialize
-	time.Sleep(200 * time.Millisecond)
+	// Wait for startup goroutines to complete initial work
+	energyMgr.WaitForStartup()
 
 	cleanup := func() {
 		energyMgr.Stop()
@@ -185,8 +185,8 @@ func TestScenario_GridAvailability_RecalculatesFreeEnergy(t *testing.T) {
 	require.NoError(t, err, "Failed to start energy manager")
 	defer energyMgr.Stop()
 
-	// Give the plugin time to initialize
-	time.Sleep(300 * time.Millisecond)
+	// Wait for startup goroutines to complete initial work
+	energyMgr.WaitForStartup()
 
 	// GIVEN: Grid is available, outside free energy time window (12:00 noon)
 	t.Log("GIVEN: Grid is available, outside free energy time window (12:00 noon)")
@@ -260,8 +260,8 @@ func TestScenario_OverallEnergyLevel_ReflectsWorstState(t *testing.T) {
 	require.NoError(t, err, "Failed to start energy manager")
 	defer energyMgr.Stop()
 
-	// Give the plugin time to initialize
-	time.Sleep(300 * time.Millisecond)
+	// Wait for startup goroutines to complete initial work
+	energyMgr.WaitForStartup()
 
 	// GIVEN: Battery at green (85%), solar at green (2kW, 15kWh)
 	t.Log("GIVEN: Battery green, solar green (at noon, outside free energy window)")
@@ -342,7 +342,8 @@ func TestScenario_FreeEnergyTimeWindow_OverridesEnergyLevel(t *testing.T) {
 	require.NoError(t, err)
 	defer energyMgr.Stop()
 
-	time.Sleep(200 * time.Millisecond)
+	// Wait for startup goroutines to complete initial work
+	energyMgr.WaitForStartup()
 
 	// GIVEN: Battery at red (15%), grid available, in free energy time window
 	t.Log("GIVEN: Battery red, grid available, in free energy time window")
