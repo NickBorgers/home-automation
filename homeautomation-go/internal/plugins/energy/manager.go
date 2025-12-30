@@ -935,8 +935,8 @@ func (m *Manager) runCalibrationCycle() {
 		return
 	}
 
-	m.logger.Debug("Starting calibration cycle (staggered - one device at a time)",
-		zap.Int("light_count", len(lights)))
+	m.logger.Info("Starting calibration cycle",
+		zap.Int("device_count", len(lights)))
 
 	// Calibrate each device one at a time so other devices remain visible
 	for i, lightEntity := range lights {
@@ -956,7 +956,7 @@ func (m *Manager) runCalibrationCycle() {
 			continue // Skip lights without lux sensors
 		}
 
-		m.logger.Info("Calibrating device (staggered)",
+		m.logger.Debug("Calibrating device (staggered)",
 			zap.Int("device_num", i+1),
 			zap.Int("total_devices", len(lights)),
 			zap.String("light", lightEntity))
@@ -991,7 +991,7 @@ func (m *Manager) runCalibrationCycle() {
 		m.restoreLightAfterCalibration(lightEntity)
 	}
 
-	m.logger.Debug("Calibration cycle complete for all devices")
+	m.logger.Info("Calibration cycle complete")
 }
 
 // restoreLightAfterCalibration completes calibration for a single light entity.
@@ -1013,7 +1013,7 @@ func (m *Manager) restoreLightAfterCalibration(lightEntity string) {
 	m.calibrationState[lightEntity] = CalibrationStateNormal
 	m.indicatorMu.Unlock()
 
-	m.logger.Info("Calibration complete - recorded baseline lux",
+	m.logger.Debug("Calibration complete - recorded baseline lux",
 		zap.String("light", lightEntity),
 		zap.Float64("baseline_lux", currentLux))
 
@@ -1033,7 +1033,7 @@ func (m *Manager) restoreLightAfterCalibration(lightEntity string) {
 		currentLevel = "black"
 	}
 
-	m.logger.Info("Restoring brightness after calibration",
+	m.logger.Debug("Restoring brightness after calibration",
 		zap.String("light", lightEntity),
 		zap.Float64("baseline_lux", currentLux),
 		zap.Int("new_brightness", newBrightness))
@@ -1356,7 +1356,7 @@ func (m *Manager) updateLightBrightness(lightEntity string, lux float64) {
 		return
 	}
 
-	m.logger.Info("Updating light brightness based on lux",
+	m.logger.Debug("Updating light brightness based on lux",
 		zap.String("light", lightEntity),
 		zap.Float64("lux", lux),
 		zap.Int("old_brightness", oldBrightness),
@@ -1398,7 +1398,7 @@ func (m *Manager) updateSingleIndicatorLight(entity, energyLevel string, brightn
 	m.shadowTracker.UpdatePerDeviceBrightness(entity, luxSensor, lux, brightness, isAdaptive)
 
 	if m.readOnly {
-		m.logger.Info("READ-ONLY: Would update single indicator light",
+		m.logger.Debug("READ-ONLY: Would update single indicator light",
 			zap.String("entity", entity),
 			zap.String("energy_level", energyLevel),
 			zap.Ints("rgb_color", rgbColor),
