@@ -1265,12 +1265,13 @@ func (m *Manager) fadeInSpeaker(speakerName string, targetVolume int, startingMu
 		}
 
 		// Adaptive delay: slower at start, faster as volume increases
-		// At volume 0%: 200ms delay, at 50%: 100ms, at 100%: clamped to 100ms minimum
-		delayMs := (100 - currentVolume) * 2 // 2ms per percentage point remaining
-		if delayMs < 100 {
-			delayMs = 100 // Minimum 100ms between steps
+		// Matches Node-RED behavior: msg.delay = (100 - current_volume) * 250
+		// At volume 0%: 25s delay, at 50%: 12.5s, at 90%: 2.5s, at 99%: 250ms
+		delayMs := (100 - currentVolume) * 250 // 250ms per percentage point remaining
+		if delayMs < 250 {
+			delayMs = 250 // Minimum 250ms between steps
 		}
-		time.Sleep(time.Duration(delayMs) * time.Millisecond)
+		m.sleepFunc(time.Duration(delayMs) * time.Millisecond)
 	}
 
 	// Log completion with failure summary if any failures occurred

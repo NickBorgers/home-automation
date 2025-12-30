@@ -1502,6 +1502,8 @@ func TestFadeInSpeaker_SafeUnmuteSequence(t *testing.T) {
 
 	// NOT read-only so service calls actually go through
 	manager := NewManager(mockHA, stateManager, config, logger, false, timeProvider)
+	// Skip sleep delays in tests (fade-in uses very slow timing to match Node-RED behavior)
+	manager.SetSleepFunc(func(d time.Duration) {})
 
 	// Set up musicPlaybackType so fade-in doesn't abort early
 	if err := stateManager.SetString("musicPlaybackType", "evening"); err != nil {
@@ -1594,6 +1596,8 @@ func TestFadeInSpeaker_VolumeNormalization(t *testing.T) {
 			fixedTime := time.Date(2025, 1, 6, 9, 0, 0, 0, time.UTC)
 			timeProvider := FixedTimeProvider{FixedTime: fixedTime}
 			manager := NewManager(mockHA, stateManager, config, logger, false, timeProvider)
+			// Skip sleep delays in tests (fade-in uses very slow timing to match Node-RED behavior)
+			manager.SetSleepFunc(func(d time.Duration) {})
 
 			// Set up musicPlaybackType so fade-in doesn't abort
 			if err := stateManager.SetString("musicPlaybackType", "evening"); err != nil {
@@ -1646,6 +1650,8 @@ func TestFadeInSpeaker_InitialVolumeSetFailure(t *testing.T) {
 	fixedTime := time.Date(2025, 1, 6, 9, 0, 0, 0, time.UTC)
 	timeProvider := FixedTimeProvider{FixedTime: fixedTime}
 	manager := NewManager(mockHA, stateManager, config, logger, false, timeProvider)
+	// Skip sleep delays in tests (fade-in uses very slow timing to match Node-RED behavior)
+	manager.SetSleepFunc(func(d time.Duration) {})
 
 	// Set up musicPlaybackType
 	if err := stateManager.SetString("musicPlaybackType", "evening"); err != nil {
@@ -1683,6 +1689,8 @@ func TestFadeInSpeaker_UnmuteFailure(t *testing.T) {
 	fixedTime := time.Date(2025, 1, 6, 9, 0, 0, 0, time.UTC)
 	timeProvider := FixedTimeProvider{FixedTime: fixedTime}
 	manager := NewManager(mockHA, stateManager, config, logger, false, timeProvider)
+	// Skip sleep delays in tests (fade-in uses very slow timing to match Node-RED behavior)
+	manager.SetSleepFunc(func(d time.Duration) {})
 
 	// Set up musicPlaybackType
 	if err := stateManager.SetString("musicPlaybackType", "evening"); err != nil {
