@@ -76,10 +76,30 @@ func (b *Buffer) Add(event Event) {
 // If limit is 0, all matching events are returned.
 // If a log file is configured, events are read from the file for persistence across restarts.
 func (b *Buffer) GetEvents(since time.Time, limit int) []Event {
-	// If we have a log file configured, read from it
+	// If we have a log file configured, read from it using efficient reverse reading
 	if b.logFilePath != "" {
-		events, err := ReadEventsFromFile(b.logFilePath, since, limit)
+		// Use reverse reading to efficiently get only the last N events
+		// instead of parsing the entire file
+		maxEvents := limit
+		if maxEvents <= 0 {
+			maxEvents = DefaultBufferSize
+		}
+		events, err := ReadEventsFromFileReverse(b.logFilePath, maxEvents)
 		if err == nil && len(events) > 0 {
+			// Apply since filter if needed
+			if !since.IsZero() {
+				filtered := make([]Event, 0, len(events))
+				for _, e := range events {
+					if e.Timestamp.After(since) {
+						filtered = append(filtered, e)
+					}
+				}
+				events = filtered
+			}
+			// Apply limit if needed
+			if limit > 0 && len(events) > limit {
+				events = events[len(events)-limit:]
+			}
 			return events
 		}
 		// Fall through to in-memory buffer if file read fails
@@ -104,8 +124,8 @@ func (b *Buffer) GetEvents(since time.Time, limit int) []Event {
 		idx := (start + i) % b.size
 		event := b.events[idx]
 
-		// Filter by timestamp
-		if !since.IsZero() && event.Timestamp.Before(since) {
+		// Filter by timestamp - only include events strictly after 'since'
+		if !since.IsZero() && !event.Timestamp.After(since) {
 			continue
 		}
 
@@ -120,16 +140,10 @@ func (b *Buffer) GetEvents(since time.Time, limit int) []Event {
 	return result
 }
 
-// Count returns the number of events currently in the buffer (or file if configured).
+// Count returns the number of events currently in the in-memory buffer.
+// For file-backed buffers, this returns the count since application start,
+// not the total file size (which would require reading the entire file).
 func (b *Buffer) Count() int {
-	// If file-backed, count events from file
-	if b.logFilePath != "" {
-		events, err := ReadEventsFromFile(b.logFilePath, time.Time{}, 0)
-		if err == nil {
-			return len(events)
-		}
-	}
-
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 	return b.count
