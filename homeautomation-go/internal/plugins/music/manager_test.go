@@ -1880,6 +1880,242 @@ func TestCallServiceWithRetry_SpeakerNotAvailable(t *testing.T) {
 	}
 }
 
+// TestBreakSpeakerGroups verifies that breakSpeakerGroups() calls unjoin
+// on all participants to break them from existing groups.
+func TestBreakSpeakerGroups(t *testing.T) {
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	config := &MusicConfig{Music: map[string]MusicMode{}}
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+
+	// Use no-op sleep to make test fast
+	manager.SetSleepFunc(func(d time.Duration) {})
+
+	// Clear any previous calls
+	mockClient.ClearServiceCalls()
+
+	participants := []ParticipantWithVolume{
+		{PlayerName: "Kitchen", Volume: 9},
+		{PlayerName: "Living Room", Volume: 10},
+		{PlayerName: "Bedroom", Volume: 8},
+	}
+
+	manager.breakSpeakerGroups(participants)
+
+	// Verify unjoin was called for each speaker
+	calls := mockClient.GetServiceCalls()
+
+	unjoinCalls := 0
+	unjoinedSpeakers := make(map[string]bool)
+	for _, call := range calls {
+		if call.Domain == "media_player" && call.Service == "unjoin" {
+			unjoinCalls++
+			entityID, ok := call.Data["entity_id"].(string)
+			if ok {
+				unjoinedSpeakers[entityID] = true
+			}
+		}
+	}
+
+	// Should have exactly 3 unjoin calls (one per speaker)
+	if unjoinCalls != 3 {
+		t.Errorf("Expected 3 unjoin calls, got %d", unjoinCalls)
+	}
+
+	// Verify each speaker was unjoined
+	expectedSpeakers := []string{
+		"media_player.kitchen",
+		"media_player.living_room",
+		"media_player.bedroom",
+	}
+	for _, expected := range expectedSpeakers {
+		if !unjoinedSpeakers[expected] {
+			t.Errorf("Expected unjoin call for %s", expected)
+		}
+	}
+}
+
+// TestBreakSpeakerGroups_UnjoinFailure verifies that breakSpeakerGroups()
+// continues processing even if some unjoin calls fail.
+func TestBreakSpeakerGroups_UnjoinFailure(t *testing.T) {
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	config := &MusicConfig{Music: map[string]MusicMode{}}
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+
+	// Use no-op sleep to make test fast
+	manager.SetSleepFunc(func(d time.Duration) {})
+
+	// Set up speakers in mock so callServiceWithRetry can find them on retry
+	mockClient.SetState("media_player.kitchen", "idle", nil)
+	mockClient.SetState("media_player.living_room", "idle", nil)
+
+	// Configure first unjoin to fail (will succeed on retry since speakers exist)
+	mockClient.SetServiceFailCount("media_player", "unjoin", 1, fmt.Errorf("speaker not reachable"))
+
+	participants := []ParticipantWithVolume{
+		{PlayerName: "Kitchen", Volume: 9},
+		{PlayerName: "Living Room", Volume: 10},
+	}
+
+	// Should not panic or return error - just logs warning on initial failure, then succeeds on retry
+	manager.breakSpeakerGroups(participants)
+
+	// Verify speakers were processed
+	calls := mockClient.GetServiceCalls()
+	unjoinCalls := 0
+	unjoinedSpeakers := make(map[string]bool)
+	for _, call := range calls {
+		if call.Domain == "media_player" && call.Service == "unjoin" {
+			unjoinCalls++
+			if entityID, ok := call.Data["entity_id"].(string); ok {
+				unjoinedSpeakers[entityID] = true
+			}
+		}
+	}
+
+	// Should have at least 2 unjoin calls (Kitchen may have retry + Living Room)
+	if unjoinCalls < 2 {
+		t.Errorf("Expected at least 2 unjoin calls, got %d", unjoinCalls)
+	}
+
+	// Both speakers should have been attempted
+	if !unjoinedSpeakers["media_player.kitchen"] {
+		t.Error("Expected unjoin call for media_player.kitchen")
+	}
+	if !unjoinedSpeakers["media_player.living_room"] {
+		t.Error("Expected unjoin call for media_player.living_room")
+	}
+}
+
+// TestExecutePlayback_BreakThenBuildSequence verifies that executePlayback()
+// calls breakSpeakerGroups() before buildSpeakerGroup().
+func TestExecutePlayback_BreakThenBuildSequence(t *testing.T) {
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+
+	// Set up state variables for mute conditions
+	_ = stateManager.SetBool("isTVPlaying", false)
+	_ = stateManager.SetString("musicPlaybackType", "day")
+
+	config := &MusicConfig{Music: map[string]MusicMode{}}
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+
+	// Use no-op sleep to make test fast
+	manager.SetSleepFunc(func(d time.Duration) {})
+
+	// Clear any previous calls
+	mockClient.ClearServiceCalls()
+
+	participants := []ParticipantWithVolume{
+		{PlayerName: "Kitchen", BaseVolume: 9, Volume: 9, LeaveMutedIf: []MuteCondition{}},
+		{PlayerName: "Living Room", BaseVolume: 10, Volume: 10, LeaveMutedIf: []MuteCondition{}},
+	}
+
+	option := PlaybackOption{
+		URI:              "spotify:playlist:test",
+		MediaType:        "playlist",
+		VolumeMultiplier: 1.0,
+	}
+
+	_, err := manager.executePlayback("day", option, participants, "Kitchen")
+	if err != nil {
+		t.Fatalf("executePlayback() failed: %v", err)
+	}
+
+	// Get all service calls
+	calls := mockClient.GetServiceCalls()
+
+	// Find the indices of unjoin and join calls
+	var firstUnjoinIndex, firstJoinIndex int = -1, -1
+	for i, call := range calls {
+		if call.Domain == "media_player" && call.Service == "unjoin" && firstUnjoinIndex == -1 {
+			firstUnjoinIndex = i
+		}
+		if call.Domain == "media_player" && call.Service == "join" && firstJoinIndex == -1 {
+			firstJoinIndex = i
+		}
+	}
+
+	// Verify both operations occurred
+	if firstUnjoinIndex == -1 {
+		t.Error("Expected unjoin calls to break existing groups")
+	}
+	if firstJoinIndex == -1 {
+		t.Error("Expected join call to build new group")
+	}
+
+	// CRITICAL: Verify break happens BEFORE build
+	if firstUnjoinIndex >= firstJoinIndex {
+		t.Errorf("SEQUENCE ERROR: unjoin (index %d) must come BEFORE join (index %d)",
+			firstUnjoinIndex, firstJoinIndex)
+	}
+}
+
+// TestExecutePlayback_BreakThenBuildSequence_SingleSpeaker verifies that
+// breakSpeakerGroups() is still called even for a single speaker.
+func TestExecutePlayback_BreakThenBuildSequence_SingleSpeaker(t *testing.T) {
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+
+	_ = stateManager.SetString("musicPlaybackType", "day")
+
+	config := &MusicConfig{Music: map[string]MusicMode{}}
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+
+	// Use no-op sleep to make test fast
+	manager.SetSleepFunc(func(d time.Duration) {})
+
+	// Clear any previous calls
+	mockClient.ClearServiceCalls()
+
+	participants := []ParticipantWithVolume{
+		{PlayerName: "Kitchen", BaseVolume: 9, Volume: 9, LeaveMutedIf: []MuteCondition{}},
+	}
+
+	option := PlaybackOption{
+		URI:              "spotify:playlist:test",
+		MediaType:        "playlist",
+		VolumeMultiplier: 1.0,
+	}
+
+	_, err := manager.executePlayback("day", option, participants, "Kitchen")
+	if err != nil {
+		t.Fatalf("executePlayback() failed: %v", err)
+	}
+
+	// Get all service calls
+	calls := mockClient.GetServiceCalls()
+
+	// Verify unjoin was still called for the single speaker
+	unjoinCalls := 0
+	for _, call := range calls {
+		if call.Domain == "media_player" && call.Service == "unjoin" {
+			unjoinCalls++
+		}
+	}
+
+	if unjoinCalls != 1 {
+		t.Errorf("Expected 1 unjoin call for single speaker, got %d", unjoinCalls)
+	}
+
+	// Verify no join call (single speaker doesn't need grouping)
+	joinCalls := 0
+	for _, call := range calls {
+		if call.Domain == "media_player" && call.Service == "join" {
+			joinCalls++
+		}
+	}
+
+	if joinCalls != 0 {
+		t.Errorf("Expected 0 join calls for single speaker, got %d", joinCalls)
+	}
+}
+
 // TestStartValidatesSpeakers verifies that Start() refreshes and validates
 // configured speakers on startup.
 func TestStartValidatesSpeakers(t *testing.T) {
