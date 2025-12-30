@@ -329,6 +329,12 @@ func (m *Manager) SetBool(key string, value bool) error {
 		return nil
 	}
 
+	// Skip HA sync if no client (e.g., in tests)
+	if m.client == nil {
+		m.notifySubscribers(key, oldValue, value)
+		return nil
+	}
+
 	// Sync to HA
 	entityName := extractEntityName(variable.EntityID)
 	if err := m.client.SetInputBoolean(entityName, value); err != nil {
@@ -404,6 +410,12 @@ func (m *Manager) SetString(key string, value string) error {
 		return nil
 	}
 
+	// Skip HA sync if no client (e.g., in tests)
+	if m.client == nil {
+		m.notifySubscribers(key, oldValue, value)
+		return nil
+	}
+
 	// Sync to HA
 	entityName := extractEntityName(variable.EntityID)
 	if err := m.client.SetInputText(entityName, value); err != nil {
@@ -475,6 +487,12 @@ func (m *Manager) SetNumber(key string, value float64) error {
 
 	// Skip HA sync for local-only variables, but still notify subscribers
 	if variable.LocalOnly {
+		m.notifySubscribers(key, oldValue, value)
+		return nil
+	}
+
+	// Skip HA sync if no client (e.g., in tests)
+	if m.client == nil {
 		m.notifySubscribers(key, oldValue, value)
 		return nil
 	}
@@ -557,6 +575,12 @@ func (m *Manager) SetJSON(key string, value interface{}) error {
 		return nil
 	}
 
+	// Skip HA sync if no client (e.g., in tests)
+	if m.client == nil {
+		m.notifySubscribers(key, oldValue, value)
+		return nil
+	}
+
 	// Convert to JSON string for HA
 	jsonBytes, err := json.Marshal(value)
 	if err != nil {
@@ -617,6 +641,11 @@ func (m *Manager) CompareAndSwapBool(key string, old, new bool) (bool, error) {
 
 	// Release lock before calling HA client to avoid deadlock
 	m.cacheMu.Unlock()
+
+	// Skip HA sync if no client (e.g., in tests)
+	if m.client == nil {
+		return true, nil
+	}
 
 	// Sync to HA
 	entityName := extractEntityName(variable.EntityID)
