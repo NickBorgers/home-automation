@@ -316,6 +316,12 @@ lint-go:
 # These targets match what CI runs, allowing local verification before push
 # ============================================================================
 
+#test-48hr-simulation: @ Run 48-hour timezone simulation tests with verbose output
+test-48hr-simulation:
+	@echo "🕐 Running 48-hour timezone simulation tests..."
+	cd homeautomation-go && go test ./test/integration/... -race -v -run "TestScenario_48Hour" -timeout=5m
+	@echo "✅ 48-hour simulation tests passed"
+
 #ci-style-checks: @ Run style/lint checks (used by CI style-checks job)
 ci-style-checks: pre-commit
 	@echo "✅ CI style checks complete"
