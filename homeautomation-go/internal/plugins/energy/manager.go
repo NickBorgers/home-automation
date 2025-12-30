@@ -935,8 +935,8 @@ func (m *Manager) runCalibrationCycle() {
 		return
 	}
 
-	m.logger.Debug("Starting calibration cycle (staggered - one device at a time)",
-		zap.Int("light_count", len(lights)))
+	m.logger.Info("Starting calibration cycle",
+		zap.Int("device_count", len(lights)))
 
 	// Calibrate each device one at a time so other devices remain visible
 	for i, lightEntity := range lights {
@@ -991,7 +991,7 @@ func (m *Manager) runCalibrationCycle() {
 		m.restoreLightAfterCalibration(lightEntity)
 	}
 
-	m.logger.Debug("Calibration cycle complete for all devices")
+	m.logger.Info("Calibration cycle complete")
 }
 
 // restoreLightAfterCalibration completes calibration for a single light entity.
