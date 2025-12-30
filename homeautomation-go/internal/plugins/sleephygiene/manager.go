@@ -287,25 +287,45 @@ func (m *Manager) checkTimeTriggers() {
 		return
 	}
 
-	const ONE_HOUR = time.Hour
+	// Maximum lookback window - don't trigger events that are too old
+	// This prevents triggering stale events after midnight restarts
+	const maxLookback = 3 * time.Hour
+
+	// Debug logging to diagnose trigger timing issues
+	nowInTz := now.In(m.timezone)
+	stopScreensElapsed := now.Sub(schedule.StopScreens)
+	goToBedElapsed := now.Sub(schedule.GoToBed)
+
+	m.logger.Info("Checking time triggers",
+		zap.Time("now_utc", now),
+		zap.String("now_local", nowInTz.Format("15:04:05 MST")),
+		zap.String("stop_screens_time", schedule.StopScreens.Format("15:04:05 MST")),
+		zap.String("go_to_bed_time", schedule.GoToBed.Format("15:04:05 MST")),
+		zap.Duration("stop_screens_elapsed", stopScreensElapsed),
+		zap.Duration("go_to_bed_elapsed", goToBedElapsed),
+		zap.Int("weekday", int(nowInTz.Weekday())))
 
 	// Check stop_screens trigger
-	if now.After(schedule.StopScreens) && now.Before(schedule.StopScreens.Add(ONE_HOUR)) {
+	// Fire if: past the trigger time, within lookback window, not already triggered today
+	if now.After(schedule.StopScreens) && stopScreensElapsed <= maxLookback {
 		if _, triggered := m.triggeredToday["stop_screens"]; !triggered {
 			m.logger.Info("Triggering stop_screens",
 				zap.Time("stop_screens_time", schedule.StopScreens),
-				zap.Time("now", now))
+				zap.Time("now", now),
+				zap.Duration("elapsed", stopScreensElapsed))
 			m.triggeredToday["stop_screens"] = now
 			m.handleStopScreens()
 		}
 	}
 
 	// Check go_to_bed trigger
-	if now.After(schedule.GoToBed) && now.Before(schedule.GoToBed.Add(ONE_HOUR)) {
+	// Fire if: past the trigger time, within lookback window, not already triggered today
+	if now.After(schedule.GoToBed) && goToBedElapsed <= maxLookback {
 		if _, triggered := m.triggeredToday["go_to_bed"]; !triggered {
 			m.logger.Info("Triggering go_to_bed",
 				zap.Time("go_to_bed_time", schedule.GoToBed),
-				zap.Time("now", now))
+				zap.Time("now", now),
+				zap.Duration("elapsed", goToBedElapsed))
 			m.triggeredToday["go_to_bed"] = now
 			m.handleGoToBed()
 		}
