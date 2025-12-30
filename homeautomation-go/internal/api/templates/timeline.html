@@ -463,6 +463,7 @@
         </div>
         <div class="button-row">
             <button class="btn-primary" onclick="parseAndRender()">Visualize Timeline</button>
+            <button class="btn-primary" onclick="fetchRecentLogs()">Fetch Recent Logs</button>
             <button class="btn-secondary" onclick="loadSampleData()">Load Sample Data</button>
             <button class="btn-secondary" onclick="clearAll()">Clear</button>
         </div>
@@ -1031,6 +1032,61 @@
                     <p>Paste log lines above or upload a log file, then click <strong>Visualize Timeline</strong></p>
                 </div>
             `;
+        }
+
+        async function fetchRecentLogs() {
+            const btn = event.target;
+            const originalText = btn.textContent;
+            btn.textContent = 'Fetching...';
+            btn.disabled = true;
+
+            try {
+                const response = await fetch('/api/timeline/events?limit=5000');
+                if (!response.ok) {
+                    throw new Error(`HTTP error: ${response.status}`);
+                }
+
+                const data = await response.json();
+
+                if (!data.events || data.events.length === 0) {
+                    alert('No log events found in the buffer. The application may have just started or no state changes have occurred yet.');
+                    return;
+                }
+
+                // Convert API response events to the format expected by parseLogLines
+                // The API returns: {ts, level, msg, fields: {key, old, new, ...}}
+                // parseLogLines expects: {ts, level, msg, key, old, new, ...}
+                const logLines = data.events.map(event => {
+                    const line = {
+                        level: event.level,
+                        ts: event.ts,
+                        msg: event.msg
+                    };
+                    // Merge fields into the line object
+                    if (event.fields) {
+                        Object.assign(line, event.fields);
+                    }
+                    return JSON.stringify(line);
+                }).join('\n');
+
+                // Put the converted logs in the textarea
+                document.getElementById('logInput').value = logLines;
+                document.getElementById('fileName').textContent = `Fetched ${data.events.length} events from server`;
+
+                // Show buffer info
+                const overflow = data.overflow ? ' (buffer has overflowed - oldest events lost)' : '';
+                console.log(`Fetched ${data.events.length} events (buffer: ${data.count}/${data.capacity})${overflow}`);
+
+                // Automatically render the timeline
+                parseAndRender();
+
+            } catch (err) {
+                console.error('Failed to fetch logs:', err);
+                alert(`Failed to fetch logs from server: ${err.message}\n\nMake sure the application is running and accessible.`);
+            } finally {
+                btn.textContent = originalText;
+                btn.disabled = false;
+            }
         }
     </script>
 </body>

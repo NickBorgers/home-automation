@@ -12,6 +12,7 @@ import (
 	"homeautomation/internal/api"
 	"homeautomation/internal/devserver"
 	"homeautomation/internal/ha"
+	"homeautomation/internal/logbuffer"
 	"homeautomation/internal/plugins/reset"
 	"homeautomation/internal/shadowstate"
 	"homeautomation/internal/state"
@@ -36,16 +37,29 @@ import (
 )
 
 func main() {
+	// Create in-memory log buffer for timeline visualization
+	// This stores the last 10,000 log events for the /api/timeline/events endpoint
+	logBuffer := logbuffer.NewBuffer(logbuffer.DefaultBufferSize)
+
 	// Initialize logger with stdout output (better for docker logs)
+	// and ring buffer capture for timeline visualization
 	config := zap.NewProductionConfig()
 	config.OutputPaths = []string{"stdout"}
 	config.ErrorOutputPaths = []string{"stdout"}
 	config.EncoderConfig.EncodeTime = zapcore.ISO8601TimeEncoder
-	logger, err := config.Build()
+
+	// Build the production logger core for stdout
+	stdoutCore, err := buildStdoutCore(config)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to create logger: %v\n", err)
 		os.Exit(1)
 	}
+
+	// Create buffer core for timeline visualization (capture INFO and above)
+	bufferCore := logbuffer.NewBufferCore(logBuffer, zapcore.InfoLevel)
+
+	// Combine both cores using zap.NewTee
+	logger := zap.New(zapcore.NewTee(stdoutCore, bufferCore))
 	defer logger.Sync()
 
 	// Load environment variables from .env file if present
@@ -184,7 +198,7 @@ func main() {
 	logger.Info("Subscription Registry created for automatic input tracking")
 
 	// Start HTTP API server
-	apiServer := api.NewServer(stateManager, shadowTracker, logger, httpPort, timezone)
+	apiServer := api.NewServer(stateManager, shadowTracker, logBuffer, logger, httpPort, timezone)
 	if err := apiServer.Start(); err != nil {
 		logger.Fatal("Failed to start HTTP API server", zap.Error(err))
 	}
@@ -347,4 +361,17 @@ func subscribeToChanges(manager *state.Manager, logger *zap.Logger) {
 
 	logger.Info("Subscribed to all state change notifications",
 		zap.Int("variable_count", len(state.AllVariables)))
+}
+
+// buildStdoutCore creates a zap core that writes to stdout with the given config.
+func buildStdoutCore(config zap.Config) (zapcore.Core, error) {
+	encoder := zapcore.NewJSONEncoder(config.EncoderConfig)
+
+	// Create stdout sink
+	stdoutSink, _, err := zap.Open("stdout")
+	if err != nil {
+		return nil, fmt.Errorf("failed to open stdout: %w", err)
+	}
+
+	return zapcore.NewCore(encoder, stdoutSink, config.Level), nil
 }
