@@ -518,18 +518,18 @@ func TestCalculator_CalculateDayPhaseAllCases(t *testing.T) {
 					now.Add(13*time.Hour),                // night
 				)
 			},
-			// Schedule dusk is in the future (20:00), but this is pre-dawn morning
-			// Should return night, NOT sunset - but only if before noon
+			// Schedule times relative to now to ensure consistent behavior across test run times
+			// Schedule dusk is always in the future so we test the "before scheduled dusk" path
 			schedule: &config.ParsedSchedule{
 				BeginWake: time.Date(now.Year(), now.Month(), now.Day(), 5, 0, 0, 0, now.Location()),
 				Wake:      time.Date(now.Year(), now.Month(), now.Day(), 7, 0, 0, 0, now.Location()),
-				Dusk:      time.Date(now.Year(), now.Month(), now.Day(), 20, 0, 0, 0, now.Location()),
-				Winddown:  time.Date(now.Year(), now.Month(), now.Day(), 21, 0, 0, 0, now.Location()),
-				Night:     time.Date(now.Year(), now.Month(), now.Day(), 23, 0, 0, 0, now.Location()),
+				Dusk:      now.Add(4 * time.Hour), // Schedule dusk in the future
+				Winddown:  now.Add(5 * time.Hour), // Schedule winddown in the future
+				Night:     now.Add(6 * time.Hour), // Schedule night in the future
 			},
 			// Before 6am: always night
-			// 6am-noon + sun says night = pre-dawn = Night
-			// After noon + sun says night = evening delay = Sunset
+			// 6am-noon + sun says night = pre-dawn = Night (tested with schedule.Dusk in future)
+			// After noon + sun says night = evening delay = Sunset (schedule.Dusk still in future)
 			expected: func() DayPhase {
 				if now.Hour() < 12 {
 					return DayPhaseNight // Pre-dawn or early morning
