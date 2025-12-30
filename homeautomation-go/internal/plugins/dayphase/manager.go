@@ -259,8 +259,8 @@ func (m *Manager) updateShadowInputs() {
 	// Get current schedule info if available (using configured timezone)
 	schedule, err := m.configLoader.GetTodaysScheduleInTimezone(m.timezone)
 	if err == nil && schedule != nil {
-		inputs["scheduleWake"] = schedule.Wake.Format(time.RFC3339)
-		inputs["scheduleBeginWake"] = schedule.BeginWake.Format(time.RFC3339)
+		inputs["scheduleBackupWakeTime"] = schedule.BackupWakeTime.Format(time.RFC3339)
+		inputs["scheduleBeginBackupWake"] = schedule.BeginBackupWake.Format(time.RFC3339)
 		inputs["scheduleDusk"] = schedule.Dusk.Format(time.RFC3339)
 		inputs["scheduleWinddown"] = schedule.Winddown.Format(time.RFC3339)
 		inputs["scheduleNight"] = schedule.Night.Format(time.RFC3339)

@@ -40,6 +40,11 @@ const (
 	eightSleepNickSensorEntity     = "sensor.nick_s_eight_sleep_side_bed_state_type"
 	eightSleepCarolineSensorEntity = "sensor.caroline_s_eight_sleep_side_bed_state_type"
 	eightSleepAlarmState           = "alarm"
+
+	// Sleep stage sensors for availability checking (more reliable than bed state type)
+	eightSleepNickSleepStageSensor     = "sensor.nick_s_eight_sleep_side_sleep_stage"
+	eightSleepCarolineSleepStageSensor = "sensor.caroline_s_eight_sleep_side_sleep_stage"
+	eightSleepUnavailableState         = "unavailable"
 )
 
 // Wake sequence timing constants
@@ -272,9 +277,9 @@ func (m *Manager) runTimerLoop() {
 	}
 }
 
-// checkTimeTriggers checks schedule-based triggers (stop_screens and go_to_bed)
-// Note: Wake-up is triggered by Eight Sleep alarm sensors via handleEightSleepAlarm,
-// which calls handleBeginWake (fades music) and schedules handleWake (lights) after a delay
+// checkTimeTriggers checks schedule-based triggers (stop_screens, go_to_bed, and backup wake)
+// Note: Primary wake-up is triggered by Eight Sleep alarm sensors via handleEightSleepAlarm.
+// Backup wake only triggers when Eight Sleep is unavailable (e.g., Internet outage).
 func (m *Manager) checkTimeTriggers() {
 	now := m.timeProvider.Now()
 
@@ -308,6 +313,23 @@ func (m *Manager) checkTimeTriggers() {
 				zap.Time("now", now))
 			m.triggeredToday["go_to_bed"] = now
 			m.handleGoToBed()
+		}
+	}
+
+	// Check backup wake time trigger (only if Eight Sleep is unavailable)
+	// This provides a fallback wake mechanism when the Eight Sleep integration is down
+	eightSleepUnavailable := m.isEightSleepUnavailable()
+	m.updateEightSleepAvailability(!eightSleepUnavailable)
+
+	if eightSleepUnavailable {
+		if now.After(schedule.BeginBackupWake) && now.Before(schedule.BeginBackupWake.Add(ONE_HOUR)) {
+			if _, triggered := m.triggeredToday["begin_wake"]; !triggered {
+				m.logger.Info("Eight Sleep unavailable, triggering backup wake",
+					zap.Time("begin_backup_wake_time", schedule.BeginBackupWake),
+					zap.Time("now", now))
+				m.triggeredToday["begin_wake"] = now
+				m.handleBeginWake()
+			}
 		}
 	}
 }
@@ -885,6 +907,48 @@ func isSameDay(t1, t2 time.Time) bool {
 	y1, m1, d1 := t1.Date()
 	y2, m2, d2 := t2.Date()
 	return y1 == y2 && m1 == m2 && d1 == d2
+}
+
+// isEightSleepUnavailable checks if the Eight Sleep integration is unavailable
+// Returns true if BOTH Eight Sleep sensors are unavailable or errored.
+// If at least one sensor is available, returns false (Eight Sleep can still be used).
+func (m *Manager) isEightSleepUnavailable() bool {
+	// Check Nick's sleep stage sensor
+	nickState, err := m.haClient.GetState(eightSleepNickSleepStageSensor)
+	if err == nil && nickState.State != eightSleepUnavailableState {
+		m.logger.Debug("Nick's Eight Sleep sensor is available",
+			zap.String("state", nickState.State))
+		return false // Nick's sensor is available
+	}
+
+	// Check Caroline's sleep stage sensor
+	carolineState, err := m.haClient.GetState(eightSleepCarolineSleepStageSensor)
+	if err == nil && carolineState.State != eightSleepUnavailableState {
+		m.logger.Debug("Caroline's Eight Sleep sensor is available",
+			zap.String("state", carolineState.State))
+		return false // Caroline's sensor is available
+	}
+
+	// Both sensors are unavailable or errored
+	m.logger.Debug("Eight Sleep is unavailable",
+		zap.String("nick_state", func() string {
+			if nickState != nil {
+				return nickState.State
+			}
+			return "error"
+		}()),
+		zap.String("caroline_state", func() string {
+			if carolineState != nil {
+				return carolineState.State
+			}
+			return "error"
+		}()))
+	return true
+}
+
+// updateEightSleepAvailability updates the shadow state with Eight Sleep availability info
+func (m *Manager) updateEightSleepAvailability(available bool) {
+	m.shadowTracker.UpdateEightSleepAvailability(available, m.timeProvider.Now())
 }
 
 // captureCurrentInputs captures all current input values for shadow state
