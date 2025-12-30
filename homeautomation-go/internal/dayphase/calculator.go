@@ -2,8 +2,10 @@ package dayphase
 
 import (
 	"fmt"
+	"sync"
 	"time"
 
+	"homeautomation/internal/clock"
 	"homeautomation/internal/config"
 
 	"github.com/sixdouglas/suncalc"
@@ -38,6 +40,10 @@ type Calculator struct {
 	latitude  float64
 	longitude float64
 	logger    *zap.Logger
+	clock     clock.Clock
+
+	// Mutex protects sunTimes and lastUpdate from concurrent access
+	mu sync.RWMutex
 
 	// Cached sun times from suncalc (updated every 6 hours)
 	// These match Node-RED's suncalc exactly
@@ -52,14 +58,20 @@ func NewCalculator(latitude, longitude float64, logger *zap.Logger) *Calculator 
 		latitude:  latitude,
 		longitude: longitude,
 		logger:    logger,
+		clock:     clock.NewRealClock(),
 		sunTimes:  make(map[string]time.Time),
 	}
+}
+
+// SetClock allows injection of a mock clock for testing
+func (c *Calculator) SetClock(clk clock.Clock) {
+	c.clock = clk
 }
 
 // UpdateSunTimes calculates sun event times for today using suncalc
 // This uses the same algorithm as Node-RED's suncalc library
 func (c *Calculator) UpdateSunTimes() error {
-	now := time.Now()
+	now := c.clock.Now()
 
 	// Get sun times using suncalc - this matches Node-RED exactly
 	// The library uses the same sun angle calculations:
@@ -69,6 +81,9 @@ func (c *Calculator) UpdateSunTimes() error {
 	// - nightEnd/night: -18° (astronomical twilight)
 	// - goldenHourEnd/goldenHour: 6°
 	times := suncalc.GetTimes(now, c.latitude, c.longitude)
+
+	// Lock for writing to sunTimes map
+	c.mu.Lock()
 
 	// Store all the times we need
 	c.sunTimes["dawn"] = times[suncalc.Dawn].Value
@@ -88,17 +103,31 @@ func (c *Calculator) UpdateSunTimes() error {
 
 	c.lastUpdate = now
 
+	// Copy values for logging (avoid holding lock during I/O)
+	dawn := c.sunTimes["dawn"]
+	sunrise := c.sunTimes["sunrise"]
+	sunriseEnd := c.sunTimes["sunriseEnd"]
+	goldenHourEnd := c.sunTimes["goldenHourEnd"]
+	goldenHour := c.sunTimes["goldenHour"]
+	sunsetStart := c.sunTimes["sunsetStart"]
+	sunset := c.sunTimes["sunset"]
+	dusk := c.sunTimes["dusk"]
+	nauticalDusk := c.sunTimes["nauticalDusk"]
+	night := c.sunTimes["night"]
+
+	c.mu.Unlock()
+
 	c.logger.Info("Sun times updated (using suncalc)",
-		zap.Time("dawn", c.sunTimes["dawn"]),
-		zap.Time("sunrise", c.sunTimes["sunrise"]),
-		zap.Time("sunriseEnd", c.sunTimes["sunriseEnd"]),
-		zap.Time("goldenHourEnd", c.sunTimes["goldenHourEnd"]),
-		zap.Time("goldenHour", c.sunTimes["goldenHour"]),
-		zap.Time("sunsetStart", c.sunTimes["sunsetStart"]),
-		zap.Time("sunset", c.sunTimes["sunset"]),
-		zap.Time("dusk", c.sunTimes["dusk"]),
-		zap.Time("nauticalDusk", c.sunTimes["nauticalDusk"]),
-		zap.Time("night", c.sunTimes["night"]))
+		zap.Time("dawn", dawn),
+		zap.Time("sunrise", sunrise),
+		zap.Time("sunriseEnd", sunriseEnd),
+		zap.Time("goldenHourEnd", goldenHourEnd),
+		zap.Time("goldenHour", goldenHour),
+		zap.Time("sunsetStart", sunsetStart),
+		zap.Time("sunset", sunset),
+		zap.Time("dusk", dusk),
+		zap.Time("nauticalDusk", nauticalDusk),
+		zap.Time("night", night))
 
 	return nil
 }
@@ -114,12 +143,21 @@ func (c *Calculator) UpdateSunTimes() error {
 //   - goldenHourEnd -> "day"
 //   - everything else -> "day"
 func (c *Calculator) GetSunEvent() SunEvent {
-	now := time.Now()
+	now := c.clock.Now()
+
+	// Check if update is needed (read lock)
+	c.mu.RLock()
+	needsUpdate := c.lastUpdate.IsZero() || c.clock.Since(c.lastUpdate) > 6*time.Hour
+	c.mu.RUnlock()
 
 	// Ensure we have recent sun times
-	if c.lastUpdate.IsZero() || time.Since(c.lastUpdate) > 6*time.Hour {
+	if needsUpdate {
 		c.UpdateSunTimes()
 	}
+
+	// Read sun times with lock
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 
 	// Match Node-RED's Sun State Summarizer logic
 	// The summarizer receives raw sun events and maps them to simplified states
@@ -151,9 +189,17 @@ func (c *Calculator) GetSunEvent() SunEvent {
 	}
 }
 
-// GetSunTimes returns the cached sun times for debugging/logging
+// GetSunTimes returns a copy of the cached sun times for debugging/logging
 func (c *Calculator) GetSunTimes() map[string]time.Time {
-	return c.sunTimes
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	// Return a copy to avoid race conditions
+	result := make(map[string]time.Time, len(c.sunTimes))
+	for k, v := range c.sunTimes {
+		result[k] = v
+	}
+	return result
 }
 
 // CalculateDayPhase determines the current day phase based on sun event and schedule
@@ -164,7 +210,7 @@ func (c *Calculator) GetSunTimes() map[string]time.Time {
 // - schedule.Night: Don't transition to night until this time
 func (c *Calculator) CalculateDayPhase(schedule *config.ParsedSchedule) DayPhase {
 	sunEvent := c.GetSunEvent()
-	now := time.Now()
+	now := c.clock.Now()
 
 	c.logger.Debug("Calculating day phase",
 		zap.String("sun_event", string(sunEvent)),
@@ -277,12 +323,9 @@ func (c *Calculator) StartPeriodicUpdate() chan struct{} {
 	c.UpdateSunTimes()
 
 	go func() {
-		ticker := time.NewTicker(6 * time.Hour)
-		defer ticker.Stop()
-
 		for {
 			select {
-			case <-ticker.C:
+			case <-c.clock.After(6 * time.Hour):
 				c.logger.Debug("Periodic sun time update")
 				if err := c.UpdateSunTimes(); err != nil {
 					c.logger.Error("Failed to update sun times", zap.Error(err))

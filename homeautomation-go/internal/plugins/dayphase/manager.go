@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 
+	"homeautomation/internal/clock"
 	"homeautomation/internal/config"
 	dayphaselib "homeautomation/internal/dayphase"
 	"homeautomation/internal/ha"
@@ -22,6 +23,7 @@ type Manager struct {
 	logger       *zap.Logger
 	readOnly     bool
 	timezone     *time.Location
+	clock        clock.Clock
 
 	// Control channels
 	stopChan    chan struct{}
@@ -52,6 +54,7 @@ func NewManager(
 	if timezone == nil {
 		timezone = time.Local
 	}
+	clk := clock.NewRealClock()
 	return &Manager{
 		haClient:      haClient,
 		stateManager:  stateManager,
@@ -60,11 +63,19 @@ func NewManager(
 		logger:        logger.Named("dayphase"),
 		readOnly:      readOnly,
 		timezone:      timezone,
+		clock:         clk,
 		stopChan:      make(chan struct{}),
 		stoppedChan:   make(chan struct{}),
 		subscriptions: make([]state.Subscription, 0),
 		shadowTracker: shadowstate.NewDayPhaseTracker(),
 	}
+}
+
+// SetClock allows injection of a mock clock for testing.
+// This also injects the clock into the calculator.
+func (m *Manager) SetClock(clk clock.Clock) {
+	m.clock = clk
+	m.calculator.SetClock(clk)
 }
 
 // GetShadowState returns the current shadow state
@@ -128,12 +139,9 @@ func (m *Manager) Stop() {
 func (m *Manager) periodicUpdate() {
 	defer close(m.stoppedChan)
 
-	ticker := time.NewTicker(5 * time.Minute)
-	defer ticker.Stop()
-
 	for {
 		select {
-		case <-ticker.C:
+		case <-m.clock.After(5 * time.Minute):
 			if err := m.updateSunEventAndDayPhase(); err != nil {
 				m.logger.Error("Failed to update sun event and day phase", zap.Error(err))
 			}
@@ -240,7 +248,7 @@ func (m *Manager) updateShadowInputs() {
 	inputs := make(map[string]interface{})
 
 	// Capture current time (the primary input for day phase calculation)
-	inputs["currentTime"] = time.Now().Format(time.RFC3339)
+	inputs["currentTime"] = m.clock.Now().Format(time.RFC3339)
 
 	// Capture sun times from calculator if available
 	// Note: range over nil map is safe in Go (no iterations)
@@ -272,7 +280,7 @@ func (m *Manager) updateShadowInputs() {
 func (m *Manager) updateNextTransition(currentPhase dayphaselib.DayPhase) {
 	// Use configured timezone for date calculations to avoid off-by-one-day errors
 	// when the system timezone differs from the configured timezone (e.g., Docker in UTC)
-	now := time.Now().In(m.timezone)
+	now := m.clock.Now().In(m.timezone)
 	sunTimes := m.calculator.GetSunTimes()
 
 	var nextTime time.Time
