@@ -173,6 +173,12 @@ func (c *Calculator) CalculateDayPhase(schedule *config.ParsedSchedule) DayPhase
 	// If schedule overrides are available, use them to delay transitions
 	// This prevents lights from getting too dim too early
 	if schedule != nil {
+		c.logger.Debug("Schedule comparison",
+			zap.Time("now", now),
+			zap.Time("schedule_dusk", schedule.Dusk),
+			zap.Time("schedule_night", schedule.Night),
+			zap.Bool("before_dusk", now.Before(schedule.Dusk)),
+			zap.Bool("before_night", now.Before(schedule.Night)))
 		// Early morning (before 6am) is always night, regardless of schedule
 		// This prevents returning sunset phase at 3am when schedule.Dusk is "20:00"
 		// (which would be "in the future" relative to 3am today)

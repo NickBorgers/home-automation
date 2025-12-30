@@ -253,8 +253,16 @@ func (m *Manager) updateShadowInputs() {
 	if err == nil && schedule != nil {
 		inputs["scheduleWake"] = schedule.Wake.Format(time.RFC3339)
 		inputs["scheduleBeginWake"] = schedule.BeginWake.Format(time.RFC3339)
+		inputs["scheduleDusk"] = schedule.Dusk.Format(time.RFC3339)
 		inputs["scheduleWinddown"] = schedule.Winddown.Format(time.RFC3339)
 		inputs["scheduleNight"] = schedule.Night.Format(time.RFC3339)
+	}
+
+	// Add timezone info for debugging
+	if m.timezone != nil {
+		inputs["configuredTimezone"] = m.timezone.String()
+	} else {
+		inputs["configuredTimezone"] = "nil (using time.Local)"
 	}
 
 	m.shadowTracker.UpdateCurrentInputs(inputs)
