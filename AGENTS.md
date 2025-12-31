@@ -16,7 +16,9 @@ The hook runs: code compilation + all tests + race detector + coverage check (�
 
 **Key commands:**
 ```bash
-make pre-push          # Run full validation (same as CI)
+make unit-tests        # Run unit tests WITH CACHING (preferred)
+make integration-tests # Run integration tests WITH CACHING (preferred)
+make pre-push          # Run full validation (same as CI, no cache)
 make pre-commit        # Fast checks only (formatting, linting, build)
 make format-go         # Auto-format code
 make lint-go           # Run linters
@@ -123,7 +125,7 @@ When modifying function signatures:
 1. **Search** for all call sites: `grep -r "FunctionName" .`
 2. **Update** ALL call sites (code + tests + docs)
 3. **Compile check**: `go build ./...`
-4. **Run ALL tests**: `go test -race ./...`
+4. **Run ALL tests**: `make unit-tests && make integration-tests` (uses caching)
 
 ### Documentation Maintenance
 
@@ -168,17 +170,30 @@ A Claude Code hook (`.claude/hooks/check-diagrams.sh`) reminds you when plugin c
 
 ## Running Tests
 
+**⚠️ ALWAYS use cached Makefile targets for tests** - they skip redundant runs when code hasn't changed:
+
+```bash
+# PREFERRED: Uses test caching (skips if code unchanged since last pass)
+make unit-tests           # Unit tests with caching
+make integration-tests    # Integration tests with caching
+
+# No caching (runs every time)
+make test-go              # All tests with race detection (no cache)
+make pre-push             # Full validation (no cache, same as CI)
+
+# Cache management
+.githooks/test-cache.sh --status     # Check cache state
+.githooks/test-cache.sh --clear      # Force re-run next time
+```
+
+**How caching works:** The `.githooks/test-cache.sh` script tracks a content-based hash of the codebase. If nothing changed since the last successful test run, tests are skipped entirely. This saves significant time during development.
+
+**Direct commands (avoid - always bypasses cache):**
 ```bash
 cd homeautomation-go
-
-# All tests with race detection (CI requirement)
-go test -race ./...
-
-# Coverage report
-go test -coverprofile=coverage.out ./... && go tool cover -html=coverage.out
-
-# Integration tests only
-go test -v -race ./test/integration/...
+go test -race ./...                           # Bypasses cache
+go test -coverprofile=coverage.out ./...      # Coverage report
+go test -v -race ./test/integration/...       # Integration only
 ```
 
 **Test Status:** All 11 integration tests passing ✅
@@ -337,7 +352,7 @@ git commit -m "docs: Add screenshot of [feature]"
 | "not enough arguments in call" | Signature changed, call sites not updated | `grep -r "FunctionName" .` and update all |
 | "undefined: X" | Missing dependency | `go mod tidy && go mod download` |
 | Test timeout/deadlock | Missing mutex | Review with `-race` flag |
-| Tests pass locally, fail CI | Race condition or env diff | Run `go test -race ./...` locally |
+| Tests pass locally, fail CI | Race condition or env diff | `make unit-tests && make integration-tests` locally |
 
 ## Migration Status
 
@@ -355,6 +370,6 @@ git commit -m "docs: Add screenshot of [feature]"
 
 ---
 
-**Last Updated:** 2025-12-29
+**Last Updated:** 2025-12-31
 **Go Version:** 1.23
 **Project Status:** Parallel Testing Phase
