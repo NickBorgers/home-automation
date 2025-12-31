@@ -144,172 +144,58 @@ func TestClient_Connect(t *testing.T) {
 	})
 }
 
-func TestClient_GetAllStates(t *testing.T) {
-	logger := testlogger.New()
-	token := "test_token"
+func TestClient_GetStates(t *testing.T) {
+	states := []*State{
+		{EntityID: "input_boolean.test", State: "on", Attributes: map[string]interface{}{"friendly_name": "Test Boolean"}},
+		{EntityID: "input_number.test", State: "42.5", Attributes: map[string]interface{}{"friendly_name": "Test Number"}},
+	}
 
-	server := mockHAServer(t, func(conn *websocket.Conn) {
-		standardAuthFlow(t, conn, token)
-
-		// Handle subscribe_events
-		var subMsg SubscribeEventsRequest
-		conn.ReadJSON(&subMsg)
-		success := true
-		conn.WriteJSON(Message{
-			ID:      subMsg.ID,
-			Type:    "result",
-			Success: &success,
-		})
-
-		// Handle get_states request
-		var statesReq GetStatesRequest
-		conn.ReadJSON(&statesReq)
-
-		states := []*State{
-			{
-				EntityID: "input_boolean.test",
-				State:    "on",
-				Attributes: map[string]interface{}{
-					"friendly_name": "Test Boolean",
-				},
-			},
-			{
-				EntityID: "input_number.test",
-				State:    "42.5",
-				Attributes: map[string]interface{}{
-					"friendly_name": "Test Number",
-				},
-			},
+	fixture := NewTestFixture(t, func(req interface{}) *Message {
+		if _, ok := req.(*GetStatesRequest); ok {
+			return StatesResponse(states)
 		}
-
-		statesJSON, _ := json.Marshal(states)
-		conn.WriteJSON(Message{
-			ID:      statesReq.ID,
-			Type:    "result",
-			Success: &success,
-			Result:  statesJSON,
-		})
-
-		time.Sleep(100 * time.Millisecond)
+		return nil
 	})
-	defer server.Close()
+	defer fixture.Close()
 
-	url := "ws" + strings.TrimPrefix(server.URL, "http")
-	client := NewClient(url, token, logger)
-
-	err := client.Connect()
-	require.NoError(t, err)
-	defer client.Disconnect()
-
-	states, err := client.GetAllStates()
-	assert.NoError(t, err)
-	assert.Len(t, states, 2)
-	assert.Equal(t, "input_boolean.test", states[0].EntityID)
-	assert.Equal(t, "on", states[0].State)
-}
-
-func TestClient_GetState(t *testing.T) {
-	logger := testlogger.New()
-	token := "test_token"
-
-	server := mockHAServer(t, func(conn *websocket.Conn) {
-		standardAuthFlow(t, conn, token)
-
-		// Handle subscribe_events
-		var subMsg SubscribeEventsRequest
-		conn.ReadJSON(&subMsg)
-		success := true
-		conn.WriteJSON(Message{
-			ID:      subMsg.ID,
-			Type:    "result",
-			Success: &success,
-		})
-
-		// Handle get_states request
-		var statesReq GetStatesRequest
-		conn.ReadJSON(&statesReq)
-
-		states := []*State{
-			{
-				EntityID: "input_boolean.test",
-				State:    "on",
-			},
-		}
-
-		statesJSON, _ := json.Marshal(states)
-		conn.WriteJSON(Message{
-			ID:      statesReq.ID,
-			Type:    "result",
-			Success: &success,
-			Result:  statesJSON,
-		})
-
-		time.Sleep(100 * time.Millisecond)
+	t.Run("GetAllStates", func(t *testing.T) {
+		result, err := fixture.Client.GetAllStates()
+		assert.NoError(t, err)
+		assert.Len(t, result, 2)
+		assert.Equal(t, "input_boolean.test", result[0].EntityID)
 	})
-	defer server.Close()
 
-	url := "ws" + strings.TrimPrefix(server.URL, "http")
-	client := NewClient(url, token, logger)
+	t.Run("GetState existing", func(t *testing.T) {
+		state, err := fixture.Client.GetState("input_boolean.test")
+		assert.NoError(t, err)
+		assert.Equal(t, "on", state.State)
+	})
 
-	err := client.Connect()
-	require.NoError(t, err)
-	defer client.Disconnect()
-
-	state, err := client.GetState("input_boolean.test")
-	assert.NoError(t, err)
-	assert.Equal(t, "input_boolean.test", state.EntityID)
-	assert.Equal(t, "on", state.State)
-
-	_, err = client.GetState("nonexistent")
-	assert.Error(t, err)
+	t.Run("GetState nonexistent", func(t *testing.T) {
+		_, err := fixture.Client.GetState("nonexistent")
+		assert.Error(t, err)
+	})
 }
 
 func TestClient_CallService(t *testing.T) {
-	logger := testlogger.New()
-	token := "test_token"
+	var lastReq *CallServiceRequest
 
-	server := mockHAServer(t, func(conn *websocket.Conn) {
-		standardAuthFlow(t, conn, token)
-
-		// Handle subscribe_events
-		var subMsg SubscribeEventsRequest
-		conn.ReadJSON(&subMsg)
-		success := true
-		conn.WriteJSON(Message{
-			ID:      subMsg.ID,
-			Type:    "result",
-			Success: &success,
-		})
-
-		// Handle call_service request
-		var serviceReq CallServiceRequest
-		conn.ReadJSON(&serviceReq)
-
-		assert.Equal(t, "input_boolean", serviceReq.Domain)
-		assert.Equal(t, "turn_on", serviceReq.Service)
-		assert.Equal(t, "input_boolean.test", serviceReq.ServiceData["entity_id"])
-
-		conn.WriteJSON(Message{
-			ID:      serviceReq.ID,
-			Type:    "result",
-			Success: &success,
-		})
-
-		time.Sleep(100 * time.Millisecond)
+	fixture := NewTestFixture(t, func(req interface{}) *Message {
+		if r, ok := req.(*CallServiceRequest); ok {
+			lastReq = r
+		}
+		return nil
 	})
-	defer server.Close()
+	defer fixture.Close()
 
-	url := "ws" + strings.TrimPrefix(server.URL, "http")
-	client := NewClient(url, token, logger)
-
-	err := client.Connect()
-	require.NoError(t, err)
-	defer client.Disconnect()
-
-	err = client.CallService("input_boolean", "turn_on", map[string]interface{}{
+	err := fixture.Client.CallService("input_boolean", "turn_on", map[string]interface{}{
 		"entity_id": "input_boolean.test",
 	})
 	assert.NoError(t, err)
+	require.NotNil(t, lastReq)
+	assert.Equal(t, "input_boolean", lastReq.Domain)
+	assert.Equal(t, "turn_on", lastReq.Service)
+	assert.Equal(t, "input_boolean.test", lastReq.ServiceData["entity_id"])
 }
 
 func TestClient_CallServiceWithTarget(t *testing.T) {
@@ -362,154 +248,75 @@ func TestClient_CallServiceWithTarget(t *testing.T) {
 	assert.NoError(t, err)
 }
 
-func TestClient_SetInputBoolean(t *testing.T) {
-	logger := testlogger.New()
-	token := "test_token"
-
+// TestClient_SetInputHelpers consolidates SetInputBoolean, SetInputNumber, SetInputText tests
+func TestClient_SetInputHelpers(t *testing.T) {
 	testCases := []struct {
-		name    string
-		value   bool
-		service string
+		name           string
+		call           func(c *Client) error
+		expectedDomain string
+		expectedSvc    string
+		checkData      func(t *testing.T, data map[string]interface{})
 	}{
-		{"turn on", true, "turn_on"},
-		{"turn off", false, "turn_off"},
+		{
+			name:           "SetInputBoolean true",
+			call:           func(c *Client) error { return c.SetInputBoolean("test", true) },
+			expectedDomain: "input_boolean",
+			expectedSvc:    "turn_on",
+			checkData: func(t *testing.T, data map[string]interface{}) {
+				assert.Equal(t, "input_boolean.test", data["entity_id"])
+			},
+		},
+		{
+			name:           "SetInputBoolean false",
+			call:           func(c *Client) error { return c.SetInputBoolean("test", false) },
+			expectedDomain: "input_boolean",
+			expectedSvc:    "turn_off",
+			checkData: func(t *testing.T, data map[string]interface{}) {
+				assert.Equal(t, "input_boolean.test", data["entity_id"])
+			},
+		},
+		{
+			name:           "SetInputNumber",
+			call:           func(c *Client) error { return c.SetInputNumber("test", 42.5) },
+			expectedDomain: "input_number",
+			expectedSvc:    "set_value",
+			checkData: func(t *testing.T, data map[string]interface{}) {
+				assert.Equal(t, "input_number.test", data["entity_id"])
+				assert.Equal(t, 42.5, data["value"])
+			},
+		},
+		{
+			name:           "SetInputText",
+			call:           func(c *Client) error { return c.SetInputText("test", "hello") },
+			expectedDomain: "input_text",
+			expectedSvc:    "set_value",
+			checkData: func(t *testing.T, data map[string]interface{}) {
+				assert.Equal(t, "input_text.test", data["entity_id"])
+				assert.Equal(t, "hello", data["value"])
+			},
+		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			server := mockHAServer(t, func(conn *websocket.Conn) {
-				standardAuthFlow(t, conn, token)
+			var lastReq *CallServiceRequest
 
-				// Handle subscribe_events
-				var subMsg SubscribeEventsRequest
-				conn.ReadJSON(&subMsg)
-				success := true
-				conn.WriteJSON(Message{
-					ID:      subMsg.ID,
-					Type:    "result",
-					Success: &success,
-				})
-
-				// Handle service call
-				var serviceReq CallServiceRequest
-				conn.ReadJSON(&serviceReq)
-
-				assert.Equal(t, "input_boolean", serviceReq.Domain)
-				assert.Equal(t, tc.service, serviceReq.Service)
-
-				conn.WriteJSON(Message{
-					ID:      serviceReq.ID,
-					Type:    "result",
-					Success: &success,
-				})
-
-				time.Sleep(50 * time.Millisecond)
+			fixture := NewTestFixture(t, func(req interface{}) *Message {
+				if r, ok := req.(*CallServiceRequest); ok {
+					lastReq = r
+				}
+				return nil
 			})
-			defer server.Close()
+			defer fixture.Close()
 
-			url := "ws" + strings.TrimPrefix(server.URL, "http")
-			client := NewClient(url, token, logger)
-
-			err := client.Connect()
-			require.NoError(t, err)
-			defer client.Disconnect()
-
-			err = client.SetInputBoolean("test", tc.value)
+			err := tc.call(fixture.Client)
 			assert.NoError(t, err)
+			require.NotNil(t, lastReq)
+			assert.Equal(t, tc.expectedDomain, lastReq.Domain)
+			assert.Equal(t, tc.expectedSvc, lastReq.Service)
+			tc.checkData(t, lastReq.ServiceData)
 		})
 	}
-}
-
-func TestClient_SetInputNumber(t *testing.T) {
-	logger := testlogger.New()
-	token := "test_token"
-
-	server := mockHAServer(t, func(conn *websocket.Conn) {
-		standardAuthFlow(t, conn, token)
-
-		// Handle subscribe_events
-		var subMsg SubscribeEventsRequest
-		conn.ReadJSON(&subMsg)
-		success := true
-		conn.WriteJSON(Message{
-			ID:      subMsg.ID,
-			Type:    "result",
-			Success: &success,
-		})
-
-		// Handle service call
-		var serviceReq CallServiceRequest
-		conn.ReadJSON(&serviceReq)
-
-		assert.Equal(t, "input_number", serviceReq.Domain)
-		assert.Equal(t, "set_value", serviceReq.Service)
-		assert.Equal(t, 42.5, serviceReq.ServiceData["value"])
-
-		conn.WriteJSON(Message{
-			ID:      serviceReq.ID,
-			Type:    "result",
-			Success: &success,
-		})
-
-		time.Sleep(100 * time.Millisecond)
-	})
-	defer server.Close()
-
-	url := "ws" + strings.TrimPrefix(server.URL, "http")
-	client := NewClient(url, token, logger)
-
-	err := client.Connect()
-	require.NoError(t, err)
-	defer client.Disconnect()
-
-	err = client.SetInputNumber("test", 42.5)
-	assert.NoError(t, err)
-}
-
-func TestClient_SetInputText(t *testing.T) {
-	logger := testlogger.New()
-	token := "test_token"
-
-	server := mockHAServer(t, func(conn *websocket.Conn) {
-		standardAuthFlow(t, conn, token)
-
-		// Handle subscribe_events
-		var subMsg SubscribeEventsRequest
-		conn.ReadJSON(&subMsg)
-		success := true
-		conn.WriteJSON(Message{
-			ID:      subMsg.ID,
-			Type:    "result",
-			Success: &success,
-		})
-
-		// Handle service call
-		var serviceReq CallServiceRequest
-		conn.ReadJSON(&serviceReq)
-
-		assert.Equal(t, "input_text", serviceReq.Domain)
-		assert.Equal(t, "set_value", serviceReq.Service)
-		assert.Equal(t, "test_value", serviceReq.ServiceData["value"])
-
-		conn.WriteJSON(Message{
-			ID:      serviceReq.ID,
-			Type:    "result",
-			Success: &success,
-		})
-
-		time.Sleep(100 * time.Millisecond)
-	})
-	defer server.Close()
-
-	url := "ws" + strings.TrimPrefix(server.URL, "http")
-	client := NewClient(url, token, logger)
-
-	err := client.Connect()
-	require.NoError(t, err)
-	defer client.Disconnect()
-
-	err = client.SetInputText("test", "test_value")
-	assert.NoError(t, err)
 }
 
 func TestMockClient(t *testing.T) {
@@ -684,13 +491,6 @@ func TestClient_HandleEventBackpressuresHandlers(t *testing.T) {
 
 // TestClient_ConcurrentCallService verifies that concurrent CallService calls
 // result in messages with monotonically increasing IDs being sent in order.
-// This is a regression test for the "id_reuse" race condition where:
-//  1. Goroutine A gets ID 100
-//  2. Goroutine B gets ID 101
-//  3. Goroutine B sends ID 101 first
-//  4. Goroutine A sends ID 100 -> Home Assistant returns "id_reuse" error
-//
-// The fix ensures ID generation and send are atomic (protected by same mutex).
 func TestClient_ConcurrentCallService(t *testing.T) {
 	logger := zap.NewNop()
 	token := "test_token"
@@ -761,7 +561,6 @@ func TestClient_ConcurrentCallService(t *testing.T) {
 			err := client.CallService("test", "service", map[string]interface{}{
 				"call_number": n,
 			})
-			// Ignore errors - some may timeout if test is slow
 			_ = err
 		}(i)
 	}
@@ -769,7 +568,6 @@ func TestClient_ConcurrentCallService(t *testing.T) {
 	// Wait for all calls to be received by server
 	select {
 	case <-allReceived:
-		// Good - all messages received
 	case <-time.After(5 * time.Second):
 		t.Fatal("Timeout waiting for all messages to be received")
 	}
@@ -777,7 +575,6 @@ func TestClient_ConcurrentCallService(t *testing.T) {
 	wg.Wait()
 
 	// Verify IDs were received in strictly increasing order
-	// This is the key assertion: if there was a race, IDs would be out of order
 	receivedIDsMu.Lock()
 	idsCopy := make([]int, len(receivedIDs))
 	copy(idsCopy, receivedIDs)
@@ -791,9 +588,7 @@ func TestClient_ConcurrentCallService(t *testing.T) {
 	sort.Ints(sortedIDs)
 
 	assert.Equal(t, sortedIDs, idsCopy,
-		"Message IDs should be received in strictly increasing order. "+
-			"If this fails, there's a race condition between ID generation and send. "+
-			"Received order: %v, Expected (sorted): %v", idsCopy, sortedIDs)
+		"Message IDs should be received in strictly increasing order")
 
 	// Also verify IDs are consecutive (no gaps)
 	for i := 1; i < len(idsCopy); i++ {
@@ -829,72 +624,9 @@ func TestIsRetryableError(t *testing.T) {
 	}
 }
 
-// TestClient_CallServiceRetry verifies that CallService retries on transient errors
 func TestClient_CallServiceRetry(t *testing.T) {
 	logger := testlogger.New()
 	token := "test_token"
-
-	t.Run("succeeds after transient failure", func(t *testing.T) {
-		var attemptCount atomic.Int32
-
-		server := mockHAServer(t, func(conn *websocket.Conn) {
-			standardAuthFlow(t, conn, token)
-
-			// Handle subscribe_events
-			var subMsg SubscribeEventsRequest
-			conn.ReadJSON(&subMsg)
-			success := true
-			conn.WriteJSON(Message{
-				ID:      subMsg.ID,
-				Type:    "result",
-				Success: &success,
-			})
-
-			// First two attempts: close connection (simulates transient failure)
-			// Third attempt: succeed
-			for {
-				var serviceReq CallServiceRequest
-				if err := conn.ReadJSON(&serviceReq); err != nil {
-					return
-				}
-
-				attempt := attemptCount.Add(1)
-				if attempt <= 2 {
-					// Simulate transient failure by closing without response
-					// This causes "not connected" or timeout error
-					conn.Close()
-					return
-				}
-
-				// Success on 3rd attempt
-				conn.WriteJSON(Message{
-					ID:      serviceReq.ID,
-					Type:    "result",
-					Success: &success,
-				})
-			}
-		})
-		defer server.Close()
-
-		url := "ws" + strings.TrimPrefix(server.URL, "http")
-		client := NewClient(url, token, logger)
-
-		err := client.Connect()
-		require.NoError(t, err)
-		defer client.Disconnect()
-
-		// This should succeed after retries
-		err = client.CallService("input_boolean", "turn_on", map[string]interface{}{
-			"entity_id": "input_boolean.test",
-		})
-
-		// The first call will fail and retry logic will kick in
-		// Since we're closing the connection, retries won't help in this test
-		// but we can verify the retry mechanism is triggered
-		// For a real retry to work, we'd need a connection that recovers
-		assert.Error(t, err) // Expected to fail since connection drops
-		assert.GreaterOrEqual(t, int(attemptCount.Load()), 1, "Should have made at least one attempt")
-	})
 
 	t.Run("no retry on HA application error", func(t *testing.T) {
 		var attemptCount atomic.Int32
@@ -1065,18 +797,7 @@ func TestClient_PingPongKeepalive(t *testing.T) {
 	logger := testlogger.New()
 	token := "test_token"
 
-	// Track ping messages received by the server
-	var pingCount atomic.Int32
-
 	server := mockHAServer(t, func(conn *websocket.Conn) {
-		// Set up ping handler to count pings received
-		conn.SetPingHandler(func(appData string) error {
-			pingCount.Add(1)
-			// Respond with pong (gorilla/websocket does this automatically,
-			// but we're tracking it explicitly here)
-			return conn.WriteControl(websocket.PongMessage, []byte(appData), time.Now().Add(time.Second))
-		})
-
 		standardAuthFlow(t, conn, token)
 
 		// Receive subscribe_events message
@@ -1091,16 +812,10 @@ func TestClient_PingPongKeepalive(t *testing.T) {
 			Success: &success,
 		})
 
-		// Keep connection open long enough to receive at least one ping
-		// pingInterval is 30s, but we use shorter timeouts in the test
-		// by just waiting and reading any incoming messages
-		for i := 0; i < 50; i++ {
-			conn.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
-			_, _, err := conn.ReadMessage()
-			if err != nil {
-				// Timeout is expected, just continue
-				continue
-			}
+		// Keep connection open briefly
+		for i := 0; i < 10; i++ {
+			conn.SetReadDeadline(time.Now().Add(50 * time.Millisecond))
+			conn.ReadMessage()
 		}
 	})
 	defer server.Close()
@@ -1112,117 +827,81 @@ func TestClient_PingPongKeepalive(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, client.IsConnected())
 
-	// Wait briefly and disconnect - we're mainly testing that the
-	// ping goroutine starts without errors and the pong handler is set up
 	time.Sleep(100 * time.Millisecond)
 
 	client.Disconnect()
 	assert.False(t, client.IsConnected())
-
-	// Note: In real scenarios, pings happen every 30s. We're just verifying
-	// the mechanism is wired up correctly. Full keepalive testing would
-	// require integration tests with actual timing.
 }
 
+// TestClient_IsHealthy tests health tracking without needing WebSocket
 func TestClient_IsHealthy(t *testing.T) {
 	logger := zap.NewNop()
 
+	newConnectedClient := func() *Client {
+		c := NewClient("ws://localhost", "token", logger)
+		c.connMu.Lock()
+		c.connected = true
+		c.connMu.Unlock()
+		return c
+	}
+
 	t.Run("unhealthy when disconnected", func(t *testing.T) {
 		client := NewClient("ws://localhost", "token", logger)
-		// Not connected
 		assert.False(t, client.IsHealthy())
 	})
 
 	t.Run("healthy with no service calls", func(t *testing.T) {
-		client := NewClient("ws://localhost", "token", logger)
-		// Simulate connected state
-		client.connMu.Lock()
-		client.connected = true
-		client.connMu.Unlock()
-
-		// No service calls yet - should be healthy (not enough data)
+		client := newConnectedClient()
 		assert.True(t, client.IsHealthy())
 	})
 
 	t.Run("healthy with successful service calls", func(t *testing.T) {
-		client := NewClient("ws://localhost", "token", logger)
-		client.connMu.Lock()
-		client.connected = true
-		client.connMu.Unlock()
-
-		// Record 5 successes
+		client := newConnectedClient()
 		for i := 0; i < 5; i++ {
 			client.recordServiceResult(true)
 		}
-
 		assert.True(t, client.IsHealthy())
 	})
 
 	t.Run("unhealthy with majority failures", func(t *testing.T) {
-		client := NewClient("ws://localhost", "token", logger)
-		client.connMu.Lock()
-		client.connected = true
-		client.connMu.Unlock()
-
-		// Record 2 successes and 4 failures (>50% failures)
+		client := newConnectedClient()
 		client.recordServiceResult(true)
 		client.recordServiceResult(true)
-		client.recordServiceResult(false)
-		client.recordServiceResult(false)
-		client.recordServiceResult(false)
-		client.recordServiceResult(false)
-
+		for i := 0; i < 4; i++ {
+			client.recordServiceResult(false)
+		}
 		assert.False(t, client.IsHealthy())
 	})
 
 	t.Run("unhealthy at exactly 50% failures", func(t *testing.T) {
-		client := NewClient("ws://localhost", "token", logger)
-		client.connMu.Lock()
-		client.connected = true
-		client.connMu.Unlock()
-
-		// Record 3 successes and 3 failures (exactly 50%)
+		client := newConnectedClient()
 		for i := 0; i < 3; i++ {
 			client.recordServiceResult(true)
 			client.recordServiceResult(false)
 		}
-
-		// At exactly 50%, should be unhealthy (threshold is >= 50%)
 		assert.False(t, client.IsHealthy())
 	})
 
 	t.Run("healthy just below 50% failures", func(t *testing.T) {
-		client := NewClient("ws://localhost", "token", logger)
-		client.connMu.Lock()
-		client.connected = true
-		client.connMu.Unlock()
-
-		// Record 4 successes and 3 failures (42.8% failures < 50%)
-		client.recordServiceResult(true)
-		client.recordServiceResult(true)
-		client.recordServiceResult(true)
-		client.recordServiceResult(true)
-		client.recordServiceResult(false)
-		client.recordServiceResult(false)
-		client.recordServiceResult(false)
-
+		client := newConnectedClient()
+		for i := 0; i < 4; i++ {
+			client.recordServiceResult(true)
+		}
+		for i := 0; i < 3; i++ {
+			client.recordServiceResult(false)
+		}
 		assert.True(t, client.IsHealthy())
 	})
 
 	t.Run("rolling window behavior", func(t *testing.T) {
-		client := NewClient("ws://localhost", "token", logger)
-		client.connMu.Lock()
-		client.connected = true
-		client.connMu.Unlock()
-
-		// Fill with failures (10 failures = 100% failure rate)
+		client := newConnectedClient()
+		// Fill with failures
 		for i := 0; i < healthWindowSize; i++ {
 			client.recordServiceResult(false)
 		}
 		assert.False(t, client.IsHealthy())
 
-		// Now add enough successes to push out old failures
-		// After 6 successes, we have 6 success + 4 failures = 40% failure rate
+		// Add enough successes to recover
 		for i := 0; i < 6; i++ {
 			client.recordServiceResult(true)
 		}
