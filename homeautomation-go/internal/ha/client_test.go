@@ -918,3 +918,109 @@ func TestClient_PingPongKeepalive(t *testing.T) {
 	// the mechanism is wired up correctly. Full keepalive testing would
 	// require integration tests with actual timing.
 }
+
+func TestClient_IsHealthy(t *testing.T) {
+	logger := zap.NewNop()
+
+	t.Run("unhealthy when disconnected", func(t *testing.T) {
+		client := NewClient("ws://localhost", "token", logger)
+		// Not connected
+		assert.False(t, client.IsHealthy())
+	})
+
+	t.Run("healthy with no service calls", func(t *testing.T) {
+		client := NewClient("ws://localhost", "token", logger)
+		// Simulate connected state
+		client.connMu.Lock()
+		client.connected = true
+		client.connMu.Unlock()
+
+		// No service calls yet - should be healthy (not enough data)
+		assert.True(t, client.IsHealthy())
+	})
+
+	t.Run("healthy with successful service calls", func(t *testing.T) {
+		client := NewClient("ws://localhost", "token", logger)
+		client.connMu.Lock()
+		client.connected = true
+		client.connMu.Unlock()
+
+		// Record 5 successes
+		for i := 0; i < 5; i++ {
+			client.recordServiceResult(true)
+		}
+
+		assert.True(t, client.IsHealthy())
+	})
+
+	t.Run("unhealthy with majority failures", func(t *testing.T) {
+		client := NewClient("ws://localhost", "token", logger)
+		client.connMu.Lock()
+		client.connected = true
+		client.connMu.Unlock()
+
+		// Record 2 successes and 4 failures (>50% failures)
+		client.recordServiceResult(true)
+		client.recordServiceResult(true)
+		client.recordServiceResult(false)
+		client.recordServiceResult(false)
+		client.recordServiceResult(false)
+		client.recordServiceResult(false)
+
+		assert.False(t, client.IsHealthy())
+	})
+
+	t.Run("unhealthy at exactly 50% failures", func(t *testing.T) {
+		client := NewClient("ws://localhost", "token", logger)
+		client.connMu.Lock()
+		client.connected = true
+		client.connMu.Unlock()
+
+		// Record 3 successes and 3 failures (exactly 50%)
+		for i := 0; i < 3; i++ {
+			client.recordServiceResult(true)
+			client.recordServiceResult(false)
+		}
+
+		// At exactly 50%, should be unhealthy (threshold is >= 50%)
+		assert.False(t, client.IsHealthy())
+	})
+
+	t.Run("healthy just below 50% failures", func(t *testing.T) {
+		client := NewClient("ws://localhost", "token", logger)
+		client.connMu.Lock()
+		client.connected = true
+		client.connMu.Unlock()
+
+		// Record 4 successes and 3 failures (42.8% failures < 50%)
+		client.recordServiceResult(true)
+		client.recordServiceResult(true)
+		client.recordServiceResult(true)
+		client.recordServiceResult(true)
+		client.recordServiceResult(false)
+		client.recordServiceResult(false)
+		client.recordServiceResult(false)
+
+		assert.True(t, client.IsHealthy())
+	})
+
+	t.Run("rolling window behavior", func(t *testing.T) {
+		client := NewClient("ws://localhost", "token", logger)
+		client.connMu.Lock()
+		client.connected = true
+		client.connMu.Unlock()
+
+		// Fill with failures (10 failures = 100% failure rate)
+		for i := 0; i < healthWindowSize; i++ {
+			client.recordServiceResult(false)
+		}
+		assert.False(t, client.IsHealthy())
+
+		// Now add enough successes to push out old failures
+		// After 6 successes, we have 6 success + 4 failures = 40% failure rate
+		for i := 0; i < 6; i++ {
+			client.recordServiceResult(true)
+		}
+		assert.True(t, client.IsHealthy())
+	})
+}
