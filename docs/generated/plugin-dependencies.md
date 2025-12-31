@@ -37,6 +37,7 @@ graph LR
     end
 
     subgraph Plugins["Plugins"]
+        christmas["christmas"]
         dayphase["dayphase"]
         energy["energy"]
         lighting["lighting"]
