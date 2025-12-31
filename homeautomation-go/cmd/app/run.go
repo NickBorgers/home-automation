@@ -207,7 +207,7 @@ func Run() {
 	logger.Info("Subscription Registry created for automatic input tracking")
 
 	// Start HTTP API server
-	apiServer := api.NewServer(stateManager, shadowTracker, logBuffer, logger, httpPort, timezone)
+	apiServer := api.NewServer(client, stateManager, shadowTracker, logBuffer, logger, httpPort, timezone)
 	if err := apiServer.Start(); err != nil {
 		logger.Fatal("Failed to start HTTP API server", zap.Error(err))
 	}

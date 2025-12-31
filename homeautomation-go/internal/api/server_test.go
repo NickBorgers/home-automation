@@ -34,7 +34,7 @@ func TestHandleGetState(t *testing.T) {
 
 	// Create API server
 	shadowTracker := shadowstate.NewTracker()
-	server := NewServer(stateManager, shadowTracker, logbuffer.NewBuffer(100), logger, 8080, time.UTC)
+	server := NewServer(mockClient, stateManager, shadowTracker, logbuffer.NewBuffer(100), logger, 8080, time.UTC)
 
 	// Create test request
 	req := httptest.NewRequest(http.MethodGet, "/api/state", nil)
@@ -109,7 +109,7 @@ func TestHandleGetStateMethodNotAllowed(t *testing.T) {
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 	shadowTracker := shadowstate.NewTracker()
-	server := NewServer(stateManager, shadowTracker, logbuffer.NewBuffer(100), logger, 8080, time.UTC)
+	server := NewServer(mockClient, stateManager, shadowTracker, logbuffer.NewBuffer(100), logger, 8080, time.UTC)
 
 	// Test POST method (should be rejected)
 	req := httptest.NewRequest(http.MethodPost, "/api/state", nil)
@@ -125,27 +125,57 @@ func TestHandleGetStateMethodNotAllowed(t *testing.T) {
 func TestHandleHealth(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
 	mockClient := ha.NewMockClient()
+	mockClient.Connect() // Connect so IsHealthy returns true
 	stateManager := state.NewManager(mockClient, logger, false)
 	shadowTracker := shadowstate.NewTracker()
-	server := NewServer(stateManager, shadowTracker, logbuffer.NewBuffer(100), logger, 8080, time.UTC)
+	server := NewServer(mockClient, stateManager, shadowTracker, logbuffer.NewBuffer(100), logger, 8080, time.UTC)
 
-	req := httptest.NewRequest(http.MethodGet, "/health", nil)
-	w := httptest.NewRecorder()
+	t.Run("healthy when connected", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/health", nil)
+		w := httptest.NewRecorder()
 
-	server.handleHealth(w, req)
+		server.handleHealth(w, req)
 
-	if w.Code != http.StatusOK {
-		t.Errorf("Expected status 200, got %d", w.Code)
-	}
+		if w.Code != http.StatusOK {
+			t.Errorf("Expected status 200, got %d", w.Code)
+		}
 
-	var response map[string]string
-	if err := json.NewDecoder(w.Body).Decode(&response); err != nil {
-		t.Fatalf("Failed to decode response: %v", err)
-	}
+		var response map[string]interface{}
+		if err := json.NewDecoder(w.Body).Decode(&response); err != nil {
+			t.Fatalf("Failed to decode response: %v", err)
+		}
 
-	if response["status"] != "ok" {
-		t.Errorf("Expected status 'ok', got '%s'", response["status"])
-	}
+		if response["status"] != "ok" {
+			t.Errorf("Expected status 'ok', got '%v'", response["status"])
+		}
+		if response["ha_connected"] != true {
+			t.Errorf("Expected ha_connected true, got '%v'", response["ha_connected"])
+		}
+	})
+
+	t.Run("unhealthy when disconnected", func(t *testing.T) {
+		mockClient.Disconnect()
+		req := httptest.NewRequest(http.MethodGet, "/health", nil)
+		w := httptest.NewRecorder()
+
+		server.handleHealth(w, req)
+
+		if w.Code != http.StatusServiceUnavailable {
+			t.Errorf("Expected status 503, got %d", w.Code)
+		}
+
+		var response map[string]interface{}
+		if err := json.NewDecoder(w.Body).Decode(&response); err != nil {
+			t.Fatalf("Failed to decode response: %v", err)
+		}
+
+		if response["status"] != "unhealthy" {
+			t.Errorf("Expected status 'unhealthy', got '%v'", response["status"])
+		}
+		if response["ha_connected"] != false {
+			t.Errorf("Expected ha_connected false, got '%v'", response["ha_connected"])
+		}
+	})
 }
 
 func TestHandleSitemap(t *testing.T) {
@@ -153,7 +183,7 @@ func TestHandleSitemap(t *testing.T) {
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 	shadowTracker := shadowstate.NewTracker()
-	server := NewServer(stateManager, shadowTracker, logbuffer.NewBuffer(100), logger, 8080, time.UTC)
+	server := NewServer(mockClient, stateManager, shadowTracker, logbuffer.NewBuffer(100), logger, 8080, time.UTC)
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	w := httptest.NewRecorder()
@@ -204,7 +234,7 @@ func TestHandleSitemapHTML(t *testing.T) {
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 	shadowTracker := shadowstate.NewTracker()
-	server := NewServer(stateManager, shadowTracker, logbuffer.NewBuffer(100), logger, 8080, time.UTC)
+	server := NewServer(mockClient, stateManager, shadowTracker, logbuffer.NewBuffer(100), logger, 8080, time.UTC)
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.Header.Set("Accept", "text/html")
@@ -257,7 +287,7 @@ func TestHandleSitemapMethodNotAllowed(t *testing.T) {
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 	shadowTracker := shadowstate.NewTracker()
-	server := NewServer(stateManager, shadowTracker, logbuffer.NewBuffer(100), logger, 8080, time.UTC)
+	server := NewServer(mockClient, stateManager, shadowTracker, logbuffer.NewBuffer(100), logger, 8080, time.UTC)
 
 	// Test POST method (should be rejected)
 	req := httptest.NewRequest(http.MethodPost, "/", nil)
@@ -275,7 +305,7 @@ func TestHandleSitemapNonRootPath(t *testing.T) {
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 	shadowTracker := shadowstate.NewTracker()
-	server := NewServer(stateManager, shadowTracker, logbuffer.NewBuffer(100), logger, 8080, time.UTC)
+	server := NewServer(mockClient, stateManager, shadowTracker, logbuffer.NewBuffer(100), logger, 8080, time.UTC)
 
 	// Test non-root path (should return 404 without sitemap)
 	req := httptest.NewRequest(http.MethodGet, "/nonexistent", nil)
@@ -329,7 +359,7 @@ func TestHandleGetStatesByPlugin(t *testing.T) {
 
 	// Create API server
 	shadowTracker := shadowstate.NewTracker()
-	server := NewServer(stateManager, shadowTracker, logbuffer.NewBuffer(100), logger, 8080, time.UTC)
+	server := NewServer(mockClient, stateManager, shadowTracker, logbuffer.NewBuffer(100), logger, 8080, time.UTC)
 
 	// Create test request
 	req := httptest.NewRequest(http.MethodGet, "/api/states", nil)
@@ -461,7 +491,7 @@ func TestHandleGetStatesByPluginMethodNotAllowed(t *testing.T) {
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 	shadowTracker := shadowstate.NewTracker()
-	server := NewServer(stateManager, shadowTracker, logbuffer.NewBuffer(100), logger, 8080, time.UTC)
+	server := NewServer(mockClient, stateManager, shadowTracker, logbuffer.NewBuffer(100), logger, 8080, time.UTC)
 
 	// Test POST method (should be rejected)
 	req := httptest.NewRequest(http.MethodPost, "/api/states", nil)
@@ -480,7 +510,7 @@ func TestHandleGetStatesByPluginEmptyState(t *testing.T) {
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 	shadowTracker := shadowstate.NewTracker()
-	server := NewServer(stateManager, shadowTracker, logbuffer.NewBuffer(100), logger, 8080, time.UTC)
+	server := NewServer(mockClient, stateManager, shadowTracker, logbuffer.NewBuffer(100), logger, 8080, time.UTC)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/states", nil)
 	w := httptest.NewRecorder()
@@ -582,7 +612,7 @@ func TestHandleGetLightingShadowState(t *testing.T) {
 	shadowTracker.RegisterPlugin("lighting", lightingState)
 
 	// Create API server
-	server := NewServer(stateManager, shadowTracker, logbuffer.NewBuffer(100), logger, 8080, time.UTC)
+	server := NewServer(mockClient, stateManager, shadowTracker, logbuffer.NewBuffer(100), logger, 8080, time.UTC)
 
 	// Create test request
 	req := httptest.NewRequest(http.MethodGet, "/api/shadow/lighting", nil)
@@ -631,7 +661,7 @@ func TestHandleGetLightingShadowState_NotFound(t *testing.T) {
 	shadowTracker := shadowstate.NewTracker()
 
 	// Create API server
-	server := NewServer(stateManager, shadowTracker, logbuffer.NewBuffer(100), logger, 8080, time.UTC)
+	server := NewServer(mockClient, stateManager, shadowTracker, logbuffer.NewBuffer(100), logger, 8080, time.UTC)
 
 	// Create test request
 	req := httptest.NewRequest(http.MethodGet, "/api/shadow/lighting", nil)
@@ -668,7 +698,7 @@ func TestHandleGetSecurityShadowState(t *testing.T) {
 	shadowTracker.RegisterPlugin("security", securityState)
 
 	// Create API server
-	server := NewServer(stateManager, shadowTracker, logbuffer.NewBuffer(100), logger, 8080, time.UTC)
+	server := NewServer(mockClient, stateManager, shadowTracker, logbuffer.NewBuffer(100), logger, 8080, time.UTC)
 
 	// Create test request
 	req := httptest.NewRequest(http.MethodGet, "/api/shadow/security", nil)
@@ -725,7 +755,7 @@ func TestHandleGetSecurityShadowState_NotFound(t *testing.T) {
 	shadowTracker := shadowstate.NewTracker()
 
 	// Create API server
-	server := NewServer(stateManager, shadowTracker, logbuffer.NewBuffer(100), logger, 8080, time.UTC)
+	server := NewServer(mockClient, stateManager, shadowTracker, logbuffer.NewBuffer(100), logger, 8080, time.UTC)
 
 	// Create test request
 	req := httptest.NewRequest(http.MethodGet, "/api/shadow/security", nil)
@@ -763,7 +793,7 @@ func TestHandleGetAllShadowStates(t *testing.T) {
 	shadowTracker.RegisterPlugin("security", securityState)
 
 	// Create API server
-	server := NewServer(stateManager, shadowTracker, logbuffer.NewBuffer(100), logger, 8080, time.UTC)
+	server := NewServer(mockClient, stateManager, shadowTracker, logbuffer.NewBuffer(100), logger, 8080, time.UTC)
 
 	// Create test request
 	req := httptest.NewRequest(http.MethodGet, "/api/shadow", nil)
@@ -822,7 +852,7 @@ func TestAddLocalTimestamps(t *testing.T) {
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 	shadowTracker := shadowstate.NewTracker()
-	server := NewServer(stateManager, shadowTracker, logbuffer.NewBuffer(100), logger, 8080, estLocation)
+	server := NewServer(mockClient, stateManager, shadowTracker, logbuffer.NewBuffer(100), logger, 8080, estLocation)
 
 	// Test cases
 	tests := []struct {
@@ -933,7 +963,7 @@ func TestAddLocalTimestamps(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			if tc.name == "nil timezone returns original" {
 				// Test with nil timezone
-				nilTzServer := NewServer(stateManager, shadowTracker, logbuffer.NewBuffer(100), logger, 8080, nil)
+				nilTzServer := NewServer(mockClient, stateManager, shadowTracker, logbuffer.NewBuffer(100), logger, 8080, nil)
 				result := nilTzServer.addLocalTimestamps(tc.input)
 				m := result.(map[string]interface{})
 				if _, ok := m["tsLocal"]; ok {
@@ -964,7 +994,7 @@ func TestHandleDashboard(t *testing.T) {
 	shadowTracker.RegisterPlugin("lighting", lightingState)
 
 	// Create API server
-	server := NewServer(stateManager, shadowTracker, logbuffer.NewBuffer(100), logger, 8080, time.UTC)
+	server := NewServer(mockClient, stateManager, shadowTracker, logbuffer.NewBuffer(100), logger, 8080, time.UTC)
 
 	// Create test request
 	req := httptest.NewRequest(http.MethodGet, "/dashboard", nil)
@@ -1015,7 +1045,7 @@ func TestHandleDashboardMethodNotAllowed(t *testing.T) {
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 	shadowTracker := shadowstate.NewTracker()
-	server := NewServer(stateManager, shadowTracker, logbuffer.NewBuffer(100), logger, 8080, time.UTC)
+	server := NewServer(mockClient, stateManager, shadowTracker, logbuffer.NewBuffer(100), logger, 8080, time.UTC)
 
 	// Test POST method (should be rejected)
 	req := httptest.NewRequest(http.MethodPost, "/dashboard", nil)
@@ -1040,7 +1070,7 @@ func TestWriteJSONWithLocalTimestamps(t *testing.T) {
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 	shadowTracker := shadowstate.NewTracker()
-	server := NewServer(stateManager, shadowTracker, logbuffer.NewBuffer(100), logger, 8080, estLocation)
+	server := NewServer(mockClient, stateManager, shadowTracker, logbuffer.NewBuffer(100), logger, 8080, estLocation)
 
 	// Create a test struct with a timestamp
 	type TestData struct {
@@ -1105,7 +1135,7 @@ func TestHandleTimelineEvents(t *testing.T) {
 		})
 	}
 
-	server := NewServer(stateManager, shadowTracker, buffer, logger, 8080, time.UTC)
+	server := NewServer(mockClient, stateManager, shadowTracker, buffer, logger, 8080, time.UTC)
 
 	t.Run("basic request", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/api/timeline/events", nil)

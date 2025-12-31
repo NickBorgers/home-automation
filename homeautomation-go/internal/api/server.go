@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"time"
 
+	"homeautomation/internal/ha"
 	"homeautomation/internal/logbuffer"
 	"homeautomation/internal/shadowstate"
 	"homeautomation/internal/state"
@@ -24,6 +25,7 @@ var timelineHTML string
 
 // Server provides HTTP API endpoints for the home automation system
 type Server struct {
+	haClient      ha.HAClient
 	stateManager  *state.Manager
 	shadowTracker *shadowstate.Tracker
 	logBuffer     *logbuffer.Buffer
@@ -33,8 +35,9 @@ type Server struct {
 }
 
 // NewServer creates a new API server
-func NewServer(stateManager *state.Manager, shadowTracker *shadowstate.Tracker, logBuffer *logbuffer.Buffer, logger *zap.Logger, port int, timezone *time.Location) *Server {
+func NewServer(haClient ha.HAClient, stateManager *state.Manager, shadowTracker *shadowstate.Tracker, logBuffer *logbuffer.Buffer, logger *zap.Logger, port int, timezone *time.Location) *Server {
 	s := &Server{
+		haClient:      haClient,
 		stateManager:  stateManager,
 		shadowTracker: shadowTracker,
 		logBuffer:     logBuffer,
@@ -344,10 +347,20 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	healthy := s.haClient.IsHealthy()
+	status := "ok"
+	httpCode := http.StatusOK
+
+	if !healthy {
+		status = "unhealthy"
+		httpCode = http.StatusServiceUnavailable
+	}
+
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{
-		"status": "ok",
+	w.WriteHeader(httpCode)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"status":       status,
+		"ha_connected": s.haClient.IsConnected(),
 	})
 }
 
