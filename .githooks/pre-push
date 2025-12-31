@@ -4,6 +4,10 @@
 # This hook runs automated test validation before allowing a push.
 # It executes the same tests that CI/CD will run to catch issues early.
 #
+# CACHING: This hook uses test-cache.sh to skip tests if no code has
+# changed since the last successful run. To force re-run:
+#   .githooks/test-cache.sh --clear-one pre-push
+#
 # Installation: This hook is automatically installed by the devcontainer
 # postCreateCommand. To manually install, run:
 #   chmod +x .githooks/pre-push
@@ -15,13 +19,12 @@ set -e  # Exit on any error
 echo ""
 echo "🚀 Running pre-push hook..."
 echo "════════════════════════════════════════════════════════════════════════════"
-echo ""
 
 # Change to repository root
 cd "$(git rev-parse --show-toplevel)"
 
-# Run the pre-push make target (matches CI exactly)
-if make pre-push; then
+# Run pre-push validation with caching
+if .githooks/test-cache.sh pre-push pre-push; then
     echo ""
     echo "✅ Pre-push hook passed! Proceeding with push..."
     exit 0

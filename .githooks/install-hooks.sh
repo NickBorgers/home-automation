@@ -20,7 +20,7 @@ if [ ! -d ".githooks" ]; then
 fi
 
 # Make hook scripts executable
-chmod +x .githooks/pre-commit .githooks/pre-push
+chmod +x .githooks/pre-commit .githooks/pre-push .githooks/test-cache.sh
 
 # Install pre-commit hook
 if [ -f ".git/hooks/pre-commit" ] && [ ! -L ".git/hooks/pre-commit" ]; then
@@ -43,5 +43,10 @@ echo ""
 echo "Hooks installed:"
 echo "  • pre-commit: Formatting, linting, build checks"
 echo "  • pre-push: All tests with race detector and coverage"
+echo ""
+echo "Test caching enabled:"
+echo "  • Hooks skip tests if no code changed since last successful run"
+echo "  • View status:  .githooks/test-cache.sh --status"
+echo "  • Clear cache:  .githooks/test-cache.sh --clear"
 echo ""
 echo "To skip: git commit --no-verify / git push --no-verify"

@@ -10,3 +10,6 @@ password
 token
 coverage.out
 .mermaid-tmp/
+
+# Test cache (for git hook optimization)
+.test-cache/
