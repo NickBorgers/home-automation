@@ -10,8 +10,7 @@ import (
 	"go.uber.org/zap"
 )
 
-// createTestConfig creates a test hue configuration
-// Note: Only using state variables that exist in the state manager
+// createTestConfig creates a test hue configuration using the new conditions format
 func createTestConfig() *HueConfig {
 	transition30 := 30
 	transition180 := 180
@@ -19,22 +18,32 @@ func createTestConfig() *HueConfig {
 	return &HueConfig{
 		Rooms: []RoomConfig{
 			{
-				HueGroup:                 "Living Room",
-				HASSAreaID:               "living_room_2",
-				OnIfTrue:                 "isAnyoneHome",
-				OnIfFalse:                "isTVPlaying",
-				OffIfTrue:                "isEveryoneAsleep",
-				OffIfFalse:               "isAnyoneHome",
+				HueGroup:   "Living Room",
+				HASSAreaID: "living_room_2",
+				Conditions: []LightingCondition{
+					// Priority 1: No one home -> OFF
+					{Action: "off", Variable: "isAnyoneHome", Value: false},
+					// Priority 2: Everyone asleep -> OFF
+					{Action: "off", Variable: "isEveryoneAsleep", Value: true},
+					// Priority 3: Someone home -> ON
+					{Action: "on", Variable: "isAnyoneHome", Value: true},
+					// Priority 4: TV not playing -> ON
+					{Action: "on", Variable: "isTVPlaying", Value: false},
+				},
 				IncreaseBrightnessIfTrue: "isHaveGuests",
 				TransitionSeconds:        &transition30,
 			},
 			{
-				HueGroup:                 "Primary Suite",
-				HASSAreaID:               "master_bedroom",
-				OnIfTrue:                 nil,
-				OnIfFalse:                "isMasterAsleep",
-				OffIfTrue:                "isMasterAsleep",
-				OffIfFalse:               "isNickHome",
+				HueGroup:   "Primary Suite",
+				HASSAreaID: "master_bedroom",
+				Conditions: []LightingCondition{
+					// Priority 1: No one home -> OFF
+					{Action: "off", Variable: "isNickHome", Value: false},
+					// Priority 2: Master asleep -> OFF
+					{Action: "off", Variable: "isMasterAsleep", Value: true},
+					// Priority 3: Master not asleep -> ON
+					{Action: "on", Variable: "isMasterAsleep", Value: false},
+				},
 				IncreaseBrightnessIfTrue: nil,
 				TransitionSeconds:        &transition180,
 			},
@@ -57,40 +66,7 @@ func TestNewManager(t *testing.T) {
 	assert.False(t, manager.readOnly)
 }
 
-func TestEvaluateCondition(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
-	config := createTestConfig()
-	mockClient := ha.NewMockClient()
-	stateManager := state.NewManager(mockClient, logger, false)
-	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
-
-	// Set test conditions
-	err := stateManager.SetBool("isAnyoneHome", true)
-	assert.NoError(t, err)
-
-	err = stateManager.SetBool("isEveryoneAsleep", false)
-	assert.NoError(t, err)
-
-	tests := []struct {
-		name      string
-		condition string
-		expected  bool
-	}{
-		{"Empty condition", "", false},
-		{"True condition", "isAnyoneHome", true},
-		{"False condition", "isEveryoneAsleep", false},
-		{"Nonexistent condition", "nonexistent", false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := manager.evaluateCondition(tt.condition)
-			assert.Equal(t, tt.expected, result)
-		})
-	}
-}
-
-func TestEvaluateOnConditions(t *testing.T) {
+func TestEvaluateConditions(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
 	config := createTestConfig()
 	mockClient := ha.NewMockClient()
@@ -101,50 +77,82 @@ func TestEvaluateOnConditions(t *testing.T) {
 		name           string
 		setupState     func()
 		roomIndex      int
-		expectedResult bool
+		expectedAction string
+		expectedVar    string
 	}{
 		{
-			name: "Living room - on_if_true is true",
+			name: "Living room - no one home -> OFF (first match)",
 			setupState: func() {
-				_ = stateManager.SetBool("isAnyoneHome", true)
+				_ = stateManager.SetBool("isAnyoneHome", false)
+				_ = stateManager.SetBool("isEveryoneAsleep", false)
 				_ = stateManager.SetBool("isTVPlaying", true)
 			},
 			roomIndex:      0,
-			expectedResult: true,
+			expectedAction: "off",
+			expectedVar:    "isAnyoneHome",
 		},
 		{
-			name: "Living room - on_if_false is false",
+			name: "Living room - everyone asleep -> OFF (second priority)",
 			setupState: func() {
-				_ = stateManager.SetBool("isAnyoneHome", false)
+				_ = stateManager.SetBool("isAnyoneHome", true)
+				_ = stateManager.SetBool("isEveryoneAsleep", true)
+				_ = stateManager.SetBool("isTVPlaying", true)
+			},
+			roomIndex:      0,
+			expectedAction: "off",
+			expectedVar:    "isEveryoneAsleep",
+		},
+		{
+			name: "Living room - someone home and awake -> ON",
+			setupState: func() {
+				_ = stateManager.SetBool("isAnyoneHome", true)
+				_ = stateManager.SetBool("isEveryoneAsleep", false)
+				_ = stateManager.SetBool("isTVPlaying", true)
+			},
+			roomIndex:      0,
+			expectedAction: "on",
+			expectedVar:    "isAnyoneHome",
+		},
+		{
+			name: "Living room - TV not playing -> ON (last priority)",
+			setupState: func() {
+				_ = stateManager.SetBool("isAnyoneHome", true)
+				_ = stateManager.SetBool("isEveryoneAsleep", false)
 				_ = stateManager.SetBool("isTVPlaying", false)
 			},
 			roomIndex:      0,
-			expectedResult: true,
+			expectedAction: "on",
+			expectedVar:    "isAnyoneHome", // First matching condition wins
 		},
 		{
-			name: "Living room - neither condition met",
+			name: "Primary suite - nick not home -> OFF",
 			setupState: func() {
-				_ = stateManager.SetBool("isAnyoneHome", false)
-				_ = stateManager.SetBool("isTVPlaying", true)
-			},
-			roomIndex:      0,
-			expectedResult: false,
-		},
-		{
-			name: "Primary suite - on_if_false is false",
-			setupState: func() {
+				_ = stateManager.SetBool("isNickHome", false)
 				_ = stateManager.SetBool("isMasterAsleep", false)
 			},
 			roomIndex:      1,
-			expectedResult: true,
+			expectedAction: "off",
+			expectedVar:    "isNickHome",
 		},
 		{
-			name: "Primary suite - on_if_false is true",
+			name: "Primary suite - master asleep -> OFF",
 			setupState: func() {
+				_ = stateManager.SetBool("isNickHome", true)
 				_ = stateManager.SetBool("isMasterAsleep", true)
 			},
 			roomIndex:      1,
-			expectedResult: false,
+			expectedAction: "off",
+			expectedVar:    "isMasterAsleep",
+		},
+		{
+			name: "Primary suite - master not asleep -> ON",
+			setupState: func() {
+				_ = stateManager.SetBool("isNickHome", true)
+				_ = stateManager.SetBool("isMasterAsleep", false)
+			},
+			roomIndex:      1,
+			expectedAction: "on",
+			expectedVar:    "isMasterAsleep",
 		},
 	}
 
@@ -152,79 +160,35 @@ func TestEvaluateOnConditions(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			tt.setupState()
 			room := &config.Rooms[tt.roomIndex]
-			result := manager.evaluateOnConditions(room)
-			assert.Equal(t, tt.expectedResult, result)
+			action, matchedVar := manager.evaluateConditions(room)
+			assert.Equal(t, tt.expectedAction, action)
+			assert.Equal(t, tt.expectedVar, matchedVar)
 		})
 	}
 }
 
-func TestEvaluateOffConditions(t *testing.T) {
+func TestEvaluateConditionsNoMatch(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
-	config := createTestConfig()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
+
+	// Create a room with no conditions
+	config := &HueConfig{
+		Rooms: []RoomConfig{
+			{
+				HueGroup:   "Empty Room",
+				HASSAreaID: "empty_room",
+				Conditions: []LightingCondition{},
+			},
+		},
+	}
+
 	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
 
-	tests := []struct {
-		name           string
-		setupState     func()
-		roomIndex      int
-		expectedResult bool
-	}{
-		{
-			name: "Living room - off_if_true is true",
-			setupState: func() {
-				_ = stateManager.SetBool("isEveryoneAsleep", true)
-				_ = stateManager.SetBool("isAnyoneHome", true)
-			},
-			roomIndex:      0,
-			expectedResult: true,
-		},
-		{
-			name: "Living room - off_if_false is false",
-			setupState: func() {
-				_ = stateManager.SetBool("isEveryoneAsleep", false)
-				_ = stateManager.SetBool("isAnyoneHome", false)
-			},
-			roomIndex:      0,
-			expectedResult: true,
-		},
-		{
-			name: "Living room - neither condition met",
-			setupState: func() {
-				_ = stateManager.SetBool("isEveryoneAsleep", false)
-				_ = stateManager.SetBool("isAnyoneHome", true)
-			},
-			roomIndex:      0,
-			expectedResult: false,
-		},
-		{
-			name: "Primary suite - off_if_true is true",
-			setupState: func() {
-				_ = stateManager.SetBool("isMasterAsleep", true)
-			},
-			roomIndex:      1,
-			expectedResult: true,
-		},
-		{
-			name: "Primary suite - off_if_true is false, off_if_false is false",
-			setupState: func() {
-				_ = stateManager.SetBool("isMasterAsleep", false)
-				_ = stateManager.SetBool("isNickHome", false)
-			},
-			roomIndex:      1,
-			expectedResult: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			tt.setupState()
-			room := &config.Rooms[tt.roomIndex]
-			result := manager.evaluateOffConditions(room)
-			assert.Equal(t, tt.expectedResult, result)
-		})
-	}
+	room := &config.Rooms[0]
+	action, matchedVar := manager.evaluateConditions(room)
+	assert.Equal(t, "", action, "No action expected when no conditions")
+	assert.Equal(t, "", matchedVar, "No matched variable when no conditions")
 }
 
 func TestActivateSceneReadOnly(t *testing.T) {
@@ -360,13 +324,24 @@ func TestEvaluateAndActivateRoom(t *testing.T) {
 		shouldCallService bool
 	}{
 		{
-			name: "Room should turn off",
+			name: "Room should turn off - no one home",
 			setupState: func() {
-				// Set OFF condition to true
-				_ = stateManager.SetBool("isEveryoneAsleep", true)
-				// Make sure ON conditions are false
 				_ = stateManager.SetBool("isAnyoneHome", false)
-				_ = stateManager.SetBool("isTVPlaying", true) // OnIfFalse should be false
+				_ = stateManager.SetBool("isEveryoneAsleep", false)
+				_ = stateManager.SetBool("isTVPlaying", true)
+			},
+			roomIndex:         0,
+			dayPhase:          "Night",
+			expectedService:   "turn_off",
+			expectedDomain:    "light",
+			shouldCallService: true,
+		},
+		{
+			name: "Room should turn off - everyone asleep",
+			setupState: func() {
+				_ = stateManager.SetBool("isAnyoneHome", true)
+				_ = stateManager.SetBool("isEveryoneAsleep", true)
+				_ = stateManager.SetBool("isTVPlaying", true)
 			},
 			roomIndex:         0,
 			dayPhase:          "Night",
@@ -377,8 +352,9 @@ func TestEvaluateAndActivateRoom(t *testing.T) {
 		{
 			name: "Room should turn on with scene",
 			setupState: func() {
-				_ = stateManager.SetBool("isEveryoneAsleep", false)
 				_ = stateManager.SetBool("isAnyoneHome", true)
+				_ = stateManager.SetBool("isEveryoneAsleep", false)
+				_ = stateManager.SetBool("isTVPlaying", true)
 			},
 			roomIndex:         0,
 			dayPhase:          "Morning",
@@ -459,6 +435,7 @@ func TestLightingManager_Stop(t *testing.T) {
 			{
 				HueGroup:   "Living Room",
 				HASSAreaID: "living_room",
+				Conditions: []LightingCondition{},
 			},
 		},
 	}
@@ -506,4 +483,138 @@ func TestManagerReset(t *testing.T) {
 	// Reset should re-apply lighting scenes for all rooms
 	err = manager.Reset()
 	assert.NoError(t, err)
+}
+
+func TestIsTopicRelevant(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	config := createTestConfig()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+
+	tests := []struct {
+		name     string
+		room     *RoomConfig
+		trigger  string
+		expected bool
+	}{
+		{
+			name:     "dayPhase is always relevant",
+			room:     &config.Rooms[0],
+			trigger:  "dayPhase",
+			expected: true,
+		},
+		{
+			name:     "sunevent is always relevant",
+			room:     &config.Rooms[0],
+			trigger:  "sunevent",
+			expected: true,
+		},
+		{
+			name:     "reset is always relevant",
+			room:     &config.Rooms[0],
+			trigger:  "reset",
+			expected: true,
+		},
+		{
+			name:     "empty trigger is always relevant",
+			room:     &config.Rooms[0],
+			trigger:  "",
+			expected: true,
+		},
+		{
+			name:     "isAnyoneHome is relevant to Living Room",
+			room:     &config.Rooms[0],
+			trigger:  "isAnyoneHome",
+			expected: true,
+		},
+		{
+			name:     "isMasterAsleep is not relevant to Living Room",
+			room:     &config.Rooms[0],
+			trigger:  "isMasterAsleep",
+			expected: false,
+		},
+		{
+			name:     "isMasterAsleep is relevant to Primary Suite",
+			room:     &config.Rooms[1],
+			trigger:  "isMasterAsleep",
+			expected: true,
+		},
+		{
+			name:     "unrelated variable is not relevant",
+			room:     &config.Rooms[0],
+			trigger:  "isKitchenOccupied",
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := manager.isTopicRelevant(tt.room, tt.trigger)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestGetStateValue(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	config := createTestConfig()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+
+	// Use real registered state variables
+	// Boolean: isAnyoneHome (registered in state manager)
+	err := stateManager.SetBool("isAnyoneHome", true)
+	assert.NoError(t, err)
+
+	// String: dayPhase (registered in state manager)
+	err = stateManager.SetString("dayPhase", "morning")
+	assert.NoError(t, err)
+
+	// Test boolean retrieval
+	val, err := manager.getStateValue("isAnyoneHome")
+	assert.NoError(t, err)
+	assert.Equal(t, true, val)
+
+	// Test string retrieval
+	val, err = manager.getStateValue("dayPhase")
+	assert.NoError(t, err)
+	assert.Equal(t, "morning", val)
+
+	// Test nonexistent variable
+	_, err = manager.getStateValue("nonexistent")
+	assert.Error(t, err)
+}
+
+func TestCollectConditionVariables(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	config := createTestConfig()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+
+	vars := manager.collectConditionVariables()
+
+	// Should not include variables that are already subscribed to explicitly
+	// (dayPhase, sunevent, isAnyoneHome, isTVPlaying, isEveryoneAsleep, isMasterAsleep, isHaveGuests)
+	for _, v := range vars {
+		assert.NotEqual(t, "dayPhase", v)
+		assert.NotEqual(t, "sunevent", v)
+		assert.NotEqual(t, "isAnyoneHome", v)
+		assert.NotEqual(t, "isTVPlaying", v)
+		assert.NotEqual(t, "isEveryoneAsleep", v)
+		assert.NotEqual(t, "isMasterAsleep", v)
+		assert.NotEqual(t, "isHaveGuests", v)
+	}
+
+	// Should include isNickHome (from Primary Suite config) which is not in the standard list
+	found := false
+	for _, v := range vars {
+		if v == "isNickHome" {
+			found = true
+			break
+		}
+	}
+	assert.True(t, found, "Should include isNickHome from Primary Suite config")
 }

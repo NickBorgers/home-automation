@@ -3,17 +3,39 @@
 rooms:
   - hue_group: Living Room
     hass_area_id: living_room
-    on_if_true: isAnyoneHome
-    on_if_false: isTVPlaying
-    off_if_true: isEveryoneAsleep
-    off_if_false: isAnyoneHome
+    conditions:
+      # Priority 1: No one home -> OFF
+      - action: off
+        variable: isAnyoneHome
+        value: false
+      # Priority 2: Everyone asleep -> OFF
+      - action: off
+        variable: isEveryoneAsleep
+        value: true
+      # Priority 3: Someone home -> ON
+      - action: on
+        variable: isAnyoneHome
+        value: true
+      # Priority 4: TV not playing -> ON
+      - action: on
+        variable: isTVPlaying
+        value: false
     increase_brightness_if_true: isHaveGuests
     transition_seconds: 5
   - hue_group: Master Bedroom
     hass_area_id: master_bedroom
-    on_if_true: ~
-    on_if_false: isMasterAsleep
-    off_if_true: isMasterAsleep
-    off_if_false: isAnyoneHome
+    conditions:
+      # Priority 1: No one home -> OFF
+      - action: off
+        variable: isAnyoneHome
+        value: false
+      # Priority 2: Master asleep -> OFF
+      - action: off
+        variable: isMasterAsleep
+        value: true
+      # Priority 3: Master not asleep -> ON
+      - action: on
+        variable: isMasterAsleep
+        value: false
     increase_brightness_if_true: ~
     transition_seconds: 5

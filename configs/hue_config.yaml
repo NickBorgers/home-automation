@@ -2,71 +2,144 @@
 rooms:
   - hue_group: Living Room
     hass_area_id: living_room_2
-    on_if_true: isAnyoneHomeAndAwake
-    on_if_false: isTVPlaying
-    off_if_true: isEveryoneAsleep
-    off_if_false: isAnyoneHome
+    conditions:
+      # Priority 1: No one home -> OFF
+      - action: off
+        variable: isAnyoneHome
+        value: false
+      # Priority 2: Everyone asleep -> OFF
+      - action: off
+        variable: isEveryoneAsleep
+        value: true
+      # Priority 3: Someone home and awake -> ON
+      - action: on
+        variable: isAnyoneHomeAndAwake
+        value: true
+      # Priority 4: TV not playing -> ON (for ambient lighting)
+      - action: on
+        variable: isTVPlaying
+        value: false
     increase_brightness_if_true: isHaveGuests
     transition_seconds: 30
+
   - hue_group: Primary Suite
     hass_area_id: master_bedroom
-    on_if_true: ~
-    on_if_false: isMasterAsleep
-    off_if_true: isMasterAsleep
-    off_if_false: isAnyoneHome
+    conditions:
+      # Priority 1: No one home -> OFF
+      - action: off
+        variable: isAnyoneHome
+        value: false
+      # Priority 2: Master asleep -> OFF
+      - action: off
+        variable: isMasterAsleep
+        value: true
+      # Priority 3: Master not asleep -> ON
+      - action: on
+        variable: isMasterAsleep
+        value: false
     increase_brightness_if_true: ~
     transition_seconds: 180
+
   - hue_group: Sitting Room
     hass_area_id: dining_room
-    on_if_true: isAnyoneHomeAndAwake
-    on_if_false: ~
-    off_if_true: isEveryoneAsleep
-    off_if_false: isAnyoneHome
+    conditions:
+      # Priority 1: No one home -> OFF
+      - action: off
+        variable: isAnyoneHome
+        value: false
+      # Priority 2: Everyone asleep -> OFF
+      - action: off
+        variable: isEveryoneAsleep
+        value: true
+      # Priority 3: Someone home and awake -> ON
+      - action: on
+        variable: isAnyoneHomeAndAwake
+        value: true
     increase_brightness_if_true: ~
     transition_seconds: 120
+
   - hue_group: Front of House
     hass_area_id: front_of_house
-    on_if_true:
-      - isHaveGuests
-      - didOwnerJustReturnHome
-      - isFrontOfHousePersonPresent
-    on_if_false: ~
-    off_if_true: isEveryoneAsleep
-    off_if_false:
-      - isHaveGuests
-      - didOwnerJustReturnHome
-      - isFrontOfHousePersonPresent
+    conditions:
+      # Priority 1: Everyone asleep -> OFF
+      - action: off
+        variable: isEveryoneAsleep
+        value: true
+      # Priority 2-4: Any presence indicator -> ON
+      - action: on
+        variable: isHaveGuests
+        value: true
+      - action: on
+        variable: didOwnerJustReturnHome
+        value: true
+      - action: on
+        variable: isFrontOfHousePersonPresent
+        value: true
+      # Priority 5-7: No presence indicators -> OFF
+      - action: off
+        variable: isHaveGuests
+        value: false
+      - action: off
+        variable: didOwnerJustReturnHome
+        value: false
+      - action: off
+        variable: isFrontOfHousePersonPresent
+        value: false
     increase_brightness_if_true: ~
     transition_seconds: 15
+
   - hue_group: Decorative Outdoor Lights
     hass_area_id: front_of_house
-    on_if_true: didOwnerJustReturnHome
-    on_if_false: ~
-    off_if_true: isEveryoneAsleep
-    off_if_false: didOwnerJustReturnHome
+    conditions:
+      # Priority 1: Everyone asleep -> OFF
+      - action: off
+        variable: isEveryoneAsleep
+        value: true
+      # Priority 2: Owner just returned -> ON
+      - action: on
+        variable: didOwnerJustReturnHome
+        value: true
+      # Priority 3: Owner did not just return -> OFF
+      - action: off
+        variable: didOwnerJustReturnHome
+        value: false
     increase_brightness_if_true: ~
     transition_seconds: ~
+
   - hue_group: N Office
     hass_area_id: n_office
-    on_if_true: isNickOfficeOccupied
-    on_if_false: ~
-    off_if_true: ~
-    off_if_false: isNickOfficeOccupied
+    conditions:
+      # Priority 1: Office not occupied -> OFF
+      - action: off
+        variable: isNickOfficeOccupied
+        value: false
+      # Priority 2: Office occupied -> ON
+      - action: on
+        variable: isNickOfficeOccupied
+        value: true
     increase_brightness_if_true: ~
     transition_seconds: 2
+
   - hue_group: Kitchen
     hass_area_id: kitchen
-    on_if_true: isKitchenOccupied
-    on_if_false: ~
-    off_if_true: ~
-    off_if_false: isAnyoneHomeAndAwake
+    conditions:
+      # Priority 1: No one home and awake -> OFF
+      - action: off
+        variable: isAnyoneHomeAndAwake
+        value: false
+      # Priority 2: Kitchen occupied -> ON
+      - action: on
+        variable: isKitchenOccupied
+        value: true
     increase_brightness_if_true: ~
     transition_seconds: 5
+
   - hue_group: C Office
     hass_area_id: c_office
-    on_if_true: ~
-    on_if_false: ~
-    off_if_true: ~
-    off_if_false: isAnyoneHomeAndAwake
+    conditions:
+      # Priority 1: No one home and awake -> OFF
+      - action: off
+        variable: isAnyoneHomeAndAwake
+        value: false
     increase_brightness_if_true: ~
     transition_seconds: 2

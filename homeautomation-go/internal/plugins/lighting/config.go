@@ -1,41 +1,42 @@
 package lighting
 
 import (
+	"fmt"
 	"os"
 
 	"gopkg.in/yaml.v3"
 )
 
+// LightingCondition represents a single condition for controlling a room's lighting
+// Conditions are evaluated in order - the first matching condition wins
+type LightingCondition struct {
+	Action   string      `yaml:"action"`   // "on" or "off"
+	Variable string      `yaml:"variable"` // state variable name to check
+	Value    interface{} `yaml:"value"`    // expected value for the condition to match
+}
+
 // RoomConfig represents the configuration for a single room/area
 type RoomConfig struct {
-	HueGroup                 string      `yaml:"hue_group"`
-	HASSAreaID               string      `yaml:"hass_area_id"`
-	OnIfTrue                 interface{} `yaml:"on_if_true"`                  // Can be string or []string
-	OnIfFalse                interface{} `yaml:"on_if_false"`                 // Can be string or []string
-	OffIfTrue                interface{} `yaml:"off_if_true"`                 // Can be string or []string
-	OffIfFalse               interface{} `yaml:"off_if_false"`                // Can be string or []string
-	IncreaseBrightnessIfTrue interface{} `yaml:"increase_brightness_if_true"` // Can be string or []string
-	TransitionSeconds        *int        `yaml:"transition_seconds"`          // Pointer to handle nil/~ values
+	HueGroup                 string              `yaml:"hue_group"`
+	HASSAreaID               string              `yaml:"hass_area_id"`
+	Conditions               []LightingCondition `yaml:"conditions"`                  // Ordered list of conditions (first match wins)
+	IncreaseBrightnessIfTrue interface{}         `yaml:"increase_brightness_if_true"` // Can be string or []string
+	TransitionSeconds        *int                `yaml:"transition_seconds"`          // Pointer to handle nil/~ values
 }
 
-// GetOnIfTrueConditions returns the list of on_if_true conditions
-func (r *RoomConfig) GetOnIfTrueConditions() []string {
-	return interfaceToStringSlice(r.OnIfTrue)
-}
+// GetConditionVariables returns a list of all unique state variable names used in conditions
+func (r *RoomConfig) GetConditionVariables() []string {
+	seen := make(map[string]bool)
+	result := make([]string, 0)
 
-// GetOnIfFalseConditions returns the list of on_if_false conditions
-func (r *RoomConfig) GetOnIfFalseConditions() []string {
-	return interfaceToStringSlice(r.OnIfFalse)
-}
+	for _, cond := range r.Conditions {
+		if cond.Variable != "" && !seen[cond.Variable] {
+			seen[cond.Variable] = true
+			result = append(result, cond.Variable)
+		}
+	}
 
-// GetOffIfTrueConditions returns the list of off_if_true conditions
-func (r *RoomConfig) GetOffIfTrueConditions() []string {
-	return interfaceToStringSlice(r.OffIfTrue)
-}
-
-// GetOffIfFalseConditions returns the list of off_if_false conditions
-func (r *RoomConfig) GetOffIfFalseConditions() []string {
-	return interfaceToStringSlice(r.OffIfFalse)
+	return result
 }
 
 // GetIncreaseBrightnessIfTrueConditions returns the list of increase_brightness_if_true conditions
@@ -68,6 +69,12 @@ func interfaceToStringSlice(val interface{}) []string {
 	default:
 		return []string{}
 	}
+}
+
+// valuesMatch compares two interface{} values for equality using string representation
+// This matches the pattern used in the music plugin for flexible type comparison
+func valuesMatch(a, b interface{}) bool {
+	return fmt.Sprintf("%v", a) == fmt.Sprintf("%v", b)
 }
 
 // HueConfig represents the Hue lighting configuration

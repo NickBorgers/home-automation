@@ -22,15 +22,15 @@ package lighting
 //
 // CONFIGURATION REFERENCE:
 // - File: configs/hue_config.yaml
-// - Relevant room configs:
-//   - N Office: on_if_true: isNickOfficeOccupied, off_if_false: isNickOfficeOccupied
-//   - Kitchen: on_if_true: isKitchenOccupied, off_if_false: isAnyoneHomeAndAwake
+// - Relevant room configs (using ordered conditions format):
+//   - N Office: conditions with priority: 1. off if !isNickOfficeOccupied, 2. on if isNickOfficeOccupied
+//   - Kitchen: conditions with priority: 1. off if !isAnyoneHomeAndAwake, 2. on if isKitchenOccupied
 //
 // IMPLEMENTATION:
 // The Lighting Manager (internal/plugins/lighting/manager.go) implements:
 //
 // 1. collectConditionVariables(): Parses all unique variables from room configs
-//    - Extracts variables from OnIfTrue, OnIfFalse, OffIfTrue, OffIfFalse fields
+//    - Extracts variables from each room's Conditions list
 //    - Example: "isNickOfficeOccupied", "isKitchenOccupied", "isAnyoneHomeAndAwake"
 //
 // 2. Subscribe to state changes for these variables in Start()
@@ -39,9 +39,8 @@ package lighting
 //
 // 3. handleOccupancyChange(): When a subscribed variable changes
 //    - Identifies which rooms use that variable in their conditions
-//    - For each affected room, evaluates the on/off conditions
-//    - If on_if_true matches: activates the appropriate scene (scene.turn_on)
-//    - If off_if_false matches: turns off lights (light.turn_off)
+//    - For each affected room, evaluates conditions in priority order
+//    - First matching condition determines the action (on/off)
 //
 // 4. Scene naming convention:
 //    - Scene entity_id format: scene.{snake_case(hue_group + " " + dayPhase)}
@@ -74,21 +73,25 @@ func createOccupancyTestConfig() *HueConfig {
 	return &HueConfig{
 		Rooms: []RoomConfig{
 			{
-				HueGroup:          "N Office",
-				HASSAreaID:        "n_office",
-				OnIfTrue:          "isNickOfficeOccupied",
-				OnIfFalse:         nil,
-				OffIfTrue:         nil,
-				OffIfFalse:        "isNickOfficeOccupied",
+				HueGroup:   "N Office",
+				HASSAreaID: "n_office",
+				Conditions: []LightingCondition{
+					// Priority 1: Office not occupied -> OFF
+					{Action: "off", Variable: "isNickOfficeOccupied", Value: false},
+					// Priority 2: Office occupied -> ON
+					{Action: "on", Variable: "isNickOfficeOccupied", Value: true},
+				},
 				TransitionSeconds: &transition2,
 			},
 			{
-				HueGroup:          "Kitchen",
-				HASSAreaID:        "kitchen",
-				OnIfTrue:          "isKitchenOccupied",
-				OnIfFalse:         nil,
-				OffIfTrue:         nil,
-				OffIfFalse:        "isAnyoneHomeAndAwake",
+				HueGroup:   "Kitchen",
+				HASSAreaID: "kitchen",
+				Conditions: []LightingCondition{
+					// Priority 1: No one home and awake -> OFF
+					{Action: "off", Variable: "isAnyoneHomeAndAwake", Value: false},
+					// Priority 2: Kitchen occupied -> ON
+					{Action: "on", Variable: "isKitchenOccupied", Value: true},
+				},
 				TransitionSeconds: &transition5,
 			},
 		},
