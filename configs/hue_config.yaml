@@ -5,17 +5,13 @@ rooms:
     conditions:
       # Priority 1: No one home -> OFF
       - action: off
-        variable: isAnyoneHome
+        variable: isAnyoneHomeAndAwake
         value: false
-      # Priority 2: Everyone asleep -> OFF
-      - action: off
-        variable: isEveryoneAsleep
-        value: true
-      # Priority 3: Someone home and awake -> ON
+      # Priority 2: Someone home and awake -> ON
       - action: on
         variable: isAnyoneHomeAndAwake
         value: true
-      # Priority 4: TV not playing -> ON (for ambient lighting)
+      # Priority 3: TV not playing -> ON (for ambient lighting)
       - action: on
         variable: isTVPlaying
         value: false
@@ -27,7 +23,7 @@ rooms:
     conditions:
       # Priority 1: No one home -> OFF
       - action: off
-        variable: isAnyoneHome
+        variable: isAnyoneHomeAndAwake
         value: false
       # Priority 2: Master asleep -> OFF
       - action: off
@@ -45,13 +41,9 @@ rooms:
     conditions:
       # Priority 1: No one home -> OFF
       - action: off
-        variable: isAnyoneHome
+        variable: isAnyoneHomeAndAwake
         value: false
-      # Priority 2: Everyone asleep -> OFF
-      - action: off
-        variable: isEveryoneAsleep
-        value: true
-      # Priority 3: Someone home and awake -> ON
+      # Priority 2: Someone home and awake -> ON
       - action: on
         variable: isAnyoneHomeAndAwake
         value: true
@@ -61,19 +53,20 @@ rooms:
   - hue_group: Front of House
     hass_area_id: front_of_house
     conditions:
-      # Priority 1: Everyone asleep -> OFF
-      - action: off
-        variable: isEveryoneAsleep
+      # Priority 0: Front of house person present -> ON
+      - action: on
+        variable: isFrontOfHousePersonPresent
         value: true
+      # Priority 1: Everyone asleep or gone -> OFF
+      - action: off
+        variable: isAnyoneHomeAndAwake
+        value: false
       # Priority 2-4: Any presence indicator -> ON
       - action: on
         variable: isHaveGuests
         value: true
       - action: on
         variable: didOwnerJustReturnHome
-        value: true
-      - action: on
-        variable: isFrontOfHousePersonPresent
         value: true
       # Priority 5-7: No presence indicators -> OFF
       - action: off
@@ -91,17 +84,30 @@ rooms:
   - hue_group: Decorative Outdoor Lights
     hass_area_id: front_of_house
     conditions:
-      # Priority 1: Everyone asleep -> OFF
-      - action: off
-        variable: isEveryoneAsleep
+      # Priority 0: Front of house person present -> ON
+      - action: on
+        variable: isFrontOfHousePersonPresent
         value: true
-      # Priority 2: Owner just returned -> ON
+      # Priority 1: Everyone asleep or gone -> OFF
+      - action: off
+        variable: isAnyoneHomeAndAwake
+        value: false
+      # Priority 2-4: Any presence indicator -> ON
+      - action: on
+        variable: isHaveGuests
+        value: true
       - action: on
         variable: didOwnerJustReturnHome
         value: true
-      # Priority 3: Owner did not just return -> OFF
+      # Priority 5-7: No presence indicators -> OFF
+      - action: off
+        variable: isHaveGuests
+        value: false
       - action: off
         variable: didOwnerJustReturnHome
+        value: false
+      - action: off
+        variable: isFrontOfHousePersonPresent
         value: false
     increase_brightness_if_true: ~
     transition_seconds: ~
