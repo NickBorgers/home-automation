@@ -78,6 +78,8 @@ type CallServiceRequest struct {
 // ServiceTarget represents service call target
 type ServiceTarget struct {
 	EntityID []string `json:"entity_id,omitempty"`
+	LabelID  []string `json:"label_id,omitempty"`
+	AreaID   []string `json:"area_id,omitempty"`
 }
 
 // GetStatesRequest represents a get_states request

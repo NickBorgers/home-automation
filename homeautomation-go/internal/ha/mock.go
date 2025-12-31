@@ -43,6 +43,7 @@ type ServiceCall struct {
 	Domain  string
 	Service string
 	Data    map[string]interface{}
+	Target  *ServiceTarget
 	Time    time.Time
 }
 
@@ -203,6 +204,41 @@ func (m *MockClient) CallService(domain, service string, data map[string]interfa
 			m.updateStateFromServiceCall(entityID, domain, service, data)
 		}
 	}
+
+	return nil
+}
+
+// CallServiceWithTarget records a service call with target
+func (m *MockClient) CallServiceWithTarget(domain, service string, target *ServiceTarget, data map[string]interface{}) error {
+	key := domain + "." + service
+
+	// Check for transient failures first (fail N times, then succeed)
+	m.serviceFailCountsMu.Lock()
+	if remainingFailures, exists := m.serviceFailCounts[key]; exists && remainingFailures > 0 {
+		m.serviceFailCounts[key] = remainingFailures - 1
+		err := m.serviceFailError[key]
+		m.serviceFailCountsMu.Unlock()
+		return err
+	}
+	m.serviceFailCountsMu.Unlock()
+
+	// Check for permanent injected errors
+	m.serviceErrorsMu.RLock()
+	if err, exists := m.serviceErrors[key]; exists {
+		m.serviceErrorsMu.RUnlock()
+		return err
+	}
+	m.serviceErrorsMu.RUnlock()
+
+	m.callsMu.Lock()
+	m.serviceCalls = append(m.serviceCalls, ServiceCall{
+		Domain:  domain,
+		Service: service,
+		Data:    data,
+		Target:  target,
+		Time:    time.Now(),
+	})
+	m.callsMu.Unlock()
 
 	return nil
 }

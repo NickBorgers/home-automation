@@ -34,12 +34,12 @@ func TestChristmasManager_ActivationTurnsOnHolidayLights(t *testing.T) {
 	// Wait for async processing
 	time.Sleep(100 * time.Millisecond)
 
-	// Verify holiday lights were turned on with label
+	// Verify holiday lights were turned on with label via Target
 	calls := mockHA.GetServiceCalls()
 	foundLightCall := false
 	for _, call := range calls {
 		if call.Domain == "light" && call.Service == "turn_on" {
-			if labelID, ok := call.Data["label_id"].(string); ok && labelID == HolidayLightLabel {
+			if call.Target != nil && len(call.Target.LabelID) > 0 && call.Target.LabelID[0] == HolidayLightLabelID {
 				foundLightCall = true
 				break
 			}
@@ -47,7 +47,7 @@ func TestChristmasManager_ActivationTurnsOnHolidayLights(t *testing.T) {
 	}
 
 	if !foundLightCall {
-		t.Errorf("Expected light.turn_on with label_id '%s' to be called, but it was not. Calls: %+v", HolidayLightLabel, calls)
+		t.Errorf("Expected light.turn_on with target label_id '%s' to be called, but it was not. Calls: %+v", HolidayLightLabelID, calls)
 	}
 }
 
@@ -225,18 +225,18 @@ func TestChristmasManager_Reset(t *testing.T) {
 		t.Errorf("Expected at least 2 service calls after reset (light.turn_on and input_boolean.turn_off), got %d", len(calls))
 	}
 
-	// Verify light was turned on
+	// Verify light was turned on via target label_id
 	foundLightCall := false
 	for _, call := range calls {
 		if call.Domain == "light" && call.Service == "turn_on" {
-			if labelID, ok := call.Data["label_id"].(string); ok && labelID == HolidayLightLabel {
+			if call.Target != nil && len(call.Target.LabelID) > 0 && call.Target.LabelID[0] == HolidayLightLabelID {
 				foundLightCall = true
 				break
 			}
 		}
 	}
 	if !foundLightCall {
-		t.Errorf("Expected light.turn_on with label_id to be called during reset")
+		t.Errorf("Expected light.turn_on with target label_id to be called during reset")
 	}
 }
 

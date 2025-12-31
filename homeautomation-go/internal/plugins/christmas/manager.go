@@ -10,8 +10,8 @@ import (
 	"go.uber.org/zap"
 )
 
-// HolidayLightLabel is the Home Assistant label for holiday lights
-const HolidayLightLabel = "Holiday Light"
+// HolidayLightLabelID is the Home Assistant label ID (slug) for holiday lights
+const HolidayLightLabelID = "holiday_light"
 
 // Manager handles Christmas/holiday light activation
 type Manager struct {
@@ -132,29 +132,30 @@ func (m *Manager) handleChristmasOn() {
 	m.shadowTracker.RecordActivation(lightsActivated, "Holiday lights activated via input_boolean.christmas")
 }
 
-// activateHolidayLights turns on all lights with the "Holiday Light" label
+// activateHolidayLights turns on all lights with the "holiday_light" label
 func (m *Manager) activateHolidayLights() int {
-	m.logger.Info("Turning on lights with Holiday Light label")
+	m.logger.Info("Turning on lights with holiday_light label")
 
 	if m.readOnly {
 		m.logger.Info("READ-ONLY: Would turn on lights with label",
-			zap.String("label", HolidayLightLabel))
+			zap.String("label_id", HolidayLightLabelID))
 		return 0
 	}
 
-	// Call light.turn_on service with label_id
-	err := m.haClient.CallService("light", "turn_on", map[string]interface{}{
-		"label_id": HolidayLightLabel,
-	})
+	// Call light.turn_on service with target containing label_id
+	target := &ha.ServiceTarget{
+		LabelID: []string{HolidayLightLabelID},
+	}
+	err := m.haClient.CallServiceWithTarget("light", "turn_on", target, nil)
 	if err != nil {
 		m.logger.Error("Failed to turn on holiday lights",
-			zap.String("label", HolidayLightLabel),
+			zap.String("label_id", HolidayLightLabelID),
 			zap.Error(err))
 		return 0
 	}
 
 	m.logger.Info("Holiday lights turned on",
-		zap.String("label", HolidayLightLabel))
+		zap.String("label_id", HolidayLightLabelID))
 
 	// We don't have an easy way to count how many lights were activated
 	// Just return 1 to indicate success

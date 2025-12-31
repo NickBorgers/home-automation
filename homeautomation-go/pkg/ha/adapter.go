@@ -72,6 +72,19 @@ func (a *ClientAdapter) CallService(domain, service string, data map[string]inte
 	return a.internal.CallService(domain, service, data)
 }
 
+func (a *ClientAdapter) CallServiceWithTarget(domain, service string, target *ServiceTarget, data map[string]interface{}) error {
+	// Convert pkg ServiceTarget to internal ServiceTarget
+	var internalTarget *ha.ServiceTarget
+	if target != nil {
+		internalTarget = &ha.ServiceTarget{
+			EntityID: target.EntityID,
+			LabelID:  target.LabelID,
+			AreaID:   target.AreaID,
+		}
+	}
+	return a.internal.CallServiceWithTarget(domain, service, internalTarget, data)
+}
+
 func (a *ClientAdapter) SubscribeStateChanges(entityID string, handler StateChangeHandler) (Subscription, error) {
 	// Create a wrapper handler that converts internal states to pkg states
 	internalHandler := func(entity string, oldState, newState *ha.State) {

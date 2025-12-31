@@ -45,6 +45,9 @@ func (m *mockHAClient) GetAllStates() ([]*ha.State, error) { return nil, nil }
 func (m *mockHAClient) CallService(domain, service string, data map[string]interface{}) error {
 	return nil
 }
+func (m *mockHAClient) CallServiceWithTarget(domain, service string, target *ha.ServiceTarget, data map[string]interface{}) error {
+	return nil
+}
 func (m *mockHAClient) SetInputBoolean(name string, value bool) error   { return nil }
 func (m *mockHAClient) SetInputNumber(name string, value float64) error { return nil }
 func (m *mockHAClient) SetInputText(name string, value string) error    { return nil }
