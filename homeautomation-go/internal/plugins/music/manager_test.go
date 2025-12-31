@@ -1145,11 +1145,11 @@ func TestBuildSpeakerGroupPartialSuccess(t *testing.T) {
 	// Use no-op sleep to make test fast
 	manager.SetSleepFunc(func(d time.Duration) {})
 
-	// Configure mock to fail first 6 calls then succeed:
-	// - Calls 1-3: batch join retries (all fail)
-	// - Calls 4-6: Living Room individual retries (all fail)
-	// - Call 7+: Bedroom individual (succeeds)
-	mockClient.SetServiceFailCount("media_player", "join", 6, fmt.Errorf("service call failed: Host is unreachable"))
+	// Configure mock to fail first 12 calls then succeed:
+	// - Calls 1-6: batch join retries (all fail, maxSpeakerGroupRetries = 6)
+	// - Calls 7-12: Living Room individual retries (all fail)
+	// - Call 13+: Bedroom individual (succeeds)
+	mockClient.SetServiceFailCount("media_player", "join", 12, fmt.Errorf("service call failed: Host is unreachable"))
 
 	participants := []ParticipantWithVolume{
 		{PlayerName: "Kitchen", Volume: 9},
