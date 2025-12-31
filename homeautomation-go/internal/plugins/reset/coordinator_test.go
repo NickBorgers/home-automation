@@ -7,8 +7,7 @@ import (
 
 	"homeautomation/internal/ha"
 	"homeautomation/internal/state"
-
-	"go.uber.org/zap"
+	"homeautomation/internal/testlogger"
 )
 
 // mockResettable is a mock plugin that tracks Reset() calls
@@ -24,7 +23,7 @@ func (m *mockResettable) Reset() error {
 
 // createTestManager creates a state manager for testing
 func createTestManager(t *testing.T) *state.Manager {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	mockClient.SetState("input_boolean.reset", "off", map[string]interface{}{})
 	mockClient.Connect()
@@ -38,7 +37,7 @@ func createTestManager(t *testing.T) *state.Manager {
 
 // TestCoordinator_Start tests coordinator startup
 func TestCoordinator_Start(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	stateManager := createTestManager(t)
 
 	plugins := []PluginWithName{
@@ -56,7 +55,7 @@ func TestCoordinator_Start(t *testing.T) {
 
 // TestCoordinator_ResetTrigger tests that reset triggers plugin Reset() calls
 func TestCoordinator_ResetTrigger(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	stateManager := createTestManager(t)
 
 	// Create mock plugins
@@ -103,7 +102,7 @@ func TestCoordinator_ResetTrigger(t *testing.T) {
 
 // TestCoordinator_ResetError tests that coordinator continues on plugin errors
 func TestCoordinator_ResetError(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	stateManager := createTestManager(t)
 
 	// Create plugins - one that fails, one that succeeds
@@ -150,7 +149,7 @@ func TestCoordinator_ResetError(t *testing.T) {
 
 // TestCoordinator_ReadOnlyMode tests coordinator in read-only mode
 func TestCoordinator_ReadOnlyMode(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	mockClient.SetState("input_boolean.reset", "off", map[string]interface{}{})
 	mockClient.Connect()
@@ -186,7 +185,7 @@ func TestCoordinator_ReadOnlyMode(t *testing.T) {
 
 // TestCoordinator_NoPlugins tests coordinator with no plugins
 func TestCoordinator_NoPlugins(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	stateManager := createTestManager(t)
 
 	// Create coordinator with no plugins
@@ -217,7 +216,7 @@ func TestCoordinator_NoPlugins(t *testing.T) {
 
 // TestCoordinator_ResetFalse tests that setting reset to false doesn't trigger
 func TestCoordinator_ResetFalse(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	stateManager := createTestManager(t)
 
 	plugin := &mockResettable{}
@@ -248,7 +247,7 @@ func TestCoordinator_ResetFalse(t *testing.T) {
 
 // TestCoordinator_Stop tests coordinator shutdown
 func TestCoordinator_Stop(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	stateManager := createTestManager(t)
 
 	plugins := []PluginWithName{

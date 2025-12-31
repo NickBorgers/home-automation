@@ -5,6 +5,7 @@ import (
 
 	"homeautomation/internal/ha"
 	"homeautomation/internal/state"
+	"homeautomation/internal/testlogger"
 
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/zap"
@@ -52,7 +53,7 @@ func createTestConfig() *HueConfig {
 }
 
 func TestNewManager(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	config := createTestConfig()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -67,7 +68,7 @@ func TestNewManager(t *testing.T) {
 }
 
 func TestEvaluateConditions(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	config := createTestConfig()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -168,7 +169,7 @@ func TestEvaluateConditions(t *testing.T) {
 }
 
 func TestEvaluateConditionsNoMatch(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 
@@ -192,7 +193,7 @@ func TestEvaluateConditionsNoMatch(t *testing.T) {
 }
 
 func TestActivateSceneReadOnly(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	config := createTestConfig()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -210,7 +211,7 @@ func TestActivateSceneReadOnly(t *testing.T) {
 }
 
 func TestActivateScene(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	config := createTestConfig()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -239,7 +240,7 @@ func TestActivateScene(t *testing.T) {
 // Home Assistant would activate an unexpected scene (e.g., "energize" instead of "dusk").
 // This test verifies that only entity_id is passed, ensuring the correct scene activates.
 func TestActivateSceneDusk(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	config := createTestConfig()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -267,7 +268,7 @@ func TestActivateSceneDusk(t *testing.T) {
 }
 
 func TestTurnOffRoomReadOnly(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	config := createTestConfig()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -284,7 +285,7 @@ func TestTurnOffRoomReadOnly(t *testing.T) {
 }
 
 func TestTurnOffRoom(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	config := createTestConfig()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -308,7 +309,7 @@ func TestTurnOffRoom(t *testing.T) {
 }
 
 func TestEvaluateAndActivateRoom(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	config := createTestConfig()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -393,7 +394,7 @@ func TestEvaluateAndActivateRoom(t *testing.T) {
 }
 
 func TestStart(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	config := createTestConfig()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -466,7 +467,7 @@ func TestLightingManager_Stop(t *testing.T) {
 }
 
 func TestManagerReset(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 	hueConfig := createTestConfig()
@@ -486,7 +487,7 @@ func TestManagerReset(t *testing.T) {
 }
 
 func TestIsTopicRelevant(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	config := createTestConfig()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -557,7 +558,7 @@ func TestIsTopicRelevant(t *testing.T) {
 }
 
 func TestGetStateValue(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	config := createTestConfig()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -588,7 +589,7 @@ func TestGetStateValue(t *testing.T) {
 }
 
 func TestCollectConditionVariables(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	config := createTestConfig()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)

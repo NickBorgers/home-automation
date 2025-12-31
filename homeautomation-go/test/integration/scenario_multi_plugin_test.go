@@ -11,6 +11,7 @@ import (
 	"homeautomation/internal/plugins/statetracking"
 	"homeautomation/internal/plugins/tv"
 	"homeautomation/internal/state"
+	"homeautomation/internal/testlogger"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -39,7 +40,7 @@ func setupMultiPluginTest(t *testing.T) (*pluginTestEnv, func()) {
 	// Setup base test infrastructure
 	server, client, manager, baseCleanup := setupTest(t)
 
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 
 	// Load test configs
 	lightingConfig := loadTestLightingConfig(t)

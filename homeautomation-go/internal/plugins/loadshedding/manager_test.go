@@ -6,13 +6,13 @@ import (
 
 	"homeautomation/internal/ha"
 	"homeautomation/internal/state"
+	"homeautomation/internal/testlogger"
 
 	"github.com/stretchr/testify/assert"
-	"go.uber.org/zap"
 )
 
 func TestLoadShedding_EnergyStateRed(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 
 	// Initialize thermostat hold switches in mock (start with them off)
@@ -71,7 +71,7 @@ func TestLoadShedding_EnergyStateRed(t *testing.T) {
 }
 
 func TestLoadShedding_EnergyStateBlack(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 
 	// Initialize thermostat hold switches in mock (start with them off)
@@ -108,7 +108,7 @@ func TestLoadShedding_EnergyStateBlack(t *testing.T) {
 }
 
 func TestLoadShedding_EnergyStateGreen(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 
 	// Initialize thermostat hold switches in mock (start with them on - load shedding active)
@@ -153,7 +153,7 @@ func TestLoadShedding_EnergyStateGreen(t *testing.T) {
 }
 
 func TestLoadShedding_EnergyStateWhite(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 
 	// Initialize thermostat hold switches in mock (start with them on - load shedding active)
@@ -193,7 +193,7 @@ func TestLoadShedding_EnergyStateWhite(t *testing.T) {
 }
 
 func TestLoadShedding_RateLimiting(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 
 	// Initialize thermostat hold switches in mock (start with them off)
@@ -236,7 +236,7 @@ func TestLoadShedding_RateLimiting(t *testing.T) {
 }
 
 func TestLoadShedding_StartStop(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 
 	// Initialize thermostat hold switches in mock (start with them off)
@@ -269,7 +269,7 @@ func TestLoadShedding_StartStop(t *testing.T) {
 }
 
 func TestLoadShedding_UnknownState(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 
 	// Initialize thermostat hold switches in mock (start with them off)
@@ -300,7 +300,7 @@ func TestLoadShedding_UnknownState(t *testing.T) {
 }
 
 func TestLoadShedding_RedToGreenTransition(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 
 	// Initialize thermostat hold switches in mock (start with them off)
@@ -354,7 +354,7 @@ func TestLoadShedding_RedToGreenTransition(t *testing.T) {
 }
 
 func TestManagerReset(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 

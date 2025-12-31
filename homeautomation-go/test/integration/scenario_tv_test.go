@@ -6,10 +6,10 @@ import (
 
 	"homeautomation/internal/plugins/tv"
 	"homeautomation/internal/state"
+	"homeautomation/internal/testlogger"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"go.uber.org/zap"
 )
 
 // setupTVScenarioTest creates a test environment with the TV plugin running
@@ -17,7 +17,7 @@ func setupTVScenarioTest(t *testing.T) (*MockHAServer, *state.Manager, func()) {
 	server, client, stateManager, baseCleanup := setupTest(t)
 
 	// Create logger for TV plugin
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 
 	// Create and start TV plugin
 	tvManager := tv.NewManager(client, stateManager, logger, false, nil)
