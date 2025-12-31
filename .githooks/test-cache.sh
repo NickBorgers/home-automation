@@ -34,25 +34,29 @@ cd "$(git rev-parse --show-toplevel)"
 # Create cache directory if it doesn't exist
 mkdir -p "$CACHE_DIR"
 
-# Compute current state hash
-# Combines: commit SHA + hash of all uncommitted changes (working tree + staged)
+# Compute current state hash based on CONTENT, not commit metadata
+# This ensures the hash is the same before and after commit if file contents match
 compute_state_hash() {
-    local commit_hash
-    local diff_hash
+    local tree_hash
 
-    # Get current commit SHA (or "no-commit" if no commits yet)
-    commit_hash=$(git rev-parse HEAD 2>/dev/null || echo "no-commit")
-
-    # Get hash of uncommitted changes (both staged and unstaged)
-    # If working tree is clean, use "clean" as the diff component
+    # Check if working tree is clean
     if git diff HEAD --quiet 2>/dev/null && git diff --cached --quiet 2>/dev/null; then
-        diff_hash="clean"
+        # Clean working tree - use the tree hash of HEAD
+        tree_hash=$(git rev-parse HEAD^{tree} 2>/dev/null || echo "empty")
     else
-        # Hash all uncommitted changes
-        diff_hash=$(git diff HEAD 2>/dev/null | sha256sum | cut -d' ' -f1)
+        # Dirty working tree - compute what the tree WOULD be after commit
+        # git stash create makes a commit object of current state without stashing
+        local stash_commit
+        stash_commit=$(git stash create 2>/dev/null)
+        if [ -n "$stash_commit" ]; then
+            tree_hash=$(git rev-parse "${stash_commit}^{tree}" 2>/dev/null)
+        else
+            # Fallback: hash all tracked file contents directly
+            tree_hash=$(git ls-files -z | xargs -0 cat 2>/dev/null | sha256sum | cut -d' ' -f1)
+        fi
     fi
 
-    echo "${commit_hash}:${diff_hash}"
+    echo "${tree_hash}"
 }
 
 # Get cached state hash (if exists)
