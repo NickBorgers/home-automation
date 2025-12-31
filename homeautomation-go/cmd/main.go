@@ -12,7 +12,7 @@
 //		"homeautomation/cmd/app"
 //
 //		// Import all public plugins
-//		_ "homeautomation/internal/plugins/all"
+//		_ "homeautomation/pkg/plugins/all"
 //
 //		// Import private overrides (higher priority wins)
 //		_ "github.com/your-org/your-private-security-plugin"
@@ -27,7 +27,7 @@ import (
 	"homeautomation/cmd/app"
 
 	// Import all plugins via the convenience package
-	_ "homeautomation/internal/plugins/all"
+	_ "homeautomation/pkg/plugins/all"
 )
 
 func main() {

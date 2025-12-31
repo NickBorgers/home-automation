@@ -8,7 +8,7 @@
 //	    "homeautomation/cmd/app"
 //
 //	    // Import all public plugins
-//	    _ "homeautomation/internal/plugins/all"
+//	    _ "homeautomation/pkg/plugins/all"
 //
 //	    // Import private overrides (these take priority)
 //	    _ "github.com/your-org/your-private-security-plugin"
