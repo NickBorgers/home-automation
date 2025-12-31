@@ -5,13 +5,13 @@ import (
 	"time"
 
 	"homeautomation/internal/config"
+	"homeautomation/internal/testlogger"
 
 	"github.com/stretchr/testify/assert"
-	"go.uber.org/zap"
 )
 
 func TestCalculator_UpdateSunTimes(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	// Austin, TX coordinates
 	calc := NewCalculator(32.85486, -97.50515, logger)
 
@@ -40,7 +40,7 @@ func TestCalculator_UpdateSunTimes(t *testing.T) {
 }
 
 func TestCalculator_GetSunEvent(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	calc := NewCalculator(32.85486, -97.50515, logger)
 
 	err := calc.UpdateSunTimes()
@@ -63,7 +63,7 @@ func TestCalculator_GetSunEvent(t *testing.T) {
 }
 
 func TestCalculator_CalculateDayPhase(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	calc := NewCalculator(32.85486, -97.50515, logger)
 
 	err := calc.UpdateSunTimes()
@@ -104,7 +104,7 @@ func TestCalculator_CalculateDayPhase(t *testing.T) {
 }
 
 func TestCalculator_CalculateDayPhaseWithoutSchedule(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	calc := NewCalculator(32.85486, -97.50515, logger)
 
 	err := calc.UpdateSunTimes()
@@ -133,7 +133,7 @@ func setSunTimesForTest(calc *Calculator, now time.Time, dawn, sunrise, sunriseE
 }
 
 func TestCalculator_GetSunEventAllPeriods(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	calc := NewCalculator(32.85486, -97.50515, logger)
 
 	now := time.Now()
@@ -267,7 +267,7 @@ func TestCalculator_GetSunEventAllPeriods(t *testing.T) {
 }
 
 func TestCalculator_CalculateDayPhaseAllCases(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 
 	now := time.Now()
 
@@ -634,7 +634,7 @@ func TestCalculator_CalculateDayPhaseAllCases(t *testing.T) {
 
 // TestCalculator_CalculateDayPhaseEdgeCases tests edge cases in day phase calculation
 func TestCalculator_CalculateDayPhaseEdgeCases(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	calc := NewCalculator(32.85486, -97.50515, logger)
 
 	now := time.Now()
@@ -659,7 +659,7 @@ func TestCalculator_CalculateDayPhaseEdgeCases(t *testing.T) {
 }
 
 func TestCalculator_AutoUpdateSunTimes(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	calc := NewCalculator(32.85486, -97.50515, logger)
 
 	// Test that GetSunEvent auto-updates if lastUpdate is zero
@@ -675,7 +675,7 @@ func TestCalculator_AutoUpdateSunTimes(t *testing.T) {
 }
 
 func TestCalculator_StartPeriodicUpdate(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	calc := NewCalculator(32.85486, -97.50515, logger)
 
 	// Start periodic updates
@@ -744,7 +744,7 @@ func TestDayPhaseConstants(t *testing.T) {
 }
 
 func TestCalculator_GetSunTimes(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	calc := NewCalculator(32.85486, -97.50515, logger)
 
 	// Before update, should return empty map

@@ -183,9 +183,14 @@ dev-ui: build-go
 	@echo ""
 	cd homeautomation-go && DEV_MODE=true ./homeautomation
 
-#test-go: @ Run Go tests with race detection and coverage
+#test-go: @ Run Go tests with race detection and coverage (quiet mode for AI tools)
 test-go:
-	cd homeautomation-go && go test ./... -race -v -coverprofile=coverage.out
+	cd homeautomation-go && go test ./... -race -coverprofile=coverage.out
+	cd homeautomation-go && go tool cover -func=coverage.out | grep total
+
+#test-go-verbose: @ Run Go tests with verbose output (for debugging)
+test-go-verbose:
+	cd homeautomation-go && TEST_VERBOSE=true go test ./... -race -v -coverprofile=coverage.out
 	cd homeautomation-go && go tool cover -func=coverage.out | grep total
 
 #docker-build-go: @ Build Docker image for the Go application
@@ -376,7 +381,7 @@ ci-unit-tests:
 	@echo "🧪 Running unit tests (excluding integration tests, pkg/testutil, and cmd/diagramgen)..."
 	@cd homeautomation-go && go build ./...
 	@cd homeautomation-go && go test $$(go list ./... | grep -v /test/integration | grep -v /pkg/testutil | grep -v /cmd/diagramgen) \
-	  -race -v -coverprofile=coverage.out -covermode=atomic -timeout=5m
+	  -race -coverprofile=coverage.out -covermode=atomic -timeout=5m
 	@cd homeautomation-go && \
 	  coverage=$$(go tool cover -func=coverage.out | grep total | awk '{print $$3}' | sed 's/%//') && \
 	  echo "Total coverage: $${coverage}%" && \
@@ -390,7 +395,7 @@ ci-unit-tests:
 #ci-integration-tests: @ Run integration tests with race detector (used by CI)
 ci-integration-tests:
 	@echo "🧪 Running integration tests..."
-	@cd homeautomation-go && go test ./test/integration/... -race -v -timeout=10m
+	@cd homeautomation-go && go test ./test/integration/... -race -timeout=10m
 	@echo "✅ Integration tests passed"
 
 #pre-push: @ Run comprehensive pre-push validation (build, tests, race detector, coverage ≥70%)
@@ -425,7 +430,7 @@ pre-push:
 	  rm -f coverage.out
 	@echo ""
 	@echo "🔗 Step 5/5: Running integration tests with race detector..."
-	@cd homeautomation-go && go test ./test/integration/... -race -v -timeout=10m
+	@cd homeautomation-go && go test ./test/integration/... -race -timeout=10m
 	@echo "✅ Integration tests passed"
 	@echo ""
 	@echo "════════════════════════════════════════════════════════════════════════════"

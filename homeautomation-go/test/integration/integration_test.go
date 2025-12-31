@@ -8,10 +8,10 @@ import (
 
 	"homeautomation/internal/ha"
 	"homeautomation/internal/state"
+	"homeautomation/internal/testlogger"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"go.uber.org/zap"
 )
 
 const (
@@ -21,7 +21,7 @@ const (
 
 func setupTest(t *testing.T) (*MockHAServer, *ha.Client, *state.Manager, func()) {
 	// Create logger
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 
 	// Start mock HA server
 	server := NewMockHAServer(testAddr, testToken)
@@ -415,7 +415,7 @@ func TestCompareAndSwapRaceCondition(t *testing.T) {
 
 // TestReconnection tests client reconnection behavior
 func TestReconnection(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 
 	// Start server
 	server := NewMockHAServer(testAddr, testToken)
@@ -464,7 +464,7 @@ func TestReconnection(t *testing.T) {
 // TestReconnectionMessageIDReset tests that message IDs are reset after reconnection
 // This prevents the "id_reuse - Identifier values have to increase" error from HA
 func TestReconnectionMessageIDReset(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 
 	// Start server
 	server := NewMockHAServer(testAddr, testToken)

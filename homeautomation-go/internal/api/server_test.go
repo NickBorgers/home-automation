@@ -11,13 +11,12 @@ import (
 	"homeautomation/internal/logbuffer"
 	"homeautomation/internal/shadowstate"
 	"homeautomation/internal/state"
-
-	"go.uber.org/zap"
+	"homeautomation/internal/testlogger"
 )
 
 func TestHandleGetState(t *testing.T) {
 	// Create logger
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 
 	// Create mock HA client
 	mockClient := ha.NewMockClient()
@@ -105,7 +104,7 @@ func TestHandleGetState(t *testing.T) {
 }
 
 func TestHandleGetStateMethodNotAllowed(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 	shadowTracker := shadowstate.NewTracker()
@@ -123,7 +122,7 @@ func TestHandleGetStateMethodNotAllowed(t *testing.T) {
 }
 
 func TestHandleHealth(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 	shadowTracker := shadowstate.NewTracker()
@@ -149,7 +148,7 @@ func TestHandleHealth(t *testing.T) {
 }
 
 func TestHandleSitemap(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 	shadowTracker := shadowstate.NewTracker()
@@ -200,7 +199,7 @@ func TestHandleSitemap(t *testing.T) {
 }
 
 func TestHandleSitemapHTML(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 	shadowTracker := shadowstate.NewTracker()
@@ -253,7 +252,7 @@ func TestHandleSitemapHTML(t *testing.T) {
 }
 
 func TestHandleSitemapMethodNotAllowed(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 	shadowTracker := shadowstate.NewTracker()
@@ -271,7 +270,7 @@ func TestHandleSitemapMethodNotAllowed(t *testing.T) {
 }
 
 func TestHandleSitemapNonRootPath(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 	shadowTracker := shadowstate.NewTracker()
@@ -307,7 +306,7 @@ func TestHandleSitemapNonRootPath(t *testing.T) {
 
 func TestHandleGetStatesByPlugin(t *testing.T) {
 	// Create logger
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 
 	// Create mock HA client
 	mockClient := ha.NewMockClient()
@@ -457,7 +456,7 @@ func TestHandleGetStatesByPlugin(t *testing.T) {
 }
 
 func TestHandleGetStatesByPluginMethodNotAllowed(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 	shadowTracker := shadowstate.NewTracker()
@@ -476,7 +475,7 @@ func TestHandleGetStatesByPluginMethodNotAllowed(t *testing.T) {
 
 func TestHandleGetStatesByPluginEmptyState(t *testing.T) {
 	// Test with default/empty state values
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 	shadowTracker := shadowstate.NewTracker()
@@ -564,7 +563,7 @@ func TestPluginRegistryCompleteness(t *testing.T) {
 
 func TestHandleGetLightingShadowState(t *testing.T) {
 	// Create logger
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 
 	// Create mock HA client
 	mockClient := ha.NewMockClient()
@@ -619,7 +618,7 @@ func TestHandleGetLightingShadowState(t *testing.T) {
 
 func TestHandleGetLightingShadowState_NotFound(t *testing.T) {
 	// Create logger
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 
 	// Create mock HA client
 	mockClient := ha.NewMockClient()
@@ -648,7 +647,7 @@ func TestHandleGetLightingShadowState_NotFound(t *testing.T) {
 
 func TestHandleGetSecurityShadowState(t *testing.T) {
 	// Create logger
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 
 	// Create mock HA client
 	mockClient := ha.NewMockClient()
@@ -713,7 +712,7 @@ func TestHandleGetSecurityShadowState(t *testing.T) {
 
 func TestHandleGetSecurityShadowState_NotFound(t *testing.T) {
 	// Create logger
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 
 	// Create mock HA client
 	mockClient := ha.NewMockClient()
@@ -742,7 +741,7 @@ func TestHandleGetSecurityShadowState_NotFound(t *testing.T) {
 
 func TestHandleGetAllShadowStates(t *testing.T) {
 	// Create logger
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 
 	// Create mock HA client
 	mockClient := ha.NewMockClient()
@@ -818,7 +817,7 @@ func TestAddLocalTimestamps(t *testing.T) {
 	}
 
 	// Create mock dependencies
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 	shadowTracker := shadowstate.NewTracker()
@@ -949,7 +948,7 @@ func TestAddLocalTimestamps(t *testing.T) {
 
 func TestHandleDashboard(t *testing.T) {
 	// Create logger
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 
 	// Create mock HA client
 	mockClient := ha.NewMockClient()
@@ -1011,7 +1010,7 @@ func TestHandleDashboard(t *testing.T) {
 }
 
 func TestHandleDashboardMethodNotAllowed(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 	shadowTracker := shadowstate.NewTracker()
@@ -1036,7 +1035,7 @@ func TestWriteJSONWithLocalTimestamps(t *testing.T) {
 	}
 
 	// Create mock dependencies
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 	shadowTracker := shadowstate.NewTracker()
@@ -1084,7 +1083,7 @@ func TestWriteJSONWithLocalTimestamps(t *testing.T) {
 
 func TestHandleTimelineEvents(t *testing.T) {
 	// Create logger and dependencies
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 	shadowTracker := shadowstate.NewTracker()

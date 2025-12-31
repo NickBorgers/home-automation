@@ -8,10 +8,10 @@ import (
 	"homeautomation/internal/plugins/security"
 	"homeautomation/internal/plugins/statetracking"
 	"homeautomation/internal/state"
+	"homeautomation/internal/testlogger"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"go.uber.org/zap"
 )
 
 // setupSecurityScenarioTest creates a test environment with State Tracking and Security plugins
@@ -19,7 +19,7 @@ func setupSecurityScenarioTest(t *testing.T) (*MockHAServer, *statetracking.Mana
 	server, client, stateManager, baseCleanup := setupTest(t)
 
 	// Create logger
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 
 	// Create and start State Tracking plugin (must start before Security)
 	stateTracking := statetracking.NewManager(client, stateManager, logger, false, nil)
@@ -43,7 +43,7 @@ func setupSecurityScenarioTestWithMockClock(t *testing.T) (*MockHAServer, *state
 	server, client, stateManager, baseCleanup := setupTest(t)
 
 	// Create logger
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 
 	// Create mock clock
 	mockClock := clock.NewMockClock(time.Now())

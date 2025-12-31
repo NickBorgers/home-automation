@@ -3,6 +3,7 @@ package ha
 import (
 	"encoding/json"
 	"fmt"
+	"homeautomation/internal/testlogger"
 	"net/http"
 	"net/http/httptest"
 	"sort"
@@ -54,7 +55,7 @@ func standardAuthFlow(t *testing.T, conn *websocket.Conn, token string) {
 }
 
 func TestClient_Connect(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	token := "test_token"
 
 	t.Run("successful connection", func(t *testing.T) {
@@ -144,7 +145,7 @@ func TestClient_Connect(t *testing.T) {
 }
 
 func TestClient_GetAllStates(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	token := "test_token"
 
 	server := mockHAServer(t, func(conn *websocket.Conn) {
@@ -208,7 +209,7 @@ func TestClient_GetAllStates(t *testing.T) {
 }
 
 func TestClient_GetState(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	token := "test_token"
 
 	server := mockHAServer(t, func(conn *websocket.Conn) {
@@ -264,7 +265,7 @@ func TestClient_GetState(t *testing.T) {
 }
 
 func TestClient_CallService(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	token := "test_token"
 
 	server := mockHAServer(t, func(conn *websocket.Conn) {
@@ -312,7 +313,7 @@ func TestClient_CallService(t *testing.T) {
 }
 
 func TestClient_SetInputBoolean(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	token := "test_token"
 
 	testCases := []struct {
@@ -370,7 +371,7 @@ func TestClient_SetInputBoolean(t *testing.T) {
 }
 
 func TestClient_SetInputNumber(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	token := "test_token"
 
 	server := mockHAServer(t, func(conn *websocket.Conn) {
@@ -416,7 +417,7 @@ func TestClient_SetInputNumber(t *testing.T) {
 }
 
 func TestClient_SetInputText(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	token := "test_token"
 
 	server := mockHAServer(t, func(conn *websocket.Conn) {
@@ -738,7 +739,7 @@ func TestIsRetryableError(t *testing.T) {
 
 // TestClient_CallServiceRetry verifies that CallService retries on transient errors
 func TestClient_CallServiceRetry(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	token := "test_token"
 
 	t.Run("succeeds after transient failure", func(t *testing.T) {
@@ -857,7 +858,7 @@ func TestClient_CallServiceRetry(t *testing.T) {
 // TestClient_PingPongKeepalive verifies that the client sends ping frames
 // and properly handles pong responses to keep the connection alive.
 func TestClient_PingPongKeepalive(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	token := "test_token"
 
 	// Track ping messages received by the server

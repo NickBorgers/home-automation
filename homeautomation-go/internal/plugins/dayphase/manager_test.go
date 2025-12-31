@@ -8,13 +8,13 @@ import (
 	dayphaselib "homeautomation/internal/dayphase"
 	"homeautomation/internal/ha"
 	"homeautomation/internal/state"
+	"homeautomation/internal/testlogger"
 
 	"github.com/stretchr/testify/assert"
-	"go.uber.org/zap"
 )
 
 func TestNewManager(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 	configLoader := config.NewLoader("../../../configs", logger)
@@ -31,7 +31,7 @@ func TestNewManager(t *testing.T) {
 }
 
 func TestManagerStartStop(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 	configLoader := config.NewLoader("../../../configs", logger)
@@ -51,7 +51,7 @@ func TestManagerStartStop(t *testing.T) {
 }
 
 func TestUpdateSunEventAndDayPhase(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 
@@ -90,7 +90,7 @@ func TestUpdateSunEventAndDayPhase(t *testing.T) {
 }
 
 func TestUpdateSunEventAndDayPhaseReadOnly(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, true) // READ ONLY
 
@@ -113,7 +113,7 @@ func TestUpdateSunEventAndDayPhaseReadOnly(t *testing.T) {
 }
 
 func TestManagerPeriodicUpdate(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 	configLoader := config.NewLoader("../../../configs", logger)
@@ -142,7 +142,7 @@ func TestManagerPeriodicUpdate(t *testing.T) {
 }
 
 func TestManagerWithDifferentCoordinates(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 	configLoader := config.NewLoader("../../../configs", logger)
@@ -167,7 +167,7 @@ func TestManagerWithDifferentCoordinates(t *testing.T) {
 }
 
 func TestUpdateSunEventNoChange(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 	configLoader := config.NewLoader("../../../configs", logger)
@@ -194,7 +194,7 @@ func TestUpdateSunEventNoChange(t *testing.T) {
 }
 
 func TestUpdateDayPhaseNoChange(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 	configLoader := config.NewLoader("../../../configs", logger)
@@ -221,7 +221,7 @@ func TestUpdateDayPhaseNoChange(t *testing.T) {
 }
 
 func TestManagerStopBeforeStart(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 	configLoader := config.NewLoader("../../../configs", logger)
@@ -236,7 +236,7 @@ func TestManagerStopBeforeStart(t *testing.T) {
 }
 
 func TestManagerReset(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 	configLoader := config.NewLoader("../../../configs", logger)
@@ -266,7 +266,7 @@ func TestManagerReset(t *testing.T) {
 func TestManager_ShadowState_NextTransitionUpdated(t *testing.T) {
 	// Test that shadow state outputs.NextTransitionTime and NextTransitionPhase are populated
 	// This test catches the bug where UpdateNextTransition() was never called
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 	configLoader := config.NewLoader("../../../configs", logger)
@@ -310,7 +310,7 @@ func TestManager_ShadowState_NextTransitionUpdated(t *testing.T) {
 
 func TestManager_ShadowState_SunEventAndDayPhaseUpdated(t *testing.T) {
 	// Test that shadow state outputs for sun event and day phase are populated
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 	configLoader := config.NewLoader("../../../configs", logger)

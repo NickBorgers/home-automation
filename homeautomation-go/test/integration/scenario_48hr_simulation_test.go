@@ -9,10 +9,10 @@ import (
 	"homeautomation/internal/config"
 	"homeautomation/internal/dayphase"
 	dayphaseplugin "homeautomation/internal/plugins/dayphase"
+	"homeautomation/internal/testlogger"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"go.uber.org/zap"
 )
 
 // ============================================================================
@@ -49,7 +49,7 @@ func setupDayPhaseSimulation(t *testing.T, timezone *time.Location, startTime ti
 	server, client, stateManager, baseCleanup := setupTest(t)
 
 	// Create logger
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 
 	// Create mock clock starting at the specified time
 	mockClock := clock.NewMockClock(startTime)
@@ -486,7 +486,7 @@ func BenchmarkSimulation_1Day(b *testing.B) {
 	startTime := time.Date(2025, 1, 15, 0, 0, 0, 0, et)
 
 	for i := 0; i < b.N; i++ {
-		logger, _ := zap.NewDevelopment()
+		logger := testlogger.New()
 		mockClock := clock.NewMockClock(startTime)
 		calculator := dayphase.NewCalculator(32.85486, -97.50515, logger)
 		calculator.SetClock(mockClock)

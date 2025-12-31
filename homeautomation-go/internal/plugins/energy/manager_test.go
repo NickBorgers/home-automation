@@ -8,6 +8,7 @@ import (
 
 	"homeautomation/internal/ha"
 	"homeautomation/internal/state"
+	"homeautomation/internal/testlogger"
 
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/zap"
@@ -65,7 +66,7 @@ func createTestConfig() *EnergyConfig {
 }
 
 func TestDetermineBatteryEnergyLevel(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	config := createTestConfig()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -98,7 +99,7 @@ func TestDetermineBatteryEnergyLevel(t *testing.T) {
 }
 
 func TestDetermineSolarEnergyLevel(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	config := createTestConfig()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -129,7 +130,7 @@ func TestDetermineSolarEnergyLevel(t *testing.T) {
 }
 
 func TestDetermineOverallEnergyLevel(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	config := createTestConfig()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -173,7 +174,7 @@ func TestDetermineOverallEnergyLevel(t *testing.T) {
 }
 
 func TestIsFreeEnergyTime(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	config := createTestConfig()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -227,7 +228,7 @@ func TestLoadConfigFromRepoFile(t *testing.T) {
 }
 
 func TestFreeEnergyTimeSpansMidnight(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	config := createTestConfig()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -266,7 +267,7 @@ func TestFreeEnergyTimeSpansMidnight(t *testing.T) {
 
 // TestManagerStartAndHandlers tests the manager lifecycle and handlers
 func TestManagerStartAndHandlers(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	config := createTestConfig()
 	mockClient := ha.NewMockClient()
 
@@ -362,7 +363,7 @@ func TestManagerStartAndHandlers(t *testing.T) {
 
 // TestDetermineOverallEnergyLevel_EdgeCases tests edge cases
 func TestDetermineOverallEnergyLevel_EdgeCases(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	config := createTestConfig()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -388,7 +389,7 @@ func TestLoadConfigError(t *testing.T) {
 
 // TestIsFreeEnergyTime_EdgeCases tests edge cases for free energy time
 func TestIsFreeEnergyTime_EdgeCases(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 
@@ -552,7 +553,7 @@ func TestTimezoneHandling(t *testing.T) {
 }
 
 func TestManagerReset(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 	config := createTestConfig()
@@ -710,7 +711,7 @@ func TestHandleGridAvailabilityChange(t *testing.T) {
 }
 
 func TestIndicatorLightsDiscovery(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 	config := createTestConfig()
@@ -745,7 +746,7 @@ func TestIndicatorLightsDiscovery(t *testing.T) {
 }
 
 func TestIndicatorLightsServiceCall(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 
@@ -815,7 +816,7 @@ func TestIndicatorLightsServiceCall(t *testing.T) {
 }
 
 func TestIndicatorLightsReadOnlyMode(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 	config := createTestConfig()
@@ -860,7 +861,7 @@ func TestIndicatorLightsReadOnlyMode(t *testing.T) {
 }
 
 func TestIndicatorLightsNoEntitiesDiscovered(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 	config := createTestConfig()
@@ -899,7 +900,7 @@ func TestIndicatorLightsNoEntitiesDiscovered(t *testing.T) {
 }
 
 func TestIndicatorLightsDiscoveryCaseInsensitive(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 	config := createTestConfig()
@@ -934,7 +935,7 @@ func TestIndicatorLightsDiscoveryCaseInsensitive(t *testing.T) {
 }
 
 func TestIndicatorLightsDiscoveryInvalidPattern(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 	config := createTestConfig()
@@ -960,7 +961,7 @@ func TestIndicatorLightsDiscoveryInvalidPattern(t *testing.T) {
 }
 
 func TestIndicatorLightsDiscoveryCustomPattern(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 	config := createTestConfig()
@@ -992,7 +993,7 @@ func TestIndicatorLightsDiscoveryCustomPattern(t *testing.T) {
 }
 
 func TestIndicatorLightsServiceCallError(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 	config := createTestConfig()
@@ -1041,7 +1042,7 @@ func TestIndicatorLightsServiceCallError(t *testing.T) {
 }
 
 func TestIndicatorLightsUnknownEnergyLevel(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 	config := createTestConfig()
@@ -1080,7 +1081,7 @@ func TestIndicatorLightsUnknownEnergyLevel(t *testing.T) {
 }
 
 func TestIndicatorLightsInitialUpdateOnStartup(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 	config := createTestConfig()
@@ -1189,7 +1190,7 @@ func TestExtractDeviceID(t *testing.T) {
 }
 
 func TestCalculateAdaptiveBrightness(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 
@@ -1241,7 +1242,7 @@ func TestCalculateAdaptiveBrightness(t *testing.T) {
 }
 
 func TestCalculateAdaptiveBrightnessDefaultCurve(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 
@@ -1281,7 +1282,7 @@ func TestCalculateAdaptiveBrightnessDefaultCurve(t *testing.T) {
 }
 
 func TestLuxSensorDiscovery(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 
@@ -1323,7 +1324,7 @@ func TestLuxSensorDiscovery(t *testing.T) {
 }
 
 func TestLuxSensorDiscoveryNoMatch(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 
@@ -1360,7 +1361,7 @@ func TestLuxSensorDiscoveryNoMatch(t *testing.T) {
 }
 
 func TestAdaptiveBrightnessDisabled(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 
@@ -1413,7 +1414,7 @@ func TestAdaptiveBrightnessDisabled(t *testing.T) {
 }
 
 func TestAdaptiveBrightnessPerDevice(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 
@@ -1480,7 +1481,7 @@ func TestAdaptiveBrightnessPerDevice(t *testing.T) {
 }
 
 func TestHysteresisPreventsOscillation(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 
@@ -1525,7 +1526,7 @@ func TestHysteresisPreventsOscillation(t *testing.T) {
 }
 
 func TestDebouncing(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 
@@ -1596,7 +1597,7 @@ func TestDebouncing(t *testing.T) {
 }
 
 func TestFallbackToStaticBrightness(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 
@@ -1646,7 +1647,7 @@ func TestFallbackToStaticBrightness(t *testing.T) {
 }
 
 func TestHandleLuxChangeWithInvalidValues(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 
@@ -1708,7 +1709,7 @@ func TestHandleLuxChangeWithInvalidValues(t *testing.T) {
 }
 
 func TestHysteresisDoesNotBlockLargeJumps(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 
@@ -1752,7 +1753,7 @@ func TestHysteresisDoesNotBlockLargeJumps(t *testing.T) {
 }
 
 func TestNegativeLuxValue(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 
@@ -1779,7 +1780,7 @@ func TestNegativeLuxValue(t *testing.T) {
 // ============================================================================
 
 func TestBaselineCalibrationEnabled(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 
@@ -1806,7 +1807,7 @@ func TestBaselineCalibrationEnabled(t *testing.T) {
 }
 
 func TestBaselineCalibrationDisabled(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 
@@ -1827,7 +1828,7 @@ func TestBaselineCalibrationDisabled(t *testing.T) {
 }
 
 func TestGetBaselineLux(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 
@@ -1861,7 +1862,7 @@ func TestGetBaselineLux(t *testing.T) {
 }
 
 func TestCalibrationStateTracking(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 
@@ -1897,7 +1898,7 @@ func TestCalibrationStateTracking(t *testing.T) {
 }
 
 func TestUpdateIndicatorLightsSkipsCalibrating(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 
@@ -1956,7 +1957,7 @@ func TestUpdateIndicatorLightsSkipsCalibrating(t *testing.T) {
 }
 
 func TestUpdateIndicatorLightsUsesBaseline(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 
@@ -2024,7 +2025,7 @@ func TestUpdateIndicatorLightsUsesBaseline(t *testing.T) {
 }
 
 func TestRestoreLightAfterCalibration(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 
@@ -2097,7 +2098,7 @@ func TestRestoreLightAfterCalibration(t *testing.T) {
 func TestCalibrationShutdownDuringStartupDelay(t *testing.T) {
 	// This test verifies that the calibration goroutine can be stopped during
 	// the initial 10-second startup delay without blocking or racing.
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 
@@ -2147,7 +2148,7 @@ func TestCalibrationShutdownDuringStartupDelay(t *testing.T) {
 func TestCalibrationWithNoLuxReadingYet(t *testing.T) {
 	// This test verifies behavior when calibration runs but no lux reading has
 	// been received yet (e.g., sensor hasn't updated since dimming).
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 
@@ -2207,7 +2208,7 @@ func TestCalibrationWithNoLuxReadingYet(t *testing.T) {
 }
 
 func TestSetLightBrightness(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 
@@ -2248,7 +2249,7 @@ func TestSetLightBrightness(t *testing.T) {
 }
 
 func TestSetLightBrightnessReadOnly(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 
@@ -2274,7 +2275,7 @@ func TestSetLightBrightnessReadOnly(t *testing.T) {
 }
 
 func TestRunCalibrationCycleWithNoLights(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 
@@ -2308,7 +2309,7 @@ func TestRunCalibrationCycleWithNoLights(t *testing.T) {
 }
 
 func TestRunCalibrationCycleLightWithoutLuxSensor(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 

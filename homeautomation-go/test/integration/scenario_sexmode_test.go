@@ -6,10 +6,10 @@ import (
 
 	"homeautomation/internal/plugins/sexmode"
 	"homeautomation/internal/state"
+	"homeautomation/internal/testlogger"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"go.uber.org/zap"
 )
 
 // getNumericValue converts interface{} to int, handling both int and float64 types
@@ -31,7 +31,7 @@ func setupSexModeScenarioTest(t *testing.T) (*MockHAServer, *sexmode.Manager, *s
 	server, client, stateManager, baseCleanup := setupTest(t)
 
 	// Create logger
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 
 	// Initialize sex mode toggle to off
 	server.SetState("input_boolean.sex", "off", nil)
@@ -449,7 +449,7 @@ func TestScenario_SexModeReset_SyncsState(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	// Now create and start the sex mode manager
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	sexModeManager := sexmode.NewManager(client, stateManager, logger, false, nil)
 	require.NoError(t, sexModeManager.Start(), "Sex Mode manager should start successfully")
 

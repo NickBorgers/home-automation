@@ -8,10 +8,10 @@ import (
 	"homeautomation/internal/ha"
 	"homeautomation/internal/plugins/energy"
 	"homeautomation/internal/state"
+	"homeautomation/internal/testlogger"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"go.uber.org/zap"
 )
 
 // ============================================================================
@@ -31,7 +31,7 @@ func setupEnergyScenarioTest(t *testing.T) (*MockHAServer, *energy.Manager, *sta
 	require.NoError(t, err, "Failed to load test energy config")
 
 	// Create logger
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 
 	// Use a fixed timezone for testing (UTC)
 	timezone := time.UTC
@@ -169,7 +169,7 @@ func TestScenario_GridAvailability_RecalculatesFreeEnergy(t *testing.T) {
 	require.NoError(t, err, "Failed to load test energy config")
 
 	// Create logger
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 
 	// Create a timezone that makes current time 12:00 noon (clearly outside 21:00-07:00 window)
 	now := time.Now()
@@ -245,7 +245,7 @@ func TestScenario_OverallEnergyLevel_ReflectsWorstState(t *testing.T) {
 	require.NoError(t, err, "Failed to load test energy config")
 
 	// Create logger
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 
 	// Create a timezone that makes current time 12:00 noon (clearly outside 21:00-07:00 window)
 	now := time.Now()
@@ -336,7 +336,7 @@ func TestScenario_FreeEnergyTimeWindow_OverridesEnergyLevel(t *testing.T) {
 	energyConfig, err := energy.LoadConfig(configPath)
 	require.NoError(t, err)
 
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	energyMgr := energy.NewManager(client, manager, energyConfig, logger, false, testTimezone, nil)
 	err = energyMgr.Start()
 	require.NoError(t, err)
