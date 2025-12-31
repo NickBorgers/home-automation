@@ -1,6 +1,8 @@
 {
   "name": "Home Automation Go",
-  "image": "mcr.microsoft.com/devcontainers/go:1.25",
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
   "features": {
     "ghcr.io/devcontainers/features/common-utils:2": {},
     "ghcr.io/devcontainers/features/github-cli:1": {},
