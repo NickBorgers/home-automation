@@ -626,7 +626,7 @@ func isRetryableError(err error) bool {
 }
 
 // CallService calls a Home Assistant service with automatic retry for transient errors.
-// Uses exponential backoff: 500ms, 1s, 2s between retries (capped at 5s).
+// Uses exponential backoff starting at 500ms, doubling each retry (capped at 15s).
 func (c *Client) CallService(domain, service string, data map[string]interface{}) error {
 	var lastErr error
 	delay := initialRetryDelay
