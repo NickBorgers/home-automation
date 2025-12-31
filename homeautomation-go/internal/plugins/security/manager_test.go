@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"homeautomation/internal/clock"
 	"homeautomation/internal/ha"
 	"homeautomation/internal/state"
 
@@ -23,6 +24,11 @@ func TestSecurityManager_LockdownOnEveryoneAsleep(t *testing.T) {
 
 	// Create security manager (not read-only so it can call services)
 	securityManager := NewManager(mockHA, stateManager, logger, false, nil)
+
+	// Use MockClock so the 30-second delay is instant (MockClock.Sleep is a no-op)
+	mockClock := clock.NewMockClock(time.Now())
+	securityManager.SetClock(mockClock)
+
 	if err := securityManager.Start(); err != nil {
 		t.Fatalf("Failed to start security manager: %v", err)
 	}
@@ -35,23 +41,34 @@ func TestSecurityManager_LockdownOnEveryoneAsleep(t *testing.T) {
 		t.Fatalf("Failed to set isEveryoneAsleep: %v", err)
 	}
 
-	// Wait for async processing
+	// Wait for async processing (goroutine runs off-wait-on sequence instantly with MockClock)
 	time.Sleep(100 * time.Millisecond)
 
-	// Verify lockdown was activated
+	// Verify lockdown activation sequence: turn_off first, then turn_on
 	calls := mockHA.GetServiceCalls()
-	found := false
-	for _, call := range calls {
-		if call.Domain == "input_boolean" && call.Service == "turn_on" {
+	turnOffIdx := -1
+	turnOnIdx := -1
+
+	for i, call := range calls {
+		if call.Domain == "input_boolean" {
 			if entityID, ok := call.Data["entity_id"].(string); ok && entityID == "input_boolean.lockdown" {
-				found = true
-				break
+				if call.Service == "turn_off" && turnOffIdx == -1 {
+					turnOffIdx = i
+				} else if call.Service == "turn_on" && turnOnIdx == -1 {
+					turnOnIdx = i
+				}
 			}
 		}
 	}
 
-	if !found {
-		t.Errorf("Expected lockdown to be activated, but service was not called")
+	if turnOffIdx == -1 {
+		t.Errorf("Expected lockdown to be turned off first, but turn_off was not called")
+	}
+	if turnOnIdx == -1 {
+		t.Errorf("Expected lockdown to be activated, but turn_on was not called")
+	}
+	if turnOffIdx != -1 && turnOnIdx != -1 && turnOffIdx >= turnOnIdx {
+		t.Errorf("Expected turn_off (idx %d) to happen before turn_on (idx %d)", turnOffIdx, turnOnIdx)
 	}
 }
 
@@ -68,6 +85,11 @@ func TestSecurityManager_LockdownOnNoOneHome(t *testing.T) {
 
 	// Create security manager
 	securityManager := NewManager(mockHA, stateManager, logger, false, nil)
+
+	// Use MockClock so the 30-second delay is instant (MockClock.Sleep is a no-op)
+	mockClock := clock.NewMockClock(time.Now())
+	securityManager.SetClock(mockClock)
+
 	if err := securityManager.Start(); err != nil {
 		t.Fatalf("Failed to start security manager: %v", err)
 	}
@@ -80,23 +102,34 @@ func TestSecurityManager_LockdownOnNoOneHome(t *testing.T) {
 		t.Fatalf("Failed to set isAnyoneHome: %v", err)
 	}
 
-	// Wait for async processing
+	// Wait for async processing (goroutine runs off-wait-on sequence instantly with MockClock)
 	time.Sleep(100 * time.Millisecond)
 
-	// Verify lockdown was activated
+	// Verify lockdown activation sequence: turn_off first, then turn_on
 	calls := mockHA.GetServiceCalls()
-	found := false
-	for _, call := range calls {
-		if call.Domain == "input_boolean" && call.Service == "turn_on" {
+	turnOffIdx := -1
+	turnOnIdx := -1
+
+	for i, call := range calls {
+		if call.Domain == "input_boolean" {
 			if entityID, ok := call.Data["entity_id"].(string); ok && entityID == "input_boolean.lockdown" {
-				found = true
-				break
+				if call.Service == "turn_off" && turnOffIdx == -1 {
+					turnOffIdx = i
+				} else if call.Service == "turn_on" && turnOnIdx == -1 {
+					turnOnIdx = i
+				}
 			}
 		}
 	}
 
-	if !found {
-		t.Errorf("Expected lockdown to be activated when no one is home, but service was not called")
+	if turnOffIdx == -1 {
+		t.Errorf("Expected lockdown to be turned off first, but turn_off was not called")
+	}
+	if turnOnIdx == -1 {
+		t.Errorf("Expected lockdown to be activated, but turn_on was not called")
+	}
+	if turnOffIdx != -1 && turnOnIdx != -1 && turnOffIdx >= turnOnIdx {
+		t.Errorf("Expected turn_off (idx %d) to happen before turn_on (idx %d)", turnOffIdx, turnOnIdx)
 	}
 }
 
