@@ -42,11 +42,24 @@ const (
 	maxRetryDelay = 15 * time.Second
 )
 
+// Health tracking constants
+const (
+	// healthWindowSize is the number of recent service call results to track
+	healthWindowSize = 10
+
+	// unhealthyThreshold is the failure rate above which the client is considered unhealthy
+	unhealthyThreshold = 0.5
+
+	// minResultsForHealth is the minimum number of results needed before declaring unhealthy
+	minResultsForHealth = 3
+)
+
 // HAClient defines the interface for Home Assistant WebSocket client
 type HAClient interface {
 	Connect() error
 	Disconnect() error
 	IsConnected() bool
+	IsHealthy() bool
 	GetState(entityID string) (*State, error)
 	GetAllStates() ([]*State, error)
 	CallService(domain, service string, data map[string]interface{}) error
@@ -72,6 +85,7 @@ type subscriberEntry struct {
 //  4. pendingMu - pending response channels
 //  5. subsMu - subscribers
 //  6. nextSubIDMu - subscription ID counter
+//  7. healthMu - health tracking (acquired last, never held while acquiring others)
 //
 // Note: msgIDMu has been eliminated; msgID is now protected by writeMu to ensure
 // message IDs are allocated and sent atomically, preventing out-of-order sends.
@@ -94,6 +108,12 @@ type Client struct {
 	ctxMu       sync.RWMutex // Protects ctx and cancel
 	reconnect   bool
 	writeMu     sync.Mutex // Protects websocket writes AND msgID counter
+
+	// Health tracking for service calls (rolling window)
+	healthMu      sync.RWMutex
+	recentResults []bool // circular buffer: true=success, false=failure
+	resultIndex   int    // next write position in circular buffer
+	resultCount   int    // how many results recorded (up to healthWindowSize)
 }
 
 func (c *Client) clearSubscribers() {
@@ -124,14 +144,15 @@ func (c *Client) resetContext() {
 func NewClient(url, token string, logger *zap.Logger) *Client {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Client{
-		url:         url,
-		token:       token,
-		logger:      logger,
-		pending:     make(map[int]chan Message),
-		subscribers: make(map[string][]subscriberEntry),
-		ctx:         ctx,
-		cancel:      cancel,
-		reconnect:   true,
+		url:           url,
+		token:         token,
+		logger:        logger,
+		pending:       make(map[int]chan Message),
+		subscribers:   make(map[string][]subscriberEntry),
+		ctx:           ctx,
+		cancel:        cancel,
+		reconnect:     true,
+		recentResults: make([]bool, healthWindowSize),
 	}
 }
 
@@ -278,6 +299,47 @@ func (c *Client) IsConnected() bool {
 	c.connMu.RLock()
 	defer c.connMu.RUnlock()
 	return c.connected
+}
+
+// recordServiceResult records the result of a service call for health tracking.
+// Uses a circular buffer to track the last healthWindowSize results.
+func (c *Client) recordServiceResult(success bool) {
+	c.healthMu.Lock()
+	defer c.healthMu.Unlock()
+
+	c.recentResults[c.resultIndex] = success
+	c.resultIndex = (c.resultIndex + 1) % healthWindowSize
+	if c.resultCount < healthWindowSize {
+		c.resultCount++
+	}
+}
+
+// IsHealthy returns true if the client is connected and service calls are succeeding.
+// Returns false if disconnected or if more than 50% of recent service calls failed.
+// Requires at least minResultsForHealth results before declaring unhealthy.
+func (c *Client) IsHealthy() bool {
+	if !c.IsConnected() {
+		return false
+	}
+
+	c.healthMu.RLock()
+	defer c.healthMu.RUnlock()
+
+	// Not enough data to determine health - assume healthy
+	if c.resultCount < minResultsForHealth {
+		return true
+	}
+
+	// Count failures in the tracked results
+	failures := 0
+	for i := 0; i < c.resultCount; i++ {
+		if !c.recentResults[i] {
+			failures++
+		}
+	}
+
+	failureRate := float64(failures) / float64(c.resultCount)
+	return failureRate < unhealthyThreshold
 }
 
 // nextMsgID returns the next message ID.
@@ -659,6 +721,7 @@ func (c *Client) CallService(domain, service string, data map[string]interface{}
 
 		_, err := c.sendMessage(req)
 		if err == nil {
+			c.recordServiceResult(true)
 			if attempt > 0 {
 				c.logger.Info("Service call succeeded after retry",
 					zap.String("domain", domain),
@@ -673,10 +736,12 @@ func (c *Client) CallService(domain, service string, data map[string]interface{}
 
 		// Only retry for transient network errors
 		if !isRetryableError(err) {
+			c.recordServiceResult(false)
 			return err
 		}
 	}
 
+	c.recordServiceResult(false)
 	return fmt.Errorf("service call failed after %d attempts: %w", maxRetries+1, lastErr)
 }
 

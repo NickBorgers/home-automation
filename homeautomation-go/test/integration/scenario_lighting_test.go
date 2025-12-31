@@ -6,10 +6,10 @@ import (
 	"time"
 
 	"homeautomation/internal/plugins/lighting"
+	"homeautomation/internal/testlogger"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"go.uber.org/zap"
 )
 
 // ============================================================================
@@ -29,7 +29,7 @@ func setupLightingScenarioTest(t *testing.T) (*MockHAServer, *lighting.Manager, 
 	require.NoError(t, err, "Failed to load test lighting config")
 
 	// Create logger
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 
 	// Create lighting plugin (read-only mode for testing)
 	lightingMgr := lighting.NewManager(client, manager, lightingConfig, logger, false, nil)

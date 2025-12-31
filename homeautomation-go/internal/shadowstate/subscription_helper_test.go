@@ -41,6 +41,7 @@ func newMockHAClient() *mockHAClient {
 func (m *mockHAClient) Connect() error                     { return nil }
 func (m *mockHAClient) Disconnect() error                  { return nil }
 func (m *mockHAClient) IsConnected() bool                  { return true }
+func (m *mockHAClient) IsHealthy() bool                    { return true }
 func (m *mockHAClient) GetAllStates() ([]*ha.State, error) { return nil, nil }
 func (m *mockHAClient) CallService(domain, service string, data map[string]interface{}) error {
 	return nil

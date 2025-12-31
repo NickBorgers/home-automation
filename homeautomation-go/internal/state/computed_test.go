@@ -5,14 +5,14 @@ import (
 	"testing"
 
 	"homeautomation/internal/ha"
+	"homeautomation/internal/testlogger"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"go.uber.org/zap"
 )
 
 func TestSetupComputedState(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	mockClient.SetState("input_boolean.anyone_home", "off", map[string]interface{}{})
 	mockClient.SetState("input_boolean.anyone_asleep", "off", map[string]interface{}{})
@@ -62,7 +62,7 @@ func TestComputedState_IsAnyoneHomeAndAwake_InitialComputation(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			logger, _ := zap.NewDevelopment()
+			logger := testlogger.New()
 			mockClient := ha.NewMockClient()
 			mockClient.SetState("input_boolean.anyone_home", tc.isAnyoneHome, map[string]interface{}{})
 			mockClient.SetState("input_boolean.anyone_asleep", tc.isAnyoneAsleep, map[string]interface{}{})
@@ -84,7 +84,7 @@ func TestComputedState_IsAnyoneHomeAndAwake_InitialComputation(t *testing.T) {
 }
 
 func TestComputedState_IsAnyoneHomeAndAwake_ReactsToIsAnyoneHomeChange(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	// Start with nobody home and nobody asleep
 	mockClient.SetState("input_boolean.anyone_home", "off", map[string]interface{}{})
@@ -119,7 +119,7 @@ func TestComputedState_IsAnyoneHomeAndAwake_ReactsToIsAnyoneHomeChange(t *testin
 }
 
 func TestComputedState_IsAnyoneHomeAndAwake_ReactsToIsAnyoneAsleepChange(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	// Start with someone home and awake
 	mockClient.SetState("input_boolean.anyone_home", "on", map[string]interface{}{})
@@ -154,7 +154,7 @@ func TestComputedState_IsAnyoneHomeAndAwake_ReactsToIsAnyoneAsleepChange(t *test
 }
 
 func TestComputedState_IsAnyoneHomeAndAwake_SyncsToHA(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	mockClient.SetState("input_boolean.anyone_home", "on", map[string]interface{}{})
 	mockClient.SetState("input_boolean.anyone_asleep", "off", map[string]interface{}{})
@@ -191,7 +191,7 @@ func TestComputedState_IsAnyoneHomeAndAwake_SyncsToHA(t *testing.T) {
 }
 
 func TestComputedState_IsAnyoneHomeAndAwake_WorksInReadOnlyMode(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	mockClient.SetState("input_boolean.anyone_home", "on", map[string]interface{}{})
 	mockClient.SetState("input_boolean.anyone_asleep", "off", map[string]interface{}{})
@@ -226,7 +226,7 @@ func TestComputedState_IsAnyoneHomeAndAwake_ComputedOutputFlag(t *testing.T) {
 }
 
 func TestComputedState_IsAnyoneHomeAndAwake_SubscriberNotification(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	mockClient.SetState("input_boolean.anyone_home", "off", map[string]interface{}{})
 	mockClient.SetState("input_boolean.anyone_asleep", "off", map[string]interface{}{})

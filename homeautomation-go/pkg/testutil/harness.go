@@ -8,6 +8,7 @@ import (
 	"homeautomation/internal/ha"
 	"homeautomation/internal/plugins/statetracking"
 	"homeautomation/internal/state"
+	"homeautomation/internal/testlogger"
 	pkgha "homeautomation/pkg/ha"
 	pkgstate "homeautomation/pkg/state"
 
@@ -43,7 +44,7 @@ type TestEnv struct {
 //
 //	// Use env.HAClient and env.StateManager in your plugin tests
 func NewTestEnv(addr, token string) (*TestEnv, error) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 
 	// Start mock HA server
 	server := NewMockHAServer(addr, token)

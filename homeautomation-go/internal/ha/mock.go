@@ -133,6 +133,11 @@ func (m *MockClient) IsConnected() bool {
 	return m.connected
 }
 
+// IsHealthy returns true for mock client (always healthy in tests)
+func (m *MockClient) IsHealthy() bool {
+	return m.IsConnected()
+}
+
 // GetState retrieves a mock state
 func (m *MockClient) GetState(entityID string) (*State, error) {
 	// Track the GetState call

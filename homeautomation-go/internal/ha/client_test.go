@@ -3,6 +3,7 @@ package ha
 import (
 	"encoding/json"
 	"fmt"
+	"homeautomation/internal/testlogger"
 	"net/http"
 	"net/http/httptest"
 	"sort"
@@ -54,7 +55,7 @@ func standardAuthFlow(t *testing.T, conn *websocket.Conn, token string) {
 }
 
 func TestClient_Connect(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	token := "test_token"
 
 	t.Run("successful connection", func(t *testing.T) {
@@ -144,7 +145,7 @@ func TestClient_Connect(t *testing.T) {
 }
 
 func TestClient_GetAllStates(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	token := "test_token"
 
 	server := mockHAServer(t, func(conn *websocket.Conn) {
@@ -208,7 +209,7 @@ func TestClient_GetAllStates(t *testing.T) {
 }
 
 func TestClient_GetState(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	token := "test_token"
 
 	server := mockHAServer(t, func(conn *websocket.Conn) {
@@ -264,7 +265,7 @@ func TestClient_GetState(t *testing.T) {
 }
 
 func TestClient_CallService(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	token := "test_token"
 
 	server := mockHAServer(t, func(conn *websocket.Conn) {
@@ -312,7 +313,7 @@ func TestClient_CallService(t *testing.T) {
 }
 
 func TestClient_SetInputBoolean(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	token := "test_token"
 
 	testCases := []struct {
@@ -370,7 +371,7 @@ func TestClient_SetInputBoolean(t *testing.T) {
 }
 
 func TestClient_SetInputNumber(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	token := "test_token"
 
 	server := mockHAServer(t, func(conn *websocket.Conn) {
@@ -416,7 +417,7 @@ func TestClient_SetInputNumber(t *testing.T) {
 }
 
 func TestClient_SetInputText(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	token := "test_token"
 
 	server := mockHAServer(t, func(conn *websocket.Conn) {
@@ -738,7 +739,7 @@ func TestIsRetryableError(t *testing.T) {
 
 // TestClient_CallServiceRetry verifies that CallService retries on transient errors
 func TestClient_CallServiceRetry(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	token := "test_token"
 
 	t.Run("succeeds after transient failure", func(t *testing.T) {
@@ -857,7 +858,7 @@ func TestClient_CallServiceRetry(t *testing.T) {
 // TestClient_PingPongKeepalive verifies that the client sends ping frames
 // and properly handles pong responses to keep the connection alive.
 func TestClient_PingPongKeepalive(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	token := "test_token"
 
 	// Track ping messages received by the server
@@ -917,4 +918,110 @@ func TestClient_PingPongKeepalive(t *testing.T) {
 	// Note: In real scenarios, pings happen every 30s. We're just verifying
 	// the mechanism is wired up correctly. Full keepalive testing would
 	// require integration tests with actual timing.
+}
+
+func TestClient_IsHealthy(t *testing.T) {
+	logger := zap.NewNop()
+
+	t.Run("unhealthy when disconnected", func(t *testing.T) {
+		client := NewClient("ws://localhost", "token", logger)
+		// Not connected
+		assert.False(t, client.IsHealthy())
+	})
+
+	t.Run("healthy with no service calls", func(t *testing.T) {
+		client := NewClient("ws://localhost", "token", logger)
+		// Simulate connected state
+		client.connMu.Lock()
+		client.connected = true
+		client.connMu.Unlock()
+
+		// No service calls yet - should be healthy (not enough data)
+		assert.True(t, client.IsHealthy())
+	})
+
+	t.Run("healthy with successful service calls", func(t *testing.T) {
+		client := NewClient("ws://localhost", "token", logger)
+		client.connMu.Lock()
+		client.connected = true
+		client.connMu.Unlock()
+
+		// Record 5 successes
+		for i := 0; i < 5; i++ {
+			client.recordServiceResult(true)
+		}
+
+		assert.True(t, client.IsHealthy())
+	})
+
+	t.Run("unhealthy with majority failures", func(t *testing.T) {
+		client := NewClient("ws://localhost", "token", logger)
+		client.connMu.Lock()
+		client.connected = true
+		client.connMu.Unlock()
+
+		// Record 2 successes and 4 failures (>50% failures)
+		client.recordServiceResult(true)
+		client.recordServiceResult(true)
+		client.recordServiceResult(false)
+		client.recordServiceResult(false)
+		client.recordServiceResult(false)
+		client.recordServiceResult(false)
+
+		assert.False(t, client.IsHealthy())
+	})
+
+	t.Run("unhealthy at exactly 50% failures", func(t *testing.T) {
+		client := NewClient("ws://localhost", "token", logger)
+		client.connMu.Lock()
+		client.connected = true
+		client.connMu.Unlock()
+
+		// Record 3 successes and 3 failures (exactly 50%)
+		for i := 0; i < 3; i++ {
+			client.recordServiceResult(true)
+			client.recordServiceResult(false)
+		}
+
+		// At exactly 50%, should be unhealthy (threshold is >= 50%)
+		assert.False(t, client.IsHealthy())
+	})
+
+	t.Run("healthy just below 50% failures", func(t *testing.T) {
+		client := NewClient("ws://localhost", "token", logger)
+		client.connMu.Lock()
+		client.connected = true
+		client.connMu.Unlock()
+
+		// Record 4 successes and 3 failures (42.8% failures < 50%)
+		client.recordServiceResult(true)
+		client.recordServiceResult(true)
+		client.recordServiceResult(true)
+		client.recordServiceResult(true)
+		client.recordServiceResult(false)
+		client.recordServiceResult(false)
+		client.recordServiceResult(false)
+
+		assert.True(t, client.IsHealthy())
+	})
+
+	t.Run("rolling window behavior", func(t *testing.T) {
+		client := NewClient("ws://localhost", "token", logger)
+		client.connMu.Lock()
+		client.connected = true
+		client.connMu.Unlock()
+
+		// Fill with failures (10 failures = 100% failure rate)
+		for i := 0; i < healthWindowSize; i++ {
+			client.recordServiceResult(false)
+		}
+		assert.False(t, client.IsHealthy())
+
+		// Now add enough successes to push out old failures
+		// After 6 successes, we have 6 success + 4 failures = 40% failure rate
+		for i := 0; i < 6; i++ {
+			client.recordServiceResult(true)
+		}
+		assert.True(t, client.IsHealthy())
+	})
 }

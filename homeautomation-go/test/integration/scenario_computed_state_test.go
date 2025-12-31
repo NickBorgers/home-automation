@@ -7,10 +7,10 @@ import (
 
 	"homeautomation/internal/ha"
 	"homeautomation/internal/state"
+	"homeautomation/internal/testlogger"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"go.uber.org/zap"
 )
 
 // ============================================================================
@@ -25,7 +25,7 @@ import (
 
 // setupComputedStateTest creates a test environment with computed state initialized
 func setupComputedStateTest(t *testing.T) (*MockHAServer, *ha.Client, *state.Manager, func()) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 
 	// Start mock HA server
 	server := NewMockHAServer(testAddr, testToken)
@@ -96,7 +96,7 @@ func TestScenario_ComputedState_IsAnyoneHomeAndAwake_InitialComputation(t *testi
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			logger, _ := zap.NewDevelopment()
+			logger := testlogger.New()
 
 			// Start mock HA server with specific initial state
 			server := NewMockHAServer(testAddr, testToken)

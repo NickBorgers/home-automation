@@ -1,6 +1,7 @@
 package config
 
 import (
+	"homeautomation/internal/testlogger"
 	"os"
 	"path/filepath"
 	"testing"
@@ -8,7 +9,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"go.uber.org/zap"
 )
 
 func setupTestConfigDir(t *testing.T) string {
@@ -103,7 +103,7 @@ groups:
 }
 
 func TestLoader_LoadAll(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	configDir := setupTestConfigDir(t)
 
 	loader := NewLoader(configDir, logger)
@@ -131,7 +131,7 @@ func TestLoader_LoadAll(t *testing.T) {
 }
 
 func TestLoader_LoadMusicConfig(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	configDir := setupTestConfigDir(t)
 
 	loader := NewLoader(configDir, logger)
@@ -145,7 +145,7 @@ func TestLoader_LoadMusicConfig(t *testing.T) {
 }
 
 func TestLoader_LoadHueConfig(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	configDir := setupTestConfigDir(t)
 
 	loader := NewLoader(configDir, logger)
@@ -159,7 +159,7 @@ func TestLoader_LoadHueConfig(t *testing.T) {
 }
 
 func TestLoader_LoadScheduleConfig(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	configDir := setupTestConfigDir(t)
 
 	loader := NewLoader(configDir, logger)
@@ -178,7 +178,7 @@ func TestLoader_LoadScheduleConfig(t *testing.T) {
 }
 
 func TestLoader_GetTodaysSchedule(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	configDir := setupTestConfigDir(t)
 
 	loader := NewLoader(configDir, logger)
@@ -211,7 +211,7 @@ func TestLoader_GetTodaysSchedule(t *testing.T) {
 }
 
 func TestLoader_MissingFile(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	configDir := t.TempDir() // Empty directory
 
 	loader := NewLoader(configDir, logger)
@@ -220,7 +220,7 @@ func TestLoader_MissingFile(t *testing.T) {
 }
 
 func TestLoader_GetTodaysSchedule_NotLoaded(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	configDir := t.TempDir()
 
 	loader := NewLoader(configDir, logger)
@@ -232,7 +232,7 @@ func TestLoader_GetTodaysSchedule_NotLoaded(t *testing.T) {
 }
 
 func TestLoader_GetTodaysSchedule_InvalidTime(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	tmpDir := t.TempDir()
 
 	// Create schedule config with invalid time format (7 entries for all days of the week)
@@ -301,7 +301,7 @@ func TestLoader_GetTodaysSchedule_InvalidTime(t *testing.T) {
 }
 
 func TestLoader_StartAutoReload_Stop(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	configDir := setupTestConfigDir(t)
 
 	loader := NewLoader(configDir, logger)
@@ -323,7 +323,7 @@ func TestLoader_StartAutoReload_Stop(t *testing.T) {
 }
 
 func TestLoader_Stop_MultipleCalls(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	configDir := setupTestConfigDir(t)
 
 	loader := NewLoader(configDir, logger)
@@ -340,7 +340,7 @@ func TestLoader_Stop_MultipleCalls(t *testing.T) {
 }
 
 func TestLoader_GetTodaysSchedule_ParseErrors(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 
 	// Helper to create 7 identical schedule entries (one for each day of week)
 	makeScheduleWithSevenEntries := func(entry string) string {
@@ -450,7 +450,7 @@ func TestLoader_GetTodaysSchedule_ParseErrors(t *testing.T) {
 }
 
 func TestLoader_GetTodaysScheduleInTimezone(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	configDir := setupTestConfigDir(t)
 
 	loader := NewLoader(configDir, logger)
@@ -480,7 +480,7 @@ func TestLoader_GetTodaysScheduleInTimezone(t *testing.T) {
 }
 
 func TestLoader_SetTimezone(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	configDir := setupTestConfigDir(t)
 
 	loader := NewLoader(configDir, logger)

@@ -7,10 +7,10 @@ import (
 
 	"homeautomation/internal/config"
 	"homeautomation/internal/plugins/sleephygiene"
+	"homeautomation/internal/testlogger"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"go.uber.org/zap"
 )
 
 // ============================================================================
@@ -25,7 +25,7 @@ func setupSleepHygieneScenarioTest(t *testing.T) (*MockHAServer, *sleephygiene.M
 	server, client, manager, baseCleanup := setupTest(t)
 
 	// Create logger
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 
 	// Create config loader pointing to the real config directory
 	configLoader := config.NewLoader("../../configs", logger)
@@ -51,7 +51,7 @@ func setupSleepHygieneScenarioTestWithTime(t *testing.T, fixedTime time.Time) (*
 	server, client, manager, baseCleanup := setupTest(t)
 
 	// Create logger
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 
 	// Create config loader pointing to the real config directory
 	configLoader := config.NewLoader("../../configs", logger)

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"homeautomation/internal/ha"
+	"homeautomation/internal/testlogger"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -14,7 +15,7 @@ import (
 )
 
 func TestNewManager(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 
 	manager := NewManager(mockClient, logger, false)
@@ -23,7 +24,7 @@ func TestNewManager(t *testing.T) {
 }
 
 func TestManager_SyncFromHA(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 
 	// Setup mock states
@@ -59,7 +60,7 @@ func TestManager_SyncFromHA(t *testing.T) {
 }
 
 func TestManager_GetBool(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	mockClient.SetState("input_boolean.nick_home", "on", map[string]interface{}{})
 	mockClient.Connect()
@@ -94,7 +95,7 @@ func TestManager_GetBool(t *testing.T) {
 }
 
 func TestManager_SetBool(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	mockClient.SetState("input_boolean.expecting_someone", "off", map[string]interface{}{})
 	mockClient.Connect()
@@ -144,7 +145,7 @@ func TestManager_SetBool(t *testing.T) {
 }
 
 func TestManager_GetSetString(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	mockClient.SetState("input_text.day_phase", "morning", map[string]interface{}{})
 	mockClient.Connect()
@@ -175,7 +176,7 @@ func TestManager_GetSetString(t *testing.T) {
 }
 
 func TestManager_GetSetNumber(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	mockClient.SetState("input_number.alarm_time", "1668524400000", map[string]interface{}{})
 	mockClient.Connect()
@@ -206,7 +207,7 @@ func TestManager_GetSetNumber(t *testing.T) {
 }
 
 func TestManager_ChangeDetection(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	mockClient.SetState("input_boolean.nick_home", "off", map[string]interface{}{})
 	mockClient.SetState("input_text.day_phase", "morning", map[string]interface{}{})
@@ -297,7 +298,7 @@ func TestManager_ChangeDetection(t *testing.T) {
 }
 
 func TestManager_CompareAndSwapBool(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	mockClient.SetState("input_boolean.fade_out_in_progress", "off", map[string]interface{}{})
 	mockClient.Connect()
@@ -332,7 +333,7 @@ func TestManager_CompareAndSwapBool(t *testing.T) {
 }
 
 func TestManager_Subscribe(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	mockClient.SetState("input_boolean.nick_home", "off", map[string]interface{}{})
 	mockClient.SetState("input_boolean.caroline_home", "off", map[string]interface{}{})
@@ -452,7 +453,7 @@ func TestManagerNotifySubscribersRecoversFromPanics(t *testing.T) {
 }
 
 func TestManager_GetAllValues(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	mockClient.SetState("input_boolean.nick_home", "on", map[string]interface{}{})
 	mockClient.SetState("input_text.day_phase", "morning", map[string]interface{}{})
@@ -487,7 +488,7 @@ func TestExtractEntityName(t *testing.T) {
 }
 
 func TestManager_GetJSON(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 
 	manager := NewManager(mockClient, logger, false)
@@ -526,7 +527,7 @@ func TestManager_GetJSON(t *testing.T) {
 }
 
 func TestManager_SetJSON(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	mockClient.Connect()
 
@@ -558,7 +559,7 @@ func TestManager_SetJSON(t *testing.T) {
 }
 
 func TestManager_ConcurrentAccess(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	mockClient.SetState("input_boolean.nick_home", "off", map[string]interface{}{})
 	mockClient.Connect()
@@ -602,7 +603,7 @@ func TestVariablesByEntityID(t *testing.T) {
 }
 
 func TestManager_ReadOnlyMode(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
+	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	mockClient.SetState("input_boolean.expecting_someone", "off", map[string]interface{}{})
 	mockClient.SetState("input_text.battery_energy_level", "green", map[string]interface{}{})
