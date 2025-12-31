@@ -312,6 +312,56 @@ func TestClient_CallService(t *testing.T) {
 	assert.NoError(t, err)
 }
 
+func TestClient_CallServiceWithTarget(t *testing.T) {
+	logger := testlogger.New()
+	token := "test_token"
+
+	server := mockHAServer(t, func(conn *websocket.Conn) {
+		standardAuthFlow(t, conn, token)
+
+		// Handle subscribe_events
+		var subMsg SubscribeEventsRequest
+		conn.ReadJSON(&subMsg)
+		success := true
+		conn.WriteJSON(Message{
+			ID:      subMsg.ID,
+			Type:    "result",
+			Success: &success,
+		})
+
+		// Handle call_service request with target
+		var serviceReq CallServiceRequest
+		conn.ReadJSON(&serviceReq)
+
+		assert.Equal(t, "light", serviceReq.Domain)
+		assert.Equal(t, "turn_on", serviceReq.Service)
+		assert.NotNil(t, serviceReq.Target)
+		assert.Equal(t, []string{"holiday_light"}, serviceReq.Target.LabelID)
+
+		conn.WriteJSON(Message{
+			ID:      serviceReq.ID,
+			Type:    "result",
+			Success: &success,
+		})
+
+		time.Sleep(100 * time.Millisecond)
+	})
+	defer server.Close()
+
+	url := "ws" + strings.TrimPrefix(server.URL, "http")
+	client := NewClient(url, token, logger)
+
+	err := client.Connect()
+	require.NoError(t, err)
+	defer client.Disconnect()
+
+	target := &ServiceTarget{
+		LabelID: []string{"holiday_light"},
+	}
+	err = client.CallServiceWithTarget("light", "turn_on", target, nil)
+	assert.NoError(t, err)
+}
+
 func TestClient_SetInputBoolean(t *testing.T) {
 	logger := testlogger.New()
 	token := "test_token"
@@ -503,6 +553,48 @@ func TestMockClient(t *testing.T) {
 		assert.Len(t, calls, 1)
 		assert.Equal(t, "input_boolean", calls[0].Domain)
 		assert.Equal(t, "turn_on", calls[0].Service)
+	})
+
+	t.Run("service calls with target", func(t *testing.T) {
+		mock.ClearServiceCalls()
+
+		target := &ServiceTarget{
+			LabelID: []string{"holiday_light"},
+			AreaID:  []string{"living_room"},
+		}
+		err := mock.CallServiceWithTarget("light", "turn_on", target, map[string]interface{}{
+			"brightness": 255,
+		})
+		assert.NoError(t, err)
+
+		calls := mock.GetServiceCalls()
+		assert.Len(t, calls, 1)
+		assert.Equal(t, "light", calls[0].Domain)
+		assert.Equal(t, "turn_on", calls[0].Service)
+		assert.NotNil(t, calls[0].Target)
+		assert.Equal(t, []string{"holiday_light"}, calls[0].Target.LabelID)
+		assert.Equal(t, []string{"living_room"}, calls[0].Target.AreaID)
+		assert.Equal(t, 255, calls[0].Data["brightness"])
+	})
+
+	t.Run("service error injection", func(t *testing.T) {
+		mock.ClearServiceCalls()
+
+		// Set a service error
+		testErr := fmt.Errorf("test service error")
+		mock.SetServiceError("light", "turn_on", testErr)
+
+		// Service call should fail
+		err := mock.CallService("light", "turn_on", nil)
+		assert.Error(t, err)
+		assert.Equal(t, testErr, err)
+
+		// Clear the error
+		mock.SetServiceError("light", "turn_on", nil)
+
+		// Service call should succeed now
+		err = mock.CallService("light", "turn_on", nil)
+		assert.NoError(t, err)
 	})
 
 	t.Run("subscriptions", func(t *testing.T) {
@@ -849,6 +941,118 @@ func TestClient_CallServiceRetry(t *testing.T) {
 		defer client.Disconnect()
 
 		err = client.CallService("nonexistent", "service", nil)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "service_not_found")
+		assert.Equal(t, int32(1), attemptCount.Load(), "Should NOT retry on HA application errors")
+	})
+}
+
+func TestClient_CallServiceWithTargetRetry(t *testing.T) {
+	logger := testlogger.New()
+	token := "test_token"
+
+	t.Run("with service data", func(t *testing.T) {
+		server := mockHAServer(t, func(conn *websocket.Conn) {
+			standardAuthFlow(t, conn, token)
+
+			// Handle subscribe_events
+			var subMsg SubscribeEventsRequest
+			conn.ReadJSON(&subMsg)
+			success := true
+			conn.WriteJSON(Message{
+				ID:      subMsg.ID,
+				Type:    "result",
+				Success: &success,
+			})
+
+			// Handle call_service request with target and data
+			var serviceReq CallServiceRequest
+			conn.ReadJSON(&serviceReq)
+
+			assert.Equal(t, "light", serviceReq.Domain)
+			assert.Equal(t, "turn_on", serviceReq.Service)
+			assert.NotNil(t, serviceReq.Target)
+			assert.Equal(t, []string{"living_room"}, serviceReq.Target.AreaID)
+			assert.Equal(t, 255, int(serviceReq.ServiceData["brightness"].(float64)))
+
+			conn.WriteJSON(Message{
+				ID:      serviceReq.ID,
+				Type:    "result",
+				Success: &success,
+			})
+
+			time.Sleep(100 * time.Millisecond)
+		})
+		defer server.Close()
+
+		url := "ws" + strings.TrimPrefix(server.URL, "http")
+		client := NewClient(url, token, logger)
+
+		err := client.Connect()
+		require.NoError(t, err)
+		defer client.Disconnect()
+
+		target := &ServiceTarget{
+			AreaID: []string{"living_room"},
+		}
+		err = client.CallServiceWithTarget("light", "turn_on", target, map[string]interface{}{
+			"brightness": 255,
+		})
+		assert.NoError(t, err)
+	})
+
+	t.Run("no retry on HA application error", func(t *testing.T) {
+		var attemptCount atomic.Int32
+
+		server := mockHAServer(t, func(conn *websocket.Conn) {
+			standardAuthFlow(t, conn, token)
+
+			// Handle subscribe_events
+			var subMsg SubscribeEventsRequest
+			conn.ReadJSON(&subMsg)
+			success := true
+			conn.WriteJSON(Message{
+				ID:      subMsg.ID,
+				Type:    "result",
+				Success: &success,
+			})
+
+			// Handle service call with HA error
+			var serviceReq CallServiceRequest
+			conn.ReadJSON(&serviceReq)
+			attemptCount.Add(1)
+
+			// Verify target was sent
+			assert.NotNil(t, serviceReq.Target)
+			assert.Equal(t, []string{"holiday_light"}, serviceReq.Target.LabelID)
+
+			// Return HA application error - should NOT be retried
+			fail := false
+			conn.WriteJSON(Message{
+				ID:      serviceReq.ID,
+				Type:    "result",
+				Success: &fail,
+				Error: &Error{
+					Code:    "service_not_found",
+					Message: "Service not found",
+				},
+			})
+
+			time.Sleep(100 * time.Millisecond)
+		})
+		defer server.Close()
+
+		url := "ws" + strings.TrimPrefix(server.URL, "http")
+		client := NewClient(url, token, logger)
+
+		err := client.Connect()
+		require.NoError(t, err)
+		defer client.Disconnect()
+
+		target := &ServiceTarget{
+			LabelID: []string{"holiday_light"},
+		}
+		err = client.CallServiceWithTarget("light", "turn_on", target, nil)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "service_not_found")
 		assert.Equal(t, int32(1), attemptCount.Load(), "Should NOT retry on HA application errors")
