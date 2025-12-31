@@ -1211,6 +1211,7 @@ func TestCalculateAdaptiveBrightness(t *testing.T) {
 	mockClient.Connect()
 	manager := NewManager(mockClient, stateManager, config, logger, true, nil, nil)
 
+	// Note: brightness is capped at 50% max to reduce calibration disruption
 	tests := []struct {
 		name     string
 		lux      float64
@@ -1218,13 +1219,13 @@ func TestCalculateAdaptiveBrightness(t *testing.T) {
 	}{
 		{"very dark (lux=5)", 5, 20},
 		{"dim (lux=50)", 50, 40},
-		{"normal (lux=300)", 300, 60},
-		{"bright (lux=800)", 800, 80},
-		{"very bright (lux=1500)", 1500, 100},
-		{"at threshold (lux=10)", 10, 40}, // lux >= 10 means we're past first threshold
-		{"at threshold (lux=100)", 100, 60},
-		{"at threshold (lux=500)", 500, 80},
-		{"at threshold (lux=1000)", 1000, 100},
+		{"normal (lux=300)", 300, 50},         // curve says 60, capped at 50
+		{"bright (lux=800)", 800, 50},         // curve says 80, capped at 50
+		{"very bright (lux=1500)", 1500, 50},  // curve says 100, capped at 50
+		{"at threshold (lux=10)", 10, 40},     // lux >= 10 means we're past first threshold
+		{"at threshold (lux=100)", 100, 50},   // curve says 60, capped at 50
+		{"at threshold (lux=500)", 500, 50},   // curve says 80, capped at 50
+		{"at threshold (lux=1000)", 1000, 50}, // curve says 100, capped at 50
 		{"zero lux", 0, 20},
 	}
 
@@ -1258,15 +1259,16 @@ func TestCalculateAdaptiveBrightnessDefaultCurve(t *testing.T) {
 	manager := NewManager(mockClient, stateManager, config, logger, true, nil, nil)
 
 	// Test with default curve values (10->20%, 100->40%, 500->60%, 1000->80%)
+	// Note: brightness is capped at 50% max
 	tests := []struct {
 		lux      float64
 		expected int
 	}{
-		{5, 20},     // below 10
-		{50, 40},    // between 10-100
-		{300, 60},   // between 100-500
-		{800, 80},   // between 500-1000
-		{1500, 100}, // above 1000
+		{5, 20},    // below 10
+		{50, 40},   // between 10-100
+		{300, 50},  // between 100-500, curve says 60, capped at 50
+		{800, 50},  // between 500-1000, curve says 80, capped at 50
+		{1500, 50}, // above 1000, curve says 100, capped at 50
 	}
 
 	for _, tt := range tests {
@@ -1477,7 +1479,7 @@ func TestAdaptiveBrightnessPerDevice(t *testing.T) {
 	}
 
 	assert.Equal(t, 20, lightCalls["light.apollo_msr_2_1294c8_rgb_light"], "Dark room should have 20% brightness")
-	assert.Equal(t, 80, lightCalls["light.apollo_msr_2_27f538_rgb_light"], "Bright room should have 80% brightness")
+	assert.Equal(t, 50, lightCalls["light.apollo_msr_2_27f538_rgb_light"], "Bright room should have 50% brightness (capped from 80)")
 }
 
 func TestHysteresisPreventsOscillation(t *testing.T) {
@@ -1520,9 +1522,9 @@ func TestHysteresisPreventsOscillation(t *testing.T) {
 	brightness = manager.calculateAdaptiveBrightness(50, lightEntity)
 	assert.Equal(t, 40, brightness, "Should stay at 40% when lux is well below threshold")
 
-	// At lux=120 (outside hysteresis band), should change to 100%
+	// At lux=120 (outside hysteresis band), should change to max (50% after cap)
 	brightness = manager.calculateAdaptiveBrightness(120, lightEntity)
-	assert.Equal(t, 100, brightness, "Should change to 100% when lux is well above threshold")
+	assert.Equal(t, 50, brightness, "Should change to 50% (capped from 100%) when lux is well above threshold")
 }
 
 func TestDebouncing(t *testing.T) {
@@ -1736,15 +1738,15 @@ func TestHysteresisDoesNotBlockLargeJumps(t *testing.T) {
 	manager.lastBrightnessLevel[lightEntity] = 20
 	manager.indicatorMu.Unlock()
 
-	// Jump to lux=800 (should be 80%) - far from any hysteresis band
+	// Jump to lux=800 (curve says 80%, capped to 50%) - far from any hysteresis band
 	// Hysteresis bands are: 10±1, 100±10, 500±50, 1000±100
 	// lux=800 is not in any of these bands, so it should change
 	brightness := manager.calculateAdaptiveBrightness(800, lightEntity)
-	assert.Equal(t, 80, brightness, "Large lux jump should change brightness despite hysteresis")
+	assert.Equal(t, 50, brightness, "Large lux jump should change brightness despite hysteresis (capped at 50%)")
 
 	// Update last brightness and test the reverse
 	manager.indicatorMu.Lock()
-	manager.lastBrightnessLevel[lightEntity] = 80
+	manager.lastBrightnessLevel[lightEntity] = 50
 	manager.indicatorMu.Unlock()
 
 	// Jump back to lux=5 (should be 20%) - far from any hysteresis band

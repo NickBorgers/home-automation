@@ -887,10 +887,10 @@ func (m *Manager) Reset() error {
 func (m *Manager) runBaselineCalibration() {
 	calibConfig := m.config.Energy.IndicatorLights.AdaptiveBrightness.BaselineCalibration
 
-	// Get calibration interval (default 5 minutes)
+	// Get calibration interval (default 10 minutes)
 	intervalSec := calibConfig.CalibrationIntervalSec
 	if intervalSec <= 0 {
-		intervalSec = 300
+		intervalSec = 600
 	}
 
 	ticker := time.NewTicker(time.Duration(intervalSec) * time.Second)
@@ -1266,13 +1266,13 @@ func (m *Manager) handleLuxChange(luxEntity string, lux float64) {
 	}
 }
 
-// getDefaultBrightnessCurve returns the default lux-to-brightness curve from issue #194.
+// getDefaultBrightnessCurve returns the default lux-to-brightness curve.
+// With the 50% brightness cap, there are effectively 3 levels: 20%, 40%, 50%.
 func getDefaultBrightnessCurve() []BrightnessCurvePoint {
 	return []BrightnessCurvePoint{
-		{LuxMax: 10, BrightnessPct: 20},
-		{LuxMax: 100, BrightnessPct: 40},
-		{LuxMax: 500, BrightnessPct: 60},
-		{LuxMax: 1000, BrightnessPct: 80},
+		{LuxMax: 10, BrightnessPct: 20},  // Very dark
+		{LuxMax: 100, BrightnessPct: 40}, // Dim
+		// >= 100 lux: 50% (capped from default 100%)
 	}
 }
 
@@ -1323,6 +1323,13 @@ func (m *Manager) calculateAdaptiveBrightness(lux float64, lightEntity string) i
 				return lastBrightness
 			}
 		}
+	}
+
+	// Cap brightness at 50% - higher levels aren't noticeably different
+	// and reducing the max brightness reduces calibration disruption
+	const maxBrightness = 50
+	if newBrightness > maxBrightness {
+		newBrightness = maxBrightness
 	}
 
 	return newBrightness
