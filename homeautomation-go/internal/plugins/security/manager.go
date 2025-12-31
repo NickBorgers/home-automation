@@ -15,6 +15,10 @@ import (
 
 // Timer duration constants
 const (
+	// LockdownClearDelay is how long to wait after turning off lockdown before turning it back on
+	// This ensures a clear activation signal even if lockdown was already on
+	LockdownClearDelay = 30 * time.Second
+
 	// LockdownResetDelay is how long to wait before auto-resetting lockdown
 	LockdownResetDelay = 5 * time.Second
 
@@ -201,22 +205,40 @@ func (m *Manager) handleAnyoneHomeChange(key string, oldValue, newValue interfac
 }
 
 // activateLockdown turns on the lockdown input_boolean
+// It first turns lockdown off, waits 30 seconds, then turns it on to ensure
+// a clear activation signal even if lockdown was already on
 func (m *Manager) activateLockdown(reason string, trigger string) {
 	// Record action in shadow state before executing
 	m.recordLockdownAction(true, reason, trigger)
 
 	if m.readOnly {
-		m.logger.Info("READ-ONLY: Would activate lockdown", zap.String("reason", reason))
+		m.logger.Info("READ-ONLY: Would activate lockdown (turn off, wait 30s, turn on)", zap.String("reason", reason))
 		return
 	}
 
-	if err := m.haClient.CallService("input_boolean", "turn_on", map[string]interface{}{
-		"entity_id": "input_boolean.lockdown",
-	}); err != nil {
-		m.logger.Error("Failed to activate lockdown", zap.Error(err))
-	} else {
-		m.logger.Info("Lockdown activated", zap.String("reason", reason))
-	}
+	// Run the off-wait-on sequence in a goroutine to avoid blocking
+	go func() {
+		// Step 1: Turn lockdown off first
+		if err := m.haClient.CallService("input_boolean", "turn_off", map[string]interface{}{
+			"entity_id": "input_boolean.lockdown",
+		}); err != nil {
+			m.logger.Error("Failed to turn off lockdown before activation", zap.Error(err))
+			return
+		}
+		m.logger.Info("Lockdown turned off, waiting 30 seconds before activation", zap.String("reason", reason))
+
+		// Step 2: Wait 30 seconds
+		m.clock.Sleep(LockdownClearDelay)
+
+		// Step 3: Turn lockdown on
+		if err := m.haClient.CallService("input_boolean", "turn_on", map[string]interface{}{
+			"entity_id": "input_boolean.lockdown",
+		}); err != nil {
+			m.logger.Error("Failed to activate lockdown", zap.Error(err))
+		} else {
+			m.logger.Info("Lockdown activated", zap.String("reason", reason))
+		}
+	}()
 }
 
 // handleLockdownActivated auto-resets lockdown after 5 seconds
