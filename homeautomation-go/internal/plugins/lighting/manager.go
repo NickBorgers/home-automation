@@ -271,7 +271,7 @@ func (m *Manager) handleSleepStateChange(key string, oldValue, newValue interfac
 	m.evaluateAllRooms(dayPhase, key)
 }
 
-// collectConditionVariables collects all unique variables from room on/off conditions
+// collectConditionVariables collects all unique variables from room conditions
 // These are variables like isNickOfficeOccupied, isKitchenOccupied that need subscriptions
 func (m *Manager) collectConditionVariables() []string {
 	// Use a map to collect unique variables
@@ -289,25 +289,10 @@ func (m *Manager) collectConditionVariables() []string {
 	}
 
 	for _, room := range m.config.Rooms {
-		// Collect from all condition types
-		for _, condition := range room.GetOnIfTrueConditions() {
-			if condition != "" && !alreadySubscribed[condition] {
-				varMap[condition] = true
-			}
-		}
-		for _, condition := range room.GetOnIfFalseConditions() {
-			if condition != "" && !alreadySubscribed[condition] {
-				varMap[condition] = true
-			}
-		}
-		for _, condition := range room.GetOffIfTrueConditions() {
-			if condition != "" && !alreadySubscribed[condition] {
-				varMap[condition] = true
-			}
-		}
-		for _, condition := range room.GetOffIfFalseConditions() {
-			if condition != "" && !alreadySubscribed[condition] {
-				varMap[condition] = true
+		// Collect all condition variables from this room
+		for _, varName := range room.GetConditionVariables() {
+			if varName != "" && !alreadySubscribed[varName] {
+				varMap[varName] = true
 			}
 		}
 	}
@@ -372,37 +357,30 @@ func (m *Manager) evaluateAndActivateRoom(room *RoomConfig, dayPhase string, tri
 		zap.String("day_phase", dayPhase),
 		zap.String("trigger", trigger))
 
-	// Evaluate on/off conditions
-	shouldTurnOn := m.evaluateOnConditions(room)
-	shouldTurnOff := m.evaluateOffConditions(room)
+	// Evaluate conditions in order - first matching condition wins
+	action, matchedVar := m.evaluateConditions(room)
 
 	m.logger.Debug("Room evaluation result",
 		zap.String("room", room.HueGroup),
-		zap.Bool("should_turn_on", shouldTurnOn),
-		zap.Bool("should_turn_off", shouldTurnOff))
+		zap.String("action", action),
+		zap.String("matched_variable", matchedVar))
 
-	// If both are true, prioritize turning ON (matches Node-RED behavior)
-	if shouldTurnOn {
+	switch action {
+	case "on":
 		m.logger.Info("Room should be turned on with scene",
 			zap.String("room", room.HueGroup),
-			zap.String("day_phase", dayPhase))
-		if shouldTurnOff {
-			m.logger.Debug("ON takes precedence over OFF",
-				zap.String("room", room.HueGroup))
-		}
+			zap.String("day_phase", dayPhase),
+			zap.String("matched_condition", matchedVar))
 		m.activateScene(room, dayPhase, trigger)
-		return
-	}
-
-	if shouldTurnOff {
+	case "off":
 		m.logger.Info("Room should be turned off",
-			zap.String("room", room.HueGroup))
+			zap.String("room", room.HueGroup),
+			zap.String("matched_condition", matchedVar))
 		m.turnOffRoom(room, trigger)
-		return
+	default:
+		m.logger.Debug("No action needed for room",
+			zap.String("room", room.HueGroup))
 	}
-
-	m.logger.Debug("No action needed for room",
-		zap.String("room", room.HueGroup))
 }
 
 // isTopicRelevant checks if a state variable change is relevant to a room's conditions
@@ -414,14 +392,8 @@ func (m *Manager) isTopicRelevant(room *RoomConfig, trigger string) bool {
 	}
 
 	// Check if trigger appears in any of the room's conditions
-	allConditions := []string{}
-	allConditions = append(allConditions, room.GetOnIfTrueConditions()...)
-	allConditions = append(allConditions, room.GetOnIfFalseConditions()...)
-	allConditions = append(allConditions, room.GetOffIfTrueConditions()...)
-	allConditions = append(allConditions, room.GetOffIfFalseConditions()...)
-
-	for _, condition := range allConditions {
-		if condition == trigger {
+	for _, cond := range room.Conditions {
+		if cond.Variable == trigger {
 			return true
 		}
 	}
@@ -429,75 +401,58 @@ func (m *Manager) isTopicRelevant(room *RoomConfig, trigger string) bool {
 	return false
 }
 
-// evaluateOnConditions evaluates whether a room should turn on
-func (m *Manager) evaluateOnConditions(room *RoomConfig) bool {
-	// Check on_if_true conditions
-	onIfTrueConditions := room.GetOnIfTrueConditions()
-	for _, condition := range onIfTrueConditions {
-		if m.evaluateCondition(condition) {
-			m.logger.Debug("on_if_true condition is true",
+// evaluateConditions evaluates room conditions in order and returns the action to take
+// Returns the action ("on", "off", or "" for no action) and the variable that matched
+func (m *Manager) evaluateConditions(room *RoomConfig) (action string, matchedVariable string) {
+	for _, cond := range room.Conditions {
+		if cond.Variable == "" {
+			continue
+		}
+
+		// Get the current value of the state variable
+		currentValue, err := m.getStateValue(cond.Variable)
+		if err != nil {
+			m.logger.Warn("Failed to get state value for condition",
 				zap.String("room", room.HueGroup),
-				zap.String("condition", condition))
-			return true
+				zap.String("variable", cond.Variable),
+				zap.Error(err))
+			continue
+		}
+
+		// Check if the condition matches using flexible type comparison
+		if valuesMatch(currentValue, cond.Value) {
+			m.logger.Debug("Condition matched",
+				zap.String("room", room.HueGroup),
+				zap.String("variable", cond.Variable),
+				zap.Any("expected", cond.Value),
+				zap.Any("actual", currentValue),
+				zap.String("action", cond.Action))
+			return cond.Action, cond.Variable
 		}
 	}
 
-	// Check on_if_false conditions
-	onIfFalseConditions := room.GetOnIfFalseConditions()
-	for _, condition := range onIfFalseConditions {
-		if !m.evaluateCondition(condition) {
-			m.logger.Debug("on_if_false condition is false",
-				zap.String("room", room.HueGroup),
-				zap.String("condition", condition))
-			return true
-		}
-	}
-
-	return false
+	// No condition matched
+	return "", ""
 }
 
-// evaluateOffConditions evaluates whether a room should turn off
-func (m *Manager) evaluateOffConditions(room *RoomConfig) bool {
-	// Check off_if_true conditions
-	offIfTrueConditions := room.GetOffIfTrueConditions()
-	for _, condition := range offIfTrueConditions {
-		if m.evaluateCondition(condition) {
-			m.logger.Debug("off_if_true condition is true",
-				zap.String("room", room.HueGroup),
-				zap.String("condition", condition))
-			return true
-		}
+// getStateValue retrieves a state variable value, trying different types
+func (m *Manager) getStateValue(variable string) (interface{}, error) {
+	// Try boolean first (most common for lighting conditions)
+	if val, err := m.stateManager.GetBool(variable); err == nil {
+		return val, nil
 	}
 
-	// Check off_if_false conditions
-	offIfFalseConditions := room.GetOffIfFalseConditions()
-	for _, condition := range offIfFalseConditions {
-		if !m.evaluateCondition(condition) {
-			m.logger.Debug("off_if_false condition is false",
-				zap.String("room", room.HueGroup),
-				zap.String("condition", condition))
-			return true
-		}
+	// Try string
+	if val, err := m.stateManager.GetString(variable); err == nil {
+		return val, nil
 	}
 
-	return false
-}
-
-// evaluateCondition evaluates a boolean state variable condition
-func (m *Manager) evaluateCondition(condition string) bool {
-	if condition == "" {
-		return false
+	// Try number
+	if val, err := m.stateManager.GetNumber(variable); err == nil {
+		return val, nil
 	}
 
-	value, err := m.stateManager.GetBool(condition)
-	if err != nil {
-		m.logger.Warn("Failed to evaluate condition",
-			zap.String("condition", condition),
-			zap.Error(err))
-		return false
-	}
-
-	return value
+	return nil, fmt.Errorf("failed to get value for variable %s", variable)
 }
 
 // toSnakeCase converts a string to snake_case format
