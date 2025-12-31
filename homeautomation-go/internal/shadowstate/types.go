@@ -772,6 +772,65 @@ type SexModeShadowState struct {
 	Metadata StateMetadata  `json:"metadata"`
 }
 
+// ChristmasShadowState represents the shadow state for the christmas plugin
+type ChristmasShadowState struct {
+	Plugin   string           `json:"plugin"`
+	Inputs   ChristmasInputs  `json:"inputs"`
+	Outputs  ChristmasOutputs `json:"outputs"`
+	Metadata StateMetadata    `json:"metadata"`
+}
+
+// ChristmasInputs tracks current and last-action input values
+type ChristmasInputs struct {
+	Current      map[string]interface{} `json:"current"`
+	AtLastAction map[string]interface{} `json:"atLastAction"`
+}
+
+// ChristmasOutputs tracks the state of christmas outputs
+type ChristmasOutputs struct {
+	LastActivationTime time.Time `json:"lastActivationTime,omitempty"`
+	LightsActivated    int       `json:"lightsActivated"`
+	LastActionReason   string    `json:"lastActionReason,omitempty"`
+}
+
+// GetCurrentInputs implements PluginShadowState
+func (c *ChristmasShadowState) GetCurrentInputs() map[string]interface{} {
+	return c.Inputs.Current
+}
+
+// GetLastActionInputs implements PluginShadowState
+func (c *ChristmasShadowState) GetLastActionInputs() map[string]interface{} {
+	return c.Inputs.AtLastAction
+}
+
+// GetOutputs implements PluginShadowState
+func (c *ChristmasShadowState) GetOutputs() interface{} {
+	return c.Outputs
+}
+
+// GetMetadata implements PluginShadowState
+func (c *ChristmasShadowState) GetMetadata() StateMetadata {
+	return c.Metadata
+}
+
+// NewChristmasShadowState creates a new christmas shadow state
+func NewChristmasShadowState() *ChristmasShadowState {
+	return &ChristmasShadowState{
+		Plugin: "christmas",
+		Inputs: ChristmasInputs{
+			Current:      make(map[string]interface{}),
+			AtLastAction: make(map[string]interface{}),
+		},
+		Outputs: ChristmasOutputs{
+			LightsActivated: 0,
+		},
+		Metadata: StateMetadata{
+			LastUpdated: time.Now(),
+			PluginName:  "christmas",
+		},
+	}
+}
+
 // SexModeInputs tracks current and last-action input values
 type SexModeInputs struct {
 	Current      map[string]interface{} `json:"current"`

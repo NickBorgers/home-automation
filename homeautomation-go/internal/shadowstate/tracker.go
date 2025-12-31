@@ -1168,6 +1168,87 @@ func (smt *SexModeTracker) GetState() *SexModeShadowState {
 	return stateCopy
 }
 
+// ChristmasTracker manages shadow state for the christmas plugin
+type ChristmasTracker struct {
+	mu    sync.RWMutex
+	state *ChristmasShadowState
+}
+
+// NewChristmasTracker creates a new christmas shadow state tracker
+func NewChristmasTracker() *ChristmasTracker {
+	return &ChristmasTracker{
+		state: NewChristmasShadowState(),
+	}
+}
+
+// UpdateCurrentInputs updates the current input values
+func (ct *ChristmasTracker) UpdateCurrentInputs(inputs map[string]interface{}) {
+	ct.mu.Lock()
+	defer ct.mu.Unlock()
+
+	for key, value := range inputs {
+		ct.state.Inputs.Current[key] = value
+	}
+	ct.state.Metadata.LastUpdated = time.Now()
+}
+
+// SnapshotInputsForAction captures current inputs as the at-last-action snapshot
+func (ct *ChristmasTracker) SnapshotInputsForAction() {
+	ct.mu.Lock()
+	defer ct.mu.Unlock()
+
+	// Deep copy current inputs to at-last-action
+	ct.state.Inputs.AtLastAction = make(map[string]interface{})
+	for key, value := range ct.state.Inputs.Current {
+		ct.state.Inputs.AtLastAction[key] = value
+	}
+}
+
+// RecordActivation records a christmas lights activation
+func (ct *ChristmasTracker) RecordActivation(lightsActivated int, reason string) {
+	ct.mu.Lock()
+	defer ct.mu.Unlock()
+
+	now := time.Now()
+	ct.state.Outputs.LastActivationTime = now
+	ct.state.Outputs.LightsActivated = lightsActivated
+	ct.state.Outputs.LastActionReason = reason
+	ct.state.Metadata.LastUpdated = now
+}
+
+// GetState returns the current shadow state (thread-safe copy)
+func (ct *ChristmasTracker) GetState() *ChristmasShadowState {
+	ct.mu.RLock()
+	defer ct.mu.RUnlock()
+
+	// Create a deep copy to avoid race conditions
+	stateCopy := &ChristmasShadowState{
+		Plugin: ct.state.Plugin,
+		Inputs: ChristmasInputs{
+			Current:      make(map[string]interface{}),
+			AtLastAction: make(map[string]interface{}),
+		},
+		Outputs: ChristmasOutputs{
+			LastActivationTime: ct.state.Outputs.LastActivationTime,
+			LightsActivated:    ct.state.Outputs.LightsActivated,
+			LastActionReason:   ct.state.Outputs.LastActionReason,
+		},
+		Metadata: ct.state.Metadata,
+	}
+
+	// Copy current inputs
+	for k, v := range ct.state.Inputs.Current {
+		stateCopy.Inputs.Current[k] = v
+	}
+
+	// Copy at-last-action inputs
+	for k, v := range ct.state.Inputs.AtLastAction {
+		stateCopy.Inputs.AtLastAction[k] = v
+	}
+
+	return stateCopy
+}
+
 // NewTVTracker creates a new TV shadow state tracker
 func NewTVTracker() *TVTracker {
 	return &TVTracker{
