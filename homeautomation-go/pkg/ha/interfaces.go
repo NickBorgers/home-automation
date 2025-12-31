@@ -27,6 +27,13 @@ type Subscription interface {
 	Unsubscribe() error
 }
 
+// ServiceTarget represents the target for a service call.
+type ServiceTarget struct {
+	EntityID []string `json:"entity_id,omitempty"`
+	LabelID  []string `json:"label_id,omitempty"`
+	AreaID   []string `json:"area_id,omitempty"`
+}
+
 // Client defines the interface for Home Assistant WebSocket client.
 // This interface matches internal/ha.HAClient and can be used by external packages.
 type Client interface {
@@ -36,6 +43,7 @@ type Client interface {
 	GetState(entityID string) (*State, error)
 	GetAllStates() ([]*State, error)
 	CallService(domain, service string, data map[string]interface{}) error
+	CallServiceWithTarget(domain, service string, target *ServiceTarget, data map[string]interface{}) error
 	SubscribeStateChanges(entityID string, handler StateChangeHandler) (Subscription, error)
 	SetInputBoolean(name string, value bool) error
 	SetInputNumber(name string, value float64) error

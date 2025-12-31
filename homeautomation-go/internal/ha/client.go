@@ -63,6 +63,7 @@ type HAClient interface {
 	GetState(entityID string) (*State, error)
 	GetAllStates() ([]*State, error)
 	CallService(domain, service string, data map[string]interface{}) error
+	CallServiceWithTarget(domain, service string, target *ServiceTarget, data map[string]interface{}) error
 	SubscribeStateChanges(entityID string, handler StateChangeHandler) (Subscription, error)
 	SetInputBoolean(name string, value bool) error
 	SetInputNumber(name string, value float64) error
@@ -742,6 +743,61 @@ func (c *Client) CallService(domain, service string, data map[string]interface{}
 
 	c.recordServiceResult(false)
 	return fmt.Errorf("service call failed after %d attempts: %w", maxRetries+1, lastErr)
+}
+
+// CallServiceWithTarget calls a Home Assistant service with an explicit target.
+// Uses the same retry logic as CallService.
+func (c *Client) CallServiceWithTarget(domain, service string, target *ServiceTarget, data map[string]interface{}) error {
+	var lastErr error
+	delay := initialRetryDelay
+
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		if attempt > 0 {
+			c.logger.Warn("Retrying service call with target",
+				zap.String("domain", domain),
+				zap.String("service", service),
+				zap.Int("attempt", attempt),
+				zap.Duration("delay", delay),
+				zap.Error(lastErr),
+			)
+			time.Sleep(delay)
+
+			// Exponential backoff
+			delay *= 2
+			if delay > maxRetryDelay {
+				delay = maxRetryDelay
+			}
+		}
+
+		req := &CallServiceRequest{
+			Type:        "call_service",
+			Domain:      domain,
+			Service:     service,
+			Target:      target,
+			ServiceData: data,
+		}
+
+		_, err := c.sendMessage(req)
+		if err == nil {
+			if attempt > 0 {
+				c.logger.Info("Service call with target succeeded after retry",
+					zap.String("domain", domain),
+					zap.String("service", service),
+					zap.Int("attempts", attempt+1),
+				)
+			}
+			return nil
+		}
+
+		lastErr = err
+
+		// Only retry for transient network errors
+		if !isRetryableError(err) {
+			return err
+		}
+	}
+
+	return fmt.Errorf("service call with target failed after %d attempts: %w", maxRetries+1, lastErr)
 }
 
 // SubscribeStateChanges subscribes to state changes for a specific entity
