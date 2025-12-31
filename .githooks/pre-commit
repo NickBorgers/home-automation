@@ -4,6 +4,10 @@
 # This hook runs automated checks before allowing a commit to proceed.
 # It executes the same tests that CI/CD will run to catch issues early.
 #
+# CACHING: This hook uses test-cache.sh to skip checks if no code has
+# changed since the last successful run. To force re-run:
+#   .githooks/test-cache.sh --clear-one pre-commit
+#
 # Installation: This hook is automatically installed by the devcontainer
 # postCreateCommand. To manually install, run:
 #   chmod +x .githooks/pre-commit
@@ -14,13 +18,12 @@ set -e  # Exit on any error
 
 echo "🚀 Running pre-commit hook..."
 echo "════════════════════════════════════════════════════════════════════════════"
-echo ""
 
 # Change to repository root
 cd "$(git rev-parse --show-toplevel)"
 
-# Run the pre-commit make target
-if make pre-commit; then
+# Run pre-commit checks with caching
+if .githooks/test-cache.sh pre-commit pre-commit; then
     echo ""
     echo "════════════════════════════════════════════════════════════════════════════"
     echo "✅ Pre-commit hook passed! Proceeding with commit..."

@@ -371,6 +371,14 @@ test-48hr-simulation:
 ci-style-checks: pre-commit
 	@echo "✅ CI style checks complete"
 
+#unit-tests: @ Run unit tests with caching (skips if no code changes since last pass)
+unit-tests:
+	@.githooks/test-cache.sh unit-tests ci-unit-tests
+
+#integration-tests: @ Run integration tests with caching (skips if no code changes since last pass)
+integration-tests:
+	@.githooks/test-cache.sh integration-tests ci-integration-tests
+
 #ci-unit-tests: @ Run unit tests with coverage, excluding integration tests (used by CI)
 ci-unit-tests:
 	@echo "🧪 Running unit tests (excluding integration tests, pkg/testutil, and cmd/diagramgen)..."
