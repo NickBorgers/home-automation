@@ -11,6 +11,7 @@ import (
 
 	"homeautomation/internal/ha"
 	"homeautomation/internal/state"
+	"homeautomation/pkg/plugin"
 
 	"go.uber.org/zap"
 )
@@ -140,7 +141,7 @@ func TestMusicManager_SelectAppropriateMusicMode(t *testing.T) {
 			// Use a fixed time provider with a Monday (not Sunday) for testing
 			// This ensures tests are independent of what day they run on
 			fixedTime := time.Date(2025, 1, 6, 9, 0, 0, 0, time.UTC) // Monday, January 6, 2025
-			timeProvider := FixedTimeProvider{FixedTime: fixedTime}
+			timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
 
 			// Create manager
 			manager := NewManager(mockHA, stateMgr, config, logger, true, timeProvider)
@@ -184,7 +185,7 @@ func TestMusicManager_DetermineMusicModeFromDayPhase(t *testing.T) {
 
 	// Use a fixed time provider with a Monday (not Sunday) for testing
 	fixedTime := time.Date(2025, 1, 6, 9, 0, 0, 0, time.UTC) // Monday, January 6, 2025
-	timeProvider := FixedTimeProvider{FixedTime: fixedTime}
+	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
 
 	manager := NewManager(mockHA, stateMgr, config, logger, true, timeProvider)
 
@@ -233,7 +234,7 @@ func TestMusicManager_StateChangeHandling(t *testing.T) {
 
 	// Use a fixed time provider with a Monday (not Sunday) for testing
 	fixedTime := time.Date(2025, 1, 6, 9, 0, 0, 0, time.UTC) // Monday, January 6, 2025
-	timeProvider := FixedTimeProvider{FixedTime: fixedTime}
+	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
 
 	manager := NewManager(mockHA, stateMgr, config, logger, true, timeProvider)
 
@@ -573,7 +574,7 @@ func TestRateLimiting(t *testing.T) {
 
 	// Use a fixed time for testing
 	fixedTime := time.Date(2024, 1, 1, 12, 0, 0, 0, time.UTC)
-	timeProvider := FixedTimeProvider{FixedTime: fixedTime}
+	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
 
 	manager := NewManager(mockClient, stateManager, config, logger, true, timeProvider)
 
@@ -1298,7 +1299,7 @@ func TestManagerReset(t *testing.T) {
 	stateManager.SetBool("isAnyoneHome", true)
 	stateManager.SetBool("isAnyoneAsleep", false)
 
-	manager := NewManager(mockClient, stateManager, musicConfig, logger, false, &RealTimeProvider{})
+	manager := NewManager(mockClient, stateManager, musicConfig, logger, false, &plugin.RealTimeProvider{})
 
 	err := manager.Start()
 	if err != nil {
@@ -1441,7 +1442,7 @@ func TestCurrentlyPlayingMusicUri_UpdateOnModeChange(t *testing.T) {
 
 	// Use a fixed time for testing (to avoid rate limiting)
 	fixedTime := time.Date(2024, 1, 1, 12, 0, 0, 0, time.UTC)
-	timeProvider := FixedTimeProvider{FixedTime: fixedTime}
+	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
 
 	manager := NewManager(mockClient, stateManager, config, logger, true, timeProvider)
 
@@ -1498,7 +1499,7 @@ func TestFadeInSpeaker_SafeUnmuteSequence(t *testing.T) {
 	}
 
 	fixedTime := time.Date(2025, 1, 6, 9, 0, 0, 0, time.UTC)
-	timeProvider := FixedTimeProvider{FixedTime: fixedTime}
+	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
 
 	// NOT read-only so service calls actually go through
 	manager := NewManager(mockHA, stateManager, config, logger, false, timeProvider)
@@ -1594,7 +1595,7 @@ func TestFadeInSpeaker_VolumeNormalization(t *testing.T) {
 			}
 
 			fixedTime := time.Date(2025, 1, 6, 9, 0, 0, 0, time.UTC)
-			timeProvider := FixedTimeProvider{FixedTime: fixedTime}
+			timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
 			manager := NewManager(mockHA, stateManager, config, logger, false, timeProvider)
 			// Skip sleep delays in tests (fade-in uses very slow timing to match Node-RED behavior)
 			manager.SetSleepFunc(func(d time.Duration) {})
@@ -1648,7 +1649,7 @@ func TestFadeInSpeaker_InitialVolumeSetFailure(t *testing.T) {
 	}
 
 	fixedTime := time.Date(2025, 1, 6, 9, 0, 0, 0, time.UTC)
-	timeProvider := FixedTimeProvider{FixedTime: fixedTime}
+	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
 	manager := NewManager(mockHA, stateManager, config, logger, false, timeProvider)
 	// Skip sleep delays in tests (fade-in uses very slow timing to match Node-RED behavior)
 	manager.SetSleepFunc(func(d time.Duration) {})
@@ -1687,7 +1688,7 @@ func TestFadeInSpeaker_UnmuteFailure(t *testing.T) {
 	}
 
 	fixedTime := time.Date(2025, 1, 6, 9, 0, 0, 0, time.UTC)
-	timeProvider := FixedTimeProvider{FixedTime: fixedTime}
+	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
 	manager := NewManager(mockHA, stateManager, config, logger, false, timeProvider)
 	// Skip sleep delays in tests (fade-in uses very slow timing to match Node-RED behavior)
 	manager.SetSleepFunc(func(d time.Duration) {})

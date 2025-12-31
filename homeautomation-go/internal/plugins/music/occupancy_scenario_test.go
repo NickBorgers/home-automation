@@ -61,6 +61,7 @@ import (
 
 	"homeautomation/internal/ha"
 	"homeautomation/internal/state"
+	"homeautomation/pkg/plugin"
 
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/zap"
@@ -151,7 +152,7 @@ func TestScenario_OfficeSpeaker_UnmutedWhenOccupied(t *testing.T) {
 
 	// Use fixed time provider for deterministic testing
 	fixedTime := time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC) // Monday 10am
-	timeProvider := FixedTimeProvider{FixedTime: fixedTime}
+	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
 
 	manager := NewManager(mockClient, stateManager, config, logger, false, timeProvider)
 
@@ -231,7 +232,7 @@ func TestScenario_OfficeSpeaker_MutedWhenUnoccupied(t *testing.T) {
 
 	// Use fixed time provider
 	fixedTime := time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC)
-	timeProvider := FixedTimeProvider{FixedTime: fixedTime}
+	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
 
 	manager := NewManager(mockClient, stateManager, config, logger, false, timeProvider)
 
@@ -297,7 +298,7 @@ func TestScenario_OfficeSpeaker_UnmuteOnOccupancyChangeDuringPlayback(t *testing
 
 	// Use fixed time provider
 	fixedTime := time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC)
-	timeProvider := FixedTimeProvider{FixedTime: fixedTime}
+	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
 
 	manager := NewManager(mockClient, stateManager, config, logger, false, timeProvider)
 
@@ -378,7 +379,7 @@ func TestScenario_KitchenSpeaker_AlwaysUnmuted(t *testing.T) {
 	config := createOccupancyMusicConfig()
 
 	fixedTime := time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC)
-	timeProvider := FixedTimeProvider{FixedTime: fixedTime}
+	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
 
 	manager := NewManager(mockClient, stateManager, config, logger, false, timeProvider)
 

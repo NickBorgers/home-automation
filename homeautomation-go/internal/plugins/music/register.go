@@ -3,7 +3,6 @@ package music
 import (
 	"fmt"
 	"path/filepath"
-	"time"
 
 	pkgha "homeautomation/pkg/ha"
 	"homeautomation/pkg/plugin"
@@ -40,24 +39,9 @@ func createPlugin(ctx *plugin.Context) (plugin.Plugin, error) {
 		return nil, fmt.Errorf("failed to load music config: %w", err)
 	}
 
-	// Convert plugin.TimeProvider to music.TimeProvider if provided
-	// Both interfaces are identical (Now() time.Time), so we can use a type adapter
-	var timeProvider TimeProvider
-	if ctx.TimeProvider != nil {
-		timeProvider = timeProviderAdapter{ctx.TimeProvider}
-	}
-
-	manager := NewManager(haClient, stateManager, config, ctx.Logger, ctx.ReadOnly, timeProvider)
+	// Pass the TimeProvider directly (NewManager handles nil by defaulting to RealTimeProvider)
+	manager := NewManager(haClient, stateManager, config, ctx.Logger, ctx.ReadOnly, ctx.TimeProvider)
 	return &pluginAdapter{manager: manager}, nil
-}
-
-// timeProviderAdapter adapts plugin.TimeProvider to music.TimeProvider
-type timeProviderAdapter struct {
-	provider plugin.TimeProvider
-}
-
-func (a timeProviderAdapter) Now() time.Time {
-	return a.provider.Now()
 }
 
 // pluginAdapter wraps the Manager to implement the plugin.Plugin interface.

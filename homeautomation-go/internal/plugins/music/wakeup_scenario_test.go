@@ -102,6 +102,7 @@ import (
 
 	"homeautomation/internal/ha"
 	"homeautomation/internal/state"
+	"homeautomation/pkg/plugin"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -234,7 +235,7 @@ func TestScenario_WakeUpDuringMorning_TriggersMorningMusic(t *testing.T) {
 	// Use fixed time: Monday 7:00 AM (not Sunday!)
 	fixedTime := time.Date(2024, 1, 15, 7, 0, 0, 0, time.UTC) // Monday
 	require.Equal(t, time.Monday, fixedTime.Weekday(), "Test requires Monday")
-	timeProvider := FixedTimeProvider{FixedTime: fixedTime}
+	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
 
 	manager := NewManager(mockClient, stateManager, config, logger, false, timeProvider)
 
@@ -335,7 +336,7 @@ func TestScenario_WakeUpOnSunday_TriggersDayMusic(t *testing.T) {
 	// Use fixed time: Sunday 8:00 AM
 	fixedTime := time.Date(2024, 1, 14, 8, 0, 0, 0, time.UTC) // Sunday
 	require.Equal(t, time.Sunday, fixedTime.Weekday(), "Test requires Sunday")
-	timeProvider := FixedTimeProvider{FixedTime: fixedTime}
+	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
 
 	manager := NewManager(mockClient, stateManager, config, logger, false, timeProvider)
 
@@ -400,7 +401,7 @@ func TestScenario_DayPhaseChangesToMorning_TriggersDayMusic(t *testing.T) {
 
 	// Monday 6:00 AM
 	fixedTime := time.Date(2024, 1, 15, 6, 0, 0, 0, time.UTC)
-	timeProvider := FixedTimeProvider{FixedTime: fixedTime}
+	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
 
 	manager := NewManager(mockClient, stateManager, config, logger, false, timeProvider)
 
@@ -459,7 +460,7 @@ func TestScenario_NoOneHome_StopsMusic(t *testing.T) {
 	config := createWakeupTestConfig()
 
 	fixedTime := time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC)
-	timeProvider := FixedTimeProvider{FixedTime: fixedTime}
+	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
 
 	manager := NewManager(mockClient, stateManager, config, logger, false, timeProvider)
 
@@ -517,7 +518,7 @@ func TestScenario_SomeoneFallsAsleep_TriggersSleepMusic(t *testing.T) {
 	config := createWakeupTestConfig()
 
 	fixedTime := time.Date(2024, 1, 15, 22, 0, 0, 0, time.UTC) // 10 PM
-	timeProvider := FixedTimeProvider{FixedTime: fixedTime}
+	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
 
 	manager := NewManager(mockClient, stateManager, config, logger, false, timeProvider)
 
@@ -591,7 +592,7 @@ func TestScenario_SleepMusicPersistsDuringWinddown(t *testing.T) {
 	config := createWakeupTestConfig()
 
 	fixedTime := time.Date(2024, 1, 15, 21, 0, 0, 0, time.UTC) // 9 PM
-	timeProvider := FixedTimeProvider{FixedTime: fixedTime}
+	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
 
 	manager := NewManager(mockClient, stateManager, config, logger, false, timeProvider)
 

@@ -7,6 +7,7 @@ import (
 	"homeautomation/internal/config"
 	"homeautomation/internal/ha"
 	"homeautomation/internal/state"
+	"homeautomation/pkg/plugin"
 
 	"go.uber.org/zap"
 )
@@ -31,7 +32,7 @@ func setupTest(t *testing.T, currentTime time.Time) (*Manager, *ha.MockClient, *
 	configLoader := config.NewLoader("../../../configs", logger)
 
 	// Create manager with fixed time provider and nil timezone (defaults to time.Local)
-	timeProvider := FixedTimeProvider{FixedTime: currentTime}
+	timeProvider := plugin.FixedTimeProvider{FixedTime: currentTime}
 	manager := NewManager(mockHA, stateManager, configLoader, logger, false, timeProvider, nil)
 
 	return manager, mockHA, stateManager, configLoader
@@ -50,7 +51,7 @@ func TestNewManager(t *testing.T) {
 	}
 
 	if manager.timeProvider == nil {
-		t.Error("timeProvider should default to RealTimeProvider")
+		t.Error("timeProvider should default to plugin.RealTimeProvider")
 	}
 
 	if manager.haClient != mockHA {
@@ -336,7 +337,7 @@ func TestReadOnlyMode(t *testing.T) {
 	stateManager.SetString("musicPlaybackType", "sleep")
 
 	// Create manager in READ-ONLY mode
-	timeProvider := FixedTimeProvider{FixedTime: now}
+	timeProvider := plugin.FixedTimeProvider{FixedTime: now}
 	manager := NewManager(mockHA, stateManager, configLoader, logger, true, timeProvider, nil)
 
 	// Clear previous calls
@@ -556,7 +557,7 @@ func TestHandleGoToBed_ReadOnly(t *testing.T) {
 	stateManager.SetString("musicPlaybackType", "winddown")
 
 	configLoader := config.NewLoader("../../../configs", logger)
-	timeProvider := FixedTimeProvider{FixedTime: now}
+	timeProvider := plugin.FixedTimeProvider{FixedTime: now}
 	manager := NewManager(mockHA, stateManager, configLoader, logger, true, timeProvider, nil) // READ-ONLY
 
 	mockHA.ClearServiceCalls()
@@ -577,9 +578,9 @@ func TestHandleGoToBed_ReadOnly(t *testing.T) {
 	}
 }
 
-// TestRealTimeProvider tests the RealTimeProvider
+// TestRealTimeProvider tests the plugin.RealTimeProvider
 func TestRealTimeProvider(t *testing.T) {
-	provider := RealTimeProvider{}
+	provider := plugin.RealTimeProvider{}
 	now := provider.Now()
 
 	// Verify it returns a reasonable time (within last minute)
@@ -588,10 +589,10 @@ func TestRealTimeProvider(t *testing.T) {
 	}
 }
 
-// TestFixedTimeProvider tests the FixedTimeProvider
+// TestFixedTimeProvider tests the plugin.FixedTimeProvider
 func TestFixedTimeProvider(t *testing.T) {
 	fixedTime := time.Date(2024, 1, 15, 12, 0, 0, 0, time.UTC)
-	provider := FixedTimeProvider{FixedTime: fixedTime}
+	provider := plugin.FixedTimeProvider{FixedTime: fixedTime}
 
 	if provider.Now() != fixedTime {
 		t.Errorf("FixedTimeProvider did not return fixed time")
@@ -607,7 +608,7 @@ func TestCheckTimeTriggers_ErrorGettingSchedule(t *testing.T) {
 
 	// Use a config loader pointing to non-existent directory
 	configLoader := config.NewLoader("/nonexistent/path", logger)
-	timeProvider := FixedTimeProvider{FixedTime: now}
+	timeProvider := plugin.FixedTimeProvider{FixedTime: now}
 	manager := NewManager(mockHA, stateManager, configLoader, logger, false, timeProvider, nil)
 
 	// Check triggers - should handle error gracefully
@@ -628,7 +629,7 @@ func TestHandleWake_ErrorGettingState(t *testing.T) {
 
 	// Don't initialize states - will cause errors
 	configLoader := config.NewLoader("../../../configs", logger)
-	timeProvider := FixedTimeProvider{FixedTime: now}
+	timeProvider := plugin.FixedTimeProvider{FixedTime: now}
 	manager := NewManager(mockHA, stateManager, configLoader, logger, false, timeProvider, nil)
 
 	mockHA.ClearServiceCalls()
@@ -656,7 +657,7 @@ func TestHandleBeginWake_ReadOnly(t *testing.T) {
 	stateManager.SetString("musicPlaybackType", "sleep")
 
 	configLoader := config.NewLoader("../../../configs", logger)
-	timeProvider := FixedTimeProvider{FixedTime: now}
+	timeProvider := plugin.FixedTimeProvider{FixedTime: now}
 	manager := NewManager(mockHA, stateManager, configLoader, logger, true, timeProvider, nil) // READ-ONLY
 
 	mockHA.ClearServiceCalls()
@@ -688,7 +689,7 @@ func TestHandleWake_ReadOnly(t *testing.T) {
 	stateManager.SetBool("isCarolineHome", true)
 
 	configLoader := config.NewLoader("../../../configs", logger)
-	timeProvider := FixedTimeProvider{FixedTime: now}
+	timeProvider := plugin.FixedTimeProvider{FixedTime: now}
 	manager := NewManager(mockHA, stateManager, configLoader, logger, true, timeProvider, nil) // READ-ONLY
 
 	mockHA.ClearServiceCalls()
@@ -715,7 +716,7 @@ func TestHandleStopScreens_ReadOnly(t *testing.T) {
 	stateManager.SetBool("isEveryoneAsleep", false)
 
 	configLoader := config.NewLoader("../../../configs", logger)
-	timeProvider := FixedTimeProvider{FixedTime: now}
+	timeProvider := plugin.FixedTimeProvider{FixedTime: now}
 	manager := NewManager(mockHA, stateManager, configLoader, logger, true, timeProvider, nil) // READ-ONLY
 
 	mockHA.ClearServiceCalls()
@@ -832,7 +833,7 @@ func TestRunTimerLoop_MidnightRollover(t *testing.T) {
 	}
 
 	// Update time provider to next day
-	manager.timeProvider = FixedTimeProvider{FixedTime: time.Date(2024, 1, 16, 0, 1, 0, 0, time.UTC)}
+	manager.timeProvider = plugin.FixedTimeProvider{FixedTime: time.Date(2024, 1, 16, 0, 1, 0, 0, time.UTC)}
 
 	// Manually simulate what the timer loop does
 	nextDay := manager.timeProvider.Now()
@@ -1483,7 +1484,7 @@ func TestManagerReset(t *testing.T) {
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 	configLoader := config.NewLoader("../../../configs", logger)
-	timeProvider := RealTimeProvider{}
+	timeProvider := plugin.RealTimeProvider{}
 
 	manager := NewManager(mockClient, stateManager, configLoader, logger, false, timeProvider, nil)
 
@@ -1714,7 +1715,7 @@ func TestEightSleepAlarm_NewDayResetsDeduplication(t *testing.T) {
 
 	// Reset isFadeOutInProgress and update time provider to today
 	stateManager.SetBool("isFadeOutInProgress", false)
-	manager.timeProvider = FixedTimeProvider{FixedTime: today}
+	manager.timeProvider = plugin.FixedTimeProvider{FixedTime: today}
 
 	// Trigger alarm today - should work because it's a new day
 	manager.handleEightSleepAlarm("sensor.nick_s_eight_sleep_side_bed_state_type", oldState, newState)
