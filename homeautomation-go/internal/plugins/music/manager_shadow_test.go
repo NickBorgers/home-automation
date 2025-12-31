@@ -6,6 +6,7 @@ import (
 
 	"homeautomation/internal/shadowstate"
 	"homeautomation/internal/state"
+	"homeautomation/pkg/plugin"
 
 	"go.uber.org/zap"
 )
@@ -46,7 +47,7 @@ func TestMusicShadowState_RecordAction(t *testing.T) {
 		Music: make(map[string]MusicMode),
 	}
 	fixedTime := time.Date(2025, 11, 28, 12, 0, 0, 0, time.UTC)
-	timeProvider := FixedTimeProvider{FixedTime: fixedTime}
+	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
 	manager := NewManager(nil, stateManager, mockConfig, zap.NewNop(), true, timeProvider)
 
 	// Record an action

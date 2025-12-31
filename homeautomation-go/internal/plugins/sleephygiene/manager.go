@@ -9,31 +9,10 @@ import (
 	"homeautomation/internal/ha"
 	"homeautomation/internal/shadowstate"
 	"homeautomation/internal/state"
+	"homeautomation/pkg/plugin"
 
 	"go.uber.org/zap"
 )
-
-// TimeProvider is an interface for getting the current time
-// This allows tests to inject a fixed time instead of using time.Now()
-type TimeProvider interface {
-	Now() time.Time
-}
-
-// RealTimeProvider returns the actual current time
-type RealTimeProvider struct{}
-
-func (r RealTimeProvider) Now() time.Time {
-	return time.Now()
-}
-
-// FixedTimeProvider returns a fixed time (for testing)
-type FixedTimeProvider struct {
-	FixedTime time.Time
-}
-
-func (f FixedTimeProvider) Now() time.Time {
-	return f.FixedTime
-}
 
 // Eight Sleep Pod sensor entity IDs
 const (
@@ -62,7 +41,7 @@ type Manager struct {
 	configLoader    *config.Loader
 	logger          *zap.Logger
 	readOnly        bool
-	timeProvider    TimeProvider
+	timeProvider    plugin.TimeProvider
 	timezone        *time.Location
 	stopChan        chan struct{}
 	ticker          *time.Ticker
@@ -77,11 +56,11 @@ type Manager struct {
 }
 
 // NewManager creates a new Sleep Hygiene manager
-// If timeProvider is nil, it defaults to RealTimeProvider
+// If timeProvider is nil, it defaults to plugin.RealTimeProvider
 // If timezone is nil, it defaults to time.Local
-func NewManager(haClient ha.HAClient, stateManager *state.Manager, configLoader *config.Loader, logger *zap.Logger, readOnly bool, timeProvider TimeProvider, timezone *time.Location) *Manager {
+func NewManager(haClient ha.HAClient, stateManager *state.Manager, configLoader *config.Loader, logger *zap.Logger, readOnly bool, timeProvider plugin.TimeProvider, timezone *time.Location) *Manager {
 	if timeProvider == nil {
-		timeProvider = RealTimeProvider{}
+		timeProvider = plugin.RealTimeProvider{}
 	}
 	if timezone == nil {
 		timezone = time.Local

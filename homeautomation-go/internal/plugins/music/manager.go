@@ -12,6 +12,7 @@ import (
 	"homeautomation/internal/ha"
 	"homeautomation/internal/shadowstate"
 	"homeautomation/internal/state"
+	"homeautomation/pkg/plugin"
 
 	"go.uber.org/zap"
 )
@@ -49,28 +50,6 @@ type SpeakerGroupResult struct {
 	LeadActive  bool            // Whether the lead speaker is available
 }
 
-// TimeProvider is an interface for getting the current time
-// This allows tests to inject a fixed time instead of using time.Now()
-type TimeProvider interface {
-	Now() time.Time
-}
-
-// RealTimeProvider returns the actual current time
-type RealTimeProvider struct{}
-
-func (r RealTimeProvider) Now() time.Time {
-	return time.Now()
-}
-
-// FixedTimeProvider returns a fixed time (for testing)
-type FixedTimeProvider struct {
-	FixedTime time.Time
-}
-
-func (f FixedTimeProvider) Now() time.Time {
-	return f.FixedTime
-}
-
 // SleepFunc is a function type for sleeping (allows test injection)
 type SleepFunc func(time.Duration)
 
@@ -81,7 +60,7 @@ type Manager struct {
 	config       *MusicConfig
 	logger       *zap.Logger
 	readOnly     bool
-	timeProvider TimeProvider
+	timeProvider plugin.TimeProvider
 	sleepFunc    SleepFunc // Injectable sleep function for testing
 
 	// Playback state
@@ -107,10 +86,10 @@ type Manager struct {
 }
 
 // NewManager creates a new Music manager
-// If timeProvider is nil, it defaults to RealTimeProvider
-func NewManager(haClient ha.HAClient, stateManager *state.Manager, config *MusicConfig, logger *zap.Logger, readOnly bool, timeProvider TimeProvider) *Manager {
+// If timeProvider is nil, it defaults to plugin.RealTimeProvider
+func NewManager(haClient ha.HAClient, stateManager *state.Manager, config *MusicConfig, logger *zap.Logger, readOnly bool, timeProvider plugin.TimeProvider) *Manager {
 	if timeProvider == nil {
-		timeProvider = RealTimeProvider{}
+		timeProvider = plugin.RealTimeProvider{}
 	}
 	return &Manager{
 		haClient:           haClient,

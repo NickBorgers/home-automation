@@ -8,6 +8,7 @@ import (
 	"homeautomation/internal/config"
 	"homeautomation/internal/plugins/sleephygiene"
 	"homeautomation/internal/testlogger"
+	"homeautomation/pkg/plugin"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -57,7 +58,7 @@ func setupSleepHygieneScenarioTestWithTime(t *testing.T, fixedTime time.Time) (*
 	configLoader := config.NewLoader("../../configs", logger)
 
 	// Create fixed time provider
-	timeProvider := sleephygiene.FixedTimeProvider{FixedTime: fixedTime}
+	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
 
 	// Create sleep hygiene plugin with fixed time
 	// Use nil for timezone to default to time.Local
