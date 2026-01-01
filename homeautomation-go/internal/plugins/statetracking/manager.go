@@ -47,9 +47,6 @@ type Manager struct {
 	helper       *state.DerivedStateHelper
 	clock        clock.Clock
 
-	// Subscriptions for cleanup
-	haSubscriptions []ha.Subscription
-
 	// Timers for sleep/wake detection
 	masterSleepTimer clock.Timer
 	masterWakeTimer  clock.Timer
@@ -71,14 +68,13 @@ func NewManager(haClient ha.HAClient, stateManager *state.Manager, logger *zap.L
 	shadowTracker := shadowstate.NewStateTrackingTracker()
 
 	return &Manager{
-		haClient:        haClient,
-		stateManager:    stateManager,
-		logger:          logger.Named("statetracking"),
-		readOnly:        readOnly,
-		clock:           clock.NewRealClock(),
-		haSubscriptions: make([]ha.Subscription, 0),
-		shadowTracker:   shadowTracker,
-		subHelper:       shadowstate.NewSubscriptionHelper(haClient, stateManager, registry, shadowTracker, "statetracking", logger.Named("statetracking")),
+		haClient:      haClient,
+		stateManager:  stateManager,
+		logger:        logger.Named("statetracking"),
+		readOnly:      readOnly,
+		clock:         clock.NewRealClock(),
+		shadowTracker: shadowTracker,
+		subHelper:     shadowstate.NewSubscriptionHelper(haClient, stateManager, registry, shadowTracker, "statetracking", logger.Named("statetracking")),
 	}
 }
 
