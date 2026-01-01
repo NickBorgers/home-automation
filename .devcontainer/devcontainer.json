@@ -25,6 +25,8 @@
   "postStartCommand": "bash .devcontainer/fix-dns-order.sh",
   "forwardPorts": [],
   "portsAttributes": {},
-  "mounts": [],
+  "mounts": [
+    "source=${localEnv:HOME}/.config/gh,target=/home/vscode/.config/gh,type=bind"
+  ],
   "remoteUser": "vscode"
 }
