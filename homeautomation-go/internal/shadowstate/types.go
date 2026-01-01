@@ -129,14 +129,24 @@ type SecurityInputs struct {
 
 // MusicOutputs tracks the state of music control outputs
 type MusicOutputs struct {
-	CurrentMode      string         `json:"currentMode,omitempty"` // e.g., "morning", "working", "evening"
-	ActivePlaylist   PlaylistInfo   `json:"activePlaylist,omitempty"`
-	SpeakerGroup     []SpeakerState `json:"speakerGroup,omitempty"`
-	FadeState        string         `json:"fadeState"`        // "idle", "fading_in", "fading_out"
-	PlaylistRotation map[string]int `json:"playlistRotation"` // Music type -> playlist number
-	LastActionTime   time.Time      `json:"lastActionTime"`
-	LastActionType   string         `json:"lastActionType,omitempty"` // "select_mode", "start_playback", "fade_out", etc.
-	LastActionReason string         `json:"lastActionReason,omitempty"`
+	CurrentMode          string                      `json:"currentMode,omitempty"` // e.g., "morning", "working", "evening"
+	ActivePlaylist       PlaylistInfo                `json:"activePlaylist,omitempty"`
+	SpeakerGroup         []SpeakerState              `json:"speakerGroup,omitempty"`
+	FadeState            string                      `json:"fadeState"`        // "idle", "fading_in", "fading_out"
+	PlaylistRotation     map[string]int              `json:"playlistRotation"` // Music type -> playlist number
+	LastActionTime       time.Time                   `json:"lastActionTime"`
+	LastActionType       string                      `json:"lastActionType,omitempty"` // "select_mode", "start_playback", "fade_out", etc.
+	LastActionReason     string                      `json:"lastActionReason,omitempty"`
+	PlaybackVerification *PlaybackVerificationStatus `json:"playbackVerification,omitempty"`
+}
+
+// PlaybackVerificationStatus tracks whether playback was verified to start
+type PlaybackVerificationStatus struct {
+	Verified       bool      `json:"verified"`             // Whether playback was confirmed to start
+	AttemptsNeeded int       `json:"attemptsNeeded"`       // Number of attempts needed (1 = first try worked)
+	FinalState     string    `json:"finalState,omitempty"` // The media_player state when verified
+	VerifiedAt     time.Time `json:"verifiedAt"`           // When verification completed
+	LeadSpeaker    string    `json:"leadSpeaker"`          // Which speaker was checked
 }
 
 // PlaylistInfo represents the currently playing playlist

@@ -1002,6 +1002,9 @@ func TestExecutePlayback(t *testing.T) {
 	config := &MusicConfig{Music: map[string]MusicMode{}}
 	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
 
+	// Set up mock to return "playing" state for playback verification
+	mockClient.SetState("media_player.kitchen", "playing", nil)
+
 	participants := []ParticipantWithVolume{
 		{
 			PlayerName:   "Kitchen",
@@ -1025,7 +1028,7 @@ func TestExecutePlayback(t *testing.T) {
 		VolumeMultiplier: 1.0,
 	}
 
-	_, err := manager.executePlayback("day", option, participants, "Kitchen")
+	_, _, err := manager.executePlayback("day", option, participants, "Kitchen")
 	if err != nil {
 		t.Errorf("executePlayback() failed: %v", err)
 	}
@@ -2017,6 +2020,9 @@ func TestExecutePlayback_BreakThenBuildSequence(t *testing.T) {
 	// Use no-op sleep to make test fast
 	manager.SetSleepFunc(func(d time.Duration) {})
 
+	// Set up mock to return "playing" state for playback verification
+	mockClient.SetState("media_player.kitchen", "playing", nil)
+
 	// Clear any previous calls
 	mockClient.ClearServiceCalls()
 
@@ -2031,7 +2037,7 @@ func TestExecutePlayback_BreakThenBuildSequence(t *testing.T) {
 		VolumeMultiplier: 1.0,
 	}
 
-	_, err := manager.executePlayback("day", option, participants, "Kitchen")
+	_, _, err := manager.executePlayback("day", option, participants, "Kitchen")
 	if err != nil {
 		t.Fatalf("executePlayback() failed: %v", err)
 	}
@@ -2080,6 +2086,9 @@ func TestExecutePlayback_BreakThenBuildSequence_SingleSpeaker(t *testing.T) {
 	// Use no-op sleep to make test fast
 	manager.SetSleepFunc(func(d time.Duration) {})
 
+	// Set up mock to return "playing" state for playback verification
+	mockClient.SetState("media_player.kitchen", "playing", nil)
+
 	// Clear any previous calls
 	mockClient.ClearServiceCalls()
 
@@ -2093,7 +2102,7 @@ func TestExecutePlayback_BreakThenBuildSequence_SingleSpeaker(t *testing.T) {
 		VolumeMultiplier: 1.0,
 	}
 
-	_, err := manager.executePlayback("day", option, participants, "Kitchen")
+	_, _, err := manager.executePlayback("day", option, participants, "Kitchen")
 	if err != nil {
 		t.Fatalf("executePlayback() failed: %v", err)
 	}
@@ -2423,5 +2432,217 @@ func TestPlaylistRotationSyncReadOnlyMode(t *testing.T) {
 	index2 := manager.getNextPlaylistIndex("day", 3)
 	if index2 != 1 {
 		t.Errorf("Expected second index to be 1, got %d", index2)
+	}
+}
+
+// TestPlaybackVerification tests that playback verification detects and handles
+// various speaker states correctly.
+func TestPlaybackVerification(t *testing.T) {
+	tests := []struct {
+		name           string
+		speakerState   string // The state GetState returns
+		expectAttempts int    // Expected number of attempts (0 means verification should pass)
+		expectError    bool   // Whether we expect an error
+		description    string
+	}{
+		{
+			name:           "Speaker playing on first try",
+			speakerState:   "playing",
+			expectAttempts: 1,
+			expectError:    false,
+			description:    "If speaker is playing after first play_media, verification should pass immediately",
+		},
+		{
+			name:           "Speaker paused - requires retry",
+			speakerState:   "paused",
+			expectAttempts: 3, // Will exhaust retries
+			expectError:    true,
+			description:    "If speaker stays paused, verification fails after retries",
+		},
+		{
+			name:           "Speaker idle - requires retry",
+			speakerState:   "idle",
+			expectAttempts: 3, // Will exhaust retries
+			expectError:    true,
+			description:    "If speaker stays idle, verification fails after retries",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logger := zap.NewNop()
+			mockClient := ha.NewMockClient()
+			stateManager := state.NewManager(mockClient, logger, false)
+
+			config := &MusicConfig{Music: map[string]MusicMode{}}
+			manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+
+			// Use no-op sleep to make test fast
+			manager.SetSleepFunc(func(d time.Duration) {})
+
+			// Set up mock to return the test state
+			mockClient.SetState("media_player.kitchen", tt.speakerState, nil)
+
+			option := PlaybackOption{
+				URI:              "spotify:playlist:test",
+				MediaType:        "playlist",
+				VolumeMultiplier: 1.0,
+			}
+
+			attempts, err := manager.startPlaybackWithVerification("media_player.kitchen", option)
+
+			if tt.expectError && err == nil {
+				t.Errorf("Expected error but got none")
+			}
+			if !tt.expectError && err != nil {
+				t.Errorf("Unexpected error: %v", err)
+			}
+			if tt.expectAttempts > 0 && attempts != tt.expectAttempts {
+				t.Errorf("Expected %d attempts, got %d", tt.expectAttempts, attempts)
+			}
+		})
+	}
+}
+
+// TestIsPlaybackActive tests the speaker state checking function
+func TestIsPlaybackActive(t *testing.T) {
+	tests := []struct {
+		name          string
+		speakerState  string
+		expectPlaying bool
+	}{
+		{"Playing state", "playing", true},
+		{"Paused state", "paused", false},
+		{"Idle state", "idle", false},
+		{"Off state", "off", false},
+		{"Unavailable state", "unavailable", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logger := zap.NewNop()
+			mockClient := ha.NewMockClient()
+			stateManager := state.NewManager(mockClient, logger, false)
+
+			config := &MusicConfig{Music: map[string]MusicMode{}}
+			manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+
+			mockClient.SetState("media_player.kitchen", tt.speakerState, nil)
+
+			isPlaying, err := manager.isPlaybackActive("media_player.kitchen")
+			if err != nil {
+				t.Fatalf("Unexpected error: %v", err)
+			}
+			if isPlaying != tt.expectPlaying {
+				t.Errorf("Expected isPlaying=%v for state '%s', got %v",
+					tt.expectPlaying, tt.speakerState, isPlaying)
+			}
+		})
+	}
+}
+
+// TestPlaybackVerification_RecoveryAfterNudge tests that playback verification
+// succeeds when the speaker starts playing after receiving the media_play nudge.
+// This simulates the scenario where play_media is accepted but doesn't start playback,
+// but the follow-up media_play command kicks it into action.
+func TestPlaybackVerification_RecoveryAfterNudge(t *testing.T) {
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+
+	config := &MusicConfig{Music: map[string]MusicMode{}}
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+
+	// Use no-op sleep to make test fast
+	manager.SetSleepFunc(func(d time.Duration) {})
+
+	// Set up state sequence: first check returns "idle", second check (after nudge) returns "playing"
+	// The verification flow is:
+	// 1. Send play_media
+	// 2. Wait, then GetState (returns "idle")
+	// 3. Send media_play nudge
+	// 4. Wait, then GetState (returns "playing") - SUCCESS
+	mockClient.SetStateSequence("media_player.kitchen", []string{"idle", "playing"})
+
+	option := PlaybackOption{
+		URI:              "spotify:playlist:test",
+		MediaType:        "playlist",
+		VolumeMultiplier: 1.0,
+	}
+
+	attempts, err := manager.startPlaybackWithVerification("media_player.kitchen", option)
+
+	if err != nil {
+		t.Errorf("Expected success after nudge recovery, got error: %v", err)
+	}
+	if attempts != 1 {
+		t.Errorf("Expected 1 attempt (recovered on first try via nudge), got %d", attempts)
+	}
+
+	// Verify that both play_media and media_play were called
+	calls := mockClient.GetServiceCalls()
+	var hasPlayMedia, hasMediaPlay bool
+	for _, call := range calls {
+		if call.Domain == "media_player" && call.Service == "play_media" {
+			hasPlayMedia = true
+		}
+		if call.Domain == "media_player" && call.Service == "media_play" {
+			hasMediaPlay = true
+		}
+	}
+
+	if !hasPlayMedia {
+		t.Error("Expected play_media service call")
+	}
+	if !hasMediaPlay {
+		t.Error("Expected media_play nudge service call")
+	}
+}
+
+// TestPlaybackVerification_RecoveryOnSecondAttempt tests that playback verification
+// succeeds when the speaker requires a full retry (not just a nudge) to start playing.
+// This simulates when the first play_media and nudge both fail, but retrying works.
+func TestPlaybackVerification_RecoveryOnSecondAttempt(t *testing.T) {
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+
+	config := &MusicConfig{Music: map[string]MusicMode{}}
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+
+	// Use no-op sleep to make test fast
+	manager.SetSleepFunc(func(d time.Duration) {})
+
+	// Set up state sequence for recovery on second attempt:
+	// Attempt 1: check 1 = "idle", check 2 (after nudge) = "idle" -> fails, retry
+	// Attempt 2: check 3 = "playing" -> SUCCESS
+	mockClient.SetStateSequence("media_player.kitchen", []string{"idle", "idle", "playing"})
+
+	option := PlaybackOption{
+		URI:              "spotify:playlist:test",
+		MediaType:        "playlist",
+		VolumeMultiplier: 1.0,
+	}
+
+	attempts, err := manager.startPlaybackWithVerification("media_player.kitchen", option)
+
+	if err != nil {
+		t.Errorf("Expected success on second attempt, got error: %v", err)
+	}
+	if attempts != 2 {
+		t.Errorf("Expected 2 attempts, got %d", attempts)
+	}
+
+	// Verify play_media was called twice (once per attempt)
+	calls := mockClient.GetServiceCalls()
+	playMediaCount := 0
+	for _, call := range calls {
+		if call.Domain == "media_player" && call.Service == "play_media" {
+			playMediaCount++
+		}
+	}
+
+	if playMediaCount != 2 {
+		t.Errorf("Expected 2 play_media calls, got %d", playMediaCount)
 	}
 }
