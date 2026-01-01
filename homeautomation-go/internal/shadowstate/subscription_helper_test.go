@@ -52,6 +52,8 @@ func (m *mockHAClient) CallServiceWithTarget(domain, service string, target *ha.
 func (m *mockHAClient) SetInputBoolean(name string, value bool) error   { return nil }
 func (m *mockHAClient) SetInputNumber(name string, value float64) error { return nil }
 func (m *mockHAClient) SetInputText(name string, value string) error    { return nil }
+func (m *mockHAClient) SetReconnectCallback(cb func())                  {}
+func (m *mockHAClient) GetReconnectCount() int                          { return 0 }
 
 func (m *mockHAClient) GetState(entityID string) (*ha.State, error) {
 	if s, ok := m.states[entityID]; ok {

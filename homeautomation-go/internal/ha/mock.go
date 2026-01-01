@@ -548,3 +548,15 @@ func (m *MockClient) GetSubscribedEntities() []string {
 	}
 	return entities
 }
+
+// SetReconnectCallback is a no-op for the mock client.
+// It implements the HAClient interface for testing.
+func (m *MockClient) SetReconnectCallback(cb func()) {
+	// No-op in mock - reconnection logic is not simulated
+}
+
+// GetReconnectCount returns 0 for the mock client.
+// It implements the HAClient interface for testing.
+func (m *MockClient) GetReconnectCount() int {
+	return 0
+}

@@ -72,6 +72,8 @@ type HAClient interface {
 	SetInputBoolean(name string, value bool) error
 	SetInputNumber(name string, value float64) error
 	SetInputText(name string, value string) error
+	SetReconnectCallback(cb func())
+	GetReconnectCount() int
 }
 
 // subscriberEntry holds a handler with its unique subscription ID
@@ -112,6 +114,14 @@ type Client struct {
 	ctxMu       sync.RWMutex // Protects ctx and cancel
 	reconnect   bool
 	writeMu     sync.Mutex // Protects websocket writes AND msgID counter
+
+	// Reconnect callback (called after successful reconnection)
+	onReconnect   func()
+	onReconnectMu sync.RWMutex
+
+	// Reconnect metrics for observability
+	reconnectCount   int
+	reconnectCountMu sync.RWMutex
 
 	// Health tracking for service calls (rolling window)
 	healthMu      sync.RWMutex
@@ -338,6 +348,23 @@ func (c *Client) IsHealthy() bool {
 
 	failureRate := float64(failures) / float64(c.resultCount)
 	return failureRate < unhealthyThreshold
+}
+
+// SetReconnectCallback registers a callback to be invoked after successful reconnection.
+// This allows callers to perform actions like state resynchronization after connection recovery.
+// The callback is invoked asynchronously to avoid blocking the reconnection loop.
+func (c *Client) SetReconnectCallback(cb func()) {
+	c.onReconnectMu.Lock()
+	defer c.onReconnectMu.Unlock()
+	c.onReconnect = cb
+}
+
+// GetReconnectCount returns the number of successful reconnections since client creation.
+// This metric is useful for monitoring connection stability.
+func (c *Client) GetReconnectCount() int {
+	c.reconnectCountMu.RLock()
+	defer c.reconnectCountMu.RUnlock()
+	return c.reconnectCount
 }
 
 // nextMsgID returns the next message ID.
@@ -574,7 +601,26 @@ func (c *Client) attemptReconnect() {
 			continue
 		}
 
-		c.logger.Info("Reconnected successfully")
+		// Increment reconnect count for observability
+		c.reconnectCountMu.Lock()
+		c.reconnectCount++
+		reconnectNum := c.reconnectCount
+		c.reconnectCountMu.Unlock()
+
+		c.logger.Info("Reconnected successfully", zap.Int("reconnect_number", reconnectNum))
+
+		// Invoke reconnect callback asynchronously to avoid blocking the reconnect loop
+		c.onReconnectMu.RLock()
+		cb := c.onReconnect
+		c.onReconnectMu.RUnlock()
+
+		if cb != nil {
+			go func() {
+				c.logger.Info("Invoking reconnect callback for state reconciliation")
+				cb()
+			}()
+		}
+
 		return
 	}
 }
