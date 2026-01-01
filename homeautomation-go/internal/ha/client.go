@@ -72,6 +72,9 @@ type HAClient interface {
 	SetInputBoolean(name string, value bool) error
 	SetInputNumber(name string, value float64) error
 	SetInputText(name string, value string) error
+	SendNotification(deviceName string, notification *Notification) error
+	SendNotificationToMultiple(deviceNames []string, notification *Notification) error
+	ClearNotification(deviceName, tag string) error
 }
 
 // subscriberEntry holds a handler with its unique subscription ID

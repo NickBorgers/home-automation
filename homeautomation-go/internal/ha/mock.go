@@ -548,3 +548,87 @@ func (m *MockClient) GetSubscribedEntities() []string {
 	}
 	return entities
 }
+
+// SendNotification sends a notification via the mock client.
+// Records the call as a service call for verification in tests.
+func (m *MockClient) SendNotification(deviceName string, notification *Notification) error {
+	if notification == nil {
+		return fmt.Errorf("notification cannot be nil")
+	}
+	if notification.Message == "" {
+		return fmt.Errorf("notification message is required")
+	}
+	if deviceName == "" {
+		return fmt.Errorf("device name is required")
+	}
+
+	// Build service data
+	serviceData := map[string]interface{}{
+		"message": notification.Message,
+	}
+
+	if notification.Title != "" {
+		serviceData["title"] = notification.Title
+	}
+
+	if notification.Data != nil {
+		dataMap := notification.Data.toMap()
+		if len(dataMap) > 0 {
+			serviceData["data"] = dataMap
+		}
+	}
+
+	serviceName := fmt.Sprintf("mobile_app_%s", deviceName)
+	return m.CallService("notify", serviceName, serviceData)
+}
+
+// SendNotificationToMultiple sends a notification to multiple devices.
+func (m *MockClient) SendNotificationToMultiple(deviceNames []string, notification *Notification) error {
+	if len(deviceNames) == 0 {
+		return fmt.Errorf("at least one device name is required")
+	}
+
+	var lastErr error
+	for _, deviceName := range deviceNames {
+		if err := m.SendNotification(deviceName, notification); err != nil {
+			lastErr = err
+		}
+	}
+
+	return lastErr
+}
+
+// ClearNotification clears a notification with the specified tag on a device.
+func (m *MockClient) ClearNotification(deviceName, tag string) error {
+	if deviceName == "" {
+		return fmt.Errorf("device name is required")
+	}
+	if tag == "" {
+		return fmt.Errorf("tag is required to clear a notification")
+	}
+
+	serviceData := map[string]interface{}{
+		"message": "clear_notification",
+		"data": map[string]interface{}{
+			"tag": tag,
+		},
+	}
+
+	serviceName := fmt.Sprintf("mobile_app_%s", deviceName)
+	return m.CallService("notify", serviceName, serviceData)
+}
+
+// GetNotificationCalls returns all notification service calls for verification.
+// Filters service calls to only include notify domain calls.
+func (m *MockClient) GetNotificationCalls() []ServiceCall {
+	m.callsMu.Lock()
+	defer m.callsMu.Unlock()
+
+	var notifications []ServiceCall
+	for _, call := range m.serviceCalls {
+		if call.Domain == "notify" {
+			notifications = append(notifications, call)
+		}
+	}
+	return notifications
+}
