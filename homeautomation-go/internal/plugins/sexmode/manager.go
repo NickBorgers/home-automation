@@ -32,14 +32,8 @@ type Manager struct {
 	readOnly      bool
 	shadowTracker *shadowstate.SexModeTracker
 
-	// Automatic shadow state input tracking
-	pluginName  string
-	registry    *shadowstate.SubscriptionRegistry
-	inputHelper *shadowstate.InputCaptureHelper
-
-	// Subscriptions for cleanup
-	haSubscriptions    []ha.Subscription
-	stateSubscriptions []state.Subscription
+	// Subscription helper for automatic shadow state input capture
+	subHelper *shadowstate.SubscriptionHelper
 
 	// State tracking
 	mu              sync.Mutex
@@ -50,47 +44,29 @@ type Manager struct {
 
 // NewManager creates a new Sex Mode manager
 func NewManager(haClient ha.HAClient, stateManager *state.Manager, logger *zap.Logger, readOnly bool, registry *shadowstate.SubscriptionRegistry) *Manager {
-	const pluginName = "sexmode"
-	m := &Manager{
-		haClient:           haClient,
-		stateManager:       stateManager,
-		logger:             logger.Named("sexmode"),
-		readOnly:           readOnly,
-		shadowTracker:      shadowstate.NewSexModeTracker(),
-		pluginName:         pluginName,
-		registry:           registry,
-		haSubscriptions:    make([]ha.Subscription, 0),
-		stateSubscriptions: make([]state.Subscription, 0),
-	}
+	shadowTracker := shadowstate.NewSexModeTracker()
 
-	// Create input capture helper if registry is provided
-	if registry != nil {
-		m.inputHelper = shadowstate.NewInputCaptureHelper(registry, haClient, stateManager)
+	return &Manager{
+		haClient:      haClient,
+		stateManager:  stateManager,
+		logger:        logger.Named("sexmode"),
+		readOnly:      readOnly,
+		shadowTracker: shadowTracker,
+		subHelper:     shadowstate.NewSubscriptionHelper(haClient, stateManager, registry, shadowTracker, "sexmode", logger.Named("sexmode")),
 	}
-
-	return m
 }
 
 // Start begins monitoring for sex mode activation
 func (m *Manager) Start() error {
 	m.logger.Info("Starting Sex Mode Manager")
 
-	// Register subscriptions with the registry for automatic input tracking
-	if m.registry != nil {
-		m.registry.RegisterHASubscription(m.pluginName, "input_boolean.sex")
-		m.registry.RegisterStateSubscription(m.pluginName, "musicPlaybackType")
-		m.registry.RegisterStateSubscription(m.pluginName, "dayPhase")
+	// Subscribe to input_boolean.sex state changes (shadow inputs captured automatically)
+	if err := m.subHelper.SubscribeToEntity("input_boolean.sex", m.handleSexModeChange); err != nil {
+		return err
 	}
 
-	// Initialize shadow state with current input values
-	m.updateShadowInputs()
-
-	// Subscribe to input_boolean.sex state changes
-	haSub, err := m.haClient.SubscribeStateChanges("input_boolean.sex", m.handleSexModeChange)
-	if err != nil {
-		return fmt.Errorf("failed to subscribe to input_boolean.sex: %w", err)
-	}
-	m.haSubscriptions = append(m.haSubscriptions, haSub)
+	// Initialize shadow state with current input values (after subscriptions registered)
+	m.subHelper.CaptureInitialInputs()
 
 	m.logger.Info("Sex Mode Manager started successfully")
 	return nil
@@ -100,17 +76,8 @@ func (m *Manager) Start() error {
 func (m *Manager) Stop() {
 	m.logger.Info("Stopping Sex Mode Manager")
 
-	// Unsubscribe from all HA subscriptions
-	for _, sub := range m.haSubscriptions {
-		sub.Unsubscribe()
-	}
-	m.haSubscriptions = nil
-
-	// Unsubscribe from all state subscriptions
-	for _, sub := range m.stateSubscriptions {
-		sub.Unsubscribe()
-	}
-	m.stateSubscriptions = nil
+	// Unsubscribe from all subscriptions
+	m.subHelper.UnsubscribeAll()
 
 	m.logger.Info("Sex Mode Manager stopped")
 }
@@ -121,8 +88,7 @@ func (m *Manager) handleSexModeChange(entity string, oldState, newState *ha.Stat
 		return
 	}
 
-	// Update shadow state current inputs immediately
-	m.updateShadowInputs()
+	// Shadow state inputs are automatically captured by SubscriptionHelper before this handler runs
 
 	oldStateStr := "nil"
 	if oldState != nil {
@@ -360,66 +326,17 @@ func (m *Manager) setEightSleepToColdest() {
 	}
 }
 
-// updateShadowInputs updates the current shadow state inputs
-func (m *Manager) updateShadowInputs() {
-	// Use automatic input capture if available
-	if m.inputHelper != nil {
-		inputs := m.inputHelper.CaptureInputs(m.pluginName)
-		m.shadowTracker.UpdateCurrentInputs(inputs)
-		return
-	}
-
-	// Fallback to manual capture if no registry
-	inputs := make(map[string]interface{})
-
-	// Get current music type
-	if val, err := m.stateManager.GetString("musicPlaybackType"); err == nil {
-		inputs["musicPlaybackType"] = val
-	}
-	if val, err := m.stateManager.GetString("dayPhase"); err == nil {
-		inputs["dayPhase"] = val
-	}
-	if val, err := m.stateManager.GetBool("isMasterAsleep"); err == nil {
-		inputs["isMasterAsleep"] = val
-	}
-
-	// Get sex mode state from HA
-	if state, err := m.haClient.GetState("input_boolean.sex"); err == nil {
-		inputs["input_boolean.sex"] = state.State
-	}
-
-	m.shadowTracker.UpdateCurrentInputs(inputs)
-}
-
-// updateShadowInputsWithTrigger updates inputs with trigger information
-func (m *Manager) updateShadowInputsWithTrigger(trigger string) {
-	additional := map[string]interface{}{"trigger": trigger}
-
-	if m.inputHelper != nil {
-		inputs := m.inputHelper.CaptureInputsWithAdditional(m.pluginName, additional)
-		m.shadowTracker.UpdateCurrentInputs(inputs)
-		return
-	}
-
-	// Fallback
-	inputs := make(map[string]interface{})
-	if val, err := m.stateManager.GetString("musicPlaybackType"); err == nil {
-		inputs["musicPlaybackType"] = val
-	}
-	if val, err := m.stateManager.GetString("dayPhase"); err == nil {
-		inputs["dayPhase"] = val
-	}
-	if val, err := m.stateManager.GetBool("isMasterAsleep"); err == nil {
-		inputs["isMasterAsleep"] = val
-	}
-	inputs["trigger"] = trigger
-
-	m.shadowTracker.UpdateCurrentInputs(inputs)
+// addTriggerToInputs adds the trigger field to the current shadow state inputs
+// Note: Other inputs are automatically captured by SubscriptionHelper before handlers run
+func (m *Manager) addTriggerToInputs(trigger string) {
+	m.shadowTracker.UpdateCurrentInputs(map[string]interface{}{
+		"trigger": trigger,
+	})
 }
 
 // recordAction captures inputs and records an action in shadow state
 func (m *Manager) recordAction(actionType, reason, trigger string) {
-	m.updateShadowInputsWithTrigger(trigger)
+	m.addTriggerToInputs(trigger)
 	m.shadowTracker.SnapshotInputsForAction()
 
 	m.mu.Lock()

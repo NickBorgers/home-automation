@@ -266,8 +266,9 @@ func TestSubscriptionHelper_NilRegistry(t *testing.T) {
 		t.Error("Handler was not called")
 	}
 
-	// Shadow tracker should not have been updated (no inputHelper)
-	if tracker.updateCount != 0 {
-		t.Errorf("Shadow tracker should not have been updated without registry, got %d updates", tracker.updateCount)
+	// With fallback input capture, shadow tracker should be updated even without registry
+	// (as long as the HA client can provide state for subscribed entities)
+	if tracker.updateCount != 1 {
+		t.Errorf("Shadow tracker should have been updated via fallback capture, got %d updates", tracker.updateCount)
 	}
 }

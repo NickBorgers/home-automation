@@ -31,8 +31,8 @@ func TestSleepDetection_HandlersInitialized(t *testing.T) {
 	defer manager.Stop()
 
 	// Verify HA subscriptions were created (2 for sleep detection + 3 for arrival announcements)
-	if len(manager.haSubscriptions) != 5 {
-		t.Errorf("Expected 5 HA subscriptions, got %d", len(manager.haSubscriptions))
+	if len(manager.subHelper.GetHASubscriptions()) != 5 {
+		t.Errorf("Expected 5 HA subscriptions, got %d", len(manager.subHelper.GetHASubscriptions()))
 	}
 }
 
