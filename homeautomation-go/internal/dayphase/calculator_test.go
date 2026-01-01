@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"homeautomation/internal/clock"
 	"homeautomation/internal/config"
 	"homeautomation/internal/testlogger"
 
@@ -269,7 +270,10 @@ func TestCalculator_GetSunEventAllPeriods(t *testing.T) {
 func TestCalculator_CalculateDayPhaseAllCases(t *testing.T) {
 	logger := testlogger.New()
 
-	now := time.Now()
+	// Use a FIXED reference time to make this test deterministic
+	// Monday 10:00 AM - middle of the day, well after 6am and before noon
+	// This ensures consistent behavior regardless of when the test runs
+	now := time.Date(2024, 1, 15, 10, 0, 0, 0, time.Local)
 
 	// Create a schedule for testing
 	schedule := &config.ParsedSchedule{
@@ -306,13 +310,8 @@ func TestCalculator_CalculateDayPhaseAllCases(t *testing.T) {
 				)
 			},
 			schedule: schedule,
-			// Early morning (before 6am) always returns night; otherwise morning
-			expected: func() DayPhase {
-				if now.Hour() < 6 {
-					return DayPhaseNight
-				}
-				return DayPhaseMorning
-			}(),
+			// At 10am (fixed time), sun event is morning -> returns morning
+			expected: DayPhaseMorning,
 		},
 		{
 			name: "day phase",
@@ -332,13 +331,8 @@ func TestCalculator_CalculateDayPhaseAllCases(t *testing.T) {
 				)
 			},
 			schedule: schedule,
-			// Early morning (before 6am) always returns night; otherwise day
-			expected: func() DayPhase {
-				if now.Hour() < 6 {
-					return DayPhaseNight
-				}
-				return DayPhaseDay
-			}(),
+			// At 10am (fixed time), sun event is day -> returns day
+			expected: DayPhaseDay,
 		},
 		{
 			name: "sunset phase",
@@ -358,13 +352,8 @@ func TestCalculator_CalculateDayPhaseAllCases(t *testing.T) {
 				)
 			},
 			schedule: schedule,
-			// Early morning (before 6am) always returns night; otherwise sunset
-			expected: func() DayPhase {
-				if now.Hour() < 6 {
-					return DayPhaseNight
-				}
-				return DayPhaseSunset
-			}(),
+			// At 10am (fixed time), sun event is sunset -> returns sunset
+			expected: DayPhaseSunset,
 		},
 		{
 			name: "dusk phase - after scheduled dusk time",
@@ -391,13 +380,8 @@ func TestCalculator_CalculateDayPhaseAllCases(t *testing.T) {
 				Winddown:        time.Date(now.Year(), now.Month(), now.Day(), 21, 0, 0, 0, now.Location()),
 				Night:           now.Add(2 * time.Hour), // Night in the future
 			},
-			// Expected: dusk if it's daytime hours (6am+), night if it's early morning (before 6am)
-			expected: func() DayPhase {
-				if now.Hour() < 6 {
-					return DayPhaseNight // Early morning hours always return night
-				}
-				return DayPhaseDusk
-			}(),
+			// At 10am (fixed time), sun event is dusk and schedule.Dusk is past -> returns dusk
+			expected: DayPhaseDusk,
 		},
 		{
 			name: "sunset phase - after scheduled dusk but sun still at sunset",
@@ -425,13 +409,8 @@ func TestCalculator_CalculateDayPhaseAllCases(t *testing.T) {
 				Winddown:        now.Add(1 * time.Hour),
 				Night:           now.Add(3 * time.Hour), // Night in the future
 			},
-			// After schedule.Dusk but sun says sunset -> should return Sunset
-			expected: func() DayPhase {
-				if now.Hour() < 6 {
-					return DayPhaseNight
-				}
-				return DayPhaseSunset
-			}(),
+			// At 10am (fixed time), sun says sunset -> returns sunset
+			expected: DayPhaseSunset,
 		},
 		{
 			name: "dusk override - sun says dusk but before scheduled dusk",
@@ -458,13 +437,8 @@ func TestCalculator_CalculateDayPhaseAllCases(t *testing.T) {
 				Winddown:        now.Add(2 * time.Hour),
 				Night:           now.Add(3 * time.Hour),
 			},
-			// Early morning (before 6am) always returns night; otherwise delayed to sunset
-			expected: func() DayPhase {
-				if now.Hour() < 6 {
-					return DayPhaseNight
-				}
-				return DayPhaseSunset
-			}(),
+			// At 10am (fixed time), sun says dusk but schedule.Dusk is future -> delayed to sunset
+			expected: DayPhaseSunset,
 		},
 		{
 			name: "night override - sun says night but before scheduled dusk (evening)",
@@ -492,13 +466,8 @@ func TestCalculator_CalculateDayPhaseAllCases(t *testing.T) {
 				Winddown:        now.Add(2 * time.Hour),
 				Night:           now.Add(3 * time.Hour),
 			},
-			// Before 6am: night, 6am-noon: night (pre-dawn), noon+: sunset (evening delay)
-			expected: func() DayPhase {
-				if now.Hour() < 12 {
-					return DayPhaseNight // Pre-dawn or early morning
-				}
-				return DayPhaseSunset // Evening delay
-			}(),
+			// At 10am (fixed time, before noon), sun says night -> returns night (pre-dawn logic)
+			expected: DayPhaseNight,
 		},
 		{
 			name: "pre-dawn morning - sun says night but it's 6-11am (before noon)",
@@ -527,15 +496,8 @@ func TestCalculator_CalculateDayPhaseAllCases(t *testing.T) {
 				Winddown:        now.Add(5 * time.Hour), // Schedule winddown in the future
 				Night:           now.Add(6 * time.Hour), // Schedule night in the future
 			},
-			// Before 6am: always night
-			// 6am-noon + sun says night = pre-dawn = Night (tested with schedule.Dusk in future)
-			// After noon + sun says night = evening delay = Sunset (schedule.Dusk still in future)
-			expected: func() DayPhase {
-				if now.Hour() < 12 {
-					return DayPhaseNight // Pre-dawn or early morning
-				}
-				return DayPhaseSunset // Afternoon - this sun config doesn't happen in reality
-			}(),
+			// At 10am (fixed time, before noon), sun says night -> returns night (pre-dawn logic)
+			expected: DayPhaseNight,
 		},
 		{
 			name: "night with schedule - after schedule.Night",
@@ -585,13 +547,8 @@ func TestCalculator_CalculateDayPhaseAllCases(t *testing.T) {
 				Dusk:            now.Add(-2 * time.Hour), // Schedule dusk in the past (we're past dusk)
 				Night:           now.Add(2 * time.Hour),  // Schedule night time in the future
 			},
-			// Expected phase depends on current time: Night if hour < 6, otherwise Winddown
-			expected: func() DayPhase {
-				if now.Hour() < 6 {
-					return DayPhaseNight
-				}
-				return DayPhaseWinddown
-			}(),
+			// At 10am (fixed time), after schedule.Dusk but before schedule.Night, sun says night -> winddown
+			expected: DayPhaseWinddown,
 		},
 		{
 			name: "night without schedule - late night",
@@ -611,19 +568,17 @@ func TestCalculator_CalculateDayPhaseAllCases(t *testing.T) {
 				)
 			},
 			schedule: nil, // No schedule
-			// Expected phase depends on current time: Night if hour >= 23 or < 6, otherwise Winddown
-			expected: func() DayPhase {
-				if now.Hour() >= 23 || now.Hour() < 6 {
-					return DayPhaseNight
-				}
-				return DayPhaseWinddown
-			}(),
+			// At 10am (fixed time), no schedule, sun says night -> winddown (not late night hours)
+			expected: DayPhaseWinddown,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			calc := NewCalculator(32.85486, -97.50515, logger)
+			// Inject mock clock set to our fixed reference time
+			mockClock := clock.NewMockClock(now)
+			calc.SetClock(mockClock)
 			tt.setupSunTimes(calc)
 
 			phase := calc.CalculateDayPhase(tt.schedule)
