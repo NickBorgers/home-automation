@@ -612,9 +612,11 @@ func (c *Client) sendPings() {
 			c.writeMu.Unlock()
 
 			if err != nil {
-				c.logger.Warn("Failed to send application ping", zap.Error(err))
-				// Don't trigger disconnect here - let receiveMessages handle it
-				// when the read deadline expires
+				c.logger.Warn("Failed to send application ping, closing connection", zap.Error(err))
+				// Close the connection to immediately unblock receiveMessages,
+				// which will call handleDisconnect() to trigger reconnection.
+				// This is faster than waiting for the read deadline to expire.
+				conn.Close()
 				return
 			}
 		}
