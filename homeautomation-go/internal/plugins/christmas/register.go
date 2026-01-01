@@ -5,6 +5,7 @@ import (
 
 	pkgha "homeautomation/pkg/ha"
 	"homeautomation/pkg/plugin"
+	"homeautomation/pkg/shadowstate"
 )
 
 func init() {
@@ -52,7 +53,7 @@ func (p *pluginAdapter) Reset() error {
 }
 
 // Implement plugin.ShadowStateProvider
-func (p *pluginAdapter) GetShadowState() interface{} {
+func (p *pluginAdapter) GetShadowState() shadowstate.PluginShadowState {
 	return p.manager.GetShadowState()
 }
 
