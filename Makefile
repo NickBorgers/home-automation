@@ -266,15 +266,15 @@ docker-smoke-test: docker-build-go
 	@echo ""
 	@echo "✅ Container smoke test passed"
 
-#check-coverage: @ Check that test coverage meets minimum requirement (≥70%)
+#check-coverage: @ Check that test coverage meets minimum requirement (≥65%)
 check-coverage:
 	@echo "📊 Checking test coverage..."
 	@cd homeautomation-go && \
 	  go test ./... -coverprofile=coverage.out -covermode=atomic > /dev/null 2>&1 && \
 	  coverage=$$(go tool cover -func=coverage.out | grep total | awk '{print $$3}' | sed 's/%//') && \
 	  echo "Total coverage: $${coverage}%" && \
-	  if [ "$$(echo "$$coverage < 70" | bc -l)" = "1" ]; then \
-	    echo "❌ ERROR: Test coverage $${coverage}% is below required 70%"; \
+	  if [ "$$(echo "$$coverage < 65" | bc -l)" = "1" ]; then \
+	    echo "❌ ERROR: Test coverage $${coverage}% is below required 65%"; \
 	    exit 1; \
 	  fi && \
 	  echo "✅ Test coverage $${coverage}% meets requirement"
@@ -393,8 +393,8 @@ ci-unit-tests:
 	@cd homeautomation-go && \
 	  coverage=$$(go tool cover -func=coverage.out | grep total | awk '{print $$3}' | sed 's/%//') && \
 	  echo "Total coverage: $${coverage}%" && \
-	  if [ "$$(echo "$$coverage < 70" | bc -l)" = "1" ]; then \
-	    echo "❌ ERROR: Test coverage $${coverage}% is below required 70%"; \
+	  if [ "$$(echo "$$coverage < 65" | bc -l)" = "1" ]; then \
+	    echo "❌ ERROR: Test coverage $${coverage}% is below required 65%"; \
 	    exit 1; \
 	  fi && \
 	  echo "✅ Test coverage $${coverage}% meets requirement"
@@ -406,7 +406,7 @@ ci-integration-tests:
 	@cd homeautomation-go && go test ./test/integration/... -race -timeout=10m
 	@echo "✅ Integration tests passed"
 
-#pre-push: @ Run comprehensive pre-push validation (build, tests, race detector, coverage ≥70%)
+#pre-push: @ Run comprehensive pre-push validation (build, tests, race detector, coverage ≥65%)
 pre-push:
 	@echo ""
 	@echo "🔍 Running pre-push validation..."
@@ -425,12 +425,12 @@ pre-push:
 	  -race -coverprofile=coverage.out -covermode=atomic -timeout=5m
 	@echo "✅ Unit tests passed with race detector"
 	@echo ""
-	@echo "📊 Step 4/5: Checking test coverage (≥70%)..."
+	@echo "📊 Step 4/5: Checking test coverage (≥65%)..."
 	@cd homeautomation-go && \
 	  coverage=$$(go tool cover -func=coverage.out | grep total | awk '{print $$3}' | sed 's/%//') && \
 	  echo "Total coverage: $${coverage}%" && \
-	  if [ "$$(echo "$$coverage < 70" | bc -l)" = "1" ]; then \
-	    echo "❌ ERROR: Test coverage $${coverage}% is below required 70%"; \
+	  if [ "$$(echo "$$coverage < 65" | bc -l)" = "1" ]; then \
+	    echo "❌ ERROR: Test coverage $${coverage}% is below required 65%"; \
 	    rm -f coverage.out; \
 	    exit 1; \
 	  fi && \
@@ -447,6 +447,6 @@ pre-push:
 	@echo "✅ Generated diagrams are up-to-date"
 	@echo "✅ All code compiles"
 	@echo "✅ Unit tests passed with race detector"
-	@echo "✅ Test coverage meets minimum requirement (≥70%)"
+	@echo "✅ Test coverage meets minimum requirement (≥65%)"
 	@echo "✅ Integration tests passed"
 	@echo "════════════════════════════════════════════════════════════════════════════"

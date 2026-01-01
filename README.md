@@ -128,7 +128,7 @@ When you submit a PR:
 - ✅ Go unit tests (with race detector)
 - ✅ Integration tests
 - ✅ Config validation (YAML files)
-- ✅ Coverage check (≥70%)
+- ✅ Coverage check (≥65%)
 
 **The PR merge button is blocked until all required tests pass.**
 

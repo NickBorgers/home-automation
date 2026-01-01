@@ -95,6 +95,14 @@ type SubscribeEventsRequest struct {
 	EventType string `json:"event_type,omitempty"`
 }
 
+// PingRequest represents an application-level ping to Home Assistant.
+// Home Assistant expects JSON pings (not WebSocket control frame pings)
+// to keep the connection alive. See: https://developers.home-assistant.io/docs/api/websocket/
+type PingRequest struct {
+	ID   int    `json:"id"`
+	Type string `json:"type"` // Always "ping"
+}
+
 // StateChangeHandler is called when a state change event is received
 type StateChangeHandler func(entityID string, oldState, newState *State)
 

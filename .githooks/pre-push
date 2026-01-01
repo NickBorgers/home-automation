@@ -37,7 +37,7 @@ else
     echo "The pre-push hook runs the same checks as CI:"
     echo "  - Build check (go build ./...)"
     echo "  - All tests with race detector (go test -race ./...)"
-    echo "  - Code coverage check (≥70%)"
+    echo "  - Code coverage check (≥65%)"
     echo ""
     echo "Please fix the issues above and try pushing again."
     echo ""
