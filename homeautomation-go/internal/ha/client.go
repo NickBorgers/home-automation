@@ -18,13 +18,14 @@ import (
 // on application-layer JSON activity. See: https://developers.home-assistant.io/docs/api/websocket/
 const (
 	// pingInterval is how often we send application-level JSON pings.
-	// Set well under HA's ~2 minute idle timeout and typical proxy timeouts (60-90s).
-	pingInterval = 30 * time.Second
+	// Set aggressively low (15s) because Tailscale DERP relays and some NATs
+	// may timeout connections as early as 30-45 seconds of inactivity.
+	pingInterval = 15 * time.Second
 
 	// pongWait is the max time to wait for a pong response.
 	// If no pong received within this time, connection is considered dead.
-	// Set to 2x pingInterval to tolerate one missed ping.
-	pongWait = 60 * time.Second
+	// Set to 3x pingInterval to tolerate up to two missed pings.
+	pongWait = 45 * time.Second
 
 	// writeWait is the time allowed to write a message (including pings).
 	writeWait = 10 * time.Second
@@ -412,6 +413,13 @@ func (c *Client) sendMessage(msg interface{}) (*Message, error) {
 	}()
 
 	if err != nil {
+		// If write failed with timeout, the connection is likely dead.
+		// Close it immediately to trigger reconnection rather than waiting
+		// for the next ping or accumulating more failed retries.
+		if strings.Contains(err.Error(), "i/o timeout") {
+			c.logger.Warn("Write timeout detected, closing connection to trigger reconnect", zap.Error(err))
+			conn.Close()
+		}
 		return nil, fmt.Errorf("failed to send message: %w", err)
 	}
 
@@ -619,6 +627,7 @@ func (c *Client) sendPings() {
 				conn.Close()
 				return
 			}
+			c.logger.Debug("Application ping sent successfully", zap.Int("id", msgID))
 		}
 	}
 }
