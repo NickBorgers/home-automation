@@ -155,6 +155,7 @@ func TestScenario_OfficeSpeaker_UnmutedWhenOccupied(t *testing.T) {
 	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
 
 	manager := NewManager(mockClient, stateManager, config, logger, false, timeProvider)
+	manager.SetSleepFunc(func(d time.Duration) {}) // Skip internal sleeps for fast tests
 
 	// Initialize required state variables
 	_ = stateManager.SetString("dayPhase", "day")
@@ -235,6 +236,7 @@ func TestScenario_OfficeSpeaker_MutedWhenUnoccupied(t *testing.T) {
 	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
 
 	manager := NewManager(mockClient, stateManager, config, logger, false, timeProvider)
+	manager.SetSleepFunc(func(d time.Duration) {}) // Skip internal sleeps for fast tests
 
 	// Initialize - office IS occupied
 	_ = stateManager.SetString("dayPhase", "day")
@@ -301,6 +303,7 @@ func TestScenario_OfficeSpeaker_UnmuteOnOccupancyChangeDuringPlayback(t *testing
 	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
 
 	manager := NewManager(mockClient, stateManager, config, logger, false, timeProvider)
+	manager.SetSleepFunc(func(d time.Duration) {}) // Skip internal sleeps for fast tests
 
 	// Initialize required state variables - music will start playing
 	_ = stateManager.SetString("dayPhase", "day")
@@ -318,7 +321,7 @@ func TestScenario_OfficeSpeaker_UnmuteOnOccupancyChangeDuringPlayback(t *testing
 	defer manager.Stop()
 
 	// Allow some processing time for initial music start
-	time.Sleep(200 * time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
 
 	// Clear service calls from initial music start
 	mockClient.ClearServiceCalls()
@@ -334,7 +337,7 @@ func TestScenario_OfficeSpeaker_UnmuteOnOccupancyChangeDuringPlayback(t *testing
 	assert.NoError(t, err)
 
 	// Allow processing time for the callback to execute
-	time.Sleep(200 * time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
 
 	// ==========================================================
 	// VERIFICATION: Office speaker should be unmuted
@@ -382,6 +385,7 @@ func TestScenario_KitchenSpeaker_AlwaysUnmuted(t *testing.T) {
 	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
 
 	manager := NewManager(mockClient, stateManager, config, logger, false, timeProvider)
+	manager.SetSleepFunc(func(d time.Duration) {}) // Skip internal sleeps for fast tests
 
 	// Kitchen speaker has no mute conditions - empty array
 	participant := ParticipantWithVolume{

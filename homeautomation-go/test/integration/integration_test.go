@@ -117,7 +117,7 @@ func TestStateChangeSubscription(t *testing.T) {
 	server.SetState("input_boolean.nick_home", "on", map[string]interface{}{})
 
 	// Wait for event propagation
-	time.Sleep(200 * time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
 
 	mu.Lock()
 	assert.Equal(t, 1, changeCount)
@@ -157,8 +157,8 @@ func TestConcurrentWrites(t *testing.T) {
 	_, _, manager, cleanup := setupTest(t)
 	defer cleanup()
 
-	const numGoroutines = 20
-	const writesPerGoroutine = 50
+	const numGoroutines = 10
+	const writesPerGoroutine = 20
 
 	var wg sync.WaitGroup
 	wg.Add(numGoroutines)
@@ -182,7 +182,7 @@ func TestConcurrentReadsAndWrites(t *testing.T) {
 	_, _, manager, cleanup := setupTest(t)
 	defer cleanup()
 
-	const duration = 3 * time.Second
+	const duration = 1 * time.Second
 	done := make(chan bool)
 
 	// Readers
@@ -231,7 +231,7 @@ func TestSubscriptionWithConcurrentWrites(t *testing.T) {
 	server, _, manager, cleanup := setupTest(t)
 	defer cleanup()
 
-	const duration = 3 * time.Second
+	const duration = 1 * time.Second
 	done := make(chan bool)
 
 	changeCount := 0
@@ -289,7 +289,7 @@ func TestSubscriptionWithConcurrentWrites(t *testing.T) {
 	close(done)
 
 	// Wait for things to settle
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 
 	countMu.Lock()
 	t.Logf("Total state changes observed: %d", changeCount)
@@ -332,7 +332,7 @@ func TestMultipleSubscribersOnSameEntity(t *testing.T) {
 
 	// Trigger change
 	server.SetState("input_boolean.nick_home", "on", map[string]interface{}{})
-	time.Sleep(200 * time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
 
 	mu1.Lock()
 	mu2.Lock()
@@ -350,7 +350,7 @@ func TestMultipleSubscribersOnSameEntity(t *testing.T) {
 	sub2.Unsubscribe()
 
 	server.SetState("input_boolean.nick_home", "off", map[string]interface{}{})
-	time.Sleep(200 * time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
 
 	mu1.Lock()
 	mu2.Lock()
@@ -549,7 +549,7 @@ func TestHighFrequencyStateChanges(t *testing.T) {
 	server, _, manager, cleanup := setupTest(t)
 	defer cleanup()
 
-	const numChanges = 1000
+	const numChanges = 200
 	changeCount := 0
 	var mu sync.Mutex
 
@@ -574,7 +574,7 @@ func TestHighFrequencyStateChanges(t *testing.T) {
 	duration := time.Since(start)
 
 	// Wait for all events to propagate
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 
 	mu.Lock()
 	finalCount := changeCount

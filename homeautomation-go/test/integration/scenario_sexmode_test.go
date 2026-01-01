@@ -71,7 +71,7 @@ func TestScenario_SexModeActivation_SetsMusicToSex(t *testing.T) {
 	t.Log("WHEN: Sex mode is activated (input_boolean.sex → on)")
 
 	server.SetState("input_boolean.sex", "on", nil)
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 
 	t.Log("THEN: musicPlaybackType should change to 'sex'")
 
@@ -98,7 +98,7 @@ func TestScenario_SexModeActivation_ActivatesNightScene(t *testing.T) {
 	t.Log("WHEN: Sex mode is activated")
 
 	server.SetState("input_boolean.sex", "on", nil)
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 
 	t.Log("THEN: Primary Suite night scene should be activated")
 
@@ -126,7 +126,7 @@ func TestScenario_SexModeActivation_SetsEightSleepToColdest(t *testing.T) {
 	t.Log("WHEN: Sex mode is activated")
 
 	server.SetState("input_boolean.sex", "on", nil)
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 
 	t.Log("THEN: Both Eight Sleep sides should be set to coldest (-100)")
 
@@ -168,7 +168,7 @@ func TestScenario_SexModeActivation_FullCoordination(t *testing.T) {
 	t.Log("WHEN: Sex mode is activated")
 
 	server.SetState("input_boolean.sex", "on", nil)
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 
 	t.Log("THEN: All three systems should be coordinated")
 
@@ -211,7 +211,7 @@ func TestScenario_SexModeDeactivation_RestoresMusicType(t *testing.T) {
 
 	// Activate sex mode
 	server.SetState("input_boolean.sex", "on", nil)
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 
 	// Verify music changed to sex
 	musicType, _ := stateManager.GetString("musicPlaybackType")
@@ -222,7 +222,7 @@ func TestScenario_SexModeDeactivation_RestoresMusicType(t *testing.T) {
 	t.Log("WHEN: Sex mode is deactivated")
 
 	server.SetState("input_boolean.sex", "off", nil)
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 
 	t.Log("THEN: musicPlaybackType should be restored to 'working'")
 
@@ -247,14 +247,14 @@ func TestScenario_SexModeDeactivation_ActivatesDayPhaseScene(t *testing.T) {
 
 	// Activate sex mode
 	server.SetState("input_boolean.sex", "on", nil)
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 
 	server.ClearServiceCalls()
 
 	t.Log("WHEN: Sex mode is deactivated")
 
 	server.SetState("input_boolean.sex", "off", nil)
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 
 	t.Log("THEN: Primary Suite should activate the sunset scene with transition")
 
@@ -284,7 +284,7 @@ func TestScenario_SexModeDeactivation_TurnsOffLightsWhenAsleep(t *testing.T) {
 
 	// Activate sex mode
 	server.SetState("input_boolean.sex", "on", nil)
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 
 	t.Log("AND: Master goes to sleep during the session")
 
@@ -296,7 +296,7 @@ func TestScenario_SexModeDeactivation_TurnsOffLightsWhenAsleep(t *testing.T) {
 	t.Log("WHEN: Sex mode is deactivated")
 
 	server.SetState("input_boolean.sex", "off", nil)
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 
 	t.Log("THEN: Primary Suite lights should be turned off (not scene activated)")
 
@@ -335,14 +335,14 @@ func TestScenario_SexModeDeactivation_DifferentDayPhases(t *testing.T) {
 
 			// Activate sex mode
 			server.SetState("input_boolean.sex", "on", nil)
-			time.Sleep(500 * time.Millisecond)
+			time.Sleep(100 * time.Millisecond)
 
 			server.ClearServiceCalls()
 
 			t.Log("WHEN: Sex mode is deactivated")
 
 			server.SetState("input_boolean.sex", "off", nil)
-			time.Sleep(500 * time.Millisecond)
+			time.Sleep(100 * time.Millisecond)
 
 			t.Logf("THEN: Primary Suite should activate scene.primary_suite_%s", phase)
 
@@ -374,7 +374,7 @@ func TestScenario_SexModeDuplicateActivation_Ignored(t *testing.T) {
 
 	// Activate sex mode
 	server.SetState("input_boolean.sex", "on", nil)
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 
 	// Count initial service calls
 	initialCalls := len(server.GetServiceCalls())
@@ -415,7 +415,7 @@ func TestScenario_SexModeDeactivationWithoutActivation_Ignored(t *testing.T) {
 	t.Log("WHEN: Sex mode is turned off (was already off)")
 
 	server.SetState("input_boolean.sex", "off", nil)
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 
 	t.Log("THEN: No actions should be taken and music type should remain 'day'")
 
@@ -473,7 +473,7 @@ func TestScenario_SexModeReset_SyncsState(t *testing.T) {
 
 	err := sexModeManager.Reset()
 	require.NoError(t, err)
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 
 	t.Log("THEN: Sex mode should detect HA state and activate")
 
@@ -509,7 +509,7 @@ func TestScenario_SexModeActivationDeactivationCycle(t *testing.T) {
 
 	server.ClearServiceCalls()
 	server.SetState("input_boolean.sex", "on", nil)
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 
 	// Verify activation
 	musicType, _ := stateManager.GetString("musicPlaybackType")
@@ -523,7 +523,7 @@ func TestScenario_SexModeActivationDeactivationCycle(t *testing.T) {
 
 	server.ClearServiceCalls()
 	server.SetState("input_boolean.sex", "off", nil)
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 
 	t.Log("THEN: Previous state should be fully restored")
 
@@ -559,7 +559,7 @@ func TestScenario_SexModeShadowState_TracksCorrectly(t *testing.T) {
 	t.Log("WHEN: Sex mode is activated")
 
 	server.SetState("input_boolean.sex", "on", nil)
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 
 	t.Log("THEN: Shadow state should reflect activation")
 
@@ -574,7 +574,7 @@ func TestScenario_SexModeShadowState_TracksCorrectly(t *testing.T) {
 	t.Log("WHEN: Sex mode is deactivated")
 
 	server.SetState("input_boolean.sex", "off", nil)
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 
 	t.Log("THEN: Shadow state should reflect deactivation")
 

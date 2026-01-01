@@ -238,6 +238,7 @@ func TestScenario_WakeUpDuringMorning_TriggersMorningMusic(t *testing.T) {
 	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
 
 	manager := NewManager(mockClient, stateManager, config, logger, false, timeProvider)
+	manager.SetSleepFunc(func(d time.Duration) {}) // Skip internal sleeps for fast tests
 
 	// ==========================================================
 	// INITIAL STATE: Morning phase, someone is asleep
@@ -257,7 +258,7 @@ func TestScenario_WakeUpDuringMorning_TriggersMorningMusic(t *testing.T) {
 	defer manager.Stop()
 
 	// Allow initial processing
-	time.Sleep(150 * time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
 
 	// Clear any initial service calls
 	mockClient.ClearServiceCalls()
@@ -277,7 +278,7 @@ func TestScenario_WakeUpDuringMorning_TriggersMorningMusic(t *testing.T) {
 	mockClient.SimulateStateChange("input_boolean.master_asleep", "off")
 
 	// Allow time for state change to propagate and trigger music mode selection
-	time.Sleep(200 * time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
 
 	// ==========================================================
 	// VERIFICATION: Morning music should be selected
@@ -339,6 +340,7 @@ func TestScenario_WakeUpOnSunday_TriggersDayMusic(t *testing.T) {
 	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
 
 	manager := NewManager(mockClient, stateManager, config, logger, false, timeProvider)
+	manager.SetSleepFunc(func(d time.Duration) {}) // Skip internal sleeps for fast tests
 
 	// Initial state: Morning phase, someone asleep
 	_ = stateManager.SetString("dayPhase", "morning")
@@ -354,7 +356,7 @@ func TestScenario_WakeUpOnSunday_TriggersDayMusic(t *testing.T) {
 	require.NoError(t, err)
 	defer manager.Stop()
 
-	time.Sleep(150 * time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
 	mockClient.ClearServiceCalls()
 
 	// ACTION: Wake-up event on Sunday
@@ -362,7 +364,7 @@ func TestScenario_WakeUpOnSunday_TriggersDayMusic(t *testing.T) {
 	mockClient.SimulateStateChange("input_boolean.anyone_asleep", "off")
 	mockClient.SimulateStateChange("input_boolean.master_asleep", "off")
 
-	time.Sleep(200 * time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
 
 	// VERIFICATION: Day music (Sunday override)
 	musicType, err := stateManager.GetString("musicPlaybackType")
@@ -404,6 +406,7 @@ func TestScenario_DayPhaseChangesToMorning_TriggersDayMusic(t *testing.T) {
 	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
 
 	manager := NewManager(mockClient, stateManager, config, logger, false, timeProvider)
+	manager.SetSleepFunc(func(d time.Duration) {}) // Skip internal sleeps for fast tests
 
 	// Initial state: Night phase, no one asleep (maybe they stayed up late)
 	_ = stateManager.SetString("dayPhase", "night")
@@ -419,14 +422,14 @@ func TestScenario_DayPhaseChangesToMorning_TriggersDayMusic(t *testing.T) {
 	require.NoError(t, err)
 	defer manager.Stop()
 
-	time.Sleep(150 * time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
 	mockClient.ClearServiceCalls()
 
 	// ACTION: Day phase changes to morning (sunrise)
 	// This is NOT a wake-up event - no one was asleep
 	_ = stateManager.SetString("dayPhase", "morning")
 
-	time.Sleep(200 * time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
 
 	// VERIFICATION: Day music (not morning)
 	musicType, err := stateManager.GetString("musicPlaybackType")
@@ -463,6 +466,7 @@ func TestScenario_NoOneHome_StopsMusic(t *testing.T) {
 	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
 
 	manager := NewManager(mockClient, stateManager, config, logger, false, timeProvider)
+	manager.SetSleepFunc(func(d time.Duration) {}) // Skip internal sleeps for fast tests
 
 	// Initial state: Day music playing
 	_ = stateManager.SetString("dayPhase", "day")
@@ -478,13 +482,13 @@ func TestScenario_NoOneHome_StopsMusic(t *testing.T) {
 	require.NoError(t, err)
 	defer manager.Stop()
 
-	time.Sleep(150 * time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
 	mockClient.ClearServiceCalls()
 
 	// ACTION: Everyone leaves
 	_ = stateManager.SetBool("isAnyoneHome", false)
 
-	time.Sleep(200 * time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
 
 	// VERIFICATION: Music stops
 	musicType, err := stateManager.GetString("musicPlaybackType")
@@ -521,6 +525,7 @@ func TestScenario_SomeoneFallsAsleep_TriggersSleepMusic(t *testing.T) {
 	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
 
 	manager := NewManager(mockClient, stateManager, config, logger, false, timeProvider)
+	manager.SetSleepFunc(func(d time.Duration) {}) // Skip internal sleeps for fast tests
 
 	// Initial state: Winddown music playing
 	_ = stateManager.SetString("dayPhase", "winddown")
@@ -536,14 +541,14 @@ func TestScenario_SomeoneFallsAsleep_TriggersSleepMusic(t *testing.T) {
 	require.NoError(t, err)
 	defer manager.Stop()
 
-	time.Sleep(150 * time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
 	mockClient.ClearServiceCalls()
 
 	// ACTION: Someone goes to sleep
 	_ = stateManager.SetBool("isAnyoneAsleep", true)
 	_ = stateManager.SetBool("isMasterAsleep", true)
 
-	time.Sleep(200 * time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
 
 	// VERIFICATION: Sleep music
 	musicType, err := stateManager.GetString("musicPlaybackType")
@@ -595,6 +600,7 @@ func TestScenario_SleepMusicPersistsDuringWinddown(t *testing.T) {
 	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
 
 	manager := NewManager(mockClient, stateManager, config, logger, false, timeProvider)
+	manager.SetSleepFunc(func(d time.Duration) {}) // Skip internal sleeps for fast tests
 
 	// Initial state: Dusk phase (valid dayPhase), no one asleep but sleep music manually started
 	_ = stateManager.SetString("dayPhase", "dusk")
@@ -610,7 +616,7 @@ func TestScenario_SleepMusicPersistsDuringWinddown(t *testing.T) {
 	require.NoError(t, err)
 	defer manager.Stop()
 
-	time.Sleep(150 * time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
 
 	// Manually set sleep music (simulating user manually started sleep sounds early)
 	// This happens AFTER the manager's initial evaluation
@@ -622,7 +628,7 @@ func TestScenario_SleepMusicPersistsDuringWinddown(t *testing.T) {
 	// ACTION: Day phase changes to winddown
 	_ = stateManager.SetString("dayPhase", "winddown")
 
-	time.Sleep(200 * time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
 
 	// VERIFICATION: Sleep music persists
 	musicType, err := stateManager.GetString("musicPlaybackType")
@@ -666,6 +672,7 @@ func TestScenario_FullWakeUpCycle(t *testing.T) {
 	timeProvider := &MutableTimeProvider{CurrentTime: fixedTime}
 
 	manager := NewManager(mockClient, stateManager, config, logger, false, timeProvider)
+	manager.SetSleepFunc(func(d time.Duration) {}) // Skip internal sleeps for fast tests
 
 	// ==========================================================
 	// PHASE 1: Night - someone asleep with sleep music
@@ -683,7 +690,7 @@ func TestScenario_FullWakeUpCycle(t *testing.T) {
 	require.NoError(t, err)
 	defer manager.Stop()
 
-	time.Sleep(150 * time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
 
 	// Verify sleep music
 	musicType, _ := stateManager.GetString("musicPlaybackType")
@@ -697,7 +704,7 @@ func TestScenario_FullWakeUpCycle(t *testing.T) {
 
 	_ = stateManager.SetString("dayPhase", "morning")
 
-	time.Sleep(200 * time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
 
 	// Sleep music should continue (someone is still asleep)
 	musicType, _ = stateManager.GetString("musicPlaybackType")
@@ -713,7 +720,7 @@ func TestScenario_FullWakeUpCycle(t *testing.T) {
 	mockClient.SimulateStateChange("input_boolean.anyone_asleep", "off")
 	mockClient.SimulateStateChange("input_boolean.master_asleep", "off")
 
-	time.Sleep(200 * time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
 
 	// THIS IS THE KEY TEST - morning music should start
 	musicType, _ = stateManager.GetString("musicPlaybackType")
@@ -729,7 +736,7 @@ func TestScenario_FullWakeUpCycle(t *testing.T) {
 
 	_ = stateManager.SetString("dayPhase", "day")
 
-	time.Sleep(200 * time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
 
 	musicType, _ = stateManager.GetString("musicPlaybackType")
 	assert.Equal(t, "day", musicType, "Phase 4: Day music should play during day phase")

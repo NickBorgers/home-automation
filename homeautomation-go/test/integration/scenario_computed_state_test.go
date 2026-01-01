@@ -126,7 +126,7 @@ func TestScenario_ComputedState_IsAnyoneHomeAndAwake_InitialComputation(t *testi
 			err = manager.SetupComputedState()
 			require.NoError(t, err)
 
-			time.Sleep(200 * time.Millisecond)
+			time.Sleep(50 * time.Millisecond)
 
 			// THEN: isAnyoneHomeAndAwake should be computed correctly
 			value, err := manager.GetBool("isAnyoneHomeAndAwake")
@@ -148,7 +148,7 @@ func TestScenario_ComputedState_ReactsToIsAnyoneHomeChange(t *testing.T) {
 	t.Log("GIVEN: Nobody is home and nobody is asleep")
 	server.SetState("input_boolean.anyone_home", "off", map[string]interface{}{})
 	server.SetState("input_boolean.anyone_asleep", "off", map[string]interface{}{})
-	time.Sleep(300 * time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
 
 	// Verify initial state
 	value, err := manager.GetBool("isAnyoneHomeAndAwake")
@@ -158,7 +158,7 @@ func TestScenario_ComputedState_ReactsToIsAnyoneHomeChange(t *testing.T) {
 	// WHEN: Someone comes home (still awake)
 	t.Log("WHEN: Someone comes home")
 	server.SetState("input_boolean.anyone_home", "on", map[string]interface{}{})
-	time.Sleep(300 * time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
 
 	// THEN: isAnyoneHomeAndAwake should become true
 	t.Log("THEN: isAnyoneHomeAndAwake should become true")
@@ -169,7 +169,7 @@ func TestScenario_ComputedState_ReactsToIsAnyoneHomeChange(t *testing.T) {
 	// WHEN: Everyone leaves
 	t.Log("WHEN: Everyone leaves")
 	server.SetState("input_boolean.anyone_home", "off", map[string]interface{}{})
-	time.Sleep(300 * time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
 
 	// THEN: isAnyoneHomeAndAwake should become false
 	t.Log("THEN: isAnyoneHomeAndAwake should become false")
@@ -188,7 +188,7 @@ func TestScenario_ComputedState_ReactsToIsAnyoneAsleepChange(t *testing.T) {
 	t.Log("GIVEN: Someone is home and awake")
 	server.SetState("input_boolean.anyone_home", "on", map[string]interface{}{})
 	server.SetState("input_boolean.anyone_asleep", "off", map[string]interface{}{})
-	time.Sleep(300 * time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
 
 	// Verify initial state
 	value, err := manager.GetBool("isAnyoneHomeAndAwake")
@@ -198,7 +198,7 @@ func TestScenario_ComputedState_ReactsToIsAnyoneAsleepChange(t *testing.T) {
 	// WHEN: Someone falls asleep
 	t.Log("WHEN: Someone falls asleep")
 	server.SetState("input_boolean.anyone_asleep", "on", map[string]interface{}{})
-	time.Sleep(300 * time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
 
 	// THEN: isAnyoneHomeAndAwake should become false
 	t.Log("THEN: isAnyoneHomeAndAwake should become false")
@@ -209,7 +209,7 @@ func TestScenario_ComputedState_ReactsToIsAnyoneAsleepChange(t *testing.T) {
 	// WHEN: Everyone wakes up
 	t.Log("WHEN: Everyone wakes up")
 	server.SetState("input_boolean.anyone_asleep", "off", map[string]interface{}{})
-	time.Sleep(300 * time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
 
 	// THEN: isAnyoneHomeAndAwake should become true again
 	t.Log("THEN: isAnyoneHomeAndAwake should become true again")
@@ -228,7 +228,7 @@ func TestScenario_ComputedState_SyncsToHomeAssistant(t *testing.T) {
 	t.Log("GIVEN: Nobody is home initially")
 	server.SetState("input_boolean.anyone_home", "off", map[string]interface{}{})
 	server.SetState("input_boolean.anyone_asleep", "off", map[string]interface{}{})
-	time.Sleep(300 * time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
 
 	// Clear service calls to track new ones
 	server.ClearServiceCalls()
@@ -236,7 +236,7 @@ func TestScenario_ComputedState_SyncsToHomeAssistant(t *testing.T) {
 	// WHEN: Someone comes home (triggering computed state change)
 	t.Log("WHEN: Someone comes home")
 	server.SetState("input_boolean.anyone_home", "on", map[string]interface{}{})
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 
 	// THEN: A service call should be made to update isAnyoneHomeAndAwake in HA
 	t.Log("THEN: Computed state should be synced to HA")
@@ -272,7 +272,7 @@ func TestScenario_ComputedState_RapidChanges(t *testing.T) {
 	t.Log("GIVEN: Initial state - someone home and awake")
 	server.SetState("input_boolean.anyone_home", "on", map[string]interface{}{})
 	server.SetState("input_boolean.anyone_asleep", "off", map[string]interface{}{})
-	time.Sleep(300 * time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
 
 	// WHEN: Rapid state changes occur
 	t.Log("WHEN: Rapid state changes occur")
@@ -286,7 +286,7 @@ func TestScenario_ComputedState_RapidChanges(t *testing.T) {
 	}
 
 	// Final state: home and awake
-	time.Sleep(300 * time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
 
 	// THEN: Final computed state should be correct
 	t.Log("THEN: Final computed state should be correct")
@@ -308,7 +308,7 @@ func TestScenario_ComputedState_BothDependenciesChange(t *testing.T) {
 	t.Log("GIVEN: Nobody home, nobody asleep")
 	server.SetState("input_boolean.anyone_home", "off", map[string]interface{}{})
 	server.SetState("input_boolean.anyone_asleep", "off", map[string]interface{}{})
-	time.Sleep(300 * time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
 
 	value, _ := manager.GetBool("isAnyoneHomeAndAwake")
 	assert.False(t, value, "Initial state: should be false")
@@ -318,7 +318,7 @@ func TestScenario_ComputedState_BothDependenciesChange(t *testing.T) {
 	server.SetState("input_boolean.anyone_home", "on", map[string]interface{}{})
 	time.Sleep(20 * time.Millisecond)
 	server.SetState("input_boolean.anyone_asleep", "on", map[string]interface{}{})
-	time.Sleep(300 * time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
 
 	// THEN: Final state should be false (home but asleep)
 	t.Log("THEN: Should be false (home but asleep)")
@@ -331,7 +331,7 @@ func TestScenario_ComputedState_BothDependenciesChange(t *testing.T) {
 	server.SetState("input_boolean.anyone_asleep", "off", map[string]interface{}{})
 	time.Sleep(20 * time.Millisecond)
 	server.SetState("input_boolean.anyone_home", "off", map[string]interface{}{})
-	time.Sleep(300 * time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
 
 	// THEN: Final state should be false (not home)
 	t.Log("THEN: Should be false (not home)")
