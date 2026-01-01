@@ -6,6 +6,26 @@ This document provides guidance for AI agents and developers working on this hom
 
 This repository contains a home automation system migrating from Node-RED to Golang for improved type safety, testability, and maintainability.
 
+## 🚨 CRITICAL: Test Commands (AI Agents READ THIS)
+
+**NEVER run `go test` directly. ALWAYS use the cached Makefile targets:**
+
+```bash
+make unit-tests        # ✅ CORRECT - uses caching
+make integration-tests # ✅ CORRECT - uses caching
+```
+
+**WRONG (bypasses cache, wastes time):**
+```bash
+go test ./...                    # ❌ WRONG
+go test -race ./...              # ❌ WRONG
+cd homeautomation-go && go test  # ❌ WRONG
+```
+
+The cache tracks code changes and skips tests when nothing changed. Running `go test` directly always runs the full suite unnecessarily.
+
+---
+
 ## 🚨 CRITICAL: Pre-Push Hook Active
 
 **A pre-push git hook runs all tests before every push and BLOCKS if they fail.**
