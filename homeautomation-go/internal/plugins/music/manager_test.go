@@ -2540,3 +2540,109 @@ func TestIsPlaybackActive(t *testing.T) {
 		})
 	}
 }
+
+// TestPlaybackVerification_RecoveryAfterNudge tests that playback verification
+// succeeds when the speaker starts playing after receiving the media_play nudge.
+// This simulates the scenario where play_media is accepted but doesn't start playback,
+// but the follow-up media_play command kicks it into action.
+func TestPlaybackVerification_RecoveryAfterNudge(t *testing.T) {
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+
+	config := &MusicConfig{Music: map[string]MusicMode{}}
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+
+	// Use no-op sleep to make test fast
+	manager.SetSleepFunc(func(d time.Duration) {})
+
+	// Set up state sequence: first check returns "idle", second check (after nudge) returns "playing"
+	// The verification flow is:
+	// 1. Send play_media
+	// 2. Wait, then GetState (returns "idle")
+	// 3. Send media_play nudge
+	// 4. Wait, then GetState (returns "playing") - SUCCESS
+	mockClient.SetStateSequence("media_player.kitchen", []string{"idle", "playing"})
+
+	option := PlaybackOption{
+		URI:              "spotify:playlist:test",
+		MediaType:        "playlist",
+		VolumeMultiplier: 1.0,
+	}
+
+	attempts, err := manager.startPlaybackWithVerification("media_player.kitchen", option)
+
+	if err != nil {
+		t.Errorf("Expected success after nudge recovery, got error: %v", err)
+	}
+	if attempts != 1 {
+		t.Errorf("Expected 1 attempt (recovered on first try via nudge), got %d", attempts)
+	}
+
+	// Verify that both play_media and media_play were called
+	calls := mockClient.GetServiceCalls()
+	var hasPlayMedia, hasMediaPlay bool
+	for _, call := range calls {
+		if call.Domain == "media_player" && call.Service == "play_media" {
+			hasPlayMedia = true
+		}
+		if call.Domain == "media_player" && call.Service == "media_play" {
+			hasMediaPlay = true
+		}
+	}
+
+	if !hasPlayMedia {
+		t.Error("Expected play_media service call")
+	}
+	if !hasMediaPlay {
+		t.Error("Expected media_play nudge service call")
+	}
+}
+
+// TestPlaybackVerification_RecoveryOnSecondAttempt tests that playback verification
+// succeeds when the speaker requires a full retry (not just a nudge) to start playing.
+// This simulates when the first play_media and nudge both fail, but retrying works.
+func TestPlaybackVerification_RecoveryOnSecondAttempt(t *testing.T) {
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+
+	config := &MusicConfig{Music: map[string]MusicMode{}}
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+
+	// Use no-op sleep to make test fast
+	manager.SetSleepFunc(func(d time.Duration) {})
+
+	// Set up state sequence for recovery on second attempt:
+	// Attempt 1: check 1 = "idle", check 2 (after nudge) = "idle" -> fails, retry
+	// Attempt 2: check 3 = "playing" -> SUCCESS
+	mockClient.SetStateSequence("media_player.kitchen", []string{"idle", "idle", "playing"})
+
+	option := PlaybackOption{
+		URI:              "spotify:playlist:test",
+		MediaType:        "playlist",
+		VolumeMultiplier: 1.0,
+	}
+
+	attempts, err := manager.startPlaybackWithVerification("media_player.kitchen", option)
+
+	if err != nil {
+		t.Errorf("Expected success on second attempt, got error: %v", err)
+	}
+	if attempts != 2 {
+		t.Errorf("Expected 2 attempts, got %d", attempts)
+	}
+
+	// Verify play_media was called twice (once per attempt)
+	calls := mockClient.GetServiceCalls()
+	playMediaCount := 0
+	for _, call := range calls {
+		if call.Domain == "media_player" && call.Service == "play_media" {
+			playMediaCount++
+		}
+	}
+
+	if playMediaCount != 2 {
+		t.Errorf("Expected 2 play_media calls, got %d", playMediaCount)
+	}
+}

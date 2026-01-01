@@ -29,6 +29,11 @@ type MockClient struct {
 	serviceFailCounts   map[string]int // key: "domain.service", value: remaining failures
 	serviceFailError    map[string]error
 	serviceFailCountsMu sync.Mutex
+
+	// State sequence injection: return different states on successive GetState calls
+	stateSequences   map[string][]string // key: entityID, value: sequence of states to return
+	stateSequenceIdx map[string]int      // key: entityID, value: current index in sequence
+	stateSequenceMu  sync.Mutex
 }
 
 func (m *MockClient) clearSubscribers() {
@@ -68,6 +73,8 @@ func NewMockClient() *MockClient {
 		serviceErrors:     make(map[string]error),
 		serviceFailCounts: make(map[string]int),
 		serviceFailError:  make(map[string]error),
+		stateSequences:    make(map[string][]string),
+		stateSequenceIdx:  make(map[string]int),
 		connected:         false,
 	}
 }
@@ -144,6 +151,27 @@ func (m *MockClient) GetState(entityID string) (*State, error) {
 	m.getStateCallMu.Lock()
 	m.getStateCalls[entityID]++
 	m.getStateCallMu.Unlock()
+
+	// Check if there's a state sequence configured for this entity
+	m.stateSequenceMu.Lock()
+	if seq, exists := m.stateSequences[entityID]; exists && len(seq) > 0 {
+		idx := m.stateSequenceIdx[entityID]
+		stateValue := seq[idx]
+		// Advance to next state in sequence, staying at last if exhausted
+		if idx < len(seq)-1 {
+			m.stateSequenceIdx[entityID] = idx + 1
+		}
+		m.stateSequenceMu.Unlock()
+
+		return &State{
+			EntityID:    entityID,
+			State:       stateValue,
+			Attributes:  make(map[string]interface{}),
+			LastChanged: time.Now(),
+			LastUpdated: time.Now(),
+		}, nil
+	}
+	m.stateSequenceMu.Unlock()
 
 	m.statesMu.RLock()
 	defer m.statesMu.RUnlock()
@@ -465,6 +493,23 @@ func (m *MockClient) SetMockState(entityID string, state *State) {
 	defer m.statesMu.Unlock()
 
 	m.states[entityID] = state
+}
+
+// SetStateSequence configures a sequence of states to return on successive GetState calls.
+// The first call returns states[0], second returns states[1], etc.
+// After the sequence is exhausted, the last state continues to be returned.
+// Pass nil or empty slice to clear the sequence.
+func (m *MockClient) SetStateSequence(entityID string, states []string) {
+	m.stateSequenceMu.Lock()
+	defer m.stateSequenceMu.Unlock()
+
+	if len(states) == 0 {
+		delete(m.stateSequences, entityID)
+		delete(m.stateSequenceIdx, entityID)
+	} else {
+		m.stateSequences[entityID] = states
+		m.stateSequenceIdx[entityID] = 0
+	}
 }
 
 // WasGetStateCalled returns true if GetState was called for the given entity
