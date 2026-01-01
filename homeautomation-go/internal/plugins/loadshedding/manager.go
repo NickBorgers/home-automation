@@ -42,38 +42,28 @@ type Manager struct {
 	readOnly       bool
 	lastAction     time.Time
 	lastActionMu   sync.Mutex
-	subscription   state.Subscription
 	enabled        bool
 	loadSheddingOn bool
 	stateMu        sync.Mutex
 	shadowTracker  *shadowstate.LoadSheddingTracker
 
-	// Automatic shadow state input tracking
-	pluginName  string
-	registry    *shadowstate.SubscriptionRegistry
-	inputHelper *shadowstate.InputCaptureHelper
+	// Subscription helper for automatic shadow state input capture
+	subHelper *shadowstate.SubscriptionHelper
 }
 
 // NewManager creates a new Load Shedding manager
 func NewManager(haClient ha.HAClient, stateManager *state.Manager, logger *zap.Logger, readOnly bool, registry *shadowstate.SubscriptionRegistry) *Manager {
-	const pluginName = "loadshedding"
-	m := &Manager{
+	shadowTracker := shadowstate.NewLoadSheddingTracker()
+
+	return &Manager{
 		haClient:      haClient,
 		stateManager:  stateManager,
 		logger:        logger.Named("loadshedding"),
 		readOnly:      readOnly,
 		enabled:       false,
-		shadowTracker: shadowstate.NewLoadSheddingTracker(),
-		pluginName:    pluginName,
-		registry:      registry,
+		shadowTracker: shadowTracker,
+		subHelper:     shadowstate.NewSubscriptionHelper(haClient, stateManager, registry, shadowTracker, "loadshedding", logger.Named("loadshedding")),
 	}
-
-	// Create input capture helper if registry is provided
-	if registry != nil {
-		m.inputHelper = shadowstate.NewInputCaptureHelper(registry, haClient, stateManager)
-	}
-
-	return m
 }
 
 // Start begins monitoring energy state and controlling thermostats
@@ -84,17 +74,13 @@ func (m *Manager) Start() error {
 
 	m.logger.Info("Starting Load Shedding Manager")
 
-	// Register subscriptions with the registry for automatic input tracking
-	if m.registry != nil {
-		m.registry.RegisterStateSubscription(m.pluginName, "currentEnergyLevel")
-	}
-
-	// Subscribe to energy level changes
-	sub, err := m.stateManager.Subscribe("currentEnergyLevel", m.handleEnergyChange)
-	if err != nil {
+	// Subscribe to energy level changes (shadow inputs captured automatically)
+	if err := m.subHelper.SubscribeToState("currentEnergyLevel", m.handleEnergyChange); err != nil {
 		return fmt.Errorf("failed to subscribe to energy level: %w", err)
 	}
-	m.subscription = sub
+
+	// Initialize shadow state with current input values (after subscriptions registered)
+	m.subHelper.CaptureInitialInputs()
 
 	// Process initial state
 	currentLevel, err := m.stateManager.GetString("currentEnergyLevel")
@@ -117,10 +103,7 @@ func (m *Manager) Stop() {
 	}
 
 	m.logger.Info("Stopping Load Shedding Manager")
-	if m.subscription != nil {
-		m.subscription.Unsubscribe()
-		m.subscription = nil
-	}
+	m.subHelper.UnsubscribeAll()
 	m.enabled = false
 	m.logger.Info("Load Shedding Manager stopped")
 }
@@ -132,8 +115,7 @@ func (m *Manager) handleEnergyChange(key string, oldValue, newValue interface{})
 
 // handleEnergyChangeWithTrigger processes energy level changes with a specific trigger
 func (m *Manager) handleEnergyChangeWithTrigger(key string, oldValue, newValue interface{}, trigger string) {
-	// Update shadow state current inputs
-	m.updateShadowInputs()
+	// Shadow state inputs are automatically captured by SubscriptionHelper
 
 	// Convert values to strings
 	oldLevel := ""
@@ -411,55 +393,18 @@ func (m *Manager) Reset() error {
 	return nil
 }
 
-// updateShadowInputs updates the current input values in shadow state
-func (m *Manager) updateShadowInputs() {
-	// Use automatic input capture if available
-	if m.inputHelper != nil {
-		inputs := m.inputHelper.CaptureInputs(m.pluginName)
-		m.shadowTracker.UpdateCurrentInputs(inputs)
-		return
-	}
-
-	// Fallback to manual capture if no registry
-	inputs := make(map[string]interface{})
-
-	// Get current energy level
-	if val, err := m.stateManager.GetString("currentEnergyLevel"); err == nil {
-		inputs["currentEnergyLevel"] = val
-	}
-
-	m.shadowTracker.UpdateCurrentInputs(inputs)
-}
-
-// updateShadowInputsWithTrigger updates the current input values in shadow state including trigger
-func (m *Manager) updateShadowInputsWithTrigger(trigger string) {
-	additional := map[string]interface{}{"trigger": trigger}
-
-	// Use automatic input capture with additional fields if available
-	if m.inputHelper != nil {
-		inputs := m.inputHelper.CaptureInputsWithAdditional(m.pluginName, additional)
-		m.shadowTracker.UpdateCurrentInputs(inputs)
-		return
-	}
-
-	// Fallback to manual capture if no registry
-	inputs := make(map[string]interface{})
-
-	// Get current energy level
-	if val, err := m.stateManager.GetString("currentEnergyLevel"); err == nil {
-		inputs["currentEnergyLevel"] = val
-	}
-
-	// Add the trigger field
-	inputs["trigger"] = trigger
-
-	m.shadowTracker.UpdateCurrentInputs(inputs)
+// addTriggerToInputs adds the trigger field to the current shadow state inputs
+// Note: Other inputs are automatically captured by SubscriptionHelper before handlers run
+func (m *Manager) addTriggerToInputs(trigger string) {
+	m.shadowTracker.UpdateCurrentInputs(map[string]interface{}{
+		"trigger": trigger,
+	})
 }
 
 // recordAction snapshots inputs and records an action in shadow state
 func (m *Manager) recordAction(active bool, actionType string, reason string, holdMode bool, tempLow float64, tempHigh float64, trigger string) {
-	// Update current inputs first (includes trigger field)
-	m.updateShadowInputsWithTrigger(trigger)
+	// Add trigger to inputs (other inputs already captured by SubscriptionHelper)
+	m.addTriggerToInputs(trigger)
 
 	// Snapshot inputs for this action
 	m.shadowTracker.SnapshotInputsForAction()

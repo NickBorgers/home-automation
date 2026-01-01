@@ -456,14 +456,14 @@ func TestLightingManager_Stop(t *testing.T) {
 	err := manager.Start()
 	assert.NoError(t, err)
 
-	// Verify subscriptions were created (7 subscriptions)
-	assert.Equal(t, 7, len(manager.subscriptions), "Should have 7 subscriptions")
+	// Verify subscriptions were created (7 state subscriptions)
+	assert.Equal(t, 7, len(manager.subHelper.GetStateSubscriptions()), "Should have 7 state subscriptions")
 
 	// Stop manager
 	manager.Stop()
 
 	// Verify subscriptions were cleaned up
-	assert.Nil(t, manager.subscriptions, "Subscriptions should be nil after Stop")
+	assert.Equal(t, 0, len(manager.subHelper.GetStateSubscriptions()), "State subscriptions should be empty after Stop")
 }
 
 func TestManagerReset(t *testing.T) {

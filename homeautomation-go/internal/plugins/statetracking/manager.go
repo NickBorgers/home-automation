@@ -62,33 +62,24 @@ type Manager struct {
 	// Shadow state tracking
 	shadowTracker *shadowstate.StateTrackingTracker
 
-	// Automatic shadow state input tracking
-	pluginName  string
-	registry    *shadowstate.SubscriptionRegistry
-	inputHelper *shadowstate.InputCaptureHelper
+	// Subscription helper for automatic shadow state input capture
+	subHelper *shadowstate.SubscriptionHelper
 }
 
 // NewManager creates a new State Tracking manager
 func NewManager(haClient ha.HAClient, stateManager *state.Manager, logger *zap.Logger, readOnly bool, registry *shadowstate.SubscriptionRegistry) *Manager {
-	const pluginName = "statetracking"
-	m := &Manager{
+	shadowTracker := shadowstate.NewStateTrackingTracker()
+
+	return &Manager{
 		haClient:        haClient,
 		stateManager:    stateManager,
 		logger:          logger.Named("statetracking"),
 		readOnly:        readOnly,
 		clock:           clock.NewRealClock(),
 		haSubscriptions: make([]ha.Subscription, 0),
-		shadowTracker:   shadowstate.NewStateTrackingTracker(),
-		pluginName:      pluginName,
-		registry:        registry,
+		shadowTracker:   shadowTracker,
+		subHelper:       shadowstate.NewSubscriptionHelper(haClient, stateManager, registry, shadowTracker, "statetracking", logger.Named("statetracking")),
 	}
-
-	// Create input capture helper if registry is provided
-	if registry != nil {
-		m.inputHelper = shadowstate.NewInputCaptureHelper(registry, haClient, stateManager)
-	}
-
-	return m
 }
 
 // GetShadowState returns the current shadow state
@@ -106,31 +97,6 @@ func (m *Manager) SetClock(c clock.Clock) {
 func (m *Manager) Start() error {
 	m.logger.Info("Starting State Tracking Manager")
 
-	// Register subscriptions with the registry for automatic input tracking
-	if m.registry != nil {
-		// HA subscriptions
-		m.registry.RegisterHASubscription(m.pluginName, "light.primary_suite")
-		m.registry.RegisterHASubscription(m.pluginName, "input_boolean.primary_bedroom_door_open")
-		m.registry.RegisterHASubscription(m.pluginName, "input_boolean.nick_home")
-		m.registry.RegisterHASubscription(m.pluginName, "input_boolean.caroline_home")
-		m.registry.RegisterHASubscription(m.pluginName, "input_boolean.tori_here")
-
-		// State variables this plugin reads
-		m.registry.RegisterStateSubscription(m.pluginName, "isNickHome")
-		m.registry.RegisterStateSubscription(m.pluginName, "isCarolineHome")
-		m.registry.RegisterStateSubscription(m.pluginName, "isToriHere")
-		m.registry.RegisterStateSubscription(m.pluginName, "isMasterAsleep")
-		m.registry.RegisterStateSubscription(m.pluginName, "isGuestAsleep")
-		m.registry.RegisterStateSubscription(m.pluginName, "isAnyOwnerHome")
-		m.registry.RegisterStateSubscription(m.pluginName, "isAnyoneHome")
-		m.registry.RegisterStateSubscription(m.pluginName, "isAnyoneAsleep")
-		m.registry.RegisterStateSubscription(m.pluginName, "isEveryoneAsleep")
-		m.registry.RegisterStateSubscription(m.pluginName, "didOwnerJustReturnHome")
-	}
-
-	// Initialize shadow state with current input values (after registrations)
-	m.updateShadowInputs()
-
 	// Create and start the derived state helper
 	m.helper = state.NewDerivedStateHelper(m.stateManager, m.logger)
 
@@ -143,40 +109,33 @@ func (m *Manager) Start() error {
 		return fmt.Errorf("failed to start derived state helper: %w", err)
 	}
 
-	// Subscribe to primary suite lights for master sleep detection
-	lightSub, err := m.haClient.SubscribeStateChanges("light.primary_suite", m.handlePrimarySuiteLightsChange)
-	if err != nil {
+	// Subscribe to primary suite lights for master sleep detection (shadow inputs captured automatically)
+	if err := m.subHelper.SubscribeToEntity("light.primary_suite", m.handlePrimarySuiteLightsChange); err != nil {
 		return fmt.Errorf("failed to subscribe to light.primary_suite: %w", err)
 	}
-	m.haSubscriptions = append(m.haSubscriptions, lightSub)
 
 	// Subscribe to primary bedroom door for master wake detection
-	doorSub, err := m.haClient.SubscribeStateChanges("input_boolean.primary_bedroom_door_open", m.handlePrimaryBedroomDoorChange)
-	if err != nil {
+	if err := m.subHelper.SubscribeToEntity("input_boolean.primary_bedroom_door_open", m.handlePrimaryBedroomDoorChange); err != nil {
 		return fmt.Errorf("failed to subscribe to input_boolean.primary_bedroom_door_open: %w", err)
 	}
-	m.haSubscriptions = append(m.haSubscriptions, doorSub)
 
 	// Subscribe to Nick's presence for arrival announcements
-	nickSub, err := m.haClient.SubscribeStateChanges("input_boolean.nick_home", m.handleNickHomeChange)
-	if err != nil {
+	if err := m.subHelper.SubscribeToEntity("input_boolean.nick_home", m.handleNickHomeChange); err != nil {
 		return fmt.Errorf("failed to subscribe to input_boolean.nick_home: %w", err)
 	}
-	m.haSubscriptions = append(m.haSubscriptions, nickSub)
 
 	// Subscribe to Caroline's presence for arrival announcements
-	carolineSub, err := m.haClient.SubscribeStateChanges("input_boolean.caroline_home", m.handleCarolineHomeChange)
-	if err != nil {
+	if err := m.subHelper.SubscribeToEntity("input_boolean.caroline_home", m.handleCarolineHomeChange); err != nil {
 		return fmt.Errorf("failed to subscribe to input_boolean.caroline_home: %w", err)
 	}
-	m.haSubscriptions = append(m.haSubscriptions, carolineSub)
 
 	// Subscribe to Tori's presence for arrival announcements
-	toriSub, err := m.haClient.SubscribeStateChanges("input_boolean.tori_here", m.handleToriHereChange)
-	if err != nil {
+	if err := m.subHelper.SubscribeToEntity("input_boolean.tori_here", m.handleToriHereChange); err != nil {
 		return fmt.Errorf("failed to subscribe to input_boolean.tori_here: %w", err)
 	}
-	m.haSubscriptions = append(m.haSubscriptions, toriSub)
+
+	// Initialize shadow state with current input values (after subscriptions registered)
+	m.subHelper.CaptureInitialInputs()
 
 	m.logger.Info("State Tracking Manager started successfully",
 		zap.Strings("derivedStates", []string{
@@ -220,11 +179,8 @@ func (m *Manager) Stop() {
 	}
 	m.timerMutex.Unlock()
 
-	// Unsubscribe from all HA subscriptions
-	for _, sub := range m.haSubscriptions {
-		sub.Unsubscribe()
-	}
-	m.haSubscriptions = nil
+	// Unsubscribe from all subscriptions
+	m.subHelper.UnsubscribeAll()
 
 	if m.helper != nil {
 		m.helper.Stop()
@@ -239,7 +195,7 @@ func (m *Manager) handlePrimarySuiteLightsChange(entityID string, oldState, newS
 	}
 
 	// Update shadow state inputs
-	m.updateShadowInputs()
+	// Shadow state inputs are automatically captured by SubscriptionHelper
 
 	lightsOff := newState.State == "off"
 
@@ -318,7 +274,7 @@ func (m *Manager) handlePrimaryBedroomDoorChange(entityID string, oldState, newS
 	}
 
 	// Update shadow state inputs
-	m.updateShadowInputs()
+	// Shadow state inputs are automatically captured by SubscriptionHelper
 
 	doorOpen := newState.State == "on"
 
@@ -371,7 +327,7 @@ func (m *Manager) handleNickHomeChange(entityID string, oldState, newState *ha.S
 	}
 
 	// Update shadow state inputs
-	m.updateShadowInputs()
+	// Shadow state inputs are automatically captured by SubscriptionHelper
 
 	// Check if Nick just arrived (state changed to "on" from something else)
 	if newState.State == "on" && oldState.State != "on" {
@@ -417,7 +373,7 @@ func (m *Manager) handleCarolineHomeChange(entityID string, oldState, newState *
 	}
 
 	// Update shadow state inputs
-	m.updateShadowInputs()
+	// Shadow state inputs are automatically captured by SubscriptionHelper
 
 	// Check if Caroline just arrived (state changed to "on" from something else)
 	if newState.State == "on" && oldState.State != "on" {
@@ -463,7 +419,7 @@ func (m *Manager) handleToriHereChange(entityID string, oldState, newState *ha.S
 	}
 
 	// Update shadow state inputs
-	m.updateShadowInputs()
+	// Shadow state inputs are automatically captured by SubscriptionHelper
 
 	// Check if Tori just arrived (state changed to "on" from something else)
 	if newState.State == "on" && oldState.State != "on" {
@@ -611,55 +567,4 @@ func (m *Manager) Reset() error {
 	}
 
 	return nil
-}
-
-// updateShadowInputs captures the current input values used for state tracking
-func (m *Manager) updateShadowInputs() {
-	// Use automatic input capture if available
-	if m.inputHelper != nil {
-		inputs := m.inputHelper.CaptureInputs(m.pluginName)
-		m.shadowTracker.UpdateCurrentInputs(inputs)
-		return
-	}
-
-	// Fallback to manual capture if no registry
-	inputs := make(map[string]interface{})
-
-	// Capture presence states (primary inputs)
-	if val, err := m.stateManager.GetBool("isNickHome"); err == nil {
-		inputs["isNickHome"] = val
-	}
-	if val, err := m.stateManager.GetBool("isCarolineHome"); err == nil {
-		inputs["isCarolineHome"] = val
-	}
-	if val, err := m.stateManager.GetBool("isToriHere"); err == nil {
-		inputs["isToriHere"] = val
-	}
-
-	// Capture sleep states
-	if val, err := m.stateManager.GetBool("isMasterAsleep"); err == nil {
-		inputs["isMasterAsleep"] = val
-	}
-	if val, err := m.stateManager.GetBool("isGuestAsleep"); err == nil {
-		inputs["isGuestAsleep"] = val
-	}
-
-	// Capture derived states (outputs that become inputs for other plugins)
-	if val, err := m.stateManager.GetBool("isAnyOwnerHome"); err == nil {
-		inputs["isAnyOwnerHome"] = val
-	}
-	if val, err := m.stateManager.GetBool("isAnyoneHome"); err == nil {
-		inputs["isAnyoneHome"] = val
-	}
-	if val, err := m.stateManager.GetBool("isAnyoneAsleep"); err == nil {
-		inputs["isAnyoneAsleep"] = val
-	}
-	if val, err := m.stateManager.GetBool("isEveryoneAsleep"); err == nil {
-		inputs["isEveryoneAsleep"] = val
-	}
-	if val, err := m.stateManager.GetBool("didOwnerJustReturnHome"); err == nil {
-		inputs["didOwnerJustReturnHome"] = val
-	}
-
-	m.shadowTracker.UpdateCurrentInputs(inputs)
 }

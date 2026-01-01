@@ -30,6 +30,10 @@ type SubscriptionHelper struct {
 	// Track subscriptions for cleanup
 	haSubscriptions    []ha.Subscription
 	stateSubscriptions []state.Subscription
+
+	// Track subscribed keys for fallback input capture (when registry is nil)
+	subscribedStateKeys  []string
+	subscribedHAEntities []string
 }
 
 // NewSubscriptionHelper creates a new subscription helper for a plugin.
@@ -43,14 +47,16 @@ func NewSubscriptionHelper(
 	logger *zap.Logger,
 ) *SubscriptionHelper {
 	h := &SubscriptionHelper{
-		haClient:           haClient,
-		stateManager:       stateManager,
-		registry:           registry,
-		shadowTracker:      shadowTracker,
-		pluginName:         pluginName,
-		logger:             logger,
-		haSubscriptions:    make([]ha.Subscription, 0),
-		stateSubscriptions: make([]state.Subscription, 0),
+		haClient:             haClient,
+		stateManager:         stateManager,
+		registry:             registry,
+		shadowTracker:        shadowTracker,
+		pluginName:           pluginName,
+		logger:               logger,
+		haSubscriptions:      make([]ha.Subscription, 0),
+		stateSubscriptions:   make([]state.Subscription, 0),
+		subscribedStateKeys:  make([]string, 0),
+		subscribedHAEntities: make([]string, 0),
 	}
 
 	// Create input helper for automatic capture
@@ -64,11 +70,42 @@ func NewSubscriptionHelper(
 // captureInputs captures all registered inputs and updates the shadow tracker.
 // This is called automatically before every handler.
 func (h *SubscriptionHelper) captureInputs() {
-	if h.inputHelper == nil || h.shadowTracker == nil {
+	if h.shadowTracker == nil {
 		return
 	}
-	inputs := h.inputHelper.CaptureInputs(h.pluginName)
-	h.shadowTracker.UpdateCurrentInputs(inputs)
+
+	// Use inputHelper if available (normal operation with registry)
+	if h.inputHelper != nil {
+		inputs := h.inputHelper.CaptureInputs(h.pluginName)
+		h.shadowTracker.UpdateCurrentInputs(inputs)
+		return
+	}
+
+	// Fallback: capture inputs directly from tracked subscriptions (for tests without registry)
+	inputs := make(map[string]interface{})
+
+	// Capture state variable values
+	if h.stateManager != nil {
+		allValues := h.stateManager.GetAllValues()
+		for _, key := range h.subscribedStateKeys {
+			if val, ok := allValues[key]; ok {
+				inputs[key] = val
+			}
+		}
+	}
+
+	// Capture HA entity states
+	if h.haClient != nil {
+		for _, entityID := range h.subscribedHAEntities {
+			if state, err := h.haClient.GetState(entityID); err == nil && state != nil {
+				inputs[entityID] = state.State
+			}
+		}
+	}
+
+	if len(inputs) > 0 {
+		h.shadowTracker.UpdateCurrentInputs(inputs)
+	}
 }
 
 // CaptureInitialInputs captures all registered inputs at startup.
@@ -86,6 +123,9 @@ func (h *SubscriptionHelper) SubscribeToSensor(entityID string, handler func(val
 	if h.registry != nil {
 		h.registry.RegisterHASubscription(h.pluginName, entityID)
 	}
+
+	// Track the entity for fallback input capture
+	h.subscribedHAEntities = append(h.subscribedHAEntities, entityID)
 
 	sub, err := h.haClient.SubscribeStateChanges(entityID, func(entity string, oldState, newState *ha.State) {
 		if newState == nil {
@@ -124,6 +164,9 @@ func (h *SubscriptionHelper) SubscribeToEntity(entityID string, handler func(ent
 		h.registry.RegisterHASubscription(h.pluginName, entityID)
 	}
 
+	// Track the entity for fallback input capture
+	h.subscribedHAEntities = append(h.subscribedHAEntities, entityID)
+
 	sub, err := h.haClient.SubscribeStateChanges(entityID, func(entity string, oldState, newState *ha.State) {
 		// Capture shadow state inputs BEFORE calling the handler
 		h.captureInputs()
@@ -146,6 +189,9 @@ func (h *SubscriptionHelper) SubscribeToState(key string, handler func(key strin
 	if h.registry != nil {
 		h.registry.RegisterStateSubscription(h.pluginName, key)
 	}
+
+	// Track the key for fallback input capture
+	h.subscribedStateKeys = append(h.subscribedStateKeys, key)
 
 	sub, err := h.stateManager.Subscribe(key, func(k string, oldValue, newValue interface{}) {
 		// Capture shadow state inputs BEFORE calling the handler

@@ -17,18 +17,19 @@ func TestLoadSheddingShadowState_CaptureInputs(t *testing.T) {
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, zap.NewNop(), true)
 
-	// Create load shedding manager
-	manager := NewManager(mockClient, stateManager, zap.NewNop(), true, nil)
-
-	// Set some state
+	// Set some state BEFORE starting manager (so initial state exists)
 	if err := stateManager.SetString("currentEnergyLevel", "green"); err != nil {
 		t.Fatalf("Failed to set energy level: %v", err)
 	}
 
-	// Update inputs
-	manager.updateShadowInputs()
+	// Create and start load shedding manager (Start() registers subscriptions)
+	manager := NewManager(mockClient, stateManager, zap.NewNop(), true, nil)
+	if err := manager.Start(); err != nil {
+		t.Fatalf("Failed to start manager: %v", err)
+	}
+	defer manager.Stop()
 
-	// Get shadow state
+	// Get shadow state (inputs are captured during Start)
 	shadowState := manager.GetShadowState()
 
 	// Verify inputs were captured
@@ -160,7 +161,7 @@ func TestLoadSheddingShadowState_GetShadowState(t *testing.T) {
 	manager := NewManager(mockClient, stateManager, zap.NewNop(), true, nil)
 
 	// Record some state
-	manager.updateShadowInputs()
+	manager.subHelper.CaptureInitialInputs()
 
 	// Get shadow state
 	shadowState := manager.GetShadowState()
@@ -223,7 +224,7 @@ func TestLoadSheddingShadowState_ConcurrentAccess(t *testing.T) {
 	// Another writer goroutine - updates inputs
 	go func() {
 		for i := 0; i < 100; i++ {
-			manager.updateShadowInputs()
+			manager.subHelper.CaptureInitialInputs()
 			time.Sleep(1 * time.Millisecond)
 		}
 		done <- true
@@ -260,7 +261,12 @@ func TestLoadSheddingShadowState_InputSnapshot(t *testing.T) {
 		t.Fatalf("Failed to set energy level: %v", err)
 	}
 
+	// Start manager to register subscriptions
 	manager := NewManager(mockClient, stateManager, zap.NewNop(), true, nil)
+	if err := manager.Start(); err != nil {
+		t.Fatalf("Failed to start manager: %v", err)
+	}
+	defer manager.Stop()
 
 	// Record action with red energy level
 	manager.recordAction(true, "enable", "Low battery", true, tempLowRestricted, tempHighRestricted, "test_trigger")
@@ -275,7 +281,7 @@ func TestLoadSheddingShadowState_InputSnapshot(t *testing.T) {
 	if err := stateManager.SetString("currentEnergyLevel", "green"); err != nil {
 		t.Fatalf("Failed to change energy level: %v", err)
 	}
-	manager.updateShadowInputs()
+	manager.subHelper.CaptureInitialInputs()
 
 	// Verify current inputs changed but at-last-action stayed the same
 	shadowState = manager.GetShadowState()

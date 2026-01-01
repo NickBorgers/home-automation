@@ -381,22 +381,22 @@ func TestTVManager_Stop_CleansUpSubscriptions(t *testing.T) {
 	}
 
 	// Verify subscriptions exist (4 HA subs: AppleTV, sync box software power, physical power, HDMI input)
-	if len(manager.haSubscriptions) != 4 {
-		t.Errorf("Expected 4 HA subscriptions after Start(), got %d", len(manager.haSubscriptions))
+	if len(manager.subHelper.GetHASubscriptions()) != 4 {
+		t.Errorf("Expected 4 HA subscriptions after Start(), got %d", len(manager.subHelper.GetHASubscriptions()))
 	}
-	if len(manager.stateSubscriptions) != 1 {
-		t.Errorf("Expected 1 state subscription after Start(), got %d", len(manager.stateSubscriptions))
+	if len(manager.subHelper.GetStateSubscriptions()) != 1 {
+		t.Errorf("Expected 1 state subscription after Start(), got %d", len(manager.subHelper.GetStateSubscriptions()))
 	}
 
 	// Stop the manager
 	manager.Stop()
 
 	// Verify subscriptions were cleaned up
-	if manager.haSubscriptions != nil {
-		t.Error("Expected haSubscriptions to be nil after Stop()")
+	if len(manager.subHelper.GetHASubscriptions()) != 0 {
+		t.Error("Expected haSubscriptions to be empty after Stop()")
 	}
-	if manager.stateSubscriptions != nil {
-		t.Error("Expected stateSubscriptions to be nil after Stop()")
+	if len(manager.subHelper.GetStateSubscriptions()) != 0 {
+		t.Error("Expected stateSubscriptions to be empty after Stop()")
 	}
 }
 
@@ -870,11 +870,11 @@ func TestTVManager_Start_AddsPhysicalPowerSubscription(t *testing.T) {
 	}
 
 	// Verify subscriptions exist - now should be 4 (added physical power subscription)
-	if len(manager.haSubscriptions) != 4 {
-		t.Errorf("Expected 4 HA subscriptions after Start(), got %d", len(manager.haSubscriptions))
+	if len(manager.subHelper.GetHASubscriptions()) != 4 {
+		t.Errorf("Expected 4 HA subscriptions after Start(), got %d", len(manager.subHelper.GetHASubscriptions()))
 	}
-	if len(manager.stateSubscriptions) != 1 {
-		t.Errorf("Expected 1 state subscription after Start(), got %d", len(manager.stateSubscriptions))
+	if len(manager.subHelper.GetStateSubscriptions()) != 1 {
+		t.Errorf("Expected 1 state subscription after Start(), got %d", len(manager.subHelper.GetStateSubscriptions()))
 	}
 
 	// Clean up
