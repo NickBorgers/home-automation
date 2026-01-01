@@ -112,7 +112,7 @@ func TestMusicShadowState_UpdateOutputs(t *testing.T) {
 	}
 
 	// Update outputs
-	manager.updateShadowOutputs("evening", playlistInfo, speakers)
+	manager.updateShadowOutputs("evening", playlistInfo, speakers, nil)
 
 	// Verify shadow state
 	shadowState := manager.GetShadowState()
@@ -246,7 +246,7 @@ func TestMusicShadowState_PlaylistRotation(t *testing.T) {
 	manager.playlistNumbers["evening"] = 5
 
 	// Update shadow outputs (this should copy the rotation state)
-	manager.updateShadowOutputs("", nil, nil)
+	manager.updateShadowOutputs("", nil, nil, nil)
 
 	// Get shadow state
 	shadowState := manager.GetShadowState()

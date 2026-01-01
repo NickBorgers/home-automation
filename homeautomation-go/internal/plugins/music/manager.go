@@ -662,19 +662,19 @@ func (m *Manager) orchestratePlayback(musicType string, trigger string) error {
 			zap.String("type", musicType),
 			zap.String("lead_player", leadPlayer),
 			zap.Int("participant_count", len(participants)))
-		// Record shadow state even in read-only mode (nil groupResult = all active)
-		m.recordPlaybackShadowState(musicType, playbackOption, participants, leadPlayer, trigger, nil)
+		// Record shadow state even in read-only mode (nil groupResult = all active, 0 = no verification in read-only)
+		m.recordPlaybackShadowState(musicType, playbackOption, participants, leadPlayer, trigger, nil, 0)
 		return nil
 	}
 
 	// Execute playback sequence
-	groupResult, err := m.executePlayback(musicType, playbackOption, participants, leadPlayer)
+	groupResult, verificationAttempts, err := m.executePlayback(musicType, playbackOption, participants, leadPlayer)
 	if err != nil {
 		return fmt.Errorf("failed to execute playback: %w", err)
 	}
 
-	// Record shadow state after successful playback with speaker status
-	m.recordPlaybackShadowState(musicType, playbackOption, participants, leadPlayer, trigger, groupResult)
+	// Record shadow state after successful playback with speaker status and verification info
+	m.recordPlaybackShadowState(musicType, playbackOption, participants, leadPlayer, trigger, groupResult, verificationAttempts)
 
 	return nil
 }
@@ -816,9 +816,10 @@ func (m *Manager) calculateVolume(baseVolume int, multiplier float64) int {
 }
 
 // executePlayback executes the actual playback sequence.
-// Returns SpeakerGroupResult indicating which speakers are active.
+// Returns SpeakerGroupResult indicating which speakers are active, and the number of
+// verification attempts needed (1 = first try succeeded).
 // Sequence matches Node-RED: break existing groups → build new group → mute → play → fade in
-func (m *Manager) executePlayback(musicType string, option PlaybackOption, participants []ParticipantWithVolume, leadPlayer string) (*SpeakerGroupResult, error) {
+func (m *Manager) executePlayback(musicType string, option PlaybackOption, participants []ParticipantWithVolume, leadPlayer string) (*SpeakerGroupResult, int, error) {
 	m.logger.Info("Executing playback sequence",
 		zap.String("type", musicType),
 		zap.String("lead_player", leadPlayer),
@@ -836,7 +837,7 @@ func (m *Manager) executePlayback(musicType string, option PlaybackOption, parti
 		var err error
 		groupResult, err = m.buildSpeakerGroup(participants, leadEntityID)
 		if err != nil {
-			return groupResult, fmt.Errorf("failed to build speaker group: %w", err)
+			return groupResult, 0, fmt.Errorf("failed to build speaker group: %w", err)
 		}
 	} else {
 		// Single speaker - create result with just the lead
@@ -867,13 +868,16 @@ func (m *Manager) executePlayback(musicType string, option PlaybackOption, parti
 		}
 	}
 
-	// Step 4: Start playback on lead player
-	if err := m.callServiceWithRetry("media_player", "play_media", map[string]interface{}{
-		"entity_id":          leadEntityID,
-		"media_content_id":   option.URI,
-		"media_content_type": option.MediaType,
-	}); err != nil {
-		return groupResult, fmt.Errorf("failed to start playback: %w", err)
+	// Step 4: Start playback on lead player with verification
+	// This verifies playback actually starts, not just that the command was accepted
+	attempts, err := m.startPlaybackWithVerification(leadEntityID, option)
+	if err != nil {
+		return groupResult, attempts, fmt.Errorf("failed to start playback: %w", err)
+	}
+	if attempts > 1 {
+		m.logger.Info("Playback required multiple attempts",
+			zap.Int("attempts", attempts),
+			zap.String("speaker", leadPlayer))
 	}
 
 	// Step 5: Enable shuffle for Spotify playlists
@@ -909,9 +913,10 @@ func (m *Manager) executePlayback(musicType string, option PlaybackOption, parti
 	m.logger.Info("Playback sequence completed successfully",
 		zap.String("type", musicType),
 		zap.Int("active_speakers", groupResult.ActiveCount),
-		zap.Int("failed_speakers", groupResult.FailedCount))
+		zap.Int("failed_speakers", groupResult.FailedCount),
+		zap.Int("verification_attempts", attempts))
 
-	return groupResult, nil
+	return groupResult, attempts, nil
 }
 
 // Speaker group retry configuration
@@ -938,7 +943,112 @@ const (
 	// speakerGroupSettleDelay is the delay after building a speaker group
 	// to allow the Sonos system to stabilize before starting playback.
 	speakerGroupSettleDelay = 500 * time.Millisecond
+
+	// playbackVerificationDelay is how long to wait after sending play_media
+	// before checking if playback actually started. Sonos needs time to
+	// receive the command and begin playback.
+	playbackVerificationDelay = 2 * time.Second
+
+	// playbackVerificationRetries is how many times to retry play_media if
+	// the speaker doesn't enter "playing" state. This handles transient failures
+	// where the command is accepted but playback doesn't start.
+	playbackVerificationRetries = 3
+
+	// playbackVerificationRetryDelay is the delay between retry attempts.
+	playbackVerificationRetryDelay = 3 * time.Second
 )
+
+// startPlaybackWithVerification sends the play_media command and verifies playback actually starts.
+// It returns the number of attempts needed (1 = first try succeeded) and any error.
+// This handles the failure mode where HA accepts play_media but the speaker doesn't actually play.
+func (m *Manager) startPlaybackWithVerification(leadEntityID string, option PlaybackOption) (attempts int, err error) {
+	for attempt := 1; attempt <= playbackVerificationRetries; attempt++ {
+		// Send play_media command
+		if err := m.callServiceWithRetry("media_player", "play_media", map[string]interface{}{
+			"entity_id":          leadEntityID,
+			"media_content_id":   option.URI,
+			"media_content_type": option.MediaType,
+		}); err != nil {
+			return attempt, fmt.Errorf("failed to send play_media: %w", err)
+		}
+
+		// Wait for speaker to start playing
+		m.sleepFunc(playbackVerificationDelay)
+
+		// Check if playback actually started
+		playing, checkErr := m.isPlaybackActive(leadEntityID)
+		if checkErr != nil {
+			m.logger.Warn("Failed to verify playback state",
+				zap.String("entity_id", leadEntityID),
+				zap.Int("attempt", attempt),
+				zap.Error(checkErr))
+			// Can't verify, assume it worked (fail-open)
+			return attempt, nil
+		}
+
+		if playing {
+			if attempt > 1 {
+				m.logger.Info("Playback started after retry",
+					zap.String("entity_id", leadEntityID),
+					zap.Int("attempts", attempt))
+			}
+			return attempt, nil
+		}
+
+		// Not playing - try sending play command as a nudge
+		m.logger.Warn("Playback not started, attempting recovery",
+			zap.String("entity_id", leadEntityID),
+			zap.Int("attempt", attempt),
+			zap.Int("max_attempts", playbackVerificationRetries))
+
+		// Try media_player.play as a nudge in case the speaker is paused
+		if nudgeErr := m.callServiceWithRetry("media_player", "media_play", map[string]interface{}{
+			"entity_id": leadEntityID,
+		}); nudgeErr != nil {
+			m.logger.Debug("Play nudge failed", zap.Error(nudgeErr))
+		}
+
+		// Brief wait and re-check before retry
+		m.sleepFunc(1 * time.Second)
+		playing, _ = m.isPlaybackActive(leadEntityID)
+		if playing {
+			m.logger.Info("Playback started after play nudge",
+				zap.String("entity_id", leadEntityID),
+				zap.Int("attempts", attempt))
+			return attempt, nil
+		}
+
+		if attempt < playbackVerificationRetries {
+			m.logger.Info("Waiting before retry",
+				zap.Duration("delay", playbackVerificationRetryDelay))
+			m.sleepFunc(playbackVerificationRetryDelay)
+		}
+	}
+
+	return playbackVerificationRetries, fmt.Errorf("playback failed to start after %d attempts - speaker grouped but not playing", playbackVerificationRetries)
+}
+
+// isPlaybackActive checks if the speaker is currently in a playing state.
+// Returns true if state is "playing", false for "paused", "idle", "off", etc.
+func (m *Manager) isPlaybackActive(entityID string) (bool, error) {
+	state, err := m.haClient.GetState(entityID)
+	if err != nil {
+		return false, fmt.Errorf("failed to get speaker state: %w", err)
+	}
+	if state == nil {
+		return false, fmt.Errorf("speaker state is nil")
+	}
+
+	// Sonos media_player states: playing, paused, idle, off, unavailable
+	isPlaying := state.State == "playing"
+
+	m.logger.Debug("Checked playback state",
+		zap.String("entity_id", entityID),
+		zap.String("state", state.State),
+		zap.Bool("is_playing", isPlaying))
+
+	return isPlaying, nil
+}
 
 // breakSpeakerGroups unjoins all participants from their existing groups.
 // This must be called before building a new speaker group to ensure speakers
@@ -1571,7 +1681,7 @@ func (m *Manager) updateShadowState(actionType, reason, trigger string) {
 }
 
 // updateShadowOutputs updates the output portion of shadow state
-func (m *Manager) updateShadowOutputs(mode string, playlist *shadowstate.PlaylistInfo, speakers []shadowstate.SpeakerState) {
+func (m *Manager) updateShadowOutputs(mode string, playlist *shadowstate.PlaylistInfo, speakers []shadowstate.SpeakerState, verification *shadowstate.PlaybackVerificationStatus) {
 	m.shadowMu.Lock()
 	defer m.shadowMu.Unlock()
 
@@ -1583,6 +1693,9 @@ func (m *Manager) updateShadowOutputs(mode string, playlist *shadowstate.Playlis
 	}
 	if speakers != nil {
 		m.shadowState.Outputs.SpeakerGroup = speakers
+	}
+	if verification != nil {
+		m.shadowState.Outputs.PlaybackVerification = verification
 	}
 
 	// Copy playlist rotation state
@@ -1628,7 +1741,8 @@ func (m *Manager) GetShadowState() *shadowstate.MusicShadowState {
 // recordPlaybackShadowState records shadow state after playback orchestration.
 // groupResult can be nil (for read-only mode or single speaker), in which case
 // all participants are assumed to be active.
-func (m *Manager) recordPlaybackShadowState(musicType string, playbackOption PlaybackOption, participants []ParticipantWithVolume, leadPlayer string, trigger string, groupResult *SpeakerGroupResult) {
+// verificationAttempts indicates how many attempts were needed to verify playback started (0 = not verified/read-only).
+func (m *Manager) recordPlaybackShadowState(musicType string, playbackOption PlaybackOption, participants []ParticipantWithVolume, leadPlayer string, trigger string, groupResult *SpeakerGroupResult, verificationAttempts int) {
 	// Convert participants to shadow state speaker format
 	speakers := make([]shadowstate.SpeakerState, 0, len(participants))
 
@@ -1675,6 +1789,18 @@ func (m *Manager) recordPlaybackShadowState(musicType string, playbackOption Pla
 		reason = fmt.Sprintf("Started playback of '%s' in mode '%s'", playbackOption.URI, musicType)
 	}
 
+	// Build verification status (nil for read-only mode where verificationAttempts is 0)
+	var verification *shadowstate.PlaybackVerificationStatus
+	if verificationAttempts > 0 {
+		verification = &shadowstate.PlaybackVerificationStatus{
+			Verified:       true,
+			AttemptsNeeded: verificationAttempts,
+			FinalState:     "playing",
+			VerifiedAt:     m.timeProvider.Now(),
+			LeadSpeaker:    m.getSpeakerEntityID(leadPlayer),
+		}
+	}
+
 	m.updateShadowState("start_playback", reason, trigger)
-	m.updateShadowOutputs(musicType, playlistInfo, speakers)
+	m.updateShadowOutputs(musicType, playlistInfo, speakers, verification)
 }
