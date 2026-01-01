@@ -59,7 +59,7 @@ func TestScenario_DayPhaseEvening_ActivatesCorrectScenes(t *testing.T) {
 	t.Log("GIVEN: Day phase is morning, someone is home")
 	server.SetState("input_text.day_phase", "morning", map[string]interface{}{})
 	server.SetState("input_boolean.anyone_home", "on", map[string]interface{}{})
-	time.Sleep(200 * time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
 
 	server.ClearServiceCalls()
 
@@ -68,7 +68,7 @@ func TestScenario_DayPhaseEvening_ActivatesCorrectScenes(t *testing.T) {
 	server.SetState("input_text.day_phase", "evening", map[string]interface{}{})
 
 	// Wait for automation to react
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 
 	// THEN: Verify correct scenes were activated
 	t.Log("THEN: Verify correct scenes were activated")
@@ -108,7 +108,7 @@ func TestScenario_SunEventSunset_ActivatesScenes(t *testing.T) {
 	server.SetState("input_text.day_phase", "afternoon", map[string]interface{}{})
 	server.SetState("input_text.sun_event", "before_sunset", map[string]interface{}{})
 	server.SetState("input_boolean.anyone_home", "on", map[string]interface{}{})
-	time.Sleep(200 * time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
 
 	// Get count before sun event change
 	initialCalls := len(server.GetServiceCalls())
@@ -119,7 +119,7 @@ func TestScenario_SunEventSunset_ActivatesScenes(t *testing.T) {
 	server.SetState("input_text.sun_event", "sunset", map[string]interface{}{})
 
 	// Wait for automation to react
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 
 	// THEN: Verify scenes were activated
 	t.Log("THEN: Verify scenes were activated")
@@ -146,7 +146,7 @@ func TestScenario_TVStateChange_TriggersLightingAdjustment(t *testing.T) {
 	server.SetState("input_text.day_phase", "evening", map[string]interface{}{})
 	server.SetState("input_boolean.anyone_home", "on", map[string]interface{}{})
 	server.SetState("input_boolean.tv_playing", "off", map[string]interface{}{})
-	time.Sleep(200 * time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
 
 	server.ClearServiceCalls()
 
@@ -155,7 +155,7 @@ func TestScenario_TVStateChange_TriggersLightingAdjustment(t *testing.T) {
 	server.SetState("input_boolean.tv_playing", "on", map[string]interface{}{})
 
 	// Wait for automation to react
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 
 	// THEN: Verify lighting was re-evaluated
 	t.Log("THEN: Verify lighting was re-evaluated")
@@ -185,7 +185,7 @@ func TestScenario_EveryoneAsleep_TurnsOffLights(t *testing.T) {
 	// isEveryoneAsleep is computed from isMasterAsleep AND isGuestAsleep
 	server.SetState("input_boolean.master_asleep", "off", map[string]interface{}{})
 	server.SetState("input_boolean.guest_asleep", "off", map[string]interface{}{})
-	time.Sleep(200 * time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
 
 	// Get count before sleep state change
 	initialCalls := len(server.GetServiceCalls())
@@ -197,7 +197,7 @@ func TestScenario_EveryoneAsleep_TurnsOffLights(t *testing.T) {
 	server.SetState("input_boolean.guest_asleep", "on", map[string]interface{}{})
 
 	// Wait for automation to react
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 
 	// THEN: Verify lights were turned off or night mode activated
 	t.Log("THEN: Verify lights were turned off or night mode activated")
@@ -230,7 +230,7 @@ func TestScenario_PresenceChangeHome_ActivatesScenes(t *testing.T) {
 	t.Log("GIVEN: Evening, no one is home")
 	server.SetState("input_text.day_phase", "evening", map[string]interface{}{})
 	server.SetState("input_boolean.anyone_home", "off", map[string]interface{}{})
-	time.Sleep(200 * time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
 
 	server.ClearServiceCalls()
 
@@ -239,7 +239,7 @@ func TestScenario_PresenceChangeHome_ActivatesScenes(t *testing.T) {
 	server.SetState("input_boolean.anyone_home", "on", map[string]interface{}{})
 
 	// Wait for automation to react
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 
 	// THEN: Verify scenes were activated
 	t.Log("THEN: Verify scenes were activated")
@@ -265,7 +265,7 @@ func TestScenario_GuestArrival_ActivatesGuestScenes(t *testing.T) {
 	server.SetState("input_text.day_phase", "evening", map[string]interface{}{})
 	server.SetState("input_boolean.anyone_home", "on", map[string]interface{}{})
 	server.SetState("input_boolean.have_guests", "off", map[string]interface{}{})
-	time.Sleep(200 * time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
 
 	server.ClearServiceCalls()
 
@@ -274,7 +274,7 @@ func TestScenario_GuestArrival_ActivatesGuestScenes(t *testing.T) {
 	server.SetState("input_boolean.have_guests", "on", map[string]interface{}{})
 
 	// Wait for automation to react
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 
 	// THEN: Verify scenes were re-evaluated for guest presence
 	t.Log("THEN: Verify scenes were re-evaluated for guest presence")
@@ -300,7 +300,7 @@ func TestScenario_MasterBedroomSleep_HandlesConditionalLogic(t *testing.T) {
 	server.SetState("input_text.day_phase", "evening", map[string]interface{}{})
 	server.SetState("input_boolean.anyone_home", "on", map[string]interface{}{})
 	server.SetState("input_boolean.master_asleep", "off", map[string]interface{}{})
-	time.Sleep(200 * time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
 
 	server.ClearServiceCalls()
 
@@ -309,7 +309,7 @@ func TestScenario_MasterBedroomSleep_HandlesConditionalLogic(t *testing.T) {
 	server.SetState("input_boolean.master_asleep", "on", map[string]interface{}{})
 
 	// Wait for automation to react
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 
 	// THEN: Verify master bedroom lights were turned off
 	t.Log("THEN: Verify master bedroom lights were turned off")
@@ -357,7 +357,7 @@ func TestScenario_MultipleStateChanges_HandlesCorrectly(t *testing.T) {
 	t.Log("GIVEN: Initial state - morning, no one home")
 	server.SetState("input_text.day_phase", "morning", map[string]interface{}{})
 	server.SetState("input_boolean.anyone_home", "off", map[string]interface{}{})
-	time.Sleep(200 * time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
 
 	// Don't clear service calls - we want to see all the activity
 
@@ -375,7 +375,7 @@ func TestScenario_MultipleStateChanges_HandlesCorrectly(t *testing.T) {
 	server.SetState("input_boolean.tv_playing", "on", map[string]interface{}{})
 
 	// Wait for all automations to complete
-	time.Sleep(1 * time.Second)
+	time.Sleep(200 * time.Millisecond)
 
 	// THEN: All state changes should be processed without errors
 	t.Log("THEN: All state changes should be processed without errors")

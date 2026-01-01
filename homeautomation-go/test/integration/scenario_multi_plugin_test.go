@@ -65,7 +65,7 @@ func setupMultiPluginTest(t *testing.T) (*pluginTestEnv, func()) {
 	require.NoError(t, env.energy.Start(), "Failed to start energy plugin")
 
 	// Allow plugins to initialize
-	time.Sleep(300 * time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
 
 	cleanup := func() {
 		env.lighting.Stop()
@@ -122,7 +122,7 @@ func TestScenario_TVPlaying_DimsLivingRoomLights(t *testing.T) {
 	require.NoError(t, env.manager.SetString("dayPhase", "evening"))
 	require.NoError(t, env.manager.SetBool("isAnyoneHome", true))
 	require.NoError(t, env.manager.SetBool("isEveryoneAsleep", false))
-	time.Sleep(300 * time.Millisecond) // Allow lighting plugin to activate initial scenes
+	time.Sleep(50 * time.Millisecond) // Allow lighting plugin to activate initial scenes
 
 	env.server.ClearServiceCalls() // Clear initialization calls
 
@@ -142,7 +142,7 @@ func TestScenario_TVPlaying_DimsLivingRoomLights(t *testing.T) {
 	env.server.SetState("select.sync_box_hdmi_input", "Apple TV", map[string]interface{}{})
 
 	// Wait for TV plugin to process and update state
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 
 	// ========== THEN ==========
 	t.Log("THEN: Verify TV state updated and lighting plugin reacted")
@@ -188,7 +188,7 @@ func TestScenario_LowEnergy_PluginsCoexist(t *testing.T) {
 	require.NoError(t, env.manager.SetString("dayPhase", "evening"))
 	require.NoError(t, env.manager.SetBool("isAnyoneHome", true))
 
-	time.Sleep(300 * time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
 	env.server.ClearServiceCalls()
 
 	// ========== WHEN ==========
@@ -196,7 +196,7 @@ func TestScenario_LowEnergy_PluginsCoexist(t *testing.T) {
 
 	// Trigger lighting change
 	env.server.SetState("input_text.day_phase", "night", map[string]interface{}{})
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 
 	// ========== THEN ==========
 	t.Log("THEN: Verify both plugins respond appropriately without conflicts")
@@ -244,7 +244,7 @@ func TestScenario_EveryoneLeaves_CoordinatedResponse(t *testing.T) {
 	require.NoError(t, env.manager.SetBool("isAnyoneHome", true))
 	require.NoError(t, env.manager.SetString("dayPhase", "afternoon"))
 
-	time.Sleep(300 * time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
 	env.server.ClearServiceCalls()
 
 	// ========== WHEN ==========
@@ -252,10 +252,10 @@ func TestScenario_EveryoneLeaves_CoordinatedResponse(t *testing.T) {
 
 	// Simulate both people leaving
 	env.server.SetState("input_boolean.nick_home", "off", map[string]interface{}{})
-	time.Sleep(200 * time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
 
 	env.server.SetState("input_boolean.caroline_home", "off", map[string]interface{}{})
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 
 	// ========== THEN ==========
 	t.Log("THEN: Verify all presence-dependent plugins respond appropriately")
@@ -307,7 +307,7 @@ func TestScenario_SleepSequence_CoordinatesLighting(t *testing.T) {
 	require.NoError(t, env.manager.SetBool("isMasterAsleep", false))
 	require.NoError(t, env.manager.SetBool("isEveryoneAsleep", false))
 
-	time.Sleep(300 * time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
 	env.server.ClearServiceCalls()
 
 	// ========== WHEN ==========
@@ -315,7 +315,7 @@ func TestScenario_SleepSequence_CoordinatesLighting(t *testing.T) {
 
 	// Simulate sleep state change
 	env.server.SetState("input_boolean.master_asleep", "on", map[string]interface{}{})
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 
 	// ========== THEN ==========
 	t.Log("THEN: Verify coordinated response from lighting plugin")
@@ -361,14 +361,14 @@ func TestScenario_DayPhaseChange_MultiPluginCoordination(t *testing.T) {
 	require.NoError(t, env.manager.SetBool("isAnyoneHome", true))
 	require.NoError(t, env.manager.SetBool("isEveryoneAsleep", false))
 
-	time.Sleep(300 * time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
 	env.server.ClearServiceCalls()
 
 	// ========== WHEN ==========
 	t.Log("WHEN: Day phase changes from morning → evening")
 
 	env.server.SetState("input_text.day_phase", "evening", map[string]interface{}{})
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 
 	// ========== THEN ==========
 	t.Log("THEN: Verify all time-dependent plugins respond correctly")
@@ -399,7 +399,7 @@ func TestScenario_DayPhaseChange_MultiPluginCoordination(t *testing.T) {
 
 	env.server.ClearServiceCalls()
 	env.server.SetState("input_text.day_phase", "night", map[string]interface{}{})
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 
 	// ========== THEN (Phase 2) ==========
 	t.Log("THEN: Verify plugins respond to night phase")
@@ -433,7 +433,7 @@ func TestScenario_SimultaneousStateChanges_NoRaceConditions(t *testing.T) {
 
 	require.NoError(t, env.manager.SetString("dayPhase", "afternoon"))
 	require.NoError(t, env.manager.SetBool("isAnyoneHome", true))
-	time.Sleep(300 * time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
 
 	env.server.ClearServiceCalls()
 
@@ -450,7 +450,7 @@ func TestScenario_SimultaneousStateChanges_NoRaceConditions(t *testing.T) {
 	env.server.SetState("input_boolean.master_asleep", "on", map[string]interface{}{})
 
 	// Wait for all plugins to process
-	time.Sleep(1 * time.Second)
+	time.Sleep(200 * time.Millisecond)
 
 	// ========== THEN ==========
 	t.Log("THEN: Verify all states updated correctly without deadlocks or panics")

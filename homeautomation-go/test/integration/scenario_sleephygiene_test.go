@@ -108,7 +108,7 @@ func TestScenario_AlarmTimeReached_TriggersBeginWakeSequence(t *testing.T) {
 	// Set initial fade out flag to false
 	server.SetState("input_boolean.fade_out_in_progress", "off", map[string]interface{}{})
 
-	time.Sleep(200 * time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
 	server.ClearServiceCalls()
 
 	// WHEN: Time reaches alarm time (trigger begin_wake)
@@ -120,7 +120,7 @@ func TestScenario_AlarmTimeReached_TriggersBeginWakeSequence(t *testing.T) {
 	server.SetState("input_number.alarm_time", fmt.Sprintf("%.0f", alarmTimeMs), map[string]interface{}{})
 
 	// Wait for automation to react
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 
 	// THEN: Verify begin_wake sequence started
 	t.Log("THEN: Verify begin_wake sequence started")
@@ -162,7 +162,7 @@ func TestScenario_BeginWakeSequence_FadesOutMusic(t *testing.T) {
 		"volume_level": 0.60, // 60% volume
 	})
 
-	time.Sleep(200 * time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
 	server.ClearServiceCalls()
 
 	// WHEN: Begin wake sequence is triggered manually (via helper method if available)
@@ -218,7 +218,7 @@ func TestScenario_FullWakeSequence_ActivatesLightsAndAnnouncement(t *testing.T) 
 	alarmTimeMs := float64(alarmTime.Unix() * 1000)
 	server.SetState("input_number.alarm_time", fmt.Sprintf("%.0f", alarmTimeMs), map[string]interface{}{})
 
-	time.Sleep(200 * time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
 
 	// THEN: Verify framework is set up correctly
 	t.Log("THEN: Verify framework is set up correctly")
@@ -266,7 +266,7 @@ func TestScenario_MidnightReset_ResetsTriggers(t *testing.T) {
 	alarmTimeMs := float64(alarmTime.Unix() * 1000)
 	server.SetState("input_number.alarm_time", fmt.Sprintf("%.0f", alarmTimeMs), map[string]interface{}{})
 
-	time.Sleep(200 * time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
 
 	// The manager's internal triggeredToday map should have entries
 	// (we can't directly access this, but we can verify behavior)
@@ -291,7 +291,7 @@ func TestScenario_MidnightReset_ResetsTriggers(t *testing.T) {
 	tomorrowAlarmMs := float64(tomorrowAlarm.Unix() * 1000)
 	server.SetState("input_number.alarm_time", fmt.Sprintf("%.0f", tomorrowAlarmMs), map[string]interface{}{})
 
-	time.Sleep(200 * time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
 
 	// The manager should accept this and be ready to trigger tomorrow
 	alarmTimeState := server.GetState("input_number.alarm_time")
@@ -319,7 +319,7 @@ func TestScenario_EveningReminder_SendsStopScreensNotification(t *testing.T) {
 	server.SetState("input_boolean.everyone_asleep", "off", map[string]interface{}{})
 	server.SetState("input_text.day_phase", "evening", map[string]interface{}{})
 
-	time.Sleep(200 * time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
 	server.ClearServiceCalls()
 
 	// WHEN: stop_screens time is reached
@@ -329,7 +329,7 @@ func TestScenario_EveningReminder_SendsStopScreensNotification(t *testing.T) {
 	server.SetState("input_boolean.anyone_home", "on", map[string]interface{}{})
 
 	// Wait for automation to react
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 
 	// THEN: Verify lights flash as a reminder
 	t.Log("THEN: Verify lights flash as a reminder")
@@ -369,7 +369,7 @@ func TestScenario_WakeCancellation_RevertsToSleepMusic(t *testing.T) {
 	server.SetState("input_boolean.master_asleep", "on", map[string]interface{}{})
 	server.SetState("light.primary_suite", "on", map[string]interface{}{})
 
-	time.Sleep(200 * time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
 
 	// Get current music type
 	musicTypeState := server.GetState("input_text.music_playback_type")
@@ -383,7 +383,7 @@ func TestScenario_WakeCancellation_RevertsToSleepMusic(t *testing.T) {
 	server.SetState("light.primary_suite", "off", map[string]interface{}{})
 
 	// Wait for automation to react
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 
 	// THEN: Music should revert to sleep mode, bathroom lights turn off
 	t.Log("THEN: Verify music reverts to sleep mode and bathroom lights turn off")
@@ -424,7 +424,7 @@ func TestScenario_MultipleAlarms_UpdatesCorrectly(t *testing.T) {
 	initialAlarmMs := float64(initialAlarm.Unix() * 1000)
 	server.SetState("input_number.alarm_time", fmt.Sprintf("%.0f", initialAlarmMs), map[string]interface{}{})
 
-	time.Sleep(200 * time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
 
 	// Verify initial alarm time is set
 	alarmTimeState := server.GetState("input_number.alarm_time")
@@ -437,7 +437,7 @@ func TestScenario_MultipleAlarms_UpdatesCorrectly(t *testing.T) {
 	server.SetState("input_number.alarm_time", fmt.Sprintf("%.0f", newAlarmMs), map[string]interface{}{})
 
 	// Wait for state to propagate
-	time.Sleep(200 * time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
 
 	// THEN: New alarm time is accepted and triggers reset
 	t.Log("THEN: Verify new alarm time is accepted")
@@ -472,7 +472,7 @@ func TestScenario_SleepStateIntegration_ChecksConditions(t *testing.T) {
 	alarmTimeMs := float64(alarmTime.Unix() * 1000)
 	server.SetState("input_number.alarm_time", fmt.Sprintf("%.0f", alarmTimeMs), map[string]interface{}{})
 
-	time.Sleep(200 * time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
 	server.ClearServiceCalls()
 
 	// WHEN: Time reaches alarm time
@@ -480,7 +480,7 @@ func TestScenario_SleepStateIntegration_ChecksConditions(t *testing.T) {
 	server.SetState("input_number.alarm_time", fmt.Sprintf("%.0f", alarmTimeMs), map[string]interface{}{})
 
 	// Wait for automation to react
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 
 	// THEN: Wake sequence should NOT trigger (no fade out, no service calls)
 	t.Log("THEN: Verify wake sequence does NOT trigger when master is awake")
@@ -501,11 +501,11 @@ func TestScenario_SleepStateIntegration_ChecksConditions(t *testing.T) {
 	currentMusicJSON := `{"participants":[{"player_name":"media_player.bedroom","volume":60}]}`
 	server.SetState("input_text.currently_playing_music", currentMusicJSON, map[string]interface{}{})
 
-	time.Sleep(200 * time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
 
 	// Trigger check again
 	server.SetState("input_number.alarm_time", fmt.Sprintf("%.0f", alarmTimeMs), map[string]interface{}{})
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 
 	// Now fade out should start
 	fadeOutState = server.GetState("input_boolean.fade_out_in_progress")

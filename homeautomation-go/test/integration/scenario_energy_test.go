@@ -65,7 +65,7 @@ func TestScenario_BatteryLevelChanges_UpdateEnergyLevels(t *testing.T) {
 	server.SetState("sensor.span_panel_span_storage_battery_percentage_2", "85.0", map[string]interface{}{
 		"unit_of_measurement": "%",
 	})
-	time.Sleep(300 * time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
 
 	// Verify initial state is green
 	batteryLevel, err := manager.GetString("batteryEnergyLevel")
@@ -77,7 +77,7 @@ func TestScenario_BatteryLevelChanges_UpdateEnergyLevels(t *testing.T) {
 	server.SetState("sensor.span_panel_span_storage_battery_percentage_2", "55.0", map[string]interface{}{
 		"unit_of_measurement": "%",
 	})
-	time.Sleep(300 * time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
 
 	// THEN: Battery level should be yellow
 	t.Log("THEN: Battery level should be yellow")
@@ -90,7 +90,7 @@ func TestScenario_BatteryLevelChanges_UpdateEnergyLevels(t *testing.T) {
 	server.SetState("sensor.span_panel_span_storage_battery_percentage_2", "15.0", map[string]interface{}{
 		"unit_of_measurement": "%",
 	})
-	time.Sleep(300 * time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
 
 	// THEN: Battery level should be black
 	t.Log("THEN: Battery level should be black")
@@ -113,7 +113,7 @@ func TestScenario_SolarProductionUpdates_CalculatesEnergyLevel(t *testing.T) {
 	server.SetState("sensor.energy_production_today_remaining", "0.0", map[string]interface{}{
 		"unit_of_measurement": "kWh",
 	})
-	time.Sleep(300 * time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
 
 	// Verify initial state
 	solarLevel, err := manager.GetString("solarProductionEnergyLevel")
@@ -128,7 +128,7 @@ func TestScenario_SolarProductionUpdates_CalculatesEnergyLevel(t *testing.T) {
 	server.SetState("sensor.energy_production_today_remaining", "15.0", map[string]interface{}{
 		"unit_of_measurement": "kWh",
 	})
-	time.Sleep(300 * time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
 
 	// THEN: Solar level should be green (threshold: 0 kW, 10 kWh)
 	t.Log("THEN: Solar level should be green")
@@ -144,7 +144,7 @@ func TestScenario_SolarProductionUpdates_CalculatesEnergyLevel(t *testing.T) {
 	server.SetState("sensor.energy_production_today_remaining", "5.0", map[string]interface{}{
 		"unit_of_measurement": "kWh",
 	})
-	time.Sleep(300 * time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
 
 	// THEN: Solar level should be yellow (threshold: 0 kW, 0 kWh)
 	t.Log("THEN: Solar level should be yellow")
@@ -192,7 +192,7 @@ func TestScenario_GridAvailability_RecalculatesFreeEnergy(t *testing.T) {
 	t.Log("GIVEN: Grid is available, outside free energy time window (12:00 noon)")
 	err = manager.SetBool("isGridAvailable", true)
 	require.NoError(t, err)
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 
 	// Check initial free energy state - should be false since we're at noon (outside 21:00-07:00)
 	isFreeEnergy, err := manager.GetBool("isFreeEnergyAvailable")
@@ -204,7 +204,7 @@ func TestScenario_GridAvailability_RecalculatesFreeEnergy(t *testing.T) {
 	t.Log("WHEN: Grid goes offline")
 	err = manager.SetBool("isGridAvailable", false)
 	require.NoError(t, err)
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 
 	// THEN: Free energy should be false (no grid = no free energy)
 	t.Log("THEN: Free energy should be false")
@@ -216,7 +216,7 @@ func TestScenario_GridAvailability_RecalculatesFreeEnergy(t *testing.T) {
 	t.Log("WHEN: Grid comes back online")
 	err = manager.SetBool("isGridAvailable", true)
 	require.NoError(t, err)
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 
 	// THEN: Free energy should still be false (we're at noon, outside the window)
 	t.Log("THEN: Free energy should still be false (noon is outside 21:00-07:00)")
@@ -274,7 +274,7 @@ func TestScenario_OverallEnergyLevel_ReflectsWorstState(t *testing.T) {
 	server.SetState("sensor.energy_production_today_remaining", "15.0", map[string]interface{}{
 		"unit_of_measurement": "kWh",
 	})
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 
 	// Verify overall level is green (not white, since we're outside free energy window)
 	overallLevel, err := manager.GetString("currentEnergyLevel")
@@ -286,7 +286,7 @@ func TestScenario_OverallEnergyLevel_ReflectsWorstState(t *testing.T) {
 	server.SetState("sensor.span_panel_span_storage_battery_percentage_2", "15.0", map[string]interface{}{
 		"unit_of_measurement": "%",
 	})
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 
 	// THEN: Overall level should reflect the lower state
 	// According to the algorithm: min(battery=red, solar=green) + 1 level = yellow
@@ -305,7 +305,7 @@ func TestScenario_OverallEnergyLevel_ReflectsWorstState(t *testing.T) {
 	server.SetState("sensor.energy_production_today_remaining", "0.0", map[string]interface{}{
 		"unit_of_measurement": "kWh",
 	})
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 
 	// THEN: Overall level should be black or red (both are low)
 	t.Log("THEN: Overall level should be very low")
@@ -352,7 +352,7 @@ func TestScenario_FreeEnergyTimeWindow_OverridesEnergyLevel(t *testing.T) {
 	})
 	err = manager.SetBool("isGridAvailable", true)
 	require.NoError(t, err)
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 
 	// Verify free energy is available
 	isFreeEnergy, err := manager.GetBool("isFreeEnergyAvailable")
@@ -380,7 +380,7 @@ func TestScenario_ThresholdBoundaries_HandlesExactValues(t *testing.T) {
 	server.SetState("sensor.span_panel_span_storage_battery_percentage_2", "80.0", map[string]interface{}{
 		"unit_of_measurement": "%",
 	})
-	time.Sleep(300 * time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
 
 	batteryLevel, err := manager.GetString("batteryEnergyLevel")
 	require.NoError(t, err)
@@ -391,7 +391,7 @@ func TestScenario_ThresholdBoundaries_HandlesExactValues(t *testing.T) {
 	server.SetState("sensor.span_panel_span_storage_battery_percentage_2", "79.9", map[string]interface{}{
 		"unit_of_measurement": "%",
 	})
-	time.Sleep(300 * time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
 
 	batteryLevel, err = manager.GetString("batteryEnergyLevel")
 	require.NoError(t, err)
@@ -402,7 +402,7 @@ func TestScenario_ThresholdBoundaries_HandlesExactValues(t *testing.T) {
 	server.SetState("sensor.span_panel_span_storage_battery_percentage_2", "50.0", map[string]interface{}{
 		"unit_of_measurement": "%",
 	})
-	time.Sleep(300 * time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
 
 	batteryLevel, err = manager.GetString("batteryEnergyLevel")
 	require.NoError(t, err)
@@ -413,7 +413,7 @@ func TestScenario_ThresholdBoundaries_HandlesExactValues(t *testing.T) {
 	server.SetState("sensor.span_panel_span_storage_battery_percentage_2", "49.9", map[string]interface{}{
 		"unit_of_measurement": "%",
 	})
-	time.Sleep(300 * time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
 
 	batteryLevel, err = manager.GetString("batteryEnergyLevel")
 	require.NoError(t, err)
@@ -424,7 +424,7 @@ func TestScenario_ThresholdBoundaries_HandlesExactValues(t *testing.T) {
 	server.SetState("sensor.span_panel_span_storage_battery_percentage_2", "20.0", map[string]interface{}{
 		"unit_of_measurement": "%",
 	})
-	time.Sleep(300 * time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
 
 	batteryLevel, err = manager.GetString("batteryEnergyLevel")
 	require.NoError(t, err)
@@ -435,7 +435,7 @@ func TestScenario_ThresholdBoundaries_HandlesExactValues(t *testing.T) {
 	server.SetState("sensor.span_panel_span_storage_battery_percentage_2", "19.9", map[string]interface{}{
 		"unit_of_measurement": "%",
 	})
-	time.Sleep(300 * time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
 
 	batteryLevel, err = manager.GetString("batteryEnergyLevel")
 	require.NoError(t, err)
@@ -459,7 +459,7 @@ func TestScenario_MultipleConcurrentChanges_HandlesCorrectly(t *testing.T) {
 	server.SetState("sensor.energy_production_today_remaining", "20.0", map[string]interface{}{
 		"unit_of_measurement": "kWh",
 	})
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 
 	// Verify initial state
 	batteryLevel, err := manager.GetString("batteryEnergyLevel")
@@ -495,7 +495,7 @@ func TestScenario_MultipleConcurrentChanges_HandlesCorrectly(t *testing.T) {
 	require.NoError(t, err)
 
 	// Wait for all changes to propagate
-	time.Sleep(1 * time.Second)
+	time.Sleep(200 * time.Millisecond)
 
 	// THEN: All changes should be processed without errors
 	t.Log("THEN: All changes should be processed without errors")

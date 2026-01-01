@@ -91,7 +91,7 @@ func TestScenario_NickReturnsHomeGarageEmpty(t *testing.T) {
 
 	// Simulate Nick arriving home
 	server.SetState("input_boolean.nick_home", "on", nil)
-	time.Sleep(500 * time.Millisecond) // Allow state tracking to process
+	time.Sleep(100 * time.Millisecond) // Allow state tracking to process
 
 	t.Log("THEN: didOwnerJustReturnHome should be set to true")
 
@@ -101,7 +101,7 @@ func TestScenario_NickReturnsHomeGarageEmpty(t *testing.T) {
 
 	t.Log("AND: Garage door should be opened")
 
-	time.Sleep(300 * time.Millisecond) // Allow security plugin to process
+	time.Sleep(50 * time.Millisecond) // Allow security plugin to process
 
 	garageOpenCall := server.FindServiceCall("cover", "open_cover", "cover.garage_door_door")
 	assert.NotNil(t, garageOpenCall, "Garage door should be opened when Nick returns and garage is empty")
@@ -131,7 +131,7 @@ func TestScenario_CarolineReturnsHomeGarageEmpty(t *testing.T) {
 	t.Log("WHEN: Caroline arrives home")
 
 	server.SetState("input_boolean.caroline_home", "on", nil)
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 
 	t.Log("THEN: didOwnerJustReturnHome should be set to true and garage should open")
 
@@ -139,7 +139,7 @@ func TestScenario_CarolineReturnsHomeGarageEmpty(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, didReturn, "didOwnerJustReturnHome should be true after Caroline arrives")
 
-	time.Sleep(300 * time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
 
 	garageOpenCall := server.FindServiceCall("cover", "open_cover", "cover.garage_door_door")
 	assert.NotNil(t, garageOpenCall, "Garage door should be opened when Caroline returns")
@@ -162,7 +162,7 @@ func TestScenario_OwnerReturnsHomeGarageOccupied(t *testing.T) {
 	t.Log("WHEN: Nick arrives home")
 
 	server.SetState("input_boolean.nick_home", "on", nil)
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 
 	t.Log("THEN: didOwnerJustReturnHome should be set to true")
 
@@ -172,7 +172,7 @@ func TestScenario_OwnerReturnsHomeGarageOccupied(t *testing.T) {
 
 	t.Log("BUT: Garage door should NOT be opened (occupied)")
 
-	time.Sleep(300 * time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
 
 	garageOpenCall := server.FindServiceCall("cover", "open_cover", "cover.garage_door_door")
 	assert.Nil(t, garageOpenCall, "Garage door should NOT open when garage is occupied")
@@ -192,7 +192,7 @@ func TestScenario_DidOwnerJustReturnHomeAutoReset(t *testing.T) {
 	time.Sleep(100 * time.Millisecond) // Real sleep for event processing
 
 	server.SetState("input_boolean.nick_home", "on", nil)
-	time.Sleep(500 * time.Millisecond) // Real sleep for event processing
+	time.Sleep(100 * time.Millisecond) // Real sleep for event processing
 
 	t.Log("THEN: didOwnerJustReturnHome should be true initially")
 
@@ -228,7 +228,7 @@ func TestScenario_MultipleArrivalsWithin10Minutes(t *testing.T) {
 	time.Sleep(100 * time.Millisecond) // Real sleep for event processing
 
 	server.SetState("input_boolean.nick_home", "on", nil)
-	time.Sleep(500 * time.Millisecond) // Real sleep for event processing
+	time.Sleep(100 * time.Millisecond) // Real sleep for event processing
 
 	didReturn, err := manager.GetBool("didOwnerJustReturnHome")
 	require.NoError(t, err)
@@ -241,7 +241,7 @@ func TestScenario_MultipleArrivalsWithin10Minutes(t *testing.T) {
 	time.Sleep(100 * time.Millisecond) // Allow any timer callbacks
 
 	server.SetState("input_boolean.caroline_home", "on", nil)
-	time.Sleep(500 * time.Millisecond) // Real sleep for event processing
+	time.Sleep(100 * time.Millisecond) // Real sleep for event processing
 
 	t.Log("THEN: didOwnerJustReturnHome should still be true")
 
@@ -283,7 +283,7 @@ func TestScenario_OwnerLeavesAndReturns(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	server.SetState("input_boolean.nick_home", "off", nil)
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 
 	didReturn, err := manager.GetBool("didOwnerJustReturnHome")
 	require.NoError(t, err)
@@ -296,7 +296,7 @@ func TestScenario_OwnerLeavesAndReturns(t *testing.T) {
 	time.Sleep(100 * time.Millisecond) // Simulate some time passing
 
 	server.SetState("input_boolean.nick_home", "on", nil)
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 
 	t.Log("THEN: didOwnerJustReturnHome should be set to true again")
 
@@ -306,7 +306,7 @@ func TestScenario_OwnerLeavesAndReturns(t *testing.T) {
 
 	t.Log("AND: Garage should open again")
 
-	time.Sleep(300 * time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
 
 	garageOpenCall := server.FindServiceCall("cover", "open_cover", "cover.garage_door_door")
 	assert.NotNil(t, garageOpenCall, "Garage should open on second arrival")
@@ -329,7 +329,7 @@ func TestScenario_OnlyOwnersTriggersGarage(t *testing.T) {
 	t.Log("WHEN: Tori arrives (isToriHere changes to true)")
 
 	server.SetState("input_boolean.tori_here", "on", nil)
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 
 	t.Log("THEN: didOwnerJustReturnHome should remain false (Tori is not an owner)")
 
@@ -339,7 +339,7 @@ func TestScenario_OnlyOwnersTriggersGarage(t *testing.T) {
 
 	t.Log("AND: Garage door should NOT be opened")
 
-	time.Sleep(300 * time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
 
 	garageOpenCall := server.FindServiceCall("cover", "open_cover", "cover.garage_door_door")
 	assert.Nil(t, garageOpenCall, "Garage should not open for guest arrival")
