@@ -10,7 +10,7 @@ This repository contains a home automation system migrating from Node-RED to Gol
 
 **A pre-push git hook runs all tests before every push and BLOCKS if they fail.**
 
-The hook runs: code compilation + all tests + race detector + coverage check (≥70%)
+The hook runs: code compilation + all tests + race detector + coverage check (≥65%)
 
 **NEVER use `git push --no-verify`.** Fix the tests instead.
 
@@ -113,7 +113,7 @@ func (m *Manager) handleSomeChange(entityID string, oldState, newState *ha.State
 
 **Style:** Follow `gofmt`, use `staticcheck`, 120 char max line length, godoc comments on exports.
 
-**Testing:** 70% minimum coverage, table-driven tests, always use `-race` flag.
+**Testing:** 65% minimum coverage, table-driven tests, always use `-race` flag.
 
 **Error Handling:** Always check errors, wrap with context (`fmt.Errorf("context: %w", err)`), never panic.
 

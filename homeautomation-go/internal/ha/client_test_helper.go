@@ -104,6 +104,10 @@ func NewTestFixture(t *testing.T, handler RequestHandler) *TestFixture {
 				var r GetStatesRequest
 				json.Unmarshal(data, &r)
 				req = &r
+			case "ping":
+				// Respond to application-level pings with pongs
+				conn.WriteJSON(Message{ID: msg.ID, Type: "pong"})
+				continue
 			default:
 				continue
 			}

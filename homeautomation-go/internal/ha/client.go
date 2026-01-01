@@ -12,10 +12,13 @@ import (
 	"go.uber.org/zap"
 )
 
-// WebSocket keepalive constants
+// Application-level ping/pong keepalive constants.
+// Home Assistant expects JSON pings ({"id": N, "type": "ping"}) and responds with pongs.
+// WebSocket control frame pings are NOT sufficient - HA only resets its idle timeout
+// on application-layer JSON activity. See: https://developers.home-assistant.io/docs/api/websocket/
 const (
-	// pingInterval is how often we send ping frames to keep connection alive.
-	// Set well under typical proxy/load balancer timeouts (often 60-90s).
+	// pingInterval is how often we send application-level JSON pings.
+	// Set well under HA's ~2 minute idle timeout and typical proxy timeouts (60-90s).
 	pingInterval = 30 * time.Second
 
 	// pongWait is the max time to wait for a pong response.
@@ -23,7 +26,7 @@ const (
 	// Set to 2x pingInterval to tolerate one missed ping.
 	pongWait = 60 * time.Second
 
-	// writeWait is the time allowed to write a ping message.
+	// writeWait is the time allowed to write a message (including pings).
 	writeWait = 10 * time.Second
 )
 
@@ -234,17 +237,11 @@ func (c *Client) Connect() error {
 	c.reconnect = true
 	c.logger.Info("Connected to Home Assistant")
 
-	// Set up WebSocket keepalive
-	// Set initial read deadline - will be extended by pong handler
+	// Set up keepalive with application-level pings
+	// Set initial read deadline - will be extended when we receive pong responses
 	c.conn.SetReadDeadline(time.Now().Add(pongWait))
 
-	// Set pong handler to extend read deadline on each pong received
-	c.conn.SetPongHandler(func(string) error {
-		c.conn.SetReadDeadline(time.Now().Add(pongWait))
-		return nil
-	})
-
-	// Start background ping sender
+	// Start background ping sender (sends application-level JSON pings)
 	go c.sendPings()
 
 	// Start background message receiver
@@ -391,6 +388,8 @@ func (c *Client) sendMessage(msg interface{}) (*Message, error) {
 		m.ID = msgID
 	case *SubscribeEventsRequest:
 		m.ID = msgID
+	case *PingRequest:
+		m.ID = msgID
 	default:
 		c.writeMu.Unlock()
 		return nil, fmt.Errorf("unsupported message type")
@@ -464,6 +463,13 @@ func (c *Client) receiveMessages() {
 			c.logger.Error("Failed to read message", zap.Error(err))
 			c.handleDisconnect()
 			return
+		}
+
+		// Handle pong responses - extend read deadline to keep connection alive
+		// This is the response to our application-level ping messages
+		if msg.Type == "pong" {
+			conn.SetReadDeadline(time.Now().Add(pongWait))
+			continue
 		}
 
 		// Handle event messages
@@ -565,8 +571,10 @@ func (c *Client) attemptReconnect() {
 	}
 }
 
-// sendPings sends periodic ping frames to keep the WebSocket connection alive.
-// This prevents proxies/load balancers from terminating idle connections.
+// sendPings sends periodic application-level JSON pings to keep the connection alive.
+// Home Assistant expects {"id": N, "type": "ping"} messages and responds with {"id": N, "type": "pong"}.
+// WebSocket control frame pings are NOT sufficient - HA only resets its idle timeout on application-layer activity.
+// See: https://developers.home-assistant.io/docs/api/websocket/
 func (c *Client) sendPings() {
 	// Capture context reference at startup
 	c.ctxMu.RLock()
@@ -590,14 +598,21 @@ func (c *Client) sendPings() {
 			conn := c.conn
 			c.connMu.RUnlock()
 
-			// Send ping with write deadline
+			// Send application-level JSON ping
+			// We don't use sendMessage() here because we don't need to wait for the pong response
+			// The pong is handled by receiveMessages() which extends the read deadline
 			c.writeMu.Lock()
+			msgID := c.nextMsgID()
+			pingReq := PingRequest{
+				ID:   msgID,
+				Type: "ping",
+			}
 			conn.SetWriteDeadline(time.Now().Add(writeWait))
-			err := conn.WriteControl(websocket.PingMessage, nil, time.Now().Add(writeWait))
+			err := conn.WriteJSON(pingReq)
 			c.writeMu.Unlock()
 
 			if err != nil {
-				c.logger.Warn("Failed to send ping", zap.Error(err))
+				c.logger.Warn("Failed to send application ping", zap.Error(err))
 				// Don't trigger disconnect here - let receiveMessages handle it
 				// when the read deadline expires
 				return
