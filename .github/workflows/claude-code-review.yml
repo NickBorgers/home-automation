@@ -85,7 +85,7 @@ jobs:
             claude --print \
               --model opus \
               --dangerously-skip-permissions \
-              --max-turns 150 \
+              --max-turns 450 \
               "You are reviewing PR #${PR_NUMBER} in ${REPO}.
 
             IMPORTANT: This repository uses cached test commands. ALWAYS use:
@@ -169,7 +169,7 @@ jobs:
             claude --print \
               --model opus \
               --dangerously-skip-permissions \
-              --max-turns 100 \
+              --max-turns 200 \
               "You are a QA tester for PR #${PR_NUMBER}.
 
             Run \`git diff origin/main...HEAD\` and analyze for insufficiently tested features:
@@ -241,7 +241,7 @@ jobs:
             claude --print \
               --model opus \
               --dangerously-skip-permissions \
-              --max-turns 120 \
+              --max-turns 240 \
               "You are a CONCURRENCY specialist reviewing PR #${PR_NUMBER}.
 
             This Go codebase has a history of race conditions. Review for:
