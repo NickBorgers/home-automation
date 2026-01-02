@@ -587,7 +587,7 @@ jobs:
             - Run \`make unit-tests\` to verify tests pass
 
             FOR WORKFLOW CHANGES (.github/workflows/*.yml):
-            - Use \`yq\` or manual inspection to validate YAML syntax
+            - Validate YAML syntax with \`npx yaml valid < file.yml\` (returns exit code 0 if valid)
             - Check action references are valid (uses: owner/action@version)
             - Review permission scopes (should be minimal necessary)
             - Check for hardcoded secrets or tokens (should use secrets.*)
