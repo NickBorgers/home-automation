@@ -295,6 +295,8 @@ jobs:
 
             # Run Claude Code to fix test failures
             claude --print \
+              --verbose \
+              --output-format stream-json \
               --model opus \
               --dangerously-skip-permissions \
               --max-turns 200 \
@@ -355,7 +357,7 @@ jobs:
 
             [Describe what you found and fixed]
 
-            Pushed fix - triggering new test run.'" < /dev/null 2>&1 | tee /workspaces/home-automation/fix-failures-output.txt
+            Pushed fix - triggering new test run.'" < /dev/null 2>&1 | tee /workspaces/home-automation/fix-failures-output.jsonl
 
       - name: Trigger PR Tests and reviews after fix
         if: success()
@@ -439,7 +441,7 @@ jobs:
         if: always()
         with:
           name: fix-failures-output-attempt-${{ needs.get-context.outputs.fix_attempts }}
-          path: fix-failures-output.txt
+          path: fix-failures-output.jsonl
           retention-days: 7
 
   # Claude review - only runs when tests pass
@@ -490,6 +492,8 @@ jobs:
           runCmd: |
             # Run Claude Code review inside the devcontainer
             claude --print \
+              --verbose \
+              --output-format stream-json \
               --model opus \
               --dangerously-skip-permissions \
               --max-turns 450 \
@@ -533,14 +537,14 @@ jobs:
             Post your review using:
             gh pr comment ${PR_NUMBER} --body 'YOUR_REVIEW_HERE'
 
-            Be constructive. Reference specific lines when noting issues." < /dev/null 2>&1 | tee /workspaces/home-automation/claude-review-output.txt
+            Be constructive. Reference specific lines when noting issues." < /dev/null 2>&1 | tee /workspaces/home-automation/claude-review-output.jsonl
 
       - name: Upload Claude review output
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: claude-review-output
-          path: claude-review-output.txt
+          path: claude-review-output.jsonl
           retention-days: 7
 
   # Test-focused reviewer - runs after claude-review
@@ -593,6 +597,8 @@ jobs:
             HEAD_REF=${{ needs.get-context.outputs.head_ref }}
           runCmd: |
             claude --print \
+              --verbose \
+              --output-format stream-json \
               --model opus \
               --dangerously-skip-permissions \
               --max-turns 200 \
@@ -655,14 +661,14 @@ jobs:
             [Category-specific findings]
 
             ### Conclusion
-            [Overall test status: issues found or all clear]'" < /dev/null 2>&1 | tee /workspaces/home-automation/test-review-output.txt
+            [Overall test status: issues found or all clear]'" < /dev/null 2>&1 | tee /workspaces/home-automation/test-review-output.jsonl
 
       - name: Upload test review output
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: test-review-output
-          path: test-review-output.txt
+          path: test-review-output.jsonl
           retention-days: 7
 
   # Concurrency/race condition specialist - runs after test-review
@@ -715,6 +721,8 @@ jobs:
             HEAD_REF=${{ needs.get-context.outputs.head_ref }}
           runCmd: |
             claude --print \
+              --verbose \
+              --output-format stream-json \
               --model opus \
               --dangerously-skip-permissions \
               --max-turns 240 \
@@ -739,14 +747,14 @@ jobs:
             conflicts, skip the auto-fix and just report the issue in your comment.
 
             Post findings as:
-            gh pr comment ${PR_NUMBER} --body '## Concurrency Review\n\nYOUR_ANALYSIS'" < /dev/null 2>&1 | tee /workspaces/home-automation/concurrency-review-output.txt
+            gh pr comment ${PR_NUMBER} --body '## Concurrency Review\n\nYOUR_ANALYSIS'" < /dev/null 2>&1 | tee /workspaces/home-automation/concurrency-review-output.jsonl
 
       - name: Upload concurrency review output
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: concurrency-review-output
-          path: concurrency-review-output.txt
+          path: concurrency-review-output.jsonl
           retention-days: 7
 
   # Documentation update specialist - runs after concurrency-review
@@ -808,6 +816,8 @@ jobs:
             ISSUE_BODY=$(echo "$ISSUE_BODY_B64" | base64 -d 2>/dev/null || echo "")
 
             claude --print \
+              --verbose \
+              --output-format stream-json \
               --model opus \
               --dangerously-skip-permissions \
               --max-turns 200 \
@@ -862,14 +872,14 @@ jobs:
             - [ ] VISUAL_ARCHITECTURE.md - [status]
             - [ ] ARCHITECTURE.md - [status]
             - [ ] migration_mapping.md - [status]
-            - [ ] CONCURRENCY_LESSONS.md - [status]'" < /dev/null 2>&1 | tee /workspaces/home-automation/docs-review-output.txt
+            - [ ] CONCURRENCY_LESSONS.md - [status]'" < /dev/null 2>&1 | tee /workspaces/home-automation/docs-review-output.jsonl
 
       - name: Upload documentation review output
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: docs-review-output
-          path: docs-review-output.txt
+          path: docs-review-output.jsonl
           retention-days: 7
 
   # Aggregator job - use this as the required check for branch protection
