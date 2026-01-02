@@ -67,19 +67,23 @@ func TestCalculator_CalculateDayPhase(t *testing.T) {
 	logger := testlogger.New()
 	calc := NewCalculator(32.85486, -97.50515, logger)
 
+	// Use a fixed reference time: January 15, 2024 at 10:00 AM (daytime)
+	fixedTime := time.Date(2024, 1, 15, 10, 0, 0, 0, time.Local)
+	mockClock := clock.NewMockClock(fixedTime)
+	calc.SetClock(mockClock)
+
 	err := calc.UpdateSunTimes()
 	assert.NoError(t, err)
 
-	// Create a sample schedule
-	now := time.Now()
+	// Create a sample schedule based on the fixed time
 	schedule := &config.ParsedSchedule{
-		BeginBackupWake: time.Date(now.Year(), now.Month(), now.Day(), 5, 0, 0, 0, now.Location()),
-		BackupWakeTime:  time.Date(now.Year(), now.Month(), now.Day(), 7, 0, 0, 0, now.Location()),
-		Dusk:            time.Date(now.Year(), now.Month(), now.Day(), 18, 0, 0, 0, now.Location()),
-		Winddown:        time.Date(now.Year(), now.Month(), now.Day(), 21, 0, 0, 0, now.Location()),
-		StopScreens:     time.Date(now.Year(), now.Month(), now.Day(), 22, 0, 0, 0, now.Location()),
-		GoToBed:         time.Date(now.Year(), now.Month(), now.Day(), 22, 30, 0, 0, now.Location()),
-		Night:           time.Date(now.Year(), now.Month(), now.Day(), 23, 0, 0, 0, now.Location()),
+		BeginBackupWake: time.Date(2024, 1, 15, 5, 0, 0, 0, time.Local),
+		BackupWakeTime:  time.Date(2024, 1, 15, 7, 0, 0, 0, time.Local),
+		Dusk:            time.Date(2024, 1, 15, 18, 0, 0, 0, time.Local),
+		Winddown:        time.Date(2024, 1, 15, 21, 0, 0, 0, time.Local),
+		StopScreens:     time.Date(2024, 1, 15, 22, 0, 0, 0, time.Local),
+		GoToBed:         time.Date(2024, 1, 15, 22, 30, 0, 0, time.Local),
+		Night:           time.Date(2024, 1, 15, 23, 0, 0, 0, time.Local),
 	}
 
 	dayPhase := calc.CalculateDayPhase(schedule)
@@ -137,7 +141,11 @@ func TestCalculator_GetSunEventAllPeriods(t *testing.T) {
 	logger := testlogger.New()
 	calc := NewCalculator(32.85486, -97.50515, logger)
 
-	now := time.Now()
+	// Use a fixed reference time: January 15, 2024 at 10:00 AM
+	// This makes the test deterministic regardless of when it runs
+	now := time.Date(2024, 1, 15, 10, 0, 0, 0, time.Local)
+	mockClock := clock.NewMockClock(now)
+	calc.SetClock(mockClock)
 
 	tests := []struct {
 		name          string
@@ -592,7 +600,11 @@ func TestCalculator_CalculateDayPhaseEdgeCases(t *testing.T) {
 	logger := testlogger.New()
 	calc := NewCalculator(32.85486, -97.50515, logger)
 
-	now := time.Now()
+	// Use a fixed reference time: January 15, 2024 at 10:00 AM
+	// This makes the test deterministic regardless of when it runs
+	now := time.Date(2024, 1, 15, 10, 0, 0, 0, time.Local)
+	mockClock := clock.NewMockClock(now)
+	calc.SetClock(mockClock)
 
 	// Test day sun event - sun has already risen (goldenHourEnd in past)
 	setSunTimesForTest(calc, now,
