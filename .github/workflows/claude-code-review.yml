@@ -301,15 +301,26 @@ jobs:
               git fetch origin ${HEAD_REF}
               CURRENT_HEAD=\$(git rev-parse origin/${HEAD_REF})
               if [ \"\$CURRENT_HEAD\" != \"${TRIGGERING_SHA}\" ]; then
-                echo 'Author has pushed newer commits - aborting to avoid conflicts'
-                gh pr comment ${PR_NUMBER} --body '## Fix Attempt ${ATTEMPT}/3 - Aborted
+                echo 'Author has pushed newer commits - attempting to merge'
+                # Try to rebase our changes on top of the author's commits
+                git stash 2>/dev/null || true
+                if git pull --rebase origin ${HEAD_REF}; then
+                  git stash pop 2>/dev/null || true
+                  echo 'Successfully rebased on top of author commits - continuing with fix'
+                else
+                  # Rebase failed - abort and let author handle it
+                  git rebase --abort 2>/dev/null || true
+                  git stash pop 2>/dev/null || true
+                  gh pr comment ${PR_NUMBER} --body '## Fix Attempt ${ATTEMPT}/3 - Aborted
 
-            Detected newer commits pushed by author. Skipping automated fix to avoid conflicts.
+            Detected newer commits pushed by author. Attempted to merge but encountered conflicts.
+            Skipping automated fix to avoid overwriting author changes.
             The author is likely fixing this themselves.'
-                exit 0
+                  exit 0
+                fi
               fi
 
-            If the check passes, proceed with fixing:
+            Proceed with fixing:
 
             ORIGINAL ISSUE (if applicable):
             Issue #${ISSUE_NUMBER}: ${ISSUE_TITLE}
@@ -470,6 +481,7 @@ jobs:
             GH_TOKEN=${{ github.token }}
             PR_NUMBER=${{ needs.get-context.outputs.pr_number }}
             REPO=${{ github.repository }}
+            HEAD_REF=${{ needs.get-context.outputs.head_ref }}
           runCmd: |
             # Run Claude Code review inside the devcontainer
             claude --print \
@@ -479,6 +491,17 @@ jobs:
               "You are reviewing PR #${PR_NUMBER} in ${REPO}.
 
             IMPORTANT: Tests have already passed. Focus on code quality review.
+
+            BEFORE MAKING ANY COMMITS, if you plan to push changes:
+            1. First fetch the latest: git fetch origin ${HEAD_REF}
+            2. Check if author pushed new commits: git rev-parse HEAD vs git rev-parse origin/${HEAD_REF}
+            3. If there are new commits, try to rebase your changes on top:
+               git stash (if uncommitted changes)
+               git pull --rebase origin ${HEAD_REF}
+               git stash pop (if stashed)
+            4. If rebase has conflicts, abort and note in your review comment that you found
+               issues but couldn't auto-fix due to concurrent changes by the author.
+            5. Only push if rebase was clean
 
             This repository uses cached test commands. ALWAYS use:
             - \`make unit-tests\` (NOT \`go test\`)
@@ -559,6 +582,7 @@ jobs:
             CLAUDE_CODE_OAUTH_TOKEN=${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
             GH_TOKEN=${{ github.token }}
             PR_NUMBER=${{ needs.get-context.outputs.pr_number }}
+            HEAD_REF=${{ needs.get-context.outputs.head_ref }}
           runCmd: |
             claude --print \
               --model opus \
@@ -574,6 +598,9 @@ jobs:
             If you find test issues consider adding more detail of what problems you found in .github/workflows/claude-code-review.yml test-review job
 
             For HIGH SEVERITY test issues, fix them directly, commit, and push.
+            BEFORE PUSHING: If the author pushed new commits since this review started, try to
+            rebase your changes on top with \`git pull --rebase origin ${HEAD_REF}\`. If there are
+            conflicts, skip the auto-fix and just report the issue in your comment.
 
             Post a comment:
             gh pr comment ${PR_NUMBER} --body '## Test\n\nYOUR_FINDINGS_OR_ALL_CLEAR'" < /dev/null 2>&1 | tee /workspaces/home-automation/test-review-output.txt
@@ -633,6 +660,7 @@ jobs:
             CLAUDE_CODE_OAUTH_TOKEN=${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
             GH_TOKEN=${{ github.token }}
             PR_NUMBER=${{ needs.get-context.outputs.pr_number }}
+            HEAD_REF=${{ needs.get-context.outputs.head_ref }}
           runCmd: |
             claude --print \
               --model opus \
@@ -654,6 +682,9 @@ jobs:
             4. Run \`make unit-tests\` - tests use -race flag
 
             For HIGH SEVERITY concurrency bugs, fix them directly, commit, and push.
+            BEFORE PUSHING: If the author pushed new commits since this review started, try to
+            rebase your changes on top with \`git pull --rebase origin ${HEAD_REF}\`. If there are
+            conflicts, skip the auto-fix and just report the issue in your comment.
 
             Post findings as:
             gh pr comment ${PR_NUMBER} --body '## Concurrency Review\n\nYOUR_ANALYSIS'" < /dev/null 2>&1 | tee /workspaces/home-automation/concurrency-review-output.txt
@@ -718,6 +749,7 @@ jobs:
             ISSUE_NUMBER=${{ needs.get-context.outputs.issue_number }}
             ISSUE_TITLE=${{ needs.get-context.outputs.issue_title }}
             ISSUE_BODY_B64=${{ needs.get-context.outputs.issue_body_b64 }}
+            HEAD_REF=${{ needs.get-context.outputs.head_ref }}
           runCmd: |
             # Decode base64-encoded bodies (handles special characters safely)
             PR_BODY=$(echo "$PR_BODY_B64" | base64 -d 2>/dev/null || echo "")
@@ -764,6 +796,9 @@ jobs:
             If documentation updates are needed:
             - Make the changes directly
             - Commit with message: 'docs: update [doc name] for [change description]'
+            - BEFORE PUSHING: If the author pushed new commits since this review started, try to
+              rebase your changes on top with \`git pull --rebase origin ${HEAD_REF}\`. If there are
+              conflicts, skip the auto-fix and just report what docs need updating in your comment.
             - Push the changes
 
             Post your findings:
