@@ -19,32 +19,135 @@ jobs:
       (github.event_name == 'issues' && (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude')))
     runs-on: ubuntu-latest
     permissions:
-      contents: read
-      pull-requests: read
-      issues: read
+      contents: write
+      pull-requests: write
+      issues: write
       id-token: write
-      actions: read # Required for Claude to read CI results on PRs
+      actions: read
+      packages: read
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 1
+          fetch-depth: 0
 
-      - name: Run Claude Code
-        id: claude
-        uses: anthropics/claude-code-action@v1
+      - name: Extract comment body
+        id: comment
+        run: |
+          if [ "${{ github.event_name }}" = "issue_comment" ]; then
+            echo "body<<EOF" >> $GITHUB_OUTPUT
+            echo "${{ github.event.comment.body }}" >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
+          elif [ "${{ github.event_name }}" = "pull_request_review_comment" ]; then
+            echo "body<<EOF" >> $GITHUB_OUTPUT
+            echo "${{ github.event.comment.body }}" >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
+          elif [ "${{ github.event_name }}" = "pull_request_review" ]; then
+            echo "body<<EOF" >> $GITHUB_OUTPUT
+            echo "${{ github.event.review.body }}" >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
+          else
+            echo "body<<EOF" >> $GITHUB_OUTPUT
+            echo "${{ github.event.issue.body }}" >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Run Claude in devcontainer
+        uses: devcontainers/ci@v0.3
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+          COMMENT_BODY: ${{ steps.comment.outputs.body }}
+          ISSUE_NUMBER: ${{ github.event.issue.number || github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
         with:
-          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          runCmd: |
+            # Run Claude Code inside the devcontainer with full tool access
+            claude --print \
+              --dangerously-skip-permissions \
+              --max-turns 20 \
+              "You are responding to a request in ${REPO} issue/PR #${ISSUE_NUMBER}.
 
-          # This is an optional setting that allows Claude to read CI results on PRs
-          additional_permissions: |
-            actions: read
+            The user said: ${COMMENT_BODY}
 
-          # Optional: Give a custom prompt to Claude. If this is not specified, Claude will perform the instructions specified in the comment that tagged it.
-          # prompt: 'Update the pull request description to include a summary of changes.'
+            IMPORTANT RULES FOR THIS REPOSITORY:
+            - Use \`make unit-tests\` NOT \`go test\` (caching)
+            - Use \`make integration-tests\` for integration tests
+            - Use \`make pre-commit\` for linting/formatting
+            - Follow shadow state pattern (docs/reference/SHADOW_STATE.md)
+            - Never use \`git push --no-verify\`
 
-          # Optional: Add claude_args to customize behavior and configuration
-          # See https://github.com/anthropics/claude-code-action/blob/main/docs/usage.md
-          # or https://code.claude.com/docs/en/cli-reference for available options
-          # claude_args: '--allowed-tools Bash(gh pr:*)'
+            Complete the user's request. If you make changes, commit them.
+            Reply to the user using: gh issue comment ${ISSUE_NUMBER} --body 'YOUR_RESPONSE'"
 
+  # Auto-resolve new issues by opening a PR
+  resolve-issue:
+    if: github.event_name == 'issues' && github.event.action == 'opened'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      id-token: write
+      packages: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve issue in devcontainer
+        uses: devcontainers/ci@v0.3
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
+          REPO: ${{ github.repository }}
+        with:
+          runCmd: |
+            claude --print \
+              --dangerously-skip-permissions \
+              --max-turns 30 \
+              "You are an autonomous agent tasked with resolving GitHub issue #${ISSUE_NUMBER}.
+
+            ISSUE TITLE: ${ISSUE_TITLE}
+
+            ISSUE BODY:
+            ${ISSUE_BODY}
+
+            YOUR TASK:
+            1. Analyze the issue and understand what needs to be done
+            2. Explore the codebase to find relevant files
+            3. Implement the fix or feature
+            4. Run \`make unit-tests\` to verify your changes work
+            5. Create a branch, commit your changes, and open a PR
+
+            IMPORTANT RULES:
+            - Use \`make unit-tests\` NOT \`go test\` (caching)
+            - Use \`make integration-tests\` for integration tests
+            - Use \`make pre-commit\` for linting/formatting
+            - Follow shadow state pattern (docs/reference/SHADOW_STATE.md)
+            - Never use \`git push --no-verify\`
+
+            BRANCH NAMING: Use \`claude/issue-${ISSUE_NUMBER}\` as the branch name.
+
+            PR CREATION:
+            gh pr create --title 'Fix #${ISSUE_NUMBER}: <brief description>' \\
+              --body 'Resolves #${ISSUE_NUMBER}
+
+            ## Summary
+            <describe what you changed>
+
+            ## Test Plan
+            <how to verify the fix>
+
+            🤖 Generated with Claude Code' \\
+              --head claude/issue-${ISSUE_NUMBER}
+
+            If you cannot resolve the issue (unclear requirements, needs human decision, etc.),
+            comment on the issue explaining what clarification is needed:
+            gh issue comment ${ISSUE_NUMBER} --body 'YOUR_EXPLANATION'"

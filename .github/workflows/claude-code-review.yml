@@ -2,56 +2,210 @@ name: Claude Code Review
 
 on:
   pull_request:
-    types: [opened, synchronize]
-    # Optional: Only run on specific file changes
-    # paths:
-    #   - "src/**/*.ts"
-    #   - "src/**/*.tsx"
-    #   - "src/**/*.js"
-    #   - "src/**/*.jsx"
+    types: [opened]
+    paths:
+      - "homeautomation-go/**"
+      - "configs/**"
 
 jobs:
   claude-review:
-    # Optional: Filter by PR author
-    # if: |
-    #   github.event.pull_request.user.login == 'external-contributor' ||
-    #   github.event.pull_request.user.login == 'new-developer' ||
-    #   github.event.pull_request.author_association == 'FIRST_TIME_CONTRIBUTOR'
-
     runs-on: ubuntu-latest
     permissions:
-      contents: read
-      pull-requests: read
-      issues: read
+      contents: write
+      pull-requests: write
+      issues: write
       id-token: write
+      packages: read
 
     steps:
-      - name: Checkout repository
+      - name: Checkout PR branch
         uses: actions/checkout@v4
         with:
-          fetch-depth: 1
+          ref: ${{ github.event.pull_request.head.ref }}
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          fetch-depth: 0
+          token: ${{ github.token }}
 
-      - name: Run Claude Code Review
-        id: claude-review
-        uses: anthropics/claude-code-action@v1
+      - name: Build and run in devcontainer
+        uses: devcontainers/ci@v0.3
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
         with:
-          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          prompt: |
-            REPO: ${{ github.repository }}
-            PR NUMBER: ${{ github.event.pull_request.number }}
+          runCmd: |
+            # Run Claude Code review inside the devcontainer
+            claude --print \
+              --dangerously-skip-permissions \
+              --max-turns 15 \
+              "You are reviewing PR #${PR_NUMBER} in ${REPO}.
 
-            Please review this pull request and provide feedback on:
-            - Code quality and best practices
-            - Potential bugs or issues
-            - Performance considerations
-            - Security concerns
-            - Test coverage
+            IMPORTANT: This repository uses cached test commands. ALWAYS use:
+            - \`make unit-tests\` (NOT \`go test\`)
+            - \`make integration-tests\` for integration tests
+            - \`make pre-commit\` for linting/formatting checks
 
-            Use the repository's CLAUDE.md for guidance on style and conventions. Be constructive and helpful in your feedback.
+            Review this PR by:
+            1. Run \`git diff origin/main...HEAD\` to see changes
+            2. Read the changed files to understand the context
+            3. Check for:
+               - Shadow state pattern compliance (see docs/reference/SHADOW_STATE.md)
+               - Proper mutex usage for WebSocket writes
+               - Race conditions (tests run with -race flag)
+               - Code coverage (65% minimum)
+               - Error wrapping with context
+               - Table-driven test patterns
 
-            Use `gh pr comment` with your Bash tool to leave your review as a comment on the PR.
+            For HIGH SEVERITY issues (broken tests, obvious bugs, missing error handling),
+            fix them directly, commit, and push. Use conventional commit messages.
 
-          # See https://github.com/anthropics/claude-code-action/blob/main/docs/usage.md
-          # or https://code.claude.com/docs/en/cli-reference for available options
-          claude_args: '--allowed-tools "Bash(gh issue view:*),Bash(gh search:*),Bash(gh issue list:*),Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr list:*)"'
+            Post your review using:
+            gh pr comment ${PR_NUMBER} --body 'YOUR_REVIEW_HERE'
 
+            Be constructive. Reference specific lines when noting issues."
+
+  # test-focused reviewer - runs after claude-review
+  test-review:
+    needs: claude-review
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      id-token: write
+      packages: read
+
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          fetch-depth: 0
+          token: ${{ github.token }}
+
+      - name: Pull latest changes
+        run: git pull origin ${{ github.event.pull_request.head.ref }} || true
+
+      - name: Test review in devcontainer
+        uses: devcontainers/ci@v0.3
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        with:
+          runCmd: |
+            claude --print \
+              --dangerously-skip-permissions \
+              --max-turns 10 \
+              "You are a QA tester for PR #${PR_NUMBER}.
+
+            Run \`git diff origin/main...HEAD\` and analyze for insufficiently tested features:
+            - Missing tests
+            - Problems with how tests are written, such as tests which will fail at certain times of day
+            - Addition of tests which take a long time
+
+            If you find test issues consider adding more detail of what problems you found in .github/workflows/claude-code-review.yml test-review job
+
+            For HIGH SEVERITY test issues, fix them directly, commit, and push.
+
+            Post a comment:
+            gh pr comment ${PR_NUMBER} --body '## Test\n\nYOUR_FINDINGS_OR_ALL_CLEAR'"
+
+  # Concurrency/race condition specialist - runs after test-review
+  concurrency-review:
+    needs: test-review
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      id-token: write
+      packages: read
+
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          fetch-depth: 0
+          token: ${{ github.token }}
+
+      - name: Pull latest changes
+        run: git pull origin ${{ github.event.pull_request.head.ref }} || true
+
+      - name: Concurrency review in devcontainer
+        uses: devcontainers/ci@v0.3
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        with:
+          runCmd: |
+            claude --print \
+              --dangerously-skip-permissions \
+              --max-turns 12 \
+              "You are a CONCURRENCY specialist reviewing PR #${PR_NUMBER}.
+
+            This Go codebase has a history of race conditions. Review for:
+
+            1. Read docs/reference/CONCURRENCY_LESSONS.md to understand past issues
+            2. Run \`git diff origin/main...HEAD\` to see changes
+            3. Check for:
+               - Missing mutex locks on shared state
+               - Incorrect use of sync.RWMutex (write lock when read would suffice)
+               - WebSocket write serialization (must use writeMu)
+               - Goroutine leaks (missing context cancellation)
+               - Channel deadlocks
+
+            4. Run \`make unit-tests\` - tests use -race flag
+
+            For HIGH SEVERITY concurrency bugs, fix them directly, commit, and push.
+
+            Post findings as:
+            gh pr comment ${PR_NUMBER} --body '## 🔄 Concurrency Review\n\nYOUR_ANALYSIS'"
+
+  # Aggregator job - use this as the required check for branch protection
+  all-reviews-passed:
+    name: All Required Agent Reviews
+    runs-on: ubuntu-latest
+    needs: [claude-review, test-review, concurrency-review]
+    if: always()
+
+    steps:
+      - name: Check review results
+        run: |
+          check_result() {
+            local result=$1
+            [[ "$result" == "success" || "$result" == "skipped" ]]
+          }
+
+          failed=false
+
+          if ! check_result "${{ needs.claude-review.result }}"; then
+            echo "❌ Claude Review: ${{ needs.claude-review.result }}"
+            failed=true
+          fi
+          if ! check_result "${{ needs.test-review.result }}"; then
+            echo "❌ Test Review: ${{ needs.test-review.result }}"
+            failed=true
+          fi
+          if ! check_result "${{ needs.concurrency-review.result }}"; then
+            echo "❌ Concurrency Review: ${{ needs.concurrency-review.result }}"
+            failed=true
+          fi
+
+          if [ "$failed" = true ]; then
+            echo ""
+            echo "❌ Some agent reviews failed"
+            exit 1
+          fi
+
+          echo "✅ All agent reviews completed - PR is ready for merge"
+          echo ""
+          echo "Review Results:"
+          echo "  Claude Review: ${{ needs.claude-review.result }}"
+          echo "  Test Review: ${{ needs.test-review.result }}"
+          echo "  Concurrency Review: ${{ needs.concurrency-review.result }}"
