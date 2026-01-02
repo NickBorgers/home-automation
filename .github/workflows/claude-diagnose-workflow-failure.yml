@@ -1,0 +1,252 @@
+name: Claude Diagnose Workflow Failure
+
+# Triggers when any workflow run completes with failure
+# Analyzes if it's a GitHub Actions configuration problem vs a test/code failure
+# Creates an issue only for Actions configuration problems (not test failures)
+
+on:
+  workflow_run:
+    workflows:
+      - "PR Tests"
+      - "Build and Push Docker Image"
+      - "Auto-Format"
+      - "Publish-Screenshots"
+      - "Trigger Private Security Rebuild"
+      - "Notify Private Repo of PR Merge"
+    types:
+      - completed
+
+# Prevent duplicate diagnoses for the same workflow run
+concurrency:
+  group: diagnose-failure-${{ github.event.workflow_run.id }}
+  cancel-in-progress: false
+
+env:
+  DEVCONTAINER_IMAGE: ghcr.io/nickborgers/home-automation-devcontainer
+
+jobs:
+  # Only proceed if the workflow failed
+  check-failure:
+    runs-on: ubuntu-latest
+    outputs:
+      should_diagnose: ${{ steps.check.outputs.should_diagnose }}
+      workflow_name: ${{ github.event.workflow_run.name }}
+      run_id: ${{ github.event.workflow_run.id }}
+      run_url: ${{ github.event.workflow_run.html_url }}
+      head_branch: ${{ github.event.workflow_run.head_branch }}
+      head_sha: ${{ github.event.workflow_run.head_sha }}
+      conclusion: ${{ github.event.workflow_run.conclusion }}
+    steps:
+      - name: Check if diagnosis is needed
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          CONCLUSION="${{ github.event.workflow_run.conclusion }}"
+          WORKFLOW_NAME="${{ github.event.workflow_run.name }}"
+          RUN_ID="${{ github.event.workflow_run.id }}"
+
+          echo "Workflow: $WORKFLOW_NAME"
+          echo "Conclusion: $CONCLUSION"
+          echo "Run ID: $RUN_ID"
+
+          # Only diagnose failures (not success, cancelled, or skipped)
+          if [ "$CONCLUSION" != "failure" ]; then
+            echo "Workflow did not fail (conclusion: $CONCLUSION) - skipping diagnosis"
+            echo "should_diagnose=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # Skip diagnosis for Claude-related workflows to avoid infinite loops
+          if [[ "$WORKFLOW_NAME" == *"Claude"* ]]; then
+            echo "Skipping diagnosis of Claude workflow to prevent loops"
+            echo "should_diagnose=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # Check if an issue already exists for this workflow run
+          EXISTING_ISSUE=$(gh issue list \
+            --repo ${{ github.repository }} \
+            --search "Workflow Failure: $WORKFLOW_NAME run #$RUN_ID" \
+            --state open \
+            --json number \
+            --jq '.[0].number // empty')
+
+          if [ -n "$EXISTING_ISSUE" ]; then
+            echo "Issue #$EXISTING_ISSUE already exists for this run - skipping"
+            echo "should_diagnose=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          echo "should_diagnose=true" >> $GITHUB_OUTPUT
+
+  # Build devcontainer for Claude
+  build-devcontainer:
+    runs-on: ubuntu-latest
+    needs: check-failure
+    if: needs.check-failure.outputs.should_diagnose == 'true'
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push devcontainer
+        uses: devcontainers/ci@v0.3
+        with:
+          imageName: ${{ env.DEVCONTAINER_IMAGE }}
+          cacheFrom: ${{ env.DEVCONTAINER_IMAGE }}
+          push: always
+
+  # Run Claude to diagnose the failure
+  diagnose-failure:
+    needs: [check-failure, build-devcontainer]
+    if: needs.check-failure.outputs.should_diagnose == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+      actions: read
+      packages: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create gh config directory for devcontainer mount
+        run: mkdir -p ~/.config/gh
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Diagnose failure with Claude
+        uses: devcontainers/ci@v0.3
+        with:
+          imageName: ${{ env.DEVCONTAINER_IMAGE }}
+          cacheFrom: ${{ env.DEVCONTAINER_IMAGE }}
+          push: never
+          env: |
+            CLAUDE_CODE_OAUTH_TOKEN=${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+            GH_TOKEN=${{ github.token }}
+            WORKFLOW_NAME=${{ needs.check-failure.outputs.workflow_name }}
+            RUN_ID=${{ needs.check-failure.outputs.run_id }}
+            RUN_URL=${{ needs.check-failure.outputs.run_url }}
+            HEAD_BRANCH=${{ needs.check-failure.outputs.head_branch }}
+            HEAD_SHA=${{ needs.check-failure.outputs.head_sha }}
+            REPO=${{ github.repository }}
+          runCmd: |
+            # Run Claude to diagnose the workflow failure
+            claude --print \
+              --model opus \
+              --dangerously-skip-permissions \
+              --max-turns 100 \
+              "You are a GitHub Actions diagnostician. A workflow has failed and you need to determine
+            if it's a GitHub Actions configuration problem or a normal test/code failure.
+
+            WORKFLOW INFORMATION:
+            - Workflow Name: ${WORKFLOW_NAME}
+            - Run ID: ${RUN_ID}
+            - Run URL: ${RUN_URL}
+            - Branch: ${HEAD_BRANCH}
+            - Commit SHA: ${HEAD_SHA}
+            - Repository: ${REPO}
+
+            YOUR TASK:
+            1. Fetch the workflow run logs using: gh run view ${RUN_ID} --log-failed
+            2. Read the workflow YAML file: .github/workflows/ (find the matching file for '${WORKFLOW_NAME}')
+            3. Analyze the failure to classify it as one of:
+               a) TEST_FAILURE: Unit tests, integration tests, or code compilation failures
+               b) CONFIG_FAILURE: Issues in configs/ directory (YAML validation, etc.)
+               c) ACTIONS_FAILURE: Problems with the GitHub Actions workflow definition itself
+
+            ACTIONS_FAILURE examples (CREATE AN ISSUE for these):
+            - Workflow YAML syntax errors
+            - Missing or invalid action references (e.g., uses: unknown-action@v1)
+            - Invalid workflow triggers or event configurations
+            - Missing required secrets or environment variables (not test code)
+            - Permission issues with GitHub tokens/actions
+            - Docker build failures in workflow steps (not Dockerfile issues)
+            - Cache action failures
+            - Job dependency issues
+            - Concurrency/matrix configuration problems
+            - Runner environment issues
+
+            NOT ACTIONS_FAILURE (do NOT create an issue):
+            - Go test failures (make unit-tests, make integration-tests)
+            - Code compilation errors (go build failures)
+            - Style/lint check failures (staticcheck, gofmt)
+            - Coverage below threshold
+            - Config validation failures (yamllint on configs/)
+            - Application Dockerfile build failures
+
+            DECISION LOGIC:
+            - If the failure is ACTIONS_FAILURE: Create a GitHub issue
+            - If the failure is TEST_FAILURE or CONFIG_FAILURE: Do NOT create an issue
+              (these are handled by the existing Claude Code Review workflow)
+
+            IF YOU DETERMINE THIS IS AN ACTIONS_FAILURE, create an issue:
+            # First ensure the github-actions label exists
+            gh label create \"github-actions\" --color \"0366d6\" --description \"GitHub Actions workflow issues\" 2>/dev/null || true
+            gh issue create \\
+              --title \"Workflow Failure: ${WORKFLOW_NAME} run #${RUN_ID} - Actions Configuration Issue\" \\
+              --label \"bug,github-actions\" \\
+              --body \"\$(cat <<'ISSUE_BODY'
+            ## Workflow Failure Report
+
+            A GitHub Actions configuration problem has been detected.
+
+            ### Workflow Details
+            - **Workflow**: ${WORKFLOW_NAME}
+            - **Run ID**: [${RUN_ID}](${RUN_URL})
+            - **Branch**: ${HEAD_BRANCH}
+            - **Commit**: ${HEAD_SHA}
+
+            ### Failure Analysis
+
+            [DESCRIBE THE ACTIONS CONFIGURATION PROBLEM HERE]
+
+            ### Relevant Logs
+
+            \\\`\\\`\\\`
+            [PASTE KEY ERROR LOGS HERE]
+            \\\`\\\`\\\`
+
+            ### Suggested Fix
+
+            [DESCRIBE HOW TO FIX THE ACTIONS CONFIGURATION]
+
+            ### Files to Review
+            - [LIST WORKFLOW YAML FILES THAT NEED CHANGES]
+
+            ---
+            🤖 Generated by Claude Workflow Diagnostician
+            ISSUE_BODY
+            )\"
+
+            IF THIS IS NOT AN ACTIONS_FAILURE, output:
+            'DIAGNOSIS: [TEST_FAILURE|CONFIG_FAILURE] - No issue created. This failure type is handled by the Claude Code Review workflow.'
+
+            Be thorough in your analysis. Examine the actual error messages in the logs." < /dev/null 2>&1 | tee /workspaces/home-automation/diagnose-output.txt
+
+      - name: Upload diagnosis output
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: workflow-diagnosis-output
+          path: diagnose-output.txt
+          retention-days: 7
