@@ -200,8 +200,10 @@ jobs:
               (these are handled by the existing Claude Code Review workflow)
 
             IF YOU DETERMINE THIS IS AN ACTIONS_FAILURE, create an issue:
+            # First ensure the github-actions label exists
+            gh label create \"github-actions\" --color \"0366d6\" --description \"GitHub Actions workflow issues\" 2>/dev/null || true
             gh issue create \\
-              --title \"Workflow Failure: ${WORKFLOW_NAME} - Actions Configuration Issue\" \\
+              --title \"Workflow Failure: ${WORKFLOW_NAME} run #${RUN_ID} - Actions Configuration Issue\" \\
               --label \"bug,github-actions\" \\
               --body \"\$(cat <<'ISSUE_BODY'
             ## Workflow Failure Report
