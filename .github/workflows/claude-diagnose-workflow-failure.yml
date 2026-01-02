@@ -12,6 +12,8 @@ on:
       - "Publish-Screenshots"
       - "Trigger Private Security Rebuild"
       - "Notify Private Repo of PR Merge"
+      - "Claude Code"
+      - "Claude Code Review"
     types:
       - completed
 
@@ -56,9 +58,10 @@ jobs:
             exit 0
           fi
 
-          # Skip diagnosis for Claude-related workflows to avoid infinite loops
-          if [[ "$WORKFLOW_NAME" == *"Claude"* ]]; then
-            echo "Skipping diagnosis of Claude workflow to prevent loops"
+          # Skip diagnosis for THIS workflow only to avoid infinite loops
+          # Other Claude workflows (Claude Code, Claude Code Review) should be diagnosed
+          if [[ "$WORKFLOW_NAME" == "Claude Diagnose Workflow Failure" ]]; then
+            echo "Skipping diagnosis of diagnosis workflow to prevent infinite loops"
             echo "should_diagnose=false" >> $GITHUB_OUTPUT
             exit 0
           fi
