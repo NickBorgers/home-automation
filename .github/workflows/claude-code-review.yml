@@ -76,7 +76,6 @@ jobs:
           env: |
             CLAUDE_CODE_OAUTH_TOKEN=${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
             GH_TOKEN=${{ github.token }}
-            GH_COMMENT_TOKEN=${{ secrets.CLAUDE_BOT_TOKEN || github.token }}
             PR_NUMBER=${{ github.event.pull_request.number }}
             REPO=${{ github.repository }}
           runCmd: |
@@ -108,8 +107,8 @@ jobs:
             For HIGH SEVERITY issues (broken tests, obvious bugs, missing error handling),
             fix them directly, commit, and push. Use conventional commit messages.
 
-            Post your review using (note: use GH_COMMENT_TOKEN for Claude identity):
-            GH_TOKEN=\${GH_COMMENT_TOKEN} gh pr comment ${PR_NUMBER} --body 'YOUR_REVIEW_HERE'
+            Post your review using:
+            gh pr comment ${PR_NUMBER} --body 'YOUR_REVIEW_HERE'
 
             Be constructive. Reference specific lines when noting issues." < /dev/null 2>&1 | tee /workspaces/home-automation/claude-review-output.txt
 
@@ -163,7 +162,6 @@ jobs:
           env: |
             CLAUDE_CODE_OAUTH_TOKEN=${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
             GH_TOKEN=${{ github.token }}
-            GH_COMMENT_TOKEN=${{ secrets.CLAUDE_BOT_TOKEN || github.token }}
             PR_NUMBER=${{ github.event.pull_request.number }}
           runCmd: |
             # Use < /dev/null to prevent hanging on TTY input
@@ -183,8 +181,8 @@ jobs:
 
             For HIGH SEVERITY test issues, fix them directly, commit, and push.
 
-            Post a comment (use GH_COMMENT_TOKEN for Claude identity):
-            GH_TOKEN=\${GH_COMMENT_TOKEN} gh pr comment ${PR_NUMBER} --body '## Test\n\nYOUR_FINDINGS_OR_ALL_CLEAR'" < /dev/null 2>&1 | tee /workspaces/home-automation/test-review-output.txt
+            Post a comment:
+            gh pr comment ${PR_NUMBER} --body '## Test\n\nYOUR_FINDINGS_OR_ALL_CLEAR'" < /dev/null 2>&1 | tee /workspaces/home-automation/test-review-output.txt
 
       - name: Upload test review output
         uses: actions/upload-artifact@v4
@@ -236,7 +234,6 @@ jobs:
           env: |
             CLAUDE_CODE_OAUTH_TOKEN=${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
             GH_TOKEN=${{ github.token }}
-            GH_COMMENT_TOKEN=${{ secrets.CLAUDE_BOT_TOKEN || github.token }}
             PR_NUMBER=${{ github.event.pull_request.number }}
           runCmd: |
             # Use < /dev/null to prevent hanging on TTY input
@@ -262,8 +259,8 @@ jobs:
 
             For HIGH SEVERITY concurrency bugs, fix them directly, commit, and push.
 
-            Post findings (use GH_COMMENT_TOKEN for Claude identity):
-            GH_TOKEN=\${GH_COMMENT_TOKEN} gh pr comment ${PR_NUMBER} --body '## 🔄 Concurrency Review\n\nYOUR_ANALYSIS'" < /dev/null 2>&1 | tee /workspaces/home-automation/concurrency-review-output.txt
+            Post findings as:
+            gh pr comment ${PR_NUMBER} --body '## 🔄 Concurrency Review\n\nYOUR_ANALYSIS'" < /dev/null 2>&1 | tee /workspaces/home-automation/concurrency-review-output.txt
 
       - name: Upload concurrency review output
         uses: actions/upload-artifact@v4
