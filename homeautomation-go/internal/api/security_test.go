@@ -197,20 +197,18 @@ func TestQueryParametersCannotModifyState(t *testing.T) {
 		"/api/timeline/events?delete=all",
 	}
 
+	// Run requests sequentially to ensure state verification is accurate.
+	// Using parallel subtests here would cause a race: the parent test's
+	// state verification (below) could run before subtests complete.
 	for _, url := range maliciousQueries {
-		url := url // capture for parallel
+		req := httptest.NewRequest(http.MethodGet, url, nil)
+		w := httptest.NewRecorder()
+		server.server.Handler.ServeHTTP(w, req)
 
-		t.Run("GET "+url, func(t *testing.T) {
-			t.Parallel()
-			req := httptest.NewRequest(http.MethodGet, url, nil)
-			w := httptest.NewRecorder()
-			server.server.Handler.ServeHTTP(w, req)
-
-			// Request should succeed or return appropriate error (not 500)
-			if w.Code == http.StatusInternalServerError {
-				t.Errorf("GET %s: unexpected server error", url)
-			}
-		})
+		// Request should succeed or return appropriate error (not 500)
+		if w.Code == http.StatusInternalServerError {
+			t.Errorf("GET %s: unexpected server error", url)
+		}
 	}
 
 	// Verify state was not modified
