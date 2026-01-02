@@ -46,6 +46,7 @@ jobs:
           runCmd: |
             # Run Claude Code review inside the devcontainer
             claude --print \
+              --model opus \
               --dangerously-skip-permissions \
               --max-turns 15 \
               "You are reviewing PR #${PR_NUMBER} in ${REPO}.
@@ -112,6 +113,7 @@ jobs:
           push: always
           runCmd: |
             claude --print \
+              --model opus \
               --dangerously-skip-permissions \
               --max-turns 10 \
               "You are a QA tester for PR #${PR_NUMBER}.
@@ -166,6 +168,7 @@ jobs:
           push: always
           runCmd: |
             claude --print \
+              --model opus \
               --dangerously-skip-permissions \
               --max-turns 12 \
               "You are a CONCURRENCY specialist reviewing PR #${PR_NUMBER}.

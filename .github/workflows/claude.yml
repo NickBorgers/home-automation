@@ -74,6 +74,7 @@ jobs:
           runCmd: |
             # Run Claude Code inside the devcontainer with full tool access
             claude --print \
+              --model opus \
               --dangerously-skip-permissions \
               --max-turns 20 \
               "You are responding to a request in ${REPO} issue/PR #${ISSUE_NUMBER}.
@@ -134,6 +135,7 @@ jobs:
           push: always
           runCmd: |
             claude --print \
+              --model opus \
               --dangerously-skip-permissions \
               --max-turns 30 \
               "You are an autonomous agent tasked with resolving GitHub issue #${ISSUE_NUMBER}.
