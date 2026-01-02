@@ -59,6 +59,8 @@ func (m *mockHAClient) SendNotificationToMultiple(deviceNames []string, notifica
 	return nil
 }
 func (m *mockHAClient) ClearNotification(deviceName, tag string) error { return nil }
+func (m *mockHAClient) SetReconnectCallback(cb func())                 {}
+func (m *mockHAClient) GetReconnectCount() int                         { return 0 }
 
 func (m *mockHAClient) GetState(entityID string) (*ha.State, error) {
 	if s, ok := m.states[entityID]; ok {

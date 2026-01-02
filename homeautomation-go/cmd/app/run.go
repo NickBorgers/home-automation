@@ -193,6 +193,38 @@ func Run() {
 		logger.Fatal("Failed to sync state from HA", zap.Error(err))
 	}
 
+	// Set up reconnect callback to resync state after connection recovery.
+	// This prevents missed state updates during connection gaps.
+	// Uses retry with exponential backoff to handle transient failures.
+	client.SetReconnectCallback(func() {
+		logger.Info("Reconnect detected, syncing state from HA to recover any missed events...")
+
+		maxRetries := 3
+		backoff := 1 * time.Second
+
+		for attempt := 1; attempt <= maxRetries; attempt++ {
+			if err := stateManager.SyncFromHA(); err != nil {
+				logger.Error("Failed to sync state after reconnect",
+					zap.Error(err),
+					zap.Int("attempt", attempt),
+					zap.Int("maxRetries", maxRetries))
+
+				if attempt < maxRetries {
+					logger.Info("Retrying state sync after backoff",
+						zap.Duration("backoff", backoff))
+					time.Sleep(backoff)
+					backoff *= 2
+				} else {
+					logger.Error("All state sync retry attempts exhausted - system may have stale state")
+				}
+			} else {
+				logger.Info("State sync after reconnect completed successfully",
+					zap.Int("attempt", attempt))
+				return
+			}
+		}
+	})
+
 	// Setup computed state variables
 	if err := stateManager.SetupComputedState(); err != nil {
 		logger.Fatal("Failed to setup computed state", zap.Error(err))
@@ -201,6 +233,29 @@ func Run() {
 	// Create Shadow State Tracker
 	shadowTracker := shadowstate.NewTracker()
 	logger.Info("Shadow State Tracker created")
+
+	// Register system shadow state provider for connection health metrics
+	shadowTracker.RegisterPluginProvider("system", func() shadowstate.PluginShadowState {
+		return &shadowstate.SystemShadowState{
+			Plugin: "system",
+			Inputs: shadowstate.SystemInputs{
+				Current: make(map[string]interface{}),
+			},
+			Outputs: shadowstate.SystemOutputs{
+				ConnectionHealth: shadowstate.ConnectionHealthMetrics{
+					IsConnected:    client.IsConnected(),
+					IsHealthy:      client.IsHealthy(),
+					ReconnectCount: client.GetReconnectCount(),
+					LastCheck:      time.Now(),
+				},
+			},
+			Metadata: shadowstate.StateMetadata{
+				LastUpdated: time.Now(),
+				PluginName:  "system",
+			},
+		}
+	})
+	logger.Info("Registered system shadow state provider for connection health metrics")
 
 	// Create Subscription Registry for automatic shadow state input tracking
 	subscriptionRegistry := shadowstate.NewSubscriptionRegistry()

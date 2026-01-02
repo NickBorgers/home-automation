@@ -315,6 +315,76 @@ This guarantees that if goroutine A allocates ID 10, no other goroutine can allo
 
 ---
 
+## Lesson 8: Enable TCP Keepalive for WebSocket Connections Through Proxies
+
+**Pattern**: Use a custom WebSocket dialer with TCP keepalive enabled when connections pass through reverse proxies.
+
+**Why**: Reverse proxies like NGINX and HAProxy have idle timeout settings (commonly 60 seconds) that check for **TCP-layer activity**, not application-layer activity. Application-layer pings (like JSON `{"type": "ping"}`) don't generate TCP-layer traffic that proxies recognize as "activity."
+
+**Symptoms**:
+- Connections drop at exactly 60-second intervals (or another suspiciously precise timeout)
+- Reconnection succeeds quickly (<50ms), indicating the backend is healthy
+- Log pattern: `23:44:06 → 23:45:06 → 23:46:06` (exactly 60s between disconnects)
+
+**Root Cause**:
+```
+Application layer:  Go client ←──JSON pings──→ Home Assistant  ✓ Working
+                                    │
+TCP layer:          Go client ←──(silence)──→ NGINX ←──→ HA   ✗ Proxy sees idle
+                                    │
+                            NGINX closes at 60s
+```
+
+**Wrong Approach** (doesn't help):
+```go
+// ❌ BAD: More frequent application pings don't fix TCP-layer issue
+const pingInterval = 5 * time.Second  // Still no TCP keepalive!
+
+conn, _, err := websocket.DefaultDialer.Dial(url, nil)  // No TCP keepalive
+```
+
+**Correct Approach**:
+```go
+// ✅ GOOD: Custom dialer with TCP keepalive
+dialer := websocket.Dialer{
+    NetDialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+        d := net.Dialer{
+            KeepAlive: 30 * time.Second,  // TCP keepalive probes every 30s
+        }
+        return d.DialContext(ctx, network, addr)
+    },
+    HandshakeTimeout: 45 * time.Second,
+}
+conn, _, err := dialer.Dial(url, nil)
+```
+
+**How TCP Keepalive Works**:
+1. Kernel sends TCP ACK probes at the configured interval (30s)
+2. Reverse proxies recognize these as TCP activity and reset their idle timers
+3. Dead connections are detected faster (kernel handles retries)
+4. Works through all layers (below TLS/WebSocket, so works regardless of encryption)
+
+**Layered Defense**:
+This project uses BOTH mechanisms:
+- **TCP keepalive (30s)**: Prevents proxy idle timeouts, detects dead connections at OS level
+- **Application pings (15s)**: Keeps Home Assistant's WebSocket session alive
+
+**Where to Apply**:
+- Any WebSocket client connecting through reverse proxies
+- Long-running connections through load balancers (AWS ALB, GCP LB, Azure LB)
+- Connections through NAT gateways with aggressive timeouts
+- MQTT, gRPC, or other persistent connections through proxies
+
+**References**:
+- [eclipse-paho/paho.mqtt.c#724](https://github.com/eclipse-paho/paho.mqtt.c/issues/724) - Similar issue with MQTT
+- Issue #281, #282 - Investigation and fix for this project
+
+**Production Impact**:
+- **Before Fix**: Disconnects every 60 seconds, ~60+ disconnects/hour
+- **After Fix**: Stable connections, disconnects only on actual network issues
+
+---
+
 ## Common Pitfalls to Avoid
 
 ### 1. Forgetting to Lock Before Map Access
@@ -374,6 +444,7 @@ func (s *Subscription) Close() {
 5. **Event handlers must be async** - Prevents deadlocks when handlers send messages
 6. **Always test with -race** - Catches bugs you can't see in normal runs
 7. **Message ID allocation and write must be atomic** - Prevents out-of-order IDs
+8. **Enable TCP keepalive through proxies** - Prevents 60-second idle timeout disconnects
 
 ---
 
@@ -384,12 +455,18 @@ func (s *Subscription) Close() {
 - State manager: `internal/state/manager.go`
 - Mock server: `test/integration/mock_ha_server.go`
 
-**Last Updated**: 2025-12-28
+**Last Updated**: 2026-01-01
 **Test Status**: All 11/11 integration tests passing with `-race` flag
 
 ---
 
 ## Change Log
+
+### 2026-01-01
+- **Added Lesson 8**: Enable TCP Keepalive for WebSocket Connections Through Proxies
+  - Fixes 60-second WebSocket timeout caused by reverse proxy idle detection (Issue #281, #282)
+  - Pattern: Use custom `websocket.Dialer` with `net.Dialer{KeepAlive: 30s}`
+  - TCP keepalive probes prevent proxy idle timeouts at the network layer
 
 ### 2025-12-28
 - **Added Lesson 7**: Message ID Allocation and WebSocket Write Must Be Atomic
