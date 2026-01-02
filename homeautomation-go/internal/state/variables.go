@@ -23,7 +23,7 @@ type StateVariable struct {
 
 // AllVariables contains all 40 state variables (38 synced with HA + 2 local-only)
 var AllVariables = []StateVariable{
-	// Booleans (27)
+	// Booleans (28)
 	{Key: "isNickHome", EntityID: "input_boolean.nick_home", Type: TypeBool, Default: false},
 	{Key: "isCarolineHome", EntityID: "input_boolean.caroline_home", Type: TypeBool, Default: false},
 	{Key: "isToriHere", EntityID: "input_boolean.tori_here", Type: TypeBool, Default: false},
