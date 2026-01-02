@@ -892,7 +892,19 @@ func (m *Manager) executePlayback(musicType string, option PlaybackOption, parti
 		}
 	}
 
-	// Step 6: Evaluate mute conditions and unmute eligible ACTIVE speakers
+	// Step 6: Enable repeat for all playback types
+	// Repeat ensures continuous playback, especially important for single-file
+	// media like rain sounds that would otherwise stop after playing once
+	if err := m.callServiceWithRetry("media_player", "repeat_set", map[string]interface{}{
+		"entity_id": leadEntityID,
+		"repeat":    "all",
+	}); err != nil {
+		m.logger.Warn("Failed to enable repeat",
+			zap.String("speaker", leadPlayer),
+			zap.Error(err))
+	}
+
+	// Step 7: Evaluate mute conditions and unmute eligible ACTIVE speakers
 	for _, sr := range groupResult.Results {
 		if !sr.Active {
 			continue // Skip failed speakers
