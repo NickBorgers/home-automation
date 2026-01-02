@@ -128,6 +128,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # Note: GH_TOKEN uses WORKFLOW_PAT because PRs created with GITHUB_TOKEN don't trigger workflows
       - name: Run Claude in devcontainer
         uses: devcontainers/ci@v0.3
         with:
@@ -136,7 +137,6 @@ jobs:
           push: never
           env: |
             CLAUDE_CODE_OAUTH_TOKEN=${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-            # PAT required: PRs created with GITHUB_TOKEN don't trigger workflows
             GH_TOKEN=${{ secrets.WORKFLOW_PAT }}
             COMMENT_BODY=${{ steps.comment.outputs.body }}
             ISSUE_NUMBER=${{ github.event.issue.number || github.event.pull_request.number }}
@@ -256,6 +256,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # Note: GH_TOKEN uses WORKFLOW_PAT because PRs created with GITHUB_TOKEN don't trigger workflows
       - name: Resolve issue in devcontainer
         uses: devcontainers/ci@v0.3
         with:
@@ -264,7 +265,6 @@ jobs:
           push: never
           env: |
             CLAUDE_CODE_OAUTH_TOKEN=${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-            # PAT required: PRs created with GITHUB_TOKEN don't trigger workflows
             GH_TOKEN=${{ secrets.WORKFLOW_PAT }}
             ISSUE_NUMBER=${{ github.event.issue.number }}
             ISSUE_TITLE=${{ github.event.issue.title }}
