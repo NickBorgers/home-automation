@@ -39,6 +39,7 @@ jobs:
             code:
               - 'homeautomation-go/**'
               - 'configs/**'
+              - '.github/workflows/**'
             docker:
               - 'homeautomation-go/Dockerfile'
               - 'homeautomation-go/go.mod'
