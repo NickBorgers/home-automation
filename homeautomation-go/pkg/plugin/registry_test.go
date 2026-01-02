@@ -20,6 +20,7 @@ func (m *mockPlugin) Start() error { m.started = true; return nil }
 func (m *mockPlugin) Stop()        { m.stopped = true }
 
 func TestRegistry_Register(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name        string
 		info        PluginInfo
@@ -58,6 +59,7 @@ func TestRegistry_Register(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+
 			registry := NewRegistry()
 			err := registry.Register(tt.info)
 
@@ -74,6 +76,7 @@ func TestRegistry_Register(t *testing.T) {
 }
 
 func TestRegistry_PriorityOverride(t *testing.T) {
+	t.Parallel()
 	registry := NewRegistry()
 
 	// Register default priority plugin
@@ -119,6 +122,7 @@ func TestRegistry_PriorityOverride(t *testing.T) {
 }
 
 func TestRegistry_LowerPrioritySkipped(t *testing.T) {
+	t.Parallel()
 	registry := NewRegistry()
 
 	// Register high priority first
@@ -146,6 +150,7 @@ func TestRegistry_LowerPrioritySkipped(t *testing.T) {
 }
 
 func TestRegistry_List(t *testing.T) {
+	t.Parallel()
 	registry := NewRegistry()
 
 	// Register plugins with different orders
@@ -181,6 +186,7 @@ func TestRegistry_List(t *testing.T) {
 }
 
 func TestRegistry_CreateAll(t *testing.T) {
+	t.Parallel()
 	registry := NewRegistry()
 
 	created := make([]string, 0)
@@ -213,6 +219,7 @@ func TestRegistry_CreateAll(t *testing.T) {
 }
 
 func TestRegistry_CreateAll_ErrorCleanup(t *testing.T) {
+	t.Parallel()
 	registry := NewRegistry()
 
 	plugin1 := &mockPlugin{name: "first"}
@@ -241,12 +248,14 @@ func TestRegistry_CreateAll_ErrorCleanup(t *testing.T) {
 }
 
 func TestRegistry_Get_NotFound(t *testing.T) {
+	t.Parallel()
 	registry := NewRegistry()
 	info := registry.Get("nonexistent")
 	assert.Nil(t, info)
 }
 
 func TestRegistry_Names(t *testing.T) {
+	t.Parallel()
 	registry := NewRegistry()
 
 	registry.Register(PluginInfo{
@@ -265,6 +274,7 @@ func TestRegistry_Names(t *testing.T) {
 }
 
 func TestRegistry_Clear(t *testing.T) {
+	t.Parallel()
 	registry := NewRegistry()
 
 	registry.Register(PluginInfo{
@@ -281,6 +291,7 @@ func TestRegistry_Clear(t *testing.T) {
 }
 
 func TestRegistry_DefaultOrder(t *testing.T) {
+	t.Parallel()
 	registry := NewRegistry()
 
 	// Register without specifying Order
@@ -296,7 +307,10 @@ func TestRegistry_DefaultOrder(t *testing.T) {
 }
 
 func TestGlobalRegistry(t *testing.T) {
+	t.Parallel(
 	// Clear global registry for clean test
+	)
+
 	ClearGlobal()
 	defer ClearGlobal()
 

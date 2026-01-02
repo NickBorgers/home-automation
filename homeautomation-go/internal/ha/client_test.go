@@ -55,10 +55,12 @@ func standardAuthFlow(t *testing.T, conn *websocket.Conn, token string) {
 }
 
 func TestClient_Connect(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	token := "test_token"
 
 	t.Run("successful connection", func(t *testing.T) {
+
 		server := mockHAServer(t, func(conn *websocket.Conn) {
 			standardAuthFlow(t, conn, token)
 
@@ -90,6 +92,7 @@ func TestClient_Connect(t *testing.T) {
 	})
 
 	t.Run("invalid token", func(t *testing.T) {
+
 		server := mockHAServer(t, func(conn *websocket.Conn) {
 			// Send auth_required
 			conn.WriteJSON(Message{Type: "auth_required"})
@@ -113,6 +116,7 @@ func TestClient_Connect(t *testing.T) {
 	})
 
 	t.Run("already connected", func(t *testing.T) {
+
 		server := mockHAServer(t, func(conn *websocket.Conn) {
 			standardAuthFlow(t, conn, token)
 
@@ -145,6 +149,7 @@ func TestClient_Connect(t *testing.T) {
 }
 
 func TestClient_GetStates(t *testing.T) {
+	t.Parallel()
 	states := []*State{
 		{EntityID: "input_boolean.test", State: "on", Attributes: map[string]interface{}{"friendly_name": "Test Boolean"}},
 		{EntityID: "input_number.test", State: "42.5", Attributes: map[string]interface{}{"friendly_name": "Test Number"}},
@@ -159,6 +164,7 @@ func TestClient_GetStates(t *testing.T) {
 	defer fixture.Close()
 
 	t.Run("GetAllStates", func(t *testing.T) {
+
 		result, err := fixture.Client.GetAllStates()
 		assert.NoError(t, err)
 		assert.Len(t, result, 2)
@@ -166,18 +172,21 @@ func TestClient_GetStates(t *testing.T) {
 	})
 
 	t.Run("GetState existing", func(t *testing.T) {
+
 		state, err := fixture.Client.GetState("input_boolean.test")
 		assert.NoError(t, err)
 		assert.Equal(t, "on", state.State)
 	})
 
 	t.Run("GetState nonexistent", func(t *testing.T) {
+
 		_, err := fixture.Client.GetState("nonexistent")
 		assert.Error(t, err)
 	})
 }
 
 func TestClient_CallService(t *testing.T) {
+	t.Parallel()
 	var lastReq *CallServiceRequest
 
 	fixture := NewTestFixture(t, func(req interface{}) *Message {
@@ -199,6 +208,7 @@ func TestClient_CallService(t *testing.T) {
 }
 
 func TestClient_CallServiceWithTarget(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	token := "test_token"
 
@@ -250,6 +260,7 @@ func TestClient_CallServiceWithTarget(t *testing.T) {
 
 // TestClient_SetInputHelpers consolidates SetInputBoolean, SetInputNumber, SetInputText tests
 func TestClient_SetInputHelpers(t *testing.T) {
+	t.Parallel()
 	testCases := []struct {
 		name           string
 		call           func(c *Client) error
@@ -299,6 +310,7 @@ func TestClient_SetInputHelpers(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
+
 			var lastReq *CallServiceRequest
 
 			fixture := NewTestFixture(t, func(req interface{}) *Message {
@@ -320,9 +332,11 @@ func TestClient_SetInputHelpers(t *testing.T) {
 }
 
 func TestMockClient(t *testing.T) {
+	t.Parallel()
 	mock := NewMockClient()
 
 	t.Run("connection", func(t *testing.T) {
+
 		assert.False(t, mock.IsConnected())
 
 		err := mock.Connect()
@@ -338,6 +352,7 @@ func TestMockClient(t *testing.T) {
 	})
 
 	t.Run("state management", func(t *testing.T) {
+
 		mock.SetState("input_boolean.test", "on", map[string]interface{}{
 			"friendly_name": "Test",
 		})
@@ -351,6 +366,7 @@ func TestMockClient(t *testing.T) {
 	})
 
 	t.Run("service calls", func(t *testing.T) {
+
 		mock.ClearServiceCalls()
 
 		err := mock.SetInputBoolean("test", true)
@@ -363,6 +379,7 @@ func TestMockClient(t *testing.T) {
 	})
 
 	t.Run("service calls with target", func(t *testing.T) {
+
 		mock.ClearServiceCalls()
 
 		target := &ServiceTarget{
@@ -385,6 +402,7 @@ func TestMockClient(t *testing.T) {
 	})
 
 	t.Run("service error injection", func(t *testing.T) {
+
 		mock.ClearServiceCalls()
 
 		// Set a service error
@@ -405,6 +423,7 @@ func TestMockClient(t *testing.T) {
 	})
 
 	t.Run("subscriptions", func(t *testing.T) {
+
 		callCount := 0
 		handler := func(entityID string, oldState, newState *State) {
 			callCount++
@@ -423,6 +442,7 @@ func TestMockClient(t *testing.T) {
 }
 
 func TestClient_DisconnectClearsSubscribers(t *testing.T) {
+	t.Parallel()
 	logger := zap.NewNop()
 	client := NewClient("ws://example", "token", logger)
 
@@ -442,6 +462,7 @@ func TestClient_DisconnectClearsSubscribers(t *testing.T) {
 }
 
 func TestClient_HandleEventBackpressuresHandlers(t *testing.T) {
+	t.Parallel()
 	client := &Client{
 		logger:      zap.NewNop(),
 		subscribers: make(map[string][]subscriberEntry),
@@ -492,6 +513,7 @@ func TestClient_HandleEventBackpressuresHandlers(t *testing.T) {
 // TestClient_ConcurrentCallService verifies that concurrent CallService calls
 // result in messages with monotonically increasing IDs being sent in order.
 func TestClient_ConcurrentCallService(t *testing.T) {
+	t.Parallel()
 	logger := zap.NewNop()
 	token := "test_token"
 
@@ -599,6 +621,7 @@ func TestClient_ConcurrentCallService(t *testing.T) {
 
 // TestIsRetryableError verifies the retry classification logic
 func TestIsRetryableError(t *testing.T) {
+	t.Parallel()
 	testCases := []struct {
 		name      string
 		err       error
@@ -618,6 +641,7 @@ func TestIsRetryableError(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
+
 			result := isRetryableError(tc.err)
 			assert.Equal(t, tc.retryable, result, "isRetryableError(%v) = %v, want %v", tc.err, result, tc.retryable)
 		})
@@ -625,10 +649,12 @@ func TestIsRetryableError(t *testing.T) {
 }
 
 func TestClient_CallServiceRetry(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	token := "test_token"
 
 	t.Run("no retry on HA application error", func(t *testing.T) {
+
 		var attemptCount atomic.Int32
 
 		server := mockHAServer(t, func(conn *websocket.Conn) {
@@ -680,10 +706,12 @@ func TestClient_CallServiceRetry(t *testing.T) {
 }
 
 func TestClient_CallServiceWithTargetRetry(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	token := "test_token"
 
 	t.Run("with service data", func(t *testing.T) {
+
 		server := mockHAServer(t, func(conn *websocket.Conn) {
 			standardAuthFlow(t, conn, token)
 
@@ -734,6 +762,7 @@ func TestClient_CallServiceWithTargetRetry(t *testing.T) {
 	})
 
 	t.Run("no retry on HA application error", func(t *testing.T) {
+
 		var attemptCount atomic.Int32
 
 		server := mockHAServer(t, func(conn *websocket.Conn) {
@@ -795,6 +824,7 @@ func TestClient_CallServiceWithTargetRetry(t *testing.T) {
 // JSON pings and properly handles pong responses to keep the connection alive.
 // Home Assistant expects {"id": N, "type": "ping"} and responds with {"id": N, "type": "pong"}.
 func TestClient_ApplicationLevelPingPong(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	token := "test_token"
 
@@ -866,6 +896,7 @@ func TestClient_ApplicationLevelPingPong(t *testing.T) {
 // TestClient_PingMessageFormat verifies that the ping message has the correct JSON format
 // expected by Home Assistant.
 func TestClient_PingMessageFormat(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	token := "test_token"
 
@@ -949,6 +980,7 @@ func TestClient_PingMessageFormat(t *testing.T) {
 
 // TestClient_IsHealthy tests health tracking without needing WebSocket
 func TestClient_IsHealthy(t *testing.T) {
+	t.Parallel()
 	logger := zap.NewNop()
 
 	newConnectedClient := func() *Client {
@@ -960,16 +992,19 @@ func TestClient_IsHealthy(t *testing.T) {
 	}
 
 	t.Run("unhealthy when disconnected", func(t *testing.T) {
+
 		client := NewClient("ws://localhost", "token", logger)
 		assert.False(t, client.IsHealthy())
 	})
 
 	t.Run("healthy with no service calls", func(t *testing.T) {
+
 		client := newConnectedClient()
 		assert.True(t, client.IsHealthy())
 	})
 
 	t.Run("healthy with successful service calls", func(t *testing.T) {
+
 		client := newConnectedClient()
 		for i := 0; i < 5; i++ {
 			client.recordServiceResult(true)
@@ -978,6 +1013,7 @@ func TestClient_IsHealthy(t *testing.T) {
 	})
 
 	t.Run("unhealthy with majority failures", func(t *testing.T) {
+
 		client := newConnectedClient()
 		client.recordServiceResult(true)
 		client.recordServiceResult(true)
@@ -988,6 +1024,7 @@ func TestClient_IsHealthy(t *testing.T) {
 	})
 
 	t.Run("unhealthy at exactly 50% failures", func(t *testing.T) {
+
 		client := newConnectedClient()
 		for i := 0; i < 3; i++ {
 			client.recordServiceResult(true)
@@ -997,6 +1034,7 @@ func TestClient_IsHealthy(t *testing.T) {
 	})
 
 	t.Run("healthy just below 50% failures", func(t *testing.T) {
+
 		client := newConnectedClient()
 		for i := 0; i < 4; i++ {
 			client.recordServiceResult(true)
@@ -1008,6 +1046,7 @@ func TestClient_IsHealthy(t *testing.T) {
 	})
 
 	t.Run("rolling window behavior", func(t *testing.T) {
+
 		client := newConnectedClient()
 		// Fill with failures
 		for i := 0; i < healthWindowSize; i++ {

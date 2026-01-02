@@ -97,6 +97,7 @@ func (s *mockSubscription) Unsubscribe() error {
 }
 
 func TestSubscriptionHelper_SubscribeToSensor(t *testing.T) {
+	t.Parallel()
 	logger := zap.NewNop()
 	haClient := newMockHAClient()
 	registry := NewSubscriptionRegistry()
@@ -144,6 +145,7 @@ func TestSubscriptionHelper_SubscribeToSensor(t *testing.T) {
 }
 
 func TestSubscriptionHelper_SubscribeToEntity(t *testing.T) {
+	t.Parallel()
 	logger := zap.NewNop()
 	haClient := newMockHAClient()
 	registry := NewSubscriptionRegistry()
@@ -183,6 +185,7 @@ func TestSubscriptionHelper_SubscribeToEntity(t *testing.T) {
 }
 
 func TestSubscriptionHelper_UnsubscribeAll(t *testing.T) {
+	t.Parallel()
 	logger := zap.NewNop()
 	haClient := newMockHAClient()
 	registry := NewSubscriptionRegistry()
@@ -207,6 +210,7 @@ func TestSubscriptionHelper_UnsubscribeAll(t *testing.T) {
 }
 
 func TestSubscriptionHelper_CapturesInputsBeforeHandler(t *testing.T) {
+	t.Parallel()
 	logger := zap.NewNop()
 	haClient := newMockHAClient()
 	registry := NewSubscriptionRegistry()
@@ -252,6 +256,7 @@ func TestSubscriptionHelper_CapturesInputsBeforeHandler(t *testing.T) {
 }
 
 func TestSubscriptionHelper_NilRegistry(t *testing.T) {
+	t.Parallel()
 	logger := zap.NewNop()
 	haClient := newMockHAClient()
 	tracker := newMockShadowTracker()

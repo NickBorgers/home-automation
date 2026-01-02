@@ -11,6 +11,7 @@ import (
 )
 
 func TestStateTrackingManager_IsAnyOwnerHome(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name           string
 		isNickHome     bool
@@ -50,7 +51,9 @@ func TestStateTrackingManager_IsAnyOwnerHome(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+
 			// Create mock HA client and state manager
+
 			mockHA := ha.NewMockClient()
 			logger := zap.NewNop()
 			stateMgr := state.NewManager(mockHA, logger, false)
@@ -85,6 +88,7 @@ func TestStateTrackingManager_IsAnyOwnerHome(t *testing.T) {
 }
 
 func TestStateTrackingManager_IsAnyoneHome(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name           string
 		isNickHome     bool
@@ -145,7 +149,9 @@ func TestStateTrackingManager_IsAnyoneHome(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+
 			// Create mock HA client and state manager
+
 			mockHA := ha.NewMockClient()
 			logger := zap.NewNop()
 			stateMgr := state.NewManager(mockHA, logger, false)
@@ -183,6 +189,7 @@ func TestStateTrackingManager_IsAnyoneHome(t *testing.T) {
 }
 
 func TestStateTrackingManager_IsAnyoneAsleep(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name              string
 		isMasterAsleep    bool
@@ -222,7 +229,9 @@ func TestStateTrackingManager_IsAnyoneAsleep(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+
 			// Create mock HA client and state manager
+
 			mockHA := ha.NewMockClient()
 			logger := zap.NewNop()
 			stateMgr := state.NewManager(mockHA, logger, false)
@@ -262,6 +271,7 @@ func TestStateTrackingManager_IsAnyoneAsleep(t *testing.T) {
 }
 
 func TestStateTrackingManager_IsEveryoneAsleep(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name              string
 		isMasterAsleep    bool
@@ -301,7 +311,9 @@ func TestStateTrackingManager_IsEveryoneAsleep(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+
 			// Create mock HA client and state manager
+
 			mockHA := ha.NewMockClient()
 			logger := zap.NewNop()
 			stateMgr := state.NewManager(mockHA, logger, false)
@@ -341,7 +353,10 @@ func TestStateTrackingManager_IsEveryoneAsleep(t *testing.T) {
 }
 
 func TestStateTrackingManager_DynamicUpdates(t *testing.T) {
+	t.Parallel(
 	// Test that derived states update when source states change
+	)
+
 	mockHA := ha.NewMockClient()
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
@@ -407,7 +422,10 @@ func TestStateTrackingManager_DynamicUpdates(t *testing.T) {
 }
 
 func TestStateTrackingManager_SleepDynamicUpdates(t *testing.T) {
+	t.Parallel(
 	// Test that sleep derived states update when source states change
+	)
+
 	mockHA := ha.NewMockClient()
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
@@ -483,7 +501,10 @@ func TestStateTrackingManager_SleepDynamicUpdates(t *testing.T) {
 }
 
 func TestStateTrackingManager_StopCleansUpSubscriptions(t *testing.T) {
+	t.Parallel(
 	// Test that Stop() properly cleans up subscriptions
+	)
+
 	mockHA := ha.NewMockClient()
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
@@ -520,7 +541,10 @@ func TestStateTrackingManager_StopCleansUpSubscriptions(t *testing.T) {
 }
 
 func TestStateTrackingManager_GuestAsleepAutoSync_NoGuests(t *testing.T) {
+	t.Parallel(
 	// Test that guest asleep auto-syncs with master when no guests
+	)
+
 	mockHA := ha.NewMockClient()
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
@@ -577,7 +601,10 @@ func TestStateTrackingManager_GuestAsleepAutoSync_NoGuests(t *testing.T) {
 }
 
 func TestStateTrackingManager_GuestAsleepAutoSync_WithGuests(t *testing.T) {
+	t.Parallel(
 	// Test that guest asleep does NOT auto-sync when guests are present
+	)
+
 	mockHA := ha.NewMockClient()
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
@@ -624,7 +651,10 @@ func TestStateTrackingManager_GuestAsleepAutoSync_WithGuests(t *testing.T) {
 }
 
 func TestStateTrackingManager_GuestAsleepAutoSync_GuestsLeave(t *testing.T) {
+	t.Parallel(
 	// Test that auto-sync kicks in when isHaveGuests changes from true to false
+	)
+
 	mockHA := ha.NewMockClient()
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
@@ -672,7 +702,10 @@ func TestStateTrackingManager_GuestAsleepAutoSync_GuestsLeave(t *testing.T) {
 }
 
 func TestStateTrackingManager_GuestAsleepAutoSync_InitialSync(t *testing.T) {
+	t.Parallel(
 	// Test that auto-sync happens on startup if needed
+	)
+
 	mockHA := ha.NewMockClient()
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
@@ -709,7 +742,10 @@ func TestStateTrackingManager_GuestAsleepAutoSync_InitialSync(t *testing.T) {
 }
 
 func TestStateTrackingManager_Reset(t *testing.T) {
+	t.Parallel(
 	// Test that Reset() re-calculates derived states
+	)
+
 	mockHA := ha.NewMockClient()
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
@@ -748,7 +784,10 @@ func TestStateTrackingManager_Reset(t *testing.T) {
 }
 
 func TestStateTrackingManager_NickArrivalAnnouncement_SomeoneHome(t *testing.T) {
+	t.Parallel(
 	// Test that Nick's arrival is announced when someone is already home
+	)
+
 	mockHA := ha.NewMockClient()
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
@@ -843,7 +882,10 @@ func TestStateTrackingManager_NickArrivalAnnouncement_SomeoneHome(t *testing.T) 
 }
 
 func TestStateTrackingManager_NickArrivalAnnouncement_NobodyHome(t *testing.T) {
+	t.Parallel(
 	// Test that Nick's arrival is NOT announced when nobody is home
+	)
+
 	mockHA := ha.NewMockClient()
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
@@ -886,7 +928,10 @@ func TestStateTrackingManager_NickArrivalAnnouncement_NobodyHome(t *testing.T) {
 }
 
 func TestStateTrackingManager_CarolineArrivalAnnouncement(t *testing.T) {
+	t.Parallel(
 	// Test that Caroline's arrival is announced when someone is already home
+	)
+
 	mockHA := ha.NewMockClient()
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
@@ -954,7 +999,10 @@ func TestStateTrackingManager_CarolineArrivalAnnouncement(t *testing.T) {
 }
 
 func TestStateTrackingManager_ToriArrivalAnnouncement(t *testing.T) {
+	t.Parallel(
 	// Test that Tori's arrival is announced when someone is already home
+	)
+
 	mockHA := ha.NewMockClient()
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
@@ -1004,7 +1052,10 @@ func TestStateTrackingManager_ToriArrivalAnnouncement(t *testing.T) {
 }
 
 func TestStateTrackingManager_ArrivalAnnouncement_ReadOnlyMode(t *testing.T) {
+	t.Parallel(
 	// Test that TTS announcements are logged but not executed in read-only mode
+	)
+
 	mockHA := ha.NewMockClient()
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
@@ -1044,7 +1095,10 @@ func TestStateTrackingManager_ArrivalAnnouncement_ReadOnlyMode(t *testing.T) {
 }
 
 func TestStateTrackingManager_NoAnnouncement_OnStateChangeFromUnknown(t *testing.T) {
+	t.Parallel(
 	// Test that announcements are not made when state changes from unknown/unavailable
+	)
+
 	mockHA := ha.NewMockClient()
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
@@ -1081,8 +1135,11 @@ func TestStateTrackingManager_NoAnnouncement_OnStateChangeFromUnknown(t *testing
 }
 
 func TestStateTrackingManager_ShadowState_DerivedStatesUpdated(t *testing.T) {
+	t.Parallel(
 	// Test that shadow state outputs.derivedStates is populated after plugin operations
 	// This test catches the bug where UpdateDerivedStates() was never called
+	)
+
 	mockHA := ha.NewMockClient()
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
@@ -1135,7 +1192,10 @@ func TestStateTrackingManager_ShadowState_DerivedStatesUpdated(t *testing.T) {
 }
 
 func TestStateTrackingManager_ShadowState_DerivedStatesUpdateOnChange(t *testing.T) {
+	t.Parallel(
 	// Test that shadow state updates when derived states change
+	)
+
 	mockHA := ha.NewMockClient()
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)

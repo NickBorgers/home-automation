@@ -15,7 +15,10 @@ import (
 )
 
 func TestHandleGetState(t *testing.T) {
+	t.Parallel(
 	// Create logger
+	)
+
 	logger := testlogger.New()
 
 	// Create mock HA client
@@ -104,6 +107,7 @@ func TestHandleGetState(t *testing.T) {
 }
 
 func TestHandleGetStateMethodNotAllowed(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -122,6 +126,7 @@ func TestHandleGetStateMethodNotAllowed(t *testing.T) {
 }
 
 func TestHandleHealth(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	mockClient.Connect() // Connect so IsHealthy returns true
@@ -130,6 +135,7 @@ func TestHandleHealth(t *testing.T) {
 	server := NewServer(mockClient, stateManager, shadowTracker, logbuffer.NewBuffer(100), logger, 8080, time.UTC)
 
 	t.Run("healthy when connected", func(t *testing.T) {
+
 		req := httptest.NewRequest(http.MethodGet, "/health", nil)
 		w := httptest.NewRecorder()
 
@@ -153,6 +159,7 @@ func TestHandleHealth(t *testing.T) {
 	})
 
 	t.Run("unhealthy when disconnected", func(t *testing.T) {
+
 		mockClient.Disconnect()
 		req := httptest.NewRequest(http.MethodGet, "/health", nil)
 		w := httptest.NewRecorder()
@@ -178,6 +185,7 @@ func TestHandleHealth(t *testing.T) {
 }
 
 func TestHandleSitemap(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -229,6 +237,7 @@ func TestHandleSitemap(t *testing.T) {
 }
 
 func TestHandleSitemapHTML(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -282,6 +291,7 @@ func TestHandleSitemapHTML(t *testing.T) {
 }
 
 func TestHandleSitemapMethodNotAllowed(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -300,6 +310,7 @@ func TestHandleSitemapMethodNotAllowed(t *testing.T) {
 }
 
 func TestHandleSitemapNonRootPath(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -335,7 +346,10 @@ func TestHandleSitemapNonRootPath(t *testing.T) {
 }
 
 func TestHandleGetStatesByPlugin(t *testing.T) {
+	t.Parallel(
 	// Create logger
+	)
+
 	logger := testlogger.New()
 
 	// Create mock HA client
@@ -486,6 +500,7 @@ func TestHandleGetStatesByPlugin(t *testing.T) {
 }
 
 func TestHandleGetStatesByPluginMethodNotAllowed(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -504,7 +519,10 @@ func TestHandleGetStatesByPluginMethodNotAllowed(t *testing.T) {
 }
 
 func TestHandleGetStatesByPluginEmptyState(t *testing.T) {
+	t.Parallel(
 	// Test with default/empty state values
+	)
+
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -551,7 +569,10 @@ func TestHandleGetStatesByPluginEmptyState(t *testing.T) {
 }
 
 func TestPluginRegistryCompleteness(t *testing.T) {
+	t.Parallel(
 	// Verify that all plugins in the registry have valid metadata
+	)
+
 	for _, plugin := range pluginRegistry {
 		if plugin.Name == "" {
 			t.Error("Found plugin with empty name")
@@ -592,7 +613,10 @@ func TestPluginRegistryCompleteness(t *testing.T) {
 }
 
 func TestHandleGetLightingShadowState(t *testing.T) {
+	t.Parallel(
 	// Create logger
+	)
+
 	logger := testlogger.New()
 
 	// Create mock HA client
@@ -647,7 +671,10 @@ func TestHandleGetLightingShadowState(t *testing.T) {
 }
 
 func TestHandleGetLightingShadowState_NotFound(t *testing.T) {
+	t.Parallel(
 	// Create logger
+	)
+
 	logger := testlogger.New()
 
 	// Create mock HA client
@@ -676,7 +703,10 @@ func TestHandleGetLightingShadowState_NotFound(t *testing.T) {
 }
 
 func TestHandleGetSecurityShadowState(t *testing.T) {
+	t.Parallel(
 	// Create logger
+	)
+
 	logger := testlogger.New()
 
 	// Create mock HA client
@@ -741,7 +771,10 @@ func TestHandleGetSecurityShadowState(t *testing.T) {
 }
 
 func TestHandleGetSecurityShadowState_NotFound(t *testing.T) {
+	t.Parallel(
 	// Create logger
+	)
+
 	logger := testlogger.New()
 
 	// Create mock HA client
@@ -770,7 +803,10 @@ func TestHandleGetSecurityShadowState_NotFound(t *testing.T) {
 }
 
 func TestHandleGetAllShadowStates(t *testing.T) {
+	t.Parallel(
 	// Create logger
+	)
+
 	logger := testlogger.New()
 
 	// Create mock HA client
@@ -840,7 +876,10 @@ func TestHandleGetAllShadowStates(t *testing.T) {
 }
 
 func TestAddLocalTimestamps(t *testing.T) {
+	t.Parallel(
 	// Load a test timezone (EST = UTC-5)
+	)
+
 	estLocation, err := time.LoadLocation("America/New_York")
 	if err != nil {
 		t.Fatalf("Failed to load timezone: %v", err)
@@ -960,6 +999,7 @@ func TestAddLocalTimestamps(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+
 			if tc.name == "nil timezone returns original" {
 				// Test with nil timezone
 				nilTzServer := NewServer(mockClient, stateManager, shadowTracker, logbuffer.NewBuffer(100), logger, 8080, nil)
@@ -977,7 +1017,10 @@ func TestAddLocalTimestamps(t *testing.T) {
 }
 
 func TestHandleDashboard(t *testing.T) {
+	t.Parallel(
 	// Create logger
+	)
+
 	logger := testlogger.New()
 
 	// Create mock HA client
@@ -1040,6 +1083,7 @@ func TestHandleDashboard(t *testing.T) {
 }
 
 func TestHandleDashboardMethodNotAllowed(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -1058,7 +1102,10 @@ func TestHandleDashboardMethodNotAllowed(t *testing.T) {
 }
 
 func TestWriteJSONWithLocalTimestamps(t *testing.T) {
+	t.Parallel(
 	// Load a test timezone
+	)
+
 	estLocation, err := time.LoadLocation("America/New_York")
 	if err != nil {
 		t.Fatalf("Failed to load timezone: %v", err)
@@ -1112,7 +1159,10 @@ func TestWriteJSONWithLocalTimestamps(t *testing.T) {
 }
 
 func TestHandleTimelineEvents(t *testing.T) {
+	t.Parallel(
 	// Create logger and dependencies
+	)
+
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -1137,6 +1187,7 @@ func TestHandleTimelineEvents(t *testing.T) {
 	server := NewServer(mockClient, stateManager, shadowTracker, buffer, logger, 8080, time.UTC)
 
 	t.Run("basic request", func(t *testing.T) {
+
 		req := httptest.NewRequest(http.MethodGet, "/api/timeline/events", nil)
 		w := httptest.NewRecorder()
 		server.handleTimelineEvents(w, req)
@@ -1162,6 +1213,7 @@ func TestHandleTimelineEvents(t *testing.T) {
 	})
 
 	t.Run("with limit", func(t *testing.T) {
+
 		req := httptest.NewRequest(http.MethodGet, "/api/timeline/events?limit=2", nil)
 		w := httptest.NewRecorder()
 		server.handleTimelineEvents(w, req)
@@ -1181,7 +1233,9 @@ func TestHandleTimelineEvents(t *testing.T) {
 	})
 
 	t.Run("with since", func(t *testing.T) {
+
 		// "since" returns events strictly AFTER the timestamp
+
 		since := baseTime.Add(2 * time.Minute).Format(time.RFC3339)
 		req := httptest.NewRequest(http.MethodGet, "/api/timeline/events?since="+since, nil)
 		w := httptest.NewRecorder()
@@ -1203,6 +1257,7 @@ func TestHandleTimelineEvents(t *testing.T) {
 	})
 
 	t.Run("invalid since", func(t *testing.T) {
+
 		req := httptest.NewRequest(http.MethodGet, "/api/timeline/events?since=invalid", nil)
 		w := httptest.NewRecorder()
 		server.handleTimelineEvents(w, req)
@@ -1213,6 +1268,7 @@ func TestHandleTimelineEvents(t *testing.T) {
 	})
 
 	t.Run("invalid limit", func(t *testing.T) {
+
 		req := httptest.NewRequest(http.MethodGet, "/api/timeline/events?limit=abc", nil)
 		w := httptest.NewRecorder()
 		server.handleTimelineEvents(w, req)
@@ -1223,6 +1279,7 @@ func TestHandleTimelineEvents(t *testing.T) {
 	})
 
 	t.Run("method not allowed", func(t *testing.T) {
+
 		req := httptest.NewRequest(http.MethodPost, "/api/timeline/events", nil)
 		w := httptest.NewRecorder()
 		server.handleTimelineEvents(w, req)

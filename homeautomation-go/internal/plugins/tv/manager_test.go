@@ -11,6 +11,7 @@ import (
 )
 
 func TestTVManager_AppleTVStateChange(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name              string
 		appleTVState      string
@@ -45,7 +46,9 @@ func TestTVManager_AppleTVStateChange(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+
 			// Create mock HA client and state manager
+
 			mockHA := ha.NewMockClient()
 			logger := zap.NewNop()
 			stateMgr := state.NewManager(mockHA, logger, false)
@@ -74,6 +77,7 @@ func TestTVManager_AppleTVStateChange(t *testing.T) {
 }
 
 func TestTVManager_SyncBoxPowerChange(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name           string
 		syncBoxState   string
@@ -96,7 +100,9 @@ func TestTVManager_SyncBoxPowerChange(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+
 			// Create mock HA client and state manager
+
 			mockHA := ha.NewMockClient()
 			logger := zap.NewNop()
 			stateMgr := state.NewManager(mockHA, logger, false)
@@ -125,7 +131,10 @@ func TestTVManager_SyncBoxPowerChange(t *testing.T) {
 }
 
 func TestTVManager_SyncBoxOff_SetsTVPlayingFalse(t *testing.T) {
+	t.Parallel(
 	// Create mock HA client and state manager
+	)
+
 	mockHA := ha.NewMockClient()
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
@@ -157,6 +166,7 @@ func TestTVManager_SyncBoxOff_SetsTVPlayingFalse(t *testing.T) {
 }
 
 func TestTVManager_HDMIInputChange(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name                string
 		hdmiInput           string
@@ -203,7 +213,9 @@ func TestTVManager_HDMIInputChange(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+
 			// Create mock HA client and state manager
+
 			mockHA := ha.NewMockClient()
 			logger := zap.NewNop()
 			stateMgr := state.NewManager(mockHA, logger, false)
@@ -238,6 +250,7 @@ func TestTVManager_HDMIInputChange(t *testing.T) {
 }
 
 func TestTVManager_AppleTVPlayingChange_RecalculatesTVPlaying(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name                string
 		hdmiInput           string
@@ -274,7 +287,9 @@ func TestTVManager_AppleTVPlayingChange_RecalculatesTVPlaying(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+
 			// Create mock HA client and state manager
+
 			mockHA := ha.NewMockClient()
 			logger := zap.NewNop()
 			stateMgr := state.NewManager(mockHA, logger, false)
@@ -316,7 +331,10 @@ func TestTVManager_AppleTVPlayingChange_RecalculatesTVPlaying(t *testing.T) {
 }
 
 func TestTVManager_Start_InitializesStates(t *testing.T) {
+	t.Parallel(
 	// Create mock HA client
+	)
+
 	mockHA := ha.NewMockClient()
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
@@ -367,7 +385,10 @@ func TestTVManager_Start_InitializesStates(t *testing.T) {
 }
 
 func TestTVManager_Stop_CleansUpSubscriptions(t *testing.T) {
+	t.Parallel(
 	// Create mock HA client and state manager
+	)
+
 	mockHA := ha.NewMockClient()
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
@@ -401,7 +422,10 @@ func TestTVManager_Stop_CleansUpSubscriptions(t *testing.T) {
 }
 
 func TestTVManager_ReadOnlyMode(t *testing.T) {
+	t.Parallel(
 	// Create mock HA client
+	)
+
 	mockHA := ha.NewMockClient()
 	logger := zap.NewNop()
 
@@ -438,7 +462,10 @@ func TestTVManager_ReadOnlyMode(t *testing.T) {
 }
 
 func TestTVManager_SyncBoxUnavailable_TriggersRecovery(t *testing.T) {
+	t.Parallel(
 	// Create mock HA client and state manager
+	)
+
 	mockHA := ha.NewMockClient()
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
@@ -507,7 +534,10 @@ func TestTVManager_SyncBoxUnavailable_TriggersRecovery(t *testing.T) {
 }
 
 func TestTVManager_SyncBoxRecoversOnItsOwn_NoRecovery(t *testing.T) {
+	t.Parallel(
 	// Create mock HA client and state manager
+	)
+
 	mockHA := ha.NewMockClient()
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
@@ -557,7 +587,10 @@ func TestTVManager_SyncBoxRecoversOnItsOwn_NoRecovery(t *testing.T) {
 }
 
 func TestTVManager_SyncBoxPhysicalPowerOff_NoRecovery(t *testing.T) {
+	t.Parallel(
 	// Create mock HA client and state manager
+	)
+
 	mockHA := ha.NewMockClient()
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
@@ -597,7 +630,10 @@ func TestTVManager_SyncBoxPhysicalPowerOff_NoRecovery(t *testing.T) {
 }
 
 func TestTVManager_SyncBoxRecoveryCooldown(t *testing.T) {
+	t.Parallel(
 	// Create mock HA client and state manager
+	)
+
 	mockHA := ha.NewMockClient()
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
@@ -644,7 +680,10 @@ func TestTVManager_SyncBoxRecoveryCooldown(t *testing.T) {
 }
 
 func TestTVManager_SyncBoxMaxDailyReboots(t *testing.T) {
+	t.Parallel(
 	// Create mock HA client and state manager
+	)
+
 	mockHA := ha.NewMockClient()
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
@@ -691,7 +730,10 @@ func TestTVManager_SyncBoxMaxDailyReboots(t *testing.T) {
 }
 
 func TestTVManager_SyncBoxRecoveryReadOnlyMode(t *testing.T) {
+	t.Parallel(
 	// Create mock HA client and state manager
+	)
+
 	mockHA := ha.NewMockClient()
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, true) // Read-only mode
@@ -730,7 +772,10 @@ func TestTVManager_SyncBoxRecoveryReadOnlyMode(t *testing.T) {
 }
 
 func TestTVManager_SyncBoxDailyCounterReset(t *testing.T) {
+	t.Parallel(
 	// Create mock HA client and state manager
+	)
+
 	mockHA := ha.NewMockClient()
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
@@ -784,7 +829,10 @@ func TestTVManager_SyncBoxDailyCounterReset(t *testing.T) {
 }
 
 func TestTVManager_SyncBoxRecoveryInProgress_SkipsDuplicate(t *testing.T) {
+	t.Parallel(
 	// Create mock HA client and state manager
+	)
+
 	mockHA := ha.NewMockClient()
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
@@ -856,7 +904,10 @@ func TestTVManager_SyncBoxRecoveryInProgress_SkipsDuplicate(t *testing.T) {
 }
 
 func TestTVManager_Start_AddsPhysicalPowerSubscription(t *testing.T) {
+	t.Parallel(
 	// Create mock HA client and state manager
+	)
+
 	mockHA := ha.NewMockClient()
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
@@ -882,7 +933,10 @@ func TestTVManager_Start_AddsPhysicalPowerSubscription(t *testing.T) {
 }
 
 func TestTVManager_ShadowState_TracksRecovery(t *testing.T) {
+	t.Parallel(
 	// Create mock HA client and state manager
+	)
+
 	mockHA := ha.NewMockClient()
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)

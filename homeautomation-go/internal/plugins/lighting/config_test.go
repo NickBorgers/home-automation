@@ -7,7 +7,10 @@ import (
 )
 
 func TestLoadConfig(t *testing.T) {
+	t.Parallel(
 	// Create a temporary config file with the new conditions format
+	)
+
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, "hue_config.yaml")
 
@@ -124,6 +127,7 @@ rooms:
 }
 
 func TestGetConditionVariables(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name       string
 		room       RoomConfig
@@ -184,6 +188,7 @@ func TestGetConditionVariables(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+
 			got := tt.room.GetConditionVariables()
 			if len(got) != tt.wantLength {
 				t.Errorf("GetConditionVariables() returned %d variables, want %d", len(got), tt.wantLength)
@@ -206,6 +211,7 @@ func TestGetConditionVariables(t *testing.T) {
 }
 
 func TestValuesMatch(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		a    interface{}
@@ -264,6 +270,7 @@ func TestValuesMatch(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+
 			if got := valuesMatch(tt.a, tt.b); got != tt.want {
 				t.Errorf("valuesMatch(%v, %v) = %v, want %v", tt.a, tt.b, got, tt.want)
 			}
@@ -272,6 +279,7 @@ func TestValuesMatch(t *testing.T) {
 }
 
 func TestGetIncreaseBrightnessIfTrueConditions(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		room     RoomConfig
@@ -309,6 +317,7 @@ func TestGetIncreaseBrightnessIfTrueConditions(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+
 			got := tt.room.GetIncreaseBrightnessIfTrueConditions()
 			if !stringSlicesEqual(got, tt.expected) {
 				t.Errorf("GetIncreaseBrightnessIfTrueConditions() = %v, want %v", got, tt.expected)
@@ -330,6 +339,7 @@ func stringSlicesEqual(a, b []string) bool {
 }
 
 func TestLoadConfigInvalidPath(t *testing.T) {
+	t.Parallel()
 	_, err := LoadConfig("/nonexistent/path/config.yaml")
 	if err == nil {
 		t.Error("Expected error for nonexistent config file, got nil")
@@ -337,6 +347,7 @@ func TestLoadConfigInvalidPath(t *testing.T) {
 }
 
 func TestLoadConfigInvalidYAML(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, "invalid.yaml")
 

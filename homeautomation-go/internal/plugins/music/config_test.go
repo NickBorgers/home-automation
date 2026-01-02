@@ -7,7 +7,10 @@ import (
 )
 
 func TestLoadConfig(t *testing.T) {
+	t.Parallel(
 	// Create a temporary config file
+	)
+
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, "music_config.yaml")
 
@@ -134,6 +137,7 @@ music:
 }
 
 func TestLoadConfigInvalidPath(t *testing.T) {
+	t.Parallel()
 	_, err := LoadConfig("/nonexistent/path/music_config.yaml")
 	if err == nil {
 		t.Error("Expected error for nonexistent config file, got nil")
@@ -141,6 +145,7 @@ func TestLoadConfigInvalidPath(t *testing.T) {
 }
 
 func TestLoadConfigInvalidYAML(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, "invalid.yaml")
 
@@ -156,6 +161,7 @@ func TestLoadConfigInvalidYAML(t *testing.T) {
 }
 
 func TestLoadConfigMissingRequiredMode(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, "incomplete_config.yaml")
 

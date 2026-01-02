@@ -115,6 +115,7 @@ func createOccupancyTestConfig() *HueConfig {
 // In Node-RED, the "Nick Office Occupied" node watches for state changes and
 // triggers the "Determine what action" function, which then activates the scene.
 func TestScenario_NickOfficeOccupied_TurnsOnLights(t *testing.T) {
+	t.Parallel()
 	logger := zap.NewNop()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -193,6 +194,7 @@ func TestScenario_NickOfficeOccupied_TurnsOnLights(t *testing.T) {
 // The room config has: off_if_false: "isNickOfficeOccupied"
 // This means: when isNickOfficeOccupied becomes FALSE, turn off lights.
 func TestScenario_NickOfficeUnoccupied_TurnsOffLights(t *testing.T) {
+	t.Parallel()
 	logger := zap.NewNop()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -269,6 +271,7 @@ func TestScenario_NickOfficeUnoccupied_TurnsOffLights(t *testing.T) {
 // - off_if_false: isAnyoneHomeAndAwake (turns off when everyone leaves/sleeps)
 // This is different from the office which uses the same variable for both.
 func TestScenario_KitchenOccupied_TurnsOnLights(t *testing.T) {
+	t.Parallel()
 	logger := zap.NewNop()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -346,6 +349,7 @@ func TestScenario_KitchenOccupied_TurnsOnLights(t *testing.T) {
 // When isNickOfficeOccupied changes, only rooms that reference that variable
 // in their on/off conditions should be affected.
 func TestScenario_OccupancyChangeOnlyAffectsRelevantRoom(t *testing.T) {
+	t.Parallel()
 	logger := zap.NewNop()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)

@@ -8,6 +8,7 @@ import (
 )
 
 func TestNewTracker(t *testing.T) {
+	t.Parallel()
 	tracker := NewTracker()
 	if tracker == nil {
 		t.Fatal("NewTracker returned nil")
@@ -21,6 +22,7 @@ func TestNewTracker(t *testing.T) {
 }
 
 func TestTrackerRegisterPlugin(t *testing.T) {
+	t.Parallel()
 	tracker := NewTracker()
 	state := NewLightingShadowState()
 
@@ -36,6 +38,7 @@ func TestTrackerRegisterPlugin(t *testing.T) {
 }
 
 func TestTrackerRegisterPluginProvider(t *testing.T) {
+	t.Parallel()
 	tracker := NewTracker()
 	callCount := 0
 
@@ -72,6 +75,7 @@ func TestTrackerRegisterPluginProvider(t *testing.T) {
 }
 
 func TestTrackerProviderTakesPrecedence(t *testing.T) {
+	t.Parallel()
 	tracker := NewTracker()
 
 	// Register static state
@@ -99,6 +103,7 @@ func TestTrackerProviderTakesPrecedence(t *testing.T) {
 }
 
 func TestTrackerGetPluginStateNotFound(t *testing.T) {
+	t.Parallel()
 	tracker := NewTracker()
 
 	_, ok := tracker.GetPluginState("nonexistent")
@@ -108,6 +113,7 @@ func TestTrackerGetPluginStateNotFound(t *testing.T) {
 }
 
 func TestTrackerGetAllPluginStates(t *testing.T) {
+	t.Parallel()
 	tracker := NewTracker()
 
 	// Register multiple plugins
@@ -131,6 +137,7 @@ func TestTrackerGetAllPluginStates(t *testing.T) {
 }
 
 func TestTrackerConcurrentAccess(t *testing.T) {
+	t.Parallel()
 	tracker := NewTracker()
 
 	// Register a provider
@@ -157,6 +164,7 @@ func TestTrackerConcurrentAccess(t *testing.T) {
 }
 
 func TestNewLightingTracker(t *testing.T) {
+	t.Parallel()
 	lt := NewLightingTracker()
 	if lt == nil {
 		t.Fatal("NewLightingTracker returned nil")
@@ -167,6 +175,7 @@ func TestNewLightingTracker(t *testing.T) {
 }
 
 func TestLightingTrackerUpdateCurrentInputs(t *testing.T) {
+	t.Parallel()
 	lt := NewLightingTracker()
 
 	inputs := map[string]interface{}{
@@ -190,6 +199,7 @@ func TestLightingTrackerUpdateCurrentInputs(t *testing.T) {
 }
 
 func TestLightingTrackerSnapshotInputsForAction(t *testing.T) {
+	t.Parallel()
 	lt := NewLightingTracker()
 
 	// Set initial inputs
@@ -221,6 +231,7 @@ func TestLightingTrackerSnapshotInputsForAction(t *testing.T) {
 }
 
 func TestLightingTrackerRecordRoomAction(t *testing.T) {
+	t.Parallel()
 	lt := NewLightingTracker()
 
 	lt.RecordRoomAction("Living Room", "activate_scene", "dayPhase changed", "evening", false)
@@ -247,6 +258,7 @@ func TestLightingTrackerRecordRoomAction(t *testing.T) {
 }
 
 func TestLightingTrackerRecordTurnOff(t *testing.T) {
+	t.Parallel()
 	lt := NewLightingTracker()
 
 	lt.RecordRoomAction("Kitchen", "turn_off", "No one home", "", true)
@@ -270,6 +282,7 @@ func TestLightingTrackerRecordTurnOff(t *testing.T) {
 }
 
 func TestLightingTrackerGetStateReturnsDeepCopy(t *testing.T) {
+	t.Parallel()
 	lt := NewLightingTracker()
 
 	// Set initial state
@@ -294,6 +307,7 @@ func TestLightingTrackerGetStateReturnsDeepCopy(t *testing.T) {
 }
 
 func TestLightingTrackerConcurrentAccess(t *testing.T) {
+	t.Parallel()
 	lt := NewLightingTracker()
 
 	var wg sync.WaitGroup
@@ -351,6 +365,7 @@ func TestLightingTrackerConcurrentAccess(t *testing.T) {
 }
 
 func TestLightingTrackerMetadataUpdates(t *testing.T) {
+	t.Parallel()
 	lt := NewLightingTracker()
 
 	initialMetadata := lt.GetState().Metadata
@@ -381,12 +396,14 @@ func TestLightingTrackerMetadataUpdates(t *testing.T) {
 }
 
 func TestLightingShadowStateImplementsInterface(t *testing.T) {
+	t.Parallel()
 	var _ PluginShadowState = (*LightingShadowState)(nil)
 }
 
 // Security Tracker Tests
 
 func TestNewSecurityTracker(t *testing.T) {
+	t.Parallel()
 	st := NewSecurityTracker()
 	if st == nil {
 		t.Fatal("NewSecurityTracker returned nil")
@@ -397,6 +414,7 @@ func TestNewSecurityTracker(t *testing.T) {
 }
 
 func TestSecurityTrackerUpdateCurrentInputs(t *testing.T) {
+	t.Parallel()
 	st := NewSecurityTracker()
 
 	inputs := map[string]interface{}{
@@ -418,6 +436,7 @@ func TestSecurityTrackerUpdateCurrentInputs(t *testing.T) {
 }
 
 func TestSecurityTrackerSnapshotInputsForAction(t *testing.T) {
+	t.Parallel()
 	st := NewSecurityTracker()
 
 	// Set initial inputs
@@ -449,6 +468,7 @@ func TestSecurityTrackerSnapshotInputsForAction(t *testing.T) {
 }
 
 func TestSecurityTrackerRecordLockdownAction(t *testing.T) {
+	t.Parallel()
 	st := NewSecurityTracker()
 
 	st.RecordLockdownAction(true, "Everyone is asleep")
@@ -481,6 +501,7 @@ func TestSecurityTrackerRecordLockdownAction(t *testing.T) {
 }
 
 func TestSecurityTrackerRecordDoorbellEvent(t *testing.T) {
+	t.Parallel()
 	st := NewSecurityTracker()
 
 	st.RecordDoorbellEvent(false, true, true)
@@ -516,6 +537,7 @@ func TestSecurityTrackerRecordDoorbellEvent(t *testing.T) {
 }
 
 func TestSecurityTrackerRecordVehicleArrivalEvent(t *testing.T) {
+	t.Parallel()
 	st := NewSecurityTracker()
 
 	st.RecordVehicleArrivalEvent(false, true, true)
@@ -540,6 +562,7 @@ func TestSecurityTrackerRecordVehicleArrivalEvent(t *testing.T) {
 }
 
 func TestSecurityTrackerRecordGarageOpenEvent(t *testing.T) {
+	t.Parallel()
 	st := NewSecurityTracker()
 
 	st.RecordGarageOpenEvent("Owner returned home", true)
@@ -561,6 +584,7 @@ func TestSecurityTrackerRecordGarageOpenEvent(t *testing.T) {
 }
 
 func TestSecurityTrackerGetStateReturnsDeepCopy(t *testing.T) {
+	t.Parallel()
 	st := NewSecurityTracker()
 
 	// Set initial state
@@ -585,6 +609,7 @@ func TestSecurityTrackerGetStateReturnsDeepCopy(t *testing.T) {
 }
 
 func TestSecurityTrackerConcurrentAccess(t *testing.T) {
+	t.Parallel()
 	st := NewSecurityTracker()
 
 	var wg sync.WaitGroup
@@ -652,6 +677,7 @@ func TestSecurityTrackerConcurrentAccess(t *testing.T) {
 }
 
 func TestSecurityTrackerMetadataUpdates(t *testing.T) {
+	t.Parallel()
 	st := NewSecurityTracker()
 
 	initialMetadata := st.GetState().Metadata
@@ -682,10 +708,12 @@ func TestSecurityTrackerMetadataUpdates(t *testing.T) {
 }
 
 func TestSecurityShadowStateImplementsInterface(t *testing.T) {
+	t.Parallel()
 	var _ PluginShadowState = (*SecurityShadowState)(nil)
 }
 
 func TestSecurityTrackerLastActionTime(t *testing.T) {
+	t.Parallel()
 	st := NewSecurityTracker()
 
 	// Initially should be zero
@@ -717,6 +745,7 @@ func TestSecurityTrackerLastActionTime(t *testing.T) {
 // SleepHygieneTracker tests
 
 func TestNewSleepHygieneTracker(t *testing.T) {
+	t.Parallel()
 	st := NewSleepHygieneTracker()
 	if st == nil {
 		t.Fatal("NewSleepHygieneTracker returned nil")
@@ -727,6 +756,7 @@ func TestNewSleepHygieneTracker(t *testing.T) {
 }
 
 func TestSleepHygieneTrackerUpdateCurrentInputs(t *testing.T) {
+	t.Parallel()
 	st := NewSleepHygieneTracker()
 
 	inputs := map[string]interface{}{
@@ -747,6 +777,7 @@ func TestSleepHygieneTrackerUpdateCurrentInputs(t *testing.T) {
 }
 
 func TestSleepHygieneTrackerSnapshotInputsForAction(t *testing.T) {
+	t.Parallel()
 	st := NewSleepHygieneTracker()
 
 	// Set initial inputs
@@ -778,6 +809,7 @@ func TestSleepHygieneTrackerSnapshotInputsForAction(t *testing.T) {
 }
 
 func TestSleepHygieneTrackerRecordAction(t *testing.T) {
+	t.Parallel()
 	st := NewSleepHygieneTracker()
 
 	st.RecordAction("begin_wake", "Starting wake sequence")
@@ -796,6 +828,7 @@ func TestSleepHygieneTrackerRecordAction(t *testing.T) {
 }
 
 func TestSleepHygieneTrackerUpdateWakeSequenceStatus(t *testing.T) {
+	t.Parallel()
 	st := NewSleepHygieneTracker()
 
 	// Initial status should be inactive
@@ -813,6 +846,7 @@ func TestSleepHygieneTrackerUpdateWakeSequenceStatus(t *testing.T) {
 }
 
 func TestSleepHygieneTrackerFadeOutProgress(t *testing.T) {
+	t.Parallel()
 	st := NewSleepHygieneTracker()
 
 	// Record fade out start
@@ -858,6 +892,7 @@ func TestSleepHygieneTrackerFadeOutProgress(t *testing.T) {
 }
 
 func TestSleepHygieneTrackerRecordTTSAnnouncement(t *testing.T) {
+	t.Parallel()
 	st := NewSleepHygieneTracker()
 
 	st.RecordTTSAnnouncement("Time to cuddle", "media_player.bedroom")
@@ -875,6 +910,7 @@ func TestSleepHygieneTrackerRecordTTSAnnouncement(t *testing.T) {
 }
 
 func TestSleepHygieneTrackerRecordReminders(t *testing.T) {
+	t.Parallel()
 	st := NewSleepHygieneTracker()
 
 	// Record stop screens reminder
@@ -899,6 +935,7 @@ func TestSleepHygieneTrackerRecordReminders(t *testing.T) {
 }
 
 func TestSleepHygieneTrackerGetStateReturnsDeepCopy(t *testing.T) {
+	t.Parallel()
 	st := NewSleepHygieneTracker()
 
 	// Set initial state
@@ -923,6 +960,7 @@ func TestSleepHygieneTrackerGetStateReturnsDeepCopy(t *testing.T) {
 }
 
 func TestSleepHygieneTrackerConcurrentAccess(t *testing.T) {
+	t.Parallel()
 	st := NewSleepHygieneTracker()
 
 	var wg sync.WaitGroup
@@ -955,6 +993,7 @@ func TestSleepHygieneTrackerConcurrentAccess(t *testing.T) {
 }
 
 func TestSleepHygieneShadowStateImplementsInterface(t *testing.T) {
+	t.Parallel()
 	var _ PluginShadowState = (*SleepHygieneShadowState)(nil)
 }
 
@@ -965,6 +1004,7 @@ func TestSleepHygieneShadowStateImplementsInterface(t *testing.T) {
 // LoadSheddingTracker tests
 
 func TestNewLoadSheddingTracker(t *testing.T) {
+	t.Parallel()
 	lst := NewLoadSheddingTracker()
 	if lst == nil {
 		t.Fatal("NewLoadSheddingTracker returned nil")
@@ -975,6 +1015,7 @@ func TestNewLoadSheddingTracker(t *testing.T) {
 }
 
 func TestLoadSheddingTrackerUpdateCurrentInputs(t *testing.T) {
+	t.Parallel()
 	lst := NewLoadSheddingTracker()
 
 	inputs := map[string]interface{}{
@@ -994,6 +1035,7 @@ func TestLoadSheddingTrackerUpdateCurrentInputs(t *testing.T) {
 }
 
 func TestLoadSheddingTrackerSnapshotInputsForAction(t *testing.T) {
+	t.Parallel()
 	lst := NewLoadSheddingTracker()
 
 	// Set initial inputs
@@ -1025,6 +1067,7 @@ func TestLoadSheddingTrackerSnapshotInputsForAction(t *testing.T) {
 }
 
 func TestLoadSheddingTrackerRecordAction(t *testing.T) {
+	t.Parallel()
 	lst := NewLoadSheddingTracker()
 
 	settings := ThermostatSettings{
@@ -1058,6 +1101,7 @@ func TestLoadSheddingTrackerRecordAction(t *testing.T) {
 }
 
 func TestLoadSheddingTrackerGetStateReturnsDeepCopy(t *testing.T) {
+	t.Parallel()
 	lst := NewLoadSheddingTracker()
 
 	// Set initial state
@@ -1082,12 +1126,14 @@ func TestLoadSheddingTrackerGetStateReturnsDeepCopy(t *testing.T) {
 }
 
 func TestLoadSheddingShadowStateImplementsInterface(t *testing.T) {
+	t.Parallel()
 	var _ PluginShadowState = (*LoadSheddingShadowState)(nil)
 }
 
 // EnergyTracker tests
 
 func TestNewEnergyTracker(t *testing.T) {
+	t.Parallel()
 	et := NewEnergyTracker()
 	if et == nil {
 		t.Fatal("NewEnergyTracker returned nil")
@@ -1098,6 +1144,7 @@ func TestNewEnergyTracker(t *testing.T) {
 }
 
 func TestEnergyTrackerUpdateCurrentInputs(t *testing.T) {
+	t.Parallel()
 	et := NewEnergyTracker()
 
 	inputs := map[string]interface{}{
@@ -1118,6 +1165,7 @@ func TestEnergyTrackerUpdateCurrentInputs(t *testing.T) {
 }
 
 func TestEnergyTrackerUpdateSensorReadings(t *testing.T) {
+	t.Parallel()
 	et := NewEnergyTracker()
 
 	et.UpdateSensorReadings(80.0, 4.5, 12.3, true)
@@ -1141,6 +1189,7 @@ func TestEnergyTrackerUpdateSensorReadings(t *testing.T) {
 }
 
 func TestEnergyTrackerUpdateBatteryLevel(t *testing.T) {
+	t.Parallel()
 	et := NewEnergyTracker()
 
 	et.UpdateBatteryLevel("high")
@@ -1155,6 +1204,7 @@ func TestEnergyTrackerUpdateBatteryLevel(t *testing.T) {
 }
 
 func TestEnergyTrackerUpdateSolarLevel(t *testing.T) {
+	t.Parallel()
 	et := NewEnergyTracker()
 
 	et.UpdateSolarLevel("medium")
@@ -1169,6 +1219,7 @@ func TestEnergyTrackerUpdateSolarLevel(t *testing.T) {
 }
 
 func TestEnergyTrackerUpdateOverallLevel(t *testing.T) {
+	t.Parallel()
 	et := NewEnergyTracker()
 
 	et.UpdateOverallLevel("low")
@@ -1183,6 +1234,7 @@ func TestEnergyTrackerUpdateOverallLevel(t *testing.T) {
 }
 
 func TestEnergyTrackerUpdateFreeEnergyAvailable(t *testing.T) {
+	t.Parallel()
 	et := NewEnergyTracker()
 
 	et.UpdateFreeEnergyAvailable(true)
@@ -1204,6 +1256,7 @@ func TestEnergyTrackerUpdateFreeEnergyAvailable(t *testing.T) {
 }
 
 func TestEnergyTrackerGetStateReturnsDeepCopy(t *testing.T) {
+	t.Parallel()
 	et := NewEnergyTracker()
 
 	inputs := map[string]interface{}{
@@ -1221,6 +1274,7 @@ func TestEnergyTrackerGetStateReturnsDeepCopy(t *testing.T) {
 }
 
 func TestEnergyTrackerConcurrentAccess(t *testing.T) {
+	t.Parallel()
 	et := NewEnergyTracker()
 
 	var wg sync.WaitGroup
@@ -1255,12 +1309,14 @@ func TestEnergyTrackerConcurrentAccess(t *testing.T) {
 }
 
 func TestEnergyShadowStateImplementsInterface(t *testing.T) {
+	t.Parallel()
 	var _ PluginShadowState = (*EnergyShadowState)(nil)
 }
 
 // StateTrackingTracker tests
 
 func TestNewStateTrackingTracker(t *testing.T) {
+	t.Parallel()
 	stt := NewStateTrackingTracker()
 	if stt == nil {
 		t.Fatal("NewStateTrackingTracker returned nil")
@@ -1271,6 +1327,7 @@ func TestNewStateTrackingTracker(t *testing.T) {
 }
 
 func TestStateTrackingTrackerUpdateCurrentInputs(t *testing.T) {
+	t.Parallel()
 	stt := NewStateTrackingTracker()
 
 	inputs := map[string]interface{}{
@@ -1294,6 +1351,7 @@ func TestStateTrackingTrackerUpdateCurrentInputs(t *testing.T) {
 }
 
 func TestStateTrackingTrackerUpdateDerivedStates(t *testing.T) {
+	t.Parallel()
 	stt := NewStateTrackingTracker()
 
 	stt.UpdateDerivedStates(true, true, true, false)
@@ -1317,6 +1375,7 @@ func TestStateTrackingTrackerUpdateDerivedStates(t *testing.T) {
 }
 
 func TestStateTrackingTrackerUpdateSleepDetectionTimer(t *testing.T) {
+	t.Parallel()
 	stt := NewStateTrackingTracker()
 
 	// Activate timer
@@ -1343,6 +1402,7 @@ func TestStateTrackingTrackerUpdateSleepDetectionTimer(t *testing.T) {
 }
 
 func TestStateTrackingTrackerUpdateWakeDetectionTimer(t *testing.T) {
+	t.Parallel()
 	stt := NewStateTrackingTracker()
 
 	// Activate timer
@@ -1369,6 +1429,7 @@ func TestStateTrackingTrackerUpdateWakeDetectionTimer(t *testing.T) {
 }
 
 func TestStateTrackingTrackerUpdateOwnerReturnTimer(t *testing.T) {
+	t.Parallel()
 	stt := NewStateTrackingTracker()
 
 	// Activate timer
@@ -1395,6 +1456,7 @@ func TestStateTrackingTrackerUpdateOwnerReturnTimer(t *testing.T) {
 }
 
 func TestStateTrackingTrackerRecordArrivalAnnouncement(t *testing.T) {
+	t.Parallel()
 	stt := NewStateTrackingTracker()
 
 	stt.RecordArrivalAnnouncement("Nick", "Nick is home!")
@@ -1415,6 +1477,7 @@ func TestStateTrackingTrackerRecordArrivalAnnouncement(t *testing.T) {
 }
 
 func TestStateTrackingTrackerGetStateReturnsDeepCopy(t *testing.T) {
+	t.Parallel()
 	stt := NewStateTrackingTracker()
 
 	inputs := map[string]interface{}{
@@ -1432,6 +1495,7 @@ func TestStateTrackingTrackerGetStateReturnsDeepCopy(t *testing.T) {
 }
 
 func TestStateTrackingTrackerConcurrentAccess(t *testing.T) {
+	t.Parallel()
 	stt := NewStateTrackingTracker()
 
 	var wg sync.WaitGroup
@@ -1466,12 +1530,14 @@ func TestStateTrackingTrackerConcurrentAccess(t *testing.T) {
 }
 
 func TestStateTrackingShadowStateImplementsInterface(t *testing.T) {
+	t.Parallel()
 	var _ PluginShadowState = (*StateTrackingShadowState)(nil)
 }
 
 // DayPhaseTracker tests
 
 func TestNewDayPhaseTracker(t *testing.T) {
+	t.Parallel()
 	dpt := NewDayPhaseTracker()
 	if dpt == nil {
 		t.Fatal("NewDayPhaseTracker returned nil")
@@ -1482,6 +1548,7 @@ func TestNewDayPhaseTracker(t *testing.T) {
 }
 
 func TestDayPhaseTrackerUpdateCurrentInputs(t *testing.T) {
+	t.Parallel()
 	dpt := NewDayPhaseTracker()
 
 	inputs := map[string]interface{}{
@@ -1502,6 +1569,7 @@ func TestDayPhaseTrackerUpdateCurrentInputs(t *testing.T) {
 }
 
 func TestDayPhaseTrackerUpdateSunEvent(t *testing.T) {
+	t.Parallel()
 	dpt := NewDayPhaseTracker()
 
 	dpt.UpdateSunEvent("sunset")
@@ -1516,6 +1584,7 @@ func TestDayPhaseTrackerUpdateSunEvent(t *testing.T) {
 }
 
 func TestDayPhaseTrackerUpdateDayPhase(t *testing.T) {
+	t.Parallel()
 	dpt := NewDayPhaseTracker()
 
 	dpt.UpdateDayPhase("evening")
@@ -1530,6 +1599,7 @@ func TestDayPhaseTrackerUpdateDayPhase(t *testing.T) {
 }
 
 func TestDayPhaseTrackerUpdateNextTransition(t *testing.T) {
+	t.Parallel()
 	dpt := NewDayPhaseTracker()
 
 	transitionTime := time.Now().Add(2 * time.Hour)
@@ -1545,6 +1615,7 @@ func TestDayPhaseTrackerUpdateNextTransition(t *testing.T) {
 }
 
 func TestDayPhaseTrackerGetStateReturnsDeepCopy(t *testing.T) {
+	t.Parallel()
 	dpt := NewDayPhaseTracker()
 
 	inputs := map[string]interface{}{
@@ -1562,6 +1633,7 @@ func TestDayPhaseTrackerGetStateReturnsDeepCopy(t *testing.T) {
 }
 
 func TestDayPhaseTrackerConcurrentAccess(t *testing.T) {
+	t.Parallel()
 	dpt := NewDayPhaseTracker()
 
 	var wg sync.WaitGroup
@@ -1594,12 +1666,14 @@ func TestDayPhaseTrackerConcurrentAccess(t *testing.T) {
 }
 
 func TestDayPhaseShadowStateImplementsInterface(t *testing.T) {
+	t.Parallel()
 	var _ PluginShadowState = (*DayPhaseShadowState)(nil)
 }
 
 // TVTracker tests
 
 func TestNewTVTracker(t *testing.T) {
+	t.Parallel()
 	tvt := NewTVTracker()
 	if tvt == nil {
 		t.Fatal("NewTVTracker returned nil")
@@ -1610,6 +1684,7 @@ func TestNewTVTracker(t *testing.T) {
 }
 
 func TestTVTrackerUpdateCurrentInputs(t *testing.T) {
+	t.Parallel()
 	tvt := NewTVTracker()
 
 	inputs := map[string]interface{}{
@@ -1633,6 +1708,7 @@ func TestTVTrackerUpdateCurrentInputs(t *testing.T) {
 }
 
 func TestTVTrackerUpdateAppleTVState(t *testing.T) {
+	t.Parallel()
 	tvt := NewTVTracker()
 
 	tvt.UpdateAppleTVState(true, "playing")
@@ -1660,6 +1736,7 @@ func TestTVTrackerUpdateAppleTVState(t *testing.T) {
 }
 
 func TestTVTrackerUpdateTVPower(t *testing.T) {
+	t.Parallel()
 	tvt := NewTVTracker()
 
 	tvt.UpdateTVPower(true)
@@ -1681,6 +1758,7 @@ func TestTVTrackerUpdateTVPower(t *testing.T) {
 }
 
 func TestTVTrackerUpdateHDMIInput(t *testing.T) {
+	t.Parallel()
 	tvt := NewTVTracker()
 
 	tvt.UpdateHDMIInput("HDMI2")
@@ -1695,6 +1773,7 @@ func TestTVTrackerUpdateHDMIInput(t *testing.T) {
 }
 
 func TestTVTrackerUpdateTVPlaying(t *testing.T) {
+	t.Parallel()
 	tvt := NewTVTracker()
 
 	tvt.UpdateTVPlaying(true)
@@ -1716,6 +1795,7 @@ func TestTVTrackerUpdateTVPlaying(t *testing.T) {
 }
 
 func TestTVTrackerGetStateReturnsDeepCopy(t *testing.T) {
+	t.Parallel()
 	tvt := NewTVTracker()
 
 	inputs := map[string]interface{}{
@@ -1733,6 +1813,7 @@ func TestTVTrackerGetStateReturnsDeepCopy(t *testing.T) {
 }
 
 func TestTVTrackerConcurrentAccess(t *testing.T) {
+	t.Parallel()
 	tvt := NewTVTracker()
 
 	var wg sync.WaitGroup
@@ -1766,5 +1847,6 @@ func TestTVTrackerConcurrentAccess(t *testing.T) {
 }
 
 func TestTVShadowStateImplementsInterface(t *testing.T) {
+	t.Parallel()
 	var _ PluginShadowState = (*TVShadowState)(nil)
 }

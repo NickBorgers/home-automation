@@ -7,6 +7,7 @@ import (
 )
 
 func TestNewSubscriptionRegistry(t *testing.T) {
+	t.Parallel()
 	registry := NewSubscriptionRegistry()
 
 	if registry == nil {
@@ -23,6 +24,7 @@ func TestNewSubscriptionRegistry(t *testing.T) {
 }
 
 func TestRegisterHASubscription(t *testing.T) {
+	t.Parallel()
 	registry := NewSubscriptionRegistry()
 
 	// Register a subscription
@@ -38,6 +40,7 @@ func TestRegisterHASubscription(t *testing.T) {
 }
 
 func TestRegisterHASubscription_Multiple(t *testing.T) {
+	t.Parallel()
 	registry := NewSubscriptionRegistry()
 
 	registry.RegisterHASubscription("energy", "sensor.battery")
@@ -51,6 +54,7 @@ func TestRegisterHASubscription_Multiple(t *testing.T) {
 }
 
 func TestRegisterHASubscription_Duplicate(t *testing.T) {
+	t.Parallel()
 	registry := NewSubscriptionRegistry()
 
 	registry.RegisterHASubscription("energy", "sensor.battery")
@@ -63,6 +67,7 @@ func TestRegisterHASubscription_Duplicate(t *testing.T) {
 }
 
 func TestRegisterStateSubscription(t *testing.T) {
+	t.Parallel()
 	registry := NewSubscriptionRegistry()
 
 	registry.RegisterStateSubscription("energy", "batteryEnergyLevel")
@@ -77,6 +82,7 @@ func TestRegisterStateSubscription(t *testing.T) {
 }
 
 func TestRegisterStateSubscription_Multiple(t *testing.T) {
+	t.Parallel()
 	registry := NewSubscriptionRegistry()
 
 	registry.RegisterStateSubscription("lighting", "dayPhase")
@@ -90,6 +96,7 @@ func TestRegisterStateSubscription_Multiple(t *testing.T) {
 }
 
 func TestRegisterStateSubscription_Duplicate(t *testing.T) {
+	t.Parallel()
 	registry := NewSubscriptionRegistry()
 
 	registry.RegisterStateSubscription("lighting", "dayPhase")
@@ -102,6 +109,7 @@ func TestRegisterStateSubscription_Duplicate(t *testing.T) {
 }
 
 func TestGetHASubscriptions_NonExistentPlugin(t *testing.T) {
+	t.Parallel()
 	registry := NewSubscriptionRegistry()
 
 	subs := registry.GetHASubscriptions("nonexistent")
@@ -111,6 +119,7 @@ func TestGetHASubscriptions_NonExistentPlugin(t *testing.T) {
 }
 
 func TestGetStateSubscriptions_NonExistentPlugin(t *testing.T) {
+	t.Parallel()
 	registry := NewSubscriptionRegistry()
 
 	subs := registry.GetStateSubscriptions("nonexistent")
@@ -120,6 +129,7 @@ func TestGetStateSubscriptions_NonExistentPlugin(t *testing.T) {
 }
 
 func TestGetHASubscriptions_ReturnsCopy(t *testing.T) {
+	t.Parallel()
 	registry := NewSubscriptionRegistry()
 	registry.RegisterHASubscription("energy", "sensor.battery")
 
@@ -136,6 +146,7 @@ func TestGetHASubscriptions_ReturnsCopy(t *testing.T) {
 }
 
 func TestGetStateSubscriptions_ReturnsCopy(t *testing.T) {
+	t.Parallel()
 	registry := NewSubscriptionRegistry()
 	registry.RegisterStateSubscription("energy", "batteryEnergyLevel")
 
@@ -152,6 +163,7 @@ func TestGetStateSubscriptions_ReturnsCopy(t *testing.T) {
 }
 
 func TestUnregisterPlugin(t *testing.T) {
+	t.Parallel()
 	registry := NewSubscriptionRegistry()
 
 	// Register subscriptions
@@ -179,6 +191,7 @@ func TestUnregisterPlugin(t *testing.T) {
 }
 
 func TestUnregisterPlugin_NonExistent(t *testing.T) {
+	t.Parallel()
 	registry := NewSubscriptionRegistry()
 
 	// Should not panic
@@ -186,6 +199,7 @@ func TestUnregisterPlugin_NonExistent(t *testing.T) {
 }
 
 func TestGetAllPlugins(t *testing.T) {
+	t.Parallel()
 	registry := NewSubscriptionRegistry()
 
 	registry.RegisterHASubscription("energy", "sensor.battery")
@@ -211,6 +225,7 @@ func TestGetAllPlugins(t *testing.T) {
 }
 
 func TestGetAllPlugins_Empty(t *testing.T) {
+	t.Parallel()
 	registry := NewSubscriptionRegistry()
 
 	plugins := registry.GetAllPlugins()
@@ -220,6 +235,7 @@ func TestGetAllPlugins_Empty(t *testing.T) {
 }
 
 func TestRegistry_MultiplePlugins(t *testing.T) {
+	t.Parallel()
 	registry := NewSubscriptionRegistry()
 
 	// Register for multiple plugins
@@ -244,6 +260,7 @@ func TestRegistry_MultiplePlugins(t *testing.T) {
 }
 
 func TestRegistry_ThreadSafety(t *testing.T) {
+	t.Parallel()
 	registry := NewSubscriptionRegistry()
 
 	var wg sync.WaitGroup

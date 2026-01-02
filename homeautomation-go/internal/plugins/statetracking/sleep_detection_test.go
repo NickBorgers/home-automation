@@ -10,7 +10,10 @@ import (
 )
 
 func TestSleepDetection_HandlersInitialized(t *testing.T) {
+	t.Parallel(
 	// Create mock HA client and state manager
+	)
+
 	mockHA := ha.NewMockClient()
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
@@ -37,7 +40,10 @@ func TestSleepDetection_HandlersInitialized(t *testing.T) {
 }
 
 func TestSleepDetection_LightsOffStartsTimer(t *testing.T) {
+	t.Parallel(
 	// Create mock HA client and state manager
+	)
+
 	mockHA := ha.NewMockClient()
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
@@ -80,7 +86,10 @@ func TestSleepDetection_LightsOffStartsTimer(t *testing.T) {
 }
 
 func TestSleepDetection_LightsOnCancelsTimer(t *testing.T) {
+	t.Parallel(
 	// Create mock HA client and state manager
+	)
+
 	mockHA := ha.NewMockClient()
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
@@ -128,7 +137,10 @@ func TestSleepDetection_LightsOnCancelsTimer(t *testing.T) {
 }
 
 func TestWakeDetection_DoorOpenStartsTimer(t *testing.T) {
+	t.Parallel(
 	// Create mock HA client and state manager
+	)
+
 	mockHA := ha.NewMockClient()
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
@@ -168,7 +180,10 @@ func TestWakeDetection_DoorOpenStartsTimer(t *testing.T) {
 }
 
 func TestWakeDetection_DoorClosedCancelsTimer(t *testing.T) {
+	t.Parallel(
 	// Create mock HA client and state manager
+	)
+
 	mockHA := ha.NewMockClient()
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
@@ -211,7 +226,10 @@ func TestWakeDetection_DoorClosedCancelsTimer(t *testing.T) {
 }
 
 func TestDetectMasterAsleep_SkipsIfNobodyHome(t *testing.T) {
+	t.Parallel(
 	// Create mock HA client and state manager
+	)
+
 	mockHA := ha.NewMockClient()
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
@@ -245,7 +263,10 @@ func TestDetectMasterAsleep_SkipsIfNobodyHome(t *testing.T) {
 }
 
 func TestDetectMasterAsleep_SkipsIfAlreadyAsleep(t *testing.T) {
+	t.Parallel(
 	// Create mock HA client and state manager
+	)
+
 	mockHA := ha.NewMockClient()
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
@@ -279,7 +300,10 @@ func TestDetectMasterAsleep_SkipsIfAlreadyAsleep(t *testing.T) {
 }
 
 func TestDetectMasterAsleep_SetsSleepWhenConditionsMet(t *testing.T) {
+	t.Parallel(
 	// Create mock HA client and state manager
+	)
+
 	mockHA := ha.NewMockClient()
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
@@ -316,7 +340,10 @@ func TestDetectMasterAsleep_SetsSleepWhenConditionsMet(t *testing.T) {
 }
 
 func TestDetectMasterAwake_SetsAwake(t *testing.T) {
+	t.Parallel(
 	// Create mock HA client and state manager
+	)
+
 	mockHA := ha.NewMockClient()
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)

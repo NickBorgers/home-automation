@@ -6,6 +6,7 @@ import (
 )
 
 func TestNewBuffer(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name         string
 		size         int
@@ -18,6 +19,7 @@ func TestNewBuffer(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+
 			b := NewBuffer(tt.size)
 			if b.Capacity() != tt.wantCapacity {
 				t.Errorf("Capacity() = %d, want %d", b.Capacity(), tt.wantCapacity)
@@ -30,6 +32,7 @@ func TestNewBuffer(t *testing.T) {
 }
 
 func TestBuffer_Add(t *testing.T) {
+	t.Parallel()
 	b := NewBuffer(3)
 
 	// Add first event
@@ -65,6 +68,7 @@ func TestBuffer_Add(t *testing.T) {
 }
 
 func TestBuffer_GetEvents(t *testing.T) {
+	t.Parallel()
 	b := NewBuffer(5)
 
 	baseTime := time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC)
@@ -80,6 +84,7 @@ func TestBuffer_GetEvents(t *testing.T) {
 	}
 
 	t.Run("all events", func(t *testing.T) {
+
 		events := b.GetEvents(time.Time{}, 0)
 		if len(events) != 5 {
 			t.Errorf("len(events) = %d, want 5", len(events))
@@ -93,7 +98,9 @@ func TestBuffer_GetEvents(t *testing.T) {
 	})
 
 	t.Run("events since timestamp", func(t *testing.T) {
+
 		// "since" returns events strictly AFTER the timestamp
+
 		since := baseTime.Add(2 * time.Minute)
 		events := b.GetEvents(since, 0)
 		if len(events) != 2 {
@@ -106,6 +113,7 @@ func TestBuffer_GetEvents(t *testing.T) {
 	})
 
 	t.Run("limited events", func(t *testing.T) {
+
 		events := b.GetEvents(time.Time{}, 2)
 		if len(events) != 2 {
 			t.Errorf("len(events) = %d, want 2", len(events))
@@ -113,7 +121,9 @@ func TestBuffer_GetEvents(t *testing.T) {
 	})
 
 	t.Run("since and limit combined", func(t *testing.T) {
+
 		// "since" returns events strictly AFTER the timestamp
+
 		since := baseTime.Add(1 * time.Minute)
 		events := b.GetEvents(since, 2)
 		if len(events) != 2 {
@@ -127,6 +137,7 @@ func TestBuffer_GetEvents(t *testing.T) {
 }
 
 func TestBuffer_GetEvents_WithOverflow(t *testing.T) {
+	t.Parallel()
 	b := NewBuffer(3)
 
 	baseTime := time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC)
@@ -156,6 +167,7 @@ func TestBuffer_GetEvents_WithOverflow(t *testing.T) {
 }
 
 func TestBuffer_Clear(t *testing.T) {
+	t.Parallel()
 	b := NewBuffer(5)
 
 	// Add some events
@@ -179,6 +191,7 @@ func TestBuffer_Clear(t *testing.T) {
 }
 
 func TestBuffer_EmptyBuffer(t *testing.T) {
+	t.Parallel()
 	b := NewBuffer(5)
 
 	events := b.GetEvents(time.Time{}, 0)
@@ -188,6 +201,7 @@ func TestBuffer_EmptyBuffer(t *testing.T) {
 }
 
 func TestBuffer_Concurrent(t *testing.T) {
+	t.Parallel()
 	b := NewBuffer(100)
 
 	// Test concurrent writes and reads
