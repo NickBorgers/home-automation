@@ -1,6 +1,7 @@
 package ha
 
 import (
+	"errors"
 	"fmt"
 
 	"go.uber.org/zap"
@@ -126,17 +127,9 @@ func (d *NotificationData) toMap() map[string]interface{} {
 	return data
 }
 
-// SendNotification sends a notification to a mobile device via Home Assistant.
-// The deviceName should be the device identifier (e.g., "nicks_iphone", "person_phone").
-// It will be automatically prefixed with "mobile_app_" for the service name.
-//
-// Example:
-//
-//	client.SendNotification("nicks_iphone", &Notification{
-//	    Message: "Water leak detected!",
-//	    Title:   "Alert",
-//	})
-func (c *Client) SendNotification(deviceName string, notification *Notification) error {
+// validateNotification validates the notification parameters.
+// This is shared between Client and MockClient implementations.
+func validateNotification(deviceName string, notification *Notification) error {
 	if notification == nil {
 		return fmt.Errorf("notification cannot be nil")
 	}
@@ -146,8 +139,12 @@ func (c *Client) SendNotification(deviceName string, notification *Notification)
 	if deviceName == "" {
 		return fmt.Errorf("device name is required")
 	}
+	return nil
+}
 
-	// Build service data
+// buildNotificationServiceData builds the service data map for a notification.
+// This is shared between Client and MockClient implementations.
+func buildNotificationServiceData(notification *Notification) map[string]interface{} {
 	serviceData := map[string]interface{}{
 		"message": notification.Message,
 	}
@@ -163,7 +160,36 @@ func (c *Client) SendNotification(deviceName string, notification *Notification)
 		}
 	}
 
-	// The service name is "mobile_app_<device_name>"
+	return serviceData
+}
+
+// buildClearNotificationServiceData builds the service data map for clearing a notification.
+// This is shared between Client and MockClient implementations.
+func buildClearNotificationServiceData(tag string) map[string]interface{} {
+	return map[string]interface{}{
+		"message": "clear_notification",
+		"data": map[string]interface{}{
+			"tag": tag,
+		},
+	}
+}
+
+// SendNotification sends a notification to a mobile device via Home Assistant.
+// The deviceName should be the device identifier (e.g., "nicks_iphone", "person_phone").
+// It will be automatically prefixed with "mobile_app_" for the service name.
+//
+// Example:
+//
+//	client.SendNotification("nicks_iphone", &Notification{
+//	    Message: "Water leak detected!",
+//	    Title:   "Alert",
+//	})
+func (c *Client) SendNotification(deviceName string, notification *Notification) error {
+	if err := validateNotification(deviceName, notification); err != nil {
+		return err
+	}
+
+	serviceData := buildNotificationServiceData(notification)
 	serviceName := fmt.Sprintf("mobile_app_%s", deviceName)
 
 	return c.CallService("notify", serviceName, serviceData)
@@ -171,22 +197,23 @@ func (c *Client) SendNotification(deviceName string, notification *Notification)
 
 // SendNotificationToMultiple sends a notification to multiple devices.
 // This is a convenience method that calls SendNotification for each device.
+// If multiple notifications fail, all errors are aggregated and returned.
 func (c *Client) SendNotificationToMultiple(deviceNames []string, notification *Notification) error {
 	if len(deviceNames) == 0 {
 		return fmt.Errorf("at least one device name is required")
 	}
 
-	var lastErr error
+	var errs []error
 	for _, deviceName := range deviceNames {
 		if err := c.SendNotification(deviceName, notification); err != nil {
-			lastErr = err
+			errs = append(errs, fmt.Errorf("%s: %w", deviceName, err))
 			c.logger.Error("Failed to send notification",
 				zap.String("device", deviceName),
 				zap.Error(err))
 		}
 	}
 
-	return lastErr
+	return errors.Join(errs...)
 }
 
 // ClearNotification clears a notification with the specified tag on a device.
@@ -199,13 +226,8 @@ func (c *Client) ClearNotification(deviceName, tag string) error {
 		return fmt.Errorf("tag is required to clear a notification")
 	}
 
-	serviceData := map[string]interface{}{
-		"message": "clear_notification",
-		"data": map[string]interface{}{
-			"tag": tag,
-		},
-	}
-
+	serviceData := buildClearNotificationServiceData(tag)
 	serviceName := fmt.Sprintf("mobile_app_%s", deviceName)
+
 	return c.CallService("notify", serviceName, serviceData)
 }

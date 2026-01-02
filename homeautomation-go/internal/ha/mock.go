@@ -1,6 +1,7 @@
 package ha
 
 import (
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -552,50 +553,31 @@ func (m *MockClient) GetSubscribedEntities() []string {
 // SendNotification sends a notification via the mock client.
 // Records the call as a service call for verification in tests.
 func (m *MockClient) SendNotification(deviceName string, notification *Notification) error {
-	if notification == nil {
-		return fmt.Errorf("notification cannot be nil")
-	}
-	if notification.Message == "" {
-		return fmt.Errorf("notification message is required")
-	}
-	if deviceName == "" {
-		return fmt.Errorf("device name is required")
+	if err := validateNotification(deviceName, notification); err != nil {
+		return err
 	}
 
-	// Build service data
-	serviceData := map[string]interface{}{
-		"message": notification.Message,
-	}
-
-	if notification.Title != "" {
-		serviceData["title"] = notification.Title
-	}
-
-	if notification.Data != nil {
-		dataMap := notification.Data.toMap()
-		if len(dataMap) > 0 {
-			serviceData["data"] = dataMap
-		}
-	}
-
+	serviceData := buildNotificationServiceData(notification)
 	serviceName := fmt.Sprintf("mobile_app_%s", deviceName)
+
 	return m.CallService("notify", serviceName, serviceData)
 }
 
 // SendNotificationToMultiple sends a notification to multiple devices.
+// If multiple notifications fail, all errors are aggregated and returned.
 func (m *MockClient) SendNotificationToMultiple(deviceNames []string, notification *Notification) error {
 	if len(deviceNames) == 0 {
 		return fmt.Errorf("at least one device name is required")
 	}
 
-	var lastErr error
+	var errs []error
 	for _, deviceName := range deviceNames {
 		if err := m.SendNotification(deviceName, notification); err != nil {
-			lastErr = err
+			errs = append(errs, fmt.Errorf("%s: %w", deviceName, err))
 		}
 	}
 
-	return lastErr
+	return errors.Join(errs...)
 }
 
 // ClearNotification clears a notification with the specified tag on a device.
@@ -607,14 +589,9 @@ func (m *MockClient) ClearNotification(deviceName, tag string) error {
 		return fmt.Errorf("tag is required to clear a notification")
 	}
 
-	serviceData := map[string]interface{}{
-		"message": "clear_notification",
-		"data": map[string]interface{}{
-			"tag": tag,
-		},
-	}
-
+	serviceData := buildClearNotificationServiceData(tag)
 	serviceName := fmt.Sprintf("mobile_app_%s", deviceName)
+
 	return m.CallService("notify", serviceName, serviceData)
 }
 

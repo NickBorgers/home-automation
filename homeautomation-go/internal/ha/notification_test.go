@@ -2,6 +2,7 @@ package ha
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 )
 
@@ -343,6 +344,100 @@ func TestNotificationData_ToMap(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestNotificationData_ToMap_SoundOnly(t *testing.T) {
+	data := &NotificationData{
+		Sound: "default",
+	}
+
+	result := data.toMap()
+
+	push, ok := result["push"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("Expected 'push' to be a map, got %T", result["push"])
+	}
+
+	if push["sound"] != "default" {
+		t.Errorf("Expected push.sound='default', got %v", push["sound"])
+	}
+	if len(push) != 1 {
+		t.Errorf("Expected 1 key in push map, got %d: %v", len(push), push)
+	}
+}
+
+func TestNotificationData_ToMap_BadgeOnly(t *testing.T) {
+	data := &NotificationData{
+		Badge: 5,
+	}
+
+	result := data.toMap()
+
+	push, ok := result["push"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("Expected 'push' to be a map, got %T", result["push"])
+	}
+
+	if push["badge"] != 5 {
+		t.Errorf("Expected push.badge=5, got %v", push["badge"])
+	}
+	if len(push) != 1 {
+		t.Errorf("Expected 1 key in push map, got %d: %v", len(push), push)
+	}
+}
+
+func TestNotificationData_ToMap_SoundAndBadgeCombination(t *testing.T) {
+	// This tests the edge case where both Sound and Badge are set,
+	// ensuring they're correctly merged into the same "push" map
+	data := &NotificationData{
+		Sound: "default",
+		Badge: 5,
+	}
+
+	result := data.toMap()
+
+	push, ok := result["push"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("Expected 'push' to be a map, got %T", result["push"])
+	}
+
+	if push["sound"] != "default" {
+		t.Errorf("Expected push.sound='default', got %v", push["sound"])
+	}
+	if push["badge"] != 5 {
+		t.Errorf("Expected push.badge=5, got %v", push["badge"])
+	}
+
+	// Ensure there are exactly 2 keys in the push map
+	if len(push) != 2 {
+		t.Errorf("Expected 2 keys in push map, got %d: %v", len(push), push)
+	}
+}
+
+func TestSendNotificationToMultiple_AggregatesErrors(t *testing.T) {
+	mock := NewMockClient()
+	mock.Connect()
+
+	// Set up errors for both devices
+	mock.SetServiceError("notify", "mobile_app_device1", fmt.Errorf("device1 offline"))
+	mock.SetServiceError("notify", "mobile_app_device2", fmt.Errorf("device2 offline"))
+
+	err := mock.SendNotificationToMultiple(
+		[]string{"device1", "device2"},
+		&Notification{Message: "test"},
+	)
+
+	if err == nil {
+		t.Fatal("Expected error when both devices fail")
+	}
+
+	errStr := err.Error()
+	if !strings.Contains(errStr, "device1") {
+		t.Errorf("Expected error to contain 'device1', got: %s", errStr)
+	}
+	if !strings.Contains(errStr, "device2") {
+		t.Errorf("Expected error to contain 'device2', got: %s", errStr)
 	}
 }
 
