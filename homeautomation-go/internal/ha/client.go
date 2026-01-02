@@ -30,19 +30,13 @@ const (
 
 	// writeWait is the time allowed to write a message (including pings).
 	writeWait = 10 * time.Second
-
-	// tcpKeepAlive is the interval for TCP-layer keepalive probes.
-	// This is SEPARATE from application-level pings and serves a different purpose:
-	// - Application pings (pingInterval): Keep Home Assistant's session alive
-	// - TCP keepalive (tcpKeepAlive): Prevent reverse proxies (NGINX, HAProxy) from
-	//   closing "idle" connections based on TCP-layer inactivity
-	//
-	// Reverse proxies often have a 60-second idle timeout at the TCP layer.
-	// Without TCP keepalive, they don't see our application-layer JSON pings
-	// and close the connection at exactly 60 seconds.
-	// See: https://github.com/eclipse-paho/paho.mqtt.c/issues/724
-	tcpKeepAlive = 30 * time.Second
 )
+
+// Note: TCP keepalive constants (tcpKeepIdle, tcpKeepInterval, tcpKeepCount) are
+// defined in tcp_keepalive.go and configured via syscalls for proper dead connection
+// detection. The old net.Dialer.KeepAlive approach was insufficient because it doesn't
+// set TCP_KEEPIDLE (time before first probe), which defaults to 2 hours on Linux.
+// See: https://github.com/golang/go/issues/62254
 
 // Retry constants for service calls
 const (
@@ -90,6 +84,10 @@ type HAClient interface {
 	ClearNotification(deviceName, tag string) error
 	SetReconnectCallback(cb func())
 	GetReconnectCount() int
+	GetDisconnectCount() int
+	GetLastDisconnectTime() time.Time
+	GetWriteTimeoutCount() int
+	GetConnectionDuration() time.Duration
 }
 
 // subscriberEntry holds a handler with its unique subscription ID
@@ -144,6 +142,13 @@ type Client struct {
 	recentResults []bool // circular buffer: true=success, false=failure
 	resultIndex   int    // next write position in circular buffer
 	resultCount   int    // how many results recorded (up to healthWindowSize)
+
+	// Connection health metrics for observability
+	metricsMu          sync.RWMutex
+	disconnectCount    int       // Total number of disconnections
+	lastDisconnectTime time.Time // When the last disconnect occurred
+	writeTimeoutCount  int       // Number of write timeouts detected
+	connectedAt        time.Time // When the current connection was established
 }
 
 func (c *Client) clearSubscribers() {
@@ -202,16 +207,28 @@ func (c *Client) Connect() error {
 	c.msgID = 0
 	c.writeMu.Unlock()
 
-	// Connect to WebSocket with TCP keepalive enabled.
-	// TCP keepalive sends periodic TCP-layer ACK probes that prevent reverse proxies
-	// (NGINX, HAProxy, etc.) from closing the connection due to perceived "idle" state.
-	// This is separate from our application-level JSON pings which keep HA's session alive.
+	// Connect to WebSocket with proper TCP keepalive configuration.
+	// We use syscalls to configure TCP_KEEPIDLE, TCP_KEEPINTVL, and TCP_KEEPCNT
+	// because Go's net.Dialer.KeepAlive only sets the interval but NOT the idle time
+	// before the first probe (TCP_KEEPIDLE defaults to 2 hours on Linux).
+	// See: https://github.com/golang/go/issues/62254
 	dialer := websocket.Dialer{
 		NetDialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-			d := net.Dialer{
-				KeepAlive: tcpKeepAlive,
+			d := net.Dialer{}
+			conn, err := d.DialContext(ctx, network, addr)
+			if err != nil {
+				return nil, err
 			}
-			return d.DialContext(ctx, network, addr)
+
+			// Configure aggressive TCP keepalive using syscalls
+			// This detects dead connections in ~25 seconds (10s idle + 5s * 3 probes)
+			if err := setTCPKeepAlive(conn, tcpKeepIdle, tcpKeepInterval, tcpKeepCount); err != nil {
+				c.logger.Warn("Failed to set TCP keepalive (non-fatal)", zap.Error(err))
+				// Continue anyway - better to connect without optimal keepalive
+				// than fail completely
+			}
+
+			return conn, nil
 		},
 		HandshakeTimeout: 45 * time.Second,
 	}
@@ -221,8 +238,16 @@ func (c *Client) Connect() error {
 		return fmt.Errorf("failed to connect to WebSocket: %w", err)
 	}
 	c.conn = conn
+
+	// Record connection time for duration tracking
+	c.metricsMu.Lock()
+	c.connectedAt = time.Now()
+	c.metricsMu.Unlock()
+
 	c.logger.Debug("WebSocket connected with TCP keepalive enabled",
-		zap.Duration("tcp_keepalive", tcpKeepAlive))
+		zap.Duration("tcp_keep_idle", tcpKeepIdle),
+		zap.Duration("tcp_keep_interval", tcpKeepInterval),
+		zap.Int("tcp_keep_count", tcpKeepCount))
 
 	// Receive auth_required message
 	var authRequired Message
@@ -397,6 +422,50 @@ func (c *Client) GetReconnectCount() int {
 	return c.reconnectCount
 }
 
+// GetDisconnectCount returns the number of disconnections since client creation.
+func (c *Client) GetDisconnectCount() int {
+	c.metricsMu.RLock()
+	defer c.metricsMu.RUnlock()
+	return c.disconnectCount
+}
+
+// GetLastDisconnectTime returns when the last disconnect occurred.
+// Returns zero time if no disconnects have occurred.
+func (c *Client) GetLastDisconnectTime() time.Time {
+	c.metricsMu.RLock()
+	defer c.metricsMu.RUnlock()
+	return c.lastDisconnectTime
+}
+
+// GetWriteTimeoutCount returns the number of write timeouts detected.
+// Write timeouts indicate the connection is stale and trigger reconnection.
+func (c *Client) GetWriteTimeoutCount() int {
+	c.metricsMu.RLock()
+	defer c.metricsMu.RUnlock()
+	return c.writeTimeoutCount
+}
+
+// GetConnectionDuration returns how long the current connection has been active.
+// Returns 0 if not currently connected.
+func (c *Client) GetConnectionDuration() time.Duration {
+	c.connMu.RLock()
+	connected := c.connected
+	c.connMu.RUnlock()
+
+	if !connected {
+		return 0
+	}
+
+	c.metricsMu.RLock()
+	connectedAt := c.connectedAt
+	c.metricsMu.RUnlock()
+
+	if connectedAt.IsZero() {
+		return 0
+	}
+	return time.Since(connectedAt)
+}
+
 // nextMsgID returns the next message ID.
 // IMPORTANT: Caller must hold writeMu to ensure atomic ID allocation + send.
 func (c *Client) nextMsgID() int {
@@ -474,7 +543,12 @@ func (c *Client) sendMessage(msg interface{}) (*Message, error) {
 		// Close it immediately to trigger reconnection rather than waiting
 		// for the next ping or accumulating more failed retries.
 		if strings.Contains(err.Error(), "i/o timeout") {
-			c.logger.Warn("Write timeout detected, closing connection to trigger reconnect", zap.Error(err))
+			c.metricsMu.Lock()
+			c.writeTimeoutCount++
+			timeoutNum := c.writeTimeoutCount
+			c.metricsMu.Unlock()
+			c.logger.Warn("Write timeout detected, closing connection to trigger reconnect",
+				zap.Error(err), zap.Int("timeout_number", timeoutNum))
 			conn.Close()
 		}
 		return nil, fmt.Errorf("failed to send message: %w", err)
@@ -593,7 +667,14 @@ func (c *Client) handleDisconnect() {
 	c.connected = false
 	c.connMu.Unlock()
 
-	c.logger.Warn("Connection lost")
+	// Update disconnect metrics
+	c.metricsMu.Lock()
+	c.disconnectCount++
+	c.lastDisconnectTime = time.Now()
+	disconnectNum := c.disconnectCount
+	c.metricsMu.Unlock()
+
+	c.logger.Warn("Connection lost", zap.Int("disconnect_number", disconnectNum))
 
 	if !c.reconnect {
 		return

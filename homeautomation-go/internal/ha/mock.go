@@ -621,3 +621,27 @@ func (m *MockClient) SetReconnectCallback(cb func()) {
 func (m *MockClient) GetReconnectCount() int {
 	return 0
 }
+
+// GetDisconnectCount returns 0 for the mock client.
+// It implements the HAClient interface for testing.
+func (m *MockClient) GetDisconnectCount() int {
+	return 0
+}
+
+// GetLastDisconnectTime returns zero time for the mock client.
+// It implements the HAClient interface for testing.
+func (m *MockClient) GetLastDisconnectTime() time.Time {
+	return time.Time{}
+}
+
+// GetWriteTimeoutCount returns 0 for the mock client.
+// It implements the HAClient interface for testing.
+func (m *MockClient) GetWriteTimeoutCount() int {
+	return 0
+}
+
+// GetConnectionDuration returns 0 for the mock client.
+// It implements the HAClient interface for testing.
+func (m *MockClient) GetConnectionDuration() time.Duration {
+	return 0
+}

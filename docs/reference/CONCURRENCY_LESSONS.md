@@ -315,73 +315,111 @@ This guarantees that if goroutine A allocates ID 10, no other goroutine can allo
 
 ---
 
-## Lesson 8: Enable TCP Keepalive for WebSocket Connections Through Proxies
+## Lesson 8: Configure TCP Keepalive with Syscalls for Dead Connection Detection
 
-**Pattern**: Use a custom WebSocket dialer with TCP keepalive enabled when connections pass through reverse proxies.
+**Pattern**: Use syscalls to configure TCP keepalive parameters (`TCP_KEEPIDLE`, `TCP_KEEPINTVL`, `TCP_KEEPCNT`) directly, because Go's `net.Dialer.KeepAlive` is insufficient.
 
-**Why**: Reverse proxies like NGINX and HAProxy have idle timeout settings (commonly 60 seconds) that check for **TCP-layer activity**, not application-layer activity. Application-layer pings (like JSON `{"type": "ping"}`) don't generate TCP-layer traffic that proxies recognize as "activity."
+**Why**: Go's `net.Dialer.KeepAlive` only sets the keepalive probe *interval*, but does **NOT** configure `TCP_KEEPIDLE` (time before the first probe). On Linux, `TCP_KEEPIDLE` defaults to **7200 seconds (2 hours)**, meaning dead connections aren't detected for hours even with keepalive "enabled."
 
 **Symptoms**:
-- Connections drop at exactly 60-second intervals (or another suspiciously precise timeout)
-- Reconnection succeeds quickly (<50ms), indicating the backend is healthy
-- Log pattern: `23:44:06 → 23:45:06 → 23:46:06` (exactly 60s between disconnects)
+- Write timeouts detected at variable intervals (11-56 seconds)
+- Connection appears alive but writes block indefinitely
+- `net.Dialer.KeepAlive` is set but doesn't help
+- OS reports connection is still established even when remote end is dead
 
 **Root Cause**:
 ```
-Application layer:  Go client ←──JSON pings──→ Home Assistant  ✓ Working
-                                    │
-TCP layer:          Go client ←──(silence)──→ NGINX ←──→ HA   ✗ Proxy sees idle
-                                    │
-                            NGINX closes at 60s
+Go's net.Dialer.KeepAlive:
+  - Sets SO_KEEPALIVE=1 (enables keepalive)
+  - Sets probe interval (e.g., 30s)
+  - Does NOT set TCP_KEEPIDLE (defaults to 7200s = 2 hours!)
+
+Result: First keepalive probe sent after 2 HOURS, not 30 seconds!
 ```
 
-**Wrong Approach** (doesn't help):
+**Wrong Approach** (partially works):
 ```go
-// ❌ BAD: More frequent application pings don't fix TCP-layer issue
-const pingInterval = 5 * time.Second  // Still no TCP keepalive!
-
-conn, _, err := websocket.DefaultDialer.Dial(url, nil)  // No TCP keepalive
+// ❌ INSUFFICIENT: KeepAlive only sets the interval, not the idle time
+d := net.Dialer{
+    KeepAlive: 30 * time.Second,  // OS still waits 2 hours before first probe!
+}
 ```
 
-**Correct Approach**:
+**Correct Approach** (uses syscalls):
 ```go
-// ✅ GOOD: Custom dialer with TCP keepalive
+// ✅ CORRECT: Configure all TCP keepalive parameters with syscalls
+import (
+    "syscall"
+    "golang.org/x/sys/unix"
+)
+
+func setTCPKeepAlive(conn net.Conn, idle, interval time.Duration, count int) error {
+    tcpConn := conn.(*net.TCPConn)
+    rawConn, _ := tcpConn.SyscallConn()
+
+    rawConn.Control(func(fd uintptr) {
+        // Enable TCP keepalive
+        syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_KEEPALIVE, 1)
+
+        // Time before first probe (was 7200s, now 10s)
+        syscall.SetsockoptInt(int(fd), syscall.IPPROTO_TCP, unix.TCP_KEEPIDLE, int(idle.Seconds()))
+
+        // Interval between probes (was 75s, now 5s)
+        syscall.SetsockoptInt(int(fd), syscall.IPPROTO_TCP, unix.TCP_KEEPINTVL, int(interval.Seconds()))
+
+        // Number of failed probes before giving up (was 9, now 3)
+        syscall.SetsockoptInt(int(fd), syscall.IPPROTO_TCP, unix.TCP_KEEPCNT, count)
+    })
+    return nil
+}
+
+// In WebSocket dialer:
 dialer := websocket.Dialer{
     NetDialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-        d := net.Dialer{
-            KeepAlive: 30 * time.Second,  // TCP keepalive probes every 30s
+        conn, err := net.Dial(network, addr)
+        if err != nil {
+            return nil, err
         }
-        return d.DialContext(ctx, network, addr)
+        // 10s idle + 5s interval × 3 probes = dead connection detected in ~25 seconds
+        setTCPKeepAlive(conn, 10*time.Second, 5*time.Second, 3)
+        return conn, nil
     },
-    HandshakeTimeout: 45 * time.Second,
 }
-conn, _, err := dialer.Dial(url, nil)
 ```
 
-**How TCP Keepalive Works**:
-1. Kernel sends TCP ACK probes at the configured interval (30s)
-2. Reverse proxies recognize these as TCP activity and reset their idle timers
-3. Dead connections are detected faster (kernel handles retries)
-4. Works through all layers (below TLS/WebSocket, so works regardless of encryption)
+**How It Works**:
+| Parameter | OS Default | Our Setting | Purpose |
+|-----------|------------|-------------|---------|
+| `TCP_KEEPIDLE` | 7200s (2h) | 10s | Time before first probe |
+| `TCP_KEEPINTVL` | 75s | 5s | Interval between probes |
+| `TCP_KEEPCNT` | 9 | 3 | Failed probes before giving up |
+
+**Detection Time**: 10s + (5s × 3) = **25 seconds** to detect dead connection (vs 2+ hours with defaults).
 
 **Layered Defense**:
-This project uses BOTH mechanisms:
-- **TCP keepalive (30s)**: Prevents proxy idle timeouts, detects dead connections at OS level
+This project uses multiple mechanisms:
+- **TCP keepalive (syscalls)**: Detects dead connections at OS level in ~25 seconds
 - **Application pings (15s)**: Keeps Home Assistant's WebSocket session alive
+- **Write timeout detection (10s)**: Catches blocked writes and triggers reconnection
 
 **Where to Apply**:
-- Any WebSocket client connecting through reverse proxies
-- Long-running connections through load balancers (AWS ALB, GCP LB, Azure LB)
-- Connections through NAT gateways with aggressive timeouts
-- MQTT, gRPC, or other persistent connections through proxies
+- Any WebSocket or TCP client that needs fast dead connection detection
+- Long-running connections where network outages are possible
+- Connections through NAT gateways or firewalls with aggressive timeouts
+- MQTT, gRPC, or other persistent connections
+
+**Platform Notes**:
+- Linux-only: Uses `golang.org/x/sys/unix` for `TCP_KEEPIDLE`, `TCP_KEEPINTVL`, `TCP_KEEPCNT`
+- On macOS/Windows, different syscall constants are needed (not implemented here)
 
 **References**:
-- [eclipse-paho/paho.mqtt.c#724](https://github.com/eclipse-paho/paho.mqtt.c/issues/724) - Similar issue with MQTT
-- Issue #281, #282 - Investigation and fix for this project
+- [golang/go#62254](https://github.com/golang/go/issues/62254) - Discussion of KeepAlive limitations
+- [golang/go#73386](https://github.com/golang/go/issues/73386) - KeepAlive documentation is misleading
+- Issue #281, #282, #289 - Investigation and fixes for this project
 
 **Production Impact**:
-- **Before Fix**: Disconnects every 60 seconds, ~60+ disconnects/hour
-- **After Fix**: Stable connections, disconnects only on actual network issues
+- **Before Syscall Fix**: Write timeouts every 11-56 seconds, dead connections undetected for hours
+- **After Syscall Fix**: Dead connections detected in ~25 seconds, stable reconnection
 
 ---
 
@@ -444,7 +482,7 @@ func (s *Subscription) Close() {
 5. **Event handlers must be async** - Prevents deadlocks when handlers send messages
 6. **Always test with -race** - Catches bugs you can't see in normal runs
 7. **Message ID allocation and write must be atomic** - Prevents out-of-order IDs
-8. **Enable TCP keepalive through proxies** - Prevents 60-second idle timeout disconnects
+8. **Configure TCP keepalive with syscalls** - Go's net.Dialer.KeepAlive is insufficient for fast dead connection detection
 
 ---
 
@@ -461,6 +499,13 @@ func (s *Subscription) Close() {
 ---
 
 ## Change Log
+
+### 2026-01-02
+- **Updated Lesson 8**: Configure TCP Keepalive with Syscalls for Dead Connection Detection
+  - Go's `net.Dialer.KeepAlive` is insufficient - doesn't set `TCP_KEEPIDLE` (defaults to 2 hours)
+  - New pattern: Use syscalls to set `TCP_KEEPIDLE`, `TCP_KEEPINTVL`, `TCP_KEEPCNT` directly
+  - Dead connections now detected in ~25 seconds instead of hours (Issue #289)
+  - Added connection health metrics: disconnect count, write timeouts, connection duration
 
 ### 2026-01-01
 - **Added Lesson 8**: Enable TCP Keepalive for WebSocket Connections Through Proxies
