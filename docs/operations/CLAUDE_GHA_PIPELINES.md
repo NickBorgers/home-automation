@@ -7,23 +7,23 @@ This document describes the complex Claude Code-based GitHub Actions pipelines i
 The repository uses several interconnected workflows that leverage Claude Code to automate software development tasks:
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                           TRIGGER EVENTS                                     │
-├─────────────────────────────────────────────────────────────────────────────┤
-│  Issue Opened  │  @claude Mention  │  PR Tests Complete  │  Scheduled       │
-└───────┬────────┴────────┬──────────┴─────────┬───────────┴────────┬─────────┘
-        │                 │                    │                    │
-        ▼                 ▼                    ▼                    ▼
-┌───────────────┐ ┌───────────────┐ ┌──────────────────┐ ┌─────────────────┐
-│ claude.yml    │ │ claude.yml    │ │ claude-code-     │ │ auto-format.yml │
-│ resolve-issue │ │ claude job    │ │ review.yml       │ │                 │
-└───────────────┘ └───────────────┘ └──────────────────┘ └─────────────────┘
+┌──────────────────────────────────────────────────────────────────┐
+│                        TRIGGER EVENTS                             │
+├──────────────────────────────────────────────────────────────────┤
+│  Issue Opened  │  @claude Mention  │  PR Tests Complete          │
+└───────┬────────┴────────┬──────────┴─────────┬───────────────────┘
         │                 │                    │
         ▼                 ▼                    ▼
-┌───────────────────────────────────────────────────────────────────────────┐
-│                          DEVCONTAINER EXECUTION                            │
-│  Claude Code runs inside a cached devcontainer with full tool access       │
-└───────────────────────────────────────────────────────────────────────────┘
+┌───────────────┐ ┌───────────────┐ ┌──────────────────┐
+│ claude.yml    │ │ claude.yml    │ │ claude-code-     │
+│ resolve-issue │ │ claude job    │ │ review.yml       │
+└───────────────┘ └───────────────┘ └──────────────────┘
+        │                 │                    │
+        ▼                 ▼                    ▼
+┌──────────────────────────────────────────────────────────────────┐
+│                       DEVCONTAINER EXECUTION                      │
+│  Claude Code runs inside a cached devcontainer with full access   │
+└──────────────────────────────────────────────────────────────────┘
 ```
 
 ## Workflow Files
@@ -33,7 +33,6 @@ The repository uses several interconnected workflows that leverage Claude Code t
 | Claude Code | `claude.yml` | @claude mentions, new issues | Respond to requests, auto-resolve issues |
 | Claude Code Review | `claude-code-review.yml` | PR Tests completion | Multi-agent code review, fix failures |
 | PR Tests | `pr-tests.yml` | PRs, pushes to claude/** | Run tests, trigger review pipeline |
-| Auto-Format | `auto-format.yml` | Daily schedule | Auto-fix formatting issues |
 
 ---
 
@@ -277,23 +276,6 @@ Standard test workflow that gates merging and triggers Claude reviews.
 Only runs relevant jobs based on changed files:
 - `code`: `homeautomation-go/**`, `configs/**`, `.github/workflows/**`
 - `docker`: Dockerfile, go.mod, go.sum, *.go, configs
-
----
-
-## 4. Auto-Format (`auto-format.yml`)
-
-Scheduled workflow that fixes formatting issues automatically.
-
-### Schedule
-
-Runs daily at 2 AM UTC
-
-### Workflow
-
-1. Fixes trailing spaces in YAML files
-2. Fixes trailing spaces in JS, JSON, MD files
-3. Runs config tests to validate changes
-4. Creates a PR with the fixes (if any)
 
 ---
 
