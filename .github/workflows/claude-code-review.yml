@@ -160,6 +160,7 @@ jobs:
       issues: write
       id-token: write
       packages: read
+      actions: write  # Required to trigger PR Tests workflow via workflow_dispatch
 
     steps:
       - name: Checkout PR branch
