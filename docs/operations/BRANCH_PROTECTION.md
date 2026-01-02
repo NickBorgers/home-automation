@@ -193,7 +193,6 @@ go test -race ./...
 | PR Tests | `.github/workflows/pr-tests.yml` | **Primary PR testing** (Go tests + config validation) | All PRs, pushes to main/master/claude/** |
 | Build and Push | `.github/workflows/docker-build-push.yml` | Docker build + push to GHCR | Pushes to main/master, version tags |
 | Publish Screenshots | `.github/workflows/publish.yml` | Generate and publish GitHub Pages | Pushes to master |
-| Auto-Format | `.github/workflows/auto-format.yml` | Auto-fix formatting issues | Daily cron, manual |
 
 ## Benefits of This Setup
 
