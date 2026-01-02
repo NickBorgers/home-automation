@@ -21,6 +21,8 @@ jobs:
       head_repo: ${{ steps.get-pr.outputs.head_repo }}
       tests_passed: ${{ github.event.workflow_run.conclusion == 'success' }}
       run_id: ${{ github.event.workflow_run.id }}
+      # SHA that triggered this workflow - used to detect if author pushed newer commits
+      triggering_sha: ${{ github.event.workflow_run.head_sha }}
       issue_number: ${{ steps.get-issue.outputs.issue_number }}
       issue_title: ${{ steps.get-issue.outputs.issue_title }}
       issue_body_b64: ${{ steps.get-issue.outputs.issue_body_b64 }}
@@ -198,6 +200,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Run Claude to fix test failures
+        id: claude-fix
         uses: devcontainers/ci@v0.3
         with:
           imageName: ${{ env.DEVCONTAINER_IMAGE }}
@@ -215,6 +218,8 @@ jobs:
             RUN_ID=${{ needs.get-context.outputs.run_id }}
             ATTEMPT_NUM=${{ needs.get-context.outputs.fix_attempts }}
             REPO=${{ github.repository }}
+            TRIGGERING_SHA=${{ needs.get-context.outputs.triggering_sha }}
+            HEAD_REF=${{ needs.get-context.outputs.head_ref }}
           runCmd: |
             # Calculate actual attempt number (current + 1)
             ATTEMPT=$((ATTEMPT_NUM + 1))
@@ -230,6 +235,21 @@ jobs:
               --max-turns 200 \
               "You are fixing CI test failures for PR #${PR_NUMBER} in ${REPO}.
             This is fix attempt ${ATTEMPT} of 3.
+
+            CRITICAL: BEFORE PUSHING ANY CHANGES, you MUST check if the PR author has pushed
+            newer commits since this workflow started. Run:
+              git fetch origin ${HEAD_REF}
+              CURRENT_HEAD=\$(git rev-parse origin/${HEAD_REF})
+              if [ \"\$CURRENT_HEAD\" != \"${TRIGGERING_SHA}\" ]; then
+                echo 'Author has pushed newer commits - aborting to avoid conflicts'
+                gh pr comment ${PR_NUMBER} --body '## Fix Attempt ${ATTEMPT}/3 - Aborted
+
+            Detected newer commits pushed by author. Skipping automated fix to avoid conflicts.
+            The author is likely fixing this themselves.'
+                exit 0
+              fi
+
+            If the check passes, proceed with fixing:
 
             ORIGINAL ISSUE (if applicable):
             Issue #${ISSUE_NUMBER}: ${ISSUE_TITLE}
@@ -252,15 +272,33 @@ jobs:
             - Use \`make pre-commit\` for linting/formatting
             - Follow shadow state pattern (docs/reference/SHADOW_STATE.md)
             - Never use \`git push --no-verify\`
-            - After pushing, a new test run will start automatically
             - If this is attempt 2+, review what was tried before and try a different approach
 
-            Post a brief status update:
+            After pushing, post a brief status update:
             gh pr comment ${PR_NUMBER} --body '## Fix Attempt ${ATTEMPT}/3
 
             [Describe what you found and fixed]
 
-            Pushing changes - new test run will start automatically.'" < /dev/null 2>&1 | tee /workspaces/home-automation/fix-failures-output.txt
+            Pushed fix - triggering new test run.'" < /dev/null 2>&1 | tee /workspaces/home-automation/fix-failures-output.txt
+
+      - name: Trigger PR Tests after fix
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Check if new commits were pushed by comparing current HEAD to triggering SHA
+          git fetch origin ${{ needs.get-context.outputs.head_ref }}
+          CURRENT_HEAD=$(git rev-parse origin/${{ needs.get-context.outputs.head_ref }})
+          TRIGGERING_SHA="${{ needs.get-context.outputs.triggering_sha }}"
+
+          if [ "$CURRENT_HEAD" != "$TRIGGERING_SHA" ]; then
+            echo "Fix was pushed (HEAD changed from $TRIGGERING_SHA to $CURRENT_HEAD)"
+            echo "Triggering PR Tests workflow..."
+            gh workflow run "PR Tests" --ref "${{ needs.get-context.outputs.head_ref }}" --repo ${{ github.repository }}
+            echo "PR Tests workflow triggered successfully"
+          else
+            echo "No new commits - Claude may have aborted or found no fix needed"
+          fi
 
       - name: Upload fix attempt output
         uses: actions/upload-artifact@v4
