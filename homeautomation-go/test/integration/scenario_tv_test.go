@@ -213,6 +213,9 @@ func TestScenario_TVOffState(t *testing.T) {
 		"friendly_name": "Apple TV",
 	})
 	server.SetState("select.sync_box_hdmi_input", "AppleTV", map[string]interface{}{})
+
+	// Wait for initial state to propagate before proceeding
+	waitForBoolState(t, manager, "isTVon", true, "isTVon should be true when sync box is on")
 	waitForBoolState(t, manager, "isTVPlaying", true, "isTVPlaying should be true when AppleTV is playing")
 
 	t.Log("WHEN: TV is turned off (sync box powers off)")
@@ -222,10 +225,8 @@ func TestScenario_TVOffState(t *testing.T) {
 
 	t.Log("THEN: Verify all TV state variables are false")
 
-	// isTVon should be false
+	// Use polling to wait for state changes to propagate
 	waitForBoolState(t, manager, "isTVon", false, "isTVon should be false when sync box is off")
-
-	// isTVPlaying should be false
 	waitForBoolState(t, manager, "isTVPlaying", false, "isTVPlaying should be false when sync box is off")
 
 	t.Log("WHEN: Apple TV also stops playing")
