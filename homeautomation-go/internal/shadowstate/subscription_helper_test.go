@@ -2,6 +2,7 @@ package shadowstate
 
 import (
 	"testing"
+	"time"
 
 	"homeautomation/internal/ha"
 
@@ -61,6 +62,10 @@ func (m *mockHAClient) SendNotificationToMultiple(deviceNames []string, notifica
 func (m *mockHAClient) ClearNotification(deviceName, tag string) error { return nil }
 func (m *mockHAClient) SetReconnectCallback(cb func())                 {}
 func (m *mockHAClient) GetReconnectCount() int                         { return 0 }
+func (m *mockHAClient) GetDisconnectCount() int                        { return 0 }
+func (m *mockHAClient) GetLastDisconnectTime() time.Time               { return time.Time{} }
+func (m *mockHAClient) GetWriteTimeoutCount() int                      { return 0 }
+func (m *mockHAClient) GetConnectionDuration() time.Duration           { return 0 }
 
 func (m *mockHAClient) GetState(entityID string) (*ha.State, error) {
 	if s, ok := m.states[entityID]; ok {

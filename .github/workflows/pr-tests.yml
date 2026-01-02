@@ -9,6 +9,12 @@ on:
   push:
     branches:
       - 'claude/**'  # Only test development branches; main/master tested in docker-build-push.yml
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Git ref to test (branch name or SHA)'
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -53,7 +59,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.23'
+          go-version: '1.24'
           cache-dependency-path: homeautomation-go/go.sum
 
       - name: Cache Go tools
@@ -78,7 +84,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.23'
+          go-version: '1.24'
           cache-dependency-path: homeautomation-go/go.sum
 
       - name: Download dependencies
@@ -100,7 +106,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.23'
+          go-version: '1.24'
           cache-dependency-path: homeautomation-go/go.sum
 
       - name: Download dependencies
@@ -154,7 +160,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.23'
+          go-version: '1.24'
           cache-dependency-path: homeautomation-go/go.sum
 
       - name: Validate generated diagrams
