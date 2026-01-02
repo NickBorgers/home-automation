@@ -1,6 +1,7 @@
 package ha
 
 import (
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -547,6 +548,66 @@ func (m *MockClient) GetSubscribedEntities() []string {
 		entities = append(entities, entityID)
 	}
 	return entities
+}
+
+// SendNotification sends a notification via the mock client.
+// Records the call as a service call for verification in tests.
+func (m *MockClient) SendNotification(deviceName string, notification *Notification) error {
+	if err := validateNotification(deviceName, notification); err != nil {
+		return err
+	}
+
+	serviceData := buildNotificationServiceData(notification)
+	serviceName := fmt.Sprintf("mobile_app_%s", deviceName)
+
+	return m.CallService("notify", serviceName, serviceData)
+}
+
+// SendNotificationToMultiple sends a notification to multiple devices.
+// If multiple notifications fail, all errors are aggregated and returned.
+func (m *MockClient) SendNotificationToMultiple(deviceNames []string, notification *Notification) error {
+	if len(deviceNames) == 0 {
+		return fmt.Errorf("at least one device name is required")
+	}
+
+	var errs []error
+	for _, deviceName := range deviceNames {
+		if err := m.SendNotification(deviceName, notification); err != nil {
+			errs = append(errs, fmt.Errorf("%s: %w", deviceName, err))
+		}
+	}
+
+	return errors.Join(errs...)
+}
+
+// ClearNotification clears a notification with the specified tag on a device.
+func (m *MockClient) ClearNotification(deviceName, tag string) error {
+	if deviceName == "" {
+		return fmt.Errorf("device name is required")
+	}
+	if tag == "" {
+		return fmt.Errorf("tag is required to clear a notification")
+	}
+
+	serviceData := buildClearNotificationServiceData(tag)
+	serviceName := fmt.Sprintf("mobile_app_%s", deviceName)
+
+	return m.CallService("notify", serviceName, serviceData)
+}
+
+// GetNotificationCalls returns all notification service calls for verification.
+// Filters service calls to only include notify domain calls.
+func (m *MockClient) GetNotificationCalls() []ServiceCall {
+	m.callsMu.Lock()
+	defer m.callsMu.Unlock()
+
+	var notifications []ServiceCall
+	for _, call := range m.serviceCalls {
+		if call.Domain == "notify" {
+			notifications = append(notifications, call)
+		}
+	}
+	return notifications
 }
 
 // SetReconnectCallback is a no-op for the mock client.
