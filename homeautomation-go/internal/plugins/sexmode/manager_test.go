@@ -119,6 +119,15 @@ func TestSexModeManager_ActivationSetsEightSleep(t *testing.T) {
 
 	mockHA := ha.NewMockClient()
 	mockHA.SetState("input_boolean.sex", "off", nil)
+	// Set up Eight Sleep entities with min_temp attribute (auto-detection)
+	mockHA.SetState(EightSleepNickEntity, "heat_cool", map[string]interface{}{
+		"min_temp": float64(55),
+		"max_temp": float64(110),
+	})
+	mockHA.SetState(EightSleepCarolineEntity, "heat_cool", map[string]interface{}{
+		"min_temp": float64(55),
+		"max_temp": float64(110),
+	})
 	mockHA.Connect()
 
 	logger := zap.NewNop()
@@ -141,7 +150,7 @@ func TestSexModeManager_ActivationSetsEightSleep(t *testing.T) {
 	// Wait for async processing
 	time.Sleep(100 * time.Millisecond)
 
-	// Verify Eight Sleep was set to coldest
+	// Verify Eight Sleep was set to coldest (auto-detected min_temp)
 	calls := mockHA.GetServiceCalls()
 	nickFound := false
 	carolineFound := false
@@ -152,25 +161,27 @@ func TestSexModeManager_ActivationSetsEightSleep(t *testing.T) {
 			if !ok {
 				continue
 			}
-			temp, tempOk := call.Data["temperature"].(int)
+			// Temperature is now sent as float64 (auto-detected from entity attributes)
+			temp, tempOk := call.Data["temperature"].(float64)
 			if !tempOk {
 				continue
 			}
 
-			if entityID == EightSleepNickEntity && temp == EightSleepMinTemp {
+			// Should use auto-detected min_temp of 55
+			if entityID == EightSleepNickEntity && temp == 55 {
 				nickFound = true
 			}
-			if entityID == EightSleepCarolineEntity && temp == EightSleepMinTemp {
+			if entityID == EightSleepCarolineEntity && temp == 55 {
 				carolineFound = true
 			}
 		}
 	}
 
 	if !nickFound {
-		t.Errorf("Expected Nick's Eight Sleep to be set to coldest (%d), but service was not called correctly. Calls: %+v", EightSleepMinTemp, calls)
+		t.Errorf("Expected Nick's Eight Sleep to be set to coldest (55), but service was not called correctly. Calls: %+v", calls)
 	}
 	if !carolineFound {
-		t.Errorf("Expected Caroline's Eight Sleep to be set to coldest (%d), but service was not called correctly. Calls: %+v", EightSleepMinTemp, calls)
+		t.Errorf("Expected Caroline's Eight Sleep to be set to coldest (55), but service was not called correctly. Calls: %+v", calls)
 	}
 }
 

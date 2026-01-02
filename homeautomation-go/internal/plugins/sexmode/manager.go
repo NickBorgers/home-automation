@@ -14,8 +14,9 @@ import (
 
 // EightSleep climate control constants
 const (
-	// EightSleepMinTemp is the minimum temperature setting for Eight Sleep (-100 to 100 range)
-	EightSleepMinTemp = -100 // Coldest setting
+	// EightSleepMinTemp is the fallback minimum temperature if auto-detection fails
+	// Note: The actual min_temp is auto-detected from the HA entity attributes
+	EightSleepMinTemp = 55 // Fallback: 55°F (coldest setting in HA's temperature scale)
 
 	// EightSleepNickEntity is Nick's Eight Sleep climate entity
 	EightSleepNickEntity = "climate.nick_s_eight_sleep_side_climate"
@@ -290,39 +291,90 @@ func (m *Manager) reevaluatePrimarySuiteLighting() {
 	}
 }
 
+// getEightSleepMinTemp retrieves the minimum temperature for an Eight Sleep climate entity
+// by querying its attributes from Home Assistant. Returns the fallback value if detection fails.
+func (m *Manager) getEightSleepMinTemp(entityID string) float64 {
+	state, err := m.haClient.GetState(entityID)
+	if err != nil {
+		m.logger.Warn("Failed to get Eight Sleep entity state, using fallback min temp",
+			zap.String("entity_id", entityID),
+			zap.Float64("fallback", float64(EightSleepMinTemp)),
+			zap.Error(err))
+		return float64(EightSleepMinTemp)
+	}
+
+	if state.Attributes == nil {
+		m.logger.Warn("Eight Sleep entity has no attributes, using fallback min temp",
+			zap.String("entity_id", entityID),
+			zap.Float64("fallback", float64(EightSleepMinTemp)))
+		return float64(EightSleepMinTemp)
+	}
+
+	minTempRaw, ok := state.Attributes["min_temp"]
+	if !ok {
+		m.logger.Warn("Eight Sleep entity missing min_temp attribute, using fallback",
+			zap.String("entity_id", entityID),
+			zap.Float64("fallback", float64(EightSleepMinTemp)))
+		return float64(EightSleepMinTemp)
+	}
+
+	// min_temp can come as float64 or int from JSON
+	switch v := minTempRaw.(type) {
+	case float64:
+		m.logger.Debug("Auto-detected Eight Sleep min temp",
+			zap.String("entity_id", entityID),
+			zap.Float64("min_temp", v))
+		return v
+	case int:
+		m.logger.Debug("Auto-detected Eight Sleep min temp",
+			zap.String("entity_id", entityID),
+			zap.Int("min_temp", v))
+		return float64(v)
+	default:
+		m.logger.Warn("Unexpected min_temp type, using fallback",
+			zap.String("entity_id", entityID),
+			zap.Any("min_temp_value", minTempRaw),
+			zap.Float64("fallback", float64(EightSleepMinTemp)))
+		return float64(EightSleepMinTemp)
+	}
+}
+
 // setEightSleepToColdest sets both Eight Sleep sides to the coldest setting
+// by auto-detecting the minimum temperature from each entity's attributes
 func (m *Manager) setEightSleepToColdest() {
-	m.logger.Info("Setting Eight Sleep to coldest",
-		zap.Int("temperature", EightSleepMinTemp))
+	m.logger.Info("Setting Eight Sleep to coldest (auto-detecting min temps)")
 
 	if m.readOnly {
 		m.logger.Info("READ-ONLY: Would set Eight Sleep to coldest",
 			zap.String("nick_entity", EightSleepNickEntity),
-			zap.String("caroline_entity", EightSleepCarolineEntity),
-			zap.Int("temperature", EightSleepMinTemp))
+			zap.String("caroline_entity", EightSleepCarolineEntity))
 		return
 	}
 
-	// Set Nick's side using climate.set_temperature
+	// Set Nick's side - auto-detect min temp from entity attributes
+	nickMinTemp := m.getEightSleepMinTemp(EightSleepNickEntity)
 	err := m.haClient.CallService("climate", "set_temperature", map[string]interface{}{
 		"entity_id":   EightSleepNickEntity,
-		"temperature": EightSleepMinTemp,
+		"temperature": nickMinTemp,
 	})
 	if err != nil {
 		m.logger.Error("Failed to set Nick's Eight Sleep to coldest", zap.Error(err))
 	} else {
-		m.logger.Info("Nick's Eight Sleep set to coldest")
+		m.logger.Info("Nick's Eight Sleep set to coldest",
+			zap.Float64("temperature", nickMinTemp))
 	}
 
-	// Set Caroline's side using climate.set_temperature
+	// Set Caroline's side - auto-detect min temp from entity attributes
+	carolineMinTemp := m.getEightSleepMinTemp(EightSleepCarolineEntity)
 	err = m.haClient.CallService("climate", "set_temperature", map[string]interface{}{
 		"entity_id":   EightSleepCarolineEntity,
-		"temperature": EightSleepMinTemp,
+		"temperature": carolineMinTemp,
 	})
 	if err != nil {
 		m.logger.Error("Failed to set Caroline's Eight Sleep to coldest", zap.Error(err))
 	} else {
-		m.logger.Info("Caroline's Eight Sleep set to coldest")
+		m.logger.Info("Caroline's Eight Sleep set to coldest",
+			zap.Float64("temperature", carolineMinTemp))
 	}
 }
 
