@@ -895,3 +895,53 @@ func NewSexModeShadowState() *SexModeShadowState {
 		},
 	}
 }
+
+// ============================================================================
+// System Shadow State - Connection Health Metrics
+// ============================================================================
+
+// SystemShadowState represents system-level metrics including connection health
+type SystemShadowState struct {
+	Plugin   string        `json:"plugin"`
+	Inputs   SystemInputs  `json:"inputs"`
+	Outputs  SystemOutputs `json:"outputs"`
+	Metadata StateMetadata `json:"metadata"`
+}
+
+// SystemInputs tracks system-level inputs (mostly empty, just for consistency)
+type SystemInputs struct {
+	Current map[string]interface{} `json:"current"`
+}
+
+// SystemOutputs tracks system-level metrics
+type SystemOutputs struct {
+	ConnectionHealth ConnectionHealthMetrics `json:"connectionHealth"`
+}
+
+// ConnectionHealthMetrics tracks Home Assistant connection health
+type ConnectionHealthMetrics struct {
+	IsConnected    bool      `json:"isConnected"`
+	IsHealthy      bool      `json:"isHealthy"`
+	ReconnectCount int       `json:"reconnectCount"`
+	LastCheck      time.Time `json:"lastCheck"`
+}
+
+// GetCurrentInputs implements PluginShadowState
+func (s *SystemShadowState) GetCurrentInputs() map[string]interface{} {
+	return s.Inputs.Current
+}
+
+// GetLastActionInputs implements PluginShadowState
+func (s *SystemShadowState) GetLastActionInputs() map[string]interface{} {
+	return s.Inputs.Current // System doesn't have actions
+}
+
+// GetOutputs implements PluginShadowState
+func (s *SystemShadowState) GetOutputs() interface{} {
+	return s.Outputs
+}
+
+// GetMetadata implements PluginShadowState
+func (s *SystemShadowState) GetMetadata() StateMetadata {
+	return s.Metadata
+}

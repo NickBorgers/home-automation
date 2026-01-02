@@ -634,3 +634,157 @@ func TestAllStateTypes(t *testing.T) {
 		assert.Equal(t, float64(75), retrieved["volume"])
 	})
 }
+
+// TestReconnectStateSync tests that state is synchronized after reconnection
+// This ensures that any state changes missed during disconnect are recovered
+func TestReconnectStateSync(t *testing.T) {
+	logger := testlogger.New()
+
+	// Start server
+	server := NewMockHAServer(testAddr, testToken)
+	server.InitializeStates()
+	err := server.Start()
+	require.NoError(t, err)
+
+	// Connect client and create state manager
+	client := ha.NewClient(fmt.Sprintf("ws://%s/api/websocket", testAddr), testToken, logger)
+	err = client.Connect()
+	require.NoError(t, err)
+
+	manager := state.NewManager(client, logger, false)
+	err = manager.SyncFromHA()
+	require.NoError(t, err)
+
+	// Verify initial reconnect count is 0
+	assert.Equal(t, 0, client.GetReconnectCount())
+
+	// Track if callback was invoked
+	callbackInvoked := false
+	callbackMu := sync.Mutex{}
+
+	// Set up reconnect callback that syncs state
+	client.SetReconnectCallback(func() {
+		callbackMu.Lock()
+		callbackInvoked = true
+		callbackMu.Unlock()
+
+		// This is what happens in production - sync state after reconnect
+		if err := manager.SyncFromHA(); err != nil {
+			t.Logf("Failed to sync state after reconnect: %v", err)
+		}
+	})
+
+	// Get initial state
+	initialNickHome, err := manager.GetBool("isNickHome")
+	require.NoError(t, err)
+	assert.False(t, initialNickHome, "Nick should not be home initially")
+
+	// Stop server to force disconnect
+	t.Log("Stopping server to trigger reconnection...")
+	server.Stop()
+
+	// Wait for disconnect detection
+	time.Sleep(1 * time.Second)
+
+	// Restart server with CHANGED state
+	// This simulates state changing while disconnected
+	t.Log("Restarting server with changed state...")
+	server = NewMockHAServer(testAddr, testToken)
+	server.InitializeStates()
+
+	// Change state while client is disconnected - Nick comes home!
+	server.SetState("input_boolean.nick_home", "on", map[string]interface{}{})
+
+	err = server.Start()
+	require.NoError(t, err)
+	defer server.Stop()
+
+	// Wait for reconnection (with timeout)
+	t.Log("Waiting for reconnection...")
+	reconnected := false
+	for i := 0; i < 40; i++ { // 40 seconds max
+		if client.IsConnected() {
+			reconnected = true
+			break
+		}
+		time.Sleep(1 * time.Second)
+	}
+	require.True(t, reconnected, "Client should reconnect automatically")
+
+	// Wait for callback to be invoked and complete
+	time.Sleep(2 * time.Second)
+
+	// Verify callback was invoked
+	callbackMu.Lock()
+	wasInvoked := callbackInvoked
+	callbackMu.Unlock()
+	assert.True(t, wasInvoked, "Reconnect callback should have been invoked")
+
+	// Verify reconnect count was incremented
+	assert.Equal(t, 1, client.GetReconnectCount(), "Reconnect count should be 1")
+
+	// CRITICAL: Verify state was synced after reconnect
+	// The state manager should now see Nick as home (changed while disconnected)
+	nickHome, err := manager.GetBool("isNickHome")
+	require.NoError(t, err)
+	assert.True(t, nickHome, "Nick should be home after reconnect sync - state changed while disconnected")
+
+	t.Log("✅ State successfully synchronized after reconnection!")
+
+	client.Disconnect()
+}
+
+// TestReconnectCountIncrementsOnMultipleReconnects tests that reconnect count increases correctly
+func TestReconnectCountIncrementsOnMultipleReconnects(t *testing.T) {
+	logger := testlogger.New()
+
+	// Start server
+	server := NewMockHAServer(testAddr, testToken)
+	server.InitializeStates()
+	err := server.Start()
+	require.NoError(t, err)
+
+	// Connect client
+	client := ha.NewClient(fmt.Sprintf("ws://%s/api/websocket", testAddr), testToken, logger)
+	err = client.Connect()
+	require.NoError(t, err)
+
+	assert.Equal(t, 0, client.GetReconnectCount())
+
+	// Disconnect and reconnect twice
+	for i := 1; i <= 2; i++ {
+		t.Logf("Disconnect/reconnect cycle %d...", i)
+
+		// Stop server to force disconnect
+		server.Stop()
+		time.Sleep(1 * time.Second)
+
+		// Restart server
+		server = NewMockHAServer(testAddr, testToken)
+		server.InitializeStates()
+		err = server.Start()
+		require.NoError(t, err)
+
+		// Wait for reconnection
+		reconnected := false
+		for j := 0; j < 40; j++ {
+			if client.IsConnected() {
+				reconnected = true
+				break
+			}
+			time.Sleep(1 * time.Second)
+		}
+		require.True(t, reconnected, "Client should reconnect on cycle %d", i)
+
+		// Give time for reconnect count to update
+		time.Sleep(500 * time.Millisecond)
+
+		// Verify reconnect count
+		assert.Equal(t, i, client.GetReconnectCount(), "Reconnect count should be %d after %d cycles", i, i)
+	}
+
+	t.Logf("✅ Reconnect count correctly tracked: %d", client.GetReconnectCount())
+
+	server.Stop()
+	client.Disconnect()
+}
