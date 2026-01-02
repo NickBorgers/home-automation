@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"strings"
 	"sync"
 	"time"
@@ -29,6 +30,18 @@ const (
 
 	// writeWait is the time allowed to write a message (including pings).
 	writeWait = 10 * time.Second
+
+	// tcpKeepAlive is the interval for TCP-layer keepalive probes.
+	// This is SEPARATE from application-level pings and serves a different purpose:
+	// - Application pings (pingInterval): Keep Home Assistant's session alive
+	// - TCP keepalive (tcpKeepAlive): Prevent reverse proxies (NGINX, HAProxy) from
+	//   closing "idle" connections based on TCP-layer inactivity
+	//
+	// Reverse proxies often have a 60-second idle timeout at the TCP layer.
+	// Without TCP keepalive, they don't see our application-layer JSON pings
+	// and close the connection at exactly 60 seconds.
+	// See: https://github.com/eclipse-paho/paho.mqtt.c/issues/724
+	tcpKeepAlive = 30 * time.Second
 )
 
 // Retry constants for service calls
@@ -176,13 +189,27 @@ func (c *Client) Connect() error {
 	c.msgID = 0
 	c.writeMu.Unlock()
 
-	// Connect to WebSocket
-	conn, _, err := websocket.DefaultDialer.Dial(c.url, nil)
+	// Connect to WebSocket with TCP keepalive enabled.
+	// TCP keepalive sends periodic TCP-layer ACK probes that prevent reverse proxies
+	// (NGINX, HAProxy, etc.) from closing the connection due to perceived "idle" state.
+	// This is separate from our application-level JSON pings which keep HA's session alive.
+	dialer := websocket.Dialer{
+		NetDialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			d := net.Dialer{
+				KeepAlive: tcpKeepAlive,
+			}
+			return d.DialContext(ctx, network, addr)
+		},
+		HandshakeTimeout: 45 * time.Second,
+	}
+	conn, _, err := dialer.Dial(c.url, nil)
 	if err != nil {
 		c.connMu.Unlock()
 		return fmt.Errorf("failed to connect to WebSocket: %w", err)
 	}
 	c.conn = conn
+	c.logger.Debug("WebSocket connected with TCP keepalive enabled",
+		zap.Duration("tcp_keepalive", tcpKeepAlive))
 
 	// Receive auth_required message
 	var authRequired Message
