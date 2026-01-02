@@ -54,6 +54,34 @@ func standardAuthFlow(t *testing.T, conn *websocket.Conn, token string) {
 	require.NoError(t, err)
 }
 
+// readMessageSkipPings reads messages from the WebSocket connection, automatically
+// handling ping requests by sending pong responses. This is needed because the client
+// now sends an immediate ping after connecting, which may interleave with other messages.
+func readMessageSkipPings(t *testing.T, conn *websocket.Conn, dest interface{}) {
+	t.Helper()
+	for {
+		_, data, err := conn.ReadMessage()
+		require.NoError(t, err)
+
+		// Check if this is a ping message
+		var msg struct {
+			ID   int    `json:"id"`
+			Type string `json:"type"`
+		}
+		if err := json.Unmarshal(data, &msg); err == nil && msg.Type == "ping" {
+			// Respond to ping with pong
+			err := conn.WriteJSON(Message{ID: msg.ID, Type: "pong"})
+			require.NoError(t, err)
+			continue
+		}
+
+		// Unmarshal into destination
+		err = json.Unmarshal(data, dest)
+		require.NoError(t, err)
+		return
+	}
+}
+
 func TestClient_Connect(t *testing.T) {
 	t.Parallel()
 	logger := testlogger.New()
@@ -64,9 +92,9 @@ func TestClient_Connect(t *testing.T) {
 		server := mockHAServer(t, func(conn *websocket.Conn) {
 			standardAuthFlow(t, conn, token)
 
-			// Receive subscribe_events message
+			// Receive subscribe_events message (may receive pings too)
 			var subMsg SubscribeEventsRequest
-			conn.ReadJSON(&subMsg)
+			readMessageSkipPings(t, conn, &subMsg)
 
 			// Send success response
 			success := true
@@ -120,9 +148,9 @@ func TestClient_Connect(t *testing.T) {
 		server := mockHAServer(t, func(conn *websocket.Conn) {
 			standardAuthFlow(t, conn, token)
 
-			// Receive subscribe_events
+			// Receive subscribe_events (may receive pings too)
 			var subMsg SubscribeEventsRequest
-			conn.ReadJSON(&subMsg)
+			readMessageSkipPings(t, conn, &subMsg)
 			success := true
 			conn.WriteJSON(Message{
 				ID:      subMsg.ID,
@@ -215,9 +243,9 @@ func TestClient_CallServiceWithTarget(t *testing.T) {
 	server := mockHAServer(t, func(conn *websocket.Conn) {
 		standardAuthFlow(t, conn, token)
 
-		// Handle subscribe_events
+		// Handle subscribe_events (may receive pings too)
 		var subMsg SubscribeEventsRequest
-		conn.ReadJSON(&subMsg)
+		readMessageSkipPings(t, conn, &subMsg)
 		success := true
 		conn.WriteJSON(Message{
 			ID:      subMsg.ID,
@@ -225,9 +253,9 @@ func TestClient_CallServiceWithTarget(t *testing.T) {
 			Success: &success,
 		})
 
-		// Handle call_service request with target
+		// Handle call_service request with target (may receive pings too)
 		var serviceReq CallServiceRequest
-		conn.ReadJSON(&serviceReq)
+		readMessageSkipPings(t, conn, &serviceReq)
 
 		assert.Equal(t, "light", serviceReq.Domain)
 		assert.Equal(t, "turn_on", serviceReq.Service)
@@ -527,9 +555,9 @@ func TestClient_ConcurrentCallService(t *testing.T) {
 	server := mockHAServer(t, func(conn *websocket.Conn) {
 		standardAuthFlow(t, conn, token)
 
-		// Handle subscribe_events
+		// Handle subscribe_events (may receive pings too)
 		var subMsg SubscribeEventsRequest
-		conn.ReadJSON(&subMsg)
+		readMessageSkipPings(t, conn, &subMsg)
 		success := true
 		conn.WriteJSON(Message{
 			ID:      subMsg.ID,
@@ -538,10 +566,29 @@ func TestClient_ConcurrentCallService(t *testing.T) {
 		})
 
 		// Handle all service calls - track the order of received IDs
-		for i := 0; i < numConcurrentCalls; i++ {
-			var serviceReq CallServiceRequest
-			if err := conn.ReadJSON(&serviceReq); err != nil {
+		// Need to handle pings that may interleave with service calls
+		serviceCallsReceived := 0
+		for serviceCallsReceived < numConcurrentCalls {
+			_, data, err := conn.ReadMessage()
+			if err != nil {
 				return
+			}
+
+			// Check if this is a ping message
+			var msg struct {
+				ID   int    `json:"id"`
+				Type string `json:"type"`
+			}
+			if err := json.Unmarshal(data, &msg); err == nil && msg.Type == "ping" {
+				// Respond to ping with pong
+				conn.WriteJSON(Message{ID: msg.ID, Type: "pong"})
+				continue
+			}
+
+			// Otherwise it's a service call
+			var serviceReq CallServiceRequest
+			if err := json.Unmarshal(data, &serviceReq); err != nil {
+				continue
 			}
 
 			receivedIDsMu.Lock()
@@ -556,6 +603,7 @@ func TestClient_ConcurrentCallService(t *testing.T) {
 				Success: &success,
 			})
 
+			serviceCallsReceived++
 			if count == numConcurrentCalls {
 				close(allReceived)
 			}
@@ -660,9 +708,9 @@ func TestClient_CallServiceRetry(t *testing.T) {
 		server := mockHAServer(t, func(conn *websocket.Conn) {
 			standardAuthFlow(t, conn, token)
 
-			// Handle subscribe_events
+			// Handle subscribe_events (may receive pings too)
 			var subMsg SubscribeEventsRequest
-			conn.ReadJSON(&subMsg)
+			readMessageSkipPings(t, conn, &subMsg)
 			success := true
 			conn.WriteJSON(Message{
 				ID:      subMsg.ID,
@@ -670,9 +718,9 @@ func TestClient_CallServiceRetry(t *testing.T) {
 				Success: &success,
 			})
 
-			// Handle service call with HA error
+			// Handle service call with HA error (may receive pings too)
 			var serviceReq CallServiceRequest
-			conn.ReadJSON(&serviceReq)
+			readMessageSkipPings(t, conn, &serviceReq)
 			attemptCount.Add(1)
 
 			// Return HA application error - should NOT be retried
@@ -715,9 +763,9 @@ func TestClient_CallServiceWithTargetRetry(t *testing.T) {
 		server := mockHAServer(t, func(conn *websocket.Conn) {
 			standardAuthFlow(t, conn, token)
 
-			// Handle subscribe_events
+			// Handle subscribe_events (may receive pings too)
 			var subMsg SubscribeEventsRequest
-			conn.ReadJSON(&subMsg)
+			readMessageSkipPings(t, conn, &subMsg)
 			success := true
 			conn.WriteJSON(Message{
 				ID:      subMsg.ID,
@@ -725,9 +773,9 @@ func TestClient_CallServiceWithTargetRetry(t *testing.T) {
 				Success: &success,
 			})
 
-			// Handle call_service request with target and data
+			// Handle call_service request with target and data (may receive pings too)
 			var serviceReq CallServiceRequest
-			conn.ReadJSON(&serviceReq)
+			readMessageSkipPings(t, conn, &serviceReq)
 
 			assert.Equal(t, "light", serviceReq.Domain)
 			assert.Equal(t, "turn_on", serviceReq.Service)
@@ -768,9 +816,9 @@ func TestClient_CallServiceWithTargetRetry(t *testing.T) {
 		server := mockHAServer(t, func(conn *websocket.Conn) {
 			standardAuthFlow(t, conn, token)
 
-			// Handle subscribe_events
+			// Handle subscribe_events (may receive pings too)
 			var subMsg SubscribeEventsRequest
-			conn.ReadJSON(&subMsg)
+			readMessageSkipPings(t, conn, &subMsg)
 			success := true
 			conn.WriteJSON(Message{
 				ID:      subMsg.ID,
@@ -778,9 +826,9 @@ func TestClient_CallServiceWithTargetRetry(t *testing.T) {
 				Success: &success,
 			})
 
-			// Handle service call with HA error
+			// Handle service call with HA error (may receive pings too)
 			var serviceReq CallServiceRequest
-			conn.ReadJSON(&serviceReq)
+			readMessageSkipPings(t, conn, &serviceReq)
 			attemptCount.Add(1)
 
 			// Verify target was sent
@@ -835,27 +883,18 @@ func TestClient_ApplicationLevelPingPong(t *testing.T) {
 	server := mockHAServer(t, func(conn *websocket.Conn) {
 		standardAuthFlow(t, conn, token)
 
-		// Receive subscribe_events message
-		var subMsg SubscribeEventsRequest
-		conn.ReadJSON(&subMsg)
-
-		// Send success response
-		success := true
-		conn.WriteJSON(Message{
-			ID:      subMsg.ID,
-			Type:    "result",
-			Success: &success,
-		})
-
 		// Read messages and respond to pings with pongs
+		// The first message after auth may be a ping (immediate ping) or subscribe_events
+		success := true
+		subscribed := false
 		for i := 0; i < 10; i++ {
-			conn.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
+			conn.SetReadDeadline(time.Now().Add(200 * time.Millisecond))
 			_, data, err := conn.ReadMessage()
 			if err != nil {
 				continue
 			}
 
-			// Check if this is a ping message
+			// Check message type
 			var msg struct {
 				ID   int    `json:"id"`
 				Type string `json:"type"`
@@ -873,6 +912,14 @@ func TestClient_ApplicationLevelPingPong(t *testing.T) {
 					ID:   msg.ID,
 					Type: "pong",
 				})
+			} else if msg.Type == "subscribe_events" && !subscribed {
+				// Receive subscribe_events message
+				conn.WriteJSON(Message{
+					ID:      msg.ID,
+					Type:    "result",
+					Success: &success,
+				})
+				subscribed = true
 			}
 		}
 	})
@@ -885,9 +932,11 @@ func TestClient_ApplicationLevelPingPong(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, client.IsConnected())
 
-	// Wait briefly (pings are sent every 30s, so we won't see one in this short test,
-	// but we verify the connection is stable)
+	// Wait briefly - with immediate ping on connect, we should see at least 1 ping
 	time.Sleep(100 * time.Millisecond)
+
+	// Verify we received at least 1 ping (the immediate ping)
+	assert.GreaterOrEqual(t, pingCount.Load(), int32(1), "Should receive at least the immediate ping")
 
 	client.Disconnect()
 	assert.False(t, client.IsConnected())
@@ -906,19 +955,9 @@ func TestClient_PingMessageFormat(t *testing.T) {
 	server := mockHAServer(t, func(conn *websocket.Conn) {
 		standardAuthFlow(t, conn, token)
 
-		// Receive subscribe_events message
-		var subMsg SubscribeEventsRequest
-		conn.ReadJSON(&subMsg)
-
-		// Send success response
+		// Read messages - may receive ping before subscribe_events due to immediate ping
 		success := true
-		conn.WriteJSON(Message{
-			ID:      subMsg.ID,
-			Type:    "result",
-			Success: &success,
-		})
-
-		// Read messages looking for a ping
+		subscribed := false
 		for i := 0; i < 50; i++ {
 			conn.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
 			_, data, err := conn.ReadMessage()
@@ -926,12 +965,17 @@ func TestClient_PingMessageFormat(t *testing.T) {
 				continue
 			}
 
-			var pingMsg PingRequest
-			if err := json.Unmarshal(data, &pingMsg); err != nil {
+			var msg struct {
+				ID   int    `json:"id"`
+				Type string `json:"type"`
+			}
+			if err := json.Unmarshal(data, &msg); err != nil {
 				continue
 			}
 
-			if pingMsg.Type == "ping" {
+			if msg.Type == "ping" {
+				var pingMsg PingRequest
+				json.Unmarshal(data, &pingMsg)
 				select {
 				case pingReceived <- pingMsg:
 				default:
@@ -941,14 +985,18 @@ func TestClient_PingMessageFormat(t *testing.T) {
 					ID:   pingMsg.ID,
 					Type: "pong",
 				})
-				return
+			} else if msg.Type == "subscribe_events" && !subscribed {
+				conn.WriteJSON(Message{
+					ID:      msg.ID,
+					Type:    "result",
+					Success: &success,
+				})
+				subscribed = true
 			}
 		}
 	})
 	defer server.Close()
 
-	// Temporarily reduce ping interval for testing
-	// (In real usage this is 30s, but for tests we manually trigger)
 	url := "ws" + strings.TrimPrefix(server.URL, "http")
 	client := NewClient(url, token, logger)
 
@@ -956,18 +1004,7 @@ func TestClient_PingMessageFormat(t *testing.T) {
 	require.NoError(t, err)
 	defer client.Disconnect()
 
-	// Manually trigger a ping by accessing internals (for test purposes only)
-	// The ping loop would normally handle this every 30 seconds
-	client.connMu.RLock()
-	conn := client.conn
-	client.connMu.RUnlock()
-
-	client.writeMu.Lock()
-	msgID := client.nextMsgID()
-	pingReq := PingRequest{ID: msgID, Type: "ping"}
-	conn.WriteJSON(pingReq)
-	client.writeMu.Unlock()
-
+	// With immediate ping on connect, we should receive a ping right away
 	// Wait for the ping to be received and verify format
 	select {
 	case ping := <-pingReceived:

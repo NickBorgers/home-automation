@@ -19,14 +19,22 @@ import (
 // on application-layer JSON activity. See: https://developers.home-assistant.io/docs/api/websocket/
 const (
 	// pingInterval is how often we send application-level JSON pings.
-	// Set aggressively low (15s) because Tailscale DERP relays and some NATs
-	// may timeout connections as early as 30-45 seconds of inactivity.
-	pingInterval = 15 * time.Second
+	// Set aggressively low (5s) because Tailscale DERP relays and some NATs
+	// may timeout connections as early as 10-15 seconds of inactivity.
+	// The previous value of 15s was too slow - connections were timing out at
+	// exactly 10 seconds before the first ping could be sent.
+	pingInterval = 5 * time.Second
+
+	// wsPingInterval is how often we send WebSocket-level control frame pings.
+	// These are in addition to application-level pings and help keep the TCP
+	// connection alive through NATs, proxies, and load balancers that may not
+	// understand application-layer JSON pings.
+	wsPingInterval = 3 * time.Second
 
 	// pongWait is the max time to wait for a pong response.
 	// If no pong received within this time, connection is considered dead.
 	// Set to 3x pingInterval to tolerate up to two missed pings.
-	pongWait = 45 * time.Second
+	pongWait = 15 * time.Second
 
 	// writeWait is the time allowed to write a message (including pings).
 	writeWait = 10 * time.Second
@@ -308,7 +316,12 @@ func (c *Client) Connect() error {
 	c.conn.SetReadDeadline(time.Now().Add(pongWait))
 
 	// Start background ping sender (sends application-level JSON pings)
+	// This sends an immediate ping, then continues at pingInterval
 	go c.sendPings()
+
+	// Start background WebSocket-level ping sender
+	// This provides secondary keepalive at the WebSocket protocol level
+	go c.sendWebSocketPings()
 
 	// Start background message receiver
 	go c.receiveMessages()
@@ -746,6 +759,21 @@ func (c *Client) sendPings() {
 	ctx := c.ctx
 	c.ctxMu.RUnlock()
 
+	// Capture connection reference
+	c.connMu.RLock()
+	conn := c.conn
+	c.connMu.RUnlock()
+
+	// CRITICAL: Send an immediate ping right after connection to establish
+	// application-layer activity. Without this, the first ping would only
+	// come after pingInterval (5s), but NATs and DERP relays may timeout
+	// the connection faster than that during the initial state sync.
+	if err := c.sendImmediatePing(conn); err != nil {
+		c.logger.Warn("Failed to send initial ping, closing connection", zap.Error(err))
+		conn.Close()
+		return
+	}
+
 	ticker := time.NewTicker(pingInterval)
 	defer ticker.Stop()
 
@@ -763,20 +791,7 @@ func (c *Client) sendPings() {
 			conn := c.conn
 			c.connMu.RUnlock()
 
-			// Send application-level JSON ping
-			// We don't use sendMessage() here because we don't need to wait for the pong response
-			// The pong is handled by receiveMessages() which extends the read deadline
-			c.writeMu.Lock()
-			msgID := c.nextMsgID()
-			pingReq := PingRequest{
-				ID:   msgID,
-				Type: "ping",
-			}
-			conn.SetWriteDeadline(time.Now().Add(writeWait))
-			err := conn.WriteJSON(pingReq)
-			c.writeMu.Unlock()
-
-			if err != nil {
+			if err := c.sendImmediatePing(conn); err != nil {
 				c.logger.Warn("Failed to send application ping, closing connection", zap.Error(err))
 				// Close the connection to immediately unblock receiveMessages,
 				// which will call handleDisconnect() to trigger reconnection.
@@ -784,7 +799,67 @@ func (c *Client) sendPings() {
 				conn.Close()
 				return
 			}
-			c.logger.Debug("Application ping sent successfully", zap.Int("id", msgID))
+		}
+	}
+}
+
+// sendImmediatePing sends an application-level JSON ping immediately.
+// Returns an error if the ping fails to send.
+func (c *Client) sendImmediatePing(conn *websocket.Conn) error {
+	c.writeMu.Lock()
+	msgID := c.nextMsgID()
+	pingReq := PingRequest{
+		ID:   msgID,
+		Type: "ping",
+	}
+	conn.SetWriteDeadline(time.Now().Add(writeWait))
+	err := conn.WriteJSON(pingReq)
+	c.writeMu.Unlock()
+
+	if err != nil {
+		return err
+	}
+	c.logger.Debug("Application ping sent successfully", zap.Int("id", msgID))
+	return nil
+}
+
+// sendWebSocketPings sends periodic WebSocket-level control frame pings.
+// These are in addition to application-level pings and help keep the TCP
+// connection alive through NATs, proxies, and load balancers that may not
+// understand application-layer JSON pings.
+func (c *Client) sendWebSocketPings() {
+	// Capture context reference at startup
+	c.ctxMu.RLock()
+	ctx := c.ctx
+	c.ctxMu.RUnlock()
+
+	ticker := time.NewTicker(wsPingInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			// Check if still connected before attempting ping
+			c.connMu.RLock()
+			if !c.connected {
+				c.connMu.RUnlock()
+				return
+			}
+			conn := c.conn
+			c.connMu.RUnlock()
+
+			// Send WebSocket-level ping frame (not application-level)
+			// WriteControl is safe to call concurrently with WriteMessage
+			err := conn.WriteControl(websocket.PingMessage, []byte{}, time.Now().Add(writeWait))
+			if err != nil {
+				c.logger.Debug("WebSocket ping failed, connection may be closing", zap.Error(err))
+				// Don't close the connection here - let sendPings handle reconnection
+				// as it's the authoritative keepalive mechanism
+				return
+			}
+			c.logger.Debug("WebSocket ping sent successfully")
 		}
 	}
 }
