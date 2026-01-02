@@ -660,11 +660,10 @@ func TestClient_ConcurrentCallService(t *testing.T) {
 	assert.Equal(t, sortedIDs, idsCopy,
 		"Message IDs should be received in strictly increasing order")
 
-	// Also verify IDs are consecutive (no gaps)
-	for i := 1; i < len(idsCopy); i++ {
-		assert.Equal(t, idsCopy[i-1]+1, idsCopy[i],
-			"Message IDs should be consecutive. Got %d then %d", idsCopy[i-1], idsCopy[i])
-	}
+	// Note: We do NOT verify that IDs are consecutive (no gaps) because
+	// ping messages can be interleaved with service calls. Ping messages
+	// consume message IDs too, so gaps in service call IDs are expected.
+	// The important invariant is that IDs are strictly increasing (ordered).
 }
 
 // TestIsRetryableError verifies the retry classification logic
