@@ -66,7 +66,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/go/bin
-          key: go-tools-${{ runner.os }}-v1
+          key: go-tools-${{ runner.os }}-${{ hashFiles('homeautomation-go/go.mod') }}-v1
 
       - name: Run style checks
         run: make ci-style-checks
