@@ -285,7 +285,7 @@ Only runs relevant jobs based on changed files:
 |--------|---------|---------|
 | `CLAUDE_CODE_OAUTH_TOKEN` | claude.yml, claude-code-review.yml | Claude Code authentication |
 | `WORKFLOW_PAT` | claude.yml, claude-code-review.yml | Push workflow file changes, create PRs that trigger workflows |
-| `PRIVATE_REPO_TRIGGER_TOKEN` | notify-pr-merged.yml, trigger-private-rebuild.yml | Cross-repo workflow triggers |
+| `PRIVATE_REPO_TRIGGER_TOKEN` | notify-pr-merged.yml | Cross-repo workflow triggers |
 
 ### Why `WORKFLOW_PAT`?
 
