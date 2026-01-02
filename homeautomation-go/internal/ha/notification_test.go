@@ -441,6 +441,41 @@ func TestSendNotificationToMultiple_AggregatesErrors(t *testing.T) {
 	}
 }
 
+func TestSendNotificationToMultiple_PartialFailure(t *testing.T) {
+	mock := NewMockClient()
+	mock.Connect()
+
+	// Only device1 fails
+	mock.SetServiceError("notify", "mobile_app_device1", fmt.Errorf("device1 offline"))
+
+	err := mock.SendNotificationToMultiple(
+		[]string{"device1", "device2"},
+		&Notification{Message: "test"},
+	)
+
+	if err == nil {
+		t.Fatal("Expected error when device1 fails")
+	}
+
+	// Error should only mention device1
+	errStr := err.Error()
+	if !strings.Contains(errStr, "device1") {
+		t.Errorf("Expected error to contain 'device1', got: %s", errStr)
+	}
+	if strings.Contains(errStr, "device2") {
+		t.Errorf("Error should not contain 'device2', got: %s", errStr)
+	}
+
+	// Verify device2 still received the notification
+	calls := mock.GetNotificationCalls()
+	if len(calls) != 1 {
+		t.Errorf("Expected 1 successful call (device2), got %d", len(calls))
+	}
+	if len(calls) > 0 && calls[0].Service != "mobile_app_device2" {
+		t.Errorf("Expected successful call to device2, got %s", calls[0].Service)
+	}
+}
+
 func TestNotificationServiceError(t *testing.T) {
 	mock := NewMockClient()
 	mock.Connect()

@@ -101,16 +101,16 @@ func (d *NotificationData) toMap() map[string]interface{} {
 	if d.TTSText != "" {
 		data["tts_text"] = d.TTSText
 	}
-	if d.Sound != "" {
-		data["push"] = map[string]interface{}{"sound": d.Sound}
-	}
-	if d.Badge != 0 {
-		// Merge into existing push map if present
-		if push, ok := data["push"].(map[string]interface{}); ok {
-			push["badge"] = d.Badge
-		} else {
-			data["push"] = map[string]interface{}{"badge": d.Badge}
+	// Handle push data (iOS-specific fields) - pre-create map to avoid fragile merge logic
+	if d.Sound != "" || d.Badge != 0 {
+		push := make(map[string]interface{})
+		if d.Sound != "" {
+			push["sound"] = d.Sound
 		}
+		if d.Badge != 0 {
+			push["badge"] = d.Badge
+		}
+		data["push"] = push
 	}
 	if d.Color != "" {
 		data["color"] = d.Color
