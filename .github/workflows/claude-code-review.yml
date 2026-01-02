@@ -534,8 +534,18 @@ jobs:
             IMPORTANT: Post exactly ONE comprehensive review comment. Do not post multiple comments.
             Combine all findings (summary, issues found, fixes made) into a single comment.
 
-            Post your review using:
-            gh pr comment ${PR_NUMBER} --body 'YOUR_REVIEW_HERE'
+            Post your review using the following structured format:
+            gh pr comment ${PR_NUMBER} --body '## Code Review
+
+            ### Changes Summary
+            [List the main areas of code changed, categorized by type: new features, bug fixes, refactoring, etc.]
+
+            ### Findings
+            [Detailed analysis of code quality, patterns, potential issues. Reference specific files/lines.]
+
+            ### Conclusion
+            [One of: ✅ Approved | ⚠️ Minor issues found | ❌ Blocking issues found]
+            [Brief summary of overall assessment]'
 
             Be constructive. Reference specific lines when noting issues." < /dev/null 2>&1 | tee /workspaces/home-automation/claude-review-output.jsonl
 
@@ -651,17 +661,18 @@ jobs:
             rebase your changes on top with \`git pull --rebase origin ${HEAD_REF}\`. If there are
             conflicts, skip the auto-fix and just report the issue in your comment.
 
-            Post a comment summarizing your analysis by category:
+            Post your review using the following structured format:
             gh pr comment ${PR_NUMBER} --body '## Test Review
 
-            ### Changes by Category
-            [List which categories of files changed]
+            ### Changes Summary
+            [List the test files and production code reviewed, categorized by feature area]
 
-            ### Analysis
-            [Category-specific findings]
+            ### Findings
+            [Analysis of test coverage, test quality, potential issues like time-dependent tests, slow tests, missing edge cases]
 
             ### Conclusion
-            [Overall test status: issues found or all clear]'" < /dev/null 2>&1 | tee /workspaces/home-automation/test-review-output.jsonl
+            [One of: ✅ Approved | ⚠️ Minor issues found | ❌ Blocking issues found]
+            [Brief summary of test quality assessment]'" < /dev/null 2>&1 | tee /workspaces/home-automation/test-review-output.jsonl
 
       - name: Upload test review output
         uses: actions/upload-artifact@v4
@@ -746,8 +757,18 @@ jobs:
             rebase your changes on top with \`git pull --rebase origin ${HEAD_REF}\`. If there are
             conflicts, skip the auto-fix and just report the issue in your comment.
 
-            Post findings as:
-            gh pr comment ${PR_NUMBER} --body '## Concurrency Review\n\nYOUR_ANALYSIS'" < /dev/null 2>&1 | tee /workspaces/home-automation/concurrency-review-output.jsonl
+            Post your review using the following structured format:
+            gh pr comment ${PR_NUMBER} --body '## Concurrency Review
+
+            ### Changes Summary
+            [List files with concurrency-related code: goroutines, mutexes, channels, WebSocket operations]
+
+            ### Findings
+            [Analysis of mutex usage, race conditions, goroutine lifecycle, channel patterns, WebSocket write serialization]
+
+            ### Conclusion
+            [One of: ✅ Approved | ⚠️ Minor issues found | ❌ Blocking issues found]
+            [Brief summary of concurrency safety assessment]'" < /dev/null 2>&1 | tee /workspaces/home-automation/concurrency-review-output.jsonl
 
       - name: Upload concurrency review output
         uses: actions/upload-artifact@v4
@@ -863,16 +884,22 @@ jobs:
               conflicts, skip the auto-fix and just report what docs need updating in your comment.
             - Push the changes
 
-            Post your findings:
+            Post your review using the following structured format:
             gh pr comment ${PR_NUMBER} --body '## Documentation Review
 
-            [Summary of documentation changes made, or confirmation that no updates needed]
+            ### Changes Summary
+            [List the code changes that may require documentation updates]
 
-            ### Checked Documents
-            - [ ] VISUAL_ARCHITECTURE.md - [status]
-            - [ ] ARCHITECTURE.md - [status]
-            - [ ] migration_mapping.md - [status]
-            - [ ] CONCURRENCY_LESSONS.md - [status]'" < /dev/null 2>&1 | tee /workspaces/home-automation/docs-review-output.jsonl
+            ### Findings
+            [Analysis of documentation needs based on code changes. Include checklist:]
+            - [ ] VISUAL_ARCHITECTURE.md - [status: Updated/No changes needed/N/A]
+            - [ ] ARCHITECTURE.md - [status: Updated/No changes needed/N/A]
+            - [ ] migration_mapping.md - [status: Updated/No changes needed/N/A]
+            - [ ] CONCURRENCY_LESSONS.md - [status: Updated/No changes needed/N/A]
+
+            ### Conclusion
+            [One of: ✅ Approved | ⚠️ Minor issues found | ❌ Blocking issues found]
+            [Brief summary of documentation assessment]'" < /dev/null 2>&1 | tee /workspaces/home-automation/docs-review-output.jsonl
 
       - name: Upload documentation review output
         uses: actions/upload-artifact@v4
