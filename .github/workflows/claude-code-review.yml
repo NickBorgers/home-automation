@@ -44,6 +44,11 @@ jobs:
   # Extract PR and Issue context from workflow_run or workflow_dispatch event
   get-context:
     runs-on: ubuntu-latest
+    # Skip if PR Tests was triggered by 'push' event - only run for 'pull_request' triggered tests
+    # This prevents duplicate reviews when both push and pull_request events fire for the same commit
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.event == 'pull_request'
     outputs:
       pr_number: ${{ steps.get-pr.outputs.pr_number }}
       pr_title: ${{ steps.get-pr.outputs.pr_title }}
@@ -290,6 +295,8 @@ jobs:
 
             # Run Claude Code to fix test failures
             claude --print \
+              --verbose \
+              --output-format stream-json \
               --model opus \
               --dangerously-skip-permissions \
               --max-turns 200 \
@@ -350,7 +357,7 @@ jobs:
 
             [Describe what you found and fixed]
 
-            Pushed fix - triggering new test run.'" < /dev/null 2>&1 | tee /workspaces/home-automation/fix-failures-output.txt
+            Pushed fix - triggering new test run.'" < /dev/null 2>&1 | tee /workspaces/home-automation/fix-failures-output.jsonl
 
       - name: Trigger PR Tests and reviews after fix
         if: success()
@@ -434,7 +441,7 @@ jobs:
         if: always()
         with:
           name: fix-failures-output-attempt-${{ needs.get-context.outputs.fix_attempts }}
-          path: fix-failures-output.txt
+          path: fix-failures-output.jsonl
           retention-days: 7
 
   # Claude review - only runs when tests pass
@@ -485,6 +492,8 @@ jobs:
           runCmd: |
             # Run Claude Code review inside the devcontainer
             claude --print \
+              --verbose \
+              --output-format stream-json \
               --model opus \
               --dangerously-skip-permissions \
               --max-turns 450 \
@@ -522,17 +531,20 @@ jobs:
             For HIGH SEVERITY issues (broken tests, obvious bugs, missing error handling),
             fix them directly, commit, and push. Use conventional commit messages.
 
+            IMPORTANT: Post exactly ONE comprehensive review comment. Do not post multiple comments.
+            Combine all findings (summary, issues found, fixes made) into a single comment.
+
             Post your review using:
             gh pr comment ${PR_NUMBER} --body 'YOUR_REVIEW_HERE'
 
-            Be constructive. Reference specific lines when noting issues." < /dev/null 2>&1 | tee /workspaces/home-automation/claude-review-output.txt
+            Be constructive. Reference specific lines when noting issues." < /dev/null 2>&1 | tee /workspaces/home-automation/claude-review-output.jsonl
 
       - name: Upload Claude review output
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: claude-review-output
-          path: claude-review-output.txt
+          path: claude-review-output.jsonl
           retention-days: 7
 
   # Test-focused reviewer - runs after claude-review
@@ -585,32 +597,78 @@ jobs:
             HEAD_REF=${{ needs.get-context.outputs.head_ref }}
           runCmd: |
             claude --print \
+              --verbose \
+              --output-format stream-json \
               --model opus \
               --dangerously-skip-permissions \
               --max-turns 200 \
               "You are a QA tester for PR #${PR_NUMBER}.
 
-            Run \`git diff origin/main...HEAD\` and analyze for insufficiently tested features:
-            - Missing tests
-            - Problems with how tests are written, such as tests which will fail at certain times of day
-            - Addition of tests which take a long time
+            STEP 1: Categorize the changes
+            Run \`git diff origin/main...HEAD --name-only\` to list changed files, then categorize:
 
-            If you find test issues consider adding more detail of what problems you found in .github/workflows/claude-code-review.yml test-review job
+            | Category | File Patterns | Testing Approach |
+            |----------|---------------|------------------|
+            | Go code | *.go (excluding *_test.go) | Requires unit tests |
+            | Go tests | *_test.go | Review test quality |
+            | Workflows | .github/workflows/*.yml | Validate YAML + action refs |
+            | Config | configs/*.yaml, *.json | Check syntax + consistency |
+            | Docs | *.md, docs/** | No testing needed |
 
-            For HIGH SEVERITY test issues, fix them directly, commit, and push.
+            STEP 2: Apply category-specific analysis
+
+            FOR GO CODE CHANGES:
+            - Check if new functions/methods have corresponding tests
+            - Look for time-dependent tests (tests that might fail at certain times of day)
+            - Identify slow tests (tests that take >1 second)
+            - Ensure 65% coverage requirement can be met
+            - Run \`make unit-tests\` to verify tests pass
+
+            FOR WORKFLOW CHANGES (.github/workflows/*.yml):
+            - Validate YAML syntax with \`npx yaml valid < file.yml\` (returns exit code 0 if valid)
+            - Check action references are valid (uses: owner/action@version)
+            - Review permission scopes (should be minimal necessary)
+            - Check for hardcoded secrets or tokens (should use secrets.*)
+            - Verify job dependencies are correct (needs: clauses)
+            - Check concurrency settings are appropriate
+            - Note: Workflows cannot be unit-tested - they are validated by execution
+
+            FOR CONFIG CHANGES:
+            - Validate YAML/JSON syntax
+            - Check consistency with related code
+
+            FOR DOCUMENTATION CHANGES:
+            - No testing required (handled by docs-review job)
+
+            STEP 3: Report findings
+
+            If you find test issues, consider adding more detail of what problems you found
+            in .github/workflows/claude-code-review.yml test-review job.
+
+            For HIGH SEVERITY test issues in Go code, fix them directly, commit, and push.
+            For HIGH SEVERITY workflow issues (syntax errors, invalid action refs), fix them directly.
             BEFORE PUSHING: If the author pushed new commits since this review started, try to
             rebase your changes on top with \`git pull --rebase origin ${HEAD_REF}\`. If there are
             conflicts, skip the auto-fix and just report the issue in your comment.
 
-            Post a comment:
-            gh pr comment ${PR_NUMBER} --body '## Test\n\nYOUR_FINDINGS_OR_ALL_CLEAR'" < /dev/null 2>&1 | tee /workspaces/home-automation/test-review-output.txt
+            Post a comment summarizing your analysis by category:
+            gh pr comment ${PR_NUMBER} --body '## Test Review
+
+            ### Changes by Category
+            [List which categories of files changed]
+
+            ### Analysis
+            [Category-specific findings]
+
+            ### Conclusion
+            [Overall test status: issues found or all clear]'" < /dev/null 2>&1 | tee /workspaces/home-automation/test-review-output.jsonl
 
       - name: Upload test review output
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: test-review-output
-          path: test-review-output.txt
+          path: test-review-output.jsonl
           retention-days: 7
 
   # Concurrency/race condition specialist - runs after test-review
@@ -663,6 +721,8 @@ jobs:
             HEAD_REF=${{ needs.get-context.outputs.head_ref }}
           runCmd: |
             claude --print \
+              --verbose \
+              --output-format stream-json \
               --model opus \
               --dangerously-skip-permissions \
               --max-turns 240 \
@@ -687,14 +747,14 @@ jobs:
             conflicts, skip the auto-fix and just report the issue in your comment.
 
             Post findings as:
-            gh pr comment ${PR_NUMBER} --body '## Concurrency Review\n\nYOUR_ANALYSIS'" < /dev/null 2>&1 | tee /workspaces/home-automation/concurrency-review-output.txt
+            gh pr comment ${PR_NUMBER} --body '## Concurrency Review\n\nYOUR_ANALYSIS'" < /dev/null 2>&1 | tee /workspaces/home-automation/concurrency-review-output.jsonl
 
       - name: Upload concurrency review output
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: concurrency-review-output
-          path: concurrency-review-output.txt
+          path: concurrency-review-output.jsonl
           retention-days: 7
 
   # Documentation update specialist - runs after concurrency-review
@@ -756,6 +816,8 @@ jobs:
             ISSUE_BODY=$(echo "$ISSUE_BODY_B64" | base64 -d 2>/dev/null || echo "")
 
             claude --print \
+              --verbose \
+              --output-format stream-json \
               --model opus \
               --dangerously-skip-permissions \
               --max-turns 200 \
@@ -810,14 +872,14 @@ jobs:
             - [ ] VISUAL_ARCHITECTURE.md - [status]
             - [ ] ARCHITECTURE.md - [status]
             - [ ] migration_mapping.md - [status]
-            - [ ] CONCURRENCY_LESSONS.md - [status]'" < /dev/null 2>&1 | tee /workspaces/home-automation/docs-review-output.txt
+            - [ ] CONCURRENCY_LESSONS.md - [status]'" < /dev/null 2>&1 | tee /workspaces/home-automation/docs-review-output.jsonl
 
       - name: Upload documentation review output
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: docs-review-output
-          path: docs-review-output.txt
+          path: docs-review-output.jsonl
           retention-days: 7
 
   # Aggregator job - use this as the required check for branch protection
