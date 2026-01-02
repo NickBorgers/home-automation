@@ -10,6 +10,9 @@ on:
   pull_request_review:
     types: [submitted]
 
+env:
+  DEVCONTAINER_IMAGE: ghcr.io/${{ github.repository }}-devcontainer
+
 jobs:
   claude:
     if: |
@@ -24,13 +27,16 @@ jobs:
       issues: write
       id-token: write
       actions: read
-      packages: read
+      packages: write
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Create gh config directory for devcontainer mount
+        run: mkdir -p ~/.config/gh
 
       - name: Extract comment body
         id: comment
@@ -62,9 +68,13 @@ jobs:
           ISSUE_NUMBER: ${{ github.event.issue.number || github.event.pull_request.number }}
           REPO: ${{ github.repository }}
         with:
+          imageName: ${{ env.DEVCONTAINER_IMAGE }}
+          cacheFrom: ${{ env.DEVCONTAINER_IMAGE }}
+          push: always
           runCmd: |
             # Run Claude Code inside the devcontainer with full tool access
             claude --print \
+              --model opus \
               --dangerously-skip-permissions \
               --max-turns 20 \
               "You are responding to a request in ${REPO} issue/PR #${ISSUE_NUMBER}.
@@ -90,13 +100,25 @@ jobs:
       pull-requests: write
       issues: write
       id-token: write
-      packages: read
+      packages: write
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Create gh config directory for devcontainer mount
+        run: mkdir -p ~/.config/gh
+
+      - name: Label issue as claude-started
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Create the label if it doesn't exist (ignore error if it does)
+          gh label create "claude-started" --color "7057ff" --description "Claude Code is working on this issue" --repo ${{ github.repository }} 2>/dev/null || true
+          # Add the label to the issue
+          gh issue edit ${{ github.event.issue.number }} --add-label "claude-started" --repo ${{ github.repository }}
 
       - name: Resolve issue in devcontainer
         uses: devcontainers/ci@v0.3
@@ -108,8 +130,12 @@ jobs:
           ISSUE_BODY: ${{ github.event.issue.body }}
           REPO: ${{ github.repository }}
         with:
+          imageName: ${{ env.DEVCONTAINER_IMAGE }}
+          cacheFrom: ${{ env.DEVCONTAINER_IMAGE }}
+          push: always
           runCmd: |
             claude --print \
+              --model opus \
               --dangerously-skip-permissions \
               --max-turns 30 \
               "You are an autonomous agent tasked with resolving GitHub issue #${ISSUE_NUMBER}.
