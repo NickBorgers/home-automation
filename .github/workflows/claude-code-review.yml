@@ -4,13 +4,37 @@ on:
   workflow_run:
     workflows: ["PR Tests"]
     types: [completed]
+  # Allow manual triggering after workflow_dispatch-triggered PR Tests completes
+  # (workflow_run events don't fire for workflow_dispatch triggers)
+  workflow_dispatch:
+    inputs:
+      head_ref:
+        description: 'PR branch name'
+        required: true
+        type: string
+      head_repo:
+        description: 'PR repository (owner/repo format)'
+        required: true
+        type: string
+      pr_number:
+        description: 'PR number'
+        required: true
+        type: string
+      tests_passed:
+        description: 'Whether tests passed (true/false)'
+        required: true
+        type: string
+      run_id:
+        description: 'PR Tests workflow run ID'
+        required: true
+        type: string
 
 env:
   # Note: must be lowercase for Docker compatibility
   DEVCONTAINER_IMAGE: ghcr.io/nickborgers/home-automation-devcontainer
 
 jobs:
-  # Extract PR and Issue context from the workflow_run event
+  # Extract PR and Issue context from workflow_run or workflow_dispatch event
   get-context:
     runs-on: ubuntu-latest
     outputs:
@@ -19,8 +43,9 @@ jobs:
       pr_body_b64: ${{ steps.get-pr.outputs.pr_body_b64 }}
       head_ref: ${{ steps.get-pr.outputs.head_ref }}
       head_repo: ${{ steps.get-pr.outputs.head_repo }}
-      tests_passed: ${{ github.event.workflow_run.conclusion == 'success' }}
-      run_id: ${{ github.event.workflow_run.id }}
+      # Handle both workflow_run and workflow_dispatch events
+      tests_passed: ${{ github.event_name == 'workflow_dispatch' && inputs.tests_passed == 'true' || github.event.workflow_run.conclusion == 'success' }}
+      run_id: ${{ github.event_name == 'workflow_dispatch' && inputs.run_id || github.event.workflow_run.id }}
       # SHA that triggered this workflow - used to detect if author pushed newer commits
       triggering_sha: ${{ github.event.workflow_run.head_sha }}
       issue_number: ${{ steps.get-issue.outputs.issue_number }}
@@ -29,26 +54,52 @@ jobs:
       fix_attempts: ${{ steps.count-attempts.outputs.count }}
 
     steps:
-      - name: Get PR from workflow run
+      - name: Get PR from workflow run or dispatch inputs
         uses: actions/github-script@v7
         id: get-pr
         with:
           script: |
-            // Find the PR associated with this workflow run
-            const headBranch = context.payload.workflow_run.head_branch;
-            const headRepo = context.payload.workflow_run.head_repository.full_name;
+            // Check if this is a workflow_dispatch event with inputs
+            const eventName = context.eventName;
+            let headBranch, headRepo, prNumber;
 
-            console.log(`Looking for PR with head branch: ${headBranch} from ${headRepo}`);
+            if (eventName === 'workflow_dispatch') {
+              // Use inputs from workflow_dispatch
+              headBranch = '${{ inputs.head_ref }}';
+              headRepo = '${{ inputs.head_repo }}';
+              prNumber = parseInt('${{ inputs.pr_number }}', 10);
+              console.log(`Triggered via workflow_dispatch for PR #${prNumber}`);
+            } else {
+              // Use data from workflow_run event
+              headBranch = context.payload.workflow_run.head_branch;
+              headRepo = context.payload.workflow_run.head_repository.full_name;
+              console.log(`Looking for PR with head branch: ${headBranch} from ${headRepo}`);
+            }
 
-            const prs = await github.rest.pulls.list({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              state: 'open',
-              head: `${headRepo.split('/')[0]}:${headBranch}`
-            });
+            // Fetch PR details
+            let pr;
+            if (prNumber) {
+              // Fetch specific PR by number
+              const prResponse = await github.rest.pulls.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: prNumber
+              });
+              pr = prResponse.data;
+            } else {
+              // Search for PR by head branch
+              const prs = await github.rest.pulls.list({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                state: 'open',
+                head: `${headRepo.split('/')[0]}:${headBranch}`
+              });
+              if (prs.data.length > 0) {
+                pr = prs.data[0];
+              }
+            }
 
-            if (prs.data.length > 0) {
-              const pr = prs.data[0];
+            if (pr) {
               console.log(`Found PR #${pr.number}: ${pr.title}`);
               core.setOutput('pr_number', pr.number);
               core.setOutput('pr_title', pr.title);
@@ -161,6 +212,7 @@ jobs:
       id-token: write
       packages: read
       actions: write  # Required to trigger PR Tests workflow via workflow_dispatch
+      workflows: write  # Required to push branches when repo contains workflow files
 
     steps:
       - name: Checkout PR branch
@@ -282,7 +334,7 @@ jobs:
 
             Pushed fix - triggering new test run.'" < /dev/null 2>&1 | tee /workspaces/home-automation/fix-failures-output.txt
 
-      - name: Trigger PR Tests after fix
+      - name: Trigger PR Tests and reviews after fix
         if: success()
         env:
           GH_TOKEN: ${{ github.token }}
@@ -295,8 +347,54 @@ jobs:
           if [ "$CURRENT_HEAD" != "$TRIGGERING_SHA" ]; then
             echo "Fix was pushed (HEAD changed from $TRIGGERING_SHA to $CURRENT_HEAD)"
             echo "Triggering PR Tests workflow..."
+
+            # Trigger PR Tests and capture the run
             gh workflow run "PR Tests" --ref "${{ needs.get-context.outputs.head_ref }}" --repo ${{ github.repository }}
-            echo "PR Tests workflow triggered successfully"
+            echo "PR Tests workflow triggered, waiting for it to start..."
+            sleep 10
+
+            # Find the run we just triggered
+            RUN_ID=$(gh run list --workflow="pr-tests.yml" --branch="${{ needs.get-context.outputs.head_ref }}" --limit=1 --json databaseId --jq '.[0].databaseId')
+            echo "Found PR Tests run: $RUN_ID"
+
+            # Poll for completion (max 15 minutes)
+            MAX_WAIT=900
+            ELAPSED=0
+            POLL_INTERVAL=30
+
+            while [ $ELAPSED -lt $MAX_WAIT ]; do
+              STATUS=$(gh run view $RUN_ID --json status,conclusion --jq '.status')
+              if [ "$STATUS" = "completed" ]; then
+                CONCLUSION=$(gh run view $RUN_ID --json conclusion --jq '.conclusion')
+                echo "PR Tests completed with conclusion: $CONCLUSION"
+                break
+              fi
+              echo "PR Tests still running... (waited ${ELAPSED}s)"
+              sleep $POLL_INTERVAL
+              ELAPSED=$((ELAPSED + POLL_INTERVAL))
+            done
+
+            if [ $ELAPSED -ge $MAX_WAIT ]; then
+              echo "Timed out waiting for PR Tests - reviews will not run automatically"
+              exit 0
+            fi
+
+            # If tests passed, trigger claude-code-review via workflow_dispatch
+            # (workflow_run events don't fire for workflow_dispatch-triggered runs)
+            if [ "$CONCLUSION" = "success" ]; then
+              echo "Tests passed! Triggering Claude Code Review..."
+              gh workflow run "Claude Code Review" \
+                --ref "main" \
+                --repo ${{ github.repository }} \
+                -f head_ref="${{ needs.get-context.outputs.head_ref }}" \
+                -f head_repo="${{ needs.get-context.outputs.head_repo }}" \
+                -f pr_number="${{ needs.get-context.outputs.pr_number }}" \
+                -f tests_passed="true" \
+                -f run_id="$RUN_ID"
+              echo "Claude Code Review workflow triggered successfully"
+            else
+              echo "Tests failed - not triggering reviews (will retry fix on next workflow_run)"
+            fi
           else
             echo "No new commits - Claude may have aborted or found no fix needed"
           fi
@@ -322,6 +420,7 @@ jobs:
       issues: write
       id-token: write
       packages: read
+      workflows: write  # Required to push branches when repo contains workflow files
 
     steps:
       - name: Checkout PR branch
@@ -409,6 +508,7 @@ jobs:
       issues: write
       id-token: write
       packages: read
+      workflows: write  # Required to push branches when repo contains workflow files
 
     steps:
       - name: Checkout PR branch
@@ -483,6 +583,7 @@ jobs:
       issues: write
       id-token: write
       packages: read
+      workflows: write  # Required to push branches when repo contains workflow files
 
     steps:
       - name: Checkout PR branch

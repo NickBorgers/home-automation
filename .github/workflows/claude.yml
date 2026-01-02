@@ -55,6 +55,7 @@ jobs:
       id-token: write
       actions: read
       packages: read
+      workflows: write  # Required to push branches when repo contains workflow files
 
     steps:
       - name: Checkout repository
@@ -146,6 +147,7 @@ jobs:
       issues: write
       id-token: write
       packages: read
+      workflows: write  # Required to push branches when repo contains workflow files
 
     steps:
       - name: Checkout repository
