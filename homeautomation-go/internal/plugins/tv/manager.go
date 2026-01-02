@@ -313,6 +313,31 @@ func (m *Manager) handleAppleTVPlayingChange(key string, oldValue, newValue inte
 
 // calculateTVPlaying determines isTVPlaying based on HDMI input and Apple TV state
 func (m *Manager) calculateTVPlaying(hdmiInput string) {
+	// First check if TV is on - if not, nothing is playing
+	isTVOn, err := m.stateManager.GetBool("isTVon")
+	if err != nil {
+		m.logger.Error("Failed to get isTVon", zap.Error(err))
+		return
+	}
+
+	// If TV is off, it's definitely not playing
+	if !isTVOn {
+		m.logger.Debug("TV is off, setting isTVPlaying to false",
+			zap.String("hdmi_input", hdmiInput))
+
+		if err := m.stateManager.SetBool("isTVPlaying", false); err != nil {
+			if errors.Is(err, state.ErrReadOnlyMode) {
+				m.logger.Debug("Skipping isTVPlaying update in read-only mode",
+					zap.Bool("is_playing", false))
+			} else {
+				m.logger.Error("Failed to set isTVPlaying", zap.Error(err))
+			}
+		}
+		m.shadowTracker.UpdateTVPlaying(false)
+		m.controlSyncBoxLightSync(false)
+		return
+	}
+
 	// Check if Apple TV is the current input
 	isAppleTVInput := strings.Contains(hdmiInput, "AppleTV")
 

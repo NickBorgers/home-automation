@@ -223,6 +223,11 @@ func TestTVManager_HDMIInputChange(t *testing.T) {
 			// Create TV manager
 			manager := NewManager(mockHA, stateMgr, logger, false, nil)
 
+			// Set isTVon to true (TV must be on for isTVPlaying calculations to work)
+			if err := stateMgr.SetBool("isTVon", true); err != nil {
+				t.Fatalf("Failed to set isTVon: %v", err)
+			}
+
 			// Set isAppleTVPlaying state
 			if err := stateMgr.SetBool("isAppleTVPlaying", tt.isAppleTVPlaying); err != nil {
 				t.Fatalf("Failed to set isAppleTVPlaying: %v", err)
@@ -244,6 +249,71 @@ func TestTVManager_HDMIInputChange(t *testing.T) {
 			if isTVPlaying != tt.expectedIsTVPlaying {
 				t.Errorf("Expected isTVPlaying=%v, got %v (hdmiInput=%s, isAppleTVPlaying=%v)",
 					tt.expectedIsTVPlaying, isTVPlaying, tt.hdmiInput, tt.isAppleTVPlaying)
+			}
+		})
+	}
+}
+
+func TestTVManager_HDMIInputChange_TVOff_AlwaysFalse(t *testing.T) {
+	t.Parallel()
+	// Test that isTVPlaying is always false when TV is off, regardless of HDMI input
+
+	tests := []struct {
+		name             string
+		hdmiInput        string
+		isAppleTVPlaying bool
+	}{
+		{
+			name:             "HDMI 1 input with TV off",
+			hdmiInput:        "HDMI 1",
+			isAppleTVPlaying: false,
+		},
+		{
+			name:             "AppleTV input with TV off and AppleTV playing",
+			hdmiInput:        "AppleTV",
+			isAppleTVPlaying: true,
+		},
+		{
+			name:             "Console input with TV off",
+			hdmiInput:        "Console",
+			isAppleTVPlaying: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockHA := ha.NewMockClient()
+			logger := zap.NewNop()
+			stateMgr := state.NewManager(mockHA, logger, false)
+
+			manager := NewManager(mockHA, stateMgr, logger, false, nil)
+
+			// Set isTVon to false (TV is off)
+			if err := stateMgr.SetBool("isTVon", false); err != nil {
+				t.Fatalf("Failed to set isTVon: %v", err)
+			}
+
+			// Set isAppleTVPlaying state
+			if err := stateMgr.SetBool("isAppleTVPlaying", tt.isAppleTVPlaying); err != nil {
+				t.Fatalf("Failed to set isAppleTVPlaying: %v", err)
+			}
+
+			// Simulate HDMI input change
+			newState := &ha.State{
+				EntityID: "select.sync_box_hdmi_input",
+				State:    tt.hdmiInput,
+			}
+			manager.handleHDMIInputChange("select.sync_box_hdmi_input", nil, newState)
+
+			// Verify isTVPlaying is false when TV is off
+			isTVPlaying, err := stateMgr.GetBool("isTVPlaying")
+			if err != nil {
+				t.Fatalf("Failed to get isTVPlaying: %v", err)
+			}
+
+			if isTVPlaying != false {
+				t.Errorf("Expected isTVPlaying=false when TV is off, got %v (hdmiInput=%s)",
+					isTVPlaying, tt.hdmiInput)
 			}
 		})
 	}
@@ -296,6 +366,11 @@ func TestTVManager_AppleTVPlayingChange_RecalculatesTVPlaying(t *testing.T) {
 
 			// Create TV manager
 			manager := NewManager(mockHA, stateMgr, logger, false, nil)
+
+			// Set isTVon to true (TV must be on for isTVPlaying calculations to work)
+			if err := stateMgr.SetBool("isTVon", true); err != nil {
+				t.Fatalf("Failed to set isTVon: %v", err)
+			}
 
 			// Set initial HDMI input in mock HA client
 			mockHA.SetState("select.sync_box_hdmi_input", tt.hdmiInput, nil)
