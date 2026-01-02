@@ -1,0 +1,39 @@
+name: Notify Private Repo of PR Merge
+
+  on:
+    pull_request:
+      types: [closed]
+      branches:
+        - main
+        - master
+
+  jobs:
+    notify-downstream:
+      if: github.event.pull_request.merged == true
+      runs-on: ubuntu-latest
+
+      steps:
+        - name: Trigger private repository review
+          run: |
+            HTTP_STATUS=$(curl -s -o response.json -w "%{http_code}" -X POST \
+              -H "Accept: application/vnd.github.v3+json" \
+              -H "Authorization: token ${{ secrets.PRIVATE_REPO_TRIGGER_TOKEN }}" \
+              https://api.github.com/repos/NickBorgers/home-automation-plus-security/dispatches \
+              -d '{
+                "event_type": "upstream-pr-merged",
+                "client_payload": {
+                  "ref": "${{ github.ref }}",
+                  "sha": "${{ github.event.pull_request.merge_commit_sha }}",
+                  "pr_number": "${{ github.event.pull_request.number }}",
+                  "pr_title": "${{ github.event.pull_request.title }}",
+                  "pr_url": "${{ github.event.pull_request.html_url }}"
+                }
+              }')
+
+            if [ "$HTTP_STATUS" -ge 200 ] && [ "$HTTP_STATUS" -lt 300 ]; then
+              echo "✅ Successfully notified private repo of PR merge"
+            else
+              echo "❌ Failed to notify"
+              cat response.json
+              exit 1
+            fi
