@@ -2,13 +2,11 @@ package integration
 
 import (
 	"testing"
-	"time"
 
 	"homeautomation/internal/plugins/tv"
 	"homeautomation/internal/state"
 	"homeautomation/internal/testlogger"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -51,7 +49,7 @@ func TestScenario_AppleTVPlaying(t *testing.T) {
 	server.SetState("select.sync_box_hdmi_input", "AppleTV", map[string]interface{}{})
 
 	// Wait for initial state to propagate
-	time.Sleep(50 * time.Millisecond)
+	waitForBoolState(t, manager, "isTVon", true, "isTVon should be true when sync box is on")
 
 	t.Log("WHEN: Apple TV starts playing")
 
@@ -60,19 +58,11 @@ func TestScenario_AppleTVPlaying(t *testing.T) {
 		"friendly_name": "Apple TV",
 	})
 
-	// Wait for automation to react
-	time.Sleep(50 * time.Millisecond)
-
 	t.Log("THEN: Verify isAppleTVPlaying and isTVPlaying are both true")
 
-	// Verify state manager was updated
-	isAppleTVPlaying, err := manager.GetBool("isAppleTVPlaying")
-	assert.NoError(t, err, "Should get isAppleTVPlaying")
-	assert.True(t, isAppleTVPlaying, "isAppleTVPlaying should be true when Apple TV is playing")
-
-	isTVPlaying, err := manager.GetBool("isTVPlaying")
-	assert.NoError(t, err, "Should get isTVPlaying")
-	assert.True(t, isTVPlaying, "isTVPlaying should be true when Apple TV is playing on AppleTV input")
+	// Wait for and verify state manager was updated
+	waitForBoolState(t, manager, "isAppleTVPlaying", true, "isAppleTVPlaying should be true when Apple TV is playing")
+	waitForBoolState(t, manager, "isTVPlaying", true, "isTVPlaying should be true when Apple TV is playing on AppleTV input")
 }
 
 // TestScenario_HDMIInputSwitch verifies that when HDMI input switches from
@@ -91,39 +81,26 @@ func TestScenario_HDMIInputSwitch(t *testing.T) {
 	server.SetState("select.sync_box_hdmi_input", "AppleTV", map[string]interface{}{})
 
 	// Wait for initial state
-	time.Sleep(50 * time.Millisecond)
-
-	// Verify initial state - isTVPlaying should be true
-	isTVPlaying, err := manager.GetBool("isTVPlaying")
-	require.NoError(t, err)
-	assert.True(t, isTVPlaying, "isTVPlaying should initially be true when AppleTV is playing")
+	waitForBoolState(t, manager, "isTVPlaying", true, "isTVPlaying should initially be true when AppleTV is playing")
 
 	t.Log("WHEN: HDMI input switches to Xbox")
 
 	// Switch HDMI input to Xbox
 	server.SetState("select.sync_box_hdmi_input", "Xbox", map[string]interface{}{})
 
-	// Wait for automation to react
-	time.Sleep(50 * time.Millisecond)
-
 	t.Log("THEN: Verify isTVPlaying is still true (Xbox input assumes playing)")
 
 	// When switching to non-Apple TV input, the logic assumes TV is playing
-	isTVPlaying, err = manager.GetBool("isTVPlaying")
-	assert.NoError(t, err)
-	assert.True(t, isTVPlaying, "isTVPlaying should be true for Xbox input")
+	waitForBoolState(t, manager, "isTVPlaying", true, "isTVPlaying should be true for Xbox input")
 
 	t.Log("WHEN: HDMI input switches back to AppleTV (which is still playing)")
 
 	// Switch back to Apple TV
 	server.SetState("select.sync_box_hdmi_input", "AppleTV", map[string]interface{}{})
-	time.Sleep(50 * time.Millisecond)
 
 	t.Log("THEN: Verify isTVPlaying remains true")
 
-	isTVPlaying, err = manager.GetBool("isTVPlaying")
-	assert.NoError(t, err)
-	assert.True(t, isTVPlaying, "isTVPlaying should still be true")
+	waitForBoolState(t, manager, "isTVPlaying", true, "isTVPlaying should still be true")
 
 	t.Log("WHEN: Apple TV stops playing while selected")
 
@@ -131,13 +108,10 @@ func TestScenario_HDMIInputSwitch(t *testing.T) {
 	server.SetState("media_player.big_beautiful_oled", "idle", map[string]interface{}{
 		"friendly_name": "Apple TV",
 	})
-	time.Sleep(50 * time.Millisecond)
 
 	t.Log("THEN: Verify isTVPlaying is now false")
 
-	isTVPlaying, err = manager.GetBool("isTVPlaying")
-	assert.NoError(t, err)
-	assert.False(t, isTVPlaying, "isTVPlaying should be false when AppleTV is idle")
+	waitForBoolState(t, manager, "isTVPlaying", false, "isTVPlaying should be false when AppleTV is idle")
 }
 
 // TestScenario_SyncBoxPower verifies that sync box power changes update isTVon
@@ -156,19 +130,16 @@ func TestScenario_SyncBoxPower(t *testing.T) {
 	server.SetState("select.sync_box_hdmi_input", "AppleTV", map[string]interface{}{})
 
 	// Wait for initial state
-	time.Sleep(50 * time.Millisecond)
+	waitForBoolState(t, manager, "isTVon", false, "isTVon should be false when sync box is off")
 
 	t.Log("WHEN: Sync box powers on")
 
 	// Power on sync box
 	server.SetState("switch.sync_box_power", "on", map[string]interface{}{})
-	time.Sleep(50 * time.Millisecond)
 
 	t.Log("THEN: Verify isTVon is true")
 
-	isTVon, err := manager.GetBool("isTVon")
-	assert.NoError(t, err)
-	assert.True(t, isTVon, "isTVon should be true when sync box is on")
+	waitForBoolState(t, manager, "isTVon", true, "isTVon should be true when sync box is on")
 
 	t.Log("GIVEN: Apple TV starts playing while sync box is on")
 
@@ -176,28 +147,19 @@ func TestScenario_SyncBoxPower(t *testing.T) {
 	server.SetState("media_player.big_beautiful_oled", "playing", map[string]interface{}{
 		"friendly_name": "Apple TV",
 	})
-	time.Sleep(50 * time.Millisecond)
 
 	// Verify isTVPlaying is true
-	isTVPlaying, err := manager.GetBool("isTVPlaying")
-	require.NoError(t, err)
-	assert.True(t, isTVPlaying, "isTVPlaying should be true when AppleTV is playing")
+	waitForBoolState(t, manager, "isTVPlaying", true, "isTVPlaying should be true when AppleTV is playing")
 
 	t.Log("WHEN: Sync box powers off")
 
 	// Power off sync box
 	server.SetState("switch.sync_box_power", "off", map[string]interface{}{})
-	time.Sleep(50 * time.Millisecond)
 
 	t.Log("THEN: Verify isTVon is false AND isTVPlaying is false")
 
-	isTVon, err = manager.GetBool("isTVon")
-	assert.NoError(t, err)
-	assert.False(t, isTVon, "isTVon should be false when sync box is off")
-
-	isTVPlaying, err = manager.GetBool("isTVPlaying")
-	assert.NoError(t, err)
-	assert.False(t, isTVPlaying, "isTVPlaying should be false when sync box is off (even if AppleTV is playing)")
+	waitForBoolState(t, manager, "isTVon", false, "isTVon should be false when sync box is off")
+	waitForBoolState(t, manager, "isTVPlaying", false, "isTVPlaying should be false when sync box is off (even if AppleTV is playing)")
 }
 
 // TestScenario_MultipleInputs tests behavior when inputs change rapidly
@@ -213,37 +175,28 @@ func TestScenario_MultipleInputs(t *testing.T) {
 		"friendly_name": "Apple TV",
 	})
 	server.SetState("select.sync_box_hdmi_input", "AppleTV", map[string]interface{}{})
-	time.Sleep(50 * time.Millisecond)
+	waitForBoolState(t, manager, "isTVon", true, "isTVon should be true when sync box is on")
 
 	t.Log("WHEN: Switching between multiple HDMI inputs")
 
 	// Switch to Xbox
 	server.SetState("select.sync_box_hdmi_input", "Xbox", map[string]interface{}{})
-	time.Sleep(50 * time.Millisecond)
 
 	// Verify isTVPlaying is true for Xbox
-	isTVPlaying, err := manager.GetBool("isTVPlaying")
-	require.NoError(t, err)
-	assert.True(t, isTVPlaying, "isTVPlaying should be true for Xbox")
+	waitForBoolState(t, manager, "isTVPlaying", true, "isTVPlaying should be true for Xbox")
 
 	// Switch to Cable
 	server.SetState("select.sync_box_hdmi_input", "Cable", map[string]interface{}{})
-	time.Sleep(50 * time.Millisecond)
 
 	// Verify isTVPlaying is true for Cable
-	isTVPlaying, err = manager.GetBool("isTVPlaying")
-	require.NoError(t, err)
-	assert.True(t, isTVPlaying, "isTVPlaying should be true for Cable")
+	waitForBoolState(t, manager, "isTVPlaying", true, "isTVPlaying should be true for Cable")
 
 	// Switch back to AppleTV (idle)
 	server.SetState("select.sync_box_hdmi_input", "AppleTV", map[string]interface{}{})
-	time.Sleep(50 * time.Millisecond)
 
 	t.Log("THEN: Verify isTVPlaying is false (AppleTV is idle)")
 
-	isTVPlaying, err = manager.GetBool("isTVPlaying")
-	assert.NoError(t, err)
-	assert.False(t, isTVPlaying, "isTVPlaying should be false when AppleTV input is selected but not playing")
+	waitForBoolState(t, manager, "isTVPlaying", false, "isTVPlaying should be false when AppleTV input is selected but not playing")
 }
 
 // TestScenario_TVOffState verifies that when all inputs are inactive,
@@ -260,25 +213,20 @@ func TestScenario_TVOffState(t *testing.T) {
 		"friendly_name": "Apple TV",
 	})
 	server.SetState("select.sync_box_hdmi_input", "AppleTV", map[string]interface{}{})
-	time.Sleep(50 * time.Millisecond)
+	waitForBoolState(t, manager, "isTVPlaying", true, "isTVPlaying should be true when AppleTV is playing")
 
 	t.Log("WHEN: TV is turned off (sync box powers off)")
 
 	// Turn off sync box
 	server.SetState("switch.sync_box_power", "off", map[string]interface{}{})
-	time.Sleep(50 * time.Millisecond)
 
 	t.Log("THEN: Verify all TV state variables are false")
 
 	// isTVon should be false
-	isTVon, err := manager.GetBool("isTVon")
-	assert.NoError(t, err)
-	assert.False(t, isTVon, "isTVon should be false when sync box is off")
+	waitForBoolState(t, manager, "isTVon", false, "isTVon should be false when sync box is off")
 
 	// isTVPlaying should be false
-	isTVPlaying, err := manager.GetBool("isTVPlaying")
-	assert.NoError(t, err)
-	assert.False(t, isTVPlaying, "isTVPlaying should be false when sync box is off")
+	waitForBoolState(t, manager, "isTVPlaying", false, "isTVPlaying should be false when sync box is off")
 
 	t.Log("WHEN: Apple TV also stops playing")
 
@@ -286,13 +234,10 @@ func TestScenario_TVOffState(t *testing.T) {
 	server.SetState("media_player.big_beautiful_oled", "idle", map[string]interface{}{
 		"friendly_name": "Apple TV",
 	})
-	time.Sleep(50 * time.Millisecond)
 
 	t.Log("THEN: Verify isAppleTVPlaying is also false")
 
-	isAppleTVPlaying, err := manager.GetBool("isAppleTVPlaying")
-	assert.NoError(t, err)
-	assert.False(t, isAppleTVPlaying, "isAppleTVPlaying should be false when Apple TV is idle")
+	waitForBoolState(t, manager, "isAppleTVPlaying", false, "isAppleTVPlaying should be false when Apple TV is idle")
 }
 
 // ============================================================================
@@ -313,26 +258,20 @@ func TestScenario_RapidInputSwitching(t *testing.T) {
 		"friendly_name": "Apple TV",
 	})
 	server.SetState("select.sync_box_hdmi_input", "AppleTV", map[string]interface{}{})
-	time.Sleep(50 * time.Millisecond)
+	waitForBoolState(t, manager, "isTVPlaying", true, "isTVPlaying should be true when AppleTV is playing")
 
 	t.Log("WHEN: Rapidly switching HDMI inputs")
 
-	// Rapid input switching - short delays between changes
+	// Rapid input switching - set all inputs quickly
 	inputs := []string{"Xbox", "Cable", "AppleTV", "Xbox", "AppleTV", "Cable", "AppleTV"}
 	for _, input := range inputs {
 		server.SetState("select.sync_box_hdmi_input", input, map[string]interface{}{})
-		time.Sleep(50 * time.Millisecond) // Very short delay
 	}
-
-	// Wait for all updates to settle
-	time.Sleep(50 * time.Millisecond)
 
 	t.Log("THEN: Verify final state is consistent (AppleTV playing)")
 
-	isTVPlaying, err := manager.GetBool("isTVPlaying")
-	assert.NoError(t, err)
 	// Final input was AppleTV, and Apple TV is playing, so should be true
-	assert.True(t, isTVPlaying, "isTVPlaying should be true for final state (AppleTV playing)")
+	waitForBoolState(t, manager, "isTVPlaying", true, "isTVPlaying should be true for final state (AppleTV playing)")
 }
 
 // TestScenario_AppleTVPlaybackStateChanges tests various Apple TV states
@@ -348,7 +287,7 @@ func TestScenario_AppleTVPlaybackStateChanges(t *testing.T) {
 	server.SetState("media_player.big_beautiful_oled", "idle", map[string]interface{}{
 		"friendly_name": "Apple TV",
 	})
-	time.Sleep(50 * time.Millisecond)
+	waitForBoolState(t, manager, "isTVon", true, "isTVon should be true when sync box is on")
 
 	testCases := []struct {
 		state           string
@@ -368,18 +307,12 @@ func TestScenario_AppleTVPlaybackStateChanges(t *testing.T) {
 		server.SetState("media_player.big_beautiful_oled", tc.state, map[string]interface{}{
 			"friendly_name": "Apple TV",
 		})
-		time.Sleep(50 * time.Millisecond)
 
 		t.Logf("THEN: Verify isAppleTVPlaying is %v and isTVPlaying is %v", tc.expectedPlaying, tc.expectedPlaying)
 
-		isAppleTVPlaying, err := manager.GetBool("isAppleTVPlaying")
-		assert.NoError(t, err)
-		assert.Equal(t, tc.expectedPlaying, isAppleTVPlaying,
+		waitForBoolState(t, manager, "isAppleTVPlaying", tc.expectedPlaying,
 			"isAppleTVPlaying should be %v when Apple TV is %s", tc.expectedPlaying, tc.state)
-
-		isTVPlaying, err := manager.GetBool("isTVPlaying")
-		assert.NoError(t, err)
-		assert.Equal(t, tc.expectedPlaying, isTVPlaying,
+		waitForBoolState(t, manager, "isTVPlaying", tc.expectedPlaying,
 			"isTVPlaying should be %v when Apple TV is %s and input is AppleTV", tc.expectedPlaying, tc.state)
 	}
 }
