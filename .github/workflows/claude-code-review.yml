@@ -3,9 +3,6 @@ name: Claude Code Review
 on:
   pull_request:
     types: [opened]
-    paths:
-      - "homeautomation-go/**"
-      - "configs/**"
 
 env:
   DEVCONTAINER_IMAGE: ghcr.io/${{ github.repository }}-devcontainer
