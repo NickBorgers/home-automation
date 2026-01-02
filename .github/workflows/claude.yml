@@ -112,7 +112,7 @@ jobs:
             claude --print \
               --model opus \
               --dangerously-skip-permissions \
-              --max-turns 20 \
+              --max-turns 200 \
               "You are responding to a request in ${REPO} issue/PR #${ISSUE_NUMBER}.
 
             The user said: ${COMMENT_BODY}
@@ -191,7 +191,7 @@ jobs:
             claude --print \
               --model opus \
               --dangerously-skip-permissions \
-              --max-turns 30 \
+              --max-turns 300 \
               "You are an autonomous agent tasked with resolving GitHub issue #${ISSUE_NUMBER}.
 
             ISSUE TITLE: ${ISSUE_TITLE}
