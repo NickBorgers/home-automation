@@ -92,10 +92,18 @@ build-config-tester:
 validate-mermaid:
 	@echo "🔍 Validating Mermaid diagrams..."
 	@echo ""
-	@# Extract and validate each mermaid block from VISUAL_ARCHITECTURE.md
 	@rm -rf .mermaid-tmp && mkdir -p .mermaid-tmp && chmod 777 .mermaid-tmp
-	@awk '/^```mermaid$$/,/^```$$/' docs/human/VISUAL_ARCHITECTURE.md | \
-	  awk 'BEGIN{n=0} /^```mermaid$$/{n++;f=".mermaid-tmp/diagram-"n".mmd";next} /^```$$/{close(f);next} {print > f}'
+	@# Extract mermaid blocks from all documentation files containing diagrams
+	@diagram_num=0; \
+	  for mdfile in docs/human/VISUAL_ARCHITECTURE.md docs/flows/*.md; do \
+	    if [ -f "$$mdfile" ]; then \
+	      basename=$$(basename $$mdfile .md); \
+	      awk -v prefix="$$basename" -v num=$$diagram_num '/^```mermaid$$/,/^```$$/' "$$mdfile" | \
+	        awk -v prefix="$$prefix" -v start=$$diagram_num 'BEGIN{n=start} /^```mermaid$$/{n++;f=".mermaid-tmp/"prefix"-diagram-"n".mmd";next} /^```$$/{close(f);next} {print > f}'; \
+	      new_count=$$(ls -1 .mermaid-tmp/*.mmd 2>/dev/null | wc -l); \
+	      diagram_num=$$new_count; \
+	    fi; \
+	  done
 	@diagram_count=$$(ls -1 .mermaid-tmp/*.mmd 2>/dev/null | wc -l); \
 	  echo "Found $$diagram_count Mermaid diagrams to validate"; \
 	  if [ "$$diagram_count" -eq 0 ]; then \

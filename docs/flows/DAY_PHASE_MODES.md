@@ -292,6 +292,7 @@ flowchart LR
 
 ## Related Documentation
 
-- [PLUGIN_SYSTEM.md](./PLUGIN_SYSTEM.md) - Plugin architecture details
-- [SHADOW_STATE.md](./SHADOW_STATE.md) - Shadow state pattern for debugging
-- [migration_mapping.md](./migration_mapping.md) - State variable reference
+- [PLUGIN_SYSTEM.md](../reference/PLUGIN_SYSTEM.md) - Plugin architecture details
+- [SHADOW_STATE.md](../reference/SHADOW_STATE.md) - Shadow state pattern for debugging
+- [migration_mapping.md](../reference/migration_mapping.md) - State variable reference
+- [VISUAL_ARCHITECTURE.md](../human/VISUAL_ARCHITECTURE.md) - System architecture diagrams

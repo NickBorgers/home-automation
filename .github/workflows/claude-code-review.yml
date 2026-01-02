@@ -860,16 +860,32 @@ jobs:
 
                | Code Change Type | Docs to Check/Update |
                |------------------|----------------------|
-               | New plugin added | VISUAL_ARCHITECTURE.md, ARCHITECTURE.md |
-               | Plugin removed | VISUAL_ARCHITECTURE.md, ARCHITECTURE.md |
+               | New plugin added | VISUAL_ARCHITECTURE.md, ARCHITECTURE.md, docs/flows/ |
+               | Plugin removed | VISUAL_ARCHITECTURE.md, ARCHITECTURE.md, docs/flows/ |
                | New Subscribe() call | VISUAL_ARCHITECTURE.md (State Variable Dependency Graph) |
                | State variable added/removed | migration_mapping.md, VISUAL_ARCHITECTURE.md |
                | Concurrency fix | CONCURRENCY_LESSONS.md |
-               | Plugin logic changed | Relevant logic flow in VISUAL_ARCHITECTURE.md |
+               | Plugin logic changed | Relevant logic flow in VISUAL_ARCHITECTURE.md or docs/flows/ |
                | Config changes | Relevant config docs |
+               | Day phase/schedule logic | docs/flows/DAY_PHASE_MODES.md |
 
-            4. If Mermaid diagrams need updates, run \`make validate-mermaid\` after editing
-            5. Check that docs/architecture/ARCHITECTURE.md reflects any structural changes
+            4. AUTOMATION FLOW DOCUMENTATION (docs/flows/):
+               - This folder contains visual documentation of automation behavior using Mermaid diagrams
+               - When plugin logic changes, check if a corresponding flow document exists and needs updates
+               - Consider creating new flow documents for complex automation logic
+               - Flow documents should explain the 'how' and 'why' of automation decisions
+
+            5. If Mermaid diagrams need updates:
+               - Run \`make validate-mermaid\` after editing to check syntax
+               - CRITICAL: When you create or update Mermaid diagrams, verify GitHub rendering:
+                 a. Get the raw GitHub URL for the markdown file
+                 b. Use Playwright to navigate to the GitHub page and verify the diagram renders
+                 c. Example verification (adapt path as needed):
+                    - URL pattern: https://github.com/NickBorgers/home-automation/blob/BRANCH/docs/flows/FILE.md
+                    - Check that Mermaid code blocks render as diagrams, not raw text
+                    - If diagrams show as raw code, there may be syntax issues GitHub cannot parse
+
+            6. Check that docs/architecture/ARCHITECTURE.md reflects any structural changes
 
             IMPORTANT: Only update docs for ACTUAL changes in this PR. Do not:
             - Add documentation for unchanged code
@@ -894,8 +910,10 @@ jobs:
             [Analysis of documentation needs based on code changes. Include checklist:]
             - [ ] VISUAL_ARCHITECTURE.md - [status: Updated/No changes needed/N/A]
             - [ ] ARCHITECTURE.md - [status: Updated/No changes needed/N/A]
+            - [ ] docs/flows/ - [status: Updated/No changes needed/N/A]
             - [ ] migration_mapping.md - [status: Updated/No changes needed/N/A]
             - [ ] CONCURRENCY_LESSONS.md - [status: Updated/No changes needed/N/A]
+            - [ ] Mermaid diagrams validated - [status: Validated with make validate-mermaid/No diagrams changed/N/A]
 
             ### Conclusion
             [One of: ✅ Approved | ⚠️ Minor issues found | ❌ Blocking issues found]
