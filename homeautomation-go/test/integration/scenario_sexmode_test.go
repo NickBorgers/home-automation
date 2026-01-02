@@ -35,6 +35,17 @@ func setupSexModeScenarioTest(t *testing.T) (*MockHAServer, *sexmode.Manager, *s
 
 	// Initialize sex mode toggle to off
 	server.SetState("input_boolean.sex", "off", nil)
+
+	// Set up Eight Sleep entities with min_temp attribute for auto-detection
+	// HA exposes temperatures in Fahrenheit (55-110°F range)
+	server.SetState(sexmode.EightSleepNickEntity, "heat_cool", map[string]interface{}{
+		"min_temp": float64(55),
+		"max_temp": float64(110),
+	})
+	server.SetState(sexmode.EightSleepCarolineEntity, "heat_cool", map[string]interface{}{
+		"min_temp": float64(55),
+		"max_temp": float64(110),
+	})
 	time.Sleep(50 * time.Millisecond)
 
 	// Create and start Sex Mode plugin
@@ -114,7 +125,7 @@ func TestScenario_SexModeActivation_ActivatesNightScene(t *testing.T) {
 }
 
 // TestScenario_SexModeActivation_SetsEightSleepToColdest tests that activating sex mode
-// sets both Eight Sleep beds to the coldest setting (-100)
+// sets both Eight Sleep beds to the coldest setting (auto-detected from entity attributes)
 func TestScenario_SexModeActivation_SetsEightSleepToColdest(t *testing.T) {
 	server, _, _, cleanup := setupSexModeScenarioTest(t)
 	defer cleanup()
@@ -128,16 +139,19 @@ func TestScenario_SexModeActivation_SetsEightSleepToColdest(t *testing.T) {
 	server.SetState("input_boolean.sex", "on", nil)
 	time.Sleep(100 * time.Millisecond)
 
-	t.Log("THEN: Both Eight Sleep sides should be set to coldest (-100)")
+	t.Log("THEN: Both Eight Sleep sides should be set to coldest (auto-detected min_temp: 55)")
 
 	calls := server.GetServiceCalls()
+
+	// Expected min temp from mock setup (55°F)
+	expectedMinTemp := 55
 
 	// Find Nick's Eight Sleep call
 	nickCall := FindServiceCallWithEntityID(calls, "climate", "set_temperature", sexmode.EightSleepNickEntity)
 	assert.NotNil(t, nickCall, "Nick's Eight Sleep should be set")
 	if nickCall != nil {
 		value := getNumericValue(nickCall.ServiceData["temperature"])
-		assert.Equal(t, sexmode.EightSleepMinTemp, value, "Nick's Eight Sleep should be set to coldest")
+		assert.Equal(t, expectedMinTemp, value, "Nick's Eight Sleep should be set to coldest")
 		t.Logf("✓ Nick's Eight Sleep set to %d", value)
 	}
 
@@ -146,7 +160,7 @@ func TestScenario_SexModeActivation_SetsEightSleepToColdest(t *testing.T) {
 	assert.NotNil(t, carolineCall, "Caroline's Eight Sleep should be set")
 	if carolineCall != nil {
 		value := getNumericValue(carolineCall.ServiceData["temperature"])
-		assert.Equal(t, sexmode.EightSleepMinTemp, value, "Caroline's Eight Sleep should be set to coldest")
+		assert.Equal(t, expectedMinTemp, value, "Caroline's Eight Sleep should be set to coldest")
 		t.Logf("✓ Caroline's Eight Sleep set to %d", value)
 	}
 }
