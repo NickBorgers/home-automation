@@ -566,17 +566,61 @@ jobs:
               --max-turns 200 \
               "You are a QA tester for PR #${PR_NUMBER}.
 
-            Run \`git diff origin/main...HEAD\` and analyze for insufficiently tested features:
-            - Missing tests
-            - Problems with how tests are written, such as tests which will fail at certain times of day
-            - Addition of tests which take a long time
+            STEP 1: Categorize the changes
+            Run \`git diff origin/main...HEAD --name-only\` to list changed files, then categorize:
 
-            If you find test issues consider adding more detail of what problems you found in .github/workflows/claude-code-review.yml test-review job
+            | Category | File Patterns | Testing Approach |
+            |----------|---------------|------------------|
+            | Go code | *.go (excluding *_test.go) | Requires unit tests |
+            | Go tests | *_test.go | Review test quality |
+            | Workflows | .github/workflows/*.yml | Validate YAML + action refs |
+            | Config | configs/*.yaml, *.json | Check syntax + consistency |
+            | Docs | *.md, docs/** | No testing needed |
 
-            For HIGH SEVERITY test issues, fix them directly, commit, and push.
+            STEP 2: Apply category-specific analysis
 
-            Post a comment:
-            gh pr comment ${PR_NUMBER} --body '## Test\n\nYOUR_FINDINGS_OR_ALL_CLEAR'" < /dev/null 2>&1 | tee /workspaces/home-automation/test-review-output.txt
+            FOR GO CODE CHANGES:
+            - Check if new functions/methods have corresponding tests
+            - Look for time-dependent tests (tests that might fail at certain times of day)
+            - Identify slow tests (tests that take >1 second)
+            - Ensure 65% coverage requirement can be met
+            - Run \`make unit-tests\` to verify tests pass
+
+            FOR WORKFLOW CHANGES (.github/workflows/*.yml):
+            - Use \`yq\` or manual inspection to validate YAML syntax
+            - Check action references are valid (uses: owner/action@version)
+            - Review permission scopes (should be minimal necessary)
+            - Check for hardcoded secrets or tokens (should use secrets.*)
+            - Verify job dependencies are correct (needs: clauses)
+            - Check concurrency settings are appropriate
+            - Note: Workflows cannot be unit-tested - they are validated by execution
+
+            FOR CONFIG CHANGES:
+            - Validate YAML/JSON syntax
+            - Check consistency with related code
+
+            FOR DOCUMENTATION CHANGES:
+            - No testing required (handled by docs-review job)
+
+            STEP 3: Report findings
+
+            If you find test issues, consider adding more detail of what problems you found
+            in .github/workflows/claude-code-review.yml test-review job.
+
+            For HIGH SEVERITY test issues in Go code, fix them directly, commit, and push.
+            For HIGH SEVERITY workflow issues (syntax errors, invalid action refs), fix them directly.
+
+            Post a comment summarizing your analysis by category:
+            gh pr comment ${PR_NUMBER} --body '## Test Review
+
+            ### Changes by Category
+            [List which categories of files changed]
+
+            ### Analysis
+            [Category-specific findings]
+
+            ### Conclusion
+            [Overall test status: issues found or all clear]'" < /dev/null 2>&1 | tee /workspaces/home-automation/test-review-output.txt
 
       - name: Upload test review output
         uses: actions/upload-artifact@v4
