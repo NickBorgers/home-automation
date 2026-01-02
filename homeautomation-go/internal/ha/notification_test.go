@@ -7,6 +7,7 @@ import (
 )
 
 func TestSendNotification_Basic(t *testing.T) {
+	t.Parallel()
 	mock := NewMockClient()
 	mock.Connect()
 
@@ -35,6 +36,7 @@ func TestSendNotification_Basic(t *testing.T) {
 }
 
 func TestSendNotification_WithTitle(t *testing.T) {
+	t.Parallel()
 	mock := NewMockClient()
 	mock.Connect()
 
@@ -61,6 +63,7 @@ func TestSendNotification_WithTitle(t *testing.T) {
 }
 
 func TestSendNotification_WithData(t *testing.T) {
+	t.Parallel()
 	mock := NewMockClient()
 	mock.Connect()
 
@@ -104,6 +107,7 @@ func TestSendNotification_WithData(t *testing.T) {
 }
 
 func TestSendNotification_WithStickyAndPersistent(t *testing.T) {
+	t.Parallel()
 	mock := NewMockClient()
 	mock.Connect()
 
@@ -131,6 +135,7 @@ func TestSendNotification_WithStickyAndPersistent(t *testing.T) {
 }
 
 func TestSendNotification_Validation(t *testing.T) {
+	t.Parallel()
 	mock := NewMockClient()
 	mock.Connect()
 
@@ -162,6 +167,7 @@ func TestSendNotification_Validation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+
 			err := mock.SendNotification(tt.deviceName, tt.notification)
 			if err == nil {
 				t.Errorf("Expected error, got nil")
@@ -173,6 +179,7 @@ func TestSendNotification_Validation(t *testing.T) {
 }
 
 func TestSendNotificationToMultiple(t *testing.T) {
+	t.Parallel()
 	mock := NewMockClient()
 	mock.Connect()
 
@@ -207,6 +214,7 @@ func TestSendNotificationToMultiple(t *testing.T) {
 }
 
 func TestSendNotificationToMultiple_EmptyList(t *testing.T) {
+	t.Parallel()
 	mock := NewMockClient()
 	mock.Connect()
 
@@ -220,6 +228,7 @@ func TestSendNotificationToMultiple_EmptyList(t *testing.T) {
 }
 
 func TestClearNotification(t *testing.T) {
+	t.Parallel()
 	mock := NewMockClient()
 	mock.Connect()
 
@@ -248,6 +257,7 @@ func TestClearNotification(t *testing.T) {
 }
 
 func TestClearNotification_Validation(t *testing.T) {
+	t.Parallel()
 	mock := NewMockClient()
 	mock.Connect()
 
@@ -273,6 +283,7 @@ func TestClearNotification_Validation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+
 			err := mock.ClearNotification(tt.deviceName, tt.tag)
 			if err == nil {
 				t.Errorf("Expected error, got nil")
@@ -284,6 +295,7 @@ func TestClearNotification_Validation(t *testing.T) {
 }
 
 func TestNotificationData_ToMap(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		data     *NotificationData
@@ -325,6 +337,7 @@ func TestNotificationData_ToMap(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+
 			result := tt.data.toMap()
 
 			if tt.expected == nil {
@@ -348,6 +361,7 @@ func TestNotificationData_ToMap(t *testing.T) {
 }
 
 func TestNotificationData_ToMap_SoundOnly(t *testing.T) {
+	t.Parallel()
 	data := &NotificationData{
 		Sound: "default",
 	}
@@ -368,6 +382,7 @@ func TestNotificationData_ToMap_SoundOnly(t *testing.T) {
 }
 
 func TestNotificationData_ToMap_BadgeOnly(t *testing.T) {
+	t.Parallel()
 	data := &NotificationData{
 		Badge: 5,
 	}
@@ -388,8 +403,11 @@ func TestNotificationData_ToMap_BadgeOnly(t *testing.T) {
 }
 
 func TestNotificationData_ToMap_SoundAndBadgeCombination(t *testing.T) {
+	t.Parallel(
 	// This tests the edge case where both Sound and Badge are set,
 	// ensuring they're correctly merged into the same "push" map
+	)
+
 	data := &NotificationData{
 		Sound: "default",
 		Badge: 5,
@@ -416,6 +434,7 @@ func TestNotificationData_ToMap_SoundAndBadgeCombination(t *testing.T) {
 }
 
 func TestSendNotificationToMultiple_AggregatesErrors(t *testing.T) {
+	t.Parallel()
 	mock := NewMockClient()
 	mock.Connect()
 
@@ -442,6 +461,7 @@ func TestSendNotificationToMultiple_AggregatesErrors(t *testing.T) {
 }
 
 func TestSendNotificationToMultiple_PartialFailure(t *testing.T) {
+	t.Parallel()
 	mock := NewMockClient()
 	mock.Connect()
 
@@ -477,6 +497,7 @@ func TestSendNotificationToMultiple_PartialFailure(t *testing.T) {
 }
 
 func TestNotificationServiceError(t *testing.T) {
+	t.Parallel()
 	mock := NewMockClient()
 	mock.Connect()
 

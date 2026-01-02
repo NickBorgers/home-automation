@@ -7,7 +7,10 @@ import (
 )
 
 func TestLoadConfig(t *testing.T) {
+	t.Parallel(
 	// Create a temporary config file
+	)
+
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, "energy_config.yaml")
 
@@ -145,6 +148,7 @@ energy:
 }
 
 func TestLoadConfigInvalidPath(t *testing.T) {
+	t.Parallel()
 	_, err := LoadConfig("/nonexistent/path/energy_config.yaml")
 	if err == nil {
 		t.Error("Expected error for nonexistent config file, got nil")
@@ -152,6 +156,7 @@ func TestLoadConfigInvalidPath(t *testing.T) {
 }
 
 func TestLoadConfigInvalidYAML(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, "invalid.yaml")
 
@@ -167,6 +172,7 @@ func TestLoadConfigInvalidYAML(t *testing.T) {
 }
 
 func TestLoadConfigEmptyEnergyStates(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, "empty_states.yaml")
 
@@ -194,6 +200,7 @@ energy:
 }
 
 func TestLoadConfigMinimalLightConfig(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, "minimal_light.yaml")
 

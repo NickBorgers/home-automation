@@ -13,7 +13,10 @@ import (
 
 // TestSecurityManager_LockdownOnEveryoneAsleep tests lockdown activation when everyone is asleep
 func TestSecurityManager_LockdownOnEveryoneAsleep(t *testing.T) {
+	t.Parallel(
 	// Setup
+	)
+
 	mockHA := ha.NewMockClient()
 	mockHA.SetState("input_boolean.everyone_asleep", "off", nil)
 	mockHA.Connect()
@@ -74,7 +77,10 @@ func TestSecurityManager_LockdownOnEveryoneAsleep(t *testing.T) {
 
 // TestSecurityManager_LockdownOnNoOneHome tests lockdown activation when no one is home
 func TestSecurityManager_LockdownOnNoOneHome(t *testing.T) {
+	t.Parallel(
 	// Setup
+	)
+
 	mockHA := ha.NewMockClient()
 	mockHA.SetState("input_boolean.anyone_home", "on", nil)
 	mockHA.Connect()
@@ -135,7 +141,10 @@ func TestSecurityManager_LockdownOnNoOneHome(t *testing.T) {
 
 // TestSecurityManager_LockdownAutoReset tests auto-reset of lockdown after 5 seconds
 func TestSecurityManager_LockdownAutoReset(t *testing.T) {
+	t.Parallel(
 	// Setup
+	)
+
 	mockHA := ha.NewMockClient()
 	mockHA.Connect()
 
@@ -177,7 +186,10 @@ func TestSecurityManager_LockdownAutoReset(t *testing.T) {
 
 // TestSecurityManager_GarageAutoOpen tests garage auto-open when owner returns
 func TestSecurityManager_GarageAutoOpen(t *testing.T) {
+	t.Parallel(
 	// Setup
+	)
+
 	mockHA := ha.NewMockClient()
 
 	// Set garage as empty (no vehicle detected)
@@ -224,7 +236,10 @@ func TestSecurityManager_GarageAutoOpen(t *testing.T) {
 
 // TestSecurityManager_GarageNotOpenedWhenOccupied tests garage does not open when occupied
 func TestSecurityManager_GarageNotOpenedWhenOccupied(t *testing.T) {
+	t.Parallel(
 	// Setup
+	)
+
 	mockHA := ha.NewMockClient()
 
 	// Set garage as occupied (vehicle detected)
@@ -265,7 +280,10 @@ func TestSecurityManager_GarageNotOpenedWhenOccupied(t *testing.T) {
 
 // TestSecurityManager_DoorbellNotification tests doorbell notification
 func TestSecurityManager_DoorbellNotification(t *testing.T) {
+	t.Parallel(
 	// Setup
+	)
+
 	mockHA := ha.NewMockClient()
 	mockHA.Connect()
 
@@ -317,7 +335,10 @@ func TestSecurityManager_DoorbellNotification(t *testing.T) {
 
 // TestSecurityManager_DoorbellRateLimiting tests doorbell rate limiting
 func TestSecurityManager_DoorbellRateLimiting(t *testing.T) {
+	t.Parallel(
 	// Setup
+	)
+
 	mockHA := ha.NewMockClient()
 	mockHA.Connect()
 
@@ -354,7 +375,10 @@ func TestSecurityManager_DoorbellRateLimiting(t *testing.T) {
 
 // TestSecurityManager_VehicleArrivalWithExpecting tests vehicle arrival when expecting someone
 func TestSecurityManager_VehicleArrivalWithExpecting(t *testing.T) {
+	t.Parallel(
 	// Setup
+	)
+
 	mockHA := ha.NewMockClient()
 	mockHA.SetState("input_boolean.expecting_someone", "on", nil)
 	mockHA.Connect()
@@ -407,7 +431,10 @@ func TestSecurityManager_VehicleArrivalWithExpecting(t *testing.T) {
 
 // TestSecurityManager_VehicleArrivalWithoutExpecting tests vehicle arrival when not expecting
 func TestSecurityManager_VehicleArrivalWithoutExpecting(t *testing.T) {
+	t.Parallel(
 	// Setup
+	)
+
 	mockHA := ha.NewMockClient()
 	mockHA.SetState("input_boolean.expecting_someone", "off", nil)
 	mockHA.Connect()
@@ -444,7 +471,10 @@ func TestSecurityManager_VehicleArrivalWithoutExpecting(t *testing.T) {
 
 // TestSecurityManager_ReadOnlyMode tests that read-only mode prevents service calls
 func TestSecurityManager_ReadOnlyMode(t *testing.T) {
+	t.Parallel(
 	// Setup
+	)
+
 	mockHA := ha.NewMockClient()
 	mockHA.SetState("input_boolean.everyone_asleep", "off", nil)
 	mockHA.Connect()
@@ -480,7 +510,10 @@ func TestSecurityManager_ReadOnlyMode(t *testing.T) {
 
 // TestSecurityManager_InvalidTypeHandling tests handling of invalid state value types
 func TestSecurityManager_InvalidTypeHandling(t *testing.T) {
+	t.Parallel(
 	// Setup
+	)
+
 	mockHA := ha.NewMockClient()
 	mockHA.Connect()
 
@@ -527,7 +560,10 @@ func TestSecurityManager_InvalidTypeHandling(t *testing.T) {
 
 // TestSecurityManager_OwnerReturnHome_DidNotReturn tests that nothing happens when owner did not return
 func TestSecurityManager_OwnerReturnHome_DidNotReturn(t *testing.T) {
+	t.Parallel(
 	// Setup
+	)
+
 	mockHA := ha.NewMockClient()
 	mockHA.SetState("binary_sensor.garage_door_vehicle_detected", "off", nil)
 	mockHA.Connect()
@@ -562,7 +598,10 @@ func TestSecurityManager_OwnerReturnHome_DidNotReturn(t *testing.T) {
 
 // TestSecurityManager_VehicleArrivalRateLimiting tests vehicle arrival rate limiting
 func TestSecurityManager_VehicleArrivalRateLimiting(t *testing.T) {
+	t.Parallel(
 	// Setup
+	)
+
 	mockHA := ha.NewMockClient()
 	mockHA.SetState("input_boolean.expecting_someone", "on", nil)
 	mockHA.Connect()
@@ -603,7 +642,10 @@ func TestSecurityManager_VehicleArrivalRateLimiting(t *testing.T) {
 
 // TestSecurityManager_ReadOnlyModeGarage tests garage operations in read-only mode
 func TestSecurityManager_ReadOnlyModeGarage(t *testing.T) {
+	t.Parallel(
 	// Setup
+	)
+
 	mockHA := ha.NewMockClient()
 	mockHA.SetState("binary_sensor.garage_door_vehicle_detected", "off", nil)
 	mockHA.Connect()
@@ -638,7 +680,10 @@ func TestSecurityManager_ReadOnlyModeGarage(t *testing.T) {
 
 // TestSecurityManager_ReadOnlyModeLockdownReset tests lockdown reset in read-only mode
 func TestSecurityManager_ReadOnlyModeLockdownReset(t *testing.T) {
+	t.Parallel(
 	// Setup
+	)
+
 	mockHA := ha.NewMockClient()
 	mockHA.Connect()
 
@@ -671,7 +716,10 @@ func TestSecurityManager_ReadOnlyModeLockdownReset(t *testing.T) {
 
 // TestSecurityManager_ReadOnlyModeVehicleArrival tests vehicle arrival in read-only mode
 func TestSecurityManager_ReadOnlyModeVehicleArrival(t *testing.T) {
+	t.Parallel(
 	// Setup
+	)
+
 	mockHA := ha.NewMockClient()
 	mockHA.SetState("input_boolean.expecting_someone", "on", nil)
 	mockHA.Connect()

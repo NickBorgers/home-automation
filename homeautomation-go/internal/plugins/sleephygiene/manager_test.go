@@ -39,6 +39,7 @@ func setupTest(t *testing.T, currentTime time.Time) (*Manager, *ha.MockClient, *
 }
 
 func TestNewManager(t *testing.T) {
+	t.Parallel()
 	logger := zap.NewNop()
 	mockHA := ha.NewMockClient()
 	stateManager := state.NewManager(mockHA, logger, false)
@@ -64,6 +65,7 @@ func TestNewManager(t *testing.T) {
 }
 
 func TestStartStop(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2024, 1, 15, 8, 0, 0, 0, time.UTC)
 	manager, _, _, _ := setupTest(t, now)
 
@@ -92,7 +94,10 @@ func TestStartStop(t *testing.T) {
 }
 
 func TestBeginWake_AllConditionsMet(t *testing.T) {
+	t.Parallel(
 	// Set time to 9:05 AM (5 minutes after alarm time)
+	)
+
 	now := time.Date(2024, 1, 15, 9, 5, 0, 0, time.UTC)
 	manager, mockHA, stateManager, _ := setupTest(t, now)
 
@@ -119,6 +124,7 @@ func TestBeginWake_AllConditionsMet(t *testing.T) {
 }
 
 func TestBeginWake_NoOneHome(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2024, 1, 15, 9, 5, 0, 0, time.UTC)
 	manager, mockHA, stateManager, _ := setupTest(t, now)
 
@@ -141,6 +147,7 @@ func TestBeginWake_NoOneHome(t *testing.T) {
 }
 
 func TestBeginWake_MasterNotAsleep(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2024, 1, 15, 9, 5, 0, 0, time.UTC)
 	manager, mockHA, stateManager, _ := setupTest(t, now)
 
@@ -163,6 +170,7 @@ func TestBeginWake_MasterNotAsleep(t *testing.T) {
 }
 
 func TestBeginWake_NotPlayingSleepMusic(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2024, 1, 15, 9, 5, 0, 0, time.UTC)
 	manager, mockHA, stateManager, _ := setupTest(t, now)
 
@@ -185,7 +193,10 @@ func TestBeginWake_NotPlayingSleepMusic(t *testing.T) {
 }
 
 func TestWake_AllConditionsMet(t *testing.T) {
+	t.Parallel(
 	// Set time to 9:30 AM (25 minutes after alarm time)
+	)
+
 	now := time.Date(2024, 1, 15, 9, 30, 0, 0, time.UTC)
 	manager, mockHA, stateManager, _ := setupTest(t, now)
 
@@ -238,6 +249,7 @@ func TestWake_AllConditionsMet(t *testing.T) {
 }
 
 func TestWake_OnlyOneOwnerHome(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2024, 1, 15, 9, 30, 0, 0, time.UTC)
 	manager, mockHA, stateManager, _ := setupTest(t, now)
 
@@ -271,6 +283,7 @@ func TestWake_OnlyOneOwnerHome(t *testing.T) {
 }
 
 func TestStopScreens_AllConditionsMet(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2024, 1, 15, 22, 30, 0, 0, time.UTC)
 	manager, mockHA, stateManager, _ := setupTest(t, now)
 
@@ -303,6 +316,7 @@ func TestStopScreens_AllConditionsMet(t *testing.T) {
 }
 
 func TestStopScreens_EveryoneAsleep(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2024, 1, 15, 22, 30, 0, 0, time.UTC)
 	manager, mockHA, stateManager, _ := setupTest(t, now)
 
@@ -324,6 +338,7 @@ func TestStopScreens_EveryoneAsleep(t *testing.T) {
 }
 
 func TestReadOnlyMode(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2024, 1, 15, 9, 5, 0, 0, time.UTC)
 	logger := zap.NewNop()
 	mockHA := ha.NewMockClient()
@@ -355,6 +370,7 @@ func TestReadOnlyMode(t *testing.T) {
 }
 
 func TestIsSameDay(t *testing.T) {
+	t.Parallel()
 	t1 := time.Date(2024, 1, 15, 9, 0, 0, 0, time.UTC)
 	t2 := time.Date(2024, 1, 15, 23, 59, 0, 0, time.UTC)
 	t3 := time.Date(2024, 1, 16, 0, 1, 0, 0, time.UTC)
@@ -369,8 +385,10 @@ func TestIsSameDay(t *testing.T) {
 }
 
 func TestCheckTimeTriggers_StopScreens(t *testing.T) {
+	t.Parallel(
 	// This test verifies the stop_screens time-based trigger
 	// Note: begin_wake and wake are now handled by Eight Sleep sensors, not time-based
+	)
 
 	// Test at stop_screens time (22:30)
 	now := time.Date(2024, 1, 15, 22, 30, 0, 0, time.UTC)
@@ -407,6 +425,7 @@ func TestCheckTimeTriggers_StopScreens(t *testing.T) {
 // This matches Node-RED behavior: always set musicPlaybackType to "sleep", and
 // flash lights only if someone is home and not everyone is asleep
 func TestHandleGoToBed_SetsSleepMusicAndFlashesLights(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2024, 1, 15, 23, 30, 0, 0, time.UTC)
 	manager, mockHA, stateManager, _ := setupTest(t, now)
 
@@ -450,6 +469,7 @@ func TestHandleGoToBed_SetsSleepMusicAndFlashesLights(t *testing.T) {
 // TestHandleGoToBed_SetsSleepMusicEvenWhenEveryoneAsleep tests that sleep music is started
 // even when everyone is already asleep (lights won't flash but music should start)
 func TestHandleGoToBed_SetsSleepMusicEvenWhenEveryoneAsleep(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2024, 1, 15, 23, 30, 0, 0, time.UTC)
 	manager, mockHA, stateManager, _ := setupTest(t, now)
 
@@ -498,6 +518,7 @@ func TestHandleGoToBed_SetsSleepMusicEvenWhenEveryoneAsleep(t *testing.T) {
 
 // TestHandleGoToBed_NoOneHome tests go_to_bed when no one is home
 func TestHandleGoToBed_NoOneHome(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2024, 1, 15, 23, 30, 0, 0, time.UTC)
 	manager, mockHA, stateManager, _ := setupTest(t, now)
 
@@ -546,6 +567,7 @@ func TestHandleGoToBed_NoOneHome(t *testing.T) {
 
 // TestHandleGoToBed_ReadOnly tests go_to_bed in read-only mode
 func TestHandleGoToBed_ReadOnly(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2024, 1, 15, 23, 30, 0, 0, time.UTC)
 	logger := zap.NewNop()
 	mockHA := ha.NewMockClient()
@@ -580,6 +602,7 @@ func TestHandleGoToBed_ReadOnly(t *testing.T) {
 
 // TestRealTimeProvider tests the plugin.RealTimeProvider
 func TestRealTimeProvider(t *testing.T) {
+	t.Parallel()
 	provider := plugin.RealTimeProvider{}
 	now := provider.Now()
 
@@ -591,6 +614,7 @@ func TestRealTimeProvider(t *testing.T) {
 
 // TestFixedTimeProvider tests the plugin.FixedTimeProvider
 func TestFixedTimeProvider(t *testing.T) {
+	t.Parallel()
 	fixedTime := time.Date(2024, 1, 15, 12, 0, 0, 0, time.UTC)
 	provider := plugin.FixedTimeProvider{FixedTime: fixedTime}
 
@@ -601,6 +625,7 @@ func TestFixedTimeProvider(t *testing.T) {
 
 // TestCheckTimeTriggers_ErrorGettingSchedule tests error handling when schedule config is not available
 func TestCheckTimeTriggers_ErrorGettingSchedule(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2024, 1, 15, 9, 0, 0, 0, time.UTC)
 	logger := zap.NewNop()
 	mockHA := ha.NewMockClient()
@@ -622,6 +647,7 @@ func TestCheckTimeTriggers_ErrorGettingSchedule(t *testing.T) {
 
 // TestHandleWake_ErrorGettingState tests error handling in handleWake
 func TestHandleWake_ErrorGettingState(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2024, 1, 15, 9, 30, 0, 0, time.UTC)
 	logger := zap.NewNop()
 	mockHA := ha.NewMockClient()
@@ -646,6 +672,7 @@ func TestHandleWake_ErrorGettingState(t *testing.T) {
 
 // TestHandleBeginWake_ReadOnly tests read-only mode for begin_wake
 func TestHandleBeginWake_ReadOnly(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2024, 1, 15, 9, 5, 0, 0, time.UTC)
 	logger := zap.NewNop()
 	mockHA := ha.NewMockClient()
@@ -676,6 +703,7 @@ func TestHandleBeginWake_ReadOnly(t *testing.T) {
 
 // TestHandleWake_ReadOnly tests read-only mode for wake
 func TestHandleWake_ReadOnly(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2024, 1, 15, 9, 30, 0, 0, time.UTC)
 	logger := zap.NewNop()
 	mockHA := ha.NewMockClient()
@@ -706,6 +734,7 @@ func TestHandleWake_ReadOnly(t *testing.T) {
 
 // TestHandleStopScreens_ReadOnly tests read-only mode for stop_screens
 func TestHandleStopScreens_ReadOnly(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2024, 1, 15, 22, 30, 0, 0, time.UTC)
 	logger := zap.NewNop()
 	mockHA := ha.NewMockClient()
@@ -733,6 +762,7 @@ func TestHandleStopScreens_ReadOnly(t *testing.T) {
 
 // TestHandleWake_NoOneHome tests wake trigger when no one is home
 func TestHandleWake_NoOneHome(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2024, 1, 15, 9, 30, 0, 0, time.UTC)
 	manager, mockHA, stateManager, _ := setupTest(t, now)
 
@@ -755,6 +785,7 @@ func TestHandleWake_NoOneHome(t *testing.T) {
 
 // TestHandleWake_MasterNotAsleep tests wake trigger when master is not asleep
 func TestHandleWake_MasterNotAsleep(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2024, 1, 15, 9, 30, 0, 0, time.UTC)
 	manager, mockHA, stateManager, _ := setupTest(t, now)
 
@@ -777,6 +808,7 @@ func TestHandleWake_MasterNotAsleep(t *testing.T) {
 
 // TestHandleWake_FadeOutNotInProgress tests wake trigger when fade out is not in progress
 func TestHandleWake_FadeOutNotInProgress(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2024, 1, 15, 9, 30, 0, 0, time.UTC)
 	manager, mockHA, stateManager, _ := setupTest(t, now)
 
@@ -799,6 +831,7 @@ func TestHandleWake_FadeOutNotInProgress(t *testing.T) {
 
 // TestHandleStopScreens_NoOneHome tests stop_screens when no one is home
 func TestHandleStopScreens_NoOneHome(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2024, 1, 15, 22, 30, 0, 0, time.UTC)
 	manager, mockHA, stateManager, _ := setupTest(t, now)
 
@@ -820,7 +853,10 @@ func TestHandleStopScreens_NoOneHome(t *testing.T) {
 
 // TestRunTimerLoop_MidnightRollover tests that triggers reset at midnight
 func TestRunTimerLoop_MidnightRollover(t *testing.T) {
+	t.Parallel(
 	// Start just before midnight
+	)
+
 	now := time.Date(2024, 1, 15, 23, 59, 0, 0, time.UTC)
 	manager, _, _, _ := setupTest(t, now)
 
@@ -855,6 +891,7 @@ func TestRunTimerLoop_MidnightRollover(t *testing.T) {
 // TestFadeOutBedroomSpeaker_Complete tests fade out runs and makes volume calls
 // Note: We test a partial fade-out since a complete fade-out from 60 to 0 would take 30+ minutes
 func TestFadeOutBedroomSpeaker_Complete(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2024, 1, 15, 9, 5, 0, 0, time.UTC)
 	manager, mockHA, stateManager, _ := setupTest(t, now)
 
@@ -923,6 +960,7 @@ func TestFadeOutBedroomSpeaker_Complete(t *testing.T) {
 
 // TestFadeOutBedroomSpeaker_AbortedByFlag tests fade out aborted when flag is set to false
 func TestFadeOutBedroomSpeaker_AbortedByFlag(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2024, 1, 15, 9, 5, 0, 0, time.UTC)
 	manager, mockHA, stateManager, _ := setupTest(t, now)
 
@@ -976,6 +1014,7 @@ func TestFadeOutBedroomSpeaker_AbortedByFlag(t *testing.T) {
 
 // TestFadeOutBedroomSpeaker_CancelledByMusicType tests fade out cancelled when music type changes
 func TestFadeOutBedroomSpeaker_CancelledByMusicType(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2024, 1, 15, 9, 5, 0, 0, time.UTC)
 	manager, mockHA, stateManager, _ := setupTest(t, now)
 
@@ -1029,6 +1068,7 @@ func TestFadeOutBedroomSpeaker_CancelledByMusicType(t *testing.T) {
 
 // TestFadeOutBedroomSpeaker_VolumeSequence tests that volume decreases correctly
 func TestFadeOutBedroomSpeaker_VolumeSequence(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2024, 1, 15, 9, 5, 0, 0, time.UTC)
 	manager, mockHA, stateManager, _ := setupTest(t, now)
 
@@ -1085,6 +1125,7 @@ func TestFadeOutBedroomSpeaker_VolumeSequence(t *testing.T) {
 
 // TestBeginWake_LaunchesFadeOut tests that begin_wake launches fade out goroutine
 func TestBeginWake_LaunchesFadeOut(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2024, 1, 15, 9, 5, 0, 0, time.UTC)
 	manager, mockHA, stateManager, _ := setupTest(t, now)
 
@@ -1126,6 +1167,7 @@ func TestBeginWake_LaunchesFadeOut(t *testing.T) {
 
 // TestGetSpeakerVolume tests querying volume from Home Assistant
 func TestGetSpeakerVolume(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2024, 1, 15, 9, 5, 0, 0, time.UTC)
 	manager, mockHA, _, _ := setupTest(t, now)
 
@@ -1148,6 +1190,7 @@ func TestGetSpeakerVolume(t *testing.T) {
 
 // TestGetSpeakerVolume_NoState tests fallback when state query fails
 func TestGetSpeakerVolume_NoState(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2024, 1, 15, 9, 5, 0, 0, time.UTC)
 	manager, _, _, _ := setupTest(t, now)
 
@@ -1163,6 +1206,7 @@ func TestGetSpeakerVolume_NoState(t *testing.T) {
 
 // TestUpdateSpeakerVolumeInState tests currentlyPlayingMusic state updates
 func TestUpdateSpeakerVolumeInState(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2024, 1, 15, 9, 5, 0, 0, time.UTC)
 	manager, _, stateManager, _ := setupTest(t, now)
 
@@ -1209,6 +1253,7 @@ func TestUpdateSpeakerVolumeInState(t *testing.T) {
 
 // TestGetBedroomSpeakers tests dynamic bedroom speaker discovery
 func TestGetBedroomSpeakers(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2024, 1, 15, 9, 5, 0, 0, time.UTC)
 	manager, _, stateManager, _ := setupTest(t, now)
 
@@ -1272,6 +1317,7 @@ func TestGetBedroomSpeakers(t *testing.T) {
 
 // TestGetBedroomSpeakers_EmptyState tests fallback when currentlyPlayingMusic is not set
 func TestGetBedroomSpeakers_EmptyState(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2024, 1, 15, 9, 5, 0, 0, time.UTC)
 	manager, _, _, _ := setupTest(t, now)
 
@@ -1290,6 +1336,7 @@ func TestGetBedroomSpeakers_EmptyState(t *testing.T) {
 
 // TestFadeOutSpeaker_WithVolumeQuery tests fade out with actual volume query
 func TestFadeOutSpeaker_WithVolumeQuery(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2024, 1, 15, 9, 5, 0, 0, time.UTC)
 	manager, mockHA, stateManager, _ := setupTest(t, now)
 
@@ -1391,6 +1438,7 @@ func TestFadeOutSpeaker_WithVolumeQuery(t *testing.T) {
 
 // TestBeginWake_MultipleSpeakers tests that begin_wake launches fade-out for all bedroom speakers
 func TestBeginWake_MultipleSpeakers(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2024, 1, 15, 9, 5, 0, 0, time.UTC)
 	manager, mockHA, stateManager, _ := setupTest(t, now)
 
@@ -1480,6 +1528,7 @@ func TestBeginWake_MultipleSpeakers(t *testing.T) {
 }
 
 func TestManagerReset(t *testing.T) {
+	t.Parallel()
 	logger := zap.NewNop()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -1506,6 +1555,7 @@ func TestManagerReset(t *testing.T) {
 // ========================================
 
 func TestEightSleepAlarm_TriggersBeginWake(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2024, 1, 15, 6, 30, 0, 0, time.UTC)
 	manager, _, stateManager, _ := setupTest(t, now)
 
@@ -1534,6 +1584,7 @@ func TestEightSleepAlarm_TriggersBeginWake(t *testing.T) {
 }
 
 func TestEightSleepAlarm_IgnoresNonAlarmState(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2024, 1, 15, 6, 30, 0, 0, time.UTC)
 	manager, _, stateManager, _ := setupTest(t, now)
 
@@ -1562,6 +1613,7 @@ func TestEightSleepAlarm_IgnoresNonAlarmState(t *testing.T) {
 }
 
 func TestEightSleepAlarm_DeduplicatesToday(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2024, 1, 15, 6, 30, 0, 0, time.UTC)
 	manager, mockHA, stateManager, _ := setupTest(t, now)
 
@@ -1591,7 +1643,10 @@ func TestEightSleepAlarm_DeduplicatesToday(t *testing.T) {
 }
 
 func TestEightSleepAlarm_BothSensorsWork(t *testing.T) {
+	t.Parallel(
 	// Test that both Nick's and Caroline's sensors can trigger the alarm
+	)
+
 	testCases := []struct {
 		name     string
 		entityID string
@@ -1602,6 +1657,7 @@ func TestEightSleepAlarm_BothSensorsWork(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
+
 			now := time.Date(2024, 1, 15, 6, 30, 0, 0, time.UTC)
 			manager, _, stateManager, _ := setupTest(t, now)
 
@@ -1626,6 +1682,7 @@ func TestEightSleepAlarm_BothSensorsWork(t *testing.T) {
 }
 
 func TestEightSleepAlarm_IgnoresNilNewState(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2024, 1, 15, 6, 30, 0, 0, time.UTC)
 	manager, _, stateManager, _ := setupTest(t, now)
 
@@ -1647,7 +1704,10 @@ func TestEightSleepAlarm_IgnoresNilNewState(t *testing.T) {
 }
 
 func TestEightSleepAlarm_RespectsConditions(t *testing.T) {
+	t.Parallel(
 	// Test that the Eight Sleep alarm respects begin_wake conditions
+	)
+
 	testCases := []struct {
 		name           string
 		isAnyoneHome   bool
@@ -1663,6 +1723,7 @@ func TestEightSleepAlarm_RespectsConditions(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
+
 			now := time.Date(2024, 1, 15, 6, 30, 0, 0, time.UTC)
 			manager, _, stateManager, _ := setupTest(t, now)
 
@@ -1691,7 +1752,10 @@ func TestEightSleepAlarm_RespectsConditions(t *testing.T) {
 }
 
 func TestEightSleepAlarm_NewDayResetsDeduplication(t *testing.T) {
+	t.Parallel(
 	// Test that deduplication is reset on a new day
+	)
+
 	yesterday := time.Date(2024, 1, 14, 22, 0, 0, 0, time.UTC)
 	today := time.Date(2024, 1, 15, 6, 30, 0, 0, time.UTC)
 
@@ -1728,6 +1792,7 @@ func TestEightSleepAlarm_NewDayResetsDeduplication(t *testing.T) {
 }
 
 func TestStart_SubscribesToEightSleepSensors(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2024, 1, 15, 8, 0, 0, 0, time.UTC)
 	manager, mockHA, _, _ := setupTest(t, now)
 
@@ -1770,6 +1835,7 @@ func TestStart_SubscribesToEightSleepSensors(t *testing.T) {
 // Eight Sleep Availability Tests
 
 func TestIsEightSleepUnavailable_BothSensorsAvailable(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2024, 1, 15, 8, 0, 0, 0, time.UTC)
 	manager, mockHA, _, _ := setupTest(t, now)
 
@@ -1783,6 +1849,7 @@ func TestIsEightSleepUnavailable_BothSensorsAvailable(t *testing.T) {
 }
 
 func TestIsEightSleepUnavailable_OnlyNickAvailable(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2024, 1, 15, 8, 0, 0, 0, time.UTC)
 	manager, mockHA, _, _ := setupTest(t, now)
 
@@ -1796,6 +1863,7 @@ func TestIsEightSleepUnavailable_OnlyNickAvailable(t *testing.T) {
 }
 
 func TestIsEightSleepUnavailable_OnlyCarolineAvailable(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2024, 1, 15, 8, 0, 0, 0, time.UTC)
 	manager, mockHA, _, _ := setupTest(t, now)
 
@@ -1809,6 +1877,7 @@ func TestIsEightSleepUnavailable_OnlyCarolineAvailable(t *testing.T) {
 }
 
 func TestIsEightSleepUnavailable_BothSensorsUnavailable(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2024, 1, 15, 8, 0, 0, 0, time.UTC)
 	manager, mockHA, _, _ := setupTest(t, now)
 
@@ -1822,6 +1891,7 @@ func TestIsEightSleepUnavailable_BothSensorsUnavailable(t *testing.T) {
 }
 
 func TestIsEightSleepUnavailable_BothSensorsNotFound(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2024, 1, 15, 8, 0, 0, 0, time.UTC)
 	manager, _, _, _ := setupTest(t, now)
 
@@ -1834,6 +1904,7 @@ func TestIsEightSleepUnavailable_BothSensorsNotFound(t *testing.T) {
 }
 
 func TestIsEightSleepUnavailable_NickErrorCarolineAvailable(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2024, 1, 15, 8, 0, 0, 0, time.UTC)
 	manager, mockHA, _, _ := setupTest(t, now)
 
@@ -1848,8 +1919,11 @@ func TestIsEightSleepUnavailable_NickErrorCarolineAvailable(t *testing.T) {
 // Backup Wake Trigger Tests
 
 func TestBackupWake_TriggersWhenEightSleepUnavailable(t *testing.T) {
+	t.Parallel(
 	// Set time to 9:00 AM on a Monday (begin_backup_wake is 08:50 for Monday)
 	// Jan 15, 2024 is a Monday
+	)
+
 	now := time.Date(2024, 1, 15, 9, 0, 0, 0, time.UTC)
 	manager, mockHA, stateManager, configLoader := setupTest(t, now)
 
@@ -1884,7 +1958,10 @@ func TestBackupWake_TriggersWhenEightSleepUnavailable(t *testing.T) {
 }
 
 func TestBackupWake_DoesNotTriggerWhenEightSleepAvailable(t *testing.T) {
+	t.Parallel(
 	// Set time to 9:00 AM on a Monday (begin_backup_wake is 08:50 for Monday)
+	)
+
 	now := time.Date(2024, 1, 15, 9, 0, 0, 0, time.UTC)
 	manager, mockHA, stateManager, configLoader := setupTest(t, now)
 
@@ -1913,7 +1990,10 @@ func TestBackupWake_DoesNotTriggerWhenEightSleepAvailable(t *testing.T) {
 }
 
 func TestBackupWake_DoesNotTriggerOutsideWindow(t *testing.T) {
+	t.Parallel(
 	// Set time to 7:00 AM - well before the backup wake window (08:50)
+	)
+
 	now := time.Date(2024, 1, 15, 7, 0, 0, 0, time.UTC)
 	manager, mockHA, stateManager, configLoader := setupTest(t, now)
 
@@ -1942,6 +2022,7 @@ func TestBackupWake_DoesNotTriggerOutsideWindow(t *testing.T) {
 }
 
 func TestBackupWake_UpdatesShadowState(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2024, 1, 15, 9, 0, 0, 0, time.UTC)
 	manager, mockHA, _, configLoader := setupTest(t, now)
 
@@ -1974,6 +2055,7 @@ func TestBackupWake_UpdatesShadowState(t *testing.T) {
 }
 
 func TestBackupWake_ShadowStateShowsAvailableWhenSensorsWork(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2024, 1, 15, 9, 0, 0, 0, time.UTC)
 	manager, mockHA, _, configLoader := setupTest(t, now)
 

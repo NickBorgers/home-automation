@@ -15,6 +15,7 @@ import (
 )
 
 func TestNewManager(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -32,6 +33,7 @@ func TestNewManager(t *testing.T) {
 }
 
 func TestManagerStartStop(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -52,6 +54,7 @@ func TestManagerStartStop(t *testing.T) {
 }
 
 func TestUpdateSunEventAndDayPhase(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -91,6 +94,7 @@ func TestUpdateSunEventAndDayPhase(t *testing.T) {
 }
 
 func TestUpdateSunEventAndDayPhaseReadOnly(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, true) // READ ONLY
@@ -114,6 +118,7 @@ func TestUpdateSunEventAndDayPhaseReadOnly(t *testing.T) {
 }
 
 func TestManagerPeriodicUpdate(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -143,6 +148,7 @@ func TestManagerPeriodicUpdate(t *testing.T) {
 }
 
 func TestManagerWithDifferentCoordinates(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -168,6 +174,7 @@ func TestManagerWithDifferentCoordinates(t *testing.T) {
 }
 
 func TestUpdateSunEventNoChange(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -195,6 +202,7 @@ func TestUpdateSunEventNoChange(t *testing.T) {
 }
 
 func TestUpdateDayPhaseNoChange(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -222,6 +230,7 @@ func TestUpdateDayPhaseNoChange(t *testing.T) {
 }
 
 func TestManagerStopBeforeStart(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -237,6 +246,7 @@ func TestManagerStopBeforeStart(t *testing.T) {
 }
 
 func TestManagerReset(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -265,8 +275,11 @@ func TestManagerReset(t *testing.T) {
 }
 
 func TestManager_ShadowState_NextTransitionUpdated(t *testing.T) {
+	t.Parallel(
 	// Test that shadow state outputs.NextTransitionTime and NextTransitionPhase are populated
 	// This test catches the bug where UpdateNextTransition() was never called
+	)
+
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -317,7 +330,10 @@ func TestManager_ShadowState_NextTransitionUpdated(t *testing.T) {
 }
 
 func TestManager_ShadowState_SunEventAndDayPhaseUpdated(t *testing.T) {
+	t.Parallel(
 	// Test that shadow state outputs for sun event and day phase are populated
+	)
+
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)

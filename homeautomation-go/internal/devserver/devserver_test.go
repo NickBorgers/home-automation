@@ -12,15 +12,18 @@ import (
 )
 
 func TestNewDevServer(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 
 	t.Run("default port", func(t *testing.T) {
+
 		ds := NewDevServer(logger, 0)
 		require.NotNil(t, ds)
 		assert.Equal(t, DefaultDevPort, ds.port)
 	})
 
 	t.Run("custom port", func(t *testing.T) {
+
 		ds := NewDevServer(logger, 19999)
 		require.NotNil(t, ds)
 		assert.Equal(t, 19999, ds.port)
@@ -28,6 +31,7 @@ func TestNewDevServer(t *testing.T) {
 }
 
 func TestDevServer_StartStop(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 
 	// Use a unique port for testing
@@ -53,6 +57,7 @@ func TestDevServer_StartStop(t *testing.T) {
 }
 
 func TestDevServer_GetURLs(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	ds := NewDevServer(logger, 12345)
 
@@ -61,6 +66,7 @@ func TestDevServer_GetURLs(t *testing.T) {
 }
 
 func TestDevServer_SampleData(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 
 	// Use a unique port for testing

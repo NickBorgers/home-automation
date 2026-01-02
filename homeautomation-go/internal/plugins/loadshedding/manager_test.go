@@ -12,6 +12,7 @@ import (
 )
 
 func TestLoadShedding_EnergyStateRed(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 
@@ -71,6 +72,7 @@ func TestLoadShedding_EnergyStateRed(t *testing.T) {
 }
 
 func TestLoadShedding_EnergyStateBlack(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 
@@ -108,6 +110,7 @@ func TestLoadShedding_EnergyStateBlack(t *testing.T) {
 }
 
 func TestLoadShedding_EnergyStateGreen(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 
@@ -153,6 +156,7 @@ func TestLoadShedding_EnergyStateGreen(t *testing.T) {
 }
 
 func TestLoadShedding_EnergyStateWhite(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 
@@ -193,6 +197,7 @@ func TestLoadShedding_EnergyStateWhite(t *testing.T) {
 }
 
 func TestLoadShedding_RateLimiting(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 
@@ -236,6 +241,7 @@ func TestLoadShedding_RateLimiting(t *testing.T) {
 }
 
 func TestLoadShedding_StartStop(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 
@@ -269,6 +275,7 @@ func TestLoadShedding_StartStop(t *testing.T) {
 }
 
 func TestLoadShedding_UnknownState(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 
@@ -300,6 +307,7 @@ func TestLoadShedding_UnknownState(t *testing.T) {
 }
 
 func TestLoadShedding_RedToGreenTransition(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 
@@ -354,6 +362,7 @@ func TestLoadShedding_RedToGreenTransition(t *testing.T) {
 }
 
 func TestManagerReset(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)

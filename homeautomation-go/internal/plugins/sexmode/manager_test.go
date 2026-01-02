@@ -12,7 +12,10 @@ import (
 
 // TestSexModeManager_ActivationSetsMusic tests that activating sex mode sets music to "sex" type
 func TestSexModeManager_ActivationSetsMusic(t *testing.T) {
+	t.Parallel(
 	// Setup
+	)
+
 	mockHA := ha.NewMockClient()
 	mockHA.SetState("input_boolean.sex", "off", nil)
 	mockHA.Connect()
@@ -63,7 +66,10 @@ func TestSexModeManager_ActivationSetsMusic(t *testing.T) {
 
 // TestSexModeManager_ActivationSetsLighting tests that activating sex mode sets Primary Suite to night scene
 func TestSexModeManager_ActivationSetsLighting(t *testing.T) {
+	t.Parallel(
 	// Setup
+	)
+
 	mockHA := ha.NewMockClient()
 	mockHA.SetState("input_boolean.sex", "off", nil)
 	mockHA.Connect()
@@ -107,7 +113,10 @@ func TestSexModeManager_ActivationSetsLighting(t *testing.T) {
 
 // TestSexModeManager_ActivationSetsEightSleep tests that activating sex mode sets Eight Sleep to coldest
 func TestSexModeManager_ActivationSetsEightSleep(t *testing.T) {
+	t.Parallel(
 	// Setup
+	)
+
 	mockHA := ha.NewMockClient()
 	mockHA.SetState("input_boolean.sex", "off", nil)
 	mockHA.Connect()
@@ -167,7 +176,10 @@ func TestSexModeManager_ActivationSetsEightSleep(t *testing.T) {
 
 // TestSexModeManager_DeactivationRestoresMusic tests that deactivating sex mode restores previous music type
 func TestSexModeManager_DeactivationRestoresMusic(t *testing.T) {
+	t.Parallel(
 	// Setup
+	)
+
 	mockHA := ha.NewMockClient()
 	mockHA.SetState("input_boolean.sex", "off", nil)
 	mockHA.SetState("input_text.day_phase", "day", nil)
@@ -227,7 +239,10 @@ func TestSexModeManager_DeactivationRestoresMusic(t *testing.T) {
 
 // TestSexModeManager_DeactivationReEvaluatesLighting tests that deactivating sex mode re-evaluates lighting
 func TestSexModeManager_DeactivationReEvaluatesLighting(t *testing.T) {
+	t.Parallel(
 	// Setup
+	)
+
 	mockHA := ha.NewMockClient()
 	mockHA.SetState("input_boolean.sex", "off", nil)
 	mockHA.Connect()
@@ -281,7 +296,10 @@ func TestSexModeManager_DeactivationReEvaluatesLighting(t *testing.T) {
 
 // TestSexModeManager_DeactivationTurnsOffLightsWhenAsleep tests that lights turn off if master is asleep
 func TestSexModeManager_DeactivationTurnsOffLightsWhenAsleep(t *testing.T) {
+	t.Parallel(
 	// Setup
+	)
+
 	mockHA := ha.NewMockClient()
 	mockHA.SetState("input_boolean.sex", "off", nil)
 	mockHA.Connect()
@@ -335,7 +353,10 @@ func TestSexModeManager_DeactivationTurnsOffLightsWhenAsleep(t *testing.T) {
 
 // TestSexModeManager_DuplicateActivationIgnored tests that duplicate activations are ignored
 func TestSexModeManager_DuplicateActivationIgnored(t *testing.T) {
+	t.Parallel(
 	// Setup
+	)
+
 	mockHA := ha.NewMockClient()
 	mockHA.SetState("input_boolean.sex", "off", nil)
 	mockHA.Connect()
@@ -371,7 +392,10 @@ func TestSexModeManager_DuplicateActivationIgnored(t *testing.T) {
 
 // TestSexModeManager_ReadOnlyMode tests that read-only mode prevents service calls
 func TestSexModeManager_ReadOnlyMode(t *testing.T) {
+	t.Parallel(
 	// Setup
+	)
+
 	mockHA := ha.NewMockClient()
 	mockHA.SetState("input_boolean.sex", "off", nil)
 	mockHA.Connect()
@@ -403,7 +427,10 @@ func TestSexModeManager_ReadOnlyMode(t *testing.T) {
 
 // TestSexModeManager_ShadowState tests that shadow state is properly tracked
 func TestSexModeManager_ShadowState(t *testing.T) {
+	t.Parallel(
 	// Setup
+	)
+
 	mockHA := ha.NewMockClient()
 	mockHA.SetState("input_boolean.sex", "off", nil)
 	mockHA.Connect()
@@ -449,7 +476,10 @@ func TestSexModeManager_ShadowState(t *testing.T) {
 
 // TestSexModeManager_Reset tests the Reset function
 func TestSexModeManager_Reset(t *testing.T) {
+	t.Parallel(
 	// Setup
+	)
+
 	mockHA := ha.NewMockClient()
 	// Sex mode is ON in HA but manager doesn't know about it
 	mockHA.SetState("input_boolean.sex", "on", nil)

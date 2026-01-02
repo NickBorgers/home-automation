@@ -14,6 +14,7 @@ import (
 
 // TestSleepHygieneShadowState_CaptureInputs tests input capture
 func TestSleepHygieneShadowState_CaptureInputs(t *testing.T) {
+	t.Parallel()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, zap.NewNop(), false)
 
@@ -46,6 +47,7 @@ func TestSleepHygieneShadowState_CaptureInputs(t *testing.T) {
 
 // TestSleepHygieneShadowState_RecordAction tests action recording
 func TestSleepHygieneShadowState_RecordAction(t *testing.T) {
+	t.Parallel()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, zap.NewNop(), false)
 	mockConfig := &config.Loader{}
@@ -78,6 +80,7 @@ func TestSleepHygieneShadowState_RecordAction(t *testing.T) {
 
 // TestSleepHygieneShadowState_WakeSequenceStatus tests wake sequence status tracking
 func TestSleepHygieneShadowState_WakeSequenceStatus(t *testing.T) {
+	t.Parallel()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, zap.NewNop(), false)
 	mockConfig := &config.Loader{}
@@ -114,6 +117,7 @@ func TestSleepHygieneShadowState_WakeSequenceStatus(t *testing.T) {
 
 // TestSleepHygieneShadowState_FadeOutProgress tests fade-out progress tracking
 func TestSleepHygieneShadowState_FadeOutProgress(t *testing.T) {
+	t.Parallel()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, zap.NewNop(), false)
 	mockConfig := &config.Loader{}
@@ -178,6 +182,7 @@ func TestSleepHygieneShadowState_FadeOutProgress(t *testing.T) {
 
 // TestSleepHygieneShadowState_TTSAnnouncement tests TTS announcement recording
 func TestSleepHygieneShadowState_TTSAnnouncement(t *testing.T) {
+	t.Parallel()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, zap.NewNop(), false)
 	mockConfig := &config.Loader{}
@@ -212,6 +217,7 @@ func TestSleepHygieneShadowState_TTSAnnouncement(t *testing.T) {
 
 // TestSleepHygieneShadowState_Reminders tests reminder recording
 func TestSleepHygieneShadowState_Reminders(t *testing.T) {
+	t.Parallel()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, zap.NewNop(), false)
 	mockConfig := &config.Loader{}
@@ -258,6 +264,7 @@ func TestSleepHygieneShadowState_Reminders(t *testing.T) {
 
 // TestSleepHygieneShadowState_GetShadowState tests getting shadow state
 func TestSleepHygieneShadowState_GetShadowState(t *testing.T) {
+	t.Parallel()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, zap.NewNop(), false)
 	mockConfig := &config.Loader{}
@@ -301,6 +308,7 @@ func TestSleepHygieneShadowState_GetShadowState(t *testing.T) {
 
 // TestSleepHygieneShadowState_ConcurrentAccess tests thread-safe concurrent access
 func TestSleepHygieneShadowState_ConcurrentAccess(t *testing.T) {
+	t.Parallel()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, zap.NewNop(), false)
 	mockConfig := &config.Loader{}
@@ -345,6 +353,7 @@ func TestSleepHygieneShadowState_ConcurrentAccess(t *testing.T) {
 
 // TestSleepHygieneShadowState_InterfaceImplementation tests that shadow state implements PluginShadowState
 func TestSleepHygieneShadowState_InterfaceImplementation(t *testing.T) {
+	t.Parallel()
 	shadowState := shadowstate.NewSleepHygieneShadowState()
 
 	// Verify it implements the interface
@@ -374,6 +383,7 @@ func TestSleepHygieneShadowState_InterfaceImplementation(t *testing.T) {
 
 // TestSleepHygieneShadowState_CancelWake tests cancel wake shadow state tracking
 func TestSleepHygieneShadowState_CancelWake(t *testing.T) {
+	t.Parallel()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, zap.NewNop(), false)
 	mockConfig := &config.Loader{}
@@ -408,6 +418,7 @@ func TestSleepHygieneShadowState_CancelWake(t *testing.T) {
 
 // TestSleepHygieneShadowState_BedroomLightsChange tests bedroom lights change handler
 func TestSleepHygieneShadowState_BedroomLightsChange(t *testing.T) {
+	t.Parallel()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, zap.NewNop(), false)
 	mockConfig := &config.Loader{}
@@ -436,6 +447,7 @@ func TestSleepHygieneShadowState_BedroomLightsChange(t *testing.T) {
 
 // TestSleepHygieneShadowState_BedroomLightsNoCancel tests that cancel wake doesn't trigger inappropriately
 func TestSleepHygieneShadowState_BedroomLightsNoCancel(t *testing.T) {
+	t.Parallel()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, zap.NewNop(), false)
 	mockConfig := &config.Loader{}
@@ -463,6 +475,7 @@ func TestSleepHygieneShadowState_BedroomLightsNoCancel(t *testing.T) {
 // Shadow state is ALWAYS recorded because sleep music is always started.
 // Lights are only flashed when someone is home and not everyone is asleep.
 func TestSleepHygieneShadowState_HandleGoToBed(t *testing.T) {
+	t.Parallel()
 	testCases := []struct {
 		name              string
 		isAnyoneHome      bool
@@ -504,6 +517,7 @@ func TestSleepHygieneShadowState_HandleGoToBed(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
+
 			mockClient := ha.NewMockClient()
 			stateManager := state.NewManager(mockClient, zap.NewNop(), false)
 			mockConfig := &config.Loader{}

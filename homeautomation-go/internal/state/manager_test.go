@@ -15,6 +15,7 @@ import (
 )
 
 func TestNewManager(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 
@@ -24,6 +25,7 @@ func TestNewManager(t *testing.T) {
 }
 
 func TestManager_SyncFromHA(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 
@@ -60,6 +62,7 @@ func TestManager_SyncFromHA(t *testing.T) {
 }
 
 func TestManager_GetBool(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	mockClient.SetState("input_boolean.nick_home", "on", map[string]interface{}{})
@@ -69,24 +72,28 @@ func TestManager_GetBool(t *testing.T) {
 	manager.SyncFromHA()
 
 	t.Run("valid key", func(t *testing.T) {
+
 		value, err := manager.GetBool("isNickHome")
 		assert.NoError(t, err)
 		assert.True(t, value)
 	})
 
 	t.Run("invalid key", func(t *testing.T) {
+
 		_, err := manager.GetBool("nonexistent")
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "not found")
 	})
 
 	t.Run("wrong type", func(t *testing.T) {
+
 		_, err := manager.GetBool("dayPhase") // This is a string
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "not a boolean")
 	})
 
 	t.Run("default value when not synced", func(t *testing.T) {
+
 		freshManager := NewManager(mockClient, logger, false)
 		value, err := freshManager.GetBool("isExpectingSomeone")
 		assert.NoError(t, err)
@@ -95,6 +102,7 @@ func TestManager_GetBool(t *testing.T) {
 }
 
 func TestManager_SetBool(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	mockClient.SetState("input_boolean.expecting_someone", "off", map[string]interface{}{})
@@ -104,6 +112,7 @@ func TestManager_SetBool(t *testing.T) {
 	manager.SyncFromHA()
 
 	t.Run("set to true", func(t *testing.T) {
+
 		err := manager.SetBool("isExpectingSomeone", true)
 		assert.NoError(t, err)
 
@@ -120,6 +129,7 @@ func TestManager_SetBool(t *testing.T) {
 	})
 
 	t.Run("set to false", func(t *testing.T) {
+
 		mockClient.ClearServiceCalls()
 		err := manager.SetBool("isExpectingSomeone", false)
 		assert.NoError(t, err)
@@ -134,17 +144,20 @@ func TestManager_SetBool(t *testing.T) {
 	})
 
 	t.Run("invalid key", func(t *testing.T) {
+
 		err := manager.SetBool("nonexistent", true)
 		assert.Error(t, err)
 	})
 
 	t.Run("wrong type", func(t *testing.T) {
+
 		err := manager.SetBool("dayPhase", true)
 		assert.Error(t, err)
 	})
 }
 
 func TestManager_GetSetString(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	mockClient.SetState("input_text.day_phase", "morning", map[string]interface{}{})
@@ -176,6 +189,7 @@ func TestManager_GetSetString(t *testing.T) {
 }
 
 func TestManager_GetSetNumber(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	mockClient.SetState("input_number.alarm_time", "1668524400000", map[string]interface{}{})
@@ -207,6 +221,7 @@ func TestManager_GetSetNumber(t *testing.T) {
 }
 
 func TestManager_ChangeDetection(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	mockClient.SetState("input_boolean.nick_home", "off", map[string]interface{}{})
@@ -218,7 +233,9 @@ func TestManager_ChangeDetection(t *testing.T) {
 	manager.SyncFromHA()
 
 	t.Run("SetBool with same value should not trigger HA call", func(t *testing.T) {
+
 		// Get initial value
+
 		value, err := manager.GetBool("isNickHome")
 		assert.NoError(t, err)
 		assert.False(t, value)
@@ -236,7 +253,9 @@ func TestManager_ChangeDetection(t *testing.T) {
 	})
 
 	t.Run("SetString with same value should not trigger HA call", func(t *testing.T) {
+
 		// Get initial value
+
 		value, err := manager.GetString("dayPhase")
 		assert.NoError(t, err)
 		assert.Equal(t, "morning", value)
@@ -254,7 +273,9 @@ func TestManager_ChangeDetection(t *testing.T) {
 	})
 
 	t.Run("SetNumber with same value should not trigger HA call", func(t *testing.T) {
+
 		// Get initial value
+
 		value, err := manager.GetNumber("alarmTime")
 		assert.NoError(t, err)
 		assert.Equal(t, 100.0, value)
@@ -272,6 +293,7 @@ func TestManager_ChangeDetection(t *testing.T) {
 	})
 
 	t.Run("Subscribers should not be notified when value unchanged", func(t *testing.T) {
+
 		notificationCount := 0
 		subscription, err := manager.Subscribe("isNickHome", func(key string, oldValue, newValue interface{}) {
 			notificationCount++
@@ -298,6 +320,7 @@ func TestManager_ChangeDetection(t *testing.T) {
 }
 
 func TestManager_CompareAndSwapBool(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	mockClient.SetState("input_boolean.fade_out_in_progress", "off", map[string]interface{}{})
@@ -307,6 +330,7 @@ func TestManager_CompareAndSwapBool(t *testing.T) {
 	manager.SyncFromHA()
 
 	t.Run("successful swap", func(t *testing.T) {
+
 		swapped, err := manager.CompareAndSwapBool("isFadeOutInProgress", false, true)
 		assert.NoError(t, err)
 		assert.True(t, swapped)
@@ -316,7 +340,9 @@ func TestManager_CompareAndSwapBool(t *testing.T) {
 	})
 
 	t.Run("failed swap - value changed", func(t *testing.T) {
+
 		// Value is now true, trying to swap from false should fail
+
 		swapped, err := manager.CompareAndSwapBool("isFadeOutInProgress", false, true)
 		assert.NoError(t, err)
 		assert.False(t, swapped)
@@ -327,12 +353,14 @@ func TestManager_CompareAndSwapBool(t *testing.T) {
 	})
 
 	t.Run("invalid key", func(t *testing.T) {
+
 		_, err := manager.CompareAndSwapBool("nonexistent", false, true)
 		assert.Error(t, err)
 	})
 }
 
 func TestManager_Subscribe(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	mockClient.SetState("input_boolean.nick_home", "off", map[string]interface{}{})
@@ -344,6 +372,7 @@ func TestManager_Subscribe(t *testing.T) {
 	manager.SyncFromHA()
 
 	t.Run("state change notification", func(t *testing.T) {
+
 		var changeCount int32
 		var mu sync.Mutex
 		var receivedOld, receivedNew interface{}
@@ -369,6 +398,7 @@ func TestManager_Subscribe(t *testing.T) {
 	})
 
 	t.Run("multiple subscribers", func(t *testing.T) {
+
 		var count1, count2 int32
 
 		sub1, _ := manager.Subscribe("isCarolineHome", func(key string, oldValue, newValue interface{}) {
@@ -388,6 +418,7 @@ func TestManager_Subscribe(t *testing.T) {
 	})
 
 	t.Run("unsubscribe", func(t *testing.T) {
+
 		var changeCount int32
 
 		sub, err := manager.Subscribe("isToriHere", func(key string, oldValue, newValue interface{}) {
@@ -405,12 +436,14 @@ func TestManager_Subscribe(t *testing.T) {
 	})
 
 	t.Run("invalid key", func(t *testing.T) {
+
 		_, err := manager.Subscribe("nonexistent", func(key string, oldValue, newValue interface{}) {})
 		assert.Error(t, err)
 	})
 }
 
 func TestManagerNotifySubscribersIsSynchronous(t *testing.T) {
+	t.Parallel()
 	manager := &Manager{
 		logger: zap.NewNop(),
 		subscribers: map[string]map[uint64]StateChangeHandler{
@@ -431,6 +464,7 @@ func TestManagerNotifySubscribersIsSynchronous(t *testing.T) {
 }
 
 func TestManagerNotifySubscribersRecoversFromPanics(t *testing.T) {
+	t.Parallel()
 	secondCalled := false
 	manager := &Manager{
 		logger: zap.NewNop(),
@@ -453,6 +487,7 @@ func TestManagerNotifySubscribersRecoversFromPanics(t *testing.T) {
 }
 
 func TestManager_GetAllValues(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	mockClient.SetState("input_boolean.nick_home", "on", map[string]interface{}{})
@@ -469,6 +504,7 @@ func TestManager_GetAllValues(t *testing.T) {
 }
 
 func TestExtractEntityName(t *testing.T) {
+	t.Parallel()
 	testCases := []struct {
 		input    string
 		expected string
@@ -481,6 +517,7 @@ func TestExtractEntityName(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.input, func(t *testing.T) {
+
 			result := extractEntityName(tc.input)
 			assert.Equal(t, tc.expected, result)
 		})
@@ -488,6 +525,7 @@ func TestExtractEntityName(t *testing.T) {
 }
 
 func TestManager_GetJSON(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 
@@ -527,6 +565,7 @@ func TestManager_GetJSON(t *testing.T) {
 }
 
 func TestManager_SetJSON(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	mockClient.Connect()
@@ -559,6 +598,7 @@ func TestManager_SetJSON(t *testing.T) {
 }
 
 func TestManager_ConcurrentAccess(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	mockClient.SetState("input_boolean.nick_home", "off", map[string]interface{}{})
@@ -591,6 +631,7 @@ func TestManager_ConcurrentAccess(t *testing.T) {
 }
 
 func TestVariablesByEntityID(t *testing.T) {
+	t.Parallel()
 	vars := VariablesByEntityID()
 	assert.NotNil(t, vars)
 	assert.Greater(t, len(vars), 0)
@@ -603,6 +644,7 @@ func TestVariablesByEntityID(t *testing.T) {
 }
 
 func TestManager_ReadOnlyMode(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	mockClient.SetState("input_boolean.expecting_someone", "off", map[string]interface{}{})
@@ -614,6 +656,7 @@ func TestManager_ReadOnlyMode(t *testing.T) {
 	manager.SyncFromHA()
 
 	t.Run("regular variable write blocked in read-only mode", func(t *testing.T) {
+
 		err := manager.SetBool("isExpectingSomeone", true)
 		assert.Error(t, err)
 		assert.ErrorIs(t, err, ErrReadOnlyMode)
@@ -629,6 +672,7 @@ func TestManager_ReadOnlyMode(t *testing.T) {
 	})
 
 	t.Run("computed output variable write allowed in read-only mode", func(t *testing.T) {
+
 		mockClient.ClearServiceCalls()
 
 		// batteryEnergyLevel is marked as ComputedOutput: true
@@ -649,6 +693,7 @@ func TestManager_ReadOnlyMode(t *testing.T) {
 	})
 
 	t.Run("all energy variables writable in read-only mode", func(t *testing.T) {
+
 		mockClient.ClearServiceCalls()
 
 		// Test all three energy variables
@@ -667,7 +712,9 @@ func TestManager_ReadOnlyMode(t *testing.T) {
 	})
 
 	t.Run("local-only variable write allowed in read-only mode", func(t *testing.T) {
+
 		// didOwnerJustReturnHome is LocalOnly: true
+
 		err := manager.SetBool("didOwnerJustReturnHome", true)
 		assert.NoError(t, err)
 
@@ -676,7 +723,9 @@ func TestManager_ReadOnlyMode(t *testing.T) {
 	})
 
 	t.Run("read operations work in read-only mode", func(t *testing.T) {
+
 		// Reading should always work
+
 		value, err := manager.GetBool("isExpectingSomeone")
 		assert.NoError(t, err)
 		assert.False(t, value)
@@ -688,7 +737,10 @@ func TestManager_ReadOnlyMode(t *testing.T) {
 }
 
 func TestManager_ComputedOutputFlagVerification(t *testing.T) {
+	t.Parallel(
 	// Verify that energy variables have ComputedOutput: true
+	)
+
 	vars := VariablesByKey()
 
 	batteryVar := vars["batteryEnergyLevel"]

@@ -105,6 +105,7 @@ groups:
 }
 
 func TestLoader_LoadAll(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	configDir := setupTestConfigDir(t)
 
@@ -133,6 +134,7 @@ func TestLoader_LoadAll(t *testing.T) {
 }
 
 func TestLoader_LoadMusicConfig(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	configDir := setupTestConfigDir(t)
 
@@ -147,6 +149,7 @@ func TestLoader_LoadMusicConfig(t *testing.T) {
 }
 
 func TestLoader_LoadHueConfig(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	configDir := setupTestConfigDir(t)
 
@@ -161,6 +164,7 @@ func TestLoader_LoadHueConfig(t *testing.T) {
 }
 
 func TestLoader_LoadScheduleConfig(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	configDir := setupTestConfigDir(t)
 
@@ -180,6 +184,7 @@ func TestLoader_LoadScheduleConfig(t *testing.T) {
 }
 
 func TestLoader_GetTodaysSchedule(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	configDir := setupTestConfigDir(t)
 
@@ -213,6 +218,7 @@ func TestLoader_GetTodaysSchedule(t *testing.T) {
 }
 
 func TestLoader_MissingFile(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	configDir := t.TempDir() // Empty directory
 
@@ -222,6 +228,7 @@ func TestLoader_MissingFile(t *testing.T) {
 }
 
 func TestLoader_GetTodaysSchedule_NotLoaded(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	configDir := t.TempDir()
 
@@ -234,6 +241,7 @@ func TestLoader_GetTodaysSchedule_NotLoaded(t *testing.T) {
 }
 
 func TestLoader_GetTodaysSchedule_InvalidTime(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	tmpDir := t.TempDir()
 
@@ -303,6 +311,7 @@ func TestLoader_GetTodaysSchedule_InvalidTime(t *testing.T) {
 }
 
 func TestLoader_StartAutoReload_Stop(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	configDir := setupTestConfigDir(t)
 
@@ -325,6 +334,7 @@ func TestLoader_StartAutoReload_Stop(t *testing.T) {
 }
 
 func TestLoader_Stop_MultipleCalls(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	configDir := setupTestConfigDir(t)
 
@@ -342,6 +352,7 @@ func TestLoader_Stop_MultipleCalls(t *testing.T) {
 }
 
 func TestLoader_GetTodaysSchedule_ParseErrors(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 
 	// Helper to create 7 identical schedule entries (one for each day of week)
@@ -434,6 +445,7 @@ func TestLoader_GetTodaysSchedule_ParseErrors(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
+
 			tmpDir := t.TempDir()
 			scheduleYAML := makeScheduleWithSevenEntries(tc.entryYAML)
 			err := os.WriteFile(filepath.Join(tmpDir, "schedule_config.yaml"), []byte(scheduleYAML), 0644)
@@ -452,6 +464,7 @@ func TestLoader_GetTodaysSchedule_ParseErrors(t *testing.T) {
 }
 
 func TestLoader_GetTodaysScheduleInTimezone(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	configDir := setupTestConfigDir(t)
 
@@ -490,6 +503,7 @@ func TestLoader_GetTodaysScheduleInTimezone(t *testing.T) {
 }
 
 func TestLoader_SetTimezone(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	configDir := setupTestConfigDir(t)
 

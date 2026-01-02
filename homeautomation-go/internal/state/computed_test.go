@@ -12,6 +12,7 @@ import (
 )
 
 func TestSetupComputedState(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	mockClient.SetState("input_boolean.anyone_home", "off", map[string]interface{}{})
@@ -28,6 +29,7 @@ func TestSetupComputedState(t *testing.T) {
 }
 
 func TestComputedState_IsAnyoneHomeAndAwake_InitialComputation(t *testing.T) {
+	t.Parallel()
 	testCases := []struct {
 		name           string
 		isAnyoneHome   string
@@ -62,6 +64,7 @@ func TestComputedState_IsAnyoneHomeAndAwake_InitialComputation(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			logger := testlogger.New()
 			mockClient := ha.NewMockClient()
 			mockClient.SetState("input_boolean.anyone_home", tc.isAnyoneHome, map[string]interface{}{})
@@ -84,6 +87,7 @@ func TestComputedState_IsAnyoneHomeAndAwake_InitialComputation(t *testing.T) {
 }
 
 func TestComputedState_IsAnyoneHomeAndAwake_ReactsToIsAnyoneHomeChange(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	// Start with nobody home and nobody asleep
@@ -119,6 +123,7 @@ func TestComputedState_IsAnyoneHomeAndAwake_ReactsToIsAnyoneHomeChange(t *testin
 }
 
 func TestComputedState_IsAnyoneHomeAndAwake_ReactsToIsAnyoneAsleepChange(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	// Start with someone home and awake
@@ -154,6 +159,7 @@ func TestComputedState_IsAnyoneHomeAndAwake_ReactsToIsAnyoneAsleepChange(t *test
 }
 
 func TestComputedState_IsAnyoneHomeAndAwake_SyncsToHA(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	mockClient.SetState("input_boolean.anyone_home", "on", map[string]interface{}{})
@@ -191,6 +197,7 @@ func TestComputedState_IsAnyoneHomeAndAwake_SyncsToHA(t *testing.T) {
 }
 
 func TestComputedState_IsAnyoneHomeAndAwake_WorksInReadOnlyMode(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	mockClient.SetState("input_boolean.anyone_home", "on", map[string]interface{}{})
@@ -219,13 +226,17 @@ func TestComputedState_IsAnyoneHomeAndAwake_WorksInReadOnlyMode(t *testing.T) {
 }
 
 func TestComputedState_IsAnyoneHomeAndAwake_ComputedOutputFlag(t *testing.T) {
+	t.Parallel(
 	// Verify that isAnyoneHomeAndAwake has ComputedOutput: true
+	)
+
 	vars := VariablesByKey()
 	v := vars["isAnyoneHomeAndAwake"]
 	assert.True(t, v.ComputedOutput, "isAnyoneHomeAndAwake should have ComputedOutput: true")
 }
 
 func TestComputedState_IsAnyoneHomeAndAwake_SubscriberNotification(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	mockClient.SetState("input_boolean.anyone_home", "off", map[string]interface{}{})

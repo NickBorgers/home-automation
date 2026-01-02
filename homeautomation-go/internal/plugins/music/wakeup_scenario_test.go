@@ -227,6 +227,7 @@ func createWakeupTestConfig() *MusicConfig {
 // handleStateChange() doesn't pass trigger context to the music selection logic.
 // It always calls selectAppropriateMusicMode() with isWakeUpEvent=false.
 func TestScenario_WakeUpDuringMorning_TriggersMorningMusic(t *testing.T) {
+	t.Parallel()
 	logger := zap.NewNop()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -329,6 +330,7 @@ func TestScenario_WakeUpDuringMorning_TriggersMorningMusic(t *testing.T) {
 // NOTE: This test PASSES because both the buggy Go code and the correct
 // behavior result in "day" music (Go never triggers morning music anyway).
 func TestScenario_WakeUpOnSunday_TriggersDayMusic(t *testing.T) {
+	t.Parallel()
 	logger := zap.NewNop()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -396,6 +398,7 @@ func TestScenario_WakeUpOnSunday_TriggersDayMusic(t *testing.T) {
 //
 // NOTE: This test PASSES - both Go and Node-RED correctly return "day" here.
 func TestScenario_DayPhaseChangesToMorning_TriggersDayMusic(t *testing.T) {
+	t.Parallel()
 	logger := zap.NewNop()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -457,6 +460,7 @@ func TestScenario_DayPhaseChangesToMorning_TriggersDayMusic(t *testing.T) {
 //
 // NOTE: This test PASSES - Go implementation handles this correctly.
 func TestScenario_NoOneHome_StopsMusic(t *testing.T) {
+	t.Parallel()
 	logger := zap.NewNop()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -516,6 +520,7 @@ func TestScenario_NoOneHome_StopsMusic(t *testing.T) {
 //
 // NOTE: This test PASSES - Go implementation handles this correctly.
 func TestScenario_SomeoneFallsAsleep_TriggersSleepMusic(t *testing.T) {
+	t.Parallel()
 	logger := zap.NewNop()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -591,6 +596,7 @@ func TestScenario_SomeoneFallsAsleep_TriggersSleepMusic(t *testing.T) {
 // 3. Trigger dayPhase change to "winddown"
 // 4. Verify sleep music persists
 func TestScenario_SleepMusicPersistsDuringWinddown(t *testing.T) {
+	t.Parallel()
 	logger := zap.NewNop()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -661,6 +667,7 @@ func TestScenario_SleepMusicPersistsDuringWinddown(t *testing.T) {
 // Phase 3 returns "day" instead of "morning" because the Go implementation
 // doesn't detect that isAnyoneAsleep changing from true→false is a wake-up event.
 func TestScenario_FullWakeUpCycle(t *testing.T) {
+	t.Parallel()
 	logger := zap.NewNop()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)

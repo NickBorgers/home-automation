@@ -56,6 +56,7 @@ func (m *mockStateManager) SetNumber(key string, value float64) {
 }
 
 func TestNewInputCaptureHelper(t *testing.T) {
+	t.Parallel()
 	registry := NewSubscriptionRegistry()
 	mockHA := ha.NewMockClient()
 	mockState := newMockStateManager()
@@ -80,6 +81,7 @@ func TestNewInputCaptureHelper(t *testing.T) {
 }
 
 func TestCaptureInputs_HAEntities(t *testing.T) {
+	t.Parallel()
 	registry := NewSubscriptionRegistry()
 	mockHA := ha.NewMockClient()
 	mockState := newMockStateManager()
@@ -109,6 +111,7 @@ func TestCaptureInputs_HAEntities(t *testing.T) {
 }
 
 func TestCaptureInputs_StateVariables_Bool(t *testing.T) {
+	t.Parallel()
 	registry := NewSubscriptionRegistry()
 	mockHA := ha.NewMockClient()
 	mockState := newMockStateManager()
@@ -138,6 +141,7 @@ func TestCaptureInputs_StateVariables_Bool(t *testing.T) {
 }
 
 func TestCaptureInputs_StateVariables_String(t *testing.T) {
+	t.Parallel()
 	registry := NewSubscriptionRegistry()
 	mockHA := ha.NewMockClient()
 	mockState := newMockStateManager()
@@ -167,6 +171,7 @@ func TestCaptureInputs_StateVariables_String(t *testing.T) {
 }
 
 func TestCaptureInputs_StateVariables_Number(t *testing.T) {
+	t.Parallel()
 	registry := NewSubscriptionRegistry()
 	mockHA := ha.NewMockClient()
 	mockState := newMockStateManager()
@@ -190,6 +195,7 @@ func TestCaptureInputs_StateVariables_Number(t *testing.T) {
 }
 
 func TestCaptureInputs_MixedTypes(t *testing.T) {
+	t.Parallel()
 	registry := NewSubscriptionRegistry()
 	mockHA := ha.NewMockClient()
 	mockState := newMockStateManager()
@@ -227,6 +233,7 @@ func TestCaptureInputs_MixedTypes(t *testing.T) {
 }
 
 func TestCaptureInputs_NoSubscriptions(t *testing.T) {
+	t.Parallel()
 	registry := NewSubscriptionRegistry()
 	mockHA := ha.NewMockClient()
 	mockState := newMockStateManager()
@@ -240,6 +247,7 @@ func TestCaptureInputs_NoSubscriptions(t *testing.T) {
 }
 
 func TestCaptureInputs_MissingHAEntity(t *testing.T) {
+	t.Parallel()
 	registry := NewSubscriptionRegistry()
 	mockHA := ha.NewMockClient()
 	mockState := newMockStateManager()
@@ -267,6 +275,7 @@ func TestCaptureInputs_MissingHAEntity(t *testing.T) {
 }
 
 func TestCaptureInputs_MissingStateVariable(t *testing.T) {
+	t.Parallel()
 	registry := NewSubscriptionRegistry()
 	mockHA := ha.NewMockClient()
 	mockState := newMockStateManager()
@@ -294,6 +303,7 @@ func TestCaptureInputs_MissingStateVariable(t *testing.T) {
 }
 
 func TestCaptureInputsWithAdditional(t *testing.T) {
+	t.Parallel()
 	registry := NewSubscriptionRegistry()
 	mockHA := ha.NewMockClient()
 	mockState := newMockStateManager()
@@ -331,6 +341,7 @@ func TestCaptureInputsWithAdditional(t *testing.T) {
 }
 
 func TestCaptureInputsWithAdditional_Override(t *testing.T) {
+	t.Parallel()
 	registry := NewSubscriptionRegistry()
 	mockHA := ha.NewMockClient()
 	mockState := newMockStateManager()
@@ -357,6 +368,7 @@ func TestCaptureInputsWithAdditional_Override(t *testing.T) {
 }
 
 func TestCaptureInputsWithAdditional_EmptyAdditional(t *testing.T) {
+	t.Parallel()
 	registry := NewSubscriptionRegistry()
 	mockHA := ha.NewMockClient()
 	mockState := newMockStateManager()
@@ -378,6 +390,7 @@ func TestCaptureInputsWithAdditional_EmptyAdditional(t *testing.T) {
 }
 
 func TestGetStateValue_TypePrecedence(t *testing.T) {
+	t.Parallel()
 	registry := NewSubscriptionRegistry()
 	mockHA := ha.NewMockClient()
 	mockState := newMockStateManager()
