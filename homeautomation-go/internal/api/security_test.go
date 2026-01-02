@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -54,6 +55,8 @@ var nonGetMethods = []string{
 	http.MethodPut,
 	http.MethodDelete,
 	http.MethodPatch,
+	http.MethodConnect,
+	http.MethodTrace,
 }
 
 // createTestServer creates a fully configured test server with mock dependencies
@@ -389,16 +392,6 @@ func TestPathTraversalAttacks(t *testing.T) {
 			if w.Code != http.StatusNotFound && w.Code != http.StatusMovedPermanently {
 				t.Errorf("GET %s: expected status 404 or 301, got %d", path, w.Code)
 			}
-
-			// If redirect, verify it doesn't redirect to a dangerous location
-			if w.Code == http.StatusMovedPermanently {
-				location := w.Header().Get("Location")
-				// Should redirect to a safe path (like /)
-				if location != "/" && location != "/etc/passwd" {
-					// /etc/passwd would still get 404 since we don't serve it
-					// The redirect just cleans the path
-				}
-			}
 		})
 	}
 }
@@ -435,9 +428,11 @@ func TestConcurrentRequests(t *testing.T) {
 	server := createTestServer(t)
 
 	// Run 100 concurrent requests across different endpoints
-	done := make(chan bool, 100)
+	var wg sync.WaitGroup
 	for i := 0; i < 100; i++ {
+		wg.Add(1)
 		go func(i int) {
+			defer wg.Done()
 			endpoint := allEndpoints[i%len(allEndpoints)]
 			req := httptest.NewRequest(http.MethodGet, endpoint, nil)
 			w := httptest.NewRecorder()
@@ -447,12 +442,9 @@ func TestConcurrentRequests(t *testing.T) {
 			if w.Code == http.StatusInternalServerError {
 				t.Errorf("Concurrent GET %s: unexpected server error", endpoint)
 			}
-			done <- true
 		}(i)
 	}
 
 	// Wait for all goroutines to complete
-	for i := 0; i < 100; i++ {
-		<-done
-	}
+	wg.Wait()
 }
