@@ -16,14 +16,14 @@ jobs:
     outputs:
       pr_number: ${{ steps.get-pr.outputs.pr_number }}
       pr_title: ${{ steps.get-pr.outputs.pr_title }}
-      pr_body: ${{ steps.get-pr.outputs.pr_body }}
+      pr_body_b64: ${{ steps.get-pr.outputs.pr_body_b64 }}
       head_ref: ${{ steps.get-pr.outputs.head_ref }}
       head_repo: ${{ steps.get-pr.outputs.head_repo }}
       tests_passed: ${{ github.event.workflow_run.conclusion == 'success' }}
       run_id: ${{ github.event.workflow_run.id }}
       issue_number: ${{ steps.get-issue.outputs.issue_number }}
       issue_title: ${{ steps.get-issue.outputs.issue_title }}
-      issue_body: ${{ steps.get-issue.outputs.issue_body }}
+      issue_body_b64: ${{ steps.get-issue.outputs.issue_body_b64 }}
       fix_attempts: ${{ steps.count-attempts.outputs.count }}
 
     steps:
@@ -50,7 +50,9 @@ jobs:
               console.log(`Found PR #${pr.number}: ${pr.title}`);
               core.setOutput('pr_number', pr.number);
               core.setOutput('pr_title', pr.title);
-              core.setOutput('pr_body', pr.body || '');
+              // Base64 encode PR body to avoid issues with special characters in env vars
+              const prBodyB64 = Buffer.from(pr.body || '').toString('base64');
+              core.setOutput('pr_body_b64', prBodyB64);
               core.setOutput('head_ref', pr.head.ref);
               core.setOutput('head_repo', pr.head.repo.full_name);
             } else {
@@ -62,9 +64,12 @@ jobs:
         if: steps.get-pr.outputs.pr_number != ''
         id: get-issue
         env:
-          PR_BODY: ${{ steps.get-pr.outputs.pr_body }}
+          PR_BODY_B64: ${{ steps.get-pr.outputs.pr_body_b64 }}
           GH_TOKEN: ${{ github.token }}
         run: |
+          # Decode PR body to search for linked issues
+          PR_BODY=$(echo "$PR_BODY_B64" | base64 -d)
+
           # Parse PR body for "Resolves #X", "Fixes #X", "Closes #X" patterns
           ISSUE_NUM=$(echo "$PR_BODY" | grep -oP '(Resolves|Fixes|Closes|Fix)\s*#\K\d+' | head -1 || echo "")
           echo "issue_number=$ISSUE_NUM" >> $GITHUB_OUTPUT
@@ -76,14 +81,12 @@ jobs:
             ISSUE_TITLE=$(echo "$ISSUE_JSON" | jq -r '.title // ""')
             ISSUE_BODY=$(echo "$ISSUE_JSON" | jq -r '.body // ""')
             echo "issue_title=$ISSUE_TITLE" >> $GITHUB_OUTPUT
-            # Use heredoc for multiline body
-            echo "issue_body<<EOF" >> $GITHUB_OUTPUT
-            echo "$ISSUE_BODY" >> $GITHUB_OUTPUT
-            echo "EOF" >> $GITHUB_OUTPUT
+            # Base64 encode issue body to avoid issues with special characters
+            echo "issue_body_b64=$(echo "$ISSUE_BODY" | base64 -w0)" >> $GITHUB_OUTPUT
           else
             echo "No linked issue found in PR body"
             echo "issue_title=" >> $GITHUB_OUTPUT
-            echo "issue_body=" >> $GITHUB_OUTPUT
+            echo "issue_body_b64=" >> $GITHUB_OUTPUT
           fi
 
       - name: Count fix attempts from PR labels
@@ -205,16 +208,20 @@ jobs:
             GH_TOKEN=${{ github.token }}
             PR_NUMBER=${{ needs.get-context.outputs.pr_number }}
             PR_TITLE=${{ needs.get-context.outputs.pr_title }}
-            PR_BODY=${{ needs.get-context.outputs.pr_body }}
+            PR_BODY_B64=${{ needs.get-context.outputs.pr_body_b64 }}
             ISSUE_NUMBER=${{ needs.get-context.outputs.issue_number }}
             ISSUE_TITLE=${{ needs.get-context.outputs.issue_title }}
-            ISSUE_BODY=${{ needs.get-context.outputs.issue_body }}
+            ISSUE_BODY_B64=${{ needs.get-context.outputs.issue_body_b64 }}
             RUN_ID=${{ needs.get-context.outputs.run_id }}
             ATTEMPT_NUM=${{ needs.get-context.outputs.fix_attempts }}
             REPO=${{ github.repository }}
           runCmd: |
             # Calculate actual attempt number (current + 1)
             ATTEMPT=$((ATTEMPT_NUM + 1))
+
+            # Decode base64-encoded bodies (handles special characters safely)
+            PR_BODY=$(echo "$PR_BODY_B64" | base64 -d 2>/dev/null || echo "")
+            ISSUE_BODY=$(echo "$ISSUE_BODY_B64" | base64 -d 2>/dev/null || echo "")
 
             # Run Claude Code to fix test failures
             claude --print \
