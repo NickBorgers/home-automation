@@ -3,9 +3,9 @@ name: Claude Code Review
 on:
   pull_request:
     types: [opened]
-    paths:
-      - "homeautomation-go/**"
-      - "configs/**"
+
+env:
+  DEVCONTAINER_IMAGE: ghcr.io/${{ github.repository }}-devcontainer
 
 jobs:
   claude-review:
@@ -15,7 +15,7 @@ jobs:
       pull-requests: write
       issues: write
       id-token: write
-      packages: read
+      packages: write
 
     steps:
       - name: Checkout PR branch
@@ -26,6 +26,9 @@ jobs:
           fetch-depth: 0
           token: ${{ github.token }}
 
+      - name: Create gh config directory for devcontainer mount
+        run: mkdir -p ~/.config/gh
+
       - name: Build and run in devcontainer
         uses: devcontainers/ci@v0.3
         env:
@@ -34,9 +37,13 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           REPO: ${{ github.repository }}
         with:
+          imageName: ${{ env.DEVCONTAINER_IMAGE }}
+          cacheFrom: ${{ env.DEVCONTAINER_IMAGE }}
+          push: always
           runCmd: |
             # Run Claude Code review inside the devcontainer
             claude --print \
+              --model opus \
               --dangerously-skip-permissions \
               --max-turns 15 \
               "You are reviewing PR #${PR_NUMBER} in ${REPO}.
@@ -74,7 +81,7 @@ jobs:
       pull-requests: write
       issues: write
       id-token: write
-      packages: read
+      packages: write
 
     steps:
       - name: Checkout PR branch
@@ -88,6 +95,9 @@ jobs:
       - name: Pull latest changes
         run: git pull origin ${{ github.event.pull_request.head.ref }} || true
 
+      - name: Create gh config directory for devcontainer mount
+        run: mkdir -p ~/.config/gh
+
       - name: Test review in devcontainer
         uses: devcontainers/ci@v0.3
         env:
@@ -95,8 +105,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
         with:
+          imageName: ${{ env.DEVCONTAINER_IMAGE }}
+          cacheFrom: ${{ env.DEVCONTAINER_IMAGE }}
+          push: always
           runCmd: |
             claude --print \
+              --model opus \
               --dangerously-skip-permissions \
               --max-turns 10 \
               "You are a QA tester for PR #${PR_NUMBER}.
@@ -122,7 +136,7 @@ jobs:
       pull-requests: write
       issues: write
       id-token: write
-      packages: read
+      packages: write
 
     steps:
       - name: Checkout PR branch
@@ -136,6 +150,9 @@ jobs:
       - name: Pull latest changes
         run: git pull origin ${{ github.event.pull_request.head.ref }} || true
 
+      - name: Create gh config directory for devcontainer mount
+        run: mkdir -p ~/.config/gh
+
       - name: Concurrency review in devcontainer
         uses: devcontainers/ci@v0.3
         env:
@@ -143,8 +160,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
         with:
+          imageName: ${{ env.DEVCONTAINER_IMAGE }}
+          cacheFrom: ${{ env.DEVCONTAINER_IMAGE }}
+          push: always
           runCmd: |
             claude --print \
+              --model opus \
               --dangerously-skip-permissions \
               --max-turns 12 \
               "You are a CONCURRENCY specialist reviewing PR #${PR_NUMBER}.
