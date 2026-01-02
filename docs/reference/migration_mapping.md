@@ -9,7 +9,7 @@ This document maps Node Red global state variables to their Home Assistant entit
 - **Total state variables in Go implementation**: 40
 - **Synced with Home Assistant**: 38
 - **Local-only (memory only)**: 2
-- **Booleans**: 27
+- **Booleans**: 28 (27 synced + 1 local-only)
 - **Numbers**: 3
 - **Text/String**: 8
 - **JSON (local-only)**: 1
@@ -20,7 +20,7 @@ This document maps Node Red global state variables to their Home Assistant entit
 
 All 40 state variables currently implemented in the Go application, organized by type.
 
-### Boolean Variables (27)
+### Boolean Variables (27 synced with HA)
 
 | Variable | Home Assistant Entity | Description | Flags |
 |----------|----------------------|-------------|-------|
