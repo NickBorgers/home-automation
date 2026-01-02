@@ -21,7 +21,7 @@ type StateVariable struct {
 	ComputedOutput bool        // If true, can be written even in read-only mode (for computed values)
 }
 
-// AllVariables contains all 39 state variables (37 synced with HA + 2 local-only)
+// AllVariables contains all 40 state variables (38 synced with HA + 2 local-only)
 var AllVariables = []StateVariable{
 	// Booleans (26)
 	{Key: "isNickHome", EntityID: "input_boolean.nick_home", Type: TypeBool, Default: false},

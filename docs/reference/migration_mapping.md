@@ -2,87 +2,94 @@
 
 This document maps Node Red global state variables to their Home Assistant entity equivalents.
 
+**Last Updated:** 2026-01-02
+
 ## Migration Summary
 
-- **Total Node Red state variables**: 65
-- **Variables in disabled flows (SKIP)**: 25
-- **Active variables to migrate**: 40
-- **Already exist in Home Assistant**: 10
-- **Need to create**: 30
+- **Total state variables in Go implementation**: 40
+- **Synced with Home Assistant**: 38
+- **Local-only (memory only)**: 2
+- **Booleans**: 27
+- **Numbers**: 3
+- **Text/String**: 8
+- **JSON (local-only)**: 1
 
 ---
 
-## ✅ ALREADY EXISTS - Will Sync With Existing Entities (10)
+## Complete State Variable Reference
 
-These entities already exist in Home Assistant and will be synchronized with Node Red.
+All 40 state variables currently implemented in the Go application, organized by type.
 
-| Node Red Variable | Home Assistant Entity | Type | Action |
-|------------------|----------------------|------|--------|
-| isCarolineHome | input_boolean.caroline_home | Boolean | Sync only |
-| isExpectingSomeone | input_boolean.expecting_someone | Boolean | Sync only |
-| isGridAvailable | input_boolean.grid_available | Boolean | Sync only |
-| isNickHome | input_boolean.nick_home | Boolean | Sync only |
-| isToriHere | input_boolean.tori_here | Boolean | Sync only |
-| batteryEnergyLevel | input_text.battery_energy_level | String | Sync only |
-| currentEnergyLevel | input_text.current_energy_level | String | Sync only |
-| dayPhase | input_text.day_phase | String | Sync only |
-| musicPlaybackType | input_text.music_playback_type | String | Sync only |
-| solarProductionEnergyLevel | input_text.solar_production_energy_level | String | Sync only |
+### Boolean Variables (27)
+
+| Variable | Home Assistant Entity | Description | Flags |
+|----------|----------------------|-------------|-------|
+| isNickHome | input_boolean.nick_home | Nick's presence status | - |
+| isCarolineHome | input_boolean.caroline_home | Caroline's presence status | - |
+| isToriHere | input_boolean.tori_here | Tori's presence status | - |
+| isAnyOwnerHome | input_boolean.any_owner_home | Whether any owner is home | ComputedOutput |
+| isAnyoneHome | input_boolean.anyone_home | Whether anyone is home | ComputedOutput |
+| isAnyoneHomeAndAwake | input_boolean.anyone_home_and_awake | Anyone home and not asleep | ComputedOutput |
+| isMasterAsleep | input_boolean.master_asleep | Master bedroom sleep status | - |
+| isGuestAsleep | input_boolean.guest_asleep | Guest bedroom sleep status | ComputedOutput |
+| isAnyoneAsleep | input_boolean.anyone_asleep | Whether anyone is asleep | ComputedOutput |
+| isEveryoneAsleep | input_boolean.everyone_asleep | Everyone asleep status | ComputedOutput |
+| isGuestBedroomDoorOpen | input_boolean.guest_bedroom_door_open | Guest bedroom door state | - |
+| isHaveGuests | input_boolean.have_guests | Guest presence flag | - |
+| isAppleTVPlaying | input_boolean.apple_tv_playing | Apple TV playback status | - |
+| isTVPlaying | input_boolean.tv_playing | TV playback status | - |
+| isTVon | input_boolean.tv_on | TV power status | - |
+| isFadeOutInProgress | input_boolean.fade_out_in_progress | Music fade out status | - |
+| isFreeEnergyAvailable | input_boolean.free_energy_available | Free energy availability | - |
+| isGridAvailable | input_boolean.grid_available | Grid power availability | - |
+| isExpectingSomeone | input_boolean.expecting_someone | Expecting a visitor | - |
+| isNickOfficeOccupied | input_boolean.nick_office_occupied | Nick's office occupancy sensor | - |
+| isKitchenOccupied | input_boolean.kitchen_occupied | Kitchen occupancy sensor | - |
+| isPrimaryBedroomDoorOpen | input_boolean.primary_bedroom_door_open | Primary bedroom door state | - |
+| isNickNearHome | input_boolean.nick_near_home | Nick proximity geofence trigger | - |
+| isCarolineNearHome | input_boolean.caroline_near_home | Caroline proximity geofence trigger | - |
+| isLockdown | input_boolean.lockdown | Security lockdown momentary trigger | - |
+| reset | input_boolean.reset | System reset trigger | - |
+| isFrontOfHousePersonPresent | input_boolean.front_of_house_person_present | Front porch presence | - |
+
+### Numeric Variables (3)
+
+| Variable | Home Assistant Entity | Description | Range | Unit |
+|----------|----------------------|-------------|-------|------|
+| alarmTime | input_number.alarm_time | Wake-up alarm timestamp | 0 - 2147483647 | ms |
+| remainingSolarGeneration | input_number.remaining_solar_generation | Remaining solar for day | 0 - 100000 | kWh |
+| thisHourSolarGeneration | input_number.this_hour_solar_generation | Current hour solar | 0 - 100000 | kW |
+
+### Text/String Variables (8)
+
+| Variable | Home Assistant Entity | Description | Flags |
+|----------|----------------------|-------------|-------|
+| dayPhase | input_text.day_phase | Current day phase (morning, day, sunset, dusk, winddown, night) | - |
+| sunevent | input_text.sun_event | Current sun event | - |
+| musicPlaybackType | input_text.music_playback_type | Current music mode (day, evening, sleep, etc.) | - |
+| currentlyPlayingMusicUri | input_text.currently_playing_music_uri | URI of currently playing music | - |
+| musicPlaylistRotation | input_text.music_playlist_rotation | Playlist rotation state (JSON) | - |
+| batteryEnergyLevel | input_text.battery_energy_level | Battery level category | ComputedOutput |
+| currentEnergyLevel | input_text.current_energy_level | Overall energy level | ComputedOutput |
+| solarProductionEnergyLevel | input_text.solar_production_energy_level | Solar production level | ComputedOutput |
+
+### Local-Only Variables (2)
+
+These variables exist only in memory and are not synced with Home Assistant.
+
+| Variable | Type | Description |
+|----------|------|-------------|
+| didOwnerJustReturnHome | Boolean | Flag for owner arrival announcements |
+| currentlyPlayingMusic | JSON | Current music playback metadata |
 
 ---
 
-## 🆕 NEED TO CREATE - Boolean Variables (19)
+## Variable Flags Explained
 
-| Node Red Variable | Home Assistant Entity | Description | Action |
-|------------------|----------------------|-------------|--------|
-| isAnyOwnerHome | input_boolean.any_owner_home | Whether any owner is home | Create & sync |
-| isAnyoneAsleep | input_boolean.anyone_asleep | Whether anyone is asleep | Create & sync |
-| isAnyoneHome | input_boolean.anyone_home | Whether anyone is home | Create & sync |
-| isAppleTVPlaying | input_boolean.apple_tv_playing | Apple TV playback status | Create & sync |
-| isEveryoneAsleep | input_boolean.everyone_asleep | Everyone asleep status | Create & sync |
-| isFadeOutInProgress | input_boolean.fade_out_in_progress | Music fade out status | Create & sync |
-| isFreeEnergyAvailable | input_boolean.free_energy_available | Free energy availability | Create & sync |
-| isGuestAsleep | input_boolean.guest_asleep | Guest sleep status | Create & sync |
-| isGuestBedroomDoorOpen | input_boolean.guest_bedroom_door_open | Guest bedroom door state | Create & sync |
-| isHaveGuests | input_boolean.have_guests | Guest presence | Create & sync |
-| isMasterAsleep | input_boolean.master_asleep | Master bedroom sleep status | Create & sync |
-| isTVPlaying | input_boolean.tv_playing | TV playback status | Create & sync |
-| isTVon | input_boolean.tv_on | TV power status | Create & sync |
-| isNickOfficeOccupied | input_boolean.nick_office_occupied | Nick's office occupancy sensor | Create & sync |
-| isKitchenOccupied | input_boolean.kitchen_occupied | Kitchen occupancy sensor | Create & sync |
-| isPrimaryBedroomDoorOpen | input_boolean.primary_bedroom_door_open | Primary bedroom door state | Create & sync |
-| isNickNearHome | input_boolean.nick_near_home | Nick proximity geofence trigger | Create & sync |
-| isCarolineNearHome | input_boolean.caroline_near_home | Caroline proximity geofence trigger | Create & sync |
-| isLockdown | input_boolean.lockdown | Security lockdown momentary trigger | Create & sync |
-
----
-
-## 🆕 NEED TO CREATE - Numeric Variables (3)
-
-| Node Red Variable | Home Assistant Entity | Type | Min | Max | Step | Unit | Action |
-|------------------|----------------------|------|-----|-----|------|------|--------|
-| alarmTime | input_number.alarm_time | Number (timestamp) | 0 | 2147483647 | 1 | ms | Create & sync |
-| remainingSolarGeneration | input_number.remaining_solar_generation | Number | 0 | 100000 | 0.1 | kWh | Create & sync |
-| thisHourSolarGeneration | input_number.this_hour_solar_generation | Number | 0 | 100000 | 0.1 | kW | Create & sync |
-
----
-
-## 🆕 NEED TO CREATE - Text Variables (1)
-
-| Node Red Variable | Home Assistant Entity | Description | Example Values | Action |
-|------------------|----------------------|-------------|----------------|--------|
-| sunevent | input_text.sunevent | Current sun event | "morning", "day", "sunset", "dusk", "night" | Create & sync |
-
----
-
-## 🆕 NEED TO CREATE - JSON Object Variables (2)
-
-These are complex objects stored as JSON strings in input_text entities.
-
-| Node Red Variable | Home Assistant Entity | Max Length | Description | Action |
-|------------------|----------------------|------------|-------------|--------|
-| currentlyPlayingMusic | input_text.currently_playing_music | 4096 | Current music playback info (JSON) | Create & sync |
-| musicPlaylistRotation | input_text.music_playlist_rotation | 255 | Playlist rotation indices per music type (JSON) | Create & sync |
+| Flag | Description |
+|------|-------------|
+| **ComputedOutput** | Variable is computed from other inputs. Can be written even in read-only mode. |
+| **LocalOnly** | Variable exists only in Go application memory, not synced with Home Assistant. |
 
 ---
 
@@ -178,6 +185,7 @@ These variables are only referenced in disabled Node Red flows and will NOT be m
 - input_text: Text entities for strings and JSON-serialized objects
 
 ### Synchronization Strategy
-1. **On Node Red startup**: Read all 39 variables from Home Assistant → initialize Node Red state
-2. **On Node Red variable change**: Write value to corresponding Home Assistant entity
-3. **During migration**: Both systems share state via Home Assistant entities
+1. **On Go application startup**: Read all 38 synced variables from Home Assistant → initialize state cache
+2. **On state variable change**: Write value to corresponding Home Assistant entity
+3. **For local-only variables**: Maintain only in memory, not synced with HA
+4. **For computed outputs**: Can be written even in read-only mode to publish derived state
