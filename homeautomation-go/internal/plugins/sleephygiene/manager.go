@@ -616,7 +616,7 @@ func (m *Manager) scheduleWakeSequence() {
 	}
 }
 
-// handleWake handles the wake trigger (turn on lights, flash, cuddle announcement)
+// handleWake handles the wake trigger (turn on lights)
 func (m *Manager) handleWake() {
 	m.logger.Info("Handling wake trigger")
 
@@ -643,20 +643,17 @@ func (m *Manager) handleWake() {
 	m.logger.Info("Conditions met for wake, executing wake sequence")
 
 	// Record action in shadow state
-	m.recordAction("wake", "Executing wake sequence: turning on lights and checking for cuddle announcement", "wake_timer")
+	m.recordAction("wake", "Executing wake sequence: turning on lights", "wake_timer")
 	m.shadowTracker.UpdateWakeSequenceStatus("wake_in_progress")
 
 	if !m.readOnly {
-		// 1. Turn on master bedroom lights slowly (30 minute transition)
+		// Turn on master bedroom lights slowly (30 minute transition)
 		m.turnOnMasterBedroomLights()
-
-		// 2. Check if both owners can cuddle and announce
-		m.checkAndAnnounceCuddle()
 
 		// Wake sequence complete
 		m.shadowTracker.UpdateWakeSequenceStatus("complete")
 	} else {
-		m.logger.Info("READ-ONLY: Would execute wake sequence (lights + cuddle)")
+		m.logger.Info("READ-ONLY: Would execute wake sequence (lights)")
 	}
 }
 
@@ -790,42 +787,6 @@ func (m *Manager) flashCommonAreaLights() {
 				zap.String("entity", lightEntity),
 				zap.Error(err))
 		}
-	}
-}
-
-// checkAndAnnounceCuddle checks if both owners are home and announces cuddle time via TTS
-func (m *Manager) checkAndAnnounceCuddle() {
-	m.logger.Info("Checking if cuddle announcement should be made")
-
-	isNickHome, err := m.stateManager.GetBool("isNickHome")
-	if err != nil {
-		m.logger.Error("Failed to get isNickHome", zap.Error(err))
-		return
-	}
-
-	isCarolineHome, err := m.stateManager.GetBool("isCarolineHome")
-	if err != nil {
-		m.logger.Error("Failed to get isCarolineHome", zap.Error(err))
-		return
-	}
-
-	if isNickHome && isCarolineHome {
-		m.logger.Info("Both owners home, announcing cuddle time")
-
-		if err := m.haClient.CallService("tts", "speak", map[string]interface{}{
-			"cache":                  true,
-			"media_player_entity_id": []string{"media_player.bedroom"},
-			"message":                "Time to cuddle",
-		}); err != nil {
-			m.logger.Error("Failed to announce cuddle time", zap.Error(err))
-		} else {
-			// Record TTS announcement in shadow state
-			m.shadowTracker.RecordTTSAnnouncement("Time to cuddle", "media_player.bedroom")
-		}
-	} else {
-		m.logger.Debug("Only one owner home, skipping cuddle announcement",
-			zap.Bool("nick_home", isNickHome),
-			zap.Bool("caroline_home", isCarolineHome))
 	}
 }
 

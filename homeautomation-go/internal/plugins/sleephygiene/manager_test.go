@@ -218,15 +218,13 @@ func TestWake_AllConditionsMet(t *testing.T) {
 
 	// Should have:
 	// - 2 calls for master bedroom lights (initial + transition)
-	// - 1 call for TTS cuddle announcement
-	// Note: Flash lights removed from wake sequence (moved to bedtime triggers)
-	if len(calls) < 3 {
-		t.Errorf("Expected at least 3 service calls, got %d", len(calls))
+	// Note: TTS cuddle announcement removed to prevent Sonos volume issues
+	if len(calls) < 2 {
+		t.Errorf("Expected at least 2 service calls, got %d", len(calls))
 	}
 
 	// Check that light service was called for master bedroom
 	foundMasterBedroom := false
-	foundTTS := false
 
 	for _, call := range calls {
 		if call.Domain == "light" && call.Service == "turn_on" {
@@ -234,51 +232,10 @@ func TestWake_AllConditionsMet(t *testing.T) {
 				foundMasterBedroom = true
 			}
 		}
-		if call.Domain == "tts" && call.Service == "speak" {
-			foundTTS = true
-		}
 	}
 
 	if !foundMasterBedroom {
 		t.Error("Expected light.turn_on call for master bedroom")
-	}
-
-	if !foundTTS {
-		t.Error("Expected TTS call for cuddle announcement")
-	}
-}
-
-func TestWake_OnlyOneOwnerHome(t *testing.T) {
-	t.Parallel()
-	now := time.Date(2024, 1, 15, 9, 30, 0, 0, time.UTC)
-	manager, mockHA, stateManager, _ := setupTest(t, now)
-
-	// Set only Nick home
-	stateManager.SetBool("isAnyoneHome", true)
-	stateManager.SetBool("isMasterAsleep", true)
-	stateManager.SetBool("isFadeOutInProgress", true)
-	stateManager.SetBool("isNickHome", true)
-	stateManager.SetBool("isCarolineHome", false)
-
-	// Clear previous calls
-	mockHA.ClearServiceCalls()
-
-	// Trigger wake
-	manager.handleWake()
-
-	// Verify service calls were made
-	calls := mockHA.GetServiceCalls()
-
-	// Should have light calls but NO TTS call
-	foundTTS := false
-	for _, call := range calls {
-		if call.Domain == "tts" && call.Service == "speak" {
-			foundTTS = true
-		}
-	}
-
-	if foundTTS {
-		t.Error("Should not announce cuddle when only one owner is home")
 	}
 }
 

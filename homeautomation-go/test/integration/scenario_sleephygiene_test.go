@@ -188,9 +188,9 @@ func TestScenario_BeginWakeSequence_FadesOutMusic(t *testing.T) {
 	t.Log("SUCCESS: Begin wake sequence fade-out conditions validated")
 }
 
-// TestScenario_FullWakeSequence_ActivatesLightsAndAnnouncement validates that
-// the full wake sequence turns on lights and announces cuddle time
-func TestScenario_FullWakeSequence_ActivatesLightsAndAnnouncement(t *testing.T) {
+// TestScenario_FullWakeSequence_ActivatesLights validates that
+// the full wake sequence turns on lights
+func TestScenario_FullWakeSequence_ActivatesLights(t *testing.T) {
 	// NOTE: This test uses a FixedTimeProvider, so the timer-based wake trigger
 	// won't actually fire (time doesn't advance). This test validates the framework
 	// setup and state management. The actual wake logic is tested in unit tests.
@@ -205,13 +205,11 @@ func TestScenario_FullWakeSequence_ActivatesLightsAndAnnouncement(t *testing.T) 
 	// Clear any initialization service calls
 	server.ClearServiceCalls()
 
-	// GIVEN: Begin wake has completed, fade out is in progress, both owners home
-	t.Log("GIVEN: Begin wake completed, fade out in progress, both owners home")
+	// GIVEN: Begin wake has completed, fade out is in progress
+	t.Log("GIVEN: Begin wake completed, fade out in progress")
 	server.SetState("input_boolean.anyone_home", "on", map[string]interface{}{})
 	server.SetState("input_boolean.master_asleep", "on", map[string]interface{}{})
 	server.SetState("input_boolean.fade_out_in_progress", "on", map[string]interface{}{})
-	server.SetState("input_boolean.nick_home", "on", map[string]interface{}{})
-	server.SetState("input_boolean.caroline_home", "on", map[string]interface{}{})
 
 	// Set alarm time to 25 minutes before wake time
 	alarmTime := wakeTime.Add(-25 * time.Minute)
@@ -231,14 +229,6 @@ func TestScenario_FullWakeSequence_ActivatesLightsAndAnnouncement(t *testing.T) 
 	fadeOutState := server.GetState("input_boolean.fade_out_in_progress")
 	assert.NotNil(t, fadeOutState, "Fade out state should exist")
 	assert.Equal(t, "on", fadeOutState.State, "Fade out should be in progress")
-
-	nickHomeState := server.GetState("input_boolean.nick_home")
-	assert.NotNil(t, nickHomeState, "Nick home state should exist")
-	assert.Equal(t, "on", nickHomeState.State, "Nick should be home")
-
-	carolineHomeState := server.GetState("input_boolean.caroline_home")
-	assert.NotNil(t, carolineHomeState, "Caroline home state should exist")
-	assert.Equal(t, "on", carolineHomeState.State, "Caroline should be home")
 
 	t.Log("SUCCESS: Full wake sequence framework validated")
 }
