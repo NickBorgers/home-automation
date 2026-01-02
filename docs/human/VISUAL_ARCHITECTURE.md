@@ -48,6 +48,7 @@ graph TB
             Security[Security Manager<br/>internal/plugins/security/]
             SexMode[Sex Mode<br/>internal/plugins/sexmode/]
             LoadShed[Load Shedding<br/>internal/plugins/loadshedding/]
+            Christmas[Christmas<br/>internal/plugins/christmas/]
             ResetCoord[Reset Coordinator<br/>internal/plugins/reset/]
         end
 
@@ -123,6 +124,10 @@ graph TB
     LoadShed -->|Call Services| HAClient
     LoadShed -.->|Register Shadow| ShadowTracker
 
+    Christmas -->|Get/Set State| StateManager
+    Christmas -->|Call Services| HAClient
+    Christmas -.->|Register Shadow| ShadowTracker
+
     ResetCoord -->|Subscribe to reset| StateManager
     ResetCoord -.->|Reset All| StateTracking
     ResetCoord -.->|Reset All| Music
@@ -145,6 +150,7 @@ graph TB
     style Security fill:#f3e5f5
     style SexMode fill:#f3e5f5
     style LoadShed fill:#f3e5f5
+    style Christmas fill:#f3e5f5
     style StateTracking fill:#f3e5f5
     style DayPhase fill:#f3e5f5
     style ResetCoord fill:#ffebee
@@ -832,7 +838,7 @@ flowchart TD
 
 ## State Variable Dependency Graph
 
-Shows which plugins read/write which state variables (37 total: 26 booleans, 3 numbers, 6 strings, 2 local-only).
+Shows which plugins read/write which state variables (40 total: 27 booleans, 3 numbers, 8 strings, 2 local-only).
 
 ```mermaid
 graph LR
@@ -893,6 +899,7 @@ graph LR
         Security[Security Plugin]
         SexModePlugin[Sex Mode Plugin<br/>Order: 65]
         LoadShedding[Load Shedding Plugin]
+        ChristmasPlugin[Christmas Plugin]
         ResetCoord[Reset Coordinator<br/>Order: 90]
     end
 
@@ -963,9 +970,12 @@ graph LR
     MasterAsleep --> SexModePlugin
     SexModePlugin --> MusicType
     SexModePlugin -.->|Triggers| Lighting
-    SexModePlugin -.->|Controls| Eight Sleep
+    SexModePlugin -.->|Controls| EightSleep[Eight Sleep]
 
     CurrentEnergy --> LoadShedding
+
+    DayPhase --> ChristmasPlugin
+    AnyoneHome --> ChristmasPlugin
 
     Reset --> ResetCoord
     ResetCoord -.->|Reset| StateTracking
@@ -977,6 +987,7 @@ graph LR
     ResetCoord -.->|Reset| Security
     ResetCoord -.->|Reset| SexModePlugin
     ResetCoord -.->|Reset| SleepHygiene
+    ResetCoord -.->|Reset| ChristmasPlugin
 
     style AnyOwnerHome fill:#fff3e0
     style AnyoneHome fill:#fff3e0
@@ -1003,13 +1014,13 @@ graph LR
 
 | Category | Count | Examples |
 |----------|-------|----------|
-| **Boolean (input)** | 17 | isNickHome, isCarolineHome, isToriHere, isMasterAsleep, isGuestAsleep |
-| **Boolean (computed)** | 5 | isAnyOwnerHome, isAnyoneHome, isAnyoneAsleep, isEveryoneAsleep, isAnyoneHomeAndAwake |
-| **Boolean (output)** | 4 | isFadeOutInProgress, isLockdown, isAppleTVPlaying, isTVon |
+| **Boolean (input)** | 19 | isNickHome, isCarolineHome, isToriHere, isMasterAsleep, isHaveGuests, isNickOfficeOccupied, isKitchenOccupied, isPrimaryBedroomDoorOpen, isNickNearHome, isCarolineNearHome, isFrontOfHousePersonPresent |
+| **Boolean (computed)** | 6 | isAnyOwnerHome, isAnyoneHome, isAnyoneAsleep, isEveryoneAsleep, isAnyoneHomeAndAwake, isGuestAsleep |
+| **Boolean (output)** | 2 | isFadeOutInProgress, isLockdown |
 | **Number** | 3 | alarmTime, remainingSolarGeneration, thisHourSolarGeneration |
 | **String (computed)** | 5 | dayPhase, sunevent, batteryEnergyLevel, currentEnergyLevel, solarProductionEnergyLevel |
-| **String (output)** | 2 | musicPlaybackType, currentlyPlayingMusicUri |
-| **Local-only** | 2 | didOwnerJustReturnHome, currentlyPlayingMusic |
+| **String (output)** | 3 | musicPlaybackType, currentlyPlayingMusicUri, musicPlaylistRotation |
+| **Local-only** | 2 | didOwnerJustReturnHome (bool), currentlyPlayingMusic (JSON) |
 
 ---
 
@@ -1042,7 +1053,7 @@ Follow these conventions:
 
 ---
 
-**Last Updated:** 2025-12-30
+**Last Updated:** 2026-01-02
 **Maintained By:** Development Team
 **Related Documentation:**
 - [ARCHITECTURE.md](../architecture/ARCHITECTURE.md) - Architecture and design decisions
