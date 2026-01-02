@@ -82,6 +82,7 @@ jobs:
           runCmd: |
             # Run Claude Code inside the devcontainer with full tool access
             # Use < /dev/null to prevent hanging on TTY input
+            # Use tee to capture output for artifact upload
             claude --print \
               --model opus \
               --dangerously-skip-permissions \
@@ -98,7 +99,15 @@ jobs:
             - Never use \`git push --no-verify\`
 
             Complete the user's request. If you make changes, commit them.
-            Reply to the user using: gh issue comment ${ISSUE_NUMBER} --body 'YOUR_RESPONSE'" < /dev/null
+            Reply to the user using: gh issue comment ${ISSUE_NUMBER} --body 'YOUR_RESPONSE'" < /dev/null 2>&1 | tee /workspaces/home-automation/claude-response-output.txt
+
+      - name: Upload Claude response output
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: claude-response-output
+          path: claude-response-output.txt
+          retention-days: 7
 
   # Auto-resolve new issues by opening a PR
   resolve-issue:
@@ -151,6 +160,7 @@ jobs:
             REPO=${{ github.repository }}
           runCmd: |
             # Use < /dev/null to prevent hanging on TTY input
+            # Use tee to capture output for artifact upload
             claude --print \
               --model opus \
               --dangerously-skip-permissions \
@@ -193,4 +203,12 @@ jobs:
 
             If you cannot resolve the issue (unclear requirements, needs human decision, etc.),
             comment on the issue explaining what clarification is needed:
-            gh issue comment ${ISSUE_NUMBER} --body 'YOUR_EXPLANATION'" < /dev/null
+            gh issue comment ${ISSUE_NUMBER} --body 'YOUR_EXPLANATION'" < /dev/null 2>&1 | tee /workspaces/home-automation/resolve-issue-output.txt
+
+      - name: Upload issue resolution output
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: resolve-issue-output
+          path: resolve-issue-output.txt
+          retention-days: 7
