@@ -34,6 +34,9 @@ const (
 	wakeDelayAfterFadeOut = 5 * time.Minute
 )
 
+// SleepFunc is the type for sleep functions (for testing)
+type SleepFunc func(time.Duration)
+
 // Manager handles sleep hygiene automations including wake-up sequences
 type Manager struct {
 	haClient        ha.HAClient
@@ -53,6 +56,9 @@ type Manager struct {
 
 	// Shadow state tracking
 	shadowTracker *shadowstate.SleepHygieneTracker
+
+	// Injectable sleep function for testing
+	sleepFunc SleepFunc
 }
 
 // NewManager creates a new Sleep Hygiene manager
@@ -78,7 +84,13 @@ func NewManager(haClient ha.HAClient, stateManager *state.Manager, configLoader 
 		haSubscriptions: make([]ha.Subscription, 0),
 		triggeredToday:  make(map[string]time.Time),
 		shadowTracker:   shadowstate.NewSleepHygieneTracker(),
+		sleepFunc:       time.Sleep,
 	}
+}
+
+// SetSleepFunc allows overriding the sleep function for testing
+func (m *Manager) SetSleepFunc(fn SleepFunc) {
+	m.sleepFunc = fn
 }
 
 // Start begins monitoring state changes and managing sleep hygiene
@@ -505,7 +517,7 @@ func (m *Manager) fadeOutSpeaker(speakerEntityID string) {
 			zap.String("speaker", speakerEntityID),
 			zap.Int("delay_seconds", delaySeconds))
 
-		time.Sleep(time.Duration(delaySeconds) * time.Second)
+		m.sleepFunc(time.Duration(delaySeconds) * time.Second)
 	}
 
 	m.logger.Info("Fade out complete - speaker volume reached 0",
@@ -994,6 +1006,50 @@ func (m *Manager) recordAction(actionType string, reason string, trigger string)
 // GetShadowState returns the current shadow state
 func (m *Manager) GetShadowState() *shadowstate.SleepHygieneShadowState {
 	return m.shadowTracker.GetState()
+}
+
+// TriggerBeginWakeForTest is a test helper that directly triggers the begin_wake sequence.
+// This allows tests to exercise the fade-out logic without waiting for time triggers.
+// Note: This runs the fade-out synchronously (not in a goroutine) for easier testing.
+func (m *Manager) TriggerBeginWakeForTest() {
+	m.logger.Info("Test: Triggering begin_wake directly")
+
+	// Check conditions first (same as handleBeginWake)
+	isAnyoneHome, err := m.stateManager.GetBool("isAnyoneHome")
+	if err != nil || !isAnyoneHome {
+		m.logger.Debug("Test: Skipping begin_wake - no one home")
+		return
+	}
+
+	isMasterAsleep, err := m.stateManager.GetBool("isMasterAsleep")
+	if err != nil || !isMasterAsleep {
+		m.logger.Debug("Test: Skipping begin_wake - master not asleep")
+		return
+	}
+
+	musicPlaybackType, err := m.stateManager.GetString("musicPlaybackType")
+	if err != nil || musicPlaybackType != "sleep" {
+		m.logger.Debug("Test: Skipping begin_wake - not playing sleep music")
+		return
+	}
+
+	// Set fade out in progress flag
+	if !m.readOnly {
+		if err := m.stateManager.SetBool("isFadeOutInProgress", true); err != nil {
+			m.logger.Error("Test: Failed to set isFadeOutInProgress", zap.Error(err))
+		}
+	}
+
+	// Get bedroom speakers from currentlyPlayingMusic
+	bedroomSpeakers := m.getBedroomSpeakers()
+	if len(bedroomSpeakers) == 0 {
+		bedroomSpeakers = []string{"media_player.bedroom"}
+	}
+
+	// Run fade-out SYNCHRONOUSLY for testing (not in goroutine)
+	for _, speaker := range bedroomSpeakers {
+		m.fadeOutSpeaker(speaker)
+	}
 }
 
 // Reset re-checks all wake-up triggers for current day
