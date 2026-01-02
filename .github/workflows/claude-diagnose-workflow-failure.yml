@@ -9,7 +9,6 @@ on:
     workflows:
       - "PR Tests"
       - "Build and Push Docker Image"
-      - "Auto-Format"
       - "Publish-Screenshots"
       - "Trigger Private Security Rebuild"
       - "Notify Private Repo of PR Merge"
