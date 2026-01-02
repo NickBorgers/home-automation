@@ -29,6 +29,13 @@ on:
         required: true
         type: string
 
+# Prevent duplicate reviews when multiple PR Tests complete around the same time
+# Uses branch name for concurrency group
+# cancel-in-progress: false ensures we complete the first review rather than restarting
+concurrency:
+  group: claude-review-${{ github.event_name == 'workflow_dispatch' && inputs.head_ref || github.event.workflow_run.head_branch }}
+  cancel-in-progress: false
+
 env:
   # Note: must be lowercase for Docker compatibility
   DEVCONTAINER_IMAGE: ghcr.io/nickborgers/home-automation-devcontainer
