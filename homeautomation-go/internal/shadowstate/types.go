@@ -920,10 +920,14 @@ type SystemOutputs struct {
 
 // ConnectionHealthMetrics tracks Home Assistant connection health
 type ConnectionHealthMetrics struct {
-	IsConnected    bool      `json:"isConnected"`
-	IsHealthy      bool      `json:"isHealthy"`
-	ReconnectCount int       `json:"reconnectCount"`
-	LastCheck      time.Time `json:"lastCheck"`
+	IsConnected         bool          `json:"isConnected"`
+	IsHealthy           bool          `json:"isHealthy"`
+	ReconnectCount      int           `json:"reconnectCount"`
+	DisconnectCount     int           `json:"disconnectCount"`
+	LastDisconnectTime  time.Time     `json:"lastDisconnectTime,omitempty"`
+	WriteTimeoutCount   int           `json:"writeTimeoutCount"`
+	CurrentConnDuration time.Duration `json:"currentConnDuration"`
+	LastCheck           time.Time     `json:"lastCheck"`
 }
 
 // GetCurrentInputs implements PluginShadowState

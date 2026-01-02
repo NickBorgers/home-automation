@@ -243,10 +243,14 @@ func Run() {
 			},
 			Outputs: shadowstate.SystemOutputs{
 				ConnectionHealth: shadowstate.ConnectionHealthMetrics{
-					IsConnected:    client.IsConnected(),
-					IsHealthy:      client.IsHealthy(),
-					ReconnectCount: client.GetReconnectCount(),
-					LastCheck:      time.Now(),
+					IsConnected:         client.IsConnected(),
+					IsHealthy:           client.IsHealthy(),
+					ReconnectCount:      client.GetReconnectCount(),
+					DisconnectCount:     client.GetDisconnectCount(),
+					LastDisconnectTime:  client.GetLastDisconnectTime(),
+					WriteTimeoutCount:   client.GetWriteTimeoutCount(),
+					CurrentConnDuration: client.GetConnectionDuration(),
+					LastCheck:           time.Now(),
 				},
 			},
 			Metadata: shadowstate.StateMetadata{
