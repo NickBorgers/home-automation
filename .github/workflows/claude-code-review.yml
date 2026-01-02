@@ -161,6 +161,7 @@ jobs:
       id-token: write
       packages: read
       actions: write  # Required to trigger PR Tests workflow via workflow_dispatch
+      workflows: write  # Required to push branches when repo contains workflow files
 
     steps:
       - name: Checkout PR branch
@@ -322,6 +323,7 @@ jobs:
       issues: write
       id-token: write
       packages: read
+      workflows: write  # Required to push branches when repo contains workflow files
 
     steps:
       - name: Checkout PR branch
@@ -409,6 +411,7 @@ jobs:
       issues: write
       id-token: write
       packages: read
+      workflows: write  # Required to push branches when repo contains workflow files
 
     steps:
       - name: Checkout PR branch
@@ -483,6 +486,7 @@ jobs:
       issues: write
       id-token: write
       packages: read
+      workflows: write  # Required to push branches when repo contains workflow files
 
     steps:
       - name: Checkout PR branch
