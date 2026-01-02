@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"homeautomation/internal/clock"
 	"homeautomation/internal/config"
 	dayphaselib "homeautomation/internal/dayphase"
 	"homeautomation/internal/ha"
@@ -272,6 +273,13 @@ func TestManager_ShadowState_NextTransitionUpdated(t *testing.T) {
 	configLoader := config.NewLoader("../../../configs", logger)
 	calculator := dayphaselib.NewCalculator(32.85486, -97.50515, logger)
 
+	// Use a fixed reference time: January 15, 2024 at 10:00 AM
+	// This makes the test deterministic regardless of when it runs
+	fixedTime := time.Date(2024, 1, 15, 10, 0, 0, 0, time.Local)
+	mockClock := clock.NewMockClock(fixedTime)
+	calculator.SetClock(mockClock)
+	configLoader.SetClock(mockClock)
+
 	manager := NewManager(mockClient, stateManager, configLoader, calculator, logger, false, nil)
 
 	// Initialize state
@@ -303,8 +311,8 @@ func TestManager_ShadowState_NextTransitionUpdated(t *testing.T) {
 		"Expected NextTransitionPhase to be a valid phase, got: %s", shadowState.Outputs.NextTransitionPhase)
 
 	// NextTransitionTime should be in the future (or within a reasonable range)
-	now := time.Now()
-	assert.True(t, shadowState.Outputs.NextTransitionTime.After(now.Add(-1*time.Hour)),
+	// Compare against the fixed reference time, not time.Now()
+	assert.True(t, shadowState.Outputs.NextTransitionTime.After(fixedTime.Add(-1*time.Hour)),
 		"Expected NextTransitionTime to be recent or in the future")
 }
 

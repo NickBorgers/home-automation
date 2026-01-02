@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"homeautomation/internal/clock"
 	"homeautomation/internal/ha"
 	"homeautomation/internal/shadowstate"
 	"homeautomation/internal/state"
@@ -35,6 +36,7 @@ type Manager struct {
 	logger       *zap.Logger
 	readOnly     bool
 	timezone     *time.Location
+	clock        clock.Clock
 
 	// Control for free energy checker
 	stopChecker chan struct{}
@@ -91,6 +93,7 @@ func NewManager(haClient ha.HAClient, stateManager *state.Manager, config *Energ
 		logger:               logger.Named("energy"),
 		readOnly:             readOnly,
 		timezone:             timezone,
+		clock:                clock.NewRealClock(),
 		stopChecker:          make(chan struct{}),
 		stopCalibration:      make(chan struct{}),
 		shadowTracker:        shadowTracker,
@@ -105,6 +108,11 @@ func NewManager(haClient ha.HAClient, stateManager *state.Manager, config *Energ
 	}
 
 	return m
+}
+
+// SetClock sets the clock implementation (useful for testing)
+func (m *Manager) SetClock(c clock.Clock) {
+	m.clock = c
 }
 
 // GetShadowState returns the current shadow state
@@ -816,7 +824,7 @@ func (m *Manager) isFreeEnergyTime(isGridAvailable bool) bool {
 	}
 
 	// Get current time in configured timezone
-	now := time.Now().In(m.timezone)
+	now := m.clock.Now().In(m.timezone)
 
 	// Parse times (format: "21:00")
 	startTime, err := time.Parse("15:04", m.config.Energy.FreeEnergyTime.Start)
@@ -1027,7 +1035,7 @@ func (m *Manager) restoreLightAfterCalibration(lightEntity string) {
 	m.indicatorMu.Lock()
 	currentLux := m.currentLuxValues[luxSensor]
 	m.baselineLuxValues[lightEntity] = currentLux
-	m.lastCalibrationTime[lightEntity] = time.Now()
+	m.lastCalibrationTime[lightEntity] = m.clock.Now()
 	m.calibrationState[lightEntity] = CalibrationStateNormal
 	m.indicatorMu.Unlock()
 
@@ -1370,7 +1378,7 @@ func (m *Manager) updateLightBrightness(lightEntity string, lux float64) {
 		return
 	}
 	m.lastBrightnessLevel[lightEntity] = brightness
-	m.lastBrightnessUpdate[lightEntity] = time.Now()
+	m.lastBrightnessUpdate[lightEntity] = m.clock.Now()
 	m.indicatorMu.Unlock()
 
 	// Get current energy level for RGB color

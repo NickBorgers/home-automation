@@ -1,11 +1,13 @@
 package config
 
 import (
-	"homeautomation/internal/testlogger"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
+
+	"homeautomation/internal/clock"
+	"homeautomation/internal/testlogger"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -454,6 +456,13 @@ func TestLoader_GetTodaysScheduleInTimezone(t *testing.T) {
 	configDir := setupTestConfigDir(t)
 
 	loader := NewLoader(configDir, logger)
+
+	// Use a fixed reference time: January 15, 2024 at 10:00 AM UTC
+	// This makes the test deterministic regardless of when it runs
+	fixedTime := time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC)
+	mockClock := clock.NewMockClock(fixedTime)
+	loader.SetClock(mockClock)
+
 	err := loader.LoadScheduleConfig()
 	require.NoError(t, err)
 
@@ -472,11 +481,12 @@ func TestLoader_GetTodaysScheduleInTimezone(t *testing.T) {
 	assert.Equal(t, chicagoTZ, schedule.GoToBed.Location())
 	assert.Equal(t, chicagoTZ, schedule.Night.Location())
 
-	// Verify that the times are for today in Chicago timezone
-	nowChicago := time.Now().In(chicagoTZ)
-	assert.Equal(t, nowChicago.Year(), schedule.BeginBackupWake.Year())
-	assert.Equal(t, nowChicago.Month(), schedule.BeginBackupWake.Month())
-	assert.Equal(t, nowChicago.Day(), schedule.BeginBackupWake.Day())
+	// Verify that the times are for the fixed reference date in Chicago timezone
+	// The mock clock is set to Jan 15, 2024 10:00 UTC, which is Jan 15, 2024 04:00 Chicago time
+	fixedTimeChicago := fixedTime.In(chicagoTZ)
+	assert.Equal(t, fixedTimeChicago.Year(), schedule.BeginBackupWake.Year())
+	assert.Equal(t, fixedTimeChicago.Month(), schedule.BeginBackupWake.Month())
+	assert.Equal(t, fixedTimeChicago.Day(), schedule.BeginBackupWake.Day())
 }
 
 func TestLoader_SetTimezone(t *testing.T) {
