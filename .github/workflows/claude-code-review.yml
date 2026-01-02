@@ -44,6 +44,11 @@ jobs:
   # Extract PR and Issue context from workflow_run or workflow_dispatch event
   get-context:
     runs-on: ubuntu-latest
+    # Skip if PR Tests was triggered by 'push' event - only run for 'pull_request' triggered tests
+    # This prevents duplicate reviews when both push and pull_request events fire for the same commit
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.event == 'pull_request'
     outputs:
       pr_number: ${{ steps.get-pr.outputs.pr_number }}
       pr_title: ${{ steps.get-pr.outputs.pr_title }}
@@ -521,6 +526,9 @@ jobs:
 
             For HIGH SEVERITY issues (broken tests, obvious bugs, missing error handling),
             fix them directly, commit, and push. Use conventional commit messages.
+
+            IMPORTANT: Post exactly ONE comprehensive review comment. Do not post multiple comments.
+            Combine all findings (summary, issues found, fixes made) into a single comment.
 
             Post your review using:
             gh pr comment ${PR_NUMBER} --body 'YOUR_REVIEW_HERE'
