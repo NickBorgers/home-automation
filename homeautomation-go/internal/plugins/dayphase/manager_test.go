@@ -294,6 +294,7 @@ func TestManager_ShadowState_NextTransitionUpdated(t *testing.T) {
 	configLoader.SetClock(mockClock)
 
 	manager := NewManager(mockClient, stateManager, configLoader, calculator, logger, false, nil)
+	manager.SetClock(mockClock)
 
 	// Initialize state
 	err := stateManager.SyncFromHA()
