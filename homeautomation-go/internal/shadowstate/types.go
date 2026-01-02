@@ -847,6 +847,55 @@ type SexModeInputs struct {
 	AtLastAction map[string]interface{} `json:"atLastAction"`
 }
 
+// SexModeOutputs tracks the state of sex mode outputs
+type SexModeOutputs struct {
+	IsActive         bool      `json:"isActive"`
+	PreSexMusicType  string    `json:"preSexMusicType,omitempty"`
+	ActivatedAt      time.Time `json:"activatedAt,omitempty"`
+	LastActionTime   time.Time `json:"lastActionTime"`
+	LastActionType   string    `json:"lastActionType,omitempty"` // "activate" or "deactivate"
+	LastActionReason string    `json:"lastActionReason,omitempty"`
+}
+
+// GetCurrentInputs implements PluginShadowState
+func (s *SexModeShadowState) GetCurrentInputs() map[string]interface{} {
+	return s.Inputs.Current
+}
+
+// GetLastActionInputs implements PluginShadowState
+func (s *SexModeShadowState) GetLastActionInputs() map[string]interface{} {
+	return s.Inputs.AtLastAction
+}
+
+// GetOutputs implements PluginShadowState
+func (s *SexModeShadowState) GetOutputs() interface{} {
+	return s.Outputs
+}
+
+// GetMetadata implements PluginShadowState
+func (s *SexModeShadowState) GetMetadata() StateMetadata {
+	return s.Metadata
+}
+
+// NewSexModeShadowState creates a new sex mode shadow state
+func NewSexModeShadowState() *SexModeShadowState {
+	return &SexModeShadowState{
+		Plugin: "sexmode",
+		Inputs: SexModeInputs{
+			Current:      make(map[string]interface{}),
+			AtLastAction: make(map[string]interface{}),
+		},
+		Outputs: SexModeOutputs{
+			IsActive:       false,
+			LastActionTime: time.Time{},
+		},
+		Metadata: StateMetadata{
+			LastUpdated: time.Now(),
+			PluginName:  "sexmode",
+		},
+	}
+}
+
 // ============================================================================
 // System Shadow State - Connection Health Metrics
 // ============================================================================
@@ -895,70 +944,4 @@ func (s *SystemShadowState) GetOutputs() interface{} {
 // GetMetadata implements PluginShadowState
 func (s *SystemShadowState) GetMetadata() StateMetadata {
 	return s.Metadata
-}
-
-// NewSystemShadowState creates a new system shadow state
-func NewSystemShadowState() *SystemShadowState {
-	return &SystemShadowState{
-		Plugin: "system",
-		Inputs: SystemInputs{
-			Current: make(map[string]interface{}),
-		},
-		Outputs: SystemOutputs{
-			ConnectionHealth: ConnectionHealthMetrics{},
-		},
-		Metadata: StateMetadata{
-			LastUpdated: time.Now(),
-			PluginName:  "system",
-		},
-	}
-}
-
-// SexModeOutputs tracks the state of sex mode outputs
-type SexModeOutputs struct {
-	IsActive         bool      `json:"isActive"`
-	PreSexMusicType  string    `json:"preSexMusicType,omitempty"`
-	ActivatedAt      time.Time `json:"activatedAt,omitempty"`
-	LastActionTime   time.Time `json:"lastActionTime"`
-	LastActionType   string    `json:"lastActionType,omitempty"` // "activate" or "deactivate"
-	LastActionReason string    `json:"lastActionReason,omitempty"`
-}
-
-// GetCurrentInputs implements PluginShadowState
-func (s *SexModeShadowState) GetCurrentInputs() map[string]interface{} {
-	return s.Inputs.Current
-}
-
-// GetLastActionInputs implements PluginShadowState
-func (s *SexModeShadowState) GetLastActionInputs() map[string]interface{} {
-	return s.Inputs.AtLastAction
-}
-
-// GetOutputs implements PluginShadowState
-func (s *SexModeShadowState) GetOutputs() interface{} {
-	return s.Outputs
-}
-
-// GetMetadata implements PluginShadowState
-func (s *SexModeShadowState) GetMetadata() StateMetadata {
-	return s.Metadata
-}
-
-// NewSexModeShadowState creates a new sex mode shadow state
-func NewSexModeShadowState() *SexModeShadowState {
-	return &SexModeShadowState{
-		Plugin: "sexmode",
-		Inputs: SexModeInputs{
-			Current:      make(map[string]interface{}),
-			AtLastAction: make(map[string]interface{}),
-		},
-		Outputs: SexModeOutputs{
-			IsActive:       false,
-			LastActionTime: time.Time{},
-		},
-		Metadata: StateMetadata{
-			LastUpdated: time.Now(),
-			PluginName:  "sexmode",
-		},
-	}
 }

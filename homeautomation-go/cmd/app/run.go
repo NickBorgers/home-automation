@@ -195,12 +195,33 @@ func Run() {
 
 	// Set up reconnect callback to resync state after connection recovery.
 	// This prevents missed state updates during connection gaps.
+	// Uses retry with exponential backoff to handle transient failures.
 	client.SetReconnectCallback(func() {
 		logger.Info("Reconnect detected, syncing state from HA to recover any missed events...")
-		if err := stateManager.SyncFromHA(); err != nil {
-			logger.Error("Failed to sync state after reconnect", zap.Error(err))
-		} else {
-			logger.Info("State sync after reconnect completed successfully")
+
+		maxRetries := 3
+		backoff := 1 * time.Second
+
+		for attempt := 1; attempt <= maxRetries; attempt++ {
+			if err := stateManager.SyncFromHA(); err != nil {
+				logger.Error("Failed to sync state after reconnect",
+					zap.Error(err),
+					zap.Int("attempt", attempt),
+					zap.Int("maxRetries", maxRetries))
+
+				if attempt < maxRetries {
+					logger.Info("Retrying state sync after backoff",
+						zap.Duration("backoff", backoff))
+					time.Sleep(backoff)
+					backoff *= 2
+				} else {
+					logger.Error("All state sync retry attempts exhausted - system may have stale state")
+				}
+			} else {
+				logger.Info("State sync after reconnect completed successfully",
+					zap.Int("attempt", attempt))
+				return
+			}
 		}
 	})
 
