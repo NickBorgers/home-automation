@@ -355,7 +355,7 @@ jobs:
       - name: Trigger PR Tests and reviews after fix
         if: success()
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.WORKFLOW_PAT }}
         run: |
           # Check if new commits were pushed by comparing current HEAD to triggering SHA
           git fetch origin ${{ needs.get-context.outputs.head_ref }}
