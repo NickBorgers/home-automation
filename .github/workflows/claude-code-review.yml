@@ -666,11 +666,130 @@ jobs:
           path: concurrency-review-output.txt
           retention-days: 7
 
+  # Documentation update specialist - runs after concurrency-review
+  docs-review:
+    needs: [get-context, build-devcontainer, concurrency-review]
+    if: |
+      always() &&
+      needs.get-context.outputs.pr_number != '' &&
+      needs.get-context.outputs.tests_passed == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      id-token: write
+      packages: read
+
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.get-context.outputs.head_ref }}
+          repository: ${{ needs.get-context.outputs.head_repo }}
+          fetch-depth: 0
+          token: ${{ secrets.WORKFLOW_PAT }}  # PAT required to push workflow file changes
+
+      - name: Pull latest changes
+        run: git pull origin ${{ needs.get-context.outputs.head_ref }} || true
+
+      - name: Create gh config directory for devcontainer mount
+        run: mkdir -p ~/.config/gh
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Documentation review in devcontainer
+        uses: devcontainers/ci@v0.3
+        with:
+          imageName: ${{ env.DEVCONTAINER_IMAGE }}
+          cacheFrom: ${{ env.DEVCONTAINER_IMAGE }}
+          push: never
+          env: |
+            CLAUDE_CODE_OAUTH_TOKEN=${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+            GH_TOKEN=${{ github.token }}
+            PR_NUMBER=${{ needs.get-context.outputs.pr_number }}
+            PR_TITLE=${{ needs.get-context.outputs.pr_title }}
+            PR_BODY_B64=${{ needs.get-context.outputs.pr_body_b64 }}
+            ISSUE_NUMBER=${{ needs.get-context.outputs.issue_number }}
+            ISSUE_TITLE=${{ needs.get-context.outputs.issue_title }}
+            ISSUE_BODY_B64=${{ needs.get-context.outputs.issue_body_b64 }}
+          runCmd: |
+            # Decode base64-encoded bodies (handles special characters safely)
+            PR_BODY=$(echo "$PR_BODY_B64" | base64 -d 2>/dev/null || echo "")
+            ISSUE_BODY=$(echo "$ISSUE_BODY_B64" | base64 -d 2>/dev/null || echo "")
+
+            claude --print \
+              --model opus \
+              --dangerously-skip-permissions \
+              --max-turns 200 \
+              "You are a DOCUMENTATION specialist reviewing PR #${PR_NUMBER}.
+
+            LINKED ISSUE (if applicable):
+            Issue #${ISSUE_NUMBER}: ${ISSUE_TITLE}
+            ${ISSUE_BODY}
+
+            PR DESCRIPTION:
+            ${PR_TITLE}
+            ${PR_BODY}
+
+            Your task is to ensure documentation stays synchronized with code changes.
+
+            1. Run \`git diff origin/main...HEAD\` to see what changed in this PR
+            2. Read AGENTS.md to understand the documentation maintenance protocol
+            3. Based on code changes, check if these docs need updates:
+
+               | Code Change Type | Docs to Check/Update |
+               |------------------|----------------------|
+               | New plugin added | VISUAL_ARCHITECTURE.md, ARCHITECTURE.md |
+               | Plugin removed | VISUAL_ARCHITECTURE.md, ARCHITECTURE.md |
+               | New Subscribe() call | VISUAL_ARCHITECTURE.md (State Variable Dependency Graph) |
+               | State variable added/removed | migration_mapping.md, VISUAL_ARCHITECTURE.md |
+               | Concurrency fix | CONCURRENCY_LESSONS.md |
+               | Plugin logic changed | Relevant logic flow in VISUAL_ARCHITECTURE.md |
+               | Config changes | Relevant config docs |
+
+            4. If Mermaid diagrams need updates, run \`make validate-mermaid\` after editing
+            5. Check that docs/architecture/ARCHITECTURE.md reflects any structural changes
+
+            IMPORTANT: Only update docs for ACTUAL changes in this PR. Do not:
+            - Add documentation for unchanged code
+            - Create new documentation files unless explicitly needed
+            - Make cosmetic changes unrelated to the PR
+
+            If documentation updates are needed:
+            - Make the changes directly
+            - Commit with message: 'docs: update [doc name] for [change description]'
+            - Push the changes
+
+            Post your findings:
+            gh pr comment ${PR_NUMBER} --body '## Documentation Review
+
+            [Summary of documentation changes made, or confirmation that no updates needed]
+
+            ### Checked Documents
+            - [ ] VISUAL_ARCHITECTURE.md - [status]
+            - [ ] ARCHITECTURE.md - [status]
+            - [ ] migration_mapping.md - [status]
+            - [ ] CONCURRENCY_LESSONS.md - [status]'" < /dev/null 2>&1 | tee /workspaces/home-automation/docs-review-output.txt
+
+      - name: Upload documentation review output
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: docs-review-output
+          path: docs-review-output.txt
+          retention-days: 7
+
   # Aggregator job - use this as the required check for branch protection
   all-reviews-passed:
     name: All Required Agent Reviews
     runs-on: ubuntu-latest
-    needs: [get-context, build-devcontainer, fix-test-failures, claude-review, test-review, concurrency-review]
+    needs: [get-context, build-devcontainer, fix-test-failures, claude-review, test-review, concurrency-review, docs-review]
     if: always()
     permissions:
       statuses: write  # Required to create commit status on PR
@@ -727,6 +846,10 @@ jobs:
               echo "Concurrency Review: ${{ needs.concurrency-review.result }}"
               failed=true
             fi
+            if ! check_result "${{ needs.docs-review.result }}"; then
+              echo "Docs Review: ${{ needs.docs-review.result }}"
+              failed=true
+            fi
           fi
 
           # If max attempts reached and tests still failing
@@ -752,6 +875,7 @@ jobs:
           echo "  Claude Review: ${{ needs.claude-review.result }}"
           echo "  Test Review: ${{ needs.test-review.result }}"
           echo "  Concurrency Review: ${{ needs.concurrency-review.result }}"
+          echo "  Docs Review: ${{ needs.docs-review.result }}"
 
       - name: Create commit status for reviews
         if: needs.get-context.outputs.pr_number != '' && needs.get-context.outputs.tests_passed == 'true'
