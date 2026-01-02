@@ -57,11 +57,45 @@ jobs:
       packages: read
 
     steps:
+      - name: Get PR context
+        id: pr-context
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Determine if this is a PR comment and get PR details
+          IS_PR="false"
+          PR_HEAD_REF=""
+          PR_NUMBER=""
+
+          if [ "${{ github.event_name }}" = "pull_request_review_comment" ]; then
+            IS_PR="true"
+            PR_NUMBER="${{ github.event.pull_request.number }}"
+            PR_HEAD_REF="${{ github.event.pull_request.head.ref }}"
+          elif [ "${{ github.event_name }}" = "pull_request_review" ]; then
+            IS_PR="true"
+            PR_NUMBER="${{ github.event.pull_request.number }}"
+            PR_HEAD_REF="${{ github.event.pull_request.head.ref }}"
+          elif [ "${{ github.event_name }}" = "issue_comment" ]; then
+            # Check if the issue is actually a PR
+            if [ -n "${{ github.event.issue.pull_request }}" ]; then
+              IS_PR="true"
+              PR_NUMBER="${{ github.event.issue.number }}"
+              # Fetch PR details to get head ref
+              PR_HEAD_REF=$(gh api repos/${{ github.repository }}/pulls/${PR_NUMBER} --jq '.head.ref')
+            fi
+          fi
+
+          echo "is_pr=$IS_PR" >> $GITHUB_OUTPUT
+          echo "pr_number=$PR_NUMBER" >> $GITHUB_OUTPUT
+          echo "pr_head_ref=$PR_HEAD_REF" >> $GITHUB_OUTPUT
+          echo "Detected: IS_PR=$IS_PR, PR_NUMBER=$PR_NUMBER, PR_HEAD_REF=$PR_HEAD_REF"
+
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
           token: ${{ secrets.WORKFLOW_PAT }}  # PAT required to push workflow file changes
+          ref: ${{ steps.pr-context.outputs.is_pr == 'true' && steps.pr-context.outputs.pr_head_ref || github.ref }}
 
       - name: Create gh config directory for devcontainer mount
         run: mkdir -p ~/.config/gh
@@ -108,19 +142,43 @@ jobs:
             ISSUE_NUMBER=${{ github.event.issue.number || github.event.pull_request.number }}
             REPO=${{ github.repository }}
             CLAUDE_CONFIG_DIR=/workspaces/home-automation/.claude-session
+            IS_PR=${{ steps.pr-context.outputs.is_pr }}
+            PR_HEAD_REF=${{ steps.pr-context.outputs.pr_head_ref }}
           runCmd: |
             # Run Claude Code inside the devcontainer with full tool access
             # Use < /dev/null to prevent hanging on TTY input
             # Use tee to capture output for artifact upload
             # Use --verbose and --output-format stream-json for complete conversation logs
             mkdir -p "${CLAUDE_CONFIG_DIR}"
-            claude --print \
-              --verbose \
-              --output-format stream-json \
-              --model opus \
-              --dangerously-skip-permissions \
-              --max-turns 400 \
-              "You are responding to a request in ${REPO} issue/PR #${ISSUE_NUMBER}.
+
+            # Build the prompt based on whether this is a PR or issue comment
+            if [ "$IS_PR" = "true" ]; then
+              PROMPT="You are an autonomous agent responding to a request on PR #${ISSUE_NUMBER} in ${REPO}.
+
+            The user said: ${COMMENT_BODY}
+
+            YOUR TASK: IMPLEMENT the requested changes. Do NOT just provide review comments or suggestions.
+
+            WORKFLOW:
+            1. Read the user's request carefully
+            2. If they reference another comment, fetch it: gh api repos/${REPO}/issues/${ISSUE_NUMBER}/comments
+            3. Understand what changes are needed
+            4. Implement the changes in the code
+            5. Run \`make unit-tests\` to verify your changes work
+            6. Commit your changes with a descriptive message
+            7. Push to the PR branch: git push origin ${PR_HEAD_REF}
+            8. Post a summary comment: gh pr comment ${ISSUE_NUMBER} --body 'YOUR_SUMMARY'
+
+            IMPORTANT RULES FOR THIS REPOSITORY:
+            - Use \`make unit-tests\` NOT \`go test\` (caching)
+            - Use \`make integration-tests\` for integration tests
+            - Use \`make pre-commit\` for linting/formatting
+            - Follow shadow state pattern (docs/reference/SHADOW_STATE.md)
+            - Never use \`git push --no-verify\`
+
+            You are on branch ${PR_HEAD_REF}. Make the changes, commit, and push them."
+            else
+              PROMPT="You are responding to a request in ${REPO} issue #${ISSUE_NUMBER}.
 
             The user said: ${COMMENT_BODY}
 
@@ -131,8 +189,17 @@ jobs:
             - Follow shadow state pattern (docs/reference/SHADOW_STATE.md)
             - Never use \`git push --no-verify\`
 
-            Complete the user's request. If you make changes, commit them.
-            Reply to the user using: gh issue comment ${ISSUE_NUMBER} --body 'YOUR_RESPONSE'" < /dev/null 2>&1 | tee /workspaces/home-automation/claude-conversation.jsonl
+            Complete the user's request. If you make changes, create a branch, commit them, and open a PR.
+            Reply to the user using: gh issue comment ${ISSUE_NUMBER} --body 'YOUR_RESPONSE'"
+            fi
+
+            claude --print \
+              --verbose \
+              --output-format stream-json \
+              --model opus \
+              --dangerously-skip-permissions \
+              --max-turns 400 \
+              "$PROMPT" < /dev/null 2>&1 | tee /workspaces/home-automation/claude-conversation.jsonl
 
       - name: Upload Claude conversation log
         uses: actions/upload-artifact@v4
