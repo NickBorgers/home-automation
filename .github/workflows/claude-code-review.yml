@@ -212,6 +212,7 @@ jobs:
       id-token: write
       packages: read
       actions: write  # Required to trigger PR Tests workflow via workflow_dispatch
+      statuses: write  # Required to create commit status after tests pass
 
     steps:
       - name: Checkout PR branch
@@ -378,10 +379,22 @@ jobs:
               exit 0
             fi
 
-            # If tests passed, trigger claude-code-review via workflow_dispatch
+            # If tests passed, create a commit status and trigger reviews
             # (workflow_run events don't fire for workflow_dispatch-triggered runs)
             if [ "$CONCLUSION" = "success" ]; then
-              echo "Tests passed! Triggering Claude Code Review..."
+              echo "Tests passed!"
+
+              # Create a commit status for the PR's head SHA so the PR check shows as passed
+              # This is needed because workflow_dispatch runs don't automatically create PR status checks
+              echo "Creating commit status for $CURRENT_HEAD..."
+              gh api repos/${{ github.repository }}/statuses/$CURRENT_HEAD \
+                -f state="success" \
+                -f target_url="https://github.com/${{ github.repository }}/actions/runs/$RUN_ID" \
+                -f description="All required tests passed (via automated fix)" \
+                -f context="All Required Tests"
+              echo "Commit status created successfully"
+
+              echo "Triggering Claude Code Review..."
               gh workflow run "Claude Code Review" \
                 --ref "main" \
                 --repo ${{ github.repository }} \
