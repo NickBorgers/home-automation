@@ -99,7 +99,7 @@ validate-mermaid:
 	    if [ -f "$$mdfile" ]; then \
 	      basename=$$(basename $$mdfile .md); \
 	      awk -v prefix="$$basename" -v num=$$diagram_num '/^```mermaid$$/,/^```$$/' "$$mdfile" | \
-	        awk -v prefix="$$prefix" -v start=$$diagram_num 'BEGIN{n=start} /^```mermaid$$/{n++;f=".mermaid-tmp/"prefix"-diagram-"n".mmd";next} /^```$$/{close(f);next} {print > f}'; \
+	        awk -v prefix="$$basename" -v start=$$diagram_num 'BEGIN{n=start} /^```mermaid$$/{n++;f=".mermaid-tmp/"prefix"-diagram-"n".mmd";next} /^```$$/{close(f);next} {print > f}'; \
 	      new_count=$$(ls -1 .mermaid-tmp/*.mmd 2>/dev/null | wc -l); \
 	      diagram_num=$$new_count; \
 	    fi; \
