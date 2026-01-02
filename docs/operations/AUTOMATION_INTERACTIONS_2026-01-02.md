@@ -67,50 +67,39 @@ flowchart LR
 
 ## Issue-to-PR Pipeline
 
-This diagram shows how issues flow through the automation pipeline to become merged PRs.
-
 ```mermaid
-flowchart TB
-    subgraph Created["Issues Created (11 by Nick)"]
-        direction LR
-        I329["#329 WebSocket timeout"]
-        I334["#334 Docs review agent"]
-        I336["#336 Doc review"]
-        I337["#337 Diagnose GHA"]
-        I341["#341 GHA docs"]
-        I342["#342 Merge strategy"]
-        I344["#344 Music diagram"]
-        I347["#347 Test review"]
-        I351["#351 Remove auto-format"]
-        I356["#356 Flaky test"]
-        I359["#359 Full conversations"]
-    end
+flowchart LR
+    Issues["11 Issues<br/>Created by Nick"]
+    Bot["claude.yml<br/>Issue Resolver"]
+    PRs["12 PRs<br/>Auto-Generated"]
+    Main["main branch"]
 
-    subgraph Bot["Issue Resolver Bot"]
-        IssueBot["claude.yml<br/>Auto-creates PRs"]
-    end
+    Issues -->|triggers| Bot
+    Bot -->|creates| PRs
+    PRs -->|merged| Main
 
-    subgraph Generated["PRs Generated (12)"]
-        direction LR
-        PR332["#332 WebSocket fix"]
-        PR335["#335 Docs review"]
-        PR339["#339 Docs update"]
-        PR340["#340 Diagnose failures"]
-        PR343["#343 GHA docs"]
-        PR345["#345 Merge strategy"]
-        PR348["#348 Music diagram"]
-        PR349["#349 Test review"]
-        PR353["#353 Remove format"]
-        PR357["#357 Flaky test"]
-        PR361["#361 Conversations"]
-        PR362["#362 Sleep helpers"]
-    end
-
-    Created -->|triggers| Bot
-    Bot -->|creates| Generated
-
-    style IssueBot fill:#f3e5f5,stroke:#7b1fa2
+    style Issues fill:#ffebee,stroke:#c62828
+    style Bot fill:#f3e5f5,stroke:#7b1fa2
+    style PRs fill:#e8f5e9,stroke:#2e7d32
+    style Main fill:#fffde7,stroke:#f57f17
 ```
+
+**Issues Created → PRs Generated:**
+
+| Issue | Description | → | PR | Description |
+|-------|-------------|---|-----|-------------|
+| #329 | WebSocket timeout | → | #332 | WebSocket fix |
+| #334 | Add docs review agent | → | #335 | Docs review agent |
+| #336 | Doc review & update | → | #339 | Docs update |
+| #337 | Diagnose GHA failures | → | #340 | Diagnose failures |
+| #341 | Claude GHA docs | → | #343 | GHA docs |
+| #342 | Merge vs abort | → | #345 | Merge strategy |
+| #344 | Music diagram fix | → | #348 | Music diagram |
+| #347 | Improve test-review | → | #349 | Test review prompt |
+| #351 | Remove auto-format | → | #353 | Remove auto-format |
+| #356 | Flaky TV test | → | #357 | Flaky test fix |
+| #359 | Record full conversations | → | #361 | Full conversations |
+| #358 | Replace time.Sleep | → | #362 | time.Sleep helpers |
 
 ## @claude Mention Flow
 
@@ -118,80 +107,65 @@ When Nick mentions @claude on PRs, it can create new work items that feed back i
 
 ```mermaid
 flowchart LR
-    subgraph Mentions["@claude Mentions (4)"]
-        M1["PR#349 - resolve conflicts"]
-        M2["PR#357 - find other occurrences"]
-        M3["PR#339 - implement changes"]
-        M4["PR#354 - review"]
+    Mention["@claude<br/>on PR"]
+    Handler["@claude Handler<br/>claude.yml"]
+
+    subgraph Outcomes["Possible Outcomes"]
+        Action["Implement<br/>Request"]
+        NewIssue["Create<br/>New Issue"]
     end
 
-    MentionBot["@claude Handler"]
+    Mention --> Handler
+    Handler --> Action
+    Handler --> NewIssue
+    NewIssue -->|"feeds back"| IssueBot["Issue Bot"]
+    IssueBot --> NewPR["New PR"]
 
-    subgraph Actions["Bot Actions"]
-        A1["Resolved conflicts"]
-        A2["Created Issue #358"]
-        A3["Implemented changes"]
-        A4["Created Issue #350"]
-    end
-
-    subgraph Spawned["Spawned Issues"]
-        I350["#350 Align review output"]
-        I358["#358 Replace time.Sleep"]
-    end
-
-    Mentions --> MentionBot
-    MentionBot --> Actions
-    A2 --> I358
-    A4 --> I350
-    I350 -->|triggers Issue Bot| PR_NEW1["New PRs"]
-    I358 -->|triggers Issue Bot| PR_NEW2["PR#362"]
-
-    style MentionBot fill:#f3e5f5,stroke:#7b1fa2
-    style I350 fill:#ffebee,stroke:#c62828
-    style I358 fill:#ffebee,stroke:#c62828
+    style Handler fill:#f3e5f5,stroke:#7b1fa2
+    style NewIssue fill:#ffebee,stroke:#c62828
+    style NewPR fill:#e8f5e9,stroke:#2e7d32
 ```
+
+**@claude Mentions Today (4):**
+
+| PR | Request | Action Taken |
+|----|---------|--------------|
+| #349 | Resolve merge conflicts | Resolved conflicts, PR merged |
+| #357 | Find other occurrences of time.Sleep | Created Issue #358 → PR #362 |
+| #339 | Implement documentation changes | Made requested changes |
+| #354 | Review code | Created Issue #350 |
 
 ## Code Review Multi-Agent System
 
 Every PR triggers a multi-agent review with specialized reviewers.
 
 ```mermaid
-flowchart TB
+flowchart LR
     PR["Incoming PR"]
 
-    subgraph ReviewSystem["claude-code-review.yml"]
-        direction LR
-        CodeReview["Code Quality<br/>Agent"]
-        TestReview["Test Coverage<br/>Agent"]
-        ConcurrencyReview["Concurrency<br/>Agent"]
-        DocsReview["Documentation<br/>Agent"]
+    subgraph Agents["4 Review Agents"]
+        Code["Code Quality"]
+        Test["Test Coverage"]
+        Concurrency["Concurrency"]
+        Docs["Documentation"]
     end
 
-    subgraph Outputs["Review Outputs"]
-        Comments["100+ Comments"]
-        FixPR["Auto-Fix PRs"]
-    end
+    Comments["100+ Comments"]
+    AutoFix["Auto-Fix PRs"]
 
-    PR --> ReviewSystem
-    CodeReview --> Comments
-    TestReview --> Comments
-    ConcurrencyReview --> Comments
-    DocsReview --> Comments
-    TestReview -->|"found bug"| FixPR
-
-    subgraph Example["Example: PR#346"]
-        BugFound["Code Review found<br/>26 vs 27 boolean count"]
-        AutoFix["FixTestBot created<br/>PR#346 to fix"]
-    end
-
-    FixPR --> Example
+    PR --> Agents
+    Agents --> Comments
+    Test -->|"found bug"| AutoFix
 
     style PR fill:#e8f5e9,stroke:#2e7d32
-    style CodeReview fill:#f3e5f5,stroke:#7b1fa2
-    style TestReview fill:#f3e5f5,stroke:#7b1fa2
-    style ConcurrencyReview fill:#f3e5f5,stroke:#7b1fa2
-    style DocsReview fill:#f3e5f5,stroke:#7b1fa2
+    style Code fill:#f3e5f5,stroke:#7b1fa2
+    style Test fill:#f3e5f5,stroke:#7b1fa2
+    style Concurrency fill:#f3e5f5,stroke:#7b1fa2
+    style Docs fill:#f3e5f5,stroke:#7b1fa2
+    style AutoFix fill:#fff3e0,stroke:#e65100
 ```
+
+**Example Auto-Fix:** Code Review found an incorrect comment (26 vs 27 booleans) in PR #339 → FixTestBot auto-created PR #346 to fix it.
 
 ## Local Claude (SSH) Contributions
 
@@ -200,30 +174,25 @@ Claude running locally via SSH can directly push code and create issues.
 ```mermaid
 flowchart LR
     Nick["Nick"]
-    LocalClaude["Claude Code<br/>(Local SSH)"]
+    LocalClaude["Claude Code<br/>(Local)"]
+    DirectPRs["3 Direct PRs"]
+    ProdLogs["Production<br/>Logs"]
+    Issues["Issues with<br/>Analysis"]
 
-    subgraph DirectPRs["Direct PRs (3)"]
-        PR333["#333 Light rename"]
-        PR338["#338 Action-oriented"]
-        PR360["#360 Eight Sleep fix"]
-    end
-
-    subgraph Diagnosis["Production Debugging"]
-        Logs["Read prod logs"]
-        Issue["Create Issue #329<br/>with analysis"]
-    end
-
-    Nick -->|runs locally| LocalClaude
+    Nick -->|runs| LocalClaude
     LocalClaude -->|git push| DirectPRs
-    LocalClaude -->|SSH to prod| Logs
-    Logs --> Issue
+    LocalClaude -->|SSH| ProdLogs
+    ProdLogs -->|diagnose| Issues
 
     style Nick fill:#e1f5fe,stroke:#01579b
     style LocalClaude fill:#fff3e0,stroke:#e65100
-    style PR333 fill:#e8f5e9,stroke:#2e7d32
-    style PR338 fill:#e8f5e9,stroke:#2e7d32
-    style PR360 fill:#e8f5e9,stroke:#2e7d32
+    style DirectPRs fill:#e8f5e9,stroke:#2e7d32
+    style Issues fill:#ffebee,stroke:#c62828
 ```
+
+**Direct PRs Created:** #333 (Light rename), #338 (Action-oriented), #360 (Eight Sleep fix)
+
+**Debugging Example:** Nick notices production bug → Local Claude SSHs to prod, reads logs → Creates Issue #329 with detailed root cause analysis.
 
 ## Simplified Flow Diagram
 
