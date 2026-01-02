@@ -12,6 +12,24 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// Default timeout and polling interval for waitForState helpers.
+// These are tuned for integration tests where state changes propagate
+// asynchronously through WebSocket -> handler -> state manager.
+const (
+	stateWaitTimeout  = 2 * time.Second
+	statePollInterval = 10 * time.Millisecond
+)
+
+// waitForBoolState polls until the state variable has the expected value or times out.
+// This is more reliable than fixed time.Sleep for async state changes.
+func waitForBoolState(t *testing.T, manager *state.Manager, key string, expected bool, msgAndArgs ...interface{}) {
+	t.Helper()
+	assert.Eventually(t, func() bool {
+		val, err := manager.GetBool(key)
+		return err == nil && val == expected
+	}, stateWaitTimeout, statePollInterval, msgAndArgs...)
+}
+
 // setupTVScenarioTest creates a test environment with the TV plugin running
 func setupTVScenarioTest(t *testing.T) (*MockHAServer, *state.Manager, func()) {
 	server, client, stateManager, baseCleanup := setupTest(t)
@@ -260,25 +278,21 @@ func TestScenario_TVOffState(t *testing.T) {
 		"friendly_name": "Apple TV",
 	})
 	server.SetState("select.sync_box_hdmi_input", "AppleTV", map[string]interface{}{})
-	time.Sleep(50 * time.Millisecond)
+
+	// Wait for initial state to propagate before proceeding
+	waitForBoolState(t, manager, "isTVon", true, "isTVon should be true when sync box is on")
+	waitForBoolState(t, manager, "isTVPlaying", true, "isTVPlaying should be true when AppleTV is playing")
 
 	t.Log("WHEN: TV is turned off (sync box powers off)")
 
 	// Turn off sync box
 	server.SetState("switch.sync_box_power", "off", map[string]interface{}{})
-	time.Sleep(50 * time.Millisecond)
 
 	t.Log("THEN: Verify all TV state variables are false")
 
-	// isTVon should be false
-	isTVon, err := manager.GetBool("isTVon")
-	assert.NoError(t, err)
-	assert.False(t, isTVon, "isTVon should be false when sync box is off")
-
-	// isTVPlaying should be false
-	isTVPlaying, err := manager.GetBool("isTVPlaying")
-	assert.NoError(t, err)
-	assert.False(t, isTVPlaying, "isTVPlaying should be false when sync box is off")
+	// Use polling to wait for state changes to propagate
+	waitForBoolState(t, manager, "isTVon", false, "isTVon should be false when sync box is off")
+	waitForBoolState(t, manager, "isTVPlaying", false, "isTVPlaying should be false when sync box is off")
 
 	t.Log("WHEN: Apple TV also stops playing")
 
@@ -286,13 +300,10 @@ func TestScenario_TVOffState(t *testing.T) {
 	server.SetState("media_player.big_beautiful_oled", "idle", map[string]interface{}{
 		"friendly_name": "Apple TV",
 	})
-	time.Sleep(50 * time.Millisecond)
 
 	t.Log("THEN: Verify isAppleTVPlaying is also false")
 
-	isAppleTVPlaying, err := manager.GetBool("isAppleTVPlaying")
-	assert.NoError(t, err)
-	assert.False(t, isAppleTVPlaying, "isAppleTVPlaying should be false when Apple TV is idle")
+	waitForBoolState(t, manager, "isAppleTVPlaying", false, "isAppleTVPlaying should be false when Apple TV is idle")
 }
 
 // ============================================================================
