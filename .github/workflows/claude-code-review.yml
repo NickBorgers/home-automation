@@ -665,9 +665,12 @@ jobs:
     runs-on: ubuntu-latest
     needs: [get-context, build-devcontainer, fix-test-failures, claude-review, test-review, concurrency-review]
     if: always()
+    permissions:
+      statuses: write  # Required to create commit status on PR
 
     steps:
       - name: Check review results
+        id: check-results
         run: |
           check_result() {
             local result=$1
@@ -742,3 +745,23 @@ jobs:
           echo "  Claude Review: ${{ needs.claude-review.result }}"
           echo "  Test Review: ${{ needs.test-review.result }}"
           echo "  Concurrency Review: ${{ needs.concurrency-review.result }}"
+
+      - name: Create commit status for reviews
+        if: needs.get-context.outputs.pr_number != '' && needs.get-context.outputs.tests_passed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Get the HEAD SHA of the PR branch
+          PR_NUMBER="${{ needs.get-context.outputs.pr_number }}"
+          HEAD_SHA=$(gh api repos/${{ github.repository }}/pulls/$PR_NUMBER --jq '.head.sha')
+
+          echo "Creating commit status for PR #$PR_NUMBER (SHA: $HEAD_SHA)"
+
+          # Create commit status - state depends on whether reviews passed
+          gh api repos/${{ github.repository }}/statuses/$HEAD_SHA \
+            -f state="success" \
+            -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            -f description="All agent reviews completed successfully" \
+            -f context="All Required Agent Reviews"
+
+          echo "Commit status created successfully"
