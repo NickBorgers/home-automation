@@ -431,11 +431,11 @@ func TestSleepHygieneShadowState_BedroomLightsChange(t *testing.T) {
 
 	// Simulate bedroom lights state change
 	newState := &ha.State{
-		EntityID: "light.master_bedroom",
+		EntityID: "light.primary_suite",
 		State:    "off",
 	}
 
-	manager.handleBedroomLightsChange("light.master_bedroom", nil, newState)
+	manager.handleBedroomLightsChange("light.primary_suite", nil, newState)
 
 	shadowState := manager.GetShadowState()
 

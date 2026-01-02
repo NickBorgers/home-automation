@@ -278,7 +278,7 @@ Each plugin corresponds to a Node-RED flow and implements domain-specific automa
 - **Sleep Detection**: Monitor bedroom lights/doors → Update sleep states
 - **Arrival Notifications**: On owner arrival → Announce via TTS
 
-**Events Consumed:** `ha.binary_sensor.*.changed`, `ha.light.master_bedroom.*.changed`
+**Events Consumed:** `ha.binary_sensor.*.changed`, `ha.light.primary_suite.*.changed`
 
 **Events Published:** `state.presence.changed`, `state.sleep.changed`
 
