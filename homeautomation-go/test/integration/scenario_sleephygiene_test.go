@@ -441,6 +441,114 @@ func TestScenario_MultipleAlarms_UpdatesCorrectly(t *testing.T) {
 	t.Log("SUCCESS: Multiple alarm times handled correctly")
 }
 
+// TestScenario_WakeSequence_VolumeFadesOutMonotonically validates that
+// the wake sequence fade-out correctly DECREASES speaker volume over time.
+// This test verifies that each volume_set call has a LOWER volume_level
+// than the previous call, ensuring the fade-out is truly fading OUT (not up).
+//
+// This is a regression test for a production issue where network chaos
+// caused volume_set commands to be retried out of order, potentially
+// resulting in unexpected volume changes.
+func TestScenario_WakeSequence_VolumeFadesOutMonotonically(t *testing.T) {
+	server, sleepMgr, cleanup := setupSleepHygieneScenarioTest(t)
+	defer cleanup()
+
+	// Skip internal sleeps so the fade-out completes quickly
+	sleepMgr.SetSleepFunc(func(d time.Duration) {})
+
+	// GIVEN: Conditions for begin_wake are met, bedroom speaker at 10% volume
+	t.Log("GIVEN: Someone is home, master is asleep, playing sleep music")
+	t.Log("       Bedroom speaker is at 10% volume (0.10)")
+
+	server.SetState("input_boolean.anyone_home", "on", map[string]interface{}{})
+	server.SetState("input_boolean.master_asleep", "on", map[string]interface{}{})
+	server.SetState("input_text.music_playback_type", "sleep", map[string]interface{}{})
+	server.SetState("input_boolean.fade_out_in_progress", "off", map[string]interface{}{})
+
+	// Set up bedroom speaker with initial volume at 10%
+	server.SetState("media_player.bedroom", "playing", map[string]interface{}{
+		"volume_level": 0.10, // 10% volume = volume value of 10
+	})
+
+	// Set up currentlyPlayingMusic state with bedroom speaker
+	currentMusicJSON := `{"participants":[{"player_name":"media_player.bedroom","volume":10}]}`
+	server.SetState("input_text.currently_playing_music", currentMusicJSON, map[string]interface{}{})
+
+	time.Sleep(50 * time.Millisecond)
+	server.ClearServiceCalls()
+
+	// WHEN: Begin wake sequence triggers the fade-out
+	t.Log("WHEN: Begin wake sequence is triggered")
+
+	// Directly call the exported method that triggers begin_wake
+	// We use a goroutine because fadeOutSpeaker runs synchronously
+	done := make(chan struct{})
+	go func() {
+		sleepMgr.TriggerBeginWakeForTest()
+		close(done)
+	}()
+
+	// Wait for fade-out to complete (with no-op sleep, this is fast)
+	select {
+	case <-done:
+		t.Log("Fade-out completed")
+	case <-time.After(2 * time.Second):
+		t.Fatal("Fade-out did not complete within timeout")
+	}
+
+	// Give a moment for any final service calls to be recorded
+	time.Sleep(50 * time.Millisecond)
+
+	// THEN: Verify all volume_set calls show monotonically DECREASING volume
+	t.Log("THEN: Verify all volume_set calls show monotonically decreasing volume")
+
+	calls := server.GetServiceCalls()
+	volumeCalls := filterServiceCalls(calls, "media_player", "volume_set")
+
+	// Should have multiple volume_set calls (one for each step from 10 down to 0)
+	t.Logf("Total volume_set calls: %d", len(volumeCalls))
+	require.GreaterOrEqual(t, len(volumeCalls), 2,
+		"Expected at least 2 volume_set calls during fade-out")
+
+	// Extract all volume levels in order
+	var volumeLevels []float64
+	for _, call := range volumeCalls {
+		volumeLevel, ok := call.ServiceData["volume_level"].(float64)
+		if !ok {
+			t.Logf("WARNING: volume_set call missing volume_level: %+v", call.ServiceData)
+			continue
+		}
+		volumeLevels = append(volumeLevels, volumeLevel)
+	}
+
+	t.Logf("Volume levels in order: %v", volumeLevels)
+
+	// CRITICAL ASSERTION: Each volume level must be LESS THAN the previous one
+	// This proves the fade-out is truly fading OUT, not up
+	for i := 1; i < len(volumeLevels); i++ {
+		prevVolume := volumeLevels[i-1]
+		currVolume := volumeLevels[i]
+
+		assert.Less(t, currVolume, prevVolume,
+			"Volume must DECREASE during fade-out: call %d (%.3f) should be less than call %d (%.3f)",
+			i+1, currVolume, i, prevVolume)
+	}
+
+	// Verify the sequence ends at 0 (complete fade-out)
+	if len(volumeLevels) > 0 {
+		finalVolume := volumeLevels[len(volumeLevels)-1]
+		assert.Equal(t, 0.0, finalVolume,
+			"Fade-out should end with volume at 0, got %.3f", finalVolume)
+	}
+
+	// Log the full fade-out sequence for debugging
+	t.Log("SUCCESS: Volume faded out monotonically from 10% to 0%")
+	t.Log("Volume sequence (should be strictly decreasing):")
+	for i, v := range volumeLevels {
+		t.Logf("  Call %d: volume_level = %.2f (%.0f%%)", i+1, v, v*100)
+	}
+}
+
 // TestScenario_SleepStateIntegration_ChecksConditions validates that wake
 // sequences only trigger when isMasterAsleep is true
 func TestScenario_SleepStateIntegration_ChecksConditions(t *testing.T) {
