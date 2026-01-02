@@ -110,6 +110,15 @@ jobs:
       - name: Create gh config directory for devcontainer mount
         run: mkdir -p ~/.config/gh
 
+      - name: Label issue as claude-started
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Create the label if it doesn't exist (ignore error if it does)
+          gh label create "claude-started" --color "7057ff" --description "Claude Code is working on this issue" --repo ${{ github.repository }} 2>/dev/null || true
+          # Add the label to the issue
+          gh issue edit ${{ github.event.issue.number }} --add-label "claude-started" --repo ${{ github.repository }}
+
       - name: Resolve issue in devcontainer
         uses: devcontainers/ci@v0.3
         env:
