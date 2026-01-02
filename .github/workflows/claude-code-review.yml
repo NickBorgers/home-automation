@@ -5,7 +5,8 @@ on:
     types: [opened, reopened]
 
 env:
-  DEVCONTAINER_IMAGE: ghcr.io/${{ github.repository }}-devcontainer
+  # Note: must be lowercase for Docker compatibility
+  DEVCONTAINER_IMAGE: ghcr.io/nickborgers/home-automation-devcontainer
 
 jobs:
   claude-review:
