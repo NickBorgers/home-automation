@@ -221,7 +221,7 @@ jobs:
           ref: ${{ needs.get-context.outputs.head_ref }}
           repository: ${{ needs.get-context.outputs.head_repo }}
           fetch-depth: 0
-          token: ${{ github.token }}
+          token: ${{ secrets.WORKFLOW_PAT }}  # PAT required to push workflow file changes
 
       - name: Increment fix attempt counter
         env:
@@ -440,7 +440,7 @@ jobs:
           ref: ${{ needs.get-context.outputs.head_ref }}
           repository: ${{ needs.get-context.outputs.head_repo }}
           fetch-depth: 0
-          token: ${{ github.token }}
+          token: ${{ secrets.WORKFLOW_PAT }}  # PAT required to push workflow file changes
 
       - name: Create gh config directory for devcontainer mount
         run: mkdir -p ~/.config/gh
@@ -527,7 +527,7 @@ jobs:
           ref: ${{ needs.get-context.outputs.head_ref }}
           repository: ${{ needs.get-context.outputs.head_repo }}
           fetch-depth: 0
-          token: ${{ github.token }}
+          token: ${{ secrets.WORKFLOW_PAT }}  # PAT required to push workflow file changes
 
       - name: Pull latest changes
         run: git pull origin ${{ needs.get-context.outputs.head_ref }} || true
@@ -601,7 +601,7 @@ jobs:
           ref: ${{ needs.get-context.outputs.head_ref }}
           repository: ${{ needs.get-context.outputs.head_repo }}
           fetch-depth: 0
-          token: ${{ github.token }}
+          token: ${{ secrets.WORKFLOW_PAT }}  # PAT required to push workflow file changes
 
       - name: Pull latest changes
         run: git pull origin ${{ needs.get-context.outputs.head_ref }} || true
