@@ -36,7 +36,7 @@ flowchart LR
     end
 
     Nick -->|creates| Issues
-    Nick -->|@claude| MentionBot
+    Nick -->|"@claude"| MentionBot
     Nick -->|runs| LocalClaude
     Nick -->|approves| Main
 
