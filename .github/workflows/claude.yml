@@ -105,11 +105,16 @@ jobs:
             COMMENT_BODY=${{ steps.comment.outputs.body }}
             ISSUE_NUMBER=${{ github.event.issue.number || github.event.pull_request.number }}
             REPO=${{ github.repository }}
+            CLAUDE_CONFIG_DIR=/workspaces/home-automation/.claude-session
           runCmd: |
             # Run Claude Code inside the devcontainer with full tool access
             # Use < /dev/null to prevent hanging on TTY input
             # Use tee to capture output for artifact upload
+            # Use --verbose and --output-format stream-json for complete conversation logs
+            mkdir -p "${CLAUDE_CONFIG_DIR}"
             claude --print \
+              --verbose \
+              --output-format stream-json \
               --model opus \
               --dangerously-skip-permissions \
               --max-turns 400 \
@@ -125,15 +130,24 @@ jobs:
             - Never use \`git push --no-verify\`
 
             Complete the user's request. If you make changes, commit them.
-            Reply to the user using: gh issue comment ${ISSUE_NUMBER} --body 'YOUR_RESPONSE'" < /dev/null 2>&1 | tee /workspaces/home-automation/claude-response-output.txt
+            Reply to the user using: gh issue comment ${ISSUE_NUMBER} --body 'YOUR_RESPONSE'" < /dev/null 2>&1 | tee /workspaces/home-automation/claude-conversation.jsonl
 
-      - name: Upload Claude response output
+      - name: Upload Claude conversation log
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: claude-response-output
-          path: claude-response-output.txt
+          name: claude-conversation-log
+          path: claude-conversation.jsonl
           retention-days: 7
+
+      - name: Upload Claude session data
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: claude-session-data
+          path: .claude-session/
+          retention-days: 7
+          if-no-files-found: ignore
 
   # Auto-resolve new issues by opening a PR
   resolve-issue:
@@ -185,10 +199,15 @@ jobs:
             ISSUE_TITLE=${{ github.event.issue.title }}
             ISSUE_BODY=${{ github.event.issue.body }}
             REPO=${{ github.repository }}
+            CLAUDE_CONFIG_DIR=/workspaces/home-automation/.claude-session
           runCmd: |
             # Use < /dev/null to prevent hanging on TTY input
             # Use tee to capture output for artifact upload
+            # Use --verbose and --output-format stream-json for complete conversation logs
+            mkdir -p "${CLAUDE_CONFIG_DIR}"
             claude --print \
+              --verbose \
+              --output-format stream-json \
               --model opus \
               --dangerously-skip-permissions \
               --max-turns 600 \
@@ -230,12 +249,21 @@ jobs:
 
             If you cannot resolve the issue (unclear requirements, needs human decision, etc.),
             comment on the issue explaining what clarification is needed:
-            gh issue comment ${ISSUE_NUMBER} --body 'YOUR_EXPLANATION'" < /dev/null 2>&1 | tee /workspaces/home-automation/resolve-issue-output.txt
+            gh issue comment ${ISSUE_NUMBER} --body 'YOUR_EXPLANATION'" < /dev/null 2>&1 | tee /workspaces/home-automation/resolve-issue-conversation.jsonl
 
-      - name: Upload issue resolution output
+      - name: Upload issue resolution conversation log
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: resolve-issue-output
-          path: resolve-issue-output.txt
+          name: resolve-issue-conversation-log
+          path: resolve-issue-conversation.jsonl
           retention-days: 7
+
+      - name: Upload Claude session data
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: resolve-issue-session-data
+          path: .claude-session/
+          retention-days: 7
+          if-no-files-found: ignore
