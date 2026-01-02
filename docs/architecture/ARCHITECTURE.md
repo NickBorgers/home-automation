@@ -1,6 +1,6 @@
 # Home Automation System Architecture
 
-**Last Updated:** 2025-11-30
+**Last Updated:** 2026-01-02
 **Phase:** ✅ MVP COMPLETE - Ready for Parallel Testing
 **Location:** `homeautomation-go/`
 
@@ -32,17 +32,25 @@
 ✅ **Phase 1-5: MVP Implementation (COMPLETE)**
 - ✅ Project setup with Go modules and dependencies
 - ✅ Home Assistant WebSocket client implementation
-- ✅ State Manager with 28 state variables
+- ✅ State Manager with 40 state variables
 - ✅ Demo application with monitoring
 - ✅ Comprehensive unit test suite
 - ✅ Integration test suite with mock HA server
 - ✅ Docker support with GHCR automation
 
-✅ **Phase 6+: Plugin Implementation (IN PROGRESS)**
+✅ **Phase 6+: Plugin Implementation (COMPLETE)**
+- ✅ State Tracking plugin (complete)
+- ✅ Day Phase plugin (complete)
 - ✅ Energy State plugin (complete)
-- ✅ Lighting Control plugin (complete) - 72.8% test coverage
-- ✅ TV Monitoring and Manipulation plugin (complete) - 78.4% test coverage
-- ✅ Sleep Hygiene plugin (complete) - 13 unit tests
+- ✅ Lighting Control plugin (complete)
+- ✅ Music Management plugin (complete)
+- ✅ Sleep Hygiene plugin (complete)
+- ✅ TV Monitoring plugin (complete)
+- ✅ Security plugin (complete)
+- ✅ Load Shedding plugin (complete)
+- ✅ Sex Mode plugin (complete)
+- ✅ Christmas plugin (complete)
+- ✅ Reset Coordinator (complete)
 
 ### Critical Bug Fixes
 
@@ -85,7 +93,7 @@ This document describes the architecture for a Golang-based home automation syst
 ### Goals
 
 1. **1:1 Functional Migration** - Replicate all active Node-RED flows exactly as they currently behave
-2. **Home Assistant as State Store** - Use HA input helpers (28+ variables) as the persistent data store
+2. **Home Assistant as State Store** - Use HA input helpers (40 variables) as the persistent data store
 3. **Modular Architecture** - Plugin-based design allows independent development and testing
 4. **Configuration Compatibility** - Reuse existing YAML configuration files without modification
 5. **Seamless Transition** - Run in parallel with Node-RED during migration
@@ -152,12 +160,12 @@ This document describes the architecture for a Golang-based home automation syst
 │                                                                     │
 │  ┌──────────────────┐  ┌──────────────┐  ┌───────────────────┐   │
 │  │  Input Helpers   │  │   Devices    │  │   Services        │   │
-│  │  (28+ variables) │  │              │  │                   │   │
+│  │  (40 variables)  │  │              │  │                   │   │
 │  │                  │  │ - Sonos      │  │ - call_service    │   │
-│  │ - Booleans (18)  │  │ - Hue        │  │ - set_value       │   │
+│  │ - Booleans (27)  │  │ - Hue        │  │ - set_value       │   │
 │  │ - Numbers (3)    │  │ - Apple TV   │  │ - turn_on/off     │   │
-│  │ - Text (6)       │  │ - Bravia TV  │  │ - media_player.*  │   │
-│  │ - JSON (1)       │  │ - Lutron     │  │                   │   │
+│  │ - Text (8)       │  │ - Bravia TV  │  │ - media_player.*  │   │
+│  │ - Local-only (2) │  │ - Lutron     │  │                   │   │
 │  │                  │  │ - Roborock   │  │                   │   │
 │  └──────────────────┘  │ - Thermostat │  └───────────────────┘   │
 │                        └──────────────┘                           │
@@ -182,7 +190,7 @@ Available diagrams:
 
 ### 1. State Manager
 
-**Responsibility:** Manages the 28 synchronized state variables and provides thread-safe access.
+**Responsibility:** Manages the 40 state variables (38 synchronized + 2 local-only) and provides thread-safe access.
 
 **Key Features:**
 - In-memory cache of all HA input helpers
@@ -208,14 +216,14 @@ type StateManager interface {
 }
 ```
 
-**State Variables (28 total):**
+**State Variables (40 total):**
 
 See **[docs/reference/migration_mapping.md](../reference/migration_mapping.md)** for complete mapping.
 
-- **Boolean (18):** isNickHome, isCarolineHome, isToriHere, isAnyOwnerHome, isAnyoneHome, isMasterAsleep, isGuestAsleep, isAnyoneAsleep, isEveryoneAsleep, isGuestBedroomDoorOpen, isHaveGuests, isAppleTVPlaying, isTVPlaying, isTVon, isFadeOutInProgress, isFreeEnergyAvailable, isGridAvailable, isExpectingSomeone
+- **Boolean (27):** isNickHome, isCarolineHome, isToriHere, isAnyOwnerHome, isAnyoneHome, isAnyoneHomeAndAwake, isMasterAsleep, isGuestAsleep, isAnyoneAsleep, isEveryoneAsleep, isGuestBedroomDoorOpen, isHaveGuests, isAppleTVPlaying, isTVPlaying, isTVon, isFadeOutInProgress, isFreeEnergyAvailable, isGridAvailable, isExpectingSomeone, isNickOfficeOccupied, isKitchenOccupied, isPrimaryBedroomDoorOpen, isNickNearHome, isCarolineNearHome, isLockdown, reset, isFrontOfHousePersonPresent
 - **Number (3):** alarmTime, remainingSolarGeneration, thisHourSolarGeneration
-- **Text (6):** dayPhase, sunevent, musicPlaybackType, batteryEnergyLevel, currentEnergyLevel, solarProductionEnergyLevel
-- **JSON (1):** currentlyPlayingMusic
+- **Text (8):** dayPhase, sunevent, musicPlaybackType, currentlyPlayingMusicUri, musicPlaylistRotation, batteryEnergyLevel, currentEnergyLevel, solarProductionEnergyLevel
+- **Local-only (2):** didOwnerJustReturnHome (bool), currentlyPlayingMusic (JSON)
 
 ### 2. Home Assistant Client
 
@@ -278,7 +286,7 @@ Each plugin corresponds to a Node-RED flow and implements domain-specific automa
 - **Sleep Detection**: Monitor bedroom lights/doors → Update sleep states
 - **Arrival Notifications**: On owner arrival → Announce via TTS
 
-**Events Consumed:** `ha.binary_sensor.*.changed`, `ha.light.master_bedroom.*.changed`
+**Events Consumed:** `ha.binary_sensor.*.changed`, `ha.light.primary_suite.*.changed`
 
 **Events Published:** `state.presence.changed`, `state.sleep.changed`
 
@@ -398,26 +406,49 @@ Each plugin corresponds to a Node-RED flow and implements domain-specific automa
 
 **Events Consumed:** `ha.media_player.apple_tv.changed`, `ha.sensor.hue_sync.changed`, `state.dayPhase.changed`
 
-### 9. Calendar Plugin
-
-**Node-RED Flow:** Calendar
+### 9. Day Phase Plugin ✅
 
 **Responsibilities:**
-- Monitor work calendars for upcoming meetings
-- Send morning notifications for today's schedule
-- Context-aware notifications (only when home)
+- Calculate current day phase based on time and sun position
+- Track sun events (sunrise, sunset, dusk, etc.)
+- Publish dayPhase and sunevent state variables
 
-**Events Consumed:** `state.isNickHome.changed`, `state.isCarolineHome.changed`, `time.schedule.morning`
+**Key Automations:**
+- **Sun Position Tracking**: Monitor HA sun sensor → Calculate current sun event
+- **Day Phase Calculation**: Combine time of day + sun position → Determine day phase (morning, day, sunset, dusk, winddown, night)
 
-### 10. Nagging Plugin
+**Events Published:** `state.dayPhase.changed`, `state.sunevent.changed`
 
-**Node-RED Flow:** Nagging
+### 10. Sex Mode Plugin ✅
 
 **Responsibilities:**
-- Remind to close windows when rain is forecasted
-- Other periodic reminders and notifications
+- Manage intimate mode with lighting and music coordination
+- Control Eight Sleep pod temperature
+- Preserve and restore previous music playback type
 
-**Events Consumed:** `state.isAnyoneHome.changed`, `ha.weather.forecast.changed`
+**Key Automations:**
+- **Mode Activation**: On input_boolean.sex → Set lighting scene, switch music to "sex" mode
+- **Pod Control**: Activate/deactivate Eight Sleep warming
+- **State Preservation**: Store preSexMusicType for restoration after
+
+**Events Consumed:** `input_boolean.sex`, `state.dayPhase.changed`, `state.isMasterAsleep.changed`
+
+### 11. Christmas Plugin ✅
+
+**Responsibilities:**
+- Manage Christmas tree lighting based on season and presence
+- Control tree on/off based on day phase
+
+**Events Consumed:** `state.dayPhase.changed`, `state.isAnyoneHome.changed`
+
+### 12. Reset Coordinator ✅
+
+**Responsibilities:**
+- Watch for reset boolean activation
+- Orchestrate system-wide plugin resets
+- Clear rate limiters and re-evaluate all conditions
+
+**Events Consumed:** `state.reset.changed`
 
 ---
 
@@ -436,7 +467,7 @@ Each plugin corresponds to a Node-RED flow and implements domain-specific automa
    ↓
 5. Initialize State Manager
    ↓
-6. Sync State from HA (read all 28 input helpers)
+6. Sync State from HA (read all 40 state variables)
    ↓
 7. Load and Initialize Plugins
    ↓
@@ -538,12 +569,20 @@ homeautomation-go/
 │   ├── state/                       # ✅ State Manager
 │   │   ├── manager.go               # ✅ State manager implementation
 │   │   ├── manager_test.go          # ✅ Unit tests
-│   │   └── variables.go             # ✅ 28 state variable definitions
-│   └── plugins/                     # ✅ Automation plugins
+│   │   └── variables.go             # ✅ 40 state variable definitions
+│   └── plugins/                     # ✅ Automation plugins (12 total)
+│       ├── statetracking/           # ✅ State Tracking plugin
+│       ├── dayphase/                # ✅ Day Phase plugin
 │       ├── energy/                  # ✅ Energy State plugin
 │       ├── lighting/                # ✅ Lighting Control plugin
+│       ├── music/                   # ✅ Music Management plugin
+│       ├── sleephygiene/            # ✅ Sleep Hygiene plugin
 │       ├── tv/                      # ✅ TV Monitoring plugin
-│       └── sleephygiene/            # ✅ Sleep Hygiene plugin
+│       ├── security/                # ✅ Security plugin
+│       ├── loadshedding/            # ✅ Load Shedding plugin
+│       ├── sexmode/                 # ✅ Sex Mode plugin
+│       ├── christmas/               # ✅ Christmas plugin
+│       └── reset/                   # ✅ Reset Coordinator
 ├── test/
 │   └── integration/                 # ✅ Integration test suite
 ├── Dockerfile                       # ✅ Production container
@@ -560,28 +599,30 @@ homeautomation-go/
 
 - ✅ Project setup with Go modules
 - ✅ Home Assistant WebSocket client
-- ✅ State Manager with 28 variables
+- ✅ State Manager with 40 variables
 - ✅ Demo application
 - ✅ Comprehensive test suite
 - ✅ Integration tests with mock HA server
 - ✅ Docker support
 
-### Phase 6: Plugin Implementation ✅ IN PROGRESS
+### Phase 6: Plugin Implementation ✅ COMPLETE
 
+- ✅ State Tracking plugin
+- ✅ Day Phase plugin
 - ✅ Energy State plugin
-- ✅ Lighting Control plugin (72.8% coverage)
-- ✅ TV Monitoring plugin (78.4% coverage)
-- ✅ Sleep Hygiene plugin (13 tests)
-- ⏳ Music Management plugin
-- ⏳ State Tracking plugin
-- ⏳ Security plugin
-- ⏳ Load Shedding plugin
-- ⏳ Calendar plugin
-- ⏳ Nagging plugin
+- ✅ Lighting Control plugin
+- ✅ Music Management plugin
+- ✅ Sleep Hygiene plugin
+- ✅ TV Monitoring plugin
+- ✅ Security plugin
+- ✅ Load Shedding plugin
+- ✅ Sex Mode plugin
+- ✅ Christmas plugin
+- ✅ Reset Coordinator
 
 ### Success Criteria for MVP ✅ ACHIEVED
 
-1. ✅ All 28 state variables sync from HA to Golang on startup
+1. ✅ All 40 state variables sync from HA to Golang on startup
 2. ✅ State changes in HA reflected in Golang cache within 1 second
 3. ✅ State changes in Golang written to HA successfully
 4. ✅ WebSocket reconnection works with exponential backoff

@@ -223,19 +223,19 @@ func TestWake_AllConditionsMet(t *testing.T) {
 		t.Errorf("Expected at least 2 service calls, got %d", len(calls))
 	}
 
-	// Check that light service was called for master bedroom
-	foundMasterBedroom := false
+	// Check that light service was called for primary suite
+	foundPrimarySuite := false
 
 	for _, call := range calls {
 		if call.Domain == "light" && call.Service == "turn_on" {
-			if entityID, ok := call.Data["entity_id"].(string); ok && entityID == "light.master_bedroom" {
-				foundMasterBedroom = true
+			if entityID, ok := call.Data["entity_id"].(string); ok && entityID == "light.primary_suite" {
+				foundPrimarySuite = true
 			}
 		}
 	}
 
-	if !foundMasterBedroom {
-		t.Error("Expected light.turn_on call for master bedroom")
+	if !foundPrimarySuite {
+		t.Error("Expected light.turn_on call for primary suite")
 	}
 }
 

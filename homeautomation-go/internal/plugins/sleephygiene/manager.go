@@ -749,7 +749,7 @@ func (m *Manager) turnOnMasterBedroomLights() {
 
 	// First, ensure lights start dim and white
 	if err := m.haClient.CallService("light", "turn_on", map[string]interface{}{
-		"entity_id":      "light.master_bedroom",
+		"entity_id":      "light.primary_suite",
 		"transition":     0,
 		"color_temp":     290,
 		"brightness_pct": 1,
@@ -760,7 +760,7 @@ func (m *Manager) turnOnMasterBedroomLights() {
 
 	// Then start slow transition to full brightness over 30 minutes
 	if err := m.haClient.CallService("light", "turn_on", map[string]interface{}{
-		"entity_id":      "light.master_bedroom",
+		"entity_id":      "light.primary_suite",
 		"transition":     1800, // 30 minutes in seconds
 		"color_temp":     290,
 		"brightness_pct": 100,
