@@ -35,23 +35,7 @@ else
     echo "Warning: repository root $REPO_ROOT not found; skipping git hooks installation."
 fi
 
-# Claude Code playwright-skill plugin
-echo "Installing playwright-skill plugin..."
-
-# Workaround for EXDEV error: /tmp and /home/vscode are on different filesystems
-# in devcontainers. Setting TMPDIR to a path on the same filesystem fixes
-# the "cross-device link not permitted" error during plugin installation.
-export TMPDIR="$HOME/.claude/tmp"
-mkdir -p "$TMPDIR"
-
-claude plugin marketplace add lackeyjb/playwright-skill
-claude plugin install playwright-skill@playwright-skill
-
-# Note: Playwright browser dependencies (apt packages) are now installed
+# Note: Claude Code and playwright-skill plugin are now pre-installed
 # in the Dockerfile for faster rebuilds via Docker layer caching.
-
-echo "Setting up Playwright (installing browser)..."
-cd ~/.claude/plugins/marketplaces/playwright-skill/skills/playwright-skill
-npm run setup
 
 echo "=== Devcontainer setup complete ==="
