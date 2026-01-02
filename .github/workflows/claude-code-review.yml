@@ -5,17 +5,48 @@ on:
     types: [opened, reopened]
 
 env:
-  DEVCONTAINER_IMAGE: ghcr.io/${{ github.repository }}-devcontainer
+  # Note: must be lowercase for Docker compatibility
+  DEVCONTAINER_IMAGE: ghcr.io/nickborgers/home-automation-devcontainer
 
 jobs:
+  # Build and cache devcontainer image first - this ensures caching works
+  # even if Claude fails
+  build-devcontainer:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push devcontainer
+        uses: devcontainers/ci@v0.3
+        with:
+          imageName: ${{ env.DEVCONTAINER_IMAGE }}
+          cacheFrom: ${{ env.DEVCONTAINER_IMAGE }}
+          push: always
+
   claude-review:
+    needs: build-devcontainer
     runs-on: ubuntu-latest
     permissions:
       contents: write
       pull-requests: write
       issues: write
       id-token: write
-      packages: write
+      packages: read
 
     steps:
       - name: Checkout PR branch
@@ -29,23 +60,32 @@ jobs:
       - name: Create gh config directory for devcontainer mount
         run: mkdir -p ~/.config/gh
 
-      - name: Build and run in devcontainer
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Run Claude review in devcontainer
         uses: devcontainers/ci@v0.3
-        env:
-          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          REPO: ${{ github.repository }}
         with:
           imageName: ${{ env.DEVCONTAINER_IMAGE }}
           cacheFrom: ${{ env.DEVCONTAINER_IMAGE }}
-          push: always
+          push: never
+          env: |
+            CLAUDE_CODE_OAUTH_TOKEN=${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+            GH_TOKEN=${{ github.token }}
+            PR_NUMBER=${{ github.event.pull_request.number }}
+            REPO=${{ github.repository }}
           runCmd: |
             # Run Claude Code review inside the devcontainer
+            # Use < /dev/null to prevent hanging on TTY input
+            # Use tee to capture output for artifact upload
             claude --print \
               --model opus \
               --dangerously-skip-permissions \
-              --max-turns 15 \
+              --max-turns 150 \
               "You are reviewing PR #${PR_NUMBER} in ${REPO}.
 
             IMPORTANT: This repository uses cached test commands. ALWAYS use:
@@ -70,18 +110,26 @@ jobs:
             Post your review using:
             gh pr comment ${PR_NUMBER} --body 'YOUR_REVIEW_HERE'
 
-            Be constructive. Reference specific lines when noting issues."
+            Be constructive. Reference specific lines when noting issues." < /dev/null 2>&1 | tee /workspaces/home-automation/claude-review-output.txt
+
+      - name: Upload Claude review output
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: claude-review-output
+          path: claude-review-output.txt
+          retention-days: 7
 
   # test-focused reviewer - runs after claude-review
   test-review:
-    needs: claude-review
+    needs: [build-devcontainer, claude-review]
     runs-on: ubuntu-latest
     permissions:
       contents: write
       pull-requests: write
       issues: write
       id-token: write
-      packages: write
+      packages: read
 
     steps:
       - name: Checkout PR branch
@@ -98,21 +146,30 @@ jobs:
       - name: Create gh config directory for devcontainer mount
         run: mkdir -p ~/.config/gh
 
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Test review in devcontainer
         uses: devcontainers/ci@v0.3
-        env:
-          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
         with:
           imageName: ${{ env.DEVCONTAINER_IMAGE }}
           cacheFrom: ${{ env.DEVCONTAINER_IMAGE }}
-          push: always
+          push: never
+          env: |
+            CLAUDE_CODE_OAUTH_TOKEN=${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+            GH_TOKEN=${{ github.token }}
+            PR_NUMBER=${{ github.event.pull_request.number }}
           runCmd: |
+            # Use < /dev/null to prevent hanging on TTY input
+            # Use tee to capture output for artifact upload
             claude --print \
               --model opus \
               --dangerously-skip-permissions \
-              --max-turns 10 \
+              --max-turns 100 \
               "You are a QA tester for PR #${PR_NUMBER}.
 
             Run \`git diff origin/main...HEAD\` and analyze for insufficiently tested features:
@@ -125,18 +182,26 @@ jobs:
             For HIGH SEVERITY test issues, fix them directly, commit, and push.
 
             Post a comment:
-            gh pr comment ${PR_NUMBER} --body '## Test\n\nYOUR_FINDINGS_OR_ALL_CLEAR'"
+            gh pr comment ${PR_NUMBER} --body '## Test\n\nYOUR_FINDINGS_OR_ALL_CLEAR'" < /dev/null 2>&1 | tee /workspaces/home-automation/test-review-output.txt
+
+      - name: Upload test review output
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-review-output
+          path: test-review-output.txt
+          retention-days: 7
 
   # Concurrency/race condition specialist - runs after test-review
   concurrency-review:
-    needs: test-review
+    needs: [build-devcontainer, test-review]
     runs-on: ubuntu-latest
     permissions:
       contents: write
       pull-requests: write
       issues: write
       id-token: write
-      packages: write
+      packages: read
 
     steps:
       - name: Checkout PR branch
@@ -153,21 +218,30 @@ jobs:
       - name: Create gh config directory for devcontainer mount
         run: mkdir -p ~/.config/gh
 
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Concurrency review in devcontainer
         uses: devcontainers/ci@v0.3
-        env:
-          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
         with:
           imageName: ${{ env.DEVCONTAINER_IMAGE }}
           cacheFrom: ${{ env.DEVCONTAINER_IMAGE }}
-          push: always
+          push: never
+          env: |
+            CLAUDE_CODE_OAUTH_TOKEN=${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+            GH_TOKEN=${{ github.token }}
+            PR_NUMBER=${{ github.event.pull_request.number }}
           runCmd: |
+            # Use < /dev/null to prevent hanging on TTY input
+            # Use tee to capture output for artifact upload
             claude --print \
               --model opus \
               --dangerously-skip-permissions \
-              --max-turns 12 \
+              --max-turns 120 \
               "You are a CONCURRENCY specialist reviewing PR #${PR_NUMBER}.
 
             This Go codebase has a history of race conditions. Review for:
@@ -186,13 +260,21 @@ jobs:
             For HIGH SEVERITY concurrency bugs, fix them directly, commit, and push.
 
             Post findings as:
-            gh pr comment ${PR_NUMBER} --body '## 🔄 Concurrency Review\n\nYOUR_ANALYSIS'"
+            gh pr comment ${PR_NUMBER} --body '## 🔄 Concurrency Review\n\nYOUR_ANALYSIS'" < /dev/null 2>&1 | tee /workspaces/home-automation/concurrency-review-output.txt
+
+      - name: Upload concurrency review output
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: concurrency-review-output
+          path: concurrency-review-output.txt
+          retention-days: 7
 
   # Aggregator job - use this as the required check for branch protection
   all-reviews-passed:
     name: All Required Agent Reviews
     runs-on: ubuntu-latest
-    needs: [claude-review, test-review, concurrency-review]
+    needs: [build-devcontainer, claude-review, test-review, concurrency-review]
     if: always()
 
     steps:
@@ -205,6 +287,10 @@ jobs:
 
           failed=false
 
+          if ! check_result "${{ needs.build-devcontainer.result }}"; then
+            echo "❌ Build Devcontainer: ${{ needs.build-devcontainer.result }}"
+            failed=true
+          fi
           if ! check_result "${{ needs.claude-review.result }}"; then
             echo "❌ Claude Review: ${{ needs.claude-review.result }}"
             failed=true
@@ -227,6 +313,7 @@ jobs:
           echo "✅ All agent reviews completed - PR is ready for merge"
           echo ""
           echo "Review Results:"
+          echo "  Build Devcontainer: ${{ needs.build-devcontainer.result }}"
           echo "  Claude Review: ${{ needs.claude-review.result }}"
           echo "  Test Review: ${{ needs.test-review.result }}"
           echo "  Concurrency Review: ${{ needs.concurrency-review.result }}"
