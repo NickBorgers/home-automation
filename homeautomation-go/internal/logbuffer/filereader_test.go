@@ -10,6 +10,7 @@ import (
 )
 
 func TestParseLogLine(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name      string
 		line      string
@@ -52,6 +53,7 @@ func TestParseLogLine(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+
 			event, err := parseLogLine([]byte(tt.line))
 			if (err != nil) != tt.wantErr {
 				t.Errorf("parseLogLine() error = %v, wantErr %v", err, tt.wantErr)
@@ -70,6 +72,7 @@ func TestParseLogLine(t *testing.T) {
 }
 
 func TestReadEventsFromReader(t *testing.T) {
+	t.Parallel()
 	logContent := `{"level":"info","ts":"2025-01-15T10:00:00.000Z","msg":"First message"}
 {"level":"warn","ts":"2025-01-15T10:01:00.000Z","msg":"Second message"}
 {"level":"error","ts":"2025-01-15T10:02:00.000Z","msg":"Third message"}
@@ -78,6 +81,7 @@ func TestReadEventsFromReader(t *testing.T) {
 `
 
 	t.Run("read all events", func(t *testing.T) {
+
 		reader := strings.NewReader(logContent)
 		events, err := readEventsFromReader(reader, time.Time{}, 0)
 		if err != nil {
@@ -89,6 +93,7 @@ func TestReadEventsFromReader(t *testing.T) {
 	})
 
 	t.Run("read with limit", func(t *testing.T) {
+
 		reader := strings.NewReader(logContent)
 		events, err := readEventsFromReader(reader, time.Time{}, 3)
 		if err != nil {
@@ -100,6 +105,7 @@ func TestReadEventsFromReader(t *testing.T) {
 	})
 
 	t.Run("read with since filter", func(t *testing.T) {
+
 		reader := strings.NewReader(logContent)
 		since, _ := time.Parse(time.RFC3339, "2025-01-15T10:02:00.000Z")
 		events, err := readEventsFromReader(reader, since, 0)
@@ -113,6 +119,7 @@ func TestReadEventsFromReader(t *testing.T) {
 	})
 
 	t.Run("handles malformed lines gracefully", func(t *testing.T) {
+
 		contentWithBadLines := `{"level":"info","ts":"2025-01-15T10:00:00.000Z","msg":"Good line"}
 not json
 {"level":"info","ts":"2025-01-15T10:01:00.000Z","msg":"Another good line"}
@@ -129,7 +136,10 @@ not json
 }
 
 func TestReadEventsFromFile(t *testing.T) {
+	t.Parallel(
 	// Create a temporary log file
+	)
+
 	tmpDir := t.TempDir()
 	logFile := filepath.Join(tmpDir, "test.log")
 
@@ -143,6 +153,7 @@ func TestReadEventsFromFile(t *testing.T) {
 	}
 
 	t.Run("read from file", func(t *testing.T) {
+
 		events, err := ReadEventsFromFile(logFile, time.Time{}, 0)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -153,6 +164,7 @@ func TestReadEventsFromFile(t *testing.T) {
 	})
 
 	t.Run("non-existent file returns empty", func(t *testing.T) {
+
 		events, err := ReadEventsFromFile("/nonexistent/path/file.log", time.Time{}, 0)
 		if err != nil {
 			t.Errorf("expected nil error for non-existent file, got: %v", err)
@@ -164,7 +176,10 @@ func TestReadEventsFromFile(t *testing.T) {
 }
 
 func TestBufferWithFile(t *testing.T) {
+	t.Parallel(
 	// Create a temporary log file
+	)
+
 	tmpDir := t.TempDir()
 	logFile := filepath.Join(tmpDir, "test.log")
 
@@ -178,6 +193,7 @@ func TestBufferWithFile(t *testing.T) {
 	}
 
 	t.Run("file-backed buffer reads from file", func(t *testing.T) {
+
 		buffer := NewBufferWithFile(100, logFile)
 
 		if !buffer.IsFileBacked() {
@@ -195,6 +211,7 @@ func TestBufferWithFile(t *testing.T) {
 	})
 
 	t.Run("file-backed buffer count returns in-memory count", func(t *testing.T) {
+
 		buffer := NewBufferWithFile(100, logFile)
 		// Count() returns in-memory count (0 since we haven't called Add()),
 		// not the file event count (which would require reading the entire file)
@@ -205,6 +222,7 @@ func TestBufferWithFile(t *testing.T) {
 	})
 
 	t.Run("file-backed buffer overflow is always false", func(t *testing.T) {
+
 		buffer := NewBufferWithFile(100, logFile)
 		if buffer.HasOverflowed() {
 			t.Error("expected HasOverflowed() to return false for file-backed buffer")
@@ -212,6 +230,7 @@ func TestBufferWithFile(t *testing.T) {
 	})
 
 	t.Run("non-file-backed buffer still works", func(t *testing.T) {
+
 		buffer := NewBuffer(100)
 
 		if buffer.IsFileBacked() {
@@ -232,7 +251,9 @@ func TestBufferWithFile(t *testing.T) {
 }
 
 func TestLogFilePathMethod(t *testing.T) {
+	t.Parallel()
 	t.Run("returns path for file-backed buffer", func(t *testing.T) {
+
 		buffer := NewBufferWithFile(100, "/path/to/log.file")
 		if buffer.LogFilePath() != "/path/to/log.file" {
 			t.Errorf("LogFilePath() = %q, want %q", buffer.LogFilePath(), "/path/to/log.file")
@@ -240,6 +261,7 @@ func TestLogFilePathMethod(t *testing.T) {
 	})
 
 	t.Run("returns empty for non-file-backed buffer", func(t *testing.T) {
+
 		buffer := NewBuffer(100)
 		if buffer.LogFilePath() != "" {
 			t.Errorf("LogFilePath() = %q, want empty string", buffer.LogFilePath())
@@ -248,6 +270,7 @@ func TestLogFilePathMethod(t *testing.T) {
 }
 
 func TestParseLogLineWithFields(t *testing.T) {
+	t.Parallel()
 	line := `{"level":"info","ts":"2025-01-15T10:00:00.000Z","msg":"Test","plugin":"lighting","count":42,"enabled":true}`
 
 	event, err := parseLogLine([]byte(line))
@@ -278,11 +301,13 @@ func TestParseLogLineWithFields(t *testing.T) {
 }
 
 func TestReadEventsFromFileReverse_MultiChunk(t *testing.T) {
+	t.Parallel(
 	// This test verifies that ReadEventsFromFileReverse correctly handles
 	// log files that span multiple 64KB chunks. A bug in the original
 	// implementation incorrectly saved the last line of each chunk as
 	// partial instead of the first line, causing line corruption when
 	// lines span chunk boundaries.
+	)
 
 	tmpDir := t.TempDir()
 	logFile := filepath.Join(tmpDir, "large.log")
@@ -313,6 +338,7 @@ func TestReadEventsFromFileReverse_MultiChunk(t *testing.T) {
 	t.Logf("Test file size: %d bytes (%.1f KB)", stat.Size(), float64(stat.Size())/1024)
 
 	t.Run("reads all events in correct order", func(t *testing.T) {
+
 		events, err := ReadEventsFromFileReverse(logFile, numLines)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -336,6 +362,7 @@ func TestReadEventsFromFileReverse_MultiChunk(t *testing.T) {
 	})
 
 	t.Run("respects maxEvents limit", func(t *testing.T) {
+
 		events, err := ReadEventsFromFileReverse(logFile, 100)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)

@@ -145,6 +145,7 @@ func createOccupancyMusicConfig() *MusicConfig {
 // 1. Start with isNickOfficeOccupied = false → Office should be MUTED
 // 2. Change to isNickOfficeOccupied = true → Office should be UNMUTED
 func TestScenario_OfficeSpeaker_UnmutedWhenOccupied(t *testing.T) {
+	t.Parallel()
 	logger := zap.NewNop()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -226,6 +227,7 @@ func TestScenario_OfficeSpeaker_UnmutedWhenOccupied(t *testing.T) {
 // 1. Start with isNickOfficeOccupied = true → Office should be UNMUTED
 // 2. Change to isNickOfficeOccupied = false → Office should be MUTED
 func TestScenario_OfficeSpeaker_MutedWhenUnoccupied(t *testing.T) {
+	t.Parallel()
 	logger := zap.NewNop()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -293,6 +295,7 @@ func TestScenario_OfficeSpeaker_MutedWhenUnoccupied(t *testing.T) {
 // - Entity: media_player.office
 // - No volume_set needed (volume was set during initial playback)
 func TestScenario_OfficeSpeaker_UnmuteOnOccupancyChangeDuringPlayback(t *testing.T) {
+	t.Parallel()
 	logger := zap.NewNop()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -376,6 +379,7 @@ func TestScenario_OfficeSpeaker_UnmuteOnOccupancyChangeDuringPlayback(t *testing
 // always return true. An empty leave_muted_if array means the speaker always
 // participates.
 func TestScenario_KitchenSpeaker_AlwaysUnmuted(t *testing.T) {
+	t.Parallel()
 	logger := zap.NewNop()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)

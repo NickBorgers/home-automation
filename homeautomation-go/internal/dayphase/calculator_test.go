@@ -12,6 +12,7 @@ import (
 )
 
 func TestCalculator_UpdateSunTimes(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	// Austin, TX coordinates
 	calc := NewCalculator(32.85486, -97.50515, logger)
@@ -41,6 +42,7 @@ func TestCalculator_UpdateSunTimes(t *testing.T) {
 }
 
 func TestCalculator_GetSunEvent(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	calc := NewCalculator(32.85486, -97.50515, logger)
 
@@ -64,6 +66,7 @@ func TestCalculator_GetSunEvent(t *testing.T) {
 }
 
 func TestCalculator_CalculateDayPhase(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	calc := NewCalculator(32.85486, -97.50515, logger)
 
@@ -109,6 +112,7 @@ func TestCalculator_CalculateDayPhase(t *testing.T) {
 }
 
 func TestCalculator_CalculateDayPhaseWithoutSchedule(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	calc := NewCalculator(32.85486, -97.50515, logger)
 
@@ -138,6 +142,7 @@ func setSunTimesForTest(calc *Calculator, now time.Time, dawn, sunrise, sunriseE
 }
 
 func TestCalculator_GetSunEventAllPeriods(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	calc := NewCalculator(32.85486, -97.50515, logger)
 
@@ -263,7 +268,9 @@ func TestCalculator_GetSunEventAllPeriods(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+
 			// Set sun times to create the desired test scenario
+
 			setSunTimesForTest(calc, now,
 				tt.dawn, tt.sunrise, tt.sunriseEnd, tt.goldenHourEnd,
 				tt.goldenHour, tt.sunsetStart, tt.sunset,
@@ -276,6 +283,7 @@ func TestCalculator_GetSunEventAllPeriods(t *testing.T) {
 }
 
 func TestCalculator_CalculateDayPhaseAllCases(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 
 	// Use a FIXED reference time to make this test deterministic
@@ -583,6 +591,7 @@ func TestCalculator_CalculateDayPhaseAllCases(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+
 			calc := NewCalculator(32.85486, -97.50515, logger)
 			// Inject mock clock set to our fixed reference time
 			mockClock := clock.NewMockClock(now)
@@ -597,6 +606,7 @@ func TestCalculator_CalculateDayPhaseAllCases(t *testing.T) {
 
 // TestCalculator_CalculateDayPhaseEdgeCases tests edge cases in day phase calculation
 func TestCalculator_CalculateDayPhaseEdgeCases(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	calc := NewCalculator(32.85486, -97.50515, logger)
 
@@ -626,6 +636,7 @@ func TestCalculator_CalculateDayPhaseEdgeCases(t *testing.T) {
 }
 
 func TestCalculator_AutoUpdateSunTimes(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	calc := NewCalculator(32.85486, -97.50515, logger)
 
@@ -642,6 +653,7 @@ func TestCalculator_AutoUpdateSunTimes(t *testing.T) {
 }
 
 func TestCalculator_StartPeriodicUpdate(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	calc := NewCalculator(32.85486, -97.50515, logger)
 
@@ -662,6 +674,7 @@ func TestCalculator_StartPeriodicUpdate(t *testing.T) {
 }
 
 func TestValidateDayPhase(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name      string
 		input     string
@@ -680,6 +693,7 @@ func TestValidateDayPhase(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+
 			phase, err := ValidateDayPhase(tt.input)
 			if tt.shouldErr {
 				assert.Error(t, err)
@@ -692,7 +706,10 @@ func TestValidateDayPhase(t *testing.T) {
 }
 
 func TestSunEventConstants(t *testing.T) {
+	t.Parallel(
 	// Verify sun event constants are defined correctly
+	)
+
 	assert.Equal(t, SunEvent("morning"), SunEventMorning)
 	assert.Equal(t, SunEvent("day"), SunEventDay)
 	assert.Equal(t, SunEvent("sunset"), SunEventSunset)
@@ -701,7 +718,10 @@ func TestSunEventConstants(t *testing.T) {
 }
 
 func TestDayPhaseConstants(t *testing.T) {
+	t.Parallel(
 	// Verify day phase constants are defined correctly
+	)
+
 	assert.Equal(t, DayPhase("morning"), DayPhaseMorning)
 	assert.Equal(t, DayPhase("day"), DayPhaseDay)
 	assert.Equal(t, DayPhase("sunset"), DayPhaseSunset)
@@ -711,6 +731,7 @@ func TestDayPhaseConstants(t *testing.T) {
 }
 
 func TestCalculator_GetSunTimes(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	calc := NewCalculator(32.85486, -97.50515, logger)
 

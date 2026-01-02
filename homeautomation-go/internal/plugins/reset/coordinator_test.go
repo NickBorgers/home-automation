@@ -37,6 +37,7 @@ func createTestManager(t *testing.T) *state.Manager {
 
 // TestCoordinator_Start tests coordinator startup
 func TestCoordinator_Start(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	stateManager := createTestManager(t)
 
@@ -55,6 +56,7 @@ func TestCoordinator_Start(t *testing.T) {
 
 // TestCoordinator_ResetTrigger tests that reset triggers plugin Reset() calls
 func TestCoordinator_ResetTrigger(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	stateManager := createTestManager(t)
 
@@ -102,6 +104,7 @@ func TestCoordinator_ResetTrigger(t *testing.T) {
 
 // TestCoordinator_ResetError tests that coordinator continues on plugin errors
 func TestCoordinator_ResetError(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	stateManager := createTestManager(t)
 
@@ -149,6 +152,7 @@ func TestCoordinator_ResetError(t *testing.T) {
 
 // TestCoordinator_ReadOnlyMode tests coordinator in read-only mode
 func TestCoordinator_ReadOnlyMode(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	mockClient.SetState("input_boolean.reset", "off", map[string]interface{}{})
@@ -185,6 +189,7 @@ func TestCoordinator_ReadOnlyMode(t *testing.T) {
 
 // TestCoordinator_NoPlugins tests coordinator with no plugins
 func TestCoordinator_NoPlugins(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	stateManager := createTestManager(t)
 
@@ -216,6 +221,7 @@ func TestCoordinator_NoPlugins(t *testing.T) {
 
 // TestCoordinator_ResetFalse tests that setting reset to false doesn't trigger
 func TestCoordinator_ResetFalse(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	stateManager := createTestManager(t)
 
@@ -247,6 +253,7 @@ func TestCoordinator_ResetFalse(t *testing.T) {
 
 // TestCoordinator_Stop tests coordinator shutdown
 func TestCoordinator_Stop(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	stateManager := createTestManager(t)
 

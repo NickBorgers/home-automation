@@ -13,7 +13,10 @@ import (
 
 // TestLoadSheddingShadowState_CaptureInputs tests that all subscribed inputs are captured
 func TestLoadSheddingShadowState_CaptureInputs(t *testing.T) {
+	t.Parallel(
 	// Create mock HA client and state manager
+	)
+
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, zap.NewNop(), true)
 
@@ -46,7 +49,10 @@ func TestLoadSheddingShadowState_CaptureInputs(t *testing.T) {
 
 // TestLoadSheddingShadowState_RecordEnableAction tests that enable actions update shadow state correctly
 func TestLoadSheddingShadowState_RecordEnableAction(t *testing.T) {
+	t.Parallel(
 	// Create mock HA client and state manager
+	)
+
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, zap.NewNop(), true)
 	if err := stateManager.SetString("currentEnergyLevel", "red"); err != nil {
@@ -104,7 +110,10 @@ func TestLoadSheddingShadowState_RecordEnableAction(t *testing.T) {
 
 // TestLoadSheddingShadowState_RecordDisableAction tests that disable actions update shadow state correctly
 func TestLoadSheddingShadowState_RecordDisableAction(t *testing.T) {
+	t.Parallel(
 	// Create mock HA client and state manager
+	)
+
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, zap.NewNop(), true)
 	if err := stateManager.SetString("currentEnergyLevel", "green"); err != nil {
@@ -151,7 +160,10 @@ func TestLoadSheddingShadowState_RecordDisableAction(t *testing.T) {
 
 // TestLoadSheddingShadowState_GetShadowState tests that GetShadowState returns accurate snapshot
 func TestLoadSheddingShadowState_GetShadowState(t *testing.T) {
+	t.Parallel(
 	// Create mock HA client and state manager and load shedding manager
+	)
+
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, zap.NewNop(), true)
 	if err := stateManager.SetString("currentEnergyLevel", "yellow"); err != nil {
@@ -191,7 +203,10 @@ func TestLoadSheddingShadowState_GetShadowState(t *testing.T) {
 
 // TestLoadSheddingShadowState_ConcurrentAccess tests thread safety with concurrent access
 func TestLoadSheddingShadowState_ConcurrentAccess(t *testing.T) {
+	t.Parallel(
 	// Create mock HA client and state manager and load shedding manager
+	)
+
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, zap.NewNop(), true)
 	if err := stateManager.SetString("currentEnergyLevel", "green"); err != nil {
@@ -241,6 +256,7 @@ func TestLoadSheddingShadowState_ConcurrentAccess(t *testing.T) {
 
 // TestLoadSheddingShadowState_InterfaceImplementation tests that LoadSheddingShadowState implements PluginShadowState
 func TestLoadSheddingShadowState_InterfaceImplementation(t *testing.T) {
+	t.Parallel()
 	shadowState := shadowstate.NewLoadSheddingShadowState()
 
 	// Verify interface methods work
@@ -254,7 +270,10 @@ func TestLoadSheddingShadowState_InterfaceImplementation(t *testing.T) {
 
 // TestLoadSheddingShadowState_InputSnapshot tests that inputs are snapshotted correctly
 func TestLoadSheddingShadowState_InputSnapshot(t *testing.T) {
+	t.Parallel(
 	// Create mock HA client and state manager
+	)
+
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, zap.NewNop(), true)
 	if err := stateManager.SetString("currentEnergyLevel", "red"); err != nil {
@@ -295,7 +314,10 @@ func TestLoadSheddingShadowState_InputSnapshot(t *testing.T) {
 
 // TestLoadSheddingShadowState_MultipleActions tests that multiple actions are tracked correctly
 func TestLoadSheddingShadowState_MultipleActions(t *testing.T) {
+	t.Parallel(
 	// Create mock HA client and state manager
+	)
+
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, zap.NewNop(), true)
 
@@ -338,7 +360,10 @@ func TestLoadSheddingShadowState_MultipleActions(t *testing.T) {
 
 // TestLoadSheddingShadowState_HandleEnergyChange tests shadow state updates on energy change
 func TestLoadSheddingShadowState_HandleEnergyChange(t *testing.T) {
+	t.Parallel(
 	// Create mock HA client and state manager
+	)
+
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, zap.NewNop(), true)
 

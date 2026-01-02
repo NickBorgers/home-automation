@@ -13,7 +13,10 @@ import (
 
 // TestMusicShadowState_CaptureInputs tests that all subscribed inputs are captured
 func TestMusicShadowState_CaptureInputs(t *testing.T) {
+	t.Parallel(
 	// Create mock state manager
+	)
+
 	stateManager := state.NewManager(nil, zap.NewNop(), true)
 
 	// Create music manager
@@ -37,7 +40,10 @@ func TestMusicShadowState_CaptureInputs(t *testing.T) {
 
 // TestMusicShadowState_RecordAction tests that actions update shadow state correctly
 func TestMusicShadowState_RecordAction(t *testing.T) {
+	t.Parallel(
 	// Create mock state manager
+	)
+
 	stateManager := state.NewManager(nil, zap.NewNop(), true)
 	stateManager.SetString("dayPhase", "evening")
 	stateManager.SetBool("isAnyoneHome", true)
@@ -80,7 +86,10 @@ func TestMusicShadowState_RecordAction(t *testing.T) {
 
 // TestMusicShadowState_UpdateOutputs tests that output updates work correctly
 func TestMusicShadowState_UpdateOutputs(t *testing.T) {
+	t.Parallel(
 	// Create mock state manager and music manager
+	)
+
 	stateManager := state.NewManager(nil, zap.NewNop(), true)
 	mockConfig := &MusicConfig{
 		Music: make(map[string]MusicMode),
@@ -148,7 +157,10 @@ func TestMusicShadowState_UpdateOutputs(t *testing.T) {
 
 // TestMusicShadowState_GetShadowState tests that GetShadowState returns accurate snapshot
 func TestMusicShadowState_GetShadowState(t *testing.T) {
+	t.Parallel(
 	// Create mock state manager and music manager
+	)
+
 	stateManager := state.NewManager(nil, zap.NewNop(), true)
 	stateManager.SetString("dayPhase", "morning")
 
@@ -196,7 +208,10 @@ func TestMusicShadowState_GetShadowState(t *testing.T) {
 
 // TestMusicShadowState_ConcurrentAccess tests thread safety with concurrent access
 func TestMusicShadowState_ConcurrentAccess(t *testing.T) {
+	t.Parallel(
 	// Create mock state manager and music manager
+	)
+
 	stateManager := state.NewManager(nil, zap.NewNop(), true)
 	mockConfig := &MusicConfig{
 		Music: make(map[string]MusicMode),
@@ -234,7 +249,10 @@ func TestMusicShadowState_ConcurrentAccess(t *testing.T) {
 
 // TestMusicShadowState_PlaylistRotation tests that playlist rotation is tracked
 func TestMusicShadowState_PlaylistRotation(t *testing.T) {
+	t.Parallel(
 	// Create mock state manager and music manager
+	)
+
 	stateManager := state.NewManager(nil, zap.NewNop(), true)
 	mockConfig := &MusicConfig{
 		Music: make(map[string]MusicMode),
@@ -263,6 +281,7 @@ func TestMusicShadowState_PlaylistRotation(t *testing.T) {
 
 // TestMusicShadowState_InterfaceImplementation tests that MusicShadowState implements PluginShadowState
 func TestMusicShadowState_InterfaceImplementation(t *testing.T) {
+	t.Parallel()
 	shadowState := shadowstate.NewMusicShadowState()
 
 	// Verify interface methods work

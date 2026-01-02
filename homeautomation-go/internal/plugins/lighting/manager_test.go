@@ -53,6 +53,7 @@ func createTestConfig() *HueConfig {
 }
 
 func TestNewManager(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	config := createTestConfig()
 	mockClient := ha.NewMockClient()
@@ -68,6 +69,7 @@ func TestNewManager(t *testing.T) {
 }
 
 func TestEvaluateConditions(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	config := createTestConfig()
 	mockClient := ha.NewMockClient()
@@ -159,6 +161,7 @@ func TestEvaluateConditions(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+
 			tt.setupState()
 			room := &config.Rooms[tt.roomIndex]
 			action, matchedVar := manager.evaluateConditions(room)
@@ -169,6 +172,7 @@ func TestEvaluateConditions(t *testing.T) {
 }
 
 func TestEvaluateConditionsNoMatch(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -193,6 +197,7 @@ func TestEvaluateConditionsNoMatch(t *testing.T) {
 }
 
 func TestActivateSceneReadOnly(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	config := createTestConfig()
 	mockClient := ha.NewMockClient()
@@ -211,6 +216,7 @@ func TestActivateSceneReadOnly(t *testing.T) {
 }
 
 func TestActivateScene(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	config := createTestConfig()
 	mockClient := ha.NewMockClient()
@@ -240,6 +246,7 @@ func TestActivateScene(t *testing.T) {
 // Home Assistant would activate an unexpected scene (e.g., "energize" instead of "dusk").
 // This test verifies that only entity_id is passed, ensuring the correct scene activates.
 func TestActivateSceneDusk(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	config := createTestConfig()
 	mockClient := ha.NewMockClient()
@@ -268,6 +275,7 @@ func TestActivateSceneDusk(t *testing.T) {
 }
 
 func TestTurnOffRoomReadOnly(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	config := createTestConfig()
 	mockClient := ha.NewMockClient()
@@ -285,6 +293,7 @@ func TestTurnOffRoomReadOnly(t *testing.T) {
 }
 
 func TestTurnOffRoom(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	config := createTestConfig()
 	mockClient := ha.NewMockClient()
@@ -309,6 +318,7 @@ func TestTurnOffRoom(t *testing.T) {
 }
 
 func TestEvaluateAndActivateRoom(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	config := createTestConfig()
 	mockClient := ha.NewMockClient()
@@ -367,7 +377,9 @@ func TestEvaluateAndActivateRoom(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+
 			// Reset mock client
+
 			mockClient.ClearServiceCalls()
 
 			tt.setupState()
@@ -394,6 +406,7 @@ func TestEvaluateAndActivateRoom(t *testing.T) {
 }
 
 func TestStart(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	config := createTestConfig()
 	mockClient := ha.NewMockClient()
@@ -426,6 +439,7 @@ func TestStart(t *testing.T) {
 
 // TestLightingManager_Stop tests the Stop method and subscription cleanup
 func TestLightingManager_Stop(t *testing.T) {
+	t.Parallel()
 	logger := zap.NewNop()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -467,6 +481,7 @@ func TestLightingManager_Stop(t *testing.T) {
 }
 
 func TestManagerReset(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -487,6 +502,7 @@ func TestManagerReset(t *testing.T) {
 }
 
 func TestIsTopicRelevant(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	config := createTestConfig()
 	mockClient := ha.NewMockClient()
@@ -551,6 +567,7 @@ func TestIsTopicRelevant(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+
 			result := manager.isTopicRelevant(tt.room, tt.trigger)
 			assert.Equal(t, tt.expected, result)
 		})
@@ -558,6 +575,7 @@ func TestIsTopicRelevant(t *testing.T) {
 }
 
 func TestGetStateValue(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	config := createTestConfig()
 	mockClient := ha.NewMockClient()
@@ -589,6 +607,7 @@ func TestGetStateValue(t *testing.T) {
 }
 
 func TestCollectConditionVariables(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	config := createTestConfig()
 	mockClient := ha.NewMockClient()

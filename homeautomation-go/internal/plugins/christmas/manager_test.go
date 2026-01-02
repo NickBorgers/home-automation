@@ -11,7 +11,10 @@ import (
 
 // TestChristmasManager_ActivationTurnsOnHolidayLights tests that activating christmas turns on holiday lights
 func TestChristmasManager_ActivationTurnsOnHolidayLights(t *testing.T) {
+	t.Parallel(
 	// Setup
+	)
+
 	mockHA := ha.NewMockClient()
 	mockHA.SetState("input_boolean.christmas", "off", nil)
 	mockHA.Connect()
@@ -53,7 +56,10 @@ func TestChristmasManager_ActivationTurnsOnHolidayLights(t *testing.T) {
 
 // TestChristmasManager_ActivationResetsToggle tests that christmas toggle is reset to off after activation
 func TestChristmasManager_ActivationResetsToggle(t *testing.T) {
+	t.Parallel(
 	// Setup
+	)
+
 	mockHA := ha.NewMockClient()
 	mockHA.SetState("input_boolean.christmas", "off", nil)
 	mockHA.Connect()
@@ -95,7 +101,10 @@ func TestChristmasManager_ActivationResetsToggle(t *testing.T) {
 
 // TestChristmasManager_OffDoesNothing tests that turning off christmas does nothing
 func TestChristmasManager_OffDoesNothing(t *testing.T) {
+	t.Parallel(
 	// Setup
+	)
+
 	mockHA := ha.NewMockClient()
 	mockHA.SetState("input_boolean.christmas", "on", nil)
 	mockHA.Connect()
@@ -127,7 +136,10 @@ func TestChristmasManager_OffDoesNothing(t *testing.T) {
 
 // TestChristmasManager_ReadOnlyMode tests that read-only mode prevents service calls
 func TestChristmasManager_ReadOnlyMode(t *testing.T) {
+	t.Parallel(
 	// Setup
+	)
+
 	mockHA := ha.NewMockClient()
 	mockHA.SetState("input_boolean.christmas", "off", nil)
 	mockHA.Connect()
@@ -157,7 +169,10 @@ func TestChristmasManager_ReadOnlyMode(t *testing.T) {
 
 // TestChristmasManager_ShadowState tests that shadow state is properly tracked
 func TestChristmasManager_ShadowState(t *testing.T) {
+	t.Parallel(
 	// Setup
+	)
+
 	mockHA := ha.NewMockClient()
 	mockHA.SetState("input_boolean.christmas", "off", nil)
 	mockHA.Connect()
@@ -196,7 +211,10 @@ func TestChristmasManager_ShadowState(t *testing.T) {
 
 // TestChristmasManager_Reset tests the Reset function
 func TestChristmasManager_Reset(t *testing.T) {
+	t.Parallel(
 	// Setup
+	)
+
 	mockHA := ha.NewMockClient()
 	// Christmas is ON in HA
 	mockHA.SetState("input_boolean.christmas", "on", nil)
@@ -242,7 +260,10 @@ func TestChristmasManager_Reset(t *testing.T) {
 
 // TestChristmasManager_ResetWhenOff tests the Reset function when christmas is off
 func TestChristmasManager_ResetWhenOff(t *testing.T) {
+	t.Parallel(
 	// Setup
+	)
+
 	mockHA := ha.NewMockClient()
 	// Christmas is OFF in HA
 	mockHA.SetState("input_boolean.christmas", "off", nil)

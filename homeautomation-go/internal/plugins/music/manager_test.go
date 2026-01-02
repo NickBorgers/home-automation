@@ -17,6 +17,7 @@ import (
 )
 
 func TestMusicManager_SelectAppropriateMusicMode(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name              string
 		isAnyoneHome      bool
@@ -120,7 +121,9 @@ func TestMusicManager_SelectAppropriateMusicMode(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+
 			// Create mock HA client and state manager (NOT read-only for tests)
+
 			mockHA := ha.NewMockClient()
 			logger := zap.NewNop()
 			stateMgr := state.NewManager(mockHA, logger, false)
@@ -178,6 +181,7 @@ func TestMusicManager_SelectAppropriateMusicMode(t *testing.T) {
 }
 
 func TestMusicManager_DetermineMusicModeFromDayPhase(t *testing.T) {
+	t.Parallel()
 	mockHA := ha.NewMockClient()
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
@@ -206,6 +210,7 @@ func TestMusicManager_DetermineMusicModeFromDayPhase(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.dayPhase+"_"+tt.currentMusicType, func(t *testing.T) {
+
 			result := manager.determineMusicModeFromDayPhase(tt.dayPhase, tt.currentMusicType, "", false)
 			if result != tt.expectedMusicMode {
 				t.Errorf("For dayPhase=%s, currentMusicType=%s: expected %s, got %s",
@@ -216,6 +221,7 @@ func TestMusicManager_DetermineMusicModeFromDayPhase(t *testing.T) {
 }
 
 func TestMusicManager_StateChangeHandling(t *testing.T) {
+	t.Parallel()
 	mockHA := ha.NewMockClient()
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
@@ -300,7 +306,10 @@ func TestMusicManager_StateChangeHandling(t *testing.T) {
 }
 
 func TestMusicManager_Stop(t *testing.T) {
+	t.Parallel(
 	// Create mock HA client and state manager
+	)
+
 	mockHA := ha.NewMockClient()
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
@@ -381,7 +390,10 @@ func findRepoRoot(t *testing.T) string {
 }
 
 func TestLoadMusicConfig(t *testing.T) {
+	t.Parallel(
 	// Find the repository root and construct path to config file
+	)
+
 	repoRoot := findRepoRoot(t)
 	configPath := filepath.Join(repoRoot, "configs", "music_config.yaml")
 
@@ -440,6 +452,7 @@ func TestLoadMusicConfig(t *testing.T) {
 }
 
 func TestMusicManager_ReadOnlyMode(t *testing.T) {
+	t.Parallel()
 	logger := zap.NewNop()
 	mockClient := ha.NewMockClient()
 	// Create state manager in read-only mode
@@ -477,6 +490,7 @@ func TestMusicManager_ReadOnlyMode(t *testing.T) {
 
 // TestCalculateVolume tests volume calculation
 func TestCalculateVolume(t *testing.T) {
+	t.Parallel()
 	logger := zap.NewNop()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -498,6 +512,7 @@ func TestCalculateVolume(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+
 			result := manager.calculateVolume(tt.baseVolume, tt.multiplier)
 			if result != tt.expected {
 				t.Errorf("calculateVolume(%d, %.1f) = %d, want %d",
@@ -509,6 +524,7 @@ func TestCalculateVolume(t *testing.T) {
 
 // TestPlaylistRotation tests playlist rotation logic
 func TestPlaylistRotation(t *testing.T) {
+	t.Parallel()
 	logger := zap.NewNop()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -552,6 +568,7 @@ func TestPlaylistRotation(t *testing.T) {
 
 // TestRateLimiting tests rate limiting functionality
 func TestRateLimiting(t *testing.T) {
+	t.Parallel()
 	logger := zap.NewNop()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -605,6 +622,7 @@ func TestRateLimiting(t *testing.T) {
 
 // TestDoubleActivationPrevention tests prevention of re-activating already playing music
 func TestDoubleActivationPrevention(t *testing.T) {
+	t.Parallel()
 	logger := zap.NewNop()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -637,6 +655,7 @@ func TestDoubleActivationPrevention(t *testing.T) {
 
 // TestMuteConditionEvaluation tests mute condition logic
 func TestMuteConditionEvaluation(t *testing.T) {
+	t.Parallel()
 	logger := zap.NewNop()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -685,6 +704,7 @@ func TestMuteConditionEvaluation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+
 			shouldUnmute := manager.shouldUnmuteSpeaker(tt.participant)
 			if shouldUnmute == tt.expectedMuted {
 				t.Errorf("shouldUnmuteSpeaker() = %v, expectedMuted = %v",
@@ -696,6 +716,7 @@ func TestMuteConditionEvaluation(t *testing.T) {
 
 // TestGetSpeakerEntityID tests entity ID conversion
 func TestGetSpeakerEntityID(t *testing.T) {
+	t.Parallel()
 	logger := zap.NewNop()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -714,6 +735,7 @@ func TestGetSpeakerEntityID(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.speakerName, func(t *testing.T) {
+
 			result := manager.getSpeakerEntityID(tt.speakerName)
 			if result != tt.expected {
 				t.Errorf("getSpeakerEntityID(%q) = %q, want %q",
@@ -725,6 +747,7 @@ func TestGetSpeakerEntityID(t *testing.T) {
 
 // TestStopPlayback tests stopping music playback
 func TestStopPlayback(t *testing.T) {
+	t.Parallel()
 	logger := zap.NewNop()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -759,6 +782,7 @@ func TestStopPlayback(t *testing.T) {
 
 // TestOrchestratePlayback tests the main orchestration flow
 func TestOrchestratePlayback(t *testing.T) {
+	t.Parallel()
 	logger := zap.NewNop()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -812,6 +836,7 @@ func TestOrchestratePlayback(t *testing.T) {
 
 // TestToLower tests the toLower helper function
 func TestToLower(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		input    string
 		expected string
@@ -825,6 +850,7 @@ func TestToLower(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
+
 			result := toLower(tt.input)
 			if result != tt.expected {
 				t.Errorf("toLower(%q) = %q, want %q", tt.input, result, tt.expected)
@@ -835,6 +861,7 @@ func TestToLower(t *testing.T) {
 
 // TestValuesMatch tests value matching logic
 func TestValuesMatch(t *testing.T) {
+	t.Parallel()
 	logger := zap.NewNop()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -857,6 +884,7 @@ func TestValuesMatch(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+
 			result := manager.valuesMatch(tt.a, tt.b)
 			if result != tt.expected {
 				t.Errorf("valuesMatch(%v, %v) = %v, want %v",
@@ -868,6 +896,7 @@ func TestValuesMatch(t *testing.T) {
 
 // TestGetStateValue tests state value retrieval
 func TestGetStateValue(t *testing.T) {
+	t.Parallel()
 	logger := zap.NewNop()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -916,6 +945,7 @@ func TestGetStateValue(t *testing.T) {
 
 // TestCallService tests service calling
 func TestCallService(t *testing.T) {
+	t.Parallel()
 	logger := zap.NewNop()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -942,6 +972,7 @@ func TestCallService(t *testing.T) {
 
 // TestHandleMusicPlaybackTypeChange_EmptyString tests stopping playback
 func TestHandleMusicPlaybackTypeChange_EmptyString(t *testing.T) {
+	t.Parallel()
 	logger := zap.NewNop()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -976,6 +1007,7 @@ func TestHandleMusicPlaybackTypeChange_EmptyString(t *testing.T) {
 
 // TestHandleMusicPlaybackTypeChange_InvalidType tests handling of invalid type values
 func TestHandleMusicPlaybackTypeChange_InvalidType(t *testing.T) {
+	t.Parallel()
 	logger := zap.NewNop()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -990,6 +1022,7 @@ func TestHandleMusicPlaybackTypeChange_InvalidType(t *testing.T) {
 
 // TestExecutePlayback tests the complete execution flow
 func TestExecutePlayback(t *testing.T) {
+	t.Parallel()
 	logger := zap.NewNop()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -1036,6 +1069,7 @@ func TestExecutePlayback(t *testing.T) {
 
 // TestBuildSpeakerGroup tests speaker group building
 func TestBuildSpeakerGroup(t *testing.T) {
+	t.Parallel()
 	logger := zap.NewNop()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -1106,6 +1140,7 @@ func TestBuildSpeakerGroup(t *testing.T) {
 
 // TestBuildSpeakerGroupRetrySuccess tests that speaker group building retries on failure and succeeds
 func TestBuildSpeakerGroupRetrySuccess(t *testing.T) {
+	t.Parallel()
 	logger := zap.NewNop()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -1140,6 +1175,7 @@ func TestBuildSpeakerGroupRetrySuccess(t *testing.T) {
 // TestBuildSpeakerGroupPartialSuccess tests that speaker group building succeeds with partial group
 // when some speakers are unavailable but at least one follower joins (proving lead is responsive)
 func TestBuildSpeakerGroupPartialSuccess(t *testing.T) {
+	t.Parallel()
 	logger := zap.NewNop()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -1205,6 +1241,7 @@ func TestBuildSpeakerGroupPartialSuccess(t *testing.T) {
 
 // TestBuildSpeakerGroupAllFail tests that speaker group building fails when all speakers are unavailable
 func TestBuildSpeakerGroupAllFail(t *testing.T) {
+	t.Parallel()
 	logger := zap.NewNop()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -1253,6 +1290,7 @@ func TestBuildSpeakerGroupAllFail(t *testing.T) {
 
 // TestBuildSpeakerGroupRetryOnSecondAttempt tests successful retry on second attempt
 func TestBuildSpeakerGroupRetryOnSecondAttempt(t *testing.T) {
+	t.Parallel()
 	logger := zap.NewNop()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -1284,6 +1322,7 @@ func TestBuildSpeakerGroupRetryOnSecondAttempt(t *testing.T) {
 }
 
 func TestManagerReset(t *testing.T) {
+	t.Parallel()
 	logger := zap.NewNop()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -1320,6 +1359,7 @@ func TestManagerReset(t *testing.T) {
 // TestCurrentlyPlayingMusicUri_SetOnPlayback tests that currentlyPlayingMusicUri
 // is set when playback starts
 func TestCurrentlyPlayingMusicUri_SetOnPlayback(t *testing.T) {
+	t.Parallel()
 	logger := zap.NewNop()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -1361,6 +1401,7 @@ func TestCurrentlyPlayingMusicUri_SetOnPlayback(t *testing.T) {
 // TestCurrentlyPlayingMusicUri_ClearOnStop tests that currentlyPlayingMusicUri
 // is cleared when playback stops
 func TestCurrentlyPlayingMusicUri_ClearOnStop(t *testing.T) {
+	t.Parallel()
 	logger := zap.NewNop()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -1415,6 +1456,7 @@ func TestCurrentlyPlayingMusicUri_ClearOnStop(t *testing.T) {
 // TestCurrentlyPlayingMusicUri_UpdateOnModeChange tests that currentlyPlayingMusicUri
 // is updated when music mode changes
 func TestCurrentlyPlayingMusicUri_UpdateOnModeChange(t *testing.T) {
+	t.Parallel()
 	logger := zap.NewNop()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -1491,6 +1533,7 @@ func TestCurrentlyPlayingMusicUri_UpdateOnModeChange(t *testing.T) {
 // This is critical because Sonos speakers maintain mute state independently of volume,
 // so unmuting before setting volume to 0 could cause sudden loud playback.
 func TestFadeInSpeaker_SafeUnmuteSequence(t *testing.T) {
+	t.Parallel()
 	mockHA := ha.NewMockClient()
 	logger := zap.NewNop()
 	stateManager := state.NewManager(mockHA, logger, false)
@@ -1575,6 +1618,7 @@ func TestFadeInSpeaker_SafeUnmuteSequence(t *testing.T) {
 // TestFadeInSpeaker_VolumeNormalization verifies that fadeInSpeaker normalizes
 // volume percentages (0-100) to Home Assistant's 0.0-1.0 scale correctly.
 func TestFadeInSpeaker_VolumeNormalization(t *testing.T) {
+	t.Parallel()
 	testCases := []struct {
 		targetVolume  int
 		expectedLevel float64
@@ -1587,6 +1631,7 @@ func TestFadeInSpeaker_VolumeNormalization(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(fmt.Sprintf("volume_%d_percent", tc.targetVolume), func(t *testing.T) {
+
 			mockHA := ha.NewMockClient()
 			logger := zap.NewNop()
 			stateManager := state.NewManager(mockHA, logger, false)
@@ -1641,6 +1686,7 @@ func TestFadeInSpeaker_VolumeNormalization(t *testing.T) {
 // TestFadeInSpeaker_InitialVolumeSetFailure verifies that fadeInSpeaker aborts safely
 // if the initial volume_set to 0 fails, without attempting to unmute.
 func TestFadeInSpeaker_InitialVolumeSetFailure(t *testing.T) {
+	t.Parallel()
 	mockHA := ha.NewMockClient()
 	logger := zap.NewNop()
 	stateManager := state.NewManager(mockHA, logger, false)
@@ -1680,6 +1726,7 @@ func TestFadeInSpeaker_InitialVolumeSetFailure(t *testing.T) {
 // TestFadeInSpeaker_UnmuteFailure verifies that fadeInSpeaker aborts safely
 // if the unmute call fails, without proceeding to fade-in.
 func TestFadeInSpeaker_UnmuteFailure(t *testing.T) {
+	t.Parallel()
 	mockHA := ha.NewMockClient()
 	logger := zap.NewNop()
 	stateManager := state.NewManager(mockHA, logger, false)
@@ -1727,6 +1774,7 @@ func TestFadeInSpeaker_UnmuteFailure(t *testing.T) {
 // TestRefreshAvailableSpeakers verifies that refreshAvailableSpeakers correctly
 // caches media_player entities from Home Assistant.
 func TestRefreshAvailableSpeakers(t *testing.T) {
+	t.Parallel()
 	mockHA := ha.NewMockClient()
 	logger := zap.NewNop()
 	stateManager := state.NewManager(mockHA, logger, false)
@@ -1781,6 +1829,7 @@ func TestRefreshAvailableSpeakers(t *testing.T) {
 // TestCallServiceWithRetry_Success verifies that callServiceWithRetry returns
 // success on first attempt when service call succeeds.
 func TestCallServiceWithRetry_Success(t *testing.T) {
+	t.Parallel()
 	mockHA := ha.NewMockClient()
 	logger := zap.NewNop()
 	stateManager := state.NewManager(mockHA, logger, false)
@@ -1822,6 +1871,7 @@ func TestCallServiceWithRetry_Success(t *testing.T) {
 // TestCallServiceWithRetry_PersistentError verifies that callServiceWithRetry
 // returns an error when both the initial call and retry fail.
 func TestCallServiceWithRetry_PersistentError(t *testing.T) {
+	t.Parallel()
 	mockHA := ha.NewMockClient()
 	logger := zap.NewNop()
 	stateManager := state.NewManager(mockHA, logger, false)
@@ -1860,6 +1910,7 @@ func TestCallServiceWithRetry_PersistentError(t *testing.T) {
 // TestCallServiceWithRetry_SpeakerNotAvailable verifies that callServiceWithRetry
 // returns a clear error when the speaker doesn't exist after refresh.
 func TestCallServiceWithRetry_SpeakerNotAvailable(t *testing.T) {
+	t.Parallel()
 	mockHA := ha.NewMockClient()
 	logger := zap.NewNop()
 	stateManager := state.NewManager(mockHA, logger, false)
@@ -1896,6 +1947,7 @@ func TestCallServiceWithRetry_SpeakerNotAvailable(t *testing.T) {
 // TestBreakSpeakerGroups verifies that breakSpeakerGroups() calls unjoin
 // on all participants to break them from existing groups.
 func TestBreakSpeakerGroups(t *testing.T) {
+	t.Parallel()
 	logger := zap.NewNop()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -1952,6 +2004,7 @@ func TestBreakSpeakerGroups(t *testing.T) {
 // TestBreakSpeakerGroups_UnjoinFailure verifies that breakSpeakerGroups()
 // continues processing even if some unjoin calls fail.
 func TestBreakSpeakerGroups_UnjoinFailure(t *testing.T) {
+	t.Parallel()
 	logger := zap.NewNop()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -2006,6 +2059,7 @@ func TestBreakSpeakerGroups_UnjoinFailure(t *testing.T) {
 // TestExecutePlayback_BreakThenBuildSequence verifies that executePlayback()
 // calls breakSpeakerGroups() before buildSpeakerGroup().
 func TestExecutePlayback_BreakThenBuildSequence(t *testing.T) {
+	t.Parallel()
 	logger := zap.NewNop()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -2074,6 +2128,7 @@ func TestExecutePlayback_BreakThenBuildSequence(t *testing.T) {
 // TestExecutePlayback_BreakThenBuildSequence_SingleSpeaker verifies that
 // breakSpeakerGroups() is still called even for a single speaker.
 func TestExecutePlayback_BreakThenBuildSequence_SingleSpeaker(t *testing.T) {
+	t.Parallel()
 	logger := zap.NewNop()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -2138,6 +2193,7 @@ func TestExecutePlayback_BreakThenBuildSequence_SingleSpeaker(t *testing.T) {
 // TestStartValidatesSpeakers verifies that Start() refreshes and validates
 // configured speakers on startup.
 func TestStartValidatesSpeakers(t *testing.T) {
+	t.Parallel()
 	mockHA := ha.NewMockClient()
 	logger := zap.NewNop()
 	stateManager := state.NewManager(mockHA, logger, false)
@@ -2199,6 +2255,7 @@ func TestStartValidatesSpeakers(t *testing.T) {
 
 // TestLoadPlaylistRotationFromHA tests loading playlist rotation from Home Assistant
 func TestLoadPlaylistRotationFromHA(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name             string
 		haValue          string
@@ -2233,6 +2290,7 @@ func TestLoadPlaylistRotationFromHA(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+
 			logger := zap.NewNop()
 			mockClient := ha.NewMockClient()
 			stateManager := state.NewManager(mockClient, logger, false)
@@ -2275,6 +2333,7 @@ func TestLoadPlaylistRotationFromHA(t *testing.T) {
 
 // TestLoadPlaylistRotationBoundsCheck tests that indices exceeding playlist count are wrapped
 func TestLoadPlaylistRotationBoundsCheck(t *testing.T) {
+	t.Parallel()
 	logger := zap.NewNop()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -2310,6 +2369,7 @@ func TestLoadPlaylistRotationBoundsCheck(t *testing.T) {
 
 // TestLoadPlaylistRotationUnconfiguredType tests loading rotation for a music type not in config
 func TestLoadPlaylistRotationUnconfiguredType(t *testing.T) {
+	t.Parallel()
 	logger := zap.NewNop()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -2341,6 +2401,7 @@ func TestLoadPlaylistRotationUnconfiguredType(t *testing.T) {
 
 // TestSyncPlaylistRotationToHA tests that playlist rotation is synced to HA after changes
 func TestSyncPlaylistRotationToHA(t *testing.T) {
+	t.Parallel()
 	logger := zap.NewNop()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -2399,6 +2460,7 @@ func TestSyncPlaylistRotationToHA(t *testing.T) {
 
 // TestPlaylistRotationSyncReadOnlyMode tests that sync is skipped in read-only mode
 func TestPlaylistRotationSyncReadOnlyMode(t *testing.T) {
+	t.Parallel()
 	logger := zap.NewNop()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, true) // read-only mode
@@ -2438,6 +2500,7 @@ func TestPlaylistRotationSyncReadOnlyMode(t *testing.T) {
 // TestPlaybackVerification tests that playback verification detects and handles
 // various speaker states correctly.
 func TestPlaybackVerification(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name           string
 		speakerState   string // The state GetState returns
@@ -2470,6 +2533,7 @@ func TestPlaybackVerification(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+
 			logger := zap.NewNop()
 			mockClient := ha.NewMockClient()
 			stateManager := state.NewManager(mockClient, logger, false)
@@ -2506,6 +2570,7 @@ func TestPlaybackVerification(t *testing.T) {
 
 // TestIsPlaybackActive tests the speaker state checking function
 func TestIsPlaybackActive(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name          string
 		speakerState  string
@@ -2520,6 +2585,7 @@ func TestIsPlaybackActive(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+
 			logger := zap.NewNop()
 			mockClient := ha.NewMockClient()
 			stateManager := state.NewManager(mockClient, logger, false)
@@ -2546,6 +2612,7 @@ func TestIsPlaybackActive(t *testing.T) {
 // This simulates the scenario where play_media is accepted but doesn't start playback,
 // but the follow-up media_play command kicks it into action.
 func TestPlaybackVerification_RecoveryAfterNudge(t *testing.T) {
+	t.Parallel()
 	logger := zap.NewNop()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -2603,6 +2670,7 @@ func TestPlaybackVerification_RecoveryAfterNudge(t *testing.T) {
 // succeeds when the speaker requires a full retry (not just a nudge) to start playing.
 // This simulates when the first play_media and nudge both fail, but retrying works.
 func TestPlaybackVerification_RecoveryOnSecondAttempt(t *testing.T) {
+	t.Parallel()
 	logger := zap.NewNop()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)

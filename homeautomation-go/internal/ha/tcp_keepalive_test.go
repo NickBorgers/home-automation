@@ -13,7 +13,10 @@ import (
 )
 
 func TestSetTCPKeepAlive(t *testing.T) {
+	t.Parallel(
 	// Create a TCP listener to accept our test connection
+	)
+
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	defer listener.Close()
@@ -34,7 +37,10 @@ func TestSetTCPKeepAlive(t *testing.T) {
 }
 
 func TestSetTCPKeepAlive_NotTCPConnection(t *testing.T) {
+	t.Parallel(
 	// Create a non-TCP connection (Unix socket)
+	)
+
 	listener, err := net.Listen("unix", "/tmp/test_keepalive.sock")
 	if err != nil {
 		t.Skip("Cannot create Unix socket, skipping test")
@@ -54,7 +60,10 @@ func TestSetTCPKeepAlive_NotTCPConnection(t *testing.T) {
 }
 
 func TestTCPKeepAliveConstants(t *testing.T) {
+	t.Parallel(
 	// Verify the constants are set to expected values
+	)
+
 	assert.Equal(t, 10*time.Second, tcpKeepIdle, "tcpKeepIdle should be 10 seconds")
 	assert.Equal(t, 5*time.Second, tcpKeepInterval, "tcpKeepInterval should be 5 seconds")
 	assert.Equal(t, 3, tcpKeepCount, "tcpKeepCount should be 3")

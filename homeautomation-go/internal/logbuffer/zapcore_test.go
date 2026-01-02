@@ -9,6 +9,7 @@ import (
 )
 
 func TestBufferCore_Integration(t *testing.T) {
+	t.Parallel()
 	buffer := NewBuffer(100)
 	core := NewBufferCore(buffer, zapcore.InfoLevel)
 	logger := zap.New(core)
@@ -54,6 +55,7 @@ func TestBufferCore_Integration(t *testing.T) {
 }
 
 func TestBufferCore_LevelFiltering(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name      string
 		coreLevel zapcore.Level
@@ -69,6 +71,7 @@ func TestBufferCore_LevelFiltering(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+
 			buffer := NewBuffer(10)
 			core := NewBufferCore(buffer, tt.coreLevel)
 			logger := zap.New(core)
@@ -96,6 +99,7 @@ func TestBufferCore_LevelFiltering(t *testing.T) {
 }
 
 func TestBufferCore_With(t *testing.T) {
+	t.Parallel()
 	buffer := NewBuffer(10)
 	core := NewBufferCore(buffer, zapcore.InfoLevel)
 	logger := zap.New(core)
@@ -115,6 +119,7 @@ func TestBufferCore_With(t *testing.T) {
 }
 
 func TestBufferCore_GetBuffer(t *testing.T) {
+	t.Parallel()
 	buffer := NewBuffer(10)
 	core := NewBufferCore(buffer, zapcore.InfoLevel)
 
@@ -124,6 +129,7 @@ func TestBufferCore_GetBuffer(t *testing.T) {
 }
 
 func TestBufferCore_Sync(t *testing.T) {
+	t.Parallel()
 	buffer := NewBuffer(10)
 	core := NewBufferCore(buffer, zapcore.InfoLevel)
 
@@ -134,6 +140,7 @@ func TestBufferCore_Sync(t *testing.T) {
 }
 
 func TestFieldToInterface(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		field    zapcore.Field
@@ -147,6 +154,7 @@ func TestFieldToInterface(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+
 			result := fieldToInterface(tt.field)
 			if result != tt.expected {
 				t.Errorf("fieldToInterface(%v) = %v (%T), want %v (%T)",
@@ -160,7 +168,10 @@ func TestFieldToInterface(t *testing.T) {
 // information are handled correctly. This is a regression test for issue #237 where
 // the code assumed f.Interface was a time.Time, but zap stores *time.Location there.
 func TestFieldToInterface_TimeWithTimezone(t *testing.T) {
+	t.Parallel(
 	// Load a non-UTC timezone to ensure the Location is stored in f.Interface
+	)
+
 	loc, err := time.LoadLocation("America/New_York")
 	if err != nil {
 		t.Fatalf("failed to load timezone: %v", err)
@@ -200,6 +211,7 @@ func TestFieldToInterface_TimeWithTimezone(t *testing.T) {
 // time fields with timezone through the BufferCore. This mimics what the
 // dayphase manager does when logging sun times.
 func TestBufferCore_TimeFieldWithTimezone(t *testing.T) {
+	t.Parallel()
 	buffer := NewBuffer(100)
 	core := NewBufferCore(buffer, zapcore.InfoLevel)
 	logger := zap.New(core)

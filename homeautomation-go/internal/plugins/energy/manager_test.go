@@ -66,6 +66,7 @@ func createTestConfig() *EnergyConfig {
 }
 
 func TestDetermineBatteryEnergyLevel(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	config := createTestConfig()
 	mockClient := ha.NewMockClient()
@@ -92,6 +93,7 @@ func TestDetermineBatteryEnergyLevel(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+
 			result := manager.determineBatteryEnergyLevel(tt.percentage)
 			assert.Equal(t, tt.expected, result)
 		})
@@ -99,6 +101,7 @@ func TestDetermineBatteryEnergyLevel(t *testing.T) {
 }
 
 func TestDetermineSolarEnergyLevel(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	config := createTestConfig()
 	mockClient := ha.NewMockClient()
@@ -123,6 +126,7 @@ func TestDetermineSolarEnergyLevel(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+
 			result := manager.determineSolarEnergyLevel(tt.thisHourKW, tt.remainingKWH)
 			assert.Equal(t, tt.expected, result)
 		})
@@ -130,6 +134,7 @@ func TestDetermineSolarEnergyLevel(t *testing.T) {
 }
 
 func TestDetermineOverallEnergyLevel(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	config := createTestConfig()
 	mockClient := ha.NewMockClient()
@@ -167,6 +172,7 @@ func TestDetermineOverallEnergyLevel(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+
 			result := manager.determineOverallEnergyLevel(tt.batteryLevel, tt.solarLevel)
 			assert.Equal(t, tt.expected, result)
 		})
@@ -174,6 +180,7 @@ func TestDetermineOverallEnergyLevel(t *testing.T) {
 }
 
 func TestIsFreeEnergyTime(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	config := createTestConfig()
 	mockClient := ha.NewMockClient()
@@ -196,6 +203,7 @@ func TestIsFreeEnergyTime(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+
 			result := manager.isFreeEnergyTime(tt.isGridAvailable)
 			// Without mocking time, we can only verify it doesn't panic
 			// and returns a boolean
@@ -205,8 +213,11 @@ func TestIsFreeEnergyTime(t *testing.T) {
 }
 
 func TestLoadConfigFromRepoFile(t *testing.T) {
+	t.Parallel(
 	// Test loading the actual config file
 	// Skip this test if config file doesn't exist (e.g., in CI)
+	)
+
 	configPath := "../../../../configs/energy_config.yaml"
 	config, err := LoadConfig(configPath)
 	if err != nil {
@@ -228,6 +239,7 @@ func TestLoadConfigFromRepoFile(t *testing.T) {
 }
 
 func TestFreeEnergyTimeSpansMidnight(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	config := createTestConfig()
 	mockClient := ha.NewMockClient()
@@ -256,8 +268,10 @@ func TestFreeEnergyTimeSpansMidnight(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(time.Now().Format("15:04"), func(t *testing.T) {
+
 			// This is a simplified test - in reality we'd need to mock time.Now()
 			// For now, we just verify the function doesn't panic
+
 			result := manager.isFreeEnergyTime(true)
 			_ = result // Use the result to avoid unused variable
 			_ = tc     // Use tc to avoid unused variable warning
@@ -267,6 +281,7 @@ func TestFreeEnergyTimeSpansMidnight(t *testing.T) {
 
 // TestManagerStartAndHandlers tests the manager lifecycle and handlers
 func TestManagerStartAndHandlers(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	config := createTestConfig()
 	mockClient := ha.NewMockClient()
@@ -294,13 +309,16 @@ func TestManagerStartAndHandlers(t *testing.T) {
 
 	// Test handler functions by triggering state changes
 	t.Run("handleBatteryChange", func(t *testing.T) {
+
 		manager.handleBatteryChange(50.0)
 		level, _ := stateManager.GetString("batteryEnergyLevel")
 		assert.Equal(t, "red", level)
 	})
 
 	t.Run("handleBatteryChange_with_invalid_value", func(t *testing.T) {
+
 		// Test with Inf - should be ignored
+
 		manager.handleBatteryChange(math.Inf(1))
 		// Level should remain red from previous test
 		level, _ := stateManager.GetString("batteryEnergyLevel")
@@ -308,25 +326,30 @@ func TestManagerStartAndHandlers(t *testing.T) {
 	})
 
 	t.Run("handleThisHourSolarChange", func(t *testing.T) {
+
 		manager.handleThisHourSolarChange(5.0)
 		kw, _ := stateManager.GetNumber("thisHourSolarGeneration")
 		assert.Equal(t, 5.0, kw)
 	})
 
 	t.Run("handleRemainingSolarChange", func(t *testing.T) {
+
 		manager.handleRemainingSolarChange(15.0)
 		kwh, _ := stateManager.GetNumber("remainingSolarGeneration")
 		assert.Equal(t, 15.0, kwh)
 	})
 
 	t.Run("recalculateSolarProductionLevel", func(t *testing.T) {
+
 		manager.recalculateSolarProductionLevel()
 		level, _ := stateManager.GetString("solarProductionEnergyLevel")
 		assert.Equal(t, "green", level)
 	})
 
 	t.Run("recalculateOverallEnergyLevel", func(t *testing.T) {
+
 		// Set known values
+
 		stateManager.SetString("batteryEnergyLevel", "yellow")
 		stateManager.SetString("solarProductionEnergyLevel", "green")
 		stateManager.SetBool("isFreeEnergyAvailable", false)
@@ -337,6 +360,7 @@ func TestManagerStartAndHandlers(t *testing.T) {
 	})
 
 	t.Run("recalculateOverallEnergyLevel_with_free_energy", func(t *testing.T) {
+
 		stateManager.SetBool("isFreeEnergyAvailable", true)
 		manager.recalculateOverallEnergyLevel()
 		level, _ := stateManager.GetString("currentEnergyLevel")
@@ -344,6 +368,7 @@ func TestManagerStartAndHandlers(t *testing.T) {
 	})
 
 	t.Run("checkFreeEnergy", func(t *testing.T) {
+
 		stateManager.SetBool("isGridAvailable", false)
 		manager.checkFreeEnergy()
 		isFree, _ := stateManager.GetBool("isFreeEnergyAvailable")
@@ -351,11 +376,13 @@ func TestManagerStartAndHandlers(t *testing.T) {
 	})
 
 	t.Run("handleGridAvailabilityChange", func(t *testing.T) {
+
 		manager.handleGridAvailabilityChange("isGridAvailable", false, true)
 		// Just verify it doesn't panic
 	})
 
 	t.Run("handleIntermediateLevelChange", func(t *testing.T) {
+
 		manager.handleIntermediateLevelChange("batteryEnergyLevel", "black", "red")
 		// Just verify it doesn't panic
 	})
@@ -363,6 +390,7 @@ func TestManagerStartAndHandlers(t *testing.T) {
 
 // TestDetermineOverallEnergyLevel_EdgeCases tests edge cases
 func TestDetermineOverallEnergyLevel_EdgeCases(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	config := createTestConfig()
 	mockClient := ha.NewMockClient()
@@ -371,11 +399,13 @@ func TestDetermineOverallEnergyLevel_EdgeCases(t *testing.T) {
 	manager := NewManager(mockClient, stateManager, config, logger, false, nil, nil)
 
 	t.Run("invalid_battery_level", func(t *testing.T) {
+
 		result := manager.determineOverallEnergyLevel("invalid", "green")
 		assert.Equal(t, "black", result)
 	})
 
 	t.Run("invalid_solar_level", func(t *testing.T) {
+
 		result := manager.determineOverallEnergyLevel("green", "invalid")
 		assert.Equal(t, "black", result)
 	})
@@ -383,17 +413,20 @@ func TestDetermineOverallEnergyLevel_EdgeCases(t *testing.T) {
 
 // TestLoadConfigError tests error handling in config loading
 func TestLoadConfigError(t *testing.T) {
+	t.Parallel()
 	_, err := LoadConfig("/nonexistent/path/config.yaml")
 	assert.Error(t, err)
 }
 
 // TestIsFreeEnergyTime_EdgeCases tests edge cases for free energy time
 func TestIsFreeEnergyTime_EdgeCases(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 
 	t.Run("invalid_start_time", func(t *testing.T) {
+
 		config := &EnergyConfig{
 			Energy: struct {
 				FreeEnergyTime  FreeEnergyTime        `yaml:"free_energy_time"`
@@ -414,6 +447,7 @@ func TestIsFreeEnergyTime_EdgeCases(t *testing.T) {
 	})
 
 	t.Run("invalid_end_time", func(t *testing.T) {
+
 		config := &EnergyConfig{
 			Energy: struct {
 				FreeEnergyTime  FreeEnergyTime        `yaml:"free_energy_time"`
@@ -436,6 +470,7 @@ func TestIsFreeEnergyTime_EdgeCases(t *testing.T) {
 
 // TestEnergyManager_Stop tests the Stop method and subscription cleanup
 func TestEnergyManager_Stop(t *testing.T) {
+	t.Parallel()
 	logger := zap.NewNop()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -466,6 +501,7 @@ func TestEnergyManager_Stop(t *testing.T) {
 }
 
 func TestEnergyManager_ReadOnlyMode(t *testing.T) {
+	t.Parallel()
 	logger := zap.NewNop()
 	mockClient := ha.NewMockClient()
 	// Create state manager in read-only mode
@@ -498,6 +534,7 @@ func TestEnergyManager_ReadOnlyMode(t *testing.T) {
 
 // TestTimezoneHandling tests that timezone configuration works correctly
 func TestTimezoneHandling(t *testing.T) {
+	t.Parallel()
 	logger := zap.NewNop()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -505,11 +542,13 @@ func TestTimezoneHandling(t *testing.T) {
 	config := createTestConfig()
 
 	t.Run("default_timezone_is_utc", func(t *testing.T) {
+
 		manager := NewManager(mockClient, stateManager, config, logger, false, nil, nil)
 		assert.Equal(t, time.UTC, manager.timezone)
 	})
 
 	t.Run("custom_timezone_is_respected", func(t *testing.T) {
+
 		estLocation, err := time.LoadLocation("America/New_York")
 		assert.NoError(t, err)
 
@@ -518,8 +557,10 @@ func TestTimezoneHandling(t *testing.T) {
 	})
 
 	t.Run("timezone_affects_free_energy_calculation", func(t *testing.T) {
+
 		// Create a config with a specific free energy window
 		// Let's use 02:00 to 03:00 for easier testing
+
 		testConfig := &EnergyConfig{
 			Energy: struct {
 				FreeEnergyTime  FreeEnergyTime        `yaml:"free_energy_time"`
@@ -553,6 +594,7 @@ func TestTimezoneHandling(t *testing.T) {
 }
 
 func TestManagerReset(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -584,10 +626,12 @@ func TestManagerReset(t *testing.T) {
 
 // TestHandleGridAvailabilityChange tests grid availability change synchronization
 func TestHandleGridAvailabilityChange(t *testing.T) {
+	t.Parallel()
 	logger := zap.NewNop()
 	config := createTestConfig()
 
 	t.Run("syncs_grid_availability_to_HA_when_enabled", func(t *testing.T) {
+
 		mockClient := ha.NewMockClient()
 		stateManager := state.NewManager(mockClient, logger, false)
 		manager := NewManager(mockClient, stateManager, config, logger, false, nil, nil)
@@ -618,6 +662,7 @@ func TestHandleGridAvailabilityChange(t *testing.T) {
 	})
 
 	t.Run("syncs_grid_availability_to_HA_when_disabled", func(t *testing.T) {
+
 		mockClient := ha.NewMockClient()
 		stateManager := state.NewManager(mockClient, logger, false)
 		manager := NewManager(mockClient, stateManager, config, logger, false, nil, nil)
@@ -648,6 +693,7 @@ func TestHandleGridAvailabilityChange(t *testing.T) {
 	})
 
 	t.Run("skips_HA_sync_in_read_only_mode", func(t *testing.T) {
+
 		mockClient := ha.NewMockClient()
 		stateManager := state.NewManager(mockClient, logger, true) // read-only mode
 		manager := NewManager(mockClient, stateManager, config, logger, true, nil, nil)
@@ -664,6 +710,7 @@ func TestHandleGridAvailabilityChange(t *testing.T) {
 	})
 
 	t.Run("handles_non_boolean_value_gracefully", func(t *testing.T) {
+
 		mockClient := ha.NewMockClient()
 		stateManager := state.NewManager(mockClient, logger, false)
 		manager := NewManager(mockClient, stateManager, config, logger, false, nil, nil)
@@ -680,6 +727,7 @@ func TestHandleGridAvailabilityChange(t *testing.T) {
 	})
 
 	t.Run("triggers_free_energy_recalculation", func(t *testing.T) {
+
 		mockClient := ha.NewMockClient()
 		stateManager := state.NewManager(mockClient, logger, false)
 
@@ -711,6 +759,7 @@ func TestHandleGridAvailabilityChange(t *testing.T) {
 }
 
 func TestIndicatorLightsDiscovery(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -746,6 +795,7 @@ func TestIndicatorLightsDiscovery(t *testing.T) {
 }
 
 func TestIndicatorLightsServiceCall(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -816,6 +866,7 @@ func TestIndicatorLightsServiceCall(t *testing.T) {
 }
 
 func TestIndicatorLightsReadOnlyMode(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -861,6 +912,7 @@ func TestIndicatorLightsReadOnlyMode(t *testing.T) {
 }
 
 func TestIndicatorLightsNoEntitiesDiscovered(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -900,6 +952,7 @@ func TestIndicatorLightsNoEntitiesDiscovered(t *testing.T) {
 }
 
 func TestIndicatorLightsDiscoveryCaseInsensitive(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -935,6 +988,7 @@ func TestIndicatorLightsDiscoveryCaseInsensitive(t *testing.T) {
 }
 
 func TestIndicatorLightsDiscoveryInvalidPattern(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -961,6 +1015,7 @@ func TestIndicatorLightsDiscoveryInvalidPattern(t *testing.T) {
 }
 
 func TestIndicatorLightsDiscoveryCustomPattern(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -993,6 +1048,7 @@ func TestIndicatorLightsDiscoveryCustomPattern(t *testing.T) {
 }
 
 func TestIndicatorLightsServiceCallError(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -1042,6 +1098,7 @@ func TestIndicatorLightsServiceCallError(t *testing.T) {
 }
 
 func TestIndicatorLightsUnknownEnergyLevel(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -1081,6 +1138,7 @@ func TestIndicatorLightsUnknownEnergyLevel(t *testing.T) {
 }
 
 func TestIndicatorLightsInitialUpdateOnStartup(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -1139,6 +1197,7 @@ func TestIndicatorLightsInitialUpdateOnStartup(t *testing.T) {
 // ============================================================================
 
 func TestExtractDeviceID(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		entityID string
@@ -1183,6 +1242,7 @@ func TestExtractDeviceID(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+
 			result := extractDeviceID(tt.entityID)
 			assert.Equal(t, tt.expected, result)
 		})
@@ -1190,6 +1250,7 @@ func TestExtractDeviceID(t *testing.T) {
 }
 
 func TestCalculateAdaptiveBrightness(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -1231,7 +1292,9 @@ func TestCalculateAdaptiveBrightness(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+
 			// Reset last brightness level to avoid hysteresis interference
+
 			manager.indicatorMu.Lock()
 			delete(manager.lastBrightnessLevel, "light.test")
 			manager.indicatorMu.Unlock()
@@ -1243,6 +1306,7 @@ func TestCalculateAdaptiveBrightness(t *testing.T) {
 }
 
 func TestCalculateAdaptiveBrightnessDefaultCurve(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -1273,6 +1337,7 @@ func TestCalculateAdaptiveBrightnessDefaultCurve(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(fmt.Sprintf("lux=%v", tt.lux), func(t *testing.T) {
+
 			manager.indicatorMu.Lock()
 			delete(manager.lastBrightnessLevel, "light.test")
 			manager.indicatorMu.Unlock()
@@ -1284,6 +1349,7 @@ func TestCalculateAdaptiveBrightnessDefaultCurve(t *testing.T) {
 }
 
 func TestLuxSensorDiscovery(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -1326,6 +1392,7 @@ func TestLuxSensorDiscovery(t *testing.T) {
 }
 
 func TestLuxSensorDiscoveryNoMatch(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -1363,6 +1430,7 @@ func TestLuxSensorDiscoveryNoMatch(t *testing.T) {
 }
 
 func TestAdaptiveBrightnessDisabled(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -1416,6 +1484,7 @@ func TestAdaptiveBrightnessDisabled(t *testing.T) {
 }
 
 func TestAdaptiveBrightnessPerDevice(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -1483,6 +1552,7 @@ func TestAdaptiveBrightnessPerDevice(t *testing.T) {
 }
 
 func TestHysteresisPreventsOscillation(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -1528,6 +1598,7 @@ func TestHysteresisPreventsOscillation(t *testing.T) {
 }
 
 func TestDebouncing(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -1599,6 +1670,7 @@ func TestDebouncing(t *testing.T) {
 }
 
 func TestFallbackToStaticBrightness(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -1649,6 +1721,7 @@ func TestFallbackToStaticBrightness(t *testing.T) {
 }
 
 func TestHandleLuxChangeWithInvalidValues(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -1711,6 +1784,7 @@ func TestHandleLuxChangeWithInvalidValues(t *testing.T) {
 }
 
 func TestHysteresisDoesNotBlockLargeJumps(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -1755,6 +1829,7 @@ func TestHysteresisDoesNotBlockLargeJumps(t *testing.T) {
 }
 
 func TestNegativeLuxValue(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -1782,6 +1857,7 @@ func TestNegativeLuxValue(t *testing.T) {
 // ============================================================================
 
 func TestBaselineCalibrationEnabled(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -1809,6 +1885,7 @@ func TestBaselineCalibrationEnabled(t *testing.T) {
 }
 
 func TestBaselineCalibrationDisabled(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -1830,6 +1907,7 @@ func TestBaselineCalibrationDisabled(t *testing.T) {
 }
 
 func TestGetBaselineLux(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -1864,6 +1942,7 @@ func TestGetBaselineLux(t *testing.T) {
 }
 
 func TestCalibrationStateTracking(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -1900,6 +1979,7 @@ func TestCalibrationStateTracking(t *testing.T) {
 }
 
 func TestUpdateIndicatorLightsSkipsCalibrating(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -1959,6 +2039,7 @@ func TestUpdateIndicatorLightsSkipsCalibrating(t *testing.T) {
 }
 
 func TestUpdateIndicatorLightsUsesBaseline(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -2027,6 +2108,7 @@ func TestUpdateIndicatorLightsUsesBaseline(t *testing.T) {
 }
 
 func TestRestoreLightAfterCalibration(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -2098,8 +2180,11 @@ func TestRestoreLightAfterCalibration(t *testing.T) {
 }
 
 func TestCalibrationShutdownDuringStartupDelay(t *testing.T) {
+	t.Parallel(
 	// This test verifies that the calibration goroutine can be stopped during
 	// the initial 10-second startup delay without blocking or racing.
+	)
+
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -2148,8 +2233,11 @@ func TestCalibrationShutdownDuringStartupDelay(t *testing.T) {
 }
 
 func TestCalibrationWithNoLuxReadingYet(t *testing.T) {
+	t.Parallel(
 	// This test verifies behavior when calibration runs but no lux reading has
 	// been received yet (e.g., sensor hasn't updated since dimming).
+	)
+
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -2210,6 +2298,7 @@ func TestCalibrationWithNoLuxReadingYet(t *testing.T) {
 }
 
 func TestSetLightBrightness(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -2251,6 +2340,7 @@ func TestSetLightBrightness(t *testing.T) {
 }
 
 func TestSetLightBrightnessReadOnly(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -2277,6 +2367,7 @@ func TestSetLightBrightnessReadOnly(t *testing.T) {
 }
 
 func TestRunCalibrationCycleWithNoLights(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
@@ -2311,6 +2402,7 @@ func TestRunCalibrationCycleWithNoLights(t *testing.T) {
 }
 
 func TestRunCalibrationCycleLightWithoutLuxSensor(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)

@@ -11,6 +11,7 @@ import (
 )
 
 func TestDerivedStateHelper_IsAnyoneHome(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	manager := NewManager(mockClient, logger, false)
@@ -61,6 +62,7 @@ func TestDerivedStateHelper_IsAnyoneHome(t *testing.T) {
 }
 
 func TestDerivedStateHelper_IsEveryoneAsleep(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	manager := NewManager(mockClient, logger, false)
@@ -111,6 +113,7 @@ func TestDerivedStateHelper_IsEveryoneAsleep(t *testing.T) {
 }
 
 func TestDerivedStateHelper_AutoGuestSleep(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	manager := NewManager(mockClient, logger, false)
@@ -143,6 +146,7 @@ func TestDerivedStateHelper_AutoGuestSleep(t *testing.T) {
 }
 
 func TestDerivedStateHelper_AutoGuestSleepNoOneHome(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	manager := NewManager(mockClient, logger, false)
@@ -173,6 +177,7 @@ func TestDerivedStateHelper_AutoGuestSleepNoOneHome(t *testing.T) {
 }
 
 func TestDerivedStateHelper_AutoGuestSleepNoGuests(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	manager := NewManager(mockClient, logger, false)
@@ -203,8 +208,11 @@ func TestDerivedStateHelper_AutoGuestSleepNoGuests(t *testing.T) {
 }
 
 func TestDerivedStateHelper_CallbackFiresOnStartup(t *testing.T) {
+	t.Parallel(
 	// This test verifies that the callback fires on startup even when
 	// derived values already match current state (issue #155)
+	)
+
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	manager := NewManager(mockClient, logger, false)
