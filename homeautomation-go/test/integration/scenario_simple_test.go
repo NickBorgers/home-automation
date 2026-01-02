@@ -2,7 +2,6 @@ package integration
 
 import (
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -41,17 +40,17 @@ func TestScenario_MockServerServiceCallTracking(t *testing.T) {
 	// Boolean service call
 	err := manager.SetBool("isNickHome", true)
 	require.NoError(t, err)
-	time.Sleep(100 * time.Millisecond)
 
 	// Number service call
 	err = manager.SetNumber("alarmTime", 1234567890.0)
 	require.NoError(t, err)
-	time.Sleep(100 * time.Millisecond)
 
 	// String service call
 	err = manager.SetString("dayPhase", "evening")
 	require.NoError(t, err)
-	time.Sleep(100 * time.Millisecond)
+
+	// Wait for all service calls to be tracked
+	waitForServiceCallCount(t, server, 3, "Should have at least 3 service calls")
 
 	// THEN: All service calls should be tracked
 	t.Log("THEN: Verifying all service calls were tracked")

@@ -151,6 +151,8 @@ jobs:
           runCmd: |
             # Run Claude to diagnose the workflow failure
             claude --print \
+              --verbose \
+              --output-format stream-json \
               --model opus \
               --dangerously-skip-permissions \
               --max-turns 100 \
@@ -240,12 +242,12 @@ jobs:
             IF THIS IS NOT AN ACTIONS_FAILURE, output:
             'DIAGNOSIS: [TEST_FAILURE|CONFIG_FAILURE] - No issue created. This failure type is handled by the Claude Code Review workflow.'
 
-            Be thorough in your analysis. Examine the actual error messages in the logs." < /dev/null 2>&1 | tee /workspaces/home-automation/diagnose-output.txt
+            Be thorough in your analysis. Examine the actual error messages in the logs." < /dev/null 2>&1 | tee /workspaces/home-automation/diagnose-output.jsonl
 
       - name: Upload diagnosis output
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: workflow-diagnosis-output
-          path: diagnose-output.txt
+          path: diagnose-output.jsonl
           retention-days: 7

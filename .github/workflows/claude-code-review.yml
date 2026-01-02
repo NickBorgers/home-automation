@@ -273,7 +273,7 @@ jobs:
           push: never
           env: |
             CLAUDE_CODE_OAUTH_TOKEN=${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-            GH_TOKEN=${{ github.token }}
+            GH_TOKEN=${{ secrets.WORKFLOW_PAT }}
             PR_NUMBER=${{ needs.get-context.outputs.pr_number }}
             PR_TITLE=${{ needs.get-context.outputs.pr_title }}
             PR_BODY_B64=${{ needs.get-context.outputs.pr_body_b64 }}
@@ -295,6 +295,8 @@ jobs:
 
             # Run Claude Code to fix test failures
             claude --print \
+              --verbose \
+              --output-format stream-json \
               --model opus \
               --dangerously-skip-permissions \
               --max-turns 200 \
@@ -355,12 +357,12 @@ jobs:
 
             [Describe what you found and fixed]
 
-            Pushed fix - triggering new test run.'" < /dev/null 2>&1 | tee /workspaces/home-automation/fix-failures-output.txt
+            Pushed fix - triggering new test run.'" < /dev/null 2>&1 | tee /workspaces/home-automation/fix-failures-output.jsonl
 
       - name: Trigger PR Tests and reviews after fix
         if: success()
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.WORKFLOW_PAT }}
         run: |
           # Check if new commits were pushed by comparing current HEAD to triggering SHA
           git fetch origin ${{ needs.get-context.outputs.head_ref }}
@@ -439,7 +441,7 @@ jobs:
         if: always()
         with:
           name: fix-failures-output-attempt-${{ needs.get-context.outputs.fix_attempts }}
-          path: fix-failures-output.txt
+          path: fix-failures-output.jsonl
           retention-days: 7
 
   # Claude review - only runs when tests pass
@@ -483,13 +485,15 @@ jobs:
           push: never
           env: |
             CLAUDE_CODE_OAUTH_TOKEN=${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-            GH_TOKEN=${{ github.token }}
+            GH_TOKEN=${{ secrets.WORKFLOW_PAT }}
             PR_NUMBER=${{ needs.get-context.outputs.pr_number }}
             REPO=${{ github.repository }}
             HEAD_REF=${{ needs.get-context.outputs.head_ref }}
           runCmd: |
             # Run Claude Code review inside the devcontainer
             claude --print \
+              --verbose \
+              --output-format stream-json \
               --model opus \
               --dangerously-skip-permissions \
               --max-turns 450 \
@@ -530,17 +534,27 @@ jobs:
             IMPORTANT: Post exactly ONE comprehensive review comment. Do not post multiple comments.
             Combine all findings (summary, issues found, fixes made) into a single comment.
 
-            Post your review using:
-            gh pr comment ${PR_NUMBER} --body 'YOUR_REVIEW_HERE'
+            Post your review using the following structured format:
+            gh pr comment ${PR_NUMBER} --body '## Code Review
 
-            Be constructive. Reference specific lines when noting issues." < /dev/null 2>&1 | tee /workspaces/home-automation/claude-review-output.txt
+            ### Changes Summary
+            [List the main areas of code changed, categorized by type: new features, bug fixes, refactoring, etc.]
+
+            ### Findings
+            [Detailed analysis of code quality, patterns, potential issues. Reference specific files/lines.]
+
+            ### Conclusion
+            [One of: ✅ Approved | ⚠️ Minor issues found | ❌ Blocking issues found]
+            [Brief summary of overall assessment]'
+
+            Be constructive. Reference specific lines when noting issues." < /dev/null 2>&1 | tee /workspaces/home-automation/claude-review-output.jsonl
 
       - name: Upload Claude review output
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: claude-review-output
-          path: claude-review-output.txt
+          path: claude-review-output.jsonl
           retention-days: 7
 
   # Test-focused reviewer - runs after claude-review
@@ -588,11 +602,13 @@ jobs:
           push: never
           env: |
             CLAUDE_CODE_OAUTH_TOKEN=${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-            GH_TOKEN=${{ github.token }}
+            GH_TOKEN=${{ secrets.WORKFLOW_PAT }}
             PR_NUMBER=${{ needs.get-context.outputs.pr_number }}
             HEAD_REF=${{ needs.get-context.outputs.head_ref }}
           runCmd: |
             claude --print \
+              --verbose \
+              --output-format stream-json \
               --model opus \
               --dangerously-skip-permissions \
               --max-turns 200 \
@@ -645,24 +661,25 @@ jobs:
             rebase your changes on top with \`git pull --rebase origin ${HEAD_REF}\`. If there are
             conflicts, skip the auto-fix and just report the issue in your comment.
 
-            Post a comment summarizing your analysis by category:
+            Post your review using the following structured format:
             gh pr comment ${PR_NUMBER} --body '## Test Review
 
-            ### Changes by Category
-            [List which categories of files changed]
+            ### Changes Summary
+            [List the test files and production code reviewed, categorized by feature area]
 
-            ### Analysis
-            [Category-specific findings]
+            ### Findings
+            [Analysis of test coverage, test quality, potential issues like time-dependent tests, slow tests, missing edge cases]
 
             ### Conclusion
-            [Overall test status: issues found or all clear]'" < /dev/null 2>&1 | tee /workspaces/home-automation/test-review-output.txt
+            [One of: ✅ Approved | ⚠️ Minor issues found | ❌ Blocking issues found]
+            [Brief summary of test quality assessment]'" < /dev/null 2>&1 | tee /workspaces/home-automation/test-review-output.jsonl
 
       - name: Upload test review output
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: test-review-output
-          path: test-review-output.txt
+          path: test-review-output.jsonl
           retention-days: 7
 
   # Concurrency/race condition specialist - runs after test-review
@@ -710,11 +727,13 @@ jobs:
           push: never
           env: |
             CLAUDE_CODE_OAUTH_TOKEN=${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-            GH_TOKEN=${{ github.token }}
+            GH_TOKEN=${{ secrets.WORKFLOW_PAT }}
             PR_NUMBER=${{ needs.get-context.outputs.pr_number }}
             HEAD_REF=${{ needs.get-context.outputs.head_ref }}
           runCmd: |
             claude --print \
+              --verbose \
+              --output-format stream-json \
               --model opus \
               --dangerously-skip-permissions \
               --max-turns 240 \
@@ -738,15 +757,25 @@ jobs:
             rebase your changes on top with \`git pull --rebase origin ${HEAD_REF}\`. If there are
             conflicts, skip the auto-fix and just report the issue in your comment.
 
-            Post findings as:
-            gh pr comment ${PR_NUMBER} --body '## Concurrency Review\n\nYOUR_ANALYSIS'" < /dev/null 2>&1 | tee /workspaces/home-automation/concurrency-review-output.txt
+            Post your review using the following structured format:
+            gh pr comment ${PR_NUMBER} --body '## Concurrency Review
+
+            ### Changes Summary
+            [List files with concurrency-related code: goroutines, mutexes, channels, WebSocket operations]
+
+            ### Findings
+            [Analysis of mutex usage, race conditions, goroutine lifecycle, channel patterns, WebSocket write serialization]
+
+            ### Conclusion
+            [One of: ✅ Approved | ⚠️ Minor issues found | ❌ Blocking issues found]
+            [Brief summary of concurrency safety assessment]'" < /dev/null 2>&1 | tee /workspaces/home-automation/concurrency-review-output.jsonl
 
       - name: Upload concurrency review output
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: concurrency-review-output
-          path: concurrency-review-output.txt
+          path: concurrency-review-output.jsonl
           retention-days: 7
 
   # Documentation update specialist - runs after concurrency-review
@@ -794,7 +823,7 @@ jobs:
           push: never
           env: |
             CLAUDE_CODE_OAUTH_TOKEN=${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-            GH_TOKEN=${{ github.token }}
+            GH_TOKEN=${{ secrets.WORKFLOW_PAT }}
             PR_NUMBER=${{ needs.get-context.outputs.pr_number }}
             PR_TITLE=${{ needs.get-context.outputs.pr_title }}
             PR_BODY_B64=${{ needs.get-context.outputs.pr_body_b64 }}
@@ -808,6 +837,8 @@ jobs:
             ISSUE_BODY=$(echo "$ISSUE_BODY_B64" | base64 -d 2>/dev/null || echo "")
 
             claude --print \
+              --verbose \
+              --output-format stream-json \
               --model opus \
               --dangerously-skip-permissions \
               --max-turns 200 \
@@ -853,23 +884,29 @@ jobs:
               conflicts, skip the auto-fix and just report what docs need updating in your comment.
             - Push the changes
 
-            Post your findings:
+            Post your review using the following structured format:
             gh pr comment ${PR_NUMBER} --body '## Documentation Review
 
-            [Summary of documentation changes made, or confirmation that no updates needed]
+            ### Changes Summary
+            [List the code changes that may require documentation updates]
 
-            ### Checked Documents
-            - [ ] VISUAL_ARCHITECTURE.md - [status]
-            - [ ] ARCHITECTURE.md - [status]
-            - [ ] migration_mapping.md - [status]
-            - [ ] CONCURRENCY_LESSONS.md - [status]'" < /dev/null 2>&1 | tee /workspaces/home-automation/docs-review-output.txt
+            ### Findings
+            [Analysis of documentation needs based on code changes. Include checklist:]
+            - [ ] VISUAL_ARCHITECTURE.md - [status: Updated/No changes needed/N/A]
+            - [ ] ARCHITECTURE.md - [status: Updated/No changes needed/N/A]
+            - [ ] migration_mapping.md - [status: Updated/No changes needed/N/A]
+            - [ ] CONCURRENCY_LESSONS.md - [status: Updated/No changes needed/N/A]
+
+            ### Conclusion
+            [One of: ✅ Approved | ⚠️ Minor issues found | ❌ Blocking issues found]
+            [Brief summary of documentation assessment]'" < /dev/null 2>&1 | tee /workspaces/home-automation/docs-review-output.jsonl
 
       - name: Upload documentation review output
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: docs-review-output
-          path: docs-review-output.txt
+          path: docs-review-output.jsonl
           retention-days: 7
 
   # Aggregator job - use this as the required check for branch protection

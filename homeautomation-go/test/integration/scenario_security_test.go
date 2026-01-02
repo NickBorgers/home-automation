@@ -82,7 +82,7 @@ func TestScenario_NickReturnsHomeGarageEmpty(t *testing.T) {
 	// Set initial states
 	server.SetState("input_boolean.nick_home", "off", nil)
 	server.SetState("binary_sensor.garage_door_vehicle_detected", "off", nil) // Empty garage
-	time.Sleep(100 * time.Millisecond)
+	waitForBoolState(t, manager, "isNickHome", false, "isNickHome should be false initially")
 
 	// Clear any initialization calls
 	server.ClearServiceCalls()
@@ -91,21 +91,16 @@ func TestScenario_NickReturnsHomeGarageEmpty(t *testing.T) {
 
 	// Simulate Nick arriving home
 	server.SetState("input_boolean.nick_home", "on", nil)
-	time.Sleep(100 * time.Millisecond) // Allow state tracking to process
 
 	t.Log("THEN: didOwnerJustReturnHome should be set to true")
 
-	didReturn, err := manager.GetBool("didOwnerJustReturnHome")
-	require.NoError(t, err)
-	assert.True(t, didReturn, "didOwnerJustReturnHome should be true after Nick arrives")
+	waitForBoolState(t, manager, "didOwnerJustReturnHome", true, "didOwnerJustReturnHome should be true after Nick arrives")
 
 	t.Log("AND: Garage door should be opened")
 
-	time.Sleep(50 * time.Millisecond) // Allow security plugin to process
+	waitForServiceCallWithEntity(t, server, "cover", "open_cover", "cover.garage_door_door", "Garage door should be opened when Nick returns and garage is empty")
 
 	garageOpenCall := server.FindServiceCall("cover", "open_cover", "cover.garage_door_door")
-	assert.NotNil(t, garageOpenCall, "Garage door should be opened when Nick returns and garage is empty")
-
 	if garageOpenCall != nil {
 		t.Logf("✓ Garage door opened: %s.%s for %v",
 			garageOpenCall.Domain,
@@ -124,25 +119,18 @@ func TestScenario_CarolineReturnsHomeGarageEmpty(t *testing.T) {
 
 	server.SetState("input_boolean.caroline_home", "off", nil)
 	server.SetState("binary_sensor.garage_door_vehicle_detected", "off", nil)
-	time.Sleep(100 * time.Millisecond)
+	waitForBoolState(t, manager, "isCarolineHome", false, "isCarolineHome should be false initially")
 
 	server.ClearServiceCalls()
 
 	t.Log("WHEN: Caroline arrives home")
 
 	server.SetState("input_boolean.caroline_home", "on", nil)
-	time.Sleep(100 * time.Millisecond)
 
 	t.Log("THEN: didOwnerJustReturnHome should be set to true and garage should open")
 
-	didReturn, err := manager.GetBool("didOwnerJustReturnHome")
-	require.NoError(t, err)
-	assert.True(t, didReturn, "didOwnerJustReturnHome should be true after Caroline arrives")
-
-	time.Sleep(50 * time.Millisecond)
-
-	garageOpenCall := server.FindServiceCall("cover", "open_cover", "cover.garage_door_door")
-	assert.NotNil(t, garageOpenCall, "Garage door should be opened when Caroline returns")
+	waitForBoolState(t, manager, "didOwnerJustReturnHome", true, "didOwnerJustReturnHome should be true after Caroline arrives")
+	waitForServiceCallWithEntity(t, server, "cover", "open_cover", "cover.garage_door_door", "Garage door should be opened when Caroline returns")
 }
 
 // TestScenario_OwnerReturnsHomeGarageOccupied tests that the garage door does NOT
@@ -155,24 +143,22 @@ func TestScenario_OwnerReturnsHomeGarageOccupied(t *testing.T) {
 
 	server.SetState("input_boolean.nick_home", "off", nil)
 	server.SetState("binary_sensor.garage_door_vehicle_detected", "on", nil) // Occupied garage
-	time.Sleep(100 * time.Millisecond)
+	waitForBoolState(t, manager, "isNickHome", false, "isNickHome should be false initially")
 
 	server.ClearServiceCalls()
 
 	t.Log("WHEN: Nick arrives home")
 
 	server.SetState("input_boolean.nick_home", "on", nil)
-	time.Sleep(100 * time.Millisecond)
 
 	t.Log("THEN: didOwnerJustReturnHome should be set to true")
 
-	didReturn, err := manager.GetBool("didOwnerJustReturnHome")
-	require.NoError(t, err)
-	assert.True(t, didReturn, "didOwnerJustReturnHome should be true after Nick arrives")
+	waitForBoolState(t, manager, "didOwnerJustReturnHome", true, "didOwnerJustReturnHome should be true after Nick arrives")
 
 	t.Log("BUT: Garage door should NOT be opened (occupied)")
 
-	time.Sleep(50 * time.Millisecond)
+	// Wait a bit for any potential service calls, then verify none were made
+	time.Sleep(100 * time.Millisecond)
 
 	garageOpenCall := server.FindServiceCall("cover", "open_cover", "cover.garage_door_door")
 	assert.Nil(t, garageOpenCall, "Garage door should NOT open when garage is occupied")
