@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"homeautomation/internal/clock"
 	"homeautomation/internal/ha"
 	"homeautomation/internal/plugins/energy"
 	"homeautomation/internal/state"
@@ -156,9 +157,8 @@ func TestScenario_SolarProductionUpdates_CalculatesEnergyLevel(t *testing.T) {
 // TestScenario_GridAvailability_RecalculatesFreeEnergy validates that when
 // grid availability changes, isFreeEnergyAvailable recalculates
 func TestScenario_GridAvailability_RecalculatesFreeEnergy(t *testing.T) {
-	// This test needs a controlled timezone to ensure consistent behavior.
-	// We use a timezone that makes current time 12:00 noon (outside free energy window 21:00-07:00).
-	// This is done by creating a custom setup instead of using setupEnergyScenarioTest.
+	// This test needs a controlled time to ensure consistent behavior.
+	// We use a fixed reference time of 12:00 noon UTC (outside free energy window 21:00-07:00).
 
 	server, client, manager, baseCleanup := setupTest(t)
 	defer baseCleanup()
@@ -171,16 +171,14 @@ func TestScenario_GridAvailability_RecalculatesFreeEnergy(t *testing.T) {
 	// Create logger
 	logger := testlogger.New()
 
-	// Create a timezone that makes current time 12:00 noon (clearly outside 21:00-07:00 window)
-	now := time.Now()
-	_, currentOffset := now.Zone()
-	// We want local time to be 12:00 noon
-	targetHour := 12
-	hoursToAdd := targetHour - now.Hour()
-	testTimezone := time.FixedZone("TEST_NOON", currentOffset+hoursToAdd*3600)
+	// Use a fixed reference time: January 15, 2024 at 12:00 noon UTC
+	// This is clearly outside the free energy window (21:00-07:00)
+	fixedTime := time.Date(2024, 1, 15, 12, 0, 0, 0, time.UTC)
+	mockClock := clock.NewMockClock(fixedTime)
 
-	// Create energy plugin (NOT read-only so it can set states)
-	energyMgr := energy.NewManager(client, manager, energyConfig, logger, false, testTimezone, nil)
+	// Create energy plugin with UTC timezone and mock clock
+	energyMgr := energy.NewManager(client, manager, energyConfig, logger, false, time.UTC, nil)
+	energyMgr.SetClock(mockClock)
 	err = energyMgr.Start()
 	require.NoError(t, err, "Failed to start energy manager")
 	defer energyMgr.Stop()
@@ -232,7 +230,7 @@ func TestScenario_GridAvailability_RecalculatesFreeEnergy(t *testing.T) {
 // TestScenario_OverallEnergyLevel_ReflectsWorstState validates that the
 // currentEnergyLevel correctly reflects the worst state across battery/solar
 func TestScenario_OverallEnergyLevel_ReflectsWorstState(t *testing.T) {
-	// This test needs a controlled timezone to ensure we're outside the free energy window.
+	// This test needs a controlled time to ensure we're outside the free energy window.
 	// During free energy time (21:00-07:00), currentEnergyLevel would be "white" instead of
 	// the expected battery/solar-derived levels.
 
@@ -247,15 +245,14 @@ func TestScenario_OverallEnergyLevel_ReflectsWorstState(t *testing.T) {
 	// Create logger
 	logger := testlogger.New()
 
-	// Create a timezone that makes current time 12:00 noon (clearly outside 21:00-07:00 window)
-	now := time.Now()
-	_, currentOffset := now.Zone()
-	targetHour := 12
-	hoursToAdd := targetHour - now.Hour()
-	testTimezone := time.FixedZone("TEST_NOON", currentOffset+hoursToAdd*3600)
+	// Use a fixed reference time: January 15, 2024 at 12:00 noon UTC
+	// This is clearly outside the free energy window (21:00-07:00)
+	fixedTime := time.Date(2024, 1, 15, 12, 0, 0, 0, time.UTC)
+	mockClock := clock.NewMockClock(fixedTime)
 
-	// Create energy plugin
-	energyMgr := energy.NewManager(client, manager, energyConfig, logger, false, testTimezone, nil)
+	// Create energy plugin with UTC timezone and mock clock
+	energyMgr := energy.NewManager(client, manager, energyConfig, logger, false, time.UTC, nil)
+	energyMgr.SetClock(mockClock)
 	err = energyMgr.Start()
 	require.NoError(t, err, "Failed to start energy manager")
 	defer energyMgr.Stop()
@@ -322,22 +319,19 @@ func TestScenario_FreeEnergyTimeWindow_OverridesEnergyLevel(t *testing.T) {
 	server, client, manager, baseCleanup := setupTest(t)
 	defer baseCleanup()
 
-	// Create a timezone where it's currently in free energy window
-	// Free energy window is 21:00-07:00, so we'll use a timezone that makes it 22:00 now
-	now := time.Now()
-	// Create a fixed location that makes current time 22:00
-	_, offset := now.Zone()
-	targetHour := 22
-	hoursToAdd := targetHour - now.Hour()
-	testTimezone := time.FixedZone("TEST", offset+hoursToAdd*3600)
+	// Use a fixed reference time: January 15, 2024 at 22:00 (10 PM) UTC
+	// This is inside the free energy window (21:00-07:00)
+	fixedTime := time.Date(2024, 1, 15, 22, 0, 0, 0, time.UTC)
+	mockClock := clock.NewMockClock(fixedTime)
 
-	// Load config and create manager with test timezone
+	// Load config and create manager with UTC timezone and mock clock
 	configPath := filepath.Join("testdata", "energy_config_test.yaml")
 	energyConfig, err := energy.LoadConfig(configPath)
 	require.NoError(t, err)
 
 	logger := testlogger.New()
-	energyMgr := energy.NewManager(client, manager, energyConfig, logger, false, testTimezone, nil)
+	energyMgr := energy.NewManager(client, manager, energyConfig, logger, false, time.UTC, nil)
+	energyMgr.SetClock(mockClock)
 	err = energyMgr.Start()
 	require.NoError(t, err)
 	defer energyMgr.Stop()

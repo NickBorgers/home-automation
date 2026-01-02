@@ -1,18 +1,124 @@
 name: Claude Code Review
 
 on:
-  pull_request:
-    types: [opened, reopened]
+  workflow_run:
+    workflows: ["PR Tests"]
+    types: [completed]
 
 env:
   # Note: must be lowercase for Docker compatibility
   DEVCONTAINER_IMAGE: ghcr.io/nickborgers/home-automation-devcontainer
 
 jobs:
-  # Build and cache devcontainer image first - this ensures caching works
-  # even if Claude fails
+  # Extract PR and Issue context from the workflow_run event
+  get-context:
+    runs-on: ubuntu-latest
+    outputs:
+      pr_number: ${{ steps.get-pr.outputs.pr_number }}
+      pr_title: ${{ steps.get-pr.outputs.pr_title }}
+      pr_body_b64: ${{ steps.get-pr.outputs.pr_body_b64 }}
+      head_ref: ${{ steps.get-pr.outputs.head_ref }}
+      head_repo: ${{ steps.get-pr.outputs.head_repo }}
+      tests_passed: ${{ github.event.workflow_run.conclusion == 'success' }}
+      run_id: ${{ github.event.workflow_run.id }}
+      issue_number: ${{ steps.get-issue.outputs.issue_number }}
+      issue_title: ${{ steps.get-issue.outputs.issue_title }}
+      issue_body_b64: ${{ steps.get-issue.outputs.issue_body_b64 }}
+      fix_attempts: ${{ steps.count-attempts.outputs.count }}
+
+    steps:
+      - name: Get PR from workflow run
+        uses: actions/github-script@v7
+        id: get-pr
+        with:
+          script: |
+            // Find the PR associated with this workflow run
+            const headBranch = context.payload.workflow_run.head_branch;
+            const headRepo = context.payload.workflow_run.head_repository.full_name;
+
+            console.log(`Looking for PR with head branch: ${headBranch} from ${headRepo}`);
+
+            const prs = await github.rest.pulls.list({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              head: `${headRepo.split('/')[0]}:${headBranch}`
+            });
+
+            if (prs.data.length > 0) {
+              const pr = prs.data[0];
+              console.log(`Found PR #${pr.number}: ${pr.title}`);
+              core.setOutput('pr_number', pr.number);
+              core.setOutput('pr_title', pr.title);
+              // Base64 encode PR body to avoid issues with special characters in env vars
+              const prBodyB64 = Buffer.from(pr.body || '').toString('base64');
+              core.setOutput('pr_body_b64', prBodyB64);
+              core.setOutput('head_ref', pr.head.ref);
+              core.setOutput('head_repo', pr.head.repo.full_name);
+            } else {
+              console.log('No open PR found for this workflow run');
+              core.setOutput('pr_number', '');
+            }
+
+      - name: Extract linked issue from PR body
+        if: steps.get-pr.outputs.pr_number != ''
+        id: get-issue
+        env:
+          PR_BODY_B64: ${{ steps.get-pr.outputs.pr_body_b64 }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Decode PR body to search for linked issues
+          PR_BODY=$(echo "$PR_BODY_B64" | base64 -d)
+
+          # Parse PR body for "Resolves #X", "Fixes #X", "Closes #X" patterns
+          ISSUE_NUM=$(echo "$PR_BODY" | grep -oP '(Resolves|Fixes|Closes|Fix)\s*#\K\d+' | head -1 || echo "")
+          echo "issue_number=$ISSUE_NUM" >> $GITHUB_OUTPUT
+
+          if [ -n "$ISSUE_NUM" ]; then
+            echo "Found linked issue: #$ISSUE_NUM"
+            # Fetch issue details
+            ISSUE_JSON=$(gh api repos/${{ github.repository }}/issues/$ISSUE_NUM 2>/dev/null || echo "{}")
+            ISSUE_TITLE=$(echo "$ISSUE_JSON" | jq -r '.title // ""')
+            ISSUE_BODY=$(echo "$ISSUE_JSON" | jq -r '.body // ""')
+            echo "issue_title=$ISSUE_TITLE" >> $GITHUB_OUTPUT
+            # Base64 encode issue body to avoid issues with special characters
+            echo "issue_body_b64=$(echo "$ISSUE_BODY" | base64 -w0)" >> $GITHUB_OUTPUT
+          else
+            echo "No linked issue found in PR body"
+            echo "issue_title=" >> $GITHUB_OUTPUT
+            echo "issue_body_b64=" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Count fix attempts from PR labels
+        if: steps.get-pr.outputs.pr_number != ''
+        id: count-attempts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          PR_NUMBER="${{ steps.get-pr.outputs.pr_number }}"
+
+          # Get all labels on the PR
+          LABELS=$(gh api repos/${{ github.repository }}/issues/$PR_NUMBER/labels --jq '.[].name' 2>/dev/null || echo "")
+
+          # Count claude-fix-attempt-N labels
+          COUNT=0
+          for label in $LABELS; do
+            if [[ "$label" =~ ^claude-fix-attempt-[0-9]+$ ]]; then
+              NUM=$(echo "$label" | grep -oP '\d+$')
+              if [ "$NUM" -gt "$COUNT" ]; then
+                COUNT=$NUM
+              fi
+            fi
+          done
+
+          echo "Current fix attempt count: $COUNT"
+          echo "count=$COUNT" >> $GITHUB_OUTPUT
+
+  # Build and cache devcontainer image first
   build-devcontainer:
     runs-on: ubuntu-latest
+    needs: get-context
+    if: needs.get-context.outputs.pr_number != ''
     permissions:
       contents: read
       packages: write
@@ -21,8 +127,8 @@ jobs:
       - name: Checkout PR branch
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.ref }}
-          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ needs.get-context.outputs.head_ref }}
+          repository: ${{ needs.get-context.outputs.head_repo }}
 
       - name: Log in to GHCR
         uses: docker/login-action@v3
@@ -38,8 +144,13 @@ jobs:
           cacheFrom: ${{ env.DEVCONTAINER_IMAGE }}
           push: always
 
-  claude-review:
-    needs: build-devcontainer
+  # Fix test failures - runs in a retry loop until tests pass (max 3 attempts)
+  fix-test-failures:
+    needs: [get-context, build-devcontainer]
+    if: |
+      needs.get-context.outputs.pr_number != '' &&
+      needs.get-context.outputs.tests_passed == 'false' &&
+      needs.get-context.outputs.fix_attempts < 3
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -52,8 +163,133 @@ jobs:
       - name: Checkout PR branch
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.ref }}
-          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ needs.get-context.outputs.head_ref }}
+          repository: ${{ needs.get-context.outputs.head_repo }}
+          fetch-depth: 0
+          token: ${{ github.token }}
+
+      - name: Increment fix attempt counter
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          PR_NUMBER="${{ needs.get-context.outputs.pr_number }}"
+          CURRENT_ATTEMPTS="${{ needs.get-context.outputs.fix_attempts }}"
+          NEXT_ATTEMPT=$((CURRENT_ATTEMPTS + 1))
+
+          # Create the label if it doesn't exist
+          gh label create "claude-fix-attempt-$NEXT_ATTEMPT" \
+            --color "ff9500" \
+            --description "Claude fix attempt $NEXT_ATTEMPT" \
+            --repo ${{ github.repository }} 2>/dev/null || true
+
+          # Add the label to the PR
+          gh pr edit $PR_NUMBER --add-label "claude-fix-attempt-$NEXT_ATTEMPT" --repo ${{ github.repository }}
+
+          echo "Marked as fix attempt $NEXT_ATTEMPT"
+
+      - name: Create gh config directory for devcontainer mount
+        run: mkdir -p ~/.config/gh
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Run Claude to fix test failures
+        uses: devcontainers/ci@v0.3
+        with:
+          imageName: ${{ env.DEVCONTAINER_IMAGE }}
+          cacheFrom: ${{ env.DEVCONTAINER_IMAGE }}
+          push: never
+          env: |
+            CLAUDE_CODE_OAUTH_TOKEN=${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+            GH_TOKEN=${{ github.token }}
+            PR_NUMBER=${{ needs.get-context.outputs.pr_number }}
+            PR_TITLE=${{ needs.get-context.outputs.pr_title }}
+            PR_BODY_B64=${{ needs.get-context.outputs.pr_body_b64 }}
+            ISSUE_NUMBER=${{ needs.get-context.outputs.issue_number }}
+            ISSUE_TITLE=${{ needs.get-context.outputs.issue_title }}
+            ISSUE_BODY_B64=${{ needs.get-context.outputs.issue_body_b64 }}
+            RUN_ID=${{ needs.get-context.outputs.run_id }}
+            ATTEMPT_NUM=${{ needs.get-context.outputs.fix_attempts }}
+            REPO=${{ github.repository }}
+          runCmd: |
+            # Calculate actual attempt number (current + 1)
+            ATTEMPT=$((ATTEMPT_NUM + 1))
+
+            # Decode base64-encoded bodies (handles special characters safely)
+            PR_BODY=$(echo "$PR_BODY_B64" | base64 -d 2>/dev/null || echo "")
+            ISSUE_BODY=$(echo "$ISSUE_BODY_B64" | base64 -d 2>/dev/null || echo "")
+
+            # Run Claude Code to fix test failures
+            claude --print \
+              --model opus \
+              --dangerously-skip-permissions \
+              --max-turns 200 \
+              "You are fixing CI test failures for PR #${PR_NUMBER} in ${REPO}.
+            This is fix attempt ${ATTEMPT} of 3.
+
+            ORIGINAL ISSUE (if applicable):
+            Issue #${ISSUE_NUMBER}: ${ISSUE_TITLE}
+            ${ISSUE_BODY}
+
+            PR DESCRIPTION:
+            ${PR_TITLE}
+            ${PR_BODY}
+
+            The tests failed in the PR Tests workflow (run ID: ${RUN_ID}). Your task:
+            1. Check the workflow run logs: gh run view ${RUN_ID} --log-failed
+            2. Identify the root cause of failures (failing tests, coverage < 65%, style issues, etc.)
+            3. Fix the issues in the code
+            4. Run \`make unit-tests\` locally to verify your fix works
+            5. Commit and push your fixes
+
+            IMPORTANT RULES FOR THIS REPOSITORY:
+            - Use \`make unit-tests\` NOT \`go test\` (caching)
+            - Use \`make integration-tests\` for integration tests
+            - Use \`make pre-commit\` for linting/formatting
+            - Follow shadow state pattern (docs/reference/SHADOW_STATE.md)
+            - Never use \`git push --no-verify\`
+            - After pushing, a new test run will start automatically
+            - If this is attempt 2+, review what was tried before and try a different approach
+
+            Post a brief status update:
+            gh pr comment ${PR_NUMBER} --body '## Fix Attempt ${ATTEMPT}/3
+
+            [Describe what you found and fixed]
+
+            Pushing changes - new test run will start automatically.'" < /dev/null 2>&1 | tee /workspaces/home-automation/fix-failures-output.txt
+
+      - name: Upload fix attempt output
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: fix-failures-output-attempt-${{ needs.get-context.outputs.fix_attempts }}
+          path: fix-failures-output.txt
+          retention-days: 7
+
+  # Claude review - only runs when tests pass
+  claude-review:
+    needs: [get-context, build-devcontainer]
+    if: |
+      needs.get-context.outputs.pr_number != '' &&
+      needs.get-context.outputs.tests_passed == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      id-token: write
+      packages: read
+
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.get-context.outputs.head_ref }}
+          repository: ${{ needs.get-context.outputs.head_repo }}
           fetch-depth: 0
           token: ${{ github.token }}
 
@@ -76,19 +312,19 @@ jobs:
           env: |
             CLAUDE_CODE_OAUTH_TOKEN=${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
             GH_TOKEN=${{ github.token }}
-            PR_NUMBER=${{ github.event.pull_request.number }}
+            PR_NUMBER=${{ needs.get-context.outputs.pr_number }}
             REPO=${{ github.repository }}
           runCmd: |
             # Run Claude Code review inside the devcontainer
-            # Use < /dev/null to prevent hanging on TTY input
-            # Use tee to capture output for artifact upload
             claude --print \
               --model opus \
               --dangerously-skip-permissions \
-              --max-turns 150 \
+              --max-turns 450 \
               "You are reviewing PR #${PR_NUMBER} in ${REPO}.
 
-            IMPORTANT: This repository uses cached test commands. ALWAYS use:
+            IMPORTANT: Tests have already passed. Focus on code quality review.
+
+            This repository uses cached test commands. ALWAYS use:
             - \`make unit-tests\` (NOT \`go test\`)
             - \`make integration-tests\` for integration tests
             - \`make pre-commit\` for linting/formatting checks
@@ -120,9 +356,13 @@ jobs:
           path: claude-review-output.txt
           retention-days: 7
 
-  # test-focused reviewer - runs after claude-review
+  # Test-focused reviewer - runs after claude-review
   test-review:
-    needs: [build-devcontainer, claude-review]
+    needs: [get-context, build-devcontainer, claude-review]
+    if: |
+      always() &&
+      needs.get-context.outputs.pr_number != '' &&
+      needs.get-context.outputs.tests_passed == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -135,13 +375,13 @@ jobs:
       - name: Checkout PR branch
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.ref }}
-          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ needs.get-context.outputs.head_ref }}
+          repository: ${{ needs.get-context.outputs.head_repo }}
           fetch-depth: 0
           token: ${{ github.token }}
 
       - name: Pull latest changes
-        run: git pull origin ${{ github.event.pull_request.head.ref }} || true
+        run: git pull origin ${{ needs.get-context.outputs.head_ref }} || true
 
       - name: Create gh config directory for devcontainer mount
         run: mkdir -p ~/.config/gh
@@ -162,14 +402,12 @@ jobs:
           env: |
             CLAUDE_CODE_OAUTH_TOKEN=${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
             GH_TOKEN=${{ github.token }}
-            PR_NUMBER=${{ github.event.pull_request.number }}
+            PR_NUMBER=${{ needs.get-context.outputs.pr_number }}
           runCmd: |
-            # Use < /dev/null to prevent hanging on TTY input
-            # Use tee to capture output for artifact upload
             claude --print \
               --model opus \
               --dangerously-skip-permissions \
-              --max-turns 100 \
+              --max-turns 200 \
               "You are a QA tester for PR #${PR_NUMBER}.
 
             Run \`git diff origin/main...HEAD\` and analyze for insufficiently tested features:
@@ -194,7 +432,11 @@ jobs:
 
   # Concurrency/race condition specialist - runs after test-review
   concurrency-review:
-    needs: [build-devcontainer, test-review]
+    needs: [get-context, build-devcontainer, test-review]
+    if: |
+      always() &&
+      needs.get-context.outputs.pr_number != '' &&
+      needs.get-context.outputs.tests_passed == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -207,13 +449,13 @@ jobs:
       - name: Checkout PR branch
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.ref }}
-          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ needs.get-context.outputs.head_ref }}
+          repository: ${{ needs.get-context.outputs.head_repo }}
           fetch-depth: 0
           token: ${{ github.token }}
 
       - name: Pull latest changes
-        run: git pull origin ${{ github.event.pull_request.head.ref }} || true
+        run: git pull origin ${{ needs.get-context.outputs.head_ref }} || true
 
       - name: Create gh config directory for devcontainer mount
         run: mkdir -p ~/.config/gh
@@ -234,14 +476,12 @@ jobs:
           env: |
             CLAUDE_CODE_OAUTH_TOKEN=${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
             GH_TOKEN=${{ github.token }}
-            PR_NUMBER=${{ github.event.pull_request.number }}
+            PR_NUMBER=${{ needs.get-context.outputs.pr_number }}
           runCmd: |
-            # Use < /dev/null to prevent hanging on TTY input
-            # Use tee to capture output for artifact upload
             claude --print \
               --model opus \
               --dangerously-skip-permissions \
-              --max-turns 120 \
+              --max-turns 240 \
               "You are a CONCURRENCY specialist reviewing PR #${PR_NUMBER}.
 
             This Go codebase has a history of race conditions. Review for:
@@ -260,7 +500,7 @@ jobs:
             For HIGH SEVERITY concurrency bugs, fix them directly, commit, and push.
 
             Post findings as:
-            gh pr comment ${PR_NUMBER} --body '## 🔄 Concurrency Review\n\nYOUR_ANALYSIS'" < /dev/null 2>&1 | tee /workspaces/home-automation/concurrency-review-output.txt
+            gh pr comment ${PR_NUMBER} --body '## Concurrency Review\n\nYOUR_ANALYSIS'" < /dev/null 2>&1 | tee /workspaces/home-automation/concurrency-review-output.txt
 
       - name: Upload concurrency review output
         uses: actions/upload-artifact@v4
@@ -274,7 +514,7 @@ jobs:
   all-reviews-passed:
     name: All Required Agent Reviews
     runs-on: ubuntu-latest
-    needs: [build-devcontainer, claude-review, test-review, concurrency-review]
+    needs: [get-context, build-devcontainer, fix-test-failures, claude-review, test-review, concurrency-review]
     if: always()
 
     steps:
@@ -287,33 +527,69 @@ jobs:
 
           failed=false
 
-          if ! check_result "${{ needs.build-devcontainer.result }}"; then
-            echo "❌ Build Devcontainer: ${{ needs.build-devcontainer.result }}"
-            failed=true
+          # Check if we have a valid PR
+          if [ -z "${{ needs.get-context.outputs.pr_number }}" ]; then
+            echo "No PR found for this workflow run - skipping reviews"
+            exit 0
           fi
-          if ! check_result "${{ needs.claude-review.result }}"; then
-            echo "❌ Claude Review: ${{ needs.claude-review.result }}"
-            failed=true
+
+          # If tests failed and we're still under max attempts, fix-test-failures ran
+          # and pushed changes - this workflow run is complete, next run will continue
+          TESTS_PASSED="${{ needs.get-context.outputs.tests_passed }}"
+          FIX_ATTEMPTS="${{ needs.get-context.outputs.fix_attempts }}"
+
+          if [ "$TESTS_PASSED" = "false" ] && [ "$FIX_ATTEMPTS" -lt 3 ]; then
+            echo "Tests failed - fix attempt was made, waiting for next test run"
+            # Check if fix-test-failures succeeded
+            if ! check_result "${{ needs.fix-test-failures.result }}"; then
+              echo "Fix attempt failed: ${{ needs.fix-test-failures.result }}"
+              failed=true
+            else
+              echo "Fix attempt completed successfully - new test run should start"
+              exit 0
+            fi
           fi
-          if ! check_result "${{ needs.test-review.result }}"; then
-            echo "❌ Test Review: ${{ needs.test-review.result }}"
-            failed=true
+
+          # If tests passed, check review results
+          if [ "$TESTS_PASSED" = "true" ]; then
+            if ! check_result "${{ needs.build-devcontainer.result }}"; then
+              echo "Build Devcontainer: ${{ needs.build-devcontainer.result }}"
+              failed=true
+            fi
+            if ! check_result "${{ needs.claude-review.result }}"; then
+              echo "Claude Review: ${{ needs.claude-review.result }}"
+              failed=true
+            fi
+            if ! check_result "${{ needs.test-review.result }}"; then
+              echo "Test Review: ${{ needs.test-review.result }}"
+              failed=true
+            fi
+            if ! check_result "${{ needs.concurrency-review.result }}"; then
+              echo "Concurrency Review: ${{ needs.concurrency-review.result }}"
+              failed=true
+            fi
           fi
-          if ! check_result "${{ needs.concurrency-review.result }}"; then
-            echo "❌ Concurrency Review: ${{ needs.concurrency-review.result }}"
+
+          # If max attempts reached and tests still failing
+          if [ "$TESTS_PASSED" = "false" ] && [ "$FIX_ATTEMPTS" -ge 3 ]; then
+            echo "Max fix attempts (3) reached - tests still failing"
+            echo "Human intervention required"
             failed=true
           fi
 
           if [ "$failed" = true ]; then
             echo ""
-            echo "❌ Some agent reviews failed"
+            echo "Some checks failed"
             exit 1
           fi
 
-          echo "✅ All agent reviews completed - PR is ready for merge"
+          echo "All agent reviews completed - PR is ready for merge"
           echo ""
           echo "Review Results:"
+          echo "  Tests Passed: ${{ needs.get-context.outputs.tests_passed }}"
+          echo "  Fix Attempts: ${{ needs.get-context.outputs.fix_attempts }}"
           echo "  Build Devcontainer: ${{ needs.build-devcontainer.result }}"
+          echo "  Fix Test Failures: ${{ needs.fix-test-failures.result }}"
           echo "  Claude Review: ${{ needs.claude-review.result }}"
           echo "  Test Review: ${{ needs.test-review.result }}"
           echo "  Concurrency Review: ${{ needs.concurrency-review.result }}"
