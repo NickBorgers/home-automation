@@ -57,6 +57,8 @@ make lint-go           # Run linters
 │   └── test/integration/       # Integration test suite
 ├── docs/
 │   ├── architecture/ARCHITECTURE.md  # System design & migration status
+│   ├── flows/                        # Automation flow diagrams (replaces Node-RED visuals)
+│   │   └── DAY_PHASE_MODES.md        # Day phase, music mode, lighting relationships
 │   ├── reference/SHADOW_STATE.md     # Shadow state pattern (READ BEFORE WRITING PLUGINS)
 │   ├── reference/PLUGIN_SYSTEM.md    # Plugin interfaces
 │   ├── reference/migration_mapping.md # State variable mapping
@@ -74,6 +76,7 @@ make lint-go           # Run linters
 | [PLUGIN_SYSTEM.md](./docs/reference/PLUGIN_SYSTEM.md) | Plugin interfaces and lifecycle |
 | [migration_mapping.md](./docs/reference/migration_mapping.md) | State variable mapping from Node-RED |
 | [CONCURRENCY_LESSONS.md](./docs/reference/CONCURRENCY_LESSONS.md) | Concurrency patterns and lessons |
+| [DAY_PHASE_MODES.md](./docs/flows/DAY_PHASE_MODES.md) | Day phase, music mode, and lighting relationships |
 
 ## Understanding Node-RED Behavior
 
@@ -150,15 +153,16 @@ When modifying function signatures:
 ### Documentation Maintenance
 
 Update docs when making changes:
-- New plugin → Update `VISUAL_ARCHITECTURE.md`, `ARCHITECTURE.md`
+- New plugin → Update `VISUAL_ARCHITECTURE.md`, `ARCHITECTURE.md`, consider adding flow doc to `docs/flows/`
 - New state variable → Update `migration_mapping.md`, `VISUAL_ARCHITECTURE.md`
+- Plugin logic change → Update relevant flow doc in `docs/flows/` (e.g., `DAY_PHASE_MODES.md`)
 - Concurrency fix → Update `CONCURRENCY_LESSONS.md`
 
 Validate Mermaid diagrams: `make validate-mermaid`
 
 ### Diagram Maintenance Protocol
 
-**Mermaid diagrams in `docs/human/VISUAL_ARCHITECTURE.md` must stay synchronized with code.**
+**Mermaid diagrams in `docs/human/VISUAL_ARCHITECTURE.md` and `docs/flows/` must stay synchronized with code.**
 
 A Claude Code hook (`.claude/hooks/check-diagrams.sh`) reminds you when plugin code changes or diagram files are edited. The hook is optimized to minimize context window usage:
 - Shows full reminder only once per plugin per session
@@ -173,11 +177,12 @@ A Claude Code hook (`.claude/hooks/check-diagrams.sh`) reminds you when plugin c
 | Plugin removed | System Architecture, Plugin System Architecture |
 | New `Subscribe()` call | State Variable Dependency Graph |
 | State variable added/removed | State Variable Dependency Graph |
-| Plugin logic changed | Relevant logic flow diagram (Music, Lighting, Energy, etc.) |
+| Plugin logic changed | Relevant logic flow diagram (Music, Lighting, Energy, etc.) or `docs/flows/` |
+| Day phase/schedule changes | `docs/flows/DAY_PHASE_MODES.md` |
 
 **Diagram update checklist:**
 1. Identify affected diagrams using the table above
-2. Update the Mermaid source in `docs/human/VISUAL_ARCHITECTURE.md`
+2. Update the Mermaid source in `docs/human/VISUAL_ARCHITECTURE.md` or relevant `docs/flows/*.md` file
 3. Run `make validate-mermaid` to check syntax
 4. Preview rendering (GitHub renders Mermaid natively, or use [Mermaid Live](https://mermaid.live/))
 5. Commit diagram updates **in the same PR** as code changes
@@ -187,6 +192,7 @@ A Claude Code hook (`.claude/hooks/check-diagrams.sh`) reminds you when plugin c
 - **Plugin System Architecture** - Plugin dependencies and data flow
 - **State Variable Dependency Graph** - Which plugins read/write which variables
 - **Individual Logic Flows** - Decision trees for Music, Lighting, Energy, etc.
+- **Automation Flows** (`docs/flows/`) - Detailed behavior documentation with Mermaid diagrams
 
 ## Running Tests
 
