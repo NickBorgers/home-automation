@@ -286,14 +286,17 @@ func TestManager_ShadowState_NextTransitionUpdated(t *testing.T) {
 	configLoader := config.NewLoader("../../../configs", logger)
 	calculator := dayphaselib.NewCalculator(32.85486, -97.50515, logger)
 
-	// Use a fixed reference time: January 15, 2024 at 10:00 AM
-	// This makes the test deterministic regardless of when it runs
-	fixedTime := time.Date(2024, 1, 15, 10, 0, 0, 0, time.Local)
+	// Use a fixed reference time: January 15, 2024 at 10:00 AM in UTC
+	// Using UTC ensures the test is deterministic regardless of the CI machine's timezone.
+	// At this time (10:00 UTC = 4:00 AM in Texas), it's before dawn, so day phase is "night".
+	// The next transition should be to "morning" at dawn (~13:00 UTC / 7:00 AM CST).
+	fixedTime := time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC)
 	mockClock := clock.NewMockClock(fixedTime)
 	calculator.SetClock(mockClock)
 	configLoader.SetClock(mockClock)
 
-	manager := NewManager(mockClient, stateManager, configLoader, calculator, logger, false, nil)
+	// Pass time.UTC as the timezone to ensure consistent schedule parsing
+	manager := NewManager(mockClient, stateManager, configLoader, calculator, logger, false, time.UTC)
 	manager.SetClock(mockClock)
 
 	// Initialize state
