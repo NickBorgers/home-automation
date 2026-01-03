@@ -605,8 +605,8 @@ jobs:
           HEAD_SHA=$(gh api repos/${{ github.repository }}/pulls/${{ needs.get-context.outputs.pr_number }} --jq '.head.sha')
           echo "Checking test status for commit $HEAD_SHA"
 
-          # Check for "All Required Tests" status
-          STATUS=$(gh api repos/${{ github.repository }}/commits/$HEAD_SHA/status --jq '.statuses[] | select(.context == "All Required Tests") | .state' 2>/dev/null || echo "")
+          # Check for "All Required Tests" check run (not a commit status)
+          STATUS=$(gh api repos/${{ github.repository }}/commits/$HEAD_SHA/check-runs --jq '.check_runs[] | select(.name == "All Required Tests") | .conclusion' 2>/dev/null || echo "")
 
           if [ "$STATUS" = "success" ]; then
             echo "✅ All Required Tests passed on current commit"
@@ -756,8 +756,8 @@ jobs:
           HEAD_SHA=$(gh api repos/${{ github.repository }}/pulls/${{ needs.get-context.outputs.pr_number }} --jq '.head.sha')
           echo "Checking test status for commit $HEAD_SHA"
 
-          # Check for "All Required Tests" status
-          STATUS=$(gh api repos/${{ github.repository }}/commits/$HEAD_SHA/status --jq '.statuses[] | select(.context == "All Required Tests") | .state' 2>/dev/null || echo "")
+          # Check for "All Required Tests" check run (not a commit status)
+          STATUS=$(gh api repos/${{ github.repository }}/commits/$HEAD_SHA/check-runs --jq '.check_runs[] | select(.name == "All Required Tests") | .conclusion' 2>/dev/null || echo "")
 
           if [ "$STATUS" = "success" ]; then
             echo "✅ All Required Tests passed on current commit"
@@ -878,8 +878,8 @@ jobs:
           HEAD_SHA=$(gh api repos/${{ github.repository }}/pulls/${{ needs.get-context.outputs.pr_number }} --jq '.head.sha')
           echo "Checking test status for commit $HEAD_SHA"
 
-          # Check for "All Required Tests" status
-          STATUS=$(gh api repos/${{ github.repository }}/commits/$HEAD_SHA/status --jq '.statuses[] | select(.context == "All Required Tests") | .state' 2>/dev/null || echo "")
+          # Check for "All Required Tests" check run (not a commit status)
+          STATUS=$(gh api repos/${{ github.repository }}/commits/$HEAD_SHA/check-runs --jq '.check_runs[] | select(.name == "All Required Tests") | .conclusion' 2>/dev/null || echo "")
 
           if [ "$STATUS" = "success" ]; then
             echo "✅ All Required Tests passed on current commit"
