@@ -70,23 +70,24 @@ func TestCalculator_CalculateDayPhase(t *testing.T) {
 	logger := testlogger.New()
 	calc := NewCalculator(32.85486, -97.50515, logger)
 
-	// Use a fixed reference time: January 15, 2024 at 10:00 AM (daytime)
-	fixedTime := time.Date(2024, 1, 15, 10, 0, 0, 0, time.Local)
+	// Use a fixed reference time: January 15, 2024 at 10:00 AM in UTC
+	// Using UTC ensures the test is deterministic regardless of the CI machine's timezone.
+	fixedTime := time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC)
 	mockClock := clock.NewMockClock(fixedTime)
 	calc.SetClock(mockClock)
 
 	err := calc.UpdateSunTimes()
 	assert.NoError(t, err)
 
-	// Create a sample schedule based on the fixed time
+	// Create a sample schedule based on the fixed time (using same UTC timezone)
 	schedule := &config.ParsedSchedule{
-		BeginBackupWake: time.Date(2024, 1, 15, 5, 0, 0, 0, time.Local),
-		BackupWakeTime:  time.Date(2024, 1, 15, 7, 0, 0, 0, time.Local),
-		Dusk:            time.Date(2024, 1, 15, 18, 0, 0, 0, time.Local),
-		Winddown:        time.Date(2024, 1, 15, 21, 0, 0, 0, time.Local),
-		StopScreens:     time.Date(2024, 1, 15, 22, 0, 0, 0, time.Local),
-		GoToBed:         time.Date(2024, 1, 15, 22, 30, 0, 0, time.Local),
-		Night:           time.Date(2024, 1, 15, 23, 0, 0, 0, time.Local),
+		BeginBackupWake: time.Date(2024, 1, 15, 5, 0, 0, 0, time.UTC),
+		BackupWakeTime:  time.Date(2024, 1, 15, 7, 0, 0, 0, time.UTC),
+		Dusk:            time.Date(2024, 1, 15, 18, 0, 0, 0, time.UTC),
+		Winddown:        time.Date(2024, 1, 15, 21, 0, 0, 0, time.UTC),
+		StopScreens:     time.Date(2024, 1, 15, 22, 0, 0, 0, time.UTC),
+		GoToBed:         time.Date(2024, 1, 15, 22, 30, 0, 0, time.UTC),
+		Night:           time.Date(2024, 1, 15, 23, 0, 0, 0, time.UTC),
 	}
 
 	dayPhase := calc.CalculateDayPhase(schedule)
@@ -146,9 +147,9 @@ func TestCalculator_GetSunEventAllPeriods(t *testing.T) {
 	logger := testlogger.New()
 	calc := NewCalculator(32.85486, -97.50515, logger)
 
-	// Use a fixed reference time: January 15, 2024 at 10:00 AM
-	// This makes the test deterministic regardless of when it runs
-	now := time.Date(2024, 1, 15, 10, 0, 0, 0, time.Local)
+	// Use a fixed reference time: January 15, 2024 at 10:00 AM in UTC
+	// Using UTC ensures the test is deterministic regardless of the CI machine's timezone.
+	now := time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC)
 	mockClock := clock.NewMockClock(now)
 	calc.SetClock(mockClock)
 
@@ -287,9 +288,9 @@ func TestCalculator_CalculateDayPhaseAllCases(t *testing.T) {
 	logger := testlogger.New()
 
 	// Use a FIXED reference time to make this test deterministic
-	// Monday 10:00 AM - middle of the day, well after 6am and before noon
-	// This ensures consistent behavior regardless of when the test runs
-	now := time.Date(2024, 1, 15, 10, 0, 0, 0, time.Local)
+	// Monday 10:00 AM in UTC - middle of the day, well after 6am and before noon
+	// Using UTC ensures consistent behavior regardless of the CI machine's timezone.
+	now := time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC)
 
 	// Create a schedule for testing
 	schedule := &config.ParsedSchedule{
@@ -610,9 +611,9 @@ func TestCalculator_CalculateDayPhaseEdgeCases(t *testing.T) {
 	logger := testlogger.New()
 	calc := NewCalculator(32.85486, -97.50515, logger)
 
-	// Use a fixed reference time: January 15, 2024 at 10:00 AM
-	// This makes the test deterministic regardless of when it runs
-	now := time.Date(2024, 1, 15, 10, 0, 0, 0, time.Local)
+	// Use a fixed reference time: January 15, 2024 at 10:00 AM in UTC
+	// Using UTC ensures the test is deterministic regardless of the CI machine's timezone.
+	now := time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC)
 	mockClock := clock.NewMockClock(now)
 	calc.SetClock(mockClock)
 
