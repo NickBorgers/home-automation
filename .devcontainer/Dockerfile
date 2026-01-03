@@ -19,6 +19,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libcairo2 libpango-1.0-0 \
     # Utilities used by Claude Code
     bc \
+    # Python YAML library for YAML validation
+    python3-yaml \
     && rm -rf /var/lib/apt/lists/* \
     # Set zsh as default shell for vscode user
     && chsh -s /usr/bin/zsh vscode
