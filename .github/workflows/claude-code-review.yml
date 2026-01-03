@@ -44,11 +44,9 @@ jobs:
   # Extract PR and Issue context from workflow_run or workflow_dispatch event
   get-context:
     runs-on: ubuntu-latest
-    # Skip if PR Tests was triggered by 'push' event - only run for 'pull_request' triggered tests
-    # This prevents duplicate reviews when both push and pull_request events fire for the same commit
-    if: |
-      github.event_name == 'workflow_dispatch' ||
-      github.event.workflow_run.event == 'pull_request'
+    # Note: We don't filter by event type here. The concurrency group (line 36) prevents
+    # duplicate runs for the same branch, and downstream jobs skip if no PR is found.
+    # This allows reviews to run even when push happens before PR creation.
     outputs:
       pr_number: ${{ steps.get-pr.outputs.pr_number }}
       pr_title: ${{ steps.get-pr.outputs.pr_title }}
