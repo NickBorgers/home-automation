@@ -13,3 +13,4 @@ coverage.out
 
 # Test cache (for git hook optimization)
 .test-cache/
+gravwell.token

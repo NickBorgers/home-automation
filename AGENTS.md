@@ -243,12 +243,73 @@ READ_ONLY=true
 
 **Dashboard (view current state):** https://home-automation.featherback-mermaid.ts.net/
 
-**View recent logs:**
-```bash
-ssh nborgers@dockergeneric.featherback-mermaid.ts.net docker logs --since=1m home-automation
+**View logs via Gravwell:** https://gravwell.featherback-mermaid.ts.net/
+
+Logs are centralized in Gravwell. Authenticate using the token stored in `./gravwell.token`.
+
+**Log tags:**
+| Tag | Description |
+|-----|-------------|
+| `tag=home-automation` | Home automation Go application logs |
+| `tag=home-assistant` | Home Assistant entity state changes (excludes `sensor.*` entities - too noisy) |
+
+**Example queries:**
+```
+tag=home-automation
+tag=home-assistant
+tag=home-automation,home-assistant  # Both sources
 ```
 
-Adjust `--since=1m` as needed (e.g., `--since=5m`, `--since=1h`, or omit for all logs).
+**API Access (for Claude/programmatic use):**
+
+Use the Direct Query API to fetch logs programmatically. Documentation: https://docs.gravwell.io/search/directquery/directquery.html
+
+```bash
+# Query home-automation logs (last hour, text format)
+curl -s -X POST \
+  -H "Gravwell-Token: $(tr -d '\n' < ./gravwell.token)" \
+  -H "query: tag=home-automation" \
+  -H "duration: 1h" \
+  -H "format: text" \
+  "https://gravwell.featherback-mermaid.ts.net/api/search/direct"
+
+# Query home-assistant logs (last 5 minutes)
+curl -s -X POST \
+  -H "Gravwell-Token: $(tr -d '\n' < ./gravwell.token)" \
+  -H "query: tag=home-assistant" \
+  -H "duration: 5m" \
+  -H "format: text" \
+  "https://gravwell.featherback-mermaid.ts.net/api/search/direct"
+
+# Filter for error-level logs using JSON field extraction
+curl -s -X POST \
+  -H "Gravwell-Token: $(tr -d '\n' < ./gravwell.token)" \
+  -H "query: tag=home-automation json level==error" \
+  -H "duration: 1h" \
+  -H "format: text" \
+  "https://gravwell.featherback-mermaid.ts.net/api/search/direct"
+```
+
+**Example output (home-automation):** Structured JSON logs from the Go application
+```json
+{"level":"info","ts":"2026-01-03T16:02:18.729Z","logger":"energy","msg":"Starting calibration cycle","device_count":3}
+{"level":"info","ts":"2026-01-03T16:00:33.761Z","logger":"energy","msg":"Calibration cycle complete"}
+{"level":"info","ts":"2026-01-03T15:59:15.675Z","logger":"energy","msg":"Determined battery energy level","percentage":83,"level":"green"}
+```
+
+**Example output (home-assistant):** Entity state changes from Home Assistant (excludes `sensor.*`)
+```
+<14>1 2026-01-03T10:47:31-06:00 home-assistant homeassistant - - - remote.big_beautiful_oled: on → off
+<14>1 2026-01-03T10:46:52-06:00 home-assistant homeassistant - - - select.span_right_hvac_and_well_kids_hot_water_heater_circuit_priority: unavailable → Nice To Have
+<14>1 2026-01-03T10:45:37-06:00 home-assistant homeassistant - - - binary_sensor.span_right_hvac_and_well_door_state: unavailable → unknown
+```
+
+**API Parameters:**
+| Parameter | Description |
+|-----------|-------------|
+| `query` | Gravwell query (e.g., `tag=home-automation grep pattern`) |
+| `duration` | Time range using Go duration syntax (`5m`, `1h`, `24h`) |
+| `format` | Output format: `text`, `json`, `csv` |
 
 ## Testing UI Changes
 

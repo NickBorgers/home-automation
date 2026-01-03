@@ -24,5 +24,8 @@
   "mounts": [
     "source=${localEnv:HOME}/.config/gh,target=/home/vscode/.config/gh,type=bind"
   ],
+  "remoteEnv": {
+    "SSH_AUTH_SOCK": ""
+  },
   "remoteUser": "vscode"
 }

@@ -4,6 +4,9 @@ on:
   workflow_run:
     workflows: ["PR Tests"]
     types: [completed]
+  # Reset reviews when PR is reopened (allows re-triggering full review cycle)
+  pull_request:
+    types: [reopened]
   # Allow manual triggering after workflow_dispatch-triggered PR Tests completes
   # (workflow_run events don't fire for workflow_dispatch triggers)
   workflow_dispatch:
@@ -62,6 +65,7 @@ jobs:
       issue_title: ${{ steps.get-issue.outputs.issue_title }}
       issue_body_b64: ${{ steps.get-issue.outputs.issue_body_b64 }}
       fix_attempts: ${{ steps.count-attempts.outputs.count }}
+      reviews_already_passed: ${{ steps.check-existing-reviews.outputs.already_passed }}
 
     steps:
       - name: Get PR from workflow run or dispatch inputs
@@ -177,11 +181,41 @@ jobs:
           echo "Current fix attempt count: $COUNT"
           echo "count=$COUNT" >> $GITHUB_OUTPUT
 
+      - name: Check if reviews already passed (or reset on reopen)
+        if: steps.get-pr.outputs.pr_number != ''
+        id: check-existing-reviews
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          PR_NUMBER="${{ steps.get-pr.outputs.pr_number }}"
+          EVENT_NAME="${{ github.event_name }}"
+
+          # If PR was reopened, remove the reviews-passed label to allow re-review
+          if [ "$EVENT_NAME" = "pull_request" ] && [ "${{ github.event.action }}" = "reopened" ]; then
+            echo "PR was reopened - removing agent-reviews-passed label to allow re-review"
+            gh pr edit $PR_NUMBER --remove-label "agent-reviews-passed" --repo ${{ github.repository }} 2>/dev/null || true
+            echo "already_passed=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # Check if agent-reviews-passed label exists
+          LABELS=$(gh api repos/${{ github.repository }}/issues/$PR_NUMBER/labels --jq '.[].name' 2>/dev/null || echo "")
+
+          if echo "$LABELS" | grep -q "^agent-reviews-passed$"; then
+            echo "Agent reviews already passed for this PR - skipping review cycle"
+            echo "already_passed=true" >> $GITHUB_OUTPUT
+          else
+            echo "No existing reviews found - will run full review cycle"
+            echo "already_passed=false" >> $GITHUB_OUTPUT
+          fi
+
   # Build and cache devcontainer image first
   build-devcontainer:
     runs-on: ubuntu-latest
     needs: get-context
-    if: needs.get-context.outputs.pr_number != ''
+    if: |
+      needs.get-context.outputs.pr_number != '' &&
+      needs.get-context.outputs.reviews_already_passed != 'true'
     permissions:
       contents: read
       packages: write
@@ -212,6 +246,7 @@ jobs:
     needs: [get-context, build-devcontainer]
     if: |
       needs.get-context.outputs.pr_number != '' &&
+      needs.get-context.outputs.reviews_already_passed != 'true' &&
       needs.get-context.outputs.tests_passed == 'false' &&
       needs.get-context.outputs.fix_attempts < 3
     runs-on: ubuntu-latest
@@ -361,6 +396,7 @@ jobs:
         if: success()
         env:
           GH_TOKEN: ${{ secrets.WORKFLOW_PAT }}
+          FIX_ATTEMPTS: ${{ needs.get-context.outputs.fix_attempts }}
         run: |
           # Check if new commits were pushed by comparing current HEAD to triggering SHA
           git fetch origin ${{ needs.get-context.outputs.head_ref }}
@@ -428,7 +464,31 @@ jobs:
                 -f run_id="$RUN_ID"
               echo "Claude Code Review workflow triggered successfully"
             else
-              echo "Tests failed - not triggering reviews (will retry fix on next workflow_run)"
+              echo "Tests still failing after fix attempt"
+
+              # Trigger another Claude Code Review run to retry the fix
+              # This is necessary because workflow_run events don't fire for
+              # workflow_dispatch-triggered runs, so we must manually trigger
+              NEXT_ATTEMPT=$((FIX_ATTEMPTS + 1))
+              if [ "$NEXT_ATTEMPT" -lt 3 ]; then
+                echo "Triggering fix attempt $((NEXT_ATTEMPT + 1))/3..."
+                gh workflow run "Claude Code Review" \
+                  --ref "main" \
+                  --repo ${{ github.repository }} \
+                  -f head_ref="${{ needs.get-context.outputs.head_ref }}" \
+                  -f head_repo="${{ needs.get-context.outputs.head_repo }}" \
+                  -f pr_number="${{ needs.get-context.outputs.pr_number }}" \
+                  -f tests_passed="false" \
+                  -f run_id="$RUN_ID"
+                echo "Next fix attempt triggered"
+              else
+                echo "Max fix attempts (3) reached - human intervention required"
+                COMMENT_BODY="## ❌ Automated Fix Failed"
+                COMMENT_BODY="$COMMENT_BODY"$'\n\n'"All 3 automated fix attempts were unsuccessful. Human intervention is required."
+                COMMENT_BODY="$COMMENT_BODY"$'\n\n'"**Recent Test Run:** https://github.com/${{ github.repository }}/actions/runs/$RUN_ID"
+                COMMENT_BODY="$COMMENT_BODY"$'\n\n'"🤖 Generated by Claude Code Review workflow"
+                gh pr comment ${{ needs.get-context.outputs.pr_number }} --body "$COMMENT_BODY"
+              fi
             fi
           else
             echo "No new commits - Claude may have aborted or found no fix needed"
@@ -447,6 +507,7 @@ jobs:
     needs: [get-context, build-devcontainer]
     if: |
       needs.get-context.outputs.pr_number != '' &&
+      needs.get-context.outputs.reviews_already_passed != 'true' &&
       needs.get-context.outputs.tests_passed == 'true'
     runs-on: ubuntu-latest
     permissions:
@@ -561,6 +622,7 @@ jobs:
     if: |
       always() &&
       needs.get-context.outputs.pr_number != '' &&
+      needs.get-context.outputs.reviews_already_passed != 'true' &&
       needs.get-context.outputs.tests_passed == 'true'
     runs-on: ubuntu-latest
     permissions:
@@ -571,7 +633,29 @@ jobs:
       packages: read
 
     steps:
+      - name: Verify tests passed on current commit
+        id: verify-tests
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Get the current HEAD SHA of the PR
+          HEAD_SHA=$(gh api repos/${{ github.repository }}/pulls/${{ needs.get-context.outputs.pr_number }} --jq '.head.sha')
+          echo "Checking test status for commit $HEAD_SHA"
+
+          # Check for "All Required Tests" status
+          STATUS=$(gh api repos/${{ github.repository }}/commits/$HEAD_SHA/status --jq '.statuses[] | select(.context == "All Required Tests") | .state' 2>/dev/null || echo "")
+
+          if [ "$STATUS" = "success" ]; then
+            echo "✅ All Required Tests passed on current commit"
+            echo "verified=true" >> $GITHUB_OUTPUT
+          else
+            echo "⚠️ Tests have not passed on current commit (status: ${STATUS:-not found})"
+            echo "Skipping review - tests must pass first"
+            echo "verified=false" >> $GITHUB_OUTPUT
+          fi
+
       - name: Checkout PR branch
+        if: steps.verify-tests.outputs.verified == 'true'
         uses: actions/checkout@v4
         with:
           ref: ${{ needs.get-context.outputs.head_ref }}
@@ -580,12 +664,15 @@ jobs:
           token: ${{ secrets.WORKFLOW_PAT }}  # PAT required to push workflow file changes
 
       - name: Pull latest changes
+        if: steps.verify-tests.outputs.verified == 'true'
         run: git pull origin ${{ needs.get-context.outputs.head_ref }} || true
 
       - name: Create gh config directory for devcontainer mount
+        if: steps.verify-tests.outputs.verified == 'true'
         run: mkdir -p ~/.config/gh
 
       - name: Log in to GHCR
+        if: steps.verify-tests.outputs.verified == 'true'
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -593,6 +680,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Test review in devcontainer
+        if: steps.verify-tests.outputs.verified == 'true'
         uses: devcontainers/ci@v0.3
         with:
           imageName: ${{ env.DEVCONTAINER_IMAGE }}
@@ -686,6 +774,7 @@ jobs:
     if: |
       always() &&
       needs.get-context.outputs.pr_number != '' &&
+      needs.get-context.outputs.reviews_already_passed != 'true' &&
       needs.get-context.outputs.tests_passed == 'true'
     runs-on: ubuntu-latest
     permissions:
@@ -696,7 +785,29 @@ jobs:
       packages: read
 
     steps:
+      - name: Verify tests passed on current commit
+        id: verify-tests
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Get the current HEAD SHA of the PR
+          HEAD_SHA=$(gh api repos/${{ github.repository }}/pulls/${{ needs.get-context.outputs.pr_number }} --jq '.head.sha')
+          echo "Checking test status for commit $HEAD_SHA"
+
+          # Check for "All Required Tests" status
+          STATUS=$(gh api repos/${{ github.repository }}/commits/$HEAD_SHA/status --jq '.statuses[] | select(.context == "All Required Tests") | .state' 2>/dev/null || echo "")
+
+          if [ "$STATUS" = "success" ]; then
+            echo "✅ All Required Tests passed on current commit"
+            echo "verified=true" >> $GITHUB_OUTPUT
+          else
+            echo "⚠️ Tests have not passed on current commit (status: ${STATUS:-not found})"
+            echo "Skipping review - tests must pass first"
+            echo "verified=false" >> $GITHUB_OUTPUT
+          fi
+
       - name: Checkout PR branch
+        if: steps.verify-tests.outputs.verified == 'true'
         uses: actions/checkout@v4
         with:
           ref: ${{ needs.get-context.outputs.head_ref }}
@@ -705,12 +816,15 @@ jobs:
           token: ${{ secrets.WORKFLOW_PAT }}  # PAT required to push workflow file changes
 
       - name: Pull latest changes
+        if: steps.verify-tests.outputs.verified == 'true'
         run: git pull origin ${{ needs.get-context.outputs.head_ref }} || true
 
       - name: Create gh config directory for devcontainer mount
+        if: steps.verify-tests.outputs.verified == 'true'
         run: mkdir -p ~/.config/gh
 
       - name: Log in to GHCR
+        if: steps.verify-tests.outputs.verified == 'true'
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -718,6 +832,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Concurrency review in devcontainer
+        if: steps.verify-tests.outputs.verified == 'true'
         uses: devcontainers/ci@v0.3
         with:
           imageName: ${{ env.DEVCONTAINER_IMAGE }}
@@ -782,6 +897,7 @@ jobs:
     if: |
       always() &&
       needs.get-context.outputs.pr_number != '' &&
+      needs.get-context.outputs.reviews_already_passed != 'true' &&
       needs.get-context.outputs.tests_passed == 'true'
     runs-on: ubuntu-latest
     permissions:
@@ -792,7 +908,29 @@ jobs:
       packages: read
 
     steps:
+      - name: Verify tests passed on current commit
+        id: verify-tests
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Get the current HEAD SHA of the PR
+          HEAD_SHA=$(gh api repos/${{ github.repository }}/pulls/${{ needs.get-context.outputs.pr_number }} --jq '.head.sha')
+          echo "Checking test status for commit $HEAD_SHA"
+
+          # Check for "All Required Tests" status
+          STATUS=$(gh api repos/${{ github.repository }}/commits/$HEAD_SHA/status --jq '.statuses[] | select(.context == "All Required Tests") | .state' 2>/dev/null || echo "")
+
+          if [ "$STATUS" = "success" ]; then
+            echo "✅ All Required Tests passed on current commit"
+            echo "verified=true" >> $GITHUB_OUTPUT
+          else
+            echo "⚠️ Tests have not passed on current commit (status: ${STATUS:-not found})"
+            echo "Skipping review - tests must pass first"
+            echo "verified=false" >> $GITHUB_OUTPUT
+          fi
+
       - name: Checkout PR branch
+        if: steps.verify-tests.outputs.verified == 'true'
         uses: actions/checkout@v4
         with:
           ref: ${{ needs.get-context.outputs.head_ref }}
@@ -801,12 +939,15 @@ jobs:
           token: ${{ secrets.WORKFLOW_PAT }}  # PAT required to push workflow file changes
 
       - name: Pull latest changes
+        if: steps.verify-tests.outputs.verified == 'true'
         run: git pull origin ${{ needs.get-context.outputs.head_ref }} || true
 
       - name: Create gh config directory for devcontainer mount
+        if: steps.verify-tests.outputs.verified == 'true'
         run: mkdir -p ~/.config/gh
 
       - name: Log in to GHCR
+        if: steps.verify-tests.outputs.verified == 'true'
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -814,6 +955,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Documentation review in devcontainer
+        if: steps.verify-tests.outputs.verified == 'true'
         uses: devcontainers/ci@v0.3
         with:
           imageName: ${{ env.DEVCONTAINER_IMAGE }}
@@ -933,6 +1075,7 @@ jobs:
     if: always()
     permissions:
       statuses: write  # Required to create commit status on PR
+      pull-requests: write  # Required to add label
 
     steps:
       - name: Check review results
@@ -948,6 +1091,15 @@ jobs:
           # Check if we have a valid PR
           if [ -z "${{ needs.get-context.outputs.pr_number }}" ]; then
             echo "No PR found for this workflow run - skipping reviews"
+            exit 0
+          fi
+
+          # If reviews already passed, signal success but still create commit status
+          REVIEWS_ALREADY_PASSED="${{ needs.get-context.outputs.reviews_already_passed }}"
+          if [ "$REVIEWS_ALREADY_PASSED" = "true" ]; then
+            echo "Reviews already passed for this PR - skipping re-review"
+            echo "To re-run reviews: close and reopen the PR"
+            echo "skipped_with_success=true" >> $GITHUB_OUTPUT
             exit 0
           fi
 
@@ -1017,8 +1169,13 @@ jobs:
           echo "  Concurrency Review: ${{ needs.concurrency-review.result }}"
           echo "  Docs Review: ${{ needs.docs-review.result }}"
 
+          # Signal that we should add the label
+          echo "should_label=true" >> $GITHUB_OUTPUT
+
       - name: Create commit status for reviews
-        if: needs.get-context.outputs.pr_number != '' && needs.get-context.outputs.tests_passed == 'true'
+        if: |
+          needs.get-context.outputs.pr_number != '' &&
+          (needs.get-context.outputs.tests_passed == 'true' || steps.check-results.outputs.skipped_with_success == 'true')
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -1026,13 +1183,42 @@ jobs:
           PR_NUMBER="${{ needs.get-context.outputs.pr_number }}"
           HEAD_SHA=$(gh api repos/${{ github.repository }}/pulls/$PR_NUMBER --jq '.head.sha')
 
+          # Determine description based on whether this was a skip or full review
+          if [ "${{ steps.check-results.outputs.skipped_with_success }}" = "true" ]; then
+            DESCRIPTION="Agent reviews already passed (skipped re-review)"
+          else
+            DESCRIPTION="All agent reviews completed successfully"
+          fi
+
           echo "Creating commit status for PR #$PR_NUMBER (SHA: $HEAD_SHA)"
 
-          # Create commit status - state depends on whether reviews passed
+          # Create commit status
           gh api repos/${{ github.repository }}/statuses/$HEAD_SHA \
             -f state="success" \
             -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
-            -f description="All agent reviews completed successfully" \
+            -f description="$DESCRIPTION" \
             -f context="All Required Agent Reviews"
 
           echo "Commit status created successfully"
+
+      - name: Add agent-reviews-passed label
+        if: |
+          steps.check-results.outputs.should_label == 'true' &&
+          needs.get-context.outputs.pr_number != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          PR_NUMBER="${{ needs.get-context.outputs.pr_number }}"
+
+          # Create the label if it doesn't exist
+          gh label create "agent-reviews-passed" \
+            --color "0e8a16" \
+            --description "All agent reviews have passed" \
+            --repo ${{ github.repository }} 2>/dev/null || true
+
+          # Add the label to the PR
+          gh pr edit $PR_NUMBER --add-label "agent-reviews-passed" --repo ${{ github.repository }}
+
+          echo "Added 'agent-reviews-passed' label to PR #$PR_NUMBER"
+          echo "Subsequent pushes will skip agent reviews."
+          echo "To re-run reviews: close and reopen the PR."

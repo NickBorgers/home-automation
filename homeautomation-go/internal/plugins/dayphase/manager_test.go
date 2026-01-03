@@ -292,12 +292,12 @@ func TestManager_ShadowState_NextTransitionUpdated(t *testing.T) {
 	// The next transition should be to "morning" at dawn (~13:00 UTC / 7:00 AM CST).
 	fixedTime := time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC)
 	mockClock := clock.NewMockClock(fixedTime)
-	calculator.SetClock(mockClock)
-	configLoader.SetClock(mockClock)
 
 	// Pass time.UTC as the timezone to ensure consistent schedule parsing
 	manager := NewManager(mockClient, stateManager, configLoader, calculator, logger, false, time.UTC)
+	// SetClock on manager also propagates to calculator (see manager.go:SetClock)
 	manager.SetClock(mockClock)
+	configLoader.SetClock(mockClock)
 
 	// Initialize state
 	err := stateManager.SyncFromHA()
