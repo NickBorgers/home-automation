@@ -9,6 +9,10 @@ docs/
 ├── architecture/           # System design
 │   └── ARCHITECTURE.md     # Complete architecture, implementation status, roadmap
 │
+├── flows/                  # Automation flow documentation (visual logic)
+│   ├── README.md           # Guide to automation flow documentation
+│   └── DAY_PHASE_MODES.md  # Day phase, music mode, and lighting relationships
+│
 ├── human/                  # Human-focused visual documentation
 │   ├── VISUAL_ARCHITECTURE.md  # Mermaid diagrams of system architecture
 │   └── DIAGRAM_QUICK_START.md  # Quick guide to navigating diagrams
@@ -41,6 +45,11 @@ Technical reference documentation for development:
 - **[reference/migration_mapping.md](./reference/migration_mapping.md)** - State variable mapping
 - **[reference/CONCURRENCY_LESSONS.md](./reference/CONCURRENCY_LESSONS.md)** - Concurrency patterns
 
+### Automation Flows
+Visual documentation of automation behavior (replaces Node-RED visual flows):
+- **[flows/README.md](./flows/README.md)** - Guide to automation flow documentation
+- **[flows/DAY_PHASE_MODES.md](./flows/DAY_PHASE_MODES.md)** - Day phase, music, and lighting relationships
+
 ### For Human Developers
 Visual documentation for understanding the system:
 - **[human/VISUAL_ARCHITECTURE.md](./human/VISUAL_ARCHITECTURE.md)** - Mermaid diagrams
@@ -67,6 +76,7 @@ Some documentation files remain in the repository root because they are required
 
 When adding new documentation:
 1. Place it in the appropriate subdirectory based on its audience:
+   - `flows/` for automation flow documentation with Mermaid diagrams
    - `human/` for visual, diagram-heavy docs
    - `reference/` for technical patterns and guides
    - `operations/` for deployment and process docs
@@ -74,3 +84,4 @@ When adding new documentation:
 2. Update this README with a link to the new document
 3. Update AGENTS.md if it's required reading for development
 4. Follow markdown best practices (headers, links, code blocks)
+5. For Mermaid diagrams, run `make validate-mermaid` before committing

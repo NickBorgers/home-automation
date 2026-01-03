@@ -869,12 +869,18 @@ func (m *Manager) executePlayback(musicType string, option PlaybackOption, parti
 	}
 
 	// Step 4: Start playback on lead player with verification
-	// This verifies playback actually starts, not just that the command was accepted
-	attempts, err := m.startPlaybackWithVerification(leadEntityID, option)
-	if err != nil {
-		return groupResult, attempts, fmt.Errorf("failed to start playback: %w", err)
-	}
-	if attempts > 1 {
+	// This verifies playback actually starts, not just that the command was accepted.
+	// IMPORTANT: Even if verification fails, we continue with fade-in. Sonos speakers
+	// at volume 0 may not report "playing" state, but the play_media command was sent
+	// and the group is built - proceeding with fade-in often results in working playback.
+	attempts, verifyErr := m.startPlaybackWithVerification(leadEntityID, option)
+	playbackVerificationFailed := verifyErr != nil
+	if playbackVerificationFailed {
+		m.logger.Warn("Playback verification failed, continuing with fade-in anyway",
+			zap.String("speaker", leadPlayer),
+			zap.Int("attempts", attempts),
+			zap.Error(verifyErr))
+	} else if attempts > 1 {
 		m.logger.Info("Playback required multiple attempts",
 			zap.Int("attempts", attempts),
 			zap.String("speaker", leadPlayer))
@@ -922,11 +928,19 @@ func (m *Manager) executePlayback(musicType string, option PlaybackOption, parti
 		}
 	}
 
-	m.logger.Info("Playback sequence completed successfully",
-		zap.String("type", musicType),
-		zap.Int("active_speakers", groupResult.ActiveCount),
-		zap.Int("failed_speakers", groupResult.FailedCount),
-		zap.Int("verification_attempts", attempts))
+	if playbackVerificationFailed {
+		m.logger.Info("Playback sequence completed with verification failure (fade-in attempted anyway)",
+			zap.String("type", musicType),
+			zap.Int("active_speakers", groupResult.ActiveCount),
+			zap.Int("failed_speakers", groupResult.FailedCount),
+			zap.Int("verification_attempts", attempts))
+	} else {
+		m.logger.Info("Playback sequence completed successfully",
+			zap.String("type", musicType),
+			zap.Int("active_speakers", groupResult.ActiveCount),
+			zap.Int("failed_speakers", groupResult.FailedCount),
+			zap.Int("verification_attempts", attempts))
+	}
 
 	return groupResult, attempts, nil
 }
