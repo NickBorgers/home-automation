@@ -286,15 +286,15 @@ func TestManager_ShadowState_NextTransitionUpdated(t *testing.T) {
 	configLoader := config.NewLoader("../../../configs", logger)
 	calculator := dayphaselib.NewCalculator(32.85486, -97.50515, logger)
 
+	manager := NewManager(mockClient, stateManager, configLoader, calculator, logger, false, nil)
+
 	// Use a fixed reference time: January 15, 2024 at 10:00 AM
 	// This makes the test deterministic regardless of when it runs
 	fixedTime := time.Date(2024, 1, 15, 10, 0, 0, 0, time.Local)
 	mockClock := clock.NewMockClock(fixedTime)
-	calculator.SetClock(mockClock)
-	configLoader.SetClock(mockClock)
-
-	manager := NewManager(mockClient, stateManager, configLoader, calculator, logger, false, nil)
+	// SetClock on manager also propagates to calculator (see manager.go:SetClock)
 	manager.SetClock(mockClock)
+	configLoader.SetClock(mockClock)
 
 	// Initialize state
 	err := stateManager.SyncFromHA()

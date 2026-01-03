@@ -174,6 +174,15 @@ Automatically fixes failing tests (up to 3 attempts).
 5. Commits and pushes fix
 6. Triggers new PR Tests run
 7. If tests pass, triggers Claude Code Review
+8. If tests still fail, triggers another fix attempt (self-retry)
+9. After 3 failed attempts, posts a comment to the PR requesting human intervention
+
+**Self-Retry Mechanism**: Because `workflow_run` events don't fire for workflows triggered via `workflow_dispatch`, the fix job manually triggers the next fix attempt when tests still fail. This ensures the retry loop works correctly regardless of how the workflow was initiated.
+
+**Failure Notification**: When all 3 fix attempts are exhausted, a comment is automatically posted to the PR:
+- Indicates automated fix failed
+- Links to the most recent failed test run
+- Requests human intervention
 
 **Labels**: Adds `claude-fix-attempt-N` label to track attempts
 
@@ -199,6 +208,10 @@ General code quality review.
 
 QA-focused test review.
 
+**Condition**: Tests passed on current commit (verified via commit status check)
+
+**Pre-Flight Check**: Before running the review, verifies that "All Required Tests" commit status is `success` on the current HEAD. If tests haven't passed, the review is skipped to avoid reviewing broken code that can't be merged anyway.
+
 **Focus Areas**:
 - Missing tests for new features
 - Tests with timing dependencies (may fail at certain times of day)
@@ -210,6 +223,10 @@ QA-focused test review.
 #### 2.5 `concurrency-review`
 
 Specialized concurrency/race condition review.
+
+**Condition**: Tests passed on current commit (verified via commit status check)
+
+**Pre-Flight Check**: Before running the review, verifies that "All Required Tests" commit status is `success` on the current HEAD. If tests haven't passed, the review is skipped to avoid reviewing broken code that can't be merged anyway.
 
 **Focus Areas**:
 - Missing mutex locks on shared state
@@ -225,6 +242,10 @@ Specialized concurrency/race condition review.
 #### 2.6 `docs-review`
 
 Documentation synchronization review.
+
+**Condition**: Tests passed on current commit (verified via commit status check)
+
+**Pre-Flight Check**: Before running the review, verifies that "All Required Tests" commit status is `success` on the current HEAD. If tests haven't passed, the review is skipped to avoid reviewing broken code that can't be merged anyway.
 
 **Focus Areas**:
 | Code Change | Docs to Update |
@@ -331,7 +352,9 @@ Required approvals: 0  # Claude provides automated review
 | Issue | Cause | Solution |
 |-------|-------|----------|
 | "Detected newer commits - aborting" | Author pushed while Claude was fixing | Normal - Claude yields to human |
-| Max fix attempts reached | Tests keep failing after 3 tries | Human intervention needed |
+| Max fix attempts reached | Tests keep failing after 3 tries | Human intervention needed (PR will have a comment) |
+| "Automated Fix Failed" comment | All 3 fix attempts exhausted | Review the linked test run, fix manually |
+| Review job skipped | Tests haven't passed on current commit | Wait for tests to pass or fix them first |
 | Devcontainer build slow | First run or cache miss | Subsequent runs use cached image |
 | Claude doesn't respond | Comment doesn't contain `@claude` | Ensure @claude is in comment |
 
