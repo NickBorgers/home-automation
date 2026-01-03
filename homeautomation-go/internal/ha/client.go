@@ -31,9 +31,10 @@ const (
 	// understand application-layer JSON pings.
 	wsPingInterval = 3 * time.Second
 
-	// pongWait is the max time to wait for a pong response.
-	// If no pong received within this time, connection is considered dead.
-	// Set to 3x pingInterval to tolerate up to two missed pings.
+	// pongWait is the max time the connection can be silent before we consider it dead.
+	// The read deadline is extended on ANY successful message read (not just pongs),
+	// so this is effectively "max time without any messages from Home Assistant".
+	// Set to 3x pingInterval to tolerate network latency and brief HA pauses.
 	pongWait = 15 * time.Second
 
 	// writeWait is the time allowed to write a message (including pings).
@@ -617,10 +618,14 @@ func (c *Client) receiveMessages() {
 			return
 		}
 
-		// Handle pong responses - extend read deadline to keep connection alive
-		// This is the response to our application-level ping messages
+		// Extend read deadline on ANY successful read, not just pongs.
+		// This prevents timeouts when we're receiving lots of state_changed events
+		// but a pong response is delayed due to network latency.
+		// The connection is clearly alive if we're receiving any messages.
+		conn.SetReadDeadline(time.Now().Add(pongWait))
+
+		// Handle pong responses (no special action needed since we already extended deadline)
 		if msg.Type == "pong" {
-			conn.SetReadDeadline(time.Now().Add(pongWait))
 			continue
 		}
 
@@ -677,8 +682,22 @@ func (c *Client) handleEvent(msg *Message) {
 // handleDisconnect handles connection loss
 func (c *Client) handleDisconnect() {
 	c.connMu.Lock()
+	wasConnected := c.connected
 	c.connected = false
+
+	// Close the old connection to allow Home Assistant to accept new connections.
+	// Without this, HA may reject reconnection attempts with "bad handshake" because
+	// the old WebSocket connection is still considered active on HA's side.
+	if c.conn != nil {
+		c.conn.Close()
+		c.conn = nil
+	}
 	c.connMu.Unlock()
+
+	// Only log and count if we were actually connected (avoid duplicate disconnect handling)
+	if !wasConnected {
+		return
+	}
 
 	// Update disconnect metrics
 	c.metricsMu.Lock()
