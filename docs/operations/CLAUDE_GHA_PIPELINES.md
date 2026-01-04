@@ -210,7 +210,7 @@ QA-focused test review.
 
 **Condition**: Tests passed on current commit (verified via commit status check)
 
-**Pre-Flight Check**: Before running the review, verifies that "All Required Tests" commit status is `success` on the current HEAD. If tests haven't passed, the review is skipped to avoid reviewing broken code that can't be merged anyway.
+**Pre-Flight Check**: Before running the review, verifies that "All Required Tests" check run is `success` on the current HEAD. Uses a retry loop (6 attempts, 10s delay) to handle GitHub API propagation delays. If tests haven't passed after all retries, the review is skipped.
 
 **Focus Areas**:
 - Missing tests for new features
@@ -226,7 +226,7 @@ Specialized concurrency/race condition review.
 
 **Condition**: Tests passed on current commit (verified via commit status check)
 
-**Pre-Flight Check**: Before running the review, verifies that "All Required Tests" commit status is `success` on the current HEAD. If tests haven't passed, the review is skipped to avoid reviewing broken code that can't be merged anyway.
+**Pre-Flight Check**: Before running the review, verifies that "All Required Tests" check run is `success` on the current HEAD. Uses a retry loop (6 attempts, 10s delay) to handle GitHub API propagation delays. If tests haven't passed after all retries, the review is skipped.
 
 **Focus Areas**:
 - Missing mutex locks on shared state
@@ -245,7 +245,7 @@ Documentation synchronization review.
 
 **Condition**: Tests passed on current commit (verified via commit status check)
 
-**Pre-Flight Check**: Before running the review, verifies that "All Required Tests" commit status is `success` on the current HEAD. If tests haven't passed, the review is skipped to avoid reviewing broken code that can't be merged anyway.
+**Pre-Flight Check**: Before running the review, verifies that "All Required Tests" check run is `success` on the current HEAD. Uses a retry loop (6 attempts, 10s delay) to handle GitHub API propagation delays. If tests haven't passed after all retries, the review is skipped.
 
 **Focus Areas**:
 | Code Change | Docs to Update |
@@ -259,7 +259,24 @@ Documentation synchronization review.
 
 **Actions**: Updates documentation, validates Mermaid diagrams
 
-#### 2.7 `all-reviews-passed`
+#### 2.7 `merge-decision`
+
+Final decision maker that synthesizes all reviews.
+
+**Condition**: Tests passed on current commit (verified via commit status check)
+
+**Pre-Flight Check**: Before running, verifies that "All Required Tests" check run is `success` on the current HEAD. Uses a retry loop (6 attempts, 10s delay) to handle GitHub API propagation delays. If tests haven't passed after all retries, the decision is skipped.
+
+**Purpose**: Provides a GO/NO-GO recommendation for merging to main and production deployment
+
+**Actions**:
+- Reads all review comments on the PR
+- Checks for merge conflicts (resolves if possible)
+- Posts final GO or NO-GO recommendation
+
+**Note**: Does NOT auto-merge - recommendation only
+
+#### 2.8 `all-reviews-passed`
 
 Aggregator job for branch protection.
 
