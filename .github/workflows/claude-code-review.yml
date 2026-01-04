@@ -1066,7 +1066,7 @@ jobs:
               --max-turns 150 \
               "You are the FINAL DECISION MAKER for PR #${PR_NUMBER}.
 
-            You have authority to approve or reject this PR for merge to main and deployment to production.
+            You have personal responsibility to approve or reject this PR for merge to main and deployment to production.
 
             **REVIEW STATUS:**
             - Code Review: ${CLAUDE_REVIEW_RESULT}
