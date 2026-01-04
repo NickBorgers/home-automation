@@ -144,3 +144,4 @@ This repository is migrating from Node-RED to Golang for improved type safety, t
 **Current Status**: MVP complete, running in parallel with Node-RED for validation
 
 See [AGENTS.md](./AGENTS.md) for complete development guide.
+
