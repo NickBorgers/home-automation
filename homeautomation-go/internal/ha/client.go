@@ -789,7 +789,9 @@ func (c *Client) sendPings() {
 	// the connection faster than that during the initial state sync.
 	if err := c.sendImmediatePing(conn); err != nil {
 		c.logger.Warn("Failed to send initial ping, closing connection", zap.Error(err))
-		conn.Close()
+		if conn != nil {
+			conn.Close()
+		}
 		return
 	}
 
@@ -815,7 +817,9 @@ func (c *Client) sendPings() {
 				// Close the connection to immediately unblock receiveMessages,
 				// which will call handleDisconnect() to trigger reconnection.
 				// This is faster than waiting for the read deadline to expire.
-				conn.Close()
+				if conn != nil {
+					conn.Close()
+				}
 				return
 			}
 		}
@@ -825,6 +829,9 @@ func (c *Client) sendPings() {
 // sendImmediatePing sends an application-level JSON ping immediately.
 // Returns an error if the ping fails to send.
 func (c *Client) sendImmediatePing(conn *websocket.Conn) error {
+	if conn == nil {
+		return fmt.Errorf("connection is nil")
+	}
 	c.writeMu.Lock()
 	msgID := c.nextMsgID()
 	pingReq := PingRequest{
@@ -868,6 +875,11 @@ func (c *Client) sendWebSocketPings() {
 			}
 			conn := c.conn
 			c.connMu.RUnlock()
+
+			if conn == nil {
+				c.logger.Debug("WebSocket connection is nil, stopping ping goroutine")
+				return
+			}
 
 			// Send WebSocket-level ping frame (not application-level)
 			// WriteControl is safe to call concurrently with WriteMessage
