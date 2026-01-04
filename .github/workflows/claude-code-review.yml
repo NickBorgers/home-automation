@@ -627,17 +627,28 @@ jobs:
           HEAD_SHA=$(gh api repos/${{ github.repository }}/pulls/${{ needs.get-context.outputs.pr_number }} --jq '.head.sha')
           echo "Checking test status for commit $HEAD_SHA"
 
-          # Check for "All Required Tests" check run (not a commit status)
-          STATUS=$(gh api repos/${{ github.repository }}/commits/$HEAD_SHA/check-runs --jq '.check_runs[] | select(.name == "All Required Tests") | .conclusion' 2>/dev/null || echo "")
+          # Retry loop - check run may not be visible immediately after workflow triggers
+          MAX_ATTEMPTS=6
+          ATTEMPT=1
+          while [ $ATTEMPT -le $MAX_ATTEMPTS ]; do
+            STATUS=$(gh api repos/${{ github.repository }}/commits/$HEAD_SHA/check-runs --jq '.check_runs[] | select(.name == "All Required Tests") | .conclusion' 2>/dev/null || echo "")
 
-          if [ "$STATUS" = "success" ]; then
-            echo "✅ All Required Tests passed on current commit"
-            echo "verified=true" >> $GITHUB_OUTPUT
-          else
-            echo "⚠️ Tests have not passed on current commit (status: ${STATUS:-not found})"
-            echo "Skipping review - tests must pass first"
-            echo "verified=false" >> $GITHUB_OUTPUT
-          fi
+            if [ "$STATUS" = "success" ]; then
+              echo "✅ All Required Tests passed on current commit"
+              echo "verified=true" >> $GITHUB_OUTPUT
+              exit 0
+            fi
+
+            if [ $ATTEMPT -lt $MAX_ATTEMPTS ]; then
+              echo "Attempt $ATTEMPT/$MAX_ATTEMPTS: Check run not found yet (status: ${STATUS:-not found}), waiting 10s..."
+              sleep 10
+            fi
+            ATTEMPT=$((ATTEMPT + 1))
+          done
+
+          echo "⚠️ Tests have not passed on current commit after $MAX_ATTEMPTS attempts (status: ${STATUS:-not found})"
+          echo "Skipping review - tests must pass first"
+          echo "verified=false" >> $GITHUB_OUTPUT
 
       - name: Checkout PR branch
         if: steps.verify-tests.outputs.verified == 'true'
@@ -748,17 +759,28 @@ jobs:
           HEAD_SHA=$(gh api repos/${{ github.repository }}/pulls/${{ needs.get-context.outputs.pr_number }} --jq '.head.sha')
           echo "Checking test status for commit $HEAD_SHA"
 
-          # Check for "All Required Tests" check run (not a commit status)
-          STATUS=$(gh api repos/${{ github.repository }}/commits/$HEAD_SHA/check-runs --jq '.check_runs[] | select(.name == "All Required Tests") | .conclusion' 2>/dev/null || echo "")
+          # Retry loop - check run may not be visible immediately after workflow triggers
+          MAX_ATTEMPTS=6
+          ATTEMPT=1
+          while [ $ATTEMPT -le $MAX_ATTEMPTS ]; do
+            STATUS=$(gh api repos/${{ github.repository }}/commits/$HEAD_SHA/check-runs --jq '.check_runs[] | select(.name == "All Required Tests") | .conclusion' 2>/dev/null || echo "")
 
-          if [ "$STATUS" = "success" ]; then
-            echo "✅ All Required Tests passed on current commit"
-            echo "verified=true" >> $GITHUB_OUTPUT
-          else
-            echo "⚠️ Tests have not passed on current commit (status: ${STATUS:-not found})"
-            echo "Skipping review - tests must pass first"
-            echo "verified=false" >> $GITHUB_OUTPUT
-          fi
+            if [ "$STATUS" = "success" ]; then
+              echo "✅ All Required Tests passed on current commit"
+              echo "verified=true" >> $GITHUB_OUTPUT
+              exit 0
+            fi
+
+            if [ $ATTEMPT -lt $MAX_ATTEMPTS ]; then
+              echo "Attempt $ATTEMPT/$MAX_ATTEMPTS: Check run not found yet (status: ${STATUS:-not found}), waiting 10s..."
+              sleep 10
+            fi
+            ATTEMPT=$((ATTEMPT + 1))
+          done
+
+          echo "⚠️ Tests have not passed on current commit after $MAX_ATTEMPTS attempts (status: ${STATUS:-not found})"
+          echo "Skipping review - tests must pass first"
+          echo "verified=false" >> $GITHUB_OUTPUT
 
       - name: Checkout PR branch
         if: steps.verify-tests.outputs.verified == 'true'
@@ -872,17 +894,28 @@ jobs:
           HEAD_SHA=$(gh api repos/${{ github.repository }}/pulls/${{ needs.get-context.outputs.pr_number }} --jq '.head.sha')
           echo "Checking test status for commit $HEAD_SHA"
 
-          # Check for "All Required Tests" check run (not a commit status)
-          STATUS=$(gh api repos/${{ github.repository }}/commits/$HEAD_SHA/check-runs --jq '.check_runs[] | select(.name == "All Required Tests") | .conclusion' 2>/dev/null || echo "")
+          # Retry loop - check run may not be visible immediately after workflow triggers
+          MAX_ATTEMPTS=6
+          ATTEMPT=1
+          while [ $ATTEMPT -le $MAX_ATTEMPTS ]; do
+            STATUS=$(gh api repos/${{ github.repository }}/commits/$HEAD_SHA/check-runs --jq '.check_runs[] | select(.name == "All Required Tests") | .conclusion' 2>/dev/null || echo "")
 
-          if [ "$STATUS" = "success" ]; then
-            echo "✅ All Required Tests passed on current commit"
-            echo "verified=true" >> $GITHUB_OUTPUT
-          else
-            echo "⚠️ Tests have not passed on current commit (status: ${STATUS:-not found})"
-            echo "Skipping review - tests must pass first"
-            echo "verified=false" >> $GITHUB_OUTPUT
-          fi
+            if [ "$STATUS" = "success" ]; then
+              echo "✅ All Required Tests passed on current commit"
+              echo "verified=true" >> $GITHUB_OUTPUT
+              exit 0
+            fi
+
+            if [ $ATTEMPT -lt $MAX_ATTEMPTS ]; then
+              echo "Attempt $ATTEMPT/$MAX_ATTEMPTS: Check run not found yet (status: ${STATUS:-not found}), waiting 10s..."
+              sleep 10
+            fi
+            ATTEMPT=$((ATTEMPT + 1))
+          done
+
+          echo "⚠️ Tests have not passed on current commit after $MAX_ATTEMPTS attempts (status: ${STATUS:-not found})"
+          echo "Skipping review - tests must pass first"
+          echo "verified=false" >> $GITHUB_OUTPUT
 
       - name: Checkout PR branch
         if: steps.verify-tests.outputs.verified == 'true'
@@ -1006,15 +1039,27 @@ jobs:
           HEAD_SHA=$(gh api repos/${{ github.repository }}/pulls/${{ needs.get-context.outputs.pr_number }} --jq '.head.sha')
           echo "Checking test status for commit $HEAD_SHA"
 
-          STATUS=$(gh api repos/${{ github.repository }}/commits/$HEAD_SHA/check-runs --jq '.check_runs[] | select(.name == "All Required Tests") | .conclusion' 2>/dev/null || echo "")
+          # Retry loop - check run may not be visible immediately after workflow triggers
+          MAX_ATTEMPTS=6
+          ATTEMPT=1
+          while [ $ATTEMPT -le $MAX_ATTEMPTS ]; do
+            STATUS=$(gh api repos/${{ github.repository }}/commits/$HEAD_SHA/check-runs --jq '.check_runs[] | select(.name == "All Required Tests") | .conclusion' 2>/dev/null || echo "")
 
-          if [ "$STATUS" = "success" ]; then
-            echo "✅ All Required Tests passed on current commit"
-            echo "verified=true" >> $GITHUB_OUTPUT
-          else
-            echo "⚠️ Tests have not passed on current commit (status: ${STATUS:-not found})"
-            echo "verified=false" >> $GITHUB_OUTPUT
-          fi
+            if [ "$STATUS" = "success" ]; then
+              echo "✅ All Required Tests passed on current commit"
+              echo "verified=true" >> $GITHUB_OUTPUT
+              exit 0
+            fi
+
+            if [ $ATTEMPT -lt $MAX_ATTEMPTS ]; then
+              echo "Attempt $ATTEMPT/$MAX_ATTEMPTS: Check run not found yet (status: ${STATUS:-not found}), waiting 10s..."
+              sleep 10
+            fi
+            ATTEMPT=$((ATTEMPT + 1))
+          done
+
+          echo "⚠️ Tests have not passed on current commit after $MAX_ATTEMPTS attempts (status: ${STATUS:-not found})"
+          echo "verified=false" >> $GITHUB_OUTPUT
 
       - name: Checkout PR branch
         if: steps.verify-tests.outputs.verified == 'true'
