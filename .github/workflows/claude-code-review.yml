@@ -558,55 +558,40 @@ jobs:
               --max-turns 450 \
               "You are reviewing PR #${PR_NUMBER} in ${REPO}.
 
-            IMPORTANT: Tests have already passed. Focus on code quality review.
+            **CRITICAL: BE BRIEF. Only report issues that require action from the PR author.**
+            Do NOT comment on code that is fine. Do NOT provide general observations or praise.
+            If there are no actionable issues, post a short approval and move on.
 
-            BEFORE MAKING ANY COMMITS, if you plan to push changes:
-            1. First fetch the latest: git fetch origin ${HEAD_REF}
-            2. Check if author pushed new commits: git rev-parse HEAD vs git rev-parse origin/${HEAD_REF}
-            3. If there are new commits, try to rebase your changes on top:
-               git stash (if uncommitted changes)
-               git pull --rebase origin ${HEAD_REF}
-               git stash pop (if stashed)
-            4. If rebase has conflicts, abort and note in your review comment that you found
-               issues but couldn't auto-fix due to concurrent changes by the author.
-            5. Only push if rebase was clean
+            Tests have already passed. Focus on code quality review.
 
-            This repository uses cached test commands. ALWAYS use:
-            - \`make unit-tests\` (NOT \`go test\`)
-            - \`make integration-tests\` for integration tests
-            - \`make pre-commit\` for linting/formatting checks
+            BEFORE PUSHING CHANGES:
+            1. git fetch origin ${HEAD_REF}
+            2. If author pushed new commits, rebase: git pull --rebase origin ${HEAD_REF}
+            3. If conflicts, abort and note in comment
 
-            Review this PR by:
-            1. Run \`git diff origin/main...HEAD\` to see changes
-            2. Read the changed files to understand the context
-            3. Check for:
-               - Shadow state pattern compliance (see docs/reference/SHADOW_STATE.md)
-               - Proper mutex usage for WebSocket writes
-               - Race conditions (tests run with -race flag)
-               - Code coverage (65% minimum)
-               - Error wrapping with context
-               - Table-driven test patterns
+            Use: \`make unit-tests\`, \`make integration-tests\`, \`make pre-commit\`
 
-            For HIGH SEVERITY issues (broken tests, obvious bugs, missing error handling),
-            fix them directly, commit, and push. Use conventional commit messages.
+            Check for:
+            - Shadow state pattern compliance (docs/reference/SHADOW_STATE.md)
+            - Missing mutex locks on WebSocket writes
+            - Race conditions
+            - Missing error handling
 
-            IMPORTANT: Post exactly ONE comprehensive review comment. Do not post multiple comments.
-            Combine all findings (summary, issues found, fixes made) into a single comment.
+            For HIGH SEVERITY issues, fix directly, commit, and push.
 
-            Post your review using the following structured format:
+            Post exactly ONE comment using:
             gh pr comment ${PR_NUMBER} --body '## Code Review
 
-            ### Changes Summary
-            [List the main areas of code changed, categorized by type: new features, bug fixes, refactoring, etc.]
+            [If no issues: \"✅ Approved - No issues found\" and stop here]
 
-            ### Findings
-            [Detailed analysis of code quality, patterns, potential issues. Reference specific files/lines.]
+            ### Issues Found
+            [Only list actionable items. Reference specific files:lines. Skip if none.]
+
+            ### Fixes Applied
+            [List commits pushed, if any. Skip section if none.]
 
             ### Conclusion
-            [One of: ✅ Approved | ⚠️ Minor issues found | ❌ Blocking issues found]
-            [Brief summary of overall assessment]'
-
-            Be constructive. Reference specific lines when noting issues." < /dev/null 2>&1 | tee /workspaces/home-automation/claude-review-output.jsonl
+            [✅ Approved | ⚠️ Needs changes | ❌ Blocking issues]'" < /dev/null 2>&1 | tee /workspaces/home-automation/claude-review-output.jsonl
 
       - name: Upload Claude review output
         uses: actions/upload-artifact@v4
@@ -700,65 +685,34 @@ jobs:
               --max-turns 200 \
               "You are a QA tester for PR #${PR_NUMBER}.
 
-            STEP 1: Categorize the changes
-            Run \`git diff origin/main...HEAD --name-only\` to list changed files, then categorize:
+            **CRITICAL: BE BRIEF. Only report issues that require action from the PR author.**
+            Do NOT list files reviewed. Do NOT describe what tests do. Do NOT praise good tests.
+            If there are no actionable issues, post a short approval and move on.
 
-            | Category | File Patterns | Testing Approach |
-            |----------|---------------|------------------|
-            | Go code | *.go (excluding *_test.go) | Requires unit tests |
-            | Go tests | *_test.go | Review test quality |
-            | Workflows | .github/workflows/*.yml | Validate YAML + action refs |
-            | Config | configs/*.yaml, *.json | Check syntax + consistency |
-            | Docs | *.md, docs/** | No testing needed |
+            Check changed files (\`git diff origin/main...HEAD --name-only\`):
 
-            STEP 2: Apply category-specific analysis
+            FOR GO CODE: Check for missing tests, time-dependent tests, slow tests (>1s)
+            FOR WORKFLOWS: Validate YAML syntax, check action refs, verify permissions
+            FOR CONFIG: Validate syntax
 
-            FOR GO CODE CHANGES:
-            - Check if new functions/methods have corresponding tests
-            - Look for time-dependent tests (tests that might fail at certain times of day)
-            - Identify slow tests (tests that take >1 second)
-            - Ensure 65% coverage requirement can be met
-            - Run \`make unit-tests\` to verify tests pass
+            Run \`make unit-tests\` to verify.
 
-            FOR WORKFLOW CHANGES (.github/workflows/*.yml):
-            - Validate YAML syntax with \`npx yaml valid < file.yml\` (returns exit code 0 if valid)
-            - Check action references are valid (uses: owner/action@version)
-            - Review permission scopes (should be minimal necessary)
-            - Check for hardcoded secrets or tokens (should use secrets.*)
-            - Verify job dependencies are correct (needs: clauses)
-            - Check concurrency settings are appropriate
-            - Note: Workflows cannot be unit-tested - they are validated by execution
+            For HIGH SEVERITY issues, fix directly and push.
+            BEFORE PUSHING: rebase with \`git pull --rebase origin ${HEAD_REF}\`
 
-            FOR CONFIG CHANGES:
-            - Validate YAML/JSON syntax
-            - Check consistency with related code
-
-            FOR DOCUMENTATION CHANGES:
-            - No testing required (handled by docs-review job)
-
-            STEP 3: Report findings
-
-            If you find test issues, consider adding more detail of what problems you found
-            in .github/workflows/claude-code-review.yml test-review job.
-
-            For HIGH SEVERITY test issues in Go code, fix them directly, commit, and push.
-            For HIGH SEVERITY workflow issues (syntax errors, invalid action refs), fix them directly.
-            BEFORE PUSHING: If the author pushed new commits since this review started, try to
-            rebase your changes on top with \`git pull --rebase origin ${HEAD_REF}\`. If there are
-            conflicts, skip the auto-fix and just report the issue in your comment.
-
-            Post your review using the following structured format:
+            Post exactly ONE comment using:
             gh pr comment ${PR_NUMBER} --body '## Test Review
 
-            ### Changes Summary
-            [List the test files and production code reviewed, categorized by feature area]
+            [If no issues: \"✅ Approved - Tests look good\" and stop here]
 
-            ### Findings
-            [Analysis of test coverage, test quality, potential issues like time-dependent tests, slow tests, missing edge cases]
+            ### Issues Found
+            [Only list actionable items: missing tests, flaky tests, etc. Skip if none.]
+
+            ### Fixes Applied
+            [List commits pushed, if any. Skip section if none.]
 
             ### Conclusion
-            [One of: ✅ Approved | ⚠️ Minor issues found | ❌ Blocking issues found]
-            [Brief summary of test quality assessment]'" < /dev/null 2>&1 | tee /workspaces/home-automation/test-review-output.jsonl
+            [✅ Approved | ⚠️ Needs changes | ❌ Blocking issues]'" < /dev/null 2>&1 | tee /workspaces/home-automation/test-review-output.jsonl
 
       - name: Upload test review output
         uses: actions/upload-artifact@v4
@@ -852,36 +806,37 @@ jobs:
               --max-turns 240 \
               "You are a CONCURRENCY specialist reviewing PR #${PR_NUMBER}.
 
-            This Go codebase has a history of race conditions. Review for:
+            **CRITICAL: BE BRIEF. Only report issues that require action from the PR author.**
+            Do NOT list files reviewed. Do NOT explain concurrency concepts.
+            If there are no actionable issues, post a short approval and move on.
 
-            1. Read docs/reference/CONCURRENCY_LESSONS.md to understand past issues
-            2. Run \`git diff origin/main...HEAD\` to see changes
-            3. Check for:
-               - Missing mutex locks on shared state
-               - Incorrect use of sync.RWMutex (write lock when read would suffice)
-               - WebSocket write serialization (must use writeMu)
-               - Goroutine leaks (missing context cancellation)
-               - Channel deadlocks
+            Reference docs/reference/CONCURRENCY_LESSONS.md for context.
+            Run \`git diff origin/main...HEAD\` to see changes.
 
-            4. Run \`make unit-tests\` - tests use -race flag
+            Check for:
+            - Missing mutex locks on shared state
+            - WebSocket writes without writeMu
+            - Goroutine leaks (missing context cancellation)
+            - Channel deadlocks
 
-            For HIGH SEVERITY concurrency bugs, fix them directly, commit, and push.
-            BEFORE PUSHING: If the author pushed new commits since this review started, try to
-            rebase your changes on top with \`git pull --rebase origin ${HEAD_REF}\`. If there are
-            conflicts, skip the auto-fix and just report the issue in your comment.
+            Run \`make unit-tests\` (uses -race flag).
 
-            Post your review using the following structured format:
+            For HIGH SEVERITY bugs, fix directly and push.
+            BEFORE PUSHING: rebase with \`git pull --rebase origin ${HEAD_REF}\`
+
+            Post exactly ONE comment using:
             gh pr comment ${PR_NUMBER} --body '## Concurrency Review
 
-            ### Changes Summary
-            [List files with concurrency-related code: goroutines, mutexes, channels, WebSocket operations]
+            [If no issues: \"✅ Approved - No concurrency issues\" and stop here]
 
-            ### Findings
-            [Analysis of mutex usage, race conditions, goroutine lifecycle, channel patterns, WebSocket write serialization]
+            ### Issues Found
+            [Only list race conditions, missing locks, etc. Reference file:line. Skip if none.]
+
+            ### Fixes Applied
+            [List commits pushed, if any. Skip section if none.]
 
             ### Conclusion
-            [One of: ✅ Approved | ⚠️ Minor issues found | ❌ Blocking issues found]
-            [Brief summary of concurrency safety assessment]'" < /dev/null 2>&1 | tee /workspaces/home-automation/concurrency-review-output.jsonl
+            [✅ Approved | ⚠️ Needs changes | ❌ Blocking issues]'" < /dev/null 2>&1 | tee /workspaces/home-automation/concurrency-review-output.jsonl
 
       - name: Upload concurrency review output
         uses: actions/upload-artifact@v4
@@ -984,80 +939,39 @@ jobs:
               --max-turns 200 \
               "You are a DOCUMENTATION specialist reviewing PR #${PR_NUMBER}.
 
-            LINKED ISSUE (if applicable):
+            **CRITICAL: BE BRIEF. Only report documentation that MUST be updated.**
+            Do NOT list docs that don't need changes. Do NOT provide checklists of N/A items.
+            If no docs need updating, post a short approval and move on.
+
+            Context (if available):
             Issue #${ISSUE_NUMBER}: ${ISSUE_TITLE}
-            ${ISSUE_BODY}
+            PR: ${PR_TITLE}
 
-            PR DESCRIPTION:
-            ${PR_TITLE}
-            ${PR_BODY}
+            Run \`git diff origin/main...HEAD\` to see changes.
 
-            Your task is to ensure documentation stays synchronized with code changes.
+            Only check docs relevant to the actual code changes:
+            - Plugin changes → VISUAL_ARCHITECTURE.md, ARCHITECTURE.md, docs/flows/
+            - New Subscribe() → State Variable Dependency Graph
+            - Concurrency fix → CONCURRENCY_LESSONS.md
 
-            1. Run \`git diff origin/main...HEAD\` to see what changed in this PR
-            2. Read AGENTS.md to understand the documentation maintenance protocol
-            3. Based on code changes, check if these docs need updates:
+            If Mermaid edits needed: run \`make validate-mermaid\` after editing.
 
-               | Code Change Type | Docs to Check/Update |
-               |------------------|----------------------|
-               | New plugin added | VISUAL_ARCHITECTURE.md, ARCHITECTURE.md, docs/flows/ |
-               | Plugin removed | VISUAL_ARCHITECTURE.md, ARCHITECTURE.md, docs/flows/ |
-               | New Subscribe() call | VISUAL_ARCHITECTURE.md (State Variable Dependency Graph) |
-               | State variable added/removed | migration_mapping.md, VISUAL_ARCHITECTURE.md |
-               | Concurrency fix | CONCURRENCY_LESSONS.md |
-               | Plugin logic changed | Relevant logic flow in VISUAL_ARCHITECTURE.md or docs/flows/ |
-               | Config changes | Relevant config docs |
-               | Day phase/schedule logic | docs/flows/DAY_PHASE_MODES.md |
+            If updates needed, make changes directly and push.
+            BEFORE PUSHING: rebase with \`git pull --rebase origin ${HEAD_REF}\`
 
-            4. AUTOMATION FLOW DOCUMENTATION (docs/flows/):
-               - This folder contains visual documentation of automation behavior using Mermaid diagrams
-               - When plugin logic changes, check if a corresponding flow document exists and needs updates
-               - Consider creating new flow documents for complex automation logic
-               - Flow documents should explain the 'how' and 'why' of automation decisions
-
-            5. If Mermaid diagrams need updates:
-               - Run \`make validate-mermaid\` after editing to check syntax
-               - CRITICAL: When you create or update Mermaid diagrams, verify GitHub rendering:
-                 a. Get the raw GitHub URL for the markdown file
-                 b. Use Playwright to navigate to the GitHub page and verify the diagram renders
-                 c. Example verification (adapt path as needed):
-                    - URL pattern: https://github.com/NickBorgers/home-automation/blob/BRANCH/docs/flows/FILE.md
-                    - Check that Mermaid code blocks render as diagrams, not raw text
-                    - If diagrams show as raw code, there may be syntax issues GitHub cannot parse
-
-            6. Check that docs/architecture/ARCHITECTURE.md reflects any structural changes
-
-            IMPORTANT: Only update docs for ACTUAL changes in this PR. Do not:
-            - Add documentation for unchanged code
-            - Create new documentation files unless explicitly needed
-            - Make cosmetic changes unrelated to the PR
-
-            If documentation updates are needed:
-            - Make the changes directly
-            - Commit with message: 'docs: update [doc name] for [change description]'
-            - BEFORE PUSHING: If the author pushed new commits since this review started, try to
-              rebase your changes on top with \`git pull --rebase origin ${HEAD_REF}\`. If there are
-              conflicts, skip the auto-fix and just report what docs need updating in your comment.
-            - Push the changes
-
-            Post your review using the following structured format:
+            Post exactly ONE comment using:
             gh pr comment ${PR_NUMBER} --body '## Documentation Review
 
-            ### Changes Summary
-            [List the code changes that may require documentation updates]
+            [If no updates needed: \"✅ Approved - No doc updates required\" and stop here]
 
-            ### Findings
-            [Analysis of documentation needs based on code changes. Include checklist:]
-            - [ ] VISUAL_ARCHITECTURE.md - [status: Updated/No changes needed/N/A]
-            - [ ] ARCHITECTURE.md - [status: Updated/No changes needed/N/A]
-            - [ ] docs/flows/ - [status: Updated/No changes needed/N/A]
-            - [ ] migration_mapping.md - [status: Updated/No changes needed/N/A]
-            - [ ] CONCURRENCY_LESSONS.md - [status: Updated/No changes needed/N/A]
-            - [ ] Mermaid diagrams validated - [status: Validated with make validate-mermaid/No diagrams changed/N/A]
+            ### Updates Required
+            [Only list docs that MUST be updated. Skip if none.]
+
+            ### Updates Applied
+            [List commits pushed, if any. Skip section if none.]
 
             ### Conclusion
-            [One of: ✅ Approved | ⚠️ Minor issues found | ❌ Blocking issues found]
-            [Brief summary of documentation assessment]'" < /dev/null 2>&1 | tee /workspaces/home-automation/docs-review-output.jsonl
+            [✅ Approved | ⚠️ Needs changes | ❌ Blocking issues]'" < /dev/null 2>&1 | tee /workspaces/home-automation/docs-review-output.jsonl
 
       - name: Upload documentation review output
         uses: actions/upload-artifact@v4
@@ -1067,11 +981,138 @@ jobs:
           path: docs-review-output.jsonl
           retention-days: 7
 
+  # Final decision maker - synthesizes all reviews and makes go/no-go call
+  merge-decision:
+    needs: [get-context, build-devcontainer, claude-review, test-review, concurrency-review, docs-review]
+    if: |
+      always() &&
+      needs.get-context.outputs.pr_number != '' &&
+      needs.get-context.outputs.reviews_already_passed != 'true' &&
+      needs.get-context.outputs.tests_passed == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      id-token: write
+      packages: read
+
+    steps:
+      - name: Verify tests passed on current commit
+        id: verify-tests
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          HEAD_SHA=$(gh api repos/${{ github.repository }}/pulls/${{ needs.get-context.outputs.pr_number }} --jq '.head.sha')
+          echo "Checking test status for commit $HEAD_SHA"
+
+          STATUS=$(gh api repos/${{ github.repository }}/commits/$HEAD_SHA/check-runs --jq '.check_runs[] | select(.name == "All Required Tests") | .conclusion' 2>/dev/null || echo "")
+
+          if [ "$STATUS" = "success" ]; then
+            echo "✅ All Required Tests passed on current commit"
+            echo "verified=true" >> $GITHUB_OUTPUT
+          else
+            echo "⚠️ Tests have not passed on current commit (status: ${STATUS:-not found})"
+            echo "verified=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Checkout PR branch
+        if: steps.verify-tests.outputs.verified == 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.get-context.outputs.head_ref }}
+          repository: ${{ needs.get-context.outputs.head_repo }}
+          fetch-depth: 0
+          token: ${{ secrets.WORKFLOW_PAT }}
+
+      - name: Pull latest changes
+        if: steps.verify-tests.outputs.verified == 'true'
+        run: git pull origin ${{ needs.get-context.outputs.head_ref }} || true
+
+      - name: Create gh config directory for devcontainer mount
+        if: steps.verify-tests.outputs.verified == 'true'
+        run: mkdir -p ~/.config/gh
+
+      - name: Log in to GHCR
+        if: steps.verify-tests.outputs.verified == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Make merge decision in devcontainer
+        if: steps.verify-tests.outputs.verified == 'true'
+        uses: devcontainers/ci@v0.3
+        with:
+          imageName: ${{ env.DEVCONTAINER_IMAGE }}
+          cacheFrom: ${{ env.DEVCONTAINER_IMAGE }}
+          push: never
+          env: |
+            CLAUDE_CODE_OAUTH_TOKEN=${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+            GH_TOKEN=${{ secrets.WORKFLOW_PAT }}
+            PR_NUMBER=${{ needs.get-context.outputs.pr_number }}
+            HEAD_REF=${{ needs.get-context.outputs.head_ref }}
+            CLAUDE_REVIEW_RESULT=${{ needs.claude-review.result }}
+            TEST_REVIEW_RESULT=${{ needs.test-review.result }}
+            CONCURRENCY_REVIEW_RESULT=${{ needs.concurrency-review.result }}
+            DOCS_REVIEW_RESULT=${{ needs.docs-review.result }}
+          runCmd: |
+            claude --print \
+              --verbose \
+              --output-format stream-json \
+              --model opus \
+              --dangerously-skip-permissions \
+              --max-turns 150 \
+              "You are the FINAL DECISION MAKER for PR #${PR_NUMBER}.
+
+            You have personal responsibility to approve or reject this PR for merge to main and deployment to production.
+
+            **REVIEW STATUS:**
+            - Code Review: ${CLAUDE_REVIEW_RESULT}
+            - Test Review: ${TEST_REVIEW_RESULT}
+            - Concurrency Review: ${CONCURRENCY_REVIEW_RESULT}
+            - Docs Review: ${DOCS_REVIEW_RESULT}
+
+            **YOUR TASK:**
+            1. Read the review comments on this PR: \`gh pr view ${PR_NUMBER} --comments\`
+            2. Check for merge conflicts: \`git fetch origin main && git merge-base --is-ancestor origin/main HEAD || git merge origin/main --no-commit --no-ff\`
+            3. If there are merge conflicts AND you believe the PR should be merged, resolve them
+            4. Make a GO/NO-GO decision
+
+            **DECISION CRITERIA:**
+            - GO: All reviews passed or had only minor non-blocking issues, no merge conflicts (or you resolved them)
+            - NO-GO: Any review found blocking issues, unresolvable merge conflicts, or tests are failing
+
+            **IF NO-GO:** Explain what must be fixed before the PR can merge.
+
+            **IF GO with fixes needed:** Make the fixes (merge conflicts, minor issues), commit, push, then approve.
+
+            BEFORE PUSHING: rebase with \`git pull --rebase origin ${HEAD_REF}\`
+
+            Post exactly ONE comment:
+            gh pr comment ${PR_NUMBER} --body '## 🚦 Merge Decision
+
+            **Decision: [🟢 GO | 🔴 NO-GO]**
+
+            [If GO: \"Ready for merge to main and production deployment.\"]
+            [If NO-GO: List specific blockers that must be resolved.]
+
+            [If you made fixes: \"Applied fixes: [brief description]\"]'" < /dev/null 2>&1 | tee /workspaces/home-automation/merge-decision-output.jsonl
+
+      - name: Upload merge decision output
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: merge-decision-output
+          path: merge-decision-output.jsonl
+          retention-days: 7
+
   # Aggregator job - use this as the required check for branch protection
   all-reviews-passed:
     name: All Required Agent Reviews
     runs-on: ubuntu-latest
-    needs: [get-context, build-devcontainer, fix-test-failures, claude-review, test-review, concurrency-review, docs-review]
+    needs: [get-context, build-devcontainer, fix-test-failures, claude-review, test-review, concurrency-review, docs-review, merge-decision]
     if: always()
     permissions:
       statuses: write  # Required to create commit status on PR
@@ -1142,6 +1183,10 @@ jobs:
               echo "Docs Review: ${{ needs.docs-review.result }}"
               failed=true
             fi
+            if ! check_result "${{ needs.merge-decision.result }}"; then
+              echo "Merge Decision: ${{ needs.merge-decision.result }}"
+              failed=true
+            fi
           fi
 
           # If max attempts reached and tests still failing
@@ -1168,6 +1213,7 @@ jobs:
           echo "  Test Review: ${{ needs.test-review.result }}"
           echo "  Concurrency Review: ${{ needs.concurrency-review.result }}"
           echo "  Docs Review: ${{ needs.docs-review.result }}"
+          echo "  Merge Decision: ${{ needs.merge-decision.result }}"
 
           # Signal that we should add the label
           echo "should_label=true" >> $GITHUB_OUTPUT
