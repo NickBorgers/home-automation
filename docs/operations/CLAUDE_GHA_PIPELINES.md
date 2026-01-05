@@ -10,7 +10,7 @@ The repository uses several interconnected workflows that leverage Claude Code t
 ┌──────────────────────────────────────────────────────────────────┐
 │                        TRIGGER EVENTS                             │
 ├──────────────────────────────────────────────────────────────────┤
-│  Issue Opened  │  @claude Mention  │  PR Tests Complete          │
+│  Issue Opened  │  @claude Mention  │  PR Tests Complete/Failed   │
 └───────┬────────┴────────┬──────────┴─────────┬───────────────────┘
         │                 │                    │
         ▼                 ▼                    ▼
@@ -19,11 +19,22 @@ The repository uses several interconnected workflows that leverage Claude Code t
 │ resolve-issue │ │ claude job    │ │ review.yml       │
 └───────────────┘ └───────────────┘ └──────────────────┘
         │                 │                    │
-        ▼                 ▼                    ▼
-┌──────────────────────────────────────────────────────────────────┐
-│                       DEVCONTAINER EXECUTION                      │
-│  Claude Code runs inside a cached devcontainer with full access   │
-└──────────────────────────────────────────────────────────────────┘
+        ▼                 ▼                    │
+┌──────────────────────────────────────────────┤
+│                                              │
+│  DEVCONTAINER EXECUTION                      │◄───────────────────┐
+│  Claude Code runs inside a cached            │                    │
+│  devcontainer with full access               │                    │
+│                                              │                    │
+└──────────────────────────────────────────────┘                    │
+                                                                    │
+                       ┌────────────────────────────────────────────┘
+                       │
+                       ▼
+              ┌────────────────────┐
+              │ claude-diagnose-   │
+              │ workflow-failure   │  (on workflow failures)
+              └────────────────────┘
 ```
 
 ## Workflow Files
@@ -31,8 +42,9 @@ The repository uses several interconnected workflows that leverage Claude Code t
 | Workflow | File | Trigger | Purpose |
 |----------|------|---------|---------|
 | Claude Code | `claude.yml` | @claude mentions, new issues | Respond to requests, auto-resolve issues |
-| Claude Code Review | `claude-code-review.yml` | PR Tests completion | Multi-agent code review, fix failures |
+| Claude Code Review | `claude-code-review.yml` | PR Tests completion, PR reopened | Multi-agent code review, fix failures, merge decision |
 | PR Tests | `pr-tests.yml` | PRs, pushes to claude/** | Run tests, trigger review pipeline |
+| Claude Diagnose Workflow Failure | `claude-diagnose-workflow-failure.yml` | Any workflow failure | Diagnose Actions config problems (not test failures) |
 
 ---
 
@@ -110,6 +122,7 @@ A sophisticated multi-agent review system that runs after PR tests complete.
 ### Triggers
 
 - **workflow_run**: When "PR Tests" workflow completes
+- **pull_request**: When a PR is reopened (resets reviews to allow re-review)
 - **workflow_dispatch**: Manual trigger with PR details
 
 ### Concurrency Control
@@ -124,6 +137,8 @@ concurrency:
 
 ```
 get-context
+     │
+     ├─── (reviews_already_passed = true) ──► SKIP (just create commit status)
      │
      ▼
 build-devcontainer
@@ -142,10 +157,24 @@ fix-test-failures                          claude-review
      │                                          ▼
      │                                      docs-review
      │                                          │
+     │                                          ▼
+     │                                    merge-decision
+     │                                          │
      └──────────────────────────────────────────┤
                                                 ▼
                                        all-reviews-passed
+                                     (adds agent-reviews-passed label)
 ```
+
+### Review Skip Mechanism
+
+To avoid redundant reviews on every push, the workflow uses an `agent-reviews-passed` label:
+
+1. After all reviews complete successfully, the label is added to the PR
+2. Subsequent pushes detect the label and skip the full review cycle
+3. When a PR is **reopened**, the label is removed to allow re-review
+
+This prevents review agents from running repeatedly on the same PR while still allowing re-reviews when needed.
 
 ### Jobs
 
@@ -159,6 +188,7 @@ Extracts PR and issue context for downstream jobs.
 - `tests_passed`: Whether the triggering test run passed
 - `fix_attempts`: Number of previous fix attempts (from labels)
 - `triggering_sha`: SHA that triggered the workflow (for conflict detection)
+- `reviews_already_passed`: Whether the `agent-reviews-passed` label exists (skips re-review)
 
 #### 2.2 `fix-test-failures`
 
@@ -259,13 +289,38 @@ Documentation synchronization review.
 
 **Actions**: Updates documentation, validates Mermaid diagrams
 
-#### 2.7 `all-reviews-passed`
+#### 2.7 `merge-decision`
+
+Final decision maker that synthesizes all reviews and makes a go/no-go call.
+
+**Condition**: Tests passed on current commit (verified via commit status check)
+
+**Pre-Flight Check**: Before running, verifies that "All Required Tests" commit status is `success` on the current HEAD.
+
+**Responsibilities**:
+1. Reads all previous review comments on the PR
+2. Checks for merge conflicts with main branch
+3. Resolves merge conflicts if the PR should be merged
+4. Makes a GO/NO-GO decision based on all review results
+
+**Decision Criteria**:
+- **GO**: All reviews passed or had only minor non-blocking issues, no merge conflicts (or resolved them)
+- **NO-GO**: Any review found blocking issues, unresolvable merge conflicts, or tests are failing
+
+**Actions**: Posts a final comment with the merge decision (🟢 GO or 🔴 NO-GO)
+
+#### 2.8 `all-reviews-passed`
 
 Aggregator job for branch protection.
 
 **Purpose**: Creates a single status check that indicates all reviews completed
 
 **Creates Commit Status**: `All Required Agent Reviews` on the PR head SHA
+
+**Post-Review Actions**:
+1. Creates the `All Required Agent Reviews` commit status
+2. Adds the `agent-reviews-passed` label to the PR (prevents redundant re-reviews)
+3. Posts a summary comment showing all agent statuses in a table format
 
 ---
 
@@ -284,13 +339,23 @@ Standard test workflow that gates merging and triggers Claude reviews.
 | Job | Description |
 |-----|-------------|
 | `changes` | Detects which files changed (path filtering) |
-| `style-checks` | Go formatting, linting |
-| `unit-tests` | Unit tests with coverage |
-| `integration-tests` | Integration test suite |
+| `style-checks` | Go formatting, linting (`make ci-style-checks`) |
+| `unit-tests` | Unit tests with coverage (`make ci-unit-tests`) |
+| `integration-tests` | Integration test suite (`make ci-integration-tests`) |
 | `config-tests` | YAML validation, Spotify URI checks |
-| `diagram-validation` | Generated diagram freshness |
-| `docker-build` | Build validation + smoke test |
+| `diagram-validation` | Generated diagram freshness (`make validate-diagrams`) |
+| `docker-build` | Build validation + smoke test (DEV_MODE) |
 | `all-tests-passed` | Aggregator for branch protection |
+
+### Docker Smoke Test
+
+The `docker-build` job includes a container startup smoke test:
+1. Starts the container in `DEV_MODE` (uses mock Home Assistant server)
+2. Waits up to 30 seconds for the container to become healthy
+3. Verifies the `/health` endpoint responds
+4. Checks `/dashboard` and `/api/shadow` endpoints (non-fatal)
+
+This catches initialization panics that wouldn't be detected by unit tests alone.
 
 ### Path Filtering
 
@@ -300,11 +365,86 @@ Only runs relevant jobs based on changed files:
 
 ---
 
+## 4. Claude Diagnose Workflow Failure (`claude-diagnose-workflow-failure.yml`)
+
+Automatically diagnoses workflow failures to determine if they're GitHub Actions configuration problems (which need issues filed) versus normal test/code failures (which are handled by the existing review pipeline).
+
+### Triggers
+
+- **workflow_run**: When any monitored workflow completes with failure
+  - PR Tests
+  - Build and Push Docker Image
+  - Publish-Screenshots
+  - Trigger Private Security Rebuild
+  - Notify Private Repo of PR Merge
+  - Claude Code
+  - Claude Code Review
+
+### Concurrency Control
+
+```yaml
+concurrency:
+  group: diagnose-failure-${{ workflow_run.id }}
+  cancel-in-progress: false
+```
+
+### Jobs
+
+#### 4.1 `check-failure`
+
+Pre-flight checks before running diagnosis.
+
+**Checks**:
+1. Workflow actually failed (not success, cancelled, or skipped)
+2. Not diagnosing the diagnosis workflow itself (prevents infinite loops)
+3. No existing open issue for this workflow run
+
+**Outputs**: Workflow metadata for the diagnosis job
+
+#### 4.2 `diagnose-failure`
+
+Runs Claude to analyze the failure and classify it.
+
+**Classification Categories**:
+
+| Category | Description | Action |
+|----------|-------------|--------|
+| `TEST_FAILURE` | Unit tests, integration tests, code compilation | No issue - handled by Claude Code Review |
+| `CONFIG_FAILURE` | Issues in configs/ (YAML validation, etc.) | No issue - handled by Claude Code Review |
+| `ACTIONS_FAILURE` | GitHub Actions workflow definition problems | **Create issue** |
+
+**ACTIONS_FAILURE Examples** (issues created):
+- Workflow YAML syntax errors
+- Missing or invalid action references
+- Invalid triggers or event configurations
+- Missing required secrets or environment variables
+- Permission issues with GitHub tokens
+- Docker build failures in workflow steps (not Dockerfile)
+- Cache action failures
+- Job dependency issues
+- Runner environment issues
+
+**NOT ACTIONS_FAILURE** (no issue):
+- Go test failures (`make unit-tests`, `make integration-tests`)
+- Code compilation errors (`go build`)
+- Style/lint check failures (staticcheck, gofmt)
+- Coverage below threshold
+- Application Dockerfile build failures
+
+### Issue Format
+
+When an `ACTIONS_FAILURE` is detected, an issue is created with:
+- Title: `Workflow Failure: {workflow_name} run #{run_id} - Actions Configuration Issue`
+- Labels: `bug`, `github-actions`
+- Body: Failure analysis, relevant logs, suggested fix, files to review
+
+---
+
 ## Required Secrets
 
 | Secret | Used By | Purpose |
 |--------|---------|---------|
-| `CLAUDE_CODE_OAUTH_TOKEN` | claude.yml, claude-code-review.yml | Claude Code authentication |
+| `CLAUDE_CODE_OAUTH_TOKEN` | claude.yml, claude-code-review.yml, claude-diagnose-workflow-failure.yml | Claude Code authentication |
 | `WORKFLOW_PAT` | claude.yml, claude-code-review.yml | Push workflow file changes, create PRs that trigger workflows |
 | `PRIVATE_REPO_TRIGGER_TOKEN` | notify-pr-merged.yml | Cross-repo workflow triggers |
 
@@ -355,8 +495,10 @@ Required approvals: 0  # Claude provides automated review
 | Max fix attempts reached | Tests keep failing after 3 tries | Human intervention needed (PR will have a comment) |
 | "Automated Fix Failed" comment | All 3 fix attempts exhausted | Review the linked test run, fix manually |
 | Review job skipped | Tests haven't passed on current commit | Wait for tests to pass or fix them first |
+| Reviews skipped with "already passed" | `agent-reviews-passed` label present | Close and reopen PR to re-run reviews |
 | Devcontainer build slow | First run or cache miss | Subsequent runs use cached image |
 | Claude doesn't respond | Comment doesn't contain `@claude` | Ensure @claude is in comment |
+| Workflow failure issue not created | Diagnosed as TEST_FAILURE or CONFIG_FAILURE | Expected - these are handled by Claude Code Review |
 
 ### Manual Triggers
 
