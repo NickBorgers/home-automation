@@ -320,7 +320,7 @@ flowchart TD
 
     UpdateCache[Update State Manager Cache] --> RecomputeDerived{Triggers<br/>Computed State?}
 
-    RecomputeDerived -->|Yes| Recompute[Recompute Derived Variables<br/>isAnyoneHomeAndAwake =<br/>isAnyoneHome && !isAnyoneAsleep]
+    RecomputeDerived -->|Yes| Recompute[Recompute Derived Variables<br/>isAnyoneHomeAndAwake =<br/>isAnyOwnerHome AND !isAnyoneAsleep OR isToriHere]
     RecomputeDerived -->|No| NotifyPlugins
 
     Recompute --> SyncDerived[Sync Derived Value to HA]
