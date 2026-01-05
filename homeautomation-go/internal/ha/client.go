@@ -25,12 +25,6 @@ const (
 	// exactly 10 seconds before the first ping could be sent.
 	pingInterval = 5 * time.Second
 
-	// wsPingInterval is how often we send WebSocket-level control frame pings.
-	// These are in addition to application-level pings and help keep the TCP
-	// connection alive through NATs, proxies, and load balancers that may not
-	// understand application-layer JSON pings.
-	wsPingInterval = 3 * time.Second
-
 	// pongWait is the max time the connection can be silent before we consider it dead.
 	// The read deadline is extended on ANY successful message read (not just pongs),
 	// so this is effectively "max time without any messages from Home Assistant".
@@ -99,6 +93,98 @@ type HAClient interface {
 	GetConnectionDuration() time.Duration
 }
 
+// errConnectionClosed is returned when attempting to use a closed connection.
+var errConnectionClosed = fmt.Errorf("connection is closed")
+
+// managedConn wraps a WebSocket connection with lifecycle management.
+// It provides thread-safe access and handles nil checks internally.
+type managedConn struct {
+	mu     sync.RWMutex
+	conn   *websocket.Conn
+	closed bool
+}
+
+// newManagedConn creates a new managed connection wrapper.
+func newManagedConn(conn *websocket.Conn) *managedConn {
+	return &managedConn{conn: conn}
+}
+
+// WriteJSON writes a JSON message to the connection.
+// Returns errConnectionClosed if the connection is closed or nil.
+func (m *managedConn) WriteJSON(v interface{}) error {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.closed || m.conn == nil {
+		return errConnectionClosed
+	}
+	return m.conn.WriteJSON(v)
+}
+
+// WriteMessage writes a message to the connection.
+// Returns errConnectionClosed if the connection is closed or nil.
+func (m *managedConn) WriteMessage(messageType int, data []byte) error {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.closed || m.conn == nil {
+		return errConnectionClosed
+	}
+	return m.conn.WriteMessage(messageType, data)
+}
+
+// ReadJSON reads a JSON message from the connection.
+// Returns errConnectionClosed if the connection is closed or nil.
+func (m *managedConn) ReadJSON(v interface{}) error {
+	m.mu.RLock()
+	conn := m.conn
+	closed := m.closed
+	m.mu.RUnlock()
+	if closed || conn == nil {
+		return errConnectionClosed
+	}
+	return conn.ReadJSON(v)
+}
+
+// SetReadDeadline sets the read deadline on the connection.
+func (m *managedConn) SetReadDeadline(t time.Time) error {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.closed || m.conn == nil {
+		return errConnectionClosed
+	}
+	return m.conn.SetReadDeadline(t)
+}
+
+// SetWriteDeadline sets the write deadline on the connection.
+func (m *managedConn) SetWriteDeadline(t time.Time) error {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.closed || m.conn == nil {
+		return errConnectionClosed
+	}
+	return m.conn.SetWriteDeadline(t)
+}
+
+// Close marks the connection as closed and closes the underlying connection.
+func (m *managedConn) Close() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.closed {
+		return nil
+	}
+	m.closed = true
+	if m.conn != nil {
+		return m.conn.Close()
+	}
+	return nil
+}
+
+// IsClosed returns true if the connection has been closed.
+func (m *managedConn) IsClosed() bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.closed
+}
+
 // subscriberEntry holds a handler with its unique subscription ID
 type subscriberEntry struct {
 	subID   int
@@ -108,7 +194,7 @@ type subscriberEntry struct {
 // Client implements HAClient interface
 //
 // Lock ordering (to prevent deadlocks, always acquire in this order):
-//  1. connMu - connection state
+//  1. connMu - connection state and metrics
 //  2. ctxMu - context for cancellation
 //  3. writeMu - websocket writes (also protects msgID to ensure ordered sends)
 //  4. pendingMu - pending response channels
@@ -118,13 +204,23 @@ type subscriberEntry struct {
 //
 // Note: msgIDMu has been eliminated; msgID is now protected by writeMu to ensure
 // message IDs are allocated and sent atomically, preventing out-of-order sends.
+//
+// Note: metricsMu has been consolidated into connMu since both protect
+// connection-related state. This reduces mutex count and simplifies lock ordering.
 type Client struct {
-	url         string
-	token       string
-	logger      *zap.Logger
-	conn        *websocket.Conn
-	connected   bool
-	connMu      sync.RWMutex
+	url       string
+	token     string
+	logger    *zap.Logger
+	conn      *managedConn // Thread-safe connection wrapper
+	connected bool
+	connMu    sync.RWMutex // Protects connected, conn, reconnect, and connection metrics
+
+	// Connection metrics (protected by connMu)
+	disconnectCount    int       // Total number of disconnections
+	lastDisconnectTime time.Time // When the last disconnect occurred
+	writeTimeoutCount  int       // Number of write timeouts detected
+	connectedAt        time.Time // When the current connection was established
+
 	msgID       int // Protected by writeMu (not separate mutex) to ensure atomic ID+send
 	pending     map[int]chan Message
 	pendingMu   sync.Mutex
@@ -137,6 +233,9 @@ type Client struct {
 	ctxMu       sync.RWMutex // Protects ctx and cancel
 	reconnect   bool
 	writeMu     sync.Mutex // Protects websocket writes AND msgID counter
+
+	// Ping goroutine lifecycle management
+	pingCancel context.CancelFunc // Cancels the ping goroutine; protected by connMu
 
 	// Reconnect callback (called after successful reconnection)
 	onReconnect   func()
@@ -151,13 +250,6 @@ type Client struct {
 	recentResults []bool // circular buffer: true=success, false=failure
 	resultIndex   int    // next write position in circular buffer
 	resultCount   int    // how many results recorded (up to healthWindowSize)
-
-	// Connection health metrics for observability
-	metricsMu          sync.RWMutex
-	disconnectCount    int       // Total number of disconnections
-	lastDisconnectTime time.Time // When the last disconnect occurred
-	writeTimeoutCount  int       // Number of write timeouts detected
-	connectedAt        time.Time // When the current connection was established
 }
 
 func (c *Client) clearSubscribers() {
@@ -209,6 +301,12 @@ func (c *Client) Connect() error {
 		return fmt.Errorf("already connected")
 	}
 
+	// Cancel any existing ping goroutine from a previous connection
+	if c.pingCancel != nil {
+		c.pingCancel()
+		c.pingCancel = nil
+	}
+
 	// Reset message ID counter for new connection
 	// Each WebSocket session expects message IDs to start from 1
 	// Protected by writeMu for consistency, though not strictly needed during Connect
@@ -241,17 +339,17 @@ func (c *Client) Connect() error {
 		},
 		HandshakeTimeout: 45 * time.Second,
 	}
-	conn, _, err := dialer.Dial(c.url, nil)
+	rawConn, _, err := dialer.Dial(c.url, nil)
 	if err != nil {
 		c.connMu.Unlock()
 		return fmt.Errorf("failed to connect to WebSocket: %w", err)
 	}
-	c.conn = conn
 
-	// Record connection time for duration tracking
-	c.metricsMu.Lock()
+	// Wrap connection with lifecycle management
+	c.conn = newManagedConn(rawConn)
+
+	// Record connection time for duration tracking (protected by connMu, already held)
 	c.connectedAt = time.Now()
-	c.metricsMu.Unlock()
 
 	c.logger.Debug("WebSocket connected with TCP keepalive enabled",
 		zap.Duration("tcp_keep_idle", tcpKeepIdle),
@@ -316,13 +414,15 @@ func (c *Client) Connect() error {
 	// Set initial read deadline - will be extended when we receive pong responses
 	c.conn.SetReadDeadline(time.Now().Add(pongWait))
 
-	// Start background ping sender (sends application-level JSON pings)
-	// This sends an immediate ping, then continues at pingInterval
-	go c.sendPings()
+	// Create a fresh context for the ping goroutine
+	// This ensures the ping goroutine is properly cancelled on disconnect/reconnect
+	pingCtx, pingCancel := context.WithCancel(context.Background())
+	c.pingCancel = pingCancel
 
-	// Start background WebSocket-level ping sender
-	// This provides secondary keepalive at the WebSocket protocol level
-	go c.sendWebSocketPings()
+	// Start background ping sender with explicit connection and context
+	// This eliminates races where the goroutine captures a stale connection reference
+	conn := c.conn
+	go c.sendPings(pingCtx, conn)
 
 	// Start background message receiver
 	go c.receiveMessages()
@@ -348,6 +448,12 @@ func (c *Client) Disconnect() error {
 	}
 
 	c.reconnect = false
+
+	// Cancel ping goroutine first to prevent it from using the closing connection
+	if c.pingCancel != nil {
+		c.pingCancel()
+		c.pingCancel = nil
+	}
 
 	// Cancel context
 	c.ctxMu.Lock()
@@ -438,24 +544,24 @@ func (c *Client) GetReconnectCount() int {
 
 // GetDisconnectCount returns the number of disconnections since client creation.
 func (c *Client) GetDisconnectCount() int {
-	c.metricsMu.RLock()
-	defer c.metricsMu.RUnlock()
+	c.connMu.RLock()
+	defer c.connMu.RUnlock()
 	return c.disconnectCount
 }
 
 // GetLastDisconnectTime returns when the last disconnect occurred.
 // Returns zero time if no disconnects have occurred.
 func (c *Client) GetLastDisconnectTime() time.Time {
-	c.metricsMu.RLock()
-	defer c.metricsMu.RUnlock()
+	c.connMu.RLock()
+	defer c.connMu.RUnlock()
 	return c.lastDisconnectTime
 }
 
 // GetWriteTimeoutCount returns the number of write timeouts detected.
 // Write timeouts indicate the connection is stale and trigger reconnection.
 func (c *Client) GetWriteTimeoutCount() int {
-	c.metricsMu.RLock()
-	defer c.metricsMu.RUnlock()
+	c.connMu.RLock()
+	defer c.connMu.RUnlock()
 	return c.writeTimeoutCount
 }
 
@@ -463,21 +569,16 @@ func (c *Client) GetWriteTimeoutCount() int {
 // Returns 0 if not currently connected.
 func (c *Client) GetConnectionDuration() time.Duration {
 	c.connMu.RLock()
-	connected := c.connected
-	c.connMu.RUnlock()
+	defer c.connMu.RUnlock()
 
-	if !connected {
+	if !c.connected {
 		return 0
 	}
 
-	c.metricsMu.RLock()
-	connectedAt := c.connectedAt
-	c.metricsMu.RUnlock()
-
-	if connectedAt.IsZero() {
+	if c.connectedAt.IsZero() {
 		return 0
 	}
-	return time.Since(connectedAt)
+	return time.Since(c.connectedAt)
 }
 
 // nextMsgID returns the next message ID.
@@ -557,10 +658,10 @@ func (c *Client) sendMessage(msg interface{}) (*Message, error) {
 		// Close it immediately to trigger reconnection rather than waiting
 		// for the next ping or accumulating more failed retries.
 		if strings.Contains(err.Error(), "i/o timeout") {
-			c.metricsMu.Lock()
+			c.connMu.Lock()
 			c.writeTimeoutCount++
 			timeoutNum := c.writeTimeoutCount
-			c.metricsMu.Unlock()
+			c.connMu.Unlock()
 			c.logger.Warn("Write timeout detected, closing connection to trigger reconnect",
 				zap.Error(err), zap.Int("timeout_number", timeoutNum))
 			conn.Close()
@@ -685,6 +786,12 @@ func (c *Client) handleDisconnect() {
 	wasConnected := c.connected
 	c.connected = false
 
+	// Cancel ping goroutine to prevent it from using the closing connection
+	if c.pingCancel != nil {
+		c.pingCancel()
+		c.pingCancel = nil
+	}
+
 	// Close the old connection to allow Home Assistant to accept new connections.
 	// Without this, HA may reject reconnection attempts with "bad handshake" because
 	// the old WebSocket connection is still considered active on HA's side.
@@ -692,23 +799,23 @@ func (c *Client) handleDisconnect() {
 		c.conn.Close()
 		c.conn = nil
 	}
-	c.connMu.Unlock()
 
 	// Only log and count if we were actually connected (avoid duplicate disconnect handling)
 	if !wasConnected {
+		c.connMu.Unlock()
 		return
 	}
 
-	// Update disconnect metrics
-	c.metricsMu.Lock()
+	// Update disconnect metrics (protected by connMu, already held)
 	c.disconnectCount++
 	c.lastDisconnectTime = time.Now()
 	disconnectNum := c.disconnectCount
-	c.metricsMu.Unlock()
+	shouldReconnect := c.reconnect
+	c.connMu.Unlock()
 
 	c.logger.Warn("Connection lost", zap.Int("disconnect_number", disconnectNum))
 
-	if !c.reconnect {
+	if !shouldReconnect {
 		return
 	}
 
@@ -772,26 +879,18 @@ func (c *Client) attemptReconnect() {
 // Home Assistant expects {"id": N, "type": "ping"} messages and responds with {"id": N, "type": "pong"}.
 // WebSocket control frame pings are NOT sufficient - HA only resets its idle timeout on application-layer activity.
 // See: https://developers.home-assistant.io/docs/api/websocket/
-func (c *Client) sendPings() {
-	// Capture context reference at startup
-	c.ctxMu.RLock()
-	ctx := c.ctx
-	c.ctxMu.RUnlock()
-
-	// Capture connection reference
-	c.connMu.RLock()
-	conn := c.conn
-	c.connMu.RUnlock()
-
+//
+// The context and connection are passed explicitly to ensure clean goroutine lifecycle:
+// - When the context is cancelled (on disconnect/reconnect), this goroutine exits cleanly
+// - The connection reference is captured at startup, eliminating races with stale references
+func (c *Client) sendPings(ctx context.Context, conn *managedConn) {
 	// CRITICAL: Send an immediate ping right after connection to establish
 	// application-layer activity. Without this, the first ping would only
 	// come after pingInterval (5s), but NATs and DERP relays may timeout
 	// the connection faster than that during the initial state sync.
 	if err := c.sendImmediatePing(conn); err != nil {
 		c.logger.Warn("Failed to send initial ping, closing connection", zap.Error(err))
-		if conn != nil {
-			conn.Close()
-		}
+		conn.Close()
 		return
 	}
 
@@ -803,23 +902,17 @@ func (c *Client) sendPings() {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			// Check if still connected before attempting ping
-			c.connMu.RLock()
-			if !c.connected {
-				c.connMu.RUnlock()
+			// Check if connection is closed before attempting ping
+			if conn.IsClosed() {
 				return
 			}
-			conn := c.conn
-			c.connMu.RUnlock()
 
 			if err := c.sendImmediatePing(conn); err != nil {
 				c.logger.Warn("Failed to send application ping, closing connection", zap.Error(err))
 				// Close the connection to immediately unblock receiveMessages,
 				// which will call handleDisconnect() to trigger reconnection.
 				// This is faster than waiting for the read deadline to expire.
-				if conn != nil {
-					conn.Close()
-				}
+				conn.Close()
 				return
 			}
 		}
@@ -828,9 +921,9 @@ func (c *Client) sendPings() {
 
 // sendImmediatePing sends an application-level JSON ping immediately.
 // Returns an error if the ping fails to send.
-func (c *Client) sendImmediatePing(conn *websocket.Conn) error {
-	if conn == nil {
-		return fmt.Errorf("connection is nil")
+func (c *Client) sendImmediatePing(conn *managedConn) error {
+	if conn == nil || conn.IsClosed() {
+		return errConnectionClosed
 	}
 	c.writeMu.Lock()
 	msgID := c.nextMsgID()
@@ -847,52 +940,6 @@ func (c *Client) sendImmediatePing(conn *websocket.Conn) error {
 	}
 	c.logger.Debug("Application ping sent successfully", zap.Int("id", msgID))
 	return nil
-}
-
-// sendWebSocketPings sends periodic WebSocket-level control frame pings.
-// These are in addition to application-level pings and help keep the TCP
-// connection alive through NATs, proxies, and load balancers that may not
-// understand application-layer JSON pings.
-func (c *Client) sendWebSocketPings() {
-	// Capture context reference at startup
-	c.ctxMu.RLock()
-	ctx := c.ctx
-	c.ctxMu.RUnlock()
-
-	ticker := time.NewTicker(wsPingInterval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			// Check if still connected before attempting ping
-			c.connMu.RLock()
-			if !c.connected {
-				c.connMu.RUnlock()
-				return
-			}
-			conn := c.conn
-			c.connMu.RUnlock()
-
-			if conn == nil {
-				c.logger.Debug("WebSocket connection is nil, stopping ping goroutine")
-				return
-			}
-
-			// Send WebSocket-level ping frame (not application-level)
-			// WriteControl is safe to call concurrently with WriteMessage
-			err := conn.WriteControl(websocket.PingMessage, []byte{}, time.Now().Add(writeWait))
-			if err != nil {
-				c.logger.Debug("WebSocket ping failed, connection may be closing", zap.Error(err))
-				// Don't close the connection here - let sendPings handle reconnection
-				// as it's the authoritative keepalive mechanism
-				return
-			}
-			c.logger.Debug("WebSocket ping sent successfully")
-		}
-	}
 }
 
 // subscribeToStateChanges subscribes to all state_changed events
