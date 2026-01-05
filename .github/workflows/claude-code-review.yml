@@ -1171,6 +1171,9 @@ jobs:
       pull-requests: write  # Required to add label
 
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
       - name: Check review results
         id: check-results
         run: |
