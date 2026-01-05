@@ -259,9 +259,8 @@ func TestComputedState_IsAnyoneHomeAndAwake_WorksInReadOnlyMode(t *testing.T) {
 }
 
 func TestComputedState_IsAnyoneHomeAndAwake_ComputedOutputFlag(t *testing.T) {
-	t.Parallel(
+	t.Parallel()
 	// Verify that isAnyoneHomeAndAwake has ComputedOutput: true
-	)
 
 	vars := VariablesByKey()
 	v := vars["isAnyoneHomeAndAwake"]
