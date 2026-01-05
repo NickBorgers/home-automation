@@ -6,7 +6,11 @@ import "go.uber.org/zap"
 // subscriptions to automatically recompute them when dependencies change.
 //
 // Computed state variables are derived from other state variables:
-// - isAnyoneHomeAndAwake = isAnyoneHome && !isAnyoneAsleep
+// - isAnyoneHomeAndAwake = (isAnyOwnerHome && !isAnyoneAsleep) || isToriHere
+//
+// Note: Tori doesn't have a sleep state tracked, so her presence means someone
+// is home AND awake by definition. The formula accounts for this by including
+// isToriHere as an independent condition.
 func (m *Manager) SetupComputedState() error {
 	// Compute initial value
 	if err := m.recomputeAnyoneHomeAndAwake(); err != nil {
@@ -14,7 +18,7 @@ func (m *Manager) SetupComputedState() error {
 	}
 
 	// Subscribe to dependency changes
-	_, err := m.Subscribe("isAnyoneHome", func(key string, oldValue, newValue interface{}) {
+	_, err := m.Subscribe("isAnyOwnerHome", func(key string, oldValue, newValue interface{}) {
 		if err := m.recomputeAnyoneHomeAndAwake(); err != nil {
 			m.logger.Error("Failed to recompute isAnyoneHomeAndAwake",
 				zap.String("trigger", key),
@@ -36,6 +40,17 @@ func (m *Manager) SetupComputedState() error {
 		return err
 	}
 
+	_, err = m.Subscribe("isToriHere", func(key string, oldValue, newValue interface{}) {
+		if err := m.recomputeAnyoneHomeAndAwake(); err != nil {
+			m.logger.Error("Failed to recompute isAnyoneHomeAndAwake",
+				zap.String("trigger", key),
+				zap.Error(err))
+		}
+	})
+	if err != nil {
+		return err
+	}
+
 	m.logger.Info("Computed state initialized",
 		zap.Strings("variables", []string{"isAnyoneHomeAndAwake"}))
 
@@ -43,9 +58,13 @@ func (m *Manager) SetupComputedState() error {
 }
 
 // recomputeAnyoneHomeAndAwake computes isAnyoneHomeAndAwake from its dependencies.
-// Formula: isAnyoneHomeAndAwake = isAnyoneHome && !isAnyoneAsleep
+// Formula: isAnyoneHomeAndAwake = (isAnyOwnerHome && !isAnyoneAsleep) || isToriHere
+//
+// This formula correctly handles the case where Tori arrives while owners are asleep.
+// Since Tori doesn't have a sleep state tracked, her presence means someone is
+// home AND awake by definition.
 func (m *Manager) recomputeAnyoneHomeAndAwake() error {
-	isAnyoneHome, err := m.GetBool("isAnyoneHome")
+	isAnyOwnerHome, err := m.GetBool("isAnyOwnerHome")
 	if err != nil {
 		return err
 	}
@@ -55,14 +74,20 @@ func (m *Manager) recomputeAnyoneHomeAndAwake() error {
 		return err
 	}
 
-	newValue := isAnyoneHome && !isAnyoneAsleep
+	isToriHere, err := m.GetBool("isToriHere")
+	if err != nil {
+		return err
+	}
+
+	newValue := (isAnyOwnerHome && !isAnyoneAsleep) || isToriHere
 
 	// Get current value to check if it changed
 	currentValue, _ := m.GetBool("isAnyoneHomeAndAwake")
 	if currentValue != newValue {
 		m.logger.Debug("Recomputing isAnyoneHomeAndAwake",
-			zap.Bool("isAnyoneHome", isAnyoneHome),
+			zap.Bool("isAnyOwnerHome", isAnyOwnerHome),
 			zap.Bool("isAnyoneAsleep", isAnyoneAsleep),
+			zap.Bool("isToriHere", isToriHere),
 			zap.Bool("result", newValue))
 	}
 
