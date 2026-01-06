@@ -666,14 +666,14 @@ flowchart TD
     Orchestrate5[Orchestrate Playback] --> SelectPlaylist
     Orchestrate6[Orchestrate Playback] --> SelectPlaylist
 
-    SelectPlaylist[Select Playlist with Rotation<br/>from music_config.yaml] --> BreakGroups[Break Existing Speaker Groups<br/>media_player.unjoin]
-    BreakGroups --> BuildGroup[Build Sonos Speaker Group]
-    BuildGroup --> MuteAll[Mute All Speakers to 0]
+    SelectPlaylist[Select Playlist with Rotation<br/>from music_config.yaml] --> EvalZone[Evaluate Zone Exclusion<br/>Conditions for Each Speaker]
+    EvalZone --> BreakGroups[Break Existing Speaker Groups<br/>media_player.unjoin<br/>Only for Eligible Speakers]
+    BreakGroups --> BuildGroup[Build Sonos Speaker Group<br/>Excluding Ineligible Speakers]
+    BuildGroup --> MuteAll[Mute All Active Speakers to 0]
     MuteAll --> StartPlayback[Start Playback on Lead Player]
     StartPlayback --> EnableShuffle[Enable Shuffle for Playlists]
-    EnableShuffle --> EvalConditions[Evaluate Mute Conditions<br/>for Each Speaker]
-    EvalConditions --> FadeIn[Fade In Eligible Speakers<br/>Gradually 0→targetVolume]
-    FadeIn --> UpdateShadow[Update Shadow State:<br/>mode, playlist, speakers]
+    EnableShuffle --> FadeIn[Fade In All Active Speakers<br/>Gradually 0→targetVolume]
+    FadeIn --> UpdateShadow[Update Shadow State:<br/>mode, playlist, speakers,<br/>excluded speakers]
     UpdateShadow --> Complete([Playback Complete])
 
     style Start fill:#e1f5ff
@@ -690,12 +690,13 @@ flowchart TD
 
 **Playback Sequence (matches Node-RED):**
 1. Select playlist with rotation
-2. Break existing speaker groups (media_player.unjoin)
-3. Build new speaker group (media_player.join)
-4. Mute all speakers to 0
-5. Start playback on lead player
-6. Enable shuffle for playlists
-7. Fade in eligible speakers
+2. Evaluate zone exclusion conditions (exclude speakers based on state variables)
+3. Break existing speaker groups for eligible speakers only (media_player.unjoin)
+4. Build new speaker group with only eligible speakers (media_player.join)
+5. Mute all active speakers to 0
+6. Start playback on lead player
+7. Enable shuffle for playlists
+8. Fade in all active speakers (excluded speakers are not in the group)
 
 ---
 
