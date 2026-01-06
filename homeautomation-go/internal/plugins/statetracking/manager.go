@@ -130,6 +130,15 @@ func (m *Manager) Start() error {
 		return fmt.Errorf("failed to subscribe to input_boolean.tori_here: %w", err)
 	}
 
+	// Subscribe to near_home presence for owner return detection
+	// These HomeKit automations are more reliable arrival indicators than zone-based helpers
+	if err := m.subHelper.SubscribeToEntity("input_boolean.nick_near_home", m.handleNickNearHomeChange); err != nil {
+		return fmt.Errorf("failed to subscribe to input_boolean.nick_near_home: %w", err)
+	}
+	if err := m.subHelper.SubscribeToEntity("input_boolean.caroline_near_home", m.handleCarolineNearHomeChange); err != nil {
+		return fmt.Errorf("failed to subscribe to input_boolean.caroline_near_home: %w", err)
+	}
+
 	// Initialize shadow state with current input values (after subscriptions registered)
 	m.subHelper.CaptureInitialInputs()
 
@@ -151,6 +160,8 @@ func (m *Manager) Start() error {
 		}),
 		zap.Strings("ownerReturnHome", []string{
 			"isNickHome/isCarolineHome (arrival → didOwnerJustReturnHome=true, 10min auto-reset)",
+			"nick_near_home (on when NOT home → didOwnerJustReturnHome=true)",
+			"caroline_near_home (on when NOT home → didOwnerJustReturnHome=true)",
 		}))
 	return nil
 }
@@ -444,6 +455,76 @@ func (m *Manager) handleToriHereChange(entityID string, oldState, newState *ha.S
 			})
 		} else {
 			m.logger.Debug("Nobody else was home, not announcing Tori's arrival")
+		}
+	}
+}
+
+// handleNickNearHomeChange processes Nick's near_home state changes for arrival detection
+// The near_home geofence is triggered when both arriving AND leaving. We only want to
+// set didOwnerJustReturnHome when arriving (i.e., when Nick is NOT currently marked as home).
+func (m *Manager) handleNickNearHomeChange(entityID string, oldState, newState *ha.State) {
+	if newState == nil || oldState == nil {
+		return
+	}
+
+	// Check if near_home just turned on (state changed to "on" from something else)
+	if newState.State == "on" && oldState.State != "on" {
+		m.logger.Debug("Nick near_home triggered, checking if arriving or leaving",
+			zap.String("entity_id", entityID),
+			zap.String("old_state", oldState.State),
+			zap.String("new_state", newState.State))
+
+		// Check if Nick is currently NOT home (indicating arrival, not departure)
+		isNickHome, err := m.stateManager.GetBool("isNickHome")
+		if err != nil {
+			m.logger.Error("Failed to get isNickHome for near_home check", zap.Error(err))
+			return
+		}
+
+		if !isNickHome {
+			// Nick is NOT home and just triggered near_home → he is ARRIVING
+			m.logger.Info("Nick near_home triggered while NOT home - setting didOwnerJustReturnHome",
+				zap.Bool("isNickHome", isNickHome))
+			m.setOwnerJustReturnedHome()
+		} else {
+			// Nick IS home and just triggered near_home → he is LEAVING, ignore
+			m.logger.Debug("Nick near_home triggered while already home - ignoring (leaving)",
+				zap.Bool("isNickHome", isNickHome))
+		}
+	}
+}
+
+// handleCarolineNearHomeChange processes Caroline's near_home state changes for arrival detection
+// The near_home geofence is triggered when both arriving AND leaving. We only want to
+// set didOwnerJustReturnHome when arriving (i.e., when Caroline is NOT currently marked as home).
+func (m *Manager) handleCarolineNearHomeChange(entityID string, oldState, newState *ha.State) {
+	if newState == nil || oldState == nil {
+		return
+	}
+
+	// Check if near_home just turned on (state changed to "on" from something else)
+	if newState.State == "on" && oldState.State != "on" {
+		m.logger.Debug("Caroline near_home triggered, checking if arriving or leaving",
+			zap.String("entity_id", entityID),
+			zap.String("old_state", oldState.State),
+			zap.String("new_state", newState.State))
+
+		// Check if Caroline is currently NOT home (indicating arrival, not departure)
+		isCarolineHome, err := m.stateManager.GetBool("isCarolineHome")
+		if err != nil {
+			m.logger.Error("Failed to get isCarolineHome for near_home check", zap.Error(err))
+			return
+		}
+
+		if !isCarolineHome {
+			// Caroline is NOT home and just triggered near_home → she is ARRIVING
+			m.logger.Info("Caroline near_home triggered while NOT home - setting didOwnerJustReturnHome",
+				zap.Bool("isCarolineHome", isCarolineHome))
+			m.setOwnerJustReturnedHome()
+		} else {
+			// Caroline IS home and just triggered near_home → she is LEAVING, ignore
+			m.logger.Debug("Caroline near_home triggered while already home - ignoring (leaving)",
+				zap.Bool("isCarolineHome", isCarolineHome))
 		}
 	}
 }
