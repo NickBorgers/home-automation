@@ -25,12 +25,9 @@ rooms:
       - action: off
         variable: isAnyoneHomeAndAwake
         value: false
-      # Priority 2: Wake sequence in progress (fade out) -> leave lights alone (no action)
-      # This prevents the lighting plugin from turning off lights during the morning
-      # wake-up light fade-in, which happens while isMasterAsleep is still true.
-      # The sleephygiene plugin manages bedroom lights during this time.
-      # Note: We use "on" action here as a no-op since the scene will match current state,
-      # effectively preventing the "isMasterAsleep: true -> off" rule from triggering.
+      # Priority 2: Wake sequence in progress -> yield to sleephygiene
+      # Prevents lighting plugin from turning off lights during morning
+      # wake-up fade-in while isMasterAsleep is still true.
       - action: on
         variable: isFadeOutInProgress
         value: true
