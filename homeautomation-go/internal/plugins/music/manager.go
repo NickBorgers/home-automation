@@ -1576,26 +1576,57 @@ func (m *Manager) callServiceWithRetry(domain, service string, serviceData map[s
 func (m *Manager) Reset() error {
 	m.logger.Info("Resetting Music - re-selecting appropriate music mode")
 
-	// Get current day phase to determine appropriate mode
-	dayPhase, err := m.stateManager.GetString("dayPhase")
+	// Check if anyone is home first (matches Node-RED and selectAppropriateMusicModeWithContext)
+	isAnyoneHome, err := m.stateManager.GetBool("isAnyoneHome")
 	if err != nil {
-		m.logger.Error("Failed to get dayPhase", zap.Error(err))
+		m.logger.Error("Failed to get isAnyoneHome", zap.Error(err))
 		return err
 	}
 
-	// Get current music type
-	currentMusicType, err := m.stateManager.GetString("musicPlaybackType")
+	// If no one is home, stop music
+	if !isAnyoneHome {
+		m.logger.Info("No one is home, stopping music on reset")
+		m.stopPlayback()
+		if err := m.setMusicPlaybackType(""); err != nil {
+			if !errors.Is(err, state.ErrReadOnlyMode) {
+				m.logger.Error("Failed to set empty music playback type", zap.Error(err))
+			}
+		}
+		return nil
+	}
+
+	// Check if anyone is asleep - sleep mode has highest priority (matches Node-RED)
+	isAnyoneAsleep, err := m.stateManager.GetBool("isAnyoneAsleep")
 	if err != nil {
-		m.logger.Error("Failed to get musicPlaybackType", zap.Error(err))
+		m.logger.Error("Failed to get isAnyoneAsleep", zap.Error(err))
 		return err
 	}
 
-	// Determine music mode (no trigger key or wake-up event for reset)
-	musicMode := m.determineMusicModeFromDayPhase(dayPhase, currentMusicType, "", false)
+	var musicMode string
+	if isAnyoneAsleep {
+		m.logger.Info("Someone is asleep, selecting sleep mode on reset")
+		musicMode = "sleep"
+	} else {
+		// Get current day phase to determine appropriate mode
+		dayPhase, err := m.stateManager.GetString("dayPhase")
+		if err != nil {
+			m.logger.Error("Failed to get dayPhase", zap.Error(err))
+			return err
+		}
+
+		// Get current music type
+		currentMusicType, err := m.stateManager.GetString("musicPlaybackType")
+		if err != nil {
+			m.logger.Error("Failed to get musicPlaybackType", zap.Error(err))
+			return err
+		}
+
+		// Determine music mode (no trigger key or wake-up event for reset)
+		musicMode = m.determineMusicModeFromDayPhase(dayPhase, currentMusicType, "", false)
+	}
 
 	m.logger.Info("Reset selected music mode",
-		zap.String("day_phase", dayPhase),
-		zap.String("current_music_type", currentMusicType),
+		zap.Bool("is_anyone_asleep", isAnyoneAsleep),
 		zap.String("new_music_mode", musicMode))
 
 	// Check rate limiting (max 1 playback per 10 seconds)
