@@ -993,6 +993,7 @@ jobs:
             - Plugin changes → VISUAL_ARCHITECTURE.md, ARCHITECTURE.md, docs/flows/
             - New Subscribe() → State Variable Dependency Graph
             - Concurrency fix → CONCURRENCY_LESSONS.md
+            - Workflow changes (.github/workflows/*.yml) → docs/operations/CLAUDE_GHA_PIPELINES.md
 
             If Mermaid edits needed: run \`make validate-mermaid\` after editing.
 

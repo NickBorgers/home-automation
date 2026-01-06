@@ -256,6 +256,7 @@ Documentation synchronization review.
 | State variable added | migration_mapping.md, VISUAL_ARCHITECTURE.md |
 | Concurrency fix | CONCURRENCY_LESSONS.md |
 | Plugin logic | Relevant logic flow diagram |
+| Workflow changes (.github/workflows/*.yml) | CLAUDE_GHA_PIPELINES.md |
 
 **Actions**: Updates documentation, validates Mermaid diagrams
 
