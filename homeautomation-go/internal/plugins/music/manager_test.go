@@ -1356,6 +1356,95 @@ func TestManagerReset(t *testing.T) {
 	}
 }
 
+func TestManagerReset_WhenNoOneHome_StopsMusic(t *testing.T) {
+	t.Parallel()
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+
+	musicConfig := &MusicConfig{
+		Music: map[string]MusicMode{
+			"morning": {},
+		},
+	}
+
+	// Set up state: no one is home
+	stateManager.SetString("dayPhase", "morning")
+	stateManager.SetBool("isMasterAsleep", false)
+	stateManager.SetBool("isGuestAsleep", false)
+	stateManager.SetBool("isAnyoneHome", false)
+	stateManager.SetBool("isAnyoneAsleep", false)
+	stateManager.SetString("musicPlaybackType", "morning")
+
+	manager := NewManager(mockClient, stateManager, musicConfig, logger, false, &plugin.RealTimeProvider{})
+
+	err := manager.Start()
+	if err != nil {
+		t.Fatalf("Failed to start manager: %v", err)
+	}
+	defer manager.Stop()
+
+	// Reset when no one is home should stop music and clear musicPlaybackType
+	err = manager.Reset()
+	if err != nil {
+		t.Fatalf("Reset() failed: %v", err)
+	}
+
+	// Verify musicPlaybackType was cleared
+	musicType, err := stateManager.GetString("musicPlaybackType")
+	if err != nil {
+		t.Fatalf("Failed to get musicPlaybackType: %v", err)
+	}
+	if musicType != "" {
+		t.Errorf("Expected musicPlaybackType to be empty when no one home, got %q", musicType)
+	}
+}
+
+func TestManagerReset_WhenSomeoneAsleep_SelectsSleepMode(t *testing.T) {
+	t.Parallel()
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+
+	musicConfig := &MusicConfig{
+		Music: map[string]MusicMode{
+			"morning": {},
+			"sleep":   {},
+		},
+	}
+
+	// Set up state: someone is home and asleep
+	stateManager.SetString("dayPhase", "morning")
+	stateManager.SetBool("isMasterAsleep", true)
+	stateManager.SetBool("isGuestAsleep", false)
+	stateManager.SetBool("isAnyoneHome", true)
+	stateManager.SetBool("isAnyoneAsleep", true)
+	stateManager.SetString("musicPlaybackType", "morning")
+
+	manager := NewManager(mockClient, stateManager, musicConfig, logger, false, &plugin.RealTimeProvider{})
+
+	err := manager.Start()
+	if err != nil {
+		t.Fatalf("Failed to start manager: %v", err)
+	}
+	defer manager.Stop()
+
+	// Reset when someone is asleep should select sleep mode (highest priority)
+	err = manager.Reset()
+	if err != nil {
+		t.Fatalf("Reset() failed: %v", err)
+	}
+
+	// Verify sleep mode was selected
+	musicType, err := stateManager.GetString("musicPlaybackType")
+	if err != nil {
+		t.Fatalf("Failed to get musicPlaybackType: %v", err)
+	}
+	if musicType != "sleep" {
+		t.Errorf("Expected musicPlaybackType to be 'sleep' when someone is asleep, got %q", musicType)
+	}
+}
+
 // TestCurrentlyPlayingMusicUri_SetOnPlayback tests that currentlyPlayingMusicUri
 // is set when playback starts
 func TestCurrentlyPlayingMusicUri_SetOnPlayback(t *testing.T) {
