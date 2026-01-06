@@ -770,6 +770,8 @@ func (m *Manager) turnOnMasterBedroomLights() {
 		return
 	}
 
+	m.logger.Info("Set initial bedroom light state (1% brightness, warm white)")
+
 	// Then start slow transition to full brightness over 30 minutes
 	if err := m.haClient.CallService("light", "turn_on", map[string]interface{}{
 		"entity_id":      "light.primary_suite",
@@ -778,7 +780,10 @@ func (m *Manager) turnOnMasterBedroomLights() {
 		"brightness_pct": 100,
 	}); err != nil {
 		m.logger.Error("Failed to start bedroom light transition", zap.Error(err))
+		return
 	}
+
+	m.logger.Info("Started 30-minute bedroom light fade-in to 100% brightness")
 }
 
 // flashCommonAreaLights flashes lights in common areas as a notification
