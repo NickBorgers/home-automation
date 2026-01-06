@@ -217,7 +217,7 @@ sequenceDiagram
 ```
 
 **Code Changes:**
-1. Add `migrateSpea ker(from, to Zone)` method
+1. Add `migrateSpeaker(from, to Zone)` method
 2. Subscription handlers trigger zone re-evaluation
 3. Track pending migrations to prevent race conditions
 4. Handle edge cases (source zone becomes empty, target zone doesn't exist)
