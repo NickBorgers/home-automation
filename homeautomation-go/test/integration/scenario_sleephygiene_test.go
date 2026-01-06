@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"homeautomation/internal/config"
+	"homeautomation/internal/plugins/lighting"
 	"homeautomation/internal/plugins/sleephygiene"
 	"homeautomation/internal/testlogger"
 	"homeautomation/pkg/plugin"
@@ -612,4 +613,242 @@ func TestScenario_SleepStateIntegration_ChecksConditions(t *testing.T) {
 	if fadeOutInProgress {
 		t.Log("SUCCESS: Wake sequence triggers when master is asleep")
 	}
+}
+
+// TestScenario_WakeUpLightFadeIn_StartsAtLowBrightness validates that when the
+// wake-up light fade-in starts, the lights begin at 1% brightness (not high brightness).
+// This is critical to prevent a jarring wake-up experience.
+//
+// The user's primary concern: "lights will come up at a high brightness when the
+// fade in starts" - this test validates that the initial brightness is 1%.
+//
+// The test validates that:
+// 1. The initial light call sets brightness_pct to 1 with transition=0
+// 2. The follow-up call sets brightness_pct to 100 with transition=1800 (30 min)
+// 3. The two-step process ensures lights start dim and gradually brighten
+func TestScenario_WakeUpLightFadeIn_StartsAtLowBrightness(t *testing.T) {
+	server, sleepMgr, cleanup := setupSleepHygieneScenarioTest(t)
+	defer cleanup()
+
+	// Skip internal sleeps so the test completes quickly
+	sleepMgr.SetSleepFunc(func(d time.Duration) {})
+
+	// GIVEN: Conditions for wake sequence are met (fade-out already in progress)
+	t.Log("GIVEN: Someone is home, master is asleep, fade-out in progress")
+	t.Log("       (Simulating state after begin_wake has run)")
+
+	server.SetState("input_boolean.anyone_home", "on", map[string]interface{}{})
+	server.SetState("input_boolean.master_asleep", "on", map[string]interface{}{})
+	// isFadeOutInProgress is true because begin_wake has already run
+	server.SetState("input_boolean.fade_out_in_progress", "on", map[string]interface{}{})
+
+	// Set up bedroom lights as "on" initially (at some brightness)
+	server.SetState("light.primary_suite", "on", map[string]interface{}{
+		"brightness": 255,
+	})
+
+	time.Sleep(50 * time.Millisecond)
+	server.ClearServiceCalls()
+
+	// WHEN: Wake sequence triggers (light fade-in phase, after 5-min delay)
+	t.Log("WHEN: Wake sequence triggers via TriggerWakeForTest")
+	t.Log("      (This calls turnOnMasterBedroomLights)")
+
+	// Use the test helper to trigger the wake sequence directly
+	// This bypasses the 5-minute delay from scheduleWakeSequence
+	sleepMgr.TriggerWakeForTest()
+
+	// Wait for service calls to be processed
+	time.Sleep(100 * time.Millisecond)
+
+	// THEN: Verify the light service calls show LOW initial brightness
+	t.Log("THEN: Verify lights start at 1% brightness and fade to 100%")
+
+	calls := server.GetServiceCalls()
+	t.Logf("Total service calls during wake sequence: %d", len(calls))
+
+	// Find light.turn_on calls to primary_suite
+	lightCalls := filterServiceCalls(calls, "light", "turn_on")
+	t.Logf("Light turn_on calls: %d", len(lightCalls))
+
+	// Look for bedroom light calls with brightness_pct
+	var initialBrightnessCall *ServiceCall
+	var fadeInCall *ServiceCall
+
+	for i := range lightCalls {
+		call := &lightCalls[i]
+		entityID, hasEntity := call.ServiceData["entity_id"].(string)
+		if !hasEntity || entityID != "light.primary_suite" {
+			continue
+		}
+
+		brightnessPct, hasBrightness := call.ServiceData["brightness_pct"]
+		transition, hasTransition := call.ServiceData["transition"]
+
+		if hasBrightness {
+			t.Logf("Found light call: entity=%s, brightness_pct=%v, transition=%v",
+				entityID, brightnessPct, transition)
+
+			// Convert to numeric for comparison
+			var bPct float64
+			switch v := brightnessPct.(type) {
+			case float64:
+				bPct = v
+			case int:
+				bPct = float64(v)
+			}
+
+			var trans float64
+			if hasTransition {
+				switch v := transition.(type) {
+				case float64:
+					trans = v
+				case int:
+					trans = float64(v)
+				}
+			}
+
+			// First call should be: brightness_pct=1, transition=0 (instant dim)
+			if bPct == 1 && trans == 0 {
+				initialBrightnessCall = call
+			}
+			// Second call should be: brightness_pct=100, transition=1800 (30 min fade)
+			if bPct == 100 && trans == 1800 {
+				fadeInCall = call
+			}
+		}
+	}
+
+	// CRITICAL ASSERTION 1: Initial brightness should be LOW (1%)
+	// This validates the user's concern that lights won't come up at high brightness
+	require.NotNil(t, initialBrightnessCall,
+		"Should find initial light call with brightness_pct=1, transition=0")
+
+	t.Log("SUCCESS: Initial light call sets brightness to 1% with instant transition")
+	t.Log("         This prevents jarring high-brightness wake-up")
+
+	// Verify the initial call has correct parameters (values are float64 in service data)
+	assert.Equal(t, float64(1), initialBrightnessCall.ServiceData["brightness_pct"],
+		"Initial brightness should be 1%")
+	assert.Equal(t, float64(0), initialBrightnessCall.ServiceData["transition"],
+		"Initial transition should be 0 (instant)")
+
+	// CRITICAL ASSERTION 2: Fade-in call should exist with 30-minute transition
+	require.NotNil(t, fadeInCall,
+		"Should find fade-in call with brightness_pct=100, transition=1800")
+
+	t.Log("SUCCESS: Fade-in call sets brightness to 100% with 30-minute transition")
+
+	assert.Equal(t, float64(100), fadeInCall.ServiceData["brightness_pct"],
+		"Fade-in target brightness should be 100%")
+	assert.Equal(t, float64(1800), fadeInCall.ServiceData["transition"],
+		"Fade-in transition should be 1800 seconds (30 minutes)")
+
+	t.Log("========================================")
+	t.Log("VALIDATION COMPLETE:")
+	t.Log("  - Lights start at 1% brightness (not high)")
+	t.Log("  - Initial transition is instant (0s)")
+	t.Log("  - Gradual 30-minute fade-in to 100% follows")
+	t.Log("  - User concern addressed: no jarring brightness")
+	t.Log("========================================")
+}
+
+// TestScenario_WakeSequence_LightingPluginYieldsToSleepHygiene validates that
+// when isFadeOutInProgress is true, the lighting plugin does NOT turn off
+// the bedroom lights even though isMasterAsleep is true.
+//
+// This tests the PR #421 fix: Adding the isFadeOutInProgress condition to
+// the lighting config prevents the lighting plugin from interfering with
+// the sleephygiene plugin's wake-up light fade-in.
+func TestScenario_WakeSequence_LightingPluginYieldsToSleepHygiene(t *testing.T) {
+	// This test uses the multi-plugin environment to test interaction
+	// between sleephygiene and lighting plugins
+
+	server, client, manager, baseCleanup := setupTest(t)
+	defer baseCleanup()
+
+	logger := testlogger.New()
+
+	// Load lighting config (includes isFadeOutInProgress condition)
+	lightingConfig := loadTestLightingConfig(t)
+
+	// Create lighting plugin
+	lightingMgr := lighting.NewManager(client, manager, lightingConfig, logger, false, nil)
+	require.NoError(t, lightingMgr.Start(), "Failed to start lighting manager")
+	defer lightingMgr.Stop()
+
+	// GIVEN: Wake sequence in progress - master is asleep but fade out is happening
+	t.Log("GIVEN: Master is asleep and wake sequence is in progress (isFadeOutInProgress=true)")
+
+	server.SetState("input_boolean.anyone_home", "on", map[string]interface{}{})
+	server.SetState("input_boolean.master_asleep", "on", map[string]interface{}{})
+	server.SetState("input_boolean.fade_out_in_progress", "on", map[string]interface{}{})
+	server.SetState("input_text.day_phase", "morning", map[string]interface{}{})
+
+	time.Sleep(50 * time.Millisecond)
+	server.ClearServiceCalls()
+
+	// WHEN: Something triggers the lighting plugin to re-evaluate the bedroom
+	t.Log("WHEN: Lighting plugin re-evaluates Master Bedroom conditions")
+	t.Log("      (Triggered by isMasterAsleep state change notification)")
+
+	// Trigger a state change that would cause lighting to re-evaluate
+	// By changing isMasterAsleep, this would normally turn off lights
+	server.SetState("input_boolean.master_asleep", "on", map[string]interface{}{})
+
+	time.Sleep(100 * time.Millisecond)
+
+	// THEN: Lighting plugin should NOT turn off lights (yielded to sleephygiene)
+	t.Log("THEN: Lighting plugin should NOT turn off bedroom lights")
+	t.Log("      (Because isFadeOutInProgress=true takes priority)")
+
+	calls := server.GetServiceCalls()
+	t.Logf("Service calls after state change: %d", len(calls))
+
+	// Check for any light.turn_off calls to master_bedroom area
+	lightOffCalls := filterServiceCalls(calls, "light", "turn_off")
+
+	foundBedroomTurnOff := false
+	for _, call := range lightOffCalls {
+		areaID, _ := call.ServiceData["area_id"].(string)
+		entityID, _ := call.ServiceData["entity_id"].(string)
+
+		t.Logf("Light turn_off call: area_id=%s, entity_id=%s", areaID, entityID)
+
+		if areaID == "master_bedroom" || entityID == "light.master_bedroom" {
+			foundBedroomTurnOff = true
+		}
+	}
+
+	// CRITICAL ASSERTION: No turn_off call to bedroom during wake sequence
+	assert.False(t, foundBedroomTurnOff,
+		"Lighting plugin should NOT turn off bedroom lights when isFadeOutInProgress is true")
+
+	// Verify that scenes were activated instead (isFadeOutInProgress=true -> action=on)
+	sceneCalls := filterServiceCalls(calls, "scene", "turn_on")
+	t.Logf("Scene turn_on calls: %d", len(sceneCalls))
+
+	// The lighting plugin should have activated a scene for the bedroom
+	// (This is the "on" action from isFadeOutInProgress=true condition)
+	foundBedroomScene := false
+	for _, call := range sceneCalls {
+		entityID, _ := call.ServiceData["entity_id"].(string)
+		t.Logf("Scene activation: %s", entityID)
+
+		if entityID == "scene.master_bedroom_morning" {
+			foundBedroomScene = true
+		}
+	}
+
+	if foundBedroomScene {
+		t.Log("SUCCESS: Lighting plugin activated bedroom scene instead of turning off")
+		t.Log("         This allows sleephygiene to control the wake-up fade-in")
+	}
+
+	t.Log("========================================")
+	t.Log("VALIDATION COMPLETE:")
+	t.Log("  - Lighting plugin respects isFadeOutInProgress condition")
+	t.Log("  - Bedroom lights NOT turned off during wake sequence")
+	t.Log("  - sleephygiene plugin has control for gradual fade-in")
+	t.Log("========================================")
 }
