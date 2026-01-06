@@ -22,7 +22,17 @@ type MusicMode struct {
 type Participant struct {
 	PlayerName   string          `yaml:"player_name"`
 	BaseVolume   int             `yaml:"base_volume"`
-	LeaveMutedIf []MuteCondition `yaml:"leave_muted_if"`
+	ExcludeIf    []MuteCondition `yaml:"exclude_if"`
+	LeaveMutedIf []MuteCondition `yaml:"leave_muted_if"` // Deprecated: use exclude_if instead (backward compatibility)
+}
+
+// GetExclusionConditions returns the exclusion conditions for this participant.
+// Prefers ExcludeIf if set, otherwise falls back to LeaveMutedIf for backward compatibility.
+func (p *Participant) GetExclusionConditions() []MuteCondition {
+	if len(p.ExcludeIf) > 0 {
+		return p.ExcludeIf
+	}
+	return p.LeaveMutedIf
 }
 
 // MuteCondition represents a condition under which a speaker should be muted

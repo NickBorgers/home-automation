@@ -32,22 +32,35 @@ type ParticipantWithVolume struct {
 	BaseVolume    int             `json:"base_volume"`
 	Volume        int             `json:"volume"`
 	DefaultVolume int             `json:"default_volume"`
-	LeaveMutedIf  []MuteCondition `json:"leave_muted_if"`
+	ExcludeIf     []MuteCondition `json:"exclude_if"`
+	LeaveMutedIf  []MuteCondition `json:"leave_muted_if"` // Deprecated: kept for JSON backward compatibility
+}
+
+// GetExclusionConditions returns the exclusion conditions for this participant.
+// Prefers ExcludeIf if set, otherwise falls back to LeaveMutedIf for backward compatibility.
+func (p *ParticipantWithVolume) GetExclusionConditions() []MuteCondition {
+	if len(p.ExcludeIf) > 0 {
+		return p.ExcludeIf
+	}
+	return p.LeaveMutedIf
 }
 
 // SpeakerResult tracks whether a speaker successfully joined the group
 type SpeakerResult struct {
-	Participant   ParticipantWithVolume
-	Active        bool
-	FailureReason string
+	Participant     ParticipantWithVolume
+	Active          bool
+	FailureReason   string
+	Excluded        bool   // true if speaker was excluded due to zone policy (not a failure)
+	ExclusionReason string // Reason for exclusion (e.g., "variable isTVPlaying == true")
 }
 
 // SpeakerGroupResult holds the results of building a speaker group
 type SpeakerGroupResult struct {
-	Results     []SpeakerResult // All speakers with their join status
-	ActiveCount int             // Number of speakers that successfully joined
-	FailedCount int             // Number of speakers that failed to join
-	LeadActive  bool            // Whether the lead speaker is available
+	Results       []SpeakerResult // All speakers with their join status
+	ActiveCount   int             // Number of speakers that successfully joined
+	FailedCount   int             // Number of speakers that failed to join
+	ExcludedCount int             // Number of speakers excluded due to zone policy
+	LeadActive    bool            // Whether the lead speaker is available
 }
 
 // SleepFunc is a function type for sleeping (allows test injection)
@@ -421,9 +434,9 @@ func (m *Manager) handleMusicPlaybackTypeChange(key string, oldValue, newValue i
 	}
 }
 
-// collectMuteConditionVariables collects all unique variables from participant mute conditions
-// These are variables like isNickOfficeOccupied that need subscriptions for dynamic speaker unmuting
-func (m *Manager) collectMuteConditionVariables() []string {
+// collectExclusionConditionVariables collects all unique variables from participant exclusion conditions.
+// These are variables like isNickOfficeOccupied that need subscriptions for dynamic zone re-evaluation.
+func (m *Manager) collectExclusionConditionVariables() []string {
 	// Use a map to collect unique variables
 	varMap := make(map[string]bool)
 
@@ -437,7 +450,8 @@ func (m *Manager) collectMuteConditionVariables() []string {
 
 	for _, mode := range m.config.Music {
 		for _, participant := range mode.Participants {
-			for _, condition := range participant.LeaveMutedIf {
+			// Check both ExcludeIf and LeaveMutedIf for backward compatibility
+			for _, condition := range participant.GetExclusionConditions() {
 				if condition.Variable != "" && !alreadySubscribed[condition.Variable] {
 					varMap[condition.Variable] = true
 				}
@@ -454,10 +468,16 @@ func (m *Manager) collectMuteConditionVariables() []string {
 	return result
 }
 
-// handleMuteConditionChange processes changes to variables used in speaker mute conditions
-// This re-evaluates speaker states during active playback
-func (m *Manager) handleMuteConditionChange(key string, oldValue, newValue interface{}) {
-	m.logger.Debug("Mute condition variable changed",
+// collectMuteConditionVariables is a deprecated alias for collectExclusionConditionVariables.
+// Deprecated: Use collectExclusionConditionVariables instead.
+func (m *Manager) collectMuteConditionVariables() []string {
+	return m.collectExclusionConditionVariables()
+}
+
+// handleExclusionConditionChange processes changes to variables used in speaker exclusion conditions.
+// This re-evaluates zone membership during active playback - speakers may join or leave the group.
+func (m *Manager) handleExclusionConditionChange(key string, oldValue, newValue interface{}) {
+	m.logger.Debug("Exclusion condition variable changed",
 		zap.String("key", key),
 		zap.Any("old", oldValue),
 		zap.Any("new", newValue))
@@ -468,20 +488,20 @@ func (m *Manager) handleMuteConditionChange(key string, oldValue, newValue inter
 	m.mu.RUnlock()
 
 	if currentlyPlaying == nil || currentlyPlaying.Type == "" {
-		m.logger.Debug("No music currently playing, ignoring mute condition change",
+		m.logger.Debug("No music currently playing, ignoring exclusion condition change",
 			zap.String("key", key))
 		return
 	}
 
-	m.logger.Info("Re-evaluating speaker mute conditions during active playback",
+	m.logger.Info("Re-evaluating speaker zone membership during active playback",
 		zap.String("key", key),
 		zap.String("music_type", currentlyPlaying.Type))
 
-	// Re-evaluate each participant's mute conditions
+	// Re-evaluate each participant's exclusion conditions
 	for _, participant := range currentlyPlaying.Participants {
-		// Check if this participant uses the changed variable in their mute conditions
+		// Check if this participant uses the changed variable in their exclusion conditions
 		usesVariable := false
-		for _, condition := range participant.LeaveMutedIf {
+		for _, condition := range participant.GetExclusionConditions() {
 			if condition.Variable == key {
 				usesVariable = true
 				break
@@ -492,68 +512,91 @@ func (m *Manager) handleMuteConditionChange(key string, oldValue, newValue inter
 			continue
 		}
 
-		// Re-evaluate whether this speaker should be unmuted
-		shouldUnmute := m.shouldUnmuteSpeaker(participant)
+		// Re-evaluate whether this speaker should be included in zone
+		shouldInclude, exclusionReason := m.shouldIncludeInZone(participant)
 
-		m.logger.Info("Re-evaluated speaker mute condition",
+		m.logger.Info("Re-evaluated speaker zone membership",
 			zap.String("speaker", participant.PlayerName),
 			zap.String("changed_variable", key),
-			zap.Bool("should_unmute", shouldUnmute))
+			zap.Bool("should_include", shouldInclude),
+			zap.String("exclusion_reason", exclusionReason))
 
-		if shouldUnmute {
-			// Unmute the speaker (volume was already set during initial playback)
-			m.unmuteSpeaker(participant)
+		if shouldInclude {
+			// Speaker should join the zone - add to group and fade in
+			m.addSpeakerToZone(participant)
 		} else {
-			// Mute the speaker
-			m.muteSpeaker(participant)
+			// Speaker should leave the zone - remove from group
+			m.removeSpeakerFromZone(participant, exclusionReason)
 		}
 	}
 }
 
-// unmuteSpeaker unmutes a Sonos speaker using the volume_mute service.
-// This is used during active playback when a room becomes occupied.
-// Volume was already set during initial playback, so we just need to unmute.
-func (m *Manager) unmuteSpeaker(participant ParticipantWithVolume) {
-	if m.readOnly {
-		m.logger.Debug("Read-only mode: would unmute speaker",
-			zap.String("speaker", participant.PlayerName))
-		return
-	}
-
-	entityID := m.getSpeakerEntityID(participant.PlayerName)
-
-	m.logger.Info("Unmuting speaker",
-		zap.String("speaker", participant.PlayerName))
-
-	if err := m.callServiceWithRetry("media_player", "volume_mute", map[string]interface{}{
-		"entity_id":       entityID,
-		"is_volume_muted": false,
-	}); err != nil {
-		m.logger.Error("Failed to unmute speaker",
-			zap.String("speaker", participant.PlayerName),
-			zap.Error(err))
-	}
+// handleMuteConditionChange is a deprecated alias for handleExclusionConditionChange.
+// Deprecated: Use handleExclusionConditionChange instead.
+func (m *Manager) handleMuteConditionChange(key string, oldValue, newValue interface{}) {
+	m.handleExclusionConditionChange(key, oldValue, newValue)
 }
 
-// muteSpeaker mutes a Sonos speaker using the volume_mute service.
-// This is used during active playback when a room becomes unoccupied.
-func (m *Manager) muteSpeaker(participant ParticipantWithVolume) {
+// addSpeakerToZone adds a speaker to the active zone (joins the group and fades in).
+// Used when exclusion conditions change and a speaker should now be included.
+func (m *Manager) addSpeakerToZone(participant ParticipantWithVolume) {
 	if m.readOnly {
-		m.logger.Debug("Read-only mode: would mute speaker",
+		m.logger.Debug("Read-only mode: would add speaker to zone",
 			zap.String("speaker", participant.PlayerName))
+		return
+	}
+
+	m.mu.RLock()
+	currentlyPlaying := m.currentlyPlaying
+	m.mu.RUnlock()
+
+	if currentlyPlaying == nil {
+		return
+	}
+
+	entityID := m.getSpeakerEntityID(participant.PlayerName)
+	leadEntityID := m.getSpeakerEntityID(currentlyPlaying.LeadPlayer)
+
+	m.logger.Info("Adding speaker to zone",
+		zap.String("speaker", participant.PlayerName),
+		zap.String("lead", currentlyPlaying.LeadPlayer))
+
+	// Join the speaker to the group
+	if err := m.callServiceWithRetry("media_player", "join", map[string]interface{}{
+		"entity_id":     leadEntityID,
+		"group_members": []string{entityID},
+	}); err != nil {
+		m.logger.Error("Failed to add speaker to zone",
+			zap.String("speaker", participant.PlayerName),
+			zap.Error(err))
+		return
+	}
+
+	// Start fade-in
+	go m.fadeInSpeaker(participant.PlayerName, participant.Volume, currentlyPlaying.Type)
+}
+
+// removeSpeakerFromZone removes a speaker from the active zone (unjoins the group).
+// Used when exclusion conditions change and a speaker should now be excluded.
+func (m *Manager) removeSpeakerFromZone(participant ParticipantWithVolume, reason string) {
+	if m.readOnly {
+		m.logger.Debug("Read-only mode: would remove speaker from zone",
+			zap.String("speaker", participant.PlayerName),
+			zap.String("reason", reason))
 		return
 	}
 
 	entityID := m.getSpeakerEntityID(participant.PlayerName)
 
-	m.logger.Info("Muting speaker",
-		zap.String("speaker", participant.PlayerName))
+	m.logger.Info("Removing speaker from zone",
+		zap.String("speaker", participant.PlayerName),
+		zap.String("reason", reason))
 
-	if err := m.callServiceWithRetry("media_player", "volume_mute", map[string]interface{}{
-		"entity_id":       entityID,
-		"is_volume_muted": true,
+	// Unjoin the speaker from the group
+	if err := m.callServiceWithRetry("media_player", "unjoin", map[string]interface{}{
+		"entity_id": entityID,
 	}); err != nil {
-		m.logger.Error("Failed to mute speaker",
+		m.logger.Error("Failed to remove speaker from zone",
 			zap.String("speaker", participant.PlayerName),
 			zap.Error(err))
 	}
@@ -636,7 +679,8 @@ func (m *Manager) orchestratePlayback(musicType string, trigger string) error {
 			BaseVolume:    p.BaseVolume,
 			Volume:        volume,
 			DefaultVolume: volume,
-			LeaveMutedIf:  p.LeaveMutedIf,
+			ExcludeIf:     p.ExcludeIf,
+			LeaveMutedIf:  p.LeaveMutedIf, // Keep for backward compatibility
 		})
 	}
 
@@ -818,7 +862,7 @@ func (m *Manager) calculateVolume(baseVolume int, multiplier float64) int {
 // executePlayback executes the actual playback sequence.
 // Returns SpeakerGroupResult indicating which speakers are active, and the number of
 // verification attempts needed (1 = first try succeeded).
-// Sequence matches Node-RED: break existing groups → build new group → mute → play → fade in
+// Sequence: evaluate zone eligibility → break existing groups → build new group → play → fade in
 func (m *Manager) executePlayback(musicType string, option PlaybackOption, participants []ParticipantWithVolume, leadPlayer string) (*SpeakerGroupResult, int, error) {
 	m.logger.Info("Executing playback sequence",
 		zap.String("type", musicType),
@@ -827,23 +871,81 @@ func (m *Manager) executePlayback(musicType string, option PlaybackOption, parti
 
 	leadEntityID := m.getSpeakerEntityID(leadPlayer)
 
-	// Step 1: Break speakers from existing groups before building new group
-	// This matches Node-RED behavior where stopMsg routes through "Break group for player"
-	m.breakSpeakerGroups(participants)
+	// Step 1: Evaluate zone eligibility for all participants
+	// Excluded speakers are NOT added to the Sonos group at all (unlike the old mute behavior)
+	allResults := make([]SpeakerResult, 0, len(participants))
+	eligibleParticipants := make([]ParticipantWithVolume, 0, len(participants))
+	excludedCount := 0
 
-	// Step 2: Build speaker group if multiple participants
+	for i, p := range participants {
+		shouldInclude, exclusionReason := m.shouldIncludeInZone(p)
+
+		if !shouldInclude {
+			// Speaker is excluded from zone
+			m.logger.Info("Speaker excluded from zone",
+				zap.String("speaker", p.PlayerName),
+				zap.String("reason", exclusionReason))
+			allResults = append(allResults, SpeakerResult{
+				Participant:     p,
+				Active:          false,
+				Excluded:        true,
+				ExclusionReason: exclusionReason,
+			})
+			excludedCount++
+
+			// Check if lead player was excluded (first participant is the lead)
+			if i == 0 {
+				return &SpeakerGroupResult{
+					Results:       allResults,
+					ActiveCount:   0,
+					FailedCount:   0,
+					ExcludedCount: excludedCount,
+					LeadActive:    false,
+				}, 0, fmt.Errorf("lead player %s is excluded from zone: %s", leadPlayer, exclusionReason)
+			}
+		} else {
+			// Speaker is eligible for zone
+			eligibleParticipants = append(eligibleParticipants, p)
+			// Create a placeholder result - will be updated by buildSpeakerGroup
+			allResults = append(allResults, SpeakerResult{
+				Participant: p,
+				Active:      true, // Assume active, will be updated if join fails
+			})
+		}
+	}
+
+	// If no eligible participants, fail
+	if len(eligibleParticipants) == 0 {
+		return &SpeakerGroupResult{
+			Results:       allResults,
+			ActiveCount:   0,
+			FailedCount:   0,
+			ExcludedCount: excludedCount,
+			LeadActive:    false,
+		}, 0, fmt.Errorf("all participants excluded from zone for music type: %s", musicType)
+	}
+
+	m.logger.Info("Zone eligibility evaluated",
+		zap.Int("eligible", len(eligibleParticipants)),
+		zap.Int("excluded", excludedCount))
+
+	// Step 2: Break eligible speakers from existing groups before building new group
+	m.breakSpeakerGroups(eligibleParticipants)
+
+	// Step 3: Build speaker group with only eligible participants
 	var groupResult *SpeakerGroupResult
-	if len(participants) > 1 {
+	if len(eligibleParticipants) > 1 {
 		var err error
-		groupResult, err = m.buildSpeakerGroup(participants, leadEntityID)
+		groupResult, err = m.buildSpeakerGroup(eligibleParticipants, leadEntityID)
 		if err != nil {
-			return groupResult, 0, fmt.Errorf("failed to build speaker group: %w", err)
+			// Merge excluded results with group results
+			return m.mergeExcludedWithGroupResults(allResults, groupResult, excludedCount), 0, fmt.Errorf("failed to build speaker group: %w", err)
 		}
 	} else {
-		// Single speaker - create result with just the lead
+		// Single eligible speaker - create result with just that speaker
 		groupResult = &SpeakerGroupResult{
 			Results: []SpeakerResult{{
-				Participant: participants[0],
+				Participant: eligibleParticipants[0],
 				Active:      true,
 			}},
 			ActiveCount: 1,
@@ -852,10 +954,13 @@ func (m *Manager) executePlayback(musicType string, option PlaybackOption, parti
 		}
 	}
 
-	// Step 3: Mute all ACTIVE speakers initially
+	// Merge excluded speakers with group results
+	groupResult = m.mergeExcludedWithGroupResults(allResults, groupResult, excludedCount)
+
+	// Step 4: Mute all ACTIVE speakers initially (not excluded ones)
 	for _, sr := range groupResult.Results {
-		if !sr.Active {
-			continue // Skip failed speakers
+		if !sr.Active || sr.Excluded {
+			continue // Skip failed or excluded speakers
 		}
 		entityID := m.getSpeakerEntityID(sr.Participant.PlayerName)
 		if err := m.callServiceWithRetry("media_player", "volume_set", map[string]interface{}{
@@ -868,11 +973,7 @@ func (m *Manager) executePlayback(musicType string, option PlaybackOption, parti
 		}
 	}
 
-	// Step 4: Start playback on lead player with verification
-	// This verifies playback actually starts, not just that the command was accepted.
-	// IMPORTANT: Even if verification fails, we continue with fade-in. Sonos speakers
-	// at volume 0 may not report "playing" state, but the play_media command was sent
-	// and the group is built - proceeding with fade-in often results in working playback.
+	// Step 5: Start playback on lead player with verification
 	attempts, verifyErr := m.startPlaybackWithVerification(leadEntityID, option)
 	playbackVerificationFailed := verifyErr != nil
 	if playbackVerificationFailed {
@@ -886,7 +987,7 @@ func (m *Manager) executePlayback(musicType string, option PlaybackOption, parti
 			zap.String("speaker", leadPlayer))
 	}
 
-	// Step 5: Enable shuffle for Spotify playlists
+	// Step 6: Enable shuffle for Spotify playlists
 	if option.MediaType == "playlist" {
 		if err := m.callServiceWithRetry("media_player", "shuffle_set", map[string]interface{}{
 			"entity_id": leadEntityID,
@@ -898,9 +999,7 @@ func (m *Manager) executePlayback(musicType string, option PlaybackOption, parti
 		}
 	}
 
-	// Step 6: Enable repeat for all playback types
-	// Repeat ensures continuous playback, especially important for single-file
-	// media like rain sounds that would otherwise stop after playing once
+	// Step 7: Enable repeat for all playback types
 	if err := m.callServiceWithRetry("media_player", "repeat_set", map[string]interface{}{
 		"entity_id": leadEntityID,
 		"repeat":    "all",
@@ -910,22 +1009,17 @@ func (m *Manager) executePlayback(musicType string, option PlaybackOption, parti
 			zap.Error(err))
 	}
 
-	// Step 7: Evaluate mute conditions and unmute eligible ACTIVE speakers
+	// Step 8: Fade in all ACTIVE (non-excluded) speakers
 	for _, sr := range groupResult.Results {
-		if !sr.Active {
-			continue // Skip failed speakers
+		if !sr.Active || sr.Excluded {
+			continue // Skip failed or excluded speakers
 		}
-		if m.shouldUnmuteSpeaker(sr.Participant) {
-			m.logger.Info("Unmuting speaker",
-				zap.String("speaker", sr.Participant.PlayerName),
-				zap.Int("target_volume", sr.Participant.Volume))
+		m.logger.Info("Starting fade-in for speaker",
+			zap.String("speaker", sr.Participant.PlayerName),
+			zap.Int("target_volume", sr.Participant.Volume))
 
-			// Start fade-in in goroutine
-			go m.fadeInSpeaker(sr.Participant.PlayerName, sr.Participant.Volume, musicType)
-		} else {
-			m.logger.Info("Keeping speaker muted due to conditions",
-				zap.String("speaker", sr.Participant.PlayerName))
-		}
+		// Start fade-in in goroutine
+		go m.fadeInSpeaker(sr.Participant.PlayerName, sr.Participant.Volume, musicType)
 	}
 
 	if playbackVerificationFailed {
@@ -933,16 +1027,58 @@ func (m *Manager) executePlayback(musicType string, option PlaybackOption, parti
 			zap.String("type", musicType),
 			zap.Int("active_speakers", groupResult.ActiveCount),
 			zap.Int("failed_speakers", groupResult.FailedCount),
+			zap.Int("excluded_speakers", groupResult.ExcludedCount),
 			zap.Int("verification_attempts", attempts))
 	} else {
 		m.logger.Info("Playback sequence completed successfully",
 			zap.String("type", musicType),
 			zap.Int("active_speakers", groupResult.ActiveCount),
 			zap.Int("failed_speakers", groupResult.FailedCount),
+			zap.Int("excluded_speakers", groupResult.ExcludedCount),
 			zap.Int("verification_attempts", attempts))
 	}
 
 	return groupResult, attempts, nil
+}
+
+// mergeExcludedWithGroupResults combines excluded speaker results with group build results.
+// This ensures all participants are tracked in the final result, including those excluded by policy.
+func (m *Manager) mergeExcludedWithGroupResults(allResults []SpeakerResult, groupResult *SpeakerGroupResult, excludedCount int) *SpeakerGroupResult {
+	if groupResult == nil {
+		return &SpeakerGroupResult{
+			Results:       allResults,
+			ActiveCount:   0,
+			FailedCount:   0,
+			ExcludedCount: excludedCount,
+			LeadActive:    false,
+		}
+	}
+
+	// Create a map of eligible speaker results from buildSpeakerGroup
+	eligibleResults := make(map[string]SpeakerResult)
+	for _, sr := range groupResult.Results {
+		eligibleResults[sr.Participant.PlayerName] = sr
+	}
+
+	// Update allResults with actual group results for eligible speakers
+	mergedResults := make([]SpeakerResult, 0, len(allResults))
+	for _, sr := range allResults {
+		if sr.Excluded {
+			// Keep excluded result as-is
+			mergedResults = append(mergedResults, sr)
+		} else if eligibleResult, ok := eligibleResults[sr.Participant.PlayerName]; ok {
+			// Use the actual result from buildSpeakerGroup
+			mergedResults = append(mergedResults, eligibleResult)
+		}
+	}
+
+	return &SpeakerGroupResult{
+		Results:       mergedResults,
+		ActiveCount:   groupResult.ActiveCount,
+		FailedCount:   groupResult.FailedCount,
+		ExcludedCount: excludedCount,
+		LeadActive:    groupResult.LeadActive,
+	}
 }
 
 // Speaker group retry configuration
@@ -1281,36 +1417,48 @@ func (m *Manager) buildSpeakerGroup(participants []ParticipantWithVolume, leadEn
 	return result, nil
 }
 
-// shouldUnmuteSpeaker determines if a speaker should be unmuted based on conditions
-func (m *Manager) shouldUnmuteSpeaker(participant ParticipantWithVolume) bool {
-	// If no mute conditions, always unmute
-	if len(participant.LeaveMutedIf) == 0 {
-		return true
+// shouldIncludeInZone determines if a speaker should be included in the zone based on exclusion conditions.
+// Returns (include bool, exclusionReason string). If include is false, exclusionReason explains why.
+func (m *Manager) shouldIncludeInZone(participant ParticipantWithVolume) (bool, string) {
+	conditions := participant.GetExclusionConditions()
+
+	// If no exclusion conditions, always include
+	if len(conditions) == 0 {
+		return true, ""
 	}
 
-	// Check each mute condition
-	for _, condition := range participant.LeaveMutedIf {
+	// Check each exclusion condition
+	for _, condition := range conditions {
 		// Get the state variable value
 		value, err := m.getStateValue(condition.Variable)
 		if err != nil {
-			m.logger.Error("Failed to get state variable for mute condition",
+			m.logger.Error("Failed to get state variable for exclusion condition",
 				zap.String("variable", condition.Variable),
 				zap.Error(err))
 			continue
 		}
 
-		// Check if condition matches (should stay muted)
+		// Check if condition matches (should be excluded)
 		if m.valuesMatch(value, condition.Value) {
-			m.logger.Debug("Mute condition matched",
+			reason := fmt.Sprintf("variable %s == %v", condition.Variable, condition.Value)
+			m.logger.Debug("Exclusion condition matched",
+				zap.String("speaker", participant.PlayerName),
 				zap.String("variable", condition.Variable),
 				zap.Any("value", value),
 				zap.Any("condition", condition.Value))
-			return false // Stay muted
+			return false, reason // Exclude from zone
 		}
 	}
 
-	// No conditions matched, unmute
-	return true
+	// No conditions matched, include in zone
+	return true, ""
+}
+
+// shouldUnmuteSpeaker is a backward-compatible wrapper around shouldIncludeInZone.
+// Deprecated: Use shouldIncludeInZone instead.
+func (m *Manager) shouldUnmuteSpeaker(participant ParticipantWithVolume) bool {
+	include, _ := m.shouldIncludeInZone(participant)
+	return include
 }
 
 // fadeInSpeaker gradually increases speaker volume
@@ -1773,16 +1921,18 @@ func (m *Manager) recordPlaybackShadowState(musicType string, playbackOption Pla
 	speakers := make([]shadowstate.SpeakerState, 0, len(participants))
 
 	if groupResult != nil {
-		// Use the group result to populate active status
+		// Use the group result to populate active/excluded status
 		for _, sr := range groupResult.Results {
 			speakers = append(speakers, shadowstate.SpeakerState{
-				PlayerName:    sr.Participant.PlayerName,
-				Volume:        sr.Participant.Volume,
-				BaseVolume:    sr.Participant.BaseVolume,
-				DefaultVolume: sr.Participant.DefaultVolume,
-				IsLeader:      sr.Participant.PlayerName == leadPlayer,
-				Active:        sr.Active,
-				FailureReason: sr.FailureReason,
+				PlayerName:      sr.Participant.PlayerName,
+				Volume:          sr.Participant.Volume,
+				BaseVolume:      sr.Participant.BaseVolume,
+				DefaultVolume:   sr.Participant.DefaultVolume,
+				IsLeader:        sr.Participant.PlayerName == leadPlayer,
+				Active:          sr.Active,
+				FailureReason:   sr.FailureReason,
+				Excluded:        sr.Excluded,
+				ExclusionReason: sr.ExclusionReason,
 			})
 		}
 	} else {
@@ -1806,11 +1956,11 @@ func (m *Manager) recordPlaybackShadowState(musicType string, playbackOption Pla
 		MediaType: playbackOption.MediaType,
 	}
 
-	// Build reason message with partial group info if applicable
+	// Build reason message with group info if applicable
 	var reason string
-	if groupResult != nil && groupResult.FailedCount > 0 {
-		reason = fmt.Sprintf("Started playback of '%s' in mode '%s' (partial group: %d/%d speakers active)",
-			playbackOption.URI, musicType, groupResult.ActiveCount, len(participants))
+	if groupResult != nil && (groupResult.FailedCount > 0 || groupResult.ExcludedCount > 0) {
+		reason = fmt.Sprintf("Started playback of '%s' in mode '%s' (%d active, %d excluded, %d failed)",
+			playbackOption.URI, musicType, groupResult.ActiveCount, groupResult.ExcludedCount, groupResult.FailedCount)
 	} else {
 		reason = fmt.Sprintf("Started playback of '%s' in mode '%s'", playbackOption.URI, musicType)
 	}

@@ -158,13 +158,15 @@ type PlaylistInfo struct {
 
 // SpeakerState represents a single speaker's state
 type SpeakerState struct {
-	PlayerName    string `json:"playerName"`
-	Volume        int    `json:"volume"`
-	BaseVolume    int    `json:"baseVolume"`
-	DefaultVolume int    `json:"defaultVolume"`
-	IsLeader      bool   `json:"isLeader"`
-	Active        bool   `json:"active"`                  // Whether the speaker successfully joined the group
-	FailureReason string `json:"failureReason,omitempty"` // Reason for failure if Active is false
+	PlayerName      string `json:"playerName"`
+	Volume          int    `json:"volume"`
+	BaseVolume      int    `json:"baseVolume"`
+	DefaultVolume   int    `json:"defaultVolume"`
+	IsLeader        bool   `json:"isLeader"`
+	Active          bool   `json:"active"`                    // Whether the speaker successfully joined the group
+	FailureReason   string `json:"failureReason,omitempty"`   // Reason for failure if Active is false
+	Excluded        bool   `json:"excluded,omitempty"`        // Whether the speaker was excluded by zone policy
+	ExclusionReason string `json:"exclusionReason,omitempty"` // Reason for exclusion (e.g., "variable isTVPlaying == true")
 }
 
 // GetCurrentInputs implements PluginShadowState

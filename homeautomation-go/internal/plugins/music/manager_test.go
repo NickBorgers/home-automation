@@ -714,6 +714,258 @@ func TestMuteConditionEvaluation(t *testing.T) {
 	}
 }
 
+// TestShouldIncludeInZone tests zone inclusion logic with both ExcludeIf and LeaveMutedIf (backward compatibility)
+func TestShouldIncludeInZone(t *testing.T) {
+	t.Parallel()
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+
+	// Set up state variables
+	_ = stateManager.SetBool("isTVPlaying", true)
+	_ = stateManager.SetBool("isMasterAsleep", false)
+	_ = stateManager.SetBool("isGuestAsleep", true)
+
+	config := &MusicConfig{Music: map[string]MusicMode{}}
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+
+	tests := []struct {
+		name               string
+		participant        ParticipantWithVolume
+		expectedInclude    bool
+		expectedReasonPart string // Part of the reason that should be present (if excluded)
+	}{
+		{
+			name: "No exclusion conditions - should include",
+			participant: ParticipantWithVolume{
+				PlayerName: "Kitchen",
+				ExcludeIf:  []MuteCondition{},
+			},
+			expectedInclude: true,
+		},
+		{
+			name: "ExcludeIf condition matches - should exclude",
+			participant: ParticipantWithVolume{
+				PlayerName: "Living Room",
+				ExcludeIf: []MuteCondition{
+					{Variable: "isTVPlaying", Value: true},
+				},
+			},
+			expectedInclude:    false,
+			expectedReasonPart: "isTVPlaying",
+		},
+		{
+			name: "ExcludeIf condition doesn't match - should include",
+			participant: ParticipantWithVolume{
+				PlayerName: "Bedroom",
+				ExcludeIf: []MuteCondition{
+					{Variable: "isMasterAsleep", Value: true},
+				},
+			},
+			expectedInclude: true,
+		},
+		{
+			name: "LeaveMutedIf backward compatibility - matches - should exclude",
+			participant: ParticipantWithVolume{
+				PlayerName: "Soundbar",
+				LeaveMutedIf: []MuteCondition{
+					{Variable: "isGuestAsleep", Value: true},
+				},
+			},
+			expectedInclude:    false,
+			expectedReasonPart: "isGuestAsleep",
+		},
+		{
+			name: "ExcludeIf takes precedence over LeaveMutedIf",
+			participant: ParticipantWithVolume{
+				PlayerName: "Office",
+				ExcludeIf: []MuteCondition{
+					{Variable: "isMasterAsleep", Value: true}, // doesn't match (isMasterAsleep=false)
+				},
+				LeaveMutedIf: []MuteCondition{
+					{Variable: "isTVPlaying", Value: true}, // matches (isTVPlaying=true)
+				},
+			},
+			expectedInclude: true, // ExcludeIf is used, which doesn't match
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			shouldInclude, exclusionReason := manager.shouldIncludeInZone(tt.participant)
+			if shouldInclude != tt.expectedInclude {
+				t.Errorf("shouldIncludeInZone() = %v, expected %v (reason: %s)",
+					shouldInclude, tt.expectedInclude, exclusionReason)
+			}
+			if !tt.expectedInclude && tt.expectedReasonPart != "" {
+				if !strings.Contains(exclusionReason, tt.expectedReasonPart) {
+					t.Errorf("exclusionReason %q should contain %q",
+						exclusionReason, tt.expectedReasonPart)
+				}
+			}
+		})
+	}
+}
+
+// TestZoneExclusionInExecutePlayback tests that excluded speakers are not added to the Sonos group
+func TestZoneExclusionInExecutePlayback(t *testing.T) {
+	t.Parallel()
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+
+	// Set up state - TV is playing, so TV-excluded speakers should not join
+	_ = stateManager.SetBool("isTVPlaying", true)
+	_ = stateManager.SetBool("isMasterAsleep", false)
+	_ = stateManager.SetString("dayPhase", "day")
+
+	config := &MusicConfig{
+		Music: map[string]MusicMode{
+			"day": {
+				Participants: []Participant{
+					{PlayerName: "Kitchen", BaseVolume: 9, ExcludeIf: []MuteCondition{
+						{Variable: "isTVPlaying", Value: true},
+					}},
+					{PlayerName: "Bedroom", BaseVolume: 10, ExcludeIf: []MuteCondition{}},
+					{PlayerName: "Office", BaseVolume: 8, ExcludeIf: []MuteCondition{
+						{Variable: "isTVPlaying", Value: true},
+					}},
+				},
+				PlaybackOptions: []PlaybackOption{
+					{URI: "spotify:playlist:test", MediaType: "playlist", VolumeMultiplier: 1.0},
+				},
+			},
+		},
+	}
+
+	// Set mock speaker states
+	mockClient.SetMockState("media_player.kitchen", &ha.State{EntityID: "media_player.kitchen", State: "idle"})
+	mockClient.SetMockState("media_player.bedroom", &ha.State{EntityID: "media_player.bedroom", State: "playing"}) // Will be lead
+	mockClient.SetMockState("media_player.office", &ha.State{EntityID: "media_player.office", State: "idle"})
+
+	manager := NewManager(mockClient, stateManager, config, logger, true, nil) // read-only mode
+	manager.SetSleepFunc(func(d time.Duration) {})
+
+	// Build participants
+	participants := []ParticipantWithVolume{
+		{PlayerName: "Kitchen", BaseVolume: 9, Volume: 9, ExcludeIf: []MuteCondition{
+			{Variable: "isTVPlaying", Value: true},
+		}},
+		{PlayerName: "Bedroom", BaseVolume: 10, Volume: 10, ExcludeIf: []MuteCondition{}},
+		{PlayerName: "Office", BaseVolume: 8, Volume: 8, ExcludeIf: []MuteCondition{
+			{Variable: "isTVPlaying", Value: true},
+		}},
+	}
+
+	option := PlaybackOption{URI: "spotify:playlist:test", MediaType: "playlist", VolumeMultiplier: 1.0}
+
+	groupResult, _, err := manager.executePlayback("day", option, participants, "Kitchen")
+
+	// Error expected because lead (Kitchen) is excluded
+	if err == nil {
+		t.Error("Expected error because lead player is excluded")
+	}
+	if groupResult != nil {
+		// Verify excluded count - only 1 because we fail fast when lead is excluded
+		// The remaining speakers are never evaluated
+		if groupResult.ExcludedCount != 1 { // Kitchen excluded (first), then we fail early
+			t.Errorf("Expected 1 excluded speaker (fail-fast on lead), got %d", groupResult.ExcludedCount)
+		}
+		// Lead should not be active
+		if groupResult.LeadActive {
+			t.Error("Lead should not be active when excluded")
+		}
+	}
+}
+
+// TestZoneExclusionWithEligibleLead tests zone exclusion when lead is eligible
+func TestZoneExclusionWithEligibleLead(t *testing.T) {
+	t.Parallel()
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+
+	// Set up state - TV is playing
+	_ = stateManager.SetBool("isTVPlaying", true)
+	_ = stateManager.SetBool("isMasterAsleep", false)
+	_ = stateManager.SetString("dayPhase", "day")
+
+	config := &MusicConfig{
+		Music: map[string]MusicMode{
+			"day": {
+				Participants: []Participant{
+					{PlayerName: "Bedroom", BaseVolume: 10, ExcludeIf: []MuteCondition{}}, // Lead - no conditions
+					{PlayerName: "Kitchen", BaseVolume: 9, ExcludeIf: []MuteCondition{
+						{Variable: "isTVPlaying", Value: true},
+					}},
+					{PlayerName: "Office", BaseVolume: 8, ExcludeIf: []MuteCondition{
+						{Variable: "isTVPlaying", Value: true},
+					}},
+				},
+				PlaybackOptions: []PlaybackOption{
+					{URI: "spotify:playlist:test", MediaType: "playlist", VolumeMultiplier: 1.0},
+				},
+			},
+		},
+	}
+
+	// Set mock speaker states
+	mockClient.SetMockState("media_player.bedroom", &ha.State{EntityID: "media_player.bedroom", State: "playing"})
+	mockClient.SetMockState("media_player.kitchen", &ha.State{EntityID: "media_player.kitchen", State: "idle"})
+	mockClient.SetMockState("media_player.office", &ha.State{EntityID: "media_player.office", State: "idle"})
+
+	manager := NewManager(mockClient, stateManager, config, logger, true, nil) // read-only mode
+	manager.SetSleepFunc(func(d time.Duration) {})
+
+	// Build participants - Bedroom is lead and eligible, others excluded
+	participants := []ParticipantWithVolume{
+		{PlayerName: "Bedroom", BaseVolume: 10, Volume: 10, ExcludeIf: []MuteCondition{}},
+		{PlayerName: "Kitchen", BaseVolume: 9, Volume: 9, ExcludeIf: []MuteCondition{
+			{Variable: "isTVPlaying", Value: true},
+		}},
+		{PlayerName: "Office", BaseVolume: 8, Volume: 8, ExcludeIf: []MuteCondition{
+			{Variable: "isTVPlaying", Value: true},
+		}},
+	}
+
+	option := PlaybackOption{URI: "spotify:playlist:test", MediaType: "playlist", VolumeMultiplier: 1.0}
+
+	groupResult, _, err := manager.executePlayback("day", option, participants, "Bedroom")
+
+	// Should succeed because lead (Bedroom) is eligible
+	if err != nil {
+		t.Errorf("Unexpected error: %v", err)
+	}
+	if groupResult == nil {
+		t.Fatal("Expected groupResult to be non-nil")
+	}
+
+	// Verify counts
+	if groupResult.ExcludedCount != 2 { // Kitchen and Office excluded
+		t.Errorf("Expected 2 excluded speakers, got %d", groupResult.ExcludedCount)
+	}
+	if groupResult.ActiveCount != 1 { // Only Bedroom active
+		t.Errorf("Expected 1 active speaker, got %d", groupResult.ActiveCount)
+	}
+
+	// Verify exclusion reasons are populated
+	excludedSpeakers := 0
+	for _, sr := range groupResult.Results {
+		if sr.Excluded {
+			excludedSpeakers++
+			if sr.ExclusionReason == "" {
+				t.Errorf("Expected exclusion reason for %s", sr.Participant.PlayerName)
+			}
+			if !strings.Contains(sr.ExclusionReason, "isTVPlaying") {
+				t.Errorf("Exclusion reason should mention isTVPlaying: %s", sr.ExclusionReason)
+			}
+		}
+	}
+	if excludedSpeakers != 2 {
+		t.Errorf("Expected 2 excluded speakers in results, got %d", excludedSpeakers)
+	}
+}
+
 // TestGetSpeakerEntityID tests entity ID conversion
 func TestGetSpeakerEntityID(t *testing.T) {
 	t.Parallel()

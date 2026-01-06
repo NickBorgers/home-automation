@@ -499,27 +499,28 @@ func TestScenario_MultiSpeaker_VerificationFailureAllSpeakersFadeIn(t *testing.T
 	assert.NotNil(t, groupResult)
 	assert.Equal(t, 2, groupResult.ActiveCount)
 
-	// Check that "Unmuting speaker" was logged for both speakers
-	unmutingKitchenLogged := false
-	unmutingLivingRoomLogged := false
+	// Check that "Starting fade-in for speaker" was logged for both speakers
+	// (this replaced "Unmuting speaker" when we moved to zone-based exclusion)
+	fadeInKitchenLogged := false
+	fadeInLivingRoomLogged := false
 
 	for _, entry := range logs.All() {
-		if entry.Message == "Unmuting speaker" {
+		if entry.Message == "Starting fade-in for speaker" {
 			for _, field := range entry.Context {
 				if field.Key == "speaker" {
 					if field.String == "Kitchen" {
-						unmutingKitchenLogged = true
+						fadeInKitchenLogged = true
 					}
 					if field.String == "Living Room" {
-						unmutingLivingRoomLogged = true
+						fadeInLivingRoomLogged = true
 					}
 				}
 			}
 		}
 	}
 
-	assert.True(t, unmutingKitchenLogged,
-		"Kitchen speaker should receive unmute/fade-in even when verification fails")
-	assert.True(t, unmutingLivingRoomLogged,
-		"Living Room speaker should receive unmute/fade-in even when verification fails")
+	assert.True(t, fadeInKitchenLogged,
+		"Kitchen speaker should receive fade-in even when verification fails")
+	assert.True(t, fadeInLivingRoomLogged,
+		"Living Room speaker should receive fade-in even when verification fails")
 }
