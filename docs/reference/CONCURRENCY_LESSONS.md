@@ -500,6 +500,14 @@ func (s *Subscription) Close() {
 
 ## Change Log
 
+### 2026-01-05
+- **Simplification**: WebSocket Connection Management (Issue #405)
+  - Removed `sendWebSocketPings()` - redundant with application-level JSON pings
+  - Added `managedConn` wrapper to encapsulate nil checks and connection lifecycle
+  - Ping goroutines now receive explicit context and connection, eliminating stale reference races
+  - Consolidated `metricsMu` into `connMu`, reducing mutex count in Client struct from 10 to 9
+  - Layered keepalive is now 2 mechanisms (TCP keepalive + application pings) instead of 3
+
 ### 2026-01-02
 - **Updated Lesson 8**: Configure TCP Keepalive with Syscalls for Dead Connection Detection
   - Go's `net.Dialer.KeepAlive` is insufficient - doesn't set `TCP_KEEPIDLE` (defaults to 2 hours)
