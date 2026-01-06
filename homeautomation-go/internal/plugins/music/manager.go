@@ -1234,7 +1234,7 @@ func (m *Manager) unjoinSpeakerWithRetry(playerName, entityID string, skipHealth
 			strings.Contains(errStr, "i/o timeout") ||
 			strings.Contains(errStr, "Read timed out")
 
-		if !isTimeout && attempt < maxUnjoinRetries {
+		if !isTimeout {
 			// Non-timeout error - might be that speaker isn't in a group, which is fine
 			m.logger.Debug("Unjoin returned non-timeout error, treating as success",
 				zap.String("speaker", playerName),
