@@ -50,6 +50,26 @@ type SpeakerGroupResult struct {
 	LeadActive  bool            // Whether the lead speaker is available
 }
 
+// UnjoinResult tracks the result of unjoining a single speaker from its group
+type UnjoinResult struct {
+	PlayerName    string        // Speaker name (e.g., "Kitchen")
+	EntityID      string        // Full entity ID (e.g., "media_player.kitchen")
+	Success       bool          // Whether the unjoin operation succeeded
+	Attempts      int           // Number of attempts made
+	FailureReason string        // Reason for failure if Success is false
+	Duration      time.Duration // How long the operation took
+	WasResponsive bool          // Whether speaker responded to health check
+}
+
+// UnjoinGroupResult holds the results of breaking all speakers from their groups
+type UnjoinGroupResult struct {
+	Results              []UnjoinResult // Results for each speaker
+	SuccessCount         int            // Number of speakers that successfully unjoined
+	FailedCount          int            // Number of speakers that failed to unjoin
+	TotalDuration        time.Duration  // Total time for all unjoin operations
+	UnresponsiveSpeakers []string       // Speakers that failed health check
+}
+
 // SleepFunc is a function type for sleeping (allows test injection)
 type SleepFunc func(time.Duration)
 
@@ -829,27 +849,67 @@ func (m *Manager) executePlayback(musicType string, option PlaybackOption, parti
 
 	// Step 1: Break speakers from existing groups before building new group
 	// This matches Node-RED behavior where stopMsg routes through "Break group for player"
-	m.breakSpeakerGroups(participants)
+	unjoinResult := m.breakSpeakerGroups(participants)
+
+	// Filter out unresponsive speakers for graceful degradation
+	// If a speaker failed to unjoin due to being unresponsive, skip it in group building
+	responsiveParticipants := m.filterResponsiveParticipants(participants, unjoinResult)
+
+	// Check if lead speaker is still available
+	leadWasUnresponsive := false
+	for _, unresponsive := range unjoinResult.UnresponsiveSpeakers {
+		if unresponsive == leadPlayer {
+			leadWasUnresponsive = true
+			break
+		}
+	}
+
+	if leadWasUnresponsive {
+		m.logger.Error("Lead speaker was unresponsive during unjoin, cannot proceed with playback",
+			zap.String("lead_player", leadPlayer))
+		return &SpeakerGroupResult{
+			LeadActive: false,
+		}, 0, fmt.Errorf("lead speaker %s unresponsive", leadPlayer)
+	}
+
+	// Log if we're proceeding with fewer speakers due to unjoin failures
+	if len(responsiveParticipants) < len(participants) {
+		m.logger.Warn("Proceeding with fewer speakers due to unjoin failures",
+			zap.Int("original_count", len(participants)),
+			zap.Int("responsive_count", len(responsiveParticipants)),
+			zap.Strings("unresponsive_speakers", unjoinResult.UnresponsiveSpeakers))
+	}
 
 	// Step 2: Build speaker group if multiple participants
 	var groupResult *SpeakerGroupResult
-	if len(participants) > 1 {
+	if len(responsiveParticipants) > 1 {
 		var err error
-		groupResult, err = m.buildSpeakerGroup(participants, leadEntityID)
+		groupResult, err = m.buildSpeakerGroup(responsiveParticipants, leadEntityID)
 		if err != nil {
 			return groupResult, 0, fmt.Errorf("failed to build speaker group: %w", err)
 		}
-	} else {
+
+		// Add back unresponsive speakers to the result as failed
+		groupResult = m.addUnresponsiveSpeakersToResult(groupResult, participants, unjoinResult)
+	} else if len(responsiveParticipants) == 1 {
 		// Single speaker - create result with just the lead
 		groupResult = &SpeakerGroupResult{
 			Results: []SpeakerResult{{
-				Participant: participants[0],
+				Participant: responsiveParticipants[0],
 				Active:      true,
 			}},
 			ActiveCount: 1,
 			FailedCount: 0,
 			LeadActive:  true,
 		}
+		// Add back unresponsive speakers as failed
+		groupResult = m.addUnresponsiveSpeakersToResult(groupResult, participants, unjoinResult)
+	} else {
+		// No responsive speakers at all
+		m.logger.Error("No responsive speakers available for playback")
+		return &SpeakerGroupResult{
+			LeadActive: false,
+		}, 0, fmt.Errorf("no responsive speakers available")
 	}
 
 	// Step 3: Mute all ACTIVE speakers initially
@@ -966,6 +1026,22 @@ const (
 	// to allow the Sonos system to stabilize before forming new groups.
 	speakerUnjoinSettleDelay = 500 * time.Millisecond
 
+	// maxUnjoinRetries is the maximum number of attempts to unjoin a speaker from its group.
+	// Unjoin operations can timeout (9.5s HA timeout) during heavy network activity.
+	// With exponential backoff (1s, 2s, 4s), this provides ~7 seconds of retry coverage.
+	maxUnjoinRetries = 3
+
+	// unjoinRetryBaseDelay is the base delay between unjoin retry attempts.
+	// Uses exponential backoff: 1s, 2s, 4s.
+	unjoinRetryBaseDelay = 1 * time.Second
+
+	// unjoinRetryMaxDelay caps the exponential backoff for unjoin operations.
+	unjoinRetryMaxDelay = 4 * time.Second
+
+	// unjoinRateLimitDelay is the delay between consecutive unjoin operations
+	// to avoid overwhelming the Sonos system with rapid state changes.
+	unjoinRateLimitDelay = 200 * time.Millisecond
+
 	// speakerGroupSettleDelay is the delay after building a speaker group
 	// to allow the Sonos system to stabilize before starting playback.
 	speakerGroupSettleDelay = 500 * time.Millisecond
@@ -1076,38 +1152,243 @@ func (m *Manager) isPlaybackActive(entityID string) (bool, error) {
 	return isPlaying, nil
 }
 
+// checkSpeakerHealth performs a pre-flight health check on a speaker.
+// Returns true if the speaker is responsive (can be queried for state).
+// This helps avoid wasting time on unresponsive speakers.
+func (m *Manager) checkSpeakerHealth(entityID string) bool {
+	// Use GetState as a health check - if we can query state, speaker is responsive
+	state, err := m.haClient.GetState(entityID)
+	if err != nil {
+		m.logger.Debug("Speaker health check failed",
+			zap.String("entity_id", entityID),
+			zap.Error(err))
+		return false
+	}
+	if state == nil {
+		m.logger.Debug("Speaker health check returned nil state",
+			zap.String("entity_id", entityID))
+		return false
+	}
+
+	// Check if speaker is in unavailable state
+	if state.State == "unavailable" {
+		m.logger.Debug("Speaker is unavailable",
+			zap.String("entity_id", entityID))
+		return false
+	}
+
+	return true
+}
+
+// unjoinSpeakerWithRetry attempts to unjoin a single speaker with retry logic.
+// Returns the result of the unjoin operation including success status and attempt count.
+func (m *Manager) unjoinSpeakerWithRetry(playerName, entityID string, skipHealthCheck bool) UnjoinResult {
+	startTime := m.timeProvider.Now()
+	result := UnjoinResult{
+		PlayerName:    playerName,
+		EntityID:      entityID,
+		WasResponsive: true, // Assume responsive unless health check fails
+	}
+
+	// Pre-flight health check (unless skipped)
+	if !skipHealthCheck {
+		if !m.checkSpeakerHealth(entityID) {
+			result.WasResponsive = false
+			result.Success = false
+			result.Attempts = 0
+			result.FailureReason = "speaker unresponsive during health check"
+			result.Duration = m.timeProvider.Now().Sub(startTime)
+			m.logger.Warn("Skipping unjoin for unresponsive speaker",
+				zap.String("speaker", playerName),
+				zap.String("entity_id", entityID))
+			return result
+		}
+	}
+
+	var lastErr error
+	for attempt := 1; attempt <= maxUnjoinRetries; attempt++ {
+		result.Attempts = attempt
+
+		// Use media_player.unjoin to break the speaker out of any existing group
+		// This is equivalent to Sonos "player.become.standalone"
+		err := m.callService("media_player", "unjoin", map[string]interface{}{
+			"entity_id": entityID,
+		})
+
+		if err == nil {
+			result.Success = true
+			result.Duration = m.timeProvider.Now().Sub(startTime)
+			if attempt > 1 {
+				m.logger.Info("Unjoin succeeded after retry",
+					zap.String("speaker", playerName),
+					zap.Int("attempts", attempt))
+			}
+			return result
+		}
+
+		lastErr = err
+
+		// Check if this is a timeout error (worth retrying)
+		errStr := err.Error()
+		isTimeout := strings.Contains(errStr, "timeout") ||
+			strings.Contains(errStr, "i/o timeout") ||
+			strings.Contains(errStr, "Read timed out")
+
+		if !isTimeout && attempt < maxUnjoinRetries {
+			// Non-timeout error - might be that speaker isn't in a group, which is fine
+			m.logger.Debug("Unjoin returned non-timeout error, treating as success",
+				zap.String("speaker", playerName),
+				zap.Error(err))
+			result.Success = true
+			result.Duration = m.timeProvider.Now().Sub(startTime)
+			return result
+		}
+
+		if attempt < maxUnjoinRetries {
+			// Calculate backoff delay
+			retryDelay := unjoinRetryBaseDelay * time.Duration(1<<(attempt-1))
+			if retryDelay > unjoinRetryMaxDelay {
+				retryDelay = unjoinRetryMaxDelay
+			}
+
+			m.logger.Warn("Unjoin timed out, retrying with backoff",
+				zap.String("speaker", playerName),
+				zap.Int("attempt", attempt),
+				zap.Int("max_attempts", maxUnjoinRetries),
+				zap.Duration("retry_delay", retryDelay),
+				zap.Error(err))
+
+			m.sleepFunc(retryDelay)
+		}
+	}
+
+	// All retries exhausted
+	result.Success = false
+	result.FailureReason = fmt.Sprintf("unjoin failed after %d attempts: %v", maxUnjoinRetries, lastErr)
+	result.Duration = m.timeProvider.Now().Sub(startTime)
+
+	m.logger.Error("Unjoin failed after all retries",
+		zap.String("speaker", playerName),
+		zap.Int("attempts", maxUnjoinRetries),
+		zap.Duration("duration", result.Duration),
+		zap.Error(lastErr))
+
+	return result
+}
+
 // breakSpeakerGroups unjoins all participants from their existing groups.
 // This must be called before building a new speaker group to ensure speakers
 // aren't already grouped together in unpredictable ways.
 // Matches Node-RED behavior: "Break group for player" -> player.become.standalone
-func (m *Manager) breakSpeakerGroups(participants []ParticipantWithVolume) {
+//
+// Returns UnjoinGroupResult with details about which speakers were successfully
+// unjoined and which failed. Failed speakers can be excluded from subsequent
+// group operations for graceful degradation.
+func (m *Manager) breakSpeakerGroups(participants []ParticipantWithVolume) *UnjoinGroupResult {
+	startTime := m.timeProvider.Now()
+	result := &UnjoinGroupResult{
+		Results:              make([]UnjoinResult, 0, len(participants)),
+		UnresponsiveSpeakers: make([]string, 0),
+	}
+
 	m.logger.Info("Breaking existing speaker groups before building new group",
 		zap.Int("participant_count", len(participants)))
 
-	// Unjoin each speaker from any existing group
-	for _, p := range participants {
+	// Unjoin each speaker from any existing group with improved error handling
+	for i, p := range participants {
 		entityID := m.getSpeakerEntityID(p.PlayerName)
 
 		m.logger.Debug("Unjoining speaker from existing group",
 			zap.String("speaker", p.PlayerName),
-			zap.String("entity_id", entityID))
+			zap.String("entity_id", entityID),
+			zap.Int("index", i+1),
+			zap.Int("total", len(participants)))
 
-		// Use media_player.unjoin to break the speaker out of any existing group
-		// This is equivalent to Sonos "player.become.standalone"
-		if err := m.callServiceWithRetry("media_player", "unjoin", map[string]interface{}{
-			"entity_id": entityID,
-		}); err != nil {
-			// Log warning but continue - speaker might not be in a group
-			m.logger.Warn("Failed to unjoin speaker (may not be in a group)",
-				zap.String("speaker", p.PlayerName),
-				zap.Error(err))
+		// Unjoin with retry logic
+		unjoinResult := m.unjoinSpeakerWithRetry(p.PlayerName, entityID, false)
+		result.Results = append(result.Results, unjoinResult)
+
+		if unjoinResult.Success {
+			result.SuccessCount++
+		} else {
+			result.FailedCount++
+			if !unjoinResult.WasResponsive {
+				result.UnresponsiveSpeakers = append(result.UnresponsiveSpeakers, p.PlayerName)
+			}
+		}
+
+		// Rate limiting between unjoin operations (except for last speaker)
+		if i < len(participants)-1 {
+			m.sleepFunc(unjoinRateLimitDelay)
 		}
 	}
 
 	// Allow time for Sonos to process the unjoin commands before building new group
 	m.sleepFunc(speakerUnjoinSettleDelay)
 
-	m.logger.Info("Finished breaking existing speaker groups")
+	result.TotalDuration = m.timeProvider.Now().Sub(startTime)
+
+	m.logger.Info("Finished breaking existing speaker groups",
+		zap.Int("success_count", result.SuccessCount),
+		zap.Int("failed_count", result.FailedCount),
+		zap.Strings("unresponsive_speakers", result.UnresponsiveSpeakers),
+		zap.Duration("total_duration", result.TotalDuration))
+
+	return result
+}
+
+// filterResponsiveParticipants returns only participants that were responsive during unjoin.
+// This allows graceful degradation by excluding unresponsive speakers from group building.
+func (m *Manager) filterResponsiveParticipants(participants []ParticipantWithVolume, unjoinResult *UnjoinGroupResult) []ParticipantWithVolume {
+	if unjoinResult == nil || len(unjoinResult.UnresponsiveSpeakers) == 0 {
+		return participants
+	}
+
+	// Build set of unresponsive speaker names for O(1) lookup
+	unresponsive := make(map[string]bool)
+	for _, name := range unjoinResult.UnresponsiveSpeakers {
+		unresponsive[name] = true
+	}
+
+	// Filter to only responsive participants
+	responsive := make([]ParticipantWithVolume, 0, len(participants))
+	for _, p := range participants {
+		if !unresponsive[p.PlayerName] {
+			responsive = append(responsive, p)
+		}
+	}
+
+	return responsive
+}
+
+// addUnresponsiveSpeakersToResult adds unresponsive speakers back to the group result
+// as failed speakers, so they are properly tracked in shadow state.
+func (m *Manager) addUnresponsiveSpeakersToResult(groupResult *SpeakerGroupResult, originalParticipants []ParticipantWithVolume, unjoinResult *UnjoinGroupResult) *SpeakerGroupResult {
+	if unjoinResult == nil || len(unjoinResult.UnresponsiveSpeakers) == 0 {
+		return groupResult
+	}
+
+	// Build map of unresponsive speakers with their unjoin results
+	unresponsiveResults := make(map[string]UnjoinResult)
+	for _, ur := range unjoinResult.Results {
+		if !ur.WasResponsive {
+			unresponsiveResults[ur.PlayerName] = ur
+		}
+	}
+
+	// Find original participants that were unresponsive and add them as failed
+	for _, p := range originalParticipants {
+		if ur, found := unresponsiveResults[p.PlayerName]; found {
+			groupResult.Results = append(groupResult.Results, SpeakerResult{
+				Participant:   p,
+				Active:        false,
+				FailureReason: ur.FailureReason,
+			})
+			groupResult.FailedCount++
+		}
+	}
+
+	return groupResult
 }
 
 // buildSpeakerGroup creates a Sonos speaker group with retry logic.

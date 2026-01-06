@@ -1957,6 +1957,11 @@ func TestBreakSpeakerGroups(t *testing.T) {
 	// Use no-op sleep to make test fast
 	manager.SetSleepFunc(func(d time.Duration) {})
 
+	// Set up speakers in mock for health check to pass
+	mockClient.SetState("media_player.kitchen", "idle", nil)
+	mockClient.SetState("media_player.living_room", "idle", nil)
+	mockClient.SetState("media_player.bedroom", "idle", nil)
+
 	// Clear any previous calls
 	mockClient.ClearServiceCalls()
 
@@ -1966,7 +1971,18 @@ func TestBreakSpeakerGroups(t *testing.T) {
 		{PlayerName: "Bedroom", Volume: 8},
 	}
 
-	manager.breakSpeakerGroups(participants)
+	result := manager.breakSpeakerGroups(participants)
+
+	// Verify result structure
+	if result.SuccessCount != 3 {
+		t.Errorf("Expected 3 successful unjoins, got %d", result.SuccessCount)
+	}
+	if result.FailedCount != 0 {
+		t.Errorf("Expected 0 failed unjoins, got %d", result.FailedCount)
+	}
+	if len(result.UnresponsiveSpeakers) != 0 {
+		t.Errorf("Expected no unresponsive speakers, got %v", result.UnresponsiveSpeakers)
+	}
 
 	// Verify unjoin was called for each speaker
 	calls := mockClient.GetServiceCalls()
@@ -2002,7 +2018,8 @@ func TestBreakSpeakerGroups(t *testing.T) {
 }
 
 // TestBreakSpeakerGroups_UnjoinFailure verifies that breakSpeakerGroups()
-// continues processing even if some unjoin calls fail.
+// continues processing even if some unjoin calls fail with non-timeout errors.
+// Non-timeout errors are treated as success since the speaker might not be in a group.
 func TestBreakSpeakerGroups_UnjoinFailure(t *testing.T) {
 	t.Parallel()
 	logger := zap.NewNop()
@@ -2014,11 +2031,12 @@ func TestBreakSpeakerGroups_UnjoinFailure(t *testing.T) {
 	// Use no-op sleep to make test fast
 	manager.SetSleepFunc(func(d time.Duration) {})
 
-	// Set up speakers in mock so callServiceWithRetry can find them on retry
+	// Set up speakers in mock so health check passes
 	mockClient.SetState("media_player.kitchen", "idle", nil)
 	mockClient.SetState("media_player.living_room", "idle", nil)
 
-	// Configure first unjoin to fail (will succeed on retry since speakers exist)
+	// Configure first unjoin to fail with a non-timeout error
+	// Non-timeout errors are treated as success (speaker might not be in a group)
 	mockClient.SetServiceFailCount("media_player", "unjoin", 1, fmt.Errorf("speaker not reachable"))
 
 	participants := []ParticipantWithVolume{
@@ -2026,33 +2044,130 @@ func TestBreakSpeakerGroups_UnjoinFailure(t *testing.T) {
 		{PlayerName: "Living Room", Volume: 10},
 	}
 
-	// Should not panic or return error - just logs warning on initial failure, then succeeds on retry
-	manager.breakSpeakerGroups(participants)
+	// Should not panic - continues processing all speakers
+	result := manager.breakSpeakerGroups(participants)
 
-	// Verify speakers were processed
+	// Both should be marked as success (non-timeout errors are treated as success)
+	if result.SuccessCount != 2 {
+		t.Errorf("Expected 2 successful unjoins, got %d", result.SuccessCount)
+	}
+	if result.FailedCount != 0 {
+		t.Errorf("Expected 0 failed unjoins, got %d", result.FailedCount)
+	}
+
+	// Verify that both speakers were processed in results
+	if len(result.Results) != 2 {
+		t.Errorf("Expected 2 results, got %d", len(result.Results))
+	}
+
+	// Both speakers should be marked as successful
+	for _, r := range result.Results {
+		if !r.Success {
+			t.Errorf("Expected speaker %s to be marked as success, got failure: %s", r.PlayerName, r.FailureReason)
+		}
+	}
+}
+
+// TestBreakSpeakerGroups_UnresponsiveSpeaker verifies that breakSpeakerGroups()
+// skips speakers that fail health check and tracks them as unresponsive.
+func TestBreakSpeakerGroups_UnresponsiveSpeaker(t *testing.T) {
+	t.Parallel()
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	config := &MusicConfig{Music: map[string]MusicMode{}}
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+
+	// Use no-op sleep to make test fast
+	manager.SetSleepFunc(func(d time.Duration) {})
+
+	// Set up only some speakers - Kitchen is "unavailable", Living Room is responsive
+	mockClient.SetState("media_player.kitchen", "unavailable", nil)
+	mockClient.SetState("media_player.living_room", "idle", nil)
+	// Bedroom state is not set, so GetState will return nil
+
+	mockClient.ClearServiceCalls()
+
+	participants := []ParticipantWithVolume{
+		{PlayerName: "Kitchen", Volume: 9},
+		{PlayerName: "Living Room", Volume: 10},
+		{PlayerName: "Bedroom", Volume: 8},
+	}
+
+	result := manager.breakSpeakerGroups(participants)
+
+	// Kitchen and Bedroom should be unresponsive, Living Room should succeed
+	if result.SuccessCount != 1 {
+		t.Errorf("Expected 1 successful unjoin, got %d", result.SuccessCount)
+	}
+	if result.FailedCount != 2 {
+		t.Errorf("Expected 2 failed unjoins, got %d", result.FailedCount)
+	}
+	if len(result.UnresponsiveSpeakers) != 2 {
+		t.Errorf("Expected 2 unresponsive speakers, got %d: %v", len(result.UnresponsiveSpeakers), result.UnresponsiveSpeakers)
+	}
+
+	// Verify only Living Room had unjoin called
 	calls := mockClient.GetServiceCalls()
 	unjoinCalls := 0
-	unjoinedSpeakers := make(map[string]bool)
 	for _, call := range calls {
 		if call.Domain == "media_player" && call.Service == "unjoin" {
 			unjoinCalls++
-			if entityID, ok := call.Data["entity_id"].(string); ok {
-				unjoinedSpeakers[entityID] = true
+			entityID := call.Data["entity_id"].(string)
+			if entityID != "media_player.living_room" {
+				t.Errorf("Unexpected unjoin call for %s", entityID)
 			}
 		}
 	}
 
-	// Should have at least 2 unjoin calls (Kitchen may have retry + Living Room)
-	if unjoinCalls < 2 {
-		t.Errorf("Expected at least 2 unjoin calls, got %d", unjoinCalls)
+	if unjoinCalls != 1 {
+		t.Errorf("Expected 1 unjoin call (only responsive speaker), got %d", unjoinCalls)
+	}
+}
+
+// TestBreakSpeakerGroups_TimeoutRetry verifies that breakSpeakerGroups()
+// retries unjoin operations when they timeout.
+func TestBreakSpeakerGroups_TimeoutRetry(t *testing.T) {
+	t.Parallel()
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	config := &MusicConfig{Music: map[string]MusicMode{}}
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+
+	// Use no-op sleep to make test fast
+	manager.SetSleepFunc(func(d time.Duration) {})
+
+	// Set up speaker as responsive
+	mockClient.SetState("media_player.kitchen", "idle", nil)
+
+	// Configure unjoin to fail with timeout twice, then succeed
+	mockClient.SetServiceFailCount("media_player", "unjoin", 2, fmt.Errorf("timeout waiting for response"))
+
+	mockClient.ClearServiceCalls()
+
+	participants := []ParticipantWithVolume{
+		{PlayerName: "Kitchen", Volume: 9},
 	}
 
-	// Both speakers should have been attempted
-	if !unjoinedSpeakers["media_player.kitchen"] {
-		t.Error("Expected unjoin call for media_player.kitchen")
+	result := manager.breakSpeakerGroups(participants)
+
+	// Should eventually succeed after retries
+	if result.SuccessCount != 1 {
+		t.Errorf("Expected 1 successful unjoin after retry, got %d", result.SuccessCount)
 	}
-	if !unjoinedSpeakers["media_player.living_room"] {
-		t.Error("Expected unjoin call for media_player.living_room")
+
+	// Verify the result tracks the number of attempts (this is the main validation)
+	// Note: The mock doesn't record failed calls, only successful ones,
+	// so we rely on the Attempts field to verify retries happened.
+	if len(result.Results) != 1 {
+		t.Fatalf("Expected 1 result, got %d", len(result.Results))
+	}
+	if result.Results[0].Attempts != 3 {
+		t.Errorf("Expected 3 attempts (2 failures + 1 success), got %d", result.Results[0].Attempts)
+	}
+	if !result.Results[0].Success {
+		t.Errorf("Expected unjoin to eventually succeed, got failure: %s", result.Results[0].FailureReason)
 	}
 }
 
@@ -2074,8 +2189,9 @@ func TestExecutePlayback_BreakThenBuildSequence(t *testing.T) {
 	// Use no-op sleep to make test fast
 	manager.SetSleepFunc(func(d time.Duration) {})
 
-	// Set up mock to return "playing" state for playback verification
+	// Set up mock speaker states for health check and playback verification
 	mockClient.SetState("media_player.kitchen", "playing", nil)
+	mockClient.SetState("media_player.living_room", "idle", nil)
 
 	// Clear any previous calls
 	mockClient.ClearServiceCalls()
