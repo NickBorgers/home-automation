@@ -273,19 +273,29 @@
             color: #9cdcfe;
         }
 
-        .zoom-controls {
+        .time-window-controls {
             display: flex;
             gap: 5px;
+            align-items: center;
         }
 
-        .zoom-controls button {
-            width: 32px;
-            height: 32px;
-            padding: 0;
-            font-size: 1rem;
-            display: flex;
-            align-items: center;
-            justify-content: center;
+        .time-window-controls span {
+            font-size: 0.75rem;
+            color: #888;
+            margin-right: 5px;
+        }
+
+        .time-window-btn {
+            padding: 6px 12px;
+            font-size: 0.8rem;
+            border-radius: 4px;
+            transition: all 0.2s;
+        }
+
+        .time-window-btn.active {
+            background: #4ade80;
+            color: #1a1a2e;
+            font-weight: 600;
         }
 
         .timeline-scroll {
@@ -488,10 +498,14 @@
     <div class="timeline-container">
         <div class="timeline-header">
             <h2>Timeline</h2>
-            <div class="zoom-controls">
-                <button class="btn-secondary" onclick="zoomOut()" title="Zoom out">-</button>
-                <button class="btn-secondary" onclick="resetZoom()" title="Reset zoom">1:1</button>
-                <button class="btn-secondary" onclick="zoomIn()" title="Zoom in">+</button>
+            <div class="time-window-controls">
+                <span>Time window:</span>
+                <button class="btn-secondary time-window-btn" onclick="fetchWithDuration('5m')" data-duration="5m">5m</button>
+                <button class="btn-secondary time-window-btn" onclick="fetchWithDuration('15m')" data-duration="15m">15m</button>
+                <button class="btn-secondary time-window-btn" onclick="fetchWithDuration('1h')" data-duration="1h">1h</button>
+                <button class="btn-secondary time-window-btn" onclick="fetchWithDuration('4h')" data-duration="4h">4h</button>
+                <button class="btn-secondary time-window-btn" onclick="fetchWithDuration('1d')" data-duration="1d">1d</button>
+                <button class="btn-secondary time-window-btn" onclick="fetchWithDuration('7d')" data-duration="7d">7d</button>
             </div>
         </div>
         <div class="timeline-scroll" id="timelineScroll">
@@ -499,9 +513,9 @@
                 <div class="no-data">
                     <div class="no-data-icon">📊</div>
                     <p>No timeline data to display</p>
-                    <p>Paste log lines above or upload a log file, then click <strong>Visualize Timeline</strong></p>
+                    <p>Select a time window above (5m, 15m, 1h, etc.) to view recent state changes</p>
                     <p style="margin-top: 10px; font-size: 0.8rem;">
-                        Logs should be in JSON format with <code>ts</code> and <code>msg</code> fields
+                        Or paste log lines and click <strong>Visualize Timeline</strong>
                     </p>
                 </div>
             </div>
@@ -514,7 +528,7 @@
         // State
         let parsedEvents = [];
         let timelineData = null;
-        let zoomLevel = 1;
+        let selectedDuration = null;
         let enabledVariables = new Set();
 
         // Constants
@@ -712,7 +726,7 @@
                     <div class="no-data">
                         <div class="no-data-icon">📊</div>
                         <p>No timeline data to display</p>
-                        <p>Paste log lines above or upload a log file, then click <strong>Visualize Timeline</strong></p>
+                        <p>Select a time window above (5m, 15m, 1h, etc.) to view recent state changes</p>
                     </div>
                 `;
                 return;
@@ -742,8 +756,10 @@
             }
 
             const timeRange = timelineData.timeEnd - timelineData.timeStart;
-            const baseWidth = 800;
-            const timeWidth = Math.max(baseWidth, timeRange / 1000 / 60 * 10) * zoomLevel; // ~10px per minute base
+            // Calculate width to fill the container (minus label width and padding)
+            const container = document.getElementById('timelineScroll');
+            const containerWidth = container.clientWidth - 40; // Account for padding
+            const timeWidth = Math.max(600, containerWidth - LABEL_WIDTH - PADDING * 2);
 
             const svgHeight = TIME_AXIS_HEIGHT + visibleVars.length * ROW_HEIGHT + PADDING;
             const svgWidth = LABEL_WIDTH + timeWidth + PADDING * 2;
@@ -913,20 +929,132 @@
             renderTimeline();
         }
 
-        // Zoom controls
-        function zoomIn() {
-            zoomLevel = Math.min(zoomLevel * 1.5, 10);
-            renderTimeline();
+        // Parse duration string to milliseconds
+        function parseDuration(durationStr) {
+            const match = durationStr.match(/^(\d+)(m|h|d)$/);
+            if (!match) return 0;
+            const value = parseInt(match[1], 10);
+            const unit = match[2];
+            switch (unit) {
+                case 'm': return value * 60 * 1000;
+                case 'h': return value * 60 * 60 * 1000;
+                case 'd': return value * 24 * 60 * 60 * 1000;
+                default: return 0;
+            }
         }
 
-        function zoomOut() {
-            zoomLevel = Math.max(zoomLevel / 1.5, 0.5);
-            renderTimeline();
+        // Update active button state
+        function updateActiveButton(duration) {
+            document.querySelectorAll('.time-window-btn').forEach(btn => {
+                btn.classList.remove('active');
+                if (btn.dataset.duration === duration) {
+                    btn.classList.add('active');
+                }
+            });
         }
 
-        function resetZoom() {
-            zoomLevel = 1;
-            renderTimeline();
+        // Fetch logs with a specific time window
+        async function fetchWithDuration(duration) {
+            selectedDuration = duration;
+            updateActiveButton(duration);
+
+            const durationMs = parseDuration(duration);
+            const since = new Date(Date.now() - durationMs);
+
+            // Find the clicked button to show loading state
+            const btn = document.querySelector(`.time-window-btn[data-duration="${duration}"]`);
+            const originalText = btn.textContent;
+            btn.textContent = '...';
+            btn.disabled = true;
+
+            try {
+                const sinceParam = since.toISOString();
+                const response = await fetch(`/api/timeline/events?since=${encodeURIComponent(sinceParam)}&limit=10000`);
+                if (!response.ok) {
+                    throw new Error(`HTTP error: ${response.status}`);
+                }
+
+                const data = await response.json();
+
+                if (!data.events || data.events.length === 0) {
+                    // Clear existing data and show message
+                    parsedEvents = [];
+                    timelineData = null;
+                    enabledVariables.clear();
+                    document.getElementById('stats').style.display = 'none';
+                    document.getElementById('filterSection').style.display = 'none';
+                    document.getElementById('timelineContent').innerHTML = `
+                        <div class="no-data">
+                            <div class="no-data-icon">📊</div>
+                            <p>No events in the last ${duration}</p>
+                            <p>Try selecting a longer time window</p>
+                        </div>
+                    `;
+                    return;
+                }
+
+                // Convert API response events to the format expected by parseLogLines
+                const logLines = data.events.map(event => {
+                    const line = {
+                        level: event.level,
+                        ts: event.ts,
+                        msg: event.msg
+                    };
+                    if (event.fields) {
+                        Object.assign(line, event.fields);
+                    }
+                    return JSON.stringify(line);
+                }).join('\n');
+
+                // Put the converted logs in the textarea (for reference)
+                document.getElementById('logInput').value = logLines;
+                document.getElementById('fileName').textContent = `${data.events.length} events (last ${duration})`;
+
+                // Parse and render
+                parsedEvents = parseLogLines(logLines);
+
+                if (parsedEvents.length === 0) {
+                    document.getElementById('timelineContent').innerHTML = `
+                        <div class="no-data">
+                            <div class="no-data-icon">📊</div>
+                            <p>No state change events in the last ${duration}</p>
+                            <p>Try selecting a longer time window</p>
+                        </div>
+                    `;
+                    return;
+                }
+
+                timelineData = buildTimelineData(parsedEvents);
+
+                // Enable all variables by default
+                enabledVariables.clear();
+                for (const varName of timelineData.variables.keys()) {
+                    enabledVariables.add(varName);
+                }
+
+                // Update stats
+                document.getElementById('stats').style.display = 'flex';
+                document.getElementById('statEvents').textContent = parsedEvents.length;
+                document.getElementById('statVariables').textContent = timelineData.variables.size;
+                document.getElementById('statTimeRange').textContent =
+                    `${formatDateTime(timelineData.timeStart)} - ${formatDateTime(timelineData.timeEnd)}`;
+
+                updateFilters();
+                renderTimeline();
+
+            } catch (err) {
+                console.error('Failed to fetch logs:', err);
+                document.getElementById('timelineContent').innerHTML = `
+                    <div class="no-data">
+                        <div class="no-data-icon">❌</div>
+                        <p>Failed to fetch logs: ${escapeHtml(err.message)}</p>
+                        <p>Make sure the application is running</p>
+                    </div>
+                `;
+            } finally {
+                btn.textContent = originalText;
+                btn.disabled = false;
+            }
         }
 
         // Main parse and render function
@@ -1024,12 +1152,13 @@
             parsedEvents = [];
             timelineData = null;
             enabledVariables.clear();
-            zoomLevel = 1;
+            selectedDuration = null;
+            updateActiveButton(null);
             document.getElementById('timelineContent').innerHTML = `
                 <div class="no-data">
                     <div class="no-data-icon">📊</div>
                     <p>No timeline data to display</p>
-                    <p>Paste log lines above or upload a log file, then click <strong>Visualize Timeline</strong></p>
+                    <p>Select a time window above or paste log data</p>
                 </div>
             `;
         }
