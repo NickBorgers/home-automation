@@ -770,6 +770,8 @@ func (m *Manager) turnOnMasterBedroomLights() {
 		return
 	}
 
+	m.logger.Info("Set initial bedroom light state (1% brightness, warm white)")
+
 	// Then start slow transition to full brightness over 30 minutes
 	if err := m.haClient.CallService("light", "turn_on", map[string]interface{}{
 		"entity_id":      "light.primary_suite",
@@ -778,7 +780,10 @@ func (m *Manager) turnOnMasterBedroomLights() {
 		"brightness_pct": 100,
 	}); err != nil {
 		m.logger.Error("Failed to start bedroom light transition", zap.Error(err))
+		return
 	}
+
+	m.logger.Info("Started 30-minute bedroom light fade-in to 100% brightness")
 }
 
 // flashCommonAreaLights flashes lights in common areas as a notification
@@ -967,6 +972,39 @@ func (m *Manager) recordAction(actionType string, reason string, trigger string)
 // GetShadowState returns the current shadow state
 func (m *Manager) GetShadowState() *shadowstate.SleepHygieneShadowState {
 	return m.shadowTracker.GetState()
+}
+
+// TriggerWakeForTest is a test helper that directly triggers the wake sequence (light fade-in).
+// This allows tests to exercise the light fade-in logic without waiting for the 5-minute delay.
+// Prerequisites: isFadeOutInProgress must be true (set by begin_wake), isMasterAsleep must be true.
+func (m *Manager) TriggerWakeForTest() {
+	m.logger.Info("Test: Triggering wake sequence directly")
+
+	// Check conditions first (same as handleWake)
+	isAnyoneHome, err := m.stateManager.GetBool("isAnyoneHome")
+	if err != nil || !isAnyoneHome {
+		m.logger.Debug("Test: Skipping wake - no one home")
+		return
+	}
+
+	isMasterAsleep, err := m.stateManager.GetBool("isMasterAsleep")
+	if err != nil || !isMasterAsleep {
+		m.logger.Debug("Test: Skipping wake - master not asleep")
+		return
+	}
+
+	isFadeOutInProgress, err := m.stateManager.GetBool("isFadeOutInProgress")
+	if err != nil || !isFadeOutInProgress {
+		m.logger.Debug("Test: Skipping wake - fade out not in progress")
+		return
+	}
+
+	// All conditions met - execute wake sequence (turn on lights)
+	m.logger.Info("Test: Conditions met for wake, executing wake sequence")
+
+	if !m.readOnly {
+		m.turnOnMasterBedroomLights()
+	}
 }
 
 // TriggerBeginWakeForTest is a test helper that directly triggers the begin_wake sequence.
