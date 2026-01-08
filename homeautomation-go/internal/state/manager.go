@@ -198,9 +198,14 @@ func (m *Manager) subscribeToEntity(entityID, key string) error {
 			return
 		}
 
-		// Update cache
+		// Update cache and check if value actually changed
 		m.cacheMu.Lock()
 		oldValue := m.cache[key]
+		if reflect.DeepEqual(oldValue, newValue) {
+			// Value hasn't changed, skip notification
+			m.cacheMu.Unlock()
+			return
+		}
 		m.cache[key] = newValue
 		m.cacheMu.Unlock()
 
@@ -345,6 +350,10 @@ func (m *Manager) SetBool(key string, value bool) error {
 		return fmt.Errorf("failed to set HA value: %w", err)
 	}
 
+	// Notify subscribers after successful HA sync
+	// The HA callback will skip notification since cache already has the new value
+	m.notifySubscribers(key, oldValue, value)
+
 	return nil
 }
 
@@ -426,6 +435,10 @@ func (m *Manager) SetString(key string, value string) error {
 		return fmt.Errorf("failed to set HA value: %w", err)
 	}
 
+	// Notify subscribers after successful HA sync
+	// The HA callback will skip notification since cache already has the new value
+	m.notifySubscribers(key, oldValue, value)
+
 	return nil
 }
 
@@ -506,6 +519,10 @@ func (m *Manager) SetNumber(key string, value float64) error {
 		m.cacheMu.Unlock()
 		return fmt.Errorf("failed to set HA value: %w", err)
 	}
+
+	// Notify subscribers after successful HA sync
+	// The HA callback will skip notification since cache already has the new value
+	m.notifySubscribers(key, oldValue, value)
 
 	return nil
 }
@@ -600,6 +617,10 @@ func (m *Manager) SetJSON(key string, value interface{}) error {
 		m.cacheMu.Unlock()
 		return fmt.Errorf("failed to set HA value: %w", err)
 	}
+
+	// Notify subscribers after successful HA sync
+	// The HA callback will skip notification since cache already has the new value
+	m.notifySubscribers(key, oldValue, value)
 
 	return nil
 }
