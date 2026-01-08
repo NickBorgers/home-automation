@@ -608,9 +608,196 @@ jobs:
           path: claude-review-output.jsonl
           retention-days: 7
 
-  # Test-focused reviewer - runs after claude-review
-  test-review:
+  # Design review specialist - validates PR implements issue intent and reviews design quality
+  design-review:
     needs: [get-context, build-devcontainer, claude-review]
+    if: |
+      always() &&
+      needs.get-context.outputs.pr_number != '' &&
+      needs.get-context.outputs.reviews_already_passed != 'true' &&
+      needs.get-context.outputs.tests_passed == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      id-token: write
+      packages: read
+
+    steps:
+      - name: Verify tests passed on current commit
+        id: verify-tests
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Get the current HEAD SHA of the PR
+          HEAD_SHA=$(gh api repos/${{ github.repository }}/pulls/${{ needs.get-context.outputs.pr_number }} --jq '.head.sha')
+          echo "Checking test status for commit $HEAD_SHA"
+
+          # Retry loop - check run may not be visible immediately after workflow triggers
+          MAX_ATTEMPTS=6
+          ATTEMPT=1
+          while [ $ATTEMPT -le $MAX_ATTEMPTS ]; do
+            STATUS=$(gh api repos/${{ github.repository }}/commits/$HEAD_SHA/check-runs --jq '.check_runs[] | select(.name == "All Required Tests") | .conclusion' 2>/dev/null | head -1 || echo "")
+
+            if [ "$STATUS" = "success" ]; then
+              echo "✅ All Required Tests passed on current commit"
+              echo "verified=true" >> $GITHUB_OUTPUT
+              exit 0
+            fi
+
+            if [ $ATTEMPT -lt $MAX_ATTEMPTS ]; then
+              echo "Attempt $ATTEMPT/$MAX_ATTEMPTS: Check run not found yet (status: ${STATUS:-not found}), waiting 10s..."
+              sleep 10
+            fi
+            ATTEMPT=$((ATTEMPT + 1))
+          done
+
+          echo "⚠️ Tests have not passed on current commit after $MAX_ATTEMPTS attempts (status: ${STATUS:-not found})"
+          echo "Skipping review - tests must pass first"
+          echo "verified=false" >> $GITHUB_OUTPUT
+
+      - name: Checkout PR branch
+        if: steps.verify-tests.outputs.verified == 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.get-context.outputs.head_ref }}
+          repository: ${{ needs.get-context.outputs.head_repo }}
+          fetch-depth: 0
+          token: ${{ secrets.WORKFLOW_PAT }}  # PAT required to push workflow file changes
+
+      - name: Pull latest changes
+        if: steps.verify-tests.outputs.verified == 'true'
+        run: git pull origin ${{ needs.get-context.outputs.head_ref }} || true
+
+      - name: Create gh config directory for devcontainer mount
+        if: steps.verify-tests.outputs.verified == 'true'
+        run: mkdir -p ~/.config/gh
+
+      - name: Log in to GHCR
+        if: steps.verify-tests.outputs.verified == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Design review in devcontainer
+        if: steps.verify-tests.outputs.verified == 'true'
+        uses: devcontainers/ci@v0.3
+        with:
+          imageName: ${{ env.DEVCONTAINER_IMAGE }}
+          cacheFrom: ${{ env.DEVCONTAINER_IMAGE }}
+          push: never
+          env: |
+            CLAUDE_CODE_OAUTH_TOKEN=${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+            GH_TOKEN=${{ secrets.WORKFLOW_PAT }}
+            PR_NUMBER=${{ needs.get-context.outputs.pr_number }}
+            PR_TITLE=${{ needs.get-context.outputs.pr_title }}
+            PR_BODY_B64=${{ needs.get-context.outputs.pr_body_b64 }}
+            ISSUE_NUMBER=${{ needs.get-context.outputs.issue_number }}
+            ISSUE_TITLE=${{ needs.get-context.outputs.issue_title }}
+            ISSUE_BODY_B64=${{ needs.get-context.outputs.issue_body_b64 }}
+            HEAD_REF=${{ needs.get-context.outputs.head_ref }}
+            REPO=${{ github.repository }}
+          runCmd: |
+            # Decode base64-encoded bodies (handles special characters safely)
+            PR_BODY=$(echo "$PR_BODY_B64" | base64 -d 2>/dev/null || echo "")
+            ISSUE_BODY=$(echo "$ISSUE_BODY_B64" | base64 -d 2>/dev/null || echo "")
+
+            claude --print \
+              --verbose \
+              --output-format stream-json \
+              --model opus \
+              --dangerously-skip-permissions \
+              --max-turns 450 \
+              "You are a DESIGN REVIEW specialist for PR #${PR_NUMBER} in ${REPO}.
+
+            Your role is to validate that this PR correctly implements the intent described in the
+            linked issue and/or PR description, AND to critically review the design decisions made.
+
+            **CONTEXT:**
+            PR Title: ${PR_TITLE}
+            PR Description:
+            ${PR_BODY}
+
+            Linked Issue #${ISSUE_NUMBER}: ${ISSUE_TITLE}
+            Issue Description:
+            ${ISSUE_BODY}
+
+            **YOUR TASK:**
+
+            1. **Understand the Intent**: Read the issue and PR description carefully to understand
+               what problem is being solved and what the expected outcome should be.
+
+            2. **Review the Implementation**: Examine the code changes (\`git diff origin/main...HEAD\`)
+               to understand what was actually implemented.
+
+            3. **Validate Intent Fulfillment**: Does this PR actually solve the problem described?
+               Are there gaps between what was requested and what was delivered?
+
+            4. **Critical Design Review**: Evaluate the design decisions:
+               - Is this a good design for solving the problem?
+               - Are there predictable challenges or edge cases not addressed?
+               - What trade-offs does this design bring?
+               - Are there simpler or more robust alternatives?
+               - Does this design fit well with the existing architecture?
+               - Will this design scale or be maintainable?
+
+            5. **For Design-Heavy PRs** (PRs that introduce new patterns, architectures, or significant
+               structural changes): Be especially thorough in your design critique. Consider:
+               - Extensibility and flexibility
+               - Error handling and failure modes
+               - Performance implications
+               - Coupling and cohesion
+               - Testability
+
+            **IMPORTANT RULES:**
+            - Reference docs/architecture/ARCHITECTURE.md for system design context
+            - Reference docs/reference/SHADOW_STATE.md for plugin patterns
+            - If the PR doesn't clearly address the issue, this is a blocking concern
+            - Design flaws that could cause production issues are blocking
+            - Minor design suggestions are non-blocking but should be noted
+
+            BEFORE PUSHING: rebase with \`git pull --rebase origin ${HEAD_REF}\`
+
+            Post exactly ONE comment using:
+            gh pr comment ${PR_NUMBER} --body '## Design Review
+
+            ### Intent Validation
+            [Does this PR fulfill the intent of the issue/description?]
+            - ✅ Fully addresses the stated requirements, OR
+            - ⚠️ Partially addresses (explain gaps), OR
+            - ❌ Does not address the core issue (explain why)
+
+            ### Design Analysis
+            [Your critical review of the design decisions]
+
+            **Strengths:**
+            [What the design does well - be specific]
+
+            **Concerns:**
+            [Potential issues, edge cases, trade-offs - be specific]
+
+            **Suggestions:**
+            [Alternative approaches or improvements to consider]
+
+            ### Conclusion
+            [✅ Approved - Design is sound and fulfills intent |
+             ⚠️ Approved with reservations - Minor design concerns noted |
+             ❌ Needs revision - Significant design issues or intent mismatch]'" < /dev/null 2>&1 | tee /workspaces/home-automation/design-review-output.jsonl
+
+      - name: Upload design review output
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: design-review-output
+          path: design-review-output.jsonl
+          retention-days: 7
+
+  # Test-focused reviewer - runs after design-review
+  test-review:
+    needs: [get-context, build-devcontainer, design-review]
     if: |
       always() &&
       needs.get-context.outputs.pr_number != '' &&
@@ -1024,7 +1211,7 @@ jobs:
 
   # Final decision maker - synthesizes all reviews and makes go/no-go call
   merge-decision:
-    needs: [get-context, build-devcontainer, claude-review, test-review, concurrency-review, docs-review]
+    needs: [get-context, build-devcontainer, claude-review, design-review, test-review, concurrency-review, docs-review]
     if: |
       always() &&
       needs.get-context.outputs.pr_number != '' &&
@@ -1107,6 +1294,7 @@ jobs:
             PR_NUMBER=${{ needs.get-context.outputs.pr_number }}
             HEAD_REF=${{ needs.get-context.outputs.head_ref }}
             CLAUDE_REVIEW_RESULT=${{ needs.claude-review.result }}
+            DESIGN_REVIEW_RESULT=${{ needs.design-review.result }}
             TEST_REVIEW_RESULT=${{ needs.test-review.result }}
             CONCURRENCY_REVIEW_RESULT=${{ needs.concurrency-review.result }}
             DOCS_REVIEW_RESULT=${{ needs.docs-review.result }}
@@ -1123,6 +1311,7 @@ jobs:
 
             **REVIEW STATUS:**
             - Code Review: ${CLAUDE_REVIEW_RESULT}
+            - Design Review: ${DESIGN_REVIEW_RESULT}
             - Test Review: ${TEST_REVIEW_RESULT}
             - Concurrency Review: ${CONCURRENCY_REVIEW_RESULT}
             - Docs Review: ${DOCS_REVIEW_RESULT}
@@ -1165,7 +1354,7 @@ jobs:
   all-reviews-passed:
     name: All Required Agent Reviews
     runs-on: ubuntu-latest
-    needs: [get-context, build-devcontainer, fix-test-failures, claude-review, test-review, concurrency-review, docs-review, merge-decision]
+    needs: [get-context, build-devcontainer, fix-test-failures, claude-review, design-review, test-review, concurrency-review, docs-review, merge-decision]
     if: always()
     permissions:
       statuses: write  # Required to create commit status on PR
@@ -1227,6 +1416,10 @@ jobs:
               echo "Claude Review: ${{ needs.claude-review.result }}"
               failed=true
             fi
+            if ! check_result "${{ needs.design-review.result }}"; then
+              echo "Design Review: ${{ needs.design-review.result }}"
+              failed=true
+            fi
             if ! check_result "${{ needs.test-review.result }}"; then
               echo "Test Review: ${{ needs.test-review.result }}"
               failed=true
@@ -1266,6 +1459,7 @@ jobs:
           echo "  Build Devcontainer: ${{ needs.build-devcontainer.result }}"
           echo "  Fix Test Failures: ${{ needs.fix-test-failures.result }}"
           echo "  Claude Review: ${{ needs.claude-review.result }}"
+          echo "  Design Review: ${{ needs.design-review.result }}"
           echo "  Test Review: ${{ needs.test-review.result }}"
           echo "  Concurrency Review: ${{ needs.concurrency-review.result }}"
           echo "  Docs Review: ${{ needs.docs-review.result }}"
@@ -1338,6 +1532,7 @@ jobs:
           BUILD_RESULT: ${{ needs.build-devcontainer.result }}
           FIX_RESULT: ${{ needs.fix-test-failures.result }}
           CLAUDE_RESULT: ${{ needs.claude-review.result }}
+          DESIGN_RESULT: ${{ needs.design-review.result }}
           TEST_RESULT: ${{ needs.test-review.result }}
           CONCURRENCY_RESULT: ${{ needs.concurrency-review.result }}
           DOCS_RESULT: ${{ needs.docs-review.result }}
@@ -1380,6 +1575,7 @@ jobs:
           # Show review agents only if tests passed (they would have run)
           if [ "$TESTS_PASSED" = "true" ]; then
             COMMENT+="| 🔍 Code Review | $(format_result "$CLAUDE_RESULT") |\n"
+            COMMENT+="| 🎨 Design Review | $(format_result "$DESIGN_RESULT") |\n"
             COMMENT+="| 🧪 Test Review | $(format_result "$TEST_RESULT") |\n"
             COMMENT+="| 🔀 Concurrency Review | $(format_result "$CONCURRENCY_RESULT") |\n"
             COMMENT+="| 📚 Docs Review | $(format_result "$DOCS_RESULT") |\n"
