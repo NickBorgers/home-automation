@@ -438,6 +438,12 @@ func (m *Manager) fadeOutSpeaker(speakerEntityID string) {
 	currentVolume := m.getSpeakerVolume(speakerEntityID)
 	if currentVolume == 0 {
 		m.logger.Info("Speaker volume already at 0, skipping fade-out", zap.String("speaker", speakerEntityID))
+		// Still need to clear isFadeOutInProgress since fade-out is effectively complete
+		if !m.readOnly {
+			if err := m.stateManager.SetBool("isFadeOutInProgress", false); err != nil {
+				m.logger.Error("Failed to clear isFadeOutInProgress", zap.Error(err))
+			}
+		}
 		return
 	}
 
