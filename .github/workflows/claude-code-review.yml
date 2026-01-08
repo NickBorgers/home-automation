@@ -973,11 +973,11 @@ jobs:
             PR_BODY=$(echo "$PR_BODY_B64" | base64 -d 2>/dev/null || echo "")
             ISSUE_BODY=$(echo "$ISSUE_BODY_B64" | base64 -d 2>/dev/null || echo "")
 
-            # Using Sonnet: Checklist-based review with clear criteria
+            # Using Opus: Documentation updates require accurate changes when PR opener missed them
             claude --print \
               --verbose \
               --output-format stream-json \
-              --model sonnet \
+              --model opus \
               --dangerously-skip-permissions \
               --max-turns 200 \
               "You are a DOCUMENTATION specialist reviewing PR #${PR_NUMBER}.
