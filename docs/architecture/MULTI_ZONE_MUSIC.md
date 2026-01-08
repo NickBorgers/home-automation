@@ -63,19 +63,19 @@ flowchart TB
 ### Key Concepts
 
 1. **Zone**: A Sonos group playing a specific music type with its own lead speaker
-2. **Zone Assignment Policy**: Rules determining which zone a speaker belongs to (replaces `leave_muted_if`)
+2. **Zone Assignment Policy**: Rules determining which zone a speaker belongs to (uses `exclude_if` alongside `leave_muted_if`)
 3. **Zone Manager**: Coordinates multiple concurrent zones, handles speaker migration
 
 ## Phased Implementation Plan
 
 ### Phase 1: Zone Assignment Policy Framework
 
-**Goal**: Refactor configuration to define which zone a speaker belongs to, rather than just mute conditions.
+**Goal**: Refactor configuration to support both muting within a zone AND zone exclusion, enabling speakers to either stay grouped-but-muted or be excluded entirely to join other zones.
 
 **Config Changes:**
 
 ```yaml
-# Current (implicit single zone)
+# Current (implicit single zone with muting only)
 music:
   morning:
     participants:
@@ -90,34 +90,39 @@ music:
           - variable: isMasterAsleep
             value: true
 
-# Phase 1 (zone eligibility)
+# Phase 1 (both muting and zone exclusion)
 music:
   morning:
     participants:
       - player_name: "Kitchen"
         base_volume: 9
-        exclude_if:
+        leave_muted_if:           # Keep in zone but muted (existing behavior)
           - variable: isTVPlaying
             value: true
       - player_name: "Bedroom"
         base_volume: 9
-        exclude_if:
+        exclude_if:               # NEW: Exclude from zone entirely
           - variable: isMasterAsleep
             value: true
 ```
 
-**Semantic Change:**
-- `leave_muted_if` -> `exclude_if`: Instead of "include but mute", speakers with matching conditions are excluded from the zone entirely
-- This prepares for Phase 2 where excluded speakers can join a different zone
+**Semantic Difference:**
+- `leave_muted_if`: Speaker stays in the Sonos group but is muted. Use when you want the speaker to remain synchronized with the zone and unmute quickly when the condition changes. The speaker cannot participate in other zones.
+- `exclude_if`: Speaker is excluded from the zone entirely and does not join the Sonos group. Use when you want the speaker to be available for other zones (Phase 2+) or to completely detach from playback.
+
+**Use Case Examples:**
+- **`leave_muted_if`**: Kitchen speaker when TV is playing - stays grouped, unmutes instantly when TV turns off
+- **`exclude_if`**: Bedroom speaker when someone is asleep - excluded from "morning" zone so it can play "sleep" music in Phase 2
 
 **Code Changes:**
-1. Rename `LeaveMutedIf` to `ExcludeIf` in config structs
-2. Update `shouldUnmuteSpeaker()` to `shouldIncludeInZone()`
-3. Build Sonos groups with only eligible speakers (rather than grouping all and muting some)
+1. Add `ExcludeIf` field to Participant struct (keep `LeaveMutedIf`)
+2. Add `shouldIncludeInZone()` method that evaluates `exclude_if` conditions
+3. Modify group building: first filter by `exclude_if`, then apply `leave_muted_if` to remaining speakers
+4. Update `shouldUnmuteSpeaker()` to only consider `leave_muted_if` for speakers already in the zone
 
 **Backward Compatibility:**
-- Behavior is identical for single-zone operation
-- YAML supports both `leave_muted_if` and `exclude_if` during transition
+- Existing configs with only `leave_muted_if` continue to work unchanged
+- New `exclude_if` field is optional and defaults to empty
 
 **Testing:**
 - Unit tests for zone eligibility logic
@@ -248,7 +253,7 @@ flowchart LR
     end
 
     subgraph Phase1["Phase 1"]
-        D["exclude_if semantics"]
+        D["exclude_if + leave_muted_if"]
         E["Eligible-only groups"]
     end
 
