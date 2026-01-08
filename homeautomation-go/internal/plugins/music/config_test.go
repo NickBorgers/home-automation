@@ -236,3 +236,159 @@ music:
 		t.Errorf("Expected error about missing 'wakeup' mode, got: %v", err)
 	}
 }
+
+// TestLoadConfig_WithExcludeIf tests parsing of Phase 1 exclude_if conditions
+func TestLoadConfig_WithExcludeIf(t *testing.T) {
+	t.Parallel()
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "music_config.yaml")
+
+	configContent := `---
+music:
+  morning:
+    participants:
+      - player_name: Kitchen
+        base_volume: 9
+        leave_muted_if:
+          - variable: isTVPlaying
+            value: true
+        exclude_if:
+          - variable: isMasterAsleep
+            value: true
+      - player_name: Bedroom
+        base_volume: 9
+        leave_muted_if: []
+        exclude_if:
+          - variable: isMasterAsleep
+            value: true
+          - variable: isGuestAsleep
+            value: true
+    playback_options:
+      - uri: spotify:playlist:test
+        media_type: playlist
+        volume_multiplier: 1.0
+  day:
+    participants:
+      - player_name: Living Room
+        base_volume: 20
+        leave_muted_if: []
+    playback_options:
+      - uri: spotify:playlist:test
+        media_type: playlist
+        volume_multiplier: 1.0
+  evening:
+    participants:
+      - player_name: Living Room
+        base_volume: 30
+        leave_muted_if: []
+    playback_options:
+      - uri: spotify:playlist:test
+        media_type: playlist
+        volume_multiplier: 1.0
+  winddown:
+    participants:
+      - player_name: Primary Suite
+        base_volume: 15
+        leave_muted_if: []
+    playback_options:
+      - uri: spotify:playlist:test
+        media_type: playlist
+        volume_multiplier: 0.8
+  sleep:
+    participants:
+      - player_name: Primary Suite
+        base_volume: 10
+        leave_muted_if: []
+    playback_options:
+      - uri: spotify:playlist:test
+        media_type: playlist
+        volume_multiplier: 0.5
+  sex:
+    participants:
+      - player_name: Primary Suite
+        base_volume: 35
+        leave_muted_if: []
+    playback_options:
+      - uri: spotify:playlist:test
+        media_type: playlist
+        volume_multiplier: 1.2
+  wakeup:
+    participants:
+      - player_name: Primary Suite
+        base_volume: 20
+        leave_muted_if: []
+    playback_options:
+      - uri: spotify:playlist:test
+        media_type: playlist
+        volume_multiplier: 1.0
+`
+
+	if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
+		t.Fatalf("Failed to write test config: %v", err)
+	}
+
+	config, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("Failed to load config: %v", err)
+	}
+
+	// Check morning mode - Kitchen has 1 exclude_if, Bedroom has 2
+	morning := config.Music["morning"]
+	if len(morning.Participants) != 2 {
+		t.Fatalf("Expected 2 participants for morning mode, got %d", len(morning.Participants))
+	}
+
+	// Check Kitchen participant
+	kitchen := morning.Participants[0]
+	if kitchen.PlayerName != "Kitchen" {
+		t.Errorf("Expected first participant to be Kitchen, got %s", kitchen.PlayerName)
+	}
+	if len(kitchen.LeaveMutedIf) != 1 {
+		t.Errorf("Kitchen: expected 1 leave_muted_if, got %d", len(kitchen.LeaveMutedIf))
+	}
+	if len(kitchen.ExcludeIf) != 1 {
+		t.Errorf("Kitchen: expected 1 exclude_if, got %d", len(kitchen.ExcludeIf))
+	}
+	if kitchen.ExcludeIf[0].Variable != "isMasterAsleep" {
+		t.Errorf("Kitchen: expected exclude_if variable isMasterAsleep, got %s", kitchen.ExcludeIf[0].Variable)
+	}
+	if kitchen.ExcludeIf[0].Value != true {
+		t.Errorf("Kitchen: expected exclude_if value true, got %v", kitchen.ExcludeIf[0].Value)
+	}
+
+	// Check Bedroom participant
+	bedroom := morning.Participants[1]
+	if bedroom.PlayerName != "Bedroom" {
+		t.Errorf("Expected second participant to be Bedroom, got %s", bedroom.PlayerName)
+	}
+	if len(bedroom.ExcludeIf) != 2 {
+		t.Errorf("Bedroom: expected 2 exclude_if conditions, got %d", len(bedroom.ExcludeIf))
+	}
+	// Check both conditions
+	foundMaster := false
+	foundGuest := false
+	for _, cond := range bedroom.ExcludeIf {
+		if cond.Variable == "isMasterAsleep" && cond.Value == true {
+			foundMaster = true
+		}
+		if cond.Variable == "isGuestAsleep" && cond.Value == true {
+			foundGuest = true
+		}
+	}
+	if !foundMaster {
+		t.Error("Bedroom: missing exclude_if condition for isMasterAsleep")
+	}
+	if !foundGuest {
+		t.Error("Bedroom: missing exclude_if condition for isGuestAsleep")
+	}
+
+	// Check that modes without exclude_if have empty slice (not nil)
+	day := config.Music["day"]
+	if len(day.Participants) != 1 {
+		t.Fatalf("Expected 1 participant for day mode, got %d", len(day.Participants))
+	}
+	// exclude_if should be nil or empty if not specified in YAML
+	if len(day.Participants[0].ExcludeIf) > 0 {
+		t.Errorf("Day: expected no exclude_if conditions, got %d", len(day.Participants[0].ExcludeIf))
+	}
+}

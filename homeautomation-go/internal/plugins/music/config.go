@@ -23,6 +23,7 @@ type Participant struct {
 	PlayerName   string          `yaml:"player_name"`
 	BaseVolume   int             `yaml:"base_volume"`
 	LeaveMutedIf []MuteCondition `yaml:"leave_muted_if"`
+	ExcludeIf    []MuteCondition `yaml:"exclude_if"` // Phase 1: Zone exclusion conditions
 }
 
 // MuteCondition represents a condition under which a speaker should be muted
