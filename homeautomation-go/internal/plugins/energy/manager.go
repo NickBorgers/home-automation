@@ -895,10 +895,10 @@ func (m *Manager) Reset() error {
 func (m *Manager) runBaselineCalibration() {
 	calibConfig := m.config.Energy.IndicatorLights.AdaptiveBrightness.BaselineCalibration
 
-	// Get calibration interval (default 10 minutes)
+	// Get calibration interval (default 30 minutes)
 	intervalSec := calibConfig.CalibrationIntervalSec
 	if intervalSec <= 0 {
-		intervalSec = 600
+		intervalSec = 1800
 	}
 
 	ticker := time.NewTicker(time.Duration(intervalSec) * time.Second)

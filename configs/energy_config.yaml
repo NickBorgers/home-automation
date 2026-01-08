@@ -23,7 +23,7 @@ energy:
       # This prevents the LED's own emission (2000+ lux at 100%) from overwhelming the sensor.
       baseline_calibration:
         enabled: true
-        calibration_interval_sec: 300  # Run calibration every 5 minutes
+        calibration_interval_sec: 1800  # Run calibration every 30 minutes
         calibration_brightness_pct: 5  # Dim to 5% during measurement
         calibration_wait_sec: 65       # Wait 65 seconds for fresh lux reading (sensors update every ~60s)
   energy_states:
