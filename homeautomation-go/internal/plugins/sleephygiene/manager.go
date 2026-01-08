@@ -444,6 +444,8 @@ func (m *Manager) fadeOutSpeaker(speakerEntityID string) {
 				m.logger.Error("Failed to clear isFadeOutInProgress", zap.Error(err))
 			}
 		}
+		// Mark fade-out as inactive in shadow state (consistent with other abort paths)
+		m.shadowTracker.UpdateFadeOutProgress(speakerEntityID, 0)
 		return
 	}
 
