@@ -251,6 +251,30 @@
             border-left: 3px solid #a855f7;
         }
 
+        .filter-item.category-energy {
+            border-left: 3px solid #22c55e;
+        }
+
+        .filter-item.category-security {
+            border-left: 3px solid #ef4444;
+        }
+
+        .filter-item.category-sleep {
+            border-left: 3px solid #8b5cf6;
+        }
+
+        .filter-item.category-loadShedding {
+            border-left: 3px solid #f97316;
+        }
+
+        .filter-item.category-sexMode {
+            border-left: 3px solid #ec4899;
+        }
+
+        .filter-item.category-reset {
+            border-left: 3px solid #6b7280;
+        }
+
         .timeline-container {
             background: #16213e;
             border: 1px solid #0f3460;
@@ -622,6 +646,310 @@
                             raw: entry
                         });
                     }
+                    // Music: Playback stopped
+                    else if (entry.msg === 'Music playback stopped' || entry.msg === 'Stopping music playback') {
+                        events.push({
+                            timestamp,
+                            variable: 'music:playback',
+                            newValue: 'stopped',
+                            type: 'music',
+                            raw: entry
+                        });
+                    }
+                    // Music: Selected playlist
+                    else if (entry.msg === 'Selected playlist') {
+                        events.push({
+                            timestamp,
+                            variable: 'music:playlist',
+                            newValue: entry.uri || `${entry.type}[${entry.playlist_index}]`,
+                            type: 'music',
+                            raw: entry
+                        });
+                    }
+                    // Music: Fade-in start
+                    else if (entry.msg === 'Starting fade-in') {
+                        events.push({
+                            timestamp,
+                            variable: `music:fade:${entry.speaker || 'unknown'}`,
+                            newValue: `fading to ${entry.target_volume || '?'}%`,
+                            type: 'music',
+                            raw: entry
+                        });
+                    }
+                    // Music: Fade-in completed
+                    else if (entry.msg === 'Fade-in completed') {
+                        events.push({
+                            timestamp,
+                            variable: `music:fade:${entry.speaker || 'unknown'}`,
+                            newValue: `${entry.final_volume || '?'}%`,
+                            type: 'music',
+                            raw: entry
+                        });
+                    }
+                    // Music: Speaker group created
+                    else if (entry.msg === 'Speaker group created') {
+                        events.push({
+                            timestamp,
+                            variable: 'music:group',
+                            newValue: `${entry.lead || 'unknown'} + ${entry.members || 'unknown'}`,
+                            type: 'music',
+                            raw: entry
+                        });
+                    }
+                    // Energy: Battery level determination
+                    else if (entry.msg === 'Determined battery energy level') {
+                        events.push({
+                            timestamp,
+                            variable: 'energy:battery',
+                            newValue: `${entry.level} (${entry.percentage}%)`,
+                            type: 'energy',
+                            raw: entry
+                        });
+                    }
+                    // Energy: Solar production level determination
+                    else if (entry.msg === 'Determined solar production energy level') {
+                        const kwh = entry.remaining_kwh !== undefined ? entry.remaining_kwh.toFixed(1) : '?';
+                        const kw = entry.this_hour_kw !== undefined ? entry.this_hour_kw.toFixed(1) : '?';
+                        events.push({
+                            timestamp,
+                            variable: 'energy:solar',
+                            newValue: `${entry.level} (${kw}kW, ${kwh}kWh)`,
+                            type: 'energy',
+                            raw: entry
+                        });
+                    }
+                    // Energy: Overall level determination
+                    else if (entry.msg === 'Determined overall energy level') {
+                        events.push({
+                            timestamp,
+                            variable: 'energy:overall',
+                            newValue: `${entry.overall_level} (bat:${entry.battery_level}, sol:${entry.solar_level})`,
+                            type: 'energy',
+                            raw: entry
+                        });
+                    }
+                    // Energy: Grid availability changed
+                    else if (entry.msg === 'Grid availability changed') {
+                        events.push({
+                            timestamp,
+                            variable: 'energy:grid',
+                            oldValue: entry.old,
+                            newValue: entry.new,
+                            type: 'energy',
+                            raw: entry
+                        });
+                    }
+                    // Energy: Free energy availability changed
+                    else if (entry.msg === 'Free energy availability changed') {
+                        events.push({
+                            timestamp,
+                            variable: 'energy:freeEnergy',
+                            newValue: entry.is_free_energy ? `free (grid:${entry.is_grid_available})` : `not free (grid:${entry.is_grid_available})`,
+                            type: 'energy',
+                            raw: entry
+                        });
+                    }
+                    // Energy: Indicator lights updated
+                    else if (entry.msg === 'Updated indicator lights') {
+                        events.push({
+                            timestamp,
+                            variable: 'energy:indicators',
+                            newValue: `${entry.energy_level} (${entry.brightness_pct}%)`,
+                            type: 'energy',
+                            raw: entry
+                        });
+                    }
+                    // Energy: Calibration cycle start
+                    else if (entry.msg === 'Starting calibration cycle') {
+                        events.push({
+                            timestamp,
+                            variable: 'energy:calibration',
+                            newValue: `starting (${entry.device_count} devices)`,
+                            type: 'energy',
+                            raw: entry
+                        });
+                    }
+                    // Energy: Calibration cycle complete
+                    else if (entry.msg === 'Calibration cycle complete') {
+                        events.push({
+                            timestamp,
+                            variable: 'energy:calibration',
+                            newValue: 'complete',
+                            type: 'energy',
+                            raw: entry
+                        });
+                    }
+                    // Security: Lockdown activated
+                    else if (entry.msg === 'Lockdown activated') {
+                        events.push({
+                            timestamp,
+                            variable: 'security:lockdown',
+                            newValue: `activated: ${entry.reason || 'unknown'}`,
+                            type: 'security',
+                            raw: entry
+                        });
+                    }
+                    // Security: Lockdown reset
+                    else if (entry.msg === 'Lockdown reset') {
+                        events.push({
+                            timestamp,
+                            variable: 'security:lockdown',
+                            newValue: 'reset',
+                            type: 'security',
+                            raw: entry
+                        });
+                    }
+                    // Security: Doorbell pressed
+                    else if (entry.msg === 'Doorbell pressed, sending notifications') {
+                        events.push({
+                            timestamp,
+                            variable: 'security:doorbell',
+                            newValue: 'pressed',
+                            type: 'security',
+                            raw: entry
+                        });
+                    }
+                    // Security: Vehicle arrived
+                    else if (entry.msg === 'Expected vehicle has arrived, sending notification') {
+                        events.push({
+                            timestamp,
+                            variable: 'security:vehicle',
+                            newValue: 'arrived',
+                            type: 'security',
+                            raw: entry
+                        });
+                    }
+                    // Security: Garage door opened
+                    else if (entry.msg === 'Garage door opened') {
+                        events.push({
+                            timestamp,
+                            variable: 'security:garage',
+                            newValue: 'opened',
+                            type: 'security',
+                            raw: entry
+                        });
+                    }
+                    // Sleep Hygiene: Wake sequence
+                    else if (entry.msg === 'Conditions met for wake, executing wake sequence') {
+                        events.push({
+                            timestamp,
+                            variable: 'sleep:wake',
+                            newValue: 'executing',
+                            type: 'sleep',
+                            raw: entry
+                        });
+                    }
+                    // Sleep Hygiene: Begin wake (fade out)
+                    else if (entry.msg === 'Conditions met for begin_wake, starting fade out') {
+                        events.push({
+                            timestamp,
+                            variable: 'sleep:beginWake',
+                            newValue: 'fading out',
+                            type: 'sleep',
+                            raw: entry
+                        });
+                    }
+                    // Sleep Hygiene: Go to bed reminder
+                    else if (entry.msg === 'Conditions met for go_to_bed, flashing lights') {
+                        events.push({
+                            timestamp,
+                            variable: 'sleep:goToBed',
+                            newValue: 'flashing lights',
+                            type: 'sleep',
+                            raw: entry
+                        });
+                    }
+                    // Sleep Hygiene: Eight Sleep Pod alarm
+                    else if (entry.msg === 'Eight Sleep Pod alarm triggered') {
+                        events.push({
+                            timestamp,
+                            variable: 'sleep:alarm',
+                            newValue: 'triggered',
+                            type: 'sleep',
+                            raw: entry
+                        });
+                    }
+                    // Load Shedding: Enable decision
+                    else if (entry.msg === '=== LOAD SHEDDING DECISION: ENABLE ===') {
+                        events.push({
+                            timestamp,
+                            variable: 'loadShedding:decision',
+                            newValue: `ENABLE (${entry.energy_level || '?'}: ${entry.reason || entry.trigger || '?'})`,
+                            type: 'loadShedding',
+                            raw: entry
+                        });
+                    }
+                    // Load Shedding: Disable decision
+                    else if (entry.msg === '=== LOAD SHEDDING DECISION: DISABLE ===') {
+                        events.push({
+                            timestamp,
+                            variable: 'loadShedding:decision',
+                            newValue: `DISABLE (${entry.energy_level || '?'}: ${entry.reason || entry.trigger || '?'})`,
+                            type: 'loadShedding',
+                            raw: entry
+                        });
+                    }
+                    // Sex Mode: Activating
+                    else if (entry.msg === 'Activating sex mode') {
+                        events.push({
+                            timestamp,
+                            variable: 'sexMode:status',
+                            newValue: 'activated',
+                            type: 'sexMode',
+                            raw: entry
+                        });
+                    }
+                    // Sex Mode: Deactivating
+                    else if (entry.msg === 'Deactivating sex mode') {
+                        events.push({
+                            timestamp,
+                            variable: 'sexMode:status',
+                            newValue: 'deactivated',
+                            type: 'sexMode',
+                            raw: entry
+                        });
+                    }
+                    // Reset Coordinator: System-wide reset
+                    else if (entry.msg === 'Reset triggered - coordinating system-wide reset') {
+                        events.push({
+                            timestamp,
+                            variable: 'reset:coordinator',
+                            newValue: 'triggered',
+                            type: 'reset',
+                            raw: entry
+                        });
+                    }
+                    // Lighting: Holiday lights
+                    else if (entry.msg === 'Activating holiday lights') {
+                        events.push({
+                            timestamp,
+                            variable: 'lighting:holiday',
+                            newValue: 'activated',
+                            type: 'lighting',
+                            raw: entry
+                        });
+                    }
+                    // Lighting: Hue Sync Box recovery
+                    else if (entry.msg === 'Initiating Hue Sync Box power cycle recovery') {
+                        events.push({
+                            timestamp,
+                            variable: 'lighting:hueSyncBox',
+                            newValue: 'recovery initiated',
+                            type: 'lighting',
+                            raw: entry
+                        });
+                    }
+                    // State: Sun event changed
+                    else if (entry.msg === 'Sun event changed') {
+                        events.push({
+                            timestamp,
+                            variable: 'state:sunEvent',
+                            oldValue: entry.old,
+                            newValue: entry.new,
+                            type: 'state',
+                            raw: entry
+                        });
+                    }
                 } catch (e) {
                     // Skip non-JSON lines
                 }
@@ -736,11 +1064,11 @@
             const visibleVars = Array.from(timelineData.variables.keys())
                 .filter(v => enabledVariables.has(v))
                 .sort((a, b) => {
-                    // Sort: state vars first, then lighting, then music
+                    // Sort: state vars first, then by category
                     const typeA = timelineData.variableTypes.get(a);
                     const typeB = timelineData.variableTypes.get(b);
-                    const order = { 'state': 0, 'lighting': 1, 'music': 2 };
-                    if (order[typeA] !== order[typeB]) return order[typeA] - order[typeB];
+                    const order = { 'state': 0, 'lighting': 1, 'music': 2, 'energy': 3, 'security': 4, 'sleep': 5, 'loadShedding': 6, 'sexMode': 7, 'reset': 8 };
+                    if ((order[typeA] ?? 99) !== (order[typeB] ?? 99)) return (order[typeA] ?? 99) - (order[typeB] ?? 99);
                     return a.localeCompare(b);
                 });
 
@@ -795,8 +1123,19 @@
                 const segments = timelineData.variables.get(varName);
                 const varType = timelineData.variableTypes.get(varName);
 
-                // Label
-                const labelColor = varType === 'lighting' ? '#fbbf24' : varType === 'music' ? '#a855f7' : '#9cdcfe';
+                // Label - color matches CSS filter category colors
+                const labelColors = {
+                    'state': '#569cd6',
+                    'lighting': '#fbbf24',
+                    'music': '#a855f7',
+                    'energy': '#22c55e',
+                    'security': '#ef4444',
+                    'sleep': '#8b5cf6',
+                    'loadShedding': '#f97316',
+                    'sexMode': '#ec4899',
+                    'reset': '#6b7280'
+                };
+                const labelColor = labelColors[varType] || '#9cdcfe';
                 const displayName = varName.length > 22 ? varName.substring(0, 20) + '...' : varName;
                 svg += `<text x="${LABEL_WIDTH - 10}" y="${y + ROW_HEIGHT / 2 + 4}" class="swimlane-label" text-anchor="end" fill="${labelColor}">${escapeHtml(displayName)}</text>`;
 
@@ -887,8 +1226,8 @@
             const vars = Array.from(timelineData.variables.keys()).sort((a, b) => {
                 const typeA = timelineData.variableTypes.get(a);
                 const typeB = timelineData.variableTypes.get(b);
-                const order = { 'state': 0, 'lighting': 1, 'music': 2 };
-                if (order[typeA] !== order[typeB]) return order[typeA] - order[typeB];
+                const order = { 'state': 0, 'lighting': 1, 'music': 2, 'energy': 3, 'security': 4, 'sleep': 5, 'loadShedding': 6, 'sexMode': 7, 'reset': 8 };
+                if ((order[typeA] ?? 99) !== (order[typeB] ?? 99)) return (order[typeA] ?? 99) - (order[typeB] ?? 99);
                 return a.localeCompare(b);
             });
 
@@ -1110,31 +1449,61 @@
         // Load sample data
         function loadSampleData() {
             const sampleData = [
+                // State changes
                 {"level":"info","ts":"2025-12-30T05:00:00.000Z","msg":"State changed","key":"dayPhase","old":"night","new":"night"},
                 {"level":"info","ts":"2025-12-30T06:00:00.000Z","msg":"State changed","key":"dayPhase","old":"night","new":"dawn"},
                 {"level":"info","ts":"2025-12-30T06:00:00.000Z","msg":"State changed","key":"isAnyoneAsleep","old":true,"new":true},
+                // Energy events
+                {"level":"info","ts":"2025-12-30T06:15:00.000Z","msg":"Determined battery energy level","percentage":75,"level":"green"},
+                {"level":"info","ts":"2025-12-30T06:15:00.000Z","msg":"Determined solar production energy level","this_hour_kw":2.5,"remaining_kwh":15.3,"level":"yellow"},
+                {"level":"info","ts":"2025-12-30T06:15:00.000Z","msg":"Determined overall energy level","battery_level":"green","solar_level":"yellow","overall_level":"yellow"},
+                // Sleep hygiene - wake sequence
+                {"level":"info","ts":"2025-12-30T06:25:00.000Z","msg":"Conditions met for wake, executing wake sequence"},
                 {"level":"info","ts":"2025-12-30T06:30:00.000Z","msg":"State changed","key":"dayPhase","old":"dawn","new":"morning"},
+                // Lighting scenes
                 {"level":"info","ts":"2025-12-30T06:30:00.000Z","msg":"Activating scene","room":"Living Room","scene":"morning","entity_id":"scene.living_room_morning"},
                 {"level":"info","ts":"2025-12-30T06:30:00.000Z","msg":"Activating scene","room":"Kitchen","scene":"morning","entity_id":"scene.kitchen_morning"},
+                // Music with new events
                 {"level":"info","ts":"2025-12-30T06:30:00.000Z","msg":"Orchestrating playback","type":"morning","trigger":"dayPhase"},
+                {"level":"info","ts":"2025-12-30T06:30:00.000Z","msg":"Selected playlist","type":"morning","playlist_index":2,"uri":"spotify:playlist:abc123"},
                 {"level":"info","ts":"2025-12-30T06:30:00.000Z","msg":"State changed","key":"musicPlaybackType","old":"","new":"morning"},
                 {"level":"info","ts":"2025-12-30T07:00:00.000Z","msg":"State changed","key":"isAnyoneAsleep","old":true,"new":false},
                 {"level":"info","ts":"2025-12-30T07:00:00.000Z","msg":"State changed","key":"isMasterAsleep","old":true,"new":false},
+                // Calibration cycle
+                {"level":"info","ts":"2025-12-30T07:30:00.000Z","msg":"Starting calibration cycle","device_count":3},
+                {"level":"info","ts":"2025-12-30T07:35:00.000Z","msg":"Calibration cycle complete"},
                 {"level":"info","ts":"2025-12-30T08:00:00.000Z","msg":"State changed","key":"isNickHome","old":true,"new":false},
                 {"level":"info","ts":"2025-12-30T08:00:00.000Z","msg":"State changed","key":"isAnyoneHome","old":true,"new":false},
                 {"level":"info","ts":"2025-12-30T08:00:00.000Z","msg":"Turning off room","room":"Living Room"},
                 {"level":"info","ts":"2025-12-30T08:00:00.000Z","msg":"Turning off room","room":"Kitchen"},
+                {"level":"info","ts":"2025-12-30T08:00:00.000Z","msg":"Music playback stopped"},
                 {"level":"info","ts":"2025-12-30T09:00:00.000Z","msg":"State changed","key":"dayPhase","old":"morning","new":"day"},
+                // Energy level changes during day
+                {"level":"info","ts":"2025-12-30T10:00:00.000Z","msg":"Determined battery energy level","percentage":95,"level":"green"},
+                {"level":"info","ts":"2025-12-30T10:00:00.000Z","msg":"Determined solar production energy level","this_hour_kw":8.2,"remaining_kwh":45.0,"level":"green"},
+                {"level":"info","ts":"2025-12-30T10:00:00.000Z","msg":"Free energy availability changed","is_free_energy":true,"is_grid_available":true},
+                {"level":"info","ts":"2025-12-30T10:00:00.000Z","msg":"Updated indicator lights","energy_level":"green","rgb_color":[0,255,0],"brightness_pct":100},
+                // Security event
+                {"level":"info","ts":"2025-12-30T11:00:00.000Z","msg":"Doorbell pressed, sending notifications"},
                 {"level":"info","ts":"2025-12-30T12:00:00.000Z","msg":"State changed","key":"isNickHome","old":false,"new":true},
                 {"level":"info","ts":"2025-12-30T12:00:00.000Z","msg":"State changed","key":"isAnyoneHome","old":false,"new":true},
                 {"level":"info","ts":"2025-12-30T12:00:00.000Z","msg":"Activating scene","room":"Living Room","scene":"day","entity_id":"scene.living_room_day"},
+                // Load shedding
+                {"level":"info","ts":"2025-12-30T14:00:00.000Z","msg":"Determined battery energy level","percentage":45,"level":"yellow"},
+                {"level":"info","ts":"2025-12-30T14:00:00.000Z","msg":"=== LOAD SHEDDING DECISION: ENABLE ===","energy_level":"yellow","trigger":"battery_low","reason":"Battery below threshold"},
+                {"level":"info","ts":"2025-12-30T15:00:00.000Z","msg":"Determined battery energy level","percentage":70,"level":"green"},
+                {"level":"info","ts":"2025-12-30T15:00:00.000Z","msg":"=== LOAD SHEDDING DECISION: DISABLE ===","energy_level":"green","trigger":"battery_recovered","reason":"Battery recovered"},
                 {"level":"info","ts":"2025-12-30T17:00:00.000Z","msg":"State changed","key":"dayPhase","old":"day","new":"evening"},
                 {"level":"info","ts":"2025-12-30T17:00:00.000Z","msg":"Activating scene","room":"Living Room","scene":"evening","entity_id":"scene.living_room_evening"},
                 {"level":"info","ts":"2025-12-30T17:00:00.000Z","msg":"Orchestrating playback","type":"evening","trigger":"dayPhase"},
                 {"level":"info","ts":"2025-12-30T17:00:00.000Z","msg":"State changed","key":"musicPlaybackType","old":"morning","new":"evening"},
                 {"level":"info","ts":"2025-12-30T20:00:00.000Z","msg":"State changed","key":"isTVPlaying","old":false,"new":true},
+                {"level":"info","ts":"2025-12-30T20:00:00.000Z","msg":"Stopping music playback"},
+                // Bedtime sequence
+                {"level":"info","ts":"2025-12-30T21:30:00.000Z","msg":"Conditions met for go_to_bed, flashing lights"},
                 {"level":"info","ts":"2025-12-30T22:00:00.000Z","msg":"State changed","key":"isTVPlaying","old":true,"new":false},
                 {"level":"info","ts":"2025-12-30T22:00:00.000Z","msg":"State changed","key":"dayPhase","old":"evening","new":"late_evening"},
+                {"level":"info","ts":"2025-12-30T22:30:00.000Z","msg":"Conditions met for begin_wake, starting fade out"},
                 {"level":"info","ts":"2025-12-30T23:00:00.000Z","msg":"State changed","key":"isMasterAsleep","old":false,"new":true},
                 {"level":"info","ts":"2025-12-30T23:00:00.000Z","msg":"State changed","key":"isAnyoneAsleep","old":false,"new":true}
             ];
