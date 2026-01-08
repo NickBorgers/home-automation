@@ -2803,3 +2803,463 @@ func TestPlaybackVerification_RecoveryOnSecondAttempt(t *testing.T) {
 		t.Errorf("Expected 2 play_media calls, got %d", playMediaCount)
 	}
 }
+
+// ============================================================================
+// Phase 1: Zone Assignment Policy Tests
+// ============================================================================
+
+// TestShouldIncludeInZone_NoConditions tests that speakers without exclude_if conditions are always included
+func TestShouldIncludeInZone_NoConditions(t *testing.T) {
+	t.Parallel()
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	config := &MusicConfig{Music: map[string]MusicMode{}}
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+
+	participant := Participant{
+		PlayerName:   "Kitchen",
+		BaseVolume:   9,
+		LeaveMutedIf: []MuteCondition{},
+		ExcludeIf:    []MuteCondition{}, // No exclude conditions
+	}
+
+	if !manager.shouldIncludeInZone(participant) {
+		t.Error("Speaker with no exclude_if conditions should be included in zone")
+	}
+}
+
+// TestShouldIncludeInZone_ConditionNotMatched tests that speakers are included when exclude_if condition doesn't match
+func TestShouldIncludeInZone_ConditionNotMatched(t *testing.T) {
+	t.Parallel()
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	config := &MusicConfig{Music: map[string]MusicMode{}}
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+
+	// Set up state: isMasterAsleep = false
+	if err := stateManager.SetBool("isMasterAsleep", false); err != nil {
+		t.Fatalf("Failed to set isMasterAsleep: %v", err)
+	}
+
+	participant := Participant{
+		PlayerName:   "Bedroom",
+		BaseVolume:   9,
+		LeaveMutedIf: []MuteCondition{},
+		ExcludeIf: []MuteCondition{
+			{Variable: "isMasterAsleep", Value: true}, // Exclude if asleep
+		},
+	}
+
+	// Condition is isMasterAsleep=true, but actual value is false
+	// So the condition does NOT match, speaker should be INCLUDED
+	if !manager.shouldIncludeInZone(participant) {
+		t.Error("Speaker should be included when exclude_if condition (isMasterAsleep=true) doesn't match (value is false)")
+	}
+}
+
+// TestShouldIncludeInZone_ConditionMatched tests that speakers are excluded when exclude_if condition matches
+func TestShouldIncludeInZone_ConditionMatched(t *testing.T) {
+	t.Parallel()
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	config := &MusicConfig{Music: map[string]MusicMode{}}
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+
+	// Set up state: isMasterAsleep = true
+	if err := stateManager.SetBool("isMasterAsleep", true); err != nil {
+		t.Fatalf("Failed to set isMasterAsleep: %v", err)
+	}
+
+	participant := Participant{
+		PlayerName:   "Bedroom",
+		BaseVolume:   9,
+		LeaveMutedIf: []MuteCondition{},
+		ExcludeIf: []MuteCondition{
+			{Variable: "isMasterAsleep", Value: true}, // Exclude if asleep
+		},
+	}
+
+	// Condition matches, speaker should be EXCLUDED
+	if manager.shouldIncludeInZone(participant) {
+		t.Error("Speaker should be excluded when exclude_if condition (isMasterAsleep=true) matches (value is true)")
+	}
+}
+
+// TestShouldIncludeInZone_MultipleConditions tests that any matching condition excludes the speaker
+func TestShouldIncludeInZone_MultipleConditions(t *testing.T) {
+	t.Parallel()
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	config := &MusicConfig{Music: map[string]MusicMode{}}
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+
+	tests := []struct {
+		name             string
+		isMasterAsleep   bool
+		isGuestAsleep    bool
+		expectedIncluded bool
+	}{
+		{
+			name:             "Both conditions false - include",
+			isMasterAsleep:   false,
+			isGuestAsleep:    false,
+			expectedIncluded: true,
+		},
+		{
+			name:             "First condition true - exclude",
+			isMasterAsleep:   true,
+			isGuestAsleep:    false,
+			expectedIncluded: false,
+		},
+		{
+			name:             "Second condition true - exclude",
+			isMasterAsleep:   false,
+			isGuestAsleep:    true,
+			expectedIncluded: false,
+		},
+		{
+			name:             "Both conditions true - exclude",
+			isMasterAsleep:   true,
+			isGuestAsleep:    true,
+			expectedIncluded: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Set up state
+			if err := stateManager.SetBool("isMasterAsleep", tt.isMasterAsleep); err != nil {
+				t.Fatalf("Failed to set isMasterAsleep: %v", err)
+			}
+			if err := stateManager.SetBool("isGuestAsleep", tt.isGuestAsleep); err != nil {
+				t.Fatalf("Failed to set isGuestAsleep: %v", err)
+			}
+
+			participant := Participant{
+				PlayerName:   "Bedroom",
+				BaseVolume:   9,
+				LeaveMutedIf: []MuteCondition{},
+				ExcludeIf: []MuteCondition{
+					{Variable: "isMasterAsleep", Value: true},
+					{Variable: "isGuestAsleep", Value: true},
+				},
+			}
+
+			result := manager.shouldIncludeInZone(participant)
+			if result != tt.expectedIncluded {
+				t.Errorf("Expected shouldIncludeInZone=%v, got %v", tt.expectedIncluded, result)
+			}
+		})
+	}
+}
+
+// TestOrchestratePlayback_WithExcludeIf tests that orchestratePlayback filters out excluded speakers
+func TestOrchestratePlayback_WithExcludeIf(t *testing.T) {
+	t.Parallel()
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+
+	config := &MusicConfig{
+		Music: map[string]MusicMode{
+			"morning": {
+				Participants: []Participant{
+					{PlayerName: "Kitchen", BaseVolume: 9, LeaveMutedIf: []MuteCondition{}, ExcludeIf: []MuteCondition{}},
+					{PlayerName: "Bedroom", BaseVolume: 9, LeaveMutedIf: []MuteCondition{}, ExcludeIf: []MuteCondition{
+						{Variable: "isMasterAsleep", Value: true}, // Exclude if asleep
+					}},
+					{PlayerName: "Living Room", BaseVolume: 10, LeaveMutedIf: []MuteCondition{}, ExcludeIf: []MuteCondition{}},
+				},
+				PlaybackOptions: []PlaybackOption{
+					{URI: "spotify:playlist:test", MediaType: "playlist", VolumeMultiplier: 1.0},
+				},
+			},
+			"day":      {Participants: []Participant{}, PlaybackOptions: []PlaybackOption{}},
+			"evening":  {Participants: []Participant{}, PlaybackOptions: []PlaybackOption{}},
+			"winddown": {Participants: []Participant{}, PlaybackOptions: []PlaybackOption{}},
+			"sleep":    {Participants: []Participant{}, PlaybackOptions: []PlaybackOption{}},
+			"sex":      {Participants: []Participant{}, PlaybackOptions: []PlaybackOption{}},
+			"wakeup":   {Participants: []Participant{}, PlaybackOptions: []PlaybackOption{}},
+		},
+	}
+
+	manager := NewManager(mockClient, stateManager, config, logger, true, nil) // read-only mode
+
+	// Set up state: isMasterAsleep = true (Bedroom should be excluded)
+	if err := stateManager.SetBool("isMasterAsleep", true); err != nil {
+		t.Fatalf("Failed to set isMasterAsleep: %v", err)
+	}
+	if err := stateManager.SetString("currentlyPlayingMusicUri", ""); err != nil {
+		t.Fatalf("Failed to set currentlyPlayingMusicUri: %v", err)
+	}
+
+	// Orchestrate playback
+	err := manager.orchestratePlayback("morning", "test")
+	if err != nil {
+		t.Fatalf("orchestratePlayback failed: %v", err)
+	}
+
+	// Verify that only Kitchen and Living Room are in the participant list (Bedroom excluded)
+	manager.mu.RLock()
+	defer manager.mu.RUnlock()
+
+	if manager.currentlyPlaying == nil {
+		t.Fatal("currentlyPlaying should not be nil")
+	}
+
+	participants := manager.currentlyPlaying.Participants
+	if len(participants) != 2 {
+		t.Errorf("Expected 2 participants (Bedroom excluded), got %d", len(participants))
+	}
+
+	// Check that Kitchen and Living Room are present, Bedroom is not
+	speakerNames := make(map[string]bool)
+	for _, p := range participants {
+		speakerNames[p.PlayerName] = true
+	}
+
+	if !speakerNames["Kitchen"] {
+		t.Error("Kitchen should be in participants")
+	}
+	if !speakerNames["Living Room"] {
+		t.Error("Living Room should be in participants")
+	}
+	if speakerNames["Bedroom"] {
+		t.Error("Bedroom should NOT be in participants (excluded by isMasterAsleep=true)")
+	}
+
+	// Verify that Kitchen is the lead player (first non-excluded participant)
+	if manager.currentlyPlaying.LeadPlayer != "Kitchen" {
+		t.Errorf("Expected lead player to be Kitchen, got %s", manager.currentlyPlaying.LeadPlayer)
+	}
+}
+
+// TestOrchestratePlayback_AllSpeakersExcluded tests error when all speakers are excluded
+func TestOrchestratePlayback_AllSpeakersExcluded(t *testing.T) {
+	t.Parallel()
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+
+	config := &MusicConfig{
+		Music: map[string]MusicMode{
+			"morning": {
+				Participants: []Participant{
+					{PlayerName: "Bedroom", BaseVolume: 9, LeaveMutedIf: []MuteCondition{}, ExcludeIf: []MuteCondition{
+						{Variable: "isMasterAsleep", Value: true},
+					}},
+				},
+				PlaybackOptions: []PlaybackOption{
+					{URI: "spotify:playlist:test", MediaType: "playlist", VolumeMultiplier: 1.0},
+				},
+			},
+			"day":      {Participants: []Participant{}, PlaybackOptions: []PlaybackOption{}},
+			"evening":  {Participants: []Participant{}, PlaybackOptions: []PlaybackOption{}},
+			"winddown": {Participants: []Participant{}, PlaybackOptions: []PlaybackOption{}},
+			"sleep":    {Participants: []Participant{}, PlaybackOptions: []PlaybackOption{}},
+			"sex":      {Participants: []Participant{}, PlaybackOptions: []PlaybackOption{}},
+			"wakeup":   {Participants: []Participant{}, PlaybackOptions: []PlaybackOption{}},
+		},
+	}
+
+	manager := NewManager(mockClient, stateManager, config, logger, true, nil)
+
+	// Set up state: all speakers excluded
+	if err := stateManager.SetBool("isMasterAsleep", true); err != nil {
+		t.Fatalf("Failed to set isMasterAsleep: %v", err)
+	}
+	if err := stateManager.SetString("currentlyPlayingMusicUri", ""); err != nil {
+		t.Fatalf("Failed to set currentlyPlayingMusicUri: %v", err)
+	}
+
+	// Orchestrate playback should fail
+	err := manager.orchestratePlayback("morning", "test")
+	if err == nil {
+		t.Error("Expected error when all speakers are excluded")
+	}
+
+	// Check error message mentions exclude_if
+	if err != nil && !strings.Contains(err.Error(), "exclude_if") {
+		t.Errorf("Error message should mention exclude_if, got: %v", err)
+	}
+}
+
+// TestCollectMuteConditionVariables_IncludesExcludeIf tests that exclude_if variables are collected
+func TestCollectMuteConditionVariables_IncludesExcludeIf(t *testing.T) {
+	t.Parallel()
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+
+	config := &MusicConfig{
+		Music: map[string]MusicMode{
+			"morning": {
+				Participants: []Participant{
+					{
+						PlayerName: "Kitchen",
+						BaseVolume: 9,
+						LeaveMutedIf: []MuteCondition{
+							{Variable: "isTVPlaying", Value: true},
+						},
+						ExcludeIf: []MuteCondition{
+							{Variable: "isMasterAsleep", Value: true},
+						},
+					},
+					{
+						PlayerName:   "Bedroom",
+						BaseVolume:   9,
+						LeaveMutedIf: []MuteCondition{},
+						ExcludeIf: []MuteCondition{
+							{Variable: "isGuestAsleep", Value: true},
+						},
+					},
+				},
+				PlaybackOptions: []PlaybackOption{},
+			},
+			"day":      {Participants: []Participant{}, PlaybackOptions: []PlaybackOption{}},
+			"evening":  {Participants: []Participant{}, PlaybackOptions: []PlaybackOption{}},
+			"winddown": {Participants: []Participant{}, PlaybackOptions: []PlaybackOption{}},
+			"sleep":    {Participants: []Participant{}, PlaybackOptions: []PlaybackOption{}},
+			"sex":      {Participants: []Participant{}, PlaybackOptions: []PlaybackOption{}},
+			"wakeup":   {Participants: []Participant{}, PlaybackOptions: []PlaybackOption{}},
+		},
+	}
+
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+
+	variables := manager.collectMuteConditionVariables()
+
+	// Create map for easy lookup
+	varMap := make(map[string]bool)
+	for _, v := range variables {
+		varMap[v] = true
+	}
+
+	// Check that leave_muted_if variables are collected
+	if !varMap["isTVPlaying"] {
+		t.Error("Expected isTVPlaying to be collected from leave_muted_if")
+	}
+
+	// Check that exclude_if variables are collected
+	if !varMap["isMasterAsleep"] {
+		t.Error("Expected isMasterAsleep to be collected from exclude_if")
+	}
+	if !varMap["isGuestAsleep"] {
+		t.Error("Expected isGuestAsleep to be collected from exclude_if")
+	}
+}
+
+// TestExcludeIf_LeadPlayerSelection tests that lead player is selected from included participants
+func TestExcludeIf_LeadPlayerSelection(t *testing.T) {
+	t.Parallel()
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+
+	config := &MusicConfig{
+		Music: map[string]MusicMode{
+			"morning": {
+				Participants: []Participant{
+					// First speaker is excluded
+					{PlayerName: "Bedroom", BaseVolume: 9, LeaveMutedIf: []MuteCondition{}, ExcludeIf: []MuteCondition{
+						{Variable: "isMasterAsleep", Value: true},
+					}},
+					// Second speaker should become lead
+					{PlayerName: "Kitchen", BaseVolume: 9, LeaveMutedIf: []MuteCondition{}, ExcludeIf: []MuteCondition{}},
+					{PlayerName: "Living Room", BaseVolume: 10, LeaveMutedIf: []MuteCondition{}, ExcludeIf: []MuteCondition{}},
+				},
+				PlaybackOptions: []PlaybackOption{
+					{URI: "spotify:playlist:test", MediaType: "playlist", VolumeMultiplier: 1.0},
+				},
+			},
+			"day":      {Participants: []Participant{}, PlaybackOptions: []PlaybackOption{}},
+			"evening":  {Participants: []Participant{}, PlaybackOptions: []PlaybackOption{}},
+			"winddown": {Participants: []Participant{}, PlaybackOptions: []PlaybackOption{}},
+			"sleep":    {Participants: []Participant{}, PlaybackOptions: []PlaybackOption{}},
+			"sex":      {Participants: []Participant{}, PlaybackOptions: []PlaybackOption{}},
+			"wakeup":   {Participants: []Participant{}, PlaybackOptions: []PlaybackOption{}},
+		},
+	}
+
+	manager := NewManager(mockClient, stateManager, config, logger, true, nil)
+
+	// Set up state: first participant (Bedroom) is excluded
+	if err := stateManager.SetBool("isMasterAsleep", true); err != nil {
+		t.Fatalf("Failed to set isMasterAsleep: %v", err)
+	}
+	if err := stateManager.SetString("currentlyPlayingMusicUri", ""); err != nil {
+		t.Fatalf("Failed to set currentlyPlayingMusicUri: %v", err)
+	}
+
+	err := manager.orchestratePlayback("morning", "test")
+	if err != nil {
+		t.Fatalf("orchestratePlayback failed: %v", err)
+	}
+
+	// Kitchen (second in config) should be lead because Bedroom is excluded
+	if manager.currentlyPlaying.LeadPlayer != "Kitchen" {
+		t.Errorf("Expected Kitchen to be lead player (first non-excluded), got %s", manager.currentlyPlaying.LeadPlayer)
+	}
+}
+
+// TestExcludeIf_ParticipantWithVolumePreservesExcludeIf tests that ExcludeIf is copied to ParticipantWithVolume
+func TestExcludeIf_ParticipantWithVolumePreservesExcludeIf(t *testing.T) {
+	t.Parallel()
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+
+	config := &MusicConfig{
+		Music: map[string]MusicMode{
+			"morning": {
+				Participants: []Participant{
+					{PlayerName: "Kitchen", BaseVolume: 9,
+						LeaveMutedIf: []MuteCondition{{Variable: "isTVPlaying", Value: true}},
+						ExcludeIf:    []MuteCondition{{Variable: "isMasterAsleep", Value: true}},
+					},
+				},
+				PlaybackOptions: []PlaybackOption{
+					{URI: "spotify:playlist:test", MediaType: "playlist", VolumeMultiplier: 1.0},
+				},
+			},
+			"day":      {Participants: []Participant{}, PlaybackOptions: []PlaybackOption{}},
+			"evening":  {Participants: []Participant{}, PlaybackOptions: []PlaybackOption{}},
+			"winddown": {Participants: []Participant{}, PlaybackOptions: []PlaybackOption{}},
+			"sleep":    {Participants: []Participant{}, PlaybackOptions: []PlaybackOption{}},
+			"sex":      {Participants: []Participant{}, PlaybackOptions: []PlaybackOption{}},
+			"wakeup":   {Participants: []Participant{}, PlaybackOptions: []PlaybackOption{}},
+		},
+	}
+
+	manager := NewManager(mockClient, stateManager, config, logger, true, nil)
+
+	// Kitchen is not excluded (isMasterAsleep is false by default)
+	if err := stateManager.SetBool("isMasterAsleep", false); err != nil {
+		t.Fatalf("Failed to set isMasterAsleep: %v", err)
+	}
+	if err := stateManager.SetString("currentlyPlayingMusicUri", ""); err != nil {
+		t.Fatalf("Failed to set currentlyPlayingMusicUri: %v", err)
+	}
+
+	err := manager.orchestratePlayback("morning", "test")
+	if err != nil {
+		t.Fatalf("orchestratePlayback failed: %v", err)
+	}
+
+	// Check that ExcludeIf was preserved in ParticipantWithVolume
+	if len(manager.currentlyPlaying.Participants) != 1 {
+		t.Fatalf("Expected 1 participant, got %d", len(manager.currentlyPlaying.Participants))
+	}
+
+	participant := manager.currentlyPlaying.Participants[0]
+	if len(participant.ExcludeIf) != 1 {
+		t.Errorf("Expected 1 ExcludeIf condition, got %d", len(participant.ExcludeIf))
+	}
+	if participant.ExcludeIf[0].Variable != "isMasterAsleep" {
+		t.Errorf("Expected ExcludeIf variable isMasterAsleep, got %s", participant.ExcludeIf[0].Variable)
+	}
+}

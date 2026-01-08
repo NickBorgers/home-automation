@@ -33,6 +33,7 @@ type ParticipantWithVolume struct {
 	Volume        int             `json:"volume"`
 	DefaultVolume int             `json:"default_volume"`
 	LeaveMutedIf  []MuteCondition `json:"leave_muted_if"`
+	ExcludeIf     []MuteCondition `json:"exclude_if"` // Phase 1: Zone exclusion conditions
 }
 
 // SpeakerResult tracks whether a speaker successfully joined the group
@@ -421,8 +422,9 @@ func (m *Manager) handleMusicPlaybackTypeChange(key string, oldValue, newValue i
 	}
 }
 
-// collectMuteConditionVariables collects all unique variables from participant mute conditions
-// These are variables like isNickOfficeOccupied that need subscriptions for dynamic speaker unmuting
+// collectMuteConditionVariables collects all unique variables from participant mute and exclude conditions.
+// These are variables like isNickOfficeOccupied that need subscriptions for dynamic speaker unmuting,
+// and variables like isMasterAsleep that control zone exclusion (Phase 1).
 func (m *Manager) collectMuteConditionVariables() []string {
 	// Use a map to collect unique variables
 	varMap := make(map[string]bool)
@@ -437,7 +439,14 @@ func (m *Manager) collectMuteConditionVariables() []string {
 
 	for _, mode := range m.config.Music {
 		for _, participant := range mode.Participants {
+			// Collect leave_muted_if variables
 			for _, condition := range participant.LeaveMutedIf {
+				if condition.Variable != "" && !alreadySubscribed[condition.Variable] {
+					varMap[condition.Variable] = true
+				}
+			}
+			// Phase 1: Also collect exclude_if variables for zone exclusion
+			for _, condition := range participant.ExcludeIf {
 				if condition.Variable != "" && !alreadySubscribed[condition.Variable] {
 					varMap[condition.Variable] = true
 				}
@@ -454,10 +463,12 @@ func (m *Manager) collectMuteConditionVariables() []string {
 	return result
 }
 
-// handleMuteConditionChange processes changes to variables used in speaker mute conditions
-// This re-evaluates speaker states during active playback
+// handleMuteConditionChange processes changes to variables used in speaker mute and exclude conditions.
+// This re-evaluates speaker states during active playback.
+// Phase 1: For exclude_if changes, logs that zone composition changed but doesn't migrate speakers (Phase 3).
+// For leave_muted_if changes, dynamically mutes/unmutes speakers within the current zone.
 func (m *Manager) handleMuteConditionChange(key string, oldValue, newValue interface{}) {
-	m.logger.Debug("Mute condition variable changed",
+	m.logger.Debug("Mute/exclude condition variable changed",
 		zap.String("key", key),
 		zap.Any("old", oldValue),
 		zap.Any("new", newValue))
@@ -465,19 +476,44 @@ func (m *Manager) handleMuteConditionChange(key string, oldValue, newValue inter
 	// Check if music is currently playing
 	m.mu.RLock()
 	currentlyPlaying := m.currentlyPlaying
+	musicType := ""
+	if currentlyPlaying != nil {
+		musicType = currentlyPlaying.Type
+	}
 	m.mu.RUnlock()
 
-	if currentlyPlaying == nil || currentlyPlaying.Type == "" {
-		m.logger.Debug("No music currently playing, ignoring mute condition change",
+	if currentlyPlaying == nil || musicType == "" {
+		m.logger.Debug("No music currently playing, ignoring condition change",
 			zap.String("key", key))
 		return
 	}
 
+	// Phase 1: Check if this variable affects zone exclusion for any configured speaker
+	// When an exclude_if variable changes, the zone composition may have changed
+	// (speakers that were excluded may now be eligible, or vice versa)
+	// Dynamic speaker migration is Phase 3 - for now, log and require manual reset
+	mode, ok := m.config.Music[musicType]
+	if ok {
+		for _, participant := range mode.Participants {
+			for _, condition := range participant.ExcludeIf {
+				if condition.Variable == key {
+					m.logger.Info("Zone exclusion condition changed - zone composition may have changed",
+						zap.String("speaker", participant.PlayerName),
+						zap.String("variable", key),
+						zap.Any("new_value", newValue),
+						zap.String("music_type", musicType),
+						zap.String("note", "Dynamic speaker migration is Phase 3 - use /api/plugins/music/reset to re-orchestrate"))
+				}
+			}
+		}
+	}
+
 	m.logger.Info("Re-evaluating speaker mute conditions during active playback",
 		zap.String("key", key),
-		zap.String("music_type", currentlyPlaying.Type))
+		zap.String("music_type", musicType))
 
-	// Re-evaluate each participant's mute conditions
+	// Re-evaluate each participant's mute conditions (leave_muted_if only)
+	// Speakers in currentlyPlaying.Participants already passed exclude_if at orchestration time
 	for _, participant := range currentlyPlaying.Participants {
 		// Check if this participant uses the changed variable in their mute conditions
 		usesVariable := false
@@ -627,9 +663,20 @@ func (m *Manager) orchestratePlayback(musicType string, trigger string) error {
 		}
 	}
 
-	// Build participants with calculated volumes
+	// Phase 1: Filter participants by exclude_if conditions first, then build with calculated volumes
+	// This implements the zone assignment policy - excluded speakers won't join the Sonos group
 	participants := make([]ParticipantWithVolume, 0, len(mode.Participants))
+	excludedCount := 0
 	for _, p := range mode.Participants {
+		// Check if speaker should be included in this zone
+		if !m.shouldIncludeInZone(p) {
+			m.logger.Info("Speaker excluded from zone",
+				zap.String("speaker", p.PlayerName),
+				zap.String("music_type", musicType))
+			excludedCount++
+			continue // Skip this speaker - don't add to group
+		}
+
 		volume := m.calculateVolume(p.BaseVolume, playbackOption.VolumeMultiplier)
 		participants = append(participants, ParticipantWithVolume{
 			PlayerName:    p.PlayerName,
@@ -637,12 +684,21 @@ func (m *Manager) orchestratePlayback(musicType string, trigger string) error {
 			Volume:        volume,
 			DefaultVolume: volume,
 			LeaveMutedIf:  p.LeaveMutedIf,
+			ExcludeIf:     p.ExcludeIf,
 		})
 	}
 
-	// Get lead player (first participant)
+	if excludedCount > 0 {
+		m.logger.Info("Zone participant filtering complete",
+			zap.String("music_type", musicType),
+			zap.Int("total_configured", len(mode.Participants)),
+			zap.Int("included", len(participants)),
+			zap.Int("excluded", excludedCount))
+	}
+
+	// Get lead player (first included participant)
 	if len(participants) == 0 {
-		return fmt.Errorf("no participants for music type: %s", musicType)
+		return fmt.Errorf("no participants for music type: %s (all %d speakers excluded by exclude_if conditions)", musicType, len(mode.Participants))
 	}
 	leadPlayer := participants[0].PlayerName
 
@@ -1279,6 +1335,43 @@ func (m *Manager) buildSpeakerGroup(participants []ParticipantWithVolume, leadEn
 	m.sleepFunc(speakerGroupSettleDelay)
 
 	return result, nil
+}
+
+// shouldIncludeInZone determines if a speaker should be included in the zone at all.
+// This evaluates exclude_if conditions - if any condition matches, the speaker is excluded
+// from the zone entirely and will not join the Sonos group.
+// This is different from shouldUnmuteSpeaker which controls muting within a zone.
+func (m *Manager) shouldIncludeInZone(participant Participant) bool {
+	// If no exclude conditions, always include
+	if len(participant.ExcludeIf) == 0 {
+		return true
+	}
+
+	// Check each exclude condition
+	for _, condition := range participant.ExcludeIf {
+		// Get the state variable value
+		value, err := m.getStateValue(condition.Variable)
+		if err != nil {
+			m.logger.Error("Failed to get state variable for exclude condition",
+				zap.String("variable", condition.Variable),
+				zap.String("speaker", participant.PlayerName),
+				zap.Error(err))
+			continue
+		}
+
+		// Check if condition matches (should be excluded)
+		if m.valuesMatch(value, condition.Value) {
+			m.logger.Debug("Exclude condition matched, speaker excluded from zone",
+				zap.String("speaker", participant.PlayerName),
+				zap.String("variable", condition.Variable),
+				zap.Any("value", value),
+				zap.Any("condition", condition.Value))
+			return false // Exclude from zone
+		}
+	}
+
+	// No conditions matched, include in zone
+	return true
 }
 
 // shouldUnmuteSpeaker determines if a speaker should be unmuted based on conditions
