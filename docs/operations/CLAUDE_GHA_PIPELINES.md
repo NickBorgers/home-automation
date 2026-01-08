@@ -531,7 +531,7 @@ The pipelines use a mix of Claude Opus and Claude Sonnet models, selected based 
 | **claude-code-review.yml - claude-review** | Opus | Code quality review may require nuanced understanding of patterns and architecture |
 | **claude-code-review.yml - test-review** | Sonnet | Checklist-based review with clear criteria (missing tests, slow tests) |
 | **claude-code-review.yml - concurrency-review** | Opus | Race conditions require nuanced understanding of concurrent programming |
-| **claude-code-review.yml - docs-review** | Sonnet | Checklist-based review matching code changes to documentation sections |
+| **claude-code-review.yml - docs-review** | Opus | Documentation updates require accurate changes when PR opener missed them |
 | **claude-code-review.yml - merge-decision** | Sonnet | Summarization task synthesizing existing review results |
 | **claude-diagnose-workflow-failure.yml** | Sonnet | Classification task with clear decision tree (3 categories) |
 
