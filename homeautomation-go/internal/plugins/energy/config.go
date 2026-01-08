@@ -70,7 +70,7 @@ type BaselineCalibrationConfig struct {
 	// When enabled, the system periodically dims LEDs to measure true ambient light.
 	Enabled bool `yaml:"enabled"`
 
-	// CalibrationIntervalSec is how often to run calibration cycles (default: 300 = 5 minutes)
+	// CalibrationIntervalSec is how often to run calibration cycles (default: 1800 = 30 minutes)
 	CalibrationIntervalSec int `yaml:"calibration_interval_sec"`
 
 	// CalibrationBrightnessPct is the brightness level during measurement (default: 5)
