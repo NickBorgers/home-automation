@@ -153,10 +153,11 @@ jobs:
             REPO=${{ github.repository }}
           runCmd: |
             # Run Claude to diagnose the workflow failure
+            # Using Sonnet: Classification task with clear decision tree (3 categories)
             claude --print \
               --verbose \
               --output-format stream-json \
-              --model opus \
+              --model sonnet \
               --dangerously-skip-permissions \
               --max-turns 100 \
               "You are a GitHub Actions diagnostician. A workflow has failed and you need to determine
