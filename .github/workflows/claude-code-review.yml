@@ -509,10 +509,11 @@ jobs:
           path: fix-failures-output.jsonl
           retention-days: 7
 
-  # Claude review - only runs when tests pass
+  # Claude review (code review) - runs after design-review
   claude-review:
-    needs: [get-context, build-devcontainer]
+    needs: [get-context, build-devcontainer, design-review]
     if: |
+      always() &&
       needs.get-context.outputs.pr_number != '' &&
       needs.get-context.outputs.reviews_already_passed != 'true' &&
       needs.get-context.outputs.tests_passed == 'true'
@@ -609,10 +610,10 @@ jobs:
           retention-days: 7
 
   # Design review specialist - validates PR implements issue intent and reviews design quality
+  # Runs FIRST (before code review) because intent and design must be validated before code quality
   design-review:
-    needs: [get-context, build-devcontainer, claude-review]
+    needs: [get-context, build-devcontainer]
     if: |
-      always() &&
       needs.get-context.outputs.pr_number != '' &&
       needs.get-context.outputs.reviews_already_passed != 'true' &&
       needs.get-context.outputs.tests_passed == 'true'
@@ -795,9 +796,9 @@ jobs:
           path: design-review-output.jsonl
           retention-days: 7
 
-  # Test-focused reviewer - runs after design-review
+  # Test-focused reviewer - runs after claude-review (code review)
   test-review:
-    needs: [get-context, build-devcontainer, design-review]
+    needs: [get-context, build-devcontainer, claude-review]
     if: |
       always() &&
       needs.get-context.outputs.pr_number != '' &&
@@ -1573,9 +1574,10 @@ jobs:
           fi
 
           # Show review agents only if tests passed (they would have run)
+          # Order: design-review first (validates intent), then code-review, then others
           if [ "$TESTS_PASSED" = "true" ]; then
-            COMMENT+="| 🔍 Code Review | $(format_result "$CLAUDE_RESULT") |\n"
             COMMENT+="| 🎨 Design Review | $(format_result "$DESIGN_RESULT") |\n"
+            COMMENT+="| 🔍 Code Review | $(format_result "$CLAUDE_RESULT") |\n"
             COMMENT+="| 🧪 Test Review | $(format_result "$TEST_RESULT") |\n"
             COMMENT+="| 🔀 Concurrency Review | $(format_result "$CONCURRENCY_RESULT") |\n"
             COMMENT+="| 📚 Docs Review | $(format_result "$DOCS_RESULT") |\n"

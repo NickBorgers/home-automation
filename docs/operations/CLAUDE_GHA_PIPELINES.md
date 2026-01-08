@@ -146,10 +146,10 @@ build-devcontainer
      ├──────────────────────────────────────────┐
      │                                          │
      ▼ (tests failed)                           ▼ (tests passed)
-fix-test-failures                          claude-review
+fix-test-failures                         design-review  ◄─ Intent/design validated FIRST
      │                                          │
      │ (triggers new test run)                  ▼
-     │                                    design-review
+     │                                     claude-review  ◄─ Code quality review
      │                                          │
      │                                          ▼
      │                                     test-review
@@ -221,25 +221,9 @@ Automatically fixes failing tests (up to 3 attempts).
 
 **Max Attempts**: 3 (after which human intervention is required)
 
-#### 2.3 `claude-review`
+#### 2.3 `design-review`
 
-General code quality review.
-
-**Condition**: Tests passed
-
-**Focus Areas**:
-- Shadow state pattern compliance
-- Proper mutex usage for WebSocket writes
-- Race conditions
-- Code coverage (65% minimum)
-- Error wrapping with context
-- Table-driven test patterns
-
-**Actions**: Fixes high-severity issues directly
-
-#### 2.4 `design-review`
-
-Design validation and critical design review specialist.
+Design validation and critical design review specialist. **Runs first** (before code review) because intent and design must be validated before code quality matters.
 
 **Condition**: Tests passed on current commit (verified via commit status check)
 
@@ -271,6 +255,22 @@ Design validation and critical design review specialist.
 **Max Turns**: 450 (high turn count for thorough analysis)
 
 **Actions**: Posts design analysis with intent validation, strengths, concerns, and suggestions
+
+#### 2.4 `claude-review`
+
+General code quality review. Runs **after design-review** because code quality only matters if the intent and design are correct.
+
+**Condition**: Tests passed
+
+**Focus Areas**:
+- Shadow state pattern compliance
+- Proper mutex usage for WebSocket writes
+- Race conditions
+- Code coverage (65% minimum)
+- Error wrapping with context
+- Table-driven test patterns
+
+**Actions**: Fixes high-severity issues directly
 
 #### 2.5 `test-review`
 
