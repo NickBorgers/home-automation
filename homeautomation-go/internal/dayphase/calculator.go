@@ -159,19 +159,24 @@ func (c *Calculator) GetSunEvent() SunEvent {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	// Match Node-RED's Sun State Summarizer logic
+	// Match Node-RED's Sun State Summarizer logic (with modified morning period)
 	// The summarizer receives raw sun events and maps them to simplified states
+
+	// Create noon for today in local time - morning lasts until noon
+	noonToday := time.Date(now.Year(), now.Month(), now.Day(), 12, 0, 0, 0, now.Location())
+
 	switch {
 	// Night period: night, nightEnd, nauticalDawn, dawn, nadir
 	// Before dawn (civil twilight starts), we're in "night"
 	case now.Before(c.sunTimes["dawn"]):
 		return SunEventNight
 
-	// Morning period: from dawn until goldenHourEnd (sun reaches 6° elevation)
-	case now.Before(c.sunTimes["goldenHourEnd"]):
+	// Morning period: from dawn until noon local time
+	// (Extended from goldenHourEnd to accommodate late wake-up schedules)
+	case now.Before(noonToday):
 		return SunEventMorning
 
-	// Day period: from goldenHourEnd until goldenHour starts (evening)
+	// Day period: from noon until goldenHour starts (evening)
 	case now.Before(c.sunTimes["goldenHour"]):
 		return SunEventDay
 
