@@ -39,7 +39,7 @@ flowchart TB
     end
 
     dawn --> SE_morning
-    goldenHourEnd --> SE_day
+    noon["noon (12:00)"] --> SE_day
     goldenHour --> SE_sunset
     dusk --> SE_dusk
     night --> SE_night
@@ -63,8 +63,8 @@ The daily cycle of phases based on astronomical events and schedule configuratio
 ```mermaid
 flowchart LR
     night["night<br/>(00:00-dawn)"]
-    morning["morning<br/>(dawn-goldenHourEnd)"]
-    day["day<br/>(goldenHourEnd-goldenHour)"]
+    morning["morning<br/>(dawn-noon)"]
+    day["day<br/>(noon-goldenHour)"]
     sunset["sunset<br/>(goldenHour-schedule.dusk)"]
     dusk["dusk<br/>(schedule.dusk-schedule.night)"]
     winddown["winddown<br/>(astronomical night<br/>before schedule.night)"]
