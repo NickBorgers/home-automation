@@ -85,7 +85,7 @@ Responds to `@claude` mentions in comments.
 **Key Configuration**:
 ```yaml
 claude --print \
-  --model opus \
+  --model opus \  # Opus for open-ended requests
   --dangerously-skip-permissions \
   --max-turns 400 \
   "$PROMPT"
@@ -556,6 +556,34 @@ gh workflow run "Claude Code Review" \
 ---
 
 ## Architecture Decisions
+
+### Model Selection (Opus vs Sonnet)
+
+The pipelines use a mix of Claude Opus and Claude Sonnet models, selected based on task complexity:
+
+| Pipeline/Job | Model | Rationale |
+|-------------|-------|-----------|
+| **claude.yml - claude** | Opus | Open-ended requests need maximum capability for design thinking and complex reasoning |
+| **claude.yml - resolve-issue** | Opus | Full issue resolution requires design, implementation, and multi-file changes |
+| **claude-code-review.yml - fix-test-failures** | Sonnet | Debugging task with clear error messages; has 3 retry attempts as safety net |
+| **claude-code-review.yml - claude-review** | Opus | Code quality review may require nuanced understanding of patterns and architecture |
+| **claude-code-review.yml - test-review** | Sonnet | Checklist-based review with clear criteria (missing tests, slow tests) |
+| **claude-code-review.yml - concurrency-review** | Opus | Race conditions require nuanced understanding of concurrent programming |
+| **claude-code-review.yml - docs-review** | Opus | Documentation updates require accurate changes when PR opener missed them |
+| **claude-code-review.yml - merge-decision** | Sonnet | Summarization task synthesizing existing review results |
+| **claude-diagnose-workflow-failure.yml** | Sonnet | Classification task with clear decision tree (3 categories) |
+
+**When to use Opus:**
+- Open-ended, creative tasks
+- Design and architecture decisions
+- Complex debugging requiring deep reasoning
+- Tasks where subtle issues could have major impact
+
+**When to use Sonnet:**
+- Checklist-based reviews with clear criteria
+- Classification tasks with defined categories
+- Summarization of existing information
+- Tasks with built-in retry mechanisms
 
 ### Why Devcontainers?
 

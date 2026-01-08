@@ -334,10 +334,11 @@ jobs:
             ISSUE_BODY=$(echo "$ISSUE_BODY_B64" | base64 -d 2>/dev/null || echo "")
 
             # Run Claude Code to fix test failures
+            # Using Sonnet: Task is debugging with clear error messages and 3 retry attempts
             claude --print \
               --verbose \
               --output-format stream-json \
-              --model opus \
+              --model sonnet \
               --dangerously-skip-permissions \
               --max-turns 200 \
               "You are fixing CI test failures for PR #${PR_NUMBER} in ${REPO}.
@@ -883,10 +884,11 @@ jobs:
             PR_NUMBER=${{ needs.get-context.outputs.pr_number }}
             HEAD_REF=${{ needs.get-context.outputs.head_ref }}
           runCmd: |
+            # Using Sonnet: Checklist-based review with clear criteria
             claude --print \
               --verbose \
               --output-format stream-json \
-              --model opus \
+              --model sonnet \
               --dangerously-skip-permissions \
               --max-turns 200 \
               "You are a QA tester for PR #${PR_NUMBER}.
@@ -1159,6 +1161,7 @@ jobs:
             PR_BODY=$(echo "$PR_BODY_B64" | base64 -d 2>/dev/null || echo "")
             ISSUE_BODY=$(echo "$ISSUE_BODY_B64" | base64 -d 2>/dev/null || echo "")
 
+            # Using Opus: Documentation updates require accurate changes when PR opener missed them
             claude --print \
               --verbose \
               --output-format stream-json \
@@ -1300,10 +1303,11 @@ jobs:
             CONCURRENCY_REVIEW_RESULT=${{ needs.concurrency-review.result }}
             DOCS_REVIEW_RESULT=${{ needs.docs-review.result }}
           runCmd: |
+            # Using Sonnet: Summarization task - synthesizes existing review results
             claude --print \
               --verbose \
               --output-format stream-json \
-              --model opus \
+              --model sonnet \
               --dangerously-skip-permissions \
               --max-turns 150 \
               "You are the FINAL DECISION MAKER for PR #${PR_NUMBER}.
