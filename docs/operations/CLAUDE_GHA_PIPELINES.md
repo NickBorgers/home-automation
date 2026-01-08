@@ -149,6 +149,9 @@ build-devcontainer
 fix-test-failures                          claude-review
      │                                          │
      │ (triggers new test run)                  ▼
+     │                                    design-review
+     │                                          │
+     │                                          ▼
      │                                     test-review
      │                                          │
      │                                          ▼
@@ -234,7 +237,42 @@ General code quality review.
 
 **Actions**: Fixes high-severity issues directly
 
-#### 2.4 `test-review`
+#### 2.4 `design-review`
+
+Design validation and critical design review specialist.
+
+**Condition**: Tests passed on current commit (verified via commit status check)
+
+**Pre-Flight Check**: Before running the review, verifies that "All Required Tests" commit status is `success` on the current HEAD. If tests haven't passed, the review is skipped to avoid reviewing broken code that can't be merged anyway.
+
+**Purpose**: This reviewer serves two functions:
+1. **Intent Validation**: Ensures the PR actually implements what was requested in the linked issue and/or PR description
+2. **Design Critique**: Critically reviews the design decisions for quality, trade-offs, and potential issues
+
+**Focus Areas**:
+- Does the PR solve the stated problem?
+- Are there gaps between requirements and implementation?
+- Is this a good design for the problem?
+- What predictable challenges or edge cases exist?
+- What trade-offs does the design bring?
+- Are there simpler or more robust alternatives?
+- Does it fit with existing architecture?
+- Will it scale and be maintainable?
+
+**For Design-Heavy PRs** (new patterns, architectures, structural changes):
+- Extensibility and flexibility
+- Error handling and failure modes
+- Performance implications
+- Coupling and cohesion
+- Testability
+
+**Reference**: `docs/architecture/ARCHITECTURE.md`, `docs/reference/SHADOW_STATE.md`
+
+**Max Turns**: 450 (high turn count for thorough analysis)
+
+**Actions**: Posts design analysis with intent validation, strengths, concerns, and suggestions
+
+#### 2.5 `test-review`
 
 QA-focused test review.
 
@@ -250,7 +288,7 @@ QA-focused test review.
 
 **Actions**: Adds test coverage for high-severity gaps
 
-#### 2.5 `concurrency-review`
+#### 2.6 `concurrency-review`
 
 Specialized concurrency/race condition review.
 
@@ -269,7 +307,7 @@ Specialized concurrency/race condition review.
 
 **Actions**: Fixes high-severity concurrency bugs
 
-#### 2.6 `docs-review`
+#### 2.7 `docs-review`
 
 Documentation synchronization review.
 
@@ -290,7 +328,7 @@ Documentation synchronization review.
 
 **Actions**: Updates documentation, validates Mermaid diagrams
 
-#### 2.7 `merge-decision`
+#### 2.8 `merge-decision`
 
 Final decision maker that synthesizes all reviews and makes a go/no-go call.
 
@@ -310,7 +348,7 @@ Final decision maker that synthesizes all reviews and makes a go/no-go call.
 
 **Actions**: Posts a final comment with the merge decision (🟢 GO or 🔴 NO-GO)
 
-#### 2.8 `all-reviews-passed`
+#### 2.9 `all-reviews-passed`
 
 Aggregator job for branch protection.
 
@@ -559,11 +597,14 @@ Conversation logs are uploaded even on failure to help debug:
      if: |
        always() &&
        needs.get-context.outputs.pr_number != '' &&
+       needs.get-context.outputs.reviews_already_passed != 'true' &&
        needs.get-context.outputs.tests_passed == 'true'
      # ... steps ...
    ```
-3. Add to `all-reviews-passed` needs and check
-4. Document the new reviewer's focus area
+3. Add to `merge-decision` needs to include the new reviewer's result
+4. Add to `all-reviews-passed` needs and check
+5. Add to the summary comment in `all-reviews-passed`
+6. Document the new reviewer's focus area in this file
 
 ### Modifying Claude Prompts
 
