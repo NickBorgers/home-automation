@@ -1,7 +1,6 @@
 {
   "permissions": {
     "allow": [
-      "Bash(make generate-screenshots:*)",
       "Bash(go doc:*)",
       "Bash(go list:*)",
       "WebSearch",
