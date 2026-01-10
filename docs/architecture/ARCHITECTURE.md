@@ -742,11 +742,9 @@ The existing Node-RED implementation exposes 14 HomeKit accessories via NRCHKB:
 - [gorilla/websocket](https://pkg.go.dev/github.com/gorilla/websocket)
 - [zap Logger](https://pkg.go.dev/go.uber.org/zap)
 
-### Node-RED Reference
+### Node-RED Reference (Archived)
 
-- **Live Instance:** https://node-red.featherback-mermaid.ts.net/
-- **Flow Screenshots:** `automated-rendering/screenshot-capture/screenshots/`
-- **Flow Configuration:** `docs/archive/flows.json`
+- **Flow Configuration:** `docs/archive/flows.json` (archived for historical reference)
 
 ---
 
