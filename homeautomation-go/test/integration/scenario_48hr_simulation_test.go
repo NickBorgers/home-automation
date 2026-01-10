@@ -63,8 +63,8 @@ func setupDayPhaseSimulation(t *testing.T, timezone *time.Location, startTime ti
 	require.NoError(t, err, "Failed to load schedule config from %s", configPath)
 	configLoader.SetTimezone(timezone)
 
-	// Create dayphase calculator with coordinates (Austin, TX area)
-	calculator := dayphase.NewCalculator(32.85486, -97.50515, logger)
+	// Create dayphase calculator with coordinates (Austin, TX area) and timezone
+	calculator := dayphase.NewCalculator(32.85486, -97.50515, timezone, logger)
 
 	// Create dayphase manager
 	dayPhaseMgr := dayphaseplugin.NewManager(
@@ -488,7 +488,7 @@ func BenchmarkSimulation_1Day(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		logger := testlogger.New()
 		mockClock := clock.NewMockClock(startTime)
-		calculator := dayphase.NewCalculator(32.85486, -97.50515, logger)
+		calculator := dayphase.NewCalculator(32.85486, -97.50515, et, logger)
 		calculator.SetClock(mockClock)
 
 		// Simulate 24 hours in 5-minute increments

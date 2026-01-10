@@ -41,8 +41,8 @@ func createPlugin(ctx *plugin.Context) (plugin.Plugin, error) {
 		return nil, fmt.Errorf("failed to load schedule config: %w", err)
 	}
 
-	// Create day phase calculator with coordinates from context
-	calculator := dayphaselib.NewCalculator(ctx.Latitude, ctx.Longitude, ctx.Logger)
+	// Create day phase calculator with coordinates and timezone from context
+	calculator := dayphaselib.NewCalculator(ctx.Latitude, ctx.Longitude, ctx.Timezone, ctx.Logger)
 
 	manager := NewManager(haClient, stateManager, configLoader, calculator, ctx.Logger, ctx.ReadOnly, ctx.Timezone)
 	return &pluginAdapter{manager: manager}, nil

@@ -39,6 +39,7 @@ const (
 type Calculator struct {
 	latitude  float64
 	longitude float64
+	timezone  *time.Location
 	logger    *zap.Logger
 	clock     clock.Clock
 
@@ -53,10 +54,16 @@ type Calculator struct {
 
 // NewCalculator creates a new day phase calculator
 // Default coordinates are for Austin, TX area (32.85486, -97.50515)
-func NewCalculator(latitude, longitude float64, logger *zap.Logger) *Calculator {
+// The timezone parameter is used for local time comparisons in fallback logic.
+// If timezone is nil, UTC is used.
+func NewCalculator(latitude, longitude float64, timezone *time.Location, logger *zap.Logger) *Calculator {
+	if timezone == nil {
+		timezone = time.UTC
+	}
 	return &Calculator{
 		latitude:  latitude,
 		longitude: longitude,
+		timezone:  timezone,
 		logger:    logger,
 		clock:     clock.NewRealClock(),
 		sunTimes:  make(map[string]time.Time),
@@ -308,7 +315,10 @@ func (c *Calculator) CalculateDayPhase(schedule *config.ParsedSchedule) DayPhase
 		return DayPhaseDusk
 
 	case SunEventNight:
-		if now.Hour() >= 23 || now.Hour() < 6 {
+		// Convert to local timezone for hour comparison
+		// This ensures the night check works correctly regardless of system timezone
+		nowLocal := now.In(c.timezone)
+		if nowLocal.Hour() >= 23 || nowLocal.Hour() < 6 {
 			return DayPhaseNight
 		}
 		return DayPhaseWinddown
