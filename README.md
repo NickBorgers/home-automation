@@ -14,12 +14,12 @@ flowchart LR
     B --> D[Phillips Hue]
     B --> E[Thermostats]
     B --> F[Apple TV]
-    B --> G[Door Locks]
-    B --> H[Garage - ratgdo]
-    B --> I[SPAN Panel]
-    B <--> J[HomeKit]
+    B --> G[Garage - ratgdo]
+    B --> H[SPAN Panel]
+    B <--> I[HomeKit]
+    I --> J[Door Locks]
     K[Scrypted] -->|webhooks| B
-    L((Device Location)) --> J
+    L((Device Location)) --> I
 ```
 
 The Go application connects to Home Assistant via WebSocket and orchestrates automations through a plugin-based architecture. All device control flows through Home Assistant's integrations.
