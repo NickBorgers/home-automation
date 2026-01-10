@@ -318,7 +318,10 @@ func (c *Calculator) CalculateDayPhase(schedule *config.ParsedSchedule) DayPhase
 		return DayPhaseDusk
 
 	case SunEventNight:
-		if now.Hour() >= 23 || now.Hour() < 6 {
+		// Convert to local timezone for hour comparison
+		// This ensures the night check works correctly regardless of system timezone
+		nowLocal := now.In(c.timezone)
+		if nowLocal.Hour() >= 23 || nowLocal.Hour() < 6 {
 			return DayPhaseNight
 		}
 		return DayPhaseWinddown
