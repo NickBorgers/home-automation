@@ -423,6 +423,109 @@ This project uses multiple mechanisms:
 
 ---
 
+## Lesson 9: Cancel Concurrent Goroutines Before Starting New Operations
+
+**Pattern**: Use `context.Context` to cancel active goroutines before starting new operations that would conflict.
+
+**Why**: When multiple goroutines operate on the same resource, a new operation may conflict with an active one, causing:
+- Resource contention (e.g., volume jumping when multiple fade-ins run)
+- False state detection (e.g., old goroutine sees new operation's state as "unexpected")
+- Wasted work (old operation continues when its result is no longer needed)
+
+**Problem Scenario** (Fixed in [PR #458](https://github.com/NickBorgersOnLowSecurityNode/home-automation/pull/458)):
+```go
+// ❌ BAD: No cancellation - concurrent fade-ins cause chaos
+func (m *Manager) executePlayback(...) {
+    for _, speaker := range speakers {
+        go m.fadeInSpeaker(speaker, targetVolume)  // No way to stop old fade-ins!
+    }
+}
+
+// When user changes music, old fade-ins are still running:
+// - Old fade-in sees volume at 0 (set by new fade-in) → "human override detected!"
+// - Old and new fade-ins fight for volume → volume jumps wildly
+```
+
+**Error Symptoms**:
+```
+Aborting fade-in: apparent human override - volume changed unexpectedly
+```
+
+**Correct Approach**:
+```go
+// ✅ GOOD: Track and cancel goroutines with context
+type Manager struct {
+    fadeInContexts   map[string]context.CancelFunc
+    fadeInContextsMu sync.Mutex
+}
+
+func (m *Manager) cancelAllFadeIns() {
+    m.fadeInContextsMu.Lock()
+    defer m.fadeInContextsMu.Unlock()
+    for _, cancel := range m.fadeInContexts {
+        cancel()
+    }
+    m.fadeInContexts = make(map[string]context.CancelFunc)
+}
+
+func (m *Manager) startFadeInWithContext(entityID string) context.Context {
+    m.fadeInContextsMu.Lock()
+    defer m.fadeInContextsMu.Unlock()
+
+    // Cancel existing fade-in for this speaker
+    if cancel, exists := m.fadeInContexts[entityID]; exists {
+        cancel()
+    }
+
+    ctx, cancel := context.WithCancel(context.Background())
+    m.fadeInContexts[entityID] = cancel
+    return ctx
+}
+
+func (m *Manager) executePlayback(...) {
+    m.cancelAllFadeIns()  // Stop all old fade-ins first!
+    for _, speaker := range speakers {
+        ctx := m.startFadeInWithContext(speaker)
+        go m.fadeInSpeaker(ctx, speaker, targetVolume)
+    }
+}
+
+func (m *Manager) fadeInSpeaker(ctx context.Context, speaker string, target int) {
+    defer m.unregisterFadeIn(speaker)
+    for volume := 0; volume <= target; volume++ {
+        select {
+        case <-ctx.Done():
+            return  // Cancelled - exit gracefully
+        default:
+        }
+        // ... do fade-in step
+    }
+}
+```
+
+**Key Elements**:
+1. **Map of cancel functions**: Track active goroutines by resource identifier
+2. **Mutex protection**: Context map is shared state, needs synchronization
+3. **Cancel before start**: Always cancel old operations before starting new ones
+4. **Graceful exit**: Goroutines check `ctx.Done()` and return cleanly
+5. **Cleanup on completion**: Unregister context when goroutine finishes
+
+**Where to Apply**:
+- Any long-running goroutine that operates on a shared resource
+- Operations that can be superseded by newer requests
+- Retry/polling loops that should stop when conditions change
+- Background tasks that should abort when parent operation completes
+
+**Test That Validates This**:
+- `TestFadeInCancellation_NewPlaybackCancelsActiveFadeIns`
+- `TestFadeInCancellation_CancelledBeforeStart`
+
+**Production Impact**:
+- **Before Fix**: Volume jumping during music changes, false "human override" detection
+- **After Fix**: Clean handoff between playback sequences, no spurious aborts
+
+---
+
 ## Common Pitfalls to Avoid
 
 ### 1. Forgetting to Lock Before Map Access
@@ -483,6 +586,7 @@ func (s *Subscription) Close() {
 6. **Always test with -race** - Catches bugs you can't see in normal runs
 7. **Message ID allocation and write must be atomic** - Prevents out-of-order IDs
 8. **Configure TCP keepalive with syscalls** - Go's net.Dialer.KeepAlive is insufficient for fast dead connection detection
+9. **Cancel concurrent goroutines before new operations** - Use context.Context to stop conflicting goroutines
 
 ---
 
@@ -499,6 +603,12 @@ func (s *Subscription) Close() {
 ---
 
 ## Change Log
+
+### 2026-01-10
+- **Added Lesson 9**: Cancel Concurrent Goroutines Before Starting New Operations
+  - Documents pattern for using `context.Context` to cancel conflicting goroutines (Issue #457, PR #458)
+  - Pattern: Track cancel functions in map, cancel before starting new operations, check `ctx.Done()` in goroutines
+  - Fixes volume jumping and false human-override detection in music fade-ins
 
 ### 2026-01-05
 - **Simplification**: WebSocket Connection Management (Issue #405)
