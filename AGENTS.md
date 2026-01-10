@@ -85,16 +85,10 @@ Before implementing features, understand the current Node-RED behavior.
 **⚠️ WARNING:** `docs/archive/flows.json` is ~650KB. Do NOT read it all at once. Use targeted searches:
 
 ```bash
-# Generate flow screenshots for visual overview
-make generate-screenshots
-# View: ./automated-rendering/screenshot-capture/screenshots/
-
 # Search patterns
 grep -A 5 '"label":"Music"' docs/archive/flows.json              # Find a flow
 grep -A 20 '"name":"Pick Appropriate Music"' docs/archive/flows.json  # Find function node
 grep -n "isNickHome" docs/archive/flows.json                     # Find state variable usage
-
-# Live instance: https://node-red.featherback-mermaid.ts.net/
 ```
 
 **Flow to Config Mapping:**
