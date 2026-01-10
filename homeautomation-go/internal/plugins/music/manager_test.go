@@ -809,7 +809,7 @@ func TestStopPlayback_OnlyAffectsActiveSpeakers(t *testing.T) {
 		},
 	}
 
-	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil, nil)
 
 	// Set up currently playing as EVENING mode (which does NOT include Soundbar)
 	manager.currentlyPlaying = &CurrentlyPlayingMusic{
@@ -869,7 +869,7 @@ func TestStopPlayback_NoCurrentPlayback(t *testing.T) {
 		},
 	}
 
-	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil, nil)
 
 	// No currently playing music
 	manager.currentlyPlaying = nil
@@ -1982,7 +1982,7 @@ func TestFadeInSpeaker_HumanOverrideDetection(t *testing.T) {
 
 	fixedTime := time.Date(2025, 1, 6, 9, 0, 0, 0, time.UTC)
 	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
-	manager := NewManager(mockHA, stateManager, config, logger, false, timeProvider)
+	manager := NewManager(mockHA, stateManager, config, logger, false, timeProvider, nil)
 
 	var volumeStep int
 	manager.SetSleepFunc(func(d time.Duration) {
@@ -2043,7 +2043,7 @@ func TestFadeInSpeaker_NoHumanOverrideWithMatchingVolume(t *testing.T) {
 
 	fixedTime := time.Date(2025, 1, 6, 9, 0, 0, 0, time.UTC)
 	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
-	manager := NewManager(mockHA, stateManager, config, logger, false, timeProvider)
+	manager := NewManager(mockHA, stateManager, config, logger, false, timeProvider, nil)
 
 	var volumeStep int
 	manager.SetSleepFunc(func(d time.Duration) {
