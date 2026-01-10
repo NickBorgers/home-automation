@@ -155,7 +155,7 @@ func TestScenario_OfficeSpeaker_UnmutedWhenOccupied(t *testing.T) {
 	fixedTime := time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC) // Monday 10am
 	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
 
-	manager := NewManager(mockClient, stateManager, config, logger, false, timeProvider)
+	manager := NewManager(mockClient, stateManager, config, logger, false, timeProvider, nil)
 	manager.SetSleepFunc(func(d time.Duration) {}) // Skip internal sleeps for fast tests
 
 	// Initialize required state variables
@@ -237,7 +237,7 @@ func TestScenario_OfficeSpeaker_MutedWhenUnoccupied(t *testing.T) {
 	fixedTime := time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC)
 	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
 
-	manager := NewManager(mockClient, stateManager, config, logger, false, timeProvider)
+	manager := NewManager(mockClient, stateManager, config, logger, false, timeProvider, nil)
 	manager.SetSleepFunc(func(d time.Duration) {}) // Skip internal sleeps for fast tests
 
 	// Initialize - office IS occupied
@@ -305,7 +305,7 @@ func TestScenario_OfficeSpeaker_UnmuteOnOccupancyChangeDuringPlayback(t *testing
 	fixedTime := time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC)
 	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
 
-	manager := NewManager(mockClient, stateManager, config, logger, false, timeProvider)
+	manager := NewManager(mockClient, stateManager, config, logger, false, timeProvider, nil)
 	manager.SetSleepFunc(func(d time.Duration) {}) // Skip internal sleeps for fast tests
 
 	// Initialize required state variables - music will start playing
@@ -388,7 +388,7 @@ func TestScenario_KitchenSpeaker_AlwaysUnmuted(t *testing.T) {
 	fixedTime := time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC)
 	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
 
-	manager := NewManager(mockClient, stateManager, config, logger, false, timeProvider)
+	manager := NewManager(mockClient, stateManager, config, logger, false, timeProvider, nil)
 	manager.SetSleepFunc(func(d time.Duration) {}) // Skip internal sleeps for fast tests
 
 	// Kitchen speaker has no mute conditions - empty array

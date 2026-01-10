@@ -62,7 +62,8 @@ type Manager struct {
 	logger       *zap.Logger
 	readOnly     bool
 	timeProvider plugin.TimeProvider
-	sleepFunc    SleepFunc // Injectable sleep function for testing
+	timezone     *time.Location // Configured timezone for day-of-week checks
+	sleepFunc    SleepFunc      // Injectable sleep function for testing
 
 	// Playback state
 	playlistNumbers    map[string]int // Tracks playlist rotation per music type
@@ -88,9 +89,13 @@ type Manager struct {
 
 // NewManager creates a new Music manager
 // If timeProvider is nil, it defaults to plugin.RealTimeProvider
-func NewManager(haClient ha.HAClient, stateManager *state.Manager, config *MusicConfig, logger *zap.Logger, readOnly bool, timeProvider plugin.TimeProvider) *Manager {
+// If timezone is nil, it defaults to time.Local
+func NewManager(haClient ha.HAClient, stateManager *state.Manager, config *MusicConfig, logger *zap.Logger, readOnly bool, timeProvider plugin.TimeProvider, timezone *time.Location) *Manager {
 	if timeProvider == nil {
 		timeProvider = plugin.RealTimeProvider{}
+	}
+	if timezone == nil {
+		timezone = time.Local
 	}
 	return &Manager{
 		haClient:           haClient,
@@ -99,6 +104,7 @@ func NewManager(haClient ha.HAClient, stateManager *state.Manager, config *Music
 		logger:             logger.Named("music"),
 		readOnly:           readOnly,
 		timeProvider:       timeProvider,
+		timezone:           timezone,
 		sleepFunc:          time.Sleep,
 		playlistNumbers:    make(map[string]int),
 		shadowState:        shadowstate.NewMusicShadowState(),
@@ -313,7 +319,10 @@ func (m *Manager) determineMusicModeFromDayPhase(dayPhase string, currentMusicTy
 		// Otherwise, fall back to day music during morning phase
 		if isWakeUpEvent {
 			// Check if it's Sunday (no morning music on Sundays)
-			if m.timeProvider.Now().Weekday() == time.Sunday {
+			// Use configured timezone to avoid UTC-based weekday check issues
+			// (e.g., 6 PM CST Saturday = 00:00 UTC Sunday)
+			nowLocal := m.timeProvider.Now().In(m.timezone)
+			if nowLocal.Weekday() == time.Sunday {
 				m.logger.Debug("Sunday detected, using day mode instead of morning")
 				return "day"
 			}

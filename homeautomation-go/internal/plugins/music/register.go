@@ -40,8 +40,8 @@ func createPlugin(ctx *plugin.Context) (plugin.Plugin, error) {
 		return nil, fmt.Errorf("failed to load music config: %w", err)
 	}
 
-	// Pass the TimeProvider directly (NewManager handles nil by defaulting to RealTimeProvider)
-	manager := NewManager(haClient, stateManager, config, ctx.Logger, ctx.ReadOnly, ctx.TimeProvider)
+	// Pass the TimeProvider and Timezone directly (NewManager handles nil by defaulting to RealTimeProvider and time.Local)
+	manager := NewManager(haClient, stateManager, config, ctx.Logger, ctx.ReadOnly, ctx.TimeProvider, ctx.Timezone)
 	return &pluginAdapter{manager: manager}, nil
 }
 

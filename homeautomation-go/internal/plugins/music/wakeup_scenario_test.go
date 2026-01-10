@@ -238,7 +238,7 @@ func TestScenario_WakeUpDuringMorning_TriggersMorningMusic(t *testing.T) {
 	require.Equal(t, time.Monday, fixedTime.Weekday(), "Test requires Monday")
 	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
 
-	manager := NewManager(mockClient, stateManager, config, logger, false, timeProvider)
+	manager := NewManager(mockClient, stateManager, config, logger, false, timeProvider, nil)
 	manager.SetSleepFunc(func(d time.Duration) {}) // Skip internal sleeps for fast tests
 
 	// ==========================================================
@@ -341,7 +341,7 @@ func TestScenario_WakeUpOnSunday_TriggersDayMusic(t *testing.T) {
 	require.Equal(t, time.Sunday, fixedTime.Weekday(), "Test requires Sunday")
 	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
 
-	manager := NewManager(mockClient, stateManager, config, logger, false, timeProvider)
+	manager := NewManager(mockClient, stateManager, config, logger, false, timeProvider, nil)
 	manager.SetSleepFunc(func(d time.Duration) {}) // Skip internal sleeps for fast tests
 
 	// Initial state: Morning phase, someone asleep
@@ -378,6 +378,81 @@ func TestScenario_WakeUpOnSunday_TriggersDayMusic(t *testing.T) {
 }
 
 // =============================================================================
+// TEST: Sunday Check Uses Configured Timezone (Issue #450)
+// =============================================================================
+//
+// SCENARIO (BUG CASE):
+// - UTC time: Sunday 00:30 AM (January 14, 2024)
+// - CST time: Saturday 6:30 PM (January 13, 2024) - NOT Sunday locally!
+// - Event: Wake-up during morning phase
+//
+// BUG BEHAVIOR (before fix):
+// → Used UTC weekday, incorrectly detected Sunday, played DAY music
+//
+// CORRECT BEHAVIOR (after fix):
+// → Uses configured timezone (CST), correctly detects Saturday, plays MORNING music
+//
+// This tests the fix for Issue #450: The music manager's Sunday check must use
+// the configured local timezone instead of UTC to avoid edge cases at midnight.
+func TestScenario_WakeUp_UsesLocalTimezoneForSundayCheck(t *testing.T) {
+	t.Parallel()
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	config := createWakeupTestConfig()
+
+	// Load CST timezone (America/Chicago)
+	cst, err := time.LoadLocation("America/Chicago")
+	require.NoError(t, err, "Failed to load America/Chicago timezone")
+
+	// Create a time that is:
+	// - Sunday 00:30 AM UTC (January 14, 2024)
+	// - Saturday 6:30 PM CST (January 13, 2024)
+	utcTime := time.Date(2024, 1, 14, 0, 30, 0, 0, time.UTC)
+	require.Equal(t, time.Sunday, utcTime.Weekday(), "Test requires Sunday in UTC")
+	require.Equal(t, time.Saturday, utcTime.In(cst).Weekday(), "Test requires Saturday in CST")
+
+	timeProvider := plugin.FixedTimeProvider{FixedTime: utcTime}
+
+	// Pass CST as the configured timezone
+	manager := NewManager(mockClient, stateManager, config, logger, false, timeProvider, cst)
+	manager.SetSleepFunc(func(d time.Duration) {}) // Skip internal sleeps for fast tests
+
+	// Initial state: Morning phase, someone asleep
+	_ = stateManager.SetString("dayPhase", "morning")
+	_ = stateManager.SetString("musicPlaybackType", "sleep")
+	_ = stateManager.SetBool("isAnyoneHome", true)
+	_ = stateManager.SetBool("isAnyoneAsleep", true)
+	_ = stateManager.SetBool("isMasterAsleep", true)
+	_ = stateManager.SetBool("isGuestAsleep", false)
+	_ = stateManager.SetBool("isTVPlaying", false)
+	_ = stateManager.SetBool("isNickOfficeOccupied", false)
+
+	err = manager.Start()
+	require.NoError(t, err)
+	defer manager.Stop()
+
+	time.Sleep(50 * time.Millisecond)
+	mockClient.ClearServiceCalls()
+
+	// ACTION: Wake-up event
+	// UTC: Sunday 00:30 AM (but CST: Saturday 6:30 PM)
+	mockClient.SimulateStateChange("input_boolean.anyone_asleep", "off")
+	mockClient.SimulateStateChange("input_boolean.master_asleep", "off")
+
+	time.Sleep(50 * time.Millisecond)
+
+	// VERIFICATION: Should use local timezone (CST = Saturday)
+	// NOT Sunday, so morning music should play
+	musicType, err := stateManager.GetString("musicPlaybackType")
+	require.NoError(t, err)
+
+	assert.Equal(t, "morning", musicType,
+		"Wake-up when UTC=Sunday but CST=Saturday should trigger MORNING music "+
+			"(Issue #450: Sunday check must use configured timezone, not UTC)")
+}
+
+// =============================================================================
 // TEST: Day Phase Change (Not Wake-Up) Should Trigger Day Music
 // =============================================================================
 //
@@ -408,7 +483,7 @@ func TestScenario_DayPhaseChangesToMorning_TriggersDayMusic(t *testing.T) {
 	fixedTime := time.Date(2024, 1, 15, 6, 0, 0, 0, time.UTC)
 	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
 
-	manager := NewManager(mockClient, stateManager, config, logger, false, timeProvider)
+	manager := NewManager(mockClient, stateManager, config, logger, false, timeProvider, nil)
 	manager.SetSleepFunc(func(d time.Duration) {}) // Skip internal sleeps for fast tests
 
 	// Initial state: Night phase, no one asleep (maybe they stayed up late)
@@ -469,7 +544,7 @@ func TestScenario_NoOneHome_StopsMusic(t *testing.T) {
 	fixedTime := time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC)
 	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
 
-	manager := NewManager(mockClient, stateManager, config, logger, false, timeProvider)
+	manager := NewManager(mockClient, stateManager, config, logger, false, timeProvider, nil)
 	manager.SetSleepFunc(func(d time.Duration) {}) // Skip internal sleeps for fast tests
 
 	// Initial state: Day music playing
@@ -529,7 +604,7 @@ func TestScenario_SomeoneFallsAsleep_TriggersSleepMusic(t *testing.T) {
 	fixedTime := time.Date(2024, 1, 15, 22, 0, 0, 0, time.UTC) // 10 PM
 	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
 
-	manager := NewManager(mockClient, stateManager, config, logger, false, timeProvider)
+	manager := NewManager(mockClient, stateManager, config, logger, false, timeProvider, nil)
 	manager.SetSleepFunc(func(d time.Duration) {}) // Skip internal sleeps for fast tests
 
 	// Initial state: Winddown music playing
@@ -605,7 +680,7 @@ func TestScenario_SleepMusicPersistsDuringWinddown(t *testing.T) {
 	fixedTime := time.Date(2024, 1, 15, 21, 0, 0, 0, time.UTC) // 9 PM
 	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
 
-	manager := NewManager(mockClient, stateManager, config, logger, false, timeProvider)
+	manager := NewManager(mockClient, stateManager, config, logger, false, timeProvider, nil)
 	manager.SetSleepFunc(func(d time.Duration) {}) // Skip internal sleeps for fast tests
 
 	// Initial state: Dusk phase (valid dayPhase), no one asleep but sleep music manually started
@@ -678,7 +753,7 @@ func TestScenario_FullWakeUpCycle(t *testing.T) {
 	require.Equal(t, time.Monday, fixedTime.Weekday())
 	timeProvider := &MutableTimeProvider{CurrentTime: fixedTime}
 
-	manager := NewManager(mockClient, stateManager, config, logger, false, timeProvider)
+	manager := NewManager(mockClient, stateManager, config, logger, false, timeProvider, nil)
 	manager.SetSleepFunc(func(d time.Duration) {}) // Skip internal sleeps for fast tests
 
 	// ==========================================================
