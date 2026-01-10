@@ -209,6 +209,9 @@ func (m *Manager) handleMasterAsleepChange(key string, oldValue, newValue interf
 		return
 	}
 
+	// Update shadow state inputs at start of handler
+	m.updateShadowInputs()
+
 	// If person woke up (isMasterAsleep changed to false)
 	if !newAsleep {
 		// Check if wake sequence was active
@@ -982,6 +985,9 @@ func (m *Manager) captureCurrentInputs() map[string]interface{} {
 	}
 	if val, err := m.stateManager.GetBool("isFadeOutInProgress"); err == nil {
 		inputs["isFadeOutInProgress"] = val
+	}
+	if val, err := m.stateManager.GetBool("isWakeSequenceActive"); err == nil {
+		inputs["isWakeSequenceActive"] = val
 	}
 	if val, err := m.stateManager.GetBool("isNickHome"); err == nil {
 		inputs["isNickHome"] = val
