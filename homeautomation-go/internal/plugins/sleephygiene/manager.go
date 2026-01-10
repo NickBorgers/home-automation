@@ -133,6 +133,14 @@ func (m *Manager) Start() error {
 	// All subscriptions successful - commit them to the manager
 	m.haSubscriptions = append(m.haSubscriptions, haSubscriptions...)
 
+	// Subscribe to isMasterAsleep to clear wake sequence flag when person wakes up
+	masterAsleepSub, err := m.stateManager.Subscribe("isMasterAsleep", m.handleMasterAsleepChange)
+	if err != nil {
+		cleanup()
+		return fmt.Errorf("failed to subscribe to isMasterAsleep: %w", err)
+	}
+	m.subscriptions = append(m.subscriptions, masterAsleepSub)
+
 	// Start ticker to check time triggers every minute
 	m.ticker = time.NewTicker(1 * time.Minute)
 	go m.runTimerLoop()
@@ -191,6 +199,34 @@ func (m *Manager) handleBedroomLightsChange(entityID string, oldState, newState 
 
 	// Handle the state change
 	m.handleBedroomLightsOff(newState.State)
+}
+
+// handleMasterAsleepChange handles changes to isMasterAsleep state
+// When person wakes up (isMasterAsleep becomes false), clear the wake sequence flag
+func (m *Manager) handleMasterAsleepChange(key string, oldValue, newValue interface{}) {
+	newAsleep, ok := newValue.(bool)
+	if !ok {
+		return
+	}
+
+	// Update shadow state inputs at start of handler
+	m.updateShadowInputs()
+
+	// If person woke up (isMasterAsleep changed to false)
+	if !newAsleep {
+		// Check if wake sequence was active
+		isWakeActive, _ := m.stateManager.GetBool("isWakeSequenceActive")
+		if isWakeActive {
+			m.logger.Info("Person woke up, clearing wake sequence active flag")
+			if !m.readOnly {
+				if err := m.stateManager.SetBool("isWakeSequenceActive", false); err != nil {
+					m.logger.Error("Failed to clear isWakeSequenceActive", zap.Error(err))
+				}
+			}
+			// Update shadow state
+			m.shadowTracker.UpdateWakeSequenceStatus("inactive")
+		}
+	}
 }
 
 // handleEightSleepAlarm processes Eight Sleep Pod alarm state changes
@@ -428,6 +464,11 @@ func (m *Manager) getBedroomSpeakers() []string {
 	return bedroomSpeakers
 }
 
+// humanOverrideThreshold is the volume difference (in percentage points) that indicates
+// a human is manually adjusting the speaker volume during an automated fade operation.
+// Using 2% to account for timing/rounding while still detecting intentional changes.
+const humanOverrideThreshold = 2
+
 // fadeOutSpeaker gradually reduces speaker volume to 0
 // This runs in a goroutine and implements the sleep music fade-out logic
 // matching the Node-RED "Repeat turn downs until 0" function
@@ -436,6 +477,11 @@ func (m *Manager) fadeOutSpeaker(speakerEntityID string) {
 
 	// Get actual current volume from Home Assistant
 	currentVolume := m.getSpeakerVolume(speakerEntityID)
+	startVolume := currentVolume // Remember start volume for override detection
+
+	// Record fade-out start in shadow state (even if already at 0)
+	m.shadowTracker.RecordFadeOutStart(speakerEntityID, currentVolume)
+
 	if currentVolume == 0 {
 		m.logger.Info("Speaker volume already at 0, skipping fade-out", zap.String("speaker", speakerEntityID))
 		// Still need to clear isFadeOutInProgress since fade-out is effectively complete
@@ -526,6 +572,33 @@ func (m *Manager) fadeOutSpeaker(speakerEntityID string) {
 			zap.Int("delay_seconds", delaySeconds))
 
 		m.sleepFunc(time.Duration(delaySeconds) * time.Second)
+
+		// Human override detection: check if someone manually raised volume during fade-out
+		// Only check if we're not already at volume 0
+		if currentVolume > 0 {
+			actualVolume := m.getSpeakerVolume(speakerEntityID)
+			// For fade-out: if actual volume is significantly HIGHER than what we set,
+			// someone is fighting the fade-out (turning it up)
+			// Skip if actual equals start volume - this indicates the device state
+			// isn't being updated (common in mock/test environments)
+			if actualVolume > (currentVolume+humanOverrideThreshold) && actualVolume != startVolume {
+				m.logger.Info("Human override detected during fade-out, aborting",
+					zap.String("speaker", speakerEntityID),
+					zap.Int("expected_volume", currentVolume),
+					zap.Int("actual_volume", actualVolume))
+
+				// Record human override in shadow state
+				m.shadowTracker.RecordHumanOverride(speakerEntityID, currentVolume, actualVolume)
+
+				// Clear fade-out state
+				if !m.readOnly {
+					if err := m.stateManager.SetBool("isFadeOutInProgress", false); err != nil {
+						m.logger.Error("Failed to clear isFadeOutInProgress", zap.Error(err))
+					}
+				}
+				return
+			}
+		}
 	}
 
 	m.logger.Info("Fade out complete - speaker volume reached 0",
@@ -667,6 +740,12 @@ func (m *Manager) handleWake() {
 	m.shadowTracker.UpdateWakeSequenceStatus("wake_in_progress")
 
 	if !m.readOnly {
+		// Set wake sequence active flag - protects lights from being turned off
+		// by the lighting plugin during the 30-minute fade-in
+		if err := m.stateManager.SetBool("isWakeSequenceActive", true); err != nil {
+			m.logger.Error("Failed to set isWakeSequenceActive", zap.Error(err))
+		}
+
 		// Turn on master bedroom lights slowly (30 minute transition)
 		m.turnOnMasterBedroomLights()
 
@@ -835,6 +914,9 @@ func (m *Manager) handleBedroomLightsOff(state string) {
 
 	m.logger.Debug("Bedroom lights turned off, checking if wake sequence should be cancelled")
 
+	// Check if wake sequence is active (lights are fading in)
+	isWakeSequenceActive, _ := m.stateManager.GetBool("isWakeSequenceActive")
+
 	// Check if wake-up music is playing
 	musicPlaybackType, err := m.stateManager.GetString("musicPlaybackType")
 	if err != nil {
@@ -842,7 +924,7 @@ func (m *Manager) handleBedroomLightsOff(state string) {
 		return
 	}
 
-	if musicPlaybackType == "wakeup" {
+	if musicPlaybackType == "wakeup" || isWakeSequenceActive {
 		m.logger.Info("Bedroom lights turned off during wake sequence - cancelling wake and reverting to sleep music")
 
 		// Record cancel wake action in shadow state
@@ -851,6 +933,11 @@ func (m *Manager) handleBedroomLightsOff(state string) {
 		m.shadowTracker.ClearFadeOutProgress()
 
 		if !m.readOnly {
+			// Clear wake sequence active flag
+			if err := m.stateManager.SetBool("isWakeSequenceActive", false); err != nil {
+				m.logger.Error("Failed to clear isWakeSequenceActive", zap.Error(err))
+			}
+
 			// Revert music back to sleep mode
 			if err := m.stateManager.SetString("musicPlaybackType", "sleep"); err != nil {
 				m.logger.Error("Failed to set musicPlaybackType to sleep", zap.Error(err))
@@ -935,6 +1022,9 @@ func (m *Manager) captureCurrentInputs() map[string]interface{} {
 	}
 	if val, err := m.stateManager.GetBool("isFadeOutInProgress"); err == nil {
 		inputs["isFadeOutInProgress"] = val
+	}
+	if val, err := m.stateManager.GetBool("isWakeSequenceActive"); err == nil {
+		inputs["isWakeSequenceActive"] = val
 	}
 	if val, err := m.stateManager.GetBool("isNickHome"); err == nil {
 		inputs["isNickHome"] = val

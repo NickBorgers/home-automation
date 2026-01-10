@@ -1406,6 +1406,11 @@ func (m *Manager) shouldUnmuteSpeaker(participant ParticipantWithVolume) bool {
 	return true
 }
 
+// humanOverrideThreshold is the volume difference (in percentage points) that indicates
+// a human is manually adjusting the speaker volume during an automated fade operation.
+// Using 2% to account for timing/rounding while still detecting intentional changes.
+const humanOverrideThreshold = 2
+
 // fadeInSpeaker gradually increases speaker volume
 func (m *Manager) fadeInSpeaker(speakerName string, targetVolume int, startingMusicType string) {
 	m.logger.Debug("Starting fade-in",
@@ -1413,6 +1418,9 @@ func (m *Manager) fadeInSpeaker(speakerName string, targetVolume int, startingMu
 		zap.Int("target_volume", targetVolume))
 
 	entityID := m.getSpeakerEntityID(speakerName)
+
+	// Record fade-in start in shadow state
+	m.recordFadeInStart(speakerName, entityID, targetVolume)
 
 	// SAFETY: Set volume to 0 BEFORE unmuting to prevent sudden loud noise.
 	// If the speaker was previously at high volume and muted, unmuting without
@@ -1424,6 +1432,7 @@ func (m *Manager) fadeInSpeaker(speakerName string, targetVolume int, startingMu
 		m.logger.Error("Failed to set initial volume before unmute",
 			zap.String("speaker", speakerName),
 			zap.Error(err))
+		m.clearFadeInProgress(entityID)
 		return
 	}
 
@@ -1435,6 +1444,7 @@ func (m *Manager) fadeInSpeaker(speakerName string, targetVolume int, startingMu
 		m.logger.Error("Failed to unmute speaker before fade-in",
 			zap.String("speaker", speakerName),
 			zap.Error(err))
+		m.clearFadeInProgress(entityID)
 		return
 	}
 
@@ -1453,6 +1463,7 @@ func (m *Manager) fadeInSpeaker(speakerName string, targetVolume int, startingMu
 				zap.String("speaker", speakerName),
 				zap.String("starting_type", startingMusicType),
 				zap.String("current_type", musicType))
+			m.clearFadeInProgress(entityID)
 			return
 		}
 
@@ -1476,12 +1487,16 @@ func (m *Manager) fadeInSpeaker(speakerName string, targetVolume int, startingMu
 					zap.Int("target_volume", targetVolume),
 					zap.Int("last_successful_volume", lastSuccessfulVolume),
 					zap.Int("total_failures", totalFailures))
+				m.clearFadeInProgress(entityID)
 				return
 			}
 		} else {
 			consecutiveFailures = 0
 			lastSuccessfulVolume = currentVolume
 		}
+
+		// Update shadow state with current progress
+		m.updateFadeInProgress(entityID, currentVolume)
 
 		// Adaptive delay: slower at start, faster as volume increases
 		// Matches Node-RED behavior: msg.delay = (100 - current_volume) * 250
@@ -1491,6 +1506,23 @@ func (m *Manager) fadeInSpeaker(speakerName string, targetVolume int, startingMu
 			delayMs = 250 // Minimum 250ms between steps
 		}
 		m.sleepFunc(time.Duration(delayMs) * time.Millisecond)
+
+		// Human override detection: check if someone manually lowered volume during fade-in
+		// Only check if we successfully set volume and not at the start (volume 0)
+		if lastSuccessfulVolume > 0 && currentVolume < targetVolume {
+			actualVolume := m.getSpeakerVolume(entityID)
+			// Skip check if we couldn't get the volume (returns -1)
+			// For fade-in: if actual volume is significantly LOWER than what we set,
+			// someone is fighting the fade-in (turning it down)
+			if actualVolume >= 0 && actualVolume < (currentVolume-humanOverrideThreshold) {
+				m.logger.Info("Human override detected during fade-in, aborting",
+					zap.String("speaker", speakerName),
+					zap.Int("expected_volume", currentVolume),
+					zap.Int("actual_volume", actualVolume))
+				m.recordFadeInHumanOverride(entityID, currentVolume, actualVolume)
+				return
+			}
+		}
 	}
 
 	// Log completion with failure summary if any failures occurred
@@ -1504,6 +1536,33 @@ func (m *Manager) fadeInSpeaker(speakerName string, targetVolume int, startingMu
 			zap.String("speaker", speakerName),
 			zap.Int("final_volume", targetVolume))
 	}
+
+	// Mark fade-in as complete
+	m.clearFadeInProgress(entityID)
+}
+
+// getSpeakerVolume queries the current volume from Home Assistant
+// Returns volume as percentage (0-100)
+func (m *Manager) getSpeakerVolume(speakerEntityID string) int {
+	state, err := m.haClient.GetState(speakerEntityID)
+	if err != nil {
+		m.logger.Warn("Failed to get speaker state for override detection",
+			zap.String("speaker", speakerEntityID),
+			zap.Error(err))
+		return -1 // Return -1 to indicate failure, caller should handle
+	}
+
+	// Get volume_level attribute (0.0-1.0)
+	volumeLevel, ok := state.Attributes["volume_level"].(float64)
+	if !ok {
+		m.logger.Warn("Speaker has no volume_level attribute",
+			zap.String("speaker", speakerEntityID))
+		return -1
+	}
+
+	// Convert to percentage (0-100)
+	volume := int(volumeLevel * 100)
+	return volume
 }
 
 // getSpeakerEntityID converts speaker name to Home Assistant entity ID
@@ -1885,7 +1944,79 @@ func (m *Manager) GetShadowState() *shadowstate.MusicShadowState {
 		shadowCopy.Outputs.PlaylistRotation[k] = v
 	}
 
+	// Deep copy fade-in progress
+	shadowCopy.Outputs.FadeInProgress = make(map[string]shadowstate.SpeakerFadeIn)
+	for k, v := range m.shadowState.Outputs.FadeInProgress {
+		shadowCopy.Outputs.FadeInProgress[k] = v
+	}
+
 	return &shadowCopy
+}
+
+// recordFadeInStart records the start of a speaker fade-in
+func (m *Manager) recordFadeInStart(speakerName, entityID string, targetVolume int) {
+	m.shadowMu.Lock()
+	defer m.shadowMu.Unlock()
+
+	now := m.timeProvider.Now()
+	m.shadowState.Outputs.FadeInProgress[entityID] = shadowstate.SpeakerFadeIn{
+		SpeakerName:     speakerName,
+		SpeakerEntityID: entityID,
+		CurrentVolume:   0,
+		TargetVolume:    targetVolume,
+		IsActive:        true,
+		StartTime:       now,
+		LastUpdate:      now,
+	}
+	m.shadowState.Outputs.FadeState = "fading_in"
+	m.shadowState.Metadata.LastUpdated = now
+}
+
+// updateFadeInProgress updates the fade-in progress for a speaker
+func (m *Manager) updateFadeInProgress(entityID string, currentVolume int) {
+	m.shadowMu.Lock()
+	defer m.shadowMu.Unlock()
+
+	if fadeIn, exists := m.shadowState.Outputs.FadeInProgress[entityID]; exists {
+		fadeIn.CurrentVolume = currentVolume
+		fadeIn.LastUpdate = m.timeProvider.Now()
+		if currentVolume >= fadeIn.TargetVolume {
+			fadeIn.IsActive = false
+		}
+		m.shadowState.Outputs.FadeInProgress[entityID] = fadeIn
+	}
+	m.shadowState.Metadata.LastUpdated = m.timeProvider.Now()
+}
+
+// recordFadeInHumanOverride records that a human override was detected during fade-in
+func (m *Manager) recordFadeInHumanOverride(entityID string, expectedVolume, actualVolume int) {
+	m.shadowMu.Lock()
+	defer m.shadowMu.Unlock()
+
+	if fadeIn, exists := m.shadowState.Outputs.FadeInProgress[entityID]; exists {
+		fadeIn.HumanOverrideDetected = true
+		fadeIn.ExpectedVolume = expectedVolume
+		fadeIn.ActualVolume = actualVolume
+		fadeIn.IsActive = false
+		fadeIn.LastUpdate = m.timeProvider.Now()
+		m.shadowState.Outputs.FadeInProgress[entityID] = fadeIn
+	}
+	m.shadowState.Outputs.FadeState = "idle"
+	m.shadowState.Metadata.LastUpdated = m.timeProvider.Now()
+}
+
+// clearFadeInProgress marks fade-in as complete (idle)
+func (m *Manager) clearFadeInProgress(entityID string) {
+	m.shadowMu.Lock()
+	defer m.shadowMu.Unlock()
+
+	if fadeIn, exists := m.shadowState.Outputs.FadeInProgress[entityID]; exists {
+		fadeIn.IsActive = false
+		fadeIn.LastUpdate = m.timeProvider.Now()
+		m.shadowState.Outputs.FadeInProgress[entityID] = fadeIn
+	}
+	m.shadowState.Outputs.FadeState = "idle"
+	m.shadowState.Metadata.LastUpdated = m.timeProvider.Now()
 }
 
 // recordPlaybackShadowState records shadow state after playback orchestration.
