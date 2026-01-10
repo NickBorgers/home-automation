@@ -40,6 +40,7 @@ var AllVariables = []StateVariable{
 	{Key: "isTVPlaying", EntityID: "input_boolean.tv_playing", Type: TypeBool, Default: false},
 	{Key: "isTVon", EntityID: "input_boolean.tv_on", Type: TypeBool, Default: false},
 	{Key: "isFadeOutInProgress", EntityID: "input_boolean.fade_out_in_progress", Type: TypeBool, Default: false},
+	{Key: "isWakeSequenceActive", EntityID: "input_boolean.wake_sequence_active", Type: TypeBool, Default: false},
 	{Key: "isFreeEnergyAvailable", EntityID: "input_boolean.free_energy_available", Type: TypeBool, Default: false},
 	{Key: "isGridAvailable", EntityID: "input_boolean.grid_available", Type: TypeBool, Default: true},
 	{Key: "isExpectingSomeone", EntityID: "input_boolean.expecting_someone", Type: TypeBool, Default: false},
