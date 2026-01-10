@@ -63,7 +63,7 @@ make lint-go           # Run linters
 │   ├── reference/PLUGIN_SYSTEM.md    # Plugin interfaces
 │   ├── reference/migration_mapping.md # State variable mapping
 │   └── reference/CONCURRENCY_LESSONS.md # Concurrency patterns
-├── flows.json                  # Node-RED legacy implementation (~650KB)
+├── docs/archive/flows.json     # Node-RED legacy implementation (archived)
 └── configs/                    # YAML configuration files
 ```
 
@@ -82,7 +82,7 @@ make lint-go           # Run linters
 
 Before implementing features, understand the current Node-RED behavior.
 
-**⚠️ WARNING:** `flows.json` is ~650KB. Do NOT read it all at once. Use targeted searches:
+**⚠️ WARNING:** `docs/archive/flows.json` is ~650KB. Do NOT read it all at once. Use targeted searches:
 
 ```bash
 # Generate flow screenshots for visual overview
@@ -90,9 +90,9 @@ make generate-screenshots
 # View: ./automated-rendering/screenshot-capture/screenshots/
 
 # Search patterns
-grep -A 5 '"label":"Music"' flows.json              # Find a flow
-grep -A 20 '"name":"Pick Appropriate Music"' flows.json  # Find function node
-grep -n "isNickHome" flows.json                     # Find state variable usage
+grep -A 5 '"label":"Music"' docs/archive/flows.json              # Find a flow
+grep -A 20 '"name":"Pick Appropriate Music"' docs/archive/flows.json  # Find function node
+grep -n "isNickHome" docs/archive/flows.json                     # Find state variable usage
 
 # Live instance: https://node-red.featherback-mermaid.ts.net/
 ```
@@ -441,22 +441,16 @@ git commit -m "docs: Add screenshot of [feature]"
 | Test timeout/deadlock | Missing mutex | Review with `-race` flag |
 | Tests pass locally, fail CI | Race condition or env diff | `make unit-tests && make integration-tests` locally |
 
-## Migration Status
+## Status
 
-**Current Phase:** MVP Complete + Integration Testing ✅
+**Current Phase:** Production ✅
 
-- Go implementation ready for parallel testing (READ_ONLY mode)
+- Go implementation is the primary automation system
 - All 40 state variables supported
-- All critical bugs fixed (concurrent writes, subscription leak)
-
-**Next Steps:**
-1. Validate behavior matches Node-RED
-2. Migrate helper functions
-3. Switch to read-write mode
-4. Deprecate Node-RED
+- Node-RED deprecated (flows.json archived for reference)
 
 ---
 
-**Last Updated:** 2026-01-02
+**Last Updated:** 2026-01-10
 **Go Version:** 1.23
-**Project Status:** Parallel Testing Phase
+**Project Status:** Production
