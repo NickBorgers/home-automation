@@ -44,16 +44,16 @@ const (
 // Retry constants for service calls
 const (
 	// maxRetries is the number of retry attempts for transient network errors.
-	// With exponential backoff (500ms, 1s, 2s, 4s, 8s, 15s, 15s, 15s, 15s),
-	// this provides approximately 75 seconds of retry coverage to handle
-	// network outages lasting up to 1 minute.
-	maxRetries = 9
+	// With exponential backoff (500ms, 1s, 2s, 4s, 8s, 16s, 30s, 30s, 30s, 30s, 30s, 30s),
+	// this provides approximately 3 minutes of retry coverage to handle
+	// Home Assistant restarts which can take 1.5-2 minutes.
+	maxRetries = 12
 
 	// initialRetryDelay is the base delay before first retry
 	initialRetryDelay = 500 * time.Millisecond
 
 	// maxRetryDelay caps the exponential backoff
-	maxRetryDelay = 15 * time.Second
+	maxRetryDelay = 30 * time.Second
 )
 
 // Health tracking constants
