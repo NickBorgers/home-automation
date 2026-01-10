@@ -367,6 +367,157 @@ func TestScenario_OfficeSpeaker_UnmuteOnOccupancyChangeDuringPlayback(t *testing
 }
 
 // =============================================================================
+// TEST: Muted Speakers Get Target Volume Set During Playback
+// =============================================================================
+//
+// WHAT THIS TEST VALIDATES:
+// When executePlayback() runs with a speaker that has leave_muted_if conditions
+// matching current state, the speaker should:
+// 1. Have its target volume set via volume_set (NOT left at 0)
+// 2. Be explicitly muted via volume_mute
+//
+// This ensures volume and mute state are independent concepts. When the room
+// becomes occupied later and the speaker is unmuted, it will immediately
+// play at the correct volume level instead of 0.
+//
+// BUG CONTEXT:
+// Previously, muted speakers had their volume left at 0 after Step 3 of
+// executePlayback(). When later unmuted (room became occupied), they would
+// unmute but remain at volume 0. This test codifies the fix.
+//
+// SCENARIO:
+// 1. Office is unoccupied (isNickOfficeOccupied = false)
+// 2. executePlayback() is called with Kitchen + Office speakers
+// 3. Office speaker should be muted but with target volume set
+//
+// EXPECTED SERVICE CALLS FOR OFFICE:
+// - media_player.volume_set with volume_level = 0.06 (6%)
+// - media_player.volume_mute with is_volume_muted = true
+func TestScenario_MutedSpeaker_GetsTargetVolumeSetDuringPlayback(t *testing.T) {
+	t.Parallel()
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	config := createOccupancyMusicConfig()
+
+	// Use fixed time provider
+	fixedTime := time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC)
+	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
+
+	manager := NewManager(mockClient, stateManager, config, logger, false, timeProvider)
+	manager.SetSleepFunc(func(d time.Duration) {}) // Skip internal sleeps for fast tests
+
+	// Initialize state - Office is NOT occupied, so Office speaker should be muted
+	_ = stateManager.SetString("dayPhase", "day")
+	_ = stateManager.SetString("musicPlaybackType", "day")
+	_ = stateManager.SetBool("isAnyoneHome", true)
+	_ = stateManager.SetBool("isAnyoneAsleep", false)
+	_ = stateManager.SetBool("isMasterAsleep", false)
+	_ = stateManager.SetBool("isEveryoneAsleep", false)
+	_ = stateManager.SetBool("isNickOfficeOccupied", false) // Office NOT occupied → speaker muted
+	_ = stateManager.SetBool("isTVPlaying", false)
+
+	// Set up mock to report "playing" state (to pass playback verification)
+	mockClient.SetMockState("media_player.kitchen", &ha.State{
+		EntityID: "media_player.kitchen",
+		State:    "playing",
+	})
+	mockClient.SetMockState("media_player.office", &ha.State{
+		EntityID: "media_player.office",
+		State:    "playing",
+	})
+
+	// Clear any existing service calls
+	mockClient.ClearServiceCalls()
+
+	// ==========================================================
+	// ACTION: Call executePlayback with both Kitchen and Office
+	// ==========================================================
+	participants := []ParticipantWithVolume{
+		{
+			PlayerName:   "Kitchen",
+			BaseVolume:   9,
+			Volume:       9,
+			LeaveMutedIf: []MuteCondition{}, // No conditions = always unmuted
+		},
+		{
+			PlayerName: "Office",
+			BaseVolume: 6,
+			Volume:     6, // Target volume = 6%
+			LeaveMutedIf: []MuteCondition{
+				{
+					Variable: "isNickOfficeOccupied",
+					Value:    false, // Mute when office is NOT occupied
+				},
+			},
+		},
+	}
+
+	option := PlaybackOption{
+		URI:              "spotify:playlist:test123",
+		MediaType:        "playlist",
+		VolumeMultiplier: 1.0,
+	}
+
+	_, _, err := manager.executePlayback("day", option, participants, "Kitchen")
+	assert.NoError(t, err, "executePlayback should succeed")
+
+	// Allow time for fade-in goroutines to start (they will return quickly due to SetSleepFunc)
+	time.Sleep(50 * time.Millisecond)
+
+	// ==========================================================
+	// VERIFICATION: Office speaker received both volume_set and volume_mute
+	// ==========================================================
+	calls := mockClient.GetServiceCalls()
+
+	// Look for volume_set call for Office with target volume (6% = 0.06)
+	foundOfficeVolumeSet := false
+	var officeVolumeLevel float64
+	for _, call := range calls {
+		if call.Domain == "media_player" && call.Service == "volume_set" {
+			entityID, ok := call.Data["entity_id"].(string)
+			if ok && entityID == "media_player.office" {
+				if volumeLevel, hasVolume := call.Data["volume_level"].(float64); hasVolume {
+					// We expect 0.06 (6%), but the muted speaker volume_set happens
+					// after the initial mute (which sets to 0), so look for the target volume
+					if volumeLevel > 0.05 && volumeLevel < 0.07 { // 6% = 0.06
+						foundOfficeVolumeSet = true
+						officeVolumeLevel = volumeLevel
+					}
+				}
+			}
+		}
+	}
+
+	assert.True(t, foundOfficeVolumeSet,
+		"Expected media_player.volume_set for Office speaker with target volume (~0.06). "+
+			"This ensures muted speakers have correct volume pre-set. Calls: %+v", calls)
+
+	if foundOfficeVolumeSet {
+		assert.InDelta(t, 0.06, officeVolumeLevel, 0.01,
+			"Office speaker volume should be set to ~6%% (0.06)")
+	}
+
+	// Look for volume_mute call for Office with is_volume_muted=true
+	foundOfficeMute := false
+	for _, call := range calls {
+		if call.Domain == "media_player" && call.Service == "volume_mute" {
+			entityID, ok := call.Data["entity_id"].(string)
+			if ok && entityID == "media_player.office" {
+				isMuted, hasMuted := call.Data["is_volume_muted"].(bool)
+				if hasMuted && isMuted {
+					foundOfficeMute = true
+				}
+			}
+		}
+	}
+
+	assert.True(t, foundOfficeMute,
+		"Expected media_player.volume_mute for Office speaker with is_volume_muted=true. "+
+			"Muted speakers should be explicitly muted. Calls: %+v", calls)
+}
+
+// =============================================================================
 // TEST: Kitchen Speaker Always Unmuted
 // =============================================================================
 //
