@@ -1,7 +1,7 @@
 # Home Automation System Architecture
 
-**Last Updated:** 2026-01-02
-**Phase:** ✅ MVP COMPLETE - Ready for Parallel Testing
+**Last Updated:** 2026-01-10
+**Phase:** ✅ PRODUCTION
 **Location:** `homeautomation-go/`
 
 ---
@@ -78,9 +78,9 @@
 
 ### Deployment Status
 
-- **Mode:** READ_ONLY (safe to run alongside Node-RED)
+- **Mode:** READ_WRITE (primary automation system)
 - **Docker:** Available with GHCR push automation
-- **Production Ready:** ✅ All critical bugs fixed, ready for parallel testing
+- **Production Status:** ✅ In production, Node-RED deprecated
 
 ---
 
@@ -96,7 +96,7 @@ This document describes the architecture for a Golang-based home automation syst
 2. **Home Assistant as State Store** - Use HA input helpers (40 variables) as the persistent data store
 3. **Modular Architecture** - Plugin-based design allows independent development and testing
 4. **Configuration Compatibility** - Reuse existing YAML configuration files without modification
-5. **Seamless Transition** - Run in parallel with Node-RED during migration
+5. **Seamless Transition** - Successfully migrated from Node-RED
 
 ### Architecture Principles
 
@@ -746,8 +746,8 @@ The existing Node-RED implementation exposes 14 HomeKit accessories via NRCHKB:
 
 - **Live Instance:** https://node-red.featherback-mermaid.ts.net/
 - **Flow Screenshots:** `automated-rendering/screenshot-capture/screenshots/`
-- **Flow Configuration:** `flows.json`
+- **Flow Configuration:** `docs/archive/flows.json`
 
 ---
 
-**Status:** MVP COMPLETE - Ready for Phase 7 (Production Preparation)
+**Status:** PRODUCTION - Go implementation is the primary automation system

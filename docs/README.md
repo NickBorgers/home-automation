@@ -29,6 +29,7 @@ docs/
 │   └── CLAUDE_GHA_PIPELINES.md # Claude Code GitHub Actions documentation
 │
 └── archive/                # Historical documents (not required reading)
+    ├── flows.json          # Node-RED legacy implementation (archived)
     ├── NODE_RED_TABS_ANALYSIS.md
     ├── MUSIC_FLOW_ANALYSIS.md
     ├── DIAGRAM_GENERATION_RULES.md
