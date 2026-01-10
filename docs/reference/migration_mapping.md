@@ -6,10 +6,10 @@ This document maps Node Red global state variables to their Home Assistant entit
 
 ## Migration Summary
 
-- **Total state variables in Go implementation**: 40
-- **Synced with Home Assistant**: 38
+- **Total state variables in Go implementation**: 41
+- **Synced with Home Assistant**: 39
 - **Local-only (memory only)**: 2
-- **Booleans**: 27
+- **Booleans**: 28
 - **Numbers**: 3
 - **Text/String**: 8
 - **JSON (local-only)**: 1
@@ -18,9 +18,9 @@ This document maps Node Red global state variables to their Home Assistant entit
 
 ## Complete State Variable Reference
 
-All 40 state variables currently implemented in the Go application, organized by type.
+All 41 state variables currently implemented in the Go application, organized by type.
 
-### Boolean Variables (27)
+### Boolean Variables (28)
 
 | Variable | Home Assistant Entity | Description | Flags |
 |----------|----------------------|-------------|-------|
@@ -40,6 +40,7 @@ All 40 state variables currently implemented in the Go application, organized by
 | isTVPlaying | input_boolean.tv_playing | TV playback status | - |
 | isTVon | input_boolean.tv_on | TV power status | - |
 | isFadeOutInProgress | input_boolean.fade_out_in_progress | Music fade out status | - |
+| isWakeSequenceActive | input_boolean.wake_sequence_active | Wake lights fade-in active | - |
 | isFreeEnergyAvailable | input_boolean.free_energy_available | Free energy availability | - |
 | isGridAvailable | input_boolean.grid_available | Grid power availability | - |
 | isExpectingSomeone | input_boolean.expecting_someone | Expecting a visitor | - |
@@ -185,7 +186,7 @@ These variables are only referenced in disabled Node Red flows and will NOT be m
 - input_text: Text entities for strings and JSON-serialized objects
 
 ### Synchronization Strategy
-1. **On Go application startup**: Read all 38 synced variables from Home Assistant → initialize state cache
+1. **On Go application startup**: Read all 39 synced variables from Home Assistant → initialize state cache
 2. **On state variable change**: Write value to corresponding Home Assistant entity
 3. **For local-only variables**: Maintain only in memory, not synced with HA
 4. **For computed outputs**: Can be written even in read-only mode to publish derived state

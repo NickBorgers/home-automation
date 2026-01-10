@@ -29,7 +29,7 @@ rooms:
       # Prevents lighting plugin from turning off lights during morning
       # wake-up fade-in while isMasterAsleep is still true.
       - action: on
-        variable: isFadeOutInProgress
+        variable: isWakeSequenceActive
         value: true
       # Priority 3: Master asleep -> OFF
       - action: off

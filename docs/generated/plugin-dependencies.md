@@ -26,6 +26,7 @@ graph LR
         isTVPlaying["isTVPlaying"]
         isTVon["isTVon"]
         isToriHere["isToriHere"]
+        isWakeSequenceActive["isWakeSequenceActive"]
         musicPlaybackType["musicPlaybackType"]
         musicPlaylistRotation["musicPlaylistRotation"]
         remainingSolarGeneration["remainingSolarGeneration"]
@@ -68,6 +69,7 @@ graph LR
     didOwnerJustReturnHome -.-> security
     isAnyoneHome -.-> security
     isEveryoneAsleep -.-> security
+    isMasterAsleep -.-> sleephygiene
     isAppleTVPlaying -.-> tv
 
     %% Writes (plugin sets variable)
@@ -85,6 +87,7 @@ graph LR
     sexmode --> musicPlaybackType
     sleephygiene --> currentlyPlayingMusic
     sleephygiene --> isFadeOutInProgress
+    sleephygiene --> isWakeSequenceActive
     sleephygiene --> musicPlaybackType
     statetracking --> didOwnerJustReturnHome
     statetracking --> isMasterAsleep
