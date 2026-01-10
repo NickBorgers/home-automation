@@ -132,12 +132,27 @@ type MusicOutputs struct {
 	CurrentMode          string                      `json:"currentMode,omitempty"` // e.g., "morning", "working", "evening"
 	ActivePlaylist       PlaylistInfo                `json:"activePlaylist,omitempty"`
 	SpeakerGroup         []SpeakerState              `json:"speakerGroup,omitempty"`
-	FadeState            string                      `json:"fadeState"`        // "idle", "fading_in", "fading_out"
+	FadeState            string                      `json:"fadeState"` // "idle", "fading_in", "fading_out"
+	FadeInProgress       map[string]SpeakerFadeIn    `json:"fadeInProgress,omitempty"`
 	PlaylistRotation     map[string]int              `json:"playlistRotation"` // Music type -> playlist number
 	LastActionTime       time.Time                   `json:"lastActionTime"`
 	LastActionType       string                      `json:"lastActionType,omitempty"` // "select_mode", "start_playback", "fade_out", etc.
 	LastActionReason     string                      `json:"lastActionReason,omitempty"`
 	PlaybackVerification *PlaybackVerificationStatus `json:"playbackVerification,omitempty"`
+}
+
+// SpeakerFadeIn represents the fade-in state of a single speaker
+type SpeakerFadeIn struct {
+	SpeakerName           string    `json:"speakerName"`
+	SpeakerEntityID       string    `json:"speakerEntityID"`
+	CurrentVolume         int       `json:"currentVolume"`
+	TargetVolume          int       `json:"targetVolume"`
+	IsActive              bool      `json:"isActive"`
+	HumanOverrideDetected bool      `json:"humanOverrideDetected,omitempty"`
+	ExpectedVolume        int       `json:"expectedVolume,omitempty"`
+	ActualVolume          int       `json:"actualVolume,omitempty"`
+	StartTime             time.Time `json:"startTime"`
+	LastUpdate            time.Time `json:"lastUpdate"`
 }
 
 // PlaybackVerificationStatus tracks whether playback was verified to start
@@ -199,6 +214,7 @@ func NewMusicShadowState() *MusicShadowState {
 			SpeakerGroup:     make([]SpeakerState, 0),
 			PlaylistRotation: make(map[string]int),
 			FadeState:        "idle",
+			FadeInProgress:   make(map[string]SpeakerFadeIn),
 		},
 		Metadata: StateMetadata{
 			LastUpdated: time.Now(),
@@ -386,12 +402,15 @@ type SleepHygieneOutputs struct {
 
 // SpeakerFadeOut represents the fade-out state of a single speaker
 type SpeakerFadeOut struct {
-	SpeakerEntityID string    `json:"speakerEntityID"`
-	CurrentVolume   int       `json:"currentVolume"`
-	StartVolume     int       `json:"startVolume"`
-	IsActive        bool      `json:"isActive"` // Is fade-out currently in progress
-	StartTime       time.Time `json:"startTime"`
-	LastUpdate      time.Time `json:"lastUpdate"`
+	SpeakerEntityID       string    `json:"speakerEntityID"`
+	CurrentVolume         int       `json:"currentVolume"`
+	StartVolume           int       `json:"startVolume"`
+	IsActive              bool      `json:"isActive"` // Is fade-out currently in progress
+	HumanOverrideDetected bool      `json:"humanOverrideDetected,omitempty"`
+	ExpectedVolume        int       `json:"expectedVolume,omitempty"` // Volume we set, for override detection
+	ActualVolume          int       `json:"actualVolume,omitempty"`   // Volume we read back, for override detection
+	StartTime             time.Time `json:"startTime"`
+	LastUpdate            time.Time `json:"lastUpdate"`
 }
 
 // TTSAnnouncement represents a TTS announcement that was made

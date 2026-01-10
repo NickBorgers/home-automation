@@ -97,6 +97,7 @@ package music
 // =============================================================================
 
 import (
+	"sync"
 	"testing"
 	"time"
 
@@ -676,7 +677,7 @@ func TestScenario_FullWakeUpCycle(t *testing.T) {
 	// Start at 5:30 AM Monday (before sunrise)
 	fixedTime := time.Date(2024, 1, 15, 5, 30, 0, 0, time.UTC)
 	require.Equal(t, time.Monday, fixedTime.Weekday())
-	timeProvider := &MutableTimeProvider{CurrentTime: fixedTime}
+	timeProvider := &MutableTimeProvider{currentTime: fixedTime}
 
 	manager := NewManager(mockClient, stateManager, config, logger, false, timeProvider)
 	manager.SetSleepFunc(func(d time.Duration) {}) // Skip internal sleeps for fast tests
@@ -706,7 +707,7 @@ func TestScenario_FullWakeUpCycle(t *testing.T) {
 	// ==========================================================
 	// PHASE 2: Sunrise - day phase changes to morning, still asleep
 	// ==========================================================
-	timeProvider.CurrentTime = time.Date(2024, 1, 15, 6, 30, 0, 0, time.UTC)
+	timeProvider.SetTime(time.Date(2024, 1, 15, 6, 30, 0, 0, time.UTC))
 	mockClient.ClearServiceCalls()
 
 	_ = stateManager.SetString("dayPhase", "morning")
@@ -720,7 +721,7 @@ func TestScenario_FullWakeUpCycle(t *testing.T) {
 	// ==========================================================
 	// PHASE 3: Wake-up event - person wakes up during morning
 	// ==========================================================
-	timeProvider.CurrentTime = time.Date(2024, 1, 15, 7, 0, 0, 0, time.UTC)
+	timeProvider.SetTime(time.Date(2024, 1, 15, 7, 0, 0, 0, time.UTC))
 	mockClient.ClearServiceCalls()
 
 	// Use SimulateStateChange to properly trigger the subscription callback with correct old/new values
@@ -738,7 +739,7 @@ func TestScenario_FullWakeUpCycle(t *testing.T) {
 	// ==========================================================
 	// PHASE 4: Day phase change
 	// ==========================================================
-	timeProvider.CurrentTime = time.Date(2024, 1, 15, 9, 0, 0, 0, time.UTC)
+	timeProvider.SetTime(time.Date(2024, 1, 15, 9, 0, 0, 0, time.UTC))
 	mockClient.ClearServiceCalls()
 
 	_ = stateManager.SetString("dayPhase", "day")
@@ -754,9 +755,18 @@ func TestScenario_FullWakeUpCycle(t *testing.T) {
 // =============================================================================
 
 type MutableTimeProvider struct {
-	CurrentTime time.Time
+	mu          sync.RWMutex
+	currentTime time.Time
 }
 
 func (p *MutableTimeProvider) Now() time.Time {
-	return p.CurrentTime
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.currentTime
+}
+
+func (p *MutableTimeProvider) SetTime(t time.Time) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.currentTime = t
 }

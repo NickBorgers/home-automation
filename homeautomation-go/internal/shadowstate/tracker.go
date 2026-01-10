@@ -478,6 +478,22 @@ func (st *SleepHygieneTracker) UpdateFadeOutProgress(speakerEntityID string, cur
 	st.state.Metadata.LastUpdated = time.Now()
 }
 
+// RecordHumanOverride records that a human override was detected during fade-out
+func (st *SleepHygieneTracker) RecordHumanOverride(speakerEntityID string, expectedVolume, actualVolume int) {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+
+	if fadeOut, exists := st.state.Outputs.FadeOutProgress[speakerEntityID]; exists {
+		fadeOut.HumanOverrideDetected = true
+		fadeOut.ExpectedVolume = expectedVolume
+		fadeOut.ActualVolume = actualVolume
+		fadeOut.IsActive = false
+		fadeOut.LastUpdate = time.Now()
+		st.state.Outputs.FadeOutProgress[speakerEntityID] = fadeOut
+	}
+	st.state.Metadata.LastUpdated = time.Now()
+}
+
 // ClearFadeOutProgress clears all fade-out progress
 func (st *SleepHygieneTracker) ClearFadeOutProgress() {
 	st.mu.Lock()
