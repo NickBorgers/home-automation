@@ -849,7 +849,7 @@ flowchart TD
 
 ## State Variable Dependency Graph
 
-Shows which plugins read/write which state variables (40 total: 27 booleans, 3 numbers, 8 strings, 2 local-only).
+Shows which plugins read/write which state variables (41 total: 28 booleans, 3 numbers, 8 strings, 2 local-only).
 
 ```mermaid
 graph LR
@@ -892,6 +892,7 @@ graph LR
         MusicType[musicPlaybackType]
         MusicURI[currentlyPlayingMusicUri]
         FadeOut[isFadeOutInProgress]
+        WakeActive[isWakeSequenceActive]
         Lockdown[isLockdown]
         AppleTVPlaying[isAppleTVPlaying]
         TVon[isTVon]
@@ -962,6 +963,7 @@ graph LR
     AlarmTime --> SleepHygiene
     MasterAsleep --> SleepHygiene
     SleepHygiene --> FadeOut
+    SleepHygiene --> WakeActive
     SleepHygiene -.->|Triggers| Music
     SleepHygiene -.->|Triggers| Lighting
 
@@ -1027,7 +1029,7 @@ graph LR
 |----------|-------|----------|
 | **Boolean (input)** | 19 | isNickHome, isCarolineHome, isToriHere, isMasterAsleep, isHaveGuests, isNickOfficeOccupied, isKitchenOccupied, isPrimaryBedroomDoorOpen, isNickNearHome, isCarolineNearHome, isFrontOfHousePersonPresent |
 | **Boolean (computed)** | 6 | isAnyOwnerHome, isAnyoneHome, isAnyoneAsleep, isEveryoneAsleep, isAnyoneHomeAndAwake, isGuestAsleep |
-| **Boolean (output)** | 2 | isFadeOutInProgress, isLockdown |
+| **Boolean (output)** | 3 | isFadeOutInProgress, isWakeSequenceActive, isLockdown |
 | **Number** | 3 | alarmTime, remainingSolarGeneration, thisHourSolarGeneration |
 | **String (computed)** | 5 | dayPhase, sunevent, batteryEnergyLevel, currentEnergyLevel, solarProductionEnergyLevel |
 | **String (output)** | 3 | musicPlaybackType, currentlyPlayingMusicUri, musicPlaylistRotation |
