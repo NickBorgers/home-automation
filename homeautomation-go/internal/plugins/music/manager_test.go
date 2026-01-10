@@ -780,6 +780,112 @@ func TestStopPlayback(t *testing.T) {
 	}
 }
 
+// TestStopPlayback_OnlyAffectsActiveSpeakers verifies that stopPlayback only
+// sets volume to 0 for speakers that were in the currentlyPlaying group,
+// not all speakers across all modes in the config.
+func TestStopPlayback_OnlyAffectsActiveSpeakers(t *testing.T) {
+	t.Parallel()
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+
+	// Config has speakers in multiple modes
+	config := &MusicConfig{
+		Music: map[string]MusicMode{
+			"morning": {
+				Participants: []Participant{
+					{PlayerName: "Kitchen", BaseVolume: 9},
+					{PlayerName: "Soundbar", BaseVolume: 10}, // Soundbar only in morning mode
+				},
+				PlaybackOptions: []PlaybackOption{},
+			},
+			"evening": {
+				Participants: []Participant{
+					{PlayerName: "Kitchen", BaseVolume: 9},
+					{PlayerName: "Living Room", BaseVolume: 10}, // No Soundbar in evening
+				},
+				PlaybackOptions: []PlaybackOption{},
+			},
+		},
+	}
+
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+
+	// Set up currently playing as EVENING mode (which does NOT include Soundbar)
+	manager.currentlyPlaying = &CurrentlyPlayingMusic{
+		Type: "evening",
+		URI:  "spotify:playlist:evening",
+		Participants: []ParticipantWithVolume{
+			{PlayerName: "Kitchen", Volume: 9},
+			{PlayerName: "Living Room", Volume: 10},
+		},
+	}
+
+	// Stop playback
+	manager.stopPlayback()
+
+	// Get all volume_set calls
+	calls := mockClient.GetServiceCalls()
+	volumeSetCalls := make(map[string]bool)
+	for _, call := range calls {
+		if call.Domain == "media_player" && call.Service == "volume_set" {
+			if entityID, ok := call.Data["entity_id"].(string); ok {
+				volumeSetCalls[entityID] = true
+			}
+		}
+	}
+
+	// Should have called volume_set on Kitchen and Living Room (evening mode speakers)
+	if !volumeSetCalls["media_player.kitchen"] {
+		t.Error("Expected volume_set call for Kitchen (was in evening mode)")
+	}
+	if !volumeSetCalls["media_player.living_room"] {
+		t.Error("Expected volume_set call for Living Room (was in evening mode)")
+	}
+
+	// Should NOT have called volume_set on Soundbar (not in evening mode)
+	if volumeSetCalls["media_player.soundbar"] {
+		t.Error("Unexpected volume_set call for Soundbar (was NOT in evening mode)")
+	}
+}
+
+// TestStopPlayback_NoCurrentPlayback verifies that stopPlayback handles
+// the case where there is no active playback gracefully.
+func TestStopPlayback_NoCurrentPlayback(t *testing.T) {
+	t.Parallel()
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+
+	config := &MusicConfig{
+		Music: map[string]MusicMode{
+			"morning": {
+				Participants: []Participant{
+					{PlayerName: "Kitchen", BaseVolume: 9},
+					{PlayerName: "Soundbar", BaseVolume: 10},
+				},
+				PlaybackOptions: []PlaybackOption{},
+			},
+		},
+	}
+
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+
+	// No currently playing music
+	manager.currentlyPlaying = nil
+
+	// Stop playback - should not panic and should not call any volume_set
+	manager.stopPlayback()
+
+	// Should NOT have any volume_set calls since nothing was playing
+	calls := mockClient.GetServiceCalls()
+	for _, call := range calls {
+		if call.Domain == "media_player" && call.Service == "volume_set" {
+			t.Errorf("Unexpected volume_set call when nothing was playing: %v", call.Data)
+		}
+	}
+}
+
 // TestOrchestratePlayback tests the main orchestration flow
 func TestOrchestratePlayback(t *testing.T) {
 	t.Parallel()
