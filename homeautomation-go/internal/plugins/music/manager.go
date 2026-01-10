@@ -562,6 +562,7 @@ func (m *Manager) muteSpeaker(participant ParticipantWithVolume) {
 // stopPlayback stops all music playback
 func (m *Manager) stopPlayback() {
 	m.mu.Lock()
+	lastPlaying := m.currentlyPlaying // Save before clearing
 	m.currentlyPlaying = nil
 	m.mu.Unlock()
 
@@ -577,22 +578,27 @@ func (m *Manager) stopPlayback() {
 		return
 	}
 
-	// Set all speakers to volume 0
-	for _, mode := range m.config.Music {
-		for _, participant := range mode.Participants {
-			entityID := m.getSpeakerEntityID(participant.PlayerName)
-			if err := m.callServiceWithRetry("media_player", "volume_set", map[string]interface{}{
-				"entity_id":    entityID,
-				"volume_level": 0,
-			}); err != nil {
-				m.logger.Error("Failed to set speaker volume to 0",
-					zap.String("speaker", participant.PlayerName),
-					zap.Error(err))
-			}
+	// Only set volume to 0 for speakers that were actually playing
+	if lastPlaying == nil {
+		m.logger.Debug("No active playback to stop")
+		return
+	}
+
+	for _, participant := range lastPlaying.Participants {
+		entityID := m.getSpeakerEntityID(participant.PlayerName)
+		if err := m.callServiceWithRetry("media_player", "volume_set", map[string]interface{}{
+			"entity_id":    entityID,
+			"volume_level": 0,
+		}); err != nil {
+			m.logger.Error("Failed to set speaker volume to 0",
+				zap.String("speaker", participant.PlayerName),
+				zap.Error(err))
 		}
 	}
 
-	m.logger.Info("Music playback stopped")
+	m.logger.Info("Music playback stopped",
+		zap.String("type", lastPlaying.Type),
+		zap.Int("speaker_count", len(lastPlaying.Participants)))
 }
 
 // orchestratePlayback coordinates the complete playback flow
