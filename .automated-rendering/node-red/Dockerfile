@@ -5,6 +5,6 @@ FROM nodered/node-red:3.1.3
 COPY .automated-rendering/node-red/package.json .
 RUN npm install --unsafe-perm --no-update-notifier --no-fund --omit=dev --only=production
 # Bring our flows over raw
-COPY flows.json /data/
+COPY docs/archive/flows.json /data/
 # Disable that annoying tour thingy
 RUN sed -i 's|//tours|tours|g' /usr/src/node-red/node_modules/node-red/settings.js
