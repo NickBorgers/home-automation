@@ -10,13 +10,77 @@ on:
   pull_request_review:
     types: [submitted]
 
+# SECURITY NOTE: This workflow grants Claude Code access to secrets and write permissions.
+# Authorization checks are implemented to prevent prompt injection from untrusted users.
+# Only repository collaborators, members, and owners can trigger Claude.
+
 env:
   # Note: must be lowercase for Docker compatibility
   DEVCONTAINER_IMAGE: ghcr.io/nickborgers/home-automation-devcontainer
 
 jobs:
+  # Security gate: Check if the actor is authorized to trigger Claude
+  # This prevents prompt injection attacks from untrusted external users
+  authorize:
+    runs-on: ubuntu-latest
+    outputs:
+      authorized: ${{ steps.check-auth.outputs.authorized }}
+    steps:
+      - name: Check authorization
+        id: check-auth
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Get the author association based on event type
+          EVENT_NAME="${{ github.event_name }}"
+
+          case "$EVENT_NAME" in
+            issue_comment)
+              AUTHOR_ASSOC="${{ github.event.comment.author_association }}"
+              ACTOR="${{ github.event.comment.user.login }}"
+              ;;
+            pull_request_review_comment)
+              AUTHOR_ASSOC="${{ github.event.comment.author_association }}"
+              ACTOR="${{ github.event.comment.user.login }}"
+              ;;
+            pull_request_review)
+              AUTHOR_ASSOC="${{ github.event.review.author_association }}"
+              ACTOR="${{ github.event.review.user.login }}"
+              ;;
+            issues)
+              AUTHOR_ASSOC="${{ github.event.issue.author_association }}"
+              ACTOR="${{ github.event.issue.user.login }}"
+              ;;
+            *)
+              echo "Unknown event type: $EVENT_NAME"
+              echo "authorized=false" >> $GITHUB_OUTPUT
+              exit 0
+              ;;
+          esac
+
+          echo "Event: $EVENT_NAME"
+          echo "Actor: $ACTOR"
+          echo "Author association: $AUTHOR_ASSOC"
+
+          # Allow: OWNER, MEMBER, COLLABORATOR
+          # Deny: CONTRIBUTOR, FIRST_TIMER, FIRST_TIME_CONTRIBUTOR, MANNEQUIN, NONE
+          case "$AUTHOR_ASSOC" in
+            OWNER|MEMBER|COLLABORATOR)
+              echo "✅ Authorized: $ACTOR is a $AUTHOR_ASSOC"
+              echo "authorized=true" >> $GITHUB_OUTPUT
+              ;;
+            *)
+              echo "❌ Not authorized: $ACTOR is a $AUTHOR_ASSOC"
+              echo "External users cannot trigger Claude Code workflows."
+              echo "This is a security measure to prevent prompt injection attacks."
+              echo "authorized=false" >> $GITHUB_OUTPUT
+              ;;
+          esac
+
   # Build and cache devcontainer image first
   build-devcontainer:
+    needs: authorize
+    if: needs.authorize.outputs.authorized == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -41,12 +105,13 @@ jobs:
           push: always
 
   claude:
-    needs: build-devcontainer
+    needs: [authorize, build-devcontainer]
     if: |
-      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude')) ||
+      needs.authorize.outputs.authorized == 'true' &&
+      ((github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude')) ||
       (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude')) ||
       (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude')) ||
-      (github.event_name == 'issues' && (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude')))
+      (github.event_name == 'issues' && (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude'))))
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -220,8 +285,10 @@ jobs:
 
   # Auto-resolve new issues by opening a PR
   resolve-issue:
-    needs: build-devcontainer
-    if: github.event_name == 'issues' && github.event.action == 'opened'
+    needs: [authorize, build-devcontainer]
+    if: |
+      needs.authorize.outputs.authorized == 'true' &&
+      github.event_name == 'issues' && github.event.action == 'opened'
     runs-on: ubuntu-latest
     permissions:
       contents: write

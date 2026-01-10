@@ -7,6 +7,12 @@ run-name: >-
       github.event_name == 'pull_request' && format('Claude Code Review (PR #{0})', github.event.pull_request.number) ||
       format('Claude Code Review ({0})', github.event.workflow_run.head_branch) }}
 
+# SECURITY NOTE: This workflow grants Claude Code access to secrets and write permissions.
+# Authorization checks are implemented to prevent prompt injection and code execution from untrusted users.
+# - Only PRs from repository collaborators, members, and owners trigger Claude reviews
+# - The devcontainer is NEVER rebuilt from PR branches to prevent malicious Dockerfile injection
+# - External PRs (from forks) are blocked from triggering Claude
+
 on:
   workflow_run:
     workflows: ["PR Tests"]
@@ -73,6 +79,8 @@ jobs:
       issue_body_b64: ${{ steps.get-issue.outputs.issue_body_b64 }}
       fix_attempts: ${{ steps.count-attempts.outputs.count }}
       reviews_already_passed: ${{ steps.check-existing-reviews.outputs.already_passed }}
+      # SECURITY: Authorization status - blocks external/untrusted PR authors
+      author_authorized: ${{ steps.check-author-auth.outputs.authorized }}
 
     steps:
       - name: Get PR from workflow run or dispatch inputs
@@ -216,23 +224,83 @@ jobs:
             echo "already_passed=false" >> $GITHUB_OUTPUT
           fi
 
-  # Build and cache devcontainer image first
+      # SECURITY: Check if PR author is authorized to trigger Claude reviews
+      # This prevents prompt injection and code execution from external/untrusted users
+      - name: Check PR author authorization
+        if: steps.get-pr.outputs.pr_number != ''
+        id: check-author-auth
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          PR_NUMBER="${{ steps.get-pr.outputs.pr_number }}"
+
+          # Fetch PR author association
+          PR_DATA=$(gh api repos/${{ github.repository }}/pulls/$PR_NUMBER)
+          AUTHOR_ASSOC=$(echo "$PR_DATA" | jq -r '.author_association')
+          AUTHOR_LOGIN=$(echo "$PR_DATA" | jq -r '.user.login')
+          HEAD_REPO=$(echo "$PR_DATA" | jq -r '.head.repo.full_name')
+          BASE_REPO=$(echo "$PR_DATA" | jq -r '.base.repo.full_name')
+
+          echo "PR Author: $AUTHOR_LOGIN"
+          echo "Author association: $AUTHOR_ASSOC"
+          echo "Head repo: $HEAD_REPO"
+          echo "Base repo: $BASE_REPO"
+
+          # Check if this is a fork PR (external contribution)
+          IS_FORK="false"
+          if [ "$HEAD_REPO" != "$BASE_REPO" ]; then
+            IS_FORK="true"
+            echo "⚠️ This is a PR from a fork: $HEAD_REPO -> $BASE_REPO"
+          fi
+
+          # Allow: OWNER, MEMBER, COLLABORATOR
+          # Deny: CONTRIBUTOR, FIRST_TIMER, FIRST_TIME_CONTRIBUTOR, MANNEQUIN, NONE
+          case "$AUTHOR_ASSOC" in
+            OWNER|MEMBER|COLLABORATOR)
+              echo "✅ Authorized: $AUTHOR_LOGIN is a $AUTHOR_ASSOC"
+              echo "authorized=true" >> $GITHUB_OUTPUT
+              ;;
+            *)
+              echo "❌ Not authorized: $AUTHOR_LOGIN is a $AUTHOR_ASSOC"
+              echo "External users cannot trigger Claude Code Review workflows."
+              echo "This is a security measure to prevent prompt injection attacks."
+              echo "authorized=false" >> $GITHUB_OUTPUT
+
+              # Post a comment explaining why the review was skipped
+              gh pr comment $PR_NUMBER --body "## Claude Code Review Skipped
+
+          This PR was opened by an external contributor ($AUTHOR_LOGIN with association: $AUTHOR_ASSOC).
+
+          For security reasons, Claude Code reviews are only enabled for repository collaborators, members, and owners. This prevents potential prompt injection attacks through PR descriptions or issue content.
+
+          A repository maintainer will review this PR manually.
+
+          ---
+          This is an automated security notice." --repo ${{ github.repository }} 2>/dev/null || true
+              ;;
+          esac
+
+  # Build and cache devcontainer image
+  # SECURITY: Always build from main branch, NEVER from PR branches
+  # This prevents malicious Dockerfile modifications from being used to build the container
   build-devcontainer:
     runs-on: ubuntu-latest
     needs: get-context
     if: |
       needs.get-context.outputs.pr_number != '' &&
-      needs.get-context.outputs.reviews_already_passed != 'true'
+      needs.get-context.outputs.reviews_already_passed != 'true' &&
+      needs.get-context.outputs.author_authorized == 'true'
     permissions:
       contents: read
       packages: write
 
     steps:
-      - name: Checkout PR branch
+      # SECURITY: Checkout main branch, NOT the PR branch
+      # This ensures we never build a devcontainer from potentially malicious PR code
+      - name: Checkout main branch (security measure)
         uses: actions/checkout@v4
         with:
-          ref: ${{ needs.get-context.outputs.head_ref }}
-          repository: ${{ needs.get-context.outputs.head_repo }}
+          ref: main
 
       - name: Log in to GHCR
         uses: docker/login-action@v3
@@ -254,6 +322,7 @@ jobs:
     if: |
       needs.get-context.outputs.pr_number != '' &&
       needs.get-context.outputs.reviews_already_passed != 'true' &&
+      needs.get-context.outputs.author_authorized == 'true' &&
       needs.get-context.outputs.tests_passed == 'false' &&
       needs.get-context.outputs.fix_attempts < 3
     runs-on: ubuntu-latest
@@ -517,6 +586,7 @@ jobs:
       always() &&
       needs.get-context.outputs.pr_number != '' &&
       needs.get-context.outputs.reviews_already_passed != 'true' &&
+      needs.get-context.outputs.author_authorized == 'true' &&
       needs.get-context.outputs.tests_passed == 'true'
     runs-on: ubuntu-latest
     permissions:
@@ -617,6 +687,7 @@ jobs:
     if: |
       needs.get-context.outputs.pr_number != '' &&
       needs.get-context.outputs.reviews_already_passed != 'true' &&
+      needs.get-context.outputs.author_authorized == 'true' &&
       needs.get-context.outputs.tests_passed == 'true'
     runs-on: ubuntu-latest
     permissions:
@@ -804,6 +875,7 @@ jobs:
       always() &&
       needs.get-context.outputs.pr_number != '' &&
       needs.get-context.outputs.reviews_already_passed != 'true' &&
+      needs.get-context.outputs.author_authorized == 'true' &&
       needs.get-context.outputs.tests_passed == 'true'
     runs-on: ubuntu-latest
     permissions:
@@ -937,6 +1009,7 @@ jobs:
       always() &&
       needs.get-context.outputs.pr_number != '' &&
       needs.get-context.outputs.reviews_already_passed != 'true' &&
+      needs.get-context.outputs.author_authorized == 'true' &&
       needs.get-context.outputs.tests_passed == 'true'
     runs-on: ubuntu-latest
     permissions:
@@ -1072,6 +1145,7 @@ jobs:
       always() &&
       needs.get-context.outputs.pr_number != '' &&
       needs.get-context.outputs.reviews_already_passed != 'true' &&
+      needs.get-context.outputs.author_authorized == 'true' &&
       needs.get-context.outputs.tests_passed == 'true'
     runs-on: ubuntu-latest
     permissions:
@@ -1220,6 +1294,7 @@ jobs:
       always() &&
       needs.get-context.outputs.pr_number != '' &&
       needs.get-context.outputs.reviews_already_passed != 'true' &&
+      needs.get-context.outputs.author_authorized == 'true' &&
       needs.get-context.outputs.tests_passed == 'true'
     runs-on: ubuntu-latest
     permissions:
@@ -1391,6 +1466,17 @@ jobs:
             echo "Reviews already passed for this PR - skipping re-review"
             echo "To re-run reviews: close and reopen the PR"
             echo "skipped_with_success=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # SECURITY: Check if author was authorized
+          AUTHOR_AUTHORIZED="${{ needs.get-context.outputs.author_authorized }}"
+          if [ "$AUTHOR_AUTHORIZED" != "true" ]; then
+            echo "⚠️ PR author was not authorized to trigger Claude reviews"
+            echo "External contributors cannot trigger Claude Code Review workflows."
+            echo "This is a security measure to prevent prompt injection attacks."
+            echo "A repository maintainer will need to review this PR manually."
+            echo "unauthorized=true" >> $GITHUB_OUTPUT
             exit 0
           fi
 

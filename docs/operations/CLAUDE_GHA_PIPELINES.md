@@ -37,6 +37,15 @@ The repository uses several interconnected workflows that leverage Claude Code t
               └────────────────────┘
 ```
 
+## Security
+
+**Important:** These workflows implement authorization checks to prevent prompt injection attacks. See [CI_CD_SECURITY.md](./CI_CD_SECURITY.md) for the full security model.
+
+Key security measures:
+- **Authorization checks**: Only repository collaborators/members/owners can trigger Claude
+- **Devcontainer isolation**: Always built from `main` branch, never from PR branches
+- **External PR handling**: Fork PRs trigger tests but NOT Claude reviews
+
 ## Workflow Files
 
 | Workflow | File | Trigger | Purpose |
@@ -645,6 +654,7 @@ The prompts are embedded in the workflow YAML in the `runCmd` block. Key section
 
 ## Related Documentation
 
+- [CI_CD_SECURITY.md](./CI_CD_SECURITY.md) - **Security model for Claude-powered workflows** (authorization, threat model)
 - [BRANCH_PROTECTION.md](./BRANCH_PROTECTION.md) - Branch protection setup
 - [DOCKER.md](./DOCKER.md) - Container image details
 - [../reference/SHADOW_STATE.md](../reference/SHADOW_STATE.md) - Pattern Claude reviews for
