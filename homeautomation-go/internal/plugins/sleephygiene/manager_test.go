@@ -859,6 +859,16 @@ func TestFadeOutBedroomSpeaker_Complete(t *testing.T) {
 	// Clear previous calls
 	mockHA.ClearServiceCalls()
 
+	// Use instant sleep for fast test
+	stepCount := 0
+	manager.SetSleepFunc(func(d time.Duration) {
+		stepCount++
+		// Abort after 3 steps to keep test fast
+		if stepCount >= 3 {
+			stateManager.SetBool("isFadeOutInProgress", false)
+		}
+	})
+
 	// Start fade out in goroutine
 	done := make(chan bool)
 	go func() {
@@ -866,17 +876,14 @@ func TestFadeOutBedroomSpeaker_Complete(t *testing.T) {
 		done <- true
 	}()
 
-	// Wait for several volume changes (5 seconds should allow for a few iterations)
-	time.Sleep(5 * time.Second)
-
-	// Abort the fade out to complete the test quickly
-	stateManager.SetBool("isFadeOutInProgress", false)
+	// Abort the fade out to complete the test quickly (already done in SetSleepFunc)
+	// stateManager.SetBool("isFadeOutInProgress", false)
 
 	// Wait for goroutine to complete
 	select {
 	case <-done:
 		// Fade out completed
-	case <-time.After(10 * time.Second):
+	case <-time.After(1 * time.Second):
 		t.Fatal("Fade out did not stop within timeout")
 	}
 
@@ -1301,10 +1308,7 @@ func TestFadeOutSpeaker_WithVolumeQuery(t *testing.T) {
 	stateManager.SetBool("isFadeOutInProgress", true)
 	stateManager.SetString("musicPlaybackType", "sleep")
 
-	// Set up mock to return initial volume of 58 (higher volume = shorter delays)
-	// At 58: delay after first reduction = 60-57 = 3 seconds
-	// At 57: delay = 60-56 = 4 seconds
-	// Total: ~7 seconds for 2 reductions
+	// Set up mock to return initial volume of 58
 	mockHA.SetMockState("media_player.bedroom", &ha.State{
 		EntityID: "media_player.bedroom",
 		State:    "playing",
@@ -1327,6 +1331,15 @@ func TestFadeOutSpeaker_WithVolumeQuery(t *testing.T) {
 	// Clear previous calls
 	mockHA.ClearServiceCalls()
 
+	// Use instant sleep and abort after 2 steps for fast test
+	stepCount := 0
+	manager.SetSleepFunc(func(d time.Duration) {
+		stepCount++
+		if stepCount >= 2 {
+			stateManager.SetBool("isFadeOutInProgress", false)
+		}
+	})
+
 	// Start fade out in goroutine
 	done := make(chan bool)
 	go func() {
@@ -1334,17 +1347,14 @@ func TestFadeOutSpeaker_WithVolumeQuery(t *testing.T) {
 		done <- true
 	}()
 
-	// Wait for several volume changes (8 seconds to allow 2 reductions)
-	time.Sleep(8 * time.Second)
-
-	// Abort the fade out
-	stateManager.SetBool("isFadeOutInProgress", false)
+	// Abort the fade out (already done in SetSleepFunc)
+	// stateManager.SetBool("isFadeOutInProgress", false)
 
 	// Wait for completion
 	select {
 	case <-done:
 		// Fade out completed
-	case <-time.After(10 * time.Second):
+	case <-time.After(1 * time.Second):
 		t.Fatal("Fade out did not stop within timeout")
 	}
 
