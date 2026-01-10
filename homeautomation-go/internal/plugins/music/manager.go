@@ -1,6 +1,7 @@
 package music
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -85,6 +86,11 @@ type Manager struct {
 
 	// Sync tracking for tests
 	syncWg sync.WaitGroup // Tracks pending rotation syncs
+
+	// Fade-in goroutine tracking for cancellation
+	// Prevents concurrent fade-ins on the same speaker and false human-override detection
+	fadeInContexts   map[string]context.CancelFunc // entity_id -> cancel func
+	fadeInContextsMu sync.Mutex
 }
 
 // NewManager creates a new Music manager
@@ -111,6 +117,7 @@ func NewManager(haClient ha.HAClient, stateManager *state.Manager, config *Music
 		subscriptions:      make([]state.Subscription, 0),
 		playbackInProgress: false,
 		availableSpeakers:  make(map[string]bool),
+		fadeInContexts:     make(map[string]context.CancelFunc),
 	}
 }
 
@@ -897,6 +904,12 @@ func (m *Manager) executePlayback(musicType string, option PlaybackOption, parti
 		zap.String("lead_player", leadPlayer),
 		zap.Int("participant_count", len(participants)))
 
+	// Cancel any active fade-ins before starting new playback
+	// This prevents:
+	// 1. Concurrent fade-ins on the same speaker causing volume jumping
+	// 2. Old fade-ins detecting "human override" when new ones set volume to 0
+	m.cancelAllFadeIns()
+
 	leadEntityID := m.getSpeakerEntityID(leadPlayer)
 
 	// Step 1: Break speakers from existing groups before building new group
@@ -996,8 +1009,10 @@ func (m *Manager) executePlayback(musicType string, option PlaybackOption, parti
 				zap.String("speaker", sr.Participant.PlayerName),
 				zap.Int("target_volume", sr.Participant.Volume))
 
-			// Start fade-in in goroutine
-			go m.fadeInSpeaker(sr.Participant.PlayerName, sr.Participant.Volume, musicType)
+			// Start fade-in in goroutine with cancellation context
+			// The context allows cancellation when a new playback sequence starts
+			ctx := m.startFadeInWithContext(entityID)
+			go m.fadeInSpeaker(ctx, sr.Participant.PlayerName, sr.Participant.Volume, musicType)
 		} else {
 			// Speaker should stay muted, but still set its target volume
 			// Volume and mute state are independent - when the room becomes occupied
@@ -1455,13 +1470,82 @@ func (m *Manager) shouldUnmuteSpeaker(participant ParticipantWithVolume) bool {
 // Using 2% to account for timing/rounding while still detecting intentional changes.
 const humanOverrideThreshold = 2
 
-// fadeInSpeaker gradually increases speaker volume
-func (m *Manager) fadeInSpeaker(speakerName string, targetVolume int, startingMusicType string) {
+// cancelAllFadeIns cancels all active fade-in goroutines.
+// This should be called before starting new fade-ins to prevent:
+// 1. Concurrent fade-ins on the same speaker causing volume jumping
+// 2. Old fade-ins detecting "human override" when new ones set volume to 0
+func (m *Manager) cancelAllFadeIns() {
+	m.fadeInContextsMu.Lock()
+	defer m.fadeInContextsMu.Unlock()
+
+	if len(m.fadeInContexts) == 0 {
+		return
+	}
+
+	m.logger.Info("Cancelling active fade-ins before new playback",
+		zap.Int("count", len(m.fadeInContexts)))
+
+	for entityID, cancel := range m.fadeInContexts {
+		m.logger.Debug("Cancelling fade-in for speaker",
+			zap.String("entity_id", entityID))
+		cancel()
+	}
+
+	// Clear the map - new fade-ins will add themselves
+	m.fadeInContexts = make(map[string]context.CancelFunc)
+}
+
+// startFadeInWithContext creates a context for a fade-in goroutine and registers it.
+// Returns the context to pass to fadeInSpeaker.
+// The fade-in should be cancelled when a new playback sequence starts.
+func (m *Manager) startFadeInWithContext(entityID string) context.Context {
+	m.fadeInContextsMu.Lock()
+	defer m.fadeInContextsMu.Unlock()
+
+	// Cancel any existing fade-in for this speaker
+	if cancel, exists := m.fadeInContexts[entityID]; exists {
+		m.logger.Debug("Cancelling existing fade-in for speaker",
+			zap.String("entity_id", entityID))
+		cancel()
+	}
+
+	// Create new context
+	ctx, cancel := context.WithCancel(context.Background())
+	m.fadeInContexts[entityID] = cancel
+
+	return ctx
+}
+
+// unregisterFadeIn removes the fade-in context registration when fade-in completes.
+// This should be called when a fade-in finishes (successfully or due to abort).
+func (m *Manager) unregisterFadeIn(entityID string) {
+	m.fadeInContextsMu.Lock()
+	defer m.fadeInContextsMu.Unlock()
+
+	delete(m.fadeInContexts, entityID)
+}
+
+// fadeInSpeaker gradually increases speaker volume.
+// The ctx parameter allows cancellation when a new playback sequence starts.
+// When cancelled, the function exits gracefully without logging "human override".
+func (m *Manager) fadeInSpeaker(ctx context.Context, speakerName string, targetVolume int, startingMusicType string) {
 	m.logger.Debug("Starting fade-in",
 		zap.String("speaker", speakerName),
 		zap.Int("target_volume", targetVolume))
 
 	entityID := m.getSpeakerEntityID(speakerName)
+
+	// Ensure we unregister the fade-in when done (unless already cancelled/unregistered)
+	defer m.unregisterFadeIn(entityID)
+
+	// Check if already cancelled before starting
+	select {
+	case <-ctx.Done():
+		m.logger.Debug("Fade-in cancelled before start",
+			zap.String("speaker", speakerName))
+		return
+	default:
+	}
 
 	// Record fade-in start in shadow state
 	m.recordFadeInStart(speakerName, entityID, targetVolume)
@@ -1500,6 +1584,17 @@ func (m *Manager) fadeInSpeaker(speakerName string, targetVolume int, startingMu
 
 	// Gradual fade-in: 0 → targetVolume
 	for currentVolume := 0; currentVolume <= targetVolume; currentVolume++ {
+		// Check for context cancellation (new playback started)
+		select {
+		case <-ctx.Done():
+			m.logger.Info("Fade-in cancelled due to new playback sequence",
+				zap.String("speaker", speakerName),
+				zap.Int("stopped_at_volume", currentVolume))
+			m.clearFadeInProgress(entityID)
+			return
+		default:
+		}
+
 		// Check if music type changed (stop fade if switched)
 		musicType, err := m.stateManager.GetString("musicPlaybackType")
 		if err == nil && musicType != startingMusicType {
@@ -1551,14 +1646,38 @@ func (m *Manager) fadeInSpeaker(speakerName string, targetVolume int, startingMu
 		}
 		m.sleepFunc(time.Duration(delayMs) * time.Millisecond)
 
+		// Check for context cancellation after sleep (catches cancellation during delay)
+		select {
+		case <-ctx.Done():
+			m.logger.Info("Fade-in cancelled due to new playback sequence",
+				zap.String("speaker", speakerName),
+				zap.Int("stopped_at_volume", currentVolume))
+			m.clearFadeInProgress(entityID)
+			return
+		default:
+		}
+
 		// Human override detection: check if someone manually lowered volume during fade-in
 		// Only check if we successfully set volume and not at the start (volume 0)
+		// IMPORTANT: Skip this check if context is cancelled - the volume change was from
+		// the new playback sequence, not a human
 		if lastSuccessfulVolume > 0 && currentVolume < targetVolume {
 			actualVolume := m.getSpeakerVolume(entityID)
 			// Skip check if we couldn't get the volume (returns -1)
 			// For fade-in: if actual volume is significantly LOWER than what we set,
 			// someone is fighting the fade-in (turning it down)
 			if actualVolume >= 0 && actualVolume < (currentVolume-humanOverrideThreshold) {
+				// Double-check context hasn't been cancelled - if it was, this is NOT a human override
+				select {
+				case <-ctx.Done():
+					m.logger.Info("Fade-in cancelled due to new playback sequence (volume change was from new playback)",
+						zap.String("speaker", speakerName),
+						zap.Int("stopped_at_volume", currentVolume))
+					m.clearFadeInProgress(entityID)
+					return
+				default:
+				}
+
 				m.logger.Info("Human override detected during fade-in, aborting",
 					zap.String("speaker", speakerName),
 					zap.Int("expected_volume", currentVolume),

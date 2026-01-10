@@ -1,6 +1,7 @@
 package music
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -809,7 +810,7 @@ func TestStopPlayback_OnlyAffectsActiveSpeakers(t *testing.T) {
 		},
 	}
 
-	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil, nil)
 
 	// Set up currently playing as EVENING mode (which does NOT include Soundbar)
 	manager.currentlyPlaying = &CurrentlyPlayingMusic{
@@ -869,7 +870,7 @@ func TestStopPlayback_NoCurrentPlayback(t *testing.T) {
 		},
 	}
 
-	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil, nil)
 
 	// No currently playing music
 	manager.currentlyPlaying = nil
@@ -1753,7 +1754,7 @@ func TestFadeInSpeaker_SafeUnmuteSequence(t *testing.T) {
 	}
 
 	// Execute fade-in with a low target volume to complete quickly
-	manager.fadeInSpeaker("Kitchen", 3, "evening")
+	manager.fadeInSpeaker(context.Background(), "Kitchen", 3, "evening")
 
 	// Get all service calls
 	calls := mockHA.GetServiceCalls()
@@ -1848,7 +1849,7 @@ func TestFadeInSpeaker_VolumeNormalization(t *testing.T) {
 				t.Fatalf("Failed to set musicPlaybackType: %v", err)
 			}
 
-			manager.fadeInSpeaker("Kitchen", tc.targetVolume, "evening")
+			manager.fadeInSpeaker(context.Background(), "Kitchen", tc.targetVolume, "evening")
 
 			// Get the final volume_set call
 			calls := mockHA.GetServiceCalls()
@@ -1907,7 +1908,7 @@ func TestFadeInSpeaker_InitialVolumeSetFailure(t *testing.T) {
 	mockHA.SetServiceError("media_player", "volume_set", fmt.Errorf("simulated failure"))
 
 	// Execute fade-in
-	manager.fadeInSpeaker("Kitchen", 10, "evening")
+	manager.fadeInSpeaker(context.Background(), "Kitchen", 10, "evening")
 
 	// Verify no unmute call was made (safety: don't unmute if we can't control volume)
 	calls := mockHA.GetServiceCalls()
@@ -1947,7 +1948,7 @@ func TestFadeInSpeaker_UnmuteFailure(t *testing.T) {
 	mockHA.SetServiceError("media_player", "volume_mute", fmt.Errorf("simulated unmute failure"))
 
 	// Execute fade-in
-	manager.fadeInSpeaker("Kitchen", 10, "evening")
+	manager.fadeInSpeaker(context.Background(), "Kitchen", 10, "evening")
 
 	calls := mockHA.GetServiceCalls()
 
@@ -1982,7 +1983,7 @@ func TestFadeInSpeaker_HumanOverrideDetection(t *testing.T) {
 
 	fixedTime := time.Date(2025, 1, 6, 9, 0, 0, 0, time.UTC)
 	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
-	manager := NewManager(mockHA, stateManager, config, logger, false, timeProvider)
+	manager := NewManager(mockHA, stateManager, config, logger, false, timeProvider, nil)
 
 	var volumeStep int
 	manager.SetSleepFunc(func(d time.Duration) {
@@ -2007,7 +2008,7 @@ func TestFadeInSpeaker_HumanOverrideDetection(t *testing.T) {
 	})
 
 	// Execute fade-in to 20% - should abort when human override is detected
-	manager.fadeInSpeaker("Kitchen", 20, "evening")
+	manager.fadeInSpeaker(context.Background(), "Kitchen", 20, "evening")
 
 	// Verify shadow state shows human override was detected
 	shadowState := manager.GetShadowState()
@@ -2043,7 +2044,7 @@ func TestFadeInSpeaker_NoHumanOverrideWithMatchingVolume(t *testing.T) {
 
 	fixedTime := time.Date(2025, 1, 6, 9, 0, 0, 0, time.UTC)
 	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
-	manager := NewManager(mockHA, stateManager, config, logger, false, timeProvider)
+	manager := NewManager(mockHA, stateManager, config, logger, false, timeProvider, nil)
 
 	var volumeStep int
 	manager.SetSleepFunc(func(d time.Duration) {
@@ -2059,7 +2060,7 @@ func TestFadeInSpeaker_NoHumanOverrideWithMatchingVolume(t *testing.T) {
 	}
 
 	// Execute fade-in to 5%
-	manager.fadeInSpeaker("Kitchen", 5, "evening")
+	manager.fadeInSpeaker(context.Background(), "Kitchen", 5, "evening")
 
 	// Verify shadow state does NOT show human override
 	shadowState := manager.GetShadowState()
@@ -2075,6 +2076,156 @@ func TestFadeInSpeaker_NoHumanOverrideWithMatchingVolume(t *testing.T) {
 	// Fade state should be idle (completed)
 	if shadowState.Outputs.FadeState != "idle" {
 		t.Errorf("Expected FadeState to be 'idle', got '%s'", shadowState.Outputs.FadeState)
+	}
+}
+
+// TestFadeInSpeaker_ContextCancellation verifies that fadeInSpeaker exits gracefully
+// when its context is cancelled (e.g., when a new playback sequence starts).
+// This prevents false "human override" detection when the new playback sets volume to 0.
+func TestFadeInSpeaker_ContextCancellation(t *testing.T) {
+	t.Parallel()
+	mockHA := ha.NewMockClient()
+	logger := zap.NewNop()
+	stateManager := state.NewManager(mockHA, logger, false)
+
+	config := &MusicConfig{
+		Music: map[string]MusicMode{
+			"evening": {},
+		},
+	}
+
+	fixedTime := time.Date(2025, 1, 6, 9, 0, 0, 0, time.UTC)
+	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
+	manager := NewManager(mockHA, stateManager, config, logger, false, timeProvider, nil)
+
+	// Track if cancellation was detected
+	var cancelledAtVolume int = -1
+
+	// Use a cancellable context
+	ctx, cancel := context.WithCancel(context.Background())
+
+	manager.SetSleepFunc(func(d time.Duration) {
+		// Cancel after the first few volume steps
+		cancelledAtVolume++
+		if cancelledAtVolume == 3 {
+			cancel()
+		}
+	})
+
+	if err := stateManager.SetString("musicPlaybackType", "evening"); err != nil {
+		t.Fatalf("Failed to set musicPlaybackType: %v", err)
+	}
+
+	// Execute fade-in to 10% - should be cancelled after ~3 steps
+	manager.fadeInSpeaker(ctx, "Kitchen", 10, "evening")
+
+	// Verify that fade-in stopped due to cancellation (not human override)
+	shadowState := manager.GetShadowState()
+	fadeIn, exists := shadowState.Outputs.FadeInProgress["media_player.kitchen"]
+	if !exists {
+		t.Fatal("Expected fade-in progress to be recorded for media_player.kitchen")
+	}
+
+	// Should NOT be marked as human override - context was cancelled
+	if fadeIn.HumanOverrideDetected {
+		t.Error("Expected HumanOverrideDetected to be false when cancelled via context")
+	}
+
+	// Fade should not have completed to target (10)
+	if fadeIn.CurrentVolume >= 10 {
+		t.Errorf("Expected fade-in to stop before reaching target volume 10, but got %d", fadeIn.CurrentVolume)
+	}
+}
+
+// TestCancelAllFadeIns verifies that cancelAllFadeIns properly cancels all active fade-ins.
+func TestCancelAllFadeIns(t *testing.T) {
+	t.Parallel()
+	mockHA := ha.NewMockClient()
+	logger := zap.NewNop()
+	stateManager := state.NewManager(mockHA, logger, false)
+
+	config := &MusicConfig{
+		Music: map[string]MusicMode{
+			"evening": {},
+		},
+	}
+
+	fixedTime := time.Date(2025, 1, 6, 9, 0, 0, 0, time.UTC)
+	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
+	manager := NewManager(mockHA, stateManager, config, logger, false, timeProvider, nil)
+
+	// Register some fake fade-in contexts
+	ctx1 := manager.startFadeInWithContext("media_player.kitchen")
+	ctx2 := manager.startFadeInWithContext("media_player.bedroom")
+
+	// Verify contexts are not cancelled yet
+	select {
+	case <-ctx1.Done():
+		t.Error("Context 1 should not be cancelled yet")
+	default:
+	}
+	select {
+	case <-ctx2.Done():
+		t.Error("Context 2 should not be cancelled yet")
+	default:
+	}
+
+	// Cancel all fade-ins
+	manager.cancelAllFadeIns()
+
+	// Verify both contexts are now cancelled
+	select {
+	case <-ctx1.Done():
+		// Good, cancelled
+	default:
+		t.Error("Context 1 should be cancelled after cancelAllFadeIns")
+	}
+	select {
+	case <-ctx2.Done():
+		// Good, cancelled
+	default:
+		t.Error("Context 2 should be cancelled after cancelAllFadeIns")
+	}
+}
+
+// TestStartFadeInWithContext_CancelsExisting verifies that starting a new fade-in
+// for a speaker cancels any existing fade-in for that speaker.
+func TestStartFadeInWithContext_CancelsExisting(t *testing.T) {
+	t.Parallel()
+	mockHA := ha.NewMockClient()
+	logger := zap.NewNop()
+	stateManager := state.NewManager(mockHA, logger, false)
+
+	config := &MusicConfig{
+		Music: map[string]MusicMode{
+			"evening": {},
+		},
+	}
+
+	fixedTime := time.Date(2025, 1, 6, 9, 0, 0, 0, time.UTC)
+	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
+	manager := NewManager(mockHA, stateManager, config, logger, false, timeProvider, nil)
+
+	// Start first fade-in context
+	ctx1 := manager.startFadeInWithContext("media_player.kitchen")
+
+	// Start second fade-in context for same speaker
+	ctx2 := manager.startFadeInWithContext("media_player.kitchen")
+
+	// First context should be cancelled
+	select {
+	case <-ctx1.Done():
+		// Good, cancelled
+	default:
+		t.Error("First context should be cancelled when second starts for same speaker")
+	}
+
+	// Second context should still be active
+	select {
+	case <-ctx2.Done():
+		t.Error("Second context should not be cancelled yet")
+	default:
+		// Good, not cancelled
 	}
 }
 

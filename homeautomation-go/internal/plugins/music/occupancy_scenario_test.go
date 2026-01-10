@@ -404,7 +404,7 @@ func TestScenario_MutedSpeaker_GetsTargetVolumeSetDuringPlayback(t *testing.T) {
 	fixedTime := time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC)
 	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
 
-	manager := NewManager(mockClient, stateManager, config, logger, false, timeProvider)
+	manager := NewManager(mockClient, stateManager, config, logger, false, timeProvider, nil)
 	manager.SetSleepFunc(func(d time.Duration) {}) // Skip internal sleeps for fast tests
 
 	// Initialize state - Office is NOT occupied, so Office speaker should be muted
