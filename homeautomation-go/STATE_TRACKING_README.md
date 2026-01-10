@@ -154,9 +154,10 @@ import (
     "go.uber.org/zap"
 )
 
-// Create calculator (Austin, TX coordinates)
+// Create calculator (Austin, TX coordinates, local timezone)
 logger, _ := zap.NewDevelopment()
-calc := dayphase.NewCalculator(32.85486, -97.50515, logger)
+timezone, _ := time.LoadLocation("America/Chicago")
+calc := dayphase.NewCalculator(32.85486, -97.50515, timezone, logger)
 
 // Update sun times (call on startup and every 6 hours)
 calc.UpdateSunTimes()
@@ -213,8 +214,9 @@ func main() {
     configLoader.StartAutoReload()
     defer configLoader.Stop()
 
-    // Setup sun event tracking
-    dayPhaseCalc := dayphase.NewCalculator(32.85486, -97.50515, logger)
+    // Setup sun event tracking with timezone
+    timezone, _ := time.LoadLocation("America/Chicago")
+    dayPhaseCalc := dayphase.NewCalculator(32.85486, -97.50515, timezone, logger)
     sunStopChan := dayPhaseCalc.StartPeriodicUpdate()
     defer close(sunStopChan)
 

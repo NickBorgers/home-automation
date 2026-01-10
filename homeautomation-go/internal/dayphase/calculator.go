@@ -39,6 +39,7 @@ const (
 type Calculator struct {
 	latitude  float64
 	longitude float64
+	timezone  *time.Location
 	logger    *zap.Logger
 	clock     clock.Clock
 
@@ -53,10 +54,15 @@ type Calculator struct {
 
 // NewCalculator creates a new day phase calculator
 // Default coordinates are for Austin, TX area (32.85486, -97.50515)
-func NewCalculator(latitude, longitude float64, logger *zap.Logger) *Calculator {
+// If timezone is nil, it defaults to time.Local
+func NewCalculator(latitude, longitude float64, timezone *time.Location, logger *zap.Logger) *Calculator {
+	if timezone == nil {
+		timezone = time.Local
+	}
 	return &Calculator{
 		latitude:  latitude,
 		longitude: longitude,
+		timezone:  timezone,
 		logger:    logger,
 		clock:     clock.NewRealClock(),
 		sunTimes:  make(map[string]time.Time),
@@ -162,8 +168,12 @@ func (c *Calculator) GetSunEvent() SunEvent {
 	// Match Node-RED's Sun State Summarizer logic (with modified morning period)
 	// The summarizer receives raw sun events and maps them to simplified states
 
+	// Convert to local timezone for date calculations
+	// This fixes the bug where running in UTC causes incorrect phase at midnight UTC
+	nowLocal := now.In(c.timezone)
+
 	// Create noon for today in local time - morning lasts until noon
-	noonToday := time.Date(now.Year(), now.Month(), now.Day(), 12, 0, 0, 0, now.Location())
+	noonToday := time.Date(nowLocal.Year(), nowLocal.Month(), nowLocal.Day(), 12, 0, 0, 0, c.timezone)
 
 	switch {
 	// Night period: night, nightEnd, nauticalDawn, dawn, nadir
