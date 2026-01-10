@@ -14,8 +14,8 @@ import (
 func TestCalculator_UpdateSunTimes(t *testing.T) {
 	t.Parallel()
 	logger := testlogger.New()
-	// Austin, TX coordinates
-	calc := NewCalculator(32.85486, -97.50515, logger)
+	// Austin, TX coordinates with UTC timezone for testing
+	calc := NewCalculator(32.85486, -97.50515, time.UTC, logger)
 
 	err := calc.UpdateSunTimes()
 	assert.NoError(t, err)
@@ -44,7 +44,7 @@ func TestCalculator_UpdateSunTimes(t *testing.T) {
 func TestCalculator_GetSunEvent(t *testing.T) {
 	t.Parallel()
 	logger := testlogger.New()
-	calc := NewCalculator(32.85486, -97.50515, logger)
+	calc := NewCalculator(32.85486, -97.50515, time.UTC, logger)
 
 	err := calc.UpdateSunTimes()
 	assert.NoError(t, err)
@@ -68,7 +68,7 @@ func TestCalculator_GetSunEvent(t *testing.T) {
 func TestCalculator_CalculateDayPhase(t *testing.T) {
 	t.Parallel()
 	logger := testlogger.New()
-	calc := NewCalculator(32.85486, -97.50515, logger)
+	calc := NewCalculator(32.85486, -97.50515, time.UTC, logger)
 
 	// Use a fixed reference time: January 15, 2024 at 10:00 AM in UTC
 	// Using UTC ensures the test is deterministic regardless of the CI machine's timezone.
@@ -115,7 +115,7 @@ func TestCalculator_CalculateDayPhase(t *testing.T) {
 func TestCalculator_CalculateDayPhaseWithoutSchedule(t *testing.T) {
 	t.Parallel()
 	logger := testlogger.New()
-	calc := NewCalculator(32.85486, -97.50515, logger)
+	calc := NewCalculator(32.85486, -97.50515, time.UTC, logger)
 
 	err := calc.UpdateSunTimes()
 	assert.NoError(t, err)
@@ -279,7 +279,7 @@ func TestCalculator_GetSunEventAllPeriods(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			calc := NewCalculator(32.85486, -97.50515, logger)
+			calc := NewCalculator(32.85486, -97.50515, time.UTC, logger)
 			mockClock := clock.NewMockClock(tt.testTime)
 			calc.SetClock(mockClock)
 
@@ -632,7 +632,7 @@ func TestCalculator_CalculateDayPhaseAllCases(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			calc := NewCalculator(32.85486, -97.50515, logger)
+			calc := NewCalculator(32.85486, -97.50515, time.UTC, logger)
 			// Inject mock clock set to our test time
 			mockClock := clock.NewMockClock(tt.testTime)
 			calc.SetClock(mockClock)
@@ -648,7 +648,7 @@ func TestCalculator_CalculateDayPhaseAllCases(t *testing.T) {
 func TestCalculator_CalculateDayPhaseEdgeCases(t *testing.T) {
 	t.Parallel()
 	logger := testlogger.New()
-	calc := NewCalculator(32.85486, -97.50515, logger)
+	calc := NewCalculator(32.85486, -97.50515, time.UTC, logger)
 
 	// Use a fixed reference time: January 15, 2024 at 3:00 PM in UTC (afternoon, after noon)
 	// Using UTC ensures the test is deterministic regardless of the CI machine's timezone.
@@ -678,7 +678,7 @@ func TestCalculator_CalculateDayPhaseEdgeCases(t *testing.T) {
 func TestCalculator_AutoUpdateSunTimes(t *testing.T) {
 	t.Parallel()
 	logger := testlogger.New()
-	calc := NewCalculator(32.85486, -97.50515, logger)
+	calc := NewCalculator(32.85486, -97.50515, time.UTC, logger)
 
 	// Test that GetSunEvent auto-updates if lastUpdate is zero
 	assert.True(t, calc.lastUpdate.IsZero())
@@ -695,7 +695,7 @@ func TestCalculator_AutoUpdateSunTimes(t *testing.T) {
 func TestCalculator_StartPeriodicUpdate(t *testing.T) {
 	t.Parallel()
 	logger := testlogger.New()
-	calc := NewCalculator(32.85486, -97.50515, logger)
+	calc := NewCalculator(32.85486, -97.50515, time.UTC, logger)
 
 	// Start periodic updates
 	stopChan := calc.StartPeriodicUpdate()
@@ -773,7 +773,7 @@ func TestDayPhaseConstants(t *testing.T) {
 func TestCalculator_GetSunTimes(t *testing.T) {
 	t.Parallel()
 	logger := testlogger.New()
-	calc := NewCalculator(32.85486, -97.50515, logger)
+	calc := NewCalculator(32.85486, -97.50515, time.UTC, logger)
 
 	// Before update, should return empty map
 	sunTimes := calc.GetSunTimes()
@@ -788,4 +788,144 @@ func TestCalculator_GetSunTimes(t *testing.T) {
 	assert.Contains(t, sunTimes, "dusk")
 	assert.Contains(t, sunTimes, "nauticalDusk")
 	assert.Contains(t, sunTimes, "night")
+}
+
+// TestCalculator_GetSunEvent_MidnightUTCBug tests the bug where day phase jumped to
+// "morning" at midnight UTC (6 PM CST) because the noon comparison used UTC instead
+// of the configured local timezone.
+//
+// Bug: At 00:03 UTC (6:03 PM CST), the system incorrectly returned "morning" because:
+// - now.Location() returned UTC (since the system runs in UTC)
+// - noonToday was 12:00 UTC, not 12:00 CST
+// - The check "00:03 < 12:00" was true, so it returned morning
+//
+// Fix: Use the configured timezone for the noon comparison.
+func TestCalculator_GetSunEvent_MidnightUTCBug(t *testing.T) {
+	t.Parallel()
+	logger := testlogger.New()
+
+	// Load CST timezone (America/Chicago)
+	cst, err := time.LoadLocation("America/Chicago")
+	assert.NoError(t, err)
+
+	// Create calculator with CST timezone - this is the fix
+	calc := NewCalculator(32.85486, -97.50515, cst, logger)
+
+	// Simulate the bug scenario: 00:03 UTC on Jan 10, 2026
+	// This is 6:03 PM CST on Jan 9, 2026 (during evening, not morning!)
+	utcTime := time.Date(2026, 1, 10, 0, 3, 0, 0, time.UTC)
+	mockClock := clock.NewMockClock(utcTime)
+	calc.SetClock(mockClock)
+
+	// Set up sun times for Austin, TX on Jan 9, 2026 (in UTC)
+	// Dawn ~7:05 AM CST = 13:05 UTC
+	// Sunrise ~7:30 AM CST = 13:30 UTC
+	// Sunset ~5:45 PM CST = 23:45 UTC
+	// Dusk ~6:10 PM CST = 00:10 UTC Jan 10
+	// Night ~6:45 PM CST = 00:45 UTC Jan 10
+	setSunTimesForTest(calc, utcTime,
+		time.Date(2026, 1, 9, 13, 5, 0, 0, time.UTC),  // dawn
+		time.Date(2026, 1, 9, 13, 30, 0, 0, time.UTC), // sunrise
+		time.Date(2026, 1, 9, 13, 45, 0, 0, time.UTC), // sunriseEnd
+		time.Date(2026, 1, 9, 14, 30, 0, 0, time.UTC), // goldenHourEnd
+		time.Date(2026, 1, 9, 23, 0, 0, 0, time.UTC),  // goldenHour
+		time.Date(2026, 1, 9, 23, 30, 0, 0, time.UTC), // sunsetStart
+		time.Date(2026, 1, 9, 23, 45, 0, 0, time.UTC), // sunset
+		time.Date(2026, 1, 10, 0, 10, 0, 0, time.UTC), // dusk (future - at 00:03 we're in sunset)
+		time.Date(2026, 1, 10, 0, 30, 0, 0, time.UTC), // nauticalDusk
+		time.Date(2026, 1, 10, 0, 45, 0, 0, time.UTC), // night
+	)
+
+	// Get sun event - should be "sunset", NOT "morning"
+	sunEvent := calc.GetSunEvent()
+
+	// Before the fix, this would return SunEventMorning because:
+	// - 00:03 UTC < 12:00 UTC (noon in UTC) = true
+	// After the fix, it correctly returns SunEventSunset because:
+	// - 6:03 PM CST is after 12:00 PM CST (noon in local time)
+	// - And we're in the golden hour period (after goldenHour, before dusk)
+	assert.Equal(t, SunEventSunset, sunEvent,
+		"Expected sunset at 6:03 PM CST (00:03 UTC), not morning. "+
+			"This validates the timezone fix for the noon comparison.")
+}
+
+// TestCalculator_GetSunEvent_TimezoneAwareness verifies that the calculator
+// correctly uses the configured timezone for all time comparisons.
+func TestCalculator_GetSunEvent_TimezoneAwareness(t *testing.T) {
+	t.Parallel()
+	logger := testlogger.New()
+
+	// Test with multiple timezones
+	testCases := []struct {
+		name           string
+		timezone       string
+		utcHour        int    // Hour in UTC
+		expectedPhase  string // What we expect after the fix
+		beforeFixPhase string // What the bug would have returned
+	}{
+		{
+			name:           "CST evening looks like UTC morning",
+			timezone:       "America/Chicago",
+			utcHour:        0, // 6 PM CST
+			expectedPhase:  "evening phase (sunset/dusk/night)",
+			beforeFixPhase: "morning (bug)",
+		},
+		{
+			name:           "EST evening looks like UTC morning",
+			timezone:       "America/New_York",
+			utcHour:        1, // 8 PM EST
+			expectedPhase:  "evening phase (sunset/dusk/night)",
+			beforeFixPhase: "morning (bug)",
+		},
+		{
+			name:           "PST evening looks like UTC morning",
+			timezone:       "America/Los_Angeles",
+			utcHour:        3, // 7 PM PST
+			expectedPhase:  "evening phase (sunset/dusk/night)",
+			beforeFixPhase: "morning (bug)",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			tz, err := time.LoadLocation(tc.timezone)
+			assert.NoError(t, err)
+
+			// Create calculator with the test timezone
+			calc := NewCalculator(32.85486, -97.50515, tz, logger)
+
+			// Set clock to a time that would trigger the bug
+			utcTime := time.Date(2026, 1, 10, tc.utcHour, 0, 0, 0, time.UTC)
+			mockClock := clock.NewMockClock(utcTime)
+			calc.SetClock(mockClock)
+
+			// Set up sun times (evening in the local timezone)
+			// Dawn and sunrise in the past (morning is over)
+			// Golden hour just started (it's evening)
+			localTime := utcTime.In(tz)
+			dawn := time.Date(localTime.Year(), localTime.Month(), localTime.Day(), 7, 0, 0, 0, tz)
+			sunrise := time.Date(localTime.Year(), localTime.Month(), localTime.Day(), 7, 30, 0, 0, tz)
+			sunriseEnd := time.Date(localTime.Year(), localTime.Month(), localTime.Day(), 7, 45, 0, 0, tz)
+			goldenHourEnd := time.Date(localTime.Year(), localTime.Month(), localTime.Day(), 8, 30, 0, 0, tz)
+			goldenHour := time.Date(localTime.Year(), localTime.Month(), localTime.Day(), 17, 0, 0, 0, tz)
+			sunsetStart := time.Date(localTime.Year(), localTime.Month(), localTime.Day(), 17, 30, 0, 0, tz)
+			sunset := time.Date(localTime.Year(), localTime.Month(), localTime.Day(), 17, 45, 0, 0, tz)
+			dusk := time.Date(localTime.Year(), localTime.Month(), localTime.Day(), 18, 10, 0, 0, tz)
+			nauticalDusk := time.Date(localTime.Year(), localTime.Month(), localTime.Day(), 18, 30, 0, 0, tz)
+			night := time.Date(localTime.Year(), localTime.Month(), localTime.Day(), 18, 45, 0, 0, tz)
+
+			setSunTimesForTest(calc, utcTime,
+				dawn.UTC(), sunrise.UTC(), sunriseEnd.UTC(), goldenHourEnd.UTC(),
+				goldenHour.UTC(), sunsetStart.UTC(), sunset.UTC(),
+				dusk.UTC(), nauticalDusk.UTC(), night.UTC(),
+			)
+
+			sunEvent := calc.GetSunEvent()
+
+			// Should NOT be morning - that was the bug
+			assert.NotEqual(t, SunEventMorning, sunEvent,
+				"Should not return morning in the evening. Timezone: %s, UTC hour: %d, Local time: %s",
+				tc.timezone, tc.utcHour, localTime.Format("15:04 MST"))
+		})
+	}
 }
