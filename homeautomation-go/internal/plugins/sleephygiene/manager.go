@@ -464,6 +464,11 @@ func (m *Manager) getBedroomSpeakers() []string {
 	return bedroomSpeakers
 }
 
+// humanOverrideThreshold is the volume difference (in percentage points) that indicates
+// a human is manually adjusting the speaker volume during an automated fade operation.
+// Using 2% to account for timing/rounding while still detecting intentional changes.
+const humanOverrideThreshold = 2
+
 // fadeOutSpeaker gradually reduces speaker volume to 0
 // This runs in a goroutine and implements the sleep music fade-out logic
 // matching the Node-RED "Repeat turn downs until 0" function
@@ -472,6 +477,11 @@ func (m *Manager) fadeOutSpeaker(speakerEntityID string) {
 
 	// Get actual current volume from Home Assistant
 	currentVolume := m.getSpeakerVolume(speakerEntityID)
+	startVolume := currentVolume // Remember start volume for override detection
+
+	// Record fade-out start in shadow state (even if already at 0)
+	m.shadowTracker.RecordFadeOutStart(speakerEntityID, currentVolume)
+
 	if currentVolume == 0 {
 		m.logger.Info("Speaker volume already at 0, skipping fade-out", zap.String("speaker", speakerEntityID))
 		// Still need to clear isFadeOutInProgress since fade-out is effectively complete
@@ -562,6 +572,33 @@ func (m *Manager) fadeOutSpeaker(speakerEntityID string) {
 			zap.Int("delay_seconds", delaySeconds))
 
 		m.sleepFunc(time.Duration(delaySeconds) * time.Second)
+
+		// Human override detection: check if someone manually raised volume during fade-out
+		// Only check if we're not already at volume 0
+		if currentVolume > 0 {
+			actualVolume := m.getSpeakerVolume(speakerEntityID)
+			// For fade-out: if actual volume is significantly HIGHER than what we set,
+			// someone is fighting the fade-out (turning it up)
+			// Skip if actual equals start volume - this indicates the device state
+			// isn't being updated (common in mock/test environments)
+			if actualVolume > (currentVolume+humanOverrideThreshold) && actualVolume != startVolume {
+				m.logger.Info("Human override detected during fade-out, aborting",
+					zap.String("speaker", speakerEntityID),
+					zap.Int("expected_volume", currentVolume),
+					zap.Int("actual_volume", actualVolume))
+
+				// Record human override in shadow state
+				m.shadowTracker.RecordHumanOverride(speakerEntityID, currentVolume, actualVolume)
+
+				// Clear fade-out state
+				if !m.readOnly {
+					if err := m.stateManager.SetBool("isFadeOutInProgress", false); err != nil {
+						m.logger.Error("Failed to clear isFadeOutInProgress", zap.Error(err))
+					}
+				}
+				return
+			}
+		}
 	}
 
 	m.logger.Info("Fade out complete - speaker volume reached 0",

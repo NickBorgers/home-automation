@@ -1393,6 +1393,155 @@ func TestFadeOutSpeaker_WithVolumeQuery(t *testing.T) {
 	}
 }
 
+// TestFadeOutSpeaker_HumanOverrideDetection tests that fadeOutSpeaker detects
+// when a human manually raises the speaker volume and aborts gracefully.
+func TestFadeOutSpeaker_HumanOverrideDetection(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2024, 1, 15, 22, 0, 0, 0, time.UTC)
+	manager, mockHA, stateManager, _ := setupTest(t, now)
+
+	// Set conditions for fade out
+	stateManager.SetBool("isFadeOutInProgress", true)
+	stateManager.SetString("musicPlaybackType", "sleep")
+
+	// Set up mock to return initial volume of 10 (low volume for quick test)
+	mockHA.SetMockState("media_player.bedroom", &ha.State{
+		EntityID: "media_player.bedroom",
+		State:    "playing",
+		Attributes: map[string]interface{}{
+			"volume_level": 0.10, // 10%
+		},
+	})
+
+	// Set up currentlyPlayingMusic
+	currentMusic := map[string]interface{}{
+		"participants": []interface{}{
+			map[string]interface{}{
+				"player_name": "media_player.bedroom",
+				"volume":      10,
+			},
+		},
+	}
+	stateManager.SetJSON("currentlyPlayingMusic", currentMusic)
+	mockHA.ClearServiceCalls()
+
+	// Track step count and inject human override
+	volumeStep := 0
+	manager.SetSleepFunc(func(d time.Duration) {
+		volumeStep++
+		if volumeStep == 3 {
+			// Simulate human turning volume up to 50% during fade-out
+			mockHA.SetMockState("media_player.bedroom", &ha.State{
+				EntityID: "media_player.bedroom",
+				State:    "playing",
+				Attributes: map[string]interface{}{
+					"volume_level": 0.50, // Human turned volume UP
+				},
+			})
+		}
+	})
+
+	// Run fade out
+	manager.fadeOutSpeaker("media_player.bedroom")
+
+	// Verify shadow state shows human override was detected
+	shadowState := manager.GetShadowState()
+	fadeOut, exists := shadowState.Outputs.FadeOutProgress["media_player.bedroom"]
+	if !exists {
+		t.Fatal("Expected fade-out progress to be recorded for media_player.bedroom")
+	}
+
+	if !fadeOut.HumanOverrideDetected {
+		t.Error("Expected HumanOverrideDetected to be true")
+	}
+
+	// Should not have faded to 0 since it was aborted
+	if fadeOut.CurrentVolume == 0 && !fadeOut.HumanOverrideDetected {
+		t.Error("Expected fade-out to abort before reaching volume 0")
+	}
+
+	// isFadeOutInProgress should be cleared
+	isFadeOut, _ := stateManager.GetBool("isFadeOutInProgress")
+	if isFadeOut {
+		t.Error("Expected isFadeOutInProgress to be false after human override")
+	}
+}
+
+// TestFadeOutSpeaker_NoHumanOverrideWithMatchingVolume tests that fadeOutSpeaker
+// completes normally when the actual volume matches or is lower than expected.
+func TestFadeOutSpeaker_NoHumanOverrideWithMatchingVolume(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2024, 1, 15, 22, 0, 0, 0, time.UTC)
+	manager, mockHA, stateManager, _ := setupTest(t, now)
+
+	// Set conditions for fade out
+	stateManager.SetBool("isFadeOutInProgress", true)
+	stateManager.SetString("musicPlaybackType", "sleep")
+
+	// Start with volume 3 for quick fade to 0
+	startVolume := 3
+	mockHA.SetMockState("media_player.bedroom", &ha.State{
+		EntityID: "media_player.bedroom",
+		State:    "playing",
+		Attributes: map[string]interface{}{
+			"volume_level": float64(startVolume) / 100.0,
+		},
+	})
+
+	currentMusic := map[string]interface{}{
+		"participants": []interface{}{
+			map[string]interface{}{
+				"player_name": "media_player.bedroom",
+				"volume":      startVolume,
+			},
+		},
+	}
+	stateManager.SetJSON("currentlyPlayingMusic", currentMusic)
+	mockHA.ClearServiceCalls()
+
+	// Track current volume and always return what automation expects
+	currentVolume := startVolume
+	manager.SetSleepFunc(func(d time.Duration) {
+		currentVolume--
+		if currentVolume < 0 {
+			currentVolume = 0
+		}
+		// Simulate normal behavior - volume matches what automation set
+		mockHA.SetMockState("media_player.bedroom", &ha.State{
+			EntityID: "media_player.bedroom",
+			State:    "playing",
+			Attributes: map[string]interface{}{
+				"volume_level": float64(currentVolume) / 100.0,
+			},
+		})
+	})
+
+	// Run fade out
+	manager.fadeOutSpeaker("media_player.bedroom")
+
+	// Verify shadow state does NOT show human override
+	shadowState := manager.GetShadowState()
+	fadeOut, exists := shadowState.Outputs.FadeOutProgress["media_player.bedroom"]
+	if !exists {
+		t.Fatal("Expected fade-out progress to be recorded for media_player.bedroom")
+	}
+
+	if fadeOut.HumanOverrideDetected {
+		t.Error("Expected HumanOverrideDetected to be false when volume matches")
+	}
+
+	// Should have faded to 0
+	if fadeOut.CurrentVolume != 0 {
+		t.Errorf("Expected CurrentVolume to be 0, got %d", fadeOut.CurrentVolume)
+	}
+
+	// isFadeOutInProgress should be cleared on completion
+	isFadeOut, _ := stateManager.GetBool("isFadeOutInProgress")
+	if isFadeOut {
+		t.Error("Expected isFadeOutInProgress to be false after fade out completes")
+	}
+}
+
 // TestBeginWake_MultipleSpeakers tests that begin_wake launches fade-out for all bedroom speakers
 func TestBeginWake_MultipleSpeakers(t *testing.T) {
 	t.Parallel()

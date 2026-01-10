@@ -1860,6 +1860,118 @@ func TestFadeInSpeaker_UnmuteFailure(t *testing.T) {
 	}
 }
 
+// TestFadeInSpeaker_HumanOverrideDetection verifies that fadeInSpeaker detects
+// when a human manually lowers the speaker volume and aborts gracefully.
+func TestFadeInSpeaker_HumanOverrideDetection(t *testing.T) {
+	t.Parallel()
+	mockHA := ha.NewMockClient()
+	logger := zap.NewNop()
+	stateManager := state.NewManager(mockHA, logger, false)
+
+	config := &MusicConfig{
+		Music: map[string]MusicMode{
+			"evening": {},
+		},
+	}
+
+	fixedTime := time.Date(2025, 1, 6, 9, 0, 0, 0, time.UTC)
+	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
+	manager := NewManager(mockHA, stateManager, config, logger, false, timeProvider)
+
+	var volumeStep int
+	manager.SetSleepFunc(func(d time.Duration) {
+		// Simulate human override: after a few steps, set speaker volume lower than expected
+		volumeStep++
+		if volumeStep == 5 {
+			// Set the speaker volume to 0, simulating human turning it down
+			mockHA.SetState("media_player.kitchen", "playing", map[string]interface{}{
+				"volume_level": 0.0, // Human turned volume down to 0
+			})
+		}
+	})
+
+	// Set up musicPlaybackType so fade-in doesn't abort due to type change
+	if err := stateManager.SetString("musicPlaybackType", "evening"); err != nil {
+		t.Fatalf("Failed to set musicPlaybackType: %v", err)
+	}
+
+	// Initially speaker is available with volume 0
+	mockHA.SetState("media_player.kitchen", "playing", map[string]interface{}{
+		"volume_level": 0.5, // Initial volume
+	})
+
+	// Execute fade-in to 20% - should abort when human override is detected
+	manager.fadeInSpeaker("Kitchen", 20, "evening")
+
+	// Verify shadow state shows human override was detected
+	shadowState := manager.GetShadowState()
+	fadeIn, exists := shadowState.Outputs.FadeInProgress["media_player.kitchen"]
+	if !exists {
+		t.Fatal("Expected fade-in progress to be recorded for media_player.kitchen")
+	}
+
+	if !fadeIn.HumanOverrideDetected {
+		t.Error("Expected HumanOverrideDetected to be true")
+	}
+
+	// Fade should not complete to target volume (20) since it was aborted
+	// The shadow state should show what volume was expected when override was detected
+	if fadeIn.ExpectedVolume == 0 && fadeIn.ActualVolume == 0 && !fadeIn.HumanOverrideDetected {
+		t.Error("Expected override detection to record expected and actual volumes")
+	}
+}
+
+// TestFadeInSpeaker_NoHumanOverrideWithMatchingVolume verifies that fadeInSpeaker
+// completes normally when the actual volume matches or exceeds expected volume.
+func TestFadeInSpeaker_NoHumanOverrideWithMatchingVolume(t *testing.T) {
+	t.Parallel()
+	mockHA := ha.NewMockClient()
+	logger := zap.NewNop()
+	stateManager := state.NewManager(mockHA, logger, false)
+
+	config := &MusicConfig{
+		Music: map[string]MusicMode{
+			"evening": {},
+		},
+	}
+
+	fixedTime := time.Date(2025, 1, 6, 9, 0, 0, 0, time.UTC)
+	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
+	manager := NewManager(mockHA, stateManager, config, logger, false, timeProvider)
+
+	var volumeStep int
+	manager.SetSleepFunc(func(d time.Duration) {
+		volumeStep++
+		// Simulate normal volume - always matching what automation set
+		mockHA.SetState("media_player.kitchen", "playing", map[string]interface{}{
+			"volume_level": float64(volumeStep) / 100.0,
+		})
+	})
+
+	if err := stateManager.SetString("musicPlaybackType", "evening"); err != nil {
+		t.Fatalf("Failed to set musicPlaybackType: %v", err)
+	}
+
+	// Execute fade-in to 5%
+	manager.fadeInSpeaker("Kitchen", 5, "evening")
+
+	// Verify shadow state does NOT show human override
+	shadowState := manager.GetShadowState()
+	fadeIn, exists := shadowState.Outputs.FadeInProgress["media_player.kitchen"]
+	if !exists {
+		t.Fatal("Expected fade-in progress to be recorded for media_player.kitchen")
+	}
+
+	if fadeIn.HumanOverrideDetected {
+		t.Error("Expected HumanOverrideDetected to be false when volume matches")
+	}
+
+	// Fade state should be idle (completed)
+	if shadowState.Outputs.FadeState != "idle" {
+		t.Errorf("Expected FadeState to be 'idle', got '%s'", shadowState.Outputs.FadeState)
+	}
+}
+
 // TestRefreshAvailableSpeakers verifies that refreshAvailableSpeakers correctly
 // caches media_player entities from Home Assistant.
 func TestRefreshAvailableSpeakers(t *testing.T) {
