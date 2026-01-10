@@ -147,7 +147,7 @@ func TestMusicManager_SelectAppropriateMusicMode(t *testing.T) {
 			timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
 
 			// Create manager
-			manager := NewManager(mockHA, stateMgr, config, logger, true, timeProvider)
+			manager := NewManager(mockHA, stateMgr, config, logger, true, timeProvider, nil)
 
 			// Set up initial state
 			if err := stateMgr.SetBool("isAnyoneHome", tt.isAnyoneHome); err != nil {
@@ -191,7 +191,7 @@ func TestMusicManager_DetermineMusicModeFromDayPhase(t *testing.T) {
 	fixedTime := time.Date(2025, 1, 6, 9, 0, 0, 0, time.UTC) // Monday, January 6, 2025
 	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
 
-	manager := NewManager(mockHA, stateMgr, config, logger, true, timeProvider)
+	manager := NewManager(mockHA, stateMgr, config, logger, true, timeProvider, nil)
 
 	tests := []struct {
 		dayPhase          string
@@ -242,7 +242,7 @@ func TestMusicManager_StateChangeHandling(t *testing.T) {
 	fixedTime := time.Date(2025, 1, 6, 9, 0, 0, 0, time.UTC) // Monday, January 6, 2025
 	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
 
-	manager := NewManager(mockHA, stateMgr, config, logger, true, timeProvider)
+	manager := NewManager(mockHA, stateMgr, config, logger, true, timeProvider, nil)
 
 	// Set initial state
 	if err := stateMgr.SetBool("isAnyoneHome", true); err != nil {
@@ -328,7 +328,7 @@ func TestMusicManager_Stop(t *testing.T) {
 	}
 
 	// Create manager
-	manager := NewManager(mockHA, stateMgr, config, logger, true, nil)
+	manager := NewManager(mockHA, stateMgr, config, logger, true, nil, nil)
 
 	// Set initial state
 	if err := stateMgr.SetBool("isAnyoneHome", true); err != nil {
@@ -471,7 +471,7 @@ func TestMusicManager_ReadOnlyMode(t *testing.T) {
 		},
 	}
 
-	manager := NewManager(mockClient, stateManager, config, logger, true, nil)
+	manager := NewManager(mockClient, stateManager, config, logger, true, nil, nil)
 
 	// Test selecting music mode in read-only mode - should handle gracefully
 	manager.selectAppropriateMusicMode()
@@ -495,7 +495,7 @@ func TestCalculateVolume(t *testing.T) {
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 	config := &MusicConfig{Music: map[string]MusicMode{}}
-	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil, nil)
 
 	tests := []struct {
 		name       string
@@ -529,7 +529,7 @@ func TestPlaylistRotation(t *testing.T) {
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 	config := &MusicConfig{Music: map[string]MusicMode{}}
-	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil, nil)
 
 	// Test rotation for "day" music type with 3 playlists
 	musicType := "day"
@@ -593,7 +593,7 @@ func TestRateLimiting(t *testing.T) {
 	fixedTime := time.Date(2024, 1, 1, 12, 0, 0, 0, time.UTC)
 	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
 
-	manager := NewManager(mockClient, stateManager, config, logger, true, timeProvider)
+	manager := NewManager(mockClient, stateManager, config, logger, true, timeProvider, nil)
 
 	// First playback should succeed
 	manager.handleMusicPlaybackTypeChange("musicPlaybackType", "", "day")
@@ -640,7 +640,7 @@ func TestDoubleActivationPrevention(t *testing.T) {
 		},
 	}
 
-	manager := NewManager(mockClient, stateManager, config, logger, true, nil)
+	manager := NewManager(mockClient, stateManager, config, logger, true, nil, nil)
 
 	// First playback
 	manager.handleMusicPlaybackTypeChange("musicPlaybackType", "", "day")
@@ -665,7 +665,7 @@ func TestMuteConditionEvaluation(t *testing.T) {
 	_ = stateManager.SetBool("isMasterAsleep", false)
 
 	config := &MusicConfig{Music: map[string]MusicMode{}}
-	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil, nil)
 
 	tests := []struct {
 		name          string
@@ -721,7 +721,7 @@ func TestGetSpeakerEntityID(t *testing.T) {
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 	config := &MusicConfig{Music: map[string]MusicMode{}}
-	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil, nil)
 
 	tests := []struct {
 		speakerName string
@@ -763,7 +763,7 @@ func TestStopPlayback(t *testing.T) {
 		},
 	}
 
-	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil, nil)
 
 	// Set up currently playing music
 	manager.currentlyPlaying = &CurrentlyPlayingMusic{
@@ -802,7 +802,7 @@ func TestOrchestratePlayback(t *testing.T) {
 		},
 	}
 
-	manager := NewManager(mockClient, stateManager, config, logger, true, nil)
+	manager := NewManager(mockClient, stateManager, config, logger, true, nil, nil)
 
 	// Test orchestration
 	err := manager.orchestratePlayback("day", "test_trigger")
@@ -866,7 +866,7 @@ func TestValuesMatch(t *testing.T) {
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 	config := &MusicConfig{Music: map[string]MusicMode{}}
-	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil, nil)
 
 	tests := []struct {
 		name     string
@@ -907,7 +907,7 @@ func TestGetStateValue(t *testing.T) {
 	_ = stateManager.SetNumber("alarmTime", 7.5)
 
 	config := &MusicConfig{Music: map[string]MusicMode{}}
-	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil, nil)
 
 	// Test getting boolean
 	val, err := manager.getStateValue("isTVPlaying")
@@ -952,7 +952,7 @@ func TestCallService(t *testing.T) {
 	config := &MusicConfig{Music: map[string]MusicMode{}}
 
 	// Test in normal mode
-	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil, nil)
 	err := manager.callService("media_player", "play_media", map[string]interface{}{
 		"entity_id": "media_player.kitchen",
 	})
@@ -961,7 +961,7 @@ func TestCallService(t *testing.T) {
 	}
 
 	// Test in read-only mode
-	managerRO := NewManager(mockClient, stateManager, config, logger, true, nil)
+	managerRO := NewManager(mockClient, stateManager, config, logger, true, nil, nil)
 	err = managerRO.callService("media_player", "play_media", map[string]interface{}{
 		"entity_id": "media_player.kitchen",
 	})
@@ -988,7 +988,7 @@ func TestHandleMusicPlaybackTypeChange_EmptyString(t *testing.T) {
 		},
 	}
 
-	manager := NewManager(mockClient, stateManager, config, logger, true, nil)
+	manager := NewManager(mockClient, stateManager, config, logger, true, nil, nil)
 
 	// Set up currently playing music
 	manager.currentlyPlaying = &CurrentlyPlayingMusic{
@@ -1012,7 +1012,7 @@ func TestHandleMusicPlaybackTypeChange_InvalidType(t *testing.T) {
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 	config := &MusicConfig{Music: map[string]MusicMode{}}
-	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil, nil)
 
 	// Pass non-string value (should log error and return)
 	manager.handleMusicPlaybackTypeChange("musicPlaybackType", "", 123)
@@ -1033,7 +1033,7 @@ func TestExecutePlayback(t *testing.T) {
 	_ = stateManager.SetString("musicPlaybackType", "day")
 
 	config := &MusicConfig{Music: map[string]MusicMode{}}
-	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil, nil)
 
 	// Set up mock to return "playing" state for playback verification
 	mockClient.SetState("media_player.kitchen", "playing", nil)
@@ -1074,7 +1074,7 @@ func TestBuildSpeakerGroup(t *testing.T) {
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 	config := &MusicConfig{Music: map[string]MusicMode{}}
-	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil, nil)
 
 	// Clear any previous calls
 	mockClient.ClearServiceCalls()
@@ -1145,7 +1145,7 @@ func TestBuildSpeakerGroupRetrySuccess(t *testing.T) {
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 	config := &MusicConfig{Music: map[string]MusicMode{}}
-	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil, nil)
 
 	// Use no-op sleep to make test fast
 	manager.SetSleepFunc(func(d time.Duration) {})
@@ -1180,7 +1180,7 @@ func TestBuildSpeakerGroupPartialSuccess(t *testing.T) {
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 	config := &MusicConfig{Music: map[string]MusicMode{}}
-	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil, nil)
 
 	// Use no-op sleep to make test fast
 	manager.SetSleepFunc(func(d time.Duration) {})
@@ -1246,7 +1246,7 @@ func TestBuildSpeakerGroupAllFail(t *testing.T) {
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 	config := &MusicConfig{Music: map[string]MusicMode{}}
-	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil, nil)
 
 	// Use no-op sleep to make test fast
 	manager.SetSleepFunc(func(d time.Duration) {})
@@ -1295,7 +1295,7 @@ func TestBuildSpeakerGroupRetryOnSecondAttempt(t *testing.T) {
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 	config := &MusicConfig{Music: map[string]MusicMode{}}
-	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil, nil)
 
 	// Use no-op sleep to make test fast
 	manager.SetSleepFunc(func(d time.Duration) {})
@@ -1341,7 +1341,7 @@ func TestManagerReset(t *testing.T) {
 	stateManager.SetBool("isAnyoneHome", true)
 	stateManager.SetBool("isAnyoneAsleep", false)
 
-	manager := NewManager(mockClient, stateManager, musicConfig, logger, false, &plugin.RealTimeProvider{})
+	manager := NewManager(mockClient, stateManager, musicConfig, logger, false, &plugin.RealTimeProvider{}, nil)
 
 	err := manager.Start()
 	if err != nil {
@@ -1376,7 +1376,7 @@ func TestManagerReset_WhenNoOneHome_StopsMusic(t *testing.T) {
 	stateManager.SetBool("isAnyoneAsleep", false)
 	stateManager.SetString("musicPlaybackType", "morning")
 
-	manager := NewManager(mockClient, stateManager, musicConfig, logger, false, &plugin.RealTimeProvider{})
+	manager := NewManager(mockClient, stateManager, musicConfig, logger, false, &plugin.RealTimeProvider{}, nil)
 
 	err := manager.Start()
 	if err != nil {
@@ -1421,7 +1421,7 @@ func TestManagerReset_WhenSomeoneAsleep_SelectsSleepMode(t *testing.T) {
 	stateManager.SetBool("isAnyoneAsleep", true)
 	stateManager.SetString("musicPlaybackType", "morning")
 
-	manager := NewManager(mockClient, stateManager, musicConfig, logger, false, &plugin.RealTimeProvider{})
+	manager := NewManager(mockClient, stateManager, musicConfig, logger, false, &plugin.RealTimeProvider{}, nil)
 
 	err := manager.Start()
 	if err != nil {
@@ -1468,7 +1468,7 @@ func TestCurrentlyPlayingMusicUri_SetOnPlayback(t *testing.T) {
 		},
 	}
 
-	manager := NewManager(mockClient, stateManager, config, logger, true, nil)
+	manager := NewManager(mockClient, stateManager, config, logger, true, nil, nil)
 
 	// Orchestrate playback
 	err := manager.orchestratePlayback("day", "test_trigger")
@@ -1510,7 +1510,7 @@ func TestCurrentlyPlayingMusicUri_ClearOnStop(t *testing.T) {
 		},
 	}
 
-	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil, nil)
 
 	// Set up currently playing music and URI
 	manager.currentlyPlaying = &CurrentlyPlayingMusic{
@@ -1578,7 +1578,7 @@ func TestCurrentlyPlayingMusicUri_UpdateOnModeChange(t *testing.T) {
 	fixedTime := time.Date(2024, 1, 1, 12, 0, 0, 0, time.UTC)
 	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
 
-	manager := NewManager(mockClient, stateManager, config, logger, true, timeProvider)
+	manager := NewManager(mockClient, stateManager, config, logger, true, timeProvider, nil)
 
 	// Start with day music
 	err := manager.orchestratePlayback("day", "test_trigger")
@@ -1637,7 +1637,7 @@ func TestFadeInSpeaker_SafeUnmuteSequence(t *testing.T) {
 	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
 
 	// NOT read-only so service calls actually go through
-	manager := NewManager(mockHA, stateManager, config, logger, false, timeProvider)
+	manager := NewManager(mockHA, stateManager, config, logger, false, timeProvider, nil)
 	// Skip sleep delays in tests (fade-in uses very slow timing to match Node-RED behavior)
 	manager.SetSleepFunc(func(d time.Duration) {})
 
@@ -1733,7 +1733,7 @@ func TestFadeInSpeaker_VolumeNormalization(t *testing.T) {
 
 			fixedTime := time.Date(2025, 1, 6, 9, 0, 0, 0, time.UTC)
 			timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
-			manager := NewManager(mockHA, stateManager, config, logger, false, timeProvider)
+			manager := NewManager(mockHA, stateManager, config, logger, false, timeProvider, nil)
 			// Skip sleep delays in tests (fade-in uses very slow timing to match Node-RED behavior)
 			manager.SetSleepFunc(func(d time.Duration) {})
 
@@ -1788,7 +1788,7 @@ func TestFadeInSpeaker_InitialVolumeSetFailure(t *testing.T) {
 
 	fixedTime := time.Date(2025, 1, 6, 9, 0, 0, 0, time.UTC)
 	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
-	manager := NewManager(mockHA, stateManager, config, logger, false, timeProvider)
+	manager := NewManager(mockHA, stateManager, config, logger, false, timeProvider, nil)
 	// Skip sleep delays in tests (fade-in uses very slow timing to match Node-RED behavior)
 	manager.SetSleepFunc(func(d time.Duration) {})
 
@@ -1828,7 +1828,7 @@ func TestFadeInSpeaker_UnmuteFailure(t *testing.T) {
 
 	fixedTime := time.Date(2025, 1, 6, 9, 0, 0, 0, time.UTC)
 	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
-	manager := NewManager(mockHA, stateManager, config, logger, false, timeProvider)
+	manager := NewManager(mockHA, stateManager, config, logger, false, timeProvider, nil)
 	// Skip sleep delays in tests (fade-in uses very slow timing to match Node-RED behavior)
 	manager.SetSleepFunc(func(d time.Duration) {})
 
@@ -1987,7 +1987,7 @@ func TestRefreshAvailableSpeakers(t *testing.T) {
 		},
 	}
 
-	manager := NewManager(mockHA, stateManager, config, logger, false, nil)
+	manager := NewManager(mockHA, stateManager, config, logger, false, nil, nil)
 
 	// Set up mock states with various entity types
 	mockHA.SetState("media_player.kitchen", "idle", nil)
@@ -2042,7 +2042,7 @@ func TestCallServiceWithRetry_Success(t *testing.T) {
 		},
 	}
 
-	manager := NewManager(mockHA, stateManager, config, logger, false, nil)
+	manager := NewManager(mockHA, stateManager, config, logger, false, nil, nil)
 
 	// Set up a speaker entity
 	mockHA.SetState("media_player.kitchen", "idle", nil)
@@ -2084,7 +2084,7 @@ func TestCallServiceWithRetry_PersistentError(t *testing.T) {
 		},
 	}
 
-	manager := NewManager(mockHA, stateManager, config, logger, false, nil)
+	manager := NewManager(mockHA, stateManager, config, logger, false, nil, nil)
 
 	// Set up a speaker entity so refresh will find it (retry path is triggered)
 	mockHA.SetState("media_player.kitchen", "idle", nil)
@@ -2123,7 +2123,7 @@ func TestCallServiceWithRetry_SpeakerNotAvailable(t *testing.T) {
 		},
 	}
 
-	manager := NewManager(mockHA, stateManager, config, logger, false, nil)
+	manager := NewManager(mockHA, stateManager, config, logger, false, nil, nil)
 
 	// Don't set up any media_player entities - speaker doesn't exist
 
@@ -2153,7 +2153,7 @@ func TestBreakSpeakerGroups(t *testing.T) {
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 	config := &MusicConfig{Music: map[string]MusicMode{}}
-	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil, nil)
 
 	// Use no-op sleep to make test fast
 	manager.SetSleepFunc(func(d time.Duration) {})
@@ -2210,7 +2210,7 @@ func TestBreakSpeakerGroups_UnjoinFailure(t *testing.T) {
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 	config := &MusicConfig{Music: map[string]MusicMode{}}
-	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil, nil)
 
 	// Use no-op sleep to make test fast
 	manager.SetSleepFunc(func(d time.Duration) {})
@@ -2270,7 +2270,7 @@ func TestExecutePlayback_BreakThenBuildSequence(t *testing.T) {
 	_ = stateManager.SetString("musicPlaybackType", "day")
 
 	config := &MusicConfig{Music: map[string]MusicMode{}}
-	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil, nil)
 
 	// Use no-op sleep to make test fast
 	manager.SetSleepFunc(func(d time.Duration) {})
@@ -2337,7 +2337,7 @@ func TestExecutePlayback_BreakThenBuildSequence_SingleSpeaker(t *testing.T) {
 	_ = stateManager.SetString("musicPlaybackType", "day")
 
 	config := &MusicConfig{Music: map[string]MusicMode{}}
-	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil, nil)
 
 	// Use no-op sleep to make test fast
 	manager.SetSleepFunc(func(d time.Duration) {})
@@ -2430,7 +2430,7 @@ func TestStartValidatesSpeakers(t *testing.T) {
 		t.Fatalf("Failed to set musicPlaybackType: %v", err)
 	}
 
-	manager := NewManager(mockHA, stateManager, config, logger, false, nil)
+	manager := NewManager(mockHA, stateManager, config, logger, false, nil, nil)
 
 	// Set up only one of the configured speakers
 	mockHA.SetState("media_player.kitchen", "idle", nil)
@@ -2507,7 +2507,7 @@ func TestLoadPlaylistRotationFromHA(t *testing.T) {
 					"evening": {PlaybackOptions: []PlaybackOption{{URI: "test1"}, {URI: "test2"}}},
 				},
 			}
-			manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+			manager := NewManager(mockClient, stateManager, config, logger, false, nil, nil)
 
 			// Load rotation from HA
 			manager.loadPlaylistRotationFromHA()
@@ -2552,7 +2552,7 @@ func TestLoadPlaylistRotationBoundsCheck(t *testing.T) {
 			"unknown": {PlaybackOptions: []PlaybackOption{}},                                               // empty options
 		},
 	}
-	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil, nil)
 
 	// Load rotation from HA
 	manager.loadPlaylistRotationFromHA()
@@ -2584,7 +2584,7 @@ func TestLoadPlaylistRotationUnconfiguredType(t *testing.T) {
 			"morning": {PlaybackOptions: []PlaybackOption{{URI: "test1"}, {URI: "test2"}, {URI: "test3"}}},
 		},
 	}
-	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil, nil)
 
 	// Load rotation from HA
 	manager.loadPlaylistRotationFromHA()
@@ -2615,7 +2615,7 @@ func TestSyncPlaylistRotationToHA(t *testing.T) {
 			"day": {PlaybackOptions: []PlaybackOption{{URI: "test1"}, {URI: "test2"}, {URI: "test3"}}},
 		},
 	}
-	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil, nil)
 
 	// Call getNextPlaylistIndex which should trigger a sync
 	index := manager.getNextPlaylistIndex("day", 3)
@@ -2674,7 +2674,7 @@ func TestPlaylistRotationSyncReadOnlyMode(t *testing.T) {
 			"day": {PlaybackOptions: []PlaybackOption{{URI: "test1"}, {URI: "test2"}, {URI: "test3"}}},
 		},
 	}
-	manager := NewManager(mockClient, stateManager, config, logger, true, nil)
+	manager := NewManager(mockClient, stateManager, config, logger, true, nil, nil)
 
 	// Call getNextPlaylistIndex
 	index := manager.getNextPlaylistIndex("day", 3)
@@ -2740,7 +2740,7 @@ func TestPlaybackVerification(t *testing.T) {
 			stateManager := state.NewManager(mockClient, logger, false)
 
 			config := &MusicConfig{Music: map[string]MusicMode{}}
-			manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+			manager := NewManager(mockClient, stateManager, config, logger, false, nil, nil)
 
 			// Use no-op sleep to make test fast
 			manager.SetSleepFunc(func(d time.Duration) {})
@@ -2792,7 +2792,7 @@ func TestIsPlaybackActive(t *testing.T) {
 			stateManager := state.NewManager(mockClient, logger, false)
 
 			config := &MusicConfig{Music: map[string]MusicMode{}}
-			manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+			manager := NewManager(mockClient, stateManager, config, logger, false, nil, nil)
 
 			mockClient.SetState("media_player.kitchen", tt.speakerState, nil)
 
@@ -2819,7 +2819,7 @@ func TestPlaybackVerification_RecoveryAfterNudge(t *testing.T) {
 	stateManager := state.NewManager(mockClient, logger, false)
 
 	config := &MusicConfig{Music: map[string]MusicMode{}}
-	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil, nil)
 
 	// Use no-op sleep to make test fast
 	manager.SetSleepFunc(func(d time.Duration) {})
@@ -2877,7 +2877,7 @@ func TestPlaybackVerification_RecoveryOnSecondAttempt(t *testing.T) {
 	stateManager := state.NewManager(mockClient, logger, false)
 
 	config := &MusicConfig{Music: map[string]MusicMode{}}
-	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil, nil)
 
 	// Use no-op sleep to make test fast
 	manager.SetSleepFunc(func(d time.Duration) {})
@@ -2927,7 +2927,7 @@ func TestShouldIncludeInZone_NoConditions(t *testing.T) {
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 	config := &MusicConfig{Music: map[string]MusicMode{}}
-	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil, nil)
 
 	participant := Participant{
 		PlayerName:   "Kitchen",
@@ -2948,7 +2948,7 @@ func TestShouldIncludeInZone_ConditionNotMatched(t *testing.T) {
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 	config := &MusicConfig{Music: map[string]MusicMode{}}
-	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil, nil)
 
 	// Set up state: isMasterAsleep = false
 	if err := stateManager.SetBool("isMasterAsleep", false); err != nil {
@@ -2978,7 +2978,7 @@ func TestShouldIncludeInZone_ConditionMatched(t *testing.T) {
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 	config := &MusicConfig{Music: map[string]MusicMode{}}
-	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil, nil)
 
 	// Set up state: isMasterAsleep = true
 	if err := stateManager.SetBool("isMasterAsleep", true); err != nil {
@@ -3007,7 +3007,7 @@ func TestShouldIncludeInZone_MultipleConditions(t *testing.T) {
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 	config := &MusicConfig{Music: map[string]MusicMode{}}
-	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil, nil)
 
 	tests := []struct {
 		name             string
@@ -3099,7 +3099,7 @@ func TestOrchestratePlayback_WithExcludeIf(t *testing.T) {
 		},
 	}
 
-	manager := NewManager(mockClient, stateManager, config, logger, true, nil) // read-only mode
+	manager := NewManager(mockClient, stateManager, config, logger, true, nil, nil) // read-only mode
 
 	// Set up state: isMasterAsleep = true (Bedroom should be excluded)
 	if err := stateManager.SetBool("isMasterAsleep", true); err != nil {
@@ -3178,7 +3178,7 @@ func TestOrchestratePlayback_AllSpeakersExcluded(t *testing.T) {
 		},
 	}
 
-	manager := NewManager(mockClient, stateManager, config, logger, true, nil)
+	manager := NewManager(mockClient, stateManager, config, logger, true, nil, nil)
 
 	// Set up state: all speakers excluded
 	if err := stateManager.SetBool("isMasterAsleep", true); err != nil {
@@ -3241,7 +3241,7 @@ func TestCollectMuteConditionVariables_IncludesExcludeIf(t *testing.T) {
 		},
 	}
 
-	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil, nil)
 
 	variables := manager.collectMuteConditionVariables()
 
@@ -3297,7 +3297,7 @@ func TestExcludeIf_LeadPlayerSelection(t *testing.T) {
 		},
 	}
 
-	manager := NewManager(mockClient, stateManager, config, logger, true, nil)
+	manager := NewManager(mockClient, stateManager, config, logger, true, nil, nil)
 
 	// Set up state: first participant (Bedroom) is excluded
 	if err := stateManager.SetBool("isMasterAsleep", true); err != nil {
@@ -3347,7 +3347,7 @@ func TestExcludeIf_ParticipantWithVolumePreservesExcludeIf(t *testing.T) {
 		},
 	}
 
-	manager := NewManager(mockClient, stateManager, config, logger, true, nil)
+	manager := NewManager(mockClient, stateManager, config, logger, true, nil, nil)
 
 	// Kitchen is not excluded (isMasterAsleep is false by default)
 	if err := stateManager.SetBool("isMasterAsleep", false); err != nil {

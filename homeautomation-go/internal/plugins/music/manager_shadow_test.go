@@ -23,7 +23,7 @@ func TestMusicShadowState_CaptureInputs(t *testing.T) {
 	mockConfig := &MusicConfig{
 		Music: make(map[string]MusicMode),
 	}
-	manager := NewManager(nil, stateManager, mockConfig, zap.NewNop(), true, nil)
+	manager := NewManager(nil, stateManager, mockConfig, zap.NewNop(), true, nil, nil)
 
 	// Capture inputs (should not fail even if state variables don't exist)
 	inputs := manager.captureCurrentInputs()
@@ -54,7 +54,7 @@ func TestMusicShadowState_RecordAction(t *testing.T) {
 	}
 	fixedTime := time.Date(2025, 11, 28, 12, 0, 0, 0, time.UTC)
 	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
-	manager := NewManager(nil, stateManager, mockConfig, zap.NewNop(), true, timeProvider)
+	manager := NewManager(nil, stateManager, mockConfig, zap.NewNop(), true, timeProvider, nil)
 
 	// Record an action
 	manager.updateShadowState("start_playback", "Test playback started", "test_trigger")
@@ -94,7 +94,7 @@ func TestMusicShadowState_UpdateOutputs(t *testing.T) {
 	mockConfig := &MusicConfig{
 		Music: make(map[string]MusicMode),
 	}
-	manager := NewManager(nil, stateManager, mockConfig, zap.NewNop(), true, nil)
+	manager := NewManager(nil, stateManager, mockConfig, zap.NewNop(), true, nil, nil)
 
 	// Create test data
 	playlistInfo := &shadowstate.PlaylistInfo{
@@ -167,7 +167,7 @@ func TestMusicShadowState_GetShadowState(t *testing.T) {
 	mockConfig := &MusicConfig{
 		Music: make(map[string]MusicMode),
 	}
-	manager := NewManager(nil, stateManager, mockConfig, zap.NewNop(), true, nil)
+	manager := NewManager(nil, stateManager, mockConfig, zap.NewNop(), true, nil, nil)
 
 	// Record some state
 	manager.updateShadowState("test_action", "Test reason", "test_trigger")
@@ -216,7 +216,7 @@ func TestMusicShadowState_ConcurrentAccess(t *testing.T) {
 	mockConfig := &MusicConfig{
 		Music: make(map[string]MusicMode),
 	}
-	manager := NewManager(nil, stateManager, mockConfig, zap.NewNop(), true, nil)
+	manager := NewManager(nil, stateManager, mockConfig, zap.NewNop(), true, nil, nil)
 
 	// Run concurrent operations
 	done := make(chan bool)
@@ -257,7 +257,7 @@ func TestMusicShadowState_PlaylistRotation(t *testing.T) {
 	mockConfig := &MusicConfig{
 		Music: make(map[string]MusicMode),
 	}
-	manager := NewManager(nil, stateManager, mockConfig, zap.NewNop(), true, nil)
+	manager := NewManager(nil, stateManager, mockConfig, zap.NewNop(), true, nil, nil)
 
 	// Set some playlist rotation state
 	manager.playlistNumbers["morning"] = 2
