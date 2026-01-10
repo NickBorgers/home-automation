@@ -548,7 +548,8 @@ func (m *Manager) handleMuteConditionChange(key string, oldValue, newValue inter
 
 // unmuteSpeaker unmutes a Sonos speaker using the volume_mute service.
 // This is used during active playback when a room becomes occupied.
-// Volume was already set during initial playback, so we just need to unmute.
+// Volume was already set to the target during initial playback (even for muted speakers),
+// so unmuting will immediately play at the correct volume level.
 func (m *Manager) unmuteSpeaker(participant ParticipantWithVolume) {
 	if m.readOnly {
 		m.logger.Debug("Read-only mode: would unmute speaker",
@@ -966,11 +967,15 @@ func (m *Manager) executePlayback(musicType string, option PlaybackOption, parti
 			zap.Error(err))
 	}
 
-	// Step 7: Evaluate mute conditions and unmute eligible ACTIVE speakers
+	// Step 7: Evaluate mute conditions and set volumes for all ACTIVE speakers
+	// Speakers that should unmute get a fade-in
+	// Speakers left muted still get their target volume set (mute and volume are independent)
 	for _, sr := range groupResult.Results {
 		if !sr.Active {
 			continue // Skip failed speakers
 		}
+		entityID := m.getSpeakerEntityID(sr.Participant.PlayerName)
+
 		if m.shouldUnmuteSpeaker(sr.Participant) {
 			m.logger.Info("Unmuting speaker",
 				zap.String("speaker", sr.Participant.PlayerName),
@@ -979,8 +984,32 @@ func (m *Manager) executePlayback(musicType string, option PlaybackOption, parti
 			// Start fade-in in goroutine
 			go m.fadeInSpeaker(sr.Participant.PlayerName, sr.Participant.Volume, musicType)
 		} else {
-			m.logger.Info("Keeping speaker muted due to conditions",
-				zap.String("speaker", sr.Participant.PlayerName))
+			// Speaker should stay muted, but still set its target volume
+			// Volume and mute state are independent - when the room becomes occupied
+			// later, unmuting will immediately play at the correct volume
+			m.logger.Info("Keeping speaker muted, setting target volume",
+				zap.String("speaker", sr.Participant.PlayerName),
+				zap.Int("target_volume", sr.Participant.Volume))
+
+			// Set the target volume (speaker will still be muted)
+			if err := m.callServiceWithRetry("media_player", "volume_set", map[string]interface{}{
+				"entity_id":    entityID,
+				"volume_level": float64(sr.Participant.Volume) / 100.0,
+			}); err != nil {
+				m.logger.Error("Failed to set volume for muted speaker",
+					zap.String("speaker", sr.Participant.PlayerName),
+					zap.Error(err))
+			}
+
+			// Explicitly mute the speaker (in case it wasn't already muted)
+			if err := m.callServiceWithRetry("media_player", "volume_mute", map[string]interface{}{
+				"entity_id":       entityID,
+				"is_volume_muted": true,
+			}); err != nil {
+				m.logger.Error("Failed to mute speaker",
+					zap.String("speaker", sr.Participant.PlayerName),
+					zap.Error(err))
+			}
 		}
 	}
 
