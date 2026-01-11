@@ -1,10 +1,4 @@
 *.backup
-.automated-rendering/screenshot-capture/node_modules/*
-.automated-rendering/screenshot-capture/screenshots/*
-!.automated-rendering/screenshot-capture/screenshots/index.html
-.automated-rendering/screenshot-capture/test-results/
-.automated-rendering/screenshot-capture/playwright-report/
-.automated-rendering/node-red/package.json
 .DS_Store
 password
 token
