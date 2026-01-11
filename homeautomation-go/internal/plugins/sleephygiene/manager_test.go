@@ -237,6 +237,15 @@ func TestWake_AllConditionsMet(t *testing.T) {
 	if !foundPrimarySuite {
 		t.Error("Expected light.turn_on call for primary suite")
 	}
+
+	// Verify wake music was activated
+	musicType, err := stateManager.GetString("musicPlaybackType")
+	if err != nil {
+		t.Errorf("Failed to get musicPlaybackType: %v", err)
+	}
+	if musicType != "wakeup" {
+		t.Errorf("Expected musicPlaybackType to be 'wakeup', got '%s'", musicType)
+	}
 }
 
 func TestStopScreens_AllConditionsMet(t *testing.T) {

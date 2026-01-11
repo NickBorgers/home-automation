@@ -852,3 +852,80 @@ func TestScenario_WakeSequence_LightingPluginYieldsToSleepHygiene(t *testing.T) 
 	t.Log("  - sleephygiene plugin has control for gradual fade-in")
 	t.Log("========================================")
 }
+
+// TestScenario_WakeSequence_ActivatesWakeMusic validates that when the wake
+// sequence completes successfully (lights turn on), wake music is activated.
+//
+// The wake sequence progression:
+// 1. Eight Sleep alarm triggers begin_wake (music fade-out starts)
+// 2. After 5-minute delay, wake sequence triggers (lights fade-in starts)
+// 3. When lights are activated, musicPlaybackType is set to "wakeup"
+// 4. Music plugin receives the state change and plays gentle wake music
+//
+// This test validates step 3: that musicPlaybackType becomes "wakeup" after
+// a successful wake sequence completion.
+func TestScenario_WakeSequence_ActivatesWakeMusic(t *testing.T) {
+	server, sleepMgr, cleanup := setupSleepHygieneScenarioTest(t)
+	defer cleanup()
+
+	// Skip internal sleeps so the test completes quickly
+	sleepMgr.SetSleepFunc(func(d time.Duration) {})
+
+	// GIVEN: Conditions for wake sequence are met (fade-out already in progress)
+	t.Log("GIVEN: Someone is home, master is asleep, fade-out in progress")
+	t.Log("       (Simulating state after begin_wake has run)")
+
+	server.SetState("input_boolean.anyone_home", "on", map[string]interface{}{})
+	server.SetState("input_boolean.master_asleep", "on", map[string]interface{}{})
+	server.SetState("input_boolean.fade_out_in_progress", "on", map[string]interface{}{})
+
+	// Start with sleep music playing (typical state before wake)
+	server.SetState("input_text.music_playback_type", "sleep", map[string]interface{}{})
+
+	time.Sleep(50 * time.Millisecond)
+	server.ClearServiceCalls()
+
+	// WHEN: Wake sequence triggers (light fade-in phase, after 5-min delay)
+	t.Log("WHEN: Wake sequence triggers via TriggerWakeForTest")
+	t.Log("      (This simulates the wake timer firing after begin_wake)")
+
+	sleepMgr.TriggerWakeForTest()
+
+	// Wait for service calls to be processed
+	time.Sleep(100 * time.Millisecond)
+
+	// THEN: Verify musicPlaybackType was set to "wakeup"
+	t.Log("THEN: Verify musicPlaybackType is set to 'wakeup'")
+
+	musicState := server.GetState("input_text.music_playback_type")
+	require.NotNil(t, musicState, "musicPlaybackType state should exist")
+
+	assert.Equal(t, "wakeup", musicState.State,
+		"musicPlaybackType should be 'wakeup' after successful wake sequence")
+
+	t.Log("SUCCESS: Wake music activated after wake sequence completion")
+
+	// Also verify service call was made to set the state
+	calls := server.GetServiceCalls()
+	foundMusicTypeCall := false
+	for _, call := range calls {
+		if call.Domain == "input_text" && call.Service == "set_value" {
+			entityID, _ := call.ServiceData["entity_id"].(string)
+			value, _ := call.ServiceData["value"].(string)
+			if entityID == "input_text.music_playback_type" && value == "wakeup" {
+				foundMusicTypeCall = true
+				t.Log("SUCCESS: Found input_text.set_value call for musicPlaybackType='wakeup'")
+			}
+		}
+	}
+
+	assert.True(t, foundMusicTypeCall,
+		"Should find service call to set musicPlaybackType to 'wakeup'")
+
+	t.Log("========================================")
+	t.Log("VALIDATION COMPLETE:")
+	t.Log("  - Wake sequence completed successfully")
+	t.Log("  - musicPlaybackType set to 'wakeup'")
+	t.Log("  - Music plugin will receive state change and play wake music")
+	t.Log("========================================")
+}

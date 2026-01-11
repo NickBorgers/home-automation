@@ -749,6 +749,13 @@ func (m *Manager) handleWake() {
 		// Turn on master bedroom lights slowly (30 minute transition)
 		m.turnOnMasterBedroomLights()
 
+		// Start wake music - triggers music plugin to play gentle wakeup playlist
+		if err := m.stateManager.SetString("musicPlaybackType", "wakeup"); err != nil {
+			m.logger.Error("Failed to set wakeup music", zap.Error(err))
+		} else {
+			m.logger.Info("Wake music activated")
+		}
+
 		// Wake sequence complete
 		m.shadowTracker.UpdateWakeSequenceStatus("complete")
 	} else {
@@ -1076,33 +1083,8 @@ func (m *Manager) GetShadowState() *shadowstate.SleepHygieneShadowState {
 // This allows tests to exercise the light fade-in logic without waiting for the 5-minute delay.
 // Prerequisites: isFadeOutInProgress must be true (set by begin_wake), isMasterAsleep must be true.
 func (m *Manager) TriggerWakeForTest() {
-	m.logger.Info("Test: Triggering wake sequence directly")
-
-	// Check conditions first (same as handleWake)
-	isAnyoneHome, err := m.stateManager.GetBool("isAnyoneHome")
-	if err != nil || !isAnyoneHome {
-		m.logger.Debug("Test: Skipping wake - no one home")
-		return
-	}
-
-	isMasterAsleep, err := m.stateManager.GetBool("isMasterAsleep")
-	if err != nil || !isMasterAsleep {
-		m.logger.Debug("Test: Skipping wake - master not asleep")
-		return
-	}
-
-	isFadeOutInProgress, err := m.stateManager.GetBool("isFadeOutInProgress")
-	if err != nil || !isFadeOutInProgress {
-		m.logger.Debug("Test: Skipping wake - fade out not in progress")
-		return
-	}
-
-	// All conditions met - execute wake sequence (turn on lights)
-	m.logger.Info("Test: Conditions met for wake, executing wake sequence")
-
-	if !m.readOnly {
-		m.turnOnMasterBedroomLights()
-	}
+	m.logger.Info("Test: Triggering wake sequence directly via handleWake()")
+	m.handleWake()
 }
 
 // TriggerBeginWakeForTest is a test helper that directly triggers the begin_wake sequence.
