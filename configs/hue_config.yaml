@@ -63,7 +63,7 @@ rooms:
       - action: on
         variable: isFrontOfHousePersonPresent
         value: true
-      # Priority 1: Owner just returned -> ON (avoids race condition)
+      # Priority 1: Owner just returned -> ON (avoids race)
       - action: on
         variable: didOwnerJustReturnHome
         value: true
@@ -95,7 +95,7 @@ rooms:
       - action: on
         variable: isFrontOfHousePersonPresent
         value: true
-      # Priority 1: Owner just returned -> ON (avoids race condition)
+      # Priority 1: Owner just returned -> ON (avoids race)
       - action: on
         variable: didOwnerJustReturnHome
         value: true
