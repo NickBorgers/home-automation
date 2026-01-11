@@ -63,18 +63,19 @@ rooms:
       - action: on
         variable: isFrontOfHousePersonPresent
         value: true
-      # Priority 1: Everyone asleep or gone -> OFF
-      - action: off
-        variable: isAnyoneHomeAndAwake
-        value: false
-      # Priority 2-4: Any presence indicator -> ON
-      - action: on
-        variable: isHaveGuests
-        value: true
+      # Priority 1: Owner just returned -> ON (avoids race)
       - action: on
         variable: didOwnerJustReturnHome
         value: true
-      # Priority 5-7: No presence indicators -> OFF
+      # Priority 2: Guests present -> ON
+      - action: on
+        variable: isHaveGuests
+        value: true
+      # Priority 3: Everyone asleep or gone -> OFF
+      - action: off
+        variable: isAnyoneHomeAndAwake
+        value: false
+      # Priority 4-6: No presence indicators -> OFF
       - action: off
         variable: isHaveGuests
         value: false
@@ -94,18 +95,19 @@ rooms:
       - action: on
         variable: isFrontOfHousePersonPresent
         value: true
-      # Priority 1: Everyone asleep or gone -> OFF
-      - action: off
-        variable: isAnyoneHomeAndAwake
-        value: false
-      # Priority 2-4: Any presence indicator -> ON
-      - action: on
-        variable: isHaveGuests
-        value: true
+      # Priority 1: Owner just returned -> ON (avoids race)
       - action: on
         variable: didOwnerJustReturnHome
         value: true
-      # Priority 5-7: No presence indicators -> OFF
+      # Priority 2: Guests present -> ON
+      - action: on
+        variable: isHaveGuests
+        value: true
+      # Priority 3: Everyone asleep or gone -> OFF
+      - action: off
+        variable: isAnyoneHomeAndAwake
+        value: false
+      # Priority 4-6: No presence indicators -> OFF
       - action: off
         variable: isHaveGuests
         value: false
