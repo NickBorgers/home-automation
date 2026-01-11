@@ -4,6 +4,15 @@ name: Claude Diagnose Workflow Failure
 # Analyzes if it's a GitHub Actions configuration problem vs a test/code failure
 # Creates an issue only for Actions configuration problems (not test failures)
 
+# SECURITY NOTE: This workflow has lower prompt injection risk because:
+# - It only triggers on workflow_run events (not user-controlled events)
+# - It analyzes workflow logs and YAML files, not user-provided content
+# - The Claude prompt is constructed from workflow metadata, not PR/issue content
+# - It only has read permissions for contents/actions, write only for issues
+#
+# However, malicious workflow log output could theoretically influence Claude's analysis.
+# This is an acceptable risk since the worst case is creating an unnecessary issue.
+
 on:
   workflow_run:
     workflows:

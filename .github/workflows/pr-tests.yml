@@ -1,5 +1,17 @@
 name: PR Tests
 
+# SECURITY NOTE: This workflow runs on all PRs including from forks.
+# This is intentional - we want to test external contributions.
+#
+# Security model:
+# - This workflow has READ-ONLY permissions (contents: read, pull-requests: read)
+# - No secrets are exposed to PR builds
+# - This workflow does NOT trigger Claude or any AI-powered reviews for external PRs
+# - The Claude Code Review workflow has separate authorization checks that block external PRs
+#
+# External PRs will have their tests run but will NOT trigger automated Claude reviews.
+# A repository maintainer must manually review external contributions.
+
 on:
   pull_request:
     branches:
