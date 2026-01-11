@@ -1525,10 +1525,13 @@ jobs:
           echo "To re-run reviews: close and reopen the PR."
 
       - name: Post review summary comment
+        # Only post summary when reviews actually ran (tests_passed == true)
+        # When tests failed, fix-test-failures triggers a new workflow run that will post the summary
         if: |
           always() &&
           needs.get-context.outputs.pr_number != '' &&
-          needs.get-context.outputs.reviews_already_passed != 'true'
+          needs.get-context.outputs.reviews_already_passed != 'true' &&
+          needs.get-context.outputs.tests_passed == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ needs.get-context.outputs.pr_number }}
