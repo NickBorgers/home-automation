@@ -624,7 +624,7 @@ func TestScenario_SleepStateIntegration_ChecksConditions(t *testing.T) {
 //
 // The test validates that:
 // 1. The initial light call sets brightness_pct to 1 with transition=0
-// 2. The follow-up call sets brightness_pct to 100 with transition=1800 (30 min)
+// 2. The follow-up call sets brightness_pct to 100 with transition=1500 (25 min)
 // 3. The two-step process ensures lights start dim and gradually brighten
 func TestScenario_WakeUpLightFadeIn_StartsAtLowBrightness(t *testing.T) {
 	server, sleepMgr, cleanup := setupSleepHygieneScenarioTest(t)
@@ -712,8 +712,8 @@ func TestScenario_WakeUpLightFadeIn_StartsAtLowBrightness(t *testing.T) {
 			if bPct == 1 && trans == 0 {
 				initialBrightnessCall = call
 			}
-			// Second call should be: brightness_pct=100, transition=1800 (30 min fade)
-			if bPct == 100 && trans == 1800 {
+			// Second call should be: brightness_pct=100, transition=1500 (25 min fade)
+			if bPct == 100 && trans == 1500 {
 				fadeInCall = call
 			}
 		}
@@ -733,22 +733,22 @@ func TestScenario_WakeUpLightFadeIn_StartsAtLowBrightness(t *testing.T) {
 	assert.Equal(t, float64(0), initialBrightnessCall.ServiceData["transition"],
 		"Initial transition should be 0 (instant)")
 
-	// CRITICAL ASSERTION 2: Fade-in call should exist with 30-minute transition
+	// CRITICAL ASSERTION 2: Fade-in call should exist with 25-minute transition
 	require.NotNil(t, fadeInCall,
-		"Should find fade-in call with brightness_pct=100, transition=1800")
+		"Should find fade-in call with brightness_pct=100, transition=1500")
 
-	t.Log("SUCCESS: Fade-in call sets brightness to 100% with 30-minute transition")
+	t.Log("SUCCESS: Fade-in call sets brightness to 100% with 25-minute transition")
 
 	assert.Equal(t, float64(100), fadeInCall.ServiceData["brightness_pct"],
 		"Fade-in target brightness should be 100%")
-	assert.Equal(t, float64(1800), fadeInCall.ServiceData["transition"],
-		"Fade-in transition should be 1800 seconds (30 minutes)")
+	assert.Equal(t, float64(1500), fadeInCall.ServiceData["transition"],
+		"Fade-in transition should be 1500 seconds (25 minutes)")
 
 	t.Log("========================================")
 	t.Log("VALIDATION COMPLETE:")
 	t.Log("  - Lights start at 1% brightness (not high)")
 	t.Log("  - Initial transition is instant (0s)")
-	t.Log("  - Gradual 30-minute fade-in to 100% follows")
+	t.Log("  - Gradual 25-minute fade-in to 100% follows")
 	t.Log("  - User concern addressed: no jarring brightness")
 	t.Log("========================================")
 }
@@ -850,5 +850,89 @@ func TestScenario_WakeSequence_LightingPluginYieldsToSleepHygiene(t *testing.T) 
 	t.Log("  - Lighting plugin respects isFadeOutInProgress condition")
 	t.Log("  - Bedroom lights NOT turned off during wake sequence")
 	t.Log("  - sleephygiene plugin has control for gradual fade-in")
+	t.Log("========================================")
+}
+
+// TestScenario_WakeSequence_ActivatesWakeMusic validates that when the wake
+// sequence completes successfully (lights fully up), wake music is activated.
+//
+// The wake sequence progression:
+// 1. Eight Sleep alarm triggers begin_wake (music fade-out starts)
+// 2. After 5-minute delay, wake sequence triggers (lights fade-in starts)
+// 3. After 25-minute light fade-in, musicPlaybackType is set to "wakeup"
+// 4. Music plugin receives the state change and plays gentle wake music
+//
+// Total wake sequence: 30 minutes from alarm time (5 min delay + 25 min fade-in)
+//
+// This test validates step 3: that musicPlaybackType becomes "wakeup" after
+// the light fade-in completes.
+func TestScenario_WakeSequence_ActivatesWakeMusic(t *testing.T) {
+	server, sleepMgr, cleanup := setupSleepHygieneScenarioTest(t)
+	defer cleanup()
+
+	// Skip internal sleeps so the test completes quickly
+	// This makes the 25-minute wake music delay instant
+	sleepMgr.SetSleepFunc(func(d time.Duration) {})
+
+	// GIVEN: Conditions for wake sequence are met (fade-out already in progress)
+	t.Log("GIVEN: Someone is home, master is asleep, fade-out in progress")
+	t.Log("       (Simulating state after begin_wake has run)")
+
+	server.SetState("input_boolean.anyone_home", "on", map[string]interface{}{})
+	server.SetState("input_boolean.master_asleep", "on", map[string]interface{}{})
+	server.SetState("input_boolean.fade_out_in_progress", "on", map[string]interface{}{})
+	// Set wake_sequence_active so it exists when handleWake sets it
+	server.SetState("input_boolean.wake_sequence_active", "off", map[string]interface{}{})
+
+	// Start with sleep music playing (typical state before wake)
+	server.SetState("input_text.music_playback_type", "sleep", map[string]interface{}{})
+
+	time.Sleep(50 * time.Millisecond)
+	server.ClearServiceCalls()
+
+	// WHEN: Wake sequence triggers (light fade-in phase, after 5-min delay)
+	t.Log("WHEN: Wake sequence triggers via TriggerWakeForTest")
+	t.Log("      (This simulates the wake timer firing after begin_wake)")
+	t.Log("      (sleepFunc is mocked so 25-min wake music delay is instant)")
+
+	sleepMgr.TriggerWakeForTest()
+
+	// Wait for service calls and goroutine to complete
+	time.Sleep(200 * time.Millisecond)
+
+	// THEN: Verify musicPlaybackType was set to "wakeup"
+	t.Log("THEN: Verify musicPlaybackType is set to 'wakeup'")
+
+	musicState := server.GetState("input_text.music_playback_type")
+	require.NotNil(t, musicState, "musicPlaybackType state should exist")
+
+	assert.Equal(t, "wakeup", musicState.State,
+		"musicPlaybackType should be 'wakeup' after lights fully up")
+
+	t.Log("SUCCESS: Wake music activated after light fade-in complete")
+
+	// Also verify service call was made to set the state
+	calls := server.GetServiceCalls()
+	foundMusicTypeCall := false
+	for _, call := range calls {
+		if call.Domain == "input_text" && call.Service == "set_value" {
+			entityID, _ := call.ServiceData["entity_id"].(string)
+			value, _ := call.ServiceData["value"].(string)
+			if entityID == "input_text.music_playback_type" && value == "wakeup" {
+				foundMusicTypeCall = true
+				t.Log("SUCCESS: Found input_text.set_value call for musicPlaybackType='wakeup'")
+			}
+		}
+	}
+
+	assert.True(t, foundMusicTypeCall,
+		"Should find service call to set musicPlaybackType to 'wakeup'")
+
+	t.Log("========================================")
+	t.Log("VALIDATION COMPLETE:")
+	t.Log("  - Wake sequence triggered successfully")
+	t.Log("  - Lights began fading in (25-minute transition)")
+	t.Log("  - After light fade-in, musicPlaybackType set to 'wakeup'")
+	t.Log("  - Music plugin will receive state change and play wake music")
 	t.Log("========================================")
 }

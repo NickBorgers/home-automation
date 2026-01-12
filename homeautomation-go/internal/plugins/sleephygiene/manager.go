@@ -27,11 +27,22 @@ const (
 )
 
 // Wake sequence timing constants
+// Total wake sequence: 30 minutes from alarm time
+// - T+0:  Alarm triggers begin_wake (music fade-out starts)
+// - T+5:  Lights start fading in (1% -> 100% over 25 minutes)
+// - T+30: Lights fully up, wake music starts
 const (
 	// wakeDelayAfterFadeOut is the delay between starting the music fade-out
 	// and turning on the bedroom lights. This matches the Node-RED behavior
 	// which waits 5 minutes after begin_wake before starting the light fade-in.
 	wakeDelayAfterFadeOut = 5 * time.Minute
+
+	// lightFadeInDuration is how long the bedroom lights take to fade from 1% to 100%
+	lightFadeInDuration = 25 * time.Minute
+
+	// wakeMusicDelay is the delay after lights start fading before wake music plays.
+	// This equals lightFadeInDuration so music starts when lights are fully up.
+	wakeMusicDelay = lightFadeInDuration
 )
 
 // SleepFunc is the type for sleep functions (for testing)
@@ -709,6 +720,36 @@ func (m *Manager) scheduleWakeSequence() {
 	}
 }
 
+// scheduleWakeMusic waits for the light fade-in to complete and then starts wake music
+// This ensures wake music only plays when the lights are fully up
+func (m *Manager) scheduleWakeMusic() {
+	m.logger.Info("Scheduling wake music",
+		zap.Duration("delay", wakeMusicDelay))
+
+	// Use sleepFunc for testing (can be overridden to skip delays)
+	m.sleepFunc(wakeMusicDelay)
+
+	// Check if wake sequence is still active (user might have cancelled by turning off lights)
+	isWakeActive, err := m.stateManager.GetBool("isWakeSequenceActive")
+	if err != nil || !isWakeActive {
+		m.logger.Info("Wake music cancelled - wake sequence no longer active")
+		return
+	}
+
+	m.logger.Info("Light fade-in complete, starting wake music")
+
+	// Start wake music - triggers music plugin to play gentle wakeup playlist
+	if err := m.stateManager.SetString("musicPlaybackType", "wakeup"); err != nil {
+		m.logger.Error("Failed to set wakeup music", zap.Error(err))
+	} else {
+		m.logger.Info("Wake music activated")
+	}
+
+	// Record action and update status
+	m.recordAction("wake_music", "Starting wake music after lights fully up", "wake_music_timer")
+	m.shadowTracker.UpdateWakeSequenceStatus("complete")
+}
+
 // handleWake handles the wake trigger (turn on lights)
 func (m *Manager) handleWake() {
 	m.logger.Info("Handling wake trigger")
@@ -741,16 +782,19 @@ func (m *Manager) handleWake() {
 
 	if !m.readOnly {
 		// Set wake sequence active flag - protects lights from being turned off
-		// by the lighting plugin during the 30-minute fade-in
+		// by the lighting plugin during the light fade-in
 		if err := m.stateManager.SetBool("isWakeSequenceActive", true); err != nil {
 			m.logger.Error("Failed to set isWakeSequenceActive", zap.Error(err))
 		}
 
-		// Turn on master bedroom lights slowly (30 minute transition)
+		// Turn on master bedroom lights slowly (25 minute transition)
 		m.turnOnMasterBedroomLights()
 
-		// Wake sequence complete
-		m.shadowTracker.UpdateWakeSequenceStatus("complete")
+		// Schedule wake music to start when lights are fully up
+		go m.scheduleWakeMusic()
+
+		// Lights are fading in - full sequence completes when wake music starts
+		m.shadowTracker.UpdateWakeSequenceStatus("lights_fading_in")
 	} else {
 		m.logger.Info("READ-ONLY: Would execute wake sequence (lights)")
 	}
@@ -842,9 +886,11 @@ func (m *Manager) handleGoToBed() {
 	}
 }
 
-// turnOnMasterBedroomLights turns on master bedroom lights with a slow 30-minute transition
+// turnOnMasterBedroomLights turns on master bedroom lights with a slow fade-in transition
 func (m *Manager) turnOnMasterBedroomLights() {
-	m.logger.Info("Turning on master bedroom lights slowly")
+	transitionSeconds := int(lightFadeInDuration.Seconds())
+	m.logger.Info("Turning on master bedroom lights slowly",
+		zap.Int("transition_seconds", transitionSeconds))
 
 	// First, ensure lights start dim and white
 	if err := m.haClient.CallService("light", "turn_on", map[string]interface{}{
@@ -859,10 +905,10 @@ func (m *Manager) turnOnMasterBedroomLights() {
 
 	m.logger.Info("Set initial bedroom light state (1% brightness, warm white)")
 
-	// Then start slow transition to full brightness over 30 minutes
+	// Then start slow transition to full brightness
 	if err := m.haClient.CallService("light", "turn_on", map[string]interface{}{
 		"entity_id":      "light.primary_suite",
-		"transition":     1800, // 30 minutes in seconds
+		"transition":     transitionSeconds,
 		"color_temp":     290,
 		"brightness_pct": 100,
 	}); err != nil {
@@ -870,7 +916,8 @@ func (m *Manager) turnOnMasterBedroomLights() {
 		return
 	}
 
-	m.logger.Info("Started 30-minute bedroom light fade-in to 100% brightness")
+	m.logger.Info("Started bedroom light fade-in to 100% brightness",
+		zap.Duration("duration", lightFadeInDuration))
 }
 
 // flashCommonAreaLights flashes lights in common areas as a notification
@@ -1076,33 +1123,8 @@ func (m *Manager) GetShadowState() *shadowstate.SleepHygieneShadowState {
 // This allows tests to exercise the light fade-in logic without waiting for the 5-minute delay.
 // Prerequisites: isFadeOutInProgress must be true (set by begin_wake), isMasterAsleep must be true.
 func (m *Manager) TriggerWakeForTest() {
-	m.logger.Info("Test: Triggering wake sequence directly")
-
-	// Check conditions first (same as handleWake)
-	isAnyoneHome, err := m.stateManager.GetBool("isAnyoneHome")
-	if err != nil || !isAnyoneHome {
-		m.logger.Debug("Test: Skipping wake - no one home")
-		return
-	}
-
-	isMasterAsleep, err := m.stateManager.GetBool("isMasterAsleep")
-	if err != nil || !isMasterAsleep {
-		m.logger.Debug("Test: Skipping wake - master not asleep")
-		return
-	}
-
-	isFadeOutInProgress, err := m.stateManager.GetBool("isFadeOutInProgress")
-	if err != nil || !isFadeOutInProgress {
-		m.logger.Debug("Test: Skipping wake - fade out not in progress")
-		return
-	}
-
-	// All conditions met - execute wake sequence (turn on lights)
-	m.logger.Info("Test: Conditions met for wake, executing wake sequence")
-
-	if !m.readOnly {
-		m.turnOnMasterBedroomLights()
-	}
+	m.logger.Info("Test: Triggering wake sequence directly via handleWake()")
+	m.handleWake()
 }
 
 // TriggerBeginWakeForTest is a test helper that directly triggers the begin_wake sequence.
