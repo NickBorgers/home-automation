@@ -111,8 +111,10 @@ jobs:
         run: |
           # Use the SHA-based tag for exact image verification
           # The metadata-action uses prefix={{branch}}- so tag is main-<sha7> or master-<sha7>
+          # Note: Docker requires lowercase image names; github.repository preserves case
           BRANCH="${GITHUB_REF_NAME}"
-          IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${BRANCH}-${GITHUB_SHA::7}"
+          IMAGE_NAME_LOWER=$(echo "${{ env.IMAGE_NAME }}" | tr '[:upper:]' '[:lower:]')
+          IMAGE="${{ env.REGISTRY }}/${IMAGE_NAME_LOWER}:${BRANCH}-${GITHUB_SHA::7}"
           echo "🔍 Testing image: $IMAGE"
 
           # Pull the image we just pushed
