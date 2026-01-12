@@ -52,7 +52,75 @@ music:
       - uri: spotify:playlist:37i9dQZF1E4vSnB7GD9Gct
         media_type: playlist
         volume_multiplier: 1.0
-  day:
+  midday:
+    participants:
+      - player_name: "Kitchen"
+        base_volume: 9
+        leave_muted_if:
+          - variable: isTVPlaying
+            value: true
+      - player_name: "Soundbar"
+        base_volume: 10
+        leave_muted_if:
+          - variable: isGuestAsleep
+            value: true
+      - player_name: "Kids Bathroom"
+        base_volume: 7
+        leave_muted_if:
+          - variable: isTVPlaying
+            value: true
+      - player_name: "Bedroom"
+        base_volume: 9
+        leave_muted_if:
+          - variable: isMasterAsleep
+            value: true
+      - player_name: "Sitting Room"
+        base_volume: 9
+        leave_muted_if:
+          - variable: isTVPlaying
+            value: true
+      - player_name: "Front Room"
+        base_volume: 9
+        leave_muted_if: []
+      - player_name: "Office"
+        base_volume: 6
+        leave_muted_if:
+          - variable: isNickOfficeOccupied
+            value: false
+    playback_options:
+      # Kygo Radio
+      - uri: spotify:playlist:37i9dQZF1E4zvzTbEfkwF2
+        media_type: playlist
+        volume_multiplier: 1.0
+      # Chill Tracks
+      - uri: spotify:playlist:37i9dQZF1DX6VdMW310YC7
+        media_type: playlist
+        volume_multiplier: 1.0
+      # Lounge - Soft House
+      - uri: spotify:playlist:37i9dQZF1DX82pCGH5USnM
+        media_type: playlist
+        volume_multiplier: 1.0
+      # Caroline's country playlist
+      - uri: spotify:playlist:5Wyuc2BN76JyKioxcaY7ud
+        media_type: playlist
+        volume_multiplier: 1.0
+      # Summer Party
+      - uri: spotify:playlist:37i9dQZF1DX5Ozry5U6G0d
+        media_type: playlist
+        volume_multiplier: 1.0
+      # Lowkey tech
+      - uri: spotify:playlist:37i9dQZF1E4zvzTbEfkwF2
+        media_type: playlist
+        volume_multiplier: 1.0
+      # Kygo Radio
+      - uri: spotify:playlist:37i9dQZF1E4zvzTbEfkwF2
+        media_type: playlist
+        volume_multiplier: 1.0
+      # Blockheady Instrumental
+      - uri: spotify:playlist:7hw5bkUl4xLPDCymveIfnK
+        media_type: playlist
+        volume_multiplier: 1.0
+  afternoon:
     participants:
       - player_name: "Kitchen"
         base_volume: 9

@@ -32,8 +32,8 @@ func TestMusicManager_SelectAppropriateMusicMode(t *testing.T) {
 			name:              "No one home - stop music",
 			isAnyoneHome:      false,
 			isAnyoneAsleep:    false,
-			dayPhase:          "day",
-			currentMusicType:  "day",
+			dayPhase:          "midday",
+			currentMusicType:  "midday",
 			expectedMusicType: "",
 			description:       "When no one is home, music should stop",
 		},
@@ -41,28 +41,37 @@ func TestMusicManager_SelectAppropriateMusicMode(t *testing.T) {
 			name:              "Someone asleep - sleep mode",
 			isAnyoneHome:      true,
 			isAnyoneAsleep:    true,
-			dayPhase:          "day",
-			currentMusicType:  "day",
+			dayPhase:          "midday",
+			currentMusicType:  "midday",
 			expectedMusicType: "sleep",
 			description:       "Sleep mode has highest priority",
 		},
 		{
-			name:              "Morning - day mode (no wake-up event)",
+			name:              "Morning - midday mode (no wake-up event)",
 			isAnyoneHome:      true,
 			isAnyoneAsleep:    false,
 			dayPhase:          "morning",
 			currentMusicType:  "",
-			expectedMusicType: "day",
-			description:       "Morning phase without wake-up event triggers day music",
+			expectedMusicType: "midday",
+			description:       "Morning phase without wake-up event triggers midday music",
 		},
 		{
-			name:              "Day - day mode",
+			name:              "Midday - midday mode",
 			isAnyoneHome:      true,
 			isAnyoneAsleep:    false,
-			dayPhase:          "day",
+			dayPhase:          "midday",
 			currentMusicType:  "",
-			expectedMusicType: "day",
-			description:       "Day phase triggers day music",
+			expectedMusicType: "midday",
+			description:       "Midday phase triggers midday music",
+		},
+		{
+			name:              "Afternoon - afternoon mode",
+			isAnyoneHome:      true,
+			isAnyoneAsleep:    false,
+			dayPhase:          "afternoon",
+			currentMusicType:  "",
+			expectedMusicType: "afternoon",
+			description:       "Afternoon phase triggers afternoon music",
 		},
 		{
 			name:              "Sunset - evening mode",
@@ -110,13 +119,13 @@ func TestMusicManager_SelectAppropriateMusicMode(t *testing.T) {
 			description:       "Don't override sleep music with winddown",
 		},
 		{
-			name:              "Unknown phase - default to day",
+			name:              "Unknown phase - default to midday",
 			isAnyoneHome:      true,
 			isAnyoneAsleep:    false,
 			dayPhase:          "unknown",
 			currentMusicType:  "",
-			expectedMusicType: "day",
-			description:       "Unknown phases default to day mode",
+			expectedMusicType: "midday",
+			description:       "Unknown phases default to midday mode",
 		},
 	}
 
@@ -132,13 +141,14 @@ func TestMusicManager_SelectAppropriateMusicMode(t *testing.T) {
 			// Create music config (minimal for testing)
 			config := &MusicConfig{
 				Music: map[string]MusicMode{
-					"morning":  {},
-					"day":      {},
-					"evening":  {},
-					"winddown": {},
-					"sleep":    {},
-					"sex":      {},
-					"wakeup":   {},
+					"morning":   {},
+					"midday":    {},
+					"afternoon": {},
+					"evening":   {},
+					"winddown":  {},
+					"sleep":     {},
+					"sex":       {},
+					"wakeup":    {},
 				},
 			}
 
@@ -199,14 +209,15 @@ func TestMusicManager_DetermineMusicModeFromDayPhase(t *testing.T) {
 		currentMusicType  string
 		expectedMusicMode string
 	}{
-		{"morning", "", "day"}, // Morning without wake-up event = day music
-		{"day", "", "day"},
+		{"morning", "", "midday"},      // Morning without wake-up event = midday music
+		{"midday", "", "midday"},       // Midday phase = midday music
+		{"afternoon", "", "afternoon"}, // Afternoon phase = afternoon music
 		{"sunset", "", "evening"},
 		{"dusk", "", "evening"},
 		{"winddown", "", "winddown"},
 		{"night", "", "winddown"},
 		{"winddown", "sleep", "sleep"}, // Don't override sleep
-		{"unknown", "", "day"},         // Default to day
+		{"unknown", "", "midday"},      // Default to midday
 	}
 
 	for _, tt := range tests {
@@ -229,13 +240,14 @@ func TestMusicManager_StateChangeHandling(t *testing.T) {
 
 	config := &MusicConfig{
 		Music: map[string]MusicMode{
-			"morning":  {},
-			"day":      {},
-			"evening":  {},
-			"winddown": {},
-			"sleep":    {},
-			"sex":      {},
-			"wakeup":   {},
+			"morning":   {},
+			"midday":    {},
+			"afternoon": {},
+			"evening":   {},
+			"winddown":  {},
+			"sleep":     {},
+			"sex":       {},
+			"wakeup":    {},
 		},
 	}
 
@@ -252,7 +264,7 @@ func TestMusicManager_StateChangeHandling(t *testing.T) {
 	if err := stateMgr.SetBool("isAnyoneAsleep", false); err != nil {
 		t.Fatalf("Failed to set isAnyoneAsleep: %v", err)
 	}
-	if err := stateMgr.SetString("dayPhase", "day"); err != nil {
+	if err := stateMgr.SetString("dayPhase", "midday"); err != nil {
 		t.Fatalf("Failed to set dayPhase: %v", err)
 	}
 	if err := stateMgr.SetString("musicPlaybackType", ""); err != nil {
@@ -264,13 +276,13 @@ func TestMusicManager_StateChangeHandling(t *testing.T) {
 		t.Fatalf("Failed to start manager: %v", err)
 	}
 
-	// Initial selection should set day mode
+	// Initial selection should set midday mode
 	musicType, err := stateMgr.GetString("musicPlaybackType")
 	if err != nil {
 		t.Fatalf("Failed to get musicPlaybackType: %v", err)
 	}
-	if musicType != "day" {
-		t.Errorf("Expected initial music type 'day', got %q", musicType)
+	if musicType != "midday" {
+		t.Errorf("Expected initial music type 'midday', got %q", musicType)
 	}
 
 	// Change to evening phase - should trigger music mode change
@@ -318,13 +330,14 @@ func TestMusicManager_Stop(t *testing.T) {
 	// Create music config
 	config := &MusicConfig{
 		Music: map[string]MusicMode{
-			"morning":  {},
-			"day":      {},
-			"evening":  {},
-			"winddown": {},
-			"sleep":    {},
-			"sex":      {},
-			"wakeup":   {},
+			"morning":   {},
+			"midday":    {},
+			"afternoon": {},
+			"evening":   {},
+			"winddown":  {},
+			"sleep":     {},
+			"sex":       {},
+			"wakeup":    {},
 		},
 	}
 
@@ -338,7 +351,7 @@ func TestMusicManager_Stop(t *testing.T) {
 	if err := stateMgr.SetBool("isAnyoneAsleep", false); err != nil {
 		t.Fatalf("Failed to set isAnyoneAsleep: %v", err)
 	}
-	if err := stateMgr.SetString("dayPhase", "day"); err != nil {
+	if err := stateMgr.SetString("dayPhase", "midday"); err != nil {
 		t.Fatalf("Failed to set dayPhase: %v", err)
 	}
 
@@ -405,7 +418,7 @@ func TestLoadMusicConfig(t *testing.T) {
 	}
 
 	// Verify all expected modes are present
-	expectedModes := []string{"morning", "day", "evening", "winddown", "sleep", "sex", "wakeup"}
+	expectedModes := []string{"morning", "midday", "afternoon", "evening", "winddown", "sleep", "sex", "wakeup"}
 	for _, mode := range expectedModes {
 		if _, ok := config.Music[mode]; !ok {
 			t.Errorf("Missing expected music mode: %s", mode)
@@ -462,13 +475,13 @@ func TestMusicManager_ReadOnlyMode(t *testing.T) {
 	// Initialize required state variables (can set because they're LocalOnly or initial sync)
 	_ = stateManager.SetBool("isAnyoneHome", true)
 	_ = stateManager.SetBool("isAnyoneAsleep", false)
-	_ = stateManager.SetString("dayPhase", "day")
+	_ = stateManager.SetString("dayPhase", "midday")
 	_ = stateManager.SetString("musicPlaybackType", "")
 
 	config := &MusicConfig{
 		Music: map[string]MusicMode{
-			"day":   {},
-			"sleep": {},
+			"midday": {},
+			"sleep":  {},
 		},
 	}
 
@@ -532,8 +545,8 @@ func TestPlaylistRotation(t *testing.T) {
 	config := &MusicConfig{Music: map[string]MusicMode{}}
 	manager := NewManager(mockClient, stateManager, config, logger, false, nil, nil)
 
-	// Test rotation for "day" music type with 3 playlists
-	musicType := "day"
+	// Test rotation for "midday" music type with 3 playlists
+	musicType := "midday"
 	optionsCount := 3
 
 	// First call should return 0
@@ -579,7 +592,7 @@ func TestRateLimiting(t *testing.T) {
 
 	config := &MusicConfig{
 		Music: map[string]MusicMode{
-			"day": {
+			"midday": {
 				Participants: []Participant{
 					{PlayerName: "Kitchen", BaseVolume: 9, LeaveMutedIf: []MuteCondition{}},
 				},
@@ -597,14 +610,14 @@ func TestRateLimiting(t *testing.T) {
 	manager := NewManager(mockClient, stateManager, config, logger, true, timeProvider, nil)
 
 	// First playback should succeed
-	manager.handleMusicPlaybackTypeChange("musicPlaybackType", "", "day")
+	manager.handleMusicPlaybackTypeChange("musicPlaybackType", "", "midday")
 	if manager.currentlyPlaying == nil {
 		t.Error("First playback should have succeeded")
 	}
 
 	// Immediate second playback should be rate limited
-	manager.handleMusicPlaybackTypeChange("musicPlaybackType", "day", "evening")
-	if manager.currentlyPlaying.Type != "day" {
+	manager.handleMusicPlaybackTypeChange("musicPlaybackType", "midday", "evening")
+	if manager.currentlyPlaying.Type != "midday" {
 		t.Error("Second immediate playback should have been rate limited")
 	}
 
@@ -614,8 +627,8 @@ func TestRateLimiting(t *testing.T) {
 
 	// Now it should succeed
 	_ = stateManager.SetString("musicPlaybackType", "evening")
-	config.Music["evening"] = config.Music["day"] // Add evening config
-	manager.handleMusicPlaybackTypeChange("musicPlaybackType", "day", "evening")
+	config.Music["evening"] = config.Music["midday"] // Add evening config
+	manager.handleMusicPlaybackTypeChange("musicPlaybackType", "midday", "evening")
 	if manager.currentlyPlaying.Type != "evening" {
 		t.Error("Playback after 11 seconds should have succeeded")
 	}
@@ -630,7 +643,7 @@ func TestDoubleActivationPrevention(t *testing.T) {
 
 	config := &MusicConfig{
 		Music: map[string]MusicMode{
-			"day": {
+			"midday": {
 				Participants: []Participant{
 					{PlayerName: "Kitchen", BaseVolume: 9, LeaveMutedIf: []MuteCondition{}},
 				},
@@ -644,11 +657,11 @@ func TestDoubleActivationPrevention(t *testing.T) {
 	manager := NewManager(mockClient, stateManager, config, logger, true, nil, nil)
 
 	// First playback
-	manager.handleMusicPlaybackTypeChange("musicPlaybackType", "", "day")
+	manager.handleMusicPlaybackTypeChange("musicPlaybackType", "", "midday")
 	firstURI := manager.currentlyPlaying.URI
 
 	// Second activation of same type should be blocked
-	manager.handleMusicPlaybackTypeChange("musicPlaybackType", "day", "day")
+	manager.handleMusicPlaybackTypeChange("musicPlaybackType", "midday", "midday")
 	if manager.currentlyPlaying.URI != firstURI {
 		t.Error("Double activation should not have changed the playlist")
 	}
@@ -755,7 +768,7 @@ func TestStopPlayback(t *testing.T) {
 
 	config := &MusicConfig{
 		Music: map[string]MusicMode{
-			"day": {
+			"midday": {
 				Participants: []Participant{
 					{PlayerName: "Kitchen", BaseVolume: 9, LeaveMutedIf: []MuteCondition{}},
 				},
@@ -768,7 +781,7 @@ func TestStopPlayback(t *testing.T) {
 
 	// Set up currently playing music
 	manager.currentlyPlaying = &CurrentlyPlayingMusic{
-		Type: "day",
+		Type: "midday",
 		URI:  "spotify:playlist:test",
 	}
 
@@ -896,7 +909,7 @@ func TestOrchestratePlayback(t *testing.T) {
 
 	config := &MusicConfig{
 		Music: map[string]MusicMode{
-			"day": {
+			"midday": {
 				Participants: []Participant{
 					{PlayerName: "Kitchen", BaseVolume: 9, LeaveMutedIf: []MuteCondition{}},
 					{PlayerName: "Living Room", BaseVolume: 10, LeaveMutedIf: []MuteCondition{}},
@@ -912,7 +925,7 @@ func TestOrchestratePlayback(t *testing.T) {
 	manager := NewManager(mockClient, stateManager, config, logger, true, nil, nil)
 
 	// Test orchestration
-	err := manager.orchestratePlayback("day", "test_trigger")
+	err := manager.orchestratePlayback("midday", "test_trigger")
 	if err != nil {
 		t.Fatalf("orchestratePlayback() failed: %v", err)
 	}
@@ -922,8 +935,8 @@ func TestOrchestratePlayback(t *testing.T) {
 		t.Fatal("currentlyPlaying should be set after orchestration")
 	}
 
-	if manager.currentlyPlaying.Type != "day" {
-		t.Errorf("currentlyPlaying.Type = %q, want %q", manager.currentlyPlaying.Type, "day")
+	if manager.currentlyPlaying.Type != "midday" {
+		t.Errorf("currentlyPlaying.Type = %q, want %q", manager.currentlyPlaying.Type, "midday")
 	}
 
 	if len(manager.currentlyPlaying.Participants) != 2 {
@@ -1086,7 +1099,7 @@ func TestHandleMusicPlaybackTypeChange_EmptyString(t *testing.T) {
 
 	config := &MusicConfig{
 		Music: map[string]MusicMode{
-			"day": {
+			"midday": {
 				Participants: []Participant{
 					{PlayerName: "Kitchen", BaseVolume: 9, LeaveMutedIf: []MuteCondition{}},
 				},
@@ -1099,12 +1112,12 @@ func TestHandleMusicPlaybackTypeChange_EmptyString(t *testing.T) {
 
 	// Set up currently playing music
 	manager.currentlyPlaying = &CurrentlyPlayingMusic{
-		Type: "day",
+		Type: "midday",
 		URI:  "spotify:playlist:test",
 	}
 
 	// Trigger empty music type (stop)
-	manager.handleMusicPlaybackTypeChange("musicPlaybackType", "day", "")
+	manager.handleMusicPlaybackTypeChange("musicPlaybackType", "midday", "")
 
 	// Verify playback was stopped
 	if manager.currentlyPlaying != nil {
@@ -1137,7 +1150,7 @@ func TestExecutePlayback(t *testing.T) {
 	// Set up state variables for mute conditions
 	_ = stateManager.SetBool("isTVPlaying", false)
 	_ = stateManager.SetBool("isMasterAsleep", false)
-	_ = stateManager.SetString("musicPlaybackType", "day")
+	_ = stateManager.SetString("musicPlaybackType", "midday")
 
 	config := &MusicConfig{Music: map[string]MusicMode{}}
 	manager := NewManager(mockClient, stateManager, config, logger, false, nil, nil)
@@ -1168,7 +1181,7 @@ func TestExecutePlayback(t *testing.T) {
 		VolumeMultiplier: 1.0,
 	}
 
-	_, _, err := manager.executePlayback("day", option, participants, "Kitchen")
+	_, _, err := manager.executePlayback("midday", option, participants, "Kitchen")
 	if err != nil {
 		t.Errorf("executePlayback() failed: %v", err)
 	}
@@ -1564,7 +1577,7 @@ func TestCurrentlyPlayingMusicUri_SetOnPlayback(t *testing.T) {
 
 	config := &MusicConfig{
 		Music: map[string]MusicMode{
-			"day": {
+			"midday": {
 				Participants: []Participant{
 					{PlayerName: "Kitchen", BaseVolume: 9, LeaveMutedIf: []MuteCondition{}},
 				},
@@ -1578,7 +1591,7 @@ func TestCurrentlyPlayingMusicUri_SetOnPlayback(t *testing.T) {
 	manager := NewManager(mockClient, stateManager, config, logger, true, nil, nil)
 
 	// Orchestrate playback
-	err := manager.orchestratePlayback("day", "test_trigger")
+	err := manager.orchestratePlayback("midday", "test_trigger")
 	if err != nil {
 		t.Fatalf("orchestratePlayback() failed: %v", err)
 	}
@@ -1606,7 +1619,7 @@ func TestCurrentlyPlayingMusicUri_ClearOnStop(t *testing.T) {
 
 	config := &MusicConfig{
 		Music: map[string]MusicMode{
-			"day": {
+			"midday": {
 				Participants: []Participant{
 					{PlayerName: "Kitchen", BaseVolume: 9, LeaveMutedIf: []MuteCondition{}},
 				},
@@ -1621,7 +1634,7 @@ func TestCurrentlyPlayingMusicUri_ClearOnStop(t *testing.T) {
 
 	// Set up currently playing music and URI
 	manager.currentlyPlaying = &CurrentlyPlayingMusic{
-		Type: "day",
+		Type: "midday",
 		URI:  testURI,
 	}
 	_ = stateManager.SetString("currentlyPlayingMusicUri", testURI)
@@ -1657,17 +1670,17 @@ func TestCurrentlyPlayingMusicUri_UpdateOnModeChange(t *testing.T) {
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 
-	dayURI := "spotify:playlist:day-playlist"
+	middayURI := "spotify:playlist:midday-playlist"
 	eveningURI := "spotify:playlist:evening-playlist"
 
 	config := &MusicConfig{
 		Music: map[string]MusicMode{
-			"day": {
+			"midday": {
 				Participants: []Participant{
 					{PlayerName: "Kitchen", BaseVolume: 9, LeaveMutedIf: []MuteCondition{}},
 				},
 				PlaybackOptions: []PlaybackOption{
-					{URI: dayURI, MediaType: "playlist", VolumeMultiplier: 1.0},
+					{URI: middayURI, MediaType: "playlist", VolumeMultiplier: 1.0},
 				},
 			},
 			"evening": {
@@ -1687,19 +1700,19 @@ func TestCurrentlyPlayingMusicUri_UpdateOnModeChange(t *testing.T) {
 
 	manager := NewManager(mockClient, stateManager, config, logger, true, timeProvider, nil)
 
-	// Start with day music
-	err := manager.orchestratePlayback("day", "test_trigger")
+	// Start with midday music
+	err := manager.orchestratePlayback("midday", "test_trigger")
 	if err != nil {
-		t.Fatalf("orchestratePlayback(day) failed: %v", err)
+		t.Fatalf("orchestratePlayback(midday) failed: %v", err)
 	}
 
-	// Verify day URI is set
+	// Verify midday URI is set
 	currentURI, err := stateManager.GetString("currentlyPlayingMusicUri")
 	if err != nil {
-		t.Fatalf("Failed to get currentlyPlayingMusicUri for day: %v", err)
+		t.Fatalf("Failed to get currentlyPlayingMusicUri for midday: %v", err)
 	}
-	if currentURI != dayURI {
-		t.Errorf("Expected currentlyPlayingMusicUri = %q for day, got %q", dayURI, currentURI)
+	if currentURI != middayURI {
+		t.Errorf("Expected currentlyPlayingMusicUri = %q for midday, got %q", middayURI, currentURI)
 	}
 
 	// Update time to avoid rate limiting
@@ -2239,7 +2252,7 @@ func TestRefreshAvailableSpeakers(t *testing.T) {
 
 	config := &MusicConfig{
 		Music: map[string]MusicMode{
-			"morning": {}, "day": {}, "evening": {}, "winddown": {},
+			"morning": {}, "midday": {}, "afternoon": {}, "evening": {}, "winddown": {},
 			"sleep": {}, "sex": {}, "wakeup": {},
 		},
 	}
@@ -2294,7 +2307,7 @@ func TestCallServiceWithRetry_Success(t *testing.T) {
 
 	config := &MusicConfig{
 		Music: map[string]MusicMode{
-			"morning": {}, "day": {}, "evening": {}, "winddown": {},
+			"morning": {}, "midday": {}, "afternoon": {}, "evening": {}, "winddown": {},
 			"sleep": {}, "sex": {}, "wakeup": {},
 		},
 	}
@@ -2336,7 +2349,7 @@ func TestCallServiceWithRetry_PersistentError(t *testing.T) {
 
 	config := &MusicConfig{
 		Music: map[string]MusicMode{
-			"morning": {}, "day": {}, "evening": {}, "winddown": {},
+			"morning": {}, "midday": {}, "afternoon": {}, "evening": {}, "winddown": {},
 			"sleep": {}, "sex": {}, "wakeup": {},
 		},
 	}
@@ -2375,7 +2388,7 @@ func TestCallServiceWithRetry_SpeakerNotAvailable(t *testing.T) {
 
 	config := &MusicConfig{
 		Music: map[string]MusicMode{
-			"morning": {}, "day": {}, "evening": {}, "winddown": {},
+			"morning": {}, "midday": {}, "afternoon": {}, "evening": {}, "winddown": {},
 			"sleep": {}, "sex": {}, "wakeup": {},
 		},
 	}
@@ -2524,7 +2537,7 @@ func TestExecutePlayback_BreakThenBuildSequence(t *testing.T) {
 
 	// Set up state variables for mute conditions
 	_ = stateManager.SetBool("isTVPlaying", false)
-	_ = stateManager.SetString("musicPlaybackType", "day")
+	_ = stateManager.SetString("musicPlaybackType", "midday")
 
 	config := &MusicConfig{Music: map[string]MusicMode{}}
 	manager := NewManager(mockClient, stateManager, config, logger, false, nil, nil)
@@ -2549,7 +2562,7 @@ func TestExecutePlayback_BreakThenBuildSequence(t *testing.T) {
 		VolumeMultiplier: 1.0,
 	}
 
-	_, _, err := manager.executePlayback("day", option, participants, "Kitchen")
+	_, _, err := manager.executePlayback("midday", option, participants, "Kitchen")
 	if err != nil {
 		t.Fatalf("executePlayback() failed: %v", err)
 	}
@@ -2591,7 +2604,7 @@ func TestExecutePlayback_BreakThenBuildSequence_SingleSpeaker(t *testing.T) {
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 
-	_ = stateManager.SetString("musicPlaybackType", "day")
+	_ = stateManager.SetString("musicPlaybackType", "midday")
 
 	config := &MusicConfig{Music: map[string]MusicMode{}}
 	manager := NewManager(mockClient, stateManager, config, logger, false, nil, nil)
@@ -2615,7 +2628,7 @@ func TestExecutePlayback_BreakThenBuildSequence_SingleSpeaker(t *testing.T) {
 		VolumeMultiplier: 1.0,
 	}
 
-	_, _, err := manager.executePlayback("day", option, participants, "Kitchen")
+	_, _, err := manager.executePlayback("midday", option, participants, "Kitchen")
 	if err != nil {
 		t.Fatalf("executePlayback() failed: %v", err)
 	}
@@ -2664,17 +2677,18 @@ func TestStartValidatesSpeakers(t *testing.T) {
 					{PlayerName: "Missing Speaker", BaseVolume: 5},
 				},
 			},
-			"day":      {},
-			"evening":  {},
-			"winddown": {},
-			"sleep":    {},
-			"sex":      {},
-			"wakeup":   {},
+			"midday":    {},
+			"afternoon": {},
+			"evening":   {},
+			"winddown":  {},
+			"sleep":     {},
+			"sex":       {},
+			"wakeup":    {},
 		},
 	}
 
 	// Set up required state variables
-	if err := stateManager.SetString("dayPhase", "day"); err != nil {
+	if err := stateManager.SetString("dayPhase", "midday"); err != nil {
 		t.Fatalf("Failed to set dayPhase: %v", err)
 	}
 	if err := stateManager.SetBool("isAnyoneHome", true); err != nil {
@@ -2722,8 +2736,8 @@ func TestLoadPlaylistRotationFromHA(t *testing.T) {
 	}{
 		{
 			name:             "Valid JSON",
-			haValue:          `{"morning":2,"day":5,"evening":1}`,
-			expectedRotation: map[string]int{"morning": 2, "day": 5, "evening": 1},
+			haValue:          `{"morning":2,"midday":5,"evening":1}`,
+			expectedRotation: map[string]int{"morning": 2, "midday": 5, "evening": 1},
 			description:      "Valid JSON should be loaded correctly",
 		},
 		{
@@ -2760,7 +2774,7 @@ func TestLoadPlaylistRotationFromHA(t *testing.T) {
 			config := &MusicConfig{
 				Music: map[string]MusicMode{
 					"morning": {PlaybackOptions: []PlaybackOption{{URI: "test1"}, {URI: "test2"}, {URI: "test3"}}},
-					"day":     {PlaybackOptions: []PlaybackOption{{URI: "test1"}, {URI: "test2"}, {URI: "test3"}, {URI: "test4"}, {URI: "test5"}, {URI: "test6"}}},
+					"midday":  {PlaybackOptions: []PlaybackOption{{URI: "test1"}, {URI: "test2"}, {URI: "test3"}, {URI: "test4"}, {URI: "test5"}, {URI: "test6"}}},
 					"evening": {PlaybackOptions: []PlaybackOption{{URI: "test1"}, {URI: "test2"}}},
 				},
 			}
@@ -2798,13 +2812,13 @@ func TestLoadPlaylistRotationBoundsCheck(t *testing.T) {
 
 	// Set up rotation with index that exceeds playlist count
 	// morning has 3 playlists (indices 0-2), but stored index is 5
-	_ = stateManager.SetString("musicPlaylistRotation", `{"morning":5,"day":10}`)
+	_ = stateManager.SetString("musicPlaylistRotation", `{"morning":5,"midday":10}`)
 
 	// Create config with limited playlists
 	config := &MusicConfig{
 		Music: map[string]MusicMode{
 			"morning": {PlaybackOptions: []PlaybackOption{{URI: "test1"}, {URI: "test2"}, {URI: "test3"}}}, // 3 options
-			"day":     {PlaybackOptions: []PlaybackOption{{URI: "test1"}, {URI: "test2"}, {URI: "test3"}}}, // 3 options
+			"midday":  {PlaybackOptions: []PlaybackOption{{URI: "test1"}, {URI: "test2"}, {URI: "test3"}}}, // 3 options
 			"evening": {PlaybackOptions: []PlaybackOption{{URI: "test1"}, {URI: "test2"}, {URI: "test3"}}}, // not in HA
 			"unknown": {PlaybackOptions: []PlaybackOption{}},                                               // empty options
 		},
@@ -2819,9 +2833,9 @@ func TestLoadPlaylistRotationBoundsCheck(t *testing.T) {
 		t.Errorf("Expected morning index to be wrapped to 2 (5 %% 3), got %d", manager.playlistNumbers["morning"])
 	}
 
-	// Verify day index was wrapped: 10 % 3 = 1
-	if manager.playlistNumbers["day"] != 1 {
-		t.Errorf("Expected day index to be wrapped to 1 (10 %% 3), got %d", manager.playlistNumbers["day"])
+	// Verify midday index was wrapped: 10 % 3 = 1
+	if manager.playlistNumbers["midday"] != 1 {
+		t.Errorf("Expected midday index to be wrapped to 1 (10 %% 3), got %d", manager.playlistNumbers["midday"])
 	}
 }
 
@@ -2869,13 +2883,13 @@ func TestSyncPlaylistRotationToHA(t *testing.T) {
 
 	config := &MusicConfig{
 		Music: map[string]MusicMode{
-			"day": {PlaybackOptions: []PlaybackOption{{URI: "test1"}, {URI: "test2"}, {URI: "test3"}}},
+			"midday": {PlaybackOptions: []PlaybackOption{{URI: "test1"}, {URI: "test2"}, {URI: "test3"}}},
 		},
 	}
 	manager := NewManager(mockClient, stateManager, config, logger, false, nil, nil)
 
 	// Call getNextPlaylistIndex which should trigger a sync
-	index := manager.getNextPlaylistIndex("day", 3)
+	index := manager.getNextPlaylistIndex("midday", 3)
 	if index != 0 {
 		t.Errorf("Expected first index to be 0, got %d", index)
 	}
@@ -2895,12 +2909,12 @@ func TestSyncPlaylistRotationToHA(t *testing.T) {
 	}
 
 	// After first call, the stored value should be 1 (the NEXT index to use)
-	if rotation["day"] != 1 {
-		t.Errorf("Expected synced rotation[day]=1, got %d", rotation["day"])
+	if rotation["midday"] != 1 {
+		t.Errorf("Expected synced rotation[midday]=1, got %d", rotation["midday"])
 	}
 
 	// Call again to advance rotation
-	index2 := manager.getNextPlaylistIndex("day", 3)
+	index2 := manager.getNextPlaylistIndex("midday", 3)
 	if index2 != 1 {
 		t.Errorf("Expected second index to be 1, got %d", index2)
 	}
@@ -2911,8 +2925,8 @@ func TestSyncPlaylistRotationToHA(t *testing.T) {
 	// Verify updated rotation
 	rotationJSON, _ = stateManager.GetString("musicPlaylistRotation")
 	_ = json.Unmarshal([]byte(rotationJSON), &rotation)
-	if rotation["day"] != 2 {
-		t.Errorf("Expected synced rotation[day]=2, got %d", rotation["day"])
+	if rotation["midday"] != 2 {
+		t.Errorf("Expected synced rotation[midday]=2, got %d", rotation["midday"])
 	}
 }
 
@@ -2928,13 +2942,13 @@ func TestPlaylistRotationSyncReadOnlyMode(t *testing.T) {
 
 	config := &MusicConfig{
 		Music: map[string]MusicMode{
-			"day": {PlaybackOptions: []PlaybackOption{{URI: "test1"}, {URI: "test2"}, {URI: "test3"}}},
+			"midday": {PlaybackOptions: []PlaybackOption{{URI: "test1"}, {URI: "test2"}, {URI: "test3"}}},
 		},
 	}
 	manager := NewManager(mockClient, stateManager, config, logger, true, nil, nil)
 
 	// Call getNextPlaylistIndex
-	index := manager.getNextPlaylistIndex("day", 3)
+	index := manager.getNextPlaylistIndex("midday", 3)
 	if index != 0 {
 		t.Errorf("Expected first index to be 0, got %d", index)
 	}
@@ -2949,7 +2963,7 @@ func TestPlaylistRotationSyncReadOnlyMode(t *testing.T) {
 	}
 
 	// But the in-memory state should still work
-	index2 := manager.getNextPlaylistIndex("day", 3)
+	index2 := manager.getNextPlaylistIndex("midday", 3)
 	if index2 != 1 {
 		t.Errorf("Expected second index to be 1, got %d", index2)
 	}
@@ -3347,12 +3361,13 @@ func TestOrchestratePlayback_WithExcludeIf(t *testing.T) {
 					{URI: "spotify:playlist:test", MediaType: "playlist", VolumeMultiplier: 1.0},
 				},
 			},
-			"day":      {Participants: []Participant{}, PlaybackOptions: []PlaybackOption{}},
-			"evening":  {Participants: []Participant{}, PlaybackOptions: []PlaybackOption{}},
-			"winddown": {Participants: []Participant{}, PlaybackOptions: []PlaybackOption{}},
-			"sleep":    {Participants: []Participant{}, PlaybackOptions: []PlaybackOption{}},
-			"sex":      {Participants: []Participant{}, PlaybackOptions: []PlaybackOption{}},
-			"wakeup":   {Participants: []Participant{}, PlaybackOptions: []PlaybackOption{}},
+			"midday":    {Participants: []Participant{}, PlaybackOptions: []PlaybackOption{}},
+			"afternoon": {Participants: []Participant{}, PlaybackOptions: []PlaybackOption{}},
+			"evening":   {Participants: []Participant{}, PlaybackOptions: []PlaybackOption{}},
+			"winddown":  {Participants: []Participant{}, PlaybackOptions: []PlaybackOption{}},
+			"sleep":     {Participants: []Participant{}, PlaybackOptions: []PlaybackOption{}},
+			"sex":       {Participants: []Participant{}, PlaybackOptions: []PlaybackOption{}},
+			"wakeup":    {Participants: []Participant{}, PlaybackOptions: []PlaybackOption{}},
 		},
 	}
 
@@ -3426,12 +3441,13 @@ func TestOrchestratePlayback_AllSpeakersExcluded(t *testing.T) {
 					{URI: "spotify:playlist:test", MediaType: "playlist", VolumeMultiplier: 1.0},
 				},
 			},
-			"day":      {Participants: []Participant{}, PlaybackOptions: []PlaybackOption{}},
-			"evening":  {Participants: []Participant{}, PlaybackOptions: []PlaybackOption{}},
-			"winddown": {Participants: []Participant{}, PlaybackOptions: []PlaybackOption{}},
-			"sleep":    {Participants: []Participant{}, PlaybackOptions: []PlaybackOption{}},
-			"sex":      {Participants: []Participant{}, PlaybackOptions: []PlaybackOption{}},
-			"wakeup":   {Participants: []Participant{}, PlaybackOptions: []PlaybackOption{}},
+			"midday":    {Participants: []Participant{}, PlaybackOptions: []PlaybackOption{}},
+			"afternoon": {Participants: []Participant{}, PlaybackOptions: []PlaybackOption{}},
+			"evening":   {Participants: []Participant{}, PlaybackOptions: []PlaybackOption{}},
+			"winddown":  {Participants: []Participant{}, PlaybackOptions: []PlaybackOption{}},
+			"sleep":     {Participants: []Participant{}, PlaybackOptions: []PlaybackOption{}},
+			"sex":       {Participants: []Participant{}, PlaybackOptions: []PlaybackOption{}},
+			"wakeup":    {Participants: []Participant{}, PlaybackOptions: []PlaybackOption{}},
 		},
 	}
 
@@ -3489,12 +3505,13 @@ func TestCollectMuteConditionVariables_IncludesExcludeIf(t *testing.T) {
 				},
 				PlaybackOptions: []PlaybackOption{},
 			},
-			"day":      {Participants: []Participant{}, PlaybackOptions: []PlaybackOption{}},
-			"evening":  {Participants: []Participant{}, PlaybackOptions: []PlaybackOption{}},
-			"winddown": {Participants: []Participant{}, PlaybackOptions: []PlaybackOption{}},
-			"sleep":    {Participants: []Participant{}, PlaybackOptions: []PlaybackOption{}},
-			"sex":      {Participants: []Participant{}, PlaybackOptions: []PlaybackOption{}},
-			"wakeup":   {Participants: []Participant{}, PlaybackOptions: []PlaybackOption{}},
+			"midday":    {Participants: []Participant{}, PlaybackOptions: []PlaybackOption{}},
+			"afternoon": {Participants: []Participant{}, PlaybackOptions: []PlaybackOption{}},
+			"evening":   {Participants: []Participant{}, PlaybackOptions: []PlaybackOption{}},
+			"winddown":  {Participants: []Participant{}, PlaybackOptions: []PlaybackOption{}},
+			"sleep":     {Participants: []Participant{}, PlaybackOptions: []PlaybackOption{}},
+			"sex":       {Participants: []Participant{}, PlaybackOptions: []PlaybackOption{}},
+			"wakeup":    {Participants: []Participant{}, PlaybackOptions: []PlaybackOption{}},
 		},
 	}
 
@@ -3545,12 +3562,13 @@ func TestExcludeIf_LeadPlayerSelection(t *testing.T) {
 					{URI: "spotify:playlist:test", MediaType: "playlist", VolumeMultiplier: 1.0},
 				},
 			},
-			"day":      {Participants: []Participant{}, PlaybackOptions: []PlaybackOption{}},
-			"evening":  {Participants: []Participant{}, PlaybackOptions: []PlaybackOption{}},
-			"winddown": {Participants: []Participant{}, PlaybackOptions: []PlaybackOption{}},
-			"sleep":    {Participants: []Participant{}, PlaybackOptions: []PlaybackOption{}},
-			"sex":      {Participants: []Participant{}, PlaybackOptions: []PlaybackOption{}},
-			"wakeup":   {Participants: []Participant{}, PlaybackOptions: []PlaybackOption{}},
+			"midday":    {Participants: []Participant{}, PlaybackOptions: []PlaybackOption{}},
+			"afternoon": {Participants: []Participant{}, PlaybackOptions: []PlaybackOption{}},
+			"evening":   {Participants: []Participant{}, PlaybackOptions: []PlaybackOption{}},
+			"winddown":  {Participants: []Participant{}, PlaybackOptions: []PlaybackOption{}},
+			"sleep":     {Participants: []Participant{}, PlaybackOptions: []PlaybackOption{}},
+			"sex":       {Participants: []Participant{}, PlaybackOptions: []PlaybackOption{}},
+			"wakeup":    {Participants: []Participant{}, PlaybackOptions: []PlaybackOption{}},
 		},
 	}
 
@@ -3595,12 +3613,13 @@ func TestExcludeIf_ParticipantWithVolumePreservesExcludeIf(t *testing.T) {
 					{URI: "spotify:playlist:test", MediaType: "playlist", VolumeMultiplier: 1.0},
 				},
 			},
-			"day":      {Participants: []Participant{}, PlaybackOptions: []PlaybackOption{}},
-			"evening":  {Participants: []Participant{}, PlaybackOptions: []PlaybackOption{}},
-			"winddown": {Participants: []Participant{}, PlaybackOptions: []PlaybackOption{}},
-			"sleep":    {Participants: []Participant{}, PlaybackOptions: []PlaybackOption{}},
-			"sex":      {Participants: []Participant{}, PlaybackOptions: []PlaybackOption{}},
-			"wakeup":   {Participants: []Participant{}, PlaybackOptions: []PlaybackOption{}},
+			"midday":    {Participants: []Participant{}, PlaybackOptions: []PlaybackOption{}},
+			"afternoon": {Participants: []Participant{}, PlaybackOptions: []PlaybackOption{}},
+			"evening":   {Participants: []Participant{}, PlaybackOptions: []PlaybackOption{}},
+			"winddown":  {Participants: []Participant{}, PlaybackOptions: []PlaybackOption{}},
+			"sleep":     {Participants: []Participant{}, PlaybackOptions: []PlaybackOption{}},
+			"sex":       {Participants: []Participant{}, PlaybackOptions: []PlaybackOption{}},
+			"wakeup":    {Participants: []Participant{}, PlaybackOptions: []PlaybackOption{}},
 		},
 	}
 

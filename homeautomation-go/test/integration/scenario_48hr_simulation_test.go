@@ -157,7 +157,7 @@ func TestScenario_48Hour_EasternTimezone(t *testing.T) {
 
 	// Verify we observed multiple phases
 	assert.GreaterOrEqual(t, len(observedTransitions), 4,
-		"Should observe at least 4 phase transitions over 48 hours (morning, day, sunset, night)")
+		"Should observe at least 4 phase transitions over 48 hours (morning, midday, afternoon, sunset, night)")
 
 	// Log when night phases occurred (for diagnostic purposes)
 	t.Log("\nNight phase transitions:")
@@ -386,7 +386,7 @@ func TestScenario_DayPhaseCycle_24Hours(t *testing.T) {
 	t.Log("Testing complete 24-hour day phase cycle")
 
 	// Expected phase order through the day:
-	// night -> morning -> day -> sunset -> dusk -> winddown -> night
+	// night -> morning -> midday -> afternoon -> sunset -> dusk -> winddown -> night
 	observedPhases := make(map[string]time.Time)
 
 	lastPhase := ""
@@ -416,7 +416,7 @@ func TestScenario_DayPhaseCycle_24Hours(t *testing.T) {
 	// Note: dusk and winddown phases depend on schedule config, which currently
 	// has a bug where GetTodaysScheduleInTimezone() uses time.Now() instead of
 	// the mock clock, causing date mismatches.
-	corePhases := []string{"night", "morning", "day", "sunset"}
+	corePhases := []string{"night", "morning", "midday", "afternoon", "sunset"}
 	for _, expectedPhase := range corePhases {
 		_, found := observedPhases[expectedPhase]
 		assert.True(t, found, "Should observe %s phase during 24-hour cycle", expectedPhase)
@@ -446,7 +446,7 @@ func TestScenario_SunEventTracking(t *testing.T) {
 	t.Log("Testing sun event state tracking")
 
 	// Expected sun event order:
-	// night -> morning -> day -> sunset -> dusk -> night
+	// night -> morning -> midday -> afternoon -> sunset -> dusk -> night
 	observedSunEvents := make(map[string]time.Time)
 
 	lastSunEvent := ""
@@ -473,7 +473,7 @@ func TestScenario_SunEventTracking(t *testing.T) {
 	}
 
 	// Verify core sun events are observed
-	coreEvents := []string{"morning", "day", "sunset", "dusk", "night"}
+	coreEvents := []string{"morning", "midday", "afternoon", "sunset", "dusk", "night"}
 	for _, event := range coreEvents {
 		_, found := observedSunEvents[event]
 		assert.True(t, found, "Should observe %s sun event during 24-hour cycle", event)

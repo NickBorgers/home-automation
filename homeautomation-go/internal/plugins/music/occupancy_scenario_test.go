@@ -77,7 +77,7 @@ import (
 func createOccupancyMusicConfig() *MusicConfig {
 	return &MusicConfig{
 		Music: map[string]MusicMode{
-			"day": {
+			"midday": {
 				Participants: []Participant{
 					{
 						PlayerName:   "Kitchen",
@@ -98,6 +98,32 @@ func createOccupancyMusicConfig() *MusicConfig {
 				PlaybackOptions: []PlaybackOption{
 					{
 						URI:              "spotify:playlist:test123",
+						MediaType:        "playlist",
+						VolumeMultiplier: 1.0,
+					},
+				},
+			},
+			"afternoon": {
+				Participants: []Participant{
+					{
+						PlayerName:   "Kitchen",
+						BaseVolume:   9,
+						LeaveMutedIf: []MuteCondition{},
+					},
+					{
+						PlayerName: "Office",
+						BaseVolume: 6,
+						LeaveMutedIf: []MuteCondition{
+							{
+								Variable: "isNickOfficeOccupied",
+								Value:    false,
+							},
+						},
+					},
+				},
+				PlaybackOptions: []PlaybackOption{
+					{
+						URI:              "spotify:playlist:afternoon123",
 						MediaType:        "playlist",
 						VolumeMultiplier: 1.0,
 					},
@@ -129,6 +155,26 @@ func createOccupancyMusicConfig() *MusicConfig {
 					},
 				},
 			},
+			"evening": {
+				Participants:    []Participant{{PlayerName: "Kitchen", BaseVolume: 9}},
+				PlaybackOptions: []PlaybackOption{{URI: "spotify:playlist:evening", MediaType: "playlist", VolumeMultiplier: 1.0}},
+			},
+			"winddown": {
+				Participants:    []Participant{{PlayerName: "Kitchen", BaseVolume: 9}},
+				PlaybackOptions: []PlaybackOption{{URI: "spotify:playlist:winddown", MediaType: "playlist", VolumeMultiplier: 1.0}},
+			},
+			"sleep": {
+				Participants:    []Participant{{PlayerName: "Kitchen", BaseVolume: 9}},
+				PlaybackOptions: []PlaybackOption{{URI: "http://rain.mp3", MediaType: "music", VolumeMultiplier: 1.0}},
+			},
+			"sex": {
+				Participants:    []Participant{{PlayerName: "Bedroom", BaseVolume: 10}},
+				PlaybackOptions: []PlaybackOption{{URI: "spotify:playlist:sex", MediaType: "playlist", VolumeMultiplier: 1.0}},
+			},
+			"wakeup": {
+				Participants:    []Participant{{PlayerName: "Bedroom", BaseVolume: 6}},
+				PlaybackOptions: []PlaybackOption{{URI: "spotify:playlist:wakeup", MediaType: "playlist", VolumeMultiplier: 1.0}},
+			},
 		},
 	}
 }
@@ -159,7 +205,7 @@ func TestScenario_OfficeSpeaker_UnmutedWhenOccupied(t *testing.T) {
 	manager.SetSleepFunc(func(d time.Duration) {}) // Skip internal sleeps for fast tests
 
 	// Initialize required state variables
-	_ = stateManager.SetString("dayPhase", "day")
+	_ = stateManager.SetString("dayPhase", "midday")
 	_ = stateManager.SetString("musicPlaybackType", "")
 	_ = stateManager.SetBool("isAnyoneHome", true)
 	_ = stateManager.SetBool("isAnyoneAsleep", false)
@@ -184,7 +230,7 @@ func TestScenario_OfficeSpeaker_UnmutedWhenOccupied(t *testing.T) {
 		PlayerName:   "Office",
 		BaseVolume:   6,
 		Volume:       6,
-		LeaveMutedIf: config.Music["day"].Participants[1].LeaveMutedIf,
+		LeaveMutedIf: config.Music["midday"].Participants[1].LeaveMutedIf,
 	}
 
 	// ==========================================================
@@ -241,7 +287,7 @@ func TestScenario_OfficeSpeaker_MutedWhenUnoccupied(t *testing.T) {
 	manager.SetSleepFunc(func(d time.Duration) {}) // Skip internal sleeps for fast tests
 
 	// Initialize - office IS occupied
-	_ = stateManager.SetString("dayPhase", "day")
+	_ = stateManager.SetString("dayPhase", "midday")
 	_ = stateManager.SetBool("isAnyoneHome", true)
 	_ = stateManager.SetBool("isAnyoneAsleep", false)
 	_ = stateManager.SetBool("isNickOfficeOccupied", true) // Office IS occupied initially
@@ -251,7 +297,7 @@ func TestScenario_OfficeSpeaker_MutedWhenUnoccupied(t *testing.T) {
 		PlayerName:   "Office",
 		BaseVolume:   6,
 		Volume:       6,
-		LeaveMutedIf: config.Music["day"].Participants[1].LeaveMutedIf,
+		LeaveMutedIf: config.Music["midday"].Participants[1].LeaveMutedIf,
 	}
 
 	// ==========================================================
@@ -285,7 +331,7 @@ func TestScenario_OfficeSpeaker_MutedWhenUnoccupied(t *testing.T) {
 // THIS IS THE KEY INTEGRATION TEST that validates the subscription mechanism.
 //
 // SCENARIO:
-// 1. Music starts playing in "day" mode
+// 1. Music starts playing in "midday" mode
 // 2. Office speaker is initially MUTED (isNickOfficeOccupied = false)
 // 3. Nick enters his office (isNickOfficeOccupied = true)
 // 4. Music Manager should detect the change and unmute the Office speaker
@@ -309,7 +355,7 @@ func TestScenario_OfficeSpeaker_UnmuteOnOccupancyChangeDuringPlayback(t *testing
 	manager.SetSleepFunc(func(d time.Duration) {}) // Skip internal sleeps for fast tests
 
 	// Initialize required state variables - music will start playing
-	_ = stateManager.SetString("dayPhase", "day")
+	_ = stateManager.SetString("dayPhase", "midday")
 	_ = stateManager.SetString("musicPlaybackType", "")
 	_ = stateManager.SetBool("isAnyoneHome", true)
 	_ = stateManager.SetBool("isAnyoneAsleep", false)
@@ -408,8 +454,8 @@ func TestScenario_MutedSpeaker_GetsTargetVolumeSetDuringPlayback(t *testing.T) {
 	manager.SetSleepFunc(func(d time.Duration) {}) // Skip internal sleeps for fast tests
 
 	// Initialize state - Office is NOT occupied, so Office speaker should be muted
-	_ = stateManager.SetString("dayPhase", "day")
-	_ = stateManager.SetString("musicPlaybackType", "day")
+	_ = stateManager.SetString("dayPhase", "midday")
+	_ = stateManager.SetString("musicPlaybackType", "midday")
 	_ = stateManager.SetBool("isAnyoneHome", true)
 	_ = stateManager.SetBool("isAnyoneAsleep", false)
 	_ = stateManager.SetBool("isMasterAsleep", false)
@@ -459,7 +505,7 @@ func TestScenario_MutedSpeaker_GetsTargetVolumeSetDuringPlayback(t *testing.T) {
 		VolumeMultiplier: 1.0,
 	}
 
-	_, _, err := manager.executePlayback("day", option, participants, "Kitchen")
+	_, _, err := manager.executePlayback("midday", option, participants, "Kitchen")
 	assert.NoError(t, err, "executePlayback should succeed")
 
 	// Allow time for fade-in goroutines to start (they will return quickly due to SetSleepFunc)

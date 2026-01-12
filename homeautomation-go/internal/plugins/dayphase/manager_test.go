@@ -84,13 +84,13 @@ func TestUpdateSunEventAndDayPhase(t *testing.T) {
 	sunEvent, err := stateManager.GetString("sunevent")
 	assert.NoError(t, err)
 	assert.NotEmpty(t, sunEvent)
-	assert.Contains(t, []string{"morning", "day", "sunset", "dusk", "night"}, sunEvent)
+	assert.Contains(t, []string{"morning", "midday", "afternoon", "sunset", "dusk", "night"}, sunEvent)
 
 	// Verify that dayPhase was set
 	dayPhase, err := stateManager.GetString("dayPhase")
 	assert.NoError(t, err)
 	assert.NotEmpty(t, dayPhase)
-	assert.Contains(t, []string{"morning", "day", "sunset", "dusk", "winddown", "night"}, dayPhase)
+	assert.Contains(t, []string{"morning", "midday", "afternoon", "sunset", "dusk", "winddown", "night"}, dayPhase)
 }
 
 func TestUpdateSunEventAndDayPhaseReadOnly(t *testing.T) {
@@ -358,7 +358,7 @@ func TestManager_ShadowState_SunEventAndDayPhaseUpdated(t *testing.T) {
 	shadowState := manager.GetShadowState()
 
 	// Verify SunEvent is set
-	validSunEvents := []string{"morning", "day", "sunset", "dusk", "night"}
+	validSunEvents := []string{"morning", "midday", "afternoon", "sunset", "dusk", "night"}
 	foundSunEvent := false
 	for _, event := range validSunEvents {
 		if shadowState.Outputs.SunEvent == event {
@@ -370,7 +370,7 @@ func TestManager_ShadowState_SunEventAndDayPhaseUpdated(t *testing.T) {
 		"Expected SunEvent to be a valid value, got: %s", shadowState.Outputs.SunEvent)
 
 	// Verify DayPhase is set
-	validDayPhases := []string{"morning", "day", "sunset", "dusk", "winddown", "night"}
+	validDayPhases := []string{"morning", "midday", "afternoon", "sunset", "dusk", "winddown", "night"}
 	foundDayPhase := false
 	for _, phase := range validDayPhases {
 		if shadowState.Outputs.DayPhase == phase {

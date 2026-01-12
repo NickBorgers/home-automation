@@ -16,23 +16,25 @@ import (
 type SunEvent string
 
 const (
-	SunEventMorning SunEvent = "morning"
-	SunEventDay     SunEvent = "day"
-	SunEventSunset  SunEvent = "sunset"
-	SunEventDusk    SunEvent = "dusk"
-	SunEventNight   SunEvent = "night"
+	SunEventMorning   SunEvent = "morning"
+	SunEventMidday    SunEvent = "midday"
+	SunEventAfternoon SunEvent = "afternoon"
+	SunEventSunset    SunEvent = "sunset"
+	SunEventDusk      SunEvent = "dusk"
+	SunEventNight     SunEvent = "night"
 )
 
 // DayPhase represents the current day phase
 type DayPhase string
 
 const (
-	DayPhaseMorning  DayPhase = "morning"
-	DayPhaseDay      DayPhase = "day"
-	DayPhaseSunset   DayPhase = "sunset"
-	DayPhaseDusk     DayPhase = "dusk"
-	DayPhaseWinddown DayPhase = "winddown"
-	DayPhaseNight    DayPhase = "night"
+	DayPhaseMorning   DayPhase = "morning"
+	DayPhaseMidday    DayPhase = "midday"
+	DayPhaseAfternoon DayPhase = "afternoon"
+	DayPhaseSunset    DayPhase = "sunset"
+	DayPhaseDusk      DayPhase = "dusk"
+	DayPhaseWinddown  DayPhase = "winddown"
+	DayPhaseNight     DayPhase = "night"
 )
 
 // Calculator manages sun event tracking and day phase calculation
@@ -165,15 +167,16 @@ func (c *Calculator) GetSunEvent() SunEvent {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	// Match Node-RED's Sun State Summarizer logic (with modified morning period)
+	// Match Node-RED's Sun State Summarizer logic (with modified daytime periods)
 	// The summarizer receives raw sun events and maps them to simplified states
 
 	// Convert to local timezone for date calculations
 	// This fixes the bug where running in UTC causes incorrect phase at midnight UTC
 	nowLocal := now.In(c.timezone)
 
-	// Create noon for today in local time - morning lasts until noon
-	noonToday := time.Date(nowLocal.Year(), nowLocal.Month(), nowLocal.Day(), 12, 0, 0, 0, c.timezone)
+	// Create fixed time boundaries for daytime phases in local time
+	elevenAM := time.Date(nowLocal.Year(), nowLocal.Month(), nowLocal.Day(), 11, 0, 0, 0, c.timezone)
+	twoPM := time.Date(nowLocal.Year(), nowLocal.Month(), nowLocal.Day(), 14, 0, 0, 0, c.timezone)
 
 	switch {
 	// Night period: night, nightEnd, nauticalDawn, dawn, nadir
@@ -181,14 +184,17 @@ func (c *Calculator) GetSunEvent() SunEvent {
 	case now.Before(c.sunTimes["dawn"]):
 		return SunEventNight
 
-	// Morning period: from dawn until noon local time
-	// (Extended from goldenHourEnd to accommodate late wake-up schedules)
-	case now.Before(noonToday):
+	// Morning period: from dawn until 11:00 local time
+	case now.Before(elevenAM):
 		return SunEventMorning
 
-	// Day period: from noon until goldenHour starts (evening)
+	// Midday period: from 11:00 until 14:00 local time
+	case now.Before(twoPM):
+		return SunEventMidday
+
+	// Afternoon period: from 14:00 until goldenHour starts (evening)
 	case now.Before(c.sunTimes["goldenHour"]):
-		return SunEventDay
+		return SunEventAfternoon
 
 	// Sunset period: goldenHour, sunsetStart, sunset - until civil dusk
 	case now.Before(c.sunTimes["dusk"]):
@@ -254,13 +260,15 @@ func (c *Calculator) CalculateDayPhase(schedule *config.ParsedSchedule) DayPhase
 			return DayPhaseNight
 		}
 
-		// Before scheduled dusk time: stay at day/sunset regardless of sun
+		// Before scheduled dusk time: stay at daytime/sunset regardless of sun
 		if now.Before(schedule.Dusk) {
 			switch sunEvent {
 			case SunEventMorning:
 				return DayPhaseMorning
-			case SunEventDay:
-				return DayPhaseDay
+			case SunEventMidday:
+				return DayPhaseMidday
+			case SunEventAfternoon:
+				return DayPhaseAfternoon
 			case SunEventSunset, SunEventDusk:
 				// Sun has set but we're before the configured dusk time
 				// Keep lights at sunset level (brighter than dusk)
@@ -276,7 +284,7 @@ func (c *Calculator) CalculateDayPhase(schedule *config.ParsedSchedule) DayPhase
 				// Evening: delay transition to sunset per schedule
 				return DayPhaseSunset
 			default:
-				return DayPhaseDay
+				return DayPhaseMidday
 			}
 		}
 
@@ -285,8 +293,10 @@ func (c *Calculator) CalculateDayPhase(schedule *config.ParsedSchedule) DayPhase
 			switch sunEvent {
 			case SunEventMorning:
 				return DayPhaseMorning
-			case SunEventDay:
-				return DayPhaseDay
+			case SunEventMidday:
+				return DayPhaseMidday
+			case SunEventAfternoon:
+				return DayPhaseAfternoon
 			case SunEventSunset:
 				return DayPhaseSunset
 			case SunEventDusk:
@@ -295,7 +305,7 @@ func (c *Calculator) CalculateDayPhase(schedule *config.ParsedSchedule) DayPhase
 				// Astronomical night but before scheduled night time
 				return DayPhaseWinddown
 			default:
-				return DayPhaseDay
+				return DayPhaseMidday
 			}
 		}
 
@@ -308,8 +318,11 @@ func (c *Calculator) CalculateDayPhase(schedule *config.ParsedSchedule) DayPhase
 	case SunEventMorning:
 		return DayPhaseMorning
 
-	case SunEventDay:
-		return DayPhaseDay
+	case SunEventMidday:
+		return DayPhaseMidday
+
+	case SunEventAfternoon:
+		return DayPhaseAfternoon
 
 	case SunEventSunset:
 		return DayPhaseSunset
@@ -327,7 +340,7 @@ func (c *Calculator) CalculateDayPhase(schedule *config.ParsedSchedule) DayPhase
 		return DayPhaseWinddown
 
 	default:
-		return DayPhaseDay
+		return DayPhaseMidday
 	}
 }
 
@@ -364,8 +377,10 @@ func ValidateDayPhase(phase string) (DayPhase, error) {
 	switch phase {
 	case string(DayPhaseMorning):
 		return DayPhaseMorning, nil
-	case string(DayPhaseDay):
-		return DayPhaseDay, nil
+	case string(DayPhaseMidday):
+		return DayPhaseMidday, nil
+	case string(DayPhaseAfternoon):
+		return DayPhaseAfternoon, nil
 	case string(DayPhaseSunset):
 		return DayPhaseSunset, nil
 	case string(DayPhaseDusk):

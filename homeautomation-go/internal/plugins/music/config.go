@@ -52,7 +52,7 @@ func LoadConfig(path string) (*MusicConfig, error) {
 	}
 
 	// Validate that we have all expected modes
-	expectedModes := []string{"morning", "day", "evening", "winddown", "sleep", "sex", "wakeup"}
+	expectedModes := []string{"morning", "midday", "afternoon", "evening", "winddown", "sleep", "sex", "wakeup"}
 	for _, mode := range expectedModes {
 		if _, ok := config.Music[mode]; !ok {
 			return nil, fmt.Errorf("missing required music mode: %s", mode)

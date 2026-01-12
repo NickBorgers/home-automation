@@ -54,7 +54,7 @@ func TestCalculator_GetSunEvent(t *testing.T) {
 	assert.NotEmpty(t, sunEvent)
 
 	// Verify it's one of the valid sun events
-	validEvents := []SunEvent{SunEventMorning, SunEventDay, SunEventSunset, SunEventDusk, SunEventNight}
+	validEvents := []SunEvent{SunEventMorning, SunEventMidday, SunEventAfternoon, SunEventSunset, SunEventDusk, SunEventNight}
 	found := false
 	for _, valid := range validEvents {
 		if sunEvent == valid {
@@ -96,7 +96,8 @@ func TestCalculator_CalculateDayPhase(t *testing.T) {
 	// Verify it's one of the valid day phases
 	validPhases := []DayPhase{
 		DayPhaseMorning,
-		DayPhaseDay,
+		DayPhaseMidday,
+		DayPhaseAfternoon,
 		DayPhaseSunset,
 		DayPhaseDusk,
 		DayPhaseWinddown,
@@ -216,8 +217,8 @@ func TestCalculator_GetSunEventAllPeriods(t *testing.T) {
 			expected:      SunEventMorning,
 		},
 		{
-			name:          "day - between noon and golden hour start",
-			testTime:      afternoonTime, // 3:00 PM - afternoon (after noon)
+			name:          "afternoon - between 14:00 and golden hour start",
+			testTime:      afternoonTime, // 3:00 PM - afternoon (after 14:00)
 			dawn:          afternoonTime.Add(-9 * time.Hour),
 			sunrise:       afternoonTime.Add(-8 * time.Hour),
 			sunriseEnd:    afternoonTime.Add(-7*time.Hour - 30*time.Minute),
@@ -228,7 +229,7 @@ func TestCalculator_GetSunEventAllPeriods(t *testing.T) {
 			dusk:          afternoonTime.Add(3*time.Hour + 30*time.Minute),
 			nauticalDusk:  afternoonTime.Add(4 * time.Hour),
 			night:         afternoonTime.Add(5 * time.Hour),
-			expected:      SunEventDay,
+			expected:      SunEventAfternoon,
 		},
 		{
 			name:          "sunset - golden hour",
@@ -345,10 +346,10 @@ func TestCalculator_CalculateDayPhaseAllCases(t *testing.T) {
 			expected: DayPhaseMorning,
 		},
 		{
-			name:     "day phase",
-			testTime: afternoonTime, // Use afternoon time (after noon)
+			name:     "afternoon phase",
+			testTime: afternoonTime, // Use afternoon time (after 14:00)
 			setupSunTimes: func(c *Calculator, now time.Time) {
-				// Set sun times so current time falls in day period
+				// Set sun times so current time falls in afternoon period
 				setSunTimesForTest(c, now,
 					now.Add(-9*time.Hour),                // dawn
 					now.Add(-8*time.Hour),                // sunrise
@@ -371,8 +372,8 @@ func TestCalculator_CalculateDayPhaseAllCases(t *testing.T) {
 				GoToBed:         time.Date(2024, 1, 15, 22, 30, 0, 0, time.UTC),
 				Night:           time.Date(2024, 1, 15, 23, 0, 0, 0, time.UTC),
 			},
-			// At 3pm (afternoon), sun event is day -> returns day
-			expected: DayPhaseDay,
+			// At 3pm (afternoon), sun event is afternoon -> returns afternoon
+			expected: DayPhaseAfternoon,
 		},
 		{
 			name:     "sunset phase",
@@ -656,7 +657,7 @@ func TestCalculator_CalculateDayPhaseEdgeCases(t *testing.T) {
 	mockClock := clock.NewMockClock(now)
 	calc.SetClock(mockClock)
 
-	// Test day sun event - afternoon time (after noon) with sun times showing day period
+	// Test afternoon sun event - afternoon time (after 14:00) with sun times showing afternoon period
 	setSunTimesForTest(calc, now,
 		now.Add(-9*time.Hour),                // dawn
 		now.Add(-8*time.Hour),                // sunrise
@@ -670,9 +671,9 @@ func TestCalculator_CalculateDayPhaseEdgeCases(t *testing.T) {
 		now.Add(6*time.Hour),                 // night
 	)
 
-	// Since it's afternoon (after noon) and before golden hour, it should be day
+	// Since it's afternoon (after 14:00) and before golden hour, it should be afternoon
 	phase := calc.CalculateDayPhase(nil)
-	assert.Equal(t, DayPhaseDay, phase)
+	assert.Equal(t, DayPhaseAfternoon, phase)
 }
 
 func TestCalculator_AutoUpdateSunTimes(t *testing.T) {
@@ -722,7 +723,8 @@ func TestValidateDayPhase(t *testing.T) {
 		shouldErr bool
 	}{
 		{"valid morning", "morning", DayPhaseMorning, false},
-		{"valid day", "day", DayPhaseDay, false},
+		{"valid midday", "midday", DayPhaseMidday, false},
+		{"valid afternoon", "afternoon", DayPhaseAfternoon, false},
 		{"valid sunset", "sunset", DayPhaseSunset, false},
 		{"valid dusk", "dusk", DayPhaseDusk, false},
 		{"valid winddown", "winddown", DayPhaseWinddown, false},
@@ -751,7 +753,8 @@ func TestSunEventConstants(t *testing.T) {
 	)
 
 	assert.Equal(t, SunEvent("morning"), SunEventMorning)
-	assert.Equal(t, SunEvent("day"), SunEventDay)
+	assert.Equal(t, SunEvent("midday"), SunEventMidday)
+	assert.Equal(t, SunEvent("afternoon"), SunEventAfternoon)
 	assert.Equal(t, SunEvent("sunset"), SunEventSunset)
 	assert.Equal(t, SunEvent("dusk"), SunEventDusk)
 	assert.Equal(t, SunEvent("night"), SunEventNight)
@@ -763,7 +766,8 @@ func TestDayPhaseConstants(t *testing.T) {
 	)
 
 	assert.Equal(t, DayPhase("morning"), DayPhaseMorning)
-	assert.Equal(t, DayPhase("day"), DayPhaseDay)
+	assert.Equal(t, DayPhase("midday"), DayPhaseMidday)
+	assert.Equal(t, DayPhase("afternoon"), DayPhaseAfternoon)
 	assert.Equal(t, DayPhase("sunset"), DayPhaseSunset)
 	assert.Equal(t, DayPhase("dusk"), DayPhaseDusk)
 	assert.Equal(t, DayPhase("winddown"), DayPhaseWinddown)

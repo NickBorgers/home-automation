@@ -24,7 +24,8 @@ flowchart TB
     subgraph SunEvents["Sun Events (simplified)"]
         SE_night["night"]
         SE_morning["morning"]
-        SE_day["day"]
+        SE_midday["midday"]
+        SE_afternoon["afternoon"]
         SE_sunset["sunset"]
         SE_dusk["dusk"]
     end
@@ -32,21 +33,24 @@ flowchart TB
     subgraph DayPhases["Day Phases (schedule-adjusted)"]
         DP_night["night"]
         DP_morning["morning"]
-        DP_day["day"]
+        DP_midday["midday"]
+        DP_afternoon["afternoon"]
         DP_sunset["sunset"]
         DP_dusk["dusk"]
         DP_winddown["winddown"]
     end
 
     dawn --> SE_morning
-    noon["noon (12:00)"] --> SE_day
+    eleven["11:00"] --> SE_midday
+    fourteen["14:00"] --> SE_afternoon
     goldenHour --> SE_sunset
     dusk --> SE_dusk
     night --> SE_night
 
     SE_night --> DP_night
     SE_morning --> DP_morning
-    SE_day --> DP_day
+    SE_midday --> DP_midday
+    SE_afternoon --> DP_afternoon
     SE_sunset --> DP_sunset
     SE_dusk --> DP_dusk
     SE_night --> DP_winddown
@@ -63,22 +67,25 @@ The daily cycle of phases based on astronomical events and schedule configuratio
 ```mermaid
 flowchart LR
     night["night<br/>(00:00-dawn)"]
-    morning["morning<br/>(dawn-noon)"]
-    day["day<br/>(noon-goldenHour)"]
+    morning["morning<br/>(dawn-11:00)"]
+    midday["midday<br/>(11:00-14:00)"]
+    afternoon["afternoon<br/>(14:00-goldenHour)"]
     sunset["sunset<br/>(goldenHour-schedule.dusk)"]
     dusk["dusk<br/>(schedule.dusk-schedule.night)"]
     winddown["winddown<br/>(astronomical night<br/>before schedule.night)"]
 
     night --> morning
-    morning --> day
-    day --> sunset
+    morning --> midday
+    midday --> afternoon
+    afternoon --> sunset
     sunset --> dusk
     dusk --> winddown
     winddown --> night
 
     style night fill:#1a1a2e,color:#fff
     style morning fill:#ff6b6b,color:#fff
-    style day fill:#ffd93d,color:#000
+    style midday fill:#ffd93d,color:#000
+    style afternoon fill:#feca57,color:#000
     style sunset fill:#ff8c42,color:#fff
     style dusk fill:#6c5ce7,color:#fff
     style winddown fill:#2d3436,color:#fff
@@ -92,7 +99,8 @@ The music plugin maps day phases to music modes with additional context awarenes
 flowchart TD
     subgraph DayPhase["Day Phase Input"]
         DP_morning["morning"]
-        DP_day["day"]
+        DP_midday["midday"]
+        DP_afternoon["afternoon"]
         DP_sunset["sunset"]
         DP_dusk["dusk"]
         DP_winddown["winddown"]
@@ -107,7 +115,8 @@ flowchart TD
 
     subgraph MusicMode["Music Mode Output"]
         MM_morning["morning<br/>(energetic instrumental)"]
-        MM_day["day<br/>(upbeat/chill)"]
+        MM_midday["midday<br/>(upbeat/chill)"]
+        MM_afternoon["afternoon<br/>(upbeat/chill)"]
         MM_evening["evening<br/>(jazz/classical)"]
         MM_winddown["winddown<br/>(ambient/relaxing)"]
         MM_sleep["sleep<br/>(rain sounds)"]
@@ -115,11 +124,12 @@ flowchart TD
 
     DP_morning --> wakeup
     wakeup -->|Yes| sunday
-    wakeup -->|No| MM_day
-    sunday -->|Yes| MM_day
+    wakeup -->|No| MM_midday
+    sunday -->|Yes| MM_midday
     sunday -->|No| MM_morning
 
-    DP_day --> MM_day
+    DP_midday --> MM_midday
+    DP_afternoon --> MM_afternoon
 
     DP_sunset --> MM_evening
     DP_dusk --> MM_evening
@@ -130,7 +140,8 @@ flowchart TD
     sleeping -->|No| MM_winddown
 
     style MM_morning fill:#ff6b6b,color:#fff
-    style MM_day fill:#ffd93d,color:#000
+    style MM_midday fill:#ffd93d,color:#000
+    style MM_afternoon fill:#feca57,color:#000
     style MM_evening fill:#ff8c42,color:#fff
     style MM_winddown fill:#6c5ce7,color:#fff
     style MM_sleep fill:#1a1a2e,color:#fff
@@ -141,7 +152,8 @@ flowchart TD
 | Music Mode | Day Phases | Playlist Style | Notes |
 |------------|------------|----------------|-------|
 | `morning` | morning (wake-up only) | Instrumental melodic house/techno, epic classical | Only plays on wake-up events; skipped on Sundays |
-| `day` | morning (no wake-up), day | Kygo, chill tracks, soft house, country | Default daytime music |
+| `midday` | morning (no wake-up), midday | Kygo, chill tracks, soft house, country | Late morning/midday music |
+| `afternoon` | afternoon | Kygo, chill tracks, soft house, country | Afternoon music |
 | `evening` | sunset, dusk | Instrumental study, jazz, classical, chilled jazz | Calmer evening music |
 | `winddown` | winddown, night | Floating through space, ambient relaxation, sleep prep | Pre-sleep relaxation |
 | `sleep` | (manual trigger) | Rain sounds | Triggered by sleep state, not day phase |
@@ -163,7 +175,8 @@ flowchart LR
 
     subgraph Examples["Example Scenes"]
         ex1["scene.living_room_morning"]
-        ex2["scene.living_room_day"]
+        ex2["scene.living_room_midday"]
+        ex2b["scene.living_room_afternoon"]
         ex3["scene.living_room_sunset"]
         ex4["scene.living_room_dusk"]
         ex5["scene.living_room_winddown"]
@@ -173,6 +186,7 @@ flowchart LR
     DP --> construct
     construct --> ex1
     construct --> ex2
+    construct --> ex2b
     construct --> ex3
     construct --> ex4
     construct --> ex5
@@ -186,7 +200,8 @@ flowchart LR
 | Day Phase | Typical Scene Characteristics |
 |-----------|------------------------------|
 | `morning` | Bright, cool white, energizing |
-| `day` | Full brightness, natural daylight |
+| `midday` | Full brightness, natural daylight |
+| `afternoon` | Full brightness, slightly warmer |
 | `sunset` | Warm colors, dimming begins |
 | `dusk` | Warmer, lower brightness |
 | `winddown` | Very warm, low brightness |

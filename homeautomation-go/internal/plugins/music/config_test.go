@@ -27,7 +27,16 @@ music:
       - uri: spotify:playlist:37i9dQZF1DWSf2RDTDayIx
         media_type: playlist
         volume_multiplier: 1.0
-  day:
+  midday:
+    participants:
+      - player_name: Living Room
+        base_volume: 20
+        leave_muted_if: []
+    playback_options:
+      - uri: spotify:playlist:37i9dQZF1DX0XUsuxWHRQd
+        media_type: playlist
+        volume_multiplier: 1.0
+  afternoon:
     participants:
       - player_name: Living Room
         base_volume: 20
@@ -94,7 +103,7 @@ music:
 	}
 
 	// Verify the config has all expected modes
-	expectedModes := []string{"morning", "day", "evening", "winddown", "sleep", "sex", "wakeup"}
+	expectedModes := []string{"morning", "midday", "afternoon", "evening", "winddown", "sleep", "sex", "wakeup"}
 	if len(config.Music) != len(expectedModes) {
 		t.Errorf("Expected %d music modes, got %d", len(expectedModes), len(config.Music))
 	}
@@ -177,7 +186,16 @@ music:
       - uri: spotify:playlist:test
         media_type: playlist
         volume_multiplier: 1.0
-  day:
+  midday:
+    participants:
+      - player_name: Living Room
+        base_volume: 20
+        leave_muted_if: []
+    playback_options:
+      - uri: spotify:playlist:test
+        media_type: playlist
+        volume_multiplier: 1.0
+  afternoon:
     participants:
       - player_name: Living Room
         base_volume: 20
@@ -267,7 +285,16 @@ music:
       - uri: spotify:playlist:test
         media_type: playlist
         volume_multiplier: 1.0
-  day:
+  midday:
+    participants:
+      - player_name: Living Room
+        base_volume: 20
+        leave_muted_if: []
+    playback_options:
+      - uri: spotify:playlist:test
+        media_type: playlist
+        volume_multiplier: 1.0
+  afternoon:
     participants:
       - player_name: Living Room
         base_volume: 20
@@ -383,12 +410,12 @@ music:
 	}
 
 	// Check that modes without exclude_if have empty slice (not nil)
-	day := config.Music["day"]
-	if len(day.Participants) != 1 {
-		t.Fatalf("Expected 1 participant for day mode, got %d", len(day.Participants))
+	midday := config.Music["midday"]
+	if len(midday.Participants) != 1 {
+		t.Fatalf("Expected 1 participant for midday mode, got %d", len(midday.Participants))
 	}
 	// exclude_if should be nil or empty if not specified in YAML
-	if len(day.Participants[0].ExcludeIf) > 0 {
-		t.Errorf("Day: expected no exclude_if conditions, got %d", len(day.Participants[0].ExcludeIf))
+	if len(midday.Participants[0].ExcludeIf) > 0 {
+		t.Errorf("Midday: expected no exclude_if conditions, got %d", len(midday.Participants[0].ExcludeIf))
 	}
 }

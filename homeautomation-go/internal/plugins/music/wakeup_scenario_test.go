@@ -110,7 +110,7 @@ import (
 	"go.uber.org/zap"
 )
 
-// createWakeupTestConfig creates a minimal configuration with morning and day modes
+// createWakeupTestConfig creates a minimal configuration with morning, midday, and afternoon modes
 // that mirrors the actual music_config.yaml structure.
 func createWakeupTestConfig() *MusicConfig {
 	return &MusicConfig{
@@ -136,7 +136,7 @@ func createWakeupTestConfig() *MusicConfig {
 					},
 				},
 			},
-			"day": {
+			"midday": {
 				Participants: []Participant{
 					{
 						PlayerName:   "Kitchen",
@@ -151,7 +151,28 @@ func createWakeupTestConfig() *MusicConfig {
 				},
 				PlaybackOptions: []PlaybackOption{
 					{
-						URI:              "spotify:playlist:day_chill",
+						URI:              "spotify:playlist:midday_chill",
+						MediaType:        "playlist",
+						VolumeMultiplier: 1.0,
+					},
+				},
+			},
+			"afternoon": {
+				Participants: []Participant{
+					{
+						PlayerName:   "Kitchen",
+						BaseVolume:   9,
+						LeaveMutedIf: []MuteCondition{},
+					},
+					{
+						PlayerName:   "Soundbar",
+						BaseVolume:   10,
+						LeaveMutedIf: []MuteCondition{},
+					},
+				},
+				PlaybackOptions: []PlaybackOption{
+					{
+						URI:              "spotify:playlist:afternoon_chill",
 						MediaType:        "playlist",
 						VolumeMultiplier: 1.0,
 					},
@@ -373,8 +394,8 @@ func TestScenario_WakeUpOnSunday_TriggersDayMusic(t *testing.T) {
 	musicType, err := stateManager.GetString("musicPlaybackType")
 	require.NoError(t, err)
 
-	assert.Equal(t, "day", musicType,
-		"Wake-up on SUNDAY should trigger DAY music (Sunday override). "+
+	assert.Equal(t, "midday", musicType,
+		"Wake-up on SUNDAY should trigger MIDDAY music (Sunday override). "+
 			"Node-RED checks daynum != 0 before returning 'morning'.")
 }
 
@@ -514,8 +535,8 @@ func TestScenario_DayPhaseChangesToMorning_TriggersDayMusic(t *testing.T) {
 	musicType, err := stateManager.GetString("musicPlaybackType")
 	require.NoError(t, err)
 
-	assert.Equal(t, "day", musicType,
-		"Day phase change to 'morning' (without wake-up event) should trigger DAY music. "+
+	assert.Equal(t, "midday", musicType,
+		"Day phase change to 'morning' (without wake-up event) should trigger MIDDAY music. "+
 			"Morning music only plays when triggered by someone waking up.")
 }
 
@@ -812,17 +833,17 @@ func TestScenario_FullWakeUpCycle(t *testing.T) {
 			"This is the core bug - Go currently returns 'day' instead of 'morning'.")
 
 	// ==========================================================
-	// PHASE 4: Day phase change
+	// PHASE 4: Midday phase change
 	// ==========================================================
-	timeProvider.SetTime(time.Date(2024, 1, 15, 9, 0, 0, 0, time.UTC))
+	timeProvider.SetTime(time.Date(2024, 1, 15, 12, 0, 0, 0, time.UTC))
 	mockClient.ClearServiceCalls()
 
-	_ = stateManager.SetString("dayPhase", "day")
+	_ = stateManager.SetString("dayPhase", "midday")
 
 	time.Sleep(50 * time.Millisecond)
 
 	musicType, _ = stateManager.GetString("musicPlaybackType")
-	assert.Equal(t, "day", musicType, "Phase 4: Day music should play during day phase")
+	assert.Equal(t, "midday", musicType, "Phase 4: Midday music should play during midday phase")
 }
 
 // =============================================================================

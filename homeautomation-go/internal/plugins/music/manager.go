@@ -323,25 +323,28 @@ func (m *Manager) determineMusicModeFromDayPhase(dayPhase string, currentMusicTy
 	switch dayPhase {
 	case "morning":
 		// Morning music ONLY plays when someone wakes up (matches Node-RED)
-		// Otherwise, fall back to day music during morning phase
+		// Otherwise, fall back to midday music during morning phase
 		if isWakeUpEvent {
 			// Check if it's Sunday (no morning music on Sundays)
 			// Use configured timezone to avoid UTC-based weekday check issues
 			// (e.g., 6 PM CST Saturday = 00:00 UTC Sunday)
 			nowLocal := m.timeProvider.Now().In(m.timezone)
 			if nowLocal.Weekday() == time.Sunday {
-				m.logger.Debug("Sunday detected, using day mode instead of morning")
-				return "day"
+				m.logger.Debug("Sunday detected, using midday mode instead of morning")
+				return "midday"
 			}
 			m.logger.Info("Wake-up event during morning phase, playing morning music")
 			return "morning"
 		}
-		// During morning phase but not a wake-up event - use day music
-		m.logger.Debug("Morning phase but not a wake-up event, using day music")
-		return "day"
+		// During morning phase but not a wake-up event - use midday music
+		m.logger.Debug("Morning phase but not a wake-up event, using midday music")
+		return "midday"
 
-	case "day":
-		return "day"
+	case "midday":
+		return "midday"
+
+	case "afternoon":
+		return "afternoon"
 
 	case "sunset", "dusk":
 		return "evening"
@@ -355,9 +358,9 @@ func (m *Manager) determineMusicModeFromDayPhase(dayPhase string, currentMusicTy
 		return "winddown"
 
 	default:
-		m.logger.Warn("Unknown day phase, defaulting to day mode",
+		m.logger.Warn("Unknown day phase, defaulting to midday mode",
 			zap.String("day_phase", dayPhase))
-		return "day"
+		return "midday"
 	}
 }
 

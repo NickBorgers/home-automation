@@ -287,7 +287,7 @@ func (m *Manager) updateNextTransition(currentPhase dayphaselib.DayPhase) {
 	var nextPhase string
 
 	// Determine next transition based on current phase
-	// Transition order: night → morning → day → sunset → dusk → winddown → night
+	// Transition order: night → morning → midday → afternoon → sunset → dusk → winddown → night
 	switch currentPhase {
 	case dayphaselib.DayPhaseNight:
 		// Next: morning at dawn
@@ -302,13 +302,22 @@ func (m *Manager) updateNextTransition(currentPhase dayphaselib.DayPhase) {
 		}
 
 	case dayphaselib.DayPhaseMorning:
-		// Next: day at goldenHourEnd
-		if t, ok := sunTimes["goldenHourEnd"]; ok && t.After(now) {
-			nextTime = t
-			nextPhase = string(dayphaselib.DayPhaseDay)
+		// Next: midday at 11:00 local time
+		elevenAM := time.Date(now.Year(), now.Month(), now.Day(), 11, 0, 0, 0, m.timezone)
+		if elevenAM.After(now) {
+			nextTime = elevenAM
+			nextPhase = string(dayphaselib.DayPhaseMidday)
 		}
 
-	case dayphaselib.DayPhaseDay:
+	case dayphaselib.DayPhaseMidday:
+		// Next: afternoon at 14:00 local time
+		twoPM := time.Date(now.Year(), now.Month(), now.Day(), 14, 0, 0, 0, m.timezone)
+		if twoPM.After(now) {
+			nextTime = twoPM
+			nextPhase = string(dayphaselib.DayPhaseAfternoon)
+		}
+
+	case dayphaselib.DayPhaseAfternoon:
 		// Next: sunset at goldenHour
 		if t, ok := sunTimes["goldenHour"]; ok && t.After(now) {
 			nextTime = t
