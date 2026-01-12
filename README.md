@@ -66,7 +66,7 @@ The devcontainer automatically:
 - Installs Go 1.25 and all required dependencies
 - Sets up Go modules (`go mod tidy && go mod download`)
 - Installs git hooks (pre-commit and pre-push validation)
-- Installs GitHub CLI, Claude Code CLI, and Playwright
+- Installs GitHub CLI, Claude Code CLI, and Playwright (with Chromium)
 - Configures VS Code extensions for Go and Mermaid
 
 ### Manual Setup (Without Devcontainer)
@@ -91,6 +91,8 @@ bash .githooks/install-hooks.sh
 
 # 3. (Optional) Install Claude Code CLI
 npm install -g @anthropic-ai/claude-code
+
+# 4. (Optional) For Playwright/screenshot testing, see AGENTS.md "Testing UI Changes" section
 ```
 
 ### Quick Start
