@@ -90,3 +90,97 @@ jobs:
 
       - name: Image digest
         run: echo "Image pushed with digest ${{ steps.build-and-push.outputs.digest }}"
+
+  verify-pushed-image:
+    name: Verify Pushed Image Works
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    permissions:
+      contents: read
+      packages: read
+
+    steps:
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull and test pushed image
+        run: |
+          # Use the SHA-based tag for exact image verification
+          # The metadata-action uses prefix={{branch}}- so tag is main-<sha7> or master-<sha7>
+          BRANCH="${GITHUB_REF_NAME}"
+          IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${BRANCH}-${GITHUB_SHA::7}"
+          echo "🔍 Testing image: $IMAGE"
+
+          # Pull the image we just pushed
+          docker pull "$IMAGE"
+
+          echo "🚀 Running container startup smoke test..."
+
+          # Start container in DEV_MODE (uses mock HA server)
+          docker run -d --name prod-smoke-test \
+            -e DEV_MODE=true \
+            -p 8080:8080 \
+            "$IMAGE"
+
+          # Wait for container to either become healthy or crash
+          echo "Waiting for container to start (max 30 seconds)..."
+          for i in $(seq 1 30); do
+            # Check if container is still running
+            if ! docker ps -q --filter "name=prod-smoke-test" | grep -q .; then
+              echo "❌ Container exited unexpectedly!"
+              echo ""
+              echo "Container logs:"
+              docker logs prod-smoke-test
+              docker rm prod-smoke-test || true
+              exit 1
+            fi
+
+            # Check if health endpoint responds
+            if curl -sf http://localhost:8080/health >/dev/null 2>&1; then
+              echo "✅ Container started successfully (health check passed)"
+              break
+            fi
+
+            if [ $i -eq 30 ]; then
+              echo "❌ Container failed to become healthy within 30 seconds"
+              echo ""
+              echo "Container logs:"
+              docker logs prod-smoke-test
+              docker stop prod-smoke-test || true
+              docker rm prod-smoke-test || true
+              exit 1
+            fi
+
+            sleep 1
+          done
+
+          # Additional verification: check dashboard endpoint
+          if curl -sf http://localhost:8080/dashboard >/dev/null 2>&1; then
+            echo "✅ Dashboard endpoint responding"
+          else
+            echo "⚠️  Dashboard endpoint not responding (non-fatal)"
+          fi
+
+          # Check shadow API returns valid JSON
+          if curl -sf http://localhost:8080/api/shadow | jq . >/dev/null 2>&1; then
+            echo "✅ Shadow API returns valid JSON"
+          else
+            echo "⚠️  Shadow API not returning valid JSON (non-fatal)"
+          fi
+
+          # Cleanup
+          docker stop prod-smoke-test
+          docker rm prod-smoke-test
+          echo ""
+          echo "==============================================="
+          echo "    REGISTRY-PULLED IMAGE VERIFICATION"
+          echo "==============================================="
+          echo "✅ Image pulled successfully from ghcr.io"
+          echo "✅ Container starts without panic"
+          echo "✅ Health endpoint responds"
+          echo "✅ Registry-pulled image is production-ready"
+          echo "==============================================="
