@@ -110,7 +110,9 @@ jobs:
       - name: Pull and test pushed image
         run: |
           # Use the SHA-based tag for exact image verification
-          IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${GITHUB_SHA::7}"
+          # The metadata-action uses prefix={{branch}}- so tag is main-<sha7> or master-<sha7>
+          BRANCH="${GITHUB_REF_NAME}"
+          IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${BRANCH}-${GITHUB_SHA::7}"
           echo "🔍 Testing image: $IMAGE"
 
           # Pull the image we just pushed
