@@ -446,5 +446,5 @@ git commit -m "docs: Add screenshot of [feature]"
 ---
 
 **Last Updated:** 2026-01-10
-**Go Version:** 1.23
+**Go Version:** 1.24
 **Project Status:** Production
