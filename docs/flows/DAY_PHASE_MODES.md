@@ -292,6 +292,14 @@ flowchart LR
 
 ## Related Documentation
 
+### Detailed Flow Documentation
+
+- [MUSIC_PLAYBACK.md](./MUSIC_PLAYBACK.md) - Music playback orchestration, speaker grouping, volume fading
+- [LIGHTING_CONTROL.md](./LIGHTING_CONTROL.md) - Scene management, manual overrides, wake protection
+- [SLEEP_HYGIENE.md](./SLEEP_HYGIENE.md) - Wake sequence, Eight Sleep integration, bedtime triggers
+
+### Reference
+
 - [PLUGIN_SYSTEM.md](../reference/PLUGIN_SYSTEM.md) - Plugin architecture details
 - [SHADOW_STATE.md](../reference/SHADOW_STATE.md) - Shadow state pattern for debugging
 - [migration_mapping.md](../reference/migration_mapping.md) - State variable reference

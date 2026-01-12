@@ -12,9 +12,23 @@ As the system migrates from Node-RED to Golang, we lose the inherent visual repr
 
 ## Documents
 
+### Core Flows
+
+| Document | Plugin | Description |
+|----------|--------|-------------|
+| [STATE_TRACKING.md](./STATE_TRACKING.md) | statetracking | Derived presence/sleep states, arrival announcements |
+| [MUSIC_PLAYBACK.md](./MUSIC_PLAYBACK.md) | music | Whole-home audio based on day phase and presence |
+| [LIGHTING_CONTROL.md](./LIGHTING_CONTROL.md) | lighting | Scene automation based on day phase and sleep |
+| [SLEEP_HYGIENE.md](./SLEEP_HYGIENE.md) | sleephygiene | Wake-up sequences, bedtime reminders |
+| [SECURITY.md](./SECURITY.md) | security | Lockdown, garage, doorbell notifications |
+| [ENERGY_MANAGEMENT.md](./ENERGY_MANAGEMENT.md) | energy | Battery/solar monitoring, indicator lights |
+| [LOAD_SHEDDING.md](./LOAD_SHEDDING.md) | loadshedding | HVAC control based on energy levels |
+
+### Reference
+
 | Document | Description |
 |----------|-------------|
-| [DAY_PHASE_MODES.md](./DAY_PHASE_MODES.md) | How dayPhase drives music modes and lighting scenes |
+| [DAY_PHASE_MODES.md](./DAY_PHASE_MODES.md) | Day phase calculation, schedules, and mode relationships |
 
 ## When to Update
 
