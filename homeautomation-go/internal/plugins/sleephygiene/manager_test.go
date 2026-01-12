@@ -200,6 +200,10 @@ func TestWake_AllConditionsMet(t *testing.T) {
 	now := time.Date(2024, 1, 15, 9, 30, 0, 0, time.UTC)
 	manager, mockHA, stateManager, _ := setupTest(t, now)
 
+	// Skip internal sleeps so the test completes quickly
+	// This makes the 25-minute wake music delay instant
+	manager.SetSleepFunc(func(d time.Duration) {})
+
 	// Ensure all conditions are met
 	stateManager.SetBool("isAnyoneHome", true)
 	stateManager.SetBool("isMasterAsleep", true)
@@ -212,6 +216,9 @@ func TestWake_AllConditionsMet(t *testing.T) {
 
 	// Trigger wake
 	manager.handleWake()
+
+	// Wait for goroutine (scheduleWakeMusic) to complete
+	time.Sleep(100 * time.Millisecond)
 
 	// Verify service calls were made
 	calls := mockHA.GetServiceCalls()
@@ -238,7 +245,8 @@ func TestWake_AllConditionsMet(t *testing.T) {
 		t.Error("Expected light.turn_on call for primary suite")
 	}
 
-	// Verify wake music was activated
+	// Verify wake music was activated after the scheduled delay
+	// (sleepFunc is mocked so it's instant)
 	musicType, err := stateManager.GetString("musicPlaybackType")
 	if err != nil {
 		t.Errorf("Failed to get musicPlaybackType: %v", err)
