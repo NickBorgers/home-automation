@@ -104,14 +104,34 @@ For architecture details, see [docs/](docs/):
 
 ## Contributing
 
-All pull requests require passing tests before merge:
+All pull requests go through a two-phase review process before merge:
 
+### 1. Automated Tests (PR Tests)
 - Go unit tests with race detector
 - Integration tests
 - Config validation (YAML + Spotify URIs)
 - Coverage check (≥65%)
+- Docker build validation
 
-See [docs/operations/BRANCH_PROTECTION.md](docs/operations/BRANCH_PROTECTION.md) for details.
+### 2. AI-Powered Code Review (Claude Code Review)
+After tests pass, a multi-agent AI review pipeline automatically runs:
+
+| Agent | Focus |
+|-------|-------|
+| Design Review | Validates PR implements issue intent, critiques design decisions |
+| Code Review | Code quality, patterns, error handling |
+| Test Review | Missing tests, test quality |
+| Concurrency Review | Race conditions, mutex usage, goroutine leaks |
+| Docs Review | Documentation updates needed for code changes |
+| Merge Decision | Final go/no-go based on all reviews |
+
+**Important notes:**
+- AI reviewers may push commits directly to your PR branch (fixes, doc updates)
+- If tests fail, Claude will attempt to fix them (up to 3 times) and push fixes to your branch
+- Reviews are skipped for PRs from forks (security measure) - maintainers will review manually
+- To re-run reviews after they pass, close and reopen the PR
+
+See [docs/operations/CLAUDE_GHA_PIPELINES.md](docs/operations/CLAUDE_GHA_PIPELINES.md) for the full workflow details and [docs/operations/BRANCH_PROTECTION.md](docs/operations/BRANCH_PROTECTION.md) for branch protection rules.
 
 ## Legacy Reference
 
