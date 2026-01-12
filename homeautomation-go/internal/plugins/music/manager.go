@@ -1666,7 +1666,10 @@ func (m *Manager) fadeInSpeaker(ctx context.Context, speakerName string, targetV
 			// Skip check if we couldn't get the volume (returns -1)
 			// For fade-in: if actual volume is significantly LOWER than what we set,
 			// someone is fighting the fade-in (turning it down)
-			if actualVolume >= 0 && actualVolume < (currentVolume-humanOverrideThreshold) {
+			// Note: Using difference check (currentVolume - actualVolume) > threshold
+			// instead of actualVolume < (currentVolume - threshold) for clarity,
+			// though they are mathematically equivalent for non-negative values.
+			if actualVolume >= 0 && (currentVolume-actualVolume) > humanOverrideThreshold {
 				// Double-check context hasn't been cancelled - if it was, this is NOT a human override
 				select {
 				case <-ctx.Done():
