@@ -167,14 +167,14 @@ cd homeautomation-go && go build ./... && go test ./... && echo "✅ Ready to pu
 ### "Tests pass locally but fail in CI"
 
 **Common causes**:
-- Go version mismatch (CI uses Go 1.23)
+- Go version mismatch (CI uses Go 1.24)
 - Missing dependencies in `go.mod`/`go.sum`
 - Race conditions only visible under CI load
 - Environment-specific issues
 
 **Solutions**:
 ```bash
-# Ensure Go 1.23
+# Ensure Go 1.24
 go version
 
 # Update dependencies

@@ -49,7 +49,7 @@ docker run --rm -it \
 
 The Dockerfile uses a multi-stage build for optimal image size:
 
-1. **Builder stage**: Uses `golang:1.23-alpine` to compile the Go binary
+1. **Builder stage**: Uses `golang:1.24-alpine` to compile the Go binary
 2. **Runtime stage**: Uses minimal `alpine:latest` with only the compiled binary
 
 ### Image Size
@@ -296,7 +296,7 @@ The GitHub Actions workflow (`.github/workflows/docker-build-push.yml`) performs
 
 ```bash
 # Check Go version matches
-go version  # Should be 1.23
+go version  # Should be 1.24
 
 # Clean and rebuild
 make clean-go

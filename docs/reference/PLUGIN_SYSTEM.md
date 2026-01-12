@@ -1046,4 +1046,4 @@ import (
 ---
 
 **Last Updated:** 2025-11-29
-**Go Version:** 1.23
+**Go Version:** 1.24

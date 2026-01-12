@@ -59,7 +59,7 @@ The system manages 30 state variables across 3 types (28 synced with HA + 2 loca
 
 ## Prerequisites
 
-- Go 1.23 or higher
+- Go 1.24 or higher
 - Home Assistant instance with WebSocket API enabled
 - Long-lived access token from Home Assistant
 

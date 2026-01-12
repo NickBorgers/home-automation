@@ -74,7 +74,7 @@ The devcontainer automatically:
 If you cannot use a devcontainer, you can set up the environment manually by running the same scripts the devcontainer uses:
 
 **Prerequisites:**
-- Go 1.23+ (1.25 recommended)
+- Go 1.24
 - Node.js 20+ (for Claude Code and Playwright)
 - Home Assistant with WebSocket API enabled
 - Long-lived access token from Home Assistant

@@ -2,7 +2,7 @@
 # This caches system packages and tools so rebuilds are faster
 # Consolidates devcontainer features into Dockerfile for better layer caching
 
-FROM mcr.microsoft.com/devcontainers/go:1.25
+FROM mcr.microsoft.com/devcontainers/go:1.24
 
 # Install system packages: Playwright browser dependencies, zsh, and utilities
 # Consolidates what was previously in common-utils feature
