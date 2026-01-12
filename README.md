@@ -53,11 +53,47 @@ Automation behavior is configured via YAML files in [`configs/`](configs/):
 
 ## Running
 
-### Prerequisites
+### Devcontainer (Recommended)
 
+**The devcontainer is the strongly recommended way to work with this repository.** It provides a pre-configured development environment with all dependencies, tools, and git hooks already installed. This is also the same environment used by CI pipelines.
+
+**Using VS Code or GitHub Codespaces:**
+1. Open the repository in VS Code
+2. When prompted, click "Reopen in Container" (or use the Command Palette: `Dev Containers: Reopen in Container`)
+3. Wait for the container to build and initialize
+
+The devcontainer automatically:
+- Installs Go 1.25 and all required dependencies
+- Sets up Go modules (`go mod tidy && go mod download`)
+- Installs git hooks (pre-commit and pre-push validation)
+- Installs GitHub CLI, Claude Code CLI, and Playwright (with Chromium)
+- Configures VS Code extensions for Go and Mermaid
+
+### Manual Setup (Without Devcontainer)
+
+If you cannot use a devcontainer, you can set up the environment manually by running the same scripts the devcontainer uses:
+
+**Prerequisites:**
 - Go 1.24
+- Node.js 20+ (for Claude Code and Playwright)
 - Home Assistant with WebSocket API enabled
 - Long-lived access token from Home Assistant
+
+**Setup steps:**
+```bash
+# 1. Install Go modules
+cd homeautomation-go
+go mod tidy && go mod download
+cd ..
+
+# 2. Install git hooks (IMPORTANT: ensures code quality)
+bash .githooks/install-hooks.sh
+
+# 3. (Optional) Install Claude Code CLI
+npm install -g @anthropic-ai/claude-code
+
+# 4. (Optional) For Playwright/screenshot testing, see AGENTS.md "Testing UI Changes" section
+```
 
 ### Quick Start
 
