@@ -631,11 +631,12 @@ flowchart TD
 
     CheckDayPhase -->|morning| CheckWakeUp{Is Wake-Up Event?}
     CheckWakeUp -->|Yes| CheckSunday{Is Sunday?}
-    CheckSunday -->|Yes| SetDay1[Set musicPlaybackType = 'day']
+    CheckSunday -->|Yes| SetMidday1[Set musicPlaybackType = 'midday']
     CheckSunday -->|No| SetMorning[Set musicPlaybackType = 'morning']
-    CheckWakeUp -->|No| SetDay2[Set musicPlaybackType = 'day']
+    CheckWakeUp -->|No| SetMidday2[Set musicPlaybackType = 'midday']
 
-    CheckDayPhase -->|day| SetDay3[Set musicPlaybackType = 'day']
+    CheckDayPhase -->|midday| SetMidday3[Set musicPlaybackType = 'midday']
+    CheckDayPhase -->|afternoon| SetAfternoon[Set musicPlaybackType = 'afternoon']
     CheckDayPhase -->|sunset/dusk| SetEvening[Set musicPlaybackType = 'evening']
     CheckDayPhase -->|winddown/night| CheckCurrentSleep{Current Type<br/>= 'sleep'?}
 
@@ -645,11 +646,12 @@ flowchart TD
     StopMusic --> End1([End])
     SetSleep --> End2([End])
     SetMorning --> TriggerPlayback1
-    SetDay1 --> TriggerPlayback2
-    SetDay2 --> TriggerPlayback3
-    SetDay3 --> TriggerPlayback4
-    SetEvening --> TriggerPlayback5
-    SetWinddown --> TriggerPlayback6
+    SetMidday1 --> TriggerPlayback2
+    SetMidday2 --> TriggerPlayback3
+    SetMidday3 --> TriggerPlayback4
+    SetAfternoon --> TriggerPlayback5
+    SetEvening --> TriggerPlayback6
+    SetWinddown --> TriggerPlayback7
     KeepSleep --> End3([End])
 
     TriggerPlayback1[State Change Triggers<br/>Playback Handler] --> Orchestrate1
@@ -658,6 +660,7 @@ flowchart TD
     TriggerPlayback4[State Change Triggers<br/>Playback Handler] --> Orchestrate4
     TriggerPlayback5[State Change Triggers<br/>Playback Handler] --> Orchestrate5
     TriggerPlayback6[State Change Triggers<br/>Playback Handler] --> Orchestrate6
+    TriggerPlayback7[State Change Triggers<br/>Playback Handler] --> Orchestrate7
 
     Orchestrate1[Orchestrate Playback] --> SelectPlaylist
     Orchestrate2[Orchestrate Playback] --> SelectPlaylist
@@ -665,6 +668,7 @@ flowchart TD
     Orchestrate4[Orchestrate Playback] --> SelectPlaylist
     Orchestrate5[Orchestrate Playback] --> SelectPlaylist
     Orchestrate6[Orchestrate Playback] --> SelectPlaylist
+    Orchestrate7[Orchestrate Playback] --> SelectPlaylist
 
     SelectPlaylist[Select Playlist with Rotation<br/>from music_config.yaml] --> BreakGroups[Break Existing Speaker Groups<br/>media_player.unjoin]
     BreakGroups --> BuildGroup[Build Sonos Speaker Group]
