@@ -1,0 +1,248 @@
+# Energy Management Flow
+
+This document describes the energy management automation flow, which monitors battery and solar levels to optimize home energy usage and provide visual indicators.
+
+## Overview
+
+The energy plugin manages home energy by:
+1. Monitoring battery percentage and solar production
+2. Calculating overall energy availability levels
+3. Displaying energy state on indicator lights throughout the home
+4. Triggering load shedding when battery is low
+
+## Energy Level Calculation
+
+The system combines battery level and solar production to determine overall energy availability:
+
+```mermaid
+flowchart TD
+    subgraph Inputs["Sensor Inputs"]
+        battery["Battery %<br/>(SPAN Panel)"]
+        thisHourSolar["This Hour Solar<br/>(kW)"]
+        remainingSolar["Remaining Solar<br/>(kWh today)"]
+        gridAvail["Grid Available?"]
+    end
+
+    subgraph Intermediate["Intermediate Levels"]
+        batteryLevel["Battery Energy Level"]
+        solarLevel["Solar Production Level"]
+        freeEnergy["Free Energy Check"]
+    end
+
+    subgraph Output["Overall Energy Level"]
+        overallLevel["currentEnergyLevel"]
+    end
+
+    battery --> batteryLevel
+    thisHourSolar --> solarLevel
+    remainingSolar --> solarLevel
+    gridAvail --> freeEnergy
+
+    batteryLevel --> overallLevel
+    solarLevel --> overallLevel
+    freeEnergy --> overallLevel
+
+    style overallLevel fill:#27ae60,color:#fff
+```
+
+### Energy State Hierarchy
+
+Energy states are ordered from lowest to highest availability:
+
+| State | Color | Battery Min | Solar Min | Meaning |
+|-------|-------|-------------|-----------|---------|
+| `black` | Black | 0% | 0 kW | Critical - minimal energy |
+| `red` | Red | 10% | 0.5 kW | Low - conserve power |
+| `yellow` | Yellow | 30% | 1.0 kW | Moderate - normal usage |
+| `green` | Green | 60% | 2.0 kW | Good - energy available |
+| `white` | White | N/A | N/A | Free energy time |
+
+### Overall Level Algorithm
+
+```mermaid
+flowchart TD
+    subgraph Check["Priority Checks"]
+        freeCheck{"Free energy<br/>available?"}
+        battLevel["Get batteryEnergyLevel"]
+        solarLevel["Get solarProductionLevel"]
+    end
+
+    subgraph Calculate["Level Calculation"]
+        findMin["Find minimum level<br/>(battery or solar)"]
+        findMax["Find maximum level<br/>(battery or solar)"]
+        capMax["Cap max at min+1<br/>(gradual transitions)"]
+    end
+
+    subgraph Result["Final Level"]
+        white["white"]
+        calculated["min(max, min+1)"]
+    end
+
+    freeCheck -->|Yes| white
+    freeCheck -->|No| battLevel
+    battLevel --> findMin
+    solarLevel --> findMin
+    battLevel --> findMax
+    solarLevel --> findMax
+    findMin --> capMax
+    findMax --> capMax
+    capMax --> calculated
+
+    style white fill:#fff,stroke:#333
+    style calculated fill:#27ae60,color:#fff
+```
+
+The capping rule (`max at min+1`) ensures gradual transitions. For example:
+- Battery: green (60%), Solar: black (0 kW) → Result: red (not green)
+- This prevents showing "green" when solar is not producing
+
+## Free Energy Detection
+
+During utility "free" hours, energy usage is unrestricted:
+
+```mermaid
+flowchart TD
+    subgraph FreeEnergy["Free Energy Check"]
+        checkGrid{"Grid<br/>available?"}
+        checkTime{"Within free<br/>energy hours?"}
+        notFree["Normal energy<br/>level calculation"]
+        isFree["Set level = white<br/>(unrestricted)"]
+    end
+
+    checkGrid -->|No| notFree
+    checkGrid -->|Yes| checkTime
+    checkTime -->|No| notFree
+    checkTime -->|Yes| isFree
+
+    style isFree fill:#fff,stroke:#333
+    style notFree fill:#3498db,color:#fff
+```
+
+Free energy hours are configured (typically overnight when utility rates are lowest or during grid surplus).
+
+## Indicator Light Updates
+
+Energy state is displayed on RGB indicator lights (Apollo MTR-2 sensors):
+
+```mermaid
+flowchart TD
+    subgraph Discovery["Light Discovery"]
+        findLights["Find lights matching<br/>'Radar' pattern"]
+        findLux["Find associated<br/>lux sensors"]
+    end
+
+    subgraph Update["Light Update"]
+        getLevel["Get currentEnergyLevel"]
+        getColor["Get RGB color for level"]
+        adaptive{"Adaptive<br/>brightness?"}
+        staticBright["Use static brightness"]
+        adaptiveBright["Calculate per-device<br/>brightness from lux"]
+    end
+
+    subgraph Apply["Apply Settings"]
+        callHA["Call light.turn_on<br/>with RGB + brightness"]
+    end
+
+    findLights --> findLux
+    findLux --> getLevel
+    getLevel --> getColor
+    getColor --> adaptive
+    adaptive -->|No| staticBright
+    adaptive -->|Yes| adaptiveBright
+    staticBright --> callHA
+    adaptiveBright --> callHA
+
+    style callHA fill:#3498db,color:#fff
+```
+
+### Adaptive Brightness
+
+When enabled, indicator lights adjust brightness based on ambient light:
+
+```mermaid
+flowchart LR
+    subgraph Calibration["Baseline Calibration"]
+        dim["Dim LED to 5%"]
+        wait["Wait 65 seconds"]
+        read["Read lux sensor<br/>(true ambient)"]
+        restore["Restore LED"]
+    end
+
+    subgraph Brightness["Brightness Calculation"]
+        baseline["Use baseline lux<br/>(not current)"]
+        curve["Apply brightness curve"]
+        hysteresis["Apply hysteresis<br/>(prevent oscillation)"]
+    end
+
+    dim --> wait
+    wait --> read
+    read --> restore
+    read --> baseline
+    baseline --> curve
+    curve --> hysteresis
+
+    style baseline fill:#f39c12,color:#fff
+```
+
+**Why calibration?** The lux sensor is on the same device as the LED, so the LED's light "contaminates" the reading. By periodically dimming the LED, we get a true ambient reading.
+
+**Brightness Curve:**
+
+| Ambient Lux | Brightness |
+|-------------|------------|
+| < 10 (very dark) | 20% |
+| 10-100 (dim) | 40% |
+| > 100 (bright) | 50% (capped) |
+
+## Load Shedding Integration
+
+When energy is low, the load shedding plugin restricts HVAC:
+
+```mermaid
+sequenceDiagram
+    participant Battery as Battery Sensor
+    participant EM as Energy Manager
+    participant SM as State Manager
+    participant LS as Load Shedding
+
+    Battery->>EM: Battery at 15%
+    EM->>EM: Calculate batteryEnergyLevel = red
+    EM->>SM: Set batteryEnergyLevel = red
+    EM->>EM: Calculate overall level = red
+    EM->>SM: Set currentEnergyLevel = red
+
+    SM->>LS: currentEnergyLevel changed to red
+    LS->>LS: Enable thermostat hold mode
+    LS->>LS: Set wider temp range (65-80°F)
+
+    Note over LS: HVAC restricted until<br/>energy level improves
+```
+
+See [LOAD_SHEDDING.md](./LOAD_SHEDDING.md) for thermostat control details.
+
+## State Variables
+
+### Inputs (from Home Assistant)
+
+| Variable | Source Entity | Description |
+|----------|---------------|-------------|
+| Battery % | `sensor.span_panel_span_storage_battery_percentage_2` | SPAN panel battery level |
+| This Hour Solar | `sensor.energy_next_hour` | Current solar production (kW) |
+| Remaining Solar | `sensor.energy_production_today_remaining` | Solar remaining today (kWh) |
+
+### Outputs (to State Manager)
+
+| Variable | Type | Description |
+|----------|------|-------------|
+| `batteryEnergyLevel` | string | Battery-based level (black/red/yellow/green) |
+| `solarProductionEnergyLevel` | string | Solar-based level |
+| `isFreeEnergyAvailable` | bool | True during free energy hours |
+| `currentEnergyLevel` | string | Overall combined level |
+| `thisHourSolarGeneration` | number | Current solar kW |
+| `remainingSolarGeneration` | number | Remaining solar kWh |
+
+## Related Documentation
+
+- [LOAD_SHEDDING.md](./LOAD_SHEDDING.md) - Thermostat control based on energy level
+- [DAY_PHASE_MODES.md](./DAY_PHASE_MODES.md) - Schedule configuration
+- [PLUGIN_SYSTEM.md](../reference/PLUGIN_SYSTEM.md) - Plugin architecture
