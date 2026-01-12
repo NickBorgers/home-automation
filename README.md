@@ -63,7 +63,7 @@ Automation behavior is configured via YAML files in [`configs/`](configs/):
 3. Wait for the container to build and initialize
 
 The devcontainer automatically:
-- Installs Go 1.24 and all required dependencies
+- Installs Go 1.25 and all required dependencies
 - Sets up Go modules (`go mod tidy && go mod download`)
 - Installs git hooks (pre-commit and pre-push validation)
 - Installs GitHub CLI, Claude Code CLI, and Playwright (with Chromium)
@@ -74,7 +74,7 @@ The devcontainer automatically:
 If you cannot use a devcontainer, you can set up the environment manually by running the same scripts the devcontainer uses:
 
 **Prerequisites:**
-- Go 1.24+
+- Go 1.23+ (1.25 recommended)
 - Node.js 20+ (for Claude Code and Playwright)
 - Home Assistant with WebSocket API enabled
 - Long-lived access token from Home Assistant
