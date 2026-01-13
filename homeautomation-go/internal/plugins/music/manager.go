@@ -1467,8 +1467,9 @@ func (m *Manager) shouldUnmuteSpeaker(participant ParticipantWithVolume) bool {
 
 // humanOverrideThreshold is the volume difference (in percentage points) that indicates
 // a human is manually adjusting the speaker volume during an automated fade operation.
-// Using 2% to account for timing/rounding while still detecting intentional changes.
-const humanOverrideThreshold = 2
+// Using 1% because Sonos physical controls change volume by exactly 1% per input,
+// so a single button press should be enough to signal the user is fighting the fade.
+const humanOverrideThreshold = 1
 
 // cancelAllFadeIns cancels all active fade-in goroutines.
 // This should be called before starting new fade-ins to prevent:

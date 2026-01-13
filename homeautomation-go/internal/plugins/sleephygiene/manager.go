@@ -477,8 +477,9 @@ func (m *Manager) getBedroomSpeakers() []string {
 
 // humanOverrideThreshold is the volume difference (in percentage points) that indicates
 // a human is manually adjusting the speaker volume during an automated fade operation.
-// Using 2% to account for timing/rounding while still detecting intentional changes.
-const humanOverrideThreshold = 2
+// Using 1% because Sonos physical controls change volume by exactly 1% per input,
+// so a single button press should be enough to signal the user is fighting the fade.
+const humanOverrideThreshold = 1
 
 // fadeOutSpeaker gradually reduces speaker volume to 0
 // This runs in a goroutine and implements the sleep music fade-out logic
