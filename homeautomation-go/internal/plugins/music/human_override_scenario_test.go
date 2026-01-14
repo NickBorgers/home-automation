@@ -10,16 +10,18 @@ package music
 //
 // DETECTION LOGIC:
 // The override check uses: (currentVolume - actualVolume) > humanOverrideThreshold
-// where humanOverrideThreshold = 2.
+// where humanOverrideThreshold = 1.
 //
-// This means a user must lower the volume by MORE than 2 percentage points
+// This means a user must lower the volume by MORE than 1 percentage point
 // below the current fade level for it to be detected as fighting the fade-in.
-// This threshold prevents false positives from timing/rounding differences.
+// Using 1% because Sonos physical controls change volume by exactly 1% per input,
+// so a single button press is enough to signal the user is fighting the fade.
 //
 // REAL-WORLD CONTEXT:
 // User reported fighting the Office speaker (6-9% target) during fade-in.
 // With adaptive delays of ~25 seconds between early fade steps, users have
-// time to manually adjust but must lower volume by > 2% to trigger detection.
+// time to manually adjust. A single physical volume button press (1% change)
+// will now trigger detection.
 //
 // =============================================================================
 
@@ -46,7 +48,7 @@ import (
 // SCENARIO:
 // 1. Office speaker fading to 6% target
 // 2. At step 3 (fade at ~2%), human sets volume to 0
-// 3. Detection should trigger when difference exceeds threshold (2%)
+// 3. Detection should trigger when difference exceeds threshold (1%)
 func TestScenario_HumanOverrideDetection_LowVolumeTarget(t *testing.T) {
 	t.Parallel()
 	mockHA := ha.NewMockClient()
@@ -137,7 +139,7 @@ func TestScenario_HumanOverrideDetection_SmallDifferenceIgnored(t *testing.T) {
 	manager.SetSleepFunc(func(d time.Duration) {
 		volumeStep++
 		// At step 2, set volume to 0 (difference of 1 from currentVolume=1)
-		// This should NOT trigger because 1 is not > threshold of 2
+		// This should NOT trigger because 1 is not > threshold of 1
 		if volumeStep == 2 {
 			mockHA.SetState("media_player.small", "playing", map[string]interface{}{
 				"volume_level": 0.0,
@@ -158,10 +160,10 @@ func TestScenario_HumanOverrideDetection_SmallDifferenceIgnored(t *testing.T) {
 	fadeIn, exists := shadowState.Outputs.FadeInProgress["media_player.small"]
 	assert.True(t, exists, "Expected fade-in progress to be recorded")
 
-	// Detection should still happen eventually (when difference > 2)
+	// Detection should happen when difference > 1 (at currentVolume=2, difference is 2)
 	if fadeIn.HumanOverrideDetected {
-		assert.GreaterOrEqual(t, fadeIn.ExpectedVolume, 3,
-			"Override should only be detected when difference > threshold (2)")
+		assert.GreaterOrEqual(t, fadeIn.ExpectedVolume, 2,
+			"Override should only be detected when difference > threshold (1)")
 	}
 }
 
@@ -169,18 +171,13 @@ func TestScenario_HumanOverrideDetection_SmallDifferenceIgnored(t *testing.T) {
 // TEST: Human Override Detection at Very Low Volumes (Edge Case)
 // =============================================================================
 //
-// This test specifically targets the edge case where currentVolume = 1 or 2.
-// With the bug:
-//   - currentVolume=1: 1 - 2 = -1, check becomes actualVolume < -1 (always false!)
-//   - currentVolume=2: 2 - 2 = 0, check becomes actualVolume < 0 (always false!)
+// This test verifies that override detection works at low volumes.
+// With threshold=1, a difference of 2 or more should trigger detection.
 //
 // SCENARIO:
-// 1. Speaker fading to target 4%
-// 2. At volume step 2 (currentVolume will be 1), human sets volume to 0
-// 3. Detection should catch this difference of 1%
-//
-// Note: With threshold=2, a difference of 1% won't trigger. But setting to 0
-// when at volume 3+ should definitely trigger.
+// 1. Speaker fading to target 5%
+// 2. At step 4 (after setting volume to 3), human sets volume to 0
+// 3. Detection should catch this: (3 - 0) = 3 > 1 (threshold)
 func TestScenario_HumanOverrideDetection_VolumeOneOrTwo(t *testing.T) {
 	t.Parallel()
 	mockHA := ha.NewMockClient()
@@ -202,7 +199,7 @@ func TestScenario_HumanOverrideDetection_VolumeOneOrTwo(t *testing.T) {
 	manager.SetSleepFunc(func(d time.Duration) {
 		volumeStep++
 		// At step 4 (after setting volume to 3), simulate human override
-		// Setting volume to 0 should be detected: (3 - 0) = 3 > threshold(2)
+		// Setting volume to 0 should be detected: (3 - 0) = 3 > threshold(1)
 		if volumeStep == 4 {
 			mockHA.SetState("media_player.test", "playing", map[string]interface{}{
 				"volume_level": 0.0, // Human sets to 0
@@ -224,12 +221,12 @@ func TestScenario_HumanOverrideDetection_VolumeOneOrTwo(t *testing.T) {
 	fadeIn, exists := shadowState.Outputs.FadeInProgress["media_player.test"]
 	assert.True(t, exists, "Expected fade-in progress to be recorded")
 
-	// With the fix, setting volume to 0 when at step 3+ (currentVolume=3) should trigger
-	// (3 - 0) = 3 > threshold(2) = true
+	// Setting volume to 0 when at step 3+ (currentVolume=3) should trigger
+	// (3 - 0) = 3 > threshold(1) = true
 	assert.True(t, fadeIn.HumanOverrideDetected,
 		"Human override should be detected when volume difference > threshold. "+
 			"Setting volume to 0 when fade is at 3%% should trigger detection: "+
-			"(3 - 0) = 3 > 2 (threshold)")
+			"(3 - 0) = 3 > 1 (threshold)")
 }
 
 // =============================================================================
@@ -237,13 +234,14 @@ func TestScenario_HumanOverrideDetection_VolumeOneOrTwo(t *testing.T) {
 // =============================================================================
 //
 // This test verifies the exact boundary condition for override detection.
-// With threshold=2:
-// - Difference of 2 should NOT trigger (need difference > 2)
-// - Difference of 3 should trigger
+// With threshold=1:
+// - Difference of 1 should NOT trigger (need difference > 1)
+// - Difference of 2 should trigger
 //
-// The fix uses (currentVolume - actualVolume) > threshold, so:
-// - Difference of 2: (5 - 3) > 2 → 2 > 2 = false (no trigger)
-// - Difference of 3: (5 - 2) > 2 → 3 > 2 = true (triggers)
+// The check uses (currentVolume - actualVolume) > threshold, so:
+// - Difference of 1: (2 - 1) > 1 → 1 > 1 = false (no trigger)
+// - Difference of 2: (3 - 1) > 1 → 2 > 1 = true (triggers)
+// - Difference of 3: (5 - 2) > 1 → 3 > 1 = true (triggers)
 func TestScenario_HumanOverrideDetection_ThresholdBoundary(t *testing.T) {
 	t.Parallel()
 	mockHA := ha.NewMockClient()
@@ -295,9 +293,9 @@ func TestScenario_HumanOverrideDetection_ThresholdBoundary(t *testing.T) {
 	fadeIn, exists := shadowState.Outputs.FadeInProgress["media_player.boundary"]
 	assert.True(t, exists, "Expected fade-in progress to be recorded")
 
-	// Difference of 3 (5 - 2 = 3) should trigger: 3 > 2 = true
+	// Difference of 3 (5 - 2 = 3) should trigger: 3 > 1 = true
 	assert.True(t, fadeIn.HumanOverrideDetected,
-		"Difference of 3%% should trigger override detection (3 > threshold of 2)")
+		"Difference of 3%% should trigger override detection (3 > threshold of 1)")
 
 	// Verify the recorded values
 	assert.Equal(t, 5, fadeIn.ExpectedVolume,
@@ -311,8 +309,8 @@ func TestScenario_HumanOverrideDetection_ThresholdBoundary(t *testing.T) {
 // =============================================================================
 //
 // This test ensures that differences at or below threshold don't trigger.
-// With threshold=2:
-// - Difference of 2 should NOT trigger
+// With threshold=1:
+// - Difference of 1 should NOT trigger (1 is not > 1)
 //
 // This prevents over-sensitive detection that would abort fade-ins due to
 // minor timing/rounding differences.
@@ -332,18 +330,20 @@ func TestScenario_HumanOverrideDetection_NoFalsePositiveAtThreshold(t *testing.T
 	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
 	manager := NewManager(mockHA, stateManager, config, logger, false, timeProvider, nil)
 
-	// Always report volume that's 2% below what was set (at threshold)
-	// This simulates timing delays where speaker hasn't caught up yet
+	var volumeStep int
+
+	// Track volume to match fade progress - no override should be detected
 	manager.SetSleepFunc(func(d time.Duration) {
-		// Do nothing - mock state will have volume that lags by exactly threshold
+		volumeStep++
+		// Keep volume matching the current fade step
+		mockHA.SetState("media_player.nofp", "playing", map[string]interface{}{
+			"volume_level": float64(volumeStep) / 100.0,
+		})
 	})
 
 	err := stateManager.SetString("musicPlaybackType", "day")
 	assert.NoError(t, err)
 
-	// Set speaker to always report volume 2% below current step
-	// Since we're setting volume 0, 1, 2, 3... the speaker reports matching volume
-	// (no lag simulation in this simplified test)
 	mockHA.SetState("media_player.nofp", "playing", map[string]interface{}{
 		"volume_level": 0.0,
 	})
