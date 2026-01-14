@@ -21,16 +21,26 @@ rooms:
   - hue_group: Primary Suite
     hass_area_id: master_bedroom
     conditions:
-      # Priority 1: No one home -> OFF
-      - action: off
-        variable: isAnyoneHomeAndAwake
-        value: false
-      # Priority 2: Wake sequence in progress -> yield to sleephygiene
-      # Prevents lighting plugin from turning off lights during morning
-      # wake-up fade-in while isMasterAsleep is still true.
+      # CRITICAL: isWakeSequenceActive MUST be checked
+      # BEFORE isAnyoneHomeAndAwake!
+      #
+      # BUG FIX (2026-01-13 production incident):
+      # During wake sequence, isMasterAsleep=true so isAnyoneHomeAndAwake=false.
+      # If isAnyoneHomeAndAwake is checked first, the lighting plugin turns off
+      # the bedroom lights immediately after sleephygiene turns them on,
+      # causing wake cancellation
+      # ("Bedroom lights turned off during wake sequence").
+      #
+      # Priority 1: Wake sequence in progress -> yield to sleephygiene
+      # This takes absolute priority to prevent race condition
+      # with wake sequence
       - action: on
         variable: isWakeSequenceActive
         value: true
+      # Priority 2: No one home and awake -> OFF
+      - action: off
+        variable: isAnyoneHomeAndAwake
+        value: false
       # Priority 3: Master asleep -> OFF
       - action: off
         variable: isMasterAsleep

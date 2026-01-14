@@ -853,6 +853,123 @@ func TestScenario_WakeSequence_LightingPluginYieldsToSleepHygiene(t *testing.T) 
 	t.Log("========================================")
 }
 
+// TestScenario_WakeSequence_LightingConditionPriority validates that the
+// isWakeSequenceActive condition takes priority over isAnyoneHomeAndAwake.
+//
+// BUG SCENARIO (regression test for 2026-01-13 production incident):
+// When the wake sequence starts at 8:06am:
+// - isMasterAsleep=true (owner still marked as asleep)
+// - isAnyoneHomeAndAwake=false (derived: no one home AND awake)
+// - isWakeSequenceActive=true (just set by sleephygiene plugin)
+//
+// With incorrect condition ordering in hue_config.yaml:
+//  1. isAnyoneHomeAndAwake=false → OFF (matches first!)
+//  2. isWakeSequenceActive=true → ON (never reached)
+//
+// The lighting plugin turns off bedroom lights immediately after sleephygiene
+// turns them on, triggering wake cancellation.
+//
+// CORRECT behavior: isWakeSequenceActive=true should be checked BEFORE
+// isAnyoneHomeAndAwake to yield control to the sleephygiene plugin.
+func TestScenario_WakeSequence_LightingConditionPriority(t *testing.T) {
+	// This test validates the fix for the condition ordering bug
+	server, client, manager, baseCleanup := setupTest(t)
+	defer baseCleanup()
+
+	logger := testlogger.New()
+
+	// Load the test lighting config (should have correct priority order)
+	lightingConfig := loadTestLightingConfig(t)
+
+	// Create lighting plugin
+	lightingMgr := lighting.NewManager(client, manager, lightingConfig, logger, false, nil)
+	require.NoError(t, lightingMgr.Start(), "Failed to start lighting manager")
+	defer lightingMgr.Stop()
+
+	// GIVEN: Wake sequence scenario - master is asleep but wake sequence is starting
+	t.Log("GIVEN: Wake sequence starting scenario")
+	t.Log("       - isMasterAsleep=true (owner still marked as asleep)")
+	t.Log("       - isAnyoneHomeAndAwake=false (derived state)")
+	t.Log("       - isWakeSequenceActive=true (sleephygiene starting wake)")
+
+	// Set up the exact conditions from the 2026-01-13 production incident
+	server.SetState("input_boolean.anyone_home", "on", map[string]interface{}{})
+	// Simulate isAnyoneHomeAndAwake=false by setting isAnyoneAsleep=true
+	// The computed state will derive isAnyoneHomeAndAwake=false
+	require.NoError(t, manager.SetBool("isAnyOwnerHome", true))
+	require.NoError(t, manager.SetBool("isAnyoneAsleep", true)) // Makes isAnyoneHomeAndAwake=false
+	require.NoError(t, manager.SetBool("isToriHere", false))
+	require.NoError(t, manager.SetBool("isMasterAsleep", true))
+	require.NoError(t, manager.SetBool("isAnyoneHome", true))
+	require.NoError(t, manager.SetString("dayPhase", "morning"))
+
+	// Trigger recomputation of isAnyoneHomeAndAwake
+	// This should now be false: (isAnyOwnerHome && !isAnyoneAsleep) || isToriHere
+	// = (true && !true) || false = false
+	time.Sleep(50 * time.Millisecond)
+
+	// Verify isAnyoneHomeAndAwake is false (the bug condition)
+	isAnyoneHomeAndAwake, err := manager.GetBool("isAnyoneHomeAndAwake")
+	if err == nil {
+		t.Logf("isAnyoneHomeAndAwake = %v (expected false for bug scenario)", isAnyoneHomeAndAwake)
+	}
+
+	server.ClearServiceCalls()
+
+	// WHEN: Wake sequence becomes active (sleephygiene plugin sets this)
+	t.Log("WHEN: isWakeSequenceActive changes to true (wake sequence starting)")
+
+	// Set isWakeSequenceActive=true - this should PREVENT lights from turning off
+	server.SetState("input_boolean.wake_sequence_active", "on", map[string]interface{}{})
+	require.NoError(t, manager.SetBool("isWakeSequenceActive", true))
+
+	// Wait for lighting plugin to react to state change
+	time.Sleep(100 * time.Millisecond)
+
+	// THEN: Bedroom should NOT be turned off
+	t.Log("THEN: Verify bedroom lights are NOT turned off")
+	t.Log("      (isWakeSequenceActive=true should take priority)")
+
+	calls := server.GetServiceCalls()
+	t.Logf("Total service calls: %d", len(calls))
+
+	// Check for any light.turn_off calls to master_bedroom area
+	lightOffCalls := filterServiceCalls(calls, "light", "turn_off")
+
+	foundBedroomTurnOff := false
+	for _, call := range lightOffCalls {
+		areaID, _ := call.ServiceData["area_id"].(string)
+		t.Logf("Light turn_off call: area_id=%s", areaID)
+		if areaID == "master_bedroom" {
+			foundBedroomTurnOff = true
+		}
+	}
+
+	// CRITICAL ASSERTION: No turn_off call to bedroom when wake sequence is active
+	assert.False(t, foundBedroomTurnOff,
+		"BUG DETECTED: Lighting plugin turned off bedroom during wake sequence! "+
+			"The isWakeSequenceActive condition must be checked BEFORE isAnyoneHomeAndAwake "+
+			"in hue_config.yaml to prevent this race condition.")
+
+	// Verify that a scene was activated instead (if applicable)
+	sceneActivations := filterServiceCalls(calls, "scene", "turn_on")
+	t.Logf("Scene activations: %d", len(sceneActivations))
+
+	if !foundBedroomTurnOff {
+		t.Log("SUCCESS: Bedroom lights were NOT turned off during wake sequence")
+		t.Log("         isWakeSequenceActive=true correctly took priority")
+	}
+
+	t.Log("========================================")
+	t.Log("VALIDATION COMPLETE:")
+	t.Log("  - Simulated wake sequence start conditions")
+	t.Log("  - isAnyoneHomeAndAwake=false (owner asleep)")
+	t.Log("  - isWakeSequenceActive=true (wake starting)")
+	t.Log("  - Bedroom lights NOT incorrectly turned off")
+	t.Log("  - Condition priority is correct")
+	t.Log("========================================")
+}
+
 // TestScenario_WakeSequence_ActivatesWakeMusic validates that when the wake
 // sequence completes successfully (lights fully up), wake music is activated.
 //
