@@ -116,11 +116,12 @@ func TestScenario_TVPlaying_DimsLivingRoomLights(t *testing.T) {
 	t.Log("========== TEST: TV + Lighting Integration ==========")
 
 	// ========== GIVEN ==========
-	t.Log("GIVEN: Evening, someone is home, TV is off, lights are normal")
+	t.Log("GIVEN: Evening, someone is home and awake, TV is off, lights are normal")
 
 	// Set initial state
 	require.NoError(t, env.manager.SetString("dayPhase", "evening"))
 	require.NoError(t, env.manager.SetBool("isAnyoneHome", true))
+	require.NoError(t, env.manager.SetBool("isAnyoneHomeAndAwake", true))
 	require.NoError(t, env.manager.SetBool("isEveryoneAsleep", false))
 	time.Sleep(50 * time.Millisecond) // Allow lighting plugin to activate initial scenes
 
@@ -187,6 +188,7 @@ func TestScenario_LowEnergy_PluginsCoexist(t *testing.T) {
 
 	require.NoError(t, env.manager.SetString("dayPhase", "evening"))
 	require.NoError(t, env.manager.SetBool("isAnyoneHome", true))
+	require.NoError(t, env.manager.SetBool("isAnyoneHomeAndAwake", true))
 
 	time.Sleep(50 * time.Millisecond)
 	env.server.ClearServiceCalls()
@@ -242,6 +244,7 @@ func TestScenario_EveryoneLeaves_CoordinatedResponse(t *testing.T) {
 	require.NoError(t, env.manager.SetBool("isNickHome", true))
 	require.NoError(t, env.manager.SetBool("isCarolineHome", true))
 	require.NoError(t, env.manager.SetBool("isAnyoneHome", true))
+	require.NoError(t, env.manager.SetBool("isAnyoneHomeAndAwake", true))
 	require.NoError(t, env.manager.SetString("dayPhase", "afternoon"))
 
 	time.Sleep(50 * time.Millisecond)
@@ -304,6 +307,7 @@ func TestScenario_SleepSequence_CoordinatesLighting(t *testing.T) {
 
 	require.NoError(t, env.manager.SetString("dayPhase", "evening"))
 	require.NoError(t, env.manager.SetBool("isAnyoneHome", true))
+	require.NoError(t, env.manager.SetBool("isAnyoneHomeAndAwake", true))
 	require.NoError(t, env.manager.SetBool("isMasterAsleep", false))
 	require.NoError(t, env.manager.SetBool("isEveryoneAsleep", false))
 
@@ -359,6 +363,7 @@ func TestScenario_DayPhaseChange_MultiPluginCoordination(t *testing.T) {
 
 	require.NoError(t, env.manager.SetString("dayPhase", "morning"))
 	require.NoError(t, env.manager.SetBool("isAnyoneHome", true))
+	require.NoError(t, env.manager.SetBool("isAnyoneHomeAndAwake", true))
 	require.NoError(t, env.manager.SetBool("isEveryoneAsleep", false))
 
 	time.Sleep(50 * time.Millisecond)
@@ -433,6 +438,7 @@ func TestScenario_SimultaneousStateChanges_NoRaceConditions(t *testing.T) {
 
 	require.NoError(t, env.manager.SetString("dayPhase", "afternoon"))
 	require.NoError(t, env.manager.SetBool("isAnyoneHome", true))
+	require.NoError(t, env.manager.SetBool("isAnyoneHomeAndAwake", true))
 	time.Sleep(50 * time.Millisecond)
 
 	env.server.ClearServiceCalls()

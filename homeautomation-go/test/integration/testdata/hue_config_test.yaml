@@ -1,22 +1,19 @@
 ---
 # Minimal lighting config for testing
+# This config mirrors production hue_config.yaml structure for accurate testing
 rooms:
   - hue_group: Living Room
     hass_area_id: living_room
     conditions:
-      # Priority 1: No one home -> OFF
+      # Priority 1: No one home and awake -> OFF
       - action: off
-        variable: isAnyoneHome
+        variable: isAnyoneHomeAndAwake
         value: false
-      # Priority 2: Everyone asleep -> OFF
-      - action: off
-        variable: isEveryoneAsleep
-        value: true
-      # Priority 3: Someone home -> ON
+      # Priority 2: Someone home and awake -> ON
       - action: on
-        variable: isAnyoneHome
+        variable: isAnyoneHomeAndAwake
         value: true
-      # Priority 4: TV not playing -> ON
+      # Priority 3: TV not playing -> ON
       - action: on
         variable: isTVPlaying
         value: false
@@ -25,16 +22,23 @@ rooms:
   - hue_group: Master Bedroom
     hass_area_id: master_bedroom
     conditions:
-      # Priority 1: No one home -> OFF
-      - action: off
-        variable: isAnyoneHome
-        value: false
-      # Priority 2: Wake sequence in progress -> yield to sleephygiene
-      # Prevents lighting plugin from turning off lights during morning
-      # wake-up fade-in while isMasterAsleep is still true.
+      # CRITICAL: isWakeSequenceActive MUST be checked BEFORE isAnyoneHomeAndAwake!
+      #
+      # BUG FIX (2026-01-13 production incident):
+      # During wake sequence, isMasterAsleep=true so isAnyoneHomeAndAwake=false.
+      # If isAnyoneHomeAndAwake is checked first, the lighting plugin turns off
+      # the bedroom lights immediately after sleephygiene turns them on,
+      # causing wake cancellation.
+      #
+      # Priority 1: Wake sequence in progress -> yield to sleephygiene
+      # This takes absolute priority to prevent race condition with wake sequence
       - action: on
         variable: isWakeSequenceActive
         value: true
+      # Priority 2: No one home and awake -> OFF
+      - action: off
+        variable: isAnyoneHomeAndAwake
+        value: false
       # Priority 3: Master asleep -> OFF
       - action: off
         variable: isMasterAsleep
