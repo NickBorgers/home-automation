@@ -46,6 +46,7 @@
 - ✅ Music Management plugin (complete)
 - ✅ Sleep Hygiene plugin (complete)
 - ✅ TV Monitoring plugin (complete)
+- ✅ Environmental Monitoring plugin (complete)
 - ✅ Security plugin (complete)
 - ✅ Load Shedding plugin (complete)
 - ✅ Sex Mode plugin (complete)
@@ -578,6 +579,7 @@ homeautomation-go/
 │       ├── music/                   # ✅ Music Management plugin
 │       ├── sleephygiene/            # ✅ Sleep Hygiene plugin
 │       ├── tv/                      # ✅ TV Monitoring plugin
+│       ├── environmental/           # ✅ Environmental Monitoring plugin
 │       ├── security/                # ✅ Security plugin
 │       ├── loadshedding/            # ✅ Load Shedding plugin
 │       ├── sexmode/                 # ✅ Sex Mode plugin
@@ -614,6 +616,7 @@ homeautomation-go/
 - ✅ Music Management plugin
 - ✅ Sleep Hygiene plugin
 - ✅ TV Monitoring plugin
+- ✅ Environmental Monitoring plugin
 - ✅ Security plugin
 - ✅ Load Shedding plugin
 - ✅ Sex Mode plugin

@@ -66,6 +66,10 @@ func (m *mockHAClient) GetDisconnectCount() int                        { return 
 func (m *mockHAClient) GetLastDisconnectTime() time.Time               { return time.Time{} }
 func (m *mockHAClient) GetWriteTimeoutCount() int                      { return 0 }
 func (m *mockHAClient) GetConnectionDuration() time.Duration           { return 0 }
+func (m *mockHAClient) GetDevices() ([]*ha.Device, error)              { return nil, nil }
+func (m *mockHAClient) GetEntityRegistry() ([]*ha.EntityRegistryEntry, error) {
+	return nil, nil
+}
 
 func (m *mockHAClient) GetState(entityID string) (*ha.State, error) {
 	if s, ok := m.states[entityID]; ok {

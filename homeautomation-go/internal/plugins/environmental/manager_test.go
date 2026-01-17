@@ -1,0 +1,960 @@
+package environmental
+
+import (
+	"testing"
+	"time"
+
+	"homeautomation/internal/clock"
+	"homeautomation/internal/ha"
+	"homeautomation/internal/state"
+
+	"go.uber.org/zap"
+)
+
+// Test sensor entity IDs
+const (
+	testIndoorSensor1  = "sensor.indoor_humidity_1"
+	testIndoorSensor2  = "sensor.indoor_humidity_2"
+	testOutdoorSensor1 = "sensor.outdoor_humidity_1"
+)
+
+// setupMockEnvironment creates a mock HA client with test devices and entity registry
+func setupMockEnvironment(mockHA *ha.MockClient) {
+	// Add devices - one indoor (with "Indoor" label), one outdoor (no label)
+	mockHA.AddDevice(&ha.Device{
+		ID:     "device_indoor_1",
+		Name:   "Indoor Sensor 1",
+		Labels: []string{"Indoor"}, // Case matters - we use EqualFold
+	})
+	mockHA.AddDevice(&ha.Device{
+		ID:     "device_indoor_2",
+		Name:   "Indoor Sensor 2",
+		Labels: []string{"indoor"}, // lowercase
+	})
+	mockHA.AddDevice(&ha.Device{
+		ID:     "device_outdoor_1",
+		Name:   "Outdoor Sensor 1",
+		Labels: []string{}, // No indoor label
+	})
+
+	// Add entity registry entries linking entities to devices
+	mockHA.AddEntityRegistryEntry(&ha.EntityRegistryEntry{
+		EntityID: testIndoorSensor1,
+		DeviceID: "device_indoor_1",
+	})
+	mockHA.AddEntityRegistryEntry(&ha.EntityRegistryEntry{
+		EntityID: testIndoorSensor2,
+		DeviceID: "device_indoor_2",
+	})
+	mockHA.AddEntityRegistryEntry(&ha.EntityRegistryEntry{
+		EntityID: testOutdoorSensor1,
+		DeviceID: "device_outdoor_1",
+	})
+
+	// Add initial sensor states with device_class: humidity
+	mockHA.SetState(testIndoorSensor1, "45.0", map[string]interface{}{
+		"device_class":  "humidity",
+		"friendly_name": "Indoor Humidity 1",
+	})
+	mockHA.SetState(testIndoorSensor2, "42.0", map[string]interface{}{
+		"device_class":  "humidity",
+		"friendly_name": "Indoor Humidity 2",
+	})
+	mockHA.SetState(testOutdoorSensor1, "80.0", map[string]interface{}{
+		"device_class":  "humidity",
+		"friendly_name": "Outdoor Humidity 1",
+	})
+}
+
+// Helper to count notifications sent to a specific device
+func countNotifications(mockHA *ha.MockClient, deviceName string) int {
+	count := 0
+	serviceName := "mobile_app_" + deviceName
+	for _, call := range mockHA.GetServiceCalls() {
+		if call.Domain == "notify" && call.Service == serviceName {
+			count++
+		}
+	}
+	return count
+}
+
+// Helper to get the last notification sent to a device
+func getLastNotification(mockHA *ha.MockClient, deviceName string) *ha.ServiceCall {
+	serviceName := "mobile_app_" + deviceName
+	calls := mockHA.GetServiceCalls()
+	for i := len(calls) - 1; i >= 0; i-- {
+		if calls[i].Domain == "notify" && calls[i].Service == serviceName {
+			return &calls[i]
+		}
+	}
+	return nil
+}
+
+func TestEnvironmentalManager_DynamicDiscovery(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	setupMockEnvironment(mockHA)
+
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+
+	manager := NewManager(mockHA, stateMgr, logger, false, nil)
+
+	// Start discovery
+	err := manager.Start()
+	if err != nil {
+		t.Fatalf("Failed to start manager: %v", err)
+	}
+	defer manager.Stop()
+
+	// Verify sensors were discovered
+	sensors := manager.GetSensors()
+	if len(sensors) != 3 {
+		t.Errorf("Expected 3 sensors discovered, got %d", len(sensors))
+	}
+
+	// Verify indoor classification
+	indoor1, ok := sensors[testIndoorSensor1]
+	if !ok {
+		t.Error("Expected indoor sensor 1 to be discovered")
+	} else if !indoor1.IsIndoor {
+		t.Error("Expected indoor sensor 1 to be classified as indoor")
+	}
+
+	indoor2, ok := sensors[testIndoorSensor2]
+	if !ok {
+		t.Error("Expected indoor sensor 2 to be discovered")
+	} else if !indoor2.IsIndoor {
+		t.Error("Expected indoor sensor 2 to be classified as indoor")
+	}
+
+	outdoor1, ok := sensors[testOutdoorSensor1]
+	if !ok {
+		t.Error("Expected outdoor sensor 1 to be discovered")
+	} else if outdoor1.IsIndoor {
+		t.Error("Expected outdoor sensor 1 to be classified as outdoor")
+	}
+}
+
+func TestEnvironmentalManager_NormalHumidity(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+	mockClock := clock.NewMockClock(time.Now())
+
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockClock)
+
+	// Add test sensors directly (skip discovery)
+	manager.AddSensor(&HumiditySensor{
+		EntityID:     testIndoorSensor1,
+		FriendlyName: "Indoor Humidity 1",
+		IsIndoor:     true,
+		Valid:        true,
+	})
+
+	// Simulate normal humidity readings (below warning threshold)
+	manager.SimulateSensorChange(testIndoorSensor1, 45.0)
+
+	// Verify no alert
+	alertLevel := manager.GetCurrentState()
+	if alertLevel != "none" {
+		t.Errorf("Expected alertLevel 'none' for normal humidity, got '%s'", alertLevel)
+	}
+
+	// Verify no notifications were sent
+	notificationCount := countNotifications(mockHA, NotificationTarget)
+	if notificationCount > 0 {
+		t.Errorf("Expected no notifications for normal humidity, got %d", notificationCount)
+	}
+}
+
+func TestEnvironmentalManager_WarningThreshold_NotSustained(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+	mockClock := clock.NewMockClock(time.Now())
+
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockClock)
+
+	// Add test sensor
+	manager.AddSensor(&HumiditySensor{
+		EntityID:     testIndoorSensor1,
+		FriendlyName: "Indoor Humidity 1",
+		IsIndoor:     true,
+		Valid:        true,
+	})
+
+	// Simulate warning-level humidity
+	manager.SimulateSensorChange(testIndoorSensor1, 58.0)
+
+	// Advance time but not enough to be sustained (15 minutes)
+	mockClock.Advance(15 * time.Minute)
+	manager.SimulateSensorChange(testIndoorSensor1, 58.0)
+
+	// Should not alert yet (not sustained 30 minutes)
+	alertLevel := manager.GetCurrentState()
+	if alertLevel != "none" {
+		t.Errorf("Expected alertLevel 'none' for non-sustained warning, got '%s'", alertLevel)
+	}
+
+	// Verify no notifications were sent
+	notificationCount := countNotifications(mockHA, NotificationTarget)
+	if notificationCount > 0 {
+		t.Errorf("Expected no notifications for non-sustained warning, got %d", notificationCount)
+	}
+}
+
+func TestEnvironmentalManager_WarningThreshold_Sustained(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+	mockClock := clock.NewMockClock(time.Now())
+
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockClock)
+
+	// Add test sensor
+	manager.AddSensor(&HumiditySensor{
+		EntityID:     testIndoorSensor1,
+		FriendlyName: "Indoor Humidity 1",
+		IsIndoor:     true,
+		Valid:        true,
+	})
+
+	// Simulate warning-level humidity
+	manager.SimulateSensorChange(testIndoorSensor1, 58.0)
+
+	// Advance time to sustained threshold (30+ minutes)
+	mockClock.Advance(31 * time.Minute)
+	manager.SimulateSensorChange(testIndoorSensor1, 58.0)
+
+	// Should now be warning level
+	alertLevel := manager.GetCurrentState()
+	if alertLevel != "warning" {
+		t.Errorf("Expected alertLevel 'warning' for sustained warning, got '%s'", alertLevel)
+	}
+
+	// Verify notification was sent
+	notificationCount := countNotifications(mockHA, NotificationTarget)
+	if notificationCount != 1 {
+		t.Errorf("Expected 1 notification for sustained warning, got %d", notificationCount)
+		return
+	}
+
+	notification := getLastNotification(mockHA, NotificationTarget)
+	if notification == nil {
+		t.Error("Expected to find a notification")
+		return
+	}
+	title, _ := notification.Data["title"].(string)
+	if title != "High Humidity Warning" {
+		t.Errorf("Expected notification title 'High Humidity Warning', got '%s'", title)
+	}
+}
+
+func TestEnvironmentalManager_CriticalThreshold_Sustained(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+	mockClock := clock.NewMockClock(time.Now())
+
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockClock)
+
+	// Add test sensor
+	manager.AddSensor(&HumiditySensor{
+		EntityID:     testIndoorSensor1,
+		FriendlyName: "Indoor Humidity 1",
+		IsIndoor:     true,
+		Valid:        true,
+	})
+
+	// Simulate critical-level humidity
+	manager.SimulateSensorChange(testIndoorSensor1, 70.0)
+
+	// Advance time to sustained threshold (30+ minutes)
+	mockClock.Advance(31 * time.Minute)
+	manager.SimulateSensorChange(testIndoorSensor1, 70.0)
+
+	// Should now be critical level
+	alertLevel := manager.GetCurrentState()
+	if alertLevel != "critical" {
+		t.Errorf("Expected alertLevel 'critical' for sustained critical, got '%s'", alertLevel)
+	}
+
+	// Verify notification was sent
+	notificationCount := countNotifications(mockHA, NotificationTarget)
+	if notificationCount != 1 {
+		t.Errorf("Expected 1 notification for sustained critical, got %d", notificationCount)
+		return
+	}
+
+	notification := getLastNotification(mockHA, NotificationTarget)
+	if notification == nil {
+		t.Error("Expected to find a notification")
+		return
+	}
+	title, _ := notification.Data["title"].(string)
+	if title != "High Humidity Critical" {
+		t.Errorf("Expected notification title 'High Humidity Critical', got '%s'", title)
+	}
+	// Check for sticky in the data map
+	data, hasData := notification.Data["data"].(map[string]interface{})
+	if !hasData || data["sticky"] != true {
+		t.Error("Expected critical notification to be sticky")
+	}
+}
+
+func TestEnvironmentalManager_OutdoorSensor_NoAlert(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+	mockClock := clock.NewMockClock(time.Now())
+
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockClock)
+
+	// Add outdoor sensor (should NOT trigger alerts)
+	manager.AddSensor(&HumiditySensor{
+		EntityID:     testOutdoorSensor1,
+		FriendlyName: "Outdoor Humidity 1",
+		IsIndoor:     false, // outdoor
+		Valid:        true,
+	})
+
+	// Simulate critical-level humidity on outdoor sensor
+	manager.SimulateSensorChange(testOutdoorSensor1, 90.0)
+
+	// Advance time to sustained threshold
+	mockClock.Advance(31 * time.Minute)
+	manager.SimulateSensorChange(testOutdoorSensor1, 90.0)
+
+	// Should NOT trigger alert (outdoor sensor)
+	alertLevel := manager.GetCurrentState()
+	if alertLevel != "none" {
+		t.Errorf("Expected alertLevel 'none' for outdoor sensor, got '%s'", alertLevel)
+	}
+
+	// Verify no notifications were sent
+	notificationCount := countNotifications(mockHA, NotificationTarget)
+	if notificationCount > 0 {
+		t.Errorf("Expected no notifications for outdoor sensor, got %d", notificationCount)
+	}
+}
+
+func TestEnvironmentalManager_MixedSensors_OnlyIndoorAlerts(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+	mockClock := clock.NewMockClock(time.Now())
+
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockClock)
+
+	// Add both indoor and outdoor sensors
+	manager.AddSensor(&HumiditySensor{
+		EntityID:     testIndoorSensor1,
+		FriendlyName: "Indoor Humidity 1",
+		IsIndoor:     true,
+		Valid:        true,
+	})
+	manager.AddSensor(&HumiditySensor{
+		EntityID:     testOutdoorSensor1,
+		FriendlyName: "Outdoor Humidity 1",
+		IsIndoor:     false,
+		Valid:        true,
+	})
+
+	// Set outdoor sensor to critical (should be ignored)
+	manager.SimulateSensorChange(testOutdoorSensor1, 90.0)
+
+	// Set indoor sensor to warning level
+	manager.SimulateSensorChange(testIndoorSensor1, 58.0)
+
+	// Advance time to sustained threshold
+	mockClock.Advance(31 * time.Minute)
+	manager.SimulateSensorChange(testIndoorSensor1, 58.0)
+	manager.SimulateSensorChange(testOutdoorSensor1, 90.0)
+
+	// Should be warning (from indoor sensor only)
+	alertLevel := manager.GetCurrentState()
+	if alertLevel != "warning" {
+		t.Errorf("Expected alertLevel 'warning' for indoor sensor, got '%s'", alertLevel)
+	}
+
+	// Verify notification mentions indoor sensor
+	notification := getLastNotification(mockHA, NotificationTarget)
+	if notification == nil {
+		t.Error("Expected to find a notification")
+	}
+}
+
+func TestEnvironmentalManager_BothSensorsElevated(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+	mockClock := clock.NewMockClock(time.Now())
+
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockClock)
+
+	// Add two indoor sensors
+	manager.AddSensor(&HumiditySensor{
+		EntityID:     testIndoorSensor1,
+		FriendlyName: "Indoor Humidity 1",
+		IsIndoor:     true,
+		Valid:        true,
+	})
+	manager.AddSensor(&HumiditySensor{
+		EntityID:     testIndoorSensor2,
+		FriendlyName: "Indoor Humidity 2",
+		IsIndoor:     true,
+		Valid:        true,
+	})
+
+	// Simulate both sensors at warning level
+	manager.SimulateSensorChange(testIndoorSensor1, 58.0)
+	manager.SimulateSensorChange(testIndoorSensor2, 56.0)
+
+	// Advance time to sustained threshold
+	mockClock.Advance(31 * time.Minute)
+	manager.SimulateSensorChange(testIndoorSensor1, 58.0)
+	manager.SimulateSensorChange(testIndoorSensor2, 56.0)
+
+	// Verify at least 1 notification was sent
+	notificationCount := countNotifications(mockHA, NotificationTarget)
+	if notificationCount < 1 {
+		t.Error("Expected at least 1 notification")
+		return
+	}
+
+	notification := getLastNotification(mockHA, NotificationTarget)
+	if notification == nil {
+		t.Error("Expected to find a notification")
+		return
+	}
+	message, _ := notification.Data["message"].(string)
+	if message == "" {
+		t.Error("Expected notification message to be set")
+	}
+}
+
+func TestEnvironmentalManager_Hysteresis_WarningClear(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+	mockClock := clock.NewMockClock(time.Now())
+
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockClock)
+
+	// Add test sensor
+	manager.AddSensor(&HumiditySensor{
+		EntityID:     testIndoorSensor1,
+		FriendlyName: "Indoor Humidity 1",
+		IsIndoor:     true,
+		Valid:        true,
+	})
+
+	// First, trigger a sustained warning
+	manager.SimulateSensorChange(testIndoorSensor1, 58.0)
+	mockClock.Advance(31 * time.Minute)
+	manager.SimulateSensorChange(testIndoorSensor1, 58.0)
+
+	alertLevel := manager.GetCurrentState()
+	if alertLevel != "warning" {
+		t.Fatalf("Expected alertLevel 'warning', got '%s'", alertLevel)
+	}
+
+	initialNotifications := countNotifications(mockHA, NotificationTarget)
+
+	// Now lower humidity to just below warning threshold (but above clear threshold)
+	manager.SimulateSensorChange(testIndoorSensor1, 52.0)
+
+	// Should still be in warning due to hysteresis (clear threshold is 50%)
+	alertLevel = manager.GetCurrentState()
+	if alertLevel != "warning" {
+		t.Errorf("Expected alertLevel 'warning' due to hysteresis, got '%s'", alertLevel)
+	}
+
+	// Now lower below clear threshold
+	manager.SimulateSensorChange(testIndoorSensor1, 48.0)
+
+	// Should now be cleared
+	alertLevel = manager.GetCurrentState()
+	if alertLevel != "none" {
+		t.Errorf("Expected alertLevel 'none' after clearing, got '%s'", alertLevel)
+	}
+
+	// Should have sent a resolution notification
+	finalNotifications := countNotifications(mockHA, NotificationTarget)
+	if finalNotifications <= initialNotifications {
+		t.Error("Expected resolution notification to be sent")
+	}
+}
+
+func TestEnvironmentalManager_RateLimiting_Warning(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+	mockClock := clock.NewMockClock(time.Now())
+
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockClock)
+
+	// Add test sensor
+	manager.AddSensor(&HumiditySensor{
+		EntityID:     testIndoorSensor1,
+		FriendlyName: "Indoor Humidity 1",
+		IsIndoor:     true,
+		Valid:        true,
+	})
+
+	// First, trigger a sustained warning
+	manager.SimulateSensorChange(testIndoorSensor1, 58.0)
+	mockClock.Advance(31 * time.Minute)
+	manager.SimulateSensorChange(testIndoorSensor1, 58.0)
+
+	initialNotifications := countNotifications(mockHA, NotificationTarget)
+	if initialNotifications != 1 {
+		t.Fatalf("Expected 1 initial notification, got %d", initialNotifications)
+	}
+
+	// Trigger another evaluation (same incident)
+	mockClock.Advance(1 * time.Minute)
+	manager.SimulateSensorChange(testIndoorSensor1, 58.0)
+
+	// Should not have sent another notification for the same incident
+	finalNotifications := countNotifications(mockHA, NotificationTarget)
+	if finalNotifications > initialNotifications {
+		t.Errorf("Expected no additional notifications for same incident, got %d extra",
+			finalNotifications-initialNotifications)
+	}
+}
+
+func TestEnvironmentalManager_RateLimiting_Critical(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+	mockClock := clock.NewMockClock(time.Now())
+
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockClock)
+
+	// Add test sensor
+	manager.AddSensor(&HumiditySensor{
+		EntityID:     testIndoorSensor1,
+		FriendlyName: "Indoor Humidity 1",
+		IsIndoor:     true,
+		Valid:        true,
+	})
+
+	// First, trigger a sustained critical
+	manager.SimulateSensorChange(testIndoorSensor1, 70.0)
+	mockClock.Advance(31 * time.Minute)
+	manager.SimulateSensorChange(testIndoorSensor1, 70.0)
+
+	initialNotifications := countNotifications(mockHA, NotificationTarget)
+	if initialNotifications != 1 {
+		t.Fatalf("Expected 1 initial notification, got %d", initialNotifications)
+	}
+
+	// Trigger evaluation again within rate limit (1 hour for critical)
+	mockClock.Advance(30 * time.Minute)
+	manager.SimulateSensorChange(testIndoorSensor1, 70.0)
+
+	// Should not have sent another notification (already notified for this incident)
+	finalNotifications := countNotifications(mockHA, NotificationTarget)
+	if finalNotifications > initialNotifications {
+		t.Errorf("Expected no additional notifications due to rate limiting, got %d",
+			finalNotifications-initialNotifications)
+	}
+}
+
+func TestEnvironmentalManager_InvalidHumidityValues(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		value string
+	}{
+		{"empty", ""},
+		{"unknown", "unknown"},
+		{"unavailable", "unavailable"},
+		{"non-numeric", "abc"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockHA := ha.NewMockClient()
+			logger := zap.NewNop()
+			stateMgr := state.NewManager(mockHA, logger, false)
+
+			manager := NewManager(mockHA, stateMgr, logger, false, nil)
+
+			// Add test sensor
+			manager.AddSensor(&HumiditySensor{
+				EntityID:     testIndoorSensor1,
+				FriendlyName: "Indoor Humidity 1",
+				IsIndoor:     true,
+				Valid:        true,
+			})
+
+			// Simulate invalid humidity reading via direct handler call
+			manager.handleHumidityChange(testIndoorSensor1, nil, &ha.State{
+				EntityID: testIndoorSensor1,
+				State:    tt.value,
+			})
+
+			// Should not crash and should have no alerts
+			alertLevel := manager.GetCurrentState()
+			if alertLevel != "none" {
+				t.Errorf("Expected alertLevel 'none' for invalid value, got '%s'", alertLevel)
+			}
+
+			// Verify sensor is marked invalid
+			sensors := manager.GetSensors()
+			if sensor, ok := sensors[testIndoorSensor1]; ok {
+				if sensor.Valid {
+					t.Error("Expected sensor to be marked invalid")
+				}
+			}
+		})
+	}
+}
+
+func TestEnvironmentalManager_ReadOnlyMode(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, true) // read-only
+	mockClock := clock.NewMockClock(time.Now())
+
+	// Create manager in read-only mode
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, true, nil, mockClock)
+
+	// Add test sensor
+	manager.AddSensor(&HumiditySensor{
+		EntityID:     testIndoorSensor1,
+		FriendlyName: "Indoor Humidity 1",
+		IsIndoor:     true,
+		Valid:        true,
+	})
+
+	// Trigger a sustained critical condition
+	manager.SimulateSensorChange(testIndoorSensor1, 70.0)
+	mockClock.Advance(31 * time.Minute)
+	manager.SimulateSensorChange(testIndoorSensor1, 70.0)
+
+	// Alert level should be set in shadow state
+	alertLevel := manager.GetCurrentState()
+	if alertLevel != "critical" {
+		t.Errorf("Expected alertLevel 'critical', got '%s'", alertLevel)
+	}
+
+	// But no actual notifications should be sent (read-only mode)
+	notificationCount := countNotifications(mockHA, NotificationTarget)
+	if notificationCount > 0 {
+		t.Errorf("Expected no notifications in read-only mode, got %d", notificationCount)
+	}
+}
+
+func TestEnvironmentalManager_ShadowState(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+	mockClock := clock.NewMockClock(time.Now())
+
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockClock)
+
+	// Add test sensors
+	manager.AddSensor(&HumiditySensor{
+		EntityID:     testIndoorSensor1,
+		FriendlyName: "Indoor Humidity 1",
+		IsIndoor:     true,
+		Valid:        true,
+	})
+	manager.AddSensor(&HumiditySensor{
+		EntityID:     testOutdoorSensor1,
+		FriendlyName: "Outdoor Humidity 1",
+		IsIndoor:     false,
+		Valid:        true,
+	})
+
+	// Trigger handler with state change
+	manager.SimulateSensorChange(testIndoorSensor1, 45.0)
+	manager.SimulateSensorChange(testOutdoorSensor1, 80.0)
+
+	// Get shadow state
+	shadowState := manager.GetShadowState()
+
+	// Verify shadow state plugin name
+	if shadowState.Plugin != "environmental" {
+		t.Errorf("Expected plugin 'environmental', got '%s'", shadowState.Plugin)
+	}
+
+	// Verify shadow state outputs contain all sensors
+	if len(shadowState.Outputs.HumiditySensors) != 2 {
+		t.Errorf("Expected 2 sensors in shadow state, got %d", len(shadowState.Outputs.HumiditySensors))
+	}
+
+	// Verify alert level
+	if shadowState.Outputs.AlertLevel != "none" {
+		t.Errorf("Expected alert level 'none', got '%s'", shadowState.Outputs.AlertLevel)
+	}
+
+	// Verify sensor data
+	foundIndoor := false
+	foundOutdoor := false
+	for _, sensor := range shadowState.Outputs.HumiditySensors {
+		if sensor.EntityID == testIndoorSensor1 {
+			foundIndoor = true
+			if !sensor.IsIndoor {
+				t.Error("Expected indoor sensor to be marked as indoor")
+			}
+			if sensor.Value != 45.0 {
+				t.Errorf("Expected indoor sensor value 45.0, got %f", sensor.Value)
+			}
+		}
+		if sensor.EntityID == testOutdoorSensor1 {
+			foundOutdoor = true
+			if sensor.IsIndoor {
+				t.Error("Expected outdoor sensor to be marked as outdoor")
+			}
+			if sensor.Value != 80.0 {
+				t.Errorf("Expected outdoor sensor value 80.0, got %f", sensor.Value)
+			}
+		}
+	}
+	if !foundIndoor {
+		t.Error("Indoor sensor not found in shadow state")
+	}
+	if !foundOutdoor {
+		t.Error("Outdoor sensor not found in shadow state")
+	}
+}
+
+func TestEnvironmentalManager_EscalationFromWarningToCritical(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+	mockClock := clock.NewMockClock(time.Now())
+
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockClock)
+
+	// Add test sensor
+	manager.AddSensor(&HumiditySensor{
+		EntityID:     testIndoorSensor1,
+		FriendlyName: "Indoor Humidity 1",
+		IsIndoor:     true,
+		Valid:        true,
+	})
+
+	// First trigger warning level
+	manager.SimulateSensorChange(testIndoorSensor1, 58.0)
+	mockClock.Advance(31 * time.Minute)
+	manager.SimulateSensorChange(testIndoorSensor1, 58.0)
+
+	alertLevel := manager.GetCurrentState()
+	if alertLevel != "warning" {
+		t.Fatalf("Expected initial alertLevel 'warning', got '%s'", alertLevel)
+	}
+
+	warningNotifications := countNotifications(mockHA, NotificationTarget)
+
+	// Now escalate to critical level
+	manager.SimulateSensorChange(testIndoorSensor1, 70.0)
+	mockClock.Advance(31 * time.Minute)
+	manager.SimulateSensorChange(testIndoorSensor1, 70.0)
+
+	alertLevel = manager.GetCurrentState()
+	if alertLevel != "critical" {
+		t.Errorf("Expected escalated alertLevel 'critical', got '%s'", alertLevel)
+	}
+
+	// Should have sent a critical notification
+	finalNotifications := countNotifications(mockHA, NotificationTarget)
+	if finalNotifications <= warningNotifications {
+		t.Error("Expected critical notification to be sent on escalation")
+	}
+}
+
+func TestEnvironmentalManager_OneSensorHighOtherNormal(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+	mockClock := clock.NewMockClock(time.Now())
+
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockClock)
+
+	// Add two indoor sensors
+	manager.AddSensor(&HumiditySensor{
+		EntityID:     testIndoorSensor1,
+		FriendlyName: "Indoor Humidity 1",
+		IsIndoor:     true,
+		Valid:        true,
+	})
+	manager.AddSensor(&HumiditySensor{
+		EntityID:     testIndoorSensor2,
+		FriendlyName: "Indoor Humidity 2",
+		IsIndoor:     true,
+		Valid:        true,
+	})
+
+	// Sensor 1 at critical, sensor 2 normal
+	manager.SimulateSensorChange(testIndoorSensor1, 70.0)
+	manager.SimulateSensorChange(testIndoorSensor2, 40.0)
+
+	// Sustain the condition
+	mockClock.Advance(31 * time.Minute)
+	manager.SimulateSensorChange(testIndoorSensor1, 70.0)
+
+	// Should trigger critical based on just sensor 1
+	alertLevel := manager.GetCurrentState()
+	if alertLevel != "critical" {
+		t.Errorf("Expected alertLevel 'critical' when one sensor is critical, got '%s'", alertLevel)
+	}
+}
+
+func TestParseHumidity(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		input       string
+		expected    float64
+		shouldError bool
+	}{
+		{"valid integer", "55", 55.0, false},
+		{"valid float", "55.5", 55.5, false},
+		{"zero", "0", 0.0, false},
+		{"empty string", "", 0.0, true},
+		{"unknown", "unknown", 0.0, true},
+		{"unavailable", "unavailable", 0.0, true},
+		{"non-numeric", "abc", 0.0, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := parseHumidity(tt.input)
+
+			if tt.shouldError && err == nil {
+				t.Errorf("Expected error for input '%s', got nil", tt.input)
+			}
+			if !tt.shouldError && err != nil {
+				t.Errorf("Expected no error for input '%s', got %v", tt.input, err)
+			}
+			if !tt.shouldError && result != tt.expected {
+				t.Errorf("Expected %f for input '%s', got %f", tt.expected, tt.input, result)
+			}
+		})
+	}
+}
+
+func TestFormatSensorLocations(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		input    []string
+		expected string
+	}{
+		{"empty", []string{}, "unknown"},
+		{"single", []string{"high sensor"}, "high sensor"},
+		{"two", []string{"sensor 1", "sensor 2"}, "sensor 1 and sensor 2"},
+		{"three or more", []string{"a", "b", "c"}, "a, b, c"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := formatSensorLocations(tt.input)
+			if result != tt.expected {
+				t.Errorf("Expected '%s', got '%s'", tt.expected, result)
+			}
+		})
+	}
+}
+
+func TestEnvironmentalManager_CaseInsensitiveLabelMatching(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name     string
+		label    string
+		expected bool
+	}{
+		{"lowercase", "indoor", true},
+		{"uppercase", "INDOOR", true},
+		{"mixed case", "Indoor", true},
+		{"camelCase", "InDooR", true},
+		{"different label", "outdoor", false},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			mockHA := ha.NewMockClient()
+
+			// Add device with the test label
+			mockHA.AddDevice(&ha.Device{
+				ID:     "device_test",
+				Name:   "Test Sensor",
+				Labels: []string{tc.label},
+			})
+
+			// Add entity registry entry
+			mockHA.AddEntityRegistryEntry(&ha.EntityRegistryEntry{
+				EntityID: "sensor.test_humidity",
+				DeviceID: "device_test",
+			})
+
+			// Add sensor state
+			mockHA.SetState("sensor.test_humidity", "50.0", map[string]interface{}{
+				"device_class":  "humidity",
+				"friendly_name": "Test Humidity",
+			})
+
+			logger := zap.NewNop()
+			stateMgr := state.NewManager(mockHA, logger, false)
+			manager := NewManager(mockHA, stateMgr, logger, false, nil)
+
+			// Start discovery
+			err := manager.Start()
+			if err != nil {
+				t.Fatalf("Failed to start manager: %v", err)
+			}
+			defer manager.Stop()
+
+			// Check if sensor was classified correctly
+			sensors := manager.GetSensors()
+			sensor, ok := sensors["sensor.test_humidity"]
+			if !ok {
+				t.Fatal("Expected sensor to be discovered")
+			}
+
+			if sensor.IsIndoor != tc.expected {
+				t.Errorf("Expected IsIndoor=%v for label '%s', got %v",
+					tc.expected, tc.label, sensor.IsIndoor)
+			}
+		})
+	}
+}

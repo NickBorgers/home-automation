@@ -968,3 +968,88 @@ func (s *SystemShadowState) GetOutputs() interface{} {
 func (s *SystemShadowState) GetMetadata() StateMetadata {
 	return s.Metadata
 }
+
+// ============================================================================
+// Environmental Monitoring Shadow State
+// ============================================================================
+
+// EnvironmentalShadowState represents the shadow state for the environmental monitoring plugin
+type EnvironmentalShadowState struct {
+	Plugin   string               `json:"plugin"`
+	Inputs   EnvironmentalInputs  `json:"inputs"`
+	Outputs  EnvironmentalOutputs `json:"outputs"`
+	Metadata StateMetadata        `json:"metadata"`
+}
+
+// EnvironmentalInputs tracks current sensor values
+type EnvironmentalInputs struct {
+	Current map[string]interface{} `json:"current"`
+}
+
+// EnvironmentalOutputs tracks computed environmental states and notification history
+type EnvironmentalOutputs struct {
+	HumiditySensors      []HumiditySensorData `json:"humiditySensors"`                // All discovered humidity sensors
+	AlertLevel           string               `json:"alertLevel"`                     // Overall: "none", "warning", "critical"
+	ConditionStartTime   time.Time            `json:"conditionStartTime,omitempty"`   // When current condition started
+	IsSustained          bool                 `json:"isSustained"`                    // Whether condition is sustained (30+ min)
+	LastNotification     *NotificationRecord  `json:"lastNotification,omitempty"`     // Last alert notification sent
+	LastResolutionNotice *NotificationRecord  `json:"lastResolutionNotice,omitempty"` // Last resolution notification sent
+	LastUpdate           time.Time            `json:"lastUpdate"`
+}
+
+// HumiditySensorData represents a single humidity sensor's state for shadow tracking
+type HumiditySensorData struct {
+	EntityID     string  `json:"entityId"`
+	FriendlyName string  `json:"friendlyName"`
+	DeviceID     string  `json:"deviceId,omitempty"`
+	IsIndoor     bool    `json:"isIndoor"` // true = alerts enabled, false = informational only
+	Value        float64 `json:"value"`
+	Valid        bool    `json:"valid"`
+}
+
+// NotificationRecord tracks a notification that was sent
+type NotificationRecord struct {
+	Level           string    `json:"level"` // "warning", "critical", "resolved"
+	Message         string    `json:"message"`
+	SensorLocations []string  `json:"sensorLocations,omitempty"` // Which sensors triggered it
+	Timestamp       time.Time `json:"timestamp"`
+}
+
+// GetCurrentInputs implements PluginShadowState
+func (e *EnvironmentalShadowState) GetCurrentInputs() map[string]interface{} {
+	return e.Inputs.Current
+}
+
+// GetLastActionInputs implements PluginShadowState
+// For environmental monitoring, this returns the same as current (read-heavy, no actions)
+func (e *EnvironmentalShadowState) GetLastActionInputs() map[string]interface{} {
+	return e.Inputs.Current
+}
+
+// GetOutputs implements PluginShadowState
+func (e *EnvironmentalShadowState) GetOutputs() interface{} {
+	return e.Outputs
+}
+
+// GetMetadata implements PluginShadowState
+func (e *EnvironmentalShadowState) GetMetadata() StateMetadata {
+	return e.Metadata
+}
+
+// NewEnvironmentalShadowState creates a new environmental shadow state
+func NewEnvironmentalShadowState() *EnvironmentalShadowState {
+	return &EnvironmentalShadowState{
+		Plugin: "environmental",
+		Inputs: EnvironmentalInputs{
+			Current: make(map[string]interface{}),
+		},
+		Outputs: EnvironmentalOutputs{
+			HumiditySensors: make([]HumiditySensorData, 0),
+			AlertLevel:      "none",
+		},
+		Metadata: StateMetadata{
+			LastUpdated: time.Now(),
+			PluginName:  "environmental",
+		},
+	}
+}
