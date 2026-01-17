@@ -129,6 +129,9 @@ sequenceDiagram
 
     Note over Music: Filter speakers by<br/>exclude_if conditions
 
+    Note over Music,Sonos: Quick fade-out (500ms)<br/>Prevents jarring audio cutoff
+    Music->>Sonos: Fade volume to 0
+
     Music->>Sonos: Break existing groups (unjoin)
     Music->>Sonos: Build new speaker group
 
@@ -238,6 +241,18 @@ flowchart LR
 ### Human Override Detection
 
 During fade-in, if the actual volume is significantly lower than expected (>2% difference), the system assumes a human manually lowered the volume and aborts the fade.
+
+## Quick Fade-Out on Transitions
+
+When playback mode changes or music stops, speakers perform a quick fade-out (500ms) before ungrouping or stopping. This prevents jarring audio cutoffs when:
+
+- Switching between music types (e.g., day → evening)
+- Stopping playback entirely
+- Regrouping speakers for a new configuration
+
+The fade-out uses 5 steps at 100ms intervals, smoothly reducing volume from current level to zero before any speaker group changes occur.
+
+> **Note:** This is different from the gradual sleep music fade-out (5+ minutes) used during wake sequences. See [SLEEP_HYGIENE.md](./SLEEP_HYGIENE.md) for the wake sequence fade-out.
 
 ## Playlist Rotation
 
