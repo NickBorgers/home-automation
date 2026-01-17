@@ -173,11 +173,29 @@ func (m *Manager) initializeStates() error {
 	return nil
 }
 
+// updateShadowInputs captures current sensor values for shadow state tracking
+func (m *Manager) updateShadowInputs() {
+	inputs := make(map[string]interface{})
+
+	// Capture current sensor values from HA
+	if state, err := m.haClient.GetState(AtticHighHumiditySensor); err == nil && state != nil {
+		inputs[AtticHighHumiditySensor] = state.State
+	}
+	if state, err := m.haClient.GetState(AtticLowHumiditySensor); err == nil && state != nil {
+		inputs[AtticLowHumiditySensor] = state.State
+	}
+
+	m.shadowTracker.UpdateCurrentInputs(inputs)
+}
+
 // handleAtticHighHumidityChange processes changes to the high attic humidity sensor
 func (m *Manager) handleAtticHighHumidityChange(entityID string, oldState, newState *ha.State) {
 	if newState == nil {
 		return
 	}
+
+	// 1. FIRST: Update shadow state inputs
+	m.updateShadowInputs()
 
 	// Parse humidity value
 	humidity, err := parseHumidity(newState.State)
@@ -214,6 +232,9 @@ func (m *Manager) handleAtticLowHumidityChange(entityID string, oldState, newSta
 	if newState == nil {
 		return
 	}
+
+	// 1. FIRST: Update shadow state inputs
+	m.updateShadowInputs()
 
 	// Parse humidity value
 	humidity, err := parseHumidity(newState.State)

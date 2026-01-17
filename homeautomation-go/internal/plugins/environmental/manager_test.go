@@ -449,7 +449,11 @@ func TestEnvironmentalManager_ShadowState(t *testing.T) {
 
 	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockClock)
 
-	// Set initial humidity values
+	// Set mock HA state so updateShadowInputs() can capture values
+	mockHA.SetState(AtticHighHumiditySensor, "45.0", nil)
+	mockHA.SetState(AtticLowHumiditySensor, "42.0", nil)
+
+	// Trigger handler with state change
 	highState := &ha.State{
 		EntityID: AtticHighHumiditySensor,
 		State:    "45.0",
@@ -464,10 +468,12 @@ func TestEnvironmentalManager_ShadowState(t *testing.T) {
 	// Get shadow state
 	shadowState := manager.GetShadowState()
 
-	// Verify shadow state values
+	// Verify shadow state plugin name
 	if shadowState.Plugin != "environmental" {
 		t.Errorf("Expected plugin 'environmental', got '%s'", shadowState.Plugin)
 	}
+
+	// Verify shadow state outputs
 	if shadowState.Outputs.AtticHumidity.HighSensorHumidity != 45.0 {
 		t.Errorf("Expected high sensor humidity 45.0, got %f", shadowState.Outputs.AtticHumidity.HighSensorHumidity)
 	}
@@ -476,6 +482,21 @@ func TestEnvironmentalManager_ShadowState(t *testing.T) {
 	}
 	if shadowState.Outputs.AtticHumidity.AlertLevel != "none" {
 		t.Errorf("Expected alert level 'none', got '%s'", shadowState.Outputs.AtticHumidity.AlertLevel)
+	}
+
+	// Verify shadow state inputs are captured
+	if len(shadowState.Inputs.Current) == 0 {
+		t.Error("Expected shadow state inputs to be populated")
+	}
+	if val, ok := shadowState.Inputs.Current[AtticHighHumiditySensor]; !ok {
+		t.Error("Expected high sensor value in shadow state inputs")
+	} else if val != "45.0" {
+		t.Errorf("Expected high sensor input '45.0', got '%v'", val)
+	}
+	if val, ok := shadowState.Inputs.Current[AtticLowHumiditySensor]; !ok {
+		t.Error("Expected low sensor value in shadow state inputs")
+	} else if val != "42.0" {
+		t.Errorf("Expected low sensor input '42.0', got '%v'", val)
 	}
 }
 
