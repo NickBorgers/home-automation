@@ -2,7 +2,9 @@ name: Claude Diagnose Workflow Failure
 
 # Triggers when any workflow run completes with failure
 # Analyzes if it's a GitHub Actions configuration problem vs a test/code failure
-# Creates an issue only for Actions configuration problems (not test failures)
+# or transient infrastructure issue (external service availability problems)
+# Creates an issue only for Actions configuration problems
+# (not test failures or transient infrastructure issues)
 
 # SECURITY NOTE: This workflow has lower prompt injection risk because:
 # - It only triggers on workflow_run events (not user-controlled events)
@@ -186,7 +188,19 @@ jobs:
             3. Analyze the failure to classify it as one of:
                a) TEST_FAILURE: Unit tests, integration tests, or code compilation failures
                b) CONFIG_FAILURE: Issues in configs/ directory (YAML validation, etc.)
-               c) ACTIONS_FAILURE: Problems with the GitHub Actions workflow definition itself
+               c) INFRASTRUCTURE_FAILURE: Transient external service availability issues
+               d) ACTIONS_FAILURE: Problems with the GitHub Actions workflow definition itself
+
+            INFRASTRUCTURE_FAILURE examples (do NOT create an issue for these):
+            - GitHub Cache Service errors (502, 503, timeouts, EOF errors)
+            - Container registry availability issues (MCR, GHCR, Docker Hub being temporarily unavailable)
+            - Network connectivity issues to external services (EOF, connection reset, timeouts)
+            - GitHub Actions Cache service returning 'Unicorn' error pages
+            - Rate limiting from external services
+            - DNS resolution failures for external registries
+            - TLS/SSL handshake failures to external services
+            - Any error message containing '502', '503', '504' from external services
+            - Errors like 'failed to solve: Unavailable: error reading from server: EOF'
 
             ACTIONS_FAILURE examples (CREATE AN ISSUE for these):
             - Workflow YAML syntax errors
@@ -195,7 +209,6 @@ jobs:
             - Missing required secrets or environment variables (not test code)
             - Permission issues with GitHub tokens/actions
             - Docker build failures in workflow steps (not Dockerfile issues)
-            - Cache action failures
             - Job dependency issues
             - Concurrency/matrix configuration problems
             - Runner environment issues
@@ -210,8 +223,9 @@ jobs:
 
             DECISION LOGIC:
             - If the failure is ACTIONS_FAILURE: Create a GitHub issue
-            - If the failure is TEST_FAILURE or CONFIG_FAILURE: Do NOT create an issue
-              (these are handled by the existing Claude Code Review workflow)
+            - If the failure is TEST_FAILURE, CONFIG_FAILURE, or INFRASTRUCTURE_FAILURE: Do NOT create an issue
+              (TEST_FAILURE and CONFIG_FAILURE are handled by the existing Claude Code Review workflow)
+              (INFRASTRUCTURE_FAILURE issues are transient external problems that will self-resolve)
 
             IF YOU DETERMINE THIS IS AN ACTIONS_FAILURE, create an issue:
             # First ensure the github-actions label exists
@@ -253,7 +267,9 @@ jobs:
             )\"
 
             IF THIS IS NOT AN ACTIONS_FAILURE, output:
-            'DIAGNOSIS: [TEST_FAILURE|CONFIG_FAILURE] - No issue created. This failure type is handled by the Claude Code Review workflow.'
+            'DIAGNOSIS: [TEST_FAILURE|CONFIG_FAILURE|INFRASTRUCTURE_FAILURE] - No issue created.'
+            For TEST_FAILURE/CONFIG_FAILURE: 'This failure type is handled by the Claude Code Review workflow.'
+            For INFRASTRUCTURE_FAILURE: 'This is a transient external service issue that will self-resolve. No action needed.'
 
             Be thorough in your analysis. Examine the actual error messages in the logs." < /dev/null 2>&1 | tee /workspaces/home-automation/diagnose-output.jsonl
 
