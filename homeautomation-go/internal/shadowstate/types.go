@@ -988,19 +988,23 @@ type EnvironmentalInputs struct {
 
 // EnvironmentalOutputs tracks computed environmental states and notification history
 type EnvironmentalOutputs struct {
-	AtticHumidity        AtticHumidityState  `json:"atticHumidity"`
-	LastNotification     *NotificationRecord `json:"lastNotification,omitempty"`
-	LastResolutionNotice *NotificationRecord `json:"lastResolutionNotice,omitempty"`
+	HumiditySensors      []HumiditySensorData `json:"humiditySensors"`                // All discovered humidity sensors
+	AlertLevel           string               `json:"alertLevel"`                     // Overall: "none", "warning", "critical"
+	ConditionStartTime   time.Time            `json:"conditionStartTime,omitempty"`   // When current condition started
+	IsSustained          bool                 `json:"isSustained"`                    // Whether condition is sustained (30+ min)
+	LastNotification     *NotificationRecord  `json:"lastNotification,omitempty"`     // Last alert notification sent
+	LastResolutionNotice *NotificationRecord  `json:"lastResolutionNotice,omitempty"` // Last resolution notification sent
+	LastUpdate           time.Time            `json:"lastUpdate"`
 }
 
-// AtticHumidityState tracks the state of attic humidity monitoring
-type AtticHumidityState struct {
-	HighSensorHumidity float64   `json:"highSensorHumidity"` // Current humidity from high sensor
-	LowSensorHumidity  float64   `json:"lowSensorHumidity"`  // Current humidity from low sensor
-	AlertLevel         string    `json:"alertLevel"`         // "none", "warning", "critical"
-	ConditionStartTime time.Time `json:"conditionStartTime,omitempty"`
-	IsSustained        bool      `json:"isSustained"`
-	LastUpdate         time.Time `json:"lastUpdate"`
+// HumiditySensorData represents a single humidity sensor's state for shadow tracking
+type HumiditySensorData struct {
+	EntityID     string  `json:"entityId"`
+	FriendlyName string  `json:"friendlyName"`
+	DeviceID     string  `json:"deviceId,omitempty"`
+	IsIndoor     bool    `json:"isIndoor"` // true = alerts enabled, false = informational only
+	Value        float64 `json:"value"`
+	Valid        bool    `json:"valid"`
 }
 
 // NotificationRecord tracks a notification that was sent
@@ -1040,9 +1044,8 @@ func NewEnvironmentalShadowState() *EnvironmentalShadowState {
 			Current: make(map[string]interface{}),
 		},
 		Outputs: EnvironmentalOutputs{
-			AtticHumidity: AtticHumidityState{
-				AlertLevel: "none",
-			},
+			HumiditySensors: make([]HumiditySensorData, 0),
+			AlertLevel:      "none",
 		},
 		Metadata: StateMetadata{
 			LastUpdated: time.Now(),

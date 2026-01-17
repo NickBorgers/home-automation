@@ -35,6 +35,12 @@ type MockClient struct {
 	stateSequences   map[string][]string // key: entityID, value: sequence of states to return
 	stateSequenceIdx map[string]int      // key: entityID, value: current index in sequence
 	stateSequenceMu  sync.Mutex
+
+	// Device and entity registry for dynamic discovery
+	devices        []*Device
+	devicesMu      sync.RWMutex
+	entityRegistry []*EntityRegistryEntry
+	entityRegMu    sync.RWMutex
 }
 
 func (m *MockClient) clearSubscribers() {
@@ -644,4 +650,54 @@ func (m *MockClient) GetWriteTimeoutCount() int {
 // It implements the HAClient interface for testing.
 func (m *MockClient) GetConnectionDuration() time.Duration {
 	return 0
+}
+
+// GetDevices returns the mock device registry.
+// It implements the HAClient interface for testing.
+func (m *MockClient) GetDevices() ([]*Device, error) {
+	m.devicesMu.RLock()
+	defer m.devicesMu.RUnlock()
+
+	devices := make([]*Device, len(m.devices))
+	copy(devices, m.devices)
+	return devices, nil
+}
+
+// GetEntityRegistry returns the mock entity registry.
+// It implements the HAClient interface for testing.
+func (m *MockClient) GetEntityRegistry() ([]*EntityRegistryEntry, error) {
+	m.entityRegMu.RLock()
+	defer m.entityRegMu.RUnlock()
+
+	entities := make([]*EntityRegistryEntry, len(m.entityRegistry))
+	copy(entities, m.entityRegistry)
+	return entities, nil
+}
+
+// SetDevices sets the mock device registry for testing.
+func (m *MockClient) SetDevices(devices []*Device) {
+	m.devicesMu.Lock()
+	defer m.devicesMu.Unlock()
+	m.devices = devices
+}
+
+// SetEntityRegistry sets the mock entity registry for testing.
+func (m *MockClient) SetEntityRegistry(entities []*EntityRegistryEntry) {
+	m.entityRegMu.Lock()
+	defer m.entityRegMu.Unlock()
+	m.entityRegistry = entities
+}
+
+// AddDevice adds a device to the mock device registry.
+func (m *MockClient) AddDevice(device *Device) {
+	m.devicesMu.Lock()
+	defer m.devicesMu.Unlock()
+	m.devices = append(m.devices, device)
+}
+
+// AddEntityRegistryEntry adds an entity to the mock entity registry.
+func (m *MockClient) AddEntityRegistryEntry(entry *EntityRegistryEntry) {
+	m.entityRegMu.Lock()
+	defer m.entityRegMu.Unlock()
+	m.entityRegistry = append(m.entityRegistry, entry)
 }

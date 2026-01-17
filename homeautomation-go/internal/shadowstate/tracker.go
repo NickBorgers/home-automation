@@ -1396,14 +1396,15 @@ func (et *EnvironmentalTracker) UpdateCurrentInputs(inputs map[string]interface{
 	et.state.Metadata.LastUpdated = time.Now()
 }
 
-// UpdateAtticHumidity updates the attic humidity readings
-func (et *EnvironmentalTracker) UpdateAtticHumidity(highSensor, lowSensor float64) {
+// UpdateHumiditySensors updates the list of humidity sensors and their values
+func (et *EnvironmentalTracker) UpdateHumiditySensors(sensors []HumiditySensorData) {
 	et.mu.Lock()
 	defer et.mu.Unlock()
 
-	et.state.Outputs.AtticHumidity.HighSensorHumidity = highSensor
-	et.state.Outputs.AtticHumidity.LowSensorHumidity = lowSensor
-	et.state.Outputs.AtticHumidity.LastUpdate = time.Now()
+	// Make a copy of the slice
+	et.state.Outputs.HumiditySensors = make([]HumiditySensorData, len(sensors))
+	copy(et.state.Outputs.HumiditySensors, sensors)
+	et.state.Outputs.LastUpdate = time.Now()
 	et.state.Metadata.LastUpdated = time.Now()
 }
 
@@ -1412,9 +1413,9 @@ func (et *EnvironmentalTracker) UpdateAlertLevel(level string, conditionStartTim
 	et.mu.Lock()
 	defer et.mu.Unlock()
 
-	et.state.Outputs.AtticHumidity.AlertLevel = level
-	et.state.Outputs.AtticHumidity.ConditionStartTime = conditionStartTime
-	et.state.Outputs.AtticHumidity.IsSustained = isSustained
+	et.state.Outputs.AlertLevel = level
+	et.state.Outputs.ConditionStartTime = conditionStartTime
+	et.state.Outputs.IsSustained = isSustained
 	et.state.Metadata.LastUpdated = time.Now()
 }
 
@@ -1457,7 +1458,11 @@ func (et *EnvironmentalTracker) GetState() *EnvironmentalShadowState {
 			Current: make(map[string]interface{}),
 		},
 		Outputs: EnvironmentalOutputs{
-			AtticHumidity: et.state.Outputs.AtticHumidity,
+			HumiditySensors:    make([]HumiditySensorData, len(et.state.Outputs.HumiditySensors)),
+			AlertLevel:         et.state.Outputs.AlertLevel,
+			ConditionStartTime: et.state.Outputs.ConditionStartTime,
+			IsSustained:        et.state.Outputs.IsSustained,
+			LastUpdate:         et.state.Outputs.LastUpdate,
 		},
 		Metadata: et.state.Metadata,
 	}
@@ -1466,6 +1471,9 @@ func (et *EnvironmentalTracker) GetState() *EnvironmentalShadowState {
 	for k, v := range et.state.Inputs.Current {
 		stateCopy.Inputs.Current[k] = v
 	}
+
+	// Copy humidity sensors
+	copy(stateCopy.Outputs.HumiditySensors, et.state.Outputs.HumiditySensors)
 
 	// Copy notification records if they exist
 	if et.state.Outputs.LastNotification != nil {

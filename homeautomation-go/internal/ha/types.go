@@ -121,3 +121,36 @@ type subscription struct {
 func (s *subscription) Unsubscribe() error {
 	return s.client.unsubscribe(s.entityID, s.subID)
 }
+
+// Device represents a device from the Home Assistant device registry
+type Device struct {
+	ID           string   `json:"id"`
+	Name         string   `json:"name,omitempty"`
+	NameByUser   string   `json:"name_by_user,omitempty"`
+	Manufacturer string   `json:"manufacturer,omitempty"`
+	Model        string   `json:"model,omitempty"`
+	AreaID       string   `json:"area_id,omitempty"`
+	Labels       []string `json:"labels"`
+}
+
+// EntityRegistryEntry represents an entity from the Home Assistant entity registry
+type EntityRegistryEntry struct {
+	EntityID   string   `json:"entity_id"`
+	DeviceID   string   `json:"device_id,omitempty"`
+	AreaID     string   `json:"area_id,omitempty"`
+	Labels     []string `json:"labels"`
+	Platform   string   `json:"platform,omitempty"`
+	DisabledBy string   `json:"disabled_by,omitempty"`
+}
+
+// DeviceRegistryListRequest represents a config/device_registry/list request
+type DeviceRegistryListRequest struct {
+	ID   int    `json:"id"`
+	Type string `json:"type"`
+}
+
+// EntityRegistryListRequest represents a config/entity_registry/list request
+type EntityRegistryListRequest struct {
+	ID   int    `json:"id"`
+	Type string `json:"type"`
+}

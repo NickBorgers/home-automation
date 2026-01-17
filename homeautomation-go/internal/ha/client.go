@@ -91,6 +91,8 @@ type HAClient interface {
 	GetLastDisconnectTime() time.Time
 	GetWriteTimeoutCount() int
 	GetConnectionDuration() time.Duration
+	GetDevices() ([]*Device, error)
+	GetEntityRegistry() ([]*EntityRegistryEntry, error)
 }
 
 // errConnectionClosed is returned when attempting to use a closed connection.
@@ -631,6 +633,10 @@ func (c *Client) sendMessage(msg interface{}) (*Message, error) {
 	case *SubscribeEventsRequest:
 		m.ID = msgID
 	case *PingRequest:
+		m.ID = msgID
+	case *DeviceRegistryListRequest:
+		m.ID = msgID
+	case *EntityRegistryListRequest:
 		m.ID = msgID
 	default:
 		c.writeMu.Unlock()
@@ -1212,4 +1218,44 @@ func (c *Client) SetInputText(name string, value string) error {
 		"entity_id": fmt.Sprintf("input_text.%s", name),
 		"value":     value,
 	})
+}
+
+// GetDevices retrieves all devices from the Home Assistant device registry.
+// This provides device-level information including labels, area assignments, and manufacturer details.
+func (c *Client) GetDevices() ([]*Device, error) {
+	req := &DeviceRegistryListRequest{
+		Type: "config/device_registry/list",
+	}
+
+	resp, err := c.sendMessage(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get device registry: %w", err)
+	}
+
+	var devices []*Device
+	if err := json.Unmarshal(resp.Result, &devices); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal devices: %w", err)
+	}
+
+	return devices, nil
+}
+
+// GetEntityRegistry retrieves all entities from the Home Assistant entity registry.
+// This provides entity-to-device mappings, labels, and disabled state information.
+func (c *Client) GetEntityRegistry() ([]*EntityRegistryEntry, error) {
+	req := &EntityRegistryListRequest{
+		Type: "config/entity_registry/list",
+	}
+
+	resp, err := c.sendMessage(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get entity registry: %w", err)
+	}
+
+	var entities []*EntityRegistryEntry
+	if err := json.Unmarshal(resp.Result, &entities); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal entity registry: %w", err)
+	}
+
+	return entities, nil
 }

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -15,16 +16,16 @@ import (
 	"go.uber.org/zap"
 )
 
-// Attic humidity thresholds (RH percentage)
+// Humidity thresholds (RH percentage)
 const (
 	// Warning threshold - approaching mold risk
-	AtticHumidityWarningThreshold = 55.0
+	HumidityWarningThreshold = 55.0
 	// Critical threshold - definite mold risk
-	AtticHumidityCriticalThreshold = 65.0
+	HumidityCriticalThreshold = 65.0
 	// Hysteresis: warning clears when humidity drops to this level
-	AtticHumidityWarningClear = 50.0
+	HumidityWarningClear = 50.0
 	// Hysteresis: critical clears when humidity drops to this level
-	AtticHumidityCriticalClear = 60.0
+	HumidityCriticalClear = 60.0
 
 	// Debounce: condition must be sustained this long before alerting
 	SustainedConditionDuration = 30 * time.Minute
@@ -33,13 +34,24 @@ const (
 	WarningNotificationRateLimit  = 4 * time.Hour
 	CriticalNotificationRateLimit = 1 * time.Hour
 
-	// Sensor entity IDs
-	AtticHighHumiditySensor = "sensor.attic_high_humidity_2"
-	AtticLowHumiditySensor  = "sensor.attic_low_humidity_2"
+	// Label used to identify indoor devices
+	IndoorLabel = "indoor"
 
 	// Notification target
 	NotificationTarget = "nicks_iphone"
 )
+
+// HumiditySensor represents a discovered humidity sensor
+type HumiditySensor struct {
+	EntityID      string
+	DeviceID      string
+	FriendlyName  string
+	IsIndoor      bool // true = alerts enabled, false = informational only
+	Value         float64
+	Valid         bool
+	WarningStart  time.Time
+	CriticalStart time.Time
+}
 
 // Manager handles environmental monitoring and alerts
 type Manager struct {
@@ -55,19 +67,9 @@ type Manager struct {
 	// Subscription helper for automatic shadow state input capture
 	subHelper *shadowstate.SubscriptionHelper
 
-	// Attic humidity state tracking
-	mu                sync.Mutex
-	atticHighHumidity float64
-	atticLowHumidity  float64
-	highSensorValid   bool
-	lowSensorValid    bool
-
-	// Sustained condition tracking
-	// Track when each sensor first exceeded the threshold
-	highWarningStart  time.Time
-	lowWarningStart   time.Time
-	highCriticalStart time.Time
-	lowCriticalStart  time.Time
+	// Humidity sensors - keyed by entity_id
+	mu      sync.Mutex
+	sensors map[string]*HumiditySensor
 
 	// Current alert level ("none", "warning", "critical")
 	currentAlertLevel string
@@ -93,6 +95,7 @@ func NewManager(haClient ha.HAClient, stateManager *state.Manager, logger *zap.L
 		clock:             clock.NewRealClock(),
 		shadowTracker:     shadowTracker,
 		subHelper:         shadowstate.NewSubscriptionHelper(haClient, stateManager, registry, shadowTracker, "environmental", logger.Named("environmental")),
+		sensors:           make(map[string]*HumiditySensor),
 		currentAlertLevel: "none",
 	}
 }
@@ -113,25 +116,153 @@ func (m *Manager) GetShadowState() *shadowstate.EnvironmentalShadowState {
 func (m *Manager) Start() error {
 	m.logger.Info("Starting Environmental Monitoring Manager")
 
-	// Subscribe to attic humidity sensors (shadow inputs captured automatically)
-	if err := m.subHelper.SubscribeToEntity(AtticHighHumiditySensor, m.handleAtticHighHumidityChange); err != nil {
-		return fmt.Errorf("failed to subscribe to %s: %w", AtticHighHumiditySensor, err)
+	// Discover humidity sensors dynamically
+	if err := m.discoverHumiditySensors(); err != nil {
+		m.logger.Warn("Failed to discover some humidity sensors", zap.Error(err))
+		// Continue anyway - may have discovered some sensors
 	}
 
-	if err := m.subHelper.SubscribeToEntity(AtticLowHumiditySensor, m.handleAtticLowHumidityChange); err != nil {
-		return fmt.Errorf("failed to subscribe to %s: %w", AtticLowHumiditySensor, err)
+	m.mu.Lock()
+	sensorCount := len(m.sensors)
+	indoorCount := 0
+	for _, s := range m.sensors {
+		if s.IsIndoor {
+			indoorCount++
+		}
+	}
+	m.mu.Unlock()
+
+	if sensorCount == 0 {
+		m.logger.Warn("No humidity sensors discovered - environmental monitoring will be inactive")
+	} else {
+		m.logger.Info("Humidity sensors discovered",
+			zap.Int("total", sensorCount),
+			zap.Int("indoor_alertable", indoorCount),
+			zap.Int("outdoor_informational", sensorCount-indoorCount))
 	}
 
 	// Initialize shadow state with current input values (after subscriptions registered)
 	m.subHelper.CaptureInitialInputs()
 
-	// Initialize current states
-	m.logger.Info("Initializing environmental states from current HA entities")
-	if err := m.initializeStates(); err != nil {
-		m.logger.Warn("Failed to initialize some environmental states", zap.Error(err))
+	m.logger.Info("Environmental Monitoring Manager started successfully")
+	return nil
+}
+
+// discoverHumiditySensors discovers all humidity sensors and classifies them as indoor/outdoor
+func (m *Manager) discoverHumiditySensors() error {
+	var errs []error
+
+	// Step 1: Get all entity states
+	states, err := m.haClient.GetAllStates()
+	if err != nil {
+		return fmt.Errorf("failed to get entity states: %w", err)
 	}
 
-	m.logger.Info("Environmental Monitoring Manager started successfully")
+	// Step 2: Filter for humidity sensors (device_class: humidity)
+	var humiditySensors []*ha.State
+	for _, state := range states {
+		if !strings.HasPrefix(state.EntityID, "sensor.") {
+			continue
+		}
+		if deviceClass, ok := state.Attributes["device_class"].(string); ok {
+			if deviceClass == "humidity" {
+				humiditySensors = append(humiditySensors, state)
+			}
+		}
+	}
+
+	m.logger.Info("Found humidity sensors", zap.Int("count", len(humiditySensors)))
+
+	if len(humiditySensors) == 0 {
+		return nil
+	}
+
+	// Step 3: Get entity registry to map entity_id -> device_id
+	entityRegistry, err := m.haClient.GetEntityRegistry()
+	if err != nil {
+		m.logger.Warn("Failed to get entity registry - all sensors will be treated as outdoor",
+			zap.Error(err))
+		errs = append(errs, err)
+	}
+
+	entityToDevice := make(map[string]string)
+	for _, entry := range entityRegistry {
+		entityToDevice[entry.EntityID] = entry.DeviceID
+	}
+
+	// Step 4: Get device registry to check for "indoor" label
+	devices, err := m.haClient.GetDevices()
+	if err != nil {
+		m.logger.Warn("Failed to get device registry - all sensors will be treated as outdoor",
+			zap.Error(err))
+		errs = append(errs, err)
+	}
+
+	indoorDevices := make(map[string]bool)
+	for _, device := range devices {
+		for _, label := range device.Labels {
+			// Case-insensitive comparison to handle "Indoor", "indoor", "INDOOR", etc.
+			if strings.EqualFold(label, IndoorLabel) {
+				indoorDevices[device.ID] = true
+				break
+			}
+		}
+	}
+
+	m.logger.Info("Indoor devices discovered", zap.Int("count", len(indoorDevices)))
+
+	// Step 5: Create HumiditySensor structs and subscribe to each
+	m.mu.Lock()
+	for _, state := range humiditySensors {
+		deviceID := entityToDevice[state.EntityID]
+		isIndoor := indoorDevices[deviceID]
+
+		friendlyName := state.EntityID
+		if name, ok := state.Attributes["friendly_name"].(string); ok {
+			friendlyName = name
+		}
+
+		sensor := &HumiditySensor{
+			EntityID:     state.EntityID,
+			DeviceID:     deviceID,
+			FriendlyName: friendlyName,
+			IsIndoor:     isIndoor,
+			Valid:        false,
+		}
+
+		// Parse initial value
+		if value, err := parseHumidity(state.State); err == nil {
+			sensor.Value = value
+			sensor.Valid = true
+		}
+
+		m.sensors[state.EntityID] = sensor
+
+		m.logger.Debug("Discovered humidity sensor",
+			zap.String("entity_id", state.EntityID),
+			zap.String("friendly_name", friendlyName),
+			zap.String("device_id", deviceID),
+			zap.Bool("is_indoor", isIndoor),
+			zap.Float64("current_value", sensor.Value))
+	}
+	m.mu.Unlock()
+
+	// Subscribe to each sensor (outside the lock to avoid deadlock)
+	for entityID := range m.sensors {
+		if err := m.subHelper.SubscribeToEntity(entityID, m.handleHumidityChange); err != nil {
+			m.logger.Warn("Failed to subscribe to humidity sensor",
+				zap.String("entity_id", entityID),
+				zap.Error(err))
+			errs = append(errs, err)
+		}
+	}
+
+	// Update shadow state with all discovered sensors
+	m.updateShadowSensors()
+
+	if len(errs) > 0 {
+		return errors.Join(errs...)
+	}
 	return nil
 }
 
@@ -145,144 +276,110 @@ func (m *Manager) Stop() {
 	m.logger.Info("Environmental Monitoring Manager stopped")
 }
 
-// initializeStates fetches current HA entity states and initializes monitoring
-func (m *Manager) initializeStates() error {
-	var errs []error
-
-	// Get high sensor state
-	highState, err := m.haClient.GetState(AtticHighHumiditySensor)
-	if err == nil && highState != nil {
-		m.handleAtticHighHumidityChange(AtticHighHumiditySensor, nil, highState)
-	} else if err != nil {
-		m.logger.Warn("Failed to get initial attic high humidity state", zap.Error(err))
-		errs = append(errs, err)
-	}
-
-	// Get low sensor state
-	lowState, err := m.haClient.GetState(AtticLowHumiditySensor)
-	if err == nil && lowState != nil {
-		m.handleAtticLowHumidityChange(AtticLowHumiditySensor, nil, lowState)
-	} else if err != nil {
-		m.logger.Warn("Failed to get initial attic low humidity state", zap.Error(err))
-		errs = append(errs, err)
-	}
-
-	if len(errs) > 0 {
-		return errors.Join(errs...)
-	}
-	return nil
-}
-
-// updateShadowInputs captures current sensor values for shadow state tracking
-func (m *Manager) updateShadowInputs() {
-	inputs := make(map[string]interface{})
-
-	// Capture current sensor values from HA
-	if state, err := m.haClient.GetState(AtticHighHumiditySensor); err == nil && state != nil {
-		inputs[AtticHighHumiditySensor] = state.State
-	}
-	if state, err := m.haClient.GetState(AtticLowHumiditySensor); err == nil && state != nil {
-		inputs[AtticLowHumiditySensor] = state.State
-	}
-
-	m.shadowTracker.UpdateCurrentInputs(inputs)
-}
-
-// handleAtticHighHumidityChange processes changes to the high attic humidity sensor
-func (m *Manager) handleAtticHighHumidityChange(entityID string, oldState, newState *ha.State) {
+// handleHumidityChange processes changes to any humidity sensor
+func (m *Manager) handleHumidityChange(entityID string, oldState, newState *ha.State) {
 	if newState == nil {
 		return
 	}
 
-	// 1. FIRST: Update shadow state inputs
-	m.updateShadowInputs()
-
 	// Parse humidity value
 	humidity, err := parseHumidity(newState.State)
 	if err != nil {
-		m.logger.Debug("Invalid humidity value from high sensor",
+		m.logger.Debug("Invalid humidity value",
 			zap.String("entity_id", entityID),
 			zap.String("state", newState.State),
 			zap.Error(err))
 		m.mu.Lock()
-		m.highSensorValid = false
+		if sensor, ok := m.sensors[entityID]; ok {
+			sensor.Valid = false
+		}
 		m.mu.Unlock()
 		return
 	}
 
-	m.logger.Debug("Attic high humidity sensor changed",
-		zap.String("entity_id", entityID),
-		zap.Float64("humidity", humidity))
-
 	m.mu.Lock()
-	m.atticHighHumidity = humidity
-	m.highSensorValid = true
-	lowHumidity := m.atticLowHumidity // capture while holding lock
-	m.mu.Unlock()
-
-	// Update shadow state
-	m.shadowTracker.UpdateAtticHumidity(humidity, lowHumidity)
-
-	// Evaluate conditions
-	m.evaluateAtticHumidity()
-}
-
-// handleAtticLowHumidityChange processes changes to the low attic humidity sensor
-func (m *Manager) handleAtticLowHumidityChange(entityID string, oldState, newState *ha.State) {
-	if newState == nil {
-		return
-	}
-
-	// 1. FIRST: Update shadow state inputs
-	m.updateShadowInputs()
-
-	// Parse humidity value
-	humidity, err := parseHumidity(newState.State)
-	if err != nil {
-		m.logger.Debug("Invalid humidity value from low sensor",
-			zap.String("entity_id", entityID),
-			zap.String("state", newState.State),
-			zap.Error(err))
-		m.mu.Lock()
-		m.lowSensorValid = false
+	sensor, ok := m.sensors[entityID]
+	if !ok {
 		m.mu.Unlock()
+		m.logger.Warn("Received update for unknown sensor", zap.String("entity_id", entityID))
 		return
 	}
 
-	m.logger.Debug("Attic low humidity sensor changed",
-		zap.String("entity_id", entityID),
-		zap.Float64("humidity", humidity))
-
-	m.mu.Lock()
-	m.atticLowHumidity = humidity
-	m.lowSensorValid = true
-	highHumidity := m.atticHighHumidity // capture while holding lock
+	sensor.Value = humidity
+	sensor.Valid = true
 	m.mu.Unlock()
 
-	// Update shadow state
-	m.shadowTracker.UpdateAtticHumidity(highHumidity, humidity)
+	m.logger.Debug("Humidity sensor changed",
+		zap.String("entity_id", entityID),
+		zap.String("friendly_name", sensor.FriendlyName),
+		zap.Float64("humidity", humidity),
+		zap.Bool("is_indoor", sensor.IsIndoor))
 
-	// Evaluate conditions
-	m.evaluateAtticHumidity()
+	// Update shadow state
+	m.updateShadowSensors()
+
+	// Only evaluate alerts for indoor sensors
+	if sensor.IsIndoor {
+		m.evaluateHumidity()
+	}
 }
 
-// evaluateAtticHumidity evaluates current humidity levels and sends alerts if needed
-func (m *Manager) evaluateAtticHumidity() {
+// updateShadowSensors updates the shadow state with current sensor data
+func (m *Manager) updateShadowSensors() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	sensorData := make([]shadowstate.HumiditySensorData, 0, len(m.sensors))
+	for _, sensor := range m.sensors {
+		sensorData = append(sensorData, shadowstate.HumiditySensorData{
+			EntityID:     sensor.EntityID,
+			FriendlyName: sensor.FriendlyName,
+			DeviceID:     sensor.DeviceID,
+			IsIndoor:     sensor.IsIndoor,
+			Value:        sensor.Value,
+			Valid:        sensor.Valid,
+		})
+	}
+
+	m.shadowTracker.UpdateHumiditySensors(sensorData)
+}
+
+// evaluateHumidity evaluates current humidity levels for indoor sensors and sends alerts if needed
+func (m *Manager) evaluateHumidity() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	now := m.clock.Now()
 
-	// Determine which sensors are elevated
-	highIsWarning := m.highSensorValid && m.atticHighHumidity >= AtticHumidityWarningThreshold
-	highIsCritical := m.highSensorValid && m.atticHighHumidity >= AtticHumidityCriticalThreshold
-	lowIsWarning := m.lowSensorValid && m.atticLowHumidity >= AtticHumidityWarningThreshold
-	lowIsCritical := m.lowSensorValid && m.atticLowHumidity >= AtticHumidityCriticalThreshold
+	// Track warning/critical for each indoor sensor
+	for _, sensor := range m.sensors {
+		if !sensor.IsIndoor || !sensor.Valid {
+			continue
+		}
 
-	// Track when conditions started for each sensor
-	m.updateConditionTracking(now, highIsWarning, highIsCritical, lowIsWarning, lowIsCritical)
+		isWarning := sensor.Value >= HumidityWarningThreshold
+		isCritical := sensor.Value >= HumidityCriticalThreshold
 
-	// Calculate the highest sustained level
+		// Warning tracking
+		if isWarning {
+			if sensor.WarningStart.IsZero() {
+				sensor.WarningStart = now
+			}
+		} else {
+			sensor.WarningStart = time.Time{}
+		}
+
+		// Critical tracking
+		if isCritical {
+			if sensor.CriticalStart.IsZero() {
+				sensor.CriticalStart = now
+			}
+		} else {
+			sensor.CriticalStart = time.Time{}
+		}
+	}
+
+	// Calculate the highest sustained level across all indoor sensors
 	newAlertLevel := m.calculateSustainedAlertLevel(now)
 
 	// Check for condition resolution (hysteresis)
@@ -306,74 +403,43 @@ func (m *Manager) evaluateAtticHumidity() {
 	}
 }
 
-// updateConditionTracking updates the start times for warning/critical conditions
-func (m *Manager) updateConditionTracking(now time.Time, highIsWarning, highIsCritical, lowIsWarning, lowIsCritical bool) {
-	// High sensor warning tracking
-	if highIsWarning {
-		if m.highWarningStart.IsZero() {
-			m.highWarningStart = now
-		}
-	} else {
-		m.highWarningStart = time.Time{}
-	}
-
-	// High sensor critical tracking
-	if highIsCritical {
-		if m.highCriticalStart.IsZero() {
-			m.highCriticalStart = now
-		}
-	} else {
-		m.highCriticalStart = time.Time{}
-	}
-
-	// Low sensor warning tracking
-	if lowIsWarning {
-		if m.lowWarningStart.IsZero() {
-			m.lowWarningStart = now
-		}
-	} else {
-		m.lowWarningStart = time.Time{}
-	}
-
-	// Low sensor critical tracking
-	if lowIsCritical {
-		if m.lowCriticalStart.IsZero() {
-			m.lowCriticalStart = now
-		}
-	} else {
-		m.lowCriticalStart = time.Time{}
-	}
-}
-
 // calculateSustainedAlertLevel determines the alert level based on sustained conditions
 func (m *Manager) calculateSustainedAlertLevel(now time.Time) string {
-	// Check for sustained critical (either sensor)
-	highCriticalSustained := !m.highCriticalStart.IsZero() && now.Sub(m.highCriticalStart) >= SustainedConditionDuration
-	lowCriticalSustained := !m.lowCriticalStart.IsZero() && now.Sub(m.lowCriticalStart) >= SustainedConditionDuration
-
-	if highCriticalSustained || lowCriticalSustained {
-		return "critical"
+	// Check for sustained critical (any indoor sensor)
+	for _, sensor := range m.sensors {
+		if !sensor.IsIndoor || !sensor.Valid {
+			continue
+		}
+		if !sensor.CriticalStart.IsZero() && now.Sub(sensor.CriticalStart) >= SustainedConditionDuration {
+			return "critical"
+		}
 	}
 
-	// Check for sustained warning (either sensor)
-	highWarningSustained := !m.highWarningStart.IsZero() && now.Sub(m.highWarningStart) >= SustainedConditionDuration
-	lowWarningSustained := !m.lowWarningStart.IsZero() && now.Sub(m.lowWarningStart) >= SustainedConditionDuration
-
-	if highWarningSustained || lowWarningSustained {
-		return "warning"
+	// Check for sustained warning (any indoor sensor)
+	for _, sensor := range m.sensors {
+		if !sensor.IsIndoor || !sensor.Valid {
+			continue
+		}
+		if !sensor.WarningStart.IsZero() && now.Sub(sensor.WarningStart) >= SustainedConditionDuration {
+			return "warning"
+		}
 	}
 
 	return "none"
 }
 
-// getConditionStartTime returns the earliest condition start time
+// getConditionStartTime returns the earliest condition start time across all sensors
 func (m *Manager) getConditionStartTime() time.Time {
 	var earliest time.Time
 
-	times := []time.Time{m.highWarningStart, m.lowWarningStart, m.highCriticalStart, m.lowCriticalStart}
-	for _, t := range times {
-		if !t.IsZero() && (earliest.IsZero() || t.Before(earliest)) {
-			earliest = t
+	for _, sensor := range m.sensors {
+		if !sensor.IsIndoor {
+			continue
+		}
+		for _, t := range []time.Time{sensor.WarningStart, sensor.CriticalStart} {
+			if !t.IsZero() && (earliest.IsZero() || t.Before(earliest)) {
+				earliest = t
+			}
 		}
 	}
 
@@ -382,24 +448,27 @@ func (m *Manager) getConditionStartTime() time.Time {
 
 // checkConditionResolved checks if the alert condition has resolved with hysteresis
 func (m *Manager) checkConditionResolved(now time.Time) {
-	// Apply hysteresis based on current alert level
-	highClearThreshold := AtticHumidityWarningClear
-	lowClearThreshold := AtticHumidityWarningClear
-
+	// Determine clear threshold based on current alert level
+	clearThreshold := HumidityWarningClear
 	if m.currentAlertLevel == "critical" {
-		highClearThreshold = AtticHumidityCriticalClear
-		lowClearThreshold = AtticHumidityCriticalClear
+		clearThreshold = HumidityCriticalClear
 	}
 
-	// Check if both sensors are below their clear thresholds
-	highCleared := !m.highSensorValid || m.atticHighHumidity < highClearThreshold
-	lowCleared := !m.lowSensorValid || m.atticLowHumidity < lowClearThreshold
+	// Check if ALL indoor sensors are below their clear thresholds
+	allCleared := true
+	for _, sensor := range m.sensors {
+		if !sensor.IsIndoor {
+			continue
+		}
+		if sensor.Valid && sensor.Value >= clearThreshold {
+			allCleared = false
+			break
+		}
+	}
 
-	if highCleared && lowCleared {
-		m.logger.Info("Attic humidity condition resolved",
-			zap.String("previous_level", m.currentAlertLevel),
-			zap.Float64("high_humidity", m.atticHighHumidity),
-			zap.Float64("low_humidity", m.atticLowHumidity))
+	if allCleared {
+		m.logger.Info("Humidity condition resolved",
+			zap.String("previous_level", m.currentAlertLevel))
 
 		// Send resolution notification (only once per incident)
 		if m.hasNotifiedForCurrentIncident {
@@ -409,10 +478,10 @@ func (m *Manager) checkConditionResolved(now time.Time) {
 		// Reset state
 		m.currentAlertLevel = "none"
 		m.hasNotifiedForCurrentIncident = false
-		m.highWarningStart = time.Time{}
-		m.lowWarningStart = time.Time{}
-		m.highCriticalStart = time.Time{}
-		m.lowCriticalStart = time.Time{}
+		for _, sensor := range m.sensors {
+			sensor.WarningStart = time.Time{}
+			sensor.CriticalStart = time.Time{}
+		}
 
 		// Update shadow state
 		m.shadowTracker.UpdateAlertLevel("none", time.Time{}, false)
@@ -441,20 +510,19 @@ func (m *Manager) sendAlertNotification(now time.Time, level string) {
 		return
 	}
 
-	// Build sensor location list
+	// Build sensor location list and find max humidity
 	var sensorLocations []string
 	var maxHumidity float64
 
-	if m.highSensorValid && m.atticHighHumidity >= AtticHumidityWarningThreshold {
-		sensorLocations = append(sensorLocations, "high sensor")
-		if m.atticHighHumidity > maxHumidity {
-			maxHumidity = m.atticHighHumidity
+	for _, sensor := range m.sensors {
+		if !sensor.IsIndoor || !sensor.Valid {
+			continue
 		}
-	}
-	if m.lowSensorValid && m.atticLowHumidity >= AtticHumidityWarningThreshold {
-		sensorLocations = append(sensorLocations, "low sensor")
-		if m.atticLowHumidity > maxHumidity {
-			maxHumidity = m.atticLowHumidity
+		if sensor.Value >= HumidityWarningThreshold {
+			sensorLocations = append(sensorLocations, sensor.FriendlyName)
+			if sensor.Value > maxHumidity {
+				maxHumidity = sensor.Value
+			}
 		}
 	}
 
@@ -464,13 +532,13 @@ func (m *Manager) sendAlertNotification(now time.Time, level string) {
 	var sticky bool
 
 	if level == "critical" {
-		title = "Attic Humidity Critical"
+		title = "High Humidity Critical"
 		message = fmt.Sprintf("Humidity at %.0f%% (%s) for 30+ minutes. Mold risk - take action!",
 			maxHumidity, formatSensorLocations(sensorLocations))
 		importance = "high"
 		sticky = true
 	} else {
-		title = "Attic Humidity Warning"
+		title = "High Humidity Warning"
 		message = fmt.Sprintf("Humidity at %.0f%% (%s) for 30+ minutes. Check ventilation.",
 			maxHumidity, formatSensorLocations(sensorLocations))
 		importance = "default"
@@ -481,14 +549,14 @@ func (m *Manager) sendAlertNotification(now time.Time, level string) {
 		Title:   title,
 		Message: message,
 		Data: &ha.NotificationData{
-			Tag:        fmt.Sprintf("environmental-attic-humidity-%s", level),
+			Tag:        fmt.Sprintf("environmental-humidity-%s", level),
 			Group:      "environmental",
 			Importance: importance,
 			Sticky:     sticky,
 		},
 	}
 
-	m.logger.Info("Sending attic humidity alert notification",
+	m.logger.Info("Sending humidity alert notification",
 		zap.String("level", level),
 		zap.Float64("humidity", maxHumidity),
 		zap.Strings("sensors", sensorLocations))
@@ -505,7 +573,7 @@ func (m *Manager) sendAlertNotification(now time.Time, level string) {
 
 	// Send notification
 	if err := m.haClient.SendNotification(NotificationTarget, notification); err != nil {
-		m.logger.Error("Failed to send attic humidity notification",
+		m.logger.Error("Failed to send humidity notification",
 			zap.String("level", level),
 			zap.Error(err))
 		return
@@ -522,22 +590,29 @@ func (m *Manager) sendAlertNotification(now time.Time, level string) {
 
 // sendResolutionNotification sends a notification that the condition has resolved
 func (m *Manager) sendResolutionNotification(now time.Time) {
-	message := fmt.Sprintf("Attic humidity has returned to safe levels (high: %.0f%%, low: %.0f%%).",
-		m.atticHighHumidity, m.atticLowHumidity)
+	// Build summary of current indoor sensor values
+	var sensorSummary []string
+	for _, sensor := range m.sensors {
+		if !sensor.IsIndoor || !sensor.Valid {
+			continue
+		}
+		sensorSummary = append(sensorSummary, fmt.Sprintf("%s: %.0f%%", sensor.FriendlyName, sensor.Value))
+	}
+
+	message := fmt.Sprintf("Humidity has returned to safe levels. Current readings: %s",
+		strings.Join(sensorSummary, ", "))
 
 	notification := &ha.Notification{
-		Title:   "Attic Humidity Resolved",
+		Title:   "Humidity Resolved",
 		Message: message,
 		Data: &ha.NotificationData{
-			Tag:        "environmental-attic-humidity-resolved",
+			Tag:        "environmental-humidity-resolved",
 			Group:      "environmental",
 			Importance: "default",
 		},
 	}
 
-	m.logger.Info("Sending attic humidity resolution notification",
-		zap.Float64("high_humidity", m.atticHighHumidity),
-		zap.Float64("low_humidity", m.atticLowHumidity))
+	m.logger.Info("Sending humidity resolution notification")
 
 	// Record in shadow state
 	m.shadowTracker.RecordResolutionNotice(message)
@@ -573,7 +648,10 @@ func formatSensorLocations(locations []string) string {
 	if len(locations) == 1 {
 		return locations[0]
 	}
-	return "both sensors"
+	if len(locations) == 2 {
+		return locations[0] + " and " + locations[1]
+	}
+	return fmt.Sprintf("%d sensors", len(locations))
 }
 
 // Reset resets the manager state (for testing)
@@ -581,14 +659,12 @@ func (m *Manager) Reset() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	m.atticHighHumidity = 0
-	m.atticLowHumidity = 0
-	m.highSensorValid = false
-	m.lowSensorValid = false
-	m.highWarningStart = time.Time{}
-	m.lowWarningStart = time.Time{}
-	m.highCriticalStart = time.Time{}
-	m.lowCriticalStart = time.Time{}
+	for _, sensor := range m.sensors {
+		sensor.Value = 0
+		sensor.Valid = false
+		sensor.WarningStart = time.Time{}
+		sensor.CriticalStart = time.Time{}
+	}
 	m.currentAlertLevel = "none"
 	m.lastWarningNotification = time.Time{}
 	m.lastCriticalNotification = time.Time{}
@@ -596,9 +672,38 @@ func (m *Manager) Reset() {
 	m.hasNotifiedForCurrentIncident = false
 }
 
-// GetCurrentState returns the current humidity values and alert level (for testing)
-func (m *Manager) GetCurrentState() (highHumidity, lowHumidity float64, alertLevel string) {
+// GetCurrentState returns the current alert level (for testing)
+func (m *Manager) GetCurrentState() (alertLevel string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return m.atticHighHumidity, m.atticLowHumidity, m.currentAlertLevel
+	return m.currentAlertLevel
+}
+
+// GetSensors returns a copy of the current sensors map (for testing)
+func (m *Manager) GetSensors() map[string]*HumiditySensor {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	result := make(map[string]*HumiditySensor)
+	for k, v := range m.sensors {
+		// Make a copy
+		sensor := *v
+		result[k] = &sensor
+	}
+	return result
+}
+
+// AddSensor adds a sensor directly (for testing)
+func (m *Manager) AddSensor(sensor *HumiditySensor) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.sensors[sensor.EntityID] = sensor
+}
+
+// SimulateSensorChange simulates a sensor value change (for testing)
+func (m *Manager) SimulateSensorChange(entityID string, humidity float64) {
+	m.handleHumidityChange(entityID, nil, &ha.State{
+		EntityID: entityID,
+		State:    fmt.Sprintf("%.1f", humidity),
+	})
 }
