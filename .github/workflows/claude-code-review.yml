@@ -1297,6 +1297,8 @@ jobs:
       needs.get-context.outputs.author_authorized == 'true' &&
       needs.get-context.outputs.tests_passed == 'true'
     runs-on: ubuntu-latest
+    outputs:
+      decision: ${{ steps.parse-decision.outputs.decision }}
     permissions:
       contents: write
       pull-requests: write
@@ -1430,6 +1432,41 @@ jobs:
           path: merge-decision-output.jsonl
           retention-days: 7
 
+      - name: Parse merge decision from PR comments
+        id: parse-decision
+        if: always() && steps.verify-tests.outputs.verified == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ needs.get-context.outputs.pr_number }}
+        run: |
+          # Fetch the most recent "Merge Decision" comment from the PR
+          # Look for comments containing "## 🚦 Merge Decision" posted by the workflow
+          COMMENTS=$(gh api repos/${{ github.repository }}/issues/${PR_NUMBER}/comments \
+            --jq '[.[] | select(.body | contains("## 🚦 Merge Decision"))] | last')
+
+          if [ -z "$COMMENTS" ] || [ "$COMMENTS" = "null" ]; then
+            echo "No merge decision comment found - defaulting to NO-GO"
+            echo "decision=NO-GO" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          COMMENT_BODY=$(echo "$COMMENTS" | jq -r '.body')
+
+          # Check for GO or NO-GO in the decision line
+          # Looking for patterns like "**Decision: 🟢 GO**" or "**Decision: 🔴 NO-GO**"
+          if echo "$COMMENT_BODY" | grep -qE "Decision:.*🟢.*GO|Decision:.*GO.*🟢"; then
+            echo "Merge decision: GO"
+            echo "decision=GO" >> $GITHUB_OUTPUT
+          elif echo "$COMMENT_BODY" | grep -qE "Decision:.*🔴.*NO-GO|Decision:.*NO-GO.*🔴|NO-GO"; then
+            echo "Merge decision: NO-GO"
+            echo "decision=NO-GO" >> $GITHUB_OUTPUT
+          else
+            echo "Could not parse decision from comment - defaulting to NO-GO"
+            echo "Comment body:"
+            echo "$COMMENT_BODY"
+            echo "decision=NO-GO" >> $GITHUB_OUTPUT
+          fi
+
   # Aggregator job - use this as the required check for branch protection
   all-reviews-passed:
     name: All Required Agent Reviews
@@ -1527,6 +1564,20 @@ jobs:
               echo "Merge Decision: ${{ needs.merge-decision.result }}"
               failed=true
             fi
+
+            # Check the actual merge decision (GO vs NO-GO) from the agent's comment
+            MERGE_DECISION="${{ needs.merge-decision.outputs.decision }}"
+            echo "Merge Decision Agent Verdict: $MERGE_DECISION"
+            if [ "$MERGE_DECISION" = "NO-GO" ]; then
+              echo "❌ Merge decision agent returned NO-GO - blocking issues found"
+              echo "See the '🚦 Merge Decision' comment on the PR for details"
+              echo "merge_decision_nogo=true" >> $GITHUB_OUTPUT
+              failed=true
+            elif [ -z "$MERGE_DECISION" ]; then
+              echo "⚠️ Could not determine merge decision - treating as NO-GO"
+              echo "merge_decision_nogo=true" >> $GITHUB_OUTPUT
+              failed=true
+            fi
           fi
 
           # If max attempts reached and tests still failing
@@ -1542,7 +1593,7 @@ jobs:
             exit 1
           fi
 
-          echo "All agent reviews completed - PR is ready for merge"
+          echo "All agent reviews completed and merge decision is GO - PR is ready for merge"
           echo ""
           echo "Review Results:"
           echo "  Tests Passed: ${{ needs.get-context.outputs.tests_passed }}"
@@ -1554,9 +1605,10 @@ jobs:
           echo "  Test Review: ${{ needs.test-review.result }}"
           echo "  Concurrency Review: ${{ needs.concurrency-review.result }}"
           echo "  Docs Review: ${{ needs.docs-review.result }}"
-          echo "  Merge Decision: ${{ needs.merge-decision.result }}"
+          echo "  Merge Decision Job: ${{ needs.merge-decision.result }}"
+          echo "  Merge Decision Verdict: ${{ needs.merge-decision.outputs.decision }}"
 
-          # Signal that we should add the label
+          # Signal that we should add the label (only when merge decision is GO)
           echo "should_label=true" >> $GITHUB_OUTPUT
 
       - name: Create commit status for reviews
@@ -1631,6 +1683,7 @@ jobs:
           CONCURRENCY_RESULT: ${{ needs.concurrency-review.result }}
           DOCS_RESULT: ${{ needs.docs-review.result }}
           MERGE_RESULT: ${{ needs.merge-decision.result }}
+          MERGE_DECISION: ${{ needs.merge-decision.outputs.decision }}
           RUN_ID: ${{ github.run_id }}
           REPO: ${{ github.repository }}
           SERVER_URL: ${{ github.server_url }}
@@ -1646,12 +1699,25 @@ jobs:
             esac
           }
 
+          # Helper function to format merge decision verdict
+          format_merge_decision() {
+            case "$1" in
+              GO) echo "🟢 GO" ;;
+              NO-GO) echo "🔴 NO-GO" ;;
+              *) echo "❓ Unknown" ;;
+            esac
+          }
+
           # Build the summary comment
           COMMENT="## 📋 Agent Review Summary\n\n"
           COMMENT+="**Workflow Run:** [#${RUN_ID}](${SERVER_URL}/${REPO}/actions/runs/${RUN_ID})\n\n"
 
-          # Determine overall status
-          if [ "${{ steps.check-results.outcome }}" = "success" ]; then
+          # Determine overall status based on actual merge decision
+          if [ "$MERGE_DECISION" = "GO" ]; then
+            COMMENT+="**Status:** ✅ All reviews passed - ready to merge\n\n"
+          elif [ "$MERGE_DECISION" = "NO-GO" ]; then
+            COMMENT+="**Status:** ❌ Blocking issues found - see Merge Decision comment for details\n\n"
+          elif [ "${{ steps.check-results.outcome }}" = "success" ]; then
             COMMENT+="**Status:** ✅ All reviews completed successfully\n\n"
           else
             COMMENT+="**Status:** ❌ Some reviews failed or are incomplete\n\n"
@@ -1674,7 +1740,8 @@ jobs:
             COMMENT+="| 🧪 Test Review | $(format_result "$TEST_RESULT") |\n"
             COMMENT+="| 🔀 Concurrency Review | $(format_result "$CONCURRENCY_RESULT") |\n"
             COMMENT+="| 📚 Docs Review | $(format_result "$DOCS_RESULT") |\n"
-            COMMENT+="| 🚦 Merge Decision | $(format_result "$MERGE_RESULT") |\n"
+            # Show actual merge decision verdict instead of just job status
+            COMMENT+="| 🚦 Merge Decision | $(format_merge_decision "$MERGE_DECISION") |\n"
           fi
 
           COMMENT+="\n---\n"
