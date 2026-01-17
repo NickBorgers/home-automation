@@ -401,7 +401,18 @@ func (m *Manager) handleMusicPlaybackTypeChange(key string, oldValue, newValue i
 		return
 	}
 
+	// If empty string, stop playback (no rate limiting for stop operations)
+	// IMPORTANT: This check must come BEFORE rate limiting to allow the clear-then-set
+	// pattern used by sleep hygiene to force a music restart. If we rate-limited stop
+	// operations, the subsequent set would be blocked.
+	if newType == "" {
+		m.logger.Info("Stopping music playback")
+		m.stopPlayback()
+		return
+	}
+
 	// Check rate limiting (max 1 playback per 10 seconds)
+	// Only applies to starting playback, not stopping
 	m.mu.Lock()
 	timeSinceLastPlayback := m.timeProvider.Now().Sub(m.lastPlaybackTime)
 	if timeSinceLastPlayback < 10*time.Second && !m.lastPlaybackTime.IsZero() {
@@ -415,20 +426,13 @@ func (m *Manager) handleMusicPlaybackTypeChange(key string, oldValue, newValue i
 
 	// Prevent re-activation of already playing music
 	m.mu.RLock()
-	if m.currentlyPlaying != nil && m.currentlyPlaying.Type == newType && newType != "" {
+	if m.currentlyPlaying != nil && m.currentlyPlaying.Type == newType {
 		m.mu.RUnlock()
 		m.logger.Debug("Double activation of already-playing musicType, ignoring",
 			zap.String("type", newType))
 		return
 	}
 	m.mu.RUnlock()
-
-	// If empty string, stop playback
-	if newType == "" {
-		m.logger.Info("Stopping music playback")
-		m.stopPlayback()
-		return
-	}
 
 	// Start playback orchestration with musicPlaybackType as trigger
 	if err := m.orchestratePlayback(newType, "musicPlaybackType"); err != nil {
