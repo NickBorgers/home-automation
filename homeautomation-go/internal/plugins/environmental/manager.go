@@ -148,7 +148,9 @@ func (m *Manager) Start() error {
 	return nil
 }
 
-// discoverHumiditySensors discovers all humidity sensors and classifies them as indoor/outdoor
+// discoverHumiditySensors discovers all humidity sensors and classifies them as indoor/outdoor.
+// Note: Discovery runs at startup only. New sensors added to Home Assistant while
+// the app is running will not be detected until restart.
 func (m *Manager) discoverHumiditySensors() error {
 	var errs []error
 
@@ -651,7 +653,8 @@ func formatSensorLocations(locations []string) string {
 	if len(locations) == 2 {
 		return locations[0] + " and " + locations[1]
 	}
-	return fmt.Sprintf("%d sensors", len(locations))
+	// For 3+ sensors, list all names joined with commas
+	return strings.Join(locations, ", ")
 }
 
 // Reset resets the manager state (for testing)

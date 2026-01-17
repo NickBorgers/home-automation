@@ -882,7 +882,7 @@ func TestFormatSensorLocations(t *testing.T) {
 		{"empty", []string{}, "unknown"},
 		{"single", []string{"high sensor"}, "high sensor"},
 		{"two", []string{"sensor 1", "sensor 2"}, "sensor 1 and sensor 2"},
-		{"three or more", []string{"a", "b", "c"}, "3 sensors"},
+		{"three or more", []string{"a", "b", "c"}, "a, b, c"},
 	}
 
 	for _, tt := range tests {
