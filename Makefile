@@ -107,9 +107,20 @@ validate-diagrams:
 # Go Application (homeautomation-go) Targets
 # ============================================================================
 
+# Version info for build-time injection
+GIT_COMMIT := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+GIT_BRANCH := $(shell git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
+GIT_DIRTY := $(shell git diff --quiet 2>/dev/null && echo "false" || echo "true")
+BUILD_TIME := $(shell date -u '+%Y-%m-%dT%H:%M:%SZ')
+VERSION_PKG := homeautomation/internal/version
+LDFLAGS := -X '$(VERSION_PKG).GitCommit=$(GIT_COMMIT)' \
+           -X '$(VERSION_PKG).GitBranch=$(GIT_BRANCH)' \
+           -X '$(VERSION_PKG).GitDirty=$(GIT_DIRTY)' \
+           -X '$(VERSION_PKG).BuildTime=$(BUILD_TIME)'
+
 #build-go: @ Build the Go application binary
 build-go:
-	cd homeautomation-go && go build -o homeautomation ./cmd/main.go
+	cd homeautomation-go && go build -ldflags "$(LDFLAGS)" -o homeautomation ./cmd/main.go
 
 #dev-ui: @ Run application with mock HA server for local UI development
 dev-ui: build-go

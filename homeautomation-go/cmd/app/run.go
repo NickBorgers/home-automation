@@ -18,6 +18,7 @@ import (
 	"homeautomation/internal/plugins/reset"
 	"homeautomation/internal/shadowstate"
 	"homeautomation/internal/state"
+	"homeautomation/internal/version"
 	pkgha "homeautomation/pkg/ha"
 	"homeautomation/pkg/plugin"
 	pkgstate "homeautomation/pkg/state"
@@ -70,6 +71,13 @@ func Run() {
 	// Combine both cores using zap.NewTee
 	logger := zap.New(zapcore.NewTee(stdoutCore, bufferCore))
 	defer logger.Sync()
+
+	// Log version information immediately on startup for debugging
+	logger.Info("Home Automation starting",
+		zap.String("commit", version.GitCommit),
+		zap.String("branch", version.GitBranch),
+		zap.String("build_time", version.BuildTime),
+		zap.String("dirty", version.GitDirty))
 
 	// Load environment variables from .env file if present
 	if err := godotenv.Load(); err != nil {
