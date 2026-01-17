@@ -49,6 +49,7 @@ graph TB
             SexMode[Sex Mode<br/>internal/plugins/sexmode/]
             LoadShed[Load Shedding<br/>internal/plugins/loadshedding/]
             Christmas[Christmas<br/>internal/plugins/christmas/]
+            Environmental[Environmental<br/>internal/plugins/environmental/]
             ResetCoord[Reset Coordinator<br/>internal/plugins/reset/]
         end
 
@@ -128,6 +129,10 @@ graph TB
     Christmas -->|Call Services| HAClient
     Christmas -.->|Register Shadow| ShadowTracker
 
+    Environmental -->|Monitor Sensors| HAClient
+    Environmental -->|Call Services| HAClient
+    Environmental -.->|Register Shadow| ShadowTracker
+
     ResetCoord -->|Subscribe to reset| StateManager
     ResetCoord -.->|Reset All| StateTracking
     ResetCoord -.->|Reset All| Music
@@ -151,6 +156,7 @@ graph TB
     style SexMode fill:#f3e5f5
     style LoadShed fill:#f3e5f5
     style Christmas fill:#f3e5f5
+    style Environmental fill:#f3e5f5
     style StateTracking fill:#f3e5f5
     style DayPhase fill:#f3e5f5
     style ResetCoord fill:#ffebee
@@ -871,6 +877,7 @@ graph LR
         Kitchen[isKitchenOccupied]
         PrimaryDoor[isPrimaryBedroomDoorOpen]
         SexModeInput[input_boolean.sex]
+        AtticHumidity[sensor.attic_*_humidity_2]
     end
 
     subgraph "Computed State Variables"
@@ -912,6 +919,7 @@ graph LR
         SexModePlugin[Sex Mode Plugin<br/>Order: 65]
         LoadShedding[Load Shedding Plugin]
         ChristmasPlugin[Christmas Plugin]
+        EnvironmentalPlugin[Environmental Plugin<br/>Order: 85]
         ResetCoord[Reset Coordinator<br/>Order: 90]
     end
 
@@ -989,6 +997,9 @@ graph LR
 
     DayPhase --> ChristmasPlugin
     AnyoneHome --> ChristmasPlugin
+
+    AtticHumidity --> EnvironmentalPlugin
+    EnvironmentalPlugin -.->|Sends Alerts| Notifications[Mobile Notifications]
 
     Reset --> ResetCoord
     ResetCoord -.->|Reset| StateTracking
