@@ -199,10 +199,11 @@ func (m *Manager) handleAtticHighHumidityChange(entityID string, oldState, newSt
 	m.mu.Lock()
 	m.atticHighHumidity = humidity
 	m.highSensorValid = true
+	lowHumidity := m.atticLowHumidity // capture while holding lock
 	m.mu.Unlock()
 
 	// Update shadow state
-	m.shadowTracker.UpdateAtticHumidity(humidity, m.atticLowHumidity)
+	m.shadowTracker.UpdateAtticHumidity(humidity, lowHumidity)
 
 	// Evaluate conditions
 	m.evaluateAtticHumidity()
@@ -234,10 +235,11 @@ func (m *Manager) handleAtticLowHumidityChange(entityID string, oldState, newSta
 	m.mu.Lock()
 	m.atticLowHumidity = humidity
 	m.lowSensorValid = true
+	highHumidity := m.atticHighHumidity // capture while holding lock
 	m.mu.Unlock()
 
 	// Update shadow state
-	m.shadowTracker.UpdateAtticHumidity(m.atticHighHumidity, humidity)
+	m.shadowTracker.UpdateAtticHumidity(highHumidity, humidity)
 
 	// Evaluate conditions
 	m.evaluateAtticHumidity()
