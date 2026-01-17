@@ -614,6 +614,9 @@ func (m *Manager) muteSpeaker(participant ParticipantWithVolume) {
 
 // stopPlayback stops all music playback
 func (m *Manager) stopPlayback() {
+	// Fade out before stopping to prevent jarring audio cutoff
+	m.fadeOutSpeakers()
+
 	m.mu.Lock()
 	lastPlaying := m.currentlyPlaying // Save before clearing
 	m.currentlyPlaying = nil
@@ -910,6 +913,10 @@ func (m *Manager) executePlayback(musicType string, option PlaybackOption, parti
 	// 2. Old fade-ins detecting "human override" when new ones set volume to 0
 	m.cancelAllFadeIns()
 
+	// Step 0: Fade out current playback before making any changes
+	// This prevents jarring audio when speakers are ungrouped/regrouped
+	m.fadeOutSpeakers()
+
 	leadEntityID := m.getSpeakerEntityID(leadPlayer)
 
 	// Step 1: Break speakers from existing groups before building new group
@@ -1097,6 +1104,14 @@ const (
 
 	// playbackVerificationRetryDelay is the delay between retry attempts.
 	playbackVerificationRetryDelay = 3 * time.Second
+
+	// fadeOutSteps is the number of volume steps for fade-out.
+	// A quick fade-out (5 steps) provides a smooth transition without significant delay.
+	fadeOutSteps = 5
+
+	// fadeOutStepDelay is the delay between each fade-out volume step.
+	// 100ms per step * 5 steps = 500ms total fade-out time.
+	fadeOutStepDelay = 100 * time.Millisecond
 )
 
 // startPlaybackWithVerification sends the play_media command and verifies playback actually starts.
@@ -1189,6 +1204,67 @@ func (m *Manager) isPlaybackActive(entityID string) (bool, error) {
 		zap.Bool("is_playing", isPlaying))
 
 	return isPlaying, nil
+}
+
+// fadeOutSpeakers performs a quick fade-out on all currently playing speakers.
+// This prevents jarring audio when changing playback modes or stopping music.
+// The fade-out is intentionally quick (500ms total) to avoid delaying transitions.
+func (m *Manager) fadeOutSpeakers() {
+	m.mu.RLock()
+	currentlyPlaying := m.currentlyPlaying
+	m.mu.RUnlock()
+
+	if currentlyPlaying == nil || len(currentlyPlaying.Participants) == 0 {
+		m.logger.Debug("No active playback to fade out")
+		return
+	}
+
+	m.logger.Info("Starting quick fade-out before playback change",
+		zap.Int("speaker_count", len(currentlyPlaying.Participants)))
+
+	// Get current volumes for each speaker to fade from
+	speakerVolumes := make(map[string]int)
+	for _, p := range currentlyPlaying.Participants {
+		entityID := m.getSpeakerEntityID(p.PlayerName)
+		currentVolume := m.getSpeakerVolume(entityID)
+		if currentVolume > 0 {
+			speakerVolumes[entityID] = currentVolume
+		}
+	}
+
+	if len(speakerVolumes) == 0 {
+		m.logger.Debug("All speakers already at volume 0, skipping fade-out")
+		return
+	}
+
+	// Fade out in steps
+	for step := 1; step <= fadeOutSteps; step++ {
+		// Calculate progress (1.0 at start, 0.0 at end)
+		progress := float64(fadeOutSteps-step) / float64(fadeOutSteps)
+
+		for entityID, startVolume := range speakerVolumes {
+			targetVolume := int(float64(startVolume) * progress)
+			volumeLevel := float64(targetVolume) / 100.0
+
+			if err := m.callServiceWithRetry("media_player", "volume_set", map[string]interface{}{
+				"entity_id":    entityID,
+				"volume_level": volumeLevel,
+			}); err != nil {
+				m.logger.Debug("Failed to set volume during fade-out",
+					zap.String("entity_id", entityID),
+					zap.Int("step", step),
+					zap.Error(err))
+				// Continue with other speakers even if one fails
+			}
+		}
+
+		// Don't sleep after the last step
+		if step < fadeOutSteps {
+			m.sleepFunc(fadeOutStepDelay)
+		}
+	}
+
+	m.logger.Info("Fade-out complete")
 }
 
 // breakSpeakerGroups unjoins all participants from their existing groups.
