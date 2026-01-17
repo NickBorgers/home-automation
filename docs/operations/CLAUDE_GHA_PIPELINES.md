@@ -459,6 +459,7 @@ Runs Claude to analyze the failure and classify it.
 |----------|-------------|--------|
 | `TEST_FAILURE` | Unit tests, integration tests, code compilation | No issue - handled by Claude Code Review |
 | `CONFIG_FAILURE` | Issues in configs/ (YAML validation, etc.) | No issue - handled by Claude Code Review |
+| `INFRASTRUCTURE_FAILURE` | Transient external service availability issues | No issue - self-resolves |
 | `ACTIONS_FAILURE` | GitHub Actions workflow definition problems | **Create issue** |
 
 **ACTIONS_FAILURE Examples** (issues created):
@@ -468,9 +469,15 @@ Runs Claude to analyze the failure and classify it.
 - Missing required secrets or environment variables
 - Permission issues with GitHub tokens
 - Docker build failures in workflow steps (not Dockerfile)
-- Cache action failures
 - Job dependency issues
 - Runner environment issues
+
+**INFRASTRUCTURE_FAILURE Examples** (no issue - transient):
+- GitHub Cache Service errors (502, 503, timeouts, EOF)
+- Container registry availability issues (MCR, GHCR, Docker Hub)
+- Network connectivity issues (EOF, connection reset, timeouts)
+- Rate limiting from external services
+- DNS resolution or TLS/SSL handshake failures to external services
 
 **NOT ACTIONS_FAILURE** (no issue):
 - Go test failures (`make unit-tests`, `make integration-tests`)
