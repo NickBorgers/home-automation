@@ -68,33 +68,38 @@ flowchart TD
     end
 
     subgraph Calculate["Level Calculation"]
-        findMin["Find minimum level<br/>(battery or solar)"]
-        findMax["Find maximum level<br/>(battery or solar)"]
-        capMax["Cap max at min+1<br/>(gradual transitions)"]
+        compare{"Solar > Battery?"}
+        useBase["Output = Battery level"]
+        boost["Boost by 1 level<br/>(capped at solar level)"]
     end
 
     subgraph Result["Final Level"]
         white["white"]
-        calculated["min(max, min+1)"]
+        calculated["Final output level"]
     end
 
     freeCheck -->|Yes| white
     freeCheck -->|No| battLevel
-    battLevel --> findMin
-    solarLevel --> findMin
-    battLevel --> findMax
-    solarLevel --> findMax
-    findMin --> capMax
-    findMax --> capMax
-    capMax --> calculated
+    battLevel --> compare
+    solarLevel --> compare
+    compare -->|No| useBase
+    compare -->|Yes| boost
+    useBase --> calculated
+    boost --> calculated
 
     style white fill:#fff,stroke:#333
     style calculated fill:#27ae60,color:#fff
 ```
 
-The capping rule (`max at min+1`) ensures gradual transitions. For example:
-- Battery: green (60%), Solar: black (0 kW) → Result: red (not green)
-- This prevents showing "green" when solar is not producing
+**Solar is boost-only:** Solar production can only improve the overall level, never drag it down below the battery level. This ensures that low/zero solar on a cloudy day doesn't penalize a well-charged battery.
+
+- Solar ≤ Battery → Output = Battery level (solar has no effect)
+- Solar > Battery → Output = Battery + 1 (boost by one level, capped at solar)
+
+Examples:
+- Battery: green (60%), Solar: black (0 kW) → Result: green (battery not penalized)
+- Battery: yellow (30%), Solar: green (2+ kW) → Result: green (boosted by 1)
+- Battery: red (10%), Solar: green (2+ kW) → Result: yellow (boosted by 1, not green)
 
 ## Free Energy Detection
 
