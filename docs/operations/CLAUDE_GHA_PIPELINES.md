@@ -357,18 +357,22 @@ Final decision maker that synthesizes all reviews and makes a go/no-go call.
 
 **Actions**: Posts a final comment with the merge decision (🟢 GO or 🔴 NO-GO)
 
+**Output**: The job outputs the actual decision (`GO` or `NO-GO`) which is used by `all-reviews-passed` to determine the overall workflow result
+
 #### 2.9 `all-reviews-passed`
 
 Aggregator job for branch protection.
 
-**Purpose**: Creates a single status check that indicates all reviews completed
+**Purpose**: Creates a single status check that indicates all reviews completed AND the merge decision is GO
 
 **Creates Commit Status**: `All Required Agent Reviews` on the PR head SHA
 
+**Merge Decision Check**: This job checks the actual merge decision output from `merge-decision`, not just whether the job succeeded. If the merge decision is `NO-GO`, the workflow fails even if all review jobs completed successfully. This ensures the summary accurately reflects whether the PR is ready to merge.
+
 **Post-Review Actions**:
 1. Creates the `All Required Agent Reviews` commit status
-2. Adds the `agent-reviews-passed` label to the PR (prevents redundant re-reviews)
-3. Posts a summary comment showing all agent statuses in a table format
+2. Adds the `agent-reviews-passed` label to the PR (only when merge decision is GO)
+3. Posts a summary comment showing all agent statuses in a table format, including the actual merge decision verdict (🟢 GO or 🔴 NO-GO)
 
 ---
 
