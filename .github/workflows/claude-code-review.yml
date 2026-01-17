@@ -708,7 +708,7 @@ jobs:
           echo "Checking test status for commit $HEAD_SHA"
 
           # Retry loop - check run may not be visible immediately after workflow triggers
-          MAX_ATTEMPTS=6
+          MAX_ATTEMPTS=18
           ATTEMPT=1
           while [ $ATTEMPT -le $MAX_ATTEMPTS ]; do
             STATUS=$(gh api repos/${{ github.repository }}/commits/$HEAD_SHA/check-runs --jq '.check_runs[] | select(.name == "All Required Tests") | .conclusion' 2>/dev/null | head -1 || echo "")
@@ -896,7 +896,7 @@ jobs:
           echo "Checking test status for commit $HEAD_SHA"
 
           # Retry loop - check run may not be visible immediately after workflow triggers
-          MAX_ATTEMPTS=6
+          MAX_ATTEMPTS=18
           ATTEMPT=1
           while [ $ATTEMPT -le $MAX_ATTEMPTS ]; do
             STATUS=$(gh api repos/${{ github.repository }}/commits/$HEAD_SHA/check-runs --jq '.check_runs[] | select(.name == "All Required Tests") | .conclusion' 2>/dev/null | head -1 || echo "")
@@ -1030,7 +1030,7 @@ jobs:
           echo "Checking test status for commit $HEAD_SHA"
 
           # Retry loop - check run may not be visible immediately after workflow triggers
-          MAX_ATTEMPTS=6
+          MAX_ATTEMPTS=18
           ATTEMPT=1
           while [ $ATTEMPT -le $MAX_ATTEMPTS ]; do
             STATUS=$(gh api repos/${{ github.repository }}/commits/$HEAD_SHA/check-runs --jq '.check_runs[] | select(.name == "All Required Tests") | .conclusion' 2>/dev/null | head -1 || echo "")
@@ -1166,7 +1166,7 @@ jobs:
           echo "Checking test status for commit $HEAD_SHA"
 
           # Retry loop - check run may not be visible immediately after workflow triggers
-          MAX_ATTEMPTS=6
+          MAX_ATTEMPTS=18
           ATTEMPT=1
           while [ $ATTEMPT -le $MAX_ATTEMPTS ]; do
             STATUS=$(gh api repos/${{ github.repository }}/commits/$HEAD_SHA/check-runs --jq '.check_runs[] | select(.name == "All Required Tests") | .conclusion' 2>/dev/null | head -1 || echo "")
@@ -1316,7 +1316,7 @@ jobs:
           echo "Checking test status for commit $HEAD_SHA"
 
           # Retry loop - check run may not be visible immediately after workflow triggers
-          MAX_ATTEMPTS=6
+          MAX_ATTEMPTS=18
           ATTEMPT=1
           while [ $ATTEMPT -le $MAX_ATTEMPTS ]; do
             STATUS=$(gh api repos/${{ github.repository }}/commits/$HEAD_SHA/check-runs --jq '.check_runs[] | select(.name == "All Required Tests") | .conclusion' 2>/dev/null | head -1 || echo "")
