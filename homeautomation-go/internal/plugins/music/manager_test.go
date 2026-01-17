@@ -621,6 +621,88 @@ func TestRateLimiting(t *testing.T) {
 	}
 }
 
+// TestStopDoesNotTriggerRateLimiting verifies that stop operations (setting musicPlaybackType
+// to empty string) do not update the rate limiter, allowing the clear-then-set pattern
+// used by sleep hygiene to force a music restart.
+//
+// This is the fix for: https://github.com/NickBorgers/home-automation/pull/486
+// When cancelling a wake sequence while musicPlaybackType is already "sleep",
+// sleep hygiene needs to clear the value first to force a notification, then set it
+// back to "sleep" to restart playback. Without this fix, the second set would be
+// rate-limited and music would stop but not restart.
+func TestStopDoesNotTriggerRateLimiting(t *testing.T) {
+	t.Parallel()
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+
+	// Initialize state variables
+	_ = stateManager.SetString("musicPlaybackType", "")
+
+	config := &MusicConfig{
+		Music: map[string]MusicMode{
+			"sleep": {
+				Participants: []Participant{
+					{PlayerName: "Bedroom", BaseVolume: 5, LeaveMutedIf: []MuteCondition{}},
+				},
+				PlaybackOptions: []PlaybackOption{
+					{URI: "spotify:playlist:sleep", MediaType: "playlist", VolumeMultiplier: 1.0},
+				},
+			},
+		},
+	}
+
+	// Simulate the real scenario:
+	// 1. Sleep music started hours ago when user went to bed (10 PM)
+	// 2. User wakes up and cancels wake sequence (e.g., 3 AM)
+	// 3. Sleep hygiene does clear-then-set pattern
+
+	// Time when sleep music was initially started (10 PM)
+	initialStartTime := time.Date(2024, 1, 1, 22, 0, 0, 0, time.UTC)
+	timeProvider := plugin.FixedTimeProvider{FixedTime: initialStartTime}
+
+	manager := NewManager(mockClient, stateManager, config, logger, true, timeProvider, nil)
+
+	// Start sleep music at 10 PM
+	manager.handleMusicPlaybackTypeChange("musicPlaybackType", "", "sleep")
+	if manager.currentlyPlaying == nil || manager.currentlyPlaying.Type != "sleep" {
+		t.Fatal("Sleep music should have started")
+	}
+
+	// Fast forward to 3 AM (5 hours later) - user cancels wake sequence
+	cancelWakeTime := initialStartTime.Add(5 * time.Hour)
+	timeProvider.FixedTime = cancelWakeTime
+	manager.timeProvider = timeProvider
+
+	// Simulate clear-then-set pattern (what sleep hygiene does):
+	// 1. Clear to "" to force a notification
+	manager.handleMusicPlaybackTypeChange("musicPlaybackType", "sleep", "")
+	if manager.currentlyPlaying != nil {
+		t.Error("Music should have stopped after clearing")
+	}
+
+	// 2. Set back to "sleep" immediately (this should NOT be rate-limited)
+	// Before the fix, step 1 would update lastPlaybackTime, causing this to be rate-limited.
+	// After the fix, stop operations don't update lastPlaybackTime, so this succeeds.
+	manager.handleMusicPlaybackTypeChange("musicPlaybackType", "", "sleep")
+	if manager.currentlyPlaying == nil {
+		t.Fatal("Music should have restarted - stop operations should not trigger rate limiting")
+	}
+	if manager.currentlyPlaying.Type != "sleep" {
+		t.Errorf("Expected sleep music to restart, got type: %s", manager.currentlyPlaying.Type)
+	}
+
+	// Verify orchestratePlayback was called by checking playlist rotation
+	manager.mu.RLock()
+	rotationIndex := manager.playlistNumbers["sleep"]
+	manager.mu.RUnlock()
+	// After 2 plays (initial + restart), rotation should be at index 0 (wrapped from 1)
+	// since there's only one playlist option
+	if rotationIndex != 0 {
+		t.Errorf("Expected rotation index to be 0 after 2 plays, got %d", rotationIndex)
+	}
+}
+
 // TestDoubleActivationPrevention tests prevention of re-activating already playing music
 func TestDoubleActivationPrevention(t *testing.T) {
 	t.Parallel()

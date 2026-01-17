@@ -2215,3 +2215,71 @@ func TestBackupWake_ShadowStateShowsAvailableWhenSensorsWork(t *testing.T) {
 		t.Error("BackupWakeEnabled should be false when Eight Sleep is available")
 	}
 }
+
+// TestCancelWake_ForcesMusicRestartWhenAlreadySleep tests the bug fix where
+// cancelling a wake sequence when musicPlaybackType is already "sleep" should
+// still force a music restart. This scenario happens when:
+//  1. Sleep music is playing (musicPlaybackType = "sleep")
+//  2. Wake sequence starts (fade-out begins, lights turn on)
+//  3. User turns off lights to cancel wake BEFORE wake music starts
+//  4. At this point musicPlaybackType is still "sleep", so setting it to "sleep"
+//     again would normally be a no-op. The fix clears it first to force a restart.
+func TestCancelWake_ForcesMusicRestartWhenAlreadySleep(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2024, 1, 15, 7, 30, 0, 0, time.UTC)
+	manager, _, stateManager, _ := setupTest(t, now)
+
+	// Track state changes to verify the clear-then-set behavior
+	var stateChanges []string
+	stateManager.Subscribe("musicPlaybackType", func(key string, oldValue, newValue interface{}) {
+		stateChanges = append(stateChanges, newValue.(string))
+	})
+
+	// Scenario: Wake sequence is active but musicPlaybackType is still "sleep"
+	// This happens when user cancels wake before the 25-minute light fade completes
+	stateManager.SetString("musicPlaybackType", "sleep")
+	stateManager.SetBool("isWakeSequenceActive", true)
+
+	// Clear the state changes from setup
+	stateChanges = nil
+
+	// User turns off bedroom lights to cancel wake
+	manager.handleBedroomLightsOff("off")
+
+	// Verify the cancel_wake action was recorded
+	shadowState := manager.GetShadowState()
+	if shadowState.Outputs.LastActionType != "cancel_wake" {
+		t.Errorf("Expected LastActionType to be 'cancel_wake', got %s", shadowState.Outputs.LastActionType)
+	}
+
+	// Verify isWakeSequenceActive was cleared
+	isActive, _ := stateManager.GetBool("isWakeSequenceActive")
+	if isActive {
+		t.Error("Expected isWakeSequenceActive to be false after cancel")
+	}
+
+	// KEY TEST: Verify that musicPlaybackType was changed (not a no-op)
+	// The fix should first clear to "" then set to "sleep", causing 2 state changes
+	if len(stateChanges) < 2 {
+		t.Errorf("Expected at least 2 musicPlaybackType state changes (clear then set), got %d: %v",
+			len(stateChanges), stateChanges)
+	}
+
+	// Verify the final state is "sleep"
+	musicType, _ := stateManager.GetString("musicPlaybackType")
+	if musicType != "sleep" {
+		t.Errorf("Expected musicPlaybackType to be 'sleep', got %s", musicType)
+	}
+
+	// Verify the state changes include the clear (empty string) before "sleep"
+	foundClear := false
+	for _, change := range stateChanges {
+		if change == "" {
+			foundClear = true
+			break
+		}
+	}
+	if !foundClear {
+		t.Errorf("Expected musicPlaybackType to be cleared to '' before setting to 'sleep', changes: %v", stateChanges)
+	}
+}

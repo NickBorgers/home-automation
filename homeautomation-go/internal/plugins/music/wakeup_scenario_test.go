@@ -845,3 +845,212 @@ func (p *MutableTimeProvider) SetTime(t time.Time) {
 	defer p.mu.Unlock()
 	p.currentTime = t
 }
+
+// =============================================================================
+// TEST: Cancel Wake Sequence Forces Sleep Music Restart
+// =============================================================================
+//
+// SCENARIO (PR #486 bug fix):
+// This is an integration test for the fix where cancelling a wake sequence
+// when musicPlaybackType is already "sleep" should still force a music restart.
+//
+// TIMELINE:
+//   - 10:00 PM: User goes to bed, sleep music starts
+//   - 3:00 AM: Wake sequence starts (e.g., from Eight Sleep alarm)
+//   - 3:01 AM: User cancels wake by turning off lights BEFORE wake music starts
+//     At this point, musicPlaybackType is still "sleep"
+//
+// THE BUG (before fix):
+// Sleep hygiene would call SetString("musicPlaybackType", "sleep") but since
+// the value was already "sleep", the state manager wouldn't notify subscribers.
+// This meant the music plugin's handleMusicPlaybackTypeChange() was never called,
+// so sleep music (which had stopped due to wake prep) would NOT restart.
+//
+// THE FIX:
+// Sleep hygiene now uses a clear-then-set pattern:
+// 1. SetString("musicPlaybackType", "") - forces a notification
+// 2. SetString("musicPlaybackType", "sleep") - restarts sleep music
+//
+// THE SECONDARY BUG (discovered in PR review):
+// The stop operation (setting to "") was updating the rate limiter's
+// lastPlaybackTime, causing the subsequent restart to be rate-limited.
+//
+// THE SECONDARY FIX:
+// Moved the empty string check BEFORE the rate limiter, so stop operations
+// don't update lastPlaybackTime.
+//
+// This test validates the complete end-to-end behavior:
+// 1. Sleep music is playing (currentlyPlaying populated)
+// 2. Clear-then-set pattern is executed
+// 3. Music actually restarts (currentlyPlaying re-populated with new rotation)
+func TestScenario_CancelWake_ForcesSleepMusicRestart(t *testing.T) {
+	t.Parallel()
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	config := createWakeupTestConfig()
+
+	// Start at 10 PM - user is already in bed with sleep music playing
+	bedtime := time.Date(2024, 1, 15, 22, 0, 0, 0, time.UTC)
+	timeProvider := &MutableTimeProvider{currentTime: bedtime}
+
+	manager := NewManager(mockClient, stateManager, config, logger, true, timeProvider, nil) // read-only=true for faster test
+	manager.SetSleepFunc(func(d time.Duration) {})                                           // Skip internal sleeps
+
+	// ==========================================================
+	// PHASE 1: User is already asleep at 10 PM - sleep music starts
+	// ==========================================================
+	// Set up state BEFORE starting manager so initial music selection is "sleep"
+	_ = stateManager.SetString("dayPhase", "night")
+	_ = stateManager.SetString("musicPlaybackType", "")
+	_ = stateManager.SetBool("isAnyoneHome", true)
+	_ = stateManager.SetBool("isAnyoneAsleep", true) // Already asleep when manager starts
+	_ = stateManager.SetBool("isMasterAsleep", true)
+	_ = stateManager.SetBool("isGuestAsleep", false)
+	_ = stateManager.SetBool("isTVPlaying", false)
+	_ = stateManager.SetBool("isNickOfficeOccupied", false)
+
+	err := manager.Start()
+	require.NoError(t, err)
+	defer manager.Stop()
+
+	time.Sleep(50 * time.Millisecond)
+	manager.WaitForSync()
+
+	// Verify sleep music is playing
+	musicType, _ := stateManager.GetString("musicPlaybackType")
+	require.Equal(t, "sleep", musicType, "Phase 1: Sleep music should be playing")
+
+	manager.mu.RLock()
+	initialPlaylistNumber := manager.playlistNumbers["sleep"]
+	require.NotNil(t, manager.currentlyPlaying, "Phase 1: currentlyPlaying should be set")
+	require.Equal(t, "sleep", manager.currentlyPlaying.Type, "Phase 1: currentlyPlaying type should be sleep")
+	manager.mu.RUnlock()
+
+	// ==========================================================
+	// PHASE 2: 3 AM - Wake sequence starts but user cancels before wake music
+	// ==========================================================
+	// Fast forward to 3 AM (5 hours later)
+	cancelWakeTime := bedtime.Add(5 * time.Hour)
+	timeProvider.SetTime(cancelWakeTime)
+
+	// Simulate wake sequence being cancelled - this triggers the clear-then-set pattern
+	// In reality, this happens in sleep hygiene when user turns off bedroom lights
+	// while musicPlaybackType is still "sleep" (before wake music started)
+
+	// Track state changes to verify the pattern
+	var stateChanges []string
+	sub, _ := stateManager.Subscribe("musicPlaybackType", func(key string, oldValue, newValue interface{}) {
+		if s, ok := newValue.(string); ok {
+			stateChanges = append(stateChanges, s)
+		}
+	})
+	defer sub.Unsubscribe()
+
+	// Clear any previous state changes
+	stateChanges = nil
+
+	// Execute the clear-then-set pattern (what sleep hygiene does)
+	// This is the KEY behavior being tested - these two calls should:
+	// 1. Stop music (clear to "")
+	// 2. Restart sleep music (set to "sleep") - should NOT be rate-limited
+	_ = stateManager.SetString("musicPlaybackType", "")
+	_ = stateManager.SetString("musicPlaybackType", "sleep")
+
+	time.Sleep(100 * time.Millisecond)
+	manager.WaitForSync()
+
+	// ==========================================================
+	// VERIFICATION: Sleep music should have restarted
+	// ==========================================================
+
+	// 1. Verify state changes show the clear-then-set pattern
+	assert.GreaterOrEqual(t, len(stateChanges), 2,
+		"Should see at least 2 state changes (clear then set), got: %v", stateChanges)
+
+	foundClear := false
+	foundSleep := false
+	for _, change := range stateChanges {
+		if change == "" {
+			foundClear = true
+		}
+		if change == "sleep" && foundClear {
+			foundSleep = true
+		}
+	}
+	assert.True(t, foundClear, "Should have cleared musicPlaybackType to empty string")
+	assert.True(t, foundSleep, "Should have set musicPlaybackType back to 'sleep' after clearing")
+
+	// 2. Verify final state is sleep
+	musicType, _ = stateManager.GetString("musicPlaybackType")
+	assert.Equal(t, "sleep", musicType, "Final musicPlaybackType should be 'sleep'")
+
+	// 3. Verify currentlyPlaying is populated (proves orchestratePlayback was called)
+	manager.mu.RLock()
+	currentlyPlaying := manager.currentlyPlaying
+	finalPlaylistNumber := manager.playlistNumbers["sleep"]
+	manager.mu.RUnlock()
+
+	require.NotNil(t, currentlyPlaying,
+		"currentlyPlaying should be populated (proves playback was triggered, not rate-limited)")
+	assert.Equal(t, "sleep", currentlyPlaying.Type,
+		"currentlyPlaying type should be 'sleep'")
+
+	// 4. Verify playlist rotation occurred (proves orchestratePlayback actually ran)
+	// With only one playlist option, rotation wraps: 0 -> 1 -> 0
+	// Initial play used index 0, restart should use index 1 (stored), so now it's 0 again
+	// Actually: getNextPlaylistIndex returns current then increments, so:
+	// - First play: returns 0, stores 1
+	// - Second play: returns 1, stores 0 (wrapped)
+	// So finalPlaylistNumber should be different from initial (0 vs 1) or same if wrapped
+	t.Logf("Playlist rotation: initial=%d, final=%d", initialPlaylistNumber, finalPlaylistNumber)
+	// With 1 playlist: 0->1->0, so after 2 plays we're back to 0
+	// The key assertion is that playback happened - we verify this via currentlyPlaying above
+}
+
+// =============================================================================
+// TEST: Verify Rate Limiting Still Works For Rapid Start Requests
+// =============================================================================
+//
+// This is a regression test to ensure the rate limiter fix doesn't break
+// normal rate limiting behavior. The fix moved the empty string check BEFORE
+// the rate limiter, but legitimate start requests should still be rate-limited.
+//
+// SCENARIO:
+// - Start day music
+// - Immediately try to start evening music (< 10 seconds)
+// - Should be rate-limited
+func TestScenario_RateLimiting_StillWorksForStartRequests(t *testing.T) {
+	t.Parallel()
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	config := createWakeupTestConfig()
+
+	fixedTime := time.Date(2024, 1, 15, 12, 0, 0, 0, time.UTC)
+	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
+
+	manager := NewManager(mockClient, stateManager, config, logger, true, timeProvider, nil)
+	manager.SetSleepFunc(func(d time.Duration) {})
+
+	_ = stateManager.SetString("dayPhase", "day")
+	_ = stateManager.SetString("musicPlaybackType", "")
+	_ = stateManager.SetBool("isAnyoneHome", true)
+	_ = stateManager.SetBool("isAnyoneAsleep", false)
+
+	// First playback - day music
+	manager.handleMusicPlaybackTypeChange("musicPlaybackType", "", "day")
+
+	manager.mu.RLock()
+	require.NotNil(t, manager.currentlyPlaying, "First playback should succeed")
+	require.Equal(t, "day", manager.currentlyPlaying.Type)
+	manager.mu.RUnlock()
+
+	// Immediate second playback - should be rate limited
+	manager.handleMusicPlaybackTypeChange("musicPlaybackType", "day", "evening")
+
+	manager.mu.RLock()
+	assert.Equal(t, "day", manager.currentlyPlaying.Type,
+		"Second immediate playback should be rate-limited, music should still be 'day'")
+	manager.mu.RUnlock()
+}
