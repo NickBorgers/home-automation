@@ -968,3 +968,85 @@ func (s *SystemShadowState) GetOutputs() interface{} {
 func (s *SystemShadowState) GetMetadata() StateMetadata {
 	return s.Metadata
 }
+
+// ============================================================================
+// Environmental Monitoring Shadow State
+// ============================================================================
+
+// EnvironmentalShadowState represents the shadow state for the environmental monitoring plugin
+type EnvironmentalShadowState struct {
+	Plugin   string               `json:"plugin"`
+	Inputs   EnvironmentalInputs  `json:"inputs"`
+	Outputs  EnvironmentalOutputs `json:"outputs"`
+	Metadata StateMetadata        `json:"metadata"`
+}
+
+// EnvironmentalInputs tracks current sensor values
+type EnvironmentalInputs struct {
+	Current map[string]interface{} `json:"current"`
+}
+
+// EnvironmentalOutputs tracks computed environmental states and notification history
+type EnvironmentalOutputs struct {
+	AtticHumidity        AtticHumidityState  `json:"atticHumidity"`
+	LastNotification     *NotificationRecord `json:"lastNotification,omitempty"`
+	LastResolutionNotice *NotificationRecord `json:"lastResolutionNotice,omitempty"`
+}
+
+// AtticHumidityState tracks the state of attic humidity monitoring
+type AtticHumidityState struct {
+	HighSensorHumidity float64   `json:"highSensorHumidity"` // Current humidity from high sensor
+	LowSensorHumidity  float64   `json:"lowSensorHumidity"`  // Current humidity from low sensor
+	AlertLevel         string    `json:"alertLevel"`         // "none", "warning", "critical"
+	ConditionStartTime time.Time `json:"conditionStartTime,omitempty"`
+	IsSustained        bool      `json:"isSustained"`
+	LastUpdate         time.Time `json:"lastUpdate"`
+}
+
+// NotificationRecord tracks a notification that was sent
+type NotificationRecord struct {
+	Level           string    `json:"level"` // "warning", "critical", "resolved"
+	Message         string    `json:"message"`
+	SensorLocations []string  `json:"sensorLocations,omitempty"` // Which sensors triggered it
+	Timestamp       time.Time `json:"timestamp"`
+}
+
+// GetCurrentInputs implements PluginShadowState
+func (e *EnvironmentalShadowState) GetCurrentInputs() map[string]interface{} {
+	return e.Inputs.Current
+}
+
+// GetLastActionInputs implements PluginShadowState
+// For environmental monitoring, this returns the same as current (read-heavy, no actions)
+func (e *EnvironmentalShadowState) GetLastActionInputs() map[string]interface{} {
+	return e.Inputs.Current
+}
+
+// GetOutputs implements PluginShadowState
+func (e *EnvironmentalShadowState) GetOutputs() interface{} {
+	return e.Outputs
+}
+
+// GetMetadata implements PluginShadowState
+func (e *EnvironmentalShadowState) GetMetadata() StateMetadata {
+	return e.Metadata
+}
+
+// NewEnvironmentalShadowState creates a new environmental shadow state
+func NewEnvironmentalShadowState() *EnvironmentalShadowState {
+	return &EnvironmentalShadowState{
+		Plugin: "environmental",
+		Inputs: EnvironmentalInputs{
+			Current: make(map[string]interface{}),
+		},
+		Outputs: EnvironmentalOutputs{
+			AtticHumidity: AtticHumidityState{
+				AlertLevel: "none",
+			},
+		},
+		Metadata: StateMetadata{
+			LastUpdated: time.Now(),
+			PluginName:  "environmental",
+		},
+	}
+}

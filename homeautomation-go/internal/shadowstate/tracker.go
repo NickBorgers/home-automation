@@ -1367,3 +1367,121 @@ func (tvt *TVTracker) GetState() *TVShadowState {
 
 	return stateCopy
 }
+
+// ============================================================================
+// Environmental Monitoring Tracker
+// ============================================================================
+
+// EnvironmentalTracker manages shadow state for the environmental monitoring plugin
+type EnvironmentalTracker struct {
+	mu    sync.RWMutex
+	state *EnvironmentalShadowState
+}
+
+// NewEnvironmentalTracker creates a new environmental shadow state tracker
+func NewEnvironmentalTracker() *EnvironmentalTracker {
+	return &EnvironmentalTracker{
+		state: NewEnvironmentalShadowState(),
+	}
+}
+
+// UpdateCurrentInputs updates the current input values
+func (et *EnvironmentalTracker) UpdateCurrentInputs(inputs map[string]interface{}) {
+	et.mu.Lock()
+	defer et.mu.Unlock()
+
+	for key, value := range inputs {
+		et.state.Inputs.Current[key] = value
+	}
+	et.state.Metadata.LastUpdated = time.Now()
+}
+
+// UpdateAtticHumidity updates the attic humidity readings
+func (et *EnvironmentalTracker) UpdateAtticHumidity(highSensor, lowSensor float64) {
+	et.mu.Lock()
+	defer et.mu.Unlock()
+
+	et.state.Outputs.AtticHumidity.HighSensorHumidity = highSensor
+	et.state.Outputs.AtticHumidity.LowSensorHumidity = lowSensor
+	et.state.Outputs.AtticHumidity.LastUpdate = time.Now()
+	et.state.Metadata.LastUpdated = time.Now()
+}
+
+// UpdateAlertLevel updates the current alert level and sustained status
+func (et *EnvironmentalTracker) UpdateAlertLevel(level string, conditionStartTime time.Time, isSustained bool) {
+	et.mu.Lock()
+	defer et.mu.Unlock()
+
+	et.state.Outputs.AtticHumidity.AlertLevel = level
+	et.state.Outputs.AtticHumidity.ConditionStartTime = conditionStartTime
+	et.state.Outputs.AtticHumidity.IsSustained = isSustained
+	et.state.Metadata.LastUpdated = time.Now()
+}
+
+// RecordNotification records a notification that was sent
+func (et *EnvironmentalTracker) RecordNotification(level, message string, sensorLocations []string) {
+	et.mu.Lock()
+	defer et.mu.Unlock()
+
+	et.state.Outputs.LastNotification = &NotificationRecord{
+		Level:           level,
+		Message:         message,
+		SensorLocations: sensorLocations,
+		Timestamp:       time.Now(),
+	}
+	et.state.Metadata.LastUpdated = time.Now()
+}
+
+// RecordResolutionNotice records a resolution notification
+func (et *EnvironmentalTracker) RecordResolutionNotice(message string) {
+	et.mu.Lock()
+	defer et.mu.Unlock()
+
+	et.state.Outputs.LastResolutionNotice = &NotificationRecord{
+		Level:     "resolved",
+		Message:   message,
+		Timestamp: time.Now(),
+	}
+	et.state.Metadata.LastUpdated = time.Now()
+}
+
+// GetState returns the current shadow state (thread-safe copy)
+func (et *EnvironmentalTracker) GetState() *EnvironmentalShadowState {
+	et.mu.RLock()
+	defer et.mu.RUnlock()
+
+	// Create a deep copy
+	stateCopy := &EnvironmentalShadowState{
+		Plugin: et.state.Plugin,
+		Inputs: EnvironmentalInputs{
+			Current: make(map[string]interface{}),
+		},
+		Outputs: EnvironmentalOutputs{
+			AtticHumidity: et.state.Outputs.AtticHumidity,
+		},
+		Metadata: et.state.Metadata,
+	}
+
+	// Copy current inputs
+	for k, v := range et.state.Inputs.Current {
+		stateCopy.Inputs.Current[k] = v
+	}
+
+	// Copy notification records if they exist
+	if et.state.Outputs.LastNotification != nil {
+		notification := *et.state.Outputs.LastNotification
+		// Copy sensor locations slice
+		if notification.SensorLocations != nil {
+			notification.SensorLocations = make([]string, len(et.state.Outputs.LastNotification.SensorLocations))
+			copy(notification.SensorLocations, et.state.Outputs.LastNotification.SensorLocations)
+		}
+		stateCopy.Outputs.LastNotification = &notification
+	}
+
+	if et.state.Outputs.LastResolutionNotice != nil {
+		resolution := *et.state.Outputs.LastResolutionNotice
+		stateCopy.Outputs.LastResolutionNotice = &resolution
+	}
+
+	return stateCopy
+}

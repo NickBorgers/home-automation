@@ -39,6 +39,7 @@ graph LR
         christmas["christmas"]
         dayphase["dayphase"]
         energy["energy"]
+        environmental["environmental"]
         lighting["lighting"]
         loadshedding["loadshedding"]
         music["music"]
