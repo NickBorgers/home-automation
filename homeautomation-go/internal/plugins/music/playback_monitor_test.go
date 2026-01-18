@@ -18,6 +18,12 @@ package music
 // The health monitor polls speaker state after verification and attempts
 // a single recovery via media_play if auto-pause is detected.
 //
+// TEST SYNCHRONIZATION:
+// These tests use deterministic synchronization via:
+// - sleepDone channel: signals when the mock sleep function is called
+// - monitorDone channel: signals when the monitor goroutine exits (via callback)
+// This avoids time-based waits (time.Sleep, time.After) that can cause flakiness.
+//
 // =============================================================================
 
 import (
@@ -77,7 +83,7 @@ func TestPlaybackMonitor_DetectsUnexpectedPause(t *testing.T) {
 	// Create manager without calling Start() to avoid triggering playback
 	manager := NewManager(mockClient, stateManager, config, logger, false, advancingTime, nil)
 
-	// Use a channel to coordinate between sleep and test
+	// Channel to track sleep calls for coordinating test with monitor goroutine
 	sleepDone := make(chan struct{}, 10)
 	manager.SetSleepFunc(func(d time.Duration) {
 		advancingTime.Advance(d)
@@ -85,6 +91,12 @@ func TestPlaybackMonitor_DetectsUnexpectedPause(t *testing.T) {
 		case sleepDone <- struct{}{}:
 		default:
 		}
+	})
+
+	// Channel to signal when monitor goroutine exits (deterministic completion)
+	monitorDone := make(chan struct{})
+	manager.SetMonitorDoneCallback(func() {
+		close(monitorDone)
 	})
 
 	// Set up state sequence: playing (first poll) -> paused (second poll, triggers detection)
@@ -99,17 +111,8 @@ func TestPlaybackMonitor_DetectsUnexpectedPause(t *testing.T) {
 	// Start the playback monitor directly (no manager.Start() needed)
 	manager.startPlaybackMonitor("media_player.kitchen", "day")
 
-	// Wait for monitor to complete (it should detect pause and attempt recovery)
-	// The monitor will sleep multiple times: poll interval, recovery delay, recovery delay again
-	for i := 0; i < 5; i++ {
-		select {
-		case <-sleepDone:
-		case <-time.After(500 * time.Millisecond):
-		}
-	}
-
-	// Give goroutine time to finish
-	time.Sleep(100 * time.Millisecond)
+	// Wait for monitor to complete - uses deterministic callback instead of time-based wait
+	<-monitorDone
 
 	// Verify auto-pause was logged
 	autoPauseDetected := false
@@ -169,7 +172,7 @@ func TestPlaybackMonitor_RecoverySucceeds(t *testing.T) {
 	// Create manager without calling Start()
 	manager := NewManager(mockClient, stateManager, config, logger, false, advancingTime, nil)
 
-	// Use a channel to coordinate between sleep and test
+	// Channel to track sleep calls
 	sleepDone := make(chan struct{}, 10)
 	manager.SetSleepFunc(func(d time.Duration) {
 		advancingTime.Advance(d)
@@ -177,6 +180,12 @@ func TestPlaybackMonitor_RecoverySucceeds(t *testing.T) {
 		case sleepDone <- struct{}{}:
 		default:
 		}
+	})
+
+	// Channel to signal when monitor goroutine exits (deterministic completion)
+	monitorDone := make(chan struct{})
+	manager.SetMonitorDoneCallback(func() {
+		close(monitorDone)
 	})
 
 	// Set up state sequence: playing (first poll) -> paused (triggers detection)
@@ -191,14 +200,8 @@ func TestPlaybackMonitor_RecoverySucceeds(t *testing.T) {
 	// Start the monitor directly
 	manager.startPlaybackMonitor("media_player.kitchen", "day")
 
-	// Wait for monitor to complete
-	for i := 0; i < 5; i++ {
-		select {
-		case <-sleepDone:
-		case <-time.After(500 * time.Millisecond):
-		}
-	}
-	time.Sleep(100 * time.Millisecond)
+	// Wait for monitor to complete - deterministic callback
+	<-monitorDone
 
 	// Verify success was logged
 	recoverySuccessful := false
@@ -249,7 +252,7 @@ func TestPlaybackMonitor_RecoveryFails_StopsMonitoring(t *testing.T) {
 	// Create manager without calling Start()
 	manager := NewManager(mockClient, stateManager, config, logger, false, advancingTime, nil)
 
-	// Use a channel to coordinate between sleep and test
+	// Channel to track sleep calls
 	sleepDone := make(chan struct{}, 10)
 	manager.SetSleepFunc(func(d time.Duration) {
 		advancingTime.Advance(d)
@@ -257,6 +260,12 @@ func TestPlaybackMonitor_RecoveryFails_StopsMonitoring(t *testing.T) {
 		case sleepDone <- struct{}{}:
 		default:
 		}
+	})
+
+	// Channel to signal when monitor goroutine exits (deterministic completion)
+	monitorDone := make(chan struct{})
+	manager.SetMonitorDoneCallback(func() {
+		close(monitorDone)
 	})
 
 	// Set up state sequence: playing (first poll) -> paused (triggers detection)
@@ -271,14 +280,8 @@ func TestPlaybackMonitor_RecoveryFails_StopsMonitoring(t *testing.T) {
 	// Start monitor directly
 	manager.startPlaybackMonitor("media_player.kitchen", "day")
 
-	// Wait for monitor to complete
-	for i := 0; i < 5; i++ {
-		select {
-		case <-sleepDone:
-		case <-time.After(500 * time.Millisecond):
-		}
-	}
-	time.Sleep(100 * time.Millisecond)
+	// Wait for monitor to complete - deterministic callback
+	<-monitorDone
 
 	// Verify failure was logged with appropriate message
 	recoveryFailed := false
@@ -330,15 +333,30 @@ func TestPlaybackMonitor_CancelledOnNewPlayback(t *testing.T) {
 	// Create manager without calling Start()
 	manager := NewManager(mockClient, stateManager, config, logger, false, timeProvider, nil)
 
-	// Use a blocking channel to make the first monitor wait in sleep
-	firstMonitorStarted := make(chan struct{})
+	// Channel to signal when first monitor starts sleeping (so we know it's active)
+	firstMonitorStarted := make(chan struct{}, 1)
+	// Channel to control when sleep completes (allows us to orchestrate the test)
+	sleepGate := make(chan struct{})
 	manager.SetSleepFunc(func(d time.Duration) {
 		select {
 		case firstMonitorStarted <- struct{}{}:
 		default:
 		}
-		// Block briefly to allow cancellation to be tested
-		time.Sleep(10 * time.Millisecond)
+		// Block until test releases the gate
+		<-sleepGate
+	})
+
+	// Track monitor completions - we expect 2 monitors (first cancelled, second runs to completion)
+	var monitorCompletions int
+	var completionMu sync.Mutex
+	firstMonitorDone := make(chan struct{})
+	manager.SetMonitorDoneCallback(func() {
+		completionMu.Lock()
+		monitorCompletions++
+		if monitorCompletions == 1 {
+			close(firstMonitorDone)
+		}
+		completionMu.Unlock()
 	})
 
 	mockClient.SetMockState("media_player.kitchen", &ha.State{
@@ -351,15 +369,16 @@ func TestPlaybackMonitor_CancelledOnNewPlayback(t *testing.T) {
 	manager.startPlaybackMonitor("media_player.kitchen", "day")
 
 	// Wait for first monitor to start sleeping
-	select {
-	case <-firstMonitorStarted:
-	case <-time.After(500 * time.Millisecond):
-	}
+	<-firstMonitorStarted
 
 	// Start second monitor (should cancel first)
 	manager.startPlaybackMonitor("media_player.kitchen", "evening")
 
-	time.Sleep(100 * time.Millisecond)
+	// Release the sleep gate so monitors can proceed
+	close(sleepGate)
+
+	// Wait for first monitor to exit (via cancellation)
+	<-firstMonitorDone
 
 	// Verify cancellation was logged
 	cancelled := false
@@ -402,15 +421,23 @@ func TestPlaybackMonitor_ShadowStateUpdated(t *testing.T) {
 	// Create manager without calling Start()
 	manager := NewManager(mockClient, stateManager, config, logger, false, timeProvider, nil)
 
-	// Use a channel to block the monitor goroutine so we can inspect state
+	// Channel to signal when monitor starts sleeping (so we know shadow state is set)
 	sleepStarted := make(chan struct{}, 1)
+	// Channel to control when sleep completes (allows state inspection while monitor is active)
+	sleepGate := make(chan struct{})
 	manager.SetSleepFunc(func(d time.Duration) {
 		select {
 		case sleepStarted <- struct{}{}:
 		default:
 		}
-		// Block to keep monitor alive for inspection
-		time.Sleep(50 * time.Millisecond)
+		// Block until test releases the gate
+		<-sleepGate
+	})
+
+	// Channel to signal when monitor goroutine exits
+	monitorDone := make(chan struct{})
+	manager.SetMonitorDoneCallback(func() {
+		close(monitorDone)
 	})
 
 	mockClient.SetMockState("media_player.kitchen", &ha.State{
@@ -422,13 +449,10 @@ func TestPlaybackMonitor_ShadowStateUpdated(t *testing.T) {
 	// Start monitor and check shadow state immediately
 	manager.startPlaybackMonitor("media_player.kitchen", "day")
 
-	// Wait for monitor to start its first sleep
-	select {
-	case <-sleepStarted:
-	case <-time.After(500 * time.Millisecond):
-	}
+	// Wait for monitor to start its first sleep - this ensures shadow state is populated
+	<-sleepStarted
 
-	// Verify shadow state is populated
+	// Verify shadow state is populated while monitor is active
 	shadow := manager.GetShadowState()
 	require.NotNil(t, shadow.Outputs.PlaybackHealth, "PlaybackHealth should be populated")
 	assert.True(t, shadow.Outputs.PlaybackHealth.IsMonitoring, "IsMonitoring should be true")
@@ -439,7 +463,12 @@ func TestPlaybackMonitor_ShadowStateUpdated(t *testing.T) {
 
 	// Cancel and verify state update
 	manager.cancelPlaybackMonitor()
-	time.Sleep(100 * time.Millisecond)
+
+	// Release the sleep gate so monitor can exit
+	close(sleepGate)
+
+	// Wait for monitor to exit - deterministic callback
+	<-monitorDone
 
 	shadow = manager.GetShadowState()
 	// After cancellation, the goroutine should have set IsMonitoring to false

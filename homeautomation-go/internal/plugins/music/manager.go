@@ -55,6 +55,9 @@ type SpeakerGroupResult struct {
 // SleepFunc is a function type for sleeping (allows test injection)
 type SleepFunc func(time.Duration)
 
+// MonitorDoneCallback is called when the playback health monitor exits (for test synchronization)
+type MonitorDoneCallback func()
+
 // Manager handles music mode selection and playback coordination
 type Manager struct {
 	haClient     ha.HAClient
@@ -95,6 +98,9 @@ type Manager struct {
 	// Playback health monitoring for auto-pause detection
 	playbackMonitorCancel context.CancelFunc
 	playbackMonitorMu     sync.Mutex
+
+	// Test hook for deterministic synchronization (called when monitor goroutine exits)
+	monitorDoneCallback MonitorDoneCallback
 }
 
 // NewManager creates a new Music manager
@@ -128,6 +134,12 @@ func NewManager(haClient ha.HAClient, stateManager *state.Manager, config *Music
 // SetSleepFunc allows overriding the sleep function for testing
 func (m *Manager) SetSleepFunc(fn SleepFunc) {
 	m.sleepFunc = fn
+}
+
+// SetMonitorDoneCallback sets a callback to be invoked when the playback monitor exits.
+// This allows tests to wait deterministically for the monitor goroutine to complete.
+func (m *Manager) SetMonitorDoneCallback(fn MonitorDoneCallback) {
+	m.monitorDoneCallback = fn
 }
 
 // Start begins monitoring state changes and managing music playback
@@ -1277,6 +1289,13 @@ func (m *Manager) startPlaybackMonitor(leadEntityID, musicType string) {
 // If auto-pause is detected (playing -> paused), it attempts recovery ONCE via media_play.
 // The monitor exits after: recovery attempt, timeout, or cancellation.
 func (m *Manager) monitorPlaybackHealth(ctx context.Context, leadEntityID, musicType string) {
+	// Signal completion for test synchronization (if callback is set)
+	defer func() {
+		if m.monitorDoneCallback != nil {
+			m.monitorDoneCallback()
+		}
+	}()
+
 	endTime := m.timeProvider.Now().Add(playbackMonitorDuration)
 	lastState := "playing" // Assume playing since we just verified it
 
