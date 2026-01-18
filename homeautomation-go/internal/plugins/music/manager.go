@@ -1789,8 +1789,10 @@ func (m *Manager) fadeInSpeaker(ctx context.Context, speakerName string, targetV
 	var lastSuccessfulVolume int = -1
 	const maxConsecutiveFailures = 3
 
-	// Gradual fade-in: 0 → targetVolume
-	for currentVolume := 0; currentVolume <= targetVolume; currentVolume++ {
+	// Gradual fade-in: 1 → targetVolume (volume 0 already set above)
+	// Starting at 1 means the first audible volume bump happens immediately after
+	// joining, making it easier for humans to override by lowering volume to 0.
+	for currentVolume := 1; currentVolume <= targetVolume; currentVolume++ {
 		// Check for context cancellation (new playback started)
 		select {
 		case <-ctx.Done():

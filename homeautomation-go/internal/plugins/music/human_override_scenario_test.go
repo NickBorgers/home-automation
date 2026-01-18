@@ -241,7 +241,7 @@ func TestScenario_HumanOverrideDetection_VolumeOneOrTwo(t *testing.T) {
 // The check uses (currentVolume - actualVolume) > threshold, so:
 // - Difference of 1: (2 - 1) > 1 → 1 > 1 = false (no trigger)
 // - Difference of 2: (3 - 1) > 1 → 2 > 1 = true (triggers)
-// - Difference of 3: (5 - 2) > 1 → 3 > 1 = true (triggers)
+// - Difference of 4: (6 - 2) > 1 → 4 > 1 = true (triggers)
 func TestScenario_HumanOverrideDetection_ThresholdBoundary(t *testing.T) {
 	t.Parallel()
 	mockHA := ha.NewMockClient()
@@ -262,17 +262,17 @@ func TestScenario_HumanOverrideDetection_ThresholdBoundary(t *testing.T) {
 
 	manager.SetSleepFunc(func(d time.Duration) {
 		volumeStep++
-		// Keep volume matching until step 6, then create a 3% difference
+		// Keep volume matching until step 6, then create a 4% difference
 		// Steps 1-5: volume tracks currentVolume (no override)
-		// Step 6: set volume to 2% when currentVolume will be 5% → difference of 3%
+		// Step 6: set volume to 2% when currentVolume is 6% → difference of 4%
 		if volumeStep < 6 {
 			// Keep volume matching - report the current step volume
-			// volumeStep N corresponds to check after currentVolume = N-1
+			// volumeStep N corresponds to currentVolume = N (loop starts at 1)
 			mockHA.SetState("media_player.boundary", "playing", map[string]interface{}{
 				"volume_level": float64(volumeStep) / 100.0,
 			})
 		} else if volumeStep == 6 {
-			// Now create a difference: set to 2% when fade is at 5%
+			// Now create a difference: set to 2% when fade is at 6%
 			mockHA.SetState("media_player.boundary", "playing", map[string]interface{}{
 				"volume_level": 0.02, // 2%
 			})
@@ -293,13 +293,14 @@ func TestScenario_HumanOverrideDetection_ThresholdBoundary(t *testing.T) {
 	fadeIn, exists := shadowState.Outputs.FadeInProgress["media_player.boundary"]
 	assert.True(t, exists, "Expected fade-in progress to be recorded")
 
-	// Difference of 3 (5 - 2 = 3) should trigger: 3 > 1 = true
+	// Difference of 4 (6 - 2 = 4) should trigger: 4 > 1 = true
+	// Note: With loop starting at 1 (not 0), volumeStep 6 aligns with currentVolume=6
 	assert.True(t, fadeIn.HumanOverrideDetected,
-		"Difference of 3%% should trigger override detection (3 > threshold of 1)")
+		"Difference of 4%% should trigger override detection (4 > threshold of 1)")
 
 	// Verify the recorded values
-	assert.Equal(t, 5, fadeIn.ExpectedVolume,
-		"Expected volume should be 5%% when override was detected")
+	assert.Equal(t, 6, fadeIn.ExpectedVolume,
+		"Expected volume should be 6%% when override was detected")
 	assert.Equal(t, 2, fadeIn.ActualVolume,
 		"Actual volume should be 2%% (what the human set it to)")
 }
