@@ -182,10 +182,12 @@ func TestScenario_PlaybackVerificationSucceeds_FadeInProceeds(t *testing.T) {
 	assert.False(t, verificationFailureLogged,
 		"No verification failure warning should be logged when playback starts successfully")
 
-	// Check for successful completion log
+	// Check for successful completion log (async mode uses different message)
 	successLogged := false
 	for _, entry := range logs.All() {
-		if entry.Message == "Playback sequence completed successfully" {
+		// With async speaker grouping, the success message indicates lead started
+		if entry.Message == "Playback started on lead (followers joining async)" ||
+			entry.Message == "Playback sequence completed successfully" {
 			successLogged = true
 			break
 		}
@@ -372,7 +374,9 @@ func TestScenario_PlaybackVerificationFails_FadeInStillProceeds(t *testing.T) {
 
 	completionWithFailureLogged := false
 	for _, entry := range logsInfo.All() {
-		if entry.Message == "Playback sequence completed with verification failure (fade-in attempted anyway)" {
+		// With async speaker grouping, the message is different for multi-speaker vs single speaker
+		if entry.Message == "Playback started with verification failure (lead fade-in attempted, followers joining async)" ||
+			entry.Message == "Playback sequence completed with verification failure (fade-in attempted anyway)" {
 			completionWithFailureLogged = true
 			break
 		}
@@ -487,6 +491,9 @@ func TestScenario_MultiSpeaker_VerificationFailureAllSpeakersFadeIn(t *testing.T
 
 	groupResult, _, err := manager.executePlayback("day", option, participants, "Kitchen")
 
+	// Wait for async speaker group building to complete
+	time.Sleep(50 * time.Millisecond)
+
 	// ==========================================================
 	// VERIFICATION: All speakers get fade-in despite verification failure
 	// ==========================================================
@@ -495,31 +502,37 @@ func TestScenario_MultiSpeaker_VerificationFailureAllSpeakersFadeIn(t *testing.T
 	assert.NoError(t, err,
 		"executePlayback should NOT return error - fade-in should proceed")
 
-	// Both speakers should be active
+	// With async mode, only lead is reported as definitely active
+	// Followers are processed asynchronously
 	assert.NotNil(t, groupResult)
-	assert.Equal(t, 2, groupResult.ActiveCount)
+	assert.Equal(t, 1, groupResult.ActiveCount, "Only lead speaker is reported active (followers are async)")
 
-	// Check that "Unmuting speaker" was logged for both speakers
-	unmutingKitchenLogged := false
-	unmutingLivingRoomLogged := false
+	// Check that fade-in was logged for both speakers
+	// Lead uses "Starting lead speaker fade-in", followers use "Speaker joined (async), starting fade-in"
+	fadeInKitchenLogged := false
+	fadeInLivingRoomLogged := false
 
 	for _, entry := range logs.All() {
-		if entry.Message == "Unmuting speaker" {
+		// Lead speaker fade-in message
+		if entry.Message == "Starting lead speaker fade-in" {
 			for _, field := range entry.Context {
-				if field.Key == "speaker" {
-					if field.String == "Kitchen" {
-						unmutingKitchenLogged = true
-					}
-					if field.String == "Living Room" {
-						unmutingLivingRoomLogged = true
-					}
+				if field.Key == "speaker" && field.String == "Kitchen" {
+					fadeInKitchenLogged = true
+				}
+			}
+		}
+		// Async speaker fade-in message
+		if entry.Message == "Speaker joined (async), starting fade-in" {
+			for _, field := range entry.Context {
+				if field.Key == "speaker" && field.String == "Living Room" {
+					fadeInLivingRoomLogged = true
 				}
 			}
 		}
 	}
 
-	assert.True(t, unmutingKitchenLogged,
-		"Kitchen speaker should receive unmute/fade-in even when verification fails")
-	assert.True(t, unmutingLivingRoomLogged,
-		"Living Room speaker should receive unmute/fade-in even when verification fails")
+	assert.True(t, fadeInKitchenLogged,
+		"Kitchen speaker should receive fade-in even when verification fails")
+	assert.True(t, fadeInLivingRoomLogged,
+		"Living Room speaker should receive fade-in even when verification fails (async)")
 }

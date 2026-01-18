@@ -2636,6 +2636,10 @@ func TestExecutePlayback_BreakThenBuildSequence(t *testing.T) {
 		t.Fatalf("executePlayback() failed: %v", err)
 	}
 
+	// Wait for async speaker group building to complete
+	// With no-op sleep and mock client, the goroutine runs almost immediately
+	time.Sleep(50 * time.Millisecond)
+
 	// Get all service calls
 	calls := mockClient.GetServiceCalls()
 
@@ -2655,11 +2659,11 @@ func TestExecutePlayback_BreakThenBuildSequence(t *testing.T) {
 		t.Error("Expected unjoin calls to break existing groups")
 	}
 	if firstJoinIndex == -1 {
-		t.Error("Expected join call to build new group")
+		t.Error("Expected join call to build new group (async)")
 	}
 
-	// CRITICAL: Verify break happens BEFORE build
-	if firstUnjoinIndex >= firstJoinIndex {
+	// CRITICAL: Verify break happens BEFORE build (even with async, unjoin is synchronous)
+	if firstJoinIndex != -1 && firstUnjoinIndex >= firstJoinIndex {
 		t.Errorf("SEQUENCE ERROR: unjoin (index %d) must come BEFORE join (index %d)",
 			firstUnjoinIndex, firstJoinIndex)
 	}

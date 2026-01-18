@@ -112,13 +112,14 @@ flowchart TD
 
 ## Playback Orchestration
 
-When a music mode is selected, the following sequence executes:
+When a music mode is selected, the following sequence executes. The key optimization is **async speaker grouping**: the lead speaker starts playing immediately while follower speakers join the group in the background.
 
 ```mermaid
 sequenceDiagram
     participant SM as State Manager
     participant Music as Music Plugin
-    participant Sonos as Sonos Speakers
+    participant Lead as Lead Speaker
+    participant Followers as Follower Speakers
     participant HA as Home Assistant
 
     SM->>Music: musicPlaybackType changed
@@ -129,26 +130,45 @@ sequenceDiagram
 
     Note over Music: Filter speakers by<br/>exclude_if conditions
 
-    Note over Music,Sonos: Quick fade-out (500ms)<br/>Prevents jarring audio cutoff
-    Music->>Sonos: Fade volume to 0
+    Note over Music,Lead: Quick fade-out (500ms)<br/>Prevents jarring audio cutoff
+    Music->>Lead: Fade volume to 0
 
-    Music->>Sonos: Break existing groups (unjoin)
-    Music->>Sonos: Build new speaker group
+    Music->>Lead: Break existing groups (unjoin)
+    Music->>Lead: Mute lead speaker
+    Music->>Lead: Start playback on lead
+    Music->>Lead: Enable shuffle & repeat
 
-    Music->>Sonos: Set all volumes to 0
-    Music->>Sonos: Start playback on lead
-    Music->>Sonos: Enable shuffle & repeat
-
-    loop For each speaker
-        alt Should unmute (occupancy)
-            Music->>Sonos: Fade in volume (0→target)
-        else Leave muted
-            Music->>Sonos: Set target volume (stays muted)
-        end
+    alt Should unmute (occupancy)
+        Music->>Lead: Start fade-in (async)
+    else Leave muted
+        Music->>Lead: Set target volume (stays muted)
     end
 
     Music->>HA: Update currentlyPlayingMusicUri
+
+    par Async speaker group building
+        loop For each follower
+            Music->>Followers: Join to lead (with retries)
+            alt Join successful
+                alt Should unmute (occupancy)
+                    Music->>Followers: Start fade-in (async)
+                else Leave muted
+                    Music->>Followers: Set target volume (stays muted)
+                end
+            else Join failed (permanent error)
+                Note over Followers: Skip speaker
+            end
+        end
+    end
 ```
+
+### Why Async Speaker Grouping?
+
+The async approach provides faster perceived playback start:
+- **Before**: Wait for all speakers to join group → then start playback (slower)
+- **After**: Start playback on lead immediately → followers join in background (faster)
+
+Followers that fail to join (e.g., speaker offline) are logged but don't block playback.
 
 ## Speaker Zone Management
 
