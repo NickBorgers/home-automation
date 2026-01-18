@@ -139,6 +139,7 @@ type MusicOutputs struct {
 	LastActionType       string                      `json:"lastActionType,omitempty"` // "select_mode", "start_playback", "fade_out", etc.
 	LastActionReason     string                      `json:"lastActionReason,omitempty"`
 	PlaybackVerification *PlaybackVerificationStatus `json:"playbackVerification,omitempty"`
+	PlaybackHealth       *PlaybackHealthStatus       `json:"playbackHealth,omitempty"`
 }
 
 // SpeakerFadeIn represents the fade-in state of a single speaker
@@ -162,6 +163,19 @@ type PlaybackVerificationStatus struct {
 	FinalState     string    `json:"finalState,omitempty"` // The media_player state when verified
 	VerifiedAt     time.Time `json:"verifiedAt"`           // When verification completed
 	LeadSpeaker    string    `json:"leadSpeaker"`          // Which speaker was checked
+}
+
+// PlaybackHealthStatus tracks post-playback health monitoring for auto-pause detection
+type PlaybackHealthStatus struct {
+	IsMonitoring      bool      `json:"isMonitoring"`               // Whether monitoring is currently active
+	MonitorStartTime  time.Time `json:"monitorStartTime,omitempty"` // When monitoring started
+	MonitorEndTime    time.Time `json:"monitorEndTime,omitempty"`   // When monitoring will/did end
+	RecoveryAttempted bool      `json:"recoveryAttempted"`          // True after single recovery attempt
+	RecoveryTime      time.Time `json:"recoveryTime,omitempty"`     // When recovery was attempted
+	RecoveryResult    string    `json:"recoveryResult,omitempty"`   // "success", "failed", or empty
+	LastSpeakerState  string    `json:"lastSpeakerState,omitempty"` // Last observed speaker state
+	LeadSpeaker       string    `json:"leadSpeaker,omitempty"`      // Which speaker is being monitored
+	MusicType         string    `json:"musicType,omitempty"`        // Music type being monitored
 }
 
 // PlaylistInfo represents the currently playing playlist

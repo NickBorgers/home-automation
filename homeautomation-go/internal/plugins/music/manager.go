@@ -91,6 +91,10 @@ type Manager struct {
 	// Prevents concurrent fade-ins on the same speaker and false human-override detection
 	fadeInContexts   map[string]context.CancelFunc // entity_id -> cancel func
 	fadeInContextsMu sync.Mutex
+
+	// Playback health monitoring for auto-pause detection
+	playbackMonitorCancel context.CancelFunc
+	playbackMonitorMu     sync.Mutex
 }
 
 // NewManager creates a new Music manager
@@ -618,6 +622,9 @@ func (m *Manager) muteSpeaker(participant ParticipantWithVolume) {
 
 // stopPlayback stops all music playback
 func (m *Manager) stopPlayback() {
+	// Cancel any active playback health monitor
+	m.cancelPlaybackMonitor()
+
 	// Fade out before stopping to prevent jarring audio cutoff
 	m.fadeOutSpeakers()
 
@@ -911,6 +918,9 @@ func (m *Manager) executePlayback(musicType string, option PlaybackOption, parti
 		zap.String("lead_player", leadPlayer),
 		zap.Int("participant_count", len(participants)))
 
+	// Cancel any active playback health monitor before starting new playback
+	m.cancelPlaybackMonitor()
+
 	// Cancel any active fade-ins before starting new playback
 	// This prevents:
 	// 1. Concurrent fade-ins on the same speaker causing volume jumping
@@ -953,6 +963,12 @@ func (m *Manager) executePlayback(musicType string, option PlaybackOption, parti
 		m.logger.Info("Playback required multiple attempts",
 			zap.Int("attempts", attempts),
 			zap.String("speaker", leadPlayer))
+	}
+
+	// Start post-playback health monitor to detect auto-pause
+	// Only in non-read-only mode since we may need to send recovery commands
+	if !m.readOnly && verifyErr == nil {
+		m.startPlaybackMonitor(leadEntityID, musicType)
 	}
 
 	// Step 4: Enable shuffle for Spotify playlists
@@ -1110,6 +1126,17 @@ const (
 	// asyncRetryDelay is a fixed delay between async speaker join retries.
 	// Uses a fixed delay (no exponential backoff) since async joins are non-blocking.
 	asyncRetryDelay = 2 * time.Second
+
+	// playbackMonitorDuration is how long to monitor playback health after starting.
+	// 3 minutes covers the observed Sonos auto-pause window (typically < 2 min).
+	playbackMonitorDuration = 3 * time.Minute
+
+	// playbackMonitorPollInterval is how often to check speaker state during monitoring.
+	playbackMonitorPollInterval = 10 * time.Second
+
+	// playbackRecoveryDelay is how long to wait before attempting recovery.
+	// Prevents reacting to transient state changes.
+	playbackRecoveryDelay = 2 * time.Second
 )
 
 // startPlaybackWithVerification sends the play_media command and verifies playback actually starts.
@@ -1202,6 +1229,172 @@ func (m *Manager) isPlaybackActive(entityID string) (bool, error) {
 		zap.Bool("is_playing", isPlaying))
 
 	return isPlaying, nil
+}
+
+// cancelPlaybackMonitor cancels any active playback health monitor.
+// Safe to call even if no monitor is active.
+func (m *Manager) cancelPlaybackMonitor() {
+	m.playbackMonitorMu.Lock()
+	defer m.playbackMonitorMu.Unlock()
+
+	if m.playbackMonitorCancel != nil {
+		m.logger.Debug("Cancelling active playback health monitor")
+		m.playbackMonitorCancel()
+		m.playbackMonitorCancel = nil
+	}
+}
+
+// startPlaybackMonitor starts a new playback health monitor goroutine.
+// It cancels any existing monitor first, then launches a new one.
+// The monitor polls the lead speaker state and attempts recovery if auto-pause is detected.
+func (m *Manager) startPlaybackMonitor(leadEntityID, musicType string) {
+	m.playbackMonitorMu.Lock()
+	defer m.playbackMonitorMu.Unlock()
+
+	// Cancel any existing monitor
+	if m.playbackMonitorCancel != nil {
+		m.logger.Debug("Cancelling previous playback health monitor for new playback")
+		m.playbackMonitorCancel()
+	}
+
+	// Create new context for this monitor
+	ctx, cancel := context.WithCancel(context.Background())
+	m.playbackMonitorCancel = cancel
+
+	// Record monitor start in shadow state
+	m.recordPlaybackMonitorStart(leadEntityID, musicType)
+
+	m.logger.Info("Starting playback health monitor",
+		zap.String("lead_speaker", leadEntityID),
+		zap.String("music_type", musicType),
+		zap.Duration("duration", playbackMonitorDuration))
+
+	// Launch monitor goroutine
+	go m.monitorPlaybackHealth(ctx, leadEntityID, musicType)
+}
+
+// monitorPlaybackHealth polls the lead speaker state and detects auto-pause.
+// If auto-pause is detected (playing -> paused), it attempts recovery ONCE via media_play.
+// The monitor exits after: recovery attempt, timeout, or cancellation.
+func (m *Manager) monitorPlaybackHealth(ctx context.Context, leadEntityID, musicType string) {
+	endTime := m.timeProvider.Now().Add(playbackMonitorDuration)
+	lastState := "playing" // Assume playing since we just verified it
+
+	for {
+		// Check for cancellation before sleeping
+		select {
+		case <-ctx.Done():
+			m.logger.Debug("Playback health monitor cancelled")
+			m.recordPlaybackMonitorEnd("cancelled")
+			return
+		default:
+		}
+
+		// Wait for poll interval (uses injectable sleep for testability)
+		m.sleepFunc(playbackMonitorPollInterval)
+
+		// Check for cancellation after sleeping
+		select {
+		case <-ctx.Done():
+			m.logger.Debug("Playback health monitor cancelled")
+			m.recordPlaybackMonitorEnd("cancelled")
+			return
+		default:
+		}
+
+		// Check if monitor duration has expired
+		if m.timeProvider.Now().After(endTime) {
+			m.logger.Info("Playback health monitor completed - no auto-pause detected",
+				zap.String("lead_speaker", leadEntityID))
+			m.recordPlaybackMonitorEnd("completed")
+			return
+		}
+
+		// Get current speaker state
+		playing, err := m.isPlaybackActive(leadEntityID)
+		if err != nil {
+			m.logger.Warn("Failed to check playback state during health monitor",
+				zap.String("lead_speaker", leadEntityID),
+				zap.Error(err))
+			m.updatePlaybackHealthState("unknown")
+			continue
+		}
+
+		currentState := "paused"
+		if playing {
+			currentState = "playing"
+		}
+		m.updatePlaybackHealthState(currentState)
+
+		// Detect unexpected pause (playing -> paused transition)
+		if lastState == "playing" && currentState == "paused" {
+			m.logger.Warn("Auto-pause detected during health monitoring",
+				zap.String("lead_speaker", leadEntityID),
+				zap.String("music_type", musicType))
+
+			// Wait briefly to confirm it's not transient
+			m.sleepFunc(playbackRecoveryDelay)
+
+			// Re-check state after delay
+			resumedOnItsOwn, checkErr := m.isPlaybackActive(leadEntityID)
+			if checkErr == nil && resumedOnItsOwn {
+				// Speaker resumed on its own (transient state)
+				m.logger.Debug("Speaker resumed on its own, continuing monitoring",
+					zap.String("lead_speaker", leadEntityID))
+				lastState = "playing"
+				continue
+			}
+
+			// Still paused (or error checking), attempt recovery
+			m.logger.Info("Attempting playback recovery after auto-pause",
+				zap.String("lead_speaker", leadEntityID))
+
+			success := m.attemptPlaybackRecovery(leadEntityID)
+			if success {
+				m.logger.Info("Playback recovery successful",
+					zap.String("lead_speaker", leadEntityID))
+				m.recordPlaybackRecoveryResult("success")
+			} else {
+				m.logger.Warn("Playback recovery failed - stopping monitor to avoid fighting human pause",
+					zap.String("lead_speaker", leadEntityID))
+				m.recordPlaybackRecoveryResult("failed")
+			}
+
+			// Exit after single recovery attempt (success or failure)
+			m.recordPlaybackMonitorEnd("recovery_attempted")
+			return
+		}
+
+		lastState = currentState
+	}
+}
+
+// attemptPlaybackRecovery sends a media_play command to resume playback.
+// Returns true if playback resumed successfully, false otherwise.
+func (m *Manager) attemptPlaybackRecovery(leadEntityID string) bool {
+	// Send media_play command
+	if err := m.callServiceWithRetry("media_player", "media_play", map[string]interface{}{
+		"entity_id": leadEntityID,
+	}); err != nil {
+		m.logger.Error("Failed to send recovery media_play command",
+			zap.String("entity_id", leadEntityID),
+			zap.Error(err))
+		return false
+	}
+
+	// Wait for command to take effect
+	m.sleepFunc(playbackRecoveryDelay)
+
+	// Verify playback resumed
+	playing, err := m.isPlaybackActive(leadEntityID)
+	if err != nil {
+		m.logger.Warn("Failed to verify recovery",
+			zap.String("entity_id", leadEntityID),
+			zap.Error(err))
+		return false
+	}
+
+	return playing
 }
 
 // fadeOutSpeakers performs a quick fade-out on all currently playing speakers.
@@ -2323,7 +2516,71 @@ func (m *Manager) GetShadowState() *shadowstate.MusicShadowState {
 		shadowCopy.Outputs.FadeInProgress[k] = v
 	}
 
+	// Deep copy playback health status
+	if m.shadowState.Outputs.PlaybackHealth != nil {
+		healthCopy := *m.shadowState.Outputs.PlaybackHealth
+		shadowCopy.Outputs.PlaybackHealth = &healthCopy
+	}
+
 	return &shadowCopy
+}
+
+// recordPlaybackMonitorStart records the start of playback health monitoring
+func (m *Manager) recordPlaybackMonitorStart(leadEntityID, musicType string) {
+	m.shadowMu.Lock()
+	defer m.shadowMu.Unlock()
+
+	now := m.timeProvider.Now()
+	m.shadowState.Outputs.PlaybackHealth = &shadowstate.PlaybackHealthStatus{
+		IsMonitoring:      true,
+		MonitorStartTime:  now,
+		MonitorEndTime:    now.Add(playbackMonitorDuration),
+		RecoveryAttempted: false,
+		LastSpeakerState:  "playing", // Assume playing since verification just passed
+		LeadSpeaker:       leadEntityID,
+		MusicType:         musicType,
+	}
+	m.shadowState.Metadata.LastUpdated = now
+}
+
+// updatePlaybackHealthState updates the last observed speaker state during monitoring
+func (m *Manager) updatePlaybackHealthState(state string) {
+	m.shadowMu.Lock()
+	defer m.shadowMu.Unlock()
+
+	if m.shadowState.Outputs.PlaybackHealth != nil {
+		m.shadowState.Outputs.PlaybackHealth.LastSpeakerState = state
+	}
+}
+
+// recordPlaybackRecoveryResult records the outcome of a recovery attempt
+func (m *Manager) recordPlaybackRecoveryResult(result string) {
+	m.shadowMu.Lock()
+	defer m.shadowMu.Unlock()
+
+	now := m.timeProvider.Now()
+	if m.shadowState.Outputs.PlaybackHealth != nil {
+		m.shadowState.Outputs.PlaybackHealth.RecoveryAttempted = true
+		m.shadowState.Outputs.PlaybackHealth.RecoveryTime = now
+		m.shadowState.Outputs.PlaybackHealth.RecoveryResult = result
+	}
+	m.shadowState.Metadata.LastUpdated = now
+}
+
+// recordPlaybackMonitorEnd records the end of playback health monitoring
+func (m *Manager) recordPlaybackMonitorEnd(reason string) {
+	m.shadowMu.Lock()
+	defer m.shadowMu.Unlock()
+
+	now := m.timeProvider.Now()
+	if m.shadowState.Outputs.PlaybackHealth != nil {
+		m.shadowState.Outputs.PlaybackHealth.IsMonitoring = false
+		m.shadowState.Outputs.PlaybackHealth.MonitorEndTime = now
+	}
+	m.shadowState.Metadata.LastUpdated = now
+
+	m.logger.Debug("Playback health monitor ended",
+		zap.String("reason", reason))
 }
 
 // recordFadeInStart records the start of a speaker fade-in
