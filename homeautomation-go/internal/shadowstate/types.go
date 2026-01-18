@@ -988,15 +988,16 @@ type EnvironmentalInputs struct {
 
 // EnvironmentalOutputs tracks computed environmental states and notification history
 type EnvironmentalOutputs struct {
-	HumiditySensors             []HumiditySensorData     `json:"humiditySensors"`                       // All discovered humidity sensors
-	TemperatureSensors          []TemperatureSensorData  `json:"temperatureSensors,omitempty"`          // All discovered temperature sensors (for lockup monitoring)
-	AlertLevel                  string                   `json:"alertLevel"`                            // Overall: "none", "warning", "critical"
-	ConditionStartTime          time.Time                `json:"conditionStartTime,omitempty"`          // When current condition started
-	IsSustained                 bool                     `json:"isSustained"`                           // Whether condition is sustained (30+ min)
-	LastNotification            *NotificationRecord      `json:"lastNotification,omitempty"`            // Last alert notification sent
-	LastResolutionNotice        *NotificationRecord      `json:"lastResolutionNotice,omitempty"`        // Last resolution notification sent
-	LastTemperatureLockupNotice *TemperatureLockupNotice `json:"lastTemperatureLockupNotice,omitempty"` // Last temperature lockup notification sent
-	LastUpdate                  time.Time                `json:"lastUpdate"`
+	HumiditySensors               []HumiditySensorData       `json:"humiditySensors"`                         // All discovered humidity sensors
+	TemperatureSensors            []TemperatureSensorData    `json:"temperatureSensors,omitempty"`            // All discovered temperature sensors (for lockup monitoring)
+	AlertLevel                    string                     `json:"alertLevel"`                              // Overall: "none", "warning", "critical"
+	ConditionStartTime            time.Time                  `json:"conditionStartTime,omitempty"`            // When current condition started
+	IsSustained                   bool                       `json:"isSustained"`                             // Whether condition is sustained (30+ min)
+	LastNotification              *NotificationRecord        `json:"lastNotification,omitempty"`              // Last alert notification sent
+	LastResolutionNotice          *NotificationRecord        `json:"lastResolutionNotice,omitempty"`          // Last resolution notification sent
+	LastTemperatureLockupNotice   *TemperatureLockupNotice   `json:"lastTemperatureLockupNotice,omitempty"`   // Last temperature lockup notification sent
+	LastTemperatureRecoveryNotice *TemperatureRecoveryNotice `json:"lastTemperatureRecoveryNotice,omitempty"` // Last temperature recovery notification sent
+	LastUpdate                    time.Time                  `json:"lastUpdate"`
 }
 
 // HumiditySensorData represents a single humidity sensor's state for shadow tracking
@@ -1022,6 +1023,14 @@ type TemperatureSensorData struct {
 
 // TemperatureLockupNotice tracks a temperature lockup notification that was sent
 type TemperatureLockupNotice struct {
+	EntityID     string    `json:"entityId"`
+	FriendlyName string    `json:"friendlyName"`
+	Message      string    `json:"message"`
+	Timestamp    time.Time `json:"timestamp"`
+}
+
+// TemperatureRecoveryNotice tracks a temperature recovery notification that was sent
+type TemperatureRecoveryNotice struct {
 	EntityID     string    `json:"entityId"`
 	FriendlyName string    `json:"friendlyName"`
 	Message      string    `json:"message"`

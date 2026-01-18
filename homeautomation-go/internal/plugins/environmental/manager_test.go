@@ -1112,6 +1112,12 @@ func TestEnvironmentalManager_TemperatureSensor_Lockup_Recovery(t *testing.T) {
 		t.Fatal("Expected sensor to be locked up")
 	}
 
+	// Record the notification count after lockup
+	lockupNotifications := countNotifications(mockHA, NotificationTarget)
+	if lockupNotifications != 1 {
+		t.Fatalf("Expected 1 lockup notification, got %d", lockupNotifications)
+	}
+
 	// Now simulate a value change (recovery)
 	manager.SimulateTemperatureChange(testTempSensor1, 73.5) // Different value
 
@@ -1119,6 +1125,29 @@ func TestEnvironmentalManager_TemperatureSensor_Lockup_Recovery(t *testing.T) {
 	sensors = manager.GetTemperatureSensors()
 	if sensors[testTempSensor1].IsLockedUp {
 		t.Error("Expected sensor to recover from lockup after value change")
+	}
+
+	// Verify recovery notification was sent
+	totalNotifications := countNotifications(mockHA, NotificationTarget)
+	if totalNotifications != 2 {
+		t.Errorf("Expected 2 notifications (1 lockup + 1 recovery), got %d", totalNotifications)
+	}
+
+	// Verify the recovery notification has correct content
+	notification := getLastNotification(mockHA, NotificationTarget)
+	if notification == nil {
+		t.Fatal("Expected to find a notification")
+	}
+	title, _ := notification.Data["title"].(string)
+	if title != "Temperature Sensor Recovered" {
+		t.Errorf("Expected notification title 'Temperature Sensor Recovered', got '%s'", title)
+	}
+	message, _ := notification.Data["message"].(string)
+	if !contains(message, "Garage Temperature") {
+		t.Errorf("Expected notification message to contain sensor name, got '%s'", message)
+	}
+	if !contains(message, "recovered") {
+		t.Errorf("Expected notification message to contain 'recovered', got '%s'", message)
 	}
 }
 
@@ -1368,6 +1397,200 @@ func TestEnvironmentalManager_TemperatureSensor_InvalidValues(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestEnvironmentalManager_TemperatureSensor_Recovery_RateLimiting(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+	mockClock := clock.NewMockClock(time.Now())
+
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockClock)
+
+	// Add test temperature sensor
+	initialTime := mockClock.Now()
+	manager.AddTemperatureSensor(&TemperatureSensor{
+		EntityID:        testTempSensor1,
+		FriendlyName:    "Garage Temperature",
+		Value:           72.0,
+		Valid:           true,
+		LastValueChange: initialTime,
+		LastValue:       72.0,
+	})
+
+	// First, let the sensor become locked up
+	mockClock.Advance(13 * time.Hour)
+	manager.TriggerLockupCheck()
+
+	// Verify lockup notification sent
+	if countNotifications(mockHA, NotificationTarget) != 1 {
+		t.Fatal("Expected 1 lockup notification")
+	}
+
+	// Recover the sensor
+	manager.SimulateTemperatureChange(testTempSensor1, 73.0)
+
+	// Verify recovery notification sent (2 total)
+	if countNotifications(mockHA, NotificationTarget) != 2 {
+		t.Fatal("Expected 2 notifications (lockup + recovery)")
+	}
+
+	// Now simulate another lockup cycle within rate limit period
+	mockClock.Advance(13 * time.Hour)                        // 26 hours total from start
+	manager.SimulateTemperatureChange(testTempSensor1, 73.0) // Same value to reset LastValueChange tracking
+	mockClock.Advance(13 * time.Hour)                        // 39 hours from start, but only 13 from last change
+	manager.TriggerLockupCheck()
+
+	// Should have sent another lockup notification (3 total) - sensor was locked up again
+	notificationsAfterSecondLockup := countNotifications(mockHA, NotificationTarget)
+	if notificationsAfterSecondLockup != 3 {
+		t.Fatalf("Expected 3 notifications after second lockup, got %d", notificationsAfterSecondLockup)
+	}
+
+	// Now recover within the rate limit period (less than 24 hours since last recovery)
+	// The second lockup was at ~39 hours, first recovery was at ~13 hours
+	// So ~26 hours have passed - beyond rate limit, should send
+	manager.SimulateTemperatureChange(testTempSensor1, 74.0)
+
+	// Should have sent another recovery notification
+	notificationsAfterSecondRecovery := countNotifications(mockHA, NotificationTarget)
+	if notificationsAfterSecondRecovery != 4 {
+		t.Errorf("Expected 4 notifications after second recovery (beyond rate limit), got %d", notificationsAfterSecondRecovery)
+	}
+
+	// Now simulate a quick lockup/recovery cycle within rate limit
+	mockClock.Advance(1 * time.Hour) // Advance just 1 hour
+	// Manually set the sensor to locked up state for testing
+	sensors := manager.GetTemperatureSensors()
+	sensors[testTempSensor1].IsLockedUp = true
+
+	// Get internal sensor and set it locked up
+	manager.AddTemperatureSensor(&TemperatureSensor{
+		EntityID:                 testTempSensor1,
+		FriendlyName:             "Garage Temperature",
+		Value:                    74.0,
+		Valid:                    true,
+		LastValueChange:          mockClock.Now().Add(-13 * time.Hour),
+		LastValue:                74.0,
+		IsLockedUp:               true,
+		LastRecoveryNotification: mockClock.Now().Add(-1 * time.Hour), // Set recent recovery notification
+	})
+
+	// Try to recover - should be rate limited
+	manager.SimulateTemperatureChange(testTempSensor1, 75.0)
+
+	// Should NOT have sent another notification due to rate limiting
+	notificationsAfterRateLimited := countNotifications(mockHA, NotificationTarget)
+	if notificationsAfterRateLimited != 4 {
+		t.Errorf("Expected 4 notifications (recovery rate limited), got %d", notificationsAfterRateLimited)
+	}
+}
+
+func TestEnvironmentalManager_TemperatureSensor_Recovery_ReadOnlyMode(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, true) // read-only
+	mockClock := clock.NewMockClock(time.Now())
+
+	// Create manager in read-only mode
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, true, nil, mockClock)
+
+	// Add test temperature sensor
+	initialTime := mockClock.Now()
+	manager.AddTemperatureSensor(&TemperatureSensor{
+		EntityID:        testTempSensor1,
+		FriendlyName:    "Garage Temperature",
+		Value:           72.0,
+		Valid:           true,
+		LastValueChange: initialTime,
+		LastValue:       72.0,
+	})
+
+	// Let sensor become locked up
+	mockClock.Advance(13 * time.Hour)
+	manager.TriggerLockupCheck()
+
+	// Sensor should be marked as locked up
+	sensors := manager.GetTemperatureSensors()
+	if !sensors[testTempSensor1].IsLockedUp {
+		t.Fatal("Expected sensor to be marked as locked up")
+	}
+
+	// No lockup notification should be sent (read-only mode)
+	if countNotifications(mockHA, NotificationTarget) != 0 {
+		t.Fatal("Expected no notifications in read-only mode")
+	}
+
+	// Now recover the sensor
+	manager.SimulateTemperatureChange(testTempSensor1, 73.5)
+
+	// Sensor should have recovered
+	sensors = manager.GetTemperatureSensors()
+	if sensors[testTempSensor1].IsLockedUp {
+		t.Error("Expected sensor to recover from lockup")
+	}
+
+	// No recovery notification should be sent (read-only mode)
+	if countNotifications(mockHA, NotificationTarget) != 0 {
+		t.Errorf("Expected no notifications in read-only mode, got %d", countNotifications(mockHA, NotificationTarget))
+	}
+
+	// But shadow state should still be recorded
+	shadowState := manager.GetShadowState()
+	if shadowState.Outputs.LastTemperatureRecoveryNotice == nil {
+		t.Error("Expected recovery notice to be recorded in shadow state")
+	}
+}
+
+func TestEnvironmentalManager_TemperatureSensor_Recovery_ShadowState(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+	mockClock := clock.NewMockClock(time.Now())
+
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockClock)
+
+	// Add test temperature sensor
+	initialTime := mockClock.Now()
+	manager.AddTemperatureSensor(&TemperatureSensor{
+		EntityID:        testTempSensor1,
+		FriendlyName:    "Garage Temperature",
+		Value:           72.0,
+		Valid:           true,
+		LastValueChange: initialTime,
+		LastValue:       72.0,
+	})
+
+	// Let sensor become locked up and recover
+	mockClock.Advance(13 * time.Hour)
+	manager.TriggerLockupCheck()
+	manager.SimulateTemperatureChange(testTempSensor1, 73.5) // Different value - recovery
+
+	// Get shadow state
+	shadowState := manager.GetShadowState()
+
+	// Verify recovery notice is recorded
+	if shadowState.Outputs.LastTemperatureRecoveryNotice == nil {
+		t.Fatal("Expected recovery notice to be recorded in shadow state")
+	}
+	if shadowState.Outputs.LastTemperatureRecoveryNotice.EntityID != testTempSensor1 {
+		t.Errorf("Expected entity ID '%s', got '%s'",
+			testTempSensor1, shadowState.Outputs.LastTemperatureRecoveryNotice.EntityID)
+	}
+	if shadowState.Outputs.LastTemperatureRecoveryNotice.FriendlyName != "Garage Temperature" {
+		t.Errorf("Expected friendly name 'Garage Temperature', got '%s'",
+			shadowState.Outputs.LastTemperatureRecoveryNotice.FriendlyName)
+	}
+	if !contains(shadowState.Outputs.LastTemperatureRecoveryNotice.Message, "recovered") {
+		t.Errorf("Expected message to contain 'recovered', got '%s'",
+			shadowState.Outputs.LastTemperatureRecoveryNotice.Message)
 	}
 }
 

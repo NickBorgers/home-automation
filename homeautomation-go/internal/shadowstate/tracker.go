@@ -1472,6 +1472,20 @@ func (et *EnvironmentalTracker) RecordTemperatureLockupNotification(entityID, fr
 	et.state.Metadata.LastUpdated = time.Now()
 }
 
+// RecordTemperatureRecoveryNotification records a temperature recovery notification that was sent
+func (et *EnvironmentalTracker) RecordTemperatureRecoveryNotification(entityID, friendlyName, message string) {
+	et.mu.Lock()
+	defer et.mu.Unlock()
+
+	et.state.Outputs.LastTemperatureRecoveryNotice = &TemperatureRecoveryNotice{
+		EntityID:     entityID,
+		FriendlyName: friendlyName,
+		Message:      message,
+		Timestamp:    time.Now(),
+	}
+	et.state.Metadata.LastUpdated = time.Now()
+}
+
 // GetState returns the current shadow state (thread-safe copy)
 func (et *EnvironmentalTracker) GetState() *EnvironmentalShadowState {
 	et.mu.RLock()
@@ -1524,6 +1538,11 @@ func (et *EnvironmentalTracker) GetState() *EnvironmentalShadowState {
 	if et.state.Outputs.LastTemperatureLockupNotice != nil {
 		lockupNotice := *et.state.Outputs.LastTemperatureLockupNotice
 		stateCopy.Outputs.LastTemperatureLockupNotice = &lockupNotice
+	}
+
+	if et.state.Outputs.LastTemperatureRecoveryNotice != nil {
+		recoveryNotice := *et.state.Outputs.LastTemperatureRecoveryNotice
+		stateCopy.Outputs.LastTemperatureRecoveryNotice = &recoveryNotice
 	}
 
 	return stateCopy

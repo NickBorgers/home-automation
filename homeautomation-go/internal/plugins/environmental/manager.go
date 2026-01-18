@@ -63,15 +63,16 @@ type HumiditySensor struct {
 
 // TemperatureSensor represents a discovered temperature sensor for lockup monitoring
 type TemperatureSensor struct {
-	EntityID         string
-	DeviceID         string
-	FriendlyName     string
-	Value            float64
-	Valid            bool
-	LastValueChange  time.Time // When the value last changed
-	LastValue        float64   // Previous value for comparison
-	IsLockedUp       bool      // Whether sensor is currently in lockup state
-	LastNotification time.Time // When we last notified about this sensor's lockup
+	EntityID                 string
+	DeviceID                 string
+	FriendlyName             string
+	Value                    float64
+	Valid                    bool
+	LastValueChange          time.Time // When the value last changed
+	LastValue                float64   // Previous value for comparison
+	IsLockedUp               bool      // Whether sensor is currently in lockup state
+	LastNotification         time.Time // When we last notified about this sensor's lockup
+	LastRecoveryNotification time.Time // When we last notified about this sensor's recovery
 }
 
 // Manager handles environmental monitoring and alerts
@@ -862,6 +863,10 @@ func (m *Manager) handleTemperatureChange(entityID string, oldState, newState *h
 				zap.String("entity_id", entityID),
 				zap.String("friendly_name", sensor.FriendlyName),
 				zap.Float64("new_value", temp))
+			// Send recovery notification (unlocks mutex internally)
+			m.mu.Unlock()
+			m.sendTemperatureRecoveryNotification(sensor, temp)
+			m.mu.Lock()
 		}
 	}
 
@@ -1025,6 +1030,61 @@ func (m *Manager) sendTemperatureLockupNotification(sensor *TemperatureSensor) {
 	}
 }
 
+// sendTemperatureRecoveryNotification sends a notification when a temperature sensor recovers from lockup
+func (m *Manager) sendTemperatureRecoveryNotification(sensor *TemperatureSensor, newValue float64) {
+	m.mu.Lock()
+	now := m.clock.Now()
+
+	// Check rate limiting (per sensor) - use same rate limit as lockup notifications
+	if !sensor.LastRecoveryNotification.IsZero() && now.Sub(sensor.LastRecoveryNotification) < TemperatureLockupNotificationRateLimit {
+		m.mu.Unlock()
+		m.logger.Debug("Skipping recovery notification due to rate limit",
+			zap.String("entity_id", sensor.EntityID),
+			zap.Duration("time_since_last", now.Sub(sensor.LastRecoveryNotification)))
+		return
+	}
+
+	// Update last recovery notification time
+	sensor.LastRecoveryNotification = now
+	m.mu.Unlock()
+
+	message := fmt.Sprintf("Temperature sensor '%s' has recovered from lockup. "+
+		"It is now reporting a new value (%.1f). The sensor appears to be working again.",
+		sensor.FriendlyName, newValue)
+
+	notification := &ha.Notification{
+		Title:   "Temperature Sensor Recovered",
+		Message: message,
+		Data: &ha.NotificationData{
+			Tag:        fmt.Sprintf("environmental-temp-recovery-%s", sensor.EntityID),
+			Group:      "environmental",
+			Importance: "default",
+		},
+	}
+
+	m.logger.Info("Sending temperature recovery notification",
+		zap.String("entity_id", sensor.EntityID),
+		zap.String("friendly_name", sensor.FriendlyName),
+		zap.Float64("new_value", newValue))
+
+	// Record in shadow state
+	m.shadowTracker.RecordTemperatureRecoveryNotification(sensor.EntityID, sensor.FriendlyName, message)
+
+	if m.readOnly {
+		m.logger.Info("Skipping recovery notification send in read-only mode",
+			zap.String("entity_id", sensor.EntityID),
+			zap.String("message", message))
+		return
+	}
+
+	// Send notification
+	if err := m.haClient.SendNotification(NotificationTarget, notification); err != nil {
+		m.logger.Error("Failed to send temperature recovery notification",
+			zap.String("entity_id", sensor.EntityID),
+			zap.Error(err))
+	}
+}
+
 // parseTemperature parses a temperature value from a state string
 func parseTemperature(s string) (float64, error) {
 	if s == "" || s == "unknown" || s == "unavailable" {
@@ -1051,6 +1111,7 @@ func (m *Manager) Reset() {
 		sensor.LastValue = 0
 		sensor.IsLockedUp = false
 		sensor.LastNotification = time.Time{}
+		sensor.LastRecoveryNotification = time.Time{}
 	}
 	m.currentAlertLevel = "none"
 	m.lastWarningNotification = time.Time{}
