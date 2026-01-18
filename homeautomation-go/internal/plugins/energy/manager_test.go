@@ -148,26 +148,28 @@ func TestDetermineOverallEnergyLevel(t *testing.T) {
 		solarLevel   string
 		expected     string
 	}{
+		// Solar can only boost, never drag down battery level.
+		// Overall = battery level, boosted by at most 1 if solar is higher.
 		{"Both black", "black", "black", "black"},
-		{"Battery red, solar black", "red", "black", "red"},
-		{"Battery black, solar red", "black", "red", "red"},
+		{"Battery red, solar black", "red", "black", "red"}, // Solar doesn't drag down
+		{"Battery black, solar red", "black", "red", "red"}, // Solar boosts by 1
 		{"Both red", "red", "red", "red"},
-		{"Battery yellow, solar black", "yellow", "black", "red"},
-		{"Battery black, solar yellow", "black", "yellow", "red"},
-		{"Battery yellow, solar red", "yellow", "red", "yellow"},
-		{"Battery red, solar yellow", "red", "yellow", "yellow"},
+		{"Battery yellow, solar black", "yellow", "black", "yellow"}, // Solar doesn't drag down
+		{"Battery black, solar yellow", "black", "yellow", "red"},    // Solar boosts by 1 (max)
+		{"Battery yellow, solar red", "yellow", "red", "yellow"},     // Solar doesn't drag down
+		{"Battery red, solar yellow", "red", "yellow", "yellow"},     // Solar boosts by 1
 		{"Both yellow", "yellow", "yellow", "yellow"},
-		{"Battery green, solar yellow", "green", "yellow", "green"},
-		{"Battery yellow, solar green", "yellow", "green", "green"},
+		{"Battery green, solar yellow", "green", "yellow", "green"}, // Solar doesn't drag down
+		{"Battery yellow, solar green", "yellow", "green", "green"}, // Solar boosts by 1
 		{"Both green", "green", "green", "green"},
-		{"Battery white, solar green", "white", "green", "white"},
-		{"Battery green, solar white", "green", "white", "white"},
+		{"Battery white, solar green", "white", "green", "white"}, // Solar doesn't drag down
+		{"Battery green, solar white", "green", "white", "white"}, // Solar boosts by 1
 		{"Both white", "white", "white", "white"},
-		// Max one level higher than minimum
-		{"Battery white, solar black", "white", "black", "red"},
-		{"Battery black, solar white", "black", "white", "red"},
-		{"Battery white, solar red", "white", "red", "yellow"},
-		{"Battery red, solar white", "red", "white", "yellow"},
+		// Solar can boost by at most 1 level
+		{"Battery white, solar black", "white", "black", "white"}, // Solar doesn't drag down
+		{"Battery black, solar white", "black", "white", "red"},   // Solar boosts by 1 (max)
+		{"Battery white, solar red", "white", "red", "white"},     // Solar doesn't drag down
+		{"Battery red, solar white", "red", "white", "yellow"},    // Solar boosts by 1 (max)
 	}
 
 	for _, tt := range tests {
