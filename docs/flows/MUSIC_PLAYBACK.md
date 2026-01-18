@@ -170,6 +170,87 @@ The async approach provides faster perceived playback start:
 
 Followers that fail to join (e.g., speaker offline) are logged but don't block playback.
 
+## Post-Playback Health Monitoring
+
+After playback starts successfully, a health monitor watches for Sonos auto-pause events and attempts automatic recovery:
+
+```mermaid
+flowchart TD
+    subgraph Trigger["After Playback Start"]
+        verified["Playback verified<br/>on lead speaker"]
+    end
+
+    subgraph Monitor["Health Monitor (3 min)"]
+        poll["Poll speaker state<br/>every 10 seconds"]
+        checkState{"Speaker<br/>state?"}
+        playing["Still playing"]
+        paused["Paused detected<br/>(auto-pause)"]
+    end
+
+    subgraph Recovery["Recovery Attempt"]
+        wait["Wait 2 seconds<br/>(transient filter)"]
+        sendPlay["Send media_play<br/>command"]
+        result{"Recovery<br/>result?"}
+        success["Resume monitoring"]
+        failed["Log failure<br/>and exit"]
+    end
+
+    subgraph Exit["Monitor Exit"]
+        timeout["3 min timeout<br/>(no issues)"]
+        cancelled["Cancelled<br/>(new playback/stop)"]
+        done["Monitor complete"]
+    end
+
+    verified --> poll
+    poll --> checkState
+    checkState -->|playing| poll
+    checkState -->|paused| wait
+    wait --> sendPlay
+    sendPlay --> result
+    result -->|success| done
+    result -->|failed| failed
+
+    poll -->|3 min| timeout
+    timeout --> done
+    cancelled --> done
+
+    style paused fill:#e74c3c,color:#fff
+    style success fill:#27ae60,color:#fff
+    style failed fill:#95a5a6,color:#fff
+```
+
+### Why Health Monitoring?
+
+Sonos speakers occasionally auto-pause playback within the first few minutes, typically due to:
+- Network hiccups during initial buffering
+- Spotify connect handoff issues
+- Speaker group synchronization problems
+
+The health monitor provides resilience by:
+1. **Single recovery attempt** - Prevents infinite retry loops
+2. **Transient filtering** - 2-second delay avoids reacting to brief state flickers
+3. **Bounded duration** - 3-minute window covers the typical auto-pause window
+4. **Non-blocking** - Runs in background, cancels cleanly on new playback
+
+### Shadow State Visibility
+
+Monitor status is visible in the shadow state API (`/api/shadow/music`):
+
+```json
+{
+  "outputs": {
+    "playbackHealth": {
+      "isMonitoring": true,
+      "monitorStartTime": "2024-01-15T10:30:00Z",
+      "monitorEndTime": "2024-01-15T10:33:00Z",
+      "leadSpeaker": "media_player.living_room",
+      "musicType": "day",
+      "recoveryAttempted": false
+    }
+  }
+}
+```
+
 ## Speaker Zone Management
 
 Speakers are filtered by `exclude_if` conditions at orchestration time, then muted/unmuted based on `leave_muted_if` conditions:
