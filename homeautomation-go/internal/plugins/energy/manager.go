@@ -559,27 +559,22 @@ func (m *Manager) determineOverallEnergyLevel(batteryLevel, solarLevel string) s
 		return "black"
 	}
 
-	// Find min and max indexes
-	minIndex := batteryIndex
-	if solarIndex < minIndex {
-		minIndex = solarIndex
+	// Solar can only boost, never drag down the battery level.
+	// The overall level is:
+	// - At least the battery level (solar never penalizes)
+	// - At most battery + 1 (solar can boost by one level if it's higher)
+	outputIndex := batteryIndex
+	if solarIndex > batteryIndex {
+		// Solar is higher, boost by at most 1
+		outputIndex = batteryIndex + 1
+		if solarIndex < outputIndex {
+			outputIndex = solarIndex
+		}
 	}
 
-	maxIndex := batteryIndex
-	if solarIndex > maxIndex {
-		maxIndex = solarIndex
-	}
-
-	// Maximum allowed output is at most one level higher than the lowest input
-	maxAllowedIndex := minIndex + 1
-	if maxAllowedIndex >= len(levelNames) {
-		maxAllowedIndex = len(levelNames) - 1
-	}
-
-	// Final output is the lesser of maxIndex and maxAllowedIndex
-	outputIndex := maxIndex
-	if maxAllowedIndex < outputIndex {
-		outputIndex = maxAllowedIndex
+	// Clamp to valid range
+	if outputIndex >= len(levelNames) {
+		outputIndex = len(levelNames) - 1
 	}
 
 	result := levelNames[outputIndex]
@@ -589,9 +584,6 @@ func (m *Manager) determineOverallEnergyLevel(batteryLevel, solarLevel string) s
 		zap.Int("battery_index", batteryIndex),
 		zap.String("solar_level", solarLevel),
 		zap.Int("solar_index", solarIndex),
-		zap.Int("min_index", minIndex),
-		zap.Int("max_index", maxIndex),
-		zap.Int("max_allowed_index", maxAllowedIndex),
 		zap.Int("output_index", outputIndex),
 		zap.String("result", result))
 
