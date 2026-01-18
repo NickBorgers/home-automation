@@ -958,3 +958,465 @@ func TestEnvironmentalManager_CaseInsensitiveLabelMatching(t *testing.T) {
 		})
 	}
 }
+
+// ============================================================================
+// Temperature Sensor Lockup Detection Tests
+// ============================================================================
+
+// Test sensor entity IDs for temperature
+const (
+	testTempSensor1 = "sensor.temp_sensor_1"
+	testTempSensor2 = "sensor.temp_sensor_2"
+)
+
+func TestEnvironmentalManager_TemperatureSensor_NoLockup(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+	mockClock := clock.NewMockClock(time.Now())
+
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockClock)
+
+	// Add test temperature sensor
+	manager.AddTemperatureSensor(&TemperatureSensor{
+		EntityID:        testTempSensor1,
+		FriendlyName:    "Test Temperature 1",
+		Value:           72.0,
+		Valid:           true,
+		LastValueChange: mockClock.Now(),
+		LastValue:       72.0,
+	})
+
+	// Simulate temperature change (value changes)
+	mockClock.Advance(6 * time.Hour)
+	manager.SimulateTemperatureChange(testTempSensor1, 73.0)
+
+	// Trigger lockup check
+	manager.TriggerLockupCheck()
+
+	// Verify sensor is not locked up
+	sensors := manager.GetTemperatureSensors()
+	sensor, ok := sensors[testTempSensor1]
+	if !ok {
+		t.Fatal("Expected temperature sensor to exist")
+	}
+	if sensor.IsLockedUp {
+		t.Error("Expected temperature sensor to NOT be locked up (value changed)")
+	}
+
+	// Verify no notifications were sent
+	notificationCount := countNotifications(mockHA, NotificationTarget)
+	if notificationCount > 0 {
+		t.Errorf("Expected no notifications for non-locked sensor, got %d", notificationCount)
+	}
+}
+
+func TestEnvironmentalManager_TemperatureSensor_Lockup_Detected(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+	mockClock := clock.NewMockClock(time.Now())
+
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockClock)
+
+	// Add test temperature sensor
+	initialTime := mockClock.Now()
+	manager.AddTemperatureSensor(&TemperatureSensor{
+		EntityID:        testTempSensor1,
+		FriendlyName:    "Garage Temperature",
+		Value:           72.0,
+		Valid:           true,
+		LastValueChange: initialTime,
+		LastValue:       72.0,
+	})
+
+	// Simulate same value reported over 12 hours (lockup threshold)
+	mockClock.Advance(13 * time.Hour)
+	manager.SimulateTemperatureChange(testTempSensor1, 72.0) // Same value
+
+	// Trigger lockup check
+	manager.TriggerLockupCheck()
+
+	// Verify sensor is marked as locked up
+	sensors := manager.GetTemperatureSensors()
+	sensor, ok := sensors[testTempSensor1]
+	if !ok {
+		t.Fatal("Expected temperature sensor to exist")
+	}
+	if !sensor.IsLockedUp {
+		t.Error("Expected temperature sensor to be marked as locked up")
+	}
+
+	// Verify notification was sent
+	notificationCount := countNotifications(mockHA, NotificationTarget)
+	if notificationCount != 1 {
+		t.Errorf("Expected 1 lockup notification, got %d", notificationCount)
+		return
+	}
+
+	notification := getLastNotification(mockHA, NotificationTarget)
+	if notification == nil {
+		t.Error("Expected to find a notification")
+		return
+	}
+	title, _ := notification.Data["title"].(string)
+	if title != "Temperature Sensor Locked Up" {
+		t.Errorf("Expected notification title 'Temperature Sensor Locked Up', got '%s'", title)
+	}
+	message, _ := notification.Data["message"].(string)
+	if message == "" {
+		t.Error("Expected notification message to be set")
+	}
+	// Verify message contains sensor name and hours
+	if !contains(message, "Garage Temperature") {
+		t.Errorf("Expected notification message to contain sensor name, got '%s'", message)
+	}
+	if !contains(message, "72.0") {
+		t.Errorf("Expected notification message to contain stuck value, got '%s'", message)
+	}
+}
+
+func TestEnvironmentalManager_TemperatureSensor_Lockup_Recovery(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+	mockClock := clock.NewMockClock(time.Now())
+
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockClock)
+
+	// Add test temperature sensor
+	initialTime := mockClock.Now()
+	manager.AddTemperatureSensor(&TemperatureSensor{
+		EntityID:        testTempSensor1,
+		FriendlyName:    "Garage Temperature",
+		Value:           72.0,
+		Valid:           true,
+		LastValueChange: initialTime,
+		LastValue:       72.0,
+	})
+
+	// First, let the sensor become locked up
+	mockClock.Advance(13 * time.Hour)
+	manager.SimulateTemperatureChange(testTempSensor1, 72.0) // Same value
+	manager.TriggerLockupCheck()
+
+	// Verify locked up
+	sensors := manager.GetTemperatureSensors()
+	if !sensors[testTempSensor1].IsLockedUp {
+		t.Fatal("Expected sensor to be locked up")
+	}
+
+	// Now simulate a value change (recovery)
+	manager.SimulateTemperatureChange(testTempSensor1, 73.5) // Different value
+
+	// Verify sensor recovered
+	sensors = manager.GetTemperatureSensors()
+	if sensors[testTempSensor1].IsLockedUp {
+		t.Error("Expected sensor to recover from lockup after value change")
+	}
+}
+
+func TestEnvironmentalManager_TemperatureSensor_Lockup_RateLimiting(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+	mockClock := clock.NewMockClock(time.Now())
+
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockClock)
+
+	// Add test temperature sensor
+	initialTime := mockClock.Now()
+	manager.AddTemperatureSensor(&TemperatureSensor{
+		EntityID:        testTempSensor1,
+		FriendlyName:    "Garage Temperature",
+		Value:           72.0,
+		Valid:           true,
+		LastValueChange: initialTime,
+		LastValue:       72.0,
+	})
+
+	// Let sensor become locked up and trigger first notification
+	mockClock.Advance(13 * time.Hour)
+	manager.TriggerLockupCheck()
+
+	initialNotifications := countNotifications(mockHA, NotificationTarget)
+	if initialNotifications != 1 {
+		t.Fatalf("Expected 1 initial notification, got %d", initialNotifications)
+	}
+
+	// Trigger another check after a short time (within rate limit)
+	mockClock.Advance(1 * time.Hour)
+	manager.TriggerLockupCheck()
+
+	// Should not have sent another notification (rate limited to 24 hours)
+	afterRateLimit := countNotifications(mockHA, NotificationTarget)
+	if afterRateLimit > initialNotifications {
+		t.Errorf("Expected no additional notifications due to rate limiting, got %d extra",
+			afterRateLimit-initialNotifications)
+	}
+
+	// Now advance past the rate limit (24 hours)
+	mockClock.Advance(24 * time.Hour)
+	manager.TriggerLockupCheck()
+
+	// Should have sent another notification
+	finalNotifications := countNotifications(mockHA, NotificationTarget)
+	if finalNotifications <= initialNotifications {
+		t.Error("Expected another notification after rate limit period")
+	}
+}
+
+func TestEnvironmentalManager_TemperatureSensor_MultipleSensors(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+	mockClock := clock.NewMockClock(time.Now())
+
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockClock)
+
+	// Add two temperature sensors
+	initialTime := mockClock.Now()
+	manager.AddTemperatureSensor(&TemperatureSensor{
+		EntityID:        testTempSensor1,
+		FriendlyName:    "Garage Temperature",
+		Value:           72.0,
+		Valid:           true,
+		LastValueChange: initialTime,
+		LastValue:       72.0,
+	})
+	manager.AddTemperatureSensor(&TemperatureSensor{
+		EntityID:        testTempSensor2,
+		FriendlyName:    "Attic Temperature",
+		Value:           85.0,
+		Valid:           true,
+		LastValueChange: initialTime,
+		LastValue:       85.0,
+	})
+
+	// Advance time past lockup threshold
+	mockClock.Advance(13 * time.Hour)
+
+	// Sensor 1 changes value, sensor 2 stays the same
+	manager.SimulateTemperatureChange(testTempSensor1, 73.0) // Changed
+	manager.SimulateTemperatureChange(testTempSensor2, 85.0) // Same
+
+	// Trigger lockup check
+	manager.TriggerLockupCheck()
+
+	// Verify sensor 1 is NOT locked up (value changed)
+	sensors := manager.GetTemperatureSensors()
+	if sensors[testTempSensor1].IsLockedUp {
+		t.Error("Expected sensor 1 to NOT be locked up (value changed)")
+	}
+
+	// Verify sensor 2 IS locked up (value stayed the same)
+	if !sensors[testTempSensor2].IsLockedUp {
+		t.Error("Expected sensor 2 to be locked up (value unchanged)")
+	}
+
+	// Should have only 1 notification (for sensor 2)
+	notificationCount := countNotifications(mockHA, NotificationTarget)
+	if notificationCount != 1 {
+		t.Errorf("Expected 1 notification for locked sensor 2, got %d", notificationCount)
+	}
+}
+
+func TestEnvironmentalManager_TemperatureSensor_ReadOnlyMode(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, true) // read-only
+	mockClock := clock.NewMockClock(time.Now())
+
+	// Create manager in read-only mode
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, true, nil, mockClock)
+
+	// Add test temperature sensor
+	initialTime := mockClock.Now()
+	manager.AddTemperatureSensor(&TemperatureSensor{
+		EntityID:        testTempSensor1,
+		FriendlyName:    "Garage Temperature",
+		Value:           72.0,
+		Valid:           true,
+		LastValueChange: initialTime,
+		LastValue:       72.0,
+	})
+
+	// Let sensor become locked up
+	mockClock.Advance(13 * time.Hour)
+	manager.TriggerLockupCheck()
+
+	// Sensor should be marked as locked up
+	sensors := manager.GetTemperatureSensors()
+	if !sensors[testTempSensor1].IsLockedUp {
+		t.Error("Expected sensor to be marked as locked up")
+	}
+
+	// But no actual notifications should be sent (read-only mode)
+	notificationCount := countNotifications(mockHA, NotificationTarget)
+	if notificationCount > 0 {
+		t.Errorf("Expected no notifications in read-only mode, got %d", notificationCount)
+	}
+}
+
+func TestEnvironmentalManager_TemperatureSensor_ShadowState(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+	mockClock := clock.NewMockClock(time.Now())
+
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockClock)
+
+	// Add test temperature sensors
+	initialTime := mockClock.Now()
+	manager.AddTemperatureSensor(&TemperatureSensor{
+		EntityID:        testTempSensor1,
+		FriendlyName:    "Garage Temperature",
+		Value:           72.0,
+		Valid:           true,
+		LastValueChange: initialTime,
+		LastValue:       72.0,
+	})
+
+	// Update shadow state by simulating a change
+	manager.SimulateTemperatureChange(testTempSensor1, 73.0)
+
+	// Get shadow state
+	shadowState := manager.GetShadowState()
+
+	// Verify shadow state plugin name
+	if shadowState.Plugin != "environmental" {
+		t.Errorf("Expected plugin 'environmental', got '%s'", shadowState.Plugin)
+	}
+
+	// Verify shadow state outputs contain temperature sensors
+	if len(shadowState.Outputs.TemperatureSensors) != 1 {
+		t.Errorf("Expected 1 temperature sensor in shadow state, got %d",
+			len(shadowState.Outputs.TemperatureSensors))
+		return
+	}
+
+	// Verify sensor data
+	sensorData := shadowState.Outputs.TemperatureSensors[0]
+	if sensorData.EntityID != testTempSensor1 {
+		t.Errorf("Expected entity ID '%s', got '%s'", testTempSensor1, sensorData.EntityID)
+	}
+	if sensorData.Value != 73.0 {
+		t.Errorf("Expected value 73.0, got %f", sensorData.Value)
+	}
+	if !sensorData.Valid {
+		t.Error("Expected sensor to be valid")
+	}
+}
+
+func TestEnvironmentalManager_TemperatureSensor_InvalidValues(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		value string
+	}{
+		{"empty", ""},
+		{"unknown", "unknown"},
+		{"unavailable", "unavailable"},
+		{"non-numeric", "abc"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockHA := ha.NewMockClient()
+			logger := zap.NewNop()
+			stateMgr := state.NewManager(mockHA, logger, false)
+			mockClock := clock.NewMockClock(time.Now())
+
+			manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockClock)
+
+			// Add test sensor
+			manager.AddTemperatureSensor(&TemperatureSensor{
+				EntityID:        testTempSensor1,
+				FriendlyName:    "Test Temperature",
+				Value:           72.0,
+				Valid:           true,
+				LastValueChange: mockClock.Now(),
+				LastValue:       72.0,
+			})
+
+			// Simulate invalid temperature reading
+			manager.handleTemperatureChange(testTempSensor1, nil, &ha.State{
+				EntityID: testTempSensor1,
+				State:    tt.value,
+			})
+
+			// Verify sensor is marked invalid
+			sensors := manager.GetTemperatureSensors()
+			if sensor, ok := sensors[testTempSensor1]; ok {
+				if sensor.Valid {
+					t.Error("Expected sensor to be marked invalid")
+				}
+			}
+		})
+	}
+}
+
+func TestParseTemperature(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		input       string
+		expected    float64
+		shouldError bool
+	}{
+		{"valid integer", "72", 72.0, false},
+		{"valid float", "72.5", 72.5, false},
+		{"negative", "-10", -10.0, false},
+		{"zero", "0", 0.0, false},
+		{"empty string", "", 0.0, true},
+		{"unknown", "unknown", 0.0, true},
+		{"unavailable", "unavailable", 0.0, true},
+		{"non-numeric", "abc", 0.0, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := parseTemperature(tt.input)
+
+			if tt.shouldError && err == nil {
+				t.Errorf("Expected error for input '%s', got nil", tt.input)
+			}
+			if !tt.shouldError && err != nil {
+				t.Errorf("Expected no error for input '%s', got %v", tt.input, err)
+			}
+			if !tt.shouldError && result != tt.expected {
+				t.Errorf("Expected %f for input '%s', got %f", tt.expected, tt.input, result)
+			}
+		})
+	}
+}
+
+// Helper function to check if a string contains a substring
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsHelper(s, substr))
+}
+
+func containsHelper(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
+}

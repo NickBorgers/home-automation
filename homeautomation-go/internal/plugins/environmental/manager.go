@@ -39,6 +39,14 @@ const (
 
 	// Notification target
 	NotificationTarget = "nicks_iphone"
+
+	// Temperature sensor lockup detection
+	// A sensor is considered locked up if it has the same reading for this long
+	TemperatureLockupThreshold = 12 * time.Hour
+	// How often to check for locked up sensors
+	TemperatureLockupCheckInterval = 1 * time.Hour
+	// Rate limiting for lockup notifications (per sensor)
+	TemperatureLockupNotificationRateLimit = 24 * time.Hour
 )
 
 // HumiditySensor represents a discovered humidity sensor
@@ -51,6 +59,19 @@ type HumiditySensor struct {
 	Valid         bool
 	WarningStart  time.Time
 	CriticalStart time.Time
+}
+
+// TemperatureSensor represents a discovered temperature sensor for lockup monitoring
+type TemperatureSensor struct {
+	EntityID         string
+	DeviceID         string
+	FriendlyName     string
+	Value            float64
+	Valid            bool
+	LastValueChange  time.Time // When the value last changed
+	LastValue        float64   // Previous value for comparison
+	IsLockedUp       bool      // Whether sensor is currently in lockup state
+	LastNotification time.Time // When we last notified about this sensor's lockup
 }
 
 // Manager handles environmental monitoring and alerts
@@ -71,6 +92,9 @@ type Manager struct {
 	mu      sync.Mutex
 	sensors map[string]*HumiditySensor
 
+	// Temperature sensors - keyed by entity_id (for lockup detection)
+	tempSensors map[string]*TemperatureSensor
+
 	// Current alert level ("none", "warning", "critical")
 	currentAlertLevel string
 
@@ -81,6 +105,9 @@ type Manager struct {
 
 	// Track if we've notified for the current incident (to send resolution only once)
 	hasNotifiedForCurrentIncident bool
+
+	// Temperature lockup checker
+	stopLockupChecker chan struct{}
 }
 
 // NewManager creates a new environmental monitoring manager
@@ -96,6 +123,7 @@ func NewManager(haClient ha.HAClient, stateManager *state.Manager, logger *zap.L
 		shadowTracker:     shadowTracker,
 		subHelper:         shadowstate.NewSubscriptionHelper(haClient, stateManager, registry, shadowTracker, "environmental", logger.Named("environmental")),
 		sensors:           make(map[string]*HumiditySensor),
+		tempSensors:       make(map[string]*TemperatureSensor),
 		currentAlertLevel: "none",
 	}
 }
@@ -139,6 +167,25 @@ func (m *Manager) Start() error {
 			zap.Int("total", sensorCount),
 			zap.Int("indoor_alertable", indoorCount),
 			zap.Int("outdoor_informational", sensorCount-indoorCount))
+	}
+
+	// Discover temperature sensors for lockup detection
+	if err := m.discoverTemperatureSensors(); err != nil {
+		m.logger.Warn("Failed to discover some temperature sensors", zap.Error(err))
+		// Continue anyway - may have discovered some sensors
+	}
+
+	m.mu.Lock()
+	tempSensorCount := len(m.tempSensors)
+	m.mu.Unlock()
+
+	if tempSensorCount == 0 {
+		m.logger.Warn("No temperature sensors discovered - lockup detection will be inactive")
+	} else {
+		m.logger.Info("Temperature sensors discovered for lockup monitoring",
+			zap.Int("total", tempSensorCount))
+		// Start the periodic lockup checker
+		m.startLockupChecker()
 	}
 
 	// Initialize shadow state with current input values (after subscriptions registered)
@@ -272,10 +319,23 @@ func (m *Manager) discoverHumiditySensors() error {
 func (m *Manager) Stop() {
 	m.logger.Info("Stopping Environmental Monitoring Manager")
 
+	// Stop the lockup checker
+	m.stopLockupCheckerFunc()
+
 	// Unsubscribe from all subscriptions
 	m.subHelper.UnsubscribeAll()
 
 	m.logger.Info("Environmental Monitoring Manager stopped")
+}
+
+// stopLockupCheckerFunc stops the temperature lockup checker goroutine
+func (m *Manager) stopLockupCheckerFunc() {
+	m.mu.Lock()
+	if m.stopLockupChecker != nil {
+		close(m.stopLockupChecker)
+		m.stopLockupChecker = nil
+	}
+	m.mu.Unlock()
 }
 
 // handleHumidityChange processes changes to any humidity sensor
@@ -657,6 +717,316 @@ func formatSensorLocations(locations []string) string {
 	return strings.Join(locations, ", ")
 }
 
+// ============================================================================
+// Temperature Sensor Lockup Detection
+// ============================================================================
+
+// discoverTemperatureSensors discovers all temperature sensors for lockup monitoring.
+// Note: Discovery runs at startup only. New sensors added to Home Assistant while
+// the app is running will not be detected until restart.
+func (m *Manager) discoverTemperatureSensors() error {
+	var errs []error
+
+	// Step 1: Get all entity states
+	states, err := m.haClient.GetAllStates()
+	if err != nil {
+		return fmt.Errorf("failed to get entity states: %w", err)
+	}
+
+	// Step 2: Filter for temperature sensors (device_class: temperature)
+	var tempSensors []*ha.State
+	for _, state := range states {
+		if !strings.HasPrefix(state.EntityID, "sensor.") {
+			continue
+		}
+		if deviceClass, ok := state.Attributes["device_class"].(string); ok {
+			if deviceClass == "temperature" {
+				tempSensors = append(tempSensors, state)
+			}
+		}
+	}
+
+	m.logger.Info("Found temperature sensors", zap.Int("count", len(tempSensors)))
+
+	if len(tempSensors) == 0 {
+		return nil
+	}
+
+	// Step 3: Get entity registry to map entity_id -> device_id
+	entityRegistry, err := m.haClient.GetEntityRegistry()
+	if err != nil {
+		m.logger.Warn("Failed to get entity registry for temperature sensors",
+			zap.Error(err))
+		errs = append(errs, err)
+	}
+
+	entityToDevice := make(map[string]string)
+	for _, entry := range entityRegistry {
+		entityToDevice[entry.EntityID] = entry.DeviceID
+	}
+
+	now := m.clock.Now()
+
+	// Step 4: Create TemperatureSensor structs and subscribe to each
+	m.mu.Lock()
+	for _, state := range tempSensors {
+		deviceID := entityToDevice[state.EntityID]
+
+		friendlyName := state.EntityID
+		if name, ok := state.Attributes["friendly_name"].(string); ok {
+			friendlyName = name
+		}
+
+		sensor := &TemperatureSensor{
+			EntityID:        state.EntityID,
+			DeviceID:        deviceID,
+			FriendlyName:    friendlyName,
+			Valid:           false,
+			LastValueChange: now, // Initialize to now - we'll track from here
+		}
+
+		// Parse initial value
+		if value, err := parseTemperature(state.State); err == nil {
+			sensor.Value = value
+			sensor.LastValue = value
+			sensor.Valid = true
+		}
+
+		m.tempSensors[state.EntityID] = sensor
+
+		m.logger.Debug("Discovered temperature sensor",
+			zap.String("entity_id", state.EntityID),
+			zap.String("friendly_name", friendlyName),
+			zap.String("device_id", deviceID),
+			zap.Float64("current_value", sensor.Value))
+	}
+	m.mu.Unlock()
+
+	// Subscribe to each sensor (outside the lock to avoid deadlock)
+	for entityID := range m.tempSensors {
+		if err := m.subHelper.SubscribeToEntity(entityID, m.handleTemperatureChange); err != nil {
+			m.logger.Warn("Failed to subscribe to temperature sensor",
+				zap.String("entity_id", entityID),
+				zap.Error(err))
+			errs = append(errs, err)
+		}
+	}
+
+	// Update shadow state with all discovered temperature sensors
+	m.updateShadowTemperatureSensors()
+
+	if len(errs) > 0 {
+		return errors.Join(errs...)
+	}
+	return nil
+}
+
+// handleTemperatureChange processes changes to any temperature sensor
+func (m *Manager) handleTemperatureChange(entityID string, oldState, newState *ha.State) {
+	if newState == nil {
+		return
+	}
+
+	// Parse temperature value
+	temp, err := parseTemperature(newState.State)
+	if err != nil {
+		m.logger.Debug("Invalid temperature value",
+			zap.String("entity_id", entityID),
+			zap.String("state", newState.State),
+			zap.Error(err))
+		m.mu.Lock()
+		if sensor, ok := m.tempSensors[entityID]; ok {
+			sensor.Valid = false
+		}
+		m.mu.Unlock()
+		return
+	}
+
+	m.mu.Lock()
+	sensor, ok := m.tempSensors[entityID]
+	if !ok {
+		m.mu.Unlock()
+		m.logger.Warn("Received update for unknown temperature sensor", zap.String("entity_id", entityID))
+		return
+	}
+
+	// Check if value actually changed
+	if sensor.Valid && temp != sensor.LastValue {
+		// Value changed - update tracking
+		sensor.LastValueChange = m.clock.Now()
+		sensor.LastValue = temp
+		// If sensor was marked as locked up but now has a new reading, it's recovered
+		if sensor.IsLockedUp {
+			sensor.IsLockedUp = false
+			m.logger.Info("Temperature sensor recovered from lockup",
+				zap.String("entity_id", entityID),
+				zap.String("friendly_name", sensor.FriendlyName),
+				zap.Float64("new_value", temp))
+		}
+	}
+
+	sensor.Value = temp
+	sensor.Valid = true
+	m.mu.Unlock()
+
+	m.logger.Debug("Temperature sensor changed",
+		zap.String("entity_id", entityID),
+		zap.String("friendly_name", sensor.FriendlyName),
+		zap.Float64("temperature", temp))
+
+	// Update shadow state
+	m.updateShadowTemperatureSensors()
+}
+
+// updateShadowTemperatureSensors updates the shadow state with current temperature sensor data
+func (m *Manager) updateShadowTemperatureSensors() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	sensorData := make([]shadowstate.TemperatureSensorData, 0, len(m.tempSensors))
+	for _, sensor := range m.tempSensors {
+		sensorData = append(sensorData, shadowstate.TemperatureSensorData{
+			EntityID:        sensor.EntityID,
+			FriendlyName:    sensor.FriendlyName,
+			DeviceID:        sensor.DeviceID,
+			Value:           sensor.Value,
+			Valid:           sensor.Valid,
+			LastValueChange: sensor.LastValueChange,
+			IsLockedUp:      sensor.IsLockedUp,
+		})
+	}
+
+	m.shadowTracker.UpdateTemperatureSensors(sensorData)
+}
+
+// startLockupChecker starts the periodic lockup checker goroutine
+func (m *Manager) startLockupChecker() {
+	m.mu.Lock()
+	m.stopLockupChecker = make(chan struct{})
+	stopCh := m.stopLockupChecker
+	m.mu.Unlock()
+
+	go m.runLockupChecker(stopCh)
+}
+
+// runLockupChecker periodically checks for locked up temperature sensors
+func (m *Manager) runLockupChecker(stopCh chan struct{}) {
+	// Check immediately on start
+	m.checkTemperatureLockup()
+
+	ticker := m.clock.NewTicker(TemperatureLockupCheckInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-stopCh:
+			m.logger.Info("Temperature lockup checker stopped")
+			return
+		case <-ticker.C():
+			m.checkTemperatureLockup()
+		}
+	}
+}
+
+// checkTemperatureLockup checks all temperature sensors for lockup and sends notifications
+func (m *Manager) checkTemperatureLockup() {
+	m.mu.Lock()
+	now := m.clock.Now()
+	var lockedUpSensors []*TemperatureSensor
+
+	for _, sensor := range m.tempSensors {
+		if !sensor.Valid {
+			continue
+		}
+
+		// Check if sensor has had the same value for too long
+		timeSinceChange := now.Sub(sensor.LastValueChange)
+		if timeSinceChange >= TemperatureLockupThreshold {
+			sensor.IsLockedUp = true
+			lockedUpSensors = append(lockedUpSensors, sensor)
+		}
+	}
+	m.mu.Unlock()
+
+	// Update shadow state with lockup status
+	m.updateShadowTemperatureSensors()
+
+	// Send notifications for locked up sensors
+	for _, sensor := range lockedUpSensors {
+		m.sendTemperatureLockupNotification(sensor)
+	}
+}
+
+// sendTemperatureLockupNotification sends a notification for a locked up temperature sensor
+func (m *Manager) sendTemperatureLockupNotification(sensor *TemperatureSensor) {
+	m.mu.Lock()
+	now := m.clock.Now()
+
+	// Check rate limiting (per sensor)
+	if !sensor.LastNotification.IsZero() && now.Sub(sensor.LastNotification) < TemperatureLockupNotificationRateLimit {
+		m.mu.Unlock()
+		m.logger.Debug("Skipping lockup notification due to rate limit",
+			zap.String("entity_id", sensor.EntityID),
+			zap.Duration("time_since_last", now.Sub(sensor.LastNotification)))
+		return
+	}
+
+	// Update last notification time
+	sensor.LastNotification = now
+	m.mu.Unlock()
+
+	// Calculate how long the sensor has been locked up
+	timeSinceChange := now.Sub(sensor.LastValueChange)
+	hoursLocked := int(timeSinceChange.Hours())
+
+	message := fmt.Sprintf("Temperature sensor '%s' appears to be locked up. "+
+		"It has reported the same value (%.1f) for %d+ hours. "+
+		"The sensor may need to be reset or replaced.",
+		sensor.FriendlyName, sensor.Value, hoursLocked)
+
+	notification := &ha.Notification{
+		Title:   "Temperature Sensor Locked Up",
+		Message: message,
+		Data: &ha.NotificationData{
+			Tag:        fmt.Sprintf("environmental-temp-lockup-%s", sensor.EntityID),
+			Group:      "environmental",
+			Importance: "high",
+			Sticky:     true,
+		},
+	}
+
+	m.logger.Info("Sending temperature lockup notification",
+		zap.String("entity_id", sensor.EntityID),
+		zap.String("friendly_name", sensor.FriendlyName),
+		zap.Float64("stuck_value", sensor.Value),
+		zap.Int("hours_locked", hoursLocked))
+
+	// Record in shadow state
+	m.shadowTracker.RecordTemperatureLockupNotification(sensor.EntityID, sensor.FriendlyName, message)
+
+	if m.readOnly {
+		m.logger.Info("Skipping lockup notification send in read-only mode",
+			zap.String("entity_id", sensor.EntityID),
+			zap.String("message", message))
+		return
+	}
+
+	// Send notification
+	if err := m.haClient.SendNotification(NotificationTarget, notification); err != nil {
+		m.logger.Error("Failed to send temperature lockup notification",
+			zap.String("entity_id", sensor.EntityID),
+			zap.Error(err))
+	}
+}
+
+// parseTemperature parses a temperature value from a state string
+func parseTemperature(s string) (float64, error) {
+	if s == "" || s == "unknown" || s == "unavailable" {
+		return 0, fmt.Errorf("invalid temperature state: %s", s)
+	}
+	return strconv.ParseFloat(s, 64)
+}
+
 // Reset resets the manager state (for testing)
 func (m *Manager) Reset() {
 	m.mu.Lock()
@@ -667,6 +1037,14 @@ func (m *Manager) Reset() {
 		sensor.Valid = false
 		sensor.WarningStart = time.Time{}
 		sensor.CriticalStart = time.Time{}
+	}
+	for _, sensor := range m.tempSensors {
+		sensor.Value = 0
+		sensor.Valid = false
+		sensor.LastValueChange = time.Time{}
+		sensor.LastValue = 0
+		sensor.IsLockedUp = false
+		sensor.LastNotification = time.Time{}
 	}
 	m.currentAlertLevel = "none"
 	m.lastWarningNotification = time.Time{}
@@ -709,4 +1087,38 @@ func (m *Manager) SimulateSensorChange(entityID string, humidity float64) {
 		EntityID: entityID,
 		State:    fmt.Sprintf("%.1f", humidity),
 	})
+}
+
+// GetTemperatureSensors returns a copy of the current temperature sensors map (for testing)
+func (m *Manager) GetTemperatureSensors() map[string]*TemperatureSensor {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	result := make(map[string]*TemperatureSensor)
+	for k, v := range m.tempSensors {
+		// Make a copy
+		sensor := *v
+		result[k] = &sensor
+	}
+	return result
+}
+
+// AddTemperatureSensor adds a temperature sensor directly (for testing)
+func (m *Manager) AddTemperatureSensor(sensor *TemperatureSensor) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.tempSensors[sensor.EntityID] = sensor
+}
+
+// SimulateTemperatureChange simulates a temperature sensor value change (for testing)
+func (m *Manager) SimulateTemperatureChange(entityID string, temperature float64) {
+	m.handleTemperatureChange(entityID, nil, &ha.State{
+		EntityID: entityID,
+		State:    fmt.Sprintf("%.1f", temperature),
+	})
+}
+
+// TriggerLockupCheck manually triggers the lockup check (for testing)
+func (m *Manager) TriggerLockupCheck() {
+	m.checkTemperatureLockup()
 }

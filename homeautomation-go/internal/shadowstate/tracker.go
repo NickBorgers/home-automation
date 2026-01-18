@@ -1446,6 +1446,32 @@ func (et *EnvironmentalTracker) RecordResolutionNotice(message string) {
 	et.state.Metadata.LastUpdated = time.Now()
 }
 
+// UpdateTemperatureSensors updates the list of temperature sensors and their values
+func (et *EnvironmentalTracker) UpdateTemperatureSensors(sensors []TemperatureSensorData) {
+	et.mu.Lock()
+	defer et.mu.Unlock()
+
+	// Make a copy of the slice
+	et.state.Outputs.TemperatureSensors = make([]TemperatureSensorData, len(sensors))
+	copy(et.state.Outputs.TemperatureSensors, sensors)
+	et.state.Outputs.LastUpdate = time.Now()
+	et.state.Metadata.LastUpdated = time.Now()
+}
+
+// RecordTemperatureLockupNotification records a temperature lockup notification that was sent
+func (et *EnvironmentalTracker) RecordTemperatureLockupNotification(entityID, friendlyName, message string) {
+	et.mu.Lock()
+	defer et.mu.Unlock()
+
+	et.state.Outputs.LastTemperatureLockupNotice = &TemperatureLockupNotice{
+		EntityID:     entityID,
+		FriendlyName: friendlyName,
+		Message:      message,
+		Timestamp:    time.Now(),
+	}
+	et.state.Metadata.LastUpdated = time.Now()
+}
+
 // GetState returns the current shadow state (thread-safe copy)
 func (et *EnvironmentalTracker) GetState() *EnvironmentalShadowState {
 	et.mu.RLock()
@@ -1459,6 +1485,7 @@ func (et *EnvironmentalTracker) GetState() *EnvironmentalShadowState {
 		},
 		Outputs: EnvironmentalOutputs{
 			HumiditySensors:    make([]HumiditySensorData, len(et.state.Outputs.HumiditySensors)),
+			TemperatureSensors: make([]TemperatureSensorData, len(et.state.Outputs.TemperatureSensors)),
 			AlertLevel:         et.state.Outputs.AlertLevel,
 			ConditionStartTime: et.state.Outputs.ConditionStartTime,
 			IsSustained:        et.state.Outputs.IsSustained,
@@ -1475,6 +1502,9 @@ func (et *EnvironmentalTracker) GetState() *EnvironmentalShadowState {
 	// Copy humidity sensors
 	copy(stateCopy.Outputs.HumiditySensors, et.state.Outputs.HumiditySensors)
 
+	// Copy temperature sensors
+	copy(stateCopy.Outputs.TemperatureSensors, et.state.Outputs.TemperatureSensors)
+
 	// Copy notification records if they exist
 	if et.state.Outputs.LastNotification != nil {
 		notification := *et.state.Outputs.LastNotification
@@ -1489,6 +1519,11 @@ func (et *EnvironmentalTracker) GetState() *EnvironmentalShadowState {
 	if et.state.Outputs.LastResolutionNotice != nil {
 		resolution := *et.state.Outputs.LastResolutionNotice
 		stateCopy.Outputs.LastResolutionNotice = &resolution
+	}
+
+	if et.state.Outputs.LastTemperatureLockupNotice != nil {
+		lockupNotice := *et.state.Outputs.LastTemperatureLockupNotice
+		stateCopy.Outputs.LastTemperatureLockupNotice = &lockupNotice
 	}
 
 	return stateCopy
