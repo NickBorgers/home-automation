@@ -24,6 +24,9 @@ type Clock interface {
 
 	// Since returns the time elapsed since t
 	Since(t time.Time) time.Duration
+
+	// NewTicker returns a new Ticker that will send the current time on its channel after each tick
+	NewTicker(d time.Duration) Ticker
 }
 
 // Timer represents a single event that can be stopped
@@ -37,12 +40,26 @@ type Timer interface {
 	Reset(d time.Duration) bool
 }
 
+// Ticker represents a repeating event
+type Ticker interface {
+	// C returns the channel on which ticks are delivered
+	C() <-chan time.Time
+
+	// Stop turns off the ticker. After Stop, no more ticks will be sent.
+	Stop()
+}
+
 // RealClock implements Clock using the standard time package
 type RealClock struct{}
 
 // realTimer wraps time.Timer to implement our Timer interface
 type realTimer struct {
 	timer *time.Timer
+}
+
+// realTicker wraps time.Ticker to implement our Ticker interface
+type realTicker struct {
+	ticker *time.Ticker
 }
 
 // NewRealClock creates a new RealClock instance
@@ -75,6 +92,11 @@ func (c *RealClock) Since(t time.Time) time.Duration {
 	return time.Since(t)
 }
 
+// NewTicker returns a new Ticker that will send the current time on its channel after each tick
+func (c *RealClock) NewTicker(d time.Duration) Ticker {
+	return &realTicker{ticker: time.NewTicker(d)}
+}
+
 // Stop prevents the Timer from firing
 func (t *realTimer) Stop() bool {
 	return t.timer.Stop()
@@ -83,6 +105,16 @@ func (t *realTimer) Stop() bool {
 // Reset changes the timer to expire after duration d
 func (t *realTimer) Reset(d time.Duration) bool {
 	return t.timer.Reset(d)
+}
+
+// C returns the channel on which ticks are delivered
+func (t *realTicker) C() <-chan time.Time {
+	return t.ticker.C
+}
+
+// Stop turns off the ticker
+func (t *realTicker) Stop() {
+	t.ticker.Stop()
 }
 
 // MockClock is a Clock implementation for testing that allows manual time control
@@ -96,6 +128,14 @@ type mockTimer struct {
 	clock    *MockClock
 	deadline time.Time
 	f        func()
+	stopped  bool
+	mu       sync.Mutex
+}
+
+type mockTicker struct {
+	clock    *MockClock
+	interval time.Duration
+	ch       chan time.Time
 	stopped  bool
 	mu       sync.Mutex
 }
@@ -153,6 +193,67 @@ func (c *MockClock) Since(t time.Time) time.Duration {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.current.Sub(t)
+}
+
+// NewTicker returns a new mock Ticker. The ticker will receive ticks when Advance is called.
+// Note: MockClock ticker ticks are delivered synchronously during Advance() calls, which
+// is typically what you want in tests. The channel has a buffer of 1 to prevent blocking.
+func (c *MockClock) NewTicker(d time.Duration) Ticker {
+	ticker := &mockTicker{
+		clock:    c,
+		interval: d,
+		ch:       make(chan time.Time, 1),
+		stopped:  false,
+	}
+
+	// Schedule the first tick
+	c.scheduleNextTick(ticker)
+
+	return ticker
+}
+
+// scheduleNextTick schedules the next tick for a mock ticker
+func (c *MockClock) scheduleNextTick(ticker *mockTicker) {
+	c.AfterFunc(ticker.interval, func() {
+		ticker.mu.Lock()
+		if ticker.stopped {
+			ticker.mu.Unlock()
+			return
+		}
+		ticker.mu.Unlock()
+
+		// Non-blocking send to the tick channel
+		c.mu.Lock()
+		t := c.current
+		c.mu.Unlock()
+
+		select {
+		case ticker.ch <- t:
+		default:
+			// Drop tick if channel is full (mimics real ticker behavior)
+		}
+
+		// Schedule the next tick
+		ticker.mu.Lock()
+		if !ticker.stopped {
+			ticker.mu.Unlock()
+			c.scheduleNextTick(ticker)
+		} else {
+			ticker.mu.Unlock()
+		}
+	})
+}
+
+// C returns the channel on which ticks are delivered
+func (t *mockTicker) C() <-chan time.Time {
+	return t.ch
+}
+
+// Stop turns off the ticker
+func (t *mockTicker) Stop() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.stopped = true
 }
 
 // Advance moves the mock clock forward by duration d and fires any timers that have expired

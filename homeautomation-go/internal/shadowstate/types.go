@@ -1002,13 +1002,16 @@ type EnvironmentalInputs struct {
 
 // EnvironmentalOutputs tracks computed environmental states and notification history
 type EnvironmentalOutputs struct {
-	HumiditySensors      []HumiditySensorData `json:"humiditySensors"`                // All discovered humidity sensors
-	AlertLevel           string               `json:"alertLevel"`                     // Overall: "none", "warning", "critical"
-	ConditionStartTime   time.Time            `json:"conditionStartTime,omitempty"`   // When current condition started
-	IsSustained          bool                 `json:"isSustained"`                    // Whether condition is sustained (30+ min)
-	LastNotification     *NotificationRecord  `json:"lastNotification,omitempty"`     // Last alert notification sent
-	LastResolutionNotice *NotificationRecord  `json:"lastResolutionNotice,omitempty"` // Last resolution notification sent
-	LastUpdate           time.Time            `json:"lastUpdate"`
+	HumiditySensors               []HumiditySensorData       `json:"humiditySensors"`                         // All discovered humidity sensors
+	TemperatureSensors            []TemperatureSensorData    `json:"temperatureSensors,omitempty"`            // All discovered temperature sensors (for lockup monitoring)
+	AlertLevel                    string                     `json:"alertLevel"`                              // Overall: "none", "warning", "critical"
+	ConditionStartTime            time.Time                  `json:"conditionStartTime,omitempty"`            // When current condition started
+	IsSustained                   bool                       `json:"isSustained"`                             // Whether condition is sustained (30+ min)
+	LastNotification              *NotificationRecord        `json:"lastNotification,omitempty"`              // Last alert notification sent
+	LastResolutionNotice          *NotificationRecord        `json:"lastResolutionNotice,omitempty"`          // Last resolution notification sent
+	LastTemperatureLockupNotice   *TemperatureLockupNotice   `json:"lastTemperatureLockupNotice,omitempty"`   // Last temperature lockup notification sent
+	LastTemperatureRecoveryNotice *TemperatureRecoveryNotice `json:"lastTemperatureRecoveryNotice,omitempty"` // Last temperature recovery notification sent
+	LastUpdate                    time.Time                  `json:"lastUpdate"`
 }
 
 // HumiditySensorData represents a single humidity sensor's state for shadow tracking
@@ -1019,6 +1022,33 @@ type HumiditySensorData struct {
 	IsIndoor     bool    `json:"isIndoor"` // true = alerts enabled, false = informational only
 	Value        float64 `json:"value"`
 	Valid        bool    `json:"valid"`
+}
+
+// TemperatureSensorData represents a single temperature sensor's state for lockup monitoring
+type TemperatureSensorData struct {
+	EntityID        string    `json:"entityId"`
+	FriendlyName    string    `json:"friendlyName"`
+	DeviceID        string    `json:"deviceId,omitempty"`
+	Value           float64   `json:"value"`
+	Valid           bool      `json:"valid"`
+	LastValueChange time.Time `json:"lastValueChange,omitempty"` // When the value last changed
+	IsLockedUp      bool      `json:"isLockedUp"`                // Whether sensor is currently locked up
+}
+
+// TemperatureLockupNotice tracks a temperature lockup notification that was sent
+type TemperatureLockupNotice struct {
+	EntityID     string    `json:"entityId"`
+	FriendlyName string    `json:"friendlyName"`
+	Message      string    `json:"message"`
+	Timestamp    time.Time `json:"timestamp"`
+}
+
+// TemperatureRecoveryNotice tracks a temperature recovery notification that was sent
+type TemperatureRecoveryNotice struct {
+	EntityID     string    `json:"entityId"`
+	FriendlyName string    `json:"friendlyName"`
+	Message      string    `json:"message"`
+	Timestamp    time.Time `json:"timestamp"`
 }
 
 // NotificationRecord tracks a notification that was sent
@@ -1058,8 +1088,9 @@ func NewEnvironmentalShadowState() *EnvironmentalShadowState {
 			Current: make(map[string]interface{}),
 		},
 		Outputs: EnvironmentalOutputs{
-			HumiditySensors: make([]HumiditySensorData, 0),
-			AlertLevel:      "none",
+			HumiditySensors:    make([]HumiditySensorData, 0),
+			TemperatureSensors: make([]TemperatureSensorData, 0),
+			AlertLevel:         "none",
 		},
 		Metadata: StateMetadata{
 			LastUpdated: time.Now(),
