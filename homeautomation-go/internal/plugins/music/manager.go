@@ -906,7 +906,7 @@ func (m *Manager) calculateVolume(baseVolume int, multiplier float64) int {
 // verification attempts needed (1 = first try succeeded).
 // Sequence matches Node-RED: break existing groups → build new group → mute → play → fade in
 func (m *Manager) executePlayback(musicType string, option PlaybackOption, participants []ParticipantWithVolume, leadPlayer string) (*SpeakerGroupResult, int, error) {
-	m.logger.Info("Executing playback sequence",
+	m.logger.Info("Executing playback sequence (async speaker grouping)",
 		zap.String("type", musicType),
 		zap.String("lead_player", leadPlayer),
 		zap.Int("participant_count", len(participants)))
@@ -923,52 +923,25 @@ func (m *Manager) executePlayback(musicType string, option PlaybackOption, parti
 
 	leadEntityID := m.getSpeakerEntityID(leadPlayer)
 
-	// Step 1: Break speakers from existing groups before building new group
+	// Step 1: Break speakers from existing groups before starting new playback
 	// This matches Node-RED behavior where stopMsg routes through "Break group for player"
 	m.breakSpeakerGroups(participants)
 
-	// Step 2: Build speaker group if multiple participants
-	var groupResult *SpeakerGroupResult
-	if len(participants) > 1 {
-		var err error
-		groupResult, err = m.buildSpeakerGroup(participants, leadEntityID)
-		if err != nil {
-			return groupResult, 0, fmt.Errorf("failed to build speaker group: %w", err)
-		}
-	} else {
-		// Single speaker - create result with just the lead
-		groupResult = &SpeakerGroupResult{
-			Results: []SpeakerResult{{
-				Participant: participants[0],
-				Active:      true,
-			}},
-			ActiveCount: 1,
-			FailedCount: 0,
-			LeadActive:  true,
-		}
+	// Step 2: Mute LEAD speaker only before starting playback
+	// Followers will be muted when they join asynchronously
+	if err := m.callServiceWithRetry("media_player", "volume_set", map[string]interface{}{
+		"entity_id":    leadEntityID,
+		"volume_level": 0,
+	}); err != nil {
+		m.logger.Error("Failed to mute lead speaker",
+			zap.String("speaker", leadPlayer),
+			zap.Error(err))
 	}
 
-	// Step 3: Mute all ACTIVE speakers initially
-	for _, sr := range groupResult.Results {
-		if !sr.Active {
-			continue // Skip failed speakers
-		}
-		entityID := m.getSpeakerEntityID(sr.Participant.PlayerName)
-		if err := m.callServiceWithRetry("media_player", "volume_set", map[string]interface{}{
-			"entity_id":    entityID,
-			"volume_level": 0,
-		}); err != nil {
-			m.logger.Error("Failed to mute speaker",
-				zap.String("speaker", sr.Participant.PlayerName),
-				zap.Error(err))
-		}
-	}
-
-	// Step 4: Start playback on lead player with verification
-	// This verifies playback actually starts, not just that the command was accepted.
+	// Step 3: Start playback on lead player IMMEDIATELY (before building group)
+	// This is the key change - playback starts without waiting for followers
 	// IMPORTANT: Even if verification fails, we continue with fade-in. Sonos speakers
-	// at volume 0 may not report "playing" state, but the play_media command was sent
-	// and the group is built - proceeding with fade-in often results in working playback.
+	// at volume 0 may not report "playing" state, but the play_media command was sent.
 	attempts, verifyErr := m.startPlaybackWithVerification(leadEntityID, option)
 	playbackVerificationFailed := verifyErr != nil
 	if playbackVerificationFailed {
@@ -982,7 +955,7 @@ func (m *Manager) executePlayback(musicType string, option PlaybackOption, parti
 			zap.String("speaker", leadPlayer))
 	}
 
-	// Step 5: Enable shuffle for Spotify playlists
+	// Step 4: Enable shuffle for Spotify playlists
 	if option.MediaType == "playlist" {
 		if err := m.callServiceWithRetry("media_player", "shuffle_set", map[string]interface{}{
 			"entity_id": leadEntityID,
@@ -994,7 +967,7 @@ func (m *Manager) executePlayback(musicType string, option PlaybackOption, parti
 		}
 	}
 
-	// Step 6: Enable repeat for all playback types
+	// Step 5: Enable repeat for all playback types
 	// Repeat ensures continuous playback, especially important for single-file
 	// media like rain sounds that would otherwise stop after playing once
 	if err := m.callServiceWithRetry("media_player", "repeat_set", map[string]interface{}{
@@ -1006,65 +979,77 @@ func (m *Manager) executePlayback(musicType string, option PlaybackOption, parti
 			zap.Error(err))
 	}
 
-	// Step 7: Evaluate mute conditions and set volumes for all ACTIVE speakers
-	// Speakers that should unmute get a fade-in
-	// Speakers left muted still get their target volume set (mute and volume are independent)
-	for _, sr := range groupResult.Results {
-		if !sr.Active {
-			continue // Skip failed speakers
+	// Step 6: Start fade-in on LEAD speaker immediately
+	// The lead is already playing - start bringing up its volume right away
+	leadParticipant := participants[0]
+	if m.shouldUnmuteSpeaker(leadParticipant) {
+		m.logger.Info("Starting lead speaker fade-in",
+			zap.String("speaker", leadPlayer),
+			zap.Int("target_volume", leadParticipant.Volume))
+
+		leadCtx := m.startFadeInWithContext(leadEntityID)
+		go m.fadeInSpeaker(leadCtx, leadPlayer, leadParticipant.Volume, musicType)
+	} else {
+		// Lead speaker should stay muted, but set its target volume
+		m.logger.Info("Keeping lead speaker muted, setting target volume",
+			zap.String("speaker", leadPlayer),
+			zap.Int("target_volume", leadParticipant.Volume))
+
+		if err := m.callServiceWithRetry("media_player", "volume_set", map[string]interface{}{
+			"entity_id":    leadEntityID,
+			"volume_level": float64(leadParticipant.Volume) / 100.0,
+		}); err != nil {
+			m.logger.Error("Failed to set volume for muted lead speaker",
+				zap.String("speaker", leadPlayer),
+				zap.Error(err))
 		}
-		entityID := m.getSpeakerEntityID(sr.Participant.PlayerName)
 
-		if m.shouldUnmuteSpeaker(sr.Participant) {
-			m.logger.Info("Unmuting speaker",
-				zap.String("speaker", sr.Participant.PlayerName),
-				zap.Int("target_volume", sr.Participant.Volume))
-
-			// Start fade-in in goroutine with cancellation context
-			// The context allows cancellation when a new playback sequence starts
-			ctx := m.startFadeInWithContext(entityID)
-			go m.fadeInSpeaker(ctx, sr.Participant.PlayerName, sr.Participant.Volume, musicType)
-		} else {
-			// Speaker should stay muted, but still set its target volume
-			// Volume and mute state are independent - when the room becomes occupied
-			// later, unmuting will immediately play at the correct volume
-			m.logger.Info("Keeping speaker muted, setting target volume",
-				zap.String("speaker", sr.Participant.PlayerName),
-				zap.Int("target_volume", sr.Participant.Volume))
-
-			// Set the target volume (speaker will still be muted)
-			if err := m.callServiceWithRetry("media_player", "volume_set", map[string]interface{}{
-				"entity_id":    entityID,
-				"volume_level": float64(sr.Participant.Volume) / 100.0,
-			}); err != nil {
-				m.logger.Error("Failed to set volume for muted speaker",
-					zap.String("speaker", sr.Participant.PlayerName),
-					zap.Error(err))
-			}
-
-			// Explicitly mute the speaker (in case it wasn't already muted)
-			if err := m.callServiceWithRetry("media_player", "volume_mute", map[string]interface{}{
-				"entity_id":       entityID,
-				"is_volume_muted": true,
-			}); err != nil {
-				m.logger.Error("Failed to mute speaker",
-					zap.String("speaker", sr.Participant.PlayerName),
-					zap.Error(err))
-			}
+		if err := m.callServiceWithRetry("media_player", "volume_mute", map[string]interface{}{
+			"entity_id":       leadEntityID,
+			"is_volume_muted": true,
+		}); err != nil {
+			m.logger.Error("Failed to mute lead speaker",
+				zap.String("speaker", leadPlayer),
+				zap.Error(err))
 		}
 	}
 
+	// Step 7: Build speaker group ASYNCHRONOUSLY for followers
+	// Each speaker joins and starts its own fade-in without blocking the main flow
+	if len(participants) > 1 {
+		m.logger.Info("Launching async speaker group building",
+			zap.Int("followers", len(participants)-1))
+		go m.buildSpeakerGroupAsync(participants, leadEntityID, musicType)
+	}
+
+	// Create result - for async mode, we only report the lead as definitely active
+	// Followers are handled asynchronously and may or may not join
+	groupResult := &SpeakerGroupResult{
+		Results: []SpeakerResult{{
+			Participant: leadParticipant,
+			Active:      true,
+		}},
+		ActiveCount: 1,
+		FailedCount: 0, // Followers handled async - failures logged but not counted here
+		LeadActive:  true,
+	}
+
+	// Add pending results for followers (they'll be processed async)
+	for i := 1; i < len(participants); i++ {
+		groupResult.Results = append(groupResult.Results, SpeakerResult{
+			Participant:   participants[i],
+			Active:        false, // Will be updated async, but we report false initially
+			FailureReason: "pending async join",
+		})
+	}
+
 	if playbackVerificationFailed {
-		m.logger.Info("Playback sequence completed with verification failure (fade-in attempted anyway)",
+		m.logger.Info("Playback started with verification failure (lead fade-in attempted, followers joining async)",
 			zap.String("type", musicType),
-			zap.Int("active_speakers", groupResult.ActiveCount),
-			zap.Int("failed_speakers", groupResult.FailedCount),
 			zap.Int("verification_attempts", attempts))
 	} else {
-		m.logger.Info("Playback sequence completed successfully",
+		m.logger.Info("Playback started on lead (followers joining async)",
 			zap.String("type", musicType),
-			zap.Int("active_speakers", groupResult.ActiveCount),
-			zap.Int("failed_speakers", groupResult.FailedCount),
 			zap.Int("verification_attempts", attempts))
 	}
 
@@ -1116,6 +1101,15 @@ const (
 	// fadeOutStepDelay is the delay between each fade-out volume step.
 	// 100ms per step * 5 steps = 500ms total fade-out time.
 	fadeOutStepDelay = 100 * time.Millisecond
+
+	// maxAsyncSpeakerRetries is the number of retry attempts for async speaker joins.
+	// Lower than blocking retries since we don't want to delay the async process.
+	// Failed speakers simply won't join the group.
+	maxAsyncSpeakerRetries = 2
+
+	// asyncRetryDelay is a fixed delay between async speaker join retries.
+	// Uses a fixed delay (no exponential backoff) since async joins are non-blocking.
+	asyncRetryDelay = 2 * time.Second
 )
 
 // startPlaybackWithVerification sends the play_media command and verifies playback actually starts.
@@ -1371,6 +1365,14 @@ func (m *Manager) buildSpeakerGroup(participants []ParticipantWithVolume, leadEn
 		}
 
 		lastErr = err
+
+		// Check for permanent errors - no point retrying batch, try individual speakers
+		if isPermanentSpeakerError(err) {
+			m.logger.Warn("Batch group creation has permanent error, trying individual joins",
+				zap.Error(err))
+			break
+		}
+
 		if attempt < maxSpeakerGroupRetries {
 			retryDelay := speakerGroupRetryBaseDelay * time.Duration(1<<(attempt-1))
 			if retryDelay > speakerGroupRetryMaxDelay {
@@ -1418,6 +1420,17 @@ func (m *Manager) buildSpeakerGroup(participants []ParticipantWithVolume, leadEn
 				m.logger.Info("Speaker joined group individually",
 					zap.String("speaker", p.PlayerName),
 					zap.Int("attempt", attempt))
+				break
+			}
+
+			// Check for permanent errors that won't resolve with retries
+			if isPermanentSpeakerError(err) {
+				result.Results[i].Active = false
+				result.Results[i].FailureReason = err.Error()
+				result.FailedCount++
+				m.logger.Warn("Speaker has permanent error, skipping retries",
+					zap.String("speaker", p.PlayerName),
+					zap.Error(err))
 				break
 			}
 
@@ -1474,6 +1487,119 @@ func (m *Manager) buildSpeakerGroup(participants []ParticipantWithVolume, leadEn
 	m.sleepFunc(speakerGroupSettleDelay)
 
 	return result, nil
+}
+
+// isPermanentSpeakerError returns true if the error indicates a permanent failure
+// that won't be resolved by retrying (e.g., speaker not found, not a Sonos speaker).
+func isPermanentSpeakerError(err error) bool {
+	if err == nil {
+		return false
+	}
+	errStr := err.Error()
+	// These errors indicate the speaker is not available and retrying won't help
+	permanentErrors := []string{
+		"not a known Sonos speaker",
+		"entity not found",
+		"unknown entity",
+		"does not exist",
+	}
+	for _, pe := range permanentErrors {
+		if strings.Contains(strings.ToLower(errStr), strings.ToLower(pe)) {
+			return true
+		}
+	}
+	return false
+}
+
+// buildSpeakerGroupAsync adds follower speakers to the lead speaker's group asynchronously.
+// Each speaker that successfully joins immediately starts its fade-in.
+// This runs in a goroutine and does not block playback on the lead speaker.
+// The musicType parameter is used for fade-in duration selection.
+func (m *Manager) buildSpeakerGroupAsync(participants []ParticipantWithVolume, leadEntityID string, musicType string) {
+	m.logger.Info("Starting async speaker group building",
+		zap.String("lead", leadEntityID),
+		zap.Int("followers", len(participants)-1))
+
+	// Skip the first participant (lead) - it's already playing
+	for i := 1; i < len(participants); i++ {
+		p := participants[i]
+		entityID := m.getSpeakerEntityID(p.PlayerName)
+
+		// Try to join with reduced retries for async mode
+		var joinErr error
+		for attempt := 1; attempt <= maxAsyncSpeakerRetries; attempt++ {
+			joinErr = m.callServiceWithRetry("media_player", "join", map[string]interface{}{
+				"entity_id":     leadEntityID,
+				"group_members": []string{entityID},
+			})
+
+			if joinErr == nil {
+				m.logger.Info("Speaker joined group (async)",
+					zap.String("speaker", p.PlayerName),
+					zap.Int("attempt", attempt))
+				break
+			}
+
+			// Check for permanent errors that won't resolve with retries
+			if isPermanentSpeakerError(joinErr) {
+				m.logger.Warn("Speaker has permanent error, skipping retries",
+					zap.String("speaker", p.PlayerName),
+					zap.Error(joinErr))
+				break
+			}
+
+			if attempt < maxAsyncSpeakerRetries {
+				m.logger.Warn("Failed to add speaker to group (async), retrying",
+					zap.String("speaker", p.PlayerName),
+					zap.Int("attempt", attempt),
+					zap.Int("max_attempts", maxAsyncSpeakerRetries),
+					zap.Error(joinErr))
+				m.sleepFunc(asyncRetryDelay)
+			}
+		}
+
+		if joinErr != nil {
+			m.logger.Warn("Speaker unavailable (async), skipping",
+				zap.String("speaker", p.PlayerName),
+				zap.Error(joinErr))
+			continue
+		}
+
+		// Speaker joined successfully - check if it should be unmuted and start fade-in
+		if m.shouldUnmuteSpeaker(p) {
+			m.logger.Info("Speaker joined (async), starting fade-in",
+				zap.String("speaker", p.PlayerName),
+				zap.Int("target_volume", p.Volume))
+
+			ctx := m.startFadeInWithContext(entityID)
+			go m.fadeInSpeaker(ctx, p.PlayerName, p.Volume, musicType)
+		} else {
+			// Speaker should stay muted, but set its target volume
+			m.logger.Info("Speaker joined (async), keeping muted",
+				zap.String("speaker", p.PlayerName),
+				zap.Int("target_volume", p.Volume))
+
+			if err := m.callServiceWithRetry("media_player", "volume_set", map[string]interface{}{
+				"entity_id":    entityID,
+				"volume_level": float64(p.Volume) / 100.0,
+			}); err != nil {
+				m.logger.Error("Failed to set volume for muted speaker (async)",
+					zap.String("speaker", p.PlayerName),
+					zap.Error(err))
+			}
+
+			if err := m.callServiceWithRetry("media_player", "volume_mute", map[string]interface{}{
+				"entity_id":       entityID,
+				"is_volume_muted": true,
+			}); err != nil {
+				m.logger.Error("Failed to mute speaker (async)",
+					zap.String("speaker", p.PlayerName),
+					zap.Error(err))
+			}
+		}
+	}
+
+	m.logger.Info("Async speaker group building complete")
 }
 
 // shouldIncludeInZone determines if a speaker should be included in the zone at all.
