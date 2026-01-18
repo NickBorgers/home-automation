@@ -973,22 +973,28 @@ func (m *Manager) sendTemperatureLockupNotification(sensor *TemperatureSensor) {
 
 	// Update last notification time
 	sensor.LastNotification = now
+
+	// Capture values while holding the lock to avoid race conditions
+	lastValueChange := sensor.LastValueChange
+	sensorValue := sensor.Value
+	friendlyName := sensor.FriendlyName
+	entityID := sensor.EntityID
 	m.mu.Unlock()
 
 	// Calculate how long the sensor has been locked up
-	timeSinceChange := now.Sub(sensor.LastValueChange)
+	timeSinceChange := now.Sub(lastValueChange)
 	hoursLocked := int(timeSinceChange.Hours())
 
 	message := fmt.Sprintf("Temperature sensor '%s' appears to be locked up. "+
 		"It has reported the same value (%.1f) for %d+ hours. "+
 		"The sensor may need to be reset or replaced.",
-		sensor.FriendlyName, sensor.Value, hoursLocked)
+		friendlyName, sensorValue, hoursLocked)
 
 	notification := &ha.Notification{
 		Title:   "Temperature Sensor Locked Up",
 		Message: message,
 		Data: &ha.NotificationData{
-			Tag:        fmt.Sprintf("environmental-temp-lockup-%s", sensor.EntityID),
+			Tag:        fmt.Sprintf("environmental-temp-lockup-%s", entityID),
 			Group:      "environmental",
 			Importance: "high",
 			Sticky:     true,
@@ -996,17 +1002,17 @@ func (m *Manager) sendTemperatureLockupNotification(sensor *TemperatureSensor) {
 	}
 
 	m.logger.Info("Sending temperature lockup notification",
-		zap.String("entity_id", sensor.EntityID),
-		zap.String("friendly_name", sensor.FriendlyName),
-		zap.Float64("stuck_value", sensor.Value),
+		zap.String("entity_id", entityID),
+		zap.String("friendly_name", friendlyName),
+		zap.Float64("stuck_value", sensorValue),
 		zap.Int("hours_locked", hoursLocked))
 
 	// Record in shadow state
-	m.shadowTracker.RecordTemperatureLockupNotification(sensor.EntityID, sensor.FriendlyName, message)
+	m.shadowTracker.RecordTemperatureLockupNotification(entityID, friendlyName, message)
 
 	if m.readOnly {
 		m.logger.Info("Skipping lockup notification send in read-only mode",
-			zap.String("entity_id", sensor.EntityID),
+			zap.String("entity_id", entityID),
 			zap.String("message", message))
 		return
 	}
@@ -1014,7 +1020,7 @@ func (m *Manager) sendTemperatureLockupNotification(sensor *TemperatureSensor) {
 	// Send notification
 	if err := m.haClient.SendNotification(NotificationTarget, notification); err != nil {
 		m.logger.Error("Failed to send temperature lockup notification",
-			zap.String("entity_id", sensor.EntityID),
+			zap.String("entity_id", entityID),
 			zap.Error(err))
 	}
 }
