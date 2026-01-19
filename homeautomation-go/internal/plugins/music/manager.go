@@ -6,7 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"math/rand"
+	"math/rand/v2"
 	"strings"
 	"sync"
 	"time"
@@ -1737,7 +1737,7 @@ func isPermanentSpeakerError(err error) bool {
 // randomJitter returns a random duration between 0 and asyncJoinJitterMax.
 // Used to prevent speakers from aligning their join attempts.
 func (m *Manager) randomJitter() time.Duration {
-	return time.Duration(rand.Int63n(int64(asyncJoinJitterMax)))
+	return time.Duration(rand.Int64N(int64(asyncJoinJitterMax)))
 }
 
 // buildSpeakerGroupAsync adds follower speakers to the lead speaker's group asynchronously.
