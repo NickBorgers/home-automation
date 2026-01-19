@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -3716,5 +3717,575 @@ func TestExcludeIf_ParticipantWithVolumePreservesExcludeIf(t *testing.T) {
 	}
 	if participant.ExcludeIf[0].Variable != "isMasterAsleep" {
 		t.Errorf("Expected ExcludeIf variable isMasterAsleep, got %s", participant.ExcludeIf[0].Variable)
+	}
+}
+
+// TestRandomJitter tests that randomJitter returns values within expected bounds
+func TestRandomJitter(t *testing.T) {
+	t.Parallel()
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	config := &MusicConfig{Music: map[string]MusicMode{}}
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil, nil)
+
+	// Run multiple iterations to test the distribution
+	const iterations = 1000
+	for i := 0; i < iterations; i++ {
+		jitter := manager.randomJitter()
+
+		// Jitter should be >= 0 and < asyncJoinJitterMax (15s)
+		if jitter < 0 {
+			t.Errorf("randomJitter() returned negative value: %v", jitter)
+		}
+		if jitter >= asyncJoinJitterMax {
+			t.Errorf("randomJitter() returned value >= max: %v >= %v", jitter, asyncJoinJitterMax)
+		}
+	}
+}
+
+// TestBuildSpeakerGroupAsync_StaggeredDelays verifies that speakers launch with staggered delays
+func TestBuildSpeakerGroupAsync_StaggeredDelays(t *testing.T) {
+	t.Parallel()
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	config := &MusicConfig{Music: map[string]MusicMode{}}
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil, nil)
+
+	// Track sleep durations to verify staggered delays
+	var sleepMu sync.Mutex
+	var sleepDurations []time.Duration
+
+	manager.SetSleepFunc(func(d time.Duration) {
+		sleepMu.Lock()
+		sleepDurations = append(sleepDurations, d)
+		sleepMu.Unlock()
+	})
+
+	participants := []ParticipantWithVolume{
+		{PlayerName: "Kitchen", Volume: 9},      // Lead - no delay
+		{PlayerName: "Living Room", Volume: 10}, // Follower 1 - 0 * stagger + jitter
+		{PlayerName: "Bedroom", Volume: 8},      // Follower 2 - 1 * stagger + jitter
+		{PlayerName: "Office", Volume: 7},       // Follower 3 - 2 * stagger + jitter
+	}
+
+	manager.buildSpeakerGroupAsync(participants, "media_player.kitchen", "day")
+
+	sleepMu.Lock()
+	defer sleepMu.Unlock()
+
+	// We should have at least 3 stagger delays (one for each follower's initial delay)
+	// Plus potentially more for retries. The first follower's delay is just jitter (0-15s),
+	// second follower is 15s + jitter, third is 30s + jitter.
+	if len(sleepDurations) < 3 {
+		t.Errorf("Expected at least 3 sleep calls for stagger delays, got %d", len(sleepDurations))
+	}
+
+	// Verify join calls were made
+	calls := mockClient.GetServiceCalls()
+	joinCalls := 0
+	for _, call := range calls {
+		if call.Domain == "media_player" && call.Service == "join" {
+			joinCalls++
+		}
+	}
+
+	// Should have 3 join calls (one per follower)
+	if joinCalls != 3 {
+		t.Errorf("Expected 3 join calls for 3 followers, got %d", joinCalls)
+	}
+}
+
+// TestBuildSpeakerGroupAsync_ParallelExecution verifies goroutines run in parallel, not blocked
+func TestBuildSpeakerGroupAsync_ParallelExecution(t *testing.T) {
+	t.Parallel()
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	config := &MusicConfig{Music: map[string]MusicMode{}}
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil, nil)
+
+	// Track which speakers had their join called
+	var joinMu sync.Mutex
+	var joinedSpeakers []string
+
+	// Capture the join calls to track order
+	originalCallService := mockClient.GetServiceCalls
+	mockClient.ClearServiceCalls()
+
+	// Use no-op sleep so the test runs fast
+	manager.SetSleepFunc(func(d time.Duration) {})
+
+	participants := []ParticipantWithVolume{
+		{PlayerName: "Kitchen", Volume: 9},      // Lead
+		{PlayerName: "Living Room", Volume: 10}, // Follower 1
+		{PlayerName: "Bedroom", Volume: 8},      // Follower 2
+	}
+
+	manager.buildSpeakerGroupAsync(participants, "media_player.kitchen", "day")
+
+	// Get all service calls
+	calls := originalCallService()
+
+	// Extract joined speakers from calls
+	for _, call := range calls {
+		if call.Domain == "media_player" && call.Service == "join" {
+			if members, ok := call.Data["group_members"].([]string); ok {
+				joinMu.Lock()
+				joinedSpeakers = append(joinedSpeakers, members...)
+				joinMu.Unlock()
+			}
+		}
+	}
+
+	// Both followers should have been joined
+	if len(joinedSpeakers) != 2 {
+		t.Errorf("Expected 2 speakers to join, got %d", len(joinedSpeakers))
+	}
+
+	expectedSpeakers := map[string]bool{
+		"media_player.living_room": true,
+		"media_player.bedroom":     true,
+	}
+	for _, speaker := range joinedSpeakers {
+		if !expectedSpeakers[speaker] {
+			t.Errorf("Unexpected speaker joined: %s", speaker)
+		}
+	}
+}
+
+// TestBuildSpeakerGroupAsync_SingleFollower tests with just one follower
+func TestBuildSpeakerGroupAsync_SingleFollower(t *testing.T) {
+	t.Parallel()
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	config := &MusicConfig{Music: map[string]MusicMode{}}
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil, nil)
+
+	manager.SetSleepFunc(func(d time.Duration) {})
+
+	participants := []ParticipantWithVolume{
+		{PlayerName: "Kitchen", Volume: 9},      // Lead
+		{PlayerName: "Living Room", Volume: 10}, // Only follower
+	}
+
+	mockClient.ClearServiceCalls()
+	manager.buildSpeakerGroupAsync(participants, "media_player.kitchen", "day")
+
+	calls := mockClient.GetServiceCalls()
+	joinCalls := 0
+	for _, call := range calls {
+		if call.Domain == "media_player" && call.Service == "join" {
+			joinCalls++
+		}
+	}
+
+	if joinCalls != 1 {
+		t.Errorf("Expected 1 join call for single follower, got %d", joinCalls)
+	}
+}
+
+// TestJoinSpeakerWithRetry_Success tests successful speaker join on first attempt
+func TestJoinSpeakerWithRetry_Success(t *testing.T) {
+	t.Parallel()
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	config := &MusicConfig{Music: map[string]MusicMode{}}
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil, nil)
+
+	manager.SetSleepFunc(func(d time.Duration) {})
+
+	participant := ParticipantWithVolume{
+		PlayerName:   "Living Room",
+		Volume:       10,
+		LeaveMutedIf: []MuteCondition{},
+	}
+
+	mockClient.ClearServiceCalls()
+	manager.joinSpeakerWithRetry(participant, "media_player.kitchen", "day")
+
+	calls := mockClient.GetServiceCalls()
+
+	// Should have exactly 1 join call (success on first attempt)
+	joinCalls := 0
+	for _, call := range calls {
+		if call.Domain == "media_player" && call.Service == "join" {
+			joinCalls++
+			// Verify correct parameters
+			if call.Data["entity_id"] != "media_player.kitchen" {
+				t.Errorf("Expected entity_id 'media_player.kitchen', got %v", call.Data["entity_id"])
+			}
+			if members, ok := call.Data["group_members"].([]string); ok {
+				if len(members) != 1 || members[0] != "media_player.living_room" {
+					t.Errorf("Expected group_members ['media_player.living_room'], got %v", members)
+				}
+			}
+		}
+	}
+
+	if joinCalls != 1 {
+		t.Errorf("Expected 1 join call on success, got %d", joinCalls)
+	}
+}
+
+// TestJoinSpeakerWithRetry_RetryOnTransientError tests retry behavior on transient errors
+func TestJoinSpeakerWithRetry_RetryOnTransientError(t *testing.T) {
+	t.Parallel()
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	config := &MusicConfig{Music: map[string]MusicMode{}}
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil, nil)
+
+	// Track retry delays
+	var sleepMu sync.Mutex
+	var sleepDurations []time.Duration
+
+	manager.SetSleepFunc(func(d time.Duration) {
+		sleepMu.Lock()
+		sleepDurations = append(sleepDurations, d)
+		sleepMu.Unlock()
+	})
+
+	// Fail first 2 calls (callServiceWithRetry makes 2 calls per attempt: initial + internal retry)
+	// So 2 failures means the first joinSpeakerWithRetry attempt fails completely,
+	// then the second attempt (calls 3+) succeeds
+	mockClient.SetServiceFailCount("media_player", "join", 2, fmt.Errorf("service call failed: timeout"))
+
+	participant := ParticipantWithVolume{
+		PlayerName:   "Living Room",
+		Volume:       10,
+		LeaveMutedIf: []MuteCondition{},
+	}
+
+	mockClient.ClearServiceCalls()
+	manager.joinSpeakerWithRetry(participant, "media_player.kitchen", "day")
+
+	calls := mockClient.GetServiceCalls()
+
+	// Mock only records SUCCESSFUL calls. With 2 failures configured:
+	// - Attempt 1: calls fail (not recorded)
+	// - Attempt 2: succeeds (recorded)
+	// So we expect 1 recorded join call
+	joinCalls := 0
+	for _, call := range calls {
+		if call.Domain == "media_player" && call.Service == "join" {
+			joinCalls++
+		}
+	}
+
+	if joinCalls != 1 {
+		t.Errorf("Expected 1 successful join call recorded, got %d", joinCalls)
+	}
+
+	// Should have 1 retry delay (after first attempt failed)
+	sleepMu.Lock()
+	defer sleepMu.Unlock()
+
+	if len(sleepDurations) < 1 {
+		t.Errorf("Expected at least 1 retry delay, got %d", len(sleepDurations))
+	}
+
+	// Verify exponential backoff: first delay should be ~30s + jitter
+	if len(sleepDurations) >= 1 {
+		// First retry delay: 30s base + 0-15s jitter
+		if sleepDurations[0] < 30*time.Second || sleepDurations[0] >= 45*time.Second {
+			t.Errorf("First retry delay should be 30-45s, got %v", sleepDurations[0])
+		}
+	}
+}
+
+// TestJoinSpeakerWithRetry_ExponentialBackoff verifies exponential backoff caps at max delay
+func TestJoinSpeakerWithRetry_ExponentialBackoff(t *testing.T) {
+	t.Parallel()
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	config := &MusicConfig{Music: map[string]MusicMode{}}
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil, nil)
+
+	// Track retry delays
+	var sleepMu sync.Mutex
+	var sleepDurations []time.Duration
+
+	manager.SetSleepFunc(func(d time.Duration) {
+		sleepMu.Lock()
+		sleepDurations = append(sleepDurations, d)
+		sleepMu.Unlock()
+	})
+
+	// Fail first 5 attempts to test backoff progression and capping
+	mockClient.SetServiceFailCount("media_player", "join", 5, fmt.Errorf("service call failed: timeout"))
+
+	participant := ParticipantWithVolume{
+		PlayerName:   "Living Room",
+		Volume:       10,
+		LeaveMutedIf: []MuteCondition{},
+	}
+
+	mockClient.ClearServiceCalls()
+	manager.joinSpeakerWithRetry(participant, "media_player.kitchen", "day")
+
+	sleepMu.Lock()
+	defer sleepMu.Unlock()
+
+	// Should have 5 retry delays (after attempts 1-5, no delay after last attempt 6)
+	if len(sleepDurations) != 5 {
+		t.Errorf("Expected 5 retry delays, got %d", len(sleepDurations))
+	}
+
+	// Verify backoff progression (base + jitter):
+	// Attempt 1 fail: delay = 30s * 2^0 = 30s + jitter
+	// Attempt 2 fail: delay = 30s * 2^1 = 60s + jitter (capped at 60s)
+	// Attempt 3 fail: delay = 30s * 2^2 = 120s -> capped to 60s + jitter
+	// Attempt 4 fail: delay = 30s * 2^3 = 240s -> capped to 60s + jitter
+	// Attempt 5 fail: delay = 30s * 2^4 = 480s -> capped to 60s + jitter
+
+	if len(sleepDurations) >= 3 {
+		// After first failure: 30s + jitter
+		if sleepDurations[0] < 30*time.Second || sleepDurations[0] >= 45*time.Second {
+			t.Errorf("First retry delay should be 30-45s, got %v", sleepDurations[0])
+		}
+
+		// After second failure onward: capped at 60s + jitter (75s max)
+		for i := 1; i < len(sleepDurations); i++ {
+			if sleepDurations[i] < 60*time.Second || sleepDurations[i] >= 75*time.Second {
+				t.Errorf("Retry delay %d should be 60-75s (capped), got %v", i+1, sleepDurations[i])
+			}
+		}
+	}
+}
+
+// TestJoinSpeakerWithRetry_PermanentError tests that permanent errors skip retries
+func TestJoinSpeakerWithRetry_PermanentError(t *testing.T) {
+	t.Parallel()
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	config := &MusicConfig{Music: map[string]MusicMode{}}
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil, nil)
+
+	var sleepCallCount int
+	manager.SetSleepFunc(func(d time.Duration) {
+		sleepCallCount++
+	})
+
+	// Configure permanent error (entity not found)
+	// This error contains "entity not found" which is in the permanentErrors list
+	mockClient.SetServiceFailCount("media_player", "join", 100, fmt.Errorf("service call failed: entity not found"))
+
+	participant := ParticipantWithVolume{
+		PlayerName:   "Nonexistent Speaker",
+		Volume:       10,
+		LeaveMutedIf: []MuteCondition{},
+	}
+
+	mockClient.ClearServiceCalls()
+	manager.joinSpeakerWithRetry(participant, "media_player.kitchen", "day")
+
+	// With permanent error detection, joinSpeakerWithRetry should exit after first attempt
+	// without retrying. Since all calls fail (permanent error), no calls are recorded.
+	// The key assertion is that sleepCallCount should be 0 (no retry delays)
+
+	// No retry delays should have occurred because permanent error exits early
+	if sleepCallCount != 0 {
+		t.Errorf("Expected no retry delays for permanent error, got %d", sleepCallCount)
+	}
+}
+
+// TestJoinSpeakerWithRetry_MaxRetriesExhausted tests behavior when all retries are exhausted
+func TestJoinSpeakerWithRetry_MaxRetriesExhausted(t *testing.T) {
+	t.Parallel()
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	config := &MusicConfig{Music: map[string]MusicMode{}}
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil, nil)
+
+	// Track retry delays to verify we retry maxAsyncSpeakerRetries-1 times
+	// (the last attempt doesn't sleep after failure)
+	var sleepMu sync.Mutex
+	var sleepCount int
+
+	manager.SetSleepFunc(func(d time.Duration) {
+		sleepMu.Lock()
+		sleepCount++
+		sleepMu.Unlock()
+	})
+
+	// Fail all attempts (more than maxAsyncSpeakerRetries * 2 for callServiceWithRetry internal retries)
+	// Using transient error (timeout) that won't trigger permanent error detection
+	mockClient.SetServiceFailCount("media_player", "join", 100, fmt.Errorf("service call failed: timeout waiting for response"))
+
+	participant := ParticipantWithVolume{
+		PlayerName:   "Living Room",
+		Volume:       10,
+		LeaveMutedIf: []MuteCondition{},
+	}
+
+	mockClient.ClearServiceCalls()
+	manager.joinSpeakerWithRetry(participant, "media_player.kitchen", "day")
+
+	sleepMu.Lock()
+	actualSleepCount := sleepCount
+	sleepMu.Unlock()
+
+	// Since mock only records successful calls and all calls fail,
+	// we verify retry count via sleepCount.
+	// joinSpeakerWithRetry calls sleep after each failed attempt except the last.
+	// With maxAsyncSpeakerRetries=6, we expect 5 retry delays (sleep after attempts 1-5, not after 6)
+	expectedSleepCount := maxAsyncSpeakerRetries - 1
+	if actualSleepCount != expectedSleepCount {
+		t.Errorf("Expected %d retry delays (max retries - 1), got %d", expectedSleepCount, actualSleepCount)
+	}
+}
+
+// TestBuildSpeakerGroupAsync_WaitGroupCompletion verifies WaitGroup waits for all goroutines
+func TestBuildSpeakerGroupAsync_WaitGroupCompletion(t *testing.T) {
+	t.Parallel()
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	config := &MusicConfig{Music: map[string]MusicMode{}}
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil, nil)
+
+	// Use a channel to track when goroutines complete
+	var completionMu sync.Mutex
+	completedCount := 0
+
+	// Track sleep calls to verify ordering
+	manager.SetSleepFunc(func(d time.Duration) {
+		// Simulate a brief delay so we can verify WaitGroup waits
+		time.Sleep(10 * time.Millisecond)
+	})
+
+	// Wrap service calls to track completion
+	originalCalls := 0
+	mockClient.ClearServiceCalls()
+
+	participants := []ParticipantWithVolume{
+		{PlayerName: "Kitchen", Volume: 9},      // Lead
+		{PlayerName: "Living Room", Volume: 10}, // Follower 1
+		{PlayerName: "Bedroom", Volume: 8},      // Follower 2
+		{PlayerName: "Office", Volume: 7},       // Follower 3
+	}
+
+	// buildSpeakerGroupAsync should block until all goroutines complete
+	manager.buildSpeakerGroupAsync(participants, "media_player.kitchen", "day")
+
+	// After buildSpeakerGroupAsync returns, all joins should be complete
+	calls := mockClient.GetServiceCalls()
+	for _, call := range calls {
+		if call.Domain == "media_player" && call.Service == "join" {
+			completionMu.Lock()
+			completedCount++
+			completionMu.Unlock()
+		}
+	}
+
+	originalCalls = completedCount
+
+	// All 3 followers should have completed their join attempts
+	if originalCalls != 3 {
+		t.Errorf("Expected 3 completed join calls after WaitGroup.Wait(), got %d", originalCalls)
+	}
+}
+
+// TestBuildSpeakerGroupAsync_NoFollowers tests with only lead speaker (no followers)
+func TestBuildSpeakerGroupAsync_NoFollowers(t *testing.T) {
+	t.Parallel()
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	config := &MusicConfig{Music: map[string]MusicMode{}}
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil, nil)
+
+	manager.SetSleepFunc(func(d time.Duration) {})
+
+	// Only lead speaker, no followers
+	participants := []ParticipantWithVolume{
+		{PlayerName: "Kitchen", Volume: 9}, // Lead only
+	}
+
+	mockClient.ClearServiceCalls()
+
+	// Should complete immediately without any join calls
+	manager.buildSpeakerGroupAsync(participants, "media_player.kitchen", "day")
+
+	calls := mockClient.GetServiceCalls()
+
+	// Should have 0 join calls (no followers to join)
+	joinCalls := 0
+	for _, call := range calls {
+		if call.Domain == "media_player" && call.Service == "join" {
+			joinCalls++
+		}
+	}
+
+	if joinCalls != 0 {
+		t.Errorf("Expected 0 join calls with no followers, got %d", joinCalls)
+	}
+}
+
+// TestBuildSpeakerGroupAsync_IndependentFailures verifies one speaker failure doesn't block others
+func TestBuildSpeakerGroupAsync_IndependentFailures(t *testing.T) {
+	t.Parallel()
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	config := &MusicConfig{Music: map[string]MusicMode{}}
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil, nil)
+
+	manager.SetSleepFunc(func(d time.Duration) {})
+
+	// Since goroutines run in parallel and the mock uses a global fail counter,
+	// we can't easily isolate failures to specific speakers.
+	// Instead, we test that both goroutines complete (function returns) even when
+	// some calls fail, proving they don't block each other.
+
+	// Fail first 10 calls, then succeed. With 2 followers running in parallel:
+	// - Each follower makes multiple calls (due to callServiceWithRetry internal retry)
+	// - Eventually calls succeed after the fail count is exhausted
+	mockClient.SetServiceFailCount("media_player", "join", 10, fmt.Errorf("service call failed: timeout"))
+
+	participants := []ParticipantWithVolume{
+		{PlayerName: "Kitchen", Volume: 9},      // Lead
+		{PlayerName: "Living Room", Volume: 10}, // Follower 1
+		{PlayerName: "Bedroom", Volume: 8},      // Follower 2
+	}
+
+	mockClient.ClearServiceCalls()
+
+	// Key test: buildSpeakerGroupAsync should complete (not hang) even with failures
+	// This proves goroutines don't block each other
+	done := make(chan bool)
+	go func() {
+		manager.buildSpeakerGroupAsync(participants, "media_player.kitchen", "day")
+		done <- true
+	}()
+
+	select {
+	case <-done:
+		// Success - function completed
+	case <-time.After(5 * time.Second):
+		t.Fatal("buildSpeakerGroupAsync timed out - goroutines may be blocking each other")
+	}
+
+	// Verify at least one successful call was made (after failures exhausted)
+	calls := mockClient.GetServiceCalls()
+	joinCalls := 0
+	for _, call := range calls {
+		if call.Domain == "media_player" && call.Service == "join" {
+			joinCalls++
+		}
+	}
+
+	// After 10 failures, subsequent calls should succeed. With 2 parallel goroutines
+	// retrying, we expect at least some successful calls (from both followers)
+	if joinCalls < 1 {
+		t.Errorf("Expected at least 1 successful join call after failures exhausted, got %d", joinCalls)
 	}
 }
