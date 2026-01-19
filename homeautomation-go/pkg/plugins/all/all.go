@@ -26,6 +26,7 @@ import (
 	_ "homeautomation/internal/plugins/environmental"
 	_ "homeautomation/internal/plugins/lighting"
 	_ "homeautomation/internal/plugins/loadshedding"
+	_ "homeautomation/internal/plugins/monitoring"
 	_ "homeautomation/internal/plugins/music"
 	_ "homeautomation/internal/plugins/security"
 	_ "homeautomation/internal/plugins/sexmode"

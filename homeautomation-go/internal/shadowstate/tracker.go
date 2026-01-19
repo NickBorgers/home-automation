@@ -1547,3 +1547,151 @@ func (et *EnvironmentalTracker) GetState() *EnvironmentalShadowState {
 
 	return stateCopy
 }
+
+// ============================================================================
+// Monitoring Tracker - Water Leak, Battery, and Staleness Monitoring
+// ============================================================================
+
+// MonitoringTracker manages shadow state for the monitoring plugin
+type MonitoringTracker struct {
+	mu    sync.RWMutex
+	state *MonitoringShadowState
+}
+
+// NewMonitoringTracker creates a new monitoring shadow state tracker
+func NewMonitoringTracker() *MonitoringTracker {
+	return &MonitoringTracker{
+		state: NewMonitoringShadowState(),
+	}
+}
+
+// UpdateCurrentInputs updates the current input values
+func (mt *MonitoringTracker) UpdateCurrentInputs(inputs map[string]interface{}) {
+	mt.mu.Lock()
+	defer mt.mu.Unlock()
+
+	for key, value := range inputs {
+		mt.state.Inputs.Current[key] = value
+	}
+	mt.state.Metadata.LastUpdated = time.Now()
+}
+
+// UpdateWaterLeakSensors updates the list of discovered water leak sensors
+func (mt *MonitoringTracker) UpdateWaterLeakSensors(sensors []WaterLeakSensorData) {
+	mt.mu.Lock()
+	defer mt.mu.Unlock()
+
+	mt.state.Outputs.WaterLeakSensors = make([]WaterLeakSensorData, len(sensors))
+	copy(mt.state.Outputs.WaterLeakSensors, sensors)
+	mt.state.Outputs.LastUpdate = time.Now()
+	mt.state.Metadata.LastUpdated = time.Now()
+}
+
+// UpdateBatterySensors updates the list of discovered battery sensors
+func (mt *MonitoringTracker) UpdateBatterySensors(sensors []BatterySensorData) {
+	mt.mu.Lock()
+	defer mt.mu.Unlock()
+
+	mt.state.Outputs.BatterySensors = make([]BatterySensorData, len(sensors))
+	copy(mt.state.Outputs.BatterySensors, sensors)
+	mt.state.Outputs.LastUpdate = time.Now()
+	mt.state.Metadata.LastUpdated = time.Now()
+}
+
+// UpdateActiveWaterLeaks updates the list of active water leak alerts
+func (mt *MonitoringTracker) UpdateActiveWaterLeaks(alerts []WaterLeakAlert) {
+	mt.mu.Lock()
+	defer mt.mu.Unlock()
+
+	mt.state.Outputs.ActiveWaterLeaks = make([]WaterLeakAlert, len(alerts))
+	copy(mt.state.Outputs.ActiveWaterLeaks, alerts)
+	mt.state.Metadata.LastUpdated = time.Now()
+}
+
+// UpdateLowBatteryAlerts updates the list of low battery alerts
+func (mt *MonitoringTracker) UpdateLowBatteryAlerts(alerts []LowBatteryAlert) {
+	mt.mu.Lock()
+	defer mt.mu.Unlock()
+
+	mt.state.Outputs.LowBatteryAlerts = make([]LowBatteryAlert, len(alerts))
+	copy(mt.state.Outputs.LowBatteryAlerts, alerts)
+	mt.state.Metadata.LastUpdated = time.Now()
+}
+
+// UpdateStaleSensorAlerts updates the list of stale sensor alerts
+func (mt *MonitoringTracker) UpdateStaleSensorAlerts(alerts []StaleSensorAlert) {
+	mt.mu.Lock()
+	defer mt.mu.Unlock()
+
+	mt.state.Outputs.StaleSensorAlerts = make([]StaleSensorAlert, len(alerts))
+	copy(mt.state.Outputs.StaleSensorAlerts, alerts)
+	mt.state.Metadata.LastUpdated = time.Now()
+}
+
+// RecordNotification records a notification that was sent
+func (mt *MonitoringTracker) RecordNotification(alertType, entityID, message string) {
+	mt.mu.Lock()
+	defer mt.mu.Unlock()
+
+	mt.state.Outputs.LastNotification = &MonitoringNotification{
+		AlertType: alertType,
+		EntityID:  entityID,
+		Message:   message,
+		Timestamp: time.Now(),
+	}
+	mt.state.Metadata.LastUpdated = time.Now()
+}
+
+// SetLastDiscoveryRefresh records when discovery was last refreshed
+func (mt *MonitoringTracker) SetLastDiscoveryRefresh(t time.Time) {
+	mt.mu.Lock()
+	defer mt.mu.Unlock()
+
+	mt.state.Outputs.LastDiscoveryRefresh = t
+	mt.state.Metadata.LastUpdated = time.Now()
+}
+
+// GetState returns the current shadow state (thread-safe copy)
+func (mt *MonitoringTracker) GetState() *MonitoringShadowState {
+	mt.mu.RLock()
+	defer mt.mu.RUnlock()
+
+	// Create a deep copy
+	stateCopy := &MonitoringShadowState{
+		Plugin: mt.state.Plugin,
+		Inputs: MonitoringInputs{
+			Current: make(map[string]interface{}),
+		},
+		Outputs: MonitoringOutputs{
+			WaterLeakSensors:     make([]WaterLeakSensorData, len(mt.state.Outputs.WaterLeakSensors)),
+			BatterySensors:       make([]BatterySensorData, len(mt.state.Outputs.BatterySensors)),
+			ActiveWaterLeaks:     make([]WaterLeakAlert, len(mt.state.Outputs.ActiveWaterLeaks)),
+			LowBatteryAlerts:     make([]LowBatteryAlert, len(mt.state.Outputs.LowBatteryAlerts)),
+			StaleSensorAlerts:    make([]StaleSensorAlert, len(mt.state.Outputs.StaleSensorAlerts)),
+			Config:               mt.state.Outputs.Config,
+			LastUpdate:           mt.state.Outputs.LastUpdate,
+			LastDiscoveryRefresh: mt.state.Outputs.LastDiscoveryRefresh,
+		},
+		Metadata: mt.state.Metadata,
+	}
+
+	// Copy current inputs
+	for k, v := range mt.state.Inputs.Current {
+		stateCopy.Inputs.Current[k] = v
+	}
+
+	// Copy slices
+	copy(stateCopy.Outputs.WaterLeakSensors, mt.state.Outputs.WaterLeakSensors)
+	copy(stateCopy.Outputs.BatterySensors, mt.state.Outputs.BatterySensors)
+	copy(stateCopy.Outputs.ActiveWaterLeaks, mt.state.Outputs.ActiveWaterLeaks)
+	copy(stateCopy.Outputs.LowBatteryAlerts, mt.state.Outputs.LowBatteryAlerts)
+	copy(stateCopy.Outputs.StaleSensorAlerts, mt.state.Outputs.StaleSensorAlerts)
+
+	// Copy notification record if it exists
+	if mt.state.Outputs.LastNotification != nil {
+		notification := *mt.state.Outputs.LastNotification
+		stateCopy.Outputs.LastNotification = &notification
+	}
+
+	return stateCopy
+}
