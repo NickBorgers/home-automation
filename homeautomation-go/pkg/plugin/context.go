@@ -3,6 +3,7 @@ package plugin
 import (
 	"time"
 
+	"homeautomation/internal/ntfy"
 	"homeautomation/internal/shadowstate"
 	pkgha "homeautomation/pkg/ha"
 	pkgstate "homeautomation/pkg/state"
@@ -57,6 +58,11 @@ type Context struct {
 
 	// Longitude is the geographic longitude for sun event calculations.
 	Longitude float64
+
+	// NtfyClient provides access to ntfy.sh for sending push notifications.
+	// May be nil if NTFY_TOPIC_URL is not configured.
+	// Plugins should check for nil before sending notifications.
+	NtfyClient ntfy.Notifier
 }
 
 // NewContext creates a new plugin context with all required dependencies.

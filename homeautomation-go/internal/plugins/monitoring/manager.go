@@ -10,6 +10,7 @@ import (
 
 	"homeautomation/internal/clock"
 	"homeautomation/internal/ha"
+	"homeautomation/internal/ntfy"
 	"homeautomation/internal/shadowstate"
 	"homeautomation/internal/state"
 
@@ -26,9 +27,6 @@ const (
 
 	// How often to check for stale sensors
 	StalenessCheckInterval = 1 * time.Hour
-
-	// Notification target
-	NotificationTarget = "mobile_app_person_phone"
 )
 
 // WaterLeakSensor represents a discovered water leak sensor
@@ -62,6 +60,7 @@ type Manager struct {
 	logger       *zap.Logger
 	readOnly     bool
 	clock        clock.Clock
+	ntfyClient   ntfy.Notifier
 
 	// Shadow state tracking
 	shadowTracker *shadowstate.MonitoringTracker
@@ -83,7 +82,7 @@ type Manager struct {
 }
 
 // NewManager creates a new monitoring manager
-func NewManager(haClient ha.HAClient, stateManager *state.Manager, logger *zap.Logger, readOnly bool, registry *shadowstate.SubscriptionRegistry) *Manager {
+func NewManager(haClient ha.HAClient, stateManager *state.Manager, logger *zap.Logger, readOnly bool, registry *shadowstate.SubscriptionRegistry, ntfyClient ntfy.Notifier) *Manager {
 	shadowTracker := shadowstate.NewMonitoringTracker()
 
 	return &Manager{
@@ -92,6 +91,7 @@ func NewManager(haClient ha.HAClient, stateManager *state.Manager, logger *zap.L
 		logger:              logger.Named("monitoring"),
 		readOnly:            readOnly,
 		clock:               clock.NewRealClock(),
+		ntfyClient:          ntfyClient,
 		shadowTracker:       shadowTracker,
 		subHelper:           shadowstate.NewSubscriptionHelper(haClient, stateManager, registry, shadowTracker, "monitoring", logger.Named("monitoring")),
 		waterLeakSensors:    make(map[string]*WaterLeakSensor),
@@ -102,8 +102,8 @@ func NewManager(haClient ha.HAClient, stateManager *state.Manager, logger *zap.L
 }
 
 // NewManagerWithClock creates a new monitoring manager with a custom clock (for testing)
-func NewManagerWithClock(haClient ha.HAClient, stateManager *state.Manager, logger *zap.Logger, readOnly bool, registry *shadowstate.SubscriptionRegistry, c clock.Clock) *Manager {
-	m := NewManager(haClient, stateManager, logger, readOnly, registry)
+func NewManagerWithClock(haClient ha.HAClient, stateManager *state.Manager, logger *zap.Logger, readOnly bool, registry *shadowstate.SubscriptionRegistry, ntfyClient ntfy.Notifier, c clock.Clock) *Manager {
+	m := NewManager(haClient, stateManager, logger, readOnly, registry, ntfyClient)
 	m.clock = c
 	return m
 }
@@ -527,14 +527,18 @@ func (m *Manager) sendWaterLeakNotification(sensor *WaterLeakSensor) {
 	sensor.NotificationSent = true
 	m.mu.Unlock()
 
-	if m.readOnly {
-		m.logger.Info("READ-ONLY: Would send water leak notification", zap.String("message", message))
+	if m.ntfyClient == nil {
+		m.logger.Warn("ntfy client not configured, cannot send water leak notification",
+			zap.String("entity_id", sensor.EntityID))
 		return
 	}
 
-	// Send notification via Home Assistant
-	if err := m.haClient.CallService("notify", NotificationTarget, map[string]interface{}{
-		"message": message,
+	// Send notification via ntfy
+	if err := m.ntfyClient.Send(&ntfy.Message{
+		Title:    "Water Leak Detected",
+		Body:     message,
+		Priority: ntfy.PriorityUrgent,
+		Tags:     []string{"warning", "droplet"},
 	}); err != nil {
 		m.logger.Error("Failed to send water leak notification",
 			zap.String("entity_id", sensor.EntityID),
@@ -561,14 +565,18 @@ func (m *Manager) sendLowBatteryNotification(sensor *BatterySensor) {
 	sensor.NotificationSent = true
 	m.mu.Unlock()
 
-	if m.readOnly {
-		m.logger.Info("READ-ONLY: Would send low battery notification", zap.String("message", message))
+	if m.ntfyClient == nil {
+		m.logger.Warn("ntfy client not configured, cannot send low battery notification",
+			zap.String("entity_id", sensor.EntityID))
 		return
 	}
 
-	// Send notification via Home Assistant
-	if err := m.haClient.CallService("notify", NotificationTarget, map[string]interface{}{
-		"message": message,
+	// Send notification via ntfy
+	if err := m.ntfyClient.Send(&ntfy.Message{
+		Title:    "Low Battery",
+		Body:     message,
+		Priority: ntfy.PriorityDefault,
+		Tags:     []string{"battery"},
 	}); err != nil {
 		m.logger.Error("Failed to send low battery notification",
 			zap.String("entity_id", sensor.EntityID),
@@ -596,14 +604,18 @@ func (m *Manager) sendStaleSensorNotification(sensor *BatterySensor) {
 	sensor.NotificationSent = true
 	m.mu.Unlock()
 
-	if m.readOnly {
-		m.logger.Info("READ-ONLY: Would send stale sensor notification", zap.String("message", message))
+	if m.ntfyClient == nil {
+		m.logger.Warn("ntfy client not configured, cannot send stale sensor notification",
+			zap.String("entity_id", sensor.EntityID))
 		return
 	}
 
-	// Send notification via Home Assistant
-	if err := m.haClient.CallService("notify", NotificationTarget, map[string]interface{}{
-		"message": message,
+	// Send notification via ntfy
+	if err := m.ntfyClient.Send(&ntfy.Message{
+		Title:    "Stale Sensor",
+		Body:     message,
+		Priority: ntfy.PriorityLow,
+		Tags:     []string{"warning"},
 	}); err != nil {
 		m.logger.Error("Failed to send stale sensor notification",
 			zap.String("entity_id", sensor.EntityID),

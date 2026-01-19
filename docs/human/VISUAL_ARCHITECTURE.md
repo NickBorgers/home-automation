@@ -72,6 +72,7 @@ graph TB
         Sonos[Sonos Speakers]
         Hue[Phillips Hue]
         TV_Ext[Apple TV / LG TV]
+        Ntfy[ntfy.sh<br/>Push Notifications]
     end
 
     Main --> HAClient
@@ -131,10 +132,11 @@ graph TB
     Christmas -.->|Register Shadow| ShadowTracker
 
     Environmental -->|Entity Subscriptions| HAClient
+    Environmental -->|Notifications| Ntfy
     Environmental -.->|Register Shadow| ShadowTracker
 
     Monitoring -->|Entity Subscriptions| HAClient
-    Monitoring -->|Notifications| HAClient
+    Monitoring -->|Notifications| Ntfy
     Monitoring -.->|Register Shadow| ShadowTracker
 
     ResetCoord -->|Subscribe to reset| StateManager
@@ -1010,11 +1012,11 @@ graph LR
     AnyoneHome --> ChristmasPlugin
 
     HumiditySensors --> EnvironmentalPlugin
-    EnvironmentalPlugin -.->|Notifications| HAClient
+    EnvironmentalPlugin -.->|Notifications| Ntfy[ntfy.sh]
 
     WaterLeakSensors --> MonitoringPlugin
     BatteryStateSensors --> MonitoringPlugin
-    MonitoringPlugin -.->|Notifications| HAClient
+    MonitoringPlugin -.->|Notifications| Ntfy
 
     Reset --> ResetCoord
     ResetCoord -.->|Reset| StateTracking

@@ -6,6 +6,7 @@ import (
 
 	"homeautomation/internal/clock"
 	"homeautomation/internal/ha"
+	"homeautomation/internal/ntfy"
 	"homeautomation/internal/state"
 
 	"go.uber.org/zap"
@@ -72,28 +73,19 @@ func setupMockEnvironment(mockHA *ha.MockClient) {
 	})
 }
 
-// Helper to count notifications
-func countNotifications(mockHA *ha.MockClient) int {
-	count := 0
-	for _, call := range mockHA.GetServiceCalls() {
-		if call.Domain == "notify" {
-			count++
-		}
-	}
-	return count
+// Helper to count ntfy notifications
+func countNtfyNotifications(mockNtfy *ntfy.MockClient) int {
+	return len(mockNtfy.GetCalls())
 }
 
-// Helper to get the last notification message
-func getLastNotificationMessage(mockHA *ha.MockClient) string {
-	calls := mockHA.GetServiceCalls()
-	for i := len(calls) - 1; i >= 0; i-- {
-		if calls[i].Domain == "notify" {
-			if msg, ok := calls[i].Data["message"].(string); ok {
-				return msg
-			}
-		}
+// Helper to get the last ntfy notification
+func getLastNtfyNotification(mockNtfy *ntfy.MockClient) *ntfy.Message {
+	calls := mockNtfy.GetCalls()
+	if len(calls) == 0 {
+		return nil
 	}
-	return ""
+	msg := calls[len(calls)-1]
+	return &msg
 }
 
 func TestMonitoringManager_DynamicDiscovery(t *testing.T) {
@@ -101,11 +93,12 @@ func TestMonitoringManager_DynamicDiscovery(t *testing.T) {
 
 	mockHA := ha.NewMockClient()
 	setupMockEnvironment(mockHA)
+	mockNtfy := ntfy.NewMockClient()
 
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 
-	manager := NewManager(mockHA, stateMgr, logger, false, nil)
+	manager := NewManager(mockHA, stateMgr, logger, false, nil, mockNtfy)
 
 	err := manager.Start()
 	if err != nil {
@@ -130,11 +123,12 @@ func TestMonitoringManager_WaterLeakDetection(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
+	mockNtfy := ntfy.NewMockClient()
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 	mockClock := clock.NewMockClock(time.Now())
 
-	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockClock)
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
 
 	// Add test sensor directly
 	manager.AddWaterLeakSensor(&WaterLeakSensor{
@@ -157,13 +151,13 @@ func TestMonitoringManager_WaterLeakDetection(t *testing.T) {
 	}
 
 	// Verify notification was sent
-	notificationCount := countNotifications(mockHA)
+	notificationCount := countNtfyNotifications(mockNtfy)
 	if notificationCount != 1 {
 		t.Errorf("Expected 1 notification for water leak, got %d", notificationCount)
 	}
 
-	msg := getLastNotificationMessage(mockHA)
-	if msg == "" {
+	msg := getLastNtfyNotification(mockNtfy)
+	if msg == nil || msg.Body == "" {
 		t.Error("Expected notification message, got empty")
 	}
 }
@@ -172,11 +166,12 @@ func TestMonitoringManager_WaterLeakClearedNoRenotify(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
+	mockNtfy := ntfy.NewMockClient()
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 	mockClock := clock.NewMockClock(time.Now())
 
-	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockClock)
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
 
 	manager.AddWaterLeakSensor(&WaterLeakSensor{
 		EntityID:     testWaterLeakSensor1,
@@ -186,12 +181,12 @@ func TestMonitoringManager_WaterLeakClearedNoRenotify(t *testing.T) {
 
 	// Simulate leak detected
 	manager.SimulateWaterLeakChange(testWaterLeakSensor1, "on")
-	initialNotifications := countNotifications(mockHA)
+	initialNotifications := countNtfyNotifications(mockNtfy)
 
 	// Simulate same leak still detected (should not re-notify)
 	manager.SimulateWaterLeakChange(testWaterLeakSensor1, "on")
 
-	if count := countNotifications(mockHA); count != initialNotifications {
+	if count := countNtfyNotifications(mockNtfy); count != initialNotifications {
 		t.Errorf("Should not re-notify for same leak, expected %d notifications, got %d",
 			initialNotifications, count)
 	}
@@ -206,7 +201,7 @@ func TestMonitoringManager_WaterLeakClearedNoRenotify(t *testing.T) {
 	// Simulate new leak (should notify again)
 	manager.SimulateWaterLeakChange(testWaterLeakSensor1, "on")
 
-	if count := countNotifications(mockHA); count != initialNotifications+1 {
+	if count := countNtfyNotifications(mockNtfy); count != initialNotifications+1 {
 		t.Errorf("Should notify for new leak, expected %d notifications, got %d",
 			initialNotifications+1, count)
 	}
@@ -216,11 +211,12 @@ func TestMonitoringManager_LowBatteryDetection(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
+	mockNtfy := ntfy.NewMockClient()
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 	mockClock := clock.NewMockClock(time.Now())
 
-	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockClock)
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
 
 	// Add test sensor with normal battery level
 	manager.AddBatterySensor(&BatterySensor{
@@ -245,7 +241,7 @@ func TestMonitoringManager_LowBatteryDetection(t *testing.T) {
 	}
 
 	// Verify notification was sent
-	notificationCount := countNotifications(mockHA)
+	notificationCount := countNtfyNotifications(mockNtfy)
 	if notificationCount != 1 {
 		t.Errorf("Expected 1 notification for low battery, got %d", notificationCount)
 	}
@@ -255,11 +251,12 @@ func TestMonitoringManager_BatteryRecoveryResetNotification(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
+	mockNtfy := ntfy.NewMockClient()
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 	mockClock := clock.NewMockClock(time.Now())
 
-	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockClock)
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
 
 	manager.AddBatterySensor(&BatterySensor{
 		EntityID:     testBatterySensor1,
@@ -271,7 +268,7 @@ func TestMonitoringManager_BatteryRecoveryResetNotification(t *testing.T) {
 
 	// Simulate low battery
 	manager.SimulateBatteryChange(testBatterySensor1, 15.0)
-	initialNotifications := countNotifications(mockHA)
+	initialNotifications := countNtfyNotifications(mockNtfy)
 
 	// Simulate battery recharged
 	manager.SimulateBatteryChange(testBatterySensor1, 50.0)
@@ -284,7 +281,7 @@ func TestMonitoringManager_BatteryRecoveryResetNotification(t *testing.T) {
 	// Simulate low again (should notify again)
 	manager.SimulateBatteryChange(testBatterySensor1, 10.0)
 
-	if count := countNotifications(mockHA); count != initialNotifications+1 {
+	if count := countNtfyNotifications(mockNtfy); count != initialNotifications+1 {
 		t.Errorf("Should notify for new low battery, expected %d notifications, got %d",
 			initialNotifications+1, count)
 	}
@@ -294,11 +291,12 @@ func TestMonitoringManager_StaleSensorDetection(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
+	mockNtfy := ntfy.NewMockClient()
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 	mockClock := clock.NewMockClock(time.Now())
 
-	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockClock)
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
 
 	// Add sensor with recent update
 	manager.AddBatterySensor(&BatterySensor{
@@ -329,13 +327,13 @@ func TestMonitoringManager_StaleSensorDetection(t *testing.T) {
 	}
 
 	// Verify notification was sent
-	notificationCount := countNotifications(mockHA)
+	notificationCount := countNtfyNotifications(mockNtfy)
 	if notificationCount != 1 {
 		t.Errorf("Expected 1 notification for stale sensor, got %d", notificationCount)
 	}
 }
 
-func TestMonitoringManager_ReadOnlyMode(t *testing.T) {
+func TestMonitoringManager_NoNtfyClient(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
@@ -343,8 +341,8 @@ func TestMonitoringManager_ReadOnlyMode(t *testing.T) {
 	stateMgr := state.NewManager(mockHA, logger, false)
 	mockClock := clock.NewMockClock(time.Now())
 
-	// Create manager in read-only mode
-	manager := NewManagerWithClock(mockHA, stateMgr, logger, true, nil, mockClock)
+	// Create manager with nil ntfy client (simulates notifications disabled)
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, nil, mockClock)
 
 	manager.AddWaterLeakSensor(&WaterLeakSensor{
 		EntityID:     testWaterLeakSensor1,
@@ -355,10 +353,15 @@ func TestMonitoringManager_ReadOnlyMode(t *testing.T) {
 	// Simulate water leak
 	manager.SimulateWaterLeakChange(testWaterLeakSensor1, "on")
 
-	// Verify no actual notifications were sent in read-only mode
-	notificationCount := countNotifications(mockHA)
-	if notificationCount != 0 {
-		t.Errorf("Expected 0 notifications in read-only mode, got %d", notificationCount)
+	// Verify leak was still detected (functionality works)
+	if count := manager.GetActiveWaterLeakCount(); count != 1 {
+		t.Errorf("Expected 1 active leak, got %d", count)
+	}
+
+	// Shadow state should still record the notification attempt
+	shadowState := manager.GetShadowState()
+	if shadowState.Outputs.LastNotification == nil {
+		t.Error("Expected last notification to be recorded in shadow state")
 	}
 }
 
@@ -366,11 +369,12 @@ func TestMonitoringManager_ShadowState(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
+	mockNtfy := ntfy.NewMockClient()
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 	mockClock := clock.NewMockClock(time.Now())
 
-	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockClock)
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
 
 	manager.AddWaterLeakSensor(&WaterLeakSensor{
 		EntityID:     testWaterLeakSensor1,
@@ -416,11 +420,12 @@ func TestMonitoringManager_MultipleSensors(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
+	mockNtfy := ntfy.NewMockClient()
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 	mockClock := clock.NewMockClock(time.Now())
 
-	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockClock)
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
 
 	// Add multiple water leak sensors
 	manager.AddWaterLeakSensor(&WaterLeakSensor{
@@ -458,7 +463,7 @@ func TestMonitoringManager_MultipleSensors(t *testing.T) {
 	}
 
 	// Verify 2 notifications sent
-	if count := countNotifications(mockHA); count != 2 {
+	if count := countNtfyNotifications(mockNtfy); count != 2 {
 		t.Errorf("Expected 2 notifications, got %d", count)
 	}
 
@@ -472,7 +477,7 @@ func TestMonitoringManager_MultipleSensors(t *testing.T) {
 	}
 
 	// Verify total 4 notifications (2 leaks + 2 batteries)
-	if count := countNotifications(mockHA); count != 4 {
+	if count := countNtfyNotifications(mockNtfy); count != 4 {
 		t.Errorf("Expected 4 total notifications, got %d", count)
 	}
 }
@@ -481,11 +486,12 @@ func TestMonitoringManager_Reset(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
+	mockNtfy := ntfy.NewMockClient()
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 	mockClock := clock.NewMockClock(time.Now())
 
-	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockClock)
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
 
 	manager.AddWaterLeakSensor(&WaterLeakSensor{
 		EntityID:     testWaterLeakSensor1,

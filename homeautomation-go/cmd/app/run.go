@@ -15,6 +15,7 @@ import (
 	"homeautomation/internal/devserver"
 	"homeautomation/internal/ha"
 	"homeautomation/internal/logbuffer"
+	"homeautomation/internal/ntfy"
 	"homeautomation/internal/plugins/reset"
 	"homeautomation/internal/shadowstate"
 	"homeautomation/internal/state"
@@ -178,6 +179,14 @@ func Run() {
 		zap.Float64("latitude", latitude),
 		zap.Float64("longitude", longitude))
 
+	// Initialize ntfy client for push notifications
+	// Returns nil if NTFY_TOPIC_URL is not configured (NewClient logs the error)
+	ntfyTopicURL := os.Getenv("NTFY_TOPIC_URL")
+	ntfyClient := ntfy.NewClient(ntfyTopicURL, logger, readOnly)
+	if ntfyClient != nil {
+		logger.Info("ntfy client initialized for push notifications")
+	}
+
 	logger.Info("Starting Home Automation Client",
 		zap.String("url", haURL),
 		zap.Bool("read_only", readOnly))
@@ -295,6 +304,7 @@ func Run() {
 	ctx.Registry = subscriptionRegistry
 	ctx.Latitude = latitude
 	ctx.Longitude = longitude
+	ctx.NtfyClient = ntfyClient
 
 	// Create all registered plugins using the plugin registry
 	plugins, err := plugin.CreateAll(ctx)

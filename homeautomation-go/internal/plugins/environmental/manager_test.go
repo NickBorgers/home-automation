@@ -6,6 +6,7 @@ import (
 
 	"homeautomation/internal/clock"
 	"homeautomation/internal/ha"
+	"homeautomation/internal/ntfy"
 	"homeautomation/internal/state"
 
 	"go.uber.org/zap"
@@ -66,28 +67,18 @@ func setupMockEnvironment(mockHA *ha.MockClient) {
 	})
 }
 
-// Helper to count notifications sent to a specific device
-func countNotifications(mockHA *ha.MockClient, deviceName string) int {
-	count := 0
-	serviceName := "mobile_app_" + deviceName
-	for _, call := range mockHA.GetServiceCalls() {
-		if call.Domain == "notify" && call.Service == serviceName {
-			count++
-		}
-	}
-	return count
+// Helper to count notifications sent via ntfy mock
+func countNtfyNotifications(mockNtfy *ntfy.MockClient) int {
+	return len(mockNtfy.GetCalls())
 }
 
-// Helper to get the last notification sent to a device
-func getLastNotification(mockHA *ha.MockClient, deviceName string) *ha.ServiceCall {
-	serviceName := "mobile_app_" + deviceName
-	calls := mockHA.GetServiceCalls()
-	for i := len(calls) - 1; i >= 0; i-- {
-		if calls[i].Domain == "notify" && calls[i].Service == serviceName {
-			return &calls[i]
-		}
+// Helper to get the last notification sent via ntfy mock
+func getLastNtfyNotification(mockNtfy *ntfy.MockClient) *ntfy.Message {
+	calls := mockNtfy.GetCalls()
+	if len(calls) == 0 {
+		return nil
 	}
-	return nil
+	return &calls[len(calls)-1]
 }
 
 func TestEnvironmentalManager_DynamicDiscovery(t *testing.T) {
@@ -95,11 +86,12 @@ func TestEnvironmentalManager_DynamicDiscovery(t *testing.T) {
 
 	mockHA := ha.NewMockClient()
 	setupMockEnvironment(mockHA)
+	mockNtfy := ntfy.NewMockClient()
 
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 
-	manager := NewManager(mockHA, stateMgr, logger, false, nil)
+	manager := NewManager(mockHA, stateMgr, logger, false, nil, mockNtfy)
 
 	// Start discovery
 	err := manager.Start()
@@ -141,11 +133,12 @@ func TestEnvironmentalManager_NormalHumidity(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
+	mockNtfy := ntfy.NewMockClient()
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 	mockClock := clock.NewMockClock(time.Now())
 
-	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockClock)
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
 
 	// Add test sensors directly (skip discovery)
 	manager.AddSensor(&HumiditySensor{
@@ -165,7 +158,7 @@ func TestEnvironmentalManager_NormalHumidity(t *testing.T) {
 	}
 
 	// Verify no notifications were sent
-	notificationCount := countNotifications(mockHA, NotificationTarget)
+	notificationCount := countNtfyNotifications(mockNtfy)
 	if notificationCount > 0 {
 		t.Errorf("Expected no notifications for normal humidity, got %d", notificationCount)
 	}
@@ -175,11 +168,12 @@ func TestEnvironmentalManager_WarningThreshold_NotSustained(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
+	mockNtfy := ntfy.NewMockClient()
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 	mockClock := clock.NewMockClock(time.Now())
 
-	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockClock)
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
 
 	// Add test sensor
 	manager.AddSensor(&HumiditySensor{
@@ -203,7 +197,7 @@ func TestEnvironmentalManager_WarningThreshold_NotSustained(t *testing.T) {
 	}
 
 	// Verify no notifications were sent
-	notificationCount := countNotifications(mockHA, NotificationTarget)
+	notificationCount := countNtfyNotifications(mockNtfy)
 	if notificationCount > 0 {
 		t.Errorf("Expected no notifications for non-sustained warning, got %d", notificationCount)
 	}
@@ -213,11 +207,12 @@ func TestEnvironmentalManager_WarningThreshold_Sustained(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
+	mockNtfy := ntfy.NewMockClient()
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 	mockClock := clock.NewMockClock(time.Now())
 
-	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockClock)
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
 
 	// Add test sensor
 	manager.AddSensor(&HumiditySensor{
@@ -241,20 +236,19 @@ func TestEnvironmentalManager_WarningThreshold_Sustained(t *testing.T) {
 	}
 
 	// Verify notification was sent
-	notificationCount := countNotifications(mockHA, NotificationTarget)
+	notificationCount := countNtfyNotifications(mockNtfy)
 	if notificationCount != 1 {
 		t.Errorf("Expected 1 notification for sustained warning, got %d", notificationCount)
 		return
 	}
 
-	notification := getLastNotification(mockHA, NotificationTarget)
+	notification := getLastNtfyNotification(mockNtfy)
 	if notification == nil {
 		t.Error("Expected to find a notification")
 		return
 	}
-	title, _ := notification.Data["title"].(string)
-	if title != "High Humidity Warning" {
-		t.Errorf("Expected notification title 'High Humidity Warning', got '%s'", title)
+	if notification.Title != "High Humidity Warning" {
+		t.Errorf("Expected notification title 'High Humidity Warning', got '%s'", notification.Title)
 	}
 }
 
@@ -262,11 +256,12 @@ func TestEnvironmentalManager_CriticalThreshold_Sustained(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
+	mockNtfy := ntfy.NewMockClient()
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 	mockClock := clock.NewMockClock(time.Now())
 
-	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockClock)
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
 
 	// Add test sensor
 	manager.AddSensor(&HumiditySensor{
@@ -290,25 +285,23 @@ func TestEnvironmentalManager_CriticalThreshold_Sustained(t *testing.T) {
 	}
 
 	// Verify notification was sent
-	notificationCount := countNotifications(mockHA, NotificationTarget)
+	notificationCount := countNtfyNotifications(mockNtfy)
 	if notificationCount != 1 {
 		t.Errorf("Expected 1 notification for sustained critical, got %d", notificationCount)
 		return
 	}
 
-	notification := getLastNotification(mockHA, NotificationTarget)
+	notification := getLastNtfyNotification(mockNtfy)
 	if notification == nil {
 		t.Error("Expected to find a notification")
 		return
 	}
-	title, _ := notification.Data["title"].(string)
-	if title != "High Humidity Critical" {
-		t.Errorf("Expected notification title 'High Humidity Critical', got '%s'", title)
+	if notification.Title != "High Humidity Critical" {
+		t.Errorf("Expected notification title 'High Humidity Critical', got '%s'", notification.Title)
 	}
-	// Check for sticky in the data map
-	data, hasData := notification.Data["data"].(map[string]interface{})
-	if !hasData || data["sticky"] != true {
-		t.Error("Expected critical notification to be sticky")
+	// Verify critical notifications use high priority
+	if notification.Priority != ntfy.PriorityHigh {
+		t.Errorf("Expected critical notification to have high priority, got %d", notification.Priority)
 	}
 }
 
@@ -316,11 +309,12 @@ func TestEnvironmentalManager_OutdoorSensor_NoAlert(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
+	mockNtfy := ntfy.NewMockClient()
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 	mockClock := clock.NewMockClock(time.Now())
 
-	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockClock)
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
 
 	// Add outdoor sensor (should NOT trigger alerts)
 	manager.AddSensor(&HumiditySensor{
@@ -344,7 +338,7 @@ func TestEnvironmentalManager_OutdoorSensor_NoAlert(t *testing.T) {
 	}
 
 	// Verify no notifications were sent
-	notificationCount := countNotifications(mockHA, NotificationTarget)
+	notificationCount := countNtfyNotifications(mockNtfy)
 	if notificationCount > 0 {
 		t.Errorf("Expected no notifications for outdoor sensor, got %d", notificationCount)
 	}
@@ -354,11 +348,12 @@ func TestEnvironmentalManager_MixedSensors_OnlyIndoorAlerts(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
+	mockNtfy := ntfy.NewMockClient()
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 	mockClock := clock.NewMockClock(time.Now())
 
-	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockClock)
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
 
 	// Add both indoor and outdoor sensors
 	manager.AddSensor(&HumiditySensor{
@@ -391,8 +386,8 @@ func TestEnvironmentalManager_MixedSensors_OnlyIndoorAlerts(t *testing.T) {
 		t.Errorf("Expected alertLevel 'warning' for indoor sensor, got '%s'", alertLevel)
 	}
 
-	// Verify notification mentions indoor sensor
-	notification := getLastNotification(mockHA, NotificationTarget)
+	// Verify notification was sent
+	notification := getLastNtfyNotification(mockNtfy)
 	if notification == nil {
 		t.Error("Expected to find a notification")
 	}
@@ -402,11 +397,12 @@ func TestEnvironmentalManager_BothSensorsElevated(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
+	mockNtfy := ntfy.NewMockClient()
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 	mockClock := clock.NewMockClock(time.Now())
 
-	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockClock)
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
 
 	// Add two indoor sensors
 	manager.AddSensor(&HumiditySensor{
@@ -432,20 +428,19 @@ func TestEnvironmentalManager_BothSensorsElevated(t *testing.T) {
 	manager.SimulateSensorChange(testIndoorSensor2, 56.0)
 
 	// Verify at least 1 notification was sent
-	notificationCount := countNotifications(mockHA, NotificationTarget)
+	notificationCount := countNtfyNotifications(mockNtfy)
 	if notificationCount < 1 {
 		t.Error("Expected at least 1 notification")
 		return
 	}
 
-	notification := getLastNotification(mockHA, NotificationTarget)
+	notification := getLastNtfyNotification(mockNtfy)
 	if notification == nil {
 		t.Error("Expected to find a notification")
 		return
 	}
-	message, _ := notification.Data["message"].(string)
-	if message == "" {
-		t.Error("Expected notification message to be set")
+	if notification.Body == "" {
+		t.Error("Expected notification body to be set")
 	}
 }
 
@@ -453,11 +448,12 @@ func TestEnvironmentalManager_Hysteresis_WarningClear(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
+	mockNtfy := ntfy.NewMockClient()
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 	mockClock := clock.NewMockClock(time.Now())
 
-	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockClock)
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
 
 	// Add test sensor
 	manager.AddSensor(&HumiditySensor{
@@ -477,7 +473,7 @@ func TestEnvironmentalManager_Hysteresis_WarningClear(t *testing.T) {
 		t.Fatalf("Expected alertLevel 'warning', got '%s'", alertLevel)
 	}
 
-	initialNotifications := countNotifications(mockHA, NotificationTarget)
+	initialNotifications := countNtfyNotifications(mockNtfy)
 
 	// Now lower humidity to just below warning threshold (but above clear threshold)
 	manager.SimulateSensorChange(testIndoorSensor1, 52.0)
@@ -498,7 +494,7 @@ func TestEnvironmentalManager_Hysteresis_WarningClear(t *testing.T) {
 	}
 
 	// Should have sent a resolution notification
-	finalNotifications := countNotifications(mockHA, NotificationTarget)
+	finalNotifications := countNtfyNotifications(mockNtfy)
 	if finalNotifications <= initialNotifications {
 		t.Error("Expected resolution notification to be sent")
 	}
@@ -508,11 +504,12 @@ func TestEnvironmentalManager_RateLimiting_Warning(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
+	mockNtfy := ntfy.NewMockClient()
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 	mockClock := clock.NewMockClock(time.Now())
 
-	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockClock)
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
 
 	// Add test sensor
 	manager.AddSensor(&HumiditySensor{
@@ -527,7 +524,7 @@ func TestEnvironmentalManager_RateLimiting_Warning(t *testing.T) {
 	mockClock.Advance(31 * time.Minute)
 	manager.SimulateSensorChange(testIndoorSensor1, 58.0)
 
-	initialNotifications := countNotifications(mockHA, NotificationTarget)
+	initialNotifications := countNtfyNotifications(mockNtfy)
 	if initialNotifications != 1 {
 		t.Fatalf("Expected 1 initial notification, got %d", initialNotifications)
 	}
@@ -537,7 +534,7 @@ func TestEnvironmentalManager_RateLimiting_Warning(t *testing.T) {
 	manager.SimulateSensorChange(testIndoorSensor1, 58.0)
 
 	// Should not have sent another notification for the same incident
-	finalNotifications := countNotifications(mockHA, NotificationTarget)
+	finalNotifications := countNtfyNotifications(mockNtfy)
 	if finalNotifications > initialNotifications {
 		t.Errorf("Expected no additional notifications for same incident, got %d extra",
 			finalNotifications-initialNotifications)
@@ -548,11 +545,12 @@ func TestEnvironmentalManager_RateLimiting_Critical(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
+	mockNtfy := ntfy.NewMockClient()
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 	mockClock := clock.NewMockClock(time.Now())
 
-	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockClock)
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
 
 	// Add test sensor
 	manager.AddSensor(&HumiditySensor{
@@ -567,7 +565,7 @@ func TestEnvironmentalManager_RateLimiting_Critical(t *testing.T) {
 	mockClock.Advance(31 * time.Minute)
 	manager.SimulateSensorChange(testIndoorSensor1, 70.0)
 
-	initialNotifications := countNotifications(mockHA, NotificationTarget)
+	initialNotifications := countNtfyNotifications(mockNtfy)
 	if initialNotifications != 1 {
 		t.Fatalf("Expected 1 initial notification, got %d", initialNotifications)
 	}
@@ -577,7 +575,7 @@ func TestEnvironmentalManager_RateLimiting_Critical(t *testing.T) {
 	manager.SimulateSensorChange(testIndoorSensor1, 70.0)
 
 	// Should not have sent another notification (already notified for this incident)
-	finalNotifications := countNotifications(mockHA, NotificationTarget)
+	finalNotifications := countNtfyNotifications(mockNtfy)
 	if finalNotifications > initialNotifications {
 		t.Errorf("Expected no additional notifications due to rate limiting, got %d",
 			finalNotifications-initialNotifications)
@@ -600,10 +598,11 @@ func TestEnvironmentalManager_InvalidHumidityValues(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			mockHA := ha.NewMockClient()
+			mockNtfy := ntfy.NewMockClient()
 			logger := zap.NewNop()
 			stateMgr := state.NewManager(mockHA, logger, false)
 
-			manager := NewManager(mockHA, stateMgr, logger, false, nil)
+			manager := NewManager(mockHA, stateMgr, logger, false, nil, mockNtfy)
 
 			// Add test sensor
 			manager.AddSensor(&HumiditySensor{
@@ -640,12 +639,13 @@ func TestEnvironmentalManager_ReadOnlyMode(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
+	mockNtfy := ntfy.NewMockClient()
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, true) // read-only
 	mockClock := clock.NewMockClock(time.Now())
 
 	// Create manager in read-only mode
-	manager := NewManagerWithClock(mockHA, stateMgr, logger, true, nil, mockClock)
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, true, nil, mockNtfy, mockClock)
 
 	// Add test sensor
 	manager.AddSensor(&HumiditySensor{
@@ -667,7 +667,7 @@ func TestEnvironmentalManager_ReadOnlyMode(t *testing.T) {
 	}
 
 	// But no actual notifications should be sent (read-only mode)
-	notificationCount := countNotifications(mockHA, NotificationTarget)
+	notificationCount := countNtfyNotifications(mockNtfy)
 	if notificationCount > 0 {
 		t.Errorf("Expected no notifications in read-only mode, got %d", notificationCount)
 	}
@@ -677,11 +677,12 @@ func TestEnvironmentalManager_ShadowState(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
+	mockNtfy := ntfy.NewMockClient()
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 	mockClock := clock.NewMockClock(time.Now())
 
-	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockClock)
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
 
 	// Add test sensors
 	manager.AddSensor(&HumiditySensor{
@@ -754,11 +755,12 @@ func TestEnvironmentalManager_EscalationFromWarningToCritical(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
+	mockNtfy := ntfy.NewMockClient()
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 	mockClock := clock.NewMockClock(time.Now())
 
-	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockClock)
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
 
 	// Add test sensor
 	manager.AddSensor(&HumiditySensor{
@@ -778,7 +780,7 @@ func TestEnvironmentalManager_EscalationFromWarningToCritical(t *testing.T) {
 		t.Fatalf("Expected initial alertLevel 'warning', got '%s'", alertLevel)
 	}
 
-	warningNotifications := countNotifications(mockHA, NotificationTarget)
+	warningNotifications := countNtfyNotifications(mockNtfy)
 
 	// Now escalate to critical level
 	manager.SimulateSensorChange(testIndoorSensor1, 70.0)
@@ -791,7 +793,7 @@ func TestEnvironmentalManager_EscalationFromWarningToCritical(t *testing.T) {
 	}
 
 	// Should have sent a critical notification
-	finalNotifications := countNotifications(mockHA, NotificationTarget)
+	finalNotifications := countNtfyNotifications(mockNtfy)
 	if finalNotifications <= warningNotifications {
 		t.Error("Expected critical notification to be sent on escalation")
 	}
@@ -801,11 +803,12 @@ func TestEnvironmentalManager_OneSensorHighOtherNormal(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
+	mockNtfy := ntfy.NewMockClient()
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 	mockClock := clock.NewMockClock(time.Now())
 
-	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockClock)
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
 
 	// Add two indoor sensors
 	manager.AddSensor(&HumiditySensor{
@@ -913,6 +916,7 @@ func TestEnvironmentalManager_CaseInsensitiveLabelMatching(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			mockHA := ha.NewMockClient()
+			mockNtfy := ntfy.NewMockClient()
 
 			// Add device with the test label
 			mockHA.AddDevice(&ha.Device{
@@ -935,7 +939,7 @@ func TestEnvironmentalManager_CaseInsensitiveLabelMatching(t *testing.T) {
 
 			logger := zap.NewNop()
 			stateMgr := state.NewManager(mockHA, logger, false)
-			manager := NewManager(mockHA, stateMgr, logger, false, nil)
+			manager := NewManager(mockHA, stateMgr, logger, false, nil, mockNtfy)
 
 			// Start discovery
 			err := manager.Start()
@@ -973,11 +977,12 @@ func TestEnvironmentalManager_TemperatureSensor_NoLockup(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
+	mockNtfy := ntfy.NewMockClient()
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 	mockClock := clock.NewMockClock(time.Now())
 
-	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockClock)
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
 
 	// Add test temperature sensor
 	manager.AddTemperatureSensor(&TemperatureSensor{
@@ -1007,7 +1012,7 @@ func TestEnvironmentalManager_TemperatureSensor_NoLockup(t *testing.T) {
 	}
 
 	// Verify no notifications were sent
-	notificationCount := countNotifications(mockHA, NotificationTarget)
+	notificationCount := countNtfyNotifications(mockNtfy)
 	if notificationCount > 0 {
 		t.Errorf("Expected no notifications for non-locked sensor, got %d", notificationCount)
 	}
@@ -1017,11 +1022,12 @@ func TestEnvironmentalManager_TemperatureSensor_Lockup_Detected(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
+	mockNtfy := ntfy.NewMockClient()
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 	mockClock := clock.NewMockClock(time.Now())
 
-	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockClock)
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
 
 	// Add test temperature sensor
 	initialTime := mockClock.Now()
@@ -1052,31 +1058,29 @@ func TestEnvironmentalManager_TemperatureSensor_Lockup_Detected(t *testing.T) {
 	}
 
 	// Verify notification was sent
-	notificationCount := countNotifications(mockHA, NotificationTarget)
+	notificationCount := countNtfyNotifications(mockNtfy)
 	if notificationCount != 1 {
 		t.Errorf("Expected 1 lockup notification, got %d", notificationCount)
 		return
 	}
 
-	notification := getLastNotification(mockHA, NotificationTarget)
+	notification := getLastNtfyNotification(mockNtfy)
 	if notification == nil {
 		t.Error("Expected to find a notification")
 		return
 	}
-	title, _ := notification.Data["title"].(string)
-	if title != "Temperature Sensor Locked Up" {
-		t.Errorf("Expected notification title 'Temperature Sensor Locked Up', got '%s'", title)
+	if notification.Title != "Temperature Sensor Locked Up" {
+		t.Errorf("Expected notification title 'Temperature Sensor Locked Up', got '%s'", notification.Title)
 	}
-	message, _ := notification.Data["message"].(string)
-	if message == "" {
-		t.Error("Expected notification message to be set")
+	if notification.Body == "" {
+		t.Error("Expected notification body to be set")
 	}
-	// Verify message contains sensor name and hours
-	if !contains(message, "Garage Temperature") {
-		t.Errorf("Expected notification message to contain sensor name, got '%s'", message)
+	// Verify body contains sensor name and hours
+	if !contains(notification.Body, "Garage Temperature") {
+		t.Errorf("Expected notification body to contain sensor name, got '%s'", notification.Body)
 	}
-	if !contains(message, "72.0") {
-		t.Errorf("Expected notification message to contain stuck value, got '%s'", message)
+	if !contains(notification.Body, "72.0") {
+		t.Errorf("Expected notification body to contain stuck value, got '%s'", notification.Body)
 	}
 }
 
@@ -1084,11 +1088,12 @@ func TestEnvironmentalManager_TemperatureSensor_Lockup_Recovery(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
+	mockNtfy := ntfy.NewMockClient()
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 	mockClock := clock.NewMockClock(time.Now())
 
-	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockClock)
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
 
 	// Add test temperature sensor
 	initialTime := mockClock.Now()
@@ -1113,7 +1118,7 @@ func TestEnvironmentalManager_TemperatureSensor_Lockup_Recovery(t *testing.T) {
 	}
 
 	// Record the notification count after lockup
-	lockupNotifications := countNotifications(mockHA, NotificationTarget)
+	lockupNotifications := countNtfyNotifications(mockNtfy)
 	if lockupNotifications != 1 {
 		t.Fatalf("Expected 1 lockup notification, got %d", lockupNotifications)
 	}
@@ -1128,26 +1133,24 @@ func TestEnvironmentalManager_TemperatureSensor_Lockup_Recovery(t *testing.T) {
 	}
 
 	// Verify recovery notification was sent
-	totalNotifications := countNotifications(mockHA, NotificationTarget)
+	totalNotifications := countNtfyNotifications(mockNtfy)
 	if totalNotifications != 2 {
 		t.Errorf("Expected 2 notifications (1 lockup + 1 recovery), got %d", totalNotifications)
 	}
 
 	// Verify the recovery notification has correct content
-	notification := getLastNotification(mockHA, NotificationTarget)
+	notification := getLastNtfyNotification(mockNtfy)
 	if notification == nil {
 		t.Fatal("Expected to find a notification")
 	}
-	title, _ := notification.Data["title"].(string)
-	if title != "Temperature Sensor Recovered" {
-		t.Errorf("Expected notification title 'Temperature Sensor Recovered', got '%s'", title)
+	if notification.Title != "Temperature Sensor Recovered" {
+		t.Errorf("Expected notification title 'Temperature Sensor Recovered', got '%s'", notification.Title)
 	}
-	message, _ := notification.Data["message"].(string)
-	if !contains(message, "Garage Temperature") {
-		t.Errorf("Expected notification message to contain sensor name, got '%s'", message)
+	if !contains(notification.Body, "Garage Temperature") {
+		t.Errorf("Expected notification body to contain sensor name, got '%s'", notification.Body)
 	}
-	if !contains(message, "recovered") {
-		t.Errorf("Expected notification message to contain 'recovered', got '%s'", message)
+	if !contains(notification.Body, "recovered") {
+		t.Errorf("Expected notification body to contain 'recovered', got '%s'", notification.Body)
 	}
 }
 
@@ -1155,11 +1158,12 @@ func TestEnvironmentalManager_TemperatureSensor_Lockup_RateLimiting(t *testing.T
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
+	mockNtfy := ntfy.NewMockClient()
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 	mockClock := clock.NewMockClock(time.Now())
 
-	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockClock)
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
 
 	// Add test temperature sensor
 	initialTime := mockClock.Now()
@@ -1176,7 +1180,7 @@ func TestEnvironmentalManager_TemperatureSensor_Lockup_RateLimiting(t *testing.T
 	mockClock.Advance(13 * time.Hour)
 	manager.TriggerLockupCheck()
 
-	initialNotifications := countNotifications(mockHA, NotificationTarget)
+	initialNotifications := countNtfyNotifications(mockNtfy)
 	if initialNotifications != 1 {
 		t.Fatalf("Expected 1 initial notification, got %d", initialNotifications)
 	}
@@ -1186,7 +1190,7 @@ func TestEnvironmentalManager_TemperatureSensor_Lockup_RateLimiting(t *testing.T
 	manager.TriggerLockupCheck()
 
 	// Should not have sent another notification (rate limited to 24 hours)
-	afterRateLimit := countNotifications(mockHA, NotificationTarget)
+	afterRateLimit := countNtfyNotifications(mockNtfy)
 	if afterRateLimit > initialNotifications {
 		t.Errorf("Expected no additional notifications due to rate limiting, got %d extra",
 			afterRateLimit-initialNotifications)
@@ -1197,7 +1201,7 @@ func TestEnvironmentalManager_TemperatureSensor_Lockup_RateLimiting(t *testing.T
 	manager.TriggerLockupCheck()
 
 	// Should have sent another notification
-	finalNotifications := countNotifications(mockHA, NotificationTarget)
+	finalNotifications := countNtfyNotifications(mockNtfy)
 	if finalNotifications <= initialNotifications {
 		t.Error("Expected another notification after rate limit period")
 	}
@@ -1207,11 +1211,12 @@ func TestEnvironmentalManager_TemperatureSensor_MultipleSensors(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
+	mockNtfy := ntfy.NewMockClient()
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 	mockClock := clock.NewMockClock(time.Now())
 
-	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockClock)
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
 
 	// Add two temperature sensors
 	initialTime := mockClock.Now()
@@ -1254,7 +1259,7 @@ func TestEnvironmentalManager_TemperatureSensor_MultipleSensors(t *testing.T) {
 	}
 
 	// Should have only 1 notification (for sensor 2)
-	notificationCount := countNotifications(mockHA, NotificationTarget)
+	notificationCount := countNtfyNotifications(mockNtfy)
 	if notificationCount != 1 {
 		t.Errorf("Expected 1 notification for locked sensor 2, got %d", notificationCount)
 	}
@@ -1264,12 +1269,13 @@ func TestEnvironmentalManager_TemperatureSensor_ReadOnlyMode(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
+	mockNtfy := ntfy.NewMockClient()
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, true) // read-only
 	mockClock := clock.NewMockClock(time.Now())
 
 	// Create manager in read-only mode
-	manager := NewManagerWithClock(mockHA, stateMgr, logger, true, nil, mockClock)
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, true, nil, mockNtfy, mockClock)
 
 	// Add test temperature sensor
 	initialTime := mockClock.Now()
@@ -1293,7 +1299,7 @@ func TestEnvironmentalManager_TemperatureSensor_ReadOnlyMode(t *testing.T) {
 	}
 
 	// But no actual notifications should be sent (read-only mode)
-	notificationCount := countNotifications(mockHA, NotificationTarget)
+	notificationCount := countNtfyNotifications(mockNtfy)
 	if notificationCount > 0 {
 		t.Errorf("Expected no notifications in read-only mode, got %d", notificationCount)
 	}
@@ -1303,11 +1309,12 @@ func TestEnvironmentalManager_TemperatureSensor_ShadowState(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
+	mockNtfy := ntfy.NewMockClient()
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 	mockClock := clock.NewMockClock(time.Now())
 
-	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockClock)
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
 
 	// Add test temperature sensors
 	initialTime := mockClock.Now()
@@ -1367,11 +1374,12 @@ func TestEnvironmentalManager_TemperatureSensor_InvalidValues(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			mockHA := ha.NewMockClient()
+			mockNtfy := ntfy.NewMockClient()
 			logger := zap.NewNop()
 			stateMgr := state.NewManager(mockHA, logger, false)
 			mockClock := clock.NewMockClock(time.Now())
 
-			manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockClock)
+			manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
 
 			// Add test sensor
 			manager.AddTemperatureSensor(&TemperatureSensor{
@@ -1404,11 +1412,12 @@ func TestEnvironmentalManager_TemperatureSensor_Recovery_RateLimiting(t *testing
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
+	mockNtfy := ntfy.NewMockClient()
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 	mockClock := clock.NewMockClock(time.Now())
 
-	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockClock)
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
 
 	// Add test temperature sensor
 	initialTime := mockClock.Now()
@@ -1426,7 +1435,7 @@ func TestEnvironmentalManager_TemperatureSensor_Recovery_RateLimiting(t *testing
 	manager.TriggerLockupCheck()
 
 	// Verify lockup notification sent
-	if countNotifications(mockHA, NotificationTarget) != 1 {
+	if countNtfyNotifications(mockNtfy) != 1 {
 		t.Fatal("Expected 1 lockup notification")
 	}
 
@@ -1434,7 +1443,7 @@ func TestEnvironmentalManager_TemperatureSensor_Recovery_RateLimiting(t *testing
 	manager.SimulateTemperatureChange(testTempSensor1, 73.0)
 
 	// Verify recovery notification sent (2 total)
-	if countNotifications(mockHA, NotificationTarget) != 2 {
+	if countNtfyNotifications(mockNtfy) != 2 {
 		t.Fatal("Expected 2 notifications (lockup + recovery)")
 	}
 
@@ -1445,7 +1454,7 @@ func TestEnvironmentalManager_TemperatureSensor_Recovery_RateLimiting(t *testing
 	manager.TriggerLockupCheck()
 
 	// Should have sent another lockup notification (3 total) - sensor was locked up again
-	notificationsAfterSecondLockup := countNotifications(mockHA, NotificationTarget)
+	notificationsAfterSecondLockup := countNtfyNotifications(mockNtfy)
 	if notificationsAfterSecondLockup != 3 {
 		t.Fatalf("Expected 3 notifications after second lockup, got %d", notificationsAfterSecondLockup)
 	}
@@ -1456,7 +1465,7 @@ func TestEnvironmentalManager_TemperatureSensor_Recovery_RateLimiting(t *testing
 	manager.SimulateTemperatureChange(testTempSensor1, 74.0)
 
 	// Should have sent another recovery notification
-	notificationsAfterSecondRecovery := countNotifications(mockHA, NotificationTarget)
+	notificationsAfterSecondRecovery := countNtfyNotifications(mockNtfy)
 	if notificationsAfterSecondRecovery != 4 {
 		t.Errorf("Expected 4 notifications after second recovery (beyond rate limit), got %d", notificationsAfterSecondRecovery)
 	}
@@ -1483,7 +1492,7 @@ func TestEnvironmentalManager_TemperatureSensor_Recovery_RateLimiting(t *testing
 	manager.SimulateTemperatureChange(testTempSensor1, 75.0)
 
 	// Should NOT have sent another notification due to rate limiting
-	notificationsAfterRateLimited := countNotifications(mockHA, NotificationTarget)
+	notificationsAfterRateLimited := countNtfyNotifications(mockNtfy)
 	if notificationsAfterRateLimited != 4 {
 		t.Errorf("Expected 4 notifications (recovery rate limited), got %d", notificationsAfterRateLimited)
 	}
@@ -1493,12 +1502,13 @@ func TestEnvironmentalManager_TemperatureSensor_Recovery_ReadOnlyMode(t *testing
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
+	mockNtfy := ntfy.NewMockClient()
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, true) // read-only
 	mockClock := clock.NewMockClock(time.Now())
 
 	// Create manager in read-only mode
-	manager := NewManagerWithClock(mockHA, stateMgr, logger, true, nil, mockClock)
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, true, nil, mockNtfy, mockClock)
 
 	// Add test temperature sensor
 	initialTime := mockClock.Now()
@@ -1522,7 +1532,7 @@ func TestEnvironmentalManager_TemperatureSensor_Recovery_ReadOnlyMode(t *testing
 	}
 
 	// No lockup notification should be sent (read-only mode)
-	if countNotifications(mockHA, NotificationTarget) != 0 {
+	if countNtfyNotifications(mockNtfy) != 0 {
 		t.Fatal("Expected no notifications in read-only mode")
 	}
 
@@ -1536,8 +1546,8 @@ func TestEnvironmentalManager_TemperatureSensor_Recovery_ReadOnlyMode(t *testing
 	}
 
 	// No recovery notification should be sent (read-only mode)
-	if countNotifications(mockHA, NotificationTarget) != 0 {
-		t.Errorf("Expected no notifications in read-only mode, got %d", countNotifications(mockHA, NotificationTarget))
+	if countNtfyNotifications(mockNtfy) != 0 {
+		t.Errorf("Expected no notifications in read-only mode, got %d", countNtfyNotifications(mockNtfy))
 	}
 
 	// But shadow state should still be recorded
@@ -1551,11 +1561,12 @@ func TestEnvironmentalManager_TemperatureSensor_Recovery_ShadowState(t *testing.
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
+	mockNtfy := ntfy.NewMockClient()
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 	mockClock := clock.NewMockClock(time.Now())
 
-	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockClock)
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
 
 	// Add test temperature sensor
 	initialTime := mockClock.Now()

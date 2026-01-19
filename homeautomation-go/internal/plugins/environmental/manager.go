@@ -10,6 +10,7 @@ import (
 
 	"homeautomation/internal/clock"
 	"homeautomation/internal/ha"
+	"homeautomation/internal/ntfy"
 	"homeautomation/internal/shadowstate"
 	"homeautomation/internal/state"
 
@@ -36,9 +37,6 @@ const (
 
 	// Label used to identify indoor devices
 	IndoorLabel = "indoor"
-
-	// Notification target
-	NotificationTarget = "nicks_iphone"
 
 	// Temperature sensor lockup detection
 	// A sensor is considered locked up if it has the same reading for this long
@@ -82,6 +80,7 @@ type Manager struct {
 	logger       *zap.Logger
 	readOnly     bool
 	clock        clock.Clock
+	ntfyClient   ntfy.Notifier // nil if notifications disabled
 
 	// Shadow state tracking
 	shadowTracker *shadowstate.EnvironmentalTracker
@@ -111,18 +110,25 @@ type Manager struct {
 	stopLockupChecker chan struct{}
 }
 
-// NewManager creates a new environmental monitoring manager
-func NewManager(haClient ha.HAClient, stateManager *state.Manager, logger *zap.Logger, readOnly bool, registry *shadowstate.SubscriptionRegistry) *Manager {
+// NewManager creates a new environmental monitoring manager.
+// ntfyClient can be nil if notifications are disabled (NTFY_TOPIC_URL not set).
+func NewManager(haClient ha.HAClient, stateManager *state.Manager, logger *zap.Logger, readOnly bool, registry *shadowstate.SubscriptionRegistry, ntfyClient ntfy.Notifier) *Manager {
 	shadowTracker := shadowstate.NewEnvironmentalTracker()
+
+	namedLogger := logger.Named("environmental")
+	if ntfyClient == nil {
+		namedLogger.Warn("ntfy client not configured - notifications will be disabled")
+	}
 
 	return &Manager{
 		haClient:          haClient,
 		stateManager:      stateManager,
-		logger:            logger.Named("environmental"),
+		logger:            namedLogger,
 		readOnly:          readOnly,
 		clock:             clock.NewRealClock(),
+		ntfyClient:        ntfyClient,
 		shadowTracker:     shadowTracker,
-		subHelper:         shadowstate.NewSubscriptionHelper(haClient, stateManager, registry, shadowTracker, "environmental", logger.Named("environmental")),
+		subHelper:         shadowstate.NewSubscriptionHelper(haClient, stateManager, registry, shadowTracker, "environmental", namedLogger),
 		sensors:           make(map[string]*HumiditySensor),
 		tempSensors:       make(map[string]*TemperatureSensor),
 		currentAlertLevel: "none",
@@ -130,8 +136,8 @@ func NewManager(haClient ha.HAClient, stateManager *state.Manager, logger *zap.L
 }
 
 // NewManagerWithClock creates a new environmental monitoring manager with a custom clock (for testing)
-func NewManagerWithClock(haClient ha.HAClient, stateManager *state.Manager, logger *zap.Logger, readOnly bool, registry *shadowstate.SubscriptionRegistry, c clock.Clock) *Manager {
-	m := NewManager(haClient, stateManager, logger, readOnly, registry)
+func NewManagerWithClock(haClient ha.HAClient, stateManager *state.Manager, logger *zap.Logger, readOnly bool, registry *shadowstate.SubscriptionRegistry, ntfyClient ntfy.Notifier, c clock.Clock) *Manager {
+	m := NewManager(haClient, stateManager, logger, readOnly, registry, ntfyClient)
 	m.clock = c
 	return m
 }
@@ -589,34 +595,23 @@ func (m *Manager) sendAlertNotification(now time.Time, level string) {
 		}
 	}
 
-	// Build notification
+	// Build notification message
 	var title, message string
-	var importance string
-	var sticky bool
+	var priority int
+	var tags []string
 
 	if level == "critical" {
 		title = "High Humidity Critical"
 		message = fmt.Sprintf("Humidity at %.0f%% (%s) for 30+ minutes. Mold risk - take action!",
 			maxHumidity, formatSensorLocations(sensorLocations))
-		importance = "high"
-		sticky = true
+		priority = ntfy.PriorityHigh
+		tags = []string{"rotating_light", "droplet"}
 	} else {
 		title = "High Humidity Warning"
 		message = fmt.Sprintf("Humidity at %.0f%% (%s) for 30+ minutes. Check ventilation.",
 			maxHumidity, formatSensorLocations(sensorLocations))
-		importance = "default"
-		sticky = false
-	}
-
-	notification := &ha.Notification{
-		Title:   title,
-		Message: message,
-		Data: &ha.NotificationData{
-			Tag:        fmt.Sprintf("environmental-humidity-%s", level),
-			Group:      "environmental",
-			Importance: importance,
-			Sticky:     sticky,
-		},
+		priority = ntfy.PriorityDefault
+		tags = []string{"warning", "droplet"}
 	}
 
 	m.logger.Info("Sending humidity alert notification",
@@ -634,8 +629,20 @@ func (m *Manager) sendAlertNotification(now time.Time, level string) {
 		return
 	}
 
-	// Send notification
-	if err := m.haClient.SendNotification(NotificationTarget, notification); err != nil {
+	// Check if ntfy client is configured
+	if m.ntfyClient == nil {
+		m.logger.Warn("Cannot send humidity notification - ntfy client not configured",
+			zap.String("level", level))
+		return
+	}
+
+	// Send notification via ntfy
+	if err := m.ntfyClient.Send(&ntfy.Message{
+		Title:    title,
+		Body:     message,
+		Priority: priority,
+		Tags:     tags,
+	}); err != nil {
 		m.logger.Error("Failed to send humidity notification",
 			zap.String("level", level),
 			zap.Error(err))
@@ -665,16 +672,6 @@ func (m *Manager) sendResolutionNotification(now time.Time) {
 	message := fmt.Sprintf("Humidity has returned to safe levels. Current readings: %s",
 		strings.Join(sensorSummary, ", "))
 
-	notification := &ha.Notification{
-		Title:   "Humidity Resolved",
-		Message: message,
-		Data: &ha.NotificationData{
-			Tag:        "environmental-humidity-resolved",
-			Group:      "environmental",
-			Importance: "default",
-		},
-	}
-
 	m.logger.Info("Sending humidity resolution notification")
 
 	// Record in shadow state
@@ -686,8 +683,19 @@ func (m *Manager) sendResolutionNotification(now time.Time) {
 		return
 	}
 
-	// Send notification
-	if err := m.haClient.SendNotification(NotificationTarget, notification); err != nil {
+	// Check if ntfy client is configured
+	if m.ntfyClient == nil {
+		m.logger.Warn("Cannot send resolution notification - ntfy client not configured")
+		return
+	}
+
+	// Send notification via ntfy
+	if err := m.ntfyClient.Send(&ntfy.Message{
+		Title:    "Humidity Resolved",
+		Body:     message,
+		Priority: ntfy.PriorityDefault,
+		Tags:     []string{"white_check_mark", "droplet"},
+	}); err != nil {
 		m.logger.Error("Failed to send resolution notification", zap.Error(err))
 		return
 	}
@@ -995,17 +1003,6 @@ func (m *Manager) sendTemperatureLockupNotification(sensor *TemperatureSensor) {
 		"The sensor may need to be reset or replaced.",
 		friendlyName, sensorValue, hoursLocked)
 
-	notification := &ha.Notification{
-		Title:   "Temperature Sensor Locked Up",
-		Message: message,
-		Data: &ha.NotificationData{
-			Tag:        fmt.Sprintf("environmental-temp-lockup-%s", entityID),
-			Group:      "environmental",
-			Importance: "high",
-			Sticky:     true,
-		},
-	}
-
 	m.logger.Info("Sending temperature lockup notification",
 		zap.String("entity_id", entityID),
 		zap.String("friendly_name", friendlyName),
@@ -1022,8 +1019,20 @@ func (m *Manager) sendTemperatureLockupNotification(sensor *TemperatureSensor) {
 		return
 	}
 
-	// Send notification
-	if err := m.haClient.SendNotification(NotificationTarget, notification); err != nil {
+	// Check if ntfy client is configured
+	if m.ntfyClient == nil {
+		m.logger.Warn("Cannot send temperature lockup notification - ntfy client not configured",
+			zap.String("entity_id", entityID))
+		return
+	}
+
+	// Send notification via ntfy
+	if err := m.ntfyClient.Send(&ntfy.Message{
+		Title:    "Temperature Sensor Locked Up",
+		Body:     message,
+		Priority: ntfy.PriorityHigh,
+		Tags:     []string{"warning", "thermometer"},
+	}); err != nil {
 		m.logger.Error("Failed to send temperature lockup notification",
 			zap.String("entity_id", entityID),
 			zap.Error(err))
@@ -1052,16 +1061,6 @@ func (m *Manager) sendTemperatureRecoveryNotification(sensor *TemperatureSensor,
 		"It is now reporting a new value (%.1f). The sensor appears to be working again.",
 		sensor.FriendlyName, newValue)
 
-	notification := &ha.Notification{
-		Title:   "Temperature Sensor Recovered",
-		Message: message,
-		Data: &ha.NotificationData{
-			Tag:        fmt.Sprintf("environmental-temp-recovery-%s", sensor.EntityID),
-			Group:      "environmental",
-			Importance: "default",
-		},
-	}
-
 	m.logger.Info("Sending temperature recovery notification",
 		zap.String("entity_id", sensor.EntityID),
 		zap.String("friendly_name", sensor.FriendlyName),
@@ -1077,8 +1076,20 @@ func (m *Manager) sendTemperatureRecoveryNotification(sensor *TemperatureSensor,
 		return
 	}
 
-	// Send notification
-	if err := m.haClient.SendNotification(NotificationTarget, notification); err != nil {
+	// Check if ntfy client is configured
+	if m.ntfyClient == nil {
+		m.logger.Warn("Cannot send temperature recovery notification - ntfy client not configured",
+			zap.String("entity_id", sensor.EntityID))
+		return
+	}
+
+	// Send notification via ntfy
+	if err := m.ntfyClient.Send(&ntfy.Message{
+		Title:    "Temperature Sensor Recovered",
+		Body:     message,
+		Priority: ntfy.PriorityDefault,
+		Tags:     []string{"white_check_mark", "thermometer"},
+	}); err != nil {
 		m.logger.Error("Failed to send temperature recovery notification",
 			zap.String("entity_id", sensor.EntityID),
 			zap.Error(err))
