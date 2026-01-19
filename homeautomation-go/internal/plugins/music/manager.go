@@ -1133,7 +1133,7 @@ const (
 
 	// asyncJoinStaggerDelay is the base delay between launching each speaker's join goroutine.
 	// Staggers join attempts to reduce IGMP/multicast congestion.
-	asyncJoinStaggerDelay = 45 * time.Second
+	asyncJoinStaggerDelay = 15 * time.Second
 
 	// asyncJoinJitterMax is the maximum random jitter added to stagger and retry delays.
 	// Prevents multiple speakers from aligning their join attempts.
