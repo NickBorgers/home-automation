@@ -182,6 +182,10 @@ func Run() {
 		zap.String("url", haURL),
 		zap.Bool("read_only", readOnly))
 
+	// Setup signal handling early to allow graceful shutdown during initialization
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+
 	// Create HA client
 	client := ha.NewClient(haURL, haToken, logger)
 
@@ -196,7 +200,16 @@ func Run() {
 			logger.Warn("Failed to connect to Home Assistant, will retry",
 				zap.Error(err),
 				zap.Duration("backoff", initialConnectBackoff))
-			time.Sleep(initialConnectBackoff)
+
+			// Use select to allow shutdown during backoff
+			select {
+			case <-sigChan:
+				logger.Info("Shutdown signal received during connection retry, exiting...")
+				os.Exit(0)
+			case <-time.After(initialConnectBackoff):
+				// Continue with backoff
+			}
+
 			initialConnectBackoff *= 2
 			if initialConnectBackoff > maxBackoff {
 				initialConnectBackoff = maxBackoff
@@ -226,7 +239,16 @@ func Run() {
 			if attempt < syncMaxRetries {
 				logger.Info("Retrying state sync after backoff",
 					zap.Duration("backoff", syncBackoff))
-				time.Sleep(syncBackoff)
+
+				// Use select to allow shutdown during backoff
+				select {
+				case <-sigChan:
+					logger.Info("Shutdown signal received during state sync retry, exiting...")
+					os.Exit(0)
+				case <-time.After(syncBackoff):
+					// Continue with backoff
+				}
+
 				syncBackoff *= 2
 				if syncBackoff > maxBackoff {
 					syncBackoff = maxBackoff
@@ -382,10 +404,6 @@ func Run() {
 		logger.Fatal("Failed to start Reset Coordinator", zap.Error(err))
 	}
 	defer resetCoordinator.Stop()
-
-	// Setup signal handling for graceful shutdown
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
 	logger.Info("Application running. Press Ctrl+C to exit.")
 	if readOnly {
