@@ -2292,9 +2292,16 @@ func (m *Manager) callServiceWithRetry(domain, service string, serviceData map[s
 	}
 
 	// Refresh available speakers
-	m.logger.Info("Service call failed, refreshing available speakers",
+	// For join operations, also log which speakers we're trying to join
+	logFields := []zap.Field{
 		zap.String("entity_id", entityID),
-		zap.Error(err))
+		zap.String("service", domain+"."+service),
+		zap.Error(err),
+	}
+	if groupMembers, ok := serviceData["group_members"].([]string); ok && len(groupMembers) > 0 {
+		logFields = append(logFields, zap.Strings("group_members", groupMembers))
+	}
+	m.logger.Info("Service call failed, refreshing available speakers", logFields...)
 
 	if refreshErr := m.refreshAvailableSpeakers(); refreshErr != nil {
 		m.logger.Warn("Failed to refresh speakers", zap.Error(refreshErr))
@@ -2307,7 +2314,9 @@ func (m *Manager) callServiceWithRetry(domain, service string, serviceData map[s
 	}
 
 	// Retry once
-	m.logger.Info("Retrying service call after refresh", zap.String("entity_id", entityID))
+	m.logger.Info("Retrying service call after refresh",
+		zap.String("entity_id", entityID),
+		zap.String("service", domain+"."+service))
 	return m.callService(domain, service, serviceData)
 }
 
