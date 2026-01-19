@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
+	"strings"
 	"time"
 
 	"go.uber.org/zap"
@@ -37,7 +39,8 @@ const (
 
 // Client is an ntfy.sh notification client
 type Client struct {
-	topicURL   string
+	baseURL    string // e.g., "https://ntfy.sh"
+	topic      string // e.g., "my-secret-topic"
 	httpClient *http.Client
 	logger     *zap.Logger
 	readOnly   bool
@@ -54,6 +57,7 @@ type ntfyPayload struct {
 }
 
 // NewClient creates a new ntfy client.
+// topicURL should be the full URL including topic, e.g., "https://ntfy.sh/my-topic"
 // Returns nil if topicURL is empty, logging an error.
 func NewClient(topicURL string, logger *zap.Logger, readOnly bool) *Client {
 	if topicURL == "" {
@@ -62,8 +66,30 @@ func NewClient(topicURL string, logger *zap.Logger, readOnly bool) *Client {
 		return nil
 	}
 
+	// Parse the topic URL to extract base URL and topic
+	parsed, err := url.Parse(topicURL)
+	if err != nil {
+		logger.Error("Invalid NTFY_TOPIC_URL - notifications will be disabled",
+			zap.String("url", topicURL),
+			zap.Error(err))
+		return nil
+	}
+
+	// Extract topic from path (e.g., "/my-topic" -> "my-topic")
+	topic := strings.TrimPrefix(parsed.Path, "/")
+	if topic == "" {
+		logger.Error("NTFY_TOPIC_URL missing topic - notifications will be disabled",
+			zap.String("url", topicURL),
+			zap.String("action", "URL should be like https://ntfy.sh/your-topic"))
+		return nil
+	}
+
+	// Construct base URL (scheme + host)
+	baseURL := fmt.Sprintf("%s://%s", parsed.Scheme, parsed.Host)
+
 	return &Client{
-		topicURL: topicURL,
+		baseURL: baseURL,
+		topic:   topic,
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
@@ -88,6 +114,7 @@ func (c *Client) Send(msg *Message) error {
 	}
 
 	payload := ntfyPayload{
+		Topic:    c.topic, // Required when POSTing JSON to base URL
 		Title:    msg.Title,
 		Message:  msg.Body,
 		Priority: priority,
@@ -110,7 +137,8 @@ func (c *Client) Send(msg *Message) error {
 		return nil
 	}
 
-	req, err := http.NewRequest(http.MethodPost, c.topicURL, bytes.NewBuffer(jsonData))
+	// POST JSON to base URL (not topic URL) per ntfy.sh API requirements
+	req, err := http.NewRequest(http.MethodPost, c.baseURL, bytes.NewBuffer(jsonData))
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}

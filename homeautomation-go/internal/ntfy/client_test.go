@@ -18,12 +18,23 @@ func TestNewClient(t *testing.T) {
 	t.Run("returns client when URL provided", func(t *testing.T) {
 		client := NewClient("https://ntfy.sh/test-topic", logger, false)
 		assert.NotNil(t, client)
-		assert.Equal(t, "https://ntfy.sh/test-topic", client.topicURL)
+		assert.Equal(t, "https://ntfy.sh", client.baseURL)
+		assert.Equal(t, "test-topic", client.topic)
 		assert.False(t, client.readOnly)
 	})
 
 	t.Run("returns nil when URL empty", func(t *testing.T) {
 		client := NewClient("", logger, false)
+		assert.Nil(t, client)
+	})
+
+	t.Run("returns nil when URL has no topic", func(t *testing.T) {
+		client := NewClient("https://ntfy.sh", logger, false)
+		assert.Nil(t, client)
+	})
+
+	t.Run("returns nil when URL has only slash", func(t *testing.T) {
+		client := NewClient("https://ntfy.sh/", logger, false)
 		assert.Nil(t, client)
 	})
 
@@ -54,7 +65,7 @@ func TestClient_Send(t *testing.T) {
 		}))
 		defer server.Close()
 
-		client := NewClient(server.URL, logger, false)
+		client := NewClient(server.URL+"/test-topic", logger, false)
 
 		msg := &Message{
 			Title:    "Test Title",
@@ -67,6 +78,7 @@ func TestClient_Send(t *testing.T) {
 		err := client.Send(msg)
 		require.NoError(t, err)
 
+		assert.Equal(t, "test-topic", receivedPayload.Topic)
 		assert.Equal(t, "Test Title", receivedPayload.Title)
 		assert.Equal(t, "Test body message", receivedPayload.Message)
 		assert.Equal(t, PriorityHigh, receivedPayload.Priority)
@@ -84,7 +96,7 @@ func TestClient_Send(t *testing.T) {
 		}))
 		defer server.Close()
 
-		client := NewClient(server.URL, logger, false)
+		client := NewClient(server.URL+"/my-topic", logger, false)
 
 		msg := &Message{
 			Body: "Just the message",
@@ -93,6 +105,7 @@ func TestClient_Send(t *testing.T) {
 		err := client.Send(msg)
 		require.NoError(t, err)
 
+		assert.Equal(t, "my-topic", receivedPayload.Topic)
 		assert.Equal(t, "", receivedPayload.Title)
 		assert.Equal(t, "Just the message", receivedPayload.Message)
 		assert.Equal(t, PriorityDefault, receivedPayload.Priority)
@@ -108,7 +121,7 @@ func TestClient_Send(t *testing.T) {
 		}))
 		defer server.Close()
 
-		client := NewClient(server.URL, logger, false)
+		client := NewClient(server.URL+"/test-topic", logger, false)
 
 		// Test priority too high
 		msg := &Message{Body: "test", Priority: 10}
@@ -143,7 +156,7 @@ func TestClient_Send(t *testing.T) {
 		}))
 		defer server.Close()
 
-		client := NewClient(server.URL, logger, false)
+		client := NewClient(server.URL+"/test-topic", logger, false)
 
 		err := client.Send(&Message{Body: "test"})
 		assert.Error(t, err)
@@ -151,7 +164,7 @@ func TestClient_Send(t *testing.T) {
 	})
 
 	t.Run("returns error on network failure", func(t *testing.T) {
-		client := NewClient("http://localhost:1", logger, false)
+		client := NewClient("http://localhost:1/test-topic", logger, false)
 
 		err := client.Send(&Message{Body: "test"})
 		assert.Error(t, err)
@@ -166,7 +179,7 @@ func TestClient_Send(t *testing.T) {
 		}))
 		defer server.Close()
 
-		client := NewClient(server.URL, logger, true) // readOnly = true
+		client := NewClient(server.URL+"/test-topic", logger, true) // readOnly = true
 
 		err := client.Send(&Message{
 			Title: "Test",
