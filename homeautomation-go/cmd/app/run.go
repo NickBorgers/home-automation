@@ -185,9 +185,25 @@ func Run() {
 	// Create HA client
 	client := ha.NewClient(haURL, haToken, logger)
 
-	// Connect to Home Assistant
-	if err := client.Connect(); err != nil {
-		logger.Fatal("Failed to connect to Home Assistant", zap.Error(err))
+	// Connect to Home Assistant with retry logic.
+	// Unlike the runtime reconnection logic which triggers automatically on disconnect,
+	// this provides resilience for initial connection failures (e.g., HA not yet started).
+	// Uses the same exponential backoff pattern as the client's attemptReconnect().
+	initialConnectBackoff := time.Second
+	maxBackoff := 30 * time.Second
+	for {
+		if err := client.Connect(); err != nil {
+			logger.Warn("Failed to connect to Home Assistant, will retry",
+				zap.Error(err),
+				zap.Duration("backoff", initialConnectBackoff))
+			time.Sleep(initialConnectBackoff)
+			initialConnectBackoff *= 2
+			if initialConnectBackoff > maxBackoff {
+				initialConnectBackoff = maxBackoff
+			}
+			continue
+		}
+		break
 	}
 	defer client.Disconnect()
 
@@ -196,9 +212,33 @@ func Run() {
 	// Create State Manager
 	stateManager := state.NewManager(client, logger, readOnly)
 
-	// Sync all state from HA
-	if err := stateManager.SyncFromHA(); err != nil {
-		logger.Fatal("Failed to sync state from HA", zap.Error(err))
+	// Sync all state from HA with retry logic.
+	// This handles transient failures during initial state synchronization.
+	syncMaxRetries := 5
+	syncBackoff := time.Second
+	for attempt := 1; attempt <= syncMaxRetries; attempt++ {
+		if err := stateManager.SyncFromHA(); err != nil {
+			logger.Warn("Failed to sync state from HA",
+				zap.Error(err),
+				zap.Int("attempt", attempt),
+				zap.Int("maxRetries", syncMaxRetries))
+
+			if attempt < syncMaxRetries {
+				logger.Info("Retrying state sync after backoff",
+					zap.Duration("backoff", syncBackoff))
+				time.Sleep(syncBackoff)
+				syncBackoff *= 2
+				if syncBackoff > maxBackoff {
+					syncBackoff = maxBackoff
+				}
+				continue
+			}
+			logger.Fatal("Failed to sync state from HA after all retries", zap.Error(err))
+		}
+		if attempt > 1 {
+			logger.Info("State sync succeeded after retry", zap.Int("attempts", attempt))
+		}
+		break
 	}
 
 	// Set up reconnect callback to resync state after connection recovery.
