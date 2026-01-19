@@ -571,7 +571,7 @@ homeautomation-go/
 │   │   ├── manager.go               # ✅ State manager implementation
 │   │   ├── manager_test.go          # ✅ Unit tests
 │   │   └── variables.go             # ✅ 40 state variable definitions
-│   └── plugins/                     # ✅ Automation plugins (12 total)
+│   └── plugins/                     # ✅ Automation plugins (13 total)
 │       ├── statetracking/           # ✅ State Tracking plugin
 │       ├── dayphase/                # ✅ Day Phase plugin
 │       ├── energy/                  # ✅ Energy State plugin
@@ -581,6 +581,7 @@ homeautomation-go/
 │       ├── tv/                      # ✅ TV Monitoring plugin
 │       ├── environmental/           # ✅ Environmental Monitoring plugin
 │       ├── security/                # ✅ Security plugin
+│       ├── monitoring/              # ✅ Monitoring plugin (water leak, battery, staleness)
 │       ├── loadshedding/            # ✅ Load Shedding plugin
 │       ├── sexmode/                 # ✅ Sex Mode plugin
 │       ├── christmas/               # ✅ Christmas plugin
@@ -618,6 +619,7 @@ homeautomation-go/
 - ✅ TV Monitoring plugin
 - ✅ Environmental Monitoring plugin
 - ✅ Security plugin
+- ✅ Monitoring plugin (water leak, low battery, sensor staleness)
 - ✅ Load Shedding plugin
 - ✅ Sex Mode plugin
 - ✅ Christmas plugin

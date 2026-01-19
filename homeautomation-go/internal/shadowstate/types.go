@@ -1098,3 +1098,141 @@ func NewEnvironmentalShadowState() *EnvironmentalShadowState {
 		},
 	}
 }
+
+// ============================================================================
+// Monitoring Shadow State - Water Leak, Battery, and Staleness Monitoring
+// ============================================================================
+
+// MonitoringShadowState represents the shadow state for the monitoring plugin
+type MonitoringShadowState struct {
+	Plugin   string            `json:"plugin"`
+	Inputs   MonitoringInputs  `json:"inputs"`
+	Outputs  MonitoringOutputs `json:"outputs"`
+	Metadata StateMetadata     `json:"metadata"`
+}
+
+// MonitoringInputs tracks current sensor values
+type MonitoringInputs struct {
+	Current map[string]interface{} `json:"current"`
+}
+
+// MonitoringOutputs tracks discovered sensors, alerts, and notification history
+type MonitoringOutputs struct {
+	WaterLeakSensors     []WaterLeakSensorData   `json:"waterLeakSensors"`
+	BatterySensors       []BatterySensorData     `json:"batterySensors"`
+	ActiveWaterLeaks     []WaterLeakAlert        `json:"activeWaterLeaks,omitempty"`
+	LowBatteryAlerts     []LowBatteryAlert       `json:"lowBatteryAlerts,omitempty"`
+	StaleSensorAlerts    []StaleSensorAlert      `json:"staleSensorAlerts,omitempty"`
+	LastNotification     *MonitoringNotification `json:"lastNotification,omitempty"`
+	Config               MonitoringConfig        `json:"config"`
+	LastUpdate           time.Time               `json:"lastUpdate"`
+	LastDiscoveryRefresh time.Time               `json:"lastDiscoveryRefresh,omitempty"`
+}
+
+// MonitoringConfig holds configurable thresholds
+type MonitoringConfig struct {
+	LowBatteryThreshold       int `json:"lowBatteryThreshold"`       // Percentage threshold (default 20)
+	StalenessThresholdMinutes int `json:"stalenessThresholdMinutes"` // Minutes before sensor considered stale (default 1440 = 24h)
+}
+
+// WaterLeakSensorData represents a discovered water leak sensor
+type WaterLeakSensorData struct {
+	EntityID     string    `json:"entityId"`
+	FriendlyName string    `json:"friendlyName"`
+	DeviceID     string    `json:"deviceId,omitempty"`
+	State        string    `json:"state"` // "on" = leak detected, "off" = no leak
+	LastChanged  time.Time `json:"lastChanged,omitempty"`
+}
+
+// BatterySensorData represents a discovered battery sensor
+type BatterySensorData struct {
+	EntityID      string    `json:"entityId"`
+	FriendlyName  string    `json:"friendlyName"`
+	DeviceID      string    `json:"deviceId,omitempty"`
+	BatteryLevel  float64   `json:"batteryLevel"` // Percentage 0-100
+	IsLow         bool      `json:"isLow"`        // True if below threshold
+	LastChanged   time.Time `json:"lastChanged,omitempty"`
+	LastReported  time.Time `json:"lastReported,omitempty"`
+	IsStale       bool      `json:"isStale"`       // True if no updates in staleness window
+	IsUnavailable bool      `json:"isUnavailable"` // True if state is "unavailable"
+}
+
+// WaterLeakAlert represents an active water leak alert
+type WaterLeakAlert struct {
+	EntityID         string    `json:"entityId"`
+	FriendlyName     string    `json:"friendlyName"`
+	DetectedAt       time.Time `json:"detectedAt"`
+	NotificationSent bool      `json:"notificationSent"`
+}
+
+// LowBatteryAlert represents an active low battery alert
+type LowBatteryAlert struct {
+	EntityID         string    `json:"entityId"`
+	FriendlyName     string    `json:"friendlyName"`
+	BatteryLevel     float64   `json:"batteryLevel"`
+	DetectedAt       time.Time `json:"detectedAt"`
+	NotificationSent bool      `json:"notificationSent"`
+}
+
+// StaleSensorAlert represents a stale sensor alert
+type StaleSensorAlert struct {
+	EntityID         string    `json:"entityId"`
+	FriendlyName     string    `json:"friendlyName"`
+	LastReported     time.Time `json:"lastReported"`
+	DetectedAt       time.Time `json:"detectedAt"`
+	NotificationSent bool      `json:"notificationSent"`
+}
+
+// MonitoringNotification tracks a notification that was sent
+type MonitoringNotification struct {
+	AlertType string    `json:"alertType"` // "water_leak", "low_battery", "stale_sensor"
+	EntityID  string    `json:"entityId"`
+	Message   string    `json:"message"`
+	Timestamp time.Time `json:"timestamp"`
+}
+
+// GetCurrentInputs implements PluginShadowState
+func (m *MonitoringShadowState) GetCurrentInputs() map[string]interface{} {
+	return m.Inputs.Current
+}
+
+// GetLastActionInputs implements PluginShadowState
+// For monitoring, this returns the same as current (read-heavy, alerts are outputs)
+func (m *MonitoringShadowState) GetLastActionInputs() map[string]interface{} {
+	return m.Inputs.Current
+}
+
+// GetOutputs implements PluginShadowState
+func (m *MonitoringShadowState) GetOutputs() interface{} {
+	return m.Outputs
+}
+
+// GetMetadata implements PluginShadowState
+func (m *MonitoringShadowState) GetMetadata() StateMetadata {
+	return m.Metadata
+}
+
+// NewMonitoringShadowState creates a new monitoring shadow state
+func NewMonitoringShadowState() *MonitoringShadowState {
+	return &MonitoringShadowState{
+		Plugin: "monitoring",
+		Inputs: MonitoringInputs{
+			Current: make(map[string]interface{}),
+		},
+		Outputs: MonitoringOutputs{
+			WaterLeakSensors:  make([]WaterLeakSensorData, 0),
+			BatterySensors:    make([]BatterySensorData, 0),
+			ActiveWaterLeaks:  make([]WaterLeakAlert, 0),
+			LowBatteryAlerts:  make([]LowBatteryAlert, 0),
+			StaleSensorAlerts: make([]StaleSensorAlert, 0),
+			Config: MonitoringConfig{
+				LowBatteryThreshold:       20,
+				StalenessThresholdMinutes: 1440, // 24 hours
+			},
+		},
+		Metadata: StateMetadata{
+			LastUpdated: time.Now(),
+			PluginName:  "monitoring",
+		},
+	}
+}

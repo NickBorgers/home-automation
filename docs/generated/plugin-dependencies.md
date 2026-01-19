@@ -42,6 +42,7 @@ graph LR
         environmental["environmental"]
         lighting["lighting"]
         loadshedding["loadshedding"]
+        monitoring["monitoring"]
         music["music"]
         security["security"]
         sexmode["sexmode"]
