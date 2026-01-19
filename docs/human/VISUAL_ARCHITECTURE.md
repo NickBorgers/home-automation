@@ -50,6 +50,7 @@ graph TB
             LoadShed[Load Shedding<br/>internal/plugins/loadshedding/]
             Christmas[Christmas<br/>internal/plugins/christmas/]
             Environmental[Environmental Monitoring<br/>internal/plugins/environmental/]
+            Monitoring[Monitoring<br/>internal/plugins/monitoring/]
             ResetCoord[Reset Coordinator<br/>internal/plugins/reset/]
         end
 
@@ -132,6 +133,10 @@ graph TB
     Environmental -->|Entity Subscriptions| HAClient
     Environmental -.->|Register Shadow| ShadowTracker
 
+    Monitoring -->|Entity Subscriptions| HAClient
+    Monitoring -->|Notifications| HAClient
+    Monitoring -.->|Register Shadow| ShadowTracker
+
     ResetCoord -->|Subscribe to reset| StateManager
     ResetCoord -.->|Reset All| StateTracking
     ResetCoord -.->|Reset All| Music
@@ -156,6 +161,7 @@ graph TB
     style LoadShed fill:#f3e5f5
     style Christmas fill:#f3e5f5
     style Environmental fill:#f3e5f5
+    style Monitoring fill:#f3e5f5
     style StateTracking fill:#f3e5f5
     style DayPhase fill:#f3e5f5
     style ResetCoord fill:#ffebee
@@ -918,11 +924,14 @@ graph LR
         LoadShedding[Load Shedding Plugin]
         ChristmasPlugin[Christmas Plugin]
         EnvironmentalPlugin[Environmental Plugin]
+        MonitoringPlugin[Monitoring Plugin]
         ResetCoord[Reset Coordinator<br/>Order: 90]
     end
 
     subgraph "HA Entities (Sensors)"
         HumiditySensors[sensor.*_humidity]
+        WaterLeakSensors[binary_sensor.*water_leak*]
+        BatteryStateSensors[sensor.*_battery]
     end
 
     NickHome --> StateTracking
@@ -1002,6 +1011,10 @@ graph LR
 
     HumiditySensors --> EnvironmentalPlugin
     EnvironmentalPlugin -.->|Notifications| HAClient
+
+    WaterLeakSensors --> MonitoringPlugin
+    BatteryStateSensors --> MonitoringPlugin
+    MonitoringPlugin -.->|Notifications| HAClient
 
     Reset --> ResetCoord
     ResetCoord -.->|Reset| StateTracking
