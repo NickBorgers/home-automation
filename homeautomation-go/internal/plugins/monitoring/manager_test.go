@@ -540,3 +540,137 @@ func TestParseBatteryLevel(t *testing.T) {
 		})
 	}
 }
+
+func TestHasIgnoreLabel(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		labels   []string
+		expected bool
+	}{
+		{"nil labels", nil, false},
+		{"empty labels", []string{}, false},
+		{"other labels only", []string{"important", "kitchen"}, false},
+		{"has ignore label", []string{"monitoring_ignore"}, true},
+		{"ignore label among others", []string{"important", "monitoring_ignore", "kitchen"}, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := hasIgnoreLabel(tt.labels)
+			if result != tt.expected {
+				t.Errorf("hasIgnoreLabel(%v) = %v, expected %v", tt.labels, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestMonitoringManager_IgnoreLabeledDevices(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	mockNtfy := ntfy.NewMockClient()
+
+	// Add devices - one normal, one with monitoring_ignore label
+	mockHA.AddDevice(&ha.Device{
+		ID:     "device_water_leak_normal",
+		Name:   "Normal Water Leak Device",
+		Labels: []string{},
+	})
+	mockHA.AddDevice(&ha.Device{
+		ID:     "device_water_leak_ignored",
+		Name:   "Ignored Water Leak Device",
+		Labels: []string{"monitoring_ignore"},
+	})
+	mockHA.AddDevice(&ha.Device{
+		ID:     "device_battery_normal",
+		Name:   "Normal Battery Device",
+		Labels: []string{},
+	})
+	mockHA.AddDevice(&ha.Device{
+		ID:     "device_battery_ignored",
+		Name:   "Ignored Battery Device",
+		Labels: []string{"monitoring_ignore", "other_label"},
+	})
+
+	// Add entity registry entries with device links
+	mockHA.AddEntityRegistryEntry(&ha.EntityRegistryEntry{
+		EntityID: "binary_sensor.water_leak_normal",
+		DeviceID: "device_water_leak_normal",
+	})
+	mockHA.AddEntityRegistryEntry(&ha.EntityRegistryEntry{
+		EntityID: "binary_sensor.water_leak_ignored",
+		DeviceID: "device_water_leak_ignored",
+	})
+	mockHA.AddEntityRegistryEntry(&ha.EntityRegistryEntry{
+		EntityID: "sensor.battery_normal",
+		DeviceID: "device_battery_normal",
+	})
+	mockHA.AddEntityRegistryEntry(&ha.EntityRegistryEntry{
+		EntityID: "sensor.battery_ignored",
+		DeviceID: "device_battery_ignored",
+	})
+
+	// Add water leak sensor states
+	mockHA.SetState("binary_sensor.water_leak_normal", "off", map[string]interface{}{
+		"device_class":  "moisture",
+		"friendly_name": "Normal Water Leak Sensor",
+	})
+	mockHA.SetState("binary_sensor.water_leak_ignored", "off", map[string]interface{}{
+		"device_class":  "moisture",
+		"friendly_name": "Ignored Water Leak Sensor",
+	})
+
+	// Add battery sensor states
+	mockHA.SetState("sensor.battery_normal", "85.0", map[string]interface{}{
+		"device_class":        "battery",
+		"unit_of_measurement": "%",
+		"friendly_name":       "Normal Battery Sensor",
+	})
+	mockHA.SetState("sensor.battery_ignored", "10.0", map[string]interface{}{
+		"device_class":        "battery",
+		"unit_of_measurement": "%",
+		"friendly_name":       "Ignored Battery Sensor",
+	})
+
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+
+	manager := NewManager(mockHA, stateMgr, logger, false, nil, mockNtfy)
+
+	err := manager.Start()
+	if err != nil {
+		t.Fatalf("Failed to start manager: %v", err)
+	}
+	defer manager.Stop()
+
+	// Verify only non-ignored water leak sensors were discovered
+	waterLeakSensors := manager.GetWaterLeakSensors()
+	if len(waterLeakSensors) != 1 {
+		t.Errorf("Expected 1 water leak sensor (ignored device filtered), got %d", len(waterLeakSensors))
+	}
+	if len(waterLeakSensors) == 1 {
+		if _, ok := waterLeakSensors["binary_sensor.water_leak_normal"]; !ok {
+			t.Error("Expected normal water leak sensor to be discovered")
+		}
+	}
+
+	// Verify only non-ignored battery sensors were discovered
+	batterySensors := manager.GetBatterySensors()
+	if len(batterySensors) != 1 {
+		t.Errorf("Expected 1 battery sensor (ignored device filtered), got %d", len(batterySensors))
+	}
+	if len(batterySensors) == 1 {
+		if _, ok := batterySensors["sensor.battery_normal"]; !ok {
+			t.Error("Expected normal battery sensor to be discovered")
+		}
+	}
+
+	// Verify that no notifications were sent for the ignored low battery sensor
+	// (the ignored device has 10% battery which is below threshold)
+	notificationCount := countNtfyNotifications(mockNtfy)
+	if notificationCount != 0 {
+		t.Errorf("Expected 0 notifications (ignored device should not trigger), got %d", notificationCount)
+	}
+}
