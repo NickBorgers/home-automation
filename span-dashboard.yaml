@@ -1,0 +1,780 @@
+title: SPAN Electrical Panels
+views:
+  # ============================================================
+  # OVERVIEW - Batteries, Solar, Total Power
+  # ============================================================
+  - title: Overview
+    path: overview
+    icon: mdi:lightning-bolt
+    cards:
+      # BATTERIES
+      - type: vertical-stack
+        cards:
+          - type: markdown
+            content: "## Batteries"
+          - type: horizontal-stack
+            cards:
+              - type: gauge
+                entity: sensor.span_panel_span_storage_battery_percentage
+                name: Battery 1
+                min: 0
+                max: 100
+                severity:
+                  green: 50
+                  yellow: 20
+                  red: 0
+                needle: true
+              - type: gauge
+                entity: sensor.span_panel_span_storage_battery_percentage_2
+                name: Battery 2
+                min: 0
+                max: 100
+                severity:
+                  green: 50
+                  yellow: 20
+                  red: 0
+                needle: true
+
+      # SOLAR PRODUCTION
+      - type: vertical-stack
+        cards:
+          - type: markdown
+            content: "## Solar Production"
+          - type: horizontal-stack
+            cards:
+              - type: sensor
+                entity: sensor.span_panel_solar_inverter_instant_power
+                name: Inverter 1
+                graph: line
+              - type: sensor
+                entity: sensor.span_panel_solar_inverter_instant_power_2
+                name: Inverter 2
+                graph: line
+
+      # PANEL TOTALS
+      - type: vertical-stack
+        cards:
+          - type: markdown
+            content: "## Panel Power"
+          - type: horizontal-stack
+            cards:
+              - type: sensor
+                entity: sensor.span_left_most_of_house_current_power
+                name: Left Panel (Main)
+                graph: line
+              - type: sensor
+                entity: sensor.span_right_hvac_and_well_current_power
+                name: Right Panel (HVAC)
+                graph: line
+
+      # BATTERY HISTORY
+      - type: history-graph
+        title: Battery Levels (24h)
+        hours_to_show: 24
+        entities:
+          - entity: sensor.span_panel_span_storage_battery_percentage
+            name: Battery 1
+          - entity: sensor.span_panel_span_storage_battery_percentage_2
+            name: Battery 2
+
+      # POWER HISTORY
+      - type: history-graph
+        title: Panel Power (24h)
+        hours_to_show: 24
+        entities:
+          - entity: sensor.span_left_most_of_house_current_power
+            name: Left Panel (Main)
+          - entity: sensor.span_right_hvac_and_well_current_power
+            name: Right Panel (HVAC)
+
+      # SOLAR HISTORY
+      - type: history-graph
+        title: Solar Production (24h)
+        hours_to_show: 24
+        entities:
+          - entity: sensor.span_panel_solar_inverter_instant_power
+            name: Inverter 1
+          - entity: sensor.span_panel_solar_inverter_instant_power_2
+            name: Inverter 2
+
+  # ============================================================
+  # LEFT PANEL - Most of House (Main Panel)
+  # ============================================================
+  - title: Left Panel
+    path: left-panel
+    icon: mdi:home-lightning-bolt
+    cards:
+      - type: markdown
+        content: "## Left Panel - Most of House"
+
+      # PRIMARY SUITE HVAC
+      - type: vertical-stack
+        cards:
+          - type: markdown
+            content: "### Primary Suite HVAC"
+          - type: glance
+            entities:
+              - entity: sensor.span_left_most_of_house_primary_suite_hvac_condenser_power
+                name: Condenser
+              - entity: sensor.span_left_most_of_house_primary_suite_hvac_air_exchanger_power
+                name: Air Exchanger
+              - entity: sensor.span_left_most_of_house_primary_suite_hvac_heat_strips_power
+                name: Heat Strips
+          - type: history-graph
+            title: Primary HVAC (24h)
+            hours_to_show: 24
+            entities:
+              - entity: sensor.span_left_most_of_house_primary_suite_hvac_condenser_power
+                name: Condenser
+              - entity: sensor.span_left_most_of_house_primary_suite_hvac_air_exchanger_power
+                name: Air Exchanger
+              - entity: sensor.span_left_most_of_house_primary_suite_hvac_heat_strips_power
+                name: Heat Strips
+
+      # HIGH POWER LOADS
+      - type: vertical-stack
+        cards:
+          - type: markdown
+            content: "### High Power Loads"
+          - type: glance
+            entities:
+              - entity: sensor.span_left_most_of_house_ev_charger_power
+                name: EV Charger
+              - entity: sensor.span_left_most_of_house_hot_tub_power
+                name: Hot Tub
+              - entity: sensor.span_left_most_of_house_pool_pump_power
+                name: Pool Pump
+              - entity: sensor.span_left_most_of_house_most_of_house_water_heater_power
+                name: Water Heater
+          - type: history-graph
+            title: High Power Loads (24h)
+            hours_to_show: 24
+            entities:
+              - entity: sensor.span_left_most_of_house_ev_charger_power
+                name: EV Charger
+              - entity: sensor.span_left_most_of_house_hot_tub_power
+                name: Hot Tub
+              - entity: sensor.span_left_most_of_house_pool_pump_power
+                name: Pool Pump
+              - entity: sensor.span_left_most_of_house_most_of_house_water_heater_power
+                name: Water Heater
+
+      # PRIMARY BEDROOM & BATHROOM
+      - type: vertical-stack
+        cards:
+          - type: markdown
+            content: "### Primary Suite"
+          - type: glance
+            entities:
+              - entity: sensor.span_left_most_of_house_primary_bedroom_lights_wall_plugs_power
+                name: Bedroom
+              - entity: sensor.span_left_most_of_house_primary_bathroom_lights_power
+                name: Bathroom
+
+      # LIVING AREAS
+      - type: vertical-stack
+        cards:
+          - type: markdown
+            content: "### Living Areas"
+          - type: glance
+            entities:
+              - entity: sensor.span_left_most_of_house_dining_room_lights_wall_plugs_1_2_bath_outlets_power
+                name: Dining/Bath
+              - entity: sensor.span_left_most_of_house_outside_entry_hall_formal_lights_living_room_power
+                name: Entry/Living
+              - entity: sensor.span_left_most_of_house_tv_power
+                name: TV
+              - entity: sensor.span_left_most_of_house_pantry_power
+                name: Pantry
+
+      # OTHER ROOMS
+      - type: vertical-stack
+        cards:
+          - type: markdown
+            content: "### Other Areas"
+          - type: glance
+            entities:
+              - entity: sensor.span_left_most_of_house_dedicated_back_bedroom_power
+                name: Back Bedroom
+              - entity: sensor.span_left_most_of_house_kids_bathroom_power
+                name: Kids Bath
+              - entity: sensor.span_left_most_of_house_nick_office_dishwasher_power
+                name: Nick Office/Dishwasher
+              - entity: sensor.span_left_most_of_house_laundry_and_outlets_power
+                name: Laundry
+
+      # EXTERIOR & UTILITY
+      - type: vertical-stack
+        cards:
+          - type: markdown
+            content: "### Exterior & Utility"
+          - type: glance
+            entities:
+              - entity: sensor.span_left_most_of_house_exercise_room_garage_outlets_cameras_power
+                name: Garage/Cameras
+              - entity: sensor.span_left_most_of_house_patio_fan_north_and_interior_outlet_power
+                name: Patio Fan
+              - entity: sensor.span_left_most_of_house_shed_power
+                name: Shed
+              - entity: sensor.span_left_most_of_house_aerobic_septic_system_power
+                name: Septic
+
+      # ALL CIRCUITS TABLE
+      - type: entities
+        title: All Left Panel Circuits (Power)
+        show_header_toggle: false
+        entities:
+          - entity: sensor.span_left_most_of_house_primary_suite_hvac_condenser_power
+            name: Primary HVAC Condenser
+          - entity: sensor.span_left_most_of_house_primary_suite_hvac_air_exchanger_power
+            name: Primary HVAC Air Exchanger
+          - entity: sensor.span_left_most_of_house_primary_suite_hvac_heat_strips_power
+            name: Primary HVAC Heat Strips
+          - entity: sensor.span_left_most_of_house_ev_charger_power
+            name: EV Charger
+          - entity: sensor.span_left_most_of_house_hot_tub_power
+            name: Hot Tub
+          - entity: sensor.span_left_most_of_house_pool_pump_power
+            name: Pool Pump
+          - entity: sensor.span_left_most_of_house_most_of_house_water_heater_power
+            name: Water Heater
+          - entity: sensor.span_left_most_of_house_primary_bedroom_lights_wall_plugs_power
+            name: Primary Bedroom
+          - entity: sensor.span_left_most_of_house_primary_bathroom_lights_power
+            name: Primary Bathroom
+          - entity: sensor.span_left_most_of_house_dining_room_lights_wall_plugs_1_2_bath_outlets_power
+            name: Dining/Half Bath
+          - entity: sensor.span_left_most_of_house_outside_entry_hall_formal_lights_living_room_power
+            name: Entry/Living Room
+          - entity: sensor.span_left_most_of_house_tv_power
+            name: TV
+          - entity: sensor.span_left_most_of_house_pantry_power
+            name: Pantry
+          - entity: sensor.span_left_most_of_house_dedicated_back_bedroom_power
+            name: Back Bedroom
+          - entity: sensor.span_left_most_of_house_kids_bathroom_power
+            name: Kids Bathroom
+          - entity: sensor.span_left_most_of_house_nick_office_dishwasher_power
+            name: Nick Office/Dishwasher
+          - entity: sensor.span_left_most_of_house_laundry_and_outlets_power
+            name: Laundry
+          - entity: sensor.span_left_most_of_house_exercise_room_garage_outlets_cameras_power
+            name: Garage/Cameras
+          - entity: sensor.span_left_most_of_house_patio_fan_north_and_interior_outlet_power
+            name: Patio Fan
+          - entity: sensor.span_left_most_of_house_shed_power
+            name: Shed
+          - entity: sensor.span_left_most_of_house_aerobic_septic_system_power
+            name: Septic System
+          - entity: sensor.span_left_most_of_house_surge_protector_power
+            name: Surge Protector
+          - entity: sensor.span_left_most_of_house_unlabeled_power
+            name: Unlabeled
+          - entity: sensor.span_left_most_of_house_feed_through_power
+            name: Feed Through (to Right Panel)
+
+  # ============================================================
+  # RIGHT PANEL - HVAC and Well
+  # ============================================================
+  - title: Right Panel
+    path: right-panel
+    icon: mdi:hvac
+    cards:
+      - type: markdown
+        content: "## Right Panel - HVAC & Well"
+
+      # MAIN HVAC SYSTEM
+      - type: vertical-stack
+        cards:
+          - type: markdown
+            content: "### Main House HVAC"
+          - type: glance
+            entities:
+              - entity: sensor.span_right_hvac_and_well_most_of_house_hvac_condenser_power
+                name: Condenser
+              - entity: sensor.span_right_hvac_and_well_most_of_house_hvac_air_handler_power
+                name: Air Handler
+              - entity: sensor.span_right_hvac_and_well_most_of_house_hvac_heat_strips_power
+                name: Heat Strips
+          - type: history-graph
+            title: Main HVAC (24h)
+            hours_to_show: 24
+            entities:
+              - entity: sensor.span_right_hvac_and_well_most_of_house_hvac_condenser_power
+                name: Condenser
+              - entity: sensor.span_right_hvac_and_well_most_of_house_hvac_air_handler_power
+                name: Air Handler
+              - entity: sensor.span_right_hvac_and_well_most_of_house_hvac_heat_strips_power
+                name: Heat Strips
+
+      # KITCHEN
+      - type: vertical-stack
+        cards:
+          - type: markdown
+            content: "### Kitchen"
+          - type: glance
+            entities:
+              - entity: sensor.span_right_hvac_and_well_range_power
+                name: Range
+              - entity: sensor.span_right_hvac_and_well_microwave_power
+                name: Microwave
+              - entity: sensor.span_right_hvac_and_well_kitchen_lights_power
+                name: Lights
+              - entity: sensor.span_right_hvac_and_well_kitchen_wall_plugs_fridge_power
+                name: Fridge
+              - entity: sensor.span_right_hvac_and_well_outlets_in_kitchen_space_power
+                name: Outlets
+              - entity: sensor.span_right_hvac_and_well_disposal_power
+                name: Disposal
+          - type: history-graph
+            title: Kitchen Major Loads (24h)
+            hours_to_show: 24
+            entities:
+              - entity: sensor.span_right_hvac_and_well_range_power
+                name: Range
+              - entity: sensor.span_right_hvac_and_well_microwave_power
+                name: Microwave
+              - entity: sensor.span_right_hvac_and_well_kitchen_wall_plugs_fridge_power
+                name: Fridge
+
+      # BEDROOMS & OFFICE
+      - type: vertical-stack
+        cards:
+          - type: markdown
+            content: "### Bedrooms & Office"
+          - type: glance
+            entities:
+              - entity: sensor.span_right_hvac_and_well_caroline_office_power
+                name: Caroline's Office
+              - entity: sensor.span_right_hvac_and_well_farthest_bedroom_power
+                name: Farthest Bedroom
+              - entity: sensor.span_right_hvac_and_well_purple_guest_bedroom_power
+                name: Purple Bedroom
+          - type: history-graph
+            title: Bedrooms/Office (24h)
+            hours_to_show: 24
+            entities:
+              - entity: sensor.span_right_hvac_and_well_caroline_office_power
+                name: Caroline's Office
+              - entity: sensor.span_right_hvac_and_well_farthest_bedroom_power
+                name: Farthest Bedroom
+              - entity: sensor.span_right_hvac_and_well_purple_guest_bedroom_power
+                name: Purple Bedroom
+
+      # WATER & UTILITIES
+      - type: vertical-stack
+        cards:
+          - type: markdown
+            content: "### Water & Utilities"
+          - type: glance
+            entities:
+              - entity: sensor.span_right_hvac_and_well_well_power
+                name: Well Pump
+              - entity: sensor.span_right_hvac_and_well_kids_hot_water_heater_power
+                name: Hot Water
+          - type: history-graph
+            title: Well & Hot Water (24h)
+            hours_to_show: 24
+            entities:
+              - entity: sensor.span_right_hvac_and_well_well_power
+                name: Well Pump
+              - entity: sensor.span_right_hvac_and_well_kids_hot_water_heater_power
+                name: Hot Water
+
+      # BATHROOMS
+      - type: vertical-stack
+        cards:
+          - type: markdown
+            content: "### Bathrooms & Exterior"
+          - type: glance
+            entities:
+              - entity: sensor.span_right_hvac_and_well_primary_bathroom_sink_power
+                name: Primary Bath
+              - entity: sensor.span_right_hvac_and_well_half_bath_laundry_and_rear_exterior_flood_power
+                name: Half Bath/Laundry
+              - entity: sensor.span_right_hvac_and_well_front_exterior_lights_power
+                name: Front Lights
+
+      # ALL CIRCUITS TABLE
+      - type: entities
+        title: All Right Panel Circuits (Power)
+        show_header_toggle: false
+        entities:
+          - entity: sensor.span_right_hvac_and_well_most_of_house_hvac_condenser_power
+            name: HVAC Condenser
+          - entity: sensor.span_right_hvac_and_well_most_of_house_hvac_air_handler_power
+            name: HVAC Air Handler
+          - entity: sensor.span_right_hvac_and_well_most_of_house_hvac_heat_strips_power
+            name: HVAC Heat Strips
+          - entity: sensor.span_right_hvac_and_well_range_power
+            name: Range
+          - entity: sensor.span_right_hvac_and_well_microwave_power
+            name: Microwave
+          - entity: sensor.span_right_hvac_and_well_kitchen_lights_power
+            name: Kitchen Lights
+          - entity: sensor.span_right_hvac_and_well_kitchen_wall_plugs_fridge_power
+            name: Kitchen/Fridge
+          - entity: sensor.span_right_hvac_and_well_outlets_in_kitchen_space_power
+            name: Kitchen Outlets
+          - entity: sensor.span_right_hvac_and_well_disposal_power
+            name: Disposal
+          - entity: sensor.span_right_hvac_and_well_caroline_office_power
+            name: Caroline's Office
+          - entity: sensor.span_right_hvac_and_well_farthest_bedroom_power
+            name: Farthest Bedroom
+          - entity: sensor.span_right_hvac_and_well_purple_guest_bedroom_power
+            name: Purple Bedroom
+          - entity: sensor.span_right_hvac_and_well_well_power
+            name: Well Pump
+          - entity: sensor.span_right_hvac_and_well_kids_hot_water_heater_power
+            name: Kids Hot Water
+          - entity: sensor.span_right_hvac_and_well_primary_bathroom_sink_power
+            name: Primary Bathroom
+          - entity: sensor.span_right_hvac_and_well_half_bath_laundry_and_rear_exterior_flood_power
+            name: Half Bath/Laundry/Exterior
+          - entity: sensor.span_right_hvac_and_well_front_exterior_lights_power
+            name: Front Exterior Lights
+          - entity: sensor.span_right_hvac_and_well_surge_protector_power
+            name: Surge Protector
+          - entity: sensor.span_right_hvac_and_well_unknown_power
+            name: Unknown
+          - entity: sensor.span_right_hvac_and_well_feed_through_power
+            name: Feed Through
+
+  # ============================================================
+  # ENERGY CHARTS - Long-term statistics
+  # ============================================================
+  - title: Energy Charts
+    path: energy-charts
+    icon: mdi:chart-line
+    cards:
+      - type: markdown
+        content: "## Energy Consumption Over Time"
+
+      # DAILY CONSUMPTION BY PANEL
+      - type: statistics-graph
+        title: Daily Energy by Panel (7 Days)
+        entities:
+          - entity: sensor.span_left_most_of_house_main_meter_consumed_energy
+            name: Left Panel
+          - entity: sensor.span_right_hvac_and_well_main_meter_consumed_energy
+            name: Right Panel
+        days_to_show: 7
+        stat_types:
+          - change
+
+      # BATTERY STATISTICS
+      - type: statistics-graph
+        title: Battery Levels (7 Days)
+        entities:
+          - entity: sensor.span_panel_span_storage_battery_percentage
+            name: Battery 1
+          - entity: sensor.span_panel_span_storage_battery_percentage_2
+            name: Battery 2
+        days_to_show: 7
+        stat_types:
+          - mean
+          - min
+          - max
+
+      # SOLAR PRODUCTION
+      - type: statistics-graph
+        title: Solar Production (7 Days)
+        entities:
+          - entity: sensor.span_panel_solar_inverter_energy_produced
+            name: Inverter 1
+          - entity: sensor.span_panel_solar_inverter_energy_produced_2
+            name: Inverter 2
+        days_to_show: 7
+        stat_types:
+          - change
+
+      # TOP CONSUMERS HISTORY
+      - type: history-graph
+        title: Top Energy Consumers (24h)
+        hours_to_show: 24
+        entities:
+          - entity: sensor.span_right_hvac_and_well_most_of_house_hvac_condenser_power
+            name: Main HVAC
+          - entity: sensor.span_left_most_of_house_primary_suite_hvac_condenser_power
+            name: Primary HVAC
+          - entity: sensor.span_left_most_of_house_ev_charger_power
+            name: EV Charger
+          - entity: sensor.span_left_most_of_house_hot_tub_power
+            name: Hot Tub
+          - entity: sensor.span_left_most_of_house_pool_pump_power
+            name: Pool Pump
+
+      # WATER HEATING
+      - type: history-graph
+        title: Water Heating (24h)
+        hours_to_show: 24
+        entities:
+          - entity: sensor.span_left_most_of_house_most_of_house_water_heater_power
+            name: Main Water Heater
+          - entity: sensor.span_right_hvac_and_well_kids_hot_water_heater_power
+            name: Kids Water Heater
+
+  # ============================================================
+  # PANEL STATUS - Connectivity and DSM
+  # ============================================================
+  - title: Panel Status
+    path: panel-status
+    icon: mdi:information
+    cards:
+      - type: markdown
+        content: "## Panel Status & Connectivity"
+
+      # LEFT PANEL STATUS
+      - type: entities
+        title: Left Panel Status
+        show_header_toggle: false
+        entities:
+          - entity: binary_sensor.span_left_most_of_house_panel_status
+            name: Panel Online
+          - entity: binary_sensor.span_left_most_of_house_door_state
+            name: Door State
+          - entity: binary_sensor.span_left_most_of_house_wi_fi_link
+            name: WiFi
+          - entity: binary_sensor.span_left_most_of_house_ethernet_link
+            name: Ethernet
+          - entity: binary_sensor.span_left_most_of_house_cellular_link
+            name: Cellular
+          - entity: sensor.span_left_most_of_house_dsm_state
+            name: DSM State
+          - entity: sensor.span_left_most_of_house_dsm_grid_state
+            name: Grid State
+          - entity: sensor.span_left_most_of_house_main_relay_state
+            name: Main Relay
+          - entity: sensor.span_left_most_of_house_current_run_config
+            name: Run Config
+          - entity: sensor.span_left_most_of_house_software_version
+            name: Software Version
+
+      # RIGHT PANEL STATUS
+      - type: entities
+        title: Right Panel Status
+        show_header_toggle: false
+        entities:
+          - entity: binary_sensor.span_right_hvac_and_well_panel_status
+            name: Panel Online
+          - entity: binary_sensor.span_right_hvac_and_well_door_state
+            name: Door State
+          - entity: binary_sensor.span_right_hvac_and_well_wi_fi_link
+            name: WiFi
+          - entity: binary_sensor.span_right_hvac_and_well_ethernet_link
+            name: Ethernet
+          - entity: binary_sensor.span_right_hvac_and_well_cellular_link
+            name: Cellular
+          - entity: sensor.span_right_hvac_and_well_dsm_state
+            name: DSM State
+          - entity: sensor.span_right_hvac_and_well_dsm_grid_state
+            name: Grid State
+          - entity: sensor.span_right_hvac_and_well_main_relay_state
+            name: Main Relay
+          - entity: sensor.span_right_hvac_and_well_current_run_config
+            name: Run Config
+          - entity: sensor.span_right_hvac_and_well_software_version
+            name: Software Version
+
+      # UPDATE AVAILABLE
+      - type: entities
+        title: Updates
+        entities:
+          - entity: update.span_panel_update
+            name: SPAN Firmware Update
+
+  # ============================================================
+  # BREAKER CONTROL
+  # ============================================================
+  - title: Breaker Control
+    path: breaker-control
+    icon: mdi:toggle-switch
+    cards:
+      - type: markdown
+        content: |
+          ## Breaker Control
+          **Warning:** Toggling breakers will turn off power to those circuits.
+
+      # LEFT PANEL BREAKERS
+      - type: entities
+        title: Left Panel Breakers
+        show_header_toggle: false
+        entities:
+          - entity: switch.span_left_most_of_house_primary_suite_hvac_condenser_breaker
+            name: Primary HVAC Condenser
+          - entity: switch.span_left_most_of_house_primary_suite_hvac_air_exchanger_breaker
+            name: Primary HVAC Air Exchanger
+          - entity: switch.span_left_most_of_house_primary_suite_hvac_heat_strips_breaker
+            name: Primary HVAC Heat Strips
+          - entity: switch.span_left_most_of_house_ev_charger_breaker
+            name: EV Charger
+          - entity: switch.span_left_most_of_house_hot_tub_breaker
+            name: Hot Tub
+          - entity: switch.span_left_most_of_house_pool_pump_breaker
+            name: Pool Pump
+          - entity: switch.span_left_most_of_house_most_of_house_water_heater_breaker
+            name: Water Heater
+          - entity: switch.span_left_most_of_house_primary_bedroom_lights_wall_plugs_breaker
+            name: Primary Bedroom
+          - entity: switch.span_left_most_of_house_primary_bathroom_lights_breaker
+            name: Primary Bathroom
+          - entity: switch.span_left_most_of_house_dining_room_lights_wall_plugs_1_2_bath_outlets_breaker
+            name: Dining/Half Bath
+          - entity: switch.span_left_most_of_house_outside_entry_hall_formal_lights_living_room_breaker
+            name: Entry/Living Room
+          - entity: switch.span_left_most_of_house_tv_breaker
+            name: TV
+          - entity: switch.span_left_most_of_house_dedicated_back_bedroom_breaker
+            name: Back Bedroom
+          - entity: switch.span_left_most_of_house_kids_bathroom_breaker
+            name: Kids Bathroom
+          - entity: switch.span_left_most_of_house_laundry_and_outlets_breaker
+            name: Laundry
+          - entity: switch.span_left_most_of_house_exercise_room_garage_outlets_cameras_breaker
+            name: Garage/Cameras
+          - entity: switch.span_left_most_of_house_patio_fan_north_and_interior_outlet_breaker
+            name: Patio Fan
+          - entity: switch.span_left_most_of_house_shed_breaker
+            name: Shed
+          - entity: switch.span_left_most_of_house_unlabeled_breaker
+            name: Unlabeled
+
+      # RIGHT PANEL BREAKERS
+      - type: entities
+        title: Right Panel Breakers
+        show_header_toggle: false
+        entities:
+          - entity: switch.span_right_hvac_and_well_most_of_house_hvac_condenser_breaker
+            name: HVAC Condenser
+          - entity: switch.span_right_hvac_and_well_most_of_house_hvac_air_handler_breaker
+            name: HVAC Air Handler
+          - entity: switch.span_right_hvac_and_well_most_of_house_hvac_heat_strips_breaker
+            name: HVAC Heat Strips
+          - entity: switch.span_right_hvac_and_well_range_breaker
+            name: Range
+          - entity: switch.span_right_hvac_and_well_microwave_breaker
+            name: Microwave
+          - entity: switch.span_right_hvac_and_well_kitchen_lights_breaker
+            name: Kitchen Lights
+          - entity: switch.span_right_hvac_and_well_kitchen_wall_plugs_fridge_breaker
+            name: Kitchen/Fridge
+          - entity: switch.span_right_hvac_and_well_outlets_in_kitchen_space_breaker
+            name: Kitchen Outlets
+          - entity: switch.span_right_hvac_and_well_disposal_breaker
+            name: Disposal
+          - entity: switch.span_right_hvac_and_well_caroline_office_breaker
+            name: Caroline's Office
+          - entity: switch.span_right_hvac_and_well_farthest_bedroom_breaker
+            name: Farthest Bedroom
+          - entity: switch.span_right_hvac_and_well_purple_guest_bedroom_breaker
+            name: Purple Bedroom
+          - entity: switch.span_right_hvac_and_well_kids_hot_water_heater_breaker
+            name: Kids Hot Water
+          - entity: switch.span_right_hvac_and_well_primary_bathroom_sink_breaker
+            name: Primary Bathroom
+          - entity: switch.span_right_hvac_and_well_half_bath_laundry_and_rear_exterior_flood_breaker
+            name: Half Bath/Laundry/Exterior
+          - entity: switch.span_right_hvac_and_well_front_exterior_lights_breaker
+            name: Front Exterior Lights
+          - entity: switch.span_right_hvac_and_well_unknown_breaker
+            name: Unknown
+
+  # ============================================================
+  # CIRCUIT PRIORITIES - For load shedding
+  # ============================================================
+  - title: Priorities
+    path: priorities
+    icon: mdi:sort-numeric-ascending
+    cards:
+      - type: markdown
+        content: |
+          ## Circuit Priorities
+          Set priorities for load shedding during grid outages.
+          - **Must Have** - Never shed
+          - **Nice To Have** - Shed if needed
+          - **Non-Essential** - First to shed
+
+      # LEFT PANEL PRIORITIES
+      - type: entities
+        title: Left Panel Priorities
+        show_header_toggle: false
+        entities:
+          - entity: select.span_left_most_of_house_primary_suite_hvac_condenser_circuit_priority
+            name: Primary HVAC Condenser
+          - entity: select.span_left_most_of_house_primary_suite_hvac_air_exchanger_circuit_priority
+            name: Primary HVAC Air Exchanger
+          - entity: select.span_left_most_of_house_primary_suite_hvac_heat_strips_circuit_priority
+            name: Primary HVAC Heat Strips
+          - entity: select.span_left_most_of_house_ev_charger_circuit_priority
+            name: EV Charger
+          - entity: select.span_left_most_of_house_hot_tub_circuit_priority
+            name: Hot Tub
+          - entity: select.span_left_most_of_house_pool_pump_circuit_priority
+            name: Pool Pump
+          - entity: select.span_left_most_of_house_most_of_house_water_heater_circuit_priority
+            name: Water Heater
+          - entity: select.span_left_most_of_house_primary_bedroom_lights_wall_plugs_circuit_priority
+            name: Primary Bedroom
+          - entity: select.span_left_most_of_house_primary_bathroom_lights_circuit_priority
+            name: Primary Bathroom
+          - entity: select.span_left_most_of_house_dining_room_lights_wall_plugs_1_2_bath_outlets_circuit_priority
+            name: Dining/Half Bath
+          - entity: select.span_left_most_of_house_outside_entry_hall_formal_lights_living_room_circuit_priority
+            name: Entry/Living Room
+          - entity: select.span_left_most_of_house_tv_circuit_priority
+            name: TV
+          - entity: select.span_left_most_of_house_dedicated_back_bedroom_circuit_priority
+            name: Back Bedroom
+          - entity: select.span_left_most_of_house_kids_bathroom_circuit_priority
+            name: Kids Bathroom
+          - entity: select.span_left_most_of_house_laundry_and_outlets_circuit_priority
+            name: Laundry
+          - entity: select.span_left_most_of_house_exercise_room_garage_outlets_cameras_circuit_priority
+            name: Garage/Cameras
+          - entity: select.span_left_most_of_house_patio_fan_north_and_interior_outlet_circuit_priority
+            name: Patio Fan
+          - entity: select.span_left_most_of_house_shed_circuit_priority
+            name: Shed
+          - entity: select.span_left_most_of_house_unlabeled_circuit_priority
+            name: Unlabeled
+
+      # RIGHT PANEL PRIORITIES
+      - type: entities
+        title: Right Panel Priorities
+        show_header_toggle: false
+        entities:
+          - entity: select.span_right_hvac_and_well_most_of_house_hvac_condenser_circuit_priority
+            name: HVAC Condenser
+          - entity: select.span_right_hvac_and_well_most_of_house_hvac_air_handler_circuit_priority
+            name: HVAC Air Handler
+          - entity: select.span_right_hvac_and_well_most_of_house_hvac_heat_strips_circuit_priority
+            name: HVAC Heat Strips
+          - entity: select.span_right_hvac_and_well_range_circuit_priority
+            name: Range
+          - entity: select.span_right_hvac_and_well_microwave_circuit_priority
+            name: Microwave
+          - entity: select.span_right_hvac_and_well_kitchen_lights_circuit_priority
+            name: Kitchen Lights
+          - entity: select.span_right_hvac_and_well_kitchen_wall_plugs_fridge_circuit_priority
+            name: Kitchen/Fridge
+          - entity: select.span_right_hvac_and_well_outlets_in_kitchen_space_circuit_priority
+            name: Kitchen Outlets
+          - entity: select.span_right_hvac_and_well_disposal_circuit_priority
+            name: Disposal
+          - entity: select.span_right_hvac_and_well_caroline_office_circuit_priority
+            name: Caroline's Office
+          - entity: select.span_right_hvac_and_well_farthest_bedroom_circuit_priority
+            name: Farthest Bedroom
+          - entity: select.span_right_hvac_and_well_purple_guest_bedroom_circuit_priority
+            name: Purple Bedroom
+          - entity: select.span_right_hvac_and_well_kids_hot_water_heater_circuit_priority
+            name: Kids Hot Water
+          - entity: select.span_right_hvac_and_well_primary_bathroom_sink_circuit_priority
+            name: Primary Bathroom
+          - entity: select.span_right_hvac_and_well_half_bath_laundry_and_rear_exterior_flood_circuit_priority
+            name: Half Bath/Laundry/Exterior
+          - entity: select.span_right_hvac_and_well_front_exterior_lights_circuit_priority
+            name: Front Exterior Lights
+          - entity: select.span_right_hvac_and_well_unknown_circuit_priority
+            name: Unknown
