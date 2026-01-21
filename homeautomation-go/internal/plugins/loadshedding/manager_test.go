@@ -380,3 +380,156 @@ func TestManagerReset(t *testing.T) {
 	err = manager.Reset()
 	assert.NoError(t, err)
 }
+
+// TestLoadShedding_DeferredActionAfterRateLimit tests that when an action is
+// rate-limited, it gets automatically retried after the rate limit expires.
+// This is the bug fix for: when energy goes red->white quickly, the disable
+// action was rate-limited and never retried, leaving thermostats in hold mode.
+func TestLoadShedding_DeferredActionAfterRateLimit(t *testing.T) {
+	t.Parallel()
+	logger := testlogger.New()
+	mockClient := ha.NewMockClient()
+
+	// Initialize thermostat hold switches in mock (start with them off)
+	mockClient.SetState(thermostatHoldHouse, "off", nil)
+	mockClient.SetState(thermostatHoldSuite, "off", nil)
+
+	stateManager := state.NewManager(mockClient, logger, false)
+
+	err := stateManager.SyncFromHA()
+	assert.NoError(t, err)
+
+	ls := NewManager(mockClient, stateManager, logger, false, nil)
+
+	// Use a short rate limit interval for testing (100ms instead of 1 hour)
+	ls.SetRateLimitIntervalForTesting(100 * time.Millisecond)
+
+	err = ls.Start()
+	assert.NoError(t, err)
+	defer ls.Stop()
+
+	// Step 1: Set energy state to red (enables load shedding)
+	err = stateManager.SetString("currentEnergyLevel", "red")
+	assert.NoError(t, err)
+	time.Sleep(50 * time.Millisecond)
+
+	// Verify load shedding was enabled
+	calls := mockClient.GetServiceCalls()
+	foundSwitchOn := false
+	for _, call := range calls {
+		if call.Domain == "switch" && call.Service == "turn_on" {
+			foundSwitchOn = true
+		}
+	}
+	assert.True(t, foundSwitchOn, "Load shedding should be enabled (switch.turn_on called)")
+
+	// Simulate thermostats now being in hold mode
+	mockClient.SetState(thermostatHoldHouse, "on", nil)
+	mockClient.SetState(thermostatHoldSuite, "on", nil)
+
+	// Clear service calls for cleaner verification
+	mockClient.ClearServiceCalls()
+
+	// Step 2: Immediately set energy state to white (should be rate-limited)
+	err = stateManager.SetString("currentEnergyLevel", "white")
+	assert.NoError(t, err)
+	time.Sleep(50 * time.Millisecond)
+
+	// At this point, the disable action should be rate-limited (not executed yet)
+	calls = mockClient.GetServiceCalls()
+	foundSwitchOff := false
+	for _, call := range calls {
+		if call.Domain == "switch" && call.Service == "turn_off" {
+			foundSwitchOff = true
+		}
+	}
+	// The action should NOT have been executed yet due to rate limiting
+	// (It will be deferred)
+
+	// Step 3: Wait for the rate limit to expire plus buffer for deferred action
+	time.Sleep(150 * time.Millisecond)
+
+	// Step 4: Verify the deferred disable action was executed
+	calls = mockClient.GetServiceCalls()
+	foundSwitchOff = false
+	for _, call := range calls {
+		if call.Domain == "switch" && call.Service == "turn_off" {
+			foundSwitchOff = true
+			entities, ok := call.Data["entity_id"].([]string)
+			assert.True(t, ok, "entity_id should be []string")
+			assert.Contains(t, entities, thermostatHoldHouse)
+			assert.Contains(t, entities, thermostatHoldSuite)
+		}
+	}
+	assert.True(t, foundSwitchOff,
+		"Deferred action should execute switch.turn_off after rate limit expires")
+
+	// Verify load shedding state is now disabled
+	assert.False(t, ls.IsLoadSheddingOn(), "Load shedding should be disabled after deferred action")
+}
+
+// TestLoadShedding_DeferredActionCancelledByNewAction tests that if a new
+// action comes in that supersedes the deferred action, the deferred action
+// is cancelled appropriately.
+func TestLoadShedding_DeferredActionCancelledByNewAction(t *testing.T) {
+	t.Parallel()
+	logger := testlogger.New()
+	mockClient := ha.NewMockClient()
+
+	// Initialize thermostat hold switches in mock (start with them off)
+	mockClient.SetState(thermostatHoldHouse, "off", nil)
+	mockClient.SetState(thermostatHoldSuite, "off", nil)
+
+	stateManager := state.NewManager(mockClient, logger, false)
+
+	err := stateManager.SyncFromHA()
+	assert.NoError(t, err)
+
+	ls := NewManager(mockClient, stateManager, logger, false, nil)
+
+	// Use a short rate limit interval for testing
+	ls.SetRateLimitIntervalForTesting(200 * time.Millisecond)
+
+	err = ls.Start()
+	assert.NoError(t, err)
+	defer ls.Stop()
+
+	// Step 1: Set energy state to red (enables load shedding)
+	err = stateManager.SetString("currentEnergyLevel", "red")
+	assert.NoError(t, err)
+	time.Sleep(50 * time.Millisecond)
+
+	// Simulate thermostats now being in hold mode
+	mockClient.SetState(thermostatHoldHouse, "on", nil)
+	mockClient.SetState(thermostatHoldSuite, "on", nil)
+
+	mockClient.ClearServiceCalls()
+
+	// Step 2: Set energy state to white (rate-limited, deferred)
+	err = stateManager.SetString("currentEnergyLevel", "white")
+	assert.NoError(t, err)
+	time.Sleep(50 * time.Millisecond)
+
+	// Step 3: Before deferred action fires, go back to red
+	// This should cancel the pending disable and keep load shedding on
+	err = stateManager.SetString("currentEnergyLevel", "red")
+	assert.NoError(t, err)
+	time.Sleep(50 * time.Millisecond)
+
+	// Step 4: Wait for what would have been the deferred action time
+	time.Sleep(200 * time.Millisecond)
+
+	// Verify that switch.turn_off was NOT called (deferred disable was cancelled)
+	calls := mockClient.GetServiceCalls()
+	foundSwitchOff := false
+	for _, call := range calls {
+		if call.Domain == "switch" && call.Service == "turn_off" {
+			foundSwitchOff = true
+		}
+	}
+	assert.False(t, foundSwitchOff,
+		"Deferred disable should be cancelled when energy goes back to red")
+
+	// Load shedding should still be on
+	assert.True(t, ls.IsLoadSheddingOn(), "Load shedding should remain enabled")
+}

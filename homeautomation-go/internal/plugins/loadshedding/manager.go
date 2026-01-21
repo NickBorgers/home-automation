@@ -34,6 +34,13 @@ const (
 	tempHighRestricted = 80.0
 )
 
+// deferredAction represents a pending action that was rate-limited
+type deferredAction struct {
+	actionType  string // "enable" or "disable"
+	energyLevel string
+	trigger     string
+}
+
 // Manager manages thermostat control based on energy state
 type Manager struct {
 	haClient       ha.HAClient
@@ -49,6 +56,15 @@ type Manager struct {
 
 	// Subscription helper for automatic shadow state input capture
 	subHelper *shadowstate.SubscriptionHelper
+
+	// Configurable rate limit interval (defaults to minActionInterval)
+	rateLimitInterval time.Duration
+
+	// Deferred action mechanism for rate-limited actions
+	deferredAction   *deferredAction
+	deferredTimer    *time.Timer
+	deferredMu       sync.Mutex
+	deferredStopChan chan struct{}
 }
 
 // NewManager creates a new Load Shedding manager
@@ -56,14 +72,28 @@ func NewManager(haClient ha.HAClient, stateManager *state.Manager, logger *zap.L
 	shadowTracker := shadowstate.NewLoadSheddingTracker()
 
 	return &Manager{
-		haClient:      haClient,
-		stateManager:  stateManager,
-		logger:        logger.Named("loadshedding"),
-		readOnly:      readOnly,
-		enabled:       false,
-		shadowTracker: shadowTracker,
-		subHelper:     shadowstate.NewSubscriptionHelper(haClient, stateManager, registry, shadowTracker, "loadshedding", logger.Named("loadshedding")),
+		haClient:          haClient,
+		stateManager:      stateManager,
+		logger:            logger.Named("loadshedding"),
+		readOnly:          readOnly,
+		enabled:           false,
+		shadowTracker:     shadowTracker,
+		subHelper:         shadowstate.NewSubscriptionHelper(haClient, stateManager, registry, shadowTracker, "loadshedding", logger.Named("loadshedding")),
+		rateLimitInterval: minActionInterval,
+		deferredStopChan:  make(chan struct{}),
 	}
+}
+
+// SetRateLimitIntervalForTesting allows tests to use a shorter rate limit interval
+func (m *Manager) SetRateLimitIntervalForTesting(interval time.Duration) {
+	m.rateLimitInterval = interval
+}
+
+// IsLoadSheddingOn returns whether load shedding is currently active (thread-safe)
+func (m *Manager) IsLoadSheddingOn() bool {
+	m.stateMu.Lock()
+	defer m.stateMu.Unlock()
+	return m.loadSheddingOn
 }
 
 // Start begins monitoring energy state and controlling thermostats
@@ -103,6 +133,10 @@ func (m *Manager) Stop() {
 	}
 
 	m.logger.Info("Stopping Load Shedding Manager")
+
+	// Cancel any pending deferred action
+	m.cancelDeferredAction()
+
 	m.subHelper.UnsubscribeAll()
 	m.enabled = false
 	m.logger.Info("Load Shedding Manager stopped")
@@ -160,6 +194,9 @@ func (m *Manager) enableLoadShedding(energyLevel string, trigger string) {
 		zap.String("trigger", trigger),
 		zap.String("reason", "Energy state is "+energyLevel+" (low battery)"))
 
+	// Cancel any pending disable action since we're now enabling
+	m.cancelDeferredAction()
+
 	// Check if load shedding is already enabled
 	m.stateMu.Lock()
 	alreadyEnabled := m.loadSheddingOn
@@ -186,8 +223,26 @@ func (m *Manager) enableLoadShedding(energyLevel string, trigger string) {
 		return
 	}
 
-	// Check rate limiting
-	if !m.checkRateLimit() {
+	// Check rate limiting - if rate limited, schedule deferred action
+	passed, timeRemaining := m.checkRateLimit()
+	if !passed {
+		m.scheduleDeferredAction("enable", energyLevel, trigger, timeRemaining)
+		return
+	}
+
+	m.executeEnableLoadShedding(energyLevel, trigger)
+}
+
+// executeEnableLoadShedding performs the actual enable action (called directly or deferred)
+func (m *Manager) executeEnableLoadShedding(energyLevel string, trigger string) {
+	// Re-check if load shedding is already enabled (state may have changed)
+	m.stateMu.Lock()
+	alreadyEnabled := m.loadSheddingOn
+	m.stateMu.Unlock()
+
+	if alreadyEnabled {
+		m.logger.Info("⏭  Deferred action skipped: Load shedding already enabled",
+			zap.String("reason", "State changed while waiting"))
 		return
 	}
 
@@ -255,6 +310,9 @@ func (m *Manager) disableLoadShedding(energyLevel string, trigger string) {
 		zap.String("trigger", trigger),
 		zap.String("reason", "Energy state is "+energyLevel+" (battery restored)"))
 
+	// Cancel any pending enable action since we're now disabling
+	m.cancelDeferredAction()
+
 	// Check if load shedding is already disabled
 	m.stateMu.Lock()
 	alreadyDisabled := !m.loadSheddingOn
@@ -281,8 +339,26 @@ func (m *Manager) disableLoadShedding(energyLevel string, trigger string) {
 		return
 	}
 
-	// Check rate limiting
-	if !m.checkRateLimit() {
+	// Check rate limiting - if rate limited, schedule deferred action
+	passed, timeRemaining := m.checkRateLimit()
+	if !passed {
+		m.scheduleDeferredAction("disable", energyLevel, trigger, timeRemaining)
+		return
+	}
+
+	m.executeDisableLoadShedding(energyLevel, trigger)
+}
+
+// executeDisableLoadShedding performs the actual disable action (called directly or deferred)
+func (m *Manager) executeDisableLoadShedding(energyLevel string, trigger string) {
+	// Re-check if load shedding is already disabled (state may have changed)
+	m.stateMu.Lock()
+	alreadyDisabled := !m.loadSheddingOn
+	m.stateMu.Unlock()
+
+	if alreadyDisabled {
+		m.logger.Info("⏭  Deferred action skipped: Load shedding already disabled",
+			zap.String("reason", "State changed while waiting"))
 		return
 	}
 
@@ -326,26 +402,98 @@ func (m *Manager) disableLoadShedding(energyLevel string, trigger string) {
 }
 
 // checkRateLimit ensures we don't take actions too frequently
-func (m *Manager) checkRateLimit() bool {
+// Returns (passed, timeRemaining) where timeRemaining is how long until rate limit expires
+func (m *Manager) checkRateLimit() (bool, time.Duration) {
 	m.lastActionMu.Lock()
 	defer m.lastActionMu.Unlock()
 
 	now := time.Now()
 	timeSinceLastAction := now.Sub(m.lastAction)
 
-	if !m.lastAction.IsZero() && timeSinceLastAction < minActionInterval {
-		timeRemaining := minActionInterval - timeSinceLastAction
-		m.logger.Info("⏱  RATE LIMIT: Action skipped",
+	if !m.lastAction.IsZero() && timeSinceLastAction < m.rateLimitInterval {
+		timeRemaining := m.rateLimitInterval - timeSinceLastAction
+		m.logger.Info("⏱  RATE LIMIT: Action will be deferred",
 			zap.Duration("time_since_last_action", timeSinceLastAction),
-			zap.Duration("min_interval", minActionInterval),
+			zap.Duration("min_interval", m.rateLimitInterval),
 			zap.Duration("time_remaining", timeRemaining),
-			zap.String("reason", "Preventing rapid thermostat toggling"))
-		return false
+			zap.String("reason", "Scheduling deferred action after rate limit expires"))
+		return false, timeRemaining
 	}
 
 	m.logger.Info("✓ Rate limit check passed",
 		zap.Duration("time_since_last_action", timeSinceLastAction))
-	return true
+	return true, 0
+}
+
+// scheduleDeferredAction schedules an action to execute after the rate limit expires
+func (m *Manager) scheduleDeferredAction(actionType string, energyLevel string, trigger string, delay time.Duration) {
+	m.deferredMu.Lock()
+	defer m.deferredMu.Unlock()
+
+	// Cancel any existing deferred action
+	if m.deferredTimer != nil {
+		m.deferredTimer.Stop()
+		m.deferredTimer = nil
+	}
+
+	m.deferredAction = &deferredAction{
+		actionType:  actionType,
+		energyLevel: energyLevel,
+		trigger:     trigger,
+	}
+
+	m.logger.Info("📅 Scheduling deferred action",
+		zap.String("action_type", actionType),
+		zap.String("energy_level", energyLevel),
+		zap.Duration("delay", delay))
+
+	m.deferredTimer = time.AfterFunc(delay, func() {
+		m.executeDeferredAction()
+	})
+}
+
+// cancelDeferredAction cancels any pending deferred action
+func (m *Manager) cancelDeferredAction() {
+	m.deferredMu.Lock()
+	defer m.deferredMu.Unlock()
+
+	if m.deferredTimer != nil {
+		m.deferredTimer.Stop()
+		m.deferredTimer = nil
+	}
+
+	if m.deferredAction != nil {
+		m.logger.Info("🚫 Cancelled deferred action",
+			zap.String("action_type", m.deferredAction.actionType),
+			zap.String("energy_level", m.deferredAction.energyLevel))
+		m.deferredAction = nil
+	}
+}
+
+// executeDeferredAction executes the pending deferred action
+func (m *Manager) executeDeferredAction() {
+	m.deferredMu.Lock()
+	action := m.deferredAction
+	m.deferredAction = nil
+	m.deferredTimer = nil
+	m.deferredMu.Unlock()
+
+	if action == nil {
+		return
+	}
+
+	m.logger.Info("⏰ Executing deferred action after rate limit expired",
+		zap.String("action_type", action.actionType),
+		zap.String("energy_level", action.energyLevel),
+		zap.String("trigger", action.trigger))
+
+	// Execute the deferred action
+	switch action.actionType {
+	case "enable":
+		m.executeEnableLoadShedding(action.energyLevel, action.trigger+" (deferred)")
+	case "disable":
+		m.executeDisableLoadShedding(action.energyLevel, action.trigger+" (deferred)")
+	}
 }
 
 // checkThermostatHoldState checks if thermostat holds are currently enabled
