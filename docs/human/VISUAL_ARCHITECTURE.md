@@ -52,6 +52,7 @@ graph TB
             Environmental[Environmental Monitoring<br/>internal/plugins/environmental/]
             Monitoring[Monitoring<br/>internal/plugins/monitoring/]
             ResetCoord[Reset Coordinator<br/>internal/plugins/reset/]
+            SensorConfig[Sensor Config<br/>internal/plugins/sensorconfig/]
         end
 
         subgraph "Public Interfaces"
@@ -144,6 +145,9 @@ graph TB
     ResetCoord -.->|Reset All| Music
     ResetCoord -.->|Reset All| Lighting
 
+    SensorConfig -->|Configure Thresholds| HAClient
+    SensorConfig -.->|Register Shadow| ShadowTracker
+
     HA -->|Control| Sonos
     HA -->|Control| Hue
     HA -->|Monitor| TV_Ext
@@ -167,6 +171,7 @@ graph TB
     style StateTracking fill:#f3e5f5
     style DayPhase fill:#f3e5f5
     style ResetCoord fill:#ffebee
+    style SensorConfig fill:#f3e5f5
 ```
 
 ---
