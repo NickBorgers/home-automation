@@ -1695,3 +1695,90 @@ func (mt *MonitoringTracker) GetState() *MonitoringShadowState {
 
 	return stateCopy
 }
+
+// ============================================================================
+// Sensor Config Tracker - Zigbee Sensor Threshold Configuration
+// ============================================================================
+
+// SensorConfigTracker manages shadow state for the sensor config plugin
+type SensorConfigTracker struct {
+	mu    sync.RWMutex
+	state *SensorConfigShadowState
+}
+
+// NewSensorConfigTracker creates a new sensor config shadow state tracker
+func NewSensorConfigTracker() *SensorConfigTracker {
+	return &SensorConfigTracker{
+		state: NewSensorConfigShadowState(),
+	}
+}
+
+// RecordConfiguration records a threshold configuration
+func (sct *SensorConfigTracker) RecordConfiguration(configType, description string, value float64, configuredEntities, failedEntities []string) {
+	sct.mu.Lock()
+	defer sct.mu.Unlock()
+
+	now := time.Now()
+	config := ThresholdConfiguration{
+		ConfigType:         configType,
+		Description:        description,
+		Value:              value,
+		ConfiguredEntities: configuredEntities,
+		FailedEntities:     failedEntities,
+		ConfiguredAt:       now,
+	}
+
+	sct.state.Outputs.Configurations = append(sct.state.Outputs.Configurations, config)
+	sct.state.Outputs.ConfiguredAt = now
+	sct.state.Outputs.LastUpdate = now
+	sct.state.Metadata.LastUpdated = now
+}
+
+// Clear clears all configuration records (used during Reset)
+func (sct *SensorConfigTracker) Clear() {
+	sct.mu.Lock()
+	defer sct.mu.Unlock()
+
+	sct.state.Outputs.Configurations = make([]ThresholdConfiguration, 0)
+	sct.state.Outputs.ConfiguredAt = time.Time{}
+	sct.state.Metadata.LastUpdated = time.Now()
+}
+
+// GetState returns the current shadow state (thread-safe copy)
+func (sct *SensorConfigTracker) GetState() *SensorConfigShadowState {
+	sct.mu.RLock()
+	defer sct.mu.RUnlock()
+
+	// Create a deep copy
+	stateCopy := &SensorConfigShadowState{
+		Plugin: sct.state.Plugin,
+		Inputs: SensorConfigInputs{
+			Current: make(map[string]interface{}),
+		},
+		Outputs: SensorConfigOutputs{
+			Configurations: make([]ThresholdConfiguration, len(sct.state.Outputs.Configurations)),
+			ConfiguredAt:   sct.state.Outputs.ConfiguredAt,
+			LastUpdate:     sct.state.Outputs.LastUpdate,
+		},
+		Metadata: sct.state.Metadata,
+	}
+
+	// Copy current inputs
+	for k, v := range sct.state.Inputs.Current {
+		stateCopy.Inputs.Current[k] = v
+	}
+
+	// Copy configurations
+	for i, config := range sct.state.Outputs.Configurations {
+		stateCopy.Outputs.Configurations[i] = ThresholdConfiguration{
+			ConfigType:         config.ConfigType,
+			Description:        config.Description,
+			Value:              config.Value,
+			ConfiguredEntities: append([]string{}, config.ConfiguredEntities...),
+			FailedEntities:     append([]string{}, config.FailedEntities...),
+			ConfiguredAt:       config.ConfiguredAt,
+		}
+	}
+
+	return stateCopy
+}

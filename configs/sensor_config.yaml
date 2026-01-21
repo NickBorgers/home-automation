@@ -1,0 +1,43 @@
+# Zigbee Sensor Configuration
+# This file configures reporting thresholds for Zigbee temperature/humidity sensors
+# and water leak sensors. Thresholds are applied at application startup.
+#
+# For SONOFF Temperature Humidity XS Sensors:
+# - Temperature report threshold is in 0.1°F units (50 = 5°F)
+# - Low temperature alert threshold is in °F
+# - Battery report threshold is in percentage points
+
+sensors:
+  # Temperature report threshold - how much temp change triggers a report
+  # Setting to 50 (5°F) to reduce battery drain from frequent wake-ups
+  # (was set to 10 = 1°F which causes excessive reporting)
+  temperature_report_threshold:
+    value: 50  # 5°F in 0.1°F units
+    entities:
+      - number.nick_desk_temp_temperature_report_threshold_2
+      - number.front_room_temp_temperature_report_threshold_2
+      - number.temperature_humidity_xs_sensor_temperature_report_threshold
+      - number.attic_high_temperature_report_threshold_2
+      - number.attic_low_temperature_report_threshold_2
+
+  # Low temperature alert threshold - for freezing detection
+  # Setting to 32°F to alert before pipes freeze
+  # (was set to 10°F which is below freezing - useless for protection)
+  low_temperature_alert:
+    value: 32  # Fahrenheit
+    entities:
+      - number.nick_desk_temp_low_temperature_alert_threshold_2
+      - number.front_room_temp_low_temperature_alert_threshold_2
+      - number.temperature_humidity_xs_sensor_low_temperature_alert_threshold
+      - number.attic_high_low_temperature_alert_threshold_2
+      - number.attic_low_low_temperature_alert_threshold_2
+
+  # Battery report threshold - how much battery % change triggers a report
+  # Setting to 5% for water leak sensors to improve staleness detection
+  # (was set to 10% which caused false stale sensor alerts)
+  battery_report_threshold:
+    value: 5  # Percentage
+    entities:
+      - number.water_leak_xs_sensor_battery_report_threshold
+      - number.water_leak_xs_sensor_battery_report_threshold_4
+      - number.kitchen_sink_water_leak_sensor_battery_report_threshold_3

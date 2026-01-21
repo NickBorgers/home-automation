@@ -45,6 +45,7 @@ graph LR
         monitoring["monitoring"]
         music["music"]
         security["security"]
+        sensorconfig["sensorconfig"]
         sexmode["sexmode"]
         sleephygiene["sleephygiene"]
         statetracking["statetracking"]
