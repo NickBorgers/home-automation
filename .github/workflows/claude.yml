@@ -347,6 +347,9 @@ jobs:
             # (see https://github.com/NickBorgers/home-automation/issues/441)
             ISSUE_BODY=$(gh api "repos/${REPO}/issues/${ISSUE_NUMBER}" --jq '.body')
 
+            # Fetch all comments on the issue (may contain additional context/requirements)
+            ISSUE_COMMENTS=$(gh api "repos/${REPO}/issues/${ISSUE_NUMBER}/comments" --jq '.[] | "---\n**\(.user.login)** commented at \(.created_at):\n\(.body)\n"' 2>/dev/null | head -c 50000 || echo "")
+
             claude --print \
               --verbose \
               --output-format stream-json \
@@ -359,6 +362,9 @@ jobs:
 
             ISSUE BODY:
             ${ISSUE_BODY}
+
+            ISSUE COMMENTS (if any):
+            ${ISSUE_COMMENTS}
 
             YOUR TASK:
             1. Analyze the issue and understand what needs to be done

@@ -108,7 +108,7 @@ Automatically resolves newly opened issues.
 
 **Workflow**:
 1. Labels issue with `claude-started`
-2. Analyzes the issue title and body
+2. Analyzes the issue title, body, and **all comments** on the issue
 3. Explores the codebase to understand context
 4. Implements fixes or features
 5. Creates a branch (`claude/issue-{number}`)
@@ -239,7 +239,7 @@ Design validation and critical design review specialist. **Runs first** (before 
 **Pre-Flight Check**: Before running the review, verifies that "All Required Tests" commit status is `success` on the current HEAD. If tests haven't passed, the review is skipped to avoid reviewing broken code that can't be merged anyway.
 
 **Purpose**: This reviewer serves two functions:
-1. **Intent Validation**: Ensures the PR actually implements what was requested in the linked issue and/or PR description
+1. **Intent Validation**: Ensures the PR actually implements what was requested in the linked issue and/or PR description (including **all comments** on the linked issue)
 2. **Design Critique**: Critically reviews the design decisions for quality, trade-offs, and potential issues
 
 **Focus Areas**:

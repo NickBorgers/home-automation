@@ -778,6 +778,12 @@ jobs:
             PR_BODY=$(echo "$PR_BODY_B64" | base64 -d 2>/dev/null || echo "")
             ISSUE_BODY=$(echo "$ISSUE_BODY_B64" | base64 -d 2>/dev/null || echo "")
 
+            # Fetch all comments on the linked issue (may contain additional context/requirements)
+            ISSUE_COMMENTS=""
+            if [ -n "$ISSUE_NUMBER" ]; then
+              ISSUE_COMMENTS=$(gh api "repos/${REPO}/issues/${ISSUE_NUMBER}/comments" --jq '.[] | "---\n**\(.user.login)** commented at \(.created_at):\n\(.body)\n"' 2>/dev/null | head -c 50000 || echo "")
+            fi
+
             claude --print \
               --verbose \
               --output-format stream-json \
@@ -797,6 +803,9 @@ jobs:
             Linked Issue #${ISSUE_NUMBER}: ${ISSUE_TITLE}
             Issue Description:
             ${ISSUE_BODY}
+
+            Issue Comments (additional context/requirements):
+            ${ISSUE_COMMENTS}
 
             **YOUR TASK:**
 
