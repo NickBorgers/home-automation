@@ -3,6 +3,11 @@ rooms:
   - hue_group: Living Room
     hass_area_id: living_room_2
     conditions:
+      # Priority 0: TV playing -> skip (Hue Sync controls the lights)
+      # When Hue Sync is active, don't override with scene activation
+      - action: skip
+        variable: isTVPlaying
+        value: true
       # Priority 1: No one home -> OFF
       - action: off
         variable: isAnyoneHomeAndAwake

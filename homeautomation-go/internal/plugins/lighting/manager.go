@@ -315,6 +315,11 @@ func (m *Manager) evaluateAndActivateRoom(room *RoomConfig, dayPhase string, tri
 			zap.String("room", room.HueGroup),
 			zap.String("matched_condition", matchedVar))
 		m.turnOffRoom(room, trigger)
+	case "skip":
+		// Skip action: do nothing for this room (e.g., when Hue Sync is controlling the lights)
+		m.logger.Info("Skipping room - external control active",
+			zap.String("room", room.HueGroup),
+			zap.String("matched_condition", matchedVar))
 	default:
 		m.logger.Debug("No action needed for room",
 			zap.String("room", room.HueGroup))

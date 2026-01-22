@@ -22,6 +22,8 @@ func createTestConfig() *HueConfig {
 				HueGroup:   "Living Room",
 				HASSAreaID: "living_room_2",
 				Conditions: []LightingCondition{
+					// Priority 0: TV playing -> SKIP (Hue Sync controls)
+					{Action: "skip", Variable: "isTVPlaying", Value: true},
 					// Priority 1: No one home -> OFF
 					{Action: "off", Variable: "isAnyoneHome", Value: false},
 					// Priority 2: Everyone asleep -> OFF
@@ -84,11 +86,22 @@ func TestEvaluateConditions(t *testing.T) {
 		expectedVar    string
 	}{
 		{
+			name: "Living room - TV playing -> SKIP (highest priority)",
+			setupState: func() {
+				_ = stateManager.SetBool("isAnyoneHome", true)
+				_ = stateManager.SetBool("isEveryoneAsleep", false)
+				_ = stateManager.SetBool("isTVPlaying", true)
+			},
+			roomIndex:      0,
+			expectedAction: "skip",
+			expectedVar:    "isTVPlaying",
+		},
+		{
 			name: "Living room - no one home -> OFF (first match)",
 			setupState: func() {
 				_ = stateManager.SetBool("isAnyoneHome", false)
 				_ = stateManager.SetBool("isEveryoneAsleep", false)
-				_ = stateManager.SetBool("isTVPlaying", true)
+				_ = stateManager.SetBool("isTVPlaying", false)
 			},
 			roomIndex:      0,
 			expectedAction: "off",
@@ -99,7 +112,7 @@ func TestEvaluateConditions(t *testing.T) {
 			setupState: func() {
 				_ = stateManager.SetBool("isAnyoneHome", true)
 				_ = stateManager.SetBool("isEveryoneAsleep", true)
-				_ = stateManager.SetBool("isTVPlaying", true)
+				_ = stateManager.SetBool("isTVPlaying", false)
 			},
 			roomIndex:      0,
 			expectedAction: "off",
@@ -110,7 +123,7 @@ func TestEvaluateConditions(t *testing.T) {
 			setupState: func() {
 				_ = stateManager.SetBool("isAnyoneHome", true)
 				_ = stateManager.SetBool("isEveryoneAsleep", false)
-				_ = stateManager.SetBool("isTVPlaying", true)
+				_ = stateManager.SetBool("isTVPlaying", false)
 			},
 			roomIndex:      0,
 			expectedAction: "on",
@@ -318,16 +331,12 @@ func TestTurnOffRoom(t *testing.T) {
 }
 
 func TestEvaluateAndActivateRoom(t *testing.T) {
-	t.Parallel()
 	logger := testlogger.New()
 	config := createTestConfig()
-	mockClient := ha.NewMockClient()
-	stateManager := state.NewManager(mockClient, logger, false)
-	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
 
 	tests := []struct {
 		name              string
-		setupState        func()
+		setupState        func(*state.Manager)
 		roomIndex         int
 		dayPhase          string
 		expectedService   string
@@ -336,10 +345,10 @@ func TestEvaluateAndActivateRoom(t *testing.T) {
 	}{
 		{
 			name: "Room should turn off - no one home",
-			setupState: func() {
-				_ = stateManager.SetBool("isAnyoneHome", false)
-				_ = stateManager.SetBool("isEveryoneAsleep", false)
-				_ = stateManager.SetBool("isTVPlaying", true)
+			setupState: func(sm *state.Manager) {
+				_ = sm.SetBool("isAnyoneHome", false)
+				_ = sm.SetBool("isEveryoneAsleep", false)
+				_ = sm.SetBool("isTVPlaying", false)
 			},
 			roomIndex:         0,
 			dayPhase:          "Night",
@@ -349,10 +358,10 @@ func TestEvaluateAndActivateRoom(t *testing.T) {
 		},
 		{
 			name: "Room should turn off - everyone asleep",
-			setupState: func() {
-				_ = stateManager.SetBool("isAnyoneHome", true)
-				_ = stateManager.SetBool("isEveryoneAsleep", true)
-				_ = stateManager.SetBool("isTVPlaying", true)
+			setupState: func(sm *state.Manager) {
+				_ = sm.SetBool("isAnyoneHome", true)
+				_ = sm.SetBool("isEveryoneAsleep", true)
+				_ = sm.SetBool("isTVPlaying", false)
 			},
 			roomIndex:         0,
 			dayPhase:          "Night",
@@ -362,10 +371,10 @@ func TestEvaluateAndActivateRoom(t *testing.T) {
 		},
 		{
 			name: "Room should turn on with scene",
-			setupState: func() {
-				_ = stateManager.SetBool("isAnyoneHome", true)
-				_ = stateManager.SetBool("isEveryoneAsleep", false)
-				_ = stateManager.SetBool("isTVPlaying", true)
+			setupState: func(sm *state.Manager) {
+				_ = sm.SetBool("isAnyoneHome", true)
+				_ = sm.SetBool("isEveryoneAsleep", false)
+				_ = sm.SetBool("isTVPlaying", false)
 			},
 			roomIndex:         0,
 			dayPhase:          "Morning",
@@ -373,25 +382,49 @@ func TestEvaluateAndActivateRoom(t *testing.T) {
 			expectedDomain:    "scene",
 			shouldCallService: true,
 		},
+		{
+			name: "Room should skip - TV playing",
+			setupState: func(sm *state.Manager) {
+				_ = sm.SetBool("isAnyoneHome", true)
+				_ = sm.SetBool("isEveryoneAsleep", false)
+				_ = sm.SetBool("isTVPlaying", true)
+			},
+			roomIndex:         0,
+			dayPhase:          "Morning",
+			expectedService:   "",
+			expectedDomain:    "",
+			shouldCallService: false,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 
-			// Reset mock client
+			// Create fresh mocks for each test case
+			mockClient := ha.NewMockClient()
+			stateManager := state.NewManager(mockClient, logger, false)
+			manager := NewManager(mockClient, stateManager, config, logger, false, nil)
 
-			mockClient.ClearServiceCalls()
-
-			tt.setupState()
+			tt.setupState(stateManager)
 			room := &config.Rooms[tt.roomIndex]
 			manager.evaluateAndActivateRoom(room, tt.dayPhase, "")
 
 			calls := mockClient.GetServiceCalls()
+
+			// Filter out state manager calls (input_boolean.* calls from SetBool)
+			// We only care about lighting-related calls (scene.*, light.*)
+			lightingCalls := []ha.ServiceCall{}
+			for _, call := range calls {
+				if call.Domain == "scene" || call.Domain == "light" {
+					lightingCalls = append(lightingCalls, call)
+				}
+			}
+
 			if tt.shouldCallService {
-				assert.GreaterOrEqual(t, len(calls), 1, "Expected at least one service call")
+				assert.GreaterOrEqual(t, len(lightingCalls), 1, "Expected at least one lighting service call")
 				// Find the expected call
 				found := false
-				for _, call := range calls {
+				for _, call := range lightingCalls {
 					if call.Domain == tt.expectedDomain && call.Service == tt.expectedService {
 						found = true
 						break
@@ -399,7 +432,7 @@ func TestEvaluateAndActivateRoom(t *testing.T) {
 				}
 				assert.True(t, found, "Expected to find %s.%s call", tt.expectedDomain, tt.expectedService)
 			} else {
-				assert.Equal(t, 0, len(calls))
+				assert.Equal(t, 0, len(lightingCalls), "Expected no lighting service calls")
 			}
 		})
 	}
