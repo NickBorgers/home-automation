@@ -242,7 +242,7 @@ music:
         volume_multiplier: 1.0
       - uri: "http://rain-sounds.nickborgers.net:8080/4.m4a"
         media_type: music
-        volume_multiplier: 0.8
+        volume_multiplier: 0.9
   sex:
     participants:
       - player_name: "Bedroom"
