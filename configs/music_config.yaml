@@ -7,11 +7,6 @@ music:
         leave_muted_if:
           - variable: isTVPlaying
             value: true
-      - player_name: "Soundbar"
-        base_volume: 10
-        leave_muted_if:
-          - variable: isGuestAsleep
-            value: true
       - player_name: "Kids Bathroom"
         base_volume: 7
         leave_muted_if:
@@ -58,11 +53,6 @@ music:
         base_volume: 9
         leave_muted_if:
           - variable: isTVPlaying
-            value: true
-      - player_name: "Soundbar"
-        base_volume: 10
-        leave_muted_if:
-          - variable: isGuestAsleep
             value: true
       - player_name: "Kids Bathroom"
         base_volume: 7
