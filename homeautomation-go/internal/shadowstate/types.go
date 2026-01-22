@@ -1236,3 +1236,74 @@ func NewMonitoringShadowState() *MonitoringShadowState {
 		},
 	}
 }
+
+// ============================================================================
+// Sensor Config Shadow State - Zigbee Sensor Threshold Configuration
+// ============================================================================
+
+// SensorConfigShadowState represents the shadow state for the sensor config plugin
+type SensorConfigShadowState struct {
+	Plugin   string              `json:"plugin"`
+	Inputs   SensorConfigInputs  `json:"inputs"`
+	Outputs  SensorConfigOutputs `json:"outputs"`
+	Metadata StateMetadata       `json:"metadata"`
+}
+
+// SensorConfigInputs tracks configuration settings (no dynamic inputs for this plugin)
+type SensorConfigInputs struct {
+	Current map[string]interface{} `json:"current"`
+}
+
+// SensorConfigOutputs tracks what was configured and when
+type SensorConfigOutputs struct {
+	Configurations []ThresholdConfiguration `json:"configurations"`
+	ConfiguredAt   time.Time                `json:"configuredAt,omitempty"`
+	LastUpdate     time.Time                `json:"lastUpdate"`
+}
+
+// ThresholdConfiguration represents a sensor threshold configuration
+type ThresholdConfiguration struct {
+	ConfigType         string    `json:"configType"`         // e.g., "temperature_report_threshold"
+	Description        string    `json:"description"`        // Human-readable description
+	Value              float64   `json:"value"`              // The configured value
+	ConfiguredEntities []string  `json:"configuredEntities"` // Successfully configured entities
+	FailedEntities     []string  `json:"failedEntities"`     // Entities that failed to configure
+	ConfiguredAt       time.Time `json:"configuredAt"`
+}
+
+// GetCurrentInputs implements PluginShadowState
+func (s *SensorConfigShadowState) GetCurrentInputs() map[string]interface{} {
+	return s.Inputs.Current
+}
+
+// GetLastActionInputs implements PluginShadowState
+func (s *SensorConfigShadowState) GetLastActionInputs() map[string]interface{} {
+	return s.Inputs.Current
+}
+
+// GetOutputs implements PluginShadowState
+func (s *SensorConfigShadowState) GetOutputs() interface{} {
+	return s.Outputs
+}
+
+// GetMetadata implements PluginShadowState
+func (s *SensorConfigShadowState) GetMetadata() StateMetadata {
+	return s.Metadata
+}
+
+// NewSensorConfigShadowState creates a new sensor config shadow state
+func NewSensorConfigShadowState() *SensorConfigShadowState {
+	return &SensorConfigShadowState{
+		Plugin: "sensorconfig",
+		Inputs: SensorConfigInputs{
+			Current: make(map[string]interface{}),
+		},
+		Outputs: SensorConfigOutputs{
+			Configurations: make([]ThresholdConfiguration, 0),
+		},
+		Metadata: StateMetadata{
+			LastUpdated: time.Now(),
+			PluginName:  "sensorconfig",
+		},
+	}
+}

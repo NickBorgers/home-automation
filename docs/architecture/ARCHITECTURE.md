@@ -451,6 +451,20 @@ Each plugin corresponds to a Node-RED flow and implements domain-specific automa
 
 **Events Consumed:** `state.reset.changed`
 
+### 13. Sensor Config Plugin ✅
+
+**Responsibilities:**
+- Configure Zigbee sensor reporting thresholds at startup
+- Set temperature reporting sensitivity (0.1°F units)
+- Configure low temperature alerts for freeze prevention
+- Set battery reporting thresholds
+
+**Key Automations:**
+- **Startup Configuration**: On plugin start → Configure all sensor thresholds via ZHA
+- **Threshold Settings**: Temperature, battery, and alert thresholds set via number entities
+
+**Config File:** `sensor_config.yaml`
+
 ---
 
 ## Data Flow
@@ -552,6 +566,7 @@ The system reuses existing YAML configuration files:
 | `hue_config.yaml` | Lighting scenes, room mappings |
 | `schedule_config.yaml` | Time-based schedules, wakeup times |
 | `energy_config.yaml` | Energy level thresholds |
+| `sensor_config.yaml` | Zigbee sensor thresholds and alert settings |
 
 ---
 

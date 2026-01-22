@@ -29,6 +29,7 @@ import (
 	_ "homeautomation/internal/plugins/monitoring"
 	_ "homeautomation/internal/plugins/music"
 	_ "homeautomation/internal/plugins/security"
+	_ "homeautomation/internal/plugins/sensorconfig"
 	_ "homeautomation/internal/plugins/sexmode"
 	_ "homeautomation/internal/plugins/sleephygiene"
 	_ "homeautomation/internal/plugins/statetracking"
