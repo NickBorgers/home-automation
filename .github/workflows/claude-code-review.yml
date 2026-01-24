@@ -49,7 +49,7 @@ on:
 # Uses branch name for concurrency group
 # cancel-in-progress: false ensures we complete the first review rather than restarting
 concurrency:
-  group: claude-review-${{ github.event_name == 'workflow_dispatch' && inputs.head_ref || github.event.workflow_run.head_branch }}
+  group: claude-review-${{ github.event_name == 'workflow_dispatch' && inputs.head_ref || github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.event.workflow_run.head_branch }}
   cancel-in-progress: false
 
 env:
@@ -69,11 +69,12 @@ jobs:
       pr_body_b64: ${{ steps.get-pr.outputs.pr_body_b64 }}
       head_ref: ${{ steps.get-pr.outputs.head_ref }}
       head_repo: ${{ steps.get-pr.outputs.head_repo }}
-      # Handle both workflow_run and workflow_dispatch events
-      tests_passed: ${{ github.event_name == 'workflow_dispatch' && inputs.tests_passed == 'true' || github.event.workflow_run.conclusion == 'success' }}
-      run_id: ${{ github.event_name == 'workflow_dispatch' && inputs.run_id || github.event.workflow_run.id }}
+      # Handle workflow_run, workflow_dispatch, and pull_request events
+      # For pull_request (reopen), tests haven't run yet so tests_passed is false
+      tests_passed: ${{ github.event_name == 'workflow_dispatch' && inputs.tests_passed == 'true' || github.event_name == 'pull_request' && 'false' || github.event.workflow_run.conclusion == 'success' }}
+      run_id: ${{ github.event_name == 'workflow_dispatch' && inputs.run_id || github.event_name == 'pull_request' && github.run_id || github.event.workflow_run.id }}
       # SHA that triggered this workflow - used to detect if author pushed newer commits
-      triggering_sha: ${{ github.event.workflow_run.head_sha }}
+      triggering_sha: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.event.workflow_run.head_sha }}
       issue_number: ${{ steps.get-issue.outputs.issue_number }}
       issue_title: ${{ steps.get-issue.outputs.issue_title }}
       issue_body_b64: ${{ steps.get-issue.outputs.issue_body_b64 }}
@@ -98,6 +99,13 @@ jobs:
               headRepo = '${{ inputs.head_repo }}';
               prNumber = parseInt('${{ inputs.pr_number }}', 10);
               console.log(`Triggered via workflow_dispatch for PR #${prNumber}`);
+            } else if (eventName === 'pull_request') {
+              // Use data from pull_request event (triggered on reopen)
+              const pr = context.payload.pull_request;
+              headBranch = pr.head.ref;
+              headRepo = pr.head.repo.full_name;
+              prNumber = pr.number;
+              console.log(`Triggered via pull_request event for PR #${prNumber}`);
             } else {
               // Use data from workflow_run event
               headBranch = context.payload.workflow_run.head_branch;
