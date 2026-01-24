@@ -984,6 +984,26 @@ jobs:
             FOR WORKFLOWS: Validate YAML syntax, check action refs, verify permissions
             FOR CONFIG: Validate syntax
 
+            **SCENARIO TEST RECOMMENDATION:**
+            If the PR modifies any of these RISKY areas, recommend creating scenario tests:
+            - State management (isMasterAsleep, isAnyoneAsleep, musicPlaybackType, isWakeSequenceActive)
+            - Sleep/wake logic (internal/plugins/sleephygiene/)
+            - Music playback (internal/plugins/music/, especially zone/mute logic)
+            - Lighting conditions (internal/plugins/lighting/, especially conditions based on sleep state)
+            - Multi-plugin interactions that could cause unintended side effects
+
+            RISKY changes can cause issues like:
+            - Loud music playing when someone is asleep
+            - Lights turning on/off unexpectedly during wake sequences
+            - State variables affecting multiple plugins simultaneously
+
+            Example scenario test patterns to reference:
+            - test/integration/scenario_nighttime_safety_test.go (sleep/wake/music safety)
+            - test/integration/scenario_sleephygiene_test.go (wake sequence behavior)
+            - internal/plugins/music/occupancy_scenario_test.go (mute conditions)
+
+            If risky changes lack scenario tests, recommend adding them with specific examples.
+
             Run \`make unit-tests\` to verify.
 
             For HIGH SEVERITY issues, fix directly and push.
@@ -996,6 +1016,9 @@ jobs:
 
             ### Issues Found
             [Only list actionable items: missing tests, flaky tests, etc. Skip if none.]
+
+            ### Scenario Tests Recommended
+            [If risky changes lack scenario tests, recommend specific tests to add. Reference existing examples. Skip section if not applicable.]
 
             ### Fixes Applied
             [List commits pushed, if any. Skip section if none.]
