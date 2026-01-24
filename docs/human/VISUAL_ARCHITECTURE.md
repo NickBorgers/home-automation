@@ -338,7 +338,7 @@ flowchart TD
 
     UpdateCache[Update State Manager Cache] --> RecomputeDerived{Triggers<br/>Computed State?}
 
-    RecomputeDerived -->|Yes| Recompute[Recompute Derived Variables<br/>isAnyoneHomeAndAwake =<br/>isAnyOwnerHome AND !isAnyoneAsleep OR isToriHere]
+    RecomputeDerived -->|Yes| Recompute[Recompute Derived Variables<br/>isAnyoneHomeAndAwake =<br/>isAnyOwnerHome AND !isAnyoneAsleep OR isToriHere OR wakeSequenceLatch]
     RecomputeDerived -->|No| NotifyPlugins
 
     Recompute --> SyncDerived[Sync Derived Value to HA]
@@ -959,6 +959,8 @@ graph LR
 
     AnyoneHome --> AnyoneHomeAndAwake
     AnyoneAsleep --> AnyoneHomeAndAwake
+    WakeActive -->|latch activation| AnyoneHomeAndAwake
+    MasterAsleep -->|latch clearing| AnyoneHomeAndAwake
 
     DayPhasePlugin --> DayPhase
     DayPhasePlugin --> SunEvent

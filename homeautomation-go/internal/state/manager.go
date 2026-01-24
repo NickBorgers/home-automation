@@ -50,6 +50,13 @@ type Manager struct {
 	haSubsMu    sync.Mutex
 	nextSubID   uint64
 	readOnly    bool
+
+	// wakeSequenceLatch is internal state for computed isAnyoneHomeAndAwake.
+	// When the wake sequence activates (isWakeSequenceActive false->true),
+	// this latch is set to keep isAnyoneHomeAndAwake=true even if someone
+	// is still asleep. The latch clears when isMasterAsleep becomes false.
+	// Protected by cacheMu for simplicity (accessed during recomputation).
+	wakeSequenceLatch bool
 }
 
 // NewManager creates a new state manager
