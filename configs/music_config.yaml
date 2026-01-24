@@ -52,7 +52,7 @@ zones:
     priority: 150  # Highest - override mode, always takes precedence
     trigger: []
   - name: "wakeup"
-    priority: 90  # Wake sequence
+    priority: 110  # Higher than sleep - used to wake someone up
     trigger: []
 
 music:
