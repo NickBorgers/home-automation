@@ -2629,6 +2629,35 @@ func (m *Manager) updateShadowOutputs(mode string, playlist *shadowstate.Playlis
 	}
 	m.mu.RUnlock()
 
+	// Update active zones from ZoneManager (per design review feedback)
+	if m.zoneManager != nil {
+		activeZones := m.zoneManager.GetActiveZones()
+		zoneShadowStates := make([]shadowstate.ZoneShadowState, 0, len(activeZones))
+		for _, zone := range activeZones {
+			participants := make([]shadowstate.SpeakerState, 0, len(zone.Participants))
+			for _, p := range zone.Participants {
+				participants = append(participants, shadowstate.SpeakerState{
+					PlayerName:    p.PlayerName,
+					Volume:        p.Volume,
+					BaseVolume:    p.BaseVolume,
+					DefaultVolume: p.DefaultVolume,
+					IsLeader:      p.PlayerName == zone.LeadSpeaker,
+					Active:        true,
+				})
+			}
+			zoneShadowStates = append(zoneShadowStates, shadowstate.ZoneShadowState{
+				Name:         zone.Name,
+				MusicType:    zone.MusicType,
+				Priority:     zone.Priority,
+				LeadSpeaker:  zone.LeadSpeaker,
+				Participants: participants,
+				PlaylistURI:  zone.PlaylistURI,
+				StartedAt:    zone.StartedAt,
+			})
+		}
+		m.shadowState.Outputs.ActiveZones = zoneShadowStates
+	}
+
 	m.shadowState.Metadata.LastUpdated = m.timeProvider.Now()
 }
 
@@ -2669,6 +2698,17 @@ func (m *Manager) GetShadowState() *shadowstate.MusicShadowState {
 	if m.shadowState.Outputs.PlaybackHealth != nil {
 		healthCopy := *m.shadowState.Outputs.PlaybackHealth
 		shadowCopy.Outputs.PlaybackHealth = &healthCopy
+	}
+
+	// Deep copy active zones
+	if len(m.shadowState.Outputs.ActiveZones) > 0 {
+		shadowCopy.Outputs.ActiveZones = make([]shadowstate.ZoneShadowState, len(m.shadowState.Outputs.ActiveZones))
+		for i, zone := range m.shadowState.Outputs.ActiveZones {
+			zoneCopy := zone
+			zoneCopy.Participants = make([]shadowstate.SpeakerState, len(zone.Participants))
+			copy(zoneCopy.Participants, zone.Participants)
+			shadowCopy.Outputs.ActiveZones[i] = zoneCopy
+		}
 	}
 
 	return &shadowCopy
