@@ -351,6 +351,8 @@ func TestScenario_MorningMusic_BedroomMutedWhenMasterAsleep(t *testing.T) {
 	// If no service calls occurred, it means the music manager didn't trigger playback
 	// in this test setup. This is acceptable for now - the key assertion is that IF
 	// playback occurred, bedroom would be muted.
+	// TODO(MULTI_ZONE_MUSIC): Strengthen this test to verify end-to-end mute behavior
+	// once multi-zone music is implemented and playback can be triggered reliably.
 	if len(calls) > 0 {
 		assert.True(t, foundBedroomMute,
 			"CRITICAL: Bedroom speaker MUST be muted when isMasterAsleep=true! "+
@@ -507,6 +509,8 @@ func TestScenario_WakeCancellation_RevertsToSleepMusicDuringNight(t *testing.T) 
 	// Note: This requires the sleephygiene plugin to detect the light change
 	// and trigger the reversion. In this test, we verify the state change
 	// was detected.
+	// TODO(MULTI_ZONE_MUSIC): Strengthen assertions once wake cancellation flow
+	// is fully implemented. Currently this documents expected behavior.
 	musicType, err := env.stateManager.GetString("musicPlaybackType")
 	require.NoError(t, err)
 
@@ -614,6 +618,8 @@ func TestScenario_DayMusic_BedroomMutedWhenMasterAsleep(t *testing.T) {
 
 	// NOTE: This test documents expected behavior for MULTI_ZONE_MUSIC implementation.
 	// If playback occurred, verify bedroom was properly muted.
+	// TODO(MULTI_ZONE_MUSIC): Strengthen this test to verify end-to-end mute behavior
+	// once multi-zone music is implemented and playback can be triggered reliably.
 	if len(calls) > 0 {
 		assert.True(t, foundBedroomMute,
 			"CRITICAL: Bedroom speaker MUST be muted when isMasterAsleep=true during day music! "+
@@ -689,6 +695,8 @@ func TestScenario_SleepToMorningTransition_BedroomMutedUntilActualWake(t *testin
 	}
 
 	// NOTE: This test documents expected behavior. If playback occurred, verify muting.
+	// TODO(MULTI_ZONE_MUSIC): Strengthen this test to verify end-to-end transition
+	// behavior once multi-zone music is implemented.
 	if len(calls) > 0 {
 		assert.True(t, foundBedroomMute,
 			"Bedroom should be muted when transitioning to morning music while master still asleep")
@@ -741,7 +749,7 @@ func TestScenario_SleepToMorningTransition_BedroomMutedUntilActualWake(t *testin
 // Bedroom speaker has leave_muted_if: isMasterAsleep=true
 // Both conditions should work independently.
 
-func TestScenario_MultipleMusteConditions_WorkIndependently(t *testing.T) {
+func TestScenario_MultipleMuteConditions_WorkIndependently(t *testing.T) {
 	env, cleanup := setupNighttimeSafetyTest(t)
 	defer cleanup()
 
