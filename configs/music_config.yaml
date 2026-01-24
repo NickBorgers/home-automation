@@ -1,7 +1,8 @@
 ---
 # Phase 2: Zone definitions for multi-zone music playback
-# Zones are evaluated in priority order. Higher priority zones claim speakers first.
-# Triggers use AND logic - all conditions must match for the zone to activate.
+# Zones are evaluated in priority order.
+# Higher priority zones claim speakers first.
+# Triggers use AND logic - all conditions must match for zone activation.
 zones:
   - name: "sleep"
     priority: 100  # High - isAnyoneAsleep check happens first
