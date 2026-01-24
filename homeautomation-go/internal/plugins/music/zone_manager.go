@@ -226,14 +226,12 @@ func (zm *ZoneManager) ResolveZones(trigger string) error {
 		zap.Any("zone_to_speakers", zoneToSpeakers),
 		zap.Strings("speakers_to_turn_off", speakersToTurnOff))
 
-	zm.mu.Lock()
-	defer zm.mu.Unlock()
-
-	// Determine what changed
-	zonesToStop := make([]string, 0)
-	zonesToStart := make([]string, 0)
+	// Determine what changed while holding the lock
+	var zonesToStop []string
+	var zonesToStart []string
 	zonesToUpdate := make(map[string][]string) // zone -> new speakers
 
+	zm.mu.Lock()
 	// Find zones that should stop (no speakers assigned)
 	for zoneName := range zm.activeZones {
 		if _, stillActive := zoneToSpeakers[zoneName]; !stillActive {
@@ -257,14 +255,12 @@ func (zm *ZoneManager) ResolveZones(trigger string) error {
 			}
 		}
 	}
+	zm.mu.Unlock()
 
 	zm.logger.Info("Zone changes",
 		zap.Strings("stop", zonesToStop),
 		zap.Strings("start", zonesToStart),
 		zap.Any("update", zonesToUpdate))
-
-	// Execute zone operations (unlock to allow operations)
-	zm.mu.Unlock()
 
 	// Stop zones first (releases speakers)
 	for _, zoneName := range zonesToStop {
@@ -292,8 +288,6 @@ func (zm *ZoneManager) ResolveZones(trigger string) error {
 				zap.Error(err))
 		}
 	}
-
-	zm.mu.Lock() // Re-lock before returning
 
 	return nil
 }
