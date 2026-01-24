@@ -1,4 +1,60 @@
 ---
+# Phase 2: Zone definitions for multi-zone music playback
+# Zones are evaluated in priority order. Higher priority zones claim speakers first.
+# Triggers use AND logic - all conditions must match for the zone to activate.
+zones:
+  - name: "sleep"
+    priority: 100  # Highest - isAnyoneAsleep check happens first
+    trigger:
+      - variable: isAnyoneAsleep
+        value: true
+      - variable: isAnyoneHome
+        value: true
+  - name: "morning"
+    priority: 50
+    trigger:
+      - variable: dayPhase
+        value: morning
+      - variable: isAnyoneHome
+        value: true
+      - variable: isAnyoneAsleep
+        value: false
+  - name: "day"
+    priority: 40
+    trigger:
+      - variable: dayPhase
+        value: day
+      - variable: isAnyoneHome
+        value: true
+      - variable: isAnyoneAsleep
+        value: false
+  - name: "evening"
+    priority: 40
+    trigger:
+      - variable: dayPhase
+        value: evening
+      - variable: isAnyoneHome
+        value: true
+      - variable: isAnyoneAsleep
+        value: false
+  - name: "winddown"
+    priority: 40
+    trigger:
+      - variable: dayPhase
+        value: winddown
+      - variable: isAnyoneHome
+        value: true
+      - variable: isAnyoneAsleep
+        value: false
+  # sex and wakeup zones are manually triggered via musicPlaybackType
+  # They don't have automatic triggers
+  - name: "sex"
+    priority: 80  # High priority when manually activated
+    trigger: []
+  - name: "wakeup"
+    priority: 90  # Wake sequence
+    trigger: []
+
 music:
   morning:
     participants:
