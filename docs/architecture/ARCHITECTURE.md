@@ -594,9 +594,9 @@ homeautomation-go/
 │       ├── music/                   # ✅ Music Management plugin
 │       ├── sleephygiene/            # ✅ Sleep Hygiene plugin
 │       ├── tv/                      # ✅ TV Monitoring plugin
-│       ├── environmental/           # ✅ Environmental Monitoring plugin
+│       ├── environmental/           # ✅ Environmental plugin (humidity, water leak)
 │       ├── security/                # ✅ Security plugin
-│       ├── monitoring/              # ✅ Monitoring plugin (water leak, battery, staleness)
+│       ├── sensorhealth/            # ✅ Sensor Health plugin (battery, staleness, temp lockup)
 │       ├── loadshedding/            # ✅ Load Shedding plugin
 │       ├── sexmode/                 # ✅ Sex Mode plugin
 │       ├── christmas/               # ✅ Christmas plugin
@@ -632,9 +632,9 @@ homeautomation-go/
 - ✅ Music Management plugin
 - ✅ Sleep Hygiene plugin
 - ✅ TV Monitoring plugin
-- ✅ Environmental Monitoring plugin
+- ✅ Environmental plugin (humidity, water leak)
 - ✅ Security plugin
-- ✅ Monitoring plugin (water leak, low battery, sensor staleness)
+- ✅ Sensor Health plugin (battery, staleness, temp lockup)
 - ✅ Load Shedding plugin
 - ✅ Sex Mode plugin
 - ✅ Christmas plugin

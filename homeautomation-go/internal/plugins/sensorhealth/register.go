@@ -1,4 +1,4 @@
-package monitoring
+package sensorhealth
 
 import (
 	"fmt"
@@ -11,25 +11,25 @@ import (
 
 func init() {
 	plugin.Register(plugin.PluginInfo{
-		Name:        "monitoring",
-		Description: "Monitors water leaks, low batteries, and sensor staleness with mobile notifications",
+		Name:        "sensorhealth",
+		Description: "Monitors sensor apparatus health: low batteries, sensor staleness, and temperature sensor lockup",
 		Priority:    plugin.PriorityDefault,
 		Order:       65, // After security (60)
 		Factory:     createPlugin,
 	})
 }
 
-// createPlugin creates a new monitoring plugin instance from the plugin context.
+// createPlugin creates a new sensor health plugin instance from the plugin context.
 func createPlugin(ctx *plugin.Context) (plugin.Plugin, error) {
 	// Unwrap the interfaces to get the internal types
 	haClient := pkgha.UnwrapClient(ctx.HAClient)
 	if haClient == nil {
-		return nil, fmt.Errorf("monitoring plugin requires internal ha.HAClient")
+		return nil, fmt.Errorf("sensorhealth plugin requires internal ha.HAClient")
 	}
 
 	stateManager := pkgstate.UnwrapManager(ctx.StateManager)
 	if stateManager == nil {
-		return nil, fmt.Errorf("monitoring plugin requires internal state.Manager")
+		return nil, fmt.Errorf("sensorhealth plugin requires internal state.Manager")
 	}
 
 	manager := NewManager(haClient, stateManager, ctx.Logger, ctx.ReadOnly, ctx.Registry, ctx.NtfyClient)
@@ -42,7 +42,7 @@ type pluginAdapter struct {
 }
 
 func (p *pluginAdapter) Name() string {
-	return "monitoring"
+	return "sensorhealth"
 }
 
 func (p *pluginAdapter) Start() error {

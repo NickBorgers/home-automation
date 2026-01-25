@@ -34,14 +34,6 @@ const (
 	// Rate limiting
 	WarningNotificationRateLimit  = 4 * time.Hour
 	CriticalNotificationRateLimit = 1 * time.Hour
-
-	// Temperature sensor lockup detection
-	// A sensor is considered locked up if it has the same reading for this long
-	TemperatureLockupThreshold = 12 * time.Hour
-	// How often to check for locked up sensors
-	TemperatureLockupCheckInterval = 1 * time.Hour
-	// Rate limiting for lockup notifications (per sensor)
-	TemperatureLockupNotificationRateLimit = 24 * time.Hour
 )
 
 // HumiditySensor represents a discovered humidity sensor
@@ -56,21 +48,18 @@ type HumiditySensor struct {
 	CriticalStart time.Time
 }
 
-// TemperatureSensor represents a discovered temperature sensor for lockup monitoring
-type TemperatureSensor struct {
-	EntityID                 string
-	DeviceID                 string
-	FriendlyName             string
-	Value                    float64
-	Valid                    bool
-	LastValueChange          time.Time // When the value last changed
-	LastValue                float64   // Previous value for comparison
-	IsLockedUp               bool      // Whether sensor is currently in lockup state
-	LastNotification         time.Time // When we last notified about this sensor's lockup
-	LastRecoveryNotification time.Time // When we last notified about this sensor's recovery
+// WaterLeakSensor represents a discovered water leak sensor
+type WaterLeakSensor struct {
+	EntityID     string
+	DeviceID     string
+	FriendlyName string
+	State        string // "on" = leak, "off" = no leak
+	LastChanged  time.Time
+	// Track if we've sent notification for current leak
+	NotificationSent bool
 }
 
-// Manager handles environmental monitoring and alerts
+// Manager handles environmental monitoring and alerts (humidity and water leaks)
 type Manager struct {
 	haClient     ha.HAClient
 	stateManager *state.Manager
@@ -89,22 +78,19 @@ type Manager struct {
 	mu      sync.Mutex
 	sensors map[string]*HumiditySensor
 
-	// Temperature sensors - keyed by entity_id (for lockup detection)
-	tempSensors map[string]*TemperatureSensor
+	// Water leak sensors - keyed by entity_id
+	waterLeakSensors map[string]*WaterLeakSensor
 
-	// Current alert level ("none", "warning", "critical")
+	// Current alert level for humidity ("none", "warning", "critical")
 	currentAlertLevel string
 
-	// Rate limiting
+	// Rate limiting for humidity
 	lastWarningNotification    time.Time
 	lastCriticalNotification   time.Time
 	lastResolutionNotification time.Time
 
-	// Track if we've notified for the current incident (to send resolution only once)
+	// Track if we've notified for the current humidity incident (to send resolution only once)
 	hasNotifiedForCurrentIncident bool
-
-	// Temperature lockup checker
-	stopLockupChecker chan struct{}
 }
 
 // NewManager creates a new environmental monitoring manager.
@@ -127,7 +113,7 @@ func NewManager(haClient ha.HAClient, stateManager *state.Manager, logger *zap.L
 		shadowTracker:     shadowTracker,
 		subHelper:         shadowstate.NewSubscriptionHelper(haClient, stateManager, registry, shadowTracker, "environmental", namedLogger),
 		sensors:           make(map[string]*HumiditySensor),
-		tempSensors:       make(map[string]*TemperatureSensor),
+		waterLeakSensors:  make(map[string]*WaterLeakSensor),
 		currentAlertLevel: "none",
 	}
 }
@@ -165,7 +151,7 @@ func (m *Manager) Start() error {
 	m.mu.Unlock()
 
 	if sensorCount == 0 {
-		m.logger.Warn("No humidity sensors discovered - environmental monitoring will be inactive")
+		m.logger.Warn("No humidity sensors discovered - humidity monitoring will be inactive")
 	} else {
 		m.logger.Info("Humidity sensors discovered",
 			zap.Int("total", sensorCount),
@@ -173,45 +159,46 @@ func (m *Manager) Start() error {
 			zap.Int("outdoor_informational", sensorCount-indoorCount))
 	}
 
-	// Discover temperature sensors for lockup detection
-	if err := m.discoverTemperatureSensors(); err != nil {
-		m.logger.Warn("Failed to discover some temperature sensors", zap.Error(err))
-		// Continue anyway - may have discovered some sensors
+	// Discover water leak sensors
+	if err := m.discoverWaterLeakSensors(); err != nil {
+		m.logger.Warn("Failed to discover some water leak sensors", zap.Error(err))
 	}
 
 	m.mu.Lock()
-	tempSensorCount := len(m.tempSensors)
+	waterLeakCount := len(m.waterLeakSensors)
 	m.mu.Unlock()
 
-	if tempSensorCount == 0 {
-		m.logger.Warn("No temperature sensors discovered - lockup detection will be inactive")
+	if waterLeakCount == 0 {
+		m.logger.Warn("No water leak sensors discovered")
 	} else {
-		m.logger.Info("Temperature sensors discovered for lockup monitoring",
-			zap.Int("total", tempSensorCount))
-		// Start the periodic lockup checker
-		m.startLockupChecker()
+		m.logger.Info("Water leak sensors discovered", zap.Int("count", waterLeakCount))
 	}
 
 	// Initialize shadow state with current input values (after subscriptions registered)
 	m.subHelper.CaptureInitialInputs()
+
+	// Update shadow state with discovered sensors
+	m.updateShadowSensors()
+	m.updateShadowWaterLeakSensors()
+
+	// Evaluate initial water leak state
+	m.evaluateWaterLeaks()
 
 	m.logger.Info("Environmental Monitoring Manager started successfully")
 	return nil
 }
 
 // discoverHumiditySensors discovers all humidity sensors and classifies them as indoor/outdoor.
-// Note: Discovery runs at startup only. New sensors added to Home Assistant while
-// the app is running will not be detected until restart.
 func (m *Manager) discoverHumiditySensors() error {
 	var errs []error
 
-	// Step 1: Get all entity states
+	// Get all entity states
 	states, err := m.haClient.GetAllStates()
 	if err != nil {
 		return fmt.Errorf("failed to get entity states: %w", err)
 	}
 
-	// Step 2: Filter for humidity sensors (device_class: humidity)
+	// Filter for humidity sensors (device_class: humidity)
 	var humiditySensors []*ha.State
 	for _, state := range states {
 		if !strings.HasPrefix(state.EntityID, "sensor.") {
@@ -230,7 +217,7 @@ func (m *Manager) discoverHumiditySensors() error {
 		return nil
 	}
 
-	// Step 3: Get entity registry to map entity_id -> device_id
+	// Get entity registry to map entity_id -> device_id
 	entityRegistry, err := m.haClient.GetEntityRegistry()
 	if err != nil {
 		m.logger.Warn("Failed to get entity registry - all sensors will be treated as outdoor",
@@ -243,7 +230,7 @@ func (m *Manager) discoverHumiditySensors() error {
 		entityToDevice[entry.EntityID] = entry.DeviceID
 	}
 
-	// Step 4: Get device registry to check for "indoor" label
+	// Get device registry to check for "indoor" label
 	devices, err := m.haClient.GetDevices()
 	if err != nil {
 		m.logger.Warn("Failed to get device registry - all sensors will be treated as outdoor",
@@ -255,7 +242,6 @@ func (m *Manager) discoverHumiditySensors() error {
 
 	indoorDevices := make(map[string]bool)
 	for _, device := range devices {
-		// Use case-insensitive matching to handle "Indoor", "indoor", "INDOOR", etc.
 		if labelChecker.HasLabelIgnoreCase(device.ID, ha.IndoorLabel) {
 			indoorDevices[device.ID] = true
 		}
@@ -263,7 +249,7 @@ func (m *Manager) discoverHumiditySensors() error {
 
 	m.logger.Info("Indoor devices discovered", zap.Int("count", len(indoorDevices)))
 
-	// Step 5: Create HumiditySensor structs and subscribe to each
+	// Create HumiditySensor structs and subscribe to each
 	m.mu.Lock()
 	for _, state := range humiditySensors {
 		deviceID := entityToDevice[state.EntityID]
@@ -318,27 +304,121 @@ func (m *Manager) discoverHumiditySensors() error {
 	return nil
 }
 
+// discoverWaterLeakSensors discovers all water leak binary sensors
+func (m *Manager) discoverWaterLeakSensors() error {
+	var errs []error
+
+	// Get all entity states
+	states, err := m.haClient.GetAllStates()
+	if err != nil {
+		return fmt.Errorf("failed to get entity states: %w", err)
+	}
+
+	// Filter for water leak sensors (binary_sensor with device_class: moisture or entity_id containing "water_leak")
+	var waterLeakStates []*ha.State
+	for _, state := range states {
+		if !strings.HasPrefix(state.EntityID, "binary_sensor.") {
+			continue
+		}
+		// Check device_class first
+		if deviceClass, ok := state.Attributes["device_class"].(string); ok {
+			if deviceClass == "moisture" {
+				waterLeakStates = append(waterLeakStates, state)
+				continue
+			}
+		}
+		// Also match by entity_id pattern
+		if strings.Contains(strings.ToLower(state.EntityID), "water_leak") {
+			waterLeakStates = append(waterLeakStates, state)
+		}
+	}
+
+	m.logger.Info("Found water leak sensors", zap.Int("count", len(waterLeakStates)))
+
+	if len(waterLeakStates) == 0 {
+		return nil
+	}
+
+	// Get entity registry for device IDs
+	entityRegistry, err := m.haClient.GetEntityRegistry()
+	if err != nil {
+		m.logger.Warn("Failed to get entity registry", zap.Error(err))
+		errs = append(errs, err)
+	}
+
+	entityToDevice := make(map[string]string)
+	for _, entry := range entityRegistry {
+		entityToDevice[entry.EntityID] = entry.DeviceID
+	}
+
+	// Get device registry for label checking
+	devices, err := m.haClient.GetDevices()
+	if err != nil {
+		m.logger.Warn("Failed to get device registry", zap.Error(err))
+		errs = append(errs, err)
+	}
+
+	labelChecker := ha.NewDeviceLabelChecker(devices)
+
+	// Create sensor structs and subscribe
+	m.mu.Lock()
+	for _, state := range waterLeakStates {
+		deviceID := entityToDevice[state.EntityID]
+
+		// Check if device has the monitoring ignore label
+		if labelChecker.ShouldIgnoreForMonitoring(deviceID) {
+			m.logger.Info("Skipping water leak sensor with monitoring_ignore label on device",
+				zap.String("entity_id", state.EntityID),
+				zap.String("device_id", deviceID))
+			continue
+		}
+
+		friendlyName := state.EntityID
+		if name, ok := state.Attributes["friendly_name"].(string); ok {
+			friendlyName = name
+		}
+
+		sensor := &WaterLeakSensor{
+			EntityID:     state.EntityID,
+			DeviceID:     deviceID,
+			FriendlyName: friendlyName,
+			State:        state.State,
+			LastChanged:  state.LastChanged,
+		}
+
+		m.waterLeakSensors[state.EntityID] = sensor
+
+		m.logger.Debug("Discovered water leak sensor",
+			zap.String("entity_id", state.EntityID),
+			zap.String("friendly_name", friendlyName),
+			zap.String("state", state.State))
+	}
+	m.mu.Unlock()
+
+	// Subscribe to each sensor
+	for entityID := range m.waterLeakSensors {
+		if err := m.subHelper.SubscribeToEntity(entityID, m.handleWaterLeakChange); err != nil {
+			m.logger.Warn("Failed to subscribe to water leak sensor",
+				zap.String("entity_id", entityID),
+				zap.Error(err))
+			errs = append(errs, err)
+		}
+	}
+
+	if len(errs) > 0 {
+		return errors.Join(errs...)
+	}
+	return nil
+}
+
 // Stop stops the environmental monitoring manager
 func (m *Manager) Stop() {
 	m.logger.Info("Stopping Environmental Monitoring Manager")
-
-	// Stop the lockup checker
-	m.stopLockupCheckerFunc()
 
 	// Unsubscribe from all subscriptions
 	m.subHelper.UnsubscribeAll()
 
 	m.logger.Info("Environmental Monitoring Manager stopped")
-}
-
-// stopLockupCheckerFunc stops the temperature lockup checker goroutine
-func (m *Manager) stopLockupCheckerFunc() {
-	m.mu.Lock()
-	if m.stopLockupChecker != nil {
-		close(m.stopLockupChecker)
-		m.stopLockupChecker = nil
-	}
-	m.mu.Unlock()
 }
 
 // handleHumidityChange processes changes to any humidity sensor
@@ -389,7 +469,44 @@ func (m *Manager) handleHumidityChange(entityID string, oldState, newState *ha.S
 	}
 }
 
-// updateShadowSensors updates the shadow state with current sensor data
+// handleWaterLeakChange processes water leak sensor state changes
+func (m *Manager) handleWaterLeakChange(entityID string, oldState, newState *ha.State) {
+	if newState == nil {
+		return
+	}
+
+	m.mu.Lock()
+	sensor, ok := m.waterLeakSensors[entityID]
+	if !ok {
+		m.mu.Unlock()
+		m.logger.Warn("Received update for unknown water leak sensor", zap.String("entity_id", entityID))
+		return
+	}
+
+	oldSensorState := sensor.State
+	sensor.State = newState.State
+	sensor.LastChanged = newState.LastChanged
+
+	// If leak is cleared, reset notification flag
+	if newState.State == "off" && oldSensorState == "on" {
+		sensor.NotificationSent = false
+	}
+	m.mu.Unlock()
+
+	m.logger.Debug("Water leak sensor changed",
+		zap.String("entity_id", entityID),
+		zap.String("friendly_name", sensor.FriendlyName),
+		zap.String("old_state", oldSensorState),
+		zap.String("new_state", newState.State))
+
+	// Update shadow state
+	m.updateShadowWaterLeakSensors()
+
+	// Evaluate and potentially send notification
+	m.evaluateWaterLeaks()
+}
+
+// updateShadowSensors updates the shadow state with current humidity sensor data
 func (m *Manager) updateShadowSensors() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -407,6 +524,100 @@ func (m *Manager) updateShadowSensors() {
 	}
 
 	m.shadowTracker.UpdateHumiditySensors(sensorData)
+}
+
+// updateShadowWaterLeakSensors updates the shadow state with current water leak sensor data
+func (m *Manager) updateShadowWaterLeakSensors() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	waterLeakData := make([]shadowstate.WaterLeakSensorData, 0, len(m.waterLeakSensors))
+	for _, sensor := range m.waterLeakSensors {
+		waterLeakData = append(waterLeakData, shadowstate.WaterLeakSensorData{
+			EntityID:     sensor.EntityID,
+			FriendlyName: sensor.FriendlyName,
+			DeviceID:     sensor.DeviceID,
+			State:        sensor.State,
+			LastChanged:  sensor.LastChanged,
+		})
+	}
+	m.shadowTracker.UpdateWaterLeakSensors(waterLeakData)
+}
+
+// evaluateWaterLeaks checks for active water leaks and sends notifications
+func (m *Manager) evaluateWaterLeaks() {
+	m.mu.Lock()
+	var activeLeaks []shadowstate.WaterLeakAlert
+	var toNotify []*WaterLeakSensor
+
+	for _, sensor := range m.waterLeakSensors {
+		if sensor.State == "on" {
+			alert := shadowstate.WaterLeakAlert{
+				EntityID:         sensor.EntityID,
+				FriendlyName:     sensor.FriendlyName,
+				DetectedAt:       sensor.LastChanged,
+				NotificationSent: sensor.NotificationSent,
+			}
+			activeLeaks = append(activeLeaks, alert)
+
+			if !sensor.NotificationSent {
+				toNotify = append(toNotify, sensor)
+			}
+		}
+	}
+	m.mu.Unlock()
+
+	// Update shadow state with active leaks
+	m.shadowTracker.UpdateActiveWaterLeaks(activeLeaks)
+
+	// Send notifications for new leaks
+	for _, sensor := range toNotify {
+		m.sendWaterLeakNotification(sensor)
+	}
+}
+
+// sendWaterLeakNotification sends a notification for a water leak
+func (m *Manager) sendWaterLeakNotification(sensor *WaterLeakSensor) {
+	message := fmt.Sprintf("Water leak detected at %s", sensor.FriendlyName)
+
+	m.logger.Warn("Water leak detected",
+		zap.String("entity_id", sensor.EntityID),
+		zap.String("friendly_name", sensor.FriendlyName))
+
+	// Record notification in shadow state
+	m.shadowTracker.RecordWaterLeakNotification(sensor.EntityID, sensor.FriendlyName, message)
+
+	// Mark as notified
+	m.mu.Lock()
+	sensor.NotificationSent = true
+	m.mu.Unlock()
+
+	if m.readOnly {
+		m.logger.Info("Skipping water leak notification send in read-only mode",
+			zap.String("entity_id", sensor.EntityID),
+			zap.String("message", message))
+		return
+	}
+
+	if m.ntfyClient == nil {
+		m.logger.Warn("ntfy client not configured, cannot send water leak notification",
+			zap.String("entity_id", sensor.EntityID))
+		return
+	}
+
+	// Send notification via ntfy
+	if err := m.ntfyClient.Send(&ntfy.Message{
+		Title:    "Water Leak Detected",
+		Body:     message,
+		Priority: ntfy.PriorityUrgent,
+		Tags:     []string{"warning", "droplet"},
+	}); err != nil {
+		m.logger.Error("Failed to send water leak notification",
+			zap.String("entity_id", sensor.EntityID),
+			zap.Error(err))
+	} else {
+		m.logger.Info("Water leak notification sent", zap.String("message", message))
+	}
 }
 
 // evaluateHumidity evaluates current humidity levels for indoor sensors and sends alerts if needed
@@ -722,402 +933,6 @@ func formatSensorLocations(locations []string) string {
 	return strings.Join(locations, ", ")
 }
 
-// ============================================================================
-// Temperature Sensor Lockup Detection
-// ============================================================================
-
-// discoverTemperatureSensors discovers all temperature sensors for lockup monitoring.
-// Note: Discovery runs at startup only. New sensors added to Home Assistant while
-// the app is running will not be detected until restart.
-func (m *Manager) discoverTemperatureSensors() error {
-	var errs []error
-
-	// Step 1: Get all entity states
-	states, err := m.haClient.GetAllStates()
-	if err != nil {
-		return fmt.Errorf("failed to get entity states: %w", err)
-	}
-
-	// Step 2: Filter for temperature sensors (device_class: temperature)
-	var tempSensors []*ha.State
-	for _, state := range states {
-		if !strings.HasPrefix(state.EntityID, "sensor.") {
-			continue
-		}
-		if deviceClass, ok := state.Attributes["device_class"].(string); ok {
-			if deviceClass == "temperature" {
-				tempSensors = append(tempSensors, state)
-			}
-		}
-	}
-
-	m.logger.Info("Found temperature sensors", zap.Int("count", len(tempSensors)))
-
-	if len(tempSensors) == 0 {
-		return nil
-	}
-
-	// Step 3: Get entity registry to map entity_id -> device_id
-	entityRegistry, err := m.haClient.GetEntityRegistry()
-	if err != nil {
-		m.logger.Warn("Failed to get entity registry for temperature sensors",
-			zap.Error(err))
-		errs = append(errs, err)
-	}
-
-	entityToDevice := make(map[string]string)
-	for _, entry := range entityRegistry {
-		entityToDevice[entry.EntityID] = entry.DeviceID
-	}
-
-	// Step 4: Get device registry for label checking
-	devices, err := m.haClient.GetDevices()
-	if err != nil {
-		m.logger.Warn("Failed to get device registry for temperature sensors",
-			zap.Error(err))
-		errs = append(errs, err)
-	}
-
-	labelChecker := ha.NewDeviceLabelChecker(devices)
-
-	now := m.clock.Now()
-
-	// Step 5: Create TemperatureSensor structs and subscribe to each
-	m.mu.Lock()
-	for _, state := range tempSensors {
-		deviceID := entityToDevice[state.EntityID]
-
-		// Check if device has the monitoring ignore label
-		if labelChecker.ShouldIgnoreForMonitoring(deviceID) {
-			m.logger.Info("Skipping temperature sensor with monitoring_ignore label on device",
-				zap.String("entity_id", state.EntityID),
-				zap.String("device_id", deviceID))
-			continue
-		}
-
-		friendlyName := state.EntityID
-		if name, ok := state.Attributes["friendly_name"].(string); ok {
-			friendlyName = name
-		}
-
-		sensor := &TemperatureSensor{
-			EntityID:        state.EntityID,
-			DeviceID:        deviceID,
-			FriendlyName:    friendlyName,
-			Valid:           false,
-			LastValueChange: now, // Initialize to now - we'll track from here
-		}
-
-		// Parse initial value
-		if value, err := parseTemperature(state.State); err == nil {
-			sensor.Value = value
-			sensor.LastValue = value
-			sensor.Valid = true
-		}
-
-		m.tempSensors[state.EntityID] = sensor
-
-		m.logger.Debug("Discovered temperature sensor",
-			zap.String("entity_id", state.EntityID),
-			zap.String("friendly_name", friendlyName),
-			zap.String("device_id", deviceID),
-			zap.Float64("current_value", sensor.Value))
-	}
-	m.mu.Unlock()
-
-	// Subscribe to each sensor (outside the lock to avoid deadlock)
-	for entityID := range m.tempSensors {
-		if err := m.subHelper.SubscribeToEntity(entityID, m.handleTemperatureChange); err != nil {
-			m.logger.Warn("Failed to subscribe to temperature sensor",
-				zap.String("entity_id", entityID),
-				zap.Error(err))
-			errs = append(errs, err)
-		}
-	}
-
-	// Update shadow state with all discovered temperature sensors
-	m.updateShadowTemperatureSensors()
-
-	if len(errs) > 0 {
-		return errors.Join(errs...)
-	}
-	return nil
-}
-
-// handleTemperatureChange processes changes to any temperature sensor
-func (m *Manager) handleTemperatureChange(entityID string, oldState, newState *ha.State) {
-	if newState == nil {
-		return
-	}
-
-	// Parse temperature value
-	temp, err := parseTemperature(newState.State)
-	if err != nil {
-		m.logger.Debug("Invalid temperature value",
-			zap.String("entity_id", entityID),
-			zap.String("state", newState.State),
-			zap.Error(err))
-		m.mu.Lock()
-		if sensor, ok := m.tempSensors[entityID]; ok {
-			sensor.Valid = false
-		}
-		m.mu.Unlock()
-		return
-	}
-
-	m.mu.Lock()
-	sensor, ok := m.tempSensors[entityID]
-	if !ok {
-		m.mu.Unlock()
-		m.logger.Warn("Received update for unknown temperature sensor", zap.String("entity_id", entityID))
-		return
-	}
-
-	// Check if value actually changed
-	if sensor.Valid && temp != sensor.LastValue {
-		// Value changed - update tracking
-		sensor.LastValueChange = m.clock.Now()
-		sensor.LastValue = temp
-		// If sensor was marked as locked up but now has a new reading, it's recovered
-		if sensor.IsLockedUp {
-			sensor.IsLockedUp = false
-			m.logger.Info("Temperature sensor recovered from lockup",
-				zap.String("entity_id", entityID),
-				zap.String("friendly_name", sensor.FriendlyName),
-				zap.Float64("new_value", temp))
-			// Send recovery notification (unlocks mutex internally)
-			m.mu.Unlock()
-			m.sendTemperatureRecoveryNotification(sensor, temp)
-			m.mu.Lock()
-		}
-	}
-
-	sensor.Value = temp
-	sensor.Valid = true
-	m.mu.Unlock()
-
-	m.logger.Debug("Temperature sensor changed",
-		zap.String("entity_id", entityID),
-		zap.String("friendly_name", sensor.FriendlyName),
-		zap.Float64("temperature", temp))
-
-	// Update shadow state
-	m.updateShadowTemperatureSensors()
-}
-
-// updateShadowTemperatureSensors updates the shadow state with current temperature sensor data
-func (m *Manager) updateShadowTemperatureSensors() {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	sensorData := make([]shadowstate.TemperatureSensorData, 0, len(m.tempSensors))
-	for _, sensor := range m.tempSensors {
-		sensorData = append(sensorData, shadowstate.TemperatureSensorData{
-			EntityID:        sensor.EntityID,
-			FriendlyName:    sensor.FriendlyName,
-			DeviceID:        sensor.DeviceID,
-			Value:           sensor.Value,
-			Valid:           sensor.Valid,
-			LastValueChange: sensor.LastValueChange,
-			IsLockedUp:      sensor.IsLockedUp,
-		})
-	}
-
-	m.shadowTracker.UpdateTemperatureSensors(sensorData)
-}
-
-// startLockupChecker starts the periodic lockup checker goroutine
-func (m *Manager) startLockupChecker() {
-	m.mu.Lock()
-	m.stopLockupChecker = make(chan struct{})
-	stopCh := m.stopLockupChecker
-	m.mu.Unlock()
-
-	go m.runLockupChecker(stopCh)
-}
-
-// runLockupChecker periodically checks for locked up temperature sensors
-func (m *Manager) runLockupChecker(stopCh chan struct{}) {
-	// Check immediately on start
-	m.checkTemperatureLockup()
-
-	ticker := m.clock.NewTicker(TemperatureLockupCheckInterval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-stopCh:
-			m.logger.Info("Temperature lockup checker stopped")
-			return
-		case <-ticker.C():
-			m.checkTemperatureLockup()
-		}
-	}
-}
-
-// checkTemperatureLockup checks all temperature sensors for lockup and sends notifications
-func (m *Manager) checkTemperatureLockup() {
-	m.mu.Lock()
-	now := m.clock.Now()
-	var lockedUpSensors []*TemperatureSensor
-
-	for _, sensor := range m.tempSensors {
-		if !sensor.Valid {
-			continue
-		}
-
-		// Check if sensor has had the same value for too long
-		timeSinceChange := now.Sub(sensor.LastValueChange)
-		if timeSinceChange >= TemperatureLockupThreshold {
-			sensor.IsLockedUp = true
-			lockedUpSensors = append(lockedUpSensors, sensor)
-		}
-	}
-	m.mu.Unlock()
-
-	// Update shadow state with lockup status
-	m.updateShadowTemperatureSensors()
-
-	// Send notifications for locked up sensors
-	for _, sensor := range lockedUpSensors {
-		m.sendTemperatureLockupNotification(sensor)
-	}
-}
-
-// sendTemperatureLockupNotification sends a notification for a locked up temperature sensor
-func (m *Manager) sendTemperatureLockupNotification(sensor *TemperatureSensor) {
-	m.mu.Lock()
-	now := m.clock.Now()
-
-	// Check rate limiting (per sensor)
-	if !sensor.LastNotification.IsZero() && now.Sub(sensor.LastNotification) < TemperatureLockupNotificationRateLimit {
-		m.mu.Unlock()
-		m.logger.Debug("Skipping lockup notification due to rate limit",
-			zap.String("entity_id", sensor.EntityID),
-			zap.Duration("time_since_last", now.Sub(sensor.LastNotification)))
-		return
-	}
-
-	// Update last notification time
-	sensor.LastNotification = now
-
-	// Capture values while holding the lock to avoid race conditions
-	lastValueChange := sensor.LastValueChange
-	sensorValue := sensor.Value
-	friendlyName := sensor.FriendlyName
-	entityID := sensor.EntityID
-	m.mu.Unlock()
-
-	// Calculate how long the sensor has been locked up
-	timeSinceChange := now.Sub(lastValueChange)
-	hoursLocked := int(timeSinceChange.Hours())
-
-	message := fmt.Sprintf("Temperature sensor '%s' appears to be locked up. "+
-		"It has reported the same value (%.1f) for %d+ hours. "+
-		"The sensor may need to be reset or replaced.",
-		friendlyName, sensorValue, hoursLocked)
-
-	m.logger.Info("Sending temperature lockup notification",
-		zap.String("entity_id", entityID),
-		zap.String("friendly_name", friendlyName),
-		zap.Float64("stuck_value", sensorValue),
-		zap.Int("hours_locked", hoursLocked))
-
-	// Record in shadow state
-	m.shadowTracker.RecordTemperatureLockupNotification(entityID, friendlyName, message)
-
-	if m.readOnly {
-		m.logger.Info("Skipping lockup notification send in read-only mode",
-			zap.String("entity_id", entityID),
-			zap.String("message", message))
-		return
-	}
-
-	// Check if ntfy client is configured
-	if m.ntfyClient == nil {
-		m.logger.Warn("Cannot send temperature lockup notification - ntfy client not configured",
-			zap.String("entity_id", entityID))
-		return
-	}
-
-	// Send notification via ntfy
-	if err := m.ntfyClient.Send(&ntfy.Message{
-		Title:    "Temperature Sensor Locked Up",
-		Body:     message,
-		Priority: ntfy.PriorityHigh,
-		Tags:     []string{"warning", "thermometer"},
-	}); err != nil {
-		m.logger.Error("Failed to send temperature lockup notification",
-			zap.String("entity_id", entityID),
-			zap.Error(err))
-	}
-}
-
-// sendTemperatureRecoveryNotification sends a notification when a temperature sensor recovers from lockup
-func (m *Manager) sendTemperatureRecoveryNotification(sensor *TemperatureSensor, newValue float64) {
-	m.mu.Lock()
-	now := m.clock.Now()
-
-	// Check rate limiting (per sensor) - use same rate limit as lockup notifications
-	if !sensor.LastRecoveryNotification.IsZero() && now.Sub(sensor.LastRecoveryNotification) < TemperatureLockupNotificationRateLimit {
-		m.mu.Unlock()
-		m.logger.Debug("Skipping recovery notification due to rate limit",
-			zap.String("entity_id", sensor.EntityID),
-			zap.Duration("time_since_last", now.Sub(sensor.LastRecoveryNotification)))
-		return
-	}
-
-	// Update last recovery notification time
-	sensor.LastRecoveryNotification = now
-	m.mu.Unlock()
-
-	message := fmt.Sprintf("Temperature sensor '%s' has recovered from lockup. "+
-		"It is now reporting a new value (%.1f). The sensor appears to be working again.",
-		sensor.FriendlyName, newValue)
-
-	m.logger.Info("Sending temperature recovery notification",
-		zap.String("entity_id", sensor.EntityID),
-		zap.String("friendly_name", sensor.FriendlyName),
-		zap.Float64("new_value", newValue))
-
-	// Record in shadow state
-	m.shadowTracker.RecordTemperatureRecoveryNotification(sensor.EntityID, sensor.FriendlyName, message)
-
-	if m.readOnly {
-		m.logger.Info("Skipping recovery notification send in read-only mode",
-			zap.String("entity_id", sensor.EntityID),
-			zap.String("message", message))
-		return
-	}
-
-	// Check if ntfy client is configured
-	if m.ntfyClient == nil {
-		m.logger.Warn("Cannot send temperature recovery notification - ntfy client not configured",
-			zap.String("entity_id", sensor.EntityID))
-		return
-	}
-
-	// Send notification via ntfy
-	if err := m.ntfyClient.Send(&ntfy.Message{
-		Title:    "Temperature Sensor Recovered",
-		Body:     message,
-		Priority: ntfy.PriorityDefault,
-		Tags:     []string{"white_check_mark", "thermometer"},
-	}); err != nil {
-		m.logger.Error("Failed to send temperature recovery notification",
-			zap.String("entity_id", sensor.EntityID),
-			zap.Error(err))
-	}
-}
-
-// parseTemperature parses a temperature value from a state string
-func parseTemperature(s string) (float64, error) {
-	if s == "" || s == "unknown" || s == "unavailable" {
-		return 0, fmt.Errorf("invalid temperature state: %s", s)
-	}
-	return strconv.ParseFloat(s, 64)
-}
-
 // Reset resets the manager state (for testing)
 func (m *Manager) Reset() {
 	m.mu.Lock()
@@ -1129,14 +944,9 @@ func (m *Manager) Reset() {
 		sensor.WarningStart = time.Time{}
 		sensor.CriticalStart = time.Time{}
 	}
-	for _, sensor := range m.tempSensors {
-		sensor.Value = 0
-		sensor.Valid = false
-		sensor.LastValueChange = time.Time{}
-		sensor.LastValue = 0
-		sensor.IsLockedUp = false
-		sensor.LastNotification = time.Time{}
-		sensor.LastRecoveryNotification = time.Time{}
+	for _, sensor := range m.waterLeakSensors {
+		sensor.State = "off"
+		sensor.NotificationSent = false
 	}
 	m.currentAlertLevel = "none"
 	m.lastWarningNotification = time.Time{}
@@ -1181,36 +991,56 @@ func (m *Manager) SimulateSensorChange(entityID string, humidity float64) {
 	})
 }
 
-// GetTemperatureSensors returns a copy of the current temperature sensors map (for testing)
-func (m *Manager) GetTemperatureSensors() map[string]*TemperatureSensor {
+// GetWaterLeakSensors returns all water leak sensors for testing
+func (m *Manager) GetWaterLeakSensors() map[string]*WaterLeakSensor {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	result := make(map[string]*TemperatureSensor)
-	for k, v := range m.tempSensors {
-		// Make a copy
-		sensor := *v
-		result[k] = &sensor
+	result := make(map[string]*WaterLeakSensor, len(m.waterLeakSensors))
+	for k, v := range m.waterLeakSensors {
+		copy := *v
+		result[k] = &copy
 	}
 	return result
 }
 
-// AddTemperatureSensor adds a temperature sensor directly (for testing)
-func (m *Manager) AddTemperatureSensor(sensor *TemperatureSensor) {
+// AddWaterLeakSensor adds a water leak sensor for testing
+func (m *Manager) AddWaterLeakSensor(sensor *WaterLeakSensor) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.tempSensors[sensor.EntityID] = sensor
+	m.waterLeakSensors[sensor.EntityID] = sensor
 }
 
-// SimulateTemperatureChange simulates a temperature sensor value change (for testing)
-func (m *Manager) SimulateTemperatureChange(entityID string, temperature float64) {
-	m.handleTemperatureChange(entityID, nil, &ha.State{
-		EntityID: entityID,
-		State:    fmt.Sprintf("%.1f", temperature),
-	})
+// SimulateWaterLeakChange simulates a water leak sensor state change for testing
+func (m *Manager) SimulateWaterLeakChange(entityID, state string) {
+	m.mu.Lock()
+	sensor, ok := m.waterLeakSensors[entityID]
+	if !ok {
+		m.mu.Unlock()
+		return
+	}
+	oldState := sensor.State
+	sensor.State = state
+	sensor.LastChanged = m.clock.Now()
+	if state == "off" && oldState == "on" {
+		sensor.NotificationSent = false
+	}
+	m.mu.Unlock()
+
+	m.updateShadowWaterLeakSensors()
+	m.evaluateWaterLeaks()
 }
 
-// TriggerLockupCheck manually triggers the lockup check (for testing)
-func (m *Manager) TriggerLockupCheck() {
-	m.checkTemperatureLockup()
+// GetActiveWaterLeakCount returns the count of active water leaks for testing
+func (m *Manager) GetActiveWaterLeakCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	count := 0
+	for _, sensor := range m.waterLeakSensors {
+		if sensor.State == "on" {
+			count++
+		}
+	}
+	return count
 }

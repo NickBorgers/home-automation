@@ -1446,38 +1446,33 @@ func (et *EnvironmentalTracker) RecordResolutionNotice(message string) {
 	et.state.Metadata.LastUpdated = time.Now()
 }
 
-// UpdateTemperatureSensors updates the list of temperature sensors and their values
-func (et *EnvironmentalTracker) UpdateTemperatureSensors(sensors []TemperatureSensorData) {
+// UpdateWaterLeakSensors updates the list of water leak sensors
+func (et *EnvironmentalTracker) UpdateWaterLeakSensors(sensors []WaterLeakSensorData) {
 	et.mu.Lock()
 	defer et.mu.Unlock()
 
-	// Make a copy of the slice
-	et.state.Outputs.TemperatureSensors = make([]TemperatureSensorData, len(sensors))
-	copy(et.state.Outputs.TemperatureSensors, sensors)
+	et.state.Outputs.WaterLeakSensors = make([]WaterLeakSensorData, len(sensors))
+	copy(et.state.Outputs.WaterLeakSensors, sensors)
 	et.state.Outputs.LastUpdate = time.Now()
 	et.state.Metadata.LastUpdated = time.Now()
 }
 
-// RecordTemperatureLockupNotification records a temperature lockup notification that was sent
-func (et *EnvironmentalTracker) RecordTemperatureLockupNotification(entityID, friendlyName, message string) {
+// UpdateActiveWaterLeaks updates the list of active water leak alerts
+func (et *EnvironmentalTracker) UpdateActiveWaterLeaks(alerts []WaterLeakAlert) {
 	et.mu.Lock()
 	defer et.mu.Unlock()
 
-	et.state.Outputs.LastTemperatureLockupNotice = &TemperatureLockupNotice{
-		EntityID:     entityID,
-		FriendlyName: friendlyName,
-		Message:      message,
-		Timestamp:    time.Now(),
-	}
+	et.state.Outputs.ActiveWaterLeaks = make([]WaterLeakAlert, len(alerts))
+	copy(et.state.Outputs.ActiveWaterLeaks, alerts)
 	et.state.Metadata.LastUpdated = time.Now()
 }
 
-// RecordTemperatureRecoveryNotification records a temperature recovery notification that was sent
-func (et *EnvironmentalTracker) RecordTemperatureRecoveryNotification(entityID, friendlyName, message string) {
+// RecordWaterLeakNotification records a water leak notification that was sent
+func (et *EnvironmentalTracker) RecordWaterLeakNotification(entityID, friendlyName, message string) {
 	et.mu.Lock()
 	defer et.mu.Unlock()
 
-	et.state.Outputs.LastTemperatureRecoveryNotice = &TemperatureRecoveryNotice{
+	et.state.Outputs.LastWaterLeakNotice = &WaterLeakNotification{
 		EntityID:     entityID,
 		FriendlyName: friendlyName,
 		Message:      message,
@@ -1499,7 +1494,8 @@ func (et *EnvironmentalTracker) GetState() *EnvironmentalShadowState {
 		},
 		Outputs: EnvironmentalOutputs{
 			HumiditySensors:    make([]HumiditySensorData, len(et.state.Outputs.HumiditySensors)),
-			TemperatureSensors: make([]TemperatureSensorData, len(et.state.Outputs.TemperatureSensors)),
+			WaterLeakSensors:   make([]WaterLeakSensorData, len(et.state.Outputs.WaterLeakSensors)),
+			ActiveWaterLeaks:   make([]WaterLeakAlert, len(et.state.Outputs.ActiveWaterLeaks)),
 			AlertLevel:         et.state.Outputs.AlertLevel,
 			ConditionStartTime: et.state.Outputs.ConditionStartTime,
 			IsSustained:        et.state.Outputs.IsSustained,
@@ -1516,8 +1512,11 @@ func (et *EnvironmentalTracker) GetState() *EnvironmentalShadowState {
 	// Copy humidity sensors
 	copy(stateCopy.Outputs.HumiditySensors, et.state.Outputs.HumiditySensors)
 
-	// Copy temperature sensors
-	copy(stateCopy.Outputs.TemperatureSensors, et.state.Outputs.TemperatureSensors)
+	// Copy water leak sensors
+	copy(stateCopy.Outputs.WaterLeakSensors, et.state.Outputs.WaterLeakSensors)
+
+	// Copy active water leaks
+	copy(stateCopy.Outputs.ActiveWaterLeaks, et.state.Outputs.ActiveWaterLeaks)
 
 	// Copy notification records if they exist
 	if et.state.Outputs.LastNotification != nil {
@@ -1535,162 +1534,183 @@ func (et *EnvironmentalTracker) GetState() *EnvironmentalShadowState {
 		stateCopy.Outputs.LastResolutionNotice = &resolution
 	}
 
-	if et.state.Outputs.LastTemperatureLockupNotice != nil {
-		lockupNotice := *et.state.Outputs.LastTemperatureLockupNotice
-		stateCopy.Outputs.LastTemperatureLockupNotice = &lockupNotice
-	}
-
-	if et.state.Outputs.LastTemperatureRecoveryNotice != nil {
-		recoveryNotice := *et.state.Outputs.LastTemperatureRecoveryNotice
-		stateCopy.Outputs.LastTemperatureRecoveryNotice = &recoveryNotice
+	if et.state.Outputs.LastWaterLeakNotice != nil {
+		waterLeakNotice := *et.state.Outputs.LastWaterLeakNotice
+		stateCopy.Outputs.LastWaterLeakNotice = &waterLeakNotice
 	}
 
 	return stateCopy
 }
 
 // ============================================================================
-// Monitoring Tracker - Water Leak, Battery, and Staleness Monitoring
+// Sensor Health Tracker - Battery, Staleness, and Temperature Lockup Monitoring
 // ============================================================================
 
-// MonitoringTracker manages shadow state for the monitoring plugin
-type MonitoringTracker struct {
+// SensorHealthTracker manages shadow state for the sensor health plugin
+type SensorHealthTracker struct {
 	mu    sync.RWMutex
-	state *MonitoringShadowState
+	state *SensorHealthShadowState
 }
 
-// NewMonitoringTracker creates a new monitoring shadow state tracker
-func NewMonitoringTracker() *MonitoringTracker {
-	return &MonitoringTracker{
-		state: NewMonitoringShadowState(),
+// NewSensorHealthTracker creates a new sensor health shadow state tracker
+func NewSensorHealthTracker() *SensorHealthTracker {
+	return &SensorHealthTracker{
+		state: NewSensorHealthShadowState(),
 	}
 }
 
 // UpdateCurrentInputs updates the current input values
-func (mt *MonitoringTracker) UpdateCurrentInputs(inputs map[string]interface{}) {
-	mt.mu.Lock()
-	defer mt.mu.Unlock()
+func (st *SensorHealthTracker) UpdateCurrentInputs(inputs map[string]interface{}) {
+	st.mu.Lock()
+	defer st.mu.Unlock()
 
 	for key, value := range inputs {
-		mt.state.Inputs.Current[key] = value
+		st.state.Inputs.Current[key] = value
 	}
-	mt.state.Metadata.LastUpdated = time.Now()
-}
-
-// UpdateWaterLeakSensors updates the list of discovered water leak sensors
-func (mt *MonitoringTracker) UpdateWaterLeakSensors(sensors []WaterLeakSensorData) {
-	mt.mu.Lock()
-	defer mt.mu.Unlock()
-
-	mt.state.Outputs.WaterLeakSensors = make([]WaterLeakSensorData, len(sensors))
-	copy(mt.state.Outputs.WaterLeakSensors, sensors)
-	mt.state.Outputs.LastUpdate = time.Now()
-	mt.state.Metadata.LastUpdated = time.Now()
+	st.state.Metadata.LastUpdated = time.Now()
 }
 
 // UpdateBatterySensors updates the list of discovered battery sensors
-func (mt *MonitoringTracker) UpdateBatterySensors(sensors []BatterySensorData) {
-	mt.mu.Lock()
-	defer mt.mu.Unlock()
+func (st *SensorHealthTracker) UpdateBatterySensors(sensors []BatterySensorData) {
+	st.mu.Lock()
+	defer st.mu.Unlock()
 
-	mt.state.Outputs.BatterySensors = make([]BatterySensorData, len(sensors))
-	copy(mt.state.Outputs.BatterySensors, sensors)
-	mt.state.Outputs.LastUpdate = time.Now()
-	mt.state.Metadata.LastUpdated = time.Now()
+	st.state.Outputs.BatterySensors = make([]BatterySensorData, len(sensors))
+	copy(st.state.Outputs.BatterySensors, sensors)
+	st.state.Outputs.LastUpdate = time.Now()
+	st.state.Metadata.LastUpdated = time.Now()
 }
 
-// UpdateActiveWaterLeaks updates the list of active water leak alerts
-func (mt *MonitoringTracker) UpdateActiveWaterLeaks(alerts []WaterLeakAlert) {
-	mt.mu.Lock()
-	defer mt.mu.Unlock()
+// UpdateTemperatureSensors updates the list of discovered temperature sensors for lockup monitoring
+func (st *SensorHealthTracker) UpdateTemperatureSensors(sensors []TemperatureSensorData) {
+	st.mu.Lock()
+	defer st.mu.Unlock()
 
-	mt.state.Outputs.ActiveWaterLeaks = make([]WaterLeakAlert, len(alerts))
-	copy(mt.state.Outputs.ActiveWaterLeaks, alerts)
-	mt.state.Metadata.LastUpdated = time.Now()
+	st.state.Outputs.TemperatureSensors = make([]TemperatureSensorData, len(sensors))
+	copy(st.state.Outputs.TemperatureSensors, sensors)
+	st.state.Outputs.LastUpdate = time.Now()
+	st.state.Metadata.LastUpdated = time.Now()
 }
 
 // UpdateLowBatteryAlerts updates the list of low battery alerts
-func (mt *MonitoringTracker) UpdateLowBatteryAlerts(alerts []LowBatteryAlert) {
-	mt.mu.Lock()
-	defer mt.mu.Unlock()
+func (st *SensorHealthTracker) UpdateLowBatteryAlerts(alerts []LowBatteryAlert) {
+	st.mu.Lock()
+	defer st.mu.Unlock()
 
-	mt.state.Outputs.LowBatteryAlerts = make([]LowBatteryAlert, len(alerts))
-	copy(mt.state.Outputs.LowBatteryAlerts, alerts)
-	mt.state.Metadata.LastUpdated = time.Now()
+	st.state.Outputs.LowBatteryAlerts = make([]LowBatteryAlert, len(alerts))
+	copy(st.state.Outputs.LowBatteryAlerts, alerts)
+	st.state.Metadata.LastUpdated = time.Now()
 }
 
 // UpdateStaleSensorAlerts updates the list of stale sensor alerts
-func (mt *MonitoringTracker) UpdateStaleSensorAlerts(alerts []StaleSensorAlert) {
-	mt.mu.Lock()
-	defer mt.mu.Unlock()
+func (st *SensorHealthTracker) UpdateStaleSensorAlerts(alerts []StaleSensorAlert) {
+	st.mu.Lock()
+	defer st.mu.Unlock()
 
-	mt.state.Outputs.StaleSensorAlerts = make([]StaleSensorAlert, len(alerts))
-	copy(mt.state.Outputs.StaleSensorAlerts, alerts)
-	mt.state.Metadata.LastUpdated = time.Now()
+	st.state.Outputs.StaleSensorAlerts = make([]StaleSensorAlert, len(alerts))
+	copy(st.state.Outputs.StaleSensorAlerts, alerts)
+	st.state.Metadata.LastUpdated = time.Now()
 }
 
 // RecordNotification records a notification that was sent
-func (mt *MonitoringTracker) RecordNotification(alertType, entityID, message string) {
-	mt.mu.Lock()
-	defer mt.mu.Unlock()
+func (st *SensorHealthTracker) RecordNotification(alertType, entityID, message string) {
+	st.mu.Lock()
+	defer st.mu.Unlock()
 
-	mt.state.Outputs.LastNotification = &MonitoringNotification{
+	st.state.Outputs.LastNotification = &SensorHealthNotification{
 		AlertType: alertType,
 		EntityID:  entityID,
 		Message:   message,
 		Timestamp: time.Now(),
 	}
-	mt.state.Metadata.LastUpdated = time.Now()
+	st.state.Metadata.LastUpdated = time.Now()
+}
+
+// RecordTemperatureLockupNotification records a temperature lockup notification that was sent
+func (st *SensorHealthTracker) RecordTemperatureLockupNotification(entityID, friendlyName, message string) {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+
+	st.state.Outputs.LastTemperatureLockupNotice = &TemperatureLockupNotice{
+		EntityID:     entityID,
+		FriendlyName: friendlyName,
+		Message:      message,
+		Timestamp:    time.Now(),
+	}
+	st.state.Metadata.LastUpdated = time.Now()
+}
+
+// RecordTemperatureRecoveryNotification records a temperature recovery notification that was sent
+func (st *SensorHealthTracker) RecordTemperatureRecoveryNotification(entityID, friendlyName, message string) {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+
+	st.state.Outputs.LastTemperatureRecoveryNotice = &TemperatureRecoveryNotice{
+		EntityID:     entityID,
+		FriendlyName: friendlyName,
+		Message:      message,
+		Timestamp:    time.Now(),
+	}
+	st.state.Metadata.LastUpdated = time.Now()
 }
 
 // SetLastDiscoveryRefresh records when discovery was last refreshed
-func (mt *MonitoringTracker) SetLastDiscoveryRefresh(t time.Time) {
-	mt.mu.Lock()
-	defer mt.mu.Unlock()
+func (st *SensorHealthTracker) SetLastDiscoveryRefresh(t time.Time) {
+	st.mu.Lock()
+	defer st.mu.Unlock()
 
-	mt.state.Outputs.LastDiscoveryRefresh = t
-	mt.state.Metadata.LastUpdated = time.Now()
+	st.state.Outputs.LastDiscoveryRefresh = t
+	st.state.Metadata.LastUpdated = time.Now()
 }
 
 // GetState returns the current shadow state (thread-safe copy)
-func (mt *MonitoringTracker) GetState() *MonitoringShadowState {
-	mt.mu.RLock()
-	defer mt.mu.RUnlock()
+func (st *SensorHealthTracker) GetState() *SensorHealthShadowState {
+	st.mu.RLock()
+	defer st.mu.RUnlock()
 
 	// Create a deep copy
-	stateCopy := &MonitoringShadowState{
-		Plugin: mt.state.Plugin,
-		Inputs: MonitoringInputs{
+	stateCopy := &SensorHealthShadowState{
+		Plugin: st.state.Plugin,
+		Inputs: SensorHealthInputs{
 			Current: make(map[string]interface{}),
 		},
-		Outputs: MonitoringOutputs{
-			WaterLeakSensors:     make([]WaterLeakSensorData, len(mt.state.Outputs.WaterLeakSensors)),
-			BatterySensors:       make([]BatterySensorData, len(mt.state.Outputs.BatterySensors)),
-			ActiveWaterLeaks:     make([]WaterLeakAlert, len(mt.state.Outputs.ActiveWaterLeaks)),
-			LowBatteryAlerts:     make([]LowBatteryAlert, len(mt.state.Outputs.LowBatteryAlerts)),
-			StaleSensorAlerts:    make([]StaleSensorAlert, len(mt.state.Outputs.StaleSensorAlerts)),
-			Config:               mt.state.Outputs.Config,
-			LastUpdate:           mt.state.Outputs.LastUpdate,
-			LastDiscoveryRefresh: mt.state.Outputs.LastDiscoveryRefresh,
+		Outputs: SensorHealthOutputs{
+			BatterySensors:       make([]BatterySensorData, len(st.state.Outputs.BatterySensors)),
+			TemperatureSensors:   make([]TemperatureSensorData, len(st.state.Outputs.TemperatureSensors)),
+			LowBatteryAlerts:     make([]LowBatteryAlert, len(st.state.Outputs.LowBatteryAlerts)),
+			StaleSensorAlerts:    make([]StaleSensorAlert, len(st.state.Outputs.StaleSensorAlerts)),
+			Config:               st.state.Outputs.Config,
+			LastUpdate:           st.state.Outputs.LastUpdate,
+			LastDiscoveryRefresh: st.state.Outputs.LastDiscoveryRefresh,
 		},
-		Metadata: mt.state.Metadata,
+		Metadata: st.state.Metadata,
 	}
 
 	// Copy current inputs
-	for k, v := range mt.state.Inputs.Current {
+	for k, v := range st.state.Inputs.Current {
 		stateCopy.Inputs.Current[k] = v
 	}
 
 	// Copy slices
-	copy(stateCopy.Outputs.WaterLeakSensors, mt.state.Outputs.WaterLeakSensors)
-	copy(stateCopy.Outputs.BatterySensors, mt.state.Outputs.BatterySensors)
-	copy(stateCopy.Outputs.ActiveWaterLeaks, mt.state.Outputs.ActiveWaterLeaks)
-	copy(stateCopy.Outputs.LowBatteryAlerts, mt.state.Outputs.LowBatteryAlerts)
-	copy(stateCopy.Outputs.StaleSensorAlerts, mt.state.Outputs.StaleSensorAlerts)
+	copy(stateCopy.Outputs.BatterySensors, st.state.Outputs.BatterySensors)
+	copy(stateCopy.Outputs.TemperatureSensors, st.state.Outputs.TemperatureSensors)
+	copy(stateCopy.Outputs.LowBatteryAlerts, st.state.Outputs.LowBatteryAlerts)
+	copy(stateCopy.Outputs.StaleSensorAlerts, st.state.Outputs.StaleSensorAlerts)
 
-	// Copy notification record if it exists
-	if mt.state.Outputs.LastNotification != nil {
-		notification := *mt.state.Outputs.LastNotification
+	// Copy notification records if they exist
+	if st.state.Outputs.LastNotification != nil {
+		notification := *st.state.Outputs.LastNotification
 		stateCopy.Outputs.LastNotification = &notification
+	}
+
+	if st.state.Outputs.LastTemperatureLockupNotice != nil {
+		lockupNotice := *st.state.Outputs.LastTemperatureLockupNotice
+		stateCopy.Outputs.LastTemperatureLockupNotice = &lockupNotice
+	}
+
+	if st.state.Outputs.LastTemperatureRecoveryNotice != nil {
+		recoveryNotice := *st.state.Outputs.LastTemperatureRecoveryNotice
+		stateCopy.Outputs.LastTemperatureRecoveryNotice = &recoveryNotice
 	}
 
 	return stateCopy
