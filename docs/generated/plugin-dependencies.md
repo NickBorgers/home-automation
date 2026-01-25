@@ -40,6 +40,7 @@ graph LR
         dayphase["dayphase"]
         energy["energy"]
         environmental["environmental"]
+        infrastructure["infrastructure"]
         lighting["lighting"]
         loadshedding["loadshedding"]
         music["music"]
@@ -72,6 +73,7 @@ graph LR
     didOwnerJustReturnHome -.-> security
     isAnyoneHome -.-> security
     isEveryoneAsleep -.-> security
+    isAnyoneAsleep -.-> sexmode
     isMasterAsleep -.-> sleephygiene
     isAppleTVPlaying -.-> tv
 

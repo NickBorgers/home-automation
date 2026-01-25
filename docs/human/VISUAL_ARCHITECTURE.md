@@ -51,6 +51,7 @@ graph TB
             Christmas[Christmas<br/>internal/plugins/christmas/]
             Environmental[Environmental<br/>internal/plugins/environmental/]
             SensorHealth[Sensor Health<br/>internal/plugins/sensorhealth/]
+            Infrastructure[Infrastructure<br/>internal/plugins/infrastructure/]
             ResetCoord[Reset Coordinator<br/>internal/plugins/reset/]
             SensorConfig[Sensor Config<br/>internal/plugins/sensorconfig/]
         end
@@ -139,6 +140,11 @@ graph TB
     SensorHealth -->|Entity Subscriptions| HAClient
     SensorHealth -->|Notifications| Ntfy
     SensorHealth -.->|Register Shadow| ShadowTracker
+
+    Infrastructure -->|Entity Subscriptions| HAClient
+    Infrastructure -->|Notifications| Ntfy
+    Infrastructure -->|TTS Announcements| HAClient
+    Infrastructure -.->|Register Shadow| ShadowTracker
 
     ResetCoord -->|Subscribe to reset| StateManager
     ResetCoord -.->|Reset All| StateTracking
@@ -960,7 +966,7 @@ graph LR
     AnyoneHome --> AnyoneHomeAndAwake
     AnyoneAsleep --> AnyoneHomeAndAwake
     WakeActive -->|latch activation| AnyoneHomeAndAwake
-    MasterAsleep -->|latch clearing| AnyoneHomeAndAwake
+    AnyoneAsleep -->|latch clearing| AnyoneHomeAndAwake
 
     DayPhasePlugin --> DayPhase
     DayPhasePlugin --> SunEvent
@@ -1009,6 +1015,7 @@ graph LR
     MusicType --> SexModePlugin
     DayPhase --> SexModePlugin
     MasterAsleep --> SexModePlugin
+    AnyoneAsleep --> SexModePlugin
     SexModePlugin --> MusicType
     SexModePlugin -.->|Triggers| Lighting
     SexModePlugin -.->|Controls| EightSleep[Eight Sleep]

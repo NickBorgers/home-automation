@@ -1247,6 +1247,105 @@ func NewSensorHealthShadowState() *SensorHealthShadowState {
 }
 
 // ============================================================================
+// Infrastructure Shadow State - Aerobic Septic System Monitoring
+// ============================================================================
+
+// InfrastructureShadowState represents the shadow state for the infrastructure plugin
+type InfrastructureShadowState struct {
+	Plugin   string                `json:"plugin"`
+	Inputs   InfrastructureInputs  `json:"inputs"`
+	Outputs  InfrastructureOutputs `json:"outputs"`
+	Metadata StateMetadata         `json:"metadata"`
+}
+
+// InfrastructureInputs tracks current sensor values (read-heavy, no at-last-action needed)
+type InfrastructureInputs struct {
+	Current map[string]interface{} `json:"current"`
+}
+
+// InfrastructureOutputs tracks septic system state and alerts
+type InfrastructureOutputs struct {
+	SepticSystemStatus  SepticSystemStatus          `json:"septicSystemStatus"`
+	ActiveAlerts        []InfrastructureAlert       `json:"activeAlerts,omitempty"`
+	LastNotification    *InfrastructureNotification `json:"lastNotification,omitempty"`
+	LastTTSAnnouncement *InfrastructureTTS          `json:"lastTTSAnnouncement,omitempty"`
+	LastUpdate          time.Time                   `json:"lastUpdate"`
+}
+
+// SepticSystemStatus tracks the current septic system operational state
+type SepticSystemStatus struct {
+	CurrentPowerW       float64   `json:"currentPowerW"`
+	SystemState         string    `json:"systemState"`                   // "normal", "aerator_failure", "pump_stuck"
+	LastNormalPowerTime time.Time `json:"lastNormalPowerTime"`           // Last time power was in normal range (50-300W)
+	AeratorFailureStart time.Time `json:"aeratorFailureStart,omitempty"` // When low power (<50W) condition started
+	PumpRunningStart    time.Time `json:"pumpRunningStart,omitempty"`    // When high power (>300W) condition started
+	IsAlerting          bool      `json:"isAlerting"`                    // Whether an alert is currently active
+}
+
+// InfrastructureAlert represents an active infrastructure alert
+type InfrastructureAlert struct {
+	AlertType  string    `json:"alertType"` // "aerator_failure", "pump_stuck"
+	Message    string    `json:"message"`
+	DetectedAt time.Time `json:"detectedAt"`
+	Severity   string    `json:"severity"` // "warning", "urgent"
+}
+
+// InfrastructureNotification records a notification that was sent
+type InfrastructureNotification struct {
+	AlertType string    `json:"alertType"`
+	Message   string    `json:"message"`
+	Priority  string    `json:"priority"`
+	Timestamp time.Time `json:"timestamp"`
+}
+
+// InfrastructureTTS records a TTS announcement that was made
+type InfrastructureTTS struct {
+	Message   string    `json:"message"`
+	Timestamp time.Time `json:"timestamp"`
+}
+
+// GetCurrentInputs implements PluginShadowState
+func (i *InfrastructureShadowState) GetCurrentInputs() map[string]interface{} {
+	return i.Inputs.Current
+}
+
+// GetLastActionInputs implements PluginShadowState
+// For read-heavy plugins, this returns the same as current (no actions to track)
+func (i *InfrastructureShadowState) GetLastActionInputs() map[string]interface{} {
+	return i.Inputs.Current
+}
+
+// GetOutputs implements PluginShadowState
+func (i *InfrastructureShadowState) GetOutputs() interface{} {
+	return i.Outputs
+}
+
+// GetMetadata implements PluginShadowState
+func (i *InfrastructureShadowState) GetMetadata() StateMetadata {
+	return i.Metadata
+}
+
+// NewInfrastructureShadowState creates a new infrastructure shadow state
+func NewInfrastructureShadowState() *InfrastructureShadowState {
+	return &InfrastructureShadowState{
+		Plugin: "infrastructure",
+		Inputs: InfrastructureInputs{
+			Current: make(map[string]interface{}),
+		},
+		Outputs: InfrastructureOutputs{
+			SepticSystemStatus: SepticSystemStatus{
+				SystemState: "normal",
+			},
+			ActiveAlerts: make([]InfrastructureAlert, 0),
+		},
+		Metadata: StateMetadata{
+			LastUpdated: time.Now(),
+			PluginName:  "infrastructure",
+		},
+	}
+}
+
+// ============================================================================
 // Sensor Config Shadow State - Zigbee Sensor Threshold Configuration
 // ============================================================================
 

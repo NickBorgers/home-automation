@@ -1994,7 +1994,7 @@ func TestUpdateIndicatorLightsSkipsCalibrating(t *testing.T) {
 			{LuxMax: 100, BrightnessPct: 40},
 		},
 		BaselineCalibration: BaselineCalibrationConfig{
-			Enabled: true,
+			Enabled: false, // Disabled to prevent race with calibration goroutine
 		},
 	}
 	config.Energy.EnergyStates[2].LightConfig = LightConfig{Red: 255, Green: 255, Blue: 0, BrightnessPct: 30}
