@@ -49,8 +49,8 @@ graph TB
             SexMode[Sex Mode<br/>internal/plugins/sexmode/]
             LoadShed[Load Shedding<br/>internal/plugins/loadshedding/]
             Christmas[Christmas<br/>internal/plugins/christmas/]
-            Environmental[Environmental Monitoring<br/>internal/plugins/environmental/]
-            Monitoring[Monitoring<br/>internal/plugins/monitoring/]
+            Environmental[Environmental<br/>internal/plugins/environmental/]
+            SensorHealth[Sensor Health<br/>internal/plugins/sensorhealth/]
             Infrastructure[Infrastructure<br/>internal/plugins/infrastructure/]
             ResetCoord[Reset Coordinator<br/>internal/plugins/reset/]
             SensorConfig[Sensor Config<br/>internal/plugins/sensorconfig/]
@@ -137,9 +137,9 @@ graph TB
     Environmental -->|Notifications| Ntfy
     Environmental -.->|Register Shadow| ShadowTracker
 
-    Monitoring -->|Entity Subscriptions| HAClient
-    Monitoring -->|Notifications| Ntfy
-    Monitoring -.->|Register Shadow| ShadowTracker
+    SensorHealth -->|Entity Subscriptions| HAClient
+    SensorHealth -->|Notifications| Ntfy
+    SensorHealth -.->|Register Shadow| ShadowTracker
 
     Infrastructure -->|Entity Subscriptions| HAClient
     Infrastructure -->|Notifications| Ntfy
@@ -173,7 +173,7 @@ graph TB
     style LoadShed fill:#f3e5f5
     style Christmas fill:#f3e5f5
     style Environmental fill:#f3e5f5
-    style Monitoring fill:#f3e5f5
+    style SensorHealth fill:#f3e5f5
     style StateTracking fill:#f3e5f5
     style DayPhase fill:#f3e5f5
     style ResetCoord fill:#ffebee
@@ -937,7 +937,7 @@ graph LR
         LoadShedding[Load Shedding Plugin]
         ChristmasPlugin[Christmas Plugin]
         EnvironmentalPlugin[Environmental Plugin]
-        MonitoringPlugin[Monitoring Plugin]
+        SensorHealthPlugin[Sensor Health Plugin]
         ResetCoord[Reset Coordinator<br/>Order: 90]
     end
 
@@ -1028,9 +1028,9 @@ graph LR
     HumiditySensors --> EnvironmentalPlugin
     EnvironmentalPlugin -.->|Notifications| Ntfy[ntfy.sh]
 
-    WaterLeakSensors --> MonitoringPlugin
-    BatteryStateSensors --> MonitoringPlugin
-    MonitoringPlugin -.->|Notifications| Ntfy
+    WaterLeakSensors --> SensorHealthPlugin
+    BatteryStateSensors --> SensorHealthPlugin
+    SensorHealthPlugin -.->|Notifications| Ntfy
 
     Reset --> ResetCoord
     ResetCoord -.->|Reset| StateTracking

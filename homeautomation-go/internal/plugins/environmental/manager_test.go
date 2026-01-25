@@ -964,61 +964,208 @@ func TestEnvironmentalManager_CaseInsensitiveLabelMatching(t *testing.T) {
 }
 
 // ============================================================================
-// Temperature Sensor Lockup Detection Tests
+// Water Leak Tests
 // ============================================================================
 
-// Test sensor entity IDs for temperature
+// Test constants for water leak sensors
 const (
-	testTempSensor1 = "sensor.temp_sensor_1"
-	testTempSensor2 = "sensor.temp_sensor_2"
+	testWaterLeakSensor1 = "binary_sensor.water_leak_kitchen"
+	testWaterLeakSensor2 = "binary_sensor.water_leak_bathroom"
+	testWaterLeakSensor3 = "binary_sensor.water_leak_basement"
 )
 
-func TestEnvironmentalManager_TemperatureSensor_NoLockup(t *testing.T) {
+// setupMockWaterLeakEnvironment creates a mock HA client with water leak sensors
+func setupMockWaterLeakEnvironment(mockHA *ha.MockClient) {
+	// Add devices for water leak sensors
+	mockHA.AddDevice(&ha.Device{
+		ID:     "device_water_leak_1",
+		Name:   "Kitchen Water Leak Sensor",
+		Labels: []string{},
+	})
+	mockHA.AddDevice(&ha.Device{
+		ID:     "device_water_leak_2",
+		Name:   "Bathroom Water Leak Sensor",
+		Labels: []string{},
+	})
+	mockHA.AddDevice(&ha.Device{
+		ID:     "device_water_leak_3",
+		Name:   "Basement Water Leak Sensor",
+		Labels: []string{},
+	})
+
+	// Add entity registry entries
+	mockHA.AddEntityRegistryEntry(&ha.EntityRegistryEntry{
+		EntityID: testWaterLeakSensor1,
+		DeviceID: "device_water_leak_1",
+	})
+	mockHA.AddEntityRegistryEntry(&ha.EntityRegistryEntry{
+		EntityID: testWaterLeakSensor2,
+		DeviceID: "device_water_leak_2",
+	})
+	mockHA.AddEntityRegistryEntry(&ha.EntityRegistryEntry{
+		EntityID: testWaterLeakSensor3,
+		DeviceID: "device_water_leak_3",
+	})
+
+	// Add water leak sensor states (device_class: moisture)
+	mockHA.SetState(testWaterLeakSensor1, "off", map[string]interface{}{
+		"device_class":  "moisture",
+		"friendly_name": "Kitchen Water Leak",
+	})
+	mockHA.SetState(testWaterLeakSensor2, "off", map[string]interface{}{
+		"device_class":  "moisture",
+		"friendly_name": "Bathroom Water Leak",
+	})
+	mockHA.SetState(testWaterLeakSensor3, "off", map[string]interface{}{
+		"device_class":  "moisture",
+		"friendly_name": "Basement Water Leak",
+	})
+}
+
+func TestEnvironmentalManager_WaterLeakSensor_Discovery(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
+	setupMockWaterLeakEnvironment(mockHA)
 	mockNtfy := ntfy.NewMockClient()
+
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
-	mockClock := clock.NewMockClock(time.Now())
 
-	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
+	manager := NewManager(mockHA, stateMgr, logger, false, nil, mockNtfy)
 
-	// Add test temperature sensor
-	manager.AddTemperatureSensor(&TemperatureSensor{
-		EntityID:        testTempSensor1,
-		FriendlyName:    "Test Temperature 1",
-		Value:           72.0,
-		Valid:           true,
-		LastValueChange: mockClock.Now(),
-		LastValue:       72.0,
-	})
-
-	// Simulate temperature change (value changes)
-	mockClock.Advance(6 * time.Hour)
-	manager.SimulateTemperatureChange(testTempSensor1, 73.0)
-
-	// Trigger lockup check
-	manager.TriggerLockupCheck()
-
-	// Verify sensor is not locked up
-	sensors := manager.GetTemperatureSensors()
-	sensor, ok := sensors[testTempSensor1]
-	if !ok {
-		t.Fatal("Expected temperature sensor to exist")
+	// Start discovery
+	err := manager.Start()
+	if err != nil {
+		t.Fatalf("Failed to start manager: %v", err)
 	}
-	if sensor.IsLockedUp {
-		t.Error("Expected temperature sensor to NOT be locked up (value changed)")
+	defer manager.Stop()
+
+	// Verify water leak sensors were discovered
+	sensors := manager.GetWaterLeakSensors()
+	if len(sensors) != 3 {
+		t.Errorf("Expected 3 water leak sensors, got %d", len(sensors))
 	}
 
-	// Verify no notifications were sent
-	notificationCount := countNtfyNotifications(mockNtfy)
-	if notificationCount > 0 {
-		t.Errorf("Expected no notifications for non-locked sensor, got %d", notificationCount)
+	// Verify each sensor was discovered with correct properties
+	for _, entityID := range []string{testWaterLeakSensor1, testWaterLeakSensor2, testWaterLeakSensor3} {
+		sensor, ok := sensors[entityID]
+		if !ok {
+			t.Errorf("Expected water leak sensor %s to be discovered", entityID)
+			continue
+		}
+		if sensor.State != "off" {
+			t.Errorf("Expected sensor %s to have state 'off', got '%s'", entityID, sensor.State)
+		}
 	}
 }
 
-func TestEnvironmentalManager_TemperatureSensor_Lockup_Detected(t *testing.T) {
+func TestEnvironmentalManager_WaterLeakSensor_DiscoveryByEntityID(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	mockNtfy := ntfy.NewMockClient()
+
+	// Add device
+	mockHA.AddDevice(&ha.Device{
+		ID:     "device_water_sensor",
+		Name:   "Water Sensor",
+		Labels: []string{},
+	})
+	mockHA.AddEntityRegistryEntry(&ha.EntityRegistryEntry{
+		EntityID: "binary_sensor.some_water_leak_detector",
+		DeviceID: "device_water_sensor",
+	})
+
+	// Add sensor without device_class but with "water_leak" in entity_id
+	mockHA.SetState("binary_sensor.some_water_leak_detector", "off", map[string]interface{}{
+		"friendly_name": "Some Water Leak Detector",
+		// No device_class - should still be discovered by entity_id pattern
+	})
+
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+
+	manager := NewManager(mockHA, stateMgr, logger, false, nil, mockNtfy)
+
+	err := manager.Start()
+	if err != nil {
+		t.Fatalf("Failed to start manager: %v", err)
+	}
+	defer manager.Stop()
+
+	// Verify sensor was discovered by entity_id pattern
+	sensors := manager.GetWaterLeakSensors()
+	if len(sensors) != 1 {
+		t.Errorf("Expected 1 water leak sensor (discovered by entity_id), got %d", len(sensors))
+	}
+
+	if _, ok := sensors["binary_sensor.some_water_leak_detector"]; !ok {
+		t.Error("Expected water leak sensor to be discovered by entity_id pattern")
+	}
+}
+
+func TestEnvironmentalManager_WaterLeakSensor_MonitoringIgnoreLabel(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	mockNtfy := ntfy.NewMockClient()
+
+	// Add device with monitoring_ignore label
+	mockHA.AddDevice(&ha.Device{
+		ID:     "device_ignored",
+		Name:   "Ignored Water Leak Device",
+		Labels: []string{"monitoring_ignore"},
+	})
+	mockHA.AddEntityRegistryEntry(&ha.EntityRegistryEntry{
+		EntityID: "binary_sensor.ignored_water_leak",
+		DeviceID: "device_ignored",
+	})
+	mockHA.SetState("binary_sensor.ignored_water_leak", "off", map[string]interface{}{
+		"device_class":  "moisture",
+		"friendly_name": "Ignored Water Leak",
+	})
+
+	// Add device without the label
+	mockHA.AddDevice(&ha.Device{
+		ID:     "device_monitored",
+		Name:   "Monitored Water Leak Device",
+		Labels: []string{},
+	})
+	mockHA.AddEntityRegistryEntry(&ha.EntityRegistryEntry{
+		EntityID: "binary_sensor.monitored_water_leak",
+		DeviceID: "device_monitored",
+	})
+	mockHA.SetState("binary_sensor.monitored_water_leak", "off", map[string]interface{}{
+		"device_class":  "moisture",
+		"friendly_name": "Monitored Water Leak",
+	})
+
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+
+	manager := NewManager(mockHA, stateMgr, logger, false, nil, mockNtfy)
+
+	err := manager.Start()
+	if err != nil {
+		t.Fatalf("Failed to start manager: %v", err)
+	}
+	defer manager.Stop()
+
+	// Verify only non-ignored sensor was discovered
+	sensors := manager.GetWaterLeakSensors()
+	if len(sensors) != 1 {
+		t.Errorf("Expected 1 water leak sensor (ignored one filtered), got %d", len(sensors))
+	}
+	if _, ok := sensors["binary_sensor.ignored_water_leak"]; ok {
+		t.Error("Expected ignored water leak sensor to be filtered out")
+	}
+	if _, ok := sensors["binary_sensor.monitored_water_leak"]; !ok {
+		t.Error("Expected monitored water leak sensor to be discovered")
+	}
+}
+
+func TestEnvironmentalManager_WaterLeak_Detection(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
@@ -1029,132 +1176,41 @@ func TestEnvironmentalManager_TemperatureSensor_Lockup_Detected(t *testing.T) {
 
 	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
 
-	// Add test temperature sensor
-	initialTime := mockClock.Now()
-	manager.AddTemperatureSensor(&TemperatureSensor{
-		EntityID:        testTempSensor1,
-		FriendlyName:    "Garage Temperature",
-		Value:           72.0,
-		Valid:           true,
-		LastValueChange: initialTime,
-		LastValue:       72.0,
+	// Add water leak sensor manually
+	manager.AddWaterLeakSensor(&WaterLeakSensor{
+		EntityID:     testWaterLeakSensor1,
+		FriendlyName: "Kitchen Water Leak",
+		State:        "off",
 	})
 
-	// Simulate same value reported over 12 hours (lockup threshold)
-	mockClock.Advance(13 * time.Hour)
-	manager.SimulateTemperatureChange(testTempSensor1, 72.0) // Same value
+	// Simulate water leak detection (state changes to "on")
+	manager.SimulateWaterLeakChange(testWaterLeakSensor1, "on")
 
-	// Trigger lockup check
-	manager.TriggerLockupCheck()
-
-	// Verify sensor is marked as locked up
-	sensors := manager.GetTemperatureSensors()
-	sensor, ok := sensors[testTempSensor1]
-	if !ok {
-		t.Fatal("Expected temperature sensor to exist")
-	}
-	if !sensor.IsLockedUp {
-		t.Error("Expected temperature sensor to be marked as locked up")
+	// Verify leak is detected
+	activeLeaks := manager.GetActiveWaterLeakCount()
+	if activeLeaks != 1 {
+		t.Errorf("Expected 1 active water leak, got %d", activeLeaks)
 	}
 
 	// Verify notification was sent
 	notificationCount := countNtfyNotifications(mockNtfy)
 	if notificationCount != 1 {
-		t.Errorf("Expected 1 lockup notification, got %d", notificationCount)
-		return
+		t.Errorf("Expected 1 water leak notification, got %d", notificationCount)
 	}
 
-	notification := getLastNtfyNotification(mockNtfy)
-	if notification == nil {
-		t.Error("Expected to find a notification")
-		return
-	}
-	if notification.Title != "Temperature Sensor Locked Up" {
-		t.Errorf("Expected notification title 'Temperature Sensor Locked Up', got '%s'", notification.Title)
-	}
-	if notification.Body == "" {
-		t.Error("Expected notification body to be set")
-	}
-	// Verify body contains sensor name and hours
-	if !contains(notification.Body, "Garage Temperature") {
-		t.Errorf("Expected notification body to contain sensor name, got '%s'", notification.Body)
-	}
-	if !contains(notification.Body, "72.0") {
-		t.Errorf("Expected notification body to contain stuck value, got '%s'", notification.Body)
-	}
-}
-
-func TestEnvironmentalManager_TemperatureSensor_Lockup_Recovery(t *testing.T) {
-	t.Parallel()
-
-	mockHA := ha.NewMockClient()
-	mockNtfy := ntfy.NewMockClient()
-	logger := zap.NewNop()
-	stateMgr := state.NewManager(mockHA, logger, false)
-	mockClock := clock.NewMockClock(time.Now())
-
-	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
-
-	// Add test temperature sensor
-	initialTime := mockClock.Now()
-	manager.AddTemperatureSensor(&TemperatureSensor{
-		EntityID:        testTempSensor1,
-		FriendlyName:    "Garage Temperature",
-		Value:           72.0,
-		Valid:           true,
-		LastValueChange: initialTime,
-		LastValue:       72.0,
-	})
-
-	// First, let the sensor become locked up
-	mockClock.Advance(13 * time.Hour)
-	manager.SimulateTemperatureChange(testTempSensor1, 72.0) // Same value
-	manager.TriggerLockupCheck()
-
-	// Verify locked up
-	sensors := manager.GetTemperatureSensors()
-	if !sensors[testTempSensor1].IsLockedUp {
-		t.Fatal("Expected sensor to be locked up")
-	}
-
-	// Record the notification count after lockup
-	lockupNotifications := countNtfyNotifications(mockNtfy)
-	if lockupNotifications != 1 {
-		t.Fatalf("Expected 1 lockup notification, got %d", lockupNotifications)
-	}
-
-	// Now simulate a value change (recovery)
-	manager.SimulateTemperatureChange(testTempSensor1, 73.5) // Different value
-
-	// Verify sensor recovered
-	sensors = manager.GetTemperatureSensors()
-	if sensors[testTempSensor1].IsLockedUp {
-		t.Error("Expected sensor to recover from lockup after value change")
-	}
-
-	// Verify recovery notification was sent
-	totalNotifications := countNtfyNotifications(mockNtfy)
-	if totalNotifications != 2 {
-		t.Errorf("Expected 2 notifications (1 lockup + 1 recovery), got %d", totalNotifications)
-	}
-
-	// Verify the recovery notification has correct content
 	notification := getLastNtfyNotification(mockNtfy)
 	if notification == nil {
 		t.Fatal("Expected to find a notification")
 	}
-	if notification.Title != "Temperature Sensor Recovered" {
-		t.Errorf("Expected notification title 'Temperature Sensor Recovered', got '%s'", notification.Title)
+	if notification.Title != "Water Leak Detected" {
+		t.Errorf("Expected notification title 'Water Leak Detected', got '%s'", notification.Title)
 	}
-	if !contains(notification.Body, "Garage Temperature") {
-		t.Errorf("Expected notification body to contain sensor name, got '%s'", notification.Body)
-	}
-	if !contains(notification.Body, "recovered") {
-		t.Errorf("Expected notification body to contain 'recovered', got '%s'", notification.Body)
+	if notification.Priority != ntfy.PriorityUrgent {
+		t.Errorf("Expected urgent priority for water leak, got %d", notification.Priority)
 	}
 }
 
-func TestEnvironmentalManager_TemperatureSensor_Lockup_RateLimiting(t *testing.T) {
+func TestEnvironmentalManager_WaterLeak_NoDoubleNotification(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
@@ -1165,49 +1221,33 @@ func TestEnvironmentalManager_TemperatureSensor_Lockup_RateLimiting(t *testing.T
 
 	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
 
-	// Add test temperature sensor
-	initialTime := mockClock.Now()
-	manager.AddTemperatureSensor(&TemperatureSensor{
-		EntityID:        testTempSensor1,
-		FriendlyName:    "Garage Temperature",
-		Value:           72.0,
-		Valid:           true,
-		LastValueChange: initialTime,
-		LastValue:       72.0,
+	// Add water leak sensor
+	manager.AddWaterLeakSensor(&WaterLeakSensor{
+		EntityID:     testWaterLeakSensor1,
+		FriendlyName: "Kitchen Water Leak",
+		State:        "off",
 	})
 
-	// Let sensor become locked up and trigger first notification
-	mockClock.Advance(13 * time.Hour)
-	manager.TriggerLockupCheck()
+	// Trigger leak
+	manager.SimulateWaterLeakChange(testWaterLeakSensor1, "on")
 
 	initialNotifications := countNtfyNotifications(mockNtfy)
 	if initialNotifications != 1 {
 		t.Fatalf("Expected 1 initial notification, got %d", initialNotifications)
 	}
 
-	// Trigger another check after a short time (within rate limit)
-	mockClock.Advance(1 * time.Hour)
-	manager.TriggerLockupCheck()
+	// Simulate state change event again while still leaking (same state)
+	manager.SimulateWaterLeakChange(testWaterLeakSensor1, "on")
 
-	// Should not have sent another notification (rate limited to 24 hours)
-	afterRateLimit := countNtfyNotifications(mockNtfy)
-	if afterRateLimit > initialNotifications {
-		t.Errorf("Expected no additional notifications due to rate limiting, got %d extra",
-			afterRateLimit-initialNotifications)
-	}
-
-	// Now advance past the rate limit (24 hours)
-	mockClock.Advance(24 * time.Hour)
-	manager.TriggerLockupCheck()
-
-	// Should have sent another notification
+	// Should not have sent another notification
 	finalNotifications := countNtfyNotifications(mockNtfy)
-	if finalNotifications <= initialNotifications {
-		t.Error("Expected another notification after rate limit period")
+	if finalNotifications != initialNotifications {
+		t.Errorf("Expected no additional notifications for same leak, got %d extra",
+			finalNotifications-initialNotifications)
 	}
 }
 
-func TestEnvironmentalManager_TemperatureSensor_MultipleSensors(t *testing.T) {
+func TestEnvironmentalManager_WaterLeak_Recovery(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
@@ -1218,54 +1258,107 @@ func TestEnvironmentalManager_TemperatureSensor_MultipleSensors(t *testing.T) {
 
 	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
 
-	// Add two temperature sensors
-	initialTime := mockClock.Now()
-	manager.AddTemperatureSensor(&TemperatureSensor{
-		EntityID:        testTempSensor1,
-		FriendlyName:    "Garage Temperature",
-		Value:           72.0,
-		Valid:           true,
-		LastValueChange: initialTime,
-		LastValue:       72.0,
-	})
-	manager.AddTemperatureSensor(&TemperatureSensor{
-		EntityID:        testTempSensor2,
-		FriendlyName:    "Attic Temperature",
-		Value:           85.0,
-		Valid:           true,
-		LastValueChange: initialTime,
-		LastValue:       85.0,
+	// Add water leak sensor
+	manager.AddWaterLeakSensor(&WaterLeakSensor{
+		EntityID:     testWaterLeakSensor1,
+		FriendlyName: "Kitchen Water Leak",
+		State:        "off",
 	})
 
-	// Advance time past lockup threshold
-	mockClock.Advance(13 * time.Hour)
+	// First, detect a leak
+	manager.SimulateWaterLeakChange(testWaterLeakSensor1, "on")
 
-	// Sensor 1 changes value, sensor 2 stays the same
-	manager.SimulateTemperatureChange(testTempSensor1, 73.0) // Changed
-	manager.SimulateTemperatureChange(testTempSensor2, 85.0) // Same
-
-	// Trigger lockup check
-	manager.TriggerLockupCheck()
-
-	// Verify sensor 1 is NOT locked up (value changed)
-	sensors := manager.GetTemperatureSensors()
-	if sensors[testTempSensor1].IsLockedUp {
-		t.Error("Expected sensor 1 to NOT be locked up (value changed)")
+	// Verify leak is active
+	if manager.GetActiveWaterLeakCount() != 1 {
+		t.Error("Expected 1 active leak")
 	}
 
-	// Verify sensor 2 IS locked up (value stayed the same)
-	if !sensors[testTempSensor2].IsLockedUp {
-		t.Error("Expected sensor 2 to be locked up (value unchanged)")
+	notificationsAfterLeak := countNtfyNotifications(mockNtfy)
+
+	// Now clear the leak
+	manager.SimulateWaterLeakChange(testWaterLeakSensor1, "off")
+
+	// Verify leak is no longer active
+	if manager.GetActiveWaterLeakCount() != 0 {
+		t.Error("Expected 0 active leaks after clearing")
 	}
 
-	// Should have only 1 notification (for sensor 2)
-	notificationCount := countNtfyNotifications(mockNtfy)
-	if notificationCount != 1 {
-		t.Errorf("Expected 1 notification for locked sensor 2, got %d", notificationCount)
+	// Verify notification flag was reset (no recovery notification for water leaks by design)
+	sensors := manager.GetWaterLeakSensors()
+	sensor := sensors[testWaterLeakSensor1]
+	if sensor.NotificationSent {
+		t.Error("Expected NotificationSent to be reset after leak cleared")
+	}
+
+	// No additional notifications expected (water leaks don't have recovery notifications)
+	notificationsAfterClear := countNtfyNotifications(mockNtfy)
+	if notificationsAfterClear != notificationsAfterLeak {
+		t.Errorf("Expected no additional notifications after clearing, got %d",
+			notificationsAfterClear-notificationsAfterLeak)
 	}
 }
 
-func TestEnvironmentalManager_TemperatureSensor_ReadOnlyMode(t *testing.T) {
+func TestEnvironmentalManager_WaterLeak_MultipleLeaks(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	mockNtfy := ntfy.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+	mockClock := clock.NewMockClock(time.Now())
+
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
+
+	// Add multiple water leak sensors
+	manager.AddWaterLeakSensor(&WaterLeakSensor{
+		EntityID:     testWaterLeakSensor1,
+		FriendlyName: "Kitchen Water Leak",
+		State:        "off",
+	})
+	manager.AddWaterLeakSensor(&WaterLeakSensor{
+		EntityID:     testWaterLeakSensor2,
+		FriendlyName: "Bathroom Water Leak",
+		State:        "off",
+	})
+	manager.AddWaterLeakSensor(&WaterLeakSensor{
+		EntityID:     testWaterLeakSensor3,
+		FriendlyName: "Basement Water Leak",
+		State:        "off",
+	})
+
+	// Trigger multiple leaks
+	manager.SimulateWaterLeakChange(testWaterLeakSensor1, "on")
+	manager.SimulateWaterLeakChange(testWaterLeakSensor2, "on")
+
+	// Verify both leaks are active
+	if manager.GetActiveWaterLeakCount() != 2 {
+		t.Errorf("Expected 2 active leaks, got %d", manager.GetActiveWaterLeakCount())
+	}
+
+	// Verify both sent notifications
+	notificationCount := countNtfyNotifications(mockNtfy)
+	if notificationCount != 2 {
+		t.Errorf("Expected 2 notifications (one per leak), got %d", notificationCount)
+	}
+
+	// Clear one leak
+	manager.SimulateWaterLeakChange(testWaterLeakSensor1, "off")
+
+	// Verify only one leak remains active
+	if manager.GetActiveWaterLeakCount() != 1 {
+		t.Errorf("Expected 1 active leak after clearing one, got %d", manager.GetActiveWaterLeakCount())
+	}
+
+	// Clear remaining leak
+	manager.SimulateWaterLeakChange(testWaterLeakSensor2, "off")
+
+	// Verify no leaks active
+	if manager.GetActiveWaterLeakCount() != 0 {
+		t.Errorf("Expected 0 active leaks after clearing all, got %d", manager.GetActiveWaterLeakCount())
+	}
+}
+
+func TestEnvironmentalManager_WaterLeak_ReadOnlyMode(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
@@ -1277,25 +1370,19 @@ func TestEnvironmentalManager_TemperatureSensor_ReadOnlyMode(t *testing.T) {
 	// Create manager in read-only mode
 	manager := NewManagerWithClock(mockHA, stateMgr, logger, true, nil, mockNtfy, mockClock)
 
-	// Add test temperature sensor
-	initialTime := mockClock.Now()
-	manager.AddTemperatureSensor(&TemperatureSensor{
-		EntityID:        testTempSensor1,
-		FriendlyName:    "Garage Temperature",
-		Value:           72.0,
-		Valid:           true,
-		LastValueChange: initialTime,
-		LastValue:       72.0,
+	// Add water leak sensor
+	manager.AddWaterLeakSensor(&WaterLeakSensor{
+		EntityID:     testWaterLeakSensor1,
+		FriendlyName: "Kitchen Water Leak",
+		State:        "off",
 	})
 
-	// Let sensor become locked up
-	mockClock.Advance(13 * time.Hour)
-	manager.TriggerLockupCheck()
+	// Trigger leak
+	manager.SimulateWaterLeakChange(testWaterLeakSensor1, "on")
 
-	// Sensor should be marked as locked up
-	sensors := manager.GetTemperatureSensors()
-	if !sensors[testTempSensor1].IsLockedUp {
-		t.Error("Expected sensor to be marked as locked up")
+	// Verify leak is detected in state
+	if manager.GetActiveWaterLeakCount() != 1 {
+		t.Error("Expected 1 active leak even in read-only mode")
 	}
 
 	// But no actual notifications should be sent (read-only mode)
@@ -1305,7 +1392,7 @@ func TestEnvironmentalManager_TemperatureSensor_ReadOnlyMode(t *testing.T) {
 	}
 }
 
-func TestEnvironmentalManager_TemperatureSensor_ShadowState(t *testing.T) {
+func TestEnvironmentalManager_WaterLeak_ShadowState(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
@@ -1316,99 +1403,50 @@ func TestEnvironmentalManager_TemperatureSensor_ShadowState(t *testing.T) {
 
 	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
 
-	// Add test temperature sensors
-	initialTime := mockClock.Now()
-	manager.AddTemperatureSensor(&TemperatureSensor{
-		EntityID:        testTempSensor1,
-		FriendlyName:    "Garage Temperature",
-		Value:           72.0,
-		Valid:           true,
-		LastValueChange: initialTime,
-		LastValue:       72.0,
+	// Add water leak sensors
+	manager.AddWaterLeakSensor(&WaterLeakSensor{
+		EntityID:     testWaterLeakSensor1,
+		FriendlyName: "Kitchen Water Leak",
+		State:        "off",
+	})
+	manager.AddWaterLeakSensor(&WaterLeakSensor{
+		EntityID:     testWaterLeakSensor2,
+		FriendlyName: "Bathroom Water Leak",
+		State:        "off",
 	})
 
-	// Update shadow state by simulating a change
-	manager.SimulateTemperatureChange(testTempSensor1, 73.0)
+	// Update shadow state
+	manager.SimulateWaterLeakChange(testWaterLeakSensor1, "off")
+	manager.SimulateWaterLeakChange(testWaterLeakSensor2, "off")
 
 	// Get shadow state
 	shadowState := manager.GetShadowState()
 
-	// Verify shadow state plugin name
-	if shadowState.Plugin != "environmental" {
-		t.Errorf("Expected plugin 'environmental', got '%s'", shadowState.Plugin)
+	// Verify shadow state contains water leak sensors
+	if len(shadowState.Outputs.WaterLeakSensors) != 2 {
+		t.Errorf("Expected 2 water leak sensors in shadow state, got %d",
+			len(shadowState.Outputs.WaterLeakSensors))
 	}
 
-	// Verify shadow state outputs contain temperature sensors
-	if len(shadowState.Outputs.TemperatureSensors) != 1 {
-		t.Errorf("Expected 1 temperature sensor in shadow state, got %d",
-			len(shadowState.Outputs.TemperatureSensors))
-		return
+	// Trigger a leak
+	manager.SimulateWaterLeakChange(testWaterLeakSensor1, "on")
+
+	// Get updated shadow state
+	shadowState = manager.GetShadowState()
+
+	// Verify active leaks are tracked
+	if len(shadowState.Outputs.ActiveWaterLeaks) != 1 {
+		t.Errorf("Expected 1 active water leak in shadow state, got %d",
+			len(shadowState.Outputs.ActiveWaterLeaks))
 	}
 
-	// Verify sensor data
-	sensorData := shadowState.Outputs.TemperatureSensors[0]
-	if sensorData.EntityID != testTempSensor1 {
-		t.Errorf("Expected entity ID '%s', got '%s'", testTempSensor1, sensorData.EntityID)
-	}
-	if sensorData.Value != 73.0 {
-		t.Errorf("Expected value 73.0, got %f", sensorData.Value)
-	}
-	if !sensorData.Valid {
-		t.Error("Expected sensor to be valid")
-	}
-}
-
-func TestEnvironmentalManager_TemperatureSensor_InvalidValues(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name  string
-		value string
-	}{
-		{"empty", ""},
-		{"unknown", "unknown"},
-		{"unavailable", "unavailable"},
-		{"non-numeric", "abc"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			mockHA := ha.NewMockClient()
-			mockNtfy := ntfy.NewMockClient()
-			logger := zap.NewNop()
-			stateMgr := state.NewManager(mockHA, logger, false)
-			mockClock := clock.NewMockClock(time.Now())
-
-			manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
-
-			// Add test sensor
-			manager.AddTemperatureSensor(&TemperatureSensor{
-				EntityID:        testTempSensor1,
-				FriendlyName:    "Test Temperature",
-				Value:           72.0,
-				Valid:           true,
-				LastValueChange: mockClock.Now(),
-				LastValue:       72.0,
-			})
-
-			// Simulate invalid temperature reading
-			manager.handleTemperatureChange(testTempSensor1, nil, &ha.State{
-				EntityID: testTempSensor1,
-				State:    tt.value,
-			})
-
-			// Verify sensor is marked invalid
-			sensors := manager.GetTemperatureSensors()
-			if sensor, ok := sensors[testTempSensor1]; ok {
-				if sensor.Valid {
-					t.Error("Expected sensor to be marked invalid")
-				}
-			}
-		})
+	// Verify notification was recorded
+	if shadowState.Outputs.LastWaterLeakNotice == nil {
+		t.Error("Expected water leak notification to be recorded in shadow state")
 	}
 }
 
-func TestEnvironmentalManager_TemperatureSensor_Recovery_RateLimiting(t *testing.T) {
+func TestEnvironmentalManager_WaterLeak_RenotificationAfterClear(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
@@ -1419,238 +1457,28 @@ func TestEnvironmentalManager_TemperatureSensor_Recovery_RateLimiting(t *testing
 
 	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
 
-	// Add test temperature sensor
-	initialTime := mockClock.Now()
-	manager.AddTemperatureSensor(&TemperatureSensor{
-		EntityID:        testTempSensor1,
-		FriendlyName:    "Garage Temperature",
-		Value:           72.0,
-		Valid:           true,
-		LastValueChange: initialTime,
-		LastValue:       72.0,
+	// Add water leak sensor
+	manager.AddWaterLeakSensor(&WaterLeakSensor{
+		EntityID:     testWaterLeakSensor1,
+		FriendlyName: "Kitchen Water Leak",
+		State:        "off",
 	})
 
-	// First, let the sensor become locked up
-	mockClock.Advance(13 * time.Hour)
-	manager.TriggerLockupCheck()
-
-	// Verify lockup notification sent
+	// First leak
+	manager.SimulateWaterLeakChange(testWaterLeakSensor1, "on")
 	if countNtfyNotifications(mockNtfy) != 1 {
-		t.Fatal("Expected 1 lockup notification")
+		t.Fatal("Expected first leak notification")
 	}
 
-	// Recover the sensor
-	manager.SimulateTemperatureChange(testTempSensor1, 73.0)
+	// Clear leak
+	manager.SimulateWaterLeakChange(testWaterLeakSensor1, "off")
 
-	// Verify recovery notification sent (2 total)
-	if countNtfyNotifications(mockNtfy) != 2 {
-		t.Fatal("Expected 2 notifications (lockup + recovery)")
+	// New leak should trigger new notification
+	manager.SimulateWaterLeakChange(testWaterLeakSensor1, "on")
+
+	// Should have 2 notifications total (one per leak event)
+	notificationCount := countNtfyNotifications(mockNtfy)
+	if notificationCount != 2 {
+		t.Errorf("Expected 2 notifications (new leak after clearing), got %d", notificationCount)
 	}
-
-	// Now simulate another lockup cycle within rate limit period
-	mockClock.Advance(13 * time.Hour)                        // 26 hours total from start
-	manager.SimulateTemperatureChange(testTempSensor1, 73.0) // Same value to reset LastValueChange tracking
-	mockClock.Advance(13 * time.Hour)                        // 39 hours from start, but only 13 from last change
-	manager.TriggerLockupCheck()
-
-	// Should have sent another lockup notification (3 total) - sensor was locked up again
-	notificationsAfterSecondLockup := countNtfyNotifications(mockNtfy)
-	if notificationsAfterSecondLockup != 3 {
-		t.Fatalf("Expected 3 notifications after second lockup, got %d", notificationsAfterSecondLockup)
-	}
-
-	// Now recover within the rate limit period (less than 24 hours since last recovery)
-	// The second lockup was at ~39 hours, first recovery was at ~13 hours
-	// So ~26 hours have passed - beyond rate limit, should send
-	manager.SimulateTemperatureChange(testTempSensor1, 74.0)
-
-	// Should have sent another recovery notification
-	notificationsAfterSecondRecovery := countNtfyNotifications(mockNtfy)
-	if notificationsAfterSecondRecovery != 4 {
-		t.Errorf("Expected 4 notifications after second recovery (beyond rate limit), got %d", notificationsAfterSecondRecovery)
-	}
-
-	// Now simulate a quick lockup/recovery cycle within rate limit
-	mockClock.Advance(1 * time.Hour) // Advance just 1 hour
-	// Manually set the sensor to locked up state for testing
-	sensors := manager.GetTemperatureSensors()
-	sensors[testTempSensor1].IsLockedUp = true
-
-	// Get internal sensor and set it locked up
-	manager.AddTemperatureSensor(&TemperatureSensor{
-		EntityID:                 testTempSensor1,
-		FriendlyName:             "Garage Temperature",
-		Value:                    74.0,
-		Valid:                    true,
-		LastValueChange:          mockClock.Now().Add(-13 * time.Hour),
-		LastValue:                74.0,
-		IsLockedUp:               true,
-		LastRecoveryNotification: mockClock.Now().Add(-1 * time.Hour), // Set recent recovery notification
-	})
-
-	// Try to recover - should be rate limited
-	manager.SimulateTemperatureChange(testTempSensor1, 75.0)
-
-	// Should NOT have sent another notification due to rate limiting
-	notificationsAfterRateLimited := countNtfyNotifications(mockNtfy)
-	if notificationsAfterRateLimited != 4 {
-		t.Errorf("Expected 4 notifications (recovery rate limited), got %d", notificationsAfterRateLimited)
-	}
-}
-
-func TestEnvironmentalManager_TemperatureSensor_Recovery_ReadOnlyMode(t *testing.T) {
-	t.Parallel()
-
-	mockHA := ha.NewMockClient()
-	mockNtfy := ntfy.NewMockClient()
-	logger := zap.NewNop()
-	stateMgr := state.NewManager(mockHA, logger, true) // read-only
-	mockClock := clock.NewMockClock(time.Now())
-
-	// Create manager in read-only mode
-	manager := NewManagerWithClock(mockHA, stateMgr, logger, true, nil, mockNtfy, mockClock)
-
-	// Add test temperature sensor
-	initialTime := mockClock.Now()
-	manager.AddTemperatureSensor(&TemperatureSensor{
-		EntityID:        testTempSensor1,
-		FriendlyName:    "Garage Temperature",
-		Value:           72.0,
-		Valid:           true,
-		LastValueChange: initialTime,
-		LastValue:       72.0,
-	})
-
-	// Let sensor become locked up
-	mockClock.Advance(13 * time.Hour)
-	manager.TriggerLockupCheck()
-
-	// Sensor should be marked as locked up
-	sensors := manager.GetTemperatureSensors()
-	if !sensors[testTempSensor1].IsLockedUp {
-		t.Fatal("Expected sensor to be marked as locked up")
-	}
-
-	// No lockup notification should be sent (read-only mode)
-	if countNtfyNotifications(mockNtfy) != 0 {
-		t.Fatal("Expected no notifications in read-only mode")
-	}
-
-	// Now recover the sensor
-	manager.SimulateTemperatureChange(testTempSensor1, 73.5)
-
-	// Sensor should have recovered
-	sensors = manager.GetTemperatureSensors()
-	if sensors[testTempSensor1].IsLockedUp {
-		t.Error("Expected sensor to recover from lockup")
-	}
-
-	// No recovery notification should be sent (read-only mode)
-	if countNtfyNotifications(mockNtfy) != 0 {
-		t.Errorf("Expected no notifications in read-only mode, got %d", countNtfyNotifications(mockNtfy))
-	}
-
-	// But shadow state should still be recorded
-	shadowState := manager.GetShadowState()
-	if shadowState.Outputs.LastTemperatureRecoveryNotice == nil {
-		t.Error("Expected recovery notice to be recorded in shadow state")
-	}
-}
-
-func TestEnvironmentalManager_TemperatureSensor_Recovery_ShadowState(t *testing.T) {
-	t.Parallel()
-
-	mockHA := ha.NewMockClient()
-	mockNtfy := ntfy.NewMockClient()
-	logger := zap.NewNop()
-	stateMgr := state.NewManager(mockHA, logger, false)
-	mockClock := clock.NewMockClock(time.Now())
-
-	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
-
-	// Add test temperature sensor
-	initialTime := mockClock.Now()
-	manager.AddTemperatureSensor(&TemperatureSensor{
-		EntityID:        testTempSensor1,
-		FriendlyName:    "Garage Temperature",
-		Value:           72.0,
-		Valid:           true,
-		LastValueChange: initialTime,
-		LastValue:       72.0,
-	})
-
-	// Let sensor become locked up and recover
-	mockClock.Advance(13 * time.Hour)
-	manager.TriggerLockupCheck()
-	manager.SimulateTemperatureChange(testTempSensor1, 73.5) // Different value - recovery
-
-	// Get shadow state
-	shadowState := manager.GetShadowState()
-
-	// Verify recovery notice is recorded
-	if shadowState.Outputs.LastTemperatureRecoveryNotice == nil {
-		t.Fatal("Expected recovery notice to be recorded in shadow state")
-	}
-	if shadowState.Outputs.LastTemperatureRecoveryNotice.EntityID != testTempSensor1 {
-		t.Errorf("Expected entity ID '%s', got '%s'",
-			testTempSensor1, shadowState.Outputs.LastTemperatureRecoveryNotice.EntityID)
-	}
-	if shadowState.Outputs.LastTemperatureRecoveryNotice.FriendlyName != "Garage Temperature" {
-		t.Errorf("Expected friendly name 'Garage Temperature', got '%s'",
-			shadowState.Outputs.LastTemperatureRecoveryNotice.FriendlyName)
-	}
-	if !contains(shadowState.Outputs.LastTemperatureRecoveryNotice.Message, "recovered") {
-		t.Errorf("Expected message to contain 'recovered', got '%s'",
-			shadowState.Outputs.LastTemperatureRecoveryNotice.Message)
-	}
-}
-
-func TestParseTemperature(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name        string
-		input       string
-		expected    float64
-		shouldError bool
-	}{
-		{"valid integer", "72", 72.0, false},
-		{"valid float", "72.5", 72.5, false},
-		{"negative", "-10", -10.0, false},
-		{"zero", "0", 0.0, false},
-		{"empty string", "", 0.0, true},
-		{"unknown", "unknown", 0.0, true},
-		{"unavailable", "unavailable", 0.0, true},
-		{"non-numeric", "abc", 0.0, true},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result, err := parseTemperature(tt.input)
-
-			if tt.shouldError && err == nil {
-				t.Errorf("Expected error for input '%s', got nil", tt.input)
-			}
-			if !tt.shouldError && err != nil {
-				t.Errorf("Expected no error for input '%s', got %v", tt.input, err)
-			}
-			if !tt.shouldError && result != tt.expected {
-				t.Errorf("Expected %f for input '%s', got %f", tt.expected, tt.input, result)
-			}
-		})
-	}
-}
-
-// Helper function to check if a string contains a substring
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsHelper(s, substr))
-}
-
-func containsHelper(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
 }

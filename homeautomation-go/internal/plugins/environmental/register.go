@@ -12,7 +12,7 @@ import (
 func init() {
 	plugin.Register(plugin.PluginInfo{
 		Name:        "environmental",
-		Description: "Environmental monitoring - tracks humidity levels (with alerts for dangerous conditions) and detects temperature sensor lockups",
+		Description: "Environmental monitoring - tracks humidity levels (with alerts for dangerous conditions) and detects water leaks",
 		Priority:    plugin.PriorityDefault,
 		Order:       85, // After TV (70), before reset coordinator
 		Factory:     createPlugin,

@@ -1002,16 +1002,16 @@ type EnvironmentalInputs struct {
 
 // EnvironmentalOutputs tracks computed environmental states and notification history
 type EnvironmentalOutputs struct {
-	HumiditySensors               []HumiditySensorData       `json:"humiditySensors"`                         // All discovered humidity sensors
-	TemperatureSensors            []TemperatureSensorData    `json:"temperatureSensors,omitempty"`            // All discovered temperature sensors (for lockup monitoring)
-	AlertLevel                    string                     `json:"alertLevel"`                              // Overall: "none", "warning", "critical"
-	ConditionStartTime            time.Time                  `json:"conditionStartTime,omitempty"`            // When current condition started
-	IsSustained                   bool                       `json:"isSustained"`                             // Whether condition is sustained (30+ min)
-	LastNotification              *NotificationRecord        `json:"lastNotification,omitempty"`              // Last alert notification sent
-	LastResolutionNotice          *NotificationRecord        `json:"lastResolutionNotice,omitempty"`          // Last resolution notification sent
-	LastTemperatureLockupNotice   *TemperatureLockupNotice   `json:"lastTemperatureLockupNotice,omitempty"`   // Last temperature lockup notification sent
-	LastTemperatureRecoveryNotice *TemperatureRecoveryNotice `json:"lastTemperatureRecoveryNotice,omitempty"` // Last temperature recovery notification sent
-	LastUpdate                    time.Time                  `json:"lastUpdate"`
+	HumiditySensors      []HumiditySensorData   `json:"humiditySensors"`                // All discovered humidity sensors
+	WaterLeakSensors     []WaterLeakSensorData  `json:"waterLeakSensors"`               // All discovered water leak sensors
+	ActiveWaterLeaks     []WaterLeakAlert       `json:"activeWaterLeaks,omitempty"`     // Active water leak alerts
+	AlertLevel           string                 `json:"alertLevel"`                     // Overall humidity level: "none", "warning", "critical"
+	ConditionStartTime   time.Time              `json:"conditionStartTime,omitempty"`   // When current condition started
+	IsSustained          bool                   `json:"isSustained"`                    // Whether condition is sustained (30+ min)
+	LastNotification     *NotificationRecord    `json:"lastNotification,omitempty"`     // Last alert notification sent
+	LastResolutionNotice *NotificationRecord    `json:"lastResolutionNotice,omitempty"` // Last resolution notification sent
+	LastWaterLeakNotice  *WaterLeakNotification `json:"lastWaterLeakNotice,omitempty"`  // Last water leak notification sent
+	LastUpdate           time.Time              `json:"lastUpdate"`
 }
 
 // HumiditySensorData represents a single humidity sensor's state for shadow tracking
@@ -1024,27 +1024,25 @@ type HumiditySensorData struct {
 	Valid        bool    `json:"valid"`
 }
 
-// TemperatureSensorData represents a single temperature sensor's state for lockup monitoring
-type TemperatureSensorData struct {
-	EntityID        string    `json:"entityId"`
-	FriendlyName    string    `json:"friendlyName"`
-	DeviceID        string    `json:"deviceId,omitempty"`
-	Value           float64   `json:"value"`
-	Valid           bool      `json:"valid"`
-	LastValueChange time.Time `json:"lastValueChange,omitempty"` // When the value last changed
-	IsLockedUp      bool      `json:"isLockedUp"`                // Whether sensor is currently locked up
-}
-
-// TemperatureLockupNotice tracks a temperature lockup notification that was sent
-type TemperatureLockupNotice struct {
+// WaterLeakSensorData represents a discovered water leak sensor
+type WaterLeakSensorData struct {
 	EntityID     string    `json:"entityId"`
 	FriendlyName string    `json:"friendlyName"`
-	Message      string    `json:"message"`
-	Timestamp    time.Time `json:"timestamp"`
+	DeviceID     string    `json:"deviceId,omitempty"`
+	State        string    `json:"state"` // "on" = leak detected, "off" = no leak
+	LastChanged  time.Time `json:"lastChanged,omitempty"`
 }
 
-// TemperatureRecoveryNotice tracks a temperature recovery notification that was sent
-type TemperatureRecoveryNotice struct {
+// WaterLeakAlert represents an active water leak alert
+type WaterLeakAlert struct {
+	EntityID         string    `json:"entityId"`
+	FriendlyName     string    `json:"friendlyName"`
+	DetectedAt       time.Time `json:"detectedAt"`
+	NotificationSent bool      `json:"notificationSent"`
+}
+
+// WaterLeakNotification tracks a water leak notification that was sent
+type WaterLeakNotification struct {
 	EntityID     string    `json:"entityId"`
 	FriendlyName string    `json:"friendlyName"`
 	Message      string    `json:"message"`
@@ -1088,9 +1086,10 @@ func NewEnvironmentalShadowState() *EnvironmentalShadowState {
 			Current: make(map[string]interface{}),
 		},
 		Outputs: EnvironmentalOutputs{
-			HumiditySensors:    make([]HumiditySensorData, 0),
-			TemperatureSensors: make([]TemperatureSensorData, 0),
-			AlertLevel:         "none",
+			HumiditySensors:  make([]HumiditySensorData, 0),
+			WaterLeakSensors: make([]WaterLeakSensorData, 0),
+			ActiveWaterLeaks: make([]WaterLeakAlert, 0),
+			AlertLevel:       "none",
 		},
 		Metadata: StateMetadata{
 			LastUpdated: time.Now(),
@@ -1100,48 +1099,75 @@ func NewEnvironmentalShadowState() *EnvironmentalShadowState {
 }
 
 // ============================================================================
-// Monitoring Shadow State - Water Leak, Battery, and Staleness Monitoring
+// Sensor Health Shadow State - Battery, Staleness, and Temperature Lockup Monitoring
 // ============================================================================
 
-// MonitoringShadowState represents the shadow state for the monitoring plugin
-type MonitoringShadowState struct {
-	Plugin   string            `json:"plugin"`
-	Inputs   MonitoringInputs  `json:"inputs"`
-	Outputs  MonitoringOutputs `json:"outputs"`
-	Metadata StateMetadata     `json:"metadata"`
+// SensorHealthShadowState represents the shadow state for the sensor health plugin
+type SensorHealthShadowState struct {
+	Plugin   string              `json:"plugin"`
+	Inputs   SensorHealthInputs  `json:"inputs"`
+	Outputs  SensorHealthOutputs `json:"outputs"`
+	Metadata StateMetadata       `json:"metadata"`
 }
 
-// MonitoringInputs tracks current sensor values
-type MonitoringInputs struct {
+// SensorHealthInputs tracks current sensor values
+type SensorHealthInputs struct {
 	Current map[string]interface{} `json:"current"`
 }
 
-// MonitoringOutputs tracks discovered sensors, alerts, and notification history
-type MonitoringOutputs struct {
-	WaterLeakSensors     []WaterLeakSensorData   `json:"waterLeakSensors"`
-	BatterySensors       []BatterySensorData     `json:"batterySensors"`
-	ActiveWaterLeaks     []WaterLeakAlert        `json:"activeWaterLeaks,omitempty"`
-	LowBatteryAlerts     []LowBatteryAlert       `json:"lowBatteryAlerts,omitempty"`
-	StaleSensorAlerts    []StaleSensorAlert      `json:"staleSensorAlerts,omitempty"`
-	LastNotification     *MonitoringNotification `json:"lastNotification,omitempty"`
-	Config               MonitoringConfig        `json:"config"`
-	LastUpdate           time.Time               `json:"lastUpdate"`
-	LastDiscoveryRefresh time.Time               `json:"lastDiscoveryRefresh,omitempty"`
+// SensorHealthOutputs tracks discovered sensors, alerts, and notification history
+type SensorHealthOutputs struct {
+	BatterySensors                []BatterySensorData        `json:"batterySensors"`
+	TemperatureSensors            []TemperatureSensorData    `json:"temperatureSensors,omitempty"` // Temperature sensors for lockup monitoring
+	LowBatteryAlerts              []LowBatteryAlert          `json:"lowBatteryAlerts,omitempty"`
+	StaleSensorAlerts             []StaleSensorAlert         `json:"staleSensorAlerts,omitempty"`
+	LastNotification              *SensorHealthNotification  `json:"lastNotification,omitempty"`
+	LastTemperatureLockupNotice   *TemperatureLockupNotice   `json:"lastTemperatureLockupNotice,omitempty"`   // Last temperature lockup notification sent
+	LastTemperatureRecoveryNotice *TemperatureRecoveryNotice `json:"lastTemperatureRecoveryNotice,omitempty"` // Last temperature recovery notification sent
+	Config                        SensorHealthConfig         `json:"config"`
+	LastUpdate                    time.Time                  `json:"lastUpdate"`
+	LastDiscoveryRefresh          time.Time                  `json:"lastDiscoveryRefresh,omitempty"`
 }
 
-// MonitoringConfig holds configurable thresholds
-type MonitoringConfig struct {
+// SensorHealthConfig holds configurable thresholds
+type SensorHealthConfig struct {
 	LowBatteryThreshold       int `json:"lowBatteryThreshold"`       // Percentage threshold (default 20)
 	StalenessThresholdMinutes int `json:"stalenessThresholdMinutes"` // Minutes before sensor considered stale (default 1440 = 24h)
 }
 
-// WaterLeakSensorData represents a discovered water leak sensor
-type WaterLeakSensorData struct {
+// TemperatureSensorData represents a single temperature sensor's state for lockup monitoring
+type TemperatureSensorData struct {
+	EntityID        string    `json:"entityId"`
+	FriendlyName    string    `json:"friendlyName"`
+	DeviceID        string    `json:"deviceId,omitempty"`
+	Value           float64   `json:"value"`
+	Valid           bool      `json:"valid"`
+	LastValueChange time.Time `json:"lastValueChange,omitempty"` // When the value last changed
+	IsLockedUp      bool      `json:"isLockedUp"`                // Whether sensor is currently locked up
+}
+
+// TemperatureLockupNotice tracks a temperature lockup notification that was sent
+type TemperatureLockupNotice struct {
 	EntityID     string    `json:"entityId"`
 	FriendlyName string    `json:"friendlyName"`
-	DeviceID     string    `json:"deviceId,omitempty"`
-	State        string    `json:"state"` // "on" = leak detected, "off" = no leak
-	LastChanged  time.Time `json:"lastChanged,omitempty"`
+	Message      string    `json:"message"`
+	Timestamp    time.Time `json:"timestamp"`
+}
+
+// TemperatureRecoveryNotice tracks a temperature recovery notification that was sent
+type TemperatureRecoveryNotice struct {
+	EntityID     string    `json:"entityId"`
+	FriendlyName string    `json:"friendlyName"`
+	Message      string    `json:"message"`
+	Timestamp    time.Time `json:"timestamp"`
+}
+
+// SensorHealthNotification tracks a notification that was sent by sensor health plugin
+type SensorHealthNotification struct {
+	AlertType string    `json:"alertType"` // "low_battery", "stale_sensor", "temperature_lockup"
+	EntityID  string    `json:"entityId"`
+	Message   string    `json:"message"`
+	Timestamp time.Time `json:"timestamp"`
 }
 
 // BatterySensorData represents a discovered battery sensor
@@ -1155,14 +1181,6 @@ type BatterySensorData struct {
 	LastReported  time.Time `json:"lastReported,omitempty"`
 	IsStale       bool      `json:"isStale"`       // True if no updates in staleness window
 	IsUnavailable bool      `json:"isUnavailable"` // True if state is "unavailable"
-}
-
-// WaterLeakAlert represents an active water leak alert
-type WaterLeakAlert struct {
-	EntityID         string    `json:"entityId"`
-	FriendlyName     string    `json:"friendlyName"`
-	DetectedAt       time.Time `json:"detectedAt"`
-	NotificationSent bool      `json:"notificationSent"`
 }
 
 // LowBatteryAlert represents an active low battery alert
@@ -1183,56 +1201,47 @@ type StaleSensorAlert struct {
 	NotificationSent bool      `json:"notificationSent"`
 }
 
-// MonitoringNotification tracks a notification that was sent
-type MonitoringNotification struct {
-	AlertType string    `json:"alertType"` // "water_leak", "low_battery", "stale_sensor"
-	EntityID  string    `json:"entityId"`
-	Message   string    `json:"message"`
-	Timestamp time.Time `json:"timestamp"`
-}
-
 // GetCurrentInputs implements PluginShadowState
-func (m *MonitoringShadowState) GetCurrentInputs() map[string]interface{} {
+func (m *SensorHealthShadowState) GetCurrentInputs() map[string]interface{} {
 	return m.Inputs.Current
 }
 
 // GetLastActionInputs implements PluginShadowState
-// For monitoring, this returns the same as current (read-heavy, alerts are outputs)
-func (m *MonitoringShadowState) GetLastActionInputs() map[string]interface{} {
+// For sensor health, this returns the same as current (read-heavy, alerts are outputs)
+func (m *SensorHealthShadowState) GetLastActionInputs() map[string]interface{} {
 	return m.Inputs.Current
 }
 
 // GetOutputs implements PluginShadowState
-func (m *MonitoringShadowState) GetOutputs() interface{} {
+func (m *SensorHealthShadowState) GetOutputs() interface{} {
 	return m.Outputs
 }
 
 // GetMetadata implements PluginShadowState
-func (m *MonitoringShadowState) GetMetadata() StateMetadata {
+func (m *SensorHealthShadowState) GetMetadata() StateMetadata {
 	return m.Metadata
 }
 
-// NewMonitoringShadowState creates a new monitoring shadow state
-func NewMonitoringShadowState() *MonitoringShadowState {
-	return &MonitoringShadowState{
-		Plugin: "monitoring",
-		Inputs: MonitoringInputs{
+// NewSensorHealthShadowState creates a new sensor health shadow state
+func NewSensorHealthShadowState() *SensorHealthShadowState {
+	return &SensorHealthShadowState{
+		Plugin: "sensorhealth",
+		Inputs: SensorHealthInputs{
 			Current: make(map[string]interface{}),
 		},
-		Outputs: MonitoringOutputs{
-			WaterLeakSensors:  make([]WaterLeakSensorData, 0),
-			BatterySensors:    make([]BatterySensorData, 0),
-			ActiveWaterLeaks:  make([]WaterLeakAlert, 0),
-			LowBatteryAlerts:  make([]LowBatteryAlert, 0),
-			StaleSensorAlerts: make([]StaleSensorAlert, 0),
-			Config: MonitoringConfig{
+		Outputs: SensorHealthOutputs{
+			BatterySensors:     make([]BatterySensorData, 0),
+			TemperatureSensors: make([]TemperatureSensorData, 0),
+			LowBatteryAlerts:   make([]LowBatteryAlert, 0),
+			StaleSensorAlerts:  make([]StaleSensorAlert, 0),
+			Config: SensorHealthConfig{
 				LowBatteryThreshold:       20,
 				StalenessThresholdMinutes: 1440, // 24 hours
 			},
 		},
 		Metadata: StateMetadata{
 			LastUpdated: time.Now(),
-			PluginName:  "monitoring",
+			PluginName:  "sensorhealth",
 		},
 	}
 }
