@@ -931,7 +931,7 @@ graph LR
         LoadShedding[Load Shedding Plugin]
         ChristmasPlugin[Christmas Plugin]
         EnvironmentalPlugin[Environmental Plugin]
-        MonitoringPlugin[Monitoring Plugin]
+        SensorHealthPlugin[Sensor Health Plugin]
         ResetCoord[Reset Coordinator<br/>Order: 90]
     end
 
@@ -1021,9 +1021,9 @@ graph LR
     HumiditySensors --> EnvironmentalPlugin
     EnvironmentalPlugin -.->|Notifications| Ntfy[ntfy.sh]
 
-    WaterLeakSensors --> MonitoringPlugin
-    BatteryStateSensors --> MonitoringPlugin
-    MonitoringPlugin -.->|Notifications| Ntfy
+    WaterLeakSensors --> SensorHealthPlugin
+    BatteryStateSensors --> SensorHealthPlugin
+    SensorHealthPlugin -.->|Notifications| Ntfy
 
     Reset --> ResetCoord
     ResetCoord -.->|Reset| StateTracking
