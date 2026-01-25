@@ -966,7 +966,7 @@ graph LR
     AnyoneHome --> AnyoneHomeAndAwake
     AnyoneAsleep --> AnyoneHomeAndAwake
     WakeActive -->|latch activation| AnyoneHomeAndAwake
-    MasterAsleep -->|latch clearing| AnyoneHomeAndAwake
+    AnyoneAsleep -->|latch clearing| AnyoneHomeAndAwake
 
     DayPhasePlugin --> DayPhase
     DayPhasePlugin --> SunEvent
@@ -1015,6 +1015,7 @@ graph LR
     MusicType --> SexModePlugin
     DayPhase --> SexModePlugin
     MasterAsleep --> SexModePlugin
+    AnyoneAsleep --> SexModePlugin
     SexModePlugin --> MusicType
     SexModePlugin -.->|Triggers| Lighting
     SexModePlugin -.->|Controls| EightSleep[Eight Sleep]

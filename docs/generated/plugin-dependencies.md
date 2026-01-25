@@ -73,6 +73,7 @@ graph LR
     didOwnerJustReturnHome -.-> security
     isAnyoneHome -.-> security
     isEveryoneAsleep -.-> security
+    isAnyoneAsleep -.-> sexmode
     isMasterAsleep -.-> sleephygiene
     isAppleTVPlaying -.-> tv
 

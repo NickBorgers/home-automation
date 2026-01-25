@@ -36,11 +36,18 @@ type Manager struct {
 	// Subscription helper for automatic shadow state input capture
 	subHelper *shadowstate.SubscriptionHelper
 
+	// State subscriptions (for state variable changes like isAnyoneAsleep)
+	stateSubscriptions []state.Subscription
+
 	// State tracking
 	mu              sync.Mutex
 	isActive        bool
 	preSexMusicType string
 	activatedAt     time.Time
+	// clearedByWakeUp tracks if sex mode was auto-cleared due to a wake-up event.
+	// When true, the deactivation handler skips music restoration since the
+	// music plugin already set appropriate wake-up music.
+	clearedByWakeUp bool
 }
 
 // NewManager creates a new Sex Mode manager
@@ -48,12 +55,13 @@ func NewManager(haClient ha.HAClient, stateManager *state.Manager, logger *zap.L
 	shadowTracker := shadowstate.NewSexModeTracker()
 
 	return &Manager{
-		haClient:      haClient,
-		stateManager:  stateManager,
-		logger:        logger.Named("sexmode"),
-		readOnly:      readOnly,
-		shadowTracker: shadowTracker,
-		subHelper:     shadowstate.NewSubscriptionHelper(haClient, stateManager, registry, shadowTracker, "sexmode", logger.Named("sexmode")),
+		haClient:           haClient,
+		stateManager:       stateManager,
+		logger:             logger.Named("sexmode"),
+		readOnly:           readOnly,
+		shadowTracker:      shadowTracker,
+		subHelper:          shadowstate.NewSubscriptionHelper(haClient, stateManager, registry, shadowTracker, "sexmode", logger.Named("sexmode")),
+		stateSubscriptions: make([]state.Subscription, 0),
 	}
 }
 
@@ -66,6 +74,16 @@ func (m *Manager) Start() error {
 		return err
 	}
 
+	// Subscribe to isAnyoneAsleep to auto-clear sex mode on wake-up.
+	// This ensures that when a wake-up event occurs (isAnyoneAsleep: true→false),
+	// sex mode is automatically cleared before the music plugin sets wake-up music,
+	// preventing the race condition where sex mode deactivation overwrites wake-up music.
+	isAnyoneAsleepSub, err := m.stateManager.Subscribe("isAnyoneAsleep", m.handleIsAnyoneAsleepChange)
+	if err != nil {
+		return fmt.Errorf("failed to subscribe to isAnyoneAsleep: %w", err)
+	}
+	m.stateSubscriptions = append(m.stateSubscriptions, isAnyoneAsleepSub)
+
 	// Initialize shadow state with current input values (after subscriptions registered)
 	m.subHelper.CaptureInitialInputs()
 
@@ -77,8 +95,14 @@ func (m *Manager) Start() error {
 func (m *Manager) Stop() {
 	m.logger.Info("Stopping Sex Mode Manager")
 
-	// Unsubscribe from all subscriptions
+	// Unsubscribe from all HA subscriptions (via helper)
 	m.subHelper.UnsubscribeAll()
+
+	// Unsubscribe from state subscriptions
+	for _, sub := range m.stateSubscriptions {
+		sub.Unsubscribe()
+	}
+	m.stateSubscriptions = nil
 
 	m.logger.Info("Sex Mode Manager stopped")
 }
@@ -145,12 +169,13 @@ func (m *Manager) handleSexModeOff() {
 		m.logger.Debug("Sex mode not active, ignoring deactivation")
 		return
 	}
+	clearedByWakeUp := m.clearedByWakeUp
 	m.mu.Unlock()
 
-	m.logger.Info("Deactivating sex mode")
+	m.logger.Info("Deactivating sex mode", zap.Bool("cleared_by_wakeup", clearedByWakeUp))
 
-	// 1. Restore previous music playback type
-	m.restoreMusicState()
+	// 1. Restore previous music playback type (unless cleared by wake-up)
+	m.restoreMusicState(clearedByWakeUp)
 
 	// 2. Re-evaluate Primary Suite lighting based on current conditions
 	m.reevaluatePrimarySuiteLighting()
@@ -163,10 +188,61 @@ func (m *Manager) handleSexModeOff() {
 	m.isActive = false
 	m.preSexMusicType = ""
 	m.activatedAt = time.Time{}
+	m.clearedByWakeUp = false
 	m.mu.Unlock()
 
 	// Record action in shadow state
-	m.recordAction("deactivate", "Sex mode deactivated", "input_boolean.sex")
+	reason := "Sex mode deactivated"
+	if clearedByWakeUp {
+		reason = "Sex mode auto-cleared due to wake-up event"
+	}
+	m.recordAction("deactivate", reason, "input_boolean.sex")
+}
+
+// handleIsAnyoneAsleepChange handles changes to the isAnyoneAsleep state variable.
+// When isAnyoneAsleep transitions from true to false (wake-up event), sex mode is
+// automatically cleared. This eliminates the race condition where sex mode
+// deactivation could overwrite wake-up music.
+func (m *Manager) handleIsAnyoneAsleepChange(key string, oldValue, newValue interface{}) {
+	oldBool, oldOk := oldValue.(bool)
+	newBool, newOk := newValue.(bool)
+
+	// Only process if we can determine both values
+	if !oldOk || !newOk {
+		return
+	}
+
+	// Check for wake-up event: isAnyoneAsleep true → false
+	if oldBool && !newBool {
+		m.mu.Lock()
+		isActive := m.isActive
+		m.mu.Unlock()
+
+		if isActive {
+			m.logger.Info("Wake-up detected while sex mode active, automatically clearing sex mode",
+				zap.Bool("old_is_anyone_asleep", oldBool),
+				zap.Bool("new_is_anyone_asleep", newBool))
+
+			// Mark that we're being cleared due to wake-up, so deactivation
+			// knows not to restore music (let music plugin handle it)
+			m.mu.Lock()
+			m.clearedByWakeUp = true
+			m.mu.Unlock()
+
+			// Turn off sex mode input_boolean in Home Assistant
+			if m.readOnly {
+				m.logger.Info("READ-ONLY: Would turn off input_boolean.sex")
+				return
+			}
+
+			err := m.haClient.CallService("input_boolean", "turn_off", map[string]interface{}{
+				"entity_id": "input_boolean.sex",
+			})
+			if err != nil {
+				m.logger.Error("Failed to turn off sex mode on wake-up", zap.Error(err))
+			}
+		}
+	}
 }
 
 // saveMusicStateAndActivate saves the current music type and activates sex music
@@ -196,11 +272,22 @@ func (m *Manager) saveMusicStateAndActivate() {
 	}
 }
 
-// restoreMusicState restores the previous music playback type
-func (m *Manager) restoreMusicState() {
+// restoreMusicState restores the previous music playback type.
+// If clearedByWakeUp is true, restoration is skipped entirely since the
+// music plugin has already set appropriate wake-up music.
+func (m *Manager) restoreMusicState(clearedByWakeUp bool) {
 	m.mu.Lock()
 	previousType := m.preSexMusicType
 	m.mu.Unlock()
+
+	// If sex mode was auto-cleared due to wake-up, skip restoration entirely.
+	// The music plugin has already set appropriate wake-up music based on
+	// current conditions, and we don't want to overwrite it.
+	if clearedByWakeUp {
+		m.logger.Info("Sex mode was auto-cleared by wake-up, skipping music restoration",
+			zap.String("saved_type", previousType))
+		return
+	}
 
 	m.logger.Info("Restoring previous music type",
 		zap.String("type", previousType))
