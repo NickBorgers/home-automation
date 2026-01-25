@@ -962,3 +962,523 @@ func TestEnvironmentalManager_CaseInsensitiveLabelMatching(t *testing.T) {
 		})
 	}
 }
+
+// ============================================================================
+// Water Leak Tests
+// ============================================================================
+
+// Test constants for water leak sensors
+const (
+	testWaterLeakSensor1 = "binary_sensor.water_leak_kitchen"
+	testWaterLeakSensor2 = "binary_sensor.water_leak_bathroom"
+	testWaterLeakSensor3 = "binary_sensor.water_leak_basement"
+)
+
+// setupMockWaterLeakEnvironment creates a mock HA client with water leak sensors
+func setupMockWaterLeakEnvironment(mockHA *ha.MockClient) {
+	// Add devices for water leak sensors
+	mockHA.AddDevice(&ha.Device{
+		ID:     "device_water_leak_1",
+		Name:   "Kitchen Water Leak Sensor",
+		Labels: []string{},
+	})
+	mockHA.AddDevice(&ha.Device{
+		ID:     "device_water_leak_2",
+		Name:   "Bathroom Water Leak Sensor",
+		Labels: []string{},
+	})
+	mockHA.AddDevice(&ha.Device{
+		ID:     "device_water_leak_3",
+		Name:   "Basement Water Leak Sensor",
+		Labels: []string{},
+	})
+
+	// Add entity registry entries
+	mockHA.AddEntityRegistryEntry(&ha.EntityRegistryEntry{
+		EntityID: testWaterLeakSensor1,
+		DeviceID: "device_water_leak_1",
+	})
+	mockHA.AddEntityRegistryEntry(&ha.EntityRegistryEntry{
+		EntityID: testWaterLeakSensor2,
+		DeviceID: "device_water_leak_2",
+	})
+	mockHA.AddEntityRegistryEntry(&ha.EntityRegistryEntry{
+		EntityID: testWaterLeakSensor3,
+		DeviceID: "device_water_leak_3",
+	})
+
+	// Add water leak sensor states (device_class: moisture)
+	mockHA.SetState(testWaterLeakSensor1, "off", map[string]interface{}{
+		"device_class":  "moisture",
+		"friendly_name": "Kitchen Water Leak",
+	})
+	mockHA.SetState(testWaterLeakSensor2, "off", map[string]interface{}{
+		"device_class":  "moisture",
+		"friendly_name": "Bathroom Water Leak",
+	})
+	mockHA.SetState(testWaterLeakSensor3, "off", map[string]interface{}{
+		"device_class":  "moisture",
+		"friendly_name": "Basement Water Leak",
+	})
+}
+
+func TestEnvironmentalManager_WaterLeakSensor_Discovery(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	setupMockWaterLeakEnvironment(mockHA)
+	mockNtfy := ntfy.NewMockClient()
+
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+
+	manager := NewManager(mockHA, stateMgr, logger, false, nil, mockNtfy)
+
+	// Start discovery
+	err := manager.Start()
+	if err != nil {
+		t.Fatalf("Failed to start manager: %v", err)
+	}
+	defer manager.Stop()
+
+	// Verify water leak sensors were discovered
+	sensors := manager.GetWaterLeakSensors()
+	if len(sensors) != 3 {
+		t.Errorf("Expected 3 water leak sensors, got %d", len(sensors))
+	}
+
+	// Verify each sensor was discovered with correct properties
+	for _, entityID := range []string{testWaterLeakSensor1, testWaterLeakSensor2, testWaterLeakSensor3} {
+		sensor, ok := sensors[entityID]
+		if !ok {
+			t.Errorf("Expected water leak sensor %s to be discovered", entityID)
+			continue
+		}
+		if sensor.State != "off" {
+			t.Errorf("Expected sensor %s to have state 'off', got '%s'", entityID, sensor.State)
+		}
+	}
+}
+
+func TestEnvironmentalManager_WaterLeakSensor_DiscoveryByEntityID(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	mockNtfy := ntfy.NewMockClient()
+
+	// Add device
+	mockHA.AddDevice(&ha.Device{
+		ID:     "device_water_sensor",
+		Name:   "Water Sensor",
+		Labels: []string{},
+	})
+	mockHA.AddEntityRegistryEntry(&ha.EntityRegistryEntry{
+		EntityID: "binary_sensor.some_water_leak_detector",
+		DeviceID: "device_water_sensor",
+	})
+
+	// Add sensor without device_class but with "water_leak" in entity_id
+	mockHA.SetState("binary_sensor.some_water_leak_detector", "off", map[string]interface{}{
+		"friendly_name": "Some Water Leak Detector",
+		// No device_class - should still be discovered by entity_id pattern
+	})
+
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+
+	manager := NewManager(mockHA, stateMgr, logger, false, nil, mockNtfy)
+
+	err := manager.Start()
+	if err != nil {
+		t.Fatalf("Failed to start manager: %v", err)
+	}
+	defer manager.Stop()
+
+	// Verify sensor was discovered by entity_id pattern
+	sensors := manager.GetWaterLeakSensors()
+	if len(sensors) != 1 {
+		t.Errorf("Expected 1 water leak sensor (discovered by entity_id), got %d", len(sensors))
+	}
+
+	if _, ok := sensors["binary_sensor.some_water_leak_detector"]; !ok {
+		t.Error("Expected water leak sensor to be discovered by entity_id pattern")
+	}
+}
+
+func TestEnvironmentalManager_WaterLeakSensor_MonitoringIgnoreLabel(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	mockNtfy := ntfy.NewMockClient()
+
+	// Add device with monitoring_ignore label
+	mockHA.AddDevice(&ha.Device{
+		ID:     "device_ignored",
+		Name:   "Ignored Water Leak Device",
+		Labels: []string{"monitoring_ignore"},
+	})
+	mockHA.AddEntityRegistryEntry(&ha.EntityRegistryEntry{
+		EntityID: "binary_sensor.ignored_water_leak",
+		DeviceID: "device_ignored",
+	})
+	mockHA.SetState("binary_sensor.ignored_water_leak", "off", map[string]interface{}{
+		"device_class":  "moisture",
+		"friendly_name": "Ignored Water Leak",
+	})
+
+	// Add device without the label
+	mockHA.AddDevice(&ha.Device{
+		ID:     "device_monitored",
+		Name:   "Monitored Water Leak Device",
+		Labels: []string{},
+	})
+	mockHA.AddEntityRegistryEntry(&ha.EntityRegistryEntry{
+		EntityID: "binary_sensor.monitored_water_leak",
+		DeviceID: "device_monitored",
+	})
+	mockHA.SetState("binary_sensor.monitored_water_leak", "off", map[string]interface{}{
+		"device_class":  "moisture",
+		"friendly_name": "Monitored Water Leak",
+	})
+
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+
+	manager := NewManager(mockHA, stateMgr, logger, false, nil, mockNtfy)
+
+	err := manager.Start()
+	if err != nil {
+		t.Fatalf("Failed to start manager: %v", err)
+	}
+	defer manager.Stop()
+
+	// Verify only non-ignored sensor was discovered
+	sensors := manager.GetWaterLeakSensors()
+	if len(sensors) != 1 {
+		t.Errorf("Expected 1 water leak sensor (ignored one filtered), got %d", len(sensors))
+	}
+	if _, ok := sensors["binary_sensor.ignored_water_leak"]; ok {
+		t.Error("Expected ignored water leak sensor to be filtered out")
+	}
+	if _, ok := sensors["binary_sensor.monitored_water_leak"]; !ok {
+		t.Error("Expected monitored water leak sensor to be discovered")
+	}
+}
+
+func TestEnvironmentalManager_WaterLeak_Detection(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	mockNtfy := ntfy.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+	mockClock := clock.NewMockClock(time.Now())
+
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
+
+	// Add water leak sensor manually
+	manager.AddWaterLeakSensor(&WaterLeakSensor{
+		EntityID:     testWaterLeakSensor1,
+		FriendlyName: "Kitchen Water Leak",
+		State:        "off",
+	})
+
+	// Simulate water leak detection (state changes to "on")
+	manager.SimulateWaterLeakChange(testWaterLeakSensor1, "on")
+
+	// Verify leak is detected
+	activeLeaks := manager.GetActiveWaterLeakCount()
+	if activeLeaks != 1 {
+		t.Errorf("Expected 1 active water leak, got %d", activeLeaks)
+	}
+
+	// Verify notification was sent
+	notificationCount := countNtfyNotifications(mockNtfy)
+	if notificationCount != 1 {
+		t.Errorf("Expected 1 water leak notification, got %d", notificationCount)
+	}
+
+	notification := getLastNtfyNotification(mockNtfy)
+	if notification == nil {
+		t.Fatal("Expected to find a notification")
+	}
+	if notification.Title != "Water Leak Detected" {
+		t.Errorf("Expected notification title 'Water Leak Detected', got '%s'", notification.Title)
+	}
+	if notification.Priority != ntfy.PriorityUrgent {
+		t.Errorf("Expected urgent priority for water leak, got %d", notification.Priority)
+	}
+}
+
+func TestEnvironmentalManager_WaterLeak_NoDoubleNotification(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	mockNtfy := ntfy.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+	mockClock := clock.NewMockClock(time.Now())
+
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
+
+	// Add water leak sensor
+	manager.AddWaterLeakSensor(&WaterLeakSensor{
+		EntityID:     testWaterLeakSensor1,
+		FriendlyName: "Kitchen Water Leak",
+		State:        "off",
+	})
+
+	// Trigger leak
+	manager.SimulateWaterLeakChange(testWaterLeakSensor1, "on")
+
+	initialNotifications := countNtfyNotifications(mockNtfy)
+	if initialNotifications != 1 {
+		t.Fatalf("Expected 1 initial notification, got %d", initialNotifications)
+	}
+
+	// Simulate state change event again while still leaking (same state)
+	manager.SimulateWaterLeakChange(testWaterLeakSensor1, "on")
+
+	// Should not have sent another notification
+	finalNotifications := countNtfyNotifications(mockNtfy)
+	if finalNotifications != initialNotifications {
+		t.Errorf("Expected no additional notifications for same leak, got %d extra",
+			finalNotifications-initialNotifications)
+	}
+}
+
+func TestEnvironmentalManager_WaterLeak_Recovery(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	mockNtfy := ntfy.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+	mockClock := clock.NewMockClock(time.Now())
+
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
+
+	// Add water leak sensor
+	manager.AddWaterLeakSensor(&WaterLeakSensor{
+		EntityID:     testWaterLeakSensor1,
+		FriendlyName: "Kitchen Water Leak",
+		State:        "off",
+	})
+
+	// First, detect a leak
+	manager.SimulateWaterLeakChange(testWaterLeakSensor1, "on")
+
+	// Verify leak is active
+	if manager.GetActiveWaterLeakCount() != 1 {
+		t.Error("Expected 1 active leak")
+	}
+
+	notificationsAfterLeak := countNtfyNotifications(mockNtfy)
+
+	// Now clear the leak
+	manager.SimulateWaterLeakChange(testWaterLeakSensor1, "off")
+
+	// Verify leak is no longer active
+	if manager.GetActiveWaterLeakCount() != 0 {
+		t.Error("Expected 0 active leaks after clearing")
+	}
+
+	// Verify notification flag was reset (no recovery notification for water leaks by design)
+	sensors := manager.GetWaterLeakSensors()
+	sensor := sensors[testWaterLeakSensor1]
+	if sensor.NotificationSent {
+		t.Error("Expected NotificationSent to be reset after leak cleared")
+	}
+
+	// No additional notifications expected (water leaks don't have recovery notifications)
+	notificationsAfterClear := countNtfyNotifications(mockNtfy)
+	if notificationsAfterClear != notificationsAfterLeak {
+		t.Errorf("Expected no additional notifications after clearing, got %d",
+			notificationsAfterClear-notificationsAfterLeak)
+	}
+}
+
+func TestEnvironmentalManager_WaterLeak_MultipleLeaks(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	mockNtfy := ntfy.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+	mockClock := clock.NewMockClock(time.Now())
+
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
+
+	// Add multiple water leak sensors
+	manager.AddWaterLeakSensor(&WaterLeakSensor{
+		EntityID:     testWaterLeakSensor1,
+		FriendlyName: "Kitchen Water Leak",
+		State:        "off",
+	})
+	manager.AddWaterLeakSensor(&WaterLeakSensor{
+		EntityID:     testWaterLeakSensor2,
+		FriendlyName: "Bathroom Water Leak",
+		State:        "off",
+	})
+	manager.AddWaterLeakSensor(&WaterLeakSensor{
+		EntityID:     testWaterLeakSensor3,
+		FriendlyName: "Basement Water Leak",
+		State:        "off",
+	})
+
+	// Trigger multiple leaks
+	manager.SimulateWaterLeakChange(testWaterLeakSensor1, "on")
+	manager.SimulateWaterLeakChange(testWaterLeakSensor2, "on")
+
+	// Verify both leaks are active
+	if manager.GetActiveWaterLeakCount() != 2 {
+		t.Errorf("Expected 2 active leaks, got %d", manager.GetActiveWaterLeakCount())
+	}
+
+	// Verify both sent notifications
+	notificationCount := countNtfyNotifications(mockNtfy)
+	if notificationCount != 2 {
+		t.Errorf("Expected 2 notifications (one per leak), got %d", notificationCount)
+	}
+
+	// Clear one leak
+	manager.SimulateWaterLeakChange(testWaterLeakSensor1, "off")
+
+	// Verify only one leak remains active
+	if manager.GetActiveWaterLeakCount() != 1 {
+		t.Errorf("Expected 1 active leak after clearing one, got %d", manager.GetActiveWaterLeakCount())
+	}
+
+	// Clear remaining leak
+	manager.SimulateWaterLeakChange(testWaterLeakSensor2, "off")
+
+	// Verify no leaks active
+	if manager.GetActiveWaterLeakCount() != 0 {
+		t.Errorf("Expected 0 active leaks after clearing all, got %d", manager.GetActiveWaterLeakCount())
+	}
+}
+
+func TestEnvironmentalManager_WaterLeak_ReadOnlyMode(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	mockNtfy := ntfy.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, true) // read-only
+	mockClock := clock.NewMockClock(time.Now())
+
+	// Create manager in read-only mode
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, true, nil, mockNtfy, mockClock)
+
+	// Add water leak sensor
+	manager.AddWaterLeakSensor(&WaterLeakSensor{
+		EntityID:     testWaterLeakSensor1,
+		FriendlyName: "Kitchen Water Leak",
+		State:        "off",
+	})
+
+	// Trigger leak
+	manager.SimulateWaterLeakChange(testWaterLeakSensor1, "on")
+
+	// Verify leak is detected in state
+	if manager.GetActiveWaterLeakCount() != 1 {
+		t.Error("Expected 1 active leak even in read-only mode")
+	}
+
+	// But no actual notifications should be sent (read-only mode)
+	notificationCount := countNtfyNotifications(mockNtfy)
+	if notificationCount > 0 {
+		t.Errorf("Expected no notifications in read-only mode, got %d", notificationCount)
+	}
+}
+
+func TestEnvironmentalManager_WaterLeak_ShadowState(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	mockNtfy := ntfy.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+	mockClock := clock.NewMockClock(time.Now())
+
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
+
+	// Add water leak sensors
+	manager.AddWaterLeakSensor(&WaterLeakSensor{
+		EntityID:     testWaterLeakSensor1,
+		FriendlyName: "Kitchen Water Leak",
+		State:        "off",
+	})
+	manager.AddWaterLeakSensor(&WaterLeakSensor{
+		EntityID:     testWaterLeakSensor2,
+		FriendlyName: "Bathroom Water Leak",
+		State:        "off",
+	})
+
+	// Update shadow state
+	manager.SimulateWaterLeakChange(testWaterLeakSensor1, "off")
+	manager.SimulateWaterLeakChange(testWaterLeakSensor2, "off")
+
+	// Get shadow state
+	shadowState := manager.GetShadowState()
+
+	// Verify shadow state contains water leak sensors
+	if len(shadowState.Outputs.WaterLeakSensors) != 2 {
+		t.Errorf("Expected 2 water leak sensors in shadow state, got %d",
+			len(shadowState.Outputs.WaterLeakSensors))
+	}
+
+	// Trigger a leak
+	manager.SimulateWaterLeakChange(testWaterLeakSensor1, "on")
+
+	// Get updated shadow state
+	shadowState = manager.GetShadowState()
+
+	// Verify active leaks are tracked
+	if len(shadowState.Outputs.ActiveWaterLeaks) != 1 {
+		t.Errorf("Expected 1 active water leak in shadow state, got %d",
+			len(shadowState.Outputs.ActiveWaterLeaks))
+	}
+
+	// Verify notification was recorded
+	if shadowState.Outputs.LastWaterLeakNotice == nil {
+		t.Error("Expected water leak notification to be recorded in shadow state")
+	}
+}
+
+func TestEnvironmentalManager_WaterLeak_RenotificationAfterClear(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	mockNtfy := ntfy.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+	mockClock := clock.NewMockClock(time.Now())
+
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
+
+	// Add water leak sensor
+	manager.AddWaterLeakSensor(&WaterLeakSensor{
+		EntityID:     testWaterLeakSensor1,
+		FriendlyName: "Kitchen Water Leak",
+		State:        "off",
+	})
+
+	// First leak
+	manager.SimulateWaterLeakChange(testWaterLeakSensor1, "on")
+	if countNtfyNotifications(mockNtfy) != 1 {
+		t.Fatal("Expected first leak notification")
+	}
+
+	// Clear leak
+	manager.SimulateWaterLeakChange(testWaterLeakSensor1, "off")
+
+	// New leak should trigger new notification
+	manager.SimulateWaterLeakChange(testWaterLeakSensor1, "on")
+
+	// Should have 2 notifications total (one per leak event)
+	notificationCount := countNtfyNotifications(mockNtfy)
+	if notificationCount != 2 {
+		t.Errorf("Expected 2 notifications (new leak after clearing), got %d", notificationCount)
+	}
+}
