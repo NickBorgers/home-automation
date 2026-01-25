@@ -960,7 +960,7 @@ graph LR
     AnyoneHome --> AnyoneHomeAndAwake
     AnyoneAsleep --> AnyoneHomeAndAwake
     WakeActive -->|latch activation| AnyoneHomeAndAwake
-    MasterAsleep -->|latch clearing| AnyoneHomeAndAwake
+    AnyoneAsleep -->|latch clearing| AnyoneHomeAndAwake
 
     DayPhasePlugin --> DayPhase
     DayPhasePlugin --> SunEvent
