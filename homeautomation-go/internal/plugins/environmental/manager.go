@@ -35,9 +35,6 @@ const (
 	WarningNotificationRateLimit  = 4 * time.Hour
 	CriticalNotificationRateLimit = 1 * time.Hour
 
-	// Label used to identify indoor devices
-	IndoorLabel = "indoor"
-
 	// Temperature sensor lockup detection
 	// A sensor is considered locked up if it has the same reading for this long
 	TemperatureLockupThreshold = 12 * time.Hour
@@ -254,14 +251,13 @@ func (m *Manager) discoverHumiditySensors() error {
 		errs = append(errs, err)
 	}
 
+	labelChecker := ha.NewDeviceLabelChecker(devices)
+
 	indoorDevices := make(map[string]bool)
 	for _, device := range devices {
-		for _, label := range device.Labels {
-			// Case-insensitive comparison to handle "Indoor", "indoor", "INDOOR", etc.
-			if strings.EqualFold(label, IndoorLabel) {
-				indoorDevices[device.ID] = true
-				break
-			}
+		// Use case-insensitive matching to handle "Indoor", "indoor", "INDOOR", etc.
+		if labelChecker.HasLabelIgnoreCase(device.ID, ha.IndoorLabel) {
+			indoorDevices[device.ID] = true
 		}
 	}
 
@@ -774,12 +770,30 @@ func (m *Manager) discoverTemperatureSensors() error {
 		entityToDevice[entry.EntityID] = entry.DeviceID
 	}
 
+	// Step 4: Get device registry for label checking
+	devices, err := m.haClient.GetDevices()
+	if err != nil {
+		m.logger.Warn("Failed to get device registry for temperature sensors",
+			zap.Error(err))
+		errs = append(errs, err)
+	}
+
+	labelChecker := ha.NewDeviceLabelChecker(devices)
+
 	now := m.clock.Now()
 
-	// Step 4: Create TemperatureSensor structs and subscribe to each
+	// Step 5: Create TemperatureSensor structs and subscribe to each
 	m.mu.Lock()
 	for _, state := range tempSensors {
 		deviceID := entityToDevice[state.EntityID]
+
+		// Check if device has the monitoring ignore label
+		if labelChecker.ShouldIgnoreForMonitoring(deviceID) {
+			m.logger.Info("Skipping temperature sensor with monitoring_ignore label on device",
+				zap.String("entity_id", state.EntityID),
+				zap.String("device_id", deviceID))
+			continue
+		}
 
 		friendlyName := state.EntityID
 		if name, ok := state.Attributes["friendly_name"].(string); ok {

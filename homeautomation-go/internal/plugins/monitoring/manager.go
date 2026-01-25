@@ -27,10 +27,6 @@ const (
 
 	// How often to check for stale sensors
 	StalenessCheckInterval = 1 * time.Hour
-
-	// MonitoringIgnoreLabel is the Home Assistant label that excludes entities from monitoring
-	// In Home Assistant, this corresponds to a label with display name "Monitoring Ignore"
-	MonitoringIgnoreLabel = "monitoring_ignore"
 )
 
 // WaterLeakSensor represents a discovered water leak sensor
@@ -110,16 +106,6 @@ func NewManagerWithClock(haClient ha.HAClient, stateManager *state.Manager, logg
 	m := NewManager(haClient, stateManager, logger, readOnly, registry, ntfyClient)
 	m.clock = c
 	return m
-}
-
-// hasIgnoreLabel checks if the given labels contain the monitoring ignore label
-func hasIgnoreLabel(labels []string) bool {
-	for _, label := range labels {
-		if label == MonitoringIgnoreLabel {
-			return true
-		}
-	}
-	return false
 }
 
 // GetShadowState returns the current shadow state
@@ -240,17 +226,14 @@ func (m *Manager) discoverWaterLeakSensors() error {
 		entityToDevice[entry.EntityID] = entry.DeviceID
 	}
 
-	// Get device registry for labels
+	// Get device registry for label checking
 	devices, err := m.haClient.GetDevices()
 	if err != nil {
 		m.logger.Warn("Failed to get device registry", zap.Error(err))
 		errs = append(errs, err)
 	}
 
-	deviceToLabels := make(map[string][]string)
-	for _, device := range devices {
-		deviceToLabels[device.ID] = device.Labels
-	}
+	labelChecker := ha.NewDeviceLabelChecker(devices)
 
 	// Create sensor structs and subscribe
 	m.mu.Lock()
@@ -258,7 +241,7 @@ func (m *Manager) discoverWaterLeakSensors() error {
 		deviceID := entityToDevice[state.EntityID]
 
 		// Check if device has the monitoring ignore label
-		if hasIgnoreLabel(deviceToLabels[deviceID]) {
+		if labelChecker.ShouldIgnoreForMonitoring(deviceID) {
 			m.logger.Info("Skipping water leak sensor with monitoring_ignore label on device",
 				zap.String("entity_id", state.EntityID),
 				zap.String("device_id", deviceID))
@@ -350,17 +333,14 @@ func (m *Manager) discoverBatterySensors() error {
 		entityToDevice[entry.EntityID] = entry.DeviceID
 	}
 
-	// Get device registry for labels
+	// Get device registry for label checking
 	devices, err := m.haClient.GetDevices()
 	if err != nil {
 		m.logger.Warn("Failed to get device registry", zap.Error(err))
 		errs = append(errs, err)
 	}
 
-	deviceToLabels := make(map[string][]string)
-	for _, device := range devices {
-		deviceToLabels[device.ID] = device.Labels
-	}
+	labelChecker := ha.NewDeviceLabelChecker(devices)
 
 	// Create sensor structs and subscribe
 	m.mu.Lock()
@@ -368,7 +348,7 @@ func (m *Manager) discoverBatterySensors() error {
 		deviceID := entityToDevice[state.EntityID]
 
 		// Check if device has the monitoring ignore label
-		if hasIgnoreLabel(deviceToLabels[deviceID]) {
+		if labelChecker.ShouldIgnoreForMonitoring(deviceID) {
 			m.logger.Info("Skipping battery sensor with monitoring_ignore label on device",
 				zap.String("entity_id", state.EntityID),
 				zap.String("device_id", deviceID))

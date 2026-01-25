@@ -541,31 +541,6 @@ func TestParseBatteryLevel(t *testing.T) {
 	}
 }
 
-func TestHasIgnoreLabel(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name     string
-		labels   []string
-		expected bool
-	}{
-		{"nil labels", nil, false},
-		{"empty labels", []string{}, false},
-		{"other labels only", []string{"important", "kitchen"}, false},
-		{"has ignore label", []string{"monitoring_ignore"}, true},
-		{"ignore label among others", []string{"important", "monitoring_ignore", "kitchen"}, true},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := hasIgnoreLabel(tt.labels)
-			if result != tt.expected {
-				t.Errorf("hasIgnoreLabel(%v) = %v, expected %v", tt.labels, result, tt.expected)
-			}
-		})
-	}
-}
-
 func TestMonitoringManager_IgnoreLabeledDevices(t *testing.T) {
 	t.Parallel()
 
