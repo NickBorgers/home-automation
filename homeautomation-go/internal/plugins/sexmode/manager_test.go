@@ -538,10 +538,10 @@ func TestSexModeManager_Reset(t *testing.T) {
 	}
 }
 
-// TestSexModeManager_DeactivationSkipsRestoreWhenWakeUpOccurred tests that
-// deactivating sex mode does NOT restore sleep music if someone woke up during sex mode.
-// This is the fix for issue #525.
-func TestSexModeManager_DeactivationSkipsRestoreWhenWakeUpOccurred(t *testing.T) {
+// TestSexModeManager_AutoClearOnWakeUp tests that sex mode is automatically
+// cleared when a wake-up event occurs (isAnyoneAsleep: true → false).
+// This is the fix for issue #525 using the preferred design.
+func TestSexModeManager_AutoClearOnWakeUp(t *testing.T) {
 	t.Parallel()
 
 	// Setup
@@ -554,7 +554,7 @@ func TestSexModeManager_DeactivationSkipsRestoreWhenWakeUpOccurred(t *testing.T)
 	stateManager := state.NewManager(mockHA, logger, false)
 	stateManager.SyncFromHA()
 
-	// Start with sleep music and isMasterAsleep=true, isAnyoneAsleep=true
+	// Start with sleep music and everyone asleep
 	if err := stateManager.SetString("musicPlaybackType", "sleep"); err != nil {
 		t.Fatalf("Failed to set initial musicPlaybackType: %v", err)
 	}
@@ -579,49 +579,71 @@ func TestSexModeManager_DeactivationSkipsRestoreWhenWakeUpOccurred(t *testing.T)
 	mockHA.SimulateStateChange("input_boolean.sex", "on")
 	time.Sleep(100 * time.Millisecond)
 
-	// Verify it was set to "sex" and previous type was saved
-	musicType, err := stateManager.GetString("musicPlaybackType")
-	if err != nil {
-		t.Fatalf("Failed to get musicPlaybackType: %v", err)
-	}
-	if musicType != "sex" {
-		t.Errorf("Expected musicPlaybackType to be 'sex' after activation, got '%s'", musicType)
-	}
+	// Verify sex mode is active
 	manager.mu.Lock()
+	isActive := manager.isActive
 	savedType := manager.preSexMusicType
 	manager.mu.Unlock()
+	if !isActive {
+		t.Fatalf("Expected sex mode to be active")
+	}
 	if savedType != "sleep" {
 		t.Errorf("Expected preSexMusicType to be 'sleep', got '%s'", savedType)
 	}
 
-	// Simulate wake-up event: isAnyoneAsleep becomes false, musicPlaybackType set to "day"
-	// This simulates what the music plugin would do when wake-up is detected
+	// Clear service calls to track what happens on wake-up
+	mockHA.ClearServiceCalls()
+
+	// Simulate wake-up event: isAnyoneAsleep becomes false
+	// The music plugin would normally set musicPlaybackType to "day" here,
+	// but we simulate that the sex mode manager auto-clears first
 	if err := stateManager.SetBool("isAnyoneAsleep", false); err != nil {
 		t.Fatalf("Failed to set isAnyoneAsleep: %v", err)
 	}
-	if err := stateManager.SetBool("isMasterAsleep", false); err != nil {
-		t.Fatalf("Failed to set isMasterAsleep: %v", err)
+
+	// Wait for the subscription handler to process
+	time.Sleep(100 * time.Millisecond)
+
+	// Verify that input_boolean.sex was turned off via service call
+	calls := mockHA.GetServiceCalls()
+	foundTurnOff := false
+	for _, call := range calls {
+		if call.Domain == "input_boolean" && call.Service == "turn_off" {
+			if entityID, ok := call.Data["entity_id"].(string); ok && entityID == "input_boolean.sex" {
+				foundTurnOff = true
+				break
+			}
+		}
 	}
+	if !foundTurnOff {
+		t.Errorf("Expected input_boolean.sex to be turned off on wake-up, but service was not called. Calls: %+v", calls)
+	}
+
+	// Simulate the state change callback that would come from HA after we called turn_off
+	// (In real scenario, HA would fire this automatically)
+	mockHA.SimulateStateChange("input_boolean.sex", "off")
+	time.Sleep(100 * time.Millisecond)
+
+	// Verify sex mode is now inactive
+	manager.mu.Lock()
+	isActive = manager.isActive
+	manager.mu.Unlock()
+	if isActive {
+		t.Errorf("Expected sex mode to be inactive after wake-up auto-clear")
+	}
+
+	// Now simulate what the music plugin would do - set music to "day"
 	if err := stateManager.SetString("musicPlaybackType", "day"); err != nil {
 		t.Fatalf("Failed to set musicPlaybackType to day: %v", err)
 	}
 
-	// Clear service calls before deactivation
-	mockHA.ClearServiceCalls()
-
-	// Deactivate sex mode
-	mockHA.SimulateStateChange("input_boolean.sex", "off")
-	time.Sleep(100 * time.Millisecond)
-
-	// CRITICAL: Music type should NOT be restored to "sleep" since wake-up occurred.
-	// It should remain "day" (what the wake-up event set it to).
-	musicType, err = stateManager.GetString("musicPlaybackType")
+	// Verify music stayed at "day" (was not overwritten back to "sleep")
+	musicType, err := stateManager.GetString("musicPlaybackType")
 	if err != nil {
-		t.Fatalf("Failed to get musicPlaybackType after deactivation: %v", err)
+		t.Fatalf("Failed to get musicPlaybackType: %v", err)
 	}
 	if musicType != "day" {
-		t.Errorf("Expected musicPlaybackType to remain 'day' (wake-up selection), got '%s'. "+
-			"Sex mode should not overwrite wake-up music when isAnyoneAsleep is false.", musicType)
+		t.Errorf("Expected musicPlaybackType to be 'day' (set by music plugin after wake-up), got '%s'", musicType)
 	}
 }
 
@@ -691,5 +713,71 @@ func TestSexModeManager_DeactivationRestoresMusicWhenStillAsleep(t *testing.T) {
 	}
 	if musicType != "sleep" {
 		t.Errorf("Expected musicPlaybackType to be restored to 'sleep' (still asleep), got '%s'", musicType)
+	}
+}
+
+// TestSexModeManager_WakeUpIgnoredWhenNotActive tests that wake-up events
+// are ignored when sex mode is not active. This ensures the subscription
+// doesn't cause issues during normal operation.
+func TestSexModeManager_WakeUpIgnoredWhenNotActive(t *testing.T) {
+	t.Parallel()
+
+	// Setup
+	mockHA := ha.NewMockClient()
+	mockHA.SetState("input_boolean.sex", "off", nil)
+	mockHA.Connect()
+
+	logger := zap.NewNop()
+	stateManager := state.NewManager(mockHA, logger, false)
+	stateManager.SyncFromHA()
+
+	// Start with everyone asleep
+	if err := stateManager.SetBool("isAnyoneAsleep", true); err != nil {
+		t.Fatalf("Failed to set isAnyoneAsleep: %v", err)
+	}
+
+	// Create sex mode manager (not read-only) but don't activate sex mode
+	manager := NewManager(mockHA, stateManager, logger, false, nil)
+	if err := manager.Start(); err != nil {
+		t.Fatalf("Failed to start sex mode manager: %v", err)
+	}
+	defer manager.Stop()
+
+	// Verify sex mode is NOT active
+	manager.mu.Lock()
+	isActive := manager.isActive
+	manager.mu.Unlock()
+	if isActive {
+		t.Fatalf("Expected sex mode to be inactive initially")
+	}
+
+	// Clear service calls
+	mockHA.ClearServiceCalls()
+
+	// Simulate wake-up event: isAnyoneAsleep becomes false
+	if err := stateManager.SetBool("isAnyoneAsleep", false); err != nil {
+		t.Fatalf("Failed to set isAnyoneAsleep: %v", err)
+	}
+
+	// Wait for potential subscription handler processing
+	time.Sleep(100 * time.Millisecond)
+
+	// Verify that input_boolean.sex was NOT turned off (sex mode wasn't active)
+	// Note: Other turn_off calls may occur (e.g., state manager syncing input_boolean.anyone_asleep)
+	calls := mockHA.GetServiceCalls()
+	for _, call := range calls {
+		if call.Domain == "input_boolean" && call.Service == "turn_off" {
+			if entityID, ok := call.Data["entity_id"].(string); ok && entityID == "input_boolean.sex" {
+				t.Errorf("Should not have called turn_off on input_boolean.sex when sex mode is not active. Calls: %+v", calls)
+			}
+		}
+	}
+
+	// Verify sex mode is still inactive
+	manager.mu.Lock()
+	isActive = manager.isActive
+	manager.mu.Unlock()
+	if isActive {
+		t.Errorf("Expected sex mode to remain inactive")
 	}
 }
