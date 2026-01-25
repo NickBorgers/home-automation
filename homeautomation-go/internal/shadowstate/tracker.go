@@ -1782,3 +1782,176 @@ func (sct *SensorConfigTracker) GetState() *SensorConfigShadowState {
 
 	return stateCopy
 }
+
+// ============================================================================
+// Infrastructure Tracker - Aerobic Septic System Monitoring
+// ============================================================================
+
+// InfrastructureTracker manages shadow state for the infrastructure plugin
+type InfrastructureTracker struct {
+	mu    sync.RWMutex
+	state *InfrastructureShadowState
+}
+
+// NewInfrastructureTracker creates a new infrastructure shadow state tracker
+func NewInfrastructureTracker() *InfrastructureTracker {
+	return &InfrastructureTracker{
+		state: NewInfrastructureShadowState(),
+	}
+}
+
+// UpdateCurrentInputs updates the current input values
+func (it *InfrastructureTracker) UpdateCurrentInputs(inputs map[string]interface{}) {
+	it.mu.Lock()
+	defer it.mu.Unlock()
+
+	for key, value := range inputs {
+		it.state.Inputs.Current[key] = value
+	}
+	it.state.Metadata.LastUpdated = time.Now()
+}
+
+// UpdateSepticPower updates the current septic system power reading
+func (it *InfrastructureTracker) UpdateSepticPower(powerW float64) {
+	it.mu.Lock()
+	defer it.mu.Unlock()
+
+	it.state.Outputs.SepticSystemStatus.CurrentPowerW = powerW
+	it.state.Outputs.LastUpdate = time.Now()
+	it.state.Metadata.LastUpdated = time.Now()
+}
+
+// UpdateSystemState updates the septic system state
+func (it *InfrastructureTracker) UpdateSystemState(systemState string) {
+	it.mu.Lock()
+	defer it.mu.Unlock()
+
+	it.state.Outputs.SepticSystemStatus.SystemState = systemState
+	it.state.Metadata.LastUpdated = time.Now()
+}
+
+// UpdateAeratorFailureStart tracks when low power condition started
+func (it *InfrastructureTracker) UpdateAeratorFailureStart(startTime time.Time) {
+	it.mu.Lock()
+	defer it.mu.Unlock()
+
+	it.state.Outputs.SepticSystemStatus.AeratorFailureStart = startTime
+	it.state.Metadata.LastUpdated = time.Now()
+}
+
+// UpdatePumpRunningStart tracks when high power condition started
+func (it *InfrastructureTracker) UpdatePumpRunningStart(startTime time.Time) {
+	it.mu.Lock()
+	defer it.mu.Unlock()
+
+	it.state.Outputs.SepticSystemStatus.PumpRunningStart = startTime
+	it.state.Metadata.LastUpdated = time.Now()
+}
+
+// UpdateLastNormalPowerTime tracks when power was last in normal range
+func (it *InfrastructureTracker) UpdateLastNormalPowerTime(t time.Time) {
+	it.mu.Lock()
+	defer it.mu.Unlock()
+
+	it.state.Outputs.SepticSystemStatus.LastNormalPowerTime = t
+	it.state.Metadata.LastUpdated = time.Now()
+}
+
+// UpdateIsAlerting tracks whether an alert is currently active
+func (it *InfrastructureTracker) UpdateIsAlerting(isAlerting bool) {
+	it.mu.Lock()
+	defer it.mu.Unlock()
+
+	it.state.Outputs.SepticSystemStatus.IsAlerting = isAlerting
+	it.state.Metadata.LastUpdated = time.Now()
+}
+
+// UpdateActiveAlerts updates the list of active alerts
+func (it *InfrastructureTracker) UpdateActiveAlerts(alerts []InfrastructureAlert) {
+	it.mu.Lock()
+	defer it.mu.Unlock()
+
+	it.state.Outputs.ActiveAlerts = make([]InfrastructureAlert, len(alerts))
+	copy(it.state.Outputs.ActiveAlerts, alerts)
+	it.state.Metadata.LastUpdated = time.Now()
+}
+
+// RecordNotification records a notification that was sent
+func (it *InfrastructureTracker) RecordNotification(alertType, message, priority string) {
+	it.mu.Lock()
+	defer it.mu.Unlock()
+
+	it.state.Outputs.LastNotification = &InfrastructureNotification{
+		AlertType: alertType,
+		Message:   message,
+		Priority:  priority,
+		Timestamp: time.Now(),
+	}
+	it.state.Metadata.LastUpdated = time.Now()
+}
+
+// RecordTTSAnnouncement records a TTS announcement that was made
+func (it *InfrastructureTracker) RecordTTSAnnouncement(message string) {
+	it.mu.Lock()
+	defer it.mu.Unlock()
+
+	it.state.Outputs.LastTTSAnnouncement = &InfrastructureTTS{
+		Message:   message,
+		Timestamp: time.Now(),
+	}
+	it.state.Metadata.LastUpdated = time.Now()
+}
+
+// ClearAlerts clears all active alerts and resets alerting state
+func (it *InfrastructureTracker) ClearAlerts() {
+	it.mu.Lock()
+	defer it.mu.Unlock()
+
+	it.state.Outputs.ActiveAlerts = make([]InfrastructureAlert, 0)
+	it.state.Outputs.SepticSystemStatus.IsAlerting = false
+	it.state.Outputs.SepticSystemStatus.AeratorFailureStart = time.Time{}
+	it.state.Outputs.SepticSystemStatus.PumpRunningStart = time.Time{}
+	it.state.Metadata.LastUpdated = time.Now()
+}
+
+// GetState returns the current shadow state (thread-safe copy)
+func (it *InfrastructureTracker) GetState() *InfrastructureShadowState {
+	it.mu.RLock()
+	defer it.mu.RUnlock()
+
+	// Create a deep copy
+	stateCopy := &InfrastructureShadowState{
+		Plugin: it.state.Plugin,
+		Inputs: InfrastructureInputs{
+			Current: make(map[string]interface{}),
+		},
+		Outputs: InfrastructureOutputs{
+			SepticSystemStatus: it.state.Outputs.SepticSystemStatus,
+			ActiveAlerts:       make([]InfrastructureAlert, len(it.state.Outputs.ActiveAlerts)),
+			LastUpdate:         it.state.Outputs.LastUpdate,
+		},
+		Metadata: it.state.Metadata,
+	}
+
+	// Copy current inputs
+	for k, v := range it.state.Inputs.Current {
+		stateCopy.Inputs.Current[k] = v
+	}
+
+	// Copy active alerts
+	copy(stateCopy.Outputs.ActiveAlerts, it.state.Outputs.ActiveAlerts)
+
+	// Copy notification record if it exists
+	if it.state.Outputs.LastNotification != nil {
+		notification := *it.state.Outputs.LastNotification
+		stateCopy.Outputs.LastNotification = &notification
+	}
+
+	// Copy TTS record if it exists
+	if it.state.Outputs.LastTTSAnnouncement != nil {
+		tts := *it.state.Outputs.LastTTSAnnouncement
+		stateCopy.Outputs.LastTTSAnnouncement = &tts
+	}
+
+	return stateCopy
+}
