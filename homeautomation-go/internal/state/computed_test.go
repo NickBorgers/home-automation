@@ -403,7 +403,7 @@ func TestComputedState_IsAnyoneHomeAndAwake_LatchesOnWakeSequence(t *testing.T) 
 }
 
 func TestComputedState_IsAnyoneHomeAndAwake_LatchClearsOnWakeUp(t *testing.T) {
-	// The latch clears when isMasterAsleep becomes false (person wakes up).
+	// The latch clears when isAnyoneAsleep becomes false (everyone wakes up).
 	// After the latch clears, normal formula takes over.
 	t.Parallel()
 	logger := testlogger.New()
@@ -482,10 +482,11 @@ func TestComputedState_IsAnyoneHomeAndAwake_LatchOnlyOnRisingEdge(t *testing.T) 
 	assert.True(t, value, "isAnyoneHomeAndAwake should be TRUE after wake sequence rising edge (latch activated)")
 }
 
-func TestComputedState_IsAnyoneHomeAndAwake_GuestAsleepDoesNotClearLatch(t *testing.T) {
-	// The latch only clears when isMasterAsleep becomes false.
-	// If isGuestAsleep is true, isAnyoneAsleep stays true, but the latch still
-	// clears correctly based on isMasterAsleep.
+func TestComputedState_IsAnyoneHomeAndAwake_GuestAsleepKeepsLatchActive(t *testing.T) {
+	// The latch only clears when isAnyoneAsleep becomes false (everyone wakes up).
+	// If isGuestAsleep is true, isAnyoneAsleep stays true, so the latch remains
+	// active to prevent lights from flickering off while someone is still asleep.
+	// This is the fix for GitHub issue #526.
 	t.Parallel()
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
@@ -510,22 +511,30 @@ func TestComputedState_IsAnyoneHomeAndAwake_GuestAsleepDoesNotClearLatch(t *test
 	value, _ := manager.GetBool("isAnyoneHomeAndAwake")
 	assert.True(t, value, "isAnyoneHomeAndAwake should be TRUE when wake sequence activates")
 
-	// Master wakes up (clears latch), but guest is still asleep
+	// Master wakes up, but guest is still asleep
 	mockClient.SimulateStateChange("input_boolean.master_asleep", "off")
 	// Note: isAnyoneAsleep stays true because guest is still asleep
 
-	// Should still be true due to latch being cleared AND isAnyoneAsleep still true
-	// Wait - isAnyoneAsleep is still true, so formula would be:
-	// (owner_home && !isAnyoneAsleep) || isToriHere || latch
-	// = (true && false) || false || false
-	// = false
-	// But the latch just cleared, so we need the isAnyoneAsleep to update too
-
-	// Actually, in this scenario, the normal formula would give false because
-	// isAnyoneAsleep is still true. The latch was keeping it true.
-	// This is correct behavior - the latch cleared on master waking up.
+	// Latch should STILL be active because isAnyoneAsleep is still true.
+	// The latch only clears when isAnyoneAsleep transitions from true to false.
+	// Formula: (owner_home && !isAnyoneAsleep) || isToriHere || latch
+	//        = (true && !true) || false || true
+	//        = true
 	value, _ = manager.GetBool("isAnyoneHomeAndAwake")
-	assert.False(t, value, "isAnyoneHomeAndAwake should be FALSE after latch clears if isAnyoneAsleep still true")
+	assert.True(t, value, "isAnyoneHomeAndAwake should STILL be TRUE - latch persists while guest asleep")
+
+	// Now guest also wakes up - isAnyoneAsleep becomes false, clearing the latch
+	mockClient.SimulateStateChange("input_boolean.guest_asleep", "off")
+	mockClient.SimulateStateChange("input_boolean.anyone_asleep", "off")
+
+	// Now normal formula takes over: (true && !false) || false || false = true
+	value, _ = manager.GetBool("isAnyoneHomeAndAwake")
+	assert.True(t, value, "isAnyoneHomeAndAwake should be TRUE via normal formula (owner awake)")
+
+	// Verify latch is cleared by having owner leave
+	mockClient.SimulateStateChange("input_boolean.any_owner_home", "off")
+	value, _ = manager.GetBool("isAnyoneHomeAndAwake")
+	assert.False(t, value, "isAnyoneHomeAndAwake should be FALSE after owner leaves (latch was cleared)")
 }
 
 // =============================================================================
@@ -851,4 +860,70 @@ func TestScenario_SystemRestartDuringWakeSequence(t *testing.T) {
 	mockClient.SimulateStateChange("input_boolean.wake_sequence_active", "on")
 	value, _ = manager.GetBool("isAnyoneHomeAndAwake")
 	assert.True(t, value, "After cycle: Latch activates on rising edge")
+}
+
+func TestScenario_Issue526_NoFlickerOnWakeUp(t *testing.T) {
+	// SCENARIO: GitHub Issue #526 - Race condition fix verification.
+	// When the wake sequence ends (isMasterAsleep→false), there was a ~2.5 second
+	// window where lights would turn off then back on due to state propagation delay.
+	//
+	// The issue was that isMasterAsleep changing would clear the latch immediately,
+	// but isAnyoneAsleep (derived from isMasterAsleep) hadn't propagated yet.
+	// So the formula would evaluate with stale isAnyoneAsleep=true:
+	//   (isAnyOwnerHome && !isAnyoneAsleep) || isToriHere || wakeSequenceLatch
+	//   = (true && !true) || false || false = false  ← lights OFF
+	// Then when isAnyoneAsleep propagates to false, lights turn back ON.
+	//
+	// FIX: Clear latch on isAnyoneAsleep falling edge instead of isMasterAsleep.
+	// This ensures the latch clears only after state is consistent.
+	//
+	// This test verifies that:
+	// 1. If only isMasterAsleep changes (but isAnyoneAsleep hasn't propagated),
+	//    the latch remains active to prevent flicker.
+	// 2. When isAnyoneAsleep actually becomes false, the latch clears cleanly.
+
+	t.Parallel()
+	logger := testlogger.New()
+	mockClient := ha.NewMockClient()
+
+	// Initial state: Owner home and asleep, wake sequence active (latch engaged)
+	mockClient.SetState("input_boolean.any_owner_home", "on", map[string]interface{}{})
+	mockClient.SetState("input_boolean.anyone_asleep", "on", map[string]interface{}{})
+	mockClient.SetState("input_boolean.tori_here", "off", map[string]interface{}{})
+	mockClient.SetState("input_boolean.anyone_home_and_awake", "off", map[string]interface{}{})
+	mockClient.SetState("input_boolean.wake_sequence_active", "off", map[string]interface{}{})
+	mockClient.SetState("input_boolean.master_asleep", "on", map[string]interface{}{})
+	mockClient.Connect()
+
+	manager := NewManager(mockClient, logger, false)
+	err := manager.SyncFromHA()
+	require.NoError(t, err)
+	err = manager.SetupComputedState()
+	require.NoError(t, err)
+
+	// Step 1: Activate the wake sequence latch
+	mockClient.SimulateStateChange("input_boolean.wake_sequence_active", "on")
+	value, _ := manager.GetBool("isAnyoneHomeAndAwake")
+	assert.True(t, value, "Step 1: Latch activates - house should be awake")
+
+	// Step 2: Simulate the race condition - isMasterAsleep changes FIRST
+	// In the old code, this would clear the latch prematurely.
+	// With the fix, the latch should remain because isAnyoneAsleep is still true.
+	mockClient.SimulateStateChange("input_boolean.master_asleep", "off")
+	// NOTE: isAnyoneAsleep is STILL "on" - it hasn't propagated yet!
+
+	value, _ = manager.GetBool("isAnyoneHomeAndAwake")
+	assert.True(t, value, "Step 2: CRITICAL - latch must remain active while isAnyoneAsleep is still true (prevents flicker)")
+
+	// Step 3: Now isAnyoneAsleep propagates to false
+	mockClient.SimulateStateChange("input_boolean.anyone_asleep", "off")
+
+	// Latch should now be cleared, but normal formula should yield true anyway
+	value, _ = manager.GetBool("isAnyoneHomeAndAwake")
+	assert.True(t, value, "Step 3: Normal formula takes over (owner home and awake)")
+
+	// Step 4: Verify latch is actually cleared by making owner leave
+	mockClient.SimulateStateChange("input_boolean.any_owner_home", "off")
+	value, _ = manager.GetBool("isAnyoneHomeAndAwake")
+	assert.False(t, value, "Step 4: Latch was cleared - house is dark when nobody home")
 }

@@ -19,8 +19,12 @@ import "go.uber.org/zap"
 // sequence, regardless of the normal formula result.
 //
 // The latch activates on the rising edge of isWakeSequenceActive (false->true)
-// and clears when isMasterAsleep becomes false (person wakes up). This prevents
+// and clears when isAnyoneAsleep becomes false (everyone wakes up). This prevents
 // the latch from activating if isWakeSequenceActive is already true at startup.
+//
+// Note: We clear on isAnyoneAsleep (not isMasterAsleep) to avoid a race condition.
+// When isMasterAsleep changes, isAnyoneAsleep (derived from it) needs time to propagate.
+// Clearing on isAnyoneAsleep ensures state is consistent before the latch clears.
 func (m *Manager) SetupComputedState() error {
 	// Compute initial value (latch is false at startup, no edge detection on init)
 	if err := m.recomputeAnyoneHomeAndAwake(); err != nil {
@@ -85,11 +89,17 @@ func (m *Manager) SetupComputedState() error {
 		return err
 	}
 
-	// Subscribe to isMasterAsleep for latch clearing (falling edge only)
-	_, err = m.Subscribe("isMasterAsleep", func(key string, oldValue, newValue interface{}) {
+	// Subscribe to isAnyoneAsleep for latch clearing (falling edge only)
+	// NOTE: We subscribe to isAnyoneAsleep instead of isMasterAsleep to avoid a race condition.
+	// When isMasterAsleep changes, isAnyoneAsleep (a derived state) needs time to propagate.
+	// If we cleared the latch on isMasterAsleep, the recompute would read stale isAnyoneAsleep=true,
+	// causing isAnyoneHomeAndAwake to briefly become false (lights flicker off then on).
+	// By triggering on isAnyoneAsleep falling edge, we ensure state is consistent before clearing.
+	// See GitHub issue #526 for details on this race condition.
+	_, err = m.Subscribe("isAnyoneAsleep", func(key string, oldValue, newValue interface{}) {
 		oldBool, _ := oldValue.(bool)
 		newBool, _ := newValue.(bool)
-		// Clear latch when person wakes up (true -> false)
+		// Clear latch when everyone wakes up (true -> false)
 		if oldBool && !newBool {
 			m.cacheMu.Lock()
 			wasLatched := m.wakeSequenceLatch
@@ -97,18 +107,11 @@ func (m *Manager) SetupComputedState() error {
 			m.cacheMu.Unlock()
 			if wasLatched {
 				m.logger.Info("Wake sequence latch cleared",
-					zap.Bool("isMasterAsleep", newBool))
+					zap.Bool("isAnyoneAsleep", newBool))
 			}
-			// Recompute even if latch wasn't set - isMasterAsleep affects isAnyoneAsleep
-			// which is a direct dependency, but the recompute will be triggered by that
-			// subscription. We only recompute here if the latch was cleared.
-			if wasLatched {
-				if err := m.recomputeAnyoneHomeAndAwake(); err != nil {
-					m.logger.Error("Failed to recompute isAnyoneHomeAndAwake",
-						zap.String("trigger", key),
-						zap.Error(err))
-				}
-			}
+			// Note: recomputeAnyoneHomeAndAwake is already triggered by the isAnyoneAsleep
+			// subscription above (lines 42-48), so we don't need to call it here again.
+			// The subscription handler at lines 42-48 handles the recompute.
 		}
 	})
 	if err != nil {
