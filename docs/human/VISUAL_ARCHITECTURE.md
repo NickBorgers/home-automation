@@ -51,6 +51,7 @@ graph TB
             Christmas[Christmas<br/>internal/plugins/christmas/]
             Environmental[Environmental Monitoring<br/>internal/plugins/environmental/]
             Monitoring[Monitoring<br/>internal/plugins/monitoring/]
+            Infrastructure[Infrastructure<br/>internal/plugins/infrastructure/]
             ResetCoord[Reset Coordinator<br/>internal/plugins/reset/]
             SensorConfig[Sensor Config<br/>internal/plugins/sensorconfig/]
         end
@@ -139,6 +140,11 @@ graph TB
     Monitoring -->|Entity Subscriptions| HAClient
     Monitoring -->|Notifications| Ntfy
     Monitoring -.->|Register Shadow| ShadowTracker
+
+    Infrastructure -->|Entity Subscriptions| HAClient
+    Infrastructure -->|Notifications| Ntfy
+    Infrastructure -->|TTS Announcements| HAClient
+    Infrastructure -.->|Register Shadow| ShadowTracker
 
     ResetCoord -->|Subscribe to reset| StateManager
     ResetCoord -.->|Reset All| StateTracking
