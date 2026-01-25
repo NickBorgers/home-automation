@@ -54,7 +54,7 @@ type Manager struct {
 	// wakeSequenceLatch is internal state for computed isAnyoneHomeAndAwake.
 	// When the wake sequence activates (isWakeSequenceActive false->true),
 	// this latch is set to keep isAnyoneHomeAndAwake=true even if someone
-	// is still asleep. The latch clears when isMasterAsleep becomes false.
+	// is still asleep. The latch clears when isAnyoneAsleep becomes false.
 	// Protected by cacheMu for simplicity (accessed during recomputation).
 	wakeSequenceLatch bool
 }

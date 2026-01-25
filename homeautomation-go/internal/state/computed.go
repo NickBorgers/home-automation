@@ -83,7 +83,7 @@ func (m *Manager) SetupComputedState() error {
 			}
 		}
 		// Note: latch does NOT clear when isWakeSequenceActive becomes false.
-		// It only clears when isMasterAsleep becomes false (person wakes up).
+		// It only clears when isAnyoneAsleep becomes false (everyone wakes up).
 	})
 	if err != nil {
 		return err
