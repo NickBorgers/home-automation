@@ -196,11 +196,30 @@ func (m *Manager) saveMusicStateAndActivate() {
 	}
 }
 
-// restoreMusicState restores the previous music playback type
+// restoreMusicState restores the previous music playback type, unless conditions
+// changed during sex mode (e.g., someone woke up). If isAnyoneAsleep is false
+// but the saved music type was "sleep", that indicates a wake-up event occurred
+// during sex mode. In that case, we should not overwrite the wake-up music selection.
 func (m *Manager) restoreMusicState() {
 	m.mu.Lock()
 	previousType := m.preSexMusicType
 	m.mu.Unlock()
+
+	// Check if someone woke up during sex mode
+	isAnyoneAsleep, err := m.stateManager.GetBool("isAnyoneAsleep")
+	if err != nil {
+		m.logger.Warn("Failed to get isAnyoneAsleep, proceeding with restore", zap.Error(err))
+		isAnyoneAsleep = true // Default to restoring if we can't determine
+	}
+
+	// If the saved music type was "sleep" but nobody is asleep anymore,
+	// a wake-up event occurred during sex mode. Don't overwrite the wake-up music.
+	if previousType == "sleep" && !isAnyoneAsleep {
+		m.logger.Info("Wake-up detected during sex mode, not restoring sleep music",
+			zap.String("saved_type", previousType),
+			zap.Bool("is_anyone_asleep", isAnyoneAsleep))
+		return
+	}
 
 	m.logger.Info("Restoring previous music type",
 		zap.String("type", previousType))
