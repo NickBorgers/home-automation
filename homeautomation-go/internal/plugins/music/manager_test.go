@@ -1635,6 +1635,129 @@ func TestManagerReset_WhenSomeoneAsleep_SelectsSleepMode(t *testing.T) {
 	}
 }
 
+// mutableTimeProvider is a test helper that allows changing the current time.
+type mutableTimeProvider struct {
+	mu      sync.Mutex
+	current time.Time
+}
+
+func (m *mutableTimeProvider) Now() time.Time {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.current
+}
+
+func (m *mutableTimeProvider) SetNow(t time.Time) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.current = t
+}
+
+// TestManagerReset_RestartsSameMode tests that Reset() can restart playback
+// even when the current music mode is the same as the target mode.
+// This validates the clear-then-set pattern fix (commit f9ea940).
+func TestManagerReset_RestartsSameMode(t *testing.T) {
+	t.Parallel()
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+
+	// Create config with multiple playlists so we can detect rotation
+	musicConfig := &MusicConfig{
+		Music: map[string]MusicMode{
+			"day": {
+				PlaybackOptions: []PlaybackOption{
+					{URI: "spotify:playlist:day1", MediaType: "playlist"},
+					{URI: "spotify:playlist:day2", MediaType: "playlist"},
+					{URI: "spotify:playlist:day3", MediaType: "playlist"},
+				},
+				Participants: []Participant{
+					{PlayerName: "Kitchen", BaseVolume: 9},
+				},
+			},
+		},
+	}
+
+	// Set up initial state: day phase, someone home, no one asleep
+	// Use dayPhase="day" so Reset() will also select "day" mode
+	stateManager.SetString("dayPhase", "day")
+	stateManager.SetBool("isMasterAsleep", false)
+	stateManager.SetBool("isGuestAsleep", false)
+	stateManager.SetBool("isAnyoneHome", true)
+	stateManager.SetBool("isAnyoneAsleep", false)
+	stateManager.SetString("musicPlaylistRotation", "{}")
+
+	// Use mutable time provider to control rate limiting
+	mockTime := &mutableTimeProvider{current: time.Date(2024, 1, 15, 12, 0, 0, 0, time.Local)} // Monday noon
+
+	manager := NewManager(mockClient, stateManager, musicConfig, logger, false, mockTime, nil)
+	manager.SetSleepFunc(func(d time.Duration) {}) // Skip sleeps for faster tests
+
+	err := manager.Start()
+	if err != nil {
+		t.Fatalf("Failed to start manager: %v", err)
+	}
+	defer manager.Stop()
+
+	// Trigger initial playback by setting musicPlaybackType to day
+	err = stateManager.SetString("musicPlaybackType", "day")
+	if err != nil {
+		t.Fatalf("Failed to set initial musicPlaybackType: %v", err)
+	}
+
+	// Wait for async sync
+	manager.WaitForSync()
+
+	// Get initial rotation index
+	rotationJSON, err := stateManager.GetString("musicPlaylistRotation")
+	if err != nil {
+		t.Fatalf("Failed to get initial musicPlaylistRotation: %v", err)
+	}
+	var initialRotation map[string]int
+	if err := json.Unmarshal([]byte(rotationJSON), &initialRotation); err != nil {
+		t.Fatalf("Failed to parse initial rotation JSON: %v", err)
+	}
+	initialIndex := initialRotation["day"]
+
+	// Advance time to avoid rate limiting (need > 10 seconds)
+	mockTime.SetNow(time.Date(2024, 1, 15, 12, 1, 0, 0, time.Local)) // 1 minute later
+
+	// Call Reset() - this should restart playback even though we're already in day mode
+	err = manager.Reset()
+	if err != nil {
+		t.Fatalf("Reset() failed: %v", err)
+	}
+
+	// Wait for async sync
+	manager.WaitForSync()
+
+	// Verify musicPlaybackType is still "day"
+	musicType, err := stateManager.GetString("musicPlaybackType")
+	if err != nil {
+		t.Fatalf("Failed to get musicPlaybackType after reset: %v", err)
+	}
+	if musicType != "day" {
+		t.Errorf("Expected musicPlaybackType to remain 'day', got %q", musicType)
+	}
+
+	// Verify playlist rotation incremented (proves playback restarted)
+	rotationJSON, err = stateManager.GetString("musicPlaylistRotation")
+	if err != nil {
+		t.Fatalf("Failed to get musicPlaylistRotation after reset: %v", err)
+	}
+	var finalRotation map[string]int
+	if err := json.Unmarshal([]byte(rotationJSON), &finalRotation); err != nil {
+		t.Fatalf("Failed to parse final rotation JSON: %v", err)
+	}
+	finalIndex := finalRotation["day"]
+
+	// The rotation index should have incremented, proving playback was triggered
+	if finalIndex <= initialIndex {
+		t.Errorf("Expected playlist rotation to increment after Reset() (proving playback restarted), "+
+			"initial=%d, final=%d", initialIndex, finalIndex)
+	}
+}
+
 // TestCurrentlyPlayingMusicUri_SetOnPlayback tests that currentlyPlayingMusicUri
 // is set when playback starts
 func TestCurrentlyPlayingMusicUri_SetOnPlayback(t *testing.T) {
