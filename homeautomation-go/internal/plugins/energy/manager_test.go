@@ -100,86 +100,9 @@ func TestDetermineBatteryEnergyLevel(t *testing.T) {
 	}
 }
 
-func TestDetermineSolarEnergyLevel(t *testing.T) {
-	t.Parallel()
-	logger := testlogger.New()
-	config := createTestConfig()
-	mockClient := ha.NewMockClient()
-	stateManager := state.NewManager(mockClient, logger, false)
-
-	manager := NewManager(mockClient, stateManager, config, logger, false, nil, nil)
-
-	tests := []struct {
-		name         string
-		thisHourKW   float64
-		remainingKWH float64
-		expected     string
-	}{
-		{"No production", 0, 0, "yellow"},              // Yellow has 0 requirements
-		{"Low production", 1, 5, "yellow"},             // Yellow has 0 requirements
-		{"Meets green kW but not kWh", 5, 5, "yellow"}, // Doesn't meet green's 10 kWh requirement
-		{"Meets green kWh but not kW", 2, 15, "green"}, // Meets green: 0 kW and 10 kWh
-		{"Meets green thresholds", 5, 15, "green"},     // Meets green: 0 kW and 10 kWh
-		{"Meets white kW but not kWh", 5, 15, "green"}, // Doesn't meet white's 20 kWh requirement
-		{"Meets white thresholds", 5, 25, "white"},     // Meets white: 4 kW and 20 kWh
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-
-			result := manager.determineSolarEnergyLevel(tt.thisHourKW, tt.remainingKWH)
-			assert.Equal(t, tt.expected, result)
-		})
-	}
-}
-
-func TestDetermineOverallEnergyLevel(t *testing.T) {
-	t.Parallel()
-	logger := testlogger.New()
-	config := createTestConfig()
-	mockClient := ha.NewMockClient()
-	stateManager := state.NewManager(mockClient, logger, false)
-
-	manager := NewManager(mockClient, stateManager, config, logger, false, nil, nil)
-
-	tests := []struct {
-		name         string
-		batteryLevel string
-		solarLevel   string
-		expected     string
-	}{
-		// Solar can only boost, never drag down battery level.
-		// Overall = battery level, boosted by at most 1 if solar is higher.
-		{"Both black", "black", "black", "black"},
-		{"Battery red, solar black", "red", "black", "red"}, // Solar doesn't drag down
-		{"Battery black, solar red", "black", "red", "red"}, // Solar boosts by 1
-		{"Both red", "red", "red", "red"},
-		{"Battery yellow, solar black", "yellow", "black", "yellow"}, // Solar doesn't drag down
-		{"Battery black, solar yellow", "black", "yellow", "red"},    // Solar boosts by 1 (max)
-		{"Battery yellow, solar red", "yellow", "red", "yellow"},     // Solar doesn't drag down
-		{"Battery red, solar yellow", "red", "yellow", "yellow"},     // Solar boosts by 1
-		{"Both yellow", "yellow", "yellow", "yellow"},
-		{"Battery green, solar yellow", "green", "yellow", "green"}, // Solar doesn't drag down
-		{"Battery yellow, solar green", "yellow", "green", "green"}, // Solar boosts by 1
-		{"Both green", "green", "green", "green"},
-		{"Battery white, solar green", "white", "green", "white"}, // Solar doesn't drag down
-		{"Battery green, solar white", "green", "white", "white"}, // Solar boosts by 1
-		{"Both white", "white", "white", "white"},
-		// Solar can boost by at most 1 level
-		{"Battery white, solar black", "white", "black", "white"}, // Solar doesn't drag down
-		{"Battery black, solar white", "black", "white", "red"},   // Solar boosts by 1 (max)
-		{"Battery white, solar red", "white", "red", "white"},     // Solar doesn't drag down
-		{"Battery red, solar white", "red", "white", "yellow"},    // Solar boosts by 1 (max)
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-
-			result := manager.determineOverallEnergyLevel(tt.batteryLevel, tt.solarLevel)
-			assert.Equal(t, tt.expected, result)
-		})
-	}
-}
+// Note: TestDetermineSolarEnergyLevel and TestDetermineOverallEnergyLevel have been
+// removed because this logic is now handled by the ComputedStateRegistry.
+// See internal/state/computed_energy_providers_test.go for those tests.
 
 func TestIsFreeEnergyTime(t *testing.T) {
 	t.Parallel()
@@ -341,33 +264,9 @@ func TestManagerStartAndHandlers(t *testing.T) {
 		assert.Equal(t, 15.0, kwh)
 	})
 
-	t.Run("recalculateSolarProductionLevel", func(t *testing.T) {
-
-		manager.recalculateSolarProductionLevel()
-		level, _ := stateManager.GetString("solarProductionEnergyLevel")
-		assert.Equal(t, "green", level)
-	})
-
-	t.Run("recalculateOverallEnergyLevel", func(t *testing.T) {
-
-		// Set known values
-
-		stateManager.SetString("batteryEnergyLevel", "yellow")
-		stateManager.SetString("solarProductionEnergyLevel", "green")
-		stateManager.SetBool("isFreeEnergyAvailable", false)
-
-		manager.recalculateOverallEnergyLevel()
-		level, _ := stateManager.GetString("currentEnergyLevel")
-		assert.Equal(t, "green", level)
-	})
-
-	t.Run("recalculateOverallEnergyLevel_with_free_energy", func(t *testing.T) {
-
-		stateManager.SetBool("isFreeEnergyAvailable", true)
-		manager.recalculateOverallEnergyLevel()
-		level, _ := stateManager.GetString("currentEnergyLevel")
-		assert.Equal(t, "white", level)
-	})
+	// Note: recalculateSolarProductionLevel and recalculateOverallEnergyLevel tests have been
+	// removed because this logic is now handled by the ComputedStateRegistry.
+	// See internal/state/computed_energy_providers_test.go for those tests.
 
 	t.Run("checkFreeEnergy", func(t *testing.T) {
 
@@ -383,35 +282,21 @@ func TestManagerStartAndHandlers(t *testing.T) {
 		// Just verify it doesn't panic
 	})
 
-	t.Run("handleIntermediateLevelChange", func(t *testing.T) {
+	t.Run("handleSolarLevelChange", func(t *testing.T) {
 
-		manager.handleIntermediateLevelChange("batteryEnergyLevel", "black", "red")
-		// Just verify it doesn't panic
+		manager.handleSolarLevelChange("solarProductionEnergyLevel", "black", "green")
+		// Just verify it doesn't panic - shadow state update is tested
+	})
+
+	t.Run("handleCurrentEnergyLevelChange", func(t *testing.T) {
+
+		manager.handleCurrentEnergyLevelChange("currentEnergyLevel", "black", "green")
+		// Just verify it doesn't panic - shadow state and indicator light updates are tested
 	})
 }
 
-// TestDetermineOverallEnergyLevel_EdgeCases tests edge cases
-func TestDetermineOverallEnergyLevel_EdgeCases(t *testing.T) {
-	t.Parallel()
-	logger := testlogger.New()
-	config := createTestConfig()
-	mockClient := ha.NewMockClient()
-	stateManager := state.NewManager(mockClient, logger, false)
-
-	manager := NewManager(mockClient, stateManager, config, logger, false, nil, nil)
-
-	t.Run("invalid_battery_level", func(t *testing.T) {
-
-		result := manager.determineOverallEnergyLevel("invalid", "green")
-		assert.Equal(t, "black", result)
-	})
-
-	t.Run("invalid_solar_level", func(t *testing.T) {
-
-		result := manager.determineOverallEnergyLevel("green", "invalid")
-		assert.Equal(t, "black", result)
-	})
-}
+// Note: TestDetermineOverallEnergyLevel_EdgeCases has been removed because this logic
+// is now handled by the ComputedStateRegistry. See computed_energy_providers_test.go.
 
 // TestLoadConfigError tests error handling in config loading
 func TestLoadConfigError(t *testing.T) {
@@ -491,8 +376,10 @@ func TestEnergyManager_Stop(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Verify subscriptions were created via subHelper
+	// HA subscriptions: battery sensor, this hour solar, remaining solar (3 total)
+	// State subscriptions: isGridAvailable, solarProductionEnergyLevel, currentEnergyLevel (3 total)
 	assert.Equal(t, 3, len(manager.subHelper.GetHASubscriptions()), "Should have 3 HA subscriptions")
-	assert.Equal(t, 4, len(manager.subHelper.GetStateSubscriptions()), "Should have 4 state subscriptions")
+	assert.Equal(t, 3, len(manager.subHelper.GetStateSubscriptions()), "Should have 3 state subscriptions")
 
 	// Stop manager
 	manager.Stop()
@@ -524,11 +411,9 @@ func TestEnergyManager_ReadOnlyMode(t *testing.T) {
 	_ = stateManager.SetBool("isGridAvailable", true)
 	manager.checkFreeEnergy()
 
-	// Test overall energy level recalculation
-	_ = stateManager.SetBool("isFreeEnergyAvailable", true)
-	_ = stateManager.SetString("batteryEnergyLevel", "green")
-	_ = stateManager.SetString("solarProductionEnergyLevel", "green")
-	manager.recalculateOverallEnergyLevel()
+	// Test energy level change handlers (observing computed state)
+	_ = stateManager.SetString("currentEnergyLevel", "green")
+	manager.handleCurrentEnergyLevelChange("currentEnergyLevel", "black", "green")
 
 	// If we get here without panicking, the read-only mode handling worked correctly
 	// The actual verification is that no errors are thrown, just debug logs
@@ -602,9 +487,11 @@ func TestManagerReset(t *testing.T) {
 	stateManager := state.NewManager(mockClient, logger, false)
 	config := createTestConfig()
 
-	// Set up initial state
-	mockClient.SetState("sensor.battery_energy_level", "50", map[string]interface{}{})
-	mockClient.SetState("sensor.solar_production_energy_level", "75", map[string]interface{}{})
+	// Set up initial state including currentEnergyLevel
+	// Note: currentEnergyLevel is now computed by the ComputedStateRegistry, not the plugin.
+	// The plugin observes it. For this test, we set it directly.
+	mockClient.SetState("input_text.current_energy_level", "green", map[string]interface{}{})
+	mockClient.SetState("input_boolean.grid_available", "on", map[string]interface{}{})
 	mockClient.Connect()
 
 	err := stateManager.SyncFromHA()
@@ -616,11 +503,13 @@ func TestManagerReset(t *testing.T) {
 	assert.NoError(t, err)
 	defer manager.Stop()
 
-	// Reset should re-check free energy and recalculate levels
+	// Reset should re-check free energy and update indicator lights
 	err = manager.Reset()
 	assert.NoError(t, err)
 
-	// Verify energy levels are set
+	// Verify the reset completed without error
+	// (The actual energy level computation is now handled by ComputedStateRegistry,
+	// so we just verify the plugin reads and uses the current value)
 	currentLevel, err := stateManager.GetString("currentEnergyLevel")
 	assert.NoError(t, err)
 	assert.NotEmpty(t, currentLevel)
@@ -1173,8 +1062,9 @@ func TestIndicatorLightsInitialUpdateOnStartup(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Trigger a state change to cause indicator light update
-	// The handler fires on changes AFTER subscriptions are set up in Start()
-	_ = stateManager.SetString("batteryEnergyLevel", "green")
+	// The plugin observes currentEnergyLevel (computed by registry in production)
+	// and updates indicator lights when it changes
+	_ = stateManager.SetString("currentEnergyLevel", "green")
 
 	// Give time for the state change handler to process
 	time.Sleep(100 * time.Millisecond)

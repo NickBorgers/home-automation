@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"syscall"
 	"time"
@@ -16,6 +17,7 @@ import (
 	"homeautomation/internal/ha"
 	"homeautomation/internal/logbuffer"
 	"homeautomation/internal/ntfy"
+	"homeautomation/internal/plugins/energy"
 	"homeautomation/internal/plugins/reset"
 	"homeautomation/internal/shadowstate"
 	"homeautomation/internal/state"
@@ -242,8 +244,30 @@ func Run() {
 		}
 	})
 
-	// Setup computed state variables
-	if err := stateManager.SetupComputedState(); err != nil {
+	// Load energy configuration for computed state registry
+	energyConfigPath := filepath.Join(configDir, "energy_config.yaml")
+	energyConfig, err := energy.LoadConfig(energyConfigPath)
+	if err != nil {
+		logger.Warn("Failed to load energy config, energy computed states will not be registered",
+			zap.String("path", energyConfigPath),
+			zap.Error(err))
+	}
+
+	// Convert energy config to EnergyStateConfig format for the registry
+	var energyStates []state.EnergyStateConfig
+	if energyConfig != nil {
+		for _, es := range energyConfig.Energy.EnergyStates {
+			energyStates = append(energyStates, state.EnergyStateConfig{
+				ConditionName:                       es.ConditionName,
+				BatteryMinimumPercentage:            es.BatteryMinimumPercentage,
+				EnergyProductionMinimumKW:           es.EnergyProductionMinimumKW,
+				RemainingEnergyProductionMinimumKWH: es.RemainingEnergyProductionMinimumKWH,
+			})
+		}
+	}
+
+	// Setup computed state variables using V2 registry with energy providers
+	if err := stateManager.SetupComputedStateV2WithEnergy(energyStates, nil); err != nil {
 		logger.Fatal("Failed to setup computed state", zap.Error(err))
 	}
 

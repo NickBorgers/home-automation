@@ -144,17 +144,15 @@ func (m *Manager) Start() error {
 		return fmt.Errorf("failed to subscribe to grid availability: %w", err)
 	}
 
-	// Subscribe to battery and solar energy level changes to recalculate overall level
-	if err := m.subHelper.SubscribeToState("batteryEnergyLevel", m.handleIntermediateLevelChange); err != nil {
-		return fmt.Errorf("failed to subscribe to battery energy level: %w", err)
-	}
-
-	if err := m.subHelper.SubscribeToState("solarProductionEnergyLevel", m.handleIntermediateLevelChange); err != nil {
+	// Subscribe to computed energy level changes for shadow state and indicator light updates
+	// Note: The ComputedStateRegistry now handles the actual computation of energy levels.
+	// This plugin just observes the results to update shadow state and indicator lights.
+	if err := m.subHelper.SubscribeToState("solarProductionEnergyLevel", m.handleSolarLevelChange); err != nil {
 		return fmt.Errorf("failed to subscribe to solar production energy level: %w", err)
 	}
 
-	if err := m.subHelper.SubscribeToState("isFreeEnergyAvailable", m.handleIntermediateLevelChange); err != nil {
-		return fmt.Errorf("failed to subscribe to free energy available: %w", err)
+	if err := m.subHelper.SubscribeToState("currentEnergyLevel", m.handleCurrentEnergyLevelChange); err != nil {
+		return fmt.Errorf("failed to subscribe to current energy level: %w", err)
 	}
 
 	// Discover indicator light entities (Apollo sensors) BEFORE starting the
@@ -280,7 +278,8 @@ func (m *Manager) handleThisHourSolarChange(kw float64) {
 	// Update shadow state sensor reading
 	m.shadowTracker.UpdateThisHourSolarKW(kw)
 
-	// Update state variable
+	// Update state variable - this triggers the ComputedStateRegistry
+	// to automatically recompute solarProductionEnergyLevel
 	if err := m.stateManager.SetNumber("thisHourSolarGeneration", kw); err != nil {
 		if errors.Is(err, state.ErrReadOnlyMode) {
 			m.logger.Debug("Skipping thisHourSolarGeneration update in read-only mode",
@@ -289,9 +288,6 @@ func (m *Manager) handleThisHourSolarChange(kw float64) {
 			m.logger.Error("Failed to set thisHourSolarGeneration", zap.Error(err))
 		}
 	}
-
-	// Trigger recalculation
-	m.recalculateSolarProductionLevel()
 }
 
 // handleRemainingSolarChange processes remaining solar generation changes
@@ -309,7 +305,8 @@ func (m *Manager) handleRemainingSolarChange(kwh float64) {
 	// Update shadow state sensor reading
 	m.shadowTracker.UpdateRemainingSolarKWH(kwh)
 
-	// Update state variable
+	// Update state variable - this triggers the ComputedStateRegistry
+	// to automatically recompute solarProductionEnergyLevel
 	if err := m.stateManager.SetNumber("remainingSolarGeneration", kwh); err != nil {
 		if errors.Is(err, state.ErrReadOnlyMode) {
 			m.logger.Debug("Skipping remainingSolarGeneration update in read-only mode",
@@ -318,9 +315,6 @@ func (m *Manager) handleRemainingSolarChange(kwh float64) {
 			m.logger.Error("Failed to set remainingSolarGeneration", zap.Error(err))
 		}
 	}
-
-	// Trigger recalculation
-	m.recalculateSolarProductionLevel()
 }
 
 // handleGridAvailabilityChange processes grid availability changes
@@ -362,15 +356,43 @@ func (m *Manager) handleGridAvailabilityChange(key string, oldValue, newValue in
 	m.checkFreeEnergy()
 }
 
-// handleIntermediateLevelChange recalculates overall energy level when intermediate levels change
-func (m *Manager) handleIntermediateLevelChange(key string, oldValue, newValue interface{}) {
-	m.logger.Debug("Intermediate energy level changed",
-		zap.String("key", key),
-		zap.Any("old", oldValue),
-		zap.Any("new", newValue))
+// handleSolarLevelChange handles changes to the solarProductionEnergyLevel computed state.
+// The ComputedStateRegistry computes this value; we just observe for shadow state updates.
+func (m *Manager) handleSolarLevelChange(key string, oldValue, newValue interface{}) {
+	level, ok := newValue.(string)
+	if !ok {
+		m.logger.Warn("solarProductionEnergyLevel value is not a string",
+			zap.Any("value", newValue))
+		return
+	}
 
-	// Recalculate overall energy level
-	m.recalculateOverallEnergyLevel()
+	m.logger.Info("Solar production energy level changed",
+		zap.Any("old", oldValue),
+		zap.String("new", level))
+
+	// Update shadow state
+	m.shadowTracker.UpdateSolarLevel(level)
+}
+
+// handleCurrentEnergyLevelChange handles changes to the currentEnergyLevel computed state.
+// The ComputedStateRegistry computes this value; we observe for shadow state and indicator lights.
+func (m *Manager) handleCurrentEnergyLevelChange(key string, oldValue, newValue interface{}) {
+	level, ok := newValue.(string)
+	if !ok {
+		m.logger.Warn("currentEnergyLevel value is not a string",
+			zap.Any("value", newValue))
+		return
+	}
+
+	m.logger.Info("Current energy level changed",
+		zap.Any("old", oldValue),
+		zap.String("new", level))
+
+	// Update shadow state
+	m.shadowTracker.UpdateOverallLevel(level)
+
+	// Update indicator lights
+	m.updateIndicatorLights(level)
 }
 
 // determineBatteryEnergyLevel determines the battery energy level based on percentage
@@ -409,185 +431,6 @@ func (m *Manager) determineBatteryEnergyLevel(percentage float64) string {
 		zap.String("level", chosen))
 
 	return chosen
-}
-
-// recalculateSolarProductionLevel recalculates the solar production energy level
-func (m *Manager) recalculateSolarProductionLevel() {
-	thisHourKW, err := m.stateManager.GetNumber("thisHourSolarGeneration")
-	if err != nil {
-		m.logger.Error("Failed to get thisHourSolarGeneration", zap.Error(err))
-		return
-	}
-
-	remainingKWH, err := m.stateManager.GetNumber("remainingSolarGeneration")
-	if err != nil {
-		m.logger.Error("Failed to get remainingSolarGeneration", zap.Error(err))
-		return
-	}
-
-	level := m.determineSolarEnergyLevel(thisHourKW, remainingKWH)
-
-	m.logger.Info("Determined solar production energy level",
-		zap.Float64("this_hour_kw", thisHourKW),
-		zap.Float64("remaining_kwh", remainingKWH),
-		zap.String("level", level))
-
-	// Update state variable
-	if err := m.stateManager.SetString("solarProductionEnergyLevel", level); err != nil {
-		if errors.Is(err, state.ErrReadOnlyMode) {
-			m.logger.Debug("Skipping solarProductionEnergyLevel update in read-only mode",
-				zap.String("level", level))
-		} else {
-			m.logger.Error("Failed to set solarProductionEnergyLevel", zap.Error(err))
-		}
-	}
-
-	// Update shadow state
-	m.shadowTracker.UpdateSolarLevel(level)
-}
-
-// determineSolarEnergyLevel determines the solar energy level
-func (m *Manager) determineSolarEnergyLevel(thisHourKW, remainingKWH float64) string {
-	// Default to black
-	level := "black"
-
-	// Check each energy state in order (they should already be ordered in config)
-	for _, state := range m.config.Energy.EnergyStates {
-		// Both conditions must be met
-		if thisHourKW >= state.EnergyProductionMinimumKW &&
-			remainingKWH >= state.RemainingEnergyProductionMinimumKWH {
-			level = state.ConditionName
-		}
-	}
-
-	m.logger.Debug("Determined solar energy level",
-		zap.Float64("this_hour_kw", thisHourKW),
-		zap.Float64("remaining_kwh", remainingKWH),
-		zap.String("level", level))
-
-	return level
-}
-
-// recalculateOverallEnergyLevel calculates the overall energy level
-func (m *Manager) recalculateOverallEnergyLevel() {
-	// Check for free energy override
-	isFreeEnergy, err := m.stateManager.GetBool("isFreeEnergyAvailable")
-	if err != nil {
-		m.logger.Error("Failed to get isFreeEnergyAvailable", zap.Error(err))
-		return
-	}
-
-	if isFreeEnergy {
-		m.logger.Info("Free energy is available, setting current energy level to white")
-		if err := m.stateManager.SetString("currentEnergyLevel", "white"); err != nil {
-			if errors.Is(err, state.ErrReadOnlyMode) {
-				m.logger.Debug("Skipping currentEnergyLevel update in read-only mode",
-					zap.String("level", "white"))
-			} else {
-				m.logger.Error("Failed to set currentEnergyLevel", zap.Error(err))
-			}
-		}
-		// Update shadow state
-		m.shadowTracker.UpdateOverallLevel("white")
-		// Update indicator lights
-		m.updateIndicatorLights("white")
-		return
-	}
-
-	// Get battery and solar levels
-	batteryLevel, err := m.stateManager.GetString("batteryEnergyLevel")
-	if err != nil {
-		m.logger.Error("Failed to get batteryEnergyLevel", zap.Error(err))
-		return
-	}
-
-	solarLevel, err := m.stateManager.GetString("solarProductionEnergyLevel")
-	if err != nil {
-		m.logger.Error("Failed to get solarProductionEnergyLevel", zap.Error(err))
-		return
-	}
-
-	overallLevel := m.determineOverallEnergyLevel(batteryLevel, solarLevel)
-
-	m.logger.Info("Determined overall energy level",
-		zap.String("battery_level", batteryLevel),
-		zap.String("solar_level", solarLevel),
-		zap.String("overall_level", overallLevel))
-
-	// Update state variable
-	if err := m.stateManager.SetString("currentEnergyLevel", overallLevel); err != nil {
-		if errors.Is(err, state.ErrReadOnlyMode) {
-			m.logger.Debug("Skipping currentEnergyLevel update in read-only mode",
-				zap.String("level", overallLevel))
-		} else {
-			m.logger.Error("Failed to set currentEnergyLevel", zap.Error(err))
-		}
-	}
-
-	// Update shadow state
-	m.shadowTracker.UpdateOverallLevel(overallLevel)
-
-	// Update indicator lights
-	m.updateIndicatorLights(overallLevel)
-}
-
-// determineOverallEnergyLevel combines battery and solar levels
-func (m *Manager) determineOverallEnergyLevel(batteryLevel, solarLevel string) string {
-	// Extract ordered list of level names
-	var levelNames []string
-	for _, state := range m.config.Energy.EnergyStates {
-		levelNames = append(levelNames, state.ConditionName)
-	}
-
-	// Find indexes of battery and solar levels
-	batteryIndex := -1
-	solarIndex := -1
-
-	for i, name := range levelNames {
-		if name == batteryLevel {
-			batteryIndex = i
-		}
-		if name == solarLevel {
-			solarIndex = i
-		}
-	}
-
-	if batteryIndex == -1 || solarIndex == -1 {
-		m.logger.Warn("Invalid battery or solar level",
-			zap.String("battery_level", batteryLevel),
-			zap.String("solar_level", solarLevel))
-		return "black"
-	}
-
-	// Solar can only boost, never drag down the battery level.
-	// The overall level is:
-	// - At least the battery level (solar never penalizes)
-	// - At most battery + 1 (solar can boost by one level if it's higher)
-	outputIndex := batteryIndex
-	if solarIndex > batteryIndex {
-		// Solar is higher, boost by at most 1
-		outputIndex = batteryIndex + 1
-		if solarIndex < outputIndex {
-			outputIndex = solarIndex
-		}
-	}
-
-	// Clamp to valid range
-	if outputIndex >= len(levelNames) {
-		outputIndex = len(levelNames) - 1
-	}
-
-	result := levelNames[outputIndex]
-
-	m.logger.Debug("Calculated overall energy level",
-		zap.String("battery_level", batteryLevel),
-		zap.Int("battery_index", batteryIndex),
-		zap.String("solar_level", solarLevel),
-		zap.Int("solar_index", solarIndex),
-		zap.Int("output_index", outputIndex),
-		zap.String("result", result))
-
-	return result
 }
 
 // discoverIndicatorLights discovers light entities that should be used as energy indicators.
@@ -865,13 +708,21 @@ func (m *Manager) isFreeEnergyTime(isGridAvailable bool) bool {
 
 // Reset re-calculates overall energy level
 func (m *Manager) Reset() error {
-	m.logger.Info("Resetting Energy State - re-calculating overall energy level")
+	m.logger.Info("Resetting Energy State - refreshing indicator lights")
 
 	// Re-check free energy availability
 	m.checkFreeEnergy()
 
-	// Recalculate overall energy level based on current battery and solar levels
-	m.recalculateOverallEnergyLevel()
+	// Read current energy level from state (computed by ComputedStateRegistry)
+	// and update indicator lights to match
+	currentLevel, err := m.stateManager.GetString("currentEnergyLevel")
+	if err != nil {
+		m.logger.Warn("Failed to get currentEnergyLevel during reset, using black",
+			zap.Error(err))
+		currentLevel = "black"
+	}
+
+	m.updateIndicatorLights(currentLevel)
 
 	m.logger.Info("Successfully reset Energy State")
 	return nil
