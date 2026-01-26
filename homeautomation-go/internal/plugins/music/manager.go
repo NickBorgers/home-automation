@@ -2428,6 +2428,8 @@ func (m *Manager) Reset() error {
 
 	// Check rate limiting (max 1 playback per 10 seconds)
 	// If rate-limited, silently drop the reset (matches Node-RED behavior)
+	// NOTE: We check but DON'T update lastPlaybackTime here - let the handler do it
+	// to avoid double-triggering playback (once from handler, once from direct call)
 	m.mu.Lock()
 	timeSinceLastPlayback := m.timeProvider.Now().Sub(m.lastPlaybackTime)
 	if timeSinceLastPlayback < 10*time.Second && !m.lastPlaybackTime.IsZero() {
@@ -2437,9 +2439,9 @@ func (m *Manager) Reset() error {
 			zap.String("music_mode", musicMode))
 		return nil
 	}
-	m.lastPlaybackTime = m.timeProvider.Now()
 
 	// Clear currentlyPlaying to allow restart of same mode
+	// This ensures the handler won't skip due to "already playing" check
 	m.currentlyPlaying = nil
 	m.mu.Unlock()
 
@@ -2459,19 +2461,21 @@ func (m *Manager) Reset() error {
 		return nil
 	}
 
-	// Update the music playback type state variable
+	// Use clear-then-set pattern to force handler to fire even for same-mode resets
+	// This leverages the existing pattern used by sleep hygiene (per comment at line 422-424)
+	// Step 1: Clear to "" - this triggers handler but stopPlayback() is safe (just fades out)
+	// Step 2: Set to target mode - this triggers handler which calls orchestratePlayback()
+	if err := m.setMusicPlaybackType(""); err != nil {
+		if !errors.Is(err, state.ErrReadOnlyMode) {
+			m.logger.Error("Failed to clear music playback type", zap.Error(err))
+			return err
+		}
+	}
 	if err := m.setMusicPlaybackType(musicMode); err != nil {
 		if !errors.Is(err, state.ErrReadOnlyMode) {
 			m.logger.Error("Failed to set music playback type", zap.Error(err))
+			return err
 		}
-	}
-
-	// Directly trigger playback (even if same mode - that's what reset means)
-	if err := m.orchestratePlayback(musicMode, "reset"); err != nil {
-		m.logger.Error("Failed to orchestrate playback on reset",
-			zap.String("type", musicMode),
-			zap.Error(err))
-		return err
 	}
 
 	m.logger.Info("Successfully reset Music")
