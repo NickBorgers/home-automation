@@ -52,6 +52,7 @@
 - ✅ Sex Mode plugin (complete)
 - ✅ Christmas plugin (complete)
 - ✅ Infrastructure plugin (complete) - septic system monitoring
+- ✅ Water Flow plugin (complete) - pipe break detection
 - ✅ Reset Coordinator (complete)
 
 ### Critical Bug Fixes
@@ -599,6 +600,7 @@ homeautomation-go/
 │       ├── security/                # ✅ Security plugin
 │       ├── sensorhealth/            # ✅ Sensor Health plugin (battery, staleness, temp lockup)
 │       ├── infrastructure/          # ✅ Infrastructure plugin (septic system monitoring)
+│       ├── waterflow/               # ✅ Water Flow plugin (pipe break detection)
 │       ├── loadshedding/            # ✅ Load Shedding plugin
 │       ├── sexmode/                 # ✅ Sex Mode plugin
 │       ├── christmas/               # ✅ Christmas plugin
@@ -638,6 +640,7 @@ homeautomation-go/
 - ✅ Security plugin
 - ✅ Sensor Health plugin (battery, staleness, temp lockup)
 - ✅ Infrastructure plugin (aerobic septic system monitoring)
+- ✅ Water Flow plugin (pipe break detection)
 - ✅ Load Shedding plugin
 - ✅ Sex Mode plugin
 - ✅ Christmas plugin
