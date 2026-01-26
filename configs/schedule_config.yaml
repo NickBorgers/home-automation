@@ -1,7 +1,7 @@
 schedule:
 -   begin_backup_wake: 09:50
     backup_wake_time: 10:15
-    dusk: '20:00'
+    dusk: '19:30'
     go_to_bed: '23:30'
     name: Sunday
     night: '23:00'
@@ -9,7 +9,7 @@ schedule:
     winddown: '22:15'
 -   begin_backup_wake: 08:50
     backup_wake_time: 09:15
-    dusk: '20:00'
+    dusk: '19:30'
     go_to_bed: '23:30'
     name: Monday
     night: '23:00'
@@ -17,7 +17,7 @@ schedule:
     winddown: '22:15'
 -   begin_backup_wake: 08:50
     backup_wake_time: 09:15
-    dusk: '20:00'
+    dusk: '19:30'
     go_to_bed: '23:30'
     name: Tuesday
     night: '23:00'
@@ -25,7 +25,7 @@ schedule:
     winddown: '22:15'
 -   begin_backup_wake: 08:50
     backup_wake_time: 09:15
-    dusk: '20:00'
+    dusk: '19:30'
     go_to_bed: '23:30'
     name: Wednesday
     night: '23:00'
@@ -33,7 +33,7 @@ schedule:
     winddown: '22:15'
 -   begin_backup_wake: 08:50
     backup_wake_time: 09:15
-    dusk: '20:00'
+    dusk: '19:30'
     go_to_bed: '23:30'
     name: Thursday
     night: '23:00'
@@ -41,7 +41,7 @@ schedule:
     winddown: '22:15'
 -   begin_backup_wake: 08:50
     backup_wake_time: 09:15
-    dusk: '20:00'
+    dusk: '19:30'
     go_to_bed: '23:59'
     name: Friday
     night: '23:59'
@@ -49,7 +49,7 @@ schedule:
     winddown: '22:00'
 -   begin_backup_wake: 09:50
     backup_wake_time: 10:15
-    dusk: '20:00'
+    dusk: '19:30'
     go_to_bed: '23:59'
     name: Saturday
     night: '23:59'
