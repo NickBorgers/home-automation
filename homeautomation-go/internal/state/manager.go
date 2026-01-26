@@ -56,7 +56,18 @@ type Manager struct {
 	// this latch is set to keep isAnyoneHomeAndAwake=true even if someone
 	// is still asleep. The latch clears when isAnyoneAsleep becomes false.
 	// Protected by cacheMu for simplicity (accessed during recomputation).
+	// DEPRECATED: This field is kept for backward compatibility but will be
+	// removed once all computed state logic moves to the ComputedStateRegistry.
 	wakeSequenceLatch bool
+
+	// ComputedStateRegistry manages all computed state providers.
+	// This is the new unified system for computed state management.
+	// Access via GetComputedStateRegistry().
+	computedRegistry *ComputedStateRegistry
+
+	// WakeSequenceLatch manages the wake sequence latch for isAnyoneHomeAndAwake.
+	// Access via GetWakeSequenceLatch().
+	wakeLatch *WakeSequenceLatch
 }
 
 // NewManager creates a new state manager
@@ -812,5 +823,42 @@ func marshalJSONValue(value interface{}) ([]byte, error) {
 		return json.Marshal(v)
 	default:
 		return json.Marshal(v)
+	}
+}
+
+// GetComputedStateRegistry returns the computed state registry.
+// The registry is created lazily on first access.
+func (m *Manager) GetComputedStateRegistry() *ComputedStateRegistry {
+	if m.computedRegistry == nil {
+		m.computedRegistry = NewComputedStateRegistry(m, m.logger)
+	}
+	return m.computedRegistry
+}
+
+// GetWakeSequenceLatch returns the wake sequence latch for isAnyoneHomeAndAwake.
+// The latch is created lazily on first access.
+func (m *Manager) GetWakeSequenceLatch() *WakeSequenceLatch {
+	if m.wakeLatch == nil {
+		// Create latch with callback that triggers registry recalculation
+		m.wakeLatch = NewWakeSequenceLatch(m, m.logger, func() {
+			if m.computedRegistry != nil {
+				if err := m.computedRegistry.Recalculate("isAnyoneHomeAndAwake"); err != nil {
+					m.logger.Error("Failed to recalculate isAnyoneHomeAndAwake after latch change",
+						zap.Error(err))
+				}
+			}
+		})
+	}
+	return m.wakeLatch
+}
+
+// StopComputedState stops the computed state registry and wake sequence latch.
+// This should be called during application shutdown.
+func (m *Manager) StopComputedState() {
+	if m.computedRegistry != nil {
+		m.computedRegistry.Stop()
+	}
+	if m.wakeLatch != nil {
+		m.wakeLatch.Stop()
 	}
 }
