@@ -8,3 +8,6 @@ coverage.out
 # Test cache (for git hook optimization)
 .test-cache/
 gravwell.token
+
+# Claude Code artifacts
+claude-review-output.jsonl
