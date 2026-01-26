@@ -1057,3 +1057,269 @@ func TestTVManager_ShadowState_TracksRecovery(t *testing.T) {
 		t.Error("Expected LastSyncBoxReboot to be set")
 	}
 }
+
+func TestTVManager_LightSyncDebounce_TurnOnImmediate(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+
+	manager := NewManager(mockHA, stateMgr, logger, false, nil)
+
+	// Call controlSyncBoxLightSync with isTVPlaying=true
+	manager.controlSyncBoxLightSync(true)
+
+	// Verify turn_on was called immediately (no delay)
+	calls := mockHA.GetServiceCalls()
+	var switchCalls []ha.ServiceCall
+	for _, call := range calls {
+		if call.Domain == "switch" {
+			switchCalls = append(switchCalls, call)
+		}
+	}
+
+	if len(switchCalls) != 1 {
+		t.Errorf("Expected exactly 1 switch service call, got %d", len(switchCalls))
+		return
+	}
+
+	if switchCalls[0].Service != "turn_on" {
+		t.Errorf("Expected turn_on service call, got %s", switchCalls[0].Service)
+	}
+	if switchCalls[0].Data["entity_id"] != SyncBoxLightSyncEntity {
+		t.Errorf("Expected entity_id to be %s, got %v", SyncBoxLightSyncEntity, switchCalls[0].Data["entity_id"])
+	}
+}
+
+func TestTVManager_LightSyncDebounce_TurnOffDelayed(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+
+	manager := NewManager(mockHA, stateMgr, logger, false, nil)
+	// Use a short debounce for testing
+	manager.lightSyncOffDebounce = 50 * time.Millisecond
+
+	// Call controlSyncBoxLightSync with isTVPlaying=false
+	manager.controlSyncBoxLightSync(false)
+
+	// Verify no calls immediately
+	calls := mockHA.GetServiceCalls()
+	var switchCalls []ha.ServiceCall
+	for _, call := range calls {
+		if call.Domain == "switch" {
+			switchCalls = append(switchCalls, call)
+		}
+	}
+
+	if len(switchCalls) != 0 {
+		t.Errorf("Expected 0 switch service calls immediately after turn-off request, got %d", len(switchCalls))
+	}
+
+	// Verify pending state
+	if !manager.IsLightSyncOffPending() {
+		t.Error("Expected light sync turn-off to be pending")
+	}
+
+	// Wait for debounce to elapse
+	time.Sleep(100 * time.Millisecond)
+
+	// Verify turn_off was called after debounce
+	calls = mockHA.GetServiceCalls()
+	switchCalls = nil
+	for _, call := range calls {
+		if call.Domain == "switch" {
+			switchCalls = append(switchCalls, call)
+		}
+	}
+
+	if len(switchCalls) != 1 {
+		t.Errorf("Expected 1 switch service call after debounce, got %d", len(switchCalls))
+		return
+	}
+
+	if switchCalls[0].Service != "turn_off" {
+		t.Errorf("Expected turn_off service call, got %s", switchCalls[0].Service)
+	}
+
+	// Verify no longer pending
+	if manager.IsLightSyncOffPending() {
+		t.Error("Expected light sync turn-off to no longer be pending")
+	}
+}
+
+func TestTVManager_LightSyncDebounce_CancelledByTurnOn(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+
+	manager := NewManager(mockHA, stateMgr, logger, false, nil)
+	// Use a longer debounce to give us time to cancel
+	manager.lightSyncOffDebounce = 200 * time.Millisecond
+
+	// Request turn-off (schedules debounce)
+	manager.controlSyncBoxLightSync(false)
+
+	// Verify pending
+	if !manager.IsLightSyncOffPending() {
+		t.Error("Expected light sync turn-off to be pending")
+	}
+
+	// Wait a bit but not long enough for debounce
+	time.Sleep(50 * time.Millisecond)
+
+	// Request turn-on (should cancel pending turn-off)
+	manager.controlSyncBoxLightSync(true)
+
+	// Verify no longer pending
+	if manager.IsLightSyncOffPending() {
+		t.Error("Expected light sync turn-off to be cancelled")
+	}
+
+	// Wait for original debounce period to elapse
+	time.Sleep(200 * time.Millisecond)
+
+	// Verify only turn_on was called, not turn_off
+	calls := mockHA.GetServiceCalls()
+	var switchCalls []ha.ServiceCall
+	for _, call := range calls {
+		if call.Domain == "switch" {
+			switchCalls = append(switchCalls, call)
+		}
+	}
+
+	if len(switchCalls) != 1 {
+		t.Errorf("Expected exactly 1 switch service call (turn_on only), got %d", len(switchCalls))
+		return
+	}
+
+	if switchCalls[0].Service != "turn_on" {
+		t.Errorf("Expected turn_on service call, got %s", switchCalls[0].Service)
+	}
+}
+
+func TestTVManager_LightSyncDebounce_MultipleOffRequests(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+
+	manager := NewManager(mockHA, stateMgr, logger, false, nil)
+	// Use a short debounce for testing
+	manager.lightSyncOffDebounce = 50 * time.Millisecond
+
+	// Request multiple turn-offs
+	manager.controlSyncBoxLightSync(false)
+	manager.controlSyncBoxLightSync(false)
+	manager.controlSyncBoxLightSync(false)
+
+	// Wait for debounce to elapse
+	time.Sleep(100 * time.Millisecond)
+
+	// Verify only one turn_off was called
+	calls := mockHA.GetServiceCalls()
+	var switchCalls []ha.ServiceCall
+	for _, call := range calls {
+		if call.Domain == "switch" {
+			switchCalls = append(switchCalls, call)
+		}
+	}
+
+	if len(switchCalls) != 1 {
+		t.Errorf("Expected exactly 1 switch service call despite multiple requests, got %d", len(switchCalls))
+		return
+	}
+
+	if switchCalls[0].Service != "turn_off" {
+		t.Errorf("Expected turn_off service call, got %s", switchCalls[0].Service)
+	}
+}
+
+func TestTVManager_LightSyncDebounce_ReadOnlyMode(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, true) // read-only state manager
+
+	manager := NewManager(mockHA, stateMgr, logger, true, nil) // read-only manager
+	manager.lightSyncOffDebounce = 10 * time.Millisecond
+
+	// Request turn-on in read-only mode
+	manager.controlSyncBoxLightSync(true)
+
+	// Request turn-off in read-only mode
+	manager.controlSyncBoxLightSync(false)
+
+	// Wait for potential debounce
+	time.Sleep(50 * time.Millisecond)
+
+	// Verify NO service calls were made
+	calls := mockHA.GetServiceCalls()
+	var switchCalls []ha.ServiceCall
+	for _, call := range calls {
+		if call.Domain == "switch" {
+			switchCalls = append(switchCalls, call)
+		}
+	}
+
+	if len(switchCalls) != 0 {
+		t.Errorf("Expected 0 switch service calls in read-only mode, got %d", len(switchCalls))
+	}
+}
+
+func TestTVManager_LightSyncDebounce_RapidFlapping(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+
+	manager := NewManager(mockHA, stateMgr, logger, false, nil)
+	manager.lightSyncOffDebounce = 100 * time.Millisecond
+
+	// Simulate rapid flapping: playing -> paused -> playing -> paused -> playing
+	manager.controlSyncBoxLightSync(true)  // Turn ON (immediate)
+	manager.controlSyncBoxLightSync(false) // Schedule OFF
+	time.Sleep(10 * time.Millisecond)
+	manager.controlSyncBoxLightSync(true)  // Cancel OFF, turn ON
+	manager.controlSyncBoxLightSync(false) // Schedule OFF
+	time.Sleep(10 * time.Millisecond)
+	manager.controlSyncBoxLightSync(true) // Cancel OFF, turn ON
+
+	// Wait for debounce period to ensure no late turn-off
+	time.Sleep(150 * time.Millisecond)
+
+	// Verify service calls
+	calls := mockHA.GetServiceCalls()
+	var switchCalls []ha.ServiceCall
+	for _, call := range calls {
+		if call.Domain == "switch" {
+			switchCalls = append(switchCalls, call)
+		}
+	}
+
+	// Should see 3 turn_on calls and 0 turn_off calls (all turn-offs were cancelled)
+	turnOnCount := 0
+	turnOffCount := 0
+	for _, call := range switchCalls {
+		if call.Service == "turn_on" {
+			turnOnCount++
+		} else if call.Service == "turn_off" {
+			turnOffCount++
+		}
+	}
+
+	if turnOnCount != 3 {
+		t.Errorf("Expected 3 turn_on calls during rapid flapping, got %d", turnOnCount)
+	}
+	if turnOffCount != 0 {
+		t.Errorf("Expected 0 turn_off calls during rapid flapping (all cancelled), got %d", turnOffCount)
+	}
+}

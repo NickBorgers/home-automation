@@ -36,6 +36,11 @@ const (
 
 	// Entity ID for sync box light sync control
 	SyncBoxLightSyncEntity = "switch.sync_box_light_sync"
+
+	// LightSyncOffDebounce is how long to wait before turning off light sync
+	// after Apple TV reports "paused". Prevents flapping due to Apple TV
+	// integration briefly reporting "paused" state during active playback.
+	LightSyncOffDebounce = 60 * time.Second
 )
 
 // Manager handles TV monitoring and manipulation
@@ -58,6 +63,12 @@ type Manager struct {
 	rebootCountResetAt time.Time
 	recoveryInProgress bool
 
+	// Light sync debounce state
+	lightSyncOffMu       sync.Mutex
+	lightSyncOffPending  bool          // true if a turn_off is pending
+	lightSyncOffCancel   chan struct{} // signal to cancel pending turn_off
+	lightSyncOffDebounce time.Duration // configurable debounce duration
+
 	// For testing: injectable time and sleep functions
 	timeNow   func() time.Time
 	sleepFunc func(time.Duration)
@@ -75,8 +86,9 @@ func NewManager(haClient ha.HAClient, stateManager *state.Manager, logger *zap.L
 		shadowTracker: shadowTracker,
 		subHelper:     shadowstate.NewSubscriptionHelper(haClient, stateManager, registry, shadowTracker, "tv", logger.Named("tv")),
 		// Initialize time functions with defaults
-		timeNow:   time.Now,
-		sleepFunc: time.Sleep,
+		timeNow:              time.Now,
+		sleepFunc:            time.Sleep,
+		lightSyncOffDebounce: LightSyncOffDebounce,
 	}
 }
 
@@ -378,7 +390,8 @@ func (m *Manager) calculateTVPlaying(hdmiInput string) {
 	m.controlSyncBoxLightSync(isTVPlaying)
 }
 
-// controlSyncBoxLightSync turns the sync box light sync on or off based on TV playing state
+// controlSyncBoxLightSync turns the sync box light sync on or off based on TV playing state.
+// Turn ON happens immediately; turn OFF is debounced to prevent flapping.
 func (m *Manager) controlSyncBoxLightSync(isTVPlaying bool) {
 	if m.readOnly {
 		m.logger.Debug("Skipping sync box light sync control in read-only mode",
@@ -386,27 +399,96 @@ func (m *Manager) controlSyncBoxLightSync(isTVPlaying bool) {
 		return
 	}
 
-	action := "turn_off"
 	if isTVPlaying {
-		action = "turn_on"
+		// Turn ON immediately, and cancel any pending turn-off
+		m.cancelPendingLightSyncOff()
+
+		m.logger.Info("Controlling sync box light sync",
+			zap.String("action", "turn_on"),
+			zap.String("entity_id", SyncBoxLightSyncEntity))
+
+		err := m.haClient.CallService("switch", "turn_on", map[string]interface{}{
+			"entity_id": SyncBoxLightSyncEntity,
+		})
+		if err != nil {
+			m.logger.Error("Failed to turn on sync box light sync", zap.Error(err))
+		}
+	} else {
+		// Turn OFF with debounce to prevent flapping
+		m.scheduleLightSyncOff()
 	}
+}
 
-	m.logger.Info("Controlling sync box light sync",
-		zap.String("action", action),
-		zap.String("entity_id", SyncBoxLightSyncEntity))
+// scheduleLightSyncOff schedules a debounced turn-off for the sync box light sync.
+// If a turn-off is already pending, this is a no-op.
+func (m *Manager) scheduleLightSyncOff() {
+	m.lightSyncOffMu.Lock()
 
-	err := m.haClient.CallService("switch", action, map[string]interface{}{
-		"entity_id": SyncBoxLightSyncEntity,
-	})
-	if err != nil {
-		m.logger.Error("Failed to control sync box light sync",
-			zap.String("action", action),
-			zap.Error(err))
+	// If already pending, do nothing
+	if m.lightSyncOffPending {
+		m.logger.Debug("Light sync turn-off already pending, skipping duplicate")
+		m.lightSyncOffMu.Unlock()
 		return
 	}
 
-	m.logger.Debug("Sync box light sync controlled successfully",
-		zap.String("action", action))
+	m.lightSyncOffPending = true
+	m.lightSyncOffCancel = make(chan struct{})
+	cancelCh := m.lightSyncOffCancel
+	m.lightSyncOffMu.Unlock()
+
+	debounce := m.lightSyncOffDebounce
+	m.logger.Debug("Scheduling light sync turn-off with debounce",
+		zap.Duration("debounce", debounce))
+
+	go func() {
+		// Use a timer so we can cancel it
+		timer := time.NewTimer(debounce)
+		defer timer.Stop()
+
+		select {
+		case <-cancelCh:
+			m.logger.Debug("Light sync turn-off cancelled")
+			return
+		case <-timer.C:
+			// Debounce period elapsed, proceed with turn-off
+		}
+
+		m.lightSyncOffMu.Lock()
+		m.lightSyncOffPending = false
+		m.lightSyncOffMu.Unlock()
+
+		m.logger.Info("Controlling sync box light sync",
+			zap.String("action", "turn_off"),
+			zap.String("entity_id", SyncBoxLightSyncEntity),
+			zap.String("reason", "debounce elapsed"))
+
+		err := m.haClient.CallService("switch", "turn_off", map[string]interface{}{
+			"entity_id": SyncBoxLightSyncEntity,
+		})
+		if err != nil {
+			m.logger.Error("Failed to turn off sync box light sync", zap.Error(err))
+		}
+	}()
+}
+
+// cancelPendingLightSyncOff cancels any pending light sync turn-off.
+func (m *Manager) cancelPendingLightSyncOff() {
+	m.lightSyncOffMu.Lock()
+	defer m.lightSyncOffMu.Unlock()
+
+	if m.lightSyncOffPending && m.lightSyncOffCancel != nil {
+		close(m.lightSyncOffCancel)
+		m.lightSyncOffPending = false
+		m.lightSyncOffCancel = nil
+		m.logger.Debug("Cancelled pending light sync turn-off")
+	}
+}
+
+// IsLightSyncOffPending returns whether a light sync turn-off is pending (for testing)
+func (m *Manager) IsLightSyncOffPending() bool {
+	m.lightSyncOffMu.Lock()
+	defer m.lightSyncOffMu.Unlock()
+	return m.lightSyncOffPending
 }
 
 // checkAndRecoverSyncBox checks if sync box recovery is needed and performs power cycle
