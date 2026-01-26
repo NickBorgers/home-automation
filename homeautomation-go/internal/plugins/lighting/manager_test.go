@@ -671,3 +671,319 @@ func TestCollectConditionVariables(t *testing.T) {
 	}
 	assert.True(t, found, "Should include isNickHome from Primary Suite config")
 }
+
+// TestHandleSunEventChange tests that sun event changes trigger scene activation
+func TestHandleSunEventChange(t *testing.T) {
+	logger := testlogger.New()
+	config := createTestConfig()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+
+	// Set up initial state
+	_ = stateManager.SetString("dayPhase", "Morning")
+	_ = stateManager.SetString("sunevent", "sunrise")
+	_ = stateManager.SetBool("isAnyoneHome", true)
+	_ = stateManager.SetBool("isEveryoneAsleep", false)
+	_ = stateManager.SetBool("isTVPlaying", false)
+
+	// Manually call the handler (simulating a sun event change)
+	manager.handleSunEventChange("sunevent", "sunrise", "sunset")
+
+	// Verify that scenes were activated (service calls were made)
+	calls := mockClient.GetServiceCalls()
+
+	// Filter for scene activations only
+	sceneCalls := []ha.ServiceCall{}
+	for _, call := range calls {
+		if call.Domain == "scene" {
+			sceneCalls = append(sceneCalls, call)
+		}
+	}
+
+	assert.Greater(t, len(sceneCalls), 0, "Expected scene service calls after sun event change")
+}
+
+// TestHandleSunEventChangeWithInvalidValue tests that invalid sun event values are handled gracefully
+func TestHandleSunEventChangeWithInvalidValue(t *testing.T) {
+	logger := testlogger.New()
+	config := createTestConfig()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+
+	// Set up initial state
+	_ = stateManager.SetString("dayPhase", "Morning")
+
+	// Call with non-string value - should not panic
+	manager.handleSunEventChange("sunevent", "sunrise", 123) // Invalid type
+
+	// Should not have made any service calls due to invalid value
+	calls := mockClient.GetServiceCalls()
+	sceneCalls := []ha.ServiceCall{}
+	for _, call := range calls {
+		if call.Domain == "scene" {
+			sceneCalls = append(sceneCalls, call)
+		}
+	}
+	assert.Equal(t, 0, len(sceneCalls), "Expected no scene calls with invalid sun event value")
+}
+
+// TestHandleTVStateChange tests that TV state changes trigger room re-evaluation
+func TestHandleTVStateChange(t *testing.T) {
+	logger := testlogger.New()
+	config := createTestConfig()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+
+	// Set up initial state
+	_ = stateManager.SetString("dayPhase", "Evening")
+	_ = stateManager.SetBool("isAnyoneHome", true)
+	_ = stateManager.SetBool("isEveryoneAsleep", false)
+	_ = stateManager.SetBool("isTVPlaying", false)
+
+	// Clear any calls from setup
+	mockClient.ClearServiceCalls()
+
+	// TV starts playing - rooms with isTVPlaying condition should skip
+	_ = stateManager.SetBool("isTVPlaying", true)
+	manager.handleTVStateChange("isTVPlaying", false, true)
+
+	// The Living Room config has a "skip" action for isTVPlaying=true
+	// So the room should be skipped and no scene calls made for Living Room
+	calls := mockClient.GetServiceCalls()
+
+	// Verify the handler was processed (by checking logs or service calls)
+	// Since Living Room has skip action when TV is playing, only Primary Suite might get scene
+	for _, call := range calls {
+		if call.Domain == "scene" {
+			// Any scene calls should NOT be for Living Room (since it skips when TV playing)
+			if entityID, ok := call.Data["entity_id"].(string); ok {
+				assert.NotContains(t, entityID, "living_room",
+					"Living room scene should be skipped when TV is playing")
+			}
+		}
+	}
+}
+
+// TestHandleTVStateChangeTurnsOffTV tests that turning off TV triggers lighting
+func TestHandleTVStateChangeTurnsOffTV(t *testing.T) {
+	logger := testlogger.New()
+	config := createTestConfig()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+
+	// Set up initial state - TV was playing
+	_ = stateManager.SetString("dayPhase", "Evening")
+	_ = stateManager.SetBool("isAnyoneHome", true)
+	_ = stateManager.SetBool("isEveryoneAsleep", false)
+	_ = stateManager.SetBool("isTVPlaying", false) // TV just turned off
+
+	// Clear any calls from setup
+	mockClient.ClearServiceCalls()
+
+	// Simulate TV turning off
+	manager.handleTVStateChange("isTVPlaying", true, false)
+
+	// Now Living Room should get its scene activated
+	calls := mockClient.GetServiceCalls()
+	sceneCalls := []ha.ServiceCall{}
+	for _, call := range calls {
+		if call.Domain == "scene" {
+			sceneCalls = append(sceneCalls, call)
+		}
+	}
+
+	// Should have at least one scene call now that TV is off
+	assert.Greater(t, len(sceneCalls), 0, "Expected scene activation when TV turns off")
+}
+
+// TestHandleSleepStateChange tests that sleep state changes trigger room re-evaluation
+func TestHandleSleepStateChange(t *testing.T) {
+	logger := testlogger.New()
+	config := createTestConfig()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+
+	// Set up initial state - awake
+	_ = stateManager.SetString("dayPhase", "Night")
+	_ = stateManager.SetBool("isAnyoneHome", true)
+	_ = stateManager.SetBool("isEveryoneAsleep", false)
+	_ = stateManager.SetBool("isMasterAsleep", false)
+	_ = stateManager.SetBool("isTVPlaying", false)
+	_ = stateManager.SetBool("isNickHome", true)
+
+	// Clear any calls from setup
+	mockClient.ClearServiceCalls()
+
+	// Everyone goes to sleep
+	_ = stateManager.SetBool("isEveryoneAsleep", true)
+	manager.handleSleepStateChange("isEveryoneAsleep", false, true)
+
+	// Rooms with isEveryoneAsleep condition should turn off
+	calls := mockClient.GetServiceCalls()
+
+	// Filter for light.turn_off calls (rooms turning off due to everyone asleep)
+	turnOffCalls := []ha.ServiceCall{}
+	for _, call := range calls {
+		if call.Domain == "light" && call.Service == "turn_off" {
+			turnOffCalls = append(turnOffCalls, call)
+		}
+	}
+
+	// Living Room has isEveryoneAsleep condition -> should turn off
+	assert.Greater(t, len(turnOffCalls), 0, "Expected lights to turn off when everyone is asleep")
+}
+
+// TestHandleSleepStateChangeMasterAsleep tests master bedroom specific sleep handling
+func TestHandleSleepStateChangeMasterAsleep(t *testing.T) {
+	logger := testlogger.New()
+	config := createTestConfig()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+
+	// Set up initial state - master bedroom awake
+	_ = stateManager.SetString("dayPhase", "Night")
+	_ = stateManager.SetBool("isAnyoneHome", true)
+	_ = stateManager.SetBool("isEveryoneAsleep", false)
+	_ = stateManager.SetBool("isMasterAsleep", false)
+	_ = stateManager.SetBool("isTVPlaying", false)
+	_ = stateManager.SetBool("isNickHome", true)
+
+	// Clear any calls from setup
+	mockClient.ClearServiceCalls()
+
+	// Master goes to sleep - Primary Suite should turn off
+	_ = stateManager.SetBool("isMasterAsleep", true)
+	manager.handleSleepStateChange("isMasterAsleep", false, true)
+
+	// Primary Suite has isMasterAsleep condition -> should turn off
+	calls := mockClient.GetServiceCalls()
+
+	// Filter for light.turn_off calls targeting master_bedroom area
+	turnOffCalls := []ha.ServiceCall{}
+	for _, call := range calls {
+		if call.Domain == "light" && call.Service == "turn_off" {
+			if areaID, ok := call.Data["area_id"].(string); ok {
+				if areaID == "master_bedroom" {
+					turnOffCalls = append(turnOffCalls, call)
+				}
+			}
+		}
+	}
+
+	assert.Greater(t, len(turnOffCalls), 0, "Expected Primary Suite to turn off when master is asleep")
+}
+
+// TestHandleSleepStateChangeWakesUp tests that waking up triggers scene activation
+func TestHandleSleepStateChangeWakesUp(t *testing.T) {
+	logger := testlogger.New()
+	config := createTestConfig()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+
+	// Set up initial state - master was asleep
+	_ = stateManager.SetString("dayPhase", "Morning")
+	_ = stateManager.SetBool("isAnyoneHome", true)
+	_ = stateManager.SetBool("isEveryoneAsleep", false)
+	_ = stateManager.SetBool("isMasterAsleep", false) // Just woke up
+	_ = stateManager.SetBool("isTVPlaying", false)
+	_ = stateManager.SetBool("isNickHome", true)
+
+	// Clear any calls from setup
+	mockClient.ClearServiceCalls()
+
+	// Master wakes up - Primary Suite should turn on
+	manager.handleSleepStateChange("isMasterAsleep", true, false)
+
+	// Primary Suite should get a scene activated (isMasterAsleep=false -> ON)
+	calls := mockClient.GetServiceCalls()
+
+	// Filter for scene.turn_on calls
+	sceneCalls := []ha.ServiceCall{}
+	for _, call := range calls {
+		if call.Domain == "scene" && call.Service == "turn_on" {
+			sceneCalls = append(sceneCalls, call)
+		}
+	}
+
+	assert.Greater(t, len(sceneCalls), 0, "Expected scene activation when master wakes up")
+}
+
+// TestHandleOccupancyChange tests room-specific occupancy variable changes
+func TestHandleOccupancyChange(t *testing.T) {
+	logger := testlogger.New()
+
+	// Create config with occupancy-based conditions using a registered variable
+	transition30 := 30
+	config := &HueConfig{
+		Rooms: []RoomConfig{
+			{
+				HueGroup:   "Nick Office",
+				HASSAreaID: "nick_office",
+				Conditions: []LightingCondition{
+					{Action: "off", Variable: "isNickOfficeOccupied", Value: false},
+					{Action: "on", Variable: "isNickOfficeOccupied", Value: true},
+				},
+				TransitionSeconds: &transition30,
+			},
+		},
+	}
+
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+
+	// Set up initial state - use registered variable isNickOfficeOccupied
+	_ = stateManager.SetString("dayPhase", "Day")
+	_ = stateManager.SetBool("isNickOfficeOccupied", false)
+
+	// Clear any calls from setup
+	mockClient.ClearServiceCalls()
+
+	// Someone enters the office
+	_ = stateManager.SetBool("isNickOfficeOccupied", true)
+	manager.handleOccupancyChange("isNickOfficeOccupied", false, true)
+
+	// Office should have a scene activated
+	calls := mockClient.GetServiceCalls()
+	sceneCalls := []ha.ServiceCall{}
+	for _, call := range calls {
+		if call.Domain == "scene" && call.Service == "turn_on" {
+			sceneCalls = append(sceneCalls, call)
+		}
+	}
+
+	assert.Greater(t, len(sceneCalls), 0, "Expected scene activation when office becomes occupied")
+}
+
+// TestToSnakeCase tests the toSnakeCase helper function
+func TestToSnakeCase(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"Primary Suite", "primary_suite"},
+		{"Living Room", "living_room"},
+		{"Morning", "morning"},
+		{"Primary Suite evening", "primary_suite_evening"},
+		{"UPPER CASE", "upper_case"},
+		{"multiple   spaces", "multiple_spaces"},
+		{"_leading_underscore", "leading_underscore"},
+		{"trailing_underscore_", "trailing_underscore"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			result := toSnakeCase(tt.input)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}

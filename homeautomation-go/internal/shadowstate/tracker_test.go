@@ -1850,3 +1850,1467 @@ func TestTVShadowStateImplementsInterface(t *testing.T) {
 	t.Parallel()
 	var _ PluginShadowState = (*TVShadowState)(nil)
 }
+
+// ============================================================================
+// TV Tracker Additional Tests (for uncovered methods)
+// ============================================================================
+
+func TestTVTrackerUpdateSyncBoxAvailable(t *testing.T) {
+	t.Parallel()
+	tvt := NewTVTracker()
+
+	// Initially sync box should be available (per default in NewTVShadowState)
+	state := tvt.GetState()
+	if !state.Outputs.SyncBoxAvailable {
+		t.Error("Expected SyncBoxAvailable to be true initially")
+	}
+
+	// Mark as unavailable
+	tvt.UpdateSyncBoxAvailable(false)
+
+	state = tvt.GetState()
+	if state.Outputs.SyncBoxAvailable {
+		t.Error("Expected SyncBoxAvailable to be false")
+	}
+	if state.Outputs.LastUpdate.IsZero() {
+		t.Error("Expected LastUpdate to be set")
+	}
+
+	// Mark as available again
+	tvt.UpdateSyncBoxAvailable(true)
+
+	state = tvt.GetState()
+	if !state.Outputs.SyncBoxAvailable {
+		t.Error("Expected SyncBoxAvailable to be true")
+	}
+}
+
+func TestTVTrackerUpdateLastRecovery(t *testing.T) {
+	t.Parallel()
+	tvt := NewTVTracker()
+
+	rebootTime := time.Now().Add(-5 * time.Minute)
+	dailyCount := 3
+
+	tvt.UpdateLastRecovery(rebootTime, dailyCount)
+
+	state := tvt.GetState()
+	if !state.Outputs.LastSyncBoxReboot.Equal(rebootTime) {
+		t.Errorf("Expected LastSyncBoxReboot to be %v, got %v", rebootTime, state.Outputs.LastSyncBoxReboot)
+	}
+	if state.Outputs.DailyRebootCount != dailyCount {
+		t.Errorf("Expected DailyRebootCount to be %d, got %d", dailyCount, state.Outputs.DailyRebootCount)
+	}
+	if state.Outputs.LastUpdate.IsZero() {
+		t.Error("Expected LastUpdate to be set")
+	}
+}
+
+// ============================================================================
+// SleepHygiene Tracker Additional Tests (for uncovered methods)
+// ============================================================================
+
+func TestSleepHygieneTrackerUpdateEightSleepAvailability(t *testing.T) {
+	t.Parallel()
+	st := NewSleepHygieneTracker()
+
+	checkTime := time.Now()
+	st.UpdateEightSleepAvailability(true, checkTime)
+
+	state := st.GetState()
+	if !state.Outputs.EightSleepAvailable {
+		t.Error("Expected EightSleepAvailable to be true")
+	}
+	if state.Outputs.BackupWakeEnabled {
+		t.Error("Expected BackupWakeEnabled to be false when Eight Sleep is available")
+	}
+	if !state.Outputs.LastAvailabilityCheck.Equal(checkTime) {
+		t.Errorf("Expected LastAvailabilityCheck to be %v, got %v", checkTime, state.Outputs.LastAvailabilityCheck)
+	}
+
+	// Test unavailable state
+	checkTime2 := time.Now()
+	st.UpdateEightSleepAvailability(false, checkTime2)
+
+	state = st.GetState()
+	if state.Outputs.EightSleepAvailable {
+		t.Error("Expected EightSleepAvailable to be false")
+	}
+	if !state.Outputs.BackupWakeEnabled {
+		t.Error("Expected BackupWakeEnabled to be true when Eight Sleep is unavailable")
+	}
+}
+
+func TestSleepHygieneTrackerRecordHumanOverride(t *testing.T) {
+	t.Parallel()
+	st := NewSleepHygieneTracker()
+
+	// First record a fade out start
+	st.RecordFadeOutStart("media_player.bedroom", 60)
+
+	// Then record a human override
+	st.RecordHumanOverride("media_player.bedroom", 50, 80)
+
+	state := st.GetState()
+	fadeOut, exists := state.Outputs.FadeOutProgress["media_player.bedroom"]
+	if !exists {
+		t.Fatal("Expected fade out progress for media_player.bedroom")
+	}
+	if !fadeOut.HumanOverrideDetected {
+		t.Error("Expected HumanOverrideDetected to be true")
+	}
+	if fadeOut.ExpectedVolume != 50 {
+		t.Errorf("Expected ExpectedVolume 50, got %d", fadeOut.ExpectedVolume)
+	}
+	if fadeOut.ActualVolume != 80 {
+		t.Errorf("Expected ActualVolume 80, got %d", fadeOut.ActualVolume)
+	}
+	if fadeOut.IsActive {
+		t.Error("Expected IsActive to be false after human override")
+	}
+}
+
+// ============================================================================
+// SexMode Tracker Tests
+// ============================================================================
+
+func TestNewSexModeTracker(t *testing.T) {
+	t.Parallel()
+	smt := NewSexModeTracker()
+	if smt == nil {
+		t.Fatal("NewSexModeTracker returned nil")
+	}
+	if smt.state == nil {
+		t.Error("state not initialized")
+	}
+}
+
+func TestSexModeTrackerUpdateCurrentInputs(t *testing.T) {
+	t.Parallel()
+	smt := NewSexModeTracker()
+
+	inputs := map[string]interface{}{
+		"musicPlaybackType": "romance",
+		"isNickHome":        true,
+		"isCarolineHome":    true,
+	}
+
+	smt.UpdateCurrentInputs(inputs)
+
+	state := smt.GetState()
+	if state.Inputs.Current["musicPlaybackType"] != "romance" {
+		t.Errorf("Expected musicPlaybackType to be 'romance', got %v", state.Inputs.Current["musicPlaybackType"])
+	}
+	if state.Inputs.Current["isNickHome"] != true {
+		t.Errorf("Expected isNickHome to be true, got %v", state.Inputs.Current["isNickHome"])
+	}
+}
+
+func TestSexModeTrackerSnapshotInputsForAction(t *testing.T) {
+	t.Parallel()
+	smt := NewSexModeTracker()
+
+	// Set initial inputs
+	inputs := map[string]interface{}{
+		"musicPlaybackType": "none",
+	}
+	smt.UpdateCurrentInputs(inputs)
+
+	// Snapshot
+	smt.SnapshotInputsForAction()
+
+	// Change current inputs
+	newInputs := map[string]interface{}{
+		"musicPlaybackType": "romance",
+	}
+	smt.UpdateCurrentInputs(newInputs)
+
+	state := smt.GetState()
+
+	// Current should be romance
+	if state.Inputs.Current["musicPlaybackType"] != "romance" {
+		t.Errorf("Expected current musicPlaybackType to be 'romance', got %v", state.Inputs.Current["musicPlaybackType"])
+	}
+
+	// At last action should be none
+	if state.Inputs.AtLastAction["musicPlaybackType"] != "none" {
+		t.Errorf("Expected atLastAction musicPlaybackType to be 'none', got %v", state.Inputs.AtLastAction["musicPlaybackType"])
+	}
+}
+
+func TestSexModeTrackerRecordAction(t *testing.T) {
+	t.Parallel()
+	smt := NewSexModeTracker()
+
+	activatedAt := time.Now()
+	smt.RecordAction("activate", "Button pressed", true, "relaxing", activatedAt)
+
+	state := smt.GetState()
+
+	if !state.Outputs.IsActive {
+		t.Error("Expected IsActive to be true")
+	}
+	if state.Outputs.PreSexMusicType != "relaxing" {
+		t.Errorf("Expected PreSexMusicType 'relaxing', got %s", state.Outputs.PreSexMusicType)
+	}
+	if !state.Outputs.ActivatedAt.Equal(activatedAt) {
+		t.Errorf("Expected ActivatedAt to match, got %v", state.Outputs.ActivatedAt)
+	}
+	if state.Outputs.LastActionType != "activate" {
+		t.Errorf("Expected LastActionType 'activate', got %s", state.Outputs.LastActionType)
+	}
+	if state.Outputs.LastActionReason != "Button pressed" {
+		t.Errorf("Expected LastActionReason 'Button pressed', got %s", state.Outputs.LastActionReason)
+	}
+	if state.Outputs.LastActionTime.IsZero() {
+		t.Error("Expected LastActionTime to be set")
+	}
+
+	// Test deactivation
+	smt.RecordAction("deactivate", "Auto timeout", false, "", time.Time{})
+
+	state = smt.GetState()
+	if state.Outputs.IsActive {
+		t.Error("Expected IsActive to be false after deactivation")
+	}
+}
+
+func TestSexModeTrackerGetStateReturnsDeepCopy(t *testing.T) {
+	t.Parallel()
+	smt := NewSexModeTracker()
+
+	inputs := map[string]interface{}{
+		"testKey": "testValue",
+	}
+	smt.UpdateCurrentInputs(inputs)
+
+	state1 := smt.GetState()
+	state1.Inputs.Current["testKey"] = "modified"
+
+	state2 := smt.GetState()
+	if state2.Inputs.Current["testKey"] != "testValue" {
+		t.Error("Modifying returned state affected the internal state")
+	}
+}
+
+func TestSexModeTrackerConcurrentAccess(t *testing.T) {
+	t.Parallel()
+	smt := NewSexModeTracker()
+
+	var wg sync.WaitGroup
+
+	// Concurrent writes
+	for i := 0; i < 5; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			for j := 0; j < 20; j++ {
+				smt.UpdateCurrentInputs(map[string]interface{}{"count": i*20 + j})
+				smt.SnapshotInputsForAction()
+				smt.RecordAction("test", "test reason", i%2 == 0, "test", time.Now())
+			}
+		}(i)
+	}
+
+	// Concurrent reads
+	for i := 0; i < 5; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < 20; j++ {
+				_ = smt.GetState()
+			}
+		}()
+	}
+
+	wg.Wait()
+}
+
+func TestSexModeShadowStateImplementsInterface(t *testing.T) {
+	t.Parallel()
+	var _ PluginShadowState = (*SexModeShadowState)(nil)
+}
+
+// ============================================================================
+// Christmas Tracker Tests
+// ============================================================================
+
+func TestNewChristmasTracker(t *testing.T) {
+	t.Parallel()
+	ct := NewChristmasTracker()
+	if ct == nil {
+		t.Fatal("NewChristmasTracker returned nil")
+	}
+	if ct.state == nil {
+		t.Error("state not initialized")
+	}
+}
+
+func TestChristmasTrackerUpdateCurrentInputs(t *testing.T) {
+	t.Parallel()
+	ct := NewChristmasTracker()
+
+	inputs := map[string]interface{}{
+		"dayPhase":     "evening",
+		"isAnyoneHome": true,
+	}
+
+	ct.UpdateCurrentInputs(inputs)
+
+	state := ct.GetState()
+	if state.Inputs.Current["dayPhase"] != "evening" {
+		t.Errorf("Expected dayPhase to be 'evening', got %v", state.Inputs.Current["dayPhase"])
+	}
+	if state.Inputs.Current["isAnyoneHome"] != true {
+		t.Errorf("Expected isAnyoneHome to be true, got %v", state.Inputs.Current["isAnyoneHome"])
+	}
+}
+
+func TestChristmasTrackerSnapshotInputsForAction(t *testing.T) {
+	t.Parallel()
+	ct := NewChristmasTracker()
+
+	// Set initial inputs
+	inputs := map[string]interface{}{
+		"dayPhase": "morning",
+	}
+	ct.UpdateCurrentInputs(inputs)
+
+	// Snapshot
+	ct.SnapshotInputsForAction()
+
+	// Change current inputs
+	newInputs := map[string]interface{}{
+		"dayPhase": "evening",
+	}
+	ct.UpdateCurrentInputs(newInputs)
+
+	state := ct.GetState()
+
+	// Current should be evening
+	if state.Inputs.Current["dayPhase"] != "evening" {
+		t.Errorf("Expected current dayPhase to be 'evening', got %v", state.Inputs.Current["dayPhase"])
+	}
+
+	// At last action should be morning
+	if state.Inputs.AtLastAction["dayPhase"] != "morning" {
+		t.Errorf("Expected atLastAction dayPhase to be 'morning', got %v", state.Inputs.AtLastAction["dayPhase"])
+	}
+}
+
+func TestChristmasTrackerRecordActivation(t *testing.T) {
+	t.Parallel()
+	ct := NewChristmasTracker()
+
+	ct.RecordActivation(5, "Evening time, someone is home")
+
+	state := ct.GetState()
+
+	if state.Outputs.LightsActivated != 5 {
+		t.Errorf("Expected LightsActivated 5, got %d", state.Outputs.LightsActivated)
+	}
+	if state.Outputs.LastActionReason != "Evening time, someone is home" {
+		t.Errorf("Expected LastActionReason 'Evening time, someone is home', got %s", state.Outputs.LastActionReason)
+	}
+	if state.Outputs.LastActivationTime.IsZero() {
+		t.Error("Expected LastActivationTime to be set")
+	}
+}
+
+func TestChristmasTrackerGetStateReturnsDeepCopy(t *testing.T) {
+	t.Parallel()
+	ct := NewChristmasTracker()
+
+	inputs := map[string]interface{}{
+		"testKey": "testValue",
+	}
+	ct.UpdateCurrentInputs(inputs)
+
+	state1 := ct.GetState()
+	state1.Inputs.Current["testKey"] = "modified"
+
+	state2 := ct.GetState()
+	if state2.Inputs.Current["testKey"] != "testValue" {
+		t.Error("Modifying returned state affected the internal state")
+	}
+}
+
+func TestChristmasTrackerConcurrentAccess(t *testing.T) {
+	t.Parallel()
+	ct := NewChristmasTracker()
+
+	var wg sync.WaitGroup
+
+	// Concurrent writes
+	for i := 0; i < 5; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			for j := 0; j < 20; j++ {
+				ct.UpdateCurrentInputs(map[string]interface{}{"count": i*20 + j})
+				ct.SnapshotInputsForAction()
+				ct.RecordActivation(i+1, "test reason")
+			}
+		}(i)
+	}
+
+	// Concurrent reads
+	for i := 0; i < 5; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < 20; j++ {
+				_ = ct.GetState()
+			}
+		}()
+	}
+
+	wg.Wait()
+}
+
+func TestChristmasShadowStateImplementsInterface(t *testing.T) {
+	t.Parallel()
+	var _ PluginShadowState = (*ChristmasShadowState)(nil)
+}
+
+// ============================================================================
+// Environmental Tracker Tests
+// ============================================================================
+
+func TestNewEnvironmentalTracker(t *testing.T) {
+	t.Parallel()
+	et := NewEnvironmentalTracker()
+	if et == nil {
+		t.Fatal("NewEnvironmentalTracker returned nil")
+	}
+	if et.state == nil {
+		t.Error("state not initialized")
+	}
+}
+
+func TestEnvironmentalTrackerUpdateCurrentInputs(t *testing.T) {
+	t.Parallel()
+	et := NewEnvironmentalTracker()
+
+	inputs := map[string]interface{}{
+		"humidity":    65.5,
+		"temperature": 72.0,
+	}
+
+	et.UpdateCurrentInputs(inputs)
+
+	state := et.GetState()
+	if state.Inputs.Current["humidity"] != 65.5 {
+		t.Errorf("Expected humidity to be 65.5, got %v", state.Inputs.Current["humidity"])
+	}
+}
+
+func TestEnvironmentalTrackerUpdateHumiditySensors(t *testing.T) {
+	t.Parallel()
+	et := NewEnvironmentalTracker()
+
+	sensors := []HumiditySensorData{
+		{EntityID: "sensor.bathroom_humidity", FriendlyName: "Bathroom", IsIndoor: true, Value: 75.0, Valid: true},
+		{EntityID: "sensor.kitchen_humidity", FriendlyName: "Kitchen", IsIndoor: true, Value: 55.0, Valid: true},
+	}
+
+	et.UpdateHumiditySensors(sensors)
+
+	state := et.GetState()
+	if len(state.Outputs.HumiditySensors) != 2 {
+		t.Errorf("Expected 2 humidity sensors, got %d", len(state.Outputs.HumiditySensors))
+	}
+	if state.Outputs.HumiditySensors[0].FriendlyName != "Bathroom" {
+		t.Errorf("Expected first sensor to be 'Bathroom', got %s", state.Outputs.HumiditySensors[0].FriendlyName)
+	}
+	if state.Outputs.LastUpdate.IsZero() {
+		t.Error("Expected LastUpdate to be set")
+	}
+}
+
+func TestEnvironmentalTrackerUpdateAlertLevel(t *testing.T) {
+	t.Parallel()
+	et := NewEnvironmentalTracker()
+
+	conditionStart := time.Now().Add(-35 * time.Minute)
+	et.UpdateAlertLevel("warning", conditionStart, true)
+
+	state := et.GetState()
+	if state.Outputs.AlertLevel != "warning" {
+		t.Errorf("Expected AlertLevel 'warning', got %s", state.Outputs.AlertLevel)
+	}
+	if !state.Outputs.ConditionStartTime.Equal(conditionStart) {
+		t.Error("Expected ConditionStartTime to match")
+	}
+	if !state.Outputs.IsSustained {
+		t.Error("Expected IsSustained to be true")
+	}
+}
+
+func TestEnvironmentalTrackerRecordNotification(t *testing.T) {
+	t.Parallel()
+	et := NewEnvironmentalTracker()
+
+	locations := []string{"Bathroom", "Kitchen"}
+	et.RecordNotification("warning", "High humidity detected", locations)
+
+	state := et.GetState()
+	if state.Outputs.LastNotification == nil {
+		t.Fatal("Expected LastNotification to be set")
+	}
+	if state.Outputs.LastNotification.Level != "warning" {
+		t.Errorf("Expected level 'warning', got %s", state.Outputs.LastNotification.Level)
+	}
+	if state.Outputs.LastNotification.Message != "High humidity detected" {
+		t.Errorf("Expected message 'High humidity detected', got %s", state.Outputs.LastNotification.Message)
+	}
+	if len(state.Outputs.LastNotification.SensorLocations) != 2 {
+		t.Errorf("Expected 2 sensor locations, got %d", len(state.Outputs.LastNotification.SensorLocations))
+	}
+}
+
+func TestEnvironmentalTrackerRecordResolutionNotice(t *testing.T) {
+	t.Parallel()
+	et := NewEnvironmentalTracker()
+
+	et.RecordResolutionNotice("Humidity levels have returned to normal")
+
+	state := et.GetState()
+	if state.Outputs.LastResolutionNotice == nil {
+		t.Fatal("Expected LastResolutionNotice to be set")
+	}
+	if state.Outputs.LastResolutionNotice.Level != "resolved" {
+		t.Errorf("Expected level 'resolved', got %s", state.Outputs.LastResolutionNotice.Level)
+	}
+	if state.Outputs.LastResolutionNotice.Message != "Humidity levels have returned to normal" {
+		t.Errorf("Unexpected message: %s", state.Outputs.LastResolutionNotice.Message)
+	}
+}
+
+func TestEnvironmentalTrackerUpdateWaterLeakSensors(t *testing.T) {
+	t.Parallel()
+	et := NewEnvironmentalTracker()
+
+	sensors := []WaterLeakSensorData{
+		{EntityID: "binary_sensor.water_leak_1", FriendlyName: "Under Sink", State: "off"},
+		{EntityID: "binary_sensor.water_leak_2", FriendlyName: "Near Washer", State: "on"},
+	}
+
+	et.UpdateWaterLeakSensors(sensors)
+
+	state := et.GetState()
+	if len(state.Outputs.WaterLeakSensors) != 2 {
+		t.Errorf("Expected 2 water leak sensors, got %d", len(state.Outputs.WaterLeakSensors))
+	}
+}
+
+func TestEnvironmentalTrackerUpdateActiveWaterLeaks(t *testing.T) {
+	t.Parallel()
+	et := NewEnvironmentalTracker()
+
+	alerts := []WaterLeakAlert{
+		{EntityID: "binary_sensor.water_leak_2", FriendlyName: "Near Washer", DetectedAt: time.Now(), NotificationSent: true},
+	}
+
+	et.UpdateActiveWaterLeaks(alerts)
+
+	state := et.GetState()
+	if len(state.Outputs.ActiveWaterLeaks) != 1 {
+		t.Errorf("Expected 1 active water leak, got %d", len(state.Outputs.ActiveWaterLeaks))
+	}
+}
+
+func TestEnvironmentalTrackerRecordWaterLeakNotification(t *testing.T) {
+	t.Parallel()
+	et := NewEnvironmentalTracker()
+
+	et.RecordWaterLeakNotification("binary_sensor.water_leak_1", "Under Sink", "Water leak detected under the sink!")
+
+	state := et.GetState()
+	if state.Outputs.LastWaterLeakNotice == nil {
+		t.Fatal("Expected LastWaterLeakNotice to be set")
+	}
+	if state.Outputs.LastWaterLeakNotice.EntityID != "binary_sensor.water_leak_1" {
+		t.Errorf("Expected EntityID 'binary_sensor.water_leak_1', got %s", state.Outputs.LastWaterLeakNotice.EntityID)
+	}
+	if state.Outputs.LastWaterLeakNotice.FriendlyName != "Under Sink" {
+		t.Errorf("Expected FriendlyName 'Under Sink', got %s", state.Outputs.LastWaterLeakNotice.FriendlyName)
+	}
+}
+
+func TestEnvironmentalTrackerGetStateReturnsDeepCopy(t *testing.T) {
+	t.Parallel()
+	et := NewEnvironmentalTracker()
+
+	inputs := map[string]interface{}{
+		"testKey": "testValue",
+	}
+	et.UpdateCurrentInputs(inputs)
+
+	state1 := et.GetState()
+	state1.Inputs.Current["testKey"] = "modified"
+
+	state2 := et.GetState()
+	if state2.Inputs.Current["testKey"] != "testValue" {
+		t.Error("Modifying returned state affected the internal state")
+	}
+}
+
+func TestEnvironmentalTrackerConcurrentAccess(t *testing.T) {
+	t.Parallel()
+	et := NewEnvironmentalTracker()
+
+	var wg sync.WaitGroup
+
+	// Concurrent writes
+	for i := 0; i < 5; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			for j := 0; j < 20; j++ {
+				et.UpdateCurrentInputs(map[string]interface{}{"count": i*20 + j})
+				et.UpdateAlertLevel("warning", time.Now(), true)
+				et.RecordNotification("warning", "test", []string{"test"})
+			}
+		}(i)
+	}
+
+	// Concurrent reads
+	for i := 0; i < 5; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < 20; j++ {
+				_ = et.GetState()
+			}
+		}()
+	}
+
+	wg.Wait()
+}
+
+func TestEnvironmentalShadowStateImplementsInterface(t *testing.T) {
+	t.Parallel()
+	var _ PluginShadowState = (*EnvironmentalShadowState)(nil)
+}
+
+// ============================================================================
+// SensorHealth Tracker Tests
+// ============================================================================
+
+func TestNewSensorHealthTracker(t *testing.T) {
+	t.Parallel()
+	st := NewSensorHealthTracker()
+	if st == nil {
+		t.Fatal("NewSensorHealthTracker returned nil")
+	}
+	if st.state == nil {
+		t.Error("state not initialized")
+	}
+}
+
+func TestSensorHealthTrackerUpdateCurrentInputs(t *testing.T) {
+	t.Parallel()
+	st := NewSensorHealthTracker()
+
+	inputs := map[string]interface{}{
+		"sensorCount": 10,
+	}
+
+	st.UpdateCurrentInputs(inputs)
+
+	state := st.GetState()
+	if state.Inputs.Current["sensorCount"] != 10 {
+		t.Errorf("Expected sensorCount to be 10, got %v", state.Inputs.Current["sensorCount"])
+	}
+}
+
+func TestSensorHealthTrackerUpdateBatterySensors(t *testing.T) {
+	t.Parallel()
+	st := NewSensorHealthTracker()
+
+	sensors := []BatterySensorData{
+		{EntityID: "sensor.battery_1", FriendlyName: "Motion Sensor", BatteryLevel: 85, IsLow: false},
+		{EntityID: "sensor.battery_2", FriendlyName: "Door Sensor", BatteryLevel: 15, IsLow: true},
+	}
+
+	st.UpdateBatterySensors(sensors)
+
+	state := st.GetState()
+	if len(state.Outputs.BatterySensors) != 2 {
+		t.Errorf("Expected 2 battery sensors, got %d", len(state.Outputs.BatterySensors))
+	}
+	if state.Outputs.BatterySensors[1].IsLow != true {
+		t.Error("Expected second sensor to be marked as low")
+	}
+	if state.Outputs.LastUpdate.IsZero() {
+		t.Error("Expected LastUpdate to be set")
+	}
+}
+
+func TestSensorHealthTrackerUpdateTemperatureSensors(t *testing.T) {
+	t.Parallel()
+	st := NewSensorHealthTracker()
+
+	sensors := []TemperatureSensorData{
+		{EntityID: "sensor.temp_1", FriendlyName: "Garage Temp", Value: 72.0, Valid: true, IsLockedUp: false},
+		{EntityID: "sensor.temp_2", FriendlyName: "Outdoor Temp", Value: 55.0, Valid: true, IsLockedUp: true},
+	}
+
+	st.UpdateTemperatureSensors(sensors)
+
+	state := st.GetState()
+	if len(state.Outputs.TemperatureSensors) != 2 {
+		t.Errorf("Expected 2 temperature sensors, got %d", len(state.Outputs.TemperatureSensors))
+	}
+	if state.Outputs.TemperatureSensors[1].IsLockedUp != true {
+		t.Error("Expected second sensor to be marked as locked up")
+	}
+}
+
+func TestSensorHealthTrackerUpdateLowBatteryAlerts(t *testing.T) {
+	t.Parallel()
+	st := NewSensorHealthTracker()
+
+	alerts := []LowBatteryAlert{
+		{EntityID: "sensor.battery_2", FriendlyName: "Door Sensor", BatteryLevel: 15, DetectedAt: time.Now(), NotificationSent: true},
+	}
+
+	st.UpdateLowBatteryAlerts(alerts)
+
+	state := st.GetState()
+	if len(state.Outputs.LowBatteryAlerts) != 1 {
+		t.Errorf("Expected 1 low battery alert, got %d", len(state.Outputs.LowBatteryAlerts))
+	}
+}
+
+func TestSensorHealthTrackerUpdateStaleSensorAlerts(t *testing.T) {
+	t.Parallel()
+	st := NewSensorHealthTracker()
+
+	alerts := []StaleSensorAlert{
+		{EntityID: "sensor.stale_1", FriendlyName: "Stale Sensor", LastReported: time.Now().Add(-48 * time.Hour)},
+	}
+
+	st.UpdateStaleSensorAlerts(alerts)
+
+	state := st.GetState()
+	if len(state.Outputs.StaleSensorAlerts) != 1 {
+		t.Errorf("Expected 1 stale sensor alert, got %d", len(state.Outputs.StaleSensorAlerts))
+	}
+}
+
+func TestSensorHealthTrackerRecordNotification(t *testing.T) {
+	t.Parallel()
+	st := NewSensorHealthTracker()
+
+	st.RecordNotification("low_battery", "sensor.battery_2", "Low battery detected on Door Sensor")
+
+	state := st.GetState()
+	if state.Outputs.LastNotification == nil {
+		t.Fatal("Expected LastNotification to be set")
+	}
+	if state.Outputs.LastNotification.AlertType != "low_battery" {
+		t.Errorf("Expected AlertType 'low_battery', got %s", state.Outputs.LastNotification.AlertType)
+	}
+	if state.Outputs.LastNotification.EntityID != "sensor.battery_2" {
+		t.Errorf("Expected EntityID 'sensor.battery_2', got %s", state.Outputs.LastNotification.EntityID)
+	}
+}
+
+func TestSensorHealthTrackerRecordTemperatureLockupNotification(t *testing.T) {
+	t.Parallel()
+	st := NewSensorHealthTracker()
+
+	st.RecordTemperatureLockupNotification("sensor.temp_garage", "Garage Temperature", "Temperature sensor appears locked up")
+
+	state := st.GetState()
+	if state.Outputs.LastTemperatureLockupNotice == nil {
+		t.Fatal("Expected LastTemperatureLockupNotice to be set")
+	}
+	if state.Outputs.LastTemperatureLockupNotice.EntityID != "sensor.temp_garage" {
+		t.Errorf("Expected EntityID 'sensor.temp_garage', got %s", state.Outputs.LastTemperatureLockupNotice.EntityID)
+	}
+	if state.Outputs.LastTemperatureLockupNotice.FriendlyName != "Garage Temperature" {
+		t.Errorf("Expected FriendlyName 'Garage Temperature', got %s", state.Outputs.LastTemperatureLockupNotice.FriendlyName)
+	}
+}
+
+func TestSensorHealthTrackerRecordTemperatureRecoveryNotification(t *testing.T) {
+	t.Parallel()
+	st := NewSensorHealthTracker()
+
+	st.RecordTemperatureRecoveryNotification("sensor.temp_garage", "Garage Temperature", "Temperature sensor recovered")
+
+	state := st.GetState()
+	if state.Outputs.LastTemperatureRecoveryNotice == nil {
+		t.Fatal("Expected LastTemperatureRecoveryNotice to be set")
+	}
+	if state.Outputs.LastTemperatureRecoveryNotice.EntityID != "sensor.temp_garage" {
+		t.Errorf("Expected EntityID 'sensor.temp_garage', got %s", state.Outputs.LastTemperatureRecoveryNotice.EntityID)
+	}
+}
+
+func TestSensorHealthTrackerSetLastDiscoveryRefresh(t *testing.T) {
+	t.Parallel()
+	st := NewSensorHealthTracker()
+
+	refreshTime := time.Now()
+	st.SetLastDiscoveryRefresh(refreshTime)
+
+	state := st.GetState()
+	if !state.Outputs.LastDiscoveryRefresh.Equal(refreshTime) {
+		t.Errorf("Expected LastDiscoveryRefresh to be %v, got %v", refreshTime, state.Outputs.LastDiscoveryRefresh)
+	}
+}
+
+func TestSensorHealthTrackerGetStateReturnsDeepCopy(t *testing.T) {
+	t.Parallel()
+	st := NewSensorHealthTracker()
+
+	inputs := map[string]interface{}{
+		"testKey": "testValue",
+	}
+	st.UpdateCurrentInputs(inputs)
+
+	state1 := st.GetState()
+	state1.Inputs.Current["testKey"] = "modified"
+
+	state2 := st.GetState()
+	if state2.Inputs.Current["testKey"] != "testValue" {
+		t.Error("Modifying returned state affected the internal state")
+	}
+}
+
+func TestSensorHealthTrackerConcurrentAccess(t *testing.T) {
+	t.Parallel()
+	st := NewSensorHealthTracker()
+
+	var wg sync.WaitGroup
+
+	// Concurrent writes
+	for i := 0; i < 5; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			for j := 0; j < 20; j++ {
+				st.UpdateCurrentInputs(map[string]interface{}{"count": i*20 + j})
+				st.RecordNotification("low_battery", "sensor.test", "test message")
+			}
+		}(i)
+	}
+
+	// Concurrent reads
+	for i := 0; i < 5; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < 20; j++ {
+				_ = st.GetState()
+			}
+		}()
+	}
+
+	wg.Wait()
+}
+
+func TestSensorHealthShadowStateImplementsInterface(t *testing.T) {
+	t.Parallel()
+	var _ PluginShadowState = (*SensorHealthShadowState)(nil)
+}
+
+// ============================================================================
+// SensorConfig Tracker Tests
+// ============================================================================
+
+func TestNewSensorConfigTracker(t *testing.T) {
+	t.Parallel()
+	sct := NewSensorConfigTracker()
+	if sct == nil {
+		t.Fatal("NewSensorConfigTracker returned nil")
+	}
+	if sct.state == nil {
+		t.Error("state not initialized")
+	}
+}
+
+func TestSensorConfigTrackerRecordConfiguration(t *testing.T) {
+	t.Parallel()
+	sct := NewSensorConfigTracker()
+
+	configuredEntities := []string{"sensor.motion_1", "sensor.motion_2"}
+	failedEntities := []string{"sensor.motion_3"}
+
+	sct.RecordConfiguration("motion_sensitivity", "Set motion sensitivity to high", 3.0, configuredEntities, failedEntities)
+
+	state := sct.GetState()
+	if len(state.Outputs.Configurations) != 1 {
+		t.Errorf("Expected 1 configuration, got %d", len(state.Outputs.Configurations))
+	}
+
+	config := state.Outputs.Configurations[0]
+	if config.ConfigType != "motion_sensitivity" {
+		t.Errorf("Expected ConfigType 'motion_sensitivity', got %s", config.ConfigType)
+	}
+	if config.Description != "Set motion sensitivity to high" {
+		t.Errorf("Expected Description 'Set motion sensitivity to high', got %s", config.Description)
+	}
+	if config.Value != 3.0 {
+		t.Errorf("Expected Value 3.0, got %f", config.Value)
+	}
+	if len(config.ConfiguredEntities) != 2 {
+		t.Errorf("Expected 2 configured entities, got %d", len(config.ConfiguredEntities))
+	}
+	if len(config.FailedEntities) != 1 {
+		t.Errorf("Expected 1 failed entity, got %d", len(config.FailedEntities))
+	}
+	if config.ConfiguredAt.IsZero() {
+		t.Error("Expected ConfiguredAt to be set")
+	}
+	if state.Outputs.ConfiguredAt.IsZero() {
+		t.Error("Expected ConfiguredAt to be set")
+	}
+	if state.Outputs.LastUpdate.IsZero() {
+		t.Error("Expected LastUpdate to be set")
+	}
+}
+
+func TestSensorConfigTrackerClear(t *testing.T) {
+	t.Parallel()
+	sct := NewSensorConfigTracker()
+
+	// Add some configurations
+	sct.RecordConfiguration("test1", "Test 1", 1.0, []string{"entity1"}, nil)
+	sct.RecordConfiguration("test2", "Test 2", 2.0, []string{"entity2"}, nil)
+
+	// Verify configurations exist
+	state := sct.GetState()
+	if len(state.Outputs.Configurations) != 2 {
+		t.Fatalf("Expected 2 configurations before clear, got %d", len(state.Outputs.Configurations))
+	}
+
+	// Clear
+	sct.Clear()
+
+	// Verify cleared
+	state = sct.GetState()
+	if len(state.Outputs.Configurations) != 0 {
+		t.Errorf("Expected 0 configurations after clear, got %d", len(state.Outputs.Configurations))
+	}
+	if !state.Outputs.ConfiguredAt.IsZero() {
+		t.Error("Expected ConfiguredAt to be cleared")
+	}
+}
+
+func TestSensorConfigTrackerGetStateReturnsDeepCopy(t *testing.T) {
+	t.Parallel()
+	sct := NewSensorConfigTracker()
+
+	sct.RecordConfiguration("test", "Test", 1.0, []string{"entity1"}, nil)
+
+	state1 := sct.GetState()
+
+	// Modify the returned state
+	state1.Outputs.Configurations[0].ConfigType = "modified"
+
+	state2 := sct.GetState()
+	if state2.Outputs.Configurations[0].ConfigType != "test" {
+		t.Error("Modifying returned state affected the internal state")
+	}
+}
+
+func TestSensorConfigTrackerConcurrentAccess(t *testing.T) {
+	t.Parallel()
+	sct := NewSensorConfigTracker()
+
+	var wg sync.WaitGroup
+
+	// Concurrent writes
+	for i := 0; i < 5; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			for j := 0; j < 20; j++ {
+				sct.RecordConfiguration(fmt.Sprintf("config_%d_%d", i, j), "test", float64(i*20+j), []string{"entity"}, nil)
+			}
+		}(i)
+	}
+
+	// Concurrent reads
+	for i := 0; i < 5; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < 20; j++ {
+				_ = sct.GetState()
+			}
+		}()
+	}
+
+	wg.Wait()
+}
+
+func TestSensorConfigShadowStateImplementsInterface(t *testing.T) {
+	t.Parallel()
+	var _ PluginShadowState = (*SensorConfigShadowState)(nil)
+}
+
+// ============================================================================
+// Infrastructure Tracker Tests
+// ============================================================================
+
+func TestNewInfrastructureTracker(t *testing.T) {
+	t.Parallel()
+	it := NewInfrastructureTracker()
+	if it == nil {
+		t.Fatal("NewInfrastructureTracker returned nil")
+	}
+	if it.state == nil {
+		t.Error("state not initialized")
+	}
+}
+
+func TestInfrastructureTrackerUpdateCurrentInputs(t *testing.T) {
+	t.Parallel()
+	it := NewInfrastructureTracker()
+
+	inputs := map[string]interface{}{
+		"septicPower": 85.0,
+	}
+
+	it.UpdateCurrentInputs(inputs)
+
+	state := it.GetState()
+	if state.Inputs.Current["septicPower"] != 85.0 {
+		t.Errorf("Expected septicPower to be 85.0, got %v", state.Inputs.Current["septicPower"])
+	}
+}
+
+func TestInfrastructureTrackerUpdateSepticPower(t *testing.T) {
+	t.Parallel()
+	it := NewInfrastructureTracker()
+
+	it.UpdateSepticPower(87.5)
+
+	state := it.GetState()
+	if state.Outputs.SepticSystemStatus.CurrentPowerW != 87.5 {
+		t.Errorf("Expected CurrentPowerW 87.5, got %f", state.Outputs.SepticSystemStatus.CurrentPowerW)
+	}
+	if state.Outputs.LastUpdate.IsZero() {
+		t.Error("Expected LastUpdate to be set")
+	}
+}
+
+func TestInfrastructureTrackerUpdateSystemState(t *testing.T) {
+	t.Parallel()
+	it := NewInfrastructureTracker()
+
+	it.UpdateSystemState("normal")
+
+	state := it.GetState()
+	if state.Outputs.SepticSystemStatus.SystemState != "normal" {
+		t.Errorf("Expected SystemState 'normal', got %s", state.Outputs.SepticSystemStatus.SystemState)
+	}
+}
+
+func TestInfrastructureTrackerUpdateAeratorFailureStart(t *testing.T) {
+	t.Parallel()
+	it := NewInfrastructureTracker()
+
+	startTime := time.Now()
+	it.UpdateAeratorFailureStart(startTime)
+
+	state := it.GetState()
+	if !state.Outputs.SepticSystemStatus.AeratorFailureStart.Equal(startTime) {
+		t.Error("Expected AeratorFailureStart to match")
+	}
+}
+
+func TestInfrastructureTrackerUpdatePumpRunningStart(t *testing.T) {
+	t.Parallel()
+	it := NewInfrastructureTracker()
+
+	startTime := time.Now()
+	it.UpdatePumpRunningStart(startTime)
+
+	state := it.GetState()
+	if !state.Outputs.SepticSystemStatus.PumpRunningStart.Equal(startTime) {
+		t.Error("Expected PumpRunningStart to match")
+	}
+}
+
+func TestInfrastructureTrackerUpdateLastNormalPowerTime(t *testing.T) {
+	t.Parallel()
+	it := NewInfrastructureTracker()
+
+	normalTime := time.Now()
+	it.UpdateLastNormalPowerTime(normalTime)
+
+	state := it.GetState()
+	if !state.Outputs.SepticSystemStatus.LastNormalPowerTime.Equal(normalTime) {
+		t.Error("Expected LastNormalPowerTime to match")
+	}
+}
+
+func TestInfrastructureTrackerUpdateIsAlerting(t *testing.T) {
+	t.Parallel()
+	it := NewInfrastructureTracker()
+
+	it.UpdateIsAlerting(true)
+
+	state := it.GetState()
+	if !state.Outputs.SepticSystemStatus.IsAlerting {
+		t.Error("Expected IsAlerting to be true")
+	}
+
+	it.UpdateIsAlerting(false)
+
+	state = it.GetState()
+	if state.Outputs.SepticSystemStatus.IsAlerting {
+		t.Error("Expected IsAlerting to be false")
+	}
+}
+
+func TestInfrastructureTrackerUpdateActiveAlerts(t *testing.T) {
+	t.Parallel()
+	it := NewInfrastructureTracker()
+
+	alerts := []InfrastructureAlert{
+		{AlertType: "aerator_failure", Message: "Aerator may have failed", DetectedAt: time.Now()},
+	}
+
+	it.UpdateActiveAlerts(alerts)
+
+	state := it.GetState()
+	if len(state.Outputs.ActiveAlerts) != 1 {
+		t.Errorf("Expected 1 active alert, got %d", len(state.Outputs.ActiveAlerts))
+	}
+	if state.Outputs.ActiveAlerts[0].AlertType != "aerator_failure" {
+		t.Errorf("Expected AlertType 'aerator_failure', got %s", state.Outputs.ActiveAlerts[0].AlertType)
+	}
+}
+
+func TestInfrastructureTrackerRecordNotification(t *testing.T) {
+	t.Parallel()
+	it := NewInfrastructureTracker()
+
+	it.RecordNotification("aerator_failure", "Septic aerator may have failed", "high")
+
+	state := it.GetState()
+	if state.Outputs.LastNotification == nil {
+		t.Fatal("Expected LastNotification to be set")
+	}
+	if state.Outputs.LastNotification.AlertType != "aerator_failure" {
+		t.Errorf("Expected AlertType 'aerator_failure', got %s", state.Outputs.LastNotification.AlertType)
+	}
+	if state.Outputs.LastNotification.Priority != "high" {
+		t.Errorf("Expected Priority 'high', got %s", state.Outputs.LastNotification.Priority)
+	}
+}
+
+func TestInfrastructureTrackerRecordTTSAnnouncement(t *testing.T) {
+	t.Parallel()
+	it := NewInfrastructureTracker()
+
+	it.RecordTTSAnnouncement("Warning: Septic system issue detected")
+
+	state := it.GetState()
+	if state.Outputs.LastTTSAnnouncement == nil {
+		t.Fatal("Expected LastTTSAnnouncement to be set")
+	}
+	if state.Outputs.LastTTSAnnouncement.Message != "Warning: Septic system issue detected" {
+		t.Errorf("Expected message 'Warning: Septic system issue detected', got %s", state.Outputs.LastTTSAnnouncement.Message)
+	}
+	if state.Outputs.LastTTSAnnouncement.Timestamp.IsZero() {
+		t.Error("Expected Timestamp to be set")
+	}
+}
+
+func TestInfrastructureTrackerClearAlerts(t *testing.T) {
+	t.Parallel()
+	it := NewInfrastructureTracker()
+
+	// Set up some alerts
+	alerts := []InfrastructureAlert{
+		{AlertType: "aerator_failure", Message: "Test", DetectedAt: time.Now()},
+	}
+	it.UpdateActiveAlerts(alerts)
+	it.UpdateIsAlerting(true)
+	it.UpdateAeratorFailureStart(time.Now())
+	it.UpdatePumpRunningStart(time.Now())
+
+	// Clear alerts
+	it.ClearAlerts()
+
+	state := it.GetState()
+	if len(state.Outputs.ActiveAlerts) != 0 {
+		t.Errorf("Expected 0 active alerts after clear, got %d", len(state.Outputs.ActiveAlerts))
+	}
+	if state.Outputs.SepticSystemStatus.IsAlerting {
+		t.Error("Expected IsAlerting to be false after clear")
+	}
+	if !state.Outputs.SepticSystemStatus.AeratorFailureStart.IsZero() {
+		t.Error("Expected AeratorFailureStart to be cleared")
+	}
+	if !state.Outputs.SepticSystemStatus.PumpRunningStart.IsZero() {
+		t.Error("Expected PumpRunningStart to be cleared")
+	}
+}
+
+func TestInfrastructureTrackerGetStateReturnsDeepCopy(t *testing.T) {
+	t.Parallel()
+	it := NewInfrastructureTracker()
+
+	inputs := map[string]interface{}{
+		"testKey": "testValue",
+	}
+	it.UpdateCurrentInputs(inputs)
+
+	state1 := it.GetState()
+	state1.Inputs.Current["testKey"] = "modified"
+
+	state2 := it.GetState()
+	if state2.Inputs.Current["testKey"] != "testValue" {
+		t.Error("Modifying returned state affected the internal state")
+	}
+}
+
+func TestInfrastructureTrackerConcurrentAccess(t *testing.T) {
+	t.Parallel()
+	it := NewInfrastructureTracker()
+
+	var wg sync.WaitGroup
+
+	// Concurrent writes
+	for i := 0; i < 5; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			for j := 0; j < 20; j++ {
+				it.UpdateCurrentInputs(map[string]interface{}{"count": i*20 + j})
+				it.UpdateSepticPower(float64(i*20 + j))
+				it.UpdateIsAlerting(i%2 == 0)
+				it.RecordNotification("test", "test message", "low")
+			}
+		}(i)
+	}
+
+	// Concurrent reads
+	for i := 0; i < 5; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < 20; j++ {
+				_ = it.GetState()
+			}
+		}()
+	}
+
+	wg.Wait()
+}
+
+func TestInfrastructureShadowStateImplementsInterface(t *testing.T) {
+	t.Parallel()
+	var _ PluginShadowState = (*InfrastructureShadowState)(nil)
+}
+
+// ============================================================================
+// Energy Tracker Additional Tests (for uncovered methods)
+// ============================================================================
+
+func TestEnergyTrackerUpdateBatteryPercentage(t *testing.T) {
+	t.Parallel()
+	et := NewEnergyTracker()
+
+	et.UpdateBatteryPercentage(75.5)
+
+	state := et.GetState()
+	if state.Outputs.SensorReadings.BatteryPercentage != 75.5 {
+		t.Errorf("Expected BatteryPercentage 75.5, got %f", state.Outputs.SensorReadings.BatteryPercentage)
+	}
+	if state.Outputs.SensorReadings.LastUpdate.IsZero() {
+		t.Error("Expected LastUpdate to be set")
+	}
+}
+
+func TestEnergyTrackerUpdateThisHourSolarKW(t *testing.T) {
+	t.Parallel()
+	et := NewEnergyTracker()
+
+	et.UpdateThisHourSolarKW(5.25)
+
+	state := et.GetState()
+	if state.Outputs.SensorReadings.ThisHourSolarGenerationKW != 5.25 {
+		t.Errorf("Expected ThisHourSolarGenerationKW 5.25, got %f", state.Outputs.SensorReadings.ThisHourSolarGenerationKW)
+	}
+}
+
+func TestEnergyTrackerUpdateRemainingSolarKWH(t *testing.T) {
+	t.Parallel()
+	et := NewEnergyTracker()
+
+	et.UpdateRemainingSolarKWH(15.75)
+
+	state := et.GetState()
+	if state.Outputs.SensorReadings.RemainingSolarGenerationKWH != 15.75 {
+		t.Errorf("Expected RemainingSolarGenerationKWH 15.75, got %f", state.Outputs.SensorReadings.RemainingSolarGenerationKWH)
+	}
+}
+
+func TestEnergyTrackerUpdateGridAvailable(t *testing.T) {
+	t.Parallel()
+	et := NewEnergyTracker()
+
+	et.UpdateGridAvailable(false)
+
+	state := et.GetState()
+	if state.Outputs.SensorReadings.IsGridAvailable {
+		t.Error("Expected IsGridAvailable to be false")
+	}
+
+	et.UpdateGridAvailable(true)
+
+	state = et.GetState()
+	if !state.Outputs.SensorReadings.IsGridAvailable {
+		t.Error("Expected IsGridAvailable to be true")
+	}
+}
+
+func TestEnergyTrackerUpdateDiscoveredIndicatorLights(t *testing.T) {
+	t.Parallel()
+	et := NewEnergyTracker()
+
+	entities := []string{"light.indicator_1", "light.indicator_2", "light.indicator_3"}
+	et.UpdateDiscoveredIndicatorLights(entities)
+
+	state := et.GetState()
+	if len(state.Outputs.DiscoveredIndicatorLights) != 3 {
+		t.Errorf("Expected 3 indicator lights, got %d", len(state.Outputs.DiscoveredIndicatorLights))
+	}
+}
+
+func TestEnergyTrackerUpdateIndicatorLightsAction(t *testing.T) {
+	t.Parallel()
+	et := NewEnergyTracker()
+
+	rgbColor := []int{0, 255, 0}
+	entityIDs := []string{"light.indicator_1", "light.indicator_2"}
+	et.UpdateIndicatorLightsAction("high", rgbColor, 75, entityIDs)
+
+	state := et.GetState()
+	if state.Outputs.IndicatorLightsAction == nil {
+		t.Fatal("Expected IndicatorLightsAction to be set")
+	}
+	if state.Outputs.IndicatorLightsAction.EnergyLevel != "high" {
+		t.Errorf("Expected EnergyLevel 'high', got %s", state.Outputs.IndicatorLightsAction.EnergyLevel)
+	}
+	if len(state.Outputs.IndicatorLightsAction.RGBColor) != 3 {
+		t.Errorf("Expected 3 RGB values, got %d", len(state.Outputs.IndicatorLightsAction.RGBColor))
+	}
+	if state.Outputs.IndicatorLightsAction.BrightnessPct != 75 {
+		t.Errorf("Expected BrightnessPct 75, got %d", state.Outputs.IndicatorLightsAction.BrightnessPct)
+	}
+	if len(state.Outputs.IndicatorLightsAction.EntityIDs) != 2 {
+		t.Errorf("Expected 2 entity IDs, got %d", len(state.Outputs.IndicatorLightsAction.EntityIDs))
+	}
+}
+
+func TestEnergyTrackerUpdateLuxReading(t *testing.T) {
+	t.Parallel()
+	et := NewEnergyTracker()
+
+	et.UpdateLuxReading("sensor.office_lux", 450.0)
+
+	state := et.GetState()
+	if state.Outputs.LuxSensorReadings == nil {
+		t.Fatal("Expected LuxSensorReadings to be initialized")
+	}
+	reading, exists := state.Outputs.LuxSensorReadings["sensor.office_lux"]
+	if !exists {
+		t.Fatal("Expected lux reading for sensor.office_lux")
+	}
+	if reading.Lux != 450.0 {
+		t.Errorf("Expected Lux 450.0, got %f", reading.Lux)
+	}
+	if reading.EntityID != "sensor.office_lux" {
+		t.Errorf("Expected EntityID 'sensor.office_lux', got %s", reading.EntityID)
+	}
+}
+
+func TestEnergyTrackerUpdateLightToLuxMapping(t *testing.T) {
+	t.Parallel()
+	et := NewEnergyTracker()
+
+	mapping := map[string]string{
+		"light.office":  "sensor.office_lux",
+		"light.kitchen": "sensor.kitchen_lux",
+	}
+	et.UpdateLightToLuxMapping(mapping)
+
+	state := et.GetState()
+	if state.Outputs.LightToLuxSensorMapping == nil {
+		t.Fatal("Expected LightToLuxSensorMapping to be initialized")
+	}
+	if len(state.Outputs.LightToLuxSensorMapping) != 2 {
+		t.Errorf("Expected 2 mappings, got %d", len(state.Outputs.LightToLuxSensorMapping))
+	}
+	if state.Outputs.LightToLuxSensorMapping["light.office"] != "sensor.office_lux" {
+		t.Error("Expected light.office to map to sensor.office_lux")
+	}
+}
+
+func TestEnergyTrackerUpdatePerDeviceBrightness(t *testing.T) {
+	t.Parallel()
+	et := NewEnergyTracker()
+
+	et.UpdatePerDeviceBrightness("light.office", "sensor.office_lux", 450.0, 75, true)
+
+	state := et.GetState()
+	if state.Outputs.PerDeviceBrightness == nil {
+		t.Fatal("Expected PerDeviceBrightness to be initialized")
+	}
+	brightness, exists := state.Outputs.PerDeviceBrightness["light.office"]
+	if !exists {
+		t.Fatal("Expected brightness for light.office")
+	}
+	if brightness.LightEntity != "light.office" {
+		t.Errorf("Expected LightEntity 'light.office', got %s", brightness.LightEntity)
+	}
+	if brightness.LuxSensorEntity != "sensor.office_lux" {
+		t.Errorf("Expected LuxSensorEntity 'sensor.office_lux', got %s", brightness.LuxSensorEntity)
+	}
+	if brightness.CurrentLux != 450.0 {
+		t.Errorf("Expected CurrentLux 450.0, got %f", brightness.CurrentLux)
+	}
+	if brightness.BrightnessPct != 75 {
+		t.Errorf("Expected BrightnessPct 75, got %d", brightness.BrightnessPct)
+	}
+	if !brightness.IsAdaptive {
+		t.Error("Expected IsAdaptive to be true")
+	}
+}
+
+func TestEnergyTrackerUpdateBaselineLux(t *testing.T) {
+	t.Parallel()
+	et := NewEnergyTracker()
+
+	et.UpdateBaselineLux("light.office", 25.0)
+
+	state := et.GetState()
+	if state.Outputs.BaselineCalibrations == nil {
+		t.Fatal("Expected BaselineCalibrations to be initialized")
+	}
+	calibration, exists := state.Outputs.BaselineCalibrations["light.office"]
+	if !exists {
+		t.Fatal("Expected calibration for light.office")
+	}
+	if calibration.LightEntity != "light.office" {
+		t.Errorf("Expected LightEntity 'light.office', got %s", calibration.LightEntity)
+	}
+	if calibration.BaselineLux != 25.0 {
+		t.Errorf("Expected BaselineLux 25.0, got %f", calibration.BaselineLux)
+	}
+	if calibration.LastCalibrationTime.IsZero() {
+		t.Error("Expected LastCalibrationTime to be set")
+	}
+}
