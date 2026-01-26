@@ -554,6 +554,37 @@ Each plugin corresponds to a Node-RED flow and implements domain-specific automa
 - On startup, Golang loads all state from HA
 - In case of sync failures, Golang retries with exponential backoff
 
+### Computed State Registry
+
+The system includes a **ComputedStateRegistry** for managing derived state variables that are automatically computed from other state variables. This provides centralized dependency tracking and automatic recomputation when inputs change.
+
+**Registered Computed States:**
+
+| Variable | Formula | Dependencies |
+|----------|---------|--------------|
+| `isAnyOwnerHome` | `isNickHome OR isCarolineHome` | isNickHome, isCarolineHome |
+| `isAnyoneHome` | `isAnyOwnerHome OR isToriHere` | isAnyOwnerHome, isToriHere |
+| `isAnyoneAsleep` | `isMasterAsleep OR isGuestAsleep` | isMasterAsleep, isGuestAsleep |
+| `isEveryoneAsleep` | `isMasterAsleep AND isGuestAsleep` | isMasterAsleep, isGuestAsleep |
+| `isAnyoneHomeAndAwake` | `(isAnyOwnerHome && !isAnyoneAsleep) \|\| isToriHere \|\| wakeSequenceLatch` | isAnyOwnerHome, isAnyoneAsleep, isToriHere, isWakeSequenceActive |
+| `solarProductionEnergyLevel` | Solar level from thresholds | thisHourSolarGeneration, remainingSolarGeneration |
+| `currentEnergyLevel` | Combined battery + solar level | isFreeEnergyAvailable, batteryEnergyLevel, solarProductionEnergyLevel |
+
+**Key Features:**
+- **Dependency-triggered updates**: Automatically recomputes when any dependency changes
+- **Topological sorting**: Ensures correct initialization order (Level 1 before Level 2)
+- **Wake sequence latch**: Special handling for morning wake-up scenarios
+- **Callbacks**: Optional callbacks for shadow state updates when values change
+
+**Architecture Decision: Plugin-computed vs Registry-computed:**
+
+Some computed states remain in their plugins rather than the registry:
+
+| State Variable | Location | Reason |
+|---------------|----------|--------|
+| `batteryEnergyLevel` | Energy plugin | Depends on sensor data (not state variables) |
+| `dayPhase`, `sunevent` | DayPhase plugin | Time-based periodic computation, not dependency-triggered |
+
 ---
 
 ## Configuration Management

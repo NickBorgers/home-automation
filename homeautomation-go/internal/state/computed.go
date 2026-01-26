@@ -194,6 +194,32 @@ func (m *Manager) recomputeAnyoneHomeAndAwake() error {
 // Note: This is distinct from SetupComputedState() which uses the legacy
 // approach. Both methods are supported during the migration period.
 func (m *Manager) SetupComputedStateV2() error {
+	return m.SetupComputedStateV2WithEnergy(nil, nil)
+}
+
+// SetupComputedStateV2WithEnergy initializes computed state variables using the new
+// ComputedStateRegistry, including energy-related computed states.
+//
+// The energyStates parameter provides the energy level configuration from the
+// energy plugin config. If nil, energy computed states are not registered.
+//
+// The energyCallbacks parameter provides optional callbacks for shadow state
+// updates when energy levels change.
+//
+// This method registers:
+// - Basic presence/sleep computed states (isAnyOwnerHome, isAnyoneHome, etc.)
+// - isAnyoneHomeAndAwake with wake sequence latch
+// - Energy computed states (if energyStates is provided):
+//   - solarProductionEnergyLevel = f(thisHourSolarGeneration, remainingSolarGeneration)
+//   - currentEnergyLevel = f(isFreeEnergyAvailable, batteryEnergyLevel, solarProductionEnergyLevel)
+//
+// Note: batteryEnergyLevel is NOT registered as a computed state provider.
+// It depends on raw sensor data that comes through HA subscriptions, not state
+// variables. The energy plugin handles this directly.
+func (m *Manager) SetupComputedStateV2WithEnergy(
+	energyStates []EnergyStateConfig,
+	energyCallbacks *EnergyComputedStateCallback,
+) error {
 	registry := m.GetComputedStateRegistry()
 	latch := m.GetWakeSequenceLatch()
 
@@ -205,6 +231,13 @@ func (m *Manager) SetupComputedStateV2() error {
 	// Register isAnyoneHomeAndAwake with wake sequence latch support
 	if err := RegisterAnyoneHomeAndAwakeProvider(registry, latch, nil); err != nil {
 		return fmt.Errorf("failed to register isAnyoneHomeAndAwake provider: %w", err)
+	}
+
+	// Register energy computed states if config provided
+	if len(energyStates) > 0 {
+		if err := RegisterEnergyProviders(registry, energyStates, energyCallbacks); err != nil {
+			return fmt.Errorf("failed to register energy providers: %w", err)
+		}
 	}
 
 	// Start the registry
