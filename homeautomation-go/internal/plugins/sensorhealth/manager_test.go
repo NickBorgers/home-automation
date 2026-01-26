@@ -509,3 +509,288 @@ func TestSensorHealthManager_Reset(t *testing.T) {
 		t.Error("Expected battery sensors to still exist after reset")
 	}
 }
+
+// TestHandleBatteryChange tests the battery state change handler
+func TestHandleBatteryChange(t *testing.T) {
+	t.Parallel()
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+
+	manager := NewManager(mockClient, stateManager, logger, false, nil, nil)
+
+	// Add a battery sensor
+	manager.AddBatterySensor(&BatterySensor{
+		EntityID:     "sensor.battery_1",
+		FriendlyName: "Motion Sensor Battery",
+	})
+
+	// Simulate battery change using the SimulateBatteryChange helper
+	manager.SimulateBatteryChange("sensor.battery_1", 85.0)
+
+	// Verify sensor was updated
+	sensors := manager.GetBatterySensors()
+	if len(sensors) != 1 {
+		t.Fatalf("Expected 1 sensor, got %d", len(sensors))
+	}
+	sensor := sensors["sensor.battery_1"]
+	if sensor.BatteryLevel != 85.0 {
+		t.Errorf("Expected battery level 85.0, got %f", sensor.BatteryLevel)
+	}
+	if sensor.IsLow {
+		t.Error("Expected IsLow to be false at 85%")
+	}
+}
+
+// TestHandleBatteryChangeLowBattery tests that low battery triggers notification
+func TestHandleBatteryChangeLowBattery(t *testing.T) {
+	t.Parallel()
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+
+	manager := NewManager(mockClient, stateManager, logger, false, nil, nil)
+
+	// Add a battery sensor
+	manager.AddBatterySensor(&BatterySensor{
+		EntityID:     "sensor.battery_1",
+		FriendlyName: "Motion Sensor Battery",
+	})
+
+	// Simulate low battery change
+	manager.SimulateBatteryChange("sensor.battery_1", 15.0)
+
+	// Verify sensor is marked as low
+	sensors := manager.GetBatterySensors()
+	if len(sensors) != 1 {
+		t.Fatalf("Expected 1 sensor, got %d", len(sensors))
+	}
+	sensor := sensors["sensor.battery_1"]
+	if sensor.BatteryLevel != 15.0 {
+		t.Errorf("Expected battery level 15.0, got %f", sensor.BatteryLevel)
+	}
+	if !sensor.IsLow {
+		t.Error("Expected IsLow to be true at 15%")
+	}
+
+	// Check low battery count
+	lowCount := manager.GetLowBatteryCount()
+	if lowCount != 1 {
+		t.Errorf("Expected 1 low battery, got %d", lowCount)
+	}
+}
+
+// TestHandleBatteryChangeBatteryRecovery tests battery recovery from low state
+func TestHandleBatteryChangeBatteryRecovery(t *testing.T) {
+	t.Parallel()
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+
+	manager := NewManager(mockClient, stateManager, logger, false, nil, nil)
+
+	// Add a battery sensor
+	manager.AddBatterySensor(&BatterySensor{
+		EntityID:     "sensor.battery_1",
+		FriendlyName: "Motion Sensor Battery",
+	})
+
+	// First, set to low battery
+	manager.SimulateBatteryChange("sensor.battery_1", 15.0)
+
+	// Verify low state
+	sensors := manager.GetBatterySensors()
+	sensor := sensors["sensor.battery_1"]
+	if !sensor.IsLow {
+		t.Error("Expected IsLow to be true at 15%")
+	}
+
+	// Now battery recovers
+	manager.SimulateBatteryChange("sensor.battery_1", 100.0)
+
+	// Verify recovery
+	sensors = manager.GetBatterySensors()
+	sensor = sensors["sensor.battery_1"]
+	if sensor.IsLow {
+		t.Error("Expected IsLow to be false at 100%")
+	}
+	if sensor.BatteryLevel != 100.0 {
+		t.Errorf("Expected battery level 100.0, got %f", sensor.BatteryLevel)
+	}
+}
+
+// TestHandleBatteryChangeUnknownSensor tests handling of unknown sensor updates
+func TestHandleBatteryChangeUnknownSensor(t *testing.T) {
+	t.Parallel()
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+
+	manager := NewManager(mockClient, stateManager, logger, false, nil, nil)
+
+	// Try to update unknown sensor - should not panic
+	manager.SimulateBatteryChange("sensor.unknown", 50.0)
+
+	// Verify no sensors exist
+	sensors := manager.GetBatterySensors()
+	if len(sensors) != 0 {
+		t.Errorf("Expected 0 sensors, got %d", len(sensors))
+	}
+}
+
+// TestGetLowBatteryCount tests the low battery count getter
+func TestGetLowBatteryCount(t *testing.T) {
+	t.Parallel()
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+
+	manager := NewManager(mockClient, stateManager, logger, false, nil, nil)
+
+	// Initially no low batteries
+	if manager.GetLowBatteryCount() != 0 {
+		t.Error("Expected 0 low batteries initially")
+	}
+
+	// Add some sensors with varying battery levels
+	manager.AddBatterySensor(&BatterySensor{
+		EntityID:     "sensor.battery_1",
+		FriendlyName: "Sensor 1",
+	})
+	manager.AddBatterySensor(&BatterySensor{
+		EntityID:     "sensor.battery_2",
+		FriendlyName: "Sensor 2",
+	})
+	manager.AddBatterySensor(&BatterySensor{
+		EntityID:     "sensor.battery_3",
+		FriendlyName: "Sensor 3",
+	})
+
+	// Set battery levels - 2 low, 1 normal
+	manager.SimulateBatteryChange("sensor.battery_1", 10.0) // Low
+	manager.SimulateBatteryChange("sensor.battery_2", 85.0) // Normal
+	manager.SimulateBatteryChange("sensor.battery_3", 5.0)  // Low
+
+	// Verify count
+	lowCount := manager.GetLowBatteryCount()
+	if lowCount != 2 {
+		t.Errorf("Expected 2 low batteries, got %d", lowCount)
+	}
+}
+
+// TestAddBatterySensor tests adding battery sensors
+func TestAddBatterySensor(t *testing.T) {
+	t.Parallel()
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+
+	manager := NewManager(mockClient, stateManager, logger, false, nil, nil)
+
+	// Add sensors
+	manager.AddBatterySensor(&BatterySensor{
+		EntityID:     "sensor.battery_1",
+		FriendlyName: "Sensor One",
+	})
+	manager.AddBatterySensor(&BatterySensor{
+		EntityID:     "sensor.battery_2",
+		FriendlyName: "Sensor Two",
+	})
+
+	sensors := manager.GetBatterySensors()
+	if len(sensors) != 2 {
+		t.Fatalf("Expected 2 sensors, got %d", len(sensors))
+	}
+
+	// Verify sensor names
+	foundOne, foundTwo := false, false
+	for _, s := range sensors {
+		if s.FriendlyName == "Sensor One" {
+			foundOne = true
+		}
+		if s.FriendlyName == "Sensor Two" {
+			foundTwo = true
+		}
+	}
+	if !foundOne || !foundTwo {
+		t.Error("Expected to find both sensors by friendly name")
+	}
+}
+
+// TestShadowStateUpdatesOnBatteryChange tests that shadow state is updated when battery changes
+func TestShadowStateUpdatesOnBatteryChange(t *testing.T) {
+	t.Parallel()
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+
+	manager := NewManager(mockClient, stateManager, logger, false, nil, nil)
+
+	// Add a battery sensor
+	manager.AddBatterySensor(&BatterySensor{
+		EntityID:     "sensor.battery_1",
+		FriendlyName: "Motion Sensor",
+	})
+
+	// First battery change to populate shadow state
+	manager.SimulateBatteryChange("sensor.battery_1", 90.0)
+
+	// Verify shadow state has sensor with initial battery level
+	initialState := manager.GetShadowState()
+	if len(initialState.Outputs.BatterySensors) != 1 {
+		t.Fatalf("Expected 1 battery sensor in shadow state, got %d", len(initialState.Outputs.BatterySensors))
+	}
+
+	// Simulate another battery change
+	manager.SimulateBatteryChange("sensor.battery_1", 25.0)
+
+	// Check shadow state updated
+	shadowState := manager.GetShadowState()
+	if len(shadowState.Outputs.BatterySensors) != 1 {
+		t.Fatalf("Expected 1 battery sensor in shadow state, got %d", len(shadowState.Outputs.BatterySensors))
+	}
+
+	found := false
+	for _, s := range shadowState.Outputs.BatterySensors {
+		if s.EntityID == "sensor.battery_1" && s.BatteryLevel == 25.0 {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("Expected battery sensor with updated level in shadow state")
+	}
+}
+
+// TestLowBatteryAlertsInShadowState tests that low battery alerts are tracked in shadow state
+func TestLowBatteryAlertsInShadowState(t *testing.T) {
+	t.Parallel()
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+
+	manager := NewManager(mockClient, stateManager, logger, false, nil, nil)
+
+	// Add a battery sensor
+	manager.AddBatterySensor(&BatterySensor{
+		EntityID:     "sensor.battery_1",
+		FriendlyName: "Door Sensor",
+	})
+
+	// Set to low battery
+	manager.SimulateBatteryChange("sensor.battery_1", 10.0)
+
+	// Check shadow state has low battery alert
+	shadowState := manager.GetShadowState()
+	if len(shadowState.Outputs.LowBatteryAlerts) != 1 {
+		t.Fatalf("Expected 1 low battery alert in shadow state, got %d", len(shadowState.Outputs.LowBatteryAlerts))
+	}
+
+	alert := shadowState.Outputs.LowBatteryAlerts[0]
+	if alert.EntityID != "sensor.battery_1" {
+		t.Errorf("Expected alert for sensor.battery_1, got %s", alert.EntityID)
+	}
+	if alert.BatteryLevel != 10.0 {
+		t.Errorf("Expected battery level 10.0 in alert, got %f", alert.BatteryLevel)
+	}
+}
