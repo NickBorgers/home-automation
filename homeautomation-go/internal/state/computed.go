@@ -1,6 +1,10 @@
 package state
 
-import "go.uber.org/zap"
+import (
+	"fmt"
+
+	"go.uber.org/zap"
+)
 
 // SetupComputedState initializes computed state variables and sets up
 // subscriptions to automatically recompute them when dependencies change.
@@ -169,4 +173,54 @@ func (m *Manager) recomputeAnyoneHomeAndAwake() error {
 	}
 
 	return m.SetBool("isAnyoneHomeAndAwake", newValue)
+}
+
+// SetupComputedStateV2 initializes computed state variables using the new
+// ComputedStateRegistry. This is the recommended approach for new code.
+//
+// The registry provides:
+// - Centralized dependency tracking
+// - Automatic subscription management
+// - Topological sorting for proper initialization order
+// - Support for both dependency-triggered and periodic updates
+//
+// This method registers all basic computed states:
+// - isAnyOwnerHome = isNickHome OR isCarolineHome
+// - isAnyoneHome = isAnyOwnerHome OR isToriHere
+// - isAnyoneAsleep = isMasterAsleep OR isGuestAsleep
+// - isEveryoneAsleep = isMasterAsleep AND isGuestAsleep
+// - isAnyoneHomeAndAwake = (isAnyOwnerHome && !isAnyoneAsleep) || isToriHere || wakeSequenceLatch
+//
+// Note: This is distinct from SetupComputedState() which uses the legacy
+// approach. Both methods are supported during the migration period.
+func (m *Manager) SetupComputedStateV2() error {
+	registry := m.GetComputedStateRegistry()
+	latch := m.GetWakeSequenceLatch()
+
+	// Register basic presence and sleep computed states
+	if err := RegisterAllBasicProviders(registry, nil); err != nil {
+		return fmt.Errorf("failed to register basic providers: %w", err)
+	}
+
+	// Register isAnyoneHomeAndAwake with wake sequence latch support
+	if err := RegisterAnyoneHomeAndAwakeProvider(registry, latch, nil); err != nil {
+		return fmt.Errorf("failed to register isAnyoneHomeAndAwake provider: %w", err)
+	}
+
+	// Start the registry
+	if err := registry.Start(); err != nil {
+		return fmt.Errorf("failed to start computed state registry: %w", err)
+	}
+
+	// Start the wake sequence latch monitoring
+	if err := latch.Start(); err != nil {
+		registry.Stop()
+		return fmt.Errorf("failed to start wake sequence latch: %w", err)
+	}
+
+	m.logger.Info("Computed state V2 initialized",
+		zap.Strings("providers", registry.GetProviderNames()),
+		zap.Any("dependency_graph", registry.GetDependencyGraph()))
+
+	return nil
 }
