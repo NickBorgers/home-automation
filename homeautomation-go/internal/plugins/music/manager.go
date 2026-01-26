@@ -2461,11 +2461,16 @@ func (m *Manager) Reset() error {
 		return nil
 	}
 
-	// Update the music playback type state variable
-	// This triggers handleMusicPlaybackTypeChange which will:
-	// 1. Update lastPlaybackTime (for rate limiting)
-	// 2. Call orchestratePlayback (for actual playback)
-	// We don't call orchestratePlayback directly to avoid double-triggering
+	// Use clear-then-set pattern to force handler to fire even for same-mode resets
+	// This leverages the existing pattern used by sleep hygiene (per comment at line 422-424)
+	// Step 1: Clear to "" - this triggers handler but stopPlayback() is safe (just fades out)
+	// Step 2: Set to target mode - this triggers handler which calls orchestratePlayback()
+	if err := m.setMusicPlaybackType(""); err != nil {
+		if !errors.Is(err, state.ErrReadOnlyMode) {
+			m.logger.Error("Failed to clear music playback type", zap.Error(err))
+			return err
+		}
+	}
 	if err := m.setMusicPlaybackType(musicMode); err != nil {
 		if !errors.Is(err, state.ErrReadOnlyMode) {
 			m.logger.Error("Failed to set music playback type", zap.Error(err))
