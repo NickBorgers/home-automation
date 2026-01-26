@@ -1415,3 +1415,92 @@ func NewSensorConfigShadowState() *SensorConfigShadowState {
 		},
 	}
 }
+
+// ============================================================================
+// Water Flow Monitoring Shadow State
+// ============================================================================
+
+// WaterFlowShadowState represents the shadow state for the water flow monitoring plugin
+type WaterFlowShadowState struct {
+	Plugin   string           `json:"plugin"`
+	Inputs   WaterFlowInputs  `json:"inputs"`
+	Outputs  WaterFlowOutputs `json:"outputs"`
+	Metadata StateMetadata    `json:"metadata"`
+}
+
+// WaterFlowInputs tracks current sensor values (read-heavy, no at-last-action needed)
+type WaterFlowInputs struct {
+	Current map[string]interface{} `json:"current"`
+}
+
+// WaterFlowOutputs tracks water flow state and alerts
+type WaterFlowOutputs struct {
+	CurrentFlowRateGPM       float64          `json:"currentFlowRateGPM"`
+	AlertLevel               string           `json:"alertLevel"` // "none", "warning", "urgent"
+	WarningThresholdStart    *time.Time       `json:"warningThresholdStart,omitempty"`
+	UrgentThresholdStart     *time.Time       `json:"urgentThresholdStart,omitempty"`
+	RecoveryStart            *time.Time       `json:"recoveryStart,omitempty"` // When recovery debounce started
+	IsWarningConditionMet    bool             `json:"isWarningConditionMet"`
+	IsUrgentConditionMet     bool             `json:"isUrgentConditionMet"`
+	ActiveAlerts             []WaterFlowAlert `json:"activeAlerts,omitempty"`
+	LastNotification         *WaterFlowNotice `json:"lastNotification,omitempty"`
+	LastTTSAnnouncement      *time.Time       `json:"lastTTSAnnouncement,omitempty"`
+	LastRecoveryNotification *WaterFlowNotice `json:"lastRecoveryNotification,omitempty"`
+	LastUpdate               time.Time        `json:"lastUpdate"`
+}
+
+// WaterFlowAlert represents an active water flow alert
+type WaterFlowAlert struct {
+	AlertType       string    `json:"alertType"` // "warning", "urgent"
+	Message         string    `json:"message"`
+	FlowRateGPM     float64   `json:"flowRateGPM"`
+	DurationMinutes int       `json:"durationMinutes"`
+	DetectedAt      time.Time `json:"detectedAt"`
+}
+
+// WaterFlowNotice records a notification that was sent
+type WaterFlowNotice struct {
+	AlertType string    `json:"alertType"`
+	Message   string    `json:"message"`
+	Priority  string    `json:"priority"`
+	Timestamp time.Time `json:"timestamp"`
+}
+
+// GetCurrentInputs implements PluginShadowState
+func (w *WaterFlowShadowState) GetCurrentInputs() map[string]interface{} {
+	return w.Inputs.Current
+}
+
+// GetLastActionInputs implements PluginShadowState
+// For read-heavy plugins, this returns the same as current (no actions to track)
+func (w *WaterFlowShadowState) GetLastActionInputs() map[string]interface{} {
+	return w.Inputs.Current
+}
+
+// GetOutputs implements PluginShadowState
+func (w *WaterFlowShadowState) GetOutputs() interface{} {
+	return w.Outputs
+}
+
+// GetMetadata implements PluginShadowState
+func (w *WaterFlowShadowState) GetMetadata() StateMetadata {
+	return w.Metadata
+}
+
+// NewWaterFlowShadowState creates a new water flow shadow state
+func NewWaterFlowShadowState() *WaterFlowShadowState {
+	return &WaterFlowShadowState{
+		Plugin: "waterflow",
+		Inputs: WaterFlowInputs{
+			Current: make(map[string]interface{}),
+		},
+		Outputs: WaterFlowOutputs{
+			AlertLevel:   "none",
+			ActiveAlerts: make([]WaterFlowAlert, 0),
+		},
+		Metadata: StateMetadata{
+			LastUpdated: time.Now(),
+			PluginName:  "waterflow",
+		},
+	}
+}
