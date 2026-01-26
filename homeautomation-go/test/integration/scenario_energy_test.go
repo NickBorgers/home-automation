@@ -37,6 +37,22 @@ func setupEnergyScenarioTest(t *testing.T) (*MockHAServer, *energy.Manager, *sta
 	// Create logger
 	logger := testlogger.New()
 
+	// Convert energy config to EnergyStateConfig format for the registry
+	var energyStates []state.EnergyStateConfig
+	for _, es := range energyConfig.Energy.EnergyStates {
+		energyStates = append(energyStates, state.EnergyStateConfig{
+			ConditionName:                       es.ConditionName,
+			BatteryMinimumPercentage:            es.BatteryMinimumPercentage,
+			EnergyProductionMinimumKW:           es.EnergyProductionMinimumKW,
+			RemainingEnergyProductionMinimumKWH: es.RemainingEnergyProductionMinimumKWH,
+		})
+	}
+
+	// Set up the ComputedStateRegistry with energy providers
+	// This is now required since energy level computation moved from the plugin to the registry
+	err = manager.SetupComputedStateV2WithEnergy(energyStates, nil)
+	require.NoError(t, err, "Failed to set up computed state registry with energy providers")
+
 	// Use a fixed timezone for testing (UTC)
 	timezone := time.UTC
 
@@ -227,6 +243,21 @@ func TestScenario_OverallEnergyLevel_ReflectsWorstState(t *testing.T) {
 	energyConfig, err := energy.LoadConfig(configPath)
 	require.NoError(t, err, "Failed to load test energy config")
 
+	// Convert energy config to EnergyStateConfig format for the registry
+	var energyStates []state.EnergyStateConfig
+	for _, es := range energyConfig.Energy.EnergyStates {
+		energyStates = append(energyStates, state.EnergyStateConfig{
+			ConditionName:                       es.ConditionName,
+			BatteryMinimumPercentage:            es.BatteryMinimumPercentage,
+			EnergyProductionMinimumKW:           es.EnergyProductionMinimumKW,
+			RemainingEnergyProductionMinimumKWH: es.RemainingEnergyProductionMinimumKWH,
+		})
+	}
+
+	// Set up the ComputedStateRegistry with energy providers
+	err = manager.SetupComputedStateV2WithEnergy(energyStates, nil)
+	require.NoError(t, err, "Failed to set up computed state registry with energy providers")
+
 	// Create logger
 	logger := testlogger.New()
 
@@ -313,6 +344,21 @@ func TestScenario_FreeEnergyTimeWindow_OverridesEnergyLevel(t *testing.T) {
 	configPath := filepath.Join("testdata", "energy_config_test.yaml")
 	energyConfig, err := energy.LoadConfig(configPath)
 	require.NoError(t, err)
+
+	// Convert energy config to EnergyStateConfig format for the registry
+	var energyStates []state.EnergyStateConfig
+	for _, es := range energyConfig.Energy.EnergyStates {
+		energyStates = append(energyStates, state.EnergyStateConfig{
+			ConditionName:                       es.ConditionName,
+			BatteryMinimumPercentage:            es.BatteryMinimumPercentage,
+			EnergyProductionMinimumKW:           es.EnergyProductionMinimumKW,
+			RemainingEnergyProductionMinimumKWH: es.RemainingEnergyProductionMinimumKWH,
+		})
+	}
+
+	// Set up the ComputedStateRegistry with energy providers
+	err = manager.SetupComputedStateV2WithEnergy(energyStates, nil)
+	require.NoError(t, err, "Failed to set up computed state registry with energy providers")
 
 	logger := testlogger.New()
 	energyMgr := energy.NewManager(client, manager, energyConfig, logger, false, time.UTC, nil)

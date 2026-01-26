@@ -15,9 +15,11 @@ type EnergyStateConfig struct {
 
 // EnergyComputedStateCallback is called when energy computed states are updated.
 // This allows the energy plugin to track changes for shadow state updates.
+//
+// Note: batteryEnergyLevel is NOT computed by the registry (it depends on sensor
+// data), so there is no callback for it here. The energy plugin handles battery
+// level computation directly.
 type EnergyComputedStateCallback struct {
-	// OnBatteryLevelUpdate is called when batteryEnergyLevel updates
-	OnBatteryLevelUpdate func(level string)
 	// OnSolarLevelUpdate is called when solarProductionEnergyLevel updates
 	OnSolarLevelUpdate func(level string)
 	// OnOverallLevelUpdate is called when currentEnergyLevel updates

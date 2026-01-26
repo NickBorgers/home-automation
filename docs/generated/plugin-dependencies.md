@@ -55,8 +55,7 @@ graph LR
     end
 
     %% Subscriptions (plugin listens to variable)
-    batteryEnergyLevel -.-> energy
-    isFreeEnergyAvailable -.-> energy
+    currentEnergyLevel -.-> energy
     isGridAvailable -.-> energy
     solarProductionEnergyLevel -.-> energy
     dayPhase -.-> lighting
@@ -82,10 +81,8 @@ graph LR
     dayphase --> dayPhase
     dayphase --> sunevent
     energy --> batteryEnergyLevel
-    energy --> currentEnergyLevel
     energy --> isFreeEnergyAvailable
     energy --> remainingSolarGeneration
-    energy --> solarProductionEnergyLevel
     energy --> thisHourSolarGeneration
     music --> currentlyPlayingMusicUri
     music --> musicPlaybackType
