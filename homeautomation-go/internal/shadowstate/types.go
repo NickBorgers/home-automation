@@ -1439,6 +1439,7 @@ type WaterFlowOutputs struct {
 	AlertLevel               string           `json:"alertLevel"` // "none", "warning", "urgent"
 	WarningThresholdStart    *time.Time       `json:"warningThresholdStart,omitempty"`
 	UrgentThresholdStart     *time.Time       `json:"urgentThresholdStart,omitempty"`
+	RecoveryStart            *time.Time       `json:"recoveryStart,omitempty"` // When recovery debounce started
 	IsWarningConditionMet    bool             `json:"isWarningConditionMet"`
 	IsUrgentConditionMet     bool             `json:"isUrgentConditionMet"`
 	ActiveAlerts             []WaterFlowAlert `json:"activeAlerts,omitempty"`

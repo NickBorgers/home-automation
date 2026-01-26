@@ -41,6 +41,10 @@ const (
 
 	// RepeatAlertCooldown prevents repeat alert spam
 	RepeatAlertCooldown = 4 * time.Hour
+
+	// RecoveryDebounceSeconds is how long flow must stay below threshold before declaring recovery
+	// This prevents rapid alert/recovery flapping from sensor noise
+	RecoveryDebounceSeconds = 30
 )
 
 // Manager handles water flow monitoring
@@ -63,6 +67,7 @@ type Manager struct {
 	currentFlowRateGPM        float64
 	warningThresholdStartTime time.Time // When flow exceeded WarningFlowRateGPM
 	urgentThresholdStartTime  time.Time // When flow exceeded UrgentFlowRateGPM
+	recoveryStartTime         time.Time // When flow first dropped below threshold (for debounce)
 	lastAlertNotification     time.Time // Last time we sent an alert notification
 	lastRecoveryNotification  time.Time // Last time we sent a recovery notification
 	isWarningActive           bool      // Currently in warning alert state
@@ -189,6 +194,9 @@ func (m *Manager) handleFlowChange(entityID string, oldState, newState *ha.State
 			m.warningThresholdStartTime = now
 			m.shadowTracker.UpdateWarningThresholdStart(&now)
 		}
+		// Clear recovery tracking since we're above threshold
+		m.recoveryStartTime = time.Time{}
+		m.shadowTracker.UpdateRecoveryStart(nil)
 	} else if flowRateGPM >= WarningFlowRateGPM {
 		// Moderate flow - possible forgotten fixture
 		if m.warningThresholdStartTime.IsZero() {
@@ -200,25 +208,49 @@ func (m *Manager) handleFlowChange(entityID string, oldState, newState *ha.State
 		// Clear urgent tracking since we're below that threshold
 		m.urgentThresholdStartTime = time.Time{}
 		m.shadowTracker.UpdateUrgentThresholdStart(nil)
+		// Clear recovery tracking since we're above warning threshold
+		m.recoveryStartTime = time.Time{}
+		m.shadowTracker.UpdateRecoveryStart(nil)
 	} else {
-		// Flow below thresholds - check for recovery
+		// Flow below thresholds - start or continue recovery debounce
 		wasAlerting := m.isWarningActive || m.isUrgentActive
 
+		// Clear threshold tracking
 		m.warningThresholdStartTime = time.Time{}
 		m.urgentThresholdStartTime = time.Time{}
 		m.shadowTracker.UpdateWarningThresholdStart(nil)
 		m.shadowTracker.UpdateUrgentThresholdStart(nil)
-		m.shadowTracker.UpdateAlertLevel("none")
 
-		// Check if we should send recovery notification
+		// If we were alerting, implement recovery debounce
 		if wasAlerting {
-			m.isWarningActive = false
-			m.isUrgentActive = false
-			m.shadowTracker.UpdateConditionsMet(false, false)
-			m.shadowTracker.ClearAlerts()
-			m.mu.Unlock()
-			m.sendRecoveryNotification()
-			return
+			// Start recovery timer if not already started
+			if m.recoveryStartTime.IsZero() {
+				m.recoveryStartTime = now
+				m.shadowTracker.UpdateRecoveryStart(&now)
+				m.logger.Info("Flow dropped below threshold, starting recovery debounce",
+					zap.Float64("flow_rate_gpm", flowRateGPM))
+			}
+
+			// Check if debounce period has passed
+			if now.Sub(m.recoveryStartTime) >= RecoveryDebounceSeconds*time.Second {
+				m.logger.Info("Recovery debounce complete, declaring recovery",
+					zap.Float64("flow_rate_gpm", flowRateGPM),
+					zap.Duration("debounce_duration", now.Sub(m.recoveryStartTime)))
+				m.isWarningActive = false
+				m.isUrgentActive = false
+				m.recoveryStartTime = time.Time{}
+				m.shadowTracker.UpdateConditionsMet(false, false)
+				m.shadowTracker.ClearAlerts()
+				m.shadowTracker.UpdateAlertLevel("none")
+				m.shadowTracker.UpdateRecoveryStart(nil)
+				m.mu.Unlock()
+				m.sendRecoveryNotification()
+				return
+			}
+			// Still in debounce period - don't clear alert state yet
+		} else {
+			// Not alerting - just clear alert level
+			m.shadowTracker.UpdateAlertLevel("none")
 		}
 	}
 	m.mu.Unlock()
@@ -495,4 +527,11 @@ func (m *Manager) GetUrgentThresholdStartTime() time.Time {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.urgentThresholdStartTime
+}
+
+// GetRecoveryStartTime returns when recovery debounce started for testing
+func (m *Manager) GetRecoveryStartTime() time.Time {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.recoveryStartTime
 }

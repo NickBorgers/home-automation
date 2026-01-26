@@ -2041,6 +2041,15 @@ func (wt *WaterFlowTracker) UpdateUrgentThresholdStart(startTime *time.Time) {
 	wt.state.Metadata.LastUpdated = time.Now()
 }
 
+// UpdateRecoveryStart tracks when recovery debounce started
+func (wt *WaterFlowTracker) UpdateRecoveryStart(startTime *time.Time) {
+	wt.mu.Lock()
+	defer wt.mu.Unlock()
+
+	wt.state.Outputs.RecoveryStart = startTime
+	wt.state.Metadata.LastUpdated = time.Now()
+}
+
 // UpdateConditionsMet updates whether conditions are met for alerts
 func (wt *WaterFlowTracker) UpdateConditionsMet(warningMet, urgentMet bool) {
 	wt.mu.Lock()
@@ -2148,6 +2157,10 @@ func (wt *WaterFlowTracker) GetState() *WaterFlowShadowState {
 	if wt.state.Outputs.UrgentThresholdStart != nil {
 		t := *wt.state.Outputs.UrgentThresholdStart
 		stateCopy.Outputs.UrgentThresholdStart = &t
+	}
+	if wt.state.Outputs.RecoveryStart != nil {
+		t := *wt.state.Outputs.RecoveryStart
+		stateCopy.Outputs.RecoveryStart = &t
 	}
 
 	// Copy active alerts

@@ -271,10 +271,31 @@ func TestWaterFlowManager_RecoveryNotification(t *testing.T) {
 		t.Fatalf("Expected 1 notification for urgent, got %d", count)
 	}
 
-	// Simulate recovery (flow back to normal)
+	// Simulate recovery (flow back to normal) - starts debounce
 	manager.SimulateFlowReading(0.1)
 
-	// Should have sent recovery notification
+	// Should NOT have sent recovery notification yet (debounce in progress)
+	if count := countNtfyNotifications(mockNtfy); count != 1 {
+		t.Errorf("Expected 1 notification (recovery debounce not complete), got %d", count)
+	}
+
+	// Verify recovery debounce started
+	if manager.GetRecoveryStartTime().IsZero() {
+		t.Error("Expected recovery start time to be set")
+	}
+
+	// Alert should still be active during debounce
+	if !manager.IsUrgentActive() {
+		t.Error("Should still be in urgent state during recovery debounce")
+	}
+
+	// Advance past debounce period (30 seconds)
+	mockClock.Advance(31 * time.Second)
+
+	// Simulate another low flow reading to trigger debounce check
+	manager.SimulateFlowReading(0.1)
+
+	// Should have sent recovery notification now
 	if count := countNtfyNotifications(mockNtfy); count != 2 {
 		t.Errorf("Expected 2 notifications (urgent + recovery), got %d", count)
 	}
@@ -319,7 +340,10 @@ func TestWaterFlowManager_RateLimiting(t *testing.T) {
 
 	initialCount := countNtfyNotifications(mockNtfy)
 
-	// Recover
+	// Recover - start debounce
+	manager.SimulateFlowReading(0.1)
+	// Advance past debounce period
+	mockClock.Advance(31 * time.Second)
 	manager.SimulateFlowReading(0.1)
 	recoveryCount := countNtfyNotifications(mockNtfy)
 
@@ -363,7 +387,10 @@ func TestWaterFlowManager_RecoveryRateLimiting(t *testing.T) {
 	mockClock.Advance(31 * time.Minute)
 	manager.TriggerEvaluation()
 
-	// First recovery
+	// First recovery - start debounce
+	manager.SimulateFlowReading(0.1)
+	// Advance past debounce period
+	mockClock.Advance(31 * time.Second)
 	manager.SimulateFlowReading(0.1)
 	firstRecoveryCount := countNtfyNotifications(mockNtfy)
 
@@ -371,6 +398,10 @@ func TestWaterFlowManager_RecoveryRateLimiting(t *testing.T) {
 	manager.SimulateFlowReading(0.5)
 	mockClock.Advance(31 * time.Minute)
 	manager.TriggerEvaluation()
+	// Start recovery debounce
+	manager.SimulateFlowReading(0.1)
+	// Advance past debounce period
+	mockClock.Advance(31 * time.Second)
 	manager.SimulateFlowReading(0.1)
 
 	// Second recovery should be rate limited (30 min cooldown)
@@ -607,6 +638,102 @@ func TestWaterFlowManager_TransitionFromWarningToUrgent(t *testing.T) {
 	msg := getLastNtfyNotification(mockNtfy)
 	if msg.Title != "Possible Pipe Break" {
 		t.Errorf("Expected urgent notification, got title '%s'", msg.Title)
+	}
+}
+
+func TestWaterFlowManager_RecoveryDebounce(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	mockNtfy := ntfy.NewMockClient()
+	startTime := time.Now()
+	mockClock := clock.NewMockClock(startTime)
+
+	manager := createTestManager(mockHA, mockNtfy, mockClock)
+
+	// Simulate urgent alert
+	manager.SimulateFlowReading(0.5)
+	mockClock.Advance(31 * time.Minute)
+	manager.TriggerEvaluation()
+
+	// Verify urgent alert was sent
+	if count := countNtfyNotifications(mockNtfy); count != 1 {
+		t.Fatalf("Expected 1 notification for urgent, got %d", count)
+	}
+
+	// Flow drops below threshold - starts debounce
+	manager.SimulateFlowReading(0.1)
+
+	// Verify debounce started
+	if manager.GetRecoveryStartTime().IsZero() {
+		t.Error("Expected recovery start time to be set when flow drops")
+	}
+
+	// Still in alert state
+	if !manager.IsUrgentActive() {
+		t.Error("Should still be in urgent state during debounce")
+	}
+
+	// Advance 15 seconds (not past 30 second debounce)
+	mockClock.Advance(15 * time.Second)
+
+	// Flow goes back above threshold - should reset debounce
+	manager.SimulateFlowReading(0.5)
+
+	// Verify debounce was cleared
+	if !manager.GetRecoveryStartTime().IsZero() {
+		t.Error("Expected recovery start time to be cleared when flow goes back up")
+	}
+
+	// Still in alert state
+	if !manager.IsUrgentActive() {
+		t.Error("Should still be in urgent state after brief dip")
+	}
+
+	// No recovery notification should have been sent
+	if count := countNtfyNotifications(mockNtfy); count != 1 {
+		t.Errorf("Expected 1 notification (no recovery), got %d", count)
+	}
+}
+
+func TestWaterFlowManager_RecoveryDebounceWithWarningThreshold(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	mockNtfy := ntfy.NewMockClient()
+	startTime := time.Now()
+	mockClock := clock.NewMockClock(startTime)
+
+	manager := createTestManager(mockHA, mockNtfy, mockClock)
+
+	// Simulate warning alert (0.35 GPM for 60+ minutes)
+	manager.SimulateFlowReading(0.35)
+	mockClock.Advance(61 * time.Minute)
+	manager.TriggerEvaluation()
+
+	// Verify warning alert was sent
+	if count := countNtfyNotifications(mockNtfy); count != 1 {
+		t.Fatalf("Expected 1 notification for warning, got %d", count)
+	}
+
+	if !manager.IsWarningActive() {
+		t.Fatal("Expected warning to be active")
+	}
+
+	// Flow drops below threshold - starts debounce
+	manager.SimulateFlowReading(0.1)
+
+	// Verify debounce started
+	if manager.GetRecoveryStartTime().IsZero() {
+		t.Error("Expected recovery start time to be set when flow drops")
+	}
+
+	// Flow goes back above warning threshold - should reset debounce
+	manager.SimulateFlowReading(0.35)
+
+	// Verify debounce was cleared
+	if !manager.GetRecoveryStartTime().IsZero() {
+		t.Error("Expected recovery start time to be cleared when flow goes back up")
 	}
 }
 
