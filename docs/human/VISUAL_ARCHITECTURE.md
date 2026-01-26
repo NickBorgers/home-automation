@@ -52,6 +52,7 @@ graph TB
             Environmental[Environmental<br/>internal/plugins/environmental/]
             SensorHealth[Sensor Health<br/>internal/plugins/sensorhealth/]
             Infrastructure[Infrastructure<br/>internal/plugins/infrastructure/]
+            WaterFlow[Water Flow<br/>internal/plugins/waterflow/]
             ResetCoord[Reset Coordinator<br/>internal/plugins/reset/]
             SensorConfig[Sensor Config<br/>internal/plugins/sensorconfig/]
         end
@@ -146,6 +147,11 @@ graph TB
     Infrastructure -->|TTS Announcements| HAClient
     Infrastructure -.->|Register Shadow| ShadowTracker
 
+    WaterFlow -->|Entity Subscriptions| HAClient
+    WaterFlow -->|Notifications| Ntfy
+    WaterFlow -->|TTS Announcements| HAClient
+    WaterFlow -.->|Register Shadow| ShadowTracker
+
     ResetCoord -->|Subscribe to reset| StateManager
     ResetCoord -.->|Reset All| StateTracking
     ResetCoord -.->|Reset All| Music
@@ -176,6 +182,7 @@ graph TB
     style SensorHealth fill:#f3e5f5
     style StateTracking fill:#f3e5f5
     style DayPhase fill:#f3e5f5
+    style WaterFlow fill:#f3e5f5
     style ResetCoord fill:#ffebee
     style SensorConfig fill:#f3e5f5
 ```
@@ -938,6 +945,7 @@ graph LR
         ChristmasPlugin[Christmas Plugin]
         EnvironmentalPlugin[Environmental Plugin]
         SensorHealthPlugin[Sensor Health Plugin]
+        WaterFlowPlugin[Water Flow Plugin<br/>Order: 71]
         ResetCoord[Reset Coordinator<br/>Order: 90]
     end
 
@@ -945,6 +953,7 @@ graph LR
         HumiditySensors[sensor.*_humidity]
         WaterLeakSensors[binary_sensor.*water_leak*]
         BatteryStateSensors[sensor.*_battery]
+        WaterFlowSensor[sensor.droplet_flow_rate]
     end
 
     NickHome --> StateTracking
@@ -1032,6 +1041,9 @@ graph LR
     BatteryStateSensors --> SensorHealthPlugin
     SensorHealthPlugin -.->|Notifications| Ntfy
 
+    WaterFlowSensor --> WaterFlowPlugin
+    WaterFlowPlugin -.->|Notifications| Ntfy
+
     Reset --> ResetCoord
     ResetCoord -.->|Reset| StateTracking
     ResetCoord -.->|Reset| DayPhasePlugin
@@ -1043,6 +1055,7 @@ graph LR
     ResetCoord -.->|Reset| SexModePlugin
     ResetCoord -.->|Reset| SleepHygiene
     ResetCoord -.->|Reset| ChristmasPlugin
+    ResetCoord -.->|Reset| WaterFlowPlugin
 
     style AnyOwnerHome fill:#fff3e0
     style AnyoneHome fill:#fff3e0

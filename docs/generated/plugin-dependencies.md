@@ -51,6 +51,7 @@ graph LR
         sleephygiene["sleephygiene"]
         statetracking["statetracking"]
         tv["tv"]
+        waterflow["waterflow"]
     end
 
     %% Subscriptions (plugin listens to variable)

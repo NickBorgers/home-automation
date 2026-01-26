@@ -1975,3 +1975,197 @@ func (it *InfrastructureTracker) GetState() *InfrastructureShadowState {
 
 	return stateCopy
 }
+
+// ============================================================================
+// Water Flow Tracker - High Water Flow Monitoring
+// ============================================================================
+
+// WaterFlowTracker manages shadow state for the water flow monitoring plugin
+type WaterFlowTracker struct {
+	mu    sync.RWMutex
+	state *WaterFlowShadowState
+}
+
+// NewWaterFlowTracker creates a new water flow shadow state tracker
+func NewWaterFlowTracker() *WaterFlowTracker {
+	return &WaterFlowTracker{
+		state: NewWaterFlowShadowState(),
+	}
+}
+
+// UpdateCurrentInputs updates the current input values
+func (wt *WaterFlowTracker) UpdateCurrentInputs(inputs map[string]interface{}) {
+	wt.mu.Lock()
+	defer wt.mu.Unlock()
+
+	for key, value := range inputs {
+		wt.state.Inputs.Current[key] = value
+	}
+	wt.state.Metadata.LastUpdated = time.Now()
+}
+
+// UpdateFlowRate updates the current flow rate reading
+func (wt *WaterFlowTracker) UpdateFlowRate(flowRateGPM float64) {
+	wt.mu.Lock()
+	defer wt.mu.Unlock()
+
+	wt.state.Outputs.CurrentFlowRateGPM = flowRateGPM
+	wt.state.Outputs.LastUpdate = time.Now()
+	wt.state.Metadata.LastUpdated = time.Now()
+}
+
+// UpdateAlertLevel updates the current alert level
+func (wt *WaterFlowTracker) UpdateAlertLevel(level string) {
+	wt.mu.Lock()
+	defer wt.mu.Unlock()
+
+	wt.state.Outputs.AlertLevel = level
+	wt.state.Metadata.LastUpdated = time.Now()
+}
+
+// UpdateWarningThresholdStart tracks when warning threshold was exceeded
+func (wt *WaterFlowTracker) UpdateWarningThresholdStart(startTime *time.Time) {
+	wt.mu.Lock()
+	defer wt.mu.Unlock()
+
+	wt.state.Outputs.WarningThresholdStart = startTime
+	wt.state.Metadata.LastUpdated = time.Now()
+}
+
+// UpdateUrgentThresholdStart tracks when urgent threshold was exceeded
+func (wt *WaterFlowTracker) UpdateUrgentThresholdStart(startTime *time.Time) {
+	wt.mu.Lock()
+	defer wt.mu.Unlock()
+
+	wt.state.Outputs.UrgentThresholdStart = startTime
+	wt.state.Metadata.LastUpdated = time.Now()
+}
+
+// UpdateConditionsMet updates whether conditions are met for alerts
+func (wt *WaterFlowTracker) UpdateConditionsMet(warningMet, urgentMet bool) {
+	wt.mu.Lock()
+	defer wt.mu.Unlock()
+
+	wt.state.Outputs.IsWarningConditionMet = warningMet
+	wt.state.Outputs.IsUrgentConditionMet = urgentMet
+	wt.state.Metadata.LastUpdated = time.Now()
+}
+
+// UpdateActiveAlerts updates the list of active alerts
+func (wt *WaterFlowTracker) UpdateActiveAlerts(alerts []WaterFlowAlert) {
+	wt.mu.Lock()
+	defer wt.mu.Unlock()
+
+	wt.state.Outputs.ActiveAlerts = make([]WaterFlowAlert, len(alerts))
+	copy(wt.state.Outputs.ActiveAlerts, alerts)
+	wt.state.Metadata.LastUpdated = time.Now()
+}
+
+// RecordNotification records a notification that was sent
+func (wt *WaterFlowTracker) RecordNotification(alertType, message, priority string) {
+	wt.mu.Lock()
+	defer wt.mu.Unlock()
+
+	wt.state.Outputs.LastNotification = &WaterFlowNotice{
+		AlertType: alertType,
+		Message:   message,
+		Priority:  priority,
+		Timestamp: time.Now(),
+	}
+	wt.state.Metadata.LastUpdated = time.Now()
+}
+
+// RecordRecoveryNotification records a recovery notification that was sent
+func (wt *WaterFlowTracker) RecordRecoveryNotification(message string) {
+	wt.mu.Lock()
+	defer wt.mu.Unlock()
+
+	wt.state.Outputs.LastRecoveryNotification = &WaterFlowNotice{
+		AlertType: "recovery",
+		Message:   message,
+		Priority:  "default",
+		Timestamp: time.Now(),
+	}
+	wt.state.Metadata.LastUpdated = time.Now()
+}
+
+// RecordTTSAnnouncement records a TTS announcement that was made
+func (wt *WaterFlowTracker) RecordTTSAnnouncement() {
+	wt.mu.Lock()
+	defer wt.mu.Unlock()
+
+	now := time.Now()
+	wt.state.Outputs.LastTTSAnnouncement = &now
+	wt.state.Metadata.LastUpdated = now
+}
+
+// ClearAlerts clears all active alerts and resets alerting state
+func (wt *WaterFlowTracker) ClearAlerts() {
+	wt.mu.Lock()
+	defer wt.mu.Unlock()
+
+	wt.state.Outputs.AlertLevel = "none"
+	wt.state.Outputs.ActiveAlerts = make([]WaterFlowAlert, 0)
+	wt.state.Outputs.WarningThresholdStart = nil
+	wt.state.Outputs.UrgentThresholdStart = nil
+	wt.state.Outputs.IsWarningConditionMet = false
+	wt.state.Outputs.IsUrgentConditionMet = false
+	wt.state.Metadata.LastUpdated = time.Now()
+}
+
+// GetState returns the current shadow state (thread-safe copy)
+func (wt *WaterFlowTracker) GetState() *WaterFlowShadowState {
+	wt.mu.RLock()
+	defer wt.mu.RUnlock()
+
+	// Create a deep copy
+	stateCopy := &WaterFlowShadowState{
+		Plugin: wt.state.Plugin,
+		Inputs: WaterFlowInputs{
+			Current: make(map[string]interface{}),
+		},
+		Outputs: WaterFlowOutputs{
+			CurrentFlowRateGPM:    wt.state.Outputs.CurrentFlowRateGPM,
+			AlertLevel:            wt.state.Outputs.AlertLevel,
+			IsWarningConditionMet: wt.state.Outputs.IsWarningConditionMet,
+			IsUrgentConditionMet:  wt.state.Outputs.IsUrgentConditionMet,
+			ActiveAlerts:          make([]WaterFlowAlert, len(wt.state.Outputs.ActiveAlerts)),
+			LastUpdate:            wt.state.Outputs.LastUpdate,
+		},
+		Metadata: wt.state.Metadata,
+	}
+
+	// Copy current inputs
+	for k, v := range wt.state.Inputs.Current {
+		stateCopy.Inputs.Current[k] = v
+	}
+
+	// Copy threshold start times if set
+	if wt.state.Outputs.WarningThresholdStart != nil {
+		t := *wt.state.Outputs.WarningThresholdStart
+		stateCopy.Outputs.WarningThresholdStart = &t
+	}
+	if wt.state.Outputs.UrgentThresholdStart != nil {
+		t := *wt.state.Outputs.UrgentThresholdStart
+		stateCopy.Outputs.UrgentThresholdStart = &t
+	}
+
+	// Copy active alerts
+	copy(stateCopy.Outputs.ActiveAlerts, wt.state.Outputs.ActiveAlerts)
+
+	// Copy notification records if they exist
+	if wt.state.Outputs.LastNotification != nil {
+		notification := *wt.state.Outputs.LastNotification
+		stateCopy.Outputs.LastNotification = &notification
+	}
+	if wt.state.Outputs.LastRecoveryNotification != nil {
+		recovery := *wt.state.Outputs.LastRecoveryNotification
+		stateCopy.Outputs.LastRecoveryNotification = &recovery
+	}
+	if wt.state.Outputs.LastTTSAnnouncement != nil {
+		tts := *wt.state.Outputs.LastTTSAnnouncement
+		stateCopy.Outputs.LastTTSAnnouncement = &tts
+	}
+
+	return stateCopy
+}
