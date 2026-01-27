@@ -719,7 +719,7 @@ jobs:
           MAX_ATTEMPTS=40
           ATTEMPT=1
           while [ $ATTEMPT -le $MAX_ATTEMPTS ]; do
-            STATUS=$(gh api repos/${{ github.repository }}/commits/$HEAD_SHA/check-runs --jq '.check_runs[] | select(.name == "All Required Tests") | .conclusion' 2>/dev/null | head -1 || echo "")
+            STATUS=$(gh api repos/${{ github.repository }}/commits/$HEAD_SHA/check-runs --jq '[.check_runs[] | select(.name == "All Required Tests")] | sort_by(.completed_at) | last | .conclusion' 2>/dev/null || echo "")
 
             if [ "$STATUS" = "success" ]; then
               echo "✅ All Required Tests passed on current commit"
@@ -916,7 +916,7 @@ jobs:
           MAX_ATTEMPTS=40
           ATTEMPT=1
           while [ $ATTEMPT -le $MAX_ATTEMPTS ]; do
-            STATUS=$(gh api repos/${{ github.repository }}/commits/$HEAD_SHA/check-runs --jq '.check_runs[] | select(.name == "All Required Tests") | .conclusion' 2>/dev/null | head -1 || echo "")
+            STATUS=$(gh api repos/${{ github.repository }}/commits/$HEAD_SHA/check-runs --jq '[.check_runs[] | select(.name == "All Required Tests")] | sort_by(.completed_at) | last | .conclusion' 2>/dev/null || echo "")
 
             if [ "$STATUS" = "success" ]; then
               echo "✅ All Required Tests passed on current commit"
@@ -1073,7 +1073,7 @@ jobs:
           MAX_ATTEMPTS=40
           ATTEMPT=1
           while [ $ATTEMPT -le $MAX_ATTEMPTS ]; do
-            STATUS=$(gh api repos/${{ github.repository }}/commits/$HEAD_SHA/check-runs --jq '.check_runs[] | select(.name == "All Required Tests") | .conclusion' 2>/dev/null | head -1 || echo "")
+            STATUS=$(gh api repos/${{ github.repository }}/commits/$HEAD_SHA/check-runs --jq '[.check_runs[] | select(.name == "All Required Tests")] | sort_by(.completed_at) | last | .conclusion' 2>/dev/null || echo "")
 
             if [ "$STATUS" = "success" ]; then
               echo "✅ All Required Tests passed on current commit"
@@ -1209,7 +1209,7 @@ jobs:
           MAX_ATTEMPTS=40
           ATTEMPT=1
           while [ $ATTEMPT -le $MAX_ATTEMPTS ]; do
-            STATUS=$(gh api repos/${{ github.repository }}/commits/$HEAD_SHA/check-runs --jq '.check_runs[] | select(.name == "All Required Tests") | .conclusion' 2>/dev/null | head -1 || echo "")
+            STATUS=$(gh api repos/${{ github.repository }}/commits/$HEAD_SHA/check-runs --jq '[.check_runs[] | select(.name == "All Required Tests")] | sort_by(.completed_at) | last | .conclusion' 2>/dev/null || echo "")
 
             if [ "$STATUS" = "success" ]; then
               echo "✅ All Required Tests passed on current commit"
@@ -1359,7 +1359,7 @@ jobs:
           MAX_ATTEMPTS=40
           ATTEMPT=1
           while [ $ATTEMPT -le $MAX_ATTEMPTS ]; do
-            STATUS=$(gh api repos/${{ github.repository }}/commits/$HEAD_SHA/check-runs --jq '.check_runs[] | select(.name == "All Required Tests") | .conclusion' 2>/dev/null | head -1 || echo "")
+            STATUS=$(gh api repos/${{ github.repository }}/commits/$HEAD_SHA/check-runs --jq '[.check_runs[] | select(.name == "All Required Tests")] | sort_by(.completed_at) | last | .conclusion' 2>/dev/null || echo "")
 
             if [ "$STATUS" = "success" ]; then
               echo "✅ All Required Tests passed on current commit"
