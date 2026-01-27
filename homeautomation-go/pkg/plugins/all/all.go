@@ -24,6 +24,7 @@ import (
 	_ "homeautomation/internal/plugins/dayphase"
 	_ "homeautomation/internal/plugins/energy"
 	_ "homeautomation/internal/plugins/environmental"
+	_ "homeautomation/internal/plugins/infrastructure"
 	_ "homeautomation/internal/plugins/lighting"
 	_ "homeautomation/internal/plugins/loadshedding"
 	_ "homeautomation/internal/plugins/music"
@@ -34,4 +35,5 @@ import (
 	_ "homeautomation/internal/plugins/sleephygiene"
 	_ "homeautomation/internal/plugins/statetracking"
 	_ "homeautomation/internal/plugins/tv"
+	_ "homeautomation/internal/plugins/waterflow"
 )
