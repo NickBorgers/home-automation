@@ -580,10 +580,11 @@ func TestCalculator_CalculateDayPhaseAllCases(t *testing.T) {
 			expected: DayPhaseNight,
 		},
 		{
-			name:     "winddown with schedule - before schedule.Night",
-			testTime: eveningTime,
+			name:     "dusk phase - astronomical night but before scheduled winddown",
+			testTime: eveningTime, // 7pm
 			setupSunTimes: func(c *Calculator, now time.Time) {
-				// Set sun times so current time falls in night period
+				// Set sun times so current time is in astronomical night (sun event = night)
+				// This happens in winter when astronomical night occurs before the scheduled winddown time
 				setSunTimesForTest(c, now,
 					now.Add(8*time.Hour),                 // dawn
 					now.Add(9*time.Hour),                 // sunrise
@@ -594,16 +595,46 @@ func TestCalculator_CalculateDayPhaseAllCases(t *testing.T) {
 					now.Add(19*time.Hour),                // sunset
 					now.Add(19*time.Hour+30*time.Minute), // dusk
 					now.Add(20*time.Hour),                // nauticalDusk
-					now.Add(-1*time.Hour),                // night (past - we're in night sun event)
+					now.Add(-1*time.Hour),                // night (past - sun event is night)
+				)
+			},
+			schedule: &config.ParsedSchedule{
+				BeginBackupWake: time.Date(2024, 1, 15, 5, 0, 0, 0, time.UTC),
+				BackupWakeTime:  time.Date(2024, 1, 15, 7, 0, 0, 0, time.UTC),
+				Dusk:            time.Date(2024, 1, 15, 17, 0, 0, 0, time.UTC),  // Before 7pm - we're after this
+				Winddown:        time.Date(2024, 1, 15, 22, 15, 0, 0, time.UTC), // 10:15pm - we're before this
+				Night:           time.Date(2024, 1, 15, 23, 0, 0, 0, time.UTC),  // 11pm
+			},
+			// At 7pm, after schedule.Dusk but BEFORE schedule.Winddown -> stay at dusk
+			// This fixes the bug where astronomical night caused immediate jump to winddown
+			expected: DayPhaseDusk,
+		},
+		{
+			name:     "winddown phase - after scheduled winddown time",
+			testTime: eveningTime, // 7pm - we'll use a later winddown time to test the logic
+			setupSunTimes: func(c *Calculator, now time.Time) {
+				// Set sun times so current time is in astronomical night
+				setSunTimesForTest(c, now,
+					now.Add(8*time.Hour),                 // dawn
+					now.Add(9*time.Hour),                 // sunrise
+					now.Add(9*time.Hour+30*time.Minute),  // sunriseEnd
+					now.Add(10*time.Hour),                // goldenHourEnd
+					now.Add(18*time.Hour),                // goldenHour
+					now.Add(18*time.Hour+30*time.Minute), // sunsetStart
+					now.Add(19*time.Hour),                // sunset
+					now.Add(19*time.Hour+30*time.Minute), // dusk
+					now.Add(20*time.Hour),                // nauticalDusk
+					now.Add(-1*time.Hour),                // night (past - sun event is night)
 				)
 			},
 			schedule: &config.ParsedSchedule{
 				BeginBackupWake: time.Date(2024, 1, 15, 5, 0, 0, 0, time.UTC),
 				BackupWakeTime:  time.Date(2024, 1, 15, 7, 0, 0, 0, time.UTC),
 				Dusk:            time.Date(2024, 1, 15, 17, 0, 0, 0, time.UTC), // Before 7pm
-				Night:           time.Date(2024, 1, 15, 21, 0, 0, 0, time.UTC), // After 7pm - schedule night in future
+				Winddown:        time.Date(2024, 1, 15, 18, 0, 0, 0, time.UTC), // 6pm - we're AFTER this
+				Night:           time.Date(2024, 1, 15, 21, 0, 0, 0, time.UTC), // 9pm - we're before this
 			},
-			// At 7pm (evening), after schedule.Dusk but before schedule.Night, sun says night -> winddown
+			// At 7pm, after schedule.Winddown (6pm), before schedule.Night (9pm) -> winddown
 			expected: DayPhaseWinddown,
 		},
 		{

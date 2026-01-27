@@ -66,8 +66,8 @@ flowchart LR
     morning["morning<br/>(dawn-noon)"]
     day["day<br/>(noon-goldenHour)"]
     sunset["sunset<br/>(goldenHour-schedule.dusk)"]
-    dusk["dusk<br/>(schedule.dusk-schedule.night)"]
-    winddown["winddown<br/>(astronomical night<br/>before schedule.night)"]
+    dusk["dusk<br/>(schedule.dusk-schedule.winddown)"]
+    winddown["winddown<br/>(schedule.winddown-schedule.night)"]
 
     night --> morning
     morning --> day
@@ -249,13 +249,19 @@ The schedule config (`configs/schedule_config.yaml`) defines when phase transiti
 
 | Field | Purpose | Weekday Default | Weekend Default |
 |-------|---------|-----------------|-----------------|
-| `dusk` | Override sunset→dusk transition | 20:00 | 20:00 |
-| `winddown` | Time when winddown begins | 22:15 | 22:00 |
+| `dusk` | Override sunset→dusk transition | 19:30 | 19:30 |
+| `winddown` | Override dusk→winddown transition | 22:15 | 22:00 |
 | `night` | Force night phase | 23:00 | 23:59 |
 | `stop_screens` | Reminder to stop screen time | 22:30 | 22:30 |
-| `go_to_bed` | Start sleep music (rain sounds) | 23:00 | 23:00 |
+| `go_to_bed` | Start sleep music (rain sounds) | 23:30 | 23:59 |
 | `begin_backup_wake` | **BACKUP** start wake sequence (if Eight Sleep unavailable) | 08:50 | 09:50 |
 | `backup_wake_time` | **BACKUP** target wake time (if Eight Sleep unavailable) | 09:15 | 10:15 |
+
+**Phase Transition Logic:**
+- Before `dusk` time: Stay at sunset phase (even if astronomical dusk/night has occurred)
+- After `dusk`, before `winddown`: Stay at dusk phase (even if astronomical night has occurred)
+- After `winddown`, before `night`: Transition to winddown phase
+- After `night`: Force night phase
 
 > **Wake-up behavior**: The primary wake trigger is the Eight Sleep Pod alarm. The `begin_backup_wake` and `backup_wake_time` values are **fallback only** and activate only when the Eight Sleep integration is unavailable (sensor shows `"unavailable"`). This ensures reliable wake-up even during Internet outages.
 

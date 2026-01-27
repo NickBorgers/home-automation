@@ -280,7 +280,25 @@ func (c *Calculator) CalculateDayPhase(schedule *config.ParsedSchedule) DayPhase
 			}
 		}
 
-		// After scheduled dusk, before scheduled night
+		// After scheduled dusk, before scheduled winddown: stay at dusk phase
+		// This ensures dusk phase isn't skipped when astronomical night occurs before scheduled winddown
+		if now.Before(schedule.Winddown) {
+			switch sunEvent {
+			case SunEventMorning:
+				return DayPhaseMorning
+			case SunEventDay:
+				return DayPhaseDay
+			case SunEventSunset:
+				return DayPhaseSunset
+			case SunEventDusk, SunEventNight:
+				// Even if astronomical night has occurred, stay at dusk until scheduled winddown
+				return DayPhaseDusk
+			default:
+				return DayPhaseDay
+			}
+		}
+
+		// After scheduled winddown, before scheduled night: winddown phase
 		if now.Before(schedule.Night) {
 			switch sunEvent {
 			case SunEventMorning:
@@ -289,10 +307,8 @@ func (c *Calculator) CalculateDayPhase(schedule *config.ParsedSchedule) DayPhase
 				return DayPhaseDay
 			case SunEventSunset:
 				return DayPhaseSunset
-			case SunEventDusk:
-				return DayPhaseDusk
-			case SunEventNight:
-				// Astronomical night but before scheduled night time
+			case SunEventDusk, SunEventNight:
+				// After scheduled winddown time, transition to winddown phase
 				return DayPhaseWinddown
 			default:
 				return DayPhaseDay
