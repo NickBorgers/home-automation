@@ -102,6 +102,9 @@ type Manager struct {
 
 	// Test hook for deterministic synchronization (called when monitor goroutine exits)
 	monitorDoneCallback MonitorDoneCallback
+
+	// Phase 2: Multi-zone support
+	zoneManager *ZoneManager
 }
 
 // NewManager creates a new Music manager
@@ -146,6 +149,9 @@ func (m *Manager) SetMonitorDoneCallback(fn MonitorDoneCallback) {
 // Start begins monitoring state changes and managing music playback
 func (m *Manager) Start() error {
 	m.logger.Info("Starting Music Manager")
+
+	// Phase 2: Initialize zone manager
+	m.zoneManager = NewZoneManager(m, m.config, m.logger)
 
 	// Load playlist rotation state from Home Assistant (before any playback)
 	m.loadPlaylistRotationFromHA()
@@ -193,6 +199,24 @@ func (m *Manager) Start() error {
 		m.subscriptions = append(m.subscriptions, sub)
 		m.logger.Debug("Subscribed to mute condition variable",
 			zap.String("variable", varNameCopy))
+	}
+
+	// Phase 2: Subscribe to zone trigger variables if explicit zones are defined
+	if m.config.HasZones() {
+		zoneTriggerVars := m.collectZoneTriggerVariables()
+		for _, varName := range zoneTriggerVars {
+			varNameCopy := varName
+			sub, err = m.stateManager.Subscribe(varNameCopy, m.handleZoneTriggerChange)
+			if err != nil {
+				m.logger.Warn("Failed to subscribe to zone trigger variable",
+					zap.String("variable", varNameCopy),
+					zap.Error(err))
+				continue
+			}
+			m.subscriptions = append(m.subscriptions, sub)
+			m.logger.Debug("Subscribed to zone trigger variable",
+				zap.String("variable", varNameCopy))
+		}
 	}
 
 	// Refresh available speakers from Home Assistant
@@ -498,6 +522,52 @@ func (m *Manager) collectMuteConditionVariables() []string {
 	}
 
 	return result
+}
+
+// collectZoneTriggerVariables collects all unique variables from zone trigger conditions.
+// These are variables like isAnyoneAsleep that control zone activation (Phase 2).
+func (m *Manager) collectZoneTriggerVariables() []string {
+	varMap := make(map[string]bool)
+
+	// Variables already subscribed to via explicit handlers
+	alreadySubscribed := map[string]bool{
+		"dayPhase":          true,
+		"isAnyoneAsleep":    true,
+		"isAnyoneHome":      true,
+		"musicPlaybackType": true,
+	}
+
+	for _, zone := range m.config.Zones {
+		for _, trigger := range zone.Triggers {
+			if trigger.Variable != "" && !alreadySubscribed[trigger.Variable] {
+				varMap[trigger.Variable] = true
+			}
+		}
+	}
+
+	result := make([]string, 0, len(varMap))
+	for varName := range varMap {
+		result = append(result, varName)
+	}
+	return result
+}
+
+// handleZoneTriggerChange processes changes to zone trigger variables (Phase 2).
+// This re-evaluates which zones should be active.
+func (m *Manager) handleZoneTriggerChange(key string, oldValue, newValue interface{}) {
+	m.logger.Info("Zone trigger variable changed",
+		zap.String("variable", key),
+		zap.Any("old_value", oldValue),
+		zap.Any("new_value", newValue))
+
+	// Delegate to zone manager to resolve zones
+	if m.zoneManager != nil {
+		if err := m.zoneManager.ResolveZones("trigger:" + key); err != nil {
+			m.logger.Error("Failed to resolve zones after trigger change",
+				zap.String("variable", key),
+				zap.Error(err))
+		}
+	}
 }
 
 // handleMuteConditionChange processes changes to variables used in speaker mute and exclude conditions.
@@ -2563,6 +2633,35 @@ func (m *Manager) updateShadowOutputs(mode string, playlist *shadowstate.Playlis
 	}
 	m.mu.RUnlock()
 
+	// Update active zones from ZoneManager (per design review feedback)
+	if m.zoneManager != nil {
+		activeZones := m.zoneManager.GetActiveZones()
+		zoneShadowStates := make([]shadowstate.ZoneShadowState, 0, len(activeZones))
+		for _, zone := range activeZones {
+			participants := make([]shadowstate.SpeakerState, 0, len(zone.Participants))
+			for _, p := range zone.Participants {
+				participants = append(participants, shadowstate.SpeakerState{
+					PlayerName:    p.PlayerName,
+					Volume:        p.Volume,
+					BaseVolume:    p.BaseVolume,
+					DefaultVolume: p.DefaultVolume,
+					IsLeader:      p.PlayerName == zone.LeadSpeaker,
+					Active:        true,
+				})
+			}
+			zoneShadowStates = append(zoneShadowStates, shadowstate.ZoneShadowState{
+				Name:         zone.Name,
+				MusicType:    zone.MusicType,
+				Priority:     zone.Priority,
+				LeadSpeaker:  zone.LeadSpeaker,
+				Participants: participants,
+				PlaylistURI:  zone.PlaylistURI,
+				StartedAt:    zone.StartedAt,
+			})
+		}
+		m.shadowState.Outputs.ActiveZones = zoneShadowStates
+	}
+
 	m.shadowState.Metadata.LastUpdated = m.timeProvider.Now()
 }
 
@@ -2603,6 +2702,17 @@ func (m *Manager) GetShadowState() *shadowstate.MusicShadowState {
 	if m.shadowState.Outputs.PlaybackHealth != nil {
 		healthCopy := *m.shadowState.Outputs.PlaybackHealth
 		shadowCopy.Outputs.PlaybackHealth = &healthCopy
+	}
+
+	// Deep copy active zones
+	if len(m.shadowState.Outputs.ActiveZones) > 0 {
+		shadowCopy.Outputs.ActiveZones = make([]shadowstate.ZoneShadowState, len(m.shadowState.Outputs.ActiveZones))
+		for i, zone := range m.shadowState.Outputs.ActiveZones {
+			zoneCopy := zone
+			zoneCopy.Participants = make([]shadowstate.SpeakerState, len(zone.Participants))
+			copy(zoneCopy.Participants, zone.Participants)
+			shadowCopy.Outputs.ActiveZones[i] = zoneCopy
+		}
 	}
 
 	return &shadowCopy
@@ -2797,4 +2907,155 @@ func (m *Manager) recordPlaybackShadowState(musicType string, playbackOption Pla
 
 	m.updateShadowState("start_playback", reason, trigger)
 	m.updateShadowOutputs(musicType, playlistInfo, speakers, verification)
+}
+
+// =============================================================================
+// Phase 2: Zone Playback Methods
+// =============================================================================
+
+// orchestrateZonePlayback starts playback for a zone
+// This reuses existing orchestration logic but for a specific zone
+func (m *Manager) orchestrateZonePlayback(zone *Zone, playbackOption PlaybackOption, trigger string) error {
+	m.logger.Info("Orchestrating zone playback",
+		zap.String("zone", zone.Name),
+		zap.String("lead_speaker", zone.LeadSpeaker),
+		zap.Int("participant_count", len(zone.Participants)),
+		zap.String("trigger", trigger))
+
+	// Use existing executePlayback logic
+	groupResult, verificationAttempts, err := m.executePlayback(
+		zone.MusicType,
+		playbackOption,
+		zone.Participants,
+		zone.LeadSpeaker,
+	)
+
+	if err != nil {
+		return fmt.Errorf("zone playback failed: %w", err)
+	}
+
+	// Record shadow state (parameter order: musicType, playbackOption, participants, leadPlayer, trigger, groupResult, verificationAttempts)
+	m.recordPlaybackShadowState(
+		zone.MusicType,
+		playbackOption,
+		zone.Participants,
+		zone.LeadSpeaker,
+		trigger,
+		groupResult,
+		verificationAttempts,
+	)
+
+	return nil
+}
+
+// fadeOutZoneSpeakers fades out all speakers in a zone
+func (m *Manager) fadeOutZoneSpeakers(zone *Zone, reason string) error {
+	m.logger.Info("Fading out zone speakers",
+		zap.String("zone", zone.Name),
+		zap.Int("speaker_count", len(zone.Participants)),
+		zap.String("reason", reason))
+
+	// Fade out each speaker individually
+	for _, p := range zone.Participants {
+		entityID := m.getSpeakerEntityID(p.PlayerName)
+		if entityID != "" {
+			m.fadeOutSingleSpeaker(entityID)
+		}
+	}
+
+	return nil
+}
+
+// addSpeakersToZone adds speakers to an active zone
+func (m *Manager) addSpeakersToZone(zone *Zone, speakers []string, trigger string) {
+	m.logger.Info("Adding speakers to zone",
+		zap.String("zone", zone.Name),
+		zap.Strings("speakers", speakers),
+		zap.String("trigger", trigger))
+
+	// Get participant configs for new speakers
+	mode, ok := m.config.Music[zone.Name]
+	if !ok {
+		m.logger.Error("Music mode not found for zone", zap.String("zone", zone.Name))
+		return
+	}
+
+	speakerSet := make(map[string]bool)
+	for _, s := range speakers {
+		speakerSet[s] = true
+	}
+
+	// Find participants to add
+	for _, p := range mode.Participants {
+		if !speakerSet[p.PlayerName] {
+			continue
+		}
+
+		// Get entity ID
+		entityID := m.getSpeakerEntityID(p.PlayerName)
+		if entityID == "" {
+			m.logger.Warn("Speaker entity ID not found", zap.String("speaker", p.PlayerName))
+			continue
+		}
+
+		// Join the zone's Sonos group
+		leadEntityID := m.getSpeakerEntityID(zone.LeadSpeaker)
+		if err := m.callServiceWithRetry("media_player", "join", map[string]interface{}{
+			"entity_id":     entityID,
+			"group_members": []string{leadEntityID},
+		}); err != nil {
+			m.logger.Error("Failed to join speaker to zone",
+				zap.String("speaker", p.PlayerName),
+				zap.String("zone", zone.Name),
+				zap.Error(err))
+			continue
+		}
+
+		// Calculate and set volume
+		volume := m.calculateVolume(p.BaseVolume, 1.0) // Use default multiplier
+		go m.fadeInSpeaker(context.Background(), p.PlayerName, volume, zone.MusicType)
+	}
+}
+
+// removeSpeakersFromZone removes speakers from an active zone
+func (m *Manager) removeSpeakersFromZone(zone *Zone, speakers []string, trigger string) {
+	m.logger.Info("Removing speakers from zone",
+		zap.String("zone", zone.Name),
+		zap.Strings("speakers", speakers),
+		zap.String("trigger", trigger))
+
+	for _, speaker := range speakers {
+		entityID := m.getSpeakerEntityID(speaker)
+		if entityID == "" {
+			continue
+		}
+
+		// Fade out the speaker first
+		m.fadeOutSingleSpeaker(entityID)
+
+		// Unjoin from group
+		if err := m.callServiceWithRetry("media_player", "unjoin", map[string]interface{}{
+			"entity_id": entityID,
+		}); err != nil {
+			m.logger.Error("Failed to unjoin speaker from zone",
+				zap.String("speaker", speaker),
+				zap.String("zone", zone.Name),
+				zap.Error(err))
+		}
+	}
+}
+
+// fadeOutSingleSpeaker fades out a single speaker
+func (m *Manager) fadeOutSingleSpeaker(entityID string) {
+	m.logger.Debug("Fading out single speaker", zap.String("entity_id", entityID))
+
+	// Set volume to 0 (simple fade out for now)
+	if err := m.callServiceWithRetry("media_player", "volume_set", map[string]interface{}{
+		"entity_id":    entityID,
+		"volume_level": 0.0,
+	}); err != nil {
+		m.logger.Error("Failed to set volume for fade out",
+			zap.String("entity_id", entityID),
+			zap.Error(err))
+	}
 }

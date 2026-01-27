@@ -140,6 +140,19 @@ type MusicOutputs struct {
 	LastActionReason     string                      `json:"lastActionReason,omitempty"`
 	PlaybackVerification *PlaybackVerificationStatus `json:"playbackVerification,omitempty"`
 	PlaybackHealth       *PlaybackHealthStatus       `json:"playbackHealth,omitempty"`
+	// Phase 2: Multi-zone support
+	ActiveZones []ZoneShadowState `json:"activeZones,omitempty"`
+}
+
+// ZoneShadowState represents a single active zone in shadow state
+type ZoneShadowState struct {
+	Name         string         `json:"name"`
+	MusicType    string         `json:"musicType"`
+	Priority     int            `json:"priority"`
+	LeadSpeaker  string         `json:"leadSpeaker"`
+	Participants []SpeakerState `json:"participants"`
+	PlaylistURI  string         `json:"playlistUri"`
+	StartedAt    time.Time      `json:"startedAt"`
 }
 
 // SpeakerFadeIn represents the fade-in state of a single speaker
