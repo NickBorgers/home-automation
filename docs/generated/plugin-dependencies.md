@@ -30,6 +30,7 @@ graph LR
         musicPlaybackType["musicPlaybackType"]
         musicPlaylistRotation["musicPlaylistRotation"]
         remainingSolarGeneration["remainingSolarGeneration"]
+        reset["reset"]
         solarProductionEnergyLevel["solarProductionEnergyLevel"]
         sunevent["sunevent"]
         thisHourSolarGeneration["thisHourSolarGeneration"]
@@ -44,6 +45,7 @@ graph LR
         lighting["lighting"]
         loadshedding["loadshedding"]
         music["music"]
+        reset["reset"]
         security["security"]
         sensorconfig["sensorconfig"]
         sensorhealth["sensorhealth"]
@@ -70,6 +72,7 @@ graph LR
     isAnyoneAsleep -.-> music
     isAnyoneHome -.-> music
     musicPlaybackType -.-> music
+    reset -.-> reset
     didOwnerJustReturnHome -.-> security
     isAnyoneHome -.-> security
     isEveryoneAsleep -.-> security
@@ -87,6 +90,7 @@ graph LR
     music --> currentlyPlayingMusicUri
     music --> musicPlaybackType
     music --> musicPlaylistRotation
+    reset --> reset
     sexmode --> musicPlaybackType
     sleephygiene --> currentlyPlayingMusic
     sleephygiene --> isFadeOutInProgress
