@@ -552,6 +552,9 @@ func (m *Manager) discoverNodeStatusSensors() error {
 	// Evaluate initial state for dead devices
 	m.evaluateDeadDevices()
 
+	// Send notifications for devices that are already dead at startup
+	m.notifyAlreadyDeadDevices()
+
 	if len(errs) > 0 {
 		return errors.Join(errs...)
 	}
@@ -726,6 +729,74 @@ func (m *Manager) evaluateDeadDevices() {
 	m.mu.Unlock()
 
 	m.shadowTracker.UpdateDeadDeviceAlerts(deadAlerts)
+}
+
+// notifyAlreadyDeadDevices sends notifications for devices that are already dead at startup.
+// This ensures the user is informed about existing problems that need attention.
+func (m *Manager) notifyAlreadyDeadDevices() {
+	m.mu.Lock()
+	var deadNodes []*NodeStatus
+	for _, node := range m.nodeStatuses {
+		if node.Status == "dead" && !node.NotificationSent {
+			node.NotificationSent = true
+			deadNodes = append(deadNodes, node)
+		}
+	}
+	m.mu.Unlock()
+
+	if len(deadNodes) == 0 {
+		return
+	}
+
+	m.logger.Info("Found devices already dead at startup",
+		zap.Int("count", len(deadNodes)))
+
+	for _, node := range deadNodes {
+		m.sendDeviceDeadAtStartupNotification(node)
+	}
+
+	// Update shadow state to reflect NotificationSent changes
+	m.evaluateDeadDevices()
+}
+
+// sendDeviceDeadAtStartupNotification sends a notification for a device found dead at startup
+func (m *Manager) sendDeviceDeadAtStartupNotification(node *NodeStatus) {
+	message := fmt.Sprintf("Z-Wave device '%s' is offline (was already dead when system started). The device may need to be checked or replaced.", node.DeviceName)
+
+	m.logger.Warn("Z-Wave device found dead at startup",
+		zap.String("entity_id", node.EntityID),
+		zap.String("device_name", node.DeviceName),
+		zap.Time("last_changed", node.LastChanged))
+
+	// Record notification in shadow state
+	m.shadowTracker.RecordDeadDeviceNotification(node.EntityID, node.DeviceName, message)
+
+	if m.readOnly {
+		m.logger.Info("Skipping dead device startup notification send in read-only mode",
+			zap.String("entity_id", node.EntityID),
+			zap.String("message", message))
+		return
+	}
+
+	if m.ntfyClient == nil {
+		m.logger.Warn("ntfy client not configured, cannot send dead device startup notification",
+			zap.String("entity_id", node.EntityID))
+		return
+	}
+
+	// Send notification via ntfy
+	if err := m.ntfyClient.Send(&ntfy.Message{
+		Title:    "Device Offline (Startup Check)",
+		Body:     message,
+		Priority: ntfy.PriorityHigh,
+		Tags:     []string{"warning", "electric_plug"},
+	}); err != nil {
+		m.logger.Error("Failed to send dead device startup notification",
+			zap.String("entity_id", node.EntityID),
+			zap.Error(err))
+	} else {
+		m.logger.Info("Dead device startup notification sent", zap.String("message", message))
+	}
 }
 
 // handleBatteryChange processes battery sensor state changes
