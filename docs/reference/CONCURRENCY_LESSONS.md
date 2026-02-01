@@ -526,6 +526,100 @@ func (m *Manager) fadeInSpeaker(ctx context.Context, speaker string, target int)
 
 ---
 
+## Lesson 10: Maintain Consistent Lock Ordering to Prevent Deadlocks
+
+**Pattern**: When multiple goroutines access shared state protected by multiple mutexes, always acquire locks in the same order.
+
+**Why**: Inconsistent lock ordering creates classic deadlock scenarios where two goroutines each hold one lock and wait for the other.
+
+**Deadlock Scenario** (Fixed in [Issue #552](https://github.com/NickBorgersOnLowSecurityNode/home-automation/issues/552)):
+
+The `MockClock` implementation had a lock ordering violation between `mockTimer.Reset()` and `MockClock.Advance()`:
+
+```go
+// ❌ BAD: Inconsistent lock ordering causes deadlock
+// Reset acquires: timer.mu → clock.mu
+func (t *mockTimer) Reset(d time.Duration) bool {
+    t.mu.Lock()           // 1. timer.mu FIRST
+    defer t.mu.Unlock()
+
+    t.clock.mu.Lock()     // 2. clock.mu SECOND
+    t.deadline = t.clock.current.Add(d)
+    t.clock.mu.Unlock()
+    return wasActive
+}
+
+// Advance acquires: clock.mu → timer.mu
+func (c *MockClock) Advance(d time.Duration) {
+    c.mu.Lock()           // 1. clock.mu FIRST
+    for _, timer := range c.timers {
+        timer.mu.Lock()   // 2. timer.mu SECOND
+        // ...
+        timer.mu.Unlock()
+    }
+    c.mu.Unlock()
+}
+```
+
+**Interleaving That Causes Deadlock**:
+```
+Goroutine A (Reset):     Goroutine B (Advance):
+─────────────────────    ────────────────────────
+timer.mu.Lock() ✓        clock.mu.Lock() ✓
+clock.mu.Lock() ← BLOCKED timer.mu.Lock() ← BLOCKED
+
+                 DEADLOCK!
+```
+
+**Correct Approach**:
+```go
+// ✅ GOOD: Consistent lock ordering (clock.mu always before timer.mu)
+func (t *mockTimer) Reset(d time.Duration) bool {
+    // Acquire clock.mu first (consistent with Advance)
+    t.clock.mu.Lock()
+    defer t.clock.mu.Unlock()
+
+    t.mu.Lock()
+    defer t.mu.Unlock()
+
+    wasActive := !t.stopped
+    t.stopped = false
+    t.deadline = t.clock.current.Add(d)
+
+    if !wasActive {
+        t.clock.timers = append(t.clock.timers, t)
+    }
+    return wasActive
+}
+```
+
+**How to Identify Lock Ordering Issues**:
+1. Document which locks each method acquires
+2. Draw an "acquisition order" diagram for each method
+3. Check that all methods follow the same order
+4. Look for methods that acquire locks on "child" objects (like timers owned by a clock)
+
+**Choosing a Lock Order**:
+- **Hierarchical**: Parent before child (e.g., `clock.mu` before `timer.mu`)
+- **Alphabetical**: When no hierarchy exists, use alphabetical as a tiebreaker
+- **Document it**: Add comments like `// Lock ordering: clock.mu before timer.mu`
+
+**Where to Apply**:
+- Any struct that owns objects with their own mutexes
+- Bi-directional references between objects (parent ↔ child)
+- Nested data structures with concurrent access
+- Test mocks that mirror production lock patterns
+
+**Test That Validates This**:
+- `TestMockClock_ConcurrentResetAndAdvance` - Concurrent Reset/Advance operations with timeout-based deadlock detection
+
+**Risk Assessment**:
+- **Severity**: Medium (affected test code, not production)
+- **Impact**: Test flakiness or hangs with concurrent timer operations
+- **Detection**: Race detector may not catch this; requires concurrent stress tests
+
+---
+
 ## Common Pitfalls to Avoid
 
 ### 1. Forgetting to Lock Before Map Access
@@ -587,6 +681,7 @@ func (s *Subscription) Close() {
 7. **Message ID allocation and write must be atomic** - Prevents out-of-order IDs
 8. **Configure TCP keepalive with syscalls** - Go's net.Dialer.KeepAlive is insufficient for fast dead connection detection
 9. **Cancel concurrent goroutines before new operations** - Use context.Context to stop conflicting goroutines
+10. **Maintain consistent lock ordering** - Prevents deadlocks when acquiring multiple mutexes
 
 ---
 
@@ -597,12 +692,18 @@ func (s *Subscription) Close() {
 - State manager: `internal/state/manager.go`
 - Mock server: `test/integration/mock_ha_server.go`
 
-**Last Updated**: 2026-01-01
+**Last Updated**: 2026-02-01
 **Test Status**: All 11/11 integration tests passing with `-race` flag
 
 ---
 
 ## Change Log
+
+### 2026-02-01
+- **Added Lesson 10**: Maintain Consistent Lock Ordering to Prevent Deadlocks
+  - Documents lock ordering violation between `mockTimer.Reset()` and `MockClock.Advance()` (Issue #552)
+  - Pattern: Always acquire parent locks (clock.mu) before child locks (timer.mu)
+  - Adds comprehensive tests for MockClock timer operations
 
 ### 2026-01-10
 - **Added Lesson 9**: Cancel Concurrent Goroutines Before Starting New Operations
