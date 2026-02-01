@@ -4,6 +4,8 @@
 
 This document explains critical concurrency patterns used in the Go implementation. These patterns emerged from bugs discovered during integration testing and represent important lessons for working with WebSockets and concurrent state management.
 
+**Core Philosophy**: Go encourages "share memory by communicating" rather than "communicate by sharing memory." When shared state is necessary, use proper synchronization primitives. Always test with `-race`.
+
 ---
 
 ## Lesson 1: WebSocket Writes Must Be Serialized
@@ -108,11 +110,6 @@ func (m *Manager) Set(key string, val interface{}) {
     m.cache[key] = val
 }
 ```
-
-**Performance Impact**:
-- 50 goroutines × 100 concurrent reads = 5,000 operations with no contention
-- Read latency: ~1-2µs
-- Write latency: ~5-10µs
 
 **Where to Apply**:
 - `internal/state/manager.go` - State cache access
@@ -526,6 +523,131 @@ func (m *Manager) fadeInSpeaker(ctx context.Context, speaker string, target int)
 
 ---
 
+## Lesson 10: Use Buffered Channels to Prevent Goroutine Leaks
+
+**Pattern**: When a goroutine sends to a channel that might not be received (e.g., timeout scenarios), use a buffered channel.
+
+**Why**: If a receiver times out and stops waiting, an unbuffered send will block forever, leaking the goroutine and its resources.
+
+**Leak Scenario**:
+```go
+// ❌ BAD: Goroutine leaks if timeout occurs
+func fetchWithTimeout(ctx context.Context) (Result, error) {
+    ch := make(chan Result)  // Unbuffered!
+    go func() {
+        result := slowOperation()
+        ch <- result  // BLOCKS FOREVER if ctx times out
+    }()
+
+    select {
+    case result := <-ch:
+        return result, nil
+    case <-ctx.Done():
+        return Result{}, ctx.Err()  // Goroutine is now leaked!
+    }
+}
+```
+
+**Correct Approach**:
+```go
+// ✅ GOOD: Buffered channel allows goroutine to complete
+func fetchWithTimeout(ctx context.Context) (Result, error) {
+    ch := make(chan Result, 1)  // Buffer of 1
+    go func() {
+        result := slowOperation()
+        ch <- result  // Never blocks - buffer absorbs the send
+    }()
+
+    select {
+    case result := <-ch:
+        return result, nil
+    case <-ctx.Done():
+        return Result{}, ctx.Err()  // Goroutine will finish and exit cleanly
+    }
+}
+```
+
+**Key Insight**: A buffer of 1 ensures the goroutine can always complete its send, even if no one is listening. The channel and its contents will be garbage collected when no references remain.
+
+**Where to Apply**:
+- Any pattern where a goroutine sends a result and the receiver might time out
+- Response channels in request/response patterns
+- Fire-and-forget notification channels
+
+**Real-World Example in This Project**:
+```go
+// internal/ha/client.go - Response channel for WebSocket messages
+respChan := make(chan Message, 1)  // Buffered to prevent leak
+```
+
+---
+
+## Lesson 11: Maintain Consistent Lock Ordering to Prevent Deadlocks
+
+**Pattern**: When multiple locks must be held simultaneously, always acquire them in the same order across all goroutines.
+
+**Why**: Inconsistent lock ordering is the most common cause of deadlocks. If goroutine A holds lock X and waits for lock Y, while goroutine B holds lock Y and waits for lock X, neither can proceed.
+
+**Deadlock Scenario**:
+```go
+// ❌ BAD: Inconsistent lock ordering causes deadlock
+// Goroutine A
+func updateUserProfile() {
+    userMu.Lock()
+    defer userMu.Unlock()
+    profileMu.Lock()      // Waits for profileMu
+    defer profileMu.Unlock()
+    // ...
+}
+
+// Goroutine B
+func updateProfileSettings() {
+    profileMu.Lock()
+    defer profileMu.Unlock()
+    userMu.Lock()         // Waits for userMu - DEADLOCK!
+    defer userMu.Unlock()
+    // ...
+}
+```
+
+**Correct Approach**:
+```go
+// ✅ GOOD: Consistent lock ordering (alphabetical, hierarchical, etc.)
+// Document the ordering: userMu MUST be acquired before profileMu
+
+func updateUserProfile() {
+    userMu.Lock()
+    defer userMu.Unlock()
+    profileMu.Lock()
+    defer profileMu.Unlock()
+    // ...
+}
+
+func updateProfileSettings() {
+    userMu.Lock()         // Same order as above
+    defer userMu.Unlock()
+    profileMu.Lock()
+    defer profileMu.Unlock()
+    // ...
+}
+```
+
+**Best Practices**:
+1. **Document lock ordering** in struct comments or package docs
+2. **Use hierarchical ordering**: Higher-level locks before lower-level
+3. **Prefer single locks**: If possible, use one lock instead of multiple
+4. **Consider lock-free patterns**: Channels, atomic operations, or immutable data
+5. **Use go-deadlock for debugging**: Drop-in replacement that detects ordering violations
+
+**Detecting Lock Order Violations**:
+```go
+// For debugging, replace sync.Mutex with go-deadlock
+import "github.com/sasha-s/go-deadlock"
+var mu deadlock.Mutex  // Reports when lock ordering is violated
+```
+
+---
+
 ## Common Pitfalls to Avoid
 
 ### 1. Forgetting to Lock Before Map Access
@@ -574,6 +696,128 @@ func (s *Subscription) Close() {
 }
 ```
 
+### 4. Using Defer in Loops
+```go
+// ❌ BAD: Defer only runs when function returns, not per iteration
+func processItems(items []Item) {
+    for _, item := range items {
+        mu.Lock()
+        defer mu.Unlock()  // WRONG: Defers stack up, unlock happens at function end
+        process(item)
+    }
+}
+
+// ✅ GOOD: Explicit unlock or wrap in function
+func processItems(items []Item) {
+    for _, item := range items {
+        func() {
+            mu.Lock()
+            defer mu.Unlock()  // Runs at end of anonymous func
+            process(item)
+        }()
+    }
+}
+```
+
+### 5. Copying Mutexes and Sync Primitives
+```go
+// ❌ BAD: Mutex is copied - each copy has independent state
+func processCopy(m Manager) {  // Value receiver copies the mutex!
+    m.mu.Lock()  // Locks a COPY, not the original
+    // ...
+}
+
+// ✅ GOOD: Always pass sync primitives by pointer
+func processPtr(m *Manager) {
+    m.mu.Lock()  // Locks the original
+    // ...
+}
+```
+
+### 6. Forgetting to Check ctx.Done() in Long Loops
+```go
+// ❌ BAD: Loop ignores cancellation
+func pollForever(ctx context.Context) {
+    for {
+        doWork()
+        time.Sleep(time.Second)  // Doesn't respect context!
+    }
+}
+
+// ✅ GOOD: Check context and use timer
+func pollForever(ctx context.Context) {
+    ticker := time.NewTicker(time.Second)
+    defer ticker.Stop()
+    for {
+        select {
+        case <-ctx.Done():
+            return  // Exit on cancellation
+        case <-ticker.C:
+            doWork()
+        }
+    }
+}
+```
+
+### 7. Reading and Writing Shared Variables Without Synchronization
+```go
+// ❌ BAD: Data race on 'running' flag
+type Worker struct {
+    running bool
+}
+
+func (w *Worker) Start() { w.running = true }
+func (w *Worker) IsRunning() bool { return w.running }
+
+// ✅ GOOD: Use atomic or mutex
+type Worker struct {
+    running atomic.Bool
+}
+
+func (w *Worker) Start() { w.running.Store(true) }
+func (w *Worker) IsRunning() bool { return w.running.Load() }
+```
+
+---
+
+## Debugging Deadlocks and Race Conditions
+
+When concurrency bugs occur, use these techniques to diagnose them:
+
+### 1. Race Detector
+```bash
+go test -race ./...
+go build -race ./cmd/main.go && ./main
+```
+The race detector instruments memory accesses and reports concurrent access without synchronization. It catches ~95% of data races but has ~10x performance overhead.
+
+### 2. Stack Traces with SIGQUIT
+Send SIGQUIT to a running process to dump all goroutine stacks:
+```bash
+kill -QUIT <pid>
+# Or press Ctrl+\ in the terminal
+```
+Look for multiple goroutines blocked on the same mutex or channel.
+
+### 3. pprof Goroutine Dumps
+Add pprof to your application:
+```go
+import _ "net/http/pprof"
+go http.ListenAndServe("localhost:6060", nil)
+```
+Then access `http://localhost:6060/debug/pprof/goroutine?debug=1` to see all goroutine stacks with blocking reasons.
+
+### 4. go-deadlock Library
+For lock ordering violations, use [go-deadlock](https://github.com/sasha-s/go-deadlock) as a drop-in replacement during development:
+```go
+import "github.com/sasha-s/go-deadlock"
+var mu deadlock.Mutex  // Reports potential deadlocks
+```
+It detects when lock ordering is violated and logs warnings before actual deadlocks occur.
+
+### 5. Runtime Detection Limitations
+Go's runtime only detects deadlocks when **all** goroutines are blocked. If even one goroutine is running (like an HTTP server), partial deadlocks go undetected. The techniques above help find these "silent" deadlocks.
+
 ---
 
 ## Key Takeaways
@@ -587,6 +831,52 @@ func (s *Subscription) Close() {
 7. **Message ID allocation and write must be atomic** - Prevents out-of-order IDs
 8. **Configure TCP keepalive with syscalls** - Go's net.Dialer.KeepAlive is insufficient for fast dead connection detection
 9. **Cancel concurrent goroutines before new operations** - Use context.Context to stop conflicting goroutines
+10. **Buffer channels in timeout patterns** - Prevents goroutine leaks when receivers time out
+11. **Maintain consistent lock ordering** - Prevents deadlocks when multiple locks are needed
+
+---
+
+## Advanced Patterns (Consider for Future Use)
+
+### errgroup for Structured Concurrency
+
+The `golang.org/x/sync/errgroup` package provides a cleaner pattern for managing groups of goroutines with error handling and context cancellation:
+
+```go
+import "golang.org/x/sync/errgroup"
+
+func fetchAllData(ctx context.Context) error {
+    g, ctx := errgroup.WithContext(ctx)
+
+    g.Go(func() error {
+        return fetchUsers(ctx)  // Cancelled if any other task fails
+    })
+    g.Go(func() error {
+        return fetchOrders(ctx)
+    })
+
+    return g.Wait()  // Returns first error, cancels others
+}
+```
+
+**Benefits over manual goroutine management**:
+- Automatic context cancellation when any goroutine fails
+- Built-in WaitGroup semantics
+- `SetLimit(n)` for bounded concurrency
+- Cleaner error propagation
+
+**When to use**: Coordinating multiple independent operations that should fail together.
+
+---
+
+## External Resources
+
+- [Effective Go - Concurrency](https://go.dev/doc/effective_go#concurrency) - Official Go concurrency guide
+- [Go Concurrency Patterns](https://go.dev/blog/pipelines) - Pipelines and cancellation
+- [go-deadlock](https://github.com/sasha-s/go-deadlock) - Runtime deadlock detection
+- [errgroup package](https://pkg.go.dev/golang.org/x/sync/errgroup) - Structured concurrency
+- [Common Concurrent Programming Mistakes](https://go101.org/article/concurrent-common-mistakes.html) - Comprehensive pitfall list
+- [Goroutine Leaks - The Forgotten Sender](https://www.ardanlabs.com/blog/2018/11/goroutine-leaks-the-forgotten-sender.html) - Ardan Labs deep dive
 
 ---
 
@@ -597,12 +887,29 @@ func (s *Subscription) Close() {
 - State manager: `internal/state/manager.go`
 - Mock server: `test/integration/mock_ha_server.go`
 
-**Last Updated**: 2026-01-01
+**Last Updated**: 2026-02-01
 **Test Status**: All 11/11 integration tests passing with `-race` flag
 
 ---
 
 ## Change Log
+
+### 2026-02-01
+- **Added Lesson 10**: Use Buffered Channels to Prevent Goroutine Leaks
+  - Documents pattern for using buffered channels in timeout scenarios
+  - Prevents goroutine leaks when receivers time out or cancel
+- **Added Lesson 11**: Maintain Consistent Lock Ordering to Prevent Deadlocks
+  - Documents common deadlock cause and prevention strategies
+  - References go-deadlock library for detection
+- **Added new Common Pitfalls**:
+  - Using defer in loops (defers stack up)
+  - Copying mutexes and sync primitives
+  - Forgetting to check ctx.Done() in long loops
+  - Reading/writing shared variables without synchronization
+- **Added Debugging Deadlocks section**: Tools and techniques (pprof, SIGQUIT, go-deadlock)
+- **Added Advanced Patterns section**: errgroup for structured concurrency
+- **Added External Resources section**: Links to authoritative Go concurrency resources
+- **Removed arbitrary performance numbers** from Lesson 3 (were misleading without benchmarks)
 
 ### 2026-01-10
 - **Added Lesson 9**: Cancel Concurrent Goroutines Before Starting New Operations
