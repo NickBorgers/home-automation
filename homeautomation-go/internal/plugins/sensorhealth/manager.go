@@ -495,7 +495,8 @@ func (m *Manager) discoverNodeStatusSensors() error {
 
 	labelChecker := ha.NewDeviceLabelChecker(devices)
 
-	// Create NodeStatus structs and subscribe to each
+	// Create NodeStatus structs and collect entity IDs for subscription
+	var entityIDs []string
 	m.mu.Lock()
 	for _, state := range nodeStatusStates {
 		deviceID := entityToDevice[state.EntityID]
@@ -527,6 +528,7 @@ func (m *Manager) discoverNodeStatusSensors() error {
 		}
 
 		m.nodeStatuses[state.EntityID] = nodeStatus
+		entityIDs = append(entityIDs, state.EntityID)
 
 		m.logger.Debug("Discovered node status sensor",
 			zap.String("entity_id", state.EntityID),
@@ -537,7 +539,7 @@ func (m *Manager) discoverNodeStatusSensors() error {
 	m.mu.Unlock()
 
 	// Subscribe to each sensor (outside the lock to avoid deadlock)
-	for entityID := range m.nodeStatuses {
+	for _, entityID := range entityIDs {
 		if err := m.subHelper.SubscribeToEntity(entityID, m.handleNodeStatusChange); err != nil {
 			m.logger.Warn("Failed to subscribe to node status sensor",
 				zap.String("entity_id", entityID),
