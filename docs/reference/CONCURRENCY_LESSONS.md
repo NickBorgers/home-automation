@@ -574,6 +574,58 @@ func (s *Subscription) Close() {
 }
 ```
 
+### 4. Forgetting to Check ctx.Done() in Long Loops
+
+**Pattern**: Always check `ctx.Done()` in retry loops or any loop that might block for extended periods.
+
+**Why**: Using `time.Sleep()` directly in retry loops blocks graceful shutdown. The retry loop continues sleeping even when the application is shutting down.
+
+```go
+// ❌ BAD: Blocks shutdown for up to 45 seconds (sum of all retry delays)
+for attempt := 0; attempt <= maxRetries; attempt++ {
+    if attempt > 0 {
+        time.Sleep(delay)  // Blocks without checking context!
+        delay *= 2
+    }
+    if err := doOperation(); err == nil {
+        return nil
+    }
+}
+
+// ✅ GOOD: Respects context cancellation during retry waits
+for attempt := 0; attempt <= maxRetries; attempt++ {
+    if attempt > 0 {
+        // Check context before sleeping
+        select {
+        case <-ctx.Done():
+            return fmt.Errorf("operation cancelled: %w", ctx.Err())
+        default:
+        }
+
+        // Use timer instead of time.Sleep for cancellation support
+        timer := time.NewTimer(delay)
+        select {
+        case <-ctx.Done():
+            timer.Stop()
+            return fmt.Errorf("operation cancelled during retry wait: %w", ctx.Err())
+        case <-timer.C:
+        }
+        delay *= 2
+    }
+    if err := doOperation(); err == nil {
+        return nil
+    }
+}
+```
+
+**Where to Apply**:
+- Retry loops with exponential backoff
+- Polling loops that wait between iterations
+- Any loop that uses `time.Sleep()` or `time.After()`
+- Background goroutines that periodically perform work
+
+**Fixed in**: Issue #554, PR #554 - Updated `CallService` and `CallServiceWithTarget` in `internal/ha/client.go`
+
 ---
 
 ## Key Takeaways
@@ -587,6 +639,7 @@ func (s *Subscription) Close() {
 7. **Message ID allocation and write must be atomic** - Prevents out-of-order IDs
 8. **Configure TCP keepalive with syscalls** - Go's net.Dialer.KeepAlive is insufficient for fast dead connection detection
 9. **Cancel concurrent goroutines before new operations** - Use context.Context to stop conflicting goroutines
+10. **Check ctx.Done() in retry loops** - Use `select{}` with timers instead of `time.Sleep()` for graceful shutdown
 
 ---
 
@@ -597,12 +650,18 @@ func (s *Subscription) Close() {
 - State manager: `internal/state/manager.go`
 - Mock server: `test/integration/mock_ha_server.go`
 
-**Last Updated**: 2026-01-01
+**Last Updated**: 2026-02-01
 **Test Status**: All 11/11 integration tests passing with `-race` flag
 
 ---
 
 ## Change Log
+
+### 2026-02-01
+- **Added Pitfall 4**: Forgetting to Check ctx.Done() in Long Loops
+  - Fixed `CallService` and `CallServiceWithTarget` retry loops to respect context cancellation (Issue #554)
+  - Pattern: Use `select{}` with `time.NewTimer()` instead of `time.Sleep()` for cancellation support
+  - Enables graceful shutdown without waiting for full retry budget to exhaust (~45 seconds)
 
 ### 2026-01-10
 - **Added Lesson 9**: Cancel Concurrent Goroutines Before Starting New Operations

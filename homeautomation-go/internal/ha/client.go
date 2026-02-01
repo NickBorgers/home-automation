@@ -76,8 +76,8 @@ type HAClient interface {
 	IsHealthy() bool
 	GetState(entityID string) (*State, error)
 	GetAllStates() ([]*State, error)
-	CallService(domain, service string, data map[string]interface{}) error
-	CallServiceWithTarget(domain, service string, target *ServiceTarget, data map[string]interface{}) error
+	CallService(ctx context.Context, domain, service string, data map[string]interface{}) error
+	CallServiceWithTarget(ctx context.Context, domain, service string, target *ServiceTarget, data map[string]interface{}) error
 	SubscribeStateChanges(entityID string, handler StateChangeHandler) (Subscription, error)
 	SetInputBoolean(name string, value bool) error
 	SetInputNumber(name string, value float64) error
@@ -1032,12 +1032,20 @@ func isRetryableError(err error) bool {
 
 // CallService calls a Home Assistant service with automatic retry for transient errors.
 // Uses exponential backoff starting at 500ms, doubling each retry (capped at 15s).
-func (c *Client) CallService(domain, service string, data map[string]interface{}) error {
+// The context allows cancellation during retry waits for graceful shutdown support.
+func (c *Client) CallService(ctx context.Context, domain, service string, data map[string]interface{}) error {
 	var lastErr error
 	delay := initialRetryDelay
 
 	for attempt := 0; attempt <= maxRetries; attempt++ {
 		if attempt > 0 {
+			// Check context before sleeping
+			select {
+			case <-ctx.Done():
+				return fmt.Errorf("service call cancelled: %w", ctx.Err())
+			default:
+			}
+
 			c.logger.Warn("Retrying service call",
 				zap.String("domain", domain),
 				zap.String("service", service),
@@ -1045,7 +1053,15 @@ func (c *Client) CallService(domain, service string, data map[string]interface{}
 				zap.Duration("delay", delay),
 				zap.Error(lastErr),
 			)
-			time.Sleep(delay)
+
+			// Use timer instead of time.Sleep for cancellation support
+			timer := time.NewTimer(delay)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return fmt.Errorf("service call cancelled during retry wait: %w", ctx.Err())
+			case <-timer.C:
+			}
 
 			// Exponential backoff
 			delay *= 2
@@ -1089,12 +1105,20 @@ func (c *Client) CallService(domain, service string, data map[string]interface{}
 
 // CallServiceWithTarget calls a Home Assistant service with an explicit target.
 // Uses the same retry logic as CallService.
-func (c *Client) CallServiceWithTarget(domain, service string, target *ServiceTarget, data map[string]interface{}) error {
+// The context allows cancellation during retry waits for graceful shutdown support.
+func (c *Client) CallServiceWithTarget(ctx context.Context, domain, service string, target *ServiceTarget, data map[string]interface{}) error {
 	var lastErr error
 	delay := initialRetryDelay
 
 	for attempt := 0; attempt <= maxRetries; attempt++ {
 		if attempt > 0 {
+			// Check context before sleeping
+			select {
+			case <-ctx.Done():
+				return fmt.Errorf("service call cancelled: %w", ctx.Err())
+			default:
+			}
+
 			c.logger.Warn("Retrying service call with target",
 				zap.String("domain", domain),
 				zap.String("service", service),
@@ -1102,7 +1126,15 @@ func (c *Client) CallServiceWithTarget(domain, service string, target *ServiceTa
 				zap.Duration("delay", delay),
 				zap.Error(lastErr),
 			)
-			time.Sleep(delay)
+
+			// Use timer instead of time.Sleep for cancellation support
+			timer := time.NewTimer(delay)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return fmt.Errorf("service call cancelled during retry wait: %w", ctx.Err())
+			case <-timer.C:
+			}
 
 			// Exponential backoff
 			delay *= 2
@@ -1199,14 +1231,14 @@ func (c *Client) SetInputBoolean(name string, value bool) error {
 		service = "turn_on"
 	}
 
-	return c.CallService("input_boolean", service, map[string]interface{}{
+	return c.CallService(context.Background(), "input_boolean", service, map[string]interface{}{
 		"entity_id": fmt.Sprintf("input_boolean.%s", name),
 	})
 }
 
 // SetInputNumber sets the value of an input_number
 func (c *Client) SetInputNumber(name string, value float64) error {
-	return c.CallService("input_number", "set_value", map[string]interface{}{
+	return c.CallService(context.Background(), "input_number", "set_value", map[string]interface{}{
 		"entity_id": fmt.Sprintf("input_number.%s", name),
 		"value":     value,
 	})
@@ -1214,7 +1246,7 @@ func (c *Client) SetInputNumber(name string, value float64) error {
 
 // SetInputText sets the value of an input_text
 func (c *Client) SetInputText(name string, value string) error {
-	return c.CallService("input_text", "set_value", map[string]interface{}{
+	return c.CallService(context.Background(), "input_text", "set_value", map[string]interface{}{
 		"entity_id": fmt.Sprintf("input_text.%s", name),
 		"value":     value,
 	})

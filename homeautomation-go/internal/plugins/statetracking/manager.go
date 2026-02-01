@@ -1,6 +1,7 @@
 package statetracking
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sync"
@@ -548,7 +549,7 @@ func (m *Manager) announceArrivalDirect(person, message string, mediaPlayers []s
 		zap.String("message", message),
 		zap.Strings("media_players", mediaPlayers))
 
-	err := m.haClient.CallService("tts", "speak", map[string]interface{}{
+	err := m.haClient.CallService(context.Background(), "tts", "speak", map[string]interface{}{
 		"entity_id":              "tts.google_translate_en_com",
 		"message":                message,
 		"cache":                  true,

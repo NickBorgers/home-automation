@@ -1,6 +1,7 @@
 package sleephygiene
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"time"
@@ -554,7 +555,7 @@ func (m *Manager) fadeOutSpeaker(speakerEntityID string) {
 			zap.Float64("volume_level", volumeLevel))
 
 		// Set volume on speaker
-		if err := m.haClient.CallService("media_player", "volume_set", map[string]interface{}{
+		if err := m.haClient.CallService(context.Background(), "media_player", "volume_set", map[string]interface{}{
 			"entity_id":    speakerEntityID,
 			"volume_level": volumeLevel,
 		}); err != nil {
@@ -894,7 +895,7 @@ func (m *Manager) turnOnMasterBedroomLights() {
 		zap.Int("transition_seconds", transitionSeconds))
 
 	// First, ensure lights start dim and white
-	if err := m.haClient.CallService("light", "turn_on", map[string]interface{}{
+	if err := m.haClient.CallService(context.Background(), "light", "turn_on", map[string]interface{}{
 		"entity_id":      "light.primary_suite",
 		"transition":     0,
 		"color_temp":     290,
@@ -907,7 +908,7 @@ func (m *Manager) turnOnMasterBedroomLights() {
 	m.logger.Info("Set initial bedroom light state (1% brightness, warm white)")
 
 	// Then start slow transition to full brightness
-	if err := m.haClient.CallService("light", "turn_on", map[string]interface{}{
+	if err := m.haClient.CallService(context.Background(), "light", "turn_on", map[string]interface{}{
 		"entity_id":      "light.primary_suite",
 		"transition":     transitionSeconds,
 		"color_temp":     290,
@@ -931,7 +932,7 @@ func (m *Manager) flashCommonAreaLights() {
 	}
 
 	for _, lightEntity := range commonAreaLights {
-		if err := m.haClient.CallService("light", "turn_on", map[string]interface{}{
+		if err := m.haClient.CallService(context.Background(), "light", "turn_on", map[string]interface{}{
 			"entity_id": lightEntity,
 			"flash":     "short",
 		}); err != nil {
@@ -946,7 +947,7 @@ func (m *Manager) flashCommonAreaLights() {
 func (m *Manager) turnOffBathroomLights() {
 	m.logger.Info("Turning off primary bathroom lights")
 
-	if err := m.haClient.CallService("light", "turn_off", map[string]interface{}{
+	if err := m.haClient.CallService(context.Background(), "light", "turn_off", map[string]interface{}{
 		"entity_id": "light.primary_bathroom_main_lights",
 	}); err != nil {
 		m.logger.Error("Failed to turn off bathroom lights", zap.Error(err))

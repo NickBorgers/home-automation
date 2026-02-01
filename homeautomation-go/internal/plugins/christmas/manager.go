@@ -1,6 +1,7 @@
 package christmas
 
 import (
+	"context"
 	"sync"
 
 	"homeautomation/internal/ha"
@@ -121,7 +122,7 @@ func (m *Manager) activateHolidayLights() int {
 	target := &ha.ServiceTarget{
 		LabelID: []string{HolidayLightLabelID},
 	}
-	err := m.haClient.CallServiceWithTarget("light", "turn_on", target, nil)
+	err := m.haClient.CallServiceWithTarget(context.Background(), "light", "turn_on", target, nil)
 	if err != nil {
 		m.logger.Error("Failed to turn on holiday lights",
 			zap.String("label_id", HolidayLightLabelID),
@@ -146,7 +147,7 @@ func (m *Manager) resetChristmasToggle() {
 		return
 	}
 
-	err := m.haClient.CallService("input_boolean", "turn_off", map[string]interface{}{
+	err := m.haClient.CallService(context.Background(), "input_boolean", "turn_off", map[string]interface{}{
 		"entity_id": "input_boolean.christmas",
 	})
 	if err != nil {

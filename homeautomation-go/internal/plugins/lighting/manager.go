@@ -1,6 +1,7 @@
 package lighting
 
 import (
+	"context"
 	"fmt"
 	"regexp"
 	"strings"
@@ -459,7 +460,7 @@ func (m *Manager) activateScene(room *RoomConfig, dayPhase string, trigger strin
 	}
 
 	// Call the service with the constructed entity ID
-	err := m.haClient.CallService("scene", "turn_on", serviceData)
+	err := m.haClient.CallService(context.Background(), "scene", "turn_on", serviceData)
 	if err != nil {
 		m.logger.Error("Failed to activate scene",
 			zap.String("room", room.HueGroup),
@@ -505,7 +506,7 @@ func (m *Manager) turnOffRoom(room *RoomConfig, trigger string) {
 		"area_id": room.HASSAreaID,
 	}
 
-	err := m.haClient.CallService("light", "turn_off", serviceData)
+	err := m.haClient.CallService(context.Background(), "light", "turn_off", serviceData)
 	if err != nil {
 		m.logger.Error("Failed to turn off room",
 			zap.String("room", room.HueGroup),

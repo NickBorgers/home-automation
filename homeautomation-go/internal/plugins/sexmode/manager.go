@@ -1,6 +1,7 @@
 package sexmode
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"time"
@@ -235,7 +236,7 @@ func (m *Manager) handleIsAnyoneAsleepChange(key string, oldValue, newValue inte
 				return
 			}
 
-			err := m.haClient.CallService("input_boolean", "turn_off", map[string]interface{}{
+			err := m.haClient.CallService(context.Background(), "input_boolean", "turn_off", map[string]interface{}{
 				"entity_id": "input_boolean.sex",
 			})
 			if err != nil {
@@ -313,7 +314,7 @@ func (m *Manager) activatePrimarySuiteNightScene() {
 	}
 
 	// Call scene.turn_on service
-	err := m.haClient.CallService("scene", "turn_on", map[string]interface{}{
+	err := m.haClient.CallService(context.Background(), "scene", "turn_on", map[string]interface{}{
 		"entity_id": "scene.primary_suite_night",
 	})
 	if err != nil {
@@ -352,7 +353,7 @@ func (m *Manager) reevaluatePrimarySuiteLighting() {
 
 	if isMasterAsleep {
 		// Turn off Primary Suite lights
-		err := m.haClient.CallService("light", "turn_off", map[string]interface{}{
+		err := m.haClient.CallService(context.Background(), "light", "turn_off", map[string]interface{}{
 			"area_id": "master_bedroom",
 		})
 		if err != nil {
@@ -363,7 +364,7 @@ func (m *Manager) reevaluatePrimarySuiteLighting() {
 	} else {
 		// Activate scene based on current day phase
 		sceneEntityID := fmt.Sprintf("scene.primary_suite_%s", dayPhase)
-		err := m.haClient.CallService("scene", "turn_on", map[string]interface{}{
+		err := m.haClient.CallService(context.Background(), "scene", "turn_on", map[string]interface{}{
 			"entity_id":  sceneEntityID,
 			"transition": 30, // Smooth transition
 		})
@@ -440,7 +441,7 @@ func (m *Manager) setEightSleepToColdest() {
 
 	// Set Nick's side - auto-detect min temp from entity attributes
 	nickMinTemp := m.getEightSleepMinTemp(EightSleepNickEntity)
-	err := m.haClient.CallService("climate", "set_temperature", map[string]interface{}{
+	err := m.haClient.CallService(context.Background(), "climate", "set_temperature", map[string]interface{}{
 		"entity_id":   EightSleepNickEntity,
 		"temperature": nickMinTemp,
 	})
@@ -453,7 +454,7 @@ func (m *Manager) setEightSleepToColdest() {
 
 	// Set Caroline's side - auto-detect min temp from entity attributes
 	carolineMinTemp := m.getEightSleepMinTemp(EightSleepCarolineEntity)
-	err = m.haClient.CallService("climate", "set_temperature", map[string]interface{}{
+	err = m.haClient.CallService(context.Background(), "climate", "set_temperature", map[string]interface{}{
 		"entity_id":   EightSleepCarolineEntity,
 		"temperature": carolineMinTemp,
 	})

@@ -1,6 +1,7 @@
 package music
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -53,7 +54,7 @@ func (m *Manager) callService(domain, service string, serviceData map[string]int
 		zap.Any("service_data", serviceData))
 
 	// Call the service via HA client
-	if err := m.haClient.CallService(domain, service, serviceData); err != nil {
+	if err := m.haClient.CallService(context.Background(), domain, service, serviceData); err != nil {
 		return fmt.Errorf("service call failed: %w", err)
 	}
 

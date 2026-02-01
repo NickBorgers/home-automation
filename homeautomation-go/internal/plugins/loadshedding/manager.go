@@ -1,6 +1,7 @@
 package loadshedding
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"time"
@@ -259,7 +260,7 @@ func (m *Manager) executeEnableLoadShedding(energyLevel string, trigger string) 
 	m.logger.Info("Executing: Enable thermostat hold mode",
 		zap.Strings("entities", []string{thermostatHoldHouse, thermostatHoldSuite}))
 
-	if err := m.haClient.CallService("switch", "turn_on", map[string]interface{}{
+	if err := m.haClient.CallService(context.Background(), "switch", "turn_on", map[string]interface{}{
 		"entity_id": []string{thermostatHoldHouse, thermostatHoldSuite},
 	}); err != nil {
 		m.logger.Error("Failed to enable thermostat hold mode",
@@ -275,7 +276,7 @@ func (m *Manager) executeEnableLoadShedding(energyLevel string, trigger string) 
 		zap.Float64("temp_high", tempHighRestricted),
 		zap.Strings("entities", []string{climateHouse, climateSuite}))
 
-	if err := m.haClient.CallService("climate", "set_temperature", map[string]interface{}{
+	if err := m.haClient.CallService(context.Background(), "climate", "set_temperature", map[string]interface{}{
 		"entity_id":        []string{climateHouse, climateSuite},
 		"target_temp_low":  tempLowRestricted,
 		"target_temp_high": tempHighRestricted,
@@ -375,7 +376,7 @@ func (m *Manager) executeDisableLoadShedding(energyLevel string, trigger string)
 	m.logger.Info("Executing: Disable thermostat hold mode (restore schedule)",
 		zap.Strings("entities", []string{thermostatHoldHouse, thermostatHoldSuite}))
 
-	if err := m.haClient.CallService("switch", "turn_off", map[string]interface{}{
+	if err := m.haClient.CallService(context.Background(), "switch", "turn_off", map[string]interface{}{
 		"entity_id": []string{thermostatHoldHouse, thermostatHoldSuite},
 	}); err != nil {
 		m.logger.Error("Failed to disable thermostat hold mode",

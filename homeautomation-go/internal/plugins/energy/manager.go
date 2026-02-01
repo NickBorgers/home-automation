@@ -1,6 +1,7 @@
 package energy
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"math"
@@ -571,7 +572,7 @@ func (m *Manager) updateIndicatorLights(energyLevel string) {
 	}
 
 	// Call Home Assistant light.turn_on service for all lights at once
-	err := m.haClient.CallService("light", "turn_on", map[string]interface{}{
+	err := m.haClient.CallService(context.Background(), "light", "turn_on", map[string]interface{}{
 		"entity_id":      entities,
 		"rgb_color":      rgbColor,
 		"brightness_pct": lightConfig.BrightnessPct,
@@ -932,7 +933,7 @@ func (m *Manager) setLightBrightness(entity string, brightness int) {
 
 	rgbColor := []int{lightConfig.Red, lightConfig.Green, lightConfig.Blue}
 
-	err = m.haClient.CallService("light", "turn_on", map[string]interface{}{
+	err = m.haClient.CallService(context.Background(), "light", "turn_on", map[string]interface{}{
 		"entity_id":      entity,
 		"rgb_color":      rgbColor,
 		"brightness_pct": brightness,
@@ -1284,7 +1285,7 @@ func (m *Manager) updateSingleIndicatorLight(entity, energyLevel string, brightn
 	}
 
 	// Call Home Assistant light.turn_on service for single entity
-	err := m.haClient.CallService("light", "turn_on", map[string]interface{}{
+	err := m.haClient.CallService(context.Background(), "light", "turn_on", map[string]interface{}{
 		"entity_id":      entity,
 		"rgb_color":      rgbColor,
 		"brightness_pct": brightness,

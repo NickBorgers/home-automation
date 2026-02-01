@@ -1,6 +1,7 @@
 package sensorconfig
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"time"
@@ -134,7 +135,7 @@ func (m *Manager) configureThresholds(configType string, entities []string, valu
 		}
 
 		// Call number.set_value service
-		err = m.haClient.CallService("number", "set_value", map[string]interface{}{
+		err = m.haClient.CallService(context.Background(), "number", "set_value", map[string]interface{}{
 			"entity_id": entityID,
 			"value":     value,
 		})

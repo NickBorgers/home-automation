@@ -2,6 +2,7 @@
 package infrastructure
 
 import (
+	"context"
 	"fmt"
 	"strconv"
 	"sync"
@@ -405,7 +406,7 @@ func (m *Manager) sendTTSAnnouncement(message string) {
 		"media_player.kids_bathroom",
 	}
 
-	if err := m.haClient.CallService("tts", "speak", map[string]interface{}{
+	if err := m.haClient.CallService(context.Background(), "tts", "speak", map[string]interface{}{
 		"entity_id":              "tts.google_translate_en_com",
 		"media_player_entity_id": speakers,
 		"message":                message,
