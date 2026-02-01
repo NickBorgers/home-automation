@@ -15,10 +15,17 @@ type MusicConfig struct {
 
 // ZoneConfig represents a zone definition for multi-zone playback
 type ZoneConfig struct {
-	Name     string             `yaml:"name"`
-	Priority int                `yaml:"priority"`
-	Triggers []TriggerCondition `yaml:"trigger"`
-	Default  bool               `yaml:"default,omitempty"` // Fallback zone when no triggers match
+	Name          string             `yaml:"name"`
+	Priority      int                `yaml:"priority"`
+	Triggers      []TriggerCondition `yaml:"trigger,omitempty"`        // Legacy: AND logic between conditions
+	TriggerGroups []TriggerGroup     `yaml:"trigger_groups,omitempty"` // New: OR between groups, AND within each
+	Default       bool               `yaml:"default,omitempty"`        // Fallback zone when no triggers match
+}
+
+// TriggerGroup represents a group of trigger conditions that are ANDed together.
+// Multiple TriggerGroups in a zone are ORed - any matching group activates the zone.
+type TriggerGroup struct {
+	Triggers []TriggerCondition `yaml:"triggers"` // AND within group
 }
 
 // TriggerCondition represents a condition that activates a zone
@@ -159,10 +166,20 @@ func (c *MusicConfig) validateZones() error {
 			hasDefault = true
 		}
 
-		// Validate trigger conditions have required fields
+		// Validate legacy trigger conditions have required fields
 		for j, trigger := range zone.Triggers {
 			if trigger.Variable == "" {
 				return fmt.Errorf("zone '%s' trigger %d has empty variable", zone.Name, j)
+			}
+		}
+
+		// Validate trigger_groups conditions have required fields
+		for groupIdx, group := range zone.TriggerGroups {
+			for triggerIdx, trigger := range group.Triggers {
+				if trigger.Variable == "" {
+					return fmt.Errorf("zone '%s' trigger_groups[%d].triggers[%d] has empty variable",
+						zone.Name, groupIdx, triggerIdx)
+				}
 			}
 		}
 	}
