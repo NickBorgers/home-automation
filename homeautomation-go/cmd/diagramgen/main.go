@@ -38,7 +38,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Find all plugin manager.go files
+	// Find and analyze all plugin Go files
 	plugins, err := analyzePlugins(pluginsDir)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error analyzing plugins: %v\n", err)
@@ -85,7 +85,7 @@ func findProjectRoot() (string, error) {
 	}
 }
 
-// analyzePlugins finds and analyzes all plugin manager.go files
+// analyzePlugins finds and analyzes all plugin Go files
 func analyzePlugins(pluginsDir string) ([]PluginAnalysis, error) {
 	var plugins []PluginAnalysis
 
@@ -100,13 +100,19 @@ func analyzePlugins(pluginsDir string) ([]PluginAnalysis, error) {
 		}
 
 		pluginName := entry.Name()
-		managerPath := filepath.Join(pluginsDir, pluginName, "manager.go")
+		pluginDir := filepath.Join(pluginsDir, pluginName)
 
-		if _, err := os.Stat(managerPath); os.IsNotExist(err) {
+		// Find all .go files in the plugin directory (excluding tests)
+		goFiles, err := findGoFiles(pluginDir)
+		if err != nil {
+			return nil, fmt.Errorf("finding go files in %s: %w", pluginName, err)
+		}
+
+		if len(goFiles) == 0 {
 			continue
 		}
 
-		analysis, err := analyzeFile(managerPath, pluginName)
+		analysis, err := analyzePluginFiles(goFiles, pluginName)
 		if err != nil {
 			return nil, fmt.Errorf("analyzing %s: %w", pluginName, err)
 		}
@@ -120,6 +126,63 @@ func analyzePlugins(pluginsDir string) ([]PluginAnalysis, error) {
 	})
 
 	return plugins, nil
+}
+
+// findGoFiles returns all .go files in a directory, excluding test files
+func findGoFiles(dir string) ([]string, error) {
+	var goFiles []string
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+
+		name := entry.Name()
+		if strings.HasSuffix(name, ".go") && !strings.HasSuffix(name, "_test.go") {
+			goFiles = append(goFiles, filepath.Join(dir, name))
+		}
+	}
+
+	return goFiles, nil
+}
+
+// analyzePluginFiles analyzes multiple Go files and merges results
+func analyzePluginFiles(files []string, pluginName string) (PluginAnalysis, error) {
+	merged := PluginAnalysis{
+		Name: pluginName,
+	}
+
+	subscribes := make(map[string]bool)
+	reads := make(map[string]bool)
+	writes := make(map[string]bool)
+
+	for _, file := range files {
+		analysis, err := analyzeFile(file, pluginName)
+		if err != nil {
+			return PluginAnalysis{}, err
+		}
+
+		for _, v := range analysis.Subscribes {
+			subscribes[v] = true
+		}
+		for _, v := range analysis.Reads {
+			reads[v] = true
+		}
+		for _, v := range analysis.Writes {
+			writes[v] = true
+		}
+	}
+
+	merged.Subscribes = mapKeysToSortedSlice(subscribes)
+	merged.Reads = mapKeysToSortedSlice(reads)
+	merged.Writes = mapKeysToSortedSlice(writes)
+
+	return merged, nil
 }
 
 // analyzeFile parses a Go file and extracts state variable usage
