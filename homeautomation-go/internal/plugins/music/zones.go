@@ -1,7 +1,6 @@
 package music
 
 import (
-	"context"
 	"fmt"
 
 	"go.uber.org/zap"
@@ -111,7 +110,10 @@ func (m *Manager) addSpeakersToZone(zone *Zone, speakers []string, trigger strin
 
 		// Calculate and set volume
 		volume := m.calculateVolume(p.BaseVolume, 1.0) // Use default multiplier
-		go m.fadeInSpeaker(context.Background(), p.PlayerName, volume, zone.MusicType)
+		// Use startFadeInWithContext to enable cancellation when new playback starts
+		// This prevents false "human override" detection and allows cancelAllFadeIns() to work
+		ctx := m.startFadeInWithContext(entityID)
+		go m.fadeInSpeaker(ctx, p.PlayerName, volume, zone.MusicType)
 	}
 }
 
