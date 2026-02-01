@@ -16,19 +16,19 @@ zones:
     # OR logic: either normal morning conditions OR wake sequence active
     trigger_groups:
       - triggers:  # Normal: morning phase, no one asleep
-        - variable: dayPhase
-          value: morning
-        - variable: isAnyoneHome
-          value: true
-        - variable: isAnyoneAsleep
-          value: false
+          - variable: dayPhase
+            value: morning
+          - variable: isAnyoneHome
+            value: true
+          - variable: isAnyoneAsleep
+            value: false
       - triggers:  # Wakeup: wake sequence active during morning
-        - variable: isWakeSequenceActive
-          value: true
-        - variable: dayPhase
-          value: morning
-        - variable: isAnyoneHome
-          value: true
+          - variable: isWakeSequenceActive
+            value: true
+          - variable: dayPhase
+            value: morning
+          - variable: isAnyoneHome
+            value: true
   - name: "day"
     priority: 40
     trigger:
@@ -80,7 +80,7 @@ music:
             value: true
       - player_name: "Bedroom"
         base_volume: 9
-        # Use exclude_if (not leave_muted_if) so bedroom stays on sleep zone during wake sequence
+        # Exclude during wake sequence (bedroom stays on sleep zone)
         exclude_if:
           - variable: isMasterAsleep
             value: true
