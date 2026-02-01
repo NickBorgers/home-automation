@@ -108,19 +108,40 @@ func (zm *ZoneManager) StopAllZones(reason string) {
 	zm.speakerZone = make(map[string]string)
 }
 
-// evaluateTriggers checks if all trigger conditions for a zone are met
+// evaluateTriggers checks if trigger conditions for a zone are met.
+// Supports two modes:
+// - Legacy: zone.Triggers (AND logic between all conditions)
+// - New: zone.TriggerGroups (OR between groups, AND within each group)
 func (zm *ZoneManager) evaluateTriggers(zone ZoneConfig) bool {
-	// If no triggers defined, zone is activated by explicit musicPlaybackType
-	if len(zone.Triggers) == 0 {
+	// New: trigger_groups (OR between groups, AND within each)
+	if len(zone.TriggerGroups) > 0 {
+		for _, group := range zone.TriggerGroups {
+			if zm.evaluateTriggerList(group.Triggers) {
+				return true // Any group matching activates zone
+			}
+		}
 		return false
 	}
 
-	// All trigger conditions must match (AND logic)
-	for _, trigger := range zone.Triggers {
+	// Legacy: single trigger list (AND logic)
+	if len(zone.Triggers) > 0 {
+		return zm.evaluateTriggerList(zone.Triggers)
+	}
+
+	// No triggers = activated by musicPlaybackType only
+	return false
+}
+
+// evaluateTriggerList checks if all trigger conditions in a list are met (AND logic)
+func (zm *ZoneManager) evaluateTriggerList(triggers []TriggerCondition) bool {
+	if len(triggers) == 0 {
+		return false
+	}
+
+	for _, trigger := range triggers {
 		value, err := zm.manager.getStateValue(trigger.Variable)
 		if err != nil {
 			zm.logger.Debug("Failed to get trigger variable",
-				zap.String("zone", zone.Name),
 				zap.String("variable", trigger.Variable),
 				zap.Error(err))
 			return false

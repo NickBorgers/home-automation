@@ -526,6 +526,7 @@ func (m *Manager) collectMuteConditionVariables() []string {
 
 // collectZoneTriggerVariables collects all unique variables from zone trigger conditions.
 // These are variables like isAnyoneAsleep that control zone activation (Phase 2).
+// Supports both legacy Triggers and new TriggerGroups.
 func (m *Manager) collectZoneTriggerVariables() []string {
 	varMap := make(map[string]bool)
 
@@ -538,9 +539,19 @@ func (m *Manager) collectZoneTriggerVariables() []string {
 	}
 
 	for _, zone := range m.config.Zones {
+		// Legacy: zone.Triggers
 		for _, trigger := range zone.Triggers {
 			if trigger.Variable != "" && !alreadySubscribed[trigger.Variable] {
 				varMap[trigger.Variable] = true
+			}
+		}
+
+		// New: zone.TriggerGroups
+		for _, group := range zone.TriggerGroups {
+			for _, trigger := range group.Triggers {
+				if trigger.Variable != "" && !alreadySubscribed[trigger.Variable] {
+					varMap[trigger.Variable] = true
+				}
 			}
 		}
 	}

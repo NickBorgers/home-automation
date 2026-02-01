@@ -296,6 +296,70 @@ flowchart LR
 
 > **Note:** The `go_to_bed` scheduled time automatically starts rain sounds by setting `musicPlaybackType` to `"sleep"`. This happens unconditionally at the configured time, regardless of presence or sleep state. The `isMasterAsleep` trigger also activates sleep music when someone is detected as asleep.
 
+## Wake Sequence Multi-Zone Music
+
+When the wake sequence activates (`isWakeSequenceActive=true`) during morning dayPhase, the music system supports split playback across the house:
+
+```mermaid
+flowchart TB
+    subgraph Initial["Night State"]
+        sleepAll["Sleep music everywhere<br/>(isAnyoneAsleep=true)"]
+    end
+
+    subgraph WakeSequence["Wake Sequence Active"]
+        sleepBed["Bedroom: Sleep music<br/>(priority 100)"]
+        morningRest["Kitchen, Office: Morning music<br/>(priority 50)"]
+    end
+
+    subgraph FullyAwake["Person Wakes Up"]
+        morningAll["Morning music everywhere<br/>(isAnyoneAsleep=false)"]
+    end
+
+    Initial -->|"isWakeSequenceActive=true<br/>dayPhase=morning"| WakeSequence
+    WakeSequence -->|"isMasterAsleep=false<br/>isAnyoneAsleep=false"| FullyAwake
+
+    style sleepAll fill:#1a1a2e,color:#fff
+    style sleepBed fill:#1a1a2e,color:#fff
+    style morningRest fill:#ff6b6b,color:#fff
+    style morningAll fill:#ff6b6b,color:#fff
+```
+
+### Zone Priority and Speaker Assignment
+
+When both sleep and morning zones are active simultaneously:
+
+| Zone | Priority | Trigger Conditions | Speakers |
+|------|----------|-------------------|----------|
+| `sleep` | 100 | `isAnyoneAsleep=true` + `isAnyoneHome=true` | Bedroom (claimed first due to higher priority) |
+| `morning` | 50 | `isWakeSequenceActive=true` + `dayPhase=morning` + `isAnyoneHome=true` **OR** `dayPhase=morning` + `isAnyoneAsleep=false` + `isAnyoneHome=true` | Kitchen, Office (Bedroom excluded via `exclude_if: isMasterAsleep=true`) |
+
+### Key Behaviors
+
+1. **Bedroom exclusion during wake**: The Bedroom speaker uses `exclude_if: isMasterAsleep=true` in the morning zone configuration, so it stays on sleep music while someone is still in bed.
+
+2. **OR logic in triggers**: The morning zone uses `trigger_groups` with OR logic:
+   - Group 1: Normal morning conditions (`isAnyoneAsleep=false`)
+   - Group 2: Wake sequence active (`isWakeSequenceActive=true`)
+
+3. **Seamless join**: When `isMasterAsleep` becomes false, the Bedroom speaker joins the existing morning zone rather than starting new playback.
+
+### Timeline Example
+
+```
+Time    Event                           Bedroom         Kitchen/Office
+────    ─────                           ───────         ──────────────
+T0      Night, isMasterAsleep=true      Sleep music     Sleep music
+        isWakeSequenceActive=false
+
+T1      Alarm triggers                  Sleep music     Morning music
+        isWakeSequenceActive=true       (sleep zone)    (morning zone)
+        dayPhase=morning
+
+T2      Person wakes up                 Morning music   Morning music
+        isMasterAsleep=false            (joins morning) (continues)
+        isAnyoneAsleep=false
+```
+
 ## Related Documentation
 
 ### Detailed Flow Documentation
