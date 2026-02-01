@@ -1009,6 +1009,385 @@ func TestScenario_CancelWake_ForcesSleepMusicRestart(t *testing.T) {
 }
 
 // =============================================================================
+// WAKE SEQUENCE MUSIC TESTS
+// =============================================================================
+//
+// These tests validate the behavior when isWakeSequenceActive becomes true:
+// - The rest of the house should roll over to morning music
+// - The bedroom should continue playing sleep music while isMasterAsleep=true
+// - When isMasterAsleep becomes false, bedroom joins morning zone
+//
+// =============================================================================
+
+// createWakeSequenceTestConfig creates a configuration with explicit zones
+// configured for testing wake sequence behavior.
+func createWakeSequenceTestConfig() *MusicConfig {
+	return &MusicConfig{
+		Zones: []ZoneConfig{
+			{
+				Name:     "sleep",
+				Priority: 100,
+				Triggers: []TriggerCondition{
+					{Variable: "isAnyoneAsleep", Value: true},
+					{Variable: "isAnyoneHome", Value: true},
+				},
+			},
+			{
+				Name:     "morning",
+				Priority: 50,
+				TriggerGroups: []TriggerGroup{
+					{
+						Triggers: []TriggerCondition{
+							{Variable: "dayPhase", Value: "morning"},
+							{Variable: "isAnyoneHome", Value: true},
+							{Variable: "isAnyoneAsleep", Value: false},
+						},
+					},
+					{
+						Triggers: []TriggerCondition{
+							{Variable: "isWakeSequenceActive", Value: true},
+							{Variable: "dayPhase", Value: "morning"},
+							{Variable: "isAnyoneHome", Value: true},
+						},
+					},
+				},
+			},
+			{
+				Name:     "day",
+				Priority: 40,
+				Triggers: []TriggerCondition{
+					{Variable: "dayPhase", Value: "day"},
+					{Variable: "isAnyoneHome", Value: true},
+					{Variable: "isAnyoneAsleep", Value: false},
+				},
+			},
+		},
+		Music: map[string]MusicMode{
+			"morning": {
+				Participants: []Participant{
+					{PlayerName: "Kitchen", BaseVolume: 9, LeaveMutedIf: []MuteCondition{}},
+					{PlayerName: "Office", BaseVolume: 8, LeaveMutedIf: []MuteCondition{}},
+					{
+						PlayerName: "Bedroom",
+						BaseVolume: 9,
+						ExcludeIf: []MuteCondition{
+							{Variable: "isMasterAsleep", Value: true},
+						},
+					},
+				},
+				PlaybackOptions: []PlaybackOption{
+					{URI: "spotify:playlist:morning_instrumental", MediaType: "playlist", VolumeMultiplier: 1.0},
+				},
+			},
+			"day": {
+				Participants: []Participant{
+					{PlayerName: "Kitchen", BaseVolume: 9, LeaveMutedIf: []MuteCondition{}},
+					{PlayerName: "Office", BaseVolume: 8, LeaveMutedIf: []MuteCondition{}},
+					{PlayerName: "Bedroom", BaseVolume: 9, LeaveMutedIf: []MuteCondition{}},
+				},
+				PlaybackOptions: []PlaybackOption{
+					{URI: "spotify:playlist:day_chill", MediaType: "playlist", VolumeMultiplier: 1.0},
+				},
+			},
+			"evening": {
+				Participants: []Participant{
+					{PlayerName: "Kitchen", BaseVolume: 9, LeaveMutedIf: []MuteCondition{}},
+				},
+				PlaybackOptions: []PlaybackOption{
+					{URI: "spotify:playlist:evening", MediaType: "playlist", VolumeMultiplier: 1.0},
+				},
+			},
+			"winddown": {
+				Participants: []Participant{
+					{PlayerName: "Kitchen", BaseVolume: 10, LeaveMutedIf: []MuteCondition{}},
+				},
+				PlaybackOptions: []PlaybackOption{
+					{URI: "spotify:playlist:winddown", MediaType: "playlist", VolumeMultiplier: 1.0},
+				},
+			},
+			"sleep": {
+				Participants: []Participant{
+					{PlayerName: "Bedroom", BaseVolume: 16, LeaveMutedIf: []MuteCondition{}},
+					{PlayerName: "Kitchen", BaseVolume: 12, LeaveMutedIf: []MuteCondition{}},
+				},
+				PlaybackOptions: []PlaybackOption{
+					{URI: "http://rain-sounds.example.com/rain.m4a", MediaType: "music", VolumeMultiplier: 1.0},
+				},
+			},
+			"sex": {
+				Participants: []Participant{
+					{PlayerName: "Bedroom", BaseVolume: 10, LeaveMutedIf: []MuteCondition{}},
+				},
+				PlaybackOptions: []PlaybackOption{
+					{URI: "spotify:playlist:sex", MediaType: "playlist", VolumeMultiplier: 1.0},
+				},
+			},
+			"wakeup": {
+				Participants: []Participant{
+					{PlayerName: "Bedroom", BaseVolume: 6, LeaveMutedIf: []MuteCondition{}},
+				},
+				PlaybackOptions: []PlaybackOption{
+					{URI: "spotify:playlist:wakeup", MediaType: "playlist", VolumeMultiplier: 1.0},
+				},
+			},
+		},
+	}
+}
+
+// TestScenario_WakeSequenceActive_MorningMusicInRestOfHouse tests that when
+// isWakeSequenceActive becomes true during morning dayPhase, the rest of the
+// house transitions to morning music while the bedroom stays on sleep music.
+//
+// SCENARIO:
+// - Initial: Night, isMasterAsleep=true, isAnyoneAsleep=true, sleep music on all speakers
+// - Action: isWakeSequenceActive=true, dayPhase=morning
+// - Expected:
+//   - Sleep zone active for Bedroom (sleep music continues)
+//   - Morning zone active for Kitchen, Office, etc. (morning music starts)
+//   - Bedroom excluded from morning zone due to exclude_if: isMasterAsleep=true
+func TestScenario_WakeSequenceActive_MorningMusicInRestOfHouse(t *testing.T) {
+	t.Parallel()
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	config := createWakeSequenceTestConfig()
+
+	// Monday 6:30 AM - morning dayPhase
+	fixedTime := time.Date(2024, 1, 15, 6, 30, 0, 0, time.UTC)
+	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
+
+	manager := NewManager(mockClient, stateManager, config, logger, true, timeProvider, nil)
+	manager.SetSleepFunc(func(d time.Duration) {})
+
+	// Initial state: Night, someone is asleep - sleep music playing
+	_ = stateManager.SetString("dayPhase", "night")
+	_ = stateManager.SetBool("isAnyoneHome", true)
+	_ = stateManager.SetBool("isAnyoneAsleep", true)
+	_ = stateManager.SetBool("isMasterAsleep", true)
+	_ = stateManager.SetBool("isWakeSequenceActive", false)
+	// Don't set musicPlaybackType yet - let manager determine it
+
+	err := manager.Start()
+	require.NoError(t, err)
+	defer manager.Stop()
+
+	time.Sleep(100 * time.Millisecond)
+	manager.WaitForSync()
+
+	// Verify sleep zone is active (isAnyoneAsleep=true triggers sleep zone)
+	musicType, _ := stateManager.GetString("musicPlaybackType")
+	assert.Equal(t, "sleep", musicType, "Sleep music should be selected when isAnyoneAsleep=true")
+
+	// ACTION: Wake sequence starts, dayPhase changes to morning
+	// This should trigger zone resolution via handleZoneTriggerChange
+	_ = stateManager.SetString("dayPhase", "morning")
+	_ = stateManager.SetBool("isWakeSequenceActive", true)
+
+	time.Sleep(100 * time.Millisecond)
+	manager.WaitForSync()
+
+	// Verify zone manager's active zone configs to test trigger evaluation
+	// The zone manager should now evaluate both trigger groups
+	activeZones := manager.zoneManager.getActiveZoneConfigs()
+
+	sleepZoneActive := false
+	morningZoneActive := false
+	for _, zc := range activeZones {
+		if zc.Name == "sleep" {
+			sleepZoneActive = true
+		}
+		if zc.Name == "morning" {
+			morningZoneActive = true
+		}
+	}
+
+	assert.True(t, sleepZoneActive, "Sleep zone should be active (isAnyoneAsleep=true)")
+	assert.True(t, morningZoneActive, "Morning zone should be active (isWakeSequenceActive=true triggers second group)")
+}
+
+// TestScenario_MasterWakesUp_BedroomJoinsMorning tests that when isMasterAsleep
+// becomes false, the bedroom joins the morning zone.
+//
+// SCENARIO:
+// - Initial: Wake sequence active, bedroom on sleep, rest on morning
+// - Action: isMasterAsleep=false, isAnyoneAsleep=false
+// - Expected:
+//   - Sleep zone stops (no one asleep)
+//   - Bedroom joins morning zone (exclude_if no longer applies)
+//   - All speakers now on morning music
+func TestScenario_MasterWakesUp_BedroomJoinsMorning(t *testing.T) {
+	t.Parallel()
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	config := createWakeSequenceTestConfig()
+
+	fixedTime := time.Date(2024, 1, 15, 7, 0, 0, 0, time.UTC)
+	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
+
+	manager := NewManager(mockClient, stateManager, config, logger, true, timeProvider, nil)
+	manager.SetSleepFunc(func(d time.Duration) {})
+
+	// Initial state: Wake sequence active, someone still asleep
+	_ = stateManager.SetString("dayPhase", "morning")
+	_ = stateManager.SetBool("isAnyoneHome", true)
+	_ = stateManager.SetBool("isAnyoneAsleep", true)
+	_ = stateManager.SetBool("isMasterAsleep", true)
+	_ = stateManager.SetBool("isWakeSequenceActive", true)
+
+	err := manager.Start()
+	require.NoError(t, err)
+	defer manager.Stop()
+
+	time.Sleep(100 * time.Millisecond)
+	manager.WaitForSync()
+
+	// Verify both zones are active initially via trigger evaluation
+	activeZones := manager.zoneManager.getActiveZoneConfigs()
+	sleepZoneActive := false
+	morningZoneActive := false
+	for _, zc := range activeZones {
+		if zc.Name == "sleep" {
+			sleepZoneActive = true
+		}
+		if zc.Name == "morning" {
+			morningZoneActive = true
+		}
+	}
+	require.True(t, sleepZoneActive, "Sleep zone should be active initially")
+	require.True(t, morningZoneActive, "Morning zone should be active initially")
+
+	// ACTION: Person wakes up
+	mockClient.SimulateStateChange("input_boolean.anyone_asleep", "off")
+	mockClient.SimulateStateChange("input_boolean.master_asleep", "off")
+
+	time.Sleep(100 * time.Millisecond)
+	manager.WaitForSync()
+
+	// VERIFICATION: Sleep zone should stop, morning zone continues
+	activeZones = manager.zoneManager.getActiveZoneConfigs()
+	sleepZoneActive = false
+	morningZoneActive = false
+	for _, zc := range activeZones {
+		if zc.Name == "sleep" {
+			sleepZoneActive = true
+		}
+		if zc.Name == "morning" {
+			morningZoneActive = true
+		}
+	}
+
+	assert.False(t, sleepZoneActive, "Sleep zone should stop when isAnyoneAsleep=false")
+	assert.True(t, morningZoneActive, "Morning zone should still be active (first trigger group: isAnyoneAsleep=false)")
+}
+
+// TestScenario_TriggerGroups_ORLogic tests that trigger_groups use OR logic
+// between groups (any group matching activates the zone).
+func TestScenario_TriggerGroups_ORLogic(t *testing.T) {
+	t.Parallel()
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	config := createWakeSequenceTestConfig()
+
+	fixedTime := time.Date(2024, 1, 15, 7, 0, 0, 0, time.UTC)
+	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
+
+	manager := NewManager(mockClient, stateManager, config, logger, true, timeProvider, nil)
+	manager.SetSleepFunc(func(d time.Duration) {})
+
+	// Test case 1: First trigger group (normal morning conditions)
+	_ = stateManager.SetString("dayPhase", "morning")
+	_ = stateManager.SetBool("isAnyoneHome", true)
+	_ = stateManager.SetBool("isAnyoneAsleep", false) // This makes first group match
+	_ = stateManager.SetBool("isWakeSequenceActive", false)
+	_ = stateManager.SetBool("isMasterAsleep", false)
+
+	err := manager.Start()
+	require.NoError(t, err)
+	defer manager.Stop()
+
+	time.Sleep(100 * time.Millisecond)
+	manager.WaitForSync()
+
+	// Check active zone configs for morning zone
+	activeZones := manager.zoneManager.getActiveZoneConfigs()
+	morningActive := false
+	for _, zc := range activeZones {
+		if zc.Name == "morning" {
+			morningActive = true
+		}
+	}
+	assert.True(t, morningActive, "Morning zone should be active via first trigger group (isAnyoneAsleep=false)")
+
+	// Stop manager to reset
+	manager.Stop()
+
+	// Test case 2: Second trigger group (wake sequence active)
+	manager2 := NewManager(mockClient, stateManager, config, logger, true, timeProvider, nil)
+	manager2.SetSleepFunc(func(d time.Duration) {})
+
+	_ = stateManager.SetString("dayPhase", "morning")
+	_ = stateManager.SetBool("isAnyoneHome", true)
+	_ = stateManager.SetBool("isAnyoneAsleep", true)       // First group doesn't match
+	_ = stateManager.SetBool("isWakeSequenceActive", true) // But second group does
+	_ = stateManager.SetBool("isMasterAsleep", true)
+
+	err = manager2.Start()
+	require.NoError(t, err)
+	defer manager2.Stop()
+
+	time.Sleep(100 * time.Millisecond)
+	manager2.WaitForSync()
+
+	activeZones = manager2.zoneManager.getActiveZoneConfigs()
+	morningActive = false
+	for _, zc := range activeZones {
+		if zc.Name == "morning" {
+			morningActive = true
+		}
+	}
+	assert.True(t, morningActive, "Morning zone should be active via second trigger group (wake sequence)")
+}
+
+// TestScenario_TriggerGroups_ANDWithinGroup tests that trigger_groups use AND logic
+// within each group (all conditions in a group must match).
+func TestScenario_TriggerGroups_ANDWithinGroup(t *testing.T) {
+	t.Parallel()
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	config := createWakeSequenceTestConfig()
+
+	fixedTime := time.Date(2024, 1, 15, 7, 0, 0, 0, time.UTC)
+	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
+
+	manager := NewManager(mockClient, stateManager, config, logger, true, timeProvider, nil)
+	manager.SetSleepFunc(func(d time.Duration) {})
+
+	// Set up conditions where second group is partially matched
+	// (isWakeSequenceActive=true but dayPhase=night, not morning)
+	_ = stateManager.SetString("dayPhase", "night") // Doesn't match morning
+	_ = stateManager.SetBool("isAnyoneHome", true)
+	_ = stateManager.SetBool("isAnyoneAsleep", true)       // First group doesn't match
+	_ = stateManager.SetBool("isWakeSequenceActive", true) // Partial match of second group
+	_ = stateManager.SetBool("isMasterAsleep", true)
+	_ = stateManager.SetString("musicPlaybackType", "")
+
+	err := manager.Start()
+	require.NoError(t, err)
+	defer manager.Stop()
+
+	time.Sleep(100 * time.Millisecond)
+	manager.WaitForSync()
+
+	// Morning zone should NOT be active because dayPhase != morning
+	_, morningExists := manager.zoneManager.GetZone("morning")
+	assert.False(t, morningExists,
+		"Morning zone should NOT be active when only some conditions in a group match (AND logic within group)")
+}
+
+// =============================================================================
 // TEST: Verify Rate Limiting Still Works For Rapid Start Requests
 // =============================================================================
 //
