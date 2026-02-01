@@ -22,12 +22,6 @@ const (
 	// Low battery threshold (percentage)
 	DefaultLowBatteryThreshold = 20
 
-	// Staleness threshold - sensor considered stale if no updates for this long
-	DefaultStalenessThreshold = 24 * time.Hour
-
-	// How often to check for stale sensors
-	StalenessCheckInterval = 1 * time.Hour
-
 	// Temperature sensor lockup detection
 	// A sensor is considered locked up if it has the same reading for this long
 	TemperatureLockupThreshold = 12 * time.Hour
@@ -46,8 +40,7 @@ type BatterySensor struct {
 	IsLow            bool
 	IsUnavailable    bool
 	LastReported     time.Time
-	IsStale          bool
-	NotificationSent bool // Track if we've sent notification for current low/stale state
+	NotificationSent bool // Track if we've sent notification for current low battery state
 }
 
 // TemperatureSensor represents a discovered temperature sensor for lockup monitoring
@@ -64,7 +57,17 @@ type TemperatureSensor struct {
 	LastRecoveryNotification time.Time // When we last notified about this sensor's recovery
 }
 
-// Manager handles sensor health monitoring: low batteries, stale sensors, and temperature lockup
+// NodeStatus represents a discovered Z-Wave node status sensor
+type NodeStatus struct {
+	EntityID         string
+	DeviceID         string
+	DeviceName       string
+	Status           string // alive, asleep, awake, dead
+	LastChanged      time.Time
+	NotificationSent bool // Track if we've sent notification for current dead state
+}
+
+// Manager handles sensor health monitoring: low batteries, node status, and temperature lockup
 type Manager struct {
 	haClient     ha.HAClient
 	stateManager *state.Manager
@@ -83,13 +86,10 @@ type Manager struct {
 	mu             sync.Mutex
 	batterySensors map[string]*BatterySensor
 	tempSensors    map[string]*TemperatureSensor
+	nodeStatuses   map[string]*NodeStatus
 
 	// Configuration
 	lowBatteryThreshold int
-	stalenessThreshold  time.Duration
-
-	// Staleness checker control
-	stopStalenessChecker chan struct{}
 
 	// Temperature lockup checker control
 	stopLockupChecker chan struct{}
@@ -110,8 +110,8 @@ func NewManager(haClient ha.HAClient, stateManager *state.Manager, logger *zap.L
 		subHelper:           shadowstate.NewSubscriptionHelper(haClient, stateManager, registry, shadowTracker, "sensorhealth", logger.Named("sensorhealth")),
 		batterySensors:      make(map[string]*BatterySensor),
 		tempSensors:         make(map[string]*TemperatureSensor),
+		nodeStatuses:        make(map[string]*NodeStatus),
 		lowBatteryThreshold: DefaultLowBatteryThreshold,
-		stalenessThreshold:  DefaultStalenessThreshold,
 	}
 }
 
@@ -144,8 +144,6 @@ func (m *Manager) Start() error {
 		m.logger.Warn("No battery sensors discovered")
 	} else {
 		m.logger.Info("Battery sensors discovered", zap.Int("count", batteryCount))
-		// Start periodic staleness checker
-		m.startStalenessChecker()
 	}
 
 	// Discover temperature sensors for lockup detection
@@ -164,6 +162,22 @@ func (m *Manager) Start() error {
 			zap.Int("total", tempSensorCount))
 		// Start the periodic lockup checker
 		m.startLockupChecker()
+	}
+
+	// Discover Z-Wave node status sensors for device health monitoring
+	if err := m.discoverNodeStatusSensors(); err != nil {
+		m.logger.Warn("Failed to discover some node status sensors", zap.Error(err))
+	}
+
+	m.mu.Lock()
+	nodeStatusCount := len(m.nodeStatuses)
+	m.mu.Unlock()
+
+	if nodeStatusCount == 0 {
+		m.logger.Warn("No Z-Wave node status sensors discovered - device health monitoring will be inactive")
+	} else {
+		m.logger.Info("Z-Wave node status sensors discovered for device health monitoring",
+			zap.Int("count", nodeStatusCount))
 	}
 
 	// Record discovery time
@@ -185,9 +199,6 @@ func (m *Manager) Start() error {
 // Stop stops the sensor health manager
 func (m *Manager) Stop() {
 	m.logger.Info("Stopping Sensor Health Manager")
-
-	// Stop staleness checker
-	m.stopStalenessCheckerFunc()
 
 	// Stop lockup checker
 	m.stopLockupCheckerFunc()
@@ -428,6 +439,295 @@ func (m *Manager) discoverTemperatureSensors() error {
 	return nil
 }
 
+// discoverNodeStatusSensors discovers Z-Wave node status sensors for device health monitoring.
+// These sensors report alive/asleep/awake/dead status for Z-Wave devices.
+func (m *Manager) discoverNodeStatusSensors() error {
+	var errs []error
+
+	// Get all entity states
+	states, err := m.haClient.GetAllStates()
+	if err != nil {
+		return fmt.Errorf("failed to get entity states: %w", err)
+	}
+
+	// Filter for node_status sensors (entity_id ends with _node_status)
+	var nodeStatusStates []*ha.State
+	for _, state := range states {
+		if !strings.HasPrefix(state.EntityID, "sensor.") {
+			continue
+		}
+		if strings.HasSuffix(state.EntityID, "_node_status") {
+			nodeStatusStates = append(nodeStatusStates, state)
+		}
+	}
+
+	m.logger.Info("Found Z-Wave node status sensors", zap.Int("count", len(nodeStatusStates)))
+
+	if len(nodeStatusStates) == 0 {
+		return nil
+	}
+
+	// Get entity registry to map entity_id -> device_id
+	entityRegistry, err := m.haClient.GetEntityRegistry()
+	if err != nil {
+		m.logger.Warn("Failed to get entity registry for node status sensors",
+			zap.Error(err))
+		errs = append(errs, err)
+	}
+
+	entityToDevice := make(map[string]string)
+	for _, entry := range entityRegistry {
+		entityToDevice[entry.EntityID] = entry.DeviceID
+	}
+
+	// Get device registry for device names and label checking
+	devices, err := m.haClient.GetDevices()
+	if err != nil {
+		m.logger.Warn("Failed to get device registry for node status sensors",
+			zap.Error(err))
+		errs = append(errs, err)
+	}
+
+	deviceNameMap := make(map[string]string)
+	for _, device := range devices {
+		deviceNameMap[device.ID] = device.Name
+	}
+
+	labelChecker := ha.NewDeviceLabelChecker(devices)
+
+	// Create NodeStatus structs and subscribe to each
+	m.mu.Lock()
+	for _, state := range nodeStatusStates {
+		deviceID := entityToDevice[state.EntityID]
+
+		// Check if device has the monitoring ignore label
+		if labelChecker.ShouldIgnoreForMonitoring(deviceID) {
+			m.logger.Info("Skipping node status sensor with monitoring_ignore label on device",
+				zap.String("entity_id", state.EntityID),
+				zap.String("device_id", deviceID))
+			continue
+		}
+
+		deviceName := deviceNameMap[deviceID]
+		if deviceName == "" {
+			// Use friendly_name as fallback
+			if name, ok := state.Attributes["friendly_name"].(string); ok {
+				deviceName = name
+			} else {
+				deviceName = state.EntityID
+			}
+		}
+
+		nodeStatus := &NodeStatus{
+			EntityID:    state.EntityID,
+			DeviceID:    deviceID,
+			DeviceName:  deviceName,
+			Status:      state.State,
+			LastChanged: state.LastChanged,
+		}
+
+		m.nodeStatuses[state.EntityID] = nodeStatus
+
+		m.logger.Debug("Discovered node status sensor",
+			zap.String("entity_id", state.EntityID),
+			zap.String("device_name", deviceName),
+			zap.String("device_id", deviceID),
+			zap.String("status", state.State))
+	}
+	m.mu.Unlock()
+
+	// Subscribe to each sensor (outside the lock to avoid deadlock)
+	for entityID := range m.nodeStatuses {
+		if err := m.subHelper.SubscribeToEntity(entityID, m.handleNodeStatusChange); err != nil {
+			m.logger.Warn("Failed to subscribe to node status sensor",
+				zap.String("entity_id", entityID),
+				zap.Error(err))
+			errs = append(errs, err)
+		}
+	}
+
+	// Update shadow state with all discovered node status sensors
+	m.updateShadowNodeStatuses()
+
+	// Evaluate initial state for dead devices
+	m.evaluateDeadDevices()
+
+	if len(errs) > 0 {
+		return errors.Join(errs...)
+	}
+	return nil
+}
+
+// handleNodeStatusChange processes Z-Wave node status changes
+func (m *Manager) handleNodeStatusChange(entityID string, oldState, newState *ha.State) {
+	if newState == nil {
+		return
+	}
+
+	m.mu.Lock()
+	node, ok := m.nodeStatuses[entityID]
+	if !ok {
+		m.mu.Unlock()
+		m.logger.Warn("Received update for unknown node status sensor", zap.String("entity_id", entityID))
+		return
+	}
+
+	oldStatus := node.Status
+	node.Status = newState.State
+	node.LastChanged = m.clock.Now()
+
+	m.logger.Debug("Node status changed",
+		zap.String("entity_id", entityID),
+		zap.String("device_name", node.DeviceName),
+		zap.String("old_status", oldStatus),
+		zap.String("new_status", newState.State))
+
+	// Check for status transitions
+	wasDeadOrUnknown := oldStatus == "dead" || oldStatus == "unavailable" || oldStatus == ""
+	isNowDead := newState.State == "dead"
+	isNowAlive := newState.State == "alive" || newState.State == "awake" || newState.State == "asleep"
+
+	// If device just became dead, send notification
+	if isNowDead && !wasDeadOrUnknown && !node.NotificationSent {
+		node.NotificationSent = true
+		m.mu.Unlock()
+		m.sendDeviceDeadNotification(node)
+		m.mu.Lock()
+	}
+
+	// If device recovered from dead state, send recovery notification and reset flag
+	if isNowAlive && wasDeadOrUnknown && node.NotificationSent {
+		node.NotificationSent = false
+		m.mu.Unlock()
+		m.sendDeviceRecoveredNotification(node)
+		m.mu.Lock()
+	}
+	m.mu.Unlock()
+
+	// Update shadow state
+	m.updateShadowNodeStatuses()
+	m.evaluateDeadDevices()
+}
+
+// sendDeviceDeadNotification sends a notification for a dead Z-Wave device
+func (m *Manager) sendDeviceDeadNotification(node *NodeStatus) {
+	message := fmt.Sprintf("Z-Wave device '%s' is not responding (status: dead). The device may need to be checked or replaced.", node.DeviceName)
+
+	m.logger.Warn("Z-Wave device dead",
+		zap.String("entity_id", node.EntityID),
+		zap.String("device_name", node.DeviceName))
+
+	// Record notification in shadow state
+	m.shadowTracker.RecordDeadDeviceNotification(node.EntityID, node.DeviceName, message)
+
+	if m.readOnly {
+		m.logger.Info("Skipping dead device notification send in read-only mode",
+			zap.String("entity_id", node.EntityID),
+			zap.String("message", message))
+		return
+	}
+
+	if m.ntfyClient == nil {
+		m.logger.Warn("ntfy client not configured, cannot send dead device notification",
+			zap.String("entity_id", node.EntityID))
+		return
+	}
+
+	// Send notification via ntfy
+	if err := m.ntfyClient.Send(&ntfy.Message{
+		Title:    "Device Offline",
+		Body:     message,
+		Priority: ntfy.PriorityHigh,
+		Tags:     []string{"warning", "electric_plug"},
+	}); err != nil {
+		m.logger.Error("Failed to send dead device notification",
+			zap.String("entity_id", node.EntityID),
+			zap.Error(err))
+	} else {
+		m.logger.Info("Dead device notification sent", zap.String("message", message))
+	}
+}
+
+// sendDeviceRecoveredNotification sends a notification when a Z-Wave device recovers
+func (m *Manager) sendDeviceRecoveredNotification(node *NodeStatus) {
+	message := fmt.Sprintf("Z-Wave device '%s' is back online (status: %s).", node.DeviceName, node.Status)
+
+	m.logger.Info("Z-Wave device recovered",
+		zap.String("entity_id", node.EntityID),
+		zap.String("device_name", node.DeviceName),
+		zap.String("status", node.Status))
+
+	// Record notification in shadow state
+	m.shadowTracker.RecordDeviceRecoveryNotification(node.EntityID, node.DeviceName, message)
+
+	if m.readOnly {
+		m.logger.Info("Skipping device recovery notification send in read-only mode",
+			zap.String("entity_id", node.EntityID),
+			zap.String("message", message))
+		return
+	}
+
+	if m.ntfyClient == nil {
+		m.logger.Warn("ntfy client not configured, cannot send device recovery notification",
+			zap.String("entity_id", node.EntityID))
+		return
+	}
+
+	// Send notification via ntfy
+	if err := m.ntfyClient.Send(&ntfy.Message{
+		Title:    "Device Online",
+		Body:     message,
+		Priority: ntfy.PriorityDefault,
+		Tags:     []string{"white_check_mark", "electric_plug"},
+	}); err != nil {
+		m.logger.Error("Failed to send device recovery notification",
+			zap.String("entity_id", node.EntityID),
+			zap.Error(err))
+	} else {
+		m.logger.Info("Device recovery notification sent", zap.String("message", message))
+	}
+}
+
+// updateShadowNodeStatuses updates the shadow state with current node status data
+func (m *Manager) updateShadowNodeStatuses() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	statusData := make([]shadowstate.NodeStatusData, 0, len(m.nodeStatuses))
+	for _, node := range m.nodeStatuses {
+		statusData = append(statusData, shadowstate.NodeStatusData{
+			EntityID:    node.EntityID,
+			DeviceID:    node.DeviceID,
+			DeviceName:  node.DeviceName,
+			Status:      node.Status,
+			LastChanged: node.LastChanged,
+		})
+	}
+
+	m.shadowTracker.UpdateNodeStatuses(statusData)
+}
+
+// evaluateDeadDevices builds the list of dead device alerts
+func (m *Manager) evaluateDeadDevices() {
+	m.mu.Lock()
+	var deadAlerts []shadowstate.DeadDeviceAlert
+
+	for _, node := range m.nodeStatuses {
+		if node.Status == "dead" {
+			alert := shadowstate.DeadDeviceAlert{
+				EntityID:         node.EntityID,
+				DeviceName:       node.DeviceName,
+				DetectedAt:       node.LastChanged,
+				NotificationSent: node.NotificationSent,
+			}
+			deadAlerts = append(deadAlerts, alert)
+		}
+	}
+	m.mu.Unlock()
+
+	m.shadowTracker.UpdateDeadDeviceAlerts(deadAlerts)
+}
+
 // handleBatteryChange processes battery sensor state changes
 func (m *Manager) handleBatteryChange(entityID string, oldState, newState *ha.State) {
 	if newState == nil {
@@ -450,7 +750,6 @@ func (m *Manager) handleBatteryChange(entityID string, oldState, newState *ha.St
 	sensor.IsLow = err == nil && batteryLevel < float64(m.lowBatteryThreshold)
 	sensor.IsUnavailable = isUnavailable
 	sensor.LastReported = m.clock.Now()
-	sensor.IsStale = false // Update received, not stale
 
 	// If battery recovered above threshold, reset notification flag
 	if !sensor.IsLow && wasLow {
@@ -601,130 +900,6 @@ func (m *Manager) sendLowBatteryNotification(sensor *BatterySensor) {
 	} else {
 		m.logger.Info("Low battery notification sent", zap.String("message", message))
 	}
-}
-
-// sendStaleSensorNotification sends a notification for a stale sensor
-func (m *Manager) sendStaleSensorNotification(sensor *BatterySensor) {
-	duration := m.clock.Since(sensor.LastReported)
-	message := fmt.Sprintf("Sensor %s has not reported for %.0f hours", sensor.FriendlyName, duration.Hours())
-
-	m.logger.Warn("Stale sensor detected",
-		zap.String("entity_id", sensor.EntityID),
-		zap.String("friendly_name", sensor.FriendlyName),
-		zap.Duration("since_last_report", duration))
-
-	// Record notification in shadow state
-	m.shadowTracker.RecordNotification("stale_sensor", sensor.EntityID, message)
-
-	// Mark as notified
-	m.mu.Lock()
-	sensor.NotificationSent = true
-	m.mu.Unlock()
-
-	if m.ntfyClient == nil {
-		m.logger.Warn("ntfy client not configured, cannot send stale sensor notification",
-			zap.String("entity_id", sensor.EntityID))
-		return
-	}
-
-	// Send notification via ntfy
-	if err := m.ntfyClient.Send(&ntfy.Message{
-		Title:    "Stale Sensor",
-		Body:     message,
-		Priority: ntfy.PriorityLow,
-		Tags:     []string{"warning"},
-	}); err != nil {
-		m.logger.Error("Failed to send stale sensor notification",
-			zap.String("entity_id", sensor.EntityID),
-			zap.Error(err))
-	} else {
-		m.logger.Info("Stale sensor notification sent", zap.String("message", message))
-	}
-}
-
-// startStalenessChecker starts the periodic staleness checker
-func (m *Manager) startStalenessChecker() {
-	m.mu.Lock()
-	if m.stopStalenessChecker != nil {
-		m.mu.Unlock()
-		return // Already running
-	}
-	m.stopStalenessChecker = make(chan struct{})
-	stopCh := m.stopStalenessChecker
-	m.mu.Unlock()
-
-	go func() {
-		ticker := time.NewTicker(StalenessCheckInterval)
-		defer ticker.Stop()
-
-		for {
-			select {
-			case <-stopCh:
-				return
-			case <-ticker.C:
-				m.checkStaleSensors()
-			}
-		}
-	}()
-}
-
-// stopStalenessCheckerFunc stops the staleness checker goroutine
-func (m *Manager) stopStalenessCheckerFunc() {
-	m.mu.Lock()
-	if m.stopStalenessChecker != nil {
-		close(m.stopStalenessChecker)
-		m.stopStalenessChecker = nil
-	}
-	m.mu.Unlock()
-}
-
-// checkStaleSensors checks for stale battery sensors
-func (m *Manager) checkStaleSensors() {
-	m.mu.Lock()
-	var staleAlerts []shadowstate.StaleSensorAlert
-	var toNotify []*BatterySensor
-
-	now := m.clock.Now()
-	for _, sensor := range m.batterySensors {
-		if sensor.IsUnavailable {
-			continue // Skip unavailable sensors
-		}
-
-		timeSinceReport := now.Sub(sensor.LastReported)
-		wasStale := sensor.IsStale
-		sensor.IsStale = timeSinceReport > m.stalenessThreshold
-
-		if sensor.IsStale {
-			alert := shadowstate.StaleSensorAlert{
-				EntityID:         sensor.EntityID,
-				FriendlyName:     sensor.FriendlyName,
-				LastReported:     sensor.LastReported,
-				DetectedAt:       now,
-				NotificationSent: sensor.NotificationSent,
-			}
-			staleAlerts = append(staleAlerts, alert)
-
-			// Only notify if newly stale
-			if !wasStale && !sensor.NotificationSent {
-				toNotify = append(toNotify, sensor)
-			}
-		} else if wasStale {
-			// Sensor recovered from stale state
-			sensor.NotificationSent = false
-		}
-	}
-	m.mu.Unlock()
-
-	// Update shadow state with stale alerts
-	m.shadowTracker.UpdateStaleSensorAlerts(staleAlerts)
-
-	// Send notifications for newly stale sensors
-	for _, sensor := range toNotify {
-		m.sendStaleSensorNotification(sensor)
-	}
-
-	// Update shadow state
-	m.updateShadowState()
 }
 
 // startLockupChecker starts the periodic lockup checker goroutine
@@ -937,7 +1112,6 @@ func (m *Manager) updateShadowState() {
 			IsLow:         sensor.IsLow,
 			LastChanged:   sensor.LastReported,
 			LastReported:  sensor.LastReported,
-			IsStale:       sensor.IsStale,
 			IsUnavailable: sensor.IsUnavailable,
 		})
 	}
@@ -990,8 +1164,8 @@ func (m *Manager) Reset() error {
 	// Re-evaluate low batteries
 	m.evaluateLowBatteries()
 
-	// Check for stale sensors
-	m.checkStaleSensors()
+	// Re-evaluate dead devices
+	m.evaluateDeadDevices()
 
 	// Check for temperature lockups
 	m.checkTemperatureLockup()
@@ -1040,7 +1214,6 @@ func (m *Manager) SimulateBatteryChange(entityID string, batteryLevel float64) {
 	sensor.IsLow = batteryLevel < float64(m.lowBatteryThreshold)
 	sensor.IsUnavailable = false
 	sensor.LastReported = m.clock.Now()
-	sensor.IsStale = false
 	if !sensor.IsLow && wasLow {
 		sensor.NotificationSent = false
 	}
@@ -1109,4 +1282,47 @@ func (m *Manager) SimulateTemperatureChange(entityID string, temperature float64
 // TriggerLockupCheck manually triggers the lockup check (for testing)
 func (m *Manager) TriggerLockupCheck() {
 	m.checkTemperatureLockup()
+}
+
+// AddNodeStatus adds a node status sensor for testing
+func (m *Manager) AddNodeStatus(node *NodeStatus) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.nodeStatuses[node.EntityID] = node
+}
+
+// GetNodeStatuses returns a copy of the current node statuses map (for testing)
+func (m *Manager) GetNodeStatuses() map[string]*NodeStatus {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	result := make(map[string]*NodeStatus)
+	for k, v := range m.nodeStatuses {
+		// Make a copy
+		node := *v
+		result[k] = &node
+	}
+	return result
+}
+
+// SimulateNodeStatusChange simulates a node status change (for testing)
+func (m *Manager) SimulateNodeStatusChange(entityID string, status string) {
+	m.handleNodeStatusChange(entityID, nil, &ha.State{
+		EntityID: entityID,
+		State:    status,
+	})
+}
+
+// GetDeadDeviceCount returns the count of dead devices (for testing)
+func (m *Manager) GetDeadDeviceCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	count := 0
+	for _, node := range m.nodeStatuses {
+		if node.Status == "dead" {
+			count++
+		}
+	}
+	return count
 }
