@@ -1,6 +1,7 @@
 package sensorhealth
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -1168,5 +1169,102 @@ func TestGetDeadDeviceCount(t *testing.T) {
 	deadCount := manager.GetDeadDeviceCount()
 	if deadCount != 2 {
 		t.Errorf("Expected 2 dead devices, got %d", deadCount)
+	}
+}
+
+func TestSensorHealthManager_NotifyAlreadyDeadDevices_AtStartup(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	mockNtfy := ntfy.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+
+	manager := NewManager(mockHA, stateMgr, logger, false, nil, mockNtfy)
+
+	// Add devices - some dead, some alive
+	manager.AddNodeStatus(&NodeStatus{
+		EntityID:         "sensor.device_1_node_status",
+		DeviceName:       "Device 1",
+		Status:           "dead",
+		NotificationSent: false,
+	})
+	manager.AddNodeStatus(&NodeStatus{
+		EntityID:         "sensor.device_2_node_status",
+		DeviceName:       "Device 2",
+		Status:           "alive",
+		NotificationSent: false,
+	})
+	manager.AddNodeStatus(&NodeStatus{
+		EntityID:         "sensor.device_3_node_status",
+		DeviceName:       "Device 3",
+		Status:           "dead",
+		NotificationSent: false,
+	})
+
+	// Call the startup notification function
+	manager.notifyAlreadyDeadDevices()
+
+	// Verify notifications were sent for dead devices
+	calls := mockNtfy.GetCalls()
+	if len(calls) != 2 {
+		t.Errorf("Expected 2 startup notifications for dead devices, got %d", len(calls))
+	}
+
+	// Verify NotificationSent flags were set
+	nodeStatuses := manager.GetNodeStatuses()
+	if !nodeStatuses["sensor.device_1_node_status"].NotificationSent {
+		t.Error("Expected NotificationSent to be true for device 1")
+	}
+	if nodeStatuses["sensor.device_2_node_status"].NotificationSent {
+		t.Error("Expected NotificationSent to be false for device 2 (alive)")
+	}
+	if !nodeStatuses["sensor.device_3_node_status"].NotificationSent {
+		t.Error("Expected NotificationSent to be true for device 3")
+	}
+
+	// Verify notification messages contain "startup" context
+	for _, msg := range calls {
+		if msg.Title != "Device Offline (Startup Check)" {
+			t.Errorf("Expected title 'Device Offline (Startup Check)', got '%s'", msg.Title)
+		}
+		if !strings.Contains(msg.Body, "was already dead when system started") {
+			t.Errorf("Expected message to mention startup context, got: %s", msg.Body)
+		}
+	}
+}
+
+func TestSensorHealthManager_NotifyAlreadyDeadDevices_SkipsAlreadyNotified(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	mockNtfy := ntfy.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+
+	manager := NewManager(mockHA, stateMgr, logger, false, nil, mockNtfy)
+
+	// Add a dead device that was already notified (simulating a previous run)
+	manager.AddNodeStatus(&NodeStatus{
+		EntityID:         "sensor.device_1_node_status",
+		DeviceName:       "Device 1",
+		Status:           "dead",
+		NotificationSent: true, // Already notified
+	})
+	// Add a dead device that hasn't been notified
+	manager.AddNodeStatus(&NodeStatus{
+		EntityID:         "sensor.device_2_node_status",
+		DeviceName:       "Device 2",
+		Status:           "dead",
+		NotificationSent: false,
+	})
+
+	// Call the startup notification function
+	manager.notifyAlreadyDeadDevices()
+
+	// Verify only one notification was sent (for the un-notified device)
+	calls := mockNtfy.GetCalls()
+	if len(calls) != 1 {
+		t.Errorf("Expected 1 startup notification (skipping already-notified), got %d", len(calls))
 	}
 }
