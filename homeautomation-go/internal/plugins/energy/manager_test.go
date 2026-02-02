@@ -1,6 +1,7 @@
 package energy
 
 import (
+	"context"
 	"fmt"
 	"math"
 	"testing"
@@ -72,7 +73,7 @@ func TestDetermineBatteryEnergyLevel(t *testing.T) {
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 
-	manager := NewManager(mockClient, stateManager, config, logger, false, nil, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil, nil)
 
 	tests := []struct {
 		name       string
@@ -111,7 +112,7 @@ func TestIsFreeEnergyTime(t *testing.T) {
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 
-	manager := NewManager(mockClient, stateManager, config, logger, false, nil, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil, nil)
 
 	// Note: This test is time-dependent and may need adjustment
 	// For now, we test the logic with different scenarios
@@ -170,7 +171,7 @@ func TestFreeEnergyTimeSpansMidnight(t *testing.T) {
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 
-	manager := NewManager(mockClient, stateManager, config, logger, false, nil, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil, nil)
 
 	// Test that the logic handles times that span midnight
 	// Start: 21:00, End: 07:00
@@ -223,7 +224,7 @@ func TestManagerStartAndHandlers(t *testing.T) {
 	stateManager.SetNumber("thisHourSolarGeneration", 0.0)
 	stateManager.SetNumber("remainingSolarGeneration", 0.0)
 
-	manager := NewManager(mockClient, stateManager, config, logger, false, nil, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil, nil)
 
 	// Test Start method
 	err = manager.Start()
@@ -328,7 +329,7 @@ func TestIsFreeEnergyTime_EdgeCases(t *testing.T) {
 			},
 		}
 
-		manager := NewManager(mockClient, stateManager, config, logger, false, nil, nil)
+		manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil, nil)
 		result := manager.isFreeEnergyTime(true)
 		assert.False(t, result)
 	})
@@ -349,7 +350,7 @@ func TestIsFreeEnergyTime_EdgeCases(t *testing.T) {
 			},
 		}
 
-		manager := NewManager(mockClient, stateManager, config, logger, false, nil, nil)
+		manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil, nil)
 		result := manager.isFreeEnergyTime(true)
 		assert.False(t, result)
 	})
@@ -363,7 +364,7 @@ func TestEnergyManager_Stop(t *testing.T) {
 	stateManager := state.NewManager(mockClient, logger, false)
 
 	config := createTestConfig()
-	manager := NewManager(mockClient, stateManager, config, logger, false, nil, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil, nil)
 
 	// Initialize required state variables
 	_ = stateManager.SetBool("isGridAvailable", true)
@@ -397,7 +398,7 @@ func TestEnergyManager_ReadOnlyMode(t *testing.T) {
 	stateManager := state.NewManager(mockClient, logger, true)
 
 	config := createTestConfig()
-	manager := NewManager(mockClient, stateManager, config, logger, true, nil, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, true, nil, nil)
 
 	// Test battery change handler - should handle read-only gracefully
 	manager.handleBatteryChange(50.0)
@@ -430,7 +431,7 @@ func TestTimezoneHandling(t *testing.T) {
 
 	t.Run("default_timezone_is_utc", func(t *testing.T) {
 
-		manager := NewManager(mockClient, stateManager, config, logger, false, nil, nil)
+		manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil, nil)
 		assert.Equal(t, time.UTC, manager.timezone)
 	})
 
@@ -439,7 +440,7 @@ func TestTimezoneHandling(t *testing.T) {
 		estLocation, err := time.LoadLocation("America/New_York")
 		assert.NoError(t, err)
 
-		manager := NewManager(mockClient, stateManager, config, logger, false, estLocation, nil)
+		manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, estLocation, nil)
 		assert.Equal(t, estLocation, manager.timezone)
 	})
 
@@ -465,13 +466,13 @@ func TestTimezoneHandling(t *testing.T) {
 		}
 
 		// Test with UTC timezone
-		utcManager := NewManager(mockClient, stateManager, testConfig, logger, false, time.UTC, nil)
+		utcManager := NewManager(context.Background(), mockClient, stateManager, testConfig, logger, false, time.UTC, nil)
 		assert.Equal(t, time.UTC, utcManager.timezone)
 
 		// Test with different timezone
 		estLocation, err := time.LoadLocation("America/New_York")
 		assert.NoError(t, err)
-		estManager := NewManager(mockClient, stateManager, testConfig, logger, false, estLocation, nil)
+		estManager := NewManager(context.Background(), mockClient, stateManager, testConfig, logger, false, estLocation, nil)
 		assert.Equal(t, estLocation, estManager.timezone)
 
 		// Both managers should use their configured timezone for calculations
@@ -497,7 +498,7 @@ func TestManagerReset(t *testing.T) {
 	err := stateManager.SyncFromHA()
 	assert.NoError(t, err)
 
-	manager := NewManager(mockClient, stateManager, config, logger, false, nil, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil, nil)
 
 	err = manager.Start()
 	assert.NoError(t, err)
@@ -525,7 +526,7 @@ func TestHandleGridAvailabilityChange(t *testing.T) {
 
 		mockClient := ha.NewMockClient()
 		stateManager := state.NewManager(mockClient, logger, false)
-		manager := NewManager(mockClient, stateManager, config, logger, false, nil, nil)
+		manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil, nil)
 
 		// Clear any initial service calls
 		mockClient.ClearServiceCalls()
@@ -556,7 +557,7 @@ func TestHandleGridAvailabilityChange(t *testing.T) {
 
 		mockClient := ha.NewMockClient()
 		stateManager := state.NewManager(mockClient, logger, false)
-		manager := NewManager(mockClient, stateManager, config, logger, false, nil, nil)
+		manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil, nil)
 
 		// Clear any initial service calls
 		mockClient.ClearServiceCalls()
@@ -587,7 +588,7 @@ func TestHandleGridAvailabilityChange(t *testing.T) {
 
 		mockClient := ha.NewMockClient()
 		stateManager := state.NewManager(mockClient, logger, true) // read-only mode
-		manager := NewManager(mockClient, stateManager, config, logger, true, nil, nil)
+		manager := NewManager(context.Background(), mockClient, stateManager, config, logger, true, nil, nil)
 
 		// Clear any initial service calls
 		mockClient.ClearServiceCalls()
@@ -604,7 +605,7 @@ func TestHandleGridAvailabilityChange(t *testing.T) {
 
 		mockClient := ha.NewMockClient()
 		stateManager := state.NewManager(mockClient, logger, false)
-		manager := NewManager(mockClient, stateManager, config, logger, false, nil, nil)
+		manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil, nil)
 
 		// Clear any initial service calls
 		mockClient.ClearServiceCalls()
@@ -627,7 +628,7 @@ func TestHandleGridAvailabilityChange(t *testing.T) {
 		_ = stateManager.SetBool("isGridAvailable", true)
 		_ = stateManager.SetBool("isFreeEnergyAvailable", false)
 
-		manager := NewManager(mockClient, stateManager, config, logger, false, nil, nil)
+		manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil, nil)
 
 		// Clear any initial service calls
 		mockClient.ClearServiceCalls()
@@ -672,7 +673,7 @@ func TestIndicatorLightsDiscovery(t *testing.T) {
 
 	mockClient.Connect()
 
-	manager := NewManager(mockClient, stateManager, config, logger, false, nil, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil, nil)
 
 	// Discovery happens during Start()
 	err := manager.Start()
@@ -708,7 +709,7 @@ func TestIndicatorLightsServiceCall(t *testing.T) {
 	mockClient.Connect()
 
 	// Create manager NOT in read-only mode
-	manager := NewManager(mockClient, stateManager, config, logger, false, nil, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil, nil)
 
 	err := manager.Start()
 	assert.NoError(t, err)
@@ -774,7 +775,7 @@ func TestIndicatorLightsReadOnlyMode(t *testing.T) {
 	mockClient.Connect()
 
 	// Create manager in READ-ONLY mode
-	manager := NewManager(mockClient, stateManager, config, logger, true, nil, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, true, nil, nil)
 
 	err := manager.Start()
 	assert.NoError(t, err)
@@ -816,7 +817,7 @@ func TestIndicatorLightsNoEntitiesDiscovered(t *testing.T) {
 
 	mockClient.Connect()
 
-	manager := NewManager(mockClient, stateManager, config, logger, false, nil, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil, nil)
 
 	err := manager.Start()
 	assert.NoError(t, err)
@@ -865,7 +866,7 @@ func TestIndicatorLightsDiscoveryCaseInsensitive(t *testing.T) {
 
 	mockClient.Connect()
 
-	manager := NewManager(mockClient, stateManager, config, logger, false, nil, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil, nil)
 
 	err := manager.Start()
 	assert.NoError(t, err)
@@ -894,7 +895,7 @@ func TestIndicatorLightsDiscoveryInvalidPattern(t *testing.T) {
 
 	mockClient.Connect()
 
-	manager := NewManager(mockClient, stateManager, config, logger, false, nil, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil, nil)
 
 	// Start should not fail - invalid pattern is handled gracefully
 	err := manager.Start()
@@ -927,7 +928,7 @@ func TestIndicatorLightsDiscoveryCustomPattern(t *testing.T) {
 
 	mockClient.Connect()
 
-	manager := NewManager(mockClient, stateManager, config, logger, false, nil, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil, nil)
 
 	err := manager.Start()
 	assert.NoError(t, err)
@@ -956,7 +957,7 @@ func TestIndicatorLightsServiceCallError(t *testing.T) {
 	mockClient.Connect()
 
 	// Create manager NOT in read-only mode
-	manager := NewManager(mockClient, stateManager, config, logger, false, nil, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil, nil)
 
 	err := manager.Start()
 	assert.NoError(t, err)
@@ -1002,7 +1003,7 @@ func TestIndicatorLightsUnknownEnergyLevel(t *testing.T) {
 
 	mockClient.Connect()
 
-	manager := NewManager(mockClient, stateManager, config, logger, false, nil, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil, nil)
 
 	err := manager.Start()
 	assert.NoError(t, err)
@@ -1056,7 +1057,7 @@ func TestIndicatorLightsInitialUpdateOnStartup(t *testing.T) {
 	_ = stateManager.SetString("solarProductionEnergyLevel", "yellow")
 	_ = stateManager.SetString("currentEnergyLevel", "yellow")
 
-	manager := NewManager(mockClient, stateManager, config, logger, false, nil, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil, nil)
 
 	err := manager.Start()
 	assert.NoError(t, err)
@@ -1162,7 +1163,7 @@ func TestCalculateAdaptiveBrightness(t *testing.T) {
 	}
 
 	mockClient.Connect()
-	manager := NewManager(mockClient, stateManager, config, logger, true, nil, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, true, nil, nil)
 
 	// Note: brightness is capped at 50% max to reduce calibration disruption
 	tests := []struct {
@@ -1212,7 +1213,7 @@ func TestCalculateAdaptiveBrightnessDefaultCurve(t *testing.T) {
 	}
 
 	mockClient.Connect()
-	manager := NewManager(mockClient, stateManager, config, logger, true, nil, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, true, nil, nil)
 
 	// Test with default curve values (10->20%, 100->40%, 500->60%, 1000->80%)
 	// Note: brightness is capped at 50% max
@@ -1268,7 +1269,7 @@ func TestLuxSensorDiscovery(t *testing.T) {
 
 	mockClient.Connect()
 
-	manager := NewManager(mockClient, stateManager, config, logger, true, nil, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, true, nil, nil)
 	err := manager.Start()
 	assert.NoError(t, err)
 	defer manager.Stop()
@@ -1306,7 +1307,7 @@ func TestLuxSensorDiscoveryNoMatch(t *testing.T) {
 
 	mockClient.Connect()
 
-	manager := NewManager(mockClient, stateManager, config, logger, true, nil, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, true, nil, nil)
 	err := manager.Start()
 	assert.NoError(t, err)
 	defer manager.Stop()
@@ -1340,7 +1341,7 @@ func TestAdaptiveBrightnessDisabled(t *testing.T) {
 
 	mockClient.Connect()
 
-	manager := NewManager(mockClient, stateManager, config, logger, false, nil, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil, nil)
 	err := manager.Start()
 	assert.NoError(t, err)
 	defer manager.Stop()
@@ -1407,7 +1408,7 @@ func TestAdaptiveBrightnessPerDevice(t *testing.T) {
 
 	mockClient.Connect()
 
-	manager := NewManager(mockClient, stateManager, config, logger, false, nil, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil, nil)
 	err := manager.Start()
 	assert.NoError(t, err)
 	defer manager.Stop()
@@ -1460,7 +1461,7 @@ func TestHysteresisPreventsOscillation(t *testing.T) {
 	}
 
 	mockClient.Connect()
-	manager := NewManager(mockClient, stateManager, config, logger, true, nil, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, true, nil, nil)
 
 	lightEntity := "light.test"
 
@@ -1518,7 +1519,7 @@ func TestDebouncing(t *testing.T) {
 	// Initialize state variables
 	stateManager.SetString("currentEnergyLevel", "black")
 
-	manager := NewManager(mockClient, stateManager, config, logger, false, nil, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil, nil)
 	err := manager.Start()
 	assert.NoError(t, err)
 	defer manager.Stop()
@@ -1582,7 +1583,7 @@ func TestFallbackToStaticBrightness(t *testing.T) {
 
 	mockClient.Connect()
 
-	manager := NewManager(mockClient, stateManager, config, logger, false, nil, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil, nil)
 	err := manager.Start()
 	assert.NoError(t, err)
 	defer manager.Stop()
@@ -1633,7 +1634,7 @@ func TestHandleLuxChangeWithInvalidValues(t *testing.T) {
 	stateManager.SetString("currentEnergyLevel", "yellow")
 
 	// Use readOnly=true to avoid side effects from free energy checker
-	manager := NewManager(mockClient, stateManager, config, logger, true, nil, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, true, nil, nil)
 	err := manager.Start()
 	assert.NoError(t, err)
 	defer manager.Stop()
@@ -1695,7 +1696,7 @@ func TestHysteresisDoesNotBlockLargeJumps(t *testing.T) {
 	}
 
 	mockClient.Connect()
-	manager := NewManager(mockClient, stateManager, config, logger, true, nil, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, true, nil, nil)
 
 	lightEntity := "light.test"
 
@@ -1737,7 +1738,7 @@ func TestNegativeLuxValue(t *testing.T) {
 	}
 
 	mockClient.Connect()
-	manager := NewManager(mockClient, stateManager, config, logger, true, nil, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, true, nil, nil)
 
 	// Negative lux (unlikely but possible with sensor errors) should use lowest brightness
 	brightness := manager.calculateAdaptiveBrightness(-5, "light.test")
@@ -1770,7 +1771,7 @@ func TestBaselineCalibrationEnabled(t *testing.T) {
 	}
 
 	mockClient.Connect()
-	manager := NewManager(mockClient, stateManager, config, logger, true, nil, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, true, nil, nil)
 
 	// Verify calibration is enabled
 	assert.True(t, manager.isCalibrationEnabled())
@@ -1792,7 +1793,7 @@ func TestBaselineCalibrationDisabled(t *testing.T) {
 	}
 
 	mockClient.Connect()
-	manager := NewManager(mockClient, stateManager, config, logger, true, nil, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, true, nil, nil)
 
 	// Verify calibration is disabled
 	assert.False(t, manager.isCalibrationEnabled())
@@ -1813,7 +1814,7 @@ func TestGetBaselineLux(t *testing.T) {
 	}
 
 	mockClient.Connect()
-	manager := NewManager(mockClient, stateManager, config, logger, true, nil, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, true, nil, nil)
 
 	lightEntity := "light.test_device"
 
@@ -1849,7 +1850,7 @@ func TestCalibrationStateTracking(t *testing.T) {
 	}
 
 	mockClient.Connect()
-	manager := NewManager(mockClient, stateManager, config, logger, true, nil, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, true, nil, nil)
 
 	lightEntity := "light.test_device"
 
@@ -1896,7 +1897,7 @@ func TestUpdateIndicatorLightsSkipsCalibrating(t *testing.T) {
 	mockClient.SetState("sensor.apollo_msr_2_1294c8_ltr390_light", "50", map[string]interface{}{})
 	mockClient.Connect()
 
-	manager := NewManager(mockClient, stateManager, config, logger, false, nil, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil, nil)
 	err := manager.Start()
 	assert.NoError(t, err)
 	defer manager.Stop()
@@ -1957,7 +1958,7 @@ func TestUpdateIndicatorLightsUsesBaseline(t *testing.T) {
 	mockClient.SetState("sensor.apollo_msr_2_1294c8_ltr390_light", "2000", map[string]interface{}{}) // High lux from LED
 	mockClient.Connect()
 
-	manager := NewManager(mockClient, stateManager, config, logger, false, nil, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil, nil)
 	err := manager.Start()
 	assert.NoError(t, err)
 	defer manager.Stop()
@@ -2028,7 +2029,7 @@ func TestRestoreLightAfterCalibration(t *testing.T) {
 	// Set energy level
 	stateManager.SetString("currentEnergyLevel", "black")
 
-	manager := NewManager(mockClient, stateManager, config, logger, false, nil, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil, nil)
 	err := manager.Start()
 	assert.NoError(t, err)
 	defer manager.Stop()
@@ -2103,7 +2104,7 @@ func TestCalibrationShutdownDuringStartupDelay(t *testing.T) {
 	mockClient.SetState("sensor.apollo_msr_2_1294c8_ltr390_light", "50", map[string]interface{}{})
 	mockClient.Connect()
 
-	manager := NewManager(mockClient, stateManager, config, logger, true, nil, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, true, nil, nil)
 	err := manager.Start()
 	assert.NoError(t, err)
 
@@ -2156,7 +2157,7 @@ func TestCalibrationWithNoLuxReadingYet(t *testing.T) {
 
 	stateManager.SetString("currentEnergyLevel", "black")
 
-	manager := NewManager(mockClient, stateManager, config, logger, false, nil, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil, nil)
 	err := manager.Start()
 	assert.NoError(t, err)
 	defer manager.Stop()
@@ -2205,7 +2206,7 @@ func TestSetLightBrightness(t *testing.T) {
 
 	stateManager.SetString("currentEnergyLevel", "black")
 
-	manager := NewManager(mockClient, stateManager, config, logger, false, nil, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil, nil)
 
 	// Clear service calls
 	mockClient.ClearServiceCalls()
@@ -2245,7 +2246,7 @@ func TestSetLightBrightnessReadOnly(t *testing.T) {
 	stateManager.SetString("currentEnergyLevel", "black")
 
 	// Create manager in read-only mode
-	manager := NewManager(mockClient, stateManager, config, logger, true, nil, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, true, nil, nil)
 
 	// Clear service calls
 	mockClient.ClearServiceCalls()
@@ -2278,7 +2279,7 @@ func TestRunCalibrationCycleWithNoLights(t *testing.T) {
 
 	mockClient.Connect()
 
-	manager := NewManager(mockClient, stateManager, config, logger, true, nil, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, true, nil, nil)
 
 	// Don't discover any lights - indicatorLightEntities will be empty
 
@@ -2313,7 +2314,7 @@ func TestRunCalibrationCycleLightWithoutLuxSensor(t *testing.T) {
 
 	mockClient.Connect()
 
-	manager := NewManager(mockClient, stateManager, config, logger, true, nil, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, true, nil, nil)
 
 	// Set up a light entity but no lux sensor mapping
 	manager.indicatorMu.Lock()

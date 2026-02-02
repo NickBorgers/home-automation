@@ -32,7 +32,7 @@ func createPlugin(ctx *plugin.Context) (plugin.Plugin, error) {
 		return nil, fmt.Errorf("infrastructure plugin requires internal state.Manager")
 	}
 
-	manager := NewManager(haClient, stateManager, ctx.Logger, ctx.ReadOnly, ctx.Registry, ctx.NtfyClient)
+	manager := NewManager(ctx.ShutdownCtx, haClient, stateManager, ctx.Logger, ctx.ReadOnly, ctx.Registry, ctx.NtfyClient)
 	return &pluginAdapter{manager: manager}, nil
 }
 

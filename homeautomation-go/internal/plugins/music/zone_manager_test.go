@@ -1,6 +1,7 @@
 package music
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -264,7 +265,7 @@ func TestZoneManager_EvaluateTriggers(t *testing.T) {
 	stateManager := state.NewManager(mockClient, logger, false)
 	config := createTestZoneConfig()
 
-	manager := NewManager(mockClient, stateManager, config, logger, true, nil, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, true, nil, nil)
 	zm := NewZoneManager(manager, config, logger)
 
 	// Set up state - use require to fail fast if state can't be set
@@ -299,7 +300,7 @@ func TestZoneManager_AssignSpeakersToZones(t *testing.T) {
 	stateManager := state.NewManager(mockClient, logger, false)
 	config := createTestZoneConfig()
 
-	manager := NewManager(mockClient, stateManager, config, logger, true, nil, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, true, nil, nil)
 	zm := NewZoneManager(manager, config, logger)
 
 	t.Run("sleep zone claims all speakers when isAnyoneAsleep=true", func(t *testing.T) {
@@ -350,7 +351,7 @@ func TestZoneManager_GetActiveZones(t *testing.T) {
 	stateManager := state.NewManager(mockClient, logger, false)
 	config := createTestZoneConfig()
 
-	manager := NewManager(mockClient, stateManager, config, logger, true, nil, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, true, nil, nil)
 	zm := NewZoneManager(manager, config, logger)
 
 	// Initially no active zones
@@ -381,7 +382,7 @@ func TestZoneManager_GetZone(t *testing.T) {
 	stateManager := state.NewManager(mockClient, logger, true)
 	config := createTestZoneConfig()
 
-	manager := NewManager(mockClient, stateManager, config, logger, true, nil, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, true, nil, nil)
 	zm := NewZoneManager(manager, config, logger)
 
 	// Zone doesn't exist
@@ -413,7 +414,7 @@ func TestZoneManager_GetSpeakerZone(t *testing.T) {
 	stateManager := state.NewManager(mockClient, logger, true)
 	config := createTestZoneConfig()
 
-	manager := NewManager(mockClient, stateManager, config, logger, true, nil, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, true, nil, nil)
 	zm := NewZoneManager(manager, config, logger)
 
 	// Speaker not in any zone
@@ -440,7 +441,7 @@ func TestZoneManager_StopAllZones(t *testing.T) {
 	stateManager := state.NewManager(mockClient, logger, true)
 	config := createTestZoneConfig()
 
-	manager := NewManager(mockClient, stateManager, config, logger, true, nil, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, true, nil, nil)
 	zm := NewZoneManager(manager, config, logger)
 
 	// Add some zones
@@ -531,7 +532,7 @@ func TestZoneManager_BackwardCompatibility(t *testing.T) {
 		},
 	}
 
-	manager := NewManager(mockClient, stateManager, config, logger, true, nil, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, true, nil, nil)
 
 	// Manager should still start without errors
 	require.NoError(t, stateManager.SetBool("isAnyoneHome", true))
@@ -558,7 +559,7 @@ func TestCollectZoneTriggerVariables(t *testing.T) {
 	stateManager := state.NewManager(mockClient, logger, true)
 	config := createTestZoneConfig()
 
-	manager := NewManager(mockClient, stateManager, config, logger, true, nil, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, true, nil, nil)
 
 	vars := manager.collectZoneTriggerVariables()
 
@@ -584,7 +585,7 @@ func TestZoneManager_Integration_WithTimeProvider(t *testing.T) {
 	fixedTime := time.Date(2026, 1, 23, 10, 0, 0, 0, time.UTC)
 	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
 
-	manager := NewManager(mockClient, stateManager, config, logger, true, timeProvider, time.UTC)
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, true, timeProvider, time.UTC)
 
 	require.NoError(t, stateManager.SetBool("isAnyoneHome", true))
 	require.NoError(t, stateManager.SetBool("isAnyoneAsleep", false))

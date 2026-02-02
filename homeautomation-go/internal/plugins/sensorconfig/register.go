@@ -34,7 +34,7 @@ func createPlugin(ctx *plugin.Context) (plugin.Plugin, error) {
 		return nil, fmt.Errorf("failed to load sensor config: %w", err)
 	}
 
-	manager := NewManager(haClient, config, ctx.Logger, ctx.ReadOnly)
+	manager := NewManager(ctx.ShutdownCtx, haClient, config, ctx.Logger, ctx.ReadOnly)
 	return &pluginAdapter{manager: manager}, nil
 }
 

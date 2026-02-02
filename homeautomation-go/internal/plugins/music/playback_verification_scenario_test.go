@@ -34,6 +34,7 @@ package music
 // =============================================================================
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -98,7 +99,7 @@ func TestScenario_PlaybackVerificationSucceeds_FadeInProceeds(t *testing.T) {
 	fixedTime := time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC)
 	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
 
-	manager := NewManager(mockClient, stateManager, config, logger, false, timeProvider, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, timeProvider, nil)
 	manager.SetSleepFunc(func(d time.Duration) {}) // Skip sleeps for fast test
 
 	// Initialize state
@@ -252,7 +253,7 @@ func TestScenario_PlaybackVerificationFails_FadeInStillProceeds(t *testing.T) {
 	fixedTime := time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC)
 	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
 
-	manager := NewManager(mockClient, stateManager, config, logger, false, timeProvider, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, timeProvider, nil)
 	manager.SetSleepFunc(func(d time.Duration) {}) // Skip sleeps for fast test
 
 	// Initialize state
@@ -348,7 +349,7 @@ func TestScenario_PlaybackVerificationFails_FadeInStillProceeds(t *testing.T) {
 	// Run again with info logger to capture the completion message
 	mockClient2 := ha.NewMockClient()
 	stateManager2 := state.NewManager(mockClient2, loggerInfo, false)
-	manager2 := NewManager(mockClient2, stateManager2, config, loggerInfo, false, timeProvider, nil)
+	manager2 := NewManager(context.Background(), mockClient2, stateManager2, config, loggerInfo, false, timeProvider, nil)
 	manager2.SetSleepFunc(func(d time.Duration) {})
 
 	_ = stateManager2.SetString("dayPhase", "day")
@@ -436,7 +437,7 @@ func TestScenario_MultiSpeaker_VerificationFailureAllSpeakersFadeIn(t *testing.T
 	fixedTime := time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC)
 	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
 
-	manager := NewManager(mockClient, stateManager, config, logger, false, timeProvider, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, timeProvider, nil)
 	manager.SetSleepFunc(func(d time.Duration) {}) // Skip sleeps
 
 	// Initialize state

@@ -40,7 +40,7 @@ func createPlugin(ctx *plugin.Context) (plugin.Plugin, error) {
 		return nil, fmt.Errorf("failed to load lighting config: %w", err)
 	}
 
-	manager := NewManager(haClient, stateManager, config, ctx.Logger, ctx.ReadOnly, ctx.Registry)
+	manager := NewManager(ctx.ShutdownCtx, haClient, stateManager, config, ctx.Logger, ctx.ReadOnly, ctx.Registry)
 	return &pluginAdapter{manager: manager}, nil
 }
 

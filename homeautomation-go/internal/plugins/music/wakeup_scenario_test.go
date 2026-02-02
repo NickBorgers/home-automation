@@ -97,6 +97,7 @@ package music
 // =============================================================================
 
 import (
+	"context"
 	"sync"
 	"testing"
 	"time"
@@ -239,7 +240,7 @@ func TestScenario_WakeUpDuringMorning_TriggersMorningMusic(t *testing.T) {
 	require.Equal(t, time.Monday, fixedTime.Weekday(), "Test requires Monday")
 	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
 
-	manager := NewManager(mockClient, stateManager, config, logger, false, timeProvider, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, timeProvider, nil)
 	manager.SetSleepFunc(func(d time.Duration) {}) // Skip internal sleeps for fast tests
 
 	// ==========================================================
@@ -342,7 +343,7 @@ func TestScenario_WakeUpOnSunday_TriggersDayMusic(t *testing.T) {
 	require.Equal(t, time.Sunday, fixedTime.Weekday(), "Test requires Sunday")
 	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
 
-	manager := NewManager(mockClient, stateManager, config, logger, false, timeProvider, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, timeProvider, nil)
 	manager.SetSleepFunc(func(d time.Duration) {}) // Skip internal sleeps for fast tests
 
 	// Initial state: Morning phase, someone asleep
@@ -416,7 +417,7 @@ func TestScenario_WakeUp_UsesLocalTimezoneForSundayCheck(t *testing.T) {
 	timeProvider := plugin.FixedTimeProvider{FixedTime: utcTime}
 
 	// Pass CST as the configured timezone
-	manager := NewManager(mockClient, stateManager, config, logger, false, timeProvider, cst)
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, timeProvider, cst)
 	manager.SetSleepFunc(func(d time.Duration) {}) // Skip internal sleeps for fast tests
 
 	// Initial state: Morning phase, someone asleep
@@ -484,7 +485,7 @@ func TestScenario_DayPhaseChangesToMorning_TriggersDayMusic(t *testing.T) {
 	fixedTime := time.Date(2024, 1, 15, 6, 0, 0, 0, time.UTC)
 	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
 
-	manager := NewManager(mockClient, stateManager, config, logger, false, timeProvider, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, timeProvider, nil)
 	manager.SetSleepFunc(func(d time.Duration) {}) // Skip internal sleeps for fast tests
 
 	// Initial state: Night phase, no one asleep (maybe they stayed up late)
@@ -545,7 +546,7 @@ func TestScenario_NoOneHome_StopsMusic(t *testing.T) {
 	fixedTime := time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC)
 	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
 
-	manager := NewManager(mockClient, stateManager, config, logger, false, timeProvider, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, timeProvider, nil)
 	manager.SetSleepFunc(func(d time.Duration) {}) // Skip internal sleeps for fast tests
 
 	// Initial state: Day music playing
@@ -605,7 +606,7 @@ func TestScenario_SomeoneFallsAsleep_TriggersSleepMusic(t *testing.T) {
 	fixedTime := time.Date(2024, 1, 15, 22, 0, 0, 0, time.UTC) // 10 PM
 	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
 
-	manager := NewManager(mockClient, stateManager, config, logger, false, timeProvider, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, timeProvider, nil)
 	manager.SetSleepFunc(func(d time.Duration) {}) // Skip internal sleeps for fast tests
 
 	// Initial state: Winddown music playing
@@ -681,7 +682,7 @@ func TestScenario_SleepMusicPersistsDuringWinddown(t *testing.T) {
 	fixedTime := time.Date(2024, 1, 15, 21, 0, 0, 0, time.UTC) // 9 PM
 	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
 
-	manager := NewManager(mockClient, stateManager, config, logger, false, timeProvider, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, timeProvider, nil)
 	manager.SetSleepFunc(func(d time.Duration) {}) // Skip internal sleeps for fast tests
 
 	// Initial state: Dusk phase (valid dayPhase), no one asleep but sleep music manually started
@@ -754,7 +755,7 @@ func TestScenario_FullWakeUpCycle(t *testing.T) {
 	require.Equal(t, time.Monday, fixedTime.Weekday())
 	timeProvider := &MutableTimeProvider{currentTime: fixedTime}
 
-	manager := NewManager(mockClient, stateManager, config, logger, false, timeProvider, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, timeProvider, nil)
 	manager.SetSleepFunc(func(d time.Duration) {}) // Skip internal sleeps for fast tests
 
 	// ==========================================================
@@ -894,8 +895,8 @@ func TestScenario_CancelWake_ForcesSleepMusicRestart(t *testing.T) {
 	bedtime := time.Date(2024, 1, 15, 22, 0, 0, 0, time.UTC)
 	timeProvider := &MutableTimeProvider{currentTime: bedtime}
 
-	manager := NewManager(mockClient, stateManager, config, logger, true, timeProvider, nil) // read-only=true for faster test
-	manager.SetSleepFunc(func(d time.Duration) {})                                           // Skip internal sleeps
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, true, timeProvider, nil) // read-only=true for faster test
+	manager.SetSleepFunc(func(d time.Duration) {})                                                                 // Skip internal sleeps
 
 	// ==========================================================
 	// PHASE 1: User is already asleep at 10 PM - sleep music starts
@@ -1156,7 +1157,7 @@ func TestScenario_WakeSequenceActive_MorningMusicInRestOfHouse(t *testing.T) {
 	fixedTime := time.Date(2024, 1, 15, 6, 30, 0, 0, time.UTC)
 	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
 
-	manager := NewManager(mockClient, stateManager, config, logger, true, timeProvider, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, true, timeProvider, nil)
 	manager.SetSleepFunc(func(d time.Duration) {})
 
 	// Initial state: Night, someone is asleep - sleep music playing
@@ -1225,7 +1226,7 @@ func TestScenario_MasterWakesUp_BedroomJoinsMorning(t *testing.T) {
 	fixedTime := time.Date(2024, 1, 15, 7, 0, 0, 0, time.UTC)
 	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
 
-	manager := NewManager(mockClient, stateManager, config, logger, true, timeProvider, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, true, timeProvider, nil)
 	manager.SetSleepFunc(func(d time.Duration) {})
 
 	// Initial state: Wake sequence active, someone still asleep
@@ -1293,7 +1294,7 @@ func TestScenario_TriggerGroups_ORLogic(t *testing.T) {
 	fixedTime := time.Date(2024, 1, 15, 7, 0, 0, 0, time.UTC)
 	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
 
-	manager := NewManager(mockClient, stateManager, config, logger, true, timeProvider, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, true, timeProvider, nil)
 	manager.SetSleepFunc(func(d time.Duration) {})
 
 	// Test case 1: First trigger group (normal morning conditions)
@@ -1324,7 +1325,7 @@ func TestScenario_TriggerGroups_ORLogic(t *testing.T) {
 	manager.Stop()
 
 	// Test case 2: Second trigger group (wake sequence active)
-	manager2 := NewManager(mockClient, stateManager, config, logger, true, timeProvider, nil)
+	manager2 := NewManager(context.Background(), mockClient, stateManager, config, logger, true, timeProvider, nil)
 	manager2.SetSleepFunc(func(d time.Duration) {})
 
 	_ = stateManager.SetString("dayPhase", "morning")
@@ -1362,7 +1363,7 @@ func TestScenario_TriggerGroups_ANDWithinGroup(t *testing.T) {
 	fixedTime := time.Date(2024, 1, 15, 7, 0, 0, 0, time.UTC)
 	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
 
-	manager := NewManager(mockClient, stateManager, config, logger, true, timeProvider, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, true, timeProvider, nil)
 	manager.SetSleepFunc(func(d time.Duration) {})
 
 	// Set up conditions where second group is partially matched
@@ -1409,7 +1410,7 @@ func TestScenario_RateLimiting_StillWorksForStartRequests(t *testing.T) {
 	fixedTime := time.Date(2024, 1, 15, 12, 0, 0, 0, time.UTC)
 	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
 
-	manager := NewManager(mockClient, stateManager, config, logger, true, timeProvider, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, true, timeProvider, nil)
 	manager.SetSleepFunc(func(d time.Duration) {})
 
 	_ = stateManager.SetString("dayPhase", "day")

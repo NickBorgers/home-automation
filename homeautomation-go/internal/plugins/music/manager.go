@@ -57,6 +57,7 @@ type MonitorDoneCallback func()
 
 // Manager handles music mode selection and playback coordination
 type Manager struct {
+	ctx          context.Context // Shutdown context for graceful cancellation
 	haClient     ha.HAClient
 	stateManager *state.Manager
 	config       *MusicConfig
@@ -106,7 +107,7 @@ type Manager struct {
 // NewManager creates a new Music manager
 // If timeProvider is nil, it defaults to plugin.RealTimeProvider
 // If timezone is nil, it defaults to time.Local
-func NewManager(haClient ha.HAClient, stateManager *state.Manager, config *MusicConfig, logger *zap.Logger, readOnly bool, timeProvider plugin.TimeProvider, timezone *time.Location) *Manager {
+func NewManager(ctx context.Context, haClient ha.HAClient, stateManager *state.Manager, config *MusicConfig, logger *zap.Logger, readOnly bool, timeProvider plugin.TimeProvider, timezone *time.Location) *Manager {
 	if timeProvider == nil {
 		timeProvider = plugin.RealTimeProvider{}
 	}
@@ -114,6 +115,7 @@ func NewManager(haClient ha.HAClient, stateManager *state.Manager, config *Music
 		timezone = time.Local
 	}
 	return &Manager{
+		ctx:                ctx,
 		haClient:           haClient,
 		stateManager:       stateManager,
 		config:             config,

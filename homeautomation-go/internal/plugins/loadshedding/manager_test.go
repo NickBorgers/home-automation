@@ -1,6 +1,7 @@
 package loadshedding
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -26,7 +27,7 @@ func TestLoadShedding_EnergyStateRed(t *testing.T) {
 	err := stateManager.SyncFromHA()
 	assert.NoError(t, err)
 
-	ls := NewManager(mockClient, stateManager, logger, false, nil)
+	ls := NewManager(context.Background(), mockClient, stateManager, logger, false, nil)
 	err = ls.Start()
 	assert.NoError(t, err)
 	defer ls.Stop()
@@ -85,7 +86,7 @@ func TestLoadShedding_EnergyStateBlack(t *testing.T) {
 	err := stateManager.SyncFromHA()
 	assert.NoError(t, err)
 
-	ls := NewManager(mockClient, stateManager, logger, false, nil)
+	ls := NewManager(context.Background(), mockClient, stateManager, logger, false, nil)
 	err = ls.Start()
 	assert.NoError(t, err)
 	defer ls.Stop()
@@ -123,7 +124,7 @@ func TestLoadShedding_EnergyStateGreen(t *testing.T) {
 	err := stateManager.SyncFromHA()
 	assert.NoError(t, err)
 
-	ls := NewManager(mockClient, stateManager, logger, false, nil)
+	ls := NewManager(context.Background(), mockClient, stateManager, logger, false, nil)
 	// Manually set loadSheddingOn to true to simulate that load shedding was previously enabled
 	ls.loadSheddingOn = true
 
@@ -169,7 +170,7 @@ func TestLoadShedding_EnergyStateWhite(t *testing.T) {
 	err := stateManager.SyncFromHA()
 	assert.NoError(t, err)
 
-	ls := NewManager(mockClient, stateManager, logger, false, nil)
+	ls := NewManager(context.Background(), mockClient, stateManager, logger, false, nil)
 	// Manually set loadSheddingOn to true to simulate that load shedding was previously enabled
 	ls.loadSheddingOn = true
 
@@ -210,7 +211,7 @@ func TestLoadShedding_RateLimiting(t *testing.T) {
 	err := stateManager.SyncFromHA()
 	assert.NoError(t, err)
 
-	ls := NewManager(mockClient, stateManager, logger, false, nil)
+	ls := NewManager(context.Background(), mockClient, stateManager, logger, false, nil)
 
 	// Override minimum action interval for testing
 	// (In production, we'd use dependency injection for the time source)
@@ -254,7 +255,7 @@ func TestLoadShedding_StartStop(t *testing.T) {
 	err := stateManager.SyncFromHA()
 	assert.NoError(t, err)
 
-	ls := NewManager(mockClient, stateManager, logger, false, nil)
+	ls := NewManager(context.Background(), mockClient, stateManager, logger, false, nil)
 
 	// Start
 	err = ls.Start()
@@ -288,7 +289,7 @@ func TestLoadShedding_UnknownState(t *testing.T) {
 	err := stateManager.SyncFromHA()
 	assert.NoError(t, err)
 
-	ls := NewManager(mockClient, stateManager, logger, false, nil)
+	ls := NewManager(context.Background(), mockClient, stateManager, logger, false, nil)
 	err = ls.Start()
 	assert.NoError(t, err)
 	defer ls.Stop()
@@ -320,7 +321,7 @@ func TestLoadShedding_RedToGreenTransition(t *testing.T) {
 	err := stateManager.SyncFromHA()
 	assert.NoError(t, err)
 
-	ls := NewManager(mockClient, stateManager, logger, false, nil)
+	ls := NewManager(context.Background(), mockClient, stateManager, logger, false, nil)
 
 	// Manually set last action to past to avoid rate limiting
 	ls.lastAction = time.Now().Add(-2 * time.Hour)
@@ -370,7 +371,7 @@ func TestManagerReset(t *testing.T) {
 	// Set up initial state
 	stateManager.SetString("currentEnergyLevel", "high")
 
-	manager := NewManager(mockClient, stateManager, logger, false, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, logger, false, nil)
 
 	err := manager.Start()
 	assert.NoError(t, err)
@@ -399,7 +400,7 @@ func TestLoadShedding_DeferredActionAfterRateLimit(t *testing.T) {
 	err := stateManager.SyncFromHA()
 	assert.NoError(t, err)
 
-	ls := NewManager(mockClient, stateManager, logger, false, nil)
+	ls := NewManager(context.Background(), mockClient, stateManager, logger, false, nil)
 
 	// Use a short rate limit interval for testing (100ms instead of 1 hour)
 	ls.SetRateLimitIntervalForTesting(100 * time.Millisecond)
@@ -485,7 +486,7 @@ func TestLoadShedding_DeferredActionCancelledByNewAction(t *testing.T) {
 	err := stateManager.SyncFromHA()
 	assert.NoError(t, err)
 
-	ls := NewManager(mockClient, stateManager, logger, false, nil)
+	ls := NewManager(context.Background(), mockClient, stateManager, logger, false, nil)
 
 	// Use a short rate limit interval for testing
 	ls.SetRateLimitIntervalForTesting(200 * time.Millisecond)

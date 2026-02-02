@@ -4,6 +4,7 @@
 package app
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/signal"
@@ -322,16 +323,21 @@ func Run() {
 	// Subscribe to interesting state changes
 	subscribeToChanges(stateManager, logger)
 
+	// Create a cancellable context for graceful shutdown
+	// When cancelled, all in-flight service calls with retry loops will exit quickly
+	shutdownCtx, cancelShutdown := context.WithCancel(context.Background())
+
 	// Create plugin context with all dependencies
 	// Wrap internal types with pkg adapters for the plugin context
-	ctx := plugin.NewContext(pkgha.WrapClient(client), pkgstate.WrapManager(stateManager), logger, readOnly, configDir, timezone)
-	ctx.Registry = subscriptionRegistry
-	ctx.Latitude = latitude
-	ctx.Longitude = longitude
-	ctx.NtfyClient = ntfyClient
+	pluginCtx := plugin.NewContext(pkgha.WrapClient(client), pkgstate.WrapManager(stateManager), logger, readOnly, configDir, timezone)
+	pluginCtx.Registry = subscriptionRegistry
+	pluginCtx.Latitude = latitude
+	pluginCtx.Longitude = longitude
+	pluginCtx.NtfyClient = ntfyClient
+	pluginCtx.ShutdownCtx = shutdownCtx
 
 	// Create all registered plugins using the plugin registry
-	plugins, err := plugin.CreateAll(ctx)
+	plugins, err := plugin.CreateAll(pluginCtx)
 	if err != nil {
 		logger.Fatal("Failed to create plugins", zap.Error(err))
 	}
@@ -392,6 +398,12 @@ func Run() {
 	<-sigChan
 
 	logger.Info("Shutting down gracefully...")
+
+	// Cancel the shutdown context to signal all in-flight service calls to exit quickly.
+	// This allows plugins with active retry loops to complete immediately instead of
+	// waiting for their full retry budget (which could take several minutes).
+	cancelShutdown()
+	logger.Info("Cancelled shutdown context - service calls will exit quickly")
 
 	// Stop dev server if running
 	if devServer != nil {

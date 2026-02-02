@@ -1,6 +1,7 @@
 package ha
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sync"
@@ -205,7 +206,14 @@ func (m *MockClient) GetAllStates() ([]*State, error) {
 }
 
 // CallService records a service call
-func (m *MockClient) CallService(domain, service string, data map[string]interface{}) error {
+func (m *MockClient) CallService(ctx context.Context, domain, service string, data map[string]interface{}) error {
+	// Check for context cancellation
+	select {
+	case <-ctx.Done():
+		return fmt.Errorf("service call cancelled: %w", ctx.Err())
+	default:
+	}
+
 	key := domain + "." + service
 
 	// Check for transient failures first (fail N times, then succeed)
@@ -249,7 +257,14 @@ func (m *MockClient) CallService(domain, service string, data map[string]interfa
 }
 
 // CallServiceWithTarget records a service call with target
-func (m *MockClient) CallServiceWithTarget(domain, service string, target *ServiceTarget, data map[string]interface{}) error {
+func (m *MockClient) CallServiceWithTarget(ctx context.Context, domain, service string, target *ServiceTarget, data map[string]interface{}) error {
+	// Check for context cancellation
+	select {
+	case <-ctx.Done():
+		return fmt.Errorf("service call with target cancelled: %w", ctx.Err())
+	default:
+	}
+
 	key := domain + "." + service
 
 	// Check for transient failures first (fail N times, then succeed)
@@ -340,14 +355,14 @@ func (m *MockClient) SetInputBoolean(name string, value bool) error {
 		service = "turn_on"
 	}
 
-	return m.CallService("input_boolean", service, map[string]interface{}{
+	return m.CallService(context.Background(), "input_boolean", service, map[string]interface{}{
 		"entity_id": fmt.Sprintf("input_boolean.%s", name),
 	})
 }
 
 // SetInputNumber sets a mock input_number
 func (m *MockClient) SetInputNumber(name string, value float64) error {
-	return m.CallService("input_number", "set_value", map[string]interface{}{
+	return m.CallService(context.Background(), "input_number", "set_value", map[string]interface{}{
 		"entity_id": fmt.Sprintf("input_number.%s", name),
 		"value":     value,
 	})
@@ -355,7 +370,7 @@ func (m *MockClient) SetInputNumber(name string, value float64) error {
 
 // SetInputText sets a mock input_text
 func (m *MockClient) SetInputText(name string, value string) error {
-	return m.CallService("input_text", "set_value", map[string]interface{}{
+	return m.CallService(context.Background(), "input_text", "set_value", map[string]interface{}{
 		"entity_id": fmt.Sprintf("input_text.%s", name),
 		"value":     value,
 	})
@@ -566,7 +581,7 @@ func (m *MockClient) SendNotification(deviceName string, notification *Notificat
 	serviceData := buildNotificationServiceData(notification)
 	serviceName := fmt.Sprintf("mobile_app_%s", deviceName)
 
-	return m.CallService("notify", serviceName, serviceData)
+	return m.CallService(context.Background(), "notify", serviceName, serviceData)
 }
 
 // SendNotificationToMultiple sends a notification to multiple devices.
@@ -598,7 +613,7 @@ func (m *MockClient) ClearNotification(deviceName, tag string) error {
 	serviceData := buildClearNotificationServiceData(tag)
 	serviceName := fmt.Sprintf("mobile_app_%s", deviceName)
 
-	return m.CallService("notify", serviceName, serviceData)
+	return m.CallService(context.Background(), "notify", serviceName, serviceData)
 }
 
 // GetNotificationCalls returns all notification service calls for verification.

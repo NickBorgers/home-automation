@@ -1,6 +1,8 @@
 package ha
 
 import (
+	"context"
+
 	"homeautomation/internal/ha"
 )
 
@@ -68,11 +70,11 @@ func (a *ClientAdapter) GetAllStates() ([]*State, error) {
 	return result, nil
 }
 
-func (a *ClientAdapter) CallService(domain, service string, data map[string]interface{}) error {
-	return a.internal.CallService(domain, service, data)
+func (a *ClientAdapter) CallService(ctx context.Context, domain, service string, data map[string]interface{}) error {
+	return a.internal.CallService(ctx, domain, service, data)
 }
 
-func (a *ClientAdapter) CallServiceWithTarget(domain, service string, target *ServiceTarget, data map[string]interface{}) error {
+func (a *ClientAdapter) CallServiceWithTarget(ctx context.Context, domain, service string, target *ServiceTarget, data map[string]interface{}) error {
 	// Convert pkg ServiceTarget to internal ServiceTarget
 	var internalTarget *ha.ServiceTarget
 	if target != nil {
@@ -82,7 +84,7 @@ func (a *ClientAdapter) CallServiceWithTarget(domain, service string, target *Se
 			AreaID:   target.AreaID,
 		}
 	}
-	return a.internal.CallServiceWithTarget(domain, service, internalTarget, data)
+	return a.internal.CallServiceWithTarget(ctx, domain, service, internalTarget, data)
 }
 
 func (a *ClientAdapter) SubscribeStateChanges(entityID string, handler StateChangeHandler) (Subscription, error) {

@@ -1,6 +1,7 @@
 package ha
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"homeautomation/internal/testlogger"
@@ -225,7 +226,7 @@ func TestClient_CallService(t *testing.T) {
 	})
 	defer fixture.Close()
 
-	err := fixture.Client.CallService("input_boolean", "turn_on", map[string]interface{}{
+	err := fixture.Client.CallService(context.Background(), "input_boolean", "turn_on", map[string]interface{}{
 		"entity_id": "input_boolean.test",
 	})
 	assert.NoError(t, err)
@@ -282,7 +283,7 @@ func TestClient_CallServiceWithTarget(t *testing.T) {
 	target := &ServiceTarget{
 		LabelID: []string{"holiday_light"},
 	}
-	err = client.CallServiceWithTarget("light", "turn_on", target, nil)
+	err = client.CallServiceWithTarget(context.Background(), "light", "turn_on", target, nil)
 	assert.NoError(t, err)
 }
 
@@ -414,7 +415,7 @@ func TestMockClient(t *testing.T) {
 			LabelID: []string{"holiday_light"},
 			AreaID:  []string{"living_room"},
 		}
-		err := mock.CallServiceWithTarget("light", "turn_on", target, map[string]interface{}{
+		err := mock.CallServiceWithTarget(context.Background(), "light", "turn_on", target, map[string]interface{}{
 			"brightness": 255,
 		})
 		assert.NoError(t, err)
@@ -438,7 +439,7 @@ func TestMockClient(t *testing.T) {
 		mock.SetServiceError("light", "turn_on", testErr)
 
 		// Service call should fail
-		err := mock.CallService("light", "turn_on", nil)
+		err := mock.CallService(context.Background(), "light", "turn_on", nil)
 		assert.Error(t, err)
 		assert.Equal(t, testErr, err)
 
@@ -446,7 +447,7 @@ func TestMockClient(t *testing.T) {
 		mock.SetServiceError("light", "turn_on", nil)
 
 		// Service call should succeed now
-		err = mock.CallService("light", "turn_on", nil)
+		err = mock.CallService(context.Background(), "light", "turn_on", nil)
 		assert.NoError(t, err)
 	})
 
@@ -628,7 +629,7 @@ func TestClient_ConcurrentCallService(t *testing.T) {
 	for i := 0; i < numConcurrentCalls; i++ {
 		go func(n int) {
 			defer wg.Done()
-			err := client.CallService("test", "service", map[string]interface{}{
+			err := client.CallService(context.Background(), "test", "service", map[string]interface{}{
 				"call_number": n,
 			})
 			_ = err
@@ -745,7 +746,7 @@ func TestClient_CallServiceRetry(t *testing.T) {
 		require.NoError(t, err)
 		defer client.Disconnect()
 
-		err = client.CallService("nonexistent", "service", nil)
+		err = client.CallService(context.Background(), "nonexistent", "service", nil)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "service_not_found")
 		assert.Equal(t, int32(1), attemptCount.Load(), "Should NOT retry on HA application errors")
@@ -802,7 +803,7 @@ func TestClient_CallServiceWithTargetRetry(t *testing.T) {
 		target := &ServiceTarget{
 			AreaID: []string{"living_room"},
 		}
-		err = client.CallServiceWithTarget("light", "turn_on", target, map[string]interface{}{
+		err = client.CallServiceWithTarget(context.Background(), "light", "turn_on", target, map[string]interface{}{
 			"brightness": 255,
 		})
 		assert.NoError(t, err)
@@ -860,10 +861,54 @@ func TestClient_CallServiceWithTargetRetry(t *testing.T) {
 		target := &ServiceTarget{
 			LabelID: []string{"holiday_light"},
 		}
-		err = client.CallServiceWithTarget("light", "turn_on", target, nil)
+		err = client.CallServiceWithTarget(context.Background(), "light", "turn_on", target, nil)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "service_not_found")
 		assert.Equal(t, int32(1), attemptCount.Load(), "Should NOT retry on HA application errors")
+	})
+}
+
+// TestClient_CallServiceContextCancellation verifies that CallService respects context
+// cancellation, allowing service calls to exit quickly during shutdown instead of
+// waiting for their full retry budget.
+func TestClient_CallServiceContextCancellation(t *testing.T) {
+	t.Parallel()
+
+	t.Run("immediate cancellation before first attempt", func(t *testing.T) {
+		mock := NewMockClient()
+		mock.Connect()
+		defer mock.Disconnect()
+
+		// Create an already-cancelled context
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		err := mock.CallService(ctx, "light", "turn_on", nil)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "cancelled")
+
+		// Verify the service was never called
+		calls := mock.GetServiceCalls()
+		assert.Len(t, calls, 0, "Service should not be called when context is already cancelled")
+	})
+
+	t.Run("CallServiceWithTarget respects cancellation", func(t *testing.T) {
+		mock := NewMockClient()
+		mock.Connect()
+		defer mock.Disconnect()
+
+		// Create an already-cancelled context
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		target := &ServiceTarget{LabelID: []string{"test"}}
+		err := mock.CallServiceWithTarget(ctx, "light", "turn_on", target, nil)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "cancelled")
+
+		// Verify the service was never called
+		calls := mock.GetServiceCalls()
+		assert.Len(t, calls, 0, "Service should not be called when context is already cancelled")
 	})
 }
 

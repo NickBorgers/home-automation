@@ -1,6 +1,7 @@
 package waterflow
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -31,7 +32,7 @@ func getLastNtfyNotification(mockNtfy *ntfy.MockClient) *ntfy.Message {
 func createTestManager(mockHA *ha.MockClient, mockNtfy *ntfy.MockClient, mockClock *clock.MockClock) *Manager {
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
-	return NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
+	return NewManagerWithClock(context.Background(), mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
 }
 
 func TestWaterFlowManager_NormalFlow(t *testing.T) {
@@ -422,7 +423,7 @@ func TestWaterFlowManager_ReadOnlyMode(t *testing.T) {
 	stateMgr := state.NewManager(mockHA, logger, false)
 
 	// Create manager in read-only mode
-	manager := NewManagerWithClock(mockHA, stateMgr, logger, true, nil, mockNtfy, mockClock)
+	manager := NewManagerWithClock(context.Background(), mockHA, stateMgr, logger, true, nil, mockNtfy, mockClock)
 
 	// Trigger urgent alert
 	manager.SimulateFlowReading(0.5)
@@ -583,7 +584,7 @@ func TestWaterFlowManager_NtfyClientNil(t *testing.T) {
 	stateMgr := state.NewManager(mockHA, logger, false)
 
 	// Create manager without ntfy client
-	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, nil, mockClock)
+	manager := NewManagerWithClock(context.Background(), mockHA, stateMgr, logger, false, nil, nil, mockClock)
 
 	// Trigger urgent alert - should not panic
 	manager.SimulateFlowReading(0.5)
