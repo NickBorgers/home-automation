@@ -897,39 +897,68 @@ Go's runtime only detects deadlocks when **all** goroutines are blocked. If even
 9. **Cancel concurrent goroutines before new operations** - Use context.Context to stop conflicting goroutines
 10. **Buffer channels in timeout patterns** - Prevents goroutine leaks when receivers time out
 11. **Maintain consistent lock ordering** - Prevents deadlocks when multiple locks are needed
+12. **Use errgroup for structured concurrency** - Provides bounded parallelism, error propagation, and cleaner code than manual WaitGroup
 
 ---
 
-## Advanced Patterns (Consider for Future Use)
+## Lesson 12: Use errgroup for Structured Concurrency with Bounded Parallelism
 
-### errgroup for Structured Concurrency
+**Pattern**: Use `golang.org/x/sync/errgroup` for coordinating groups of goroutines that should complete together.
 
-The `golang.org/x/sync/errgroup` package provides a cleaner pattern for managing groups of goroutines with error handling and context cancellation:
+**Why**: errgroup provides several advantages over manual `sync.WaitGroup` management:
+- **Automatic error propagation** - First error is captured and returned by `Wait()`
+- **Bounded concurrency** - `SetLimit(n)` controls parallelism (useful for network operations)
+- **Cleaner code** - No manual `Add(1)` / `Done()` bookkeeping
+- **Context integration** - `errgroup.WithContext()` cancels remaining goroutines on first error
 
+**Implementation**:
 ```go
 import "golang.org/x/sync/errgroup"
 
-func fetchAllData(ctx context.Context) error {
-    g, ctx := errgroup.WithContext(ctx)
+func (m *Manager) buildSpeakerGroupAsync(participants []ParticipantWithVolume, leadEntityID string) {
+    // Use errgroup for structured concurrency with bounded parallelism
+    g := new(errgroup.Group)
+    g.SetLimit(3) // Limit concurrent speaker joins to reduce IGMP congestion
 
-    g.Go(func() error {
-        return fetchUsers(ctx)  // Cancelled if any other task fails
-    })
-    g.Go(func() error {
-        return fetchOrders(ctx)
-    })
+    for i := 1; i < len(participants); i++ {
+        p := participants[i]
+        staggerDelay := time.Duration(i-1) * asyncJoinStaggerDelay
 
-    return g.Wait()  // Returns first error, cancels others
+        g.Go(func() error {
+            if staggerDelay > 0 {
+                time.Sleep(staggerDelay)
+            }
+            return m.joinSpeakerWithRetry(p, leadEntityID)
+        })
+    }
+
+    // Wait for all goroutines to complete
+    if err := g.Wait(); err != nil {
+        m.logger.Debug("Some speakers failed to join", zap.Error(err))
+    }
 }
 ```
 
-**Benefits over manual goroutine management**:
-- Automatic context cancellation when any goroutine fails
-- Built-in WaitGroup semantics
-- `SetLimit(n)` for bounded concurrency
-- Cleaner error propagation
+**When to Use errgroup vs WaitGroup**:
 
-**When to use**: Coordinating multiple independent operations that should fail together.
+| Scenario | Use |
+|----------|-----|
+| Batch of operations that should complete together | `errgroup` |
+| Need bounded parallelism (rate limiting) | `errgroup.SetLimit(n)` |
+| Long-running goroutines signaling startup completion | `sync.WaitGroup` |
+| Simple synchronization with no error handling | `sync.WaitGroup` |
+| Cancel remaining work on first error | `errgroup.WithContext()` |
+
+**Where Applied**:
+- `internal/plugins/music/fadein.go` - Async speaker group building with concurrency limit
+
+**Where WaitGroup is Still Appropriate**:
+- `internal/plugins/energy/manager.go` - Startup synchronization for long-running goroutines that signal initial work completion but continue running
+- `internal/plugins/music/manager.go` - Test synchronization for rotation syncs
+
+**References**:
+- [errgroup package documentation](https://pkg.go.dev/golang.org/x/sync/errgroup)
+- Issue #553 - errgroup adoption
 
 ---
 
@@ -959,6 +988,11 @@ func fetchAllData(ctx context.Context) error {
 ## Change Log
 
 ### 2026-02-01
+- **Added Lesson 12**: Use errgroup for Structured Concurrency with Bounded Parallelism
+  - Adopted `golang.org/x/sync/errgroup` for managing groups of goroutines (Issue #553)
+  - Provides bounded parallelism via `SetLimit(n)`, error propagation, and cleaner code
+  - Applied to `internal/plugins/music/fadein.go` for async speaker group building
+  - Documented when to prefer errgroup vs WaitGroup
 - **Added Lesson 10**: Use Buffered Channels to Prevent Goroutine Leaks
   - Documents pattern for using buffered channels in timeout scenarios
   - Prevents goroutine leaks when receivers time out or cancel
@@ -974,7 +1008,6 @@ func fetchAllData(ctx context.Context) error {
   - Forgetting to check ctx.Done() in long loops
   - Reading/writing shared variables without synchronization
 - **Added Debugging Deadlocks section**: Tools and techniques (pprof, SIGQUIT, go-deadlock)
-- **Added Advanced Patterns section**: errgroup for structured concurrency
 - **Added External Resources section**: Links to authoritative Go concurrency resources
 - **Removed arbitrary performance numbers** from Lesson 3 (were misleading without benchmarks)
 
