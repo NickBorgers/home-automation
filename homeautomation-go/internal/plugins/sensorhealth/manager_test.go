@@ -1,6 +1,7 @@
 package sensorhealth
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -792,5 +793,478 @@ func TestLowBatteryAlertsInShadowState(t *testing.T) {
 	}
 	if alert.BatteryLevel != 10.0 {
 		t.Errorf("Expected battery level 10.0 in alert, got %f", alert.BatteryLevel)
+	}
+}
+
+// ============================================================================
+// Node Status Monitoring Tests
+// ============================================================================
+
+const (
+	testNodeStatus1 = "sensor.device_1_node_status"
+	testNodeStatus2 = "sensor.device_2_node_status"
+)
+
+func TestSensorHealthManager_NodeStatus_Discovery(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	mockNtfy := ntfy.NewMockClient()
+
+	// Add node status sensors
+	mockHA.AddDevice(&ha.Device{
+		ID:     "device_zwave_1",
+		Name:   "Z-Wave Device 1",
+		Labels: []string{},
+	})
+	mockHA.AddDevice(&ha.Device{
+		ID:     "device_zwave_2",
+		Name:   "Z-Wave Device 2",
+		Labels: []string{},
+	})
+
+	mockHA.AddEntityRegistryEntry(&ha.EntityRegistryEntry{
+		EntityID: testNodeStatus1,
+		DeviceID: "device_zwave_1",
+	})
+	mockHA.AddEntityRegistryEntry(&ha.EntityRegistryEntry{
+		EntityID: testNodeStatus2,
+		DeviceID: "device_zwave_2",
+	})
+
+	mockHA.SetState(testNodeStatus1, "alive", map[string]interface{}{
+		"friendly_name": "Z-Wave Device 1 Node Status",
+	})
+	mockHA.SetState(testNodeStatus2, "asleep", map[string]interface{}{
+		"friendly_name": "Z-Wave Device 2 Node Status",
+	})
+
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+
+	manager := NewManager(mockHA, stateMgr, logger, false, nil, mockNtfy)
+
+	err := manager.Start()
+	if err != nil {
+		t.Fatalf("Failed to start manager: %v", err)
+	}
+	defer manager.Stop()
+
+	// Verify node status sensors were discovered
+	nodeStatuses := manager.GetNodeStatuses()
+	if len(nodeStatuses) != 2 {
+		t.Errorf("Expected 2 node status sensors, got %d", len(nodeStatuses))
+	}
+}
+
+func TestSensorHealthManager_NodeStatus_DeadDevice_Notification(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	mockNtfy := ntfy.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+	mockClock := clock.NewMockClock(time.Now())
+
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
+
+	// Add a node status sensor manually
+	manager.AddNodeStatus(&NodeStatus{
+		EntityID:   testNodeStatus1,
+		DeviceID:   "device_zwave_1",
+		DeviceName: "Front Door Lock",
+		Status:     "alive",
+	})
+
+	// Simulate the device becoming dead
+	manager.SimulateNodeStatusChange(testNodeStatus1, "dead")
+
+	// Verify the device is marked as dead
+	nodeStatuses := manager.GetNodeStatuses()
+	if nodeStatuses[testNodeStatus1].Status != "dead" {
+		t.Errorf("Expected status 'dead', got '%s'", nodeStatuses[testNodeStatus1].Status)
+	}
+
+	// Verify notification was sent
+	notificationCount := countNtfyNotifications(mockNtfy)
+	if notificationCount != 1 {
+		t.Errorf("Expected 1 dead device notification, got %d", notificationCount)
+		return
+	}
+
+	notification := getLastNtfyNotification(mockNtfy)
+	if notification == nil {
+		t.Error("Expected to find a notification")
+		return
+	}
+	if notification.Title != "Device Offline" {
+		t.Errorf("Expected notification title 'Device Offline', got '%s'", notification.Title)
+	}
+	if notification.Priority != ntfy.PriorityHigh {
+		t.Errorf("Expected priority high, got %d", notification.Priority)
+	}
+}
+
+func TestSensorHealthManager_NodeStatus_DeviceRecovery(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	mockNtfy := ntfy.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+	mockClock := clock.NewMockClock(time.Now())
+
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
+
+	// Add a node status sensor that's already dead with notification sent
+	manager.AddNodeStatus(&NodeStatus{
+		EntityID:         testNodeStatus1,
+		DeviceID:         "device_zwave_1",
+		DeviceName:       "Front Door Lock",
+		Status:           "dead",
+		NotificationSent: true,
+	})
+
+	// Simulate the device recovering
+	manager.SimulateNodeStatusChange(testNodeStatus1, "alive")
+
+	// Verify the device is marked as alive
+	nodeStatuses := manager.GetNodeStatuses()
+	if nodeStatuses[testNodeStatus1].Status != "alive" {
+		t.Errorf("Expected status 'alive', got '%s'", nodeStatuses[testNodeStatus1].Status)
+	}
+
+	// Verify recovery notification was sent
+	notificationCount := countNtfyNotifications(mockNtfy)
+	if notificationCount != 1 {
+		t.Errorf("Expected 1 recovery notification, got %d", notificationCount)
+		return
+	}
+
+	notification := getLastNtfyNotification(mockNtfy)
+	if notification == nil {
+		t.Error("Expected to find a notification")
+		return
+	}
+	if notification.Title != "Device Online" {
+		t.Errorf("Expected notification title 'Device Online', got '%s'", notification.Title)
+	}
+}
+
+func TestSensorHealthManager_NodeStatus_AsleepDoesNotTriggerAlert(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	mockNtfy := ntfy.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+
+	manager := NewManager(mockHA, stateMgr, logger, false, nil, mockNtfy)
+
+	// Add a node status sensor that's alive
+	manager.AddNodeStatus(&NodeStatus{
+		EntityID:   testNodeStatus1,
+		DeviceID:   "device_zwave_1",
+		DeviceName: "Motion Sensor",
+		Status:     "alive",
+	})
+
+	// Simulate the device going to sleep (normal battery device behavior)
+	manager.SimulateNodeStatusChange(testNodeStatus1, "asleep")
+
+	// Verify the device is marked as asleep
+	nodeStatuses := manager.GetNodeStatuses()
+	if nodeStatuses[testNodeStatus1].Status != "asleep" {
+		t.Errorf("Expected status 'asleep', got '%s'", nodeStatuses[testNodeStatus1].Status)
+	}
+
+	// Verify NO notification was sent (asleep is normal for battery devices)
+	notificationCount := countNtfyNotifications(mockNtfy)
+	if notificationCount != 0 {
+		t.Errorf("Expected no notifications for asleep status, got %d", notificationCount)
+	}
+
+	// Verify the device is not counted as dead
+	deadCount := manager.GetDeadDeviceCount()
+	if deadCount != 0 {
+		t.Errorf("Expected 0 dead devices, got %d", deadCount)
+	}
+}
+
+func TestSensorHealthManager_NodeStatus_MonitoringIgnoreLabel(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+
+	// Add device with monitoring_ignore label
+	mockHA.AddDevice(&ha.Device{
+		ID:     "device_ignored",
+		Name:   "Ignored Device",
+		Labels: []string{"monitoring_ignore"},
+	})
+	mockHA.AddEntityRegistryEntry(&ha.EntityRegistryEntry{
+		EntityID: "sensor.ignored_device_node_status",
+		DeviceID: "device_ignored",
+	})
+	mockHA.SetState("sensor.ignored_device_node_status", "alive", map[string]interface{}{
+		"friendly_name": "Ignored Device Node Status",
+	})
+
+	// Add device without the label
+	mockHA.AddDevice(&ha.Device{
+		ID:     "device_monitored",
+		Name:   "Monitored Device",
+		Labels: []string{},
+	})
+	mockHA.AddEntityRegistryEntry(&ha.EntityRegistryEntry{
+		EntityID: "sensor.monitored_device_node_status",
+		DeviceID: "device_monitored",
+	})
+	mockHA.SetState("sensor.monitored_device_node_status", "alive", map[string]interface{}{
+		"friendly_name": "Monitored Device Node Status",
+	})
+
+	mockNtfy := ntfy.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+
+	manager := NewManager(mockHA, stateMgr, logger, false, nil, mockNtfy)
+
+	err := manager.Start()
+	if err != nil {
+		t.Fatalf("Failed to start manager: %v", err)
+	}
+	defer manager.Stop()
+
+	// Verify only non-ignored sensor was discovered
+	nodeStatuses := manager.GetNodeStatuses()
+	if len(nodeStatuses) != 1 {
+		t.Errorf("Expected 1 node status sensor (ignored one filtered), got %d", len(nodeStatuses))
+	}
+	if _, ok := nodeStatuses["sensor.ignored_device_node_status"]; ok {
+		t.Error("Expected ignored node status sensor to be filtered out")
+	}
+	if _, ok := nodeStatuses["sensor.monitored_device_node_status"]; !ok {
+		t.Error("Expected monitored node status sensor to be discovered")
+	}
+}
+
+func TestSensorHealthManager_NodeStatus_ReadOnlyMode(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	mockNtfy := ntfy.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, true) // read-only
+
+	// Create manager in read-only mode
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, true, nil, mockNtfy, clock.NewMockClock(time.Now()))
+
+	// Add a node status sensor
+	manager.AddNodeStatus(&NodeStatus{
+		EntityID:   testNodeStatus1,
+		DeviceID:   "device_zwave_1",
+		DeviceName: "Front Door Lock",
+		Status:     "alive",
+	})
+
+	// Simulate device becoming dead
+	manager.SimulateNodeStatusChange(testNodeStatus1, "dead")
+
+	// Verify device is marked as dead
+	nodeStatuses := manager.GetNodeStatuses()
+	if nodeStatuses[testNodeStatus1].Status != "dead" {
+		t.Errorf("Expected status 'dead', got '%s'", nodeStatuses[testNodeStatus1].Status)
+	}
+
+	// But no actual notifications should be sent (read-only mode)
+	notificationCount := countNtfyNotifications(mockNtfy)
+	if notificationCount > 0 {
+		t.Errorf("Expected no notifications in read-only mode, got %d", notificationCount)
+	}
+}
+
+func TestSensorHealthManager_NodeStatus_ShadowState(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	mockNtfy := ntfy.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+
+	manager := NewManager(mockHA, stateMgr, logger, false, nil, mockNtfy)
+
+	// Add node status sensors
+	manager.AddNodeStatus(&NodeStatus{
+		EntityID:   testNodeStatus1,
+		DeviceID:   "device_zwave_1",
+		DeviceName: "Front Door Lock",
+		Status:     "alive",
+	})
+	manager.AddNodeStatus(&NodeStatus{
+		EntityID:   testNodeStatus2,
+		DeviceID:   "device_zwave_2",
+		DeviceName: "Motion Sensor",
+		Status:     "dead",
+	})
+
+	// Update shadow state
+	manager.SimulateNodeStatusChange(testNodeStatus1, "alive")
+	manager.SimulateNodeStatusChange(testNodeStatus2, "dead")
+
+	// Get shadow state
+	shadowState := manager.GetShadowState()
+
+	// Verify node statuses in shadow state
+	if len(shadowState.Outputs.NodeStatuses) != 2 {
+		t.Errorf("Expected 2 node statuses in shadow state, got %d",
+			len(shadowState.Outputs.NodeStatuses))
+	}
+
+	// Verify dead device alerts
+	if len(shadowState.Outputs.DeadDeviceAlerts) != 1 {
+		t.Errorf("Expected 1 dead device alert in shadow state, got %d",
+			len(shadowState.Outputs.DeadDeviceAlerts))
+	}
+}
+
+func TestGetDeadDeviceCount(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	mockNtfy := ntfy.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+
+	manager := NewManager(mockHA, stateMgr, logger, false, nil, mockNtfy)
+
+	// Initially no dead devices
+	if manager.GetDeadDeviceCount() != 0 {
+		t.Error("Expected 0 dead devices initially")
+	}
+
+	// Add some node statuses with varying states
+	manager.AddNodeStatus(&NodeStatus{
+		EntityID:   "sensor.device_1_node_status",
+		DeviceName: "Device 1",
+		Status:     "alive",
+	})
+	manager.AddNodeStatus(&NodeStatus{
+		EntityID:   "sensor.device_2_node_status",
+		DeviceName: "Device 2",
+		Status:     "dead",
+	})
+	manager.AddNodeStatus(&NodeStatus{
+		EntityID:   "sensor.device_3_node_status",
+		DeviceName: "Device 3",
+		Status:     "asleep",
+	})
+	manager.AddNodeStatus(&NodeStatus{
+		EntityID:   "sensor.device_4_node_status",
+		DeviceName: "Device 4",
+		Status:     "dead",
+	})
+
+	// Verify count
+	deadCount := manager.GetDeadDeviceCount()
+	if deadCount != 2 {
+		t.Errorf("Expected 2 dead devices, got %d", deadCount)
+	}
+}
+
+func TestSensorHealthManager_NotifyAlreadyDeadDevices_AtStartup(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	mockNtfy := ntfy.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+
+	manager := NewManager(mockHA, stateMgr, logger, false, nil, mockNtfy)
+
+	// Add devices - some dead, some alive
+	manager.AddNodeStatus(&NodeStatus{
+		EntityID:         "sensor.device_1_node_status",
+		DeviceName:       "Device 1",
+		Status:           "dead",
+		NotificationSent: false,
+	})
+	manager.AddNodeStatus(&NodeStatus{
+		EntityID:         "sensor.device_2_node_status",
+		DeviceName:       "Device 2",
+		Status:           "alive",
+		NotificationSent: false,
+	})
+	manager.AddNodeStatus(&NodeStatus{
+		EntityID:         "sensor.device_3_node_status",
+		DeviceName:       "Device 3",
+		Status:           "dead",
+		NotificationSent: false,
+	})
+
+	// Call the startup notification function
+	manager.notifyAlreadyDeadDevices()
+
+	// Verify notifications were sent for dead devices
+	calls := mockNtfy.GetCalls()
+	if len(calls) != 2 {
+		t.Errorf("Expected 2 startup notifications for dead devices, got %d", len(calls))
+	}
+
+	// Verify NotificationSent flags were set
+	nodeStatuses := manager.GetNodeStatuses()
+	if !nodeStatuses["sensor.device_1_node_status"].NotificationSent {
+		t.Error("Expected NotificationSent to be true for device 1")
+	}
+	if nodeStatuses["sensor.device_2_node_status"].NotificationSent {
+		t.Error("Expected NotificationSent to be false for device 2 (alive)")
+	}
+	if !nodeStatuses["sensor.device_3_node_status"].NotificationSent {
+		t.Error("Expected NotificationSent to be true for device 3")
+	}
+
+	// Verify notification messages contain "startup" context
+	for _, msg := range calls {
+		if msg.Title != "Device Offline (Startup Check)" {
+			t.Errorf("Expected title 'Device Offline (Startup Check)', got '%s'", msg.Title)
+		}
+		if !strings.Contains(msg.Body, "was already dead when system started") {
+			t.Errorf("Expected message to mention startup context, got: %s", msg.Body)
+		}
+	}
+}
+
+func TestSensorHealthManager_NotifyAlreadyDeadDevices_SkipsAlreadyNotified(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	mockNtfy := ntfy.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+
+	manager := NewManager(mockHA, stateMgr, logger, false, nil, mockNtfy)
+
+	// Add a dead device that was already notified (simulating a previous run)
+	manager.AddNodeStatus(&NodeStatus{
+		EntityID:         "sensor.device_1_node_status",
+		DeviceName:       "Device 1",
+		Status:           "dead",
+		NotificationSent: true, // Already notified
+	})
+	// Add a dead device that hasn't been notified
+	manager.AddNodeStatus(&NodeStatus{
+		EntityID:         "sensor.device_2_node_status",
+		DeviceName:       "Device 2",
+		Status:           "dead",
+		NotificationSent: false,
+	})
+
+	// Call the startup notification function
+	manager.notifyAlreadyDeadDevices()
+
+	// Verify only one notification was sent (for the un-notified device)
+	calls := mockNtfy.GetCalls()
+	if len(calls) != 1 {
+		t.Errorf("Expected 1 startup notification (skipping already-notified), got %d", len(calls))
 	}
 }

@@ -953,6 +953,7 @@ graph LR
         HumiditySensors[sensor.*_humidity]
         WaterLeakSensors[binary_sensor.*water_leak*]
         BatteryStateSensors[sensor.*_battery]
+        NodeStatusSensors[sensor.*_node_status]
         WaterFlowSensor[sensor.droplet_flow_rate]
     end
 
@@ -1035,10 +1036,11 @@ graph LR
     AnyoneHome --> ChristmasPlugin
 
     HumiditySensors --> EnvironmentalPlugin
+    WaterLeakSensors --> EnvironmentalPlugin
     EnvironmentalPlugin -.->|Notifications| Ntfy[ntfy.sh]
 
-    WaterLeakSensors --> SensorHealthPlugin
     BatteryStateSensors --> SensorHealthPlugin
+    NodeStatusSensors --> SensorHealthPlugin
     SensorHealthPlugin -.->|Notifications| Ntfy
 
     WaterFlowSensor --> WaterFlowPlugin

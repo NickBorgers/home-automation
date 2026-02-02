@@ -1130,22 +1130,57 @@ type SensorHealthInputs struct {
 
 // SensorHealthOutputs tracks discovered sensors, alerts, and notification history
 type SensorHealthOutputs struct {
-	BatterySensors                []BatterySensorData        `json:"batterySensors"`
-	TemperatureSensors            []TemperatureSensorData    `json:"temperatureSensors,omitempty"` // Temperature sensors for lockup monitoring
-	LowBatteryAlerts              []LowBatteryAlert          `json:"lowBatteryAlerts,omitempty"`
-	StaleSensorAlerts             []StaleSensorAlert         `json:"staleSensorAlerts,omitempty"`
-	LastNotification              *SensorHealthNotification  `json:"lastNotification,omitempty"`
-	LastTemperatureLockupNotice   *TemperatureLockupNotice   `json:"lastTemperatureLockupNotice,omitempty"`   // Last temperature lockup notification sent
-	LastTemperatureRecoveryNotice *TemperatureRecoveryNotice `json:"lastTemperatureRecoveryNotice,omitempty"` // Last temperature recovery notification sent
-	Config                        SensorHealthConfig         `json:"config"`
-	LastUpdate                    time.Time                  `json:"lastUpdate"`
-	LastDiscoveryRefresh          time.Time                  `json:"lastDiscoveryRefresh,omitempty"`
+	BatterySensors                 []BatterySensorData         `json:"batterySensors"`
+	TemperatureSensors             []TemperatureSensorData     `json:"temperatureSensors,omitempty"` // Temperature sensors for lockup monitoring
+	NodeStatuses                   []NodeStatusData            `json:"nodeStatuses,omitempty"`       // Z-Wave node status sensors
+	LowBatteryAlerts               []LowBatteryAlert           `json:"lowBatteryAlerts,omitempty"`
+	DeadDeviceAlerts               []DeadDeviceAlert           `json:"deadDeviceAlerts,omitempty"` // Dead Z-Wave devices
+	LastNotification               *SensorHealthNotification   `json:"lastNotification,omitempty"`
+	LastTemperatureLockupNotice    *TemperatureLockupNotice    `json:"lastTemperatureLockupNotice,omitempty"`    // Last temperature lockup notification sent
+	LastTemperatureRecoveryNotice  *TemperatureRecoveryNotice  `json:"lastTemperatureRecoveryNotice,omitempty"`  // Last temperature recovery notification sent
+	LastDeadDeviceNotification     *DeadDeviceNotification     `json:"lastDeadDeviceNotification,omitempty"`     // Last dead device notification sent
+	LastDeviceRecoveryNotification *DeviceRecoveryNotification `json:"lastDeviceRecoveryNotification,omitempty"` // Last device recovery notification sent
+	Config                         SensorHealthConfig          `json:"config"`
+	LastUpdate                     time.Time                   `json:"lastUpdate"`
+	LastDiscoveryRefresh           time.Time                   `json:"lastDiscoveryRefresh,omitempty"`
 }
 
 // SensorHealthConfig holds configurable thresholds
 type SensorHealthConfig struct {
-	LowBatteryThreshold       int `json:"lowBatteryThreshold"`       // Percentage threshold (default 20)
-	StalenessThresholdMinutes int `json:"stalenessThresholdMinutes"` // Minutes before sensor considered stale (default 1440 = 24h)
+	LowBatteryThreshold int `json:"lowBatteryThreshold"` // Percentage threshold (default 20)
+}
+
+// NodeStatusData represents a Z-Wave node status sensor for shadow state tracking
+type NodeStatusData struct {
+	EntityID    string    `json:"entityId"`
+	DeviceID    string    `json:"deviceId,omitempty"`
+	DeviceName  string    `json:"deviceName"`
+	Status      string    `json:"status"` // alive, asleep, awake, dead
+	LastChanged time.Time `json:"lastChanged,omitempty"`
+}
+
+// DeadDeviceAlert represents an active dead device alert
+type DeadDeviceAlert struct {
+	EntityID         string    `json:"entityId"`
+	DeviceName       string    `json:"deviceName"`
+	DetectedAt       time.Time `json:"detectedAt"`
+	NotificationSent bool      `json:"notificationSent"`
+}
+
+// DeadDeviceNotification tracks a dead device notification that was sent
+type DeadDeviceNotification struct {
+	EntityID   string    `json:"entityId"`
+	DeviceName string    `json:"deviceName"`
+	Message    string    `json:"message"`
+	Timestamp  time.Time `json:"timestamp"`
+}
+
+// DeviceRecoveryNotification tracks a device recovery notification that was sent
+type DeviceRecoveryNotification struct {
+	EntityID   string    `json:"entityId"`
+	DeviceName string    `json:"deviceName"`
+	Message    string    `json:"message"`
+	Timestamp  time.Time `json:"timestamp"`
 }
 
 // TemperatureSensorData represents a single temperature sensor's state for lockup monitoring
@@ -1192,7 +1227,6 @@ type BatterySensorData struct {
 	IsLow         bool      `json:"isLow"`        // True if below threshold
 	LastChanged   time.Time `json:"lastChanged,omitempty"`
 	LastReported  time.Time `json:"lastReported,omitempty"`
-	IsStale       bool      `json:"isStale"`       // True if no updates in staleness window
 	IsUnavailable bool      `json:"isUnavailable"` // True if state is "unavailable"
 }
 
@@ -1201,15 +1235,6 @@ type LowBatteryAlert struct {
 	EntityID         string    `json:"entityId"`
 	FriendlyName     string    `json:"friendlyName"`
 	BatteryLevel     float64   `json:"batteryLevel"`
-	DetectedAt       time.Time `json:"detectedAt"`
-	NotificationSent bool      `json:"notificationSent"`
-}
-
-// StaleSensorAlert represents a stale sensor alert
-type StaleSensorAlert struct {
-	EntityID         string    `json:"entityId"`
-	FriendlyName     string    `json:"friendlyName"`
-	LastReported     time.Time `json:"lastReported"`
 	DetectedAt       time.Time `json:"detectedAt"`
 	NotificationSent bool      `json:"notificationSent"`
 }
@@ -1245,11 +1270,11 @@ func NewSensorHealthShadowState() *SensorHealthShadowState {
 		Outputs: SensorHealthOutputs{
 			BatterySensors:     make([]BatterySensorData, 0),
 			TemperatureSensors: make([]TemperatureSensorData, 0),
+			NodeStatuses:       make([]NodeStatusData, 0),
 			LowBatteryAlerts:   make([]LowBatteryAlert, 0),
-			StaleSensorAlerts:  make([]StaleSensorAlert, 0),
+			DeadDeviceAlerts:   make([]DeadDeviceAlert, 0),
 			Config: SensorHealthConfig{
-				LowBatteryThreshold:       20,
-				StalenessThresholdMinutes: 1440, // 24 hours
+				LowBatteryThreshold: 20,
 			},
 		},
 		Metadata: StateMetadata{

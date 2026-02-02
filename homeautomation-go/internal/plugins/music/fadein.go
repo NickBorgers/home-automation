@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"strings"
-	"sync"
 	"time"
 
 	"go.uber.org/zap"
+	"golang.org/x/sync/errgroup"
 )
 
 // fadeOutSpeakers performs a quick fade-out on all currently playing speakers.
@@ -324,47 +324,62 @@ func (m *Manager) randomJitter() time.Duration {
 	return time.Duration(rand.Int64N(int64(asyncJoinJitterMax)))
 }
 
+// asyncJoinConcurrencyLimit limits concurrent speaker joins to reduce IGMP congestion.
+// Sonos speakers use IGMP for group formation, and too many concurrent joins can overwhelm
+// the network, causing failures or delays.
+const asyncJoinConcurrencyLimit = 3
+
 // buildSpeakerGroupAsync adds follower speakers to the lead speaker's group asynchronously.
 // Each speaker runs in its own goroutine with staggered start times to reduce IGMP congestion.
 // This runs in a goroutine and does not block playback on the lead speaker.
 // The musicType parameter is used for fade-in duration selection.
+//
+// Uses errgroup for structured concurrency with bounded parallelism. Individual speaker
+// join failures are logged but don't stop other speakers from joining (partial success).
 func (m *Manager) buildSpeakerGroupAsync(participants []ParticipantWithVolume, leadEntityID string, musicType string) {
 	followers := len(participants) - 1
 	m.logger.Info("Starting async speaker group building",
 		zap.String("lead", leadEntityID),
 		zap.Int("followers", followers))
 
-	var wg sync.WaitGroup
+	// Use errgroup for structured concurrency with bounded parallelism
+	g := new(errgroup.Group)
+	g.SetLimit(asyncJoinConcurrencyLimit) // Limit concurrent speaker joins to reduce IGMP congestion
 
 	// Launch a goroutine for each follower with staggered start times + jitter
 	for i := 1; i < len(participants); i++ {
-		wg.Add(1)
 		p := participants[i]
 		// Base stagger + random jitter to prevent alignment
 		staggerDelay := time.Duration(i-1)*asyncJoinStaggerDelay + m.randomJitter()
 
-		go func(participant ParticipantWithVolume, delay time.Duration) {
-			defer wg.Done()
-
+		g.Go(func() error {
 			// Wait for staggered start
-			if delay > 0 {
+			if staggerDelay > 0 {
 				m.logger.Info("Waiting before join attempt",
-					zap.String("speaker", participant.PlayerName),
-					zap.Duration("delay", delay))
-				m.sleepFunc(delay)
+					zap.String("speaker", p.PlayerName),
+					zap.Duration("delay", staggerDelay))
+				m.sleepFunc(staggerDelay)
 			}
 
-			m.joinSpeakerWithRetry(participant, leadEntityID, musicType)
-		}(p, staggerDelay)
+			return m.joinSpeakerWithRetry(p, leadEntityID, musicType)
+		})
 	}
 
-	wg.Wait()
+	// Wait for all goroutines to complete
+	// Note: We don't check the error here because individual speaker failures
+	// are logged by joinSpeakerWithRetry and we want partial success
+	if err := g.Wait(); err != nil {
+		m.logger.Debug("Some speakers failed to join (partial success is expected)",
+			zap.Error(err))
+	}
+
 	m.logger.Info("Async speaker group building complete")
 }
 
 // joinSpeakerWithRetry attempts to join a single speaker to the group with retries.
 // Called from goroutines in buildSpeakerGroupAsync.
-func (m *Manager) joinSpeakerWithRetry(p ParticipantWithVolume, leadEntityID string, musicType string) {
+// Returns an error if the speaker fails to join after all retries.
+func (m *Manager) joinSpeakerWithRetry(p ParticipantWithVolume, leadEntityID string, musicType string) error {
 	entityID := m.getSpeakerEntityID(p.PlayerName)
 
 	var joinErr error
@@ -410,7 +425,7 @@ func (m *Manager) joinSpeakerWithRetry(p ParticipantWithVolume, leadEntityID str
 		m.logger.Warn("Speaker unavailable (async), skipping",
 			zap.String("speaker", p.PlayerName),
 			zap.Error(joinErr))
-		return
+		return fmt.Errorf("speaker %s failed to join: %w", p.PlayerName, joinErr)
 	}
 
 	// Speaker joined successfully - check if it should be unmuted and start fade-in
@@ -445,6 +460,8 @@ func (m *Manager) joinSpeakerWithRetry(p ParticipantWithVolume, leadEntityID str
 				zap.Error(err))
 		}
 	}
+
+	return nil
 }
 
 // shouldIncludeInZone determines if a speaker should be included in the zone at all.

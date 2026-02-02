@@ -588,7 +588,7 @@ respChan := make(chan Message, 1)  // Buffered to prevent leak
 
 **Why**: Inconsistent lock ordering is the most common cause of deadlocks. If goroutine A holds lock X and waits for lock Y, while goroutine B holds lock Y and waits for lock X, neither can proceed.
 
-**Deadlock Scenario**:
+**General Deadlock Scenario**:
 ```go
 // ❌ BAD: Inconsistent lock ordering causes deadlock
 // Goroutine A
@@ -610,27 +610,83 @@ func updateProfileSettings() {
 }
 ```
 
-**Correct Approach**:
-```go
-// ✅ GOOD: Consistent lock ordering (alphabetical, hierarchical, etc.)
-// Document the ordering: userMu MUST be acquired before profileMu
+**Real-World Example** (Fixed in [Issue #552](https://github.com/NickBorgersOnLowSecurityNode/home-automation/issues/552)):
 
-func updateUserProfile() {
-    userMu.Lock()
-    defer userMu.Unlock()
-    profileMu.Lock()
-    defer profileMu.Unlock()
-    // ...
+The `MockClock` implementation had a lock ordering violation between `mockTimer.Reset()` and `MockClock.Advance()`:
+
+```go
+// ❌ BAD: Inconsistent lock ordering causes deadlock
+// Reset acquires: timer.mu → clock.mu
+func (t *mockTimer) Reset(d time.Duration) bool {
+    t.mu.Lock()           // 1. timer.mu FIRST
+    defer t.mu.Unlock()
+
+    t.clock.mu.Lock()     // 2. clock.mu SECOND
+    t.deadline = t.clock.current.Add(d)
+    t.clock.mu.Unlock()
+    return wasActive
 }
 
-func updateProfileSettings() {
-    userMu.Lock()         // Same order as above
-    defer userMu.Unlock()
-    profileMu.Lock()
-    defer profileMu.Unlock()
-    // ...
+// Advance acquires: clock.mu → timer.mu
+func (c *MockClock) Advance(d time.Duration) {
+    c.mu.Lock()           // 1. clock.mu FIRST
+    for _, timer := range c.timers {
+        timer.mu.Lock()   // 2. timer.mu SECOND
+        // ...
+        timer.mu.Unlock()
+    }
+    c.mu.Unlock()
 }
 ```
+
+**Interleaving That Causes Deadlock**:
+```
+Goroutine A (Reset):     Goroutine B (Advance):
+─────────────────────    ────────────────────────
+timer.mu.Lock() ✓        clock.mu.Lock() ✓
+clock.mu.Lock() ← BLOCKED timer.mu.Lock() ← BLOCKED
+
+                 DEADLOCK!
+```
+
+**Correct Approach**:
+```go
+// ✅ GOOD: Consistent lock ordering (clock.mu always before timer.mu)
+func (t *mockTimer) Reset(d time.Duration) bool {
+    // Acquire clock.mu first (consistent with Advance)
+    t.clock.mu.Lock()
+    defer t.clock.mu.Unlock()
+
+    t.mu.Lock()
+    defer t.mu.Unlock()
+
+    wasActive := !t.stopped
+    t.stopped = false
+    t.deadline = t.clock.current.Add(d)
+
+    if !wasActive {
+        t.clock.timers = append(t.clock.timers, t)
+    }
+    return wasActive
+}
+```
+
+**How to Identify Lock Ordering Issues**:
+1. Document which locks each method acquires
+2. Draw an "acquisition order" diagram for each method
+3. Check that all methods follow the same order
+4. Look for methods that acquire locks on "child" objects (like timers owned by a clock)
+
+**Choosing a Lock Order**:
+- **Hierarchical**: Parent before child (e.g., `clock.mu` before `timer.mu`)
+- **Alphabetical**: When no hierarchy exists, use alphabetical as a tiebreaker
+- **Document it**: Add comments like `// Lock ordering: clock.mu before timer.mu`
+
+**Where to Apply**:
+- Any struct that owns objects with their own mutexes
+- Bi-directional references between objects (parent ↔ child)
+- Nested data structures with concurrent access
+- Test mocks that mirror production lock patterns
 
 **Best Practices**:
 1. **Document lock ordering** in struct comments or package docs
@@ -645,6 +701,14 @@ func updateProfileSettings() {
 import "github.com/sasha-s/go-deadlock"
 var mu deadlock.Mutex  // Reports when lock ordering is violated
 ```
+
+**Test That Validates This**:
+- `TestMockClock_ConcurrentResetAndAdvance` - Concurrent Reset/Advance operations with timeout-based deadlock detection
+
+**Risk Assessment**:
+- **Severity**: Medium (affected test code, not production)
+- **Impact**: Test flakiness or hangs with concurrent timer operations
+- **Detection**: Race detector may not catch this; requires concurrent stress tests
 
 ---
 
@@ -861,39 +925,68 @@ Go's runtime only detects deadlocks when **all** goroutines are blocked. If even
 10. **Check ctx.Done() in retry loops** - Use `select{}` with timers instead of `time.Sleep()` for graceful shutdown
 11. **Buffer channels in timeout patterns** - Prevents goroutine leaks when receivers time out
 12. **Maintain consistent lock ordering** - Prevents deadlocks when multiple locks are needed
+13. **Use errgroup for structured concurrency** - Provides bounded parallelism, error propagation, and cleaner code than manual WaitGroup
 
 ---
 
-## Advanced Patterns (Consider for Future Use)
+## Lesson 12: Use errgroup for Structured Concurrency with Bounded Parallelism
 
-### errgroup for Structured Concurrency
+**Pattern**: Use `golang.org/x/sync/errgroup` for coordinating groups of goroutines that should complete together.
 
-The `golang.org/x/sync/errgroup` package provides a cleaner pattern for managing groups of goroutines with error handling and context cancellation:
+**Why**: errgroup provides several advantages over manual `sync.WaitGroup` management:
+- **Automatic error propagation** - First error is captured and returned by `Wait()`
+- **Bounded concurrency** - `SetLimit(n)` controls parallelism (useful for network operations)
+- **Cleaner code** - No manual `Add(1)` / `Done()` bookkeeping
+- **Context integration** - `errgroup.WithContext()` cancels remaining goroutines on first error
 
+**Implementation**:
 ```go
 import "golang.org/x/sync/errgroup"
 
-func fetchAllData(ctx context.Context) error {
-    g, ctx := errgroup.WithContext(ctx)
+func (m *Manager) buildSpeakerGroupAsync(participants []ParticipantWithVolume, leadEntityID string) {
+    // Use errgroup for structured concurrency with bounded parallelism
+    g := new(errgroup.Group)
+    g.SetLimit(3) // Limit concurrent speaker joins to reduce IGMP congestion
 
-    g.Go(func() error {
-        return fetchUsers(ctx)  // Cancelled if any other task fails
-    })
-    g.Go(func() error {
-        return fetchOrders(ctx)
-    })
+    for i := 1; i < len(participants); i++ {
+        p := participants[i]
+        staggerDelay := time.Duration(i-1) * asyncJoinStaggerDelay
 
-    return g.Wait()  // Returns first error, cancels others
+        g.Go(func() error {
+            if staggerDelay > 0 {
+                time.Sleep(staggerDelay)
+            }
+            return m.joinSpeakerWithRetry(p, leadEntityID)
+        })
+    }
+
+    // Wait for all goroutines to complete
+    if err := g.Wait(); err != nil {
+        m.logger.Debug("Some speakers failed to join", zap.Error(err))
+    }
 }
 ```
 
-**Benefits over manual goroutine management**:
-- Automatic context cancellation when any goroutine fails
-- Built-in WaitGroup semantics
-- `SetLimit(n)` for bounded concurrency
-- Cleaner error propagation
+**When to Use errgroup vs WaitGroup**:
 
-**When to use**: Coordinating multiple independent operations that should fail together.
+| Scenario | Use |
+|----------|-----|
+| Batch of operations that should complete together | `errgroup` |
+| Need bounded parallelism (rate limiting) | `errgroup.SetLimit(n)` |
+| Long-running goroutines signaling startup completion | `sync.WaitGroup` |
+| Simple synchronization with no error handling | `sync.WaitGroup` |
+| Cancel remaining work on first error | `errgroup.WithContext()` |
+
+**Where Applied**:
+- `internal/plugins/music/fadein.go` - Async speaker group building with concurrency limit
+
+**Where WaitGroup is Still Appropriate**:
+- `internal/plugins/energy/manager.go` - Startup synchronization for long-running goroutines that signal initial work completion but continue running
+- `internal/plugins/music/manager.go` - Test synchronization for rotation syncs
+
+**References**:
+- [errgroup package documentation](https://pkg.go.dev/golang.org/x/sync/errgroup)
+- Issue #553 - errgroup adoption
 
 ---
 
@@ -927,18 +1020,25 @@ func fetchAllData(ctx context.Context) error {
   - Fixed `CallService` and `CallServiceWithTarget` retry loops to respect context cancellation (Issue #554, PR #557)
   - Pattern: Use `select{}` with `time.NewTimer()` instead of `time.Sleep()` for cancellation support
   - Enables graceful shutdown without waiting for full retry budget to exhaust (~45 seconds)
+- **Added Lesson 12**: Use errgroup for Structured Concurrency with Bounded Parallelism
+  - Adopted `golang.org/x/sync/errgroup` for managing groups of goroutines (Issue #553)
+  - Provides bounded parallelism via `SetLimit(n)`, error propagation, and cleaner code
+  - Applied to `internal/plugins/music/fadein.go` for async speaker group building
+  - Documented when to prefer errgroup vs WaitGroup
 - **Added Lesson 10**: Use Buffered Channels to Prevent Goroutine Leaks
   - Documents pattern for using buffered channels in timeout scenarios
   - Prevents goroutine leaks when receivers time out or cancel
-- **Added Lesson 11**: Maintain Consistent Lock Ordering to Prevent Deadlocks
-  - Documents common deadlock cause and prevention strategies
+- **Enhanced Lesson 11**: Maintain Consistent Lock Ordering to Prevent Deadlocks
+  - Added real-world example: lock ordering violation in `MockClock` (Issue #552)
+  - Documents how `mockTimer.Reset()` and `MockClock.Advance()` caused deadlock
+  - Pattern: Always acquire parent locks (clock.mu) before child locks (timer.mu)
+  - Added comprehensive tests for MockClock timer operations
   - References go-deadlock library for detection
 - **Added new Common Pitfalls**:
   - Using defer in loops (defers stack up)
   - Copying mutexes and sync primitives
   - Reading/writing shared variables without synchronization
 - **Added Debugging Deadlocks section**: Tools and techniques (pprof, SIGQUIT, go-deadlock)
-- **Added Advanced Patterns section**: errgroup for structured concurrency
 - **Added External Resources section**: Links to authoritative Go concurrency resources
 - **Removed arbitrary performance numbers** from Lesson 3 (were misleading without benchmarks)
 

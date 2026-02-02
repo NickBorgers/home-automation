@@ -515,3 +515,118 @@ func TestScenario_BothPlugins_ConcurrentOperation(t *testing.T) {
 
 	t.Log("✓ Both plugins operating correctly and concurrently")
 }
+
+// ============================================================================
+// Test: Node Status Monitoring
+// ============================================================================
+
+func TestScenario_SensorHealth_NodeStatusMonitoring(t *testing.T) {
+	env, cleanup := setupSensorMonitoringTest(t)
+	defer cleanup()
+
+	t.Log("========== TEST: Node Status Monitoring ==========")
+	t.Log("Verifies Z-Wave node status monitoring:")
+	t.Log("  - Discovery of node_status sensors")
+	t.Log("  - Dead device detection and notification")
+	t.Log("  - Device recovery detection and notification")
+	t.Log("  - Shadow state tracking of node statuses")
+
+	// ========== SETUP: Add Z-Wave node status sensor ==========
+	env.server.SetState("sensor.front_door_lock_node_status", "alive", map[string]interface{}{
+		"friendly_name": "Front Door Lock Node Status",
+	})
+	time.Sleep(50 * time.Millisecond)
+
+	// Start sensorhealth plugin
+	err := env.sensorHealth.Start()
+	require.NoError(t, err)
+	defer env.sensorHealth.Stop()
+
+	// Give time for discovery
+	time.Sleep(100 * time.Millisecond)
+
+	// Verify sensor was discovered
+	shadowState := env.sensorHealth.GetShadowState()
+	assert.GreaterOrEqual(t, len(shadowState.Outputs.NodeStatuses), 1,
+		"Should discover node status sensor")
+
+	t.Log("✓ Node status sensor discovered")
+
+	// ========== TEST: Dead Device Detection ==========
+	env.mockNtfy.Reset()
+
+	// Simulate device going dead
+	env.server.SetState("sensor.front_door_lock_node_status", "dead", map[string]interface{}{
+		"friendly_name": "Front Door Lock Node Status",
+	})
+	time.Sleep(150 * time.Millisecond)
+
+	// Verify notification sent
+	calls := env.mockNtfy.GetCalls()
+	assert.GreaterOrEqual(t, len(calls), 1, "Should send notification for dead device")
+
+	if len(calls) > 0 {
+		assert.Contains(t, calls[0].Body, "dead", "Notification should mention dead status")
+		assert.Equal(t, ntfy.PriorityHigh, calls[0].Priority, "Dead device should be high priority")
+	}
+
+	// Verify shadow state shows dead device alert
+	shadowState = env.sensorHealth.GetShadowState()
+	assert.GreaterOrEqual(t, len(shadowState.Outputs.DeadDeviceAlerts), 1,
+		"Should have dead device alert in shadow state")
+
+	if len(shadowState.Outputs.DeadDeviceAlerts) > 0 {
+		alert := shadowState.Outputs.DeadDeviceAlerts[0]
+		assert.Equal(t, "sensor.front_door_lock_node_status", alert.EntityID)
+	}
+
+	// Verify node status shows dead in shadow state
+	foundDead := false
+	for _, ns := range shadowState.Outputs.NodeStatuses {
+		if ns.EntityID == "sensor.front_door_lock_node_status" {
+			assert.Equal(t, "dead", ns.Status, "Node status should be dead")
+			foundDead = true
+			break
+		}
+	}
+	assert.True(t, foundDead, "Should find dead node status in shadow state")
+
+	t.Log("✓ Dead device detected and notification sent")
+
+	// ========== TEST: Device Recovery ==========
+	env.mockNtfy.Reset()
+
+	// Simulate device recovery
+	env.server.SetState("sensor.front_door_lock_node_status", "alive", map[string]interface{}{
+		"friendly_name": "Front Door Lock Node Status",
+	})
+	time.Sleep(150 * time.Millisecond)
+
+	// Verify recovery notification sent
+	calls = env.mockNtfy.GetCalls()
+	assert.GreaterOrEqual(t, len(calls), 1, "Should send notification for device recovery")
+
+	if len(calls) > 0 {
+		assert.Contains(t, calls[0].Body, "back online", "Notification should mention device is back online")
+		assert.Equal(t, ntfy.PriorityDefault, calls[0].Priority, "Recovery should be default priority")
+	}
+
+	// Verify shadow state no longer shows dead device alert
+	shadowState = env.sensorHealth.GetShadowState()
+	assert.Equal(t, 0, len(shadowState.Outputs.DeadDeviceAlerts),
+		"Should have no dead device alerts after recovery")
+
+	// Verify node status shows alive in shadow state
+	found := false
+	for _, ns := range shadowState.Outputs.NodeStatuses {
+		if ns.EntityID == "sensor.front_door_lock_node_status" {
+			assert.Equal(t, "alive", ns.Status, "Node status should be alive")
+			found = true
+			break
+		}
+	}
+	assert.True(t, found, "Should find node status in shadow state")
+
+	t.Log("✓ Device recovery detected and notification sent")
+	t.Log("✓ Node status monitoring complete")
+}

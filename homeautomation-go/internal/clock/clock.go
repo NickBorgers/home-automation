@@ -318,21 +318,26 @@ func (t *mockTimer) Stop() bool {
 	return wasActive
 }
 
-// Reset changes the timer to expire after duration d from now
+// Reset changes the timer to expire after duration d from now.
+// Lock ordering: clock.mu must be acquired before timer.mu to prevent deadlocks
+// with Advance(), which iterates over timers while holding clock.mu.
+// See CONCURRENCY_LESSONS.md Lesson 10 for details.
 func (t *mockTimer) Reset(d time.Duration) bool {
+	// Acquire clock.mu first (consistent with Advance lock ordering)
+	t.clock.mu.Lock()
+	defer t.clock.mu.Unlock()
+
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
 	wasActive := !t.stopped
 	t.stopped = false
-
-	t.clock.mu.Lock()
 	t.deadline = t.clock.current.Add(d)
+
 	// Re-add to timers list if it was stopped
 	if !wasActive {
 		t.clock.timers = append(t.clock.timers, t)
 	}
-	t.clock.mu.Unlock()
 
 	return wasActive
 }

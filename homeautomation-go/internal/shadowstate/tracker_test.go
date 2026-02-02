@@ -2584,22 +2584,6 @@ func TestSensorHealthTrackerUpdateLowBatteryAlerts(t *testing.T) {
 	}
 }
 
-func TestSensorHealthTrackerUpdateStaleSensorAlerts(t *testing.T) {
-	t.Parallel()
-	st := NewSensorHealthTracker()
-
-	alerts := []StaleSensorAlert{
-		{EntityID: "sensor.stale_1", FriendlyName: "Stale Sensor", LastReported: time.Now().Add(-48 * time.Hour)},
-	}
-
-	st.UpdateStaleSensorAlerts(alerts)
-
-	state := st.GetState()
-	if len(state.Outputs.StaleSensorAlerts) != 1 {
-		t.Errorf("Expected 1 stale sensor alert, got %d", len(state.Outputs.StaleSensorAlerts))
-	}
-}
-
 func TestSensorHealthTrackerRecordNotification(t *testing.T) {
 	t.Parallel()
 	st := NewSensorHealthTracker()
@@ -3312,5 +3296,100 @@ func TestEnergyTrackerUpdateBaselineLux(t *testing.T) {
 	}
 	if calibration.LastCalibrationTime.IsZero() {
 		t.Error("Expected LastCalibrationTime to be set")
+	}
+}
+
+// ============================================================================
+// Node Status Tracker Tests
+// ============================================================================
+
+func TestSensorHealthTrackerUpdateNodeStatuses(t *testing.T) {
+	t.Parallel()
+	st := NewSensorHealthTracker()
+
+	statuses := []NodeStatusData{
+		{EntityID: "sensor.device_1_node_status", DeviceName: "Front Door Lock", Status: "alive"},
+		{EntityID: "sensor.device_2_node_status", DeviceName: "Motion Sensor", Status: "asleep"},
+	}
+
+	st.UpdateNodeStatuses(statuses)
+
+	state := st.GetState()
+	if len(state.Outputs.NodeStatuses) != 2 {
+		t.Errorf("Expected 2 node statuses, got %d", len(state.Outputs.NodeStatuses))
+	}
+}
+
+func TestSensorHealthTrackerUpdateDeadDeviceAlerts(t *testing.T) {
+	t.Parallel()
+	st := NewSensorHealthTracker()
+
+	alerts := []DeadDeviceAlert{
+		{EntityID: "sensor.device_1_node_status", DeviceName: "Front Door Lock", DetectedAt: time.Now()},
+	}
+
+	st.UpdateDeadDeviceAlerts(alerts)
+
+	state := st.GetState()
+	if len(state.Outputs.DeadDeviceAlerts) != 1 {
+		t.Errorf("Expected 1 dead device alert, got %d", len(state.Outputs.DeadDeviceAlerts))
+	}
+}
+
+func TestSensorHealthTrackerRecordDeadDeviceNotification(t *testing.T) {
+	t.Parallel()
+	st := NewSensorHealthTracker()
+
+	st.RecordDeadDeviceNotification("sensor.device_1_node_status", "Front Door Lock", "Device is not responding")
+
+	state := st.GetState()
+	if state.Outputs.LastDeadDeviceNotification == nil {
+		t.Fatal("Expected LastDeadDeviceNotification to be set")
+	}
+	if state.Outputs.LastDeadDeviceNotification.EntityID != "sensor.device_1_node_status" {
+		t.Errorf("Expected EntityID 'sensor.device_1_node_status', got %s", state.Outputs.LastDeadDeviceNotification.EntityID)
+	}
+	if state.Outputs.LastDeadDeviceNotification.DeviceName != "Front Door Lock" {
+		t.Errorf("Expected DeviceName 'Front Door Lock', got %s", state.Outputs.LastDeadDeviceNotification.DeviceName)
+	}
+}
+
+func TestSensorHealthTrackerRecordDeviceRecoveryNotification(t *testing.T) {
+	t.Parallel()
+	st := NewSensorHealthTracker()
+
+	st.RecordDeviceRecoveryNotification("sensor.device_1_node_status", "Front Door Lock", "Device is back online")
+
+	state := st.GetState()
+	if state.Outputs.LastDeviceRecoveryNotification == nil {
+		t.Fatal("Expected LastDeviceRecoveryNotification to be set")
+	}
+	if state.Outputs.LastDeviceRecoveryNotification.EntityID != "sensor.device_1_node_status" {
+		t.Errorf("Expected EntityID 'sensor.device_1_node_status', got %s", state.Outputs.LastDeviceRecoveryNotification.EntityID)
+	}
+	if state.Outputs.LastDeviceRecoveryNotification.DeviceName != "Front Door Lock" {
+		t.Errorf("Expected DeviceName 'Front Door Lock', got %s", state.Outputs.LastDeviceRecoveryNotification.DeviceName)
+	}
+}
+
+func TestSensorHealthTrackerGetStateDeepCopiesNodeStatuses(t *testing.T) {
+	t.Parallel()
+	st := NewSensorHealthTracker()
+
+	statuses := []NodeStatusData{
+		{EntityID: "sensor.device_1_node_status", DeviceName: "Front Door Lock", Status: "alive"},
+	}
+	st.UpdateNodeStatuses(statuses)
+
+	state1 := st.GetState()
+	state2 := st.GetState()
+
+	// Modifying state1 should not affect state2
+	if len(state1.Outputs.NodeStatuses) > 0 {
+		state1.Outputs.NodeStatuses[0].Status = "modified"
+	}
+
+	if state2.Outputs.NodeStatuses[0].Status == "modified" {
+		t.Error("Expected GetState to return a deep copy")
 	}
 }

@@ -629,7 +629,7 @@ homeautomation-go/
 │       ├── tv/                      # ✅ TV Monitoring plugin
 │       ├── environmental/           # ✅ Environmental plugin (humidity, water leak)
 │       ├── security/                # ✅ Security plugin
-│       ├── sensorhealth/            # ✅ Sensor Health plugin (battery, staleness, temp lockup)
+│       ├── sensorhealth/            # ✅ Sensor Health plugin (battery, node status, temp lockup)
 │       ├── infrastructure/          # ✅ Infrastructure plugin (septic system monitoring)
 │       ├── waterflow/               # ✅ Water Flow plugin (pipe break detection)
 │       ├── loadshedding/            # ✅ Load Shedding plugin
@@ -669,7 +669,7 @@ homeautomation-go/
 - ✅ TV Monitoring plugin
 - ✅ Environmental plugin (humidity, water leak)
 - ✅ Security plugin
-- ✅ Sensor Health plugin (battery, staleness, temp lockup)
+- ✅ Sensor Health plugin (battery, node status, temp lockup)
 - ✅ Infrastructure plugin (aerobic septic system monitoring)
 - ✅ Water Flow plugin (pipe break detection)
 - ✅ Load Shedding plugin
