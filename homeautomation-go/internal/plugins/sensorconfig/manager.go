@@ -1,6 +1,7 @@
 package sensorconfig
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"time"
@@ -13,6 +14,7 @@ import (
 
 // Manager handles one-time configuration of Zigbee sensor thresholds at startup
 type Manager struct {
+	ctx           context.Context
 	haClient      ha.HAClient
 	config        *Config
 	logger        *zap.Logger
@@ -25,8 +27,9 @@ type Manager struct {
 }
 
 // NewManager creates a new Sensor Config manager
-func NewManager(haClient ha.HAClient, config *Config, logger *zap.Logger, readOnly bool) *Manager {
+func NewManager(ctx context.Context, haClient ha.HAClient, config *Config, logger *zap.Logger, readOnly bool) *Manager {
 	return &Manager{
+		ctx:           ctx,
 		haClient:      haClient,
 		config:        config,
 		logger:        logger.Named("sensorconfig"),
@@ -134,7 +137,7 @@ func (m *Manager) configureThresholds(configType string, entities []string, valu
 		}
 
 		// Call number.set_value service
-		err = m.haClient.CallService("number", "set_value", map[string]interface{}{
+		err = m.haClient.CallService(m.ctx, "number", "set_value", map[string]interface{}{
 			"entity_id": entityID,
 			"value":     value,
 		})

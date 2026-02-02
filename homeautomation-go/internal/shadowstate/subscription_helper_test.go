@@ -1,6 +1,7 @@
 package shadowstate
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -44,10 +45,10 @@ func (m *mockHAClient) Disconnect() error                  { return nil }
 func (m *mockHAClient) IsConnected() bool                  { return true }
 func (m *mockHAClient) IsHealthy() bool                    { return true }
 func (m *mockHAClient) GetAllStates() ([]*ha.State, error) { return nil, nil }
-func (m *mockHAClient) CallService(domain, service string, data map[string]interface{}) error {
+func (m *mockHAClient) CallService(ctx context.Context, domain, service string, data map[string]interface{}) error {
 	return nil
 }
-func (m *mockHAClient) CallServiceWithTarget(domain, service string, target *ha.ServiceTarget, data map[string]interface{}) error {
+func (m *mockHAClient) CallServiceWithTarget(ctx context.Context, domain, service string, target *ha.ServiceTarget, data map[string]interface{}) error {
 	return nil
 }
 func (m *mockHAClient) SetInputBoolean(name string, value bool) error   { return nil }

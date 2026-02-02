@@ -1,6 +1,7 @@
 package integration
 
 import (
+	"context"
 	"os"
 	"testing"
 	"time"
@@ -52,10 +53,10 @@ func setupMultiPluginTest(t *testing.T) (*pluginTestEnv, func()) {
 		client:        client,
 		manager:       manager,
 		logger:        logger,
-		stateTracking: statetracking.NewManager(client, manager, logger, false, nil),
-		lighting:      lighting.NewManager(client, manager, lightingConfig, logger, false, nil),
-		tv:            tv.NewManager(client, manager, logger, false, nil),
-		energy:        energy.NewManager(client, manager, energyConfig, logger, false, nil, nil),
+		stateTracking: statetracking.NewManager(context.Background(), client, manager, logger, false, nil),
+		lighting:      lighting.NewManager(context.Background(), client, manager, lightingConfig, logger, false, nil),
+		tv:            tv.NewManager(context.Background(), client, manager, logger, false, nil),
+		energy:        energy.NewManager(context.Background(), client, manager, energyConfig, logger, false, nil, nil),
 	}
 
 	// Start all plugins (state tracking MUST start first as other plugins depend on derived states)

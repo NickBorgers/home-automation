@@ -7,6 +7,7 @@
 package ha
 
 import (
+	"context"
 	"time"
 )
 
@@ -42,8 +43,8 @@ type Client interface {
 	IsConnected() bool
 	GetState(entityID string) (*State, error)
 	GetAllStates() ([]*State, error)
-	CallService(domain, service string, data map[string]interface{}) error
-	CallServiceWithTarget(domain, service string, target *ServiceTarget, data map[string]interface{}) error
+	CallService(ctx context.Context, domain, service string, data map[string]interface{}) error
+	CallServiceWithTarget(ctx context.Context, domain, service string, target *ServiceTarget, data map[string]interface{}) error
 	SubscribeStateChanges(entityID string, handler StateChangeHandler) (Subscription, error)
 	SetInputBoolean(name string, value bool) error
 	SetInputNumber(name string, value float64) error

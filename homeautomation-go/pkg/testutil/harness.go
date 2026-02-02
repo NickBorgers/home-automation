@@ -3,6 +3,7 @@
 package testutil
 
 import (
+	"context"
 	"fmt"
 
 	"homeautomation/internal/ha"
@@ -81,7 +82,7 @@ func NewTestEnv(addr, token string) (*TestEnv, error) {
 // dependency for other plugins that need computed state variables like
 // isAnyoneHome, isEveryoneAsleep, etc.
 func (e *TestEnv) StartStateTracking() error {
-	e.stateTracking = statetracking.NewManager(e.internalClient, e.internalStateManager, e.Logger, false, nil)
+	e.stateTracking = statetracking.NewManager(context.Background(), e.internalClient, e.internalStateManager, e.Logger, false, nil)
 	return e.stateTracking.Start()
 }
 

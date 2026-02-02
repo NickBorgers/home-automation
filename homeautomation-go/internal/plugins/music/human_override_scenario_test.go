@@ -73,7 +73,7 @@ func TestScenario_HumanOverrideDetection_LowVolumeTarget(t *testing.T) {
 
 	fixedTime := time.Date(2026, 1, 12, 17, 0, 0, 0, time.UTC)
 	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
-	manager := NewManager(mockHA, stateManager, config, logger, false, timeProvider, nil)
+	manager := NewManager(context.Background(), mockHA, stateManager, config, logger, false, timeProvider, nil)
 
 	var volumeStep int
 
@@ -132,7 +132,7 @@ func TestScenario_HumanOverrideDetection_SmallDifferenceIgnored(t *testing.T) {
 
 	fixedTime := time.Date(2026, 1, 12, 17, 0, 0, 0, time.UTC)
 	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
-	manager := NewManager(mockHA, stateManager, config, logger, false, timeProvider, nil)
+	manager := NewManager(context.Background(), mockHA, stateManager, config, logger, false, timeProvider, nil)
 
 	var volumeStep int
 
@@ -192,7 +192,7 @@ func TestScenario_HumanOverrideDetection_VolumeOneOrTwo(t *testing.T) {
 
 	fixedTime := time.Date(2026, 1, 12, 17, 0, 0, 0, time.UTC)
 	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
-	manager := NewManager(mockHA, stateManager, config, logger, false, timeProvider, nil)
+	manager := NewManager(context.Background(), mockHA, stateManager, config, logger, false, timeProvider, nil)
 
 	var volumeStep int
 
@@ -256,7 +256,7 @@ func TestScenario_HumanOverrideDetection_ThresholdBoundary(t *testing.T) {
 
 	fixedTime := time.Date(2026, 1, 12, 17, 0, 0, 0, time.UTC)
 	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
-	manager := NewManager(mockHA, stateManager, config, logger, false, timeProvider, nil)
+	manager := NewManager(context.Background(), mockHA, stateManager, config, logger, false, timeProvider, nil)
 
 	var volumeStep int
 
@@ -329,7 +329,7 @@ func TestScenario_HumanOverrideDetection_NoFalsePositiveAtThreshold(t *testing.T
 
 	fixedTime := time.Date(2026, 1, 12, 17, 0, 0, 0, time.UTC)
 	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
-	manager := NewManager(mockHA, stateManager, config, logger, false, timeProvider, nil)
+	manager := NewManager(context.Background(), mockHA, stateManager, config, logger, false, timeProvider, nil)
 
 	var volumeStep int
 

@@ -27,6 +27,7 @@ package music
 // =============================================================================
 
 import (
+	"context"
 	"sync"
 	"testing"
 	"time"
@@ -81,7 +82,7 @@ func TestPlaybackMonitor_DetectsUnexpectedPause(t *testing.T) {
 	advancingTime := &advancingTimeProvider{currentTime: fixedTime}
 
 	// Create manager without calling Start() to avoid triggering playback
-	manager := NewManager(mockClient, stateManager, config, logger, false, advancingTime, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, advancingTime, nil)
 
 	// Channel to track sleep calls for coordinating test with monitor goroutine
 	sleepDone := make(chan struct{}, 10)
@@ -170,7 +171,7 @@ func TestPlaybackMonitor_RecoverySucceeds(t *testing.T) {
 	advancingTime := &advancingTimeProvider{currentTime: fixedTime}
 
 	// Create manager without calling Start()
-	manager := NewManager(mockClient, stateManager, config, logger, false, advancingTime, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, advancingTime, nil)
 
 	// Channel to track sleep calls
 	sleepDone := make(chan struct{}, 10)
@@ -250,7 +251,7 @@ func TestPlaybackMonitor_RecoveryFails_StopsMonitoring(t *testing.T) {
 	advancingTime := &advancingTimeProvider{currentTime: fixedTime}
 
 	// Create manager without calling Start()
-	manager := NewManager(mockClient, stateManager, config, logger, false, advancingTime, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, advancingTime, nil)
 
 	// Channel to track sleep calls
 	sleepDone := make(chan struct{}, 10)
@@ -331,7 +332,7 @@ func TestPlaybackMonitor_CancelledOnNewPlayback(t *testing.T) {
 	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
 
 	// Create manager without calling Start()
-	manager := NewManager(mockClient, stateManager, config, logger, false, timeProvider, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, timeProvider, nil)
 
 	// Channel to signal when first monitor starts sleeping (so we know it's active)
 	firstMonitorStarted := make(chan struct{}, 1)
@@ -419,7 +420,7 @@ func TestPlaybackMonitor_ShadowStateUpdated(t *testing.T) {
 	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
 
 	// Create manager without calling Start()
-	manager := NewManager(mockClient, stateManager, config, logger, false, timeProvider, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, timeProvider, nil)
 
 	// Channel to signal when monitor starts sleeping (so we know shadow state is set)
 	sleepStarted := make(chan struct{}, 1)

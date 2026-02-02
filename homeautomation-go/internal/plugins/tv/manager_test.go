@@ -1,6 +1,7 @@
 package tv
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -54,7 +55,7 @@ func TestTVManager_AppleTVStateChange(t *testing.T) {
 			stateMgr := state.NewManager(mockHA, logger, false)
 
 			// Create TV manager
-			manager := NewManager(mockHA, stateMgr, logger, false, nil)
+			manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
 
 			// Simulate Apple TV state change
 			newState := &ha.State{
@@ -108,7 +109,7 @@ func TestTVManager_SyncBoxPowerChange(t *testing.T) {
 			stateMgr := state.NewManager(mockHA, logger, false)
 
 			// Create TV manager
-			manager := NewManager(mockHA, stateMgr, logger, false, nil)
+			manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
 
 			// Simulate sync box state change
 			newState := &ha.State{
@@ -140,7 +141,7 @@ func TestTVManager_SyncBoxOff_SetsTVPlayingFalse(t *testing.T) {
 	stateMgr := state.NewManager(mockHA, logger, false)
 
 	// Create TV manager
-	manager := NewManager(mockHA, stateMgr, logger, false, nil)
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
 
 	// Initially set isTVPlaying to true
 	if err := stateMgr.SetBool("isTVPlaying", true); err != nil {
@@ -221,7 +222,7 @@ func TestTVManager_HDMIInputChange(t *testing.T) {
 			stateMgr := state.NewManager(mockHA, logger, false)
 
 			// Create TV manager
-			manager := NewManager(mockHA, stateMgr, logger, false, nil)
+			manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
 
 			// Set isTVon to true (TV must be on for isTVPlaying calculations to work)
 			if err := stateMgr.SetBool("isTVon", true); err != nil {
@@ -286,7 +287,7 @@ func TestTVManager_HDMIInputChange_TVOff_AlwaysFalse(t *testing.T) {
 			logger := zap.NewNop()
 			stateMgr := state.NewManager(mockHA, logger, false)
 
-			manager := NewManager(mockHA, stateMgr, logger, false, nil)
+			manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
 
 			// Set isTVon to false (TV is off)
 			if err := stateMgr.SetBool("isTVon", false); err != nil {
@@ -365,7 +366,7 @@ func TestTVManager_AppleTVPlayingChange_RecalculatesTVPlaying(t *testing.T) {
 			stateMgr := state.NewManager(mockHA, logger, false)
 
 			// Create TV manager
-			manager := NewManager(mockHA, stateMgr, logger, false, nil)
+			manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
 
 			// Set isTVon to true (TV must be on for isTVPlaying calculations to work)
 			if err := stateMgr.SetBool("isTVon", true); err != nil {
@@ -420,7 +421,7 @@ func TestTVManager_Start_InitializesStates(t *testing.T) {
 	mockHA.SetState("select.sync_box_hdmi_input", "AppleTV", nil)
 
 	// Create TV manager
-	manager := NewManager(mockHA, stateMgr, logger, false, nil)
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
 
 	// Start the manager
 	if err := manager.Start(); err != nil {
@@ -469,7 +470,7 @@ func TestTVManager_Stop_CleansUpSubscriptions(t *testing.T) {
 	stateMgr := state.NewManager(mockHA, logger, false)
 
 	// Create TV manager
-	manager := NewManager(mockHA, stateMgr, logger, false, nil)
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
 
 	// Start the manager
 	if err := manager.Start(); err != nil {
@@ -514,7 +515,7 @@ func TestTVManager_ReadOnlyMode(t *testing.T) {
 	}
 
 	// Create TV manager in read-only mode
-	_ = NewManager(mockHA, stateMgr, logger, true, nil)
+	_ = NewManager(context.Background(), mockHA, stateMgr, logger, true, nil)
 
 	// Simulate HA state change (this should update local cache)
 	mockHA.SimulateStateChange("input_boolean.apple_tv_playing", "on")
@@ -546,7 +547,7 @@ func TestTVManager_SyncBoxUnavailable_TriggersRecovery(t *testing.T) {
 	stateMgr := state.NewManager(mockHA, logger, false)
 
 	// Create TV manager
-	manager := NewManager(mockHA, stateMgr, logger, false, nil)
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
 
 	// Set up initial states - physical power is on
 	mockHA.SetState(SyncBoxPhysicalPowerEntity, "on", nil)
@@ -618,7 +619,7 @@ func TestTVManager_SyncBoxRecoversOnItsOwn_NoRecovery(t *testing.T) {
 	stateMgr := state.NewManager(mockHA, logger, false)
 
 	// Create TV manager
-	manager := NewManager(mockHA, stateMgr, logger, false, nil)
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
 
 	// Physical power is on, but software power will recover after debounce
 	mockHA.SetState(SyncBoxPhysicalPowerEntity, "on", nil)
@@ -671,7 +672,7 @@ func TestTVManager_SyncBoxPhysicalPowerOff_NoRecovery(t *testing.T) {
 	stateMgr := state.NewManager(mockHA, logger, false)
 
 	// Create TV manager
-	manager := NewManager(mockHA, stateMgr, logger, false, nil)
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
 
 	// Physical power is OFF - no recovery should happen
 	mockHA.SetState(SyncBoxPhysicalPowerEntity, "off", nil)
@@ -714,7 +715,7 @@ func TestTVManager_SyncBoxRecoveryCooldown(t *testing.T) {
 	stateMgr := state.NewManager(mockHA, logger, false)
 
 	// Create TV manager
-	manager := NewManager(mockHA, stateMgr, logger, false, nil)
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
 
 	mockHA.SetState(SyncBoxPhysicalPowerEntity, "on", nil)
 	mockHA.SetState(SyncBoxSoftwarePowerEntity, "unavailable", nil)
@@ -764,7 +765,7 @@ func TestTVManager_SyncBoxMaxDailyReboots(t *testing.T) {
 	stateMgr := state.NewManager(mockHA, logger, false)
 
 	// Create TV manager
-	manager := NewManager(mockHA, stateMgr, logger, false, nil)
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
 
 	mockHA.SetState(SyncBoxPhysicalPowerEntity, "on", nil)
 	mockHA.SetState(SyncBoxSoftwarePowerEntity, "unavailable", nil)
@@ -814,7 +815,7 @@ func TestTVManager_SyncBoxRecoveryReadOnlyMode(t *testing.T) {
 	stateMgr := state.NewManager(mockHA, logger, true) // Read-only mode
 
 	// Create TV manager in read-only mode
-	manager := NewManager(mockHA, stateMgr, logger, true, nil)
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, true, nil)
 
 	mockHA.SetState(SyncBoxPhysicalPowerEntity, "on", nil)
 	mockHA.SetState(SyncBoxSoftwarePowerEntity, "unavailable", nil)
@@ -856,7 +857,7 @@ func TestTVManager_SyncBoxDailyCounterReset(t *testing.T) {
 	stateMgr := state.NewManager(mockHA, logger, false)
 
 	// Create TV manager
-	manager := NewManager(mockHA, stateMgr, logger, false, nil)
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
 
 	mockHA.SetState(SyncBoxPhysicalPowerEntity, "on", nil)
 	mockHA.SetState(SyncBoxSoftwarePowerEntity, "unavailable", nil)
@@ -913,7 +914,7 @@ func TestTVManager_SyncBoxRecoveryInProgress_SkipsDuplicate(t *testing.T) {
 	stateMgr := state.NewManager(mockHA, logger, false)
 
 	// Create TV manager
-	manager := NewManager(mockHA, stateMgr, logger, false, nil)
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
 
 	mockHA.SetState(SyncBoxPhysicalPowerEntity, "on", nil)
 	mockHA.SetState(SyncBoxSoftwarePowerEntity, "unavailable", nil)
@@ -988,7 +989,7 @@ func TestTVManager_Start_AddsPhysicalPowerSubscription(t *testing.T) {
 	stateMgr := state.NewManager(mockHA, logger, false)
 
 	// Create TV manager
-	manager := NewManager(mockHA, stateMgr, logger, false, nil)
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
 
 	// Start the manager
 	if err := manager.Start(); err != nil {
@@ -1017,7 +1018,7 @@ func TestTVManager_ShadowState_TracksRecovery(t *testing.T) {
 	stateMgr := state.NewManager(mockHA, logger, false)
 
 	// Create TV manager
-	manager := NewManager(mockHA, stateMgr, logger, false, nil)
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
 
 	// Check initial shadow state
 	shadowState := manager.GetShadowState()
@@ -1065,7 +1066,7 @@ func TestTVManager_LightSyncDebounce_TurnOnImmediate(t *testing.T) {
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 
-	manager := NewManager(mockHA, stateMgr, logger, false, nil)
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
 
 	// Call controlSyncBoxLightSync with isTVPlaying=true
 	manager.controlSyncBoxLightSync(true)
@@ -1099,7 +1100,7 @@ func TestTVManager_LightSyncDebounce_TurnOffDelayed(t *testing.T) {
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 
-	manager := NewManager(mockHA, stateMgr, logger, false, nil)
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
 	// Use a short debounce for testing
 	manager.lightSyncOffDebounce = 50 * time.Millisecond
 
@@ -1158,7 +1159,7 @@ func TestTVManager_LightSyncDebounce_CancelledByTurnOn(t *testing.T) {
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 
-	manager := NewManager(mockHA, stateMgr, logger, false, nil)
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
 	// Use a longer debounce to give us time to cancel
 	manager.lightSyncOffDebounce = 200 * time.Millisecond
 
@@ -1210,7 +1211,7 @@ func TestTVManager_LightSyncDebounce_MultipleOffRequests(t *testing.T) {
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 
-	manager := NewManager(mockHA, stateMgr, logger, false, nil)
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
 	// Use a short debounce for testing
 	manager.lightSyncOffDebounce = 50 * time.Millisecond
 
@@ -1248,7 +1249,7 @@ func TestTVManager_LightSyncDebounce_ReadOnlyMode(t *testing.T) {
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, true) // read-only state manager
 
-	manager := NewManager(mockHA, stateMgr, logger, true, nil) // read-only manager
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, true, nil) // read-only manager
 	manager.lightSyncOffDebounce = 10 * time.Millisecond
 
 	// Request turn-on in read-only mode
@@ -1281,7 +1282,7 @@ func TestTVManager_LightSyncDebounce_RapidFlapping(t *testing.T) {
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 
-	manager := NewManager(mockHA, stateMgr, logger, false, nil)
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
 	manager.lightSyncOffDebounce = 100 * time.Millisecond
 
 	// Simulate rapid flapping: playing -> paused -> playing -> paused -> playing

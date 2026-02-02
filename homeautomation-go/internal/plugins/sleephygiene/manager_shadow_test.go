@@ -1,6 +1,7 @@
 package sleephygiene
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -28,7 +29,7 @@ func TestSleepHygieneShadowState_CaptureInputs(t *testing.T) {
 	stateManager.SetBool("isCarolineHome", true)
 
 	mockConfig := &config.Loader{}
-	manager := NewManager(mockClient, stateManager, mockConfig, zap.NewNop(), true, nil, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, mockConfig, zap.NewNop(), true, nil, nil)
 
 	// Capture inputs
 	inputs := manager.captureCurrentInputs()
@@ -52,7 +53,7 @@ func TestSleepHygieneShadowState_RecordAction(t *testing.T) {
 	stateManager := state.NewManager(mockClient, zap.NewNop(), false)
 	mockConfig := &config.Loader{}
 
-	manager := NewManager(mockClient, stateManager, mockConfig, zap.NewNop(), true, nil, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, mockConfig, zap.NewNop(), true, nil, nil)
 
 	// Set some state
 	stateManager.SetBool("isMasterAsleep", true)
@@ -85,7 +86,7 @@ func TestSleepHygieneShadowState_WakeSequenceStatus(t *testing.T) {
 	stateManager := state.NewManager(mockClient, zap.NewNop(), false)
 	mockConfig := &config.Loader{}
 
-	manager := NewManager(mockClient, stateManager, mockConfig, zap.NewNop(), true, nil, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, mockConfig, zap.NewNop(), true, nil, nil)
 
 	// Initial state should be inactive
 	shadowState := manager.GetShadowState()
@@ -122,7 +123,7 @@ func TestSleepHygieneShadowState_FadeOutProgress(t *testing.T) {
 	stateManager := state.NewManager(mockClient, zap.NewNop(), false)
 	mockConfig := &config.Loader{}
 
-	manager := NewManager(mockClient, stateManager, mockConfig, zap.NewNop(), true, nil, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, mockConfig, zap.NewNop(), true, nil, nil)
 
 	// Record fade out start
 	manager.shadowTracker.RecordFadeOutStart("media_player.bedroom", 60)
@@ -187,7 +188,7 @@ func TestSleepHygieneShadowState_TTSAnnouncement(t *testing.T) {
 	stateManager := state.NewManager(mockClient, zap.NewNop(), false)
 	mockConfig := &config.Loader{}
 
-	manager := NewManager(mockClient, stateManager, mockConfig, zap.NewNop(), true, nil, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, mockConfig, zap.NewNop(), true, nil, nil)
 
 	// Initially no announcement
 	shadowState := manager.GetShadowState()
@@ -222,7 +223,7 @@ func TestSleepHygieneShadowState_Reminders(t *testing.T) {
 	stateManager := state.NewManager(mockClient, zap.NewNop(), false)
 	mockConfig := &config.Loader{}
 
-	manager := NewManager(mockClient, stateManager, mockConfig, zap.NewNop(), true, nil, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, mockConfig, zap.NewNop(), true, nil, nil)
 
 	// Initially no reminders
 	shadowState := manager.GetShadowState()
@@ -269,7 +270,7 @@ func TestSleepHygieneShadowState_GetShadowState(t *testing.T) {
 	stateManager := state.NewManager(mockClient, zap.NewNop(), false)
 	mockConfig := &config.Loader{}
 
-	manager := NewManager(mockClient, stateManager, mockConfig, zap.NewNop(), true, nil, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, mockConfig, zap.NewNop(), true, nil, nil)
 
 	// Set some state
 	stateManager.SetBool("isMasterAsleep", true)
@@ -313,7 +314,7 @@ func TestSleepHygieneShadowState_ConcurrentAccess(t *testing.T) {
 	stateManager := state.NewManager(mockClient, zap.NewNop(), false)
 	mockConfig := &config.Loader{}
 
-	manager := NewManager(mockClient, stateManager, mockConfig, zap.NewNop(), true, nil, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, mockConfig, zap.NewNop(), true, nil, nil)
 
 	// Run concurrent operations
 	done := make(chan bool)
@@ -388,7 +389,7 @@ func TestSleepHygieneShadowState_CancelWake(t *testing.T) {
 	stateManager := state.NewManager(mockClient, zap.NewNop(), false)
 	mockConfig := &config.Loader{}
 
-	manager := NewManager(mockClient, stateManager, mockConfig, zap.NewNop(), true, nil, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, mockConfig, zap.NewNop(), true, nil, nil)
 
 	// Set up wake sequence state
 	stateManager.SetString("musicPlaybackType", "wakeup")
@@ -423,7 +424,7 @@ func TestSleepHygieneShadowState_BedroomLightsChange(t *testing.T) {
 	stateManager := state.NewManager(mockClient, zap.NewNop(), false)
 	mockConfig := &config.Loader{}
 
-	manager := NewManager(mockClient, stateManager, mockConfig, zap.NewNop(), true, nil, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, mockConfig, zap.NewNop(), true, nil, nil)
 
 	// Set up wake sequence state
 	stateManager.SetString("musicPlaybackType", "wakeup")
@@ -452,7 +453,7 @@ func TestSleepHygieneShadowState_BedroomLightsNoCancel(t *testing.T) {
 	stateManager := state.NewManager(mockClient, zap.NewNop(), false)
 	mockConfig := &config.Loader{}
 
-	manager := NewManager(mockClient, stateManager, mockConfig, zap.NewNop(), true, nil, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, mockConfig, zap.NewNop(), true, nil, nil)
 
 	// Set up non-wakeup music
 	stateManager.SetString("musicPlaybackType", "sleep")
@@ -522,7 +523,7 @@ func TestSleepHygieneShadowState_HandleGoToBed(t *testing.T) {
 			stateManager := state.NewManager(mockClient, zap.NewNop(), false)
 			mockConfig := &config.Loader{}
 
-			manager := NewManager(mockClient, stateManager, mockConfig, zap.NewNop(), true, nil, nil)
+			manager := NewManager(context.Background(), mockClient, stateManager, mockConfig, zap.NewNop(), true, nil, nil)
 
 			// Set up state
 			tc.setupStateManager(stateManager)

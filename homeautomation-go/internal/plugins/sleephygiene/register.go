@@ -41,7 +41,7 @@ func createPlugin(ctx *plugin.Context) (plugin.Plugin, error) {
 	}
 
 	// Pass the TimeProvider directly (NewManager handles nil by defaulting to RealTimeProvider)
-	manager := NewManager(haClient, stateManager, configLoader, ctx.Logger, ctx.ReadOnly, ctx.TimeProvider, ctx.Timezone)
+	manager := NewManager(ctx.ShutdownCtx, haClient, stateManager, configLoader, ctx.Logger, ctx.ReadOnly, ctx.TimeProvider, ctx.Timezone)
 	return &pluginAdapter{manager: manager}, nil
 }
 

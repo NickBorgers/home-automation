@@ -26,7 +26,7 @@ func createPlugin(ctx *plugin.Context) (plugin.Plugin, error) {
 		return nil, fmt.Errorf("christmas plugin requires internal ha.HAClient")
 	}
 
-	manager := NewManager(haClient, ctx.Logger, ctx.ReadOnly, ctx.Registry)
+	manager := NewManager(ctx.ShutdownCtx, haClient, ctx.Logger, ctx.ReadOnly, ctx.Registry)
 	return &pluginAdapter{manager: manager}, nil
 }
 

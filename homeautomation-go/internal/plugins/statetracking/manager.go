@@ -1,6 +1,7 @@
 package statetracking
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sync"
@@ -40,6 +41,7 @@ const (
 //   - Automatic master wake detection when bedroom door open for 20 seconds
 //   - Automatic guest sleep detection when guest bedroom door closes
 type Manager struct {
+	ctx          context.Context
 	haClient     ha.HAClient
 	stateManager *state.Manager
 	logger       *zap.Logger
@@ -64,10 +66,11 @@ type Manager struct {
 }
 
 // NewManager creates a new State Tracking manager
-func NewManager(haClient ha.HAClient, stateManager *state.Manager, logger *zap.Logger, readOnly bool, registry *shadowstate.SubscriptionRegistry) *Manager {
+func NewManager(ctx context.Context, haClient ha.HAClient, stateManager *state.Manager, logger *zap.Logger, readOnly bool, registry *shadowstate.SubscriptionRegistry) *Manager {
 	shadowTracker := shadowstate.NewStateTrackingTracker()
 
 	return &Manager{
+		ctx:           ctx,
 		haClient:      haClient,
 		stateManager:  stateManager,
 		logger:        logger.Named("statetracking"),
@@ -548,7 +551,7 @@ func (m *Manager) announceArrivalDirect(person, message string, mediaPlayers []s
 		zap.String("message", message),
 		zap.Strings("media_players", mediaPlayers))
 
-	err := m.haClient.CallService("tts", "speak", map[string]interface{}{
+	err := m.haClient.CallService(m.ctx, "tts", "speak", map[string]interface{}{
 		"entity_id":              "tts.google_translate_en_com",
 		"message":                message,
 		"cache":                  true,

@@ -1,6 +1,7 @@
 package ha
 
 import (
+	"context"
 	"errors"
 	"fmt"
 
@@ -192,7 +193,7 @@ func (c *Client) SendNotification(deviceName string, notification *Notification)
 	serviceData := buildNotificationServiceData(notification)
 	serviceName := fmt.Sprintf("mobile_app_%s", deviceName)
 
-	return c.CallService("notify", serviceName, serviceData)
+	return c.CallService(context.Background(), "notify", serviceName, serviceData)
 }
 
 // SendNotificationToMultiple sends a notification to multiple devices.
@@ -229,5 +230,5 @@ func (c *Client) ClearNotification(deviceName, tag string) error {
 	serviceData := buildClearNotificationServiceData(tag)
 	serviceName := fmt.Sprintf("mobile_app_%s", deviceName)
 
-	return c.CallService("notify", serviceName, serviceData)
+	return c.CallService(context.Background(), "notify", serviceName, serviceData)
 }

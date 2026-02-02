@@ -1,6 +1,7 @@
 package integration
 
 import (
+	"context"
 	"fmt"
 	"testing"
 	"time"
@@ -34,7 +35,7 @@ func setupSleepHygieneScenarioTest(t *testing.T) (*MockHAServer, *sleephygiene.M
 
 	// Create sleep hygiene plugin (read-only mode = false for testing service calls)
 	// Use nil for timezone to default to time.Local
-	sleepMgr := sleephygiene.NewManager(client, manager, configLoader, logger, false, nil, nil)
+	sleepMgr := sleephygiene.NewManager(context.Background(), client, manager, configLoader, logger, false, nil, nil)
 
 	// Start the sleep hygiene plugin
 	err := sleepMgr.Start()
@@ -63,7 +64,7 @@ func setupSleepHygieneScenarioTestWithTime(t *testing.T, fixedTime time.Time) (*
 
 	// Create sleep hygiene plugin with fixed time
 	// Use nil for timezone to default to time.Local
-	sleepMgr := sleephygiene.NewManager(client, manager, configLoader, logger, false, timeProvider, nil)
+	sleepMgr := sleephygiene.NewManager(context.Background(), client, manager, configLoader, logger, false, timeProvider, nil)
 
 	// Start the sleep hygiene plugin
 	err := sleepMgr.Start()
@@ -773,7 +774,7 @@ func TestScenario_WakeSequence_LightingPluginYieldsToSleepHygiene(t *testing.T) 
 	lightingConfig := loadTestLightingConfig(t)
 
 	// Create lighting plugin
-	lightingMgr := lighting.NewManager(client, manager, lightingConfig, logger, false, nil)
+	lightingMgr := lighting.NewManager(context.Background(), client, manager, lightingConfig, logger, false, nil)
 	require.NoError(t, lightingMgr.Start(), "Failed to start lighting manager")
 	defer lightingMgr.Stop()
 
@@ -882,7 +883,7 @@ func TestScenario_WakeSequence_LightingConditionPriority(t *testing.T) {
 	lightingConfig := loadTestLightingConfig(t)
 
 	// Create lighting plugin
-	lightingMgr := lighting.NewManager(client, manager, lightingConfig, logger, false, nil)
+	lightingMgr := lighting.NewManager(context.Background(), client, manager, lightingConfig, logger, false, nil)
 	require.NoError(t, lightingMgr.Start(), "Failed to start lighting manager")
 	defer lightingMgr.Stop()
 

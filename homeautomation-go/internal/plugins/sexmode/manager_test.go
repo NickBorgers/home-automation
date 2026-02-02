@@ -1,6 +1,7 @@
 package sexmode
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -30,7 +31,7 @@ func TestSexModeManager_ActivationSetsMusic(t *testing.T) {
 	}
 
 	// Create sex mode manager (not read-only)
-	manager := NewManager(mockHA, stateManager, logger, false, nil)
+	manager := NewManager(context.Background(), mockHA, stateManager, logger, false, nil)
 	if err := manager.Start(); err != nil {
 		t.Fatalf("Failed to start sex mode manager: %v", err)
 	}
@@ -79,7 +80,7 @@ func TestSexModeManager_ActivationSetsLighting(t *testing.T) {
 	stateManager.SyncFromHA()
 
 	// Create sex mode manager (not read-only)
-	manager := NewManager(mockHA, stateManager, logger, false, nil)
+	manager := NewManager(context.Background(), mockHA, stateManager, logger, false, nil)
 	if err := manager.Start(); err != nil {
 		t.Fatalf("Failed to start sex mode manager: %v", err)
 	}
@@ -135,7 +136,7 @@ func TestSexModeManager_ActivationSetsEightSleep(t *testing.T) {
 	stateManager.SyncFromHA()
 
 	// Create sex mode manager (not read-only)
-	manager := NewManager(mockHA, stateManager, logger, false, nil)
+	manager := NewManager(context.Background(), mockHA, stateManager, logger, false, nil)
 	if err := manager.Start(); err != nil {
 		t.Fatalf("Failed to start sex mode manager: %v", err)
 	}
@@ -212,7 +213,7 @@ func TestSexModeManager_DeactivationRestoresMusic(t *testing.T) {
 	}
 
 	// Create sex mode manager (not read-only)
-	manager := NewManager(mockHA, stateManager, logger, false, nil)
+	manager := NewManager(context.Background(), mockHA, stateManager, logger, false, nil)
 	if err := manager.Start(); err != nil {
 		t.Fatalf("Failed to start sex mode manager: %v", err)
 	}
@@ -271,7 +272,7 @@ func TestSexModeManager_DeactivationReEvaluatesLighting(t *testing.T) {
 	}
 
 	// Create sex mode manager (not read-only)
-	manager := NewManager(mockHA, stateManager, logger, false, nil)
+	manager := NewManager(context.Background(), mockHA, stateManager, logger, false, nil)
 	if err := manager.Start(); err != nil {
 		t.Fatalf("Failed to start sex mode manager: %v", err)
 	}
@@ -328,7 +329,7 @@ func TestSexModeManager_DeactivationTurnsOffLightsWhenAsleep(t *testing.T) {
 	}
 
 	// Create sex mode manager (not read-only)
-	manager := NewManager(mockHA, stateManager, logger, false, nil)
+	manager := NewManager(context.Background(), mockHA, stateManager, logger, false, nil)
 	if err := manager.Start(); err != nil {
 		t.Fatalf("Failed to start sex mode manager: %v", err)
 	}
@@ -377,7 +378,7 @@ func TestSexModeManager_DuplicateActivationIgnored(t *testing.T) {
 	stateManager.SyncFromHA()
 
 	// Create sex mode manager
-	manager := NewManager(mockHA, stateManager, logger, false, nil)
+	manager := NewManager(context.Background(), mockHA, stateManager, logger, false, nil)
 	if err := manager.Start(); err != nil {
 		t.Fatalf("Failed to start sex mode manager: %v", err)
 	}
@@ -416,7 +417,7 @@ func TestSexModeManager_ReadOnlyMode(t *testing.T) {
 	stateManager.SyncFromHA()
 
 	// Create sex mode manager in read-only mode
-	manager := NewManager(mockHA, stateManager, logger, true, nil)
+	manager := NewManager(context.Background(), mockHA, stateManager, logger, true, nil)
 	if err := manager.Start(); err != nil {
 		t.Fatalf("Failed to start sex mode manager: %v", err)
 	}
@@ -456,7 +457,7 @@ func TestSexModeManager_ShadowState(t *testing.T) {
 	}
 
 	// Create sex mode manager
-	manager := NewManager(mockHA, stateManager, logger, false, nil)
+	manager := NewManager(context.Background(), mockHA, stateManager, logger, false, nil)
 	if err := manager.Start(); err != nil {
 		t.Fatalf("Failed to start sex mode manager: %v", err)
 	}
@@ -501,7 +502,7 @@ func TestSexModeManager_Reset(t *testing.T) {
 	stateManager.SyncFromHA()
 
 	// Create sex mode manager
-	manager := NewManager(mockHA, stateManager, logger, false, nil)
+	manager := NewManager(context.Background(), mockHA, stateManager, logger, false, nil)
 	if err := manager.Start(); err != nil {
 		t.Fatalf("Failed to start sex mode manager: %v", err)
 	}
@@ -569,7 +570,7 @@ func TestSexModeManager_AutoClearOnWakeUp(t *testing.T) {
 	}
 
 	// Create sex mode manager (not read-only)
-	manager := NewManager(mockHA, stateManager, logger, false, nil)
+	manager := NewManager(context.Background(), mockHA, stateManager, logger, false, nil)
 	if err := manager.Start(); err != nil {
 		t.Fatalf("Failed to start sex mode manager: %v", err)
 	}
@@ -678,7 +679,7 @@ func TestSexModeManager_DeactivationRestoresMusicWhenStillAsleep(t *testing.T) {
 	}
 
 	// Create sex mode manager (not read-only)
-	manager := NewManager(mockHA, stateManager, logger, false, nil)
+	manager := NewManager(context.Background(), mockHA, stateManager, logger, false, nil)
 	if err := manager.Start(); err != nil {
 		t.Fatalf("Failed to start sex mode manager: %v", err)
 	}
@@ -737,7 +738,7 @@ func TestSexModeManager_WakeUpIgnoredWhenNotActive(t *testing.T) {
 	}
 
 	// Create sex mode manager (not read-only) but don't activate sex mode
-	manager := NewManager(mockHA, stateManager, logger, false, nil)
+	manager := NewManager(context.Background(), mockHA, stateManager, logger, false, nil)
 	if err := manager.Start(); err != nil {
 		t.Fatalf("Failed to start sex mode manager: %v", err)
 	}
