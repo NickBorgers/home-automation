@@ -2761,11 +2761,23 @@ func TestExecutePlayback_BreakThenBuildSequence(t *testing.T) {
 	}
 
 	// Wait for async speaker group building to complete
-	// With no-op sleep and mock client, the goroutine runs almost immediately
-	time.Sleep(50 * time.Millisecond)
-
-	// Get all service calls
-	calls := mockClient.GetServiceCalls()
+	// Poll for the join call instead of fixed sleep to handle CI timing variations
+	var calls []ha.ServiceCall
+	maxAttempts := 100 // 100 * 10ms = 1 second max wait
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		calls = mockClient.GetServiceCalls()
+		hasJoin := false
+		for _, call := range calls {
+			if call.Domain == "media_player" && call.Service == "join" {
+				hasJoin = true
+				break
+			}
+		}
+		if hasJoin {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 
 	// Find the indices of unjoin and join calls
 	var firstUnjoinIndex, firstJoinIndex int = -1, -1
