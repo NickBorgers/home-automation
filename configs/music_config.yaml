@@ -4,13 +4,29 @@
 # Higher priority zones claim speakers first.
 # Triggers use AND logic - all conditions must match for zone activation.
 zones:
-  - name: "sleep"
-    priority: 100  # High - isAnyoneAsleep check happens first
+  # sleep-prep: Whole-house sleep sounds BEFORE master goes to bed
+  # Helps direct people to bed during night phase
+  - name: "sleep-prep"
+    priority: 90  # Below sleep but above other zones
     trigger:
-      - variable: isAnyoneAsleep
+      - variable: dayPhase
+        value: night
+      - variable: isAnyoneHome
+        value: true
+      - variable: isMasterAsleep
+        value: false
+
+  # sleep: Bedroom-only sleep sounds AFTER master goes to bed
+  # Doesn't restart during wake sequence (sleephygiene manages bedroom fade-out)
+  - name: "sleep"
+    priority: 100  # Highest auto-trigger - sleep takes precedence
+    trigger:
+      - variable: isMasterAsleep
         value: true
       - variable: isAnyoneHome
         value: true
+      - variable: isWakeSequenceActive
+        value: false
   - name: "morning"
     priority: 50
     # OR logic: either normal morning conditions OR wake sequence active
@@ -279,7 +295,9 @@ music:
       - uri: spotify:playlist:37i9dQZF1DWZd79rJ6a7lp
         media_type: playlist
         volume_multiplier: 1.0
-  sleep:
+  # sleep-prep: Whole-house rain sounds before master goes to bed
+  # Plays during night phase to help direct people to bed
+  sleep-prep:
     participants:
       - player_name: "Bedroom"
         base_volume: 16
@@ -300,6 +318,24 @@ music:
         leave_muted_if:
           - variable: isNickOfficeOccupied
             value: false
+    playback_options:
+      - uri: "http://rain-sounds.nickborgers.net:8080/1.m4a"
+        media_type: music
+        volume_multiplier: 1.1
+      - uri: "http://rain-sounds.nickborgers.net:8080/2.m4a"
+        media_type: music
+        volume_multiplier: 1.0
+      - uri: "http://rain-sounds.nickborgers.net:8080/4.m4a"
+        media_type: music
+        volume_multiplier: 0.9
+
+  # sleep: Bedroom-only rain sounds after master goes to bed
+  # Rest of house doesn't need sleep sounds once master is in bed
+  sleep:
+    participants:
+      - player_name: "Bedroom"
+        base_volume: 16
+        leave_muted_if: []
     playback_options:
       - uri: "http://rain-sounds.nickborgers.net:8080/1.m4a"
         media_type: music

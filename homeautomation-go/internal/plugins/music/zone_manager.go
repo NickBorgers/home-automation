@@ -171,7 +171,9 @@ func (zm *ZoneManager) getActiveZoneConfigs() []ZoneConfig {
 		}
 
 		// Check if zone matches explicit musicPlaybackType (backward compat)
-		if musicPlaybackType != "" && zc.Name == musicPlaybackType {
+		// ONLY for zones WITHOUT triggers - zones WITH triggers must pass their trigger checks
+		hasTriggers := len(zc.Triggers) > 0 || len(zc.TriggerGroups) > 0
+		if musicPlaybackType != "" && zc.Name == musicPlaybackType && !hasTriggers {
 			activeConfigs = append(activeConfigs, zc)
 			continue
 		}
