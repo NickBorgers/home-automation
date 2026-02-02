@@ -1602,16 +1602,6 @@ func (st *SensorHealthTracker) UpdateLowBatteryAlerts(alerts []LowBatteryAlert) 
 	st.state.Metadata.LastUpdated = time.Now()
 }
 
-// UpdateStaleSensorAlerts updates the list of stale sensor alerts
-func (st *SensorHealthTracker) UpdateStaleSensorAlerts(alerts []StaleSensorAlert) {
-	st.mu.Lock()
-	defer st.mu.Unlock()
-
-	st.state.Outputs.StaleSensorAlerts = make([]StaleSensorAlert, len(alerts))
-	copy(st.state.Outputs.StaleSensorAlerts, alerts)
-	st.state.Metadata.LastUpdated = time.Now()
-}
-
 // RecordNotification records a notification that was sent
 func (st *SensorHealthTracker) RecordNotification(alertType, entityID, message string) {
 	st.mu.Lock()
@@ -1654,6 +1644,55 @@ func (st *SensorHealthTracker) RecordTemperatureRecoveryNotification(entityID, f
 	st.state.Metadata.LastUpdated = time.Now()
 }
 
+// UpdateNodeStatuses updates the list of discovered Z-Wave node status sensors
+func (st *SensorHealthTracker) UpdateNodeStatuses(statuses []NodeStatusData) {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+
+	st.state.Outputs.NodeStatuses = make([]NodeStatusData, len(statuses))
+	copy(st.state.Outputs.NodeStatuses, statuses)
+	st.state.Outputs.LastUpdate = time.Now()
+	st.state.Metadata.LastUpdated = time.Now()
+}
+
+// UpdateDeadDeviceAlerts updates the list of dead device alerts
+func (st *SensorHealthTracker) UpdateDeadDeviceAlerts(alerts []DeadDeviceAlert) {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+
+	st.state.Outputs.DeadDeviceAlerts = make([]DeadDeviceAlert, len(alerts))
+	copy(st.state.Outputs.DeadDeviceAlerts, alerts)
+	st.state.Metadata.LastUpdated = time.Now()
+}
+
+// RecordDeadDeviceNotification records a dead device notification that was sent
+func (st *SensorHealthTracker) RecordDeadDeviceNotification(entityID, deviceName, message string) {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+
+	st.state.Outputs.LastDeadDeviceNotification = &DeadDeviceNotification{
+		EntityID:   entityID,
+		DeviceName: deviceName,
+		Message:    message,
+		Timestamp:  time.Now(),
+	}
+	st.state.Metadata.LastUpdated = time.Now()
+}
+
+// RecordDeviceRecoveryNotification records a device recovery notification that was sent
+func (st *SensorHealthTracker) RecordDeviceRecoveryNotification(entityID, deviceName, message string) {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+
+	st.state.Outputs.LastDeviceRecoveryNotification = &DeviceRecoveryNotification{
+		EntityID:   entityID,
+		DeviceName: deviceName,
+		Message:    message,
+		Timestamp:  time.Now(),
+	}
+	st.state.Metadata.LastUpdated = time.Now()
+}
+
 // SetLastDiscoveryRefresh records when discovery was last refreshed
 func (st *SensorHealthTracker) SetLastDiscoveryRefresh(t time.Time) {
 	st.mu.Lock()
@@ -1677,8 +1716,9 @@ func (st *SensorHealthTracker) GetState() *SensorHealthShadowState {
 		Outputs: SensorHealthOutputs{
 			BatterySensors:       make([]BatterySensorData, len(st.state.Outputs.BatterySensors)),
 			TemperatureSensors:   make([]TemperatureSensorData, len(st.state.Outputs.TemperatureSensors)),
+			NodeStatuses:         make([]NodeStatusData, len(st.state.Outputs.NodeStatuses)),
 			LowBatteryAlerts:     make([]LowBatteryAlert, len(st.state.Outputs.LowBatteryAlerts)),
-			StaleSensorAlerts:    make([]StaleSensorAlert, len(st.state.Outputs.StaleSensorAlerts)),
+			DeadDeviceAlerts:     make([]DeadDeviceAlert, len(st.state.Outputs.DeadDeviceAlerts)),
 			Config:               st.state.Outputs.Config,
 			LastUpdate:           st.state.Outputs.LastUpdate,
 			LastDiscoveryRefresh: st.state.Outputs.LastDiscoveryRefresh,
@@ -1694,8 +1734,9 @@ func (st *SensorHealthTracker) GetState() *SensorHealthShadowState {
 	// Copy slices
 	copy(stateCopy.Outputs.BatterySensors, st.state.Outputs.BatterySensors)
 	copy(stateCopy.Outputs.TemperatureSensors, st.state.Outputs.TemperatureSensors)
+	copy(stateCopy.Outputs.NodeStatuses, st.state.Outputs.NodeStatuses)
 	copy(stateCopy.Outputs.LowBatteryAlerts, st.state.Outputs.LowBatteryAlerts)
-	copy(stateCopy.Outputs.StaleSensorAlerts, st.state.Outputs.StaleSensorAlerts)
+	copy(stateCopy.Outputs.DeadDeviceAlerts, st.state.Outputs.DeadDeviceAlerts)
 
 	// Copy notification records if they exist
 	if st.state.Outputs.LastNotification != nil {
@@ -1711,6 +1752,16 @@ func (st *SensorHealthTracker) GetState() *SensorHealthShadowState {
 	if st.state.Outputs.LastTemperatureRecoveryNotice != nil {
 		recoveryNotice := *st.state.Outputs.LastTemperatureRecoveryNotice
 		stateCopy.Outputs.LastTemperatureRecoveryNotice = &recoveryNotice
+	}
+
+	if st.state.Outputs.LastDeadDeviceNotification != nil {
+		deadNotice := *st.state.Outputs.LastDeadDeviceNotification
+		stateCopy.Outputs.LastDeadDeviceNotification = &deadNotice
+	}
+
+	if st.state.Outputs.LastDeviceRecoveryNotification != nil {
+		recoveryNotice := *st.state.Outputs.LastDeviceRecoveryNotification
+		stateCopy.Outputs.LastDeviceRecoveryNotification = &recoveryNotice
 	}
 
 	return stateCopy
