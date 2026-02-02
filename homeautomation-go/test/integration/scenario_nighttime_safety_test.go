@@ -153,12 +153,13 @@ func loadTestMusicConfig(t *testing.T) *music.MusicConfig {
 						LeaveMutedIf: []music.MuteCondition{},
 					},
 					{
-						PlayerName: "Bedroom",
-						BaseVolume: 9,
-						LeaveMutedIf: []music.MuteCondition{
+						PlayerName:   "Bedroom",
+						BaseVolume:   9,
+						LeaveMutedIf: []music.MuteCondition{},
+						ExcludeIf: []music.MuteCondition{
 							{
 								Variable: "isMasterAsleep",
-								Value:    true, // CRITICAL: Mute bedroom when master is asleep
+								Value:    true, // CRITICAL: Exclude bedroom when master is asleep
 							},
 						},
 					},
