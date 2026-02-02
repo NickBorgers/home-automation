@@ -336,6 +336,9 @@ music:
       - player_name: "Bedroom"
         base_volume: 16
         leave_muted_if: []
+      - player_name: "Kitchen"
+        base_volume: 16
+        leave_muted_if: []
     playback_options:
       - uri: "http://rain-sounds.nickborgers.net:8080/1.m4a"
         media_type: music
