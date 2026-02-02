@@ -273,41 +273,45 @@ These modes are not tied to day phases:
 flowchart LR
     subgraph Triggers["Special Triggers"]
         alarm["Alarm fires"]
-        goToBed["go_to_bed time reached"]
-        sleepState["isMasterAsleep = true"]
+        nightPhase["dayPhase=night +<br/>isMasterAsleep=false"]
+        sleepState["isMasterAsleep=true +<br/>isWakeSequenceActive=false"]
         manual["Manual selection"]
     end
 
     subgraph SpecialModes["Special Music Modes"]
         wakeup["wakeup"]
-        sleep["sleep<br/>(rain sounds)"]
+        sleepPrep["sleep-prep<br/>(whole-house rain)"]
+        sleep["sleep<br/>(bedroom-only rain)"]
         sex["sex"]
     end
 
     alarm --> wakeup
-    goToBed --> sleep
+    nightPhase --> sleepPrep
     sleepState --> sleep
     manual --> sex
 
     style wakeup fill:#ff6b6b,color:#fff
+    style sleepPrep fill:#2d2d44,color:#fff
     style sleep fill:#1a1a2e,color:#fff
     style sex fill:#e84393,color:#fff
 ```
 
-> **Note:** The `go_to_bed` scheduled time automatically starts rain sounds by setting `musicPlaybackType` to `"sleep"`. This happens unconditionally at the configured time, regardless of presence or sleep state. The `isMasterAsleep` trigger also activates sleep music when someone is detected as asleep.
+> **Note:** The sleep music system has two stages:
+> - **sleep-prep**: Whole-house rain sounds during night phase, before master goes to bed (helps direct people to bed)
+> - **sleep**: Bedroom-only rain sounds after master is asleep, but NOT during wake sequence (sleephygiene manages the bedroom fade-out during wake)
 
 ## Wake Sequence Multi-Zone Music
 
-When the wake sequence activates (`isWakeSequenceActive=true`) during morning dayPhase, the music system supports split playback across the house:
+When the wake sequence activates (`isWakeSequenceActive=true`) during morning dayPhase, the sleep zone **stops** (because it requires `isWakeSequenceActive=false`). The sleephygiene plugin manages the bedroom's gentle fade-out separately, while morning music plays in the rest of the house:
 
 ```mermaid
 flowchart TB
     subgraph Initial["Night State"]
-        sleepAll["Sleep music everywhere<br/>(isAnyoneAsleep=true)"]
+        sleepBed["Bedroom: Sleep music<br/>(isMasterAsleep=true)"]
     end
 
     subgraph WakeSequence["Wake Sequence Active"]
-        sleepBed["Bedroom: Sleep music<br/>(priority 100)"]
+        fadeBed["Bedroom: Fade-out<br/>(managed by sleephygiene)"]
         morningRest["Kitchen, Office: Morning music<br/>(priority 50)"]
     end
 
@@ -318,45 +322,46 @@ flowchart TB
     Initial -->|"isWakeSequenceActive=true<br/>dayPhase=morning"| WakeSequence
     WakeSequence -->|"isMasterAsleep=false<br/>isAnyoneAsleep=false"| FullyAwake
 
-    style sleepAll fill:#1a1a2e,color:#fff
     style sleepBed fill:#1a1a2e,color:#fff
+    style fadeBed fill:#4a4a6a,color:#fff
     style morningRest fill:#ff6b6b,color:#fff
     style morningAll fill:#ff6b6b,color:#fff
 ```
 
 ### Zone Priority and Speaker Assignment
 
-When both sleep and morning zones are active simultaneously:
-
 | Zone | Priority | Trigger Conditions | Speakers |
 |------|----------|-------------------|----------|
-| `sleep` | 100 | `isAnyoneAsleep=true` + `isAnyoneHome=true` | Bedroom (claimed first due to higher priority) |
+| `sleep-prep` | 90 | `dayPhase=night` + `isAnyoneHome=true` + `isMasterAsleep=false` | Bedroom, Kitchen, Office (whole house) |
+| `sleep` | 100 | `isMasterAsleep=true` + `isAnyoneHome=true` + `isWakeSequenceActive=false` | Bedroom, Kitchen |
 | `morning` | 50 | `isWakeSequenceActive=true` + `dayPhase=morning` + `isAnyoneHome=true` **OR** `dayPhase=morning` + `isAnyoneAsleep=false` + `isAnyoneHome=true` | Kitchen, Office (Bedroom excluded via `exclude_if: isMasterAsleep=true`) |
 
 ### Key Behaviors
 
-1. **Bedroom exclusion during wake**: The Bedroom speaker uses `exclude_if: isMasterAsleep=true` in the morning zone configuration, so it stays on sleep music while someone is still in bed.
+1. **Sleep zone stops during wake**: The sleep zone requires `isWakeSequenceActive=false`, so it deactivates when the wake sequence starts. This prevents sleep music from restarting during wake.
 
-2. **OR logic in triggers**: The morning zone uses `trigger_groups` with OR logic:
+2. **Bedroom fade-out via sleephygiene**: During wake sequence, the sleephygiene plugin manages the bedroom's gentle audio fade-out (5-minute fade), independent of the music zone system.
+
+3. **OR logic in morning triggers**: The morning zone uses `trigger_groups` with OR logic:
    - Group 1: Normal morning conditions (`isAnyoneAsleep=false`)
    - Group 2: Wake sequence active (`isWakeSequenceActive=true`)
 
-3. **Seamless join**: When `isMasterAsleep` becomes false, the Bedroom speaker joins the existing morning zone rather than starting new playback.
+4. **Seamless join**: When `isMasterAsleep` becomes false, the Bedroom speaker joins the existing morning zone rather than starting new playback.
 
 ### Timeline Example
 
 ```
-Time    Event                           Bedroom         Kitchen/Office
-────    ─────                           ───────         ──────────────
-T0      Night, isMasterAsleep=true      Sleep music     Sleep music
-        isWakeSequenceActive=false
+Time    Event                           Bedroom              Kitchen/Office
+────    ─────                           ───────              ──────────────
+T0      Night, isMasterAsleep=true      Sleep music          Sleep music
+        isWakeSequenceActive=false      (sleep zone)         (sleep zone)
 
-T1      Alarm triggers                  Sleep music     Morning music
-        isWakeSequenceActive=true       (sleep zone)    (morning zone)
-        dayPhase=morning
+T1      Alarm triggers                  Fade-out             Morning music
+        isWakeSequenceActive=true       (sleephygiene)       (morning zone)
+        dayPhase=morning                sleep zone STOPS
 
-T2      Person wakes up                 Morning music   Morning music
-        isMasterAsleep=false            (joins morning) (continues)
+T2      Person wakes up                 Morning music        Morning music
+        isMasterAsleep=false            (joins morning)      (continues)
         isAnyoneAsleep=false
 ```
 

@@ -1022,15 +1022,32 @@ func TestScenario_CancelWake_ForcesSleepMusicRestart(t *testing.T) {
 
 // createWakeSequenceTestConfig creates a configuration with explicit zones
 // configured for testing wake sequence behavior.
+//
+// Zone design:
+// - sleep-prep: Whole house before master asleep (night phase)
+// - sleep: Bedroom only after master asleep, NOT during wake sequence
+// - morning: Rest of house during wake sequence or normal morning
 func createWakeSequenceTestConfig() *MusicConfig {
 	return &MusicConfig{
 		Zones: []ZoneConfig{
 			{
+				// sleep-prep: Whole-house sleep sounds BEFORE master goes to bed
+				Name:     "sleep-prep",
+				Priority: 90,
+				Triggers: []TriggerCondition{
+					{Variable: "dayPhase", Value: "night"},
+					{Variable: "isAnyoneHome", Value: true},
+					{Variable: "isMasterAsleep", Value: false},
+				},
+			},
+			{
+				// sleep: Bedroom-only after master asleep, NOT during wake sequence
 				Name:     "sleep",
 				Priority: 100,
 				Triggers: []TriggerCondition{
-					{Variable: "isAnyoneAsleep", Value: true},
+					{Variable: "isMasterAsleep", Value: true},
 					{Variable: "isAnyoneHome", Value: true},
+					{Variable: "isWakeSequenceActive", Value: false},
 				},
 			},
 			{
@@ -1106,10 +1123,21 @@ func createWakeSequenceTestConfig() *MusicConfig {
 					{URI: "spotify:playlist:winddown", MediaType: "playlist", VolumeMultiplier: 1.0},
 				},
 			},
-			"sleep": {
+			// sleep-prep: Whole-house sleep sounds before master goes to bed
+			"sleep-prep": {
 				Participants: []Participant{
 					{PlayerName: "Bedroom", BaseVolume: 16, LeaveMutedIf: []MuteCondition{}},
 					{PlayerName: "Kitchen", BaseVolume: 12, LeaveMutedIf: []MuteCondition{}},
+					{PlayerName: "Office", BaseVolume: 9, LeaveMutedIf: []MuteCondition{}},
+				},
+				PlaybackOptions: []PlaybackOption{
+					{URI: "http://rain-sounds.example.com/rain.m4a", MediaType: "music", VolumeMultiplier: 1.0},
+				},
+			},
+			// sleep: Bedroom-only after master asleep
+			"sleep": {
+				Participants: []Participant{
+					{PlayerName: "Bedroom", BaseVolume: 16, LeaveMutedIf: []MuteCondition{}},
 				},
 				PlaybackOptions: []PlaybackOption{
 					{URI: "http://rain-sounds.example.com/rain.m4a", MediaType: "music", VolumeMultiplier: 1.0},
@@ -1136,16 +1164,18 @@ func createWakeSequenceTestConfig() *MusicConfig {
 }
 
 // TestScenario_WakeSequenceActive_MorningMusicInRestOfHouse tests that when
-// isWakeSequenceActive becomes true during morning dayPhase, the rest of the
-// house transitions to morning music while the bedroom stays on sleep music.
+// isWakeSequenceActive becomes true during morning dayPhase, the sleep zone
+// STOPS (allowing sleephygiene to manage bedroom fade-out) and morning music
+// plays in the rest of the house.
 //
 // SCENARIO:
-// - Initial: Night, isMasterAsleep=true, isAnyoneAsleep=true, sleep music on all speakers
+// - Initial: Night, isMasterAsleep=true, sleep zone active (bedroom only)
 // - Action: isWakeSequenceActive=true, dayPhase=morning
 // - Expected:
-//   - Sleep zone active for Bedroom (sleep music continues)
-//   - Morning zone active for Kitchen, Office, etc. (morning music starts)
+//   - Sleep zone STOPS (isWakeSequenceActive=false is a trigger condition)
+//   - Morning zone active for Kitchen, Office, etc.
 //   - Bedroom excluded from morning zone due to exclude_if: isMasterAsleep=true
+//   - Bedroom fade-out is managed by sleephygiene, not the music plugin
 func TestScenario_WakeSequenceActive_MorningMusicInRestOfHouse(t *testing.T) {
 	t.Parallel()
 	logger := zap.NewNop()
@@ -1160,7 +1190,7 @@ func TestScenario_WakeSequenceActive_MorningMusicInRestOfHouse(t *testing.T) {
 	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, true, timeProvider, nil)
 	manager.SetSleepFunc(func(d time.Duration) {})
 
-	// Initial state: Night, someone is asleep - sleep music playing
+	// Initial state: Night, master is asleep - sleep zone active (bedroom only)
 	_ = stateManager.SetString("dayPhase", "night")
 	_ = stateManager.SetBool("isAnyoneHome", true)
 	_ = stateManager.SetBool("isAnyoneAsleep", true)
@@ -1175,20 +1205,19 @@ func TestScenario_WakeSequenceActive_MorningMusicInRestOfHouse(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 	manager.WaitForSync()
 
-	// Verify sleep zone is active (isAnyoneAsleep=true triggers sleep zone)
+	// Verify sleep zone is active (isMasterAsleep=true, isWakeSequenceActive=false)
 	musicType, _ := stateManager.GetString("musicPlaybackType")
-	assert.Equal(t, "sleep", musicType, "Sleep music should be selected when isAnyoneAsleep=true")
+	assert.Equal(t, "sleep", musicType, "Sleep music should be selected when isMasterAsleep=true and isWakeSequenceActive=false")
 
 	// ACTION: Wake sequence starts, dayPhase changes to morning
-	// This should trigger zone resolution via handleZoneTriggerChange
+	// This should cause sleep zone to STOP (isWakeSequenceActive=false no longer matches)
 	_ = stateManager.SetString("dayPhase", "morning")
 	_ = stateManager.SetBool("isWakeSequenceActive", true)
 
 	time.Sleep(100 * time.Millisecond)
 	manager.WaitForSync()
 
-	// Verify zone manager's active zone configs to test trigger evaluation
-	// The zone manager should now evaluate both trigger groups
+	// Verify zone manager's active zone configs
 	activeZones := manager.zoneManager.getActiveZoneConfigs()
 
 	sleepZoneActive := false
@@ -1202,7 +1231,9 @@ func TestScenario_WakeSequenceActive_MorningMusicInRestOfHouse(t *testing.T) {
 		}
 	}
 
-	assert.True(t, sleepZoneActive, "Sleep zone should be active (isAnyoneAsleep=true)")
+	// KEY ASSERTION: Sleep zone should NOT be active during wake sequence
+	// The sleep zone has isWakeSequenceActive=false as a trigger condition
+	assert.False(t, sleepZoneActive, "Sleep zone should NOT be active when isWakeSequenceActive=true (bedroom fade-out managed by sleephygiene)")
 	assert.True(t, morningZoneActive, "Morning zone should be active (isWakeSequenceActive=true triggers second group)")
 }
 
@@ -1210,10 +1241,10 @@ func TestScenario_WakeSequenceActive_MorningMusicInRestOfHouse(t *testing.T) {
 // becomes false, the bedroom joins the morning zone.
 //
 // SCENARIO:
-// - Initial: Wake sequence active, bedroom on sleep, rest on morning
-// - Action: isMasterAsleep=false, isAnyoneAsleep=false
-// - Expected:
-//   - Sleep zone stops (no one asleep)
+//   - Initial: Wake sequence active, morning zone active, sleep zone NOT active
+//     (sleep zone requires isWakeSequenceActive=false)
+//   - Action: isMasterAsleep=false, isAnyoneAsleep=false
+//   - Expected:
 //   - Bedroom joins morning zone (exclude_if no longer applies)
 //   - All speakers now on morning music
 func TestScenario_MasterWakesUp_BedroomJoinsMorning(t *testing.T) {
@@ -1230,6 +1261,7 @@ func TestScenario_MasterWakesUp_BedroomJoinsMorning(t *testing.T) {
 	manager.SetSleepFunc(func(d time.Duration) {})
 
 	// Initial state: Wake sequence active, someone still asleep
+	// Sleep zone should NOT be active because isWakeSequenceActive=true
 	_ = stateManager.SetString("dayPhase", "morning")
 	_ = stateManager.SetBool("isAnyoneHome", true)
 	_ = stateManager.SetBool("isAnyoneAsleep", true)
@@ -1243,7 +1275,7 @@ func TestScenario_MasterWakesUp_BedroomJoinsMorning(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 	manager.WaitForSync()
 
-	// Verify both zones are active initially via trigger evaluation
+	// Verify only morning zone is active (sleep zone blocked by isWakeSequenceActive=true)
 	activeZones := manager.zoneManager.getActiveZoneConfigs()
 	sleepZoneActive := false
 	morningZoneActive := false
@@ -1255,7 +1287,7 @@ func TestScenario_MasterWakesUp_BedroomJoinsMorning(t *testing.T) {
 			morningZoneActive = true
 		}
 	}
-	require.True(t, sleepZoneActive, "Sleep zone should be active initially")
+	require.False(t, sleepZoneActive, "Sleep zone should NOT be active when isWakeSequenceActive=true")
 	require.True(t, morningZoneActive, "Morning zone should be active initially")
 
 	// ACTION: Person wakes up
@@ -1265,7 +1297,8 @@ func TestScenario_MasterWakesUp_BedroomJoinsMorning(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 	manager.WaitForSync()
 
-	// VERIFICATION: Sleep zone should stop, morning zone continues
+	// VERIFICATION: Sleep zone still not active, morning zone continues
+	// Now bedroom can join morning zone (exclude_if no longer applies)
 	activeZones = manager.zoneManager.getActiveZoneConfigs()
 	sleepZoneActive = false
 	morningZoneActive = false
@@ -1278,7 +1311,7 @@ func TestScenario_MasterWakesUp_BedroomJoinsMorning(t *testing.T) {
 		}
 	}
 
-	assert.False(t, sleepZoneActive, "Sleep zone should stop when isAnyoneAsleep=false")
+	assert.False(t, sleepZoneActive, "Sleep zone should remain inactive")
 	assert.True(t, morningZoneActive, "Morning zone should still be active (first trigger group: isAnyoneAsleep=false)")
 }
 
