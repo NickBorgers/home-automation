@@ -211,6 +211,9 @@ func TestWake_AllConditionsMet(t *testing.T) {
 	stateManager.SetBool("isFadeOutInProgress", true)
 	stateManager.SetBool("isNickHome", true)
 	stateManager.SetBool("isCarolineHome", true)
+	// isWakeSequenceActive is set by handleBeginWake() (the first step of the wake sequence).
+	// Since this test calls handleWake() directly (the second step), we need to set this state.
+	stateManager.SetBool("isWakeSequenceActive", true)
 
 	// Clear previous calls
 	mockHA.ClearServiceCalls()

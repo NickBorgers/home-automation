@@ -9,6 +9,7 @@ import (
 	"homeautomation/internal/config"
 	"homeautomation/internal/plugins/lighting"
 	"homeautomation/internal/plugins/sleephygiene"
+	"homeautomation/internal/state"
 	"homeautomation/internal/testlogger"
 	"homeautomation/pkg/plugin"
 
@@ -24,8 +25,8 @@ import (
 // ============================================================================
 
 // setupSleepHygieneScenarioTest creates a test environment with the sleep hygiene plugin
-func setupSleepHygieneScenarioTest(t *testing.T) (*MockHAServer, *sleephygiene.Manager, func()) {
-	server, client, manager, baseCleanup := setupTest(t)
+func setupSleepHygieneScenarioTest(t *testing.T) (*MockHAServer, *sleephygiene.Manager, *state.Manager, func()) {
+	server, client, stateManager, baseCleanup := setupTest(t)
 
 	// Create logger
 	logger := testlogger.New()
@@ -35,7 +36,7 @@ func setupSleepHygieneScenarioTest(t *testing.T) (*MockHAServer, *sleephygiene.M
 
 	// Create sleep hygiene plugin (read-only mode = false for testing service calls)
 	// Use nil for timezone to default to time.Local
-	sleepMgr := sleephygiene.NewManager(context.Background(), client, manager, configLoader, logger, false, nil, nil)
+	sleepMgr := sleephygiene.NewManager(context.Background(), client, stateManager, configLoader, logger, false, nil, nil)
 
 	// Start the sleep hygiene plugin
 	err := sleepMgr.Start()
@@ -46,7 +47,7 @@ func setupSleepHygieneScenarioTest(t *testing.T) (*MockHAServer, *sleephygiene.M
 		baseCleanup()
 	}
 
-	return server, sleepMgr, cleanup
+	return server, sleepMgr, stateManager, cleanup
 }
 
 // setupSleepHygieneScenarioTestWithTime creates a test environment with a fixed time provider
@@ -148,7 +149,7 @@ func TestScenario_AlarmTimeReached_TriggersBeginWakeSequence(t *testing.T) {
 // TestScenario_BeginWakeSequence_FadesOutMusic validates that the begin_wake
 // sequence properly fades out bedroom speaker volume
 func TestScenario_BeginWakeSequence_FadesOutMusic(t *testing.T) {
-	server, sleepMgr, cleanup := setupSleepHygieneScenarioTest(t)
+	server, sleepMgr, _, cleanup := setupSleepHygieneScenarioTest(t)
 	defer cleanup()
 	_ = sleepMgr // silence unused variable warning
 
@@ -351,7 +352,7 @@ func TestScenario_EveningReminder_SendsStopScreensNotification(t *testing.T) {
 // TestScenario_WakeCancellation_RevertsToSleepMusic validates that when
 // bedroom lights are turned off during wake sequence, it reverts to sleep music
 func TestScenario_WakeCancellation_RevertsToSleepMusic(t *testing.T) {
-	server, sleepMgr, cleanup := setupSleepHygieneScenarioTest(t)
+	server, sleepMgr, _, cleanup := setupSleepHygieneScenarioTest(t)
 	defer cleanup()
 	_ = sleepMgr // silence unused variable warning
 
@@ -406,7 +407,7 @@ func TestScenario_WakeCancellation_RevertsToSleepMusic(t *testing.T) {
 // TestScenario_MultipleAlarms_UpdatesCorrectly validates that when alarm time
 // changes to a different value, the wake triggers update accordingly
 func TestScenario_MultipleAlarms_UpdatesCorrectly(t *testing.T) {
-	server, sleepMgr, cleanup := setupSleepHygieneScenarioTest(t)
+	server, sleepMgr, _, cleanup := setupSleepHygieneScenarioTest(t)
 	defer cleanup()
 	_ = sleepMgr // silence unused variable warning
 
@@ -452,7 +453,7 @@ func TestScenario_MultipleAlarms_UpdatesCorrectly(t *testing.T) {
 // caused volume_set commands to be retried out of order, potentially
 // resulting in unexpected volume changes.
 func TestScenario_WakeSequence_VolumeFadesOutMonotonically(t *testing.T) {
-	server, sleepMgr, cleanup := setupSleepHygieneScenarioTest(t)
+	server, sleepMgr, _, cleanup := setupSleepHygieneScenarioTest(t)
 	defer cleanup()
 
 	// Skip internal sleeps so the fade-out completes quickly
@@ -628,7 +629,7 @@ func TestScenario_SleepStateIntegration_ChecksConditions(t *testing.T) {
 // 2. The follow-up call sets brightness_pct to 100 with transition=1500 (25 min)
 // 3. The two-step process ensures lights start dim and gradually brighten
 func TestScenario_WakeUpLightFadeIn_StartsAtLowBrightness(t *testing.T) {
-	server, sleepMgr, cleanup := setupSleepHygieneScenarioTest(t)
+	server, sleepMgr, _, cleanup := setupSleepHygieneScenarioTest(t)
 	defer cleanup()
 
 	// Skip internal sleeps so the test completes quickly
@@ -985,7 +986,7 @@ func TestScenario_WakeSequence_LightingConditionPriority(t *testing.T) {
 // This test validates step 3: that musicPlaybackType becomes "wakeup" after
 // the light fade-in completes.
 func TestScenario_WakeSequence_ActivatesWakeMusic(t *testing.T) {
-	server, sleepMgr, cleanup := setupSleepHygieneScenarioTest(t)
+	server, sleepMgr, stateManager, cleanup := setupSleepHygieneScenarioTest(t)
 	defer cleanup()
 
 	// Skip internal sleeps so the test completes quickly
@@ -999,8 +1000,11 @@ func TestScenario_WakeSequence_ActivatesWakeMusic(t *testing.T) {
 	server.SetState("input_boolean.anyone_home", "on", map[string]interface{}{})
 	server.SetState("input_boolean.master_asleep", "on", map[string]interface{}{})
 	server.SetState("input_boolean.fade_out_in_progress", "on", map[string]interface{}{})
-	// Set wake_sequence_active so it exists when handleWake sets it
-	server.SetState("input_boolean.wake_sequence_active", "off", map[string]interface{}{})
+	// isWakeSequenceActive is now set by handleBeginWake() (since PR #5XX fix).
+	// Since we're simulating the state "after begin_wake has run", this should be true.
+	// Set on both server AND state manager since sleephygiene reads from state manager.
+	server.SetState("input_boolean.wake_sequence_active", "on", map[string]interface{}{})
+	require.NoError(t, stateManager.SetBool("isWakeSequenceActive", true))
 
 	// Start with sleep music playing (typical state before wake)
 	server.SetState("input_text.music_playback_type", "sleep", map[string]interface{}{})

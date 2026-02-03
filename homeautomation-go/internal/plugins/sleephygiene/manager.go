@@ -402,6 +402,17 @@ func (m *Manager) handleBeginWake() {
 	// All conditions met - start fade out
 	m.logger.Info("Conditions met for begin_wake, starting fade out")
 
+	// Set wake sequence active IMMEDIATELY when begin_wake fires.
+	// This prevents the sleep zone from matching (it requires isWakeSequenceActive=false)
+	// and allows the morning zone to match (its second trigger group checks isWakeSequenceActive=true).
+	// Without this, there's a 5-minute race window where dayPhase can change to "morning"
+	// but the sleep zone still matches, causing sleep music to restart instead of morning music.
+	if !m.readOnly {
+		if err := m.stateManager.SetBool("isWakeSequenceActive", true); err != nil {
+			m.logger.Error("Failed to set isWakeSequenceActive", zap.Error(err))
+		}
+	}
+
 	// Get bedroom speakers from currentlyPlayingMusic
 	bedroomSpeakers := m.getBedroomSpeakers()
 	if len(bedroomSpeakers) == 0 {
@@ -785,11 +796,10 @@ func (m *Manager) handleWake() {
 	m.shadowTracker.UpdateWakeSequenceStatus("wake_in_progress")
 
 	if !m.readOnly {
-		// Set wake sequence active flag - protects lights from being turned off
-		// by the lighting plugin during the light fade-in
-		if err := m.stateManager.SetBool("isWakeSequenceActive", true); err != nil {
-			m.logger.Error("Failed to set isWakeSequenceActive", zap.Error(err))
-		}
+		// Note: isWakeSequenceActive was already set to true in handleBeginWake()
+		// when the fade-out started. This prevents the sleep zone from matching
+		// and allows morning music to play in the rest of the house while the
+		// bedroom is still fading out.
 
 		// Turn on master bedroom lights slowly (25 minute transition)
 		m.turnOnMasterBedroomLights()
