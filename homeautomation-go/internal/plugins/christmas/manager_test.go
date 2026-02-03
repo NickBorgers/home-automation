@@ -1,6 +1,7 @@
 package christmas
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -22,7 +23,7 @@ func TestChristmasManager_ActivationTurnsOnHolidayLights(t *testing.T) {
 	logger := zap.NewNop()
 
 	// Create christmas manager (not read-only)
-	manager := NewManager(mockHA, logger, false, nil)
+	manager := NewManager(context.Background(), mockHA, logger, false, nil)
 	if err := manager.Start(); err != nil {
 		t.Fatalf("Failed to start christmas manager: %v", err)
 	}
@@ -67,7 +68,7 @@ func TestChristmasManager_ActivationResetsToggle(t *testing.T) {
 	logger := zap.NewNop()
 
 	// Create christmas manager (not read-only)
-	manager := NewManager(mockHA, logger, false, nil)
+	manager := NewManager(context.Background(), mockHA, logger, false, nil)
 	if err := manager.Start(); err != nil {
 		t.Fatalf("Failed to start christmas manager: %v", err)
 	}
@@ -112,7 +113,7 @@ func TestChristmasManager_OffDoesNothing(t *testing.T) {
 	logger := zap.NewNop()
 
 	// Create christmas manager (not read-only)
-	manager := NewManager(mockHA, logger, false, nil)
+	manager := NewManager(context.Background(), mockHA, logger, false, nil)
 	if err := manager.Start(); err != nil {
 		t.Fatalf("Failed to start christmas manager: %v", err)
 	}
@@ -147,7 +148,7 @@ func TestChristmasManager_ReadOnlyMode(t *testing.T) {
 	logger := zap.NewNop()
 
 	// Create christmas manager in read-only mode
-	manager := NewManager(mockHA, logger, true, nil)
+	manager := NewManager(context.Background(), mockHA, logger, true, nil)
 	if err := manager.Start(); err != nil {
 		t.Fatalf("Failed to start christmas manager: %v", err)
 	}
@@ -180,7 +181,7 @@ func TestChristmasManager_ShadowState(t *testing.T) {
 	logger := zap.NewNop()
 
 	// Create christmas manager
-	manager := NewManager(mockHA, logger, false, nil)
+	manager := NewManager(context.Background(), mockHA, logger, false, nil)
 	if err := manager.Start(); err != nil {
 		t.Fatalf("Failed to start christmas manager: %v", err)
 	}
@@ -223,7 +224,7 @@ func TestChristmasManager_Reset(t *testing.T) {
 	logger := zap.NewNop()
 
 	// Create christmas manager
-	manager := NewManager(mockHA, logger, false, nil)
+	manager := NewManager(context.Background(), mockHA, logger, false, nil)
 	if err := manager.Start(); err != nil {
 		t.Fatalf("Failed to start christmas manager: %v", err)
 	}
@@ -272,7 +273,7 @@ func TestChristmasManager_ResetWhenOff(t *testing.T) {
 	logger := zap.NewNop()
 
 	// Create christmas manager
-	manager := NewManager(mockHA, logger, false, nil)
+	manager := NewManager(context.Background(), mockHA, logger, false, nil)
 	if err := manager.Start(); err != nil {
 		t.Fatalf("Failed to start christmas manager: %v", err)
 	}

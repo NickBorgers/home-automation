@@ -35,6 +35,7 @@ const (
 
 // Manager handles security-related automation
 type Manager struct {
+	ctx           context.Context
 	haClient      ha.HAClient
 	stateManager  *state.Manager
 	logger        *zap.Logger
@@ -52,10 +53,11 @@ type Manager struct {
 }
 
 // NewManager creates a new Security manager
-func NewManager(haClient ha.HAClient, stateManager *state.Manager, logger *zap.Logger, readOnly bool, registry *shadowstate.SubscriptionRegistry) *Manager {
+func NewManager(ctx context.Context, haClient ha.HAClient, stateManager *state.Manager, logger *zap.Logger, readOnly bool, registry *shadowstate.SubscriptionRegistry) *Manager {
 	shadowTracker := shadowstate.NewSecurityTracker()
 
 	return &Manager{
+		ctx:           ctx,
 		haClient:      haClient,
 		stateManager:  stateManager,
 		logger:        logger.Named("security"),
@@ -171,7 +173,7 @@ func (m *Manager) activateLockdown(reason string, trigger string) {
 	// Run the off-wait-on sequence in a goroutine to avoid blocking
 	go func() {
 		// Step 1: Turn lockdown off first
-		if err := m.haClient.CallService(context.Background(), "input_boolean", "turn_off", map[string]interface{}{
+		if err := m.haClient.CallService(m.ctx, "input_boolean", "turn_off", map[string]interface{}{
 			"entity_id": "input_boolean.lockdown",
 		}); err != nil {
 			m.logger.Error("Failed to turn off lockdown before activation", zap.Error(err))
@@ -183,7 +185,7 @@ func (m *Manager) activateLockdown(reason string, trigger string) {
 		m.clock.Sleep(LockdownClearDelay)
 
 		// Step 3: Turn lockdown on
-		if err := m.haClient.CallService(context.Background(), "input_boolean", "turn_on", map[string]interface{}{
+		if err := m.haClient.CallService(m.ctx, "input_boolean", "turn_on", map[string]interface{}{
 			"entity_id": "input_boolean.lockdown",
 		}); err != nil {
 			m.logger.Error("Failed to activate lockdown", zap.Error(err))
@@ -210,7 +212,7 @@ func (m *Manager) handleLockdownActivated(entity string, oldState, newState *ha.
 				return
 			}
 
-			if err := m.haClient.CallService(context.Background(), "input_boolean", "turn_off", map[string]interface{}{
+			if err := m.haClient.CallService(m.ctx, "input_boolean", "turn_off", map[string]interface{}{
 				"entity_id": "input_boolean.lockdown",
 			}); err != nil {
 				m.logger.Error("Failed to reset lockdown", zap.Error(err))
@@ -263,7 +265,7 @@ func (m *Manager) openGarageDoor(garageWasEmpty bool) {
 		return
 	}
 
-	if err := m.haClient.CallService(context.Background(), "cover", "open_cover", map[string]interface{}{
+	if err := m.haClient.CallService(m.ctx, "cover", "open_cover", map[string]interface{}{
 		"entity_id": "cover.garage_door_door",
 	}); err != nil {
 		m.logger.Error("Failed to open garage door", zap.Error(err))
@@ -324,7 +326,7 @@ func (m *Manager) flashLights(lights []string) {
 		return
 	}
 
-	if err := m.haClient.CallService(context.Background(), "light", "turn_on", map[string]interface{}{
+	if err := m.haClient.CallService(m.ctx, "light", "turn_on", map[string]interface{}{
 		"entity_id": lights,
 		"flash":     "short",
 	}); err != nil {
@@ -373,7 +375,7 @@ func (m *Manager) handleVehicleArriving(entity string, oldState, newState *ha.St
 
 	// Reset expecting someone flag
 	if !m.readOnly {
-		if err := m.haClient.CallService(context.Background(), "input_boolean", "turn_off", map[string]interface{}{
+		if err := m.haClient.CallService(m.ctx, "input_boolean", "turn_off", map[string]interface{}{
 			"entity_id": "input_boolean.expecting_someone",
 		}); err != nil {
 			m.logger.Error("Failed to reset expecting_someone", zap.Error(err))
@@ -396,7 +398,7 @@ func (m *Manager) sendTTSNotification(message string) {
 		"media_player.kids_bathroom",
 	}
 
-	if err := m.haClient.CallService(context.Background(), "tts", "speak", map[string]interface{}{
+	if err := m.haClient.CallService(m.ctx, "tts", "speak", map[string]interface{}{
 		"entity_id":              "tts.google_translate_en_com",
 		"media_player_entity_id": speakers,
 		"message":                message,

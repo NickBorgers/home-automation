@@ -51,6 +51,7 @@ type SleepFunc func(time.Duration)
 
 // Manager handles sleep hygiene automations including wake-up sequences
 type Manager struct {
+	ctx             context.Context
 	haClient        ha.HAClient
 	stateManager    *state.Manager
 	configLoader    *config.Loader
@@ -76,7 +77,7 @@ type Manager struct {
 // NewManager creates a new Sleep Hygiene manager
 // If timeProvider is nil, it defaults to plugin.RealTimeProvider
 // If timezone is nil, it defaults to time.Local
-func NewManager(haClient ha.HAClient, stateManager *state.Manager, configLoader *config.Loader, logger *zap.Logger, readOnly bool, timeProvider plugin.TimeProvider, timezone *time.Location) *Manager {
+func NewManager(ctx context.Context, haClient ha.HAClient, stateManager *state.Manager, configLoader *config.Loader, logger *zap.Logger, readOnly bool, timeProvider plugin.TimeProvider, timezone *time.Location) *Manager {
 	if timeProvider == nil {
 		timeProvider = plugin.RealTimeProvider{}
 	}
@@ -84,6 +85,7 @@ func NewManager(haClient ha.HAClient, stateManager *state.Manager, configLoader 
 		timezone = time.Local
 	}
 	return &Manager{
+		ctx:             ctx,
 		haClient:        haClient,
 		stateManager:    stateManager,
 		configLoader:    configLoader,
@@ -555,7 +557,7 @@ func (m *Manager) fadeOutSpeaker(speakerEntityID string) {
 			zap.Float64("volume_level", volumeLevel))
 
 		// Set volume on speaker
-		if err := m.haClient.CallService(context.Background(), "media_player", "volume_set", map[string]interface{}{
+		if err := m.haClient.CallService(m.ctx, "media_player", "volume_set", map[string]interface{}{
 			"entity_id":    speakerEntityID,
 			"volume_level": volumeLevel,
 		}); err != nil {
@@ -895,7 +897,7 @@ func (m *Manager) turnOnMasterBedroomLights() {
 		zap.Int("transition_seconds", transitionSeconds))
 
 	// First, ensure lights start dim and white
-	if err := m.haClient.CallService(context.Background(), "light", "turn_on", map[string]interface{}{
+	if err := m.haClient.CallService(m.ctx, "light", "turn_on", map[string]interface{}{
 		"entity_id":      "light.primary_suite",
 		"transition":     0,
 		"color_temp":     290,
@@ -908,7 +910,7 @@ func (m *Manager) turnOnMasterBedroomLights() {
 	m.logger.Info("Set initial bedroom light state (1% brightness, warm white)")
 
 	// Then start slow transition to full brightness
-	if err := m.haClient.CallService(context.Background(), "light", "turn_on", map[string]interface{}{
+	if err := m.haClient.CallService(m.ctx, "light", "turn_on", map[string]interface{}{
 		"entity_id":      "light.primary_suite",
 		"transition":     transitionSeconds,
 		"color_temp":     290,
@@ -932,7 +934,7 @@ func (m *Manager) flashCommonAreaLights() {
 	}
 
 	for _, lightEntity := range commonAreaLights {
-		if err := m.haClient.CallService(context.Background(), "light", "turn_on", map[string]interface{}{
+		if err := m.haClient.CallService(m.ctx, "light", "turn_on", map[string]interface{}{
 			"entity_id": lightEntity,
 			"flash":     "short",
 		}); err != nil {
@@ -947,7 +949,7 @@ func (m *Manager) flashCommonAreaLights() {
 func (m *Manager) turnOffBathroomLights() {
 	m.logger.Info("Turning off primary bathroom lights")
 
-	if err := m.haClient.CallService(context.Background(), "light", "turn_off", map[string]interface{}{
+	if err := m.haClient.CallService(m.ctx, "light", "turn_off", map[string]interface{}{
 		"entity_id": "light.primary_bathroom_main_lights",
 	}); err != nil {
 		m.logger.Error("Failed to turn off bathroom lights", zap.Error(err))

@@ -1,6 +1,7 @@
 package integration
 
 import (
+	"context"
 	"testing"
 
 	"homeautomation/internal/plugins/tv"
@@ -18,7 +19,7 @@ func setupTVScenarioTest(t *testing.T) (*MockHAServer, *state.Manager, func()) {
 	logger := testlogger.New()
 
 	// Create and start TV plugin
-	tvManager := tv.NewManager(client, stateManager, logger, false, nil)
+	tvManager := tv.NewManager(context.Background(), client, stateManager, logger, false, nil)
 	require.NoError(t, tvManager.Start(), "TV manager should start successfully")
 
 	cleanup := func() {

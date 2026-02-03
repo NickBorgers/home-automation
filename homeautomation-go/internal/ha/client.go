@@ -1032,20 +1032,20 @@ func isRetryableError(err error) bool {
 
 // CallService calls a Home Assistant service with automatic retry for transient errors.
 // Uses exponential backoff starting at 500ms, doubling each retry (capped at 15s).
-// The context allows cancellation during retry waits for graceful shutdown support.
+// The context can be used to cancel the operation during shutdown.
 func (c *Client) CallService(ctx context.Context, domain, service string, data map[string]interface{}) error {
 	var lastErr error
 	delay := initialRetryDelay
 
 	for attempt := 0; attempt <= maxRetries; attempt++ {
-		if attempt > 0 {
-			// Check context before sleeping
-			select {
-			case <-ctx.Done():
-				return fmt.Errorf("service call cancelled: %w", ctx.Err())
-			default:
-			}
+		// Check for context cancellation before each attempt
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("service call cancelled: %w", ctx.Err())
+		default:
+		}
 
+		if attempt > 0 {
 			c.logger.Warn("Retrying service call",
 				zap.String("domain", domain),
 				zap.String("service", service),
@@ -1054,13 +1054,11 @@ func (c *Client) CallService(ctx context.Context, domain, service string, data m
 				zap.Error(lastErr),
 			)
 
-			// Use timer instead of time.Sleep for cancellation support
-			timer := time.NewTimer(delay)
+			// Use select to respect context cancellation during retry delay
 			select {
 			case <-ctx.Done():
-				timer.Stop()
-				return fmt.Errorf("service call cancelled during retry wait: %w", ctx.Err())
-			case <-timer.C:
+				return fmt.Errorf("service call cancelled during retry: %w", ctx.Err())
+			case <-time.After(delay):
 			}
 
 			// Exponential backoff
@@ -1105,20 +1103,20 @@ func (c *Client) CallService(ctx context.Context, domain, service string, data m
 
 // CallServiceWithTarget calls a Home Assistant service with an explicit target.
 // Uses the same retry logic as CallService.
-// The context allows cancellation during retry waits for graceful shutdown support.
+// The context can be used to cancel the operation during shutdown.
 func (c *Client) CallServiceWithTarget(ctx context.Context, domain, service string, target *ServiceTarget, data map[string]interface{}) error {
 	var lastErr error
 	delay := initialRetryDelay
 
 	for attempt := 0; attempt <= maxRetries; attempt++ {
-		if attempt > 0 {
-			// Check context before sleeping
-			select {
-			case <-ctx.Done():
-				return fmt.Errorf("service call cancelled: %w", ctx.Err())
-			default:
-			}
+		// Check for context cancellation before each attempt
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("service call with target cancelled: %w", ctx.Err())
+		default:
+		}
 
+		if attempt > 0 {
 			c.logger.Warn("Retrying service call with target",
 				zap.String("domain", domain),
 				zap.String("service", service),
@@ -1127,13 +1125,11 @@ func (c *Client) CallServiceWithTarget(ctx context.Context, domain, service stri
 				zap.Error(lastErr),
 			)
 
-			// Use timer instead of time.Sleep for cancellation support
-			timer := time.NewTimer(delay)
+			// Use select to respect context cancellation during retry delay
 			select {
 			case <-ctx.Done():
-				timer.Stop()
-				return fmt.Errorf("service call cancelled during retry wait: %w", ctx.Err())
-			case <-timer.C:
+				return fmt.Errorf("service call with target cancelled during retry: %w", ctx.Err())
+			case <-time.After(delay):
 			}
 
 			// Exponential backoff

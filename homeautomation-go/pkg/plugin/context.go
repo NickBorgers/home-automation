@@ -1,6 +1,7 @@
 package plugin
 
 import (
+	"context"
 	"time"
 
 	"homeautomation/internal/ntfy"
@@ -63,6 +64,12 @@ type Context struct {
 	// May be nil if NTFY_TOPIC_URL is not configured.
 	// Plugins should check for nil before sending notifications.
 	NtfyClient ntfy.Notifier
+
+	// ShutdownCtx is a context that is cancelled during application shutdown.
+	// Plugins should use this context for service calls to enable graceful
+	// shutdown - when the context is cancelled, service calls with retry loops
+	// will exit quickly instead of waiting for their full retry budget.
+	ShutdownCtx context.Context
 }
 
 // NewContext creates a new plugin context with all required dependencies.

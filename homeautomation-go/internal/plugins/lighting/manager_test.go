@@ -1,6 +1,7 @@
 package lighting
 
 import (
+	"context"
 	"testing"
 
 	"homeautomation/internal/ha"
@@ -61,7 +62,7 @@ func TestNewManager(t *testing.T) {
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 
-	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil)
 
 	assert.NotNil(t, manager)
 	assert.Equal(t, mockClient, manager.haClient)
@@ -76,7 +77,7 @@ func TestEvaluateConditions(t *testing.T) {
 	config := createTestConfig()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
-	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil)
 
 	tests := []struct {
 		name           string
@@ -201,7 +202,7 @@ func TestEvaluateConditionsNoMatch(t *testing.T) {
 		},
 	}
 
-	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil)
 
 	room := &config.Rooms[0]
 	action, matchedVar := manager.evaluateConditions(room)
@@ -215,7 +216,7 @@ func TestActivateSceneReadOnly(t *testing.T) {
 	config := createTestConfig()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
-	manager := NewManager(mockClient, stateManager, config, logger, true, nil) // Read-only mode
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, true, nil) // Read-only mode
 
 	room := &config.Rooms[0]
 	dayPhase := "Morning"
@@ -234,7 +235,7 @@ func TestActivateScene(t *testing.T) {
 	config := createTestConfig()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
-	manager := NewManager(mockClient, stateManager, config, logger, false, nil) // Not read-only
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil) // Not read-only
 
 	room := &config.Rooms[0]
 	dayPhase := "Morning"
@@ -264,7 +265,7 @@ func TestActivateSceneDusk(t *testing.T) {
 	config := createTestConfig()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
-	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil)
 
 	room := &config.Rooms[0] // Living Room
 	dayPhase := "Dusk"
@@ -293,7 +294,7 @@ func TestTurnOffRoomReadOnly(t *testing.T) {
 	config := createTestConfig()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
-	manager := NewManager(mockClient, stateManager, config, logger, true, nil) // Read-only mode
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, true, nil) // Read-only mode
 
 	room := &config.Rooms[0]
 
@@ -311,7 +312,7 @@ func TestTurnOffRoom(t *testing.T) {
 	config := createTestConfig()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
-	manager := NewManager(mockClient, stateManager, config, logger, false, nil) // Not read-only
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil) // Not read-only
 
 	room := &config.Rooms[0]
 
@@ -403,7 +404,7 @@ func TestEvaluateAndActivateRoom(t *testing.T) {
 			// Create fresh mocks for each test case
 			mockClient := ha.NewMockClient()
 			stateManager := state.NewManager(mockClient, logger, false)
-			manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+			manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil)
 
 			tt.setupState(stateManager)
 			room := &config.Rooms[tt.roomIndex]
@@ -444,7 +445,7 @@ func TestStart(t *testing.T) {
 	config := createTestConfig()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
-	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil)
 
 	// Start manager
 	err := manager.Start()
@@ -488,7 +489,7 @@ func TestLightingManager_Stop(t *testing.T) {
 		},
 	}
 
-	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil)
 
 	// Initialize required state variables
 	_ = stateManager.SetString("dayPhase", "morning")
@@ -523,7 +524,7 @@ func TestManagerReset(t *testing.T) {
 	// Set day phase
 	stateManager.SetString("dayPhase", "morning")
 
-	manager := NewManager(mockClient, stateManager, hueConfig, logger, false, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, hueConfig, logger, false, nil)
 
 	err := manager.Start()
 	assert.NoError(t, err)
@@ -540,7 +541,7 @@ func TestIsTopicRelevant(t *testing.T) {
 	config := createTestConfig()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
-	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil)
 
 	tests := []struct {
 		name     string
@@ -613,7 +614,7 @@ func TestGetStateValue(t *testing.T) {
 	config := createTestConfig()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
-	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil)
 
 	// Use real registered state variables
 	// Boolean: isAnyoneHome (registered in state manager)
@@ -645,7 +646,7 @@ func TestCollectConditionVariables(t *testing.T) {
 	config := createTestConfig()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
-	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil)
 
 	vars := manager.collectConditionVariables()
 
@@ -678,7 +679,7 @@ func TestHandleSunEventChange(t *testing.T) {
 	config := createTestConfig()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
-	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil)
 
 	// Set up initial state
 	_ = stateManager.SetString("dayPhase", "Morning")
@@ -710,7 +711,7 @@ func TestHandleSunEventChangeWithInvalidValue(t *testing.T) {
 	config := createTestConfig()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
-	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil)
 
 	// Set up initial state
 	_ = stateManager.SetString("dayPhase", "Morning")
@@ -735,7 +736,7 @@ func TestHandleTVStateChange(t *testing.T) {
 	config := createTestConfig()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
-	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil)
 
 	// Set up initial state
 	_ = stateManager.SetString("dayPhase", "Evening")
@@ -773,7 +774,7 @@ func TestHandleTVStateChangeTurnsOffTV(t *testing.T) {
 	config := createTestConfig()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
-	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil)
 
 	// Set up initial state - TV was playing
 	_ = stateManager.SetString("dayPhase", "Evening")
@@ -806,7 +807,7 @@ func TestHandleSleepStateChange(t *testing.T) {
 	config := createTestConfig()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
-	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil)
 
 	// Set up initial state - awake
 	_ = stateManager.SetString("dayPhase", "Night")
@@ -844,7 +845,7 @@ func TestHandleSleepStateChangeMasterAsleep(t *testing.T) {
 	config := createTestConfig()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
-	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil)
 
 	// Set up initial state - master bedroom awake
 	_ = stateManager.SetString("dayPhase", "Night")
@@ -885,7 +886,7 @@ func TestHandleSleepStateChangeWakesUp(t *testing.T) {
 	config := createTestConfig()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
-	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil)
 
 	// Set up initial state - master was asleep
 	_ = stateManager.SetString("dayPhase", "Morning")
@@ -937,7 +938,7 @@ func TestHandleOccupancyChange(t *testing.T) {
 
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
-	manager := NewManager(mockClient, stateManager, config, logger, false, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil)
 
 	// Set up initial state - use registered variable isNickOfficeOccupied
 	_ = stateManager.SetString("dayPhase", "Day")

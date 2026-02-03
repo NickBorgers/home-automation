@@ -1,6 +1,7 @@
 package statetracking
 
 import (
+	"context"
 	"testing"
 
 	"homeautomation/internal/ha"
@@ -27,7 +28,7 @@ func TestSleepDetection_HandlersInitialized(t *testing.T) {
 	}
 
 	// Create and start manager
-	manager := NewManager(mockHA, stateMgr, logger, false, nil)
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
 	if err := manager.Start(); err != nil {
 		t.Fatalf("Failed to start manager: %v", err)
 	}
@@ -57,7 +58,7 @@ func TestSleepDetection_LightsOffStartsTimer(t *testing.T) {
 	}
 
 	// Create and start manager
-	manager := NewManager(mockHA, stateMgr, logger, false, nil)
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
 	if err := manager.Start(); err != nil {
 		t.Fatalf("Failed to start manager: %v", err)
 	}
@@ -103,7 +104,7 @@ func TestSleepDetection_LightsOnCancelsTimer(t *testing.T) {
 	}
 
 	// Create and start manager
-	manager := NewManager(mockHA, stateMgr, logger, false, nil)
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
 	if err := manager.Start(); err != nil {
 		t.Fatalf("Failed to start manager: %v", err)
 	}
@@ -151,7 +152,7 @@ func TestWakeDetection_DoorOpenStartsTimer(t *testing.T) {
 	}
 
 	// Create and start manager
-	manager := NewManager(mockHA, stateMgr, logger, false, nil)
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
 	if err := manager.Start(); err != nil {
 		t.Fatalf("Failed to start manager: %v", err)
 	}
@@ -194,7 +195,7 @@ func TestWakeDetection_DoorClosedCancelsTimer(t *testing.T) {
 	}
 
 	// Create and start manager
-	manager := NewManager(mockHA, stateMgr, logger, false, nil)
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
 	if err := manager.Start(); err != nil {
 		t.Fatalf("Failed to start manager: %v", err)
 	}
@@ -243,7 +244,7 @@ func TestDetectMasterAsleep_SkipsIfNobodyHome(t *testing.T) {
 	}
 
 	// Create manager
-	manager := NewManager(mockHA, stateMgr, logger, false, nil)
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
 	if err := manager.Start(); err != nil {
 		t.Fatalf("Failed to start manager: %v", err)
 	}
@@ -280,7 +281,7 @@ func TestDetectMasterAsleep_SkipsIfAlreadyAsleep(t *testing.T) {
 	}
 
 	// Create manager
-	manager := NewManager(mockHA, stateMgr, logger, false, nil)
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
 	if err := manager.Start(); err != nil {
 		t.Fatalf("Failed to start manager: %v", err)
 	}
@@ -317,7 +318,7 @@ func TestDetectMasterAsleep_SetsSleepWhenConditionsMet(t *testing.T) {
 	}
 
 	// Create manager in read-write mode (not read-only)
-	manager := NewManager(mockHA, stateMgr, logger, false, nil)
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
 	if err := manager.Start(); err != nil {
 		t.Fatalf("Failed to start manager: %v", err)
 	}
@@ -354,7 +355,7 @@ func TestDetectMasterAwake_SetsAwake(t *testing.T) {
 	}
 
 	// Create manager
-	manager := NewManager(mockHA, stateMgr, logger, false, nil)
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
 	if err := manager.Start(); err != nil {
 		t.Fatalf("Failed to start manager: %v", err)
 	}

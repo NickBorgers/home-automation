@@ -50,6 +50,7 @@ const (
 
 // Manager handles water flow monitoring
 type Manager struct {
+	ctx          context.Context
 	haClient     ha.HAClient
 	stateManager *state.Manager
 	logger       *zap.Logger
@@ -79,10 +80,11 @@ type Manager struct {
 }
 
 // NewManager creates a new water flow manager
-func NewManager(haClient ha.HAClient, stateManager *state.Manager, logger *zap.Logger, readOnly bool, registry *shadowstate.SubscriptionRegistry, ntfyClient ntfy.Notifier) *Manager {
+func NewManager(ctx context.Context, haClient ha.HAClient, stateManager *state.Manager, logger *zap.Logger, readOnly bool, registry *shadowstate.SubscriptionRegistry, ntfyClient ntfy.Notifier) *Manager {
 	shadowTracker := shadowstate.NewWaterFlowTracker()
 
 	return &Manager{
+		ctx:           ctx,
 		haClient:      haClient,
 		stateManager:  stateManager,
 		logger:        logger.Named("waterflow"),
@@ -95,8 +97,8 @@ func NewManager(haClient ha.HAClient, stateManager *state.Manager, logger *zap.L
 }
 
 // NewManagerWithClock creates a new water flow manager with a custom clock (for testing)
-func NewManagerWithClock(haClient ha.HAClient, stateManager *state.Manager, logger *zap.Logger, readOnly bool, registry *shadowstate.SubscriptionRegistry, ntfyClient ntfy.Notifier, c clock.Clock) *Manager {
-	m := NewManager(haClient, stateManager, logger, readOnly, registry, ntfyClient)
+func NewManagerWithClock(ctx context.Context, haClient ha.HAClient, stateManager *state.Manager, logger *zap.Logger, readOnly bool, registry *shadowstate.SubscriptionRegistry, ntfyClient ntfy.Notifier, c clock.Clock) *Manager {
+	m := NewManager(ctx, haClient, stateManager, logger, readOnly, registry, ntfyClient)
 	m.clock = c
 	return m
 }
@@ -464,7 +466,7 @@ func (m *Manager) sendTTSAnnouncement(message string) {
 		"media_player.kids_bathroom",
 	}
 
-	if err := m.haClient.CallService(context.Background(), "tts", "speak", map[string]interface{}{
+	if err := m.haClient.CallService(m.ctx, "tts", "speak", map[string]interface{}{
 		"entity_id":              "tts.google_translate_en_com",
 		"media_player_entity_id": speakers,
 		"message":                message,

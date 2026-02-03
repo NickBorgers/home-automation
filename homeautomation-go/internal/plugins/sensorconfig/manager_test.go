@@ -1,6 +1,7 @@
 package sensorconfig
 
 import (
+	"context"
 	"testing"
 
 	"homeautomation/internal/ha"
@@ -35,7 +36,7 @@ func TestManager_Start_ConfiguresThresholds(t *testing.T) {
 	mockClient.SetState("number.temp_sensor_low_alert", "10", nil)
 	mockClient.SetState("number.battery_threshold", "10", nil)
 
-	manager := NewManager(mockClient, config, logger, false)
+	manager := NewManager(context.Background(), mockClient, config, logger, false)
 	err := manager.Start()
 
 	assert.NoError(t, err)
@@ -84,7 +85,7 @@ func TestManager_Start_SkipsAlreadyConfigured(t *testing.T) {
 	// Set up state with target value already configured
 	mockClient.SetState("number.temp_sensor_threshold", "50", nil)
 
-	manager := NewManager(mockClient, config, logger, false)
+	manager := NewManager(context.Background(), mockClient, config, logger, false)
 	err := manager.Start()
 
 	assert.NoError(t, err)
@@ -111,7 +112,7 @@ func TestManager_Start_ReadOnlyMode(t *testing.T) {
 	mockClient.SetState("number.temp_sensor_threshold", "10", nil)
 
 	// Create manager in read-only mode
-	manager := NewManager(mockClient, config, logger, true)
+	manager := NewManager(context.Background(), mockClient, config, logger, true)
 	err := manager.Start()
 
 	assert.NoError(t, err)
@@ -129,7 +130,7 @@ func TestManager_Start_EmptyConfig(t *testing.T) {
 		Sensors: SensorsConfig{},
 	}
 
-	manager := NewManager(mockClient, config, logger, false)
+	manager := NewManager(context.Background(), mockClient, config, logger, false)
 	err := manager.Start()
 
 	assert.NoError(t, err)
@@ -155,7 +156,7 @@ func TestManager_GetShadowState(t *testing.T) {
 	// Set up initial state
 	mockClient.SetState("number.temp_sensor_threshold", "10", nil)
 
-	manager := NewManager(mockClient, config, logger, false)
+	manager := NewManager(context.Background(), mockClient, config, logger, false)
 	err := manager.Start()
 	assert.NoError(t, err)
 
@@ -185,7 +186,7 @@ func TestManager_Reset(t *testing.T) {
 	// Set up initial state
 	mockClient.SetState("number.temp_sensor_threshold", "10", nil)
 
-	manager := NewManager(mockClient, config, logger, false)
+	manager := NewManager(context.Background(), mockClient, config, logger, false)
 
 	// Start
 	err := manager.Start()
@@ -228,7 +229,7 @@ func TestManager_Start_MultipleEntities(t *testing.T) {
 	mockClient.SetState("number.sensor2_threshold", "20", nil)
 	mockClient.SetState("number.sensor3_threshold", "30", nil)
 
-	manager := NewManager(mockClient, config, logger, false)
+	manager := NewManager(context.Background(), mockClient, config, logger, false)
 	err := manager.Start()
 
 	assert.NoError(t, err)
@@ -257,7 +258,7 @@ func TestManager_Start_EntityNotFound(t *testing.T) {
 
 	// Don't set up any state - entity will not be found
 
-	manager := NewManager(mockClient, config, logger, false)
+	manager := NewManager(context.Background(), mockClient, config, logger, false)
 	err := manager.Start()
 
 	// Should not fail - just log and continue
@@ -284,7 +285,7 @@ func TestManager_Start_UnavailableEntity(t *testing.T) {
 	// Set up unavailable state
 	mockClient.SetState("number.unavailable_sensor", "unavailable", nil)
 
-	manager := NewManager(mockClient, config, logger, false)
+	manager := NewManager(context.Background(), mockClient, config, logger, false)
 	err := manager.Start()
 
 	// Should not fail

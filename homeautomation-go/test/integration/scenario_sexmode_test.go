@@ -1,6 +1,7 @@
 package integration
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -49,7 +50,7 @@ func setupSexModeScenarioTest(t *testing.T) (*MockHAServer, *sexmode.Manager, *s
 	time.Sleep(50 * time.Millisecond)
 
 	// Create and start Sex Mode plugin
-	sexModeManager := sexmode.NewManager(client, stateManager, logger, false, nil)
+	sexModeManager := sexmode.NewManager(context.Background(), client, stateManager, logger, false, nil)
 	require.NoError(t, sexModeManager.Start(), "Sex Mode manager should start successfully")
 
 	cleanup := func() {
@@ -464,7 +465,7 @@ func TestScenario_SexModeReset_SyncsState(t *testing.T) {
 
 	// Now create and start the sex mode manager
 	logger := testlogger.New()
-	sexModeManager := sexmode.NewManager(client, stateManager, logger, false, nil)
+	sexModeManager := sexmode.NewManager(context.Background(), client, stateManager, logger, false, nil)
 	require.NoError(t, sexModeManager.Start(), "Sex Mode manager should start successfully")
 
 	cleanup := func() {

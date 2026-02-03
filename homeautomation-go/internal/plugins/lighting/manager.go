@@ -24,10 +24,13 @@ type Manager struct {
 
 	// Subscription helper for automatic shadow state input capture
 	subHelper *shadowstate.SubscriptionHelper
+
+	// Context for graceful shutdown
+	ctx context.Context
 }
 
 // NewManager creates a new Lighting Control manager
-func NewManager(haClient ha.HAClient, stateManager *state.Manager, config *HueConfig, logger *zap.Logger, readOnly bool, registry *shadowstate.SubscriptionRegistry) *Manager {
+func NewManager(ctx context.Context, haClient ha.HAClient, stateManager *state.Manager, config *HueConfig, logger *zap.Logger, readOnly bool, registry *shadowstate.SubscriptionRegistry) *Manager {
 	shadowTracker := shadowstate.NewLightingTracker()
 
 	return &Manager{
@@ -38,6 +41,7 @@ func NewManager(haClient ha.HAClient, stateManager *state.Manager, config *HueCo
 		readOnly:      readOnly,
 		shadowTracker: shadowTracker,
 		subHelper:     shadowstate.NewSubscriptionHelper(haClient, stateManager, registry, shadowTracker, "lighting", logger.Named("lighting")),
+		ctx:           ctx,
 	}
 }
 
@@ -460,7 +464,7 @@ func (m *Manager) activateScene(room *RoomConfig, dayPhase string, trigger strin
 	}
 
 	// Call the service with the constructed entity ID
-	err := m.haClient.CallService(context.Background(), "scene", "turn_on", serviceData)
+	err := m.haClient.CallService(m.ctx, "scene", "turn_on", serviceData)
 	if err != nil {
 		m.logger.Error("Failed to activate scene",
 			zap.String("room", room.HueGroup),
@@ -506,7 +510,7 @@ func (m *Manager) turnOffRoom(room *RoomConfig, trigger string) {
 		"area_id": room.HASSAreaID,
 	}
 
-	err := m.haClient.CallService(context.Background(), "light", "turn_off", serviceData)
+	err := m.haClient.CallService(m.ctx, "light", "turn_off", serviceData)
 	if err != nil {
 		m.logger.Error("Failed to turn off room",
 			zap.String("room", room.HueGroup),

@@ -799,56 +799,29 @@ func processPtr(m *Manager) {
 ```
 
 ### 6. Forgetting to Check ctx.Done() in Long Loops
-
-**Pattern**: Always check `ctx.Done()` in retry loops or any loop that might block for extended periods.
-
-**Why**: Using `time.Sleep()` directly in retry loops blocks graceful shutdown. The retry loop continues sleeping even when the application is shutting down.
-
 ```go
-// ❌ BAD: Blocks shutdown for up to 45 seconds (sum of all retry delays)
-for attempt := 0; attempt <= maxRetries; attempt++ {
-    if attempt > 0 {
-        time.Sleep(delay)  // Blocks without checking context!
-        delay *= 2
-    }
-    if err := doOperation(); err == nil {
-        return nil
+// ❌ BAD: Loop ignores cancellation
+func pollForever(ctx context.Context) {
+    for {
+        doWork()
+        time.Sleep(time.Second)  // Doesn't respect context!
     }
 }
 
-// ✅ GOOD: Respects context cancellation during retry waits
-for attempt := 0; attempt <= maxRetries; attempt++ {
-    if attempt > 0 {
-        // Check context before sleeping
+// ✅ GOOD: Check context and use timer
+func pollForever(ctx context.Context) {
+    ticker := time.NewTicker(time.Second)
+    defer ticker.Stop()
+    for {
         select {
         case <-ctx.Done():
-            return fmt.Errorf("operation cancelled: %w", ctx.Err())
-        default:
+            return  // Exit on cancellation
+        case <-ticker.C:
+            doWork()
         }
-
-        // Use timer instead of time.Sleep for cancellation support
-        timer := time.NewTimer(delay)
-        select {
-        case <-ctx.Done():
-            timer.Stop()
-            return fmt.Errorf("operation cancelled during retry wait: %w", ctx.Err())
-        case <-timer.C:
-        }
-        delay *= 2
-    }
-    if err := doOperation(); err == nil {
-        return nil
     }
 }
 ```
-
-**Where to Apply**:
-- Retry loops with exponential backoff
-- Polling loops that wait between iterations
-- Any loop that uses `time.Sleep()` or `time.After()`
-- Background goroutines that periodically perform work
-
-**Fixed in**: Issue #554, PR #557 - Updated `CallService` and `CallServiceWithTarget` in `internal/ha/client.go`
 
 ### 7. Reading and Writing Shared Variables Without Synchronization
 ```go
@@ -922,10 +895,10 @@ Go's runtime only detects deadlocks when **all** goroutines are blocked. If even
 7. **Message ID allocation and write must be atomic** - Prevents out-of-order IDs
 8. **Configure TCP keepalive with syscalls** - Go's net.Dialer.KeepAlive is insufficient for fast dead connection detection
 9. **Cancel concurrent goroutines before new operations** - Use context.Context to stop conflicting goroutines
-10. **Check ctx.Done() in retry loops** - Use `select{}` with timers instead of `time.Sleep()` for graceful shutdown
-11. **Buffer channels in timeout patterns** - Prevents goroutine leaks when receivers time out
-12. **Maintain consistent lock ordering** - Prevents deadlocks when multiple locks are needed
-13. **Use errgroup for structured concurrency** - Provides bounded parallelism, error propagation, and cleaner code than manual WaitGroup
+10. **Buffer channels in timeout patterns** - Prevents goroutine leaks when receivers time out
+11. **Maintain consistent lock ordering** - Prevents deadlocks when multiple locks are needed
+12. **Use errgroup for structured concurrency** - Provides bounded parallelism, error propagation, and cleaner code than manual WaitGroup
+13. **Propagate shutdown context through service calls** - Enables fast graceful shutdown by allowing retry loops to exit immediately
 
 ---
 
@@ -990,6 +963,100 @@ func (m *Manager) buildSpeakerGroupAsync(participants []ParticipantWithVolume, l
 
 ---
 
+## Lesson 13: Propagate Shutdown Context Through Service Calls for Graceful Shutdown
+
+**Pattern**: Pass a cancellable context through all service call layers so retry loops exit immediately during application shutdown.
+
+**Why**: Service calls with retry logic may wait for minutes (exponential backoff, max retries). During shutdown, these in-flight calls should exit immediately, not hold up the process.
+
+**Problem Scenario**:
+```go
+// ❌ BAD: Service calls ignore shutdown signal
+func (c *Client) CallService(domain, service string, data map[string]interface{}) error {
+    for attempt := 0; attempt <= maxRetries; attempt++ {
+        if attempt > 0 {
+            time.Sleep(delay)  // Blocks for full delay even during shutdown!
+        }
+        // ... try service call
+    }
+    return lastErr
+}
+
+// During shutdown:
+// - SIGTERM received
+// - Service call is on retry 2 of 5, sleeping for 8 seconds
+// - Application waits 8 seconds (plus remaining retries) before exiting
+// - Graceful shutdown takes minutes instead of seconds
+```
+
+**Correct Approach**:
+```go
+// ✅ GOOD: Context-aware service calls exit quickly on shutdown
+func (c *Client) CallService(ctx context.Context, domain, service string, data map[string]interface{}) error {
+    for attempt := 0; attempt <= maxRetries; attempt++ {
+        // Check for cancellation before each attempt
+        select {
+        case <-ctx.Done():
+            return fmt.Errorf("service call cancelled: %w", ctx.Err())
+        default:
+        }
+
+        if attempt > 0 {
+            // Respect context during retry delay
+            select {
+            case <-ctx.Done():
+                return fmt.Errorf("service call cancelled during retry: %w", ctx.Err())
+            case <-time.After(delay):
+            }
+        }
+        // ... try service call
+    }
+    return lastErr
+}
+```
+
+**Application-Level Wiring**:
+```go
+// In main/app setup:
+shutdownCtx, cancelShutdown := context.WithCancel(context.Background())
+pluginCtx.ShutdownCtx = shutdownCtx
+
+// In signal handler:
+func handleShutdown() {
+    cancelShutdown()  // All service calls with shutdownCtx exit immediately
+    logger.Info("Cancelled shutdown context - service calls will exit quickly")
+    // Continue cleanup...
+}
+```
+
+**Key Elements**:
+1. **Create shutdown context at app startup** - Single cancellable context for all plugins
+2. **Pass through plugin context** - Available to all plugin managers
+3. **Use in all service calls** - Every HA API call should accept and respect the context
+4. **Cancel early in shutdown sequence** - Before waiting for other cleanup to complete
+5. **Check context in loops** - Both before attempts and during delays
+
+**Where Applied**:
+- `cmd/app/run.go` - Creates `shutdownCtx` and cancels during SIGTERM handling
+- `pkg/plugin/context.go` - `ShutdownCtx` field in plugin context
+- `internal/ha/client.go` - `CallService()` and `CallServiceWithTarget()` respect context
+- All plugin managers - Pass `ShutdownCtx` to service calls
+
+**Benefits**:
+- Graceful shutdown completes in seconds, not minutes
+- No partial operations left hanging
+- Clean exit even with many in-flight retries
+- Works with existing context cancellation patterns
+
+**Test That Validates This**:
+- `TestClient_CallService_CancelledContext` - Verifies immediate return on cancelled context
+
+**References**:
+- Issue #559 - Propagate cancellable contexts for graceful shutdown
+- Related to Lesson 9 (cancelling goroutines) but operates at a higher level
+
+---
+
 ## External Resources
 
 - [Effective Go - Concurrency](https://go.dev/doc/effective_go#concurrency) - Official Go concurrency guide
@@ -1008,18 +1075,21 @@ func (m *Manager) buildSpeakerGroupAsync(participants []ParticipantWithVolume, l
 - State manager: `internal/state/manager.go`
 - Mock server: `test/integration/mock_ha_server.go`
 
-**Last Updated**: 2026-02-01
+**Last Updated**: 2026-02-02
 **Test Status**: All 11/11 integration tests passing with `-race` flag
 
 ---
 
 ## Change Log
 
+### 2026-02-02
+- **Added Lesson 13**: Propagate Shutdown Context Through Service Calls for Graceful Shutdown
+  - Documents pattern for passing cancellable context through service call layers (Issue #559)
+  - Enables retry loops to exit immediately during application shutdown
+  - Applied to `CallService()` and `CallServiceWithTarget()` in `internal/ha/client.go`
+  - All plugins receive `ShutdownCtx` via plugin context
+
 ### 2026-02-01
-- **Added Pitfall 6**: Forgetting to Check ctx.Done() in Long Loops
-  - Fixed `CallService` and `CallServiceWithTarget` retry loops to respect context cancellation (Issue #554, PR #557)
-  - Pattern: Use `select{}` with `time.NewTimer()` instead of `time.Sleep()` for cancellation support
-  - Enables graceful shutdown without waiting for full retry budget to exhaust (~45 seconds)
 - **Added Lesson 12**: Use errgroup for Structured Concurrency with Bounded Parallelism
   - Adopted `golang.org/x/sync/errgroup` for managing groups of goroutines (Issue #553)
   - Provides bounded parallelism via `SetLimit(n)`, error propagation, and cleaner code
@@ -1037,6 +1107,7 @@ func (m *Manager) buildSpeakerGroupAsync(participants []ParticipantWithVolume, l
 - **Added new Common Pitfalls**:
   - Using defer in loops (defers stack up)
   - Copying mutexes and sync primitives
+  - Forgetting to check ctx.Done() in long loops
   - Reading/writing shared variables without synchronization
 - **Added Debugging Deadlocks section**: Tools and techniques (pprof, SIGQUIT, go-deadlock)
 - **Added External Resources section**: Links to authoritative Go concurrency resources

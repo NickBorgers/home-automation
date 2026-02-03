@@ -207,6 +207,13 @@ func (m *MockClient) GetAllStates() ([]*State, error) {
 
 // CallService records a service call
 func (m *MockClient) CallService(ctx context.Context, domain, service string, data map[string]interface{}) error {
+	// Check for context cancellation
+	select {
+	case <-ctx.Done():
+		return fmt.Errorf("service call cancelled: %w", ctx.Err())
+	default:
+	}
+
 	key := domain + "." + service
 
 	// Check for transient failures first (fail N times, then succeed)
@@ -251,6 +258,13 @@ func (m *MockClient) CallService(ctx context.Context, domain, service string, da
 
 // CallServiceWithTarget records a service call with target
 func (m *MockClient) CallServiceWithTarget(ctx context.Context, domain, service string, target *ServiceTarget, data map[string]interface{}) error {
+	// Check for context cancellation
+	select {
+	case <-ctx.Done():
+		return fmt.Errorf("service call with target cancelled: %w", ctx.Err())
+	default:
+	}
+
 	key := domain + "." + service
 
 	// Check for transient failures first (fail N times, then succeed)

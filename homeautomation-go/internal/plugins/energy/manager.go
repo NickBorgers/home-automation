@@ -31,6 +31,7 @@ const (
 
 // Manager handles energy state calculations and updates
 type Manager struct {
+	ctx          context.Context
 	haClient     ha.HAClient
 	stateManager *state.Manager
 	config       *EnergyConfig
@@ -79,7 +80,7 @@ type Manager struct {
 }
 
 // NewManager creates a new Energy State manager
-func NewManager(haClient ha.HAClient, stateManager *state.Manager, config *EnergyConfig, logger *zap.Logger, readOnly bool, timezone *time.Location, registry *shadowstate.SubscriptionRegistry) *Manager {
+func NewManager(ctx context.Context, haClient ha.HAClient, stateManager *state.Manager, config *EnergyConfig, logger *zap.Logger, readOnly bool, timezone *time.Location, registry *shadowstate.SubscriptionRegistry) *Manager {
 	// Default to UTC if no timezone provided
 	if timezone == nil {
 		timezone = time.UTC
@@ -88,6 +89,7 @@ func NewManager(haClient ha.HAClient, stateManager *state.Manager, config *Energ
 	shadowTracker := shadowstate.NewEnergyTracker()
 
 	m := &Manager{
+		ctx:                  ctx,
 		haClient:             haClient,
 		stateManager:         stateManager,
 		config:               config,
@@ -572,7 +574,7 @@ func (m *Manager) updateIndicatorLights(energyLevel string) {
 	}
 
 	// Call Home Assistant light.turn_on service for all lights at once
-	err := m.haClient.CallService(context.Background(), "light", "turn_on", map[string]interface{}{
+	err := m.haClient.CallService(m.ctx, "light", "turn_on", map[string]interface{}{
 		"entity_id":      entities,
 		"rgb_color":      rgbColor,
 		"brightness_pct": lightConfig.BrightnessPct,
@@ -933,7 +935,7 @@ func (m *Manager) setLightBrightness(entity string, brightness int) {
 
 	rgbColor := []int{lightConfig.Red, lightConfig.Green, lightConfig.Blue}
 
-	err = m.haClient.CallService(context.Background(), "light", "turn_on", map[string]interface{}{
+	err = m.haClient.CallService(m.ctx, "light", "turn_on", map[string]interface{}{
 		"entity_id":      entity,
 		"rgb_color":      rgbColor,
 		"brightness_pct": brightness,
@@ -1285,7 +1287,7 @@ func (m *Manager) updateSingleIndicatorLight(entity, energyLevel string, brightn
 	}
 
 	// Call Home Assistant light.turn_on service for single entity
-	err := m.haClient.CallService(context.Background(), "light", "turn_on", map[string]interface{}{
+	err := m.haClient.CallService(m.ctx, "light", "turn_on", map[string]interface{}{
 		"entity_id":      entity,
 		"rgb_color":      rgbColor,
 		"brightness_pct": brightness,

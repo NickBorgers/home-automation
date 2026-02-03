@@ -1,6 +1,7 @@
 package integration
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -66,10 +67,10 @@ func setupNighttimeSafetyTest(t *testing.T) (*nighttimeSafetyTestEnv, func()) {
 		client:        client,
 		stateManager:  stateManager,
 		logger:        logger,
-		stateTracking: statetracking.NewManager(client, stateManager, logger, false, nil),
-		lighting:      lighting.NewManager(client, stateManager, lightingConfig, logger, false, nil),
-		music:         music.NewManager(client, stateManager, musicConfig, logger, false, nil, nil),
-		sleepHygiene:  sleephygiene.NewManager(client, stateManager, configLoader, logger, false, nil, nil),
+		stateTracking: statetracking.NewManager(context.Background(), client, stateManager, logger, false, nil),
+		lighting:      lighting.NewManager(context.Background(), client, stateManager, lightingConfig, logger, false, nil),
+		music:         music.NewManager(context.Background(), client, stateManager, musicConfig, logger, false, nil, nil),
+		sleepHygiene:  sleephygiene.NewManager(context.Background(), client, stateManager, configLoader, logger, false, nil, nil),
 	}
 
 	// Start plugins in correct order
@@ -152,12 +153,13 @@ func loadTestMusicConfig(t *testing.T) *music.MusicConfig {
 						LeaveMutedIf: []music.MuteCondition{},
 					},
 					{
-						PlayerName: "Bedroom",
-						BaseVolume: 9,
-						LeaveMutedIf: []music.MuteCondition{
+						PlayerName:   "Bedroom",
+						BaseVolume:   9,
+						LeaveMutedIf: []music.MuteCondition{},
+						ExcludeIf: []music.MuteCondition{
 							{
 								Variable: "isMasterAsleep",
-								Value:    true, // CRITICAL: Mute bedroom when master is asleep
+								Value:    true, // CRITICAL: Exclude bedroom when master is asleep
 							},
 						},
 					},
@@ -390,7 +392,7 @@ func TestScenario_WakeSequence_LightsOnDespiteMasterAsleep(t *testing.T) {
 
 	logger := testlogger.New()
 	lightingConfig := loadTestLightingConfig(t)
-	lightingMgr := lighting.NewManager(client, stateManager, lightingConfig, logger, false, nil)
+	lightingMgr := lighting.NewManager(context.Background(), client, stateManager, lightingConfig, logger, false, nil)
 	require.NoError(t, lightingMgr.Start())
 	defer lightingMgr.Stop()
 

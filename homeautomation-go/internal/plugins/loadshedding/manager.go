@@ -44,6 +44,7 @@ type deferredAction struct {
 
 // Manager manages thermostat control based on energy state
 type Manager struct {
+	ctx            context.Context
 	haClient       ha.HAClient
 	stateManager   *state.Manager
 	logger         *zap.Logger
@@ -69,10 +70,11 @@ type Manager struct {
 }
 
 // NewManager creates a new Load Shedding manager
-func NewManager(haClient ha.HAClient, stateManager *state.Manager, logger *zap.Logger, readOnly bool, registry *shadowstate.SubscriptionRegistry) *Manager {
+func NewManager(ctx context.Context, haClient ha.HAClient, stateManager *state.Manager, logger *zap.Logger, readOnly bool, registry *shadowstate.SubscriptionRegistry) *Manager {
 	shadowTracker := shadowstate.NewLoadSheddingTracker()
 
 	return &Manager{
+		ctx:               ctx,
 		haClient:          haClient,
 		stateManager:      stateManager,
 		logger:            logger.Named("loadshedding"),
@@ -260,7 +262,7 @@ func (m *Manager) executeEnableLoadShedding(energyLevel string, trigger string) 
 	m.logger.Info("Executing: Enable thermostat hold mode",
 		zap.Strings("entities", []string{thermostatHoldHouse, thermostatHoldSuite}))
 
-	if err := m.haClient.CallService(context.Background(), "switch", "turn_on", map[string]interface{}{
+	if err := m.haClient.CallService(m.ctx, "switch", "turn_on", map[string]interface{}{
 		"entity_id": []string{thermostatHoldHouse, thermostatHoldSuite},
 	}); err != nil {
 		m.logger.Error("Failed to enable thermostat hold mode",
@@ -276,7 +278,7 @@ func (m *Manager) executeEnableLoadShedding(energyLevel string, trigger string) 
 		zap.Float64("temp_high", tempHighRestricted),
 		zap.Strings("entities", []string{climateHouse, climateSuite}))
 
-	if err := m.haClient.CallService(context.Background(), "climate", "set_temperature", map[string]interface{}{
+	if err := m.haClient.CallService(m.ctx, "climate", "set_temperature", map[string]interface{}{
 		"entity_id":        []string{climateHouse, climateSuite},
 		"target_temp_low":  tempLowRestricted,
 		"target_temp_high": tempHighRestricted,
@@ -376,7 +378,7 @@ func (m *Manager) executeDisableLoadShedding(energyLevel string, trigger string)
 	m.logger.Info("Executing: Disable thermostat hold mode (restore schedule)",
 		zap.Strings("entities", []string{thermostatHoldHouse, thermostatHoldSuite}))
 
-	if err := m.haClient.CallService(context.Background(), "switch", "turn_off", map[string]interface{}{
+	if err := m.haClient.CallService(m.ctx, "switch", "turn_off", map[string]interface{}{
 		"entity_id": []string{thermostatHoldHouse, thermostatHoldSuite},
 	}); err != nil {
 		m.logger.Error("Failed to disable thermostat hold mode",

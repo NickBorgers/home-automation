@@ -46,6 +46,7 @@ const (
 
 // Manager handles TV monitoring and manipulation
 type Manager struct {
+	ctx          context.Context
 	haClient     ha.HAClient
 	stateManager *state.Manager
 	logger       *zap.Logger
@@ -76,10 +77,11 @@ type Manager struct {
 }
 
 // NewManager creates a new TV manager
-func NewManager(haClient ha.HAClient, stateManager *state.Manager, logger *zap.Logger, readOnly bool, registry *shadowstate.SubscriptionRegistry) *Manager {
+func NewManager(ctx context.Context, haClient ha.HAClient, stateManager *state.Manager, logger *zap.Logger, readOnly bool, registry *shadowstate.SubscriptionRegistry) *Manager {
 	shadowTracker := shadowstate.NewTVTracker()
 
 	return &Manager{
+		ctx:           ctx,
 		haClient:      haClient,
 		stateManager:  stateManager,
 		logger:        logger.Named("tv"),
@@ -408,7 +410,7 @@ func (m *Manager) controlSyncBoxLightSync(isTVPlaying bool) {
 			zap.String("action", "turn_on"),
 			zap.String("entity_id", SyncBoxLightSyncEntity))
 
-		err := m.haClient.CallService(context.Background(), "switch", "turn_on", map[string]interface{}{
+		err := m.haClient.CallService(m.ctx, "switch", "turn_on", map[string]interface{}{
 			"entity_id": SyncBoxLightSyncEntity,
 		})
 		if err != nil {
@@ -463,7 +465,7 @@ func (m *Manager) scheduleLightSyncOff() {
 			zap.String("entity_id", SyncBoxLightSyncEntity),
 			zap.String("reason", "debounce elapsed"))
 
-		err := m.haClient.CallService(context.Background(), "switch", "turn_off", map[string]interface{}{
+		err := m.haClient.CallService(m.ctx, "switch", "turn_off", map[string]interface{}{
 			"entity_id": SyncBoxLightSyncEntity,
 		})
 		if err != nil {
@@ -613,7 +615,7 @@ func (m *Manager) performPowerCycleRecovery() {
 
 	// Step 1: Turn off physical power
 	m.logger.Info("Turning off sync box physical power")
-	err := m.haClient.CallService(context.Background(), "switch", "turn_off", map[string]interface{}{
+	err := m.haClient.CallService(m.ctx, "switch", "turn_off", map[string]interface{}{
 		"entity_id": SyncBoxPhysicalPowerEntity,
 	})
 	if err != nil {
@@ -628,7 +630,7 @@ func (m *Manager) performPowerCycleRecovery() {
 
 	// Step 3: Turn on physical power
 	m.logger.Info("Turning on sync box physical power")
-	err = m.haClient.CallService(context.Background(), "switch", "turn_on", map[string]interface{}{
+	err = m.haClient.CallService(m.ctx, "switch", "turn_on", map[string]interface{}{
 		"entity_id": SyncBoxPhysicalPowerEntity,
 	})
 	if err != nil {

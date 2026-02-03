@@ -1,6 +1,7 @@
 package loadshedding
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -26,7 +27,7 @@ func TestLoadSheddingShadowState_CaptureInputs(t *testing.T) {
 	}
 
 	// Create and start load shedding manager (Start() registers subscriptions)
-	manager := NewManager(mockClient, stateManager, zap.NewNop(), true, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, zap.NewNop(), true, nil)
 	if err := manager.Start(); err != nil {
 		t.Fatalf("Failed to start manager: %v", err)
 	}
@@ -60,7 +61,7 @@ func TestLoadSheddingShadowState_RecordEnableAction(t *testing.T) {
 	}
 
 	// Create load shedding manager
-	manager := NewManager(mockClient, stateManager, zap.NewNop(), true, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, zap.NewNop(), true, nil)
 
 	// Record an enable action
 	reason := "Energy state is red (low battery) - restricting HVAC"
@@ -121,7 +122,7 @@ func TestLoadSheddingShadowState_RecordDisableAction(t *testing.T) {
 	}
 
 	// Create load shedding manager
-	manager := NewManager(mockClient, stateManager, zap.NewNop(), true, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, zap.NewNop(), true, nil)
 
 	// First enable load shedding
 	manager.recordAction(true, "enable", "Test enable", true, tempLowRestricted, tempHighRestricted, "test_trigger")
@@ -170,7 +171,7 @@ func TestLoadSheddingShadowState_GetShadowState(t *testing.T) {
 		t.Fatalf("Failed to set energy level: %v", err)
 	}
 
-	manager := NewManager(mockClient, stateManager, zap.NewNop(), true, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, zap.NewNop(), true, nil)
 
 	// Record some state
 	manager.subHelper.CaptureInitialInputs()
@@ -213,7 +214,7 @@ func TestLoadSheddingShadowState_ConcurrentAccess(t *testing.T) {
 		t.Fatalf("Failed to set energy level: %v", err)
 	}
 
-	manager := NewManager(mockClient, stateManager, zap.NewNop(), true, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, zap.NewNop(), true, nil)
 
 	// Run concurrent operations
 	done := make(chan bool)
@@ -281,7 +282,7 @@ func TestLoadSheddingShadowState_InputSnapshot(t *testing.T) {
 	}
 
 	// Start manager to register subscriptions
-	manager := NewManager(mockClient, stateManager, zap.NewNop(), true, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, zap.NewNop(), true, nil)
 	if err := manager.Start(); err != nil {
 		t.Fatalf("Failed to start manager: %v", err)
 	}
@@ -321,7 +322,7 @@ func TestLoadSheddingShadowState_MultipleActions(t *testing.T) {
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, zap.NewNop(), true)
 
-	manager := NewManager(mockClient, stateManager, zap.NewNop(), true, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, zap.NewNop(), true, nil)
 
 	// Record enable action
 	if err := stateManager.SetString("currentEnergyLevel", "red"); err != nil {
@@ -372,7 +373,7 @@ func TestLoadSheddingShadowState_HandleEnergyChange(t *testing.T) {
 		t.Fatalf("Failed to set initial energy level: %v", err)
 	}
 
-	manager := NewManager(mockClient, stateManager, zap.NewNop(), true, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, zap.NewNop(), true, nil)
 
 	// Start the manager to enable subscriptions
 	if err := manager.Start(); err != nil {

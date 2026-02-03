@@ -1,6 +1,7 @@
 package statetracking
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -67,7 +68,7 @@ func TestStateTrackingManager_IsAnyOwnerHome(t *testing.T) {
 			}
 
 			// Create and start manager
-			manager := NewManager(mockHA, stateMgr, logger, false, nil)
+			manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
 			if err := manager.Start(); err != nil {
 				t.Fatalf("Failed to start manager: %v", err)
 			}
@@ -168,7 +169,7 @@ func TestStateTrackingManager_IsAnyoneHome(t *testing.T) {
 			}
 
 			// Create and start manager
-			manager := NewManager(mockHA, stateMgr, logger, false, nil)
+			manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
 			if err := manager.Start(); err != nil {
 				t.Fatalf("Failed to start manager: %v", err)
 			}
@@ -250,7 +251,7 @@ func TestStateTrackingManager_IsAnyoneAsleep(t *testing.T) {
 			}
 
 			// Create and start manager
-			manager := NewManager(mockHA, stateMgr, logger, false, nil)
+			manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
 			if err := manager.Start(); err != nil {
 				t.Fatalf("Failed to start manager: %v", err)
 			}
@@ -332,7 +333,7 @@ func TestStateTrackingManager_IsEveryoneAsleep(t *testing.T) {
 			}
 
 			// Create and start manager
-			manager := NewManager(mockHA, stateMgr, logger, false, nil)
+			manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
 			if err := manager.Start(); err != nil {
 				t.Fatalf("Failed to start manager: %v", err)
 			}
@@ -373,7 +374,7 @@ func TestStateTrackingManager_DynamicUpdates(t *testing.T) {
 	}
 
 	// Create and start manager
-	manager := NewManager(mockHA, stateMgr, logger, false, nil)
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
 	if err := manager.Start(); err != nil {
 		t.Fatalf("Failed to start manager: %v", err)
 	}
@@ -444,7 +445,7 @@ func TestStateTrackingManager_SleepDynamicUpdates(t *testing.T) {
 	}
 
 	// Create and start manager
-	manager := NewManager(mockHA, stateMgr, logger, false, nil)
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
 	if err := manager.Start(); err != nil {
 		t.Fatalf("Failed to start manager: %v", err)
 	}
@@ -515,7 +516,7 @@ func TestStateTrackingManager_StopCleansUpSubscriptions(t *testing.T) {
 	}
 
 	// Create and start manager
-	manager := NewManager(mockHA, stateMgr, logger, false, nil)
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
 	if err := manager.Start(); err != nil {
 		t.Fatalf("Failed to start manager: %v", err)
 	}
@@ -561,7 +562,7 @@ func TestStateTrackingManager_GuestAsleepAutoSync_NoGuests(t *testing.T) {
 	}
 
 	// Create and start manager
-	manager := NewManager(mockHA, stateMgr, logger, false, nil)
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
 	if err := manager.Start(); err != nil {
 		t.Fatalf("Failed to start manager: %v", err)
 	}
@@ -621,7 +622,7 @@ func TestStateTrackingManager_GuestAsleepAutoSync_WithGuests(t *testing.T) {
 	}
 
 	// Create and start manager
-	manager := NewManager(mockHA, stateMgr, logger, false, nil)
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
 	if err := manager.Start(); err != nil {
 		t.Fatalf("Failed to start manager: %v", err)
 	}
@@ -671,7 +672,7 @@ func TestStateTrackingManager_GuestAsleepAutoSync_GuestsLeave(t *testing.T) {
 	}
 
 	// Create and start manager
-	manager := NewManager(mockHA, stateMgr, logger, false, nil)
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
 	if err := manager.Start(); err != nil {
 		t.Fatalf("Failed to start manager: %v", err)
 	}
@@ -722,7 +723,7 @@ func TestStateTrackingManager_GuestAsleepAutoSync_InitialSync(t *testing.T) {
 	}
 
 	// Create and start manager - should auto-sync immediately
-	manager := NewManager(mockHA, stateMgr, logger, false, nil)
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
 	if err := manager.Start(); err != nil {
 		t.Fatalf("Failed to start manager: %v", err)
 	}
@@ -759,7 +760,7 @@ func TestStateTrackingManager_Reset(t *testing.T) {
 	}
 
 	// Create and start manager
-	manager := NewManager(mockHA, stateMgr, logger, false, nil)
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
 	if err := manager.Start(); err != nil {
 		t.Fatalf("Failed to start manager: %v", err)
 	}
@@ -801,7 +802,7 @@ func TestStateTrackingManager_NickArrivalAnnouncement_SomeoneHome(t *testing.T) 
 	}
 
 	// Create and start manager
-	manager := NewManager(mockHA, stateMgr, logger, false, nil)
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
 	if err := manager.Start(); err != nil {
 		t.Fatalf("Failed to start manager: %v", err)
 	}
@@ -902,7 +903,7 @@ func TestStateTrackingManager_NickArrivalAnnouncement_NobodyHome(t *testing.T) {
 	}
 
 	// Create and start manager
-	manager := NewManager(mockHA, stateMgr, logger, false, nil)
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
 	if err := manager.Start(); err != nil {
 		t.Fatalf("Failed to start manager: %v", err)
 	}
@@ -945,7 +946,7 @@ func TestStateTrackingManager_CarolineArrivalAnnouncement(t *testing.T) {
 	}
 
 	// Create and start manager
-	manager := NewManager(mockHA, stateMgr, logger, false, nil)
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
 	if err := manager.Start(); err != nil {
 		t.Fatalf("Failed to start manager: %v", err)
 	}
@@ -1016,7 +1017,7 @@ func TestStateTrackingManager_ToriArrivalAnnouncement(t *testing.T) {
 	}
 
 	// Create and start manager
-	manager := NewManager(mockHA, stateMgr, logger, false, nil)
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
 	if err := manager.Start(); err != nil {
 		t.Fatalf("Failed to start manager: %v", err)
 	}
@@ -1069,7 +1070,7 @@ func TestStateTrackingManager_ArrivalAnnouncement_ReadOnlyMode(t *testing.T) {
 	}
 
 	// Create manager in READ-ONLY mode
-	manager := NewManager(mockHA, stateMgr, logger, true, nil)
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, true, nil)
 	if err := manager.Start(); err != nil {
 		t.Fatalf("Failed to start manager: %v", err)
 	}
@@ -1109,7 +1110,7 @@ func TestStateTrackingManager_NoAnnouncement_OnStateChangeFromUnknown(t *testing
 	}
 
 	// Create and start manager
-	manager := NewManager(mockHA, stateMgr, logger, false, nil)
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
 	if err := manager.Start(); err != nil {
 		t.Fatalf("Failed to start manager: %v", err)
 	}
@@ -1162,7 +1163,7 @@ func TestStateTrackingManager_ShadowState_DerivedStatesUpdated(t *testing.T) {
 	}
 
 	// Create and start manager
-	manager := NewManager(mockHA, stateMgr, logger, false, nil)
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
 	if err := manager.Start(); err != nil {
 		t.Fatalf("Failed to start manager: %v", err)
 	}
@@ -1209,7 +1210,7 @@ func TestStateTrackingManager_ShadowState_DerivedStatesUpdateOnChange(t *testing
 	}
 
 	// Create and start manager
-	manager := NewManager(mockHA, stateMgr, logger, false, nil)
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
 	if err := manager.Start(); err != nil {
 		t.Fatalf("Failed to start manager: %v", err)
 	}
@@ -1264,7 +1265,7 @@ func TestStateTrackingManager_NickNearHome_SetsOwnerReturnedWhenNotHome(t *testi
 	}
 
 	// Create and start manager
-	manager := NewManager(mockHA, stateMgr, logger, false, nil)
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
 	if err := manager.Start(); err != nil {
 		t.Fatalf("Failed to start manager: %v", err)
 	}
@@ -1307,7 +1308,7 @@ func TestStateTrackingManager_NickNearHome_IgnoresWhenAlreadyHome(t *testing.T) 
 	}
 
 	// Create and start manager
-	manager := NewManager(mockHA, stateMgr, logger, false, nil)
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
 	if err := manager.Start(); err != nil {
 		t.Fatalf("Failed to start manager: %v", err)
 	}
@@ -1344,7 +1345,7 @@ func TestStateTrackingManager_CarolineNearHome_SetsOwnerReturnedWhenNotHome(t *t
 	}
 
 	// Create and start manager
-	manager := NewManager(mockHA, stateMgr, logger, false, nil)
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
 	if err := manager.Start(); err != nil {
 		t.Fatalf("Failed to start manager: %v", err)
 	}
@@ -1387,7 +1388,7 @@ func TestStateTrackingManager_CarolineNearHome_IgnoresWhenAlreadyHome(t *testing
 	}
 
 	// Create and start manager
-	manager := NewManager(mockHA, stateMgr, logger, false, nil)
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
 	if err := manager.Start(); err != nil {
 		t.Fatalf("Failed to start manager: %v", err)
 	}
@@ -1424,7 +1425,7 @@ func TestStateTrackingManager_NearHome_IgnoresNilStates(t *testing.T) {
 	}
 
 	// Create and start manager
-	manager := NewManager(mockHA, stateMgr, logger, false, nil)
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
 	if err := manager.Start(); err != nil {
 		t.Fatalf("Failed to start manager: %v", err)
 	}
