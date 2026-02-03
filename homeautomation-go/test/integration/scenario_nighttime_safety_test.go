@@ -607,10 +607,14 @@ func TestScenario_DayMusic_BedroomMutedWhenMasterAsleep(t *testing.T) {
 					}
 				}
 
-				// Check for volume_set with non-zero volume (fade-in)
+				// Check for volume_set calls
 				if call.Service == "volume_set" {
 					vol, _ := call.ServiceData["volume_level"].(float64)
-					if vol > 0.01 {
+					if vol <= 0.01 {
+						// volume_set with volume=0 is effectively a mute
+						foundBedroomMute = true
+					} else {
+						// Non-zero volume is a fade-in
 						foundBedroomFadeIn = true
 					}
 				}
