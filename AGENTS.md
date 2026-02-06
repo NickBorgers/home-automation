@@ -136,6 +136,53 @@ func (m *Manager) handleSomeChange(entityID string, oldState, newState *ha.State
 
 **Concurrency:** Protect shared state with mutexes, use `sync.RWMutex` for read-heavy ops, **serialize WebSocket writes with `writeMu`**.
 
+### TDD for Cross-Plugin Features
+
+**When implementing features that span multiple plugins, write user story tests FIRST.**
+
+Cross-plugin bugs often slip through unit tests because unit tests set up state atomically and don't test timing windows between state changes. User story tests validate behavior from the user's perspective.
+
+**When to write user story tests:**
+- Features involving 2+ plugins (e.g., sleephygiene + music, lighting + presence)
+- Features with timing dependencies (e.g., "when alarm triggers, music fades out over 5 minutes")
+- Features with invariants that must ALWAYS hold (e.g., "sleep music never restarts during wake sequence")
+
+**TDD workflow for cross-plugin features:**
+
+```
+1. Write the user story: "When my alarm goes off, I want gentle wake-up music"
+2. Identify invariants: "sleep music must NOT restart while isWakeSequenceActive=true"
+3. Write a test in test/integration/scenario_*_test.go that will FAIL (it will)
+4. Implement the feature across plugins
+5. Test passes when user expectation is met
+```
+
+**Test structure (GIVEN/WHEN/THEN):**
+
+```go
+func TestScenario_UserStory_WakeSequenceDoesNotRestartSleepMusic(t *testing.T) {
+    // GIVEN: Master is asleep, playing sleep music, alarm time reached
+    t.Log("GIVEN: Someone is asleep with sleep music playing")
+    server.SetState("input_boolean.master_asleep", "on", nil)
+    server.SetState("input_text.music_playback_type", "sleep", nil)
+
+    // WHEN: Wake sequence begins
+    t.Log("WHEN: Wake sequence starts (isWakeSequenceActive=true)")
+    server.SetState("input_boolean.wake_sequence_active", "on", nil)
+
+    // THEN: Music plugin must NOT restart sleep music
+    t.Log("THEN: Sleep music is NOT restarted")
+    // ... assertions validating the invariant holds
+}
+```
+
+**Key patterns for user story tests:**
+- **Timeline testing**: Simulate T+0, T+2min, T+5min states to catch timing bugs
+- **Invariant assertions**: Document rules that should ALWAYS hold in comments
+- **Intermediate state testing**: Don't just test end states—test what happens during transitions
+
+**Reference:** See `test/integration/scenario_sleephygiene_test.go` for examples of TDD-style cross-plugin tests with GIVEN/WHEN/THEN structure.
+
 ### API Change Protocol
 
 When modifying function signatures:
