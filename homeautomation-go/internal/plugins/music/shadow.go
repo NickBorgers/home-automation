@@ -28,6 +28,9 @@ func (m *Manager) captureCurrentInputs() map[string]interface{} {
 	if val, err := m.stateManager.GetBool("isEveryoneAsleep"); err == nil {
 		inputs["isEveryoneAsleep"] = val
 	}
+	if val, err := m.stateManager.GetBool("isWakeSequenceActive"); err == nil {
+		inputs["isWakeSequenceActive"] = val
+	}
 
 	return inputs
 }
