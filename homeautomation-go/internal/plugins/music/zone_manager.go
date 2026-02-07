@@ -25,6 +25,40 @@ type Zone struct {
 	monitorCancel context.CancelFunc
 }
 
+// ZoneEvaluation captures the result of evaluating a zone's triggers for audit logging
+type ZoneEvaluation struct {
+	Zone              string            `json:"zone"`
+	Matched           bool              `json:"matched"`
+	MatchedVia        string            `json:"matchedVia,omitempty"`        // "triggers", "trigger_group", "musicPlaybackType", "default"
+	MatchedGroupIndex int               `json:"matchedGroupIndex,omitempty"` // Which trigger group matched (1-indexed, 0 = N/A)
+	Reason            string            `json:"reason,omitempty"`            // Why it didn't match
+	TriggerResults    []TriggerResult   `json:"triggerResults,omitempty"`    // Individual trigger evaluations
+	GroupResults      []TriggerGroup    `json:"groupResults,omitempty"`      // For zones with trigger_groups
+	FailedConditions  []FailedCondition `json:"failedConditions,omitempty"`  // Which conditions failed
+}
+
+// TriggerResult captures the evaluation of a single trigger condition
+type TriggerResult struct {
+	Variable      string      `json:"variable"`
+	ExpectedValue interface{} `json:"expectedValue"`
+	ActualValue   interface{} `json:"actualValue"`
+	Matched       bool        `json:"matched"`
+}
+
+// FailedCondition records a trigger condition that prevented zone activation
+type FailedCondition struct {
+	Variable      string      `json:"variable"`
+	ExpectedValue interface{} `json:"expectedValue"`
+	ActualValue   interface{} `json:"actualValue"`
+}
+
+// TriggerGroupResult captures the evaluation of a trigger group
+type TriggerGroupResult struct {
+	GroupIndex int             `json:"groupIndex"` // 1-indexed
+	Matched    bool            `json:"matched"`
+	Triggers   []TriggerResult `json:"triggers"`
+}
+
 // ZoneManager coordinates multiple concurrent music zones
 type ZoneManager struct {
 	mu          sync.RWMutex
@@ -155,6 +189,165 @@ func (zm *ZoneManager) evaluateTriggerList(triggers []TriggerCondition) bool {
 	return true
 }
 
+// evaluateTriggerListWithDetails returns detailed results for each trigger condition
+func (zm *ZoneManager) evaluateTriggerListWithDetails(triggers []TriggerCondition) (bool, []TriggerResult, []FailedCondition) {
+	results := make([]TriggerResult, 0, len(triggers))
+	failed := make([]FailedCondition, 0)
+
+	if len(triggers) == 0 {
+		return false, results, failed
+	}
+
+	allMatched := true
+	for _, trigger := range triggers {
+		value, err := zm.manager.getStateValue(trigger.Variable)
+		if err != nil {
+			results = append(results, TriggerResult{
+				Variable:      trigger.Variable,
+				ExpectedValue: trigger.Value,
+				ActualValue:   nil,
+				Matched:       false,
+			})
+			failed = append(failed, FailedCondition{
+				Variable:      trigger.Variable,
+				ExpectedValue: trigger.Value,
+				ActualValue:   nil,
+			})
+			allMatched = false
+			continue
+		}
+
+		matched := zm.manager.valuesMatch(value, trigger.Value)
+		results = append(results, TriggerResult{
+			Variable:      trigger.Variable,
+			ExpectedValue: trigger.Value,
+			ActualValue:   value,
+			Matched:       matched,
+		})
+
+		if !matched {
+			failed = append(failed, FailedCondition{
+				Variable:      trigger.Variable,
+				ExpectedValue: trigger.Value,
+				ActualValue:   value,
+			})
+			allMatched = false
+		}
+	}
+
+	return allMatched, results, failed
+}
+
+// evaluateTriggersWithDetails performs zone evaluation with detailed results for audit logging
+func (zm *ZoneManager) evaluateTriggersWithDetails(zone ZoneConfig) ZoneEvaluation {
+	eval := ZoneEvaluation{
+		Zone: zone.Name,
+	}
+
+	// Check trigger_groups first (OR between groups, AND within each)
+	if len(zone.TriggerGroups) > 0 {
+		var allGroupResults []TriggerGroupResult
+		for i, group := range zone.TriggerGroups {
+			matched, triggers, _ := zm.evaluateTriggerListWithDetails(group.Triggers)
+			groupResult := TriggerGroupResult{
+				GroupIndex: i + 1, // 1-indexed for readability
+				Matched:    matched,
+				Triggers:   triggers,
+			}
+			allGroupResults = append(allGroupResults, groupResult)
+
+			if matched {
+				eval.Matched = true
+				eval.MatchedVia = "trigger_group"
+				eval.MatchedGroupIndex = i + 1
+				// Collect all trigger results for the matched group
+				eval.TriggerResults = triggers
+				return eval
+			}
+		}
+
+		// No group matched - collect all failed conditions from all groups
+		eval.Matched = false
+		eval.Reason = "no trigger group conditions met"
+		for _, gr := range allGroupResults {
+			for _, tr := range gr.Triggers {
+				if !tr.Matched {
+					eval.FailedConditions = append(eval.FailedConditions, FailedCondition{
+						Variable:      tr.Variable,
+						ExpectedValue: tr.ExpectedValue,
+						ActualValue:   tr.ActualValue,
+					})
+				}
+			}
+		}
+		return eval
+	}
+
+	// Legacy: single trigger list (AND logic)
+	if len(zone.Triggers) > 0 {
+		matched, triggers, failed := zm.evaluateTriggerListWithDetails(zone.Triggers)
+		eval.TriggerResults = triggers
+		if matched {
+			eval.Matched = true
+			eval.MatchedVia = "triggers"
+		} else {
+			eval.Matched = false
+			eval.Reason = "trigger conditions not met"
+			eval.FailedConditions = failed
+		}
+		return eval
+	}
+
+	// No triggers = can only be activated by musicPlaybackType
+	eval.Matched = false
+	eval.Reason = "no triggers defined (musicPlaybackType activation only)"
+	return eval
+}
+
+// captureStateSnapshot captures the current state of all zone-relevant variables for audit logging
+func (zm *ZoneManager) captureStateSnapshot() map[string]interface{} {
+	snapshot := make(map[string]interface{})
+
+	// Capture core state variables
+	coreVars := []string{
+		"dayPhase",
+		"isWakeSequenceActive",
+		"isMasterAsleep",
+		"isAnyoneHome",
+		"isAnyoneAsleep",
+		"isEveryoneAsleep",
+		"musicPlaybackType",
+	}
+
+	for _, varName := range coreVars {
+		if val, err := zm.manager.getStateValue(varName); err == nil {
+			snapshot[varName] = val
+		}
+	}
+
+	// Also capture any custom trigger variables from zone configs
+	for _, zone := range zm.config.GetZones() {
+		for _, trigger := range zone.Triggers {
+			if _, exists := snapshot[trigger.Variable]; !exists {
+				if val, err := zm.manager.getStateValue(trigger.Variable); err == nil {
+					snapshot[trigger.Variable] = val
+				}
+			}
+		}
+		for _, group := range zone.TriggerGroups {
+			for _, trigger := range group.Triggers {
+				if _, exists := snapshot[trigger.Variable]; !exists {
+					if val, err := zm.manager.getStateValue(trigger.Variable); err == nil {
+						snapshot[trigger.Variable] = val
+					}
+				}
+			}
+		}
+	}
+
+	return snapshot
+}
+
 // getActiveZoneConfigs returns zone configs that should currently be active
 func (zm *ZoneManager) getActiveZoneConfigs() []ZoneConfig {
 	zoneConfigs := zm.config.GetZones()
@@ -242,6 +435,43 @@ func (zm *ZoneManager) assignSpeakersToZones() (map[string][]string, []string) {
 // ResolveZones evaluates zone triggers and updates active zones accordingly
 func (zm *ZoneManager) ResolveZones(trigger string) error {
 	zm.logger.Info("Resolving zones", zap.String("trigger", trigger))
+
+	// Capture state snapshot at evaluation time for audit logging
+	stateSnapshot := zm.captureStateSnapshot()
+
+	// Evaluate all zones with detailed results for audit logging
+	zoneConfigs := zm.config.GetZones()
+	zoneEvaluations := make([]ZoneEvaluation, 0, len(zoneConfigs))
+	musicPlaybackType, _ := zm.manager.stateManager.GetString("musicPlaybackType")
+
+	for _, zc := range zoneConfigs {
+		eval := zm.evaluateTriggersWithDetails(zc)
+
+		// Check if zone matches via musicPlaybackType (backward compat)
+		if !eval.Matched {
+			hasTriggers := len(zc.Triggers) > 0 || len(zc.TriggerGroups) > 0
+			if musicPlaybackType != "" && zc.Name == musicPlaybackType && !hasTriggers {
+				eval.Matched = true
+				eval.MatchedVia = "musicPlaybackType"
+				eval.Reason = ""
+			}
+		}
+
+		// Check if zone matches as default
+		if !eval.Matched && zc.Default {
+			// Default zone logic is more complex - only activates if no other zone is active
+			// For now, just note it's a default zone
+			eval.Reason = "default zone (activates only if no other zone matches)"
+		}
+
+		zoneEvaluations = append(zoneEvaluations, eval)
+	}
+
+	// Log comprehensive zone resolution audit at Debug level
+	zm.logger.Debug("Zone resolution audit",
+		zap.String("trigger", trigger),
+		zap.Any("state_snapshot", stateSnapshot),
+		zap.Any("zone_evaluations", zoneEvaluations))
 
 	zoneToSpeakers, speakersToTurnOff := zm.assignSpeakersToZones()
 
