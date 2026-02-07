@@ -984,6 +984,7 @@ graph LR
     AnyoneHome --> Music
     AnyoneAsleep --> Music
     DayPhase --> Music
+    WakeActive --> Music
     Music --> MusicType
     Music --> MusicURI
 
