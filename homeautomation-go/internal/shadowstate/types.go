@@ -1304,10 +1304,27 @@ type InfrastructureInputs struct {
 // InfrastructureOutputs tracks septic system state and alerts
 type InfrastructureOutputs struct {
 	SepticSystemStatus  SepticSystemStatus          `json:"septicSystemStatus"`
+	ThermostatStatus    ThermostatStatus            `json:"thermostatStatus"`
 	ActiveAlerts        []InfrastructureAlert       `json:"activeAlerts,omitempty"`
 	LastNotification    *InfrastructureNotification `json:"lastNotification,omitempty"`
 	LastTTSAnnouncement *InfrastructureTTS          `json:"lastTTSAnnouncement,omitempty"`
 	LastUpdate          time.Time                   `json:"lastUpdate"`
+}
+
+// ThermostatStatus tracks the current state of monitored thermostats
+type ThermostatStatus struct {
+	WellThermostat ThermostatState `json:"wellThermostat"`
+	BarnThermostat ThermostatState `json:"barnThermostat"`
+}
+
+// ThermostatState represents a single thermostat's state
+type ThermostatState struct {
+	EntityID    string    `json:"entityId"`
+	HVACAction  string    `json:"hvacAction"`  // "heating", "cooling", "idle", "off"
+	CurrentTemp float64   `json:"currentTemp"` // Current temperature
+	TargetTemp  float64   `json:"targetTemp"`  // Target temperature
+	LastChanged time.Time `json:"lastChanged"`
+	IsActive    bool      `json:"isActive"` // true if heating/cooling
 }
 
 // SepticSystemStatus tracks the current septic system operational state
@@ -1374,7 +1391,8 @@ func NewInfrastructureShadowState() *InfrastructureShadowState {
 			SepticSystemStatus: SepticSystemStatus{
 				SystemState: "normal",
 			},
-			ActiveAlerts: make([]InfrastructureAlert, 0),
+			ThermostatStatus: ThermostatStatus{},
+			ActiveAlerts:     make([]InfrastructureAlert, 0),
 		},
 		Metadata: StateMetadata{
 			LastUpdated: time.Now(),

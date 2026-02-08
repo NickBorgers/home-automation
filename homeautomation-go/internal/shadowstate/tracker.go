@@ -1985,6 +1985,26 @@ func (it *InfrastructureTracker) ClearAlerts() {
 	it.state.Metadata.LastUpdated = time.Now()
 }
 
+// UpdateWellThermostat updates the well thermostat state
+func (it *InfrastructureTracker) UpdateWellThermostat(state ThermostatState) {
+	it.mu.Lock()
+	defer it.mu.Unlock()
+
+	it.state.Outputs.ThermostatStatus.WellThermostat = state
+	it.state.Outputs.LastUpdate = time.Now()
+	it.state.Metadata.LastUpdated = time.Now()
+}
+
+// UpdateBarnThermostat updates the barn thermostat state
+func (it *InfrastructureTracker) UpdateBarnThermostat(state ThermostatState) {
+	it.mu.Lock()
+	defer it.mu.Unlock()
+
+	it.state.Outputs.ThermostatStatus.BarnThermostat = state
+	it.state.Outputs.LastUpdate = time.Now()
+	it.state.Metadata.LastUpdated = time.Now()
+}
+
 // GetState returns the current shadow state (thread-safe copy)
 func (it *InfrastructureTracker) GetState() *InfrastructureShadowState {
 	it.mu.RLock()
@@ -1998,6 +2018,7 @@ func (it *InfrastructureTracker) GetState() *InfrastructureShadowState {
 		},
 		Outputs: InfrastructureOutputs{
 			SepticSystemStatus: it.state.Outputs.SepticSystemStatus,
+			ThermostatStatus:   it.state.Outputs.ThermostatStatus,
 			ActiveAlerts:       make([]InfrastructureAlert, len(it.state.Outputs.ActiveAlerts)),
 			LastUpdate:         it.state.Outputs.LastUpdate,
 		},
