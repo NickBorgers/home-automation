@@ -21,6 +21,10 @@ var ErrReadOnlyMode = errors.New("state manager is in read-only mode")
 // StateChangeHandler is called when a state variable changes
 type StateChangeHandler func(key string, oldValue, newValue interface{})
 
+// StateChangeHandlerWithContext is called when a state variable changes,
+// with an event context for cross-plugin correlation tracking.
+type StateChangeHandlerWithContext func(ctx *EventContext, key string, oldValue, newValue interface{})
+
 // Subscription represents an active state change subscription
 type Subscription interface {
 	Unsubscribe()
@@ -45,11 +49,13 @@ type Manager struct {
 	variables   map[string]StateVariable
 	entityToKey map[string]string
 	subscribers map[string]map[uint64]StateChangeHandler
-	subsMu      sync.RWMutex
-	haSubs      map[string]ha.Subscription
-	haSubsMu    sync.Mutex
-	nextSubID   uint64
-	readOnly    bool
+	// subscribersWithContext holds handlers that receive event correlation context
+	subscribersWithContext map[string]map[uint64]StateChangeHandlerWithContext
+	subsMu                 sync.RWMutex
+	haSubs                 map[string]ha.Subscription
+	haSubsMu               sync.Mutex
+	nextSubID              uint64
+	readOnly               bool
 
 	// wakeSequenceLatch is internal state for computed isAnyoneHomeAndAwake.
 	// When the wake sequence activates (isWakeSequenceActive false->true),
@@ -80,14 +86,15 @@ func NewManager(client ha.HAClient, logger *zap.Logger, readOnly bool) *Manager 
 	}
 
 	return &Manager{
-		client:      client,
-		logger:      logger,
-		cache:       make(map[string]interface{}),
-		variables:   variables,
-		entityToKey: entityToKey,
-		subscribers: make(map[string]map[uint64]StateChangeHandler),
-		haSubs:      make(map[string]ha.Subscription),
-		readOnly:    readOnly,
+		client:                 client,
+		logger:                 logger,
+		cache:                  make(map[string]interface{}),
+		variables:              variables,
+		entityToKey:            entityToKey,
+		subscribers:            make(map[string]map[uint64]StateChangeHandler),
+		subscribersWithContext: make(map[string]map[uint64]StateChangeHandlerWithContext),
+		haSubs:                 make(map[string]ha.Subscription),
+		readOnly:               readOnly,
 	}
 }
 
@@ -249,6 +256,8 @@ func (m *Manager) subscribeToEntity(entityID, key string) error {
 // notifySubscribers notifies all subscribers of a state change
 func (m *Manager) notifySubscribers(key string, oldValue, newValue interface{}) {
 	m.subsMu.RLock()
+
+	// Collect regular handlers
 	entries := m.subscribers[key]
 	ids := make([]uint64, 0, len(entries))
 	for id := range entries {
@@ -259,8 +268,32 @@ func (m *Manager) notifySubscribers(key string, oldValue, newValue interface{}) 
 	for _, id := range ids {
 		handlers = append(handlers, entries[id])
 	}
+
+	// Collect context-aware handlers
+	ctxEntries := m.subscribersWithContext[key]
+	ctxIDs := make([]uint64, 0, len(ctxEntries))
+	for id := range ctxEntries {
+		ctxIDs = append(ctxIDs, id)
+	}
+	sort.Slice(ctxIDs, func(i, j int) bool { return ctxIDs[i] < ctxIDs[j] })
+	ctxHandlers := make([]StateChangeHandlerWithContext, 0, len(ctxIDs))
+	for _, id := range ctxIDs {
+		ctxHandlers = append(ctxHandlers, ctxEntries[id])
+	}
+
 	m.subsMu.RUnlock()
 
+	// Create event context for correlation tracking
+	// Only create if there are context-aware handlers to avoid allocation
+	var eventCtx *EventContext
+	if len(ctxHandlers) > 0 {
+		eventCtx = NewEventContext(key, oldValue, newValue)
+		m.logger.Debug("Created event context for state change",
+			zap.String("correlation_id", eventCtx.CorrelationID),
+			zap.String("key", key))
+	}
+
+	// Call regular handlers
 	for idx, handler := range handlers {
 		func(h StateChangeHandler, ordinal int) {
 			defer func() {
@@ -275,6 +308,24 @@ func (m *Manager) notifySubscribers(key string, oldValue, newValue interface{}) 
 
 			h(key, oldValue, newValue)
 		}(handler, idx)
+	}
+
+	// Call context-aware handlers
+	for idx, handler := range ctxHandlers {
+		func(h StateChangeHandlerWithContext, ordinal int, ctx *EventContext) {
+			defer func() {
+				if r := recover(); r != nil {
+					m.logger.Warn("State change handler with context panicked",
+						zap.String("key", key),
+						zap.String("correlation_id", ctx.CorrelationID),
+						zap.Int("handler_index", ordinal),
+						zap.Any("panic", r),
+						zap.Stack("stack"))
+				}
+			}()
+
+			h(ctx, key, oldValue, newValue)
+		}(handler, idx, eventCtx)
 	}
 }
 
@@ -727,6 +778,47 @@ func (m *Manager) Subscribe(key string, handler StateChangeHandler) (Subscriptio
 	}, nil
 }
 
+// SubscribeWithContext subscribes to state changes with event correlation context.
+// The handler receives an EventContext that contains a correlation ID and timestamp,
+// allowing cross-plugin event tracking in logs (e.g., Gravwell queries).
+func (m *Manager) SubscribeWithContext(key string, handler StateChangeHandlerWithContext) (Subscription, error) {
+	if _, ok := m.variables[key]; !ok {
+		return nil, fmt.Errorf("variable %s not found", key)
+	}
+
+	variable := m.variables[key]
+	if !variable.LocalOnly {
+		if err := m.ensureHASubscription(variable); err != nil {
+			return nil, err
+		}
+	}
+
+	subID := atomic.AddUint64(&m.nextSubID, 1)
+	m.subsMu.Lock()
+	if _, ok := m.subscribersWithContext[key]; !ok {
+		m.subscribersWithContext[key] = make(map[uint64]StateChangeHandlerWithContext)
+	}
+	m.subscribersWithContext[key][subID] = handler
+	m.subsMu.Unlock()
+
+	return &subscriptionWithContext{
+		key:     key,
+		id:      subID,
+		manager: m,
+	}, nil
+}
+
+// subscriptionWithContext represents a subscription for context-aware handlers
+type subscriptionWithContext struct {
+	key     string
+	id      uint64
+	manager *Manager
+}
+
+func (s *subscriptionWithContext) Unsubscribe() {
+	s.manager.unsubscribeWithContext(s.key, s.id)
+}
+
 // unsubscribe removes a specific subscription
 func (m *Manager) unsubscribe(key string, id uint64) {
 	m.subsMu.Lock()
@@ -743,6 +835,29 @@ func (m *Manager) unsubscribe(key string, id uint64) {
 	m.subsMu.Unlock()
 
 	if empty {
+		m.teardownHASubscription(key)
+	}
+}
+
+// unsubscribeWithContext removes a context-aware subscription
+func (m *Manager) unsubscribeWithContext(key string, id uint64) {
+	m.subsMu.Lock()
+	handlers, ok := m.subscribersWithContext[key]
+	if !ok {
+		m.subsMu.Unlock()
+		return
+	}
+	delete(handlers, id)
+	if len(handlers) == 0 {
+		delete(m.subscribersWithContext, key)
+	}
+	// Check if we should teardown HA subscription
+	// Only teardown if BOTH regular and context-aware subscribers are empty
+	regularEmpty := len(m.subscribers[key]) == 0
+	contextEmpty := len(handlers) == 0
+	m.subsMu.Unlock()
+
+	if regularEmpty && contextEmpty {
 		m.teardownHASubscription(key)
 	}
 }

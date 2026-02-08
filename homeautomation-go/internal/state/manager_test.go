@@ -737,9 +737,8 @@ func TestManager_ReadOnlyMode(t *testing.T) {
 }
 
 func TestManager_ComputedOutputFlagVerification(t *testing.T) {
-	t.Parallel(
+	t.Parallel()
 	// Verify that energy variables have ComputedOutput: true
-	)
 
 	vars := VariablesByKey()
 
@@ -755,4 +754,180 @@ func TestManager_ComputedOutputFlagVerification(t *testing.T) {
 	// Verify other variables don't have this flag
 	nickHomeVar := vars["isNickHome"]
 	assert.False(t, nickHomeVar.ComputedOutput, "isNickHome should not have ComputedOutput flag")
+}
+
+func TestManager_SubscribeWithContext(t *testing.T) {
+	t.Parallel()
+	logger := testlogger.New()
+	mockClient := ha.NewMockClient()
+	mockClient.SetState("input_boolean.nick_home", "off", map[string]interface{}{})
+	mockClient.Connect()
+
+	manager := NewManager(mockClient, logger, false)
+	require.NoError(t, manager.SyncFromHA())
+
+	t.Run("receives event context with correlation ID", func(t *testing.T) {
+		var receivedCtx *EventContext
+		var receivedKey string
+		var receivedOld, receivedNew interface{}
+		var wg sync.WaitGroup
+		wg.Add(1)
+
+		sub, err := manager.SubscribeWithContext("isNickHome", func(ctx *EventContext, key string, oldValue, newValue interface{}) {
+			receivedCtx = ctx
+			receivedKey = key
+			receivedOld = oldValue
+			receivedNew = newValue
+			wg.Done()
+		})
+		require.NoError(t, err)
+		defer sub.Unsubscribe()
+
+		mockClient.SimulateStateChange("input_boolean.nick_home", "on")
+
+		// Wait for callback
+		waitDone := make(chan struct{})
+		go func() {
+			wg.Wait()
+			close(waitDone)
+		}()
+		select {
+		case <-waitDone:
+		case <-time.After(time.Second):
+			t.Fatal("Timeout waiting for callback")
+		}
+
+		require.NotNil(t, receivedCtx)
+		assert.NotEmpty(t, receivedCtx.CorrelationID)
+		assert.Equal(t, "isNickHome", receivedCtx.TriggerKey)
+		assert.Equal(t, "isNickHome", receivedKey)
+		assert.Equal(t, false, receivedOld)
+		assert.Equal(t, true, receivedNew)
+	})
+
+	t.Run("unsubscribe works", func(t *testing.T) {
+		var callCount int32
+
+		sub, err := manager.SubscribeWithContext("isNickHome", func(ctx *EventContext, key string, oldValue, newValue interface{}) {
+			atomic.AddInt32(&callCount, 1)
+		})
+		require.NoError(t, err)
+
+		mockClient.SimulateStateChange("input_boolean.nick_home", "off")
+		time.Sleep(50 * time.Millisecond)
+		assert.Equal(t, int32(1), atomic.LoadInt32(&callCount))
+
+		sub.Unsubscribe()
+
+		mockClient.SimulateStateChange("input_boolean.nick_home", "on")
+		time.Sleep(50 * time.Millisecond)
+		assert.Equal(t, int32(1), atomic.LoadInt32(&callCount)) // Should not increment
+	})
+
+	t.Run("invalid key returns error", func(t *testing.T) {
+		_, err := manager.SubscribeWithContext("nonexistent", func(ctx *EventContext, key string, oldValue, newValue interface{}) {})
+		assert.Error(t, err)
+	})
+}
+
+func TestManager_SubscribeWithContext_MultipleHandlers(t *testing.T) {
+	t.Parallel()
+	logger := testlogger.New()
+	mockClient := ha.NewMockClient()
+	mockClient.SetState("input_boolean.nick_home", "off", map[string]interface{}{})
+	mockClient.Connect()
+
+	manager := NewManager(mockClient, logger, false)
+	require.NoError(t, manager.SyncFromHA())
+
+	var ctx1, ctx2 *EventContext
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	sub1, err := manager.SubscribeWithContext("isNickHome", func(ctx *EventContext, key string, oldValue, newValue interface{}) {
+		ctx1 = ctx
+		wg.Done()
+	})
+	require.NoError(t, err)
+	defer sub1.Unsubscribe()
+
+	sub2, err := manager.SubscribeWithContext("isNickHome", func(ctx *EventContext, key string, oldValue, newValue interface{}) {
+		ctx2 = ctx
+		wg.Done()
+	})
+	require.NoError(t, err)
+	defer sub2.Unsubscribe()
+
+	mockClient.SimulateStateChange("input_boolean.nick_home", "on")
+
+	// Wait for callbacks
+	waitDone := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(waitDone)
+	}()
+	select {
+	case <-waitDone:
+	case <-time.After(time.Second):
+		t.Fatal("Timeout waiting for callbacks")
+	}
+
+	// Both handlers should receive the SAME context (same correlation ID)
+	require.NotNil(t, ctx1)
+	require.NotNil(t, ctx2)
+	assert.Equal(t, ctx1.CorrelationID, ctx2.CorrelationID)
+}
+
+func TestManager_MixedSubscribers(t *testing.T) {
+	t.Parallel()
+	logger := testlogger.New()
+	mockClient := ha.NewMockClient()
+	mockClient.SetState("input_boolean.nick_home", "off", map[string]interface{}{})
+	mockClient.Connect()
+
+	manager := NewManager(mockClient, logger, false)
+	require.NoError(t, manager.SyncFromHA())
+
+	var regularCalled bool
+	var contextCalled bool
+	var receivedCtx *EventContext
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	// Regular subscriber
+	sub1, err := manager.Subscribe("isNickHome", func(key string, oldValue, newValue interface{}) {
+		regularCalled = true
+		wg.Done()
+	})
+	require.NoError(t, err)
+	defer sub1.Unsubscribe()
+
+	// Context-aware subscriber
+	sub2, err := manager.SubscribeWithContext("isNickHome", func(ctx *EventContext, key string, oldValue, newValue interface{}) {
+		contextCalled = true
+		receivedCtx = ctx
+		wg.Done()
+	})
+	require.NoError(t, err)
+	defer sub2.Unsubscribe()
+
+	mockClient.SimulateStateChange("input_boolean.nick_home", "on")
+
+	// Wait for callbacks
+	waitDone := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(waitDone)
+	}()
+	select {
+	case <-waitDone:
+	case <-time.After(time.Second):
+		t.Fatal("Timeout waiting for callbacks")
+	}
+
+	// Both should be called
+	assert.True(t, regularCalled)
+	assert.True(t, contextCalled)
+	assert.NotNil(t, receivedCtx)
+	assert.NotEmpty(t, receivedCtx.CorrelationID)
 }
