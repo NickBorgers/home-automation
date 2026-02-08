@@ -445,6 +445,14 @@ func (m *Manager) Start() error {
     }
     m.stateSubscriptions = append(m.stateSubscriptions, sub)
 
+    // For cross-plugin correlation tracking, use SubscribeWithContext instead.
+    // This provides a correlation ID that can be logged for tracing event chains.
+    ctxSub, err := m.stateManager.SubscribeWithContext("anotherVar", m.handleStateChangeWithContext)
+    if err != nil {
+        return fmt.Errorf("failed to subscribe with context: %w", err)
+    }
+    m.stateSubscriptions = append(m.stateSubscriptions, ctxSub)
+
     // Subscribe to HA entity changes
     haSub, err := m.haClient.SubscribeStateChanges("sensor.my_sensor", m.handleSensorChange)
     if err != nil {
@@ -502,6 +510,20 @@ func (m *Manager) handleStateChange(key string, oldValue, newValue interface{}) 
 
     // Perform action
     m.performAction(value)
+}
+
+// Context-aware handler for cross-plugin correlation tracking (added in PR #572).
+// The EventContext contains a CorrelationID for tracing event chains across plugins.
+func (m *Manager) handleStateChangeWithContext(ctx *state.EventContext, key string, oldValue, newValue interface{}) {
+    // Log with correlation ID for cross-plugin tracing in Gravwell
+    m.logger.Debug("Handling state change with context",
+        zap.String("correlation_id", ctx.CorrelationID),
+        zap.String("key", key),
+        zap.Any("old", oldValue),
+        zap.Any("new", newValue))
+
+    // The correlation ID can be passed to downstream operations for full event tracing
+    m.processWithCorrelation(ctx.CorrelationID, newValue)
 }
 
 func (m *Manager) handleSensorChange(entity string, oldState, newState *ha.State) {

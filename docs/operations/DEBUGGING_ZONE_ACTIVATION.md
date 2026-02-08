@@ -1,6 +1,6 @@
 # Debugging Zone Activation Issues
 
-This guide explains how to debug music zone activation issues using the enhanced observability features added in PR #568.
+This guide explains how to debug music zone activation issues using the enhanced observability features added in PR #568 and #572.
 
 ## Overview
 
@@ -10,6 +10,7 @@ Music zones are activated based on trigger conditions defined in `music_config.y
 2. **What the state variables were at evaluation time** (the state snapshot)
 3. **How each zone's trigger conditions evaluated** (the zone evaluations)
 4. **Which speakers were assigned to which zones** (the speaker assignments)
+5. **How events correlate across plugins** (correlation ID - added in #572)
 
 ## Viewing Zone Resolution Logs
 
@@ -33,6 +34,14 @@ curl -s -X POST \
   -H "duration: 1h" \
   -H "format: text" \
   "https://gravwell.featherback-mermaid.ts.net/api/search/direct"
+
+# Track events across plugins using correlation ID (added in #572)
+curl -s -X POST \
+  -H "Gravwell-Token: $(tr -d '\n' < ./gravwell.token)" \
+  -H "query: tag=home-automation json correlation_id | table timestamp logger msg correlation_id" \
+  -H "duration: 1h" \
+  -H "format: text" \
+  "https://gravwell.featherback-mermaid.ts.net/api/search/direct"
 ```
 
 ### Via Local Logs
@@ -46,7 +55,50 @@ LOG_LEVEL=debug ./homeautomation 2>&1 | grep "Zone resolution audit"
 
 ## Understanding Zone Resolution Audit Logs
 
-The zone resolution audit log contains three key pieces of information:
+The zone resolution audit log contains comprehensive information in a single consolidated entry (improved in #572):
+
+### Consolidated Audit Structure
+
+```json
+{
+  "msg": "Zone resolution audit",
+  "audit": {
+    "correlationId": "1706000000000-1",
+    "trigger": "trigger:isWakeSequenceActive",
+    "timestamp": "2026-01-23T10:00:00Z",
+    "stateSnapshot": { ... },
+    "zoneEvaluations": [ ... ],
+    "zoneToSpeakers": { "morning": ["Kitchen", "Bedroom"] },
+    "speakersToTurnOff": ["Office"],
+    "zoneChanges": {
+      "start": ["morning"],
+      "stop": ["sleep"],
+      "update": null
+    }
+  }
+}
+```
+
+The audit log now includes:
+
+### Correlation ID (Added in #572)
+
+The `correlationId` field links this zone resolution to the state change that triggered it. This enables tracking events across plugins in Gravwell:
+
+```bash
+# Find all log entries for a specific event chain
+curl -s -X POST \
+  -H "Gravwell-Token: $(tr -d '\n' < ./gravwell.token)" \
+  -H "query: tag=home-automation json correlation_id==\"1706000000000-1\"" \
+  -H "duration: 1h" \
+  -H "format: text" \
+  "https://gravwell.featherback-mermaid.ts.net/api/search/direct"
+```
+
+The correlation ID format is `{timestamp_ms}-{counter}`, which allows:
+- Uniqueness across events
+- Chronological ordering
+- Easy filtering in log queries
 
 ### 1. State Snapshot
 
@@ -118,6 +170,21 @@ Key fields:
 - `matchedGroupIndex`: For zones with `trigger_groups`, which group matched (1-indexed)
 - `failedConditions`: Which specific conditions prevented activation
 - `triggerResults`: Detailed evaluation of each trigger condition
+- `groupResults`: (Added in #572) For zones with trigger_groups, evaluation results for ALL groups, not just the matched one
+
+The `groupResults` field is populated even when a zone matches, allowing you to see how all trigger groups evaluated:
+
+```json
+{
+  "zone": "sleep",
+  "matched": true,
+  "matchedGroupIndex": 1,
+  "groupResults": [
+    {"groupIndex": 1, "matched": true, "triggers": [...]},
+    {"groupIndex": 2, "matched": false, "triggers": [...]}
+  ]
+}
+```
 
 ### 3. Trigger Information
 

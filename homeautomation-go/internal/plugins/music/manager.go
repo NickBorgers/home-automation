@@ -200,11 +200,12 @@ func (m *Manager) Start() error {
 	}
 
 	// Phase 2: Subscribe to zone trigger variables if explicit zones are defined
+	// Use SubscribeWithContext to receive correlation IDs for cross-plugin event tracking
 	if m.config.HasZones() {
 		zoneTriggerVars := m.collectZoneTriggerVariables()
 		for _, varName := range zoneTriggerVars {
 			varNameCopy := varName
-			sub, err = m.stateManager.Subscribe(varNameCopy, m.handleZoneTriggerChange)
+			sub, err = m.stateManager.SubscribeWithContext(varNameCopy, m.handleZoneTriggerChangeWithContext)
 			if err != nil {
 				m.logger.Warn("Failed to subscribe to zone trigger variable",
 					zap.String("variable", varNameCopy),
@@ -212,7 +213,7 @@ func (m *Manager) Start() error {
 				continue
 			}
 			m.subscriptions = append(m.subscriptions, sub)
-			m.logger.Debug("Subscribed to zone trigger variable",
+			m.logger.Debug("Subscribed to zone trigger variable with context",
 				zap.String("variable", varNameCopy))
 		}
 	}
@@ -403,18 +404,21 @@ func (m *Manager) collectZoneTriggerVariables() []string {
 	return result
 }
 
-// handleZoneTriggerChange processes changes to zone trigger variables (Phase 2).
+// handleZoneTriggerChangeWithContext processes changes to zone trigger variables (Phase 2)
+// with event correlation context for cross-plugin tracking.
 // This re-evaluates which zones should be active.
-func (m *Manager) handleZoneTriggerChange(key string, oldValue, newValue interface{}) {
+func (m *Manager) handleZoneTriggerChangeWithContext(ctx *state.EventContext, key string, oldValue, newValue interface{}) {
 	m.logger.Info("Zone trigger variable changed",
+		zap.String("correlation_id", ctx.CorrelationID),
 		zap.String("variable", key),
 		zap.Any("old_value", oldValue),
 		zap.Any("new_value", newValue))
 
-	// Delegate to zone manager to resolve zones
+	// Delegate to zone manager to resolve zones with context
 	if m.zoneManager != nil {
-		if err := m.zoneManager.ResolveZones("trigger:" + key); err != nil {
+		if err := m.zoneManager.ResolveZonesWithContext(ctx, "trigger:"+key); err != nil {
 			m.logger.Error("Failed to resolve zones after trigger change",
+				zap.String("correlation_id", ctx.CorrelationID),
 				zap.String("variable", key),
 				zap.Error(err))
 		}

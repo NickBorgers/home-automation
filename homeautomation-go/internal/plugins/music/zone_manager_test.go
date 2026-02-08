@@ -2,6 +2,7 @@ package music
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -598,4 +599,318 @@ func TestZoneManager_Integration_WithTimeProvider(t *testing.T) {
 
 	// Verify zone manager is initialized
 	assert.NotNil(t, manager.zoneManager)
+}
+
+// Test captureStateSnapshot function
+func TestZoneManager_CaptureStateSnapshot(t *testing.T) {
+	t.Parallel()
+
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	config := createTestZoneConfig()
+
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, true, nil, nil)
+	zm := NewZoneManager(manager, config, logger)
+
+	// Set up state values
+	require.NoError(t, stateManager.SetBool("isAnyoneHome", true))
+	require.NoError(t, stateManager.SetBool("isAnyoneAsleep", true))
+	require.NoError(t, stateManager.SetBool("isMasterAsleep", false))
+	require.NoError(t, stateManager.SetString("dayPhase", "evening"))
+	require.NoError(t, stateManager.SetString("musicPlaybackType", "sleep"))
+
+	snapshot := zm.captureStateSnapshot()
+
+	// Verify core state variables are captured
+	assert.Equal(t, true, snapshot["isAnyoneHome"])
+	assert.Equal(t, true, snapshot["isAnyoneAsleep"])
+	assert.Equal(t, "evening", snapshot["dayPhase"])
+	assert.Equal(t, "sleep", snapshot["musicPlaybackType"])
+}
+
+// Test evaluateTriggersWithDetails populates GroupResults for trigger_groups
+func TestZoneManager_EvaluateTriggersWithDetails_PopulatesGroupResults(t *testing.T) {
+	t.Parallel()
+
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+
+	// Config with trigger_groups
+	config := &MusicConfig{
+		Zones: []ZoneConfig{
+			{
+				Name:     "multi_trigger",
+				Priority: 100,
+				TriggerGroups: []TriggerGroup{
+					{
+						Triggers: []TriggerCondition{
+							{Variable: "isAnyoneAsleep", Value: true},
+							{Variable: "isAnyoneHome", Value: true},
+						},
+					},
+					{
+						Triggers: []TriggerCondition{
+							{Variable: "dayPhase", Value: "night"},
+						},
+					},
+				},
+			},
+		},
+		Music: map[string]MusicMode{
+			"multi_trigger": {
+				Participants: []Participant{{PlayerName: "Bedroom", BaseVolume: 10}},
+				PlaybackOptions: []PlaybackOption{
+					{URI: "http://rain.example/1.m4a", MediaType: "music", VolumeMultiplier: 1.0},
+				},
+			},
+		},
+	}
+
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, true, nil, nil)
+	zm := NewZoneManager(manager, config, logger)
+
+	// Set up state - first group should match
+	require.NoError(t, stateManager.SetBool("isAnyoneHome", true))
+	require.NoError(t, stateManager.SetBool("isAnyoneAsleep", true))
+	require.NoError(t, stateManager.SetString("dayPhase", "day"))
+
+	eval := zm.evaluateTriggersWithDetails(config.Zones[0])
+
+	// Verify zone matched
+	assert.True(t, eval.Matched)
+	assert.Equal(t, "trigger_group", eval.MatchedVia)
+	assert.Equal(t, 1, eval.MatchedGroupIndex)
+
+	// Verify GroupResults is populated with ALL groups
+	assert.Len(t, eval.GroupResults, 2)
+
+	// First group should match
+	assert.Equal(t, 1, eval.GroupResults[0].GroupIndex)
+	assert.True(t, eval.GroupResults[0].Matched)
+	assert.Len(t, eval.GroupResults[0].Triggers, 2)
+
+	// Second group should not match (dayPhase != night)
+	assert.Equal(t, 2, eval.GroupResults[1].GroupIndex)
+	assert.False(t, eval.GroupResults[1].Matched)
+	assert.Len(t, eval.GroupResults[1].Triggers, 1)
+}
+
+// Test evaluateTriggersWithDetails includes all groups even when one matches
+func TestZoneManager_EvaluateTriggersWithDetails_AllGroupsEvaluated(t *testing.T) {
+	t.Parallel()
+
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+
+	// Config with 3 trigger_groups using existing state variables
+	config := &MusicConfig{
+		Zones: []ZoneConfig{
+			{
+				Name:     "test_zone",
+				Priority: 100,
+				TriggerGroups: []TriggerGroup{
+					{Triggers: []TriggerCondition{{Variable: "isNickHome", Value: true}}},
+					{Triggers: []TriggerCondition{{Variable: "isCarolineHome", Value: true}}},
+					{Triggers: []TriggerCondition{{Variable: "isToriHere", Value: true}}},
+				},
+			},
+		},
+		Music: map[string]MusicMode{
+			"test_zone": {
+				Participants:    []Participant{{PlayerName: "Speaker1", BaseVolume: 10}},
+				PlaybackOptions: []PlaybackOption{{URI: "test", MediaType: "music", VolumeMultiplier: 1.0}},
+			},
+		},
+	}
+
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, true, nil, nil)
+	zm := NewZoneManager(manager, config, logger)
+
+	// Set all variables to false first
+	require.NoError(t, stateManager.SetBool("isNickHome", false))
+	require.NoError(t, stateManager.SetBool("isCarolineHome", false))
+	require.NoError(t, stateManager.SetBool("isToriHere", false))
+
+	// Test when no group matches
+	eval := zm.evaluateTriggersWithDetails(config.Zones[0])
+	assert.False(t, eval.Matched)
+	assert.Len(t, eval.GroupResults, 3) // All groups evaluated
+
+	// Set isCarolineHome to true - second group should match but all groups still evaluated
+	require.NoError(t, stateManager.SetBool("isCarolineHome", true))
+	eval = zm.evaluateTriggersWithDetails(config.Zones[0])
+
+	assert.True(t, eval.Matched)
+	assert.Equal(t, 2, eval.MatchedGroupIndex) // Second group matched
+	assert.Len(t, eval.GroupResults, 3)        // Still all groups evaluated
+
+	// Verify each group's match status
+	assert.False(t, eval.GroupResults[0].Matched) // isNickHome=false
+	assert.True(t, eval.GroupResults[1].Matched)  // isCarolineHome=true
+	assert.False(t, eval.GroupResults[2].Matched) // isToriHere=false
+}
+
+// Test evaluateTriggerListWithDetails returns correct results
+func TestZoneManager_EvaluateTriggerListWithDetails(t *testing.T) {
+	t.Parallel()
+
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	config := createTestZoneConfig()
+
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, true, nil, nil)
+	zm := NewZoneManager(manager, config, logger)
+
+	// Set up state
+	require.NoError(t, stateManager.SetBool("isAnyoneHome", true))
+	require.NoError(t, stateManager.SetBool("isAnyoneAsleep", false))
+	require.NoError(t, stateManager.SetString("dayPhase", "morning"))
+
+	triggers := []TriggerCondition{
+		{Variable: "dayPhase", Value: "morning"},
+		{Variable: "isAnyoneHome", Value: true},
+		{Variable: "isAnyoneAsleep", Value: true}, // This one will fail
+	}
+
+	matched, results, failed := zm.evaluateTriggerListWithDetails(triggers)
+
+	// Should not match because isAnyoneAsleep is false
+	assert.False(t, matched)
+
+	// Should have 3 trigger results
+	assert.Len(t, results, 3)
+
+	// First two should match
+	assert.True(t, results[0].Matched)
+	assert.Equal(t, "dayPhase", results[0].Variable)
+	assert.Equal(t, "morning", results[0].ExpectedValue)
+	assert.Equal(t, "morning", results[0].ActualValue)
+
+	assert.True(t, results[1].Matched)
+	assert.Equal(t, "isAnyoneHome", results[1].Variable)
+
+	// Third should fail
+	assert.False(t, results[2].Matched)
+	assert.Equal(t, "isAnyoneAsleep", results[2].Variable)
+	assert.Equal(t, true, results[2].ExpectedValue)
+	assert.Equal(t, false, results[2].ActualValue)
+
+	// Should have 1 failed condition
+	assert.Len(t, failed, 1)
+	assert.Equal(t, "isAnyoneAsleep", failed[0].Variable)
+}
+
+// Test ZoneResolutionAudit struct JSON serialization
+func TestZoneResolutionAudit_JSONSerialization(t *testing.T) {
+	t.Parallel()
+
+	audit := ZoneResolutionAudit{
+		CorrelationID: "1706000000000-1",
+		Trigger:       "trigger:isWakeSequenceActive",
+		Timestamp:     time.Date(2026, 1, 23, 10, 0, 0, 0, time.UTC),
+		StateSnapshot: map[string]interface{}{
+			"isWakeSequenceActive": true,
+			"dayPhase":             "morning",
+		},
+		ZoneEvaluations: []ZoneEvaluation{
+			{
+				Zone:       "sleep",
+				Matched:    false,
+				Reason:     "trigger conditions not met",
+				MatchedVia: "",
+				FailedConditions: []FailedCondition{
+					{Variable: "isAnyoneAsleep", ExpectedValue: true, ActualValue: false},
+				},
+			},
+		},
+		ZoneToSpeakers:    map[string][]string{"morning": {"Kitchen", "Bedroom"}},
+		SpeakersToTurnOff: []string{"Office"},
+		ZoneChanges: ZoneChangesSummary{
+			Start:  []string{"morning"},
+			Stop:   []string{"sleep"},
+			Update: nil,
+		},
+	}
+
+	// Serialize to JSON
+	jsonBytes, err := json.Marshal(audit)
+	require.NoError(t, err)
+
+	// Verify key fields are present in JSON
+	jsonStr := string(jsonBytes)
+	assert.Contains(t, jsonStr, `"correlationId":"1706000000000-1"`)
+	assert.Contains(t, jsonStr, `"trigger":"trigger:isWakeSequenceActive"`)
+	assert.Contains(t, jsonStr, `"stateSnapshot"`)
+	assert.Contains(t, jsonStr, `"zoneEvaluations"`)
+	assert.Contains(t, jsonStr, `"zoneToSpeakers"`)
+	assert.Contains(t, jsonStr, `"speakersToTurnOff"`)
+	assert.Contains(t, jsonStr, `"zoneChanges"`)
+
+	// Deserialize back and verify
+	var decoded ZoneResolutionAudit
+	require.NoError(t, json.Unmarshal(jsonBytes, &decoded))
+
+	assert.Equal(t, audit.CorrelationID, decoded.CorrelationID)
+	assert.Equal(t, audit.Trigger, decoded.Trigger)
+	assert.Equal(t, audit.ZoneChanges.Start, decoded.ZoneChanges.Start)
+	assert.Equal(t, audit.ZoneChanges.Stop, decoded.ZoneChanges.Stop)
+}
+
+// Test ResolveZonesWithContext includes correlation ID in audit
+func TestZoneManager_ResolveZonesWithContext(t *testing.T) {
+	t.Parallel()
+
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	config := createTestZoneConfig()
+
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, true, nil, nil)
+	zm := NewZoneManager(manager, config, logger)
+
+	// Set up state
+	require.NoError(t, stateManager.SetBool("isAnyoneHome", true))
+	require.NoError(t, stateManager.SetBool("isAnyoneAsleep", false))
+	require.NoError(t, stateManager.SetString("dayPhase", "day"))
+	require.NoError(t, stateManager.SetString("musicPlaybackType", ""))
+
+	// Create an event context
+	eventCtx := state.NewEventContext("isWakeSequenceActive", false, true)
+
+	// ResolveZonesWithContext should not error
+	err := zm.ResolveZonesWithContext(eventCtx, "trigger:isWakeSequenceActive")
+	assert.NoError(t, err)
+
+	// Verify the correlation ID was generated correctly
+	assert.NotEmpty(t, eventCtx.CorrelationID)
+	assert.Equal(t, "isWakeSequenceActive", eventCtx.TriggerKey)
+	assert.Equal(t, false, eventCtx.TriggerOldValue)
+	assert.Equal(t, true, eventCtx.TriggerNewValue)
+}
+
+// Test ResolveZones backward compatibility (nil context)
+func TestZoneManager_ResolveZones_BackwardCompatibility(t *testing.T) {
+	t.Parallel()
+
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	config := createTestZoneConfig()
+
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, true, nil, nil)
+	zm := NewZoneManager(manager, config, logger)
+
+	// Set up state
+	require.NoError(t, stateManager.SetBool("isAnyoneHome", true))
+	require.NoError(t, stateManager.SetBool("isAnyoneAsleep", false))
+	require.NoError(t, stateManager.SetString("dayPhase", "day"))
+	require.NoError(t, stateManager.SetString("musicPlaybackType", ""))
+
+	// ResolveZones (without context) should still work
+	err := zm.ResolveZones("trigger:dayPhase")
+	assert.NoError(t, err)
 }
