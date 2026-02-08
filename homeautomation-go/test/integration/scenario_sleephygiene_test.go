@@ -3,6 +3,7 @@ package integration
 import (
 	"context"
 	"fmt"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -1056,5 +1057,108 @@ func TestScenario_WakeSequence_ActivatesWakeMusic(t *testing.T) {
 	t.Log("  - Lights began fading in (25-minute transition)")
 	t.Log("  - After light fade-in, musicPlaybackType set to 'wakeup'")
 	t.Log("  - Music plugin will receive state change and play wake music")
+	t.Log("========================================")
+}
+
+// ============================================================================
+// Stale isWakeSequenceActive cleanup on startup
+// ============================================================================
+
+// TestScenario_StaleWakeSequenceActive_ClearedOnStartup verifies that the sleephygiene
+// plugin clears stale isWakeSequenceActive on startup, preventing the bug where
+// morning music doesn't start because SetBool short-circuits on same value.
+//
+// USER STORY:
+// As a user, when my Eight Sleep alarm fires, I expect morning music to start
+// playing in the rest of the house even if the system had a stale isWakeSequenceActive=true
+// from a previous interrupted wake sequence.
+//
+// FIX:
+// The sleephygiene plugin clears isWakeSequenceActive to false on startup.
+// This ensures that when begin_wake fires and sets it to true, it's a change
+// from false→true, which properly notifies subscribers (like the music plugin).
+//
+// SCENARIO:
+//  1. Previous wake sequence left isWakeSequenceActive=true (e.g., app crashed mid-wake)
+//  2. App restarts, sleephygiene.Start() clears stale isWakeSequenceActive to false
+//  3. Eight Sleep alarm fires, begin_wake calls SetBool("isWakeSequenceActive", true)
+//  4. SetBool sees value changed (false→true), notifies subscribers
+//  5. Music plugin learns wake started
+//  6. Morning music plays in rest of house
+func TestScenario_StaleWakeSequenceActive_ClearedOnStartup(t *testing.T) {
+	// Use a fixed time during morning phase
+	fixedTime := time.Date(2025, 1, 15, 8, 0, 0, 0, time.UTC)
+
+	server, client, stateManager, baseCleanup := setupTest(t)
+	defer baseCleanup()
+
+	t.Log("========== TEST: Stale isWakeSequenceActive cleared on startup ==========")
+
+	// GIVEN: isWakeSequenceActive is stale true from previous run
+	t.Log("GIVEN: isWakeSequenceActive is stale true from previous run/crash")
+	server.SetState("input_boolean.wake_sequence_active", "on", map[string]interface{}{})
+	server.SetState("input_boolean.anyone_home", "on", map[string]interface{}{})
+	server.SetState("input_boolean.master_asleep", "on", map[string]interface{}{})
+	server.SetState("input_text.day_phase", "morning", map[string]interface{}{})
+
+	// Sync state from HA (this loads the stale isWakeSequenceActive=true)
+	err := stateManager.SyncFromHA()
+	require.NoError(t, err)
+
+	// Verify stale state is loaded before plugin starts
+	isWakeActive, err := stateManager.GetBool("isWakeSequenceActive")
+	require.NoError(t, err)
+	require.True(t, isWakeActive, "Stale isWakeSequenceActive should be true before plugin starts")
+
+	// WHEN: Sleephygiene plugin starts
+	t.Log("WHEN: Sleephygiene plugin starts")
+
+	logger := testlogger.New()
+	configLoader := config.NewLoader("../../configs", logger)
+	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
+
+	sleepMgr := sleephygiene.NewManager(context.Background(), client, stateManager, configLoader, logger, false, timeProvider, nil)
+	err = sleepMgr.Start()
+	require.NoError(t, err)
+	defer sleepMgr.Stop()
+
+	// Give startup cleanup time to run
+	time.Sleep(50 * time.Millisecond)
+
+	// THEN: isWakeSequenceActive should be cleared to false
+	t.Log("THEN: Verify stale isWakeSequenceActive was cleared")
+
+	isWakeActive, err = stateManager.GetBool("isWakeSequenceActive")
+	require.NoError(t, err)
+
+	assert.False(t, isWakeActive,
+		"Sleephygiene should clear stale isWakeSequenceActive on startup")
+
+	// Now verify that subsequent begin_wake will properly notify subscribers
+	t.Log("AND: Verify subsequent begin_wake properly notifies subscribers")
+
+	var notificationCount int32
+	sub, err := stateManager.Subscribe("isWakeSequenceActive", func(key string, oldValue, newValue interface{}) {
+		atomic.AddInt32(&notificationCount, 1)
+		t.Logf("NOTIFICATION: isWakeSequenceActive changed from %v to %v", oldValue, newValue)
+	})
+	require.NoError(t, err)
+	defer sub.Unsubscribe()
+
+	// Simulate begin_wake setting isWakeSequenceActive to true
+	err = stateManager.SetBool("isWakeSequenceActive", true)
+	require.NoError(t, err)
+
+	time.Sleep(50 * time.Millisecond)
+
+	assert.Equal(t, int32(1), atomic.LoadInt32(&notificationCount),
+		"Subscriber should be notified when isWakeSequenceActive changes from false to true")
+
+	t.Log("========================================")
+	t.Log("SUCCESS:")
+	t.Log("  - Stale isWakeSequenceActive was cleared on startup")
+	t.Log("  - Subsequent begin_wake properly notified subscribers")
+	t.Log("  - Music plugin will learn wake started")
+	t.Log("  - Morning music will play in rest of house")
 	t.Log("========================================")
 }

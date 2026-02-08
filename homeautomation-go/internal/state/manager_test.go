@@ -442,6 +442,57 @@ func TestManager_Subscribe(t *testing.T) {
 	})
 }
 
+// TestSetBool_SameValue_DoesNotNotify verifies that SetBool does NOT notify subscribers
+// when setting a variable to its current value. This is intentional behavior to avoid
+// unnecessary Home Assistant updates and subscriber notifications.
+//
+// IMPORTANT: This means plugins relying on edge-triggered behavior must ensure
+// state is properly cleaned up. For example, sleephygiene clears isWakeSequenceActive
+// on startup to prevent stale state from blocking notifications.
+//
+// See: scenario_sleephygiene_test.go TestScenario_StaleWakeSequenceActive_ClearedOnStartup
+func TestSetBool_SameValue_DoesNotNotify(t *testing.T) {
+	t.Parallel()
+	logger := testlogger.New()
+	mockClient := ha.NewMockClient()
+
+	// Set up HA state for isWakeSequenceActive
+	mockClient.SetState("input_boolean.wake_sequence_active", "on", map[string]interface{}{})
+	mockClient.Connect()
+
+	manager := NewManager(mockClient, logger, false)
+	manager.SyncFromHA()
+
+	// Verify initial state is true
+	initialValue, err := manager.GetBool("isWakeSequenceActive")
+	require.NoError(t, err)
+	require.True(t, initialValue, "Initial state should be true")
+
+	// Subscribe to changes
+	var notificationCount int32
+
+	sub, err := manager.Subscribe("isWakeSequenceActive", func(key string, oldValue, newValue interface{}) {
+		atomic.AddInt32(&notificationCount, 1)
+	})
+	require.NoError(t, err)
+	defer sub.Unsubscribe()
+
+	// Set same value - should NOT notify
+	err = manager.SetBool("isWakeSequenceActive", true)
+	require.NoError(t, err)
+
+	// Verify no notification was sent (this is the expected behavior)
+	assert.Equal(t, int32(0), atomic.LoadInt32(&notificationCount),
+		"SetBool should NOT notify subscribers when value hasn't changed")
+
+	// Now verify that changing the value DOES notify
+	err = manager.SetBool("isWakeSequenceActive", false)
+	require.NoError(t, err)
+
+	assert.Equal(t, int32(1), atomic.LoadInt32(&notificationCount),
+		"SetBool should notify subscribers when value changes")
+}
+
 func TestManagerNotifySubscribersIsSynchronous(t *testing.T) {
 	t.Parallel()
 	manager := &Manager{

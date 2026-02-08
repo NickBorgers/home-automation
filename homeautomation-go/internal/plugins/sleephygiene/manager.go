@@ -155,6 +155,20 @@ func (m *Manager) Start() error {
 	}
 	m.subscriptions = append(m.subscriptions, masterAsleepSub)
 
+	// Clear any stale isWakeSequenceActive from previous run/crash.
+	// Wake sequences can't persist across app restarts - if we're starting fresh,
+	// no wake sequence is in progress. This prevents the bug where stale state
+	// blocks the music plugin from being notified on the next begin_wake.
+	if !m.readOnly {
+		isWakeActive, _ := m.stateManager.GetBool("isWakeSequenceActive")
+		if isWakeActive {
+			m.logger.Info("Clearing stale isWakeSequenceActive from previous run")
+			if err := m.stateManager.SetBool("isWakeSequenceActive", false); err != nil {
+				m.logger.Error("Failed to clear stale isWakeSequenceActive", zap.Error(err))
+			}
+		}
+	}
+
 	// Start ticker to check time triggers every minute
 	m.ticker = time.NewTicker(1 * time.Minute)
 	go m.runTimerLoop()
