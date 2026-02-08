@@ -51,7 +51,7 @@
 - ✅ Load Shedding plugin (complete)
 - ✅ Sex Mode plugin (complete)
 - ✅ Christmas plugin (complete)
-- ✅ Infrastructure plugin (complete) - septic system monitoring
+- ✅ Infrastructure plugin (complete) - septic system monitoring, thermostat monitoring
 - ✅ Water Flow plugin (complete) - pipe break detection
 - ✅ Reset Coordinator (complete)
 
@@ -630,7 +630,7 @@ homeautomation-go/
 │       ├── environmental/           # ✅ Environmental plugin (humidity, water leak)
 │       ├── security/                # ✅ Security plugin
 │       ├── sensorhealth/            # ✅ Sensor Health plugin (battery, node status, temp lockup)
-│       ├── infrastructure/          # ✅ Infrastructure plugin (septic system monitoring)
+│       ├── infrastructure/          # ✅ Infrastructure plugin (septic, thermostat monitoring)
 │       ├── waterflow/               # ✅ Water Flow plugin (pipe break detection)
 │       ├── loadshedding/            # ✅ Load Shedding plugin
 │       ├── sexmode/                 # ✅ Sex Mode plugin
@@ -670,7 +670,7 @@ homeautomation-go/
 - ✅ Environmental plugin (humidity, water leak)
 - ✅ Security plugin
 - ✅ Sensor Health plugin (battery, node status, temp lockup)
-- ✅ Infrastructure plugin (aerobic septic system monitoring)
+- ✅ Infrastructure plugin (septic system, thermostat monitoring)
 - ✅ Water Flow plugin (pipe break detection)
 - ✅ Load Shedding plugin
 - ✅ Sex Mode plugin

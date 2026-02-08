@@ -597,3 +597,283 @@ func TestInfrastructureManager_NtfyClientNil(t *testing.T) {
 		t.Errorf("Expected state 'aerator_failure', got '%s'", shadowState.Outputs.SepticSystemStatus.SystemState)
 	}
 }
+
+// ============================================================================
+// Thermostat Monitoring Tests
+// ============================================================================
+
+func TestInfrastructureManager_WellThermostat_HeatingActivated(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	mockNtfy := ntfy.NewMockClient()
+	mockClock := clock.NewMockClock(time.Now())
+
+	manager := createTestManager(mockHA, mockNtfy, mockClock)
+
+	// Simulate initial idle state
+	manager.SimulateThermostatChange(WellThermostatEntity, "idle", 45.0, 40.0)
+
+	if manager.GetWellHVACAction() != "idle" {
+		t.Errorf("Expected well HVAC action 'idle', got '%s'", manager.GetWellHVACAction())
+	}
+
+	// No notification for initial state
+	if count := countNtfyNotifications(mockNtfy); count != 0 {
+		t.Errorf("Expected 0 notifications for initial state, got %d", count)
+	}
+
+	// Simulate heating activation (temperature dropped)
+	manager.SimulateThermostatChange(WellThermostatEntity, "heating", 38.0, 40.0)
+
+	if manager.GetWellHVACAction() != "heating" {
+		t.Errorf("Expected well HVAC action 'heating', got '%s'", manager.GetWellHVACAction())
+	}
+
+	// Should send notification when heating starts
+	if count := countNtfyNotifications(mockNtfy); count != 1 {
+		t.Errorf("Expected 1 notification for heating activation, got %d", count)
+	}
+
+	// Verify notification content
+	msg := getLastNtfyNotification(mockNtfy)
+	if msg == nil {
+		t.Fatal("Expected notification message")
+	}
+	if msg.Title != "Thermostat Alert" {
+		t.Errorf("Expected title 'Thermostat Alert', got '%s'", msg.Title)
+	}
+
+	// Verify shadow state
+	shadowState := manager.GetShadowState()
+	if shadowState.Outputs.ThermostatStatus.WellThermostat.HVACAction != "heating" {
+		t.Errorf("Expected shadow state hvacAction 'heating', got '%s'",
+			shadowState.Outputs.ThermostatStatus.WellThermostat.HVACAction)
+	}
+	if !shadowState.Outputs.ThermostatStatus.WellThermostat.IsActive {
+		t.Error("Expected well thermostat to be marked as active")
+	}
+}
+
+func TestInfrastructureManager_WellThermostat_NoNotificationWhenAlreadyHeating(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	mockNtfy := ntfy.NewMockClient()
+	mockClock := clock.NewMockClock(time.Now())
+
+	manager := createTestManager(mockHA, mockNtfy, mockClock)
+
+	// Start in heating state
+	manager.SimulateThermostatChange(WellThermostatEntity, "heating", 38.0, 40.0)
+
+	if count := countNtfyNotifications(mockNtfy); count != 1 {
+		t.Fatalf("Expected 1 notification for initial heating, got %d", count)
+	}
+
+	// Simulate another heating update (still heating, temperature changed)
+	manager.SimulateThermostatChange(WellThermostatEntity, "heating", 39.0, 40.0)
+
+	// Should NOT send another notification
+	if count := countNtfyNotifications(mockNtfy); count != 1 {
+		t.Errorf("Expected 1 notification (no duplicate), got %d", count)
+	}
+}
+
+func TestInfrastructureManager_BarnThermostat_DehumidifierCutoff(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	mockNtfy := ntfy.NewMockClient()
+	mockClock := clock.NewMockClock(time.Now())
+
+	manager := createTestManager(mockHA, mockNtfy, mockClock)
+
+	// Start with dehumidifier running (cooling mode)
+	manager.SimulateThermostatChange(BarnThermostatEntity, "cooling", 50.0, 41.0)
+
+	if manager.GetBarnHVACAction() != "cooling" {
+		t.Errorf("Expected barn HVAC action 'cooling', got '%s'", manager.GetBarnHVACAction())
+	}
+
+	// No notification for initial state
+	if count := countNtfyNotifications(mockNtfy); count != 0 {
+		t.Errorf("Expected 0 notifications for initial state, got %d", count)
+	}
+
+	// Simulate dehumidifier cutoff due to cold (temperature dropped below threshold)
+	manager.SimulateThermostatChange(BarnThermostatEntity, "idle", 39.0, 41.0)
+
+	if manager.GetBarnHVACAction() != "idle" {
+		t.Errorf("Expected barn HVAC action 'idle', got '%s'", manager.GetBarnHVACAction())
+	}
+
+	// Should send notification for cutoff
+	if count := countNtfyNotifications(mockNtfy); count != 1 {
+		t.Errorf("Expected 1 notification for dehumidifier cutoff, got %d", count)
+	}
+
+	// Verify notification content
+	msg := getLastNtfyNotification(mockNtfy)
+	if msg == nil {
+		t.Fatal("Expected notification message")
+	}
+	if msg.Title != "Thermostat Alert" {
+		t.Errorf("Expected title 'Thermostat Alert', got '%s'", msg.Title)
+	}
+
+	// Verify shadow state
+	shadowState := manager.GetShadowState()
+	if shadowState.Outputs.ThermostatStatus.BarnThermostat.HVACAction != "idle" {
+		t.Errorf("Expected shadow state hvacAction 'idle', got '%s'",
+			shadowState.Outputs.ThermostatStatus.BarnThermostat.HVACAction)
+	}
+	if shadowState.Outputs.ThermostatStatus.BarnThermostat.IsActive {
+		t.Error("Expected barn thermostat to be marked as inactive")
+	}
+}
+
+func TestInfrastructureManager_BarnThermostat_DehumidifierResumed(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	mockNtfy := ntfy.NewMockClient()
+	mockClock := clock.NewMockClock(time.Now())
+
+	manager := createTestManager(mockHA, mockNtfy, mockClock)
+
+	// Start with dehumidifier idle (too cold)
+	manager.SimulateThermostatChange(BarnThermostatEntity, "idle", 39.0, 41.0)
+
+	// Simulate temperature recovery and dehumidifier resuming
+	manager.SimulateThermostatChange(BarnThermostatEntity, "cooling", 45.0, 41.0)
+
+	// Should send notification for resumed operation
+	if count := countNtfyNotifications(mockNtfy); count != 1 {
+		t.Errorf("Expected 1 notification for dehumidifier resumed, got %d", count)
+	}
+
+	// Verify notification content
+	msg := getLastNtfyNotification(mockNtfy)
+	if msg == nil {
+		t.Fatal("Expected notification message")
+	}
+
+	// Verify shadow state
+	shadowState := manager.GetShadowState()
+	if shadowState.Outputs.ThermostatStatus.BarnThermostat.HVACAction != "cooling" {
+		t.Errorf("Expected shadow state hvacAction 'cooling', got '%s'",
+			shadowState.Outputs.ThermostatStatus.BarnThermostat.HVACAction)
+	}
+	if !shadowState.Outputs.ThermostatStatus.BarnThermostat.IsActive {
+		t.Error("Expected barn thermostat to be marked as active")
+	}
+}
+
+func TestInfrastructureManager_BarnThermostat_NoNotificationIdleToOff(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	mockNtfy := ntfy.NewMockClient()
+	mockClock := clock.NewMockClock(time.Now())
+
+	manager := createTestManager(mockHA, mockNtfy, mockClock)
+
+	// Start idle
+	manager.SimulateThermostatChange(BarnThermostatEntity, "idle", 39.0, 41.0)
+
+	// Transition to off (user turned it off)
+	manager.SimulateThermostatChange(BarnThermostatEntity, "off", 39.0, 41.0)
+
+	// Should NOT send notification for idle->off (only idle<->cooling matters)
+	if count := countNtfyNotifications(mockNtfy); count != 0 {
+		t.Errorf("Expected 0 notifications for idle->off, got %d", count)
+	}
+}
+
+func TestInfrastructureManager_ThermostatShadowStateTracking(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	mockNtfy := ntfy.NewMockClient()
+	mockClock := clock.NewMockClock(time.Now())
+
+	manager := createTestManager(mockHA, mockNtfy, mockClock)
+
+	// Initial shadow state should have empty thermostat status
+	shadowState := manager.GetShadowState()
+	if shadowState.Outputs.ThermostatStatus.WellThermostat.EntityID != "" {
+		t.Error("Expected empty well thermostat entity ID initially")
+	}
+
+	// Update well thermostat
+	manager.SimulateThermostatChange(WellThermostatEntity, "heating", 38.0, 40.0)
+
+	shadowState = manager.GetShadowState()
+	if shadowState.Outputs.ThermostatStatus.WellThermostat.EntityID != WellThermostatEntity {
+		t.Errorf("Expected entity ID '%s', got '%s'",
+			WellThermostatEntity, shadowState.Outputs.ThermostatStatus.WellThermostat.EntityID)
+	}
+	if shadowState.Outputs.ThermostatStatus.WellThermostat.CurrentTemp != 38.0 {
+		t.Errorf("Expected current temp 38.0, got %f",
+			shadowState.Outputs.ThermostatStatus.WellThermostat.CurrentTemp)
+	}
+	if shadowState.Outputs.ThermostatStatus.WellThermostat.TargetTemp != 40.0 {
+		t.Errorf("Expected target temp 40.0, got %f",
+			shadowState.Outputs.ThermostatStatus.WellThermostat.TargetTemp)
+	}
+
+	// Update barn thermostat
+	manager.SimulateThermostatChange(BarnThermostatEntity, "cooling", 50.0, 41.0)
+
+	shadowState = manager.GetShadowState()
+	if shadowState.Outputs.ThermostatStatus.BarnThermostat.EntityID != BarnThermostatEntity {
+		t.Errorf("Expected entity ID '%s', got '%s'",
+			BarnThermostatEntity, shadowState.Outputs.ThermostatStatus.BarnThermostat.EntityID)
+	}
+	if shadowState.Outputs.ThermostatStatus.BarnThermostat.CurrentTemp != 50.0 {
+		t.Errorf("Expected current temp 50.0, got %f",
+			shadowState.Outputs.ThermostatStatus.BarnThermostat.CurrentTemp)
+	}
+}
+
+func TestInfrastructureManager_ThermostatNilState(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	mockNtfy := ntfy.NewMockClient()
+	mockClock := clock.NewMockClock(time.Now())
+
+	manager := createTestManager(mockHA, mockNtfy, mockClock)
+
+	// Call handler with nil state - should not panic
+	manager.handleThermostatChange(WellThermostatEntity, nil, nil)
+
+	// Should have no notifications
+	if count := countNtfyNotifications(mockNtfy); count != 0 {
+		t.Errorf("Expected 0 notifications for nil state, got %d", count)
+	}
+}
+
+func TestInfrastructureManager_ThermostatNoHVACAction(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	mockNtfy := ntfy.NewMockClient()
+	mockClock := clock.NewMockClock(time.Now())
+
+	manager := createTestManager(mockHA, mockNtfy, mockClock)
+
+	// Create state without hvac_action attribute
+	newState := &ha.State{
+		EntityID:   WellThermostatEntity,
+		State:      "heat",
+		Attributes: map[string]interface{}{},
+	}
+	manager.handleThermostatChange(WellThermostatEntity, nil, newState)
+
+	// Should have no notifications
+	if count := countNtfyNotifications(mockNtfy); count != 0 {
+		t.Errorf("Expected 0 notifications for missing hvac_action, got %d", count)
+	}
+}

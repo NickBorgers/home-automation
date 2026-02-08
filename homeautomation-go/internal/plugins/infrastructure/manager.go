@@ -44,6 +44,15 @@ const (
 	RepeatAlertCooldown = 4 * time.Hour
 )
 
+// Thermostat entity constants
+const (
+	// WellThermostatEntity is the well shed heater thermostat (light that generates heat)
+	WellThermostatEntity = "climate.well_light_thermostat"
+
+	// BarnThermostatEntity is the barn dehumidifier control thermostat
+	BarnThermostatEntity = "climate.barn_humidifier_thermostat"
+)
+
 // Manager handles infrastructure monitoring for the septic system
 type Manager struct {
 	ctx          context.Context
@@ -69,6 +78,10 @@ type Manager struct {
 	lastRecoveryNotification time.Time // Last time we sent a recovery notification
 	isAeratorFailure         bool      // Currently in aerator failure state
 	isPumpStuck              bool      // Currently in pump stuck state
+
+	// Thermostat state tracking
+	wellHVACAction string // Current hvac_action for well thermostat
+	barnHVACAction string // Current hvac_action for barn thermostat
 
 	// Periodic checker
 	stopChecker chan struct{}
@@ -110,6 +123,14 @@ func (m *Manager) Start() error {
 	// Subscribe to the septic power sensor
 	if err := m.subHelper.SubscribeToEntity(SepticSensorEntity, m.handlePowerChange); err != nil {
 		return fmt.Errorf("failed to subscribe to septic power sensor: %w", err)
+	}
+
+	// Subscribe to thermostat entities
+	if err := m.subHelper.SubscribeToEntity(WellThermostatEntity, m.handleThermostatChange); err != nil {
+		return fmt.Errorf("failed to subscribe to well thermostat: %w", err)
+	}
+	if err := m.subHelper.SubscribeToEntity(BarnThermostatEntity, m.handleThermostatChange); err != nil {
+		return fmt.Errorf("failed to subscribe to barn thermostat: %w", err)
 	}
 
 	// Capture initial inputs after subscriptions registered
@@ -421,6 +442,134 @@ func (m *Manager) sendTTSAnnouncement(message string) {
 	}
 }
 
+// handleThermostatChange processes changes to thermostat entities
+func (m *Manager) handleThermostatChange(entityID string, oldState, newState *ha.State) {
+	if newState == nil {
+		return
+	}
+
+	hvacAction, ok := newState.Attributes["hvac_action"].(string)
+	if !ok {
+		m.logger.Debug("Thermostat state change without hvac_action attribute",
+			zap.String("entity_id", entityID),
+			zap.String("state", newState.State))
+		return
+	}
+
+	// Extract temperature info for shadow state
+	currentTemp, _ := newState.Attributes["current_temperature"].(float64)
+	targetTemp, _ := newState.Attributes["temperature"].(float64)
+
+	m.logger.Debug("Thermostat state changed",
+		zap.String("entity_id", entityID),
+		zap.String("hvac_action", hvacAction),
+		zap.Float64("current_temp", currentTemp),
+		zap.Float64("target_temp", targetTemp))
+
+	now := m.clock.Now()
+
+	m.mu.Lock()
+	switch entityID {
+	case WellThermostatEntity:
+		oldAction := m.wellHVACAction
+		m.wellHVACAction = hvacAction
+
+		// Update shadow state
+		m.shadowTracker.UpdateWellThermostat(shadowstate.ThermostatState{
+			EntityID:    entityID,
+			HVACAction:  hvacAction,
+			CurrentTemp: currentTemp,
+			TargetTemp:  targetTemp,
+			LastChanged: now,
+			IsActive:    hvacAction == "heating",
+		})
+		m.mu.Unlock()
+
+		// Notify when heating starts (temperature dropped below threshold)
+		if hvacAction == "heating" && oldAction != "heating" {
+			m.sendThermostatNotification("well_heating",
+				"Well shed temperature dropped - heater light activated",
+				currentTemp, targetTemp)
+		}
+
+	case BarnThermostatEntity:
+		oldAction := m.barnHVACAction
+		m.barnHVACAction = hvacAction
+
+		// Update shadow state
+		m.shadowTracker.UpdateBarnThermostat(shadowstate.ThermostatState{
+			EntityID:    entityID,
+			HVACAction:  hvacAction,
+			CurrentTemp: currentTemp,
+			TargetTemp:  targetTemp,
+			LastChanged: now,
+			IsActive:    hvacAction == "cooling",
+		})
+		m.mu.Unlock()
+
+		// Notify on state changes between idle/cooling
+		if hvacAction != oldAction {
+			if hvacAction == "idle" && oldAction == "cooling" {
+				// Dehumidifier cut off due to cold temperature
+				m.sendThermostatNotification("barn_cutoff",
+					"Barn temperature too cold - dehumidifier cut off",
+					currentTemp, targetTemp)
+			} else if hvacAction == "cooling" && oldAction == "idle" {
+				// Dehumidifier resumed
+				m.sendThermostatNotification("barn_resumed",
+					"Barn temperature recovered - dehumidifier resumed",
+					currentTemp, targetTemp)
+			}
+		}
+
+	default:
+		m.mu.Unlock()
+	}
+}
+
+// sendThermostatNotification sends a thermostat notification via ntfy
+func (m *Manager) sendThermostatNotification(alertType, message string, currentTemp, targetTemp float64) {
+	fullMessage := fmt.Sprintf("%s (current: %.1f°F, target: %.1f°F)", message, currentTemp, targetTemp)
+
+	m.logger.Info("Thermostat notification",
+		zap.String("alert_type", alertType),
+		zap.String("message", fullMessage))
+
+	// Record notification in shadow state
+	m.shadowTracker.RecordNotification(alertType, fullMessage, "default")
+
+	// Send ntfy notification
+	if m.ntfyClient != nil {
+		priority := ntfy.PriorityDefault
+		tags := []string{"thermometer"}
+
+		// Use different tags based on alert type
+		switch alertType {
+		case "well_heating":
+			tags = append(tags, "fire")
+		case "barn_cutoff":
+			tags = append(tags, "cold_face")
+		case "barn_resumed":
+			tags = append(tags, "white_check_mark")
+		}
+
+		if err := m.ntfyClient.Send(&ntfy.Message{
+			Title:    "Thermostat Alert",
+			Body:     fullMessage,
+			Priority: priority,
+			Tags:     tags,
+		}); err != nil {
+			m.logger.Error("Failed to send thermostat notification",
+				zap.String("alert_type", alertType),
+				zap.Error(err))
+		} else {
+			m.logger.Info("Thermostat notification sent", zap.String("message", fullMessage))
+		}
+	} else {
+		m.logger.Warn("ntfy client not configured, cannot send thermostat notification")
+	}
+}
+
 // ============================================================================
 // Test Helpers - exported for testing only
 // ============================================================================
@@ -432,6 +581,34 @@ func (m *Manager) SimulatePowerReading(powerW float64) {
 		State:    fmt.Sprintf("%.1f", powerW),
 	}
 	m.handlePowerChange(SepticSensorEntity, nil, newState)
+}
+
+// SimulateThermostatChange simulates a thermostat state change for testing
+func (m *Manager) SimulateThermostatChange(entityID, hvacAction string, currentTemp, targetTemp float64) {
+	newState := &ha.State{
+		EntityID: entityID,
+		State:    "heat", // or "cool" depending on thermostat mode
+		Attributes: map[string]interface{}{
+			"hvac_action":         hvacAction,
+			"current_temperature": currentTemp,
+			"temperature":         targetTemp,
+		},
+	}
+	m.handleThermostatChange(entityID, nil, newState)
+}
+
+// GetWellHVACAction returns the current well thermostat HVAC action for testing
+func (m *Manager) GetWellHVACAction() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.wellHVACAction
+}
+
+// GetBarnHVACAction returns the current barn thermostat HVAC action for testing
+func (m *Manager) GetBarnHVACAction() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.barnHVACAction
 }
 
 // TriggerEvaluation triggers condition evaluation for testing
