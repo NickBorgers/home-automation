@@ -83,6 +83,7 @@ func setupSleepHygieneScenarioTestWithTime(t *testing.T, fixedTime time.Time) (*
 // TestScenario_AlarmTimeReached_TriggersBeginWakeSequence validates that when
 // the alarm time is reached, the begin_wake sequence triggers (music fade-out starts)
 func TestScenario_AlarmTimeReached_TriggersBeginWakeSequence(t *testing.T) {
+	t.Parallel()
 	// Set up a fixed time: 2025-01-15 08:50:00 (alarm time for weekdays)
 	alarmTime := time.Date(2025, 1, 15, 8, 50, 0, 0, time.UTC)
 
@@ -150,6 +151,7 @@ func TestScenario_AlarmTimeReached_TriggersBeginWakeSequence(t *testing.T) {
 // TestScenario_BeginWakeSequence_FadesOutMusic validates that the begin_wake
 // sequence properly fades out bedroom speaker volume
 func TestScenario_BeginWakeSequence_FadesOutMusic(t *testing.T) {
+	t.Parallel()
 	server, sleepMgr, _, cleanup := setupSleepHygieneScenarioTest(t)
 	defer cleanup()
 	_ = sleepMgr // silence unused variable warning
@@ -195,6 +197,7 @@ func TestScenario_BeginWakeSequence_FadesOutMusic(t *testing.T) {
 // TestScenario_FullWakeSequence_ActivatesLights validates that
 // the full wake sequence turns on lights
 func TestScenario_FullWakeSequence_ActivatesLights(t *testing.T) {
+	t.Parallel()
 	// NOTE: This test uses a FixedTimeProvider, so the timer-based wake trigger
 	// won't actually fire (time doesn't advance). This test validates the framework
 	// setup and state management. The actual wake logic is tested in unit tests.
@@ -240,6 +243,7 @@ func TestScenario_FullWakeSequence_ActivatesLights(t *testing.T) {
 // TestScenario_MidnightReset_ResetsTriggers validates that at midnight,
 // the begin_wake and wake triggers are reset for the new day
 func TestScenario_MidnightReset_ResetsTriggers(t *testing.T) {
+	t.Parallel()
 	// This test validates the midnight reset logic
 	// We'll use a time just before midnight and just after midnight
 
@@ -297,6 +301,7 @@ func TestScenario_MidnightReset_ResetsTriggers(t *testing.T) {
 // TestScenario_EveningReminder_SendsStopScreensNotification validates that
 // at the scheduled stop_screens time, a reminder notification is sent
 func TestScenario_EveningReminder_SendsStopScreensNotification(t *testing.T) {
+	t.Parallel()
 	// Set up a fixed time: 2025-01-15 (Wednesday) 22:30:00 (stop_screens time)
 	stopScreensTime := time.Date(2025, 1, 15, 22, 30, 0, 0, time.UTC)
 
@@ -353,6 +358,7 @@ func TestScenario_EveningReminder_SendsStopScreensNotification(t *testing.T) {
 // TestScenario_WakeCancellation_RevertsToSleepMusic validates that when
 // bedroom lights are turned off during wake sequence, it reverts to sleep music
 func TestScenario_WakeCancellation_RevertsToSleepMusic(t *testing.T) {
+	t.Parallel()
 	server, sleepMgr, _, cleanup := setupSleepHygieneScenarioTest(t)
 	defer cleanup()
 	_ = sleepMgr // silence unused variable warning
@@ -408,6 +414,7 @@ func TestScenario_WakeCancellation_RevertsToSleepMusic(t *testing.T) {
 // TestScenario_MultipleAlarms_UpdatesCorrectly validates that when alarm time
 // changes to a different value, the wake triggers update accordingly
 func TestScenario_MultipleAlarms_UpdatesCorrectly(t *testing.T) {
+	t.Parallel()
 	server, sleepMgr, _, cleanup := setupSleepHygieneScenarioTest(t)
 	defer cleanup()
 	_ = sleepMgr // silence unused variable warning
@@ -454,6 +461,7 @@ func TestScenario_MultipleAlarms_UpdatesCorrectly(t *testing.T) {
 // caused volume_set commands to be retried out of order, potentially
 // resulting in unexpected volume changes.
 func TestScenario_WakeSequence_VolumeFadesOutMonotonically(t *testing.T) {
+	t.Parallel()
 	server, sleepMgr, _, cleanup := setupSleepHygieneScenarioTest(t)
 	defer cleanup()
 
@@ -556,6 +564,7 @@ func TestScenario_WakeSequence_VolumeFadesOutMonotonically(t *testing.T) {
 // TestScenario_SleepStateIntegration_ChecksConditions validates that wake
 // sequences only trigger when isMasterAsleep is true
 func TestScenario_SleepStateIntegration_ChecksConditions(t *testing.T) {
+	t.Parallel()
 	alarmTime := time.Date(2025, 1, 15, 8, 50, 0, 0, time.UTC)
 
 	server, sleepMgr, cleanup := setupSleepHygieneScenarioTestWithTime(t, alarmTime)
@@ -630,6 +639,7 @@ func TestScenario_SleepStateIntegration_ChecksConditions(t *testing.T) {
 // 2. The follow-up call sets brightness_pct to 100 with transition=1500 (25 min)
 // 3. The two-step process ensures lights start dim and gradually brighten
 func TestScenario_WakeUpLightFadeIn_StartsAtLowBrightness(t *testing.T) {
+	t.Parallel()
 	server, sleepMgr, _, cleanup := setupSleepHygieneScenarioTest(t)
 	defer cleanup()
 
@@ -764,6 +774,7 @@ func TestScenario_WakeUpLightFadeIn_StartsAtLowBrightness(t *testing.T) {
 // the lighting config prevents the lighting plugin from interfering with
 // the sleephygiene plugin's wake-up light fade-in.
 func TestScenario_WakeSequence_LightingPluginYieldsToSleepHygiene(t *testing.T) {
+	t.Parallel()
 	// This test uses the multi-plugin environment to test interaction
 	// between sleephygiene and lighting plugins
 
@@ -875,6 +886,7 @@ func TestScenario_WakeSequence_LightingPluginYieldsToSleepHygiene(t *testing.T) 
 // CORRECT behavior: isWakeSequenceActive=true should be checked BEFORE
 // isAnyoneHomeAndAwake to yield control to the sleephygiene plugin.
 func TestScenario_WakeSequence_LightingConditionPriority(t *testing.T) {
+	t.Parallel()
 	// This test validates the fix for the condition ordering bug
 	server, client, manager, baseCleanup := setupTest(t)
 	defer baseCleanup()
@@ -987,6 +999,7 @@ func TestScenario_WakeSequence_LightingConditionPriority(t *testing.T) {
 // This test validates step 3: that musicPlaybackType becomes "wakeup" after
 // the light fade-in completes.
 func TestScenario_WakeSequence_ActivatesWakeMusic(t *testing.T) {
+	t.Parallel()
 	server, sleepMgr, stateManager, cleanup := setupSleepHygieneScenarioTest(t)
 	defer cleanup()
 
@@ -1086,6 +1099,7 @@ func TestScenario_WakeSequence_ActivatesWakeMusic(t *testing.T) {
 //  5. Music plugin learns wake started
 //  6. Morning music plays in rest of house
 func TestScenario_StaleWakeSequenceActive_ClearedOnStartup(t *testing.T) {
+	t.Parallel()
 	// Use a fixed time during morning phase
 	fixedTime := time.Date(2025, 1, 15, 8, 0, 0, 0, time.UTC)
 

@@ -357,7 +357,7 @@ ci-unit-tests:
 #ci-integration-tests: @ Run integration tests with race detector (used by CI)
 ci-integration-tests:
 	@echo "🧪 Running integration tests..."
-	@cd homeautomation-go && go test ./test/integration/... -race -timeout=10m -p=1
+	@cd homeautomation-go && go test ./test/integration/... -race -timeout=10m
 	@echo "✅ Integration tests passed"
 
 #pre-push: @ Run comprehensive pre-push validation (build, tests, race detector, coverage ≥65%)

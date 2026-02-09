@@ -75,6 +75,7 @@ func setupSecurityScenarioTestWithMockClock(t *testing.T) (*MockHAServer, *state
 // TestScenario_NickReturnsHomeGarageEmpty tests that the garage door opens
 // automatically when Nick arrives home and the garage is empty
 func TestScenario_NickReturnsHomeGarageEmpty(t *testing.T) {
+	t.Parallel()
 	server, _, _, manager, cleanup := setupSecurityScenarioTest(t)
 	defer cleanup()
 
@@ -113,6 +114,7 @@ func TestScenario_NickReturnsHomeGarageEmpty(t *testing.T) {
 // TestScenario_CarolineReturnsHomeGarageEmpty tests that the garage door opens
 // when Caroline arrives home and the garage is empty
 func TestScenario_CarolineReturnsHomeGarageEmpty(t *testing.T) {
+	t.Parallel()
 	server, _, _, manager, cleanup := setupSecurityScenarioTest(t)
 	defer cleanup()
 
@@ -137,6 +139,7 @@ func TestScenario_CarolineReturnsHomeGarageEmpty(t *testing.T) {
 // TestScenario_OwnerReturnsHomeGarageOccupied tests that the garage door does NOT
 // open when an owner arrives home but the garage is already occupied (vehicle detected)
 func TestScenario_OwnerReturnsHomeGarageOccupied(t *testing.T) {
+	t.Parallel()
 	server, _, _, manager, cleanup := setupSecurityScenarioTest(t)
 	defer cleanup()
 
@@ -170,6 +173,7 @@ func TestScenario_OwnerReturnsHomeGarageOccupied(t *testing.T) {
 // TestScenario_DidOwnerJustReturnHomeAutoReset tests that didOwnerJustReturnHome
 // automatically resets to false after 10 minutes
 func TestScenario_DidOwnerJustReturnHomeAutoReset(t *testing.T) {
+	t.Parallel()
 	server, _, _, manager, mockClock, cleanup := setupSecurityScenarioTestWithMockClock(t)
 	defer cleanup()
 
@@ -205,6 +209,7 @@ func TestScenario_DidOwnerJustReturnHomeAutoReset(t *testing.T) {
 // TestScenario_MultipleArrivalsWithin10Minutes tests edge case where both owners
 // arrive within 10 minutes - the timer should extend
 func TestScenario_MultipleArrivalsWithin10Minutes(t *testing.T) {
+	t.Parallel()
 	server, _, _, manager, mockClock, cleanup := setupSecurityScenarioTestWithMockClock(t)
 	defer cleanup()
 
@@ -260,6 +265,7 @@ func TestScenario_MultipleArrivalsWithin10Minutes(t *testing.T) {
 // TestScenario_OwnerLeavesAndReturns tests that leaving and returning
 // within 10 minutes still triggers the automation
 func TestScenario_OwnerLeavesAndReturns(t *testing.T) {
+	t.Parallel()
 	server, _, _, manager, cleanup := setupSecurityScenarioTest(t)
 	defer cleanup()
 
@@ -302,6 +308,7 @@ func TestScenario_OwnerLeavesAndReturns(t *testing.T) {
 // TestScenario_OnlyOwnersTriggersGarage tests that only owners (Nick/Caroline)
 // trigger the garage automation, not guests (Tori)
 func TestScenario_OnlyOwnersTriggersGarage(t *testing.T) {
+	t.Parallel()
 	server, _, _, manager, cleanup := setupSecurityScenarioTest(t)
 	defer cleanup()
 

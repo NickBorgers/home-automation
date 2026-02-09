@@ -83,6 +83,7 @@ func setupSensorMonitoringTest(t *testing.T) (*sensorMonitoringEnv, func()) {
 // ============================================================================
 
 func TestScenario_SensorMonitoring_CompleteSurfaceArea(t *testing.T) {
+	t.Parallel()
 	env, cleanup := setupSensorMonitoringTest(t)
 	defer cleanup()
 
@@ -224,6 +225,7 @@ func TestScenario_SensorMonitoring_CompleteSurfaceArea(t *testing.T) {
 // ============================================================================
 
 func TestScenario_SensorHealth_LowBatteryDetection(t *testing.T) {
+	t.Parallel()
 	env, cleanup := setupSensorMonitoringTest(t)
 	defer cleanup()
 
@@ -267,6 +269,7 @@ func TestScenario_SensorHealth_LowBatteryDetection(t *testing.T) {
 // ============================================================================
 
 func TestScenario_Environmental_WaterLeakDetection(t *testing.T) {
+	t.Parallel()
 	env, cleanup := setupSensorMonitoringTest(t)
 	defer cleanup()
 
@@ -330,6 +333,7 @@ func TestScenario_Environmental_WaterLeakDetection(t *testing.T) {
 // ============================================================================
 
 func TestScenario_Environmental_HighHumidityAlert(t *testing.T) {
+	t.Parallel()
 	env, cleanup := setupSensorMonitoringTest(t)
 	defer cleanup()
 
@@ -390,6 +394,7 @@ func TestScenario_Environmental_HighHumidityAlert(t *testing.T) {
 // ============================================================================
 
 func TestScenario_SensorHealth_TemperatureLockupDetection(t *testing.T) {
+	t.Parallel()
 	env, cleanup := setupSensorMonitoringTest(t)
 	defer cleanup()
 
@@ -452,6 +457,7 @@ func TestScenario_SensorHealth_TemperatureLockupDetection(t *testing.T) {
 // ============================================================================
 
 func TestScenario_BothPlugins_ConcurrentOperation(t *testing.T) {
+	t.Parallel()
 	env, cleanup := setupSensorMonitoringTest(t)
 	defer cleanup()
 
@@ -521,6 +527,7 @@ func TestScenario_BothPlugins_ConcurrentOperation(t *testing.T) {
 // ============================================================================
 
 func TestScenario_SensorHealth_NodeStatusMonitoring(t *testing.T) {
+	t.Parallel()
 	env, cleanup := setupSensorMonitoringTest(t)
 	defer cleanup()
 

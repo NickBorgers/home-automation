@@ -78,6 +78,7 @@ import (
 // =============================================================================
 
 func TestUserStory_WakeSequence_StateCoordination(t *testing.T) {
+	t.Parallel()
 	server, _, stateManager, cleanup := setupTest(t)
 	defer cleanup()
 
@@ -167,6 +168,7 @@ func TestUserStory_WakeSequence_StateCoordination(t *testing.T) {
 // TestUserStory_WakeSequence_CancelReturnsToSleep tests that cancelling
 // the wake sequence properly restores sleep mode
 func TestUserStory_WakeSequence_CancelReturnsToSleep(t *testing.T) {
+	t.Parallel()
 	server, _, stateManager, cleanup := setupTest(t)
 	defer cleanup()
 
@@ -213,6 +215,7 @@ func TestUserStory_WakeSequence_CancelReturnsToSleep(t *testing.T) {
 // TestUserStory_CompleteMorningRoutine_StateTransitions tests the complete
 // morning routine from a state transition perspective
 func TestUserStory_CompleteMorningRoutine_StateTransitions(t *testing.T) {
+	t.Parallel()
 	server, _, stateManager, cleanup := setupTest(t)
 	defer cleanup()
 
@@ -325,6 +328,7 @@ func TestUserStory_CompleteMorningRoutine_StateTransitions(t *testing.T) {
 // =============================================================================
 
 func TestRegression_PR564_IsWakeSequenceActiveSetImmediately(t *testing.T) {
+	t.Parallel()
 	server, _, stateManager, cleanup := setupTest(t)
 	defer cleanup()
 

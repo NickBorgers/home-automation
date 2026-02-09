@@ -16,22 +16,24 @@ import (
 
 const (
 	testToken = "test_token_12345"
-	testAddr  = "localhost:18123"
 )
 
 func setupTest(t *testing.T) (*MockHAServer, *ha.Client, *state.Manager, func()) {
 	// Create logger
 	logger := testlogger.New()
 
-	// Start mock HA server
-	server := NewMockHAServer(testAddr, testToken)
+	// Start mock HA server with dynamic port allocation (port 0)
+	server := NewMockHAServer("localhost:0", testToken)
 	server.InitializeStates()
 
 	err := server.Start()
 	require.NoError(t, err)
 
-	// Create and connect client
-	client := ha.NewClient(fmt.Sprintf("ws://%s/api/websocket", testAddr), testToken, logger)
+	// Get the actual address after dynamic port allocation
+	actualAddr := server.Addr()
+
+	// Create and connect client using the actual address
+	client := ha.NewClient(fmt.Sprintf("ws://%s/api/websocket", actualAddr), testToken, logger)
 	err = client.Connect()
 	require.NoError(t, err)
 
@@ -51,6 +53,7 @@ func setupTest(t *testing.T) (*MockHAServer, *ha.Client, *state.Manager, func())
 
 // TestBasicConnection tests basic connection and sync
 func TestBasicConnection(t *testing.T) {
+	t.Parallel()
 	server, client, manager, cleanup := setupTest(t)
 	defer cleanup()
 
@@ -96,6 +99,7 @@ func TestBasicConnection(t *testing.T) {
 
 // TestStateChangeSubscription tests subscription to state changes
 func TestStateChangeSubscription(t *testing.T) {
+	t.Parallel()
 	server, _, manager, cleanup := setupTest(t)
 	defer cleanup()
 
@@ -128,6 +132,7 @@ func TestStateChangeSubscription(t *testing.T) {
 
 // TestConcurrentReads tests concurrent read operations
 func TestConcurrentReads(t *testing.T) {
+	t.Parallel()
 	_, _, manager, cleanup := setupTest(t)
 	defer cleanup()
 
@@ -154,6 +159,7 @@ func TestConcurrentReads(t *testing.T) {
 
 // TestConcurrentWrites tests concurrent write operations
 func TestConcurrentWrites(t *testing.T) {
+	t.Parallel()
 	_, _, manager, cleanup := setupTest(t)
 	defer cleanup()
 
@@ -179,6 +185,7 @@ func TestConcurrentWrites(t *testing.T) {
 
 // TestConcurrentReadsAndWrites tests mixed read/write operations
 func TestConcurrentReadsAndWrites(t *testing.T) {
+	t.Parallel()
 	_, _, manager, cleanup := setupTest(t)
 	defer cleanup()
 
@@ -228,6 +235,7 @@ func TestConcurrentReadsAndWrites(t *testing.T) {
 
 // TestSubscriptionWithConcurrentWrites tests the deadlock scenario
 func TestSubscriptionWithConcurrentWrites(t *testing.T) {
+	t.Parallel()
 	server, _, manager, cleanup := setupTest(t)
 	defer cleanup()
 
@@ -299,6 +307,7 @@ func TestSubscriptionWithConcurrentWrites(t *testing.T) {
 
 // TestMultipleSubscribersOnSameEntity tests multiple subscribers to same entity
 func TestMultipleSubscribersOnSameEntity(t *testing.T) {
+	t.Parallel()
 	server, _, manager, cleanup := setupTest(t)
 	defer cleanup()
 
@@ -372,6 +381,7 @@ func TestMultipleSubscribersOnSameEntity(t *testing.T) {
 
 // TestCompareAndSwapRaceCondition tests atomic operations under load
 func TestCompareAndSwapRaceCondition(t *testing.T) {
+	t.Parallel()
 	_, _, manager, cleanup := setupTest(t)
 	defer cleanup()
 
@@ -415,16 +425,20 @@ func TestCompareAndSwapRaceCondition(t *testing.T) {
 
 // TestReconnection tests client reconnection behavior
 func TestReconnection(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 
-	// Start server
-	server := NewMockHAServer(testAddr, testToken)
+	// Start server with dynamic port
+	server := NewMockHAServer("localhost:0", testToken)
 	server.InitializeStates()
 	err := server.Start()
 	require.NoError(t, err)
 
+	// Capture the dynamically assigned address for reconnection
+	serverAddr := server.Addr()
+
 	// Connect client
-	client := ha.NewClient(fmt.Sprintf("ws://%s/api/websocket", testAddr), testToken, logger)
+	client := ha.NewClient(fmt.Sprintf("ws://%s/api/websocket", serverAddr), testToken, logger)
 	err = client.Connect()
 	require.NoError(t, err)
 
@@ -437,9 +451,9 @@ func TestReconnection(t *testing.T) {
 	// Wait for disconnect detection
 	time.Sleep(1 * time.Second)
 
-	// Restart server
+	// Restart server on the same address
 	t.Log("Restarting server...")
-	server = NewMockHAServer(testAddr, testToken)
+	server = NewMockHAServer(serverAddr, testToken)
 	server.InitializeStates()
 	err = server.Start()
 	require.NoError(t, err)
@@ -464,16 +478,20 @@ func TestReconnection(t *testing.T) {
 // TestReconnectionMessageIDReset tests that message IDs are reset after reconnection
 // This prevents the "id_reuse - Identifier values have to increase" error from HA
 func TestReconnectionMessageIDReset(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 
-	// Start server
-	server := NewMockHAServer(testAddr, testToken)
+	// Start server with dynamic port
+	server := NewMockHAServer("localhost:0", testToken)
 	server.InitializeStates()
 	err := server.Start()
 	require.NoError(t, err)
 
+	// Capture the dynamically assigned address for reconnection
+	serverAddr := server.Addr()
+
 	// Connect client
-	client := ha.NewClient(fmt.Sprintf("ws://%s/api/websocket", testAddr), testToken, logger)
+	client := ha.NewClient(fmt.Sprintf("ws://%s/api/websocket", serverAddr), testToken, logger)
 	err = client.Connect()
 	require.NoError(t, err)
 	require.True(t, client.IsConnected())
@@ -492,9 +510,9 @@ func TestReconnectionMessageIDReset(t *testing.T) {
 	// Wait for disconnect detection
 	time.Sleep(1 * time.Second)
 
-	// Restart server (this simulates a new HA session that expects message IDs from 1)
+	// Restart server on the same address (this simulates a new HA session that expects message IDs from 1)
 	t.Log("Restarting server (new session)...")
-	server = NewMockHAServer(testAddr, testToken)
+	server = NewMockHAServer(serverAddr, testToken)
 	server.InitializeStates()
 	err = server.Start()
 	require.NoError(t, err)
@@ -546,6 +564,7 @@ func TestReconnectionMessageIDReset(t *testing.T) {
 
 // TestHighFrequencyStateChanges tests system under high load
 func TestHighFrequencyStateChanges(t *testing.T) {
+	t.Parallel()
 	server, _, manager, cleanup := setupTest(t)
 	defer cleanup()
 
@@ -588,6 +607,7 @@ func TestHighFrequencyStateChanges(t *testing.T) {
 
 // TestAllStateTypes tests all supported state types
 func TestAllStateTypes(t *testing.T) {
+	t.Parallel()
 	_, _, manager, cleanup := setupTest(t)
 	defer cleanup()
 
@@ -638,16 +658,20 @@ func TestAllStateTypes(t *testing.T) {
 // TestReconnectStateSync tests that state is synchronized after reconnection
 // This ensures that any state changes missed during disconnect are recovered
 func TestReconnectStateSync(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 
-	// Start server
-	server := NewMockHAServer(testAddr, testToken)
+	// Start server with dynamic port
+	server := NewMockHAServer("localhost:0", testToken)
 	server.InitializeStates()
 	err := server.Start()
 	require.NoError(t, err)
 
+	// Capture the dynamically assigned address for reconnection
+	serverAddr := server.Addr()
+
 	// Connect client and create state manager
-	client := ha.NewClient(fmt.Sprintf("ws://%s/api/websocket", testAddr), testToken, logger)
+	client := ha.NewClient(fmt.Sprintf("ws://%s/api/websocket", serverAddr), testToken, logger)
 	err = client.Connect()
 	require.NoError(t, err)
 
@@ -686,10 +710,10 @@ func TestReconnectStateSync(t *testing.T) {
 	// Wait for disconnect detection
 	time.Sleep(1 * time.Second)
 
-	// Restart server with CHANGED state
+	// Restart server on the same address with CHANGED state
 	// This simulates state changing while disconnected
 	t.Log("Restarting server with changed state...")
-	server = NewMockHAServer(testAddr, testToken)
+	server = NewMockHAServer(serverAddr, testToken)
 	server.InitializeStates()
 
 	// Change state while client is disconnected - Nick comes home!
@@ -736,16 +760,20 @@ func TestReconnectStateSync(t *testing.T) {
 
 // TestReconnectCountIncrementsOnMultipleReconnects tests that reconnect count increases correctly
 func TestReconnectCountIncrementsOnMultipleReconnects(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 
-	// Start server
-	server := NewMockHAServer(testAddr, testToken)
+	// Start server with dynamic port
+	server := NewMockHAServer("localhost:0", testToken)
 	server.InitializeStates()
 	err := server.Start()
 	require.NoError(t, err)
 
+	// Capture the dynamically assigned address for reconnection
+	serverAddr := server.Addr()
+
 	// Connect client
-	client := ha.NewClient(fmt.Sprintf("ws://%s/api/websocket", testAddr), testToken, logger)
+	client := ha.NewClient(fmt.Sprintf("ws://%s/api/websocket", serverAddr), testToken, logger)
 	err = client.Connect()
 	require.NoError(t, err)
 
@@ -759,8 +787,8 @@ func TestReconnectCountIncrementsOnMultipleReconnects(t *testing.T) {
 		server.Stop()
 		time.Sleep(1 * time.Second)
 
-		// Restart server
-		server = NewMockHAServer(testAddr, testToken)
+		// Restart server on the same address
+		server = NewMockHAServer(serverAddr, testToken)
 		server.InitializeStates()
 		err = server.Start()
 		require.NoError(t, err)
