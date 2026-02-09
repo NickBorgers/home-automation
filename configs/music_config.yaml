@@ -149,7 +149,7 @@ music:
             value: true
       - player_name: "Bedroom"
         base_volume: 9
-        exclude_if:
+        leave_muted_if:
           - variable: isMasterAsleep
             value: true
       - player_name: "Sitting Room"
