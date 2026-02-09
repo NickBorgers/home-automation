@@ -21,6 +21,18 @@ func (m *Manager) selectAppropriateMusicModeWithContext(triggerKey string, isWak
 		zap.String("trigger_key", triggerKey),
 		zap.Bool("is_wake_up_event", isWakeUpEvent))
 
+	// Skip if zone manager is actively managing zones
+	// This prevents the legacy selection logic from overriding zone manager decisions
+	// (e.g., during wake sequences where isAnyoneAsleep=true but zone manager wants morning music)
+	if m.zoneManager != nil {
+		activeZones := m.zoneManager.GetActiveZones()
+		if len(activeZones) > 0 {
+			m.logger.Debug("Zone manager is actively managing zones, skipping legacy music mode selection",
+				zap.Int("active_zone_count", len(activeZones)))
+			return
+		}
+	}
+
 	// Get current state
 	isAnyoneHome, err := m.stateManager.GetBool("isAnyoneHome")
 	if err != nil {

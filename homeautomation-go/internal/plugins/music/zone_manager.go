@@ -740,6 +740,22 @@ func (zm *ZoneManager) startZone(zoneName string, speakers []string, trigger str
 	}
 	zm.mu.Unlock()
 
+	// Update musicPlaybackType to match the active zone's music type
+	// This prevents the legacy selectAppropriateMusicMode from overriding
+	// the zone manager's decision (e.g., during wake sequences where
+	// isAnyoneAsleep=true but we want morning music, not sleep music)
+	if err := zm.manager.stateManager.SetString("musicPlaybackType", zoneName); err != nil {
+		zm.logger.Error("Failed to update musicPlaybackType for zone",
+			zap.String("zone", zoneName),
+			zap.String("music_type", zoneName),
+			zap.Error(err))
+		// Don't return error - playback can still proceed
+	} else {
+		zm.logger.Info("Updated musicPlaybackType for active zone",
+			zap.String("zone", zoneName),
+			zap.String("music_type", zoneName))
+	}
+
 	// Delegate actual playback to manager
 	go func() {
 		if err := zm.manager.orchestrateZonePlayback(zone, playbackOption, trigger); err != nil {
@@ -776,6 +792,48 @@ func (zm *ZoneManager) stopZone(zoneName string, reason string) error {
 	zm.logger.Info("Stopped zone",
 		zap.String("zone", zoneName),
 		zap.String("reason", reason))
+
+	// Update musicPlaybackType if this was the current music type
+	// This allows other zones or selectAppropriateMusicMode to take over
+	currentMusicType, err := zm.manager.stateManager.GetString("musicPlaybackType")
+	if err == nil && currentMusicType == zoneName {
+		// Check if there are any other active zones
+		zm.mu.RLock()
+		hasOtherZones := len(zm.activeZones) > 0
+		zm.mu.RUnlock()
+
+		if hasOtherZones {
+			// Another zone is active - find the highest priority one
+			zm.mu.RLock()
+			var highestPriorityZone *Zone
+			for _, z := range zm.activeZones {
+				if highestPriorityZone == nil || z.Priority > highestPriorityZone.Priority {
+					highestPriorityZone = z
+				}
+			}
+			zm.mu.RUnlock()
+
+			if highestPriorityZone != nil {
+				if err := zm.manager.stateManager.SetString("musicPlaybackType", highestPriorityZone.MusicType); err != nil {
+					zm.logger.Error("Failed to update musicPlaybackType to remaining zone",
+						zap.String("new_type", highestPriorityZone.MusicType),
+						zap.Error(err))
+				} else {
+					zm.logger.Info("Updated musicPlaybackType to remaining highest-priority zone",
+						zap.String("stopped_zone", zoneName),
+						zap.String("new_type", highestPriorityZone.MusicType))
+				}
+			}
+		} else {
+			// No zones active - clear musicPlaybackType to allow selectAppropriateMusicMode to take over
+			if err := zm.manager.stateManager.SetString("musicPlaybackType", ""); err != nil {
+				zm.logger.Error("Failed to clear musicPlaybackType after last zone stopped",
+					zap.Error(err))
+			} else {
+				zm.logger.Info("Cleared musicPlaybackType after last zone stopped")
+			}
+		}
+	}
 
 	// Fade out speakers (delegate to manager)
 	go func() {
