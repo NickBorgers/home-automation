@@ -19,6 +19,29 @@ func (m *Manager) orchestrateZonePlayback(zone *Zone, playbackOption PlaybackOpt
 		zap.Int("participant_count", len(zone.Participants)),
 		zap.String("trigger", trigger))
 
+	// Update currently playing state to reflect the zone's music type.
+	// This is critical for consistency with the non-zone orchestratePlayback path
+	// and for any code that checks currentlyPlaying.Type.
+	m.mu.Lock()
+	m.currentlyPlaying = &CurrentlyPlayingMusic{
+		Type:         zone.MusicType,
+		URI:          playbackOption.URI,
+		MediaType:    playbackOption.MediaType,
+		LeadPlayer:   zone.LeadSpeaker,
+		Participants: zone.Participants,
+	}
+	m.mu.Unlock()
+
+	if m.readOnly {
+		m.logger.Info("Read-only mode: would start zone playback",
+			zap.String("zone", zone.Name),
+			zap.String("lead_speaker", zone.LeadSpeaker),
+			zap.Int("participant_count", len(zone.Participants)))
+		// Record shadow state even in read-only mode
+		m.recordPlaybackShadowState(zone.MusicType, playbackOption, zone.Participants, zone.LeadSpeaker, trigger, nil, 0)
+		return nil
+	}
+
 	// Use existing executePlayback logic
 	groupResult, verificationAttempts, err := m.executePlayback(
 		zone.MusicType,
