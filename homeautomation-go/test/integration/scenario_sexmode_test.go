@@ -68,6 +68,7 @@ func setupSexModeScenarioTest(t *testing.T) (*MockHAServer, *sexmode.Manager, *s
 // TestScenario_SexModeActivation_SetsMusicToSex tests that activating sex mode
 // changes the music playback type to "sex"
 func TestScenario_SexModeActivation_SetsMusicToSex(t *testing.T) {
+	t.Parallel()
 	server, _, stateManager, cleanup := setupSexModeScenarioTest(t)
 	defer cleanup()
 
@@ -76,16 +77,15 @@ func TestScenario_SexModeActivation_SetsMusicToSex(t *testing.T) {
 	// Set initial states
 	require.NoError(t, stateManager.SetString("musicPlaybackType", "evening"))
 	require.NoError(t, stateManager.SetString("dayPhase", "evening"))
-	time.Sleep(100 * time.Millisecond)
 
 	server.ClearServiceCalls()
 
 	t.Log("WHEN: Sex mode is activated (input_boolean.sex → on)")
 
 	server.SetState("input_boolean.sex", "on", nil)
-	time.Sleep(100 * time.Millisecond)
 
 	t.Log("THEN: musicPlaybackType should change to 'sex'")
+	waitForStringState(t, stateManager, "musicPlaybackType", "sex", "musicPlaybackType should change to 'sex'")
 
 	musicType, err := stateManager.GetString("musicPlaybackType")
 	require.NoError(t, err)
@@ -97,6 +97,7 @@ func TestScenario_SexModeActivation_SetsMusicToSex(t *testing.T) {
 // TestScenario_SexModeActivation_ActivatesNightScene tests that activating sex mode
 // turns on the Primary Suite night scene
 func TestScenario_SexModeActivation_ActivatesNightScene(t *testing.T) {
+	t.Parallel()
 	server, _, stateManager, cleanup := setupSexModeScenarioTest(t)
 	defer cleanup()
 
@@ -128,6 +129,7 @@ func TestScenario_SexModeActivation_ActivatesNightScene(t *testing.T) {
 // TestScenario_SexModeActivation_SetsEightSleepToColdest tests that activating sex mode
 // sets both Eight Sleep beds to the coldest setting (auto-detected from entity attributes)
 func TestScenario_SexModeActivation_SetsEightSleepToColdest(t *testing.T) {
+	t.Parallel()
 	server, _, _, cleanup := setupSexModeScenarioTest(t)
 	defer cleanup()
 
@@ -168,6 +170,7 @@ func TestScenario_SexModeActivation_SetsEightSleepToColdest(t *testing.T) {
 
 // TestScenario_SexModeActivation_FullCoordination tests the complete activation sequence
 func TestScenario_SexModeActivation_FullCoordination(t *testing.T) {
+	t.Parallel()
 	server, _, stateManager, cleanup := setupSexModeScenarioTest(t)
 	defer cleanup()
 
@@ -214,6 +217,7 @@ func TestScenario_SexModeActivation_FullCoordination(t *testing.T) {
 // TestScenario_SexModeDeactivation_RestoresMusicType tests that deactivating sex mode
 // restores the previous music playback type
 func TestScenario_SexModeDeactivation_RestoresMusicType(t *testing.T) {
+	t.Parallel()
 	server, _, stateManager, cleanup := setupSexModeScenarioTest(t)
 	defer cleanup()
 
@@ -251,6 +255,7 @@ func TestScenario_SexModeDeactivation_RestoresMusicType(t *testing.T) {
 // TestScenario_SexModeDeactivation_ActivatesDayPhaseScene tests that deactivating sex mode
 // activates the appropriate scene based on current day phase
 func TestScenario_SexModeDeactivation_ActivatesDayPhaseScene(t *testing.T) {
+	t.Parallel()
 	server, _, stateManager, cleanup := setupSexModeScenarioTest(t)
 	defer cleanup()
 
@@ -288,6 +293,7 @@ func TestScenario_SexModeDeactivation_ActivatesDayPhaseScene(t *testing.T) {
 // TestScenario_SexModeDeactivation_TurnsOffLightsWhenAsleep tests that deactivating sex mode
 // turns off lights when master is asleep
 func TestScenario_SexModeDeactivation_TurnsOffLightsWhenAsleep(t *testing.T) {
+	t.Parallel()
 	server, _, stateManager, cleanup := setupSexModeScenarioTest(t)
 	defer cleanup()
 
@@ -335,6 +341,7 @@ func TestScenario_SexModeDeactivation_TurnsOffLightsWhenAsleep(t *testing.T) {
 // TestScenario_SexModeDeactivation_DifferentDayPhases tests lighting restoration
 // for various day phases
 func TestScenario_SexModeDeactivation_DifferentDayPhases(t *testing.T) {
+	t.Parallel()
 	dayPhases := []string{"morning", "day", "sunset", "evening", "night"}
 
 	for _, phase := range dayPhases {
@@ -379,6 +386,7 @@ func TestScenario_SexModeDeactivation_DifferentDayPhases(t *testing.T) {
 // TestScenario_SexModeDuplicateActivation_Ignored tests that activating sex mode
 // twice does not trigger duplicate actions
 func TestScenario_SexModeDuplicateActivation_Ignored(t *testing.T) {
+	t.Parallel()
 	server, sexModeManager, stateManager, cleanup := setupSexModeScenarioTest(t)
 	defer cleanup()
 
@@ -416,6 +424,7 @@ func TestScenario_SexModeDuplicateActivation_Ignored(t *testing.T) {
 // TestScenario_SexModeDeactivationWithoutActivation_Ignored tests that deactivating
 // sex mode when it wasn't active does nothing
 func TestScenario_SexModeDeactivationWithoutActivation_Ignored(t *testing.T) {
+	t.Parallel()
 	server, _, stateManager, cleanup := setupSexModeScenarioTest(t)
 	defer cleanup()
 
@@ -452,6 +461,7 @@ func TestScenario_SexModeDeactivationWithoutActivation_Ignored(t *testing.T) {
 // TestScenario_SexModeReset_SyncsState tests that Reset() correctly syncs
 // the plugin state with Home Assistant when there's a mismatch
 func TestScenario_SexModeReset_SyncsState(t *testing.T) {
+	t.Parallel()
 	// This test creates a scenario where HA state is "on" BEFORE plugin starts,
 	// simulating the plugin starting when sex mode is already active in HA
 	server, client, stateManager, baseCleanup := setupTest(t)
@@ -510,6 +520,7 @@ func TestScenario_SexModeReset_SyncsState(t *testing.T) {
 
 // TestScenario_SexModeActivationDeactivationCycle tests a complete cycle
 func TestScenario_SexModeActivationDeactivationCycle(t *testing.T) {
+	t.Parallel()
 	server, _, stateManager, cleanup := setupSexModeScenarioTest(t)
 	defer cleanup()
 
@@ -558,6 +569,7 @@ func TestScenario_SexModeActivationDeactivationCycle(t *testing.T) {
 // TestScenario_SexModeShadowState_TracksCorrectly tests that shadow state
 // is properly maintained throughout the lifecycle
 func TestScenario_SexModeShadowState_TracksCorrectly(t *testing.T) {
+	t.Parallel()
 	server, sexModeManager, stateManager, cleanup := setupSexModeScenarioTest(t)
 	defer cleanup()
 

@@ -30,15 +30,18 @@ import (
 func setupComputedStateTest(t *testing.T) (*MockHAServer, *ha.Client, *state.Manager, func()) {
 	logger := testlogger.New()
 
-	// Start mock HA server
-	server := NewMockHAServer(testAddr, testToken)
+	// Start mock HA server on a dynamic port (localhost:0 lets OS pick a free port)
+	server := NewMockHAServer("localhost:0", testToken)
 	server.InitializeStates()
 
 	err := server.Start()
 	require.NoError(t, err)
 
+	// Get actual address the server is listening on
+	serverAddr := server.Addr()
+
 	// Create and connect client
-	client := ha.NewClient(fmt.Sprintf("ws://%s/api/websocket", testAddr), testToken, logger)
+	client := ha.NewClient(fmt.Sprintf("ws://%s/api/websocket", serverAddr), testToken, logger)
 	err = client.Connect()
 	require.NoError(t, err)
 
@@ -66,6 +69,7 @@ func setupComputedStateTest(t *testing.T) (*MockHAServer, *ha.Client, *state.Man
 // that isAnyoneHomeAndAwake is correctly computed on startup
 // Formula: (isAnyOwnerHome && !isAnyoneAsleep) || isToriHere
 func TestScenario_ComputedState_IsAnyoneHomeAndAwake_InitialComputation(t *testing.T) {
+	t.Parallel()
 	testCases := []struct {
 		name           string
 		isAnyOwnerHome string
@@ -121,8 +125,8 @@ func TestScenario_ComputedState_IsAnyoneHomeAndAwake_InitialComputation(t *testi
 		t.Run(tc.name, func(t *testing.T) {
 			logger := testlogger.New()
 
-			// Start mock HA server with specific initial state
-			server := NewMockHAServer(testAddr, testToken)
+			// Start mock HA server with specific initial state on a dynamic port
+			server := NewMockHAServer("localhost:0", testToken)
 			server.InitializeStates()
 
 			// Set the initial states before connecting
@@ -135,8 +139,11 @@ func TestScenario_ComputedState_IsAnyoneHomeAndAwake_InitialComputation(t *testi
 			require.NoError(t, err)
 			defer server.Stop()
 
+			// Get actual address
+			serverAddr := server.Addr()
+
 			// Create and connect client
-			client := ha.NewClient(fmt.Sprintf("ws://%s/api/websocket", testAddr), testToken, logger)
+			client := ha.NewClient(fmt.Sprintf("ws://%s/api/websocket", serverAddr), testToken, logger)
 			err = client.Connect()
 			require.NoError(t, err)
 			defer client.Disconnect()
@@ -165,6 +172,7 @@ func TestScenario_ComputedState_IsAnyoneHomeAndAwake_InitialComputation(t *testi
 // TestScenario_ComputedState_ReactsToIsAnyOwnerHomeChange validates that
 // isAnyoneHomeAndAwake updates when isAnyOwnerHome changes
 func TestScenario_ComputedState_ReactsToIsAnyOwnerHomeChange(t *testing.T) {
+	t.Parallel()
 	server, _, manager, cleanup := setupComputedStateTest(t)
 	defer cleanup()
 
@@ -206,6 +214,7 @@ func TestScenario_ComputedState_ReactsToIsAnyOwnerHomeChange(t *testing.T) {
 // TestScenario_ComputedState_ReactsToIsAnyoneAsleepChange validates that
 // isAnyoneHomeAndAwake updates when isAnyoneAsleep changes
 func TestScenario_ComputedState_ReactsToIsAnyoneAsleepChange(t *testing.T) {
+	t.Parallel()
 	server, _, manager, cleanup := setupComputedStateTest(t)
 	defer cleanup()
 
@@ -247,6 +256,7 @@ func TestScenario_ComputedState_ReactsToIsAnyoneAsleepChange(t *testing.T) {
 // TestScenario_ComputedState_SyncsToHomeAssistant validates that computed
 // state changes are synced back to Home Assistant
 func TestScenario_ComputedState_SyncsToHomeAssistant(t *testing.T) {
+	t.Parallel()
 	server, _, _, cleanup := setupComputedStateTest(t)
 	defer cleanup()
 
@@ -292,6 +302,7 @@ func TestScenario_ComputedState_SyncsToHomeAssistant(t *testing.T) {
 // TestScenario_ComputedState_RapidChanges validates that rapid state changes
 // are handled correctly without race conditions
 func TestScenario_ComputedState_RapidChanges(t *testing.T) {
+	t.Parallel()
 	server, _, manager, cleanup := setupComputedStateTest(t)
 	defer cleanup()
 
@@ -329,6 +340,7 @@ func TestScenario_ComputedState_RapidChanges(t *testing.T) {
 // TestScenario_ComputedState_BothDependenciesChange validates behavior when
 // both dependencies change in quick succession
 func TestScenario_ComputedState_BothDependenciesChange(t *testing.T) {
+	t.Parallel()
 	server, _, manager, cleanup := setupComputedStateTest(t)
 	defer cleanup()
 
@@ -372,6 +384,7 @@ func TestScenario_ComputedState_BothDependenciesChange(t *testing.T) {
 // TestScenario_ComputedState_ToriArrivesWhileOwnerAsleep validates the bug fix:
 // when Tori arrives while owners are asleep, isAnyoneHomeAndAwake should become true
 func TestScenario_ComputedState_ToriArrivesWhileOwnerAsleep(t *testing.T) {
+	t.Parallel()
 	server, _, manager, cleanup := setupComputedStateTest(t)
 	defer cleanup()
 

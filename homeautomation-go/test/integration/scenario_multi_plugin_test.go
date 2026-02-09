@@ -111,6 +111,7 @@ func loadTestEnergyConfig(t *testing.T) *energy.EnergyConfig {
 // ============================================================================
 
 func TestScenario_TVPlaying_DimsLivingRoomLights(t *testing.T) {
+	t.Parallel()
 	env, cleanup := setupMultiPluginTest(t)
 	defer cleanup()
 
@@ -179,6 +180,7 @@ func TestScenario_TVPlaying_DimsLivingRoomLights(t *testing.T) {
 // ============================================================================
 
 func TestScenario_LowEnergy_PluginsCoexist(t *testing.T) {
+	t.Parallel()
 	env, cleanup := setupMultiPluginTest(t)
 	defer cleanup()
 
@@ -234,6 +236,7 @@ func TestScenario_LowEnergy_PluginsCoexist(t *testing.T) {
 // ============================================================================
 
 func TestScenario_EveryoneLeaves_CoordinatedResponse(t *testing.T) {
+	t.Parallel()
 	env, cleanup := setupMultiPluginTest(t)
 	defer cleanup()
 
@@ -298,6 +301,7 @@ func TestScenario_EveryoneLeaves_CoordinatedResponse(t *testing.T) {
 // ============================================================================
 
 func TestScenario_SleepSequence_CoordinatesLighting(t *testing.T) {
+	t.Parallel()
 	env, cleanup := setupMultiPluginTest(t)
 	defer cleanup()
 
@@ -354,6 +358,7 @@ func TestScenario_SleepSequence_CoordinatesLighting(t *testing.T) {
 // ============================================================================
 
 func TestScenario_DayPhaseChange_MultiPluginCoordination(t *testing.T) {
+	t.Parallel()
 	env, cleanup := setupMultiPluginTest(t)
 	defer cleanup()
 
@@ -429,6 +434,7 @@ func TestScenario_DayPhaseChange_MultiPluginCoordination(t *testing.T) {
 // ============================================================================
 
 func TestScenario_SimultaneousStateChanges_NoRaceConditions(t *testing.T) {
+	t.Parallel()
 	env, cleanup := setupMultiPluginTest(t)
 	defer cleanup()
 

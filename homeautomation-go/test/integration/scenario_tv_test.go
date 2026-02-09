@@ -37,6 +37,7 @@ func setupTVScenarioTest(t *testing.T) (*MockHAServer, *state.Manager, func()) {
 // TestScenario_AppleTVPlaying verifies that when Apple TV starts playing,
 // isAppleTVPlaying and isTVPlaying are both set to true
 func TestScenario_AppleTVPlaying(t *testing.T) {
+	t.Parallel()
 	server, manager, cleanup := setupTVScenarioTest(t)
 	defer cleanup()
 
@@ -69,6 +70,7 @@ func TestScenario_AppleTVPlaying(t *testing.T) {
 // TestScenario_HDMIInputSwitch verifies that when HDMI input switches from
 // Apple TV to Xbox, isTVPlaying updates correctly based on the input
 func TestScenario_HDMIInputSwitch(t *testing.T) {
+	t.Parallel()
 	server, manager, cleanup := setupTVScenarioTest(t)
 	defer cleanup()
 
@@ -118,6 +120,7 @@ func TestScenario_HDMIInputSwitch(t *testing.T) {
 // TestScenario_SyncBoxPower verifies that sync box power changes update isTVon
 // and that turning off the sync box sets isTVPlaying to false
 func TestScenario_SyncBoxPower(t *testing.T) {
+	t.Parallel()
 	server, manager, cleanup := setupTVScenarioTest(t)
 	defer cleanup()
 
@@ -165,6 +168,7 @@ func TestScenario_SyncBoxPower(t *testing.T) {
 
 // TestScenario_MultipleInputs tests behavior when inputs change rapidly
 func TestScenario_MultipleInputs(t *testing.T) {
+	t.Parallel()
 	server, manager, cleanup := setupTVScenarioTest(t)
 	defer cleanup()
 
@@ -203,6 +207,7 @@ func TestScenario_MultipleInputs(t *testing.T) {
 // TestScenario_TVOffState verifies that when all inputs are inactive,
 // all TV state variables are false
 func TestScenario_TVOffState(t *testing.T) {
+	t.Parallel()
 	server, manager, cleanup := setupTVScenarioTest(t)
 	defer cleanup()
 
@@ -249,6 +254,7 @@ func TestScenario_TVOffState(t *testing.T) {
 // TestScenario_RapidInputSwitching verifies that rapid HDMI input changes
 // are handled correctly without race conditions
 func TestScenario_RapidInputSwitching(t *testing.T) {
+	t.Parallel()
 	server, manager, cleanup := setupTVScenarioTest(t)
 	defer cleanup()
 
@@ -278,6 +284,7 @@ func TestScenario_RapidInputSwitching(t *testing.T) {
 
 // TestScenario_AppleTVPlaybackStateChanges tests various Apple TV states
 func TestScenario_AppleTVPlaybackStateChanges(t *testing.T) {
+	t.Parallel()
 	server, manager, cleanup := setupTVScenarioTest(t)
 	defer cleanup()
 

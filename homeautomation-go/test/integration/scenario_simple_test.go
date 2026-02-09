@@ -24,6 +24,7 @@ func findServiceCallWithData(calls []ServiceCall, domain, service, dataKey strin
 // TestScenario_MockServerServiceCallTracking validates that the mock server
 // correctly tracks service calls for testing automation behavior
 func TestScenario_MockServerServiceCallTracking(t *testing.T) {
+	t.Parallel()
 	server, _, manager, cleanup := setupTest(t)
 	defer cleanup()
 
@@ -104,6 +105,7 @@ func TestScenario_MockServerServiceCallTracking(t *testing.T) {
 
 // TestScenario_ServiceCallFiltering tests the helper functions for filtering service calls
 func TestScenario_ServiceCallFiltering(t *testing.T) {
+	t.Parallel()
 	// Create some test service calls
 	calls := []ServiceCall{
 		{Domain: "scene", Service: "activate", ServiceData: map[string]interface{}{"entity_id": "scene.living_room_evening"}},

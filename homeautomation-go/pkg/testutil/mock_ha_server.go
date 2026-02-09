@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"sync"
 	"time"
@@ -121,20 +122,33 @@ func (s *MockHAServer) Start() error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/websocket", s.handleWebSocket)
 
+	// Use net.Listen to get an available port if :0 was specified
+	listener, err := net.Listen("tcp", s.addr)
+	if err != nil {
+		return fmt.Errorf("failed to listen on %s: %w", s.addr, err)
+	}
+
+	// Update addr with the actual address (important when using :0 for dynamic port)
+	s.addr = listener.Addr().String()
+
 	s.server = &http.Server{
-		Addr:    s.addr,
 		Handler: mux,
 	}
 
 	go func() {
-		if err := s.server.ListenAndServe(); err != http.ErrServerClosed {
+		if err := s.server.Serve(listener); err != http.ErrServerClosed {
 			log.Printf("Mock HA server error: %v", err)
 		}
 	}()
 
 	// Wait for server to start
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
 	return nil
+}
+
+// Addr returns the actual address the server is listening on
+func (s *MockHAServer) Addr() string {
+	return s.addr
 }
 
 // Stop stops the mock server

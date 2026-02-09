@@ -205,6 +205,7 @@ func loadTestMusicConfig(t *testing.T) *music.MusicConfig {
 // when the master is asleep (which is the whole point of sleep music!).
 
 func TestScenario_SleepMusic_ContinuesWhenMasterAsleep(t *testing.T) {
+	t.Parallel()
 	env, cleanup := setupNighttimeSafetyTest(t)
 	defer cleanup()
 
@@ -284,6 +285,7 @@ func TestScenario_SleepMusic_ContinuesWhenMasterAsleep(t *testing.T) {
 // This ensures that morning music plays in other rooms but not in the bedroom.
 
 func TestScenario_MorningMusic_BedroomMutedWhenMasterAsleep(t *testing.T) {
+	t.Parallel()
 	env, cleanup := setupNighttimeSafetyTest(t)
 	defer cleanup()
 
@@ -387,6 +389,7 @@ func TestScenario_MorningMusic_BedroomMutedWhenMasterAsleep(t *testing.T) {
 // Fix: isWakeSequenceActive=true condition now takes priority.
 
 func TestScenario_WakeSequence_LightsOnDespiteMasterAsleep(t *testing.T) {
+	t.Parallel()
 	server, client, stateManager, baseCleanup := setupTest(t)
 	defer baseCleanup()
 
@@ -476,6 +479,7 @@ func TestScenario_WakeSequence_LightsOnDespiteMasterAsleep(t *testing.T) {
 // to sleep music.
 
 func TestScenario_WakeCancellation_RevertsToSleepMusicDuringNight(t *testing.T) {
+	t.Parallel()
 	env, cleanup := setupNighttimeSafetyTest(t)
 	defer cleanup()
 
@@ -549,6 +553,7 @@ func TestScenario_WakeCancellation_RevertsToSleepMusicDuringNight(t *testing.T) 
 // in the bedroom at night.
 
 func TestScenario_DayMusic_BedroomMutedWhenMasterAsleep(t *testing.T) {
+	t.Parallel()
 	env, cleanup := setupNighttimeSafetyTest(t)
 	defer cleanup()
 
@@ -659,6 +664,7 @@ func TestScenario_DayMusic_BedroomMutedWhenMasterAsleep(t *testing.T) {
 // bedroom occupant hasn't actually woken up yet.
 
 func TestScenario_SleepToMorningTransition_BedroomMutedUntilActualWake(t *testing.T) {
+	t.Parallel()
 	env, cleanup := setupNighttimeSafetyTest(t)
 	defer cleanup()
 
@@ -756,6 +762,7 @@ func TestScenario_SleepToMorningTransition_BedroomMutedUntilActualWake(t *testin
 // Both conditions should work independently.
 
 func TestScenario_MultipleMuteConditions_WorkIndependently(t *testing.T) {
+	t.Parallel()
 	env, cleanup := setupNighttimeSafetyTest(t)
 	defer cleanup()
 
@@ -830,6 +837,7 @@ func TestScenario_MultipleMuteConditions_WorkIndependently(t *testing.T) {
 // MULTI_ZONE_MUSIC implementation.
 
 func TestScenario_RapidStateChanges_NoBriefUnmute(t *testing.T) {
+	t.Parallel()
 	env, cleanup := setupNighttimeSafetyTest(t)
 	defer cleanup()
 

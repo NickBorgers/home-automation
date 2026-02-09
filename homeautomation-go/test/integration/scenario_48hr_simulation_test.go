@@ -94,6 +94,7 @@ func setupDayPhaseSimulation(t *testing.T, timezone *time.Location, startTime ti
 
 // TestScenario_48Hour_EasternTimezone tests dayphase transitions over 48 hours in ET
 func TestScenario_48Hour_EasternTimezone(t *testing.T) {
+	t.Parallel()
 	et, err := time.LoadLocation("America/New_York")
 	require.NoError(t, err, "Failed to load ET timezone")
 
@@ -170,6 +171,7 @@ func TestScenario_48Hour_EasternTimezone(t *testing.T) {
 
 // TestScenario_48Hour_PacificTimezone tests dayphase transitions over 48 hours in PT
 func TestScenario_48Hour_PacificTimezone(t *testing.T) {
+	t.Parallel()
 	pt, err := time.LoadLocation("America/Los_Angeles")
 	require.NoError(t, err, "Failed to load PT timezone")
 
@@ -249,6 +251,7 @@ func TestScenario_48Hour_PacificTimezone(t *testing.T) {
 // Note: Due to the schedule date mismatch bug (GetTodaysScheduleInTimezone uses time.Now()),
 // the night phase timing may not be correct. This test documents current behavior.
 func TestScenario_TimezoneOffset_ET(t *testing.T) {
+	t.Parallel()
 	et, err := time.LoadLocation("America/New_York")
 	require.NoError(t, err)
 
@@ -283,6 +286,7 @@ func TestScenario_TimezoneOffset_ET(t *testing.T) {
 
 // TestScenario_TimezoneOffset_PT verifies PT timezone transitions
 func TestScenario_TimezoneOffset_PT(t *testing.T) {
+	t.Parallel()
 	pt, err := time.LoadLocation("America/Los_Angeles")
 	require.NoError(t, err)
 
@@ -316,6 +320,7 @@ func TestScenario_TimezoneOffset_PT(t *testing.T) {
 
 // TestScenario_ScheduleTransitions_Weekday verifies specific schedule times are respected
 func TestScenario_ScheduleTransitions_Weekday(t *testing.T) {
+	t.Parallel()
 	et, err := time.LoadLocation("America/New_York")
 	require.NoError(t, err)
 
@@ -374,6 +379,7 @@ func TestScenario_ScheduleTransitions_Weekday(t *testing.T) {
 
 // TestScenario_DayPhaseCycle_24Hours verifies a complete day cycle
 func TestScenario_DayPhaseCycle_24Hours(t *testing.T) {
+	t.Parallel()
 	et, err := time.LoadLocation("America/New_York")
 	require.NoError(t, err)
 
@@ -434,6 +440,7 @@ func TestScenario_DayPhaseCycle_24Hours(t *testing.T) {
 
 // TestScenario_SunEventTracking verifies sun event state is updated correctly
 func TestScenario_SunEventTracking(t *testing.T) {
+	t.Parallel()
 	et, err := time.LoadLocation("America/New_York")
 	require.NoError(t, err)
 
@@ -501,6 +508,7 @@ func BenchmarkSimulation_1Day(b *testing.B) {
 
 // TestScenario_WeekdayVsWeekend_NightTime verifies weekend has later night time
 func TestScenario_WeekdayVsWeekend_NightTime(t *testing.T) {
+	t.Parallel()
 	et, err := time.LoadLocation("America/New_York")
 	require.NoError(t, err)
 
