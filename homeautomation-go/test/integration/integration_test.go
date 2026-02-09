@@ -16,6 +16,8 @@ import (
 
 const (
 	testToken = "test_token_12345"
+	// Use port 0 to let OS assign a free port, avoiding port conflicts between tests
+	testAddr = "localhost:0"
 )
 
 func setupTest(t *testing.T) (*MockHAServer, *ha.Client, *state.Manager, func()) {
@@ -23,7 +25,7 @@ func setupTest(t *testing.T) (*MockHAServer, *ha.Client, *state.Manager, func())
 	logger := testlogger.New()
 
 	// Start mock HA server with dynamic port allocation (port 0)
-	server := NewMockHAServer("localhost:0", testToken)
+	server := NewMockHAServer(testAddr, testToken)
 	server.InitializeStates()
 
 	err := server.Start()
@@ -428,8 +430,8 @@ func TestReconnection(t *testing.T) {
 	t.Parallel()
 	logger := testlogger.New()
 
-	// Start server with dynamic port
-	server := NewMockHAServer("localhost:0", testToken)
+	// Start server with dynamic port allocation
+	server := NewMockHAServer(testAddr, testToken)
 	server.InitializeStates()
 	err := server.Start()
 	require.NoError(t, err)
@@ -437,7 +439,7 @@ func TestReconnection(t *testing.T) {
 	// Capture the dynamically assigned address for reconnection
 	serverAddr := server.Addr()
 
-	// Connect client
+	// Connect client using the dynamically assigned address
 	client := ha.NewClient(fmt.Sprintf("ws://%s/api/websocket", serverAddr), testToken, logger)
 	err = client.Connect()
 	require.NoError(t, err)
@@ -481,8 +483,8 @@ func TestReconnectionMessageIDReset(t *testing.T) {
 	t.Parallel()
 	logger := testlogger.New()
 
-	// Start server with dynamic port
-	server := NewMockHAServer("localhost:0", testToken)
+	// Start server with dynamic port allocation
+	server := NewMockHAServer(testAddr, testToken)
 	server.InitializeStates()
 	err := server.Start()
 	require.NoError(t, err)
@@ -490,7 +492,7 @@ func TestReconnectionMessageIDReset(t *testing.T) {
 	// Capture the dynamically assigned address for reconnection
 	serverAddr := server.Addr()
 
-	// Connect client
+	// Connect client using the dynamically assigned address
 	client := ha.NewClient(fmt.Sprintf("ws://%s/api/websocket", serverAddr), testToken, logger)
 	err = client.Connect()
 	require.NoError(t, err)
@@ -661,8 +663,8 @@ func TestReconnectStateSync(t *testing.T) {
 	t.Parallel()
 	logger := testlogger.New()
 
-	// Start server with dynamic port
-	server := NewMockHAServer("localhost:0", testToken)
+	// Start server with dynamic port allocation
+	server := NewMockHAServer(testAddr, testToken)
 	server.InitializeStates()
 	err := server.Start()
 	require.NoError(t, err)
@@ -670,7 +672,7 @@ func TestReconnectStateSync(t *testing.T) {
 	// Capture the dynamically assigned address for reconnection
 	serverAddr := server.Addr()
 
-	// Connect client and create state manager
+	// Connect client and create state manager using the dynamically assigned address
 	client := ha.NewClient(fmt.Sprintf("ws://%s/api/websocket", serverAddr), testToken, logger)
 	err = client.Connect()
 	require.NoError(t, err)
@@ -763,8 +765,8 @@ func TestReconnectCountIncrementsOnMultipleReconnects(t *testing.T) {
 	t.Parallel()
 	logger := testlogger.New()
 
-	// Start server with dynamic port
-	server := NewMockHAServer("localhost:0", testToken)
+	// Start server with dynamic port allocation
+	server := NewMockHAServer(testAddr, testToken)
 	server.InitializeStates()
 	err := server.Start()
 	require.NoError(t, err)
@@ -772,7 +774,7 @@ func TestReconnectCountIncrementsOnMultipleReconnects(t *testing.T) {
 	// Capture the dynamically assigned address for reconnection
 	serverAddr := server.Addr()
 
-	// Connect client
+	// Connect client using the dynamically assigned address
 	client := ha.NewClient(fmt.Sprintf("ws://%s/api/websocket", serverAddr), testToken, logger)
 	err = client.Connect()
 	require.NoError(t, err)

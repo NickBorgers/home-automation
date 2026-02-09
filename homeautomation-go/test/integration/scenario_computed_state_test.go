@@ -31,7 +31,7 @@ func setupComputedStateTest(t *testing.T) (*MockHAServer, *ha.Client, *state.Man
 	logger := testlogger.New()
 
 	// Start mock HA server with dynamic port allocation
-	server := NewMockHAServer("localhost:0", testToken)
+	server := NewMockHAServer(testAddr, testToken)
 	server.InitializeStates()
 
 	err := server.Start()
@@ -40,7 +40,7 @@ func setupComputedStateTest(t *testing.T) (*MockHAServer, *ha.Client, *state.Man
 	// Get the actual address after dynamic port allocation
 	actualAddr := server.Addr()
 
-	// Create and connect client
+	// Create and connect client using the actual address
 	client := ha.NewClient(fmt.Sprintf("ws://%s/api/websocket", actualAddr), testToken, logger)
 	err = client.Connect()
 	require.NoError(t, err)
@@ -126,7 +126,7 @@ func TestScenario_ComputedState_IsAnyoneHomeAndAwake_InitialComputation(t *testi
 			logger := testlogger.New()
 
 			// Start mock HA server with dynamic port allocation
-			server := NewMockHAServer("localhost:0", testToken)
+			server := NewMockHAServer(testAddr, testToken)
 			server.InitializeStates()
 
 			// Set the initial states before connecting
@@ -142,7 +142,7 @@ func TestScenario_ComputedState_IsAnyoneHomeAndAwake_InitialComputation(t *testi
 			// Get the actual address after dynamic port allocation
 			actualAddr := server.Addr()
 
-			// Create and connect client
+			// Create and connect client using the actual address
 			client := ha.NewClient(fmt.Sprintf("ws://%s/api/websocket", actualAddr), testToken, logger)
 			err = client.Connect()
 			require.NoError(t, err)
