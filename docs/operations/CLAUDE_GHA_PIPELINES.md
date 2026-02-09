@@ -149,6 +149,8 @@ get-context
      │
      ├─── (reviews_already_passed = true) ──► SKIP (just create commit status)
      │
+     ├─── (config_only = true) ──► STREAMLINED (skip to merge-decision)
+     │
      ▼
 build-devcontainer
      │
@@ -164,7 +166,7 @@ fix-test-failures                         design-review  ◄─ Intent/design va
      │                                     test-review
      │                                          │
      │                                          ▼
-     │                                   concurrency-review
+     │                                   concurrency-review (requires has_go_code = true)
      │                                          │
      │                                          ▼
      │                                      docs-review
@@ -177,6 +179,21 @@ fix-test-failures                         design-review  ◄─ Intent/design va
                                        all-reviews-passed
                                      (adds agent-reviews-passed label)
 ```
+
+### Config-Only PR Optimization
+
+PRs that only modify files in `configs/` receive streamlined review:
+
+| Review Job | Skipped for Config-Only | Reason |
+|------------|------------------------|--------|
+| design-review | Yes | No design decisions to review |
+| claude-review | Yes | No code to review |
+| test-review | Yes | No tests to review |
+| concurrency-review | Yes | No Go code to analyze |
+| docs-review | Yes | Config changes don't need doc updates |
+| merge-decision | No | Still runs to validate and approve |
+
+The summary comment indicates the PR type and shows reviews as "⏭️ Skipped (config-only)".
 
 ### Review Skip Mechanism
 
@@ -201,6 +218,8 @@ Extracts PR and issue context for downstream jobs.
 - `fix_attempts`: Number of previous fix attempts (from labels)
 - `triggering_sha`: SHA that triggered the workflow (for conflict detection)
 - `reviews_already_passed`: Whether the `agent-reviews-passed` label exists (skips re-review)
+- `config_only`: Whether the PR only modifies files in `configs/` (skips heavy reviews)
+- `has_go_code`: Whether the PR modifies any `.go` files (required for concurrency review)
 
 #### 2.2 `fix-test-failures`
 
@@ -301,7 +320,7 @@ QA-focused test review.
 
 Specialized concurrency/race condition review.
 
-**Condition**: Tests passed on current commit (verified via commit status check)
+**Condition**: Tests passed on current commit AND `has_go_code = true` (verified via commit status check and file classification)
 
 **Pre-Flight Check**: Before running the review, verifies that "All Required Tests" commit status is `success` on the current HEAD. If tests haven't passed, the review is skipped to avoid reviewing broken code that can't be merged anyway.
 
@@ -555,6 +574,7 @@ Required approvals: 0  # Claude provides automated review
 | "Automated Fix Failed" comment | All 3 fix attempts exhausted | Review the linked test run, fix manually |
 | Review job skipped | Tests haven't passed on current commit | Wait for tests to pass or fix them first |
 | Reviews skipped with "already passed" | `agent-reviews-passed` label present | Close and reopen PR to re-run reviews |
+| Reviews skipped (config-only) | PR only modifies `configs/` files | Expected - config PRs use streamlined review |
 | Devcontainer build slow | First run or cache miss | Subsequent runs use cached image |
 | Claude doesn't respond | Comment doesn't contain `@claude` | Ensure @claude is in comment |
 | Workflow failure issue not created | Diagnosed as TEST_FAILURE or CONFIG_FAILURE | Expected - these are handled by Claude Code Review |
