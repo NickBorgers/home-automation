@@ -490,7 +490,12 @@ func (m *Manager) discoverNodeStatusSensors() error {
 
 	deviceNameMap := make(map[string]string)
 	for _, device := range devices {
-		deviceNameMap[device.ID] = device.Name
+		// Prefer user-assigned name over default device name (e.g., Z-Wave product name)
+		if device.NameByUser != "" {
+			deviceNameMap[device.ID] = device.NameByUser
+		} else {
+			deviceNameMap[device.ID] = device.Name
+		}
 	}
 
 	labelChecker := ha.NewDeviceLabelChecker(devices)

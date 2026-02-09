@@ -1268,3 +1268,129 @@ func TestSensorHealthManager_NotifyAlreadyDeadDevices_SkipsAlreadyNotified(t *te
 		t.Errorf("Expected 1 startup notification (skipping already-notified), got %d", len(calls))
 	}
 }
+
+func TestSensorHealthManager_NodeStatus_UsesNameByUserOverDefaultName(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	mockNtfy := ntfy.NewMockClient()
+
+	// Add device with both Name (product name) and NameByUser (user-assigned name)
+	// This simulates a Z-Wave device like "Wave Plug US" renamed to "Humidifier Power Control"
+	mockHA.AddDevice(&ha.Device{
+		ID:         "device_zwave_renamed",
+		Name:       "Wave Plug US",             // Default Z-Wave product name
+		NameByUser: "Humidifier Power Control", // User-assigned name in HA
+		Labels:     []string{},
+	})
+	mockHA.AddEntityRegistryEntry(&ha.EntityRegistryEntry{
+		EntityID: "sensor.humidifier_power_control_node_status",
+		DeviceID: "device_zwave_renamed",
+	})
+	mockHA.SetState("sensor.humidifier_power_control_node_status", "alive", map[string]interface{}{
+		"friendly_name": "Humidifier Power Control Node Status",
+	})
+
+	// Add a device with only Name (no user customization)
+	mockHA.AddDevice(&ha.Device{
+		ID:         "device_zwave_default",
+		Name:       "Z-Wave Thermostat",
+		NameByUser: "", // No user-assigned name
+		Labels:     []string{},
+	})
+	mockHA.AddEntityRegistryEntry(&ha.EntityRegistryEntry{
+		EntityID: "sensor.thermostat_node_status",
+		DeviceID: "device_zwave_default",
+	})
+	mockHA.SetState("sensor.thermostat_node_status", "alive", map[string]interface{}{
+		"friendly_name": "Z-Wave Thermostat Node Status",
+	})
+
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+
+	manager := NewManager(mockHA, stateMgr, logger, false, nil, mockNtfy)
+
+	err := manager.Start()
+	if err != nil {
+		t.Fatalf("Failed to start manager: %v", err)
+	}
+	defer manager.Stop()
+
+	// Verify node status sensors were discovered
+	nodeStatuses := manager.GetNodeStatuses()
+	if len(nodeStatuses) != 2 {
+		t.Errorf("Expected 2 node status sensors, got %d", len(nodeStatuses))
+	}
+
+	// Verify that the renamed device uses NameByUser
+	renamedNode := nodeStatuses["sensor.humidifier_power_control_node_status"]
+	if renamedNode == nil {
+		t.Fatal("Expected to find humidifier power control node status")
+	}
+	if renamedNode.DeviceName != "Humidifier Power Control" {
+		t.Errorf("Expected device name 'Humidifier Power Control' (NameByUser), got '%s'", renamedNode.DeviceName)
+	}
+
+	// Verify that the non-renamed device uses Name
+	defaultNode := nodeStatuses["sensor.thermostat_node_status"]
+	if defaultNode == nil {
+		t.Fatal("Expected to find thermostat node status")
+	}
+	if defaultNode.DeviceName != "Z-Wave Thermostat" {
+		t.Errorf("Expected device name 'Z-Wave Thermostat' (Name fallback), got '%s'", defaultNode.DeviceName)
+	}
+}
+
+func TestSensorHealthManager_NodeStatus_DeadDeviceNotification_UsesUserFriendlyName(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	mockNtfy := ntfy.NewMockClient()
+
+	// Add device with both Name (product name) and NameByUser (user-assigned name)
+	mockHA.AddDevice(&ha.Device{
+		ID:         "device_zwave_renamed",
+		Name:       "Wave Plug US",
+		NameByUser: "Humidifier Power Control",
+		Labels:     []string{},
+	})
+	mockHA.AddEntityRegistryEntry(&ha.EntityRegistryEntry{
+		EntityID: "sensor.humidifier_power_control_node_status",
+		DeviceID: "device_zwave_renamed",
+	})
+	mockHA.SetState("sensor.humidifier_power_control_node_status", "alive", map[string]interface{}{
+		"friendly_name": "Humidifier Power Control Node Status",
+	})
+
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+	mockClock := clock.NewMockClock(time.Now())
+
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
+
+	err := manager.Start()
+	if err != nil {
+		t.Fatalf("Failed to start manager: %v", err)
+	}
+	defer manager.Stop()
+
+	// Simulate the device becoming dead
+	manager.SimulateNodeStatusChange("sensor.humidifier_power_control_node_status", "dead")
+
+	// Verify notification was sent with user-friendly name
+	calls := mockNtfy.GetCalls()
+	if len(calls) != 1 {
+		t.Fatalf("Expected 1 notification, got %d", len(calls))
+	}
+
+	notification := calls[0]
+
+	// The notification should use the user-assigned name, NOT the Z-Wave product name
+	if !strings.Contains(notification.Body, "Humidifier Power Control") {
+		t.Errorf("Expected notification to contain user-friendly name 'Humidifier Power Control', got: %s", notification.Body)
+	}
+	if strings.Contains(notification.Body, "Wave Plug US") {
+		t.Errorf("Notification should NOT contain Z-Wave product name 'Wave Plug US', got: %s", notification.Body)
+	}
+}
