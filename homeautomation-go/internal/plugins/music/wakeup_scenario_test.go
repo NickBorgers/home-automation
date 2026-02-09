@@ -1467,3 +1467,157 @@ func TestScenario_RateLimiting_StillWorksForStartRequests(t *testing.T) {
 		"Second immediate playback should be rate-limited, music should still be 'day'")
 	manager.mu.RUnlock()
 }
+
+// =============================================================================
+// TEST: Wake Sequence Active → Morning Music Actually Plays
+// =============================================================================
+//
+// PRODUCTION FAILURE (2026-02-09):
+// When the wake sequence fired this morning, two things went wrong:
+//  1. Rain sounds (sleep music) faded out in ~2 seconds instead of 10+ minutes
+//  2. Morning music never played in the rest of the house
+//
+// ROOT CAUSE:
+// When isWakeSequenceActive becomes true, TWO independent systems race:
+//
+//	System 1 — Zone Manager (correct behavior):
+//	  - Sees isWakeSequenceActive=true → sleep zone deactivates (requires false)
+//	  - Morning zone activates via trigger group 2
+//	  - Starts morning playback on Kitchen, Office, etc.
+//
+//	System 2 — Legacy selectAppropriateMusicMode (incorrect during wake):
+//	  - Fires because isWakeSequenceActive triggers handleZoneTriggerChange,
+//	    AND other variables may be subscribed to handleStateChange
+//	  - Sees isAnyoneAsleep=true (master is still in bed!)
+//	  - Forces musicPlaybackType="sleep" (selection.go line 52-63)
+//
+// THE MISMATCH:
+// The zone manager correctly starts the morning zone, but musicPlaybackType
+// remains "sleep" in the state manager. The fade-in safety check
+// (fadein.go:670) reads musicPlaybackType on every volume step:
+//
+//	if musicType != startingMusicType {
+//	    // "sleep" != "morning" → abort!
+//	    return
+//	}
+//
+// Result: Every speaker's fade-in aborts → no music plays in the house.
+//
+// CURRENT STATUS: FAILING (demonstrates the bug)
+func TestScenario_WakeSequenceActive_MorningMusicActuallyPlays(t *testing.T) {
+	t.Parallel()
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	config := createWakeSequenceTestConfig()
+
+	// Monday 6:30 AM - morning dayPhase
+	fixedTime := time.Date(2024, 1, 15, 6, 30, 0, 0, time.UTC)
+	require.Equal(t, time.Monday, fixedTime.Weekday(), "Test requires Monday")
+	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
+
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, true, timeProvider, nil)
+	manager.SetSleepFunc(func(d time.Duration) {}) // Skip internal sleeps for fast tests
+
+	// ==========================================================
+	// GIVEN: Morning dayPhase, master asleep, wake sequence NOT yet active
+	// Sleep zone is active (bedroom-only rain sounds)
+	// ==========================================================
+	t.Log("GIVEN: Morning dayPhase, isMasterAsleep=true, isAnyoneAsleep=true, isWakeSequenceActive=false")
+	_ = stateManager.SetString("dayPhase", "morning")
+	_ = stateManager.SetBool("isAnyoneHome", true)
+	_ = stateManager.SetBool("isAnyoneAsleep", true)
+	_ = stateManager.SetBool("isMasterAsleep", true)
+	_ = stateManager.SetBool("isGuestAsleep", false)
+	_ = stateManager.SetBool("isTVPlaying", false)
+	_ = stateManager.SetBool("isNickOfficeOccupied", false)
+	_ = stateManager.SetBool("isWakeSequenceActive", false)
+
+	err := manager.Start()
+	require.NoError(t, err)
+	defer manager.Stop()
+
+	time.Sleep(100 * time.Millisecond)
+	manager.WaitForSync()
+
+	// Verify initial state: sleep zone active, sleep music playing
+	musicType, _ := stateManager.GetString("musicPlaybackType")
+	require.Equal(t, "sleep", musicType, "GIVEN: Sleep music should be playing initially")
+
+	activeZones := manager.zoneManager.getActiveZoneConfigs()
+	sleepZoneInitiallyActive := false
+	for _, zc := range activeZones {
+		if zc.Name == "sleep" {
+			sleepZoneInitiallyActive = true
+		}
+	}
+	require.True(t, sleepZoneInitiallyActive, "GIVEN: Sleep zone should be active initially")
+
+	// ==========================================================
+	// WHEN: isWakeSequenceActive becomes true
+	// (simulates sleephygiene's handleBeginWake)
+	// ==========================================================
+	t.Log("WHEN: isWakeSequenceActive changes to true")
+	_ = stateManager.SetBool("isWakeSequenceActive", true)
+
+	time.Sleep(200 * time.Millisecond)
+	manager.WaitForSync()
+
+	// ==========================================================
+	// THEN: Verify zone manager state
+	// ==========================================================
+	t.Log("THEN: Checking zone manager state...")
+
+	activeZones = manager.zoneManager.getActiveZoneConfigs()
+	sleepZoneActive := false
+	morningZoneActive := false
+	for _, zc := range activeZones {
+		if zc.Name == "sleep" {
+			sleepZoneActive = true
+		}
+		if zc.Name == "morning" {
+			morningZoneActive = true
+		}
+	}
+
+	// Zone manager should correctly stop sleep zone and start morning zone
+	assert.False(t, sleepZoneActive,
+		"Sleep zone should NOT be active when isWakeSequenceActive=true "+
+			"(sleep zone requires isWakeSequenceActive=false)")
+	assert.True(t, morningZoneActive,
+		"Morning zone should be active (trigger group 2: isWakeSequenceActive=true + dayPhase=morning)")
+
+	// ==========================================================
+	// THEN: musicPlaybackType must reflect the active zone
+	// THIS IS THE KEY ASSERTION THAT EXPOSES THE BUG
+	// ==========================================================
+	t.Log("THEN: Checking musicPlaybackType reflects active zone...")
+
+	musicType, err = stateManager.GetString("musicPlaybackType")
+	require.NoError(t, err)
+
+	// BUG: selectAppropriateMusicMode sees isAnyoneAsleep=true and forces
+	// musicPlaybackType="sleep", even though the zone manager has activated
+	// the morning zone. The fade-in safety check then sees
+	// "sleep" != "morning" and aborts all speaker fade-ins.
+	assert.Equal(t, "morning", musicType,
+		"musicPlaybackType must reflect the active zone ('morning'), not the legacy "+
+			"selectAppropriateMusicMode result ('sleep'). When the zone manager is "+
+			"actively managing zones, it should control musicPlaybackType. "+
+			"Currently, selectAppropriateMusicMode sees isAnyoneAsleep=true and "+
+			"forces 'sleep', causing fade-in aborts in fadein.go:670.")
+
+	// ==========================================================
+	// THEN: Morning music should actually be playing
+	// ==========================================================
+	t.Log("THEN: Checking morning music is actually playing...")
+
+	manager.mu.RLock()
+	currentlyPlaying := manager.currentlyPlaying
+	manager.mu.RUnlock()
+
+	if assert.NotNil(t, currentlyPlaying, "Music should be playing (currentlyPlaying should not be nil)") {
+		assert.Equal(t, "morning", currentlyPlaying.Type,
+			"Currently playing music type should be 'morning', not 'sleep'")
+	}
+}
