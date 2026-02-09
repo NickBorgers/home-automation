@@ -82,6 +82,11 @@ jobs:
       reviews_already_passed: ${{ steps.check-existing-reviews.outputs.already_passed }}
       # SECURITY: Authorization status - blocks external/untrusted PR authors
       author_authorized: ${{ steps.check-author-auth.outputs.authorized }}
+      # File classification - determines which reviews to run
+      # config_only: true if PR only modifies files in configs/
+      # has_go_code: true if PR modifies .go files
+      config_only: ${{ steps.classify-files.outputs.config_only }}
+      has_go_code: ${{ steps.classify-files.outputs.has_go_code }}
 
     steps:
       - name: Get PR from workflow run or dispatch inputs
@@ -287,6 +292,48 @@ jobs:
           This is an automated security notice." --repo ${{ github.repository }} 2>/dev/null || true
               ;;
           esac
+
+      # Classify PR files to determine which reviews to run
+      # Config-only PRs skip heavy code reviews (concurrency, code quality)
+      - name: Classify PR files
+        if: steps.get-pr.outputs.pr_number != ''
+        id: classify-files
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          PR_NUMBER="${{ steps.get-pr.outputs.pr_number }}"
+
+          # Get list of changed files
+          FILES=$(gh pr diff $PR_NUMBER --name-only --repo ${{ github.repository }})
+
+          echo "Changed files:"
+          echo "$FILES"
+
+          # Initialize flags
+          CONFIG_ONLY="true"
+          HAS_GO_CODE="false"
+
+          while IFS= read -r file; do
+            # Skip empty lines
+            [ -z "$file" ] && continue
+
+            # Check for Go code
+            if [[ "$file" == *.go ]]; then
+              HAS_GO_CODE="true"
+            fi
+
+            # Check if file is outside configs/
+            if [[ "$file" != configs/* ]]; then
+              CONFIG_ONLY="false"
+            fi
+          done <<< "$FILES"
+
+          echo "Classification:"
+          echo "  config_only=$CONFIG_ONLY"
+          echo "  has_go_code=$HAS_GO_CODE"
+
+          echo "config_only=$CONFIG_ONLY" >> $GITHUB_OUTPUT
+          echo "has_go_code=$HAS_GO_CODE" >> $GITHUB_OUTPUT
 
   # Build and cache devcontainer image
   # SECURITY: Always build from main branch, NEVER from PR branches
@@ -588,6 +635,7 @@ jobs:
           retention-days: 7
 
   # Claude review (code review) - runs after design-review
+  # SKIP for config-only PRs (no code to review)
   claude-review:
     needs: [get-context, build-devcontainer, design-review]
     if: |
@@ -595,7 +643,8 @@ jobs:
       needs.get-context.outputs.pr_number != '' &&
       needs.get-context.outputs.reviews_already_passed != 'true' &&
       needs.get-context.outputs.author_authorized == 'true' &&
-      needs.get-context.outputs.tests_passed == 'true'
+      needs.get-context.outputs.tests_passed == 'true' &&
+      needs.get-context.outputs.config_only != 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -690,13 +739,15 @@ jobs:
 
   # Design review specialist - validates PR implements issue intent and reviews design quality
   # Runs FIRST (before code review) because intent and design must be validated before code quality
+  # SKIP for config-only PRs (no design decisions to review)
   design-review:
     needs: [get-context, build-devcontainer]
     if: |
       needs.get-context.outputs.pr_number != '' &&
       needs.get-context.outputs.reviews_already_passed != 'true' &&
       needs.get-context.outputs.author_authorized == 'true' &&
-      needs.get-context.outputs.tests_passed == 'true'
+      needs.get-context.outputs.tests_passed == 'true' &&
+      needs.get-context.outputs.config_only != 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -886,6 +937,7 @@ jobs:
           retention-days: 7
 
   # Test-focused reviewer - runs after claude-review (code review)
+  # SKIP for config-only PRs (no tests to review for config changes)
   test-review:
     needs: [get-context, build-devcontainer, claude-review]
     if: |
@@ -893,7 +945,8 @@ jobs:
       needs.get-context.outputs.pr_number != '' &&
       needs.get-context.outputs.reviews_already_passed != 'true' &&
       needs.get-context.outputs.author_authorized == 'true' &&
-      needs.get-context.outputs.tests_passed == 'true'
+      needs.get-context.outputs.tests_passed == 'true' &&
+      needs.get-context.outputs.config_only != 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -1043,6 +1096,7 @@ jobs:
           retention-days: 7
 
   # Concurrency/race condition specialist - runs after test-review
+  # SKIP for config-only PRs (no Go code to analyze)
   concurrency-review:
     needs: [get-context, build-devcontainer, test-review]
     if: |
@@ -1050,7 +1104,8 @@ jobs:
       needs.get-context.outputs.pr_number != '' &&
       needs.get-context.outputs.reviews_already_passed != 'true' &&
       needs.get-context.outputs.author_authorized == 'true' &&
-      needs.get-context.outputs.tests_passed == 'true'
+      needs.get-context.outputs.tests_passed == 'true' &&
+      needs.get-context.outputs.has_go_code == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -1179,6 +1234,7 @@ jobs:
           retention-days: 7
 
   # Documentation update specialist - runs after concurrency-review
+  # SKIP for config-only PRs (config changes don't need doc updates)
   docs-review:
     needs: [get-context, build-devcontainer, concurrency-review]
     if: |
@@ -1186,7 +1242,8 @@ jobs:
       needs.get-context.outputs.pr_number != '' &&
       needs.get-context.outputs.reviews_already_passed != 'true' &&
       needs.get-context.outputs.author_authorized == 'true' &&
-      needs.get-context.outputs.tests_passed == 'true'
+      needs.get-context.outputs.tests_passed == 'true' &&
+      needs.get-context.outputs.config_only != 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -1419,6 +1476,7 @@ jobs:
             TEST_REVIEW_RESULT=${{ needs.test-review.result }}
             CONCURRENCY_REVIEW_RESULT=${{ needs.concurrency-review.result }}
             DOCS_REVIEW_RESULT=${{ needs.docs-review.result }}
+            CONFIG_ONLY=${{ needs.get-context.outputs.config_only }}
           runCmd: |
             # Using Sonnet: Summarization task - synthesizes existing review results
             claude --print \
@@ -1431,12 +1489,16 @@ jobs:
 
             You have personal responsibility to approve or reject this PR for merge to main and deployment to production.
 
+            **PR TYPE:** $([ \"${CONFIG_ONLY}\" = \"true\" ] && echo \"Config-only (reviews were streamlined)\" || echo \"Standard\")
+
             **REVIEW STATUS:**
             - Code Review: ${CLAUDE_REVIEW_RESULT}
             - Design Review: ${DESIGN_REVIEW_RESULT}
             - Test Review: ${TEST_REVIEW_RESULT}
             - Concurrency Review: ${CONCURRENCY_REVIEW_RESULT}
             - Docs Review: ${DOCS_REVIEW_RESULT}
+
+            $([ \"${CONFIG_ONLY}\" = \"true\" ] && echo \"NOTE: This is a config-only PR. Most reviews were skipped as they don't apply to configuration changes. Focus on validating the config changes are correct and safe.\")
 
             **YOUR TASK:**
             1. Read the review comments on this PR: \`gh pr view ${PR_NUMBER} --comments\`
@@ -1724,6 +1786,7 @@ jobs:
           DOCS_RESULT: ${{ needs.docs-review.result }}
           MERGE_RESULT: ${{ needs.merge-decision.result }}
           MERGE_DECISION: ${{ needs.merge-decision.outputs.decision }}
+          CONFIG_ONLY: ${{ needs.get-context.outputs.config_only }}
           RUN_ID: ${{ github.run_id }}
           REPO: ${{ github.repository }}
           SERVER_URL: ${{ github.server_url }}
@@ -1752,6 +1815,11 @@ jobs:
           COMMENT="## 📋 Agent Review Summary\n\n"
           COMMENT+="**Workflow Run:** [#${RUN_ID}](${SERVER_URL}/${REPO}/actions/runs/${RUN_ID})\n\n"
 
+          # Indicate PR type
+          if [ "$CONFIG_ONLY" = "true" ]; then
+            COMMENT+="**PR Type:** ⚙️ Config-only (streamlined review)\n\n"
+          fi
+
           # Determine overall status based on actual merge decision
           if [ "$MERGE_DECISION" = "GO" ]; then
             COMMENT+="**Status:** ✅ All reviews passed - ready to merge\n\n"
@@ -1775,17 +1843,30 @@ jobs:
           # Show review agents only if tests passed (they would have run)
           # Order: design-review first (validates intent), then code-review, then others
           if [ "$TESTS_PASSED" = "true" ]; then
-            COMMENT+="| 🎨 Design Review | $(format_result "$DESIGN_RESULT") |\n"
-            COMMENT+="| 🔍 Code Review | $(format_result "$CLAUDE_RESULT") |\n"
-            COMMENT+="| 🧪 Test Review | $(format_result "$TEST_RESULT") |\n"
-            COMMENT+="| 🔀 Concurrency Review | $(format_result "$CONCURRENCY_RESULT") |\n"
-            COMMENT+="| 📚 Docs Review | $(format_result "$DOCS_RESULT") |\n"
+            # For config-only PRs, most reviews are skipped - show only merge decision
+            if [ "$CONFIG_ONLY" = "true" ]; then
+              COMMENT+="| 🎨 Design Review | ⏭️ Skipped (config-only) |\n"
+              COMMENT+="| 🔍 Code Review | ⏭️ Skipped (config-only) |\n"
+              COMMENT+="| 🧪 Test Review | ⏭️ Skipped (config-only) |\n"
+              COMMENT+="| 🔀 Concurrency Review | ⏭️ Skipped (config-only) |\n"
+              COMMENT+="| 📚 Docs Review | ⏭️ Skipped (config-only) |\n"
+            else
+              COMMENT+="| 🎨 Design Review | $(format_result "$DESIGN_RESULT") |\n"
+              COMMENT+="| 🔍 Code Review | $(format_result "$CLAUDE_RESULT") |\n"
+              COMMENT+="| 🧪 Test Review | $(format_result "$TEST_RESULT") |\n"
+              COMMENT+="| 🔀 Concurrency Review | $(format_result "$CONCURRENCY_RESULT") |\n"
+              COMMENT+="| 📚 Docs Review | $(format_result "$DOCS_RESULT") |\n"
+            fi
             # Show actual merge decision verdict instead of just job status
             COMMENT+="| 🚦 Merge Decision | $(format_merge_decision "$MERGE_DECISION") |\n"
           fi
 
           COMMENT+="\n---\n"
-          COMMENT+="_See individual agent comments above for details._\n"
+          if [ "$CONFIG_ONLY" = "true" ]; then
+            COMMENT+="_Config-only PRs use streamlined review - only merge decision runs._\n"
+          else
+            COMMENT+="_See individual agent comments above for details._\n"
+          fi
           COMMENT+="\n🤖 Generated by Claude Code Review workflow"
 
           # Post the comment
