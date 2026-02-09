@@ -271,6 +271,7 @@ func (m *Manager) updateFadeInProgress(entityID string, currentVolume int) {
 }
 
 // recordFadeInHumanOverride records that a human override was detected during fade-in
+// Only sets global FadeState to "idle" when ALL fade-ins are inactive
 func (m *Manager) recordFadeInHumanOverride(entityID string, expectedVolume, actualVolume int) {
 	m.shadowMu.Lock()
 	defer m.shadowMu.Unlock()
@@ -283,11 +284,24 @@ func (m *Manager) recordFadeInHumanOverride(entityID string, expectedVolume, act
 		fadeIn.LastUpdate = m.timeProvider.Now()
 		m.shadowState.Outputs.FadeInProgress[entityID] = fadeIn
 	}
-	m.shadowState.Outputs.FadeState = "idle"
+
+	// Only set global state to idle if NO fade-ins are still active
+	anyActive := false
+	for _, fadeIn := range m.shadowState.Outputs.FadeInProgress {
+		if fadeIn.IsActive {
+			anyActive = true
+			break
+		}
+	}
+	if !anyActive {
+		m.shadowState.Outputs.FadeState = "idle"
+	}
+
 	m.shadowState.Metadata.LastUpdated = m.timeProvider.Now()
 }
 
-// clearFadeInProgress marks fade-in as complete (idle)
+// clearFadeInProgress marks a speaker's fade-in as complete
+// Only sets global FadeState to "idle" when ALL fade-ins are inactive
 func (m *Manager) clearFadeInProgress(entityID string) {
 	m.shadowMu.Lock()
 	defer m.shadowMu.Unlock()
@@ -297,7 +311,19 @@ func (m *Manager) clearFadeInProgress(entityID string) {
 		fadeIn.LastUpdate = m.timeProvider.Now()
 		m.shadowState.Outputs.FadeInProgress[entityID] = fadeIn
 	}
-	m.shadowState.Outputs.FadeState = "idle"
+
+	// Only set global state to idle if NO fade-ins are still active
+	anyActive := false
+	for _, fadeIn := range m.shadowState.Outputs.FadeInProgress {
+		if fadeIn.IsActive {
+			anyActive = true
+			break
+		}
+	}
+	if !anyActive {
+		m.shadowState.Outputs.FadeState = "idle"
+	}
+
 	m.shadowState.Metadata.LastUpdated = m.timeProvider.Now()
 }
 
