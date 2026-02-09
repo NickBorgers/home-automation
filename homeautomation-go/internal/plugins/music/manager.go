@@ -253,6 +253,21 @@ func (m *Manager) handleStateChange(key string, oldValue, newValue interface{}) 
 		zap.Any("old", oldValue),
 		zap.Any("new", newValue))
 
+	// When explicit zones are configured, the zone manager controls music type selection
+	// via trigger-based zone activation. The legacy selectAppropriateMusicMode path
+	// should be skipped to prevent race conditions (e.g., zone manager activating
+	// "morning" zone while selectAppropriateMusicMode forces "sleep" because
+	// isAnyoneAsleep=true during wake sequences).
+	//
+	// Zone trigger variables are subscribed via handleZoneTriggerChangeWithContext,
+	// so state changes to those variables will trigger zone resolution there.
+	// This handler only needs to run the legacy path for configs without explicit zones.
+	if m.config.HasZones() {
+		m.logger.Debug("Explicit zones configured, skipping legacy selectAppropriateMusicMode",
+			zap.String("key", key))
+		return
+	}
+
 	// Detect wake-up event: isAnyoneAsleep changed from true to false
 	// This matches Node-RED behavior where msg.topic and msg.payload are checked:
 	//   if (msg.topic == "isAnyoneAsleep" && msg.payload == false) { ... }
