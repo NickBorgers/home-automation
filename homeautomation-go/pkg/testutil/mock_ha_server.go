@@ -28,9 +28,9 @@ type connWrapper struct {
 // MockHAServer simulates a Home Assistant WebSocket server
 type MockHAServer struct {
 	server       *http.Server
-	listener     net.Listener // Added to support dynamic port allocation
+	listener     net.Listener // Listener for dynamic port allocation
 	addr         string
-	actualAddr   string // The actual address after binding (may differ if port 0 used)
+	actualAddr   string // The actual address after binding (useful when port is 0)
 	states       map[string]*EntityState
 	statesMu     sync.RWMutex
 	connections  []*connWrapper
@@ -114,6 +114,15 @@ func NewMockHAServer(addr, token string) *MockHAServer {
 	}
 }
 
+// Addr returns the actual address the server is listening on.
+// This is useful when the server was created with port 0 for dynamic allocation.
+func (s *MockHAServer) Addr() string {
+	if s.actualAddr != "" {
+		return s.actualAddr
+	}
+	return s.addr
+}
+
 // SetEventDelay sets the delay for broadcasting events
 func (s *MockHAServer) SetEventDelay(delay time.Duration) {
 	s.eventDelay = delay
@@ -121,17 +130,16 @@ func (s *MockHAServer) SetEventDelay(delay time.Duration) {
 
 // Start starts the mock server
 func (s *MockHAServer) Start() error {
-	// First, create a listener to get a port and verify it's available
-	// This catches port conflicts immediately instead of in a goroutine
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/websocket", s.handleWebSocket)
+
+	// Use net.Listen for proper dynamic port allocation
 	listener, err := net.Listen("tcp", s.addr)
 	if err != nil {
-		return fmt.Errorf("failed to start mock HA server: %w", err)
+		return fmt.Errorf("failed to listen on %s: %w", s.addr, err)
 	}
 	s.listener = listener
 	s.actualAddr = listener.Addr().String()
-
-	mux := http.NewServeMux()
-	mux.HandleFunc("/api/websocket", s.handleWebSocket)
 
 	s.server = &http.Server{
 		Handler: mux,
@@ -143,18 +151,9 @@ func (s *MockHAServer) Start() error {
 		}
 	}()
 
-	// Small delay to ensure server is accepting connections
-	time.Sleep(50 * time.Millisecond)
+	// Wait for server to start (reduced since we already have a listener)
+	time.Sleep(10 * time.Millisecond)
 	return nil
-}
-
-// Addr returns the actual address the server is listening on.
-// This is useful when using port 0 (dynamic port allocation).
-func (s *MockHAServer) Addr() string {
-	if s.actualAddr != "" {
-		return s.actualAddr
-	}
-	return s.addr
 }
 
 // Stop stops the mock server

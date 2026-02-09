@@ -50,6 +50,7 @@ func setupLightingScenarioTest(t *testing.T) (*MockHAServer, *lighting.Manager, 
 // TestScenario_DayPhaseEvening_ActivatesCorrectScenes validates that when
 // day phase changes to evening, the correct scenes activate for all rooms
 func TestScenario_DayPhaseEvening_ActivatesCorrectScenes(t *testing.T) {
+	t.Parallel()
 	server, lightingMgr, cleanup := setupLightingScenarioTest(t)
 	defer cleanup()
 	_ = lightingMgr
@@ -103,6 +104,7 @@ func TestScenario_DayPhaseEvening_ActivatesCorrectScenes(t *testing.T) {
 // TestScenario_SunEventSunset_ActivatesScenes validates that when sun event
 // changes to sunset, appropriate scenes are activated
 func TestScenario_SunEventSunset_ActivatesScenes(t *testing.T) {
+	t.Parallel()
 	server, _, cleanup := setupLightingScenarioTest(t)
 	defer cleanup()
 
@@ -142,6 +144,7 @@ func TestScenario_SunEventSunset_ActivatesScenes(t *testing.T) {
 // TestScenario_TVStateChange_TriggersLightingAdjustment validates that when
 // TV starts playing, lighting scenes are re-evaluated (potentially dimmed)
 func TestScenario_TVStateChange_TriggersLightingAdjustment(t *testing.T) {
+	t.Parallel()
 	server, _, cleanup := setupLightingScenarioTest(t)
 	defer cleanup()
 
@@ -180,6 +183,7 @@ func TestScenario_TVStateChange_TriggersLightingAdjustment(t *testing.T) {
 // TestScenario_EveryoneAsleep_TurnsOffLights validates that when everyone
 // goes to sleep, lights turn off or switch to night mode
 func TestScenario_EveryoneAsleep_TurnsOffLights(t *testing.T) {
+	t.Parallel()
 	server, _, cleanup := setupLightingScenarioTest(t)
 	defer cleanup()
 
@@ -229,6 +233,7 @@ func TestScenario_EveryoneAsleep_TurnsOffLights(t *testing.T) {
 // TestScenario_PresenceChangeHome_ActivatesScenes validates that when
 // someone arrives home, appropriate scenes activate
 func TestScenario_PresenceChangeHome_ActivatesScenes(t *testing.T) {
+	t.Parallel()
 	server, _, cleanup := setupLightingScenarioTest(t)
 	defer cleanup()
 
@@ -265,6 +270,7 @@ func TestScenario_PresenceChangeHome_ActivatesScenes(t *testing.T) {
 // TestScenario_GuestArrival_ActivatesGuestScenes validates that when guests
 // arrive, guest-specific scenes or brightness adjustments occur
 func TestScenario_GuestArrival_ActivatesGuestScenes(t *testing.T) {
+	t.Parallel()
 	server, _, cleanup := setupLightingScenarioTest(t)
 	defer cleanup()
 
@@ -301,6 +307,7 @@ func TestScenario_GuestArrival_ActivatesGuestScenes(t *testing.T) {
 // TestScenario_MasterBedroomSleep_HandlesConditionalLogic validates the
 // conditional logic for master bedroom (on_if_false: isMasterAsleep)
 func TestScenario_MasterBedroomSleep_HandlesConditionalLogic(t *testing.T) {
+	t.Parallel()
 	server, _, cleanup := setupLightingScenarioTest(t)
 	defer cleanup()
 
@@ -360,6 +367,7 @@ func TestScenario_MasterBedroomSleep_HandlesConditionalLogic(t *testing.T) {
 // TestScenario_MultipleStateChanges_HandlesCorrectly validates that multiple
 // rapid state changes are handled correctly without race conditions
 func TestScenario_MultipleStateChanges_HandlesCorrectly(t *testing.T) {
+	t.Parallel()
 	server, _, cleanup := setupLightingScenarioTest(t)
 	defer cleanup()
 

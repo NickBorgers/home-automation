@@ -78,6 +78,7 @@ func setupEnergyScenarioTest(t *testing.T) (*MockHAServer, *energy.Manager, *sta
 // TestScenario_BatteryLevelChanges_UpdateEnergyLevels validates that when
 // battery percentage drops, the batteryEnergyLevel updates correctly
 func TestScenario_BatteryLevelChanges_UpdateEnergyLevels(t *testing.T) {
+	t.Parallel()
 	server, _, manager, _, cleanup := setupEnergyScenarioTest(t)
 	defer cleanup()
 
@@ -114,6 +115,7 @@ func TestScenario_BatteryLevelChanges_UpdateEnergyLevels(t *testing.T) {
 // TestScenario_SolarProductionUpdates_CalculatesEnergyLevel validates that
 // solar production changes correctly update the solarProductionEnergyLevel
 func TestScenario_SolarProductionUpdates_CalculatesEnergyLevel(t *testing.T) {
+	t.Parallel()
 	server, _, manager, _, cleanup := setupEnergyScenarioTest(t)
 	defer cleanup()
 
@@ -159,6 +161,7 @@ func TestScenario_SolarProductionUpdates_CalculatesEnergyLevel(t *testing.T) {
 // TestScenario_GridAvailability_RecalculatesFreeEnergy validates that when
 // grid availability changes, isFreeEnergyAvailable recalculates
 func TestScenario_GridAvailability_RecalculatesFreeEnergy(t *testing.T) {
+	t.Parallel()
 	// This test needs a controlled time to ensure consistent behavior.
 	// We use a fixed reference time of 12:00 noon UTC (outside free energy window 21:00-07:00).
 
@@ -232,6 +235,7 @@ func TestScenario_GridAvailability_RecalculatesFreeEnergy(t *testing.T) {
 // TestScenario_OverallEnergyLevel_ReflectsWorstState validates that the
 // currentEnergyLevel correctly reflects the worst state across battery/solar
 func TestScenario_OverallEnergyLevel_ReflectsWorstState(t *testing.T) {
+	t.Parallel()
 	// This test needs a controlled time to ensure we're outside the free energy window.
 	// During free energy time (21:00-07:00), currentEnergyLevel would be "white" instead of
 	// the expected battery/solar-derived levels.
@@ -332,6 +336,7 @@ func TestScenario_OverallEnergyLevel_ReflectsWorstState(t *testing.T) {
 // TestScenario_FreeEnergyTimeWindow_OverridesEnergyLevel validates that when
 // in free energy time window with grid available, currentEnergyLevel is "white"
 func TestScenario_FreeEnergyTimeWindow_OverridesEnergyLevel(t *testing.T) {
+	t.Parallel()
 	// Setup test environment manually without starting energy manager
 	server, client, manager, baseCleanup := setupTest(t)
 	defer baseCleanup()
@@ -398,6 +403,7 @@ func TestScenario_FreeEnergyTimeWindow_OverridesEnergyLevel(t *testing.T) {
 // TestScenario_ThresholdBoundaries_HandlesExactValues validates that energy
 // levels are calculated correctly at exact threshold boundaries
 func TestScenario_ThresholdBoundaries_HandlesExactValues(t *testing.T) {
+	t.Parallel()
 	server, _, manager, _, cleanup := setupEnergyScenarioTest(t)
 	defer cleanup()
 
@@ -453,6 +459,7 @@ func TestScenario_ThresholdBoundaries_HandlesExactValues(t *testing.T) {
 // TestScenario_MultipleConcurrentChanges_HandlesCorrectly validates that
 // simultaneous battery and solar changes are handled without race conditions
 func TestScenario_MultipleConcurrentChanges_HandlesCorrectly(t *testing.T) {
+	t.Parallel()
 	server, _, manager, _, cleanup := setupEnergyScenarioTest(t)
 	defer cleanup()
 
@@ -528,6 +535,7 @@ func TestScenario_MultipleConcurrentChanges_HandlesCorrectly(t *testing.T) {
 // TestScenario_PeriodicChecker_UpdatesFreeEnergy validates that the periodic
 // free energy checker runs and updates state correctly
 func TestScenario_PeriodicChecker_UpdatesFreeEnergy(t *testing.T) {
+	t.Parallel()
 	// Note: This test would need to wait 1+ minute for the periodic checker
 	// For now, we validate that the checker can be triggered manually via grid change
 	t.Skip("Skipping periodic checker test - would require 1+ minute wait time")
