@@ -1075,12 +1075,81 @@ func handleShutdown() {
 - State manager: `internal/state/manager.go`
 - Mock server: `test/integration/mock_ha_server.go`
 
-**Last Updated**: 2026-02-02
+**Last Updated**: 2026-02-09
 **Test Status**: All 11/11 integration tests passing with `-race` flag
 
 ---
 
+## Lesson 14: Establish Clear Ownership When Multiple Systems React to the Same State Change
+
+**Pattern**: When multiple systems handle the same state change, one system should have clear authority; others should defer.
+
+**Why**: When a state variable change triggers multiple handlers (each with different logic), they race to update shared output state. Without coordination, the "wrong" handler may win, leaving the system in an inconsistent state.
+
+**Problem Scenario** (Fixed in [Issue #599](https://github.com/NickBorgersOnLowSecurityNode/home-automation/issues/599)):
+
+When `isWakeSequenceActive` becomes true, two systems raced:
+
+```go
+// System 1 — Zone Manager (should win):
+// Sees isWakeSequenceActive=true → activates "morning" zone → sets musicPlaybackType="morning"
+
+// System 2 — Legacy selectAppropriateMusicMode (should NOT run):
+// Sees isAnyoneAsleep=true → forces musicPlaybackType="sleep"
+```
+
+**The Mismatch**:
+Zone manager correctly starts morning zone, but `selectAppropriateMusicMode` overwrites `musicPlaybackType="sleep"`. Downstream code (fade-in) sees "sleep" != "morning" and aborts, causing silent speakers.
+
+**Error Symptoms**:
+- Music type not matching active zone
+- Fade-ins aborting due to "music type changed during fade"
+- Expected music not playing despite correct zone activation
+
+**Correct Approach**:
+```go
+// ✅ GOOD: Clear ownership - zone manager has authority when zones are configured
+func (m *Manager) handleStateChange(key string, oldValue, newValue interface{}) {
+    // When explicit zones are configured, the zone manager controls music type selection.
+    // The legacy path should be skipped to prevent race conditions.
+    if m.config.HasZones() {
+        m.logger.Debug("Explicit zones configured, skipping legacy path",
+            zap.String("key", key))
+        return
+    }
+
+    // Legacy path only runs when zones are NOT configured
+    m.selectAppropriateMusicMode()
+}
+```
+
+**Key Principles**:
+1. **Single source of truth**: Only one system should control a shared output variable
+2. **Guard clauses at entry**: Check ownership before executing logic, not after
+3. **Document ownership**: Comments should explain which system has authority and why
+4. **Test the race explicitly**: Write tests that simulate the interleaving (see `wakeup_scenario_test.go`)
+
+**Where to Apply**:
+- Migrating from legacy to new system (new system should take over, legacy should defer)
+- Multiple plugins reacting to same state variable
+- Any handler that updates shared state also updated by other handlers
+
+**Test That Validates This**:
+- `TestScenario_WakeSequenceActive_MorningMusicActuallyPlays` - Verifies zone manager wins the race
+
+**Production Impact**:
+- **Before Fix**: Morning music never played during wake sequence; sleep music settings persisted
+- **After Fix**: Zone manager controls music type, fade-ins complete successfully
+
+---
+
 ## Change Log
+
+### 2026-02-09
+- **Added Lesson 14**: Establish Clear Ownership When Multiple Systems React to the Same State Change
+  - Documents race condition between zone manager and legacy `selectAppropriateMusicMode` (Issue #599)
+  - Pattern: Establish clear authority when multiple handlers update the same state
+  - Applied to `internal/plugins/music/manager.go` - zone-enabled configs skip legacy path
 
 ### 2026-02-02
 - **Added Lesson 13**: Propagate Shutdown Context Through Service Calls for Graceful Shutdown
