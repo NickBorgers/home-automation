@@ -1621,3 +1621,169 @@ func TestScenario_WakeSequenceActive_MorningMusicActuallyPlays(t *testing.T) {
 			"Currently playing music type should be 'morning', not 'sleep'")
 	}
 }
+
+// =============================================================================
+// SYMPTOM 1 FIX: Sleep Zone Fade-Out Coordination
+// =============================================================================
+//
+// Issue #599 Symptom 1:
+// "Rain sounds faded out in ~2 seconds instead of the intended 10+ minute fade"
+//
+// Root Cause:
+// When isWakeSequenceActive becomes true, the sleep zone stops matching
+// (it requires isWakeSequenceActive=false). The zone manager then calls
+// stopZone("sleep", ...) which uses fadeOutZoneSpeakers - a fast fade
+// that immediately sets volume to 0.
+//
+// However, sleephygiene's handleBeginWake() has ALREADY started its slow
+// fade-out (30+ minutes) on the bedroom speakers. The zone manager's fast
+// fade wins, overriding the slow fade and causing the jarring 2-second
+// volume drop.
+//
+// Fix:
+// When stopping the sleep zone during a wake sequence (isWakeSequenceActive=true),
+// the zone manager should NOT call fadeOutZoneSpeakers. Instead, it should
+// let sleephygiene manage the bedroom fade-out.
+//
+// =============================================================================
+
+func TestScenario_WakeSequence_SleepZoneSkipsFastFadeOut(t *testing.T) {
+	t.Parallel()
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	config := createWakeSequenceTestConfig()
+
+	// Monday 6:30 AM - morning dayPhase
+	fixedTime := time.Date(2024, 1, 15, 6, 30, 0, 0, time.UTC)
+	require.Equal(t, time.Monday, fixedTime.Weekday(), "Test requires Monday")
+	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
+
+	// Use readOnly=false so we can track service calls
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, timeProvider, nil)
+	manager.SetSleepFunc(func(d time.Duration) {}) // Skip internal sleeps for fast tests
+
+	// ==========================================================
+	// GIVEN: Morning dayPhase, master asleep, sleep zone active
+	// ==========================================================
+	t.Log("GIVEN: Morning dayPhase, isMasterAsleep=true, isWakeSequenceActive=false")
+	t.Log("       Sleep zone is active with bedroom playing rain sounds")
+	_ = stateManager.SetString("dayPhase", "morning")
+	_ = stateManager.SetBool("isAnyoneHome", true)
+	_ = stateManager.SetBool("isAnyoneAsleep", true)
+	_ = stateManager.SetBool("isMasterAsleep", true)
+	_ = stateManager.SetBool("isGuestAsleep", false)
+	_ = stateManager.SetBool("isTVPlaying", false)
+	_ = stateManager.SetBool("isNickOfficeOccupied", false)
+	_ = stateManager.SetBool("isWakeSequenceActive", false)
+
+	// Set up bedroom speaker state in HA
+	mockClient.SetState("media_player.bedroom", "playing", map[string]interface{}{
+		"volume_level": 0.16, // 16% typical sleep volume
+	})
+
+	err := manager.Start()
+	require.NoError(t, err)
+	defer manager.Stop()
+
+	time.Sleep(100 * time.Millisecond)
+	manager.WaitForSync()
+
+	// Manually trigger initial zone resolution to simulate what happens when
+	// the system starts up and processes initial state. In production, this
+	// is triggered by HA state changes flowing through subscriptions.
+	err = manager.zoneManager.ResolveZones("initial_state")
+	require.NoError(t, err)
+
+	// Wait for zone to start (playback happens in goroutine)
+	time.Sleep(200 * time.Millisecond)
+	manager.WaitForSync()
+
+	// Verify initial state: sleep zone active
+	activeZones := manager.zoneManager.getActiveZoneConfigs()
+	sleepZoneInitiallyActive := false
+	for _, zc := range activeZones {
+		if zc.Name == "sleep" {
+			sleepZoneInitiallyActive = true
+		}
+	}
+	require.True(t, sleepZoneInitiallyActive, "GIVEN: Sleep zone should be active initially")
+
+	// Verify bedroom is a participant in the sleep zone
+	manager.zoneManager.mu.RLock()
+	sleepZone := manager.zoneManager.activeZones["sleep"]
+	var bedroomInSleepZone bool
+	if sleepZone != nil {
+		for _, p := range sleepZone.Participants {
+			if p.PlayerName == "Bedroom" {
+				bedroomInSleepZone = true
+				break
+			}
+		}
+	}
+	manager.zoneManager.mu.RUnlock()
+	require.True(t, bedroomInSleepZone, "GIVEN: Bedroom should be a participant in the sleep zone")
+
+	// Clear service calls to track only what happens during wake sequence
+	mockClient.ClearServiceCalls()
+
+	// ==========================================================
+	// WHEN: isWakeSequenceActive becomes true
+	// (simulates sleephygiene's handleBeginWake)
+	//
+	// At this point, sleephygiene has ALREADY started its slow
+	// fade-out on bedroom speakers. The zone manager should NOT
+	// interfere with that fade.
+	// ==========================================================
+	t.Log("WHEN: isWakeSequenceActive changes to true")
+	t.Log("      (sleephygiene is managing the slow bedroom fade-out)")
+	_ = stateManager.SetBool("isWakeSequenceActive", true)
+
+	// Wait for zone resolution and goroutines to complete
+	// fadeOutZoneSpeakers is called in a goroutine, so we need to wait
+	time.Sleep(500 * time.Millisecond)
+	manager.WaitForSync()
+
+	// Verify zone manager stopped the sleep zone
+	activeZones = manager.zoneManager.getActiveZoneConfigs()
+	sleepZoneStillActive := false
+	for _, zc := range activeZones {
+		if zc.Name == "sleep" {
+			sleepZoneStillActive = true
+		}
+	}
+	assert.False(t, sleepZoneStillActive, "Sleep zone should be stopped when isWakeSequenceActive=true")
+
+	// ==========================================================
+	// THEN: Zone manager should NOT call volume_set with volume=0
+	// on bedroom speaker (that would be the fast fade-out)
+	//
+	// The absence of this call allows sleephygiene's slow fade
+	// to continue undisturbed.
+	// ==========================================================
+	t.Log("THEN: Zone manager should NOT have called fast fade-out on bedroom")
+
+	serviceCalls := mockClient.GetServiceCalls()
+	bedroomFastFadeOutCalled := false
+	for _, call := range serviceCalls {
+		if call.Domain == "media_player" && call.Service == "volume_set" {
+			if entityID, ok := call.Data["entity_id"].(string); ok {
+				if entityID == "media_player.bedroom" {
+					if volumeLevel, ok := call.Data["volume_level"].(float64); ok {
+						if volumeLevel == 0.0 {
+							bedroomFastFadeOutCalled = true
+							t.Logf("FOUND unwanted fast fade-out call: %+v", call)
+						}
+					}
+				}
+			}
+		}
+	}
+
+	assert.False(t, bedroomFastFadeOutCalled,
+		"Zone manager should NOT call volume_set with volume=0 on bedroom speaker "+
+			"when stopping sleep zone during wake sequence. This fast fade-out "+
+			"interferes with sleephygiene's slow 30-minute fade. "+
+			"Instead, the zone manager should skip the fade-out and let "+
+			"sleephygiene manage the bedroom speakers during wake sequences.")
+}
