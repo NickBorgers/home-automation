@@ -30,15 +30,18 @@ import (
 func setupComputedStateTest(t *testing.T) (*MockHAServer, *ha.Client, *state.Manager, func()) {
 	logger := testlogger.New()
 
-	// Start mock HA server
+	// Start mock HA server with dynamic port
 	server := NewMockHAServer(testAddr, testToken)
 	server.InitializeStates()
 
 	err := server.Start()
 	require.NoError(t, err)
 
-	// Create and connect client
-	client := ha.NewClient(fmt.Sprintf("ws://%s/api/websocket", testAddr), testToken, logger)
+	// Get the actual address the server is listening on
+	actualAddr := server.Addr()
+
+	// Create and connect client using the actual server address
+	client := ha.NewClient(fmt.Sprintf("ws://%s/api/websocket", actualAddr), testToken, logger)
 	err = client.Connect()
 	require.NoError(t, err)
 
@@ -121,7 +124,7 @@ func TestScenario_ComputedState_IsAnyoneHomeAndAwake_InitialComputation(t *testi
 		t.Run(tc.name, func(t *testing.T) {
 			logger := testlogger.New()
 
-			// Start mock HA server with specific initial state
+			// Start mock HA server with specific initial state (using dynamic port)
 			server := NewMockHAServer(testAddr, testToken)
 			server.InitializeStates()
 
@@ -135,8 +138,11 @@ func TestScenario_ComputedState_IsAnyoneHomeAndAwake_InitialComputation(t *testi
 			require.NoError(t, err)
 			defer server.Stop()
 
-			// Create and connect client
-			client := ha.NewClient(fmt.Sprintf("ws://%s/api/websocket", testAddr), testToken, logger)
+			// Get the actual address the server is listening on
+			actualAddr := server.Addr()
+
+			// Create and connect client using the actual server address
+			client := ha.NewClient(fmt.Sprintf("ws://%s/api/websocket", actualAddr), testToken, logger)
 			err = client.Connect()
 			require.NoError(t, err)
 			defer client.Disconnect()
