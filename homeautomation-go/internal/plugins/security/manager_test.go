@@ -155,6 +155,11 @@ func TestSecurityManager_LockdownAutoReset(t *testing.T) {
 
 	// Create security manager
 	securityManager := NewManager(context.Background(), mockHA, stateManager, logger, false, nil)
+
+	// Use MockClock so the 5-second delay is instant (MockClock.Sleep is a no-op)
+	mockClock := clock.NewMockClock(time.Now())
+	securityManager.SetClock(mockClock)
+
 	if err := securityManager.Start(); err != nil {
 		t.Fatalf("Failed to start security manager: %v", err)
 	}
@@ -165,8 +170,8 @@ func TestSecurityManager_LockdownAutoReset(t *testing.T) {
 	// Simulate lockdown being turned on in HA
 	mockHA.SimulateStateChange("input_boolean.lockdown", "on")
 
-	// Wait for auto-reset (5 seconds + buffer)
-	time.Sleep(5500 * time.Millisecond)
+	// Wait for async processing (goroutine runs instantly with MockClock.Sleep as no-op)
+	time.Sleep(100 * time.Millisecond)
 
 	// Verify lockdown was reset
 	calls := mockHA.GetServiceCalls()
@@ -294,6 +299,11 @@ func TestSecurityManager_DoorbellNotification(t *testing.T) {
 
 	// Create security manager
 	securityManager := NewManager(context.Background(), mockHA, stateManager, logger, false, nil)
+
+	// Use MockClock so the 2-second delay between light flashes is instant
+	mockClock := clock.NewMockClock(time.Now())
+	securityManager.SetClock(mockClock)
+
 	if err := securityManager.Start(); err != nil {
 		t.Fatalf("Failed to start security manager: %v", err)
 	}
@@ -304,8 +314,8 @@ func TestSecurityManager_DoorbellNotification(t *testing.T) {
 	// Simulate doorbell press
 	mockHA.SimulateStateChange("input_button.doorbell", "2024-01-01T12:00:01")
 
-	// Wait for async processing (including light flashes with 2s delay)
-	time.Sleep(2500 * time.Millisecond)
+	// Wait for async processing (goroutine runs instantly with MockClock.Sleep as no-op)
+	time.Sleep(100 * time.Millisecond)
 
 	// Verify TTS was sent
 	calls := mockHA.GetServiceCalls()
@@ -694,6 +704,11 @@ func TestSecurityManager_ReadOnlyModeLockdownReset(t *testing.T) {
 
 	// Create security manager in READ-ONLY mode
 	securityManager := NewManager(context.Background(), mockHA, stateManager, logger, true, nil)
+
+	// Use MockClock so the 5-second delay is instant (MockClock.Sleep is a no-op)
+	mockClock := clock.NewMockClock(time.Now())
+	securityManager.SetClock(mockClock)
+
 	if err := securityManager.Start(); err != nil {
 		t.Fatalf("Failed to start security manager: %v", err)
 	}
@@ -703,8 +718,8 @@ func TestSecurityManager_ReadOnlyModeLockdownReset(t *testing.T) {
 	// Simulate lockdown being turned on in HA
 	mockHA.SimulateStateChange("input_boolean.lockdown", "on")
 
-	// Wait for potential auto-reset (5 seconds + buffer)
-	time.Sleep(5500 * time.Millisecond)
+	// Wait for async processing (goroutine runs instantly with MockClock.Sleep as no-op)
+	time.Sleep(100 * time.Millisecond)
 
 	// Verify NO lockdown reset in read-only mode
 	calls := mockHA.GetServiceCalls()
