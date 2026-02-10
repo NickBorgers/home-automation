@@ -41,17 +41,18 @@ func TestScenario_AppleTVPlaying(t *testing.T) {
 	server, manager, cleanup := setupTVScenarioTest(t)
 	defer cleanup()
 
-	t.Log("GIVEN: Apple TV is idle, sync box is on, HDMI input is AppleTV")
+	t.Log("GIVEN: Apple TV is idle, TV is on, sync box is on, HDMI input is AppleTV")
 
 	// Set initial states
 	server.SetState("media_player.big_beautiful_oled", "idle", map[string]interface{}{
 		"friendly_name": "Apple TV",
 	})
+	server.SetState("remote.big_beautiful_oled", "on", map[string]interface{}{})
 	server.SetState("switch.sync_box_power", "on", map[string]interface{}{})
 	server.SetState("select.sync_box_hdmi_input", "AppleTV", map[string]interface{}{})
 
 	// Wait for initial state to propagate
-	waitForBoolState(t, manager, "isTVon", true, "isTVon should be true when sync box is on")
+	waitForBoolState(t, manager, "isTVon", true, "isTVon should be true when TV remote is on")
 
 	t.Log("WHEN: Apple TV starts playing")
 
@@ -74,12 +75,13 @@ func TestScenario_HDMIInputSwitch(t *testing.T) {
 	server, manager, cleanup := setupTVScenarioTest(t)
 	defer cleanup()
 
-	t.Log("GIVEN: Apple TV is playing, sync box is on, HDMI input is AppleTV")
+	t.Log("GIVEN: Apple TV is playing, TV is on, sync box is on, HDMI input is AppleTV")
 
 	// Set initial states - Apple TV playing
 	server.SetState("media_player.big_beautiful_oled", "playing", map[string]interface{}{
 		"friendly_name": "Apple TV",
 	})
+	server.SetState("remote.big_beautiful_oled", "on", map[string]interface{}{})
 	server.SetState("switch.sync_box_power", "on", map[string]interface{}{})
 	server.SetState("select.sync_box_hdmi_input", "AppleTV", map[string]interface{}{})
 
@@ -117,53 +119,37 @@ func TestScenario_HDMIInputSwitch(t *testing.T) {
 	waitForBoolState(t, manager, "isTVPlaying", false, "isTVPlaying should be false when AppleTV is idle")
 }
 
-// TestScenario_SyncBoxPower verifies that sync box power changes update isTVon
-// and that turning off the sync box sets isTVPlaying to false
-func TestScenario_SyncBoxPower(t *testing.T) {
+// TestScenario_TVRemoteKillSwitch verifies that the TV remote entity acts as a
+// kill switch: when the TV panel turns off, isTVPlaying is forced false and
+// light sync turns off, even though isTVon (driven by sync box) may still be true.
+func TestScenario_TVRemoteKillSwitch(t *testing.T) {
 	t.Parallel()
 	server, manager, cleanup := setupTVScenarioTest(t)
 	defer cleanup()
 
-	t.Log("GIVEN: Sync box is off, Apple TV is idle")
+	t.Log("GIVEN: Sync box is on, TV is on, Apple TV is playing on AppleTV input")
 
-	// Set initial states
-	server.SetState("switch.sync_box_power", "off", map[string]interface{}{})
-	server.SetState("media_player.big_beautiful_oled", "idle", map[string]interface{}{
+	// Set initial states - everything on and playing
+	server.SetState("remote.big_beautiful_oled", "on", map[string]interface{}{})
+	server.SetState("switch.sync_box_power", "on", map[string]interface{}{})
+	server.SetState("media_player.big_beautiful_oled", "playing", map[string]interface{}{
 		"friendly_name": "Apple TV",
 	})
 	server.SetState("select.sync_box_hdmi_input", "AppleTV", map[string]interface{}{})
 
-	// Wait for initial state
-	waitForBoolState(t, manager, "isTVon", false, "isTVon should be false when sync box is off")
-
-	t.Log("WHEN: Sync box powers on")
-
-	// Power on sync box
-	server.SetState("switch.sync_box_power", "on", map[string]interface{}{})
-
-	t.Log("THEN: Verify isTVon is true")
-
 	waitForBoolState(t, manager, "isTVon", true, "isTVon should be true when sync box is on")
-
-	t.Log("GIVEN: Apple TV starts playing while sync box is on")
-
-	// Start Apple TV playback
-	server.SetState("media_player.big_beautiful_oled", "playing", map[string]interface{}{
-		"friendly_name": "Apple TV",
-	})
-
-	// Verify isTVPlaying is true
 	waitForBoolState(t, manager, "isTVPlaying", true, "isTVPlaying should be true when AppleTV is playing")
 
-	t.Log("WHEN: Sync box powers off")
+	t.Log("WHEN: TV panel turns off (remote entity goes off) but sync box stays on")
 
-	// Power off sync box
-	server.SetState("switch.sync_box_power", "off", map[string]interface{}{})
+	// TV panel turns off - sync box stays on
+	server.SetState("remote.big_beautiful_oled", "off", map[string]interface{}{})
 
-	t.Log("THEN: Verify isTVon is false AND isTVPlaying is false")
+	t.Log("THEN: isTVPlaying should be forced false (kill switch)")
 
-	waitForBoolState(t, manager, "isTVon", false, "isTVon should be false when sync box is off")
-	waitForBoolState(t, manager, "isTVPlaying", false, "isTVPlaying should be false when sync box is off (even if AppleTV is playing)")
+	waitForBoolState(t, manager, "isTVPlaying", false, "isTVPlaying should be false when TV panel turns off")
+	// Note: isTVon remains true because it's driven by sync box power
+	waitForBoolState(t, manager, "isTVon", true, "isTVon should remain true (sync box is still on)")
 }
 
 // TestScenario_MultipleInputs tests behavior when inputs change rapidly
@@ -172,15 +158,16 @@ func TestScenario_MultipleInputs(t *testing.T) {
 	server, manager, cleanup := setupTVScenarioTest(t)
 	defer cleanup()
 
-	t.Log("GIVEN: Sync box is on, Apple TV is idle, HDMI input is AppleTV")
+	t.Log("GIVEN: TV is on, sync box is on, Apple TV is idle, HDMI input is AppleTV")
 
 	// Set initial states
+	server.SetState("remote.big_beautiful_oled", "on", map[string]interface{}{})
 	server.SetState("switch.sync_box_power", "on", map[string]interface{}{})
 	server.SetState("media_player.big_beautiful_oled", "idle", map[string]interface{}{
 		"friendly_name": "Apple TV",
 	})
 	server.SetState("select.sync_box_hdmi_input", "AppleTV", map[string]interface{}{})
-	waitForBoolState(t, manager, "isTVon", true, "isTVon should be true when sync box is on")
+	waitForBoolState(t, manager, "isTVon", true, "isTVon should be true when TV remote is on")
 
 	t.Log("WHEN: Switching between multiple HDMI inputs")
 
@@ -214,6 +201,7 @@ func TestScenario_TVOffState(t *testing.T) {
 	t.Log("GIVEN: TV is initially on with Apple TV playing")
 
 	// Set initial states - everything on and playing
+	server.SetState("remote.big_beautiful_oled", "on", map[string]interface{}{})
 	server.SetState("switch.sync_box_power", "on", map[string]interface{}{})
 	server.SetState("media_player.big_beautiful_oled", "playing", map[string]interface{}{
 		"friendly_name": "Apple TV",
@@ -258,9 +246,10 @@ func TestScenario_RapidInputSwitching(t *testing.T) {
 	server, manager, cleanup := setupTVScenarioTest(t)
 	defer cleanup()
 
-	t.Log("GIVEN: Sync box is on, Apple TV is playing")
+	t.Log("GIVEN: TV is on, sync box is on, Apple TV is playing")
 
 	// Set initial states
+	server.SetState("remote.big_beautiful_oled", "on", map[string]interface{}{})
 	server.SetState("switch.sync_box_power", "on", map[string]interface{}{})
 	server.SetState("media_player.big_beautiful_oled", "playing", map[string]interface{}{
 		"friendly_name": "Apple TV",
@@ -288,15 +277,16 @@ func TestScenario_AppleTVPlaybackStateChanges(t *testing.T) {
 	server, manager, cleanup := setupTVScenarioTest(t)
 	defer cleanup()
 
-	t.Log("GIVEN: Sync box is on, HDMI input is AppleTV")
+	t.Log("GIVEN: TV is on, sync box is on, HDMI input is AppleTV")
 
 	// Set initial states
+	server.SetState("remote.big_beautiful_oled", "on", map[string]interface{}{})
 	server.SetState("switch.sync_box_power", "on", map[string]interface{}{})
 	server.SetState("select.sync_box_hdmi_input", "AppleTV", map[string]interface{}{})
 	server.SetState("media_player.big_beautiful_oled", "idle", map[string]interface{}{
 		"friendly_name": "Apple TV",
 	})
-	waitForBoolState(t, manager, "isTVon", true, "isTVon should be true when sync box is on")
+	waitForBoolState(t, manager, "isTVon", true, "isTVon should be true when TV remote is on")
 
 	testCases := []struct {
 		state           string
@@ -324,4 +314,38 @@ func TestScenario_AppleTVPlaybackStateChanges(t *testing.T) {
 		waitForBoolState(t, manager, "isTVPlaying", tc.expectedPlaying,
 			"isTVPlaying should be %v when Apple TV is %s and input is AppleTV", tc.expectedPlaying, tc.state)
 	}
+}
+
+// TestScenario_TVOffSyncBoxOn verifies that when the TV is off but the sync box
+// powers on independently, isTVPlaying remains false and light sync is not enabled.
+// This prevents the bug where sync box turning on overnight caused 9+ hours of light sync.
+func TestScenario_TVOffSyncBoxOn(t *testing.T) {
+	t.Parallel()
+	server, manager, cleanup := setupTVScenarioTest(t)
+	defer cleanup()
+
+	t.Log("GIVEN: TV is off, sync box is off, HDMI input is on a non-AppleTV input")
+
+	// Set initial states - TV is off
+	server.SetState("remote.big_beautiful_oled", "off", map[string]interface{}{})
+	server.SetState("switch.sync_box_power", "off", map[string]interface{}{})
+	server.SetState("select.sync_box_hdmi_input", "HDMI 1", map[string]interface{}{})
+	server.SetState("media_player.big_beautiful_oled", "off", map[string]interface{}{
+		"friendly_name": "Apple TV",
+	})
+
+	// Wait for initial state
+	waitForBoolState(t, manager, "isTVon", false, "isTVon should be false when TV remote is off")
+
+	t.Log("WHEN: Sync box powers on independently (e.g., after power restore)")
+
+	// Sync box powers on but TV stays off
+	server.SetState("switch.sync_box_power", "on", map[string]interface{}{})
+
+	t.Log("THEN: isTVon becomes true (sync box drives it), but isTVPlaying stays false (TV panel is off)")
+
+	// isTVon is driven by sync box, so it becomes true
+	waitForBoolState(t, manager, "isTVon", true, "isTVon should be true (sync box is on)")
+	// But isTVPlaying stays false because calculateTVPlaying checks TV remote state
+	waitForBoolState(t, manager, "isTVPlaying", false, "isTVPlaying should remain false (TV panel is off)")
 }

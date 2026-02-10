@@ -143,6 +143,7 @@ func TestScenario_TVPlaying_DimsLivingRoomLights(t *testing.T) {
 	env.server.SetState("media_player.big_beautiful_oled", "playing", map[string]interface{}{
 		"friendly_name": "Apple TV",
 	})
+	env.server.SetState("remote.big_beautiful_oled", "on", map[string]interface{}{})
 	env.server.SetState("switch.sync_box_power", "on", map[string]interface{}{})
 	env.server.SetState("select.sync_box_hdmi_input", "Apple TV", map[string]interface{}{})
 

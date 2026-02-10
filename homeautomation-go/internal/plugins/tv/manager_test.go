@@ -77,6 +77,112 @@ func TestTVManager_AppleTVStateChange(t *testing.T) {
 	}
 }
 
+func TestTVManager_TVRemoteOff_KillsLightSync(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name        string
+		remoteState string
+		expectKill  bool
+		description string
+	}{
+		{
+			name:        "TV remote off - kills light sync",
+			remoteState: "off",
+			expectKill:  true,
+			description: "When TV remote turns off, isTVPlaying should be forced false",
+		},
+		{
+			name:        "TV remote standby - kills light sync",
+			remoteState: "standby",
+			expectKill:  true,
+			description: "When TV remote goes to standby, isTVPlaying should be forced false",
+		},
+		{
+			name:        "TV remote on - no effect",
+			remoteState: "on",
+			expectKill:  false,
+			description: "When TV remote turns on, isTVPlaying should not be affected (sync box drives light sync enablement)",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockHA := ha.NewMockClient()
+			logger := zap.NewNop()
+			stateMgr := state.NewManager(mockHA, logger, false)
+
+			manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
+
+			// Initially set isTVPlaying to true
+			if err := stateMgr.SetBool("isTVPlaying", true); err != nil {
+				t.Fatalf("Failed to set initial isTVPlaying: %v", err)
+			}
+
+			// Simulate TV remote state change
+			newState := &ha.State{
+				EntityID: "remote.big_beautiful_oled",
+				State:    tt.remoteState,
+			}
+			manager.handleTVRemoteChange("remote.big_beautiful_oled", nil, newState)
+
+			// Verify isTVPlaying state
+			isTVPlaying, err := stateMgr.GetBool("isTVPlaying")
+			if err != nil {
+				t.Fatalf("Failed to get isTVPlaying: %v", err)
+			}
+
+			if tt.expectKill && isTVPlaying {
+				t.Errorf("Expected isTVPlaying=false when TV remote is %s, got true", tt.remoteState)
+			}
+			if !tt.expectKill && !isTVPlaying {
+				t.Errorf("Expected isTVPlaying to remain true when TV remote is %s, got false", tt.remoteState)
+			}
+		})
+	}
+}
+
+func TestTVManager_TVRemoteOff_SetsTVPlayingFalse(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
+
+	// Initially set isTVPlaying to true
+	if err := stateMgr.SetBool("isTVPlaying", true); err != nil {
+		t.Fatalf("Failed to set initial isTVPlaying: %v", err)
+	}
+
+	// Simulate TV remote turning off
+	newState := &ha.State{
+		EntityID: "remote.big_beautiful_oled",
+		State:    "off",
+	}
+	manager.handleTVRemoteChange("remote.big_beautiful_oled", nil, newState)
+
+	// Verify isTVPlaying is now false
+	isTVPlaying, err := stateMgr.GetBool("isTVPlaying")
+	if err != nil {
+		t.Fatalf("Failed to get isTVPlaying: %v", err)
+	}
+
+	if isTVPlaying {
+		t.Errorf("Expected isTVPlaying=false when TV remote turns off, got true")
+	}
+
+	// Verify isTVon is also false
+	isTVOn, err := stateMgr.GetBool("isTVon")
+	if err != nil {
+		t.Fatalf("Failed to get isTVon: %v", err)
+	}
+
+	if isTVOn {
+		t.Errorf("Expected isTVon=false when TV remote turns off, got true")
+	}
+}
+
 func TestTVManager_SyncBoxPowerChange(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
@@ -132,9 +238,7 @@ func TestTVManager_SyncBoxPowerChange(t *testing.T) {
 }
 
 func TestTVManager_SyncBoxOff_SetsTVPlayingFalse(t *testing.T) {
-	t.Parallel(
-	// Create mock HA client and state manager
-	)
+	t.Parallel()
 
 	mockHA := ha.NewMockClient()
 	logger := zap.NewNop()
@@ -161,8 +265,8 @@ func TestTVManager_SyncBoxOff_SetsTVPlayingFalse(t *testing.T) {
 		t.Fatalf("Failed to get isTVPlaying: %v", err)
 	}
 
-	if isTVPlaying != false {
-		t.Errorf("Expected isTVPlaying=false when TV turns off, got %v", isTVPlaying)
+	if isTVPlaying {
+		t.Errorf("Expected isTVPlaying=false when sync box turns off, got true")
 	}
 }
 
@@ -224,10 +328,13 @@ func TestTVManager_HDMIInputChange(t *testing.T) {
 			// Create TV manager
 			manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
 
-			// Set isTVon to true (TV must be on for isTVPlaying calculations to work)
+			// Set isTVon to true (sync box must be on for isTVPlaying calculations)
 			if err := stateMgr.SetBool("isTVon", true); err != nil {
 				t.Fatalf("Failed to set isTVon: %v", err)
 			}
+
+			// Set TV remote to on (TV panel must be on for isTVPlaying to be true)
+			manager.handleTVRemoteChange(TVRemoteEntity, nil, &ha.State{EntityID: TVRemoteEntity, State: "on"})
 
 			// Set isAppleTVPlaying state
 			if err := stateMgr.SetBool("isAppleTVPlaying", tt.isAppleTVPlaying); err != nil {
@@ -368,10 +475,13 @@ func TestTVManager_AppleTVPlayingChange_RecalculatesTVPlaying(t *testing.T) {
 			// Create TV manager
 			manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
 
-			// Set isTVon to true (TV must be on for isTVPlaying calculations to work)
+			// Set isTVon to true (sync box must be on for isTVPlaying calculations)
 			if err := stateMgr.SetBool("isTVon", true); err != nil {
 				t.Fatalf("Failed to set isTVon: %v", err)
 			}
+
+			// Set TV remote to on (TV panel must be on for isTVPlaying to be true)
+			manager.handleTVRemoteChange(TVRemoteEntity, nil, &ha.State{EntityID: TVRemoteEntity, State: "on"})
 
 			// Set initial HDMI input in mock HA client
 			mockHA.SetState("select.sync_box_hdmi_input", tt.hdmiInput, nil)
@@ -417,6 +527,7 @@ func TestTVManager_Start_InitializesStates(t *testing.T) {
 
 	// Set up initial entity states in mock HA
 	mockHA.SetState("media_player.big_beautiful_oled", "playing", nil)
+	mockHA.SetState("remote.big_beautiful_oled", "on", nil)
 	mockHA.SetState("switch.sync_box_power", "on", nil)
 	mockHA.SetState("select.sync_box_hdmi_input", "AppleTV", nil)
 
@@ -477,9 +588,9 @@ func TestTVManager_Stop_CleansUpSubscriptions(t *testing.T) {
 		t.Fatalf("Failed to start TV manager: %v", err)
 	}
 
-	// Verify subscriptions exist (4 HA subs: AppleTV, sync box software power, physical power, HDMI input)
-	if len(manager.subHelper.GetHASubscriptions()) != 4 {
-		t.Errorf("Expected 4 HA subscriptions after Start(), got %d", len(manager.subHelper.GetHASubscriptions()))
+	// Verify subscriptions exist (5 HA subs: AppleTV, TV remote, sync box software power, physical power, HDMI input)
+	if len(manager.subHelper.GetHASubscriptions()) != 5 {
+		t.Errorf("Expected 5 HA subscriptions after Start(), got %d", len(manager.subHelper.GetHASubscriptions()))
 	}
 	if len(manager.subHelper.GetStateSubscriptions()) != 1 {
 		t.Errorf("Expected 1 state subscription after Start(), got %d", len(manager.subHelper.GetStateSubscriptions()))
@@ -996,9 +1107,9 @@ func TestTVManager_Start_AddsPhysicalPowerSubscription(t *testing.T) {
 		t.Fatalf("Failed to start TV manager: %v", err)
 	}
 
-	// Verify subscriptions exist - now should be 4 (added physical power subscription)
-	if len(manager.subHelper.GetHASubscriptions()) != 4 {
-		t.Errorf("Expected 4 HA subscriptions after Start(), got %d", len(manager.subHelper.GetHASubscriptions()))
+	// Verify subscriptions exist - now should be 5 (AppleTV, TV remote, sync box software power, physical power, HDMI input)
+	if len(manager.subHelper.GetHASubscriptions()) != 5 {
+		t.Errorf("Expected 5 HA subscriptions after Start(), got %d", len(manager.subHelper.GetHASubscriptions()))
 	}
 	if len(manager.subHelper.GetStateSubscriptions()) != 1 {
 		t.Errorf("Expected 1 state subscription after Start(), got %d", len(manager.subHelper.GetStateSubscriptions()))

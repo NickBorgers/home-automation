@@ -38,6 +38,9 @@ const (
 	// Entity ID for sync box light sync control
 	SyncBoxLightSyncEntity = "switch.sync_box_light_sync"
 
+	// Entity ID for the TV remote (actual TV power state)
+	TVRemoteEntity = "remote.big_beautiful_oled"
+
 	// LightSyncOffDebounce is how long to wait before turning off light sync
 	// after Apple TV reports "paused". Prevents flapping due to Apple TV
 	// integration briefly reporting "paused" state during active playback.
@@ -64,6 +67,10 @@ type Manager struct {
 	dailyRebootCount   int
 	rebootCountResetAt time.Time
 	recoveryInProgress bool
+
+	// TV remote (panel power) state — tracked locally to avoid HA GetState races
+	tvRemoteMu sync.RWMutex
+	tvRemoteOn bool // last-known state of remote.big_beautiful_oled
 
 	// Light sync debounce state
 	lightSyncOffMu       sync.Mutex
@@ -107,6 +114,11 @@ func (m *Manager) Start() error {
 	// Subscribe to Apple TV media player state changes (shadow inputs captured automatically)
 	if err := m.subHelper.SubscribeToEntity("media_player.big_beautiful_oled", m.handleAppleTVStateChange); err != nil {
 		return fmt.Errorf("failed to subscribe to media_player.big_beautiful_oled: %w", err)
+	}
+
+	// Subscribe to TV remote entity (actual TV power state)
+	if err := m.subHelper.SubscribeToEntity(TVRemoteEntity, m.handleTVRemoteChange); err != nil {
+		return fmt.Errorf("failed to subscribe to %s: %w", TVRemoteEntity, err)
 	}
 
 	// Subscribe to sync box software power state changes (detects crash/unavailable)
@@ -162,6 +174,14 @@ func (m *Manager) initializeStates() error {
 		m.logger.Warn("Failed to get initial Apple TV state", zap.Error(err))
 	}
 
+	// Get TV remote state (actual TV power)
+	tvRemoteState, err := m.haClient.GetState(TVRemoteEntity)
+	if err == nil && tvRemoteState != nil {
+		m.handleTVRemoteChange(TVRemoteEntity, nil, tvRemoteState)
+	} else if err != nil {
+		m.logger.Warn("Failed to get initial TV remote state", zap.Error(err))
+	}
+
 	// Get sync box power state
 	syncBoxState, err := m.haClient.GetState("switch.sync_box_power")
 	if err == nil && syncBoxState != nil {
@@ -212,6 +232,44 @@ func (m *Manager) handleAppleTVStateChange(entityID string, oldState, newState *
 	m.shadowTracker.UpdateAppleTVState(isPlaying, newState.State)
 }
 
+// handleTVRemoteChange processes remote.big_beautiful_oled state changes (TV panel power).
+// The TV remote acts as a kill switch: when the TV panel turns off, light sync is forced off.
+// TV turning on does NOT trigger light sync — that's driven by sync box state changes.
+func (m *Manager) handleTVRemoteChange(entityID string, oldState, newState *ha.State) {
+	if newState == nil {
+		return
+	}
+
+	isOn := newState.State == "on"
+	m.tvRemoteMu.Lock()
+	m.tvRemoteOn = isOn
+	m.tvRemoteMu.Unlock()
+
+	m.logger.Debug("TV remote state changed",
+		zap.String("entity_id", entityID),
+		zap.String("new_state", newState.State),
+		zap.Bool("is_on", isOn))
+
+	// Only act when TV turns off — force isTVPlaying=false and light sync off.
+	// TV turning on is intentionally ignored: the sync box state drives light sync enablement,
+	// not the TV panel (which may just be showing a screensaver).
+	if newState.State != "on" {
+		m.logger.Info("TV panel turned off, forcing isTVPlaying=false and light sync off",
+			zap.String("tv_state", newState.State))
+
+		if err := m.stateManager.SetBool("isTVPlaying", false); err != nil {
+			if errors.Is(err, state.ErrReadOnlyMode) {
+				m.logger.Debug("Skipping isTVPlaying update in read-only mode",
+					zap.Bool("is_playing", false))
+			} else {
+				m.logger.Error("Failed to set isTVPlaying to false", zap.Error(err))
+			}
+		}
+		m.shadowTracker.UpdateTVPlaying(false)
+		m.controlSyncBoxLightSync(false)
+	}
+}
+
 // handleSyncBoxPowerChange processes switch.sync_box_power state changes
 func (m *Manager) handleSyncBoxPowerChange(entityID string, oldState, newState *ha.State) {
 	if newState == nil {
@@ -256,7 +314,7 @@ func (m *Manager) handleSyncBoxPowerChange(entityID string, oldState, newState *
 	// Update shadow state
 	m.shadowTracker.UpdateTVPower(isTVOn)
 
-	// If TV is off, then it's definitely not playing
+	// If sync box is off, then it's definitely not playing
 	if !isTVOn {
 		if err := m.stateManager.SetBool("isTVPlaying", false); err != nil {
 			if errors.Is(err, state.ErrReadOnlyMode) {
@@ -335,9 +393,33 @@ func (m *Manager) calculateTVPlaying(hdmiInput string) {
 		return
 	}
 
-	// If TV is off, it's definitely not playing
+	// If sync box is off, it's definitely not playing
 	if !isTVOn {
-		m.logger.Debug("TV is off, setting isTVPlaying to false",
+		m.logger.Debug("Sync box is off, setting isTVPlaying to false",
+			zap.String("hdmi_input", hdmiInput))
+
+		if err := m.stateManager.SetBool("isTVPlaying", false); err != nil {
+			if errors.Is(err, state.ErrReadOnlyMode) {
+				m.logger.Debug("Skipping isTVPlaying update in read-only mode",
+					zap.Bool("is_playing", false))
+			} else {
+				m.logger.Error("Failed to set isTVPlaying", zap.Error(err))
+			}
+		}
+		m.shadowTracker.UpdateTVPlaying(false)
+		m.controlSyncBoxLightSync(false)
+		return
+	}
+
+	// Also check if TV panel is actually on (tracked locally from remote entity).
+	// Prevents enabling light sync when sync box is on but TV is off
+	// (e.g., sync box powers on overnight while TV is off).
+	m.tvRemoteMu.RLock()
+	tvPanelOn := m.tvRemoteOn
+	m.tvRemoteMu.RUnlock()
+
+	if !tvPanelOn {
+		m.logger.Debug("TV panel is off, setting isTVPlaying to false",
 			zap.String("hdmi_input", hdmiInput))
 
 		if err := m.stateManager.SetBool("isTVPlaying", false); err != nil {
