@@ -110,50 +110,10 @@ func (m *Manager) addSpeakersToZone(zone *Zone, speakers []string, trigger strin
 
 		// Calculate and set volume
 		volume := m.calculateVolume(p.BaseVolume, 1.0) // Use default multiplier
-
-		// Check if speaker should be unmuted before starting fade-in
-		participantWithVolume := ParticipantWithVolume{
-			PlayerName:   p.PlayerName,
-			BaseVolume:   p.BaseVolume,
-			Volume:       volume,
-			LeaveMutedIf: p.LeaveMutedIf,
-		}
-
-		if m.shouldUnmuteSpeaker(participantWithVolume) {
-			m.logger.Info("Speaker joined zone, starting fade-in",
-				zap.String("speaker", p.PlayerName),
-				zap.String("zone", zone.Name),
-				zap.Int("target_volume", volume))
-
-			// Use startFadeInWithContext to enable cancellation when new playback starts
-			// This prevents false "human override" detection and allows cancelAllFadeIns() to work
-			ctx := m.startFadeInWithContext(entityID)
-			go m.fadeInSpeaker(ctx, p.PlayerName, volume, zone.MusicType)
-		} else {
-			// Speaker should stay muted, but set its target volume
-			m.logger.Info("Speaker joined zone, keeping muted",
-				zap.String("speaker", p.PlayerName),
-				zap.String("zone", zone.Name),
-				zap.Int("target_volume", volume))
-
-			if err := m.callServiceWithRetry("media_player", "volume_set", map[string]interface{}{
-				"entity_id":    entityID,
-				"volume_level": float64(volume) / 100.0,
-			}); err != nil {
-				m.logger.Error("Failed to set volume for muted speaker",
-					zap.String("speaker", p.PlayerName),
-					zap.Error(err))
-			}
-
-			if err := m.callServiceWithRetry("media_player", "volume_mute", map[string]interface{}{
-				"entity_id":       entityID,
-				"is_volume_muted": true,
-			}); err != nil {
-				m.logger.Error("Failed to mute speaker",
-					zap.String("speaker", p.PlayerName),
-					zap.Error(err))
-			}
-		}
+		// Use startFadeInWithContext to enable cancellation when new playback starts
+		// This prevents false "human override" detection and allows cancelAllFadeIns() to work
+		ctx := m.startFadeInWithContext(entityID)
+		go m.fadeInSpeaker(ctx, p.PlayerName, volume, zone.MusicType)
 	}
 }
 
