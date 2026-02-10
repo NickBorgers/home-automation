@@ -41,6 +41,7 @@ graph LR
         dayphase["dayphase"]
         energy["energy"]
         environmental["environmental"]
+        evcharger["evcharger"]
         infrastructure["infrastructure"]
         lighting["lighting"]
         loadshedding["loadshedding"]

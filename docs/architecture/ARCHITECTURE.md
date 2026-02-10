@@ -467,6 +467,22 @@ Each plugin corresponds to a Node-RED flow and implements domain-specific automa
 
 **Config File:** `sensor_config.yaml`
 
+### 14. EV Charger Safety Plugin ✅
+
+**Responsibilities:**
+- Monitor EV charger plug (Shelly Wave Plug US) for safety conditions
+- Detect overheat, overcurrent, and overvoltage conditions
+- Emergency shutoff with retry mechanism when any safety condition triggers
+- Send urgent notifications via ntfy and TTS announcements
+
+**Key Automations:**
+- **Safety Monitoring**: Subscribe to binary safety sensors → On any "on" state → Emergency shutoff
+- **Emergency Shutoff**: Turn off `switch.leaf_charger` with up to 3 retries on failure
+- **Startup Check**: On plugin start → Verify no safety conditions already active
+- **Notifications**: Rate-limited (5 min cooldown) ntfy alerts + TTS announcements to all speakers
+
+**Entities Monitored:** `binary_sensor.leaf_charger_overheat_detected`, `binary_sensor.leaf_charger_over_current_detected`, `binary_sensor.leaf_charger_over_voltage_detected`, `sensor.leaf_charger_electric_consumption_w`, `switch.leaf_charger`
+
 ---
 
 ## Data Flow
