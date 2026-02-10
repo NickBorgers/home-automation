@@ -17,18 +17,23 @@ import (
 	"go.uber.org/zap"
 )
 
-// Entity IDs for the Shelly Wave Plug US (Leaf Charger)
+// Entity IDs for the Shelly Wave Plug US used as the EV (Leaf) charger plug.
+// The "leaf_charger" prefix comes from the Home Assistant device name.
 const (
 	SwitchEntity      = "switch.leaf_charger"
 	OverheatSensor    = "binary_sensor.leaf_charger_overheat_detected"
 	OverCurrentSensor = "binary_sensor.leaf_charger_over_current_detected"
 	OverVoltageSensor = "binary_sensor.leaf_charger_over_voltage_detected"
 	PowerSensor       = "sensor.leaf_charger_electric_consumption_w"
-	CurrentSensor     = "sensor.leaf_charger_electric_consumption_a"
-	VoltageSensor     = "sensor.leaf_charger_electric_consumption_v"
 
 	// NotificationCooldown prevents notification spam
 	NotificationCooldown = 5 * time.Minute
+
+	// shutoffMaxRetries is the number of attempts for emergency shutoff service calls.
+	// Retries protect against transient WebSocket errors during safety-critical operations.
+	shutoffMaxRetries = 3
+	// shutoffRetryDelay is the delay between emergency shutoff retry attempts.
+	shutoffRetryDelay = 1 * time.Second
 )
 
 // Manager handles EV charger safety monitoring
@@ -215,7 +220,11 @@ func (m *Manager) handleSwitchChange(entityID string, oldState, newState *ha.Sta
 	m.shadowTracker.UpdateSwitchState(newState.State == "on")
 }
 
-// handleSafetyCondition is called when any safety condition is detected
+// handleSafetyCondition is called when any safety condition is detected.
+// If multiple conditions fire simultaneously (e.g., overheat + overcurrent), this method
+// may be called concurrently. This is safe by design: the shutoff call is idempotent
+// (turning off an already-off switch is a no-op), and the notification rate limiter
+// will suppress duplicate notifications within the cooldown window.
 func (m *Manager) handleSafetyCondition(sensor, conditionType string) {
 	// IMMEDIATELY turn off the switch - this is safety critical
 	m.emergencyShutoff(conditionType, sensor)
@@ -227,7 +236,9 @@ func (m *Manager) handleSafetyCondition(sensor, conditionType string) {
 	m.sendAlertNotifications(conditionType, sensor)
 }
 
-// emergencyShutoff turns off the EV charger switch immediately
+// emergencyShutoff turns off the EV charger switch immediately.
+// It retries up to shutoffMaxRetries times with shutoffRetryDelay between attempts
+// to handle transient WebSocket or network errors during this safety-critical operation.
 func (m *Manager) emergencyShutoff(conditionType, sensor string) {
 	m.logger.Warn("EMERGENCY SHUTOFF - Turning off EV charger due to safety condition",
 		zap.String("condition", conditionType),
@@ -239,16 +250,40 @@ func (m *Manager) emergencyShutoff(conditionType, sensor string) {
 		return
 	}
 
-	if err := m.haClient.CallService(m.ctx, "switch", "turn_off", map[string]interface{}{
-		"entity_id": SwitchEntity,
-	}); err != nil {
-		m.logger.Error("CRITICAL: Failed to turn off EV charger during safety event!",
-			zap.String("condition", conditionType),
-			zap.Error(err))
-	} else {
-		m.logger.Info("EV charger successfully turned off", zap.String("condition", conditionType))
+	var lastErr error
+	for attempt := 1; attempt <= shutoffMaxRetries; attempt++ {
+		if err := m.haClient.CallService(m.ctx, "switch", "turn_off", map[string]interface{}{
+			"entity_id": SwitchEntity,
+		}); err != nil {
+			lastErr = err
+			m.logger.Error("Failed to turn off EV charger (will retry)",
+				zap.String("condition", conditionType),
+				zap.Int("attempt", attempt),
+				zap.Int("max_attempts", shutoffMaxRetries),
+				zap.Error(err))
+			if attempt < shutoffMaxRetries {
+				time.Sleep(shutoffRetryDelay)
+			}
+			continue
+		}
+		// Success
+		if attempt > 1 {
+			m.logger.Info("EV charger successfully turned off after retry",
+				zap.String("condition", conditionType),
+				zap.Int("attempt", attempt))
+		} else {
+			m.logger.Info("EV charger successfully turned off",
+				zap.String("condition", conditionType))
+		}
 		m.shadowTracker.RecordShutoff(conditionType)
+		return
 	}
+
+	// All retries exhausted
+	m.logger.Error("CRITICAL: All attempts to turn off EV charger failed!",
+		zap.String("condition", conditionType),
+		zap.Int("attempts", shutoffMaxRetries),
+		zap.Error(lastErr))
 }
 
 // sendAlertNotifications sends urgent notifications about the safety event

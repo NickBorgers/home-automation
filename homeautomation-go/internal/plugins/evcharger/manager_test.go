@@ -2,6 +2,7 @@ package evcharger
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"homeautomation/internal/ha"
@@ -234,5 +235,83 @@ func TestManager_InitialStateCheck(t *testing.T) {
 	}
 	if !found {
 		t.Error("Expected switch to be turned off when overheat is already active on startup")
+	}
+}
+
+func TestManager_EmergencyShutoffRetry(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	mockNtfy := ntfy.NewMockClient()
+
+	// Configure the switch turn_off to fail twice, then succeed on the third attempt
+	mockHA.SetServiceFailCount("switch", "turn_off", 2, fmt.Errorf("websocket connection lost"))
+
+	manager := createTestManager(mockHA, mockNtfy)
+
+	if err := manager.Start(); err != nil {
+		t.Fatalf("Failed to start manager: %v", err)
+	}
+	defer manager.Stop()
+
+	// Simulate overheat detection - should retry and eventually succeed
+	mockHA.SimulateStateChange(OverheatSensor, "on")
+
+	// Verify switch was eventually turned off (after retries)
+	calls := mockHA.GetServiceCalls()
+	found := false
+	for _, call := range calls {
+		if call.Domain == "switch" && call.Service == "turn_off" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("Expected switch to be turned off after retries")
+	}
+
+	// Verify shutoff was recorded in shadow state
+	shadowState := manager.GetShadowState()
+	if shadowState.Outputs.ShutoffCount != 1 {
+		t.Errorf("Expected ShutoffCount=1 after successful retry, got %d", shadowState.Outputs.ShutoffCount)
+	}
+}
+
+func TestManager_EmergencyShutoffAllRetriesFail(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	mockNtfy := ntfy.NewMockClient()
+
+	// Configure the switch turn_off to fail more times than the retry limit
+	mockHA.SetServiceFailCount("switch", "turn_off", shutoffMaxRetries+1, fmt.Errorf("persistent failure"))
+
+	manager := createTestManager(mockHA, mockNtfy)
+
+	if err := manager.Start(); err != nil {
+		t.Fatalf("Failed to start manager: %v", err)
+	}
+	defer manager.Stop()
+
+	// Simulate overheat detection - all retries should fail
+	mockHA.SimulateStateChange(OverheatSensor, "on")
+
+	// Verify no successful service call was recorded
+	calls := mockHA.GetServiceCalls()
+	for _, call := range calls {
+		if call.Domain == "switch" && call.Service == "turn_off" {
+			t.Error("Expected no successful turn_off call when all retries fail")
+		}
+	}
+
+	// Verify shutoff was NOT recorded (since it never succeeded)
+	shadowState := manager.GetShadowState()
+	if shadowState.Outputs.ShutoffCount != 0 {
+		t.Errorf("Expected ShutoffCount=0 when all retries fail, got %d", shadowState.Outputs.ShutoffCount)
+	}
+
+	// Safety event should still be recorded even though shutoff failed
+	if shadowState.Outputs.SafetyEventCount != 1 {
+		t.Errorf("Expected SafetyEventCount=1, got %d", shadowState.Outputs.SafetyEventCount)
 	}
 }
