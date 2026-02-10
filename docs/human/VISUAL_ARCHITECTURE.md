@@ -53,6 +53,7 @@ graph TB
             SensorHealth[Sensor Health<br/>internal/plugins/sensorhealth/]
             Infrastructure[Infrastructure<br/>internal/plugins/infrastructure/]
             WaterFlow[Water Flow<br/>internal/plugins/waterflow/]
+            EVCharger[EV Charger Safety<br/>internal/plugins/evcharger/]
             ResetCoord[Reset Coordinator<br/>internal/plugins/reset/]
             SensorConfig[Sensor Config<br/>internal/plugins/sensorconfig/]
         end
@@ -152,6 +153,12 @@ graph TB
     WaterFlow -->|TTS Announcements| HAClient
     WaterFlow -.->|Register Shadow| ShadowTracker
 
+    EVCharger -->|Entity Subscriptions| HAClient
+    EVCharger -->|Call Services| HAClient
+    EVCharger -->|Notifications| Ntfy
+    EVCharger -->|TTS Announcements| HAClient
+    EVCharger -.->|Register Shadow| ShadowTracker
+
     ResetCoord -->|Subscribe to reset| StateManager
     ResetCoord -.->|Reset All| StateTracking
     ResetCoord -.->|Reset All| Music
@@ -183,6 +190,7 @@ graph TB
     style StateTracking fill:#f3e5f5
     style DayPhase fill:#f3e5f5
     style WaterFlow fill:#f3e5f5
+    style EVCharger fill:#f3e5f5
     style ResetCoord fill:#ffebee
     style SensorConfig fill:#f3e5f5
 ```
@@ -946,6 +954,7 @@ graph LR
         EnvironmentalPlugin[Environmental Plugin]
         SensorHealthPlugin[Sensor Health Plugin]
         WaterFlowPlugin[Water Flow Plugin<br/>Order: 71]
+        EVChargerPlugin[EV Charger Safety Plugin<br/>Order: 5]
         ResetCoord[Reset Coordinator<br/>Order: 90]
     end
 
@@ -955,6 +964,7 @@ graph LR
         BatteryStateSensors[sensor.*_battery]
         NodeStatusSensors[sensor.*_node_status]
         WaterFlowSensor[sensor.droplet_flow_rate]
+        EVChargerSensors[binary_sensor.leaf_charger_*<br/>sensor.leaf_charger_*<br/>switch.leaf_charger]
     end
 
     NickHome --> StateTracking
@@ -1047,6 +1057,9 @@ graph LR
     WaterFlowSensor --> WaterFlowPlugin
     WaterFlowPlugin -.->|Notifications| Ntfy
 
+    EVChargerSensors --> EVChargerPlugin
+    EVChargerPlugin -.->|Notifications| Ntfy
+
     Reset --> ResetCoord
     ResetCoord -.->|Reset| StateTracking
     ResetCoord -.->|Reset| DayPhasePlugin
@@ -1059,6 +1072,7 @@ graph LR
     ResetCoord -.->|Reset| SleepHygiene
     ResetCoord -.->|Reset| ChristmasPlugin
     ResetCoord -.->|Reset| WaterFlowPlugin
+    ResetCoord -.->|Reset| EVChargerPlugin
 
     style AnyOwnerHome fill:#fff3e0
     style AnyoneHome fill:#fff3e0
