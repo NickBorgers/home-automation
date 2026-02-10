@@ -69,6 +69,8 @@ jobs:
       pr_body_b64: ${{ steps.get-pr.outputs.pr_body_b64 }}
       head_ref: ${{ steps.get-pr.outputs.head_ref }}
       head_repo: ${{ steps.get-pr.outputs.head_repo }}
+      # Draft PR status - used to skip auto-fix pipeline for TDD workflows
+      is_draft: ${{ steps.get-pr.outputs.is_draft }}
       # Handle workflow_run, workflow_dispatch, and pull_request events
       # For pull_request (reopen), tests haven't run yet so tests_passed is false
       tests_passed: ${{ github.event_name == 'workflow_dispatch' && inputs.tests_passed == 'true' || github.event_name == 'pull_request' && 'false' || github.event.workflow_run.conclusion == 'success' }}
@@ -143,6 +145,7 @@ jobs:
 
             if (pr) {
               console.log(`Found PR #${pr.number}: ${pr.title}`);
+              console.log(`PR draft status: ${pr.draft}`);
               core.setOutput('pr_number', pr.number);
               core.setOutput('pr_title', pr.title);
               // Base64 encode PR body to avoid issues with special characters in env vars
@@ -150,9 +153,11 @@ jobs:
               core.setOutput('pr_body_b64', prBodyB64);
               core.setOutput('head_ref', pr.head.ref);
               core.setOutput('head_repo', pr.head.repo.full_name);
+              core.setOutput('is_draft', pr.draft ? 'true' : 'false');
             } else {
               console.log('No open PR found for this workflow run');
               core.setOutput('pr_number', '');
+              core.setOutput('is_draft', 'false');
             }
 
       - name: Extract linked issue from PR body
@@ -338,11 +343,13 @@ jobs:
   # Build and cache devcontainer image
   # SECURITY: Always build from main branch, NEVER from PR branches
   # This prevents malicious Dockerfile modifications from being used to build the container
+  # SKIP for draft PRs (no reviews or fixes will run)
   build-devcontainer:
     runs-on: ubuntu-latest
     needs: get-context
     if: |
       needs.get-context.outputs.pr_number != '' &&
+      needs.get-context.outputs.is_draft != 'true' &&
       needs.get-context.outputs.reviews_already_passed != 'true' &&
       needs.get-context.outputs.author_authorized == 'true'
     permissions:
@@ -372,10 +379,12 @@ jobs:
           push: always
 
   # Fix test failures - runs in a retry loop until tests pass (max 3 attempts)
+  # Skips draft PRs to support TDD workflows where tests are intentionally failing
   fix-test-failures:
     needs: [get-context, build-devcontainer]
     if: |
       needs.get-context.outputs.pr_number != '' &&
+      needs.get-context.outputs.is_draft != 'true' &&
       needs.get-context.outputs.reviews_already_passed != 'true' &&
       needs.get-context.outputs.author_authorized == 'true' &&
       needs.get-context.outputs.tests_passed == 'false' &&
@@ -636,11 +645,13 @@ jobs:
 
   # Claude review (code review) - runs after design-review
   # SKIP for config-only PRs (no code to review)
+  # SKIP for draft PRs (work in progress)
   claude-review:
     needs: [get-context, build-devcontainer, design-review]
     if: |
       always() &&
       needs.get-context.outputs.pr_number != '' &&
+      needs.get-context.outputs.is_draft != 'true' &&
       needs.get-context.outputs.reviews_already_passed != 'true' &&
       needs.get-context.outputs.author_authorized == 'true' &&
       needs.get-context.outputs.tests_passed == 'true' &&
@@ -740,10 +751,12 @@ jobs:
   # Design review specialist - validates PR implements issue intent and reviews design quality
   # Runs FIRST (before code review) because intent and design must be validated before code quality
   # SKIP for config-only PRs (no design decisions to review)
+  # SKIP for draft PRs (work in progress)
   design-review:
     needs: [get-context, build-devcontainer]
     if: |
       needs.get-context.outputs.pr_number != '' &&
+      needs.get-context.outputs.is_draft != 'true' &&
       needs.get-context.outputs.reviews_already_passed != 'true' &&
       needs.get-context.outputs.author_authorized == 'true' &&
       needs.get-context.outputs.tests_passed == 'true' &&
@@ -938,11 +951,13 @@ jobs:
 
   # Test-focused reviewer - runs after claude-review (code review)
   # SKIP for config-only PRs (no tests to review for config changes)
+  # SKIP for draft PRs (work in progress)
   test-review:
     needs: [get-context, build-devcontainer, claude-review]
     if: |
       always() &&
       needs.get-context.outputs.pr_number != '' &&
+      needs.get-context.outputs.is_draft != 'true' &&
       needs.get-context.outputs.reviews_already_passed != 'true' &&
       needs.get-context.outputs.author_authorized == 'true' &&
       needs.get-context.outputs.tests_passed == 'true' &&
@@ -1045,6 +1060,33 @@ jobs:
             FOR WORKFLOWS: Validate YAML syntax, check action refs, verify permissions
             FOR CONFIG: Validate syntax
 
+            **TEST EXECUTION TIME ANALYSIS:**
+            Analyze whether the PR increases how long tests take to execute:
+            1. Run \`make unit-tests\` and \`make integration-tests\` with \`go test -v\` output to observe test timing
+            2. For any new or modified tests, check if individual tests take >1s (slow) or >5s (very slow)
+            3. Look for patterns that indicate test performance issues:
+               - Unnecessary sleeps or time.Sleep calls
+               - Missing t.Parallel() in tests that could run concurrently
+               - Repeated expensive setup that could be shared
+               - Tests that don't use the mock HA server efficiently
+
+            When you find a test performance issue, determine its scope:
+            - **PR-specific issue**: The problem is with new/modified tests in this PR
+              → Fix the issue directly (add t.Parallel(), reduce sleeps, optimize setup)
+            - **Infrastructure improvement opportunity**: The problem reveals a better approach for ALL tests
+              → Create a GitHub issue describing the improvement opportunity using:
+              \`gh issue create --title 'perf(tests): <brief description>' --body '<detailed explanation of the opportunity and suggested approach>'\`
+
+            Examples of PR-specific issues to fix directly:
+            - New test missing t.Parallel() when it could run concurrently
+            - New test using time.Sleep(5*time.Second) when 100ms would suffice
+            - New test creating its own mock server when it could reuse testutil.MockHAServer
+
+            Examples of infrastructure improvements to file as issues:
+            - \"All scenario tests could share a single mock server pool\"
+            - \"Test setup could be parallelized across test files\"
+            - \"A test fixture caching system would speed up repeated runs\"
+
             **SCENARIO TEST RECOMMENDATION:**
             If the PR modifies any of these RISKY areas, recommend creating scenario tests:
             - State management (isMasterAsleep, isAnyoneAsleep, musicPlaybackType, isWakeSequenceActive)
@@ -1078,6 +1120,13 @@ jobs:
             ### Issues Found
             [Only list actionable items: missing tests, flaky tests, etc. Skip if none.]
 
+            ### Test Performance
+            [If tests significantly increase execution time, describe the issue and action taken:
+            - \"Fixed: Added t.Parallel() to new tests\"
+            - \"Fixed: Reduced unnecessary sleep from 5s to 100ms\"
+            - \"Filed issue #XXX: Opportunity to share mock server pool across all scenario tests\"
+            Skip section if no performance concerns.]
+
             ### Scenario Tests Recommended
             [If risky changes lack scenario tests, recommend specific tests to add. Reference existing examples. Skip section if not applicable.]
 
@@ -1097,11 +1146,13 @@ jobs:
 
   # Concurrency/race condition specialist - runs after test-review
   # SKIP for config-only PRs (no Go code to analyze)
+  # SKIP for draft PRs (work in progress)
   concurrency-review:
     needs: [get-context, build-devcontainer, test-review]
     if: |
       always() &&
       needs.get-context.outputs.pr_number != '' &&
+      needs.get-context.outputs.is_draft != 'true' &&
       needs.get-context.outputs.reviews_already_passed != 'true' &&
       needs.get-context.outputs.author_authorized == 'true' &&
       needs.get-context.outputs.tests_passed == 'true' &&
@@ -1235,11 +1286,13 @@ jobs:
 
   # Documentation update specialist - runs after concurrency-review
   # SKIP for config-only PRs (config changes don't need doc updates)
+  # SKIP for draft PRs (work in progress)
   docs-review:
     needs: [get-context, build-devcontainer, concurrency-review]
     if: |
       always() &&
       needs.get-context.outputs.pr_number != '' &&
+      needs.get-context.outputs.is_draft != 'true' &&
       needs.get-context.outputs.reviews_already_passed != 'true' &&
       needs.get-context.outputs.author_authorized == 'true' &&
       needs.get-context.outputs.tests_passed == 'true' &&
@@ -1385,11 +1438,13 @@ jobs:
           retention-days: 7
 
   # Final decision maker - synthesizes all reviews and makes go/no-go call
+  # SKIP for draft PRs (work in progress)
   merge-decision:
     needs: [get-context, build-devcontainer, claude-review, design-review, test-review, concurrency-review, docs-review]
     if: |
       always() &&
       needs.get-context.outputs.pr_number != '' &&
+      needs.get-context.outputs.is_draft != 'true' &&
       needs.get-context.outputs.reviews_already_passed != 'true' &&
       needs.get-context.outputs.author_authorized == 'true' &&
       needs.get-context.outputs.tests_passed == 'true'
@@ -1618,6 +1673,16 @@ jobs:
             exit 0
           fi
 
+          # Skip reviews for draft PRs (TDD workflow support)
+          IS_DRAFT="${{ needs.get-context.outputs.is_draft }}"
+          if [ "$IS_DRAFT" = "true" ]; then
+            echo "📝 PR is a draft - skipping auto-fix and reviews"
+            echo "Draft PRs support TDD workflows where tests may intentionally fail."
+            echo "Mark the PR as ready for review to enable auto-fix and agent reviews."
+            echo "is_draft=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
           # SECURITY: Check if author was authorized
           AUTHOR_AUTHORIZED="${{ needs.get-context.outputs.author_authorized }}"
           if [ "$AUTHOR_AUTHORIZED" != "true" ]; then
@@ -1777,9 +1842,11 @@ jobs:
       - name: Post review summary comment
         # Only post summary when reviews actually ran (tests_passed == true)
         # When tests failed, fix-test-failures triggers a new workflow run that will post the summary
+        # Skip for draft PRs (no reviews ran)
         if: |
           always() &&
           needs.get-context.outputs.pr_number != '' &&
+          needs.get-context.outputs.is_draft != 'true' &&
           needs.get-context.outputs.reviews_already_passed != 'true' &&
           needs.get-context.outputs.tests_passed == 'true'
         env:

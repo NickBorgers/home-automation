@@ -180,6 +180,25 @@ fix-test-failures                         design-review  ◄─ Intent/design va
                                      (adds agent-reviews-passed label)
 ```
 
+### Draft PR Handling
+
+Draft PRs are completely skipped by the review pipeline to support TDD workflows where tests may intentionally fail during development.
+
+**When a PR is marked as draft:**
+- `build-devcontainer` is skipped (no container needed)
+- `fix-test-failures` is skipped (allows intentional test failures)
+- All review jobs are skipped (design, code, test, concurrency, docs)
+- `merge-decision` is skipped
+- Summary comment indicates draft status with instructions to mark ready for review
+
+**To enable reviews:** Mark the PR as "Ready for review" in GitHub. This triggers the PR Tests workflow, which then triggers the full review pipeline.
+
+**Use case:** TDD workflows where you want to:
+1. Write failing tests first
+2. Push to get CI feedback on test structure
+3. Implement the feature
+4. Mark ready for review when tests pass
+
 ### Config-Only PR Optimization
 
 PRs that only modify files in `configs/` receive streamlined review:
@@ -218,6 +237,7 @@ Extracts PR and issue context for downstream jobs.
 - `fix_attempts`: Number of previous fix attempts (from labels)
 - `triggering_sha`: SHA that triggered the workflow (for conflict detection)
 - `reviews_already_passed`: Whether the `agent-reviews-passed` label exists (skips re-review)
+- `is_draft`: Whether the PR is a draft (skips auto-fix and all reviews for TDD support)
 - `config_only`: Whether the PR only modifies files in `configs/` (skips heavy reviews)
 - `has_go_code`: Whether the PR modifies any `.go` files (required for concurrency review)
 
@@ -313,8 +333,16 @@ QA-focused test review.
 - Tests with timing dependencies (may fail at certain times of day)
 - Slow tests
 - Test quality issues
+- **Test execution time analysis** (new/modified tests taking >1s or >5s)
 
-**Actions**: Adds test coverage for high-severity gaps
+**Test Performance Analysis**:
+The test reviewer analyzes whether PRs increase test execution time:
+- Identifies slow tests (>1s) and very slow tests (>5s)
+- Checks for unnecessary `time.Sleep` calls, missing `t.Parallel()`, repeated expensive setup
+- **PR-specific issues** are fixed directly (add `t.Parallel()`, reduce sleeps, optimize setup)
+- **Infrastructure improvements** are filed as GitHub issues for broader test optimization opportunities
+
+**Actions**: Adds test coverage for high-severity gaps, fixes test performance issues, files issues for infrastructure improvements
 
 #### 2.6 `concurrency-review`
 
@@ -574,6 +602,7 @@ Required approvals: 0  # Claude provides automated review
 | "Automated Fix Failed" comment | All 3 fix attempts exhausted | Review the linked test run, fix manually |
 | Review job skipped | Tests haven't passed on current commit | Wait for tests to pass or fix them first |
 | Reviews skipped with "already passed" | `agent-reviews-passed` label present | Close and reopen PR to re-run reviews |
+| Reviews skipped (draft PR) | PR is marked as draft | Mark PR as "Ready for review" to enable reviews |
 | Reviews skipped (config-only) | PR only modifies `configs/` files | Expected - config PRs use streamlined review |
 | Devcontainer build slow | First run or cache miss | Subsequent runs use cached image |
 | Claude doesn't respond | Comment doesn't contain `@claude` | Ensure @claude is in comment |
