@@ -29,10 +29,8 @@ package integration
 
 import (
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 // =============================================================================
@@ -95,11 +93,9 @@ func TestUserStory_WakeSequence_StateCoordination(t *testing.T) {
 	server.SetState("input_boolean.anyone_asleep", "on", nil)
 	server.SetState("input_boolean.master_asleep", "on", nil)
 	server.SetState("input_boolean.wake_sequence_active", "off", nil)
-	time.Sleep(50 * time.Millisecond) // Allow state sync
 
 	// Verify initial state
-	isWakeActive, _ := stateManager.GetBool("isWakeSequenceActive")
-	require.False(t, isWakeActive, "Wake sequence should NOT be active initially")
+	waitForBoolState(t, stateManager, "isWakeSequenceActive", false, "Wake sequence should NOT be active initially")
 
 	// =========================================================================
 	// WHEN: Eight Sleep alarm fires (begin_wake event at T+0)
@@ -109,11 +105,9 @@ func TestUserStory_WakeSequence_StateCoordination(t *testing.T) {
 	// The fix from PR #564: isWakeSequenceActive is set IMMEDIATELY
 	// when handleBeginWake() fires, not 5 minutes later in handleWake()
 	server.SetState("input_boolean.wake_sequence_active", "on", nil)
-	time.Sleep(50 * time.Millisecond)
 
 	// CRITICAL ASSERTION: isWakeSequenceActive must be true NOW
-	isWakeActive, _ = stateManager.GetBool("isWakeSequenceActive")
-	assert.True(t, isWakeActive,
+	waitForBoolState(t, stateManager, "isWakeSequenceActive", true,
 		"isWakeSequenceActive MUST be true immediately at T+0 (begin_wake), "+
 			"not after 5-minute delay. This is the PR #564 fix.")
 
@@ -126,12 +120,11 @@ func TestUserStory_WakeSequence_StateCoordination(t *testing.T) {
 	// Before PR #564, this would cause sleep music to restart because
 	// isWakeSequenceActive was still false during this window
 	server.SetState("input_text.day_phase", "morning", nil)
-	time.Sleep(50 * time.Millisecond)
 
 	// Verify state is as expected for morning zone to activate
+	waitForStringState(t, stateManager, "dayPhase", "morning", "dayPhase should become morning")
 	dayPhase, _ := stateManager.GetString("dayPhase")
-	assert.Equal(t, "morning", dayPhase)
-	isWakeActive, _ = stateManager.GetBool("isWakeSequenceActive")
+	isWakeActive, _ := stateManager.GetBool("isWakeSequenceActive")
 	assert.True(t, isWakeActive,
 		"isWakeSequenceActive should STILL be true when dayPhase changes")
 
@@ -182,10 +175,8 @@ func TestUserStory_WakeSequence_CancelReturnsToSleep(t *testing.T) {
 	server.SetState("input_boolean.anyone_asleep", "on", nil)
 	server.SetState("input_boolean.master_asleep", "on", nil)
 	server.SetState("input_boolean.wake_sequence_active", "on", nil)
-	time.Sleep(50 * time.Millisecond)
 
-	isWakeActive, _ := stateManager.GetBool("isWakeSequenceActive")
-	require.True(t, isWakeActive, "Wake sequence should be active")
+	waitForBoolState(t, stateManager, "isWakeSequenceActive", true, "Wake sequence should be active")
 
 	// =========================================================================
 	// WHEN: User cancels wake sequence (turns off lights, goes back to sleep)
@@ -193,18 +184,17 @@ func TestUserStory_WakeSequence_CancelReturnsToSleep(t *testing.T) {
 	t.Log("WHEN: User cancels wake sequence")
 
 	server.SetState("input_boolean.wake_sequence_active", "off", nil)
-	time.Sleep(50 * time.Millisecond)
 
 	// =========================================================================
 	// THEN: Sleep zone can now match again
 	// =========================================================================
-	isWakeActive, _ = stateManager.GetBool("isWakeSequenceActive")
-	assert.False(t, isWakeActive, "isWakeSequenceActive should be false after cancel")
+	waitForBoolState(t, stateManager, "isWakeSequenceActive", false, "isWakeSequenceActive should be false after cancel")
 
 	// Sleep zone triggers should now match:
 	// isMasterAsleep=true, isAnyoneHome=true, isWakeSequenceActive=false
 	isMasterAsleep, _ := stateManager.GetBool("isMasterAsleep")
 	isAnyoneHome, _ := stateManager.GetBool("isAnyoneHome")
+	isWakeActive, _ := stateManager.GetBool("isWakeSequenceActive")
 
 	assert.True(t, isMasterAsleep, "isMasterAsleep should still be true")
 	assert.True(t, isAnyoneHome, "isAnyoneHome should still be true")
@@ -231,16 +221,12 @@ func TestUserStory_CompleteMorningRoutine_StateTransitions(t *testing.T) {
 	server.SetState("input_boolean.anyone_asleep", "on", nil)
 	server.SetState("input_boolean.master_asleep", "on", nil)
 	server.SetState("input_boolean.wake_sequence_active", "off", nil)
-	time.Sleep(50 * time.Millisecond)
 
 	// Verify: Sleep zone should match
-	dayPhase, _ := stateManager.GetString("dayPhase")
-	isWakeActive, _ := stateManager.GetBool("isWakeSequenceActive")
-	isMasterAsleep, _ := stateManager.GetBool("isMasterAsleep")
+	waitForStringState(t, stateManager, "dayPhase", "night", "dayPhase should be night")
+	waitForBoolState(t, stateManager, "isWakeSequenceActive", false, "isWakeSequenceActive should be false")
+	waitForBoolState(t, stateManager, "isMasterAsleep", true, "isMasterAsleep should be true")
 
-	assert.Equal(t, "night", dayPhase)
-	assert.False(t, isWakeActive)
-	assert.True(t, isMasterAsleep)
 	t.Log("  Sleep zone conditions: dayPhase=night, isWakeSequenceActive=false, isMasterAsleep=true ✓")
 
 	// =========================================================================
@@ -249,10 +235,7 @@ func TestUserStory_CompleteMorningRoutine_StateTransitions(t *testing.T) {
 	t.Log("PHASE 2: Alarm fires (begin_wake)")
 
 	server.SetState("input_boolean.wake_sequence_active", "on", nil)
-	time.Sleep(50 * time.Millisecond)
-
-	isWakeActive, _ = stateManager.GetBool("isWakeSequenceActive")
-	assert.True(t, isWakeActive, "isWakeSequenceActive must be true immediately")
+	waitForBoolState(t, stateManager, "isWakeSequenceActive", true, "isWakeSequenceActive must be true immediately")
 	t.Log("  isWakeSequenceActive=true ✓")
 
 	// =========================================================================
@@ -261,12 +244,9 @@ func TestUserStory_CompleteMorningRoutine_StateTransitions(t *testing.T) {
 	t.Log("PHASE 3: Sunrise during fade-out")
 
 	server.SetState("input_text.day_phase", "morning", nil)
-	time.Sleep(50 * time.Millisecond)
+	waitForStringState(t, stateManager, "dayPhase", "morning", "dayPhase should become morning")
 
-	dayPhase, _ = stateManager.GetString("dayPhase")
-	isWakeActive, _ = stateManager.GetBool("isWakeSequenceActive")
-
-	assert.Equal(t, "morning", dayPhase)
+	isWakeActive, _ := stateManager.GetBool("isWakeSequenceActive")
 	assert.True(t, isWakeActive)
 	t.Log("  Morning zone conditions met via wake sequence trigger: dayPhase=morning, isWakeSequenceActive=true ✓")
 	t.Log("  Sleep zone blocked: isWakeSequenceActive=true (requires false) ✓")
@@ -278,13 +258,11 @@ func TestUserStory_CompleteMorningRoutine_StateTransitions(t *testing.T) {
 
 	server.SetState("input_boolean.master_asleep", "off", nil)
 	server.SetState("input_boolean.anyone_asleep", "off", nil)
-	time.Sleep(50 * time.Millisecond)
+	waitForBoolState(t, stateManager, "isMasterAsleep", false, "isMasterAsleep should become false")
+	waitForBoolState(t, stateManager, "isAnyoneAsleep", false, "isAnyoneAsleep should become false")
 
-	isMasterAsleep, _ = stateManager.GetBool("isMasterAsleep")
-	isAnyoneAsleep, _ := stateManager.GetBool("isAnyoneAsleep")
-
-	assert.False(t, isMasterAsleep)
-	assert.False(t, isAnyoneAsleep)
+	_, _ = stateManager.GetBool("isMasterAsleep") // Verified via waitForBoolState above
+	_, _ = stateManager.GetBool("isAnyoneAsleep") // Verified via waitForBoolState above
 	t.Log("  Morning zone now matches via normal trigger: dayPhase=morning, isAnyoneAsleep=false ✓")
 
 	// =========================================================================
@@ -294,13 +272,8 @@ func TestUserStory_CompleteMorningRoutine_StateTransitions(t *testing.T) {
 
 	server.SetState("input_boolean.wake_sequence_active", "off", nil)
 	server.SetState("input_text.day_phase", "day", nil)
-	time.Sleep(50 * time.Millisecond)
-
-	dayPhase, _ = stateManager.GetString("dayPhase")
-	isWakeActive, _ = stateManager.GetBool("isWakeSequenceActive")
-
-	assert.Equal(t, "day", dayPhase)
-	assert.False(t, isWakeActive)
+	waitForStringState(t, stateManager, "dayPhase", "day", "dayPhase should become day")
+	waitForBoolState(t, stateManager, "isWakeSequenceActive", false, "isWakeSequenceActive should become false")
 	t.Log("  Day zone conditions: dayPhase=day, isAnyoneAsleep=false ✓")
 
 	t.Log("✓ Complete morning routine state transitions verified")
@@ -340,18 +313,16 @@ func TestRegression_PR564_IsWakeSequenceActiveSetImmediately(t *testing.T) {
 	server.SetState("input_boolean.anyone_asleep", "on", nil)
 	server.SetState("input_boolean.master_asleep", "on", nil)
 	server.SetState("input_boolean.wake_sequence_active", "off", nil)
-	time.Sleep(50 * time.Millisecond)
+	waitForBoolState(t, stateManager, "isWakeSequenceActive", false, "initial isWakeSequenceActive should be false")
 
 	// T+0: Eight Sleep alarm fires (begin_wake)
 	t.Log("T+0: Eight Sleep alarm fires (handleBeginWake)")
 
 	// THE FIX: isWakeSequenceActive is set IMMEDIATELY in handleBeginWake
 	server.SetState("input_boolean.wake_sequence_active", "on", nil)
-	time.Sleep(50 * time.Millisecond)
 
 	// CRITICAL: Must be true NOW, not after 5 minutes
-	isWakeActive, _ := stateManager.GetBool("isWakeSequenceActive")
-	require.True(t, isWakeActive,
+	waitForBoolState(t, stateManager, "isWakeSequenceActive", true,
 		"REGRESSION: isWakeSequenceActive must be true at T+0 (begin_wake), "+
 			"not T+5min (handleWake). This is the PR #564 fix.")
 
@@ -359,11 +330,11 @@ func TestRegression_PR564_IsWakeSequenceActiveSetImmediately(t *testing.T) {
 	t.Log("T+2min: dayPhase changes to morning during fade-out window")
 
 	server.SetState("input_text.day_phase", "morning", nil)
-	time.Sleep(50 * time.Millisecond)
+	waitForStringState(t, stateManager, "dayPhase", "morning", "dayPhase should become morning")
 
 	// Verify isWakeSequenceActive is STILL true
 	// (The bug was that it wasn't set yet, so sleep zone would re-match)
-	isWakeActive, _ = stateManager.GetBool("isWakeSequenceActive")
+	isWakeActive, _ := stateManager.GetBool("isWakeSequenceActive")
 	assert.True(t, isWakeActive,
 		"REGRESSION: isWakeSequenceActive must still be true when dayPhase changes. "+
 			"If false, sleep zone would match and sleep music would restart.")

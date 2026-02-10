@@ -122,7 +122,9 @@ func TestScenario_48Hour_EasternTimezone(t *testing.T) {
 			// Advance the clock by 5 minutes
 			mockClock.Advance(5 * time.Minute)
 
-			// Small delay to allow the goroutine to process
+			// Required: Allow goroutine scheduler to process mock clock tick.
+			// This sleep coordinates with the mock clock advance - goroutines waiting
+			// on mock timers need real time to wake up and process the tick.
 			time.Sleep(10 * time.Millisecond)
 
 			// Check current phase
@@ -197,6 +199,8 @@ func TestScenario_48Hour_PacificTimezone(t *testing.T) {
 	for hour := 0; hour < 48; hour++ {
 		for minute := 0; minute < 60; minute += 5 {
 			mockClock.Advance(5 * time.Minute)
+			// Required: Allow goroutine scheduler to process mock clock tick.
+			// Goroutines waiting on mock timers need real time to wake up and process.
 			time.Sleep(10 * time.Millisecond)
 
 			currentTime := mockClock.Now().In(pt)
@@ -262,7 +266,8 @@ func TestScenario_TimezoneOffset_ET(t *testing.T) {
 	server, _, mockClock, cleanup := setupDayPhaseSimulation(t, et, etStart)
 	defer cleanup()
 
-	// Get initial phase
+	// Brief delay for scheduler to process initial time-triggered callbacks
+	// after mock clock setup completes.
 	time.Sleep(50 * time.Millisecond)
 	etPhase := server.GetState("input_text.day_phase")
 	t.Logf("Initial phase at %s: %s", etStart.Format("15:04 MST"), etPhase.State)
@@ -273,6 +278,7 @@ func TestScenario_TimezoneOffset_ET(t *testing.T) {
 	t.Logf("Advancing ET by %v to reach 23:05 ET", etAdvance)
 
 	mockClock.Advance(etAdvance)
+	// Required: Allow goroutine scheduler to process mock clock tick after large time advance.
 	time.Sleep(50 * time.Millisecond)
 	etNightPhase := server.GetState("input_text.day_phase")
 	t.Logf("At 23:05 ET: phase=%s", etNightPhase.State)
@@ -297,6 +303,7 @@ func TestScenario_TimezoneOffset_PT(t *testing.T) {
 	server, _, mockClock, cleanup := setupDayPhaseSimulation(t, pt, ptStart)
 	defer cleanup()
 
+	// Brief delay for scheduler to process initial time-triggered callbacks.
 	time.Sleep(50 * time.Millisecond)
 	ptPhase := server.GetState("input_text.day_phase")
 	t.Logf("Initial phase at %s: %s", ptStart.Format("15:04 MST"), ptPhase.State)
@@ -307,6 +314,7 @@ func TestScenario_TimezoneOffset_PT(t *testing.T) {
 	t.Logf("Advancing PT by %v to reach 23:05 PT", ptAdvance)
 
 	mockClock.Advance(ptAdvance)
+	// Required: Allow goroutine scheduler to process mock clock tick after large time advance.
 	time.Sleep(50 * time.Millisecond)
 	ptNightPhase := server.GetState("input_text.day_phase")
 	t.Logf("At 23:05 PT: phase=%s", ptNightPhase.State)
@@ -360,6 +368,7 @@ func TestScenario_ScheduleTransitions_Weekday(t *testing.T) {
 		mockClock.Advance(advance)
 		currentTime = targetTime
 
+		// Required: Allow goroutine scheduler to process mock clock tick after time advance.
 		time.Sleep(20 * time.Millisecond)
 
 		state := server.GetState("input_text.day_phase")
@@ -400,6 +409,7 @@ func TestScenario_DayPhaseCycle_24Hours(t *testing.T) {
 	// Simulate 24 hours in 5-minute increments
 	for minutes := 0; minutes < 24*60; minutes += 5 {
 		mockClock.Advance(5 * time.Minute)
+		// Required: Allow goroutine scheduler to process mock clock tick.
 		time.Sleep(5 * time.Millisecond)
 
 		state := server.GetState("input_text.day_phase")
@@ -461,6 +471,7 @@ func TestScenario_SunEventTracking(t *testing.T) {
 	// Simulate 24 hours
 	for minutes := 0; minutes < 24*60; minutes += 5 {
 		mockClock.Advance(5 * time.Minute)
+		// Required: Allow goroutine scheduler to process mock clock tick.
 		time.Sleep(5 * time.Millisecond)
 
 		state := server.GetState("input_text.sun_event")
@@ -519,6 +530,7 @@ func TestScenario_WeekdayVsWeekend_NightTime(t *testing.T) {
 
 	// Advance to 23:05 (just after weekday night time)
 	mockClock1.Advance(15 * time.Minute)
+	// Required: Allow goroutine scheduler to process mock clock tick.
 	time.Sleep(20 * time.Millisecond)
 
 	wedPhase := server1.GetState("input_text.day_phase")
@@ -530,12 +542,14 @@ func TestScenario_WeekdayVsWeekend_NightTime(t *testing.T) {
 	defer cleanup2()
 
 	// At 23:00 on Friday, should NOT be night yet (night=23:59)
+	// Brief delay for scheduler to process initial time-triggered callbacks.
 	time.Sleep(20 * time.Millisecond)
 	friPhaseAt2300 := server2.GetState("input_text.day_phase")
 	t.Logf("Friday at 23:00: phase=%s (should NOT be night, weekend schedule)", friPhaseAt2300.State)
 
 	// Advance to 23:59+
 	mockClock2.Advance(60 * time.Minute)
+	// Required: Allow goroutine scheduler to process mock clock tick.
 	time.Sleep(20 * time.Millisecond)
 
 	friPhaseAt2359 := server2.GetState("input_text.day_phase")

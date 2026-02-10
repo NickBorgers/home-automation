@@ -16,9 +16,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Note: time.Sleep is still used in this file for specific timing-related tests
-// that involve mock clocks and energy management timing windows.
-
 // ============================================================================
 // Energy Management Plugin Scenario Tests
 //
@@ -195,37 +192,30 @@ func TestScenario_GridAvailability_RecalculatesFreeEnergy(t *testing.T) {
 	t.Log("GIVEN: Grid is available, outside free energy time window (12:00 noon)")
 	err = manager.SetBool("isGridAvailable", true)
 	require.NoError(t, err)
-	time.Sleep(100 * time.Millisecond)
 
 	// Check initial free energy state - should be false since we're at noon (outside 21:00-07:00)
+	waitForBoolState(t, manager, "isFreeEnergyAvailable", false, "Free energy should be false at noon (outside 21:00-07:00 window)")
 	isFreeEnergy, err := manager.GetBool("isFreeEnergyAvailable")
 	require.NoError(t, err)
 	t.Logf("Initial free energy state: %v", isFreeEnergy)
-	assert.False(t, isFreeEnergy, "Free energy should be false at noon (outside 21:00-07:00 window)")
 
 	// WHEN: Grid goes offline
 	t.Log("WHEN: Grid goes offline")
 	err = manager.SetBool("isGridAvailable", false)
 	require.NoError(t, err)
-	time.Sleep(100 * time.Millisecond)
 
 	// THEN: Free energy should be false (no grid = no free energy)
 	t.Log("THEN: Free energy should be false")
-	isFreeEnergy, err = manager.GetBool("isFreeEnergyAvailable")
-	require.NoError(t, err)
-	assert.False(t, isFreeEnergy, "Free energy should be false when grid is offline")
+	waitForBoolState(t, manager, "isFreeEnergyAvailable", false, "Free energy should be false when grid is offline")
 
 	// WHEN: Grid comes back online
 	t.Log("WHEN: Grid comes back online")
 	err = manager.SetBool("isGridAvailable", true)
 	require.NoError(t, err)
-	time.Sleep(100 * time.Millisecond)
 
 	// THEN: Free energy should still be false (we're at noon, outside the window)
 	t.Log("THEN: Free energy should still be false (noon is outside 21:00-07:00)")
-	isFreeEnergy, err = manager.GetBool("isFreeEnergyAvailable")
-	require.NoError(t, err)
-	assert.False(t, isFreeEnergy, "Free energy should be false at noon even with grid online")
+	waitForBoolState(t, manager, "isFreeEnergyAvailable", false, "Free energy should be false at noon even with grid online")
 
 	// Verify service call was made
 	calls := server.GetServiceCalls()
@@ -292,27 +282,21 @@ func TestScenario_OverallEnergyLevel_ReflectsWorstState(t *testing.T) {
 	server.SetState("sensor.energy_production_today_remaining", "15.0", map[string]interface{}{
 		"unit_of_measurement": "kWh",
 	})
-	time.Sleep(100 * time.Millisecond)
 
 	// Verify overall level is green (not white, since we're outside free energy window)
-	overallLevel, err := manager.GetString("currentEnergyLevel")
-	require.NoError(t, err)
-	assert.Equal(t, "green", overallLevel, "Overall level should be green when both are green (outside free energy window)")
+	waitForStringState(t, manager, "currentEnergyLevel", "green", "Overall level should be green when both are green (outside free energy window)")
 
 	// WHEN: Battery drops to red (15%), solar still green
 	t.Log("WHEN: Battery drops to red, solar stays green")
 	server.SetState("sensor.span_panel_span_storage_battery_percentage_2", "15.0", map[string]interface{}{
 		"unit_of_measurement": "%",
 	})
-	time.Sleep(100 * time.Millisecond)
 
 	// THEN: Overall level should reflect the lower state
 	// According to the algorithm: min(battery=red, solar=green) + 1 level = yellow
 	t.Log("THEN: Overall level should reflect worst state")
-	overallLevel, err = manager.GetString("currentEnergyLevel")
-	require.NoError(t, err)
 	// The overall level should be at most one level higher than the worst input
-	assert.Contains(t, []string{"red", "yellow"}, overallLevel,
+	waitForStringStateOneOf(t, manager, "currentEnergyLevel", []string{"red", "yellow"},
 		"Overall level should be red or yellow when battery is red and solar is green")
 
 	// WHEN: Solar also drops to black (0kW, 0kWh)
@@ -323,13 +307,10 @@ func TestScenario_OverallEnergyLevel_ReflectsWorstState(t *testing.T) {
 	server.SetState("sensor.energy_production_today_remaining", "0.0", map[string]interface{}{
 		"unit_of_measurement": "kWh",
 	})
-	time.Sleep(100 * time.Millisecond)
 
 	// THEN: Overall level should be black or red (both are low)
 	t.Log("THEN: Overall level should be very low")
-	overallLevel, err = manager.GetString("currentEnergyLevel")
-	require.NoError(t, err)
-	assert.Contains(t, []string{"black", "red"}, overallLevel,
+	waitForStringStateOneOf(t, manager, "currentEnergyLevel", []string{"black", "red"},
 		"Overall level should be black or red when both battery and solar are low")
 }
 
@@ -383,9 +364,9 @@ func TestScenario_FreeEnergyTimeWindow_OverridesEnergyLevel(t *testing.T) {
 	})
 	err = manager.SetBool("isGridAvailable", true)
 	require.NoError(t, err)
-	time.Sleep(100 * time.Millisecond)
 
-	// Verify free energy is available
+	// Verify free energy is available (we're at 22:00, inside the 21:00-07:00 window)
+	waitForBoolState(t, manager, "isFreeEnergyAvailable", true, "Free energy should be available at 22:00 with grid online")
 	isFreeEnergy, err := manager.GetBool("isFreeEnergyAvailable")
 	require.NoError(t, err)
 	t.Logf("Free energy available: %v", isFreeEnergy)
