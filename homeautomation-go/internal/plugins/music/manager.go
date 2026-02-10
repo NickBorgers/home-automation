@@ -308,6 +308,17 @@ func (m *Manager) handleMusicPlaybackTypeChange(key string, oldValue, newValue i
 		return
 	}
 
+	// When zones are configured, the zone manager orchestrates playback directly
+	// via orchestrateZonePlayback. musicPlaybackType is set by startZone for
+	// fade-in safety check consistency, but playback should NOT also be triggered
+	// through this legacy handler — that would cause duplicate executePlayback calls
+	// (one from orchestratePlayback here, one from orchestrateZonePlayback in startZone).
+	if m.config.HasZones() {
+		m.logger.Debug("Zones configured, skipping legacy orchestration for musicPlaybackType change",
+			zap.String("type", newType))
+		return
+	}
+
 	// Check rate limiting (max 1 playback per 10 seconds)
 	// Only applies to starting playback, not stopping
 	m.mu.Lock()
@@ -383,14 +394,23 @@ func (m *Manager) collectMuteConditionVariables() []string {
 // collectZoneTriggerVariables collects all unique variables from zone trigger conditions.
 // These are variables like isAnyoneAsleep that control zone activation (Phase 2).
 // Supports both legacy Triggers and new TriggerGroups.
+//
+// Note: dayPhase, isAnyoneAsleep, and isAnyoneHome are NOT filtered out here even though
+// they also have subscriptions via handleStateChange. When zones are configured,
+// handleStateChange returns early (skipping legacy selectAppropriateMusicMode), so these
+// variables MUST be subscribed to handleZoneTriggerChangeWithContext to trigger zone
+// resolution. musicPlaybackType is excluded because it has its own dedicated handler
+// (handleMusicPlaybackTypeChange) that should not trigger zone resolution.
 func (m *Manager) collectZoneTriggerVariables() []string {
 	varMap := make(map[string]bool)
 
-	// Variables already subscribed to via explicit handlers
+	// Only musicPlaybackType is excluded — it has a dedicated handler
+	// (handleMusicPlaybackTypeChange) and should not trigger zone resolution.
+	// dayPhase, isAnyoneAsleep, and isAnyoneHome are intentionally NOT filtered
+	// because when zones are configured, handleStateChange returns early, and
+	// these variables must reach handleZoneTriggerChangeWithContext to trigger
+	// zone resolution for routine daily transitions.
 	alreadySubscribed := map[string]bool{
-		"dayPhase":          true,
-		"isAnyoneAsleep":    true,
-		"isAnyoneHome":      true,
 		"musicPlaybackType": true,
 	}
 

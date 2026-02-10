@@ -564,14 +564,16 @@ func TestCollectZoneTriggerVariables(t *testing.T) {
 
 	vars := manager.collectZoneTriggerVariables()
 
-	// Should not include already-subscribed variables
-	assert.NotContains(t, vars, "dayPhase")
-	assert.NotContains(t, vars, "isAnyoneAsleep")
-	assert.NotContains(t, vars, "isAnyoneHome")
+	// dayPhase, isAnyoneAsleep, and isAnyoneHome SHOULD be included because
+	// when zones are configured, handleStateChange returns early (skipping legacy
+	// selectAppropriateMusicMode), so these variables must be subscribed to
+	// handleZoneTriggerChangeWithContext to trigger zone resolution.
+	assert.Contains(t, vars, "dayPhase")
+	assert.Contains(t, vars, "isAnyoneAsleep")
+	assert.Contains(t, vars, "isAnyoneHome")
 
-	// For this test config, all trigger variables are in the already-subscribed list
-	// so the result should be empty
-	assert.Empty(t, vars)
+	// musicPlaybackType should still be excluded (has its own dedicated handler)
+	assert.NotContains(t, vars, "musicPlaybackType")
 }
 
 func TestZoneManager_Integration_WithTimeProvider(t *testing.T) {

@@ -1787,3 +1787,345 @@ func TestScenario_WakeSequence_SleepZoneSkipsFastFadeOut(t *testing.T) {
 			"Instead, the zone manager should skip the fade-out and let "+
 			"sleephygiene manage the bedroom speakers during wake sequences.")
 }
+
+// =============================================================================
+// ZONE-CONFIGURED STATE TRANSITION TESTS
+// =============================================================================
+//
+// These tests verify that when zones are configured, changes to core state
+// variables (dayPhase, isAnyoneHome, isAnyoneAsleep) properly trigger zone
+// resolution. This validates the fix for the blocking review issue where
+// handleStateChange returned early for zone-configured managers, and the
+// alreadySubscribed filter in collectZoneTriggerVariables() prevented these
+// variables from being subscribed to handleZoneTriggerChangeWithContext.
+//
+// Without the fix:
+//   - dayPhase changes → no zone resolution → music stays on wrong playlist
+//   - isAnyoneHome=false → no zone resolution → music plays in empty house
+//   - isAnyoneAsleep=true → no zone resolution → no transition to sleep zone
+//
+// =============================================================================
+
+// TestScenario_ZonesConfigured_DayPhaseTransition verifies that when dayPhase
+// changes from morning to day with zones configured, zone resolution triggers
+// and the active zone transitions accordingly.
+//
+// PRODUCTION FAILURE WITHOUT FIX:
+// dayPhase changes from "morning" to "day" → morning zone stays active
+// indefinitely because the change never triggers zone resolution.
+func TestScenario_ZonesConfigured_DayPhaseTransition(t *testing.T) {
+	t.Parallel()
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	config := createWakeSequenceTestConfig()
+
+	// Monday 9:00 AM
+	fixedTime := time.Date(2024, 1, 15, 9, 0, 0, 0, time.UTC)
+	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
+
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, true, timeProvider, nil)
+	manager.SetSleepFunc(func(d time.Duration) {})
+
+	// ==========================================================
+	// GIVEN: Morning dayPhase, no one asleep, morning zone active
+	// ==========================================================
+	t.Log("GIVEN: dayPhase=morning, isAnyoneHome=true, isAnyoneAsleep=false")
+	_ = stateManager.SetString("dayPhase", "morning")
+	_ = stateManager.SetBool("isAnyoneHome", true)
+	_ = stateManager.SetBool("isAnyoneAsleep", false)
+	_ = stateManager.SetBool("isMasterAsleep", false)
+	_ = stateManager.SetBool("isWakeSequenceActive", false)
+
+	err := manager.Start()
+	require.NoError(t, err)
+	defer manager.Stop()
+
+	time.Sleep(100 * time.Millisecond)
+	manager.WaitForSync()
+
+	// Verify morning zone is active
+	activeZones := manager.zoneManager.getActiveZoneConfigs()
+	morningActive := false
+	for _, zc := range activeZones {
+		if zc.Name == "morning" {
+			morningActive = true
+		}
+	}
+	require.True(t, morningActive, "GIVEN: Morning zone should be active")
+
+	// ==========================================================
+	// WHEN: dayPhase transitions from morning to day
+	// ==========================================================
+	t.Log("WHEN: dayPhase changes from 'morning' to 'day'")
+	_ = stateManager.SetString("dayPhase", "day")
+
+	time.Sleep(200 * time.Millisecond)
+	manager.WaitForSync()
+
+	// ==========================================================
+	// THEN: Day zone should be active, morning zone should stop
+	// ==========================================================
+	t.Log("THEN: Day zone should be active, morning zone should stop")
+	activeZones = manager.zoneManager.getActiveZoneConfigs()
+	dayActive := false
+	morningStillActive := false
+	for _, zc := range activeZones {
+		if zc.Name == "day" {
+			dayActive = true
+		}
+		if zc.Name == "morning" {
+			morningStillActive = true
+		}
+	}
+
+	assert.True(t, dayActive,
+		"Day zone should be active after dayPhase transitions to 'day'. "+
+			"If this fails, dayPhase changes are not triggering zone resolution "+
+			"when zones are configured.")
+	assert.False(t, morningStillActive,
+		"Morning zone should stop after dayPhase transitions to 'day'")
+}
+
+// TestScenario_ZonesConfigured_NoOneHome_StopsMusic verifies that when
+// isAnyoneHome becomes false with zones configured, zone resolution triggers
+// and all zones stop (since every zone requires isAnyoneHome=true).
+//
+// PRODUCTION FAILURE WITHOUT FIX:
+// isAnyoneHome becomes false → music continues playing in an empty house
+// because the change never triggers zone resolution.
+func TestScenario_ZonesConfigured_NoOneHome_StopsMusic(t *testing.T) {
+	t.Parallel()
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	config := createWakeSequenceTestConfig()
+
+	// Monday 10:00 AM
+	fixedTime := time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC)
+	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
+
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, true, timeProvider, nil)
+	manager.SetSleepFunc(func(d time.Duration) {})
+
+	// ==========================================================
+	// GIVEN: Day phase, someone home, day zone active
+	// ==========================================================
+	t.Log("GIVEN: dayPhase=day, isAnyoneHome=true, isAnyoneAsleep=false, day zone active")
+	_ = stateManager.SetString("dayPhase", "day")
+	_ = stateManager.SetBool("isAnyoneHome", true)
+	_ = stateManager.SetBool("isAnyoneAsleep", false)
+	_ = stateManager.SetBool("isMasterAsleep", false)
+	_ = stateManager.SetBool("isWakeSequenceActive", false)
+
+	err := manager.Start()
+	require.NoError(t, err)
+	defer manager.Stop()
+
+	time.Sleep(100 * time.Millisecond)
+	manager.WaitForSync()
+
+	// Manually trigger initial zone resolution
+	err = manager.zoneManager.ResolveZones("initial_state")
+	require.NoError(t, err)
+	time.Sleep(100 * time.Millisecond)
+	manager.WaitForSync()
+
+	// Verify day zone is active
+	activeZones := manager.zoneManager.getActiveZoneConfigs()
+	dayActive := false
+	for _, zc := range activeZones {
+		if zc.Name == "day" {
+			dayActive = true
+		}
+	}
+	require.True(t, dayActive, "GIVEN: Day zone should be active")
+
+	// Verify there's an active tracked zone
+	manager.zoneManager.mu.RLock()
+	initialActiveCount := len(manager.zoneManager.activeZones)
+	manager.zoneManager.mu.RUnlock()
+	require.Greater(t, initialActiveCount, 0, "GIVEN: Should have at least one active zone")
+
+	// ==========================================================
+	// WHEN: isAnyoneHome becomes false (everyone left)
+	// ==========================================================
+	t.Log("WHEN: isAnyoneHome changes from true to false")
+	_ = stateManager.SetBool("isAnyoneHome", false)
+
+	time.Sleep(200 * time.Millisecond)
+	manager.WaitForSync()
+
+	// ==========================================================
+	// THEN: All zones should stop (every zone requires isAnyoneHome=true)
+	// ==========================================================
+	t.Log("THEN: All zones should be stopped (no zone matches without isAnyoneHome=true)")
+	activeZones = manager.zoneManager.getActiveZoneConfigs()
+	assert.Empty(t, activeZones,
+		"No zones should be active when isAnyoneHome=false. "+
+			"If this fails, isAnyoneHome changes are not triggering zone resolution "+
+			"when zones are configured.")
+
+	// Also check tracked zones are cleaned up
+	manager.zoneManager.mu.RLock()
+	activeCount := len(manager.zoneManager.activeZones)
+	manager.zoneManager.mu.RUnlock()
+	assert.Equal(t, 0, activeCount,
+		"Active zone tracking should be empty when no one is home")
+}
+
+// TestScenario_ZonesConfigured_SomeoneAsleep_TriggersSleepZone verifies that
+// when isAnyoneAsleep becomes true with zones configured, zone resolution
+// triggers and the sleep zone activates (if other conditions match).
+//
+// PRODUCTION FAILURE WITHOUT FIX:
+// isAnyoneAsleep becomes true → no transition to sleep zone because the
+// change never triggers zone resolution.
+func TestScenario_ZonesConfigured_SomeoneAsleep_TriggersSleepZone(t *testing.T) {
+	t.Parallel()
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	config := createWakeSequenceTestConfig()
+
+	// Monday 10:00 PM (night)
+	fixedTime := time.Date(2024, 1, 15, 22, 0, 0, 0, time.UTC)
+	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
+
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, true, timeProvider, nil)
+	manager.SetSleepFunc(func(d time.Duration) {})
+
+	// ==========================================================
+	// GIVEN: Night, no one asleep yet, sleep-prep zone active
+	// ==========================================================
+	t.Log("GIVEN: dayPhase=night, isAnyoneHome=true, isMasterAsleep=false")
+	_ = stateManager.SetString("dayPhase", "night")
+	_ = stateManager.SetBool("isAnyoneHome", true)
+	_ = stateManager.SetBool("isAnyoneAsleep", false)
+	_ = stateManager.SetBool("isMasterAsleep", false)
+	_ = stateManager.SetBool("isWakeSequenceActive", false)
+
+	err := manager.Start()
+	require.NoError(t, err)
+	defer manager.Stop()
+
+	time.Sleep(100 * time.Millisecond)
+	manager.WaitForSync()
+
+	// Verify sleep-prep zone is active (night + isAnyoneHome + !isMasterAsleep)
+	activeZones := manager.zoneManager.getActiveZoneConfigs()
+	sleepPrepActive := false
+	for _, zc := range activeZones {
+		if zc.Name == "sleep-prep" {
+			sleepPrepActive = true
+		}
+	}
+	require.True(t, sleepPrepActive, "GIVEN: sleep-prep zone should be active at night before master sleeps")
+
+	// ==========================================================
+	// WHEN: Master goes to sleep (isMasterAsleep=true, isAnyoneAsleep=true)
+	// ==========================================================
+	t.Log("WHEN: isMasterAsleep changes to true, isAnyoneAsleep changes to true")
+	_ = stateManager.SetBool("isMasterAsleep", true)
+	_ = stateManager.SetBool("isAnyoneAsleep", true)
+
+	time.Sleep(200 * time.Millisecond)
+	manager.WaitForSync()
+
+	// ==========================================================
+	// THEN: Sleep zone should activate (isMasterAsleep=true, isAnyoneHome=true, isWakeSequenceActive=false)
+	//       sleep-prep zone should stop (isMasterAsleep=false condition no longer met)
+	// ==========================================================
+	t.Log("THEN: Sleep zone should be active, sleep-prep should stop")
+	activeZones = manager.zoneManager.getActiveZoneConfigs()
+	sleepActive := false
+	sleepPrepStillActive := false
+	for _, zc := range activeZones {
+		if zc.Name == "sleep" {
+			sleepActive = true
+		}
+		if zc.Name == "sleep-prep" {
+			sleepPrepStillActive = true
+		}
+	}
+
+	assert.True(t, sleepActive,
+		"Sleep zone should be active when isMasterAsleep=true. "+
+			"If this fails, isMasterAsleep/isAnyoneAsleep changes are not triggering "+
+			"zone resolution when zones are configured.")
+	assert.False(t, sleepPrepStillActive,
+		"sleep-prep zone should stop when isMasterAsleep=true (trigger requires isMasterAsleep=false)")
+}
+
+// TestScenario_ZonesConfigured_HandleMusicPlaybackTypeChange_SkipsLegacyOrchestration
+// verifies that when zones are configured, handleMusicPlaybackTypeChange does NOT
+// trigger legacy orchestratePlayback. This prevents duplicate Sonos commands when
+// startZone sets musicPlaybackType and also launches orchestrateZonePlayback.
+func TestScenario_ZonesConfigured_HandleMusicPlaybackTypeChange_SkipsLegacyOrchestration(t *testing.T) {
+	t.Parallel()
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	config := createWakeSequenceTestConfig()
+
+	// Monday 9:00 AM
+	fixedTime := time.Date(2024, 1, 15, 9, 0, 0, 0, time.UTC)
+	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
+
+	// Use readOnly=false so we can track service calls
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, timeProvider, nil)
+	manager.SetSleepFunc(func(d time.Duration) {})
+
+	// ==========================================================
+	// GIVEN: Zone-configured manager with morning state
+	// ==========================================================
+	t.Log("GIVEN: Zone-configured manager, dayPhase=morning, isAnyoneHome=true")
+	_ = stateManager.SetString("dayPhase", "morning")
+	_ = stateManager.SetBool("isAnyoneHome", true)
+	_ = stateManager.SetBool("isAnyoneAsleep", false)
+	_ = stateManager.SetBool("isMasterAsleep", false)
+	_ = stateManager.SetBool("isWakeSequenceActive", false)
+
+	// Set up mock speakers
+	mockClient.SetState("media_player.kitchen", "idle", nil)
+	mockClient.SetState("media_player.office", "idle", nil)
+	mockClient.SetState("media_player.bedroom", "idle", nil)
+
+	err := manager.Start()
+	require.NoError(t, err)
+	defer manager.Stop()
+
+	time.Sleep(100 * time.Millisecond)
+	manager.WaitForSync()
+
+	// Clear any startup service calls
+	mockClient.ClearServiceCalls()
+
+	// ==========================================================
+	// WHEN: musicPlaybackType changes (as startZone would set it)
+	// ==========================================================
+	t.Log("WHEN: musicPlaybackType set to 'morning' (simulating what startZone does)")
+	// Directly call handleMusicPlaybackTypeChange to test it in isolation
+	manager.handleMusicPlaybackTypeChange("musicPlaybackType", "", "morning")
+
+	time.Sleep(100 * time.Millisecond)
+
+	// ==========================================================
+	// THEN: No service calls should be made (legacy orchestration skipped)
+	// ==========================================================
+	t.Log("THEN: No media_player service calls from legacy orchestratePlayback")
+	serviceCalls := mockClient.GetServiceCalls()
+
+	mediaPlayerCalls := 0
+	for _, call := range serviceCalls {
+		if call.Domain == "media_player" {
+			mediaPlayerCalls++
+			t.Logf("  Unexpected media_player call: %s.%s %+v", call.Domain, call.Service, call.Data)
+		}
+	}
+
+	assert.Equal(t, 0, mediaPlayerCalls,
+		"When zones are configured, handleMusicPlaybackTypeChange should skip "+
+			"legacy orchestratePlayback to prevent duplicate playback commands. "+
+			"Zone playback is handled by orchestrateZonePlayback in startZone.")
+}
