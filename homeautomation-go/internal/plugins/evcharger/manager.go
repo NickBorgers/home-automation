@@ -19,13 +19,13 @@ import (
 
 // Entity IDs for the Shelly Wave Plug US (Leaf Charger)
 const (
-	SwitchEntity      = "switch.christmas_bar"
-	OverheatSensor    = "binary_sensor.christmas_bar_overheat_detected"
-	OverCurrentSensor = "binary_sensor.christmas_bar_over_current_detected"
-	OverVoltageSensor = "binary_sensor.christmas_bar_over_voltage_detected"
-	PowerSensor       = "sensor.christmas_bar_electric_consumption_w"
-	CurrentSensor     = "sensor.christmas_bar_electric_consumption_a"
-	VoltageSensor     = "sensor.christmas_bar_electric_consumption_v"
+	SwitchEntity      = "switch.leaf_charger"
+	OverheatSensor    = "binary_sensor.leaf_charger_overheat_detected"
+	OverCurrentSensor = "binary_sensor.leaf_charger_over_current_detected"
+	OverVoltageSensor = "binary_sensor.leaf_charger_over_voltage_detected"
+	PowerSensor       = "sensor.leaf_charger_electric_consumption_w"
+	CurrentSensor     = "sensor.leaf_charger_electric_consumption_a"
+	VoltageSensor     = "sensor.leaf_charger_electric_consumption_v"
 
 	// NotificationCooldown prevents notification spam
 	NotificationCooldown = 5 * time.Minute
