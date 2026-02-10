@@ -79,6 +79,7 @@ func setupNighttimeSafetyTest(t *testing.T) (*nighttimeSafetyTestEnv, func()) {
 	require.NoError(t, env.music.Start())
 	require.NoError(t, env.sleepHygiene.Start())
 
+	// Brief delay to allow plugins to initialize their subscriptions before tests begin
 	time.Sleep(50 * time.Millisecond)
 
 	cleanup := func() {
@@ -224,6 +225,7 @@ func TestScenario_SleepMusic_ContinuesWhenMasterAsleep(t *testing.T) {
 	env.server.SetState("media_player.bedroom", "idle", map[string]interface{}{})
 	env.server.SetState("media_player.kitchen", "idle", map[string]interface{}{})
 
+	// Brief delay before clearing service calls to ensure setup state propagates
 	time.Sleep(50 * time.Millisecond)
 	env.server.ClearServiceCalls()
 
@@ -231,26 +233,17 @@ func TestScenario_SleepMusic_ContinuesWhenMasterAsleep(t *testing.T) {
 	t.Log("WHEN: Music type changes to sleep (rain sounds)")
 
 	env.server.SetState("input_text.music_playback_type", "sleep", map[string]interface{}{})
-	time.Sleep(100 * time.Millisecond)
-
-	// Verify sleep music started
-	musicType, err := env.stateManager.GetString("musicPlaybackType")
-	require.NoError(t, err)
-	assert.Equal(t, "sleep", musicType, "Music type should be sleep")
+	waitForStringState(t, env.stateManager, "musicPlaybackType", "sleep", "Music type should be sleep")
 
 	// Clear and then simulate master going to sleep
 	env.server.ClearServiceCalls()
 	t.Log("WHEN: Master goes to sleep")
 
 	env.server.SetState("input_boolean.master_asleep", "on", map[string]interface{}{})
-	time.Sleep(100 * time.Millisecond)
+	waitForBoolState(t, env.stateManager, "isMasterAsleep", true, "isMasterAsleep should be true")
 
 	// ========== THEN ==========
 	t.Log("THEN: Sleep music continues (no stop commands for bedroom)")
-
-	isMasterAsleep, err := env.stateManager.GetBool("isMasterAsleep")
-	require.NoError(t, err)
-	assert.True(t, isMasterAsleep, "isMasterAsleep should be true")
 
 	// Verify no media_player.stop calls for bedroom
 	calls := env.server.GetServiceCalls()
@@ -311,6 +304,7 @@ func TestScenario_MorningMusic_BedroomMutedWhenMasterAsleep(t *testing.T) {
 		"volume_level": 0.1,
 	})
 
+	// Brief delay before clearing service calls to ensure setup state propagates
 	time.Sleep(50 * time.Millisecond)
 	env.server.ClearServiceCalls()
 
@@ -318,7 +312,7 @@ func TestScenario_MorningMusic_BedroomMutedWhenMasterAsleep(t *testing.T) {
 	t.Log("WHEN: Morning music starts playing")
 
 	env.server.SetState("input_text.music_playback_type", "morning", map[string]interface{}{})
-	time.Sleep(150 * time.Millisecond)
+	waitForStringState(t, env.stateManager, "musicPlaybackType", "morning", "Music type should be morning")
 
 	// ========== THEN ==========
 	t.Log("THEN: Bedroom speaker should be MUTED while kitchen plays")
@@ -416,6 +410,7 @@ func TestScenario_WakeSequence_LightsOnDespiteMasterAsleep(t *testing.T) {
 	require.NoError(t, stateManager.SetBool("isAnyoneHomeAndAwake", false))
 	require.NoError(t, stateManager.SetBool("isWakeSequenceActive", false)) // Not yet active
 
+	// Brief delay before clearing service calls to ensure setup state propagates
 	time.Sleep(50 * time.Millisecond)
 	server.ClearServiceCalls()
 
@@ -424,7 +419,7 @@ func TestScenario_WakeSequence_LightsOnDespiteMasterAsleep(t *testing.T) {
 
 	server.SetState("input_boolean.wake_sequence_active", "on", map[string]interface{}{})
 	require.NoError(t, stateManager.SetBool("isWakeSequenceActive", true))
-	time.Sleep(100 * time.Millisecond)
+	waitForBoolState(t, stateManager, "isWakeSequenceActive", true, "isWakeSequenceActive should be true")
 
 	// ========== THEN ==========
 	t.Log("THEN: Bedroom lights should come ON (scene activation), not turn off")
@@ -499,6 +494,7 @@ func TestScenario_WakeCancellation_RevertsToSleepMusicDuringNight(t *testing.T) 
 		"brightness": 128,
 	})
 
+	// Brief delay before clearing service calls to ensure setup state propagates
 	time.Sleep(50 * time.Millisecond)
 	env.server.ClearServiceCalls()
 
@@ -506,6 +502,7 @@ func TestScenario_WakeCancellation_RevertsToSleepMusicDuringNight(t *testing.T) 
 	t.Log("WHEN: User turns off bedroom lights (wants to sleep more)")
 
 	env.server.SetState("light.primary_suite", "off", map[string]interface{}{})
+	// Brief delay to allow sleephygiene to process the light-off event
 	time.Sleep(150 * time.Millisecond)
 
 	// ========== THEN ==========
@@ -577,6 +574,7 @@ func TestScenario_DayMusic_BedroomMutedWhenMasterAsleep(t *testing.T) {
 		"volume_level": 0.1,
 	})
 
+	// Brief delay before clearing service calls to ensure setup state propagates
 	time.Sleep(50 * time.Millisecond)
 	env.server.ClearServiceCalls()
 
@@ -584,7 +582,7 @@ func TestScenario_DayMusic_BedroomMutedWhenMasterAsleep(t *testing.T) {
 	t.Log("WHEN: Day music starts (someone else triggered it)")
 
 	env.server.SetState("input_text.music_playback_type", "day", map[string]interface{}{})
-	time.Sleep(150 * time.Millisecond)
+	waitForStringState(t, env.stateManager, "musicPlaybackType", "day", "Music type should be day")
 
 	// ========== THEN ==========
 	t.Log("THEN: Bedroom MUST be muted - master is napping!")
@@ -679,6 +677,7 @@ func TestScenario_SleepToMorningTransition_BedroomMutedUntilActualWake(t *testin
 	require.NoError(t, env.stateManager.SetBool("isAnyoneAsleep", true))
 	require.NoError(t, env.stateManager.SetString("musicPlaybackType", "sleep"))
 
+	// Brief delay before clearing service calls to ensure setup state propagates
 	time.Sleep(50 * time.Millisecond)
 	env.server.ClearServiceCalls()
 
@@ -686,7 +685,7 @@ func TestScenario_SleepToMorningTransition_BedroomMutedUntilActualWake(t *testin
 	t.Log("WHEN: Music type changes to morning (but isMasterAsleep still true)")
 
 	env.server.SetState("input_text.music_playback_type", "morning", map[string]interface{}{})
-	time.Sleep(150 * time.Millisecond)
+	waitForStringState(t, env.stateManager, "musicPlaybackType", "morning", "Music type should be morning")
 
 	// ========== THEN ==========
 	t.Log("THEN: Bedroom should be MUTED during morning music while master sleeps")
@@ -722,7 +721,7 @@ func TestScenario_SleepToMorningTransition_BedroomMutedUntilActualWake(t *testin
 
 	env.server.SetState("input_boolean.master_asleep", "off", map[string]interface{}{})
 	require.NoError(t, env.stateManager.SetBool("isMasterAsleep", false))
-	time.Sleep(150 * time.Millisecond)
+	waitForBoolState(t, env.stateManager, "isMasterAsleep", false, "isMasterAsleep should be false after wake-up")
 
 	// ========== THEN ==========
 	t.Log("THEN: Bedroom should be UNMUTED (person actually woke up)")
@@ -779,6 +778,7 @@ func TestScenario_MultipleMuteConditions_WorkIndependently(t *testing.T) {
 	require.NoError(t, env.stateManager.SetBool("isEveryoneAsleep", false))
 	require.NoError(t, env.stateManager.SetString("musicPlaybackType", ""))
 
+	// Brief delay before clearing service calls to ensure setup state propagates
 	time.Sleep(50 * time.Millisecond)
 	env.server.ClearServiceCalls()
 
@@ -786,7 +786,7 @@ func TestScenario_MultipleMuteConditions_WorkIndependently(t *testing.T) {
 	t.Log("WHEN: Day music starts")
 
 	env.server.SetState("input_text.music_playback_type", "day", map[string]interface{}{})
-	time.Sleep(150 * time.Millisecond)
+	waitForStringState(t, env.stateManager, "musicPlaybackType", "day", "Music type should be day")
 
 	// ========== THEN ==========
 	t.Log("THEN: Bedroom muted (master asleep), Kitchen plays (TV doesn't affect it in this config)")
@@ -852,6 +852,7 @@ func TestScenario_RapidStateChanges_NoBriefUnmute(t *testing.T) {
 	require.NoError(t, env.stateManager.SetBool("isEveryoneAsleep", true))
 	require.NoError(t, env.stateManager.SetString("musicPlaybackType", "sleep"))
 
+	// Brief delay before clearing service calls to ensure setup state propagates
 	time.Sleep(50 * time.Millisecond)
 	env.server.ClearServiceCalls()
 
@@ -859,14 +860,15 @@ func TestScenario_RapidStateChanges_NoBriefUnmute(t *testing.T) {
 	t.Log("WHEN: Rapid state changes occur (simulating sensor noise)")
 
 	// Simulate rapid toggling that might occur with motion sensors or network glitches
+	// Brief delays between toggles are intentional to simulate real sensor behavior
 	for i := 0; i < 5; i++ {
 		require.NoError(t, env.stateManager.SetBool("isKitchenOccupied", true))
-		time.Sleep(10 * time.Millisecond)
+		time.Sleep(10 * time.Millisecond) // Intentional: simulates rapid sensor changes
 		require.NoError(t, env.stateManager.SetBool("isKitchenOccupied", false))
-		time.Sleep(10 * time.Millisecond)
+		time.Sleep(10 * time.Millisecond) // Intentional: simulates rapid sensor changes
 	}
 
-	// Wait for all callbacks to process
+	// Brief delay to allow all callbacks to process after rapid state changes
 	time.Sleep(100 * time.Millisecond)
 
 	// ========== THEN ==========

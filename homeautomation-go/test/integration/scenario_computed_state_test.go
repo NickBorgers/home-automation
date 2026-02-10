@@ -54,8 +54,8 @@ func setupComputedStateTest(t *testing.T) (*MockHAServer, *ha.Client, *state.Man
 	err = manager.SetupComputedState()
 	require.NoError(t, err)
 
-	// Allow time for subscriptions to be established
-	time.Sleep(100 * time.Millisecond)
+	// Allow subscriptions to be established
+	time.Sleep(50 * time.Millisecond)
 
 	cleanup := func() {
 		client.Disconnect()
@@ -157,6 +157,7 @@ func TestScenario_ComputedState_IsAnyoneHomeAndAwake_InitialComputation(t *testi
 			err = manager.SetupComputedState()
 			require.NoError(t, err)
 
+			// Allow computed state to be calculated
 			time.Sleep(50 * time.Millisecond)
 
 			// THEN: isAnyoneHomeAndAwake should be computed correctly
@@ -181,34 +182,25 @@ func TestScenario_ComputedState_ReactsToIsAnyOwnerHomeChange(t *testing.T) {
 	server.SetState("input_boolean.any_owner_home", "off", map[string]interface{}{})
 	server.SetState("input_boolean.anyone_asleep", "off", map[string]interface{}{})
 	server.SetState("input_boolean.tori_here", "off", map[string]interface{}{})
-	time.Sleep(50 * time.Millisecond)
 
 	// Verify initial state
-	value, err := manager.GetBool("isAnyoneHomeAndAwake")
-	require.NoError(t, err)
-	assert.False(t, value, "Initially should be false when no owner is home")
+	waitForBoolState(t, manager, "isAnyoneHomeAndAwake", false, "Initially should be false when no owner is home")
 
 	// WHEN: Owner comes home (still awake)
 	t.Log("WHEN: Owner comes home")
 	server.SetState("input_boolean.any_owner_home", "on", map[string]interface{}{})
-	time.Sleep(50 * time.Millisecond)
 
 	// THEN: isAnyoneHomeAndAwake should become true
 	t.Log("THEN: isAnyoneHomeAndAwake should become true")
-	value, err = manager.GetBool("isAnyoneHomeAndAwake")
-	require.NoError(t, err)
-	assert.True(t, value, "Should be true when owner is home and awake")
+	waitForBoolState(t, manager, "isAnyoneHomeAndAwake", true, "Should be true when owner is home and awake")
 
 	// WHEN: Owner leaves
 	t.Log("WHEN: Owner leaves")
 	server.SetState("input_boolean.any_owner_home", "off", map[string]interface{}{})
-	time.Sleep(50 * time.Millisecond)
 
 	// THEN: isAnyoneHomeAndAwake should become false
 	t.Log("THEN: isAnyoneHomeAndAwake should become false")
-	value, err = manager.GetBool("isAnyoneHomeAndAwake")
-	require.NoError(t, err)
-	assert.False(t, value, "Should be false when no owner is home")
+	waitForBoolState(t, manager, "isAnyoneHomeAndAwake", false, "Should be false when no owner is home")
 }
 
 // TestScenario_ComputedState_ReactsToIsAnyoneAsleepChange validates that
@@ -223,34 +215,25 @@ func TestScenario_ComputedState_ReactsToIsAnyoneAsleepChange(t *testing.T) {
 	server.SetState("input_boolean.any_owner_home", "on", map[string]interface{}{})
 	server.SetState("input_boolean.anyone_asleep", "off", map[string]interface{}{})
 	server.SetState("input_boolean.tori_here", "off", map[string]interface{}{})
-	time.Sleep(50 * time.Millisecond)
 
 	// Verify initial state
-	value, err := manager.GetBool("isAnyoneHomeAndAwake")
-	require.NoError(t, err)
-	assert.True(t, value, "Initially should be true when owner is home and awake")
+	waitForBoolState(t, manager, "isAnyoneHomeAndAwake", true, "Initially should be true when owner is home and awake")
 
 	// WHEN: Someone falls asleep
 	t.Log("WHEN: Someone falls asleep")
 	server.SetState("input_boolean.anyone_asleep", "on", map[string]interface{}{})
-	time.Sleep(50 * time.Millisecond)
 
 	// THEN: isAnyoneHomeAndAwake should become false
 	t.Log("THEN: isAnyoneHomeAndAwake should become false")
-	value, err = manager.GetBool("isAnyoneHomeAndAwake")
-	require.NoError(t, err)
-	assert.False(t, value, "Should be false when someone is asleep")
+	waitForBoolState(t, manager, "isAnyoneHomeAndAwake", false, "Should be false when someone is asleep")
 
 	// WHEN: Everyone wakes up
 	t.Log("WHEN: Everyone wakes up")
 	server.SetState("input_boolean.anyone_asleep", "off", map[string]interface{}{})
-	time.Sleep(50 * time.Millisecond)
 
 	// THEN: isAnyoneHomeAndAwake should become true again
 	t.Log("THEN: isAnyoneHomeAndAwake should become true again")
-	value, err = manager.GetBool("isAnyoneHomeAndAwake")
-	require.NoError(t, err)
-	assert.True(t, value, "Should be true again when everyone wakes up")
+	waitForBoolState(t, manager, "isAnyoneHomeAndAwake", true, "Should be true again when everyone wakes up")
 }
 
 // TestScenario_ComputedState_SyncsToHomeAssistant validates that computed
@@ -265,6 +248,7 @@ func TestScenario_ComputedState_SyncsToHomeAssistant(t *testing.T) {
 	server.SetState("input_boolean.any_owner_home", "off", map[string]interface{}{})
 	server.SetState("input_boolean.anyone_asleep", "off", map[string]interface{}{})
 	server.SetState("input_boolean.tori_here", "off", map[string]interface{}{})
+	// Allow async handlers to process before clearing
 	time.Sleep(50 * time.Millisecond)
 
 	// Clear service calls to track new ones
@@ -273,7 +257,9 @@ func TestScenario_ComputedState_SyncsToHomeAssistant(t *testing.T) {
 	// WHEN: Owner comes home (triggering computed state change)
 	t.Log("WHEN: Owner comes home")
 	server.SetState("input_boolean.any_owner_home", "on", map[string]interface{}{})
-	time.Sleep(100 * time.Millisecond)
+
+	// Wait for sync to HA
+	waitForServiceCall(t, server, "input_boolean", "turn_on", "computed state should sync to HA")
 
 	// THEN: A service call should be made to update isAnyoneHomeAndAwake in HA
 	t.Log("THEN: Computed state should be synced to HA")
@@ -311,20 +297,21 @@ func TestScenario_ComputedState_RapidChanges(t *testing.T) {
 	server.SetState("input_boolean.any_owner_home", "on", map[string]interface{}{})
 	server.SetState("input_boolean.anyone_asleep", "off", map[string]interface{}{})
 	server.SetState("input_boolean.tori_here", "off", map[string]interface{}{})
+	// Allow computed state to settle
 	time.Sleep(50 * time.Millisecond)
 
 	// WHEN: Rapid state changes occur
 	t.Log("WHEN: Rapid state changes occur")
 
-	// Simulate rapid toggling
+	// Simulate rapid toggling - keep short delays to test rapid change handling
 	for i := 0; i < 5; i++ {
 		server.SetState("input_boolean.anyone_asleep", "on", map[string]interface{}{})
-		time.Sleep(50 * time.Millisecond)
+		time.Sleep(20 * time.Millisecond)
 		server.SetState("input_boolean.anyone_asleep", "off", map[string]interface{}{})
-		time.Sleep(50 * time.Millisecond)
+		time.Sleep(20 * time.Millisecond)
 	}
 
-	// Final state: home and awake
+	// Allow final state to settle
 	time.Sleep(50 * time.Millisecond)
 
 	// THEN: Final computed state should be correct
@@ -349,36 +336,30 @@ func TestScenario_ComputedState_BothDependenciesChange(t *testing.T) {
 	server.SetState("input_boolean.any_owner_home", "off", map[string]interface{}{})
 	server.SetState("input_boolean.anyone_asleep", "off", map[string]interface{}{})
 	server.SetState("input_boolean.tori_here", "off", map[string]interface{}{})
-	time.Sleep(50 * time.Millisecond)
 
-	value, _ := manager.GetBool("isAnyoneHomeAndAwake")
-	assert.False(t, value, "Initial state: should be false")
+	waitForBoolState(t, manager, "isAnyoneHomeAndAwake", false, "Initial state: should be false")
 
 	// WHEN: Both dependencies change almost simultaneously
 	t.Log("WHEN: Owner comes home AND someone falls asleep almost simultaneously")
 	server.SetState("input_boolean.any_owner_home", "on", map[string]interface{}{})
+	// Brief delay to simulate near-simultaneous changes
 	time.Sleep(20 * time.Millisecond)
 	server.SetState("input_boolean.anyone_asleep", "on", map[string]interface{}{})
-	time.Sleep(50 * time.Millisecond)
 
 	// THEN: Final state should be false (owner home but asleep)
 	t.Log("THEN: Should be false (owner home but asleep)")
-	value, err := manager.GetBool("isAnyoneHomeAndAwake")
-	require.NoError(t, err)
-	assert.False(t, value, "Should be false when owner home but asleep")
+	waitForBoolState(t, manager, "isAnyoneHomeAndAwake", false, "Should be false when owner home but asleep")
 
 	// WHEN: Wake up then leave
 	t.Log("WHEN: Everyone wakes up then owner leaves")
 	server.SetState("input_boolean.anyone_asleep", "off", map[string]interface{}{})
+	// Brief delay to simulate near-simultaneous changes
 	time.Sleep(20 * time.Millisecond)
 	server.SetState("input_boolean.any_owner_home", "off", map[string]interface{}{})
-	time.Sleep(50 * time.Millisecond)
 
 	// THEN: Final state should be false (no owner home)
 	t.Log("THEN: Should be false (no owner home)")
-	value, err = manager.GetBool("isAnyoneHomeAndAwake")
-	require.NoError(t, err)
-	assert.False(t, value, "Should be false when no owner is home")
+	waitForBoolState(t, manager, "isAnyoneHomeAndAwake", false, "Should be false when no owner is home")
 }
 
 // TestScenario_ComputedState_ToriArrivesWhileOwnerAsleep validates the bug fix:
@@ -393,32 +374,23 @@ func TestScenario_ComputedState_ToriArrivesWhileOwnerAsleep(t *testing.T) {
 	server.SetState("input_boolean.any_owner_home", "on", map[string]interface{}{})
 	server.SetState("input_boolean.anyone_asleep", "on", map[string]interface{}{})
 	server.SetState("input_boolean.tori_here", "off", map[string]interface{}{})
-	time.Sleep(50 * time.Millisecond)
 
 	// Verify initial state: should be false (owner asleep)
-	value, err := manager.GetBool("isAnyoneHomeAndAwake")
-	require.NoError(t, err)
-	assert.False(t, value, "Initially should be false when owner is home but asleep")
+	waitForBoolState(t, manager, "isAnyoneHomeAndAwake", false, "Initially should be false when owner is home but asleep")
 
 	// WHEN: Tori arrives while owner is still asleep
 	t.Log("WHEN: Tori arrives while owner is still asleep")
 	server.SetState("input_boolean.tori_here", "on", map[string]interface{}{})
-	time.Sleep(50 * time.Millisecond)
 
 	// THEN: isAnyoneHomeAndAwake should become TRUE (Tori is awake!)
 	t.Log("THEN: isAnyoneHomeAndAwake should become TRUE")
-	value, err = manager.GetBool("isAnyoneHomeAndAwake")
-	require.NoError(t, err)
-	assert.True(t, value, "Should be TRUE when Tori arrives, even if owner is asleep (BUG FIX)")
+	waitForBoolState(t, manager, "isAnyoneHomeAndAwake", true, "Should be TRUE when Tori arrives, even if owner is asleep (BUG FIX)")
 
 	// WHEN: Tori leaves
 	t.Log("WHEN: Tori leaves")
 	server.SetState("input_boolean.tori_here", "off", map[string]interface{}{})
-	time.Sleep(50 * time.Millisecond)
 
 	// THEN: isAnyoneHomeAndAwake should become false again (owner still asleep)
 	t.Log("THEN: isAnyoneHomeAndAwake should become false again")
-	value, err = manager.GetBool("isAnyoneHomeAndAwake")
-	require.NoError(t, err)
-	assert.False(t, value, "Should be false when Tori leaves and owner is still asleep")
+	waitForBoolState(t, manager, "isAnyoneHomeAndAwake", false, "Should be false when Tori leaves and owner is still asleep")
 }

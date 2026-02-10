@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"homeautomation/internal/ntfy"
 	"homeautomation/internal/state"
 
 	"github.com/stretchr/testify/assert"
@@ -96,5 +97,42 @@ func waitForServiceCallCount(t *testing.T, server *MockHAServer, expectedCount i
 	assert.Eventually(t, func() bool {
 		calls := server.GetServiceCalls()
 		return len(calls) >= expectedCount
+	}, stateWaitTimeout, statePollInterval, msgAndArgs...)
+}
+
+// waitForServiceCall polls until any service call matching domain/service is found.
+// Use this when you need to verify a service call was made without checking a specific entity.
+func waitForServiceCall(t *testing.T, server *MockHAServer, domain, service string, msgAndArgs ...interface{}) {
+	t.Helper()
+	assert.Eventually(t, func() bool {
+		calls := server.GetServiceCalls()
+		for _, call := range calls {
+			if call.Domain == domain && call.Service == service {
+				return true
+			}
+		}
+		return false
+	}, stateWaitTimeout, statePollInterval, msgAndArgs...)
+}
+
+// waitForCondition polls until the provided condition function returns true or times out.
+// Use this for generic conditions that don't fit the other helper patterns.
+func waitForCondition(t *testing.T, condition func() bool, msgAndArgs ...interface{}) {
+	t.Helper()
+	assert.Eventually(t, condition, stateWaitTimeout, statePollInterval, msgAndArgs...)
+}
+
+// waitForNtfyNotification polls until a notification with the given title is found in the mock Ntfy client.
+// Use this when testing notification delivery through the Ntfy service.
+func waitForNtfyNotification(t *testing.T, mockNtfy *ntfy.MockClient, title string, msgAndArgs ...interface{}) {
+	t.Helper()
+	assert.Eventually(t, func() bool {
+		calls := mockNtfy.GetCalls()
+		for _, call := range calls {
+			if call.Title == title {
+				return true
+			}
+		}
+		return false
 	}, stateWaitTimeout, statePollInterval, msgAndArgs...)
 }

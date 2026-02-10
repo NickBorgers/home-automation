@@ -199,9 +199,7 @@ func TestScenario_DidOwnerJustReturnHomeAutoReset(t *testing.T) {
 
 	t.Log("THEN: didOwnerJustReturnHome should auto-reset to false")
 
-	didReturn, err = manager.GetBool("didOwnerJustReturnHome")
-	require.NoError(t, err)
-	assert.False(t, didReturn, "didOwnerJustReturnHome should reset to false after 10 minutes")
+	waitForBoolState(t, manager, "didOwnerJustReturnHome", false, "didOwnerJustReturnHome should reset to false after 10 minutes")
 
 	t.Log("✓ Auto-reset after 10 minutes works correctly")
 }

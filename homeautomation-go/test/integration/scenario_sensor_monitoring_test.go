@@ -135,7 +135,7 @@ func TestScenario_SensorMonitoring_CompleteSurfaceArea(t *testing.T) {
 		"friendly_name": "Bathroom Water Leak",
 	})
 
-	// Allow entities to propagate
+	// Brief setup delay: Allow mock server state to propagate before starting plugins
 	time.Sleep(100 * time.Millisecond)
 
 	// ========== START PLUGINS ==========
@@ -148,7 +148,7 @@ func TestScenario_SensorMonitoring_CompleteSurfaceArea(t *testing.T) {
 	err = env.environmental.Start()
 	require.NoError(t, err, "Failed to start environmental plugin")
 
-	// Allow plugins to initialize
+	// Brief setup delay: Allow plugins to complete initialization before assertions
 	time.Sleep(100 * time.Millisecond)
 
 	// ========== VERIFY: SensorHealth Plugin ==========
@@ -237,6 +237,7 @@ func TestScenario_SensorHealth_LowBatteryDetection(t *testing.T) {
 		"friendly_name":       "Front Door Sensor Battery",
 		"unit_of_measurement": "%",
 	})
+	// Brief setup delay: Allow entity to propagate before plugin start
 	time.Sleep(50 * time.Millisecond)
 
 	// Start sensorhealth plugin
@@ -244,8 +245,8 @@ func TestScenario_SensorHealth_LowBatteryDetection(t *testing.T) {
 	require.NoError(t, err)
 	defer env.sensorHealth.Stop()
 
-	// Allow time for notifications to be sent
-	time.Sleep(100 * time.Millisecond)
+	// Wait for low battery notification to be sent
+	waitForNtfyNotification(t, env.mockNtfy, "Low Battery", "low battery notification")
 
 	// Verify notification was sent for low battery
 	calls := env.mockNtfy.GetCalls()
@@ -280,6 +281,7 @@ func TestScenario_Environmental_WaterLeakDetection(t *testing.T) {
 		"device_class":  "moisture",
 		"friendly_name": "Laundry Room Water Leak",
 	})
+	// Brief setup delay: Allow entity to propagate before plugin start
 	time.Sleep(50 * time.Millisecond)
 
 	// Start environmental plugin
@@ -299,7 +301,11 @@ func TestScenario_Environmental_WaterLeakDetection(t *testing.T) {
 		"device_class":  "moisture",
 		"friendly_name": "Laundry Room Water Leak",
 	})
-	time.Sleep(100 * time.Millisecond)
+
+	// Wait for water leak to be detected
+	waitForCondition(t, func() bool {
+		return env.environmental.GetActiveWaterLeakCount() == 1
+	}, "water leak detection")
 
 	// Verify leak is detected
 	assert.Equal(t, 1, env.environmental.GetActiveWaterLeakCount(),
@@ -473,6 +479,7 @@ func TestScenario_BothPlugins_ConcurrentOperation(t *testing.T) {
 		"device_class":  "moisture",
 		"friendly_name": "Test Water Leak",
 	})
+	// Brief setup delay: Allow entities to propagate before plugin start
 	time.Sleep(50 * time.Millisecond)
 
 	// Start both plugins
@@ -482,8 +489,8 @@ func TestScenario_BothPlugins_ConcurrentOperation(t *testing.T) {
 	err = env.environmental.Start()
 	require.NoError(t, err)
 
-	// Allow plugins to initialize
-	time.Sleep(100 * time.Millisecond)
+	// Wait for low battery notification (from plugin initialization)
+	waitForNtfyNotification(t, env.mockNtfy, "Low Battery", "low battery notification during init")
 
 	// Record initial notifications (low battery should have triggered)
 	initialCalls := len(env.mockNtfy.GetCalls())
@@ -495,7 +502,11 @@ func TestScenario_BothPlugins_ConcurrentOperation(t *testing.T) {
 		"device_class":  "moisture",
 		"friendly_name": "Test Water Leak",
 	})
-	time.Sleep(100 * time.Millisecond)
+
+	// Wait for water leak to be detected
+	waitForCondition(t, func() bool {
+		return env.environmental.GetActiveWaterLeakCount() == 1
+	}, "water leak detection")
 
 	// Verify water leak detection worked
 	assert.Equal(t, 1, env.environmental.GetActiveWaterLeakCount(),
@@ -542,6 +553,7 @@ func TestScenario_SensorHealth_NodeStatusMonitoring(t *testing.T) {
 	env.server.SetState("sensor.front_door_lock_node_status", "alive", map[string]interface{}{
 		"friendly_name": "Front Door Lock Node Status",
 	})
+	// Brief setup delay: Allow entity to propagate before plugin start
 	time.Sleep(50 * time.Millisecond)
 
 	// Start sensorhealth plugin
@@ -549,8 +561,11 @@ func TestScenario_SensorHealth_NodeStatusMonitoring(t *testing.T) {
 	require.NoError(t, err)
 	defer env.sensorHealth.Stop()
 
-	// Give time for discovery
-	time.Sleep(100 * time.Millisecond)
+	// Wait for node status sensor to be discovered
+	waitForCondition(t, func() bool {
+		shadowState := env.sensorHealth.GetShadowState()
+		return len(shadowState.Outputs.NodeStatuses) >= 1
+	}, "node status sensor discovery")
 
 	// Verify sensor was discovered
 	shadowState := env.sensorHealth.GetShadowState()
@@ -566,11 +581,17 @@ func TestScenario_SensorHealth_NodeStatusMonitoring(t *testing.T) {
 	env.server.SetState("sensor.front_door_lock_node_status", "dead", map[string]interface{}{
 		"friendly_name": "Front Door Lock Node Status",
 	})
-	time.Sleep(150 * time.Millisecond)
-
-	// Advance mock clock past the debounce delay so the dead notification fires
-	env.mockClock.Advance(sensorhealth.NodeDeadDebounceDelay)
+	// Brief delay: Allow entity state change to propagate through event processing
 	time.Sleep(50 * time.Millisecond)
+
+	// Advance mock clock past the debounce delay and process timer callbacks
+	env.mockClock.AdvanceAndProcess(sensorhealth.NodeDeadDebounceDelay + 1*time.Second)
+
+	// Wait for dead device notification (notification is sent by AfterFunc callback)
+	waitForCondition(t, func() bool {
+		calls := env.mockNtfy.GetCalls()
+		return len(calls) >= 1
+	}, "dead device notification")
 
 	// Verify notification sent
 	calls := env.mockNtfy.GetCalls()
@@ -611,7 +632,12 @@ func TestScenario_SensorHealth_NodeStatusMonitoring(t *testing.T) {
 	env.server.SetState("sensor.front_door_lock_node_status", "alive", map[string]interface{}{
 		"friendly_name": "Front Door Lock Node Status",
 	})
-	time.Sleep(150 * time.Millisecond)
+
+	// Wait for recovery notification
+	waitForCondition(t, func() bool {
+		calls := env.mockNtfy.GetCalls()
+		return len(calls) >= 1
+	}, "device recovery notification")
 
 	// Verify recovery notification sent
 	calls = env.mockNtfy.GetCalls()
