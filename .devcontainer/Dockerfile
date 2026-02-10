@@ -6,7 +6,9 @@ FROM mcr.microsoft.com/devcontainers/go:1.24
 
 # Install system packages: Playwright browser dependencies, zsh, and utilities
 # Consolidates what was previously in common-utils feature
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# Remove Yarn apt source from base image - its GPG key is expired/missing
+RUN rm -f /etc/apt/sources.list.d/yarn.list \
+    && apt-get update && apt-get install -y --no-install-recommends \
     # Shell and common utilities (from common-utils feature)
     zsh \
     # Core Chromium dependencies
