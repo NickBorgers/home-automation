@@ -68,6 +68,20 @@ The main workflow that enables Claude to respond to requests and automatically r
 - **PR Review**: When a review body contains `@claude`
 - **New Issue**: When an issue is opened
 
+### Concurrency Control
+
+```yaml
+concurrency:
+  group: claude-interactive-${{ issue_or_pr_number }}
+  cancel-in-progress: false  # Complete first request, queue the second
+```
+
+Scoped by issue/PR number so that:
+- Two rapid `@claude` mentions on the **same** PR/issue are serialized (second queues until first completes)
+- `@claude` on **different** PRs/issues runs in parallel (separate concurrency groups)
+
+`cancel-in-progress: false` ensures the first request completes (it may already be mid-commit). The second request runs after the first finishes and sees its changes.
+
 ### Jobs
 
 #### 1.1 `build-devcontainer`
