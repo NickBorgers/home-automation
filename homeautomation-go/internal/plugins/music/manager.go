@@ -253,6 +253,21 @@ func (m *Manager) handleStateChange(key string, oldValue, newValue interface{}) 
 		zap.Any("old", oldValue),
 		zap.Any("new", newValue))
 
+	// When explicit zones are configured, the zone manager controls music type selection
+	// via trigger-based zone activation. The legacy selectAppropriateMusicMode path
+	// should be skipped to prevent race conditions (e.g., zone manager activating
+	// "morning" zone while selectAppropriateMusicMode forces "sleep" because
+	// isAnyoneAsleep=true during wake sequences).
+	//
+	// Zone trigger variables are subscribed via handleZoneTriggerChangeWithContext,
+	// so state changes to those variables will trigger zone resolution there.
+	// This handler only needs to run the legacy path for configs without explicit zones.
+	if m.config.HasZones() {
+		m.logger.Debug("Explicit zones configured, skipping legacy selectAppropriateMusicMode",
+			zap.String("key", key))
+		return
+	}
+
 	// Detect wake-up event: isAnyoneAsleep changed from true to false
 	// This matches Node-RED behavior where msg.topic and msg.payload are checked:
 	//   if (msg.topic == "isAnyoneAsleep" && msg.payload == false) { ... }
@@ -290,6 +305,17 @@ func (m *Manager) handleMusicPlaybackTypeChange(key string, oldValue, newValue i
 	if newType == "" {
 		m.logger.Info("Stopping music playback")
 		m.stopPlayback()
+		return
+	}
+
+	// When zones are configured, the zone manager orchestrates playback directly
+	// via orchestrateZonePlayback. musicPlaybackType is set by startZone for
+	// fade-in safety check consistency, but playback should NOT also be triggered
+	// through this legacy handler — that would cause duplicate executePlayback calls
+	// (one from orchestratePlayback here, one from orchestrateZonePlayback in startZone).
+	if m.config.HasZones() {
+		m.logger.Debug("Zones configured, skipping legacy orchestration for musicPlaybackType change",
+			zap.String("type", newType))
 		return
 	}
 
@@ -368,14 +394,23 @@ func (m *Manager) collectMuteConditionVariables() []string {
 // collectZoneTriggerVariables collects all unique variables from zone trigger conditions.
 // These are variables like isAnyoneAsleep that control zone activation (Phase 2).
 // Supports both legacy Triggers and new TriggerGroups.
+//
+// Note: dayPhase, isAnyoneAsleep, and isAnyoneHome are NOT filtered out here even though
+// they also have subscriptions via handleStateChange. When zones are configured,
+// handleStateChange returns early (skipping legacy selectAppropriateMusicMode), so these
+// variables MUST be subscribed to handleZoneTriggerChangeWithContext to trigger zone
+// resolution. musicPlaybackType is excluded because it has its own dedicated handler
+// (handleMusicPlaybackTypeChange) that should not trigger zone resolution.
 func (m *Manager) collectZoneTriggerVariables() []string {
 	varMap := make(map[string]bool)
 
-	// Variables already subscribed to via explicit handlers
+	// Only musicPlaybackType is excluded — it has a dedicated handler
+	// (handleMusicPlaybackTypeChange) and should not trigger zone resolution.
+	// dayPhase, isAnyoneAsleep, and isAnyoneHome are intentionally NOT filtered
+	// because when zones are configured, handleStateChange returns early, and
+	// these variables must reach handleZoneTriggerChangeWithContext to trigger
+	// zone resolution for routine daily transitions.
 	alreadySubscribed := map[string]bool{
-		"dayPhase":          true,
-		"isAnyoneAsleep":    true,
-		"isAnyoneHome":      true,
 		"musicPlaybackType": true,
 	}
 

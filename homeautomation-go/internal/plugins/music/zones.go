@@ -19,6 +19,29 @@ func (m *Manager) orchestrateZonePlayback(zone *Zone, playbackOption PlaybackOpt
 		zap.Int("participant_count", len(zone.Participants)),
 		zap.String("trigger", trigger))
 
+	// Update currently playing state to reflect the zone's music type.
+	// This is critical for consistency with the non-zone orchestratePlayback path
+	// and for any code that checks currentlyPlaying.Type.
+	m.mu.Lock()
+	m.currentlyPlaying = &CurrentlyPlayingMusic{
+		Type:         zone.MusicType,
+		URI:          playbackOption.URI,
+		MediaType:    playbackOption.MediaType,
+		LeadPlayer:   zone.LeadSpeaker,
+		Participants: zone.Participants,
+	}
+	m.mu.Unlock()
+
+	if m.readOnly {
+		m.logger.Info("Read-only mode: would start zone playback",
+			zap.String("zone", zone.Name),
+			zap.String("lead_speaker", zone.LeadSpeaker),
+			zap.Int("participant_count", len(zone.Participants)))
+		// Record shadow state even in read-only mode
+		m.recordPlaybackShadowState(zone.MusicType, playbackOption, zone.Participants, zone.LeadSpeaker, trigger, nil, 0)
+		return nil
+	}
+
 	// Use existing executePlayback logic
 	groupResult, verificationAttempts, err := m.executePlayback(
 		zone.MusicType,
@@ -110,10 +133,48 @@ func (m *Manager) addSpeakersToZone(zone *Zone, speakers []string, trigger strin
 
 		// Calculate and set volume
 		volume := m.calculateVolume(p.BaseVolume, 1.0) // Use default multiplier
-		// Use startFadeInWithContext to enable cancellation when new playback starts
-		// This prevents false "human override" detection and allows cancelAllFadeIns() to work
-		ctx := m.startFadeInWithContext(entityID)
-		go m.fadeInSpeaker(ctx, p.PlayerName, volume, zone.MusicType)
+
+		// Create ParticipantWithVolume to check mute conditions
+		participant := ParticipantWithVolume{
+			PlayerName:    p.PlayerName,
+			BaseVolume:    p.BaseVolume,
+			Volume:        volume,
+			DefaultVolume: volume,
+			LeaveMutedIf:  p.LeaveMutedIf,
+			ExcludeIf:     p.ExcludeIf,
+		}
+
+		// Check if speaker should be unmuted before starting fade-in
+		if m.shouldUnmuteSpeaker(participant) {
+			// Use startFadeInWithContext to enable cancellation when new playback starts
+			// This prevents false "human override" detection and allows cancelAllFadeIns() to work
+			ctx := m.startFadeInWithContext(entityID)
+			go m.fadeInSpeaker(ctx, p.PlayerName, volume, zone.MusicType)
+		} else {
+			// Speaker should stay muted, but set its target volume
+			m.logger.Info("Speaker joined zone, keeping muted",
+				zap.String("speaker", p.PlayerName),
+				zap.String("zone", zone.Name),
+				zap.Int("target_volume", volume))
+
+			if err := m.callServiceWithRetry("media_player", "volume_set", map[string]interface{}{
+				"entity_id":    entityID,
+				"volume_level": float64(volume) / 100.0,
+			}); err != nil {
+				m.logger.Error("Failed to set volume for muted speaker",
+					zap.String("speaker", p.PlayerName),
+					zap.Error(err))
+			}
+
+			if err := m.callServiceWithRetry("media_player", "volume_mute", map[string]interface{}{
+				"entity_id":       entityID,
+				"is_volume_muted": true,
+			}); err != nil {
+				m.logger.Error("Failed to mute speaker",
+					zap.String("speaker", p.PlayerName),
+					zap.Error(err))
+			}
+		}
 	}
 }
 
