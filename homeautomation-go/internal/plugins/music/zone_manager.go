@@ -740,6 +740,18 @@ func (zm *ZoneManager) startZone(zoneName string, speakers []string, trigger str
 	}
 	zm.mu.Unlock()
 
+	// Update musicPlaybackType to reflect the active zone.
+	// This is critical for the fade-in safety check (fadein.go) which reads
+	// musicPlaybackType to ensure the music type hasn't changed during fade-in.
+	// Without this, zone activation and fade-in can race with the legacy
+	// selectAppropriateMusicMode, causing fade-in to abort.
+	if err := zm.manager.setMusicPlaybackType(zoneName); err != nil {
+		zm.logger.Warn("Failed to update musicPlaybackType for zone",
+			zap.String("zone", zoneName),
+			zap.Error(err))
+		// Continue anyway - playback will still work, just without state sync
+	}
+
 	// Delegate actual playback to manager
 	go func() {
 		if err := zm.manager.orchestrateZonePlayback(zone, playbackOption, trigger); err != nil {
@@ -776,6 +788,24 @@ func (zm *ZoneManager) stopZone(zoneName string, reason string) error {
 	zm.logger.Info("Stopped zone",
 		zap.String("zone", zoneName),
 		zap.String("reason", reason))
+
+	// When stopping the sleep zone during a wake sequence, skip the fast fade-out.
+	// The sleephygiene plugin manages a gradual 30+ minute fade-out for bedroom
+	// speakers during wake sequences. If we call fadeOutZoneSpeakers here, it
+	// immediately sets volume to 0, overriding the slow fade and causing a
+	// jarring 2-second volume drop instead of the intended gentle fade.
+	//
+	// Issue #599 Symptom 1: "Rain sounds faded out in ~2 seconds instead of
+	// the intended 10+ minute fade"
+	if zoneName == "sleep" {
+		isWakeSequenceActive, err := zm.manager.stateManager.GetBool("isWakeSequenceActive")
+		if err == nil && isWakeSequenceActive {
+			zm.logger.Info("Skipping fast fade-out for sleep zone during wake sequence",
+				zap.String("zone", zoneName),
+				zap.String("reason", "sleephygiene manages bedroom fade-out"))
+			return nil
+		}
+	}
 
 	// Fade out speakers (delegate to manager)
 	go func() {

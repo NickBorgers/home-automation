@@ -982,3 +982,58 @@ func TestManager_MixedSubscribers(t *testing.T) {
 	assert.NotNil(t, receivedCtx)
 	assert.NotEmpty(t, receivedCtx.CorrelationID)
 }
+
+func TestManager_SyncFromHA_PreservesLocalOnlyVariables(t *testing.T) {
+	t.Parallel()
+	logger := testlogger.New()
+	mockClient := ha.NewMockClient()
+
+	// Setup minimal HA state so SyncFromHA succeeds
+	mockClient.SetState("input_boolean.nick_home", "off", map[string]interface{}{})
+	mockClient.Connect()
+
+	manager := NewManager(mockClient, logger, false)
+
+	// First sync initializes local-only variables to defaults
+	err := manager.SyncFromHA()
+	require.NoError(t, err)
+
+	// Verify didOwnerJustReturnHome starts as false (default)
+	value, err := manager.GetBool("didOwnerJustReturnHome")
+	require.NoError(t, err)
+	assert.False(t, value, "local-only variable should start at default")
+
+	// Simulate runtime: plugin sets didOwnerJustReturnHome = true (e.g., owner arrived home)
+	err = manager.SetBool("didOwnerJustReturnHome", true)
+	require.NoError(t, err)
+
+	value, err = manager.GetBool("didOwnerJustReturnHome")
+	require.NoError(t, err)
+	require.True(t, value, "value should be true after SetBool")
+
+	// Simulate WebSocket reconnect: SyncFromHA is called again
+	err = manager.SyncFromHA()
+	require.NoError(t, err)
+
+	// Local-only variable must preserve its runtime value (true), not reset to default (false)
+	value, err = manager.GetBool("didOwnerJustReturnHome")
+	require.NoError(t, err)
+	assert.True(t, value, "SyncFromHA must NOT reset local-only variables that already have cached values")
+
+	// Verify that subscribers are still notified when the value later changes to false
+	// (This is the actual production bug: auto-reset timer sets false, but if cache was
+	// already reset to false by SyncFromHA, SetBool sees no change and skips notification)
+	var notified int32
+	sub, err := manager.Subscribe("didOwnerJustReturnHome", func(key string, oldValue, newValue interface{}) {
+		atomic.AddInt32(&notified, 1)
+	})
+	require.NoError(t, err)
+	defer sub.Unsubscribe()
+
+	// Auto-reset timer fires: sets didOwnerJustReturnHome = false
+	err = manager.SetBool("didOwnerJustReturnHome", false)
+	require.NoError(t, err)
+
+	assert.Equal(t, int32(1), atomic.LoadInt32(&notified),
+		"subscriber must be notified when local-only variable changes from true to false after reconnect")
+}

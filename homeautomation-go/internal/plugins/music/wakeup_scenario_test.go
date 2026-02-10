@@ -1467,3 +1467,665 @@ func TestScenario_RateLimiting_StillWorksForStartRequests(t *testing.T) {
 		"Second immediate playback should be rate-limited, music should still be 'day'")
 	manager.mu.RUnlock()
 }
+
+// =============================================================================
+// TEST: Wake Sequence Active → Morning Music Actually Plays
+// =============================================================================
+//
+// PRODUCTION FAILURE (2026-02-09):
+// When the wake sequence fired this morning, two things went wrong:
+//  1. Rain sounds (sleep music) faded out in ~2 seconds instead of 10+ minutes
+//  2. Morning music never played in the rest of the house
+//
+// ROOT CAUSE:
+// When isWakeSequenceActive becomes true, TWO independent systems race:
+//
+//	System 1 — Zone Manager (correct behavior):
+//	  - Sees isWakeSequenceActive=true → sleep zone deactivates (requires false)
+//	  - Morning zone activates via trigger group 2
+//	  - Starts morning playback on Kitchen, Office, etc.
+//
+//	System 2 — Legacy selectAppropriateMusicMode (incorrect during wake):
+//	  - Fires because isWakeSequenceActive triggers handleZoneTriggerChange,
+//	    AND other variables may be subscribed to handleStateChange
+//	  - Sees isAnyoneAsleep=true (master is still in bed!)
+//	  - Forces musicPlaybackType="sleep" (selection.go line 52-63)
+//
+// THE MISMATCH:
+// The zone manager correctly starts the morning zone, but musicPlaybackType
+// remains "sleep" in the state manager. The fade-in safety check
+// (fadein.go:670) reads musicPlaybackType on every volume step:
+//
+//	if musicType != startingMusicType {
+//	    // "sleep" != "morning" → abort!
+//	    return
+//	}
+//
+// Result: Every speaker's fade-in aborts → no music plays in the house.
+//
+// CURRENT STATUS: FAILING (demonstrates the bug)
+func TestScenario_WakeSequenceActive_MorningMusicActuallyPlays(t *testing.T) {
+	t.Parallel()
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	config := createWakeSequenceTestConfig()
+
+	// Monday 6:30 AM - morning dayPhase
+	fixedTime := time.Date(2024, 1, 15, 6, 30, 0, 0, time.UTC)
+	require.Equal(t, time.Monday, fixedTime.Weekday(), "Test requires Monday")
+	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
+
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, true, timeProvider, nil)
+	manager.SetSleepFunc(func(d time.Duration) {}) // Skip internal sleeps for fast tests
+
+	// ==========================================================
+	// GIVEN: Morning dayPhase, master asleep, wake sequence NOT yet active
+	// Sleep zone is active (bedroom-only rain sounds)
+	// ==========================================================
+	t.Log("GIVEN: Morning dayPhase, isMasterAsleep=true, isAnyoneAsleep=true, isWakeSequenceActive=false")
+	_ = stateManager.SetString("dayPhase", "morning")
+	_ = stateManager.SetBool("isAnyoneHome", true)
+	_ = stateManager.SetBool("isAnyoneAsleep", true)
+	_ = stateManager.SetBool("isMasterAsleep", true)
+	_ = stateManager.SetBool("isGuestAsleep", false)
+	_ = stateManager.SetBool("isTVPlaying", false)
+	_ = stateManager.SetBool("isNickOfficeOccupied", false)
+	_ = stateManager.SetBool("isWakeSequenceActive", false)
+
+	err := manager.Start()
+	require.NoError(t, err)
+	defer manager.Stop()
+
+	time.Sleep(100 * time.Millisecond)
+	manager.WaitForSync()
+
+	// Verify initial state: sleep zone active, sleep music playing
+	musicType, _ := stateManager.GetString("musicPlaybackType")
+	require.Equal(t, "sleep", musicType, "GIVEN: Sleep music should be playing initially")
+
+	activeZones := manager.zoneManager.getActiveZoneConfigs()
+	sleepZoneInitiallyActive := false
+	for _, zc := range activeZones {
+		if zc.Name == "sleep" {
+			sleepZoneInitiallyActive = true
+		}
+	}
+	require.True(t, sleepZoneInitiallyActive, "GIVEN: Sleep zone should be active initially")
+
+	// ==========================================================
+	// WHEN: isWakeSequenceActive becomes true
+	// (simulates sleephygiene's handleBeginWake)
+	// ==========================================================
+	t.Log("WHEN: isWakeSequenceActive changes to true")
+	_ = stateManager.SetBool("isWakeSequenceActive", true)
+
+	time.Sleep(200 * time.Millisecond)
+	manager.WaitForSync()
+
+	// ==========================================================
+	// THEN: Verify zone manager state
+	// ==========================================================
+	t.Log("THEN: Checking zone manager state...")
+
+	activeZones = manager.zoneManager.getActiveZoneConfigs()
+	sleepZoneActive := false
+	morningZoneActive := false
+	for _, zc := range activeZones {
+		if zc.Name == "sleep" {
+			sleepZoneActive = true
+		}
+		if zc.Name == "morning" {
+			morningZoneActive = true
+		}
+	}
+
+	// Zone manager should correctly stop sleep zone and start morning zone
+	assert.False(t, sleepZoneActive,
+		"Sleep zone should NOT be active when isWakeSequenceActive=true "+
+			"(sleep zone requires isWakeSequenceActive=false)")
+	assert.True(t, morningZoneActive,
+		"Morning zone should be active (trigger group 2: isWakeSequenceActive=true + dayPhase=morning)")
+
+	// ==========================================================
+	// THEN: musicPlaybackType must reflect the active zone
+	// THIS IS THE KEY ASSERTION THAT EXPOSES THE BUG
+	// ==========================================================
+	t.Log("THEN: Checking musicPlaybackType reflects active zone...")
+
+	musicType, err = stateManager.GetString("musicPlaybackType")
+	require.NoError(t, err)
+
+	// BUG: selectAppropriateMusicMode sees isAnyoneAsleep=true and forces
+	// musicPlaybackType="sleep", even though the zone manager has activated
+	// the morning zone. The fade-in safety check then sees
+	// "sleep" != "morning" and aborts all speaker fade-ins.
+	assert.Equal(t, "morning", musicType,
+		"musicPlaybackType must reflect the active zone ('morning'), not the legacy "+
+			"selectAppropriateMusicMode result ('sleep'). When the zone manager is "+
+			"actively managing zones, it should control musicPlaybackType. "+
+			"Currently, selectAppropriateMusicMode sees isAnyoneAsleep=true and "+
+			"forces 'sleep', causing fade-in aborts in fadein.go:670.")
+
+	// ==========================================================
+	// THEN: Morning music should actually be playing
+	// ==========================================================
+	t.Log("THEN: Checking morning music is actually playing...")
+
+	manager.mu.RLock()
+	currentlyPlaying := manager.currentlyPlaying
+	manager.mu.RUnlock()
+
+	if assert.NotNil(t, currentlyPlaying, "Music should be playing (currentlyPlaying should not be nil)") {
+		assert.Equal(t, "morning", currentlyPlaying.Type,
+			"Currently playing music type should be 'morning', not 'sleep'")
+	}
+}
+
+// =============================================================================
+// SYMPTOM 1 FIX: Sleep Zone Fade-Out Coordination
+// =============================================================================
+//
+// Issue #599 Symptom 1:
+// "Rain sounds faded out in ~2 seconds instead of the intended 10+ minute fade"
+//
+// Root Cause:
+// When isWakeSequenceActive becomes true, the sleep zone stops matching
+// (it requires isWakeSequenceActive=false). The zone manager then calls
+// stopZone("sleep", ...) which uses fadeOutZoneSpeakers - a fast fade
+// that immediately sets volume to 0.
+//
+// However, sleephygiene's handleBeginWake() has ALREADY started its slow
+// fade-out (30+ minutes) on the bedroom speakers. The zone manager's fast
+// fade wins, overriding the slow fade and causing the jarring 2-second
+// volume drop.
+//
+// Fix:
+// When stopping the sleep zone during a wake sequence (isWakeSequenceActive=true),
+// the zone manager should NOT call fadeOutZoneSpeakers. Instead, it should
+// let sleephygiene manage the bedroom fade-out.
+//
+// =============================================================================
+
+func TestScenario_WakeSequence_SleepZoneSkipsFastFadeOut(t *testing.T) {
+	t.Parallel()
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	config := createWakeSequenceTestConfig()
+
+	// Monday 6:30 AM - morning dayPhase
+	fixedTime := time.Date(2024, 1, 15, 6, 30, 0, 0, time.UTC)
+	require.Equal(t, time.Monday, fixedTime.Weekday(), "Test requires Monday")
+	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
+
+	// Use readOnly=false so we can track service calls
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, timeProvider, nil)
+	manager.SetSleepFunc(func(d time.Duration) {}) // Skip internal sleeps for fast tests
+
+	// ==========================================================
+	// GIVEN: Morning dayPhase, master asleep, sleep zone active
+	// ==========================================================
+	t.Log("GIVEN: Morning dayPhase, isMasterAsleep=true, isWakeSequenceActive=false")
+	t.Log("       Sleep zone is active with bedroom playing rain sounds")
+	_ = stateManager.SetString("dayPhase", "morning")
+	_ = stateManager.SetBool("isAnyoneHome", true)
+	_ = stateManager.SetBool("isAnyoneAsleep", true)
+	_ = stateManager.SetBool("isMasterAsleep", true)
+	_ = stateManager.SetBool("isGuestAsleep", false)
+	_ = stateManager.SetBool("isTVPlaying", false)
+	_ = stateManager.SetBool("isNickOfficeOccupied", false)
+	_ = stateManager.SetBool("isWakeSequenceActive", false)
+
+	// Set up bedroom speaker state in HA
+	mockClient.SetState("media_player.bedroom", "playing", map[string]interface{}{
+		"volume_level": 0.16, // 16% typical sleep volume
+	})
+
+	err := manager.Start()
+	require.NoError(t, err)
+	defer manager.Stop()
+
+	time.Sleep(100 * time.Millisecond)
+	manager.WaitForSync()
+
+	// Manually trigger initial zone resolution to simulate what happens when
+	// the system starts up and processes initial state. In production, this
+	// is triggered by HA state changes flowing through subscriptions.
+	err = manager.zoneManager.ResolveZones("initial_state")
+	require.NoError(t, err)
+
+	// Wait for zone to start (playback happens in goroutine)
+	time.Sleep(200 * time.Millisecond)
+	manager.WaitForSync()
+
+	// Verify initial state: sleep zone active
+	activeZones := manager.zoneManager.getActiveZoneConfigs()
+	sleepZoneInitiallyActive := false
+	for _, zc := range activeZones {
+		if zc.Name == "sleep" {
+			sleepZoneInitiallyActive = true
+		}
+	}
+	require.True(t, sleepZoneInitiallyActive, "GIVEN: Sleep zone should be active initially")
+
+	// Verify bedroom is a participant in the sleep zone
+	manager.zoneManager.mu.RLock()
+	sleepZone := manager.zoneManager.activeZones["sleep"]
+	var bedroomInSleepZone bool
+	if sleepZone != nil {
+		for _, p := range sleepZone.Participants {
+			if p.PlayerName == "Bedroom" {
+				bedroomInSleepZone = true
+				break
+			}
+		}
+	}
+	manager.zoneManager.mu.RUnlock()
+	require.True(t, bedroomInSleepZone, "GIVEN: Bedroom should be a participant in the sleep zone")
+
+	// Clear service calls to track only what happens during wake sequence
+	mockClient.ClearServiceCalls()
+
+	// ==========================================================
+	// WHEN: isWakeSequenceActive becomes true
+	// (simulates sleephygiene's handleBeginWake)
+	//
+	// At this point, sleephygiene has ALREADY started its slow
+	// fade-out on bedroom speakers. The zone manager should NOT
+	// interfere with that fade.
+	// ==========================================================
+	t.Log("WHEN: isWakeSequenceActive changes to true")
+	t.Log("      (sleephygiene is managing the slow bedroom fade-out)")
+	_ = stateManager.SetBool("isWakeSequenceActive", true)
+
+	// Wait for zone resolution and goroutines to complete
+	// fadeOutZoneSpeakers is called in a goroutine, so we need to wait
+	time.Sleep(500 * time.Millisecond)
+	manager.WaitForSync()
+
+	// Verify zone manager stopped the sleep zone
+	activeZones = manager.zoneManager.getActiveZoneConfigs()
+	sleepZoneStillActive := false
+	for _, zc := range activeZones {
+		if zc.Name == "sleep" {
+			sleepZoneStillActive = true
+		}
+	}
+	assert.False(t, sleepZoneStillActive, "Sleep zone should be stopped when isWakeSequenceActive=true")
+
+	// ==========================================================
+	// THEN: Zone manager should NOT call volume_set with volume=0
+	// on bedroom speaker (that would be the fast fade-out)
+	//
+	// The absence of this call allows sleephygiene's slow fade
+	// to continue undisturbed.
+	// ==========================================================
+	t.Log("THEN: Zone manager should NOT have called fast fade-out on bedroom")
+
+	serviceCalls := mockClient.GetServiceCalls()
+	bedroomFastFadeOutCalled := false
+	for _, call := range serviceCalls {
+		if call.Domain == "media_player" && call.Service == "volume_set" {
+			if entityID, ok := call.Data["entity_id"].(string); ok {
+				if entityID == "media_player.bedroom" {
+					if volumeLevel, ok := call.Data["volume_level"].(float64); ok {
+						if volumeLevel == 0.0 {
+							bedroomFastFadeOutCalled = true
+							t.Logf("FOUND unwanted fast fade-out call: %+v", call)
+						}
+					}
+				}
+			}
+		}
+	}
+
+	assert.False(t, bedroomFastFadeOutCalled,
+		"Zone manager should NOT call volume_set with volume=0 on bedroom speaker "+
+			"when stopping sleep zone during wake sequence. This fast fade-out "+
+			"interferes with sleephygiene's slow 30-minute fade. "+
+			"Instead, the zone manager should skip the fade-out and let "+
+			"sleephygiene manage the bedroom speakers during wake sequences.")
+}
+
+// =============================================================================
+// ZONE-CONFIGURED STATE TRANSITION TESTS
+// =============================================================================
+//
+// These tests verify that when zones are configured, changes to core state
+// variables (dayPhase, isAnyoneHome, isAnyoneAsleep) properly trigger zone
+// resolution. This validates the fix for the blocking review issue where
+// handleStateChange returned early for zone-configured managers, and the
+// alreadySubscribed filter in collectZoneTriggerVariables() prevented these
+// variables from being subscribed to handleZoneTriggerChangeWithContext.
+//
+// Without the fix:
+//   - dayPhase changes → no zone resolution → music stays on wrong playlist
+//   - isAnyoneHome=false → no zone resolution → music plays in empty house
+//   - isAnyoneAsleep=true → no zone resolution → no transition to sleep zone
+//
+// =============================================================================
+
+// TestScenario_ZonesConfigured_DayPhaseTransition verifies that when dayPhase
+// changes from morning to day with zones configured, zone resolution triggers
+// and the active zone transitions accordingly.
+//
+// PRODUCTION FAILURE WITHOUT FIX:
+// dayPhase changes from "morning" to "day" → morning zone stays active
+// indefinitely because the change never triggers zone resolution.
+func TestScenario_ZonesConfigured_DayPhaseTransition(t *testing.T) {
+	t.Parallel()
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	config := createWakeSequenceTestConfig()
+
+	// Monday 9:00 AM
+	fixedTime := time.Date(2024, 1, 15, 9, 0, 0, 0, time.UTC)
+	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
+
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, true, timeProvider, nil)
+	manager.SetSleepFunc(func(d time.Duration) {})
+
+	// ==========================================================
+	// GIVEN: Morning dayPhase, no one asleep, morning zone active
+	// ==========================================================
+	t.Log("GIVEN: dayPhase=morning, isAnyoneHome=true, isAnyoneAsleep=false")
+	_ = stateManager.SetString("dayPhase", "morning")
+	_ = stateManager.SetBool("isAnyoneHome", true)
+	_ = stateManager.SetBool("isAnyoneAsleep", false)
+	_ = stateManager.SetBool("isMasterAsleep", false)
+	_ = stateManager.SetBool("isWakeSequenceActive", false)
+
+	err := manager.Start()
+	require.NoError(t, err)
+	defer manager.Stop()
+
+	time.Sleep(100 * time.Millisecond)
+	manager.WaitForSync()
+
+	// Verify morning zone is active
+	activeZones := manager.zoneManager.getActiveZoneConfigs()
+	morningActive := false
+	for _, zc := range activeZones {
+		if zc.Name == "morning" {
+			morningActive = true
+		}
+	}
+	require.True(t, morningActive, "GIVEN: Morning zone should be active")
+
+	// ==========================================================
+	// WHEN: dayPhase transitions from morning to day
+	// ==========================================================
+	t.Log("WHEN: dayPhase changes from 'morning' to 'day'")
+	_ = stateManager.SetString("dayPhase", "day")
+
+	time.Sleep(200 * time.Millisecond)
+	manager.WaitForSync()
+
+	// ==========================================================
+	// THEN: Day zone should be active, morning zone should stop
+	// ==========================================================
+	t.Log("THEN: Day zone should be active, morning zone should stop")
+	activeZones = manager.zoneManager.getActiveZoneConfigs()
+	dayActive := false
+	morningStillActive := false
+	for _, zc := range activeZones {
+		if zc.Name == "day" {
+			dayActive = true
+		}
+		if zc.Name == "morning" {
+			morningStillActive = true
+		}
+	}
+
+	assert.True(t, dayActive,
+		"Day zone should be active after dayPhase transitions to 'day'. "+
+			"If this fails, dayPhase changes are not triggering zone resolution "+
+			"when zones are configured.")
+	assert.False(t, morningStillActive,
+		"Morning zone should stop after dayPhase transitions to 'day'")
+}
+
+// TestScenario_ZonesConfigured_NoOneHome_StopsMusic verifies that when
+// isAnyoneHome becomes false with zones configured, zone resolution triggers
+// and all zones stop (since every zone requires isAnyoneHome=true).
+//
+// PRODUCTION FAILURE WITHOUT FIX:
+// isAnyoneHome becomes false → music continues playing in an empty house
+// because the change never triggers zone resolution.
+func TestScenario_ZonesConfigured_NoOneHome_StopsMusic(t *testing.T) {
+	t.Parallel()
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	config := createWakeSequenceTestConfig()
+
+	// Monday 10:00 AM
+	fixedTime := time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC)
+	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
+
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, true, timeProvider, nil)
+	manager.SetSleepFunc(func(d time.Duration) {})
+
+	// ==========================================================
+	// GIVEN: Day phase, someone home, day zone active
+	// ==========================================================
+	t.Log("GIVEN: dayPhase=day, isAnyoneHome=true, isAnyoneAsleep=false, day zone active")
+	_ = stateManager.SetString("dayPhase", "day")
+	_ = stateManager.SetBool("isAnyoneHome", true)
+	_ = stateManager.SetBool("isAnyoneAsleep", false)
+	_ = stateManager.SetBool("isMasterAsleep", false)
+	_ = stateManager.SetBool("isWakeSequenceActive", false)
+
+	err := manager.Start()
+	require.NoError(t, err)
+	defer manager.Stop()
+
+	time.Sleep(100 * time.Millisecond)
+	manager.WaitForSync()
+
+	// Manually trigger initial zone resolution
+	err = manager.zoneManager.ResolveZones("initial_state")
+	require.NoError(t, err)
+	time.Sleep(100 * time.Millisecond)
+	manager.WaitForSync()
+
+	// Verify day zone is active
+	activeZones := manager.zoneManager.getActiveZoneConfigs()
+	dayActive := false
+	for _, zc := range activeZones {
+		if zc.Name == "day" {
+			dayActive = true
+		}
+	}
+	require.True(t, dayActive, "GIVEN: Day zone should be active")
+
+	// Verify there's an active tracked zone
+	manager.zoneManager.mu.RLock()
+	initialActiveCount := len(manager.zoneManager.activeZones)
+	manager.zoneManager.mu.RUnlock()
+	require.Greater(t, initialActiveCount, 0, "GIVEN: Should have at least one active zone")
+
+	// ==========================================================
+	// WHEN: isAnyoneHome becomes false (everyone left)
+	// ==========================================================
+	t.Log("WHEN: isAnyoneHome changes from true to false")
+	_ = stateManager.SetBool("isAnyoneHome", false)
+
+	time.Sleep(200 * time.Millisecond)
+	manager.WaitForSync()
+
+	// ==========================================================
+	// THEN: All zones should stop (every zone requires isAnyoneHome=true)
+	// ==========================================================
+	t.Log("THEN: All zones should be stopped (no zone matches without isAnyoneHome=true)")
+	activeZones = manager.zoneManager.getActiveZoneConfigs()
+	assert.Empty(t, activeZones,
+		"No zones should be active when isAnyoneHome=false. "+
+			"If this fails, isAnyoneHome changes are not triggering zone resolution "+
+			"when zones are configured.")
+
+	// Also check tracked zones are cleaned up
+	manager.zoneManager.mu.RLock()
+	activeCount := len(manager.zoneManager.activeZones)
+	manager.zoneManager.mu.RUnlock()
+	assert.Equal(t, 0, activeCount,
+		"Active zone tracking should be empty when no one is home")
+}
+
+// TestScenario_ZonesConfigured_SomeoneAsleep_TriggersSleepZone verifies that
+// when isAnyoneAsleep becomes true with zones configured, zone resolution
+// triggers and the sleep zone activates (if other conditions match).
+//
+// PRODUCTION FAILURE WITHOUT FIX:
+// isAnyoneAsleep becomes true → no transition to sleep zone because the
+// change never triggers zone resolution.
+func TestScenario_ZonesConfigured_SomeoneAsleep_TriggersSleepZone(t *testing.T) {
+	t.Parallel()
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	config := createWakeSequenceTestConfig()
+
+	// Monday 10:00 PM (night)
+	fixedTime := time.Date(2024, 1, 15, 22, 0, 0, 0, time.UTC)
+	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
+
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, true, timeProvider, nil)
+	manager.SetSleepFunc(func(d time.Duration) {})
+
+	// ==========================================================
+	// GIVEN: Night, no one asleep yet, sleep-prep zone active
+	// ==========================================================
+	t.Log("GIVEN: dayPhase=night, isAnyoneHome=true, isMasterAsleep=false")
+	_ = stateManager.SetString("dayPhase", "night")
+	_ = stateManager.SetBool("isAnyoneHome", true)
+	_ = stateManager.SetBool("isAnyoneAsleep", false)
+	_ = stateManager.SetBool("isMasterAsleep", false)
+	_ = stateManager.SetBool("isWakeSequenceActive", false)
+
+	err := manager.Start()
+	require.NoError(t, err)
+	defer manager.Stop()
+
+	time.Sleep(100 * time.Millisecond)
+	manager.WaitForSync()
+
+	// Verify sleep-prep zone is active (night + isAnyoneHome + !isMasterAsleep)
+	activeZones := manager.zoneManager.getActiveZoneConfigs()
+	sleepPrepActive := false
+	for _, zc := range activeZones {
+		if zc.Name == "sleep-prep" {
+			sleepPrepActive = true
+		}
+	}
+	require.True(t, sleepPrepActive, "GIVEN: sleep-prep zone should be active at night before master sleeps")
+
+	// ==========================================================
+	// WHEN: Master goes to sleep (isMasterAsleep=true, isAnyoneAsleep=true)
+	// ==========================================================
+	t.Log("WHEN: isMasterAsleep changes to true, isAnyoneAsleep changes to true")
+	_ = stateManager.SetBool("isMasterAsleep", true)
+	_ = stateManager.SetBool("isAnyoneAsleep", true)
+
+	time.Sleep(200 * time.Millisecond)
+	manager.WaitForSync()
+
+	// ==========================================================
+	// THEN: Sleep zone should activate (isMasterAsleep=true, isAnyoneHome=true, isWakeSequenceActive=false)
+	//       sleep-prep zone should stop (isMasterAsleep=false condition no longer met)
+	// ==========================================================
+	t.Log("THEN: Sleep zone should be active, sleep-prep should stop")
+	activeZones = manager.zoneManager.getActiveZoneConfigs()
+	sleepActive := false
+	sleepPrepStillActive := false
+	for _, zc := range activeZones {
+		if zc.Name == "sleep" {
+			sleepActive = true
+		}
+		if zc.Name == "sleep-prep" {
+			sleepPrepStillActive = true
+		}
+	}
+
+	assert.True(t, sleepActive,
+		"Sleep zone should be active when isMasterAsleep=true. "+
+			"If this fails, isMasterAsleep/isAnyoneAsleep changes are not triggering "+
+			"zone resolution when zones are configured.")
+	assert.False(t, sleepPrepStillActive,
+		"sleep-prep zone should stop when isMasterAsleep=true (trigger requires isMasterAsleep=false)")
+}
+
+// TestScenario_ZonesConfigured_HandleMusicPlaybackTypeChange_SkipsLegacyOrchestration
+// verifies that when zones are configured, handleMusicPlaybackTypeChange does NOT
+// trigger legacy orchestratePlayback. This prevents duplicate Sonos commands when
+// startZone sets musicPlaybackType and also launches orchestrateZonePlayback.
+func TestScenario_ZonesConfigured_HandleMusicPlaybackTypeChange_SkipsLegacyOrchestration(t *testing.T) {
+	t.Parallel()
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	config := createWakeSequenceTestConfig()
+
+	// Monday 9:00 AM
+	fixedTime := time.Date(2024, 1, 15, 9, 0, 0, 0, time.UTC)
+	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
+
+	// Use readOnly=false so we can track service calls
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, timeProvider, nil)
+	manager.SetSleepFunc(func(d time.Duration) {})
+
+	// ==========================================================
+	// GIVEN: Zone-configured manager with morning state
+	// ==========================================================
+	t.Log("GIVEN: Zone-configured manager, dayPhase=morning, isAnyoneHome=true")
+	_ = stateManager.SetString("dayPhase", "morning")
+	_ = stateManager.SetBool("isAnyoneHome", true)
+	_ = stateManager.SetBool("isAnyoneAsleep", false)
+	_ = stateManager.SetBool("isMasterAsleep", false)
+	_ = stateManager.SetBool("isWakeSequenceActive", false)
+
+	// Set up mock speakers
+	mockClient.SetState("media_player.kitchen", "idle", nil)
+	mockClient.SetState("media_player.office", "idle", nil)
+	mockClient.SetState("media_player.bedroom", "idle", nil)
+
+	err := manager.Start()
+	require.NoError(t, err)
+	defer manager.Stop()
+
+	time.Sleep(100 * time.Millisecond)
+	manager.WaitForSync()
+
+	// Clear any startup service calls
+	mockClient.ClearServiceCalls()
+
+	// ==========================================================
+	// WHEN: musicPlaybackType changes (as startZone would set it)
+	// ==========================================================
+	t.Log("WHEN: musicPlaybackType set to 'morning' (simulating what startZone does)")
+	// Directly call handleMusicPlaybackTypeChange to test it in isolation
+	manager.handleMusicPlaybackTypeChange("musicPlaybackType", "", "morning")
+
+	time.Sleep(100 * time.Millisecond)
+
+	// ==========================================================
+	// THEN: No service calls should be made (legacy orchestration skipped)
+	// ==========================================================
+	t.Log("THEN: No media_player service calls from legacy orchestratePlayback")
+	serviceCalls := mockClient.GetServiceCalls()
+
+	mediaPlayerCalls := 0
+	for _, call := range serviceCalls {
+		if call.Domain == "media_player" {
+			mediaPlayerCalls++
+			t.Logf("  Unexpected media_player call: %s.%s %+v", call.Domain, call.Service, call.Data)
+		}
+	}
+
+	assert.Equal(t, 0, mediaPlayerCalls,
+		"When zones are configured, handleMusicPlaybackTypeChange should skip "+
+			"legacy orchestratePlayback to prevent duplicate playback commands. "+
+			"Zone playback is handled by orchestrateZonePlayback in startZone.")
+}

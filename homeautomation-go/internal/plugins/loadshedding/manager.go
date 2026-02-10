@@ -30,6 +30,9 @@ const (
 	climateHouse        = "climate.most_of_house_thermostat"
 	climateSuite        = "climate.primary_suite_thermostat"
 
+	// EV Charger entity
+	evChargerSwitch = "switch.leaf_charger"
+
 	// Temperature ranges
 	tempLowRestricted  = 65.0
 	tempHighRestricted = 80.0
@@ -250,10 +253,11 @@ func (m *Manager) executeEnableLoadShedding(energyLevel string, trigger string) 
 	}
 
 	if m.readOnly {
-		m.logger.Info("READ-ONLY: Would enable thermostat hold mode",
-			zap.Strings("entities", []string{thermostatHoldHouse, thermostatHoldSuite}))
+		m.logger.Info("READ-ONLY: Would enable thermostat hold mode and turn off EV charger",
+			zap.Strings("thermostat_entities", []string{thermostatHoldHouse, thermostatHoldSuite}),
+			zap.String("ev_charger_entity", evChargerSwitch))
 		// Record shadow state even in read-only mode for consistency
-		reason := fmt.Sprintf("Energy state is %s (low battery) - would restrict HVAC", energyLevel)
+		reason := fmt.Sprintf("Energy state is %s (low battery) - would restrict HVAC and disable EV charger", energyLevel)
 		m.recordAction(true, "enable", reason, true, tempLowRestricted, tempHighRestricted, trigger)
 		return
 	}
@@ -289,8 +293,22 @@ func (m *Manager) executeEnableLoadShedding(energyLevel string, trigger string) 
 	}
 
 	m.logger.Info("✓ Successfully set wider temperature range")
+
+	// Turn off EV charger to reduce load
+	m.logger.Info("Executing: Turn off EV charger",
+		zap.String("entity", evChargerSwitch))
+
+	if err := m.haClient.CallService(m.ctx, "switch", "turn_off", map[string]interface{}{
+		"entity_id": evChargerSwitch,
+	}); err != nil {
+		m.logger.Error("Failed to turn off EV charger", zap.Error(err))
+		// Continue - thermostat control already succeeded
+	} else {
+		m.logger.Info("✓ Successfully turned off EV charger")
+	}
+
 	m.logger.Info("=== LOAD SHEDDING ACTIVATED ===",
-		zap.String("action", "HVAC restricted to conserve battery"))
+		zap.String("action", "HVAC restricted and EV charger disabled to conserve battery"))
 
 	// Update state tracking and last action time
 	m.stateMu.Lock()
@@ -366,10 +384,11 @@ func (m *Manager) executeDisableLoadShedding(energyLevel string, trigger string)
 	}
 
 	if m.readOnly {
-		m.logger.Info("READ-ONLY: Would disable thermostat hold mode (restore schedule)",
-			zap.Strings("entities", []string{thermostatHoldHouse, thermostatHoldSuite}))
+		m.logger.Info("READ-ONLY: Would disable thermostat hold mode and turn on EV charger (restore schedule)",
+			zap.Strings("thermostat_entities", []string{thermostatHoldHouse, thermostatHoldSuite}),
+			zap.String("ev_charger_entity", evChargerSwitch))
 		// Record shadow state even in read-only mode for consistency
-		reason := fmt.Sprintf("Energy state is %s (battery restored) - would return to normal HVAC", energyLevel)
+		reason := fmt.Sprintf("Energy state is %s (battery restored) - would return to normal HVAC and re-enable EV charger", energyLevel)
 		m.recordAction(false, "disable", reason, false, 0, 0, trigger)
 		return
 	}
@@ -387,8 +406,22 @@ func (m *Manager) executeDisableLoadShedding(energyLevel string, trigger string)
 	}
 
 	m.logger.Info("✓ Successfully disabled thermostat hold mode")
+
+	// Turn on EV charger (restore normal operation)
+	m.logger.Info("Executing: Turn on EV charger",
+		zap.String("entity", evChargerSwitch))
+
+	if err := m.haClient.CallService(m.ctx, "switch", "turn_on", map[string]interface{}{
+		"entity_id": evChargerSwitch,
+	}); err != nil {
+		m.logger.Error("Failed to turn on EV charger", zap.Error(err))
+		// Continue - thermostat control already succeeded
+	} else {
+		m.logger.Info("✓ Successfully turned on EV charger")
+	}
+
 	m.logger.Info("=== LOAD SHEDDING DEACTIVATED ===",
-		zap.String("action", "HVAC returned to normal schedule"))
+		zap.String("action", "HVAC returned to normal schedule and EV charger re-enabled"))
 
 	// Update state tracking and last action time
 	m.stateMu.Lock()

@@ -588,6 +588,10 @@ func TestScenario_SensorHealth_NodeStatusMonitoring(t *testing.T) {
 		return len(calls) >= 1
 	}, "dead device notification")
 
+	// Advance mock clock past the debounce delay so the dead notification fires
+	env.mockClock.Advance(sensorhealth.NodeDeadDebounceDelay)
+	time.Sleep(50 * time.Millisecond)
+
 	// Verify notification sent
 	calls := env.mockNtfy.GetCalls()
 	assert.GreaterOrEqual(t, len(calls), 1, "Should send notification for dead device")

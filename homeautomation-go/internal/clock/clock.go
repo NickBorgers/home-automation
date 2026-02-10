@@ -3,6 +3,7 @@
 package clock
 
 import (
+	"runtime"
 	"sync"
 	"time"
 )
@@ -291,6 +292,26 @@ func (c *MockClock) Advance(d time.Duration) {
 			timer.mu.Unlock()
 		}
 	}
+}
+
+// AdvanceAndProcess moves the mock clock forward by duration d, fires all expired
+// timer callbacks synchronously, and then briefly yields to the Go scheduler to allow
+// any goroutines woken by those callbacks (e.g., goroutines blocked on clock.After
+// channels) to execute. This replaces the pattern of Advance() + time.Sleep(100ms)
+// with a much faster alternative.
+//
+// For AfterFunc callbacks, the callback executes synchronously during Advance() and
+// state updates happen inline. For After() channel-based consumers (goroutines in
+// select loops), a brief scheduling yield allows those goroutines to process.
+func (c *MockClock) AdvanceAndProcess(d time.Duration) {
+	c.Advance(d)
+
+	// Yield to allow goroutines woken by timer callbacks to execute.
+	// Timer callbacks that write to channels (e.g., After()) wake up goroutines that
+	// are blocked in select statements. Gosched + a minimal sleep ensures those
+	// goroutines get scheduled, run, and complete their work before we return.
+	runtime.Gosched()
+	time.Sleep(10 * time.Millisecond)
 }
 
 // Set sets the mock clock to a specific time and fires any expired timers

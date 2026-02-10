@@ -24,6 +24,7 @@ import (
 	_ "homeautomation/internal/plugins/dayphase"
 	_ "homeautomation/internal/plugins/energy"
 	_ "homeautomation/internal/plugins/environmental"
+	_ "homeautomation/internal/plugins/evcharger"
 	_ "homeautomation/internal/plugins/infrastructure"
 	_ "homeautomation/internal/plugins/lighting"
 	_ "homeautomation/internal/plugins/loadshedding"

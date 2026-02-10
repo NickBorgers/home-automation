@@ -120,11 +120,13 @@ func (m *Manager) SyncFromHA() error {
 		// Skip local-only variables (not synced with HA)
 		if variable.LocalOnly {
 			m.cacheMu.Lock()
-			m.cache[variable.Key] = variable.Default
+			if _, exists := m.cache[variable.Key]; !exists {
+				m.cache[variable.Key] = variable.Default
+				m.logger.Debug("Initialized local-only variable",
+					zap.String("key", variable.Key))
+			}
 			m.cacheMu.Unlock()
 			localCount++
-			m.logger.Debug("Initialized local-only variable",
-				zap.String("key", variable.Key))
 			continue
 		}
 

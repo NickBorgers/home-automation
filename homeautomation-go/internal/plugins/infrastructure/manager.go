@@ -50,7 +50,7 @@ const (
 	WellThermostatEntity = "climate.well_light_thermostat"
 
 	// BarnThermostatEntity is the barn dehumidifier control thermostat
-	BarnThermostatEntity = "climate.barn_humidifier_thermostat"
+	BarnThermostatEntity = "climate.barn_dehumidifier_thermostat"
 )
 
 // Manager handles infrastructure monitoring for the septic system

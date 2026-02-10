@@ -1,6 +1,7 @@
 package clock
 
 import (
+	"runtime"
 	"sync"
 	"testing"
 	"time"
@@ -309,5 +310,93 @@ func TestMockTimer_Stop(t *testing.T) {
 	wasActive = timer.Stop()
 	if wasActive {
 		t.Error("Stop should return false for already stopped timer")
+	}
+}
+
+// TestMockClock_AdvanceAndProcess tests that AdvanceAndProcess fires timers
+// and allows goroutines woken by those timers to execute
+func TestMockClock_AdvanceAndProcess(t *testing.T) {
+	clock := NewMockClock(time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC))
+
+	// Test 1: AfterFunc callbacks fire synchronously (same as Advance)
+	fired := false
+	clock.AfterFunc(10*time.Second, func() {
+		fired = true
+	})
+
+	clock.AdvanceAndProcess(10 * time.Second)
+	if !fired {
+		t.Error("AfterFunc callback should have fired during AdvanceAndProcess")
+	}
+
+	// Test 2: After() channel-based timers deliver values
+	ch := clock.After(5 * time.Second)
+	clock.AdvanceAndProcess(5 * time.Second)
+
+	select {
+	case <-ch:
+		// Expected: channel received value
+	case <-time.After(100 * time.Millisecond):
+		t.Error("After channel should have value after AdvanceAndProcess")
+	}
+
+	// Test 3: Multiple timers at different deadlines
+	results := make([]int, 0, 3)
+	var mu sync.Mutex
+
+	clock.AfterFunc(1*time.Second, func() {
+		mu.Lock()
+		results = append(results, 1)
+		mu.Unlock()
+	})
+	clock.AfterFunc(2*time.Second, func() {
+		mu.Lock()
+		results = append(results, 2)
+		mu.Unlock()
+	})
+	clock.AfterFunc(3*time.Second, func() {
+		mu.Lock()
+		results = append(results, 3)
+		mu.Unlock()
+	})
+
+	clock.AdvanceAndProcess(3 * time.Second)
+
+	mu.Lock()
+	if len(results) != 3 {
+		t.Errorf("Expected 3 timers to fire, got %d", len(results))
+	}
+	mu.Unlock()
+}
+
+// TestMockClock_AdvanceAndProcess_ChannelConsumer tests that AdvanceAndProcess
+// allows goroutines blocked on After() channels to execute
+func TestMockClock_AdvanceAndProcess_ChannelConsumer(t *testing.T) {
+	clock := NewMockClock(time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC))
+
+	// Get the After channel first (this registers the timer synchronously)
+	ch := clock.After(5 * time.Minute)
+
+	// Simulate a goroutine waiting on the channel (like dayphase periodicUpdate)
+	processed := make(chan struct{}, 1)
+	ready := make(chan struct{})
+
+	go func() {
+		close(ready) // Signal that goroutine is running
+		<-ch
+		processed <- struct{}{}
+	}()
+
+	// Wait for goroutine to be ready before advancing
+	<-ready
+	runtime.Gosched()
+
+	clock.AdvanceAndProcess(5 * time.Minute)
+
+	select {
+	case <-processed:
+		// Success: goroutine received the timer value and ran
+	case <-time.After(100 * time.Millisecond):
+		t.Error("Goroutine waiting on After() should have processed after AdvanceAndProcess")
 	}
 }

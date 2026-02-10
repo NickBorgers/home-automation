@@ -161,7 +161,7 @@ func TestScenario_OwnerReturnsHomeGarageOccupied(t *testing.T) {
 
 	t.Log("BUT: Garage door should NOT be opened (occupied)")
 
-	// Brief delay to allow any potential (incorrect) service calls to propagate before asserting absence
+	// Wait a bit for any potential service calls, then verify none were made
 	time.Sleep(100 * time.Millisecond)
 
 	garageOpenCall := server.FindServiceCall("cover", "open_cover", "cover.garage_door_door")
@@ -180,35 +180,35 @@ func TestScenario_DidOwnerJustReturnHomeAutoReset(t *testing.T) {
 	t.Log("GIVEN: Nick arrives home")
 
 	server.SetState("input_boolean.nick_home", "off", nil)
-	waitForBoolState(t, manager, "isNickHome", false, "isNickHome should be false initially")
+	time.Sleep(100 * time.Millisecond) // Real sleep for event processing
 
 	server.SetState("input_boolean.nick_home", "on", nil)
+	time.Sleep(100 * time.Millisecond) // Real sleep for event processing
 
 	t.Log("THEN: didOwnerJustReturnHome should be true initially")
 
-	waitForBoolState(t, manager, "didOwnerJustReturnHome", true, "didOwnerJustReturnHome should be true after arrival")
+	didReturn, err := manager.GetBool("didOwnerJustReturnHome")
+	require.NoError(t, err)
+	assert.True(t, didReturn, "didOwnerJustReturnHome should be true after arrival")
 
 	t.Log("WHEN: 10 minutes pass (simulated via mock clock)")
 
-	// Use mock clock to advance time instantly instead of real sleep
-	mockClock.Advance(11 * time.Minute)
-	// Required: Allow goroutine scheduler to process mock clock tick callback
-	time.Sleep(100 * time.Millisecond)
+	// Use mock clock to advance time instantly; AdvanceAndProcess fires callbacks
+	// and yields to the scheduler so any woken goroutines can complete
+	mockClock.AdvanceAndProcess(11 * time.Minute)
 
 	t.Log("THEN: didOwnerJustReturnHome should auto-reset to false")
 
-	waitForBoolState(t, manager, "didOwnerJustReturnHome", false, "didOwnerJustReturnHome should reset to false after 10 minutes")
+	didReturn, err = manager.GetBool("didOwnerJustReturnHome")
+	require.NoError(t, err)
+	assert.False(t, didReturn, "didOwnerJustReturnHome should reset to false after 10 minutes")
 
 	t.Log("✓ Auto-reset after 10 minutes works correctly")
 }
 
 // TestScenario_MultipleArrivalsWithin10Minutes tests edge case where both owners
 // arrive within 10 minutes - the timer should extend
-// SKIP: This test has flaky mock clock timer coordination issues.
-// The timer callback doesn't reliably fire within the polling timeout when
-// running in parallel with other tests. See PR #XXX for details.
 func TestScenario_MultipleArrivalsWithin10Minutes(t *testing.T) {
-	t.Skip("Flaky: mock clock timer coordination issues with parallel tests")
 	t.Parallel()
 	server, _, _, manager, mockClock, cleanup := setupSecurityScenarioTestWithMockClock(t)
 	defer cleanup()
@@ -217,43 +217,44 @@ func TestScenario_MultipleArrivalsWithin10Minutes(t *testing.T) {
 
 	server.SetState("input_boolean.nick_home", "off", nil)
 	server.SetState("input_boolean.caroline_home", "off", nil)
-	waitForBoolState(t, manager, "isNickHome", false, "isNickHome should be false initially")
-	waitForBoolState(t, manager, "isCarolineHome", false, "isCarolineHome should be false initially")
+	time.Sleep(100 * time.Millisecond) // Real sleep for event processing
 
 	server.SetState("input_boolean.nick_home", "on", nil)
+	time.Sleep(100 * time.Millisecond) // Real sleep for event processing
 
-	waitForBoolState(t, manager, "didOwnerJustReturnHome", true, "didOwnerJustReturnHome should be true after Nick arrives")
+	didReturn, err := manager.GetBool("didOwnerJustReturnHome")
+	require.NoError(t, err)
+	assert.True(t, didReturn, "didOwnerJustReturnHome should be true after Nick arrives")
 
 	t.Log("WHEN: Caroline arrives 2 minutes later (simulated)")
 
 	// Use mock clock to advance time instantly
-	mockClock.Advance(2 * time.Minute)
+	mockClock.AdvanceAndProcess(2 * time.Minute)
 
 	server.SetState("input_boolean.caroline_home", "on", nil)
+	time.Sleep(100 * time.Millisecond) // Real sleep for event processing
 
 	t.Log("THEN: didOwnerJustReturnHome should still be true")
 
-	waitForBoolState(t, manager, "didOwnerJustReturnHome", true, "didOwnerJustReturnHome should still be true")
+	didReturn, err = manager.GetBool("didOwnerJustReturnHome")
+	require.NoError(t, err)
+	assert.True(t, didReturn, "didOwnerJustReturnHome should still be true")
 
 	t.Log("AND: Timer should have been extended (10 minutes from Caroline's arrival)")
 
 	// Advance 9 minutes - should still be true (timer was reset by Caroline's arrival)
-	mockClock.Advance(9 * time.Minute)
-	// Brief delay to allow mock clock timer callbacks to execute
-	time.Sleep(50 * time.Millisecond)
+	mockClock.AdvanceAndProcess(9 * time.Minute)
 
-	didReturn, err := manager.GetBool("didOwnerJustReturnHome")
+	didReturn, err = manager.GetBool("didOwnerJustReturnHome")
 	require.NoError(t, err)
 	assert.True(t, didReturn, "didOwnerJustReturnHome should still be true after 9 more minutes")
 
 	// Advance 2 more minutes - should now be false (10+ minutes from Caroline's arrival)
-	mockClock.Advance(2 * time.Minute)
-	// Required: Allow goroutine scheduler to process mock clock tick callback
-	time.Sleep(100 * time.Millisecond)
+	mockClock.AdvanceAndProcess(2 * time.Minute)
 
-	// Note: Timer extension on second arrival depends on implementation.
-	// Use polling to wait for mock clock timer callback to execute and state to propagate.
-	waitForBoolState(t, manager, "didOwnerJustReturnHome", false, "didOwnerJustReturnHome should be false after 10+ minutes from Caroline's arrival")
+	didReturn, err = manager.GetBool("didOwnerJustReturnHome")
+	require.NoError(t, err)
+	assert.False(t, didReturn, "didOwnerJustReturnHome should be false after 10+ minutes from Caroline's arrival")
 
 	t.Log("✓ Timer correctly extended by second owner arrival")
 }
@@ -269,19 +270,17 @@ func TestScenario_OwnerLeavesAndReturns(t *testing.T) {
 
 	server.SetState("input_boolean.nick_home", "on", nil)
 	server.SetState("binary_sensor.garage_door_vehicle_detected", "off", nil)
-	waitForBoolState(t, manager, "isNickHome", true, "isNickHome should be true initially")
+
+	// Wait for the arrival event to be fully processed before sending the departure.
+	// Without this, under load the "on" event's setOwnerJustReturnedHome() can execute
+	// AFTER the "off" event's clearOwnerJustReturnedHome(), leaving the flag as true.
+	waitForBoolState(t, manager, "didOwnerJustReturnHome", true, "didOwnerJustReturnHome should be true after Nick arrives")
 
 	server.SetState("input_boolean.nick_home", "off", nil)
-	waitForBoolState(t, manager, "isNickHome", false, "isNickHome should be false after leaving")
-	// Brief delay for didOwnerJustReturnHome to be cleared by security plugin
-	time.Sleep(50 * time.Millisecond)
 
-	didReturn, err := manager.GetBool("didOwnerJustReturnHome")
-	require.NoError(t, err)
-	assert.False(t, didReturn, "didOwnerJustReturnHome should be false when owner leaves")
+	// Use polling helper instead of time.Sleep to wait for the departure to be processed
+	waitForBoolState(t, manager, "didOwnerJustReturnHome", false, "didOwnerJustReturnHome should be false when owner leaves")
 
-	// Brief delay before clearing service calls to ensure all initialization calls have been recorded
-	time.Sleep(50 * time.Millisecond)
 	server.ClearServiceCalls()
 
 	t.Log("WHEN: Nick returns 5 minutes later")
@@ -308,16 +307,14 @@ func TestScenario_OnlyOwnersTriggersGarage(t *testing.T) {
 
 	server.SetState("input_boolean.tori_here", "off", nil)
 	server.SetState("binary_sensor.garage_door_vehicle_detected", "off", nil)
-	waitForBoolState(t, manager, "isToriHere", false, "isToriHere should be false initially")
+	time.Sleep(100 * time.Millisecond)
 
-	// Brief delay before clearing service calls to ensure all initialization calls have been recorded
-	time.Sleep(50 * time.Millisecond)
 	server.ClearServiceCalls()
 
 	t.Log("WHEN: Tori arrives (isToriHere changes to true)")
 
 	server.SetState("input_boolean.tori_here", "on", nil)
-	waitForBoolState(t, manager, "isToriHere", true, "isToriHere should be true after arrival")
+	time.Sleep(100 * time.Millisecond)
 
 	t.Log("THEN: didOwnerJustReturnHome should remain false (Tori is not an owner)")
 
@@ -327,7 +324,6 @@ func TestScenario_OnlyOwnersTriggersGarage(t *testing.T) {
 
 	t.Log("AND: Garage door should NOT be opened")
 
-	// Brief delay to allow any potential (incorrect) service calls to propagate before asserting absence
 	time.Sleep(50 * time.Millisecond)
 
 	garageOpenCall := server.FindServiceCall("cover", "open_cover", "cover.garage_door_door")
