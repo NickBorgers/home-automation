@@ -885,7 +885,15 @@ func TestSensorHealthManager_NodeStatus_DeadDevice_Notification(t *testing.T) {
 		t.Errorf("Expected status 'dead', got '%s'", nodeStatuses[testNodeStatus1].Status)
 	}
 
-	// Verify notification was sent
+	// Notification should NOT be sent yet (debounce timer is pending)
+	if countNtfyNotifications(mockNtfy) != 0 {
+		t.Errorf("Expected 0 notifications before debounce expires, got %d", countNtfyNotifications(mockNtfy))
+	}
+
+	// Advance clock past the debounce delay to fire the timer
+	mockClock.Advance(NodeDeadDebounceDelay)
+
+	// Verify notification was sent after debounce
 	notificationCount := countNtfyNotifications(mockNtfy)
 	if notificationCount != 1 {
 		t.Errorf("Expected 1 dead device notification, got %d", notificationCount)
@@ -1056,9 +1064,10 @@ func TestSensorHealthManager_NodeStatus_ReadOnlyMode(t *testing.T) {
 	mockNtfy := ntfy.NewMockClient()
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, true) // read-only
+	mockClock := clock.NewMockClock(time.Now())
 
 	// Create manager in read-only mode
-	manager := NewManagerWithClock(mockHA, stateMgr, logger, true, nil, mockNtfy, clock.NewMockClock(time.Now()))
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, true, nil, mockNtfy, mockClock)
 
 	// Add a node status sensor
 	manager.AddNodeStatus(&NodeStatus{
@@ -1070,6 +1079,9 @@ func TestSensorHealthManager_NodeStatus_ReadOnlyMode(t *testing.T) {
 
 	// Simulate device becoming dead
 	manager.SimulateNodeStatusChange(testNodeStatus1, "dead")
+
+	// Advance clock past debounce delay to fire the timer
+	mockClock.Advance(NodeDeadDebounceDelay)
 
 	// Verify device is marked as dead
 	nodeStatuses := manager.GetNodeStatuses()
@@ -1378,6 +1390,9 @@ func TestSensorHealthManager_NodeStatus_DeadDeviceNotification_UsesUserFriendlyN
 	// Simulate the device becoming dead
 	manager.SimulateNodeStatusChange("sensor.humidifier_power_control_node_status", "dead")
 
+	// Advance clock past debounce delay to fire the timer
+	mockClock.Advance(NodeDeadDebounceDelay)
+
 	// Verify notification was sent with user-friendly name
 	calls := mockNtfy.GetCalls()
 	if len(calls) != 1 {
@@ -1392,5 +1407,109 @@ func TestSensorHealthManager_NodeStatus_DeadDeviceNotification_UsesUserFriendlyN
 	}
 	if strings.Contains(notification.Body, "Wave Plug US") {
 		t.Errorf("Notification should NOT contain Z-Wave product name 'Wave Plug US', got: %s", notification.Body)
+	}
+}
+
+// ============================================================================
+// Dead Device Debounce Tests
+// ============================================================================
+
+func TestSensorHealthManager_NodeStatus_DeadDevice_DebounceSuppress(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	mockNtfy := ntfy.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+	mockClock := clock.NewMockClock(time.Now())
+
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
+
+	// Add a node status sensor
+	manager.AddNodeStatus(&NodeStatus{
+		EntityID:   testNodeStatus1,
+		DeviceID:   "device_zwave_1",
+		DeviceName: "Front Door Lock",
+		Status:     "alive",
+	})
+
+	// Device goes dead (starts debounce timer)
+	manager.SimulateNodeStatusChange(testNodeStatus1, "dead")
+
+	// No notification yet — timer is pending
+	if countNtfyNotifications(mockNtfy) != 0 {
+		t.Errorf("Expected 0 notifications before debounce, got %d", countNtfyNotifications(mockNtfy))
+	}
+
+	// Device recovers before the debounce timer fires (e.g., after 2 minutes)
+	mockClock.Advance(2 * time.Minute)
+	manager.SimulateNodeStatusChange(testNodeStatus1, "alive")
+
+	// Now advance past the original debounce deadline — timer was cancelled, should not fire
+	mockClock.Advance(NodeDeadDebounceDelay)
+
+	// Zero notifications: the transient dead status was suppressed
+	if countNtfyNotifications(mockNtfy) != 0 {
+		t.Errorf("Expected 0 notifications (transient dead suppressed), got %d", countNtfyNotifications(mockNtfy))
+	}
+
+	// Verify device is back to alive
+	nodeStatuses := manager.GetNodeStatuses()
+	if nodeStatuses[testNodeStatus1].Status != "alive" {
+		t.Errorf("Expected status 'alive', got '%s'", nodeStatuses[testNodeStatus1].Status)
+	}
+	if nodeStatuses[testNodeStatus1].NotificationSent {
+		t.Error("Expected NotificationSent to be false (no notification was ever sent)")
+	}
+}
+
+func TestSensorHealthManager_NodeStatus_DeadDevice_DebounceExpires(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	mockNtfy := ntfy.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+	mockClock := clock.NewMockClock(time.Now())
+
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
+
+	// Add a node status sensor
+	manager.AddNodeStatus(&NodeStatus{
+		EntityID:   testNodeStatus1,
+		DeviceID:   "device_zwave_1",
+		DeviceName: "Front Door Lock",
+		Status:     "alive",
+	})
+
+	// Device goes dead (starts debounce timer)
+	manager.SimulateNodeStatusChange(testNodeStatus1, "dead")
+
+	// No notification yet
+	if countNtfyNotifications(mockNtfy) != 0 {
+		t.Errorf("Expected 0 notifications before debounce, got %d", countNtfyNotifications(mockNtfy))
+	}
+
+	// Debounce timer fires after 5 minutes — device is still dead
+	mockClock.Advance(NodeDeadDebounceDelay)
+
+	// Dead notification should now be sent
+	if countNtfyNotifications(mockNtfy) != 1 {
+		t.Fatalf("Expected 1 dead notification after debounce, got %d", countNtfyNotifications(mockNtfy))
+	}
+	notification := getLastNtfyNotification(mockNtfy)
+	if notification.Title != "Device Offline" {
+		t.Errorf("Expected title 'Device Offline', got '%s'", notification.Title)
+	}
+
+	// Device recovers — recovery notification should be sent
+	manager.SimulateNodeStatusChange(testNodeStatus1, "alive")
+
+	if countNtfyNotifications(mockNtfy) != 2 {
+		t.Fatalf("Expected 2 notifications (1 dead + 1 recovery), got %d", countNtfyNotifications(mockNtfy))
+	}
+	recoveryNotification := getLastNtfyNotification(mockNtfy)
+	if recoveryNotification.Title != "Device Online" {
+		t.Errorf("Expected title 'Device Online', got '%s'", recoveryNotification.Title)
 	}
 }

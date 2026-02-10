@@ -29,6 +29,12 @@ const (
 	TemperatureLockupCheckInterval = 1 * time.Hour
 	// Rate limiting for lockup notifications (per sensor)
 	TemperatureLockupNotificationRateLimit = 24 * time.Hour
+
+	// Z-Wave dead device debounce delay.
+	// Devices occasionally report transient "dead" status due to network hiccups
+	// before immediately recovering. We delay the dead notification by this amount
+	// and cancel it if the device recovers, to avoid noisy flapping alerts.
+	NodeDeadDebounceDelay = 5 * time.Minute
 )
 
 // BatterySensor represents a discovered battery sensor
@@ -59,12 +65,13 @@ type TemperatureSensor struct {
 
 // NodeStatus represents a discovered Z-Wave node status sensor
 type NodeStatus struct {
-	EntityID         string
-	DeviceID         string
-	DeviceName       string
-	Status           string // alive, asleep, awake, dead
-	LastChanged      time.Time
-	NotificationSent bool // Track if we've sent notification for current dead state
+	EntityID          string
+	DeviceID          string
+	DeviceName        string
+	Status            string // alive, asleep, awake, dead
+	LastChanged       time.Time
+	NotificationSent  bool        // Track if we've sent notification for current dead state
+	deadDebounceTimer clock.Timer // Pending debounce timer for dead notification (nil if none)
 }
 
 // Manager handles sensor health monitoring: low batteries, node status, and temperature lockup
@@ -597,20 +604,47 @@ func (m *Manager) handleNodeStatusChange(entityID string, oldState, newState *ha
 	isNowDead := newState.State == "dead"
 	isNowAlive := newState.State == "alive" || newState.State == "awake" || newState.State == "asleep"
 
-	// If device just became dead, send notification
-	if isNowDead && !wasDeadOrUnknown && !node.NotificationSent {
-		node.NotificationSent = true
-		m.mu.Unlock()
-		m.sendDeviceDeadNotification(node)
-		m.mu.Lock()
+	// If device just became dead, start a debounce timer instead of notifying immediately.
+	// This avoids noisy notifications for transient "dead" reports that recover within seconds.
+	if isNowDead && !wasDeadOrUnknown && !node.NotificationSent && node.deadDebounceTimer == nil {
+		nodeEntityID := node.EntityID
+		node.deadDebounceTimer = m.clock.AfterFunc(NodeDeadDebounceDelay, func() {
+			m.mu.Lock()
+			n, ok := m.nodeStatuses[nodeEntityID]
+			if !ok || n.Status != "dead" || n.NotificationSent {
+				m.mu.Unlock()
+				return
+			}
+			n.NotificationSent = true
+			n.deadDebounceTimer = nil
+			m.mu.Unlock()
+			m.sendDeviceDeadNotification(n)
+			m.evaluateDeadDevices()
+		})
+		m.logger.Debug("Started dead device debounce timer",
+			zap.String("entity_id", entityID),
+			zap.String("device_name", node.DeviceName),
+			zap.Duration("delay", NodeDeadDebounceDelay))
 	}
 
-	// If device recovered from dead state, send recovery notification and reset flag
-	if isNowAlive && wasDeadOrUnknown && node.NotificationSent {
-		node.NotificationSent = false
-		m.mu.Unlock()
-		m.sendDeviceRecoveredNotification(node)
-		m.mu.Lock()
+	// If device recovered from dead/unknown state, handle debounce timer and recovery notification
+	if isNowAlive && wasDeadOrUnknown {
+		// Cancel pending debounce timer if device recovered before it fired
+		if node.deadDebounceTimer != nil {
+			node.deadDebounceTimer.Stop()
+			node.deadDebounceTimer = nil
+			m.logger.Debug("Cancelled dead device debounce timer (device recovered)",
+				zap.String("entity_id", entityID),
+				zap.String("device_name", node.DeviceName))
+		}
+
+		// Only send recovery notification if we actually notified about the dead state
+		if node.NotificationSent {
+			node.NotificationSent = false
+			m.mu.Unlock()
+			m.sendDeviceRecoveredNotification(node)
+			m.mu.Lock()
+		}
 	}
 	m.mu.Unlock()
 
