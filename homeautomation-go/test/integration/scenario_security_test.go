@@ -193,9 +193,9 @@ func TestScenario_DidOwnerJustReturnHomeAutoReset(t *testing.T) {
 
 	t.Log("WHEN: 10 minutes pass (simulated via mock clock)")
 
-	// Use mock clock to advance time instantly instead of real sleep
-	mockClock.Advance(11 * time.Minute)
-	time.Sleep(100 * time.Millisecond) // Allow timer callback to execute
+	// Use mock clock to advance time instantly; AdvanceAndProcess fires callbacks
+	// and yields to the scheduler so any woken goroutines can complete
+	mockClock.AdvanceAndProcess(11 * time.Minute)
 
 	t.Log("THEN: didOwnerJustReturnHome should auto-reset to false")
 
@@ -229,8 +229,7 @@ func TestScenario_MultipleArrivalsWithin10Minutes(t *testing.T) {
 	t.Log("WHEN: Caroline arrives 2 minutes later (simulated)")
 
 	// Use mock clock to advance time instantly
-	mockClock.Advance(2 * time.Minute)
-	time.Sleep(100 * time.Millisecond) // Allow any timer callbacks
+	mockClock.AdvanceAndProcess(2 * time.Minute)
 
 	server.SetState("input_boolean.caroline_home", "on", nil)
 	time.Sleep(100 * time.Millisecond) // Real sleep for event processing
@@ -244,16 +243,14 @@ func TestScenario_MultipleArrivalsWithin10Minutes(t *testing.T) {
 	t.Log("AND: Timer should have been extended (10 minutes from Caroline's arrival)")
 
 	// Advance 9 minutes - should still be true (timer was reset by Caroline's arrival)
-	mockClock.Advance(9 * time.Minute)
-	time.Sleep(100 * time.Millisecond)
+	mockClock.AdvanceAndProcess(9 * time.Minute)
 
 	didReturn, err = manager.GetBool("didOwnerJustReturnHome")
 	require.NoError(t, err)
 	assert.True(t, didReturn, "didOwnerJustReturnHome should still be true after 9 more minutes")
 
 	// Advance 2 more minutes - should now be false (10+ minutes from Caroline's arrival)
-	mockClock.Advance(2 * time.Minute)
-	time.Sleep(100 * time.Millisecond)
+	mockClock.AdvanceAndProcess(2 * time.Minute)
 
 	didReturn, err = manager.GetBool("didOwnerJustReturnHome")
 	require.NoError(t, err)
