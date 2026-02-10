@@ -260,9 +260,6 @@ func TestUserStory_CompleteMorningRoutine_StateTransitions(t *testing.T) {
 	server.SetState("input_boolean.anyone_asleep", "off", nil)
 	waitForBoolState(t, stateManager, "isMasterAsleep", false, "isMasterAsleep should become false")
 	waitForBoolState(t, stateManager, "isAnyoneAsleep", false, "isAnyoneAsleep should become false")
-
-	_, _ = stateManager.GetBool("isMasterAsleep") // Verified via waitForBoolState above
-	_, _ = stateManager.GetBool("isAnyoneAsleep") // Verified via waitForBoolState above
 	t.Log("  Morning zone now matches via normal trigger: dayPhase=morning, isAnyoneAsleep=false ✓")
 
 	// =========================================================================
