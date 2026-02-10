@@ -2254,3 +2254,191 @@ func (wt *WaterFlowTracker) GetState() *WaterFlowShadowState {
 
 	return stateCopy
 }
+
+// ============================================================================
+// EV Charger Tracker - Safety Monitoring
+// ============================================================================
+
+// EVChargerTracker manages shadow state for the EV charger safety plugin
+type EVChargerTracker struct {
+	mu    sync.RWMutex
+	state *EVChargerShadowState
+}
+
+// NewEVChargerTracker creates a new EV charger shadow state tracker
+func NewEVChargerTracker() *EVChargerTracker {
+	return &EVChargerTracker{
+		state: NewEVChargerShadowState(),
+	}
+}
+
+// UpdateCurrentInputs updates the current input values
+func (et *EVChargerTracker) UpdateCurrentInputs(inputs map[string]interface{}) {
+	et.mu.Lock()
+	defer et.mu.Unlock()
+
+	for key, value := range inputs {
+		et.state.Inputs.Current[key] = value
+	}
+	et.state.Metadata.LastUpdated = time.Now()
+}
+
+// UpdateOverheatState updates the overheat sensor state
+func (et *EVChargerTracker) UpdateOverheatState(isOverheat bool) {
+	et.mu.Lock()
+	defer et.mu.Unlock()
+
+	et.state.Outputs.IsOverheat = isOverheat
+	et.state.Metadata.LastUpdated = time.Now()
+}
+
+// UpdateOverCurrentState updates the overcurrent sensor state
+func (et *EVChargerTracker) UpdateOverCurrentState(isOverCurrent bool) {
+	et.mu.Lock()
+	defer et.mu.Unlock()
+
+	et.state.Outputs.IsOverCurrent = isOverCurrent
+	et.state.Metadata.LastUpdated = time.Now()
+}
+
+// UpdateOverVoltageState updates the overvoltage sensor state
+func (et *EVChargerTracker) UpdateOverVoltageState(isOverVoltage bool) {
+	et.mu.Lock()
+	defer et.mu.Unlock()
+
+	et.state.Outputs.IsOverVoltage = isOverVoltage
+	et.state.Metadata.LastUpdated = time.Now()
+}
+
+// UpdateSwitchState updates the switch state
+func (et *EVChargerTracker) UpdateSwitchState(isOn bool) {
+	et.mu.Lock()
+	defer et.mu.Unlock()
+
+	et.state.Outputs.IsSwitchOn = isOn
+	et.state.Metadata.LastUpdated = time.Now()
+}
+
+// UpdatePowerReading updates the current power reading
+func (et *EVChargerTracker) UpdatePowerReading(power string) {
+	et.mu.Lock()
+	defer et.mu.Unlock()
+
+	et.state.Outputs.PowerReading = power
+	et.state.Metadata.LastUpdated = time.Now()
+}
+
+// RecordSafetyEvent records a safety condition detection
+func (et *EVChargerTracker) RecordSafetyEvent(conditionType, sensor string) {
+	et.mu.Lock()
+	defer et.mu.Unlock()
+
+	et.state.Outputs.LastSafetyEvent = &EVChargerSafetyEvent{
+		ConditionType: conditionType,
+		Sensor:        sensor,
+		Timestamp:     time.Now(),
+	}
+	et.state.Outputs.SafetyEventCount++
+	et.state.Metadata.LastUpdated = time.Now()
+}
+
+// RecordShutoff records an emergency shutoff
+func (et *EVChargerTracker) RecordShutoff(reason string) {
+	et.mu.Lock()
+	defer et.mu.Unlock()
+
+	et.state.Outputs.LastShutoff = &EVChargerShutoff{
+		Reason:    reason,
+		Timestamp: time.Now(),
+	}
+	et.state.Outputs.ShutoffCount++
+	et.state.Metadata.LastUpdated = time.Now()
+}
+
+// RecordNotification records a notification that was sent
+func (et *EVChargerTracker) RecordNotification(conditionType, message string) {
+	et.mu.Lock()
+	defer et.mu.Unlock()
+
+	et.state.Outputs.LastNotification = &EVChargerNotice{
+		ConditionType: conditionType,
+		Message:       message,
+		Timestamp:     time.Now(),
+	}
+	et.state.Metadata.LastUpdated = time.Now()
+}
+
+// RecordTTSAnnouncement records a TTS announcement that was made
+func (et *EVChargerTracker) RecordTTSAnnouncement() {
+	et.mu.Lock()
+	defer et.mu.Unlock()
+
+	now := time.Now()
+	et.state.Outputs.LastTTSAnnouncement = &now
+	et.state.Metadata.LastUpdated = now
+}
+
+// RecordRecovery records a recovery from a safety condition
+func (et *EVChargerTracker) RecordRecovery(conditionType string) {
+	et.mu.Lock()
+	defer et.mu.Unlock()
+
+	et.state.Outputs.LastRecovery = &EVChargerRecovery{
+		ConditionType: conditionType,
+		Timestamp:     time.Now(),
+	}
+	et.state.Metadata.LastUpdated = time.Now()
+}
+
+// GetState returns the current shadow state (thread-safe copy)
+func (et *EVChargerTracker) GetState() *EVChargerShadowState {
+	et.mu.RLock()
+	defer et.mu.RUnlock()
+
+	// Create a deep copy
+	stateCopy := &EVChargerShadowState{
+		Plugin: et.state.Plugin,
+		Inputs: EVChargerInputs{
+			Current: make(map[string]interface{}),
+		},
+		Outputs: EVChargerOutputs{
+			IsOverheat:       et.state.Outputs.IsOverheat,
+			IsOverCurrent:    et.state.Outputs.IsOverCurrent,
+			IsOverVoltage:    et.state.Outputs.IsOverVoltage,
+			IsSwitchOn:       et.state.Outputs.IsSwitchOn,
+			PowerReading:     et.state.Outputs.PowerReading,
+			SafetyEventCount: et.state.Outputs.SafetyEventCount,
+			ShutoffCount:     et.state.Outputs.ShutoffCount,
+		},
+		Metadata: et.state.Metadata,
+	}
+
+	// Copy current inputs
+	for k, v := range et.state.Inputs.Current {
+		stateCopy.Inputs.Current[k] = v
+	}
+
+	// Copy pointers if set
+	if et.state.Outputs.LastSafetyEvent != nil {
+		event := *et.state.Outputs.LastSafetyEvent
+		stateCopy.Outputs.LastSafetyEvent = &event
+	}
+	if et.state.Outputs.LastShutoff != nil {
+		shutoff := *et.state.Outputs.LastShutoff
+		stateCopy.Outputs.LastShutoff = &shutoff
+	}
+	if et.state.Outputs.LastNotification != nil {
+		notice := *et.state.Outputs.LastNotification
+		stateCopy.Outputs.LastNotification = &notice
+	}
+	if et.state.Outputs.LastTTSAnnouncement != nil {
+		tts := *et.state.Outputs.LastTTSAnnouncement
+		stateCopy.Outputs.LastTTSAnnouncement = &tts
+	}
+	if et.state.Outputs.LastRecovery != nil {
+		recovery := *et.state.Outputs.LastRecovery
+		stateCopy.Outputs.LastRecovery = &recovery
+	}
+
+	return stateCopy
+}

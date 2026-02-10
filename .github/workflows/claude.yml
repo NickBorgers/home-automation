@@ -10,6 +10,15 @@ on:
   pull_request_review:
     types: [submitted]
 
+concurrency:
+  group: >-
+    claude-interactive-${{
+      github.event_name == 'pull_request_review_comment' && github.event.pull_request.number ||
+      github.event_name == 'pull_request_review' && github.event.pull_request.number ||
+      github.event.issue.number
+    }}
+  cancel-in-progress: false
+
 # SECURITY NOTE: This workflow grants Claude Code access to secrets and write permissions.
 # Authorization checks are implemented to prevent prompt injection from untrusted users.
 # Only repository collaborators, members, and owners can trigger Claude.

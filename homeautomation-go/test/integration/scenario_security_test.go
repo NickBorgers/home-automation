@@ -270,36 +270,30 @@ func TestScenario_OwnerLeavesAndReturns(t *testing.T) {
 
 	server.SetState("input_boolean.nick_home", "on", nil)
 	server.SetState("binary_sensor.garage_door_vehicle_detected", "off", nil)
-	time.Sleep(100 * time.Millisecond)
+
+	// Wait for the arrival event to be fully processed before sending the departure.
+	// Without this, under load the "on" event's setOwnerJustReturnedHome() can execute
+	// AFTER the "off" event's clearOwnerJustReturnedHome(), leaving the flag as true.
+	waitForBoolState(t, manager, "didOwnerJustReturnHome", true, "didOwnerJustReturnHome should be true after Nick arrives")
 
 	server.SetState("input_boolean.nick_home", "off", nil)
-	time.Sleep(100 * time.Millisecond)
 
-	didReturn, err := manager.GetBool("didOwnerJustReturnHome")
-	require.NoError(t, err)
-	assert.False(t, didReturn, "didOwnerJustReturnHome should be false when owner leaves")
+	// Use polling helper instead of time.Sleep to wait for the departure to be processed
+	waitForBoolState(t, manager, "didOwnerJustReturnHome", false, "didOwnerJustReturnHome should be false when owner leaves")
 
 	server.ClearServiceCalls()
 
 	t.Log("WHEN: Nick returns 5 minutes later")
 
-	time.Sleep(100 * time.Millisecond) // Simulate some time passing
-
 	server.SetState("input_boolean.nick_home", "on", nil)
-	time.Sleep(100 * time.Millisecond)
 
 	t.Log("THEN: didOwnerJustReturnHome should be set to true again")
 
-	didReturn, err = manager.GetBool("didOwnerJustReturnHome")
-	require.NoError(t, err)
-	assert.True(t, didReturn, "didOwnerJustReturnHome should be true on return")
+	waitForBoolState(t, manager, "didOwnerJustReturnHome", true, "didOwnerJustReturnHome should be true on return")
 
 	t.Log("AND: Garage should open again")
 
-	time.Sleep(50 * time.Millisecond)
-
-	garageOpenCall := server.FindServiceCall("cover", "open_cover", "cover.garage_door_door")
-	assert.NotNil(t, garageOpenCall, "Garage should open on second arrival")
+	waitForServiceCallWithEntity(t, server, "cover", "open_cover", "cover.garage_door_door", "Garage should open on second arrival")
 }
 
 // TestScenario_OnlyOwnersTriggersGarage tests that only owners (Nick/Caroline)
