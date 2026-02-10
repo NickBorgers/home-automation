@@ -1560,3 +1560,102 @@ func NewWaterFlowShadowState() *WaterFlowShadowState {
 		},
 	}
 }
+
+// ============================================================================
+// EV Charger Shadow State Types - Safety Monitoring
+// ============================================================================
+
+// EVChargerShadowState represents the shadow state for the EV charger safety plugin
+type EVChargerShadowState struct {
+	Plugin   string           `json:"plugin"`
+	Inputs   EVChargerInputs  `json:"inputs"`
+	Outputs  EVChargerOutputs `json:"outputs"`
+	Metadata StateMetadata    `json:"metadata"`
+}
+
+// EVChargerInputs tracks current input values for EV charger safety
+type EVChargerInputs struct {
+	Current map[string]interface{} `json:"current"`
+}
+
+// EVChargerOutputs tracks the state of EV charger safety monitoring
+type EVChargerOutputs struct {
+	// Current sensor states
+	IsOverheat    bool   `json:"isOverheat"`
+	IsOverCurrent bool   `json:"isOverCurrent"`
+	IsOverVoltage bool   `json:"isOverVoltage"`
+	IsSwitchOn    bool   `json:"isSwitchOn"`
+	PowerReading  string `json:"powerReading,omitempty"`
+
+	// Safety event tracking
+	LastSafetyEvent     *EVChargerSafetyEvent `json:"lastSafetyEvent,omitempty"`
+	LastShutoff         *EVChargerShutoff     `json:"lastShutoff,omitempty"`
+	LastNotification    *EVChargerNotice      `json:"lastNotification,omitempty"`
+	LastTTSAnnouncement *time.Time            `json:"lastTTSAnnouncement,omitempty"`
+	LastRecovery        *EVChargerRecovery    `json:"lastRecovery,omitempty"`
+
+	// Counters
+	SafetyEventCount int `json:"safetyEventCount"`
+	ShutoffCount     int `json:"shutoffCount"`
+}
+
+// EVChargerSafetyEvent records a safety condition detection
+type EVChargerSafetyEvent struct {
+	ConditionType string    `json:"conditionType"` // "overheat", "over-current", "over-voltage"
+	Sensor        string    `json:"sensor"`
+	Timestamp     time.Time `json:"timestamp"`
+}
+
+// EVChargerShutoff records an emergency shutoff
+type EVChargerShutoff struct {
+	Reason    string    `json:"reason"`
+	Timestamp time.Time `json:"timestamp"`
+}
+
+// EVChargerNotice records a notification that was sent
+type EVChargerNotice struct {
+	ConditionType string    `json:"conditionType"`
+	Message       string    `json:"message"`
+	Timestamp     time.Time `json:"timestamp"`
+}
+
+// EVChargerRecovery records a recovery from a safety condition
+type EVChargerRecovery struct {
+	ConditionType string    `json:"conditionType"`
+	Timestamp     time.Time `json:"timestamp"`
+}
+
+// GetCurrentInputs implements PluginShadowState
+func (e *EVChargerShadowState) GetCurrentInputs() map[string]interface{} {
+	return e.Inputs.Current
+}
+
+// GetLastActionInputs implements PluginShadowState
+func (e *EVChargerShadowState) GetLastActionInputs() map[string]interface{} {
+	return e.Inputs.Current
+}
+
+// GetOutputs implements PluginShadowState
+func (e *EVChargerShadowState) GetOutputs() interface{} {
+	return e.Outputs
+}
+
+// GetMetadata implements PluginShadowState
+func (e *EVChargerShadowState) GetMetadata() StateMetadata {
+	return e.Metadata
+}
+
+// NewEVChargerShadowState creates a new EV charger shadow state
+func NewEVChargerShadowState() *EVChargerShadowState {
+	return &EVChargerShadowState{
+		Plugin: "evcharger",
+		Inputs: EVChargerInputs{
+			Current: make(map[string]interface{}),
+		},
+		Outputs: EVChargerOutputs{},
+		Metadata: StateMetadata{
+			LastUpdated: time.Now(),
+			PluginName:  "evcharger",
+		},
+	}
+}
