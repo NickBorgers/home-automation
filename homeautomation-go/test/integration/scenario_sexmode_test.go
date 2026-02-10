@@ -205,7 +205,13 @@ func TestScenario_SexModeActivation_FullCoordination(t *testing.T) {
 	assert.NotNil(t, sceneCall, "Night scene should be activated")
 	t.Log("  ✓ Lighting: night scene activated")
 
-	// 3. Climate
+	// 3. Climate - wait for both Eight Sleep service calls to be made
+	assert.Eventually(t, func() bool {
+		calls := server.GetServiceCalls()
+		eightSleepCalls := FilterServiceCalls(calls, "climate", "set_temperature")
+		return len(eightSleepCalls) >= 2
+	}, stateWaitTimeout, statePollInterval, "Both Eight Sleep beds should be adjusted")
+
 	calls := server.GetServiceCalls()
 	eightSleepCalls := FilterServiceCalls(calls, "climate", "set_temperature")
 	assert.Equal(t, 2, len(eightSleepCalls), "Both Eight Sleep beds should be adjusted")

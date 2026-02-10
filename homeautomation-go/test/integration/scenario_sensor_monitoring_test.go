@@ -581,16 +581,17 @@ func TestScenario_SensorHealth_NodeStatusMonitoring(t *testing.T) {
 	env.server.SetState("sensor.front_door_lock_node_status", "dead", map[string]interface{}{
 		"friendly_name": "Front Door Lock Node Status",
 	})
+	// Brief delay: Allow entity state change to propagate through event processing
+	time.Sleep(50 * time.Millisecond)
 
-	// Wait for dead device notification
+	// Advance mock clock past the debounce delay and process timer callbacks
+	env.mockClock.AdvanceAndProcess(sensorhealth.NodeDeadDebounceDelay + 1*time.Second)
+
+	// Wait for dead device notification (notification is sent by AfterFunc callback)
 	waitForCondition(t, func() bool {
 		calls := env.mockNtfy.GetCalls()
 		return len(calls) >= 1
 	}, "dead device notification")
-
-	// Advance mock clock past the debounce delay so the dead notification fires
-	env.mockClock.Advance(sensorhealth.NodeDeadDebounceDelay)
-	time.Sleep(50 * time.Millisecond)
 
 	// Verify notification sent
 	calls := env.mockNtfy.GetCalls()
