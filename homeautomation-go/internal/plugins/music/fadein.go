@@ -666,15 +666,24 @@ func (m *Manager) fadeInSpeaker(ctx context.Context, speakerName string, targetV
 		default:
 		}
 
-		// Check if music type changed (stop fade if switched)
-		musicType, err := m.stateManager.GetString("musicPlaybackType")
-		if err == nil && musicType != startingMusicType {
-			m.logger.Info("Music type changed during fade-in, stopping",
-				zap.String("speaker", speakerName),
-				zap.String("starting_type", startingMusicType),
-				zap.String("current_type", musicType))
-			m.clearFadeInProgress(entityID)
-			return
+		// Check if music type changed (stop fade if switched).
+		// When zones are configured, skip this check. The zone manager handles
+		// transitions via context cancellation (ctx.Done above), and the
+		// musicPlaybackType state variable can lag behind zone transitions due to
+		// Home Assistant WebSocket sync timing. Reading stale state here caused
+		// false fade-in aborts during wake sequences (issue #635):
+		// zone manager activates "morning" zone, but musicPlaybackType echoes
+		// back as "sleep" from HA before the new value propagates.
+		if !m.config.HasZones() {
+			musicType, err := m.stateManager.GetString("musicPlaybackType")
+			if err == nil && musicType != startingMusicType {
+				m.logger.Info("Music type changed during fade-in, stopping",
+					zap.String("speaker", speakerName),
+					zap.String("starting_type", startingMusicType),
+					zap.String("current_type", musicType))
+				m.clearFadeInProgress(entityID)
+				return
+			}
 		}
 
 		// Set volume

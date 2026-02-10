@@ -2129,3 +2129,164 @@ func TestScenario_ZonesConfigured_HandleMusicPlaybackTypeChange_SkipsLegacyOrche
 			"legacy orchestratePlayback to prevent duplicate playback commands. "+
 			"Zone playback is handled by orchestrateZonePlayback in startZone.")
 }
+
+// =============================================================================
+// TEST: Fade-in does NOT abort when musicPlaybackType state is stale (issue #635)
+// =============================================================================
+//
+// PRODUCTION FAILURE (2026-02-10):
+// The zone manager correctly starts the morning zone, but musicPlaybackType in
+// the state manager remains "sleep" due to Home Assistant WebSocket echo-back
+// timing. The fade-in safety check reads musicPlaybackType="sleep" and aborts
+// because it doesn't match the expected "morning" type.
+//
+// The fix: when zones are configured, skip the musicPlaybackType safety check
+// in fadeInSpeaker. Zone transitions are already handled via context cancellation.
+func TestScenario_FadeInNotAborted_WhenMusicPlaybackTypeStale_WithZones(t *testing.T) {
+	t.Parallel()
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	config := createWakeSequenceTestConfig()
+
+	fixedTime := time.Date(2024, 1, 15, 6, 30, 0, 0, time.UTC)
+	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
+
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, timeProvider, nil)
+
+	// Track whether fade-in completed vs aborted
+	fadeInVolumes := make([]int, 0)
+	var volumesMu sync.Mutex
+	manager.SetSleepFunc(func(d time.Duration) {}) // Skip sleeps
+
+	// Set up mock speakers
+	mockClient.SetState("media_player.kitchen", "playing", map[string]interface{}{
+		"volume_level": 0.0,
+	})
+
+	// ==========================================================
+	// GIVEN: musicPlaybackType is stale at "sleep" but we're fading in for "morning" zone
+	// This simulates the production scenario where HA WebSocket echo-back
+	// leaves musicPlaybackType="sleep" even though the zone manager set it to "morning"
+	// ==========================================================
+	t.Log("GIVEN: musicPlaybackType stuck at 'sleep' (stale HA state)")
+	_ = stateManager.SetString("musicPlaybackType", "sleep")
+	_ = stateManager.SetBool("isAnyoneHome", true)
+	_ = stateManager.SetBool("isAnyoneAsleep", true)
+	_ = stateManager.SetBool("isMasterAsleep", true)
+	_ = stateManager.SetBool("isWakeSequenceActive", true)
+	_ = stateManager.SetString("dayPhase", "morning")
+
+	// Initialize zone manager
+	manager.zoneManager = NewZoneManager(manager, config, logger)
+
+	// ==========================================================
+	// WHEN: fadeInSpeaker runs for "morning" zone but musicPlaybackType is "sleep"
+	// ==========================================================
+	t.Log("WHEN: fadeInSpeaker runs with startingMusicType='morning'")
+	ctx := context.Background()
+	// Target volume of 3 to keep the test fast
+	manager.fadeInSpeaker(ctx, "Kitchen", 3, "morning")
+
+	// Check service calls to see if volume_set was called (fade-in continued)
+	serviceCalls := mockClient.GetServiceCalls()
+	for _, call := range serviceCalls {
+		if call.Domain == "media_player" && call.Service == "volume_set" {
+			if entityID, ok := call.Data["entity_id"].(string); ok && entityID == "media_player.kitchen" {
+				if vol, ok := call.Data["volume_level"].(float64); ok {
+					volumesMu.Lock()
+					fadeInVolumes = append(fadeInVolumes, int(vol*100))
+					volumesMu.Unlock()
+				}
+			}
+		}
+	}
+
+	// ==========================================================
+	// THEN: Fade-in should complete (not abort due to stale musicPlaybackType)
+	// ==========================================================
+	t.Log("THEN: Fade-in should have progressed (volume_set calls made)")
+	volumesMu.Lock()
+	volumeCount := len(fadeInVolumes)
+	volumesMu.Unlock()
+
+	// With zones configured, the fade-in should NOT abort due to
+	// musicPlaybackType mismatch. We expect at least:
+	// - volume_set to 0 (initial safety)
+	// - volume_set for step 1
+	// - volume_set for step 2 (may trigger human override detection due to mock)
+	// The key assertion: we get MORE than 1 call, proving the fade-in loop
+	// entered and progressed past the musicPlaybackType check.
+	// Without the fix, the fade-in would abort immediately after the initial
+	// volume_set to 0, giving us only 1 call.
+	assert.GreaterOrEqual(t, volumeCount, 3,
+		"Fade-in should progress when zones are configured, even if musicPlaybackType "+
+			"in state ('sleep') doesn't match startingMusicType ('morning'). "+
+			"Got %d volume_set calls, expected at least 3 (initial 0 + volume steps). "+
+			"Issue #635: stale HA state should not abort zone-managed fade-ins.",
+		volumeCount)
+}
+
+// TestScenario_FadeInAborts_WhenMusicPlaybackTypeChanges_WithoutZones validates
+// that the legacy musicPlaybackType safety check still works when zones are NOT
+// configured. This ensures backward compatibility.
+func TestScenario_FadeInAborts_WhenMusicPlaybackTypeChanges_WithoutZones(t *testing.T) {
+	t.Parallel()
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+
+	// Config WITHOUT zones
+	config := createWakeupTestConfig()
+
+	fixedTime := time.Date(2024, 1, 15, 6, 30, 0, 0, time.UTC)
+	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
+
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, timeProvider, nil)
+	manager.SetSleepFunc(func(d time.Duration) {}) // Skip sleeps
+
+	// Set up mock speakers
+	mockClient.SetState("media_player.kitchen", "playing", map[string]interface{}{
+		"volume_level": 0.0,
+	})
+
+	// ==========================================================
+	// GIVEN: musicPlaybackType is "sleep" but fade-in was started for "morning"
+	// Without zones, this mismatch should abort the fade-in
+	// ==========================================================
+	t.Log("GIVEN: musicPlaybackType='sleep', no zones configured")
+	_ = stateManager.SetString("musicPlaybackType", "sleep")
+	_ = stateManager.SetBool("isAnyoneHome", true)
+
+	// ==========================================================
+	// WHEN: fadeInSpeaker runs for "morning" type
+	// ==========================================================
+	t.Log("WHEN: fadeInSpeaker runs with startingMusicType='morning'")
+	ctx := context.Background()
+	manager.fadeInSpeaker(ctx, "Kitchen", 9, "morning")
+
+	// Check how many volume steps were reached
+	serviceCalls := mockClient.GetServiceCalls()
+	volumeSetCalls := 0
+	for _, call := range serviceCalls {
+		if call.Domain == "media_player" && call.Service == "volume_set" {
+			if entityID, ok := call.Data["entity_id"].(string); ok && entityID == "media_player.kitchen" {
+				volumeSetCalls++
+			}
+		}
+	}
+
+	// ==========================================================
+	// THEN: Fade-in should abort after initial setup
+	// Expected: volume_set to 0 (initial), then abort on first loop iteration
+	// The abort happens before the volume step is set, so we get:
+	// 1. Set volume to 0 (pre-unmute safety)
+	// That's it - the check at the start of the loop aborts before setting volume to 1
+	// ==========================================================
+	t.Log("THEN: Fade-in should abort (legacy safety check)")
+	assert.LessOrEqual(t, volumeSetCalls, 2,
+		"Without zones, fade-in should abort when musicPlaybackType doesn't match. "+
+			"Got %d volume_set calls, expected ≤ 2 (initial 0 + possibly 1 before check). "+
+			"The legacy safety check should still work for non-zone configs.",
+		volumeSetCalls)
+}
