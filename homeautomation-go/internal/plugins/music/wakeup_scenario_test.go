@@ -2129,3 +2129,151 @@ func TestScenario_ZonesConfigured_HandleMusicPlaybackTypeChange_SkipsLegacyOrche
 			"legacy orchestratePlayback to prevent duplicate playback commands. "+
 			"Zone playback is handled by orchestrateZonePlayback in startZone.")
 }
+
+// =============================================================================
+// ZONE-BASED WAKE SEQUENCE TESTS
+// =============================================================================
+//
+// These tests validate the zone manager correctly updates musicPlaybackType
+// when transitioning between zones (e.g., from "sleep" to "morning" zone).
+
+// createZoneBasedWakeSequenceTestConfig creates a config that mirrors production:
+// - sleep zone: active when isMasterAsleep=true AND isWakeSequenceActive=false
+// - morning zone: active when isWakeSequenceActive=true (wake sequence started)
+func createZoneBasedWakeSequenceTestConfig() *MusicConfig {
+	return &MusicConfig{
+		Zones: []ZoneConfig{
+			{
+				Name:     "sleep",
+				Priority: 100,
+				Triggers: []TriggerCondition{
+					{Variable: "isMasterAsleep", Value: true},
+					{Variable: "isAnyoneHome", Value: true},
+					{Variable: "isWakeSequenceActive", Value: false},
+				},
+			},
+			{
+				Name:     "morning",
+				Priority: 50,
+				Triggers: []TriggerCondition{
+					{Variable: "isWakeSequenceActive", Value: true},
+					{Variable: "dayPhase", Value: "morning"},
+					{Variable: "isAnyoneHome", Value: true},
+				},
+			},
+		},
+		Music: map[string]MusicMode{
+			"sleep": {
+				Participants: []Participant{
+					{PlayerName: "Bedroom", BaseVolume: 16},
+				},
+				PlaybackOptions: []PlaybackOption{
+					{URI: "http://rain.example/1.m4a", MediaType: "music", VolumeMultiplier: 1.0},
+				},
+			},
+			"morning": {
+				Participants: []Participant{
+					{PlayerName: "Front Room", BaseVolume: 9},
+					{PlayerName: "Kitchen", BaseVolume: 9},
+				},
+				PlaybackOptions: []PlaybackOption{
+					{URI: "spotify:playlist:morning", MediaType: "playlist", VolumeMultiplier: 1.0},
+				},
+			},
+		},
+	}
+}
+
+// TestScenario_WakeSequence_MusicPlaybackTypeSyncedBeforeAsyncPlayback validates
+// that when the wake sequence starts and the zone manager transitions from "sleep"
+// zone to "morning" zone, the musicPlaybackType state variable is updated.
+//
+// REGRESSION TEST for issue #599 (fixed in c6755ee):
+// Production failure on 2026-02-10 where:
+// 1. Eight Sleep alarm triggers begin_wake which sets isWakeSequenceActive=true
+// 2. Zone manager resolves zones: stops "sleep" zone, starts "morning" zone
+// 3. startZone() calls setMusicPlaybackType("morning") at zone_manager.go:748
+// 4. BUT legacy selectAppropriateMusicMode raced and reset it back to "sleep"
+// 5. orchestrateZonePlayback runs in a goroutine
+// 6. fadeInSpeaker checks musicPlaybackType, sees "sleep" instead of "morning"
+// 7. Fade-in aborts: "Music type changed during fade-in, stopping"
+//
+// Fix: When explicit zones are configured, the zone manager fully controls
+// music type selection and legacy selectAppropriateMusicMode is skipped.
+func TestScenario_WakeSequence_MusicPlaybackTypeSyncedBeforeAsyncPlayback(t *testing.T) {
+	t.Parallel()
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	config := createZoneBasedWakeSequenceTestConfig()
+
+	fixedTime := time.Date(2026, 2, 10, 7, 30, 0, 0, time.UTC)
+	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
+
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, timeProvider, nil)
+	manager.SetSleepFunc(func(d time.Duration) {})
+
+	// GIVEN: Sleep zone active, master asleep, sleep music playing
+	t.Log("GIVEN: Sleep zone active with musicPlaybackType='sleep'")
+	_ = stateManager.SetString("dayPhase", "morning")
+	_ = stateManager.SetString("musicPlaybackType", "sleep")
+	_ = stateManager.SetBool("isAnyoneHome", true)
+	_ = stateManager.SetBool("isAnyoneAsleep", true)
+	_ = stateManager.SetBool("isMasterAsleep", true)
+	_ = stateManager.SetBool("isWakeSequenceActive", false)
+
+	err := manager.Start()
+	require.NoError(t, err)
+	defer manager.Stop()
+
+	time.Sleep(100 * time.Millisecond)
+
+	// Set up observer to detect musicPlaybackType changes
+	var stateChanged bool
+	var changedTo string
+	var mu sync.Mutex
+	sub, _ := stateManager.Subscribe("musicPlaybackType", func(key string, old, new interface{}) {
+		mu.Lock()
+		defer mu.Unlock()
+		stateChanged = true
+		if s, ok := new.(string); ok {
+			changedTo = s
+		}
+	})
+	defer sub.Unsubscribe()
+
+	// WHEN: isWakeSequenceActive becomes true (Eight Sleep alarm)
+	t.Log("WHEN: isWakeSequenceActive changes to true")
+	_ = stateManager.SetBool("isWakeSequenceActive", true)
+
+	time.Sleep(200 * time.Millisecond)
+
+	// THEN: musicPlaybackType should be "morning"
+	t.Log("THEN: musicPlaybackType should be 'morning'")
+	musicType, _ := stateManager.GetString("musicPlaybackType")
+
+	mu.Lock()
+	didChange := stateChanged
+	newType := changedTo
+	mu.Unlock()
+
+	// CRITICAL ASSERTION #1: musicPlaybackType must be "morning" after zone transition
+	// If this fails, the race condition from issue #599 has regressed.
+	assert.Equal(t, "morning", musicType,
+		"REGRESSION: musicPlaybackType is '%s' instead of 'morning'. "+
+			"Zone manager's setMusicPlaybackType call did not update the state, "+
+			"which causes fade-in to abort with 'Music type changed during fade-in'. "+
+			"See issue #599 and fix c6755ee.", musicType)
+
+	// CRITICAL ASSERTION #2: State change notification must have fired
+	// If this fails, the zone manager didn't properly sync state.
+	assert.True(t, didChange,
+		"REGRESSION: musicPlaybackType state change notification was never received. "+
+			"Zone manager's setMusicPlaybackType call did not trigger a state update. "+
+			"See issue #599 and fix c6755ee.")
+
+	if didChange {
+		assert.Equal(t, "morning", newType,
+			"musicPlaybackType should have changed to 'morning', got '%s'", newType)
+	}
+}
