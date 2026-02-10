@@ -1478,6 +1478,16 @@ jobs:
             DOCS_REVIEW_RESULT=${{ needs.docs-review.result }}
             CONFIG_ONLY=${{ needs.get-context.outputs.config_only }}
           runCmd: |
+            # Pre-compute conditional values to avoid $() inside double-quoted claude argument
+            # (bash -c wrapping by devcontainers/ci breaks $() inside escaped quotes)
+            if [ "${CONFIG_ONLY}" = "true" ]; then
+              PR_TYPE_DESC="Config-only (reviews were streamlined)"
+              CONFIG_NOTE="NOTE: This is a config-only PR. Most reviews were skipped as they don't apply to configuration changes. Focus on validating the config changes are correct and safe."
+            else
+              PR_TYPE_DESC="Standard"
+              CONFIG_NOTE=""
+            fi
+
             # Using Sonnet: Summarization task - synthesizes existing review results
             claude --print \
               --verbose \
@@ -1489,7 +1499,7 @@ jobs:
 
             You have personal responsibility to approve or reject this PR for merge to main and deployment to production.
 
-            **PR TYPE:** $([ \"${CONFIG_ONLY}\" = \"true\" ] && echo \"Config-only (reviews were streamlined)\" || echo \"Standard\")
+            **PR TYPE:** ${PR_TYPE_DESC}
 
             **REVIEW STATUS:**
             - Code Review: ${CLAUDE_REVIEW_RESULT}
@@ -1498,7 +1508,7 @@ jobs:
             - Concurrency Review: ${CONCURRENCY_REVIEW_RESULT}
             - Docs Review: ${DOCS_REVIEW_RESULT}
 
-            $([ \"${CONFIG_ONLY}\" = \"true\" ] && echo \"NOTE: This is a config-only PR. Most reviews were skipped as they don't apply to configuration changes. Focus on validating the config changes are correct and safe.\")
+            ${CONFIG_NOTE}
 
             **YOUR TASK:**
             1. Read the review comments on this PR: \`gh pr view ${PR_NUMBER} --comments\`
