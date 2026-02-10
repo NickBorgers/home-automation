@@ -1060,6 +1060,33 @@ jobs:
             FOR WORKFLOWS: Validate YAML syntax, check action refs, verify permissions
             FOR CONFIG: Validate syntax
 
+            **TEST EXECUTION TIME ANALYSIS:**
+            Analyze whether the PR increases how long tests take to execute:
+            1. Run \`make unit-tests\` and \`make integration-tests\` with \`go test -v\` output to observe test timing
+            2. For any new or modified tests, check if individual tests take >1s (slow) or >5s (very slow)
+            3. Look for patterns that indicate test performance issues:
+               - Unnecessary sleeps or time.Sleep calls
+               - Missing t.Parallel() in tests that could run concurrently
+               - Repeated expensive setup that could be shared
+               - Tests that don't use the mock HA server efficiently
+
+            When you find a test performance issue, determine its scope:
+            - **PR-specific issue**: The problem is with new/modified tests in this PR
+              → Fix the issue directly (add t.Parallel(), reduce sleeps, optimize setup)
+            - **Infrastructure improvement opportunity**: The problem reveals a better approach for ALL tests
+              → Create a GitHub issue describing the improvement opportunity using:
+              \`gh issue create --title 'perf(tests): <brief description>' --body '<detailed explanation of the opportunity and suggested approach>'\`
+
+            Examples of PR-specific issues to fix directly:
+            - New test missing t.Parallel() when it could run concurrently
+            - New test using time.Sleep(5*time.Second) when 100ms would suffice
+            - New test creating its own mock server when it could reuse testutil.MockHAServer
+
+            Examples of infrastructure improvements to file as issues:
+            - \"All scenario tests could share a single mock server pool\"
+            - \"Test setup could be parallelized across test files\"
+            - \"A test fixture caching system would speed up repeated runs\"
+
             **SCENARIO TEST RECOMMENDATION:**
             If the PR modifies any of these RISKY areas, recommend creating scenario tests:
             - State management (isMasterAsleep, isAnyoneAsleep, musicPlaybackType, isWakeSequenceActive)
@@ -1092,6 +1119,13 @@ jobs:
 
             ### Issues Found
             [Only list actionable items: missing tests, flaky tests, etc. Skip if none.]
+
+            ### Test Performance
+            [If tests significantly increase execution time, describe the issue and action taken:
+            - \"Fixed: Added t.Parallel() to new tests\"
+            - \"Fixed: Reduced unnecessary sleep from 5s to 100ms\"
+            - \"Filed issue #XXX: Opportunity to share mock server pool across all scenario tests\"
+            Skip section if no performance concerns.]
 
             ### Scenario Tests Recommended
             [If risky changes lack scenario tests, recommend specific tests to add. Reference existing examples. Skip section if not applicable.]

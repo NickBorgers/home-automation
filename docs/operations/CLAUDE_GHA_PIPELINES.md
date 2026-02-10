@@ -333,8 +333,16 @@ QA-focused test review.
 - Tests with timing dependencies (may fail at certain times of day)
 - Slow tests
 - Test quality issues
+- **Test execution time analysis** (new/modified tests taking >1s or >5s)
 
-**Actions**: Adds test coverage for high-severity gaps
+**Test Performance Analysis**:
+The test reviewer analyzes whether PRs increase test execution time:
+- Identifies slow tests (>1s) and very slow tests (>5s)
+- Checks for unnecessary `time.Sleep` calls, missing `t.Parallel()`, repeated expensive setup
+- **PR-specific issues** are fixed directly (add `t.Parallel()`, reduce sleeps, optimize setup)
+- **Infrastructure improvements** are filed as GitHub issues for broader test optimization opportunities
+
+**Actions**: Adds test coverage for high-severity gaps, fixes test performance issues, files issues for infrastructure improvements
 
 #### 2.6 `concurrency-review`
 
