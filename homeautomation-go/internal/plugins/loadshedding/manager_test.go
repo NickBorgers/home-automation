@@ -41,9 +41,9 @@ func TestLoadShedding_EnergyStateRed(t *testing.T) {
 
 	// Verify service calls
 	calls := mockClient.GetServiceCalls()
-	assert.GreaterOrEqual(t, len(calls), 2, "Expected at least 2 service calls")
+	assert.GreaterOrEqual(t, len(calls), 3, "Expected at least 3 service calls (thermostat hold, temp range, EV charger)")
 
-	// Check for switch.turn_on call
+	// Check for switch.turn_on call (thermostat holds)
 	foundSwitchOn := false
 	for _, call := range calls {
 		if call.Domain == "switch" && call.Service == "turn_on" {
@@ -54,7 +54,7 @@ func TestLoadShedding_EnergyStateRed(t *testing.T) {
 			assert.Contains(t, entities, thermostatHoldSuite)
 		}
 	}
-	assert.True(t, foundSwitchOn, "Expected switch.turn_on service call")
+	assert.True(t, foundSwitchOn, "Expected switch.turn_on service call for thermostat holds")
 
 	// Check for climate.set_temperature call
 	foundSetTemp := false
@@ -70,6 +70,18 @@ func TestLoadShedding_EnergyStateRed(t *testing.T) {
 		}
 	}
 	assert.True(t, foundSetTemp, "Expected climate.set_temperature service call")
+
+	// Check for switch.turn_off call (EV charger)
+	foundEVChargerOff := false
+	for _, call := range calls {
+		if call.Domain == "switch" && call.Service == "turn_off" {
+			entityID, ok := call.Data["entity_id"].(string)
+			if ok && entityID == evChargerSwitch {
+				foundEVChargerOff = true
+			}
+		}
+	}
+	assert.True(t, foundEVChargerOff, "Expected switch.turn_off service call for EV charger")
 }
 
 func TestLoadShedding_EnergyStateBlack(t *testing.T) {
@@ -99,7 +111,7 @@ func TestLoadShedding_EnergyStateBlack(t *testing.T) {
 
 	// Verify service calls (should be same as red)
 	calls := mockClient.GetServiceCalls()
-	assert.GreaterOrEqual(t, len(calls), 2)
+	assert.GreaterOrEqual(t, len(calls), 3, "Expected at least 3 service calls (thermostat hold, temp range, EV charger)")
 
 	foundSwitchOn := false
 	for _, call := range calls {
@@ -107,7 +119,19 @@ func TestLoadShedding_EnergyStateBlack(t *testing.T) {
 			foundSwitchOn = true
 		}
 	}
-	assert.True(t, foundSwitchOn)
+	assert.True(t, foundSwitchOn, "Expected switch.turn_on for thermostat holds")
+
+	// Check for switch.turn_off call (EV charger)
+	foundEVChargerOff := false
+	for _, call := range calls {
+		if call.Domain == "switch" && call.Service == "turn_off" {
+			entityID, ok := call.Data["entity_id"].(string)
+			if ok && entityID == evChargerSwitch {
+				foundEVChargerOff = true
+			}
+		}
+	}
+	assert.True(t, foundEVChargerOff, "Expected switch.turn_off service call for EV charger")
 }
 
 func TestLoadShedding_EnergyStateGreen(t *testing.T) {
@@ -140,20 +164,33 @@ func TestLoadShedding_EnergyStateGreen(t *testing.T) {
 
 	// Verify service calls
 	calls := mockClient.GetServiceCalls()
-	assert.GreaterOrEqual(t, len(calls), 1)
+	assert.GreaterOrEqual(t, len(calls), 2, "Expected at least 2 service calls (thermostat hold off, EV charger on)")
 
-	// Check for switch.turn_off call
-	foundSwitchOff := false
+	// Check for switch.turn_off call (thermostat holds)
+	foundThermostatOff := false
 	for _, call := range calls {
 		if call.Domain == "switch" && call.Service == "turn_off" {
-			foundSwitchOff = true
 			entities, ok := call.Data["entity_id"].([]string)
-			assert.True(t, ok, "entity_id should be []string")
-			assert.Contains(t, entities, thermostatHoldHouse)
-			assert.Contains(t, entities, thermostatHoldSuite)
+			if ok {
+				foundThermostatOff = true
+				assert.Contains(t, entities, thermostatHoldHouse)
+				assert.Contains(t, entities, thermostatHoldSuite)
+			}
 		}
 	}
-	assert.True(t, foundSwitchOff, "Expected switch.turn_off service call")
+	assert.True(t, foundThermostatOff, "Expected switch.turn_off service call for thermostat holds")
+
+	// Check for switch.turn_on call (EV charger)
+	foundEVChargerOn := false
+	for _, call := range calls {
+		if call.Domain == "switch" && call.Service == "turn_on" {
+			entityID, ok := call.Data["entity_id"].(string)
+			if ok && entityID == evChargerSwitch {
+				foundEVChargerOn = true
+			}
+		}
+	}
+	assert.True(t, foundEVChargerOn, "Expected switch.turn_on service call for EV charger")
 }
 
 func TestLoadShedding_EnergyStateWhite(t *testing.T) {
@@ -186,15 +223,30 @@ func TestLoadShedding_EnergyStateWhite(t *testing.T) {
 
 	// Verify service calls (should be same as green)
 	calls := mockClient.GetServiceCalls()
-	assert.GreaterOrEqual(t, len(calls), 1)
+	assert.GreaterOrEqual(t, len(calls), 2, "Expected at least 2 service calls (thermostat hold off, EV charger on)")
 
-	foundSwitchOff := false
+	foundThermostatOff := false
 	for _, call := range calls {
 		if call.Domain == "switch" && call.Service == "turn_off" {
-			foundSwitchOff = true
+			_, ok := call.Data["entity_id"].([]string)
+			if ok {
+				foundThermostatOff = true
+			}
 		}
 	}
-	assert.True(t, foundSwitchOff)
+	assert.True(t, foundThermostatOff, "Expected switch.turn_off for thermostat holds")
+
+	// Check for switch.turn_on call (EV charger)
+	foundEVChargerOn := false
+	for _, call := range calls {
+		if call.Domain == "switch" && call.Service == "turn_on" {
+			entityID, ok := call.Data["entity_id"].(string)
+			if ok && entityID == evChargerSwitch {
+				foundEVChargerOn = true
+			}
+		}
+	}
+	assert.True(t, foundEVChargerOn, "Expected switch.turn_on service call for EV charger")
 }
 
 func TestLoadShedding_RateLimiting(t *testing.T) {
@@ -437,33 +489,39 @@ func TestLoadShedding_DeferredActionAfterRateLimit(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 
 	// At this point, the disable action should be rate-limited (not executed yet)
-	calls = mockClient.GetServiceCalls()
-	foundSwitchOff := false
-	for _, call := range calls {
-		if call.Domain == "switch" && call.Service == "turn_off" {
-			foundSwitchOff = true
-		}
-	}
-	// The action should NOT have been executed yet due to rate limiting
-	// (It will be deferred)
+	// We don't assert on this because the deferred action mechanism is tested below
 
 	// Step 3: Wait for the rate limit to expire plus buffer for deferred action
 	time.Sleep(150 * time.Millisecond)
 
 	// Step 4: Verify the deferred disable action was executed
 	calls = mockClient.GetServiceCalls()
-	foundSwitchOff = false
+	foundThermostatOff := false
 	for _, call := range calls {
 		if call.Domain == "switch" && call.Service == "turn_off" {
-			foundSwitchOff = true
 			entities, ok := call.Data["entity_id"].([]string)
-			assert.True(t, ok, "entity_id should be []string")
-			assert.Contains(t, entities, thermostatHoldHouse)
-			assert.Contains(t, entities, thermostatHoldSuite)
+			if ok {
+				foundThermostatOff = true
+				assert.Contains(t, entities, thermostatHoldHouse)
+				assert.Contains(t, entities, thermostatHoldSuite)
+			}
 		}
 	}
-	assert.True(t, foundSwitchOff,
-		"Deferred action should execute switch.turn_off after rate limit expires")
+	assert.True(t, foundThermostatOff,
+		"Deferred action should execute switch.turn_off for thermostat holds after rate limit expires")
+
+	// Verify EV charger was turned on in deferred action
+	foundEVChargerOn := false
+	for _, call := range calls {
+		if call.Domain == "switch" && call.Service == "turn_on" {
+			entityID, ok := call.Data["entity_id"].(string)
+			if ok && entityID == evChargerSwitch {
+				foundEVChargerOn = true
+			}
+		}
+	}
+	assert.True(t, foundEVChargerOn,
+		"Deferred action should execute switch.turn_on for EV charger after rate limit expires")
 
 	// Verify load shedding state is now disabled
 	assert.False(t, ls.IsLoadSheddingOn(), "Load shedding should be disabled after deferred action")

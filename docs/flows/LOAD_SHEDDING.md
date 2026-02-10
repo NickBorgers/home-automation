@@ -1,12 +1,12 @@
 # Load Shedding Flow
 
-This document describes the load shedding automation flow, which manages HVAC thermostat control based on energy availability.
+This document describes the load shedding automation flow, which manages HVAC thermostat control and EV charger based on energy availability.
 
 ## Overview
 
-The load shedding plugin controls thermostats based on energy levels to:
-1. Restrict HVAC when battery is low (red/black)
-2. Return to normal schedules when energy is available (green/white)
+The load shedding plugin controls thermostats and EV charger based on energy levels to:
+1. Restrict HVAC and disable EV charger when battery is low (red/black)
+2. Return to normal schedules and re-enable EV charger when energy is available (green/white)
 3. Maintain hysteresis to prevent rapid toggling (yellow)
 
 ## Energy Level Response
@@ -55,6 +55,7 @@ flowchart TD
     subgraph Actions["Enable Actions"]
         turnOnHold["Turn on thermostat hold<br/>(both zones)"]
         setTemp["Set temperature range<br/>65°F - 80°F"]
+        turnOffEV["Turn off EV charger"]
     end
 
     alreadyOn -->|Yes| skipOn
@@ -64,11 +65,13 @@ flowchart TD
     rateLimit -->|Yes| skipRate
     rateLimit -->|No| turnOnHold
     turnOnHold --> setTemp
+    setTemp --> turnOffEV
 
     style skipOn fill:#95a5a6,color:#fff
     style skipHold fill:#95a5a6,color:#fff
     style skipRate fill:#f39c12,color:#fff
     style setTemp fill:#e74c3c,color:#fff
+    style turnOffEV fill:#e74c3c,color:#fff
 ```
 
 ### Disable Load Shedding (Energy Restored)
@@ -89,6 +92,7 @@ flowchart TD
 
     subgraph Actions["Disable Actions"]
         turnOffHold["Turn off thermostat hold<br/>(both zones)"]
+        turnOnEV["Turn on EV charger"]
     end
 
     alreadyOff -->|Yes| skipOff
@@ -97,11 +101,13 @@ flowchart TD
     checkHold -->|No| rateLimit
     rateLimit -->|Yes| skipRate
     rateLimit -->|No| turnOffHold
+    turnOffHold --> turnOnEV
 
     style skipOff fill:#95a5a6,color:#fff
     style skipHold fill:#95a5a6,color:#fff
     style skipRate fill:#f39c12,color:#fff
     style turnOffHold fill:#27ae60,color:#fff
+    style turnOnEV fill:#27ae60,color:#fff
 ```
 
 ## Yellow State Hysteresis
@@ -136,14 +142,15 @@ sequenceDiagram
 
 Without hysteresis, the system would rapidly toggle at threshold boundaries (e.g., 29%↔31% repeatedly enabling/disabling).
 
-## Thermostat Entities
+## Controlled Entities
 
-| Entity | Zone | Description |
+| Entity | Type | Description |
 |--------|------|-------------|
-| `switch.most_of_house_thermostat_hold` | House | Main zone hold mode |
-| `switch.primary_suite_thermostat_hold` | Suite | Primary suite hold mode |
-| `climate.most_of_house_thermostat` | House | Main zone climate control |
-| `climate.primary_suite_thermostat` | Suite | Primary suite climate control |
+| `switch.most_of_house_thermostat_hold` | Thermostat | Main zone hold mode |
+| `switch.primary_suite_thermostat_hold` | Thermostat | Primary suite hold mode |
+| `climate.most_of_house_thermostat` | Thermostat | Main zone climate control |
+| `climate.primary_suite_thermostat` | Thermostat | Primary suite climate control |
+| `switch.leaf_charger` | EV Charger | Nissan Leaf charger plug |
 
 ## Temperature Range
 
