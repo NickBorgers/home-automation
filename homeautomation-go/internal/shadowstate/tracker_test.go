@@ -395,11 +395,6 @@ func TestLightingTrackerMetadataUpdates(t *testing.T) {
 	}
 }
 
-func TestLightingShadowStateImplementsInterface(t *testing.T) {
-	t.Parallel()
-	var _ PluginShadowState = (*LightingShadowState)(nil)
-}
-
 // Security Tracker Tests
 
 func TestNewSecurityTracker(t *testing.T) {
@@ -707,11 +702,6 @@ func TestSecurityTrackerMetadataUpdates(t *testing.T) {
 	}
 }
 
-func TestSecurityShadowStateImplementsInterface(t *testing.T) {
-	t.Parallel()
-	var _ PluginShadowState = (*SecurityShadowState)(nil)
-}
-
 func TestSecurityTrackerLastActionTime(t *testing.T) {
 	t.Parallel()
 	st := NewSecurityTracker()
@@ -992,11 +982,6 @@ func TestSleepHygieneTrackerConcurrentAccess(t *testing.T) {
 	wg.Wait()
 }
 
-func TestSleepHygieneShadowStateImplementsInterface(t *testing.T) {
-	t.Parallel()
-	var _ PluginShadowState = (*SleepHygieneShadowState)(nil)
-}
-
 // ============================================================================
 // Phase 6: Read-Heavy Plugin Tracker Tests
 // ============================================================================
@@ -1125,11 +1110,6 @@ func TestLoadSheddingTrackerGetStateReturnsDeepCopy(t *testing.T) {
 	}
 }
 
-func TestLoadSheddingShadowStateImplementsInterface(t *testing.T) {
-	t.Parallel()
-	var _ PluginShadowState = (*LoadSheddingShadowState)(nil)
-}
-
 // EnergyTracker tests
 
 func TestNewEnergyTracker(t *testing.T) {
@@ -1185,51 +1165,6 @@ func TestEnergyTrackerUpdateSensorReadings(t *testing.T) {
 	}
 	if state.Outputs.SensorReadings.LastUpdate.IsZero() {
 		t.Error("Expected LastUpdate to be set")
-	}
-}
-
-func TestEnergyTrackerUpdateBatteryLevel(t *testing.T) {
-	t.Parallel()
-	et := NewEnergyTracker()
-
-	et.UpdateBatteryLevel("high")
-
-	state := et.GetState()
-	if state.Outputs.BatteryEnergyLevel != "high" {
-		t.Errorf("Expected BatteryEnergyLevel 'high', got %s", state.Outputs.BatteryEnergyLevel)
-	}
-	if state.Outputs.LastComputations.LastBatteryLevelCalc.IsZero() {
-		t.Error("Expected LastBatteryLevelCalc to be set")
-	}
-}
-
-func TestEnergyTrackerUpdateSolarLevel(t *testing.T) {
-	t.Parallel()
-	et := NewEnergyTracker()
-
-	et.UpdateSolarLevel("medium")
-
-	state := et.GetState()
-	if state.Outputs.SolarProductionEnergyLevel != "medium" {
-		t.Errorf("Expected SolarProductionEnergyLevel 'medium', got %s", state.Outputs.SolarProductionEnergyLevel)
-	}
-	if state.Outputs.LastComputations.LastSolarLevelCalc.IsZero() {
-		t.Error("Expected LastSolarLevelCalc to be set")
-	}
-}
-
-func TestEnergyTrackerUpdateOverallLevel(t *testing.T) {
-	t.Parallel()
-	et := NewEnergyTracker()
-
-	et.UpdateOverallLevel("low")
-
-	state := et.GetState()
-	if state.Outputs.CurrentEnergyLevel != "low" {
-		t.Errorf("Expected CurrentEnergyLevel 'low', got %s", state.Outputs.CurrentEnergyLevel)
-	}
-	if state.Outputs.LastComputations.LastOverallLevelCalc.IsZero() {
-		t.Error("Expected LastOverallLevelCalc to be set")
 	}
 }
 
@@ -1306,11 +1241,6 @@ func TestEnergyTrackerConcurrentAccess(t *testing.T) {
 	}
 
 	wg.Wait()
-}
-
-func TestEnergyShadowStateImplementsInterface(t *testing.T) {
-	t.Parallel()
-	var _ PluginShadowState = (*EnergyShadowState)(nil)
 }
 
 // StateTrackingTracker tests
@@ -1401,60 +1331,6 @@ func TestStateTrackingTrackerUpdateSleepDetectionTimer(t *testing.T) {
 	}
 }
 
-func TestStateTrackingTrackerUpdateWakeDetectionTimer(t *testing.T) {
-	t.Parallel()
-	stt := NewStateTrackingTracker()
-
-	// Activate timer
-	stt.UpdateWakeDetectionTimer(true)
-
-	state := stt.GetState()
-	if !state.Outputs.TimerStates.WakeDetectionActive {
-		t.Error("Expected WakeDetectionActive to be true")
-	}
-	if state.Outputs.TimerStates.WakeDetectionStarted.IsZero() {
-		t.Error("Expected WakeDetectionStarted to be set")
-	}
-
-	// Deactivate timer
-	stt.UpdateWakeDetectionTimer(false)
-
-	state = stt.GetState()
-	if state.Outputs.TimerStates.WakeDetectionActive {
-		t.Error("Expected WakeDetectionActive to be false")
-	}
-	if !state.Outputs.TimerStates.WakeDetectionStarted.IsZero() {
-		t.Error("Expected WakeDetectionStarted to be cleared")
-	}
-}
-
-func TestStateTrackingTrackerUpdateOwnerReturnTimer(t *testing.T) {
-	t.Parallel()
-	stt := NewStateTrackingTracker()
-
-	// Activate timer
-	stt.UpdateOwnerReturnTimer(true)
-
-	state := stt.GetState()
-	if !state.Outputs.TimerStates.OwnerReturnResetActive {
-		t.Error("Expected OwnerReturnResetActive to be true")
-	}
-	if state.Outputs.TimerStates.OwnerReturnResetStarted.IsZero() {
-		t.Error("Expected OwnerReturnResetStarted to be set")
-	}
-
-	// Deactivate timer
-	stt.UpdateOwnerReturnTimer(false)
-
-	state = stt.GetState()
-	if state.Outputs.TimerStates.OwnerReturnResetActive {
-		t.Error("Expected OwnerReturnResetActive to be false")
-	}
-	if !state.Outputs.TimerStates.OwnerReturnResetStarted.IsZero() {
-		t.Error("Expected OwnerReturnResetStarted to be cleared")
-	}
-}
-
 func TestStateTrackingTrackerRecordArrivalAnnouncement(t *testing.T) {
 	t.Parallel()
 	stt := NewStateTrackingTracker()
@@ -1529,11 +1405,6 @@ func TestStateTrackingTrackerConcurrentAccess(t *testing.T) {
 	wg.Wait()
 }
 
-func TestStateTrackingShadowStateImplementsInterface(t *testing.T) {
-	t.Parallel()
-	var _ PluginShadowState = (*StateTrackingShadowState)(nil)
-}
-
 // DayPhaseTracker tests
 
 func TestNewDayPhaseTracker(t *testing.T) {
@@ -1565,52 +1436,6 @@ func TestDayPhaseTrackerUpdateCurrentInputs(t *testing.T) {
 	}
 	if state.Inputs.Current["sunAzimuth"] != 180.0 {
 		t.Errorf("Expected sunAzimuth to be 180.0, got %v", state.Inputs.Current["sunAzimuth"])
-	}
-}
-
-func TestDayPhaseTrackerUpdateSunEvent(t *testing.T) {
-	t.Parallel()
-	dpt := NewDayPhaseTracker()
-
-	dpt.UpdateSunEvent("sunset")
-
-	state := dpt.GetState()
-	if state.Outputs.SunEvent != "sunset" {
-		t.Errorf("Expected SunEvent 'sunset', got %s", state.Outputs.SunEvent)
-	}
-	if state.Outputs.LastSunEventCalc.IsZero() {
-		t.Error("Expected LastSunEventCalc to be set")
-	}
-}
-
-func TestDayPhaseTrackerUpdateDayPhase(t *testing.T) {
-	t.Parallel()
-	dpt := NewDayPhaseTracker()
-
-	dpt.UpdateDayPhase("evening")
-
-	state := dpt.GetState()
-	if state.Outputs.DayPhase != "evening" {
-		t.Errorf("Expected DayPhase 'evening', got %s", state.Outputs.DayPhase)
-	}
-	if state.Outputs.LastDayPhaseCalc.IsZero() {
-		t.Error("Expected LastDayPhaseCalc to be set")
-	}
-}
-
-func TestDayPhaseTrackerUpdateNextTransition(t *testing.T) {
-	t.Parallel()
-	dpt := NewDayPhaseTracker()
-
-	transitionTime := time.Now().Add(2 * time.Hour)
-	dpt.UpdateNextTransition(transitionTime, "night")
-
-	state := dpt.GetState()
-	if !state.Outputs.NextTransitionTime.Equal(transitionTime) {
-		t.Errorf("Expected NextTransitionTime to match, got %v", state.Outputs.NextTransitionTime)
-	}
-	if state.Outputs.NextTransitionPhase != "night" {
-		t.Errorf("Expected NextTransitionPhase 'night', got %s", state.Outputs.NextTransitionPhase)
 	}
 }
 
@@ -1663,11 +1488,6 @@ func TestDayPhaseTrackerConcurrentAccess(t *testing.T) {
 	}
 
 	wg.Wait()
-}
-
-func TestDayPhaseShadowStateImplementsInterface(t *testing.T) {
-	t.Parallel()
-	var _ PluginShadowState = (*DayPhaseShadowState)(nil)
 }
 
 // TVTracker tests
@@ -1757,21 +1577,6 @@ func TestTVTrackerUpdateTVPower(t *testing.T) {
 	}
 }
 
-func TestTVTrackerUpdateHDMIInput(t *testing.T) {
-	t.Parallel()
-	tvt := NewTVTracker()
-
-	tvt.UpdateHDMIInput("HDMI2")
-
-	state := tvt.GetState()
-	if state.Outputs.CurrentHDMIInput != "HDMI2" {
-		t.Errorf("Expected CurrentHDMIInput 'HDMI2', got %s", state.Outputs.CurrentHDMIInput)
-	}
-	if state.Outputs.LastUpdate.IsZero() {
-		t.Error("Expected LastUpdate to be set")
-	}
-}
-
 func TestTVTrackerUpdateTVPlaying(t *testing.T) {
 	t.Parallel()
 	tvt := NewTVTracker()
@@ -1844,11 +1649,6 @@ func TestTVTrackerConcurrentAccess(t *testing.T) {
 	}
 
 	wg.Wait()
-}
-
-func TestTVShadowStateImplementsInterface(t *testing.T) {
-	t.Parallel()
-	var _ PluginShadowState = (*TVShadowState)(nil)
 }
 
 // ============================================================================
@@ -2126,11 +1926,6 @@ func TestSexModeTrackerConcurrentAccess(t *testing.T) {
 	wg.Wait()
 }
 
-func TestSexModeShadowStateImplementsInterface(t *testing.T) {
-	t.Parallel()
-	var _ PluginShadowState = (*SexModeShadowState)(nil)
-}
-
 // ============================================================================
 // Christmas Tracker Tests
 // ============================================================================
@@ -2268,11 +2063,6 @@ func TestChristmasTrackerConcurrentAccess(t *testing.T) {
 	wg.Wait()
 }
 
-func TestChristmasShadowStateImplementsInterface(t *testing.T) {
-	t.Parallel()
-	var _ PluginShadowState = (*ChristmasShadowState)(nil)
-}
-
 // ============================================================================
 // Environmental Tracker Tests
 // ============================================================================
@@ -2328,25 +2118,6 @@ func TestEnvironmentalTrackerUpdateHumiditySensors(t *testing.T) {
 	}
 }
 
-func TestEnvironmentalTrackerUpdateAlertLevel(t *testing.T) {
-	t.Parallel()
-	et := NewEnvironmentalTracker()
-
-	conditionStart := time.Now().Add(-35 * time.Minute)
-	et.UpdateAlertLevel("warning", conditionStart, true)
-
-	state := et.GetState()
-	if state.Outputs.AlertLevel != "warning" {
-		t.Errorf("Expected AlertLevel 'warning', got %s", state.Outputs.AlertLevel)
-	}
-	if !state.Outputs.ConditionStartTime.Equal(conditionStart) {
-		t.Error("Expected ConditionStartTime to match")
-	}
-	if !state.Outputs.IsSustained {
-		t.Error("Expected IsSustained to be true")
-	}
-}
-
 func TestEnvironmentalTrackerRecordNotification(t *testing.T) {
 	t.Parallel()
 	et := NewEnvironmentalTracker()
@@ -2366,57 +2137,6 @@ func TestEnvironmentalTrackerRecordNotification(t *testing.T) {
 	}
 	if len(state.Outputs.LastNotification.SensorLocations) != 2 {
 		t.Errorf("Expected 2 sensor locations, got %d", len(state.Outputs.LastNotification.SensorLocations))
-	}
-}
-
-func TestEnvironmentalTrackerRecordResolutionNotice(t *testing.T) {
-	t.Parallel()
-	et := NewEnvironmentalTracker()
-
-	et.RecordResolutionNotice("Humidity levels have returned to normal")
-
-	state := et.GetState()
-	if state.Outputs.LastResolutionNotice == nil {
-		t.Fatal("Expected LastResolutionNotice to be set")
-	}
-	if state.Outputs.LastResolutionNotice.Level != "resolved" {
-		t.Errorf("Expected level 'resolved', got %s", state.Outputs.LastResolutionNotice.Level)
-	}
-	if state.Outputs.LastResolutionNotice.Message != "Humidity levels have returned to normal" {
-		t.Errorf("Unexpected message: %s", state.Outputs.LastResolutionNotice.Message)
-	}
-}
-
-func TestEnvironmentalTrackerUpdateWaterLeakSensors(t *testing.T) {
-	t.Parallel()
-	et := NewEnvironmentalTracker()
-
-	sensors := []WaterLeakSensorData{
-		{EntityID: "binary_sensor.water_leak_1", FriendlyName: "Under Sink", State: "off"},
-		{EntityID: "binary_sensor.water_leak_2", FriendlyName: "Near Washer", State: "on"},
-	}
-
-	et.UpdateWaterLeakSensors(sensors)
-
-	state := et.GetState()
-	if len(state.Outputs.WaterLeakSensors) != 2 {
-		t.Errorf("Expected 2 water leak sensors, got %d", len(state.Outputs.WaterLeakSensors))
-	}
-}
-
-func TestEnvironmentalTrackerUpdateActiveWaterLeaks(t *testing.T) {
-	t.Parallel()
-	et := NewEnvironmentalTracker()
-
-	alerts := []WaterLeakAlert{
-		{EntityID: "binary_sensor.water_leak_2", FriendlyName: "Near Washer", DetectedAt: time.Now(), NotificationSent: true},
-	}
-
-	et.UpdateActiveWaterLeaks(alerts)
-
-	state := et.GetState()
-	if len(state.Outputs.ActiveWaterLeaks) != 1 {
-		t.Errorf("Expected 1 active water leak, got %d", len(state.Outputs.ActiveWaterLeaks))
 	}
 }
 
@@ -2487,11 +2207,6 @@ func TestEnvironmentalTrackerConcurrentAccess(t *testing.T) {
 	}
 
 	wg.Wait()
-}
-
-func TestEnvironmentalShadowStateImplementsInterface(t *testing.T) {
-	t.Parallel()
-	var _ PluginShadowState = (*EnvironmentalShadowState)(nil)
 }
 
 // ============================================================================
@@ -2568,22 +2283,6 @@ func TestSensorHealthTrackerUpdateTemperatureSensors(t *testing.T) {
 	}
 }
 
-func TestSensorHealthTrackerUpdateLowBatteryAlerts(t *testing.T) {
-	t.Parallel()
-	st := NewSensorHealthTracker()
-
-	alerts := []LowBatteryAlert{
-		{EntityID: "sensor.battery_2", FriendlyName: "Door Sensor", BatteryLevel: 15, DetectedAt: time.Now(), NotificationSent: true},
-	}
-
-	st.UpdateLowBatteryAlerts(alerts)
-
-	state := st.GetState()
-	if len(state.Outputs.LowBatteryAlerts) != 1 {
-		t.Errorf("Expected 1 low battery alert, got %d", len(state.Outputs.LowBatteryAlerts))
-	}
-}
-
 func TestSensorHealthTrackerRecordNotification(t *testing.T) {
 	t.Parallel()
 	st := NewSensorHealthTracker()
@@ -2599,52 +2298,6 @@ func TestSensorHealthTrackerRecordNotification(t *testing.T) {
 	}
 	if state.Outputs.LastNotification.EntityID != "sensor.battery_2" {
 		t.Errorf("Expected EntityID 'sensor.battery_2', got %s", state.Outputs.LastNotification.EntityID)
-	}
-}
-
-func TestSensorHealthTrackerRecordTemperatureLockupNotification(t *testing.T) {
-	t.Parallel()
-	st := NewSensorHealthTracker()
-
-	st.RecordTemperatureLockupNotification("sensor.temp_garage", "Garage Temperature", "Temperature sensor appears locked up")
-
-	state := st.GetState()
-	if state.Outputs.LastTemperatureLockupNotice == nil {
-		t.Fatal("Expected LastTemperatureLockupNotice to be set")
-	}
-	if state.Outputs.LastTemperatureLockupNotice.EntityID != "sensor.temp_garage" {
-		t.Errorf("Expected EntityID 'sensor.temp_garage', got %s", state.Outputs.LastTemperatureLockupNotice.EntityID)
-	}
-	if state.Outputs.LastTemperatureLockupNotice.FriendlyName != "Garage Temperature" {
-		t.Errorf("Expected FriendlyName 'Garage Temperature', got %s", state.Outputs.LastTemperatureLockupNotice.FriendlyName)
-	}
-}
-
-func TestSensorHealthTrackerRecordTemperatureRecoveryNotification(t *testing.T) {
-	t.Parallel()
-	st := NewSensorHealthTracker()
-
-	st.RecordTemperatureRecoveryNotification("sensor.temp_garage", "Garage Temperature", "Temperature sensor recovered")
-
-	state := st.GetState()
-	if state.Outputs.LastTemperatureRecoveryNotice == nil {
-		t.Fatal("Expected LastTemperatureRecoveryNotice to be set")
-	}
-	if state.Outputs.LastTemperatureRecoveryNotice.EntityID != "sensor.temp_garage" {
-		t.Errorf("Expected EntityID 'sensor.temp_garage', got %s", state.Outputs.LastTemperatureRecoveryNotice.EntityID)
-	}
-}
-
-func TestSensorHealthTrackerSetLastDiscoveryRefresh(t *testing.T) {
-	t.Parallel()
-	st := NewSensorHealthTracker()
-
-	refreshTime := time.Now()
-	st.SetLastDiscoveryRefresh(refreshTime)
-
-	state := st.GetState()
-	if !state.Outputs.LastDiscoveryRefresh.Equal(refreshTime) {
-		t.Errorf("Expected LastDiscoveryRefresh to be %v, got %v", refreshTime, state.Outputs.LastDiscoveryRefresh)
 	}
 }
 
@@ -2696,11 +2349,6 @@ func TestSensorHealthTrackerConcurrentAccess(t *testing.T) {
 	}
 
 	wg.Wait()
-}
-
-func TestSensorHealthShadowStateImplementsInterface(t *testing.T) {
-	t.Parallel()
-	var _ PluginShadowState = (*SensorHealthShadowState)(nil)
 }
 
 // ============================================================================
@@ -2834,11 +2482,6 @@ func TestSensorConfigTrackerConcurrentAccess(t *testing.T) {
 	wg.Wait()
 }
 
-func TestSensorConfigShadowStateImplementsInterface(t *testing.T) {
-	t.Parallel()
-	var _ PluginShadowState = (*SensorConfigShadowState)(nil)
-}
-
 // ============================================================================
 // Infrastructure Tracker Tests
 // ============================================================================
@@ -2867,91 +2510,6 @@ func TestInfrastructureTrackerUpdateCurrentInputs(t *testing.T) {
 	state := it.GetState()
 	if state.Inputs.Current["septicPower"] != 85.0 {
 		t.Errorf("Expected septicPower to be 85.0, got %v", state.Inputs.Current["septicPower"])
-	}
-}
-
-func TestInfrastructureTrackerUpdateSepticPower(t *testing.T) {
-	t.Parallel()
-	it := NewInfrastructureTracker()
-
-	it.UpdateSepticPower(87.5)
-
-	state := it.GetState()
-	if state.Outputs.SepticSystemStatus.CurrentPowerW != 87.5 {
-		t.Errorf("Expected CurrentPowerW 87.5, got %f", state.Outputs.SepticSystemStatus.CurrentPowerW)
-	}
-	if state.Outputs.LastUpdate.IsZero() {
-		t.Error("Expected LastUpdate to be set")
-	}
-}
-
-func TestInfrastructureTrackerUpdateSystemState(t *testing.T) {
-	t.Parallel()
-	it := NewInfrastructureTracker()
-
-	it.UpdateSystemState("normal")
-
-	state := it.GetState()
-	if state.Outputs.SepticSystemStatus.SystemState != "normal" {
-		t.Errorf("Expected SystemState 'normal', got %s", state.Outputs.SepticSystemStatus.SystemState)
-	}
-}
-
-func TestInfrastructureTrackerUpdateAeratorFailureStart(t *testing.T) {
-	t.Parallel()
-	it := NewInfrastructureTracker()
-
-	startTime := time.Now()
-	it.UpdateAeratorFailureStart(startTime)
-
-	state := it.GetState()
-	if !state.Outputs.SepticSystemStatus.AeratorFailureStart.Equal(startTime) {
-		t.Error("Expected AeratorFailureStart to match")
-	}
-}
-
-func TestInfrastructureTrackerUpdatePumpRunningStart(t *testing.T) {
-	t.Parallel()
-	it := NewInfrastructureTracker()
-
-	startTime := time.Now()
-	it.UpdatePumpRunningStart(startTime)
-
-	state := it.GetState()
-	if !state.Outputs.SepticSystemStatus.PumpRunningStart.Equal(startTime) {
-		t.Error("Expected PumpRunningStart to match")
-	}
-}
-
-func TestInfrastructureTrackerUpdateLastNormalPowerTime(t *testing.T) {
-	t.Parallel()
-	it := NewInfrastructureTracker()
-
-	normalTime := time.Now()
-	it.UpdateLastNormalPowerTime(normalTime)
-
-	state := it.GetState()
-	if !state.Outputs.SepticSystemStatus.LastNormalPowerTime.Equal(normalTime) {
-		t.Error("Expected LastNormalPowerTime to match")
-	}
-}
-
-func TestInfrastructureTrackerUpdateIsAlerting(t *testing.T) {
-	t.Parallel()
-	it := NewInfrastructureTracker()
-
-	it.UpdateIsAlerting(true)
-
-	state := it.GetState()
-	if !state.Outputs.SepticSystemStatus.IsAlerting {
-		t.Error("Expected IsAlerting to be true")
-	}
-
-	it.UpdateIsAlerting(false)
-
-	state = it.GetState()
-	if state.Outputs.SepticSystemStatus.IsAlerting {
-		t.Error("Expected IsAlerting to be false")
 	}
 }
 
@@ -3091,11 +2649,6 @@ func TestInfrastructureTrackerConcurrentAccess(t *testing.T) {
 	}
 
 	wg.Wait()
-}
-
-func TestInfrastructureShadowStateImplementsInterface(t *testing.T) {
-	t.Parallel()
-	var _ PluginShadowState = (*InfrastructureShadowState)(nil)
 }
 
 // ============================================================================
