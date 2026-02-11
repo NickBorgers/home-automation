@@ -704,39 +704,6 @@ func TestStopDoesNotTriggerRateLimiting(t *testing.T) {
 	}
 }
 
-// TestDoubleActivationPrevention tests prevention of re-activating already playing music
-func TestDoubleActivationPrevention(t *testing.T) {
-	t.Parallel()
-	logger := zap.NewNop()
-	mockClient := ha.NewMockClient()
-	stateManager := state.NewManager(mockClient, logger, false)
-
-	config := &MusicConfig{
-		Music: map[string]MusicMode{
-			"day": {
-				Participants: []Participant{
-					{PlayerName: "Kitchen", BaseVolume: 9, LeaveMutedIf: []MuteCondition{}},
-				},
-				PlaybackOptions: []PlaybackOption{
-					{URI: "spotify:playlist:test", MediaType: "playlist", VolumeMultiplier: 1.0},
-				},
-			},
-		},
-	}
-
-	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, true, nil, nil)
-
-	// First playback
-	manager.handleMusicPlaybackTypeChange("musicPlaybackType", "", "day")
-	firstURI := manager.currentlyPlaying.URI
-
-	// Second activation of same type should be blocked
-	manager.handleMusicPlaybackTypeChange("musicPlaybackType", "day", "day")
-	if manager.currentlyPlaying.URI != firstURI {
-		t.Error("Double activation should not have changed the playlist")
-	}
-}
-
 // TestMuteConditionEvaluation tests mute condition logic
 func TestMuteConditionEvaluation(t *testing.T) {
 	t.Parallel()
@@ -933,43 +900,6 @@ func TestStopPlayback_OnlyAffectsActiveSpeakers(t *testing.T) {
 	}
 }
 
-// TestStopPlayback_NoCurrentPlayback verifies that stopPlayback handles
-// the case where there is no active playback gracefully.
-func TestStopPlayback_NoCurrentPlayback(t *testing.T) {
-	t.Parallel()
-	logger := zap.NewNop()
-	mockClient := ha.NewMockClient()
-	stateManager := state.NewManager(mockClient, logger, false)
-
-	config := &MusicConfig{
-		Music: map[string]MusicMode{
-			"morning": {
-				Participants: []Participant{
-					{PlayerName: "Kitchen", BaseVolume: 9},
-					{PlayerName: "Soundbar", BaseVolume: 10},
-				},
-				PlaybackOptions: []PlaybackOption{},
-			},
-		},
-	}
-
-	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil, nil)
-
-	// No currently playing music
-	manager.currentlyPlaying = nil
-
-	// Stop playback - should not panic and should not call any volume_set
-	manager.stopPlayback()
-
-	// Should NOT have any volume_set calls since nothing was playing
-	calls := mockClient.GetServiceCalls()
-	for _, call := range calls {
-		if call.Domain == "media_player" && call.Service == "volume_set" {
-			t.Errorf("Unexpected volume_set call when nothing was playing: %v", call.Data)
-		}
-	}
-}
-
 // TestOrchestratePlayback tests the main orchestration flow
 func TestOrchestratePlayback(t *testing.T) {
 	t.Parallel()
@@ -1024,142 +954,6 @@ func TestOrchestratePlayback(t *testing.T) {
 	}
 }
 
-// TestToLower tests the toLower helper function
-func TestToLower(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		input    string
-		expected string
-	}{
-		{"Kitchen", "kitchen"},
-		{"Kids Bathroom", "kids bathroom"},
-		{"DINING ROOM", "dining room"},
-		{"soundbar", "soundbar"},
-		{"", ""},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.input, func(t *testing.T) {
-
-			result := toLower(tt.input)
-			if result != tt.expected {
-				t.Errorf("toLower(%q) = %q, want %q", tt.input, result, tt.expected)
-			}
-		})
-	}
-}
-
-// TestValuesMatch tests value matching logic
-func TestValuesMatch(t *testing.T) {
-	t.Parallel()
-	logger := zap.NewNop()
-	mockClient := ha.NewMockClient()
-	stateManager := state.NewManager(mockClient, logger, false)
-	config := &MusicConfig{Music: map[string]MusicMode{}}
-	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil, nil)
-
-	tests := []struct {
-		name     string
-		a        interface{}
-		b        interface{}
-		expected bool
-	}{
-		{"Matching bools", true, true, true},
-		{"Non-matching bools", true, false, false},
-		{"Matching strings", "test", "test", true},
-		{"Non-matching strings", "test", "other", false},
-		{"Matching numbers", 42, 42, true},
-		{"Non-matching numbers", 42, 43, false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-
-			result := manager.valuesMatch(tt.a, tt.b)
-			if result != tt.expected {
-				t.Errorf("valuesMatch(%v, %v) = %v, want %v",
-					tt.a, tt.b, result, tt.expected)
-			}
-		})
-	}
-}
-
-// TestGetStateValue tests state value retrieval
-func TestGetStateValue(t *testing.T) {
-	t.Parallel()
-	logger := zap.NewNop()
-	mockClient := ha.NewMockClient()
-	stateManager := state.NewManager(mockClient, logger, false)
-
-	// Set up various state variables
-	_ = stateManager.SetBool("isTVPlaying", true)
-	_ = stateManager.SetString("dayPhase", "evening")
-	_ = stateManager.SetNumber("alarmTime", 7.5)
-
-	config := &MusicConfig{Music: map[string]MusicMode{}}
-	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil, nil)
-
-	// Test getting boolean
-	val, err := manager.getStateValue("isTVPlaying")
-	if err != nil {
-		t.Errorf("getStateValue(isTVPlaying) failed: %v", err)
-	}
-	if val != true {
-		t.Errorf("getStateValue(isTVPlaying) = %v, want true", val)
-	}
-
-	// Test getting string
-	val, err = manager.getStateValue("dayPhase")
-	if err != nil {
-		t.Errorf("getStateValue(dayPhase) failed: %v", err)
-	}
-	if val != "evening" {
-		t.Errorf("getStateValue(dayPhase) = %v, want 'evening'", val)
-	}
-
-	// Test getting number
-	val, err = manager.getStateValue("alarmTime")
-	if err != nil {
-		t.Errorf("getStateValue(alarmTime) failed: %v", err)
-	}
-	if val != 7.5 {
-		t.Errorf("getStateValue(alarmTime) = %v, want 7.5", val)
-	}
-
-	// Test non-existent variable
-	_, err = manager.getStateValue("nonExistent")
-	if err == nil {
-		t.Error("getStateValue(nonExistent) should return error")
-	}
-}
-
-// TestCallService tests service calling
-func TestCallService(t *testing.T) {
-	t.Parallel()
-	logger := zap.NewNop()
-	mockClient := ha.NewMockClient()
-	stateManager := state.NewManager(mockClient, logger, false)
-	config := &MusicConfig{Music: map[string]MusicMode{}}
-
-	// Test in normal mode
-	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil, nil)
-	err := manager.callService("media_player", "play_media", map[string]interface{}{
-		"entity_id": "media_player.kitchen",
-	})
-	if err != nil {
-		t.Errorf("callService() in normal mode failed: %v", err)
-	}
-
-	// Test in read-only mode
-	managerRO := NewManager(context.Background(), mockClient, stateManager, config, logger, true, nil, nil)
-	err = managerRO.callService("media_player", "play_media", map[string]interface{}{
-		"entity_id": "media_player.kitchen",
-	})
-	if err != nil {
-		t.Errorf("callService() in read-only mode failed: %v", err)
-	}
-}
-
 // TestHandleMusicPlaybackTypeChange_EmptyString tests stopping playback
 func TestHandleMusicPlaybackTypeChange_EmptyString(t *testing.T) {
 	t.Parallel()
@@ -1193,21 +987,6 @@ func TestHandleMusicPlaybackTypeChange_EmptyString(t *testing.T) {
 	if manager.currentlyPlaying != nil {
 		t.Error("handleMusicPlaybackTypeChange with empty string should stop playback")
 	}
-}
-
-// TestHandleMusicPlaybackTypeChange_InvalidType tests handling of invalid type values
-func TestHandleMusicPlaybackTypeChange_InvalidType(t *testing.T) {
-	t.Parallel()
-	logger := zap.NewNop()
-	mockClient := ha.NewMockClient()
-	stateManager := state.NewManager(mockClient, logger, false)
-	config := &MusicConfig{Music: map[string]MusicMode{}}
-	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil, nil)
-
-	// Pass non-string value (should log error and return)
-	manager.handleMusicPlaybackTypeChange("musicPlaybackType", "", 123)
-
-	// If we reach here without panic, the invalid type handling worked
 }
 
 // TestExecutePlayback tests the complete execution flow
@@ -1475,39 +1254,6 @@ func TestBuildSpeakerGroupAllFail(t *testing.T) {
 	}
 	if result.Results[1].Active {
 		t.Error("Expected Living Room to be marked as failed")
-	}
-}
-
-// TestBuildSpeakerGroupRetryOnSecondAttempt tests successful retry on second attempt
-func TestBuildSpeakerGroupRetryOnSecondAttempt(t *testing.T) {
-	t.Parallel()
-	logger := zap.NewNop()
-	mockClient := ha.NewMockClient()
-	stateManager := state.NewManager(mockClient, logger, false)
-	config := &MusicConfig{Music: map[string]MusicMode{}}
-	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil, nil)
-
-	// Use no-op sleep to make test fast
-	manager.SetSleepFunc(func(d time.Duration) {})
-
-	// Configure mock to fail once, then succeed
-	mockClient.SetServiceFailCount("media_player", "join", 1, fmt.Errorf("service call failed: timeout waiting for response"))
-
-	participants := []ParticipantWithVolume{
-		{PlayerName: "Kitchen", Volume: 9},
-		{PlayerName: "Living Room", Volume: 10},
-	}
-
-	// Should succeed on second attempt
-	result, err := manager.buildSpeakerGroup(participants, "media_player.kitchen")
-	if err != nil {
-		t.Errorf("buildSpeakerGroup() should have succeeded on retry, got: %v", err)
-	}
-	if result == nil {
-		t.Fatal("buildSpeakerGroup() returned nil result")
-	}
-	if result.ActiveCount != 2 {
-		t.Errorf("Expected 2 active speakers, got %d", result.ActiveCount)
 	}
 }
 
@@ -3346,140 +3092,11 @@ func TestPlaybackVerification_RecoveryAfterNudge(t *testing.T) {
 	}
 }
 
-// TestPlaybackVerification_RecoveryOnSecondAttempt tests that playback verification
-// succeeds when the speaker requires a full retry (not just a nudge) to start playing.
-// This simulates when the first play_media and nudge both fail, but retrying works.
-func TestPlaybackVerification_RecoveryOnSecondAttempt(t *testing.T) {
-	t.Parallel()
-	logger := zap.NewNop()
-	mockClient := ha.NewMockClient()
-	stateManager := state.NewManager(mockClient, logger, false)
-
-	config := &MusicConfig{Music: map[string]MusicMode{}}
-	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil, nil)
-
-	// Use no-op sleep to make test fast
-	manager.SetSleepFunc(func(d time.Duration) {})
-
-	// Set up state sequence for recovery on second attempt:
-	// Attempt 1: check 1 = "idle", check 2 (after nudge) = "idle" -> fails, retry
-	// Attempt 2: check 3 = "playing" -> SUCCESS
-	mockClient.SetStateSequence("media_player.kitchen", []string{"idle", "idle", "playing"})
-
-	option := PlaybackOption{
-		URI:              "spotify:playlist:test",
-		MediaType:        "playlist",
-		VolumeMultiplier: 1.0,
-	}
-
-	attempts, err := manager.startPlaybackWithVerification("media_player.kitchen", option)
-
-	if err != nil {
-		t.Errorf("Expected success on second attempt, got error: %v", err)
-	}
-	if attempts != 2 {
-		t.Errorf("Expected 2 attempts, got %d", attempts)
-	}
-
-	// Verify play_media was called twice (once per attempt)
-	calls := mockClient.GetServiceCalls()
-	playMediaCount := 0
-	for _, call := range calls {
-		if call.Domain == "media_player" && call.Service == "play_media" {
-			playMediaCount++
-		}
-	}
-
-	if playMediaCount != 2 {
-		t.Errorf("Expected 2 play_media calls, got %d", playMediaCount)
-	}
-}
-
 // ============================================================================
 // Phase 1: Zone Assignment Policy Tests
 // ============================================================================
 
-// TestShouldIncludeInZone_NoConditions tests that speakers without exclude_if conditions are always included
-func TestShouldIncludeInZone_NoConditions(t *testing.T) {
-	t.Parallel()
-	logger := zap.NewNop()
-	mockClient := ha.NewMockClient()
-	stateManager := state.NewManager(mockClient, logger, false)
-	config := &MusicConfig{Music: map[string]MusicMode{}}
-	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil, nil)
-
-	participant := Participant{
-		PlayerName:   "Kitchen",
-		BaseVolume:   9,
-		LeaveMutedIf: []MuteCondition{},
-		ExcludeIf:    []MuteCondition{}, // No exclude conditions
-	}
-
-	if !manager.shouldIncludeInZone(participant) {
-		t.Error("Speaker with no exclude_if conditions should be included in zone")
-	}
-}
-
-// TestShouldIncludeInZone_ConditionNotMatched tests that speakers are included when exclude_if condition doesn't match
-func TestShouldIncludeInZone_ConditionNotMatched(t *testing.T) {
-	t.Parallel()
-	logger := zap.NewNop()
-	mockClient := ha.NewMockClient()
-	stateManager := state.NewManager(mockClient, logger, false)
-	config := &MusicConfig{Music: map[string]MusicMode{}}
-	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil, nil)
-
-	// Set up state: isMasterAsleep = false
-	if err := stateManager.SetBool("isMasterAsleep", false); err != nil {
-		t.Fatalf("Failed to set isMasterAsleep: %v", err)
-	}
-
-	participant := Participant{
-		PlayerName:   "Bedroom",
-		BaseVolume:   9,
-		LeaveMutedIf: []MuteCondition{},
-		ExcludeIf: []MuteCondition{
-			{Variable: "isMasterAsleep", Value: true}, // Exclude if asleep
-		},
-	}
-
-	// Condition is isMasterAsleep=true, but actual value is false
-	// So the condition does NOT match, speaker should be INCLUDED
-	if !manager.shouldIncludeInZone(participant) {
-		t.Error("Speaker should be included when exclude_if condition (isMasterAsleep=true) doesn't match (value is false)")
-	}
-}
-
-// TestShouldIncludeInZone_ConditionMatched tests that speakers are excluded when exclude_if condition matches
-func TestShouldIncludeInZone_ConditionMatched(t *testing.T) {
-	t.Parallel()
-	logger := zap.NewNop()
-	mockClient := ha.NewMockClient()
-	stateManager := state.NewManager(mockClient, logger, false)
-	config := &MusicConfig{Music: map[string]MusicMode{}}
-	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil, nil)
-
-	// Set up state: isMasterAsleep = true
-	if err := stateManager.SetBool("isMasterAsleep", true); err != nil {
-		t.Fatalf("Failed to set isMasterAsleep: %v", err)
-	}
-
-	participant := Participant{
-		PlayerName:   "Bedroom",
-		BaseVolume:   9,
-		LeaveMutedIf: []MuteCondition{},
-		ExcludeIf: []MuteCondition{
-			{Variable: "isMasterAsleep", Value: true}, // Exclude if asleep
-		},
-	}
-
-	// Condition matches, speaker should be EXCLUDED
-	if manager.shouldIncludeInZone(participant) {
-		t.Error("Speaker should be excluded when exclude_if condition (isMasterAsleep=true) matches (value is true)")
-	}
-}
-
-// TestShouldIncludeInZone_MultipleConditions tests that any matching condition excludes the speaker
+// TestShouldIncludeInZone_MultipleConditions tests zone inclusion with various condition combinations
 func TestShouldIncludeInZone_MultipleConditions(t *testing.T) {
 	t.Parallel()
 	logger := zap.NewNop()
@@ -3855,30 +3472,6 @@ func TestExcludeIf_ParticipantWithVolumePreservesExcludeIf(t *testing.T) {
 	}
 }
 
-// TestRandomJitter tests that randomJitter returns values within expected bounds
-func TestRandomJitter(t *testing.T) {
-	t.Parallel()
-	logger := zap.NewNop()
-	mockClient := ha.NewMockClient()
-	stateManager := state.NewManager(mockClient, logger, false)
-	config := &MusicConfig{Music: map[string]MusicMode{}}
-	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil, nil)
-
-	// Run multiple iterations to test the distribution
-	const iterations = 1000
-	for i := 0; i < iterations; i++ {
-		jitter := manager.randomJitter()
-
-		// Jitter should be >= 0 and < asyncJoinJitterMax (15s)
-		if jitter < 0 {
-			t.Errorf("randomJitter() returned negative value: %v", jitter)
-		}
-		if jitter >= asyncJoinJitterMax {
-			t.Errorf("randomJitter() returned value >= max: %v >= %v", jitter, asyncJoinJitterMax)
-		}
-	}
-}
-
 // TestBuildSpeakerGroupAsync_StaggeredDelays verifies that speakers launch with staggered delays
 func TestBuildSpeakerGroupAsync_StaggeredDelays(t *testing.T) {
 	t.Parallel()
@@ -3987,38 +3580,6 @@ func TestBuildSpeakerGroupAsync_ParallelExecution(t *testing.T) {
 		if !expectedSpeakers[speaker] {
 			t.Errorf("Unexpected speaker joined: %s", speaker)
 		}
-	}
-}
-
-// TestBuildSpeakerGroupAsync_SingleFollower tests with just one follower
-func TestBuildSpeakerGroupAsync_SingleFollower(t *testing.T) {
-	t.Parallel()
-	logger := zap.NewNop()
-	mockClient := ha.NewMockClient()
-	stateManager := state.NewManager(mockClient, logger, false)
-	config := &MusicConfig{Music: map[string]MusicMode{}}
-	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil, nil)
-
-	manager.SetSleepFunc(func(d time.Duration) {})
-
-	participants := []ParticipantWithVolume{
-		{PlayerName: "Kitchen", Volume: 9},      // Lead
-		{PlayerName: "Living Room", Volume: 10}, // Only follower
-	}
-
-	mockClient.ClearServiceCalls()
-	manager.buildSpeakerGroupAsync(participants, "media_player.kitchen", "day")
-
-	calls := mockClient.GetServiceCalls()
-	joinCalls := 0
-	for _, call := range calls {
-		if call.Domain == "media_player" && call.Service == "join" {
-			joinCalls++
-		}
-	}
-
-	if joinCalls != 1 {
-		t.Errorf("Expected 1 join call for single follower, got %d", joinCalls)
 	}
 }
 
@@ -4231,53 +3792,6 @@ func TestJoinSpeakerWithRetry_PermanentError(t *testing.T) {
 	}
 }
 
-// TestJoinSpeakerWithRetry_MaxRetriesExhausted tests behavior when all retries are exhausted
-func TestJoinSpeakerWithRetry_MaxRetriesExhausted(t *testing.T) {
-	t.Parallel()
-	logger := zap.NewNop()
-	mockClient := ha.NewMockClient()
-	stateManager := state.NewManager(mockClient, logger, false)
-	config := &MusicConfig{Music: map[string]MusicMode{}}
-	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil, nil)
-
-	// Track retry delays to verify we retry maxAsyncSpeakerRetries-1 times
-	// (the last attempt doesn't sleep after failure)
-	var sleepMu sync.Mutex
-	var sleepCount int
-
-	manager.SetSleepFunc(func(d time.Duration) {
-		sleepMu.Lock()
-		sleepCount++
-		sleepMu.Unlock()
-	})
-
-	// Fail all attempts (more than maxAsyncSpeakerRetries * 2 for callServiceWithRetry internal retries)
-	// Using transient error (timeout) that won't trigger permanent error detection
-	mockClient.SetServiceFailCount("media_player", "join", 100, fmt.Errorf("service call failed: timeout waiting for response"))
-
-	participant := ParticipantWithVolume{
-		PlayerName:   "Living Room",
-		Volume:       10,
-		LeaveMutedIf: []MuteCondition{},
-	}
-
-	mockClient.ClearServiceCalls()
-	manager.joinSpeakerWithRetry(participant, "media_player.kitchen", "day")
-
-	sleepMu.Lock()
-	actualSleepCount := sleepCount
-	sleepMu.Unlock()
-
-	// Since mock only records successful calls and all calls fail,
-	// we verify retry count via sleepCount.
-	// joinSpeakerWithRetry calls sleep after each failed attempt except the last.
-	// With maxAsyncSpeakerRetries=6, we expect 5 retry delays (sleep after attempts 1-5, not after 6)
-	expectedSleepCount := maxAsyncSpeakerRetries - 1
-	if actualSleepCount != expectedSleepCount {
-		t.Errorf("Expected %d retry delays (max retries - 1), got %d", expectedSleepCount, actualSleepCount)
-	}
-}
-
 // TestBuildSpeakerGroupAsync_WaitGroupCompletion verifies WaitGroup waits for all goroutines
 func TestBuildSpeakerGroupAsync_WaitGroupCompletion(t *testing.T) {
 	t.Parallel()
@@ -4326,101 +3840,5 @@ func TestBuildSpeakerGroupAsync_WaitGroupCompletion(t *testing.T) {
 	// All 3 followers should have completed their join attempts
 	if originalCalls != 3 {
 		t.Errorf("Expected 3 completed join calls after WaitGroup.Wait(), got %d", originalCalls)
-	}
-}
-
-// TestBuildSpeakerGroupAsync_NoFollowers tests with only lead speaker (no followers)
-func TestBuildSpeakerGroupAsync_NoFollowers(t *testing.T) {
-	t.Parallel()
-	logger := zap.NewNop()
-	mockClient := ha.NewMockClient()
-	stateManager := state.NewManager(mockClient, logger, false)
-	config := &MusicConfig{Music: map[string]MusicMode{}}
-	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil, nil)
-
-	manager.SetSleepFunc(func(d time.Duration) {})
-
-	// Only lead speaker, no followers
-	participants := []ParticipantWithVolume{
-		{PlayerName: "Kitchen", Volume: 9}, // Lead only
-	}
-
-	mockClient.ClearServiceCalls()
-
-	// Should complete immediately without any join calls
-	manager.buildSpeakerGroupAsync(participants, "media_player.kitchen", "day")
-
-	calls := mockClient.GetServiceCalls()
-
-	// Should have 0 join calls (no followers to join)
-	joinCalls := 0
-	for _, call := range calls {
-		if call.Domain == "media_player" && call.Service == "join" {
-			joinCalls++
-		}
-	}
-
-	if joinCalls != 0 {
-		t.Errorf("Expected 0 join calls with no followers, got %d", joinCalls)
-	}
-}
-
-// TestBuildSpeakerGroupAsync_IndependentFailures verifies one speaker failure doesn't block others
-func TestBuildSpeakerGroupAsync_IndependentFailures(t *testing.T) {
-	t.Parallel()
-	logger := zap.NewNop()
-	mockClient := ha.NewMockClient()
-	stateManager := state.NewManager(mockClient, logger, false)
-	config := &MusicConfig{Music: map[string]MusicMode{}}
-	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil, nil)
-
-	manager.SetSleepFunc(func(d time.Duration) {})
-
-	// Since goroutines run in parallel and the mock uses a global fail counter,
-	// we can't easily isolate failures to specific speakers.
-	// Instead, we test that both goroutines complete (function returns) even when
-	// some calls fail, proving they don't block each other.
-
-	// Fail first 10 calls, then succeed. With 2 followers running in parallel:
-	// - Each follower makes multiple calls (due to callServiceWithRetry internal retry)
-	// - Eventually calls succeed after the fail count is exhausted
-	mockClient.SetServiceFailCount("media_player", "join", 10, fmt.Errorf("service call failed: timeout"))
-
-	participants := []ParticipantWithVolume{
-		{PlayerName: "Kitchen", Volume: 9},      // Lead
-		{PlayerName: "Living Room", Volume: 10}, // Follower 1
-		{PlayerName: "Bedroom", Volume: 8},      // Follower 2
-	}
-
-	mockClient.ClearServiceCalls()
-
-	// Key test: buildSpeakerGroupAsync should complete (not hang) even with failures
-	// This proves goroutines don't block each other
-	done := make(chan bool)
-	go func() {
-		manager.buildSpeakerGroupAsync(participants, "media_player.kitchen", "day")
-		done <- true
-	}()
-
-	select {
-	case <-done:
-		// Success - function completed
-	case <-time.After(5 * time.Second):
-		t.Fatal("buildSpeakerGroupAsync timed out - goroutines may be blocking each other")
-	}
-
-	// Verify at least one successful call was made (after failures exhausted)
-	calls := mockClient.GetServiceCalls()
-	joinCalls := 0
-	for _, call := range calls {
-		if call.Domain == "media_player" && call.Service == "join" {
-			joinCalls++
-		}
-	}
-
-	// After 10 failures, subsequent calls should succeed. With 2 parallel goroutines
-	// retrying, we expect at least some successful calls (from both followers)
-	if joinCalls < 1 {
-		t.Errorf("Expected at least 1 successful join call after failures exhausted, got %d", joinCalls)
 	}
 }

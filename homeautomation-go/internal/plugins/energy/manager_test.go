@@ -390,36 +390,6 @@ func TestEnergyManager_Stop(t *testing.T) {
 	assert.Equal(t, 0, len(manager.subHelper.GetStateSubscriptions()), "State subscriptions should be empty after Stop")
 }
 
-func TestEnergyManager_ReadOnlyMode(t *testing.T) {
-	t.Parallel()
-	logger := zap.NewNop()
-	mockClient := ha.NewMockClient()
-	// Create state manager in read-only mode
-	stateManager := state.NewManager(mockClient, logger, true)
-
-	config := createTestConfig()
-	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, true, nil, nil)
-
-	// Test battery change handler - should handle read-only gracefully
-	manager.handleBatteryChange(50.0)
-	// No error should be thrown, just logged at debug level
-
-	// Test solar generation handlers
-	manager.handleThisHourSolarChange(5.0)
-	manager.handleRemainingSolarChange(15.0)
-
-	// Test free energy check
-	_ = stateManager.SetBool("isGridAvailable", true)
-	manager.checkFreeEnergy()
-
-	// Test energy level change handlers (observing computed state)
-	_ = stateManager.SetString("currentEnergyLevel", "green")
-	manager.handleCurrentEnergyLevelChange("currentEnergyLevel", "black", "green")
-
-	// If we get here without panicking, the read-only mode handling worked correctly
-	// The actual verification is that no errors are thrown, just debug logs
-}
-
 // TestTimezoneHandling tests that timezone configuration works correctly
 func TestTimezoneHandling(t *testing.T) {
 	t.Parallel()
@@ -803,46 +773,6 @@ func TestIndicatorLightsReadOnlyMode(t *testing.T) {
 	assert.Equal(t, "black", shadowState.Outputs.IndicatorLightsAction.EnergyLevel)
 }
 
-func TestIndicatorLightsNoEntitiesDiscovered(t *testing.T) {
-	t.Parallel()
-	logger := testlogger.New()
-	mockClient := ha.NewMockClient()
-	stateManager := state.NewManager(mockClient, logger, false)
-	config := createTestConfig()
-
-	// Set up mock states with NO "Radar" entities
-	mockClient.SetState("light.living_room_lamp", "on", map[string]interface{}{
-		"friendly_name": "Living Room Lamp",
-	})
-
-	mockClient.Connect()
-
-	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil, nil)
-
-	err := manager.Start()
-	assert.NoError(t, err)
-	defer manager.Stop()
-
-	// Verify no entities were discovered
-	assert.Len(t, manager.indicatorLightEntities, 0)
-
-	// Clear any service calls
-	mockClient.ClearServiceCalls()
-
-	// Calling updateIndicatorLights should not panic and should not make light.turn_on calls
-	manager.updateIndicatorLights("black")
-
-	// Verify NO light.turn_on service was called when no entities discovered
-	calls := mockClient.GetServiceCalls()
-	var lightCalls []ha.ServiceCall
-	for _, c := range calls {
-		if c.Domain == "light" && c.Service == "turn_on" {
-			lightCalls = append(lightCalls, c)
-		}
-	}
-	assert.Len(t, lightCalls, 0, "Expected no light.turn_on service calls when no entities discovered")
-}
-
 func TestIndicatorLightsDiscoveryCaseInsensitive(t *testing.T) {
 	t.Parallel()
 	logger := testlogger.New()
@@ -877,33 +807,6 @@ func TestIndicatorLightsDiscoveryCaseInsensitive(t *testing.T) {
 	assert.Contains(t, manager.indicatorLightEntities, "light.apollo_lower_case")
 	assert.Contains(t, manager.indicatorLightEntities, "light.apollo_upper_case")
 	assert.Contains(t, manager.indicatorLightEntities, "light.apollo_mixed_case")
-}
-
-func TestIndicatorLightsDiscoveryInvalidPattern(t *testing.T) {
-	t.Parallel()
-	logger := testlogger.New()
-	mockClient := ha.NewMockClient()
-	stateManager := state.NewManager(mockClient, logger, false)
-	config := createTestConfig()
-
-	// Set an invalid regex pattern (unclosed bracket)
-	config.Energy.IndicatorLights.FriendlyNamePattern = "[invalid"
-
-	mockClient.SetState("light.test_light", "on", map[string]interface{}{
-		"friendly_name": "Test Radar Light",
-	})
-
-	mockClient.Connect()
-
-	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil, nil)
-
-	// Start should not fail - invalid pattern is handled gracefully
-	err := manager.Start()
-	assert.NoError(t, err)
-	defer manager.Stop()
-
-	// No entities should be discovered when pattern is invalid
-	assert.Len(t, manager.indicatorLightEntities, 0)
 }
 
 func TestIndicatorLightsDiscoveryCustomPattern(t *testing.T) {

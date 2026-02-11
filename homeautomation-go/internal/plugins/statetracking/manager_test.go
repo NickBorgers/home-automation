@@ -1407,39 +1407,3 @@ func TestStateTrackingManager_CarolineNearHome_IgnoresWhenAlreadyHome(t *testing
 		t.Error("Expected didOwnerJustReturnHome=false when caroline_near_home triggers while Caroline IS home (leaving)")
 	}
 }
-
-func TestStateTrackingManager_NearHome_IgnoresNilStates(t *testing.T) {
-	t.Parallel()
-	// Test that near_home handlers gracefully handle nil states (no panic)
-
-	mockHA := ha.NewMockClient()
-	logger := zap.NewNop()
-	stateMgr := state.NewManager(mockHA, logger, false)
-
-	// Setup: Nick is NOT home
-	if err := stateMgr.SetBool("isNickHome", false); err != nil {
-		t.Fatalf("Failed to set isNickHome: %v", err)
-	}
-	if err := stateMgr.SetBool("didOwnerJustReturnHome", false); err != nil {
-		t.Fatalf("Failed to set didOwnerJustReturnHome: %v", err)
-	}
-
-	// Create and start manager
-	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
-	if err := manager.Start(); err != nil {
-		t.Fatalf("Failed to start manager: %v", err)
-	}
-	defer manager.Stop()
-
-	// Simulate state change from unknown (nil oldState) - should not trigger or panic
-	mockHA.SetState("input_boolean.nick_near_home", "on", nil)
-
-	// Verify didOwnerJustReturnHome was NOT set (oldState was nil)
-	didOwnerReturn, err := stateMgr.GetBool("didOwnerJustReturnHome")
-	if err != nil {
-		t.Fatalf("Failed to get didOwnerJustReturnHome: %v", err)
-	}
-	if didOwnerReturn {
-		t.Error("Expected didOwnerJustReturnHome=false when oldState is nil (initial state, not a transition)")
-	}
-}

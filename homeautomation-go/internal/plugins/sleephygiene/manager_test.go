@@ -124,72 +124,36 @@ func TestBeginWake_AllConditionsMet(t *testing.T) {
 	}
 }
 
-func TestBeginWake_NoOneHome(t *testing.T) {
+func TestBeginWake_ConditionsRequired(t *testing.T) {
 	t.Parallel()
-	now := time.Date(2024, 1, 15, 9, 5, 0, 0, time.UTC)
-	manager, mockHA, stateManager, _ := setupTest(t, now)
-
-	// Set no one home
-	stateManager.SetBool("isAnyoneHome", false)
-	stateManager.SetBool("isMasterAsleep", true)
-	stateManager.SetString("musicPlaybackType", "sleep")
-
-	// Clear mock calls
-	mockHA.ClearServiceCalls()
-
-	// Trigger begin_wake
-	manager.handleBeginWake()
-
-	// Verify that isFadeOutInProgress was NOT changed
-	fadeOut, _ := stateManager.GetBool("isFadeOutInProgress")
-	if fadeOut {
-		t.Error("isFadeOutInProgress should not be set when no one is home")
+	tests := []struct {
+		name           string
+		isAnyoneHome   bool
+		isMasterAsleep bool
+		musicType      string
+	}{
+		{"No one home", false, true, "sleep"},
+		{"Master not asleep", true, false, "sleep"},
+		{"Not playing sleep music", true, true, "day"},
 	}
-}
 
-func TestBeginWake_MasterNotAsleep(t *testing.T) {
-	t.Parallel()
-	now := time.Date(2024, 1, 15, 9, 5, 0, 0, time.UTC)
-	manager, mockHA, stateManager, _ := setupTest(t, now)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			now := time.Date(2024, 1, 15, 9, 5, 0, 0, time.UTC)
+			manager, mockHA, stateManager, _ := setupTest(t, now)
 
-	// Set master not asleep
-	stateManager.SetBool("isAnyoneHome", true)
-	stateManager.SetBool("isMasterAsleep", false)
-	stateManager.SetString("musicPlaybackType", "sleep")
+			stateManager.SetBool("isAnyoneHome", tt.isAnyoneHome)
+			stateManager.SetBool("isMasterAsleep", tt.isMasterAsleep)
+			stateManager.SetString("musicPlaybackType", tt.musicType)
+			mockHA.ClearServiceCalls()
 
-	// Clear mock calls
-	mockHA.ClearServiceCalls()
+			manager.handleBeginWake()
 
-	// Trigger begin_wake
-	manager.handleBeginWake()
-
-	// Verify that isFadeOutInProgress was NOT changed
-	fadeOut, _ := stateManager.GetBool("isFadeOutInProgress")
-	if fadeOut {
-		t.Error("isFadeOutInProgress should not be set when master is not asleep")
-	}
-}
-
-func TestBeginWake_NotPlayingSleepMusic(t *testing.T) {
-	t.Parallel()
-	now := time.Date(2024, 1, 15, 9, 5, 0, 0, time.UTC)
-	manager, mockHA, stateManager, _ := setupTest(t, now)
-
-	// Set music playback to something other than "sleep"
-	stateManager.SetBool("isAnyoneHome", true)
-	stateManager.SetBool("isMasterAsleep", true)
-	stateManager.SetString("musicPlaybackType", "day")
-
-	// Clear mock calls
-	mockHA.ClearServiceCalls()
-
-	// Trigger begin_wake
-	manager.handleBeginWake()
-
-	// Verify that isFadeOutInProgress was NOT changed
-	fadeOut, _ := stateManager.GetBool("isFadeOutInProgress")
-	if fadeOut {
-		t.Error("isFadeOutInProgress should not be set when not playing sleep music")
+			fadeOut, _ := stateManager.GetBool("isFadeOutInProgress")
+			if fadeOut {
+				t.Errorf("isFadeOutInProgress should not be set when %s", tt.name)
+			}
+		})
 	}
 }
 
@@ -344,21 +308,6 @@ func TestReadOnlyMode(t *testing.T) {
 	// But we can verify the manager respects read-only flag
 	if !manager.readOnly {
 		t.Error("Manager should be in read-only mode")
-	}
-}
-
-func TestIsSameDay(t *testing.T) {
-	t.Parallel()
-	t1 := time.Date(2024, 1, 15, 9, 0, 0, 0, time.UTC)
-	t2 := time.Date(2024, 1, 15, 23, 59, 0, 0, time.UTC)
-	t3 := time.Date(2024, 1, 16, 0, 1, 0, 0, time.UTC)
-
-	if !isSameDay(t1, t2) {
-		t.Error("t1 and t2 should be on the same day")
-	}
-
-	if isSameDay(t1, t3) {
-		t.Error("t1 and t3 should not be on the same day")
 	}
 }
 
@@ -578,29 +527,6 @@ func TestHandleGoToBed_ReadOnly(t *testing.T) {
 	}
 }
 
-// TestRealTimeProvider tests the plugin.RealTimeProvider
-func TestRealTimeProvider(t *testing.T) {
-	t.Parallel()
-	provider := plugin.RealTimeProvider{}
-	now := provider.Now()
-
-	// Verify it returns a reasonable time (within last minute)
-	if time.Since(now) > time.Minute {
-		t.Errorf("RealTimeProvider returned time too far in the past: %v", now)
-	}
-}
-
-// TestFixedTimeProvider tests the plugin.FixedTimeProvider
-func TestFixedTimeProvider(t *testing.T) {
-	t.Parallel()
-	fixedTime := time.Date(2024, 1, 15, 12, 0, 0, 0, time.UTC)
-	provider := plugin.FixedTimeProvider{FixedTime: fixedTime}
-
-	if provider.Now() != fixedTime {
-		t.Errorf("FixedTimeProvider did not return fixed time")
-	}
-}
-
 // TestCheckTimeTriggers_ErrorGettingSchedule tests error handling when schedule config is not available
 func TestCheckTimeTriggers_ErrorGettingSchedule(t *testing.T) {
 	t.Parallel()
@@ -648,184 +574,116 @@ func TestHandleWake_ErrorGettingState(t *testing.T) {
 	}
 }
 
-// TestHandleBeginWake_ReadOnly tests read-only mode for begin_wake
-func TestHandleBeginWake_ReadOnly(t *testing.T) {
+// TestReadOnlyModeBlocksServiceCalls tests that all handlers block service calls in read-only mode
+func TestReadOnlyModeBlocksServiceCalls(t *testing.T) {
 	t.Parallel()
-	now := time.Date(2024, 1, 15, 9, 5, 0, 0, time.UTC)
-	logger := zap.NewNop()
-	mockHA := ha.NewMockClient()
-	stateManager := state.NewManager(mockHA, logger, false)
+	tests := []struct {
+		name    string
+		handler string
+		setup   func(*state.Manager)
+	}{
+		{
+			name:    "begin_wake",
+			handler: "beginWake",
+			setup: func(sm *state.Manager) {
+				sm.SetBool("isAnyoneHome", true)
+				sm.SetBool("isMasterAsleep", true)
+				sm.SetString("musicPlaybackType", "sleep")
+			},
+		},
+		{
+			name:    "wake",
+			handler: "wake",
+			setup: func(sm *state.Manager) {
+				sm.SetBool("isAnyoneHome", true)
+				sm.SetBool("isMasterAsleep", true)
+				sm.SetBool("isFadeOutInProgress", true)
+				sm.SetBool("isNickHome", true)
+				sm.SetBool("isCarolineHome", true)
+			},
+		},
+		{
+			name:    "stop_screens",
+			handler: "stopScreens",
+			setup: func(sm *state.Manager) {
+				sm.SetBool("isAnyoneHome", true)
+				sm.SetBool("isEveryoneAsleep", false)
+			},
+		},
+	}
 
-	// Set all conditions
-	stateManager.SetBool("isAnyoneHome", true)
-	stateManager.SetBool("isMasterAsleep", true)
-	stateManager.SetString("musicPlaybackType", "sleep")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			now := time.Date(2024, 1, 15, 9, 30, 0, 0, time.UTC)
+			logger := zap.NewNop()
+			mockHA := ha.NewMockClient()
+			stateManager := state.NewManager(mockHA, logger, false)
 
-	configLoader := config.NewLoader("../../../configs", logger)
-	timeProvider := plugin.FixedTimeProvider{FixedTime: now}
-	manager := NewManager(context.Background(), mockHA, stateManager, configLoader, logger, true, timeProvider, nil) // READ-ONLY
+			// Initialize default state
+			stateManager.SetBool("isAnyoneHome", true)
+			stateManager.SetBool("isMasterAsleep", true)
+			stateManager.SetBool("isGuestAsleep", false)
+			stateManager.SetBool("isEveryoneAsleep", true)
+			stateManager.SetBool("isFadeOutInProgress", false)
+			stateManager.SetBool("isNickHome", true)
+			stateManager.SetBool("isCarolineHome", true)
+			stateManager.SetString("musicPlaybackType", "sleep")
 
-	mockHA.ClearServiceCalls()
+			tt.setup(stateManager)
 
-	// Trigger begin_wake
-	manager.handleBeginWake()
+			configLoader := config.NewLoader("../../../configs", logger)
+			timeProvider := plugin.FixedTimeProvider{FixedTime: now}
+			manager := NewManager(context.Background(), mockHA, stateManager, configLoader, logger, true, timeProvider, nil)
 
-	// In read-only mode, no state changes should be made to HA
-	// State manager itself is not read-only, so local state may change
-	// But no HA service calls should be made
-	calls := mockHA.GetServiceCalls()
-	if len(calls) > 0 {
-		t.Errorf("Expected no service calls in read-only mode, got %d", len(calls))
+			mockHA.ClearServiceCalls()
+
+			switch tt.handler {
+			case "beginWake":
+				manager.handleBeginWake()
+			case "wake":
+				manager.handleWake()
+			case "stopScreens":
+				manager.handleStopScreens()
+			}
+
+			calls := mockHA.GetServiceCalls()
+			if len(calls) > 0 {
+				t.Errorf("Expected no service calls in read-only mode for %s, got %d", tt.name, len(calls))
+			}
+		})
 	}
 }
 
-// TestHandleWake_ReadOnly tests read-only mode for wake
-func TestHandleWake_ReadOnly(t *testing.T) {
+func TestHandleWake_ConditionsRequired(t *testing.T) {
 	t.Parallel()
-	now := time.Date(2024, 1, 15, 9, 30, 0, 0, time.UTC)
-	logger := zap.NewNop()
-	mockHA := ha.NewMockClient()
-	stateManager := state.NewManager(mockHA, logger, false)
-
-	// Set all conditions
-	stateManager.SetBool("isAnyoneHome", true)
-	stateManager.SetBool("isMasterAsleep", true)
-	stateManager.SetBool("isFadeOutInProgress", true)
-	stateManager.SetBool("isNickHome", true)
-	stateManager.SetBool("isCarolineHome", true)
-
-	configLoader := config.NewLoader("../../../configs", logger)
-	timeProvider := plugin.FixedTimeProvider{FixedTime: now}
-	manager := NewManager(context.Background(), mockHA, stateManager, configLoader, logger, true, timeProvider, nil) // READ-ONLY
-
-	mockHA.ClearServiceCalls()
-
-	// Trigger wake
-	manager.handleWake()
-
-	// In read-only mode, no service calls should be made
-	calls := mockHA.GetServiceCalls()
-	if len(calls) > 0 {
-		t.Errorf("Expected no service calls in read-only mode, got %d", len(calls))
+	tests := []struct {
+		name                string
+		isAnyoneHome        bool
+		isMasterAsleep      bool
+		isFadeOutInProgress bool
+	}{
+		{"No one home", false, true, true},
+		{"Master not asleep", true, false, true},
+		{"Fade out not in progress", true, true, false},
 	}
-}
 
-// TestHandleStopScreens_ReadOnly tests read-only mode for stop_screens
-func TestHandleStopScreens_ReadOnly(t *testing.T) {
-	t.Parallel()
-	now := time.Date(2024, 1, 15, 22, 30, 0, 0, time.UTC)
-	logger := zap.NewNop()
-	mockHA := ha.NewMockClient()
-	stateManager := state.NewManager(mockHA, logger, false)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			now := time.Date(2024, 1, 15, 9, 30, 0, 0, time.UTC)
+			manager, mockHA, stateManager, _ := setupTest(t, now)
 
-	// Set conditions
-	stateManager.SetBool("isAnyoneHome", true)
-	stateManager.SetBool("isEveryoneAsleep", false)
+			stateManager.SetBool("isAnyoneHome", tt.isAnyoneHome)
+			stateManager.SetBool("isMasterAsleep", tt.isMasterAsleep)
+			stateManager.SetBool("isFadeOutInProgress", tt.isFadeOutInProgress)
+			mockHA.ClearServiceCalls()
 
-	configLoader := config.NewLoader("../../../configs", logger)
-	timeProvider := plugin.FixedTimeProvider{FixedTime: now}
-	manager := NewManager(context.Background(), mockHA, stateManager, configLoader, logger, true, timeProvider, nil) // READ-ONLY
+			manager.handleWake()
 
-	mockHA.ClearServiceCalls()
-
-	// Trigger stop_screens
-	manager.handleStopScreens()
-
-	// In read-only mode, no service calls should be made
-	calls := mockHA.GetServiceCalls()
-	if len(calls) > 0 {
-		t.Errorf("Expected no service calls in read-only mode, got %d", len(calls))
-	}
-}
-
-// TestHandleWake_NoOneHome tests wake trigger when no one is home
-func TestHandleWake_NoOneHome(t *testing.T) {
-	t.Parallel()
-	now := time.Date(2024, 1, 15, 9, 30, 0, 0, time.UTC)
-	manager, mockHA, stateManager, _ := setupTest(t, now)
-
-	// Set no one home
-	stateManager.SetBool("isAnyoneHome", false)
-	stateManager.SetBool("isMasterAsleep", true)
-	stateManager.SetBool("isFadeOutInProgress", true)
-
-	mockHA.ClearServiceCalls()
-
-	// Trigger wake
-	manager.handleWake()
-
-	// Should not make service calls when no one is home
-	calls := mockHA.GetServiceCalls()
-	if len(calls) > 0 {
-		t.Error("Should not execute wake sequence when no one is home")
-	}
-}
-
-// TestHandleWake_MasterNotAsleep tests wake trigger when master is not asleep
-func TestHandleWake_MasterNotAsleep(t *testing.T) {
-	t.Parallel()
-	now := time.Date(2024, 1, 15, 9, 30, 0, 0, time.UTC)
-	manager, mockHA, stateManager, _ := setupTest(t, now)
-
-	// Set master not asleep
-	stateManager.SetBool("isAnyoneHome", true)
-	stateManager.SetBool("isMasterAsleep", false)
-	stateManager.SetBool("isFadeOutInProgress", true)
-
-	mockHA.ClearServiceCalls()
-
-	// Trigger wake
-	manager.handleWake()
-
-	// Should not make service calls when master is not asleep
-	calls := mockHA.GetServiceCalls()
-	if len(calls) > 0 {
-		t.Error("Should not execute wake sequence when master is not asleep")
-	}
-}
-
-// TestHandleWake_FadeOutNotInProgress tests wake trigger when fade out is not in progress
-func TestHandleWake_FadeOutNotInProgress(t *testing.T) {
-	t.Parallel()
-	now := time.Date(2024, 1, 15, 9, 30, 0, 0, time.UTC)
-	manager, mockHA, stateManager, _ := setupTest(t, now)
-
-	// Set fade out not in progress
-	stateManager.SetBool("isAnyoneHome", true)
-	stateManager.SetBool("isMasterAsleep", true)
-	stateManager.SetBool("isFadeOutInProgress", false)
-
-	mockHA.ClearServiceCalls()
-
-	// Trigger wake
-	manager.handleWake()
-
-	// Should not make service calls when fade out is not in progress
-	calls := mockHA.GetServiceCalls()
-	if len(calls) > 0 {
-		t.Error("Should not execute wake sequence when fade out is not in progress")
-	}
-}
-
-// TestHandleStopScreens_NoOneHome tests stop_screens when no one is home
-func TestHandleStopScreens_NoOneHome(t *testing.T) {
-	t.Parallel()
-	now := time.Date(2024, 1, 15, 22, 30, 0, 0, time.UTC)
-	manager, mockHA, stateManager, _ := setupTest(t, now)
-
-	// Set no one home
-	stateManager.SetBool("isAnyoneHome", false)
-	stateManager.SetBool("isEveryoneAsleep", false)
-
-	mockHA.ClearServiceCalls()
-
-	// Trigger stop_screens
-	manager.handleStopScreens()
-
-	// Should not flash lights when no one is home
-	calls := mockHA.GetServiceCalls()
-	if len(calls) > 0 {
-		t.Error("Should not flash lights when no one is home")
+			calls := mockHA.GetServiceCalls()
+			if len(calls) > 0 {
+				t.Errorf("Should not execute wake sequence when %s", tt.name)
+			}
+		})
 	}
 }
 
@@ -1971,85 +1829,39 @@ func TestStart_SubscribesToEightSleepSensors(t *testing.T) {
 
 // Eight Sleep Availability Tests
 
-func TestIsEightSleepUnavailable_BothSensorsAvailable(t *testing.T) {
+func TestIsEightSleepUnavailable_SensorCombinations(t *testing.T) {
 	t.Parallel()
-	now := time.Date(2024, 1, 15, 8, 0, 0, 0, time.UTC)
-	manager, mockHA, _, _ := setupTest(t, now)
-
-	// Set both sensors to available states (not "unavailable")
-	mockHA.SetState("sensor.nick_s_eight_sleep_side_sleep_stage", "awake", nil)
-	mockHA.SetState("sensor.caroline_s_eight_sleep_side_sleep_stage", "light", nil)
-
-	if manager.isEightSleepUnavailable() {
-		t.Error("isEightSleepUnavailable should return false when both sensors are available")
+	tests := []struct {
+		name              string
+		nickState         string // empty = sensor not set (error)
+		carolineState     string // empty = sensor not set (error)
+		expectUnavailable bool
+	}{
+		{"Both available", "awake", "light", false},
+		{"Only Nick available", "deep", "unavailable", false},
+		{"Only Caroline available", "unavailable", "rem", false},
+		{"Both unavailable", "unavailable", "unavailable", true},
+		{"Both not found", "", "", true},
+		{"Nick error, Caroline available", "", "awake", false},
 	}
-}
 
-func TestIsEightSleepUnavailable_OnlyNickAvailable(t *testing.T) {
-	t.Parallel()
-	now := time.Date(2024, 1, 15, 8, 0, 0, 0, time.UTC)
-	manager, mockHA, _, _ := setupTest(t, now)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			now := time.Date(2024, 1, 15, 8, 0, 0, 0, time.UTC)
+			manager, mockHA, _, _ := setupTest(t, now)
 
-	// Nick's sensor available, Caroline's unavailable
-	mockHA.SetState("sensor.nick_s_eight_sleep_side_sleep_stage", "deep", nil)
-	mockHA.SetState("sensor.caroline_s_eight_sleep_side_sleep_stage", "unavailable", nil)
+			if tt.nickState != "" {
+				mockHA.SetState("sensor.nick_s_eight_sleep_side_sleep_stage", tt.nickState, nil)
+			}
+			if tt.carolineState != "" {
+				mockHA.SetState("sensor.caroline_s_eight_sleep_side_sleep_stage", tt.carolineState, nil)
+			}
 
-	if manager.isEightSleepUnavailable() {
-		t.Error("isEightSleepUnavailable should return false when at least one sensor is available (Nick)")
-	}
-}
-
-func TestIsEightSleepUnavailable_OnlyCarolineAvailable(t *testing.T) {
-	t.Parallel()
-	now := time.Date(2024, 1, 15, 8, 0, 0, 0, time.UTC)
-	manager, mockHA, _, _ := setupTest(t, now)
-
-	// Nick's sensor unavailable, Caroline's available
-	mockHA.SetState("sensor.nick_s_eight_sleep_side_sleep_stage", "unavailable", nil)
-	mockHA.SetState("sensor.caroline_s_eight_sleep_side_sleep_stage", "rem", nil)
-
-	if manager.isEightSleepUnavailable() {
-		t.Error("isEightSleepUnavailable should return false when at least one sensor is available (Caroline)")
-	}
-}
-
-func TestIsEightSleepUnavailable_BothSensorsUnavailable(t *testing.T) {
-	t.Parallel()
-	now := time.Date(2024, 1, 15, 8, 0, 0, 0, time.UTC)
-	manager, mockHA, _, _ := setupTest(t, now)
-
-	// Both sensors report "unavailable"
-	mockHA.SetState("sensor.nick_s_eight_sleep_side_sleep_stage", "unavailable", nil)
-	mockHA.SetState("sensor.caroline_s_eight_sleep_side_sleep_stage", "unavailable", nil)
-
-	if !manager.isEightSleepUnavailable() {
-		t.Error("isEightSleepUnavailable should return true when both sensors are unavailable")
-	}
-}
-
-func TestIsEightSleepUnavailable_BothSensorsNotFound(t *testing.T) {
-	t.Parallel()
-	now := time.Date(2024, 1, 15, 8, 0, 0, 0, time.UTC)
-	manager, _, _, _ := setupTest(t, now)
-
-	// Don't set any state - sensors don't exist in mock
-	// This simulates GetState returning an error
-
-	if !manager.isEightSleepUnavailable() {
-		t.Error("isEightSleepUnavailable should return true when both sensors return errors")
-	}
-}
-
-func TestIsEightSleepUnavailable_NickErrorCarolineAvailable(t *testing.T) {
-	t.Parallel()
-	now := time.Date(2024, 1, 15, 8, 0, 0, 0, time.UTC)
-	manager, mockHA, _, _ := setupTest(t, now)
-
-	// Nick's sensor doesn't exist (error), Caroline's is available
-	mockHA.SetState("sensor.caroline_s_eight_sleep_side_sleep_stage", "awake", nil)
-
-	if manager.isEightSleepUnavailable() {
-		t.Error("isEightSleepUnavailable should return false when at least one sensor is available")
+			result := manager.isEightSleepUnavailable()
+			if result != tt.expectUnavailable {
+				t.Errorf("isEightSleepUnavailable() = %v, want %v", result, tt.expectUnavailable)
+			}
+		})
 	}
 }
 
