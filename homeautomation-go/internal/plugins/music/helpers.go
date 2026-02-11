@@ -1,12 +1,8 @@
 package music
 
 import (
-	"errors"
 	"fmt"
 	"strings"
-	"time"
-
-	"homeautomation/internal/state"
 
 	"go.uber.org/zap"
 )
@@ -149,111 +145,31 @@ func (m *Manager) callServiceWithRetry(domain, service string, serviceData map[s
 	return m.callService(domain, service, serviceData)
 }
 
-// Reset re-evaluates appropriate music mode and triggers playback
+// Reset stops all active zones and re-evaluates zone resolution from scratch.
+// This provides a clean restart without requiring the legacy selectAppropriateMusicMode path.
 func (m *Manager) Reset() error {
-	m.logger.Info("Resetting Music - re-selecting appropriate music mode")
+	m.logger.Info("Resetting Music - stopping all zones and re-resolving")
 
-	// Check if anyone is home first (matches Node-RED and selectAppropriateMusicModeWithContext)
-	isAnyoneHome, err := m.stateManager.GetBool("isAnyoneHome")
-	if err != nil {
-		m.logger.Error("Failed to get isAnyoneHome", zap.Error(err))
-		return err
+	// Stop all active zones and current playback
+	if m.zoneManager != nil {
+		m.zoneManager.StopAllZones("reset")
 	}
-
-	// If no one is home, stop music
-	if !isAnyoneHome {
-		m.logger.Info("No one is home, stopping music on reset")
-		m.stopPlayback()
-		if err := m.setMusicPlaybackType(""); err != nil {
-			if !errors.Is(err, state.ErrReadOnlyMode) {
-				m.logger.Error("Failed to set empty music playback type", zap.Error(err))
-			}
-		}
-		return nil
-	}
-
-	// Check if anyone is asleep - sleep mode has highest priority (matches Node-RED)
-	isAnyoneAsleep, err := m.stateManager.GetBool("isAnyoneAsleep")
-	if err != nil {
-		m.logger.Error("Failed to get isAnyoneAsleep", zap.Error(err))
-		return err
-	}
-
-	var musicMode string
-	if isAnyoneAsleep {
-		m.logger.Info("Someone is asleep, selecting sleep mode on reset")
-		musicMode = "sleep"
-	} else {
-		// Get current day phase to determine appropriate mode
-		dayPhase, err := m.stateManager.GetString("dayPhase")
-		if err != nil {
-			m.logger.Error("Failed to get dayPhase", zap.Error(err))
-			return err
-		}
-
-		// Get current music type
-		currentMusicType, err := m.stateManager.GetString("musicPlaybackType")
-		if err != nil {
-			m.logger.Error("Failed to get musicPlaybackType", zap.Error(err))
-			return err
-		}
-
-		// Determine music mode (no trigger key or wake-up event for reset)
-		musicMode = m.determineMusicModeFromDayPhase(dayPhase, currentMusicType, "", false)
-	}
-
-	m.logger.Info("Reset selected music mode",
-		zap.Bool("is_anyone_asleep", isAnyoneAsleep),
-		zap.String("new_music_mode", musicMode))
-
-	// Check rate limiting (max 1 playback per 10 seconds)
-	// If rate-limited, silently drop the reset (matches Node-RED behavior)
-	// NOTE: We check but DON'T update lastPlaybackTime here - let the handler do it
-	// to avoid double-triggering playback (once from handler, once from direct call)
-	m.mu.Lock()
-	timeSinceLastPlayback := m.timeProvider.Now().Sub(m.lastPlaybackTime)
-	if timeSinceLastPlayback < 10*time.Second && !m.lastPlaybackTime.IsZero() {
-		m.mu.Unlock()
-		m.logger.Warn("Rate limiting: dropping reset request (too soon after last playback)",
-			zap.Duration("time_since_last", timeSinceLastPlayback),
-			zap.String("music_mode", musicMode))
-		return nil
-	}
+	m.stopPlayback()
 
 	// Clear currentlyPlaying to allow restart of same mode
-	// This ensures the handler won't skip due to "already playing" check
+	m.mu.Lock()
 	m.currentlyPlaying = nil
 	m.mu.Unlock()
 
-	// If empty mode, stop playback
-	if musicMode == "" {
-		m.logger.Info("Stopping music playback on reset")
-		m.stopPlayback()
-
-		// Update state variable
-		if err := m.setMusicPlaybackType(""); err != nil {
-			if !errors.Is(err, state.ErrReadOnlyMode) {
-				m.logger.Error("Failed to set music playback type", zap.Error(err))
-			}
-		}
-
-		m.logger.Info("Successfully reset Music")
-		return nil
-	}
-
-	// Use clear-then-set pattern to force handler to fire even for same-mode resets
-	// This leverages the existing pattern used by sleep hygiene (per comment at line 422-424)
-	// Step 1: Clear to "" - this triggers handler but stopPlayback() is safe (just fades out)
-	// Step 2: Set to target mode - this triggers handler which calls orchestratePlayback()
+	// Clear musicPlaybackType so zone resolution starts clean
 	if err := m.setMusicPlaybackType(""); err != nil {
-		if !errors.Is(err, state.ErrReadOnlyMode) {
-			m.logger.Error("Failed to clear music playback type", zap.Error(err))
-			return err
-		}
+		m.logger.Warn("Failed to clear musicPlaybackType during reset", zap.Error(err))
 	}
-	if err := m.setMusicPlaybackType(musicMode); err != nil {
-		if !errors.Is(err, state.ErrReadOnlyMode) {
-			m.logger.Error("Failed to set music playback type", zap.Error(err))
+
+	// Re-resolve zones from current state
+	if m.zoneManager != nil {
+		if err := m.zoneManager.ResolveZones("reset"); err != nil {
+			m.logger.Error("Failed to resolve zones after reset", zap.Error(err))
 			return err
 		}
 	}

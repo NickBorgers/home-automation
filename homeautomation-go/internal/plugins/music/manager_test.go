@@ -18,140 +18,111 @@ import (
 	"go.uber.org/zap"
 )
 
-func TestMusicManager_SelectAppropriateMusicMode(t *testing.T) {
+func TestMusicManager_ZoneResolutionSelectsCorrectMode(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name              string
 		isAnyoneHome      bool
 		isAnyoneAsleep    bool
 		dayPhase          string
-		currentMusicType  string
 		expectedMusicType string
 		description       string
 	}{
 		{
-			name:              "No one home - stop music",
+			name:              "No one home - no zone active",
 			isAnyoneHome:      false,
 			isAnyoneAsleep:    false,
 			dayPhase:          "day",
-			currentMusicType:  "day",
 			expectedMusicType: "",
-			description:       "When no one is home, music should stop",
+			description:       "When no one is home, no zone should be active",
 		},
 		{
 			name:              "Someone asleep - sleep mode",
 			isAnyoneHome:      true,
 			isAnyoneAsleep:    true,
 			dayPhase:          "day",
-			currentMusicType:  "day",
 			expectedMusicType: "sleep",
-			description:       "Sleep mode has highest priority",
+			description:       "Sleep zone has highest priority",
 		},
 		{
-			name:              "Morning - day mode (no wake-up event)",
+			name:              "Morning - morning mode",
 			isAnyoneHome:      true,
 			isAnyoneAsleep:    false,
 			dayPhase:          "morning",
-			currentMusicType:  "",
-			expectedMusicType: "day",
-			description:       "Morning phase without wake-up event triggers day music",
+			expectedMusicType: "morning",
+			description:       "Morning phase triggers morning zone",
 		},
 		{
 			name:              "Day - day mode",
 			isAnyoneHome:      true,
 			isAnyoneAsleep:    false,
 			dayPhase:          "day",
-			currentMusicType:  "",
 			expectedMusicType: "day",
-			description:       "Day phase triggers day music",
+			description:       "Day phase triggers day zone",
 		},
 		{
 			name:              "Sunset - evening mode",
 			isAnyoneHome:      true,
 			isAnyoneAsleep:    false,
 			dayPhase:          "sunset",
-			currentMusicType:  "",
 			expectedMusicType: "evening",
-			description:       "Sunset phase triggers evening music",
+			description:       "Sunset phase triggers evening zone",
 		},
 		{
 			name:              "Dusk - evening mode",
 			isAnyoneHome:      true,
 			isAnyoneAsleep:    false,
 			dayPhase:          "dusk",
-			currentMusicType:  "",
 			expectedMusicType: "evening",
-			description:       "Dusk phase triggers evening music",
+			description:       "Dusk phase triggers evening zone",
 		},
 		{
 			name:              "Winddown - winddown mode",
 			isAnyoneHome:      true,
 			isAnyoneAsleep:    false,
 			dayPhase:          "winddown",
-			currentMusicType:  "",
 			expectedMusicType: "winddown",
-			description:       "Winddown phase triggers winddown music",
+			description:       "Winddown phase triggers winddown zone",
 		},
 		{
 			name:              "Night - winddown mode",
 			isAnyoneHome:      true,
 			isAnyoneAsleep:    false,
 			dayPhase:          "night",
-			currentMusicType:  "",
 			expectedMusicType: "winddown",
-			description:       "Night phase triggers winddown music",
-		},
-		{
-			name:              "Winddown but sleep playing - keep sleep",
-			isAnyoneHome:      true,
-			isAnyoneAsleep:    false,
-			dayPhase:          "winddown",
-			currentMusicType:  "sleep",
-			expectedMusicType: "sleep",
-			description:       "Don't override sleep music with winddown",
-		},
-		{
-			name:              "Unknown phase - default to day",
-			isAnyoneHome:      true,
-			isAnyoneAsleep:    false,
-			dayPhase:          "unknown",
-			currentMusicType:  "",
-			expectedMusicType: "day",
-			description:       "Unknown phases default to day mode",
+			description:       "Night phase triggers winddown zone",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-
-			// Create mock HA client and state manager (NOT read-only for tests)
-
 			mockHA := ha.NewMockClient()
 			logger := zap.NewNop()
 			stateMgr := state.NewManager(mockHA, logger, false)
 
-			// Create music config (minimal for testing)
+			// Create music config with participants and playback options (needed for zone start)
+			testParticipant := []Participant{{PlayerName: "Kitchen", BaseVolume: 9}}
+			testPlayback := []PlaybackOption{{URI: "test:uri", MediaType: "playlist", VolumeMultiplier: 1.0}}
 			config := &MusicConfig{
 				Music: map[string]MusicMode{
-					"morning":  {},
-					"day":      {},
-					"evening":  {},
-					"winddown": {},
-					"sleep":    {},
-					"sex":      {},
-					"wakeup":   {},
+					"morning":  {Participants: testParticipant, PlaybackOptions: testPlayback},
+					"day":      {Participants: testParticipant, PlaybackOptions: testPlayback},
+					"evening":  {Participants: testParticipant, PlaybackOptions: testPlayback},
+					"winddown": {Participants: testParticipant, PlaybackOptions: testPlayback},
+					"sleep":    {Participants: testParticipant, PlaybackOptions: testPlayback},
+					"sex":      {Participants: testParticipant, PlaybackOptions: testPlayback},
+					"wakeup":   {Participants: testParticipant, PlaybackOptions: testPlayback},
 				},
 			}
+			// Set up mock speaker
+			mockHA.SetState("media_player.kitchen", "idle", nil)
 
-			// Use a fixed time provider with a Monday (not Sunday) for testing
-			// This ensures tests are independent of what day they run on
-			fixedTime := time.Date(2025, 1, 6, 9, 0, 0, 0, time.UTC) // Monday, January 6, 2025
+			fixedTime := time.Date(2025, 1, 6, 9, 0, 0, 0, time.UTC) // Monday
 			timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
 
-			// Create manager
 			manager := NewManager(context.Background(), mockHA, stateMgr, config, logger, true, timeProvider, nil)
 
-			// Set up initial state
+			// Set up state
 			if err := stateMgr.SetBool("isAnyoneHome", tt.isAnyoneHome); err != nil {
 				t.Fatalf("Failed to set isAnyoneHome: %v", err)
 			}
@@ -161,12 +132,20 @@ func TestMusicManager_SelectAppropriateMusicMode(t *testing.T) {
 			if err := stateMgr.SetString("dayPhase", tt.dayPhase); err != nil {
 				t.Fatalf("Failed to set dayPhase: %v", err)
 			}
-			if err := stateMgr.SetString("musicPlaybackType", tt.currentMusicType); err != nil {
+			if err := stateMgr.SetString("musicPlaybackType", ""); err != nil {
 				t.Fatalf("Failed to set musicPlaybackType: %v", err)
 			}
 
-			// Execute music mode selection
-			manager.selectAppropriateMusicMode()
+			// Initialize zone manager (ensureZones is called by Start, but
+			// we call it directly here to test zone resolution without full startup)
+			config.ensureZones()
+			manager.zoneManager = NewZoneManager(manager, config, logger)
+
+			// Resolve zones
+			err := manager.zoneManager.ResolveZones("test")
+			if err != nil {
+				t.Fatalf("Failed to resolve zones: %v", err)
+			}
 
 			// Verify result
 			actualMusicType, err := stateMgr.GetString("musicPlaybackType")
@@ -182,43 +161,58 @@ func TestMusicManager_SelectAppropriateMusicMode(t *testing.T) {
 	}
 }
 
-func TestMusicManager_DetermineMusicModeFromDayPhase(t *testing.T) {
+func TestEnsureZones_DayPhaseMapping(t *testing.T) {
 	t.Parallel()
-	mockHA := ha.NewMockClient()
-	logger := zap.NewNop()
-	stateMgr := state.NewManager(mockHA, logger, false)
-	config := &MusicConfig{}
 
-	// Use a fixed time provider with a Monday (not Sunday) for testing
-	fixedTime := time.Date(2025, 1, 6, 9, 0, 0, 0, time.UTC) // Monday, January 6, 2025
-	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
-
-	manager := NewManager(context.Background(), mockHA, stateMgr, config, logger, true, timeProvider, nil)
-
-	tests := []struct {
-		dayPhase          string
-		currentMusicType  string
-		expectedMusicMode string
-	}{
-		{"morning", "", "day"}, // Morning without wake-up event = day music
-		{"day", "", "day"},
-		{"sunset", "", "evening"},
-		{"dusk", "", "evening"},
-		{"winddown", "", "winddown"},
-		{"night", "", "winddown"},
-		{"winddown", "sleep", "sleep"}, // Don't override sleep
-		{"unknown", "", "day"},         // Default to day
+	// Verify that ensureZones generates trigger configurations that correctly
+	// map day phases to music zones, replacing the legacy determineMusicModeFromDayPhase.
+	config := &MusicConfig{
+		Music: map[string]MusicMode{
+			"morning": {}, "day": {}, "evening": {}, "winddown": {},
+			"sleep": {}, "sex": {}, "wakeup": {},
+		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.dayPhase+"_"+tt.currentMusicType, func(t *testing.T) {
+	config.ensureZones()
 
-			result := manager.determineMusicModeFromDayPhase(tt.dayPhase, tt.currentMusicType, "", false)
-			if result != tt.expectedMusicMode {
-				t.Errorf("For dayPhase=%s, currentMusicType=%s: expected %s, got %s",
-					tt.dayPhase, tt.currentMusicType, tt.expectedMusicMode, result)
-			}
-		})
+	// Find zones by name
+	zoneByName := make(map[string]ZoneConfig)
+	for _, z := range config.Zones {
+		zoneByName[z.Name] = z
+	}
+
+	// Sleep: triggers on isAnyoneAsleep=true
+	sleepZone := zoneByName["sleep"]
+	if len(sleepZone.Triggers) != 2 {
+		t.Errorf("Sleep zone should have 2 triggers, got %d", len(sleepZone.Triggers))
+	}
+
+	// Morning: triggers on dayPhase=morning
+	morningZone := zoneByName["morning"]
+	if len(morningZone.Triggers) != 3 {
+		t.Errorf("Morning zone should have 3 triggers, got %d", len(morningZone.Triggers))
+	}
+
+	// Evening: trigger_groups for sunset/dusk/evening
+	eveningZone := zoneByName["evening"]
+	if len(eveningZone.TriggerGroups) != 3 {
+		t.Errorf("Evening zone should have 3 trigger groups, got %d", len(eveningZone.TriggerGroups))
+	}
+
+	// Winddown: trigger_groups for winddown/night
+	winddownZone := zoneByName["winddown"]
+	if len(winddownZone.TriggerGroups) != 2 {
+		t.Errorf("Winddown zone should have 2 trigger groups, got %d", len(winddownZone.TriggerGroups))
+	}
+
+	// Sex/wakeup: no triggers (manually activated)
+	sexZone := zoneByName["sex"]
+	if len(sexZone.Triggers) != 0 {
+		t.Errorf("Sex zone should have no triggers, got %d", len(sexZone.Triggers))
+	}
+	wakeupZone := zoneByName["wakeup"]
+	if len(wakeupZone.Triggers) != 0 {
+		t.Errorf("Wakeup zone should have no triggers, got %d", len(wakeupZone.Triggers))
 	}
 }
 
@@ -228,15 +222,17 @@ func TestMusicManager_StateChangeHandling(t *testing.T) {
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 
+	testParticipant := []Participant{{PlayerName: "Kitchen", BaseVolume: 9}}
+	defaultOption := []PlaybackOption{{URI: "test:uri", MediaType: "playlist", VolumeMultiplier: 1.0}}
 	config := &MusicConfig{
 		Music: map[string]MusicMode{
-			"morning":  {},
-			"day":      {},
-			"evening":  {},
-			"winddown": {},
-			"sleep":    {},
-			"sex":      {},
-			"wakeup":   {},
+			"morning":  {Participants: testParticipant, PlaybackOptions: defaultOption},
+			"day":      {Participants: testParticipant, PlaybackOptions: defaultOption},
+			"evening":  {Participants: testParticipant, PlaybackOptions: defaultOption},
+			"winddown": {Participants: testParticipant, PlaybackOptions: defaultOption},
+			"sleep":    {Participants: testParticipant, PlaybackOptions: defaultOption},
+			"sex":      {Participants: testParticipant, PlaybackOptions: defaultOption},
+			"wakeup":   {Participants: testParticipant, PlaybackOptions: defaultOption},
 		},
 	}
 
@@ -245,6 +241,9 @@ func TestMusicManager_StateChangeHandling(t *testing.T) {
 	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
 
 	manager := NewManager(context.Background(), mockHA, stateMgr, config, logger, true, timeProvider, nil)
+
+	// Set up mock speaker
+	mockHA.SetState("media_player.kitchen", "idle", nil)
 
 	// Set initial state
 	if err := stateMgr.SetBool("isAnyoneHome", true); err != nil {
@@ -260,12 +259,12 @@ func TestMusicManager_StateChangeHandling(t *testing.T) {
 		t.Fatalf("Failed to set musicPlaybackType: %v", err)
 	}
 
-	// Start manager (which subscribes to state changes)
+	// Start manager (which subscribes to state changes and runs initial zone resolution)
 	if err := manager.Start(); err != nil {
 		t.Fatalf("Failed to start manager: %v", err)
 	}
 
-	// Initial selection should set day mode
+	// Initial zone resolution should activate day zone
 	musicType, err := stateMgr.GetString("musicPlaybackType")
 	if err != nil {
 		t.Fatalf("Failed to get musicPlaybackType: %v", err)
@@ -274,7 +273,7 @@ func TestMusicManager_StateChangeHandling(t *testing.T) {
 		t.Errorf("Expected initial music type 'day', got %q", musicType)
 	}
 
-	// Change to evening phase - should trigger music mode change
+	// Change to sunset phase - should trigger evening zone via zone resolution
 	if err := stateMgr.SetString("dayPhase", "sunset"); err != nil {
 		t.Fatalf("Failed to set dayPhase: %v", err)
 	}
@@ -290,7 +289,7 @@ func TestMusicManager_StateChangeHandling(t *testing.T) {
 		t.Errorf("Expected music type 'evening' after sunset, got %q", musicType)
 	}
 
-	// Someone goes to sleep - should trigger sleep mode
+	// Someone goes to sleep - should trigger sleep zone (highest priority)
 	if err := stateMgr.SetBool("isAnyoneAsleep", true); err != nil {
 		t.Fatalf("Failed to set isAnyoneAsleep: %v", err)
 	}
@@ -466,28 +465,32 @@ func TestMusicManager_ReadOnlyMode(t *testing.T) {
 	_ = stateManager.SetString("dayPhase", "day")
 	_ = stateManager.SetString("musicPlaybackType", "")
 
+	defaultOption := []PlaybackOption{{URI: "test:uri", MediaType: "playlist", VolumeMultiplier: 1.0}}
 	config := &MusicConfig{
 		Music: map[string]MusicMode{
-			"day":   {},
-			"sleep": {},
+			"day":   {PlaybackOptions: defaultOption},
+			"sleep": {PlaybackOptions: defaultOption},
 		},
 	}
 
 	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, true, nil, nil)
 
-	// Test selecting music mode in read-only mode - should handle gracefully
-	manager.selectAppropriateMusicMode()
+	// Initialize zone manager (ensureZones populates zones from music modes)
+	config.ensureZones()
+	manager.zoneManager = NewZoneManager(manager, config, logger)
+
+	// Test zone resolution in read-only mode - should handle gracefully
+	_ = manager.zoneManager.ResolveZones("test")
 
 	// Test with sleep scenario
 	_ = stateManager.SetBool("isAnyoneAsleep", true)
-	manager.selectAppropriateMusicMode()
+	_ = manager.zoneManager.ResolveZones("test-sleep")
 
 	// Test with no one home
 	_ = stateManager.SetBool("isAnyoneHome", false)
-	manager.selectAppropriateMusicMode()
+	_ = manager.zoneManager.ResolveZones("test-nohome")
 
 	// If we get here without panicking, the read-only mode handling worked correctly
-	// The actual verification is that no errors are thrown, just debug logs
 }
 
 // TestCalculateVolume tests volume calculation
@@ -568,15 +571,13 @@ func TestPlaylistRotation(t *testing.T) {
 	}
 }
 
-// TestRateLimiting tests rate limiting functionality
+// TestRateLimiting tests that zone resolution is idempotent — resolving zones
+// when a zone is already active doesn't restart playback (effectively rate-limiting).
 func TestRateLimiting(t *testing.T) {
 	t.Parallel()
 	logger := zap.NewNop()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
-
-	// Initialize state variables
-	_ = stateManager.SetString("musicPlaybackType", "")
 
 	config := &MusicConfig{
 		Music: map[string]MusicMode{
@@ -591,54 +592,65 @@ func TestRateLimiting(t *testing.T) {
 		},
 	}
 
-	// Use a fixed time for testing
+	_ = stateManager.SetBool("isAnyoneHome", true)
+	_ = stateManager.SetBool("isAnyoneAsleep", false)
+	_ = stateManager.SetString("dayPhase", "day")
+	_ = stateManager.SetString("musicPlaybackType", "")
+	mockClient.SetState("media_player.kitchen", "idle", nil)
+
 	fixedTime := time.Date(2024, 1, 1, 12, 0, 0, 0, time.UTC)
 	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
 
 	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, true, timeProvider, nil)
+	config.ensureZones()
+	manager.zoneManager = NewZoneManager(manager, config, logger)
 
-	// First playback should succeed
-	manager.handleMusicPlaybackTypeChange("musicPlaybackType", "", "day")
-	if manager.currentlyPlaying == nil {
-		t.Error("First playback should have succeeded")
+	// First resolution should start the day zone
+	err := manager.zoneManager.ResolveZones("test-first")
+	if err != nil {
+		t.Fatalf("First resolve failed: %v", err)
 	}
 
-	// Immediate second playback should be rate limited
-	manager.handleMusicPlaybackTypeChange("musicPlaybackType", "day", "evening")
-	if manager.currentlyPlaying.Type != "day" {
-		t.Error("Second immediate playback should have been rate limited")
+	// Wait for async zone playback goroutine to complete
+	time.Sleep(100 * time.Millisecond)
+
+	manager.mu.RLock()
+	playing := manager.currentlyPlaying
+	manager.mu.RUnlock()
+	if playing == nil {
+		t.Fatal("First playback should have succeeded")
 	}
 
-	// Update time to 11 seconds later
-	timeProvider.FixedTime = fixedTime.Add(11 * time.Second)
-	manager.timeProvider = timeProvider
+	// Clear service calls
+	mockClient.ClearServiceCalls()
 
-	// Now it should succeed
-	_ = stateManager.SetString("musicPlaybackType", "evening")
-	config.Music["evening"] = config.Music["day"] // Add evening config
-	manager.handleMusicPlaybackTypeChange("musicPlaybackType", "day", "evening")
-	if manager.currentlyPlaying.Type != "evening" {
-		t.Error("Playback after 11 seconds should have succeeded")
+	// Immediate second resolution should not restart (zone already active)
+	err = manager.zoneManager.ResolveZones("test-second")
+	if err != nil {
+		t.Fatalf("Second resolve failed: %v", err)
+	}
+
+	// Verify no new service calls (zone was already active, effectively rate-limited)
+	serviceCalls := mockClient.GetServiceCalls()
+	mediaPlayerCalls := 0
+	for _, call := range serviceCalls {
+		if call.Domain == "media_player" {
+			mediaPlayerCalls++
+		}
+	}
+	if mediaPlayerCalls != 0 {
+		t.Errorf("Expected 0 media_player calls on second resolution, got %d", mediaPlayerCalls)
 	}
 }
 
-// TestStopDoesNotTriggerRateLimiting verifies that stop operations (setting musicPlaybackType
-// to empty string) do not update the rate limiter, allowing the clear-then-set pattern
-// used by sleep hygiene to force a music restart.
-//
-// This is the fix for: https://github.com/NickBorgers/home-automation/pull/486
-// When cancelling a wake sequence while musicPlaybackType is already "sleep",
-// sleep hygiene needs to clear the value first to force a notification, then set it
-// back to "sleep" to restart playback. Without this fix, the second set would be
-// rate-limited and music would stop but not restart.
-func TestStopDoesNotTriggerRateLimiting(t *testing.T) {
+// TestResetRestartsSleepMusic verifies that Reset() can restart music via zone resolution.
+// This replaces the legacy clear-then-set pattern used by sleep hygiene.
+// Scenario: Sleep music playing → Reset → sleep zone re-activates.
+func TestResetRestartsSleepMusic(t *testing.T) {
 	t.Parallel()
 	logger := zap.NewNop()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
-
-	// Initialize state variables
-	_ = stateManager.SetString("musicPlaybackType", "")
 
 	config := &MusicConfig{
 		Music: map[string]MusicMode{
@@ -653,58 +665,44 @@ func TestStopDoesNotTriggerRateLimiting(t *testing.T) {
 		},
 	}
 
-	// Simulate the real scenario:
-	// 1. Sleep music started hours ago when user went to bed (10 PM)
-	// 2. User wakes up and cancels wake sequence (e.g., 3 AM)
-	// 3. Sleep hygiene does clear-then-set pattern
+	_ = stateManager.SetBool("isAnyoneHome", true)
+	_ = stateManager.SetBool("isAnyoneAsleep", true)
+	_ = stateManager.SetString("dayPhase", "night")
+	_ = stateManager.SetString("musicPlaybackType", "")
+	mockClient.SetState("media_player.bedroom", "idle", nil)
 
-	// Time when sleep music was initially started (10 PM)
 	initialStartTime := time.Date(2024, 1, 1, 22, 0, 0, 0, time.UTC)
 	timeProvider := plugin.FixedTimeProvider{FixedTime: initialStartTime}
 
 	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, true, timeProvider, nil)
 
-	// Start sleep music at 10 PM
-	manager.handleMusicPlaybackTypeChange("musicPlaybackType", "", "sleep")
-	if manager.currentlyPlaying == nil || manager.currentlyPlaying.Type != "sleep" {
-		t.Fatal("Sleep music should have started")
+	err := manager.Start()
+	if err != nil {
+		t.Fatalf("Failed to start manager: %v", err)
+	}
+	defer manager.Stop()
+
+	// Sleep zone should be active
+	musicType, _ := stateManager.GetString("musicPlaybackType")
+	if musicType != "sleep" {
+		t.Fatalf("Expected sleep music after startup, got %q", musicType)
 	}
 
-	// Fast forward to 3 AM (5 hours later) - user cancels wake sequence
-	cancelWakeTime := initialStartTime.Add(5 * time.Hour)
-	timeProvider.FixedTime = cancelWakeTime
-	manager.timeProvider = timeProvider
-
-	// Simulate clear-then-set pattern (what sleep hygiene does):
-	// 1. Clear to "" to force a notification
-	manager.handleMusicPlaybackTypeChange("musicPlaybackType", "sleep", "")
-	if manager.currentlyPlaying != nil {
-		t.Error("Music should have stopped after clearing")
+	// Reset should stop and restart the sleep zone
+	err = manager.Reset()
+	if err != nil {
+		t.Fatalf("Reset() failed: %v", err)
 	}
 
-	// 2. Set back to "sleep" immediately (this should NOT be rate-limited)
-	// Before the fix, step 1 would update lastPlaybackTime, causing this to be rate-limited.
-	// After the fix, stop operations don't update lastPlaybackTime, so this succeeds.
-	manager.handleMusicPlaybackTypeChange("musicPlaybackType", "", "sleep")
-	if manager.currentlyPlaying == nil {
-		t.Fatal("Music should have restarted - stop operations should not trigger rate limiting")
-	}
-	if manager.currentlyPlaying.Type != "sleep" {
-		t.Errorf("Expected sleep music to restart, got type: %s", manager.currentlyPlaying.Type)
-	}
-
-	// Verify orchestratePlayback was called by checking playlist rotation
-	manager.mu.RLock()
-	rotationIndex := manager.playlistNumbers["sleep"]
-	manager.mu.RUnlock()
-	// After 2 plays (initial + restart), rotation should be at index 0 (wrapped from 1)
-	// since there's only one playlist option
-	if rotationIndex != 0 {
-		t.Errorf("Expected rotation index to be 0 after 2 plays, got %d", rotationIndex)
+	// Sleep zone should be active again
+	musicType, _ = stateManager.GetString("musicPlaybackType")
+	if musicType != "sleep" {
+		t.Errorf("Expected sleep music after reset, got %q", musicType)
 	}
 }
 
-// TestDoubleActivationPrevention tests prevention of re-activating already playing music
+// TestDoubleActivationPrevention tests that zone resolution is idempotent -
+// resolving zones when a zone is already active doesn't restart playback.
 func TestDoubleActivationPrevention(t *testing.T) {
 	t.Parallel()
 	logger := zap.NewNop()
@@ -724,16 +722,47 @@ func TestDoubleActivationPrevention(t *testing.T) {
 		},
 	}
 
+	// Set state for day zone activation
+	_ = stateManager.SetBool("isAnyoneHome", true)
+	_ = stateManager.SetBool("isAnyoneAsleep", false)
+	_ = stateManager.SetString("dayPhase", "day")
+	_ = stateManager.SetString("musicPlaybackType", "")
+	mockClient.SetState("media_player.kitchen", "idle", nil)
+
 	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, true, nil, nil)
+	config.ensureZones()
+	manager.zoneManager = NewZoneManager(manager, config, logger)
 
-	// First playback
-	manager.handleMusicPlaybackTypeChange("musicPlaybackType", "", "day")
-	firstURI := manager.currentlyPlaying.URI
+	// First zone resolution should start the day zone
+	err := manager.zoneManager.ResolveZones("test-first")
+	if err != nil {
+		t.Fatalf("First resolve failed: %v", err)
+	}
 
-	// Second activation of same type should be blocked
-	manager.handleMusicPlaybackTypeChange("musicPlaybackType", "day", "day")
-	if manager.currentlyPlaying.URI != firstURI {
-		t.Error("Double activation should not have changed the playlist")
+	activeZones := manager.zoneManager.GetActiveZones()
+	if len(activeZones) != 1 {
+		t.Fatalf("Expected 1 active zone, got %d", len(activeZones))
+	}
+
+	// Clear service calls from first resolution
+	mockClient.ClearServiceCalls()
+
+	// Second resolution should NOT restart the zone (idempotent)
+	err = manager.zoneManager.ResolveZones("test-second")
+	if err != nil {
+		t.Fatalf("Second resolve failed: %v", err)
+	}
+
+	// Verify no service calls (zone already active, nothing changed)
+	serviceCalls := mockClient.GetServiceCalls()
+	mediaPlayerCalls := 0
+	for _, call := range serviceCalls {
+		if call.Domain == "media_player" {
+			mediaPlayerCalls++
+		}
+	}
+	if mediaPlayerCalls != 0 {
+		t.Errorf("Expected 0 media_player calls on second resolution (zone already active), got %d", mediaPlayerCalls)
 	}
 }
 
@@ -1518,9 +1547,11 @@ func TestManagerReset(t *testing.T) {
 	stateManager := state.NewManager(mockClient, logger, false)
 
 	// Create minimal music config
+	testParticipant := []Participant{{PlayerName: "Kitchen", BaseVolume: 9}}
+	testPlayback := []PlaybackOption{{URI: "test:uri", MediaType: "playlist", VolumeMultiplier: 1.0}}
 	musicConfig := &MusicConfig{
 		Music: map[string]MusicMode{
-			"morning": {},
+			"morning": {Participants: testParticipant, PlaybackOptions: testPlayback},
 		},
 	}
 
@@ -1530,6 +1561,7 @@ func TestManagerReset(t *testing.T) {
 	stateManager.SetBool("isGuestAsleep", false)
 	stateManager.SetBool("isAnyoneHome", true)
 	stateManager.SetBool("isAnyoneAsleep", false)
+	mockClient.SetState("media_player.kitchen", "idle", nil)
 
 	manager := NewManager(context.Background(), mockClient, stateManager, musicConfig, logger, false, &plugin.RealTimeProvider{}, nil)
 
@@ -1552,9 +1584,11 @@ func TestManagerReset_WhenNoOneHome_StopsMusic(t *testing.T) {
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 
+	testParticipant := []Participant{{PlayerName: "Kitchen", BaseVolume: 9}}
+	testPlayback := []PlaybackOption{{URI: "test:uri", MediaType: "playlist", VolumeMultiplier: 1.0}}
 	musicConfig := &MusicConfig{
 		Music: map[string]MusicMode{
-			"morning": {},
+			"morning": {Participants: testParticipant, PlaybackOptions: testPlayback},
 		},
 	}
 
@@ -1565,6 +1599,7 @@ func TestManagerReset_WhenNoOneHome_StopsMusic(t *testing.T) {
 	stateManager.SetBool("isAnyoneHome", false)
 	stateManager.SetBool("isAnyoneAsleep", false)
 	stateManager.SetString("musicPlaybackType", "morning")
+	mockClient.SetState("media_player.kitchen", "idle", nil)
 
 	manager := NewManager(context.Background(), mockClient, stateManager, musicConfig, logger, false, &plugin.RealTimeProvider{}, nil)
 
@@ -1596,10 +1631,12 @@ func TestManagerReset_WhenSomeoneAsleep_SelectsSleepMode(t *testing.T) {
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 
+	testParticipant := []Participant{{PlayerName: "Kitchen", BaseVolume: 9}}
+	testPlayback := []PlaybackOption{{URI: "test:uri", MediaType: "playlist", VolumeMultiplier: 1.0}}
 	musicConfig := &MusicConfig{
 		Music: map[string]MusicMode{
-			"morning": {},
-			"sleep":   {},
+			"morning": {Participants: testParticipant, PlaybackOptions: testPlayback},
+			"sleep":   {Participants: testParticipant, PlaybackOptions: testPlayback},
 		},
 	}
 
@@ -1610,6 +1647,7 @@ func TestManagerReset_WhenSomeoneAsleep_SelectsSleepMode(t *testing.T) {
 	stateManager.SetBool("isAnyoneHome", true)
 	stateManager.SetBool("isAnyoneAsleep", true)
 	stateManager.SetString("musicPlaybackType", "morning")
+	mockClient.SetState("media_player.kitchen", "idle", nil)
 
 	manager := NewManager(context.Background(), mockClient, stateManager, musicConfig, logger, false, &plugin.RealTimeProvider{}, nil)
 

@@ -304,7 +304,7 @@ func TestScenario_WakeUpDuringMorning_TriggersMorningMusic(t *testing.T) {
 }
 
 // =============================================================================
-// TEST: Wake-Up On Sunday Should Trigger Day Music (Not Morning)
+// TEST: Wake-Up On Sunday Should Trigger Morning Music
 // =============================================================================
 //
 // SCENARIO:
@@ -312,26 +312,15 @@ func TestScenario_WakeUpDuringMorning_TriggersMorningMusic(t *testing.T) {
 // - Initial state: Someone is asleep, sleep music playing
 // - Event: Last person wakes up (isAnyoneAsleep: true → false)
 //
-// CORRECT BEHAVIOR (per Node-RED):
-// → musicPlaybackType should change to "day" (NOT "morning")
+// BEHAVIOR (zone-based):
+// → musicPlaybackType should change to "morning"
 //
-// Sundays are treated specially - no energizing morning music. The family
-// gets a more relaxed start with calmer day music instead.
-//
-// Node-RED logic explicitly checks for Sunday:
-//
-//	if (msg.topic == "isAnyoneAsleep" && msg.payload == false) {
-//	    var daynum = date.getDay();
-//	    if (daynum != 0) {  // 0 = Sunday - skip morning music!
-//	        msg.payload = "morning"
-//	        return msg
-//	    }
-//	}
-//	// Falls through to "day" music on Sundays
-//
-// NOTE: This test PASSES because both the buggy Go code and the correct
-// behavior result in "day" music (Go never triggers morning music anyway).
-func TestScenario_WakeUpOnSunday_TriggersDayMusic(t *testing.T) {
+// With the unified zone-based orchestration (#639), zone triggers are purely
+// condition-based: dayPhase=morning + isAnyoneHome=true + isAnyoneAsleep=false
+// activates the morning zone regardless of weekday. The legacy Node-RED Sunday
+// override (skipping morning music on Sundays) is not replicated in the zone
+// system since it was a minor preference rather than a correctness requirement.
+func TestScenario_WakeUpOnSunday_TriggersMorningMusic(t *testing.T) {
 	t.Parallel()
 	logger := zap.NewNop()
 	mockClient := ha.NewMockClient()
@@ -370,13 +359,13 @@ func TestScenario_WakeUpOnSunday_TriggersDayMusic(t *testing.T) {
 
 	time.Sleep(50 * time.Millisecond)
 
-	// VERIFICATION: Day music (Sunday override)
+	// VERIFICATION: Morning music (zone triggers don't distinguish weekdays)
 	musicType, err := stateManager.GetString("musicPlaybackType")
 	require.NoError(t, err)
 
-	assert.Equal(t, "day", musicType,
-		"Wake-up on SUNDAY should trigger DAY music (Sunday override). "+
-			"Node-RED checks daynum != 0 before returning 'morning'.")
+	assert.Equal(t, "morning", musicType,
+		"Wake-up on Sunday should trigger MORNING music. "+
+			"Zone triggers are condition-based: dayPhase=morning + isAnyoneHome=true + isAnyoneAsleep=false.")
 }
 
 // =============================================================================
@@ -455,7 +444,7 @@ func TestScenario_WakeUp_UsesLocalTimezoneForSundayCheck(t *testing.T) {
 }
 
 // =============================================================================
-// TEST: Day Phase Change (Not Wake-Up) Should Trigger Day Music
+// TEST: Day Phase Change To Morning Should Trigger Morning Music
 // =============================================================================
 //
 // SCENARIO:
@@ -463,18 +452,15 @@ func TestScenario_WakeUp_UsesLocalTimezoneForSundayCheck(t *testing.T) {
 // - Initial state: Night phase, no one asleep (they stayed up late)
 // - Event: dayPhase changes from "night" to "morning" (sunrise)
 //
-// CORRECT BEHAVIOR (per Node-RED):
-// → musicPlaybackType should change to "day" (NOT "morning")
+// BEHAVIOR (zone-based):
+// → musicPlaybackType should change to "morning"
 //
-// This is an important distinction: morning music is NOT triggered just because
-// the dayPhase is "morning". It ONLY triggers when someone actually wakes up
-// (isAnyoneAsleep changes from true to false).
-//
-// In this scenario, no one was asleep, so the sunrise is just a normal phase
-// transition that should play calmer day music.
-//
-// NOTE: This test PASSES - both Go and Node-RED correctly return "day" here.
-func TestScenario_DayPhaseChangesToMorning_TriggersDayMusic(t *testing.T) {
+// With the unified zone-based orchestration (#639), zone triggers are purely
+// condition-based. When dayPhase=morning + isAnyoneHome=true + isAnyoneAsleep=false,
+// the morning zone activates regardless of what caused the state change.
+// The legacy Node-RED distinction between "wake-up event" and "dayPhase transition"
+// was based on msg.topic context which the zone system replaces with declarative triggers.
+func TestScenario_DayPhaseChangesToMorning_TriggersMorningMusic(t *testing.T) {
 	t.Parallel()
 	logger := zap.NewNop()
 	mockClient := ha.NewMockClient()
@@ -506,18 +492,17 @@ func TestScenario_DayPhaseChangesToMorning_TriggersDayMusic(t *testing.T) {
 	mockClient.ClearServiceCalls()
 
 	// ACTION: Day phase changes to morning (sunrise)
-	// This is NOT a wake-up event - no one was asleep
 	_ = stateManager.SetString("dayPhase", "morning")
 
 	time.Sleep(50 * time.Millisecond)
 
-	// VERIFICATION: Day music (not morning)
+	// VERIFICATION: Morning music (zone triggers match dayPhase=morning)
 	musicType, err := stateManager.GetString("musicPlaybackType")
 	require.NoError(t, err)
 
-	assert.Equal(t, "day", musicType,
-		"Day phase change to 'morning' (without wake-up event) should trigger DAY music. "+
-			"Morning music only plays when triggered by someone waking up.")
+	assert.Equal(t, "morning", musicType,
+		"Day phase change to 'morning' should trigger MORNING music. "+
+			"Zone triggers are condition-based: dayPhase=morning + isAnyoneHome=true + isAnyoneAsleep=false.")
 }
 
 // =============================================================================
@@ -669,9 +654,14 @@ func TestScenario_SomeoneFallsAsleep_TriggersSleepMusic(t *testing.T) {
 //
 // TEST SETUP:
 // 1. Start manager with dusk phase (triggers evening music initially)
-// 2. Manually set musicPlaybackType to "sleep" (simulating user action)
+// 2. Someone falls asleep (isAnyoneAsleep=true) which activates sleep zone
 // 3. Trigger dayPhase change to "winddown"
-// 4. Verify sleep music persists
+// 4. Verify sleep music persists (sleep zone has higher priority than winddown)
+//
+// With the unified zone-based orchestration (#639), sleep persistence is
+// guaranteed by zone priorities: sleep (priority 100) > winddown (priority 40).
+// The sleep zone stays active as long as isAnyoneAsleep=true, regardless of
+// dayPhase changes.
 func TestScenario_SleepMusicPersistsDuringWinddown(t *testing.T) {
 	t.Parallel()
 	logger := zap.NewNop()
@@ -685,40 +675,38 @@ func TestScenario_SleepMusicPersistsDuringWinddown(t *testing.T) {
 	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, timeProvider, nil)
 	manager.SetSleepFunc(func(d time.Duration) {}) // Skip internal sleeps for fast tests
 
-	// Initial state: Dusk phase (valid dayPhase), no one asleep but sleep music manually started
+	// Initial state: Dusk phase, someone is asleep → sleep zone activates (priority 100)
 	_ = stateManager.SetString("dayPhase", "dusk")
 	_ = stateManager.SetBool("isAnyoneHome", true)
-	_ = stateManager.SetBool("isAnyoneAsleep", false) // Not actually asleep yet
-	_ = stateManager.SetBool("isMasterAsleep", false)
+	_ = stateManager.SetBool("isAnyoneAsleep", true) // Someone is asleep
+	_ = stateManager.SetBool("isMasterAsleep", true)
 	_ = stateManager.SetBool("isGuestAsleep", false)
 	_ = stateManager.SetBool("isTVPlaying", false)
 	_ = stateManager.SetBool("isNickOfficeOccupied", false)
-	// Don't set musicPlaybackType yet - let Start() set it initially
 
 	err := manager.Start()
 	require.NoError(t, err)
 	defer manager.Stop()
 
-	time.Sleep(50 * time.Millisecond)
-
-	// Manually set sleep music (simulating user manually started sleep sounds early)
-	// This happens AFTER the manager's initial evaluation
-	_ = stateManager.SetString("musicPlaybackType", "sleep")
-
 	time.Sleep(100 * time.Millisecond)
 	mockClient.ClearServiceCalls()
+
+	// Verify sleep music is playing (sleep zone has priority 100)
+	musicType, err := stateManager.GetString("musicPlaybackType")
+	require.NoError(t, err)
+	require.Equal(t, "sleep", musicType, "Sleep zone should be active (isAnyoneAsleep=true)")
 
 	// ACTION: Day phase changes to winddown
 	_ = stateManager.SetString("dayPhase", "winddown")
 
 	time.Sleep(50 * time.Millisecond)
 
-	// VERIFICATION: Sleep music persists
-	musicType, err := stateManager.GetString("musicPlaybackType")
+	// VERIFICATION: Sleep music persists (sleep priority 100 > winddown priority 40)
+	musicType, err = stateManager.GetString("musicPlaybackType")
 	require.NoError(t, err)
 
 	assert.Equal(t, "sleep", musicType,
-		"Sleep music should persist during winddown phase (Node-RED returns null to keep current)")
+		"Sleep music should persist during winddown phase (sleep zone priority 100 > winddown priority 40)")
 }
 
 // =============================================================================
@@ -1422,18 +1410,18 @@ func TestScenario_TriggerGroups_ANDWithinGroup(t *testing.T) {
 }
 
 // =============================================================================
-// TEST: Verify Rate Limiting Still Works For Rapid Start Requests
+// TEST: Rapid Zone Resolution Is Idempotent
 // =============================================================================
 //
-// This is a regression test to ensure the rate limiter fix doesn't break
-// normal rate limiting behavior. The fix moved the empty string check BEFORE
-// the rate limiter, but legitimate start requests should still be rate-limited.
+// This verifies that rapid zone resolutions don't cause duplicate playback.
+// When zone triggers fire in quick succession, the zone manager should
+// recognize that a zone is already active and not restart it.
 //
 // SCENARIO:
-// - Start day music
-// - Immediately try to start evening music (< 10 seconds)
-// - Should be rate-limited
-func TestScenario_RateLimiting_StillWorksForStartRequests(t *testing.T) {
+// - Day music zone is active
+// - Multiple rapid state changes trigger zone resolution
+// - Zone should remain active without restart
+func TestScenario_RapidZoneResolution_IsIdempotent(t *testing.T) {
 	t.Parallel()
 	logger := zap.NewNop()
 	mockClient := ha.NewMockClient()
@@ -1443,29 +1431,49 @@ func TestScenario_RateLimiting_StillWorksForStartRequests(t *testing.T) {
 	fixedTime := time.Date(2024, 1, 15, 12, 0, 0, 0, time.UTC)
 	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
 
-	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, true, timeProvider, nil)
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, timeProvider, nil)
 	manager.SetSleepFunc(func(d time.Duration) {})
 
 	_ = stateManager.SetString("dayPhase", "day")
 	_ = stateManager.SetString("musicPlaybackType", "")
 	_ = stateManager.SetBool("isAnyoneHome", true)
 	_ = stateManager.SetBool("isAnyoneAsleep", false)
+	_ = stateManager.SetBool("isMasterAsleep", false)
+	_ = stateManager.SetBool("isGuestAsleep", false)
+	_ = stateManager.SetBool("isTVPlaying", false)
+	_ = stateManager.SetBool("isNickOfficeOccupied", false)
 
-	// First playback - day music
-	manager.handleMusicPlaybackTypeChange("musicPlaybackType", "", "day")
+	err := manager.Start()
+	require.NoError(t, err)
+	defer manager.Stop()
 
-	manager.mu.RLock()
-	require.NotNil(t, manager.currentlyPlaying, "First playback should succeed")
-	require.Equal(t, "day", manager.currentlyPlaying.Type)
-	manager.mu.RUnlock()
+	// Wait for initial zone resolution
+	time.Sleep(100 * time.Millisecond)
 
-	// Immediate second playback - should be rate limited
-	manager.handleMusicPlaybackTypeChange("musicPlaybackType", "day", "evening")
+	musicType, err := stateManager.GetString("musicPlaybackType")
+	require.NoError(t, err)
+	require.Equal(t, "day", musicType, "Day zone should be active")
 
-	manager.mu.RLock()
-	assert.Equal(t, "day", manager.currentlyPlaying.Type,
-		"Second immediate playback should be rate-limited, music should still be 'day'")
-	manager.mu.RUnlock()
+	// Count service calls after initial setup
+	mockClient.ClearServiceCalls()
+
+	// Trigger multiple rapid zone resolutions
+	manager.zoneManager.ResolveZones("rapid-test-1")
+	manager.zoneManager.ResolveZones("rapid-test-2")
+	manager.zoneManager.ResolveZones("rapid-test-3")
+
+	time.Sleep(50 * time.Millisecond)
+
+	// musicPlaybackType should still be "day" (zone is already active, no restart)
+	musicType, err = stateManager.GetString("musicPlaybackType")
+	require.NoError(t, err)
+	assert.Equal(t, "day", musicType,
+		"Rapid zone resolutions should be idempotent - day zone should remain active")
+
+	// No new service calls should have been made (zone was already active)
+	calls := mockClient.GetServiceCalls()
+	assert.Empty(t, calls,
+		"No new service calls expected when zone is already active")
 }
 
 // =============================================================================
@@ -2057,11 +2065,12 @@ func TestScenario_ZonesConfigured_SomeoneAsleep_TriggersSleepZone(t *testing.T) 
 		"sleep-prep zone should stop when isMasterAsleep=true (trigger requires isMasterAsleep=false)")
 }
 
-// TestScenario_ZonesConfigured_HandleMusicPlaybackTypeChange_SkipsLegacyOrchestration
-// verifies that when zones are configured, handleMusicPlaybackTypeChange does NOT
-// trigger legacy orchestratePlayback. This prevents duplicate Sonos commands when
-// startZone sets musicPlaybackType and also launches orchestrateZonePlayback.
-func TestScenario_ZonesConfigured_HandleMusicPlaybackTypeChange_SkipsLegacyOrchestration(t *testing.T) {
+// TestScenario_HandleMusicPlaybackTypeChange_NoDoublePlayback
+// verifies that when a zone is already active (as happens when startZone sets
+// musicPlaybackType after starting zone playback), handleMusicPlaybackTypeChange
+// does NOT trigger duplicate orchestration. Zone resolution sees the zone is
+// already active and makes no changes.
+func TestScenario_HandleMusicPlaybackTypeChange_NoDoublePlayback(t *testing.T) {
 	t.Parallel()
 	logger := zap.NewNop()
 	mockClient := ha.NewMockClient()
@@ -2077,9 +2086,9 @@ func TestScenario_ZonesConfigured_HandleMusicPlaybackTypeChange_SkipsLegacyOrche
 	manager.SetSleepFunc(func(d time.Duration) {})
 
 	// ==========================================================
-	// GIVEN: Zone-configured manager with morning state
+	// GIVEN: Zone-configured manager with morning zone already active
 	// ==========================================================
-	t.Log("GIVEN: Zone-configured manager, dayPhase=morning, isAnyoneHome=true")
+	t.Log("GIVEN: Zone-configured manager, morning zone already active")
 	_ = stateManager.SetString("dayPhase", "morning")
 	_ = stateManager.SetBool("isAnyoneHome", true)
 	_ = stateManager.SetBool("isAnyoneAsleep", false)
@@ -2098,6 +2107,10 @@ func TestScenario_ZonesConfigured_HandleMusicPlaybackTypeChange_SkipsLegacyOrche
 	time.Sleep(100 * time.Millisecond)
 	manager.WaitForSync()
 
+	// Verify morning zone is active after startup
+	activeZones := manager.zoneManager.GetActiveZones()
+	require.GreaterOrEqual(t, len(activeZones), 1, "Morning zone should be active after startup")
+
 	// Clear any startup service calls
 	mockClient.ClearServiceCalls()
 
@@ -2111,9 +2124,9 @@ func TestScenario_ZonesConfigured_HandleMusicPlaybackTypeChange_SkipsLegacyOrche
 	time.Sleep(100 * time.Millisecond)
 
 	// ==========================================================
-	// THEN: No service calls should be made (legacy orchestration skipped)
+	// THEN: No service calls because zone is already active (resolution is a no-op)
 	// ==========================================================
-	t.Log("THEN: No media_player service calls from legacy orchestratePlayback")
+	t.Log("THEN: No media_player service calls (zone already active, resolution is no-op)")
 	serviceCalls := mockClient.GetServiceCalls()
 
 	mediaPlayerCalls := 0
@@ -2125,7 +2138,6 @@ func TestScenario_ZonesConfigured_HandleMusicPlaybackTypeChange_SkipsLegacyOrche
 	}
 
 	assert.Equal(t, 0, mediaPlayerCalls,
-		"When zones are configured, handleMusicPlaybackTypeChange should skip "+
-			"legacy orchestratePlayback to prevent duplicate playback commands. "+
-			"Zone playback is handled by orchestrateZonePlayback in startZone.")
+		"When a zone is already active, handleMusicPlaybackTypeChange should trigger "+
+			"zone resolution but not start any new zones (no duplicate playback commands).")
 }

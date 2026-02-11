@@ -69,9 +69,6 @@ graph LR
     isTVPlaying -.-> lighting
     sunevent -.-> lighting
     currentEnergyLevel -.-> loadshedding
-    dayPhase -.-> music
-    isAnyoneAsleep -.-> music
-    isAnyoneHome -.-> music
     musicPlaybackType -.-> music
     reset -.-> reset
     didOwnerJustReturnHome -.-> security

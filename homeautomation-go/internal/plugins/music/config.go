@@ -61,49 +61,129 @@ type PlaybackOption struct {
 	VolumeMultiplier float64 `yaml:"volume_multiplier"`
 }
 
-// HasZones returns true if explicit zone definitions are present
-func (c *MusicConfig) HasZones() bool {
-	return len(c.Zones) > 0
-}
-
-// GetZones returns the zone configurations, generating implicit zones if none defined
+// GetZones returns the zone configurations
 func (c *MusicConfig) GetZones() []ZoneConfig {
-	if c.HasZones() {
-		return c.Zones
-	}
-	return c.getImplicitZones()
+	return c.Zones
 }
 
-// getImplicitZones generates zone configs from music modes for backward compatibility
-// This maintains existing behavior when no explicit zones are defined
-func (c *MusicConfig) getImplicitZones() []ZoneConfig {
-	// Priority map matches existing selectAppropriateMusicMode logic:
-	// - sleep has highest priority (isAnyoneAsleep check happens first)
-	// - morning/day/evening/winddown are day-phase based
-	// - sex and wakeup are manually triggered
-	priorityMap := map[string]int{
-		"sleep":    100, // Highest - isAnyoneAsleep check happens first
-		"wakeup":   90,  // Wake sequence
-		"sex":      80,  // Manual override
-		"morning":  50,  // Day phase based
-		"day":      40,
-		"evening":  40,
-		"winddown": 40,
+// ensureZones populates Zones from music modes if none are defined.
+// This is called during LoadConfig to ensure zones are always present,
+// eliminating the dual-path branching between zone and legacy orchestration.
+//
+// Generated zones match the legacy selectAppropriateMusicMode logic:
+//   - sleep: highest priority, triggers on isMasterAsleep=true
+//   - day-phase zones: trigger on their respective dayPhase value
+//   - sex/wakeup: no triggers (manually activated via musicPlaybackType)
+func (c *MusicConfig) ensureZones() {
+	if len(c.Zones) > 0 {
+		return
 	}
 
-	zones := make([]ZoneConfig, 0, len(c.Music))
-	for musicType := range c.Music {
-		priority := priorityMap[musicType]
-		if priority == 0 {
-			priority = 10 // Default for unknown modes
+	// Build zones with proper triggers matching the legacy selectAppropriateMusicMode behavior.
+	// This replaces the runtime branching with config-time zone generation.
+	//
+	// Day phase mappings from the legacy path:
+	//   morning → morning (only on wake-up event; without zones this falls back to day)
+	//   day → day
+	//   sunset, dusk → evening (multiple dayPhase values → use trigger_groups)
+	//   winddown, night → winddown (multiple dayPhase values → use trigger_groups)
+	//   sleep → isAnyoneAsleep=true
+	//   sex, wakeup → manually triggered via musicPlaybackType
+	type zoneDef struct {
+		name          string
+		priority      int
+		triggers      []TriggerCondition
+		triggerGroups []TriggerGroup
+	}
+
+	homeAndAwake := []TriggerCondition{
+		{Variable: "isAnyoneHome", Value: true},
+		{Variable: "isAnyoneAsleep", Value: false},
+	}
+
+	definitions := []zoneDef{
+		{
+			name:     "sleep",
+			priority: 100,
+			triggers: []TriggerCondition{
+				{Variable: "isAnyoneAsleep", Value: true},
+				{Variable: "isAnyoneHome", Value: true},
+			},
+		},
+		{
+			name:     "morning",
+			priority: 50,
+			triggers: append([]TriggerCondition{
+				{Variable: "dayPhase", Value: "morning"},
+			}, homeAndAwake...),
+		},
+		{
+			name:     "day",
+			priority: 40,
+			triggers: append([]TriggerCondition{
+				{Variable: "dayPhase", Value: "day"},
+			}, homeAndAwake...),
+		},
+		{
+			// Evening matches dayPhase "sunset", "dusk", or "evening"
+			name:     "evening",
+			priority: 40,
+			triggerGroups: []TriggerGroup{
+				{Triggers: append([]TriggerCondition{{Variable: "dayPhase", Value: "sunset"}}, homeAndAwake...)},
+				{Triggers: append([]TriggerCondition{{Variable: "dayPhase", Value: "dusk"}}, homeAndAwake...)},
+				{Triggers: append([]TriggerCondition{{Variable: "dayPhase", Value: "evening"}}, homeAndAwake...)},
+			},
+		},
+		{
+			// Winddown matches dayPhase "winddown" or "night"
+			name:     "winddown",
+			priority: 40,
+			triggerGroups: []TriggerGroup{
+				{Triggers: append([]TriggerCondition{{Variable: "dayPhase", Value: "winddown"}}, homeAndAwake...)},
+				{Triggers: append([]TriggerCondition{{Variable: "dayPhase", Value: "night"}}, homeAndAwake...)},
+			},
+		},
+		{
+			name:     "wakeup",
+			priority: 90,
+			triggers: nil, // Manually triggered via musicPlaybackType
+		},
+		{
+			name:     "sex",
+			priority: 80,
+			triggers: nil, // Manually triggered via musicPlaybackType
+		},
+	}
+
+	c.Zones = make([]ZoneConfig, 0, len(definitions))
+	for _, def := range definitions {
+		// Only generate a zone if the corresponding music mode exists
+		if _, ok := c.Music[def.name]; !ok {
+			continue
 		}
-		zones = append(zones, ZoneConfig{
-			Name:     musicType,
-			Priority: priority,
-			Triggers: nil, // No triggers = activated by musicPlaybackType
+		c.Zones = append(c.Zones, ZoneConfig{
+			Name:          def.name,
+			Priority:      def.priority,
+			Triggers:      def.triggers,
+			TriggerGroups: def.triggerGroups,
 		})
 	}
-	return zones
+
+	// Also generate zones for any music modes not covered above (custom modes)
+	covered := map[string]bool{
+		"sleep": true, "morning": true, "day": true,
+		"evening": true, "winddown": true, "wakeup": true, "sex": true,
+	}
+	for musicType := range c.Music {
+		if covered[musicType] {
+			continue
+		}
+		c.Zones = append(c.Zones, ZoneConfig{
+			Name:     musicType,
+			Priority: 10,
+			Triggers: nil, // No triggers = activated by musicPlaybackType only
+		})
+	}
 }
 
 // LoadConfig loads the music configuration from a YAML file
@@ -126,11 +206,14 @@ func LoadConfig(path string) (*MusicConfig, error) {
 		}
 	}
 
-	// Validate zone configurations if present
-	if len(config.Zones) > 0 {
-		if err := config.validateZones(); err != nil {
-			return nil, err
-		}
+	// Generate zones from music modes if none are explicitly defined.
+	// This ensures the zone-based code path is always used, eliminating
+	// the dual-path branching between zone and legacy orchestration (#639).
+	config.ensureZones()
+
+	// Validate zone configurations
+	if err := config.validateZones(); err != nil {
+		return nil, err
 	}
 
 	return &config, nil

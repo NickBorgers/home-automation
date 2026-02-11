@@ -70,7 +70,6 @@ type Manager struct {
 	// Playback state
 	playlistNumbers    map[string]int // Tracks playlist rotation per music type
 	currentlyPlaying   *CurrentlyPlayingMusic
-	lastPlaybackTime   time.Time
 	playbackInProgress bool
 	mu                 sync.RWMutex // Protects playback state
 
@@ -148,35 +147,20 @@ func (m *Manager) SetMonitorDoneCallback(fn MonitorDoneCallback) {
 func (m *Manager) Start() error {
 	m.logger.Info("Starting Music Manager")
 
-	// Phase 2: Initialize zone manager
+	// Ensure zones are always populated. LoadConfig calls ensureZones at load time,
+	// but programmatically-constructed configs (e.g., in tests) may not have zones.
+	// This guarantees the zone-based code path is always used (#639).
+	m.config.ensureZones()
+
+	// Initialize zone manager
 	m.zoneManager = NewZoneManager(m, m.config, m.logger)
 
 	// Load playlist rotation state from Home Assistant (before any playback)
 	m.loadPlaylistRotationFromHA()
 
-	// Subscribe to dayPhase changes
-	sub, err := m.stateManager.Subscribe("dayPhase", m.handleStateChange)
-	if err != nil {
-		return fmt.Errorf("failed to subscribe to dayPhase: %w", err)
-	}
-	m.subscriptions = append(m.subscriptions, sub)
-
-	// Subscribe to isAnyoneAsleep changes
-	sub, err = m.stateManager.Subscribe("isAnyoneAsleep", m.handleStateChange)
-	if err != nil {
-		return fmt.Errorf("failed to subscribe to isAnyoneAsleep: %w", err)
-	}
-	m.subscriptions = append(m.subscriptions, sub)
-
-	// Subscribe to isAnyoneHome changes
-	sub, err = m.stateManager.Subscribe("isAnyoneHome", m.handleStateChange)
-	if err != nil {
-		return fmt.Errorf("failed to subscribe to isAnyoneHome: %w", err)
-	}
-	m.subscriptions = append(m.subscriptions, sub)
-
-	// Subscribe to musicPlaybackType changes to trigger actual playback
-	sub, err = m.stateManager.Subscribe("musicPlaybackType", m.handleMusicPlaybackTypeChange)
+	// Subscribe to musicPlaybackType changes (for stop handling and manual zone triggers).
+	// dayPhase, isAnyoneAsleep, isAnyoneHome are handled by zone trigger subscriptions below.
+	sub, err := m.stateManager.Subscribe("musicPlaybackType", m.handleMusicPlaybackTypeChange)
 	if err != nil {
 		return fmt.Errorf("failed to subscribe to musicPlaybackType: %w", err)
 	}
@@ -199,23 +183,22 @@ func (m *Manager) Start() error {
 			zap.String("variable", varNameCopy))
 	}
 
-	// Phase 2: Subscribe to zone trigger variables if explicit zones are defined
-	// Use SubscribeWithContext to receive correlation IDs for cross-plugin event tracking
-	if m.config.HasZones() {
-		zoneTriggerVars := m.collectZoneTriggerVariables()
-		for _, varName := range zoneTriggerVars {
-			varNameCopy := varName
-			sub, err = m.stateManager.SubscribeWithContext(varNameCopy, m.handleZoneTriggerChangeWithContext)
-			if err != nil {
-				m.logger.Warn("Failed to subscribe to zone trigger variable",
-					zap.String("variable", varNameCopy),
-					zap.Error(err))
-				continue
-			}
-			m.subscriptions = append(m.subscriptions, sub)
-			m.logger.Debug("Subscribed to zone trigger variable with context",
-				zap.String("variable", varNameCopy))
+	// Subscribe to zone trigger variables for zone resolution.
+	// Uses SubscribeWithContext to receive correlation IDs for cross-plugin event tracking.
+	// Zones are always present (ensureZones populates them at config load time).
+	zoneTriggerVars := m.collectZoneTriggerVariables()
+	for _, varName := range zoneTriggerVars {
+		varNameCopy := varName
+		sub, err = m.stateManager.SubscribeWithContext(varNameCopy, m.handleZoneTriggerChangeWithContext)
+		if err != nil {
+			m.logger.Warn("Failed to subscribe to zone trigger variable",
+				zap.String("variable", varNameCopy),
+				zap.Error(err))
+			continue
 		}
+		m.subscriptions = append(m.subscriptions, sub)
+		m.logger.Debug("Subscribed to zone trigger variable with context",
+			zap.String("variable", varNameCopy))
 	}
 
 	// Refresh available speakers from Home Assistant
@@ -226,8 +209,12 @@ func (m *Manager) Start() error {
 	// Validate configured speakers exist in Home Assistant
 	m.validateConfiguredSpeakers()
 
-	// Perform initial music mode selection
-	m.selectAppropriateMusicMode()
+	// Perform initial zone resolution to start appropriate zones
+	if m.zoneManager != nil {
+		if err := m.zoneManager.ResolveZones("startup"); err != nil {
+			m.logger.Error("Failed initial zone resolution", zap.Error(err))
+		}
+	}
 
 	m.logger.Info("Music Manager started successfully")
 	return nil
@@ -246,49 +233,16 @@ func (m *Manager) Stop() {
 	m.logger.Info("Music Manager stopped")
 }
 
-// handleStateChange processes state changes that should trigger music mode re-evaluation
-func (m *Manager) handleStateChange(key string, oldValue, newValue interface{}) {
-	m.logger.Debug("State change detected",
-		zap.String("key", key),
-		zap.Any("old", oldValue),
-		zap.Any("new", newValue))
-
-	// When explicit zones are configured, the zone manager controls music type selection
-	// via trigger-based zone activation. The legacy selectAppropriateMusicMode path
-	// should be skipped to prevent race conditions (e.g., zone manager activating
-	// "morning" zone while selectAppropriateMusicMode forces "sleep" because
-	// isAnyoneAsleep=true during wake sequences).
-	//
-	// Zone trigger variables are subscribed via handleZoneTriggerChangeWithContext,
-	// so state changes to those variables will trigger zone resolution there.
-	// This handler only needs to run the legacy path for configs without explicit zones.
-	if m.config.HasZones() {
-		m.logger.Debug("Explicit zones configured, skipping legacy selectAppropriateMusicMode",
-			zap.String("key", key))
-		return
-	}
-
-	// Detect wake-up event: isAnyoneAsleep changed from true to false
-	// This matches Node-RED behavior where msg.topic and msg.payload are checked:
-	//   if (msg.topic == "isAnyoneAsleep" && msg.payload == false) { ... }
-	isWakeUpEvent := false
-	if key == "isAnyoneAsleep" {
-		oldBool, oldOk := oldValue.(bool)
-		newBool, newOk := newValue.(bool)
-		if oldOk && newOk && oldBool && !newBool {
-			isWakeUpEvent = true
-			m.logger.Info("Wake-up event detected: isAnyoneAsleep changed from true to false")
-		}
-	}
-
-	// Re-evaluate music mode with context
-	m.selectAppropriateMusicModeWithContext(key, isWakeUpEvent)
-}
-
-// handleMusicPlaybackTypeChange is called when musicPlaybackType changes
-// This triggers actual music playback orchestration
+// handleMusicPlaybackTypeChange is called when musicPlaybackType changes.
+// The zone manager orchestrates playback directly via orchestrateZonePlayback
+// when zones start. musicPlaybackType is set by startZone for fade-in safety
+// check consistency; this handler only handles the stop case (empty string).
+//
+// For manually-triggered zones (sex, wakeup) that are activated by setting
+// musicPlaybackType directly, this handler triggers zone resolution so the
+// zone manager can evaluate and start the appropriate zone.
 func (m *Manager) handleMusicPlaybackTypeChange(key string, oldValue, newValue interface{}) {
-	m.logger.Info("Music playback type changed, initiating playback",
+	m.logger.Info("Music playback type changed",
 		zap.Any("old", oldValue),
 		zap.Any("new", newValue))
 
@@ -298,55 +252,29 @@ func (m *Manager) handleMusicPlaybackTypeChange(key string, oldValue, newValue i
 		return
 	}
 
-	// If empty string, stop playback (no rate limiting for stop operations)
-	// IMPORTANT: This check must come BEFORE rate limiting to allow the clear-then-set
-	// pattern used by sleep hygiene to force a music restart. If we rate-limited stop
-	// operations, the subsequent set would be blocked.
+	// If empty string, stop playback and all zones
 	if newType == "" {
 		m.logger.Info("Stopping music playback")
+		if m.zoneManager != nil {
+			m.zoneManager.StopAllZones("musicPlaybackType cleared")
+		}
 		m.stopPlayback()
 		return
 	}
 
-	// When zones are configured, the zone manager orchestrates playback directly
-	// via orchestrateZonePlayback. musicPlaybackType is set by startZone for
-	// fade-in safety check consistency, but playback should NOT also be triggered
-	// through this legacy handler — that would cause duplicate executePlayback calls
-	// (one from orchestratePlayback here, one from orchestrateZonePlayback in startZone).
-	if m.config.HasZones() {
-		m.logger.Debug("Zones configured, skipping legacy orchestration for musicPlaybackType change",
-			zap.String("type", newType))
-		return
-	}
-
-	// Check rate limiting (max 1 playback per 10 seconds)
-	// Only applies to starting playback, not stopping
-	m.mu.Lock()
-	timeSinceLastPlayback := m.timeProvider.Now().Sub(m.lastPlaybackTime)
-	if timeSinceLastPlayback < 10*time.Second && !m.lastPlaybackTime.IsZero() {
-		m.mu.Unlock()
-		m.logger.Warn("Rate limiting: playback too soon after last playback",
-			zap.Duration("time_since_last", timeSinceLastPlayback))
-		return
-	}
-	m.lastPlaybackTime = m.timeProvider.Now()
-	m.mu.Unlock()
-
-	// Prevent re-activation of already playing music
-	m.mu.RLock()
-	if m.currentlyPlaying != nil && m.currentlyPlaying.Type == newType {
-		m.mu.RUnlock()
-		m.logger.Debug("Double activation of already-playing musicType, ignoring",
-			zap.String("type", newType))
-		return
-	}
-	m.mu.RUnlock()
-
-	// Start playback orchestration with musicPlaybackType as trigger
-	if err := m.orchestratePlayback(newType, "musicPlaybackType"); err != nil {
-		m.logger.Error("Failed to orchestrate playback",
-			zap.String("type", newType),
-			zap.Error(err))
+	// Trigger zone resolution so the zone manager can evaluate which zones
+	// should be active. This handles both manually-triggered zones (sex, wakeup)
+	// and explicit musicPlaybackType changes from external sources (HA, API).
+	//
+	// Skip resolution if it would be re-entrant: startZone calls setMusicPlaybackType
+	// which triggers this handler again. The zone is already being started, so
+	// re-resolving would be redundant. We detect this via the resolvingZones flag.
+	if m.zoneManager != nil && !m.zoneManager.IsResolving() {
+		if err := m.zoneManager.ResolveZones("musicPlaybackType:" + newType); err != nil {
+			m.logger.Error("Failed to resolve zones after musicPlaybackType change",
+				zap.String("type", newType),
+				zap.Error(err))
+		}
 	}
 }
 
