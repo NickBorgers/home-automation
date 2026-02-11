@@ -1106,36 +1106,22 @@ Zone manager correctly starts morning zone, but `selectAppropriateMusicMode` ove
 - Fade-ins aborting due to "music type changed during fade"
 - Expected music not playing despite correct zone activation
 
-**Correct Approach**:
-```go
-// ✅ GOOD: Clear ownership - zone manager has authority when zones are configured
-func (m *Manager) handleStateChange(key string, oldValue, newValue interface{}) {
-    // When explicit zones are configured, the zone manager controls music type selection.
-    // The legacy path should be skipped to prevent race conditions.
-    if m.config.HasZones() {
-        m.logger.Debug("Explicit zones configured, skipping legacy path",
-            zap.String("key", key))
-        return
-    }
-
-    // Legacy path only runs when zones are NOT configured
-    m.selectAppropriateMusicMode()
-}
-```
+**Resolution (PR #639)**:
+The dual-path architecture was eliminated entirely. Zones are now the **only** code path — configs without explicit zones auto-generate zones with proper triggers at load time. This removes the entire class of race conditions between the zone manager and the legacy `selectAppropriateMusicMode` path.
 
 **Key Principles**:
 1. **Single source of truth**: Only one system should control a shared output variable
-2. **Guard clauses at entry**: Check ownership before executing logic, not after
+2. **Eliminate dual paths**: Don't gate between old and new systems at runtime — make the new system the only path
 3. **Document ownership**: Comments should explain which system has authority and why
 4. **Test the race explicitly**: Write tests that simulate the interleaving (see `wakeup_scenario_test.go`)
 
 **Where to Apply**:
-- Migrating from legacy to new system (new system should take over, legacy should defer)
+- Migrating from legacy to new system (eliminate the legacy path entirely when possible)
 - Multiple plugins reacting to same state variable
 - Any handler that updates shared state also updated by other handlers
 
 **Test That Validates This**:
-- `TestScenario_WakeSequenceActive_MorningMusicActuallyPlays` - Verifies zone manager wins the race
+- `TestScenario_WakeSequenceActive_MorningMusicActuallyPlays` - Verifies zone manager controls music type
 
 **Production Impact**:
 - **Before Fix**: Morning music never played during wake sequence; sleep music settings persisted

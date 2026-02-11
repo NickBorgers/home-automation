@@ -104,6 +104,11 @@ type ZoneManager struct {
 	activeZones map[string]*Zone  // keyed by zone name
 	speakerZone map[string]string // speaker -> zone name
 
+	// resolving is set to true during ResolveZones to prevent re-entrant calls.
+	// startZone calls setMusicPlaybackType which triggers handleMusicPlaybackTypeChange,
+	// which would call ResolveZones again without this guard.
+	resolving bool
+
 	manager *Manager
 	config  *MusicConfig
 	logger  *zap.Logger
@@ -118,6 +123,15 @@ func NewZoneManager(manager *Manager, config *MusicConfig, logger *zap.Logger) *
 		config:      config,
 		logger:      logger.Named("zone_manager"),
 	}
+}
+
+// IsResolving returns true if zone resolution is currently in progress.
+// Used to prevent re-entrant zone resolution from handleMusicPlaybackTypeChange
+// when startZone calls setMusicPlaybackType during an active resolution.
+func (zm *ZoneManager) IsResolving() bool {
+	zm.mu.RLock()
+	defer zm.mu.RUnlock()
+	return zm.resolving
 }
 
 // GetActiveZones returns a copy of all active zones
@@ -490,6 +504,18 @@ func (zm *ZoneManager) ResolveZones(trigger string) error {
 // ResolveZonesWithContext evaluates zone triggers and updates active zones accordingly.
 // If an EventContext is provided, it will be included in audit logs for cross-plugin correlation.
 func (zm *ZoneManager) ResolveZonesWithContext(eventCtx *state.EventContext, trigger string) error {
+	// Set resolving flag to prevent re-entrant calls from handleMusicPlaybackTypeChange.
+	// startZone → setMusicPlaybackType → handleMusicPlaybackTypeChange → ResolveZones
+	// would cause infinite recursion without this guard.
+	zm.mu.Lock()
+	zm.resolving = true
+	zm.mu.Unlock()
+	defer func() {
+		zm.mu.Lock()
+		zm.resolving = false
+		zm.mu.Unlock()
+	}()
+
 	resolutionTime := time.Now()
 
 	// Build base log fields
@@ -621,6 +647,25 @@ func (zm *ZoneManager) ResolveZonesWithContext(eventCtx *state.EventContext, tri
 			zm.logger.Error("Failed to update zone speakers",
 				zap.String("zone", zoneName),
 				zap.Error(err))
+		}
+	}
+
+	// If all zones stopped and no new zones started, clear musicPlaybackType.
+	// This handles cases like "no one home" where no zone triggers match,
+	// ensuring music actually stops rather than leaving a stale playback type.
+	if len(zonesToStop) > 0 && len(zonesToStart) == 0 {
+		zm.mu.RLock()
+		remainingZones := len(zm.activeZones)
+		zm.mu.RUnlock()
+
+		if remainingZones == 0 {
+			zm.logger.Info("All zones stopped with none starting, clearing musicPlaybackType",
+				zap.String("trigger", trigger))
+			if err := zm.manager.setMusicPlaybackType(""); err != nil {
+				zm.logger.Warn("Failed to clear musicPlaybackType after all zones stopped",
+					zap.Error(err))
+			}
+			zm.manager.stopPlayback()
 		}
 	}
 

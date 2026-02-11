@@ -79,49 +79,91 @@ func createTestZoneConfig() *MusicConfig {
 	}
 }
 
-func TestZoneConfig_HasZones(t *testing.T) {
+func TestEnsureZones_PopulatesFromMusicModes(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		name     string
-		config   *MusicConfig
-		expected bool
-	}{
-		{
-			name: "has zones",
-			config: &MusicConfig{
-				Zones: []ZoneConfig{{Name: "test", Priority: 1}},
+	t.Run("generates zones with triggers for standard modes", func(t *testing.T) {
+		config := &MusicConfig{
+			Music: map[string]MusicMode{
+				"morning":  {Participants: []Participant{}},
+				"day":      {Participants: []Participant{}},
+				"evening":  {Participants: []Participant{}},
+				"winddown": {Participants: []Participant{}},
+				"sleep":    {Participants: []Participant{}},
+				"sex":      {Participants: []Participant{}},
+				"wakeup":   {Participants: []Participant{}},
 			},
-			expected: true,
-		},
-		{
-			name: "no zones",
-			config: &MusicConfig{
-				Zones: nil,
-			},
-			expected: false,
-		},
-		{
-			name: "empty zones",
-			config: &MusicConfig{
-				Zones: []ZoneConfig{},
-			},
-			expected: false,
-		},
-	}
+		}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := tt.config.HasZones()
-			assert.Equal(t, tt.expected, result)
-		})
-	}
+		config.ensureZones()
+
+		assert.Len(t, config.Zones, 7)
+
+		// Check sleep zone has triggers
+		var sleepZone *ZoneConfig
+		for i := range config.Zones {
+			if config.Zones[i].Name == "sleep" {
+				sleepZone = &config.Zones[i]
+				break
+			}
+		}
+		require.NotNil(t, sleepZone)
+		assert.Equal(t, 100, sleepZone.Priority)
+		assert.Len(t, sleepZone.Triggers, 2) // isAnyoneAsleep, isAnyoneHome
+
+		// Check day zone has triggers
+		var dayZone *ZoneConfig
+		for i := range config.Zones {
+			if config.Zones[i].Name == "day" {
+				dayZone = &config.Zones[i]
+				break
+			}
+		}
+		require.NotNil(t, dayZone)
+		assert.Equal(t, 40, dayZone.Priority)
+		assert.Len(t, dayZone.Triggers, 3) // dayPhase, isAnyoneHome, isAnyoneAsleep
+
+		// Check manually-triggered zones have no triggers
+		var sexZone *ZoneConfig
+		for i := range config.Zones {
+			if config.Zones[i].Name == "sex" {
+				sexZone = &config.Zones[i]
+				break
+			}
+		}
+		require.NotNil(t, sexZone)
+		assert.Nil(t, sexZone.Triggers)
+	})
+
+	t.Run("does not overwrite explicit zones", func(t *testing.T) {
+		config := &MusicConfig{
+			Zones: []ZoneConfig{{Name: "test", Priority: 1}},
+			Music: map[string]MusicMode{
+				"morning": {Participants: []Participant{}},
+			},
+		}
+
+		config.ensureZones()
+
+		assert.Len(t, config.Zones, 1)
+		assert.Equal(t, "test", config.Zones[0].Name)
+	})
+
+	t.Run("handles empty music modes", func(t *testing.T) {
+		config := &MusicConfig{
+			Music: map[string]MusicMode{},
+		}
+
+		config.ensureZones()
+
+		assert.Empty(t, config.Zones)
+	})
 }
 
 func TestZoneConfig_GetZones(t *testing.T) {
 	t.Parallel()
 
-	t.Run("returns explicit zones when defined", func(t *testing.T) {
+	t.Run("returns zones", func(t *testing.T) {
 		config := createTestZoneConfig()
 		zones := config.GetZones()
 
@@ -130,7 +172,7 @@ func TestZoneConfig_GetZones(t *testing.T) {
 		assert.Equal(t, 100, zones[0].Priority)
 	})
 
-	t.Run("generates implicit zones when none defined", func(t *testing.T) {
+	t.Run("returns populated zones after ensureZones", func(t *testing.T) {
 		config := &MusicConfig{
 			Music: map[string]MusicMode{
 				"morning": {Participants: []Participant{}},
@@ -139,6 +181,7 @@ func TestZoneConfig_GetZones(t *testing.T) {
 			},
 		}
 
+		config.ensureZones()
 		zones := config.GetZones()
 
 		// Should have one zone per music mode
@@ -515,23 +558,27 @@ func TestStringSlicesEqual(t *testing.T) {
 func TestZoneManager_BackwardCompatibility(t *testing.T) {
 	t.Parallel()
 
-	// Test that config without zones still works
+	// Test that config without zones still works (ensureZones generates them)
 	logger := zap.NewNop()
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false) // readOnly=false to allow SetBool/SetString
 
+	testPlayback := []PlaybackOption{{URI: "test:uri", MediaType: "playlist", VolumeMultiplier: 1.0}}
 	// Config without explicit zones
 	config := &MusicConfig{
 		Music: map[string]MusicMode{
-			"morning":  {Participants: []Participant{{PlayerName: "Kitchen", BaseVolume: 9}}},
-			"day":      {Participants: []Participant{{PlayerName: "Kitchen", BaseVolume: 9}}},
-			"evening":  {Participants: []Participant{{PlayerName: "Kitchen", BaseVolume: 9}}},
-			"winddown": {Participants: []Participant{{PlayerName: "Kitchen", BaseVolume: 9}}},
-			"sleep":    {Participants: []Participant{{PlayerName: "Bedroom", BaseVolume: 10}}},
-			"sex":      {Participants: []Participant{{PlayerName: "Bedroom", BaseVolume: 10}}},
-			"wakeup":   {Participants: []Participant{{PlayerName: "Bedroom", BaseVolume: 6}}},
+			"morning":  {Participants: []Participant{{PlayerName: "Kitchen", BaseVolume: 9}}, PlaybackOptions: testPlayback},
+			"day":      {Participants: []Participant{{PlayerName: "Kitchen", BaseVolume: 9}}, PlaybackOptions: testPlayback},
+			"evening":  {Participants: []Participant{{PlayerName: "Kitchen", BaseVolume: 9}}, PlaybackOptions: testPlayback},
+			"winddown": {Participants: []Participant{{PlayerName: "Kitchen", BaseVolume: 9}}, PlaybackOptions: testPlayback},
+			"sleep":    {Participants: []Participant{{PlayerName: "Bedroom", BaseVolume: 10}}, PlaybackOptions: testPlayback},
+			"sex":      {Participants: []Participant{{PlayerName: "Bedroom", BaseVolume: 10}}, PlaybackOptions: testPlayback},
+			"wakeup":   {Participants: []Participant{{PlayerName: "Bedroom", BaseVolume: 6}}, PlaybackOptions: testPlayback},
 		},
 	}
+
+	mockClient.SetState("media_player.kitchen", "idle", nil)
+	mockClient.SetState("media_player.bedroom", "idle", nil)
 
 	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, true, nil, nil)
 

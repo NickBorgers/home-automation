@@ -652,57 +652,41 @@ flowchart TD
 
 ## Music Manager Logic Flow
 
-Decision tree for music mode selection (matches Node-RED Music flow).
+Zone-based music orchestration. All music selection is driven by zone trigger evaluation — there is no separate decision tree. Configs without explicit zones auto-generate them at load time via `ensureZones()` (PR #639).
 
 ```mermaid
 flowchart TD
-    Start([State Change Detected]) --> GetState[Get Current State:<br/>isAnyoneHome<br/>isAnyoneAsleep<br/>dayPhase]
+    Start([State Change Detected:<br/>dayPhase, isAnyoneHome,<br/>isAnyoneAsleep, etc.]) --> ZoneResolve[Zone Manager:<br/>ResolveZones]
 
-    GetState --> CheckHome{isAnyoneHome?}
-    CheckHome -->|No| StopMusic[Set musicPlaybackType = '']
-    CheckHome -->|Yes| CheckAsleep{isAnyoneAsleep?}
+    ZoneResolve --> Snapshot[Capture State Snapshot]
+    Snapshot --> EvalZones[Evaluate All Zone Triggers]
 
-    CheckAsleep -->|Yes| SetSleep[Set musicPlaybackType = 'sleep']
-    CheckAsleep -->|No| CheckDayPhase{dayPhase?}
+    EvalZones --> SleepZone{sleep zone:<br/>isAnyoneAsleep=true<br/>isAnyoneHome=true}
+    EvalZones --> MorningZone{morning zone:<br/>dayPhase=morning<br/>isAnyoneHome=true<br/>isAnyoneAsleep=false}
+    EvalZones --> DayZone{day zone:<br/>dayPhase=day<br/>+ home & awake}
+    EvalZones --> EveningZone{evening zone:<br/>dayPhase=sunset/dusk/evening<br/>+ home & awake}
+    EvalZones --> WinddownZone{winddown zone:<br/>dayPhase=winddown/night<br/>+ home & awake}
 
-    CheckDayPhase -->|morning| CheckWakeUp{Is Wake-Up Event?}
-    CheckWakeUp -->|Yes| CheckSunday{Is Sunday?}
-    CheckSunday -->|Yes| SetDay1[Set musicPlaybackType = 'day']
-    CheckSunday -->|No| SetMorning[Set musicPlaybackType = 'morning']
-    CheckWakeUp -->|No| SetDay2[Set musicPlaybackType = 'day']
+    SleepZone -->|Match| Priority[Sort by Priority]
+    MorningZone -->|Match| Priority
+    DayZone -->|Match| Priority
+    EveningZone -->|Match| Priority
+    WinddownZone -->|Match| Priority
+    SleepZone -->|No Match| Skip1([Skip])
+    MorningZone -->|No Match| Skip2([Skip])
+    DayZone -->|No Match| Skip3([Skip])
+    EveningZone -->|No Match| Skip4([Skip])
+    WinddownZone -->|No Match| Skip5([Skip])
 
-    CheckDayPhase -->|day| SetDay3[Set musicPlaybackType = 'day']
-    CheckDayPhase -->|sunset/dusk| SetEvening[Set musicPlaybackType = 'evening']
-    CheckDayPhase -->|winddown/night| CheckCurrentSleep{Current Type<br/>= 'sleep'?}
+    Priority --> AssignSpeakers[Assign Speakers to Zones<br/>Higher priority wins conflicts]
+    AssignSpeakers --> Changes{Zone Changes?}
 
-    CheckCurrentSleep -->|Yes| KeepSleep[Keep musicPlaybackType = 'sleep']
-    CheckCurrentSleep -->|No| SetWinddown[Set musicPlaybackType = 'winddown']
+    Changes -->|Zones to Stop| StopZone[Stop Zone:<br/>Fade out speakers]
+    Changes -->|Zones to Start| StartZone[Start Zone:<br/>Orchestrate playback]
+    Changes -->|No Change| Done([Done])
 
-    StopMusic --> End1([End])
-    SetSleep --> End2([End])
-    SetMorning --> TriggerPlayback1
-    SetDay1 --> TriggerPlayback2
-    SetDay2 --> TriggerPlayback3
-    SetDay3 --> TriggerPlayback4
-    SetEvening --> TriggerPlayback5
-    SetWinddown --> TriggerPlayback6
-    KeepSleep --> End3([End])
-
-    TriggerPlayback1[State Change Triggers<br/>Playback Handler] --> Orchestrate1
-    TriggerPlayback2[State Change Triggers<br/>Playback Handler] --> Orchestrate2
-    TriggerPlayback3[State Change Triggers<br/>Playback Handler] --> Orchestrate3
-    TriggerPlayback4[State Change Triggers<br/>Playback Handler] --> Orchestrate4
-    TriggerPlayback5[State Change Triggers<br/>Playback Handler] --> Orchestrate5
-    TriggerPlayback6[State Change Triggers<br/>Playback Handler] --> Orchestrate6
-
-    Orchestrate1[Orchestrate Playback] --> SelectPlaylist
-    Orchestrate2[Orchestrate Playback] --> SelectPlaylist
-    Orchestrate3[Orchestrate Playback] --> SelectPlaylist
-    Orchestrate4[Orchestrate Playback] --> SelectPlaylist
-    Orchestrate5[Orchestrate Playback] --> SelectPlaylist
-    Orchestrate6[Orchestrate Playback] --> SelectPlaylist
-
-    SelectPlaylist[Select Playlist with Rotation<br/>from music_config.yaml] --> BreakGroups[Break Existing Speaker Groups<br/>media_player.unjoin]
+    StartZone --> SelectPlaylist[Select Playlist with Rotation<br/>from music_config.yaml]
+    SelectPlaylist --> BreakGroups[Break Existing Speaker Groups<br/>media_player.unjoin]
     BreakGroups --> BuildGroup[Build Sonos Speaker Group]
     BuildGroup --> MuteAll[Mute All Speakers to 0]
     MuteAll --> StartPlayback[Start Playback on Lead Player]
@@ -712,19 +696,31 @@ flowchart TD
     FadeIn --> UpdateShadow[Update Shadow State:<br/>mode, playlist, speakers]
     UpdateShadow --> Complete([Playback Complete])
 
+    StopZone --> Done
+
     style Start fill:#e1f5ff
-    style CheckHome fill:#fff3e0
-    style CheckAsleep fill:#fff3e0
-    style CheckDayPhase fill:#fff3e0
+    style ZoneResolve fill:#e1f5ff
+    style SleepZone fill:#fff3e0
+    style MorningZone fill:#fff3e0
+    style DayZone fill:#fff3e0
+    style EveningZone fill:#fff3e0
+    style WinddownZone fill:#fff3e0
     style SelectPlaylist fill:#e8f5e9
     style BreakGroups fill:#e8f5e9
     style StartPlayback fill:#e8f5e9
     style UpdateShadow fill:#f3e5f5
 ```
 
-**Reference:** See `homeautomation-go/internal/plugins/music/manager.go` for implementation details.
+**Reference:** See `homeautomation-go/internal/plugins/music/zone_manager.go` and `config.go` for implementation details.
 
-**Playback Sequence (matches Node-RED):**
+**Zone Resolution:**
+1. State change triggers `ResolveZones` in the zone manager
+2. All zone trigger conditions are evaluated against current state
+3. Matching zones are sorted by priority (sleep=100 > morning=50 > day/evening=40)
+4. Speakers are assigned to highest-priority zone (no speaker shared between zones)
+5. Zones that lost all speakers are stopped; new zones are started
+
+**Playback Sequence (per zone):**
 1. Select playlist with rotation
 2. Break existing speaker groups (media_player.unjoin)
 3. Build new speaker group (media_player.join)
