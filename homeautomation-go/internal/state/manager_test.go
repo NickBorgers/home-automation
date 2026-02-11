@@ -1,6 +1,7 @@
 package state
 
 import (
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -1036,4 +1037,335 @@ func TestManager_SyncFromHA_PreservesLocalOnlyVariables(t *testing.T) {
 
 	assert.Equal(t, int32(1), atomic.LoadInt32(&notified),
 		"subscriber must be notified when local-only variable changes from true to false after reconnect")
+}
+
+// Echo-back suppression tests
+// These tests validate that the state manager tracks pending writes and
+// suppresses HA echo-backs to prevent phantom transitions.
+
+func TestSetBool_SuppressesEchoBack(t *testing.T) {
+	t.Parallel()
+	logger := testlogger.New()
+	mockClient := ha.NewMockClient()
+	mockClient.SetState("input_boolean.expecting_someone", "off", map[string]interface{}{})
+	mockClient.Connect()
+
+	manager := NewManager(mockClient, logger, false)
+	manager.SyncFromHA()
+
+	// Subscribe to track notifications
+	var notifyCount int32
+	sub, err := manager.Subscribe("isExpectingSomeone", func(key string, oldValue, newValue interface{}) {
+		atomic.AddInt32(&notifyCount, 1)
+	})
+	require.NoError(t, err)
+	defer sub.Unsubscribe()
+
+	// SetBool updates cache, records pending write, syncs to HA.
+	// The mock client's echo-back fires synchronously within SetBool.
+	// The pending write tracker should suppress the echo, so subscribers
+	// are only notified once (from SetBool itself, not from the echo).
+	err = manager.SetBool("isExpectingSomeone", true)
+	require.NoError(t, err)
+
+	assert.Equal(t, int32(1), atomic.LoadInt32(&notifyCount),
+		"Subscriber should be notified exactly once (from SetBool), not twice (echo-back should be suppressed)")
+
+	// Verify the value is correct
+	val, err := manager.GetBool("isExpectingSomeone")
+	require.NoError(t, err)
+	assert.True(t, val)
+}
+
+func TestSetBool_SuppressesStaleEchoBack(t *testing.T) {
+	t.Parallel()
+	logger := testlogger.New()
+	mockClient := ha.NewMockClient()
+	mockClient.SetState("input_boolean.expecting_someone", "off", map[string]interface{}{})
+	mockClient.Connect()
+
+	manager := NewManager(mockClient, logger, false)
+	manager.SyncFromHA()
+
+	// Subscribe to track notifications
+	var notifyCount int32
+	sub, err := manager.Subscribe("isExpectingSomeone", func(key string, oldValue, newValue interface{}) {
+		atomic.AddInt32(&notifyCount, 1)
+	})
+	require.NoError(t, err)
+	defer sub.Unsubscribe()
+
+	// Set value to true
+	err = manager.SetBool("isExpectingSomeone", true)
+	require.NoError(t, err)
+	assert.Equal(t, int32(1), atomic.LoadInt32(&notifyCount))
+
+	// Now simulate a stale echo-back with the OLD value (false).
+	// This represents HA echoing back the state from before our write was processed.
+	// The pending write tracker should have already been cleared by the matching
+	// echo-back from SetBool, so this is just a normal state change.
+	// But if we set a NEW pending write first, the stale echo should be suppressed.
+
+	// Set to a new value to create a fresh pending write
+	atomic.StoreInt32(&notifyCount, 0)
+	// Directly set a pending write to simulate the race
+	manager.cacheMu.Lock()
+	manager.cache["isExpectingSomeone"] = true
+	manager.pendingWrites["isExpectingSomeone"] = true
+	manager.cacheMu.Unlock()
+
+	// Now simulate a stale echo-back with "off" (false)
+	mockClient.SimulateStateChange("input_boolean.expecting_someone", "off")
+
+	// The stale echo-back should be suppressed
+	assert.Equal(t, int32(0), atomic.LoadInt32(&notifyCount),
+		"Stale echo-back should be suppressed and not notify subscribers")
+
+	// Cache should still have the pending value (true), not the stale echo (false)
+	val, err := manager.GetBool("isExpectingSomeone")
+	require.NoError(t, err)
+	assert.True(t, val, "Cache should retain pending write value, not stale echo-back")
+}
+
+func TestSetBool_EchoBackConfirmsClearsPendingFlag(t *testing.T) {
+	t.Parallel()
+	logger := testlogger.New()
+	mockClient := ha.NewMockClient()
+	mockClient.SetState("input_boolean.expecting_someone", "off", map[string]interface{}{})
+	mockClient.Connect()
+
+	manager := NewManager(mockClient, logger, false)
+	manager.SyncFromHA()
+
+	// Directly set a pending write to simulate pre-echo state
+	manager.cacheMu.Lock()
+	manager.cache["isExpectingSomeone"] = true
+	manager.pendingWrites["isExpectingSomeone"] = true
+	manager.cacheMu.Unlock()
+
+	// Subscribe to track notifications
+	var notifyCount int32
+	sub, err := manager.Subscribe("isExpectingSomeone", func(key string, oldValue, newValue interface{}) {
+		atomic.AddInt32(&notifyCount, 1)
+	})
+	require.NoError(t, err)
+	defer sub.Unsubscribe()
+
+	// Simulate the correct echo-back (true) - should confirm and clear the pending flag
+	mockClient.SimulateStateChange("input_boolean.expecting_someone", "on")
+
+	assert.Equal(t, int32(0), atomic.LoadInt32(&notifyCount),
+		"Confirming echo-back should not notify subscribers (cache already has the value)")
+
+	// Verify pending flag was cleared
+	manager.cacheMu.RLock()
+	_, hasPending := manager.pendingWrites["isExpectingSomeone"]
+	manager.cacheMu.RUnlock()
+	assert.False(t, hasPending, "Pending flag should be cleared after confirmed echo-back")
+
+	// Now a genuine external change should go through
+	mockClient.SimulateStateChange("input_boolean.expecting_someone", "off")
+
+	assert.Equal(t, int32(1), atomic.LoadInt32(&notifyCount),
+		"Genuine external change should notify subscribers after pending flag is cleared")
+}
+
+func TestSetString_SuppressesStaleEchoBack(t *testing.T) {
+	t.Parallel()
+	logger := testlogger.New()
+	mockClient := ha.NewMockClient()
+	mockClient.SetState("input_text.day_phase", "morning", map[string]interface{}{})
+	mockClient.Connect()
+
+	manager := NewManager(mockClient, logger, false)
+	manager.SyncFromHA()
+
+	// Subscribe to track notifications
+	var notifyCount int32
+	sub, err := manager.Subscribe("dayPhase", func(key string, oldValue, newValue interface{}) {
+		atomic.AddInt32(&notifyCount, 1)
+	})
+	require.NoError(t, err)
+	defer sub.Unsubscribe()
+
+	// Directly set a pending write to simulate pre-echo state
+	manager.cacheMu.Lock()
+	manager.cache["dayPhase"] = "evening"
+	manager.pendingWrites["dayPhase"] = "evening"
+	manager.cacheMu.Unlock()
+
+	// Simulate stale echo-back with old value "morning"
+	mockClient.SimulateStateChange("input_text.day_phase", "morning")
+
+	assert.Equal(t, int32(0), atomic.LoadInt32(&notifyCount),
+		"Stale string echo-back should be suppressed")
+
+	// Cache should retain the pending value
+	val, err := manager.GetString("dayPhase")
+	require.NoError(t, err)
+	assert.Equal(t, "evening", val)
+}
+
+func TestSetNumber_SuppressesStaleEchoBack(t *testing.T) {
+	t.Parallel()
+	logger := testlogger.New()
+	mockClient := ha.NewMockClient()
+	mockClient.SetState("input_number.alarm_time", "100", map[string]interface{}{})
+	mockClient.Connect()
+
+	manager := NewManager(mockClient, logger, false)
+	manager.SyncFromHA()
+
+	// Subscribe to track notifications
+	var notifyCount int32
+	sub, err := manager.Subscribe("alarmTime", func(key string, oldValue, newValue interface{}) {
+		atomic.AddInt32(&notifyCount, 1)
+	})
+	require.NoError(t, err)
+	defer sub.Unsubscribe()
+
+	// Directly set a pending write to simulate pre-echo state
+	manager.cacheMu.Lock()
+	manager.cache["alarmTime"] = 200.0
+	manager.pendingWrites["alarmTime"] = 200.0
+	manager.cacheMu.Unlock()
+
+	// Simulate stale echo-back with old value "100"
+	mockClient.SimulateStateChange("input_number.alarm_time", "100")
+
+	assert.Equal(t, int32(0), atomic.LoadInt32(&notifyCount),
+		"Stale number echo-back should be suppressed")
+
+	// Cache should retain the pending value
+	val, err := manager.GetNumber("alarmTime")
+	require.NoError(t, err)
+	assert.Equal(t, 200.0, val)
+}
+
+func TestManager_EchoBackSuppression_RapidWrites(t *testing.T) {
+	t.Parallel()
+	logger := testlogger.New()
+	mockClient := ha.NewMockClient()
+	mockClient.SetState("input_text.day_phase", "morning", map[string]interface{}{})
+	mockClient.Connect()
+
+	manager := NewManager(mockClient, logger, false)
+	manager.SyncFromHA()
+
+	// Subscribe to track notifications
+	var notifyCount int32
+	sub, err := manager.Subscribe("dayPhase", func(key string, oldValue, newValue interface{}) {
+		atomic.AddInt32(&notifyCount, 1)
+	})
+	require.NoError(t, err)
+	defer sub.Unsubscribe()
+
+	// Simulate rapid writes: write "afternoon" then "evening" before any echo arrives.
+	// The pending write should be updated to "evening" (latest value wins).
+	manager.cacheMu.Lock()
+	manager.cache["dayPhase"] = "afternoon"
+	manager.pendingWrites["dayPhase"] = "afternoon"
+	manager.cacheMu.Unlock()
+
+	// Second write overwrites the pending value
+	manager.cacheMu.Lock()
+	manager.cache["dayPhase"] = "evening"
+	manager.pendingWrites["dayPhase"] = "evening"
+	manager.cacheMu.Unlock()
+
+	// Stale echo from first write arrives ("afternoon") - should be suppressed
+	mockClient.SimulateStateChange("input_text.day_phase", "afternoon")
+	assert.Equal(t, int32(0), atomic.LoadInt32(&notifyCount),
+		"Echo from intermediate write should be suppressed")
+
+	// The correct echo arrives ("evening") - should confirm
+	mockClient.SimulateStateChange("input_text.day_phase", "evening")
+	assert.Equal(t, int32(0), atomic.LoadInt32(&notifyCount),
+		"Confirming echo should not notify (cache already correct)")
+
+	// Verify pending flag was cleared
+	manager.cacheMu.RLock()
+	_, hasPending := manager.pendingWrites["dayPhase"]
+	manager.cacheMu.RUnlock()
+	assert.False(t, hasPending, "Pending flag should be cleared after final echo")
+}
+
+func TestManager_EchoBackSuppression_HAFailureRollback(t *testing.T) {
+	t.Parallel()
+	logger := testlogger.New()
+	mockClient := ha.NewMockClient()
+	mockClient.SetState("input_boolean.expecting_someone", "off", map[string]interface{}{})
+	mockClient.Connect()
+
+	manager := NewManager(mockClient, logger, false)
+	manager.SyncFromHA()
+
+	// Inject error for the HA service call
+	mockClient.SetServiceError("input_boolean", "turn_on", fmt.Errorf("HA unavailable"))
+
+	err := manager.SetBool("isExpectingSomeone", true)
+	assert.Error(t, err)
+
+	// Verify the pending write was cleaned up on failure
+	manager.cacheMu.RLock()
+	_, hasPending := manager.pendingWrites["isExpectingSomeone"]
+	manager.cacheMu.RUnlock()
+	assert.False(t, hasPending, "Pending write should be cleared on HA sync failure")
+
+	// Verify cache was rolled back
+	val, err := manager.GetBool("isExpectingSomeone")
+	require.NoError(t, err)
+	assert.False(t, val, "Cache should be rolled back on HA sync failure")
+}
+
+func TestManager_SetString_NoPendingWriteWithoutSub(t *testing.T) {
+	t.Parallel()
+	logger := testlogger.New()
+	mockClient := ha.NewMockClient()
+	mockClient.SetState("input_text.day_phase", "morning", map[string]interface{}{})
+	mockClient.Connect()
+
+	// Create manager but do NOT call SyncFromHA (no HA subscriptions created)
+	manager := NewManager(mockClient, logger, false)
+
+	// Manually set the cache for testing (bypass SyncFromHA)
+	manager.cacheMu.Lock()
+	manager.cache["dayPhase"] = "morning"
+	manager.cacheMu.Unlock()
+
+	// Set value - should NOT record a pending write since there's no HA subscription
+	err := manager.SetString("dayPhase", "evening")
+	require.NoError(t, err)
+
+	manager.cacheMu.RLock()
+	_, hasPending := manager.pendingWrites["dayPhase"]
+	manager.cacheMu.RUnlock()
+	assert.False(t, hasPending,
+		"Should not record pending write when there's no active HA subscription")
+}
+
+func TestManager_SyncFromHA_ClearsPendingWrites(t *testing.T) {
+	t.Parallel()
+	logger := testlogger.New()
+	mockClient := ha.NewMockClient()
+	mockClient.SetState("input_boolean.expecting_someone", "off", map[string]interface{}{})
+	mockClient.Connect()
+
+	manager := NewManager(mockClient, logger, false)
+	manager.SyncFromHA()
+
+	// Set up a pending write
+	manager.cacheMu.Lock()
+	manager.pendingWrites["isExpectingSomeone"] = true
+	manager.cacheMu.Unlock()
+
+	// SyncFromHA should clear all pending writes
+	err := manager.SyncFromHA()
+	require.NoError(t, err)
+
+	manager.cacheMu.RLock()
+	pendingCount := len(manager.pendingWrites)
+	manager.cacheMu.RUnlock()
+	assert.Equal(t, 0, pendingCount,
+		"SyncFromHA should clear all pending writes")
 }
