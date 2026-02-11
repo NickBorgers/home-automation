@@ -72,90 +72,160 @@ func (t *Tracker) GetAllPluginStates() map[string]PluginShadowState {
 	return states
 }
 
+// ============================================================================
+// Generic Base Tracker Types
+// ============================================================================
+
+// ActionTracker provides common tracker functionality for action-heavy plugins.
+// Embed this in plugin-specific trackers to get UpdateCurrentInputs,
+// SnapshotInputsForAction, and thread-safe state access for free.
+type ActionTracker[O any] struct {
+	mu    sync.RWMutex
+	state *ShadowState[ActionInputs, O]
+}
+
+// NewActionTracker creates a new action tracker with the given initial state.
+func NewActionTracker[O any](state *ShadowState[ActionInputs, O]) ActionTracker[O] {
+	return ActionTracker[O]{state: state}
+}
+
+// UpdateCurrentInputs updates the current input values.
+func (t *ActionTracker[O]) UpdateCurrentInputs(inputs map[string]interface{}) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	for key, value := range inputs {
+		t.state.Inputs.Current[key] = value
+	}
+	t.state.Metadata.LastUpdated = time.Now()
+}
+
+// SnapshotInputsForAction captures current inputs as the at-last-action snapshot.
+func (t *ActionTracker[O]) SnapshotInputsForAction() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	t.state.Inputs.AtLastAction = make(map[string]interface{})
+	for key, value := range t.state.Inputs.Current {
+		t.state.Inputs.AtLastAction[key] = value
+	}
+}
+
+// Lock acquires the write lock. Used by plugin-specific methods.
+func (t *ActionTracker[O]) Lock() { t.mu.Lock() }
+
+// Unlock releases the write lock.
+func (t *ActionTracker[O]) Unlock() { t.mu.Unlock() }
+
+// RLock acquires the read lock. Used by GetState methods.
+func (t *ActionTracker[O]) RLock() { t.mu.RLock() }
+
+// RUnlock releases the read lock.
+func (t *ActionTracker[O]) RUnlock() { t.mu.RUnlock() }
+
+// State returns the underlying state. Caller must hold the lock.
+func (t *ActionTracker[O]) State() *ShadowState[ActionInputs, O] { return t.state }
+
+// ReadOnlyTracker provides common tracker functionality for read-heavy plugins.
+// Embed this in plugin-specific trackers to get UpdateCurrentInputs for free.
+type ReadOnlyTracker[O any] struct {
+	mu    sync.RWMutex
+	state *ShadowState[ReadOnlyInputs, O]
+}
+
+// NewReadOnlyTracker creates a new read-only tracker with the given initial state.
+func NewReadOnlyTracker[O any](state *ShadowState[ReadOnlyInputs, O]) ReadOnlyTracker[O] {
+	return ReadOnlyTracker[O]{state: state}
+}
+
+// UpdateCurrentInputs updates the current input values.
+func (t *ReadOnlyTracker[O]) UpdateCurrentInputs(inputs map[string]interface{}) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	for key, value := range inputs {
+		t.state.Inputs.Current[key] = value
+	}
+	t.state.Metadata.LastUpdated = time.Now()
+}
+
+// Lock acquires the write lock. Used by plugin-specific methods.
+func (t *ReadOnlyTracker[O]) Lock() { t.mu.Lock() }
+
+// Unlock releases the write lock.
+func (t *ReadOnlyTracker[O]) Unlock() { t.mu.Unlock() }
+
+// RLock acquires the read lock. Used by GetState methods.
+func (t *ReadOnlyTracker[O]) RLock() { t.mu.RLock() }
+
+// RUnlock releases the read lock.
+func (t *ReadOnlyTracker[O]) RUnlock() { t.mu.RUnlock() }
+
+// State returns the underlying state. Caller must hold the lock.
+func (t *ReadOnlyTracker[O]) State() *ShadowState[ReadOnlyInputs, O] { return t.state }
+
+// copyInputMap creates a shallow copy of an input map for thread-safe deep copies.
+func copyInputMap(src map[string]interface{}) map[string]interface{} {
+	dst := make(map[string]interface{}, len(src))
+	for k, v := range src {
+		dst[k] = v
+	}
+	return dst
+}
+
+// ============================================================================
+// Plugin-Specific Trackers
+// ============================================================================
+
 // LightingTracker manages shadow state specifically for the lighting plugin
 type LightingTracker struct {
-	mu    sync.RWMutex
-	state *LightingShadowState
+	ActionTracker[LightingOutputs]
 }
 
 // NewLightingTracker creates a new lighting shadow state tracker
 func NewLightingTracker() *LightingTracker {
 	return &LightingTracker{
-		state: NewLightingShadowState(),
-	}
-}
-
-// UpdateCurrentInputs updates the current input values
-func (lt *LightingTracker) UpdateCurrentInputs(inputs map[string]interface{}) {
-	lt.mu.Lock()
-	defer lt.mu.Unlock()
-
-	for key, value := range inputs {
-		lt.state.Inputs.Current[key] = value
-	}
-	lt.state.Metadata.LastUpdated = time.Now()
-}
-
-// SnapshotInputsForAction captures current inputs as the at-last-action snapshot
-func (lt *LightingTracker) SnapshotInputsForAction() {
-	lt.mu.Lock()
-	defer lt.mu.Unlock()
-
-	// Deep copy current inputs to at-last-action
-	lt.state.Inputs.AtLastAction = make(map[string]interface{})
-	for key, value := range lt.state.Inputs.Current {
-		lt.state.Inputs.AtLastAction[key] = value
+		ActionTracker: NewActionTracker(NewLightingShadowState()),
 	}
 }
 
 // RecordRoomAction records an action taken on a room
 func (lt *LightingTracker) RecordRoomAction(roomName string, actionType string, reason string, activeScene string, turnedOff bool) {
-	lt.mu.Lock()
-	defer lt.mu.Unlock()
+	lt.Lock()
+	defer lt.Unlock()
 
 	now := time.Now()
-	lt.state.Outputs.Rooms[roomName] = RoomState{
+	lt.State().Outputs.Rooms[roomName] = RoomState{
 		ActiveScene: activeScene,
 		TurnedOff:   turnedOff,
 		LastAction:  now,
 		ActionType:  actionType,
 		Reason:      reason,
 	}
-	lt.state.Outputs.LastActionTime = now
-	lt.state.Metadata.LastUpdated = now
+	lt.State().Outputs.LastActionTime = now
+	lt.State().Metadata.LastUpdated = now
 }
 
 // GetState returns the current shadow state (thread-safe copy)
 func (lt *LightingTracker) GetState() *LightingShadowState {
-	lt.mu.RLock()
-	defer lt.mu.RUnlock()
+	lt.RLock()
+	defer lt.RUnlock()
 
-	// Create a deep copy to avoid race conditions
+	s := lt.State()
 	stateCopy := &LightingShadowState{
-		Plugin: lt.state.Plugin,
-		Inputs: LightingInputs{
-			Current:      make(map[string]interface{}),
-			AtLastAction: make(map[string]interface{}),
+		Plugin: s.Plugin,
+		Inputs: ActionInputs{
+			Current:      copyInputMap(s.Inputs.Current),
+			AtLastAction: copyInputMap(s.Inputs.AtLastAction),
 		},
 		Outputs: LightingOutputs{
 			Rooms:          make(map[string]RoomState),
-			LastActionTime: lt.state.Outputs.LastActionTime,
+			LastActionTime: s.Outputs.LastActionTime,
 		},
-		Metadata: lt.state.Metadata,
+		Metadata: s.Metadata,
 	}
 
-	// Copy current inputs
-	for k, v := range lt.state.Inputs.Current {
-		stateCopy.Inputs.Current[k] = v
-	}
-
-	// Copy at-last-action inputs
-	for k, v := range lt.state.Inputs.AtLastAction {
-		stateCopy.Inputs.AtLastAction[k] = v
-	}
-
-	// Copy room states
-	for k, v := range lt.state.Outputs.Rooms {
+	for k, v := range s.Outputs.Rooms {
 		stateCopy.Outputs.Rooms[k] = v
 	}
 
@@ -164,138 +234,104 @@ func (lt *LightingTracker) GetState() *LightingShadowState {
 
 // SecurityTracker manages shadow state specifically for the security plugin
 type SecurityTracker struct {
-	mu    sync.RWMutex
-	state *SecurityShadowState
+	ActionTracker[SecurityOutputs]
 }
 
 // NewSecurityTracker creates a new security shadow state tracker
 func NewSecurityTracker() *SecurityTracker {
 	return &SecurityTracker{
-		state: NewSecurityShadowState(),
-	}
-}
-
-// UpdateCurrentInputs updates the current input values
-func (st *SecurityTracker) UpdateCurrentInputs(inputs map[string]interface{}) {
-	st.mu.Lock()
-	defer st.mu.Unlock()
-
-	for key, value := range inputs {
-		st.state.Inputs.Current[key] = value
-	}
-	st.state.Metadata.LastUpdated = time.Now()
-}
-
-// SnapshotInputsForAction captures current inputs as the at-last-action snapshot
-func (st *SecurityTracker) SnapshotInputsForAction() {
-	st.mu.Lock()
-	defer st.mu.Unlock()
-
-	// Deep copy current inputs to at-last-action
-	st.state.Inputs.AtLastAction = make(map[string]interface{})
-	for key, value := range st.state.Inputs.Current {
-		st.state.Inputs.AtLastAction[key] = value
+		ActionTracker: NewActionTracker(NewSecurityShadowState()),
 	}
 }
 
 // RecordLockdownAction records a lockdown activation or deactivation
 func (st *SecurityTracker) RecordLockdownAction(active bool, reason string) {
-	st.mu.Lock()
-	defer st.mu.Unlock()
+	st.Lock()
+	defer st.Unlock()
 
 	now := time.Now()
-	st.state.Outputs.Lockdown.Active = active
-	st.state.Outputs.Lockdown.Reason = reason
+	st.State().Outputs.Lockdown.Active = active
+	st.State().Outputs.Lockdown.Reason = reason
 
 	if active {
-		st.state.Outputs.Lockdown.ActivatedAt = now
-		st.state.Outputs.Lockdown.WillResetAt = now.Add(5 * time.Second)
+		st.State().Outputs.Lockdown.ActivatedAt = now
+		st.State().Outputs.Lockdown.WillResetAt = now.Add(5 * time.Second)
 	} else {
-		st.state.Outputs.Lockdown.ActivatedAt = time.Time{}
-		st.state.Outputs.Lockdown.WillResetAt = time.Time{}
+		st.State().Outputs.Lockdown.ActivatedAt = time.Time{}
+		st.State().Outputs.Lockdown.WillResetAt = time.Time{}
 	}
 
-	st.state.Outputs.LastActionTime = now
-	st.state.Metadata.LastUpdated = now
+	st.State().Outputs.LastActionTime = now
+	st.State().Metadata.LastUpdated = now
 }
 
 // RecordDoorbellEvent records a doorbell press event
 func (st *SecurityTracker) RecordDoorbellEvent(rateLimited bool, ttsSent bool, lightsFlashed bool) {
-	st.mu.Lock()
-	defer st.mu.Unlock()
+	st.Lock()
+	defer st.Unlock()
 
 	now := time.Now()
-	st.state.Outputs.LastDoorbell = &DoorbellEvent{
+	st.State().Outputs.LastDoorbell = &DoorbellEvent{
 		Timestamp:     now,
 		RateLimited:   rateLimited,
 		TTSSent:       ttsSent,
 		LightsFlashed: lightsFlashed,
 	}
-	st.state.Outputs.LastActionTime = now
-	st.state.Metadata.LastUpdated = now
+	st.State().Outputs.LastActionTime = now
+	st.State().Metadata.LastUpdated = now
 }
 
 // RecordVehicleArrivalEvent records a vehicle arrival event
 func (st *SecurityTracker) RecordVehicleArrivalEvent(rateLimited bool, ttsSent bool, wasExpecting bool) {
-	st.mu.Lock()
-	defer st.mu.Unlock()
+	st.Lock()
+	defer st.Unlock()
 
 	now := time.Now()
-	st.state.Outputs.LastVehicle = &VehicleArrivalEvent{
+	st.State().Outputs.LastVehicle = &VehicleArrivalEvent{
 		Timestamp:    now,
 		RateLimited:  rateLimited,
 		TTSSent:      ttsSent,
 		WasExpecting: wasExpecting,
 	}
-	st.state.Outputs.LastActionTime = now
-	st.state.Metadata.LastUpdated = now
+	st.State().Outputs.LastActionTime = now
+	st.State().Metadata.LastUpdated = now
 }
 
 // RecordGarageOpenEvent records a garage auto-open event
 func (st *SecurityTracker) RecordGarageOpenEvent(reason string, garageWasEmpty bool) {
-	st.mu.Lock()
-	defer st.mu.Unlock()
+	st.Lock()
+	defer st.Unlock()
 
 	now := time.Now()
-	st.state.Outputs.LastGarageOpen = &GarageOpenEvent{
+	st.State().Outputs.LastGarageOpen = &GarageOpenEvent{
 		Timestamp:      now,
 		Reason:         reason,
 		GarageWasEmpty: garageWasEmpty,
 	}
-	st.state.Outputs.LastActionTime = now
-	st.state.Metadata.LastUpdated = now
+	st.State().Outputs.LastActionTime = now
+	st.State().Metadata.LastUpdated = now
 }
 
 // GetState returns the current shadow state (thread-safe copy)
 func (st *SecurityTracker) GetState() *SecurityShadowState {
-	st.mu.RLock()
-	defer st.mu.RUnlock()
+	st.RLock()
+	defer st.RUnlock()
 
-	// Create a deep copy to avoid race conditions
+	s := st.State()
 	stateCopy := &SecurityShadowState{
-		Plugin: st.state.Plugin,
-		Inputs: SecurityInputs{
-			Current:      make(map[string]interface{}),
-			AtLastAction: make(map[string]interface{}),
+		Plugin: s.Plugin,
+		Inputs: ActionInputs{
+			Current:      copyInputMap(s.Inputs.Current),
+			AtLastAction: copyInputMap(s.Inputs.AtLastAction),
 		},
 		Outputs: SecurityOutputs{
-			Lockdown:       st.state.Outputs.Lockdown,
-			LastDoorbell:   st.state.Outputs.LastDoorbell,
-			LastVehicle:    st.state.Outputs.LastVehicle,
-			LastGarageOpen: st.state.Outputs.LastGarageOpen,
-			LastActionTime: st.state.Outputs.LastActionTime,
+			Lockdown:       s.Outputs.Lockdown,
+			LastDoorbell:   s.Outputs.LastDoorbell,
+			LastVehicle:    s.Outputs.LastVehicle,
+			LastGarageOpen: s.Outputs.LastGarageOpen,
+			LastActionTime: s.Outputs.LastActionTime,
 		},
-		Metadata: st.state.Metadata,
-	}
-
-	// Copy current inputs
-	for k, v := range st.state.Inputs.Current {
-		stateCopy.Inputs.Current[k] = v
-	}
-
-	// Copy at-last-action inputs
-	for k, v := range st.state.Inputs.AtLastAction {
-		stateCopy.Inputs.AtLastAction[k] = v
+		Metadata: s.Metadata,
 	}
 
 	return stateCopy
@@ -303,155 +339,87 @@ func (st *SecurityTracker) GetState() *SecurityShadowState {
 
 // LoadSheddingTracker manages shadow state specifically for the load shedding plugin
 type LoadSheddingTracker struct {
-	mu    sync.RWMutex
-	state *LoadSheddingShadowState
+	ActionTracker[LoadSheddingOutputs]
 }
 
 // NewLoadSheddingTracker creates a new load shedding shadow state tracker
 func NewLoadSheddingTracker() *LoadSheddingTracker {
 	return &LoadSheddingTracker{
-		state: NewLoadSheddingShadowState(),
-	}
-}
-
-// SleepHygieneTracker manages shadow state specifically for the sleep hygiene plugin
-type SleepHygieneTracker struct {
-	mu    sync.RWMutex
-	state *SleepHygieneShadowState
-}
-
-// NewSleepHygieneTracker creates a new sleep hygiene shadow state tracker
-func NewSleepHygieneTracker() *SleepHygieneTracker {
-	return &SleepHygieneTracker{
-		state: NewSleepHygieneShadowState(),
-	}
-}
-
-// UpdateCurrentInputs updates the current input values
-func (lst *LoadSheddingTracker) UpdateCurrentInputs(inputs map[string]interface{}) {
-	lst.mu.Lock()
-	defer lst.mu.Unlock()
-
-	for key, value := range inputs {
-		lst.state.Inputs.Current[key] = value
-	}
-	lst.state.Metadata.LastUpdated = time.Now()
-}
-
-// SnapshotInputsForAction captures current inputs as the at-last-action snapshot
-func (lst *LoadSheddingTracker) SnapshotInputsForAction() {
-	lst.mu.Lock()
-	defer lst.mu.Unlock()
-
-	// Deep copy current inputs to at-last-action
-	lst.state.Inputs.AtLastAction = make(map[string]interface{})
-	for key, value := range lst.state.Inputs.Current {
-		lst.state.Inputs.AtLastAction[key] = value
+		ActionTracker: NewActionTracker(NewLoadSheddingShadowState()),
 	}
 }
 
 // RecordLoadSheddingAction records a load shedding activation or deactivation
 func (lst *LoadSheddingTracker) RecordLoadSheddingAction(active bool, actionType string, reason string, thermostatSettings ThermostatSettings) {
-	lst.mu.Lock()
-	defer lst.mu.Unlock()
+	lst.Lock()
+	defer lst.Unlock()
 
 	now := time.Now()
-	lst.state.Outputs.Active = active
-	lst.state.Outputs.LastActionType = actionType
-	lst.state.Outputs.LastActionReason = reason
-	lst.state.Outputs.ThermostatSettings = thermostatSettings
-	lst.state.Outputs.LastActionTime = now
-	lst.state.Metadata.LastUpdated = now
+	lst.State().Outputs.Active = active
+	lst.State().Outputs.LastActionType = actionType
+	lst.State().Outputs.LastActionReason = reason
+	lst.State().Outputs.ThermostatSettings = thermostatSettings
+	lst.State().Outputs.LastActionTime = now
+	lst.State().Metadata.LastUpdated = now
 }
 
 // GetState returns the current shadow state (thread-safe copy)
 func (lst *LoadSheddingTracker) GetState() *LoadSheddingShadowState {
-	lst.mu.RLock()
-	defer lst.mu.RUnlock()
+	lst.RLock()
+	defer lst.RUnlock()
 
-	// Create a deep copy to avoid race conditions
-	stateCopy := &LoadSheddingShadowState{
-		Plugin: lst.state.Plugin,
-		Inputs: LoadSheddingInputs{
-			Current:      make(map[string]interface{}),
-			AtLastAction: make(map[string]interface{}),
+	s := lst.State()
+	return &LoadSheddingShadowState{
+		Plugin: s.Plugin,
+		Inputs: ActionInputs{
+			Current:      copyInputMap(s.Inputs.Current),
+			AtLastAction: copyInputMap(s.Inputs.AtLastAction),
 		},
-		Outputs: LoadSheddingOutputs{
-			Active:             lst.state.Outputs.Active,
-			LastActionType:     lst.state.Outputs.LastActionType,
-			LastActionReason:   lst.state.Outputs.LastActionReason,
-			ThermostatSettings: lst.state.Outputs.ThermostatSettings,
-			LastActionTime:     lst.state.Outputs.LastActionTime,
-		},
-		Metadata: lst.state.Metadata,
+		Outputs:  s.Outputs,
+		Metadata: s.Metadata,
 	}
-
-	// Copy current inputs
-	for k, v := range lst.state.Inputs.Current {
-		stateCopy.Inputs.Current[k] = v
-	}
-
-	// Copy at-last-action inputs
-	for k, v := range lst.state.Inputs.AtLastAction {
-		stateCopy.Inputs.AtLastAction[k] = v
-	}
-
-	return stateCopy
 }
 
-// SleepHygieneTracker methods start here
-
-// UpdateCurrentInputs updates the current input values
-func (st *SleepHygieneTracker) UpdateCurrentInputs(inputs map[string]interface{}) {
-	st.mu.Lock()
-	defer st.mu.Unlock()
-
-	for key, value := range inputs {
-		st.state.Inputs.Current[key] = value
-	}
-	st.state.Metadata.LastUpdated = time.Now()
+// SleepHygieneTracker manages shadow state specifically for the sleep hygiene plugin
+type SleepHygieneTracker struct {
+	ActionTracker[SleepHygieneOutputs]
 }
 
-// SnapshotInputsForAction captures current inputs as the at-last-action snapshot
-func (st *SleepHygieneTracker) SnapshotInputsForAction() {
-	st.mu.Lock()
-	defer st.mu.Unlock()
-
-	// Deep copy current inputs to at-last-action
-	st.state.Inputs.AtLastAction = make(map[string]interface{})
-	for key, value := range st.state.Inputs.Current {
-		st.state.Inputs.AtLastAction[key] = value
+// NewSleepHygieneTracker creates a new sleep hygiene shadow state tracker
+func NewSleepHygieneTracker() *SleepHygieneTracker {
+	return &SleepHygieneTracker{
+		ActionTracker: NewActionTracker(NewSleepHygieneShadowState()),
 	}
 }
 
 // RecordAction records a sleep hygiene action
 func (st *SleepHygieneTracker) RecordAction(actionType string, reason string) {
-	st.mu.Lock()
-	defer st.mu.Unlock()
+	st.Lock()
+	defer st.Unlock()
 
 	now := time.Now()
-	st.state.Outputs.LastActionTime = now
-	st.state.Outputs.LastActionType = actionType
-	st.state.Outputs.LastActionReason = reason
-	st.state.Metadata.LastUpdated = now
+	st.State().Outputs.LastActionTime = now
+	st.State().Outputs.LastActionType = actionType
+	st.State().Outputs.LastActionReason = reason
+	st.State().Metadata.LastUpdated = now
 }
 
 // UpdateWakeSequenceStatus updates the wake sequence status
 func (st *SleepHygieneTracker) UpdateWakeSequenceStatus(status string) {
-	st.mu.Lock()
-	defer st.mu.Unlock()
+	st.Lock()
+	defer st.Unlock()
 
-	st.state.Outputs.WakeSequenceStatus = status
-	st.state.Metadata.LastUpdated = time.Now()
+	st.State().Outputs.WakeSequenceStatus = status
+	st.State().Metadata.LastUpdated = time.Now()
 }
 
 // RecordFadeOutStart records the start of a speaker fade-out
 func (st *SleepHygieneTracker) RecordFadeOutStart(speakerEntityID string, startVolume int) {
-	st.mu.Lock()
-	defer st.mu.Unlock()
+	st.Lock()
+	defer st.Unlock()
 
 	now := time.Now()
-	st.state.Outputs.FadeOutProgress[speakerEntityID] = SpeakerFadeOut{
+	st.State().Outputs.FadeOutProgress[speakerEntityID] = SpeakerFadeOut{
 		SpeakerEntityID: speakerEntityID,
 		CurrentVolume:   startVolume,
 		StartVolume:     startVolume,
@@ -459,153 +427,137 @@ func (st *SleepHygieneTracker) RecordFadeOutStart(speakerEntityID string, startV
 		StartTime:       now,
 		LastUpdate:      now,
 	}
-	st.state.Metadata.LastUpdated = now
+	st.State().Metadata.LastUpdated = now
 }
 
 // UpdateFadeOutProgress updates the fade-out progress for a speaker
 func (st *SleepHygieneTracker) UpdateFadeOutProgress(speakerEntityID string, currentVolume int) {
-	st.mu.Lock()
-	defer st.mu.Unlock()
+	st.Lock()
+	defer st.Unlock()
 
-	if fadeOut, exists := st.state.Outputs.FadeOutProgress[speakerEntityID]; exists {
+	if fadeOut, exists := st.State().Outputs.FadeOutProgress[speakerEntityID]; exists {
 		fadeOut.CurrentVolume = currentVolume
 		fadeOut.LastUpdate = time.Now()
 		if currentVolume == 0 {
 			fadeOut.IsActive = false
 		}
-		st.state.Outputs.FadeOutProgress[speakerEntityID] = fadeOut
+		st.State().Outputs.FadeOutProgress[speakerEntityID] = fadeOut
 	}
-	st.state.Metadata.LastUpdated = time.Now()
+	st.State().Metadata.LastUpdated = time.Now()
 }
 
 // RecordHumanOverride records that a human override was detected during fade-out
 func (st *SleepHygieneTracker) RecordHumanOverride(speakerEntityID string, expectedVolume, actualVolume int) {
-	st.mu.Lock()
-	defer st.mu.Unlock()
+	st.Lock()
+	defer st.Unlock()
 
-	if fadeOut, exists := st.state.Outputs.FadeOutProgress[speakerEntityID]; exists {
+	if fadeOut, exists := st.State().Outputs.FadeOutProgress[speakerEntityID]; exists {
 		fadeOut.HumanOverrideDetected = true
 		fadeOut.ExpectedVolume = expectedVolume
 		fadeOut.ActualVolume = actualVolume
 		fadeOut.IsActive = false
 		fadeOut.LastUpdate = time.Now()
-		st.state.Outputs.FadeOutProgress[speakerEntityID] = fadeOut
+		st.State().Outputs.FadeOutProgress[speakerEntityID] = fadeOut
 	}
-	st.state.Metadata.LastUpdated = time.Now()
+	st.State().Metadata.LastUpdated = time.Now()
 }
 
 // ClearFadeOutProgress clears all fade-out progress
 func (st *SleepHygieneTracker) ClearFadeOutProgress() {
-	st.mu.Lock()
-	defer st.mu.Unlock()
+	st.Lock()
+	defer st.Unlock()
 
-	st.state.Outputs.FadeOutProgress = make(map[string]SpeakerFadeOut)
-	st.state.Metadata.LastUpdated = time.Now()
+	st.State().Outputs.FadeOutProgress = make(map[string]SpeakerFadeOut)
+	st.State().Metadata.LastUpdated = time.Now()
 }
 
 // RecordTTSAnnouncement records a TTS announcement
 func (st *SleepHygieneTracker) RecordTTSAnnouncement(message string, speaker string) {
-	st.mu.Lock()
-	defer st.mu.Unlock()
+	st.Lock()
+	defer st.Unlock()
 
-	st.state.Outputs.LastTTSAnnouncement = &TTSAnnouncement{
+	st.State().Outputs.LastTTSAnnouncement = &TTSAnnouncement{
 		Message:   message,
 		Speaker:   speaker,
 		Timestamp: time.Now(),
 	}
-	st.state.Metadata.LastUpdated = time.Now()
+	st.State().Metadata.LastUpdated = time.Now()
 }
 
 // RecordStopScreensReminder records a stop screens reminder trigger
 func (st *SleepHygieneTracker) RecordStopScreensReminder() {
-	st.mu.Lock()
-	defer st.mu.Unlock()
+	st.Lock()
+	defer st.Unlock()
 
-	st.state.Outputs.StopScreensReminder = &ReminderTrigger{
+	st.State().Outputs.StopScreensReminder = &ReminderTrigger{
 		Triggered: true,
 		Timestamp: time.Now(),
 	}
-	st.state.Metadata.LastUpdated = time.Now()
+	st.State().Metadata.LastUpdated = time.Now()
 }
 
 // RecordGoToBedReminder records a go to bed reminder trigger
 func (st *SleepHygieneTracker) RecordGoToBedReminder() {
-	st.mu.Lock()
-	defer st.mu.Unlock()
+	st.Lock()
+	defer st.Unlock()
 
-	st.state.Outputs.GoToBedReminder = &ReminderTrigger{
+	st.State().Outputs.GoToBedReminder = &ReminderTrigger{
 		Triggered: true,
 		Timestamp: time.Now(),
 	}
-	st.state.Metadata.LastUpdated = time.Now()
+	st.State().Metadata.LastUpdated = time.Now()
 }
 
 // UpdateEightSleepAvailability updates the Eight Sleep availability status
 func (st *SleepHygieneTracker) UpdateEightSleepAvailability(available bool, checkTime time.Time) {
-	st.mu.Lock()
-	defer st.mu.Unlock()
+	st.Lock()
+	defer st.Unlock()
 
-	st.state.Outputs.EightSleepAvailable = available
-	st.state.Outputs.BackupWakeEnabled = !available
-	st.state.Outputs.LastAvailabilityCheck = checkTime
-	st.state.Metadata.LastUpdated = time.Now()
+	st.State().Outputs.EightSleepAvailable = available
+	st.State().Outputs.BackupWakeEnabled = !available
+	st.State().Outputs.LastAvailabilityCheck = checkTime
+	st.State().Metadata.LastUpdated = time.Now()
 }
 
 // GetState returns the current shadow state (thread-safe copy)
 func (st *SleepHygieneTracker) GetState() *SleepHygieneShadowState {
-	st.mu.RLock()
-	defer st.mu.RUnlock()
+	st.RLock()
+	defer st.RUnlock()
 
-	// Create a deep copy to avoid race conditions
+	s := st.State()
 	stateCopy := &SleepHygieneShadowState{
-		Plugin: st.state.Plugin,
-		Inputs: SleepHygieneInputs{
-			Current:      make(map[string]interface{}),
-			AtLastAction: make(map[string]interface{}),
+		Plugin: s.Plugin,
+		Inputs: ActionInputs{
+			Current:      copyInputMap(s.Inputs.Current),
+			AtLastAction: copyInputMap(s.Inputs.AtLastAction),
 		},
 		Outputs: SleepHygieneOutputs{
-			WakeSequenceStatus:    st.state.Outputs.WakeSequenceStatus,
+			WakeSequenceStatus:    s.Outputs.WakeSequenceStatus,
 			FadeOutProgress:       make(map[string]SpeakerFadeOut),
-			EightSleepAvailable:   st.state.Outputs.EightSleepAvailable,
-			BackupWakeEnabled:     st.state.Outputs.BackupWakeEnabled,
-			LastAvailabilityCheck: st.state.Outputs.LastAvailabilityCheck,
-			LastActionTime:        st.state.Outputs.LastActionTime,
-			LastActionType:        st.state.Outputs.LastActionType,
-			LastActionReason:      st.state.Outputs.LastActionReason,
+			EightSleepAvailable:   s.Outputs.EightSleepAvailable,
+			BackupWakeEnabled:     s.Outputs.BackupWakeEnabled,
+			LastAvailabilityCheck: s.Outputs.LastAvailabilityCheck,
+			LastActionTime:        s.Outputs.LastActionTime,
+			LastActionType:        s.Outputs.LastActionType,
+			LastActionReason:      s.Outputs.LastActionReason,
 		},
-		Metadata: st.state.Metadata,
+		Metadata: s.Metadata,
 	}
 
-	// Copy current inputs
-	for k, v := range st.state.Inputs.Current {
-		stateCopy.Inputs.Current[k] = v
-	}
-
-	// Copy at-last-action inputs
-	for k, v := range st.state.Inputs.AtLastAction {
-		stateCopy.Inputs.AtLastAction[k] = v
-	}
-
-	// Copy fade out progress
-	for k, v := range st.state.Outputs.FadeOutProgress {
+	for k, v := range s.Outputs.FadeOutProgress {
 		stateCopy.Outputs.FadeOutProgress[k] = v
 	}
 
-	// Copy TTS announcement if it exists
-	if st.state.Outputs.LastTTSAnnouncement != nil {
-		announcement := *st.state.Outputs.LastTTSAnnouncement
+	if s.Outputs.LastTTSAnnouncement != nil {
+		announcement := *s.Outputs.LastTTSAnnouncement
 		stateCopy.Outputs.LastTTSAnnouncement = &announcement
 	}
-
-	// Copy stop screens reminder if it exists
-	if st.state.Outputs.StopScreensReminder != nil {
-		reminder := *st.state.Outputs.StopScreensReminder
+	if s.Outputs.StopScreensReminder != nil {
+		reminder := *s.Outputs.StopScreensReminder
 		stateCopy.Outputs.StopScreensReminder = &reminder
 	}
-
-	// Copy go to bed reminder if it exists
-	if st.state.Outputs.GoToBedReminder != nil {
-		reminder := *st.state.Outputs.GoToBedReminder
+	if s.Outputs.GoToBedReminder != nil {
+		reminder := *s.Outputs.GoToBedReminder
 		stateCopy.Outputs.GoToBedReminder = &reminder
 	}
 
@@ -613,190 +565,177 @@ func (st *SleepHygieneTracker) GetState() *SleepHygieneShadowState {
 }
 
 // ============================================================================
-// Phase 6: Read-Heavy Plugin Trackers
+// Read-Heavy Plugin Trackers
 // ============================================================================
 
 // EnergyTracker manages shadow state for the energy plugin
 type EnergyTracker struct {
-	mu    sync.RWMutex
-	state *EnergyShadowState
+	ReadOnlyTracker[EnergyOutputs]
 }
 
 // NewEnergyTracker creates a new energy shadow state tracker
 func NewEnergyTracker() *EnergyTracker {
 	return &EnergyTracker{
-		state: NewEnergyShadowState(),
+		ReadOnlyTracker: NewReadOnlyTracker(NewEnergyShadowState()),
 	}
-}
-
-// UpdateCurrentInputs updates the current input values
-func (et *EnergyTracker) UpdateCurrentInputs(inputs map[string]interface{}) {
-	et.mu.Lock()
-	defer et.mu.Unlock()
-
-	for key, value := range inputs {
-		et.state.Inputs.Current[key] = value
-	}
-	et.state.Metadata.LastUpdated = time.Now()
 }
 
 // UpdateSensorReadings updates the raw sensor readings
 func (et *EnergyTracker) UpdateSensorReadings(batteryPct, thisHourKW, remainingKWH float64, gridAvailable bool) {
-	et.mu.Lock()
-	defer et.mu.Unlock()
+	et.Lock()
+	defer et.Unlock()
 
-	et.state.Outputs.SensorReadings.BatteryPercentage = batteryPct
-	et.state.Outputs.SensorReadings.ThisHourSolarGenerationKW = thisHourKW
-	et.state.Outputs.SensorReadings.RemainingSolarGenerationKWH = remainingKWH
-	et.state.Outputs.SensorReadings.IsGridAvailable = gridAvailable
-	et.state.Outputs.SensorReadings.LastUpdate = time.Now()
-	et.state.Metadata.LastUpdated = time.Now()
+	et.State().Outputs.SensorReadings.BatteryPercentage = batteryPct
+	et.State().Outputs.SensorReadings.ThisHourSolarGenerationKW = thisHourKW
+	et.State().Outputs.SensorReadings.RemainingSolarGenerationKWH = remainingKWH
+	et.State().Outputs.SensorReadings.IsGridAvailable = gridAvailable
+	et.State().Outputs.SensorReadings.LastUpdate = time.Now()
+	et.State().Metadata.LastUpdated = time.Now()
 }
 
 // UpdateBatteryPercentage updates the battery percentage sensor reading
 func (et *EnergyTracker) UpdateBatteryPercentage(pct float64) {
-	et.mu.Lock()
-	defer et.mu.Unlock()
+	et.Lock()
+	defer et.Unlock()
 
-	et.state.Outputs.SensorReadings.BatteryPercentage = pct
-	et.state.Outputs.SensorReadings.LastUpdate = time.Now()
-	et.state.Metadata.LastUpdated = time.Now()
+	et.State().Outputs.SensorReadings.BatteryPercentage = pct
+	et.State().Outputs.SensorReadings.LastUpdate = time.Now()
+	et.State().Metadata.LastUpdated = time.Now()
 }
 
 // UpdateThisHourSolarKW updates the this-hour solar generation sensor reading
 func (et *EnergyTracker) UpdateThisHourSolarKW(kw float64) {
-	et.mu.Lock()
-	defer et.mu.Unlock()
+	et.Lock()
+	defer et.Unlock()
 
-	et.state.Outputs.SensorReadings.ThisHourSolarGenerationKW = kw
-	et.state.Outputs.SensorReadings.LastUpdate = time.Now()
-	et.state.Metadata.LastUpdated = time.Now()
+	et.State().Outputs.SensorReadings.ThisHourSolarGenerationKW = kw
+	et.State().Outputs.SensorReadings.LastUpdate = time.Now()
+	et.State().Metadata.LastUpdated = time.Now()
 }
 
 // UpdateRemainingSolarKWH updates the remaining solar generation sensor reading
 func (et *EnergyTracker) UpdateRemainingSolarKWH(kwh float64) {
-	et.mu.Lock()
-	defer et.mu.Unlock()
+	et.Lock()
+	defer et.Unlock()
 
-	et.state.Outputs.SensorReadings.RemainingSolarGenerationKWH = kwh
-	et.state.Outputs.SensorReadings.LastUpdate = time.Now()
-	et.state.Metadata.LastUpdated = time.Now()
+	et.State().Outputs.SensorReadings.RemainingSolarGenerationKWH = kwh
+	et.State().Outputs.SensorReadings.LastUpdate = time.Now()
+	et.State().Metadata.LastUpdated = time.Now()
 }
 
 // UpdateGridAvailable updates the grid availability sensor reading
 func (et *EnergyTracker) UpdateGridAvailable(available bool) {
-	et.mu.Lock()
-	defer et.mu.Unlock()
+	et.Lock()
+	defer et.Unlock()
 
-	et.state.Outputs.SensorReadings.IsGridAvailable = available
-	et.state.Outputs.SensorReadings.LastUpdate = time.Now()
-	et.state.Metadata.LastUpdated = time.Now()
+	et.State().Outputs.SensorReadings.IsGridAvailable = available
+	et.State().Outputs.SensorReadings.LastUpdate = time.Now()
+	et.State().Metadata.LastUpdated = time.Now()
 }
 
 // UpdateBatteryLevel updates the computed battery energy level
 func (et *EnergyTracker) UpdateBatteryLevel(level string) {
-	et.mu.Lock()
-	defer et.mu.Unlock()
+	et.Lock()
+	defer et.Unlock()
 
-	et.state.Outputs.BatteryEnergyLevel = level
-	et.state.Outputs.LastComputations.LastBatteryLevelCalc = time.Now()
-	et.state.Metadata.LastUpdated = time.Now()
+	et.State().Outputs.BatteryEnergyLevel = level
+	et.State().Outputs.LastComputations.LastBatteryLevelCalc = time.Now()
+	et.State().Metadata.LastUpdated = time.Now()
 }
 
 // UpdateSolarLevel updates the computed solar production energy level
 func (et *EnergyTracker) UpdateSolarLevel(level string) {
-	et.mu.Lock()
-	defer et.mu.Unlock()
+	et.Lock()
+	defer et.Unlock()
 
-	et.state.Outputs.SolarProductionEnergyLevel = level
-	et.state.Outputs.LastComputations.LastSolarLevelCalc = time.Now()
-	et.state.Metadata.LastUpdated = time.Now()
+	et.State().Outputs.SolarProductionEnergyLevel = level
+	et.State().Outputs.LastComputations.LastSolarLevelCalc = time.Now()
+	et.State().Metadata.LastUpdated = time.Now()
 }
 
 // UpdateOverallLevel updates the computed overall energy level
 func (et *EnergyTracker) UpdateOverallLevel(level string) {
-	et.mu.Lock()
-	defer et.mu.Unlock()
+	et.Lock()
+	defer et.Unlock()
 
-	et.state.Outputs.CurrentEnergyLevel = level
-	et.state.Outputs.LastComputations.LastOverallLevelCalc = time.Now()
-	et.state.Metadata.LastUpdated = time.Now()
+	et.State().Outputs.CurrentEnergyLevel = level
+	et.State().Outputs.LastComputations.LastOverallLevelCalc = time.Now()
+	et.State().Metadata.LastUpdated = time.Now()
 }
 
 // UpdateFreeEnergyAvailable updates the free energy availability status
 func (et *EnergyTracker) UpdateFreeEnergyAvailable(available bool) {
-	et.mu.Lock()
-	defer et.mu.Unlock()
+	et.Lock()
+	defer et.Unlock()
 
-	et.state.Outputs.IsFreeEnergyAvailable = available
-	et.state.Outputs.LastComputations.LastFreeEnergyCheck = time.Now()
-	et.state.Metadata.LastUpdated = time.Now()
+	et.State().Outputs.IsFreeEnergyAvailable = available
+	et.State().Outputs.LastComputations.LastFreeEnergyCheck = time.Now()
+	et.State().Metadata.LastUpdated = time.Now()
 }
 
 // UpdateDiscoveredIndicatorLights updates the list of discovered indicator light entities
 func (et *EnergyTracker) UpdateDiscoveredIndicatorLights(entities []string) {
-	et.mu.Lock()
-	defer et.mu.Unlock()
+	et.Lock()
+	defer et.Unlock()
 
-	et.state.Outputs.DiscoveredIndicatorLights = entities
-	et.state.Metadata.LastUpdated = time.Now()
+	et.State().Outputs.DiscoveredIndicatorLights = entities
+	et.State().Metadata.LastUpdated = time.Now()
 }
 
 // UpdateIndicatorLightsAction updates the last indicator lights action
 func (et *EnergyTracker) UpdateIndicatorLightsAction(energyLevel string, rgbColor []int, brightnessPct int, entityIDs []string) {
-	et.mu.Lock()
-	defer et.mu.Unlock()
+	et.Lock()
+	defer et.Unlock()
 
-	et.state.Outputs.IndicatorLightsAction = &IndicatorLightsAction{
+	et.State().Outputs.IndicatorLightsAction = &IndicatorLightsAction{
 		EnergyLevel:   energyLevel,
 		RGBColor:      rgbColor,
 		BrightnessPct: brightnessPct,
 		EntityIDs:     entityIDs,
 		Timestamp:     time.Now(),
 	}
-	et.state.Metadata.LastUpdated = time.Now()
+	et.State().Metadata.LastUpdated = time.Now()
 }
 
 // UpdateLuxReading updates a single lux sensor reading
 func (et *EnergyTracker) UpdateLuxReading(sensorEntity string, lux float64) {
-	et.mu.Lock()
-	defer et.mu.Unlock()
+	et.Lock()
+	defer et.Unlock()
 
-	if et.state.Outputs.LuxSensorReadings == nil {
-		et.state.Outputs.LuxSensorReadings = make(map[string]LuxSensorReading)
+	if et.State().Outputs.LuxSensorReadings == nil {
+		et.State().Outputs.LuxSensorReadings = make(map[string]LuxSensorReading)
 	}
 
-	et.state.Outputs.LuxSensorReadings[sensorEntity] = LuxSensorReading{
+	et.State().Outputs.LuxSensorReadings[sensorEntity] = LuxSensorReading{
 		EntityID:  sensorEntity,
 		Lux:       lux,
 		Timestamp: time.Now(),
 	}
-	et.state.Metadata.LastUpdated = time.Now()
+	et.State().Metadata.LastUpdated = time.Now()
 }
 
 // UpdateLightToLuxMapping updates the light-to-lux sensor mapping
 func (et *EnergyTracker) UpdateLightToLuxMapping(mapping map[string]string) {
-	et.mu.Lock()
-	defer et.mu.Unlock()
+	et.Lock()
+	defer et.Unlock()
 
-	// Copy the mapping
-	et.state.Outputs.LightToLuxSensorMapping = make(map[string]string)
+	et.State().Outputs.LightToLuxSensorMapping = make(map[string]string)
 	for k, v := range mapping {
-		et.state.Outputs.LightToLuxSensorMapping[k] = v
+		et.State().Outputs.LightToLuxSensorMapping[k] = v
 	}
-	et.state.Metadata.LastUpdated = time.Now()
+	et.State().Metadata.LastUpdated = time.Now()
 }
 
 // UpdatePerDeviceBrightness updates the brightness info for a single device
 func (et *EnergyTracker) UpdatePerDeviceBrightness(lightEntity, luxEntity string, lux float64, brightness int, isAdaptive bool) {
-	et.mu.Lock()
-	defer et.mu.Unlock()
+	et.Lock()
+	defer et.Unlock()
 
-	if et.state.Outputs.PerDeviceBrightness == nil {
-		et.state.Outputs.PerDeviceBrightness = make(map[string]PerDeviceBrightness)
+	if et.State().Outputs.PerDeviceBrightness == nil {
+		et.State().Outputs.PerDeviceBrightness = make(map[string]PerDeviceBrightness)
 	}
 
-	et.state.Outputs.PerDeviceBrightness[lightEntity] = PerDeviceBrightness{
+	et.State().Outputs.PerDeviceBrightness[lightEntity] = PerDeviceBrightness{
 		LightEntity:     lightEntity,
 		LuxSensorEntity: luxEntity,
 		CurrentLux:      lux,
@@ -804,84 +743,71 @@ func (et *EnergyTracker) UpdatePerDeviceBrightness(lightEntity, luxEntity string
 		IsAdaptive:      isAdaptive,
 		LastUpdate:      time.Now(),
 	}
-	et.state.Metadata.LastUpdated = time.Now()
+	et.State().Metadata.LastUpdated = time.Now()
 }
 
 // UpdateBaselineLux updates the baseline lux calibration for a single device.
-// Baseline lux is the true ambient light level measured when the LED is dimmed.
 func (et *EnergyTracker) UpdateBaselineLux(lightEntity string, baselineLux float64) {
-	et.mu.Lock()
-	defer et.mu.Unlock()
+	et.Lock()
+	defer et.Unlock()
 
-	if et.state.Outputs.BaselineCalibrations == nil {
-		et.state.Outputs.BaselineCalibrations = make(map[string]BaselineCalibration)
+	if et.State().Outputs.BaselineCalibrations == nil {
+		et.State().Outputs.BaselineCalibrations = make(map[string]BaselineCalibration)
 	}
 
-	et.state.Outputs.BaselineCalibrations[lightEntity] = BaselineCalibration{
+	et.State().Outputs.BaselineCalibrations[lightEntity] = BaselineCalibration{
 		LightEntity:         lightEntity,
 		BaselineLux:         baselineLux,
 		LastCalibrationTime: time.Now(),
 	}
-	et.state.Metadata.LastUpdated = time.Now()
+	et.State().Metadata.LastUpdated = time.Now()
 }
 
 // GetState returns the current shadow state (thread-safe copy)
 func (et *EnergyTracker) GetState() *EnergyShadowState {
-	et.mu.RLock()
-	defer et.mu.RUnlock()
+	et.RLock()
+	defer et.RUnlock()
 
-	// Create a deep copy
+	s := et.State()
 	stateCopy := &EnergyShadowState{
-		Plugin: et.state.Plugin,
-		Inputs: EnergyInputs{
-			Current: make(map[string]interface{}),
+		Plugin: s.Plugin,
+		Inputs: ReadOnlyInputs{
+			Current: copyInputMap(s.Inputs.Current),
 		},
 		Outputs: EnergyOutputs{
-			BatteryEnergyLevel:         et.state.Outputs.BatteryEnergyLevel,
-			SolarProductionEnergyLevel: et.state.Outputs.SolarProductionEnergyLevel,
-			CurrentEnergyLevel:         et.state.Outputs.CurrentEnergyLevel,
-			IsFreeEnergyAvailable:      et.state.Outputs.IsFreeEnergyAvailable,
-			LastComputations:           et.state.Outputs.LastComputations,
-			SensorReadings:             et.state.Outputs.SensorReadings,
-			DiscoveredIndicatorLights:  et.state.Outputs.DiscoveredIndicatorLights,
-			IndicatorLightsAction:      et.state.Outputs.IndicatorLightsAction,
+			BatteryEnergyLevel:         s.Outputs.BatteryEnergyLevel,
+			SolarProductionEnergyLevel: s.Outputs.SolarProductionEnergyLevel,
+			CurrentEnergyLevel:         s.Outputs.CurrentEnergyLevel,
+			IsFreeEnergyAvailable:      s.Outputs.IsFreeEnergyAvailable,
+			LastComputations:           s.Outputs.LastComputations,
+			SensorReadings:             s.Outputs.SensorReadings,
+			DiscoveredIndicatorLights:  s.Outputs.DiscoveredIndicatorLights,
+			IndicatorLightsAction:      s.Outputs.IndicatorLightsAction,
 		},
-		Metadata: et.state.Metadata,
+		Metadata: s.Metadata,
 	}
 
-	// Copy current inputs
-	for k, v := range et.state.Inputs.Current {
-		stateCopy.Inputs.Current[k] = v
-	}
-
-	// Copy lux sensor readings
-	if et.state.Outputs.LuxSensorReadings != nil {
+	if s.Outputs.LuxSensorReadings != nil {
 		stateCopy.Outputs.LuxSensorReadings = make(map[string]LuxSensorReading)
-		for k, v := range et.state.Outputs.LuxSensorReadings {
+		for k, v := range s.Outputs.LuxSensorReadings {
 			stateCopy.Outputs.LuxSensorReadings[k] = v
 		}
 	}
-
-	// Copy per-device brightness
-	if et.state.Outputs.PerDeviceBrightness != nil {
+	if s.Outputs.PerDeviceBrightness != nil {
 		stateCopy.Outputs.PerDeviceBrightness = make(map[string]PerDeviceBrightness)
-		for k, v := range et.state.Outputs.PerDeviceBrightness {
+		for k, v := range s.Outputs.PerDeviceBrightness {
 			stateCopy.Outputs.PerDeviceBrightness[k] = v
 		}
 	}
-
-	// Copy light-to-lux sensor mapping
-	if et.state.Outputs.LightToLuxSensorMapping != nil {
+	if s.Outputs.LightToLuxSensorMapping != nil {
 		stateCopy.Outputs.LightToLuxSensorMapping = make(map[string]string)
-		for k, v := range et.state.Outputs.LightToLuxSensorMapping {
+		for k, v := range s.Outputs.LightToLuxSensorMapping {
 			stateCopy.Outputs.LightToLuxSensorMapping[k] = v
 		}
 	}
-
-	// Copy baseline calibrations
-	if et.state.Outputs.BaselineCalibrations != nil {
+	if s.Outputs.BaselineCalibrations != nil {
 		stateCopy.Outputs.BaselineCalibrations = make(map[string]BaselineCalibration)
-		for k, v := range et.state.Outputs.BaselineCalibrations {
+		for k, v := range s.Outputs.BaselineCalibrations {
 			stateCopy.Outputs.BaselineCalibrations[k] = v
 		}
 	}
@@ -891,123 +817,105 @@ func (et *EnergyTracker) GetState() *EnergyShadowState {
 
 // StateTrackingTracker manages shadow state for the state tracking plugin
 type StateTrackingTracker struct {
-	mu    sync.RWMutex
-	state *StateTrackingShadowState
+	ReadOnlyTracker[StateTrackingOutputs]
 }
 
 // NewStateTrackingTracker creates a new state tracking shadow state tracker
 func NewStateTrackingTracker() *StateTrackingTracker {
 	return &StateTrackingTracker{
-		state: NewStateTrackingShadowState(),
+		ReadOnlyTracker: NewReadOnlyTracker(NewStateTrackingShadowState()),
 	}
-}
-
-// UpdateCurrentInputs updates the current input values
-func (stt *StateTrackingTracker) UpdateCurrentInputs(inputs map[string]interface{}) {
-	stt.mu.Lock()
-	defer stt.mu.Unlock()
-
-	for key, value := range inputs {
-		stt.state.Inputs.Current[key] = value
-	}
-	stt.state.Metadata.LastUpdated = time.Now()
 }
 
 // UpdateDerivedStates updates the computed derived states
 func (stt *StateTrackingTracker) UpdateDerivedStates(anyOwnerHome, anyoneHome, anyoneAsleep, everyoneAsleep bool) {
-	stt.mu.Lock()
-	defer stt.mu.Unlock()
+	stt.Lock()
+	defer stt.Unlock()
 
-	stt.state.Outputs.DerivedStates.IsAnyOwnerHome = anyOwnerHome
-	stt.state.Outputs.DerivedStates.IsAnyoneHome = anyoneHome
-	stt.state.Outputs.DerivedStates.IsAnyoneAsleep = anyoneAsleep
-	stt.state.Outputs.DerivedStates.IsEveryoneAsleep = everyoneAsleep
-	stt.state.Outputs.LastComputation = time.Now()
-	stt.state.Metadata.LastUpdated = time.Now()
+	stt.State().Outputs.DerivedStates.IsAnyOwnerHome = anyOwnerHome
+	stt.State().Outputs.DerivedStates.IsAnyoneHome = anyoneHome
+	stt.State().Outputs.DerivedStates.IsAnyoneAsleep = anyoneAsleep
+	stt.State().Outputs.DerivedStates.IsEveryoneAsleep = everyoneAsleep
+	stt.State().Outputs.LastComputation = time.Now()
+	stt.State().Metadata.LastUpdated = time.Now()
 }
 
 // UpdateSleepDetectionTimer updates the sleep detection timer state
 func (stt *StateTrackingTracker) UpdateSleepDetectionTimer(active bool) {
-	stt.mu.Lock()
-	defer stt.mu.Unlock()
+	stt.Lock()
+	defer stt.Unlock()
 
-	stt.state.Outputs.TimerStates.SleepDetectionActive = active
+	stt.State().Outputs.TimerStates.SleepDetectionActive = active
 	if active {
-		stt.state.Outputs.TimerStates.SleepDetectionStarted = time.Now()
+		stt.State().Outputs.TimerStates.SleepDetectionStarted = time.Now()
 	} else {
-		stt.state.Outputs.TimerStates.SleepDetectionStarted = time.Time{}
+		stt.State().Outputs.TimerStates.SleepDetectionStarted = time.Time{}
 	}
-	stt.state.Metadata.LastUpdated = time.Now()
+	stt.State().Metadata.LastUpdated = time.Now()
 }
 
 // UpdateWakeDetectionTimer updates the wake detection timer state
 func (stt *StateTrackingTracker) UpdateWakeDetectionTimer(active bool) {
-	stt.mu.Lock()
-	defer stt.mu.Unlock()
+	stt.Lock()
+	defer stt.Unlock()
 
-	stt.state.Outputs.TimerStates.WakeDetectionActive = active
+	stt.State().Outputs.TimerStates.WakeDetectionActive = active
 	if active {
-		stt.state.Outputs.TimerStates.WakeDetectionStarted = time.Now()
+		stt.State().Outputs.TimerStates.WakeDetectionStarted = time.Now()
 	} else {
-		stt.state.Outputs.TimerStates.WakeDetectionStarted = time.Time{}
+		stt.State().Outputs.TimerStates.WakeDetectionStarted = time.Time{}
 	}
-	stt.state.Metadata.LastUpdated = time.Now()
+	stt.State().Metadata.LastUpdated = time.Now()
 }
 
 // UpdateOwnerReturnTimer updates the owner return home auto-reset timer state
 func (stt *StateTrackingTracker) UpdateOwnerReturnTimer(active bool) {
-	stt.mu.Lock()
-	defer stt.mu.Unlock()
+	stt.Lock()
+	defer stt.Unlock()
 
-	stt.state.Outputs.TimerStates.OwnerReturnResetActive = active
+	stt.State().Outputs.TimerStates.OwnerReturnResetActive = active
 	if active {
-		stt.state.Outputs.TimerStates.OwnerReturnResetStarted = time.Now()
+		stt.State().Outputs.TimerStates.OwnerReturnResetStarted = time.Now()
 	} else {
-		stt.state.Outputs.TimerStates.OwnerReturnResetStarted = time.Time{}
+		stt.State().Outputs.TimerStates.OwnerReturnResetStarted = time.Time{}
 	}
-	stt.state.Metadata.LastUpdated = time.Now()
+	stt.State().Metadata.LastUpdated = time.Now()
 }
 
 // RecordArrivalAnnouncement records an arrival TTS announcement
 func (stt *StateTrackingTracker) RecordArrivalAnnouncement(person, message string) {
-	stt.mu.Lock()
-	defer stt.mu.Unlock()
+	stt.Lock()
+	defer stt.Unlock()
 
-	stt.state.Outputs.LastAnnouncement = &ArrivalAnnouncement{
+	stt.State().Outputs.LastAnnouncement = &ArrivalAnnouncement{
 		Person:    person,
 		Message:   message,
 		Timestamp: time.Now(),
 	}
-	stt.state.Metadata.LastUpdated = time.Now()
+	stt.State().Metadata.LastUpdated = time.Now()
 }
 
 // GetState returns the current shadow state (thread-safe copy)
 func (stt *StateTrackingTracker) GetState() *StateTrackingShadowState {
-	stt.mu.RLock()
-	defer stt.mu.RUnlock()
+	stt.RLock()
+	defer stt.RUnlock()
 
-	// Create a deep copy
+	s := stt.State()
 	stateCopy := &StateTrackingShadowState{
-		Plugin: stt.state.Plugin,
-		Inputs: StateTrackingInputs{
-			Current: make(map[string]interface{}),
+		Plugin: s.Plugin,
+		Inputs: ReadOnlyInputs{
+			Current: copyInputMap(s.Inputs.Current),
 		},
 		Outputs: StateTrackingOutputs{
-			DerivedStates:   stt.state.Outputs.DerivedStates,
-			TimerStates:     stt.state.Outputs.TimerStates,
-			LastComputation: stt.state.Outputs.LastComputation,
+			DerivedStates:   s.Outputs.DerivedStates,
+			TimerStates:     s.Outputs.TimerStates,
+			LastComputation: s.Outputs.LastComputation,
 		},
-		Metadata: stt.state.Metadata,
+		Metadata: s.Metadata,
 	}
 
-	// Copy current inputs
-	for k, v := range stt.state.Inputs.Current {
-		stateCopy.Inputs.Current[k] = v
-	}
-
-	// Copy announcement if exists
-	if stt.state.Outputs.LastAnnouncement != nil {
-		announcement := *stt.state.Outputs.LastAnnouncement
+	if s.Outputs.LastAnnouncement != nil {
+		announcement := *s.Outputs.LastAnnouncement
 		stateCopy.Outputs.LastAnnouncement = &announcement
 	}
 
@@ -1016,356 +924,235 @@ func (stt *StateTrackingTracker) GetState() *StateTrackingShadowState {
 
 // DayPhaseTracker manages shadow state for the day phase plugin
 type DayPhaseTracker struct {
-	mu    sync.RWMutex
-	state *DayPhaseShadowState
+	ReadOnlyTracker[DayPhaseOutputs]
 }
 
 // NewDayPhaseTracker creates a new day phase shadow state tracker
 func NewDayPhaseTracker() *DayPhaseTracker {
 	return &DayPhaseTracker{
-		state: NewDayPhaseShadowState(),
+		ReadOnlyTracker: NewReadOnlyTracker(NewDayPhaseShadowState()),
 	}
-}
-
-// UpdateCurrentInputs updates the current input values
-func (dpt *DayPhaseTracker) UpdateCurrentInputs(inputs map[string]interface{}) {
-	dpt.mu.Lock()
-	defer dpt.mu.Unlock()
-
-	for key, value := range inputs {
-		dpt.state.Inputs.Current[key] = value
-	}
-	dpt.state.Metadata.LastUpdated = time.Now()
 }
 
 // UpdateSunEvent updates the computed sun event
 func (dpt *DayPhaseTracker) UpdateSunEvent(sunEvent string) {
-	dpt.mu.Lock()
-	defer dpt.mu.Unlock()
+	dpt.Lock()
+	defer dpt.Unlock()
 
-	dpt.state.Outputs.SunEvent = sunEvent
-	dpt.state.Outputs.LastSunEventCalc = time.Now()
-	dpt.state.Metadata.LastUpdated = time.Now()
+	dpt.State().Outputs.SunEvent = sunEvent
+	dpt.State().Outputs.LastSunEventCalc = time.Now()
+	dpt.State().Metadata.LastUpdated = time.Now()
 }
 
 // UpdateDayPhase updates the computed day phase
 func (dpt *DayPhaseTracker) UpdateDayPhase(dayPhase string) {
-	dpt.mu.Lock()
-	defer dpt.mu.Unlock()
+	dpt.Lock()
+	defer dpt.Unlock()
 
-	dpt.state.Outputs.DayPhase = dayPhase
-	dpt.state.Outputs.LastDayPhaseCalc = time.Now()
-	dpt.state.Metadata.LastUpdated = time.Now()
+	dpt.State().Outputs.DayPhase = dayPhase
+	dpt.State().Outputs.LastDayPhaseCalc = time.Now()
+	dpt.State().Metadata.LastUpdated = time.Now()
 }
 
 // UpdateNextTransition updates the next expected phase transition
 func (dpt *DayPhaseTracker) UpdateNextTransition(transitionTime time.Time, nextPhase string) {
-	dpt.mu.Lock()
-	defer dpt.mu.Unlock()
+	dpt.Lock()
+	defer dpt.Unlock()
 
-	dpt.state.Outputs.NextTransitionTime = transitionTime
-	dpt.state.Outputs.NextTransitionPhase = nextPhase
-	dpt.state.Metadata.LastUpdated = time.Now()
+	dpt.State().Outputs.NextTransitionTime = transitionTime
+	dpt.State().Outputs.NextTransitionPhase = nextPhase
+	dpt.State().Metadata.LastUpdated = time.Now()
 }
 
 // GetState returns the current shadow state (thread-safe copy)
 func (dpt *DayPhaseTracker) GetState() *DayPhaseShadowState {
-	dpt.mu.RLock()
-	defer dpt.mu.RUnlock()
+	dpt.RLock()
+	defer dpt.RUnlock()
 
-	// Create a deep copy
-	stateCopy := &DayPhaseShadowState{
-		Plugin: dpt.state.Plugin,
-		Inputs: DayPhaseInputs{
-			Current: make(map[string]interface{}),
+	s := dpt.State()
+	return &DayPhaseShadowState{
+		Plugin: s.Plugin,
+		Inputs: ReadOnlyInputs{
+			Current: copyInputMap(s.Inputs.Current),
 		},
-		Outputs:  dpt.state.Outputs,
-		Metadata: dpt.state.Metadata,
+		Outputs:  s.Outputs,
+		Metadata: s.Metadata,
 	}
-
-	// Copy current inputs
-	for k, v := range dpt.state.Inputs.Current {
-		stateCopy.Inputs.Current[k] = v
-	}
-
-	return stateCopy
 }
 
 // TVTracker manages shadow state for the TV plugin
 type TVTracker struct {
-	mu    sync.RWMutex
-	state *TVShadowState
-}
-
-// SexModeTracker manages shadow state for the sex mode plugin
-type SexModeTracker struct {
-	mu    sync.RWMutex
-	state *SexModeShadowState
-}
-
-// NewSexModeTracker creates a new sex mode shadow state tracker
-func NewSexModeTracker() *SexModeTracker {
-	return &SexModeTracker{
-		state: NewSexModeShadowState(),
-	}
-}
-
-// UpdateCurrentInputs updates the current input values
-func (smt *SexModeTracker) UpdateCurrentInputs(inputs map[string]interface{}) {
-	smt.mu.Lock()
-	defer smt.mu.Unlock()
-
-	for key, value := range inputs {
-		smt.state.Inputs.Current[key] = value
-	}
-	smt.state.Metadata.LastUpdated = time.Now()
-}
-
-// SnapshotInputsForAction captures current inputs as the at-last-action snapshot
-func (smt *SexModeTracker) SnapshotInputsForAction() {
-	smt.mu.Lock()
-	defer smt.mu.Unlock()
-
-	// Deep copy current inputs to at-last-action
-	smt.state.Inputs.AtLastAction = make(map[string]interface{})
-	for key, value := range smt.state.Inputs.Current {
-		smt.state.Inputs.AtLastAction[key] = value
-	}
-}
-
-// RecordAction records a sex mode activation or deactivation
-func (smt *SexModeTracker) RecordAction(actionType string, reason string, isActive bool, preSexMusicType string, activatedAt time.Time) {
-	smt.mu.Lock()
-	defer smt.mu.Unlock()
-
-	now := time.Now()
-	smt.state.Outputs.IsActive = isActive
-	smt.state.Outputs.PreSexMusicType = preSexMusicType
-	smt.state.Outputs.ActivatedAt = activatedAt
-	smt.state.Outputs.LastActionType = actionType
-	smt.state.Outputs.LastActionReason = reason
-	smt.state.Outputs.LastActionTime = now
-	smt.state.Metadata.LastUpdated = now
-}
-
-// GetState returns the current shadow state (thread-safe copy)
-func (smt *SexModeTracker) GetState() *SexModeShadowState {
-	smt.mu.RLock()
-	defer smt.mu.RUnlock()
-
-	// Create a deep copy to avoid race conditions
-	stateCopy := &SexModeShadowState{
-		Plugin: smt.state.Plugin,
-		Inputs: SexModeInputs{
-			Current:      make(map[string]interface{}),
-			AtLastAction: make(map[string]interface{}),
-		},
-		Outputs: SexModeOutputs{
-			IsActive:         smt.state.Outputs.IsActive,
-			PreSexMusicType:  smt.state.Outputs.PreSexMusicType,
-			ActivatedAt:      smt.state.Outputs.ActivatedAt,
-			LastActionTime:   smt.state.Outputs.LastActionTime,
-			LastActionType:   smt.state.Outputs.LastActionType,
-			LastActionReason: smt.state.Outputs.LastActionReason,
-		},
-		Metadata: smt.state.Metadata,
-	}
-
-	// Copy current inputs
-	for k, v := range smt.state.Inputs.Current {
-		stateCopy.Inputs.Current[k] = v
-	}
-
-	// Copy at-last-action inputs
-	for k, v := range smt.state.Inputs.AtLastAction {
-		stateCopy.Inputs.AtLastAction[k] = v
-	}
-
-	return stateCopy
-}
-
-// ChristmasTracker manages shadow state for the christmas plugin
-type ChristmasTracker struct {
-	mu    sync.RWMutex
-	state *ChristmasShadowState
-}
-
-// NewChristmasTracker creates a new christmas shadow state tracker
-func NewChristmasTracker() *ChristmasTracker {
-	return &ChristmasTracker{
-		state: NewChristmasShadowState(),
-	}
-}
-
-// UpdateCurrentInputs updates the current input values
-func (ct *ChristmasTracker) UpdateCurrentInputs(inputs map[string]interface{}) {
-	ct.mu.Lock()
-	defer ct.mu.Unlock()
-
-	for key, value := range inputs {
-		ct.state.Inputs.Current[key] = value
-	}
-	ct.state.Metadata.LastUpdated = time.Now()
-}
-
-// SnapshotInputsForAction captures current inputs as the at-last-action snapshot
-func (ct *ChristmasTracker) SnapshotInputsForAction() {
-	ct.mu.Lock()
-	defer ct.mu.Unlock()
-
-	// Deep copy current inputs to at-last-action
-	ct.state.Inputs.AtLastAction = make(map[string]interface{})
-	for key, value := range ct.state.Inputs.Current {
-		ct.state.Inputs.AtLastAction[key] = value
-	}
-}
-
-// RecordActivation records a christmas lights activation
-func (ct *ChristmasTracker) RecordActivation(lightsActivated int, reason string) {
-	ct.mu.Lock()
-	defer ct.mu.Unlock()
-
-	now := time.Now()
-	ct.state.Outputs.LastActivationTime = now
-	ct.state.Outputs.LightsActivated = lightsActivated
-	ct.state.Outputs.LastActionReason = reason
-	ct.state.Metadata.LastUpdated = now
-}
-
-// GetState returns the current shadow state (thread-safe copy)
-func (ct *ChristmasTracker) GetState() *ChristmasShadowState {
-	ct.mu.RLock()
-	defer ct.mu.RUnlock()
-
-	// Create a deep copy to avoid race conditions
-	stateCopy := &ChristmasShadowState{
-		Plugin: ct.state.Plugin,
-		Inputs: ChristmasInputs{
-			Current:      make(map[string]interface{}),
-			AtLastAction: make(map[string]interface{}),
-		},
-		Outputs: ChristmasOutputs{
-			LastActivationTime: ct.state.Outputs.LastActivationTime,
-			LightsActivated:    ct.state.Outputs.LightsActivated,
-			LastActionReason:   ct.state.Outputs.LastActionReason,
-		},
-		Metadata: ct.state.Metadata,
-	}
-
-	// Copy current inputs
-	for k, v := range ct.state.Inputs.Current {
-		stateCopy.Inputs.Current[k] = v
-	}
-
-	// Copy at-last-action inputs
-	for k, v := range ct.state.Inputs.AtLastAction {
-		stateCopy.Inputs.AtLastAction[k] = v
-	}
-
-	return stateCopy
+	ReadOnlyTracker[TVOutputs]
 }
 
 // NewTVTracker creates a new TV shadow state tracker
 func NewTVTracker() *TVTracker {
 	return &TVTracker{
-		state: NewTVShadowState(),
+		ReadOnlyTracker: NewReadOnlyTracker(NewTVShadowState()),
 	}
-}
-
-// UpdateCurrentInputs updates the current input values
-func (tvt *TVTracker) UpdateCurrentInputs(inputs map[string]interface{}) {
-	tvt.mu.Lock()
-	defer tvt.mu.Unlock()
-
-	for key, value := range inputs {
-		tvt.state.Inputs.Current[key] = value
-	}
-	tvt.state.Metadata.LastUpdated = time.Now()
 }
 
 // UpdateAppleTVState updates the Apple TV playing state
 func (tvt *TVTracker) UpdateAppleTVState(isPlaying bool, state string) {
-	tvt.mu.Lock()
-	defer tvt.mu.Unlock()
+	tvt.Lock()
+	defer tvt.Unlock()
 
-	tvt.state.Outputs.IsAppleTVPlaying = isPlaying
-	tvt.state.Outputs.AppleTVState = state
-	tvt.state.Outputs.LastUpdate = time.Now()
-	tvt.state.Metadata.LastUpdated = time.Now()
+	tvt.State().Outputs.IsAppleTVPlaying = isPlaying
+	tvt.State().Outputs.AppleTVState = state
+	tvt.State().Outputs.LastUpdate = time.Now()
+	tvt.State().Metadata.LastUpdated = time.Now()
 }
 
 // UpdateTVPower updates the TV power state
 func (tvt *TVTracker) UpdateTVPower(isOn bool) {
-	tvt.mu.Lock()
-	defer tvt.mu.Unlock()
+	tvt.Lock()
+	defer tvt.Unlock()
 
-	tvt.state.Outputs.IsTVOn = isOn
-	tvt.state.Outputs.LastUpdate = time.Now()
-	tvt.state.Metadata.LastUpdated = time.Now()
+	tvt.State().Outputs.IsTVOn = isOn
+	tvt.State().Outputs.LastUpdate = time.Now()
+	tvt.State().Metadata.LastUpdated = time.Now()
 }
 
 // UpdateHDMIInput updates the current HDMI input
 func (tvt *TVTracker) UpdateHDMIInput(input string) {
-	tvt.mu.Lock()
-	defer tvt.mu.Unlock()
+	tvt.Lock()
+	defer tvt.Unlock()
 
-	tvt.state.Outputs.CurrentHDMIInput = input
-	tvt.state.Outputs.LastUpdate = time.Now()
-	tvt.state.Metadata.LastUpdated = time.Now()
+	tvt.State().Outputs.CurrentHDMIInput = input
+	tvt.State().Outputs.LastUpdate = time.Now()
+	tvt.State().Metadata.LastUpdated = time.Now()
 }
 
 // UpdateTVPlaying updates the computed isTVPlaying state
 func (tvt *TVTracker) UpdateTVPlaying(isPlaying bool) {
-	tvt.mu.Lock()
-	defer tvt.mu.Unlock()
+	tvt.Lock()
+	defer tvt.Unlock()
 
-	tvt.state.Outputs.IsTVPlaying = isPlaying
-	tvt.state.Outputs.LastUpdate = time.Now()
-	tvt.state.Metadata.LastUpdated = time.Now()
+	tvt.State().Outputs.IsTVPlaying = isPlaying
+	tvt.State().Outputs.LastUpdate = time.Now()
+	tvt.State().Metadata.LastUpdated = time.Now()
 }
 
 // UpdateSyncBoxAvailable updates the sync box availability state
 func (tvt *TVTracker) UpdateSyncBoxAvailable(available bool) {
-	tvt.mu.Lock()
-	defer tvt.mu.Unlock()
+	tvt.Lock()
+	defer tvt.Unlock()
 
-	tvt.state.Outputs.SyncBoxAvailable = available
-	tvt.state.Outputs.LastUpdate = time.Now()
-	tvt.state.Metadata.LastUpdated = time.Now()
+	tvt.State().Outputs.SyncBoxAvailable = available
+	tvt.State().Outputs.LastUpdate = time.Now()
+	tvt.State().Metadata.LastUpdated = time.Now()
 }
 
 // UpdateLastRecovery updates the last sync box recovery timestamp and daily count
 func (tvt *TVTracker) UpdateLastRecovery(rebootTime time.Time, dailyCount int) {
-	tvt.mu.Lock()
-	defer tvt.mu.Unlock()
+	tvt.Lock()
+	defer tvt.Unlock()
 
-	tvt.state.Outputs.LastSyncBoxReboot = rebootTime
-	tvt.state.Outputs.DailyRebootCount = dailyCount
-	tvt.state.Outputs.LastUpdate = time.Now()
-	tvt.state.Metadata.LastUpdated = time.Now()
+	tvt.State().Outputs.LastSyncBoxReboot = rebootTime
+	tvt.State().Outputs.DailyRebootCount = dailyCount
+	tvt.State().Outputs.LastUpdate = time.Now()
+	tvt.State().Metadata.LastUpdated = time.Now()
 }
 
 // GetState returns the current shadow state (thread-safe copy)
 func (tvt *TVTracker) GetState() *TVShadowState {
-	tvt.mu.RLock()
-	defer tvt.mu.RUnlock()
+	tvt.RLock()
+	defer tvt.RUnlock()
 
-	// Create a deep copy
-	stateCopy := &TVShadowState{
-		Plugin: tvt.state.Plugin,
-		Inputs: TVInputs{
-			Current: make(map[string]interface{}),
+	s := tvt.State()
+	return &TVShadowState{
+		Plugin: s.Plugin,
+		Inputs: ReadOnlyInputs{
+			Current: copyInputMap(s.Inputs.Current),
 		},
-		Outputs:  tvt.state.Outputs,
-		Metadata: tvt.state.Metadata,
+		Outputs:  s.Outputs,
+		Metadata: s.Metadata,
 	}
+}
 
-	// Copy current inputs
-	for k, v := range tvt.state.Inputs.Current {
-		stateCopy.Inputs.Current[k] = v
+// SexModeTracker manages shadow state for the sex mode plugin
+type SexModeTracker struct {
+	ActionTracker[SexModeOutputs]
+}
+
+// NewSexModeTracker creates a new sex mode shadow state tracker
+func NewSexModeTracker() *SexModeTracker {
+	return &SexModeTracker{
+		ActionTracker: NewActionTracker(NewSexModeShadowState()),
 	}
+}
 
-	return stateCopy
+// RecordAction records a sex mode activation or deactivation
+func (smt *SexModeTracker) RecordAction(actionType string, reason string, isActive bool, preSexMusicType string, activatedAt time.Time) {
+	smt.Lock()
+	defer smt.Unlock()
+
+	now := time.Now()
+	smt.State().Outputs.IsActive = isActive
+	smt.State().Outputs.PreSexMusicType = preSexMusicType
+	smt.State().Outputs.ActivatedAt = activatedAt
+	smt.State().Outputs.LastActionType = actionType
+	smt.State().Outputs.LastActionReason = reason
+	smt.State().Outputs.LastActionTime = now
+	smt.State().Metadata.LastUpdated = now
+}
+
+// GetState returns the current shadow state (thread-safe copy)
+func (smt *SexModeTracker) GetState() *SexModeShadowState {
+	smt.RLock()
+	defer smt.RUnlock()
+
+	s := smt.State()
+	return &SexModeShadowState{
+		Plugin: s.Plugin,
+		Inputs: ActionInputs{
+			Current:      copyInputMap(s.Inputs.Current),
+			AtLastAction: copyInputMap(s.Inputs.AtLastAction),
+		},
+		Outputs:  s.Outputs,
+		Metadata: s.Metadata,
+	}
+}
+
+// ChristmasTracker manages shadow state for the christmas plugin
+type ChristmasTracker struct {
+	ActionTracker[ChristmasOutputs]
+}
+
+// NewChristmasTracker creates a new christmas shadow state tracker
+func NewChristmasTracker() *ChristmasTracker {
+	return &ChristmasTracker{
+		ActionTracker: NewActionTracker(NewChristmasShadowState()),
+	}
+}
+
+// RecordActivation records a christmas lights activation
+func (ct *ChristmasTracker) RecordActivation(lightsActivated int, reason string) {
+	ct.Lock()
+	defer ct.Unlock()
+
+	now := time.Now()
+	ct.State().Outputs.LastActivationTime = now
+	ct.State().Outputs.LightsActivated = lightsActivated
+	ct.State().Outputs.LastActionReason = reason
+	ct.State().Metadata.LastUpdated = now
+}
+
+// GetState returns the current shadow state (thread-safe copy)
+func (ct *ChristmasTracker) GetState() *ChristmasShadowState {
+	ct.RLock()
+	defer ct.RUnlock()
+
+	s := ct.State()
+	return &ChristmasShadowState{
+		Plugin: s.Plugin,
+		Inputs: ActionInputs{
+			Current:      copyInputMap(s.Inputs.Current),
+			AtLastAction: copyInputMap(s.Inputs.AtLastAction),
+		},
+		Outputs:  s.Outputs,
+		Metadata: s.Metadata,
+	}
 }
 
 // ============================================================================
@@ -1374,168 +1161,141 @@ func (tvt *TVTracker) GetState() *TVShadowState {
 
 // EnvironmentalTracker manages shadow state for the environmental monitoring plugin
 type EnvironmentalTracker struct {
-	mu    sync.RWMutex
-	state *EnvironmentalShadowState
+	ReadOnlyTracker[EnvironmentalOutputs]
 }
 
 // NewEnvironmentalTracker creates a new environmental shadow state tracker
 func NewEnvironmentalTracker() *EnvironmentalTracker {
 	return &EnvironmentalTracker{
-		state: NewEnvironmentalShadowState(),
+		ReadOnlyTracker: NewReadOnlyTracker(NewEnvironmentalShadowState()),
 	}
-}
-
-// UpdateCurrentInputs updates the current input values
-func (et *EnvironmentalTracker) UpdateCurrentInputs(inputs map[string]interface{}) {
-	et.mu.Lock()
-	defer et.mu.Unlock()
-
-	for key, value := range inputs {
-		et.state.Inputs.Current[key] = value
-	}
-	et.state.Metadata.LastUpdated = time.Now()
 }
 
 // UpdateHumiditySensors updates the list of humidity sensors and their values
 func (et *EnvironmentalTracker) UpdateHumiditySensors(sensors []HumiditySensorData) {
-	et.mu.Lock()
-	defer et.mu.Unlock()
+	et.Lock()
+	defer et.Unlock()
 
-	// Make a copy of the slice
-	et.state.Outputs.HumiditySensors = make([]HumiditySensorData, len(sensors))
-	copy(et.state.Outputs.HumiditySensors, sensors)
-	et.state.Outputs.LastUpdate = time.Now()
-	et.state.Metadata.LastUpdated = time.Now()
+	et.State().Outputs.HumiditySensors = make([]HumiditySensorData, len(sensors))
+	copy(et.State().Outputs.HumiditySensors, sensors)
+	et.State().Outputs.LastUpdate = time.Now()
+	et.State().Metadata.LastUpdated = time.Now()
 }
 
 // UpdateAlertLevel updates the current alert level and sustained status
 func (et *EnvironmentalTracker) UpdateAlertLevel(level string, conditionStartTime time.Time, isSustained bool) {
-	et.mu.Lock()
-	defer et.mu.Unlock()
+	et.Lock()
+	defer et.Unlock()
 
-	et.state.Outputs.AlertLevel = level
-	et.state.Outputs.ConditionStartTime = conditionStartTime
-	et.state.Outputs.IsSustained = isSustained
-	et.state.Metadata.LastUpdated = time.Now()
+	et.State().Outputs.AlertLevel = level
+	et.State().Outputs.ConditionStartTime = conditionStartTime
+	et.State().Outputs.IsSustained = isSustained
+	et.State().Metadata.LastUpdated = time.Now()
 }
 
 // RecordNotification records a notification that was sent
 func (et *EnvironmentalTracker) RecordNotification(level, message string, sensorLocations []string) {
-	et.mu.Lock()
-	defer et.mu.Unlock()
+	et.Lock()
+	defer et.Unlock()
 
-	et.state.Outputs.LastNotification = &NotificationRecord{
+	et.State().Outputs.LastNotification = &NotificationRecord{
 		Level:           level,
 		Message:         message,
 		SensorLocations: sensorLocations,
 		Timestamp:       time.Now(),
 	}
-	et.state.Metadata.LastUpdated = time.Now()
+	et.State().Metadata.LastUpdated = time.Now()
 }
 
 // RecordResolutionNotice records a resolution notification
 func (et *EnvironmentalTracker) RecordResolutionNotice(message string) {
-	et.mu.Lock()
-	defer et.mu.Unlock()
+	et.Lock()
+	defer et.Unlock()
 
-	et.state.Outputs.LastResolutionNotice = &NotificationRecord{
+	et.State().Outputs.LastResolutionNotice = &NotificationRecord{
 		Level:     "resolved",
 		Message:   message,
 		Timestamp: time.Now(),
 	}
-	et.state.Metadata.LastUpdated = time.Now()
+	et.State().Metadata.LastUpdated = time.Now()
 }
 
 // UpdateWaterLeakSensors updates the list of water leak sensors
 func (et *EnvironmentalTracker) UpdateWaterLeakSensors(sensors []WaterLeakSensorData) {
-	et.mu.Lock()
-	defer et.mu.Unlock()
+	et.Lock()
+	defer et.Unlock()
 
-	et.state.Outputs.WaterLeakSensors = make([]WaterLeakSensorData, len(sensors))
-	copy(et.state.Outputs.WaterLeakSensors, sensors)
-	et.state.Outputs.LastUpdate = time.Now()
-	et.state.Metadata.LastUpdated = time.Now()
+	et.State().Outputs.WaterLeakSensors = make([]WaterLeakSensorData, len(sensors))
+	copy(et.State().Outputs.WaterLeakSensors, sensors)
+	et.State().Outputs.LastUpdate = time.Now()
+	et.State().Metadata.LastUpdated = time.Now()
 }
 
 // UpdateActiveWaterLeaks updates the list of active water leak alerts
 func (et *EnvironmentalTracker) UpdateActiveWaterLeaks(alerts []WaterLeakAlert) {
-	et.mu.Lock()
-	defer et.mu.Unlock()
+	et.Lock()
+	defer et.Unlock()
 
-	et.state.Outputs.ActiveWaterLeaks = make([]WaterLeakAlert, len(alerts))
-	copy(et.state.Outputs.ActiveWaterLeaks, alerts)
-	et.state.Metadata.LastUpdated = time.Now()
+	et.State().Outputs.ActiveWaterLeaks = make([]WaterLeakAlert, len(alerts))
+	copy(et.State().Outputs.ActiveWaterLeaks, alerts)
+	et.State().Metadata.LastUpdated = time.Now()
 }
 
 // RecordWaterLeakNotification records a water leak notification that was sent
 func (et *EnvironmentalTracker) RecordWaterLeakNotification(entityID, friendlyName, message string) {
-	et.mu.Lock()
-	defer et.mu.Unlock()
+	et.Lock()
+	defer et.Unlock()
 
-	et.state.Outputs.LastWaterLeakNotice = &WaterLeakNotification{
+	et.State().Outputs.LastWaterLeakNotice = &WaterLeakNotification{
 		EntityID:     entityID,
 		FriendlyName: friendlyName,
 		Message:      message,
 		Timestamp:    time.Now(),
 	}
-	et.state.Metadata.LastUpdated = time.Now()
+	et.State().Metadata.LastUpdated = time.Now()
 }
 
 // GetState returns the current shadow state (thread-safe copy)
 func (et *EnvironmentalTracker) GetState() *EnvironmentalShadowState {
-	et.mu.RLock()
-	defer et.mu.RUnlock()
+	et.RLock()
+	defer et.RUnlock()
 
-	// Create a deep copy
+	s := et.State()
 	stateCopy := &EnvironmentalShadowState{
-		Plugin: et.state.Plugin,
-		Inputs: EnvironmentalInputs{
-			Current: make(map[string]interface{}),
+		Plugin: s.Plugin,
+		Inputs: ReadOnlyInputs{
+			Current: copyInputMap(s.Inputs.Current),
 		},
 		Outputs: EnvironmentalOutputs{
-			HumiditySensors:    make([]HumiditySensorData, len(et.state.Outputs.HumiditySensors)),
-			WaterLeakSensors:   make([]WaterLeakSensorData, len(et.state.Outputs.WaterLeakSensors)),
-			ActiveWaterLeaks:   make([]WaterLeakAlert, len(et.state.Outputs.ActiveWaterLeaks)),
-			AlertLevel:         et.state.Outputs.AlertLevel,
-			ConditionStartTime: et.state.Outputs.ConditionStartTime,
-			IsSustained:        et.state.Outputs.IsSustained,
-			LastUpdate:         et.state.Outputs.LastUpdate,
+			HumiditySensors:    make([]HumiditySensorData, len(s.Outputs.HumiditySensors)),
+			WaterLeakSensors:   make([]WaterLeakSensorData, len(s.Outputs.WaterLeakSensors)),
+			ActiveWaterLeaks:   make([]WaterLeakAlert, len(s.Outputs.ActiveWaterLeaks)),
+			AlertLevel:         s.Outputs.AlertLevel,
+			ConditionStartTime: s.Outputs.ConditionStartTime,
+			IsSustained:        s.Outputs.IsSustained,
+			LastUpdate:         s.Outputs.LastUpdate,
 		},
-		Metadata: et.state.Metadata,
+		Metadata: s.Metadata,
 	}
 
-	// Copy current inputs
-	for k, v := range et.state.Inputs.Current {
-		stateCopy.Inputs.Current[k] = v
-	}
+	copy(stateCopy.Outputs.HumiditySensors, s.Outputs.HumiditySensors)
+	copy(stateCopy.Outputs.WaterLeakSensors, s.Outputs.WaterLeakSensors)
+	copy(stateCopy.Outputs.ActiveWaterLeaks, s.Outputs.ActiveWaterLeaks)
 
-	// Copy humidity sensors
-	copy(stateCopy.Outputs.HumiditySensors, et.state.Outputs.HumiditySensors)
-
-	// Copy water leak sensors
-	copy(stateCopy.Outputs.WaterLeakSensors, et.state.Outputs.WaterLeakSensors)
-
-	// Copy active water leaks
-	copy(stateCopy.Outputs.ActiveWaterLeaks, et.state.Outputs.ActiveWaterLeaks)
-
-	// Copy notification records if they exist
-	if et.state.Outputs.LastNotification != nil {
-		notification := *et.state.Outputs.LastNotification
-		// Copy sensor locations slice
+	if s.Outputs.LastNotification != nil {
+		notification := *s.Outputs.LastNotification
 		if notification.SensorLocations != nil {
-			notification.SensorLocations = make([]string, len(et.state.Outputs.LastNotification.SensorLocations))
-			copy(notification.SensorLocations, et.state.Outputs.LastNotification.SensorLocations)
+			notification.SensorLocations = make([]string, len(s.Outputs.LastNotification.SensorLocations))
+			copy(notification.SensorLocations, s.Outputs.LastNotification.SensorLocations)
 		}
 		stateCopy.Outputs.LastNotification = &notification
 	}
-
-	if et.state.Outputs.LastResolutionNotice != nil {
-		resolution := *et.state.Outputs.LastResolutionNotice
+	if s.Outputs.LastResolutionNotice != nil {
+		resolution := *s.Outputs.LastResolutionNotice
 		stateCopy.Outputs.LastResolutionNotice = &resolution
 	}
-
-	if et.state.Outputs.LastWaterLeakNotice != nil {
-		waterLeakNotice := *et.state.Outputs.LastWaterLeakNotice
+	if s.Outputs.LastWaterLeakNotice != nil {
+		waterLeakNotice := *s.Outputs.LastWaterLeakNotice
 		stateCopy.Outputs.LastWaterLeakNotice = &waterLeakNotice
 	}
 
@@ -1543,224 +1303,201 @@ func (et *EnvironmentalTracker) GetState() *EnvironmentalShadowState {
 }
 
 // ============================================================================
-// Sensor Health Tracker - Battery, Staleness, and Temperature Lockup Monitoring
+// Sensor Health Tracker
 // ============================================================================
 
 // SensorHealthTracker manages shadow state for the sensor health plugin
 type SensorHealthTracker struct {
-	mu    sync.RWMutex
-	state *SensorHealthShadowState
+	ReadOnlyTracker[SensorHealthOutputs]
 }
 
 // NewSensorHealthTracker creates a new sensor health shadow state tracker
 func NewSensorHealthTracker() *SensorHealthTracker {
 	return &SensorHealthTracker{
-		state: NewSensorHealthShadowState(),
+		ReadOnlyTracker: NewReadOnlyTracker(NewSensorHealthShadowState()),
 	}
-}
-
-// UpdateCurrentInputs updates the current input values
-func (st *SensorHealthTracker) UpdateCurrentInputs(inputs map[string]interface{}) {
-	st.mu.Lock()
-	defer st.mu.Unlock()
-
-	for key, value := range inputs {
-		st.state.Inputs.Current[key] = value
-	}
-	st.state.Metadata.LastUpdated = time.Now()
 }
 
 // UpdateBatterySensors updates the list of discovered battery sensors
 func (st *SensorHealthTracker) UpdateBatterySensors(sensors []BatterySensorData) {
-	st.mu.Lock()
-	defer st.mu.Unlock()
+	st.Lock()
+	defer st.Unlock()
 
-	st.state.Outputs.BatterySensors = make([]BatterySensorData, len(sensors))
-	copy(st.state.Outputs.BatterySensors, sensors)
-	st.state.Outputs.LastUpdate = time.Now()
-	st.state.Metadata.LastUpdated = time.Now()
+	st.State().Outputs.BatterySensors = make([]BatterySensorData, len(sensors))
+	copy(st.State().Outputs.BatterySensors, sensors)
+	st.State().Outputs.LastUpdate = time.Now()
+	st.State().Metadata.LastUpdated = time.Now()
 }
 
-// UpdateTemperatureSensors updates the list of discovered temperature sensors for lockup monitoring
+// UpdateTemperatureSensors updates the list of discovered temperature sensors
 func (st *SensorHealthTracker) UpdateTemperatureSensors(sensors []TemperatureSensorData) {
-	st.mu.Lock()
-	defer st.mu.Unlock()
+	st.Lock()
+	defer st.Unlock()
 
-	st.state.Outputs.TemperatureSensors = make([]TemperatureSensorData, len(sensors))
-	copy(st.state.Outputs.TemperatureSensors, sensors)
-	st.state.Outputs.LastUpdate = time.Now()
-	st.state.Metadata.LastUpdated = time.Now()
+	st.State().Outputs.TemperatureSensors = make([]TemperatureSensorData, len(sensors))
+	copy(st.State().Outputs.TemperatureSensors, sensors)
+	st.State().Outputs.LastUpdate = time.Now()
+	st.State().Metadata.LastUpdated = time.Now()
 }
 
 // UpdateLowBatteryAlerts updates the list of low battery alerts
 func (st *SensorHealthTracker) UpdateLowBatteryAlerts(alerts []LowBatteryAlert) {
-	st.mu.Lock()
-	defer st.mu.Unlock()
+	st.Lock()
+	defer st.Unlock()
 
-	st.state.Outputs.LowBatteryAlerts = make([]LowBatteryAlert, len(alerts))
-	copy(st.state.Outputs.LowBatteryAlerts, alerts)
-	st.state.Metadata.LastUpdated = time.Now()
+	st.State().Outputs.LowBatteryAlerts = make([]LowBatteryAlert, len(alerts))
+	copy(st.State().Outputs.LowBatteryAlerts, alerts)
+	st.State().Metadata.LastUpdated = time.Now()
 }
 
 // RecordNotification records a notification that was sent
 func (st *SensorHealthTracker) RecordNotification(alertType, entityID, message string) {
-	st.mu.Lock()
-	defer st.mu.Unlock()
+	st.Lock()
+	defer st.Unlock()
 
-	st.state.Outputs.LastNotification = &SensorHealthNotification{
+	st.State().Outputs.LastNotification = &SensorHealthNotification{
 		AlertType: alertType,
 		EntityID:  entityID,
 		Message:   message,
 		Timestamp: time.Now(),
 	}
-	st.state.Metadata.LastUpdated = time.Now()
+	st.State().Metadata.LastUpdated = time.Now()
 }
 
-// RecordTemperatureLockupNotification records a temperature lockup notification that was sent
+// RecordTemperatureLockupNotification records a temperature lockup notification
 func (st *SensorHealthTracker) RecordTemperatureLockupNotification(entityID, friendlyName, message string) {
-	st.mu.Lock()
-	defer st.mu.Unlock()
+	st.Lock()
+	defer st.Unlock()
 
-	st.state.Outputs.LastTemperatureLockupNotice = &TemperatureLockupNotice{
+	st.State().Outputs.LastTemperatureLockupNotice = &TemperatureLockupNotice{
 		EntityID:     entityID,
 		FriendlyName: friendlyName,
 		Message:      message,
 		Timestamp:    time.Now(),
 	}
-	st.state.Metadata.LastUpdated = time.Now()
+	st.State().Metadata.LastUpdated = time.Now()
 }
 
-// RecordTemperatureRecoveryNotification records a temperature recovery notification that was sent
+// RecordTemperatureRecoveryNotification records a temperature recovery notification
 func (st *SensorHealthTracker) RecordTemperatureRecoveryNotification(entityID, friendlyName, message string) {
-	st.mu.Lock()
-	defer st.mu.Unlock()
+	st.Lock()
+	defer st.Unlock()
 
-	st.state.Outputs.LastTemperatureRecoveryNotice = &TemperatureRecoveryNotice{
+	st.State().Outputs.LastTemperatureRecoveryNotice = &TemperatureRecoveryNotice{
 		EntityID:     entityID,
 		FriendlyName: friendlyName,
 		Message:      message,
 		Timestamp:    time.Now(),
 	}
-	st.state.Metadata.LastUpdated = time.Now()
+	st.State().Metadata.LastUpdated = time.Now()
 }
 
 // UpdateNodeStatuses updates the list of discovered Z-Wave node status sensors
 func (st *SensorHealthTracker) UpdateNodeStatuses(statuses []NodeStatusData) {
-	st.mu.Lock()
-	defer st.mu.Unlock()
+	st.Lock()
+	defer st.Unlock()
 
-	st.state.Outputs.NodeStatuses = make([]NodeStatusData, len(statuses))
-	copy(st.state.Outputs.NodeStatuses, statuses)
-	st.state.Outputs.LastUpdate = time.Now()
-	st.state.Metadata.LastUpdated = time.Now()
+	st.State().Outputs.NodeStatuses = make([]NodeStatusData, len(statuses))
+	copy(st.State().Outputs.NodeStatuses, statuses)
+	st.State().Outputs.LastUpdate = time.Now()
+	st.State().Metadata.LastUpdated = time.Now()
 }
 
 // UpdateDeadDeviceAlerts updates the list of dead device alerts
 func (st *SensorHealthTracker) UpdateDeadDeviceAlerts(alerts []DeadDeviceAlert) {
-	st.mu.Lock()
-	defer st.mu.Unlock()
+	st.Lock()
+	defer st.Unlock()
 
-	st.state.Outputs.DeadDeviceAlerts = make([]DeadDeviceAlert, len(alerts))
-	copy(st.state.Outputs.DeadDeviceAlerts, alerts)
-	st.state.Metadata.LastUpdated = time.Now()
+	st.State().Outputs.DeadDeviceAlerts = make([]DeadDeviceAlert, len(alerts))
+	copy(st.State().Outputs.DeadDeviceAlerts, alerts)
+	st.State().Metadata.LastUpdated = time.Now()
 }
 
-// RecordDeadDeviceNotification records a dead device notification that was sent
+// RecordDeadDeviceNotification records a dead device notification
 func (st *SensorHealthTracker) RecordDeadDeviceNotification(entityID, deviceName, message string) {
-	st.mu.Lock()
-	defer st.mu.Unlock()
+	st.Lock()
+	defer st.Unlock()
 
-	st.state.Outputs.LastDeadDeviceNotification = &DeadDeviceNotification{
+	st.State().Outputs.LastDeadDeviceNotification = &DeadDeviceNotification{
 		EntityID:   entityID,
 		DeviceName: deviceName,
 		Message:    message,
 		Timestamp:  time.Now(),
 	}
-	st.state.Metadata.LastUpdated = time.Now()
+	st.State().Metadata.LastUpdated = time.Now()
 }
 
-// RecordDeviceRecoveryNotification records a device recovery notification that was sent
+// RecordDeviceRecoveryNotification records a device recovery notification
 func (st *SensorHealthTracker) RecordDeviceRecoveryNotification(entityID, deviceName, message string) {
-	st.mu.Lock()
-	defer st.mu.Unlock()
+	st.Lock()
+	defer st.Unlock()
 
-	st.state.Outputs.LastDeviceRecoveryNotification = &DeviceRecoveryNotification{
+	st.State().Outputs.LastDeviceRecoveryNotification = &DeviceRecoveryNotification{
 		EntityID:   entityID,
 		DeviceName: deviceName,
 		Message:    message,
 		Timestamp:  time.Now(),
 	}
-	st.state.Metadata.LastUpdated = time.Now()
+	st.State().Metadata.LastUpdated = time.Now()
 }
 
 // SetLastDiscoveryRefresh records when discovery was last refreshed
 func (st *SensorHealthTracker) SetLastDiscoveryRefresh(t time.Time) {
-	st.mu.Lock()
-	defer st.mu.Unlock()
+	st.Lock()
+	defer st.Unlock()
 
-	st.state.Outputs.LastDiscoveryRefresh = t
-	st.state.Metadata.LastUpdated = time.Now()
+	st.State().Outputs.LastDiscoveryRefresh = t
+	st.State().Metadata.LastUpdated = time.Now()
 }
 
 // GetState returns the current shadow state (thread-safe copy)
 func (st *SensorHealthTracker) GetState() *SensorHealthShadowState {
-	st.mu.RLock()
-	defer st.mu.RUnlock()
+	st.RLock()
+	defer st.RUnlock()
 
-	// Create a deep copy
+	s := st.State()
 	stateCopy := &SensorHealthShadowState{
-		Plugin: st.state.Plugin,
-		Inputs: SensorHealthInputs{
-			Current: make(map[string]interface{}),
+		Plugin: s.Plugin,
+		Inputs: ReadOnlyInputs{
+			Current: copyInputMap(s.Inputs.Current),
 		},
 		Outputs: SensorHealthOutputs{
-			BatterySensors:       make([]BatterySensorData, len(st.state.Outputs.BatterySensors)),
-			TemperatureSensors:   make([]TemperatureSensorData, len(st.state.Outputs.TemperatureSensors)),
-			NodeStatuses:         make([]NodeStatusData, len(st.state.Outputs.NodeStatuses)),
-			LowBatteryAlerts:     make([]LowBatteryAlert, len(st.state.Outputs.LowBatteryAlerts)),
-			DeadDeviceAlerts:     make([]DeadDeviceAlert, len(st.state.Outputs.DeadDeviceAlerts)),
-			Config:               st.state.Outputs.Config,
-			LastUpdate:           st.state.Outputs.LastUpdate,
-			LastDiscoveryRefresh: st.state.Outputs.LastDiscoveryRefresh,
+			BatterySensors:       make([]BatterySensorData, len(s.Outputs.BatterySensors)),
+			TemperatureSensors:   make([]TemperatureSensorData, len(s.Outputs.TemperatureSensors)),
+			NodeStatuses:         make([]NodeStatusData, len(s.Outputs.NodeStatuses)),
+			LowBatteryAlerts:     make([]LowBatteryAlert, len(s.Outputs.LowBatteryAlerts)),
+			DeadDeviceAlerts:     make([]DeadDeviceAlert, len(s.Outputs.DeadDeviceAlerts)),
+			Config:               s.Outputs.Config,
+			LastUpdate:           s.Outputs.LastUpdate,
+			LastDiscoveryRefresh: s.Outputs.LastDiscoveryRefresh,
 		},
-		Metadata: st.state.Metadata,
+		Metadata: s.Metadata,
 	}
 
-	// Copy current inputs
-	for k, v := range st.state.Inputs.Current {
-		stateCopy.Inputs.Current[k] = v
-	}
+	copy(stateCopy.Outputs.BatterySensors, s.Outputs.BatterySensors)
+	copy(stateCopy.Outputs.TemperatureSensors, s.Outputs.TemperatureSensors)
+	copy(stateCopy.Outputs.NodeStatuses, s.Outputs.NodeStatuses)
+	copy(stateCopy.Outputs.LowBatteryAlerts, s.Outputs.LowBatteryAlerts)
+	copy(stateCopy.Outputs.DeadDeviceAlerts, s.Outputs.DeadDeviceAlerts)
 
-	// Copy slices
-	copy(stateCopy.Outputs.BatterySensors, st.state.Outputs.BatterySensors)
-	copy(stateCopy.Outputs.TemperatureSensors, st.state.Outputs.TemperatureSensors)
-	copy(stateCopy.Outputs.NodeStatuses, st.state.Outputs.NodeStatuses)
-	copy(stateCopy.Outputs.LowBatteryAlerts, st.state.Outputs.LowBatteryAlerts)
-	copy(stateCopy.Outputs.DeadDeviceAlerts, st.state.Outputs.DeadDeviceAlerts)
-
-	// Copy notification records if they exist
-	if st.state.Outputs.LastNotification != nil {
-		notification := *st.state.Outputs.LastNotification
+	if s.Outputs.LastNotification != nil {
+		notification := *s.Outputs.LastNotification
 		stateCopy.Outputs.LastNotification = &notification
 	}
-
-	if st.state.Outputs.LastTemperatureLockupNotice != nil {
-		lockupNotice := *st.state.Outputs.LastTemperatureLockupNotice
+	if s.Outputs.LastTemperatureLockupNotice != nil {
+		lockupNotice := *s.Outputs.LastTemperatureLockupNotice
 		stateCopy.Outputs.LastTemperatureLockupNotice = &lockupNotice
 	}
-
-	if st.state.Outputs.LastTemperatureRecoveryNotice != nil {
-		recoveryNotice := *st.state.Outputs.LastTemperatureRecoveryNotice
+	if s.Outputs.LastTemperatureRecoveryNotice != nil {
+		recoveryNotice := *s.Outputs.LastTemperatureRecoveryNotice
 		stateCopy.Outputs.LastTemperatureRecoveryNotice = &recoveryNotice
 	}
-
-	if st.state.Outputs.LastDeadDeviceNotification != nil {
-		deadNotice := *st.state.Outputs.LastDeadDeviceNotification
+	if s.Outputs.LastDeadDeviceNotification != nil {
+		deadNotice := *s.Outputs.LastDeadDeviceNotification
 		stateCopy.Outputs.LastDeadDeviceNotification = &deadNotice
 	}
-
-	if st.state.Outputs.LastDeviceRecoveryNotification != nil {
-		recoveryNotice := *st.state.Outputs.LastDeviceRecoveryNotification
+	if s.Outputs.LastDeviceRecoveryNotification != nil {
+		recoveryNotice := *s.Outputs.LastDeviceRecoveryNotification
 		stateCopy.Outputs.LastDeviceRecoveryNotification = &recoveryNotice
 	}
 
@@ -1768,26 +1505,25 @@ func (st *SensorHealthTracker) GetState() *SensorHealthShadowState {
 }
 
 // ============================================================================
-// Sensor Config Tracker - Zigbee Sensor Threshold Configuration
+// Sensor Config Tracker
 // ============================================================================
 
 // SensorConfigTracker manages shadow state for the sensor config plugin
 type SensorConfigTracker struct {
-	mu    sync.RWMutex
-	state *SensorConfigShadowState
+	ReadOnlyTracker[SensorConfigOutputs]
 }
 
 // NewSensorConfigTracker creates a new sensor config shadow state tracker
 func NewSensorConfigTracker() *SensorConfigTracker {
 	return &SensorConfigTracker{
-		state: NewSensorConfigShadowState(),
+		ReadOnlyTracker: NewReadOnlyTracker(NewSensorConfigShadowState()),
 	}
 }
 
 // RecordConfiguration records a threshold configuration
 func (sct *SensorConfigTracker) RecordConfiguration(configType, description string, value float64, configuredEntities, failedEntities []string) {
-	sct.mu.Lock()
-	defer sct.mu.Unlock()
+	sct.Lock()
+	defer sct.Unlock()
 
 	now := time.Now()
 	config := ThresholdConfiguration{
@@ -1799,48 +1535,42 @@ func (sct *SensorConfigTracker) RecordConfiguration(configType, description stri
 		ConfiguredAt:       now,
 	}
 
-	sct.state.Outputs.Configurations = append(sct.state.Outputs.Configurations, config)
-	sct.state.Outputs.ConfiguredAt = now
-	sct.state.Outputs.LastUpdate = now
-	sct.state.Metadata.LastUpdated = now
+	sct.State().Outputs.Configurations = append(sct.State().Outputs.Configurations, config)
+	sct.State().Outputs.ConfiguredAt = now
+	sct.State().Outputs.LastUpdate = now
+	sct.State().Metadata.LastUpdated = now
 }
 
 // Clear clears all configuration records (used during Reset)
 func (sct *SensorConfigTracker) Clear() {
-	sct.mu.Lock()
-	defer sct.mu.Unlock()
+	sct.Lock()
+	defer sct.Unlock()
 
-	sct.state.Outputs.Configurations = make([]ThresholdConfiguration, 0)
-	sct.state.Outputs.ConfiguredAt = time.Time{}
-	sct.state.Metadata.LastUpdated = time.Now()
+	sct.State().Outputs.Configurations = make([]ThresholdConfiguration, 0)
+	sct.State().Outputs.ConfiguredAt = time.Time{}
+	sct.State().Metadata.LastUpdated = time.Now()
 }
 
 // GetState returns the current shadow state (thread-safe copy)
 func (sct *SensorConfigTracker) GetState() *SensorConfigShadowState {
-	sct.mu.RLock()
-	defer sct.mu.RUnlock()
+	sct.RLock()
+	defer sct.RUnlock()
 
-	// Create a deep copy
+	s := sct.State()
 	stateCopy := &SensorConfigShadowState{
-		Plugin: sct.state.Plugin,
-		Inputs: SensorConfigInputs{
-			Current: make(map[string]interface{}),
+		Plugin: s.Plugin,
+		Inputs: ReadOnlyInputs{
+			Current: copyInputMap(s.Inputs.Current),
 		},
 		Outputs: SensorConfigOutputs{
-			Configurations: make([]ThresholdConfiguration, len(sct.state.Outputs.Configurations)),
-			ConfiguredAt:   sct.state.Outputs.ConfiguredAt,
-			LastUpdate:     sct.state.Outputs.LastUpdate,
+			Configurations: make([]ThresholdConfiguration, len(s.Outputs.Configurations)),
+			ConfiguredAt:   s.Outputs.ConfiguredAt,
+			LastUpdate:     s.Outputs.LastUpdate,
 		},
-		Metadata: sct.state.Metadata,
+		Metadata: s.Metadata,
 	}
 
-	// Copy current inputs
-	for k, v := range sct.state.Inputs.Current {
-		stateCopy.Inputs.Current[k] = v
-	}
-
-	// Copy configurations
-	for i, config := range sct.state.Outputs.Configurations {
+	for i, config := range s.Outputs.Configurations {
 		stateCopy.Outputs.Configurations[i] = ThresholdConfiguration{
 			ConfigType:         config.ConfigType,
 			Description:        config.Description,
@@ -1855,193 +1585,172 @@ func (sct *SensorConfigTracker) GetState() *SensorConfigShadowState {
 }
 
 // ============================================================================
-// Infrastructure Tracker - Aerobic Septic System Monitoring
+// Infrastructure Tracker
 // ============================================================================
 
 // InfrastructureTracker manages shadow state for the infrastructure plugin
 type InfrastructureTracker struct {
-	mu    sync.RWMutex
-	state *InfrastructureShadowState
+	ReadOnlyTracker[InfrastructureOutputs]
 }
 
 // NewInfrastructureTracker creates a new infrastructure shadow state tracker
 func NewInfrastructureTracker() *InfrastructureTracker {
 	return &InfrastructureTracker{
-		state: NewInfrastructureShadowState(),
+		ReadOnlyTracker: NewReadOnlyTracker(NewInfrastructureShadowState()),
 	}
-}
-
-// UpdateCurrentInputs updates the current input values
-func (it *InfrastructureTracker) UpdateCurrentInputs(inputs map[string]interface{}) {
-	it.mu.Lock()
-	defer it.mu.Unlock()
-
-	for key, value := range inputs {
-		it.state.Inputs.Current[key] = value
-	}
-	it.state.Metadata.LastUpdated = time.Now()
 }
 
 // UpdateSepticPower updates the current septic system power reading
 func (it *InfrastructureTracker) UpdateSepticPower(powerW float64) {
-	it.mu.Lock()
-	defer it.mu.Unlock()
+	it.Lock()
+	defer it.Unlock()
 
-	it.state.Outputs.SepticSystemStatus.CurrentPowerW = powerW
-	it.state.Outputs.LastUpdate = time.Now()
-	it.state.Metadata.LastUpdated = time.Now()
+	it.State().Outputs.SepticSystemStatus.CurrentPowerW = powerW
+	it.State().Outputs.LastUpdate = time.Now()
+	it.State().Metadata.LastUpdated = time.Now()
 }
 
 // UpdateSystemState updates the septic system state
 func (it *InfrastructureTracker) UpdateSystemState(systemState string) {
-	it.mu.Lock()
-	defer it.mu.Unlock()
+	it.Lock()
+	defer it.Unlock()
 
-	it.state.Outputs.SepticSystemStatus.SystemState = systemState
-	it.state.Metadata.LastUpdated = time.Now()
+	it.State().Outputs.SepticSystemStatus.SystemState = systemState
+	it.State().Metadata.LastUpdated = time.Now()
 }
 
 // UpdateAeratorFailureStart tracks when low power condition started
 func (it *InfrastructureTracker) UpdateAeratorFailureStart(startTime time.Time) {
-	it.mu.Lock()
-	defer it.mu.Unlock()
+	it.Lock()
+	defer it.Unlock()
 
-	it.state.Outputs.SepticSystemStatus.AeratorFailureStart = startTime
-	it.state.Metadata.LastUpdated = time.Now()
+	it.State().Outputs.SepticSystemStatus.AeratorFailureStart = startTime
+	it.State().Metadata.LastUpdated = time.Now()
 }
 
 // UpdatePumpRunningStart tracks when high power condition started
 func (it *InfrastructureTracker) UpdatePumpRunningStart(startTime time.Time) {
-	it.mu.Lock()
-	defer it.mu.Unlock()
+	it.Lock()
+	defer it.Unlock()
 
-	it.state.Outputs.SepticSystemStatus.PumpRunningStart = startTime
-	it.state.Metadata.LastUpdated = time.Now()
+	it.State().Outputs.SepticSystemStatus.PumpRunningStart = startTime
+	it.State().Metadata.LastUpdated = time.Now()
 }
 
 // UpdateLastNormalPowerTime tracks when power was last in normal range
 func (it *InfrastructureTracker) UpdateLastNormalPowerTime(t time.Time) {
-	it.mu.Lock()
-	defer it.mu.Unlock()
+	it.Lock()
+	defer it.Unlock()
 
-	it.state.Outputs.SepticSystemStatus.LastNormalPowerTime = t
-	it.state.Metadata.LastUpdated = time.Now()
+	it.State().Outputs.SepticSystemStatus.LastNormalPowerTime = t
+	it.State().Metadata.LastUpdated = time.Now()
 }
 
 // UpdateIsAlerting tracks whether an alert is currently active
 func (it *InfrastructureTracker) UpdateIsAlerting(isAlerting bool) {
-	it.mu.Lock()
-	defer it.mu.Unlock()
+	it.Lock()
+	defer it.Unlock()
 
-	it.state.Outputs.SepticSystemStatus.IsAlerting = isAlerting
-	it.state.Metadata.LastUpdated = time.Now()
+	it.State().Outputs.SepticSystemStatus.IsAlerting = isAlerting
+	it.State().Metadata.LastUpdated = time.Now()
 }
 
 // UpdateActiveAlerts updates the list of active alerts
 func (it *InfrastructureTracker) UpdateActiveAlerts(alerts []InfrastructureAlert) {
-	it.mu.Lock()
-	defer it.mu.Unlock()
+	it.Lock()
+	defer it.Unlock()
 
-	it.state.Outputs.ActiveAlerts = make([]InfrastructureAlert, len(alerts))
-	copy(it.state.Outputs.ActiveAlerts, alerts)
-	it.state.Metadata.LastUpdated = time.Now()
+	it.State().Outputs.ActiveAlerts = make([]InfrastructureAlert, len(alerts))
+	copy(it.State().Outputs.ActiveAlerts, alerts)
+	it.State().Metadata.LastUpdated = time.Now()
 }
 
 // RecordNotification records a notification that was sent
 func (it *InfrastructureTracker) RecordNotification(alertType, message, priority string) {
-	it.mu.Lock()
-	defer it.mu.Unlock()
+	it.Lock()
+	defer it.Unlock()
 
-	it.state.Outputs.LastNotification = &InfrastructureNotification{
+	it.State().Outputs.LastNotification = &InfrastructureNotification{
 		AlertType: alertType,
 		Message:   message,
 		Priority:  priority,
 		Timestamp: time.Now(),
 	}
-	it.state.Metadata.LastUpdated = time.Now()
+	it.State().Metadata.LastUpdated = time.Now()
 }
 
 // RecordTTSAnnouncement records a TTS announcement that was made
 func (it *InfrastructureTracker) RecordTTSAnnouncement(message string) {
-	it.mu.Lock()
-	defer it.mu.Unlock()
+	it.Lock()
+	defer it.Unlock()
 
-	it.state.Outputs.LastTTSAnnouncement = &InfrastructureTTS{
+	it.State().Outputs.LastTTSAnnouncement = &InfrastructureTTS{
 		Message:   message,
 		Timestamp: time.Now(),
 	}
-	it.state.Metadata.LastUpdated = time.Now()
+	it.State().Metadata.LastUpdated = time.Now()
 }
 
 // ClearAlerts clears all active alerts and resets alerting state
 func (it *InfrastructureTracker) ClearAlerts() {
-	it.mu.Lock()
-	defer it.mu.Unlock()
+	it.Lock()
+	defer it.Unlock()
 
-	it.state.Outputs.ActiveAlerts = make([]InfrastructureAlert, 0)
-	it.state.Outputs.SepticSystemStatus.IsAlerting = false
-	it.state.Outputs.SepticSystemStatus.AeratorFailureStart = time.Time{}
-	it.state.Outputs.SepticSystemStatus.PumpRunningStart = time.Time{}
-	it.state.Metadata.LastUpdated = time.Now()
+	it.State().Outputs.ActiveAlerts = make([]InfrastructureAlert, 0)
+	it.State().Outputs.SepticSystemStatus.IsAlerting = false
+	it.State().Outputs.SepticSystemStatus.AeratorFailureStart = time.Time{}
+	it.State().Outputs.SepticSystemStatus.PumpRunningStart = time.Time{}
+	it.State().Metadata.LastUpdated = time.Now()
 }
 
 // UpdateWellThermostat updates the well thermostat state
 func (it *InfrastructureTracker) UpdateWellThermostat(state ThermostatState) {
-	it.mu.Lock()
-	defer it.mu.Unlock()
+	it.Lock()
+	defer it.Unlock()
 
-	it.state.Outputs.ThermostatStatus.WellThermostat = state
-	it.state.Outputs.LastUpdate = time.Now()
-	it.state.Metadata.LastUpdated = time.Now()
+	it.State().Outputs.ThermostatStatus.WellThermostat = state
+	it.State().Outputs.LastUpdate = time.Now()
+	it.State().Metadata.LastUpdated = time.Now()
 }
 
 // UpdateBarnThermostat updates the barn thermostat state
 func (it *InfrastructureTracker) UpdateBarnThermostat(state ThermostatState) {
-	it.mu.Lock()
-	defer it.mu.Unlock()
+	it.Lock()
+	defer it.Unlock()
 
-	it.state.Outputs.ThermostatStatus.BarnThermostat = state
-	it.state.Outputs.LastUpdate = time.Now()
-	it.state.Metadata.LastUpdated = time.Now()
+	it.State().Outputs.ThermostatStatus.BarnThermostat = state
+	it.State().Outputs.LastUpdate = time.Now()
+	it.State().Metadata.LastUpdated = time.Now()
 }
 
 // GetState returns the current shadow state (thread-safe copy)
 func (it *InfrastructureTracker) GetState() *InfrastructureShadowState {
-	it.mu.RLock()
-	defer it.mu.RUnlock()
+	it.RLock()
+	defer it.RUnlock()
 
-	// Create a deep copy
+	s := it.State()
 	stateCopy := &InfrastructureShadowState{
-		Plugin: it.state.Plugin,
-		Inputs: InfrastructureInputs{
-			Current: make(map[string]interface{}),
+		Plugin: s.Plugin,
+		Inputs: ReadOnlyInputs{
+			Current: copyInputMap(s.Inputs.Current),
 		},
 		Outputs: InfrastructureOutputs{
-			SepticSystemStatus: it.state.Outputs.SepticSystemStatus,
-			ThermostatStatus:   it.state.Outputs.ThermostatStatus,
-			ActiveAlerts:       make([]InfrastructureAlert, len(it.state.Outputs.ActiveAlerts)),
-			LastUpdate:         it.state.Outputs.LastUpdate,
+			SepticSystemStatus: s.Outputs.SepticSystemStatus,
+			ThermostatStatus:   s.Outputs.ThermostatStatus,
+			ActiveAlerts:       make([]InfrastructureAlert, len(s.Outputs.ActiveAlerts)),
+			LastUpdate:         s.Outputs.LastUpdate,
 		},
-		Metadata: it.state.Metadata,
+		Metadata: s.Metadata,
 	}
 
-	// Copy current inputs
-	for k, v := range it.state.Inputs.Current {
-		stateCopy.Inputs.Current[k] = v
-	}
+	copy(stateCopy.Outputs.ActiveAlerts, s.Outputs.ActiveAlerts)
 
-	// Copy active alerts
-	copy(stateCopy.Outputs.ActiveAlerts, it.state.Outputs.ActiveAlerts)
-
-	// Copy notification record if it exists
-	if it.state.Outputs.LastNotification != nil {
-		notification := *it.state.Outputs.LastNotification
+	if s.Outputs.LastNotification != nil {
+		notification := *s.Outputs.LastNotification
 		stateCopy.Outputs.LastNotification = &notification
 	}
-
-	// Copy TTS record if it exists
-	if it.state.Outputs.LastTTSAnnouncement != nil {
-		tts := *it.state.Outputs.LastTTSAnnouncement
+	if s.Outputs.LastTTSAnnouncement != nil {
+		tts := *s.Outputs.LastTTSAnnouncement
 		stateCopy.Outputs.LastTTSAnnouncement = &tts
 	}
 
@@ -2049,206 +1758,186 @@ func (it *InfrastructureTracker) GetState() *InfrastructureShadowState {
 }
 
 // ============================================================================
-// Water Flow Tracker - High Water Flow Monitoring
+// Water Flow Tracker
 // ============================================================================
 
 // WaterFlowTracker manages shadow state for the water flow monitoring plugin
 type WaterFlowTracker struct {
-	mu    sync.RWMutex
-	state *WaterFlowShadowState
+	ReadOnlyTracker[WaterFlowOutputs]
 }
 
 // NewWaterFlowTracker creates a new water flow shadow state tracker
 func NewWaterFlowTracker() *WaterFlowTracker {
 	return &WaterFlowTracker{
-		state: NewWaterFlowShadowState(),
+		ReadOnlyTracker: NewReadOnlyTracker(NewWaterFlowShadowState()),
 	}
-}
-
-// UpdateCurrentInputs updates the current input values
-func (wt *WaterFlowTracker) UpdateCurrentInputs(inputs map[string]interface{}) {
-	wt.mu.Lock()
-	defer wt.mu.Unlock()
-
-	for key, value := range inputs {
-		wt.state.Inputs.Current[key] = value
-	}
-	wt.state.Metadata.LastUpdated = time.Now()
 }
 
 // UpdateFlowRate updates the current flow rate reading
 func (wt *WaterFlowTracker) UpdateFlowRate(flowRateGPM float64) {
-	wt.mu.Lock()
-	defer wt.mu.Unlock()
+	wt.Lock()
+	defer wt.Unlock()
 
-	wt.state.Outputs.CurrentFlowRateGPM = flowRateGPM
-	wt.state.Outputs.LastUpdate = time.Now()
-	wt.state.Metadata.LastUpdated = time.Now()
+	wt.State().Outputs.CurrentFlowRateGPM = flowRateGPM
+	wt.State().Outputs.LastUpdate = time.Now()
+	wt.State().Metadata.LastUpdated = time.Now()
 }
 
 // UpdateAlertLevel updates the current alert level
 func (wt *WaterFlowTracker) UpdateAlertLevel(level string) {
-	wt.mu.Lock()
-	defer wt.mu.Unlock()
+	wt.Lock()
+	defer wt.Unlock()
 
-	wt.state.Outputs.AlertLevel = level
-	wt.state.Metadata.LastUpdated = time.Now()
+	wt.State().Outputs.AlertLevel = level
+	wt.State().Metadata.LastUpdated = time.Now()
 }
 
 // UpdateWarningThresholdStart tracks when warning threshold was exceeded
 func (wt *WaterFlowTracker) UpdateWarningThresholdStart(startTime *time.Time) {
-	wt.mu.Lock()
-	defer wt.mu.Unlock()
+	wt.Lock()
+	defer wt.Unlock()
 
-	wt.state.Outputs.WarningThresholdStart = startTime
-	wt.state.Metadata.LastUpdated = time.Now()
+	wt.State().Outputs.WarningThresholdStart = startTime
+	wt.State().Metadata.LastUpdated = time.Now()
 }
 
 // UpdateUrgentThresholdStart tracks when urgent threshold was exceeded
 func (wt *WaterFlowTracker) UpdateUrgentThresholdStart(startTime *time.Time) {
-	wt.mu.Lock()
-	defer wt.mu.Unlock()
+	wt.Lock()
+	defer wt.Unlock()
 
-	wt.state.Outputs.UrgentThresholdStart = startTime
-	wt.state.Metadata.LastUpdated = time.Now()
+	wt.State().Outputs.UrgentThresholdStart = startTime
+	wt.State().Metadata.LastUpdated = time.Now()
 }
 
 // UpdateRecoveryStart tracks when recovery debounce started
 func (wt *WaterFlowTracker) UpdateRecoveryStart(startTime *time.Time) {
-	wt.mu.Lock()
-	defer wt.mu.Unlock()
+	wt.Lock()
+	defer wt.Unlock()
 
-	wt.state.Outputs.RecoveryStart = startTime
-	wt.state.Metadata.LastUpdated = time.Now()
+	wt.State().Outputs.RecoveryStart = startTime
+	wt.State().Metadata.LastUpdated = time.Now()
 }
 
 // UpdateConditionsMet updates whether conditions are met for alerts
 func (wt *WaterFlowTracker) UpdateConditionsMet(warningMet, urgentMet bool) {
-	wt.mu.Lock()
-	defer wt.mu.Unlock()
+	wt.Lock()
+	defer wt.Unlock()
 
-	wt.state.Outputs.IsWarningConditionMet = warningMet
-	wt.state.Outputs.IsUrgentConditionMet = urgentMet
-	wt.state.Metadata.LastUpdated = time.Now()
+	wt.State().Outputs.IsWarningConditionMet = warningMet
+	wt.State().Outputs.IsUrgentConditionMet = urgentMet
+	wt.State().Metadata.LastUpdated = time.Now()
 }
 
 // UpdateActiveAlerts updates the list of active alerts
 func (wt *WaterFlowTracker) UpdateActiveAlerts(alerts []WaterFlowAlert) {
-	wt.mu.Lock()
-	defer wt.mu.Unlock()
+	wt.Lock()
+	defer wt.Unlock()
 
-	wt.state.Outputs.ActiveAlerts = make([]WaterFlowAlert, len(alerts))
-	copy(wt.state.Outputs.ActiveAlerts, alerts)
-	wt.state.Metadata.LastUpdated = time.Now()
+	wt.State().Outputs.ActiveAlerts = make([]WaterFlowAlert, len(alerts))
+	copy(wt.State().Outputs.ActiveAlerts, alerts)
+	wt.State().Metadata.LastUpdated = time.Now()
 }
 
 // RecordNotification records a notification that was sent
 func (wt *WaterFlowTracker) RecordNotification(alertType, message, priority string) {
-	wt.mu.Lock()
-	defer wt.mu.Unlock()
+	wt.Lock()
+	defer wt.Unlock()
 
-	wt.state.Outputs.LastNotification = &WaterFlowNotice{
+	wt.State().Outputs.LastNotification = &WaterFlowNotice{
 		AlertType: alertType,
 		Message:   message,
 		Priority:  priority,
 		Timestamp: time.Now(),
 	}
-	wt.state.Metadata.LastUpdated = time.Now()
+	wt.State().Metadata.LastUpdated = time.Now()
 }
 
 // RecordRecoveryNotification records a recovery notification that was sent
 func (wt *WaterFlowTracker) RecordRecoveryNotification(message string) {
-	wt.mu.Lock()
-	defer wt.mu.Unlock()
+	wt.Lock()
+	defer wt.Unlock()
 
-	wt.state.Outputs.LastRecoveryNotification = &WaterFlowNotice{
+	wt.State().Outputs.LastRecoveryNotification = &WaterFlowNotice{
 		AlertType: "recovery",
 		Message:   message,
 		Priority:  "default",
 		Timestamp: time.Now(),
 	}
-	wt.state.Metadata.LastUpdated = time.Now()
+	wt.State().Metadata.LastUpdated = time.Now()
 }
 
 // RecordTTSAnnouncement records a TTS announcement that was made
 func (wt *WaterFlowTracker) RecordTTSAnnouncement() {
-	wt.mu.Lock()
-	defer wt.mu.Unlock()
+	wt.Lock()
+	defer wt.Unlock()
 
 	now := time.Now()
-	wt.state.Outputs.LastTTSAnnouncement = &now
-	wt.state.Metadata.LastUpdated = now
+	wt.State().Outputs.LastTTSAnnouncement = &now
+	wt.State().Metadata.LastUpdated = now
 }
 
 // ClearAlerts clears all active alerts and resets alerting state
 func (wt *WaterFlowTracker) ClearAlerts() {
-	wt.mu.Lock()
-	defer wt.mu.Unlock()
+	wt.Lock()
+	defer wt.Unlock()
 
-	wt.state.Outputs.AlertLevel = "none"
-	wt.state.Outputs.ActiveAlerts = make([]WaterFlowAlert, 0)
-	wt.state.Outputs.WarningThresholdStart = nil
-	wt.state.Outputs.UrgentThresholdStart = nil
-	wt.state.Outputs.IsWarningConditionMet = false
-	wt.state.Outputs.IsUrgentConditionMet = false
-	wt.state.Metadata.LastUpdated = time.Now()
+	wt.State().Outputs.AlertLevel = "none"
+	wt.State().Outputs.ActiveAlerts = make([]WaterFlowAlert, 0)
+	wt.State().Outputs.WarningThresholdStart = nil
+	wt.State().Outputs.UrgentThresholdStart = nil
+	wt.State().Outputs.IsWarningConditionMet = false
+	wt.State().Outputs.IsUrgentConditionMet = false
+	wt.State().Metadata.LastUpdated = time.Now()
 }
 
 // GetState returns the current shadow state (thread-safe copy)
 func (wt *WaterFlowTracker) GetState() *WaterFlowShadowState {
-	wt.mu.RLock()
-	defer wt.mu.RUnlock()
+	wt.RLock()
+	defer wt.RUnlock()
 
-	// Create a deep copy
+	s := wt.State()
 	stateCopy := &WaterFlowShadowState{
-		Plugin: wt.state.Plugin,
-		Inputs: WaterFlowInputs{
-			Current: make(map[string]interface{}),
+		Plugin: s.Plugin,
+		Inputs: ReadOnlyInputs{
+			Current: copyInputMap(s.Inputs.Current),
 		},
 		Outputs: WaterFlowOutputs{
-			CurrentFlowRateGPM:    wt.state.Outputs.CurrentFlowRateGPM,
-			AlertLevel:            wt.state.Outputs.AlertLevel,
-			IsWarningConditionMet: wt.state.Outputs.IsWarningConditionMet,
-			IsUrgentConditionMet:  wt.state.Outputs.IsUrgentConditionMet,
-			ActiveAlerts:          make([]WaterFlowAlert, len(wt.state.Outputs.ActiveAlerts)),
-			LastUpdate:            wt.state.Outputs.LastUpdate,
+			CurrentFlowRateGPM:    s.Outputs.CurrentFlowRateGPM,
+			AlertLevel:            s.Outputs.AlertLevel,
+			IsWarningConditionMet: s.Outputs.IsWarningConditionMet,
+			IsUrgentConditionMet:  s.Outputs.IsUrgentConditionMet,
+			ActiveAlerts:          make([]WaterFlowAlert, len(s.Outputs.ActiveAlerts)),
+			LastUpdate:            s.Outputs.LastUpdate,
 		},
-		Metadata: wt.state.Metadata,
+		Metadata: s.Metadata,
 	}
 
-	// Copy current inputs
-	for k, v := range wt.state.Inputs.Current {
-		stateCopy.Inputs.Current[k] = v
-	}
-
-	// Copy threshold start times if set
-	if wt.state.Outputs.WarningThresholdStart != nil {
-		t := *wt.state.Outputs.WarningThresholdStart
+	if s.Outputs.WarningThresholdStart != nil {
+		t := *s.Outputs.WarningThresholdStart
 		stateCopy.Outputs.WarningThresholdStart = &t
 	}
-	if wt.state.Outputs.UrgentThresholdStart != nil {
-		t := *wt.state.Outputs.UrgentThresholdStart
+	if s.Outputs.UrgentThresholdStart != nil {
+		t := *s.Outputs.UrgentThresholdStart
 		stateCopy.Outputs.UrgentThresholdStart = &t
 	}
-	if wt.state.Outputs.RecoveryStart != nil {
-		t := *wt.state.Outputs.RecoveryStart
+	if s.Outputs.RecoveryStart != nil {
+		t := *s.Outputs.RecoveryStart
 		stateCopy.Outputs.RecoveryStart = &t
 	}
 
-	// Copy active alerts
-	copy(stateCopy.Outputs.ActiveAlerts, wt.state.Outputs.ActiveAlerts)
+	copy(stateCopy.Outputs.ActiveAlerts, s.Outputs.ActiveAlerts)
 
-	// Copy notification records if they exist
-	if wt.state.Outputs.LastNotification != nil {
-		notification := *wt.state.Outputs.LastNotification
+	if s.Outputs.LastNotification != nil {
+		notification := *s.Outputs.LastNotification
 		stateCopy.Outputs.LastNotification = &notification
 	}
-	if wt.state.Outputs.LastRecoveryNotification != nil {
-		recovery := *wt.state.Outputs.LastRecoveryNotification
+	if s.Outputs.LastRecoveryNotification != nil {
+		recovery := *s.Outputs.LastRecoveryNotification
 		stateCopy.Outputs.LastRecoveryNotification = &recovery
 	}
-	if wt.state.Outputs.LastTTSAnnouncement != nil {
-		tts := *wt.state.Outputs.LastTTSAnnouncement
+	if s.Outputs.LastTTSAnnouncement != nil {
+		tts := *s.Outputs.LastTTSAnnouncement
 		stateCopy.Outputs.LastTTSAnnouncement = &tts
 	}
 
@@ -2256,187 +1945,169 @@ func (wt *WaterFlowTracker) GetState() *WaterFlowShadowState {
 }
 
 // ============================================================================
-// EV Charger Tracker - Safety Monitoring
+// EV Charger Tracker
 // ============================================================================
 
 // EVChargerTracker manages shadow state for the EV charger safety plugin
 type EVChargerTracker struct {
-	mu    sync.RWMutex
-	state *EVChargerShadowState
+	ReadOnlyTracker[EVChargerOutputs]
 }
 
 // NewEVChargerTracker creates a new EV charger shadow state tracker
 func NewEVChargerTracker() *EVChargerTracker {
 	return &EVChargerTracker{
-		state: NewEVChargerShadowState(),
+		ReadOnlyTracker: NewReadOnlyTracker(NewEVChargerShadowState()),
 	}
-}
-
-// UpdateCurrentInputs updates the current input values
-func (et *EVChargerTracker) UpdateCurrentInputs(inputs map[string]interface{}) {
-	et.mu.Lock()
-	defer et.mu.Unlock()
-
-	for key, value := range inputs {
-		et.state.Inputs.Current[key] = value
-	}
-	et.state.Metadata.LastUpdated = time.Now()
 }
 
 // UpdateOverheatState updates the overheat sensor state
 func (et *EVChargerTracker) UpdateOverheatState(isOverheat bool) {
-	et.mu.Lock()
-	defer et.mu.Unlock()
+	et.Lock()
+	defer et.Unlock()
 
-	et.state.Outputs.IsOverheat = isOverheat
-	et.state.Metadata.LastUpdated = time.Now()
+	et.State().Outputs.IsOverheat = isOverheat
+	et.State().Metadata.LastUpdated = time.Now()
 }
 
 // UpdateOverCurrentState updates the overcurrent sensor state
 func (et *EVChargerTracker) UpdateOverCurrentState(isOverCurrent bool) {
-	et.mu.Lock()
-	defer et.mu.Unlock()
+	et.Lock()
+	defer et.Unlock()
 
-	et.state.Outputs.IsOverCurrent = isOverCurrent
-	et.state.Metadata.LastUpdated = time.Now()
+	et.State().Outputs.IsOverCurrent = isOverCurrent
+	et.State().Metadata.LastUpdated = time.Now()
 }
 
 // UpdateOverVoltageState updates the overvoltage sensor state
 func (et *EVChargerTracker) UpdateOverVoltageState(isOverVoltage bool) {
-	et.mu.Lock()
-	defer et.mu.Unlock()
+	et.Lock()
+	defer et.Unlock()
 
-	et.state.Outputs.IsOverVoltage = isOverVoltage
-	et.state.Metadata.LastUpdated = time.Now()
+	et.State().Outputs.IsOverVoltage = isOverVoltage
+	et.State().Metadata.LastUpdated = time.Now()
 }
 
 // UpdateSwitchState updates the switch state
 func (et *EVChargerTracker) UpdateSwitchState(isOn bool) {
-	et.mu.Lock()
-	defer et.mu.Unlock()
+	et.Lock()
+	defer et.Unlock()
 
-	et.state.Outputs.IsSwitchOn = isOn
-	et.state.Metadata.LastUpdated = time.Now()
+	et.State().Outputs.IsSwitchOn = isOn
+	et.State().Metadata.LastUpdated = time.Now()
 }
 
 // UpdatePowerReading updates the current power reading
 func (et *EVChargerTracker) UpdatePowerReading(power string) {
-	et.mu.Lock()
-	defer et.mu.Unlock()
+	et.Lock()
+	defer et.Unlock()
 
-	et.state.Outputs.PowerReading = power
-	et.state.Metadata.LastUpdated = time.Now()
+	et.State().Outputs.PowerReading = power
+	et.State().Metadata.LastUpdated = time.Now()
 }
 
 // RecordSafetyEvent records a safety condition detection
 func (et *EVChargerTracker) RecordSafetyEvent(conditionType, sensor string) {
-	et.mu.Lock()
-	defer et.mu.Unlock()
+	et.Lock()
+	defer et.Unlock()
 
-	et.state.Outputs.LastSafetyEvent = &EVChargerSafetyEvent{
+	et.State().Outputs.LastSafetyEvent = &EVChargerSafetyEvent{
 		ConditionType: conditionType,
 		Sensor:        sensor,
 		Timestamp:     time.Now(),
 	}
-	et.state.Outputs.SafetyEventCount++
-	et.state.Metadata.LastUpdated = time.Now()
+	et.State().Outputs.SafetyEventCount++
+	et.State().Metadata.LastUpdated = time.Now()
 }
 
 // RecordShutoff records an emergency shutoff
 func (et *EVChargerTracker) RecordShutoff(reason string) {
-	et.mu.Lock()
-	defer et.mu.Unlock()
+	et.Lock()
+	defer et.Unlock()
 
-	et.state.Outputs.LastShutoff = &EVChargerShutoff{
+	et.State().Outputs.LastShutoff = &EVChargerShutoff{
 		Reason:    reason,
 		Timestamp: time.Now(),
 	}
-	et.state.Outputs.ShutoffCount++
-	et.state.Metadata.LastUpdated = time.Now()
+	et.State().Outputs.ShutoffCount++
+	et.State().Metadata.LastUpdated = time.Now()
 }
 
 // RecordNotification records a notification that was sent
 func (et *EVChargerTracker) RecordNotification(conditionType, message string) {
-	et.mu.Lock()
-	defer et.mu.Unlock()
+	et.Lock()
+	defer et.Unlock()
 
-	et.state.Outputs.LastNotification = &EVChargerNotice{
+	et.State().Outputs.LastNotification = &EVChargerNotice{
 		ConditionType: conditionType,
 		Message:       message,
 		Timestamp:     time.Now(),
 	}
-	et.state.Metadata.LastUpdated = time.Now()
+	et.State().Metadata.LastUpdated = time.Now()
 }
 
 // RecordTTSAnnouncement records a TTS announcement that was made
 func (et *EVChargerTracker) RecordTTSAnnouncement() {
-	et.mu.Lock()
-	defer et.mu.Unlock()
+	et.Lock()
+	defer et.Unlock()
 
 	now := time.Now()
-	et.state.Outputs.LastTTSAnnouncement = &now
-	et.state.Metadata.LastUpdated = now
+	et.State().Outputs.LastTTSAnnouncement = &now
+	et.State().Metadata.LastUpdated = now
 }
 
 // RecordRecovery records a recovery from a safety condition
 func (et *EVChargerTracker) RecordRecovery(conditionType string) {
-	et.mu.Lock()
-	defer et.mu.Unlock()
+	et.Lock()
+	defer et.Unlock()
 
-	et.state.Outputs.LastRecovery = &EVChargerRecovery{
+	et.State().Outputs.LastRecovery = &EVChargerRecovery{
 		ConditionType: conditionType,
 		Timestamp:     time.Now(),
 	}
-	et.state.Metadata.LastUpdated = time.Now()
+	et.State().Metadata.LastUpdated = time.Now()
 }
 
 // GetState returns the current shadow state (thread-safe copy)
 func (et *EVChargerTracker) GetState() *EVChargerShadowState {
-	et.mu.RLock()
-	defer et.mu.RUnlock()
+	et.RLock()
+	defer et.RUnlock()
 
-	// Create a deep copy
+	s := et.State()
 	stateCopy := &EVChargerShadowState{
-		Plugin: et.state.Plugin,
-		Inputs: EVChargerInputs{
-			Current: make(map[string]interface{}),
+		Plugin: s.Plugin,
+		Inputs: ReadOnlyInputs{
+			Current: copyInputMap(s.Inputs.Current),
 		},
 		Outputs: EVChargerOutputs{
-			IsOverheat:       et.state.Outputs.IsOverheat,
-			IsOverCurrent:    et.state.Outputs.IsOverCurrent,
-			IsOverVoltage:    et.state.Outputs.IsOverVoltage,
-			IsSwitchOn:       et.state.Outputs.IsSwitchOn,
-			PowerReading:     et.state.Outputs.PowerReading,
-			SafetyEventCount: et.state.Outputs.SafetyEventCount,
-			ShutoffCount:     et.state.Outputs.ShutoffCount,
+			IsOverheat:       s.Outputs.IsOverheat,
+			IsOverCurrent:    s.Outputs.IsOverCurrent,
+			IsOverVoltage:    s.Outputs.IsOverVoltage,
+			IsSwitchOn:       s.Outputs.IsSwitchOn,
+			PowerReading:     s.Outputs.PowerReading,
+			SafetyEventCount: s.Outputs.SafetyEventCount,
+			ShutoffCount:     s.Outputs.ShutoffCount,
 		},
-		Metadata: et.state.Metadata,
+		Metadata: s.Metadata,
 	}
 
-	// Copy current inputs
-	for k, v := range et.state.Inputs.Current {
-		stateCopy.Inputs.Current[k] = v
-	}
-
-	// Copy pointers if set
-	if et.state.Outputs.LastSafetyEvent != nil {
-		event := *et.state.Outputs.LastSafetyEvent
+	if s.Outputs.LastSafetyEvent != nil {
+		event := *s.Outputs.LastSafetyEvent
 		stateCopy.Outputs.LastSafetyEvent = &event
 	}
-	if et.state.Outputs.LastShutoff != nil {
-		shutoff := *et.state.Outputs.LastShutoff
+	if s.Outputs.LastShutoff != nil {
+		shutoff := *s.Outputs.LastShutoff
 		stateCopy.Outputs.LastShutoff = &shutoff
 	}
-	if et.state.Outputs.LastNotification != nil {
-		notice := *et.state.Outputs.LastNotification
+	if s.Outputs.LastNotification != nil {
+		notice := *s.Outputs.LastNotification
 		stateCopy.Outputs.LastNotification = &notice
 	}
-	if et.state.Outputs.LastTTSAnnouncement != nil {
-		tts := *et.state.Outputs.LastTTSAnnouncement
+	if s.Outputs.LastTTSAnnouncement != nil {
+		tts := *s.Outputs.LastTTSAnnouncement
 		stateCopy.Outputs.LastTTSAnnouncement = &tts
 	}
-	if et.state.Outputs.LastRecovery != nil {
-		recovery := *et.state.Outputs.LastRecovery
+	if s.Outputs.LastRecovery != nil {
+		recovery := *s.Outputs.LastRecovery
 		stateCopy.Outputs.LastRecovery = &recovery
 	}
 

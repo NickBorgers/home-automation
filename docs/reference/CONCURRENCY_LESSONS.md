@@ -1129,7 +1129,74 @@ The dual-path architecture was eliminated entirely. Zones are now the **only** c
 
 ---
 
+## Lesson 15: Track Pending Writes to Suppress Echo-Back Races
+
+**Pattern**: When writing state to Home Assistant, record the expected value so echo-backs can be recognized and suppressed.
+
+**Why**: Home Assistant echoes back state changes via WebSocket `state_changed` events. When the Go app sets a value, the echo arrives asynchronously. Two race conditions arise:
+
+1. **Stale echo-back**: HA echoes back the *old* value before processing the write. This overwrites the cache with stale data and fires phantom handler notifications.
+2. **Correct echo-back**: HA echoes back the *new* value after processing the write. Without tracking, this is indistinguishable from a genuine external change and triggers redundant handler notifications.
+
+**Race Scenario (Without Fix)**:
+```
+T+0ms:  SetBool("isAnyoneHome", true)    → cache = true
+T+2ms:  HA echo: false (stale)           → cache = false ← WRONG
+T+3ms:  Subscribers notified: true→false  ← PHANTOM
+T+50ms: HA echo: true (correct)          → cache = true
+T+51ms: Subscribers notified: false→true  ← PHANTOM
+```
+
+**Implementation**:
+```go
+type Manager struct {
+    // ...
+    pendingWrites map[string]interface{}  // Protected by cacheMu
+}
+```
+
+**Write Path** (`SetBool`, `SetString`, `SetNumber`, `SetJSON`):
+1. Update cache with new value
+2. If there's an active HA subscription for this entity, record `pendingWrites[key] = value`
+3. Sync to HA
+4. If HA sync fails, rollback both cache and pending write
+5. Notify subscribers
+
+**Receive Path** (subscription callback):
+1. Check if `pendingWrites[key]` exists
+2. If pending value == echo value: confirmed echo-back → clear pending, return (no notification)
+3. If pending value != echo value: stale echo-back → suppress, return (no cache update)
+4. If no pending: normal flow (compare with cache, update, notify)
+
+**Key Details**:
+- `pendingWrites` is protected by `cacheMu` (same lock as cache) for atomicity
+- Only record pending writes when there's an active HA subscription (`hasActiveHASub`)
+- `SyncFromHA` clears all pending writes (authoritative baseline reset)
+- Rapid writes update the pending value to the latest (last write wins)
+
+**Where Applied**:
+- `internal/state/manager.go` - All Set* methods and subscription callback
+
+**Tests That Validate This**:
+- `TestSetBool_SuppressesEchoBack` - Echo from own write suppressed
+- `TestSetBool_SuppressesStaleEchoBack` - Stale echo doesn't overwrite cache
+- `TestSetBool_EchoBackConfirmsClearsPendingFlag` - Confirmed echo clears flag
+- `TestSetString_SuppressesStaleEchoBack` - String variant
+- `TestSetNumber_SuppressesStaleEchoBack` - Number variant
+- `TestManager_EchoBackSuppression_RapidWrites` - Latest pending value wins
+- `TestManager_EchoBackSuppression_HAFailureRollback` - Failure clears pending
+- `TestManager_SetString_NoPendingWriteWithoutSub` - No pending without subscription
+- `TestManager_SyncFromHA_ClearsPendingWrites` - SyncFromHA resets pending state
+
+---
+
 ## Change Log
+
+### 2026-02-11
+- **Added Lesson 15**: Track Pending Writes to Suppress Echo-Back Races
+  - Documents pending write tracking pattern for HA echo-back suppression (Issue #640)
+  - Replaces timestamp-based filtering with deterministic value-based matching
+  - Applied to all Set* methods and subscription callback in `internal/state/manager.go`
 
 ### 2026-02-09
 - **Added Lesson 14**: Establish Clear Ownership When Multiple Systems React to the Same State Change

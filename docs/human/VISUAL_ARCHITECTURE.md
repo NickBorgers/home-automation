@@ -463,42 +463,39 @@ classDiagram
         +PluginName string
     }
 
-    class LightingShadowState {
+    class ShadowState~I,O~ {
         +Plugin string
-        +Inputs LightingInputs
-        +Outputs LightingOutputs
+        +Inputs I
+        +Outputs O
         +Metadata StateMetadata
     }
 
-    class MusicShadowState {
-        +Plugin string
-        +Inputs MusicInputs
-        +Outputs MusicOutputs
-        +Metadata StateMetadata
+    class ActionInputs {
+        +Current map~string~interface
+        +AtLastAction map~string~interface
     }
 
-    class SecurityShadowState {
-        +Plugin string
-        +Inputs SecurityInputs
-        +Outputs SecurityOutputs
-        +Metadata StateMetadata
+    class ReadOnlyInputs {
+        +Current map~string~interface
     }
 
-    class SexModeShadowState {
-        +Plugin string
-        +Inputs SexModeInputs
-        +Outputs SexModeOutputs
-        +Metadata StateMetadata
+    class ActionTracker~O~ {
+        +UpdateCurrentInputs()
+        +SnapshotInputsForAction()
+        +GetState()
     }
 
-    PluginShadowState <|.. LightingShadowState
-    PluginShadowState <|.. MusicShadowState
-    PluginShadowState <|.. SecurityShadowState
-    PluginShadowState <|.. SexModeShadowState
-    LightingShadowState --> StateMetadata
-    MusicShadowState --> StateMetadata
-    SecurityShadowState --> StateMetadata
-    SexModeShadowState --> StateMetadata
+    class ReadOnlyTracker~O~ {
+        +UpdateCurrentInputs()
+        +GetState()
+    }
+
+    PluginShadowState <|.. ShadowState~I,O~
+    ShadowState~I,O~ --> StateMetadata
+    ShadowState~I,O~ --> ActionInputs : action-heavy plugins
+    ShadowState~I,O~ --> ReadOnlyInputs : read-heavy plugins
+    ActionTracker~O~ --> ShadowState~I,O~
+    ReadOnlyTracker~O~ --> ShadowState~I,O~
 ```
 
 ---

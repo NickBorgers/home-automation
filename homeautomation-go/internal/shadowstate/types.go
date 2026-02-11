@@ -31,19 +31,302 @@ type ActionRecord struct {
 	Details    map[string]interface{} `json:"details,omitempty"`
 }
 
-// LightingShadowState represents the shadow state for the lighting plugin
-type LightingShadowState struct {
-	Plugin   string          `json:"plugin"`
-	Inputs   LightingInputs  `json:"inputs"`
-	Outputs  LightingOutputs `json:"outputs"`
-	Metadata StateMetadata   `json:"metadata"`
+// ============================================================================
+// Generic Shadow State Types
+// ============================================================================
+
+// ShadowInputs is the interface that input types must implement.
+type ShadowInputs interface {
+	// GetCurrent returns the current input values.
+	GetCurrent() map[string]interface{}
+	// GetAtLastAction returns the input values at the time of the last action.
+	// For read-heavy plugins, this returns the same as GetCurrent.
+	GetAtLastAction() map[string]interface{}
 }
 
-// LightingInputs tracks current and last-action input values
-type LightingInputs struct {
+// ActionInputs tracks current and last-action input values for action-heavy plugins.
+type ActionInputs struct {
 	Current      map[string]interface{} `json:"current"`
 	AtLastAction map[string]interface{} `json:"atLastAction"`
 }
+
+// GetCurrent implements ShadowInputs.
+func (a ActionInputs) GetCurrent() map[string]interface{} { return a.Current }
+
+// GetAtLastAction implements ShadowInputs.
+func (a ActionInputs) GetAtLastAction() map[string]interface{} { return a.AtLastAction }
+
+// ReadOnlyInputs tracks current input values for read-heavy plugins
+// that don't have action snapshots.
+type ReadOnlyInputs struct {
+	Current map[string]interface{} `json:"current"`
+}
+
+// GetCurrent implements ShadowInputs.
+func (r ReadOnlyInputs) GetCurrent() map[string]interface{} { return r.Current }
+
+// GetAtLastAction implements ShadowInputs. Returns Current (no action tracking).
+func (r ReadOnlyInputs) GetAtLastAction() map[string]interface{} { return r.Current }
+
+// ShadowState is a generic shadow state container for any plugin.
+// I is the inputs type (ActionInputs or ReadOnlyInputs).
+// O is the plugin-specific outputs type.
+type ShadowState[I ShadowInputs, O any] struct {
+	Plugin   string        `json:"plugin"`
+	Inputs   I             `json:"inputs"`
+	Outputs  O             `json:"outputs"`
+	Metadata StateMetadata `json:"metadata"`
+}
+
+// GetCurrentInputs implements PluginShadowState.
+func (s *ShadowState[I, O]) GetCurrentInputs() map[string]interface{} {
+	return s.Inputs.GetCurrent()
+}
+
+// GetLastActionInputs implements PluginShadowState.
+func (s *ShadowState[I, O]) GetLastActionInputs() map[string]interface{} {
+	return s.Inputs.GetAtLastAction()
+}
+
+// GetOutputs implements PluginShadowState.
+func (s *ShadowState[I, O]) GetOutputs() interface{} {
+	return s.Outputs
+}
+
+// GetMetadata implements PluginShadowState.
+func (s *ShadowState[I, O]) GetMetadata() StateMetadata {
+	return s.Metadata
+}
+
+// ============================================================================
+// Plugin Shadow State Type Aliases
+// ============================================================================
+
+// Action-heavy plugin shadow states (have AtLastAction snapshot)
+type LightingShadowState = ShadowState[ActionInputs, LightingOutputs]
+type MusicShadowState = ShadowState[ActionInputs, MusicOutputs]
+type SecurityShadowState = ShadowState[ActionInputs, SecurityOutputs]
+type LoadSheddingShadowState = ShadowState[ActionInputs, LoadSheddingOutputs]
+type SleepHygieneShadowState = ShadowState[ActionInputs, SleepHygieneOutputs]
+type SexModeShadowState = ShadowState[ActionInputs, SexModeOutputs]
+type ChristmasShadowState = ShadowState[ActionInputs, ChristmasOutputs]
+
+// Read-heavy plugin shadow states (current inputs only, no action snapshot)
+type EnergyShadowState = ShadowState[ReadOnlyInputs, EnergyOutputs]
+type StateTrackingShadowState = ShadowState[ReadOnlyInputs, StateTrackingOutputs]
+type DayPhaseShadowState = ShadowState[ReadOnlyInputs, DayPhaseOutputs]
+type TVShadowState = ShadowState[ReadOnlyInputs, TVOutputs]
+type SystemShadowState = ShadowState[ReadOnlyInputs, SystemOutputs]
+type EnvironmentalShadowState = ShadowState[ReadOnlyInputs, EnvironmentalOutputs]
+type SensorHealthShadowState = ShadowState[ReadOnlyInputs, SensorHealthOutputs]
+type InfrastructureShadowState = ShadowState[ReadOnlyInputs, InfrastructureOutputs]
+type SensorConfigShadowState = ShadowState[ReadOnlyInputs, SensorConfigOutputs]
+type WaterFlowShadowState = ShadowState[ReadOnlyInputs, WaterFlowOutputs]
+type EVChargerShadowState = ShadowState[ReadOnlyInputs, EVChargerOutputs]
+
+// Backward-compatible input type aliases
+type LightingInputs = ActionInputs
+type MusicInputs = ActionInputs
+type SecurityInputs = ActionInputs
+type LoadSheddingInputs = ActionInputs
+type SleepHygieneInputs = ActionInputs
+type SexModeInputs = ActionInputs
+type ChristmasInputs = ActionInputs
+type EnergyInputs = ReadOnlyInputs
+type StateTrackingInputs = ReadOnlyInputs
+type DayPhaseInputs = ReadOnlyInputs
+type TVInputs = ReadOnlyInputs
+type SystemInputs = ReadOnlyInputs
+type EnvironmentalInputs = ReadOnlyInputs
+type SensorHealthInputs = ReadOnlyInputs
+type InfrastructureInputs = ReadOnlyInputs
+type SensorConfigInputs = ReadOnlyInputs
+type WaterFlowInputs = ReadOnlyInputs
+type EVChargerInputs = ReadOnlyInputs
+
+// ============================================================================
+// Constructors
+// ============================================================================
+
+// newActionShadowState creates a new shadow state for action-heavy plugins.
+func newActionShadowState[O any](pluginName string, outputs O) *ShadowState[ActionInputs, O] {
+	return &ShadowState[ActionInputs, O]{
+		Plugin: pluginName,
+		Inputs: ActionInputs{
+			Current:      make(map[string]interface{}),
+			AtLastAction: make(map[string]interface{}),
+		},
+		Outputs: outputs,
+		Metadata: StateMetadata{
+			LastUpdated: time.Now(),
+			PluginName:  pluginName,
+		},
+	}
+}
+
+// newReadOnlyShadowState creates a new shadow state for read-heavy plugins.
+func newReadOnlyShadowState[O any](pluginName string, outputs O) *ShadowState[ReadOnlyInputs, O] {
+	return &ShadowState[ReadOnlyInputs, O]{
+		Plugin: pluginName,
+		Inputs: ReadOnlyInputs{
+			Current: make(map[string]interface{}),
+		},
+		Outputs: outputs,
+		Metadata: StateMetadata{
+			LastUpdated: time.Now(),
+			PluginName:  pluginName,
+		},
+	}
+}
+
+// NewLightingShadowState creates a new lighting shadow state.
+func NewLightingShadowState() *LightingShadowState {
+	return newActionShadowState("lighting", LightingOutputs{
+		Rooms:          make(map[string]RoomState),
+		LastActionTime: time.Time{},
+	})
+}
+
+// NewMusicShadowState creates a new music shadow state.
+func NewMusicShadowState() *MusicShadowState {
+	return newActionShadowState("music", MusicOutputs{
+		SpeakerGroup:     make([]SpeakerState, 0),
+		PlaylistRotation: make(map[string]int),
+		FadeState:        "idle",
+		FadeInProgress:   make(map[string]SpeakerFadeIn),
+	})
+}
+
+// NewSecurityShadowState creates a new security shadow state.
+func NewSecurityShadowState() *SecurityShadowState {
+	return newActionShadowState("security", SecurityOutputs{
+		Lockdown:       LockdownState{},
+		LastActionTime: time.Time{},
+	})
+}
+
+// NewLoadSheddingShadowState creates a new load shedding shadow state.
+func NewLoadSheddingShadowState() *LoadSheddingShadowState {
+	return newActionShadowState("loadshedding", LoadSheddingOutputs{
+		Active:         false,
+		LastActionTime: time.Time{},
+	})
+}
+
+// NewSleepHygieneShadowState creates a new sleep hygiene shadow state.
+func NewSleepHygieneShadowState() *SleepHygieneShadowState {
+	return newActionShadowState("sleephygiene", SleepHygieneOutputs{
+		WakeSequenceStatus: "inactive",
+		FadeOutProgress:    make(map[string]SpeakerFadeOut),
+	})
+}
+
+// NewSexModeShadowState creates a new sex mode shadow state.
+func NewSexModeShadowState() *SexModeShadowState {
+	return newActionShadowState("sexmode", SexModeOutputs{
+		IsActive:       false,
+		LastActionTime: time.Time{},
+	})
+}
+
+// NewChristmasShadowState creates a new christmas shadow state.
+func NewChristmasShadowState() *ChristmasShadowState {
+	return newActionShadowState("christmas", ChristmasOutputs{
+		LightsActivated: 0,
+	})
+}
+
+// NewEnergyShadowState creates a new energy shadow state.
+func NewEnergyShadowState() *EnergyShadowState {
+	return newReadOnlyShadowState("energy", EnergyOutputs{
+		LastComputations: EnergyComputations{},
+		SensorReadings:   EnergySensorReadings{},
+	})
+}
+
+// NewStateTrackingShadowState creates a new state tracking shadow state.
+func NewStateTrackingShadowState() *StateTrackingShadowState {
+	return newReadOnlyShadowState("statetracking", StateTrackingOutputs{
+		DerivedStates: DerivedStates{},
+		TimerStates:   StateTrackingTimers{},
+	})
+}
+
+// NewDayPhaseShadowState creates a new day phase shadow state.
+func NewDayPhaseShadowState() *DayPhaseShadowState {
+	return newReadOnlyShadowState("dayphase", DayPhaseOutputs{})
+}
+
+// NewTVShadowState creates a new TV shadow state.
+func NewTVShadowState() *TVShadowState {
+	return newReadOnlyShadowState("tv", TVOutputs{
+		SyncBoxAvailable: true, // Assume available until proven otherwise
+	})
+}
+
+// NewSystemShadowState creates a new system shadow state.
+func NewSystemShadowState() *SystemShadowState {
+	return newReadOnlyShadowState("system", SystemOutputs{})
+}
+
+// NewEnvironmentalShadowState creates a new environmental shadow state.
+func NewEnvironmentalShadowState() *EnvironmentalShadowState {
+	return newReadOnlyShadowState("environmental", EnvironmentalOutputs{
+		HumiditySensors:  make([]HumiditySensorData, 0),
+		WaterLeakSensors: make([]WaterLeakSensorData, 0),
+		ActiveWaterLeaks: make([]WaterLeakAlert, 0),
+		AlertLevel:       "none",
+	})
+}
+
+// NewSensorHealthShadowState creates a new sensor health shadow state.
+func NewSensorHealthShadowState() *SensorHealthShadowState {
+	return newReadOnlyShadowState("sensorhealth", SensorHealthOutputs{
+		BatterySensors:     make([]BatterySensorData, 0),
+		TemperatureSensors: make([]TemperatureSensorData, 0),
+		NodeStatuses:       make([]NodeStatusData, 0),
+		LowBatteryAlerts:   make([]LowBatteryAlert, 0),
+		DeadDeviceAlerts:   make([]DeadDeviceAlert, 0),
+		Config: SensorHealthConfig{
+			LowBatteryThreshold: 20,
+		},
+	})
+}
+
+// NewInfrastructureShadowState creates a new infrastructure shadow state.
+func NewInfrastructureShadowState() *InfrastructureShadowState {
+	return newReadOnlyShadowState("infrastructure", InfrastructureOutputs{
+		SepticSystemStatus: SepticSystemStatus{
+			SystemState: "normal",
+		},
+		ThermostatStatus: ThermostatStatus{},
+		ActiveAlerts:     make([]InfrastructureAlert, 0),
+	})
+}
+
+// NewSensorConfigShadowState creates a new sensor config shadow state.
+func NewSensorConfigShadowState() *SensorConfigShadowState {
+	return newReadOnlyShadowState("sensorconfig", SensorConfigOutputs{
+		Configurations: make([]ThresholdConfiguration, 0),
+	})
+}
+
+// NewWaterFlowShadowState creates a new water flow shadow state.
+func NewWaterFlowShadowState() *WaterFlowShadowState {
+	return newReadOnlyShadowState("waterflow", WaterFlowOutputs{
+		AlertLevel:   "none",
+		ActiveAlerts: make([]WaterFlowAlert, 0),
+	})
+}
+
+// NewEVChargerShadowState creates a new EV charger shadow state.
+func NewEVChargerShadowState() *EVChargerShadowState {
+	return newReadOnlyShadowState("evcharger", EVChargerOutputs{})
+}
+
+// ============================================================================
+// Lighting Plugin Output Types
+// ============================================================================
 
 // LightingOutputs tracks the state of lighting control outputs
 type LightingOutputs struct {
@@ -60,72 +343,9 @@ type RoomState struct {
 	Reason      string    `json:"reason"`
 }
 
-// GetCurrentInputs implements PluginShadowState
-func (l *LightingShadowState) GetCurrentInputs() map[string]interface{} {
-	return l.Inputs.Current
-}
-
-// GetLastActionInputs implements PluginShadowState
-func (l *LightingShadowState) GetLastActionInputs() map[string]interface{} {
-	return l.Inputs.AtLastAction
-}
-
-// GetOutputs implements PluginShadowState
-func (l *LightingShadowState) GetOutputs() interface{} {
-	return l.Outputs
-}
-
-// GetMetadata implements PluginShadowState
-func (l *LightingShadowState) GetMetadata() StateMetadata {
-	return l.Metadata
-}
-
-// NewLightingShadowState creates a new lighting shadow state
-func NewLightingShadowState() *LightingShadowState {
-	return &LightingShadowState{
-		Plugin: "lighting",
-		Inputs: LightingInputs{
-			Current:      make(map[string]interface{}),
-			AtLastAction: make(map[string]interface{}),
-		},
-		Outputs: LightingOutputs{
-			Rooms:          make(map[string]RoomState),
-			LastActionTime: time.Time{},
-		},
-		Metadata: StateMetadata{
-			LastUpdated: time.Now(),
-			PluginName:  "lighting",
-		},
-	}
-}
-
-// MusicShadowState represents the shadow state for the music plugin
-type MusicShadowState struct {
-	Plugin   string        `json:"plugin"`
-	Inputs   MusicInputs   `json:"inputs"`
-	Outputs  MusicOutputs  `json:"outputs"`
-	Metadata StateMetadata `json:"metadata"`
-}
-
-// MusicInputs tracks current and last-action input values
-type MusicInputs struct {
-	Current      map[string]interface{} `json:"current"`
-	AtLastAction map[string]interface{} `json:"atLastAction"`
-}
-
-// SecurityShadowState represents the shadow state for the security plugin
-type SecurityShadowState struct {
-	Plugin   string          `json:"plugin"`
-	Inputs   SecurityInputs  `json:"inputs"`
-	Outputs  SecurityOutputs `json:"outputs"`
-	Metadata StateMetadata   `json:"metadata"`
-}
-
-// SecurityInputs tracks current and last-action input values
-type SecurityInputs struct {
-	Current      map[string]interface{} `json:"current"`
-	AtLastAction map[string]interface{} `json:"atLastAction"`
-}
+// ============================================================================
+// Music Plugin Output Types
+// ============================================================================
 
 // MusicOutputs tracks the state of music control outputs
 type MusicOutputs struct {
@@ -209,46 +429,9 @@ type SpeakerState struct {
 	FailureReason string `json:"failureReason,omitempty"` // Reason for failure if Active is false
 }
 
-// GetCurrentInputs implements PluginShadowState
-func (m *MusicShadowState) GetCurrentInputs() map[string]interface{} {
-	return m.Inputs.Current
-}
-
-// GetLastActionInputs implements PluginShadowState
-func (m *MusicShadowState) GetLastActionInputs() map[string]interface{} {
-	return m.Inputs.AtLastAction
-}
-
-// GetOutputs implements PluginShadowState
-func (m *MusicShadowState) GetOutputs() interface{} {
-	return m.Outputs
-}
-
-// GetMetadata implements PluginShadowState
-func (m *MusicShadowState) GetMetadata() StateMetadata {
-	return m.Metadata
-}
-
-// NewMusicShadowState creates a new music shadow state
-func NewMusicShadowState() *MusicShadowState {
-	return &MusicShadowState{
-		Plugin: "music",
-		Inputs: MusicInputs{
-			Current:      make(map[string]interface{}),
-			AtLastAction: make(map[string]interface{}),
-		},
-		Outputs: MusicOutputs{
-			SpeakerGroup:     make([]SpeakerState, 0),
-			PlaylistRotation: make(map[string]int),
-			FadeState:        "idle",
-			FadeInProgress:   make(map[string]SpeakerFadeIn),
-		},
-		Metadata: StateMetadata{
-			LastUpdated: time.Now(),
-			PluginName:  "music",
-		},
-	}
-}
+// ============================================================================
+// Security Plugin Output Types
+// ============================================================================
 
 // SecurityOutputs tracks the state of security control outputs
 type SecurityOutputs struct {
@@ -290,72 +473,9 @@ type GarageOpenEvent struct {
 	GarageWasEmpty bool      `json:"garageWasEmpty"`
 }
 
-// GetCurrentInputs implements PluginShadowState
-func (s *SecurityShadowState) GetCurrentInputs() map[string]interface{} {
-	return s.Inputs.Current
-}
-
-// GetLastActionInputs implements PluginShadowState
-func (s *SecurityShadowState) GetLastActionInputs() map[string]interface{} {
-	return s.Inputs.AtLastAction
-}
-
-// GetOutputs implements PluginShadowState
-func (s *SecurityShadowState) GetOutputs() interface{} {
-	return s.Outputs
-}
-
-// GetMetadata implements PluginShadowState
-func (s *SecurityShadowState) GetMetadata() StateMetadata {
-	return s.Metadata
-}
-
-// NewSecurityShadowState creates a new security shadow state
-func NewSecurityShadowState() *SecurityShadowState {
-	return &SecurityShadowState{
-		Plugin: "security",
-		Inputs: SecurityInputs{
-			Current:      make(map[string]interface{}),
-			AtLastAction: make(map[string]interface{}),
-		},
-		Outputs: SecurityOutputs{
-			Lockdown:       LockdownState{},
-			LastActionTime: time.Time{},
-		},
-		Metadata: StateMetadata{
-			LastUpdated: time.Now(),
-			PluginName:  "security",
-		},
-	}
-}
-
-// LoadSheddingShadowState represents the shadow state for the load shedding plugin
-type LoadSheddingShadowState struct {
-	Plugin   string              `json:"plugin"`
-	Inputs   LoadSheddingInputs  `json:"inputs"`
-	Outputs  LoadSheddingOutputs `json:"outputs"`
-	Metadata StateMetadata       `json:"metadata"`
-}
-
-// LoadSheddingInputs tracks current and last-action input values
-type LoadSheddingInputs struct {
-	Current      map[string]interface{} `json:"current"`
-	AtLastAction map[string]interface{} `json:"atLastAction"`
-}
-
-// SleepHygieneShadowState represents the shadow state for the sleep hygiene plugin
-type SleepHygieneShadowState struct {
-	Plugin   string              `json:"plugin"`
-	Inputs   SleepHygieneInputs  `json:"inputs"`
-	Outputs  SleepHygieneOutputs `json:"outputs"`
-	Metadata StateMetadata       `json:"metadata"`
-}
-
-// SleepHygieneInputs tracks current and last-action input values
-type SleepHygieneInputs struct {
-	Current      map[string]interface{} `json:"current"`
-	AtLastAction map[string]interface{} `json:"atLastAction"`
-}
+// ============================================================================
+// Load Shedding Plugin Output Types
+// ============================================================================
 
 // LoadSheddingOutputs tracks the state of load shedding control outputs
 type LoadSheddingOutputs struct {
@@ -373,44 +493,9 @@ type ThermostatSettings struct {
 	TempHigh float64 `json:"tempHigh,omitempty"`
 }
 
-// GetCurrentInputs implements PluginShadowState
-func (ls *LoadSheddingShadowState) GetCurrentInputs() map[string]interface{} {
-	return ls.Inputs.Current
-}
-
-// GetLastActionInputs implements PluginShadowState
-func (ls *LoadSheddingShadowState) GetLastActionInputs() map[string]interface{} {
-	return ls.Inputs.AtLastAction
-}
-
-// GetOutputs implements PluginShadowState
-func (ls *LoadSheddingShadowState) GetOutputs() interface{} {
-	return ls.Outputs
-}
-
-// GetMetadata implements PluginShadowState
-func (ls *LoadSheddingShadowState) GetMetadata() StateMetadata {
-	return ls.Metadata
-}
-
-// NewLoadSheddingShadowState creates a new load shedding shadow state
-func NewLoadSheddingShadowState() *LoadSheddingShadowState {
-	return &LoadSheddingShadowState{
-		Plugin: "loadshedding",
-		Inputs: LoadSheddingInputs{
-			Current:      make(map[string]interface{}),
-			AtLastAction: make(map[string]interface{}),
-		},
-		Outputs: LoadSheddingOutputs{
-			Active:         false,
-			LastActionTime: time.Time{},
-		},
-		Metadata: StateMetadata{
-			LastUpdated: time.Now(),
-			PluginName:  "loadshedding",
-		},
-	}
-}
+// ============================================================================
+// Sleep Hygiene Plugin Output Types
+// ============================================================================
 
 // SleepHygieneOutputs tracks the state of sleep hygiene outputs
 type SleepHygieneOutputs struct {
@@ -453,61 +538,9 @@ type ReminderTrigger struct {
 	Timestamp time.Time `json:"timestamp"`
 }
 
-// GetCurrentInputs implements PluginShadowState
-func (s *SleepHygieneShadowState) GetCurrentInputs() map[string]interface{} {
-	return s.Inputs.Current
-}
-
-// GetLastActionInputs implements PluginShadowState
-func (s *SleepHygieneShadowState) GetLastActionInputs() map[string]interface{} {
-	return s.Inputs.AtLastAction
-}
-
-// GetOutputs implements PluginShadowState
-func (s *SleepHygieneShadowState) GetOutputs() interface{} {
-	return s.Outputs
-}
-
-// GetMetadata implements PluginShadowState
-func (s *SleepHygieneShadowState) GetMetadata() StateMetadata {
-	return s.Metadata
-}
-
-// NewSleepHygieneShadowState creates a new sleep hygiene shadow state
-func NewSleepHygieneShadowState() *SleepHygieneShadowState {
-	return &SleepHygieneShadowState{
-		Plugin: "sleephygiene",
-		Inputs: SleepHygieneInputs{
-			Current:      make(map[string]interface{}),
-			AtLastAction: make(map[string]interface{}),
-		},
-		Outputs: SleepHygieneOutputs{
-			WakeSequenceStatus: "inactive",
-			FadeOutProgress:    make(map[string]SpeakerFadeOut),
-		},
-		Metadata: StateMetadata{
-			LastUpdated: time.Now(),
-			PluginName:  "sleephygiene",
-		},
-	}
-}
-
 // ============================================================================
-// Phase 6: Read-Heavy Plugin Shadow States
+// Energy Plugin Output Types
 // ============================================================================
-
-// EnergyShadowState represents the shadow state for the energy plugin
-type EnergyShadowState struct {
-	Plugin   string        `json:"plugin"`
-	Inputs   EnergyInputs  `json:"inputs"`
-	Outputs  EnergyOutputs `json:"outputs"`
-	Metadata StateMetadata `json:"metadata"`
-}
-
-// EnergyInputs tracks current sensor values (no at-last-action for read-heavy plugins)
-type EnergyInputs struct {
-	Current map[string]interface{} `json:"current"`
-}
 
 // LuxSensorReading tracks a single lux sensor value
 type LuxSensorReading struct {
@@ -576,57 +609,9 @@ type EnergySensorReadings struct {
 	LastUpdate                  time.Time `json:"lastUpdate"`
 }
 
-// GetCurrentInputs implements PluginShadowState
-func (e *EnergyShadowState) GetCurrentInputs() map[string]interface{} {
-	return e.Inputs.Current
-}
-
-// GetLastActionInputs implements PluginShadowState
-// For read-heavy plugins, this returns the same as current (no actions to track)
-func (e *EnergyShadowState) GetLastActionInputs() map[string]interface{} {
-	return e.Inputs.Current
-}
-
-// GetOutputs implements PluginShadowState
-func (e *EnergyShadowState) GetOutputs() interface{} {
-	return e.Outputs
-}
-
-// GetMetadata implements PluginShadowState
-func (e *EnergyShadowState) GetMetadata() StateMetadata {
-	return e.Metadata
-}
-
-// NewEnergyShadowState creates a new energy shadow state
-func NewEnergyShadowState() *EnergyShadowState {
-	return &EnergyShadowState{
-		Plugin: "energy",
-		Inputs: EnergyInputs{
-			Current: make(map[string]interface{}),
-		},
-		Outputs: EnergyOutputs{
-			LastComputations: EnergyComputations{},
-			SensorReadings:   EnergySensorReadings{},
-		},
-		Metadata: StateMetadata{
-			LastUpdated: time.Now(),
-			PluginName:  "energy",
-		},
-	}
-}
-
-// StateTrackingShadowState represents the shadow state for the state tracking plugin
-type StateTrackingShadowState struct {
-	Plugin   string               `json:"plugin"`
-	Inputs   StateTrackingInputs  `json:"inputs"`
-	Outputs  StateTrackingOutputs `json:"outputs"`
-	Metadata StateMetadata        `json:"metadata"`
-}
-
-// StateTrackingInputs tracks current input sensor states
-type StateTrackingInputs struct {
-	Current map[string]interface{} `json:"current"`
-}
+// ============================================================================
+// State Tracking Plugin Output Types
+// ============================================================================
 
 // StateTrackingOutputs tracks computed derived states and timer states
 type StateTrackingOutputs struct {
@@ -661,56 +646,9 @@ type ArrivalAnnouncement struct {
 	Timestamp time.Time `json:"timestamp"`
 }
 
-// GetCurrentInputs implements PluginShadowState
-func (s *StateTrackingShadowState) GetCurrentInputs() map[string]interface{} {
-	return s.Inputs.Current
-}
-
-// GetLastActionInputs implements PluginShadowState
-func (s *StateTrackingShadowState) GetLastActionInputs() map[string]interface{} {
-	return s.Inputs.Current
-}
-
-// GetOutputs implements PluginShadowState
-func (s *StateTrackingShadowState) GetOutputs() interface{} {
-	return s.Outputs
-}
-
-// GetMetadata implements PluginShadowState
-func (s *StateTrackingShadowState) GetMetadata() StateMetadata {
-	return s.Metadata
-}
-
-// NewStateTrackingShadowState creates a new state tracking shadow state
-func NewStateTrackingShadowState() *StateTrackingShadowState {
-	return &StateTrackingShadowState{
-		Plugin: "statetracking",
-		Inputs: StateTrackingInputs{
-			Current: make(map[string]interface{}),
-		},
-		Outputs: StateTrackingOutputs{
-			DerivedStates: DerivedStates{},
-			TimerStates:   StateTrackingTimers{},
-		},
-		Metadata: StateMetadata{
-			LastUpdated: time.Now(),
-			PluginName:  "statetracking",
-		},
-	}
-}
-
-// DayPhaseShadowState represents the shadow state for the day phase plugin
-type DayPhaseShadowState struct {
-	Plugin   string          `json:"plugin"`
-	Inputs   DayPhaseInputs  `json:"inputs"`
-	Outputs  DayPhaseOutputs `json:"outputs"`
-	Metadata StateMetadata   `json:"metadata"`
-}
-
-// DayPhaseInputs tracks current time and sun position inputs
-type DayPhaseInputs struct {
-	Current map[string]interface{} `json:"current"`
-}
+// ============================================================================
+// Day Phase Plugin Output Types
+// ============================================================================
 
 // DayPhaseOutputs tracks computed day phase and sun event values
 type DayPhaseOutputs struct {
@@ -722,53 +660,9 @@ type DayPhaseOutputs struct {
 	NextTransitionPhase string    `json:"nextTransitionPhase,omitempty"`
 }
 
-// GetCurrentInputs implements PluginShadowState
-func (d *DayPhaseShadowState) GetCurrentInputs() map[string]interface{} {
-	return d.Inputs.Current
-}
-
-// GetLastActionInputs implements PluginShadowState
-func (d *DayPhaseShadowState) GetLastActionInputs() map[string]interface{} {
-	return d.Inputs.Current
-}
-
-// GetOutputs implements PluginShadowState
-func (d *DayPhaseShadowState) GetOutputs() interface{} {
-	return d.Outputs
-}
-
-// GetMetadata implements PluginShadowState
-func (d *DayPhaseShadowState) GetMetadata() StateMetadata {
-	return d.Metadata
-}
-
-// NewDayPhaseShadowState creates a new day phase shadow state
-func NewDayPhaseShadowState() *DayPhaseShadowState {
-	return &DayPhaseShadowState{
-		Plugin: "dayphase",
-		Inputs: DayPhaseInputs{
-			Current: make(map[string]interface{}),
-		},
-		Outputs: DayPhaseOutputs{},
-		Metadata: StateMetadata{
-			LastUpdated: time.Now(),
-			PluginName:  "dayphase",
-		},
-	}
-}
-
-// TVShadowState represents the shadow state for the TV plugin
-type TVShadowState struct {
-	Plugin   string        `json:"plugin"`
-	Inputs   TVInputs      `json:"inputs"`
-	Outputs  TVOutputs     `json:"outputs"`
-	Metadata StateMetadata `json:"metadata"`
-}
-
-// TVInputs tracks current TV-related entity states
-type TVInputs struct {
-	Current map[string]interface{} `json:"current"`
-}
+// ============================================================================
+// TV Plugin Output Types
+// ============================================================================
 
 // TVOutputs tracks computed TV states
 type TVOutputs struct {
@@ -783,115 +677,9 @@ type TVOutputs struct {
 	DailyRebootCount  int       `json:"dailyRebootCount"`
 }
 
-// GetCurrentInputs implements PluginShadowState
-func (t *TVShadowState) GetCurrentInputs() map[string]interface{} {
-	return t.Inputs.Current
-}
-
-// GetLastActionInputs implements PluginShadowState
-func (t *TVShadowState) GetLastActionInputs() map[string]interface{} {
-	return t.Inputs.Current
-}
-
-// GetOutputs implements PluginShadowState
-func (t *TVShadowState) GetOutputs() interface{} {
-	return t.Outputs
-}
-
-// GetMetadata implements PluginShadowState
-func (t *TVShadowState) GetMetadata() StateMetadata {
-	return t.Metadata
-}
-
-// NewTVShadowState creates a new TV shadow state
-func NewTVShadowState() *TVShadowState {
-	return &TVShadowState{
-		Plugin: "tv",
-		Inputs: TVInputs{
-			Current: make(map[string]interface{}),
-		},
-		Outputs: TVOutputs{
-			SyncBoxAvailable: true, // Assume available until proven otherwise
-		},
-		Metadata: StateMetadata{
-			LastUpdated: time.Now(),
-			PluginName:  "tv",
-		},
-	}
-}
-
-// SexModeShadowState represents the shadow state for the sex mode plugin
-type SexModeShadowState struct {
-	Plugin   string         `json:"plugin"`
-	Inputs   SexModeInputs  `json:"inputs"`
-	Outputs  SexModeOutputs `json:"outputs"`
-	Metadata StateMetadata  `json:"metadata"`
-}
-
-// ChristmasShadowState represents the shadow state for the christmas plugin
-type ChristmasShadowState struct {
-	Plugin   string           `json:"plugin"`
-	Inputs   ChristmasInputs  `json:"inputs"`
-	Outputs  ChristmasOutputs `json:"outputs"`
-	Metadata StateMetadata    `json:"metadata"`
-}
-
-// ChristmasInputs tracks current and last-action input values
-type ChristmasInputs struct {
-	Current      map[string]interface{} `json:"current"`
-	AtLastAction map[string]interface{} `json:"atLastAction"`
-}
-
-// ChristmasOutputs tracks the state of christmas outputs
-type ChristmasOutputs struct {
-	LastActivationTime time.Time `json:"lastActivationTime,omitempty"`
-	LightsActivated    int       `json:"lightsActivated"`
-	LastActionReason   string    `json:"lastActionReason,omitempty"`
-}
-
-// GetCurrentInputs implements PluginShadowState
-func (c *ChristmasShadowState) GetCurrentInputs() map[string]interface{} {
-	return c.Inputs.Current
-}
-
-// GetLastActionInputs implements PluginShadowState
-func (c *ChristmasShadowState) GetLastActionInputs() map[string]interface{} {
-	return c.Inputs.AtLastAction
-}
-
-// GetOutputs implements PluginShadowState
-func (c *ChristmasShadowState) GetOutputs() interface{} {
-	return c.Outputs
-}
-
-// GetMetadata implements PluginShadowState
-func (c *ChristmasShadowState) GetMetadata() StateMetadata {
-	return c.Metadata
-}
-
-// NewChristmasShadowState creates a new christmas shadow state
-func NewChristmasShadowState() *ChristmasShadowState {
-	return &ChristmasShadowState{
-		Plugin: "christmas",
-		Inputs: ChristmasInputs{
-			Current:      make(map[string]interface{}),
-			AtLastAction: make(map[string]interface{}),
-		},
-		Outputs: ChristmasOutputs{
-			LightsActivated: 0,
-		},
-		Metadata: StateMetadata{
-			LastUpdated: time.Now(),
-			PluginName:  "christmas",
-		},
-	}
-}
-
-// SexModeInputs tracks current and last-action input values
-type SexModeInputs struct {
-	Current      map[string]interface{} `json:"current"`
-	AtLastAction map[string]interface{} `json:"atLastAction"`
-}
+// ============================================================================
+// Sex Mode Plugin Output Types
+// ============================================================================
 
 // SexModeOutputs tracks the state of sex mode outputs
 type SexModeOutputs struct {
@@ -903,61 +691,20 @@ type SexModeOutputs struct {
 	LastActionReason string    `json:"lastActionReason,omitempty"`
 }
 
-// GetCurrentInputs implements PluginShadowState
-func (s *SexModeShadowState) GetCurrentInputs() map[string]interface{} {
-	return s.Inputs.Current
-}
+// ============================================================================
+// Christmas Plugin Output Types
+// ============================================================================
 
-// GetLastActionInputs implements PluginShadowState
-func (s *SexModeShadowState) GetLastActionInputs() map[string]interface{} {
-	return s.Inputs.AtLastAction
-}
-
-// GetOutputs implements PluginShadowState
-func (s *SexModeShadowState) GetOutputs() interface{} {
-	return s.Outputs
-}
-
-// GetMetadata implements PluginShadowState
-func (s *SexModeShadowState) GetMetadata() StateMetadata {
-	return s.Metadata
-}
-
-// NewSexModeShadowState creates a new sex mode shadow state
-func NewSexModeShadowState() *SexModeShadowState {
-	return &SexModeShadowState{
-		Plugin: "sexmode",
-		Inputs: SexModeInputs{
-			Current:      make(map[string]interface{}),
-			AtLastAction: make(map[string]interface{}),
-		},
-		Outputs: SexModeOutputs{
-			IsActive:       false,
-			LastActionTime: time.Time{},
-		},
-		Metadata: StateMetadata{
-			LastUpdated: time.Now(),
-			PluginName:  "sexmode",
-		},
-	}
+// ChristmasOutputs tracks the state of christmas outputs
+type ChristmasOutputs struct {
+	LastActivationTime time.Time `json:"lastActivationTime,omitempty"`
+	LightsActivated    int       `json:"lightsActivated"`
+	LastActionReason   string    `json:"lastActionReason,omitempty"`
 }
 
 // ============================================================================
 // System Shadow State - Connection Health Metrics
 // ============================================================================
-
-// SystemShadowState represents system-level metrics including connection health
-type SystemShadowState struct {
-	Plugin   string        `json:"plugin"`
-	Inputs   SystemInputs  `json:"inputs"`
-	Outputs  SystemOutputs `json:"outputs"`
-	Metadata StateMetadata `json:"metadata"`
-}
-
-// SystemInputs tracks system-level inputs (mostly empty, just for consistency)
-type SystemInputs struct {
-	Current map[string]interface{} `json:"current"`
-}
 
 // SystemOutputs tracks system-level metrics
 type SystemOutputs struct {
@@ -976,42 +723,9 @@ type ConnectionHealthMetrics struct {
 	LastCheck           time.Time     `json:"lastCheck"`
 }
 
-// GetCurrentInputs implements PluginShadowState
-func (s *SystemShadowState) GetCurrentInputs() map[string]interface{} {
-	return s.Inputs.Current
-}
-
-// GetLastActionInputs implements PluginShadowState
-func (s *SystemShadowState) GetLastActionInputs() map[string]interface{} {
-	return s.Inputs.Current // System doesn't have actions
-}
-
-// GetOutputs implements PluginShadowState
-func (s *SystemShadowState) GetOutputs() interface{} {
-	return s.Outputs
-}
-
-// GetMetadata implements PluginShadowState
-func (s *SystemShadowState) GetMetadata() StateMetadata {
-	return s.Metadata
-}
-
 // ============================================================================
-// Environmental Monitoring Shadow State
+// Environmental Monitoring Output Types
 // ============================================================================
-
-// EnvironmentalShadowState represents the shadow state for the environmental monitoring plugin
-type EnvironmentalShadowState struct {
-	Plugin   string               `json:"plugin"`
-	Inputs   EnvironmentalInputs  `json:"inputs"`
-	Outputs  EnvironmentalOutputs `json:"outputs"`
-	Metadata StateMetadata        `json:"metadata"`
-}
-
-// EnvironmentalInputs tracks current sensor values
-type EnvironmentalInputs struct {
-	Current map[string]interface{} `json:"current"`
-}
 
 // EnvironmentalOutputs tracks computed environmental states and notification history
 type EnvironmentalOutputs struct {
@@ -1070,63 +784,9 @@ type NotificationRecord struct {
 	Timestamp       time.Time `json:"timestamp"`
 }
 
-// GetCurrentInputs implements PluginShadowState
-func (e *EnvironmentalShadowState) GetCurrentInputs() map[string]interface{} {
-	return e.Inputs.Current
-}
-
-// GetLastActionInputs implements PluginShadowState
-// For environmental monitoring, this returns the same as current (read-heavy, no actions)
-func (e *EnvironmentalShadowState) GetLastActionInputs() map[string]interface{} {
-	return e.Inputs.Current
-}
-
-// GetOutputs implements PluginShadowState
-func (e *EnvironmentalShadowState) GetOutputs() interface{} {
-	return e.Outputs
-}
-
-// GetMetadata implements PluginShadowState
-func (e *EnvironmentalShadowState) GetMetadata() StateMetadata {
-	return e.Metadata
-}
-
-// NewEnvironmentalShadowState creates a new environmental shadow state
-func NewEnvironmentalShadowState() *EnvironmentalShadowState {
-	return &EnvironmentalShadowState{
-		Plugin: "environmental",
-		Inputs: EnvironmentalInputs{
-			Current: make(map[string]interface{}),
-		},
-		Outputs: EnvironmentalOutputs{
-			HumiditySensors:  make([]HumiditySensorData, 0),
-			WaterLeakSensors: make([]WaterLeakSensorData, 0),
-			ActiveWaterLeaks: make([]WaterLeakAlert, 0),
-			AlertLevel:       "none",
-		},
-		Metadata: StateMetadata{
-			LastUpdated: time.Now(),
-			PluginName:  "environmental",
-		},
-	}
-}
-
 // ============================================================================
-// Sensor Health Shadow State - Battery, Staleness, and Temperature Lockup Monitoring
+// Sensor Health Output Types - Battery, Staleness, and Temperature Lockup Monitoring
 // ============================================================================
-
-// SensorHealthShadowState represents the shadow state for the sensor health plugin
-type SensorHealthShadowState struct {
-	Plugin   string              `json:"plugin"`
-	Inputs   SensorHealthInputs  `json:"inputs"`
-	Outputs  SensorHealthOutputs `json:"outputs"`
-	Metadata StateMetadata       `json:"metadata"`
-}
-
-// SensorHealthInputs tracks current sensor values
-type SensorHealthInputs struct {
-	Current map[string]interface{} `json:"current"`
-}
 
 // SensorHealthOutputs tracks discovered sensors, alerts, and notification history
 type SensorHealthOutputs struct {
@@ -1239,67 +899,9 @@ type LowBatteryAlert struct {
 	NotificationSent bool      `json:"notificationSent"`
 }
 
-// GetCurrentInputs implements PluginShadowState
-func (m *SensorHealthShadowState) GetCurrentInputs() map[string]interface{} {
-	return m.Inputs.Current
-}
-
-// GetLastActionInputs implements PluginShadowState
-// For sensor health, this returns the same as current (read-heavy, alerts are outputs)
-func (m *SensorHealthShadowState) GetLastActionInputs() map[string]interface{} {
-	return m.Inputs.Current
-}
-
-// GetOutputs implements PluginShadowState
-func (m *SensorHealthShadowState) GetOutputs() interface{} {
-	return m.Outputs
-}
-
-// GetMetadata implements PluginShadowState
-func (m *SensorHealthShadowState) GetMetadata() StateMetadata {
-	return m.Metadata
-}
-
-// NewSensorHealthShadowState creates a new sensor health shadow state
-func NewSensorHealthShadowState() *SensorHealthShadowState {
-	return &SensorHealthShadowState{
-		Plugin: "sensorhealth",
-		Inputs: SensorHealthInputs{
-			Current: make(map[string]interface{}),
-		},
-		Outputs: SensorHealthOutputs{
-			BatterySensors:     make([]BatterySensorData, 0),
-			TemperatureSensors: make([]TemperatureSensorData, 0),
-			NodeStatuses:       make([]NodeStatusData, 0),
-			LowBatteryAlerts:   make([]LowBatteryAlert, 0),
-			DeadDeviceAlerts:   make([]DeadDeviceAlert, 0),
-			Config: SensorHealthConfig{
-				LowBatteryThreshold: 20,
-			},
-		},
-		Metadata: StateMetadata{
-			LastUpdated: time.Now(),
-			PluginName:  "sensorhealth",
-		},
-	}
-}
-
 // ============================================================================
-// Infrastructure Shadow State - Aerobic Septic System Monitoring
+// Infrastructure Output Types - Aerobic Septic System Monitoring
 // ============================================================================
-
-// InfrastructureShadowState represents the shadow state for the infrastructure plugin
-type InfrastructureShadowState struct {
-	Plugin   string                `json:"plugin"`
-	Inputs   InfrastructureInputs  `json:"inputs"`
-	Outputs  InfrastructureOutputs `json:"outputs"`
-	Metadata StateMetadata         `json:"metadata"`
-}
-
-// InfrastructureInputs tracks current sensor values (read-heavy, no at-last-action needed)
-type InfrastructureInputs struct {
-	Current map[string]interface{} `json:"current"`
-}
 
 // InfrastructureOutputs tracks septic system state and alerts
 type InfrastructureOutputs struct {
@@ -1359,64 +961,9 @@ type InfrastructureTTS struct {
 	Timestamp time.Time `json:"timestamp"`
 }
 
-// GetCurrentInputs implements PluginShadowState
-func (i *InfrastructureShadowState) GetCurrentInputs() map[string]interface{} {
-	return i.Inputs.Current
-}
-
-// GetLastActionInputs implements PluginShadowState
-// For read-heavy plugins, this returns the same as current (no actions to track)
-func (i *InfrastructureShadowState) GetLastActionInputs() map[string]interface{} {
-	return i.Inputs.Current
-}
-
-// GetOutputs implements PluginShadowState
-func (i *InfrastructureShadowState) GetOutputs() interface{} {
-	return i.Outputs
-}
-
-// GetMetadata implements PluginShadowState
-func (i *InfrastructureShadowState) GetMetadata() StateMetadata {
-	return i.Metadata
-}
-
-// NewInfrastructureShadowState creates a new infrastructure shadow state
-func NewInfrastructureShadowState() *InfrastructureShadowState {
-	return &InfrastructureShadowState{
-		Plugin: "infrastructure",
-		Inputs: InfrastructureInputs{
-			Current: make(map[string]interface{}),
-		},
-		Outputs: InfrastructureOutputs{
-			SepticSystemStatus: SepticSystemStatus{
-				SystemState: "normal",
-			},
-			ThermostatStatus: ThermostatStatus{},
-			ActiveAlerts:     make([]InfrastructureAlert, 0),
-		},
-		Metadata: StateMetadata{
-			LastUpdated: time.Now(),
-			PluginName:  "infrastructure",
-		},
-	}
-}
-
 // ============================================================================
-// Sensor Config Shadow State - Zigbee Sensor Threshold Configuration
+// Sensor Config Output Types - Zigbee Sensor Threshold Configuration
 // ============================================================================
-
-// SensorConfigShadowState represents the shadow state for the sensor config plugin
-type SensorConfigShadowState struct {
-	Plugin   string              `json:"plugin"`
-	Inputs   SensorConfigInputs  `json:"inputs"`
-	Outputs  SensorConfigOutputs `json:"outputs"`
-	Metadata StateMetadata       `json:"metadata"`
-}
-
-// SensorConfigInputs tracks configuration settings (no dynamic inputs for this plugin)
-type SensorConfigInputs struct {
-	Current map[string]interface{} `json:"current"`
-}
 
 // SensorConfigOutputs tracks what was configured and when
 type SensorConfigOutputs struct {
@@ -1435,59 +982,9 @@ type ThresholdConfiguration struct {
 	ConfiguredAt       time.Time `json:"configuredAt"`
 }
 
-// GetCurrentInputs implements PluginShadowState
-func (s *SensorConfigShadowState) GetCurrentInputs() map[string]interface{} {
-	return s.Inputs.Current
-}
-
-// GetLastActionInputs implements PluginShadowState
-func (s *SensorConfigShadowState) GetLastActionInputs() map[string]interface{} {
-	return s.Inputs.Current
-}
-
-// GetOutputs implements PluginShadowState
-func (s *SensorConfigShadowState) GetOutputs() interface{} {
-	return s.Outputs
-}
-
-// GetMetadata implements PluginShadowState
-func (s *SensorConfigShadowState) GetMetadata() StateMetadata {
-	return s.Metadata
-}
-
-// NewSensorConfigShadowState creates a new sensor config shadow state
-func NewSensorConfigShadowState() *SensorConfigShadowState {
-	return &SensorConfigShadowState{
-		Plugin: "sensorconfig",
-		Inputs: SensorConfigInputs{
-			Current: make(map[string]interface{}),
-		},
-		Outputs: SensorConfigOutputs{
-			Configurations: make([]ThresholdConfiguration, 0),
-		},
-		Metadata: StateMetadata{
-			LastUpdated: time.Now(),
-			PluginName:  "sensorconfig",
-		},
-	}
-}
-
 // ============================================================================
-// Water Flow Monitoring Shadow State
+// Water Flow Monitoring Output Types
 // ============================================================================
-
-// WaterFlowShadowState represents the shadow state for the water flow monitoring plugin
-type WaterFlowShadowState struct {
-	Plugin   string           `json:"plugin"`
-	Inputs   WaterFlowInputs  `json:"inputs"`
-	Outputs  WaterFlowOutputs `json:"outputs"`
-	Metadata StateMetadata    `json:"metadata"`
-}
-
-// WaterFlowInputs tracks current sensor values (read-heavy, no at-last-action needed)
-type WaterFlowInputs struct {
-	Current map[string]interface{} `json:"current"`
-}
 
 // WaterFlowOutputs tracks water flow state and alerts
 type WaterFlowOutputs struct {
@@ -1522,61 +1019,9 @@ type WaterFlowNotice struct {
 	Timestamp time.Time `json:"timestamp"`
 }
 
-// GetCurrentInputs implements PluginShadowState
-func (w *WaterFlowShadowState) GetCurrentInputs() map[string]interface{} {
-	return w.Inputs.Current
-}
-
-// GetLastActionInputs implements PluginShadowState
-// For read-heavy plugins, this returns the same as current (no actions to track)
-func (w *WaterFlowShadowState) GetLastActionInputs() map[string]interface{} {
-	return w.Inputs.Current
-}
-
-// GetOutputs implements PluginShadowState
-func (w *WaterFlowShadowState) GetOutputs() interface{} {
-	return w.Outputs
-}
-
-// GetMetadata implements PluginShadowState
-func (w *WaterFlowShadowState) GetMetadata() StateMetadata {
-	return w.Metadata
-}
-
-// NewWaterFlowShadowState creates a new water flow shadow state
-func NewWaterFlowShadowState() *WaterFlowShadowState {
-	return &WaterFlowShadowState{
-		Plugin: "waterflow",
-		Inputs: WaterFlowInputs{
-			Current: make(map[string]interface{}),
-		},
-		Outputs: WaterFlowOutputs{
-			AlertLevel:   "none",
-			ActiveAlerts: make([]WaterFlowAlert, 0),
-		},
-		Metadata: StateMetadata{
-			LastUpdated: time.Now(),
-			PluginName:  "waterflow",
-		},
-	}
-}
-
 // ============================================================================
-// EV Charger Shadow State Types - Safety Monitoring
+// EV Charger Output Types - Safety Monitoring
 // ============================================================================
-
-// EVChargerShadowState represents the shadow state for the EV charger safety plugin
-type EVChargerShadowState struct {
-	Plugin   string           `json:"plugin"`
-	Inputs   EVChargerInputs  `json:"inputs"`
-	Outputs  EVChargerOutputs `json:"outputs"`
-	Metadata StateMetadata    `json:"metadata"`
-}
-
-// EVChargerInputs tracks current input values for EV charger safety
-type EVChargerInputs struct {
-	Current map[string]interface{} `json:"current"`
-}
 
 // EVChargerOutputs tracks the state of EV charger safety monitoring
 type EVChargerOutputs struct {
@@ -1623,39 +1068,4 @@ type EVChargerNotice struct {
 type EVChargerRecovery struct {
 	ConditionType string    `json:"conditionType"`
 	Timestamp     time.Time `json:"timestamp"`
-}
-
-// GetCurrentInputs implements PluginShadowState
-func (e *EVChargerShadowState) GetCurrentInputs() map[string]interface{} {
-	return e.Inputs.Current
-}
-
-// GetLastActionInputs implements PluginShadowState
-func (e *EVChargerShadowState) GetLastActionInputs() map[string]interface{} {
-	return e.Inputs.Current
-}
-
-// GetOutputs implements PluginShadowState
-func (e *EVChargerShadowState) GetOutputs() interface{} {
-	return e.Outputs
-}
-
-// GetMetadata implements PluginShadowState
-func (e *EVChargerShadowState) GetMetadata() StateMetadata {
-	return e.Metadata
-}
-
-// NewEVChargerShadowState creates a new EV charger shadow state
-func NewEVChargerShadowState() *EVChargerShadowState {
-	return &EVChargerShadowState{
-		Plugin: "evcharger",
-		Inputs: EVChargerInputs{
-			Current: make(map[string]interface{}),
-		},
-		Outputs: EVChargerOutputs{},
-		Metadata: StateMetadata{
-			LastUpdated: time.Now(),
-			PluginName:  "evcharger",
-		},
-	}
 }

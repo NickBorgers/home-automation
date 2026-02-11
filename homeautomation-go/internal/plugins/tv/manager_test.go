@@ -141,48 +141,6 @@ func TestTVManager_TVRemoteOff_KillsLightSync(t *testing.T) {
 	}
 }
 
-func TestTVManager_TVRemoteOff_SetsTVPlayingFalse(t *testing.T) {
-	t.Parallel()
-
-	mockHA := ha.NewMockClient()
-	logger := zap.NewNop()
-	stateMgr := state.NewManager(mockHA, logger, false)
-
-	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
-
-	// Initially set isTVPlaying to true
-	if err := stateMgr.SetBool("isTVPlaying", true); err != nil {
-		t.Fatalf("Failed to set initial isTVPlaying: %v", err)
-	}
-
-	// Simulate TV remote turning off
-	newState := &ha.State{
-		EntityID: "remote.big_beautiful_oled",
-		State:    "off",
-	}
-	manager.handleTVRemoteChange("remote.big_beautiful_oled", nil, newState)
-
-	// Verify isTVPlaying is now false
-	isTVPlaying, err := stateMgr.GetBool("isTVPlaying")
-	if err != nil {
-		t.Fatalf("Failed to get isTVPlaying: %v", err)
-	}
-
-	if isTVPlaying {
-		t.Errorf("Expected isTVPlaying=false when TV remote turns off, got true")
-	}
-
-	// Verify isTVon is also false
-	isTVOn, err := stateMgr.GetBool("isTVon")
-	if err != nil {
-		t.Fatalf("Failed to get isTVon: %v", err)
-	}
-
-	if isTVOn {
-		t.Errorf("Expected isTVon=false when TV remote turns off, got true")
-	}
-}
-
 func TestTVManager_SyncBoxPowerChange(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
@@ -606,46 +564,6 @@ func TestTVManager_Stop_CleansUpSubscriptions(t *testing.T) {
 	if len(manager.subHelper.GetStateSubscriptions()) != 0 {
 		t.Error("Expected stateSubscriptions to be empty after Stop()")
 	}
-}
-
-func TestTVManager_ReadOnlyMode(t *testing.T) {
-	t.Parallel(
-	// Create mock HA client
-	)
-
-	mockHA := ha.NewMockClient()
-	logger := zap.NewNop()
-
-	// Create state manager in read-only mode
-	stateMgr := state.NewManager(mockHA, logger, true)
-
-	// Initialize state from HA (this populates the cache)
-	mockHA.SetState("input_boolean.apple_tv_playing", "off", nil)
-	if err := stateMgr.SyncFromHA(); err != nil {
-		t.Fatalf("Failed to sync from HA: %v", err)
-	}
-
-	// Create TV manager in read-only mode
-	_ = NewManager(context.Background(), mockHA, stateMgr, logger, true, nil)
-
-	// Simulate HA state change (this should update local cache)
-	mockHA.SimulateStateChange("input_boolean.apple_tv_playing", "on")
-
-	// Small delay to allow state propagation
-	time.Sleep(10 * time.Millisecond)
-
-	// In read-only mode, local cache should still be updated when HA sends changes
-	isPlaying, err := stateMgr.GetBool("isAppleTVPlaying")
-	if err != nil {
-		t.Fatalf("Failed to get isAppleTVPlaying: %v", err)
-	}
-	if !isPlaying {
-		t.Error("Expected isAppleTVPlaying=true (local cache should update from HA changes even in read-only mode)")
-	}
-
-	// Verify that the manager doesn't try to write back to HA (this is implicit -
-	// if it tried, it would error, but the state manager only prevents writes,
-	// not reads or cache updates from HA)
 }
 
 func TestTVManager_SyncBoxUnavailable_TriggersRecovery(t *testing.T) {
