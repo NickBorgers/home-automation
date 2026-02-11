@@ -1,6 +1,7 @@
 package state
 
 import (
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -1036,4 +1037,365 @@ func TestManager_SyncFromHA_PreservesLocalOnlyVariables(t *testing.T) {
 
 	assert.Equal(t, int32(1), atomic.LoadInt32(&notified),
 		"subscriber must be notified when local-only variable changes from true to false after reconnect")
+}
+
+// TestManager_EchoBackSuppression verifies that stale echo-backs from HA
+// do not overwrite locally-written cache values. This is the fix for #637.
+//
+// Race sequence without fix:
+//  1. Plugin calls SetString("musicPlaybackType", "morning") → cache = "morning"
+//  2. HA sends stale echo-back with "sleep" (from previous state)
+//  3. subscribeToEntity sees "sleep" ≠ "morning", overwrites cache to "sleep"
+//
+// With the fix, the stale echo-back is suppressed because the pending write
+// flag tells the callback to ignore echo-backs until a matching value arrives.
+//
+// NOTE: The mock client sends a confirming echo-back synchronously during
+// SetInputText, which clears the pending flag immediately. To test the race
+// window, these tests set up the pending write state directly.
+func TestManager_EchoBackSuppression(t *testing.T) {
+	t.Parallel()
+	logger := testlogger.New()
+	mockClient := ha.NewMockClient()
+	mockClient.SetState("input_text.music_playback_type", "sleep", map[string]interface{}{})
+	mockClient.Connect()
+
+	manager := NewManager(mockClient, logger, false)
+	require.NoError(t, manager.SyncFromHA())
+
+	// Verify initial state
+	value, err := manager.GetString("musicPlaybackType")
+	require.NoError(t, err)
+	require.Equal(t, "sleep", value)
+
+	t.Run("stale echo-back does not overwrite local write", func(t *testing.T) {
+		// Simulate the race window: cache has "morning" and HA hasn't
+		// confirmed yet (pending write still active).
+		manager.cacheMu.Lock()
+		manager.cache["musicPlaybackType"] = "morning"
+		manager.pendingWrites["musicPlaybackType"] = "morning"
+		manager.cacheMu.Unlock()
+
+		// Stale echo-back from HA with old "sleep" value
+		mockClient.SimulateStateChange("input_text.music_playback_type", "sleep")
+
+		// Cache must still be "morning" — stale echo-back was suppressed
+		value, err := manager.GetString("musicPlaybackType")
+		require.NoError(t, err)
+		assert.Equal(t, "morning", value, "stale echo-back must not overwrite locally-written value")
+	})
+
+	t.Run("matching echo-back clears pending flag", func(t *testing.T) {
+		// Set up pending state
+		manager.cacheMu.Lock()
+		manager.cache["musicPlaybackType"] = "morning"
+		manager.pendingWrites["musicPlaybackType"] = "morning"
+		manager.cacheMu.Unlock()
+
+		// Simulate confirming echo-back from HA
+		mockClient.SimulateStateChange("input_text.music_playback_type", "morning")
+
+		// Pending flag should be cleared
+		manager.cacheMu.RLock()
+		_, hasPending := manager.pendingWrites["musicPlaybackType"]
+		manager.cacheMu.RUnlock()
+		assert.False(t, hasPending, "matching echo-back should clear pending write flag")
+
+		// Cache should still be "morning"
+		value, err := manager.GetString("musicPlaybackType")
+		require.NoError(t, err)
+		assert.Equal(t, "morning", value)
+	})
+
+	t.Run("external change accepted after echo-back confirmed", func(t *testing.T) {
+		// Ensure no pending write
+		manager.cacheMu.Lock()
+		delete(manager.pendingWrites, "musicPlaybackType")
+		manager.cache["musicPlaybackType"] = "morning"
+		manager.cacheMu.Unlock()
+
+		// Track subscriber notifications
+		var notified int32
+		sub, err := manager.Subscribe("musicPlaybackType", func(key string, oldValue, newValue interface{}) {
+			atomic.AddInt32(&notified, 1)
+		})
+		require.NoError(t, err)
+		defer sub.Unsubscribe()
+
+		// External change from HA (e.g., another client changed the value)
+		mockClient.SimulateStateChange("input_text.music_playback_type", "evening")
+
+		// Without pending write, external change must be accepted
+		value, err := manager.GetString("musicPlaybackType")
+		require.NoError(t, err)
+		assert.Equal(t, "evening", value, "external change should be accepted when no pending write")
+		assert.Equal(t, int32(1), atomic.LoadInt32(&notified),
+			"subscribers should be notified of genuine external change")
+	})
+
+	t.Run("stale echo-back does not notify subscribers", func(t *testing.T) {
+		// Set up a pending write
+		manager.cacheMu.Lock()
+		manager.cache["musicPlaybackType"] = "morning"
+		manager.pendingWrites["musicPlaybackType"] = "morning"
+		manager.cacheMu.Unlock()
+
+		var notified int32
+		sub, err := manager.Subscribe("musicPlaybackType", func(key string, oldValue, newValue interface{}) {
+			atomic.AddInt32(&notified, 1)
+		})
+		require.NoError(t, err)
+		defer sub.Unsubscribe()
+
+		// Stale echo-back
+		mockClient.SimulateStateChange("input_text.music_playback_type", "sleep")
+
+		assert.Equal(t, int32(0), atomic.LoadInt32(&notified),
+			"stale echo-back must not notify subscribers")
+	})
+}
+
+// TestManager_EchoBackSuppression_Bool verifies echo-back suppression for boolean values.
+func TestManager_EchoBackSuppression_Bool(t *testing.T) {
+	t.Parallel()
+	logger := testlogger.New()
+	mockClient := ha.NewMockClient()
+	mockClient.SetState("input_boolean.wake_sequence_active", "off", map[string]interface{}{})
+	mockClient.Connect()
+
+	manager := NewManager(mockClient, logger, false)
+	require.NoError(t, manager.SyncFromHA())
+
+	// Simulate the race window: cache has true, pending write for true
+	manager.cacheMu.Lock()
+	manager.cache["isWakeSequenceActive"] = true
+	manager.pendingWrites["isWakeSequenceActive"] = true
+	manager.cacheMu.Unlock()
+
+	// Stale echo-back with "off" (false)
+	mockClient.SimulateStateChange("input_boolean.wake_sequence_active", "off")
+
+	// Cache must still be true
+	value, err := manager.GetBool("isWakeSequenceActive")
+	require.NoError(t, err)
+	assert.True(t, value, "stale echo-back must not overwrite locally-written boolean value")
+
+	// Confirming echo-back with "on" (true)
+	mockClient.SimulateStateChange("input_boolean.wake_sequence_active", "on")
+
+	// Pending flag should be cleared
+	manager.cacheMu.RLock()
+	_, hasPending := manager.pendingWrites["isWakeSequenceActive"]
+	manager.cacheMu.RUnlock()
+	assert.False(t, hasPending, "confirming echo-back should clear pending write")
+}
+
+// TestManager_EchoBackSuppression_Number verifies echo-back suppression for number values.
+func TestManager_EchoBackSuppression_Number(t *testing.T) {
+	t.Parallel()
+	logger := testlogger.New()
+	mockClient := ha.NewMockClient()
+	mockClient.SetState("input_number.alarm_time", "100", map[string]interface{}{})
+	mockClient.Connect()
+
+	manager := NewManager(mockClient, logger, false)
+	require.NoError(t, manager.SyncFromHA())
+
+	// Simulate the race window
+	manager.cacheMu.Lock()
+	manager.cache["alarmTime"] = 200.0
+	manager.pendingWrites["alarmTime"] = 200.0
+	manager.cacheMu.Unlock()
+
+	// Stale echo-back with old value
+	mockClient.SimulateStateChange("input_number.alarm_time", "100")
+
+	// Cache must still be 200
+	value, err := manager.GetNumber("alarmTime")
+	require.NoError(t, err)
+	assert.Equal(t, 200.0, value, "stale echo-back must not overwrite locally-written number value")
+
+	// Confirming echo-back
+	mockClient.SimulateStateChange("input_number.alarm_time", "200")
+
+	manager.cacheMu.RLock()
+	_, hasPending := manager.pendingWrites["alarmTime"]
+	manager.cacheMu.RUnlock()
+	assert.False(t, hasPending, "confirming echo-back should clear pending write")
+}
+
+// TestManager_EchoBackSuppression_CompareAndSwap verifies echo-back suppression
+// for CompareAndSwapBool, which also writes to the cache and syncs to HA.
+func TestManager_EchoBackSuppression_CompareAndSwap(t *testing.T) {
+	t.Parallel()
+	logger := testlogger.New()
+	mockClient := ha.NewMockClient()
+	mockClient.SetState("input_boolean.fade_out_in_progress", "off", map[string]interface{}{})
+	mockClient.Connect()
+
+	manager := NewManager(mockClient, logger, false)
+	require.NoError(t, manager.SyncFromHA())
+
+	// Simulate the race window: CAS wrote true, pending write active
+	manager.cacheMu.Lock()
+	manager.cache["isFadeOutInProgress"] = true
+	manager.pendingWrites["isFadeOutInProgress"] = true
+	manager.cacheMu.Unlock()
+
+	// Stale echo-back with "off" (false)
+	mockClient.SimulateStateChange("input_boolean.fade_out_in_progress", "off")
+
+	// Cache must still be true
+	value, err := manager.GetBool("isFadeOutInProgress")
+	require.NoError(t, err)
+	assert.True(t, value, "stale echo-back must not overwrite CAS-written value")
+}
+
+// TestManager_EchoBackSuppression_LocalOnlyNoFlag verifies that local-only
+// variables do not set pending write flags (they don't sync with HA).
+func TestManager_EchoBackSuppression_LocalOnlyNoFlag(t *testing.T) {
+	t.Parallel()
+	logger := testlogger.New()
+	mockClient := ha.NewMockClient()
+	mockClient.Connect()
+
+	manager := NewManager(mockClient, logger, false)
+	require.NoError(t, manager.SyncFromHA())
+
+	// Set a local-only variable
+	err := manager.SetBool("didOwnerJustReturnHome", true)
+	require.NoError(t, err)
+
+	// Should not have a pending write flag
+	manager.cacheMu.RLock()
+	_, hasPending := manager.pendingWrites["didOwnerJustReturnHome"]
+	manager.cacheMu.RUnlock()
+	assert.False(t, hasPending, "local-only variable should not have pending write flag")
+}
+
+// TestManager_EchoBackSuppression_RapidWrites verifies that rapid successive
+// writes correctly track the latest pending value. If a plugin writes A then B,
+// the pending value should be B, and an echo-back of A should still be suppressed.
+func TestManager_EchoBackSuppression_RapidWrites(t *testing.T) {
+	t.Parallel()
+	logger := testlogger.New()
+	mockClient := ha.NewMockClient()
+	mockClient.SetState("input_text.day_phase", "morning", map[string]interface{}{})
+	mockClient.Connect()
+
+	manager := NewManager(mockClient, logger, false)
+	require.NoError(t, manager.SyncFromHA())
+
+	// Simulate rapid writes: pending value is "night" (the latest write)
+	manager.cacheMu.Lock()
+	manager.cache["dayPhase"] = "night"
+	manager.pendingWrites["dayPhase"] = "night"
+	manager.cacheMu.Unlock()
+
+	// Echo-back for the first write ("evening") should be suppressed
+	mockClient.SimulateStateChange("input_text.day_phase", "evening")
+
+	value, err := manager.GetString("dayPhase")
+	require.NoError(t, err)
+	assert.Equal(t, "night", value, "echo-back of intermediate value must not overwrite latest write")
+
+	// Echo-back for the original value ("morning") should also be suppressed
+	mockClient.SimulateStateChange("input_text.day_phase", "morning")
+
+	value, err = manager.GetString("dayPhase")
+	require.NoError(t, err)
+	assert.Equal(t, "night", value, "echo-back of original value must not overwrite latest write")
+
+	// Confirming echo-back for the final value ("night")
+	mockClient.SimulateStateChange("input_text.day_phase", "night")
+
+	manager.cacheMu.RLock()
+	_, hasPending := manager.pendingWrites["dayPhase"]
+	manager.cacheMu.RUnlock()
+	assert.False(t, hasPending, "confirming echo-back should clear pending write")
+}
+
+// TestManager_EchoBackSuppression_HAFailureRollback verifies that when HA sync
+// fails, the pending write flag is also cleaned up along with the cache rollback.
+func TestManager_EchoBackSuppression_HAFailureRollback(t *testing.T) {
+	t.Parallel()
+	logger := testlogger.New()
+	mockClient := ha.NewMockClient()
+	mockClient.SetState("input_text.day_phase", "morning", map[string]interface{}{})
+	mockClient.Connect()
+
+	manager := NewManager(mockClient, logger, false)
+	require.NoError(t, manager.SyncFromHA())
+
+	// Make HA calls fail
+	mockClient.SetServiceError("input_text", "set_value", fmt.Errorf("connection lost"))
+
+	err := manager.SetString("dayPhase", "evening")
+	assert.Error(t, err)
+
+	// Cache should be rolled back to "morning"
+	value, err := manager.GetString("dayPhase")
+	require.NoError(t, err)
+	assert.Equal(t, "morning", value, "cache should be rolled back on HA failure")
+
+	// Pending write should be cleared
+	manager.cacheMu.RLock()
+	_, hasPending := manager.pendingWrites["dayPhase"]
+	manager.cacheMu.RUnlock()
+	assert.False(t, hasPending, "pending write should be cleared on HA failure")
+}
+
+// TestManager_SetString_NoPendingWriteWithoutSub verifies that SetString does NOT
+// set a pending write when there's no active HA subscription (e.g., during test setup
+// before SyncFromHA or plugin Start). This prevents stale pending writes from blocking
+// subsequent SimulateStateChange calls in tests.
+func TestManager_SetString_NoPendingWriteWithoutSub(t *testing.T) {
+	t.Parallel()
+	logger := testlogger.New()
+	// Use nil client — no HA subscriptions possible
+	manager := NewManager(nil, logger, false)
+	manager.cache["musicPlaybackType"] = "sleep"
+
+	err := manager.SetString("musicPlaybackType", "morning")
+	require.NoError(t, err)
+
+	// Without an active HA subscription, no pending write should be set
+	manager.cacheMu.RLock()
+	_, hasPending := manager.pendingWrites["musicPlaybackType"]
+	manager.cacheMu.RUnlock()
+	assert.False(t, hasPending, "SetString should NOT set pending write without active HA subscription")
+}
+
+// TestManager_SetBool_NoPendingWriteWithoutSub verifies that SetBool does NOT
+// set a pending write when there's no active HA subscription.
+func TestManager_SetBool_NoPendingWriteWithoutSub(t *testing.T) {
+	t.Parallel()
+	logger := testlogger.New()
+	manager := NewManager(nil, logger, false)
+	manager.cache["isWakeSequenceActive"] = false
+
+	err := manager.SetBool("isWakeSequenceActive", true)
+	require.NoError(t, err)
+
+	manager.cacheMu.RLock()
+	_, hasPending := manager.pendingWrites["isWakeSequenceActive"]
+	manager.cacheMu.RUnlock()
+	assert.False(t, hasPending, "SetBool should NOT set pending write without active HA subscription")
+}
+
+// TestManager_SetNumber_NoPendingWriteWithoutSub verifies that SetNumber does NOT
+// set a pending write when there's no active HA subscription.
+func TestManager_SetNumber_NoPendingWriteWithoutSub(t *testing.T) {
+	t.Parallel()
+	logger := testlogger.New()
+	manager := NewManager(nil, logger, false)
+	manager.cache["alarmTime"] = 100.0
+
+	err := manager.SetNumber("alarmTime", 200.0)
+	require.NoError(t, err)
+
+	manager.cacheMu.RLock()
+	_, hasPending := manager.pendingWrites["alarmTime"]
+	manager.cacheMu.RUnlock()
+	assert.False(t, hasPending, "SetNumber should NOT set pending write without active HA subscription")
 }

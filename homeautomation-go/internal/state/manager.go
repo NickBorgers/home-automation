@@ -74,6 +74,13 @@ type Manager struct {
 	// WakeSequenceLatch manages the wake sequence latch for isAnyoneHomeAndAwake.
 	// Access via GetWakeSequenceLatch().
 	wakeLatch *WakeSequenceLatch
+
+	// pendingWrites tracks locally-written values that haven't been confirmed
+	// by a matching HA echo-back yet. When a Set* method writes to the cache
+	// and syncs to HA, the written value is stored here. The subscribeToEntity
+	// callback uses this to suppress stale echo-backs from overwriting
+	// the cache. Protected by cacheMu (accessed alongside cache reads/writes).
+	pendingWrites map[string]interface{}
 }
 
 // NewManager creates a new state manager
@@ -95,6 +102,7 @@ func NewManager(client ha.HAClient, logger *zap.Logger, readOnly bool) *Manager 
 		subscribersWithContext: make(map[string]map[uint64]StateChangeHandlerWithContext),
 		haSubs:                 make(map[string]ha.Subscription),
 		readOnly:               readOnly,
+		pendingWrites:          make(map[string]interface{}),
 	}
 }
 
@@ -228,6 +236,33 @@ func (m *Manager) subscribeToEntity(entityID, key string) error {
 		// Update cache and check if value actually changed
 		m.cacheMu.Lock()
 		oldValue := m.cache[key]
+
+		// Check for pending local write (echo-back suppression).
+		// When a Set* method writes to HA, it records the written value
+		// in pendingWrites. If the echo-back matches the pending value,
+		// HA has confirmed the write — clear the pending flag and skip
+		// (cache already has the correct value). If it differs, this is
+		// a stale echo-back from a previous state — suppress it to
+		// prevent overwriting the locally-written value.
+		if pendingValue, hasPending := m.pendingWrites[key]; hasPending {
+			if reflect.DeepEqual(newValue, pendingValue) {
+				// Echo-back confirms our write — clear pending flag
+				delete(m.pendingWrites, key)
+				m.cacheMu.Unlock()
+				m.logger.Debug("Echo-back confirmed local write",
+					zap.String("key", key),
+					zap.Any("value", newValue))
+				return
+			}
+			// Stale echo-back — suppress it
+			m.cacheMu.Unlock()
+			m.logger.Debug("Suppressed stale echo-back for pending write",
+				zap.String("key", key),
+				zap.Any("echo_back_value", newValue),
+				zap.Any("pending_value", pendingValue))
+			return
+		}
+
 		if reflect.DeepEqual(oldValue, newValue) {
 			// Value hasn't changed, skip notification
 			m.cacheMu.Unlock()
@@ -384,6 +419,10 @@ func (m *Manager) SetBool(key string, value bool) error {
 		return err
 	}
 
+	// Check if there's an active HA subscription that could echo back.
+	// Must be checked before cacheMu to avoid lock ordering issues.
+	hasSub := !variable.LocalOnly && variable.EntityID != "" && m.hasActiveHASub(variable.EntityID)
+
 	// Check if value has actually changed
 	m.cacheMu.Lock()
 	oldValue, ok := m.cache[key]
@@ -397,6 +436,11 @@ func (m *Manager) SetBool(key string, value bool) error {
 
 	// Update cache
 	m.cache[key] = value
+	// Mark as pending write so echo-back from HA won't overwrite with stale value.
+	// Only set if there's an active HA subscription that would deliver echo-backs.
+	if hasSub {
+		m.pendingWrites[key] = value
+	}
 	m.cacheMu.Unlock()
 
 	// Skip HA sync for local-only variables, but still notify subscribers
@@ -414,15 +458,16 @@ func (m *Manager) SetBool(key string, value bool) error {
 	// Sync to HA
 	entityName := extractEntityName(variable.EntityID)
 	if err := m.client.SetInputBoolean(entityName, value); err != nil {
-		// Rollback cache on error
+		// Rollback cache and clear pending write on error
 		m.cacheMu.Lock()
 		m.cache[key] = oldValue
+		delete(m.pendingWrites, key)
 		m.cacheMu.Unlock()
 		return fmt.Errorf("failed to set HA value: %w", err)
 	}
 
 	// Notify subscribers after successful HA sync
-	// The HA callback will skip notification since cache already has the new value
+	// The HA echo-back callback will see the pending write and suppress the echo
 	m.notifySubscribers(key, oldValue, value)
 
 	return nil
@@ -469,6 +514,10 @@ func (m *Manager) SetString(key string, value string) error {
 		return err
 	}
 
+	// Check if there's an active HA subscription that could echo back.
+	// Must be checked before cacheMu to avoid lock ordering issues.
+	hasSub := !variable.LocalOnly && variable.EntityID != "" && m.hasActiveHASub(variable.EntityID)
+
 	// Check if value has actually changed
 	m.cacheMu.Lock()
 	oldValue, ok := m.cache[key]
@@ -482,6 +531,11 @@ func (m *Manager) SetString(key string, value string) error {
 
 	// Update cache
 	m.cache[key] = value
+	// Mark as pending write so echo-back from HA won't overwrite with stale value.
+	// Only set if there's an active HA subscription that would deliver echo-backs.
+	if hasSub {
+		m.pendingWrites[key] = value
+	}
 	m.cacheMu.Unlock()
 
 	// Skip HA sync for local-only variables, but still notify subscribers
@@ -499,15 +553,16 @@ func (m *Manager) SetString(key string, value string) error {
 	// Sync to HA
 	entityName := extractEntityName(variable.EntityID)
 	if err := m.client.SetInputText(entityName, value); err != nil {
-		// Rollback cache on error
+		// Rollback cache and clear pending write on error
 		m.cacheMu.Lock()
 		m.cache[key] = oldValue
+		delete(m.pendingWrites, key)
 		m.cacheMu.Unlock()
 		return fmt.Errorf("failed to set HA value: %w", err)
 	}
 
 	// Notify subscribers after successful HA sync
-	// The HA callback will skip notification since cache already has the new value
+	// The HA echo-back callback will see the pending write and suppress the echo
 	m.notifySubscribers(key, oldValue, value)
 
 	return nil
@@ -554,6 +609,10 @@ func (m *Manager) SetNumber(key string, value float64) error {
 		return err
 	}
 
+	// Check if there's an active HA subscription that could echo back.
+	// Must be checked before cacheMu to avoid lock ordering issues.
+	hasSub := !variable.LocalOnly && variable.EntityID != "" && m.hasActiveHASub(variable.EntityID)
+
 	// Check if value has actually changed
 	m.cacheMu.Lock()
 	oldValue, ok := m.cache[key]
@@ -567,6 +626,11 @@ func (m *Manager) SetNumber(key string, value float64) error {
 
 	// Update cache
 	m.cache[key] = value
+	// Mark as pending write so echo-back from HA won't overwrite with stale value.
+	// Only set if there's an active HA subscription that would deliver echo-backs.
+	if hasSub {
+		m.pendingWrites[key] = value
+	}
 	m.cacheMu.Unlock()
 
 	// Skip HA sync for local-only variables, but still notify subscribers
@@ -584,15 +648,16 @@ func (m *Manager) SetNumber(key string, value float64) error {
 	// Sync to HA
 	entityName := extractEntityName(variable.EntityID)
 	if err := m.client.SetInputNumber(entityName, value); err != nil {
-		// Rollback cache on error
+		// Rollback cache and clear pending write on error
 		m.cacheMu.Lock()
 		m.cache[key] = oldValue
+		delete(m.pendingWrites, key)
 		m.cacheMu.Unlock()
 		return fmt.Errorf("failed to set HA value: %w", err)
 	}
 
 	// Notify subscribers after successful HA sync
-	// The HA callback will skip notification since cache already has the new value
+	// The HA echo-back callback will see the pending write and suppress the echo
 	m.notifySubscribers(key, oldValue, value)
 
 	return nil
@@ -644,6 +709,10 @@ func (m *Manager) SetJSON(key string, value interface{}) error {
 		return err
 	}
 
+	// Check if there's an active HA subscription that could echo back.
+	// Must be checked before cacheMu to avoid lock ordering issues.
+	hasSub := !variable.LocalOnly && variable.EntityID != "" && m.hasActiveHASub(variable.EntityID)
+
 	// Check if value has actually changed (using deep equality for JSON)
 	m.cacheMu.Lock()
 	oldValue, ok := m.cache[key]
@@ -655,6 +724,11 @@ func (m *Manager) SetJSON(key string, value interface{}) error {
 
 	// Update cache
 	m.cache[key] = value
+	// Mark as pending write so echo-back from HA won't overwrite with stale value.
+	// Only set if there's an active HA subscription that would deliver echo-backs.
+	if hasSub {
+		m.pendingWrites[key] = value
+	}
 	m.cacheMu.Unlock()
 
 	// Skip HA sync for local-only variables, but still notify subscribers
@@ -672,9 +746,10 @@ func (m *Manager) SetJSON(key string, value interface{}) error {
 	// Convert to JSON string for HA
 	jsonBytes, err := json.Marshal(value)
 	if err != nil {
-		// Rollback cache on error
+		// Rollback cache and clear pending write on error
 		m.cacheMu.Lock()
 		m.cache[key] = oldValue
+		delete(m.pendingWrites, key)
 		m.cacheMu.Unlock()
 		return fmt.Errorf("failed to marshal JSON: %w", err)
 	}
@@ -682,15 +757,16 @@ func (m *Manager) SetJSON(key string, value interface{}) error {
 	// Sync to HA
 	entityName := extractEntityName(variable.EntityID)
 	if err := m.client.SetInputText(entityName, string(jsonBytes)); err != nil {
-		// Rollback cache on error
+		// Rollback cache and clear pending write on error
 		m.cacheMu.Lock()
 		m.cache[key] = oldValue
+		delete(m.pendingWrites, key)
 		m.cacheMu.Unlock()
 		return fmt.Errorf("failed to set HA value: %w", err)
 	}
 
 	// Notify subscribers after successful HA sync
-	// The HA callback will skip notification since cache already has the new value
+	// The HA echo-back callback will see the pending write and suppress the echo
 	m.notifySubscribers(key, oldValue, value)
 
 	return nil
@@ -709,6 +785,10 @@ func (m *Manager) CompareAndSwapBool(key string, old, new bool) (bool, error) {
 	if err := m.ensureWritable(variable); err != nil {
 		return false, err
 	}
+
+	// Check if there's an active HA subscription that could echo back.
+	// Must be checked before cacheMu to avoid lock ordering issues.
+	hasSub := !variable.LocalOnly && variable.EntityID != "" && m.hasActiveHASub(variable.EntityID)
 
 	m.cacheMu.Lock()
 
@@ -730,6 +810,11 @@ func (m *Manager) CompareAndSwapBool(key string, old, new bool) (bool, error) {
 
 	// Update cache (still holding lock)
 	m.cache[key] = new
+	// Mark as pending write so echo-back from HA won't overwrite with stale value.
+	// Only set if there's an active HA subscription that would deliver echo-backs.
+	if hasSub {
+		m.pendingWrites[key] = new
+	}
 
 	// Release lock before calling HA client to avoid deadlock
 	m.cacheMu.Unlock()
@@ -742,9 +827,10 @@ func (m *Manager) CompareAndSwapBool(key string, old, new bool) (bool, error) {
 	// Sync to HA
 	entityName := extractEntityName(variable.EntityID)
 	if err := m.client.SetInputBoolean(entityName, new); err != nil {
-		// Rollback on error
+		// Rollback cache and clear pending write on error
 		m.cacheMu.Lock()
 		m.cache[key] = old
+		delete(m.pendingWrites, key)
 		m.cacheMu.Unlock()
 		return false, fmt.Errorf("failed to set HA value: %w", err)
 	}
@@ -862,6 +948,16 @@ func (m *Manager) unsubscribeWithContext(key string, id uint64) {
 	if regularEmpty && contextEmpty {
 		m.teardownHASubscription(key)
 	}
+}
+
+// hasActiveHASub checks if an HA subscription exists for the given entity.
+// Used to determine whether to set pending write flags — if there's no
+// subscription, there won't be echo-back callbacks to suppress.
+func (m *Manager) hasActiveHASub(entityID string) bool {
+	m.haSubsMu.Lock()
+	_, ok := m.haSubs[entityID]
+	m.haSubsMu.Unlock()
+	return ok
 }
 
 func (m *Manager) ensureHASubscription(variable StateVariable) error {
