@@ -15,7 +15,7 @@ The following CI workflows must pass before a PR can be merged:
    - **File**: `.github/workflows/pr-tests.yml`
    - **Checks**:
      - ✅ Go unit tests with race detector
-     - ✅ Test coverage ≥70%
+     - ✅ Test coverage ≥65%
      - ✅ Integration tests (11/11 passing)
      - ✅ Config validation (YAML, Spotify URIs)
 
@@ -71,14 +71,11 @@ After configuring branch protection:
 
 #### Go Tests (`homeautomation-go/`)
 ```bash
-# Unit tests with race detector
-go test ./... -race
-
-# Coverage check (minimum 70%)
-go test ./... -race -coverprofile=coverage.out
+# Unit tests with race detector and coverage check (minimum 65%)
+make unit-tests
 
 # Integration tests (concurrent load, deadlocks, race conditions)
-go test -v -race ./test/integration/...
+make integration-tests
 ```
 
 #### Config Tests
@@ -98,28 +95,17 @@ make run-spotify-validation-music
 Run the same checks locally that CI will run:
 
 ```bash
-cd homeautomation-go
+# Run all checks (formatting, linting, build)
+make pre-commit
 
-# 1. Ensure everything compiles
-go build ./...
+# Run unit tests with race detector and coverage (uses caching)
+make unit-tests
 
-# 2. Run all tests
-go test ./...
+# Run integration tests (uses caching)
+make integration-tests
 
-# 3. Run with race detector
-go test -race ./...
-
-# 4. Check coverage
-go test -coverprofile=coverage.out ./...
-go tool cover -func=coverage.out
-
-# 5. Run integration tests
-go test -v -race ./test/integration/...
-```
-
-Or use the one-liner from `../../AGENTS.md`:
-```bash
-cd homeautomation-go && go build ./... && go test ./... && echo "✅ Ready to push"
+# Or run full CI validation (no cache)
+make pre-push
 ```
 
 ### What Happens on PR Creation
@@ -178,10 +164,11 @@ cd homeautomation-go && go build ./... && go test ./... && echo "✅ Ready to pu
 go version
 
 # Update dependencies
-go mod tidy
+cd homeautomation-go && go mod tidy
 
 # Run with race detector (CI does this)
-go test -race ./...
+make unit-tests
+make integration-tests
 
 # Check CI logs for specific error messages
 ```
@@ -200,7 +187,7 @@ go test -race ./...
 - Catches issues before they reach main branch
 
 ✅ **Enforces code quality standards**
-- Minimum 70% test coverage
+- Minimum 65% test coverage
 - Race condition detection
 - Integration test validation
 

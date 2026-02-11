@@ -103,12 +103,14 @@ grep -n "isNickHome" docs/archive/flows.json                     # Find state va
 
 ## Development Standards
 
-### Shadow State Pattern (CRITICAL)
+### Shadow State Pattern
 
-**Every plugin MUST implement shadow state tracking.** See [SHADOW_STATE.md](./docs/reference/SHADOW_STATE.md).
+**Plugins should implement shadow state tracking for observability.** See [SHADOW_STATE.md](./docs/reference/SHADOW_STATE.md).
+
+All plugins register a shadow tracker and track outputs. Implementing `updateShadowInputs()` to capture raw inputs is recommended but currently only done in `dayphase` and `sleephygiene`.
 
 ```go
-// EVERY handler must update shadow inputs at the start
+// Recommended: update shadow inputs at the start of handlers
 func (m *Manager) handleSomeChange(entityID string, oldState, newState *ha.State) {
     if newState == nil {
         return
@@ -122,9 +124,9 @@ func (m *Manager) handleSomeChange(entityID string, oldState, newState *ha.State
 
 **Checklist for new plugins:**
 - [ ] Add `shadowTracker` field to Manager struct
-- [ ] Implement `updateShadowInputs()` method
-- [ ] Call `updateShadowInputs()` at START of every handler
-- [ ] Test that `/api/shadow/{plugin}` shows populated inputs
+- [ ] Register with `/api/shadow/{plugin}` endpoint
+- [ ] Recommended: Implement `updateShadowInputs()` method
+- [ ] Recommended: Call `updateShadowInputs()` at START of every handler
 
 ### Go Code Standards
 

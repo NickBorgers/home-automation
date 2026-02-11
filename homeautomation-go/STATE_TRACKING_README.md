@@ -289,6 +289,6 @@ Potential improvements for future iterations:
 
 ## See Also
 
-- [Node-RED Analysis](../docs/NODE_RED_TABS_ANALYSIS.md) - Detailed analysis of original Node-RED implementation
-- [Implementation Plan](../docs/architecture/IMPLEMENTATION_PLAN.md) - Overall migration strategy
+- [Node-RED Analysis](../docs/archive/NODE_RED_TABS_ANALYSIS.md) - Detailed analysis of original Node-RED implementation (archived)
+- [Architecture](../docs/architecture/ARCHITECTURE.md) - System design and implementation status
 - [Main README](./README.md) - Golang project overview

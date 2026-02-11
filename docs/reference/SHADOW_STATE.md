@@ -58,13 +58,15 @@ type ShadowMetadata struct {
 
 ## Implementation Requirements
 
-### CRITICAL: Track Raw Inputs
+### Track Raw Inputs
 
-**Every plugin handler MUST update shadow state inputs when receiving data from Home Assistant or state changes.**
+**Plugins SHOULD update shadow state inputs when receiving data from Home Assistant or state changes.** Currently, `dayphase` and `sleephygiene` implement full `updateShadowInputs()` tracking. Other plugins track outputs via their shadow trackers but do not yet capture raw inputs.
 
-This is the most common bug: plugins update outputs but forget to track the raw inputs that triggered the computation.
+When adding or modifying a plugin, implementing `updateShadowInputs()` is recommended for debugging and observability. It is not currently enforced across all plugins.
 
-### Required Pattern
+A common bug when implementing shadow state: plugins update outputs but forget to track the raw inputs that triggered the computation.
+
+### Recommended Pattern
 
 ```go
 // CORRECT: Update shadow inputs at start of every handler

@@ -273,9 +273,8 @@ docker exec -it homeautomation /bin/sh
 The GitHub Actions workflow (`.github/workflows/docker-build-push.yml`) performs:
 
 1. **Test Stage**:
-   - Runs `go test ./... -race -v`
-   - Generates coverage report
-   - Fails if coverage < 70%
+   - Runs `make ci-unit-tests` (includes race detector and coverage)
+   - Fails if coverage < 65%
 
 2. **Build and Push Stage**:
    - Builds multi-platform Docker image
