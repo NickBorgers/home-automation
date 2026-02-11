@@ -899,6 +899,8 @@ Go's runtime only detects deadlocks when **all** goroutines are blocked. If even
 11. **Maintain consistent lock ordering** - Prevents deadlocks when multiple locks are needed
 12. **Use errgroup for structured concurrency** - Provides bounded parallelism, error propagation, and cleaner code than manual WaitGroup
 13. **Propagate shutdown context through service calls** - Enables fast graceful shutdown by allowing retry loops to exit immediately
+14. **Establish clear ownership for shared state** - When multiple handlers react to the same change, one must have authority
+15. **Suppress echo-backs with pending write tracking** - When writing to an external system that echoes changes back, track pending writes to prevent stale echo-backs from overwriting local state
 
 ---
 
@@ -1143,7 +1145,117 @@ func (m *Manager) handleStateChange(key string, oldValue, newValue interface{}) 
 
 ---
 
+## Lesson 15: Suppress Echo-Backs with Pending Write Tracking
+
+**Pattern**: When writing state to an external system (like Home Assistant) that echoes changes back via WebSocket subscription, track pending writes locally to prevent stale echo-backs from overwriting the cache.
+
+**Why**: In a subscribe-then-write pattern, the local system writes a value to the external system and also updates its local cache. The external system then echoes the change back via the subscription. If the echo-back arrives with a stale value (the old state, before the write was processed), it overwrites the locally-cached value, causing the system to briefly revert to the old state and fire incorrect change notifications.
+
+**Race Condition Scenario** (Fixed in [Issue #637](https://github.com/NickBorgersOnLowSecurityNode/home-automation/issues/637)):
+```
+Timeline:
+1. Plugin calls SetBool("isAnyoneHome", true)
+2. State manager updates cache: isAnyoneHome = true
+3. State manager sends write to HA: input_boolean.is_anyone_home → "on"
+4. HA subscription callback fires with STALE value: "off" (previous state)
+5. Cache is overwritten: isAnyoneHome = false  ← BUG!
+6. Subscribers notified of false change: true → false
+7. HA processes the write and echoes "on" back
+8. Cache updated again: isAnyoneHome = true
+9. Subscribers notified of spurious change: false → true
+```
+
+**Error Symptoms**:
+- State variable briefly reverts to old value after being set
+- Subscribers fire twice: once with the correct value, then a spurious revert, then back to correct
+- Downstream plugins react to phantom state changes
+- Intermittent — depends on timing of HA WebSocket echo-back vs local write
+
+**Correct Approach**:
+```go
+// ✅ GOOD: Track pending writes and suppress stale echo-backs
+type Manager struct {
+    cache         map[string]interface{}
+    pendingWrites map[string]interface{}  // Tracks locally-written values
+    cacheMu       sync.RWMutex
+}
+
+// In Set* methods — mark the write as pending:
+func (m *Manager) SetBool(key string, value bool) error {
+    m.cacheMu.Lock()
+    m.cache[key] = value
+    if m.hasActiveHASub(variable.EntityID) {
+        m.pendingWrites[key] = value  // Mark as pending
+    }
+    m.cacheMu.Unlock()
+
+    // Sync to HA...
+    if err := m.client.SetInputBoolean(entityName, value); err != nil {
+        m.cacheMu.Lock()
+        m.cache[key] = oldValue           // Rollback cache
+        delete(m.pendingWrites, key)       // Clear pending
+        m.cacheMu.Unlock()
+        return err
+    }
+    return nil
+}
+
+// In subscription callback — check for pending writes:
+func (m *Manager) subscribeCallback(key string, newValue interface{}) {
+    m.cacheMu.Lock()
+    if pendingValue, hasPending := m.pendingWrites[key]; hasPending {
+        if reflect.DeepEqual(newValue, pendingValue) {
+            // Echo-back confirms our write — clear pending flag
+            delete(m.pendingWrites, key)
+            m.cacheMu.Unlock()
+            return  // Cache already correct, skip
+        }
+        // Stale echo-back — suppress it
+        m.cacheMu.Unlock()
+        return
+    }
+    // No pending write — normal update path
+    m.cache[key] = newValue
+    m.cacheMu.Unlock()
+    m.notifySubscribers(key, oldValue, newValue)
+}
+```
+
+**Key Elements**:
+1. **`pendingWrites` map**: Tracks values written locally that haven't been confirmed by HA yet
+2. **Set on write**: When `Set*` updates the cache and syncs to HA, record the value in `pendingWrites`
+3. **Check on echo-back**: When subscription callback fires, check if value has a pending write
+4. **Confirm or suppress**: If echo-back matches pending value, clear the flag (confirmed). If it differs, suppress it (stale)
+5. **Rollback clears pending**: If the HA write fails, clear the pending flag along with rolling back the cache
+6. **Only set when subscribed**: Only create pending entries when there's an active HA subscription that would deliver echo-backs
+
+**Where to Apply**:
+- Any system that writes to an external store and subscribes to changes from that store
+- Write-through caches backed by external state (databases, APIs, message brokers)
+- Bidirectional sync systems where local writes echo back through a subscription channel
+- MQTT publish/subscribe patterns where published messages echo to the publisher's subscription
+
+**Tests That Validate This**:
+- `TestSetBool_SuppressesStaleEchoBack` - Verifies stale echo-backs don't overwrite cache
+- `TestSetBool_EchoBackConfirmsClearsFlag` - Verifies matching echo-backs clear pending flag
+- `TestSetBool_EchoBackSuppressedDoesNotNotify` - Verifies subscribers aren't notified for suppressed echo-backs
+- `TestSetString_SuppressesStaleEchoBack` - Same pattern for string values
+- `TestSetNumber_SuppressesStaleEchoBack` - Same pattern for numeric values
+
+**Production Impact**:
+- **Before Fix**: State variables briefly reverted after writes, causing spurious subscriber notifications and downstream misbehavior
+- **After Fix**: Cache remains stable after writes; echo-backs are confirmed or suppressed without affecting local state
+
+---
+
 ## Change Log
+
+### 2026-02-11
+- **Added Lesson 15**: Suppress Echo-Backs with Pending Write Tracking
+  - Documents race condition where HA WebSocket echo-backs overwrite locally-written cache values (Issue #637)
+  - Pattern: Track pending writes in a map and suppress stale echo-backs in subscription callbacks
+  - Applied to `internal/state/manager.go` - all `Set*` methods and `subscribeToEntity` callback
+  - Comprehensive tests validate both stale suppression and confirmed echo-back clearing
 
 ### 2026-02-09
 - **Added Lesson 14**: Establish Clear Ownership When Multiple Systems React to the Same State Change
