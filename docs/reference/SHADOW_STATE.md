@@ -35,25 +35,39 @@ Shadow state serves three key purposes:
 
 ## Shadow State Structure
 
-Every plugin's shadow state follows this structure:
+Shadow state uses Go generics to eliminate per-plugin boilerplate. Every plugin's state is a `ShadowState[I, O]` parameterized by input and output types:
 
 ```go
-type PluginShadowState struct {
-    Plugin   string                 `json:"plugin"`
-    Inputs   PluginInputs           `json:"inputs"`
-    Outputs  PluginOutputs          `json:"outputs"`
-    Metadata ShadowMetadata         `json:"metadata"`
+// Generic shadow state container
+type ShadowState[I ShadowInputs, O any] struct {
+    Plugin   string        `json:"plugin"`
+    Inputs   I             `json:"inputs"`
+    Outputs  O             `json:"outputs"`
+    Metadata StateMetadata `json:"metadata"`
 }
 
-type PluginInputs struct {
+// Action-heavy plugins (lighting, music, security, etc.) use ActionInputs
+type ActionInputs struct {
     Current      map[string]interface{} `json:"current"`      // Current input values
     AtLastAction map[string]interface{} `json:"atLastAction"` // Inputs when last action taken
 }
 
-type ShadowMetadata struct {
+// Read-heavy plugins (energy, dayphase, statetracking, etc.) use ReadOnlyInputs
+type ReadOnlyInputs struct {
+    Current map[string]interface{} `json:"current"`
+}
+
+type StateMetadata struct {
     LastUpdated time.Time `json:"lastUpdated"`
     PluginName  string    `json:"pluginName"`
 }
+```
+
+Plugin state types are defined as type aliases:
+
+```go
+type LightingShadowState = ShadowState[ActionInputs, LightingOutputs]   // action-heavy
+type EnergyShadowState   = ShadowState[ReadOnlyInputs, EnergyOutputs]   // read-heavy
 ```
 
 ## Implementation Requirements
@@ -235,25 +249,48 @@ When debugging unexpected behavior:
 
 ## Adding Shadow State to New Plugins
 
-1. **Create tracker type** in `internal/shadowstate/tracker.go`:
+1. **Define outputs struct** in `internal/shadowstate/types.go`:
    ```go
+   type MyPluginOutputs struct {
+       SomeField string    `json:"someField"`
+       LastCalc  time.Time `json:"lastCalc,omitempty"`
+   }
+   ```
+
+2. **Add type alias** in `internal/shadowstate/types.go`:
+   ```go
+   // Action-heavy plugin (has AtLastAction snapshot):
+   type MyPluginShadowState = ShadowState[ActionInputs, MyPluginOutputs]
+
+   // OR read-heavy plugin (current inputs only):
+   type MyPluginShadowState = ShadowState[ReadOnlyInputs, MyPluginOutputs]
+   ```
+
+3. **Create tracker** in `internal/shadowstate/tracker.go` by embedding the generic base:
+   ```go
+   // Action-heavy plugin:
    type MyPluginTracker struct {
-       mu    sync.RWMutex
-       state *MyPluginShadowState
+       ActionTracker[MyPluginOutputs]
+   }
+   func NewMyPluginTracker() *MyPluginTracker {
+       return &MyPluginTracker{
+           ActionTracker: NewActionTracker(newActionShadowState("myplugin", MyPluginOutputs{})),
+       }
+   }
+
+   // OR read-heavy plugin:
+   type MyPluginTracker struct {
+       ReadOnlyTracker[MyPluginOutputs]
+   }
+   func NewMyPluginTracker() *MyPluginTracker {
+       return &MyPluginTracker{
+           ReadOnlyTracker: NewReadOnlyTracker(newReadOnlyShadowState("myplugin", MyPluginOutputs{})),
+       }
    }
    ```
+   The generic base provides `UpdateCurrentInputs()`, `SnapshotInputsForAction()` (action trackers only), and thread-safe locking. You only need to add plugin-specific output methods.
 
-2. **Define state structure** in `internal/shadowstate/types.go`:
-   ```go
-   type MyPluginShadowState struct {
-       Plugin   string           `json:"plugin"`
-       Inputs   MyPluginInputs   `json:"inputs"`
-       Outputs  MyPluginOutputs  `json:"outputs"`
-       Metadata ShadowMetadata   `json:"metadata"`
-   }
-   ```
-
-3. **Add tracker to manager**:
+4. **Add tracker to manager**:
    ```go
    type Manager struct {
        // ...
@@ -261,11 +298,11 @@ When debugging unexpected behavior:
    }
    ```
 
-4. **Implement `updateShadowInputs()`** method
+5. **Implement `updateShadowInputs()`** method
 
-5. **Call `updateShadowInputs()`** at the start of every handler
+6. **Call `updateShadowInputs()`** at the start of every handler
 
-6. **Register with API** in `internal/api/server.go`
+7. **Register with API** in `internal/api/server.go`
 
 ## Related Documentation
 
