@@ -1399,3 +1399,38 @@ func TestManager_SetNumber_NoPendingWriteWithoutSub(t *testing.T) {
 	manager.cacheMu.RUnlock()
 	assert.False(t, hasPending, "SetNumber should NOT set pending write without active HA subscription")
 }
+
+// TestManager_SyncFromHA_ClearsPendingWrites verifies that SyncFromHA clears
+// any pending writes, preventing stale flags from surviving reconnection.
+func TestManager_SyncFromHA_ClearsPendingWrites(t *testing.T) {
+	t.Parallel()
+	logger := testlogger.New()
+	mockClient := ha.NewMockClient()
+	mockClient.SetState("input_text.day_phase", "morning", map[string]interface{}{})
+	mockClient.Connect()
+
+	manager := NewManager(mockClient, logger, false)
+	require.NoError(t, manager.SyncFromHA())
+
+	// Manually inject a pending write to simulate a write that happened before disconnection
+	manager.cacheMu.Lock()
+	manager.pendingWrites["dayPhase"] = "evening"
+	manager.cacheMu.Unlock()
+
+	// Verify pending write flag is set
+	manager.cacheMu.RLock()
+	_, hasPending := manager.pendingWrites["dayPhase"]
+	manager.cacheMu.RUnlock()
+	require.True(t, hasPending, "pending write should be set for test")
+
+	// Simulate reconnection by calling SyncFromHA again
+	mockClient.SetState("input_text.day_phase", "evening", map[string]interface{}{})
+	err := manager.SyncFromHA()
+	require.NoError(t, err)
+
+	// Pending write should be cleared
+	manager.cacheMu.RLock()
+	_, hasPending = manager.pendingWrites["dayPhase"]
+	manager.cacheMu.RUnlock()
+	assert.False(t, hasPending, "SyncFromHA should clear all pending writes")
+}

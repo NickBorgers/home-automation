@@ -110,6 +110,12 @@ func NewManager(client ha.HAClient, logger *zap.Logger, readOnly bool) *Manager 
 func (m *Manager) SyncFromHA() error {
 	m.logger.Info("Syncing state from Home Assistant...")
 
+	// Clear any pending writes from before reconnection. SyncFromHA establishes
+	// HA's authoritative state as the new baseline, making prior pending writes obsolete.
+	m.cacheMu.Lock()
+	m.pendingWrites = make(map[string]interface{})
+	m.cacheMu.Unlock()
+
 	states, err := m.client.GetAllStates()
 	if err != nil {
 		return fmt.Errorf("failed to get states: %w", err)
