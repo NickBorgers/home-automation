@@ -602,6 +602,12 @@ func (m *Manager) fadeInSpeaker(ctx context.Context, speakerName string, targetV
 		zap.String("speaker", speakerName),
 		zap.Int("target_volume", targetVolume))
 
+	if m.config.HasZones() {
+		m.logger.Debug("Zones configured: musicPlaybackType safety check disabled, using context cancellation",
+			zap.String("speaker", speakerName),
+			zap.String("starting_type", startingMusicType))
+	}
+
 	entityID := m.getSpeakerEntityID(speakerName)
 
 	// Ensure we unregister the fade-in when done (unless already cancelled/unregistered)

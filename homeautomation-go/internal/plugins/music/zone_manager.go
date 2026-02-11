@@ -741,15 +741,14 @@ func (zm *ZoneManager) startZone(zoneName string, speakers []string, trigger str
 	zm.mu.Unlock()
 
 	// Update musicPlaybackType to reflect the active zone.
-	// This is critical for the fade-in safety check (fadein.go) which reads
-	// musicPlaybackType to ensure the music type hasn't changed during fade-in.
-	// Without this, zone activation and fade-in can race with the legacy
-	// selectAppropriateMusicMode, causing fade-in to abort.
+	// This is best-effort state sync for observability (dashboard, logs).
+	// When zones are configured, fade-in does NOT read musicPlaybackType for
+	// safety checks (issue #635) — context cancellation handles that instead.
 	if err := zm.manager.setMusicPlaybackType(zoneName); err != nil {
 		zm.logger.Warn("Failed to update musicPlaybackType for zone",
 			zap.String("zone", zoneName),
 			zap.Error(err))
-		// Continue anyway - playback will still work, just without state sync
+		// Continue anyway - playback correctness doesn't depend on this state sync
 	}
 
 	// Delegate actual playback to manager
