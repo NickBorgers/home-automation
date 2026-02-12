@@ -21,8 +21,9 @@
 set -e  # Exit on any error
 
 echo ""
-echo "🚀 Running pre-push hook..."
+echo "🚀 Running pre-push validation..."
 echo "════════════════════════════════════════════════════════════════════════════"
+echo ""
 
 # Change to repository root
 cd "$(git rev-parse --show-toplevel)"

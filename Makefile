@@ -381,6 +381,8 @@ test-48hr-simulation:
 ci-style-checks: pre-commit
 	@echo "✅ CI style checks complete"
 
+## Testing Targets (Use Caching)
+
 #unit-tests: @ Run unit tests with caching (skips if no code changes since last pass)
 unit-tests:
 	@.githooks/test-cache.sh unit-tests unit-tests-impl
@@ -389,8 +391,28 @@ unit-tests:
 integration-tests:
 	@.githooks/test-cache.sh integration-tests integration-tests-impl
 
-#unit-tests-impl: @ Run unit tests with coverage, excluding integration tests (implementation target)
-unit-tests-impl:
+# Testing Targets (No Caching): see test-go, test-go-verbose, pre-push above
+
+## Test Cache Management
+
+#cache-status: @ Show test cache status
+cache-status:
+	@.githooks/test-cache.sh --status
+
+#cache-clear: @ Clear all test caches
+cache-clear:
+	@.githooks/test-cache.sh --clear
+
+#cache-clear-unit: @ Clear unit test cache only
+cache-clear-unit:
+	@.githooks/test-cache.sh --clear-one unit-tests
+
+#cache-clear-integration: @ Clear integration test cache only
+cache-clear-integration:
+	@.githooks/test-cache.sh --clear-one integration-tests
+
+#ci-unit-tests: @ Run unit tests with coverage, excluding integration tests (used by CI)
+ci-unit-tests:
 	@echo "🧪 Running unit tests (excluding integration tests, pkg/testutil, and cmd/diagramgen)..."
 	@cd homeautomation-go && go build ./...
 	@cd homeautomation-go && go test $$(go list ./... | grep -v /test/integration | grep -v /pkg/testutil | grep -v /cmd/diagramgen) \
