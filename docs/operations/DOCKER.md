@@ -232,7 +232,7 @@ spec:
 
 1. **Make code changes**
 2. **Rebuild image**: `make docker-build-go`
-3. **Run tests**: `make test-go`
+3. **Run tests**: `make unit-tests`
 4. **Test container**: `make docker-run-go`
 
 ### Testing the Build
@@ -397,7 +397,7 @@ docker build \
 | `make docker-build-go` | Build Docker image |
 | `make docker-run-go` | Build and run container |
 | `make docker-push-go` | Push to GHCR |
-| `make test-go` | Run tests with coverage |
+| `make unit-tests` | Run unit tests with caching |
 | `make build-go` | Build local binary |
 | `make clean-go` | Clean build artifacts |
 
