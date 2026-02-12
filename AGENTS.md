@@ -6,33 +6,26 @@ This document provides guidance for AI agents and developers working on this hom
 
 This repository contains a home automation system migrating from Node-RED to Golang for improved type safety, testability, and maintainability.
 
-## 🚨 CRITICAL: Test Commands (AI Agents READ THIS)
+## Important: Test Commands and Pre-Push Hook
 
-**NEVER run `go test` directly. ALWAYS use the cached Makefile targets:**
+This repository uses test caching to avoid redundant test runs. Always use the Makefile targets:
 
 ```bash
-make unit-tests        # ✅ CORRECT - uses caching
-make integration-tests # ✅ CORRECT - uses caching
+make unit-tests        # ✅ PREFERRED - uses caching
+make integration-tests # ✅ PREFERRED - uses caching
+make test-go           # For debugging cache issues (no cache)
 ```
 
-**WRONG (bypasses cache, wastes time):**
-```bash
-go test ./...                    # ❌ WRONG
-go test -race ./...              # ❌ WRONG
-cd homeautomation-go && go test  # ❌ WRONG
-```
+A pre-push git hook validates all changes before pushing. It runs:
+- Diagram validation
+- Code compilation
+- Unit tests (2-5 minutes)
+- Integration tests (2-5 minutes)
+- Coverage check (≥65%)
 
-The cache tracks code changes and skips tests when nothing changed. Running `go test` directly always runs the full suite unnecessarily.
+**First-time contributors:** Your first push may take 15 minutes. Subsequent pushes with no code changes skip tests via caching.
 
----
-
-## 🚨 CRITICAL: Pre-Push Hook Active
-
-**A pre-push git hook runs all tests before every push and BLOCKS if they fail.**
-
-The hook runs: code compilation + all tests + race detector + coverage check (≥65%)
-
-**NEVER use `git push --no-verify`.** Fix the tests instead.
+**Important:** Never bypass hooks without understanding the failure. The pre-push hook prevents pushing broken code. If tests fail, fix them. Use `git push --no-verify` ONLY for emergencies (production outage, urgent hotfix) and open a follow-up PR to fix tests.
 
 **Key commands:**
 ```bash
@@ -103,7 +96,7 @@ grep -n "isNickHome" docs/archive/flows.json                     # Find state va
 
 ## Development Standards
 
-### Shadow State Pattern (CRITICAL)
+### Shadow State Pattern (Required for All Plugins)
 
 **Every plugin MUST implement shadow state tracking.** See [SHADOW_STATE.md](./docs/reference/SHADOW_STATE.md).
 
@@ -181,7 +174,7 @@ func TestScenario_UserStory_WakeSequenceDoesNotRestartSleepMusic(t *testing.T) {
 - **Invariant assertions**: Document rules that should ALWAYS hold in comments
 - **Intermediate state testing**: Don't just test end states—test what happens during transitions
 
-**Reference:** See `test/integration/scenario_sleephygiene_test.go` for examples of TDD-style cross-plugin tests with GIVEN/WHEN/THEN structure.
+**Reference:** See `homeautomation-go/test/integration/scenario_wake_sequence_test.go` (lines 9-120) for examples of regression tests with GIVEN/WHEN/THEN structure and timeline testing.
 
 ### API Change Protocol
 
@@ -194,10 +187,10 @@ When modifying function signatures:
 ### Documentation Maintenance
 
 Update docs when making changes:
-- New plugin → Update `VISUAL_ARCHITECTURE.md`, `ARCHITECTURE.md`, consider adding flow doc to `docs/flows/`
-- New state variable → Update `migration_mapping.md`, `VISUAL_ARCHITECTURE.md`
+- New plugin → Update `docs/human/VISUAL_ARCHITECTURE.md`, `docs/architecture/ARCHITECTURE.md`, consider adding flow doc to `docs/flows/`
+- New state variable → Update `docs/reference/migration_mapping.md`, `docs/human/VISUAL_ARCHITECTURE.md`
 - Plugin logic change → Update relevant flow doc in `docs/flows/` (e.g., `DAY_PHASE_MODES.md`)
-- Concurrency fix → Update `CONCURRENCY_LESSONS.md`
+- Concurrency fix → Update `docs/reference/CONCURRENCY_LESSONS.md`
 
 Validate Mermaid diagrams: `make validate-mermaid`
 
@@ -237,7 +230,7 @@ A Claude Code hook (`.claude/hooks/check-diagrams.sh`) reminds you when plugin c
 
 ## Running Tests
 
-**⚠️ ALWAYS use cached Makefile targets for tests** - they skip redundant runs when code hasn't changed:
+**Use cached Makefile targets for tests** - they skip redundant runs when code hasn't changed:
 
 ```bash
 # PREFERRED: Uses test caching (skips if code unchanged since last pass)
@@ -247,18 +240,35 @@ make integration-tests    # Integration tests with caching
 # No caching (runs every time)
 make test-go              # All tests with race detection (no cache)
 make pre-push             # Full validation (no cache, same as CI)
-
-# Cache management
-.githooks/test-cache.sh --status     # Check cache state
-.githooks/test-cache.sh --clear      # Force re-run next time
 ```
 
 **How caching works:** The `.githooks/test-cache.sh` script tracks a content-based hash of the codebase. If nothing changed since the last successful test run, tests are skipped entirely. This saves significant time during development.
 
-**Direct commands (avoid - always bypasses cache):**
+**Troubleshooting Test Cache:**
+
+```bash
+# Check cache status
+.githooks/test-cache.sh --status
+
+# Clear cache if tests seem stale
+.githooks/test-cache.sh --clear       # Clear all caches
+.githooks/test-cache.sh --clear-one unit-tests  # Clear unit test cache only
+
+# Debug cache misses
+DEBUG_CACHE=1 make unit-tests
+# Shows why cache missed (hash mismatch, file changes, etc.)
+```
+
+**When to clear cache:**
+- After `git pull` (especially if others changed tests)
+- When test fixtures or mock data change
+- When debugging inconsistent test results
+- Never needed for normal development (cache auto-invalidates on code changes)
+
+**Direct commands (for one-off debugging):**
 ```bash
 cd homeautomation-go
-go test -race ./...                           # Bypasses cache
+go test -race ./...                           # Run tests directly
 go test -coverprofile=coverage.out ./...      # Coverage report
 go test -v -race ./test/integration/...       # Integration only
 ```
@@ -370,50 +380,54 @@ DEV_MODE starts a mock Home Assistant WebSocket server with realistic sample dat
 
 ### Capturing Screenshots with Playwright
 
-Use Playwright to capture screenshots for PR documentation or visual regression testing:
+Use Playwright to capture screenshots for PR documentation or visual regression testing.
+
+**Quick Method (using Playwright skill if installed):**
+```bash
+make dev-ui
+# Ask Claude Code to use the playwright-skill to capture a screenshot
+```
+
+**Manual Method (requires Node.js):**
 
 **1. Start the dev server:**
 ```bash
 make dev-ui
 ```
 
-**2. Capture a screenshot (example - laptop resolution):**
+**2. Install Playwright:**
 ```bash
-# Write a Playwright script
-cat > /tmp/playwright-screenshot.js << 'EOF'
+npm install -D @playwright/test playwright
+```
+
+**3. Capture a screenshot (laptop resolution example):**
+```bash
+cat > /tmp/capture-dashboard.js << 'EOF'
 const { chromium } = require('playwright');
 
 (async () => {
-  const browser = await chromium.launch({ headless: true });
+  const browser = await chromium.launch();
   const page = await browser.newPage();
 
-  // Set viewport (common sizes: 1920x1080 desktop, 1280x800 laptop, 375x667 mobile)
   await page.setViewportSize({ width: 1280, height: 800 });
-
   await page.goto('http://localhost:8080/dashboard', { waitUntil: 'networkidle' });
-  await page.waitForTimeout(500); // Allow animations to settle
 
   await page.screenshot({
-    path: 'docs/screenshots/dashboard-screenshot.png',
+    path: 'docs/screenshots/dashboard.png',
     fullPage: true
   });
 
-  console.log('Screenshot saved');
+  console.log('Screenshot saved to docs/screenshots/dashboard.png');
   await browser.close();
 })();
 EOF
 
-# Execute with Playwright skill (if installed)
-cd ~/.claude/plugins/cache/playwright-skill/playwright-skill/*/skills/playwright-skill && \
-  node run.js /tmp/playwright-screenshot.js
-
-# Or with system playwright
-npx playwright test /tmp/playwright-screenshot.js
+node /tmp/capture-dashboard.js
 ```
 
-**3. Responsive testing (multiple viewports):**
+**4. Responsive testing (multiple viewports):**
 ```bash
-cat > /tmp/playwright-responsive.js << 'EOF'
+cat > /tmp/capture-responsive.js << 'EOF'
 const { chromium } = require('playwright');
 
 const viewports = [
@@ -424,23 +438,27 @@ const viewports = [
 ];
 
 (async () => {
-  const browser = await chromium.launch({ headless: true });
+  const browser = await chromium.launch();
   const page = await browser.newPage();
 
   for (const vp of viewports) {
     await page.setViewportSize({ width: vp.width, height: vp.height });
     await page.goto('http://localhost:8080/dashboard', { waitUntil: 'networkidle' });
     await page.waitForTimeout(300);
+
     await page.screenshot({
       path: `docs/screenshots/dashboard-${vp.name}.png`,
       fullPage: true
     });
+
     console.log(`Captured ${vp.name} (${vp.width}x${vp.height})`);
   }
 
   await browser.close();
 })();
 EOF
+
+node /tmp/capture-responsive.js
 ```
 
 ### Dashboard UI Details
@@ -481,6 +499,7 @@ git commit -m "docs: Add screenshot of [feature]"
 | "undefined: X" | Missing dependency | `go mod tidy && go mod download` |
 | Test timeout/deadlock | Missing mutex | Review with `-race` flag |
 | Tests pass locally, fail CI | Race condition or env diff | `make unit-tests && make integration-tests` locally |
+| Test timeout after 5m/10m | CI under heavy load, or infinite loop | Set `TEST_WAIT_TIMEOUT=5s`, check for deadlocks with `go test -race -v` |
 
 ## Status
 

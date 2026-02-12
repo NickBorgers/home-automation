@@ -17,13 +17,36 @@
 set -e  # Exit on any error
 
 echo ""
-echo "🚀 Running pre-push hook..."
+echo "🚀 Running pre-push validation..."
 echo "════════════════════════════════════════════════════════════════════════════"
+echo ""
 
 # Change to repository root
 cd "$(git rev-parse --show-toplevel)"
 
+# Detect if this push only affects documentation
+changed_files=$(git diff --name-only origin/main...HEAD 2>/dev/null || echo "")
+if [ -n "$changed_files" ]; then
+    # Check if any non-doc files changed
+    if ! echo "$changed_files" | grep -qE '\.(go|mod|sum|yaml|yml)$|Makefile'; then
+        # Only docs changed
+        if echo "$changed_files" | grep -qE '\.(md|txt)$|^docs/|LICENSE'; then
+            echo "📝 Documentation-only changes detected, skipping tests"
+            echo "   Running diagram validation only..."
+            echo ""
+            make validate-diagrams
+            echo ""
+            echo "✅ Pre-push hook passed! Proceeding with push..."
+            exit 0
+        fi
+    fi
+fi
+
 # Run pre-push validation with caching
+echo "⏳ Running full validation suite (first push may take 15+ minutes)..."
+echo "   Subsequent pushes skip tests if code unchanged (via caching)"
+echo ""
+
 if .githooks/test-cache.sh pre-push pre-push; then
     echo ""
     echo "✅ Pre-push hook passed! Proceeding with push..."
@@ -31,17 +54,12 @@ if .githooks/test-cache.sh pre-push pre-push; then
 else
     echo ""
     echo "════════════════════════════════════════════════════════════════════════════"
-    echo "❌ Pre-push hook failed!"
+    echo "❌ Pre-push validation failed!"
     echo ""
-    echo "Your push has been blocked because validation failed."
-    echo "The pre-push hook runs the same checks as CI:"
-    echo "  - Build check (go build ./...)"
-    echo "  - All tests with race detector (go test -race ./...)"
-    echo "  - Code coverage check (≥65%)"
+    echo "To fix: Address the failures above and commit the fixes"
+    echo "Emergency bypass (NOT recommended): git push --no-verify"
     echo ""
-    echo "Please fix the issues above and try pushing again."
-    echo ""
-    echo "To skip this hook (NOT recommended), use: git push --no-verify"
+    echo "⚠️  WARNING: Bypassing hooks may push broken code to main"
     echo "════════════════════════════════════════════════════════════════════════════"
     exit 1
 fi

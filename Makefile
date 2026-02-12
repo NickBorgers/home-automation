@@ -330,6 +330,8 @@ test-48hr-simulation:
 ci-style-checks: pre-commit
 	@echo "✅ CI style checks complete"
 
+## Testing Targets (Use Caching)
+
 #unit-tests: @ Run unit tests with caching (skips if no code changes since last pass)
 unit-tests:
 	@.githooks/test-cache.sh unit-tests ci-unit-tests
@@ -337,6 +339,30 @@ unit-tests:
 #integration-tests: @ Run integration tests with caching (skips if no code changes since last pass)
 integration-tests:
 	@.githooks/test-cache.sh integration-tests ci-integration-tests
+
+## Testing Targets (No Caching)
+
+#test-go: @ Run all tests without caching (for debugging)
+#test-go-verbose: @ Run all tests with verbose output (for debugging)
+#pre-push: @ Full validation suite (same as CI, no cache)
+
+## Test Cache Management
+
+#cache-status: @ Show test cache status
+cache-status:
+	@.githooks/test-cache.sh --status
+
+#cache-clear: @ Clear all test caches
+cache-clear:
+	@.githooks/test-cache.sh --clear
+
+#cache-clear-unit: @ Clear unit test cache only
+cache-clear-unit:
+	@.githooks/test-cache.sh --clear-one unit-tests
+
+#cache-clear-integration: @ Clear integration test cache only
+cache-clear-integration:
+	@.githooks/test-cache.sh --clear-one integration-tests
 
 #ci-unit-tests: @ Run unit tests with coverage, excluding integration tests (used by CI)
 ci-unit-tests:
