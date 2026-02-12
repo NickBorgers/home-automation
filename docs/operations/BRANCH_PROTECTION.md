@@ -15,7 +15,7 @@ The following CI workflows must pass before a PR can be merged:
    - **File**: `.github/workflows/pr-tests.yml`
    - **Checks**:
      - ✅ Go unit tests with race detector
-     - ✅ Test coverage ≥70%
+     - ✅ Test coverage ≥65%
      - ✅ Integration tests (11/11 passing)
      - ✅ Config validation (YAML, Spotify URIs)
 
@@ -71,14 +71,12 @@ After configuring branch protection:
 
 #### Go Tests (`homeautomation-go/`)
 ```bash
-# Unit tests with race detector
-go test ./... -race
+# Unit and integration tests (preferred — uses caching)
+make unit-tests
+make integration-tests
 
-# Coverage check (minimum 70%)
-go test ./... -race -coverprofile=coverage.out
-
-# Integration tests (concurrent load, deadlocks, race conditions)
-go test -v -race ./test/integration/...
+# Full validation (same as CI, no cache)
+make pre-push
 ```
 
 #### Config Tests
@@ -98,28 +96,12 @@ make run-spotify-validation-music
 Run the same checks locally that CI will run:
 
 ```bash
-cd homeautomation-go
+# Preferred: uses caching (skips if code unchanged)
+make unit-tests
+make integration-tests
 
-# 1. Ensure everything compiles
-go build ./...
-
-# 2. Run all tests
-go test ./...
-
-# 3. Run with race detector
-go test -race ./...
-
-# 4. Check coverage
-go test -coverprofile=coverage.out ./...
-go tool cover -func=coverage.out
-
-# 5. Run integration tests
-go test -v -race ./test/integration/...
-```
-
-Or use the one-liner from `../../AGENTS.md`:
-```bash
-cd homeautomation-go && go build ./... && go test ./... && echo "✅ Ready to push"
+# Full validation (same as CI, no cache)
+make pre-push
 ```
 
 ### What Happens on PR Creation
@@ -181,7 +163,7 @@ go version
 go mod tidy
 
 # Run with race detector (CI does this)
-go test -race ./...
+make unit-tests
 
 # Check CI logs for specific error messages
 ```
@@ -200,7 +182,7 @@ go test -race ./...
 - Catches issues before they reach main branch
 
 ✅ **Enforces code quality standards**
-- Minimum 70% test coverage
+- Minimum 65% test coverage
 - Race condition detection
 - Integration test validation
 
