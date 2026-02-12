@@ -32,7 +32,7 @@ The cache tracks code changes and skips tests when nothing changed. Running `go 
 
 The hook runs: code compilation + all tests + race detector + coverage check (≥65%)
 
-**NEVER use `git push --no-verify`.** Fix the tests instead.
+**IMPORTANT: Never bypass hooks without understanding the failure.** The pre-push hook prevents pushing broken code. If tests fail, fix them. Use `git push --no-verify` ONLY for emergencies (production outage, urgent hotfix) and open a follow-up PR to fix tests.
 
 **Key commands:**
 ```bash

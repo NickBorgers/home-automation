@@ -31,7 +31,7 @@ if .githooks/test-cache.sh pre-push pre-push; then
 else
     echo ""
     echo "════════════════════════════════════════════════════════════════════════════"
-    echo "❌ Pre-push hook failed!"
+    echo "❌ Pre-push validation failed!"
     echo ""
     echo "Your push has been blocked because validation failed."
     echo "The pre-push hook runs the same checks as CI:"
@@ -39,9 +39,10 @@ else
     echo "  - All tests with race detector (go test -race ./...)"
     echo "  - Code coverage check (≥65%)"
     echo ""
-    echo "Please fix the issues above and try pushing again."
+    echo "To fix: Address the failures above and commit the fixes."
+    echo "Emergency bypass (NOT recommended): git push --no-verify"
     echo ""
-    echo "To skip this hook (NOT recommended), use: git push --no-verify"
+    echo "⚠️  WARNING: Bypassing hooks may push broken code to main."
     echo "════════════════════════════════════════════════════════════════════════════"
     exit 1
 fi
