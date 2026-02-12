@@ -234,13 +234,9 @@ func main() {
 All components have comprehensive test coverage:
 
 ```bash
-# Run all tests
-go test ./...
-
-# Run specific package tests
-go test ./internal/state -v
-go test ./internal/config -v
-go test ./internal/dayphase -v
+# Preferred: uses caching (skips if code unchanged)
+make unit-tests
+make integration-tests
 ```
 
 ### Test Coverage
@@ -289,6 +285,6 @@ Potential improvements for future iterations:
 
 ## See Also
 
-- [Node-RED Analysis](../docs/NODE_RED_TABS_ANALYSIS.md) - Detailed analysis of original Node-RED implementation
-- [Implementation Plan](../docs/architecture/IMPLEMENTATION_PLAN.md) - Overall migration strategy
+- [Node-RED Analysis](../docs/archive/NODE_RED_TABS_ANALYSIS.md) - Detailed analysis of original Node-RED implementation
+- [Architecture](../docs/architecture/ARCHITECTURE.md) - Overall system architecture and migration status
 - [Main README](./README.md) - Golang project overview

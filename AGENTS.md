@@ -100,23 +100,25 @@ grep -n "isNickHome" docs/archive/flows.json                     # Find state va
 
 **Every plugin MUST implement shadow state tracking.** See [SHADOW_STATE.md](./docs/reference/SHADOW_STATE.md).
 
+Most plugins use `SubscriptionHelper`, which automatically captures shadow inputs before each handler. This is the recommended approach:
+
 ```go
-// EVERY handler must update shadow inputs at the start
-func (m *Manager) handleSomeChange(entityID string, oldState, newState *ha.State) {
-    if newState == nil {
-        return
-    }
-    m.updateShadowInputs()  // 1. FIRST: Capture what triggered this
-    // 2. Process the change
-    // 3. Update state variables
-    // 4. Update shadow state outputs
-}
+// RECOMMENDED: SubscriptionHelper captures inputs automatically
+m.subHelper.SubscribeToState("dayPhase", func(key string, oldValue, newValue interface{}) {
+    // Shadow inputs already captured — just process and update outputs
+    m.processChange(newValue)
+    m.shadowTracker.UpdateSomeOutput(result)
+})
+m.subHelper.CaptureInitialInputs()
 ```
+
+For periodic/timer-based plugins that don't use subscriptions (e.g., `dayphase`, `sleephygiene`), call `updateShadowInputs()` manually at the start of each handler.
 
 **Checklist for new plugins:**
 - [ ] Add `shadowTracker` field to Manager struct
-- [ ] Implement `updateShadowInputs()` method
-- [ ] Call `updateShadowInputs()` at START of every handler
+- [ ] Add `subHelper` field (`*shadowstate.SubscriptionHelper`)
+- [ ] Register subscriptions via `subHelper.SubscribeToState()` / `SubscribeToEntity()`
+- [ ] Call `subHelper.CaptureInitialInputs()` after setup
 - [ ] Test that `/api/shadow/{plugin}` shows populated inputs
 
 ### Go Code Standards
