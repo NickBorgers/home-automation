@@ -257,10 +257,9 @@ type Client struct {
 	resultIndex   int    // next write position in circular buffer
 	resultCount   int    // how many results recorded (up to healthWindowSize)
 
-	// handlerWg tracks in-flight event handler goroutines spawned by handleEvent.
-	// Tests call WaitForHandlers() to block until all handlers complete,
-	// replacing time.Sleep-based synchronization with deterministic waiting.
-	handlerWg sync.WaitGroup
+	// handlerCount tracks the number of in-flight handlers using atomic operations.
+	// This replaces WaitGroup to avoid Add/Wait races detected by the race detector.
+	handlerCount atomic.Int64
 
 	// processedEvents counts fully-processed state_changed events (all handler
 	// goroutines for the event have completed). Used by WaitForHandlers to
@@ -614,7 +613,9 @@ func (c *Client) GetConnectionDuration() time.Duration {
 // reading and processing the message.
 func (c *Client) WaitForHandlers() {
 	// Phase 1: Wait for any handlers that are already in flight
-	c.handlerWg.Wait()
+	for c.handlerCount.Load() > 0 {
+		time.Sleep(100 * time.Microsecond)
+	}
 
 	// Phase 2: Wait for pending WebSocket events to be received and processed.
 	// After Phase 1 completes, there may be WebSocket messages in the buffer
@@ -629,7 +630,9 @@ func (c *Client) WaitForHandlers() {
 			// An event was processed. Check if it's new since our snapshot.
 			if c.processedEvents.Load() > snapshot {
 				// New events were processed. Drain any remaining handlers.
-				c.handlerWg.Wait()
+				for c.handlerCount.Load() > 0 {
+					time.Sleep(100 * time.Microsecond)
+				}
 				return
 			}
 		case <-timer.C:
@@ -843,10 +846,10 @@ func (c *Client) handleEvent(msg *Message) {
 
 	var eventWg sync.WaitGroup
 	for _, entry := range entries {
-		c.handlerWg.Add(1)
+		c.handlerCount.Add(1)
 		eventWg.Add(1)
 		go func(h StateChangeHandler) {
-			defer c.handlerWg.Done()
+			defer c.handlerCount.Add(-1)
 			defer eventWg.Done()
 			h(eventData.EntityID, eventData.OldState, eventData.NewState)
 		}(entry.handler)
