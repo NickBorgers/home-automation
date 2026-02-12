@@ -411,8 +411,8 @@ func TestScenario_SexModeDuplicateActivation_Ignored(t *testing.T) {
 	// Activate sex mode
 	server.SetState("input_boolean.sex", "on", nil)
 	waitForStringState(t, stateManager, "musicPlaybackType", "sex", "sex mode should activate")
-	// Allow full handler completion (isActive is set after musicPlaybackType in handleSexModeOn)
-	time.Sleep(100 * time.Millisecond)
+	// Wait for full handler completion (isActive is set after musicPlaybackType in handleSexModeOn)
+	waitForCondition(t, func() bool { return sexModeManager.GetShadowState().Outputs.IsActive }, "sex mode should become active")
 
 	// Count initial service calls
 	initialCalls := len(server.GetServiceCalls())
@@ -603,8 +603,8 @@ func TestScenario_SexModeShadowState_TracksCorrectly(t *testing.T) {
 
 	server.SetState("input_boolean.sex", "on", nil)
 	waitForStringState(t, stateManager, "musicPlaybackType", "sex", "music should switch to sex")
-	// Brief delay for shadow state to update after state change
-	time.Sleep(50 * time.Millisecond)
+	// Wait for shadow state to update after state change
+	waitForCondition(t, func() bool { return sexModeManager.GetShadowState().Outputs.IsActive }, "shadow state should reflect activation")
 
 	t.Log("THEN: Shadow state should reflect activation")
 
@@ -620,8 +620,8 @@ func TestScenario_SexModeShadowState_TracksCorrectly(t *testing.T) {
 
 	server.SetState("input_boolean.sex", "off", nil)
 	waitForStringState(t, stateManager, "musicPlaybackType", "day", "music should be restored")
-	// Brief delay for shadow state to update after state change
-	time.Sleep(50 * time.Millisecond)
+	// Wait for shadow state to update after state change
+	waitForCondition(t, func() bool { return !sexModeManager.GetShadowState().Outputs.IsActive }, "shadow state should reflect deactivation")
 
 	t.Log("THEN: Shadow state should reflect deactivation")
 
