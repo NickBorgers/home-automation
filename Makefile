@@ -427,8 +427,8 @@ cache-clear-unit:
 cache-clear-integration:
 	@.githooks/test-cache.sh --clear-one integration-tests
 
-#ci-unit-tests: @ Run unit tests with coverage, excluding integration tests (used by CI)
-ci-unit-tests:
+#unit-tests-impl: @ Run unit tests with coverage (implementation target, prefer 'unit-tests')
+unit-tests-impl:
 	@echo "🧪 Running unit tests (excluding integration tests, pkg/testutil, and cmd/diagramgen)..."
 	@cd homeautomation-go && go build ./...
 	@cd homeautomation-go && go test $$(go list ./... | grep -v /test/integration | grep -v /pkg/testutil | grep -v /cmd/diagramgen) \
