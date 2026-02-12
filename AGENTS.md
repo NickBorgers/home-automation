@@ -176,7 +176,7 @@ func TestScenario_UserStory_WakeSequenceDoesNotRestartSleepMusic(t *testing.T) {
 - **Invariant assertions**: Document rules that should ALWAYS hold in comments
 - **Intermediate state testing**: Don't just test end states—test what happens during transitions
 
-**Reference:** See `homeautomation-go/test/integration/scenario_wake_sequence_test.go` (lines 9-120) for examples of regression tests with GIVEN/WHEN/THEN structure and timeline testing.
+**Reference:** See `homeautomation-go/test/integration/scenario_sleephygiene_test.go:154-197` for examples of regression tests with GIVEN/WHEN/THEN structure and timeline testing.
 
 ### API Change Protocol
 

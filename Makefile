@@ -341,10 +341,7 @@ integration-tests:
 	@.githooks/test-cache.sh integration-tests ci-integration-tests
 
 ## Testing Targets (No Caching)
-
-#test-go: @ Run all tests without caching (for debugging)
-#test-go-verbose: @ Run all tests with verbose output (for debugging)
-#pre-push: @ Full validation suite (same as CI, no cache)
+# See test-go, test-go-verbose, pre-push targets below
 
 ## Test Cache Management
 
