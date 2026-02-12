@@ -108,11 +108,11 @@ music:
       - player_name: "Front Room"
         base_volume: 8
         leave_muted_if: []
-      - player_name: "Office"
-        base_volume: 8
-        leave_muted_if:
-          - variable: isNickOfficeOccupied
-            value: false
+      - player_name: "Primary Bathroom"
+        base_volume: 9
+        exclude_if:
+          - variable: isMasterAsleep
+            value: true
     playback_options:
       # Instrumental Melodic House and Techno
       - uri: spotify:playlist:62CFZGi01r81y81tSuj155
@@ -160,11 +160,11 @@ music:
       - player_name: "Front Room"
         base_volume: 9
         leave_muted_if: []
-      - player_name: "Office"
-        base_volume: 6
+      - player_name: "Primary Bathroom"
+        base_volume: 9
         leave_muted_if:
-          - variable: isNickOfficeOccupied
-            value: false
+          - variable: isMasterAsleep
+            value: true
     playback_options:
       # Kygo Radio
       - uri: spotify:playlist:37i9dQZF1E4zvzTbEfkwF2
@@ -223,11 +223,11 @@ music:
       - player_name: "Front Room"
         base_volume: 8
         leave_muted_if: []
-      - player_name: "Office"
-        base_volume: 8
-        leave_muted_if:
-          - variable: isNickOfficeOccupied
-            value: false
+      - player_name: "Primary Bathroom"
+        base_volume: 10
+        exclude_if:
+          - variable: isMasterAsleep
+            value: true
     playback_options:
       # Instrumental Study
       - uri: spotify:playlist:37i9dQZF1DX9sIqqvKsjG8
@@ -347,11 +347,11 @@ music:
       - player_name: "Front Room"
         base_volume: 7
         leave_muted_if: []
-      - player_name: "Office"
-        base_volume: 8
-        leave_muted_if:
-          - variable: isNickOfficeOccupied
-            value: false
+      - player_name: "Primary Bathroom"
+        base_volume: 10
+        exclude_if:
+          - variable: isMasterAsleep
+            value: true
     playback_options:
       # Floating Through Space
       - uri: spotify:playlist:37i9dQZF1DX1n9whBbBKoL
@@ -388,11 +388,9 @@ music:
       - player_name: "Kitchen"
         base_volume: 16
         leave_muted_if: []
-      - player_name: "Office"
-        base_volume: 9
-        leave_muted_if:
-          - variable: isNickOfficeOccupied
-            value: false
+      - player_name: "Primary Bathroom"
+        base_volume: 16
+        leave_muted_if: []
     playback_options:
       - uri: "http://rain-sounds.nickborgers.net:8080/Rain%20Sounds/1.m4a"
         media_type: music
@@ -414,6 +412,9 @@ music:
       - player_name: "Kitchen"
         base_volume: 16
         leave_muted_if: []
+      - player_name: "Primary Bathroom"
+        base_volume: 16
+        leave_muted_if: []
     playback_options:
       - uri: "http://rain-sounds.nickborgers.net:8080/Rain%20Sounds/1.m4a"
         media_type: music
@@ -429,6 +430,9 @@ music:
       - player_name: "Bedroom"
         base_volume: 10
         leave_muted_if: []
+      - player_name: "Primary Bathroom"
+        base_volume: 10
+        leave_muted_if: []
     playback_options:
       - uri: spotify:playlist:1WaopApISE1aAT83aIYKRw
         media_type: playlist
@@ -436,6 +440,9 @@ music:
   wakeup:
     participants:
       - player_name: "Bedroom"
+        base_volume: 6
+        leave_muted_if: []
+      - player_name: "Primary Bathroom"
         base_volume: 6
         leave_muted_if: []
     playback_options:
