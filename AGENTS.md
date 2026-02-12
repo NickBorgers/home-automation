@@ -243,10 +243,11 @@ make integration-tests    # Integration tests with caching
 make test-no-cache        # All tests with race detection (no cache)
 make pre-push             # Full validation (no cache, same as CI)
 
-# Cache management
-make cache-status         # Check cache state
-make cache-clear          # Clear all test caches (force re-run)
-make cache-clear-unit     # Clear unit test cache only
+# Cache management (see "Troubleshooting Test Cache" below for details)
+make cache-status                # Check cache state
+make cache-clear                 # Force re-run next time
+make cache-clear-unit            # Clear unit test cache only
+make cache-clear-integration     # Clear integration test cache only
 ```
 
 **How caching works:** The `.githooks/test-cache.sh` script tracks a content-based hash of the codebase. If nothing changed since the last successful test run, tests are skipped entirely. This saves significant time during development.
@@ -281,6 +282,35 @@ go test -v -race ./test/integration/...       # Integration only
 ```
 
 **Test Status:** All 11 integration tests passing ✅
+
+### Troubleshooting Test Cache
+
+**Check cache status:**
+```bash
+make cache-status                # Show all cache hashes and current state
+```
+
+**Clear cache when tests seem stale:**
+```bash
+make cache-clear-unit            # Clear unit test cache only
+make cache-clear-integration     # Clear integration test cache only
+make cache-clear                 # Clear all test caches
+```
+
+**Debug cache misses:**
+```bash
+DEBUG_CACHE=1 make unit-tests
+# Shows: current state hash, cached state hash, cache file path
+# Useful for understanding why the cache missed (hash mismatch, missing cache file, etc.)
+```
+
+**When to clear cache:**
+- After `git pull` (especially if others committed code)
+- When test fixtures or mock data change outside the Go source tree
+- When debugging inconsistent test results
+- Never needed for normal development (cache auto-invalidates on code changes)
+
+**How the cache works:** The cache computes a content-based hash of the entire working tree (using `git rev-parse HEAD^{tree}` for clean trees, or `git stash create` for dirty trees). If the hash matches the last successful test run, tests are skipped. Any code change automatically invalidates the cache.
 
 ## Building and Running
 

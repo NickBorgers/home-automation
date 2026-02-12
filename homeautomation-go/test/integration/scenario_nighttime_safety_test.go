@@ -458,18 +458,25 @@ func TestScenario_WakeCancellation_RevertsToSleepMusicDuringNight(t *testing.T) 
 	t.Log("WHEN: User turns off bedroom lights (wants to sleep more)")
 
 	env.server.SetState("light.primary_suite", "off", map[string]interface{}{})
-	// Brief delay to allow sleephygiene to process the light-off event
-	time.Sleep(150 * time.Millisecond)
 
 	// ========== THEN ==========
 	t.Log("THEN: Music should revert to sleep, wake sequence should cancel")
 
-	// Check if musicPlaybackType changed to sleep
-	// Note: This requires the sleephygiene plugin to detect the light change
-	// and trigger the reversion. In this test, we verify the state change
-	// was detected.
+	// Poll for sleephygiene to process the light-off event and revert music/wake state.
 	// TODO(MULTI_ZONE_MUSIC): Strengthen assertions once wake cancellation flow
 	// is fully implemented. Currently this documents expected behavior.
+	waitForCondition(t, func() bool {
+		musicType, err := env.stateManager.GetString("musicPlaybackType")
+		if err != nil {
+			return false
+		}
+		isWakeActive, err := env.stateManager.GetBool("isWakeSequenceActive")
+		if err != nil {
+			return false
+		}
+		return musicType == "sleep" || !isWakeActive
+	}, "Sleephygiene should process light-off event (revert music to sleep or deactivate wake sequence)")
+
 	musicType, err := env.stateManager.GetString("musicPlaybackType")
 	require.NoError(t, err)
 
@@ -699,17 +706,13 @@ func TestScenario_MultipleMuteConditions_WorkIndependently(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, isTVPlaying, "isTVPlaying should be true")
 
-	// Brief delay to allow playback setup to complete
-	time.Sleep(100 * time.Millisecond)
+	// Wait for playback setup to complete by polling for service calls
+	waitForCondition(t, func() bool {
+		return len(env.server.GetServiceCalls()) > 0
+	}, "Day zone playback should produce service calls")
 
 	calls := env.server.GetServiceCalls()
-
-	// Verify that playback occurred (zone resolution should start day music)
-	if len(calls) > 0 {
-		t.Logf("  ℹ️ %d service calls observed during day zone playback", len(calls))
-	} else {
-		t.Log("  ℹ️ No playback calls - mute condition logic verified in unit tests")
-	}
+	t.Logf("  %d service calls observed during day zone playback", len(calls))
 
 	t.Log("✓ Multiple mute conditions work independently")
 }
