@@ -70,8 +70,8 @@
 ### Test Coverage
 
 **Unit Tests:** All passing ✅
-- HA Client: >70% coverage
-- State Manager: >70% coverage
+- HA Client: >65% coverage
+- State Manager: >65% coverage
 - No race conditions detected
 
 **Integration Tests:** 11/11 passing ✅
