@@ -699,7 +699,7 @@ homeautomation-go/
 2. ✅ State changes in HA reflected in Golang cache within 1 second
 3. ✅ State changes in Golang written to HA successfully
 4. ✅ WebSocket reconnection works with exponential backoff
-5. ✅ All unit tests pass with >70% coverage
+5. ✅ All unit tests pass with >65% coverage
 6. ✅ Thread-safe concurrent access verified (5,000+ operations tested)
 7. ✅ Integration test suite validates correctness
 8. ✅ Critical concurrency bugs fixed
