@@ -3734,6 +3734,89 @@ func TestJoinSpeakerWithRetry_PermanentError(t *testing.T) {
 	}
 }
 
+// TestJoinSpeakerWithRetry_MaxRetriesExhausted verifies that when ALL retry attempts fail
+// with transient errors, the speaker is gracefully skipped and an error is returned.
+func TestJoinSpeakerWithRetry_MaxRetriesExhausted(t *testing.T) {
+	t.Parallel()
+	env := testutil.NewEnv(t)
+	config := &MusicConfig{Music: map[string]MusicMode{}}
+	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, false, nil, nil)
+
+	var sleepCount int
+	manager.SetSleepFunc(func(d time.Duration) { sleepCount++ })
+
+	// Fail all attempts with transient error (not in permanentErrors list)
+	env.MockHA.SetServiceFailCount("media_player", "join", 100, fmt.Errorf("service call failed: timeout"))
+
+	participant := ParticipantWithVolume{PlayerName: "Living Room", Volume: 10}
+	err := manager.joinSpeakerWithRetry(participant, "media_player.kitchen", "day")
+
+	if err == nil {
+		t.Fatal("Expected error after exhausting all retries")
+	}
+	// maxAsyncSpeakerRetries=6, sleep happens for attempts 1..5 (not after last attempt)
+	if sleepCount != maxAsyncSpeakerRetries-1 {
+		t.Errorf("Expected %d retry delays, got %d", maxAsyncSpeakerRetries-1, sleepCount)
+	}
+}
+
+// TestCallServiceWithRetry_ErrorPaths verifies error propagation through callServiceWithRetry.
+func TestCallServiceWithRetry_ErrorPaths(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name        string
+		domain      string
+		service     string
+		serviceData map[string]interface{}
+		setupFunc   func(*ha.MockClient)
+		wantErr     bool
+	}{
+		{
+			name:        "no_entity_id_returns_original_error",
+			domain:      "media_player",
+			service:     "play_media",
+			serviceData: map[string]interface{}{"media_content_id": "http://example.com"},
+			setupFunc: func(mc *ha.MockClient) {
+				mc.SetServiceFailCount("media_player", "play_media", 1, fmt.Errorf("service call failed"))
+			},
+			wantErr: true,
+		},
+		{
+			name:    "entity_removed_after_refresh",
+			domain:  "media_player",
+			service: "join",
+			serviceData: map[string]interface{}{
+				"entity_id":     "media_player.kitchen",
+				"group_members": []string{"media_player.living_room"},
+			},
+			setupFunc: func(mc *ha.MockClient) {
+				// Fail all calls; no media_player states → isSpeakerAvailable returns false after refresh
+				mc.SetServiceFailCount("media_player", "join", 2, fmt.Errorf("speaker unavailable"))
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			env := testutil.NewEnv(t)
+			config := &MusicConfig{Music: map[string]MusicMode{}}
+			manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, false, nil, nil)
+
+			tc.setupFunc(env.MockHA)
+			err := manager.callServiceWithRetry(tc.domain, tc.service, tc.serviceData)
+
+			if tc.wantErr && err == nil {
+				t.Error("Expected error, got nil")
+			}
+			if !tc.wantErr && err != nil {
+				t.Errorf("Expected no error, got %v", err)
+			}
+		})
+	}
+}
+
 // TestBuildSpeakerGroupAsync_WaitGroupCompletion verifies WaitGroup waits for all goroutines
 func TestBuildSpeakerGroupAsync_WaitGroupCompletion(t *testing.T) {
 	t.Parallel()

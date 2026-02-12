@@ -619,6 +619,28 @@ func TestIndicatorLightsDiscovery(t *testing.T) {
 	assert.Contains(t, manager.indicatorLightEntities, "light.apollo_kitchen_rgb")
 }
 
+// TestIndicatorLightsDiscovery_InvalidPattern verifies that an invalid regex in
+// FriendlyNamePattern config doesn't crash the system — it degrades gracefully.
+func TestIndicatorLightsDiscovery_InvalidPattern(t *testing.T) {
+	t.Parallel()
+	env := testutil.NewEnv(t)
+	config := createTestConfig()
+	config.Energy.IndicatorLights.FriendlyNamePattern = "[invalid" // unclosed bracket
+
+	env.MockHA.SetState("light.apollo_bedroom_rgb", "on", map[string]interface{}{
+		"friendly_name": "Apollo Bedroom Radar Light",
+	})
+	env.MockHA.Connect()
+
+	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, false, nil, nil)
+	err := manager.Start()
+	assert.NoError(t, err)
+	defer manager.Stop()
+
+	// Invalid regex → no panic, no entities discovered
+	assert.Empty(t, manager.indicatorLightEntities)
+}
+
 func TestIndicatorLightsServiceCall(t *testing.T) {
 	t.Parallel()
 	env := testutil.NewEnv(t)

@@ -949,7 +949,7 @@ func TestTVManager_SyncBoxRecoveryInProgress_SkipsDuplicate(t *testing.T) {
 	mockHA.SetState(SyncBoxSoftwarePowerEntity, "unavailable", nil)
 
 	// Use a channel to control when the first recovery completes
-	recoveryStarted := make(chan struct{})
+	recoveryStarted := make(chan struct{}, 1)
 	recoveryComplete := make(chan struct{})
 
 	manager.sleepFunc = func(d time.Duration) {

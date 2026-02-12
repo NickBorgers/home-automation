@@ -69,7 +69,7 @@ The zone resolution audit log contains comprehensive information in a single con
     "stateSnapshot": { ... },
     "zoneEvaluations": [ ... ],
     "zoneToSpeakers": { "morning": ["Kitchen", "Bedroom"] },
-    "speakersToTurnOff": ["Office"],
+    "speakersToTurnOff": ["Front Room"],
     "zoneChanges": {
       "start": ["morning"],
       "stop": ["sleep"],

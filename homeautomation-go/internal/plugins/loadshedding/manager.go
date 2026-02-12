@@ -70,6 +70,9 @@ type Manager struct {
 	deferredTimer    *time.Timer
 	deferredMu       sync.Mutex
 	deferredStopChan chan struct{}
+
+	// Test hook: called after a deferred action completes execution
+	deferredActionDoneCallback func()
 }
 
 // NewManager creates a new Load Shedding manager
@@ -93,6 +96,13 @@ func NewManager(ctx context.Context, haClient ha.HAClient, stateManager *state.M
 // SetRateLimitIntervalForTesting allows tests to use a shorter rate limit interval
 func (m *Manager) SetRateLimitIntervalForTesting(interval time.Duration) {
 	m.rateLimitInterval = interval
+}
+
+// SetDeferredActionDoneCallback sets a callback invoked after a deferred action
+// completes execution. This allows tests to synchronize deterministically instead
+// of using time.Sleep to wait for deferred actions.
+func (m *Manager) SetDeferredActionDoneCallback(cb func()) {
+	m.deferredActionDoneCallback = cb
 }
 
 // IsLoadSheddingOn returns whether load shedding is currently active (thread-safe)
@@ -529,6 +539,11 @@ func (m *Manager) executeDeferredAction() {
 		m.executeEnableLoadShedding(action.energyLevel, action.trigger+" (deferred)")
 	case "disable":
 		m.executeDisableLoadShedding(action.energyLevel, action.trigger+" (deferred)")
+	}
+
+	// Notify test callback if set
+	if m.deferredActionDoneCallback != nil {
+		m.deferredActionDoneCallback()
 	}
 }
 
