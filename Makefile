@@ -338,6 +338,22 @@ unit-tests:
 integration-tests:
 	@.githooks/test-cache.sh integration-tests ci-integration-tests
 
+#cache-status: @ Show test cache status (which caches exist, current vs cached hash)
+cache-status:
+	@.githooks/test-cache.sh --status
+
+#cache-clear: @ Clear all test caches (forces re-run on next make unit-tests/integration-tests)
+cache-clear:
+	@.githooks/test-cache.sh --clear
+
+#cache-clear-unit: @ Clear unit test cache only
+cache-clear-unit:
+	@.githooks/test-cache.sh --clear-one unit-tests
+
+#cache-clear-integration: @ Clear integration test cache only
+cache-clear-integration:
+	@.githooks/test-cache.sh --clear-one integration-tests
+
 #ci-unit-tests: @ Run unit tests with coverage, excluding integration tests (used by CI)
 ci-unit-tests:
 	@echo "🧪 Running unit tests (excluding integration tests, pkg/testutil, and cmd/diagramgen)..."

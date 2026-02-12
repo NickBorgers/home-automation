@@ -101,7 +101,7 @@ main() {
         echo "  CACHED: No changes since last successful '${MAKE_TARGET}' run"
         echo "  Skipping tests (state hash: ${current_hash:0:20}...)"
         echo ""
-        echo "  To force re-run: rm ${CACHE_FILE}"
+        echo "  To force re-run: make cache-clear OR rm ${CACHE_FILE}"
         echo "=============================================================================="
         echo ""
         return 0
