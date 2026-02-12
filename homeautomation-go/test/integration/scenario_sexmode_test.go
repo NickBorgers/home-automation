@@ -269,12 +269,12 @@ func TestScenario_SexModeDeactivation_ActivatesDayPhaseScene(t *testing.T) {
 
 	require.NoError(t, stateManager.SetString("dayPhase", "sunset"))
 	require.NoError(t, stateManager.SetBool("isMasterAsleep", false))
-	// Allow async handlers to process before clearing
-	time.Sleep(50 * time.Millisecond)
 
 	// Activate sex mode
 	server.SetState("input_boolean.sex", "on", nil)
 	waitForStringState(t, stateManager, "musicPlaybackType", "sex", "sex mode should activate")
+	// Wait for activation handler to fully complete (night scene is called before isActive is set)
+	waitForServiceCallWithEntity(t, server, "scene", "turn_on", "scene.primary_suite_night", "activation should complete with night scene")
 
 	server.ClearServiceCalls()
 
@@ -363,14 +363,12 @@ func TestScenario_SexModeDeactivation_DifferentDayPhases(t *testing.T) {
 
 			require.NoError(t, stateManager.SetString("dayPhase", phase))
 			require.NoError(t, stateManager.SetBool("isMasterAsleep", false))
-			// Allow async handlers to process before clearing
-			time.Sleep(50 * time.Millisecond)
 
 			// Activate sex mode
 			server.SetState("input_boolean.sex", "on", nil)
 			waitForStringState(t, stateManager, "musicPlaybackType", "sex", "sex mode should activate")
-			// Allow full handler completion (isActive is set after musicPlaybackType in handleSexModeOn)
-			time.Sleep(100 * time.Millisecond)
+			// Wait for activation handler to fully complete (night scene is called before isActive is set)
+			waitForServiceCallWithEntity(t, server, "scene", "turn_on", "scene.primary_suite_night", "activation should complete with night scene")
 
 			server.ClearServiceCalls()
 
@@ -411,8 +409,14 @@ func TestScenario_SexModeDuplicateActivation_Ignored(t *testing.T) {
 	// Activate sex mode
 	server.SetState("input_boolean.sex", "on", nil)
 	waitForStringState(t, stateManager, "musicPlaybackType", "sex", "sex mode should activate")
-	// Allow full handler completion (isActive is set after musicPlaybackType in handleSexModeOn)
-	time.Sleep(100 * time.Millisecond)
+	// Wait for night scene call (happens immediately before isActive is set in handleSexModeOn)
+	waitForServiceCallWithEntity(t, server, "scene", "turn_on", "scene.primary_suite_night", "Primary Suite night scene should activate during sex mode")
+	// Wait for all Eight Sleep climate calls to complete (these happen asynchronously)
+	assert.Eventually(t, func() bool {
+		calls := server.GetServiceCalls()
+		eightSleepCalls := FilterServiceCalls(calls, "climate", "set_temperature")
+		return len(eightSleepCalls) >= 2
+	}, stateWaitTimeout, statePollInterval, "Both Eight Sleep beds should be adjusted")
 
 	// Count initial service calls
 	initialCalls := len(server.GetServiceCalls())

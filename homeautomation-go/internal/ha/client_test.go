@@ -463,8 +463,8 @@ func TestMockClient(t *testing.T) {
 		_, err := mock.SubscribeStateChanges("input_boolean.test", handler)
 		assert.NoError(t, err)
 
+		// SimulateStateChange dispatches handlers synchronously on MockClient
 		mock.SimulateStateChange("input_boolean.test", "off")
-		time.Sleep(50 * time.Millisecond)
 
 		assert.Equal(t, 1, callCount)
 	})

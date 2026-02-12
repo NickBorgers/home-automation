@@ -1,6 +1,7 @@
 package integration
 
 import (
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -134,5 +135,24 @@ func waitForNtfyNotification(t *testing.T, mockNtfy *ntfy.MockClient, title stri
 			}
 		}
 		return false
+	}, stateWaitTimeout, statePollInterval, msgAndArgs...)
+}
+
+// waitForServerState polls until the mock server has the expected state for the given entity.
+// Use this instead of time.Sleep when waiting for server-side state propagation.
+func waitForServerState(t *testing.T, server *MockHAServer, entityID, expectedState string, msgAndArgs ...interface{}) {
+	t.Helper()
+	assert.Eventually(t, func() bool {
+		state := server.GetState(entityID)
+		return state != nil && state.State == expectedState
+	}, stateWaitTimeout, statePollInterval, msgAndArgs...)
+}
+
+// waitForSubscriberNotification polls until the provided counter reaches the expected value.
+// Use this instead of time.Sleep when waiting for subscriber callbacks to complete.
+func waitForSubscriberNotification(t *testing.T, counter *int32, expected int32, msgAndArgs ...interface{}) {
+	t.Helper()
+	assert.Eventually(t, func() bool {
+		return atomic.LoadInt32(counter) >= expected
 	}, stateWaitTimeout, statePollInterval, msgAndArgs...)
 }

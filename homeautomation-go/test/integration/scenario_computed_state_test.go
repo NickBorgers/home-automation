@@ -158,7 +158,10 @@ func TestScenario_ComputedState_IsAnyoneHomeAndAwake_InitialComputation(t *testi
 			require.NoError(t, err)
 
 			// Allow computed state to be calculated
-			time.Sleep(50 * time.Millisecond)
+			waitForCondition(t, func() bool {
+				value, err := manager.GetBool("isAnyoneHomeAndAwake")
+				return err == nil && value == tc.expected
+			}, "computed state should be calculated")
 
 			// THEN: isAnyoneHomeAndAwake should be computed correctly
 			value, err := manager.GetBool("isAnyoneHomeAndAwake")
@@ -298,7 +301,7 @@ func TestScenario_ComputedState_RapidChanges(t *testing.T) {
 	server.SetState("input_boolean.anyone_asleep", "off", map[string]interface{}{})
 	server.SetState("input_boolean.tori_here", "off", map[string]interface{}{})
 	// Allow computed state to settle
-	time.Sleep(50 * time.Millisecond)
+	waitForBoolState(t, manager, "isAnyoneHomeAndAwake", true, "computed state should settle to true")
 
 	// WHEN: Rapid state changes occur
 	t.Log("WHEN: Rapid state changes occur")
@@ -312,7 +315,7 @@ func TestScenario_ComputedState_RapidChanges(t *testing.T) {
 	}
 
 	// Allow final state to settle
-	time.Sleep(50 * time.Millisecond)
+	waitForBoolState(t, manager, "isAnyoneHomeAndAwake", true, "final computed state should settle to true (owner home and awake)")
 
 	// THEN: Final computed state should be correct
 	t.Log("THEN: Final computed state should be correct")

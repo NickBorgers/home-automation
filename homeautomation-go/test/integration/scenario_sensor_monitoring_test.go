@@ -148,8 +148,10 @@ func TestScenario_SensorMonitoring_CompleteSurfaceArea(t *testing.T) {
 	err = env.environmental.Start()
 	require.NoError(t, err, "Failed to start environmental plugin")
 
-	// Brief setup delay: Allow plugins to complete initialization before assertions
-	time.Sleep(100 * time.Millisecond)
+	// Wait for plugins to complete initialization before assertions
+	waitForCondition(t, func() bool {
+		return len(env.sensorHealth.GetBatterySensors()) >= 1
+	}, "sensorhealth should discover battery sensors")
 
 	// ========== VERIFY: SensorHealth Plugin ==========
 
@@ -581,8 +583,15 @@ func TestScenario_SensorHealth_NodeStatusMonitoring(t *testing.T) {
 	env.server.SetState("sensor.front_door_lock_node_status", "dead", map[string]interface{}{
 		"friendly_name": "Front Door Lock Node Status",
 	})
-	// Brief delay: Allow entity state change to propagate through event processing
-	time.Sleep(50 * time.Millisecond)
+	// Wait for entity state change to propagate through event processing
+	waitForCondition(t, func() bool {
+		for _, ns := range env.sensorHealth.GetShadowState().Outputs.NodeStatuses {
+			if ns.EntityID == "sensor.front_door_lock_node_status" {
+				return ns.Status == "dead"
+			}
+		}
+		return false
+	}, "node status should update to dead")
 
 	// Advance mock clock past the debounce delay and process timer callbacks
 	env.mockClock.AdvanceAndProcess(sensorhealth.NodeDeadDebounceDelay + 1*time.Second)

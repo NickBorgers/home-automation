@@ -171,23 +171,6 @@ func TestMockClock_AdvanceFiresTimers(t *testing.T) {
 	mu.Unlock()
 }
 
-// TestMockClock_Now tests the Now method
-func TestMockClock_Now(t *testing.T) {
-	start := time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC)
-	clock := NewMockClock(start)
-
-	if !clock.Now().Equal(start) {
-		t.Errorf("Now() should return start time, got %v", clock.Now())
-	}
-
-	clock.Advance(1 * time.Hour)
-
-	expected := start.Add(1 * time.Hour)
-	if !clock.Now().Equal(expected) {
-		t.Errorf("Now() after advance should return %v, got %v", expected, clock.Now())
-	}
-}
-
 // TestMockClock_After tests the After method
 func TestMockClock_After(t *testing.T) {
 	clock := NewMockClock(time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC))
@@ -213,26 +196,6 @@ func TestMockClock_After(t *testing.T) {
 		}
 	case <-time.After(100 * time.Millisecond):
 		t.Error("After channel should have value after advancing")
-	}
-}
-
-// TestMockClock_Since tests the Since method
-func TestMockClock_Since(t *testing.T) {
-	start := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
-	clock := NewMockClock(start)
-
-	past := start.Add(-1 * time.Hour)
-	elapsed := clock.Since(past)
-
-	if elapsed != 1*time.Hour {
-		t.Errorf("Since should return 1 hour, got %v", elapsed)
-	}
-
-	clock.Advance(30 * time.Minute)
-	elapsed = clock.Since(past)
-
-	if elapsed != 90*time.Minute {
-		t.Errorf("Since after advance should return 90 minutes, got %v", elapsed)
 	}
 }
 

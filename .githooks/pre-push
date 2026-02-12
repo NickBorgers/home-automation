@@ -4,6 +4,10 @@
 # This hook runs automated test validation before allowing a push.
 # It executes the same tests that CI/CD will run to catch issues early.
 #
+# PATH-BASED FILTERING: If only documentation files changed (*.md, docs/,
+# LICENSE, .github/), tests are skipped and only diagram validation runs.
+# CI always runs the full suite regardless of paths (safety net).
+#
 # CACHING: This hook uses test-cache.sh to skip tests if no code has
 # changed since the last successful run. To force re-run:
 #   .githooks/test-cache.sh --clear-one pre-push
@@ -17,13 +21,98 @@
 set -e  # Exit on any error
 
 echo ""
-echo "🚀 Running pre-push hook..."
+echo "🚀 Running pre-push validation..."
 echo "════════════════════════════════════════════════════════════════════════════"
+echo ""
 
 # Change to repository root
 cd "$(git rev-parse --show-toplevel)"
 
-# Run pre-push validation with caching
+# ──────────────────────────────────────────────────────────────────────
+# Path-based filtering: detect documentation-only changes
+# ──────────────────────────────────────────────────────────────────────
+
+# Determine what changed between local branch and remote tracking branch
+# Read push info from stdin (format: local_ref local_sha remote_ref remote_sha)
+docs_only=true
+while read -r local_ref local_sha remote_ref remote_sha; do
+    # Skip delete pushes
+    if [ "$local_sha" = "0000000000000000000000000000000000000000" ]; then
+        continue
+    fi
+
+    # For new branches, compare against the default branch (main/master)
+    if [ "$remote_sha" = "0000000000000000000000000000000000000000" ]; then
+        # New branch - compare against main
+        base_ref="origin/main"
+        if ! git rev-parse --verify "$base_ref" >/dev/null 2>&1; then
+            base_ref="origin/master"
+        fi
+        if ! git rev-parse --verify "$base_ref" >/dev/null 2>&1; then
+            # Can't determine base, run full suite
+            docs_only=false
+            break
+        fi
+        remote_sha=$(git rev-parse "$base_ref")
+    fi
+
+    # Get the list of changed files
+    changed_files=$(git diff --name-only "$remote_sha" "$local_sha" 2>/dev/null) || {
+        # If diff fails (e.g., shallow clone, missing objects), run full suite to be safe
+        docs_only=false
+        break
+    }
+
+    if [ -z "$changed_files" ]; then
+        continue
+    fi
+
+    # Check if any changed file is NOT a documentation file
+    while IFS= read -r file; do
+        case "$file" in
+            *.md|docs/*|LICENSE|LICENSE.*|.github/*|*.txt)
+                # Documentation file - OK to skip tests
+                ;;
+            *)
+                # Non-documentation file - must run full suite
+                docs_only=false
+                break 2
+                ;;
+        esac
+    done <<< "$changed_files"
+done
+
+# ──────────────────────────────────────────────────────────────────────
+# Run appropriate validation based on change type
+# ──────────────────────────────────────────────────────────────────────
+
+if [ "$docs_only" = true ]; then
+    echo ""
+    echo "📝 Documentation-only changes detected. Skipping tests."
+    echo "   Running diagram validation only (<30 seconds)."
+    echo "   (CI will still run the full test suite as a safety net.)"
+    echo ""
+
+    if make pre-push-docs-only; then
+        echo ""
+        echo "✅ Pre-push hook passed (docs-only)! Proceeding with push..."
+        exit 0
+    else
+        echo ""
+        echo "════════════════════════════════════════════════════════════════════════════"
+        echo "❌ Pre-push hook failed!"
+        echo ""
+        echo "Diagram validation failed. Please fix the issues above and try again."
+        echo "════════════════════════════════════════════════════════════════════════════"
+        exit 1
+    fi
+fi
+
+# Full validation for code changes
+echo ""
+echo "🔧 Code changes detected. Running full validation suite."
+echo ""
+
 if .githooks/test-cache.sh pre-push pre-push; then
     echo ""
     echo "✅ Pre-push hook passed! Proceeding with push..."
@@ -31,17 +120,19 @@ if .githooks/test-cache.sh pre-push pre-push; then
 else
     echo ""
     echo "════════════════════════════════════════════════════════════════════════════"
-    echo "❌ Pre-push hook failed!"
+    echo "❌ Pre-push validation failed!"
     echo ""
     echo "Your push has been blocked because validation failed."
     echo "The pre-push hook runs the same checks as CI:"
+    echo "  - Diagram validation"
     echo "  - Build check (go build ./...)"
     echo "  - All tests with race detector (go test -race ./...)"
     echo "  - Code coverage check (≥65%)"
     echo ""
-    echo "Please fix the issues above and try pushing again."
+    echo "To fix: Address the failures above and commit the fixes."
+    echo "Emergency bypass (NOT recommended): git push --no-verify"
     echo ""
-    echo "To skip this hook (NOT recommended), use: git push --no-verify"
+    echo "⚠️  WARNING: Bypassing hooks may push broken code to main."
     echo "════════════════════════════════════════════════════════════════════════════"
     exit 1
 fi

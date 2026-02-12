@@ -23,7 +23,7 @@
 set -e
 
 CACHE_NAME="${1:-default}"
-MAKE_TARGET="${2:-test-go}"
+MAKE_TARGET="${2:-test-no-cache}"
 
 CACHE_DIR=".test-cache"
 CACHE_FILE="${CACHE_DIR}/${CACHE_NAME}.hash"

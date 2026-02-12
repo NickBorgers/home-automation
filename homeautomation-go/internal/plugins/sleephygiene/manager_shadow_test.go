@@ -2,6 +2,7 @@ package sleephygiene
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -317,38 +318,42 @@ func TestSleepHygieneShadowState_ConcurrentAccess(t *testing.T) {
 	manager := NewManager(context.Background(), mockClient, stateManager, mockConfig, zap.NewNop(), true, nil, nil)
 
 	// Run concurrent operations
-	done := make(chan bool)
+	var wg sync.WaitGroup
 	numGoroutines := 10
 
 	// Concurrent reads
 	for i := 0; i < numGoroutines; i++ {
+		wg.Add(1)
 		go func() {
+			defer wg.Done()
 			for j := 0; j < 100; j++ {
 				_ = manager.GetShadowState()
 			}
-			done <- true
 		}()
 	}
 
 	// Concurrent writes
 	for i := 0; i < numGoroutines; i++ {
+		wg.Add(1)
 		go func(id int) {
+			defer wg.Done()
 			for j := 0; j < 100; j++ {
 				manager.shadowTracker.UpdateWakeSequenceStatus("test")
 				manager.shadowTracker.RecordFadeOutStart("media_player.test", 50)
 				manager.shadowTracker.UpdateFadeOutProgress("media_player.test", 25)
 			}
-			done <- true
 		}(i)
 	}
 
-	// Wait for all goroutines to finish
-	for i := 0; i < numGoroutines*2; i++ {
-		select {
-		case <-done:
-		case <-time.After(5 * time.Second):
-			t.Fatal("Timeout waiting for concurrent operations to complete")
-		}
+	// Wait for all goroutines to finish with timeout
+	waitCh := make(chan struct{})
+	go func() { wg.Wait(); close(waitCh) }()
+
+	select {
+	case <-waitCh:
+		// success
+	case <-time.After(10 * time.Second):
+		t.Fatal("Timeout waiting for concurrent operations to complete")
 	}
 }
 
