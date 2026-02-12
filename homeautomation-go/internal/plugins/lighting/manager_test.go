@@ -230,6 +230,7 @@ func TestTurnOffRoom(t *testing.T) {
 }
 
 func TestEvaluateAndActivateRoom(t *testing.T) {
+	t.Parallel()
 	logger := testlogger.New()
 	config := createTestConfig()
 
@@ -482,6 +483,7 @@ func TestCollectConditionVariables(t *testing.T) {
 }
 
 func TestHandleSunEventChange(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name             string
 		newVal           interface{}
@@ -524,6 +526,7 @@ func TestHandleSunEventChange(t *testing.T) {
 }
 
 func TestHandleTVStateChange(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name               string
 		tvPlaying          bool
@@ -589,6 +592,7 @@ func TestHandleTVStateChange(t *testing.T) {
 }
 
 func TestHandleSleepStateChange(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name          string
 		triggerVar    string

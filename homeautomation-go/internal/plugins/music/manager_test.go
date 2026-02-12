@@ -308,9 +308,8 @@ func TestMusicManager_StateChangeHandling(t *testing.T) {
 }
 
 func TestMusicManager_Stop(t *testing.T) {
-	t.Parallel(
+	t.Parallel()
 	// Create mock HA client and state manager
-	)
 
 	mockHA := ha.NewMockClient()
 	logger := zap.NewNop()
@@ -392,9 +391,8 @@ func findRepoRoot(t *testing.T) string {
 }
 
 func TestLoadMusicConfig(t *testing.T) {
-	t.Parallel(
+	t.Parallel()
 	// Find the repository root and construct path to config file
-	)
 
 	repoRoot := findRepoRoot(t)
 	configPath := filepath.Join(repoRoot, "configs", "music_config.yaml")
