@@ -2,7 +2,7 @@
 
 A robust Golang client for managing Home Assistant state variables with type-safe operations, automatic synchronization, and real-time event subscriptions.
 
-> **Implementation Details**: This project was implemented based on the design documented in [../docs/architecture/IMPLEMENTATION_PLAN.md](../docs/architecture/IMPLEMENTATION_PLAN.md), which outlines the architecture, design decisions, and migration strategy from the existing Node-RED implementation.
+> **Implementation Details**: This project was implemented based on the design documented in [../docs/architecture/ARCHITECTURE.md](../docs/architecture/ARCHITECTURE.md), which outlines the architecture, design decisions, and migration strategy from the existing Node-RED implementation.
 
 ## Features
 
@@ -336,30 +336,17 @@ services:
 - `make docker-run-go` - Build and run container
 - `make docker-push-go` - Push to GHCR
 
-For detailed Docker documentation, see [../docs/deployment/DOCKER.md](../docs/deployment/DOCKER.md).
+For detailed Docker documentation, see [../docs/operations/DOCKER.md](../docs/operations/DOCKER.md).
 
 ## Testing
 
-### Run all tests:
 ```bash
-go test ./... -v
-```
+# Preferred: uses caching (skips if code unchanged)
+make unit-tests
+make integration-tests
 
-### Run tests with coverage:
-```bash
-go test ./... -coverprofile=coverage.out
-go tool cover -html=coverage.out
-```
-
-### Run specific package tests:
-```bash
-go test ./internal/ha -v
-go test ./internal/state -v
-```
-
-### Run race detector:
-```bash
-go test ./... -race
+# Full validation (same as CI, no cache)
+make pre-push
 ```
 
 ## Architecture

@@ -40,10 +40,9 @@ Comprehensive integration tests for the Home Automation Go client with a full mo
 
 ## Running the Tests
 
-### Run Locally (Quick)
+### Run All Integration Tests (Recommended)
 ```bash
-cd homeautomation-go
-go test -v -race ./test/integration/...
+make integration-tests    # Uses caching — skips if code unchanged
 ```
 
 ### Run with Docker (Isolated Environment)
@@ -52,7 +51,10 @@ docker-compose -f docker-compose.integration.yml up --build
 ```
 
 ### Run Specific Tests
+When you need to run a single test or subset, use `go test` with a `-run` filter:
 ```bash
+cd homeautomation-go
+
 # Test only deadlock scenarios
 go test -v -race -run TestSubscription ./test/integration/
 
@@ -62,11 +64,7 @@ go test -v -race -run TestConcurrent ./test/integration/
 # Test subscription bug
 go test -v -run TestMultipleSubscribers ./test/integration/
 ```
-
-### Run with Race Detector (Recommended)
-```bash
-go test -v -race -timeout=5m ./test/integration/...
-```
+> **Note:** Direct `go test` is appropriate here because `make` targets don't support `-run` filters. For running the full suite, always prefer `make integration-tests`.
 
 ## Test Status
 
@@ -163,8 +161,12 @@ All critical bugs discovered during testing have been fixed:
 
 ## Debugging Tips
 
+> **Note:** The debugging commands below use `go test` directly because they require specific flags (`-timeout`, `GODEBUG`, output redirection) not available via `make` targets. For routine test runs, use `make integration-tests` instead.
+
 ### If Tests Hang (Deadlock)
 ```bash
+cd homeautomation-go
+
 # Run with timeout and race detector
 go test -v -race -timeout=30s ./test/integration/
 
@@ -174,11 +176,13 @@ GODEBUG=gctrace=1 go test -v -timeout=10s ./test/integration/
 
 ### View Detailed Logs
 ```bash
+cd homeautomation-go
 go test -v ./test/integration/ 2>&1 | tee test-output.log
 ```
 
 ### Check for Race Conditions
 ```bash
+cd homeautomation-go
 # Race detector will print detailed reports
 go test -race ./test/integration/
 ```
@@ -296,7 +300,8 @@ Located in `scenario_multi_plugin_test.go`:
 5. **TestScenario_DayPhaseChange_MultiPluginCoordination** - Time-based multi-plugin response
 6. **TestScenario_SimultaneousStateChanges_NoRaceConditions** - Concurrent plugin safety
 
-Run with: `go test -v -race -run TestScenario_ ./test/integration/...`
+Run all scenario tests: `make integration-tests`
+Run a specific scenario: `cd homeautomation-go && go test -v -race -run TestScenario_ ./test/integration/...`
 
 ## Next Steps
 

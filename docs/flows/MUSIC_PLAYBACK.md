@@ -293,19 +293,19 @@ flowchart TD
 ### Occupancy-Based Muting Example
 
 ```yaml
-# From music_config.yaml
+# From music_config.yaml - example using TV-based muting
 participants:
-  - player_name: "Office"
-    base_volume: 6
+  - player_name: "Kitchen"
+    base_volume: 9
     leave_muted_if:
-      - variable: "isNickOfficeOccupied"
-        value: false
+      - variable: "isTVPlaying"
+        value: true
 ```
 
-When `isNickOfficeOccupied` changes from `false` to `true`:
+When `isTVPlaying` changes from `true` to `false`:
 1. Music plugin detects the mute condition variable change
 2. Re-evaluates the speaker's mute conditions
-3. Unmutes the Office speaker (already at target volume)
+3. Unmutes the Kitchen speaker (already at target volume)
 
 ## Volume Fade-In
 

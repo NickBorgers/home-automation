@@ -220,7 +220,7 @@ func (c *Client) handleEvent(msg *Message) {
 
 ## Lesson 6: Always Test with Race Detector
 
-**Command**: `go test -race ./...`
+**Command**: `make unit-tests` (includes `-race` flag automatically)
 
 **Why**: Race conditions are timing-dependent and may not manifest in normal runs.
 
@@ -850,8 +850,8 @@ When concurrency bugs occur, use these techniques to diagnose them:
 
 ### 1. Race Detector
 ```bash
-go test -race ./...
-go build -race ./cmd/main.go && ./main
+make unit-tests                              # Tests with -race (preferred)
+cd homeautomation-go && go build -race ./cmd/main.go && ./main  # Race-instrumented binary
 ```
 The race detector instruments memory accesses and reports concurrent access without synchronization. It catches ~95% of data races but has ~10x performance overhead.
 
