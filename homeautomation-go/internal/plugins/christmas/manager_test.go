@@ -3,7 +3,6 @@ package christmas
 import (
 	"context"
 	"testing"
-	"time"
 
 	"homeautomation/internal/ha"
 
@@ -34,9 +33,6 @@ func TestChristmasManager_ActivationTurnsOnHolidayLights(t *testing.T) {
 
 	// Simulate christmas being turned on
 	mockHA.SimulateStateChange("input_boolean.christmas", "on")
-
-	// Wait for async processing
-	time.Sleep(100 * time.Millisecond)
 
 	// Verify holiday lights were turned on with label via Target
 	calls := mockHA.GetServiceCalls()
@@ -80,9 +76,6 @@ func TestChristmasManager_ActivationResetsToggle(t *testing.T) {
 	// Simulate christmas being turned on
 	mockHA.SimulateStateChange("input_boolean.christmas", "on")
 
-	// Wait for async processing
-	time.Sleep(100 * time.Millisecond)
-
 	// Verify input_boolean.christmas was turned off
 	calls := mockHA.GetServiceCalls()
 	foundTurnOff := false
@@ -125,9 +118,6 @@ func TestChristmasManager_OffDoesNothing(t *testing.T) {
 	// Simulate christmas being turned off
 	mockHA.SimulateStateChange("input_boolean.christmas", "off")
 
-	// Wait for async processing
-	time.Sleep(100 * time.Millisecond)
-
 	// Verify no service calls were made
 	calls := mockHA.GetServiceCalls()
 	if len(calls) > 0 {
@@ -159,7 +149,6 @@ func TestChristmasManager_ReadOnlyMode(t *testing.T) {
 
 	// Activate christmas
 	mockHA.SimulateStateChange("input_boolean.christmas", "on")
-	time.Sleep(100 * time.Millisecond)
 
 	// Verify no service calls were made (all should be read-only)
 	calls := mockHA.GetServiceCalls()
@@ -195,7 +184,6 @@ func TestChristmasManager_ShadowState(t *testing.T) {
 
 	// Activate christmas
 	mockHA.SimulateStateChange("input_boolean.christmas", "on")
-	time.Sleep(100 * time.Millisecond)
 
 	// Get shadow state after activation
 	shadowState = manager.GetShadowState()

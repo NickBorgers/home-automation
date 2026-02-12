@@ -32,12 +32,9 @@ func TestLoadShedding_EnergyStateRed(t *testing.T) {
 	assert.NoError(t, err)
 	defer ls.Stop()
 
-	// Set energy state to red
+	// Set energy state to red (handler executes synchronously via state subscriber)
 	err = stateManager.SetString("currentEnergyLevel", "red")
 	assert.NoError(t, err)
-
-	// Give time for async processing
-	time.Sleep(100 * time.Millisecond)
 
 	// Verify service calls
 	calls := mockClient.GetServiceCalls()
@@ -103,11 +100,9 @@ func TestLoadShedding_EnergyStateBlack(t *testing.T) {
 	assert.NoError(t, err)
 	defer ls.Stop()
 
-	// Set energy state to black
+	// Set energy state to black (handler executes synchronously)
 	err = stateManager.SetString("currentEnergyLevel", "black")
 	assert.NoError(t, err)
-
-	time.Sleep(100 * time.Millisecond)
 
 	// Verify service calls (should be same as red)
 	calls := mockClient.GetServiceCalls()
@@ -156,11 +151,9 @@ func TestLoadShedding_EnergyStateGreen(t *testing.T) {
 	assert.NoError(t, err)
 	defer ls.Stop()
 
-	// Set energy state to green (should disable load shedding)
+	// Set energy state to green (handler executes synchronously, should disable load shedding)
 	err = stateManager.SetString("currentEnergyLevel", "green")
 	assert.NoError(t, err)
-
-	time.Sleep(100 * time.Millisecond)
 
 	// Verify service calls
 	calls := mockClient.GetServiceCalls()
@@ -215,11 +208,9 @@ func TestLoadShedding_EnergyStateWhite(t *testing.T) {
 	assert.NoError(t, err)
 	defer ls.Stop()
 
-	// Set energy state to white (should disable load shedding)
+	// Set energy state to white (handler executes synchronously, should disable load shedding)
 	err = stateManager.SetString("currentEnergyLevel", "white")
 	assert.NoError(t, err)
-
-	time.Sleep(100 * time.Millisecond)
 
 	// Verify service calls (should be same as green)
 	calls := mockClient.GetServiceCalls()
@@ -271,10 +262,9 @@ func TestLoadShedding_RateLimiting(t *testing.T) {
 	assert.NoError(t, err)
 	defer ls.Stop()
 
-	// First change to red
+	// First change to red (handler executes synchronously)
 	err = stateManager.SetString("currentEnergyLevel", "red")
 	assert.NoError(t, err)
-	time.Sleep(100 * time.Millisecond)
 
 	initialCallCount := len(mockClient.GetServiceCalls())
 	assert.Greater(t, initialCallCount, 0, "First action should execute")
@@ -285,7 +275,6 @@ func TestLoadShedding_RateLimiting(t *testing.T) {
 	// Immediately change to green (should be rate limited)
 	err = stateManager.SetString("currentEnergyLevel", "green")
 	assert.NoError(t, err)
-	time.Sleep(100 * time.Millisecond)
 
 	// Should only have the SetString call, not the load shedding action (rate limited)
 	finalCallCount := len(mockClient.GetServiceCalls())
@@ -346,10 +335,9 @@ func TestLoadShedding_UnknownState(t *testing.T) {
 	assert.NoError(t, err)
 	defer ls.Stop()
 
-	// Set unknown state
+	// Set unknown state (handler executes synchronously)
 	err = stateManager.SetString("currentEnergyLevel", "purple")
 	assert.NoError(t, err)
-	time.Sleep(100 * time.Millisecond)
 
 	// Should only have the SetString call, no load shedding actions for unknown state
 	calls := mockClient.GetServiceCalls()
@@ -382,19 +370,16 @@ func TestLoadShedding_RedToGreenTransition(t *testing.T) {
 	assert.NoError(t, err)
 	defer ls.Stop()
 
-	// Set to red
+	// Set to red (handler executes synchronously)
 	err = stateManager.SetString("currentEnergyLevel", "red")
 	assert.NoError(t, err)
-	time.Sleep(100 * time.Millisecond)
 
-	// Wait to avoid rate limiting
+	// Reset rate limit to allow next action
 	ls.lastAction = time.Now().Add(-2 * time.Hour)
-	time.Sleep(100 * time.Millisecond)
 
-	// Set to green
+	// Set to green (handler executes synchronously)
 	err = stateManager.SetString("currentEnergyLevel", "green")
 	assert.NoError(t, err)
-	time.Sleep(100 * time.Millisecond)
 
 	calls := mockClient.GetServiceCalls()
 
@@ -457,14 +442,19 @@ func TestLoadShedding_DeferredActionAfterRateLimit(t *testing.T) {
 	// Use a short rate limit interval for testing (100ms instead of 1 hour)
 	ls.SetRateLimitIntervalForTesting(100 * time.Millisecond)
 
+	// Set up a channel to signal when the deferred action completes
+	deferredDone := make(chan struct{}, 1)
+	ls.SetDeferredActionDoneCallback(func() {
+		deferredDone <- struct{}{}
+	})
+
 	err = ls.Start()
 	assert.NoError(t, err)
 	defer ls.Stop()
 
-	// Step 1: Set energy state to red (enables load shedding)
+	// Step 1: Set energy state to red (enables load shedding synchronously)
 	err = stateManager.SetString("currentEnergyLevel", "red")
 	assert.NoError(t, err)
-	time.Sleep(50 * time.Millisecond)
 
 	// Verify load shedding was enabled
 	calls := mockClient.GetServiceCalls()
@@ -483,16 +473,17 @@ func TestLoadShedding_DeferredActionAfterRateLimit(t *testing.T) {
 	// Clear service calls for cleaner verification
 	mockClient.ClearServiceCalls()
 
-	// Step 2: Immediately set energy state to white (should be rate-limited)
+	// Step 2: Immediately set energy state to white (should be rate-limited and deferred)
 	err = stateManager.SetString("currentEnergyLevel", "white")
 	assert.NoError(t, err)
-	time.Sleep(50 * time.Millisecond)
 
-	// At this point, the disable action should be rate-limited (not executed yet)
-	// We don't assert on this because the deferred action mechanism is tested below
-
-	// Step 3: Wait for the rate limit to expire plus buffer for deferred action
-	time.Sleep(150 * time.Millisecond)
+	// Step 3: Wait for the deferred action to complete via callback
+	select {
+	case <-deferredDone:
+		// Deferred action executed
+	case <-time.After(5 * time.Second):
+		t.Fatal("Timed out waiting for deferred action to execute")
+	}
 
 	// Step 4: Verify the deferred disable action was executed
 	calls = mockClient.GetServiceCalls()
@@ -549,14 +540,19 @@ func TestLoadShedding_DeferredActionCancelledByNewAction(t *testing.T) {
 	// Use a short rate limit interval for testing
 	ls.SetRateLimitIntervalForTesting(200 * time.Millisecond)
 
+	// Track if deferred action fires (it should NOT in this test)
+	deferredFired := make(chan struct{}, 1)
+	ls.SetDeferredActionDoneCallback(func() {
+		deferredFired <- struct{}{}
+	})
+
 	err = ls.Start()
 	assert.NoError(t, err)
 	defer ls.Stop()
 
-	// Step 1: Set energy state to red (enables load shedding)
+	// Step 1: Set energy state to red (enables load shedding synchronously)
 	err = stateManager.SetString("currentEnergyLevel", "red")
 	assert.NoError(t, err)
-	time.Sleep(50 * time.Millisecond)
 
 	// Simulate thermostats now being in hold mode
 	mockClient.SetState(thermostatHoldHouse, "on", nil)
@@ -567,16 +563,20 @@ func TestLoadShedding_DeferredActionCancelledByNewAction(t *testing.T) {
 	// Step 2: Set energy state to white (rate-limited, deferred)
 	err = stateManager.SetString("currentEnergyLevel", "white")
 	assert.NoError(t, err)
-	time.Sleep(50 * time.Millisecond)
 
 	// Step 3: Before deferred action fires, go back to red
 	// This should cancel the pending disable and keep load shedding on
 	err = stateManager.SetString("currentEnergyLevel", "red")
 	assert.NoError(t, err)
-	time.Sleep(50 * time.Millisecond)
 
-	// Step 4: Wait for what would have been the deferred action time
-	time.Sleep(200 * time.Millisecond)
+	// Step 4: Wait for what would have been the deferred action time plus buffer.
+	// The deferred action should NOT fire because it was cancelled.
+	select {
+	case <-deferredFired:
+		t.Fatal("Deferred action should have been cancelled but it fired")
+	case <-time.After(500 * time.Millisecond):
+		// Good - deferred action did not fire
+	}
 
 	// Verify that switch.turn_off was NOT called (deferred disable was cancelled)
 	calls := mockClient.GetServiceCalls()

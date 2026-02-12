@@ -814,6 +814,15 @@ func TestFadeOutBedroomSpeaker_AbortedByFlag(t *testing.T) {
 	// Clear previous calls
 	mockHA.ClearServiceCalls()
 
+	// Use a channel-based sleep to deterministically know when the fade loop
+	// has started (first sleep = first volume step completed)
+	sleepCalled := make(chan struct{}, 10)
+	manager.SetSleepFunc(func(d time.Duration) {
+		sleepCalled <- struct{}{}
+		// Block until test signals to proceed (simulates the sleep completing)
+		<-sleepCalled
+	})
+
 	// Start fade out in goroutine
 	done := make(chan bool)
 	go func() {
@@ -821,17 +830,25 @@ func TestFadeOutBedroomSpeaker_AbortedByFlag(t *testing.T) {
 		done <- true
 	}()
 
-	// Wait a bit for fade out to start
-	time.Sleep(100 * time.Millisecond)
+	// Wait for the first sleep call (proves fade loop started and did 1 volume step)
+	select {
+	case <-sleepCalled:
+		// Fade out started, unblock the sleep
+	case <-time.After(5 * time.Second):
+		t.Fatal("Fade out did not start")
+	}
 
 	// Abort the fade out
 	stateManager.SetBool("isFadeOutInProgress", false)
+
+	// Unblock the sleep so the loop can check the abort flag
+	sleepCalled <- struct{}{}
 
 	// Wait for completion
 	select {
 	case <-done:
 		// Fade out aborted
-	case <-time.After(10 * time.Second):
+	case <-time.After(5 * time.Second):
 		t.Fatal("Fade out did not abort within timeout")
 	}
 
@@ -868,6 +885,13 @@ func TestFadeOutBedroomSpeaker_CancelledByMusicType(t *testing.T) {
 	// Clear previous calls
 	mockHA.ClearServiceCalls()
 
+	// Use a channel-based sleep for deterministic synchronization
+	sleepCalled := make(chan struct{}, 10)
+	manager.SetSleepFunc(func(d time.Duration) {
+		sleepCalled <- struct{}{}
+		<-sleepCalled
+	})
+
 	// Start fade out in goroutine
 	done := make(chan bool)
 	go func() {
@@ -875,17 +899,24 @@ func TestFadeOutBedroomSpeaker_CancelledByMusicType(t *testing.T) {
 		done <- true
 	}()
 
-	// Wait a bit for fade out to start
-	time.Sleep(100 * time.Millisecond)
+	// Wait for the first sleep call (proves fade loop started)
+	select {
+	case <-sleepCalled:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Fade out did not start")
+	}
 
 	// Change music type to cancel fade out
 	stateManager.SetString("musicPlaybackType", "day")
+
+	// Unblock the sleep so the loop can check the cancellation condition
+	sleepCalled <- struct{}{}
 
 	// Wait for completion
 	select {
 	case <-done:
 		// Fade out cancelled
-	case <-time.After(10 * time.Second):
+	case <-time.After(5 * time.Second):
 		t.Fatal("Fade out did not cancel within timeout")
 	}
 
@@ -922,6 +953,25 @@ func TestFadeOutBedroomSpeaker_VolumeSequence(t *testing.T) {
 	// Clear previous calls
 	mockHA.ClearServiceCalls()
 
+	// Use a channel-gated sleep: each iteration signals it completed a step,
+	// then waits for the test to allow the next one. This gives us deterministic
+	// control over exactly how many volume steps occur.
+	const desiredSteps = 5
+	stepDone := make(chan struct{})
+	stepGate := make(chan struct{})
+	stepCount := 0
+	manager.SetSleepFunc(func(d time.Duration) {
+		stepCount++
+		if stepCount <= desiredSteps {
+			stepDone <- struct{}{}
+			<-stepGate // Wait for test to allow next step
+		} else {
+			// After desired steps, signal and block until abort
+			stepDone <- struct{}{}
+			<-stepGate
+		}
+	})
+
 	// Start fade out in goroutine
 	done := make(chan bool)
 	go func() {
@@ -929,14 +979,33 @@ func TestFadeOutBedroomSpeaker_VolumeSequence(t *testing.T) {
 		done <- true
 	}()
 
-	// Wait for a few volume changes
-	time.Sleep(500 * time.Millisecond)
+	// Let the desired number of steps execute
+	for i := 0; i < desiredSteps; i++ {
+		select {
+		case <-stepDone:
+			stepGate <- struct{}{} // Allow next step
+		case <-time.After(5 * time.Second):
+			t.Fatalf("Timed out waiting for volume step %d", i+1)
+		}
+	}
 
-	// Abort to stop the test quickly
+	// Wait for one more step to start, then abort
+	select {
+	case <-stepDone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Timed out waiting for step after desired count")
+	}
+
+	// Abort to stop the test
 	stateManager.SetBool("isFadeOutInProgress", false)
+	stepGate <- struct{}{} // Unblock the sleep so the loop checks abort condition
 
 	// Wait for completion
-	<-done
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Fade out did not complete after abort")
+	}
 
 	// Verify volume levels are decreasing
 	calls := mockHA.GetServiceCalls()
@@ -981,17 +1050,29 @@ func TestBeginWake_LaunchesFadeOut(t *testing.T) {
 	// Clear previous calls
 	mockHA.ClearServiceCalls()
 
+	// Use a channel-based sleep to deterministically know when the fade
+	// goroutine has started (first sleep = first volume step completed)
+	sleepCalled := make(chan struct{}, 10)
+	manager.SetSleepFunc(func(d time.Duration) {
+		sleepCalled <- struct{}{}
+		<-sleepCalled // Block until test unblocks
+	})
+
 	// Trigger begin_wake
 	manager.handleBeginWake()
 
-	// Give goroutine time to start
-	time.Sleep(200 * time.Millisecond)
+	// Wait for the first sleep call (proves fade goroutine started and did 1 step)
+	select {
+	case <-sleepCalled:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Fade out goroutine did not start after begin_wake")
+	}
 
-	// Abort fade out to stop it quickly
+	// Abort fade out to stop it
 	stateManager.SetBool("isFadeOutInProgress", false)
 
-	// Wait a bit more for goroutine to exit
-	time.Sleep(200 * time.Millisecond)
+	// Unblock the sleep so the loop can check the abort flag
+	sleepCalled <- struct{}{}
 
 	// Verify volume_set calls were made
 	calls := mockHA.GetServiceCalls()
