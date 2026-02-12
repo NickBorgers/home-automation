@@ -2,6 +2,7 @@ package music
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -220,29 +221,37 @@ func TestMusicShadowState_ConcurrentAccess(t *testing.T) {
 	manager := NewManager(context.Background(), nil, stateManager, mockConfig, zap.NewNop(), true, nil, nil)
 
 	// Run concurrent operations
-	done := make(chan bool)
+	var wg sync.WaitGroup
+	wg.Add(2)
 
 	// Writer goroutine - updates shadow state
 	go func() {
+		defer wg.Done()
 		for i := 0; i < 100; i++ {
 			manager.updateShadowState("test_action", "Concurrent test", "concurrent_test")
 			time.Sleep(1 * time.Millisecond)
 		}
-		done <- true
 	}()
 
 	// Reader goroutine - reads shadow state
 	go func() {
+		defer wg.Done()
 		for i := 0; i < 100; i++ {
 			_ = manager.GetShadowState()
 			time.Sleep(1 * time.Millisecond)
 		}
-		done <- true
 	}()
 
-	// Wait for both goroutines to complete
-	<-done
-	<-done
+	// Wait for both goroutines to complete with timeout
+	waitCh := make(chan struct{})
+	go func() { wg.Wait(); close(waitCh) }()
+
+	select {
+	case <-waitCh:
+		// success
+	case <-time.After(10 * time.Second):
+		t.Fatal("Timeout waiting for concurrent operations")
+	}
 
 	// If we get here without a race condition, test passes
 	// (run with -race flag to detect races)

@@ -846,19 +846,12 @@ assert.Eventually(t, func() bool {
 ### Running Tests
 
 ```bash
-# Run all plugin tests
-cd homeautomation-go
-go test ./internal/plugins/... -v
+# Run all tests with caching (preferred)
+make unit-tests
+make integration-tests
 
-# Run with race detector
-go test ./internal/plugins/... -race
-
-# Run specific plugin tests
-go test ./internal/plugins/energy/... -v
-
-# Generate coverage report
-go test ./internal/plugins/... -coverprofile=coverage.out
-go tool cover -html=coverage.out
+# Full validation (same as CI, no cache)
+make pre-push
 ```
 
 ---

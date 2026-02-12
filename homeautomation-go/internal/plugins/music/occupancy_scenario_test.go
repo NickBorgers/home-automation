@@ -6,35 +6,20 @@ package music
 //
 // PURPOSE:
 // These tests validate that the Music Manager correctly handles speaker mute
-// conditions based on room occupancy. Specifically, the Office speaker should
-// be muted when Nick's office is unoccupied, and unmuted when he enters.
+// conditions based on room occupancy. A speaker with a leave_muted_if condition
+// should be muted when the condition matches and unmuted when it doesn't.
 //
 // CURRENT STATUS: PASSING
 // The Music Manager now subscribes to mute condition variables and responds
 // to state changes by unmuting/muting speakers during active playback.
-//
-// NODE-RED REFERENCE:
-// - Flow: Music (90f5fe8cb80ae6a7)
-// - URL: https://node-red.featherback-mermaid.ts.net/#flow/90f5fe8cb80ae6a7
-// - The Node-RED flow subscribes to occupancy changes and re-evaluates
-//   speaker participation during active playback.
-//
-// CONFIGURATION REFERENCE:
-// - File: configs/music_config.yaml
-// - Relevant speaker config (appears in multiple music modes):
-//   - player_name: "Office"
-//     base_volume: 6-8 (varies by mode)
-//     leave_muted_if:
-//       - variable: isNickOfficeOccupied
-//         value: false
 //
 // HOW leave_muted_if WORKS:
 // - If ALL conditions in leave_muted_if match current state, speaker stays MUTED
 // - If ANY condition does NOT match, speaker is UNMUTED
 // - Empty leave_muted_if means speaker is always unmuted (e.g., Kitchen)
 //
-// EXAMPLE:
-// - Office speaker has: leave_muted_if: isNickOfficeOccupied = false
+// EXAMPLE (using hypothetical "Study" speaker for testing):
+// - Study speaker has: leave_muted_if: isNickOfficeOccupied = false
 // - When isNickOfficeOccupied = false: condition MATCHES → speaker MUTED
 // - When isNickOfficeOccupied = true: condition does NOT match → speaker UNMUTED
 //
@@ -68,13 +53,13 @@ import (
 	"go.uber.org/zap"
 )
 
-// createOccupancyMusicConfig creates a configuration matching the actual music_config.yaml
-// where the Office speaker has leave_muted_if: isNickOfficeOccupied = false.
+// createOccupancyMusicConfig creates a test configuration demonstrating
+// occupancy-based speaker muting via leave_muted_if conditions.
 //
-// This mirrors the real configuration where:
+// Uses a hypothetical "Study" speaker to test the pattern:
 // - Kitchen speaker has NO mute conditions (always plays)
-// - Office speaker is MUTED when office is unoccupied (isNickOfficeOccupied = false)
-// - Office speaker is UNMUTED when office is occupied (isNickOfficeOccupied = true)
+// - Study speaker is MUTED when room is unoccupied (isNickOfficeOccupied = false)
+// - Study speaker is UNMUTED when room is occupied (isNickOfficeOccupied = true)
 func createOccupancyMusicConfig() *MusicConfig {
 	return &MusicConfig{
 		Music: map[string]MusicMode{
@@ -86,12 +71,12 @@ func createOccupancyMusicConfig() *MusicConfig {
 						LeaveMutedIf: []MuteCondition{}, // No conditions = always unmuted
 					},
 					{
-						PlayerName: "Office",
+						PlayerName: "Study",
 						BaseVolume: 6,
 						LeaveMutedIf: []MuteCondition{
 							{
 								Variable: "isNickOfficeOccupied",
-								Value:    false, // Mute when office is NOT occupied
+								Value:    false, // Mute when room is NOT occupied
 							},
 						},
 					},
@@ -112,7 +97,7 @@ func createOccupancyMusicConfig() *MusicConfig {
 						LeaveMutedIf: []MuteCondition{},
 					},
 					{
-						PlayerName: "Office",
+						PlayerName: "Study",
 						BaseVolume: 8, // Different volume in morning mode
 						LeaveMutedIf: []MuteCondition{
 							{
@@ -135,7 +120,7 @@ func createOccupancyMusicConfig() *MusicConfig {
 }
 
 // =============================================================================
-// TEST: shouldUnmuteSpeaker() Logic - Office Occupied
+// TEST: shouldUnmuteSpeaker() Logic - Study Occupied
 // =============================================================================
 //
 // WHAT THIS TEST VALIDATES:
@@ -143,9 +128,9 @@ func createOccupancyMusicConfig() *MusicConfig {
 // This is a UNIT TEST of the decision logic.
 //
 // SCENARIO:
-// 1. Start with isNickOfficeOccupied = false → Office should be MUTED
-// 2. Change to isNickOfficeOccupied = true → Office should be UNMUTED
-func TestScenario_OfficeSpeaker_UnmutedWhenOccupied(t *testing.T) {
+// 1. Start with isNickOfficeOccupied = false → Study should be MUTED
+// 2. Change to isNickOfficeOccupied = true → Study should be UNMUTED
+func TestScenario_StudySpeaker_UnmutedWhenOccupied(t *testing.T) {
 	t.Parallel()
 	logger := zap.NewNop()
 	mockClient := ha.NewMockClient()
@@ -166,7 +151,7 @@ func TestScenario_OfficeSpeaker_UnmutedWhenOccupied(t *testing.T) {
 	_ = stateManager.SetBool("isAnyoneAsleep", false)
 	_ = stateManager.SetBool("isMasterAsleep", false)
 	_ = stateManager.SetBool("isEveryoneAsleep", false)
-	_ = stateManager.SetBool("isNickOfficeOccupied", false) // Office NOT occupied initially
+	_ = stateManager.SetBool("isNickOfficeOccupied", false) // Study NOT occupied initially
 	_ = stateManager.SetBool("isTVPlaying", false)
 
 	// Start manager to initialize subscriptions
@@ -182,52 +167,52 @@ func TestScenario_OfficeSpeaker_UnmutedWhenOccupied(t *testing.T) {
 
 	// Create participant with mute conditions from config
 	participant := ParticipantWithVolume{
-		PlayerName:   "Office",
+		PlayerName:   "Study",
 		BaseVolume:   6,
 		Volume:       6,
 		LeaveMutedIf: config.Music["day"].Participants[1].LeaveMutedIf,
 	}
 
 	// ==========================================================
-	// VERIFICATION 1: Office should be MUTED when unoccupied
+	// VERIFICATION 1: Study should be MUTED when unoccupied
 	// ==========================================================
 	// Mute condition: isNickOfficeOccupied = false
 	// Current state: isNickOfficeOccupied = false
 	// Condition MATCHES → speaker stays MUTED
 	shouldUnmute := manager.shouldUnmuteSpeaker(participant)
 	assert.False(t, shouldUnmute,
-		"Office speaker should stay MUTED when isNickOfficeOccupied = false. "+
+		"Study speaker should stay MUTED when isNickOfficeOccupied = false. "+
 			"The mute condition (value: false) matches current state (false).")
 
 	// ==========================================================
-	// ACTION: Nick enters the office
+	// ACTION: Someone enters the study
 	// ==========================================================
 	_ = stateManager.SetBool("isNickOfficeOccupied", true)
 
 	// ==========================================================
-	// VERIFICATION 2: Office should be UNMUTED when occupied
+	// VERIFICATION 2: Study should be UNMUTED when occupied
 	// ==========================================================
 	// Mute condition: isNickOfficeOccupied = false
 	// Current state: isNickOfficeOccupied = true
 	// Condition does NOT match → speaker is UNMUTED
 	shouldUnmute = manager.shouldUnmuteSpeaker(participant)
 	assert.True(t, shouldUnmute,
-		"Office speaker should be UNMUTED when isNickOfficeOccupied = true. "+
+		"Study speaker should be UNMUTED when isNickOfficeOccupied = true. "+
 			"The mute condition (value: false) does NOT match current state (true).")
 }
 
 // =============================================================================
-// TEST: shouldUnmuteSpeaker() Logic - Office Unoccupied
+// TEST: shouldUnmuteSpeaker() Logic - Study Unoccupied
 // =============================================================================
 //
 // WHAT THIS TEST VALIDATES:
 // The inverse of the above test - confirms speaker is correctly muted when
-// Nick leaves his office.
+// Someone leaves the study.
 //
 // SCENARIO:
-// 1. Start with isNickOfficeOccupied = true → Office should be UNMUTED
-// 2. Change to isNickOfficeOccupied = false → Office should be MUTED
-func TestScenario_OfficeSpeaker_MutedWhenUnoccupied(t *testing.T) {
+// 1. Start with isNickOfficeOccupied = true → Study should be UNMUTED
+// 2. Change to isNickOfficeOccupied = false → Study should be MUTED
+func TestScenario_StudySpeaker_MutedWhenUnoccupied(t *testing.T) {
 	t.Parallel()
 	logger := zap.NewNop()
 	mockClient := ha.NewMockClient()
@@ -241,38 +226,38 @@ func TestScenario_OfficeSpeaker_MutedWhenUnoccupied(t *testing.T) {
 	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, timeProvider, nil)
 	manager.SetSleepFunc(func(d time.Duration) {}) // Skip internal sleeps for fast tests
 
-	// Initialize - office IS occupied
+	// Initialize - study IS occupied
 	_ = stateManager.SetString("dayPhase", "day")
 	_ = stateManager.SetBool("isAnyoneHome", true)
 	_ = stateManager.SetBool("isAnyoneAsleep", false)
-	_ = stateManager.SetBool("isNickOfficeOccupied", true) // Office IS occupied initially
+	_ = stateManager.SetBool("isNickOfficeOccupied", true) // Study IS occupied initially
 
 	// Create participant with mute conditions
 	participant := ParticipantWithVolume{
-		PlayerName:   "Office",
+		PlayerName:   "Study",
 		BaseVolume:   6,
 		Volume:       6,
 		LeaveMutedIf: config.Music["day"].Participants[1].LeaveMutedIf,
 	}
 
 	// ==========================================================
-	// VERIFICATION 1: Office should be UNMUTED when occupied
+	// VERIFICATION 1: Study should be UNMUTED when occupied
 	// ==========================================================
 	shouldUnmute := manager.shouldUnmuteSpeaker(participant)
 	assert.True(t, shouldUnmute,
-		"Office speaker should be UNMUTED when isNickOfficeOccupied = true")
+		"Study speaker should be UNMUTED when isNickOfficeOccupied = true")
 
 	// ==========================================================
-	// ACTION: Nick leaves the office
+	// ACTION: Someone leaves the study
 	// ==========================================================
 	_ = stateManager.SetBool("isNickOfficeOccupied", false)
 
 	// ==========================================================
-	// VERIFICATION 2: Office should be MUTED when unoccupied
+	// VERIFICATION 2: Study should be MUTED when unoccupied
 	// ==========================================================
 	shouldUnmute = manager.shouldUnmuteSpeaker(participant)
 	assert.False(t, shouldUnmute,
-		"Office speaker should be MUTED when isNickOfficeOccupied = false")
+		"Study speaker should be MUTED when isNickOfficeOccupied = false")
 }
 
 // =============================================================================
@@ -280,22 +265,22 @@ func TestScenario_OfficeSpeaker_MutedWhenUnoccupied(t *testing.T) {
 // =============================================================================
 //
 // WHAT THIS TEST VALIDATES:
-// When music is actively playing and Nick enters his office, the Music Manager
-// should AUTOMATICALLY unmute the Office speaker by setting its volume.
+// When music is actively playing and Someone enters the study, the Music Manager
+// should AUTOMATICALLY unmute the Study speaker by setting its volume.
 //
 // THIS IS THE KEY INTEGRATION TEST that validates the subscription mechanism.
 //
 // SCENARIO:
 // 1. Music starts playing in "day" mode
-// 2. Office speaker is initially MUTED (isNickOfficeOccupied = false)
-// 3. Nick enters his office (isNickOfficeOccupied = true)
-// 4. Music Manager should detect the change and unmute the Office speaker
+// 2. Study speaker is initially MUTED (isNickOfficeOccupied = false)
+// 3. Someone enters the study (isNickOfficeOccupied = true)
+// 4. Music Manager should detect the change and unmute the Study speaker
 //
 // EXPECTED BEHAVIOR:
 // - Service call: media_player.volume_mute with is_volume_muted=false
-// - Entity: media_player.office
+// - Entity: media_player.study
 // - No volume_set needed (volume was set during initial playback)
-func TestScenario_OfficeSpeaker_UnmuteOnOccupancyChangeDuringPlayback(t *testing.T) {
+func TestScenario_StudySpeaker_UnmuteOnOccupancyChangeDuringPlayback(t *testing.T) {
 	t.Parallel()
 	logger := zap.NewNop()
 	mockClient := ha.NewMockClient()
@@ -316,7 +301,7 @@ func TestScenario_OfficeSpeaker_UnmuteOnOccupancyChangeDuringPlayback(t *testing
 	_ = stateManager.SetBool("isAnyoneAsleep", false)
 	_ = stateManager.SetBool("isMasterAsleep", false)
 	_ = stateManager.SetBool("isEveryoneAsleep", false)
-	_ = stateManager.SetBool("isNickOfficeOccupied", false) // Office NOT occupied
+	_ = stateManager.SetBool("isNickOfficeOccupied", false) // Study NOT occupied
 	_ = stateManager.SetBool("isTVPlaying", false)
 
 	// Start manager - music should start playing (Kitchen speaker only)
@@ -331,12 +316,12 @@ func TestScenario_OfficeSpeaker_UnmuteOnOccupancyChangeDuringPlayback(t *testing
 	mockClient.ClearServiceCalls()
 
 	// ==========================================================
-	// ACTION: Nick enters his office during active playback
+	// ACTION: Someone enters the study during active playback
 	// ==========================================================
 	// This should trigger the Music Manager to:
 	// 1. Detect the isNickOfficeOccupied state change
 	// 2. Re-evaluate speaker mute conditions
-	// 3. Unmute the Office speaker via volume_mute service
+	// 3. Unmute the Study speaker via volume_mute service
 	err = stateManager.SetBool("isNickOfficeOccupied", true)
 	assert.NoError(t, err)
 
@@ -344,26 +329,26 @@ func TestScenario_OfficeSpeaker_UnmuteOnOccupancyChangeDuringPlayback(t *testing
 	time.Sleep(50 * time.Millisecond)
 
 	// ==========================================================
-	// VERIFICATION: Office speaker should be unmuted
+	// VERIFICATION: Study speaker should be unmuted
 	// ==========================================================
 	calls := mockClient.GetServiceCalls()
 
 	// Look for volume_mute call with is_volume_muted=false (unmute)
-	foundOfficeUnmute := false
+	foundStudyUnmute := false
 	for _, call := range calls {
 		if call.Domain == "media_player" && call.Service == "volume_mute" {
 			entityID, ok := call.Data["entity_id"].(string)
-			if ok && entityID == "media_player.office" {
+			if ok && entityID == "media_player.study" {
 				isMuted, hasMuted := call.Data["is_volume_muted"].(bool)
 				if hasMuted && !isMuted {
-					foundOfficeUnmute = true
+					foundStudyUnmute = true
 				}
 			}
 		}
 	}
 
-	assert.True(t, foundOfficeUnmute,
-		"Expected media_player.volume_mute for Office speaker with is_volume_muted=false. "+
+	assert.True(t, foundStudyUnmute,
+		"Expected media_player.volume_mute for Study speaker with is_volume_muted=false. "+
 			"Calls received: %+v", calls)
 }
 
@@ -387,11 +372,11 @@ func TestScenario_OfficeSpeaker_UnmuteOnOccupancyChangeDuringPlayback(t *testing
 // unmute but remain at volume 0. This test codifies the fix.
 //
 // SCENARIO:
-// 1. Office is unoccupied (isNickOfficeOccupied = false)
-// 2. executePlayback() is called with Kitchen + Office speakers
-// 3. Office speaker should be muted but with target volume set
+// 1. Study is unoccupied (isNickOfficeOccupied = false)
+// 2. executePlayback() is called with Kitchen + Study speakers
+// 3. Study speaker should be muted but with target volume set
 //
-// EXPECTED SERVICE CALLS FOR OFFICE:
+// EXPECTED SERVICE CALLS FOR STUDY:
 // - media_player.volume_set with volume_level = 0.06 (6%)
 // - media_player.volume_mute with is_volume_muted = true
 func TestScenario_MutedSpeaker_GetsTargetVolumeSetDuringPlayback(t *testing.T) {
@@ -408,14 +393,14 @@ func TestScenario_MutedSpeaker_GetsTargetVolumeSetDuringPlayback(t *testing.T) {
 	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, timeProvider, nil)
 	manager.SetSleepFunc(func(d time.Duration) {}) // Skip internal sleeps for fast tests
 
-	// Initialize state - Office is NOT occupied, so Office speaker should be muted
+	// Initialize state - Study is NOT occupied, so Study speaker should be muted
 	_ = stateManager.SetString("dayPhase", "day")
 	_ = stateManager.SetString("musicPlaybackType", "day")
 	_ = stateManager.SetBool("isAnyoneHome", true)
 	_ = stateManager.SetBool("isAnyoneAsleep", false)
 	_ = stateManager.SetBool("isMasterAsleep", false)
 	_ = stateManager.SetBool("isEveryoneAsleep", false)
-	_ = stateManager.SetBool("isNickOfficeOccupied", false) // Office NOT occupied → speaker muted
+	_ = stateManager.SetBool("isNickOfficeOccupied", false) // Study NOT occupied → speaker muted
 	_ = stateManager.SetBool("isTVPlaying", false)
 
 	// Set up mock to report "playing" state (to pass playback verification)
@@ -423,8 +408,8 @@ func TestScenario_MutedSpeaker_GetsTargetVolumeSetDuringPlayback(t *testing.T) {
 		EntityID: "media_player.kitchen",
 		State:    "playing",
 	})
-	mockClient.SetMockState("media_player.office", &ha.State{
-		EntityID: "media_player.office",
+	mockClient.SetMockState("media_player.study", &ha.State{
+		EntityID: "media_player.study",
 		State:    "playing",
 	})
 
@@ -432,7 +417,7 @@ func TestScenario_MutedSpeaker_GetsTargetVolumeSetDuringPlayback(t *testing.T) {
 	mockClient.ClearServiceCalls()
 
 	// ==========================================================
-	// ACTION: Call executePlayback with both Kitchen and Office
+	// ACTION: Call executePlayback with both Kitchen and Study
 	// ==========================================================
 	participants := []ParticipantWithVolume{
 		{
@@ -442,13 +427,13 @@ func TestScenario_MutedSpeaker_GetsTargetVolumeSetDuringPlayback(t *testing.T) {
 			LeaveMutedIf: []MuteCondition{}, // No conditions = always unmuted
 		},
 		{
-			PlayerName: "Office",
+			PlayerName: "Study",
 			BaseVolume: 6,
 			Volume:     6, // Target volume = 6%
 			LeaveMutedIf: []MuteCondition{
 				{
 					Variable: "isNickOfficeOccupied",
-					Value:    false, // Mute when office is NOT occupied
+					Value:    false, // Mute when study is NOT occupied
 				},
 			},
 		},
@@ -467,54 +452,54 @@ func TestScenario_MutedSpeaker_GetsTargetVolumeSetDuringPlayback(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 
 	// ==========================================================
-	// VERIFICATION: Office speaker received both volume_set and volume_mute
+	// VERIFICATION: Study speaker received both volume_set and volume_mute
 	// ==========================================================
 	calls := mockClient.GetServiceCalls()
 
-	// Look for volume_set call for Office with target volume (6% = 0.06)
-	foundOfficeVolumeSet := false
-	var officeVolumeLevel float64
+	// Look for volume_set call for Study with target volume (6% = 0.06)
+	foundStudyVolumeSet := false
+	var studyVolumeLevel float64
 	for _, call := range calls {
 		if call.Domain == "media_player" && call.Service == "volume_set" {
 			entityID, ok := call.Data["entity_id"].(string)
-			if ok && entityID == "media_player.office" {
+			if ok && entityID == "media_player.study" {
 				if volumeLevel, hasVolume := call.Data["volume_level"].(float64); hasVolume {
 					// We expect 0.06 (6%), but the muted speaker volume_set happens
 					// after the initial mute (which sets to 0), so look for the target volume
 					if volumeLevel > 0.05 && volumeLevel < 0.07 { // 6% = 0.06
-						foundOfficeVolumeSet = true
-						officeVolumeLevel = volumeLevel
+						foundStudyVolumeSet = true
+						studyVolumeLevel = volumeLevel
 					}
 				}
 			}
 		}
 	}
 
-	assert.True(t, foundOfficeVolumeSet,
-		"Expected media_player.volume_set for Office speaker with target volume (~0.06). "+
+	assert.True(t, foundStudyVolumeSet,
+		"Expected media_player.volume_set for Study speaker with target volume (~0.06). "+
 			"This ensures muted speakers have correct volume pre-set. Calls: %+v", calls)
 
-	if foundOfficeVolumeSet {
-		assert.InDelta(t, 0.06, officeVolumeLevel, 0.01,
-			"Office speaker volume should be set to ~6%% (0.06)")
+	if foundStudyVolumeSet {
+		assert.InDelta(t, 0.06, studyVolumeLevel, 0.01,
+			"Study speaker volume should be set to ~6%% (0.06)")
 	}
 
-	// Look for volume_mute call for Office with is_volume_muted=true
-	foundOfficeMute := false
+	// Look for volume_mute call for Study with is_volume_muted=true
+	foundStudyMute := false
 	for _, call := range calls {
 		if call.Domain == "media_player" && call.Service == "volume_mute" {
 			entityID, ok := call.Data["entity_id"].(string)
-			if ok && entityID == "media_player.office" {
+			if ok && entityID == "media_player.study" {
 				isMuted, hasMuted := call.Data["is_volume_muted"].(bool)
 				if hasMuted && isMuted {
-					foundOfficeMute = true
+					foundStudyMute = true
 				}
 			}
 		}
 	}
 
-	assert.True(t, foundOfficeMute,
-		"Expected media_player.volume_mute for Office speaker with is_volume_muted=true. "+
+	assert.True(t, foundStudyMute,
+		"Expected media_player.volume_mute for Study speaker with is_volume_muted=true. "+
 			"Muted speakers should be explicitly muted. Calls: %+v", calls)
 }
 
