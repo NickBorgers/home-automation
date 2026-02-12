@@ -1,0 +1,219 @@
+---
+# Minimal music config for integration testing
+# Mirrors production music_config.yaml structure with fewer participants/playlists
+zones:
+  - name: "sleep-prep"
+    priority: 90
+    trigger:
+      - variable: dayPhase
+        value: night
+      - variable: isAnyoneHome
+        value: true
+      - variable: isMasterAsleep
+        value: false
+
+  - name: "sleep"
+    priority: 100
+    trigger:
+      - variable: isMasterAsleep
+        value: true
+      - variable: isAnyoneHome
+        value: true
+      - variable: isWakeSequenceActive
+        value: false
+
+  - name: "morning"
+    priority: 50
+    trigger_groups:
+      - triggers:
+          - variable: dayPhase
+            value: morning
+          - variable: isAnyoneHome
+            value: true
+          - variable: isAnyoneAsleep
+            value: false
+      - triggers:
+          - variable: isWakeSequenceActive
+            value: true
+          - variable: dayPhase
+            value: morning
+          - variable: isAnyoneHome
+            value: true
+
+  - name: "day"
+    priority: 40
+    trigger:
+      - variable: dayPhase
+        value: day
+      - variable: isAnyoneHome
+        value: true
+      - variable: isAnyoneAsleep
+        value: false
+
+  - name: "evening"
+    priority: 40
+    trigger:
+      - variable: dayPhase
+        value: evening
+      - variable: isAnyoneHome
+        value: true
+      - variable: isAnyoneAsleep
+        value: false
+
+  - name: "winddown"
+    priority: 40
+    trigger:
+      - variable: dayPhase
+        value: winddown
+      - variable: isAnyoneHome
+        value: true
+      - variable: isAnyoneAsleep
+        value: false
+
+  - name: "sex"
+    priority: 150
+    trigger: []
+
+  - name: "wakeup"
+    priority: 110
+    trigger: []
+
+music:
+  morning:
+    participants:
+      - player_name: "Kitchen"
+        base_volume: 9
+        leave_muted_if:
+          - variable: isTVPlaying
+            value: true
+      - player_name: "Bedroom"
+        base_volume: 9
+        exclude_if:
+          - variable: isMasterAsleep
+            value: true
+      - player_name: "Sitting Room"
+        base_volume: 8
+        leave_muted_if:
+          - variable: isTVPlaying
+            value: true
+    playback_options:
+      - uri: "spotify:playlist:test_morning_playlist"
+        media_type: playlist
+        volume_multiplier: 1.0
+
+  day:
+    participants:
+      - player_name: "Kitchen"
+        base_volume: 9
+        leave_muted_if:
+          - variable: isTVPlaying
+            value: true
+      - player_name: "Bedroom"
+        base_volume: 9
+        leave_muted_if:
+          - variable: isMasterAsleep
+            value: true
+      - player_name: "Sitting Room"
+        base_volume: 9
+        leave_muted_if:
+          - variable: isTVPlaying
+            value: true
+    playback_options:
+      - uri: "spotify:playlist:test_day_playlist"
+        media_type: playlist
+        volume_multiplier: 1.0
+
+  evening:
+    participants:
+      - player_name: "Kitchen"
+        base_volume: 9
+        leave_muted_if:
+          - variable: isTVPlaying
+            value: true
+      - player_name: "Bedroom"
+        base_volume: 10
+        exclude_if:
+          - variable: isMasterAsleep
+            value: true
+      - player_name: "Sitting Room"
+        base_volume: 8
+        leave_muted_if:
+          - variable: isTVPlaying
+            value: true
+    playback_options:
+      - uri: "spotify:playlist:test_evening_playlist"
+        media_type: playlist
+        volume_multiplier: 1.0
+
+  winddown:
+    participants:
+      - player_name: "Kitchen"
+        base_volume: 10
+        leave_muted_if:
+          - variable: isTVPlaying
+            value: true
+      - player_name: "Bedroom"
+        base_volume: 10
+        exclude_if:
+          - variable: isMasterAsleep
+            value: true
+      - player_name: "Sitting Room"
+        base_volume: 7
+        leave_muted_if:
+          - variable: isTVPlaying
+            value: true
+    playback_options:
+      - uri: "spotify:playlist:test_winddown_playlist"
+        media_type: playlist
+        volume_multiplier: 1.0
+
+  sleep-prep:
+    participants:
+      - player_name: "Bedroom"
+        base_volume: 16
+        leave_muted_if: []
+      - player_name: "Sitting Room"
+        base_volume: 9
+        leave_muted_if:
+          - variable: isTVPlaying
+            value: true
+      - player_name: "Kitchen"
+        base_volume: 16
+        leave_muted_if: []
+    playback_options:
+      - uri: "http://rain-sounds.test:8080/Rain%20Sounds/1.m4a"
+        media_type: music
+        volume_multiplier: 1.0
+
+  sleep:
+    participants:
+      - player_name: "Bedroom"
+        base_volume: 16
+        leave_muted_if: []
+      - player_name: "Kitchen"
+        base_volume: 16
+        leave_muted_if: []
+    playback_options:
+      - uri: "http://rain-sounds.test:8080/Rain%20Sounds/1.m4a"
+        media_type: music
+        volume_multiplier: 1.0
+
+  sex:
+    participants:
+      - player_name: "Bedroom"
+        base_volume: 10
+        leave_muted_if: []
+    playback_options:
+      - uri: "spotify:playlist:test_sex_playlist"
+        media_type: playlist
+        volume_multiplier: 1.0
+
+  wakeup:
+    participants:
+      - player_name: "Bedroom"
+        base_volume: 6
+        leave_muted_if: []
+    playback_options:
+      - uri: "spotify:playlist:test_wakeup_playlist"
+        media_type: playlist
+        volume_multiplier: 1.0
