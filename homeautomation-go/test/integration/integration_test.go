@@ -123,7 +123,7 @@ func TestStateChangeSubscription(t *testing.T) {
 	server.SetState("input_boolean.nick_home", "on", map[string]interface{}{})
 
 	// Wait for event propagation
-	time.Sleep(50 * time.Millisecond)
+	waitForProcessing(t, manager)
 
 	mu.Lock()
 	assert.Equal(t, 1, changeCount)
@@ -274,7 +274,7 @@ func TestSubscriptionWithConcurrentWrites(t *testing.T) {
 				}
 				server.SetState("input_boolean.nick_home", state, map[string]interface{}{})
 				count++
-				time.Sleep(50 * time.Millisecond)
+				waitForProcessing(t, manager)
 			}
 		}
 	}()
@@ -343,7 +343,7 @@ func TestMultipleSubscribersOnSameEntity(t *testing.T) {
 
 	// Trigger change
 	server.SetState("input_boolean.nick_home", "on", map[string]interface{}{})
-	time.Sleep(50 * time.Millisecond)
+	waitForProcessing(t, manager)
 
 	mu1.Lock()
 	mu2.Lock()
@@ -361,7 +361,7 @@ func TestMultipleSubscribersOnSameEntity(t *testing.T) {
 	sub2.Unsubscribe()
 
 	server.SetState("input_boolean.nick_home", "off", map[string]interface{}{})
-	time.Sleep(50 * time.Millisecond)
+	waitForProcessing(t, manager)
 
 	mu1.Lock()
 	mu2.Lock()

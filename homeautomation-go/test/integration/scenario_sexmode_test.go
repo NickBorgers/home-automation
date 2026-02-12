@@ -48,7 +48,7 @@ func setupSexModeScenarioTest(t *testing.T) (*MockHAServer, *sexmode.Manager, *s
 		"max_temp": float64(110),
 	})
 	// Allow async plugin initialization to complete
-	time.Sleep(50 * time.Millisecond)
+	waitForProcessing(t, stateManager)
 
 	// Create and start Sex Mode plugin
 	sexModeManager := sexmode.NewManager(context.Background(), client, stateManager, logger, false, nil)
@@ -79,7 +79,7 @@ func TestScenario_SexModeActivation_SetsMusicToSex(t *testing.T) {
 	require.NoError(t, stateManager.SetString("musicPlaybackType", "evening"))
 	require.NoError(t, stateManager.SetString("dayPhase", "evening"))
 	// Allow async handlers to process before clearing
-	time.Sleep(50 * time.Millisecond)
+	waitForProcessing(t, stateManager)
 
 	server.ClearServiceCalls()
 
@@ -105,7 +105,7 @@ func TestScenario_SexModeActivation_ActivatesNightScene(t *testing.T) {
 
 	require.NoError(t, stateManager.SetString("dayPhase", "day"))
 	// Allow async handlers to process before clearing
-	time.Sleep(50 * time.Millisecond)
+	waitForProcessing(t, stateManager)
 
 	server.ClearServiceCalls()
 
@@ -182,7 +182,7 @@ func TestScenario_SexModeActivation_FullCoordination(t *testing.T) {
 	require.NoError(t, stateManager.SetString("dayPhase", "evening"))
 	require.NoError(t, stateManager.SetBool("isMasterAsleep", false))
 	// Allow async handlers to process before clearing
-	time.Sleep(50 * time.Millisecond)
+	waitForProcessing(t, stateManager)
 
 	server.ClearServiceCalls()
 
@@ -237,7 +237,7 @@ func TestScenario_SexModeDeactivation_RestoresMusicType(t *testing.T) {
 	require.NoError(t, stateManager.SetString("dayPhase", "day"))
 	require.NoError(t, stateManager.SetBool("isMasterAsleep", false))
 	// Allow async handlers to process before clearing
-	time.Sleep(50 * time.Millisecond)
+	waitForProcessing(t, stateManager)
 
 	// Activate sex mode
 	server.SetState("input_boolean.sex", "on", nil)
@@ -270,7 +270,7 @@ func TestScenario_SexModeDeactivation_ActivatesDayPhaseScene(t *testing.T) {
 	require.NoError(t, stateManager.SetString("dayPhase", "sunset"))
 	require.NoError(t, stateManager.SetBool("isMasterAsleep", false))
 	// Allow async handlers to process before clearing
-	time.Sleep(50 * time.Millisecond)
+	waitForProcessing(t, stateManager)
 
 	// Activate sex mode
 	server.SetState("input_boolean.sex", "on", nil)
@@ -308,7 +308,7 @@ func TestScenario_SexModeDeactivation_TurnsOffLightsWhenAsleep(t *testing.T) {
 	require.NoError(t, stateManager.SetString("dayPhase", "night"))
 	require.NoError(t, stateManager.SetBool("isMasterAsleep", false)) // Not asleep during activation
 	// Allow async handlers to process before clearing
-	time.Sleep(50 * time.Millisecond)
+	waitForProcessing(t, stateManager)
 
 	// Activate sex mode
 	server.SetState("input_boolean.sex", "on", nil)
@@ -318,7 +318,7 @@ func TestScenario_SexModeDeactivation_TurnsOffLightsWhenAsleep(t *testing.T) {
 
 	require.NoError(t, stateManager.SetBool("isMasterAsleep", true))
 	// Allow async handlers to process before clearing
-	time.Sleep(50 * time.Millisecond)
+	waitForProcessing(t, stateManager)
 
 	server.ClearServiceCalls()
 
@@ -364,7 +364,7 @@ func TestScenario_SexModeDeactivation_DifferentDayPhases(t *testing.T) {
 			require.NoError(t, stateManager.SetString("dayPhase", phase))
 			require.NoError(t, stateManager.SetBool("isMasterAsleep", false))
 			// Allow async handlers to process before clearing
-			time.Sleep(50 * time.Millisecond)
+			waitForProcessing(t, stateManager)
 
 			// Activate sex mode
 			server.SetState("input_boolean.sex", "on", nil)
@@ -406,7 +406,7 @@ func TestScenario_SexModeDuplicateActivation_Ignored(t *testing.T) {
 
 	require.NoError(t, stateManager.SetString("musicPlaybackType", "evening"))
 	// Allow async handlers to process before clearing
-	time.Sleep(50 * time.Millisecond)
+	waitForProcessing(t, stateManager)
 
 	// Activate sex mode
 	server.SetState("input_boolean.sex", "on", nil)
@@ -426,7 +426,7 @@ func TestScenario_SexModeDuplicateActivation_Ignored(t *testing.T) {
 	// This tests the internal guard
 	sexModeManager.Reset() // Reset checks current state and won't re-activate
 	// Allow async Reset to complete
-	time.Sleep(50 * time.Millisecond)
+	waitForProcessing(t, stateManager)
 
 	t.Log("THEN: No additional service calls should be made")
 
@@ -449,7 +449,7 @@ func TestScenario_SexModeDeactivationWithoutActivation_Ignored(t *testing.T) {
 	require.NoError(t, stateManager.SetString("musicPlaybackType", "day"))
 	require.NoError(t, stateManager.SetString("dayPhase", "day"))
 	// Allow async handlers to process before clearing
-	time.Sleep(50 * time.Millisecond)
+	waitForProcessing(t, stateManager)
 
 	server.ClearServiceCalls()
 
@@ -457,7 +457,7 @@ func TestScenario_SexModeDeactivationWithoutActivation_Ignored(t *testing.T) {
 
 	server.SetState("input_boolean.sex", "off", nil)
 	// Wait for state to be processed (expecting no change)
-	time.Sleep(50 * time.Millisecond)
+	waitForProcessing(t, stateManager)
 
 	t.Log("THEN: No actions should be taken and music type should remain 'day'")
 
@@ -487,11 +487,11 @@ func TestScenario_SexModeReset_SyncsState(t *testing.T) {
 	// Set sex mode to ON in HA before the plugin starts
 	server.SetState("input_boolean.sex", "on", nil)
 	// Allow HA state to be set before plugin starts
-	time.Sleep(50 * time.Millisecond)
+	waitForProcessing(t, stateManager)
 
 	require.NoError(t, stateManager.SetString("musicPlaybackType", "morning"))
 	// Allow async handlers to process before clearing
-	time.Sleep(50 * time.Millisecond)
+	waitForProcessing(t, stateManager)
 
 	// Now create and start the sex mode manager
 	logger := testlogger.New()
@@ -547,7 +547,7 @@ func TestScenario_SexModeActivationDeactivationCycle(t *testing.T) {
 	require.NoError(t, stateManager.SetString("dayPhase", "evening"))
 	require.NoError(t, stateManager.SetBool("isMasterAsleep", false))
 	// Allow async handlers to process before clearing
-	time.Sleep(50 * time.Millisecond)
+	waitForProcessing(t, stateManager)
 
 	t.Log("WHEN: Sex mode is activated")
 
@@ -592,7 +592,7 @@ func TestScenario_SexModeShadowState_TracksCorrectly(t *testing.T) {
 
 	require.NoError(t, stateManager.SetString("musicPlaybackType", "day"))
 	// Allow async handlers to process before checking state
-	time.Sleep(50 * time.Millisecond)
+	waitForProcessing(t, stateManager)
 
 	t.Log("THEN: Shadow state should show inactive")
 
@@ -604,7 +604,7 @@ func TestScenario_SexModeShadowState_TracksCorrectly(t *testing.T) {
 	server.SetState("input_boolean.sex", "on", nil)
 	waitForStringState(t, stateManager, "musicPlaybackType", "sex", "music should switch to sex")
 	// Brief delay for shadow state to update after state change
-	time.Sleep(50 * time.Millisecond)
+	waitForProcessing(t, stateManager)
 
 	t.Log("THEN: Shadow state should reflect activation")
 
@@ -621,7 +621,7 @@ func TestScenario_SexModeShadowState_TracksCorrectly(t *testing.T) {
 	server.SetState("input_boolean.sex", "off", nil)
 	waitForStringState(t, stateManager, "musicPlaybackType", "day", "music should be restored")
 	// Brief delay for shadow state to update after state change
-	time.Sleep(50 * time.Millisecond)
+	waitForProcessing(t, stateManager)
 
 	t.Log("THEN: Shadow state should reflect deactivation")
 

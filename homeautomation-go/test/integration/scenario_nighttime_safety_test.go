@@ -80,7 +80,7 @@ func setupNighttimeSafetyTest(t *testing.T) (*nighttimeSafetyTestEnv, func()) {
 	require.NoError(t, env.sleepHygiene.Start())
 
 	// Brief delay to allow plugins to initialize their subscriptions before tests begin
-	time.Sleep(50 * time.Millisecond)
+	waitForProcessing(t, env.stateManager)
 
 	cleanup := func() {
 		env.sleepHygiene.Stop()
@@ -226,7 +226,7 @@ func TestScenario_SleepMusic_ContinuesWhenMasterAsleep(t *testing.T) {
 	env.server.SetState("media_player.kitchen", "idle", map[string]interface{}{})
 
 	// Brief delay before clearing service calls to ensure setup state propagates
-	time.Sleep(50 * time.Millisecond)
+	waitForProcessing(t, env.stateManager)
 	env.server.ClearServiceCalls()
 
 	// ========== WHEN ==========
@@ -367,7 +367,7 @@ func TestScenario_WakeSequence_LightsOnDespiteMasterAsleep(t *testing.T) {
 	require.NoError(t, stateManager.SetBool("isWakeSequenceActive", false)) // Not yet active
 
 	// Brief delay before clearing service calls to ensure setup state propagates
-	time.Sleep(50 * time.Millisecond)
+	waitForProcessing(t, stateManager)
 	server.ClearServiceCalls()
 
 	// ========== WHEN ==========
@@ -451,7 +451,7 @@ func TestScenario_WakeCancellation_RevertsToSleepMusicDuringNight(t *testing.T) 
 	})
 
 	// Brief delay before clearing service calls to ensure setup state propagates
-	time.Sleep(50 * time.Millisecond)
+	waitForProcessing(t, env.stateManager)
 	env.server.ClearServiceCalls()
 
 	// ========== WHEN ==========
@@ -582,7 +582,7 @@ func TestScenario_SleepToMorningTransition_BedroomMutedUntilActualWake(t *testin
 	require.NoError(t, env.stateManager.SetString("musicPlaybackType", "sleep"))
 
 	// Brief delay before clearing service calls to ensure setup state propagates
-	time.Sleep(50 * time.Millisecond)
+	waitForProcessing(t, env.stateManager)
 	env.server.ClearServiceCalls()
 
 	// ========== WHEN ==========
@@ -741,7 +741,7 @@ func TestScenario_RapidStateChanges_NoBriefUnmute(t *testing.T) {
 	require.NoError(t, env.stateManager.SetString("musicPlaybackType", "sleep"))
 
 	// Brief delay before clearing service calls to ensure setup state propagates
-	time.Sleep(50 * time.Millisecond)
+	waitForProcessing(t, env.stateManager)
 	env.server.ClearServiceCalls()
 
 	// ========== WHEN ==========

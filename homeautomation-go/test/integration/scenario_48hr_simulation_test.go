@@ -9,6 +9,7 @@ import (
 	"homeautomation/internal/config"
 	"homeautomation/internal/dayphase"
 	dayphaseplugin "homeautomation/internal/plugins/dayphase"
+	"homeautomation/internal/state"
 	"homeautomation/internal/testlogger"
 
 	"github.com/stretchr/testify/assert"
@@ -44,6 +45,7 @@ func setupDayPhaseSimulation(t *testing.T, timezone *time.Location, startTime ti
 	*MockHAServer,
 	*dayphaseplugin.Manager,
 	*clock.MockClock,
+	*state.Manager,
 	func(),
 ) {
 	server, client, stateManager, baseCleanup := setupTest(t)
@@ -89,7 +91,7 @@ func setupDayPhaseSimulation(t *testing.T, timezone *time.Location, startTime ti
 		baseCleanup()
 	}
 
-	return server, dayPhaseMgr, mockClock, cleanup
+	return server, dayPhaseMgr, mockClock, stateManager, cleanup
 }
 
 // TestScenario_48Hour_EasternTimezone tests dayphase transitions over 48 hours in ET
@@ -102,7 +104,7 @@ func TestScenario_48Hour_EasternTimezone(t *testing.T) {
 	// January 15, 2025 is a Wednesday
 	startTime := time.Date(2025, 1, 15, 6, 0, 0, 0, et)
 
-	server, dayPhaseMgr, mockClock, cleanup := setupDayPhaseSimulation(t, et, startTime)
+	server, dayPhaseMgr, mockClock, _, cleanup := setupDayPhaseSimulation(t, et, startTime)
 	defer cleanup()
 	_ = dayPhaseMgr // silence unused variable warning
 
@@ -176,7 +178,7 @@ func TestScenario_48Hour_PacificTimezone(t *testing.T) {
 	// January 17, 2025 is a Friday
 	startTime := time.Date(2025, 1, 17, 6, 0, 0, 0, pt)
 
-	server, dayPhaseMgr, mockClock, cleanup := setupDayPhaseSimulation(t, pt, startTime)
+	server, dayPhaseMgr, mockClock, _, cleanup := setupDayPhaseSimulation(t, pt, startTime)
 	defer cleanup()
 	_ = dayPhaseMgr // silence unused variable warning
 
@@ -255,11 +257,11 @@ func TestScenario_TimezoneOffset_ET(t *testing.T) {
 	etStart := time.Date(2025, 1, 15, 12, 0, 0, 0, et)
 	t.Logf("ET start time: %s", etStart.Format("Mon Jan 2 15:04:05 MST 2006"))
 
-	server, _, mockClock, cleanup := setupDayPhaseSimulation(t, et, etStart)
+	server, _, mockClock, stateManager, cleanup := setupDayPhaseSimulation(t, et, etStart)
 	defer cleanup()
 
 	// Get initial phase
-	time.Sleep(50 * time.Millisecond)
+	waitForProcessing(t, stateManager)
 	etPhase := server.GetState("input_text.day_phase")
 	t.Logf("Initial phase at %s: %s", etStart.Format("15:04 MST"), etPhase.State)
 
@@ -289,10 +291,10 @@ func TestScenario_TimezoneOffset_PT(t *testing.T) {
 	ptStart := time.Date(2025, 1, 15, 9, 0, 0, 0, pt)
 	t.Logf("PT start time: %s", ptStart.Format("Mon Jan 2 15:04:05 MST 2006"))
 
-	server, _, mockClock, cleanup := setupDayPhaseSimulation(t, pt, ptStart)
+	server, _, mockClock, stateManager, cleanup := setupDayPhaseSimulation(t, pt, ptStart)
 	defer cleanup()
 
-	time.Sleep(50 * time.Millisecond)
+	waitForProcessing(t, stateManager)
 	ptPhase := server.GetState("input_text.day_phase")
 	t.Logf("Initial phase at %s: %s", ptStart.Format("15:04 MST"), ptPhase.State)
 
@@ -324,7 +326,7 @@ func TestScenario_ScheduleTransitions_Weekday(t *testing.T) {
 	// Start at 19:00 (before scheduled dusk)
 	startTime := time.Date(2025, 1, 15, 19, 0, 0, 0, et)
 
-	server, _, mockClock, cleanup := setupDayPhaseSimulation(t, et, startTime)
+	server, _, mockClock, _, cleanup := setupDayPhaseSimulation(t, et, startTime)
 	defer cleanup()
 
 	t.Log("Testing weekday schedule transitions (Wed)")
@@ -378,7 +380,7 @@ func TestScenario_DayPhaseCycle_24Hours(t *testing.T) {
 	// Start at midnight
 	startTime := time.Date(2025, 1, 15, 0, 0, 0, 0, et)
 
-	server, _, mockClock, cleanup := setupDayPhaseSimulation(t, et, startTime)
+	server, _, mockClock, _, cleanup := setupDayPhaseSimulation(t, et, startTime)
 	defer cleanup()
 
 	t.Log("Testing complete 24-hour day phase cycle")
@@ -438,7 +440,7 @@ func TestScenario_SunEventTracking(t *testing.T) {
 	// Start at 5:00 AM (before dawn in winter)
 	startTime := time.Date(2025, 1, 15, 5, 0, 0, 0, et)
 
-	server, _, mockClock, cleanup := setupDayPhaseSimulation(t, et, startTime)
+	server, _, mockClock, _, cleanup := setupDayPhaseSimulation(t, et, startTime)
 	defer cleanup()
 
 	t.Log("Testing sun event state tracking")
@@ -504,7 +506,7 @@ func TestScenario_WeekdayVsWeekend_NightTime(t *testing.T) {
 
 	// Test 1: Wednesday (weekday) - night should be at 23:00
 	wedStart := time.Date(2025, 1, 15, 22, 50, 0, 0, et) // 10 min before weekday night
-	server1, _, mockClock1, cleanup1 := setupDayPhaseSimulation(t, et, wedStart)
+	server1, _, mockClock1, _, cleanup1 := setupDayPhaseSimulation(t, et, wedStart)
 	defer cleanup1()
 
 	// Advance to 23:05 (just after weekday night time)
@@ -515,7 +517,7 @@ func TestScenario_WeekdayVsWeekend_NightTime(t *testing.T) {
 
 	// Test 2: Friday (weekend) - night should be at 23:59
 	friStart := time.Date(2025, 1, 17, 23, 0, 0, 0, et) // At weekday night time
-	server2, _, mockClock2, cleanup2 := setupDayPhaseSimulation(t, et, friStart)
+	server2, _, mockClock2, _, cleanup2 := setupDayPhaseSimulation(t, et, friStart)
 	defer cleanup2()
 
 	// At 23:00 on Friday, should NOT be night yet (night=23:59)

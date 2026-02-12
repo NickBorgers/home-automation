@@ -667,6 +667,10 @@ func (m *MockClient) GetConnectionDuration() time.Duration {
 	return 0
 }
 
+// WaitForHandlers is a no-op for MockClient since MockClient dispatches
+// handlers synchronously (no goroutines spawned).
+func (m *MockClient) WaitForHandlers() {}
+
 // GetDevices returns the mock device registry.
 // It implements the HAClient interface for testing.
 func (m *MockClient) GetDevices() ([]*Device, error) {

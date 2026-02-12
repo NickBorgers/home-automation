@@ -4,7 +4,6 @@ import (
 	"context"
 	"os"
 	"testing"
-	"time"
 
 	"homeautomation/internal/ha"
 	"homeautomation/internal/plugins/energy"
@@ -67,7 +66,7 @@ func setupMultiPluginTest(t *testing.T) (*pluginTestEnv, func()) {
 
 	// Brief delay for plugin goroutines to start - required before ClearServiceCalls
 	// to ensure initialization service calls are captured
-	time.Sleep(50 * time.Millisecond)
+	waitForProcessing(t, env.manager)
 
 	cleanup := func() {
 		env.lighting.Stop()
@@ -127,7 +126,7 @@ func TestScenario_TVPlaying_DimsLivingRoomLights(t *testing.T) {
 	require.NoError(t, env.manager.SetBool("isAnyoneHomeAndAwake", true))
 	require.NoError(t, env.manager.SetBool("isEveryoneAsleep", false))
 	// Brief delay before ClearServiceCalls to allow lighting plugin to process initial scene activations
-	time.Sleep(50 * time.Millisecond)
+	waitForProcessing(t, env.manager)
 
 	env.server.ClearServiceCalls() // Clear initialization calls
 
@@ -195,7 +194,7 @@ func TestScenario_LowEnergy_PluginsCoexist(t *testing.T) {
 	require.NoError(t, env.manager.SetBool("isAnyoneHomeAndAwake", true))
 
 	// Brief delay before ClearServiceCalls to allow plugins to process initial state
-	time.Sleep(50 * time.Millisecond)
+	waitForProcessing(t, env.manager)
 	env.server.ClearServiceCalls()
 
 	// ========== WHEN ==========
@@ -254,7 +253,7 @@ func TestScenario_EveryoneLeaves_CoordinatedResponse(t *testing.T) {
 	require.NoError(t, env.manager.SetString("dayPhase", "afternoon"))
 
 	// Brief delay before ClearServiceCalls to allow plugins to process initial state
-	time.Sleep(50 * time.Millisecond)
+	waitForProcessing(t, env.manager)
 	env.server.ClearServiceCalls()
 
 	// ========== WHEN ==========
@@ -321,7 +320,7 @@ func TestScenario_SleepSequence_CoordinatesLighting(t *testing.T) {
 	require.NoError(t, env.manager.SetBool("isEveryoneAsleep", false))
 
 	// Brief delay before ClearServiceCalls to allow plugins to process initial state
-	time.Sleep(50 * time.Millisecond)
+	waitForProcessing(t, env.manager)
 	env.server.ClearServiceCalls()
 
 	// ========== WHEN ==========
@@ -378,7 +377,7 @@ func TestScenario_DayPhaseChange_MultiPluginCoordination(t *testing.T) {
 	require.NoError(t, env.manager.SetBool("isEveryoneAsleep", false))
 
 	// Brief delay before ClearServiceCalls to allow plugins to process initial state
-	time.Sleep(50 * time.Millisecond)
+	waitForProcessing(t, env.manager)
 	env.server.ClearServiceCalls()
 
 	// ========== WHEN ==========
@@ -453,7 +452,7 @@ func TestScenario_SimultaneousStateChanges_NoRaceConditions(t *testing.T) {
 	require.NoError(t, env.manager.SetBool("isAnyoneHome", true))
 	require.NoError(t, env.manager.SetBool("isAnyoneHomeAndAwake", true))
 	// Brief delay before ClearServiceCalls to allow plugins to process initial state
-	time.Sleep(50 * time.Millisecond)
+	waitForProcessing(t, env.manager)
 
 	env.server.ClearServiceCalls()
 

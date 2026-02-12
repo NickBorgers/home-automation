@@ -7,6 +7,7 @@ import (
 	"net"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -93,6 +94,9 @@ type HAClient interface {
 	GetConnectionDuration() time.Duration
 	GetDevices() ([]*Device, error)
 	GetEntityRegistry() ([]*EntityRegistryEntry, error)
+	// WaitForHandlers blocks until all in-flight event handler goroutines complete.
+	// Used in tests to replace time.Sleep-based synchronization with deterministic waiting.
+	WaitForHandlers()
 }
 
 // errConnectionClosed is returned when attempting to use a closed connection.
@@ -252,6 +256,20 @@ type Client struct {
 	recentResults []bool // circular buffer: true=success, false=failure
 	resultIndex   int    // next write position in circular buffer
 	resultCount   int    // how many results recorded (up to healthWindowSize)
+
+	// handlerWg tracks in-flight event handler goroutines spawned by handleEvent.
+	// Tests call WaitForHandlers() to block until all handlers complete,
+	// replacing time.Sleep-based synchronization with deterministic waiting.
+	handlerWg sync.WaitGroup
+
+	// processedEvents counts fully-processed state_changed events (all handler
+	// goroutines for the event have completed). Used by WaitForHandlers to
+	// detect when new events have been processed since the last check.
+	processedEvents atomic.Int64
+
+	// eventProcessed is signaled after each state_changed event's handlers
+	// complete, allowing WaitForHandlers to wake up without polling.
+	eventProcessed chan struct{}
 }
 
 func (c *Client) clearSubscribers() {
@@ -282,15 +300,16 @@ func (c *Client) resetContext() {
 func NewClient(url, token string, logger *zap.Logger) *Client {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Client{
-		url:           url,
-		token:         token,
-		logger:        logger,
-		pending:       make(map[int]chan Message),
-		subscribers:   make(map[string][]subscriberEntry),
-		ctx:           ctx,
-		cancel:        cancel,
-		reconnect:     true,
-		recentResults: make([]bool, healthWindowSize),
+		url:            url,
+		token:          token,
+		logger:         logger,
+		pending:        make(map[int]chan Message),
+		subscribers:    make(map[string][]subscriberEntry),
+		ctx:            ctx,
+		cancel:         cancel,
+		reconnect:      true,
+		recentResults:  make([]bool, healthWindowSize),
+		eventProcessed: make(chan struct{}, 256),
 	}
 }
 
@@ -583,6 +602,43 @@ func (c *Client) GetConnectionDuration() time.Duration {
 	return time.Since(c.connectedAt)
 }
 
+// WaitForHandlers blocks until all in-flight event handler goroutines complete.
+// This is used in tests to deterministically wait for state change propagation
+// instead of using time.Sleep. In production code, this is a no-op concern since
+// handlers are fire-and-forget.
+//
+// The method first drains any already-in-flight handlers, then waits briefly for
+// any pending WebSocket messages to be received and their handlers spawned, and
+// finally drains those handlers too. This two-phase approach handles the async
+// gap between server.SetState() writing to the WebSocket and the client goroutine
+// reading and processing the message.
+func (c *Client) WaitForHandlers() {
+	// Phase 1: Wait for any handlers that are already in flight
+	c.handlerWg.Wait()
+
+	// Phase 2: Wait for pending WebSocket events to be received and processed.
+	// After Phase 1 completes, there may be WebSocket messages in the buffer
+	// that haven't been read yet. We wait for the next event to complete,
+	// with a short timeout in case there are no pending events.
+	snapshot := c.processedEvents.Load()
+	timer := time.NewTimer(5 * time.Millisecond)
+	defer timer.Stop()
+	for {
+		select {
+		case <-c.eventProcessed:
+			// An event was processed. Check if it's new since our snapshot.
+			if c.processedEvents.Load() > snapshot {
+				// New events were processed. Drain any remaining handlers.
+				c.handlerWg.Wait()
+				return
+			}
+		case <-timer.C:
+			// No new events within timeout — nothing pending
+			return
+		}
+	}
+}
+
 // nextMsgID returns the next message ID.
 // IMPORTANT: Caller must hold writeMu to ensure atomic ID allocation + send.
 func (c *Client) nextMsgID() int {
@@ -781,9 +837,30 @@ func (c *Client) handleEvent(msg *Message) {
 
 	// Call handlers in separate goroutines to avoid blocking receiveMessages
 	// This prevents deadlocks when handlers try to send messages back to HA
-	for _, entry := range entries {
-		go entry.handler(eventData.EntityID, eventData.OldState, eventData.NewState)
+	if len(entries) == 0 {
+		return
 	}
+
+	var eventWg sync.WaitGroup
+	for _, entry := range entries {
+		c.handlerWg.Add(1)
+		eventWg.Add(1)
+		go func(h StateChangeHandler) {
+			defer c.handlerWg.Done()
+			defer eventWg.Done()
+			h(eventData.EntityID, eventData.OldState, eventData.NewState)
+		}(entry.handler)
+	}
+
+	// Signal event completion after all handlers finish (non-blocking)
+	go func() {
+		eventWg.Wait()
+		c.processedEvents.Add(1)
+		select {
+		case c.eventProcessed <- struct{}{}:
+		default:
+		}
+	}()
 }
 
 // handleDisconnect handles connection loss

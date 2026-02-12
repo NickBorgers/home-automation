@@ -115,6 +115,18 @@ func waitForServiceCall(t *testing.T, server *MockHAServer, domain, service stri
 	}, stateWaitTimeout, statePollInterval, msgAndArgs...)
 }
 
+// waitForProcessing blocks until all in-flight HA event handler goroutines have completed.
+// Use this instead of time.Sleep(50 * time.Millisecond) after server.SetState() or
+// stateManager.SetBool()/SetString() calls to ensure all handlers have finished processing
+// before continuing with assertions or ClearServiceCalls().
+//
+// This is deterministic: it waits for actual handler completion rather than an arbitrary
+// fixed delay, making tests both faster and more reliable.
+func waitForProcessing(t *testing.T, manager *state.Manager) {
+	t.Helper()
+	manager.WaitForProcessing()
+}
+
 // waitForCondition polls until the provided condition function returns true or times out.
 // Use this for generic conditions that don't fit the other helper patterns.
 func waitForCondition(t *testing.T, condition func() bool, msgAndArgs ...interface{}) {

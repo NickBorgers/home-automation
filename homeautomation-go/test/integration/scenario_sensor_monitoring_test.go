@@ -238,7 +238,7 @@ func TestScenario_SensorHealth_LowBatteryDetection(t *testing.T) {
 		"unit_of_measurement": "%",
 	})
 	// Brief setup delay: Allow entity to propagate before plugin start
-	time.Sleep(50 * time.Millisecond)
+	waitForProcessing(t, env.manager)
 
 	// Start sensorhealth plugin
 	err := env.sensorHealth.Start()
@@ -282,7 +282,7 @@ func TestScenario_Environmental_WaterLeakDetection(t *testing.T) {
 		"friendly_name": "Laundry Room Water Leak",
 	})
 	// Brief setup delay: Allow entity to propagate before plugin start
-	time.Sleep(50 * time.Millisecond)
+	waitForProcessing(t, env.manager)
 
 	// Start environmental plugin
 	err := env.environmental.Start()
@@ -480,7 +480,7 @@ func TestScenario_BothPlugins_ConcurrentOperation(t *testing.T) {
 		"friendly_name": "Test Water Leak",
 	})
 	// Brief setup delay: Allow entities to propagate before plugin start
-	time.Sleep(50 * time.Millisecond)
+	waitForProcessing(t, env.manager)
 
 	// Start both plugins
 	err := env.sensorHealth.Start()
@@ -554,7 +554,7 @@ func TestScenario_SensorHealth_NodeStatusMonitoring(t *testing.T) {
 		"friendly_name": "Front Door Lock Node Status",
 	})
 	// Brief setup delay: Allow entity to propagate before plugin start
-	time.Sleep(50 * time.Millisecond)
+	waitForProcessing(t, env.manager)
 
 	// Start sensorhealth plugin
 	err := env.sensorHealth.Start()
@@ -582,7 +582,7 @@ func TestScenario_SensorHealth_NodeStatusMonitoring(t *testing.T) {
 		"friendly_name": "Front Door Lock Node Status",
 	})
 	// Brief delay: Allow entity state change to propagate through event processing
-	time.Sleep(50 * time.Millisecond)
+	waitForProcessing(t, env.manager)
 
 	// Advance mock clock past the debounce delay and process timer callbacks
 	env.mockClock.AdvanceAndProcess(sensorhealth.NodeDeadDebounceDelay + 1*time.Second)
