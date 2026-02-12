@@ -36,10 +36,10 @@ jobs:
         run: cd homeautomation-go && go mod download
 
       - name: Run unit tests with coverage
-        run: make ci-unit-tests
+        run: make unit-tests-impl
 
       - name: Run integration tests
-        run: make ci-integration-tests
+        run: make integration-tests-impl
 
   build-and-push:
     name: Build and Push Docker Image

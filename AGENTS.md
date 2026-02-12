@@ -245,12 +245,13 @@ make unit-tests           # Unit tests with caching
 make integration-tests    # Integration tests with caching
 
 # No caching (runs every time)
-make test-go              # All tests with race detection (no cache)
+make test-no-cache        # All tests with race detection (no cache)
 make pre-push             # Full validation (no cache, same as CI)
 
 # Cache management
-.githooks/test-cache.sh --status     # Check cache state
-.githooks/test-cache.sh --clear      # Force re-run next time
+make cache-status         # Check cache state
+make cache-clear          # Clear all test caches (force re-run)
+make cache-clear-unit     # Clear unit test cache only
 ```
 
 **How caching works:** The `.githooks/test-cache.sh` script tracks a content-based hash of the codebase. If nothing changed since the last successful test run, tests are skipped entirely. This saves significant time during development.

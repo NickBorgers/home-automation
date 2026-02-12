@@ -453,8 +453,8 @@ Standard test workflow that gates merging and triggers Claude reviews.
 |-----|-------------|
 | `changes` | Detects which files changed (path filtering) |
 | `style-checks` | Go formatting, linting (`make ci-style-checks`) |
-| `unit-tests` | Unit tests with coverage (`make ci-unit-tests`) |
-| `integration-tests` | Integration test suite (`make ci-integration-tests`) |
+| `unit-tests` | Unit tests with coverage (`make unit-tests-impl`) |
+| `integration-tests` | Integration test suite (`make integration-tests-impl`) |
 | `config-tests` | YAML validation, Spotify URI checks |
 | `diagram-validation` | Generated diagram freshness (`make validate-diagrams`) |
 | `docker-build` | Build validation + smoke test (DEV_MODE) |

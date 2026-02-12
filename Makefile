@@ -2,7 +2,53 @@
 
 #help: @ List available tasks on this project
 help:
-	@grep -E '[a-zA-Z\.\-]+:.*?@ .*$$' $(MAKEFILE_LIST)| tr -d '#' | sed -E 's/Makefile.//' | awk 'BEGIN {FS = ":.*?@ "}; {printf "\033[36m%-30s\033[0m %s\n", $$1, $$2}'
+	@echo ""
+	@echo "\033[1m━━━ Testing (Cached) ━━━\033[0m"
+	@echo "\033[36m  unit-tests                    \033[0m Run unit tests with caching (skips if no code changes since last pass)"
+	@echo "\033[36m  integration-tests             \033[0m Run integration tests with caching (skips if no code changes since last pass)"
+	@echo ""
+	@echo "\033[1m━━━ Testing (No Cache) ━━━\033[0m"
+	@echo "\033[36m  test-no-cache                 \033[0m Run Go tests with race detection and coverage, bypassing cache (quiet mode for AI tools)"
+	@echo "\033[36m  test-no-cache-verbose          \033[0m Run Go tests with verbose output, bypassing cache (for debugging)"
+	@echo "\033[36m  pre-push                      \033[0m Run comprehensive pre-push validation (build, tests, race detector, coverage ≥65%)"
+	@echo "\033[36m  pre-commit                    \033[0m Run fast pre-commit checks (style, format, lint, build)"
+	@echo "\033[36m  check-coverage                \033[0m Check that test coverage meets minimum requirement (≥65%)"
+	@echo "\033[36m  test-48hr-simulation          \033[0m Run 48-hour timezone simulation tests with verbose output"
+	@echo ""
+	@echo "\033[1m━━━ Cache Management ━━━\033[0m"
+	@echo "\033[36m  cache-status                  \033[0m Show test cache status (which test suites have cached passing results)"
+	@echo "\033[36m  cache-clear                   \033[0m Clear all test caches (forces re-run of all tests)"
+	@echo "\033[36m  cache-clear-unit              \033[0m Clear unit test cache only (forces re-run of unit tests)"
+	@echo ""
+	@echo "\033[1m━━━ Build & Run ━━━\033[0m"
+	@echo "\033[36m  build-go                      \033[0m Build the Go application binary"
+	@echo "\033[36m  dev-ui                        \033[0m Run application with mock HA server for local UI development"
+	@echo "\033[36m  clean-go                      \033[0m Clean Go build artifacts"
+	@echo ""
+	@echo "\033[1m━━━ Code Quality ━━━\033[0m"
+	@echo "\033[36m  format-go                     \033[0m Format Go code with gofmt and goimports"
+	@echo "\033[36m  lint-go                       \033[0m Run all Go linters (go vet, staticcheck)"
+	@echo ""
+	@echo "\033[1m━━━ Docker ━━━\033[0m"
+	@echo "\033[36m  docker-build-go               \033[0m Build Docker image for the Go application"
+	@echo "\033[36m  docker-run-go                 \033[0m Run the Go application in Docker (requires .env file)"
+	@echo "\033[36m  docker-push-go                \033[0m Push Go application image to GitHub Container Registry"
+	@echo "\033[36m  docker-smoke-test             \033[0m Run container smoke test (builds image and verifies startup in DEV_MODE)"
+	@echo ""
+	@echo "\033[1m━━━ Documentation ━━━\033[0m"
+	@echo "\033[36m  validate-mermaid              \033[0m Validate all Mermaid diagrams in documentation can be rendered"
+	@echo "\033[36m  validate-docs                 \033[0m Validate all documentation (Mermaid diagrams, etc.)"
+	@echo "\033[36m  generate-diagrams             \033[0m Generate plugin dependency diagrams from source code using AST analysis"
+	@echo "\033[36m  validate-diagrams             \033[0m Validate that generated diagrams are up-to-date with source code"
+	@echo ""
+	@echo "\033[1m━━━ Config ━━━\033[0m"
+	@echo "\033[36m  run-config-tests              \033[0m Run all available tests of the configuration files"
+	@echo ""
+	@echo "\033[1m━━━ CI Implementation Targets ━━━\033[0m"
+	@echo "\033[36m  unit-tests-impl               \033[0m Run unit tests with coverage (implementation target, prefer 'unit-tests')"
+	@echo "\033[36m  integration-tests-impl        \033[0m Run integration tests with race detector (implementation target, prefer 'integration-tests')"
+	@echo "\033[36m  ci-style-checks               \033[0m Run style/lint checks (used by CI style-checks job)"
+	@echo ""
 
 #run-config-tests: @ Run all available tests of the configuration files
 run-config-tests: run-yamllint-hue run-yamllint-music run-spotify-validation-music
@@ -137,15 +183,19 @@ dev-ui: build-go
 	@echo ""
 	cd homeautomation-go && DEV_MODE=true ./homeautomation
 
-#test-go: @ Run Go tests with race detection and coverage (quiet mode for AI tools)
-test-go:
+#test-no-cache: @ Run Go tests with race detection and coverage, bypassing cache (quiet mode for AI tools)
+test-no-cache:
 	cd homeautomation-go && go test ./... -race -coverprofile=coverage.out
 	cd homeautomation-go && go tool cover -func=coverage.out | grep total
 
-#test-go-verbose: @ Run Go tests with verbose output (for debugging)
-test-go-verbose:
+#test-no-cache-verbose: @ Run Go tests with verbose output, bypassing cache (for debugging)
+test-no-cache-verbose:
 	cd homeautomation-go && TEST_VERBOSE=true go test ./... -race -v -coverprofile=coverage.out
 	cd homeautomation-go && go tool cover -func=coverage.out | grep total
+
+# Backward-compat aliases (deprecated, will be removed in future)
+test-go: test-no-cache
+test-go-verbose: test-no-cache-verbose
 
 #docker-build-go: @ Build Docker image for the Go application
 docker-build-go:
@@ -332,14 +382,14 @@ ci-style-checks: pre-commit
 
 #unit-tests: @ Run unit tests with caching (skips if no code changes since last pass)
 unit-tests:
-	@.githooks/test-cache.sh unit-tests ci-unit-tests
+	@.githooks/test-cache.sh unit-tests unit-tests-impl
 
 #integration-tests: @ Run integration tests with caching (skips if no code changes since last pass)
 integration-tests:
-	@.githooks/test-cache.sh integration-tests ci-integration-tests
+	@.githooks/test-cache.sh integration-tests integration-tests-impl
 
-#ci-unit-tests: @ Run unit tests with coverage, excluding integration tests (used by CI)
-ci-unit-tests:
+#unit-tests-impl: @ Run unit tests with coverage, excluding integration tests (implementation target)
+unit-tests-impl:
 	@echo "🧪 Running unit tests (excluding integration tests, pkg/testutil, and cmd/diagramgen)..."
 	@cd homeautomation-go && go build ./...
 	@cd homeautomation-go && go test $$(go list ./... | grep -v /test/integration | grep -v /pkg/testutil | grep -v /cmd/diagramgen) \
@@ -354,11 +404,15 @@ ci-unit-tests:
 	  echo "✅ Test coverage $${coverage}% meets requirement"
 	@echo "✅ Unit tests passed"
 
-#ci-integration-tests: @ Run integration tests with race detector (used by CI)
-ci-integration-tests:
+#integration-tests-impl: @ Run integration tests with race detector (implementation target)
+integration-tests-impl:
 	@echo "🧪 Running integration tests..."
 	@cd homeautomation-go && go test ./test/integration/... -race -timeout=10m
 	@echo "✅ Integration tests passed"
+
+# Backward-compat aliases for CI (deprecated, will be removed in future)
+ci-unit-tests: unit-tests-impl
+ci-integration-tests: integration-tests-impl
 
 #pre-push: @ Run comprehensive pre-push validation (build, tests, race detector, coverage ≥65%)
 pre-push:
@@ -404,3 +458,19 @@ pre-push:
 	@echo "✅ Test coverage meets minimum requirement (≥65%)"
 	@echo "✅ Integration tests passed"
 	@echo "════════════════════════════════════════════════════════════════════════════"
+
+# ============================================================================
+# Cache Management Targets
+# ============================================================================
+
+#cache-status: @ Show test cache status (which test suites have cached passing results)
+cache-status:
+	@.githooks/test-cache.sh --status
+
+#cache-clear: @ Clear all test caches (forces re-run of all tests)
+cache-clear:
+	@.githooks/test-cache.sh --clear
+
+#cache-clear-unit: @ Clear unit test cache only (forces re-run of unit tests)
+cache-clear-unit:
+	@.githooks/test-cache.sh --clear-one unit-tests
