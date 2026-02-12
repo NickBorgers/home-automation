@@ -269,7 +269,7 @@ func TestSubscriptionWithConcurrentWrites(t *testing.T) {
 				}
 				server.SetState("input_boolean.nick_home", state, map[string]interface{}{})
 				count++
-				time.Sleep(50 * time.Millisecond)
+				waitForProcessing(t, manager)
 			}
 		}
 	}()

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"homeautomation/internal/plugins/lighting"
+	"homeautomation/internal/state"
 	"homeautomation/internal/testlogger"
 
 	"github.com/stretchr/testify/assert"
@@ -21,7 +22,7 @@ import (
 // ============================================================================
 
 // setupLightingScenarioTest creates a test environment with the lighting plugin
-func setupLightingScenarioTest(t *testing.T) (*MockHAServer, *lighting.Manager, func()) {
+func setupLightingScenarioTest(t *testing.T) (*MockHAServer, *lighting.Manager, *state.Manager, func()) {
 	server, client, manager, baseCleanup := setupTest(t)
 
 	// Load test lighting config
@@ -44,14 +45,14 @@ func setupLightingScenarioTest(t *testing.T) (*MockHAServer, *lighting.Manager, 
 		baseCleanup()
 	}
 
-	return server, lightingMgr, cleanup
+	return server, lightingMgr, manager, cleanup
 }
 
 // TestScenario_DayPhaseEvening_ActivatesCorrectScenes validates that when
 // day phase changes to evening, the correct scenes activate for all rooms
 func TestScenario_DayPhaseEvening_ActivatesCorrectScenes(t *testing.T) {
 	t.Parallel()
-	server, lightingMgr, cleanup := setupLightingScenarioTest(t)
+	server, lightingMgr, stateManager, cleanup := setupLightingScenarioTest(t)
 	defer cleanup()
 	_ = lightingMgr
 
@@ -64,7 +65,7 @@ func TestScenario_DayPhaseEvening_ActivatesCorrectScenes(t *testing.T) {
 	server.SetState("input_boolean.anyone_home", "on", map[string]interface{}{})
 	server.SetState("input_boolean.anyone_home_and_awake", "on", map[string]interface{}{})
 	// Brief delay to let initialization complete before clearing service calls
-	time.Sleep(50 * time.Millisecond)
+	waitForProcessing(t, stateManager)
 
 	server.ClearServiceCalls()
 
@@ -106,7 +107,7 @@ func TestScenario_DayPhaseEvening_ActivatesCorrectScenes(t *testing.T) {
 // changes to sunset, appropriate scenes are activated
 func TestScenario_SunEventSunset_ActivatesScenes(t *testing.T) {
 	t.Parallel()
-	server, _, cleanup := setupLightingScenarioTest(t)
+	server, _, stateManager, cleanup := setupLightingScenarioTest(t)
 	defer cleanup()
 
 	// GIVEN: Day phase is afternoon, sun event is before_sunset, someone is home and awake
@@ -116,7 +117,7 @@ func TestScenario_SunEventSunset_ActivatesScenes(t *testing.T) {
 	server.SetState("input_boolean.anyone_home", "on", map[string]interface{}{})
 	server.SetState("input_boolean.anyone_home_and_awake", "on", map[string]interface{}{})
 	// Brief delay to let initialization complete before counting initial calls
-	time.Sleep(50 * time.Millisecond)
+	waitForProcessing(t, stateManager)
 
 	// Get count before sun event change
 	initialCalls := len(server.GetServiceCalls())
@@ -147,7 +148,7 @@ func TestScenario_SunEventSunset_ActivatesScenes(t *testing.T) {
 // TV starts playing, lighting scenes are re-evaluated (potentially dimmed)
 func TestScenario_TVStateChange_TriggersLightingAdjustment(t *testing.T) {
 	t.Parallel()
-	server, _, cleanup := setupLightingScenarioTest(t)
+	server, _, stateManager, cleanup := setupLightingScenarioTest(t)
 	defer cleanup()
 
 	// GIVEN: Evening, someone is home and awake, TV is not playing
@@ -157,7 +158,7 @@ func TestScenario_TVStateChange_TriggersLightingAdjustment(t *testing.T) {
 	server.SetState("input_boolean.anyone_home_and_awake", "on", map[string]interface{}{})
 	server.SetState("input_boolean.tv_playing", "off", map[string]interface{}{})
 	// Brief delay to let initialization complete before clearing service calls
-	time.Sleep(50 * time.Millisecond)
+	waitForProcessing(t, stateManager)
 
 	server.ClearServiceCalls()
 
@@ -187,7 +188,7 @@ func TestScenario_TVStateChange_TriggersLightingAdjustment(t *testing.T) {
 // goes to sleep, lights turn off or switch to night mode
 func TestScenario_EveryoneAsleep_TurnsOffLights(t *testing.T) {
 	t.Parallel()
-	server, _, cleanup := setupLightingScenarioTest(t)
+	server, _, stateManager, cleanup := setupLightingScenarioTest(t)
 	defer cleanup()
 
 	// GIVEN: Evening, someone is home and awake
@@ -199,7 +200,7 @@ func TestScenario_EveryoneAsleep_TurnsOffLights(t *testing.T) {
 	server.SetState("input_boolean.master_asleep", "off", map[string]interface{}{})
 	server.SetState("input_boolean.guest_asleep", "off", map[string]interface{}{})
 	// Brief delay to let initialization complete before counting initial calls
-	time.Sleep(50 * time.Millisecond)
+	waitForProcessing(t, stateManager)
 
 	// Get count before sleep state change
 	initialCalls := len(server.GetServiceCalls())
@@ -238,7 +239,7 @@ func TestScenario_EveryoneAsleep_TurnsOffLights(t *testing.T) {
 // someone arrives home, appropriate scenes activate
 func TestScenario_PresenceChangeHome_ActivatesScenes(t *testing.T) {
 	t.Parallel()
-	server, _, cleanup := setupLightingScenarioTest(t)
+	server, _, stateManager, cleanup := setupLightingScenarioTest(t)
 	defer cleanup()
 
 	// GIVEN: Evening, no one is home
@@ -247,7 +248,7 @@ func TestScenario_PresenceChangeHome_ActivatesScenes(t *testing.T) {
 	server.SetState("input_boolean.anyone_home", "off", map[string]interface{}{})
 	server.SetState("input_boolean.anyone_home_and_awake", "off", map[string]interface{}{})
 	// Brief delay to let initialization complete before clearing service calls
-	time.Sleep(50 * time.Millisecond)
+	waitForProcessing(t, stateManager)
 
 	server.ClearServiceCalls()
 
@@ -276,7 +277,7 @@ func TestScenario_PresenceChangeHome_ActivatesScenes(t *testing.T) {
 // arrive, guest-specific scenes or brightness adjustments occur
 func TestScenario_GuestArrival_ActivatesGuestScenes(t *testing.T) {
 	t.Parallel()
-	server, _, cleanup := setupLightingScenarioTest(t)
+	server, _, stateManager, cleanup := setupLightingScenarioTest(t)
 	defer cleanup()
 
 	// GIVEN: Evening, someone is home and awake, no guests
@@ -286,7 +287,7 @@ func TestScenario_GuestArrival_ActivatesGuestScenes(t *testing.T) {
 	server.SetState("input_boolean.anyone_home_and_awake", "on", map[string]interface{}{})
 	server.SetState("input_boolean.have_guests", "off", map[string]interface{}{})
 	// Brief delay to let initialization complete before clearing service calls
-	time.Sleep(50 * time.Millisecond)
+	waitForProcessing(t, stateManager)
 
 	server.ClearServiceCalls()
 
@@ -316,7 +317,7 @@ func TestScenario_GuestArrival_ActivatesGuestScenes(t *testing.T) {
 // conditional logic for master bedroom (on_if_false: isMasterAsleep)
 func TestScenario_MasterBedroomSleep_HandlesConditionalLogic(t *testing.T) {
 	t.Parallel()
-	server, _, cleanup := setupLightingScenarioTest(t)
+	server, _, stateManager, cleanup := setupLightingScenarioTest(t)
 	defer cleanup()
 
 	// GIVEN: Evening, someone is home and awake, master bedroom occupants awake
@@ -326,7 +327,7 @@ func TestScenario_MasterBedroomSleep_HandlesConditionalLogic(t *testing.T) {
 	server.SetState("input_boolean.anyone_home_and_awake", "on", map[string]interface{}{})
 	server.SetState("input_boolean.master_asleep", "off", map[string]interface{}{})
 	// Brief delay to let initialization complete before clearing service calls
-	time.Sleep(50 * time.Millisecond)
+	waitForProcessing(t, stateManager)
 
 	server.ClearServiceCalls()
 
@@ -377,7 +378,7 @@ func TestScenario_MasterBedroomSleep_HandlesConditionalLogic(t *testing.T) {
 // rapid state changes are handled correctly without race conditions
 func TestScenario_MultipleStateChanges_HandlesCorrectly(t *testing.T) {
 	t.Parallel()
-	server, _, cleanup := setupLightingScenarioTest(t)
+	server, _, stateManager, cleanup := setupLightingScenarioTest(t)
 	defer cleanup()
 
 	// GIVEN: Initial state
@@ -386,7 +387,7 @@ func TestScenario_MultipleStateChanges_HandlesCorrectly(t *testing.T) {
 	server.SetState("input_boolean.anyone_home", "off", map[string]interface{}{})
 	server.SetState("input_boolean.anyone_home_and_awake", "off", map[string]interface{}{})
 	// Brief delay to let initialization complete before counting initial calls
-	time.Sleep(50 * time.Millisecond)
+	waitForProcessing(t, stateManager)
 
 	// Don't clear service calls - we want to see all the activity
 

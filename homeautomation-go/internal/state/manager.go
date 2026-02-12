@@ -380,6 +380,19 @@ func (m *Manager) notifySubscribers(key string, oldValue, newValue interface{}) 
 	}
 }
 
+// WaitForProcessing blocks until all in-flight HA event handler goroutines
+// have completed. This ensures that state changes triggered by server.SetState()
+// in tests have fully propagated through the WebSocket → HA client → state manager
+// → plugin handler chain before test assertions or ClearServiceCalls() are executed.
+//
+// For state changes made via stateManager.SetBool()/SetString() (which are synchronous),
+// this is effectively a no-op but safe to call.
+func (m *Manager) WaitForProcessing() {
+	if m.client != nil {
+		m.client.WaitForHandlers()
+	}
+}
+
 func (m *Manager) ensureWritable(variable StateVariable) error {
 	if variable.ReadOnly {
 		return fmt.Errorf("variable %s is read-only", variable.Key)

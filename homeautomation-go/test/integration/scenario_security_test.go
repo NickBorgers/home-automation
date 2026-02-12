@@ -335,7 +335,7 @@ func TestScenario_OnlyOwnersTriggersGarage(t *testing.T) {
 
 	t.Log("AND: Garage door should NOT be opened")
 
-	time.Sleep(50 * time.Millisecond)
+	waitForProcessing(t, manager)
 
 	garageOpenCall := server.FindServiceCall("cover", "open_cover", "cover.garage_door_door")
 	assert.Nil(t, garageOpenCall, "Garage should not open for guest arrival")

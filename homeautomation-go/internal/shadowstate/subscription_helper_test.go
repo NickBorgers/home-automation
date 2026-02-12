@@ -71,6 +71,7 @@ func (m *mockHAClient) GetDevices() ([]*ha.Device, error)              { return 
 func (m *mockHAClient) GetEntityRegistry() ([]*ha.EntityRegistryEntry, error) {
 	return nil, nil
 }
+func (m *mockHAClient) WaitForHandlers() {}
 
 func (m *mockHAClient) GetState(entityID string) (*ha.State, error) {
 	if s, ok := m.states[entityID]; ok {

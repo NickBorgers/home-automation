@@ -55,7 +55,7 @@ func setupComputedStateTest(t *testing.T) (*MockHAServer, *ha.Client, *state.Man
 	require.NoError(t, err)
 
 	// Allow subscriptions to be established
-	time.Sleep(50 * time.Millisecond)
+	waitForProcessing(t, manager)
 
 	cleanup := func() {
 		client.Disconnect()
@@ -243,7 +243,7 @@ func TestScenario_ComputedState_ReactsToIsAnyoneAsleepChange(t *testing.T) {
 // state changes are synced back to Home Assistant
 func TestScenario_ComputedState_SyncsToHomeAssistant(t *testing.T) {
 	t.Parallel()
-	server, _, _, cleanup := setupComputedStateTest(t)
+	server, _, manager, cleanup := setupComputedStateTest(t)
 	defer cleanup()
 
 	// GIVEN: No owner is home initially
@@ -252,7 +252,7 @@ func TestScenario_ComputedState_SyncsToHomeAssistant(t *testing.T) {
 	server.SetState("input_boolean.anyone_asleep", "off", map[string]interface{}{})
 	server.SetState("input_boolean.tori_here", "off", map[string]interface{}{})
 	// Allow async handlers to process before clearing
-	time.Sleep(50 * time.Millisecond)
+	waitForProcessing(t, manager)
 
 	// Clear service calls to track new ones
 	server.ClearServiceCalls()
