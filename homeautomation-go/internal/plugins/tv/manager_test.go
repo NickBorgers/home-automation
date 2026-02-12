@@ -2,6 +2,8 @@ package tv
 
 import (
 	"context"
+	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -691,10 +693,8 @@ func TestTVManager_SyncBoxRecoversOnItsOwn_NoRecovery(t *testing.T) {
 	}
 }
 
-func TestTVManager_SyncBoxPhysicalPowerOff_NoRecovery(t *testing.T) {
-	t.Parallel(
-	// Create mock HA client and state manager
-	)
+func TestTVManager_SyncBoxPhysicalPowerOff_TurnsItOn(t *testing.T) {
+	t.Parallel()
 
 	mockHA := ha.NewMockClient()
 	logger := zap.NewNop()
@@ -703,7 +703,7 @@ func TestTVManager_SyncBoxPhysicalPowerOff_NoRecovery(t *testing.T) {
 	// Create TV manager
 	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
 
-	// Physical power is OFF - no recovery should happen
+	// Physical power is OFF - should attempt to turn it back on (not a full power cycle)
 	mockHA.SetState(SyncBoxPhysicalPowerEntity, "off", nil)
 	mockHA.SetState(SyncBoxSoftwarePowerEntity, "unavailable", nil)
 
@@ -720,17 +720,26 @@ func TestTVManager_SyncBoxPhysicalPowerOff_NoRecovery(t *testing.T) {
 	// Wait for async recovery to complete
 	time.Sleep(50 * time.Millisecond)
 
-	// Verify NO service calls were made (physical power is off intentionally)
+	// Verify only turn_on was called (not a full power cycle — no turn_off)
 	calls := mockHA.GetServiceCalls()
-	var switchCalls []ha.ServiceCall
+	var turnOnCalls, turnOffCalls []ha.ServiceCall
 	for _, call := range calls {
-		if call.Domain == "switch" {
-			switchCalls = append(switchCalls, call)
+		if call.Domain == "switch" && call.Service == "turn_on" {
+			turnOnCalls = append(turnOnCalls, call)
+		}
+		if call.Domain == "switch" && call.Service == "turn_off" {
+			turnOffCalls = append(turnOffCalls, call)
 		}
 	}
 
-	if len(switchCalls) != 0 {
-		t.Errorf("Expected 0 switch service calls since physical power is off, got %d", len(switchCalls))
+	if len(turnOnCalls) != 1 {
+		t.Errorf("Expected 1 turn_on call to restore physical power, got %d", len(turnOnCalls))
+	}
+	if len(turnOffCalls) != 0 {
+		t.Errorf("Expected 0 turn_off calls (not a full power cycle), got %d", len(turnOffCalls))
+	}
+	if len(turnOnCalls) > 0 && turnOnCalls[0].Data["entity_id"] != SyncBoxPhysicalPowerEntity {
+		t.Errorf("Expected turn_on for %s, got %v", SyncBoxPhysicalPowerEntity, turnOnCalls[0].Data["entity_id"])
 	}
 }
 
@@ -1351,5 +1360,191 @@ func TestTVManager_LightSyncDebounce_RapidFlapping(t *testing.T) {
 	}
 	if turnOffCount != 0 {
 		t.Errorf("Expected 0 turn_off calls during rapid flapping (all cancelled), got %d", turnOffCount)
+	}
+}
+
+func TestTVManager_SyncBoxUnavailable_ClearsTVStates(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
+
+	// Set initial states: TV is on and playing
+	if err := stateMgr.SetBool("isTVon", true); err != nil {
+		t.Fatalf("Failed to set isTVon: %v", err)
+	}
+	if err := stateMgr.SetBool("isTVPlaying", true); err != nil {
+		t.Fatalf("Failed to set isTVPlaying: %v", err)
+	}
+
+	// Set up mock so recovery goroutine doesn't panic
+	mockHA.SetState(SyncBoxPhysicalPowerEntity, "on", nil)
+	mockHA.SetState(SyncBoxSoftwarePowerEntity, "unavailable", nil)
+	manager.sleepFunc = func(d time.Duration) {}
+	manager.timeNow = time.Now
+
+	// Trigger unavailable state
+	newState := &ha.State{
+		EntityID: SyncBoxSoftwarePowerEntity,
+		State:    "unavailable",
+	}
+	manager.handleSyncBoxPowerChange(SyncBoxSoftwarePowerEntity, nil, newState)
+
+	// States should be cleared synchronously (before recovery goroutine)
+	isTVon, err := stateMgr.GetBool("isTVon")
+	if err != nil {
+		t.Fatalf("Failed to get isTVon: %v", err)
+	}
+	if isTVon {
+		t.Error("Expected isTVon=false after sync box goes unavailable")
+	}
+
+	isTVPlaying, err := stateMgr.GetBool("isTVPlaying")
+	if err != nil {
+		t.Fatalf("Failed to get isTVPlaying: %v", err)
+	}
+	if isTVPlaying {
+		t.Error("Expected isTVPlaying=false after sync box goes unavailable")
+	}
+
+	// Verify shadow state
+	shadowState := manager.GetShadowState()
+	if shadowState.Outputs.IsTVOn {
+		t.Error("Expected shadow IsTVOn=false after sync box goes unavailable")
+	}
+	if shadowState.Outputs.IsTVPlaying {
+		t.Error("Expected shadow IsTVPlaying=false after sync box goes unavailable")
+	}
+}
+
+func TestTVManager_PowerCycleRecovery_RetryOnTurnOnFailure(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
+
+	// Physical power is on, software is unavailable
+	mockHA.SetState(SyncBoxPhysicalPowerEntity, "on", nil)
+	mockHA.SetState(SyncBoxSoftwarePowerEntity, "unavailable", nil)
+
+	// Simulate 2 transient turn_on failures, then success on 3rd attempt
+	mockHA.SetServiceFailCount("switch", "turn_on", 2, fmt.Errorf("Z-Wave error 1405: transient decoding error"))
+
+	sleepDone := make(chan struct{})
+	var sleepDurations []time.Duration
+	var sleepMu sync.Mutex
+	manager.sleepFunc = func(d time.Duration) {
+		sleepMu.Lock()
+		sleepDurations = append(sleepDurations, d)
+		sleepMu.Unlock()
+	}
+	manager.timeNow = time.Now
+
+	go func() {
+		manager.checkAndRecoverSyncBox()
+		close(sleepDone)
+	}()
+
+	// Wait for recovery to complete
+	<-sleepDone
+
+	// Verify service calls: only successful calls are recorded by the mock
+	// 1 turn_off (succeeds) + 1 turn_on (the 3rd attempt that succeeds)
+	calls := mockHA.GetServiceCalls()
+	var turnOnCalls, turnOffCalls []ha.ServiceCall
+	for _, call := range calls {
+		if call.Domain == "switch" && call.Service == "turn_on" {
+			turnOnCalls = append(turnOnCalls, call)
+		}
+		if call.Domain == "switch" && call.Service == "turn_off" {
+			turnOffCalls = append(turnOffCalls, call)
+		}
+	}
+
+	if len(turnOffCalls) != 1 {
+		t.Errorf("Expected 1 turn_off call, got %d", len(turnOffCalls))
+	}
+	if len(turnOnCalls) != 1 {
+		t.Errorf("Expected 1 successful turn_on call (3rd attempt), got %d", len(turnOnCalls))
+	}
+
+	// Verify sleep was called for: debounce + power cycle delay + 2 retry delays
+	// Debounce (30s) + PowerCycleDelay (5s) + retry1 (5s) + retry2 (10s) = 4 sleeps
+	sleepMu.Lock()
+	sleepCount := len(sleepDurations)
+	sleepMu.Unlock()
+	if sleepCount != 4 {
+		t.Errorf("Expected 4 sleep calls (debounce + power cycle delay + 2 retries), got %d: %v",
+			sleepCount, sleepDurations)
+	}
+}
+
+func TestTVManager_PowerCycleRecovery_AllRetriesExhausted(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
+
+	// Physical power is on, software is unavailable
+	mockHA.SetState(SyncBoxPhysicalPowerEntity, "on", nil)
+	mockHA.SetState(SyncBoxSoftwarePowerEntity, "unavailable", nil)
+
+	// Simulate permanent turn_on failure
+	mockHA.SetServiceError("switch", "turn_on", fmt.Errorf("Z-Wave node unresponsive"))
+
+	recoveryDone := make(chan struct{})
+	var sleepDurations []time.Duration
+	var sleepMu sync.Mutex
+	manager.sleepFunc = func(d time.Duration) {
+		sleepMu.Lock()
+		sleepDurations = append(sleepDurations, d)
+		sleepMu.Unlock()
+	}
+	manager.timeNow = time.Now
+
+	// Run recovery synchronously via goroutine and wait for completion
+	go func() {
+		manager.checkAndRecoverSyncBox()
+		close(recoveryDone)
+	}()
+
+	<-recoveryDone
+
+	// Verify service calls: only successful calls are recorded by the mock
+	// 1 turn_off (succeeds), 0 turn_on (all 3 attempts failed, so not recorded)
+	calls := mockHA.GetServiceCalls()
+	var turnOnCalls, turnOffCalls []ha.ServiceCall
+	for _, call := range calls {
+		if call.Domain == "switch" && call.Service == "turn_on" {
+			turnOnCalls = append(turnOnCalls, call)
+		}
+		if call.Domain == "switch" && call.Service == "turn_off" {
+			turnOffCalls = append(turnOffCalls, call)
+		}
+	}
+
+	if len(turnOffCalls) != 1 {
+		t.Errorf("Expected 1 turn_off call, got %d", len(turnOffCalls))
+	}
+	if len(turnOnCalls) != 0 {
+		t.Errorf("Expected 0 successful turn_on calls (all failed), got %d", len(turnOnCalls))
+	}
+
+	// Verify sleep was called for: debounce + power cycle delay + 2 retry delays (between attempts 1-2 and 2-3)
+	sleepMu.Lock()
+	sleepCount := len(sleepDurations)
+	sleepMu.Unlock()
+	if sleepCount != 4 {
+		t.Errorf("Expected 4 sleep calls (debounce + power cycle delay + 2 retries), got %d: %v",
+			sleepCount, sleepDurations)
 	}
 }
