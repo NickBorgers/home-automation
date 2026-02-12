@@ -89,13 +89,8 @@ func TestBasicConnection(t *testing.T) {
 		assert.NoError(t, err)
 		assert.True(t, value)
 
-		// Wait for propagation
-		time.Sleep(100 * time.Millisecond)
-
-		// Verify in server
-		serverState := server.GetState("input_boolean.expecting_someone")
-		assert.NotNil(t, serverState)
-		assert.Equal(t, "on", serverState.State)
+		// Wait for propagation to server
+		waitForServerState(t, server, "input_boolean.expecting_someone", "on", "state should propagate to server")
 	})
 }
 
@@ -122,8 +117,8 @@ func TestStateChangeSubscription(t *testing.T) {
 	// Trigger change from server
 	server.SetState("input_boolean.nick_home", "on", map[string]interface{}{})
 
-	// Wait for event propagation
-	waitForProcessing(t, manager)
+	// Wait for state to propagate
+	waitForBoolState(t, manager, "isNickHome", true, "isNickHome should become true")
 
 	mu.Lock()
 	assert.Equal(t, 1, changeCount)
@@ -343,7 +338,17 @@ func TestMultipleSubscribersOnSameEntity(t *testing.T) {
 
 	// Trigger change
 	server.SetState("input_boolean.nick_home", "on", map[string]interface{}{})
-	waitForProcessing(t, manager)
+
+	// Wait for all three subscribers to be notified
+	waitForCondition(t, func() bool {
+		mu1.Lock()
+		defer mu1.Unlock()
+		mu2.Lock()
+		defer mu2.Unlock()
+		mu3.Lock()
+		defer mu3.Unlock()
+		return count1 >= 1 && count2 >= 1 && count3 >= 1
+	}, "all 3 subscribers should be called")
 
 	mu1.Lock()
 	mu2.Lock()
@@ -361,7 +366,15 @@ func TestMultipleSubscribersOnSameEntity(t *testing.T) {
 	sub2.Unsubscribe()
 
 	server.SetState("input_boolean.nick_home", "off", map[string]interface{}{})
-	waitForProcessing(t, manager)
+
+	// Wait for subscribers 1 and 3 to receive second notification (sub2 is unsubscribed)
+	waitForCondition(t, func() bool {
+		mu1.Lock()
+		defer mu1.Unlock()
+		mu3.Lock()
+		defer mu3.Unlock()
+		return count1 >= 2 && count3 >= 2
+	}, "subscribers 1 and 3 should receive second notification")
 
 	mu1.Lock()
 	mu2.Lock()
@@ -594,8 +607,12 @@ func TestHighFrequencyStateChanges(t *testing.T) {
 	}
 	duration := time.Since(start)
 
-	// Wait for all events to propagate
-	time.Sleep(100 * time.Millisecond)
+	// Wait for most events to propagate
+	waitForCondition(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return changeCount >= numChanges*8/10
+	}, "should receive at least 80%% of changes")
 
 	mu.Lock()
 	finalCount := changeCount
@@ -737,8 +754,12 @@ func TestReconnectStateSync(t *testing.T) {
 	}
 	require.True(t, reconnected, "Client should reconnect automatically")
 
-	// Wait for callback to be invoked and complete
-	time.Sleep(2 * time.Second)
+	// Wait for callback to be invoked
+	waitForCondition(t, func() bool {
+		callbackMu.Lock()
+		defer callbackMu.Unlock()
+		return callbackInvoked
+	}, "reconnect callback should be invoked")
 
 	// Verify callback was invoked
 	callbackMu.Lock()
@@ -806,8 +827,10 @@ func TestReconnectCountIncrementsOnMultipleReconnects(t *testing.T) {
 		}
 		require.True(t, reconnected, "Client should reconnect on cycle %d", i)
 
-		// Give time for reconnect count to update
-		time.Sleep(500 * time.Millisecond)
+		// Wait for reconnect count to update
+		waitForCondition(t, func() bool {
+			return client.GetReconnectCount() >= i
+		}, "reconnect count should reach %d", i)
 
 		// Verify reconnect count
 		assert.Equal(t, i, client.GetReconnectCount(), "Reconnect count should be %d after %d cycles", i, i)

@@ -395,16 +395,25 @@ func TestScenario_MultipleStateChanges_HandlesCorrectly(t *testing.T) {
 	t.Logf("Service calls before rapid changes: %d", initialCalls)
 
 	// WHEN: Multiple rapid state changes occur
-	// Brief delays between rapid state changes to test that system handles them correctly
-	// without race conditions - we intentionally test overlapping state changes
+	// Wait for each change to be processed before triggering the next, using polling
+	// to verify the system processed each change without race conditions
 	t.Log("WHEN: Multiple rapid state changes occur")
 	server.SetState("input_boolean.anyone_home", "on", map[string]interface{}{})
 	server.SetState("input_boolean.anyone_home_and_awake", "on", map[string]interface{}{})
-	waitForProcessing(t, stateManager) // Brief delay to simulate rapid but not instant changes
+	callsBeforeAfternoon := len(server.GetServiceCalls())
+	waitForCondition(t, func() bool {
+		return len(server.GetServiceCalls()) > callsBeforeAfternoon
+	}, "should process anyone_home state change before next change")
 	server.SetState("input_text.day_phase", "afternoon", map[string]interface{}{})
-	waitForProcessing(t, stateManager) // Brief delay to simulate rapid but not instant changes
+	callsBeforeEvening := len(server.GetServiceCalls())
+	waitForCondition(t, func() bool {
+		return len(server.GetServiceCalls()) > callsBeforeEvening
+	}, "should process afternoon day phase change before next change")
 	server.SetState("input_text.day_phase", "evening", map[string]interface{}{})
-	waitForProcessing(t, stateManager) // Brief delay to simulate rapid but not instant changes
+	callsBeforeTV := len(server.GetServiceCalls())
+	waitForCondition(t, func() bool {
+		return len(server.GetServiceCalls()) > callsBeforeTV
+	}, "should process evening day phase change before next change")
 	server.SetState("input_boolean.tv_playing", "on", map[string]interface{}{})
 
 	// Wait for final scene activation after all rapid changes

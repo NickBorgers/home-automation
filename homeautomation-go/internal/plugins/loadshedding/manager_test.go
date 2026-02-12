@@ -5,150 +5,96 @@ import (
 	"testing"
 	"time"
 
-	"homeautomation/internal/ha"
-	"homeautomation/internal/state"
-	"homeautomation/internal/testlogger"
+	"homeautomation/pkg/testutil"
 
 	"github.com/stretchr/testify/assert"
 )
 
+// setupLoadSheddingEnv creates a test environment with thermostat hold switches initialized.
+func setupLoadSheddingEnv(t *testing.T) *testutil.Env {
+	t.Helper()
+	env := testutil.NewEnv(t)
+	env.MockHA.SetState(thermostatHoldHouse, "off", nil)
+	env.MockHA.SetState(thermostatHoldSuite, "off", nil)
+	err := env.StateMgr.SyncFromHA()
+	assert.NoError(t, err)
+	return env
+}
+
 func TestLoadShedding_EnergyStateRed(t *testing.T) {
 	t.Parallel()
-	logger := testlogger.New()
-	mockClient := ha.NewMockClient()
+	env := setupLoadSheddingEnv(t)
 
-	// Initialize thermostat hold switches in mock (start with them off)
-	mockClient.SetState(thermostatHoldHouse, "off", nil)
-	mockClient.SetState(thermostatHoldSuite, "off", nil)
-
-	stateManager := state.NewManager(mockClient, logger, false)
-
-	// Initialize state
-	err := stateManager.SyncFromHA()
-	assert.NoError(t, err)
-
-	ls := NewManager(context.Background(), mockClient, stateManager, logger, false, nil)
-	err = ls.Start()
+	ls := NewManager(context.Background(), env.MockHA, env.StateMgr, env.Logger, false, nil)
+	err := ls.Start()
 	assert.NoError(t, err)
 	defer ls.Stop()
 
-	// Set energy state to red
-	err = stateManager.SetString("currentEnergyLevel", "red")
+	// Set energy state to red (handler executes synchronously via state subscriber)
+	err = env.StateMgr.SetString("currentEnergyLevel", "red")
 	assert.NoError(t, err)
 
-	// Give time for async processing
-	time.Sleep(100 * time.Millisecond)
-
 	// Verify service calls
-	calls := mockClient.GetServiceCalls()
+	calls := env.MockHA.GetServiceCalls()
 	assert.GreaterOrEqual(t, len(calls), 3, "Expected at least 3 service calls (thermostat hold, temp range, EV charger)")
 
 	// Check for switch.turn_on call (thermostat holds)
-	foundSwitchOn := false
-	for _, call := range calls {
-		if call.Domain == "switch" && call.Service == "turn_on" {
-			foundSwitchOn = true
-			entities, ok := call.Data["entity_id"].([]string)
-			assert.True(t, ok, "entity_id should be []string")
-			assert.Contains(t, entities, thermostatHoldHouse)
-			assert.Contains(t, entities, thermostatHoldSuite)
-		}
-	}
-	assert.True(t, foundSwitchOn, "Expected switch.turn_on service call for thermostat holds")
+	call := testutil.AssertServiceCall(t, calls, "switch", "turn_on")
+	entities, ok := call.Data["entity_id"].([]string)
+	assert.True(t, ok, "entity_id should be []string")
+	assert.Contains(t, entities, thermostatHoldHouse)
+	assert.Contains(t, entities, thermostatHoldSuite)
 
 	// Check for climate.set_temperature call
-	foundSetTemp := false
-	for _, call := range calls {
-		if call.Domain == "climate" && call.Service == "set_temperature" {
-			foundSetTemp = true
-			entities, ok := call.Data["entity_id"].([]string)
-			assert.True(t, ok, "entity_id should be []string")
-			assert.Contains(t, entities, climateHouse)
-			assert.Contains(t, entities, climateSuite)
-			assert.Equal(t, tempLowRestricted, call.Data["target_temp_low"])
-			assert.Equal(t, tempHighRestricted, call.Data["target_temp_high"])
-		}
-	}
-	assert.True(t, foundSetTemp, "Expected climate.set_temperature service call")
+	climateCall := testutil.AssertServiceCall(t, calls, "climate", "set_temperature")
+	climateEntities, ok := climateCall.Data["entity_id"].([]string)
+	assert.True(t, ok, "entity_id should be []string")
+	assert.Contains(t, climateEntities, climateHouse)
+	assert.Contains(t, climateEntities, climateSuite)
+	assert.Equal(t, tempLowRestricted, climateCall.Data["target_temp_low"])
+	assert.Equal(t, tempHighRestricted, climateCall.Data["target_temp_high"])
 
 	// Check for switch.turn_off call (EV charger)
-	foundEVChargerOff := false
-	for _, call := range calls {
-		if call.Domain == "switch" && call.Service == "turn_off" {
-			entityID, ok := call.Data["entity_id"].(string)
-			if ok && entityID == evChargerSwitch {
-				foundEVChargerOff = true
-			}
-		}
-	}
-	assert.True(t, foundEVChargerOff, "Expected switch.turn_off service call for EV charger")
+	evCall := testutil.FindServiceCallWithEntity(calls, "switch", "turn_off", evChargerSwitch)
+	assert.NotNil(t, evCall, "Expected switch.turn_off service call for EV charger")
 }
 
 func TestLoadShedding_EnergyStateBlack(t *testing.T) {
 	t.Parallel()
-	logger := testlogger.New()
-	mockClient := ha.NewMockClient()
+	env := setupLoadSheddingEnv(t)
 
-	// Initialize thermostat hold switches in mock (start with them off)
-	mockClient.SetState(thermostatHoldHouse, "off", nil)
-	mockClient.SetState(thermostatHoldSuite, "off", nil)
-
-	stateManager := state.NewManager(mockClient, logger, false)
-
-	err := stateManager.SyncFromHA()
-	assert.NoError(t, err)
-
-	ls := NewManager(context.Background(), mockClient, stateManager, logger, false, nil)
-	err = ls.Start()
+	ls := NewManager(context.Background(), env.MockHA, env.StateMgr, env.Logger, false, nil)
+	err := ls.Start()
 	assert.NoError(t, err)
 	defer ls.Stop()
 
-	// Set energy state to black
-	err = stateManager.SetString("currentEnergyLevel", "black")
+	// Set energy state to black (handler executes synchronously)
+	err = env.StateMgr.SetString("currentEnergyLevel", "black")
 	assert.NoError(t, err)
 
-	time.Sleep(100 * time.Millisecond)
-
 	// Verify service calls (should be same as red)
-	calls := mockClient.GetServiceCalls()
+	calls := env.MockHA.GetServiceCalls()
 	assert.GreaterOrEqual(t, len(calls), 3, "Expected at least 3 service calls (thermostat hold, temp range, EV charger)")
 
-	foundSwitchOn := false
-	for _, call := range calls {
-		if call.Domain == "switch" && call.Service == "turn_on" {
-			foundSwitchOn = true
-		}
-	}
-	assert.True(t, foundSwitchOn, "Expected switch.turn_on for thermostat holds")
+	testutil.AssertServiceCall(t, calls, "switch", "turn_on")
 
 	// Check for switch.turn_off call (EV charger)
-	foundEVChargerOff := false
-	for _, call := range calls {
-		if call.Domain == "switch" && call.Service == "turn_off" {
-			entityID, ok := call.Data["entity_id"].(string)
-			if ok && entityID == evChargerSwitch {
-				foundEVChargerOff = true
-			}
-		}
-	}
-	assert.True(t, foundEVChargerOff, "Expected switch.turn_off service call for EV charger")
+	evCall := testutil.FindServiceCallWithEntity(calls, "switch", "turn_off", evChargerSwitch)
+	assert.NotNil(t, evCall, "Expected switch.turn_off service call for EV charger")
 }
 
 func TestLoadShedding_EnergyStateGreen(t *testing.T) {
 	t.Parallel()
-	logger := testlogger.New()
-	mockClient := ha.NewMockClient()
+	env := testutil.NewEnv(t)
 
 	// Initialize thermostat hold switches in mock (start with them on - load shedding active)
-	mockClient.SetState(thermostatHoldHouse, "on", nil)
-	mockClient.SetState(thermostatHoldSuite, "on", nil)
+	env.MockHA.SetState(thermostatHoldHouse, "on", nil)
+	env.MockHA.SetState(thermostatHoldSuite, "on", nil)
 
-	stateManager := state.NewManager(mockClient, logger, false)
-
-	err := stateManager.SyncFromHA()
+	err := env.StateMgr.SyncFromHA()
 	assert.NoError(t, err)
 
-	ls := NewManager(context.Background(), mockClient, stateManager, logger, false, nil)
+	ls := NewManager(context.Background(), env.MockHA, env.StateMgr, env.Logger, false, nil)
 	// Manually set loadSheddingOn to true to simulate that load shedding was previously enabled
 	ls.loadSheddingOn = true
 
@@ -156,14 +102,12 @@ func TestLoadShedding_EnergyStateGreen(t *testing.T) {
 	assert.NoError(t, err)
 	defer ls.Stop()
 
-	// Set energy state to green (should disable load shedding)
-	err = stateManager.SetString("currentEnergyLevel", "green")
+	// Set energy state to green (handler executes synchronously, should disable load shedding)
+	err = env.StateMgr.SetString("currentEnergyLevel", "green")
 	assert.NoError(t, err)
 
-	time.Sleep(100 * time.Millisecond)
-
 	// Verify service calls
-	calls := mockClient.GetServiceCalls()
+	calls := env.MockHA.GetServiceCalls()
 	assert.GreaterOrEqual(t, len(calls), 2, "Expected at least 2 service calls (thermostat hold off, EV charger on)")
 
 	// Check for switch.turn_off call (thermostat holds)
@@ -181,33 +125,22 @@ func TestLoadShedding_EnergyStateGreen(t *testing.T) {
 	assert.True(t, foundThermostatOff, "Expected switch.turn_off service call for thermostat holds")
 
 	// Check for switch.turn_on call (EV charger)
-	foundEVChargerOn := false
-	for _, call := range calls {
-		if call.Domain == "switch" && call.Service == "turn_on" {
-			entityID, ok := call.Data["entity_id"].(string)
-			if ok && entityID == evChargerSwitch {
-				foundEVChargerOn = true
-			}
-		}
-	}
-	assert.True(t, foundEVChargerOn, "Expected switch.turn_on service call for EV charger")
+	evCall := testutil.FindServiceCallWithEntity(calls, "switch", "turn_on", evChargerSwitch)
+	assert.NotNil(t, evCall, "Expected switch.turn_on service call for EV charger")
 }
 
 func TestLoadShedding_EnergyStateWhite(t *testing.T) {
 	t.Parallel()
-	logger := testlogger.New()
-	mockClient := ha.NewMockClient()
+	env := testutil.NewEnv(t)
 
 	// Initialize thermostat hold switches in mock (start with them on - load shedding active)
-	mockClient.SetState(thermostatHoldHouse, "on", nil)
-	mockClient.SetState(thermostatHoldSuite, "on", nil)
+	env.MockHA.SetState(thermostatHoldHouse, "on", nil)
+	env.MockHA.SetState(thermostatHoldSuite, "on", nil)
 
-	stateManager := state.NewManager(mockClient, logger, false)
-
-	err := stateManager.SyncFromHA()
+	err := env.StateMgr.SyncFromHA()
 	assert.NoError(t, err)
 
-	ls := NewManager(context.Background(), mockClient, stateManager, logger, false, nil)
+	ls := NewManager(context.Background(), env.MockHA, env.StateMgr, env.Logger, false, nil)
 	// Manually set loadSheddingOn to true to simulate that load shedding was previously enabled
 	ls.loadSheddingOn = true
 
@@ -215,14 +148,12 @@ func TestLoadShedding_EnergyStateWhite(t *testing.T) {
 	assert.NoError(t, err)
 	defer ls.Stop()
 
-	// Set energy state to white (should disable load shedding)
-	err = stateManager.SetString("currentEnergyLevel", "white")
+	// Set energy state to white (handler executes synchronously, should disable load shedding)
+	err = env.StateMgr.SetString("currentEnergyLevel", "white")
 	assert.NoError(t, err)
 
-	time.Sleep(100 * time.Millisecond)
-
 	// Verify service calls (should be same as green)
-	calls := mockClient.GetServiceCalls()
+	calls := env.MockHA.GetServiceCalls()
 	assert.GreaterOrEqual(t, len(calls), 2, "Expected at least 2 service calls (thermostat hold off, EV charger on)")
 
 	foundThermostatOff := false
@@ -237,80 +168,49 @@ func TestLoadShedding_EnergyStateWhite(t *testing.T) {
 	assert.True(t, foundThermostatOff, "Expected switch.turn_off for thermostat holds")
 
 	// Check for switch.turn_on call (EV charger)
-	foundEVChargerOn := false
-	for _, call := range calls {
-		if call.Domain == "switch" && call.Service == "turn_on" {
-			entityID, ok := call.Data["entity_id"].(string)
-			if ok && entityID == evChargerSwitch {
-				foundEVChargerOn = true
-			}
-		}
-	}
-	assert.True(t, foundEVChargerOn, "Expected switch.turn_on service call for EV charger")
+	evCall := testutil.FindServiceCallWithEntity(calls, "switch", "turn_on", evChargerSwitch)
+	assert.NotNil(t, evCall, "Expected switch.turn_on service call for EV charger")
 }
 
 func TestLoadShedding_RateLimiting(t *testing.T) {
 	t.Parallel()
-	logger := testlogger.New()
-	mockClient := ha.NewMockClient()
+	env := setupLoadSheddingEnv(t)
 
-	// Initialize thermostat hold switches in mock (start with them off)
-	mockClient.SetState(thermostatHoldHouse, "off", nil)
-	mockClient.SetState(thermostatHoldSuite, "off", nil)
-
-	stateManager := state.NewManager(mockClient, logger, false)
-
-	err := stateManager.SyncFromHA()
-	assert.NoError(t, err)
-
-	ls := NewManager(context.Background(), mockClient, stateManager, logger, false, nil)
+	ls := NewManager(context.Background(), env.MockHA, env.StateMgr, env.Logger, false, nil)
 
 	// Override minimum action interval for testing
-	// (In production, we'd use dependency injection for the time source)
-	err = ls.Start()
+	err := ls.Start()
 	assert.NoError(t, err)
 	defer ls.Stop()
 
-	// First change to red
-	err = stateManager.SetString("currentEnergyLevel", "red")
+	// First change to red (handler executes synchronously)
+	err = env.StateMgr.SetString("currentEnergyLevel", "red")
 	assert.NoError(t, err)
-	time.Sleep(100 * time.Millisecond)
 
-	initialCallCount := len(mockClient.GetServiceCalls())
+	initialCallCount := len(env.MockHA.GetServiceCalls())
 	assert.Greater(t, initialCallCount, 0, "First action should execute")
 
 	// Clear service calls to make counting easier
-	mockClient.ClearServiceCalls()
+	env.MockHA.ClearServiceCalls()
 
 	// Immediately change to green (should be rate limited)
-	err = stateManager.SetString("currentEnergyLevel", "green")
+	err = env.StateMgr.SetString("currentEnergyLevel", "green")
 	assert.NoError(t, err)
-	time.Sleep(100 * time.Millisecond)
 
 	// Should only have the SetString call, not the load shedding action (rate limited)
-	finalCallCount := len(mockClient.GetServiceCalls())
+	finalCallCount := len(env.MockHA.GetServiceCalls())
 	assert.Equal(t, 1, finalCallCount,
 		"Should only have SetString call, load shedding action should be rate limited")
 }
 
 func TestLoadShedding_StartStop(t *testing.T) {
 	t.Parallel()
-	logger := testlogger.New()
-	mockClient := ha.NewMockClient()
+	env := setupLoadSheddingEnv(t)
 
-	// Initialize thermostat hold switches in mock (start with them off)
-	mockClient.SetState(thermostatHoldHouse, "off", nil)
-	mockClient.SetState(thermostatHoldSuite, "off", nil)
-
-	stateManager := state.NewManager(mockClient, logger, false)
-
-	err := stateManager.SyncFromHA()
-	assert.NoError(t, err)
-
-	ls := NewManager(context.Background(), mockClient, stateManager, logger, false, nil)
+	ls := NewManager(context.Background(), env.MockHA, env.StateMgr, env.Logger, false, nil)
 
 	// Start
-	err = ls.Start()
+	err := ls.Start()
 	assert.NoError(t, err)
 	assert.True(t, ls.enabled)
 
@@ -329,30 +229,19 @@ func TestLoadShedding_StartStop(t *testing.T) {
 
 func TestLoadShedding_UnknownState(t *testing.T) {
 	t.Parallel()
-	logger := testlogger.New()
-	mockClient := ha.NewMockClient()
+	env := setupLoadSheddingEnv(t)
 
-	// Initialize thermostat hold switches in mock (start with them off)
-	mockClient.SetState(thermostatHoldHouse, "off", nil)
-	mockClient.SetState(thermostatHoldSuite, "off", nil)
-
-	stateManager := state.NewManager(mockClient, logger, false)
-
-	err := stateManager.SyncFromHA()
-	assert.NoError(t, err)
-
-	ls := NewManager(context.Background(), mockClient, stateManager, logger, false, nil)
-	err = ls.Start()
+	ls := NewManager(context.Background(), env.MockHA, env.StateMgr, env.Logger, false, nil)
+	err := ls.Start()
 	assert.NoError(t, err)
 	defer ls.Stop()
 
-	// Set unknown state
-	err = stateManager.SetString("currentEnergyLevel", "purple")
+	// Set unknown state (handler executes synchronously)
+	err = env.StateMgr.SetString("currentEnergyLevel", "purple")
 	assert.NoError(t, err)
-	time.Sleep(100 * time.Millisecond)
 
 	// Should only have the SetString call, no load shedding actions for unknown state
-	calls := mockClient.GetServiceCalls()
+	calls := env.MockHA.GetServiceCalls()
 	assert.Equal(t, 1, len(calls), "Unknown state should only have SetString call, no load shedding actions")
 	// Verify it's the SetString call
 	assert.Equal(t, "input_text", calls[0].Domain)
@@ -361,69 +250,43 @@ func TestLoadShedding_UnknownState(t *testing.T) {
 
 func TestLoadShedding_RedToGreenTransition(t *testing.T) {
 	t.Parallel()
-	logger := testlogger.New()
-	mockClient := ha.NewMockClient()
+	env := setupLoadSheddingEnv(t)
 
-	// Initialize thermostat hold switches in mock (start with them off)
-	mockClient.SetState(thermostatHoldHouse, "off", nil)
-	mockClient.SetState(thermostatHoldSuite, "off", nil)
-
-	stateManager := state.NewManager(mockClient, logger, false)
-
-	err := stateManager.SyncFromHA()
-	assert.NoError(t, err)
-
-	ls := NewManager(context.Background(), mockClient, stateManager, logger, false, nil)
+	ls := NewManager(context.Background(), env.MockHA, env.StateMgr, env.Logger, false, nil)
 
 	// Manually set last action to past to avoid rate limiting
 	ls.lastAction = time.Now().Add(-2 * time.Hour)
 
-	err = ls.Start()
+	err := ls.Start()
 	assert.NoError(t, err)
 	defer ls.Stop()
 
-	// Set to red
-	err = stateManager.SetString("currentEnergyLevel", "red")
+	// Set to red (handler executes synchronously)
+	err = env.StateMgr.SetString("currentEnergyLevel", "red")
 	assert.NoError(t, err)
-	time.Sleep(100 * time.Millisecond)
 
-	// Wait to avoid rate limiting
+	// Reset rate limit to allow next action
 	ls.lastAction = time.Now().Add(-2 * time.Hour)
-	time.Sleep(100 * time.Millisecond)
 
-	// Set to green
-	err = stateManager.SetString("currentEnergyLevel", "green")
+	// Set to green (handler executes synchronously)
+	err = env.StateMgr.SetString("currentEnergyLevel", "green")
 	assert.NoError(t, err)
-	time.Sleep(100 * time.Millisecond)
 
-	calls := mockClient.GetServiceCalls()
+	calls := env.MockHA.GetServiceCalls()
 
 	// Should have both turn_on and turn_off calls
-	foundTurnOn := false
-	foundTurnOff := false
-	for _, call := range calls {
-		if call.Domain == "switch" && call.Service == "turn_on" {
-			foundTurnOn = true
-		}
-		if call.Domain == "switch" && call.Service == "turn_off" {
-			foundTurnOff = true
-		}
-	}
-
-	assert.True(t, foundTurnOn, "Should have turn_on from red state")
-	assert.True(t, foundTurnOff, "Should have turn_off from green state")
+	testutil.AssertServiceCall(t, calls, "switch", "turn_on")
+	testutil.AssertServiceCall(t, calls, "switch", "turn_off")
 }
 
 func TestManagerReset(t *testing.T) {
 	t.Parallel()
-	logger := testlogger.New()
-	mockClient := ha.NewMockClient()
-	stateManager := state.NewManager(mockClient, logger, false)
+	env := testutil.NewEnv(t)
 
 	// Set up initial state
-	stateManager.SetString("currentEnergyLevel", "high")
+	env.StateMgr.SetString("currentEnergyLevel", "high")
 
-	manager := NewManager(context.Background(), mockClient, stateManager, logger, false, nil)
+	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, env.Logger, false, nil)
 
 	err := manager.Start()
 	assert.NoError(t, err)
@@ -436,66 +299,54 @@ func TestManagerReset(t *testing.T) {
 
 // TestLoadShedding_DeferredActionAfterRateLimit tests that when an action is
 // rate-limited, it gets automatically retried after the rate limit expires.
-// This is the bug fix for: when energy goes red->white quickly, the disable
-// action was rate-limited and never retried, leaving thermostats in hold mode.
 func TestLoadShedding_DeferredActionAfterRateLimit(t *testing.T) {
 	t.Parallel()
-	logger := testlogger.New()
-	mockClient := ha.NewMockClient()
+	env := setupLoadSheddingEnv(t)
 
-	// Initialize thermostat hold switches in mock (start with them off)
-	mockClient.SetState(thermostatHoldHouse, "off", nil)
-	mockClient.SetState(thermostatHoldSuite, "off", nil)
-
-	stateManager := state.NewManager(mockClient, logger, false)
-
-	err := stateManager.SyncFromHA()
-	assert.NoError(t, err)
-
-	ls := NewManager(context.Background(), mockClient, stateManager, logger, false, nil)
+	ls := NewManager(context.Background(), env.MockHA, env.StateMgr, env.Logger, false, nil)
 
 	// Use a short rate limit interval for testing (100ms instead of 1 hour)
 	ls.SetRateLimitIntervalForTesting(100 * time.Millisecond)
 
-	err = ls.Start()
+	// Set up a channel to signal when the deferred action completes
+	deferredDone := make(chan struct{}, 1)
+	ls.SetDeferredActionDoneCallback(func() {
+		deferredDone <- struct{}{}
+	})
+
+	err := ls.Start()
 	assert.NoError(t, err)
 	defer ls.Stop()
 
-	// Step 1: Set energy state to red (enables load shedding)
-	err = stateManager.SetString("currentEnergyLevel", "red")
+	// Step 1: Set energy state to red (enables load shedding synchronously)
+	err = env.StateMgr.SetString("currentEnergyLevel", "red")
 	assert.NoError(t, err)
-	time.Sleep(50 * time.Millisecond)
 
 	// Verify load shedding was enabled
-	calls := mockClient.GetServiceCalls()
-	foundSwitchOn := false
-	for _, call := range calls {
-		if call.Domain == "switch" && call.Service == "turn_on" {
-			foundSwitchOn = true
-		}
-	}
-	assert.True(t, foundSwitchOn, "Load shedding should be enabled (switch.turn_on called)")
+	calls := env.MockHA.GetServiceCalls()
+	testutil.AssertServiceCall(t, calls, "switch", "turn_on")
 
 	// Simulate thermostats now being in hold mode
-	mockClient.SetState(thermostatHoldHouse, "on", nil)
-	mockClient.SetState(thermostatHoldSuite, "on", nil)
+	env.MockHA.SetState(thermostatHoldHouse, "on", nil)
+	env.MockHA.SetState(thermostatHoldSuite, "on", nil)
 
 	// Clear service calls for cleaner verification
-	mockClient.ClearServiceCalls()
+	env.MockHA.ClearServiceCalls()
 
-	// Step 2: Immediately set energy state to white (should be rate-limited)
-	err = stateManager.SetString("currentEnergyLevel", "white")
+	// Step 2: Immediately set energy state to white (should be rate-limited and deferred)
+	err = env.StateMgr.SetString("currentEnergyLevel", "white")
 	assert.NoError(t, err)
-	time.Sleep(50 * time.Millisecond)
 
-	// At this point, the disable action should be rate-limited (not executed yet)
-	// We don't assert on this because the deferred action mechanism is tested below
-
-	// Step 3: Wait for the rate limit to expire plus buffer for deferred action
-	time.Sleep(150 * time.Millisecond)
+	// Step 3: Wait for the deferred action to complete via callback
+	select {
+	case <-deferredDone:
+		// Deferred action executed
+	case <-time.After(5 * time.Second):
+		t.Fatal("Timed out waiting for deferred action to execute")
+	}
 
 	// Step 4: Verify the deferred disable action was executed
-	calls = mockClient.GetServiceCalls()
+	calls = env.MockHA.GetServiceCalls()
 	foundThermostatOff := false
 	for _, call := range calls {
 		if call.Domain == "switch" && call.Service == "turn_off" {
@@ -511,16 +362,8 @@ func TestLoadShedding_DeferredActionAfterRateLimit(t *testing.T) {
 		"Deferred action should execute switch.turn_off for thermostat holds after rate limit expires")
 
 	// Verify EV charger was turned on in deferred action
-	foundEVChargerOn := false
-	for _, call := range calls {
-		if call.Domain == "switch" && call.Service == "turn_on" {
-			entityID, ok := call.Data["entity_id"].(string)
-			if ok && entityID == evChargerSwitch {
-				foundEVChargerOn = true
-			}
-		}
-	}
-	assert.True(t, foundEVChargerOn,
+	evCall := testutil.FindServiceCallWithEntity(calls, "switch", "turn_on", evChargerSwitch)
+	assert.NotNil(t, evCall,
 		"Deferred action should execute switch.turn_on for EV charger after rate limit expires")
 
 	// Verify load shedding state is now disabled
@@ -532,62 +375,53 @@ func TestLoadShedding_DeferredActionAfterRateLimit(t *testing.T) {
 // is cancelled appropriately.
 func TestLoadShedding_DeferredActionCancelledByNewAction(t *testing.T) {
 	t.Parallel()
-	logger := testlogger.New()
-	mockClient := ha.NewMockClient()
+	env := setupLoadSheddingEnv(t)
 
-	// Initialize thermostat hold switches in mock (start with them off)
-	mockClient.SetState(thermostatHoldHouse, "off", nil)
-	mockClient.SetState(thermostatHoldSuite, "off", nil)
-
-	stateManager := state.NewManager(mockClient, logger, false)
-
-	err := stateManager.SyncFromHA()
-	assert.NoError(t, err)
-
-	ls := NewManager(context.Background(), mockClient, stateManager, logger, false, nil)
+	ls := NewManager(context.Background(), env.MockHA, env.StateMgr, env.Logger, false, nil)
 
 	// Use a short rate limit interval for testing
 	ls.SetRateLimitIntervalForTesting(200 * time.Millisecond)
 
-	err = ls.Start()
+	// Track if deferred action fires (it should NOT in this test)
+	deferredFired := make(chan struct{}, 1)
+	ls.SetDeferredActionDoneCallback(func() {
+		deferredFired <- struct{}{}
+	})
+
+	err := ls.Start()
 	assert.NoError(t, err)
 	defer ls.Stop()
 
-	// Step 1: Set energy state to red (enables load shedding)
-	err = stateManager.SetString("currentEnergyLevel", "red")
+	// Step 1: Set energy state to red (enables load shedding synchronously)
+	err = env.StateMgr.SetString("currentEnergyLevel", "red")
 	assert.NoError(t, err)
-	time.Sleep(50 * time.Millisecond)
 
 	// Simulate thermostats now being in hold mode
-	mockClient.SetState(thermostatHoldHouse, "on", nil)
-	mockClient.SetState(thermostatHoldSuite, "on", nil)
+	env.MockHA.SetState(thermostatHoldHouse, "on", nil)
+	env.MockHA.SetState(thermostatHoldSuite, "on", nil)
 
-	mockClient.ClearServiceCalls()
+	env.MockHA.ClearServiceCalls()
 
 	// Step 2: Set energy state to white (rate-limited, deferred)
-	err = stateManager.SetString("currentEnergyLevel", "white")
+	err = env.StateMgr.SetString("currentEnergyLevel", "white")
 	assert.NoError(t, err)
-	time.Sleep(50 * time.Millisecond)
 
 	// Step 3: Before deferred action fires, go back to red
-	// This should cancel the pending disable and keep load shedding on
-	err = stateManager.SetString("currentEnergyLevel", "red")
+	err = env.StateMgr.SetString("currentEnergyLevel", "red")
 	assert.NoError(t, err)
-	time.Sleep(50 * time.Millisecond)
 
-	// Step 4: Wait for what would have been the deferred action time
-	time.Sleep(200 * time.Millisecond)
+	// Step 4: Wait for what would have been the deferred action time plus buffer.
+	// The deferred action should NOT fire because it was cancelled.
+	select {
+	case <-deferredFired:
+		t.Fatal("Deferred action should have been cancelled but it fired")
+	case <-time.After(500 * time.Millisecond):
+		// Good - deferred action did not fire
+	}
 
 	// Verify that switch.turn_off was NOT called (deferred disable was cancelled)
-	calls := mockClient.GetServiceCalls()
-	foundSwitchOff := false
-	for _, call := range calls {
-		if call.Domain == "switch" && call.Service == "turn_off" {
-			foundSwitchOff = true
-		}
-	}
-	assert.False(t, foundSwitchOff,
-		"Deferred disable should be cancelled when energy goes back to red")
+	calls := env.MockHA.GetServiceCalls()
+	testutil.AssertNoServiceCall(t, calls, "switch", "turn_off")
 
 	// Load shedding should still be on
 	assert.True(t, ls.IsLoadSheddingOn(), "Load shedding should remain enabled")

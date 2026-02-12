@@ -257,11 +257,13 @@ func TestScenario_TimezoneOffset_ET(t *testing.T) {
 	etStart := time.Date(2025, 1, 15, 12, 0, 0, 0, et)
 	t.Logf("ET start time: %s", etStart.Format("Mon Jan 2 15:04:05 MST 2006"))
 
-	server, _, mockClock, stateManager, cleanup := setupDayPhaseSimulation(t, et, etStart)
+	server, _, mockClock, _, cleanup := setupDayPhaseSimulation(t, et, etStart)
 	defer cleanup()
 
 	// Get initial phase
-	waitForProcessing(t, stateManager)
+	waitForCondition(t, func() bool {
+		return server.GetState("input_text.day_phase") != nil
+	}, "initial day phase should be set")
 	etPhase := server.GetState("input_text.day_phase")
 	t.Logf("Initial phase at %s: %s", etStart.Format("15:04 MST"), etPhase.State)
 
@@ -291,10 +293,12 @@ func TestScenario_TimezoneOffset_PT(t *testing.T) {
 	ptStart := time.Date(2025, 1, 15, 9, 0, 0, 0, pt)
 	t.Logf("PT start time: %s", ptStart.Format("Mon Jan 2 15:04:05 MST 2006"))
 
-	server, _, mockClock, stateManager, cleanup := setupDayPhaseSimulation(t, pt, ptStart)
+	server, _, mockClock, _, cleanup := setupDayPhaseSimulation(t, pt, ptStart)
 	defer cleanup()
 
-	waitForProcessing(t, stateManager)
+	waitForCondition(t, func() bool {
+		return server.GetState("input_text.day_phase") != nil
+	}, "initial day phase should be set")
 	ptPhase := server.GetState("input_text.day_phase")
 	t.Logf("Initial phase at %s: %s", ptStart.Format("15:04 MST"), ptPhase.State)
 
@@ -521,7 +525,9 @@ func TestScenario_WeekdayVsWeekend_NightTime(t *testing.T) {
 	defer cleanup2()
 
 	// At 23:00 on Friday, should NOT be night yet (night=23:59)
-	time.Sleep(20 * time.Millisecond)
+	waitForCondition(t, func() bool {
+		return server2.GetState("input_text.day_phase") != nil
+	}, "initial day phase should be set")
 	friPhaseAt2300 := server2.GetState("input_text.day_phase")
 	t.Logf("Friday at 23:00: phase=%s (should NOT be night, weekend schedule)", friPhaseAt2300.State)
 

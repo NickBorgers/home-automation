@@ -18,48 +18,39 @@ func TestStateTrackingManager_IsAnyOwnerHome(t *testing.T) {
 		isNickHome     bool
 		isCarolineHome bool
 		expectedOwner  bool
-		description    string
 	}{
 		{
 			name:           "Both owners away",
 			isNickHome:     false,
 			isCarolineHome: false,
 			expectedOwner:  false,
-			description:    "No owners home",
 		},
 		{
 			name:           "Only Nick home",
 			isNickHome:     true,
 			isCarolineHome: false,
 			expectedOwner:  true,
-			description:    "Nick is home, Caroline is away",
 		},
 		{
 			name:           "Only Caroline home",
 			isNickHome:     false,
 			isCarolineHome: true,
 			expectedOwner:  true,
-			description:    "Caroline is home, Nick is away",
 		},
 		{
 			name:           "Both owners home",
 			isNickHome:     true,
 			isCarolineHome: true,
 			expectedOwner:  true,
-			description:    "Both owners are home",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-
-			// Create mock HA client and state manager
-
 			mockHA := ha.NewMockClient()
 			logger := zap.NewNop()
 			stateMgr := state.NewManager(mockHA, logger, false)
 
-			// Set up initial state
 			if err := stateMgr.SetBool("isNickHome", tt.isNickHome); err != nil {
 				t.Fatalf("Failed to set isNickHome: %v", err)
 			}
@@ -67,19 +58,16 @@ func TestStateTrackingManager_IsAnyOwnerHome(t *testing.T) {
 				t.Fatalf("Failed to set isCarolineHome: %v", err)
 			}
 
-			// Create and start manager
 			manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
 			if err := manager.Start(); err != nil {
 				t.Fatalf("Failed to start manager: %v", err)
 			}
 			defer manager.Stop()
 
-			// Verify isAnyOwnerHome was computed correctly
 			actualOwner, err := stateMgr.GetBool("isAnyOwnerHome")
 			if err != nil {
 				t.Fatalf("Failed to get isAnyOwnerHome: %v", err)
 			}
-
 			if actualOwner != tt.expectedOwner {
 				t.Errorf("Expected isAnyOwnerHome=%v, got %v (Nick=%v, Caroline=%v)",
 					tt.expectedOwner, actualOwner, tt.isNickHome, tt.isCarolineHome)
@@ -96,7 +84,6 @@ func TestStateTrackingManager_IsAnyoneHome(t *testing.T) {
 		isCarolineHome bool
 		isToriHere     bool
 		expectedAnyone bool
-		description    string
 	}{
 		{
 			name:           "Everyone away",
@@ -104,7 +91,6 @@ func TestStateTrackingManager_IsAnyoneHome(t *testing.T) {
 			isCarolineHome: false,
 			isToriHere:     false,
 			expectedAnyone: false,
-			description:    "No one is home",
 		},
 		{
 			name:           "Only Nick home",
@@ -112,7 +98,6 @@ func TestStateTrackingManager_IsAnyoneHome(t *testing.T) {
 			isCarolineHome: false,
 			isToriHere:     false,
 			expectedAnyone: true,
-			description:    "Nick is home",
 		},
 		{
 			name:           "Only Caroline home",
@@ -120,7 +105,6 @@ func TestStateTrackingManager_IsAnyoneHome(t *testing.T) {
 			isCarolineHome: true,
 			isToriHere:     false,
 			expectedAnyone: true,
-			description:    "Caroline is home",
 		},
 		{
 			name:           "Only Tori here",
@@ -128,7 +112,6 @@ func TestStateTrackingManager_IsAnyoneHome(t *testing.T) {
 			isCarolineHome: false,
 			isToriHere:     true,
 			expectedAnyone: true,
-			description:    "Guest (Tori) is here",
 		},
 		{
 			name:           "Nick and Tori home",
@@ -136,7 +119,6 @@ func TestStateTrackingManager_IsAnyoneHome(t *testing.T) {
 			isCarolineHome: false,
 			isToriHere:     true,
 			expectedAnyone: true,
-			description:    "Owner and guest are home",
 		},
 		{
 			name:           "Everyone home",
@@ -144,20 +126,15 @@ func TestStateTrackingManager_IsAnyoneHome(t *testing.T) {
 			isCarolineHome: true,
 			isToriHere:     true,
 			expectedAnyone: true,
-			description:    "All people are home",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-
-			// Create mock HA client and state manager
-
 			mockHA := ha.NewMockClient()
 			logger := zap.NewNop()
 			stateMgr := state.NewManager(mockHA, logger, false)
 
-			// Set up initial state
 			if err := stateMgr.SetBool("isNickHome", tt.isNickHome); err != nil {
 				t.Fatalf("Failed to set isNickHome: %v", err)
 			}
@@ -168,19 +145,16 @@ func TestStateTrackingManager_IsAnyoneHome(t *testing.T) {
 				t.Fatalf("Failed to set isToriHere: %v", err)
 			}
 
-			// Create and start manager
 			manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
 			if err := manager.Start(); err != nil {
 				t.Fatalf("Failed to start manager: %v", err)
 			}
 			defer manager.Stop()
 
-			// Verify isAnyoneHome was computed correctly
 			actualAnyone, err := stateMgr.GetBool("isAnyoneHome")
 			if err != nil {
 				t.Fatalf("Failed to get isAnyoneHome: %v", err)
 			}
-
 			if actualAnyone != tt.expectedAnyone {
 				t.Errorf("Expected isAnyoneHome=%v, got %v (Nick=%v, Caroline=%v, Tori=%v)",
 					tt.expectedAnyone, actualAnyone, tt.isNickHome, tt.isCarolineHome, tt.isToriHere)
@@ -189,50 +163,47 @@ func TestStateTrackingManager_IsAnyoneHome(t *testing.T) {
 	}
 }
 
-func TestStateTrackingManager_IsAnyoneAsleep(t *testing.T) {
+func TestStateTrackingManager_SleepDerivedStates(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name              string
 		isMasterAsleep    bool
 		isGuestAsleep     bool
 		expectedAnyAsleep bool
-		description       string
+		expectedAllAsleep bool
 	}{
 		{
 			name:              "Everyone awake",
 			isMasterAsleep:    false,
 			isGuestAsleep:     false,
 			expectedAnyAsleep: false,
-			description:       "No one is asleep",
+			expectedAllAsleep: false,
 		},
 		{
 			name:              "Only master asleep",
 			isMasterAsleep:    true,
 			isGuestAsleep:     false,
 			expectedAnyAsleep: true,
-			description:       "Master bedroom is asleep",
+			expectedAllAsleep: false,
 		},
 		{
 			name:              "Only guest asleep",
 			isMasterAsleep:    false,
 			isGuestAsleep:     true,
 			expectedAnyAsleep: true,
-			description:       "Guest bedroom is asleep",
+			expectedAllAsleep: false,
 		},
 		{
 			name:              "Everyone asleep",
 			isMasterAsleep:    true,
 			isGuestAsleep:     true,
 			expectedAnyAsleep: true,
-			description:       "Both bedrooms are asleep",
+			expectedAllAsleep: true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-
-			// Create mock HA client and state manager
-
 			mockHA := ha.NewMockClient()
 			logger := zap.NewNop()
 			stateMgr := state.NewManager(mockHA, logger, false)
@@ -241,8 +212,6 @@ func TestStateTrackingManager_IsAnyoneAsleep(t *testing.T) {
 			if err := stateMgr.SetBool("isHaveGuests", true); err != nil {
 				t.Fatalf("Failed to set isHaveGuests: %v", err)
 			}
-
-			// Set up initial state
 			if err := stateMgr.SetBool("isMasterAsleep", tt.isMasterAsleep); err != nil {
 				t.Fatalf("Failed to set isMasterAsleep: %v", err)
 			}
@@ -250,101 +219,27 @@ func TestStateTrackingManager_IsAnyoneAsleep(t *testing.T) {
 				t.Fatalf("Failed to set isGuestAsleep: %v", err)
 			}
 
-			// Create and start manager
 			manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
 			if err := manager.Start(); err != nil {
 				t.Fatalf("Failed to start manager: %v", err)
 			}
 			defer manager.Stop()
 
-			// Verify isAnyoneAsleep was computed correctly
+			// Verify isAnyoneAsleep
 			actualAnyAsleep, err := stateMgr.GetBool("isAnyoneAsleep")
 			if err != nil {
 				t.Fatalf("Failed to get isAnyoneAsleep: %v", err)
 			}
-
 			if actualAnyAsleep != tt.expectedAnyAsleep {
 				t.Errorf("Expected isAnyoneAsleep=%v, got %v (Master=%v, Guest=%v)",
 					tt.expectedAnyAsleep, actualAnyAsleep, tt.isMasterAsleep, tt.isGuestAsleep)
 			}
-		})
-	}
-}
 
-func TestStateTrackingManager_IsEveryoneAsleep(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		name              string
-		isMasterAsleep    bool
-		isGuestAsleep     bool
-		expectedAllAsleep bool
-		description       string
-	}{
-		{
-			name:              "Everyone awake",
-			isMasterAsleep:    false,
-			isGuestAsleep:     false,
-			expectedAllAsleep: false,
-			description:       "No one is asleep",
-		},
-		{
-			name:              "Only master asleep",
-			isMasterAsleep:    true,
-			isGuestAsleep:     false,
-			expectedAllAsleep: false,
-			description:       "Master asleep, guest awake",
-		},
-		{
-			name:              "Only guest asleep",
-			isMasterAsleep:    false,
-			isGuestAsleep:     true,
-			expectedAllAsleep: false,
-			description:       "Guest asleep, master awake",
-		},
-		{
-			name:              "Everyone asleep",
-			isMasterAsleep:    true,
-			isGuestAsleep:     true,
-			expectedAllAsleep: true,
-			description:       "Both bedrooms are asleep",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-
-			// Create mock HA client and state manager
-
-			mockHA := ha.NewMockClient()
-			logger := zap.NewNop()
-			stateMgr := state.NewManager(mockHA, logger, false)
-
-			// Set isHaveGuests to true to test independent sleep states
-			if err := stateMgr.SetBool("isHaveGuests", true); err != nil {
-				t.Fatalf("Failed to set isHaveGuests: %v", err)
-			}
-
-			// Set up initial state
-			if err := stateMgr.SetBool("isMasterAsleep", tt.isMasterAsleep); err != nil {
-				t.Fatalf("Failed to set isMasterAsleep: %v", err)
-			}
-			if err := stateMgr.SetBool("isGuestAsleep", tt.isGuestAsleep); err != nil {
-				t.Fatalf("Failed to set isGuestAsleep: %v", err)
-			}
-
-			// Create and start manager
-			manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
-			if err := manager.Start(); err != nil {
-				t.Fatalf("Failed to start manager: %v", err)
-			}
-			defer manager.Stop()
-
-			// Verify isEveryoneAsleep was computed correctly
+			// Verify isEveryoneAsleep
 			actualAllAsleep, err := stateMgr.GetBool("isEveryoneAsleep")
 			if err != nil {
 				t.Fatalf("Failed to get isEveryoneAsleep: %v", err)
 			}
-
 			if actualAllAsleep != tt.expectedAllAsleep {
 				t.Errorf("Expected isEveryoneAsleep=%v, got %v (Master=%v, Guest=%v)",
 					tt.expectedAllAsleep, actualAllAsleep, tt.isMasterAsleep, tt.isGuestAsleep)
@@ -373,7 +268,6 @@ func TestStateTrackingManager_DynamicUpdates(t *testing.T) {
 		t.Fatalf("Failed to set isToriHere: %v", err)
 	}
 
-	// Create and start manager
 	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
 	if err := manager.Start(); err != nil {
 		t.Fatalf("Failed to start manager: %v", err)
@@ -390,13 +284,10 @@ func TestStateTrackingManager_DynamicUpdates(t *testing.T) {
 	if err := stateMgr.SetBool("isNickHome", true); err != nil {
 		t.Fatalf("Failed to update isNickHome: %v", err)
 	}
-
-	// Verify derived states updated
 	isAnyOwnerHome, _ := stateMgr.GetBool("isAnyOwnerHome")
 	if isAnyOwnerHome != true {
 		t.Errorf("Expected isAnyOwnerHome=true after Nick arrives, got %v", isAnyOwnerHome)
 	}
-
 	isAnyoneHome, _ = stateMgr.GetBool("isAnyoneHome")
 	if isAnyoneHome != true {
 		t.Errorf("Expected isAnyoneHome=true after Nick arrives, got %v", isAnyoneHome)
@@ -409,13 +300,10 @@ func TestStateTrackingManager_DynamicUpdates(t *testing.T) {
 	if err := stateMgr.SetBool("isToriHere", true); err != nil {
 		t.Fatalf("Failed to update isToriHere: %v", err)
 	}
-
-	// Verify isAnyOwnerHome is false but isAnyoneHome is still true
 	isAnyOwnerHome, _ = stateMgr.GetBool("isAnyOwnerHome")
 	if isAnyOwnerHome != false {
 		t.Errorf("Expected isAnyOwnerHome=false after Nick leaves, got %v", isAnyOwnerHome)
 	}
-
 	isAnyoneHome, _ = stateMgr.GetBool("isAnyoneHome")
 	if isAnyoneHome != true {
 		t.Errorf("Expected isAnyoneHome=true with Tori here, got %v", isAnyoneHome)
@@ -431,12 +319,10 @@ func TestStateTrackingManager_SleepDynamicUpdates(t *testing.T) {
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 
-	// Set isHaveGuests to true to test independent sleep states
+	// Set up initial state - have guests, everyone awake
 	if err := stateMgr.SetBool("isHaveGuests", true); err != nil {
 		t.Fatalf("Failed to set isHaveGuests: %v", err)
 	}
-
-	// Set up initial state - everyone awake
 	if err := stateMgr.SetBool("isMasterAsleep", false); err != nil {
 		t.Fatalf("Failed to set isMasterAsleep: %v", err)
 	}
@@ -444,7 +330,6 @@ func TestStateTrackingManager_SleepDynamicUpdates(t *testing.T) {
 		t.Fatalf("Failed to set isGuestAsleep: %v", err)
 	}
 
-	// Create and start manager
 	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
 	if err := manager.Start(); err != nil {
 		t.Fatalf("Failed to start manager: %v", err)
@@ -462,8 +347,6 @@ func TestStateTrackingManager_SleepDynamicUpdates(t *testing.T) {
 	if err := stateMgr.SetBool("isMasterAsleep", true); err != nil {
 		t.Fatalf("Failed to update isMasterAsleep: %v", err)
 	}
-
-	// Verify isAnyoneAsleep=true, isEveryoneAsleep=false
 	isAnyoneAsleep, _ = stateMgr.GetBool("isAnyoneAsleep")
 	isEveryoneAsleep, _ = stateMgr.GetBool("isEveryoneAsleep")
 	if isAnyoneAsleep != true {
@@ -477,8 +360,6 @@ func TestStateTrackingManager_SleepDynamicUpdates(t *testing.T) {
 	if err := stateMgr.SetBool("isGuestAsleep", true); err != nil {
 		t.Fatalf("Failed to update isGuestAsleep: %v", err)
 	}
-
-	// Verify both sleep states are true
 	isAnyoneAsleep, _ = stateMgr.GetBool("isAnyoneAsleep")
 	isEveryoneAsleep, _ = stateMgr.GetBool("isEveryoneAsleep")
 	if isAnyoneAsleep != true || isEveryoneAsleep != true {
@@ -489,8 +370,6 @@ func TestStateTrackingManager_SleepDynamicUpdates(t *testing.T) {
 	if err := stateMgr.SetBool("isGuestAsleep", false); err != nil {
 		t.Fatalf("Failed to update isGuestAsleep: %v", err)
 	}
-
-	// Verify isAnyoneAsleep=true, isEveryoneAsleep=false
 	isAnyoneAsleep, _ = stateMgr.GetBool("isAnyoneAsleep")
 	isEveryoneAsleep, _ = stateMgr.GetBool("isEveryoneAsleep")
 	if isAnyoneAsleep != true {
@@ -505,17 +384,12 @@ func TestStateTrackingManager_StopCleansUpSubscriptions(t *testing.T) {
 	t.Parallel(
 	// Test that Stop() properly cleans up subscriptions
 	)
-
 	mockHA := ha.NewMockClient()
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
-
-	// Set up initial state
 	if err := stateMgr.SetBool("isNickHome", false); err != nil {
 		t.Fatalf("Failed to set isNickHome: %v", err)
 	}
-
-	// Create and start manager
 	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
 	if err := manager.Start(); err != nil {
 		t.Fatalf("Failed to start manager: %v", err)
@@ -545,12 +419,9 @@ func TestStateTrackingManager_GuestAsleepAutoSync_NoGuests(t *testing.T) {
 	t.Parallel(
 	// Test that guest asleep auto-syncs with master when no guests
 	)
-
 	mockHA := ha.NewMockClient()
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
-
-	// Setup: No guests, master awake, guest awake
 	if err := stateMgr.SetBool("isHaveGuests", false); err != nil {
 		t.Fatalf("Failed to set isHaveGuests: %v", err)
 	}
@@ -560,41 +431,33 @@ func TestStateTrackingManager_GuestAsleepAutoSync_NoGuests(t *testing.T) {
 	if err := stateMgr.SetBool("isGuestAsleep", false); err != nil {
 		t.Fatalf("Failed to set isGuestAsleep: %v", err)
 	}
-
-	// Create and start manager
 	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
 	if err := manager.Start(); err != nil {
 		t.Fatalf("Failed to start manager: %v", err)
 	}
 	defer manager.Stop()
 
-	// Test 1: Master goes to sleep, guest should auto-sync
+	// Master goes to sleep, guest should auto-sync
 	if err := stateMgr.SetBool("isMasterAsleep", true); err != nil {
 		t.Fatalf("Failed to update isMasterAsleep: %v", err)
 	}
-
 	guestAsleep, _ := stateMgr.GetBool("isGuestAsleep")
 	if guestAsleep != true {
 		t.Errorf("Expected isGuestAsleep=true after master sleeps (no guests), got %v", guestAsleep)
 	}
-
-	// Verify derived states are correct
 	isEveryoneAsleep, _ := stateMgr.GetBool("isEveryoneAsleep")
 	if isEveryoneAsleep != true {
 		t.Errorf("Expected isEveryoneAsleep=true after auto-sync, got %v", isEveryoneAsleep)
 	}
 
-	// Test 2: Master wakes up, guest should auto-sync
+	// Master wakes up, guest should auto-sync
 	if err := stateMgr.SetBool("isMasterAsleep", false); err != nil {
 		t.Fatalf("Failed to update isMasterAsleep: %v", err)
 	}
-
 	guestAsleep, _ = stateMgr.GetBool("isGuestAsleep")
 	if guestAsleep != false {
 		t.Errorf("Expected isGuestAsleep=false after master wakes (no guests), got %v", guestAsleep)
 	}
-
-	// Verify derived states updated
 	isEveryoneAsleep, _ = stateMgr.GetBool("isEveryoneAsleep")
 	if isEveryoneAsleep != false {
 		t.Errorf("Expected isEveryoneAsleep=false after auto-sync, got %v", isEveryoneAsleep)
@@ -605,12 +468,9 @@ func TestStateTrackingManager_GuestAsleepAutoSync_WithGuests(t *testing.T) {
 	t.Parallel(
 	// Test that guest asleep does NOT auto-sync when guests are present
 	)
-
 	mockHA := ha.NewMockClient()
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
-
-	// Setup: Have guests, master awake, guest asleep
 	if err := stateMgr.SetBool("isHaveGuests", true); err != nil {
 		t.Fatalf("Failed to set isHaveGuests: %v", err)
 	}
@@ -620,8 +480,6 @@ func TestStateTrackingManager_GuestAsleepAutoSync_WithGuests(t *testing.T) {
 	if err := stateMgr.SetBool("isGuestAsleep", true); err != nil {
 		t.Fatalf("Failed to set isGuestAsleep: %v", err)
 	}
-
-	// Create and start manager
 	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
 	if err := manager.Start(); err != nil {
 		t.Fatalf("Failed to start manager: %v", err)
@@ -655,12 +513,9 @@ func TestStateTrackingManager_GuestAsleepAutoSync_GuestsLeave(t *testing.T) {
 	t.Parallel(
 	// Test that auto-sync kicks in when isHaveGuests changes from true to false
 	)
-
 	mockHA := ha.NewMockClient()
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
-
-	// Setup: Have guests, master asleep, guest awake
 	if err := stateMgr.SetBool("isHaveGuests", true); err != nil {
 		t.Fatalf("Failed to set isHaveGuests: %v", err)
 	}
@@ -670,8 +525,6 @@ func TestStateTrackingManager_GuestAsleepAutoSync_GuestsLeave(t *testing.T) {
 	if err := stateMgr.SetBool("isGuestAsleep", false); err != nil {
 		t.Fatalf("Failed to set isGuestAsleep: %v", err)
 	}
-
-	// Create and start manager
 	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
 	if err := manager.Start(); err != nil {
 		t.Fatalf("Failed to start manager: %v", err)
@@ -706,12 +559,10 @@ func TestStateTrackingManager_GuestAsleepAutoSync_InitialSync(t *testing.T) {
 	t.Parallel(
 	// Test that auto-sync happens on startup if needed
 	)
-
 	mockHA := ha.NewMockClient()
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
-
-	// Setup: No guests, master asleep, guest awake (out of sync)
+	// No guests, master asleep, guest awake (out of sync)
 	if err := stateMgr.SetBool("isHaveGuests", false); err != nil {
 		t.Fatalf("Failed to set isHaveGuests: %v", err)
 	}
@@ -721,8 +572,7 @@ func TestStateTrackingManager_GuestAsleepAutoSync_InitialSync(t *testing.T) {
 	if err := stateMgr.SetBool("isGuestAsleep", false); err != nil {
 		t.Fatalf("Failed to set isGuestAsleep: %v", err)
 	}
-
-	// Create and start manager - should auto-sync immediately
+	// Start manager - should auto-sync immediately
 	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
 	if err := manager.Start(); err != nil {
 		t.Fatalf("Failed to start manager: %v", err)
@@ -746,20 +596,15 @@ func TestStateTrackingManager_Reset(t *testing.T) {
 	t.Parallel(
 	// Test that Reset() re-calculates derived states
 	)
-
 	mockHA := ha.NewMockClient()
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
-
-	// Setup initial state
 	if err := stateMgr.SetBool("isNickHome", true); err != nil {
 		t.Fatalf("Failed to set isNickHome: %v", err)
 	}
 	if err := stateMgr.SetBool("isCarolineHome", false); err != nil {
 		t.Fatalf("Failed to set isCarolineHome: %v", err)
 	}
-
-	// Create and start manager
 	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
 	if err := manager.Start(); err != nil {
 		t.Fatalf("Failed to start manager: %v", err)
@@ -784,354 +629,224 @@ func TestStateTrackingManager_Reset(t *testing.T) {
 	}
 }
 
-func TestStateTrackingManager_NickArrivalAnnouncement_SomeoneHome(t *testing.T) {
-	t.Parallel(
-	// Test that Nick's arrival is announced when someone is already home
-	)
-
-	mockHA := ha.NewMockClient()
-	logger := zap.NewNop()
-	stateMgr := state.NewManager(mockHA, logger, false)
-
-	// Setup: Caroline is already home, Nick is away
-	if err := stateMgr.SetBool("isCarolineHome", true); err != nil {
-		t.Fatalf("Failed to set isCarolineHome: %v", err)
-	}
-	if err := stateMgr.SetBool("isNickHome", false); err != nil {
-		t.Fatalf("Failed to set isNickHome: %v", err)
-	}
-
-	// Create and start manager
-	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
-	if err := manager.Start(); err != nil {
-		t.Fatalf("Failed to start manager: %v", err)
-	}
-	defer manager.Stop()
-
-	// Clear any initial service calls
-	mockHA.ClearServiceCalls()
-
-	// Simulate Nick arriving home (input_boolean.nick_home changes to "on")
-	mockHA.SetState("input_boolean.nick_home", "off", nil)
-	mockHA.SetState("input_boolean.nick_home", "on", nil)
-
-	// Give the async handler a moment to process
-	// The announcement runs in a goroutine to avoid deadlocks
-	time.Sleep(50 * time.Millisecond)
-
-	// Verify TTS service was called
-	calls := mockHA.GetServiceCalls()
-	if len(calls) == 0 {
-		t.Fatal("Expected TTS service call, but no service calls were made")
-	}
-
-	// Find the TTS call
-	var ttsCall *ha.ServiceCall
-	for i := range calls {
-		if calls[i].Domain == "tts" && calls[i].Service == "speak" {
-			ttsCall = &calls[i]
-			break
-		}
-	}
-
-	if ttsCall == nil {
-		t.Fatal("Expected TTS speak service call, but none was found")
-	}
-
-	// Verify TTS call parameters
-	if entityID, ok := ttsCall.Data["entity_id"].(string); !ok || entityID != "tts.google_translate_en_com" {
-		t.Errorf("Expected entity_id=tts.google_translate_en_com, got %v", ttsCall.Data["entity_id"])
-	}
-
-	if message, ok := ttsCall.Data["message"].(string); !ok || message != "Nick is home" {
-		t.Errorf("Expected message='Nick is home', got %v", ttsCall.Data["message"])
+func TestStateTrackingManager_ArrivalAnnouncements(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name            string
+		entityID        string
+		expectedMessage string
+		setupState      func(*state.Manager)
+		expectedPlayers []string
+	}{
+		{
+			name:            "Nick arrival announced when someone home",
+			entityID:        "input_boolean.nick_home",
+			expectedMessage: "Nick is home",
+			setupState: func(sm *state.Manager) {
+				// Caroline is already home, Nick is away
+				sm.SetBool("isCarolineHome", true)
+				sm.SetBool("isNickHome", false)
+			},
+			expectedPlayers: []string{
+				"media_player.kitchen",
+				"media_player.dining_room",
+				"media_player.soundbar",
+				"media_player.kids_bathroom",
+			},
+		},
+		{
+			name:            "Caroline arrival announced when someone home",
+			entityID:        "input_boolean.caroline_home",
+			expectedMessage: "Caroline is home",
+			setupState: func(sm *state.Manager) {
+				// Nick is already home, Caroline is away
+				sm.SetBool("isNickHome", true)
+				sm.SetBool("isCarolineHome", false)
+			},
+			expectedPlayers: []string{
+				"media_player.kitchen",
+				"media_player.dining_room",
+				"media_player.kids_bathroom",
+				"media_player.soundbar",
+				"media_player.office",
+			},
+		},
+		{
+			name:            "Tori arrival announced when someone home",
+			entityID:        "input_boolean.tori_here",
+			expectedMessage: "Tori is here",
+			setupState: func(sm *state.Manager) {
+				// Nick is already home, Tori is not here
+				sm.SetBool("isNickHome", true)
+				sm.SetBool("isToriHere", false)
+			},
+			expectedPlayers: []string{
+				"media_player.kitchen",
+				"media_player.dining_room",
+				"media_player.kids_bathroom",
+				"media_player.soundbar",
+				"media_player.office",
+			},
+		},
 	}
 
-	if cache, ok := ttsCall.Data["cache"].(bool); !ok || cache != true {
-		t.Errorf("Expected cache=true, got %v", ttsCall.Data["cache"])
-	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockHA := ha.NewMockClient()
+			logger := zap.NewNop()
+			stateMgr := state.NewManager(mockHA, logger, false)
 
-	// Verify media players
-	mediaPlayers, ok := ttsCall.Data["media_player_entity_id"].([]string)
-	if !ok {
-		t.Fatalf("Expected media_player_entity_id to be []string, got %T", ttsCall.Data["media_player_entity_id"])
-	}
+			tt.setupState(stateMgr)
 
-	expectedPlayers := []string{
-		"media_player.kitchen",
-		"media_player.dining_room",
-		"media_player.soundbar",
-		"media_player.kids_bathroom",
-	}
-
-	if len(mediaPlayers) != len(expectedPlayers) {
-		t.Errorf("Expected %d media players, got %d", len(expectedPlayers), len(mediaPlayers))
-	}
-
-	for _, expected := range expectedPlayers {
-		found := false
-		for _, actual := range mediaPlayers {
-			if actual == expected {
-				found = true
-				break
+			manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
+			if err := manager.Start(); err != nil {
+				t.Fatalf("Failed to start manager: %v", err)
 			}
-		}
-		if !found {
-			t.Errorf("Expected media player %s not found in TTS call", expected)
-		}
+			defer manager.Stop()
+
+			// Clear any initial service calls
+			mockHA.ClearServiceCalls()
+
+			// Simulate arrival (off -> on)
+			mockHA.SetState(tt.entityID, "off", nil)
+			mockHA.SetState(tt.entityID, "on", nil)
+
+			// Give the async handler a moment to process
+			time.Sleep(50 * time.Millisecond)
+
+			// Verify TTS service was called
+			calls := mockHA.GetServiceCalls()
+			if len(calls) == 0 {
+				t.Fatal("Expected TTS service call, but no service calls were made")
+			}
+
+			// Find the TTS call
+			var ttsCall *ha.ServiceCall
+			for i := range calls {
+				if calls[i].Domain == "tts" && calls[i].Service == "speak" {
+					ttsCall = &calls[i]
+					break
+				}
+			}
+
+			if ttsCall == nil {
+				t.Fatal("Expected TTS speak service call, but none was found")
+			}
+
+			// Verify TTS call parameters
+			if entityID, ok := ttsCall.Data["entity_id"].(string); !ok || entityID != "tts.google_translate_en_com" {
+				t.Errorf("Expected entity_id=tts.google_translate_en_com, got %v", ttsCall.Data["entity_id"])
+			}
+			if message, ok := ttsCall.Data["message"].(string); !ok || message != tt.expectedMessage {
+				t.Errorf("Expected message='%s', got %v", tt.expectedMessage, ttsCall.Data["message"])
+			}
+			if cache, ok := ttsCall.Data["cache"].(bool); !ok || cache != true {
+				t.Errorf("Expected cache=true, got %v", ttsCall.Data["cache"])
+			}
+
+			// Verify media players
+			mediaPlayers, ok := ttsCall.Data["media_player_entity_id"].([]string)
+			if !ok {
+				t.Fatalf("Expected media_player_entity_id to be []string, got %T", ttsCall.Data["media_player_entity_id"])
+			}
+			if len(mediaPlayers) != len(tt.expectedPlayers) {
+				t.Errorf("Expected %d media players, got %d", len(tt.expectedPlayers), len(mediaPlayers))
+			}
+			for _, expected := range tt.expectedPlayers {
+				found := false
+				for _, actual := range mediaPlayers {
+					if actual == expected {
+						found = true
+						break
+					}
+				}
+				if !found {
+					t.Errorf("Expected media player %s not found in TTS call", expected)
+				}
+			}
+		})
 	}
 }
 
-func TestStateTrackingManager_NickArrivalAnnouncement_NobodyHome(t *testing.T) {
-	t.Parallel(
-	// Test that Nick's arrival is NOT announced when nobody is home
-	)
-
-	mockHA := ha.NewMockClient()
-	logger := zap.NewNop()
-	stateMgr := state.NewManager(mockHA, logger, false)
-
-	// Setup: Nobody is home
-	if err := stateMgr.SetBool("isCarolineHome", false); err != nil {
-		t.Fatalf("Failed to set isCarolineHome: %v", err)
-	}
-	if err := stateMgr.SetBool("isNickHome", false); err != nil {
-		t.Fatalf("Failed to set isNickHome: %v", err)
-	}
-	if err := stateMgr.SetBool("isToriHere", false); err != nil {
-		t.Fatalf("Failed to set isToriHere: %v", err)
-	}
-
-	// Create and start manager
-	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
-	if err := manager.Start(); err != nil {
-		t.Fatalf("Failed to start manager: %v", err)
-	}
-	defer manager.Stop()
-
-	// Clear any initial service calls
-	mockHA.ClearServiceCalls()
-
-	// Simulate Nick arriving home (input_boolean.nick_home changes to "on")
-	mockHA.SetState("input_boolean.nick_home", "off", nil)
-	mockHA.SetState("input_boolean.nick_home", "on", nil)
-
-	// Give the async handler a moment to process
-	time.Sleep(50 * time.Millisecond)
-
-	// Verify NO TTS service was called
-	calls := mockHA.GetServiceCalls()
-	for _, call := range calls {
-		if call.Domain == "tts" && call.Service == "speak" {
-			t.Error("Expected no TTS announcement when nobody is home, but TTS service was called")
-		}
-	}
-}
-
-func TestStateTrackingManager_CarolineArrivalAnnouncement(t *testing.T) {
-	t.Parallel(
-	// Test that Caroline's arrival is announced when someone is already home
-	)
-
-	mockHA := ha.NewMockClient()
-	logger := zap.NewNop()
-	stateMgr := state.NewManager(mockHA, logger, false)
-
-	// Setup: Nick is already home, Caroline is away
-	if err := stateMgr.SetBool("isNickHome", true); err != nil {
-		t.Fatalf("Failed to set isNickHome: %v", err)
-	}
-	if err := stateMgr.SetBool("isCarolineHome", false); err != nil {
-		t.Fatalf("Failed to set isCarolineHome: %v", err)
+func TestStateTrackingManager_NoAnnouncement(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name       string
+		readOnly   bool
+		setupState func(*state.Manager)
+		simulate   func(*ha.MockClient)
+	}{
+		{
+			name:     "No announcement when nobody home",
+			readOnly: false,
+			setupState: func(sm *state.Manager) {
+				sm.SetBool("isCarolineHome", false)
+				sm.SetBool("isNickHome", false)
+				sm.SetBool("isToriHere", false)
+			},
+			simulate: func(mc *ha.MockClient) {
+				// Simulate Nick arriving home when nobody else is home
+				mc.SetState("input_boolean.nick_home", "off", nil)
+				mc.SetState("input_boolean.nick_home", "on", nil)
+			},
+		},
+		{
+			name:     "No announcement in read-only mode",
+			readOnly: true,
+			setupState: func(sm *state.Manager) {
+				sm.SetBool("isCarolineHome", true)
+				sm.SetBool("isNickHome", false)
+			},
+			simulate: func(mc *ha.MockClient) {
+				// Simulate Nick arriving home
+				mc.SetState("input_boolean.nick_home", "off", nil)
+				mc.SetState("input_boolean.nick_home", "on", nil)
+			},
+		},
+		{
+			name:     "No announcement on state change from unknown",
+			readOnly: false,
+			setupState: func(sm *state.Manager) {
+				sm.SetBool("isCarolineHome", true)
+			},
+			simulate: func(mc *ha.MockClient) {
+				// Simulate Nick's state changing from unknown to on (no oldState)
+				// This should NOT trigger an announcement
+				mc.SetState("input_boolean.nick_home", "on", nil)
+			},
+		},
 	}
 
-	// Create and start manager
-	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
-	if err := manager.Start(); err != nil {
-		t.Fatalf("Failed to start manager: %v", err)
-	}
-	defer manager.Stop()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockHA := ha.NewMockClient()
+			logger := zap.NewNop()
+			stateMgr := state.NewManager(mockHA, logger, false)
 
-	// Clear any initial service calls
-	mockHA.ClearServiceCalls()
+			tt.setupState(stateMgr)
 
-	// Simulate Caroline arriving home
-	mockHA.SetState("input_boolean.caroline_home", "off", nil)
-	mockHA.SetState("input_boolean.caroline_home", "on", nil)
+			manager := NewManager(context.Background(), mockHA, stateMgr, logger, tt.readOnly, nil)
+			if err := manager.Start(); err != nil {
+				t.Fatalf("Failed to start manager: %v", err)
+			}
+			defer manager.Stop()
 
-	// Give the async handler a moment to process
-	time.Sleep(50 * time.Millisecond)
+			// Clear any initial service calls
+			mockHA.ClearServiceCalls()
 
-	// Verify TTS service was called with Caroline's message
-	calls := mockHA.GetServiceCalls()
-	var ttsCall *ha.ServiceCall
-	for i := range calls {
-		if calls[i].Domain == "tts" && calls[i].Service == "speak" {
-			ttsCall = &calls[i]
-			break
-		}
-	}
+			tt.simulate(mockHA)
 
-	if ttsCall == nil {
-		t.Fatal("Expected TTS speak service call for Caroline, but none was found")
-	}
+			// Give the async handler a moment to process
+			time.Sleep(50 * time.Millisecond)
 
-	if message, ok := ttsCall.Data["message"].(string); !ok || message != "Caroline is home" {
-		t.Errorf("Expected message='Caroline is home', got %v", ttsCall.Data["message"])
-	}
-
-	// Verify Caroline's media players include office
-	mediaPlayers, ok := ttsCall.Data["media_player_entity_id"].([]string)
-	if !ok {
-		t.Fatalf("Expected media_player_entity_id to be []string, got %T", ttsCall.Data["media_player_entity_id"])
-	}
-
-	expectedPlayers := []string{
-		"media_player.kitchen",
-		"media_player.dining_room",
-		"media_player.kids_bathroom",
-		"media_player.soundbar",
-		"media_player.office",
-	}
-
-	if len(mediaPlayers) != len(expectedPlayers) {
-		t.Errorf("Expected %d media players for Caroline, got %d", len(expectedPlayers), len(mediaPlayers))
-	}
-}
-
-func TestStateTrackingManager_ToriArrivalAnnouncement(t *testing.T) {
-	t.Parallel(
-	// Test that Tori's arrival is announced when someone is already home
-	)
-
-	mockHA := ha.NewMockClient()
-	logger := zap.NewNop()
-	stateMgr := state.NewManager(mockHA, logger, false)
-
-	// Setup: Nick is already home, Tori is not here
-	if err := stateMgr.SetBool("isNickHome", true); err != nil {
-		t.Fatalf("Failed to set isNickHome: %v", err)
-	}
-	if err := stateMgr.SetBool("isToriHere", false); err != nil {
-		t.Fatalf("Failed to set isToriHere: %v", err)
-	}
-
-	// Create and start manager
-	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
-	if err := manager.Start(); err != nil {
-		t.Fatalf("Failed to start manager: %v", err)
-	}
-	defer manager.Stop()
-
-	// Clear any initial service calls
-	mockHA.ClearServiceCalls()
-
-	// Simulate Tori arriving
-	mockHA.SetState("input_boolean.tori_here", "off", nil)
-	mockHA.SetState("input_boolean.tori_here", "on", nil)
-
-	// Give the async handler a moment to process
-	time.Sleep(50 * time.Millisecond)
-
-	// Verify TTS service was called with Tori's message
-	calls := mockHA.GetServiceCalls()
-	var ttsCall *ha.ServiceCall
-	for i := range calls {
-		if calls[i].Domain == "tts" && calls[i].Service == "speak" {
-			ttsCall = &calls[i]
-			break
-		}
-	}
-
-	if ttsCall == nil {
-		t.Fatal("Expected TTS speak service call for Tori, but none was found")
-	}
-
-	if message, ok := ttsCall.Data["message"].(string); !ok || message != "Tori is here" {
-		t.Errorf("Expected message='Tori is here', got %v", ttsCall.Data["message"])
-	}
-}
-
-func TestStateTrackingManager_ArrivalAnnouncement_ReadOnlyMode(t *testing.T) {
-	t.Parallel(
-	// Test that TTS announcements are logged but not executed in read-only mode
-	)
-
-	mockHA := ha.NewMockClient()
-	logger := zap.NewNop()
-	stateMgr := state.NewManager(mockHA, logger, false)
-
-	// Setup: Caroline is already home, Nick is away
-	if err := stateMgr.SetBool("isCarolineHome", true); err != nil {
-		t.Fatalf("Failed to set isCarolineHome: %v", err)
-	}
-	if err := stateMgr.SetBool("isNickHome", false); err != nil {
-		t.Fatalf("Failed to set isNickHome: %v", err)
-	}
-
-	// Create manager in READ-ONLY mode
-	manager := NewManager(context.Background(), mockHA, stateMgr, logger, true, nil)
-	if err := manager.Start(); err != nil {
-		t.Fatalf("Failed to start manager: %v", err)
-	}
-	defer manager.Stop()
-
-	// Clear any initial service calls
-	mockHA.ClearServiceCalls()
-
-	// Simulate Nick arriving home
-	mockHA.SetState("input_boolean.nick_home", "off", nil)
-	mockHA.SetState("input_boolean.nick_home", "on", nil)
-
-	// Give the async handler a moment to process
-	time.Sleep(50 * time.Millisecond)
-
-	// Verify NO TTS service was called (read-only mode)
-	calls := mockHA.GetServiceCalls()
-	for _, call := range calls {
-		if call.Domain == "tts" && call.Service == "speak" {
-			t.Error("Expected no TTS service call in read-only mode, but call was made")
-		}
-	}
-}
-
-func TestStateTrackingManager_NoAnnouncement_OnStateChangeFromUnknown(t *testing.T) {
-	t.Parallel(
-	// Test that announcements are not made when state changes from unknown/unavailable
-	)
-
-	mockHA := ha.NewMockClient()
-	logger := zap.NewNop()
-	stateMgr := state.NewManager(mockHA, logger, false)
-
-	// Setup: Caroline is already home
-	if err := stateMgr.SetBool("isCarolineHome", true); err != nil {
-		t.Fatalf("Failed to set isCarolineHome: %v", err)
-	}
-
-	// Create and start manager
-	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
-	if err := manager.Start(); err != nil {
-		t.Fatalf("Failed to start manager: %v", err)
-	}
-	defer manager.Stop()
-
-	// Clear any initial service calls
-	mockHA.ClearServiceCalls()
-
-	// Simulate Nick's state changing from unknown to on (no oldState)
-	// This should NOT trigger an announcement
-	mockHA.SetState("input_boolean.nick_home", "on", nil)
-
-	// Give the async handler a moment to process
-	time.Sleep(50 * time.Millisecond)
-
-	// Verify NO TTS service was called
-	calls := mockHA.GetServiceCalls()
-	for _, call := range calls {
-		if call.Domain == "tts" && call.Service == "speak" {
-			t.Error("Expected no TTS announcement when oldState is nil, but TTS service was called")
-		}
+			// Verify NO TTS service was called
+			calls := mockHA.GetServiceCalls()
+			for _, call := range calls {
+				if call.Domain == "tts" && call.Service == "speak" {
+					t.Error("Expected no TTS announcement, but TTS service was called")
+				}
+			}
+		})
 	}
 }
 
@@ -1140,12 +855,9 @@ func TestStateTrackingManager_ShadowState_DerivedStatesUpdated(t *testing.T) {
 	// Test that shadow state outputs.derivedStates is populated after plugin operations
 	// This test catches the bug where UpdateDerivedStates() was never called
 	)
-
 	mockHA := ha.NewMockClient()
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
-
-	// Setup: Nick is home
 	if err := stateMgr.SetBool("isNickHome", true); err != nil {
 		t.Fatalf("Failed to set isNickHome: %v", err)
 	}
@@ -1196,12 +908,9 @@ func TestStateTrackingManager_ShadowState_DerivedStatesUpdateOnChange(t *testing
 	t.Parallel(
 	// Test that shadow state updates when derived states change
 	)
-
 	mockHA := ha.NewMockClient()
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
-
-	// Setup: Everyone away
 	if err := stateMgr.SetBool("isNickHome", false); err != nil {
 		t.Fatalf("Failed to set isNickHome: %v", err)
 	}
@@ -1248,162 +957,84 @@ func TestStateTrackingManager_ShadowState_DerivedStatesUpdateOnChange(t *testing
 	}
 }
 
-func TestStateTrackingManager_NickNearHome_SetsOwnerReturnedWhenNotHome(t *testing.T) {
+func TestStateTrackingManager_NearHomeDetection(t *testing.T) {
 	t.Parallel()
-	// Test that nick_near_home triggers didOwnerJustReturnHome when Nick is NOT home
-
-	mockHA := ha.NewMockClient()
-	logger := zap.NewNop()
-	stateMgr := state.NewManager(mockHA, logger, false)
-
-	// Setup: Nick is NOT home
-	if err := stateMgr.SetBool("isNickHome", false); err != nil {
-		t.Fatalf("Failed to set isNickHome: %v", err)
-	}
-	if err := stateMgr.SetBool("didOwnerJustReturnHome", false); err != nil {
-		t.Fatalf("Failed to set didOwnerJustReturnHome: %v", err)
-	}
-
-	// Create and start manager
-	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
-	if err := manager.Start(); err != nil {
-		t.Fatalf("Failed to start manager: %v", err)
-	}
-	defer manager.Stop()
-
-	// Verify initial state
-	didOwnerReturn, _ := stateMgr.GetBool("didOwnerJustReturnHome")
-	if didOwnerReturn {
-		t.Error("Expected didOwnerJustReturnHome=false initially")
-	}
-
-	// Simulate nick_near_home going on (off → on)
-	mockHA.SetState("input_boolean.nick_near_home", "off", nil)
-	mockHA.SetState("input_boolean.nick_near_home", "on", nil)
-
-	// Verify didOwnerJustReturnHome was set to true
-	didOwnerReturn, err := stateMgr.GetBool("didOwnerJustReturnHome")
-	if err != nil {
-		t.Fatalf("Failed to get didOwnerJustReturnHome: %v", err)
-	}
-	if !didOwnerReturn {
-		t.Error("Expected didOwnerJustReturnHome=true when nick_near_home triggers while Nick is NOT home")
-	}
-}
-
-func TestStateTrackingManager_NickNearHome_IgnoresWhenAlreadyHome(t *testing.T) {
-	t.Parallel()
-	// Test that nick_near_home does NOT trigger didOwnerJustReturnHome when Nick IS already home
-
-	mockHA := ha.NewMockClient()
-	logger := zap.NewNop()
-	stateMgr := state.NewManager(mockHA, logger, false)
-
-	// Setup: Nick IS already home
-	if err := stateMgr.SetBool("isNickHome", true); err != nil {
-		t.Fatalf("Failed to set isNickHome: %v", err)
-	}
-	if err := stateMgr.SetBool("didOwnerJustReturnHome", false); err != nil {
-		t.Fatalf("Failed to set didOwnerJustReturnHome: %v", err)
+	tests := []struct {
+		name           string
+		entityID       string
+		homeStateVar   string
+		isAlreadyHome  bool
+		expectedResult bool
+	}{
+		{
+			name:           "Nick near home sets owner returned when not home",
+			entityID:       "input_boolean.nick_near_home",
+			homeStateVar:   "isNickHome",
+			isAlreadyHome:  false,
+			expectedResult: true,
+		},
+		{
+			name:           "Nick near home ignores when already home",
+			entityID:       "input_boolean.nick_near_home",
+			homeStateVar:   "isNickHome",
+			isAlreadyHome:  true,
+			expectedResult: false,
+		},
+		{
+			name:           "Caroline near home sets owner returned when not home",
+			entityID:       "input_boolean.caroline_near_home",
+			homeStateVar:   "isCarolineHome",
+			isAlreadyHome:  false,
+			expectedResult: true,
+		},
+		{
+			name:           "Caroline near home ignores when already home",
+			entityID:       "input_boolean.caroline_near_home",
+			homeStateVar:   "isCarolineHome",
+			isAlreadyHome:  true,
+			expectedResult: false,
+		},
 	}
 
-	// Create and start manager
-	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
-	if err := manager.Start(); err != nil {
-		t.Fatalf("Failed to start manager: %v", err)
-	}
-	defer manager.Stop()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockHA := ha.NewMockClient()
+			logger := zap.NewNop()
+			stateMgr := state.NewManager(mockHA, logger, false)
 
-	// Simulate nick_near_home going on (off → on) while Nick is already home (leaving)
-	mockHA.SetState("input_boolean.nick_near_home", "off", nil)
-	mockHA.SetState("input_boolean.nick_near_home", "on", nil)
+			// Setup home state for the person
+			if err := stateMgr.SetBool(tt.homeStateVar, tt.isAlreadyHome); err != nil {
+				t.Fatalf("Failed to set %s: %v", tt.homeStateVar, err)
+			}
+			if err := stateMgr.SetBool("didOwnerJustReturnHome", false); err != nil {
+				t.Fatalf("Failed to set didOwnerJustReturnHome: %v", err)
+			}
 
-	// Verify didOwnerJustReturnHome was NOT set (since Nick was already home, this is departure)
-	didOwnerReturn, err := stateMgr.GetBool("didOwnerJustReturnHome")
-	if err != nil {
-		t.Fatalf("Failed to get didOwnerJustReturnHome: %v", err)
-	}
-	if didOwnerReturn {
-		t.Error("Expected didOwnerJustReturnHome=false when nick_near_home triggers while Nick IS home (leaving)")
-	}
-}
+			manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
+			if err := manager.Start(); err != nil {
+				t.Fatalf("Failed to start manager: %v", err)
+			}
+			defer manager.Stop()
 
-func TestStateTrackingManager_CarolineNearHome_SetsOwnerReturnedWhenNotHome(t *testing.T) {
-	t.Parallel()
-	// Test that caroline_near_home triggers didOwnerJustReturnHome when Caroline is NOT home
+			// Verify initial state
+			didOwnerReturn, _ := stateMgr.GetBool("didOwnerJustReturnHome")
+			if didOwnerReturn {
+				t.Error("Expected didOwnerJustReturnHome=false initially")
+			}
 
-	mockHA := ha.NewMockClient()
-	logger := zap.NewNop()
-	stateMgr := state.NewManager(mockHA, logger, false)
+			// Simulate near_home going on (off -> on)
+			mockHA.SetState(tt.entityID, "off", nil)
+			mockHA.SetState(tt.entityID, "on", nil)
 
-	// Setup: Caroline is NOT home
-	if err := stateMgr.SetBool("isCarolineHome", false); err != nil {
-		t.Fatalf("Failed to set isCarolineHome: %v", err)
-	}
-	if err := stateMgr.SetBool("didOwnerJustReturnHome", false); err != nil {
-		t.Fatalf("Failed to set didOwnerJustReturnHome: %v", err)
-	}
-
-	// Create and start manager
-	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
-	if err := manager.Start(); err != nil {
-		t.Fatalf("Failed to start manager: %v", err)
-	}
-	defer manager.Stop()
-
-	// Verify initial state
-	didOwnerReturn, _ := stateMgr.GetBool("didOwnerJustReturnHome")
-	if didOwnerReturn {
-		t.Error("Expected didOwnerJustReturnHome=false initially")
-	}
-
-	// Simulate caroline_near_home going on (off → on)
-	mockHA.SetState("input_boolean.caroline_near_home", "off", nil)
-	mockHA.SetState("input_boolean.caroline_near_home", "on", nil)
-
-	// Verify didOwnerJustReturnHome was set to true
-	didOwnerReturn, err := stateMgr.GetBool("didOwnerJustReturnHome")
-	if err != nil {
-		t.Fatalf("Failed to get didOwnerJustReturnHome: %v", err)
-	}
-	if !didOwnerReturn {
-		t.Error("Expected didOwnerJustReturnHome=true when caroline_near_home triggers while Caroline is NOT home")
-	}
-}
-
-func TestStateTrackingManager_CarolineNearHome_IgnoresWhenAlreadyHome(t *testing.T) {
-	t.Parallel()
-	// Test that caroline_near_home does NOT trigger didOwnerJustReturnHome when Caroline IS already home
-
-	mockHA := ha.NewMockClient()
-	logger := zap.NewNop()
-	stateMgr := state.NewManager(mockHA, logger, false)
-
-	// Setup: Caroline IS already home
-	if err := stateMgr.SetBool("isCarolineHome", true); err != nil {
-		t.Fatalf("Failed to set isCarolineHome: %v", err)
-	}
-	if err := stateMgr.SetBool("didOwnerJustReturnHome", false); err != nil {
-		t.Fatalf("Failed to set didOwnerJustReturnHome: %v", err)
-	}
-
-	// Create and start manager
-	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
-	if err := manager.Start(); err != nil {
-		t.Fatalf("Failed to start manager: %v", err)
-	}
-	defer manager.Stop()
-
-	// Simulate caroline_near_home going on (off → on) while Caroline is already home (leaving)
-	mockHA.SetState("input_boolean.caroline_near_home", "off", nil)
-	mockHA.SetState("input_boolean.caroline_near_home", "on", nil)
-
-	// Verify didOwnerJustReturnHome was NOT set (since Caroline was already home, this is departure)
-	didOwnerReturn, err := stateMgr.GetBool("didOwnerJustReturnHome")
-	if err != nil {
-		t.Fatalf("Failed to get didOwnerJustReturnHome: %v", err)
-	}
-	if didOwnerReturn {
-		t.Error("Expected didOwnerJustReturnHome=false when caroline_near_home triggers while Caroline IS home (leaving)")
+			// Verify didOwnerJustReturnHome matches expected result
+			didOwnerReturn, err := stateMgr.GetBool("didOwnerJustReturnHome")
+			if err != nil {
+				t.Fatalf("Failed to get didOwnerJustReturnHome: %v", err)
+			}
+			if didOwnerReturn != tt.expectedResult {
+				t.Errorf("Expected didOwnerJustReturnHome=%v, got %v (entityID=%s, alreadyHome=%v)",
+					tt.expectedResult, didOwnerReturn, tt.entityID, tt.isAlreadyHome)
+			}
+		})
 	}
 }

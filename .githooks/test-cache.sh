@@ -23,7 +23,7 @@
 set -e
 
 CACHE_NAME="${1:-default}"
-MAKE_TARGET="${2:-test-go}"
+MAKE_TARGET="${2:-test-no-cache}"
 
 CACHE_DIR=".test-cache"
 CACHE_FILE="${CACHE_DIR}/${CACHE_NAME}.hash"
@@ -101,7 +101,7 @@ main() {
         echo "  CACHED: No changes since last successful '${MAKE_TARGET}' run"
         echo "  Skipping tests (state hash: ${current_hash:0:20}...)"
         echo ""
-        echo "  To force re-run: rm ${CACHE_FILE}"
+        echo "  To force re-run: make cache-clear OR rm ${CACHE_FILE}"
         echo "=============================================================================="
         echo ""
         return 0

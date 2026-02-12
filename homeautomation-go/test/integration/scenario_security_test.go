@@ -180,10 +180,10 @@ func TestScenario_DidOwnerJustReturnHomeAutoReset(t *testing.T) {
 	t.Log("GIVEN: Nick arrives home")
 
 	server.SetState("input_boolean.nick_home", "off", nil)
-	time.Sleep(100 * time.Millisecond) // Real sleep for event processing
+	waitForBoolState(t, manager, "isNickHome", false, "isNickHome should be false initially")
 
 	server.SetState("input_boolean.nick_home", "on", nil)
-	time.Sleep(100 * time.Millisecond) // Real sleep for event processing
+	waitForBoolState(t, manager, "didOwnerJustReturnHome", true, "didOwnerJustReturnHome should be true after arrival")
 
 	t.Log("THEN: didOwnerJustReturnHome should be true initially")
 
@@ -192,6 +192,11 @@ func TestScenario_DidOwnerJustReturnHomeAutoReset(t *testing.T) {
 	assert.True(t, didReturn, "didOwnerJustReturnHome should be true after arrival")
 
 	t.Log("WHEN: 10 minutes pass (simulated via mock clock)")
+
+	// Brief real sleep to ensure the mock clock timer from setOwnerJustReturnedHome()
+	// is fully registered. The waitForBoolState above confirms the state was set, but
+	// the timer registration happens after SetBool in the handler goroutine.
+	time.Sleep(50 * time.Millisecond)
 
 	// Use mock clock to advance time instantly; AdvanceAndProcess fires callbacks
 	// and yields to the scheduler so any woken goroutines can complete
@@ -215,10 +220,10 @@ func TestScenario_MultipleArrivalsWithin10Minutes(t *testing.T) {
 
 	server.SetState("input_boolean.nick_home", "off", nil)
 	server.SetState("input_boolean.caroline_home", "off", nil)
-	time.Sleep(100 * time.Millisecond) // Real sleep for event processing
+	waitForBoolState(t, manager, "isNickHome", false, "initial states should propagate")
 
 	server.SetState("input_boolean.nick_home", "on", nil)
-	time.Sleep(100 * time.Millisecond) // Real sleep for event processing
+	waitForBoolState(t, manager, "didOwnerJustReturnHome", true, "didOwnerJustReturnHome should be true after Nick arrives")
 
 	didReturn, err := manager.GetBool("didOwnerJustReturnHome")
 	require.NoError(t, err)
@@ -226,11 +231,15 @@ func TestScenario_MultipleArrivalsWithin10Minutes(t *testing.T) {
 
 	t.Log("WHEN: Caroline arrives 2 minutes later (simulated)")
 
+	// Brief real sleep to ensure Nick's mock clock timer is fully registered
+	// before advancing the clock.
+	time.Sleep(50 * time.Millisecond)
+
 	// Use mock clock to advance time instantly
 	mockClock.AdvanceAndProcess(2 * time.Minute)
 
 	server.SetState("input_boolean.caroline_home", "on", nil)
-	time.Sleep(100 * time.Millisecond) // Real sleep for event processing
+	waitForBoolState(t, manager, "isCarolineHome", true, "isCarolineHome should be true")
 
 	t.Log("THEN: didOwnerJustReturnHome should still be true")
 
@@ -239,6 +248,10 @@ func TestScenario_MultipleArrivalsWithin10Minutes(t *testing.T) {
 	assert.True(t, didReturn, "didOwnerJustReturnHome should still be true")
 
 	t.Log("AND: Timer should have been extended (10 minutes from Caroline's arrival)")
+
+	// Brief real sleep to ensure Caroline's mock clock timer is fully registered
+	// before advancing the clock.
+	time.Sleep(50 * time.Millisecond)
 
 	// Advance 9 minutes - should still be true (timer was reset by Caroline's arrival)
 	mockClock.AdvanceAndProcess(9 * time.Minute)
@@ -312,7 +325,7 @@ func TestScenario_OnlyOwnersTriggersGarage(t *testing.T) {
 	t.Log("WHEN: Tori arrives (isToriHere changes to true)")
 
 	server.SetState("input_boolean.tori_here", "on", nil)
-	time.Sleep(100 * time.Millisecond)
+	waitForBoolState(t, manager, "isToriHere", true, "isToriHere should become true")
 
 	t.Log("THEN: didOwnerJustReturnHome should remain false (Tori is not an owner)")
 
