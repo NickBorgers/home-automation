@@ -7,12 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"homeautomation/internal/ha"
 	"homeautomation/internal/state"
-	"homeautomation/internal/testlogger"
+	"homeautomation/pkg/testutil"
 
 	"github.com/stretchr/testify/assert"
-	"go.uber.org/zap"
 )
 
 // createTestConfig creates a test energy configuration
@@ -68,12 +66,10 @@ func createTestConfig() *EnergyConfig {
 
 func TestDetermineBatteryEnergyLevel(t *testing.T) {
 	t.Parallel()
-	logger := testlogger.New()
+	env := testutil.NewEnv(t)
 	config := createTestConfig()
-	mockClient := ha.NewMockClient()
-	stateManager := state.NewManager(mockClient, logger, false)
 
-	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil, nil)
+	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, false, nil, nil)
 
 	tests := []struct {
 		name       string
@@ -107,12 +103,10 @@ func TestDetermineBatteryEnergyLevel(t *testing.T) {
 
 func TestIsFreeEnergyTime(t *testing.T) {
 	t.Parallel()
-	logger := testlogger.New()
+	env := testutil.NewEnv(t)
 	config := createTestConfig()
-	mockClient := ha.NewMockClient()
-	stateManager := state.NewManager(mockClient, logger, false)
 
-	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil, nil)
+	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, false, nil, nil)
 
 	// Note: This test is time-dependent and may need adjustment
 	// For now, we test the logic with different scenarios
@@ -166,12 +160,10 @@ func TestLoadConfigFromRepoFile(t *testing.T) {
 
 func TestFreeEnergyTimeSpansMidnight(t *testing.T) {
 	t.Parallel()
-	logger := testlogger.New()
+	env := testutil.NewEnv(t)
 	config := createTestConfig()
-	mockClient := ha.NewMockClient()
-	stateManager := state.NewManager(mockClient, logger, false)
 
-	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil, nil)
+	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, false, nil, nil)
 
 	// Test that the logic handles times that span midnight
 	// Start: 21:00, End: 07:00
@@ -208,23 +200,21 @@ func TestFreeEnergyTimeSpansMidnight(t *testing.T) {
 // TestManagerStartAndHandlers tests the manager lifecycle and handlers
 func TestManagerStartAndHandlers(t *testing.T) {
 	t.Parallel()
-	logger := testlogger.New()
+	env := testutil.NewEnv(t)
 	config := createTestConfig()
-	mockClient := ha.NewMockClient()
 
 	// Initialize state manager with initial values
-	stateManager := state.NewManager(mockClient, logger, false)
-	err := stateManager.SyncFromHA()
+	err := env.StateMgr.SyncFromHA()
 	assert.NoError(t, err)
 
 	// Set initial state
-	stateManager.SetBool("isGridAvailable", true)
-	stateManager.SetString("batteryEnergyLevel", "black")
-	stateManager.SetString("solarProductionEnergyLevel", "black")
-	stateManager.SetNumber("thisHourSolarGeneration", 0.0)
-	stateManager.SetNumber("remainingSolarGeneration", 0.0)
+	env.StateMgr.SetBool("isGridAvailable", true)
+	env.StateMgr.SetString("batteryEnergyLevel", "black")
+	env.StateMgr.SetString("solarProductionEnergyLevel", "black")
+	env.StateMgr.SetNumber("thisHourSolarGeneration", 0.0)
+	env.StateMgr.SetNumber("remainingSolarGeneration", 0.0)
 
-	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil, nil)
+	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, false, nil, nil)
 
 	// Test Start method
 	err = manager.Start()
@@ -237,7 +227,7 @@ func TestManagerStartAndHandlers(t *testing.T) {
 	t.Run("handleBatteryChange", func(t *testing.T) {
 
 		manager.handleBatteryChange(50.0)
-		level, _ := stateManager.GetString("batteryEnergyLevel")
+		level, _ := env.StateMgr.GetString("batteryEnergyLevel")
 		assert.Equal(t, "red", level)
 	})
 
@@ -247,21 +237,21 @@ func TestManagerStartAndHandlers(t *testing.T) {
 
 		manager.handleBatteryChange(math.Inf(1))
 		// Level should remain red from previous test
-		level, _ := stateManager.GetString("batteryEnergyLevel")
+		level, _ := env.StateMgr.GetString("batteryEnergyLevel")
 		assert.Equal(t, "red", level)
 	})
 
 	t.Run("handleThisHourSolarChange", func(t *testing.T) {
 
 		manager.handleThisHourSolarChange(5.0)
-		kw, _ := stateManager.GetNumber("thisHourSolarGeneration")
+		kw, _ := env.StateMgr.GetNumber("thisHourSolarGeneration")
 		assert.Equal(t, 5.0, kw)
 	})
 
 	t.Run("handleRemainingSolarChange", func(t *testing.T) {
 
 		manager.handleRemainingSolarChange(15.0)
-		kwh, _ := stateManager.GetNumber("remainingSolarGeneration")
+		kwh, _ := env.StateMgr.GetNumber("remainingSolarGeneration")
 		assert.Equal(t, 15.0, kwh)
 	})
 
@@ -271,9 +261,9 @@ func TestManagerStartAndHandlers(t *testing.T) {
 
 	t.Run("checkFreeEnergy", func(t *testing.T) {
 
-		stateManager.SetBool("isGridAvailable", false)
+		env.StateMgr.SetBool("isGridAvailable", false)
 		manager.checkFreeEnergy()
-		isFree, _ := stateManager.GetBool("isFreeEnergyAvailable")
+		isFree, _ := env.StateMgr.GetBool("isFreeEnergyAvailable")
 		assert.False(t, isFree)
 	})
 
@@ -309,9 +299,7 @@ func TestLoadConfigError(t *testing.T) {
 // TestIsFreeEnergyTime_EdgeCases tests edge cases for free energy time
 func TestIsFreeEnergyTime_EdgeCases(t *testing.T) {
 	t.Parallel()
-	logger := testlogger.New()
-	mockClient := ha.NewMockClient()
-	stateManager := state.NewManager(mockClient, logger, false)
+	env := testutil.NewEnv(t)
 
 	t.Run("invalid_start_time", func(t *testing.T) {
 
@@ -329,7 +317,7 @@ func TestIsFreeEnergyTime_EdgeCases(t *testing.T) {
 			},
 		}
 
-		manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil, nil)
+		manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, false, nil, nil)
 		result := manager.isFreeEnergyTime(true)
 		assert.False(t, result)
 	})
@@ -350,7 +338,7 @@ func TestIsFreeEnergyTime_EdgeCases(t *testing.T) {
 			},
 		}
 
-		manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil, nil)
+		manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, false, nil, nil)
 		result := manager.isFreeEnergyTime(true)
 		assert.False(t, result)
 	})
@@ -359,18 +347,16 @@ func TestIsFreeEnergyTime_EdgeCases(t *testing.T) {
 // TestEnergyManager_Stop tests the Stop method and subscription cleanup
 func TestEnergyManager_Stop(t *testing.T) {
 	t.Parallel()
-	logger := zap.NewNop()
-	mockClient := ha.NewMockClient()
-	stateManager := state.NewManager(mockClient, logger, false)
+	env := testutil.NewEnv(t)
 
 	config := createTestConfig()
-	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil, nil)
+	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, false, nil, nil)
 
 	// Initialize required state variables
-	_ = stateManager.SetBool("isGridAvailable", true)
-	_ = stateManager.SetString("batteryEnergyLevel", "green")
-	_ = stateManager.SetString("solarProductionEnergyLevel", "green")
-	_ = stateManager.SetBool("isFreeEnergyAvailable", false)
+	_ = env.StateMgr.SetBool("isGridAvailable", true)
+	_ = env.StateMgr.SetString("batteryEnergyLevel", "green")
+	_ = env.StateMgr.SetString("solarProductionEnergyLevel", "green")
+	_ = env.StateMgr.SetBool("isFreeEnergyAvailable", false)
 
 	// Start manager (creates subscriptions and goroutine)
 	err := manager.Start()
@@ -393,15 +379,13 @@ func TestEnergyManager_Stop(t *testing.T) {
 // TestTimezoneHandling tests that timezone configuration works correctly
 func TestTimezoneHandling(t *testing.T) {
 	t.Parallel()
-	logger := zap.NewNop()
-	mockClient := ha.NewMockClient()
-	stateManager := state.NewManager(mockClient, logger, false)
+	env := testutil.NewEnv(t)
 
 	config := createTestConfig()
 
 	t.Run("default_timezone_is_utc", func(t *testing.T) {
 
-		manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil, nil)
+		manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, false, nil, nil)
 		assert.Equal(t, time.UTC, manager.timezone)
 	})
 
@@ -410,7 +394,7 @@ func TestTimezoneHandling(t *testing.T) {
 		estLocation, err := time.LoadLocation("America/New_York")
 		assert.NoError(t, err)
 
-		manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, estLocation, nil)
+		manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, false, estLocation, nil)
 		assert.Equal(t, estLocation, manager.timezone)
 	})
 
@@ -436,13 +420,13 @@ func TestTimezoneHandling(t *testing.T) {
 		}
 
 		// Test with UTC timezone
-		utcManager := NewManager(context.Background(), mockClient, stateManager, testConfig, logger, false, time.UTC, nil)
+		utcManager := NewManager(context.Background(), env.MockHA, env.StateMgr, testConfig, env.Logger, false, time.UTC, nil)
 		assert.Equal(t, time.UTC, utcManager.timezone)
 
 		// Test with different timezone
 		estLocation, err := time.LoadLocation("America/New_York")
 		assert.NoError(t, err)
-		estManager := NewManager(context.Background(), mockClient, stateManager, testConfig, logger, false, estLocation, nil)
+		estManager := NewManager(context.Background(), env.MockHA, env.StateMgr, testConfig, env.Logger, false, estLocation, nil)
 		assert.Equal(t, estLocation, estManager.timezone)
 
 		// Both managers should use their configured timezone for calculations
@@ -453,22 +437,20 @@ func TestTimezoneHandling(t *testing.T) {
 
 func TestManagerReset(t *testing.T) {
 	t.Parallel()
-	logger := testlogger.New()
-	mockClient := ha.NewMockClient()
-	stateManager := state.NewManager(mockClient, logger, false)
+	env := testutil.NewEnv(t)
 	config := createTestConfig()
 
 	// Set up initial state including currentEnergyLevel
 	// Note: currentEnergyLevel is now computed by the ComputedStateRegistry, not the plugin.
 	// The plugin observes it. For this test, we set it directly.
-	mockClient.SetState("input_text.current_energy_level", "green", map[string]interface{}{})
-	mockClient.SetState("input_boolean.grid_available", "on", map[string]interface{}{})
-	mockClient.Connect()
+	env.MockHA.SetState("input_text.current_energy_level", "green", map[string]interface{}{})
+	env.MockHA.SetState("input_boolean.grid_available", "on", map[string]interface{}{})
+	env.MockHA.Connect()
 
-	err := stateManager.SyncFromHA()
+	err := env.StateMgr.SyncFromHA()
 	assert.NoError(t, err)
 
-	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil, nil)
+	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, false, nil, nil)
 
 	err = manager.Start()
 	assert.NoError(t, err)
@@ -481,7 +463,7 @@ func TestManagerReset(t *testing.T) {
 	// Verify the reset completed without error
 	// (The actual energy level computation is now handled by ComputedStateRegistry,
 	// so we just verify the plugin reads and uses the current value)
-	currentLevel, err := stateManager.GetString("currentEnergyLevel")
+	currentLevel, err := env.StateMgr.GetString("currentEnergyLevel")
 	assert.NoError(t, err)
 	assert.NotEmpty(t, currentLevel)
 }
@@ -489,34 +471,26 @@ func TestManagerReset(t *testing.T) {
 // TestHandleGridAvailabilityChange tests grid availability change synchronization
 func TestHandleGridAvailabilityChange(t *testing.T) {
 	t.Parallel()
-	logger := zap.NewNop()
 	config := createTestConfig()
 
 	t.Run("syncs_grid_availability_to_HA_when_enabled", func(t *testing.T) {
 
-		mockClient := ha.NewMockClient()
-		stateManager := state.NewManager(mockClient, logger, false)
-		manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil, nil)
+		env := testutil.NewEnv(t)
+		manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, false, nil, nil)
 
 		// Clear any initial service calls
-		mockClient.ClearServiceCalls()
+		env.MockHA.ClearServiceCalls()
 
 		// Simulate grid availability change to true
 		manager.handleGridAvailabilityChange("isGridAvailable", false, true)
 
 		// Verify SetInputBoolean was called for grid_available
 		// Note: checkFreeEnergy() is also called, which may make additional service calls
-		serviceCalls := mockClient.GetServiceCalls()
+		serviceCalls := env.MockHA.GetServiceCalls()
 		assert.GreaterOrEqual(t, len(serviceCalls), 1, "Expected at least one service call")
 
 		// Find the grid_available service call
-		var gridAvailableCall *ha.ServiceCall
-		for i := range serviceCalls {
-			if serviceCalls[i].Data["entity_id"] == "input_boolean.grid_available" {
-				gridAvailableCall = &serviceCalls[i]
-				break
-			}
-		}
+		gridAvailableCall := testutil.FindServiceCallWithEntity(serviceCalls, "input_boolean", "turn_on", "input_boolean.grid_available")
 
 		assert.NotNil(t, gridAvailableCall, "Expected grid_available service call")
 		assert.Equal(t, "input_boolean", gridAvailableCall.Domain)
@@ -525,29 +499,22 @@ func TestHandleGridAvailabilityChange(t *testing.T) {
 
 	t.Run("syncs_grid_availability_to_HA_when_disabled", func(t *testing.T) {
 
-		mockClient := ha.NewMockClient()
-		stateManager := state.NewManager(mockClient, logger, false)
-		manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil, nil)
+		env := testutil.NewEnv(t)
+		manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, false, nil, nil)
 
 		// Clear any initial service calls
-		mockClient.ClearServiceCalls()
+		env.MockHA.ClearServiceCalls()
 
 		// Simulate grid availability change to false
 		manager.handleGridAvailabilityChange("isGridAvailable", true, false)
 
 		// Verify SetInputBoolean was called with turn_off for grid_available
 		// Note: checkFreeEnergy() is also called, which may make additional service calls
-		serviceCalls := mockClient.GetServiceCalls()
+		serviceCalls := env.MockHA.GetServiceCalls()
 		assert.GreaterOrEqual(t, len(serviceCalls), 1, "Expected at least one service call")
 
 		// Find the grid_available service call
-		var gridAvailableCall *ha.ServiceCall
-		for i := range serviceCalls {
-			if serviceCalls[i].Data["entity_id"] == "input_boolean.grid_available" {
-				gridAvailableCall = &serviceCalls[i]
-				break
-			}
-		}
+		gridAvailableCall := testutil.FindServiceCallWithEntity(serviceCalls, "input_boolean", "turn_off", "input_boolean.grid_available")
 
 		assert.NotNil(t, gridAvailableCall, "Expected grid_available service call")
 		assert.Equal(t, "input_boolean", gridAvailableCall.Domain)
@@ -556,62 +523,60 @@ func TestHandleGridAvailabilityChange(t *testing.T) {
 
 	t.Run("skips_HA_sync_in_read_only_mode", func(t *testing.T) {
 
-		mockClient := ha.NewMockClient()
-		stateManager := state.NewManager(mockClient, logger, true) // read-only mode
-		manager := NewManager(context.Background(), mockClient, stateManager, config, logger, true, nil, nil)
+		env := testutil.NewEnv(t)
+		readOnlyStateMgr := state.NewManager(env.MockHA, env.Logger, true) // read-only mode
+		manager := NewManager(context.Background(), env.MockHA, readOnlyStateMgr, config, env.Logger, true, nil, nil)
 
 		// Clear any initial service calls
-		mockClient.ClearServiceCalls()
+		env.MockHA.ClearServiceCalls()
 
 		// Simulate grid availability change
 		manager.handleGridAvailabilityChange("isGridAvailable", false, true)
 
 		// Verify no service calls were made
-		serviceCalls := mockClient.GetServiceCalls()
+		serviceCalls := env.MockHA.GetServiceCalls()
 		assert.Len(t, serviceCalls, 0, "Expected no service calls in read-only mode")
 	})
 
 	t.Run("handles_non_boolean_value_gracefully", func(t *testing.T) {
 
-		mockClient := ha.NewMockClient()
-		stateManager := state.NewManager(mockClient, logger, false)
-		manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil, nil)
+		env := testutil.NewEnv(t)
+		manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, false, nil, nil)
 
 		// Clear any initial service calls
-		mockClient.ClearServiceCalls()
+		env.MockHA.ClearServiceCalls()
 
 		// Simulate grid availability change with invalid value
 		manager.handleGridAvailabilityChange("isGridAvailable", false, "not_a_boolean")
 
 		// Verify no service calls were made (error was handled)
-		serviceCalls := mockClient.GetServiceCalls()
+		serviceCalls := env.MockHA.GetServiceCalls()
 		assert.Len(t, serviceCalls, 0, "Expected no service calls with invalid value")
 	})
 
 	t.Run("triggers_free_energy_recalculation", func(t *testing.T) {
 
-		mockClient := ha.NewMockClient()
-		stateManager := state.NewManager(mockClient, logger, false)
+		env := testutil.NewEnv(t)
 
 		// Initialize required state variables
-		_ = stateManager.SyncFromHA()
-		_ = stateManager.SetBool("isGridAvailable", true)
-		_ = stateManager.SetBool("isFreeEnergyAvailable", false)
+		_ = env.StateMgr.SyncFromHA()
+		_ = env.StateMgr.SetBool("isGridAvailable", true)
+		_ = env.StateMgr.SetBool("isFreeEnergyAvailable", false)
 
-		manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil, nil)
+		manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, false, nil, nil)
 
 		// Clear any initial service calls
-		mockClient.ClearServiceCalls()
+		env.MockHA.ClearServiceCalls()
 
 		// Get initial free energy state
-		initialFreeEnergy, _ := stateManager.GetBool("isFreeEnergyAvailable")
+		initialFreeEnergy, _ := env.StateMgr.GetBool("isFreeEnergyAvailable")
 
 		// Simulate grid availability change
 		manager.handleGridAvailabilityChange("isGridAvailable", false, true)
 
 		// Verify free energy was recalculated (may or may not change depending on time)
 		// The important thing is that checkFreeEnergy was called without error
-		currentFreeEnergy, err := stateManager.GetBool("isFreeEnergyAvailable")
+		currentFreeEnergy, err := env.StateMgr.GetBool("isFreeEnergyAvailable")
 		assert.NoError(t, err)
 
 		// Value might be the same, but at least we verify it was processed
@@ -622,28 +587,26 @@ func TestHandleGridAvailabilityChange(t *testing.T) {
 
 func TestIndicatorLightsDiscovery(t *testing.T) {
 	t.Parallel()
-	logger := testlogger.New()
-	mockClient := ha.NewMockClient()
-	stateManager := state.NewManager(mockClient, logger, false)
+	env := testutil.NewEnv(t)
 	config := createTestConfig()
 
 	// Set up mock states for light entities - some with "Radar" in friendly_name
-	mockClient.SetState("light.apollo_bedroom_rgb", "on", map[string]interface{}{
+	env.MockHA.SetState("light.apollo_bedroom_rgb", "on", map[string]interface{}{
 		"friendly_name": "Apollo Bedroom Radar Light",
 	})
-	mockClient.SetState("light.apollo_kitchen_rgb", "on", map[string]interface{}{
+	env.MockHA.SetState("light.apollo_kitchen_rgb", "on", map[string]interface{}{
 		"friendly_name": "Apollo Kitchen Radar Light",
 	})
-	mockClient.SetState("light.living_room_lamp", "on", map[string]interface{}{
+	env.MockHA.SetState("light.living_room_lamp", "on", map[string]interface{}{
 		"friendly_name": "Living Room Lamp", // No "Radar", should not be discovered
 	})
-	mockClient.SetState("sensor.bedroom_radar", "detected", map[string]interface{}{
+	env.MockHA.SetState("sensor.bedroom_radar", "detected", map[string]interface{}{
 		"friendly_name": "Bedroom Radar", // Sensor, not light - should not be discovered
 	})
 
-	mockClient.Connect()
+	env.MockHA.Connect()
 
-	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil, nil)
+	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, false, nil, nil)
 
 	// Discovery happens during Start()
 	err := manager.Start()
@@ -658,9 +621,7 @@ func TestIndicatorLightsDiscovery(t *testing.T) {
 
 func TestIndicatorLightsServiceCall(t *testing.T) {
 	t.Parallel()
-	logger := testlogger.New()
-	mockClient := ha.NewMockClient()
-	stateManager := state.NewManager(mockClient, logger, false)
+	env := testutil.NewEnv(t)
 
 	// Create config with light configs for each energy level
 	config := createTestConfig()
@@ -672,14 +633,14 @@ func TestIndicatorLightsServiceCall(t *testing.T) {
 	config.Energy.EnergyStates[4].LightConfig = LightConfig{Red: 255, Green: 255, Blue: 255, BrightnessPct: 100} // white
 
 	// Set up mock light entities with "Radar" in friendly_name
-	mockClient.SetState("light.apollo_bedroom_rgb", "on", map[string]interface{}{
+	env.MockHA.SetState("light.apollo_bedroom_rgb", "on", map[string]interface{}{
 		"friendly_name": "Apollo Bedroom Radar Light",
 	})
 
-	mockClient.Connect()
+	env.MockHA.Connect()
 
 	// Create manager NOT in read-only mode
-	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil, nil)
+	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, false, nil, nil)
 
 	err := manager.Start()
 	assert.NoError(t, err)
@@ -692,23 +653,17 @@ func TestIndicatorLightsServiceCall(t *testing.T) {
 	manager.WaitForStartup()
 
 	// Clear any service calls from startup
-	mockClient.ClearServiceCalls()
+	env.MockHA.ClearServiceCalls()
 
 	// Test updateIndicatorLights directly with a specific energy level
 	// This avoids complications with free energy time and recalculation
 	manager.updateIndicatorLights("yellow")
 
 	// Verify the light service was called
-	calls := mockClient.GetServiceCalls()
+	calls := env.MockHA.GetServiceCalls()
 
 	// Find the light.turn_on call (ignore other background calls like input_boolean updates)
-	var lightCall *ha.ServiceCall
-	for i := range calls {
-		if calls[i].Domain == "light" && calls[i].Service == "turn_on" {
-			lightCall = &calls[i]
-			break
-		}
-	}
+	lightCall := testutil.FindServiceCall(calls, "light", "turn_on")
 
 	assert.NotNil(t, lightCall, "Expected light.turn_on service call")
 	if lightCall != nil {
@@ -729,43 +684,35 @@ func TestIndicatorLightsServiceCall(t *testing.T) {
 
 func TestIndicatorLightsReadOnlyMode(t *testing.T) {
 	t.Parallel()
-	logger := testlogger.New()
-	mockClient := ha.NewMockClient()
-	stateManager := state.NewManager(mockClient, logger, false)
+	env := testutil.NewEnv(t)
 	config := createTestConfig()
 
 	// Add LightConfig
 	config.Energy.EnergyStates[0].LightConfig = LightConfig{Red: 25, Green: 25, Blue: 112, BrightnessPct: 70}
 
 	// Set up mock light entity
-	mockClient.SetState("light.apollo_bedroom_rgb", "on", map[string]interface{}{
+	env.MockHA.SetState("light.apollo_bedroom_rgb", "on", map[string]interface{}{
 		"friendly_name": "Apollo Bedroom Radar Light",
 	})
 
-	mockClient.Connect()
+	env.MockHA.Connect()
 
 	// Create manager in READ-ONLY mode
-	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, true, nil, nil)
+	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, true, nil, nil)
 
 	err := manager.Start()
 	assert.NoError(t, err)
 	defer manager.Stop()
 
 	// Clear any service calls from startup
-	mockClient.ClearServiceCalls()
+	env.MockHA.ClearServiceCalls()
 
 	// Trigger updateIndicatorLights directly
 	manager.updateIndicatorLights("black")
 
 	// Verify NO light.turn_on service was called in read-only mode
-	calls := mockClient.GetServiceCalls()
-	var lightCalls []ha.ServiceCall
-	for _, c := range calls {
-		if c.Domain == "light" && c.Service == "turn_on" {
-			lightCalls = append(lightCalls, c)
-		}
-	}
-	assert.Len(t, lightCalls, 0, "Expected no light.turn_on service calls in read-only mode")
+	calls := env.MockHA.GetServiceCalls()
+	testutil.AssertNoServiceCall(t, calls, "light", "turn_on")
 
 	// But shadow state should still be updated
 	shadowState := manager.GetShadowState()
@@ -775,28 +722,26 @@ func TestIndicatorLightsReadOnlyMode(t *testing.T) {
 
 func TestIndicatorLightsDiscoveryCaseInsensitive(t *testing.T) {
 	t.Parallel()
-	logger := testlogger.New()
-	mockClient := ha.NewMockClient()
-	stateManager := state.NewManager(mockClient, logger, false)
+	env := testutil.NewEnv(t)
 	config := createTestConfig()
 
 	// Set up mock light entities with different casing of "Radar"
-	mockClient.SetState("light.apollo_lower_case", "on", map[string]interface{}{
+	env.MockHA.SetState("light.apollo_lower_case", "on", map[string]interface{}{
 		"friendly_name": "Apollo radar sensor", // lowercase "radar"
 	})
-	mockClient.SetState("light.apollo_upper_case", "on", map[string]interface{}{
+	env.MockHA.SetState("light.apollo_upper_case", "on", map[string]interface{}{
 		"friendly_name": "Apollo RADAR sensor", // uppercase "RADAR"
 	})
-	mockClient.SetState("light.apollo_mixed_case", "on", map[string]interface{}{
+	env.MockHA.SetState("light.apollo_mixed_case", "on", map[string]interface{}{
 		"friendly_name": "Apollo RaDaR sensor", // mixed case
 	})
-	mockClient.SetState("light.no_match", "on", map[string]interface{}{
+	env.MockHA.SetState("light.no_match", "on", map[string]interface{}{
 		"friendly_name": "No match here",
 	})
 
-	mockClient.Connect()
+	env.MockHA.Connect()
 
-	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil, nil)
+	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, false, nil, nil)
 
 	err := manager.Start()
 	assert.NoError(t, err)
@@ -811,27 +756,25 @@ func TestIndicatorLightsDiscoveryCaseInsensitive(t *testing.T) {
 
 func TestIndicatorLightsDiscoveryCustomPattern(t *testing.T) {
 	t.Parallel()
-	logger := testlogger.New()
-	mockClient := ha.NewMockClient()
-	stateManager := state.NewManager(mockClient, logger, false)
+	env := testutil.NewEnv(t)
 	config := createTestConfig()
 
 	// Set a custom regex pattern
 	config.Energy.IndicatorLights.FriendlyNamePattern = "^Apollo.*RGB$"
 
-	mockClient.SetState("light.apollo_bedroom_rgb", "on", map[string]interface{}{
+	env.MockHA.SetState("light.apollo_bedroom_rgb", "on", map[string]interface{}{
 		"friendly_name": "Apollo Bedroom RGB", // matches pattern
 	})
-	mockClient.SetState("light.apollo_kitchen_radar", "on", map[string]interface{}{
+	env.MockHA.SetState("light.apollo_kitchen_radar", "on", map[string]interface{}{
 		"friendly_name": "Apollo Kitchen Radar", // doesn't match pattern
 	})
-	mockClient.SetState("light.hue_living_room", "on", map[string]interface{}{
+	env.MockHA.SetState("light.hue_living_room", "on", map[string]interface{}{
 		"friendly_name": "Hue Living Room RGB", // doesn't start with Apollo
 	})
 
-	mockClient.Connect()
+	env.MockHA.Connect()
 
-	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil, nil)
+	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, false, nil, nil)
 
 	err := manager.Start()
 	assert.NoError(t, err)
@@ -844,23 +787,21 @@ func TestIndicatorLightsDiscoveryCustomPattern(t *testing.T) {
 
 func TestIndicatorLightsServiceCallError(t *testing.T) {
 	t.Parallel()
-	logger := testlogger.New()
-	mockClient := ha.NewMockClient()
-	stateManager := state.NewManager(mockClient, logger, false)
+	env := testutil.NewEnv(t)
 	config := createTestConfig()
 
 	// Add LightConfig for testing
 	config.Energy.EnergyStates[0].LightConfig = LightConfig{Red: 25, Green: 25, Blue: 112, BrightnessPct: 70}
 
 	// Set up mock light entity
-	mockClient.SetState("light.apollo_bedroom_rgb", "on", map[string]interface{}{
+	env.MockHA.SetState("light.apollo_bedroom_rgb", "on", map[string]interface{}{
 		"friendly_name": "Apollo Bedroom Radar Light",
 	})
 
-	mockClient.Connect()
+	env.MockHA.Connect()
 
 	// Create manager NOT in read-only mode
-	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil, nil)
+	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, false, nil, nil)
 
 	err := manager.Start()
 	assert.NoError(t, err)
@@ -870,11 +811,11 @@ func TestIndicatorLightsServiceCallError(t *testing.T) {
 	manager.WaitForStartup()
 
 	// Clear any service calls from startup
-	mockClient.ClearServiceCalls()
+	env.MockHA.ClearServiceCalls()
 
 	// Configure mock to return an error for light.turn_on AFTER startup
 	// (so startup doesn't fail)
-	mockClient.SetServiceError("light", "turn_on", fmt.Errorf("connection timeout"))
+	env.MockHA.SetServiceError("light", "turn_on", fmt.Errorf("connection timeout"))
 
 	// Call updateIndicatorLights - should handle error gracefully (not panic)
 	// Note: The mock doesn't record failed service calls, so we can't verify the call was attempted.
@@ -894,19 +835,17 @@ func TestIndicatorLightsServiceCallError(t *testing.T) {
 
 func TestIndicatorLightsUnknownEnergyLevel(t *testing.T) {
 	t.Parallel()
-	logger := testlogger.New()
-	mockClient := ha.NewMockClient()
-	stateManager := state.NewManager(mockClient, logger, false)
+	env := testutil.NewEnv(t)
 	config := createTestConfig()
 
 	// Set up mock light entity
-	mockClient.SetState("light.apollo_bedroom_rgb", "on", map[string]interface{}{
+	env.MockHA.SetState("light.apollo_bedroom_rgb", "on", map[string]interface{}{
 		"friendly_name": "Apollo Bedroom Radar Light",
 	})
 
-	mockClient.Connect()
+	env.MockHA.Connect()
 
-	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil, nil)
+	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, false, nil, nil)
 
 	err := manager.Start()
 	assert.NoError(t, err)
@@ -916,27 +855,19 @@ func TestIndicatorLightsUnknownEnergyLevel(t *testing.T) {
 	manager.WaitForStartup()
 
 	// Clear any service calls from startup
-	mockClient.ClearServiceCalls()
+	env.MockHA.ClearServiceCalls()
 
 	// Call updateIndicatorLights with an unknown energy level
 	manager.updateIndicatorLights("purple") // Not a valid energy level
 
 	// Verify NO light.turn_on service call was made (should return early)
-	calls := mockClient.GetServiceCalls()
-	var lightCalls []ha.ServiceCall
-	for _, c := range calls {
-		if c.Domain == "light" && c.Service == "turn_on" {
-			lightCalls = append(lightCalls, c)
-		}
-	}
-	assert.Len(t, lightCalls, 0, "Expected no light.turn_on service calls for unknown energy level")
+	calls := env.MockHA.GetServiceCalls()
+	testutil.AssertNoServiceCall(t, calls, "light", "turn_on")
 }
 
 func TestIndicatorLightsInitialUpdateOnStartup(t *testing.T) {
 	t.Parallel()
-	logger := testlogger.New()
-	mockClient := ha.NewMockClient()
-	stateManager := state.NewManager(mockClient, logger, false)
+	env := testutil.NewEnv(t)
 	config := createTestConfig()
 
 	// Add LightConfig for all energy levels
@@ -947,20 +878,20 @@ func TestIndicatorLightsInitialUpdateOnStartup(t *testing.T) {
 	config.Energy.EnergyStates[4].LightConfig = LightConfig{Red: 255, Green: 255, Blue: 255, BrightnessPct: 100} // white
 
 	// Set up mock light entity
-	mockClient.SetState("light.apollo_bedroom_rgb", "on", map[string]interface{}{
+	env.MockHA.SetState("light.apollo_bedroom_rgb", "on", map[string]interface{}{
 		"friendly_name": "Apollo Bedroom Radar Light",
 	})
 
-	mockClient.Connect()
+	env.MockHA.Connect()
 
 	// Pre-initialize state variables to simulate existing state
-	_ = stateManager.SetBool("isGridAvailable", true)
-	_ = stateManager.SetBool("isFreeEnergyAvailable", false)
-	_ = stateManager.SetString("batteryEnergyLevel", "yellow")
-	_ = stateManager.SetString("solarProductionEnergyLevel", "yellow")
-	_ = stateManager.SetString("currentEnergyLevel", "yellow")
+	_ = env.StateMgr.SetBool("isGridAvailable", true)
+	_ = env.StateMgr.SetBool("isFreeEnergyAvailable", false)
+	_ = env.StateMgr.SetString("batteryEnergyLevel", "yellow")
+	_ = env.StateMgr.SetString("solarProductionEnergyLevel", "yellow")
+	_ = env.StateMgr.SetString("currentEnergyLevel", "yellow")
 
-	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil, nil)
+	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, false, nil, nil)
 
 	err := manager.Start()
 	assert.NoError(t, err)
@@ -968,7 +899,7 @@ func TestIndicatorLightsInitialUpdateOnStartup(t *testing.T) {
 	// Trigger a state change to cause indicator light update
 	// The plugin observes currentEnergyLevel (computed by registry in production)
 	// and updates indicator lights when it changes
-	_ = stateManager.SetString("currentEnergyLevel", "green")
+	_ = env.StateMgr.SetString("currentEnergyLevel", "green")
 
 	// Give time for the state change handler to process
 	time.Sleep(100 * time.Millisecond)
@@ -976,16 +907,11 @@ func TestIndicatorLightsInitialUpdateOnStartup(t *testing.T) {
 	manager.Stop()
 
 	// Verify that a light.turn_on service call was made after state change
-	calls := mockClient.GetServiceCalls()
-	var lightCalls []ha.ServiceCall
-	for _, c := range calls {
-		if c.Domain == "light" && c.Service == "turn_on" {
-			lightCalls = append(lightCalls, c)
-		}
-	}
+	calls := env.MockHA.GetServiceCalls()
+	lightCallCount := testutil.CountServiceCalls(calls, "light", "turn_on")
 
 	// At least one light update should have occurred after the state change
-	assert.GreaterOrEqual(t, len(lightCalls), 1, "Expected at least one light.turn_on service call after state change")
+	assert.GreaterOrEqual(t, lightCallCount, 1, "Expected at least one light.turn_on service call after state change")
 }
 
 // ============================================================================
@@ -1047,9 +973,7 @@ func TestExtractDeviceID(t *testing.T) {
 
 func TestCalculateAdaptiveBrightness(t *testing.T) {
 	t.Parallel()
-	logger := testlogger.New()
-	mockClient := ha.NewMockClient()
-	stateManager := state.NewManager(mockClient, logger, false)
+	env := testutil.NewEnv(t)
 
 	// Create config with adaptive brightness enabled and custom curve
 	config := createTestConfig()
@@ -1065,8 +989,8 @@ func TestCalculateAdaptiveBrightness(t *testing.T) {
 		HysteresisPercent: 10,
 	}
 
-	mockClient.Connect()
-	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, true, nil, nil)
+	env.MockHA.Connect()
+	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, true, nil, nil)
 
 	// Note: brightness is capped at 50% max to reduce calibration disruption
 	tests := []struct {
@@ -1103,9 +1027,7 @@ func TestCalculateAdaptiveBrightness(t *testing.T) {
 
 func TestCalculateAdaptiveBrightnessDefaultCurve(t *testing.T) {
 	t.Parallel()
-	logger := testlogger.New()
-	mockClient := ha.NewMockClient()
-	stateManager := state.NewManager(mockClient, logger, false)
+	env := testutil.NewEnv(t)
 
 	// Create config with adaptive brightness enabled but NO custom curve
 	config := createTestConfig()
@@ -1115,8 +1037,8 @@ func TestCalculateAdaptiveBrightnessDefaultCurve(t *testing.T) {
 		// Empty BrightnessCurve should use defaults
 	}
 
-	mockClient.Connect()
-	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, true, nil, nil)
+	env.MockHA.Connect()
+	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, true, nil, nil)
 
 	// Test with default curve values (10->20%, 100->40%, 500->60%, 1000->80%)
 	// Note: brightness is capped at 50% max
@@ -1146,9 +1068,7 @@ func TestCalculateAdaptiveBrightnessDefaultCurve(t *testing.T) {
 
 func TestLuxSensorDiscovery(t *testing.T) {
 	t.Parallel()
-	logger := testlogger.New()
-	mockClient := ha.NewMockClient()
-	stateManager := state.NewManager(mockClient, logger, false)
+	env := testutil.NewEnv(t)
 
 	config := createTestConfig()
 	config.Energy.IndicatorLights.AdaptiveBrightness = AdaptiveBrightnessConfig{
@@ -1157,22 +1077,22 @@ func TestLuxSensorDiscovery(t *testing.T) {
 	}
 
 	// Set up mock light and sensor entities with matching device IDs
-	mockClient.SetState("light.apollo_msr_2_1294c8_rgb_light", "on", map[string]interface{}{
+	env.MockHA.SetState("light.apollo_msr_2_1294c8_rgb_light", "on", map[string]interface{}{
 		"friendly_name": "Bedroom Radar RGB Light",
 	})
-	mockClient.SetState("sensor.apollo_msr_2_1294c8_ltr390_light", "150", map[string]interface{}{
+	env.MockHA.SetState("sensor.apollo_msr_2_1294c8_ltr390_light", "150", map[string]interface{}{
 		"friendly_name": "Bedroom Radar LTR390 Light",
 	})
-	mockClient.SetState("light.apollo_msr_2_27f538_rgb_light", "on", map[string]interface{}{
+	env.MockHA.SetState("light.apollo_msr_2_27f538_rgb_light", "on", map[string]interface{}{
 		"friendly_name": "Living Room Radar RGB Light",
 	})
-	mockClient.SetState("sensor.apollo_msr_2_27f538_ltr390_light", "300", map[string]interface{}{
+	env.MockHA.SetState("sensor.apollo_msr_2_27f538_ltr390_light", "300", map[string]interface{}{
 		"friendly_name": "Living Room Radar LTR390 Light",
 	})
 
-	mockClient.Connect()
+	env.MockHA.Connect()
 
-	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, true, nil, nil)
+	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, true, nil, nil)
 	err := manager.Start()
 	assert.NoError(t, err)
 	defer manager.Stop()
@@ -1189,9 +1109,7 @@ func TestLuxSensorDiscovery(t *testing.T) {
 
 func TestLuxSensorDiscoveryNoMatch(t *testing.T) {
 	t.Parallel()
-	logger := testlogger.New()
-	mockClient := ha.NewMockClient()
-	stateManager := state.NewManager(mockClient, logger, false)
+	env := testutil.NewEnv(t)
 
 	config := createTestConfig()
 	config.Energy.IndicatorLights.AdaptiveBrightness = AdaptiveBrightnessConfig{
@@ -1200,17 +1118,17 @@ func TestLuxSensorDiscoveryNoMatch(t *testing.T) {
 	}
 
 	// Set up light entity WITHOUT matching lux sensor
-	mockClient.SetState("light.apollo_msr_2_1294c8_rgb_light", "on", map[string]interface{}{
+	env.MockHA.SetState("light.apollo_msr_2_1294c8_rgb_light", "on", map[string]interface{}{
 		"friendly_name": "Bedroom Radar RGB Light",
 	})
 	// No matching sensor - different device ID
-	mockClient.SetState("sensor.apollo_msr_2_different_ltr390_light", "150", map[string]interface{}{
+	env.MockHA.SetState("sensor.apollo_msr_2_different_ltr390_light", "150", map[string]interface{}{
 		"friendly_name": "Different Sensor",
 	})
 
-	mockClient.Connect()
+	env.MockHA.Connect()
 
-	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, true, nil, nil)
+	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, true, nil, nil)
 	err := manager.Start()
 	assert.NoError(t, err)
 	defer manager.Stop()
@@ -1227,9 +1145,7 @@ func TestLuxSensorDiscoveryNoMatch(t *testing.T) {
 
 func TestAdaptiveBrightnessDisabled(t *testing.T) {
 	t.Parallel()
-	logger := testlogger.New()
-	mockClient := ha.NewMockClient()
-	stateManager := state.NewManager(mockClient, logger, false)
+	env := testutil.NewEnv(t)
 
 	config := createTestConfig()
 	config.Energy.IndicatorLights.AdaptiveBrightness = AdaptiveBrightnessConfig{
@@ -1237,14 +1153,14 @@ func TestAdaptiveBrightnessDisabled(t *testing.T) {
 	}
 	config.Energy.EnergyStates[2].LightConfig = LightConfig{Red: 255, Green: 255, Blue: 0, BrightnessPct: 30}
 
-	mockClient.SetState("light.apollo_msr_2_1294c8_rgb_light", "on", map[string]interface{}{
+	env.MockHA.SetState("light.apollo_msr_2_1294c8_rgb_light", "on", map[string]interface{}{
 		"friendly_name": "Bedroom Radar RGB Light",
 	})
-	mockClient.SetState("sensor.apollo_msr_2_1294c8_ltr390_light", "150", map[string]interface{}{})
+	env.MockHA.SetState("sensor.apollo_msr_2_1294c8_ltr390_light", "150", map[string]interface{}{})
 
-	mockClient.Connect()
+	env.MockHA.Connect()
 
-	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil, nil)
+	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, false, nil, nil)
 	err := manager.Start()
 	assert.NoError(t, err)
 	defer manager.Stop()
@@ -1258,20 +1174,14 @@ func TestAdaptiveBrightnessDisabled(t *testing.T) {
 	manager.WaitForStartup()
 
 	// Clear service calls from startup
-	mockClient.ClearServiceCalls()
+	env.MockHA.ClearServiceCalls()
 
 	// Update indicator lights
 	manager.updateIndicatorLights("yellow")
 
 	// Verify static brightness was used (not adaptive)
-	calls := mockClient.GetServiceCalls()
-	var lightCall *ha.ServiceCall
-	for i := range calls {
-		if calls[i].Domain == "light" && calls[i].Service == "turn_on" {
-			lightCall = &calls[i]
-			break
-		}
-	}
+	calls := env.MockHA.GetServiceCalls()
+	lightCall := testutil.FindServiceCall(calls, "light", "turn_on")
 
 	assert.NotNil(t, lightCall)
 	if lightCall != nil {
@@ -1281,9 +1191,7 @@ func TestAdaptiveBrightnessDisabled(t *testing.T) {
 
 func TestAdaptiveBrightnessPerDevice(t *testing.T) {
 	t.Parallel()
-	logger := testlogger.New()
-	mockClient := ha.NewMockClient()
-	stateManager := state.NewManager(mockClient, logger, false)
+	env := testutil.NewEnv(t)
 
 	config := createTestConfig()
 	config.Energy.IndicatorLights.AdaptiveBrightness = AdaptiveBrightnessConfig{
@@ -1299,19 +1207,19 @@ func TestAdaptiveBrightnessPerDevice(t *testing.T) {
 	config.Energy.EnergyStates[2].LightConfig = LightConfig{Red: 255, Green: 255, Blue: 0, BrightnessPct: 30}
 
 	// Two lights with different lux values
-	mockClient.SetState("light.apollo_msr_2_1294c8_rgb_light", "on", map[string]interface{}{
+	env.MockHA.SetState("light.apollo_msr_2_1294c8_rgb_light", "on", map[string]interface{}{
 		"friendly_name": "Dark Room Radar RGB Light",
 	})
-	mockClient.SetState("sensor.apollo_msr_2_1294c8_ltr390_light", "5", map[string]interface{}{}) // Dark: 20%
+	env.MockHA.SetState("sensor.apollo_msr_2_1294c8_ltr390_light", "5", map[string]interface{}{}) // Dark: 20%
 
-	mockClient.SetState("light.apollo_msr_2_27f538_rgb_light", "on", map[string]interface{}{
+	env.MockHA.SetState("light.apollo_msr_2_27f538_rgb_light", "on", map[string]interface{}{
 		"friendly_name": "Bright Room Radar RGB Light",
 	})
-	mockClient.SetState("sensor.apollo_msr_2_27f538_ltr390_light", "800", map[string]interface{}{}) // Bright: 80%
+	env.MockHA.SetState("sensor.apollo_msr_2_27f538_ltr390_light", "800", map[string]interface{}{}) // Bright: 80%
 
-	mockClient.Connect()
+	env.MockHA.Connect()
 
-	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil, nil)
+	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, false, nil, nil)
 	err := manager.Start()
 	assert.NoError(t, err)
 	defer manager.Stop()
@@ -1324,13 +1232,13 @@ func TestAdaptiveBrightnessPerDevice(t *testing.T) {
 	manager.WaitForStartup()
 
 	// Clear service calls
-	mockClient.ClearServiceCalls()
+	env.MockHA.ClearServiceCalls()
 
 	// Update indicator lights (should use per-device brightness)
 	manager.updateIndicatorLights("yellow")
 
 	// Verify two separate service calls with different brightness values
-	calls := mockClient.GetServiceCalls()
+	calls := env.MockHA.GetServiceCalls()
 	lightCalls := make(map[string]int) // entity -> brightness
 
 	for _, c := range calls {
@@ -1349,9 +1257,7 @@ func TestAdaptiveBrightnessPerDevice(t *testing.T) {
 
 func TestHysteresisPreventsOscillation(t *testing.T) {
 	t.Parallel()
-	logger := testlogger.New()
-	mockClient := ha.NewMockClient()
-	stateManager := state.NewManager(mockClient, logger, false)
+	env := testutil.NewEnv(t)
 
 	config := createTestConfig()
 	config.Energy.IndicatorLights.AdaptiveBrightness = AdaptiveBrightnessConfig{
@@ -1363,8 +1269,8 @@ func TestHysteresisPreventsOscillation(t *testing.T) {
 		HysteresisPercent: 10, // 10% hysteresis band
 	}
 
-	mockClient.Connect()
-	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, true, nil, nil)
+	env.MockHA.Connect()
+	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, true, nil, nil)
 
 	lightEntity := "light.test"
 
@@ -1395,9 +1301,7 @@ func TestHysteresisPreventsOscillation(t *testing.T) {
 
 func TestDebouncing(t *testing.T) {
 	t.Parallel()
-	logger := testlogger.New()
-	mockClient := ha.NewMockClient()
-	stateManager := state.NewManager(mockClient, logger, false)
+	env := testutil.NewEnv(t)
 
 	config := createTestConfig()
 	config.Energy.IndicatorLights.AdaptiveBrightness = AdaptiveBrightnessConfig{
@@ -1412,17 +1316,17 @@ func TestDebouncing(t *testing.T) {
 	}
 	config.Energy.EnergyStates[0].LightConfig = LightConfig{Red: 0, Green: 0, Blue: 0, BrightnessPct: 50}
 
-	mockClient.SetState("light.apollo_msr_2_1294c8_rgb_light", "on", map[string]interface{}{
+	env.MockHA.SetState("light.apollo_msr_2_1294c8_rgb_light", "on", map[string]interface{}{
 		"friendly_name": "Test Radar RGB Light",
 	})
-	mockClient.SetState("sensor.apollo_msr_2_1294c8_ltr390_light", "50", map[string]interface{}{})
+	env.MockHA.SetState("sensor.apollo_msr_2_1294c8_ltr390_light", "50", map[string]interface{}{})
 
-	mockClient.Connect()
+	env.MockHA.Connect()
 
 	// Initialize state variables
-	stateManager.SetString("currentEnergyLevel", "black")
+	env.StateMgr.SetString("currentEnergyLevel", "black")
 
-	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil, nil)
+	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, false, nil, nil)
 	err := manager.Start()
 	assert.NoError(t, err)
 	defer manager.Stop()
@@ -1431,7 +1335,7 @@ func TestDebouncing(t *testing.T) {
 	manager.WaitForStartup()
 
 	// Clear service calls from startup
-	mockClient.ClearServiceCalls()
+	env.MockHA.ClearServiceCalls()
 
 	lightEntity := "light.apollo_msr_2_1294c8_rgb_light"
 
@@ -1454,22 +1358,15 @@ func TestDebouncing(t *testing.T) {
 	manager.updateLightBrightness(lightEntity, 150)
 
 	// Count service calls (should be 2: first + third)
-	calls := mockClient.GetServiceCalls()
-	lightCalls := 0
-	for _, c := range calls {
-		if c.Domain == "light" && c.Service == "turn_on" {
-			lightCalls++
-		}
-	}
+	calls := env.MockHA.GetServiceCalls()
+	lightCallCount := testutil.CountServiceCalls(calls, "light", "turn_on")
 
-	assert.Equal(t, 2, lightCalls, "Should have exactly 2 light updates (debounce blocked the second)")
+	assert.Equal(t, 2, lightCallCount, "Should have exactly 2 light updates (debounce blocked the second)")
 }
 
 func TestFallbackToStaticBrightness(t *testing.T) {
 	t.Parallel()
-	logger := testlogger.New()
-	mockClient := ha.NewMockClient()
-	stateManager := state.NewManager(mockClient, logger, false)
+	env := testutil.NewEnv(t)
 
 	config := createTestConfig()
 	config.Energy.IndicatorLights.AdaptiveBrightness = AdaptiveBrightnessConfig{
@@ -1479,14 +1376,14 @@ func TestFallbackToStaticBrightness(t *testing.T) {
 	config.Energy.EnergyStates[2].LightConfig = LightConfig{Red: 255, Green: 255, Blue: 0, BrightnessPct: 45} // yellow
 
 	// Light entity WITHOUT matching lux sensor
-	mockClient.SetState("light.apollo_msr_2_1294c8_rgb_light", "on", map[string]interface{}{
+	env.MockHA.SetState("light.apollo_msr_2_1294c8_rgb_light", "on", map[string]interface{}{
 		"friendly_name": "Orphan Radar RGB Light",
 	})
 	// No lux sensor for this device
 
-	mockClient.Connect()
+	env.MockHA.Connect()
 
-	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil, nil)
+	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, false, nil, nil)
 	err := manager.Start()
 	assert.NoError(t, err)
 	defer manager.Stop()
@@ -1495,20 +1392,14 @@ func TestFallbackToStaticBrightness(t *testing.T) {
 	manager.WaitForStartup()
 
 	// Clear service calls from startup
-	mockClient.ClearServiceCalls()
+	env.MockHA.ClearServiceCalls()
 
 	// Update indicator lights
 	manager.updateIndicatorLights("yellow")
 
 	// Should fall back to static brightness (45%) since no lux sensor available
-	calls := mockClient.GetServiceCalls()
-	var lightCall *ha.ServiceCall
-	for i := range calls {
-		if calls[i].Domain == "light" && calls[i].Service == "turn_on" {
-			lightCall = &calls[i]
-			break
-		}
-	}
+	calls := env.MockHA.GetServiceCalls()
+	lightCall := testutil.FindServiceCall(calls, "light", "turn_on")
 
 	assert.NotNil(t, lightCall)
 	if lightCall != nil {
@@ -1518,9 +1409,7 @@ func TestFallbackToStaticBrightness(t *testing.T) {
 
 func TestHandleLuxChangeWithInvalidValues(t *testing.T) {
 	t.Parallel()
-	logger := testlogger.New()
-	mockClient := ha.NewMockClient()
-	stateManager := state.NewManager(mockClient, logger, false)
+	env := testutil.NewEnv(t)
 
 	config := createTestConfig()
 	config.Energy.IndicatorLights.AdaptiveBrightness = AdaptiveBrightnessConfig{
@@ -1528,49 +1417,41 @@ func TestHandleLuxChangeWithInvalidValues(t *testing.T) {
 		LuxSensorPattern: "ltr390_light",
 	}
 
-	mockClient.SetState("light.apollo_msr_2_1294c8_rgb_light", "on", map[string]interface{}{
+	env.MockHA.SetState("light.apollo_msr_2_1294c8_rgb_light", "on", map[string]interface{}{
 		"friendly_name": "Test Radar RGB Light",
 	})
-	mockClient.SetState("sensor.apollo_msr_2_1294c8_ltr390_light", "50", map[string]interface{}{})
+	env.MockHA.SetState("sensor.apollo_msr_2_1294c8_ltr390_light", "50", map[string]interface{}{})
 
-	mockClient.Connect()
-	stateManager.SetString("currentEnergyLevel", "yellow")
+	env.MockHA.Connect()
+	env.StateMgr.SetString("currentEnergyLevel", "yellow")
 
 	// Use readOnly=true to avoid side effects from free energy checker
-	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, true, nil, nil)
+	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, true, nil, nil)
 	err := manager.Start()
 	assert.NoError(t, err)
 	defer manager.Stop()
-
-	// Helper function to count light service calls
-	countLightCalls := func() int {
-		count := 0
-		for _, c := range mockClient.GetServiceCalls() {
-			if c.Domain == "light" && c.Service == "turn_on" {
-				count++
-			}
-		}
-		return count
-	}
 
 	// Wait for startup goroutines to complete initial work
 	manager.WaitForStartup()
 
 	// Clear service calls from startup
-	mockClient.ClearServiceCalls()
-	initialCount := countLightCalls()
+	env.MockHA.ClearServiceCalls()
+	initialCount := testutil.CountServiceCalls(env.MockHA.GetServiceCalls(), "light", "turn_on")
 
 	// Test NaN - should be ignored, no light service call
 	manager.handleLuxChange("sensor.apollo_msr_2_1294c8_ltr390_light", math.NaN())
-	assert.Equal(t, initialCount, countLightCalls(), "NaN lux value should be ignored, no light service call expected")
+	assert.Equal(t, initialCount, testutil.CountServiceCalls(env.MockHA.GetServiceCalls(), "light", "turn_on"),
+		"NaN lux value should be ignored, no light service call expected")
 
 	// Test positive infinity - should be ignored
 	manager.handleLuxChange("sensor.apollo_msr_2_1294c8_ltr390_light", math.Inf(1))
-	assert.Equal(t, initialCount, countLightCalls(), "Positive infinity lux value should be ignored")
+	assert.Equal(t, initialCount, testutil.CountServiceCalls(env.MockHA.GetServiceCalls(), "light", "turn_on"),
+		"Positive infinity lux value should be ignored")
 
 	// Test negative infinity - should be ignored
 	manager.handleLuxChange("sensor.apollo_msr_2_1294c8_ltr390_light", math.Inf(-1))
-	assert.Equal(t, initialCount, countLightCalls(), "Negative infinity lux value should be ignored")
+	assert.Equal(t, initialCount, testutil.CountServiceCalls(env.MockHA.GetServiceCalls(), "light", "turn_on"),
+		"Negative infinity lux value should be ignored")
 
 	// Verify currentLuxValues was NOT updated with invalid values
 	manager.indicatorMu.RLock()
@@ -1581,9 +1462,7 @@ func TestHandleLuxChangeWithInvalidValues(t *testing.T) {
 
 func TestHysteresisDoesNotBlockLargeJumps(t *testing.T) {
 	t.Parallel()
-	logger := testlogger.New()
-	mockClient := ha.NewMockClient()
-	stateManager := state.NewManager(mockClient, logger, false)
+	env := testutil.NewEnv(t)
 
 	config := createTestConfig()
 	config.Energy.IndicatorLights.AdaptiveBrightness = AdaptiveBrightnessConfig{
@@ -1598,8 +1477,8 @@ func TestHysteresisDoesNotBlockLargeJumps(t *testing.T) {
 		HysteresisPercent: 10,
 	}
 
-	mockClient.Connect()
-	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, true, nil, nil)
+	env.MockHA.Connect()
+	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, true, nil, nil)
 
 	lightEntity := "light.test"
 
@@ -1626,9 +1505,7 @@ func TestHysteresisDoesNotBlockLargeJumps(t *testing.T) {
 
 func TestNegativeLuxValue(t *testing.T) {
 	t.Parallel()
-	logger := testlogger.New()
-	mockClient := ha.NewMockClient()
-	stateManager := state.NewManager(mockClient, logger, false)
+	env := testutil.NewEnv(t)
 
 	config := createTestConfig()
 	config.Energy.IndicatorLights.AdaptiveBrightness = AdaptiveBrightnessConfig{
@@ -1640,8 +1517,8 @@ func TestNegativeLuxValue(t *testing.T) {
 		},
 	}
 
-	mockClient.Connect()
-	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, true, nil, nil)
+	env.MockHA.Connect()
+	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, true, nil, nil)
 
 	// Negative lux (unlikely but possible with sensor errors) should use lowest brightness
 	brightness := manager.calculateAdaptiveBrightness(-5, "light.test")
@@ -1654,9 +1531,7 @@ func TestNegativeLuxValue(t *testing.T) {
 
 func TestBaselineCalibrationEnabled(t *testing.T) {
 	t.Parallel()
-	logger := testlogger.New()
-	mockClient := ha.NewMockClient()
-	stateManager := state.NewManager(mockClient, logger, false)
+	env := testutil.NewEnv(t)
 
 	config := createTestConfig()
 	config.Energy.IndicatorLights.AdaptiveBrightness = AdaptiveBrightnessConfig{
@@ -1673,8 +1548,8 @@ func TestBaselineCalibrationEnabled(t *testing.T) {
 		},
 	}
 
-	mockClient.Connect()
-	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, true, nil, nil)
+	env.MockHA.Connect()
+	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, true, nil, nil)
 
 	// Verify calibration is enabled
 	assert.True(t, manager.isCalibrationEnabled())
@@ -1682,9 +1557,7 @@ func TestBaselineCalibrationEnabled(t *testing.T) {
 
 func TestBaselineCalibrationDisabled(t *testing.T) {
 	t.Parallel()
-	logger := testlogger.New()
-	mockClient := ha.NewMockClient()
-	stateManager := state.NewManager(mockClient, logger, false)
+	env := testutil.NewEnv(t)
 
 	config := createTestConfig()
 	config.Energy.IndicatorLights.AdaptiveBrightness = AdaptiveBrightnessConfig{
@@ -1695,8 +1568,8 @@ func TestBaselineCalibrationDisabled(t *testing.T) {
 		},
 	}
 
-	mockClient.Connect()
-	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, true, nil, nil)
+	env.MockHA.Connect()
+	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, true, nil, nil)
 
 	// Verify calibration is disabled
 	assert.False(t, manager.isCalibrationEnabled())
@@ -1704,9 +1577,7 @@ func TestBaselineCalibrationDisabled(t *testing.T) {
 
 func TestGetBaselineLux(t *testing.T) {
 	t.Parallel()
-	logger := testlogger.New()
-	mockClient := ha.NewMockClient()
-	stateManager := state.NewManager(mockClient, logger, false)
+	env := testutil.NewEnv(t)
 
 	config := createTestConfig()
 	config.Energy.IndicatorLights.AdaptiveBrightness = AdaptiveBrightnessConfig{
@@ -1716,8 +1587,8 @@ func TestGetBaselineLux(t *testing.T) {
 		},
 	}
 
-	mockClient.Connect()
-	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, true, nil, nil)
+	env.MockHA.Connect()
+	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, true, nil, nil)
 
 	lightEntity := "light.test_device"
 
@@ -1739,9 +1610,7 @@ func TestGetBaselineLux(t *testing.T) {
 
 func TestCalibrationStateTracking(t *testing.T) {
 	t.Parallel()
-	logger := testlogger.New()
-	mockClient := ha.NewMockClient()
-	stateManager := state.NewManager(mockClient, logger, false)
+	env := testutil.NewEnv(t)
 
 	config := createTestConfig()
 	config.Energy.IndicatorLights.AdaptiveBrightness = AdaptiveBrightnessConfig{
@@ -1752,16 +1621,16 @@ func TestCalibrationStateTracking(t *testing.T) {
 		},
 	}
 
-	mockClient.Connect()
-	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, true, nil, nil)
+	env.MockHA.Connect()
+	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, true, nil, nil)
 
 	lightEntity := "light.test_device"
 
 	// Initially should be in Normal state (or not set)
 	manager.indicatorMu.RLock()
-	state := manager.calibrationState[lightEntity]
+	calibState := manager.calibrationState[lightEntity]
 	manager.indicatorMu.RUnlock()
-	assert.Equal(t, CalibrationStateNormal, state)
+	assert.Equal(t, CalibrationStateNormal, calibState)
 
 	// Simulate transitioning to Dimmed state
 	manager.indicatorMu.Lock()
@@ -1769,16 +1638,14 @@ func TestCalibrationStateTracking(t *testing.T) {
 	manager.indicatorMu.Unlock()
 
 	manager.indicatorMu.RLock()
-	state = manager.calibrationState[lightEntity]
+	calibState = manager.calibrationState[lightEntity]
 	manager.indicatorMu.RUnlock()
-	assert.Equal(t, CalibrationStateDimmed, state)
+	assert.Equal(t, CalibrationStateDimmed, calibState)
 }
 
 func TestUpdateIndicatorLightsSkipsCalibrating(t *testing.T) {
 	t.Parallel()
-	logger := testlogger.New()
-	mockClient := ha.NewMockClient()
-	stateManager := state.NewManager(mockClient, logger, false)
+	env := testutil.NewEnv(t)
 
 	config := createTestConfig()
 	config.Energy.IndicatorLights.AdaptiveBrightness = AdaptiveBrightnessConfig{
@@ -1794,13 +1661,13 @@ func TestUpdateIndicatorLightsSkipsCalibrating(t *testing.T) {
 	config.Energy.EnergyStates[2].LightConfig = LightConfig{Red: 255, Green: 255, Blue: 0, BrightnessPct: 30}
 
 	// Set up mock light and sensor
-	mockClient.SetState("light.apollo_msr_2_1294c8_rgb_light", "on", map[string]interface{}{
+	env.MockHA.SetState("light.apollo_msr_2_1294c8_rgb_light", "on", map[string]interface{}{
 		"friendly_name": "Test Radar RGB Light",
 	})
-	mockClient.SetState("sensor.apollo_msr_2_1294c8_ltr390_light", "50", map[string]interface{}{})
-	mockClient.Connect()
+	env.MockHA.SetState("sensor.apollo_msr_2_1294c8_ltr390_light", "50", map[string]interface{}{})
+	env.MockHA.Connect()
 
-	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil, nil)
+	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, false, nil, nil)
 	err := manager.Start()
 	assert.NoError(t, err)
 	defer manager.Stop()
@@ -1813,32 +1680,22 @@ func TestUpdateIndicatorLightsSkipsCalibrating(t *testing.T) {
 	manager.indicatorMu.Unlock()
 
 	// Clear any service calls
-	mockClient.ClearServiceCalls()
+	env.MockHA.ClearServiceCalls()
 
 	// Update indicator lights - the calibrating light should be skipped
 	manager.updateIndicatorLights("yellow")
 
 	// Verify no light.turn_on calls were made for this device
 	// (it should skip because it's in calibration mode)
-	calls := mockClient.GetServiceCalls()
-	var lightCallsForDevice []ha.ServiceCall
-	for _, c := range calls {
-		if c.Domain == "light" && c.Service == "turn_on" {
-			entityID, ok := c.Data["entity_id"].(string)
-			if ok && entityID == lightEntity {
-				lightCallsForDevice = append(lightCallsForDevice, c)
-			}
-		}
-	}
+	calls := env.MockHA.GetServiceCalls()
+	deviceCall := testutil.FindServiceCallWithEntity(calls, "light", "turn_on", lightEntity)
 
-	assert.Len(t, lightCallsForDevice, 0, "Should skip updating lights that are currently calibrating")
+	assert.Nil(t, deviceCall, "Should skip updating lights that are currently calibrating")
 }
 
 func TestUpdateIndicatorLightsUsesBaseline(t *testing.T) {
 	t.Parallel()
-	logger := testlogger.New()
-	mockClient := ha.NewMockClient()
-	stateManager := state.NewManager(mockClient, logger, false)
+	env := testutil.NewEnv(t)
 
 	config := createTestConfig()
 	config.Energy.IndicatorLights.AdaptiveBrightness = AdaptiveBrightnessConfig{
@@ -1855,13 +1712,13 @@ func TestUpdateIndicatorLightsUsesBaseline(t *testing.T) {
 	config.Energy.EnergyStates[2].LightConfig = LightConfig{Red: 255, Green: 255, Blue: 0, BrightnessPct: 30}
 
 	// Set up mock light and sensor
-	mockClient.SetState("light.apollo_msr_2_1294c8_rgb_light", "on", map[string]interface{}{
+	env.MockHA.SetState("light.apollo_msr_2_1294c8_rgb_light", "on", map[string]interface{}{
 		"friendly_name": "Test Radar RGB Light",
 	})
-	mockClient.SetState("sensor.apollo_msr_2_1294c8_ltr390_light", "2000", map[string]interface{}{}) // High lux from LED
-	mockClient.Connect()
+	env.MockHA.SetState("sensor.apollo_msr_2_1294c8_ltr390_light", "2000", map[string]interface{}{}) // High lux from LED
+	env.MockHA.Connect()
 
-	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil, nil)
+	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, false, nil, nil)
 	err := manager.Start()
 	assert.NoError(t, err)
 	defer manager.Stop()
@@ -1876,23 +1733,14 @@ func TestUpdateIndicatorLightsUsesBaseline(t *testing.T) {
 	manager.indicatorMu.Unlock()
 
 	// Clear any service calls
-	mockClient.ClearServiceCalls()
+	env.MockHA.ClearServiceCalls()
 
 	// Update indicator lights - should use baseline lux (50) not current lux (2000)
 	manager.updateIndicatorLights("yellow")
 
 	// Find the light.turn_on call for this device
-	calls := mockClient.GetServiceCalls()
-	var lightCall *ha.ServiceCall
-	for i := range calls {
-		if calls[i].Domain == "light" && calls[i].Service == "turn_on" {
-			entityID, ok := calls[i].Data["entity_id"].(string)
-			if ok && entityID == lightEntity {
-				lightCall = &calls[i]
-				break
-			}
-		}
-	}
+	calls := env.MockHA.GetServiceCalls()
+	lightCall := testutil.FindServiceCallWithEntity(calls, "light", "turn_on", lightEntity)
 
 	assert.NotNil(t, lightCall, "Expected a light.turn_on call")
 	if lightCall != nil {
@@ -1905,9 +1753,7 @@ func TestUpdateIndicatorLightsUsesBaseline(t *testing.T) {
 
 func TestRestoreLightAfterCalibration(t *testing.T) {
 	t.Parallel()
-	logger := testlogger.New()
-	mockClient := ha.NewMockClient()
-	stateManager := state.NewManager(mockClient, logger, false)
+	env := testutil.NewEnv(t)
 
 	config := createTestConfig()
 	config.Energy.IndicatorLights.AdaptiveBrightness = AdaptiveBrightnessConfig{
@@ -1923,16 +1769,16 @@ func TestRestoreLightAfterCalibration(t *testing.T) {
 	config.Energy.EnergyStates[0].LightConfig = LightConfig{Red: 25, Green: 25, Blue: 112, BrightnessPct: 70}
 
 	// Set up mock light and sensor
-	mockClient.SetState("light.apollo_msr_2_1294c8_rgb_light", "on", map[string]interface{}{
+	env.MockHA.SetState("light.apollo_msr_2_1294c8_rgb_light", "on", map[string]interface{}{
 		"friendly_name": "Test Radar RGB Light",
 	})
-	mockClient.SetState("sensor.apollo_msr_2_1294c8_ltr390_light", "50", map[string]interface{}{})
-	mockClient.Connect()
+	env.MockHA.SetState("sensor.apollo_msr_2_1294c8_ltr390_light", "50", map[string]interface{}{})
+	env.MockHA.Connect()
 
 	// Set energy level
-	stateManager.SetString("currentEnergyLevel", "black")
+	env.StateMgr.SetString("currentEnergyLevel", "black")
 
-	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil, nil)
+	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, false, nil, nil)
 	err := manager.Start()
 	assert.NoError(t, err)
 	defer manager.Stop()
@@ -1948,7 +1794,7 @@ func TestRestoreLightAfterCalibration(t *testing.T) {
 	manager.indicatorMu.Unlock()
 
 	// Clear service calls
-	mockClient.ClearServiceCalls()
+	env.MockHA.ClearServiceCalls()
 
 	// Call restoreLightAfterCalibration
 	manager.restoreLightAfterCalibration(lightEntity)
@@ -1963,14 +1809,8 @@ func TestRestoreLightAfterCalibration(t *testing.T) {
 	assert.Equal(t, CalibrationStateNormal, calibState, "Should return to Normal state")
 
 	// Verify light was updated
-	calls := mockClient.GetServiceCalls()
-	var lightCall *ha.ServiceCall
-	for i := range calls {
-		if calls[i].Domain == "light" && calls[i].Service == "turn_on" {
-			lightCall = &calls[i]
-			break
-		}
-	}
+	calls := env.MockHA.GetServiceCalls()
+	lightCall := testutil.FindServiceCall(calls, "light", "turn_on")
 
 	assert.NotNil(t, lightCall, "Expected a light.turn_on call to restore brightness")
 }
@@ -1981,9 +1821,7 @@ func TestCalibrationShutdownDuringStartupDelay(t *testing.T) {
 	// the initial 10-second startup delay without blocking or racing.
 	)
 
-	logger := testlogger.New()
-	mockClient := ha.NewMockClient()
-	stateManager := state.NewManager(mockClient, logger, false)
+	env := testutil.NewEnv(t)
 
 	config := createTestConfig()
 	config.Energy.IndicatorLights.AdaptiveBrightness = AdaptiveBrightnessConfig{
@@ -2001,13 +1839,13 @@ func TestCalibrationShutdownDuringStartupDelay(t *testing.T) {
 	}
 
 	// Set up mock light and sensor
-	mockClient.SetState("light.apollo_msr_2_1294c8_rgb_light", "on", map[string]interface{}{
+	env.MockHA.SetState("light.apollo_msr_2_1294c8_rgb_light", "on", map[string]interface{}{
 		"friendly_name": "Test Radar RGB Light",
 	})
-	mockClient.SetState("sensor.apollo_msr_2_1294c8_ltr390_light", "50", map[string]interface{}{})
-	mockClient.Connect()
+	env.MockHA.SetState("sensor.apollo_msr_2_1294c8_ltr390_light", "50", map[string]interface{}{})
+	env.MockHA.Connect()
 
-	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, true, nil, nil)
+	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, true, nil, nil)
 	err := manager.Start()
 	assert.NoError(t, err)
 
@@ -2034,9 +1872,7 @@ func TestCalibrationWithNoLuxReadingYet(t *testing.T) {
 	// been received yet (e.g., sensor hasn't updated since dimming).
 	)
 
-	logger := testlogger.New()
-	mockClient := ha.NewMockClient()
-	stateManager := state.NewManager(mockClient, logger, false)
+	env := testutil.NewEnv(t)
 
 	config := createTestConfig()
 	config.Energy.IndicatorLights.AdaptiveBrightness = AdaptiveBrightnessConfig{
@@ -2052,15 +1888,15 @@ func TestCalibrationWithNoLuxReadingYet(t *testing.T) {
 	config.Energy.EnergyStates[0].LightConfig = LightConfig{Red: 25, Green: 25, Blue: 112, BrightnessPct: 70}
 
 	// Set up mock light and sensor
-	mockClient.SetState("light.apollo_msr_2_1294c8_rgb_light", "on", map[string]interface{}{
+	env.MockHA.SetState("light.apollo_msr_2_1294c8_rgb_light", "on", map[string]interface{}{
 		"friendly_name": "Test Radar RGB Light",
 	})
-	mockClient.SetState("sensor.apollo_msr_2_1294c8_ltr390_light", "50", map[string]interface{}{})
-	mockClient.Connect()
+	env.MockHA.SetState("sensor.apollo_msr_2_1294c8_ltr390_light", "50", map[string]interface{}{})
+	env.MockHA.Connect()
 
-	stateManager.SetString("currentEnergyLevel", "black")
+	env.StateMgr.SetString("currentEnergyLevel", "black")
 
-	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil, nil)
+	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, false, nil, nil)
 	err := manager.Start()
 	assert.NoError(t, err)
 	defer manager.Stop()
@@ -2076,7 +1912,7 @@ func TestCalibrationWithNoLuxReadingYet(t *testing.T) {
 	manager.indicatorMu.Unlock()
 
 	// Clear service calls
-	mockClient.ClearServiceCalls()
+	env.MockHA.ClearServiceCalls()
 
 	// Call restoreLightAfterCalibration
 	manager.restoreLightAfterCalibration(lightEntity)
@@ -2095,37 +1931,29 @@ func TestCalibrationWithNoLuxReadingYet(t *testing.T) {
 
 func TestSetLightBrightness(t *testing.T) {
 	t.Parallel()
-	logger := testlogger.New()
-	mockClient := ha.NewMockClient()
-	stateManager := state.NewManager(mockClient, logger, false)
+	env := testutil.NewEnv(t)
 
 	config := createTestConfig()
 	config.Energy.EnergyStates[0].LightConfig = LightConfig{Red: 25, Green: 25, Blue: 112, BrightnessPct: 70}
 
-	mockClient.SetState("light.test_light", "on", map[string]interface{}{
+	env.MockHA.SetState("light.test_light", "on", map[string]interface{}{
 		"friendly_name": "Test Light",
 	})
-	mockClient.Connect()
+	env.MockHA.Connect()
 
-	stateManager.SetString("currentEnergyLevel", "black")
+	env.StateMgr.SetString("currentEnergyLevel", "black")
 
-	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil, nil)
+	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, false, nil, nil)
 
 	// Clear service calls
-	mockClient.ClearServiceCalls()
+	env.MockHA.ClearServiceCalls()
 
 	// Call setLightBrightness
 	manager.setLightBrightness("light.test_light", 5)
 
 	// Verify service call was made
-	calls := mockClient.GetServiceCalls()
-	var lightCall *ha.ServiceCall
-	for i := range calls {
-		if calls[i].Domain == "light" && calls[i].Service == "turn_on" {
-			lightCall = &calls[i]
-			break
-		}
-	}
+	calls := env.MockHA.GetServiceCalls()
+	lightCall := testutil.FindServiceCall(calls, "light", "turn_on")
 
 	assert.NotNil(t, lightCall, "Expected a light.turn_on call")
 	if lightCall != nil {
@@ -2137,36 +1965,32 @@ func TestSetLightBrightness(t *testing.T) {
 
 func TestSetLightBrightnessReadOnly(t *testing.T) {
 	t.Parallel()
-	logger := testlogger.New()
-	mockClient := ha.NewMockClient()
-	stateManager := state.NewManager(mockClient, logger, false)
+	env := testutil.NewEnv(t)
 
 	config := createTestConfig()
 	config.Energy.EnergyStates[0].LightConfig = LightConfig{Red: 25, Green: 25, Blue: 112, BrightnessPct: 70}
 
-	mockClient.Connect()
+	env.MockHA.Connect()
 
-	stateManager.SetString("currentEnergyLevel", "black")
+	env.StateMgr.SetString("currentEnergyLevel", "black")
 
 	// Create manager in read-only mode
-	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, true, nil, nil)
+	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, true, nil, nil)
 
 	// Clear service calls
-	mockClient.ClearServiceCalls()
+	env.MockHA.ClearServiceCalls()
 
 	// Call setLightBrightness - should not make any service calls
 	manager.setLightBrightness("light.test_light", 5)
 
 	// Verify no service call was made
-	calls := mockClient.GetServiceCalls()
+	calls := env.MockHA.GetServiceCalls()
 	assert.Empty(t, calls, "No service calls should be made in read-only mode")
 }
 
 func TestRunCalibrationCycleWithNoLights(t *testing.T) {
 	t.Parallel()
-	logger := testlogger.New()
-	mockClient := ha.NewMockClient()
-	stateManager := state.NewManager(mockClient, logger, false)
+	env := testutil.NewEnv(t)
 
 	config := createTestConfig()
 	config.Energy.IndicatorLights.AdaptiveBrightness = AdaptiveBrightnessConfig{
@@ -2180,28 +2004,26 @@ func TestRunCalibrationCycleWithNoLights(t *testing.T) {
 		},
 	}
 
-	mockClient.Connect()
+	env.MockHA.Connect()
 
-	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, true, nil, nil)
+	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, true, nil, nil)
 
 	// Don't discover any lights - indicatorLightEntities will be empty
 
 	// Clear service calls
-	mockClient.ClearServiceCalls()
+	env.MockHA.ClearServiceCalls()
 
 	// Call runCalibrationCycle - should return early with no lights
 	manager.runCalibrationCycle()
 
 	// No errors should occur, function should return gracefully
-	calls := mockClient.GetServiceCalls()
+	calls := env.MockHA.GetServiceCalls()
 	assert.Empty(t, calls, "No service calls should be made with no lights")
 }
 
 func TestRunCalibrationCycleLightWithoutLuxSensor(t *testing.T) {
 	t.Parallel()
-	logger := testlogger.New()
-	mockClient := ha.NewMockClient()
-	stateManager := state.NewManager(mockClient, logger, false)
+	env := testutil.NewEnv(t)
 
 	config := createTestConfig()
 	config.Energy.IndicatorLights.AdaptiveBrightness = AdaptiveBrightnessConfig{
@@ -2215,9 +2037,9 @@ func TestRunCalibrationCycleLightWithoutLuxSensor(t *testing.T) {
 		},
 	}
 
-	mockClient.Connect()
+	env.MockHA.Connect()
 
-	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, true, nil, nil)
+	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, true, nil, nil)
 
 	// Set up a light entity but no lux sensor mapping
 	manager.indicatorMu.Lock()
@@ -2226,12 +2048,12 @@ func TestRunCalibrationCycleLightWithoutLuxSensor(t *testing.T) {
 	manager.indicatorMu.Unlock()
 
 	// Clear service calls
-	mockClient.ClearServiceCalls()
+	env.MockHA.ClearServiceCalls()
 
 	// Call runCalibrationCycle - should skip lights without lux sensors
 	manager.runCalibrationCycle()
 
 	// No service calls should be made since light has no lux sensor
-	calls := mockClient.GetServiceCalls()
+	calls := env.MockHA.GetServiceCalls()
 	assert.Empty(t, calls, "No service calls should be made for lights without lux sensors")
 }

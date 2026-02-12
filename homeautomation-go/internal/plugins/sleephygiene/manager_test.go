@@ -9,44 +9,39 @@ import (
 	"homeautomation/internal/ha"
 	"homeautomation/internal/state"
 	"homeautomation/pkg/plugin"
-
-	"go.uber.org/zap"
+	"homeautomation/pkg/testutil"
 )
 
 // setupTest creates a test environment with mock HA client, state manager, and config loader
 func setupTest(t *testing.T, currentTime time.Time) (*Manager, *ha.MockClient, *state.Manager, *config.Loader) {
-	logger := zap.NewNop()
-	mockHA := ha.NewMockClient()
-	stateManager := state.NewManager(mockHA, logger, false)
+	env := testutil.NewEnv(t)
 
 	// Initialize state with default values
-	stateManager.SetBool("isAnyoneHome", true)
-	stateManager.SetBool("isMasterAsleep", true)
-	stateManager.SetBool("isGuestAsleep", false)
-	stateManager.SetBool("isEveryoneAsleep", true)
-	stateManager.SetBool("isFadeOutInProgress", false)
-	stateManager.SetBool("isNickHome", true)
-	stateManager.SetBool("isCarolineHome", true)
-	stateManager.SetString("musicPlaybackType", "sleep")
+	env.StateMgr.SetBool("isAnyoneHome", true)
+	env.StateMgr.SetBool("isMasterAsleep", true)
+	env.StateMgr.SetBool("isGuestAsleep", false)
+	env.StateMgr.SetBool("isEveryoneAsleep", true)
+	env.StateMgr.SetBool("isFadeOutInProgress", false)
+	env.StateMgr.SetBool("isNickHome", true)
+	env.StateMgr.SetBool("isCarolineHome", true)
+	env.StateMgr.SetString("musicPlaybackType", "sleep")
 
 	// Create a config loader
-	configLoader := config.NewLoader("../../../configs", logger)
+	configLoader := config.NewLoader("../../../configs", env.Logger)
 
 	// Create manager with fixed time provider and nil timezone (defaults to time.Local)
 	timeProvider := plugin.FixedTimeProvider{FixedTime: currentTime}
-	manager := NewManager(context.Background(), mockHA, stateManager, configLoader, logger, false, timeProvider, nil)
+	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, configLoader, env.Logger, false, timeProvider, nil)
 
-	return manager, mockHA, stateManager, configLoader
+	return manager, env.MockHA, env.StateMgr, configLoader
 }
 
 func TestNewManager(t *testing.T) {
 	t.Parallel()
-	logger := zap.NewNop()
-	mockHA := ha.NewMockClient()
-	stateManager := state.NewManager(mockHA, logger, false)
-	configLoader := config.NewLoader("../../../configs", logger)
+	env := testutil.NewEnv(t)
+	configLoader := config.NewLoader("../../../configs", env.Logger)
 
-	manager := NewManager(context.Background(), mockHA, stateManager, configLoader, logger, false, nil, nil)
+	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, configLoader, env.Logger, false, nil, nil)
 
 	if manager == nil {
 		t.Fatal("NewManager returned nil")
@@ -56,11 +51,11 @@ func TestNewManager(t *testing.T) {
 		t.Error("timeProvider should default to plugin.RealTimeProvider")
 	}
 
-	if manager.haClient != mockHA {
+	if manager.haClient != env.MockHA {
 		t.Error("haClient not set correctly")
 	}
 
-	if manager.stateManager != stateManager {
+	if manager.stateManager != env.StateMgr {
 		t.Error("stateManager not set correctly")
 	}
 }
@@ -199,19 +194,7 @@ func TestWake_AllConditionsMet(t *testing.T) {
 	}
 
 	// Check that light service was called for primary suite
-	foundPrimarySuite := false
-
-	for _, call := range calls {
-		if call.Domain == "light" && call.Service == "turn_on" {
-			if entityID, ok := call.Data["entity_id"].(string); ok && entityID == "light.primary_suite" {
-				foundPrimarySuite = true
-			}
-		}
-	}
-
-	if !foundPrimarySuite {
-		t.Error("Expected light.turn_on call for primary suite")
-	}
+	testutil.AssertServiceCallWithEntity(t, calls, "light", "turn_on", "light.primary_suite")
 
 	// Verify wake music was activated after the scheduled delay
 	// (sleepFunc is mocked so it's instant)
@@ -282,11 +265,10 @@ func TestStopScreens_EveryoneAsleep(t *testing.T) {
 func TestReadOnlyMode(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2024, 1, 15, 9, 5, 0, 0, time.UTC)
-	logger := zap.NewNop()
-	mockHA := ha.NewMockClient()
-	stateManager := state.NewManager(mockHA, logger, true) // READ-ONLY
+	env := testutil.NewEnv(t)
+	stateManager := state.NewManager(env.MockHA, env.Logger, true) // READ-ONLY
 
-	configLoader := config.NewLoader("../../../configs", logger)
+	configLoader := config.NewLoader("../../../configs", env.Logger)
 
 	// Set conditions
 	stateManager.SetBool("isAnyoneHome", true)
@@ -295,10 +277,10 @@ func TestReadOnlyMode(t *testing.T) {
 
 	// Create manager in READ-ONLY mode
 	timeProvider := plugin.FixedTimeProvider{FixedTime: now}
-	manager := NewManager(context.Background(), mockHA, stateManager, configLoader, logger, true, timeProvider, nil)
+	manager := NewManager(context.Background(), env.MockHA, stateManager, configLoader, env.Logger, true, timeProvider, nil)
 
 	// Clear previous calls
-	mockHA.ClearServiceCalls()
+	env.MockHA.ClearServiceCalls()
 
 	// Trigger begin_wake
 	manager.handleBeginWake()
@@ -496,20 +478,19 @@ func TestHandleGoToBed_NoOneHome(t *testing.T) {
 func TestHandleGoToBed_ReadOnly(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2024, 1, 15, 23, 30, 0, 0, time.UTC)
-	logger := zap.NewNop()
-	mockHA := ha.NewMockClient()
-	stateManager := state.NewManager(mockHA, logger, false)
+	env := testutil.NewEnv(t)
+	stateManager := state.NewManager(env.MockHA, env.Logger, false)
 
 	// Set conditions
 	stateManager.SetBool("isAnyoneHome", true)
 	stateManager.SetBool("isEveryoneAsleep", false)
 	stateManager.SetString("musicPlaybackType", "winddown")
 
-	configLoader := config.NewLoader("../../../configs", logger)
+	configLoader := config.NewLoader("../../../configs", env.Logger)
 	timeProvider := plugin.FixedTimeProvider{FixedTime: now}
-	manager := NewManager(context.Background(), mockHA, stateManager, configLoader, logger, true, timeProvider, nil) // READ-ONLY
+	manager := NewManager(context.Background(), env.MockHA, stateManager, configLoader, env.Logger, true, timeProvider, nil) // READ-ONLY
 
-	mockHA.ClearServiceCalls()
+	env.MockHA.ClearServiceCalls()
 
 	// Trigger go_to_bed
 	manager.handleGoToBed()
@@ -521,7 +502,7 @@ func TestHandleGoToBed_ReadOnly(t *testing.T) {
 	}
 
 	// Verify NO service calls were made
-	calls := mockHA.GetServiceCalls()
+	calls := env.MockHA.GetServiceCalls()
 	if len(calls) > 0 {
 		t.Errorf("Expected no service calls in read-only mode, got %d", len(calls))
 	}
@@ -531,14 +512,12 @@ func TestHandleGoToBed_ReadOnly(t *testing.T) {
 func TestCheckTimeTriggers_ErrorGettingSchedule(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2024, 1, 15, 9, 0, 0, 0, time.UTC)
-	logger := zap.NewNop()
-	mockHA := ha.NewMockClient()
-	stateManager := state.NewManager(mockHA, logger, false)
+	env := testutil.NewEnv(t)
 
 	// Use a config loader pointing to non-existent directory
-	configLoader := config.NewLoader("/nonexistent/path", logger)
+	configLoader := config.NewLoader("/nonexistent/path", env.Logger)
 	timeProvider := plugin.FixedTimeProvider{FixedTime: now}
-	manager := NewManager(context.Background(), mockHA, stateManager, configLoader, logger, false, timeProvider, nil)
+	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, configLoader, env.Logger, false, timeProvider, nil)
 
 	// Check triggers - should handle error gracefully
 	manager.checkTimeTriggers()
@@ -553,22 +532,20 @@ func TestCheckTimeTriggers_ErrorGettingSchedule(t *testing.T) {
 func TestHandleWake_ErrorGettingState(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2024, 1, 15, 9, 30, 0, 0, time.UTC)
-	logger := zap.NewNop()
-	mockHA := ha.NewMockClient()
-	stateManager := state.NewManager(mockHA, logger, false)
+	env := testutil.NewEnv(t)
 
 	// Don't initialize states - will cause errors
-	configLoader := config.NewLoader("../../../configs", logger)
+	configLoader := config.NewLoader("../../../configs", env.Logger)
 	timeProvider := plugin.FixedTimeProvider{FixedTime: now}
-	manager := NewManager(context.Background(), mockHA, stateManager, configLoader, logger, false, timeProvider, nil)
+	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, configLoader, env.Logger, false, timeProvider, nil)
 
-	mockHA.ClearServiceCalls()
+	env.MockHA.ClearServiceCalls()
 
 	// Call handleWake - should handle errors gracefully
 	manager.handleWake()
 
 	// Should not have made service calls due to errors getting state
-	calls := mockHA.GetServiceCalls()
+	calls := env.MockHA.GetServiceCalls()
 	if len(calls) > 0 {
 		t.Error("Should not make service calls when state retrieval fails")
 	}
@@ -615,9 +592,8 @@ func TestReadOnlyModeBlocksServiceCalls(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			now := time.Date(2024, 1, 15, 9, 30, 0, 0, time.UTC)
-			logger := zap.NewNop()
-			mockHA := ha.NewMockClient()
-			stateManager := state.NewManager(mockHA, logger, false)
+			env := testutil.NewEnv(t)
+			stateManager := state.NewManager(env.MockHA, env.Logger, false)
 
 			// Initialize default state
 			stateManager.SetBool("isAnyoneHome", true)
@@ -631,11 +607,11 @@ func TestReadOnlyModeBlocksServiceCalls(t *testing.T) {
 
 			tt.setup(stateManager)
 
-			configLoader := config.NewLoader("../../../configs", logger)
+			configLoader := config.NewLoader("../../../configs", env.Logger)
 			timeProvider := plugin.FixedTimeProvider{FixedTime: now}
-			manager := NewManager(context.Background(), mockHA, stateManager, configLoader, logger, true, timeProvider, nil)
+			manager := NewManager(context.Background(), env.MockHA, stateManager, configLoader, env.Logger, true, timeProvider, nil)
 
-			mockHA.ClearServiceCalls()
+			env.MockHA.ClearServiceCalls()
 
 			switch tt.handler {
 			case "beginWake":
@@ -646,7 +622,7 @@ func TestReadOnlyModeBlocksServiceCalls(t *testing.T) {
 				manager.handleStopScreens()
 			}
 
-			calls := mockHA.GetServiceCalls()
+			calls := env.MockHA.GetServiceCalls()
 			if len(calls) > 0 {
 				t.Errorf("Expected no service calls in read-only mode for %s, got %d", tt.name, len(calls))
 			}
@@ -768,25 +744,24 @@ func TestFadeOutBedroomSpeaker_Complete(t *testing.T) {
 
 	// Verify volume_set calls were made
 	calls := mockHA.GetServiceCalls()
-	volumeSetCalls := 0
-	lastVolume := 0.0
-	for _, call := range calls {
-		if call.Domain == "media_player" && call.Service == "volume_set" {
-			volumeSetCalls++
-			// Verify entity_id is correct
-			if entityID, ok := call.Data["entity_id"].(string); !ok || entityID != "media_player.bedroom" {
-				t.Errorf("Expected entity_id to be media_player.bedroom, got %v", call.Data["entity_id"])
-			}
-			// Track last volume
-			if volumeLevel, ok := call.Data["volume_level"].(float64); ok {
-				lastVolume = volumeLevel
-			}
-		}
-	}
+	volumeSetCalls := testutil.CountServiceCalls(calls, "media_player", "volume_set")
 
 	// Should have made multiple volume set calls
 	if volumeSetCalls < 3 {
 		t.Errorf("Expected at least 3 volume_set calls, got %d", volumeSetCalls)
+	}
+
+	// Verify entity_id and track last volume
+	lastVolume := 0.0
+	for _, call := range calls {
+		if call.Domain == "media_player" && call.Service == "volume_set" {
+			if entityID, ok := call.Data["entity_id"].(string); !ok || entityID != "media_player.bedroom" {
+				t.Errorf("Expected entity_id to be media_player.bedroom, got %v", call.Data["entity_id"])
+			}
+			if volumeLevel, ok := call.Data["volume_level"].(float64); ok {
+				lastVolume = volumeLevel
+			}
+		}
 	}
 
 	// Last volume should be less than initial (59/100)
@@ -837,12 +812,7 @@ func TestFadeOutBedroomSpeaker_AbortedByFlag(t *testing.T) {
 
 	// Verify volume_set calls were made but not all 60
 	calls := mockHA.GetServiceCalls()
-	volumeSetCalls := 0
-	for _, call := range calls {
-		if call.Domain == "media_player" && call.Service == "volume_set" {
-			volumeSetCalls++
-		}
-	}
+	volumeSetCalls := testutil.CountServiceCalls(calls, "media_player", "volume_set")
 
 	// Should have fewer than 60 calls since we aborted early
 	if volumeSetCalls >= 60 {
@@ -891,12 +861,7 @@ func TestFadeOutBedroomSpeaker_CancelledByMusicType(t *testing.T) {
 
 	// Verify volume_set calls were made but not all 60
 	calls := mockHA.GetServiceCalls()
-	volumeSetCalls := 0
-	for _, call := range calls {
-		if call.Domain == "media_player" && call.Service == "volume_set" {
-			volumeSetCalls++
-		}
-	}
+	volumeSetCalls := testutil.CountServiceCalls(calls, "media_player", "volume_set")
 
 	// Should have fewer than 60 calls since we cancelled early
 	if volumeSetCalls >= 60 {
@@ -995,12 +960,7 @@ func TestBeginWake_LaunchesFadeOut(t *testing.T) {
 
 	// Verify volume_set calls were made
 	calls := mockHA.GetServiceCalls()
-	volumeSetCalls := 0
-	for _, call := range calls {
-		if call.Domain == "media_player" && call.Service == "volume_set" {
-			volumeSetCalls++
-		}
-	}
+	volumeSetCalls := testutil.CountServiceCalls(calls, "media_player", "volume_set")
 
 	// Should have at least 1 volume set call (fade out started)
 	if volumeSetCalls < 1 {
@@ -1244,12 +1204,7 @@ func TestFadeOutSpeaker_WithVolumeQuery(t *testing.T) {
 
 	// Verify volume_set calls were made
 	calls := mockHA.GetServiceCalls()
-	volumeSetCalls := 0
-	for _, call := range calls {
-		if call.Domain == "media_player" && call.Service == "volume_set" {
-			volumeSetCalls++
-		}
-	}
+	volumeSetCalls := testutil.CountServiceCalls(calls, "media_player", "volume_set")
 
 	// Should have made multiple volume set calls
 	if volumeSetCalls < 2 {
@@ -1524,13 +1479,11 @@ func TestBeginWake_MultipleSpeakers(t *testing.T) {
 
 func TestManagerReset(t *testing.T) {
 	t.Parallel()
-	logger := zap.NewNop()
-	mockClient := ha.NewMockClient()
-	stateManager := state.NewManager(mockClient, logger, false)
-	configLoader := config.NewLoader("../../../configs", logger)
+	env := testutil.NewEnv(t)
+	configLoader := config.NewLoader("../../../configs", env.Logger)
 	timeProvider := plugin.RealTimeProvider{}
 
-	manager := NewManager(context.Background(), mockClient, stateManager, configLoader, logger, false, timeProvider, nil)
+	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, configLoader, env.Logger, false, timeProvider, nil)
 
 	err := manager.Start()
 	if err != nil {
