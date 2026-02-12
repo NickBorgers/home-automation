@@ -2,6 +2,8 @@ package loadshedding
 
 import (
 	"context"
+	"runtime"
+	"sync"
 	"testing"
 	"time"
 
@@ -217,39 +219,46 @@ func TestLoadSheddingShadowState_ConcurrentAccess(t *testing.T) {
 	manager := NewManager(context.Background(), mockClient, stateManager, zap.NewNop(), true, nil)
 
 	// Run concurrent operations
-	done := make(chan bool)
+	var wg sync.WaitGroup
+	wg.Add(3)
 
 	// Writer goroutine - updates shadow state
 	go func() {
+		defer wg.Done()
 		for i := 0; i < 100; i++ {
 			manager.recordAction(i%2 == 0, "test_action", "Concurrent test", true, 65.0, 80.0, "concurrent_test")
-			time.Sleep(1 * time.Millisecond)
+			runtime.Gosched() // Yield to maximize interleaving for race detection
 		}
-		done <- true
 	}()
 
 	// Reader goroutine - reads shadow state
 	go func() {
+		defer wg.Done()
 		for i := 0; i < 100; i++ {
 			_ = manager.GetShadowState()
-			time.Sleep(1 * time.Millisecond)
+			runtime.Gosched()
 		}
-		done <- true
 	}()
 
 	// Another writer goroutine - updates inputs
 	go func() {
+		defer wg.Done()
 		for i := 0; i < 100; i++ {
 			manager.subHelper.CaptureInitialInputs()
-			time.Sleep(1 * time.Millisecond)
+			runtime.Gosched()
 		}
-		done <- true
 	}()
 
-	// Wait for all goroutines to complete
-	<-done
-	<-done
-	<-done
+	// Wait for all goroutines to complete with timeout
+	waitCh := make(chan struct{})
+	go func() { wg.Wait(); close(waitCh) }()
+
+	select {
+	case <-waitCh:
+		// success
+	case <-time.After(10 * time.Second):
+		t.Fatal("Timeout waiting for concurrent operations")
+	}
 
 	// If we get here without a race condition, test passes
 	// (run with -race flag to detect races)
@@ -381,13 +390,10 @@ func TestLoadSheddingShadowState_HandleEnergyChange(t *testing.T) {
 	}
 	defer manager.Stop()
 
-	// Simulate energy change to red
+	// Simulate energy change to red (handler executes synchronously via state subscriber)
 	if err := stateManager.SetString("currentEnergyLevel", "red"); err != nil {
 		t.Fatalf("Failed to change energy level: %v", err)
 	}
-
-	// Give the handler time to process
-	time.Sleep(50 * time.Millisecond)
 
 	// Verify shadow state was updated
 	shadowState := manager.GetShadowState()

@@ -1513,3 +1513,124 @@ func TestSensorHealthManager_NodeStatus_DeadDevice_DebounceExpires(t *testing.T)
 		t.Errorf("Expected title 'Device Online', got '%s'", recoveryNotification.Title)
 	}
 }
+
+func TestSensorHealthManager_NodeStatus_DeadDevice_CooldownSuppresses(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	mockNtfy := ntfy.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+	mockClock := clock.NewMockClock(time.Now())
+
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
+
+	// Add a node status sensor (simulates a flapping device like Leaf Charger)
+	manager.AddNodeStatus(&NodeStatus{
+		EntityID:   testNodeStatus1,
+		DeviceID:   "device_zwave_1",
+		DeviceName: "Leaf Charger",
+		Status:     "alive",
+	})
+
+	// First cycle: device goes dead → debounce fires → notification sent
+	manager.SimulateNodeStatusChange(testNodeStatus1, "dead")
+	mockClock.Advance(NodeDeadDebounceDelay)
+
+	if countNtfyNotifications(mockNtfy) != 1 {
+		t.Fatalf("Expected 1 dead notification after first debounce, got %d", countNtfyNotifications(mockNtfy))
+	}
+	notification := getLastNtfyNotification(mockNtfy)
+	if notification.Title != "Device Offline" {
+		t.Errorf("Expected title 'Device Offline', got '%s'", notification.Title)
+	}
+
+	// Device recovers → recovery notification sent
+	manager.SimulateNodeStatusChange(testNodeStatus1, "alive")
+
+	if countNtfyNotifications(mockNtfy) != 2 {
+		t.Fatalf("Expected 2 notifications (1 dead + 1 recovery), got %d", countNtfyNotifications(mockNtfy))
+	}
+
+	// Advance 30 minutes (well within the 48h cooldown)
+	mockClock.Advance(30 * time.Minute)
+
+	// Second cycle: device goes dead again within cooldown window
+	manager.SimulateNodeStatusChange(testNodeStatus1, "dead")
+	mockClock.Advance(NodeDeadDebounceDelay)
+
+	// Notification should be suppressed by cooldown
+	if countNtfyNotifications(mockNtfy) != 2 {
+		t.Errorf("Expected 2 notifications (cooldown should suppress), got %d", countNtfyNotifications(mockNtfy))
+	}
+
+	// Device recovers — no recovery notification since dead notification was suppressed
+	// (NotificationSent was never set to true for this cycle)
+	manager.SimulateNodeStatusChange(testNodeStatus1, "alive")
+
+	if countNtfyNotifications(mockNtfy) != 2 {
+		t.Errorf("Expected 2 notifications (no recovery for suppressed dead), got %d", countNtfyNotifications(mockNtfy))
+	}
+}
+
+func TestSensorHealthManager_NodeStatus_DeadDevice_CooldownExpires(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	mockNtfy := ntfy.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+	mockClock := clock.NewMockClock(time.Now())
+
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
+
+	// Add a node status sensor
+	manager.AddNodeStatus(&NodeStatus{
+		EntityID:   testNodeStatus1,
+		DeviceID:   "device_zwave_1",
+		DeviceName: "Leaf Charger",
+		Status:     "alive",
+	})
+
+	// First cycle: device goes dead → debounce fires → notification sent
+	manager.SimulateNodeStatusChange(testNodeStatus1, "dead")
+	mockClock.Advance(NodeDeadDebounceDelay)
+
+	if countNtfyNotifications(mockNtfy) != 1 {
+		t.Fatalf("Expected 1 dead notification, got %d", countNtfyNotifications(mockNtfy))
+	}
+
+	// Device recovers
+	manager.SimulateNodeStatusChange(testNodeStatus1, "alive")
+
+	if countNtfyNotifications(mockNtfy) != 2 {
+		t.Fatalf("Expected 2 notifications (dead + recovery), got %d", countNtfyNotifications(mockNtfy))
+	}
+
+	// Advance past the 48h cooldown
+	mockClock.Advance(NodeDeadNotificationCooldown + 1*time.Hour)
+
+	// Second cycle: device goes dead again after cooldown expired
+	manager.SimulateNodeStatusChange(testNodeStatus1, "dead")
+	mockClock.Advance(NodeDeadDebounceDelay)
+
+	// Notification should be sent (cooldown expired)
+	if countNtfyNotifications(mockNtfy) != 3 {
+		t.Fatalf("Expected 3 notifications (cooldown expired, new dead notification), got %d", countNtfyNotifications(mockNtfy))
+	}
+	notification := getLastNtfyNotification(mockNtfy)
+	if notification.Title != "Device Offline" {
+		t.Errorf("Expected title 'Device Offline', got '%s'", notification.Title)
+	}
+
+	// Device recovers — recovery notification should be sent
+	manager.SimulateNodeStatusChange(testNodeStatus1, "alive")
+
+	if countNtfyNotifications(mockNtfy) != 4 {
+		t.Fatalf("Expected 4 notifications (dead + recovery x2), got %d", countNtfyNotifications(mockNtfy))
+	}
+	recoveryNotification := getLastNtfyNotification(mockNtfy)
+	if recoveryNotification.Title != "Device Online" {
+		t.Errorf("Expected title 'Device Online', got '%s'", recoveryNotification.Title)
+	}
+}

@@ -18,7 +18,7 @@ package music
 // so a single button press is enough to signal the user is fighting the fade.
 //
 // REAL-WORLD CONTEXT:
-// User reported fighting the Office speaker (6-9% target) during fade-in.
+// User reported fighting a low-volume speaker (6-9% target) during fade-in.
 // With adaptive delays of ~25 seconds between early fade steps, users have
 // time to manually adjust. A single physical volume button press (1% change)
 // will now trigger detection.
@@ -43,10 +43,10 @@ import (
 // =============================================================================
 //
 // This test verifies that human override detection works correctly for
-// speakers with low target volumes (like the Office speaker at 6-9%).
+// speakers with low target volumes (e.g., 6-9%).
 //
 // SCENARIO:
-// 1. Office speaker fading to 6% target
+// 1. Speaker fading to 6% target
 // 2. At step 3 (fade at ~2%), human sets volume to 0
 // 3. Detection should trigger when difference exceeds threshold (1%)
 func TestScenario_HumanOverrideDetection_LowVolumeTarget(t *testing.T) {
@@ -60,8 +60,8 @@ func TestScenario_HumanOverrideDetection_LowVolumeTarget(t *testing.T) {
 			"day": {
 				Participants: []Participant{
 					{
-						PlayerName: "Office",
-						BaseVolume: 6, // Low target volume - matches production config
+						PlayerName: "Study",
+						BaseVolume: 6, // Low target volume
 					},
 				},
 				PlaybackOptions: []PlaybackOption{
@@ -81,7 +81,7 @@ func TestScenario_HumanOverrideDetection_LowVolumeTarget(t *testing.T) {
 		volumeStep++
 		// At step 3, set volume to 0 to simulate human fighting the fade
 		if volumeStep == 3 {
-			mockHA.SetState("media_player.office", "playing", map[string]interface{}{
+			mockHA.SetState("media_player.study", "playing", map[string]interface{}{
 				"volume_level": 0.0,
 			})
 		}
@@ -90,15 +90,15 @@ func TestScenario_HumanOverrideDetection_LowVolumeTarget(t *testing.T) {
 	err := stateManager.SetString("musicPlaybackType", "day")
 	assert.NoError(t, err)
 
-	mockHA.SetState("media_player.office", "playing", map[string]interface{}{
+	mockHA.SetState("media_player.study", "playing", map[string]interface{}{
 		"volume_level": 0.0,
 	})
 
-	manager.fadeInSpeaker(context.Background(), "Office", 6, "day")
+	manager.fadeInSpeaker(context.Background(), "Study", 6, "day")
 
 	shadowState := manager.GetShadowState()
-	fadeIn, exists := shadowState.Outputs.FadeInProgress["media_player.office"]
-	assert.True(t, exists, "Expected fade-in progress to be recorded for media_player.office")
+	fadeIn, exists := shadowState.Outputs.FadeInProgress["media_player.study"]
+	assert.True(t, exists, "Expected fade-in progress to be recorded for media_player.study")
 
 	assert.True(t, fadeIn.HumanOverrideDetected,
 		"Expected HumanOverrideDetected to be true when user sets volume to 0 during fade-in")

@@ -31,12 +31,14 @@ if .githooks/test-cache.sh pre-commit pre-commit; then
 else
     echo ""
     echo "════════════════════════════════════════════════════════════════════════════"
-    echo "❌ Pre-commit hook failed!"
+    echo "❌ Pre-commit validation failed!"
     echo ""
     echo "Your commit has been blocked because the checks failed."
-    echo "Please fix the issues above and try committing again."
     echo ""
-    echo "To skip this hook (NOT recommended), use: git commit --no-verify"
+    echo "To fix: Address the failures above and try committing again."
+    echo "Emergency bypass (NOT recommended): git commit --no-verify"
+    echo ""
+    echo "⚠️  WARNING: Bypassing hooks may commit broken code."
     echo "════════════════════════════════════════════════════════════════════════════"
     exit 1
 fi
