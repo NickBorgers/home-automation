@@ -125,7 +125,8 @@ func TestScenario_AlarmTimeReached_TriggersBeginWakeSequence(t *testing.T) {
 	// Since it's not exported, we'll trigger it via alarm time change
 	server.SetState("input_number.alarm_time", fmt.Sprintf("%.0f", alarmTimeMs), map[string]interface{}{})
 
-	// Wait for fade out state or volume calls
+	// Allow async handlers to process (fade out may or may not start
+	// since FixedTimeProvider doesn't advance the timer tick)
 	time.Sleep(100 * time.Millisecond)
 
 	// THEN: Verify begin_wake sequence started
@@ -293,8 +294,8 @@ func TestScenario_MidnightReset_ResetsTriggers(t *testing.T) {
 	tomorrowAlarmMs := float64(tomorrowAlarm.Unix() * 1000)
 	server.SetState("input_number.alarm_time", fmt.Sprintf("%.0f", tomorrowAlarmMs), map[string]interface{}{})
 
-	// Allow async handlers to process state
-	time.Sleep(50 * time.Millisecond)
+	// Poll until server state reflects the new alarm time
+	waitForServerState(t, server, "input_number.alarm_time", fmt.Sprintf("%.0f", tomorrowAlarmMs), "alarm time should update for tomorrow")
 
 	// The manager should accept this and be ready to trigger tomorrow
 	alarmTimeState := server.GetState("input_number.alarm_time")
@@ -389,8 +390,11 @@ func TestScenario_WakeCancellation_RevertsToSleepMusic(t *testing.T) {
 	t.Log("WHEN: Bedroom lights are turned off")
 	server.SetState("light.primary_suite", "off", map[string]interface{}{})
 
-	// Wait for music state to change
-	time.Sleep(100 * time.Millisecond)
+	// Poll until music reverts to sleep mode
+	waitForServerState(t, server, "input_text.music_playback_type", "sleep", "music should revert to sleep")
+
+	// Poll until bathroom light turn_off call is recorded
+	waitForServiceCallWithEntity(t, server, "light", "turn_off", "light.primary_bathroom_main_lights", "bathroom lights should be turned off")
 
 	// THEN: Music should revert to sleep mode, bathroom lights turn off
 	t.Log("THEN: Verify music reverts to sleep mode and bathroom lights turn off")
@@ -445,8 +449,8 @@ func TestScenario_MultipleAlarms_UpdatesCorrectly(t *testing.T) {
 	newAlarmMs := float64(newAlarm.Unix() * 1000)
 	server.SetState("input_number.alarm_time", fmt.Sprintf("%.0f", newAlarmMs), map[string]interface{}{})
 
-	// Allow async handlers to process state
-	time.Sleep(50 * time.Millisecond)
+	// Poll until server state reflects the new alarm time
+	waitForServerState(t, server, "input_number.alarm_time", fmt.Sprintf("%.0f", newAlarmMs), "alarm time should update")
 
 	// THEN: New alarm time is accepted and triggers reset
 	t.Log("THEN: Verify new alarm time is accepted")
@@ -517,8 +521,11 @@ func TestScenario_WakeSequence_VolumeFadesOutMonotonically(t *testing.T) {
 		t.Fatal("Fade-out did not complete within timeout")
 	}
 
-	// Allow final service calls to be recorded
-	time.Sleep(50 * time.Millisecond)
+	// Poll until volume_set calls are recorded
+	waitForCondition(t, func() bool {
+		calls := server.GetServiceCalls()
+		return len(filterServiceCalls(calls, "media_player", "volume_set")) >= 2
+	}, "volume_set calls should be recorded")
 
 	// THEN: Verify all volume_set calls show monotonically DECREASING volume
 	t.Log("THEN: Verify all volume_set calls show monotonically decreasing volume")
@@ -1050,8 +1057,8 @@ func TestScenario_WakeSequence_ActivatesWakeMusic(t *testing.T) {
 
 	sleepMgr.TriggerWakeForTest()
 
-	// Wait for service calls and goroutine to complete
-	time.Sleep(150 * time.Millisecond)
+	// Poll until musicPlaybackType changes to "wakeup"
+	waitForServerState(t, server, "input_text.music_playback_type", "wakeup", "music playback type should change to wakeup")
 
 	// THEN: Verify musicPlaybackType was set to "wakeup"
 	t.Log("THEN: Verify musicPlaybackType is set to 'wakeup'")
@@ -1153,8 +1160,8 @@ func TestScenario_StaleWakeSequenceActive_ClearedOnStartup(t *testing.T) {
 	require.NoError(t, err)
 	defer sleepMgr.Stop()
 
-	// Allow startup cleanup to run
-	time.Sleep(50 * time.Millisecond)
+	// Poll until startup cleanup clears the stale isWakeSequenceActive
+	waitForBoolState(t, stateManager, "isWakeSequenceActive", false, "stale isWakeSequenceActive should be cleared on startup")
 
 	// THEN: isWakeSequenceActive should be cleared to false
 	t.Log("THEN: Verify stale isWakeSequenceActive was cleared")
@@ -1180,8 +1187,8 @@ func TestScenario_StaleWakeSequenceActive_ClearedOnStartup(t *testing.T) {
 	err = stateManager.SetBool("isWakeSequenceActive", true)
 	require.NoError(t, err)
 
-	// Allow subscriber notification to complete
-	time.Sleep(50 * time.Millisecond)
+	// Poll until subscriber is notified
+	waitForSubscriberNotification(t, &notificationCount, 1, "subscriber should be notified")
 
 	assert.Equal(t, int32(1), atomic.LoadInt32(&notificationCount),
 		"Subscriber should be notified when isWakeSequenceActive changes from false to true")

@@ -35,6 +35,12 @@ const (
 	// before immediately recovering. We delay the dead notification by this amount
 	// and cancel it if the device recovers, to avoid noisy flapping alerts.
 	NodeDeadDebounceDelay = 5 * time.Minute
+
+	// Per-device cooldown for dead device notifications.
+	// After sending a dead notification for a device, subsequent dead notifications
+	// for the same device are suppressed for this duration. This prevents notification
+	// floods from devices that flap dead/alive on 10-60 minute cycles.
+	NodeDeadNotificationCooldown = 48 * time.Hour
 )
 
 // BatterySensor represents a discovered battery sensor
@@ -65,13 +71,14 @@ type TemperatureSensor struct {
 
 // NodeStatus represents a discovered Z-Wave node status sensor
 type NodeStatus struct {
-	EntityID          string
-	DeviceID          string
-	DeviceName        string
-	Status            string // alive, asleep, awake, dead
-	LastChanged       time.Time
-	NotificationSent  bool        // Track if we've sent notification for current dead state
-	deadDebounceTimer clock.Timer // Pending debounce timer for dead notification (nil if none)
+	EntityID             string
+	DeviceID             string
+	DeviceName           string
+	Status               string // alive, asleep, awake, dead
+	LastChanged          time.Time
+	NotificationSent     bool        // Track if we've sent notification for current dead state
+	LastDeadNotification time.Time   // When we last sent a dead notification (for cooldown)
+	deadDebounceTimer    clock.Timer // Pending debounce timer for dead notification (nil if none)
 }
 
 // Manager handles sensor health monitoring: low batteries, node status, and temperature lockup
@@ -615,7 +622,20 @@ func (m *Manager) handleNodeStatusChange(entityID string, oldState, newState *ha
 				m.mu.Unlock()
 				return
 			}
+			// Check cooldown — suppress if we notified about this device recently
+			if !n.LastDeadNotification.IsZero() &&
+				m.clock.Since(n.LastDeadNotification) < NodeDeadNotificationCooldown {
+				n.deadDebounceTimer = nil
+				m.mu.Unlock()
+				m.logger.Info("Suppressed dead device notification (cooldown active)",
+					zap.String("entity_id", nodeEntityID),
+					zap.String("device_name", n.DeviceName),
+					zap.Duration("since_last", m.clock.Since(n.LastDeadNotification)),
+					zap.Duration("cooldown", NodeDeadNotificationCooldown))
+				return
+			}
 			n.NotificationSent = true
+			n.LastDeadNotification = m.clock.Now()
 			n.deadDebounceTimer = nil
 			m.mu.Unlock()
 			m.sendDeviceDeadNotification(n)

@@ -5,8 +5,7 @@ import (
 	"testing"
 
 	"homeautomation/internal/ha"
-	"homeautomation/internal/state"
-	"homeautomation/internal/testlogger"
+	"homeautomation/pkg/testutil"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -56,27 +55,23 @@ func createTestConfig() *HueConfig {
 
 func TestNewManager(t *testing.T) {
 	t.Parallel()
-	logger := testlogger.New()
+	env := testutil.NewEnv(t)
 	config := createTestConfig()
-	mockClient := ha.NewMockClient()
-	stateManager := state.NewManager(mockClient, logger, false)
 
-	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil)
+	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, false, nil)
 
 	assert.NotNil(t, manager)
-	assert.Equal(t, mockClient, manager.haClient)
-	assert.Equal(t, stateManager, manager.stateManager)
+	assert.Equal(t, env.MockHA, manager.haClient)
+	assert.Equal(t, env.StateMgr, manager.stateManager)
 	assert.Equal(t, config, manager.config)
 	assert.False(t, manager.readOnly)
 }
 
 func TestEvaluateConditions(t *testing.T) {
 	t.Parallel()
-	logger := testlogger.New()
+	env := testutil.NewEnv(t)
 	config := createTestConfig()
-	mockClient := ha.NewMockClient()
-	stateManager := state.NewManager(mockClient, logger, false)
-	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil)
+	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, false, nil)
 
 	tests := []struct {
 		name           string
@@ -97,7 +92,7 @@ func TestEvaluateConditions(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			for k, v := range tt.stateOverrides {
-				_ = stateManager.SetBool(k, v)
+				_ = env.StateMgr.SetBool(k, v)
 			}
 			room := &config.Rooms[tt.roomIndex]
 			action, matchedVar := manager.evaluateConditions(room)
@@ -109,9 +104,7 @@ func TestEvaluateConditions(t *testing.T) {
 
 func TestEvaluateConditionsNoMatch(t *testing.T) {
 	t.Parallel()
-	logger := testlogger.New()
-	mockClient := ha.NewMockClient()
-	stateManager := state.NewManager(mockClient, logger, false)
+	env := testutil.NewEnv(t)
 
 	// Create a room with no conditions
 	config := &HueConfig{
@@ -124,7 +117,7 @@ func TestEvaluateConditionsNoMatch(t *testing.T) {
 		},
 	}
 
-	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil)
+	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, false, nil)
 
 	room := &config.Rooms[0]
 	action, matchedVar := manager.evaluateConditions(room)
@@ -169,16 +162,14 @@ func TestActivateScene(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			logger := testlogger.New()
+			env := testutil.NewEnv(t)
 			config := createTestConfig()
-			mockClient := ha.NewMockClient()
-			stateManager := state.NewManager(mockClient, logger, false)
-			manager := NewManager(context.Background(), mockClient, stateManager, config, logger, tt.readOnly, nil)
+			manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, tt.readOnly, nil)
 
 			room := &config.Rooms[0]
 			manager.activateScene(room, tt.dayPhase, "test_trigger")
 
-			calls := mockClient.GetServiceCalls()
+			calls := env.MockHA.GetServiceCalls()
 			assert.Equal(t, tt.expectedCalls, len(calls))
 
 			if tt.expectedCalls > 0 {
@@ -206,16 +197,14 @@ func TestTurnOffRoom(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			logger := testlogger.New()
+			env := testutil.NewEnv(t)
 			config := createTestConfig()
-			mockClient := ha.NewMockClient()
-			stateManager := state.NewManager(mockClient, logger, false)
-			manager := NewManager(context.Background(), mockClient, stateManager, config, logger, tt.readOnly, nil)
+			manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, tt.readOnly, nil)
 
 			room := &config.Rooms[0]
 			manager.turnOffRoom(room, "test_trigger")
 
-			calls := mockClient.GetServiceCalls()
+			calls := env.MockHA.GetServiceCalls()
 			assert.Equal(t, tt.expectedCalls, len(calls))
 
 			if tt.expectedCalls > 0 {
@@ -231,7 +220,6 @@ func TestTurnOffRoom(t *testing.T) {
 
 func TestEvaluateAndActivateRoom(t *testing.T) {
 	t.Parallel()
-	logger := testlogger.New()
 	config := createTestConfig()
 
 	tests := []struct {
@@ -251,18 +239,17 @@ func TestEvaluateAndActivateRoom(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mockClient := ha.NewMockClient()
-			stateManager := state.NewManager(mockClient, logger, false)
-			manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil)
+			env := testutil.NewEnv(t)
+			manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, false, nil)
 
-			_ = stateManager.SetBool("isAnyoneHome", tt.isAnyoneHome)
-			_ = stateManager.SetBool("isEveryoneAsleep", tt.isEveryoneAsleep)
-			_ = stateManager.SetBool("isTVPlaying", tt.isTVPlaying)
+			_ = env.StateMgr.SetBool("isAnyoneHome", tt.isAnyoneHome)
+			_ = env.StateMgr.SetBool("isEveryoneAsleep", tt.isEveryoneAsleep)
+			_ = env.StateMgr.SetBool("isTVPlaying", tt.isTVPlaying)
 
 			room := &config.Rooms[0]
 			manager.evaluateAndActivateRoom(room, tt.dayPhase, "")
 
-			calls := mockClient.GetServiceCalls()
+			calls := env.MockHA.GetServiceCalls()
 			var lightingCalls []ha.ServiceCall
 			for _, call := range calls {
 				if call.Domain == "scene" || call.Domain == "light" {
@@ -288,42 +275,34 @@ func TestEvaluateAndActivateRoom(t *testing.T) {
 
 func TestStart(t *testing.T) {
 	t.Parallel()
-	logger := testlogger.New()
+	env := testutil.NewEnv(t)
 	config := createTestConfig()
-	mockClient := ha.NewMockClient()
-	stateManager := state.NewManager(mockClient, logger, false)
-	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil)
+	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, false, nil)
 
 	// Start manager
 	err := manager.Start()
 	assert.NoError(t, err)
 
-	// Verify subscriptions were created
-	// The state manager should have subscriptions for all the lighting-related states
-	// We can verify this by triggering a state change and checking if the handler is called
-
 	// Set initial state
-	err = stateManager.SetString("dayPhase", "Morning")
+	err = env.StateMgr.SetString("dayPhase", "Morning")
 	assert.NoError(t, err)
 
-	err = stateManager.SetBool("isAnyoneHome", true)
+	err = env.StateMgr.SetBool("isAnyoneHome", true)
 	assert.NoError(t, err)
 
 	// Change day phase - this should trigger scene activation
-	err = stateManager.SetString("dayPhase", "Day")
+	err = env.StateMgr.SetString("dayPhase", "Day")
 	assert.NoError(t, err)
 
 	// Verify that scenes were activated (service calls were made)
-	calls := mockClient.GetServiceCalls()
+	calls := env.MockHA.GetServiceCalls()
 	assert.Greater(t, len(calls), 0, "Expected service calls after day phase change")
 }
 
 // TestLightingManager_Stop tests the Stop method and subscription cleanup
 func TestLightingManager_Stop(t *testing.T) {
 	t.Parallel()
-	logger := testlogger.New()
-	mockClient := ha.NewMockClient()
-	stateManager := state.NewManager(mockClient, logger, false)
+	env := testutil.NewEnv(t)
 
 	// Create minimal config
 	config := &HueConfig{
@@ -336,16 +315,16 @@ func TestLightingManager_Stop(t *testing.T) {
 		},
 	}
 
-	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil)
+	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, false, nil)
 
 	// Initialize required state variables
-	_ = stateManager.SetString("dayPhase", "morning")
-	_ = stateManager.SetString("sunevent", "sunrise")
-	_ = stateManager.SetBool("isAnyoneHome", true)
-	_ = stateManager.SetBool("isTVPlaying", false)
-	_ = stateManager.SetBool("isEveryoneAsleep", false)
-	_ = stateManager.SetBool("isMasterAsleep", false)
-	_ = stateManager.SetBool("isHaveGuests", false)
+	_ = env.StateMgr.SetString("dayPhase", "morning")
+	_ = env.StateMgr.SetString("sunevent", "sunrise")
+	_ = env.StateMgr.SetBool("isAnyoneHome", true)
+	_ = env.StateMgr.SetBool("isTVPlaying", false)
+	_ = env.StateMgr.SetBool("isEveryoneAsleep", false)
+	_ = env.StateMgr.SetBool("isMasterAsleep", false)
+	_ = env.StateMgr.SetBool("isHaveGuests", false)
 
 	// Start manager (creates subscriptions)
 	err := manager.Start()
@@ -363,15 +342,13 @@ func TestLightingManager_Stop(t *testing.T) {
 
 func TestManagerReset(t *testing.T) {
 	t.Parallel()
-	logger := testlogger.New()
-	mockClient := ha.NewMockClient()
-	stateManager := state.NewManager(mockClient, logger, false)
+	env := testutil.NewEnv(t)
 	hueConfig := createTestConfig()
 
 	// Set day phase
-	stateManager.SetString("dayPhase", "morning")
+	env.StateMgr.SetString("dayPhase", "morning")
 
-	manager := NewManager(context.Background(), mockClient, stateManager, hueConfig, logger, false, nil)
+	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, hueConfig, env.Logger, false, nil)
 
 	err := manager.Start()
 	assert.NoError(t, err)
@@ -384,11 +361,9 @@ func TestManagerReset(t *testing.T) {
 
 func TestIsTopicRelevant(t *testing.T) {
 	t.Parallel()
-	logger := testlogger.New()
+	env := testutil.NewEnv(t)
 	config := createTestConfig()
-	mockClient := ha.NewMockClient()
-	stateManager := state.NewManager(mockClient, logger, false)
-	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil)
+	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, false, nil)
 
 	tests := []struct {
 		name      string
@@ -416,14 +391,12 @@ func TestIsTopicRelevant(t *testing.T) {
 
 func TestGetStateValue(t *testing.T) {
 	t.Parallel()
-	logger := testlogger.New()
+	env := testutil.NewEnv(t)
 	config := createTestConfig()
-	mockClient := ha.NewMockClient()
-	stateManager := state.NewManager(mockClient, logger, false)
-	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil)
+	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, false, nil)
 
-	_ = stateManager.SetBool("isAnyoneHome", true)
-	_ = stateManager.SetString("dayPhase", "morning")
+	_ = env.StateMgr.SetBool("isAnyoneHome", true)
+	_ = env.StateMgr.SetString("dayPhase", "morning")
 
 	tests := []struct {
 		name      string
@@ -451,16 +424,13 @@ func TestGetStateValue(t *testing.T) {
 
 func TestCollectConditionVariables(t *testing.T) {
 	t.Parallel()
-	logger := testlogger.New()
+	env := testutil.NewEnv(t)
 	config := createTestConfig()
-	mockClient := ha.NewMockClient()
-	stateManager := state.NewManager(mockClient, logger, false)
-	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil)
+	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, false, nil)
 
 	vars := manager.collectConditionVariables()
 
 	// Should not include variables that are already subscribed to explicitly
-	// (dayPhase, sunevent, isAnyoneHome, isTVPlaying, isEveryoneAsleep, isMasterAsleep, isHaveGuests)
 	for _, v := range vars {
 		assert.NotEqual(t, "dayPhase", v)
 		assert.NotEqual(t, "sunevent", v)
@@ -495,21 +465,19 @@ func TestHandleSunEventChange(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			logger := testlogger.New()
+			env := testutil.NewEnv(t)
 			config := createTestConfig()
-			mockClient := ha.NewMockClient()
-			stateManager := state.NewManager(mockClient, logger, false)
-			manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil)
+			manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, false, nil)
 
-			_ = stateManager.SetString("dayPhase", "Morning")
-			_ = stateManager.SetString("sunevent", "sunrise")
-			_ = stateManager.SetBool("isAnyoneHome", true)
-			_ = stateManager.SetBool("isEveryoneAsleep", false)
-			_ = stateManager.SetBool("isTVPlaying", false)
+			_ = env.StateMgr.SetString("dayPhase", "Morning")
+			_ = env.StateMgr.SetString("sunevent", "sunrise")
+			_ = env.StateMgr.SetBool("isAnyoneHome", true)
+			_ = env.StateMgr.SetBool("isEveryoneAsleep", false)
+			_ = env.StateMgr.SetBool("isTVPlaying", false)
 
 			manager.handleSunEventChange("sunevent", "sunrise", tt.newVal)
 
-			calls := mockClient.GetServiceCalls()
+			calls := env.MockHA.GetServiceCalls()
 			sceneCalls := 0
 			for _, call := range calls {
 				if call.Domain == "scene" {
@@ -553,21 +521,19 @@ func TestHandleTVStateChange(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			logger := testlogger.New()
+			env := testutil.NewEnv(t)
 			config := createTestConfig()
-			mockClient := ha.NewMockClient()
-			stateManager := state.NewManager(mockClient, logger, false)
-			manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil)
+			manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, false, nil)
 
-			_ = stateManager.SetString("dayPhase", "Evening")
-			_ = stateManager.SetBool("isAnyoneHome", true)
-			_ = stateManager.SetBool("isEveryoneAsleep", false)
-			_ = stateManager.SetBool("isTVPlaying", tt.tvPlaying)
-			mockClient.ClearServiceCalls()
+			_ = env.StateMgr.SetString("dayPhase", "Evening")
+			_ = env.StateMgr.SetBool("isAnyoneHome", true)
+			_ = env.StateMgr.SetBool("isEveryoneAsleep", false)
+			_ = env.StateMgr.SetBool("isTVPlaying", tt.tvPlaying)
+			env.MockHA.ClearServiceCalls()
 
 			manager.handleTVStateChange("isTVPlaying", tt.oldVal, tt.newVal)
 
-			calls := mockClient.GetServiceCalls()
+			calls := env.MockHA.GetServiceCalls()
 			if tt.expectNoLivingRoom {
 				for _, call := range calls {
 					if call.Domain == "scene" {
@@ -641,21 +607,19 @@ func TestHandleSleepStateChange(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			logger := testlogger.New()
+			env := testutil.NewEnv(t)
 			config := createTestConfig()
-			mockClient := ha.NewMockClient()
-			stateManager := state.NewManager(mockClient, logger, false)
-			manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil)
+			manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, false, nil)
 
-			_ = stateManager.SetString("dayPhase", tt.dayPhase)
+			_ = env.StateMgr.SetString("dayPhase", tt.dayPhase)
 			for k, v := range tt.sleepState {
-				_ = stateManager.SetBool(k, v)
+				_ = env.StateMgr.SetBool(k, v)
 			}
-			mockClient.ClearServiceCalls()
+			env.MockHA.ClearServiceCalls()
 
 			manager.handleSleepStateChange(tt.triggerVar, tt.oldVal, tt.newVal)
 
-			calls := mockClient.GetServiceCalls()
+			calls := env.MockHA.GetServiceCalls()
 			found := false
 			for _, call := range calls {
 				if call.Domain == tt.expectDomain && call.Service == tt.expectService {

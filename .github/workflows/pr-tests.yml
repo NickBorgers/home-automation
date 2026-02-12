@@ -104,7 +104,7 @@ jobs:
         run: cd homeautomation-go && go mod download
 
       - name: Run unit tests with coverage
-        run: make ci-unit-tests
+        run: make unit-tests-impl
 
   integration-tests:
     name: Integration Tests (Required for PR Merge)
@@ -126,7 +126,7 @@ jobs:
         run: cd homeautomation-go && go mod download
 
       - name: Run integration tests
-        run: make ci-integration-tests
+        run: make integration-tests-impl
 
   config-tests:
     name: Config Validation Tests

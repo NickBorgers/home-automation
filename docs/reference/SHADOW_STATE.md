@@ -78,20 +78,43 @@ type EnergyShadowState   = ShadowState[ReadOnlyInputs, EnergyOutputs]   // read-
 
 This is the most common bug: plugins update outputs but forget to track the raw inputs that triggered the computation.
 
-### Required Pattern
+### Pattern 1: SubscriptionHelper (Recommended)
+
+Most plugins (13 of 18) use `SubscriptionHelper`, which **automatically captures shadow inputs before each handler runs**. This is the preferred pattern because it's impossible to forget.
 
 ```go
-// CORRECT: Update shadow inputs at start of every handler
-func (m *Manager) handleSomeChange(entityID string, oldState, newState *ha.State) {
-    if newState == nil {
-        return
-    }
+// SubscriptionHelper captures inputs AUTOMATICALLY before calling your handler.
+// No manual updateShadowInputs() call needed.
+func (m *Manager) setupSubscriptions() {
+    m.subHelper.SubscribeToState("dayPhase", func(key string, oldValue, newValue interface{}) {
+        // Shadow inputs already captured at this point
+        // Just process the change and update outputs
+        m.processChange(newValue)
+        m.shadowTracker.UpdateSomeOutput(result)
+    })
 
+    m.subHelper.SubscribeToEntity("sensor.something", func(entityID string, oldState, newState *ha.State) {
+        // Shadow inputs already captured
+        m.processSensor(newState)
+    })
+
+    // Capture initial state at startup
+    m.subHelper.CaptureInitialInputs()
+}
+```
+
+### Pattern 2: Manual updateShadowInputs() (For Periodic/Time-Based Plugins)
+
+Plugins that use periodic timers instead of subscriptions (e.g., `dayphase`, `sleephygiene`) must manually capture inputs since SubscriptionHelper only wraps subscription callbacks.
+
+```go
+// Manual pattern: call updateShadowInputs() at start of every handler
+func (m *Manager) handlePeriodicUpdate() {
     // 1. FIRST: Update shadow state inputs
     m.updateShadowInputs()
 
-    // 2. Then: Process the change and compute outputs
-    computed := m.computeSomething(newState.State)
+    // 2. Then: Process and compute outputs
+    computed := m.computeSomething()
 
     // 3. Update state variables
     m.stateManager.SetString("someOutput", computed)
@@ -103,15 +126,9 @@ func (m *Manager) handleSomeChange(entityID string, oldState, newState *ha.State
 // updateShadowInputs captures current input values
 func (m *Manager) updateShadowInputs() {
     inputs := make(map[string]interface{})
-
-    // Capture ALL subscribed state variables and HA entities
     if val, err := m.stateManager.GetBool("someInput"); err == nil {
         inputs["someInput"] = val
     }
-    if state, err := m.haClient.GetState("sensor.something"); err == nil && state != nil {
-        inputs["sensor.something"] = state.State
-    }
-
     m.shadowTracker.UpdateCurrentInputs(inputs)
 }
 ```
@@ -119,13 +136,13 @@ func (m *Manager) updateShadowInputs() {
 ### Anti-Pattern (BUG)
 
 ```go
-// WRONG: Only updates outputs, forgets inputs
+// WRONG: Only updates outputs, forgets inputs (and doesn't use SubscriptionHelper)
 func (m *Manager) handleSomeChange(entityID string, oldState, newState *ha.State) {
     if newState == nil {
         return
     }
 
-    // BUG: No call to m.updateShadowInputs()!
+    // BUG: No SubscriptionHelper and no manual updateShadowInputs()!
 
     computed := m.computeSomething(newState.State)
     m.stateManager.SetString("someOutput", computed)
@@ -243,9 +260,9 @@ When debugging unexpected behavior:
 
 | Symptom | Cause | Fix |
 |---------|-------|-----|
-| `inputs.current` is empty | `updateShadowInputs()` not called | Add call at start of handlers |
+| `inputs.current` is empty | Inputs not captured before handler | Use `SubscriptionHelper` (auto-captures) or add manual `updateShadowInputs()` call |
 | `lastUpdate` is zero time | Sensor updates not tracked | Add individual sensor update methods |
-| Outputs correct but inputs wrong | Handler updates outputs but not inputs | Add `m.updateShadowInputs()` call |
+| Outputs correct but inputs wrong | Handler updates outputs but not inputs | Ensure subscriptions go through `SubscriptionHelper`, or add manual input capture |
 
 ## Adding Shadow State to New Plugins
 
@@ -290,19 +307,28 @@ When debugging unexpected behavior:
    ```
    The generic base provides `UpdateCurrentInputs()`, `SnapshotInputsForAction()` (action trackers only), and thread-safe locking. You only need to add plugin-specific output methods.
 
-4. **Add tracker to manager**:
+4. **Add tracker and SubscriptionHelper to manager**:
    ```go
    type Manager struct {
        // ...
        shadowTracker *shadowstate.MyPluginTracker
+       subHelper     *shadowstate.SubscriptionHelper
    }
    ```
 
-5. **Implement `updateShadowInputs()`** method
+5. **Use SubscriptionHelper for subscriptions** (recommended):
+   ```go
+   m.subHelper = shadowstate.NewSubscriptionHelper(
+       haClient, stateManager, registry, m.shadowTracker, "myplugin", logger,
+   )
+   // Subscribe via subHelper — inputs are captured automatically
+   m.subHelper.SubscribeToState("someKey", m.handleSomeChange)
+   m.subHelper.SubscribeToEntity("sensor.x", m.handleEntity)
+   m.subHelper.CaptureInitialInputs()
+   ```
+   Only use manual `updateShadowInputs()` if the plugin has periodic/timer-based logic that doesn't go through subscriptions.
 
-6. **Call `updateShadowInputs()`** at the start of every handler
-
-7. **Register with API** in `internal/api/server.go`
+6. **Register with API** in `internal/api/server.go`
 
 ## Related Documentation
 
