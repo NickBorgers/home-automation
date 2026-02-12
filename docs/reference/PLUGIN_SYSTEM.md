@@ -386,6 +386,81 @@ defer stateTrackingManager.Stop()  // Stops first (registered first)
 
 ## Creating New Plugins
 
+### Constructor Standard (2026+)
+
+**All new plugins should use `StandardDeps` and `OptionalDeps`** from `homeautomation/internal/plugin` for consistent constructor signatures. This eliminates the inconsistent parameter ordering across existing plugins.
+
+> **Note:** Existing plugins (18 total) will NOT be migrated — this standard applies to new plugins only.
+
+```go
+import intplugin "homeautomation/internal/plugin"
+
+func NewManager(deps intplugin.StandardDeps, opts intplugin.OptionalDeps, config *MyConfig) *Manager {
+    return &Manager{
+        ctx:          deps.Ctx,
+        haClient:     deps.HAClient,
+        stateManager: deps.StateManager,
+        logger:       deps.Logger.Named("myplugin"),
+        readOnly:     deps.ReadOnly,
+        registry:     deps.Registry,
+        timeProvider: opts.TimeProviderOrDefault(),
+        timezone:     opts.TimezoneOrDefault(),
+        ntfyClient:   opts.NtfyClient,
+        config:       config,
+    }
+}
+```
+
+**`StandardDeps`** contains dependencies every plugin needs:
+- `Ctx` — shutdown context for graceful cancellation
+- `HAClient` — Home Assistant client (`ha.HAClient`)
+- `StateManager` — state variable system (`*state.Manager`)
+- `Logger` — structured logger (`*zap.Logger`)
+- `ReadOnly` — read-only mode flag
+- `Registry` — shadow state subscription registry
+
+**`OptionalDeps`** contains dependencies not all plugins need:
+- `TimeProvider` — testable time (use `opts.TimeProviderOrDefault()` for safe nil handling)
+- `Timezone` — timezone for schedule calculations (use `opts.TimezoneOrDefault()`)
+- `NtfyClient` — push notifications (may be nil)
+- `Latitude`, `Longitude` — geographic coordinates for sun calculations
+
+**Benefits:**
+- Consistent parameter order across all new plugins
+- Adding a new standard dependency requires updating one struct, not every constructor
+- Self-documenting which dependencies are required vs optional
+- Helper methods (`TimeProviderOrDefault()`, `TimezoneOrDefault()`) handle nil safely
+
+**In `register.go`**, construct the deps from the plugin context:
+
+```go
+func createPlugin(ctx *plugin.Context) (plugin.Plugin, error) {
+    haClient := pkgha.UnwrapClient(ctx.HAClient)
+    stateManager := pkgstate.UnwrapManager(ctx.StateManager)
+
+    deps := intplugin.StandardDeps{
+        Ctx:          ctx.ShutdownCtx,
+        HAClient:     haClient,
+        StateManager: stateManager,
+        Logger:       ctx.Logger,
+        ReadOnly:     ctx.ReadOnly,
+        Registry:     ctx.Registry,
+    }
+    opts := intplugin.OptionalDeps{
+        TimeProvider: ctx.TimeProvider,
+        Timezone:     ctx.Timezone,
+        NtfyClient:   ctx.NtfyClient,
+    }
+
+    manager := NewManager(deps, opts, config)
+    return &pluginAdapter{manager: manager}, nil
+}
+```
+
+### Legacy Pattern (Pre-2026)
+
+The following pattern is used by existing plugins and is documented here for reference. **New plugins should use the [Constructor Standard](#constructor-standard-2026) above.**
+
 ### Step 1: Create Package Structure
 
 ```bash
@@ -1067,5 +1142,5 @@ import (
 
 ---
 
-**Last Updated:** 2025-11-29
+**Last Updated:** 2026-02-12
 **Go Version:** 1.24
