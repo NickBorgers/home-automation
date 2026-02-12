@@ -376,7 +376,7 @@ func TestScenario_StudySpeaker_UnmuteOnOccupancyChangeDuringPlayback(t *testing.
 // 2. executePlayback() is called with Kitchen + Study speakers
 // 3. Study speaker should be muted but with target volume set
 //
-// EXPECTED SERVICE CALLS FOR OFFICE:
+// EXPECTED SERVICE CALLS FOR STUDY:
 // - media_player.volume_set with volume_level = 0.06 (6%)
 // - media_player.volume_mute with is_volume_muted = true
 func TestScenario_MutedSpeaker_GetsTargetVolumeSetDuringPlayback(t *testing.T) {

@@ -389,7 +389,7 @@ music:
         base_volume: 16
         leave_muted_if: []
       - player_name: "Primary Bathroom"
-        base_volume: 9
+        base_volume: 16
         leave_muted_if: []
     playback_options:
       - uri: "http://rain-sounds.nickborgers.net:8080/Rain%20Sounds/1.m4a"
