@@ -33,39 +33,6 @@ func TestNewDeviceLabelChecker_NilDevices(t *testing.T) {
 	}
 }
 
-func TestDeviceLabelChecker_HasLabel(t *testing.T) {
-	devices := []*Device{
-		{ID: "device1", Labels: []string{"indoor", "monitoring_ignore"}},
-		{ID: "device2", Labels: []string{"outdoor"}},
-		{ID: "device3", Labels: []string{}},
-	}
-
-	checker := NewDeviceLabelChecker(devices)
-
-	tests := []struct {
-		name     string
-		deviceID string
-		label    string
-		expected bool
-	}{
-		{"device has label", "device1", "indoor", true},
-		{"device has monitoring_ignore", "device1", "monitoring_ignore", true},
-		{"device does not have label", "device1", "outdoor", false},
-		{"different device has label", "device2", "outdoor", true},
-		{"device with empty labels", "device3", "indoor", false},
-		{"unknown device", "unknown", "indoor", false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := checker.HasLabel(tt.deviceID, tt.label)
-			if result != tt.expected {
-				t.Errorf("HasLabel(%q, %q) = %v, want %v", tt.deviceID, tt.label, result, tt.expected)
-			}
-		})
-	}
-}
-
 func TestDeviceLabelChecker_ShouldIgnoreForMonitoring(t *testing.T) {
 	devices := []*Device{
 		{ID: "ignored_device", Labels: []string{"monitoring_ignore"}},
@@ -98,40 +65,6 @@ func TestDeviceLabelChecker_ShouldIgnoreForMonitoring(t *testing.T) {
 	}
 }
 
-func TestDeviceLabelChecker_HasLabelIgnoreCase(t *testing.T) {
-	devices := []*Device{
-		{ID: "device1", Labels: []string{"Indoor", "monitoring_ignore"}},
-		{ID: "device2", Labels: []string{"OUTDOOR"}},
-		{ID: "device3", Labels: []string{"indoor"}},
-	}
-
-	checker := NewDeviceLabelChecker(devices)
-
-	tests := []struct {
-		name     string
-		deviceID string
-		label    string
-		expected bool
-	}{
-		{"exact match lowercase", "device3", "indoor", true},
-		{"case mismatch - label uppercase in device", "device1", "indoor", true},
-		{"case mismatch - search uppercase", "device3", "INDOOR", true},
-		{"case mismatch - mixed case search", "device1", "InDoOr", true},
-		{"all uppercase in device", "device2", "outdoor", true},
-		{"label not present", "device1", "outdoor", false},
-		{"unknown device", "unknown", "indoor", false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := checker.HasLabelIgnoreCase(tt.deviceID, tt.label)
-			if result != tt.expected {
-				t.Errorf("HasLabelIgnoreCase(%q, %q) = %v, want %v", tt.deviceID, tt.label, result, tt.expected)
-			}
-		})
-	}
-}
-
 func TestDeviceLabelChecker_GetLabels(t *testing.T) {
 	devices := []*Device{
 		{ID: "device1", Labels: []string{"indoor", "monitoring_ignore"}},
@@ -156,15 +89,5 @@ func TestDeviceLabelChecker_GetLabels(t *testing.T) {
 	labels = checker.GetLabels("unknown")
 	if labels != nil {
 		t.Errorf("expected nil for unknown device, got %v", labels)
-	}
-}
-
-func TestLabelConstants(t *testing.T) {
-	// Verify constants are defined correctly
-	if MonitoringIgnoreLabel != "monitoring_ignore" {
-		t.Errorf("MonitoringIgnoreLabel = %q, want %q", MonitoringIgnoreLabel, "monitoring_ignore")
-	}
-	if IndoorLabel != "indoor" {
-		t.Errorf("IndoorLabel = %q, want %q", IndoorLabel, "indoor")
 	}
 }

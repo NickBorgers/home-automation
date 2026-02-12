@@ -2,7 +2,12 @@
 
 #help: @ List available tasks on this project
 help:
-	@grep -E '[a-zA-Z\.\-]+:.*?@ .*$$' $(MAKEFILE_LIST)| tr -d '#' | sed -E 's/Makefile.//' | awk 'BEGIN {FS = ":.*?@ "}; {printf "\033[36m%-30s\033[0m %s\n", $$1, $$2}'
+	@grep -E '^## |^#[a-zA-Z0-9_\.\-]+:.*?@ .*$$' $(MAKEFILE_LIST) | while IFS= read -r line; do \
+	  case "$$line" in \
+	    '## '*) echo ""; echo "\033[1;33m$${line#\#\# }\033[0m";; \
+	    *) echo "$$line" | tr -d '#' | sed -E 's/Makefile.//' | awk 'BEGIN {FS = ":.*?@ "} {printf "\033[36m%-30s\033[0m %s\n", $$1, $$2}';; \
+	  esac; \
+	done
 
 #run-config-tests: @ Run all available tests of the configuration files
 run-config-tests: run-yamllint-hue run-yamllint-music run-spotify-validation-music
@@ -340,8 +345,7 @@ unit-tests:
 integration-tests:
 	@.githooks/test-cache.sh integration-tests ci-integration-tests
 
-## Testing Targets (No Caching)
-# See test-go, test-go-verbose, pre-push targets below
+# Testing Targets (No Caching): see test-go, test-go-verbose, pre-push above
 
 ## Test Cache Management
 
@@ -383,26 +387,47 @@ ci-integration-tests:
 	@cd homeautomation-go && go test ./test/integration/... -race -timeout=10m
 	@echo "✅ Integration tests passed"
 
+#pre-push-docs-only: @ Run lightweight pre-push validation for documentation-only changes
+pre-push-docs-only:
+	@echo ""
+	@echo "🔍 Running pre-push validation (docs-only mode)..."
+	@echo "════════════════════════════════════════════════════════════════════════════"
+	@echo ""
+	@echo "⏳ Step 1/1: Validating generated diagrams are up-to-date..."
+	@$(MAKE) validate-diagrams
+	@echo ""
+	@echo "════════════════════════════════════════════════════════════════════════════"
+	@echo "🎉 Pre-push validation passed (docs-only)!"
+	@echo ""
+	@echo "✅ Generated diagrams are up-to-date"
+	@echo ""
+	@echo "ℹ️  Tests were skipped because only documentation files changed."
+	@echo "   CI will still run the full test suite as a safety net."
+	@echo "════════════════════════════════════════════════════════════════════════════"
+
 #pre-push: @ Run comprehensive pre-push validation (build, tests, race detector, coverage ≥65%)
 pre-push:
 	@echo ""
-	@echo "🔍 Running pre-push validation..."
+	@echo "🔍 Running pre-push validation (5 steps)..."
 	@echo "════════════════════════════════════════════════════════════════════════════"
 	@echo ""
-	@echo "📊 Step 1/5: Validating generated diagrams are up-to-date..."
+	@echo "⏳ Step 1/5: Validating generated diagrams are up-to-date..."
 	@$(MAKE) validate-diagrams
 	@echo ""
-	@echo "📦 Step 2/5: Compiling all code (including tests)..."
-	@cd homeautomation-go && go build ./...
-	@echo "✅ All code compiles"
+	@echo "✅ Step 1/5 complete: Diagrams valid"
 	@echo ""
-	@echo "🧪 Step 3/5: Running unit tests with race detector and coverage..."
+	@echo "⏳ Step 2/5: Compiling all code (including tests)..."
+	@cd homeautomation-go && go build ./...
+	@echo "✅ Step 2/5 complete: All code compiles"
+	@echo ""
+	@echo "⏳ Step 3/5: Running unit tests with race detector and coverage..."
 	@echo "   (excluding integration tests, testutil, and diagramgen - same as CI)"
+	@echo "   This may take 2-5 minutes on first run."
 	@cd homeautomation-go && go test $$(go list ./... | grep -v /test/integration | grep -v /pkg/testutil | grep -v /cmd/diagramgen) \
 	  -race -coverprofile=coverage.out -covermode=atomic -timeout=5m
-	@echo "✅ Unit tests passed with race detector"
+	@echo "✅ Step 3/5 complete: Unit tests passed with race detector"
 	@echo ""
-	@echo "📊 Step 4/5: Checking test coverage (≥65%)..."
+	@echo "⏳ Step 4/5: Checking test coverage (≥65%)..."
 	@cd homeautomation-go && \
 	  coverage=$$(go tool cover -func=coverage.out | grep total | awk '{print $$3}' | sed 's/%//') && \
 	  echo "Total coverage: $${coverage}%" && \
@@ -411,12 +436,13 @@ pre-push:
 	    rm -f coverage.out; \
 	    exit 1; \
 	  fi && \
-	  echo "✅ Test coverage $${coverage}% meets requirement" && \
+	  echo "✅ Step 4/5 complete: Test coverage $${coverage}% meets requirement" && \
 	  rm -f coverage.out
 	@echo ""
-	@echo "🔗 Step 5/5: Running integration tests with race detector..."
+	@echo "⏳ Step 5/5: Running integration tests with race detector..."
+	@echo "   This may take 3-10 minutes on first run."
 	@cd homeautomation-go && go test ./test/integration/... -race -timeout=10m
-	@echo "✅ Integration tests passed"
+	@echo "✅ Step 5/5 complete: Integration tests passed"
 	@echo ""
 	@echo "════════════════════════════════════════════════════════════════════════════"
 	@echo "🎉 Pre-push validation passed!"

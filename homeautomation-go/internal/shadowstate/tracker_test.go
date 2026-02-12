@@ -1331,6 +1331,47 @@ func TestStateTrackingTrackerUpdateSleepDetectionTimer(t *testing.T) {
 	}
 }
 
+// TestStateTrackingTrackerTimerActivateDeactivate covers activate/deactivate for wake and owner-return timers.
+func TestStateTrackingTrackerTimerActivateDeactivate(t *testing.T) {
+	t.Parallel()
+	type timerAccessor struct {
+		active  func(*StateTrackingShadowState) bool
+		started func(*StateTrackingShadowState) time.Time
+	}
+	cases := []struct {
+		name string
+		set  func(*StateTrackingTracker, bool)
+		get  timerAccessor
+	}{
+		{"wake_detection", func(s *StateTrackingTracker, v bool) { s.UpdateWakeDetectionTimer(v) },
+			timerAccessor{
+				func(s *StateTrackingShadowState) bool { return s.Outputs.TimerStates.WakeDetectionActive },
+				func(s *StateTrackingShadowState) time.Time { return s.Outputs.TimerStates.WakeDetectionStarted },
+			}},
+		{"owner_return", func(s *StateTrackingTracker, v bool) { s.UpdateOwnerReturnTimer(v) },
+			timerAccessor{
+				func(s *StateTrackingShadowState) bool { return s.Outputs.TimerStates.OwnerReturnResetActive },
+				func(s *StateTrackingShadowState) time.Time { return s.Outputs.TimerStates.OwnerReturnResetStarted },
+			}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			stt := NewStateTrackingTracker()
+			tc.set(stt, true)
+			s := stt.GetState()
+			if !tc.get.active(s) || tc.get.started(s).IsZero() {
+				t.Error("Expected timer active with non-zero start time")
+			}
+			tc.set(stt, false)
+			s = stt.GetState()
+			if tc.get.active(s) || !tc.get.started(s).IsZero() {
+				t.Error("Expected timer inactive with zero start time")
+			}
+		})
+	}
+}
+
 func TestStateTrackingTrackerRecordArrivalAnnouncement(t *testing.T) {
 	t.Parallel()
 	stt := NewStateTrackingTracker()

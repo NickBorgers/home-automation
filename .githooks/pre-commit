@@ -33,10 +33,12 @@ else
     echo "════════════════════════════════════════════════════════════════════════════"
     echo "❌ Pre-commit validation failed!"
     echo ""
-    echo "To fix: Address the failures above and try again"
+    echo "Your commit has been blocked because the checks failed."
+    echo ""
+    echo "To fix: Address the failures above and try committing again."
     echo "Emergency bypass (NOT recommended): git commit --no-verify"
     echo ""
-    echo "⚠️  WARNING: Bypassing hooks may commit broken code"
+    echo "⚠️  WARNING: Bypassing hooks may commit broken code."
     echo "════════════════════════════════════════════════════════════════════════════"
     exit 1
 fi

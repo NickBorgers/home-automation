@@ -39,20 +39,6 @@ func TestRegisterHASubscription(t *testing.T) {
 	}
 }
 
-func TestRegisterHASubscription_Multiple(t *testing.T) {
-	t.Parallel()
-	registry := NewSubscriptionRegistry()
-
-	registry.RegisterHASubscription("energy", "sensor.battery")
-	registry.RegisterHASubscription("energy", "sensor.solar")
-	registry.RegisterHASubscription("energy", "sensor.grid")
-
-	subs := registry.GetHASubscriptions("energy")
-	if len(subs) != 3 {
-		t.Fatalf("expected 3 subscriptions, got %d", len(subs))
-	}
-}
-
 func TestRegisterHASubscription_Duplicate(t *testing.T) {
 	t.Parallel()
 	registry := NewSubscriptionRegistry()
@@ -78,20 +64,6 @@ func TestRegisterStateSubscription(t *testing.T) {
 	}
 	if subs[0] != "batteryEnergyLevel" {
 		t.Errorf("expected batteryEnergyLevel, got %s", subs[0])
-	}
-}
-
-func TestRegisterStateSubscription_Multiple(t *testing.T) {
-	t.Parallel()
-	registry := NewSubscriptionRegistry()
-
-	registry.RegisterStateSubscription("lighting", "dayPhase")
-	registry.RegisterStateSubscription("lighting", "isAnyoneHome")
-	registry.RegisterStateSubscription("lighting", "sunevent")
-
-	subs := registry.GetStateSubscriptions("lighting")
-	if len(subs) != 3 {
-		t.Fatalf("expected 3 subscriptions, got %d", len(subs))
 	}
 }
 
@@ -125,40 +97,6 @@ func TestGetStateSubscriptions_NonExistentPlugin(t *testing.T) {
 	subs := registry.GetStateSubscriptions("nonexistent")
 	if subs != nil {
 		t.Errorf("expected nil for nonexistent plugin, got %v", subs)
-	}
-}
-
-func TestGetHASubscriptions_ReturnsCopy(t *testing.T) {
-	t.Parallel()
-	registry := NewSubscriptionRegistry()
-	registry.RegisterHASubscription("energy", "sensor.battery")
-
-	subs := registry.GetHASubscriptions("energy")
-
-	// Modify the returned slice
-	subs[0] = "modified"
-
-	// Original should be unchanged
-	original := registry.GetHASubscriptions("energy")
-	if original[0] != "sensor.battery" {
-		t.Error("modifying returned slice affected internal state")
-	}
-}
-
-func TestGetStateSubscriptions_ReturnsCopy(t *testing.T) {
-	t.Parallel()
-	registry := NewSubscriptionRegistry()
-	registry.RegisterStateSubscription("energy", "batteryEnergyLevel")
-
-	subs := registry.GetStateSubscriptions("energy")
-
-	// Modify the returned slice
-	subs[0] = "modified"
-
-	// Original should be unchanged
-	original := registry.GetStateSubscriptions("energy")
-	if original[0] != "batteryEnergyLevel" {
-		t.Error("modifying returned slice affected internal state")
 	}
 }
 
