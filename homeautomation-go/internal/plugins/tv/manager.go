@@ -27,6 +27,12 @@ const (
 	// SyncBoxPowerCycleDelay is the time to wait between turning off and on
 	SyncBoxPowerCycleDelay = 5 * time.Second
 
+	// SyncBoxPowerOnMaxRetries is the number of attempts to turn on physical power
+	SyncBoxPowerOnMaxRetries = 3
+
+	// SyncBoxPowerOnRetryBaseDelay is the base delay between power-on retries (exponential backoff: 5s, 10s, 20s)
+	SyncBoxPowerOnRetryBaseDelay = 5 * time.Second
+
 	// SyncBoxMaxDailyReboots is the maximum number of reboots allowed per day
 	SyncBoxMaxDailyReboots = 10
 
@@ -284,6 +290,26 @@ func (m *Manager) handleSyncBoxPowerChange(entityID string, oldState, newState *
 		m.logger.Warn("Sync box software power is unavailable - may indicate crash",
 			zap.String("entity_id", entityID))
 		m.shadowTracker.UpdateSyncBoxAvailable(false)
+
+		// Clear TV states immediately — the sync box is down, so nothing is playing
+		if err := m.stateManager.SetBool("isTVon", false); err != nil {
+			if errors.Is(err, state.ErrReadOnlyMode) {
+				m.logger.Debug("Skipping isTVon update in read-only mode")
+			} else {
+				m.logger.Error("Failed to set isTVon to false", zap.Error(err))
+			}
+		}
+		m.shadowTracker.UpdateTVPower(false)
+
+		if err := m.stateManager.SetBool("isTVPlaying", false); err != nil {
+			if errors.Is(err, state.ErrReadOnlyMode) {
+				m.logger.Debug("Skipping isTVPlaying update in read-only mode")
+			} else {
+				m.logger.Error("Failed to set isTVPlaying to false", zap.Error(err))
+			}
+		}
+		m.shadowTracker.UpdateTVPlaying(false)
+		m.controlSyncBoxLightSync(false)
 
 		// Trigger recovery check asynchronously
 		go m.checkAndRecoverSyncBox()
@@ -629,8 +655,9 @@ func (m *Manager) checkAndRecoverSyncBox() {
 		return
 	}
 	if physicalPowerState.State != "on" {
-		m.logger.Info("Physical power is off, sync box intentionally unpowered - no recovery needed",
+		m.logger.Warn("Physical power is off - turning it back on",
 			zap.String("physical_power_state", physicalPowerState.State))
+		m.ensurePhysicalPowerOn()
 		return
 	}
 
@@ -710,18 +737,77 @@ func (m *Manager) performPowerCycleRecovery() {
 		zap.Duration("delay", SyncBoxPowerCycleDelay))
 	m.sleepFunc(SyncBoxPowerCycleDelay)
 
-	// Step 3: Turn on physical power
-	m.logger.Info("Turning on sync box physical power")
-	err = m.haClient.CallService(m.ctx, "switch", "turn_on", map[string]interface{}{
-		"entity_id": SyncBoxPhysicalPowerEntity,
-	})
-	if err != nil {
-		m.logger.Error("Failed to turn on sync box physical power", zap.Error(err))
+	// Step 3: Turn on physical power with retries
+	for attempt := 1; attempt <= SyncBoxPowerOnMaxRetries; attempt++ {
+		m.logger.Info("Turning on sync box physical power",
+			zap.Int("attempt", attempt),
+			zap.Int("max_attempts", SyncBoxPowerOnMaxRetries))
+
+		err = m.haClient.CallService(m.ctx, "switch", "turn_on", map[string]interface{}{
+			"entity_id": SyncBoxPhysicalPowerEntity,
+		})
+		if err == nil {
+			m.logger.Info("Sync box power cycle recovery completed",
+				zap.Int("daily_reboot_count", rebootCount),
+				zap.Int("attempt", attempt))
+			return
+		}
+
+		m.logger.Error("Failed to turn on sync box physical power (will retry)",
+			zap.Int("attempt", attempt),
+			zap.Int("max_attempts", SyncBoxPowerOnMaxRetries),
+			zap.Error(err))
+
+		if attempt < SyncBoxPowerOnMaxRetries {
+			retryDelay := SyncBoxPowerOnRetryBaseDelay * time.Duration(1<<(attempt-1))
+			m.logger.Info("Waiting before retry",
+				zap.Duration("delay", retryDelay))
+			m.sleepFunc(retryDelay)
+		}
+	}
+
+	m.logger.Error("CRITICAL: All attempts to turn on sync box physical power failed during power cycle",
+		zap.Int("attempts", SyncBoxPowerOnMaxRetries),
+		zap.Int("daily_reboot_count", rebootCount))
+}
+
+// ensurePhysicalPowerOn turns on the Z-Wave switch with retries (no turn-off step).
+// Used when physical power is found off during recovery — just needs to be turned back on.
+func (m *Manager) ensurePhysicalPowerOn() {
+	if m.readOnly {
+		m.logger.Info("Skipping physical power-on in read-only mode")
 		return
 	}
 
-	m.logger.Info("Sync box power cycle recovery completed",
-		zap.Int("daily_reboot_count", rebootCount))
+	for attempt := 1; attempt <= SyncBoxPowerOnMaxRetries; attempt++ {
+		m.logger.Info("Turning on sync box physical power",
+			zap.Int("attempt", attempt),
+			zap.Int("max_attempts", SyncBoxPowerOnMaxRetries))
+
+		err := m.haClient.CallService(m.ctx, "switch", "turn_on", map[string]interface{}{
+			"entity_id": SyncBoxPhysicalPowerEntity,
+		})
+		if err == nil {
+			m.logger.Info("Sync box physical power turned on successfully",
+				zap.Int("attempt", attempt))
+			return
+		}
+
+		m.logger.Error("Failed to turn on sync box physical power (will retry)",
+			zap.Int("attempt", attempt),
+			zap.Int("max_attempts", SyncBoxPowerOnMaxRetries),
+			zap.Error(err))
+
+		if attempt < SyncBoxPowerOnMaxRetries {
+			retryDelay := SyncBoxPowerOnRetryBaseDelay * time.Duration(1<<(attempt-1))
+			m.logger.Info("Waiting before retry",
+				zap.Duration("delay", retryDelay))
+			m.sleepFunc(retryDelay)
+		}
+	}
+
+	m.logger.Error("CRITICAL: All attempts to turn on sync box physical power failed",
+		zap.Int("attempts", SyncBoxPowerOnMaxRetries))
 }
 
 // GetRecoveryState returns the current recovery state for testing

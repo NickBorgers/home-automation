@@ -316,6 +316,38 @@ func TestScenario_AppleTVPlaybackStateChanges(t *testing.T) {
 	}
 }
 
+// TestScenario_SyncBoxUnavailable_ClearsTVStates verifies that when the sync box
+// goes unavailable (crash), isTVon and isTVPlaying are cleared immediately.
+// This prevents stale isTVPlaying=true from causing the lighting plugin to skip
+// the living room (deferring to Hue Sync, which isn't running).
+func TestScenario_SyncBoxUnavailable_ClearsTVStates(t *testing.T) {
+	t.Parallel()
+	server, manager, cleanup := setupTVScenarioTest(t)
+	defer cleanup()
+
+	t.Log("GIVEN: TV is on, playing via Apple TV")
+
+	// Set initial states - everything on and playing
+	server.SetState("remote.big_beautiful_oled", "on", map[string]interface{}{})
+	server.SetState("switch.sync_box_power", "on", map[string]interface{}{})
+	server.SetState("media_player.big_beautiful_oled", "playing", map[string]interface{}{
+		"friendly_name": "Apple TV",
+	})
+	server.SetState("select.sync_box_hdmi_input", "AppleTV", map[string]interface{}{})
+
+	waitForBoolState(t, manager, "isTVon", true, "isTVon should be true when sync box is on")
+	waitForBoolState(t, manager, "isTVPlaying", true, "isTVPlaying should be true when AppleTV is playing")
+
+	t.Log("WHEN: Sync box goes unavailable (crash)")
+
+	server.SetState("switch.sync_box_power", "unavailable", map[string]interface{}{})
+
+	t.Log("THEN: isTVon and isTVPlaying should both become false")
+
+	waitForBoolState(t, manager, "isTVon", false, "isTVon should be false after sync box goes unavailable")
+	waitForBoolState(t, manager, "isTVPlaying", false, "isTVPlaying should be false after sync box goes unavailable")
+}
+
 // TestScenario_TVOffSyncBoxOn verifies that when the TV is off but the sync box
 // powers on independently, isTVPlaying remains false and light sync is not enabled.
 // This prevents the bug where sync box turning on overnight caused 9+ hours of light sync.
