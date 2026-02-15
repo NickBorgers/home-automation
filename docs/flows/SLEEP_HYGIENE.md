@@ -63,13 +63,13 @@ sequenceDiagram
     SH->>SH: Check conditions:<br/>isAnyoneHome, isMasterAsleep,<br/>musicPlaybackType == "sleep"
 
     alt Conditions met
-        SH->>Music: Start fade-out<br/>(volume 60→0 gradually)
+        SH->>SH: Set isWakeSequenceActive = true
+        SH->>Music: Start fade-out<br/>(volume → 0 gradually)
 
         Note over SH: Wait 5 minutes
 
         SH->>Lights: Turn on bedroom lights<br/>(1% brightness, warm white)
         SH->>Lights: Start 25-min fade<br/>(1% → 100%)
-        SH->>SH: Set isWakeSequenceActive = true
 
         Note over SH: Wait 25 minutes<br/>(lights fading in)
 
@@ -162,7 +162,7 @@ flowchart TD
         getVolume["Get current volume<br/>(e.g., 60%)"]
         reduce["Reduce by 1%"]
         delay["Wait (adaptive delay)"]
-        checkAbort{"Aborted?<br/>(lights on, music stopped)"}
+        checkAbort{"Aborted?<br/>(wake sequence cancelled)"}
         checkZero{"Volume == 0?"}
     end
 
