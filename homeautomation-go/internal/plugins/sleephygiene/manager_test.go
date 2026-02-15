@@ -707,8 +707,9 @@ func TestFadeOutBedroomSpeaker_Complete(t *testing.T) {
 	now := time.Date(2024, 1, 15, 9, 5, 0, 0, time.UTC)
 	manager, mockHA, stateManager, _ := setupTest(t, now)
 
-	// Set conditions for fade out
+	// Set conditions for fade out (during wake sequence)
 	stateManager.SetBool("isFadeOutInProgress", true)
+	stateManager.SetBool("isWakeSequenceActive", true)
 	stateManager.SetString("musicPlaybackType", "sleep")
 
 	// Clear previous calls
@@ -782,8 +783,9 @@ func TestFadeOutBedroomSpeaker_AbortedByFlag(t *testing.T) {
 	now := time.Date(2024, 1, 15, 9, 5, 0, 0, time.UTC)
 	manager, mockHA, stateManager, _ := setupTest(t, now)
 
-	// Set conditions for fade out
+	// Set conditions for fade out (during wake sequence)
 	stateManager.SetBool("isFadeOutInProgress", true)
+	stateManager.SetBool("isWakeSequenceActive", true)
 	stateManager.SetString("musicPlaybackType", "sleep")
 
 	// Clear previous calls
@@ -842,14 +844,15 @@ func TestFadeOutBedroomSpeaker_AbortedByFlag(t *testing.T) {
 	}
 }
 
-// TestFadeOutBedroomSpeaker_CancelledByMusicType tests fade out cancelled when music type changes
-func TestFadeOutBedroomSpeaker_CancelledByMusicType(t *testing.T) {
+// TestFadeOutBedroomSpeaker_CancelledByWakeSequenceEnd tests fade out cancelled when wake sequence ends
+func TestFadeOutBedroomSpeaker_CancelledByWakeSequenceEnd(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2024, 1, 15, 9, 5, 0, 0, time.UTC)
 	manager, mockHA, stateManager, _ := setupTest(t, now)
 
-	// Set conditions for fade out
+	// Set conditions for fade out (during wake sequence)
 	stateManager.SetBool("isFadeOutInProgress", true)
+	stateManager.SetBool("isWakeSequenceActive", true)
 	stateManager.SetString("musicPlaybackType", "sleep")
 
 	// Clear previous calls
@@ -876,8 +879,8 @@ func TestFadeOutBedroomSpeaker_CancelledByMusicType(t *testing.T) {
 		t.Fatal("Fade out did not start")
 	}
 
-	// Change music type to cancel fade out
-	stateManager.SetString("musicPlaybackType", "day")
+	// End wake sequence to cancel fade out
+	stateManager.SetBool("isWakeSequenceActive", false)
 
 	// Unblock the sleep so the loop can check the cancellation condition
 	sleepCalled <- struct{}{}
@@ -911,8 +914,9 @@ func TestFadeOutBedroomSpeaker_VolumeSequence(t *testing.T) {
 	now := time.Date(2024, 1, 15, 9, 5, 0, 0, time.UTC)
 	manager, mockHA, stateManager, _ := setupTest(t, now)
 
-	// Set conditions for fade out
+	// Set conditions for fade out (during wake sequence)
 	stateManager.SetBool("isFadeOutInProgress", true)
+	stateManager.SetBool("isWakeSequenceActive", true)
 	stateManager.SetString("musicPlaybackType", "sleep")
 
 	// Clear previous calls
@@ -1224,8 +1228,9 @@ func TestFadeOutSpeaker_WithVolumeQuery(t *testing.T) {
 	now := time.Date(2024, 1, 15, 9, 5, 0, 0, time.UTC)
 	manager, mockHA, stateManager, _ := setupTest(t, now)
 
-	// Set conditions for fade out
+	// Set conditions for fade out (during wake sequence)
 	stateManager.SetBool("isFadeOutInProgress", true)
+	stateManager.SetBool("isWakeSequenceActive", true)
 	stateManager.SetString("musicPlaybackType", "sleep")
 
 	// Set up mock to return initial volume of 58
@@ -1325,8 +1330,9 @@ func TestFadeOutSpeaker_HumanOverrideDetection(t *testing.T) {
 	now := time.Date(2024, 1, 15, 22, 0, 0, 0, time.UTC)
 	manager, mockHA, stateManager, _ := setupTest(t, now)
 
-	// Set conditions for fade out
+	// Set conditions for fade out (during wake sequence)
 	stateManager.SetBool("isFadeOutInProgress", true)
+	stateManager.SetBool("isWakeSequenceActive", true)
 	stateManager.SetString("musicPlaybackType", "sleep")
 
 	// Set up mock to return initial volume of 10 (low volume for quick test)
@@ -1399,8 +1405,9 @@ func TestFadeOutSpeaker_NoHumanOverrideWithMatchingVolume(t *testing.T) {
 	now := time.Date(2024, 1, 15, 22, 0, 0, 0, time.UTC)
 	manager, mockHA, stateManager, _ := setupTest(t, now)
 
-	// Set conditions for fade out
+	// Set conditions for fade out (during wake sequence)
 	stateManager.SetBool("isFadeOutInProgress", true)
+	stateManager.SetBool("isWakeSequenceActive", true)
 	stateManager.SetString("musicPlaybackType", "sleep")
 
 	// Start with volume 3 for quick fade to 0

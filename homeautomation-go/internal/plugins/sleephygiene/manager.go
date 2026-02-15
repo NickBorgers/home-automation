@@ -552,12 +552,16 @@ func (m *Manager) fadeOutSpeaker(speakerEntityID string) {
 			return
 		}
 
-		// Check if still playing sleep music
-		musicType, err := m.stateManager.GetString("musicPlaybackType")
-		if err != nil || musicType != "sleep" {
-			m.logger.Info("Sleep music stopped, cancelling fade out",
-				zap.String("speaker", speakerEntityID),
-				zap.String("current_music_type", musicType))
+		// Check if wake sequence is still active.
+		// During wake, the music plugin's zone manager changes musicPlaybackType
+		// from "sleep" to "morning" (sleep zone requires isWakeSequenceActive=false).
+		// This is expected — the fade-out should continue regardless of zone changes.
+		// If the wake sequence is cancelled (e.g., user turns off lights),
+		// isWakeSequenceActive becomes false and we abort the fade.
+		isWakeActive, err := m.stateManager.GetBool("isWakeSequenceActive")
+		if err == nil && !isWakeActive {
+			m.logger.Info("Wake sequence cancelled, stopping fade-out",
+				zap.String("speaker", speakerEntityID))
 
 			// Clear fade-out state on abort
 			if !m.readOnly {
@@ -1187,6 +1191,13 @@ func (m *Manager) TriggerBeginWakeForTest() {
 	if err != nil || musicPlaybackType != "sleep" {
 		m.logger.Debug("Test: Skipping begin_wake - not playing sleep music")
 		return
+	}
+
+	// Set wake sequence active (matching real handleBeginWake at line 424)
+	if !m.readOnly {
+		if err := m.stateManager.SetBool("isWakeSequenceActive", true); err != nil {
+			m.logger.Error("Test: Failed to set isWakeSequenceActive", zap.Error(err))
+		}
 	}
 
 	// Set fade out in progress flag
