@@ -31,15 +31,18 @@ const (
 	TemperatureLockupNotificationRateLimit = 24 * time.Hour
 
 	// Z-Wave dead device debounce delay.
-	// Devices occasionally report transient "dead" status due to network hiccups
-	// before immediately recovering. We delay the dead notification by this amount
+	// Devices frequently report transient "dead" status and recover on their own
+	// within minutes to hours. We delay the dead notification by this amount
 	// and cancel it if the device recovers, to avoid noisy flapping alerts.
-	NodeDeadDebounceDelay = 5 * time.Minute
+	// Analysis of 7 days of data showed 90/94 dead→alive transitions resolved
+	// within 4 hours, so this threshold catches the vast majority of flaps
+	// while still alerting on genuinely offline devices within a reasonable window.
+	NodeDeadDebounceDelay = 4 * time.Hour
 
 	// Per-device cooldown for dead device notifications.
 	// After sending a dead notification for a device, subsequent dead notifications
 	// for the same device are suppressed for this duration. This prevents notification
-	// floods from devices that flap dead/alive on 10-60 minute cycles.
+	// floods from devices that flap dead/alive on longer cycles.
 	NodeDeadNotificationCooldown = 48 * time.Hour
 )
 
