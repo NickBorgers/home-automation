@@ -1,6 +1,7 @@
 package environmental
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -455,15 +456,24 @@ func TestEnvironmentalManager_Hysteresis_WarningClear(t *testing.T) {
 
 	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
 
-	// Add test sensor
+	// Add two indoor sensors - only sensor 1 will be elevated
 	manager.AddSensor(&HumiditySensor{
 		EntityID:     testIndoorSensor1,
 		FriendlyName: "Indoor Humidity 1",
 		IsIndoor:     true,
 		Valid:        true,
 	})
+	manager.AddSensor(&HumiditySensor{
+		EntityID:     testIndoorSensor2,
+		FriendlyName: "Indoor Humidity 2",
+		IsIndoor:     true,
+		Valid:        true,
+	})
 
-	// First, trigger a sustained warning
+	// Set sensor 2 to a normal level (should NOT appear in resolution)
+	manager.SimulateSensorChange(testIndoorSensor2, 40.0)
+
+	// First, trigger a sustained warning on sensor 1 only
 	manager.SimulateSensorChange(testIndoorSensor1, 58.0)
 	mockClock.Advance(31 * time.Minute)
 	manager.SimulateSensorChange(testIndoorSensor1, 58.0)
@@ -497,6 +507,23 @@ func TestEnvironmentalManager_Hysteresis_WarningClear(t *testing.T) {
 	finalNotifications := countNtfyNotifications(mockNtfy)
 	if finalNotifications <= initialNotifications {
 		t.Error("Expected resolution notification to be sent")
+	}
+
+	// Verify resolution notification only mentions the sensor that was elevated (sensor 1),
+	// not all indoor sensors
+	resolutionNotification := getLastNtfyNotification(mockNtfy)
+	if resolutionNotification == nil {
+		t.Fatal("Expected resolution notification")
+	}
+
+	// Single sensor format: "<SensorName>: <value>% has returned to safe levels"
+	if !strings.Contains(resolutionNotification.Body, "Indoor Humidity 1") {
+		t.Errorf("Expected resolution to mention elevated sensor 'Indoor Humidity 1', got: %s",
+			resolutionNotification.Body)
+	}
+	if strings.Contains(resolutionNotification.Body, "Indoor Humidity 2") {
+		t.Errorf("Expected resolution NOT to mention non-elevated sensor 'Indoor Humidity 2', got: %s",
+			resolutionNotification.Body)
 	}
 }
 
