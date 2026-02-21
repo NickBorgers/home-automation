@@ -91,6 +91,9 @@ type Manager struct {
 
 	// Track if we've notified for the current humidity incident (to send resolution only once)
 	hasNotifiedForCurrentIncident bool
+
+	// Names of sensors that triggered the current alert incident
+	alertedSensorNames map[string]bool
 }
 
 // NewManager creates a new environmental monitoring manager.
@@ -104,17 +107,18 @@ func NewManager(haClient ha.HAClient, stateManager *state.Manager, logger *zap.L
 	}
 
 	return &Manager{
-		haClient:          haClient,
-		stateManager:      stateManager,
-		logger:            namedLogger,
-		readOnly:          readOnly,
-		clock:             clock.NewRealClock(),
-		ntfyClient:        ntfyClient,
-		shadowTracker:     shadowTracker,
-		subHelper:         shadowstate.NewSubscriptionHelper(haClient, stateManager, registry, shadowTracker, "environmental", namedLogger),
-		sensors:           make(map[string]*HumiditySensor),
-		waterLeakSensors:  make(map[string]*WaterLeakSensor),
-		currentAlertLevel: "none",
+		haClient:           haClient,
+		stateManager:       stateManager,
+		logger:             namedLogger,
+		readOnly:           readOnly,
+		clock:              clock.NewRealClock(),
+		ntfyClient:         ntfyClient,
+		shadowTracker:      shadowTracker,
+		subHelper:          shadowstate.NewSubscriptionHelper(haClient, stateManager, registry, shadowTracker, "environmental", namedLogger),
+		sensors:            make(map[string]*HumiditySensor),
+		waterLeakSensors:   make(map[string]*WaterLeakSensor),
+		currentAlertLevel:  "none",
+		alertedSensorNames: make(map[string]bool),
 	}
 }
 
@@ -754,6 +758,7 @@ func (m *Manager) checkConditionResolved(now time.Time) {
 		// Reset state
 		m.currentAlertLevel = "none"
 		m.hasNotifiedForCurrentIncident = false
+		m.alertedSensorNames = make(map[string]bool)
 		for _, sensor := range m.sensors {
 			sensor.WarningStart = time.Time{}
 			sensor.CriticalStart = time.Time{}
@@ -800,6 +805,11 @@ func (m *Manager) sendAlertNotification(now time.Time, level string) {
 				maxHumidity = sensor.Value
 			}
 		}
+	}
+
+	// Track which sensors are part of this alert incident
+	for _, name := range sensorLocations {
+		m.alertedSensorNames[name] = true
 	}
 
 	// Build notification message
@@ -867,17 +877,35 @@ func (m *Manager) sendAlertNotification(now time.Time, level string) {
 
 // sendResolutionNotification sends a notification that the condition has resolved
 func (m *Manager) sendResolutionNotification(now time.Time) {
-	// Build summary of current indoor sensor values
+	// Build summary of only the sensors that were previously alerted
 	var sensorSummary []string
 	for _, sensor := range m.sensors {
 		if !sensor.IsIndoor || !sensor.Valid {
 			continue
 		}
-		sensorSummary = append(sensorSummary, fmt.Sprintf("%s: %.0f%%", sensor.FriendlyName, sensor.Value))
+		if m.alertedSensorNames[sensor.FriendlyName] {
+			sensorSummary = append(sensorSummary, fmt.Sprintf("%s: %.0f%%", sensor.FriendlyName, sensor.Value))
+		}
 	}
 
-	message := fmt.Sprintf("Humidity has returned to safe levels. Current readings: %s",
-		strings.Join(sensorSummary, ", "))
+	// Fallback: if no tracked names (shouldn't happen), list all indoor sensors
+	if len(sensorSummary) == 0 {
+		for _, sensor := range m.sensors {
+			if !sensor.IsIndoor || !sensor.Valid {
+				continue
+			}
+			sensorSummary = append(sensorSummary, fmt.Sprintf("%s: %.0f%%", sensor.FriendlyName, sensor.Value))
+		}
+	}
+
+	var message string
+	if len(sensorSummary) == 1 {
+		// Single sensor: "Air Quality Tracker SEN55 Humidity has returned to safe levels (31%)"
+		message = fmt.Sprintf("%s has returned to safe levels", sensorSummary[0])
+	} else {
+		message = fmt.Sprintf("Humidity has returned to safe levels. Resolved sensors: %s",
+			strings.Join(sensorSummary, ", "))
+	}
 
 	m.logger.Info("Sending humidity resolution notification")
 
@@ -953,6 +981,7 @@ func (m *Manager) Reset() {
 	m.lastCriticalNotification = time.Time{}
 	m.lastResolutionNotification = time.Time{}
 	m.hasNotifiedForCurrentIncident = false
+	m.alertedSensorNames = make(map[string]bool)
 }
 
 // GetCurrentState returns the current alert level (for testing)

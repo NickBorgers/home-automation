@@ -1,6 +1,7 @@
 package environmental
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -455,15 +456,24 @@ func TestEnvironmentalManager_Hysteresis_WarningClear(t *testing.T) {
 
 	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
 
-	// Add test sensor
+	// Add two indoor sensors - only sensor 1 will be elevated
 	manager.AddSensor(&HumiditySensor{
 		EntityID:     testIndoorSensor1,
 		FriendlyName: "Indoor Humidity 1",
 		IsIndoor:     true,
 		Valid:        true,
 	})
+	manager.AddSensor(&HumiditySensor{
+		EntityID:     testIndoorSensor2,
+		FriendlyName: "Indoor Humidity 2",
+		IsIndoor:     true,
+		Valid:        true,
+	})
 
-	// First, trigger a sustained warning
+	// Set sensor 2 to a normal level (should NOT appear in resolution)
+	manager.SimulateSensorChange(testIndoorSensor2, 40.0)
+
+	// First, trigger a sustained warning on sensor 1 only
 	manager.SimulateSensorChange(testIndoorSensor1, 58.0)
 	mockClock.Advance(31 * time.Minute)
 	manager.SimulateSensorChange(testIndoorSensor1, 58.0)
@@ -497,6 +507,112 @@ func TestEnvironmentalManager_Hysteresis_WarningClear(t *testing.T) {
 	finalNotifications := countNtfyNotifications(mockNtfy)
 	if finalNotifications <= initialNotifications {
 		t.Error("Expected resolution notification to be sent")
+	}
+
+	// Verify resolution notification only mentions the sensor that was elevated (sensor 1),
+	// not all indoor sensors
+	resolutionNotification := getLastNtfyNotification(mockNtfy)
+	if resolutionNotification == nil {
+		t.Fatal("Expected resolution notification")
+	}
+
+	// Single sensor format: "<SensorName>: <value>% has returned to safe levels"
+	if !strings.Contains(resolutionNotification.Body, "Indoor Humidity 1") {
+		t.Errorf("Expected resolution to mention elevated sensor 'Indoor Humidity 1', got: %s",
+			resolutionNotification.Body)
+	}
+	if strings.Contains(resolutionNotification.Body, "Indoor Humidity 2") {
+		t.Errorf("Expected resolution NOT to mention non-elevated sensor 'Indoor Humidity 2', got: %s",
+			resolutionNotification.Body)
+	}
+}
+
+func TestEnvironmentalManager_MultipleSensorsElevated_Resolution(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	mockNtfy := ntfy.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+	mockClock := clock.NewMockClock(time.Now())
+
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
+
+	// Add three indoor sensors - two will be elevated, one normal
+	manager.AddSensor(&HumiditySensor{
+		EntityID:     testIndoorSensor1,
+		FriendlyName: "Indoor Humidity 1",
+		IsIndoor:     true,
+		Valid:        true,
+	})
+	manager.AddSensor(&HumiditySensor{
+		EntityID:     testIndoorSensor2,
+		FriendlyName: "Indoor Humidity 2",
+		IsIndoor:     true,
+		Valid:        true,
+	})
+	manager.AddSensor(&HumiditySensor{
+		EntityID:     "sensor.indoor_humidity_3",
+		FriendlyName: "Indoor Humidity 3",
+		IsIndoor:     true,
+		Valid:        true,
+	})
+
+	// Set sensor 3 to normal (should NOT appear in resolution)
+	manager.SimulateSensorChange("sensor.indoor_humidity_3", 40.0)
+
+	// Trigger sustained warning on sensors 1 and 2
+	manager.SimulateSensorChange(testIndoorSensor1, 58.0)
+	manager.SimulateSensorChange(testIndoorSensor2, 56.0)
+	mockClock.Advance(31 * time.Minute)
+	manager.SimulateSensorChange(testIndoorSensor1, 58.0)
+	manager.SimulateSensorChange(testIndoorSensor2, 56.0)
+
+	alertLevel := manager.GetCurrentState()
+	if alertLevel != "warning" {
+		t.Fatalf("Expected alertLevel 'warning', got '%s'", alertLevel)
+	}
+
+	initialNotifications := countNtfyNotifications(mockNtfy)
+
+	// Now lower both sensors below clear threshold
+	manager.SimulateSensorChange(testIndoorSensor1, 48.0)
+	manager.SimulateSensorChange(testIndoorSensor2, 47.0)
+
+	// Should now be cleared
+	alertLevel = manager.GetCurrentState()
+	if alertLevel != "none" {
+		t.Errorf("Expected alertLevel 'none' after clearing, got '%s'", alertLevel)
+	}
+
+	// Should have sent a resolution notification
+	finalNotifications := countNtfyNotifications(mockNtfy)
+	if finalNotifications <= initialNotifications {
+		t.Error("Expected resolution notification to be sent")
+	}
+
+	// Verify resolution notification mentions both alerted sensors, not the third
+	resolutionNotification := getLastNtfyNotification(mockNtfy)
+	if resolutionNotification == nil {
+		t.Fatal("Expected resolution notification")
+	}
+
+	// Multiple sensor format: "Humidity has returned to safe levels. Resolved sensors: ..."
+	if !strings.Contains(resolutionNotification.Body, "Indoor Humidity 1") {
+		t.Errorf("Expected resolution to mention elevated sensor 'Indoor Humidity 1', got: %s",
+			resolutionNotification.Body)
+	}
+	if !strings.Contains(resolutionNotification.Body, "Indoor Humidity 2") {
+		t.Errorf("Expected resolution to mention elevated sensor 'Indoor Humidity 2', got: %s",
+			resolutionNotification.Body)
+	}
+	if strings.Contains(resolutionNotification.Body, "Indoor Humidity 3") {
+		t.Errorf("Expected resolution NOT to mention non-elevated sensor 'Indoor Humidity 3', got: %s",
+			resolutionNotification.Body)
+	}
+	if !strings.Contains(resolutionNotification.Body, "Resolved sensors:") {
+		t.Errorf("Expected multi-sensor resolution format with 'Resolved sensors:', got: %s",
+			resolutionNotification.Body)
 	}
 }
 
