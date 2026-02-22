@@ -740,6 +740,11 @@ func (m *Manager) checkConditionResolved(now time.Time) {
 		if !sensor.IsIndoor {
 			continue
 		}
+		// An alerted sensor going unavailable means we lost visibility, not that it cleared
+		if !sensor.Valid && m.alertedSensorNames[sensor.FriendlyName] {
+			allCleared = false
+			break
+		}
 		if sensor.Valid && sensor.Value >= clearThreshold {
 			allCleared = false
 			break
@@ -771,27 +776,8 @@ func (m *Manager) checkConditionResolved(now time.Time) {
 
 // sendAlertNotification sends an alert notification with rate limiting
 func (m *Manager) sendAlertNotification(now time.Time, level string) {
-	// Check rate limiting
-	var rateLimit time.Duration
-	var lastNotification time.Time
-
-	if level == "critical" {
-		rateLimit = CriticalNotificationRateLimit
-		lastNotification = m.lastCriticalNotification
-	} else {
-		rateLimit = WarningNotificationRateLimit
-		lastNotification = m.lastWarningNotification
-	}
-
-	if !lastNotification.IsZero() && now.Sub(lastNotification) < rateLimit {
-		m.logger.Debug("Skipping notification due to rate limit",
-			zap.String("level", level),
-			zap.Duration("time_since_last", now.Sub(lastNotification)),
-			zap.Duration("rate_limit", rateLimit))
-		return
-	}
-
 	// Build sensor location list and find max humidity
+	// (must happen before rate limit check so alertedSensorNames is always populated)
 	var sensorLocations []string
 	var maxHumidity float64
 
@@ -810,6 +796,29 @@ func (m *Manager) sendAlertNotification(now time.Time, level string) {
 	// Track which sensors are part of this alert incident
 	for _, name := range sensorLocations {
 		m.alertedSensorNames[name] = true
+	}
+
+	// Check rate limiting
+	var rateLimit time.Duration
+	var lastNotification time.Time
+
+	if level == "critical" {
+		rateLimit = CriticalNotificationRateLimit
+		lastNotification = m.lastCriticalNotification
+	} else {
+		rateLimit = WarningNotificationRateLimit
+		lastNotification = m.lastWarningNotification
+	}
+
+	if !lastNotification.IsZero() && now.Sub(lastNotification) < rateLimit {
+		m.logger.Debug("Skipping notification due to rate limit",
+			zap.String("level", level),
+			zap.Duration("time_since_last", now.Sub(lastNotification)),
+			zap.Duration("rate_limit", rateLimit))
+		// Mark as notified even when rate-limited — a notification was already sent recently,
+		// so we consider this incident as having been communicated to the user
+		m.hasNotifiedForCurrentIncident = true
+		return
 	}
 
 	// Build notification message
@@ -880,11 +889,15 @@ func (m *Manager) sendResolutionNotification(now time.Time) {
 	// Build summary of only the sensors that were previously alerted
 	var sensorSummary []string
 	for _, sensor := range m.sensors {
-		if !sensor.IsIndoor || !sensor.Valid {
+		if !sensor.IsIndoor {
 			continue
 		}
 		if m.alertedSensorNames[sensor.FriendlyName] {
-			sensorSummary = append(sensorSummary, fmt.Sprintf("%s: %.0f%%", sensor.FriendlyName, sensor.Value))
+			if sensor.Valid {
+				sensorSummary = append(sensorSummary, fmt.Sprintf("%s: %.0f%%", sensor.FriendlyName, sensor.Value))
+			} else {
+				sensorSummary = append(sensorSummary, fmt.Sprintf("%s: unavailable", sensor.FriendlyName))
+			}
 		}
 	}
 
@@ -1017,6 +1030,14 @@ func (m *Manager) SimulateSensorChange(entityID string, humidity float64) {
 	m.handleHumidityChange(entityID, nil, &ha.State{
 		EntityID: entityID,
 		State:    fmt.Sprintf("%.1f", humidity),
+	})
+}
+
+// SimulateSensorUnavailable simulates a sensor going unavailable (for testing)
+func (m *Manager) SimulateSensorUnavailable(entityID string) {
+	m.handleHumidityChange(entityID, nil, &ha.State{
+		EntityID: entityID,
+		State:    "unavailable",
 	})
 }
 
