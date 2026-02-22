@@ -1567,6 +1567,7 @@ func TestEnvironmentalManager_WaterLeak_ShadowState(t *testing.T) {
 // ============================================================================
 
 func TestScenario_HumidityAlertDoesNotResolveWhenSensorUnavailable(t *testing.T) {
+	t.Parallel()
 	// GIVEN: Barn sensor is indoor, valid, at 60% humidity
 	// AND: A warning alert has been sent (sustained for 30+ min)
 	// AND: alertedSensorNames contains the sensor
@@ -1638,6 +1639,7 @@ func TestScenario_HumidityAlertDoesNotResolveWhenSensorUnavailable(t *testing.T)
 }
 
 func TestScenario_HumidityResolvesCorrectlyAfterSensorRecovers(t *testing.T) {
+	t.Parallel()
 	// GIVEN: Sensor is indoor, valid, at 60% humidity with active warning
 	t.Log("GIVEN: Active humidity warning for sensor at 60%")
 
@@ -1707,6 +1709,7 @@ func TestScenario_HumidityResolvesCorrectlyAfterSensorRecovers(t *testing.T) {
 }
 
 func TestScenario_HumidityDoesNotResolveWhenSensorRecoversStillElevated(t *testing.T) {
+	t.Parallel()
 	// GIVEN: Sensor at 60% with active warning
 	t.Log("GIVEN: Active humidity warning for sensor at 60%")
 
@@ -1758,6 +1761,7 @@ func TestScenario_HumidityDoesNotResolveWhenSensorRecoversStillElevated(t *testi
 }
 
 func TestScenario_HumidityAlertSurvivesZWaveNetworkDropout(t *testing.T) {
+	t.Parallel()
 	// GIVEN: Barn sensor at 60% (warning alert active)
 	// AND: Other Z-Wave indoor sensors are valid
 	t.Log("GIVEN: Active humidity warning, multiple Z-Wave sensors online")
@@ -1839,6 +1843,7 @@ func TestScenario_HumidityAlertSurvivesZWaveNetworkDropout(t *testing.T) {
 }
 
 func TestScenario_GenuineResolutionAfterUnavailablePeriod(t *testing.T) {
+	t.Parallel()
 	// GIVEN: Sensor at 60% (warning alert active)
 	t.Log("GIVEN: Active humidity warning for sensor at 60%")
 
@@ -1908,6 +1913,7 @@ func TestScenario_GenuineResolutionAfterUnavailablePeriod(t *testing.T) {
 }
 
 func TestScenario_ResolutionNotificationIncludesUnavailableSensors(t *testing.T) {
+	t.Parallel()
 	// Test Fix 2: If a genuine resolution fires while some alerted sensors are still unavailable,
 	// the notification should include them with "unavailable" status instead of falling back to
 	// listing all indoor sensors.
