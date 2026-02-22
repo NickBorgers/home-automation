@@ -728,6 +728,20 @@ func (m *Manager) getConditionStartTime() time.Time {
 
 // checkConditionResolved checks if the alert condition has resolved with hysteresis
 func (m *Manager) checkConditionResolved(now time.Time) {
+	// If any previously alerted sensor is currently unavailable, we can't confirm
+	// resolution — the sensor may still be elevated but we've lost visibility.
+	// This prevents false resolution notifications during Z-Wave network dropouts.
+	for _, sensor := range m.sensors {
+		if !sensor.IsIndoor {
+			continue
+		}
+		if m.alertedSensorNames[sensor.FriendlyName] && !sensor.Valid {
+			m.logger.Debug("Cannot resolve humidity alert — alerted sensor is unavailable",
+				zap.String("sensor", sensor.FriendlyName))
+			return
+		}
+	}
+
 	// Determine clear threshold based on current alert level
 	clearThreshold := HumidityWarningClear
 	if m.currentAlertLevel == "critical" {
@@ -877,18 +891,23 @@ func (m *Manager) sendAlertNotification(now time.Time, level string) {
 
 // sendResolutionNotification sends a notification that the condition has resolved
 func (m *Manager) sendResolutionNotification(now time.Time) {
-	// Build summary of only the sensors that were previously alerted
+	// Build summary of only the sensors that were previously alerted.
+	// Include sensors even if they're currently unavailable — note their status.
 	var sensorSummary []string
 	for _, sensor := range m.sensors {
-		if !sensor.IsIndoor || !sensor.Valid {
+		if !sensor.IsIndoor {
 			continue
 		}
 		if m.alertedSensorNames[sensor.FriendlyName] {
-			sensorSummary = append(sensorSummary, fmt.Sprintf("%s: %.0f%%", sensor.FriendlyName, sensor.Value))
+			if sensor.Valid {
+				sensorSummary = append(sensorSummary, fmt.Sprintf("%s: %.0f%%", sensor.FriendlyName, sensor.Value))
+			} else {
+				sensorSummary = append(sensorSummary, fmt.Sprintf("%s: unavailable", sensor.FriendlyName))
+			}
 		}
 	}
 
-	// Fallback: if no tracked names (shouldn't happen), list all indoor sensors
+	// Fallback: if no tracked names (shouldn't happen), list all valid indoor sensors
 	if len(sensorSummary) == 0 {
 		for _, sensor := range m.sensors {
 			if !sensor.IsIndoor || !sensor.Valid {
@@ -1018,6 +1037,25 @@ func (m *Manager) SimulateSensorChange(entityID string, humidity float64) {
 		EntityID: entityID,
 		State:    fmt.Sprintf("%.1f", humidity),
 	})
+}
+
+// SimulateSensorUnavailable simulates a sensor becoming unavailable (for testing)
+func (m *Manager) SimulateSensorUnavailable(entityID string) {
+	m.handleHumidityChange(entityID, nil, &ha.State{
+		EntityID: entityID,
+		State:    "unavailable",
+	})
+}
+
+// GetAlertedSensorNames returns a copy of the alerted sensor names (for testing)
+func (m *Manager) GetAlertedSensorNames() map[string]bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	result := make(map[string]bool, len(m.alertedSensorNames))
+	for k, v := range m.alertedSensorNames {
+		result[k] = v
+	}
+	return result
 }
 
 // GetWaterLeakSensors returns all water leak sensors for testing

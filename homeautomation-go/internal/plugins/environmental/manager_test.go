@@ -1562,6 +1562,420 @@ func TestEnvironmentalManager_WaterLeak_ShadowState(t *testing.T) {
 	}
 }
 
+// ============================================================================
+// Issue #707: False humidity resolution when Z-Wave sensors go unavailable
+// ============================================================================
+
+func TestScenario_HumidityAlertDoesNotResolveWhenSensorUnavailable(t *testing.T) {
+	// GIVEN: Barn sensor is indoor, valid, at 60% humidity
+	// AND: A warning alert has been sent (sustained for 30+ min)
+	// AND: alertedSensorNames contains the sensor
+	t.Log("GIVEN: Active humidity warning for an indoor sensor at 60%")
+
+	mockHA := ha.NewMockClient()
+	mockNtfy := ntfy.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+	mockClock := clock.NewMockClock(time.Now())
+
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
+
+	// Add an indoor sensor (simulating the Barn sensor)
+	manager.AddSensor(&HumiditySensor{
+		EntityID:     testIndoorSensor1,
+		FriendlyName: "Barn Humidity",
+		IsIndoor:     true,
+		Valid:        true,
+	})
+
+	// Also add another indoor sensor at normal levels (simulating non-Z-Wave sensors)
+	manager.AddSensor(&HumiditySensor{
+		EntityID:     testIndoorSensor2,
+		FriendlyName: "SEN55 Humidity",
+		IsIndoor:     true,
+		Valid:        true,
+	})
+	manager.SimulateSensorChange(testIndoorSensor2, 35.0)
+
+	// Trigger sustained warning on the indoor sensor at 60%
+	manager.SimulateSensorChange(testIndoorSensor1, 60.0)
+	mockClock.Advance(31 * time.Minute)
+	manager.SimulateSensorChange(testIndoorSensor1, 60.0)
+
+	alertLevel := manager.GetCurrentState()
+	if alertLevel != "warning" {
+		t.Fatalf("Expected alertLevel 'warning', got '%s'", alertLevel)
+	}
+
+	notificationsBeforeUnavailable := countNtfyNotifications(mockNtfy)
+
+	// WHEN: Sensor goes unavailable (Z-Wave dropout)
+	t.Log("WHEN: Barn sensor goes unavailable (Z-Wave dropout)")
+	manager.SimulateSensorUnavailable(testIndoorSensor1)
+
+	// THEN: checkConditionResolved should NOT resolve the alert
+	// AND: No resolution notification should be sent
+	// AND: currentAlertLevel should remain "warning"
+	// AND: alertedSensorNames should still contain the sensor
+	t.Log("THEN: Alert remains active, no resolution notification sent")
+
+	alertLevel = manager.GetCurrentState()
+	if alertLevel != "warning" {
+		t.Errorf("Expected alertLevel 'warning' after sensor goes unavailable, got '%s'", alertLevel)
+	}
+
+	notificationsAfterUnavailable := countNtfyNotifications(mockNtfy)
+	if notificationsAfterUnavailable > notificationsBeforeUnavailable {
+		lastNotification := getLastNtfyNotification(mockNtfy)
+		t.Errorf("Expected no new notifications after sensor goes unavailable, but got one: %s",
+			lastNotification.Body)
+	}
+
+	alertedNames := manager.GetAlertedSensorNames()
+	if !alertedNames["Barn Humidity"] {
+		t.Error("Expected alertedSensorNames to still contain 'Barn Humidity'")
+	}
+}
+
+func TestScenario_HumidityResolvesCorrectlyAfterSensorRecovers(t *testing.T) {
+	// GIVEN: Sensor is indoor, valid, at 60% humidity with active warning
+	t.Log("GIVEN: Active humidity warning for sensor at 60%")
+
+	mockHA := ha.NewMockClient()
+	mockNtfy := ntfy.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+	mockClock := clock.NewMockClock(time.Now())
+
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
+
+	manager.AddSensor(&HumiditySensor{
+		EntityID:     testIndoorSensor1,
+		FriendlyName: "Barn Humidity",
+		IsIndoor:     true,
+		Valid:        true,
+	})
+	manager.AddSensor(&HumiditySensor{
+		EntityID:     testIndoorSensor2,
+		FriendlyName: "SEN55 Humidity",
+		IsIndoor:     true,
+		Valid:        true,
+	})
+	manager.SimulateSensorChange(testIndoorSensor2, 35.0)
+
+	// Trigger sustained warning
+	manager.SimulateSensorChange(testIndoorSensor1, 60.0)
+	mockClock.Advance(31 * time.Minute)
+	manager.SimulateSensorChange(testIndoorSensor1, 60.0)
+
+	if manager.GetCurrentState() != "warning" {
+		t.Fatalf("Expected alertLevel 'warning'")
+	}
+
+	// WHEN: Sensor goes unavailable briefly, then recovers at 45% (below clear threshold of 50%)
+	t.Log("WHEN: Barn goes unavailable, then recovers at 45%")
+	manager.SimulateSensorUnavailable(testIndoorSensor1)
+
+	// Alert should still be active while unavailable
+	if manager.GetCurrentState() != "warning" {
+		t.Errorf("Expected alertLevel 'warning' while sensor unavailable, got '%s'", manager.GetCurrentState())
+	}
+
+	// Sensor comes back at 45%
+	manager.SimulateSensorChange(testIndoorSensor1, 45.0)
+
+	// THEN: Resolution notification fires with correct sensor info
+	t.Log("THEN: Resolution correctly identifies only Barn sensor")
+
+	alertLevel := manager.GetCurrentState()
+	if alertLevel != "none" {
+		t.Errorf("Expected alertLevel 'none' after genuine resolution, got '%s'", alertLevel)
+	}
+
+	// Find the resolution notification
+	lastNotification := getLastNtfyNotification(mockNtfy)
+	if lastNotification == nil {
+		t.Fatal("Expected resolution notification to be sent")
+	}
+
+	if !strings.Contains(lastNotification.Body, "Barn Humidity") {
+		t.Errorf("Expected resolution to mention 'Barn Humidity', got: %s", lastNotification.Body)
+	}
+	if strings.Contains(lastNotification.Body, "SEN55 Humidity") {
+		t.Errorf("Expected resolution NOT to mention 'SEN55 Humidity', got: %s", lastNotification.Body)
+	}
+}
+
+func TestScenario_HumidityDoesNotResolveWhenSensorRecoversStillElevated(t *testing.T) {
+	// GIVEN: Sensor at 60% with active warning
+	t.Log("GIVEN: Active humidity warning for sensor at 60%")
+
+	mockHA := ha.NewMockClient()
+	mockNtfy := ntfy.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+	mockClock := clock.NewMockClock(time.Now())
+
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
+
+	manager.AddSensor(&HumiditySensor{
+		EntityID:     testIndoorSensor1,
+		FriendlyName: "Barn Humidity",
+		IsIndoor:     true,
+		Valid:        true,
+	})
+
+	// Trigger sustained warning
+	manager.SimulateSensorChange(testIndoorSensor1, 60.0)
+	mockClock.Advance(31 * time.Minute)
+	manager.SimulateSensorChange(testIndoorSensor1, 60.0)
+
+	if manager.GetCurrentState() != "warning" {
+		t.Fatalf("Expected alertLevel 'warning'")
+	}
+
+	notificationsBeforeUnavailable := countNtfyNotifications(mockNtfy)
+
+	// WHEN: Sensor goes unavailable briefly, then recovers at 55% (above clear threshold of 50%)
+	t.Log("WHEN: Barn goes unavailable, then recovers at 55%")
+	manager.SimulateSensorUnavailable(testIndoorSensor1)
+	manager.SimulateSensorChange(testIndoorSensor1, 55.0)
+
+	// THEN: No resolution notification should be sent
+	// AND: currentAlertLevel should remain "warning"
+	t.Log("THEN: Alert remains active since Barn is still elevated")
+
+	alertLevel := manager.GetCurrentState()
+	if alertLevel != "warning" {
+		t.Errorf("Expected alertLevel 'warning' when sensor recovers still elevated, got '%s'", alertLevel)
+	}
+
+	notificationsAfterRecovery := countNtfyNotifications(mockNtfy)
+	if notificationsAfterRecovery > notificationsBeforeUnavailable {
+		t.Errorf("Expected no new notifications while sensor is still elevated, got %d extra",
+			notificationsAfterRecovery-notificationsBeforeUnavailable)
+	}
+}
+
+func TestScenario_HumidityAlertSurvivesZWaveNetworkDropout(t *testing.T) {
+	// GIVEN: Barn sensor at 60% (warning alert active)
+	// AND: Other Z-Wave indoor sensors are valid
+	t.Log("GIVEN: Active humidity warning, multiple Z-Wave sensors online")
+
+	mockHA := ha.NewMockClient()
+	mockNtfy := ntfy.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+	mockClock := clock.NewMockClock(time.Now())
+
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
+
+	// Barn sensor (Z-Wave, will go unavailable)
+	manager.AddSensor(&HumiditySensor{
+		EntityID:     testIndoorSensor1,
+		FriendlyName: "Barn Humidity",
+		IsIndoor:     true,
+		Valid:        true,
+	})
+	// Caroline Office (Z-Wave, will go unavailable)
+	manager.AddSensor(&HumiditySensor{
+		EntityID:     testIndoorSensor2,
+		FriendlyName: "Caroline Office Humidity",
+		IsIndoor:     true,
+		Valid:        true,
+	})
+	// SEN55 (non-Z-Wave, stays valid)
+	manager.AddSensor(&HumiditySensor{
+		EntityID:     "sensor.indoor_humidity_3",
+		FriendlyName: "SEN55 Humidity",
+		IsIndoor:     true,
+		Valid:        true,
+	})
+
+	// Set normal levels for other sensors
+	manager.SimulateSensorChange(testIndoorSensor2, 40.0)
+	manager.SimulateSensorChange("sensor.indoor_humidity_3", 35.0)
+
+	// Trigger sustained warning on Barn
+	manager.SimulateSensorChange(testIndoorSensor1, 60.0)
+	mockClock.Advance(31 * time.Minute)
+	manager.SimulateSensorChange(testIndoorSensor1, 60.0)
+
+	if manager.GetCurrentState() != "warning" {
+		t.Fatalf("Expected alertLevel 'warning'")
+	}
+
+	notificationsBeforeDropout := countNtfyNotifications(mockNtfy)
+
+	// WHEN: All Z-Wave sensors go unavailable simultaneously (network issue)
+	t.Log("WHEN: Z-Wave network drops — all Z-Wave sensors go unavailable")
+	manager.SimulateSensorUnavailable(testIndoorSensor1)
+	manager.SimulateSensorUnavailable(testIndoorSensor2)
+
+	// THEN: Alert should NOT resolve
+	// AND: No notification should be sent
+	t.Log("THEN: Alert persists through Z-Wave dropout, no false notifications")
+
+	alertLevel := manager.GetCurrentState()
+	if alertLevel != "warning" {
+		t.Errorf("Expected alertLevel 'warning' during Z-Wave dropout, got '%s'", alertLevel)
+	}
+
+	notificationsAfterDropout := countNtfyNotifications(mockNtfy)
+	if notificationsAfterDropout > notificationsBeforeDropout {
+		lastNotification := getLastNtfyNotification(mockNtfy)
+		t.Errorf("Expected no new notifications during Z-Wave dropout, got: %s", lastNotification.Body)
+	}
+
+	// AND: When Z-Wave recovers, the alert cycle continues seamlessly
+	t.Log("AND: Z-Wave recovers, Barn still elevated, alert continues")
+	manager.SimulateSensorChange(testIndoorSensor2, 40.0) // Caroline Office back to normal
+	manager.SimulateSensorChange(testIndoorSensor1, 60.0) // Barn still elevated
+
+	alertLevel = manager.GetCurrentState()
+	if alertLevel != "warning" {
+		t.Errorf("Expected alertLevel 'warning' after Z-Wave recovery, got '%s'", alertLevel)
+	}
+}
+
+func TestScenario_GenuineResolutionAfterUnavailablePeriod(t *testing.T) {
+	// GIVEN: Sensor at 60% (warning alert active)
+	t.Log("GIVEN: Active humidity warning for sensor at 60%")
+
+	mockHA := ha.NewMockClient()
+	mockNtfy := ntfy.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+	mockClock := clock.NewMockClock(time.Now())
+
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
+
+	manager.AddSensor(&HumiditySensor{
+		EntityID:     testIndoorSensor1,
+		FriendlyName: "Barn Humidity",
+		IsIndoor:     true,
+		Valid:        true,
+	})
+
+	// Trigger sustained warning
+	manager.SimulateSensorChange(testIndoorSensor1, 60.0)
+	mockClock.Advance(31 * time.Minute)
+	manager.SimulateSensorChange(testIndoorSensor1, 60.0)
+
+	if manager.GetCurrentState() != "warning" {
+		t.Fatalf("Expected alertLevel 'warning'")
+	}
+
+	// WHEN: Sensor goes unavailable
+	t.Log("WHEN: Barn goes unavailable")
+	manager.SimulateSensorUnavailable(testIndoorSensor1)
+
+	// No resolution while unavailable
+	if manager.GetCurrentState() != "warning" {
+		t.Errorf("Expected 'warning' while unavailable, got '%s'", manager.GetCurrentState())
+	}
+
+	// Sensor comes back still elevated
+	t.Log("AND: Barn comes back at 60% (still elevated, no resolution)")
+	manager.SimulateSensorChange(testIndoorSensor1, 60.0)
+
+	if manager.GetCurrentState() != "warning" {
+		t.Errorf("Expected 'warning' when sensor returns still elevated, got '%s'", manager.GetCurrentState())
+	}
+
+	// Later, sensor genuinely drops below threshold
+	t.Log("AND: Later, Barn genuinely drops to 48%")
+	manager.SimulateSensorChange(testIndoorSensor1, 48.0)
+
+	// THEN: Resolution fires only when sensor is valid AND below threshold
+	t.Log("THEN: Resolution correctly identifies Barn as the resolved sensor")
+
+	alertLevel := manager.GetCurrentState()
+	if alertLevel != "none" {
+		t.Errorf("Expected alertLevel 'none' after genuine resolution, got '%s'", alertLevel)
+	}
+
+	lastNotification := getLastNtfyNotification(mockNtfy)
+	if lastNotification == nil {
+		t.Fatal("Expected resolution notification")
+	}
+	if !strings.Contains(lastNotification.Body, "Barn Humidity") {
+		t.Errorf("Expected resolution to mention 'Barn Humidity', got: %s", lastNotification.Body)
+	}
+	if !strings.Contains(lastNotification.Body, "48%") {
+		t.Errorf("Expected resolution to show current humidity '48%%', got: %s", lastNotification.Body)
+	}
+}
+
+func TestScenario_ResolutionNotificationIncludesUnavailableSensors(t *testing.T) {
+	// Test Fix 2: If a genuine resolution fires while some alerted sensors are still unavailable,
+	// the notification should include them with "unavailable" status instead of falling back to
+	// listing all indoor sensors.
+	t.Log("GIVEN: Two sensors triggered a warning, one goes unavailable, the other drops")
+
+	mockHA := ha.NewMockClient()
+	mockNtfy := ntfy.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+	mockClock := clock.NewMockClock(time.Now())
+
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
+
+	manager.AddSensor(&HumiditySensor{
+		EntityID:     testIndoorSensor1,
+		FriendlyName: "Barn Humidity",
+		IsIndoor:     true,
+		Valid:        true,
+	})
+	manager.AddSensor(&HumiditySensor{
+		EntityID:     testIndoorSensor2,
+		FriendlyName: "Guest Bedroom Humidity",
+		IsIndoor:     true,
+		Valid:        true,
+	})
+	manager.AddSensor(&HumiditySensor{
+		EntityID:     "sensor.indoor_humidity_3",
+		FriendlyName: "SEN55 Humidity",
+		IsIndoor:     true,
+		Valid:        true,
+	})
+	manager.SimulateSensorChange("sensor.indoor_humidity_3", 30.0)
+
+	// Both Barn and Guest Bedroom elevated
+	manager.SimulateSensorChange(testIndoorSensor1, 58.0)
+	manager.SimulateSensorChange(testIndoorSensor2, 57.0)
+	mockClock.Advance(31 * time.Minute)
+	manager.SimulateSensorChange(testIndoorSensor1, 58.0)
+	manager.SimulateSensorChange(testIndoorSensor2, 57.0)
+
+	if manager.GetCurrentState() != "warning" {
+		t.Fatalf("Expected alertLevel 'warning'")
+	}
+
+	// Both drop below threshold (genuine resolution)
+	manager.SimulateSensorChange(testIndoorSensor1, 45.0)
+	manager.SimulateSensorChange(testIndoorSensor2, 45.0)
+
+	if manager.GetCurrentState() != "none" {
+		t.Errorf("Expected resolution, got '%s'", manager.GetCurrentState())
+	}
+
+	// Verify resolution notification mentions ONLY the alerted sensors, not SEN55
+	lastNotification := getLastNtfyNotification(mockNtfy)
+	if lastNotification == nil {
+		t.Fatal("Expected resolution notification")
+	}
+	if strings.Contains(lastNotification.Body, "SEN55 Humidity") {
+		t.Errorf("Resolution should NOT mention SEN55 (was never alerted), got: %s", lastNotification.Body)
+	}
+	if !strings.Contains(lastNotification.Body, "Barn Humidity") {
+		t.Errorf("Resolution should mention Barn Humidity, got: %s", lastNotification.Body)
+	}
+	if !strings.Contains(lastNotification.Body, "Guest Bedroom Humidity") {
+		t.Errorf("Resolution should mention Guest Bedroom Humidity, got: %s", lastNotification.Body)
+	}
+}
+
 func TestEnvironmentalManager_WaterLeak_RenotificationAfterClear(t *testing.T) {
 	t.Parallel()
 
