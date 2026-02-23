@@ -56,22 +56,38 @@ zones:
         value: false
   - name: "evening"
     priority: 40
-    trigger:
-      - variable: dayPhase
-        value: evening
-      - variable: isAnyoneHome
-        value: true
-      - variable: isAnyoneAsleep
-        value: false
+    trigger_groups:
+      - triggers:
+          - variable: dayPhase
+            value: sunset
+          - variable: isAnyoneHome
+            value: true
+          - variable: isAnyoneAsleep
+            value: false
+      - triggers:
+          - variable: dayPhase
+            value: dusk
+          - variable: isAnyoneHome
+            value: true
+          - variable: isAnyoneAsleep
+            value: false
   - name: "winddown"
     priority: 40
-    trigger:
-      - variable: dayPhase
-        value: winddown
-      - variable: isAnyoneHome
-        value: true
-      - variable: isAnyoneAsleep
-        value: false
+    trigger_groups:
+      - triggers:
+          - variable: dayPhase
+            value: winddown
+          - variable: isAnyoneHome
+            value: true
+          - variable: isAnyoneAsleep
+            value: false
+      - triggers:
+          - variable: dayPhase
+            value: night
+          - variable: isAnyoneHome
+            value: true
+          - variable: isAnyoneAsleep
+            value: false
   # sex and wakeup zones are manually triggered via musicPlaybackType
   # They don't have automatic triggers
   - name: "sex"
