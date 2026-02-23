@@ -363,19 +363,70 @@ func (lst *LoadSheddingTracker) RecordLoadSheddingAction(active bool, actionType
 	lst.State().Metadata.LastUpdated = now
 }
 
+// RecordThermalBatteryActivation records a thermal battery activation
+func (lst *LoadSheddingTracker) RecordThermalBatteryActivation(offset float64, savedSetpoints map[string]SavedSetpoint) {
+	lst.Lock()
+	defer lst.Unlock()
+
+	now := time.Now()
+	lst.State().Outputs.ThermalBattery = ThermalBatteryState{
+		Active:         true,
+		OffsetApplied:  offset,
+		ActivatedAt:    now,
+		SavedSetpoints: savedSetpoints,
+	}
+	lst.State().Metadata.LastUpdated = now
+}
+
+// RecordThermalBatteryDeactivation records a thermal battery deactivation
+func (lst *LoadSheddingTracker) RecordThermalBatteryDeactivation() {
+	lst.Lock()
+	defer lst.Unlock()
+
+	now := time.Now()
+	lst.State().Outputs.ThermalBattery = ThermalBatteryState{
+		Active:        false,
+		DeactivatedAt: now,
+	}
+	lst.State().Metadata.LastUpdated = now
+}
+
+// RecordThermalBatterySkipped records that thermal battery activation was skipped
+func (lst *LoadSheddingTracker) RecordThermalBatterySkipped(reason string) {
+	lst.Lock()
+	defer lst.Unlock()
+
+	now := time.Now()
+	lst.State().Outputs.ThermalBattery.SkipReason = reason
+	lst.State().Metadata.LastUpdated = now
+}
+
 // GetState returns the current shadow state (thread-safe copy)
 func (lst *LoadSheddingTracker) GetState() *LoadSheddingShadowState {
 	lst.RLock()
 	defer lst.RUnlock()
 
 	s := lst.State()
+
+	// Deep copy ThermalBattery.SavedSetpoints
+	var savedSetpoints map[string]SavedSetpoint
+	if s.Outputs.ThermalBattery.SavedSetpoints != nil {
+		savedSetpoints = make(map[string]SavedSetpoint, len(s.Outputs.ThermalBattery.SavedSetpoints))
+		for k, v := range s.Outputs.ThermalBattery.SavedSetpoints {
+			savedSetpoints[k] = v
+		}
+	}
+
+	outputsCopy := s.Outputs
+	outputsCopy.ThermalBattery.SavedSetpoints = savedSetpoints
+
 	return &LoadSheddingShadowState{
 		Plugin: s.Plugin,
 		Inputs: ActionInputs{
 			Current:      copyInputMap(s.Inputs.Current),
 			AtLastAction: copyInputMap(s.Inputs.AtLastAction),
 		},
-		Outputs:  s.Outputs,
+		Outputs:  outputsCopy,
 		Metadata: s.Metadata,
 	}
 }

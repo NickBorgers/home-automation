@@ -479,11 +479,12 @@ type GarageOpenEvent struct {
 
 // LoadSheddingOutputs tracks the state of load shedding control outputs
 type LoadSheddingOutputs struct {
-	Active             bool               `json:"active"`
-	LastActionType     string             `json:"lastActionType,omitempty"` // "enable" or "disable"
-	LastActionReason   string             `json:"lastActionReason,omitempty"`
-	ThermostatSettings ThermostatSettings `json:"thermostatSettings,omitempty"`
-	LastActionTime     time.Time          `json:"lastActionTime"`
+	Active             bool                `json:"active"`
+	LastActionType     string              `json:"lastActionType,omitempty"` // "enable" or "disable"
+	LastActionReason   string              `json:"lastActionReason,omitempty"`
+	ThermostatSettings ThermostatSettings  `json:"thermostatSettings,omitempty"`
+	ThermalBattery     ThermalBatteryState `json:"thermalBattery,omitempty"`
+	LastActionTime     time.Time           `json:"lastActionTime"`
 }
 
 // ThermostatSettings represents thermostat configuration
@@ -491,6 +492,25 @@ type ThermostatSettings struct {
 	HoldMode bool    `json:"holdMode"`
 	TempLow  float64 `json:"tempLow,omitempty"`
 	TempHigh float64 `json:"tempHigh,omitempty"`
+}
+
+// ThermalBatteryState tracks the thermal battery pre-conditioning state
+type ThermalBatteryState struct {
+	Active         bool                     `json:"active"`
+	OffsetApplied  float64                  `json:"offsetApplied,omitempty"` // Degrees F shifted
+	ActivatedAt    time.Time                `json:"activatedAt,omitempty"`
+	DeactivatedAt  time.Time                `json:"deactivatedAt,omitempty"`
+	SkipReason     string                   `json:"skipReason,omitempty"` // Why activation was skipped
+	SavedSetpoints map[string]SavedSetpoint `json:"savedSetpoints,omitempty"`
+}
+
+// SavedSetpoint records the original thermostat setpoint before thermal battery offset was applied
+type SavedSetpoint struct {
+	EntityID   string  `json:"entityId"`
+	HVACMode   string  `json:"hvacMode"`             // "heat", "cool", "heat_cool", etc.
+	TargetTemp float64 `json:"targetTemp,omitempty"` // Single setpoint (heat or cool mode)
+	TargetLow  float64 `json:"targetLow,omitempty"`  // Low setpoint (heat_cool mode)
+	TargetHigh float64 `json:"targetHigh,omitempty"` // High setpoint (heat_cool mode)
 }
 
 // ============================================================================

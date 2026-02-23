@@ -1,0 +1,532 @@
+package loadshedding
+
+import (
+	"context"
+	"testing"
+	"time"
+
+	"homeautomation/pkg/testutil"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+// setupThermalBatteryEnv creates a test environment with thermostat hold switches
+// and climate entities initialized in cooling mode.
+func setupThermalBatteryEnv(t *testing.T) *testutil.Env {
+	t.Helper()
+	env := testutil.NewEnv(t)
+	env.MockHA.SetState(thermostatHoldHouse, "off", nil)
+	env.MockHA.SetState(thermostatHoldSuite, "off", nil)
+
+	// Set climate entities to cooling mode with realistic setpoints
+	env.MockHA.SetState(climateHouse, "cool", map[string]interface{}{
+		"temperature":         72.0,
+		"current_temperature": 74.0,
+		"hvac_action":         "cooling",
+	})
+	env.MockHA.SetState(climateSuite, "cool", map[string]interface{}{
+		"temperature":         71.0,
+		"current_temperature": 73.0,
+		"hvac_action":         "cooling",
+	})
+
+	// Set presence/sleep states: someone is home and awake
+	err := env.StateMgr.SetBool("isAnyoneHome", true)
+	require.NoError(t, err)
+	err = env.StateMgr.SetBool("isEveryoneAsleep", false)
+	require.NoError(t, err)
+
+	err = env.StateMgr.SyncFromHA()
+	assert.NoError(t, err)
+	return env
+}
+
+func TestThermalBattery_ActivatesOnWhiteEnergyLevel(t *testing.T) {
+	t.Parallel()
+	env := setupThermalBatteryEnv(t)
+
+	ls := NewManager(context.Background(), env.MockHA, env.StateMgr, env.Logger, false, nil)
+	err := ls.Start()
+	require.NoError(t, err)
+	defer ls.Stop()
+
+	env.MockHA.ClearServiceCalls()
+
+	// Set energy state to white
+	err = env.StateMgr.SetString("currentEnergyLevel", "white")
+	require.NoError(t, err)
+
+	// Verify thermal battery is active
+	assert.True(t, ls.IsThermalBatteryActive(), "Thermal battery should be active at white energy level")
+
+	// Verify climate.set_temperature calls were made (one per thermostat)
+	calls := env.MockHA.GetServiceCalls()
+	climateCalls := 0
+	for _, call := range calls {
+		if call.Domain == "climate" && call.Service == "set_temperature" {
+			climateCalls++
+			entityID, _ := call.Data["entity_id"].(string)
+			temp, _ := call.Data["temperature"].(float64)
+
+			// In cooling mode, setpoint should be shifted DOWN by 3°F
+			switch entityID {
+			case climateHouse:
+				assert.Equal(t, 69.0, temp, "House thermostat should be shifted from 72 to 69")
+			case climateSuite:
+				assert.Equal(t, 68.0, temp, "Suite thermostat should be shifted from 71 to 68")
+			}
+		}
+	}
+	assert.Equal(t, 2, climateCalls, "Should have made 2 climate.set_temperature calls")
+
+	// Verify shadow state
+	shadow := ls.GetShadowState()
+	assert.True(t, shadow.Outputs.ThermalBattery.Active)
+	assert.Equal(t, 3.0, shadow.Outputs.ThermalBattery.OffsetApplied)
+	assert.Len(t, shadow.Outputs.ThermalBattery.SavedSetpoints, 2)
+}
+
+func TestThermalBattery_DeactivatesOnGreenEnergyLevel(t *testing.T) {
+	t.Parallel()
+	env := setupThermalBatteryEnv(t)
+
+	ls := NewManager(context.Background(), env.MockHA, env.StateMgr, env.Logger, false, nil)
+	ls.lastAction = time.Now().Add(-2 * time.Hour) // Avoid rate limiting
+	err := ls.Start()
+	require.NoError(t, err)
+	defer ls.Stop()
+
+	// Activate thermal battery
+	err = env.StateMgr.SetString("currentEnergyLevel", "white")
+	require.NoError(t, err)
+	assert.True(t, ls.IsThermalBatteryActive())
+
+	env.MockHA.ClearServiceCalls()
+
+	// Drop to green
+	err = env.StateMgr.SetString("currentEnergyLevel", "green")
+	require.NoError(t, err)
+
+	// Verify thermal battery is deactivated
+	assert.False(t, ls.IsThermalBatteryActive(), "Thermal battery should be inactive after green")
+
+	// Verify setpoints were reverted
+	calls := env.MockHA.GetServiceCalls()
+	revertCalls := 0
+	for _, call := range calls {
+		if call.Domain == "climate" && call.Service == "set_temperature" {
+			revertCalls++
+			entityID, _ := call.Data["entity_id"].(string)
+			temp, _ := call.Data["temperature"].(float64)
+
+			switch entityID {
+			case climateHouse:
+				assert.Equal(t, 72.0, temp, "House thermostat should be reverted to 72")
+			case climateSuite:
+				assert.Equal(t, 71.0, temp, "Suite thermostat should be reverted to 71")
+			}
+		}
+	}
+	assert.Equal(t, 2, revertCalls, "Should have made 2 climate.set_temperature calls to revert")
+
+	// Verify shadow state
+	shadow := ls.GetShadowState()
+	assert.False(t, shadow.Outputs.ThermalBattery.Active)
+}
+
+func TestThermalBattery_DeactivatesOnRedEnergyLevel(t *testing.T) {
+	t.Parallel()
+	env := setupThermalBatteryEnv(t)
+
+	ls := NewManager(context.Background(), env.MockHA, env.StateMgr, env.Logger, false, nil)
+	ls.lastAction = time.Now().Add(-2 * time.Hour)
+	err := ls.Start()
+	require.NoError(t, err)
+	defer ls.Stop()
+
+	// Activate thermal battery
+	err = env.StateMgr.SetString("currentEnergyLevel", "white")
+	require.NoError(t, err)
+	assert.True(t, ls.IsThermalBatteryActive())
+
+	// Reset rate limit and clear calls
+	ls.lastAction = time.Now().Add(-2 * time.Hour)
+	env.MockHA.ClearServiceCalls()
+
+	// Drop to red (should deactivate thermal battery AND enable load shedding)
+	err = env.StateMgr.SetString("currentEnergyLevel", "red")
+	require.NoError(t, err)
+
+	assert.False(t, ls.IsThermalBatteryActive(), "Thermal battery should be deactivated on red")
+	assert.True(t, ls.IsLoadSheddingOn(), "Load shedding should be enabled on red")
+}
+
+func TestThermalBattery_SkipsWhenNoOneHome(t *testing.T) {
+	t.Parallel()
+	env := setupThermalBatteryEnv(t)
+
+	// Set no one home
+	err := env.StateMgr.SetBool("isAnyoneHome", false)
+	require.NoError(t, err)
+
+	ls := NewManager(context.Background(), env.MockHA, env.StateMgr, env.Logger, false, nil)
+	err = ls.Start()
+	require.NoError(t, err)
+	defer ls.Stop()
+
+	env.MockHA.ClearServiceCalls()
+
+	// Try to activate
+	err = env.StateMgr.SetString("currentEnergyLevel", "white")
+	require.NoError(t, err)
+
+	assert.False(t, ls.IsThermalBatteryActive(), "Thermal battery should not activate when no one is home")
+
+	// Verify no climate service calls were made (only SetString call)
+	calls := env.MockHA.GetServiceCalls()
+	for _, call := range calls {
+		if call.Domain == "climate" {
+			t.Error("No climate service calls should be made when no one is home")
+		}
+	}
+
+	// Verify shadow state records skip reason
+	shadow := ls.GetShadowState()
+	assert.Equal(t, "no one is home", shadow.Outputs.ThermalBattery.SkipReason)
+}
+
+func TestThermalBattery_SkipsWhenEveryoneAsleep(t *testing.T) {
+	t.Parallel()
+	env := setupThermalBatteryEnv(t)
+
+	// Set everyone asleep
+	err := env.StateMgr.SetBool("isEveryoneAsleep", true)
+	require.NoError(t, err)
+
+	ls := NewManager(context.Background(), env.MockHA, env.StateMgr, env.Logger, false, nil)
+	err = ls.Start()
+	require.NoError(t, err)
+	defer ls.Stop()
+
+	env.MockHA.ClearServiceCalls()
+
+	// Try to activate
+	err = env.StateMgr.SetString("currentEnergyLevel", "white")
+	require.NoError(t, err)
+
+	assert.False(t, ls.IsThermalBatteryActive(), "Thermal battery should not activate when everyone is asleep")
+
+	// Verify shadow state records skip reason
+	shadow := ls.GetShadowState()
+	assert.Equal(t, "everyone is asleep", shadow.Outputs.ThermalBattery.SkipReason)
+}
+
+func TestThermalBattery_DeactivatesWhenEveryoneLeaves(t *testing.T) {
+	t.Parallel()
+	env := setupThermalBatteryEnv(t)
+
+	ls := NewManager(context.Background(), env.MockHA, env.StateMgr, env.Logger, false, nil)
+	err := ls.Start()
+	require.NoError(t, err)
+	defer ls.Stop()
+
+	// Activate thermal battery
+	err = env.StateMgr.SetString("currentEnergyLevel", "white")
+	require.NoError(t, err)
+	assert.True(t, ls.IsThermalBatteryActive())
+
+	env.MockHA.ClearServiceCalls()
+
+	// Everyone leaves
+	err = env.StateMgr.SetBool("isAnyoneHome", false)
+	require.NoError(t, err)
+
+	assert.False(t, ls.IsThermalBatteryActive(), "Thermal battery should deactivate when everyone leaves")
+
+	// Verify setpoints were reverted
+	calls := env.MockHA.GetServiceCalls()
+	revertCalls := 0
+	for _, call := range calls {
+		if call.Domain == "climate" && call.Service == "set_temperature" {
+			revertCalls++
+		}
+	}
+	assert.Equal(t, 2, revertCalls, "Should revert both thermostats")
+}
+
+func TestThermalBattery_DeactivatesWhenEveryoneFallsAsleep(t *testing.T) {
+	t.Parallel()
+	env := setupThermalBatteryEnv(t)
+
+	ls := NewManager(context.Background(), env.MockHA, env.StateMgr, env.Logger, false, nil)
+	err := ls.Start()
+	require.NoError(t, err)
+	defer ls.Stop()
+
+	// Activate thermal battery
+	err = env.StateMgr.SetString("currentEnergyLevel", "white")
+	require.NoError(t, err)
+	assert.True(t, ls.IsThermalBatteryActive())
+
+	env.MockHA.ClearServiceCalls()
+
+	// Everyone falls asleep
+	err = env.StateMgr.SetBool("isEveryoneAsleep", true)
+	require.NoError(t, err)
+
+	assert.False(t, ls.IsThermalBatteryActive(), "Thermal battery should deactivate when everyone sleeps")
+}
+
+func TestThermalBattery_HeatingMode(t *testing.T) {
+	t.Parallel()
+	env := testutil.NewEnv(t)
+	env.MockHA.SetState(thermostatHoldHouse, "off", nil)
+	env.MockHA.SetState(thermostatHoldSuite, "off", nil)
+
+	// Set climate entities to heating mode
+	env.MockHA.SetState(climateHouse, "heat", map[string]interface{}{
+		"temperature":         68.0,
+		"current_temperature": 66.0,
+		"hvac_action":         "heating",
+	})
+	env.MockHA.SetState(climateSuite, "heat", map[string]interface{}{
+		"temperature":         70.0,
+		"current_temperature": 68.0,
+		"hvac_action":         "heating",
+	})
+
+	err := env.StateMgr.SetBool("isAnyoneHome", true)
+	require.NoError(t, err)
+	err = env.StateMgr.SetBool("isEveryoneAsleep", false)
+	require.NoError(t, err)
+	err = env.StateMgr.SyncFromHA()
+	require.NoError(t, err)
+
+	ls := NewManager(context.Background(), env.MockHA, env.StateMgr, env.Logger, false, nil)
+	err = ls.Start()
+	require.NoError(t, err)
+	defer ls.Stop()
+
+	env.MockHA.ClearServiceCalls()
+
+	// Activate thermal battery
+	err = env.StateMgr.SetString("currentEnergyLevel", "white")
+	require.NoError(t, err)
+
+	assert.True(t, ls.IsThermalBatteryActive())
+
+	// In heating mode, setpoint should be shifted UP by 3°F
+	calls := env.MockHA.GetServiceCalls()
+	for _, call := range calls {
+		if call.Domain == "climate" && call.Service == "set_temperature" {
+			entityID, _ := call.Data["entity_id"].(string)
+			temp, _ := call.Data["temperature"].(float64)
+
+			switch entityID {
+			case climateHouse:
+				assert.Equal(t, 71.0, temp, "House thermostat should be shifted from 68 to 71 in heat mode")
+			case climateSuite:
+				assert.Equal(t, 73.0, temp, "Suite thermostat should be shifted from 70 to 73 in heat mode")
+			}
+		}
+	}
+}
+
+func TestThermalBattery_HeatCoolMode(t *testing.T) {
+	t.Parallel()
+	env := testutil.NewEnv(t)
+	env.MockHA.SetState(thermostatHoldHouse, "off", nil)
+	env.MockHA.SetState(thermostatHoldSuite, "off", nil)
+
+	// Set climate entities to heat_cool (auto) mode
+	env.MockHA.SetState(climateHouse, "heat_cool", map[string]interface{}{
+		"target_temp_low":     68.0,
+		"target_temp_high":    76.0,
+		"current_temperature": 72.0,
+		"hvac_action":         "idle",
+	})
+	env.MockHA.SetState(climateSuite, "heat_cool", map[string]interface{}{
+		"target_temp_low":     67.0,
+		"target_temp_high":    75.0,
+		"current_temperature": 71.0,
+		"hvac_action":         "idle",
+	})
+
+	err := env.StateMgr.SetBool("isAnyoneHome", true)
+	require.NoError(t, err)
+	err = env.StateMgr.SetBool("isEveryoneAsleep", false)
+	require.NoError(t, err)
+	err = env.StateMgr.SyncFromHA()
+	require.NoError(t, err)
+
+	ls := NewManager(context.Background(), env.MockHA, env.StateMgr, env.Logger, false, nil)
+	err = ls.Start()
+	require.NoError(t, err)
+	defer ls.Stop()
+
+	env.MockHA.ClearServiceCalls()
+
+	// Activate thermal battery
+	err = env.StateMgr.SetString("currentEnergyLevel", "white")
+	require.NoError(t, err)
+
+	assert.True(t, ls.IsThermalBatteryActive())
+
+	// In heat_cool mode, both bounds should shift toward more aggressive conditioning
+	calls := env.MockHA.GetServiceCalls()
+	for _, call := range calls {
+		if call.Domain == "climate" && call.Service == "set_temperature" {
+			entityID, _ := call.Data["entity_id"].(string)
+
+			switch entityID {
+			case climateHouse:
+				low, _ := call.Data["target_temp_low"].(float64)
+				high, _ := call.Data["target_temp_high"].(float64)
+				assert.Equal(t, 71.0, low, "House low should shift from 68 to 71")
+				assert.Equal(t, 73.0, high, "House high should shift from 76 to 73")
+			case climateSuite:
+				low, _ := call.Data["target_temp_low"].(float64)
+				high, _ := call.Data["target_temp_high"].(float64)
+				assert.Equal(t, 70.0, low, "Suite low should shift from 67 to 70")
+				assert.Equal(t, 72.0, high, "Suite high should shift from 75 to 72")
+			}
+		}
+	}
+}
+
+func TestThermalBattery_SkipsWhenThermostatOff(t *testing.T) {
+	t.Parallel()
+	env := setupThermalBatteryEnv(t)
+
+	// Override: set one thermostat to off
+	env.MockHA.SetState(climateHouse, "off", map[string]interface{}{})
+
+	ls := NewManager(context.Background(), env.MockHA, env.StateMgr, env.Logger, false, nil)
+	err := ls.Start()
+	require.NoError(t, err)
+	defer ls.Stop()
+
+	env.MockHA.ClearServiceCalls()
+
+	err = env.StateMgr.SetString("currentEnergyLevel", "white")
+	require.NoError(t, err)
+
+	assert.False(t, ls.IsThermalBatteryActive(), "Thermal battery should not activate if thermostat is off")
+
+	shadow := ls.GetShadowState()
+	assert.Contains(t, shadow.Outputs.ThermalBattery.SkipReason, "is off")
+}
+
+func TestThermalBattery_ReadOnlyMode(t *testing.T) {
+	t.Parallel()
+	env := setupThermalBatteryEnv(t)
+
+	ls := NewManager(context.Background(), env.MockHA, env.StateMgr, env.Logger, true, nil) // readOnly=true
+	err := ls.Start()
+	require.NoError(t, err)
+	defer ls.Stop()
+
+	env.MockHA.ClearServiceCalls()
+
+	err = env.StateMgr.SetString("currentEnergyLevel", "white")
+	require.NoError(t, err)
+
+	// In read-only mode, thermal battery should activate (tracks state) but no service calls
+	assert.True(t, ls.IsThermalBatteryActive(), "Thermal battery should track state in read-only mode")
+
+	// Verify no climate service calls were made (just SetString)
+	calls := env.MockHA.GetServiceCalls()
+	for _, call := range calls {
+		if call.Domain == "climate" {
+			t.Error("No climate service calls should be made in read-only mode")
+		}
+	}
+}
+
+func TestThermalBattery_DoesNotActivateDuringLoadShedding(t *testing.T) {
+	t.Parallel()
+	env := setupThermalBatteryEnv(t)
+
+	ls := NewManager(context.Background(), env.MockHA, env.StateMgr, env.Logger, false, nil)
+	ls.lastAction = time.Now().Add(-2 * time.Hour)
+	err := ls.Start()
+	require.NoError(t, err)
+	defer ls.Stop()
+
+	// Enable load shedding first
+	err = env.StateMgr.SetString("currentEnergyLevel", "red")
+	require.NoError(t, err)
+	assert.True(t, ls.IsLoadSheddingOn())
+
+	// Reset rate limit
+	ls.lastAction = time.Now().Add(-2 * time.Hour)
+	env.MockHA.ClearServiceCalls()
+
+	// Now try white - load shedding should be disabled first, then thermal battery should activate
+	// But since disableLoadShedding runs first and then activateThermalBattery,
+	// the load shedding state should be false by the time thermal battery checks it
+	env.MockHA.SetState(thermostatHoldHouse, "on", nil)
+	env.MockHA.SetState(thermostatHoldSuite, "on", nil)
+	err = env.StateMgr.SetString("currentEnergyLevel", "white")
+	require.NoError(t, err)
+
+	// Load shedding should be disabled (white is in the disable path)
+	assert.False(t, ls.IsLoadSheddingOn(), "Load shedding should be disabled at white")
+	// Thermal battery should be active
+	assert.True(t, ls.IsThermalBatteryActive(), "Thermal battery should activate after load shedding disables")
+}
+
+func TestThermalBattery_IdempotentActivation(t *testing.T) {
+	t.Parallel()
+	env := setupThermalBatteryEnv(t)
+
+	ls := NewManager(context.Background(), env.MockHA, env.StateMgr, env.Logger, false, nil)
+	err := ls.Start()
+	require.NoError(t, err)
+	defer ls.Stop()
+
+	// Activate thermal battery
+	err = env.StateMgr.SetString("currentEnergyLevel", "white")
+	require.NoError(t, err)
+	assert.True(t, ls.IsThermalBatteryActive())
+
+	env.MockHA.ClearServiceCalls()
+
+	// Try to activate again (should be idempotent)
+	err = env.StateMgr.SetString("currentEnergyLevel", "white")
+	require.NoError(t, err)
+
+	// Should not make any climate service calls since already active
+	calls := env.MockHA.GetServiceCalls()
+	climateCalls := 0
+	for _, call := range calls {
+		if call.Domain == "climate" && call.Service == "set_temperature" {
+			climateCalls++
+		}
+	}
+	assert.Equal(t, 0, climateCalls, "No climate calls should be made when thermal battery already active")
+}
+
+func TestThermalBattery_YellowMaintainsState(t *testing.T) {
+	t.Parallel()
+	env := setupThermalBatteryEnv(t)
+
+	ls := NewManager(context.Background(), env.MockHA, env.StateMgr, env.Logger, false, nil)
+	err := ls.Start()
+	require.NoError(t, err)
+	defer ls.Stop()
+
+	// Activate thermal battery at white
+	err = env.StateMgr.SetString("currentEnergyLevel", "white")
+	require.NoError(t, err)
+	assert.True(t, ls.IsThermalBatteryActive())
+
+	env.MockHA.ClearServiceCalls()
+
+	// Move to yellow (hysteresis) - thermal battery should remain active
+	err = env.StateMgr.SetString("currentEnergyLevel", "yellow")
+	require.NoError(t, err)
+
+	assert.True(t, ls.IsThermalBatteryActive(), "Thermal battery should remain active during yellow hysteresis")
+}

@@ -36,6 +36,9 @@ const (
 	// Temperature ranges
 	tempLowRestricted  = 65.0
 	tempHighRestricted = 80.0
+
+	// Thermal battery: setpoint offset in degrees F
+	thermalBatteryOffset = 3.0
 )
 
 // deferredAction represents a pending action that was rate-limited
@@ -70,6 +73,11 @@ type Manager struct {
 	deferredTimer    *time.Timer
 	deferredMu       sync.Mutex
 	deferredStopChan chan struct{}
+
+	// Thermal battery state
+	thermalBatteryActive bool
+	savedSetpoints       map[string]shadowstate.SavedSetpoint
+	thermalBatteryMu     sync.Mutex
 
 	// Test hook: called after a deferred action completes execution
 	deferredActionDoneCallback func()
@@ -123,6 +131,15 @@ func (m *Manager) Start() error {
 	// Subscribe to energy level changes (shadow inputs captured automatically)
 	if err := m.subHelper.SubscribeToState("currentEnergyLevel", m.handleEnergyChange); err != nil {
 		return fmt.Errorf("failed to subscribe to energy level: %w", err)
+	}
+
+	// Subscribe to presence/sleep states for thermal battery guard conditions
+	// These are tracked as shadow inputs but don't trigger actions on their own
+	if err := m.subHelper.SubscribeToState("isAnyoneHome", m.handlePresenceChange); err != nil {
+		return fmt.Errorf("failed to subscribe to isAnyoneHome: %w", err)
+	}
+	if err := m.subHelper.SubscribeToState("isEveryoneAsleep", m.handlePresenceChange); err != nil {
+		return fmt.Errorf("failed to subscribe to isEveryoneAsleep: %w", err)
 	}
 
 	// Initialize shadow state with current input values (after subscriptions registered)
@@ -191,9 +208,14 @@ func (m *Manager) handleEnergyChangeWithTrigger(key string, oldValue, newValue i
 	// Yellow is a hysteresis buffer - maintain current state to prevent rapid toggling
 	switch newLevel {
 	case energyStateRed, energyStateBlack:
+		m.deactivateThermalBattery("energy level dropped to " + newLevel)
 		m.enableLoadShedding(newLevel, trigger)
-	case energyStateGreen, energyStateWhite:
+	case energyStateGreen:
+		m.deactivateThermalBattery("energy level dropped to green")
 		m.disableLoadShedding(newLevel, trigger)
+	case energyStateWhite:
+		m.disableLoadShedding(newLevel, trigger)
+		m.activateThermalBattery()
 	case energyStateYellow:
 		m.logger.Info("Energy state is yellow - maintaining current load shedding state",
 			zap.String("reason", "Hysteresis buffer to prevent rapid toggling"))
