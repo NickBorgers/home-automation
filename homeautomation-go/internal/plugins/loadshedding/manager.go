@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"homeautomation/internal/ha"
+	"homeautomation/internal/ntfy"
 	"homeautomation/internal/shadowstate"
 	"homeautomation/internal/state"
 
@@ -39,6 +40,12 @@ const (
 
 	// Thermal battery: setpoint offset in degrees F
 	thermalBatteryOffset = 3.0
+
+	// Outdoor temperature sensor for thermal battery direction in heat_cool mode
+	outdoorTempSensor = "sensor.weather_station_temperature"
+
+	// Skip margin: if outdoor temp is within this many degrees of the comfort band, skip thermal battery
+	thermalBatterySkipMargin = 10.0
 )
 
 // deferredAction represents a pending action that was rate-limited
@@ -79,12 +86,15 @@ type Manager struct {
 	savedSetpoints       map[string]shadowstate.SavedSetpoint
 	thermalBatteryMu     sync.Mutex
 
+	// Push notifications
+	ntfyClient ntfy.Notifier
+
 	// Test hook: called after a deferred action completes execution
 	deferredActionDoneCallback func()
 }
 
 // NewManager creates a new Load Shedding manager
-func NewManager(ctx context.Context, haClient ha.HAClient, stateManager *state.Manager, logger *zap.Logger, readOnly bool, registry *shadowstate.SubscriptionRegistry) *Manager {
+func NewManager(ctx context.Context, haClient ha.HAClient, stateManager *state.Manager, logger *zap.Logger, readOnly bool, registry *shadowstate.SubscriptionRegistry, ntfyClient ntfy.Notifier) *Manager {
 	shadowTracker := shadowstate.NewLoadSheddingTracker()
 
 	return &Manager{
@@ -98,6 +108,7 @@ func NewManager(ctx context.Context, haClient ha.HAClient, stateManager *state.M
 		subHelper:         shadowstate.NewSubscriptionHelper(haClient, stateManager, registry, shadowTracker, "loadshedding", logger.Named("loadshedding")),
 		rateLimitInterval: minActionInterval,
 		deferredStopChan:  make(chan struct{}),
+		ntfyClient:        ntfyClient,
 	}
 }
 

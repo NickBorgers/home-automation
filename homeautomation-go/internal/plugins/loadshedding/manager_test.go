@@ -25,7 +25,7 @@ func TestLoadShedding_EnergyStateRed(t *testing.T) {
 	t.Parallel()
 	env := setupLoadSheddingEnv(t)
 
-	ls := NewManager(context.Background(), env.MockHA, env.StateMgr, env.Logger, false, nil)
+	ls := NewManager(context.Background(), env.MockHA, env.StateMgr, env.Logger, false, nil, nil)
 	err := ls.Start()
 	assert.NoError(t, err)
 	defer ls.Stop()
@@ -63,7 +63,7 @@ func TestLoadShedding_EnergyStateBlack(t *testing.T) {
 	t.Parallel()
 	env := setupLoadSheddingEnv(t)
 
-	ls := NewManager(context.Background(), env.MockHA, env.StateMgr, env.Logger, false, nil)
+	ls := NewManager(context.Background(), env.MockHA, env.StateMgr, env.Logger, false, nil, nil)
 	err := ls.Start()
 	assert.NoError(t, err)
 	defer ls.Stop()
@@ -94,7 +94,7 @@ func TestLoadShedding_EnergyStateGreen(t *testing.T) {
 	err := env.StateMgr.SyncFromHA()
 	assert.NoError(t, err)
 
-	ls := NewManager(context.Background(), env.MockHA, env.StateMgr, env.Logger, false, nil)
+	ls := NewManager(context.Background(), env.MockHA, env.StateMgr, env.Logger, false, nil, nil)
 	// Manually set loadSheddingOn to true to simulate that load shedding was previously enabled
 	ls.loadSheddingOn = true
 
@@ -140,7 +140,7 @@ func TestLoadShedding_EnergyStateWhite(t *testing.T) {
 	err := env.StateMgr.SyncFromHA()
 	assert.NoError(t, err)
 
-	ls := NewManager(context.Background(), env.MockHA, env.StateMgr, env.Logger, false, nil)
+	ls := NewManager(context.Background(), env.MockHA, env.StateMgr, env.Logger, false, nil, nil)
 	// Manually set loadSheddingOn to true to simulate that load shedding was previously enabled
 	ls.loadSheddingOn = true
 
@@ -176,7 +176,7 @@ func TestLoadShedding_RateLimiting(t *testing.T) {
 	t.Parallel()
 	env := setupLoadSheddingEnv(t)
 
-	ls := NewManager(context.Background(), env.MockHA, env.StateMgr, env.Logger, false, nil)
+	ls := NewManager(context.Background(), env.MockHA, env.StateMgr, env.Logger, false, nil, nil)
 
 	// Override minimum action interval for testing
 	err := ls.Start()
@@ -207,7 +207,7 @@ func TestLoadShedding_StartStop(t *testing.T) {
 	t.Parallel()
 	env := setupLoadSheddingEnv(t)
 
-	ls := NewManager(context.Background(), env.MockHA, env.StateMgr, env.Logger, false, nil)
+	ls := NewManager(context.Background(), env.MockHA, env.StateMgr, env.Logger, false, nil, nil)
 
 	// Start
 	err := ls.Start()
@@ -231,7 +231,7 @@ func TestLoadShedding_UnknownState(t *testing.T) {
 	t.Parallel()
 	env := setupLoadSheddingEnv(t)
 
-	ls := NewManager(context.Background(), env.MockHA, env.StateMgr, env.Logger, false, nil)
+	ls := NewManager(context.Background(), env.MockHA, env.StateMgr, env.Logger, false, nil, nil)
 	err := ls.Start()
 	assert.NoError(t, err)
 	defer ls.Stop()
@@ -252,7 +252,7 @@ func TestLoadShedding_RedToGreenTransition(t *testing.T) {
 	t.Parallel()
 	env := setupLoadSheddingEnv(t)
 
-	ls := NewManager(context.Background(), env.MockHA, env.StateMgr, env.Logger, false, nil)
+	ls := NewManager(context.Background(), env.MockHA, env.StateMgr, env.Logger, false, nil, nil)
 
 	// Manually set last action to past to avoid rate limiting
 	ls.lastAction = time.Now().Add(-2 * time.Hour)
@@ -286,7 +286,7 @@ func TestManagerReset(t *testing.T) {
 	// Set up initial state
 	env.StateMgr.SetString("currentEnergyLevel", "high")
 
-	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, env.Logger, false, nil)
+	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, env.Logger, false, nil, nil)
 
 	err := manager.Start()
 	assert.NoError(t, err)
@@ -303,7 +303,7 @@ func TestLoadShedding_DeferredActionAfterRateLimit(t *testing.T) {
 	t.Parallel()
 	env := setupLoadSheddingEnv(t)
 
-	ls := NewManager(context.Background(), env.MockHA, env.StateMgr, env.Logger, false, nil)
+	ls := NewManager(context.Background(), env.MockHA, env.StateMgr, env.Logger, false, nil, nil)
 
 	// Use a short rate limit interval for testing (100ms instead of 1 hour)
 	ls.SetRateLimitIntervalForTesting(100 * time.Millisecond)
@@ -377,7 +377,7 @@ func TestLoadShedding_DeferredActionCancelledByNewAction(t *testing.T) {
 	t.Parallel()
 	env := setupLoadSheddingEnv(t)
 
-	ls := NewManager(context.Background(), env.MockHA, env.StateMgr, env.Logger, false, nil)
+	ls := NewManager(context.Background(), env.MockHA, env.StateMgr, env.Logger, false, nil, nil)
 
 	// Use a short rate limit interval for testing
 	ls.SetRateLimitIntervalForTesting(200 * time.Millisecond)

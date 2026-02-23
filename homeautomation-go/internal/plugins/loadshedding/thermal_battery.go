@@ -1,6 +1,10 @@
 package loadshedding
 
 import (
+	"fmt"
+	"strconv"
+
+	"homeautomation/internal/ntfy"
 	"homeautomation/internal/shadowstate"
 
 	"go.uber.org/zap"
@@ -99,7 +103,59 @@ func (m *Manager) activateThermalBattery() {
 		savedSetpoints[entityID] = sp
 	}
 
+	// For heat_cool/auto mode, determine shift direction from outdoor temperature
+	var heatCoolDirection string // "up" or "down"
+	var outdoorTemp float64
+	hasHeatCool := false
+	for _, sp := range savedSetpoints {
+		if sp.HVACMode == "heat_cool" || sp.HVACMode == "auto" {
+			hasHeatCool = true
+			break
+		}
+	}
+	if hasHeatCool {
+		outdoorState, err := m.haClient.GetState(outdoorTempSensor)
+		if err != nil {
+			m.logger.Warn("Skipping thermal battery: outdoor temp sensor unavailable",
+				zap.String("sensor", outdoorTempSensor), zap.Error(err))
+			m.shadowTracker.RecordThermalBatterySkipped("outdoor temp sensor unavailable")
+			return
+		}
+		parsed, err := strconv.ParseFloat(outdoorState.State, 64)
+		if err != nil {
+			m.logger.Warn("Skipping thermal battery: could not parse outdoor temp",
+				zap.String("sensor", outdoorTempSensor), zap.String("value", outdoorState.State), zap.Error(err))
+			m.shadowTracker.RecordThermalBatterySkipped("outdoor temp not parseable")
+			return
+		}
+		outdoorTemp = parsed
+
+		// Use the first heat_cool thermostat's setpoints to define the skip zone
+		for _, sp := range savedSetpoints {
+			if sp.HVACMode == "heat_cool" || sp.HVACMode == "auto" {
+				skipLow := sp.TargetLow - thermalBatterySkipMargin
+				skipHigh := sp.TargetHigh + thermalBatterySkipMargin
+				if outdoorTemp >= skipLow && outdoorTemp <= skipHigh {
+					m.logger.Info("Skipping thermal battery: outdoor temp within skip zone",
+						zap.Float64("outdoor_temp", outdoorTemp),
+						zap.Float64("skip_low", skipLow),
+						zap.Float64("skip_high", skipHigh))
+					m.shadowTracker.RecordThermalBatterySkipped(
+						fmt.Sprintf("outdoor temp %.1f°F within skip zone (%.0f-%.0f°F)", outdoorTemp, skipLow, skipHigh))
+					return
+				}
+				if outdoorTemp < skipLow {
+					heatCoolDirection = "up"
+				} else {
+					heatCoolDirection = "down"
+				}
+				break
+			}
+		}
+	}
+
 	// Apply offset to each thermostat
+	direction := "" // for ntfy notification
 	for entityID, sp := range savedSetpoints {
 		if m.readOnly {
 			m.logger.Info("READ-ONLY: Would shift thermostat setpoint for thermal battery",
@@ -117,6 +173,7 @@ func (m *Manager) activateThermalBattery() {
 		case "cool":
 			// In cooling mode, shift setpoint DOWN to pre-cool the house
 			data["temperature"] = sp.TargetTemp - thermalBatteryOffset
+			direction = "DOWN (pre-cool)"
 			m.logger.Info("Thermal battery: lowering cooling setpoint",
 				zap.String("entity", entityID),
 				zap.Float64("original", sp.TargetTemp),
@@ -124,20 +181,36 @@ func (m *Manager) activateThermalBattery() {
 		case "heat":
 			// In heating mode, shift setpoint UP to pre-heat the house
 			data["temperature"] = sp.TargetTemp + thermalBatteryOffset
+			direction = "UP (pre-heat)"
 			m.logger.Info("Thermal battery: raising heating setpoint",
 				zap.String("entity", entityID),
 				zap.Float64("original", sp.TargetTemp),
 				zap.Float64("shifted", sp.TargetTemp+thermalBatteryOffset))
 		case "heat_cool", "auto":
-			// In heat_cool mode, shift both bounds outward (more aggressive conditioning)
-			data["target_temp_low"] = sp.TargetLow + thermalBatteryOffset
-			data["target_temp_high"] = sp.TargetHigh - thermalBatteryOffset
-			m.logger.Info("Thermal battery: shifting heat_cool setpoints",
-				zap.String("entity", entityID),
-				zap.Float64("original_low", sp.TargetLow),
-				zap.Float64("original_high", sp.TargetHigh),
-				zap.Float64("shifted_low", sp.TargetLow+thermalBatteryOffset),
-				zap.Float64("shifted_high", sp.TargetHigh-thermalBatteryOffset))
+			// In heat_cool mode, shift the entire band in one direction based on outdoor temp
+			if heatCoolDirection == "up" {
+				data["target_temp_low"] = sp.TargetLow + thermalBatteryOffset
+				data["target_temp_high"] = sp.TargetHigh + thermalBatteryOffset
+				direction = "UP (pre-heat)"
+				m.logger.Info("Thermal battery: shifting heat_cool band UP (cold outside)",
+					zap.String("entity", entityID),
+					zap.Float64("outdoor_temp", outdoorTemp),
+					zap.Float64("original_low", sp.TargetLow),
+					zap.Float64("original_high", sp.TargetHigh),
+					zap.Float64("shifted_low", sp.TargetLow+thermalBatteryOffset),
+					zap.Float64("shifted_high", sp.TargetHigh+thermalBatteryOffset))
+			} else {
+				data["target_temp_low"] = sp.TargetLow - thermalBatteryOffset
+				data["target_temp_high"] = sp.TargetHigh - thermalBatteryOffset
+				direction = "DOWN (pre-cool)"
+				m.logger.Info("Thermal battery: shifting heat_cool band DOWN (hot outside)",
+					zap.String("entity", entityID),
+					zap.Float64("outdoor_temp", outdoorTemp),
+					zap.Float64("original_low", sp.TargetLow),
+					zap.Float64("original_high", sp.TargetHigh),
+					zap.Float64("shifted_low", sp.TargetLow-thermalBatteryOffset),
+					zap.Float64("shifted_high", sp.TargetHigh-thermalBatteryOffset))
+			}
 		}
 
 		if err := m.haClient.CallService(m.ctx, "climate", "set_temperature", data); err != nil {
@@ -152,9 +225,26 @@ func (m *Manager) activateThermalBattery() {
 
 	m.logger.Info("=== THERMAL BATTERY ACTIVATED ===",
 		zap.Float64("offset_degrees_f", thermalBatteryOffset),
-		zap.Int("thermostats_adjusted", len(savedSetpoints)))
+		zap.Int("thermostats_adjusted", len(savedSetpoints)),
+		zap.String("direction", direction))
 
 	m.shadowTracker.RecordThermalBatteryActivation(thermalBatteryOffset, savedSetpoints)
+
+	// Send push notification
+	if m.ntfyClient != nil && direction != "" {
+		body := fmt.Sprintf("Shifting HVAC %s by %.0f°F", direction, thermalBatteryOffset)
+		if hasHeatCool {
+			body = fmt.Sprintf("Shifting HVAC %s by %.0f°F (outdoor: %.1f°F)", direction, thermalBatteryOffset, outdoorTemp)
+		}
+		if err := m.ntfyClient.Send(&ntfy.Message{
+			Title:    "Thermal Battery Activated",
+			Body:     body,
+			Priority: ntfy.PriorityDefault,
+			Tags:     []string{"thermometer", "sunny"},
+		}); err != nil {
+			m.logger.Error("Failed to send thermal battery ntfy notification", zap.Error(err))
+		}
+	}
 }
 
 // deactivateThermalBattery reverts HVAC setpoints to their original values.
