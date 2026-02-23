@@ -408,7 +408,7 @@ music:
         base_volume: 16
         leave_muted_if: []
     playback_options:
-      # Rain sounds - 2h composite playlists (avoids Sonos HTTP loop degradation)
+      # Rain sounds - 2h composite playlists (avoids Sonos loop degradation)
       # yamllint disable-line rule:line-length
       - uri: "http://rain-sounds.nickborgers.net:8080/playlists/sleep-rain-1.m3u"
         media_type: music
@@ -436,7 +436,7 @@ music:
         base_volume: 16
         leave_muted_if: []
     playback_options:
-      # Rain sounds - 2h composite playlists (avoids Sonos HTTP loop degradation)
+      # Rain sounds - 2h composite playlists (avoids Sonos loop degradation)
       # yamllint disable-line rule:line-length
       - uri: "http://rain-sounds.nickborgers.net:8080/playlists/sleep-rain-1.m3u"
         media_type: music
