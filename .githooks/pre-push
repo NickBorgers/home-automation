@@ -8,9 +8,9 @@
 # LICENSE, .github/), tests are skipped and only diagram validation runs.
 # CI always runs the full suite regardless of paths (safety net).
 #
-# CACHING: This hook uses test-cache.sh to skip tests if no code has
-# changed since the last successful run. To force re-run:
-#   .githooks/test-cache.sh --clear-one pre-push
+# CACHING: The unit-tests and integration-tests Makefile targets use
+# test-cache.sh to skip tests if no code has changed since the last
+# successful run. To force re-run: make cache-clear
 #
 # Installation: This hook is automatically installed by the devcontainer
 # postCreateCommand. To manually install, run:
@@ -113,7 +113,7 @@ echo ""
 echo "🔧 Code changes detected. Running full validation suite."
 echo ""
 
-if .githooks/test-cache.sh pre-push pre-push; then
+if make pre-push; then
     echo ""
     echo "✅ Pre-push hook passed! Proceeding with push..."
     exit 0

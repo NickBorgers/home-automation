@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"sync"
 
 	"homeautomation/internal/ha"
 	"homeautomation/internal/shadowstate"
@@ -27,6 +28,11 @@ type Manager struct {
 
 	// Context for graceful shutdown
 	ctx context.Context
+
+	// Per-room context cancellation to prevent stale commands from
+	// retry loops overriding newer actions for the same room.
+	roomContexts   map[string]context.CancelFunc
+	roomContextsMu sync.Mutex
 }
 
 // NewManager creates a new Lighting Control manager
@@ -42,6 +48,7 @@ func NewManager(ctx context.Context, haClient ha.HAClient, stateManager *state.M
 		shadowTracker: shadowTracker,
 		subHelper:     shadowstate.NewSubscriptionHelper(haClient, stateManager, registry, shadowTracker, "lighting", logger.Named("lighting")),
 		ctx:           ctx,
+		roomContexts:  make(map[string]context.CancelFunc),
 	}
 }
 
@@ -108,10 +115,36 @@ func (m *Manager) Start() error {
 func (m *Manager) Stop() {
 	m.logger.Info("Stopping Lighting Control Manager")
 
+	// Cancel all in-flight room operations
+	m.cancelAllRoomContexts()
+
 	// Unsubscribe from all subscriptions
 	m.subHelper.UnsubscribeAll()
 
 	m.logger.Info("Lighting Control Manager stopped")
+}
+
+// getRoomContext cancels any in-flight operation for the room and returns a fresh context.
+// Follows the pattern from music plugin's startFadeInWithContext (fadein.go:570-586).
+func (m *Manager) getRoomContext(roomName string) context.Context {
+	m.roomContextsMu.Lock()
+	defer m.roomContextsMu.Unlock()
+	if cancel, exists := m.roomContexts[roomName]; exists {
+		cancel()
+	}
+	ctx, cancel := context.WithCancel(m.ctx)
+	m.roomContexts[roomName] = cancel
+	return ctx
+}
+
+// cancelAllRoomContexts cancels all in-flight room operations.
+func (m *Manager) cancelAllRoomContexts() {
+	m.roomContextsMu.Lock()
+	defer m.roomContextsMu.Unlock()
+	for _, cancel := range m.roomContexts {
+		cancel()
+	}
+	m.roomContexts = make(map[string]context.CancelFunc)
 }
 
 // handleDayPhaseChange processes day phase changes and activates scenes
@@ -294,6 +327,9 @@ func (m *Manager) evaluateAllRooms(dayPhase string, trigger string) {
 
 // evaluateAndActivateRoom evaluates a room's conditions and activates the appropriate scene
 func (m *Manager) evaluateAndActivateRoom(room *RoomConfig, dayPhase string, trigger string) {
+	// Cancel any in-flight operation for this room - new evaluation supersedes
+	roomCtx := m.getRoomContext(room.HueGroup)
+
 	m.logger.Debug("Evaluating room",
 		zap.String("room", room.HueGroup),
 		zap.String("area_id", room.HASSAreaID),
@@ -314,14 +350,15 @@ func (m *Manager) evaluateAndActivateRoom(room *RoomConfig, dayPhase string, tri
 			zap.String("room", room.HueGroup),
 			zap.String("day_phase", dayPhase),
 			zap.String("matched_condition", matchedVar))
-		m.activateScene(room, dayPhase, trigger)
+		m.activateScene(roomCtx, room, dayPhase, trigger)
 	case "off":
 		m.logger.Info("Room should be turned off",
 			zap.String("room", room.HueGroup),
 			zap.String("matched_condition", matchedVar))
-		m.turnOffRoom(room, trigger)
+		m.turnOffRoom(roomCtx, room, trigger)
 	case "skip":
 		// Skip action: do nothing for this room (e.g., when Hue Sync is controlling the lights)
+		// Previous operation cancelled by getRoomContext, no new action needed
 		m.logger.Info("Skipping room - external control active",
 			zap.String("room", room.HueGroup),
 			zap.String("matched_condition", matchedVar))
@@ -419,7 +456,7 @@ func toSnakeCase(str string) string {
 }
 
 // activateScene activates a Hue scene for a room
-func (m *Manager) activateScene(room *RoomConfig, dayPhase string, trigger string) {
+func (m *Manager) activateScene(ctx context.Context, room *RoomConfig, dayPhase string, trigger string) {
 	// Construct scene entity ID: scene.{snake_case(hue_group + " " + day_phase)}
 	sceneName := room.HueGroup + " " + dayPhase
 	sceneEntityID := "scene." + toSnakeCase(sceneName)
@@ -463,9 +500,16 @@ func (m *Manager) activateScene(room *RoomConfig, dayPhase string, trigger strin
 		serviceData["dynamic"] = false
 	}
 
-	// Call the service with the constructed entity ID
-	err := m.haClient.CallService(m.ctx, "scene", "turn_on", serviceData)
+	// Call the service with the room-scoped context (cancelled if room is re-evaluated)
+	err := m.haClient.CallService(ctx, "scene", "turn_on", serviceData)
 	if err != nil {
+		if ctx.Err() != nil {
+			m.logger.Info("Scene activation superseded by newer evaluation",
+				zap.String("room", room.HueGroup),
+				zap.String("scene", dayPhase),
+				zap.String("entity_id", sceneEntityID))
+			return
+		}
 		m.logger.Error("Failed to activate scene",
 			zap.String("room", room.HueGroup),
 			zap.String("scene", dayPhase),
@@ -486,7 +530,7 @@ func (m *Manager) activateScene(room *RoomConfig, dayPhase string, trigger strin
 }
 
 // turnOffRoom turns off lights in a room
-func (m *Manager) turnOffRoom(room *RoomConfig, trigger string) {
+func (m *Manager) turnOffRoom(ctx context.Context, room *RoomConfig, trigger string) {
 	if m.readOnly {
 		m.logger.Info("READ-ONLY: Would turn off room",
 			zap.String("room", room.HueGroup),
@@ -510,8 +554,15 @@ func (m *Manager) turnOffRoom(room *RoomConfig, trigger string) {
 		"area_id": room.HASSAreaID,
 	}
 
-	err := m.haClient.CallService(m.ctx, "light", "turn_off", serviceData)
+	// Call the service with the room-scoped context (cancelled if room is re-evaluated)
+	err := m.haClient.CallService(ctx, "light", "turn_off", serviceData)
 	if err != nil {
+		if ctx.Err() != nil {
+			m.logger.Info("Room turn-off superseded by newer evaluation",
+				zap.String("room", room.HueGroup),
+				zap.String("area_id", room.HASSAreaID))
+			return
+		}
 		m.logger.Error("Failed to turn off room",
 			zap.String("room", room.HueGroup),
 			zap.String("area_id", room.HASSAreaID),

@@ -31,7 +31,7 @@ A pre-push git hook validates all changes before pushing. It runs:
 ```bash
 make unit-tests        # Run unit tests WITH CACHING (preferred)
 make integration-tests # Run integration tests WITH CACHING (preferred)
-make pre-push          # Run full validation (same as CI, no cache)
+make pre-push          # Run full validation (reuses unit/integration caches)
 make pre-commit        # Fast checks only (formatting, linting, build)
 make format-go         # Auto-format code
 make lint-go           # Run linters
@@ -241,7 +241,6 @@ make integration-tests    # Integration tests with caching
 
 # No caching (runs every time)
 make test-no-cache        # All tests with race detection (no cache)
-make pre-push             # Full validation (no cache, same as CI)
 
 # Cache management (see "Troubleshooting Test Cache" below for details)
 make cache-status                # Check cache state

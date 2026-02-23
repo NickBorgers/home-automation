@@ -439,6 +439,73 @@ func TestScenario_MultipleStateChanges_HandlesCorrectly(t *testing.T) {
 	t.Log("SUCCESS: Handled multiple rapid state changes without errors")
 }
 
+// TestScenario_PersonDetectionOverridesSuneventTurnOff validates that when a room
+// is re-evaluated (e.g., person detected), any in-flight operation from a prior
+// evaluation (e.g., sunevent turn-off retry loop) is cancelled so the newer action wins.
+//
+// Regression test for: stale retry loop from sunevent change sent light.turn_off
+// commands that overrode a person detection scene activation, causing lights to flicker.
+func TestScenario_PersonDetectionOverridesSuneventTurnOff(t *testing.T) {
+	t.Parallel()
+	server, _, stateManager, cleanup := setupLightingScenarioTest(t)
+	defer cleanup()
+
+	// GIVEN: Someone is home, no person at front, day phase is evening
+	t.Log("GIVEN: Someone is home, no person at front, day phase is evening")
+	server.SetState("input_boolean.anyone_home", "on", map[string]interface{}{})
+	server.SetState("input_boolean.anyone_home_and_awake", "on", map[string]interface{}{})
+	server.SetState("input_boolean.front_of_house_person_present", "off", map[string]interface{}{})
+	server.SetState("input_text.day_phase", "evening", map[string]interface{}{})
+	server.SetState("input_text.sun_event", "sunset", map[string]interface{}{})
+	waitForProcessing(t, stateManager)
+	server.ClearServiceCalls()
+
+	// WHEN: Sunevent changes (triggers evaluation for all rooms, including Front of House)
+	t.Log("WHEN: Sunevent changes to dusk (would turn off front lights since no person)")
+	server.SetState("input_text.sun_event", "dusk", map[string]interface{}{})
+	waitForProcessing(t, stateManager)
+
+	// AND THEN: Person is detected at the front (triggers re-evaluation of Front of House)
+	t.Log("AND THEN: Person detected at front of house")
+	server.SetState("input_boolean.front_of_house_person_present", "on", map[string]interface{}{})
+
+	// Wait for the person detection to trigger scene activation
+	waitForServiceCall(t, server, "scene", "turn_on", "person detection should trigger scene activation for Front of House")
+
+	// THEN: The last service action for Front of House should be a scene activation (turn-on),
+	// not a turn-off. The sunevent turn-off should have been superseded.
+	t.Log("THEN: Last action for Front of House should be scene activation, not turn-off")
+	calls := server.GetServiceCalls()
+
+	// Find the last service call that targeted front_of_house
+	var lastFrontAction *ServiceCall
+	for i := len(calls) - 1; i >= 0; i-- {
+		call := calls[i]
+		// Check for scene activation (entity_id contains "front_of_house")
+		if entityID, ok := call.ServiceData["entity_id"].(string); ok {
+			if contains(entityID, "front_of_house") {
+				lastFrontAction = &calls[i]
+				break
+			}
+		}
+		// Check for light turn-off (area_id is "front_of_house")
+		if areaID, ok := call.ServiceData["area_id"].(string); ok {
+			if areaID == "front_of_house" {
+				lastFrontAction = &calls[i]
+				break
+			}
+		}
+	}
+
+	require.NotNil(t, lastFrontAction, "Should have at least one service call for Front of House")
+	assert.Equal(t, "scene", lastFrontAction.Domain,
+		"Last action for Front of House should be scene activation (person detected), not light.turn_off")
+	assert.Equal(t, "turn_on", lastFrontAction.Service,
+		"Last action for Front of House should be turn_on")
+	t.Logf("Last Front of House action: %s.%s (entity_id=%v)",
+		lastFrontAction.Domain, lastFrontAction.Service, lastFrontAction.ServiceData["entity_id"])
+}
+
 // Helper function to check if a string contains a substring (case-insensitive)
 func contains(s, substr string) bool {
 	return len(s) >= len(substr) &&
