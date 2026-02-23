@@ -377,8 +377,9 @@ Each plugin corresponds to a Node-RED flow and implements domain-specific automa
 - Adjust thermostat settings based on energy state
 - Widen temperature ranges when energy is scarce
 - Restore comfort settings when energy is plentiful
+- **Thermal battery**: Pre-condition house by shifting HVAC setpoints when energy is abundant (white level)
 
-**Events Consumed:** `state.currentEnergyLevel.changed`
+**Events Consumed:** `state.currentEnergyLevel.changed`, `state.isAnyoneHome.changed`, `state.isEveryoneAsleep.changed`
 
 ### 7. Security Plugin
 

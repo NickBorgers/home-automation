@@ -1035,6 +1035,8 @@ graph LR
     SexModePlugin -.->|Controls| EightSleep[Eight Sleep]
 
     CurrentEnergy --> LoadShedding
+    AnyoneHome --> LoadShedding
+    EveryoneAsleep --> LoadShedding
 
     DayPhase --> ChristmasPlugin
     AnyoneHome --> ChristmasPlugin
