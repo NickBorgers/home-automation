@@ -106,7 +106,8 @@ func setupWakeMusicFadeTest(t *testing.T) (*wakeMusicFadeEnv, func()) {
 	require.NoError(t, env.music.Start(), "Failed to start music")
 	require.NoError(t, env.sleepHygiene.Start(), "Failed to start sleep hygiene")
 
-	time.Sleep(50 * time.Millisecond)
+	// Wait for plugin initialization handlers to complete
+	waitForProcessing(t, stateManager)
 
 	cleanup := func() {
 		env.sleepHygiene.Stop()

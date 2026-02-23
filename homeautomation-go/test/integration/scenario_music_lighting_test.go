@@ -4,11 +4,11 @@ import (
 	"context"
 	"os"
 	"testing"
-	"time"
 
 	"homeautomation/internal/plugins/lighting"
 	"homeautomation/internal/plugins/music"
 	"homeautomation/internal/plugins/statetracking"
+	"homeautomation/internal/state"
 	"homeautomation/internal/testlogger"
 
 	"github.com/stretchr/testify/assert"
@@ -36,6 +36,7 @@ import (
 // musicLightingEnv holds plugins for music + lighting tests
 type musicLightingEnv struct {
 	server        *MockHAServer
+	stateManager  *state.Manager
 	logger        *zap.Logger
 	stateTracking *statetracking.Manager
 	lighting      *lighting.Manager
@@ -54,6 +55,7 @@ func setupMusicLightingTest(t *testing.T) (*musicLightingEnv, func()) {
 	// Create plugins
 	env := &musicLightingEnv{
 		server:        server,
+		stateManager:  manager,
 		logger:        logger,
 		stateTracking: statetracking.NewManager(context.Background(), client, manager, logger, false, nil),
 		lighting:      lighting.NewManager(context.Background(), client, manager, lightingConfig, logger, false, nil),
@@ -79,7 +81,8 @@ func setupMusicLightingTest(t *testing.T) (*musicLightingEnv, func()) {
 	require.NoError(t, env.lighting.Start(), "Failed to start lighting")
 	require.NoError(t, env.music.Start(), "Failed to start music")
 
-	time.Sleep(50 * time.Millisecond)
+	// Wait for plugin initialization handlers to complete
+	waitForProcessing(t, manager)
 
 	cleanup := func() {
 		env.music.Stop()
@@ -128,7 +131,7 @@ func TestScenario_DayPhaseChange_TriggersLightingAndMusicZone(t *testing.T) {
 	env.server.SetState("input_boolean.everyone_asleep", "off", map[string]interface{}{})
 	env.server.SetState("input_text.day_phase", "afternoon", map[string]interface{}{})
 
-	time.Sleep(50 * time.Millisecond)
+	waitForProcessing(t, env.stateManager)
 	env.server.ClearServiceCalls()
 
 	// ========== WHEN ==========
@@ -136,8 +139,13 @@ func TestScenario_DayPhaseChange_TriggersLightingAndMusicZone(t *testing.T) {
 
 	env.server.SetState("input_text.day_phase", "evening", map[string]interface{}{})
 
-	// Wait for both plugins to react
-	time.Sleep(200 * time.Millisecond)
+	// Wait for both plugins to react - use polling since state changes cascade
+	// through state tracking (derived state) before reaching lighting/music plugins
+	waitForCondition(t, func() bool {
+		calls := env.server.GetServiceCalls()
+		sceneActivations := filterServiceCalls(calls, "scene", "turn_on")
+		return len(sceneActivations) >= 1
+	}, "Lighting plugin should activate scenes when day phase changes to evening")
 
 	// ========== THEN ==========
 	t.Log("THEN: Lighting activates evening scenes AND music resolves evening zone")
@@ -212,7 +220,7 @@ func TestScenario_SleepTransition_MusicAndLightingCoordinate(t *testing.T) {
 	env.server.SetState("input_boolean.everyone_asleep", "off", map[string]interface{}{})
 	env.server.SetState("input_text.day_phase", "evening", map[string]interface{}{})
 
-	time.Sleep(50 * time.Millisecond)
+	waitForProcessing(t, env.stateManager)
 	env.server.ClearServiceCalls()
 
 	// ========== WHEN ==========
@@ -220,8 +228,14 @@ func TestScenario_SleepTransition_MusicAndLightingCoordinate(t *testing.T) {
 
 	env.server.SetState("input_boolean.master_asleep", "on", map[string]interface{}{})
 
-	// Wait for both plugins to react
-	time.Sleep(200 * time.Millisecond)
+	// Wait for both plugins to react - use polling since state changes cascade
+	// through state tracking (derived state) before reaching lighting/music plugins
+	waitForCondition(t, func() bool {
+		calls := env.server.GetServiceCalls()
+		sceneActivations := filterServiceCalls(calls, "scene", "turn_on")
+		lightTurnOffs := filterServiceCalls(calls, "light", "turn_off")
+		return len(sceneActivations)+len(lightTurnOffs) > 0
+	}, "Lighting plugin should respond when master goes to sleep")
 
 	// ========== THEN ==========
 	t.Log("THEN: Music transitions to sleep zone AND lighting adjusts for sleep")
@@ -282,7 +296,7 @@ func TestScenario_MusicZoneChange_LightingUnaffected(t *testing.T) {
 	env.server.SetState("input_boolean.everyone_asleep", "off", map[string]interface{}{})
 	env.server.SetState("input_text.day_phase", "evening", map[string]interface{}{})
 
-	time.Sleep(100 * time.Millisecond)
+	waitForProcessing(t, env.stateManager)
 
 	// Record scene activations from initial setup
 	initialCalls := env.server.GetServiceCalls()
@@ -298,7 +312,7 @@ func TestScenario_MusicZoneChange_LightingUnaffected(t *testing.T) {
 	env.server.SetState("input_text.music_playback_type", "winddown", map[string]interface{}{})
 
 	// Wait for music plugin to process
-	time.Sleep(200 * time.Millisecond)
+	waitForProcessing(t, env.stateManager)
 
 	// ========== THEN ==========
 	t.Log("THEN: Lighting does NOT re-activate scenes (only music changes)")

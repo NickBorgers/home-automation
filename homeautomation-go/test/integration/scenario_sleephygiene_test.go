@@ -127,7 +127,7 @@ func TestScenario_AlarmTimeReached_TriggersBeginWakeSequence(t *testing.T) {
 
 	// Allow async handlers to process (fade out may or may not start
 	// since FixedTimeProvider doesn't advance the timer tick)
-	time.Sleep(100 * time.Millisecond)
+	waitForProcessing(t, stateManager)
 
 	// THEN: Verify begin_wake sequence started
 	t.Log("THEN: Verify begin_wake sequence started")
@@ -335,7 +335,7 @@ func TestScenario_EveningReminder_SendsStopScreensNotification(t *testing.T) {
 	server.SetState("input_boolean.anyone_home", "on", map[string]interface{}{})
 
 	// Wait for automation to react (checking for optional flash call)
-	time.Sleep(100 * time.Millisecond)
+	waitForProcessing(t, stateManager)
 
 	// THEN: Verify lights flash as a reminder
 	t.Log("THEN: Verify lights flash as a reminder")
@@ -608,7 +608,7 @@ func TestScenario_SleepStateIntegration_ChecksConditions(t *testing.T) {
 	server.SetState("input_number.alarm_time", fmt.Sprintf("%.0f", alarmTimeMs), map[string]interface{}{})
 
 	// Allow async handlers to process (expecting no fade out)
-	time.Sleep(100 * time.Millisecond)
+	waitForProcessing(t, stateManager)
 
 	// THEN: Wake sequence should NOT trigger (no fade out, no service calls)
 	t.Log("THEN: Verify wake sequence does NOT trigger when master is awake")
@@ -635,7 +635,7 @@ func TestScenario_SleepStateIntegration_ChecksConditions(t *testing.T) {
 	// Trigger check again
 	server.SetState("input_number.alarm_time", fmt.Sprintf("%.0f", alarmTimeMs), map[string]interface{}{})
 	// Allow async handlers to process (expecting fade out to start)
-	time.Sleep(100 * time.Millisecond)
+	waitForProcessing(t, stateManager)
 
 	// Now fade out should start
 	fadeOutState = server.GetState("input_boolean.fade_out_in_progress")
@@ -832,7 +832,7 @@ func TestScenario_WakeSequence_LightingPluginYieldsToSleepHygiene(t *testing.T) 
 	server.SetState("input_boolean.master_asleep", "on", map[string]interface{}{})
 
 	// Allow lighting plugin to react
-	time.Sleep(100 * time.Millisecond)
+	waitForProcessing(t, manager)
 
 	// THEN: Lighting plugin should NOT turn off lights (yielded to sleephygiene)
 	t.Log("THEN: Lighting plugin should NOT turn off bedroom lights")
@@ -962,7 +962,7 @@ func TestScenario_WakeSequence_LightingConditionPriority(t *testing.T) {
 	require.NoError(t, manager.SetBool("isWakeSequenceActive", true))
 
 	// Allow lighting plugin to react to state change
-	time.Sleep(100 * time.Millisecond)
+	waitForProcessing(t, manager)
 
 	// THEN: Bedroom should NOT be turned off
 	t.Log("THEN: Verify bedroom lights are NOT turned off")

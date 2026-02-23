@@ -235,7 +235,8 @@ func TestScenario_SleepMusic_ContinuesWhenMasterAsleep(t *testing.T) {
 	env.server.SetState("input_text.music_playback_type", "sleep", map[string]interface{}{})
 	waitForStringState(t, env.stateManager, "musicPlaybackType", "sleep", "Music type should be sleep")
 
-	// Clear and then simulate master going to sleep
+	// Wait for all music plugin service calls to complete before clearing
+	waitForProcessing(t, env.stateManager)
 	env.server.ClearServiceCalls()
 	t.Log("WHEN: Master goes to sleep")
 
@@ -598,6 +599,9 @@ func TestScenario_SleepToMorningTransition_BedroomMutedUntilActualWake(t *testin
 	env.server.SetState("input_text.music_playback_type", "morning", map[string]interface{}{})
 	waitForStringState(t, env.stateManager, "musicPlaybackType", "morning", "Music type should be morning")
 
+	// Wait for all music plugin service calls (mute/volume) to complete
+	waitForProcessing(t, env.stateManager)
+
 	// ========== THEN ==========
 	t.Log("THEN: Bedroom should be MUTED during morning music while master sleeps")
 
@@ -759,8 +763,8 @@ func TestScenario_RapidStateChanges_NoBriefUnmute(t *testing.T) {
 		time.Sleep(10 * time.Millisecond) // Intentional: simulates rapid sensor changes
 	}
 
-	// Brief delay to allow all callbacks to process after rapid state changes
-	time.Sleep(100 * time.Millisecond)
+	// Wait for all callbacks to complete after rapid state changes
+	waitForProcessing(t, env.stateManager)
 
 	// ========== THEN ==========
 	t.Log("THEN: isMasterAsleep should remain true, no unexpected unmutes")

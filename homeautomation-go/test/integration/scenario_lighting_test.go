@@ -4,7 +4,6 @@ import (
 	"context"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"homeautomation/internal/plugins/lighting"
 	"homeautomation/internal/state"
@@ -295,10 +294,10 @@ func TestScenario_GuestArrival_ActivatesGuestScenes(t *testing.T) {
 	t.Log("WHEN: Guests arrive")
 	server.SetState("input_boolean.have_guests", "on", map[string]interface{}{})
 
-	// Brief delay to allow lighting plugin to process guest state change
+	// Wait for lighting plugin to process guest state change
 	// Note: increase_brightness_if_true: isHaveGuests may not trigger immediate scene
 	// re-evaluation - it's applied when the next scene change occurs
-	time.Sleep(100 * time.Millisecond)
+	waitForProcessing(t, stateManager)
 
 	// THEN: Verify scenes were re-evaluated for guest presence (if any)
 	t.Log("THEN: Verify scenes were re-evaluated for guest presence")
