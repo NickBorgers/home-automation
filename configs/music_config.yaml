@@ -408,13 +408,17 @@ music:
         base_volume: 16
         leave_muted_if: []
     playback_options:
-      - uri: "http://rain-sounds.nickborgers.net:8080/Rain%20Sounds/1.m4a"
+      # Rain sounds - 2h composite playlists (avoids Sonos HTTP loop degradation)
+      # yamllint disable-line rule:line-length
+      - uri: "http://rain-sounds.nickborgers.net:8080/playlists/sleep-rain-1.m3u"
         media_type: music
         volume_multiplier: 1.1
-      - uri: "http://rain-sounds.nickborgers.net:8080/Rain%20Sounds/2.m4a"
+      # yamllint disable-line rule:line-length
+      - uri: "http://rain-sounds.nickborgers.net:8080/playlists/sleep-rain-2.m3u"
         media_type: music
         volume_multiplier: 1.0
-      - uri: "http://rain-sounds.nickborgers.net:8080/Rain%20Sounds/4.m4a"
+      # yamllint disable-line rule:line-length
+      - uri: "http://rain-sounds.nickborgers.net:8080/playlists/sleep-rain-4.m3u"
         media_type: music
         volume_multiplier: 0.9
 
@@ -432,13 +436,17 @@ music:
         base_volume: 16
         leave_muted_if: []
     playback_options:
-      - uri: "http://rain-sounds.nickborgers.net:8080/Rain%20Sounds/1.m4a"
+      # Rain sounds - 2h composite playlists (avoids Sonos HTTP loop degradation)
+      # yamllint disable-line rule:line-length
+      - uri: "http://rain-sounds.nickborgers.net:8080/playlists/sleep-rain-1.m3u"
         media_type: music
         volume_multiplier: 1.1
-      - uri: "http://rain-sounds.nickborgers.net:8080/Rain%20Sounds/2.m4a"
+      # yamllint disable-line rule:line-length
+      - uri: "http://rain-sounds.nickborgers.net:8080/playlists/sleep-rain-2.m3u"
         media_type: music
         volume_multiplier: 1.0
-      - uri: "http://rain-sounds.nickborgers.net:8080/Rain%20Sounds/4.m4a"
+      # yamllint disable-line rule:line-length
+      - uri: "http://rain-sounds.nickborgers.net:8080/playlists/sleep-rain-4.m3u"
         media_type: music
         volume_multiplier: 0.9
   sex:
