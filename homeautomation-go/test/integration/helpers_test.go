@@ -1,6 +1,7 @@
 package integration
 
 import (
+	"os"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -16,15 +17,28 @@ import (
 // ============================================================================
 
 const (
-	// stateWaitTimeout is the maximum time to wait for state changes.
-	// This should be long enough to handle slow CI environments but short
-	// enough that tests don't hang for too long on actual failures.
-	stateWaitTimeout = 2 * time.Second
+	// defaultStateWaitTimeout is the default maximum time to wait for state changes.
+	// This should be long enough to handle slow CI environments (where many parallel
+	// tests compete for CPU) but short enough that tests don't hang too long on
+	// actual failures. Override with TEST_WAIT_TIMEOUT env var (e.g. "10s").
+	defaultStateWaitTimeout = 5 * time.Second
 
 	// statePollInterval is how often to check if the expected state is reached.
 	// Smaller values make tests faster in normal conditions but increase CPU usage.
 	statePollInterval = 10 * time.Millisecond
 )
+
+// stateWaitTimeout is the maximum time to wait for state changes.
+// Initialized from TEST_WAIT_TIMEOUT env var or defaultStateWaitTimeout.
+var stateWaitTimeout = defaultStateWaitTimeout
+
+func init() {
+	if v := os.Getenv("TEST_WAIT_TIMEOUT"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil {
+			stateWaitTimeout = d
+		}
+	}
+}
 
 // ============================================================================
 // State Polling Helpers

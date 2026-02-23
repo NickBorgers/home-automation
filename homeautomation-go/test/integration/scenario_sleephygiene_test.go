@@ -517,7 +517,7 @@ func TestScenario_WakeSequence_VolumeFadesOutMonotonically(t *testing.T) {
 	select {
 	case <-done:
 		t.Log("Fade-out completed")
-	case <-time.After(2 * time.Second):
+	case <-time.After(stateWaitTimeout):
 		t.Fatal("Fade-out did not complete within timeout")
 	}
 
