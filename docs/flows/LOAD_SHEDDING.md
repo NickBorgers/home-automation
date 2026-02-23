@@ -7,7 +7,8 @@ This document describes the load shedding automation flow, which manages HVAC th
 The load shedding plugin controls thermostats and EV charger based on energy levels to:
 1. Restrict HVAC and disable EV charger when battery is low (red/black)
 2. Return to normal schedules and re-enable EV charger when energy is available (green/white)
-3. Maintain hysteresis to prevent rapid toggling (yellow)
+3. **Thermal battery**: Pre-condition the house by shifting HVAC setpoints when energy is abundant (white)
+4. Maintain hysteresis to prevent rapid toggling (yellow)
 
 ## Energy Level Response
 
@@ -26,11 +27,13 @@ flowchart TD
 
     currentLevel --> checkLevel
     checkLevel -->|red, black| enableLS
-    checkLevel -->|green, white| disableLS
+    checkLevel -->|green| disableLS
+    checkLevel -->|white| thermalBattery["Disable load shedding<br/>+ Activate thermal battery"]
     checkLevel -->|yellow| maintain
 
     style enableLS fill:#e74c3c,color:#fff
     style disableLS fill:#27ae60,color:#fff
+    style thermalBattery fill:#3498db,color:#fff
     style maintain fill:#f39c12,color:#fff
 ```
 
@@ -109,6 +112,53 @@ flowchart TD
     style turnOffHold fill:#27ae60,color:#fff
     style turnOnEV fill:#27ae60,color:#fff
 ```
+
+## Thermal Battery (Energy Level White)
+
+When energy is abundant (white level), the plugin pre-conditions the house by shifting HVAC setpoints, storing thermal energy in the building mass. This reduces HVAC demand later if energy levels drop.
+
+### Activation Guards
+
+```mermaid
+flowchart TD
+    whiteLevel["Energy level = white"]
+    checkLS{"Load shedding<br/>active?"}
+    checkHome{"Anyone<br/>home?"}
+    checkSleep{"Everyone<br/>asleep?"}
+    checkHVAC{"Thermostats<br/>on?"}
+    activate["Activate thermal battery<br/>Shift setpoints ±3°F"]
+    skip["Skip activation"]
+
+    whiteLevel --> checkLS
+    checkLS -->|Yes| skip
+    checkLS -->|No| checkHome
+    checkHome -->|No| skip
+    checkHome -->|Yes| checkSleep
+    checkSleep -->|Yes| skip
+    checkSleep -->|No| checkHVAC
+    checkHVAC -->|Off| skip
+    checkHVAC -->|On| activate
+
+    style activate fill:#3498db,color:#fff
+    style skip fill:#95a5a6,color:#fff
+```
+
+### Setpoint Shifting
+
+| HVAC Mode | Offset Direction | Effect |
+|-----------|-----------------|--------|
+| `cool` | Setpoint **down** 3°F | Pre-cool the house |
+| `heat` | Setpoint **up** 3°F | Pre-heat the house |
+| `heat_cool`/`auto` | Low **up** 3°F, High **down** 3°F | Shift both bounds inward |
+
+Original setpoints are saved and restored on deactivation.
+
+### Deactivation Triggers
+
+Thermal battery deactivates (reverting to original setpoints) when:
+- Energy level drops below white (green, yellow, red, or black)
+- Nobody is home (`isAnyoneHome` → false)
+- Everyone falls asleep (`isEveryoneAsleep` → true)
 
 ## Yellow State Hysteresis
 
@@ -199,6 +249,8 @@ flowchart LR
 | Variable | Type | Source | Description |
 |----------|------|--------|-------------|
 | `currentEnergyLevel` | string | Energy Plugin | Overall energy availability |
+| `isAnyoneHome` | bool | State Tracking Plugin | Whether anyone is home (thermal battery guard) |
+| `isEveryoneAsleep` | bool | State Tracking Plugin | Whether everyone is asleep (thermal battery guard) |
 
 ### Internal State
 
@@ -206,6 +258,8 @@ flowchart LR
 |----------|------|-------------|
 | `loadSheddingOn` | bool | Current load shedding state |
 | `lastAction` | time | Timestamp of last action (rate limiting) |
+| `thermalBatteryActive` | bool | Whether thermal battery is currently active |
+| `savedSetpoints` | map | Original thermostat setpoints saved for restoration |
 
 ## Related Documentation
 
