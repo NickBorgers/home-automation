@@ -49,3 +49,20 @@ rooms:
         value: false
     increase_brightness_if_true: ~
     transition_seconds: 5
+  - hue_group: Front of House
+    hass_area_id: front_of_house
+    conditions:
+      # Priority 1: Person detected -> ON (security override)
+      - action: on
+        variable: isFrontOfHousePersonPresent
+        value: true
+      # Priority 2: No one home -> OFF
+      - action: off
+        variable: isAnyoneHome
+        value: false
+      # Priority 3: Someone home -> ON
+      - action: on
+        variable: isAnyoneHome
+        value: true
+    increase_brightness_if_true: ~
+    transition_seconds: 5
