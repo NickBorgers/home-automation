@@ -292,47 +292,47 @@ music:
       # yamllint disable-line rule:line-length
       - uri: http://rain-sounds.nickborgers.net:8080/playlists/evening-levit-beethoven-cd1.m3u
         media_type: music
-        volume_multiplier: 1.6
+        volume_multiplier: 2.5
       # Igor Levit - Beethoven Complete Piano Sonatas CD 2
       # yamllint disable-line rule:line-length
       - uri: http://rain-sounds.nickborgers.net:8080/playlists/evening-levit-beethoven-cd2.m3u
         media_type: music
-        volume_multiplier: 1.6
+        volume_multiplier: 2.5
       # Igor Levit - Beethoven Complete Piano Sonatas CD 3
       # yamllint disable-line rule:line-length
       - uri: http://rain-sounds.nickborgers.net:8080/playlists/evening-levit-beethoven-cd3.m3u
         media_type: music
-        volume_multiplier: 1.6
+        volume_multiplier: 2.5
       # Igor Levit - Beethoven Complete Piano Sonatas CD 4
       # yamllint disable-line rule:line-length
       - uri: http://rain-sounds.nickborgers.net:8080/playlists/evening-levit-beethoven-cd4.m3u
         media_type: music
-        volume_multiplier: 1.6
+        volume_multiplier: 2.5
       # Igor Levit - Beethoven Complete Piano Sonatas CD 5
       # yamllint disable-line rule:line-length
       - uri: http://rain-sounds.nickborgers.net:8080/playlists/evening-levit-beethoven-cd5.m3u
         media_type: music
-        volume_multiplier: 1.6
+        volume_multiplier: 2.5
       # Igor Levit - Beethoven Complete Piano Sonatas CD 6
       # yamllint disable-line rule:line-length
       - uri: http://rain-sounds.nickborgers.net:8080/playlists/evening-levit-beethoven-cd6.m3u
         media_type: music
-        volume_multiplier: 1.6
+        volume_multiplier: 2.5
       # Igor Levit - Beethoven Complete Piano Sonatas CD 7
       # yamllint disable-line rule:line-length
       - uri: http://rain-sounds.nickborgers.net:8080/playlists/evening-levit-beethoven-cd7.m3u
         media_type: music
-        volume_multiplier: 1.6
+        volume_multiplier: 2.5
       # Igor Levit - Beethoven Complete Piano Sonatas CD 8
       # yamllint disable-line rule:line-length
       - uri: http://rain-sounds.nickborgers.net:8080/playlists/evening-levit-beethoven-cd8.m3u
         media_type: music
-        volume_multiplier: 1.6
+        volume_multiplier: 2.5
       # Igor Levit - Beethoven Complete Piano Sonatas CD 9
       # yamllint disable-line rule:line-length
       - uri: http://rain-sounds.nickborgers.net:8080/playlists/evening-levit-beethoven-cd9.m3u
         media_type: music
-        volume_multiplier: 1.6
+        volume_multiplier: 2.5
       # The Piano Guys
       # yamllint disable-line rule:line-length
       - uri: http://rain-sounds.nickborgers.net:8080/playlists/evening-piano-guys.m3u
