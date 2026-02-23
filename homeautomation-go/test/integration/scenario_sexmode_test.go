@@ -243,6 +243,9 @@ func TestScenario_SexModeDeactivation_RestoresMusicType(t *testing.T) {
 
 	// Verify music changed to sex
 	waitForStringState(t, stateManager, "musicPlaybackType", "sex", "Music should be 'sex' during activation")
+	// Wait for activation handler to fully complete (night scene + Eight Sleep calls)
+	waitForServiceCallWithEntity(t, server, "scene", "turn_on", "scene.primary_suite_night", "activation should complete with night scene")
+	waitForProcessing(t, stateManager)
 
 	server.ClearServiceCalls()
 
@@ -254,7 +257,7 @@ func TestScenario_SexModeDeactivation_RestoresMusicType(t *testing.T) {
 
 	waitForStringState(t, stateManager, "musicPlaybackType", "working", "musicPlaybackType should be restored")
 
-	t.Log("✓ Music type correctly restored to 'working'")
+	t.Log("Music type correctly restored to 'working'")
 }
 
 // TestScenario_SexModeDeactivation_ActivatesDayPhaseScene tests that deactivating sex mode
@@ -557,12 +560,20 @@ func TestScenario_SexModeActivationDeactivationCycle(t *testing.T) {
 	server.ClearServiceCalls()
 	server.SetState("input_boolean.sex", "on", nil)
 
-	// Verify activation
+	// Verify activation - wait for ALL side-effects, not just music state change
 	waitForStringState(t, stateManager, "musicPlaybackType", "sex", "music should switch to sex")
-	t.Log("  ✓ Activation: music set to 'sex'")
+	t.Log("  Activation: music set to 'sex'")
+
+	// Wait for night scene and Eight Sleep climate calls to complete before clearing
+	waitForServiceCallWithEntity(t, server, "scene", "turn_on", "scene.primary_suite_night", "activation should complete with night scene")
+	assert.Eventually(t, func() bool {
+		calls := server.GetServiceCalls()
+		eightSleepCalls := FilterServiceCalls(calls, "climate", "set_temperature")
+		return len(eightSleepCalls) >= 2
+	}, stateWaitTimeout, statePollInterval, "Both Eight Sleep beds should be adjusted during activation")
 
 	activationCalls := len(server.GetServiceCalls())
-	t.Logf("  ✓ Activation made %d service calls", activationCalls)
+	t.Logf("  Activation made %d service calls", activationCalls)
 
 	t.Log("AND WHEN: Sex mode is deactivated")
 
@@ -579,9 +590,9 @@ func TestScenario_SexModeActivationDeactivationCycle(t *testing.T) {
 	waitForServiceCallWithEntity(t, server, "scene", "turn_on", "scene.primary_suite_evening", "Evening scene should be activated")
 	sceneCall := server.FindServiceCall("scene", "turn_on", "scene.primary_suite_evening")
 	assert.NotNil(t, sceneCall, "Evening scene should be activated")
-	t.Log("  ✓ Deactivation: evening scene activated")
+	t.Log("  Deactivation: evening scene activated")
 
-	t.Log("✓ Full activation/deactivation cycle completed successfully")
+	t.Log("Full activation/deactivation cycle completed successfully")
 }
 
 // TestScenario_SexModeShadowState_TracksCorrectly tests that shadow state

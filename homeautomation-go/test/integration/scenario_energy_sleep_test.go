@@ -92,7 +92,8 @@ func setupEnergySleepTest(t *testing.T, fixedTime time.Time) (*energySleepEnv, f
 	env.energy.WaitForStartup()
 	require.NoError(t, env.sleepHygiene.Start(), "Failed to start sleep hygiene")
 
-	time.Sleep(50 * time.Millisecond)
+	// Wait for plugin initialization handlers to complete
+	waitForProcessing(t, manager)
 
 	cleanup := func() {
 		env.sleepHygiene.Stop()
@@ -145,7 +146,7 @@ func TestScenario_BatteryDropsDuringWakeSequence(t *testing.T) {
 	// Set wake sequence active in state manager too
 	require.NoError(t, env.manager.SetBool("isWakeSequenceActive", true))
 
-	time.Sleep(50 * time.Millisecond)
+	waitForProcessing(t, env.manager)
 	env.server.ClearServiceCalls()
 
 	// ========== WHEN ==========
@@ -212,9 +213,11 @@ func TestScenario_WakeSequenceStartsWithLowBattery(t *testing.T) {
 		"unit_of_measurement": "%",
 	})
 
-	time.Sleep(100 * time.Millisecond)
+	// Wait for energy plugin to finish computing battery level from the 15% sensor reading
+	waitForStringStateOneOf(t, env.manager, "batteryEnergyLevel", []string{"red", "black"},
+		"Battery level should settle to red or black at 15%")
 
-	// Record battery level
+	// Record battery level after it has settled
 	batteryLevel, err := env.manager.GetString("batteryEnergyLevel")
 	assert.NoError(t, err)
 	t.Logf("Battery level before wake attempt: %s", batteryLevel)
@@ -228,7 +231,8 @@ func TestScenario_WakeSequenceStartsWithLowBattery(t *testing.T) {
 	alarmTimeMs := float64(alarmTime.Unix() * 1000)
 	env.server.SetState("input_number.alarm_time", fmt.Sprintf("%.0f", alarmTimeMs), map[string]interface{}{})
 
-	time.Sleep(200 * time.Millisecond)
+	// Wait for sleep hygiene plugin to process the alarm trigger
+	waitForProcessing(t, env.manager)
 
 	// ========== THEN ==========
 	t.Log("THEN: Wake sequence starts despite low battery")
@@ -306,11 +310,11 @@ func TestScenario_EnergyTransitions_SleepStateUnaffected(t *testing.T) {
 		env.server.SetState("sensor.span_panel_span_storage_battery_percentage_2", level, map[string]interface{}{
 			"unit_of_measurement": "%",
 		})
-		time.Sleep(100 * time.Millisecond)
+		waitForProcessing(t, env.manager)
 	}
 
 	// Wait for final battery level to settle
-	time.Sleep(100 * time.Millisecond)
+	waitForProcessing(t, env.manager)
 
 	// ========== THEN ==========
 	t.Log("THEN: Sleep state is completely unaffected by energy transitions")

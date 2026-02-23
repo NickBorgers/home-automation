@@ -81,7 +81,8 @@ func setupConcurrentTest(t *testing.T) (*concurrentEnv, func()) {
 	require.NoError(t, env.lighting.Start(), "Failed to start lighting")
 	require.NoError(t, env.music.Start(), "Failed to start music")
 
-	time.Sleep(50 * time.Millisecond)
+	// Wait for plugin initialization handlers to complete
+	waitForProcessing(t, manager)
 
 	cleanup := func() {
 		env.music.Stop()
@@ -123,7 +124,7 @@ func TestScenario_SimultaneousDayPhaseAndPresence_ConsistentState(t *testing.T) 
 	env.server.SetState("input_boolean.everyone_asleep", "off", map[string]interface{}{})
 	env.server.SetState("input_text.day_phase", "morning", map[string]interface{}{})
 
-	time.Sleep(100 * time.Millisecond)
+	waitForProcessing(t, env.stateManager)
 	env.server.ClearServiceCalls()
 
 	// ========== WHEN ==========
@@ -137,8 +138,12 @@ func TestScenario_SimultaneousDayPhaseAndPresence_ConsistentState(t *testing.T) 
 	waitForStringState(t, env.stateManager, "dayPhase", "evening", "dayPhase should become evening")
 	waitForBoolState(t, env.stateManager, "isCarolineHome", true, "isCarolineHome should become true")
 
-	// Additional time for derived state computation and plugin reactions
-	time.Sleep(200 * time.Millisecond)
+	// Wait for lighting plugin to react (state cascades through state tracking first)
+	waitForCondition(t, func() bool {
+		calls := env.server.GetServiceCalls()
+		sceneActivations := filterServiceCalls(calls, "scene", "turn_on")
+		return len(sceneActivations) > 0
+	}, "Lighting should activate scenes when day phase changes")
 
 	// ========== THEN ==========
 	t.Log("THEN: Final state reflects both changes, no duplicate actions")
@@ -192,7 +197,7 @@ func TestScenario_RapidPresenceChanges_StableState(t *testing.T) {
 	env.server.SetState("input_boolean.everyone_asleep", "off", map[string]interface{}{})
 	env.server.SetState("input_text.day_phase", "evening", map[string]interface{}{})
 
-	time.Sleep(100 * time.Millisecond)
+	waitForProcessing(t, env.stateManager)
 	env.server.ClearServiceCalls()
 
 	// ========== WHEN ==========
@@ -205,11 +210,11 @@ func TestScenario_RapidPresenceChanges_StableState(t *testing.T) {
 		} else {
 			env.server.SetState("input_boolean.caroline_home", "off", map[string]interface{}{})
 		}
-		time.Sleep(20 * time.Millisecond) // Fast but not instant
+		time.Sleep(20 * time.Millisecond) // Intentional: simulates rapid sensor changes
 	}
 
 	// Final state: Caroline is home (last toggle was i=4, even → on)
-	time.Sleep(200 * time.Millisecond)
+	waitForProcessing(t, env.stateManager)
 
 	// ========== THEN ==========
 	t.Log("THEN: System reaches consistent final state without crashes")
@@ -258,7 +263,7 @@ func TestScenario_SimultaneousSleepAndDayPhase_CorrectPriority(t *testing.T) {
 	env.server.SetState("input_boolean.everyone_asleep", "off", map[string]interface{}{})
 	env.server.SetState("input_text.day_phase", "evening", map[string]interface{}{})
 
-	time.Sleep(100 * time.Millisecond)
+	waitForProcessing(t, env.stateManager)
 	env.server.ClearServiceCalls()
 
 	// ========== WHEN ==========
@@ -271,7 +276,13 @@ func TestScenario_SimultaneousSleepAndDayPhase_CorrectPriority(t *testing.T) {
 	waitForStringState(t, env.stateManager, "dayPhase", "night", "dayPhase should become night")
 	waitForBoolState(t, env.stateManager, "isMasterAsleep", true, "isMasterAsleep should become true")
 
-	time.Sleep(200 * time.Millisecond)
+	// Wait for lighting plugin to react (state cascades through state tracking first)
+	waitForCondition(t, func() bool {
+		calls := env.server.GetServiceCalls()
+		sceneActivations := filterServiceCalls(calls, "scene", "turn_on")
+		lightTurnOffs := filterServiceCalls(calls, "light", "turn_off")
+		return len(sceneActivations)+len(lightTurnOffs) > 0
+	}, "Lighting should respond to combined night + sleep state")
 
 	// ========== THEN ==========
 	t.Log("THEN: Both states are set correctly and plugins handled both changes")
@@ -329,7 +340,7 @@ func TestScenario_MultiVariableBurst_NoPanics(t *testing.T) {
 	env.server.SetState("input_boolean.anyone_home_and_awake", "on", map[string]interface{}{})
 	env.server.SetState("input_text.day_phase", "morning", map[string]interface{}{})
 
-	time.Sleep(50 * time.Millisecond)
+	waitForProcessing(t, env.stateManager)
 	env.server.ClearServiceCalls()
 
 	// ========== WHEN ==========
@@ -347,7 +358,8 @@ func TestScenario_MultiVariableBurst_NoPanics(t *testing.T) {
 	waitForStringState(t, env.stateManager, "dayPhase", "night", "dayPhase should reach night")
 	waitForBoolState(t, env.stateManager, "isMasterAsleep", true, "isMasterAsleep should become true")
 
-	time.Sleep(200 * time.Millisecond)
+	// Wait for all plugin reactions to complete
+	waitForProcessing(t, env.stateManager)
 
 	// ========== THEN ==========
 	t.Log("THEN: System is stable with consistent state (no panics/deadlocks)")

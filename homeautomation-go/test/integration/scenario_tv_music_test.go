@@ -3,7 +3,6 @@ package integration
 import (
 	"context"
 	"testing"
-	"time"
 
 	"homeautomation/internal/plugins/music"
 	"homeautomation/internal/plugins/statetracking"
@@ -87,7 +86,8 @@ func setupTVMusicTest(t *testing.T) (*tvMusicEnv, func()) {
 	require.NoError(t, env.tv.Start(), "Failed to start TV")
 	require.NoError(t, env.music.Start(), "Failed to start music")
 
-	time.Sleep(50 * time.Millisecond)
+	// Wait for plugin initialization handlers to complete
+	waitForProcessing(t, manager)
 
 	cleanup := func() {
 		env.music.Stop()
@@ -128,7 +128,7 @@ func TestScenario_TVStartsPlaying_MusicSpeakersMute(t *testing.T) {
 	env.server.SetState("input_boolean.everyone_asleep", "off", map[string]interface{}{})
 	env.server.SetState("input_text.day_phase", "evening", map[string]interface{}{})
 
-	time.Sleep(100 * time.Millisecond)
+	waitForProcessing(t, env.stateManager)
 	env.server.ClearServiceCalls()
 
 	// Verify TV is not playing initially
@@ -147,7 +147,7 @@ func TestScenario_TVStartsPlaying_MusicSpeakersMute(t *testing.T) {
 	waitForBoolState(t, env.stateManager, "isTVPlaying", true, "isTVPlaying should become true")
 
 	// Wait for music plugin to react to isTVPlaying change
-	time.Sleep(200 * time.Millisecond)
+	waitForProcessing(t, env.stateManager)
 
 	// ========== THEN ==========
 	t.Log("THEN: TV state is updated and music plugin reacts to mute condition")
@@ -210,7 +210,7 @@ func TestScenario_TVStops_MusicSpeakersUnmute(t *testing.T) {
 	// Wait for TV plugin to set isTVPlaying=true
 	waitForBoolState(t, env.stateManager, "isTVPlaying", true, "isTVPlaying should be true initially")
 
-	time.Sleep(100 * time.Millisecond)
+	waitForProcessing(t, env.stateManager)
 	env.server.ClearServiceCalls()
 
 	// ========== WHEN ==========
@@ -224,7 +224,7 @@ func TestScenario_TVStops_MusicSpeakersUnmute(t *testing.T) {
 	waitForBoolState(t, env.stateManager, "isTVPlaying", false, "isTVPlaying should become false")
 
 	// Wait for music plugin to react
-	time.Sleep(200 * time.Millisecond)
+	waitForProcessing(t, env.stateManager)
 
 	// ========== THEN ==========
 	t.Log("THEN: Previously muted speakers should be unmuted")

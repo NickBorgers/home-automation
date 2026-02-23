@@ -161,8 +161,8 @@ func TestScenario_OwnerReturnsHomeGarageOccupied(t *testing.T) {
 
 	t.Log("BUT: Garage door should NOT be opened (occupied)")
 
-	// Wait a bit for any potential service calls, then verify none were made
-	time.Sleep(100 * time.Millisecond)
+	// Wait for all handlers to complete, then verify no garage open call was made
+	waitForProcessing(t, manager)
 
 	garageOpenCall := server.FindServiceCall("cover", "open_cover", "cover.garage_door_door")
 	assert.Nil(t, garageOpenCall, "Garage door should NOT open when garage is occupied")
@@ -318,7 +318,7 @@ func TestScenario_OnlyOwnersTriggersGarage(t *testing.T) {
 
 	server.SetState("input_boolean.tori_here", "off", nil)
 	server.SetState("binary_sensor.garage_door_vehicle_detected", "off", nil)
-	time.Sleep(100 * time.Millisecond)
+	waitForProcessing(t, manager)
 
 	server.ClearServiceCalls()
 

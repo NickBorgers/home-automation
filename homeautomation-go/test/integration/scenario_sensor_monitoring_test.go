@@ -135,8 +135,8 @@ func TestScenario_SensorMonitoring_CompleteSurfaceArea(t *testing.T) {
 		"friendly_name": "Bathroom Water Leak",
 	})
 
-	// Brief setup delay: Allow mock server state to propagate before starting plugins
-	time.Sleep(100 * time.Millisecond)
+	// Wait for mock server state to propagate before starting plugins
+	waitForProcessing(t, env.manager)
 
 	// ========== START PLUGINS ==========
 

@@ -413,6 +413,8 @@ func TestScenario_DayPhaseChange_MultiPluginCoordination(t *testing.T) {
 	// ========== WHEN (Phase 2) ==========
 	t.Log("WHEN: Day phase changes from evening → night")
 
+	// Wait for all Phase 1 service calls to settle before clearing
+	waitForProcessing(t, env.manager)
 	env.server.ClearServiceCalls()
 	env.server.SetState("input_text.day_phase", "night", map[string]interface{}{})
 
