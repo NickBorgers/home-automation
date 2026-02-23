@@ -167,7 +167,7 @@ func TestActivateScene(t *testing.T) {
 			manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, tt.readOnly, nil)
 
 			room := &config.Rooms[0]
-			manager.activateScene(room, tt.dayPhase, "test_trigger")
+			manager.activateScene(context.Background(), room, tt.dayPhase, "test_trigger")
 
 			calls := env.MockHA.GetServiceCalls()
 			assert.Equal(t, tt.expectedCalls, len(calls))
@@ -202,7 +202,7 @@ func TestTurnOffRoom(t *testing.T) {
 			manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, tt.readOnly, nil)
 
 			room := &config.Rooms[0]
-			manager.turnOffRoom(room, "test_trigger")
+			manager.turnOffRoom(context.Background(), room, "test_trigger")
 
 			calls := env.MockHA.GetServiceCalls()
 			assert.Equal(t, tt.expectedCalls, len(calls))
@@ -661,4 +661,61 @@ func TestToSnakeCase(t *testing.T) {
 			assert.Equal(t, tt.expected, result)
 		})
 	}
+}
+
+func TestGetRoomContextCancelsPrevious(t *testing.T) {
+	t.Parallel()
+	env := testutil.NewEnv(t)
+	config := createTestConfig()
+	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, false, nil)
+
+	// Get first context for Living Room
+	ctx1 := manager.getRoomContext("Living Room")
+	assert.NoError(t, ctx1.Err(), "First context should be active")
+
+	// Get second context for Living Room - should cancel the first
+	ctx2 := manager.getRoomContext("Living Room")
+	assert.Error(t, ctx1.Err(), "First context should be cancelled after second getRoomContext")
+	assert.NoError(t, ctx2.Err(), "Second context should be active")
+
+	// Get context for a different room - should not affect Living Room
+	ctx3 := manager.getRoomContext("Primary Suite")
+	assert.NoError(t, ctx2.Err(), "Living Room context should still be active")
+	assert.NoError(t, ctx3.Err(), "Primary Suite context should be active")
+}
+
+func TestTurnOffRoomContextCancellation(t *testing.T) {
+	t.Parallel()
+	env := testutil.NewEnv(t)
+	config := createTestConfig()
+	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, false, nil)
+
+	// Call turnOffRoom with a pre-cancelled context
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	room := &config.Rooms[0]
+	manager.turnOffRoom(ctx, room, "test_trigger")
+
+	// No service calls should be made since context was already cancelled
+	calls := env.MockHA.GetServiceCalls()
+	assert.Equal(t, 0, len(calls), "No service calls expected with cancelled context")
+}
+
+func TestActivateSceneContextCancellation(t *testing.T) {
+	t.Parallel()
+	env := testutil.NewEnv(t)
+	config := createTestConfig()
+	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, false, nil)
+
+	// Call activateScene with a pre-cancelled context
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	room := &config.Rooms[0]
+	manager.activateScene(ctx, room, "Morning", "test_trigger")
+
+	// No service calls should be made since context was already cancelled
+	calls := env.MockHA.GetServiceCalls()
+	assert.Equal(t, 0, len(calls), "No service calls expected with cancelled context")
 }

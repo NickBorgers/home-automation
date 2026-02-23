@@ -213,7 +213,8 @@ func (s *MockHAServer) InitializeStates() {
 		"apple_tv_playing", "tv_playing", "tv_on",
 		"fade_out_in_progress", "free_energy_available", "grid_available",
 		"expecting_someone", "reset",
-		"wake_sequence_active", // Added for wake sequence user story tests
+		"wake_sequence_active",          // Added for wake sequence user story tests
+		"front_of_house_person_present", // Person detection at front of house
 	}
 
 	for _, name := range boolEntities {
