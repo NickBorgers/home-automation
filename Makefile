@@ -238,50 +238,24 @@ pre-commit: ## Run fast pre-commit checks (style, format, lint, build)
 
 pre-push: ## Run comprehensive pre-push validation (build, tests, race detector, coverage >=65%)
 	@echo ""
-	@echo "🔍 Running pre-push validation (5 steps)..."
+	@echo "🔍 Running pre-push validation (3 steps)..."
 	@echo "════════════════════════════════════════════════════════════════════════════"
 	@echo ""
-	@echo "⏳ Step 1/5: Validating generated diagrams are up-to-date..."
+	@echo "⏳ Step 1/3: Validating generated diagrams are up-to-date..."
 	@$(MAKE) validate-diagrams
 	@echo ""
-	@echo "✅ Step 1/5 complete: Diagrams valid"
+	@echo "✅ Step 1/3 complete: Diagrams valid"
 	@echo ""
-	@echo "⏳ Step 2/5: Compiling all code (including tests)..."
-	@cd homeautomation-go && go build ./...
-	@echo "✅ Step 2/5 complete: All code compiles"
+	@echo "⏳ Step 2/3: Running unit tests (build + race detector + coverage ≥65%)..."
+	@$(MAKE) unit-tests
+	@echo "✅ Step 2/3 complete: Unit tests passed"
 	@echo ""
-	@echo "⏳ Step 3/5: Running unit tests with race detector and coverage..."
-	@echo "   (excluding integration tests, testutil, and diagramgen - same as CI)"
-	@echo "   This may take 2-5 minutes on first run."
-	@cd homeautomation-go && go test $$(go list ./... | grep -v /test/integration | grep -v /pkg/testutil | grep -v /cmd/diagramgen) \
-	  -race -coverprofile=coverage.out -covermode=atomic -timeout=5m
-	@echo "✅ Step 3/5 complete: Unit tests passed with race detector"
-	@echo ""
-	@echo "⏳ Step 4/5: Checking test coverage (≥65%)..."
-	@cd homeautomation-go && \
-	  coverage=$$(go tool cover -func=coverage.out | grep total | awk '{print $$3}' | sed 's/%//') && \
-	  echo "Total coverage: $${coverage}%" && \
-	  if [ "$$(echo "$$coverage < 65" | bc -l)" = "1" ]; then \
-	    echo "❌ ERROR: Test coverage $${coverage}% is below required 65%"; \
-	    rm -f coverage.out; \
-	    exit 1; \
-	  fi && \
-	  echo "✅ Step 4/5 complete: Test coverage $${coverage}% meets requirement" && \
-	  rm -f coverage.out
-	@echo ""
-	@echo "⏳ Step 5/5: Running integration tests with race detector..."
-	@echo "   This may take 3-10 minutes on first run."
-	@cd homeautomation-go && go test ./test/integration/... -race -timeout=10m
-	@echo "✅ Step 5/5 complete: Integration tests passed"
+	@echo "⏳ Step 3/3: Running integration tests (race detector)..."
+	@$(MAKE) integration-tests
+	@echo "✅ Step 3/3 complete: Integration tests passed"
 	@echo ""
 	@echo "════════════════════════════════════════════════════════════════════════════"
 	@echo "🎉 Pre-push validation passed!"
-	@echo ""
-	@echo "✅ Generated diagrams are up-to-date"
-	@echo "✅ All code compiles"
-	@echo "✅ Unit tests passed with race detector"
-	@echo "✅ Test coverage meets minimum requirement (≥65%)"
-	@echo "✅ Integration tests passed"
 	@echo "════════════════════════════════════════════════════════════════════════════"
 
 pre-push-docs-only: ## Run lightweight pre-push validation for documentation-only changes
