@@ -46,6 +46,14 @@ const (
 
 	// Skip margin: if outdoor temp is within this many degrees of the comfort band, skip thermal battery
 	thermalBatterySkipMargin = 20.0
+
+	// Thermal battery stepping: apply offset gradually to avoid triggering auxiliary heat
+	thermalBatteryStepSize       = 1.0              // degrees F per step
+	thermalBatteryDefaultPollInt = 2 * time.Minute  // how often to check if thermostat reached target
+	thermalBatteryMaxStepWait    = 30 * time.Minute // safety timeout per step
+
+	// Restart safety: delay after reverting stale holds to let thermostat schedule take effect
+	thermalBatteryDefaultHoldRevertDelay = 5 * time.Second
 )
 
 // deferredAction represents a pending action that was rate-limited
@@ -82,15 +90,24 @@ type Manager struct {
 	deferredStopChan chan struct{}
 
 	// Thermal battery state
-	thermalBatteryActive bool
-	savedSetpoints       map[string]shadowstate.SavedSetpoint
-	thermalBatteryMu     sync.Mutex
+	thermalBatteryActive          bool
+	savedSetpoints                map[string]shadowstate.SavedSetpoint
+	thermalBatteryMu              sync.Mutex
+	thermalBatteryStepsDone       int
+	thermalBatteryTargetSteps     int
+	thermalBatteryDirection       string        // cached "up"/"down" from activation
+	thermalBatteryStepCancel      chan struct{} // signal to stop stepping goroutine
+	thermalBatteryPollInt         time.Duration
+	thermalBatteryHoldRevertDelay time.Duration
+	thermalBatteryStepStart       time.Time     // when the current step began (for safety timeout)
+	thermalBatteryMaxStepWaitDur  time.Duration // configurable max wait per step (defaults to thermalBatteryMaxStepWait)
 
 	// Push notifications
 	ntfyClient ntfy.Notifier
 
-	// Test hook: called after a deferred action completes execution
-	deferredActionDoneCallback func()
+	// Test hooks
+	deferredActionDoneCallback     func()
+	thermalBatteryStepDoneCallback func(stepNumber int)
 }
 
 // NewManager creates a new Load Shedding manager
@@ -98,17 +115,20 @@ func NewManager(ctx context.Context, haClient ha.HAClient, stateManager *state.M
 	shadowTracker := shadowstate.NewLoadSheddingTracker()
 
 	return &Manager{
-		ctx:               ctx,
-		haClient:          haClient,
-		stateManager:      stateManager,
-		logger:            logger.Named("loadshedding"),
-		readOnly:          readOnly,
-		enabled:           false,
-		shadowTracker:     shadowTracker,
-		subHelper:         shadowstate.NewSubscriptionHelper(haClient, stateManager, registry, shadowTracker, "loadshedding", logger.Named("loadshedding")),
-		rateLimitInterval: minActionInterval,
-		deferredStopChan:  make(chan struct{}),
-		ntfyClient:        ntfyClient,
+		ctx:                           ctx,
+		haClient:                      haClient,
+		stateManager:                  stateManager,
+		logger:                        logger.Named("loadshedding"),
+		readOnly:                      readOnly,
+		enabled:                       false,
+		shadowTracker:                 shadowTracker,
+		subHelper:                     shadowstate.NewSubscriptionHelper(haClient, stateManager, registry, shadowTracker, "loadshedding", logger.Named("loadshedding")),
+		rateLimitInterval:             minActionInterval,
+		deferredStopChan:              make(chan struct{}),
+		ntfyClient:                    ntfyClient,
+		thermalBatteryPollInt:         thermalBatteryDefaultPollInt,
+		thermalBatteryHoldRevertDelay: thermalBatteryDefaultHoldRevertDelay,
+		thermalBatteryMaxStepWaitDur:  thermalBatteryMaxStepWait,
 	}
 }
 
@@ -122,6 +142,26 @@ func (m *Manager) SetRateLimitIntervalForTesting(interval time.Duration) {
 // of using time.Sleep to wait for deferred actions.
 func (m *Manager) SetDeferredActionDoneCallback(cb func()) {
 	m.deferredActionDoneCallback = cb
+}
+
+// SetThermalBatteryPollIntervalForTesting allows tests to use a shorter poll interval
+func (m *Manager) SetThermalBatteryPollIntervalForTesting(d time.Duration) {
+	m.thermalBatteryPollInt = d
+}
+
+// SetThermalBatteryStepDoneCallback sets a callback invoked after each thermal battery step completes.
+func (m *Manager) SetThermalBatteryStepDoneCallback(cb func(stepNumber int)) {
+	m.thermalBatteryStepDoneCallback = cb
+}
+
+// SetThermalBatteryHoldRevertDelayForTesting allows tests to skip the hold revert delay.
+func (m *Manager) SetThermalBatteryHoldRevertDelayForTesting(d time.Duration) {
+	m.thermalBatteryHoldRevertDelay = d
+}
+
+// SetThermalBatteryMaxStepWaitForTesting allows tests to use a shorter safety timeout per step.
+func (m *Manager) SetThermalBatteryMaxStepWaitForTesting(d time.Duration) {
+	m.thermalBatteryMaxStepWaitDur = d
 }
 
 // IsLoadSheddingOn returns whether load shedding is currently active (thread-safe)
@@ -177,6 +217,11 @@ func (m *Manager) Stop() {
 	}
 
 	m.logger.Info("Stopping Load Shedding Manager")
+
+	// Stop any thermal battery stepping goroutine
+	m.thermalBatteryMu.Lock()
+	m.stopThermalBatteryStepping()
+	m.thermalBatteryMu.Unlock()
 
 	// Cancel any pending deferred action
 	m.cancelDeferredAction()
