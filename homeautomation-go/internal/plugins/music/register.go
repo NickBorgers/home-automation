@@ -62,7 +62,15 @@ func (p *pluginAdapter) Name() string {
 }
 
 func (p *pluginAdapter) Start() error {
-	return p.manager.Start()
+	if err := p.manager.Start(); err != nil {
+		return err
+	}
+	// Enable production debouncing (500ms) for zone trigger changes.
+	// This coalesces rapid state changes from a single logical event
+	// (e.g., wake-up sets isAnyoneAsleep + isMasterAsleep + isWakeSequenceActive)
+	// into one zone resolution, preventing duplicate Sonos commands.
+	p.manager.SetDebounceDelay(defaultDebounceDelay)
+	return nil
 }
 
 func (p *pluginAdapter) Stop() {

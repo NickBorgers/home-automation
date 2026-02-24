@@ -103,7 +103,9 @@ type Manager struct {
 	socoClient *SoCoClient
 
 	// Phase 2: Multi-zone support
-	zoneManager *ZoneManager
+	zoneManager      *ZoneManager
+	debounceDelay    time.Duration // debounce delay for zone trigger changes
+	debounceDelaySet bool          // true if SetDebounceDelay was called explicitly
 }
 
 // NewManager creates a new Music manager
@@ -151,6 +153,17 @@ func (m *Manager) SetSoCoClient(client *SoCoClient) {
 	m.socoClient = client
 }
 
+// SetDebounceDelay overrides the zone trigger debounce delay.
+// Can be called before or after Start(). Use 0 for immediate (synchronous)
+// resolution in tests. In production, Start() sets the default of 500ms.
+func (m *Manager) SetDebounceDelay(d time.Duration) {
+	m.debounceDelay = d
+	m.debounceDelaySet = true
+	if m.zoneManager != nil {
+		m.zoneManager.SetDebounceDelay(d)
+	}
+}
+
 // Start begins monitoring state changes and managing music playback
 func (m *Manager) Start() error {
 	m.logger.Info("Starting Music Manager")
@@ -162,6 +175,12 @@ func (m *Manager) Start() error {
 
 	// Initialize zone manager
 	m.zoneManager = NewZoneManager(m, m.config, m.logger)
+	// Apply debounce delay if explicitly set via SetDebounceDelay().
+	// If not set, the zone manager uses its default (0 = immediate resolution).
+	// Production debouncing is configured by the plugin adapter after Start().
+	if m.debounceDelaySet {
+		m.zoneManager.SetDebounceDelay(m.debounceDelay)
+	}
 
 	// Load playlist rotation state from Home Assistant (before any playback)
 	m.loadPlaylistRotationFromHA()
@@ -377,7 +396,9 @@ func (m *Manager) collectZoneTriggerVariables() []string {
 
 // handleZoneTriggerChangeWithContext processes changes to zone trigger variables (Phase 2)
 // with event correlation context for cross-plugin tracking.
-// This re-evaluates which zones should be active.
+// This schedules a debounced zone resolution to coalesce rapid state changes from a
+// single logical event (e.g., wake-up sets isAnyoneAsleep, isMasterAsleep, isWakeSequenceActive
+// within ~250ms) into one resolution, avoiding duplicate Sonos commands.
 func (m *Manager) handleZoneTriggerChangeWithContext(ctx *state.EventContext, key string, oldValue, newValue interface{}) {
 	m.logger.Info("Zone trigger variable changed",
 		zap.String("correlation_id", ctx.CorrelationID),
@@ -385,14 +406,10 @@ func (m *Manager) handleZoneTriggerChangeWithContext(ctx *state.EventContext, ke
 		zap.Any("old_value", oldValue),
 		zap.Any("new_value", newValue))
 
-	// Delegate to zone manager to resolve zones with context
+	// Schedule debounced zone resolution instead of resolving immediately.
+	// This coalesces rapid triggers from a single logical event into one resolution.
 	if m.zoneManager != nil {
-		if err := m.zoneManager.ResolveZonesWithContext(ctx, "trigger:"+key); err != nil {
-			m.logger.Error("Failed to resolve zones after trigger change",
-				zap.String("correlation_id", ctx.CorrelationID),
-				zap.String("variable", key),
-				zap.Error(err))
-		}
+		m.zoneManager.ScheduleResolve(ctx, "trigger:"+key)
 	}
 }
 

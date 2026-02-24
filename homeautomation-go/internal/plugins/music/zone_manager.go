@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -98,6 +99,12 @@ type ZoneChangesSummary struct {
 	Update map[string][]string `json:"update,omitempty"` // zone -> new speakers
 }
 
+// defaultDebounceDelay is the default time to wait for additional triggers before
+// resolving zones. When multiple state variables change from a single logical event
+// (e.g., wake-up sets isAnyoneAsleep, isMasterAsleep, isWakeSequenceActive within ~250ms),
+// debouncing coalesces them into a single zone resolution to avoid duplicate Sonos commands.
+const defaultDebounceDelay = 500 * time.Millisecond
+
 // ZoneManager coordinates multiple concurrent music zones
 type ZoneManager struct {
 	mu          sync.RWMutex
@@ -109,19 +116,103 @@ type ZoneManager struct {
 	// which would call ResolveZones again without this guard.
 	resolving bool
 
+	// Debounce fields: coalesce rapid trigger changes into a single zone resolution.
+	// Protected by debounceMu (separate from mu to avoid holding the main lock during timer operations).
+	debounceMu       sync.Mutex
+	debounceTimer    *time.Timer
+	debouncePending  bool
+	debounceCtx      *state.EventContext // latest event context (most recent trigger wins)
+	debounceTriggers []string            // accumulated trigger names
+	debounceDelay    time.Duration       // configurable for tests; defaults to defaultDebounceDelay
+
 	manager *Manager
 	config  *MusicConfig
 	logger  *zap.Logger
 }
 
-// NewZoneManager creates a new ZoneManager
+// NewZoneManager creates a new ZoneManager.
+// The debounce delay defaults to 0 (immediate resolution). Call SetDebounceDelay
+// to enable debouncing in production. Manager.Start() sets the production default.
 func NewZoneManager(manager *Manager, config *MusicConfig, logger *zap.Logger) *ZoneManager {
 	return &ZoneManager{
-		activeZones: make(map[string]*Zone),
-		speakerZone: make(map[string]string),
-		manager:     manager,
-		config:      config,
-		logger:      logger.Named("zone_manager"),
+		activeZones:   make(map[string]*Zone),
+		speakerZone:   make(map[string]string),
+		debounceDelay: 0, // 0 = immediate; production default set by Manager.Start()
+		manager:       manager,
+		config:        config,
+		logger:        logger.Named("zone_manager"),
+	}
+}
+
+// SetDebounceDelay overrides the debounce delay for testing.
+func (zm *ZoneManager) SetDebounceDelay(d time.Duration) {
+	zm.debounceMu.Lock()
+	defer zm.debounceMu.Unlock()
+	zm.debounceDelay = d
+}
+
+// ScheduleResolve schedules a debounced zone resolution. When multiple triggers arrive
+// within the debounce window (default 500ms), they are coalesced into a single
+// ResolveZonesWithContext call. This prevents duplicate Sonos commands when several
+// state variables change from one logical event (e.g., wake-up sequence).
+//
+// If debounceDelay is 0, resolution fires immediately (useful for tests).
+func (zm *ZoneManager) ScheduleResolve(ctx *state.EventContext, trigger string) {
+	zm.debounceMu.Lock()
+
+	// Accumulate trigger names and keep the latest event context
+	zm.debounceTriggers = append(zm.debounceTriggers, trigger)
+	zm.debounceCtx = ctx
+
+	// When delay is 0, resolve synchronously (for tests that expect immediate results)
+	if zm.debounceDelay == 0 {
+		zm.debounceMu.Unlock()
+		zm.fireDebounce()
+		return
+	}
+
+	if zm.debouncePending {
+		// Timer already running — reset it to extend the window
+		zm.debounceTimer.Reset(zm.debounceDelay)
+		zm.logger.Debug("Debounce: coalescing trigger",
+			zap.String("trigger", trigger),
+			zap.Int("pending_count", len(zm.debounceTriggers)))
+		zm.debounceMu.Unlock()
+		return
+	}
+
+	// First trigger — start the debounce timer
+	zm.debouncePending = true
+	zm.debounceTimer = time.AfterFunc(zm.debounceDelay, zm.fireDebounce)
+	zm.debounceMu.Unlock()
+
+	zm.logger.Debug("Debounce: scheduled resolve",
+		zap.String("trigger", trigger),
+		zap.Duration("delay", zm.debounceDelay))
+}
+
+// fireDebounce is called when the debounce timer expires. It runs the coalesced
+// zone resolution with the accumulated triggers.
+func (zm *ZoneManager) fireDebounce() {
+	zm.debounceMu.Lock()
+	triggers := zm.debounceTriggers
+	ctx := zm.debounceCtx
+	zm.debounceTriggers = nil
+	zm.debounceCtx = nil
+	zm.debouncePending = false
+	zm.debounceMu.Unlock()
+
+	// Build a combined trigger string for audit logging
+	combinedTrigger := "debounced:" + strings.Join(triggers, "+")
+
+	zm.logger.Info("Debounce: firing coalesced zone resolution",
+		zap.String("trigger", combinedTrigger),
+		zap.Int("coalesced_count", len(triggers)))
+
+	if err := zm.ResolveZonesWithContext(ctx, combinedTrigger); err != nil {
+		zm.logger.Error("Failed to resolve zones after debounced triggers",
+			zap.String("trigger", combinedTrigger),
+			zap.Error(err))
 	}
 }
 
@@ -174,6 +265,16 @@ func (zm *ZoneManager) GetSpeakerZone(speaker string) (string, bool) {
 
 // StopAllZones stops all active zones
 func (zm *ZoneManager) StopAllZones(reason string) {
+	// Cancel any pending debounce timer to prevent goroutine leaks
+	zm.debounceMu.Lock()
+	if zm.debounceTimer != nil {
+		zm.debounceTimer.Stop()
+	}
+	zm.debouncePending = false
+	zm.debounceTriggers = nil
+	zm.debounceCtx = nil
+	zm.debounceMu.Unlock()
+
 	zm.mu.Lock()
 	defer zm.mu.Unlock()
 
@@ -906,6 +1007,37 @@ func (zm *ZoneManager) updateZoneSpeakers(zoneName string, newSpeakers []string,
 	for _, s := range speakersToAdd {
 		zm.speakerZone[s] = zoneName
 	}
+
+	// Rebuild zone.Participants to reflect the new speaker list.
+	// This ensures subsequent concurrent resolutions see accurate data
+	// instead of stale participants from zone creation time.
+	updatedParticipants := make([]ParticipantWithVolume, 0, len(newSpeakers))
+	for _, p := range zone.Participants {
+		if newSpeakerSet[p.PlayerName] {
+			updatedParticipants = append(updatedParticipants, p)
+		}
+	}
+	// Add new speakers that weren't in the original participant list
+	mode, modeOk := zm.config.Music[zoneName]
+	if modeOk {
+		for _, s := range speakersToAdd {
+			for _, p := range mode.Participants {
+				if p.PlayerName == s {
+					volume := zm.manager.calculateVolume(p.BaseVolume, 1.0)
+					updatedParticipants = append(updatedParticipants, ParticipantWithVolume{
+						PlayerName:    p.PlayerName,
+						BaseVolume:    p.BaseVolume,
+						Volume:        volume,
+						DefaultVolume: volume,
+						LeaveMutedIf:  p.LeaveMutedIf,
+						ExcludeIf:     p.ExcludeIf,
+					})
+					break
+				}
+			}
+		}
+	}
+	zone.Participants = updatedParticipants
 	zm.mu.Unlock()
 
 	zm.logger.Info("Updating zone speakers",
