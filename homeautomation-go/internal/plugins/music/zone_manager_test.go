@@ -963,3 +963,163 @@ func TestZoneManager_ResolveZones_BackwardCompatibility(t *testing.T) {
 	err := zm.ResolveZones("trigger:dayPhase")
 	assert.NoError(t, err)
 }
+
+// TestScheduleResolve_CoalescesRapidTriggers verifies that 3 triggers arriving
+// within the debounce window produce exactly 1 zone resolution.
+func TestScheduleResolve_CoalescesRapidTriggers(t *testing.T) {
+	t.Parallel()
+
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	config := createTestZoneConfig()
+
+	mgr := NewManager(context.Background(), mockClient, stateManager, config, logger, true, nil, nil)
+	zm := NewZoneManager(mgr, config, logger)
+
+	// Use a very short debounce delay for testing
+	zm.SetDebounceDelay(50 * time.Millisecond)
+
+	// Set up state so resolution can proceed
+	require.NoError(t, stateManager.SetBool("isAnyoneHome", true))
+	require.NoError(t, stateManager.SetBool("isAnyoneAsleep", false))
+	require.NoError(t, stateManager.SetString("dayPhase", "day"))
+	require.NoError(t, stateManager.SetString("musicPlaybackType", ""))
+
+	// Fire 3 triggers in rapid succession (all within debounce window)
+	ctx1 := state.NewEventContext("isAnyoneAsleep", true, false)
+	ctx2 := state.NewEventContext("isMasterAsleep", true, false)
+	ctx3 := state.NewEventContext("isWakeSequenceActive", false, true)
+
+	zm.ScheduleResolve(ctx1, "trigger:isAnyoneAsleep")
+	zm.ScheduleResolve(ctx2, "trigger:isMasterAsleep")
+	zm.ScheduleResolve(ctx3, "trigger:isWakeSequenceActive")
+
+	// Verify debounce state: should have 3 pending triggers
+	zm.debounceMu.Lock()
+	assert.True(t, zm.debouncePending, "Should have a pending debounce")
+	assert.Len(t, zm.debounceTriggers, 3, "Should have accumulated 3 triggers")
+	assert.Equal(t, ctx3, zm.debounceCtx, "Should keep the latest event context")
+	zm.debounceMu.Unlock()
+
+	// Wait for the debounce timer to fire
+	time.Sleep(100 * time.Millisecond)
+
+	// After firing, debounce state should be cleared
+	zm.debounceMu.Lock()
+	assert.False(t, zm.debouncePending, "Debounce should have fired")
+	assert.Nil(t, zm.debounceTriggers, "Triggers should be cleared after firing")
+	assert.Nil(t, zm.debounceCtx, "Context should be cleared after firing")
+	zm.debounceMu.Unlock()
+}
+
+// TestScheduleResolve_SingleTriggerStillWorks verifies that a single trigger
+// resolves correctly after the debounce delay.
+func TestScheduleResolve_SingleTriggerStillWorks(t *testing.T) {
+	t.Parallel()
+
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	config := createTestZoneConfig()
+
+	mgr := NewManager(context.Background(), mockClient, stateManager, config, logger, true, nil, nil)
+	zm := NewZoneManager(mgr, config, logger)
+
+	// Use a very short debounce delay for testing
+	zm.SetDebounceDelay(50 * time.Millisecond)
+
+	// Set up state
+	require.NoError(t, stateManager.SetBool("isAnyoneHome", true))
+	require.NoError(t, stateManager.SetBool("isAnyoneAsleep", false))
+	require.NoError(t, stateManager.SetString("dayPhase", "day"))
+	require.NoError(t, stateManager.SetString("musicPlaybackType", ""))
+
+	// Fire a single trigger
+	ctx := state.NewEventContext("dayPhase", "morning", "day")
+	zm.ScheduleResolve(ctx, "trigger:dayPhase")
+
+	// Verify debounce is pending
+	zm.debounceMu.Lock()
+	assert.True(t, zm.debouncePending, "Should have a pending debounce")
+	assert.Len(t, zm.debounceTriggers, 1, "Should have 1 trigger")
+	zm.debounceMu.Unlock()
+
+	// Wait for the debounce timer to fire
+	time.Sleep(100 * time.Millisecond)
+
+	// After firing, debounce state should be cleared
+	zm.debounceMu.Lock()
+	assert.False(t, zm.debouncePending, "Debounce should have fired")
+	zm.debounceMu.Unlock()
+}
+
+// TestUpdateZoneSpeakers_UpdatesParticipants verifies that zone.Participants
+// is updated when speakers are added or removed, so subsequent concurrent
+// resolutions see accurate data instead of stale participants from zone creation.
+func TestUpdateZoneSpeakers_UpdatesParticipants(t *testing.T) {
+	t.Parallel()
+
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	config := createTestZoneConfig()
+
+	mgr := NewManager(context.Background(), mockClient, stateManager, config, logger, true, nil, nil)
+	zm := NewZoneManager(mgr, config, logger)
+
+	// Set up state
+	require.NoError(t, stateManager.SetBool("isAnyoneHome", true))
+	require.NoError(t, stateManager.SetBool("isAnyoneAsleep", false))
+	require.NoError(t, stateManager.SetString("dayPhase", "morning"))
+
+	// Simulate an active zone with only Kitchen
+	zm.mu.Lock()
+	zm.activeZones["morning"] = &Zone{
+		Name:        "morning",
+		MusicType:   "morning",
+		Priority:    50,
+		LeadSpeaker: "Kitchen",
+		Participants: []ParticipantWithVolume{
+			{PlayerName: "Kitchen", BaseVolume: 9, Volume: 9, DefaultVolume: 9},
+		},
+		StartedAt: time.Now(),
+	}
+	zm.speakerZone["Kitchen"] = "morning"
+	zm.mu.Unlock()
+
+	// Update zone to add Bedroom speaker
+	err := zm.updateZoneSpeakers("morning", []string{"Kitchen", "Bedroom"}, "test")
+	assert.NoError(t, err)
+
+	// Verify zone.Participants now includes both speakers
+	zm.mu.RLock()
+	zone := zm.activeZones["morning"]
+	assert.Len(t, zone.Participants, 2, "Should have 2 participants after adding Bedroom")
+
+	participantNames := make([]string, len(zone.Participants))
+	for i, p := range zone.Participants {
+		participantNames[i] = p.PlayerName
+	}
+	assert.ElementsMatch(t, []string{"Kitchen", "Bedroom"}, participantNames)
+
+	// Verify speakerZone tracking is correct
+	assert.Equal(t, "morning", zm.speakerZone["Kitchen"])
+	assert.Equal(t, "morning", zm.speakerZone["Bedroom"])
+	zm.mu.RUnlock()
+
+	// Now remove Bedroom
+	err = zm.updateZoneSpeakers("morning", []string{"Kitchen"}, "test-remove")
+	assert.NoError(t, err)
+
+	zm.mu.RLock()
+	zone = zm.activeZones["morning"]
+	assert.Len(t, zone.Participants, 1, "Should have 1 participant after removing Bedroom")
+	assert.Equal(t, "Kitchen", zone.Participants[0].PlayerName)
+
+	// Verify speakerZone tracking is correct
+	assert.Equal(t, "morning", zm.speakerZone["Kitchen"])
+	_, hasBedroom := zm.speakerZone["Bedroom"]
+	assert.False(t, hasBedroom, "Bedroom should be removed from speakerZone")
+	zm.mu.RUnlock()
+}
