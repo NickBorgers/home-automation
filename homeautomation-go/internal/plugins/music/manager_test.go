@@ -500,7 +500,8 @@ func TestCalculateVolume(t *testing.T) {
 		{"No multiplier", 9, 1.0, 9},
 		{"1.5x multiplier", 10, 1.5, 15},
 		{"Rounds correctly", 9, 1.1, 10},
-		{"Caps at 15", 16, 1.1, 15},
+		{"Above old cap", 16, 1.1, 18},
+		{"Caps at 30", 20, 2.0, 30},
 		{"Zero base", 0, 1.5, 0},
 	}
 
