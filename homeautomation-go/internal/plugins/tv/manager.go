@@ -352,6 +352,18 @@ func (m *Manager) handleSyncBoxPowerChange(entityID string, oldState, newState *
 		}
 		// Update shadow state
 		m.shadowTracker.UpdateTVPlaying(false)
+	} else {
+		// Sync box turned on — recalculate isTVPlaying based on current HDMI input.
+		// This handles the race where HDMI input change arrives before power change
+		// (both at the same second), so the HDMI handler saw isTVon=false.
+		hdmiInputState, err := m.haClient.GetState("select.sync_box_hdmi_input")
+		if err != nil {
+			m.logger.Warn("Failed to get HDMI input state for recalculation", zap.Error(err))
+			return
+		}
+		if hdmiInputState != nil {
+			m.calculateTVPlaying(hdmiInputState.State)
+		}
 	}
 }
 
