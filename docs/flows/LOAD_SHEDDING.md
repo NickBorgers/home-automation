@@ -127,8 +127,8 @@ flowchart TD
     checkSleep{"Everyone<br/>asleep?"}
     checkHVAC{"Thermostats<br/>on?"}
     checkMode{"heat_cool<br/>mode?"}
-    checkOutdoor{"Outdoor temp<br/>within ±10°F of<br/>comfort band?"}
-    activate["Activate thermal battery<br/>Shift setpoints 3°F"]
+    checkOutdoor{"Outdoor temp<br/>within ±20°F of<br/>comfort band?"}
+    activate["Activate thermal battery<br/>Shift setpoints 2°F"]
     skip["Skip activation"]
 
     whiteLevel --> checkLS
@@ -153,14 +153,14 @@ flowchart TD
 
 | HVAC Mode | Offset Direction | Effect |
 |-----------|-----------------|--------|
-| `cool` | Setpoint **down** 3°F | Pre-cool the house |
-| `heat` | Setpoint **up** 3°F | Pre-heat the house |
+| `cool` | Setpoint **down** 2°F | Pre-cool the house |
+| `heat` | Setpoint **up** 2°F | Pre-heat the house |
 | `heat_cool`/`auto` | Entire band shifts based on outdoor temp | See below |
 
 **`heat_cool`/`auto` mode** uses the outdoor temperature sensor (`sensor.weather_station_temperature`) to determine shift direction:
-- **Cold outside** (below comfort band - 10°F): Both low and high shift **up** 3°F (pre-heat)
-- **Hot outside** (above comfort band + 10°F): Both low and high shift **down** 3°F (pre-cool)
-- **Mild outside** (within ±10°F of comfort band): Thermal battery **skipped** — insufficient benefit
+- **Cold outside** (below comfort band - 20°F): Both low and high shift **up** 2°F (pre-heat)
+- **Hot outside** (above comfort band + 20°F): Both low and high shift **down** 2°F (pre-cool)
+- **Mild outside** (within ±20°F of comfort band): Thermal battery **skipped** — insufficient benefit
 
 Original setpoints are saved and restored on deactivation.
 

@@ -39,13 +39,13 @@ const (
 	tempHighRestricted = 80.0
 
 	// Thermal battery: setpoint offset in degrees F
-	thermalBatteryOffset = 3.0
+	thermalBatteryOffset = 2.0
 
 	// Outdoor temperature sensor for thermal battery direction in heat_cool mode
 	outdoorTempSensor = "sensor.weather_station_temperature"
 
 	// Skip margin: if outdoor temp is within this many degrees of the comfort band, skip thermal battery
-	thermalBatterySkipMargin = 10.0
+	thermalBatterySkipMargin = 20.0
 )
 
 // deferredAction represents a pending action that was rate-limited
