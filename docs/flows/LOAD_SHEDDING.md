@@ -123,17 +123,22 @@ When energy is abundant (white level), the plugin pre-conditions the house by sh
 flowchart TD
     whiteLevel["Energy level = white"]
     checkLS{"Load shedding<br/>active?"}
+    checkStaleHolds{"Stale holds<br/>from previous<br/>session?"}
+    revertHolds["Revert holds to<br/>get schedule setpoints"]
     checkHome{"Anyone<br/>home?"}
     checkSleep{"Everyone<br/>asleep?"}
     checkHVAC{"Thermostats<br/>on?"}
     checkMode{"heat_cool<br/>mode?"}
     checkOutdoor{"Outdoor temp<br/>within ±20°F of<br/>comfort band?"}
-    activate["Activate thermal battery<br/>Shift setpoints 2°F"]
+    activate["Activate thermal battery<br/>Apply first 1°F step"]
     skip["Skip activation"]
 
     whiteLevel --> checkLS
     checkLS -->|Yes| skip
-    checkLS -->|No| checkHome
+    checkLS -->|No| checkStaleHolds
+    checkStaleHolds -->|Yes| revertHolds
+    checkStaleHolds -->|No| checkHome
+    revertHolds --> checkHome
     checkHome -->|No| skip
     checkHome -->|Yes| checkSleep
     checkSleep -->|Yes| skip
@@ -147,7 +152,45 @@ flowchart TD
 
     style activate fill:#3498db,color:#fff
     style skip fill:#95a5a6,color:#fff
+    style revertHolds fill:#f39c12,color:#fff
 ```
+
+### Gradual Stepping
+
+To avoid triggering auxiliary heat strips, the total offset (2°F) is applied **gradually in 1°F steps** rather than all at once. After each step, a background goroutine polls the thermostat's `current_temperature` to confirm the house has nearly reached the new setpoint before applying the next step.
+
+```mermaid
+flowchart TD
+    activate["Thermal battery activated"]
+    step1["Apply step 1: shift 1°F"]
+    poll{"Current temp<br/>within 0.5°F<br/>of target?"}
+    wait["Wait 2 min, re-poll"]
+    timeout{"Step wait<br/>> 30 min?"}
+    step2["Apply step 2: shift 2°F<br/>(full offset reached)"]
+    done["Stepping complete"]
+
+    activate --> step1
+    step1 --> poll
+    poll -->|No| timeout
+    timeout -->|No| wait
+    wait --> poll
+    timeout -->|Yes| step2
+    poll -->|Yes| step2
+    step2 --> done
+
+    style step1 fill:#3498db,color:#fff
+    style step2 fill:#3498db,color:#fff
+    style done fill:#27ae60,color:#fff
+    style timeout fill:#f39c12,color:#fff
+```
+
+| Parameter | Value | Description |
+|-----------|-------|-------------|
+| Step size | 1°F | Offset applied per step |
+| Total offset | 2°F | Full thermal battery shift |
+| Poll interval | 2 min | How often to check thermostat temperature |
+| Proximity threshold | 0.5°F | How close current temp must be to target |
+| Safety timeout | 30 min | Max wait per step before forcing next step |
 
 ### Setpoint Shifting
 
@@ -170,6 +213,8 @@ Thermal battery deactivates (reverting to original setpoints) when:
 - Energy level drops below white (green, yellow, red, or black)
 - Nobody is home (`isAnyoneHome` → false)
 - Everyone falls asleep (`isEveryoneAsleep` → true)
+
+Any in-progress stepping goroutine is cancelled on deactivation.
 
 ## Yellow State Hysteresis
 

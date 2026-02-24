@@ -223,7 +223,7 @@ sequenceDiagram
     Note over LS: HVAC restricted until<br/>energy level improves
 ```
 
-When energy is abundant (white level), the load shedding plugin activates **thermal battery** mode, shifting HVAC setpoints ±2°F to pre-condition the house and store thermal energy in the building mass.
+When energy is abundant (white level), the load shedding plugin activates **thermal battery** mode, gradually shifting HVAC setpoints ±2°F (in 1°F steps) to pre-condition the house and store thermal energy in the building mass. The gradual stepping avoids triggering auxiliary heat strips.
 
 See [LOAD_SHEDDING.md](./LOAD_SHEDDING.md) for thermostat control and thermal battery details.
 
