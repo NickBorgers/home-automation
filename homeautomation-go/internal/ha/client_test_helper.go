@@ -47,6 +47,15 @@ func NewTestFixture(t *testing.T, handler RequestHandler) *TestFixture {
 	}
 
 	fixture.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Recover from websocket panics during test cleanup.
+		// When fixture.Close() runs while conn.ReadMessage() is blocked,
+		// gorilla/websocket may panic with "repeated read on failed websocket connection".
+		defer func() {
+			if r := recover(); r != nil {
+				// Expected during test cleanup — connection closed while reading
+			}
+		}()
+
 		conn, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
 			t.Errorf("Failed to upgrade connection: %v", err)
@@ -79,6 +88,13 @@ func NewTestFixture(t *testing.T, handler RequestHandler) *TestFixture {
 			_, data, err := conn.ReadMessage()
 			if err != nil {
 				if websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
+					return
+				}
+				if websocket.IsUnexpectedCloseError(err) {
+					return
+				}
+				// Check for connection-closed errors (e.g., net.OpError after Close())
+				if strings.Contains(err.Error(), "use of closed network connection") {
 					return
 				}
 				// Timeout is expected, continue
