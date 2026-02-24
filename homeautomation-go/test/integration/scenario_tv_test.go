@@ -381,3 +381,43 @@ func TestScenario_TVOffSyncBoxOn(t *testing.T) {
 	// But isTVPlaying stays false because calculateTVPlaying checks TV remote state
 	waitForBoolState(t, manager, "isTVPlaying", false, "isTVPlaying should remain false (TV panel is off)")
 }
+
+// TestScenario_SyncBoxPowerOnRecalculates verifies that when the sync box powers on
+// and the HDMI input changes at the same time, isTVPlaying is correctly recalculated.
+// This reproduces a production race condition where both events arrive at the same second:
+//
+//	19:16:50 - select.sync_box_hdmi_input: AppleTV -> Nintendo Switch
+//	19:16:50 - switch.sync_box_power: off -> on
+//
+// If the HDMI input change is processed first, calculateTVPlaying sees isTVon=false
+// (sync box power hasn't been processed yet) and sets isTVPlaying=false. Then
+// handleSyncBoxPowerChange sets isTVon=true but must recalculate isTVPlaying.
+func TestScenario_SyncBoxPowerOnRecalculates(t *testing.T) {
+	t.Parallel()
+	server, manager, cleanup := setupTVScenarioTest(t)
+	defer cleanup()
+
+	t.Log("GIVEN: TV panel is on, sync box is off, HDMI input is AppleTV")
+
+	// Set initial states - TV panel on, sync box off
+	server.SetState("remote.big_beautiful_oled", "on", map[string]interface{}{})
+	server.SetState("switch.sync_box_power", "off", map[string]interface{}{})
+	server.SetState("select.sync_box_hdmi_input", "AppleTV", map[string]interface{}{})
+	server.SetState("media_player.big_beautiful_oled", "idle", map[string]interface{}{
+		"friendly_name": "Apple TV",
+	})
+
+	// Wait for initial state
+	waitForBoolState(t, manager, "isTVon", false, "isTVon should be false when sync box is off")
+
+	t.Log("WHEN: HDMI input switches to Nintendo Switch AND sync box powers on (simultaneous events)")
+
+	// Simulate the race: HDMI input change arrives first, then power change
+	server.SetState("select.sync_box_hdmi_input", "Nintendo Switch", map[string]interface{}{})
+	server.SetState("switch.sync_box_power", "on", map[string]interface{}{})
+
+	t.Log("THEN: isTVon should be true AND isTVPlaying should be true (non-AppleTV input assumes playing)")
+
+	waitForBoolState(t, manager, "isTVon", true, "isTVon should be true when sync box is on")
+	waitForBoolState(t, manager, "isTVPlaying", true, "isTVPlaying should be true — sync box power-on must recalculate based on current HDMI input")
+}
