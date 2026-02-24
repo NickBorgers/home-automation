@@ -190,6 +190,12 @@ func Run() {
 		logger.Info("ntfy client initialized for push notifications")
 	}
 
+	// SoCo-CLI HTTP API for Tidal playlist support
+	socoCliURL := os.Getenv("SOCO_CLI_URL")
+	if socoCliURL != "" {
+		logger.Info("SoCo-CLI URL configured for Tidal playback", zap.String("url", socoCliURL))
+	}
+
 	logger.Info("Starting Home Automation Client",
 		zap.String("url", haURL),
 		zap.Bool("read_only", readOnly))
@@ -334,6 +340,7 @@ func Run() {
 	pluginCtx.Latitude = latitude
 	pluginCtx.Longitude = longitude
 	pluginCtx.NtfyClient = ntfyClient
+	pluginCtx.SoCoCliURL = socoCliURL
 	pluginCtx.ShutdownCtx = shutdownCtx
 
 	// Create all registered plugins using the plugin registry

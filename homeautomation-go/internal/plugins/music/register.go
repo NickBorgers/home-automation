@@ -42,6 +42,13 @@ func createPlugin(ctx *plugin.Context) (plugin.Plugin, error) {
 
 	// Pass the TimeProvider and Timezone directly (NewManager handles nil by defaulting to RealTimeProvider and time.Local)
 	manager := NewManager(ctx.ShutdownCtx, haClient, stateManager, config, ctx.Logger, ctx.ReadOnly, ctx.TimeProvider, ctx.Timezone)
+
+	// Wire up SoCo-CLI client for Tidal playback if configured
+	if ctx.SoCoCliURL != "" {
+		socoClient := NewSoCoClient(ctx.SoCoCliURL, ctx.Logger, ctx.ReadOnly)
+		manager.SetSoCoClient(socoClient)
+	}
+
 	return &pluginAdapter{manager: manager}, nil
 }
 

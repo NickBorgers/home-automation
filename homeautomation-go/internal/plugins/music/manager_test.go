@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,6 +18,9 @@ import (
 	"homeautomation/internal/state"
 	"homeautomation/pkg/plugin"
 	"homeautomation/pkg/testutil"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestMusicManager_ZoneResolutionSelectsCorrectMode(t *testing.T) {
@@ -2646,7 +2651,7 @@ func TestPlaybackVerification(t *testing.T) {
 			}
 
 			option := PlaybackOption{URI: "spotify:playlist:test", MediaType: "playlist", VolumeMultiplier: 1.0}
-			attempts, err := manager.startPlaybackWithVerification("media_player.kitchen", option)
+			attempts, err := manager.startPlaybackWithVerification("media_player.kitchen", "Kitchen", option)
 
 			if tt.expectError && err == nil {
 				t.Errorf("Expected error but got none")
@@ -2670,6 +2675,68 @@ func TestPlaybackVerification(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestStartPlaybackWithVerification_TidalDispatch tests that tidal media type routes through SoCo-CLI
+func TestStartPlaybackWithVerification_TidalDispatch(t *testing.T) {
+	t.Parallel()
+
+	t.Run("tidal dispatches to SoCo-CLI client", func(t *testing.T) {
+		var actions []string
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == "/Kitchen/play_from_queue" {
+				actions = append(actions, "play_from_queue")
+			} else {
+				actions = append(actions, "sharelink")
+			}
+			resp := SoCoResponse{Result: "ok", ExitCode: 0}
+			json.NewEncoder(w).Encode(resp)
+		}))
+		defer server.Close()
+
+		env := testutil.NewEnv(t)
+		config := &MusicConfig{Music: map[string]MusicMode{}}
+		manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, false, nil, nil)
+		manager.SetSleepFunc(func(d time.Duration) {})
+		manager.SetSoCoClient(NewSoCoClient(server.URL, env.Logger, false))
+
+		// Set speaker to "playing" so verification passes on first attempt
+		env.MockHA.SetState("media_player.kitchen", "playing", nil)
+
+		option := PlaybackOption{
+			URI:              "https://tidal.com/browse/playlist/abc123",
+			MediaType:        "tidal",
+			VolumeMultiplier: 1.0,
+		}
+		attempts, err := manager.startPlaybackWithVerification("media_player.kitchen", "Kitchen", option)
+		require.NoError(t, err)
+		assert.Equal(t, 1, attempts)
+		assert.Equal(t, []string{"sharelink", "play_from_queue"}, actions)
+
+		// Verify no HA play_media calls were made (Tidal goes through SoCo-CLI)
+		for _, call := range env.MockHA.GetServiceCalls() {
+			if call.Domain == "media_player" && call.Service == "play_media" {
+				t.Error("Expected no HA play_media calls for tidal media type")
+			}
+		}
+	})
+
+	t.Run("tidal returns error when SoCo-CLI client not configured", func(t *testing.T) {
+		env := testutil.NewEnv(t)
+		config := &MusicConfig{Music: map[string]MusicMode{}}
+		manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, false, nil, nil)
+		manager.SetSleepFunc(func(d time.Duration) {})
+		// No SoCoClient set
+
+		option := PlaybackOption{
+			URI:              "https://tidal.com/browse/playlist/abc123",
+			MediaType:        "tidal",
+			VolumeMultiplier: 1.0,
+		}
+		_, err := manager.startPlaybackWithVerification("media_player.kitchen", "Kitchen", option)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "SoCo-CLI client is not configured")
+	})
 }
 
 // TestIsPlaybackActive tests the speaker state checking function

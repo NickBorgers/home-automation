@@ -99,6 +99,9 @@ type Manager struct {
 	// Test hook for deterministic synchronization (called when monitor goroutine exits)
 	monitorDoneCallback MonitorDoneCallback
 
+	// SoCo-CLI client for Tidal playback (nil if not configured)
+	socoClient *SoCoClient
+
 	// Phase 2: Multi-zone support
 	zoneManager *ZoneManager
 }
@@ -141,6 +144,11 @@ func (m *Manager) SetSleepFunc(fn SleepFunc) {
 // This allows tests to wait deterministically for the monitor goroutine to complete.
 func (m *Manager) SetMonitorDoneCallback(fn MonitorDoneCallback) {
 	m.monitorDoneCallback = fn
+}
+
+// SetSoCoClient sets the SoCo-CLI client for Tidal playback.
+func (m *Manager) SetSoCoClient(client *SoCoClient) {
+	m.socoClient = client
 }
 
 // Start begins monitoring state changes and managing music playback
