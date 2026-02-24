@@ -136,9 +136,9 @@ func (m *Manager) WaitForSync() {
 // calculateVolume calculates final volume from base and multiplier
 func (m *Manager) calculateVolume(baseVolume int, multiplier float64) int {
 	volume := math.Round(float64(baseVolume) * multiplier)
-	// Cap at 15 (Sonos max for Spotify playback scale)
-	if volume > 15 {
-		volume = 15
+	// Safety cap to prevent accidentally blasting speakers
+	if volume > 30 {
+		volume = 30
 	}
 	if volume < 0 {
 		volume = 0
