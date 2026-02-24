@@ -70,12 +70,12 @@ func TestThermalBattery_ActivatesOnWhiteEnergyLevel(t *testing.T) {
 			entityID, _ := call.Data["entity_id"].(string)
 			temp, _ := call.Data["temperature"].(float64)
 
-			// In cooling mode, setpoint should be shifted DOWN by 3°F
+			// In cooling mode, setpoint should be shifted DOWN by 2°F
 			switch entityID {
 			case climateHouse:
-				assert.Equal(t, 69.0, temp, "House thermostat should be shifted from 72 to 69")
+				assert.Equal(t, 70.0, temp, "House thermostat should be shifted from 72 to 70")
 			case climateSuite:
-				assert.Equal(t, 68.0, temp, "Suite thermostat should be shifted from 71 to 68")
+				assert.Equal(t, 69.0, temp, "Suite thermostat should be shifted from 71 to 69")
 			}
 		}
 	}
@@ -84,7 +84,7 @@ func TestThermalBattery_ActivatesOnWhiteEnergyLevel(t *testing.T) {
 	// Verify shadow state
 	shadow := ls.GetShadowState()
 	assert.True(t, shadow.Outputs.ThermalBattery.Active)
-	assert.Equal(t, 3.0, shadow.Outputs.ThermalBattery.OffsetApplied)
+	assert.Equal(t, 2.0, shadow.Outputs.ThermalBattery.OffsetApplied)
 	assert.Len(t, shadow.Outputs.ThermalBattery.SavedSetpoints, 2)
 }
 
@@ -317,7 +317,7 @@ func TestThermalBattery_HeatingMode(t *testing.T) {
 
 	assert.True(t, ls.IsThermalBatteryActive())
 
-	// In heating mode, setpoint should be shifted UP by 3°F
+	// In heating mode, setpoint should be shifted UP by 2°F
 	calls := env.MockHA.GetServiceCalls()
 	for _, call := range calls {
 		if call.Domain == "climate" && call.Service == "set_temperature" {
@@ -326,9 +326,9 @@ func TestThermalBattery_HeatingMode(t *testing.T) {
 
 			switch entityID {
 			case climateHouse:
-				assert.Equal(t, 71.0, temp, "House thermostat should be shifted from 68 to 71 in heat mode")
+				assert.Equal(t, 70.0, temp, "House thermostat should be shifted from 68 to 70 in heat mode")
 			case climateSuite:
-				assert.Equal(t, 73.0, temp, "Suite thermostat should be shifted from 70 to 73 in heat mode")
+				assert.Equal(t, 72.0, temp, "Suite thermostat should be shifted from 70 to 72 in heat mode")
 			}
 		}
 	}
@@ -373,7 +373,7 @@ func setupHeatCoolEnv(t *testing.T, outdoorTemp string) *testutil.Env {
 
 func TestThermalBattery_HeatCoolMode_ColdOutdoor(t *testing.T) {
 	t.Parallel()
-	// Winter scenario: 35°F outside, 69/72 setpoints → should shift UP to 72/75
+	// Winter scenario: 35°F outside, 69/72 setpoints → should shift UP to 71/74
 	env := setupHeatCoolEnv(t, "35.0")
 
 	ls := NewManager(context.Background(), env.MockHA, env.StateMgr, env.Logger, false, nil, nil)
@@ -388,7 +388,7 @@ func TestThermalBattery_HeatCoolMode_ColdOutdoor(t *testing.T) {
 
 	assert.True(t, ls.IsThermalBatteryActive())
 
-	// Cold outside → shift band UP (pre-heat): 69/72 → 72/75
+	// Cold outside → shift band UP (pre-heat): 69/72 → 71/74
 	calls := env.MockHA.GetServiceCalls()
 	for _, call := range calls {
 		if call.Domain == "climate" && call.Service == "set_temperature" {
@@ -398,11 +398,11 @@ func TestThermalBattery_HeatCoolMode_ColdOutdoor(t *testing.T) {
 
 			switch entityID {
 			case climateHouse:
-				assert.Equal(t, 72.0, low, "House low should shift from 69 to 72")
-				assert.Equal(t, 75.0, high, "House high should shift from 72 to 75")
+				assert.Equal(t, 71.0, low, "House low should shift from 69 to 71")
+				assert.Equal(t, 74.0, high, "House high should shift from 72 to 74")
 			case climateSuite:
-				assert.Equal(t, 72.0, low, "Suite low should shift from 69 to 72")
-				assert.Equal(t, 75.0, high, "Suite high should shift from 72 to 75")
+				assert.Equal(t, 71.0, low, "Suite low should shift from 69 to 71")
+				assert.Equal(t, 74.0, high, "Suite high should shift from 72 to 74")
 			}
 		}
 	}
@@ -410,7 +410,7 @@ func TestThermalBattery_HeatCoolMode_ColdOutdoor(t *testing.T) {
 
 func TestThermalBattery_HeatCoolMode_HotOutdoor(t *testing.T) {
 	t.Parallel()
-	// Summer scenario: 95°F outside, 69/72 setpoints → should shift DOWN to 66/69
+	// Summer scenario: 95°F outside, 69/72 setpoints → should shift DOWN to 67/70
 	env := setupHeatCoolEnv(t, "95.0")
 
 	ls := NewManager(context.Background(), env.MockHA, env.StateMgr, env.Logger, false, nil, nil)
@@ -425,7 +425,7 @@ func TestThermalBattery_HeatCoolMode_HotOutdoor(t *testing.T) {
 
 	assert.True(t, ls.IsThermalBatteryActive())
 
-	// Hot outside → shift band DOWN (pre-cool): 69/72 → 66/69
+	// Hot outside → shift band DOWN (pre-cool): 69/72 → 67/70
 	calls := env.MockHA.GetServiceCalls()
 	for _, call := range calls {
 		if call.Domain == "climate" && call.Service == "set_temperature" {
@@ -435,11 +435,11 @@ func TestThermalBattery_HeatCoolMode_HotOutdoor(t *testing.T) {
 
 			switch entityID {
 			case climateHouse:
-				assert.Equal(t, 66.0, low, "House low should shift from 69 to 66")
-				assert.Equal(t, 69.0, high, "House high should shift from 72 to 69")
+				assert.Equal(t, 67.0, low, "House low should shift from 69 to 67")
+				assert.Equal(t, 70.0, high, "House high should shift from 72 to 70")
 			case climateSuite:
-				assert.Equal(t, 66.0, low, "Suite low should shift from 69 to 66")
-				assert.Equal(t, 69.0, high, "Suite high should shift from 72 to 69")
+				assert.Equal(t, 67.0, low, "Suite low should shift from 69 to 67")
+				assert.Equal(t, 70.0, high, "Suite high should shift from 72 to 70")
 			}
 		}
 	}
@@ -447,7 +447,7 @@ func TestThermalBattery_HeatCoolMode_HotOutdoor(t *testing.T) {
 
 func TestThermalBattery_HeatCoolMode_MildOutdoor_SkipsInSkipZone(t *testing.T) {
 	t.Parallel()
-	// Spring scenario: 70°F outside, 69/72 setpoints → skip zone is 59-82°F → should skip
+	// Spring scenario: 70°F outside, 69/72 setpoints → skip zone is 49-92°F → should skip
 	env := setupHeatCoolEnv(t, "70.0")
 
 	ls := NewManager(context.Background(), env.MockHA, env.StateMgr, env.Logger, false, nil, nil)
