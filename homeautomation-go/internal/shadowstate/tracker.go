@@ -391,6 +391,20 @@ func (lst *LoadSheddingTracker) RecordThermalBatteryDeactivation() {
 	lst.State().Metadata.LastUpdated = now
 }
 
+// RecordThermalBatteryStepProgress updates the stepping progress on the thermal battery state
+func (lst *LoadSheddingTracker) RecordThermalBatteryStepProgress(stepsCompleted, totalSteps int, stepSize float64) {
+	lst.Lock()
+	defer lst.Unlock()
+
+	now := time.Now()
+	lst.State().Outputs.ThermalBattery.StepsCompleted = stepsCompleted
+	lst.State().Outputs.ThermalBattery.TotalSteps = totalSteps
+	lst.State().Outputs.ThermalBattery.StepSize = stepSize
+	lst.State().Outputs.ThermalBattery.OffsetApplied = float64(stepsCompleted) * stepSize
+	lst.State().Outputs.ThermalBattery.Stepping = stepsCompleted < totalSteps
+	lst.State().Metadata.LastUpdated = now
+}
+
 // RecordThermalBatterySkipped records that thermal battery activation was skipped
 func (lst *LoadSheddingTracker) RecordThermalBatterySkipped(reason string) {
 	lst.Lock()
