@@ -65,6 +65,10 @@ type Context struct {
 	// Plugins should check for nil before sending notifications.
 	NtfyClient ntfy.Notifier
 
+	// SoCoCliURL is the base URL for the SoCo-CLI HTTP API (Tidal playback).
+	// May be empty if SoCo-CLI is not available.
+	SoCoCliURL string
+
 	// ShutdownCtx is a context that is cancelled during application shutdown.
 	// Plugins should use this context for service calls to enable graceful
 	// shutdown - when the context is cancelled, service calls with retry loops

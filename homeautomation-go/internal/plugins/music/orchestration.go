@@ -235,7 +235,7 @@ func (m *Manager) executePlayback(musicType string, option PlaybackOption, parti
 	// This is the key change - playback starts without waiting for followers
 	// IMPORTANT: Even if verification fails, we continue with fade-in. Sonos speakers
 	// at volume 0 may not report "playing" state, but the play_media command was sent.
-	attempts, verifyErr := m.startPlaybackWithVerification(leadEntityID, option)
+	attempts, verifyErr := m.startPlaybackWithVerification(leadEntityID, leadPlayer, option)
 	playbackVerificationFailed := verifyErr != nil
 	if playbackVerificationFailed {
 		m.logger.Warn("Playback verification failed, continuing with fade-in anyway",
@@ -254,8 +254,8 @@ func (m *Manager) executePlayback(musicType string, option PlaybackOption, parti
 		m.startPlaybackMonitor(leadEntityID, musicType)
 	}
 
-	// Step 4: Enable shuffle for Spotify playlists
-	if option.MediaType == "playlist" {
+	// Step 4: Enable shuffle for playlists (Spotify and Tidal)
+	if option.MediaType == "playlist" || option.MediaType == "tidal" {
 		if err := m.callServiceWithRetry("media_player", "shuffle_set", map[string]interface{}{
 			"entity_id": leadEntityID,
 			"shuffle":   true,
@@ -358,7 +358,13 @@ func (m *Manager) executePlayback(musicType string, option PlaybackOption, parti
 // startPlaybackWithVerification sends the play_media command and verifies playback actually starts.
 // It returns the number of attempts needed (1 = first try succeeded) and any error.
 // This handles the failure mode where HA accepts play_media but the speaker doesn't actually play.
-func (m *Manager) startPlaybackWithVerification(leadEntityID string, option PlaybackOption) (attempts int, err error) {
+// leadPlayerName is the human-readable speaker name (e.g., "Kitchen") used for SoCo-CLI commands.
+func (m *Manager) startPlaybackWithVerification(leadEntityID string, leadPlayerName string, option PlaybackOption) (attempts int, err error) {
+	// Tidal playlists are played via SoCo-CLI instead of HA play_media
+	if option.MediaType == "tidal" {
+		return m.startTidalPlayback(leadEntityID, leadPlayerName, option)
+	}
+
 	for attempt := 1; attempt <= playbackVerificationRetries; attempt++ {
 		// Send play_media command
 		if err := m.callServiceWithRetry("media_player", "play_media", map[string]interface{}{
@@ -423,4 +429,52 @@ func (m *Manager) startPlaybackWithVerification(leadEntityID string, option Play
 	}
 
 	return playbackVerificationRetries, fmt.Errorf("playback failed to start after %d attempts - speaker grouped but not playing", playbackVerificationRetries)
+}
+
+// startTidalPlayback plays a Tidal playlist via SoCo-CLI and verifies playback started.
+// Uses the same verification loop as HA-based playback: wait, check, retry.
+func (m *Manager) startTidalPlayback(leadEntityID string, leadPlayerName string, option PlaybackOption) (attempts int, err error) {
+	if m.socoClient == nil {
+		return 1, fmt.Errorf("tidal playback requested but SoCo-CLI client is not configured (set SOCO_CLI_URL)")
+	}
+
+	for attempt := 1; attempt <= playbackVerificationRetries; attempt++ {
+		if err := m.socoClient.PlayShareLink(leadPlayerName, option.URI); err != nil {
+			return attempt, fmt.Errorf("failed to start Tidal playback via SoCo-CLI: %w", err)
+		}
+
+		// Wait for speaker to start playing
+		m.sleepFunc(playbackVerificationDelay)
+
+		// Check if playback actually started
+		playing, checkErr := m.isPlaybackActive(leadEntityID)
+		if checkErr != nil {
+			m.logger.Warn("Failed to verify Tidal playback state",
+				zap.String("entity_id", leadEntityID),
+				zap.Int("attempt", attempt),
+				zap.Error(checkErr))
+			// Can't verify, assume it worked (fail-open)
+			return attempt, nil
+		}
+
+		if playing {
+			if attempt > 1 {
+				m.logger.Info("Tidal playback started after retry",
+					zap.String("entity_id", leadEntityID),
+					zap.Int("attempts", attempt))
+			}
+			return attempt, nil
+		}
+
+		m.logger.Warn("Tidal playback not started, retrying",
+			zap.String("entity_id", leadEntityID),
+			zap.Int("attempt", attempt),
+			zap.Int("max_attempts", playbackVerificationRetries))
+
+		if attempt < playbackVerificationRetries {
+			m.sleepFunc(playbackVerificationRetryDelay)
+		}
+	}
+
+	return playbackVerificationRetries, fmt.Errorf("tidal playback failed to start after %d attempts", playbackVerificationRetries)
 }
