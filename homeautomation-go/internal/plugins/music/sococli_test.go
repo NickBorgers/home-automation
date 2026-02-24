@@ -12,6 +12,7 @@ import (
 )
 
 func TestNewSoCoClient(t *testing.T) {
+	t.Parallel()
 	logger := zaptest.NewLogger(t)
 
 	t.Run("returns client when URL provided", func(t *testing.T) {
@@ -34,6 +35,7 @@ func TestNewSoCoClient(t *testing.T) {
 }
 
 func TestSoCoClient_ShareLink(t *testing.T) {
+	t.Parallel()
 	logger := zaptest.NewLogger(t)
 
 	t.Run("successful sharelink", func(t *testing.T) {
@@ -114,6 +116,7 @@ func TestSoCoClient_ShareLink(t *testing.T) {
 }
 
 func TestSoCoClient_PlayFromQueue(t *testing.T) {
+	t.Parallel()
 	logger := zaptest.NewLogger(t)
 
 	t.Run("successful play_from_queue", func(t *testing.T) {
@@ -153,6 +156,7 @@ func TestSoCoClient_PlayFromQueue(t *testing.T) {
 }
 
 func TestSoCoClient_PlayShareLink(t *testing.T) {
+	t.Parallel()
 	logger := zaptest.NewLogger(t)
 
 	t.Run("calls sharelink then play_from_queue", func(t *testing.T) {
