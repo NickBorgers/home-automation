@@ -154,6 +154,22 @@ func (m *Manager) activateThermalBattery() {
 		}
 	}
 
+	// Enable thermostat hold mode BEFORE shifting setpoints.
+	// Without hold, the thermostat's built-in schedule can immediately override the shifted setpoints.
+	if m.readOnly {
+		m.logger.Info("READ-ONLY: Would enable thermostat hold mode for thermal battery",
+			zap.Strings("entities", []string{thermostatHoldHouse, thermostatHoldSuite}))
+	} else {
+		m.logger.Info("Thermal battery: enabling thermostat hold mode",
+			zap.Strings("entities", []string{thermostatHoldHouse, thermostatHoldSuite}))
+		if err := m.haClient.CallService(m.ctx, "switch", "turn_on", map[string]interface{}{
+			"entity_id": []string{thermostatHoldHouse, thermostatHoldSuite},
+		}); err != nil {
+			m.logger.Error("Failed to enable thermostat hold mode for thermal battery", zap.Error(err))
+			return
+		}
+	}
+
 	// Apply offset to each thermostat
 	direction := "" // for ntfy notification
 	for entityID, sp := range savedSetpoints {
@@ -293,6 +309,17 @@ func (m *Manager) deactivateThermalBattery(reason string) {
 				zap.String("entity", entityID), zap.Error(err))
 			// Continue trying other thermostats
 		}
+	}
+
+	// Disable thermostat hold mode AFTER reverting setpoints,
+	// so the schedule resumes with the original temperatures in place.
+	m.logger.Info("Thermal battery: disabling thermostat hold mode",
+		zap.Strings("entities", []string{thermostatHoldHouse, thermostatHoldSuite}))
+	if err := m.haClient.CallService(m.ctx, "switch", "turn_off", map[string]interface{}{
+		"entity_id": []string{thermostatHoldHouse, thermostatHoldSuite},
+	}); err != nil {
+		m.logger.Error("Failed to disable thermostat hold mode for thermal battery", zap.Error(err))
+		// Continue with deactivation anyway - holds can be manually cleared
 	}
 
 	m.thermalBatteryActive = false
