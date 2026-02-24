@@ -61,10 +61,23 @@ func TestThermalBattery_ActivatesOnWhiteEnergyLevel(t *testing.T) {
 	// Verify thermal battery is active
 	assert.True(t, ls.IsThermalBatteryActive(), "Thermal battery should be active at white energy level")
 
-	// Verify climate.set_temperature calls were made (one per thermostat)
+	// Verify thermostat hold was enabled before temperature changes
 	calls := env.MockHA.GetServiceCalls()
+	holdCalls := 0
 	climateCalls := 0
-	for _, call := range calls {
+	holdCallIndex := -1
+	for i, call := range calls {
+		if call.Domain == "switch" && call.Service == "turn_on" {
+			if entities, ok := call.Data["entity_id"].([]string); ok {
+				for _, e := range entities {
+					if e == thermostatHoldHouse || e == thermostatHoldSuite {
+						holdCalls++
+						holdCallIndex = i
+						break
+					}
+				}
+			}
+		}
 		if call.Domain == "climate" && call.Service == "set_temperature" {
 			climateCalls++
 			entityID, _ := call.Data["entity_id"].(string)
@@ -77,8 +90,12 @@ func TestThermalBattery_ActivatesOnWhiteEnergyLevel(t *testing.T) {
 			case climateSuite:
 				assert.Equal(t, 68.0, temp, "Suite thermostat should be shifted from 71 to 68")
 			}
+
+			// Hold must be enabled before any temperature shift
+			assert.Greater(t, i, holdCallIndex, "Thermostat hold should be enabled before setting temperature")
 		}
 	}
+	assert.Equal(t, 1, holdCalls, "Should have made 1 switch.turn_on call for thermostat holds")
 	assert.Equal(t, 2, climateCalls, "Should have made 2 climate.set_temperature calls")
 
 	// Verify shadow state
@@ -112,12 +129,16 @@ func TestThermalBattery_DeactivatesOnGreenEnergyLevel(t *testing.T) {
 	// Verify thermal battery is deactivated
 	assert.False(t, ls.IsThermalBatteryActive(), "Thermal battery should be inactive after green")
 
-	// Verify setpoints were reverted
+	// Verify setpoints were reverted and hold was disabled
 	calls := env.MockHA.GetServiceCalls()
 	revertCalls := 0
-	for _, call := range calls {
+	holdOffCalls := 0
+	lastRevertIndex := -1
+	holdOffIndex := -1
+	for i, call := range calls {
 		if call.Domain == "climate" && call.Service == "set_temperature" {
 			revertCalls++
+			lastRevertIndex = i
 			entityID, _ := call.Data["entity_id"].(string)
 			temp, _ := call.Data["temperature"].(float64)
 
@@ -128,8 +149,21 @@ func TestThermalBattery_DeactivatesOnGreenEnergyLevel(t *testing.T) {
 				assert.Equal(t, 71.0, temp, "Suite thermostat should be reverted to 71")
 			}
 		}
+		if call.Domain == "switch" && call.Service == "turn_off" {
+			if entities, ok := call.Data["entity_id"].([]string); ok {
+				for _, e := range entities {
+					if e == thermostatHoldHouse || e == thermostatHoldSuite {
+						holdOffCalls++
+						holdOffIndex = i
+						break
+					}
+				}
+			}
+		}
 	}
 	assert.Equal(t, 2, revertCalls, "Should have made 2 climate.set_temperature calls to revert")
+	assert.Equal(t, 1, holdOffCalls, "Should have made 1 switch.turn_off call to disable thermostat holds")
+	assert.Greater(t, holdOffIndex, lastRevertIndex, "Hold should be disabled after setpoints are reverted")
 
 	// Verify shadow state
 	shadow := ls.GetShadowState()
