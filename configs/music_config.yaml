@@ -215,7 +215,8 @@ music:
         media_type: playlist
         volume_multiplier: 1.0
       # Tidal playlist (via SoCo-CLI)
-      - uri: "https://tidal.com/browse/playlist/89b0c117-c11b-46fc-9ef9-766c2701f73e"
+      - uri: >-
+          https://tidal.com/browse/playlist/89b0c117-c11b-46fc-9ef9-766c2701f73e
         media_type: tidal
         volume_multiplier: 1.0
   evening:
