@@ -337,7 +337,7 @@ music:
       # yamllint disable-line rule:line-length
       - uri: http://rain-sounds.nickborgers.net:8080/playlists/evening-piano-guys.m3u
         media_type: music
-        volume_multiplier: 1.0
+        volume_multiplier: 2.0
   winddown:
     participants:
       - player_name: "Kitchen"
