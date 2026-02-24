@@ -77,6 +77,7 @@ graph TB
         Hue[Phillips Hue]
         TV_Ext[Apple TV / LG TV]
         Ntfy[ntfy.sh<br/>Push Notifications]
+        SoCoCLI[SoCo-CLI<br/>HTTP API]
     end
 
     Main --> HAClient
@@ -104,6 +105,7 @@ graph TB
 
     Music -->|Get/Set State| StateManager
     Music -->|Call Services| HAClient
+    Music -->|Tidal Playback| SoCoCLI
     Music -.->|Register Shadow| ShadowTracker
 
     Lighting -->|Get/Set State| StateManager
@@ -689,8 +691,12 @@ flowchart TD
     SelectPlaylist --> BreakGroups[Break Existing Speaker Groups<br/>media_player.unjoin]
     BreakGroups --> BuildGroup[Build Sonos Speaker Group]
     BuildGroup --> MuteAll[Mute All Speakers to 0]
-    MuteAll --> StartPlayback[Start Playback on Lead Player]
-    StartPlayback --> EnableShuffle[Enable Shuffle for Playlists]
+    MuteAll --> StartPlayback{Media Type?}
+    StartPlayback -->|Spotify| HAPlay[Start via HA play_media]
+    StartPlayback -->|Tidal| SoCoPlay[Start via SoCo-CLI<br/>sharelink + play_from_queue]
+    HAPlay --> VerifyPlay[Verify Playback Started]
+    SoCoPlay --> VerifyPlay
+    VerifyPlay --> EnableShuffle[Enable Shuffle for Playlists]
     EnableShuffle --> EvalConditions[Evaluate Mute Conditions<br/>for Each Speaker]
     EvalConditions --> FadeIn[Fade In Eligible Speakers<br/>Gradually 0→targetVolume]
     FadeIn --> UpdateShadow[Update Shadow State:<br/>mode, playlist, speakers]
@@ -725,7 +731,7 @@ flowchart TD
 2. Break existing speaker groups (media_player.unjoin)
 3. Build new speaker group (media_player.join)
 4. Mute all speakers to 0
-5. Start playback on lead player
+5. Start playback on lead player (Spotify via HA play_media; Tidal via SoCo-CLI HTTP API)
 6. Enable shuffle for playlists
 7. Fade in eligible speakers
 
