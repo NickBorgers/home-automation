@@ -1035,3 +1035,66 @@ func TestThermalBattery_HeatCoolSteppingCompletesFullOffset(t *testing.T) {
 	assert.Equal(t, 2, shadow.Outputs.ThermalBattery.StepsCompleted)
 	assert.False(t, shadow.Outputs.ThermalBattery.Stepping)
 }
+
+func TestThermalBattery_SafetyTimeoutForcesStepAdvancement(t *testing.T) {
+	t.Parallel()
+	env := setupThermalBatteryEnv(t)
+
+	ls := NewManager(context.Background(), env.MockHA, env.StateMgr, env.Logger, false, nil, nil)
+	ls.SetThermalBatteryPollIntervalForTesting(10 * time.Millisecond)
+	// Set a very short safety timeout so it triggers quickly in tests
+	ls.SetThermalBatteryMaxStepWaitForTesting(20 * time.Millisecond)
+
+	// Wait for step 2 to complete (which should happen via safety timeout, not temperature check)
+	var wg sync.WaitGroup
+	wg.Add(1)
+	ls.SetThermalBatteryStepDoneCallback(func(stepNumber int) {
+		if stepNumber == 2 {
+			wg.Done()
+		}
+	})
+
+	err := ls.Start()
+	require.NoError(t, err)
+	defer ls.Stop()
+
+	env.MockHA.ClearServiceCalls()
+
+	// Activate: first step shifts by 1°F (cool mode: 72→71, 71→70)
+	err = env.StateMgr.SetString("currentEnergyLevel", "white")
+	require.NoError(t, err)
+	assert.True(t, ls.IsThermalBatteryActive())
+
+	// Do NOT update current_temperature — simulate a stuck/offline thermostat sensor.
+	// The thermostats still report the original current_temperature (74°F, 73°F),
+	// which is far from the step-1 targets (71°F, 70°F). Without the safety timeout,
+	// the stepping goroutine would poll forever.
+
+	// Wait for step 2 to complete via safety timeout
+	wg.Wait()
+
+	// Verify both steps were applied despite thermostat never reaching target
+	calls := env.MockHA.GetServiceCalls()
+	step2Calls := 0
+	for _, call := range calls {
+		if call.Domain == "climate" && call.Service == "set_temperature" {
+			entityID, _ := call.Data["entity_id"].(string)
+			temp, _ := call.Data["temperature"].(float64)
+
+			// Step 2 applies full 2°F offset: house 72→70, suite 71→69
+			if (entityID == climateHouse && temp == 70.0) ||
+				(entityID == climateSuite && temp == 69.0) {
+				step2Calls++
+			}
+		}
+	}
+	assert.Equal(t, 2, step2Calls, "Should have 2 step-2 calls (forced by safety timeout)")
+
+	// Verify shadow state shows all steps complete
+	shadow := ls.GetShadowState()
+	assert.True(t, shadow.Outputs.ThermalBattery.Active)
+	assert.Equal(t, 2.0, shadow.Outputs.ThermalBattery.OffsetApplied)
+	assert.Equal(t, 2, shadow.Outputs.ThermalBattery.StepsCompleted)
+	assert.Equal(t, 2, shadow.Outputs.ThermalBattery.TotalSteps)
+	assert.False(t, shadow.Outputs.ThermalBattery.Stepping, "Should not be stepping (all steps done)")
+}

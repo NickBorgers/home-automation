@@ -99,6 +99,8 @@ type Manager struct {
 	thermalBatteryStepCancel      chan struct{} // signal to stop stepping goroutine
 	thermalBatteryPollInt         time.Duration
 	thermalBatteryHoldRevertDelay time.Duration
+	thermalBatteryStepStart       time.Time     // when the current step began (for safety timeout)
+	thermalBatteryMaxStepWaitDur  time.Duration // configurable max wait per step (defaults to thermalBatteryMaxStepWait)
 
 	// Push notifications
 	ntfyClient ntfy.Notifier
@@ -126,6 +128,7 @@ func NewManager(ctx context.Context, haClient ha.HAClient, stateManager *state.M
 		ntfyClient:                    ntfyClient,
 		thermalBatteryPollInt:         thermalBatteryDefaultPollInt,
 		thermalBatteryHoldRevertDelay: thermalBatteryDefaultHoldRevertDelay,
+		thermalBatteryMaxStepWaitDur:  thermalBatteryMaxStepWait,
 	}
 }
 
@@ -154,6 +157,11 @@ func (m *Manager) SetThermalBatteryStepDoneCallback(cb func(stepNumber int)) {
 // SetThermalBatteryHoldRevertDelayForTesting allows tests to skip the hold revert delay.
 func (m *Manager) SetThermalBatteryHoldRevertDelayForTesting(d time.Duration) {
 	m.thermalBatteryHoldRevertDelay = d
+}
+
+// SetThermalBatteryMaxStepWaitForTesting allows tests to use a shorter safety timeout per step.
+func (m *Manager) SetThermalBatteryMaxStepWaitForTesting(d time.Duration) {
+	m.thermalBatteryMaxStepWaitDur = d
 }
 
 // IsLoadSheddingOn returns whether load shedding is currently active (thread-safe)

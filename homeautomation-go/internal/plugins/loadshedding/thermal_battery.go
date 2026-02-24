@@ -227,6 +227,7 @@ func (m *Manager) activateThermalBattery() {
 		return
 	}
 	m.thermalBatteryStepsDone = 1
+	m.thermalBatteryStepStart = time.Now()
 
 	m.thermalBatteryActive = true
 
@@ -371,12 +372,19 @@ func (m *Manager) runThermalBatteryStepping(cancelCh <-chan struct{}) {
 			// Check if thermostats have reached the current stepped target
 			readyToAdvance := m.checkThermostatsReachedTarget()
 
-			// Safety timeout: if we've been waiting too long, advance anyway
-			// Use stepsDone * maxStepWait as a rough proxy (each step gets up to maxStepWait)
-			// For simplicity, always advance on timeout - checked via step start tracking
+			// Safety timeout: if we've been waiting too long for the thermostat to reach
+			// the target (e.g., sensor offline or stale data), force-advance to avoid being
+			// stuck at an intermediate step indefinitely.
 			if !readyToAdvance {
-				m.thermalBatteryMu.Unlock()
-				continue
+				if time.Since(m.thermalBatteryStepStart) < m.thermalBatteryMaxStepWaitDur {
+					m.thermalBatteryMu.Unlock()
+					continue
+				}
+				m.logger.Warn("Thermal battery safety timeout: forcing step advancement",
+					zap.Int("current_step", m.thermalBatteryStepsDone),
+					zap.Int("next_step", nextStep),
+					zap.Duration("waited", time.Since(m.thermalBatteryStepStart)),
+					zap.Duration("max_wait", m.thermalBatteryMaxStepWaitDur))
 			}
 
 			// Apply next step
@@ -387,6 +395,7 @@ func (m *Manager) runThermalBatteryStepping(cancelCh <-chan struct{}) {
 				continue
 			}
 			m.thermalBatteryStepsDone = nextStep
+			m.thermalBatteryStepStart = time.Now()
 
 			m.logger.Info("Thermal battery step applied",
 				zap.Int("step", nextStep),
@@ -499,6 +508,7 @@ func (m *Manager) deactivateThermalBattery(reason string) {
 		m.thermalBatteryStepsDone = 0
 		m.thermalBatteryTargetSteps = 0
 		m.thermalBatteryDirection = ""
+		m.thermalBatteryStepStart = time.Time{}
 		m.shadowTracker.RecordThermalBatteryDeactivation()
 		return
 	}
@@ -547,6 +557,7 @@ func (m *Manager) deactivateThermalBattery(reason string) {
 	m.thermalBatteryStepsDone = 0
 	m.thermalBatteryTargetSteps = 0
 	m.thermalBatteryDirection = ""
+	m.thermalBatteryStepStart = time.Time{}
 
 	m.logger.Info("=== THERMAL BATTERY DEACTIVATED ===",
 		zap.String("reason", reason))
