@@ -26,30 +26,32 @@ rooms:
   - hue_group: Primary Suite
     hass_area_id: master_bedroom
     conditions:
-      # CRITICAL: isWakeSequenceActive MUST be checked
+      # CRITICAL: isWakeSequenceActive and isMasterAsleep MUST be checked
       # BEFORE isAnyoneHomeAndAwake!
       #
-      # BUG FIX (2026-01-13 production incident):
-      # During wake sequence, isMasterAsleep=true so isAnyoneHomeAndAwake=false.
-      # If isAnyoneHomeAndAwake is checked first, the lighting plugin turns off
-      # the bedroom lights immediately after sleephygiene turns them on,
-      # causing wake cancellation
-      # ("Bedroom lights turned off during wake sequence").
+      # BUG FIX (2026-02-24 production incident):
+      # During wake sequence, sleephygiene controls the bedroom lights with
+      # a slow fade-in. The lighting plugin must completely hands-off during
+      # wake sequence to avoid interfering with the fade-in.
+      #
+      # Similarly, when master is asleep (but not wake sequence), the lighting
+      # plugin should not control the bedroom lights. Sleephygiene manages
+      # sleep state lighting.
       #
       # Priority 1: Wake sequence in progress -> yield to sleephygiene
-      # This takes absolute priority to prevent race condition
-      # with wake sequence
-      - action: on
+      # This takes absolute priority to prevent interference with wake sequence
+      - action: skip
         variable: isWakeSequenceActive
         value: true
-      # Priority 2: No one home and awake -> OFF
+      # Priority 2: Master asleep -> yield to sleephygiene
+      # Bedroom is in sleep mode, don't interfere
+      - action: skip
+        variable: isMasterAsleep
+        value: true
+      # Priority 3: No one home and awake -> OFF
       - action: off
         variable: isAnyoneHomeAndAwake
         value: false
-      # Priority 3: Master asleep -> OFF
-      - action: off
-        variable: isMasterAsleep
-        value: true
       # Priority 4: Master not asleep -> ON
       - action: on
         variable: isMasterAsleep
