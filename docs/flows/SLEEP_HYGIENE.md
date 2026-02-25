@@ -238,6 +238,7 @@ If bedroom lights are turned off during the wake sequence:
 flowchart TD
     subgraph Detection["Cancel Detection"]
         lightsOff["Bedroom lights<br/>turned off"]
+        graceCheck{"Within 2s of<br/>turn_on command?"}
         checkActive{"isWakeSequenceActive<br/>OR musicPlaybackType == 'wakeup'?"}
     end
 
@@ -247,7 +248,9 @@ flowchart TD
         offBathroom["Turn off bathroom lights"]
     end
 
-    lightsOff --> checkActive
+    lightsOff --> graceCheck
+    graceCheck -->|Yes| transient["Ignore<br/>(transient HA group event)"]
+    graceCheck -->|No| checkActive
     checkActive -->|Yes| clearFlag
     clearFlag --> revertMusic
     revertMusic --> offBathroom
@@ -255,7 +258,10 @@ flowchart TD
 
     style clearFlag fill:#e74c3c,color:#fff
     style ignore fill:#95a5a6,color:#fff
+    style transient fill:#95a5a6,color:#fff
 ```
+
+> **Note:** Home Assistant group entities (e.g., `light.primary_suite`) emit transient "off" events (~200-500ms) after a `turn_on` command while constituent lights are still responding. A 2-second grace period after each turn-on command filters these out, preventing false wake cancellation.
 
 ## State Variables
 
