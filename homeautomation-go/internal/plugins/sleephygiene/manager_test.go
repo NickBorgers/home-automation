@@ -2081,6 +2081,89 @@ func TestBackupWake_ShadowStateShowsAvailableWhenSensorsWork(t *testing.T) {
 //  3. User turns off lights to cancel wake BEFORE wake music starts
 //  4. At this point musicPlaybackType is still "sleep", so setting it to "sleep"
 //     again would normally be a no-op. The fix clears it first to force a restart.
+//
+// TestCancelWake_IgnoresTransientLightOffDuringGracePeriod is a regression test for
+// the 2026-02-25 wake sequence failure where light.primary_suite (a group entity)
+// emitted a transient "off" event ~243ms after a turn_on command was sent, causing
+// the wake sequence to be incorrectly cancelled and sleep music to restart.
+func TestCancelWake_IgnoresTransientLightOffDuringGracePeriod(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2024, 1, 15, 7, 30, 0, 0, time.UTC)
+	manager, _, stateManager, _ := setupTest(t, now)
+
+	// GIVEN: Wake sequence is active (lights about to turn on)
+	stateManager.SetBool("isWakeSequenceActive", true)
+	stateManager.SetString("musicPlaybackType", "morning")
+
+	// Simulate turnOnMasterBedroomLights() recording its timestamp
+	manager.lightTurnOnNano.Store(time.Now().UnixNano())
+
+	// WHEN: A transient "off" event arrives within the grace period (~243ms in production)
+	manager.handleBedroomLightsOff("off")
+
+	// THEN: Wake sequence should NOT be cancelled
+	isActive, _ := stateManager.GetBool("isWakeSequenceActive")
+	if !isActive {
+		t.Error("Expected isWakeSequenceActive to still be true - transient off event should be ignored during grace period")
+	}
+
+	musicType, _ := stateManager.GetString("musicPlaybackType")
+	if musicType != "morning" {
+		t.Errorf("Expected musicPlaybackType to still be 'morning', got %s - transient off event should not revert to sleep", musicType)
+	}
+}
+
+// TestCancelWake_AllowsGenuineLightOffAfterGracePeriod verifies that a genuine
+// user light-off event after the grace period still correctly cancels the wake.
+func TestCancelWake_AllowsGenuineLightOffAfterGracePeriod(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2024, 1, 15, 7, 30, 0, 0, time.UTC)
+	manager, _, stateManager, _ := setupTest(t, now)
+
+	// GIVEN: Wake sequence is active and lights were turned on a while ago
+	stateManager.SetBool("isWakeSequenceActive", true)
+	stateManager.SetString("musicPlaybackType", "morning")
+
+	// Simulate turnOnMasterBedroomLights() but 30 seconds ago (well past grace period)
+	manager.lightTurnOnNano.Store(time.Now().Add(-30 * time.Second).UnixNano())
+
+	// WHEN: User turns off bedroom lights (genuine cancellation)
+	manager.handleBedroomLightsOff("off")
+
+	// THEN: Wake sequence should be cancelled
+	isActive, _ := stateManager.GetBool("isWakeSequenceActive")
+	if isActive {
+		t.Error("Expected isWakeSequenceActive to be false - genuine light off after grace period should cancel wake")
+	}
+
+	musicType, _ := stateManager.GetString("musicPlaybackType")
+	if musicType != "sleep" {
+		t.Errorf("Expected musicPlaybackType to be 'sleep' after cancel, got %s", musicType)
+	}
+}
+
+// TestCancelWake_AllowsCancelWhenNoTurnOnCommandSent verifies that cancel-wake
+// still works when no turn_on command was ever sent (lightTurnOnNano is zero).
+func TestCancelWake_AllowsCancelWhenNoTurnOnCommandSent(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2024, 1, 15, 7, 30, 0, 0, time.UTC)
+	manager, _, stateManager, _ := setupTest(t, now)
+
+	// GIVEN: Wake sequence is active but no light turn-on was sent (e.g., wakeup music phase)
+	stateManager.SetBool("isWakeSequenceActive", true)
+	stateManager.SetString("musicPlaybackType", "wakeup")
+	// lightTurnOnNano is zero (never stored)
+
+	// WHEN: User turns off bedroom lights
+	manager.handleBedroomLightsOff("off")
+
+	// THEN: Wake should be cancelled (zero timestamp means no grace period)
+	isActive, _ := stateManager.GetBool("isWakeSequenceActive")
+	if isActive {
+		t.Error("Expected isWakeSequenceActive to be false - cancel should work when no turn-on was sent")
+	}
+}
+
 func TestCancelWake_ForcesMusicRestartWhenAlreadySleep(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2024, 1, 15, 7, 30, 0, 0, time.UTC)
@@ -2096,6 +2179,9 @@ func TestCancelWake_ForcesMusicRestartWhenAlreadySleep(t *testing.T) {
 	// This happens when user cancels wake before the 25-minute light fade completes
 	stateManager.SetString("musicPlaybackType", "sleep")
 	stateManager.SetBool("isWakeSequenceActive", true)
+
+	// Simulate lights were turned on well past the grace period
+	manager.lightTurnOnNano.Store(time.Now().Add(-30 * time.Second).UnixNano())
 
 	// Clear the state changes from setup
 	stateChanges = nil
