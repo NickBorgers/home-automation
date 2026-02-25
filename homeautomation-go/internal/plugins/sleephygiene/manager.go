@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"homeautomation/internal/config"
@@ -44,6 +45,13 @@ const (
 	// wakeMusicDelay is the delay after lights start fading before wake music plays.
 	// This equals lightFadeInDuration so music starts when lights are fully up.
 	wakeMusicDelay = lightFadeInDuration
+
+	// lightTurnOnGracePeriod is how long to ignore "off" state events from
+	// light.primary_suite after sending a turn_on command. HA group entities
+	// emit transient "off" events during state propagation (~200-500ms) as
+	// constituent lights haven't responded yet. 2s covers worst-case
+	// network + Zigbee latency while still allowing quick manual cancellation.
+	lightTurnOnGracePeriod = 2 * time.Second
 )
 
 // SleepFunc is the type for sleep functions (for testing)
@@ -72,6 +80,11 @@ type Manager struct {
 
 	// Injectable sleep function for testing
 	sleepFunc SleepFunc
+
+	// lightTurnOnNano stores the UnixNano timestamp of the last turn_on command
+	// sent to light.primary_suite. Used to ignore transient "off" events from
+	// HA group entity state propagation (see lightTurnOnGracePeriod).
+	lightTurnOnNano atomic.Int64
 }
 
 // NewManager creates a new Sleep Hygiene manager
@@ -924,6 +937,10 @@ func (m *Manager) turnOnMasterBedroomLights() {
 	m.logger.Info("Turning on master bedroom lights slowly",
 		zap.Int("transition_seconds", transitionSeconds))
 
+	// Record that we're about to turn on lights so handleBedroomLightsOff
+	// can ignore transient "off" events from HA group entity propagation.
+	m.lightTurnOnNano.Store(time.Now().UnixNano())
+
 	// First, ensure lights start dim and white
 	if err := m.haClient.CallService(m.ctx, "light", "turn_on", map[string]interface{}{
 		"entity_id":      "light.primary_suite",
@@ -989,6 +1006,19 @@ func (m *Manager) turnOffBathroomLights() {
 func (m *Manager) handleBedroomLightsOff(state string) {
 	if state != "off" {
 		return
+	}
+
+	// Ignore transient "off" events that arrive shortly after we send a turn_on
+	// command. HA group entities (light.primary_suite) emit "off" state events
+	// during propagation as constituent lights haven't responded yet.
+	if turnOnNano := m.lightTurnOnNano.Load(); turnOnNano > 0 {
+		elapsed := time.Since(time.Unix(0, turnOnNano))
+		if elapsed < lightTurnOnGracePeriod {
+			m.logger.Info("Ignoring bedroom lights off event within grace period after turn-on command",
+				zap.Duration("elapsed", elapsed),
+				zap.Duration("grace_period", lightTurnOnGracePeriod))
+			return
+		}
 	}
 
 	m.logger.Debug("Bedroom lights turned off, checking if wake sequence should be cancelled")

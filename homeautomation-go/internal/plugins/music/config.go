@@ -108,14 +108,22 @@ func (c *MusicConfig) ensureZones() {
 			triggers: []TriggerCondition{
 				{Variable: "isAnyoneAsleep", Value: true},
 				{Variable: "isAnyoneHome", Value: true},
+				{Variable: "isWakeSequenceActive", Value: false},
 			},
 		},
 		{
 			name:     "morning",
 			priority: 50,
-			triggers: append([]TriggerCondition{
-				{Variable: "dayPhase", Value: "morning"},
-			}, homeAndAwake...),
+			triggerGroups: []TriggerGroup{
+				{Triggers: append([]TriggerCondition{
+					{Variable: "dayPhase", Value: "morning"},
+				}, homeAndAwake...)},
+				{Triggers: []TriggerCondition{
+					{Variable: "isWakeSequenceActive", Value: true},
+					{Variable: "dayPhase", Value: "morning"},
+					{Variable: "isAnyoneHome", Value: true},
+				}},
+			},
 		},
 		{
 			name:     "day",

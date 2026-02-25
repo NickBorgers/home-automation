@@ -109,7 +109,7 @@ func TestEnsureZones_PopulatesFromMusicModes(t *testing.T) {
 		}
 		require.NotNil(t, sleepZone)
 		assert.Equal(t, 100, sleepZone.Priority)
-		assert.Len(t, sleepZone.Triggers, 2) // isAnyoneAsleep, isAnyoneHome
+		assert.Len(t, sleepZone.Triggers, 3) // isAnyoneAsleep, isAnyoneHome, isWakeSequenceActive
 
 		// Check day zone has triggers
 		var dayZone *ZoneConfig

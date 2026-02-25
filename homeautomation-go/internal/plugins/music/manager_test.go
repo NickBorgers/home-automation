@@ -184,16 +184,16 @@ func TestEnsureZones_DayPhaseMapping(t *testing.T) {
 		zoneByName[z.Name] = z
 	}
 
-	// Sleep: triggers on isAnyoneAsleep=true
+	// Sleep: triggers on isAnyoneAsleep=true, isAnyoneHome=true, isWakeSequenceActive=false
 	sleepZone := zoneByName["sleep"]
-	if len(sleepZone.Triggers) != 2 {
-		t.Errorf("Sleep zone should have 2 triggers, got %d", len(sleepZone.Triggers))
+	if len(sleepZone.Triggers) != 3 {
+		t.Errorf("Sleep zone should have 3 triggers, got %d", len(sleepZone.Triggers))
 	}
 
-	// Morning: triggers on dayPhase=morning
+	// Morning: trigger_groups for normal morning OR wake sequence active
 	morningZone := zoneByName["morning"]
-	if len(morningZone.Triggers) != 3 {
-		t.Errorf("Morning zone should have 3 triggers, got %d", len(morningZone.Triggers))
+	if len(morningZone.TriggerGroups) != 2 {
+		t.Errorf("Morning zone should have 2 trigger groups, got %d", len(morningZone.TriggerGroups))
 	}
 
 	// Evening: trigger_groups for sunset/dusk/evening
@@ -345,9 +345,9 @@ func TestMusicManager_Stop(t *testing.T) {
 		t.Fatalf("Failed to start manager: %v", err)
 	}
 
-	// Verify subscriptions were created (dayPhase, isAnyoneAsleep, isAnyoneHome, musicPlaybackType)
-	if len(manager.subscriptions) != 4 {
-		t.Errorf("Expected 4 subscriptions, got %d", len(manager.subscriptions))
+	// Verify subscriptions were created (dayPhase, isAnyoneAsleep, isAnyoneHome, isWakeSequenceActive, musicPlaybackType)
+	if len(manager.subscriptions) != 5 {
+		t.Errorf("Expected 5 subscriptions, got %d", len(manager.subscriptions))
 	}
 
 	// Stop manager
