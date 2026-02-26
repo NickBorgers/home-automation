@@ -6,7 +6,15 @@ help:
 
 ##@ Config
 
-run-config-tests: run-yamllint-hue run-yamllint-music run-spotify-validation-music ## Run all available tests of the configuration files
+run-config-tests: run-yamllint-hue run-yamllint-music run-spotify-validation-music ## Run all available tests of the configuration files (Docker)
+
+yamllint-local: ## Run yamllint on config files natively (no Docker, requires yamllint installed)
+	@echo "🔍 Running yamllint on config files..."
+	@yamllint configs/hue_config.yaml
+	@echo "  ✅ hue_config.yaml passed"
+	@yamllint configs/music_config.yaml
+	@echo "  ✅ music_config.yaml passed"
+	@echo "✅ All config files passed yamllint"
 
 run-yamllint-hue: build-config-tester
 	docker run --rm --mount type=bind,source=${CURDIR}/configs/hue_config.yaml,destination=/app/hue_config.yaml node-red-config-tester yamllint hue_config.yaml
@@ -238,21 +246,26 @@ pre-commit: ## Run fast pre-commit checks (style, format, lint, build)
 
 pre-push: ## Run comprehensive pre-push validation (build, tests, race detector, coverage >=65%)
 	@echo ""
-	@echo "🔍 Running pre-push validation (3 steps)..."
+	@echo "🔍 Running pre-push validation (4 steps)..."
 	@echo "════════════════════════════════════════════════════════════════════════════"
 	@echo ""
-	@echo "⏳ Step 1/3: Validating generated diagrams are up-to-date..."
+	@echo "⏳ Step 1/4: Validating config files (yamllint)..."
+	@$(MAKE) yamllint-local
+	@echo ""
+	@echo "✅ Step 1/4 complete: Config files valid"
+	@echo ""
+	@echo "⏳ Step 2/4: Validating generated diagrams are up-to-date..."
 	@$(MAKE) validate-diagrams
 	@echo ""
-	@echo "✅ Step 1/3 complete: Diagrams valid"
+	@echo "✅ Step 2/4 complete: Diagrams valid"
 	@echo ""
-	@echo "⏳ Step 2/3: Running unit tests (build + race detector + coverage ≥65%)..."
+	@echo "⏳ Step 3/4: Running unit tests (build + race detector + coverage ≥65%)..."
 	@$(MAKE) unit-tests
-	@echo "✅ Step 2/3 complete: Unit tests passed"
+	@echo "✅ Step 3/4 complete: Unit tests passed"
 	@echo ""
-	@echo "⏳ Step 3/3: Running integration tests (race detector)..."
+	@echo "⏳ Step 4/4: Running integration tests (race detector)..."
 	@$(MAKE) integration-tests
-	@echo "✅ Step 3/3 complete: Integration tests passed"
+	@echo "✅ Step 4/4 complete: Integration tests passed"
 	@echo ""
 	@echo "════════════════════════════════════════════════════════════════════════════"
 	@echo "🎉 Pre-push validation passed!"

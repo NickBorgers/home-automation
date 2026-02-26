@@ -124,6 +124,7 @@ else
     echo ""
     echo "Your push has been blocked because validation failed."
     echo "The pre-push hook runs the same checks as CI:"
+    echo "  - Config validation (yamllint)"
     echo "  - Diagram validation"
     echo "  - Build check (go build ./...)"
     echo "  - All tests with race detector (go test -race ./...)"

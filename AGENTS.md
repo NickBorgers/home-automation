@@ -17,6 +17,7 @@ make test-go           # For debugging cache issues (no cache)
 ```
 
 A pre-push git hook validates all changes before pushing. It runs:
+- Config validation (yamllint on YAML config files)
 - Diagram validation
 - Code compilation
 - Unit tests (2-5 minutes)
