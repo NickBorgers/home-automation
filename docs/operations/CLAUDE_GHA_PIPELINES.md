@@ -89,7 +89,6 @@ Scoped by issue/PR number so that:
 Builds and caches a devcontainer image to speed up subsequent runs.
 
 - Pushes to `ghcr.io/nickborgers/home-automation-devcontainer`
-- Uses Docker layer caching (BuildKit cache at `/tmp/.buildx-cache`)
 - **Skip optimization**: Skips the build entirely when `.devcontainer/` files haven't changed in the PR and the image already exists in GHCR. Falls back to always building for new issues and non-PR contexts.
 - **Output**: `should-build` — consumed by downstream steps via conditional `if` guards
 
