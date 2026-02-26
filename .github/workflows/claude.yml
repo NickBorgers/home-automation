@@ -87,6 +87,8 @@ jobs:
           esac
 
   # Build and cache devcontainer image first
+  # Optimization: Skip build if .devcontainer/ files haven't changed
+  # This saves ~1 minute per run when devcontainer is unchanged
   build-devcontainer:
     needs: authorize
     if: needs.authorize.outputs.authorized == 'true'
@@ -94,12 +96,59 @@ jobs:
     permissions:
       contents: read
       packages: write
+    outputs:
+      should-build: ${{ steps.check-changes.outputs.should-build }}
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 1  # Shallow clone suffices; change detection uses GitHub API, not local git history
+
+      - name: Check if devcontainer files changed
+        id: check-changes
+        run: |
+          # Check if this is the first run or if devcontainer files changed
+          if [ "${{ github.event_name }}" = "issues" ] && [ "${{ github.event.action }}" = "opened" ]; then
+            # For new issues, always check if devcontainer needs update
+            DEVCONTAINER_CHANGED="true"
+          else
+            # For PR comments, check if devcontainer files changed in the PR
+            if [ -n "${{ github.event.issue.pull_request || github.event.pull_request.number }}" ]; then
+              PR_NUMBER="${{ github.event.issue.number || github.event.pull_request.number }}"
+              # Get list of changed files in the PR
+              CHANGED_FILES=$(gh api "repos/${{ github.repository }}/pulls/${PR_NUMBER}/files" --paginate --jq '.[].filename')
+              if echo "$CHANGED_FILES" | grep -q "^\.devcontainer/"; then
+                DEVCONTAINER_CHANGED="true"
+              else
+                DEVCONTAINER_CHANGED="false"
+              fi
+            else
+              # For non-PR contexts, always build to be safe
+              DEVCONTAINER_CHANGED="true"
+            fi
+          fi
+
+          # Check if the image exists in GHCR
+          if docker manifest inspect ghcr.io/nickborgers/home-automation-devcontainer:latest >/dev/null 2>&1; then
+            IMAGE_EXISTS="true"
+          else
+            IMAGE_EXISTS="false"
+            DEVCONTAINER_CHANGED="true"  # Force build if image doesn't exist
+          fi
+
+          if [ "$DEVCONTAINER_CHANGED" = "true" ] || [ "$IMAGE_EXISTS" = "false" ]; then
+            echo "should-build=true" >> $GITHUB_OUTPUT
+            echo "✅ Devcontainer will be built (changed=$DEVCONTAINER_CHANGED, exists=$IMAGE_EXISTS)"
+          else
+            echo "should-build=false" >> $GITHUB_OUTPUT
+            echo "⏭️  Skipping devcontainer build (no changes detected)"
+          fi
+        env:
+          GH_TOKEN: ${{ github.token }}
 
       - name: Log in to GHCR
+        if: steps.check-changes.outputs.should-build == 'true'
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -107,6 +156,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push devcontainer
+        if: steps.check-changes.outputs.should-build == 'true'
         uses: devcontainers/ci@v0.3
         with:
           imageName: ${{ env.DEVCONTAINER_IMAGE }}

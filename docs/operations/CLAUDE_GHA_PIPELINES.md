@@ -89,7 +89,8 @@ Scoped by issue/PR number so that:
 Builds and caches a devcontainer image to speed up subsequent runs.
 
 - Pushes to `ghcr.io/nickborgers/home-automation-devcontainer`
-- Uses Docker layer caching
+- **Skip optimization**: Skips the build entirely when `.devcontainer/` files haven't changed in the PR and the image already exists in GHCR. Falls back to always building for new issues and non-PR contexts.
+- **Output**: `should-build` — consumed by downstream steps via conditional `if` guards
 
 #### 1.2 `claude`
 
@@ -618,7 +619,7 @@ Required approvals: 0  # Claude provides automated review
 | Reviews skipped with "already passed" | `agent-reviews-passed` label present | Close and reopen PR to re-run reviews |
 | Reviews skipped (draft PR) | PR is marked as draft | Mark PR as "Ready for review" to enable reviews |
 | Reviews skipped (config-only) | PR only modifies `configs/` files | Expected - config PRs use streamlined review |
-| Devcontainer build slow | First run or cache miss | Subsequent runs use cached image |
+| Devcontainer build slow | First run or cache miss | Subsequent runs use cached image; builds are skipped entirely when `.devcontainer/` files are unchanged |
 | Claude doesn't respond | Comment doesn't contain `@claude` | Ensure @claude is in comment |
 | Workflow failure issue not created | Diagnosed as TEST_FAILURE or CONFIG_FAILURE | Expected - these are handled by Claude Code Review |
 
