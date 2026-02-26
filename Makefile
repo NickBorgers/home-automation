@@ -10,7 +10,9 @@ run-config-tests: run-yamllint-hue run-yamllint-music run-yamllint-energy run-ya
 
 yamllint-local: ## Run yamllint on all config files natively (no Docker, requires yamllint installed)
 	@echo "🔍 Running yamllint on config files..."
-	@yamllint configs/*.yaml
+	@for f in configs/*.yaml; do \
+		yamllint $$f && echo "  ✅ $$(basename $$f) passed"; \
+	done
 	@echo "✅ All config files passed yamllint"
 
 run-yamllint-hue: build-config-tester

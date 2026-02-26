@@ -1,5 +1,5 @@
 schedule:
--   begin_backup_wake: 09:50
+  - begin_backup_wake: 09:50
     backup_wake_time: 10:15
     dusk: '19:30'
     go_to_bed: '23:30'
@@ -7,7 +7,7 @@ schedule:
     night: '23:00'
     stop_screens: '22:30'
     winddown: '22:15'
--   begin_backup_wake: 08:50
+  - begin_backup_wake: 08:50
     backup_wake_time: 09:15
     dusk: '19:30'
     go_to_bed: '23:30'
@@ -15,7 +15,7 @@ schedule:
     night: '23:00'
     stop_screens: '22:30'
     winddown: '22:15'
--   begin_backup_wake: 08:50
+  - begin_backup_wake: 08:50
     backup_wake_time: 09:15
     dusk: '19:30'
     go_to_bed: '23:30'
@@ -23,7 +23,7 @@ schedule:
     night: '23:00'
     stop_screens: '22:30'
     winddown: '22:15'
--   begin_backup_wake: 08:50
+  - begin_backup_wake: 08:50
     backup_wake_time: 09:15
     dusk: '19:30'
     go_to_bed: '23:30'
@@ -31,7 +31,7 @@ schedule:
     night: '23:00'
     stop_screens: '22:30'
     winddown: '22:15'
--   begin_backup_wake: 08:50
+  - begin_backup_wake: 08:50
     backup_wake_time: 09:15
     dusk: '19:30'
     go_to_bed: '23:30'
@@ -39,7 +39,7 @@ schedule:
     night: '23:00'
     stop_screens: '22:30'
     winddown: '22:15'
--   begin_backup_wake: 08:50
+  - begin_backup_wake: 08:50
     backup_wake_time: 09:15
     dusk: '19:30'
     go_to_bed: '23:59'
@@ -47,7 +47,7 @@ schedule:
     night: '23:59'
     stop_screens: '23:00'
     winddown: '22:00'
--   begin_backup_wake: 09:50
+  - begin_backup_wake: 09:50
     backup_wake_time: 10:15
     dusk: '19:30'
     go_to_bed: '23:59'
