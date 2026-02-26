@@ -6,13 +6,29 @@ help:
 
 ##@ Config
 
-run-config-tests: run-yamllint-hue run-yamllint-music run-spotify-validation-music ## Run all available tests of the configuration files
+run-config-tests: run-yamllint-hue run-yamllint-music run-yamllint-energy run-yamllint-schedule run-yamllint-sensor run-spotify-validation-music ## Run all available tests of the configuration files (Docker)
+
+yamllint-local: ## Run yamllint on all config files natively (no Docker, requires yamllint installed)
+	@echo "🔍 Running yamllint on config files..."
+	@for f in configs/*.yaml; do \
+		yamllint $$f && echo "  ✅ $$(basename $$f) passed"; \
+	done
+	@echo "✅ All config files passed yamllint"
 
 run-yamllint-hue: build-config-tester
-	docker run --rm --mount type=bind,source=${CURDIR}/configs/hue_config.yaml,destination=/app/hue_config.yaml node-red-config-tester yamllint hue_config.yaml
+	docker run --rm --mount type=bind,source=${CURDIR}/.yamllint,destination=/app/.yamllint --mount type=bind,source=${CURDIR}/configs/hue_config.yaml,destination=/app/hue_config.yaml node-red-config-tester yamllint hue_config.yaml
 
 run-yamllint-music: build-config-tester
-	docker run --rm --mount type=bind,source=${CURDIR}/configs/music_config.yaml,destination=/app/music_config.yaml node-red-config-tester yamllint music_config.yaml
+	docker run --rm --mount type=bind,source=${CURDIR}/.yamllint,destination=/app/.yamllint --mount type=bind,source=${CURDIR}/configs/music_config.yaml,destination=/app/music_config.yaml node-red-config-tester yamllint music_config.yaml
+
+run-yamllint-energy: build-config-tester
+	docker run --rm --mount type=bind,source=${CURDIR}/.yamllint,destination=/app/.yamllint --mount type=bind,source=${CURDIR}/configs/energy_config.yaml,destination=/app/energy_config.yaml node-red-config-tester yamllint energy_config.yaml
+
+run-yamllint-schedule: build-config-tester
+	docker run --rm --mount type=bind,source=${CURDIR}/.yamllint,destination=/app/.yamllint --mount type=bind,source=${CURDIR}/configs/schedule_config.yaml,destination=/app/schedule_config.yaml node-red-config-tester yamllint schedule_config.yaml
+
+run-yamllint-sensor: build-config-tester
+	docker run --rm --mount type=bind,source=${CURDIR}/.yamllint,destination=/app/.yamllint --mount type=bind,source=${CURDIR}/configs/sensor_config.yaml,destination=/app/sensor_config.yaml node-red-config-tester yamllint sensor_config.yaml
 
 run-spotify-validation-music: build-config-tester
 	docker run --rm --mount type=bind,source=${CURDIR}/configs/music_config.yaml,destination=/app/music_config.yaml node-red-config-tester python3 -u validate_spotify_uris.py
@@ -238,21 +254,26 @@ pre-commit: ## Run fast pre-commit checks (style, format, lint, build)
 
 pre-push: ## Run comprehensive pre-push validation (build, tests, race detector, coverage >=65%)
 	@echo ""
-	@echo "🔍 Running pre-push validation (3 steps)..."
+	@echo "🔍 Running pre-push validation (4 steps)..."
 	@echo "════════════════════════════════════════════════════════════════════════════"
 	@echo ""
-	@echo "⏳ Step 1/3: Validating generated diagrams are up-to-date..."
+	@echo "⏳ Step 1/4: Validating config files (yamllint)..."
+	@$(MAKE) yamllint-local
+	@echo ""
+	@echo "✅ Step 1/4 complete: Config files valid"
+	@echo ""
+	@echo "⏳ Step 2/4: Validating generated diagrams are up-to-date..."
 	@$(MAKE) validate-diagrams
 	@echo ""
-	@echo "✅ Step 1/3 complete: Diagrams valid"
+	@echo "✅ Step 2/4 complete: Diagrams valid"
 	@echo ""
-	@echo "⏳ Step 2/3: Running unit tests (build + race detector + coverage ≥65%)..."
+	@echo "⏳ Step 3/4: Running unit tests (build + race detector + coverage ≥65%)..."
 	@$(MAKE) unit-tests
-	@echo "✅ Step 2/3 complete: Unit tests passed"
+	@echo "✅ Step 3/4 complete: Unit tests passed"
 	@echo ""
-	@echo "⏳ Step 3/3: Running integration tests (race detector)..."
+	@echo "⏳ Step 4/4: Running integration tests (race detector)..."
 	@$(MAKE) integration-tests
-	@echo "✅ Step 3/3 complete: Integration tests passed"
+	@echo "✅ Step 4/4 complete: Integration tests passed"
 	@echo ""
 	@echo "════════════════════════════════════════════════════════════════════════════"
 	@echo "🎉 Pre-push validation passed!"

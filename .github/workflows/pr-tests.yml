@@ -138,11 +138,20 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Validate Hue YAML
+        run: make run-yamllint-hue
+
       - name: Validate Music YAML
         run: make run-yamllint-music
 
-      - name: Validate Hue YAML
-        run: make run-yamllint-hue
+      - name: Validate Energy YAML
+        run: make run-yamllint-energy
+
+      - name: Validate Schedule YAML
+        run: make run-yamllint-schedule
+
+      - name: Validate Sensor YAML
+        run: make run-yamllint-sensor
 
       - name: Validate Spotify URIs
         run: make run-spotify-validation-music
@@ -153,8 +162,11 @@ jobs:
           echo "==============================================="
           echo "        CONFIG VALIDATION SUMMARY"
           echo "==============================================="
-          echo "✅ Music YAML validation passed"
           echo "✅ Hue YAML validation passed"
+          echo "✅ Music YAML validation passed"
+          echo "✅ Energy YAML validation passed"
+          echo "✅ Schedule YAML validation passed"
+          echo "✅ Sensor YAML validation passed"
           echo "✅ Spotify URI validation passed"
           echo ""
           echo "✅ ALL CONFIG TESTS PASSED"
