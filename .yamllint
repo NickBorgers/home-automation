@@ -1,0 +1,31 @@
+---
+# yamllint configuration for home-automation config files.
+# Pins linting rules explicitly to avoid version-drift between local
+# devcontainer (apt yamllint) and CI Docker (ubuntu:jammy yamllint).
+
+extends: default
+
+rules:
+  # Allow on/off values used in hue_config.yaml for light states
+  truthy:
+    allowed-values: ['true', 'false', 'yes', 'no', 'on', 'off']
+
+  # Match Go project's 120-char line limit
+  line-length:
+    max: 120
+
+  # Config files use extra spaces after hyphens for alignment
+  hyphens:
+    max-spaces-after: 3
+
+  # Allow a trailing blank line
+  empty-lines:
+    max-end: 1
+
+  # Not all config files start with '---'
+  document-start: disable
+
+  # Allow flexible sequence indentation across config styles
+  indentation:
+    spaces: consistent
+    indent-sequences: whatever

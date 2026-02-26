@@ -6,21 +6,27 @@ help:
 
 ##@ Config
 
-run-config-tests: run-yamllint-hue run-yamllint-music run-spotify-validation-music ## Run all available tests of the configuration files (Docker)
+run-config-tests: run-yamllint-hue run-yamllint-music run-yamllint-energy run-yamllint-schedule run-yamllint-sensor run-spotify-validation-music ## Run all available tests of the configuration files (Docker)
 
-yamllint-local: ## Run yamllint on config files natively (no Docker, requires yamllint installed)
+yamllint-local: ## Run yamllint on all config files natively (no Docker, requires yamllint installed)
 	@echo "🔍 Running yamllint on config files..."
-	@yamllint configs/hue_config.yaml
-	@echo "  ✅ hue_config.yaml passed"
-	@yamllint configs/music_config.yaml
-	@echo "  ✅ music_config.yaml passed"
+	@yamllint configs/*.yaml
 	@echo "✅ All config files passed yamllint"
 
 run-yamllint-hue: build-config-tester
-	docker run --rm --mount type=bind,source=${CURDIR}/configs/hue_config.yaml,destination=/app/hue_config.yaml node-red-config-tester yamllint hue_config.yaml
+	docker run --rm --mount type=bind,source=${CURDIR}/.yamllint,destination=/app/.yamllint --mount type=bind,source=${CURDIR}/configs/hue_config.yaml,destination=/app/hue_config.yaml node-red-config-tester yamllint hue_config.yaml
 
 run-yamllint-music: build-config-tester
-	docker run --rm --mount type=bind,source=${CURDIR}/configs/music_config.yaml,destination=/app/music_config.yaml node-red-config-tester yamllint music_config.yaml
+	docker run --rm --mount type=bind,source=${CURDIR}/.yamllint,destination=/app/.yamllint --mount type=bind,source=${CURDIR}/configs/music_config.yaml,destination=/app/music_config.yaml node-red-config-tester yamllint music_config.yaml
+
+run-yamllint-energy: build-config-tester
+	docker run --rm --mount type=bind,source=${CURDIR}/.yamllint,destination=/app/.yamllint --mount type=bind,source=${CURDIR}/configs/energy_config.yaml,destination=/app/energy_config.yaml node-red-config-tester yamllint energy_config.yaml
+
+run-yamllint-schedule: build-config-tester
+	docker run --rm --mount type=bind,source=${CURDIR}/.yamllint,destination=/app/.yamllint --mount type=bind,source=${CURDIR}/configs/schedule_config.yaml,destination=/app/schedule_config.yaml node-red-config-tester yamllint schedule_config.yaml
+
+run-yamllint-sensor: build-config-tester
+	docker run --rm --mount type=bind,source=${CURDIR}/.yamllint,destination=/app/.yamllint --mount type=bind,source=${CURDIR}/configs/sensor_config.yaml,destination=/app/sensor_config.yaml node-red-config-tester yamllint sensor_config.yaml
 
 run-spotify-validation-music: build-config-tester
 	docker run --rm --mount type=bind,source=${CURDIR}/configs/music_config.yaml,destination=/app/music_config.yaml node-red-config-tester python3 -u validate_spotify_uris.py
