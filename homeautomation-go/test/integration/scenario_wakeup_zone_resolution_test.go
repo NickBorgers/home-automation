@@ -200,3 +200,151 @@ func TestScenario_WakeUp_DebouncesRapidTriggers(t *testing.T) {
 
 	t.Log("SUCCESS: Wake-up debouncing prevented duplicate zone resolution commands")
 }
+
+// ============================================================================
+// Test: Wakeup zone stops when wake sequence ends
+// ============================================================================
+
+// TestScenario_WakeUp_StopsWhenWakeSequenceEnds validates that when the wake
+// sequence ends (bedroom door opens, isWakeSequenceActive → false), the wakeup
+// zone automatically stops and the morning zone continues.
+//
+// User story: "When I open the bedroom door after my alarm goes off, the wake-up
+// music in the bedroom should stop and the whole-house morning music should
+// continue or restart (joining the kitchen, sitting room, etc.)."
+//
+// PRODUCTION BUG (2026-02-27):
+// When the bedroom door opened at 08:53 AM local time, the wakeup zone stayed
+// active instead of stopping. This happened because:
+// 1. The wakeup zone had `trigger: []` (no automatic triggers)
+// 2. musicPlaybackType was still "wakeup" (set when zone started)
+// 3. Zone resolution logic keeps zones active if they match musicPlaybackType
+//
+// FIX: Added trigger to wakeup zone requiring `isWakeSequenceActive: true`.
+// This ensures the zone automatically stops when wake sequence ends.
+func TestScenario_WakeUp_StopsWhenWakeSequenceEnds(t *testing.T) {
+	t.Parallel()
+	env, cleanup := setupWakeupZoneResolutionTest(t)
+	defer cleanup()
+
+	// ===== GIVEN: Morning phase, master asleep, then wake sequence starts with wakeup music
+	t.Log("GIVEN: Morning phase, master asleep, then wake sequence starts with wakeup music")
+
+	// Set up initial sleeping state (before wake sequence)
+	env.server.SetState("input_boolean.anyone_home", "on", map[string]interface{}{})
+	env.server.SetState("input_text.day_phase", "morning", map[string]interface{}{})
+	env.server.SetState("input_boolean.master_asleep", "on", map[string]interface{}{})
+	env.server.SetState("input_boolean.anyone_asleep", "on", map[string]interface{}{})
+	env.server.SetState("input_boolean.wake_sequence_active", "off", map[string]interface{}{})
+	env.server.SetState("input_text.music_playback_type", "", map[string]interface{}{})
+
+	waitForProcessing(t, env.stateManager)
+	time.Sleep(200 * time.Millisecond)
+
+	// Now start wake sequence (simulates sleephygiene starting wake-up)
+	env.server.SetState("input_boolean.wake_sequence_active", "on", map[string]interface{}{})
+	waitForProcessing(t, env.stateManager)
+	time.Sleep(100 * time.Millisecond)
+
+	// sleephygiene would set musicPlaybackType to wakeup to start wakeup music
+	env.server.SetState("input_text.music_playback_type", "wakeup", map[string]interface{}{})
+
+	// Wait for zone resolution to start wakeup zone
+	waitForProcessing(t, env.stateManager)
+	time.Sleep(200 * time.Millisecond)
+
+	// Verify wakeup zone is active
+	activeZones := env.music.GetActiveZones()
+	hasWakeup := false
+	for _, zone := range activeZones {
+		if zone.Name == "wakeup" {
+			hasWakeup = true
+			break
+		}
+	}
+	require.True(t, hasWakeup, "Expected wakeup zone to be active, got zones: %v", getZoneNames(activeZones))
+
+	// Clear service calls from setup
+	env.server.ClearServiceCalls()
+
+	// ===== WHEN: User opens bedroom door, wake sequence ends
+	t.Log("WHEN: User opens bedroom door, wake sequence ends (isWakeSequenceActive → false)")
+
+	// Simulate the bedroom door opening and wake sequence ending
+	// This mirrors the production bug timeline from 2026-02-27 at 08:53 AM
+	env.server.SetState("input_boolean.primary_bedroom_door_open", "on", map[string]interface{}{})
+	env.server.SetState("input_boolean.wake_sequence_active", "off", map[string]interface{}{})
+	env.server.SetState("input_boolean.anyone_asleep", "off", map[string]interface{}{})
+	env.server.SetState("input_boolean.master_asleep", "off", map[string]interface{}{})
+
+	// Wait for zone resolution
+	waitForProcessing(t, env.stateManager)
+	time.Sleep(200 * time.Millisecond)
+
+	// ===== THEN: Wakeup zone should stop, morning zone should be active
+	t.Log("THEN: Wakeup zone should stop, morning zone should activate or continue")
+
+	activeZones = env.music.GetActiveZones()
+
+	// Verify wakeup zone is no longer active
+	wakeupActive := false
+	morningActive := false
+	for _, zone := range activeZones {
+		if zone.Name == "wakeup" {
+			wakeupActive = true
+		}
+		if zone.Name == "morning" {
+			morningActive = true
+		}
+	}
+
+	assert.False(t, wakeupActive,
+		"Wakeup zone should have stopped when isWakeSequenceActive became false")
+	assert.True(t, morningActive,
+		"Morning zone should be active after wake sequence ends")
+
+	// Verify morning zone has the expected speakers (not bedroom during wake sequence)
+	if morningActive {
+		var morningZone *music.Zone
+		for _, zone := range activeZones {
+			if zone.Name == "morning" {
+				morningZone = zone
+				break
+			}
+		}
+
+		if morningZone != nil {
+			// Check that morning zone participants are correct
+			// (excluding bedroom if isMasterAsleep is still being tracked)
+			speakerNames := make([]string, len(morningZone.Participants))
+			for i, p := range morningZone.Participants {
+				speakerNames[i] = p.PlayerName
+			}
+			t.Logf("Morning zone speakers: %v", speakerNames)
+
+			// Morning zone should have at least some speakers
+			assert.NotEmpty(t, speakerNames,
+				"Morning zone should have participants after wake sequence ends")
+		}
+	}
+
+	// Verify service calls show zone transition (fade-out wakeup, start/continue morning)
+	calls := env.server.GetServiceCalls()
+	t.Logf("Total service calls after wake sequence ended: %d", len(calls))
+
+	// Log service calls for debugging
+	for i, call := range calls {
+		t.Logf("  Call %d: %s.%s entity=%v", i, call.Domain, call.Service, call.ServiceData["entity_id"])
+	}
+
+	t.Log("SUCCESS: Wakeup zone stopped when wake sequence ended, morning zone continued")
+}
+
+// getZoneNames is a helper to extract zone names from a slice of zones
+func getZoneNames(zones []*music.Zone) []string {
+	names := make([]string, len(zones))
+	for i, zone := range zones {
+		names[i] = zone.Name
+	}
+	return names
+}

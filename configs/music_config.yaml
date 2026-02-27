@@ -88,14 +88,18 @@ zones:
             value: true
           - variable: isAnyoneAsleep
             value: false
-  # sex and wakeup zones are manually triggered via musicPlaybackType
-  # They don't have automatic triggers
+  # sex zone is manually triggered via musicPlaybackType
+  # It doesn't have automatic triggers
   - name: "sex"
     priority: 150  # Highest - override mode, always takes precedence
     trigger: []
+  # wakeup zone requires wake sequence to be active
+  # When wake sequence ends, this zone automatically stops
   - name: "wakeup"
     priority: 110  # Higher than sleep - used to wake someone up
-    trigger: []
+    trigger:
+      - variable: isWakeSequenceActive
+        value: true
 
 music:
   morning:
