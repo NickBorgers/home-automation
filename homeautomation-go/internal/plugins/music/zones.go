@@ -105,9 +105,19 @@ func (m *Manager) addSpeakersToZone(zone *Zone, speakers []string, trigger strin
 		speakerSet[s] = true
 	}
 
+	leadEntityID := m.getSpeakerEntityID(zone.LeadSpeaker)
+
 	// Find participants to add
 	for _, p := range mode.Participants {
 		if !speakerSet[p.PlayerName] {
+			continue
+		}
+
+		// Check exclude_if conditions (consistent with assignSpeakersToZones)
+		if !m.shouldIncludeInZone(p) {
+			m.logger.Debug("Speaker excluded from zone during dynamic add",
+				zap.String("speaker", p.PlayerName),
+				zap.String("zone", zone.Name))
 			continue
 		}
 
@@ -119,10 +129,10 @@ func (m *Manager) addSpeakersToZone(zone *Zone, speakers []string, trigger strin
 		}
 
 		// Join the zone's Sonos group
-		leadEntityID := m.getSpeakerEntityID(zone.LeadSpeaker)
+		// entity_id = lead (group coordinator), group_members = speakers joining
 		if err := m.callServiceWithRetry("media_player", "join", map[string]interface{}{
-			"entity_id":     entityID,
-			"group_members": []string{leadEntityID},
+			"entity_id":     leadEntityID,
+			"group_members": []string{entityID},
 		}); err != nil {
 			m.logger.Error("Failed to join speaker to zone",
 				zap.String("speaker", p.PlayerName),
