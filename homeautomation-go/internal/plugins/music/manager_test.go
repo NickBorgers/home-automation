@@ -449,6 +449,98 @@ func TestLoadMusicConfig(t *testing.T) {
 	}
 }
 
+// TestProductionConfig_PrimaryBathroomFollowsBedroom validates that the Primary Bathroom
+// speaker is included in every music mode where Bedroom appears. This ensures the two
+// speakers in the primary suite are always grouped together.
+//
+// Issue #739: User observed winddown music playing without Primary Bathroom.
+func TestProductionConfig_PrimaryBathroomFollowsBedroom(t *testing.T) {
+	t.Parallel()
+
+	repoRoot := findRepoRoot(t)
+	configPath := filepath.Join(repoRoot, "configs", "music_config.yaml")
+
+	config, err := LoadConfig(configPath)
+	require.NoError(t, err, "Failed to load production music config")
+
+	// For every mode where Bedroom appears, Primary Bathroom must also appear
+	for modeName, mode := range config.Music {
+		bedroomFound := false
+		bathroomFound := false
+
+		for _, p := range mode.Participants {
+			if p.PlayerName == "Bedroom" {
+				bedroomFound = true
+			}
+			if p.PlayerName == "Primary Bathroom" {
+				bathroomFound = true
+			}
+		}
+
+		if bedroomFound {
+			assert.True(t, bathroomFound,
+				"Mode %q includes Bedroom but not Primary Bathroom — "+
+					"Primary Bathroom should follow Bedroom in all modes", modeName)
+		}
+	}
+}
+
+// TestProductionConfig_WinddownZoneAssignment validates that when dayPhase=winddown,
+// both Bedroom and Primary Bathroom are assigned to the winddown zone.
+//
+// Issue #739: Primary Bathroom speaker not included in winddown music.
+func TestProductionConfig_WinddownZoneAssignment(t *testing.T) {
+	t.Parallel()
+
+	repoRoot := findRepoRoot(t)
+	configPath := filepath.Join(repoRoot, "configs", "music_config.yaml")
+
+	config, err := LoadConfig(configPath)
+	require.NoError(t, err, "Failed to load production music config")
+
+	// Create a manager with the production config to test zone assignment
+	env := testutil.NewEnv(t)
+
+	fixedTime := time.Date(2024, 1, 15, 22, 30, 0, 0, time.UTC) // 10:30 PM = winddown
+	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
+
+	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, true, timeProvider, nil)
+	manager.SetSleepFunc(func(d time.Duration) {})
+
+	// Set state: winddown phase, someone home, nobody asleep
+	_ = env.StateMgr.SetString("dayPhase", "winddown")
+	_ = env.StateMgr.SetBool("isAnyoneHome", true)
+	_ = env.StateMgr.SetBool("isAnyoneAsleep", false)
+	_ = env.StateMgr.SetBool("isMasterAsleep", false)
+	_ = env.StateMgr.SetBool("isWakeSequenceActive", false)
+	_ = env.StateMgr.SetString("musicPlaybackType", "")
+	_ = env.StateMgr.SetBool("isTVPlaying", false)
+
+	err = manager.Start()
+	require.NoError(t, err)
+	defer manager.Stop()
+
+	time.Sleep(100 * time.Millisecond)
+	manager.WaitForSync()
+
+	// Verify winddown zone is active
+	zoneToSpeakers, _ := manager.zoneManager.assignSpeakersToZones()
+
+	winddownSpeakers, winddownActive := zoneToSpeakers["winddown"]
+	require.True(t, winddownActive, "Winddown zone should be active when dayPhase=winddown")
+
+	// Both Bedroom and Primary Bathroom must be in the winddown zone
+	speakerSet := make(map[string]bool)
+	for _, s := range winddownSpeakers {
+		speakerSet[s] = true
+	}
+
+	assert.True(t, speakerSet["Bedroom"],
+		"Bedroom should be assigned to winddown zone, got speakers: %v", winddownSpeakers)
+	assert.True(t, speakerSet["Primary Bathroom"],
+		"Primary Bathroom should be assigned to winddown zone (follows Bedroom), got speakers: %v", winddownSpeakers)
+}
+
 func TestMusicManager_ReadOnlyMode(t *testing.T) {
 	t.Parallel()
 	env := testutil.NewEnv(t)
@@ -3359,4 +3451,135 @@ func TestBuildSpeakerGroupAsync_WaitGroupCompletion(t *testing.T) {
 	if originalCalls != 3 {
 		t.Errorf("Expected 3 completed join calls after WaitGroup.Wait(), got %d", originalCalls)
 	}
+}
+
+// TestAddSpeakersToZone_JoinParameterOrder verifies that addSpeakersToZone sends the
+// media_player.join service call with correct parameter order:
+//   - entity_id = lead speaker (group coordinator)
+//   - group_members = [follower] (speaker joining the group)
+//
+// Regression test for issue #739: the parameters were previously reversed, causing
+// the follower to be set as entity_id and the lead as group_member. This made the
+// Sonos join fail or disrupt the existing group when speakers were dynamically added.
+func TestAddSpeakersToZone_JoinParameterOrder(t *testing.T) {
+	t.Parallel()
+	env := testutil.NewEnv(t)
+
+	config := &MusicConfig{
+		Music: map[string]MusicMode{
+			"winddown": {
+				Participants: []Participant{
+					{PlayerName: "Kitchen", BaseVolume: 10},
+					{PlayerName: "Primary Bathroom", BaseVolume: 6},
+				},
+				PlaybackOptions: []PlaybackOption{
+					{URI: "test:uri", MediaType: "playlist", VolumeMultiplier: 1.0},
+				},
+			},
+		},
+	}
+
+	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, false, nil, nil)
+	manager.SetSleepFunc(func(d time.Duration) {})
+
+	// Set state so shouldIncludeInZone passes (isMasterAsleep=false)
+	_ = env.StateMgr.SetBool("isMasterAsleep", false)
+
+	// Create an active zone with Kitchen as lead
+	zone := &Zone{
+		Name:        "winddown",
+		MusicType:   "winddown",
+		LeadSpeaker: "Kitchen",
+		Participants: []ParticipantWithVolume{
+			{PlayerName: "Kitchen", BaseVolume: 10, Volume: 10},
+		},
+	}
+
+	env.MockHA.ClearServiceCalls()
+
+	// Dynamically add Primary Bathroom to the active zone
+	manager.addSpeakersToZone(zone, []string{"Primary Bathroom"}, "test")
+
+	// Verify the join call has correct parameter order
+	calls := env.MockHA.GetServiceCalls()
+	var joinCalls []ha.ServiceCall
+	for _, call := range calls {
+		if call.Domain == "media_player" && call.Service == "join" {
+			joinCalls = append(joinCalls, call)
+		}
+	}
+	require.NotEmpty(t, joinCalls, "Expected at least one media_player.join call")
+
+	joinCall := joinCalls[0]
+	// entity_id must be the LEAD speaker (group coordinator)
+	entityID, ok := joinCall.Data["entity_id"].(string)
+	require.True(t, ok, "entity_id should be a string")
+	assert.Equal(t, "media_player.kitchen", entityID,
+		"entity_id must be the lead speaker (group coordinator), not the follower")
+
+	// group_members must contain the FOLLOWER (speaker joining the group)
+	groupMembers, ok := joinCall.Data["group_members"].([]string)
+	require.True(t, ok, "group_members should be a []string")
+	assert.Contains(t, groupMembers, "media_player.primary_bathroom",
+		"group_members must contain the follower speaker, not the lead")
+}
+
+// TestAddSpeakersToZone_ExcludeIfRespected verifies that addSpeakersToZone
+// checks exclude_if conditions before joining a speaker to the Sonos group.
+// This is defense-in-depth: assignSpeakersToZones already filters, but
+// addSpeakersToZone should also validate to prevent bugs in callers.
+func TestAddSpeakersToZone_ExcludeIfRespected(t *testing.T) {
+	t.Parallel()
+	env := testutil.NewEnv(t)
+
+	config := &MusicConfig{
+		Music: map[string]MusicMode{
+			"winddown": {
+				Participants: []Participant{
+					{PlayerName: "Kitchen", BaseVolume: 10},
+					{
+						PlayerName: "Primary Bathroom",
+						BaseVolume: 6,
+						ExcludeIf: []MuteCondition{
+							{Variable: "isMasterAsleep", Value: true},
+						},
+					},
+				},
+				PlaybackOptions: []PlaybackOption{
+					{URI: "test:uri", MediaType: "playlist", VolumeMultiplier: 1.0},
+				},
+			},
+		},
+	}
+
+	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, false, nil, nil)
+	manager.SetSleepFunc(func(d time.Duration) {})
+
+	// Set isMasterAsleep=true so Primary Bathroom should be excluded
+	_ = env.StateMgr.SetBool("isMasterAsleep", true)
+
+	zone := &Zone{
+		Name:        "winddown",
+		MusicType:   "winddown",
+		LeadSpeaker: "Kitchen",
+		Participants: []ParticipantWithVolume{
+			{PlayerName: "Kitchen", BaseVolume: 10, Volume: 10},
+		},
+	}
+
+	env.MockHA.ClearServiceCalls()
+
+	// Try to add Primary Bathroom — should be excluded by exclude_if
+	manager.addSpeakersToZone(zone, []string{"Primary Bathroom"}, "test")
+
+	// No join call should be made for the excluded speaker
+	calls := env.MockHA.GetServiceCalls()
+	joinCallCount := 0
+	for _, call := range calls {
+		if call.Domain == "media_player" && call.Service == "join" {
+			joinCallCount++
+		}
+	}
+	assert.Equal(t, 0, joinCallCount,
+		"No join call should be made when speaker is excluded by exclude_if condition")
 }
