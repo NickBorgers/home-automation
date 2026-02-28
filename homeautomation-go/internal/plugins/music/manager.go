@@ -164,6 +164,16 @@ func (m *Manager) SetDebounceDelay(d time.Duration) {
 	}
 }
 
+// GetActiveZones returns a copy of all currently active music zones.
+// Returns nil if the zone manager hasn't been initialized yet.
+// This is primarily used for testing and debugging.
+func (m *Manager) GetActiveZones() []*Zone {
+	if m.zoneManager == nil {
+		return nil
+	}
+	return m.zoneManager.GetActiveZones()
+}
+
 // Start begins monitoring state changes and managing music playback
 func (m *Manager) Start() error {
 	m.logger.Info("Starting Music Manager")
