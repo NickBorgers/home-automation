@@ -5,7 +5,9 @@ import (
 	"testing"
 	"time"
 
+	"homeautomation/internal/config"
 	"homeautomation/internal/plugins/music"
+	"homeautomation/internal/plugins/sleephygiene"
 	"homeautomation/internal/plugins/statetracking"
 	"homeautomation/internal/state"
 	"homeautomation/internal/testlogger"
@@ -43,6 +45,7 @@ type wakeupZoneEnv struct {
 	logger        *zap.Logger
 	stateTracking *statetracking.Manager
 	music         *music.Manager
+	sleepHygiene  *sleephygiene.Manager
 }
 
 func setupWakeupZoneResolutionTest(t *testing.T) (*wakeupZoneEnv, func()) {
@@ -53,6 +56,9 @@ func setupWakeupZoneResolutionTest(t *testing.T) (*wakeupZoneEnv, func()) {
 	// Load music config from YAML
 	musicConfig := loadTestMusicConfigFromYAML(t)
 
+	// Create config loader for sleephygiene (points to real configs directory)
+	configLoader := config.NewLoader("../../configs", logger)
+
 	// Create plugins
 	env := &wakeupZoneEnv{
 		server:        server,
@@ -60,6 +66,7 @@ func setupWakeupZoneResolutionTest(t *testing.T) (*wakeupZoneEnv, func()) {
 		logger:        logger,
 		stateTracking: statetracking.NewManager(context.Background(), client, stateManager, logger, false, nil),
 		music:         music.NewManager(context.Background(), client, stateManager, musicConfig, logger, false, nil, nil),
+		sleepHygiene:  sleephygiene.NewManager(context.Background(), client, stateManager, configLoader, logger, false, nil, nil),
 	}
 
 	// Skip real delays in music plugin
@@ -81,6 +88,7 @@ func setupWakeupZoneResolutionTest(t *testing.T) (*wakeupZoneEnv, func()) {
 
 	// Start plugins in dependency order
 	require.NoError(t, env.stateTracking.Start(), "Failed to start state tracking")
+	require.NoError(t, env.sleepHygiene.Start(), "Failed to start sleep hygiene")
 	require.NoError(t, env.music.Start(), "Failed to start music")
 
 	// Wait for plugin initialization
@@ -88,6 +96,7 @@ func setupWakeupZoneResolutionTest(t *testing.T) (*wakeupZoneEnv, func()) {
 
 	cleanup := func() {
 		env.music.Stop()
+		env.sleepHygiene.Stop()
 		env.stateTracking.Stop()
 		baseCleanup()
 	}
@@ -227,26 +236,27 @@ func TestScenario_WakeUp_StopsWhenWakeSequenceEnds(t *testing.T) {
 	env, cleanup := setupWakeupZoneResolutionTest(t)
 	defer cleanup()
 
-	// ===== GIVEN: Morning phase, master asleep, then wake sequence starts with wakeup music
-	t.Log("GIVEN: Morning phase, master asleep, then wake sequence starts with wakeup music")
+	// ===== GIVEN: Morning phase, wake sequence started, wakeup music playing
+	t.Log("GIVEN: Morning phase, wake sequence active, wakeup music playing")
 
-	// Set up initial sleeping state (before wake sequence)
+	// Simulate the production timeline: Set up initial state with wake sequence active
+	// (this causes morning zone to activate), then explicitly set musicPlaybackType="wakeup"
+	// (this causes wakeup zone to activate at T+30).
 	env.server.SetState("input_boolean.anyone_home", "on", map[string]interface{}{})
 	env.server.SetState("input_text.day_phase", "morning", map[string]interface{}{})
 	env.server.SetState("input_boolean.master_asleep", "on", map[string]interface{}{})
 	env.server.SetState("input_boolean.anyone_asleep", "on", map[string]interface{}{})
-	env.server.SetState("input_boolean.wake_sequence_active", "off", map[string]interface{}{})
-	env.server.SetState("input_text.music_playback_type", "", map[string]interface{}{})
-
-	waitForProcessing(t, env.stateManager)
-	time.Sleep(200 * time.Millisecond)
-
-	// Now start wake sequence (simulates sleephygiene starting wake-up)
 	env.server.SetState("input_boolean.wake_sequence_active", "on", map[string]interface{}{})
+
+	// Wait for initial zone resolution (morning zone should activate)
 	waitForProcessing(t, env.stateManager)
 	time.Sleep(100 * time.Millisecond)
 
-	// sleephygiene would set musicPlaybackType to wakeup to start wakeup music
+	// Clear service calls from initial setup
+	env.server.ClearServiceCalls()
+
+	// Now simulate T+30: sleephygiene sets musicPlaybackType="wakeup"
+	// This should trigger wakeup zone to start
 	env.server.SetState("input_text.music_playback_type", "wakeup", map[string]interface{}{})
 
 	// Wait for zone resolution to start wakeup zone
@@ -262,7 +272,8 @@ func TestScenario_WakeUp_StopsWhenWakeSequenceEnds(t *testing.T) {
 			break
 		}
 	}
-	require.True(t, hasWakeup, "Expected wakeup zone to be active, got zones: %v", getZoneNames(activeZones))
+
+	require.True(t, hasWakeup, "Expected wakeup zone to be active after setting musicPlaybackType=wakeup, got zones: %v", getZoneNames(activeZones))
 
 	// Clear service calls from setup
 	env.server.ClearServiceCalls()
@@ -328,16 +339,27 @@ func TestScenario_WakeUp_StopsWhenWakeSequenceEnds(t *testing.T) {
 		}
 	}
 
+	// Verify musicPlaybackType transitioned from "wakeup" to "morning"
+	// (sleephygiene clears "wakeup", then morning zone sets "morning")
+	musicType, err := env.stateManager.GetString("musicPlaybackType")
+	require.NoError(t, err, "Failed to get musicPlaybackType")
+	assert.Equal(t, "morning", musicType,
+		"musicPlaybackType should transition to 'morning' when wake sequence ends and morning zone takes over")
+
 	// Verify service calls show zone transition (fade-out wakeup, start/continue morning)
 	calls := env.server.GetServiceCalls()
 	t.Logf("Total service calls after wake sequence ended: %d", len(calls))
 
-	// Log service calls for debugging
+	// Log service calls for debugging (first 20 only to avoid clutter)
 	for i, call := range calls {
+		if i >= 20 {
+			t.Logf("  ... and %d more calls", len(calls)-20)
+			break
+		}
 		t.Logf("  Call %d: %s.%s entity=%v", i, call.Domain, call.Service, call.ServiceData["entity_id"])
 	}
 
-	t.Log("SUCCESS: Wakeup zone stopped when wake sequence ended, morning zone continued")
+	t.Log("SUCCESS: Wakeup zone stopped and musicPlaybackType cleared when wake sequence ended")
 }
 
 // getZoneNames is a helper to extract zone names from a slice of zones

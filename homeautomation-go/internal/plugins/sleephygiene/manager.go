@@ -263,6 +263,19 @@ func (m *Manager) handleMasterAsleepChange(key string, oldValue, newValue interf
 				if err := m.stateManager.SetBool("isWakeSequenceActive", false); err != nil {
 					m.logger.Error("Failed to clear isWakeSequenceActive", zap.Error(err))
 				}
+
+				// Clear musicPlaybackType if it's set to "wakeup" to ensure the wakeup zone stops.
+				// Without this, the wakeup zone would stay active even after the wake sequence ends
+				// because it matches via the musicPlaybackType fallback path (zone_manager.go:532-536).
+				// This fix resolves the production bug where opening the bedroom door during morning
+				// wake sequence left wakeup music playing instead of transitioning to morning music.
+				musicType, err := m.stateManager.GetString("musicPlaybackType")
+				if err == nil && musicType == "wakeup" {
+					m.logger.Info("Clearing wakeup musicPlaybackType since wake sequence ended")
+					if err := m.stateManager.SetString("musicPlaybackType", ""); err != nil {
+						m.logger.Error("Failed to clear musicPlaybackType", zap.Error(err))
+					}
+				}
 			}
 			// Update shadow state
 			m.shadowTracker.UpdateWakeSequenceStatus("inactive")
