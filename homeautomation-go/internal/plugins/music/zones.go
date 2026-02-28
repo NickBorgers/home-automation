@@ -141,8 +141,8 @@ func (m *Manager) addSpeakersToZone(zone *Zone, speakers []string, trigger strin
 			continue
 		}
 
-		// Calculate and set volume
-		volume := m.calculateVolume(p.BaseVolume, 1.0) // Use default multiplier
+		// Calculate and set volume using the zone's active playback option multiplier
+		volume := m.calculateVolume(p.BaseVolume, zone.VolumeMultiplier)
 
 		// Create ParticipantWithVolume to check mute conditions
 		participant := ParticipantWithVolume{

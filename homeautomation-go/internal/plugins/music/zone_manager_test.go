@@ -1123,3 +1123,87 @@ func TestUpdateZoneSpeakers_UpdatesParticipants(t *testing.T) {
 	assert.False(t, hasBedroom, "Bedroom should be removed from speakerZone")
 	zm.mu.RUnlock()
 }
+
+// TestUpdateZoneSpeakers_UsesZoneVolumeMultiplier verifies that dynamically-added
+// speakers inherit the zone's VolumeMultiplier from the active PlaybackOption,
+// rather than using a hardcoded 1.0 multiplier. (Issue #746)
+func TestUpdateZoneSpeakers_UsesZoneVolumeMultiplier(t *testing.T) {
+	t.Parallel()
+
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+
+	// Use a config with a non-1.0 VolumeMultiplier to expose the bug
+	config := &MusicConfig{
+		Zones: []ZoneConfig{
+			{
+				Name:     "sleep",
+				Priority: 100,
+				Triggers: []TriggerCondition{
+					{Variable: "isAnyoneAsleep", Value: true},
+					{Variable: "isAnyoneHome", Value: true},
+				},
+			},
+		},
+		Music: map[string]MusicMode{
+			"sleep": {
+				Participants: []Participant{
+					{PlayerName: "Bedroom", BaseVolume: 10},
+					{PlayerName: "Kitchen", BaseVolume: 20},
+				},
+				PlaybackOptions: []PlaybackOption{
+					{URI: "http://rain.example/1.m4a", MediaType: "music", VolumeMultiplier: 0.5},
+				},
+			},
+		},
+	}
+
+	mgr := NewManager(context.Background(), mockClient, stateManager, config, logger, true, nil, nil)
+	zm := NewZoneManager(mgr, config, logger)
+
+	// Set up state
+	require.NoError(t, stateManager.SetBool("isAnyoneHome", true))
+	require.NoError(t, stateManager.SetBool("isAnyoneAsleep", true))
+
+	// Simulate an active sleep zone with only Bedroom, using VolumeMultiplier=0.5
+	// BaseVolume=10 * 0.5 = volume 5
+	zm.mu.Lock()
+	zm.activeZones["sleep"] = &Zone{
+		Name:             "sleep",
+		MusicType:        "sleep",
+		Priority:         100,
+		LeadSpeaker:      "Bedroom",
+		VolumeMultiplier: 0.5,
+		Participants: []ParticipantWithVolume{
+			{PlayerName: "Bedroom", BaseVolume: 10, Volume: 5, DefaultVolume: 5},
+		},
+		StartedAt: time.Now(),
+	}
+	zm.speakerZone["Bedroom"] = "sleep"
+	zm.mu.Unlock()
+
+	// Dynamically add Kitchen speaker to the zone
+	err := zm.updateZoneSpeakers("sleep", []string{"Bedroom", "Kitchen"}, "test-dynamic-add")
+	assert.NoError(t, err)
+
+	// Verify the dynamically-added Kitchen speaker uses VolumeMultiplier=0.5
+	// Kitchen BaseVolume=20, expected volume = 20 * 0.5 = 10 (not 20 from 1.0 multiplier)
+	zm.mu.RLock()
+	zone := zm.activeZones["sleep"]
+	require.Len(t, zone.Participants, 2)
+
+	var kitchenParticipant *ParticipantWithVolume
+	for i, p := range zone.Participants {
+		if p.PlayerName == "Kitchen" {
+			kitchenParticipant = &zone.Participants[i]
+			break
+		}
+	}
+	require.NotNil(t, kitchenParticipant, "Kitchen should be in zone participants")
+	assert.Equal(t, 10, kitchenParticipant.Volume,
+		"Dynamically-added speaker should use zone's VolumeMultiplier (0.5), not hardcoded 1.0")
+	assert.Equal(t, 10, kitchenParticipant.DefaultVolume,
+		"DefaultVolume should also use zone's VolumeMultiplier")
+	zm.mu.RUnlock()
+}
