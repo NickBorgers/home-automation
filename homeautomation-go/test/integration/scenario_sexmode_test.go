@@ -3,8 +3,11 @@ package integration
 import (
 	"context"
 	"testing"
+	"time"
 
+	"homeautomation/internal/config"
 	"homeautomation/internal/plugins/sexmode"
+	"homeautomation/internal/plugins/sleephygiene"
 	"homeautomation/internal/state"
 	"homeautomation/internal/testlogger"
 
@@ -645,4 +648,183 @@ func TestScenario_SexModeShadowState_TracksCorrectly(t *testing.T) {
 
 	t.Log("  ✓ Shadow state correctly tracks deactivation")
 	t.Log("✓ Shadow state tracking verified")
+}
+
+// ============================================================================
+// Cross-Plugin Scenario Tests: Sex Mode + Sleep Hygiene (Issue #750)
+//
+// INVARIANT: Sex mode activation MUST cancel any active wake sequence.
+// If isWakeSequenceActive remains true while sex mode is active, the
+// sleephygiene plugin will eventually set musicPlaybackType="wakeup",
+// overriding the sex zone.
+// ============================================================================
+
+// setupSexModeWithSleepHygieneTest creates a test environment with both
+// the Sex Mode and Sleep Hygiene plugins running, simulating the real
+// production interaction between these plugins.
+func setupSexModeWithSleepHygieneTest(t *testing.T) (*MockHAServer, *sexmode.Manager, *sleephygiene.Manager, *state.Manager, func()) {
+	server, client, stateManager, baseCleanup := setupTest(t)
+
+	logger := testlogger.New()
+
+	// Initialize sex mode toggle to off
+	server.SetState("input_boolean.sex", "off", nil)
+
+	// Set up Eight Sleep entities with min_temp attribute for auto-detection
+	server.SetState(sexmode.EightSleepNickEntity, "heat_cool", map[string]interface{}{
+		"min_temp": float64(55),
+		"max_temp": float64(110),
+	})
+	server.SetState(sexmode.EightSleepCarolineEntity, "heat_cool", map[string]interface{}{
+		"min_temp": float64(55),
+		"max_temp": float64(110),
+	})
+
+	// Allow async plugin initialization to complete
+	waitForProcessing(t, stateManager)
+
+	// Create config loader for sleephygiene
+	configLoader := config.NewLoader("../../configs", logger)
+
+	// Create and start Sleep Hygiene plugin first (it manages the wake sequence)
+	sleepMgr := sleephygiene.NewManager(context.Background(), client, stateManager, configLoader, logger, false, nil, nil)
+	// Make sleepFunc instant for testing so scheduleWakeMusic doesn't block
+	sleepMgr.SetSleepFunc(func(d time.Duration) {})
+	require.NoError(t, sleepMgr.Start(), "Sleep Hygiene manager should start successfully")
+
+	// Create and start Sex Mode plugin
+	sexModeManager := sexmode.NewManager(context.Background(), client, stateManager, logger, false, nil)
+	require.NoError(t, sexModeManager.Start(), "Sex Mode manager should start successfully")
+
+	cleanup := func() {
+		sexModeManager.Stop()
+		sleepMgr.Stop()
+		baseCleanup()
+	}
+
+	return server, sexModeManager, sleepMgr, stateManager, cleanup
+}
+
+// TestScenario_SexModeDuringWakeSequence_CancelsWakeSequence validates that
+// activating sex mode during an active wake sequence cancels the wake sequence.
+//
+// Issue #750: Sex mode should cancel active wake sequence
+//
+// Timeline from production bug (2026-03-01):
+// 1. 15:24 — input_boolean.sex turned on via Siri
+// 2. 15:24 — sexmode activates: sets musicPlaybackType="sex"
+// 3. 15:33 — sleephygiene sets musicPlaybackType="wakeup" (wake sequence still active!)
+//
+// INVARIANT: When sex mode activates, isWakeSequenceActive MUST be set to false.
+// This prevents sleephygiene from overwriting musicPlaybackType later.
+func TestScenario_SexModeDuringWakeSequence_CancelsWakeSequence(t *testing.T) {
+	t.Parallel()
+	server, _, sleepMgr, stateManager, cleanup := setupSexModeWithSleepHygieneTest(t)
+	defer cleanup()
+
+	// GIVEN: Master is asleep, sleep music playing, wake sequence is active
+	// (Eight Sleep alarm has fired, begin_wake completed, lights fading in)
+	t.Log("GIVEN: Master is asleep with sleep music, wake sequence is active (begin_wake fired)")
+
+	require.NoError(t, stateManager.SetBool("isAnyoneHome", true))
+	require.NoError(t, stateManager.SetBool("isMasterAsleep", true))
+	require.NoError(t, stateManager.SetBool("isAnyoneAsleep", true))
+	require.NoError(t, stateManager.SetString("musicPlaybackType", "sleep"))
+	require.NoError(t, stateManager.SetString("dayPhase", "morning"))
+
+	// Set up bedroom speaker for the wake sequence
+	server.SetState("media_player.bedroom", "playing", map[string]interface{}{
+		"volume_level": 0.30,
+	})
+	waitForProcessing(t, stateManager)
+
+	// Trigger begin_wake to set isWakeSequenceActive=true
+	sleepMgr.TriggerBeginWakeForTest()
+	waitForProcessing(t, stateManager)
+
+	// Verify wake sequence is active
+	isWakeActive, err := stateManager.GetBool("isWakeSequenceActive")
+	require.NoError(t, err)
+	require.True(t, isWakeActive, "isWakeSequenceActive should be true after begin_wake")
+	t.Log("  Wake sequence confirmed active (isWakeSequenceActive=true)")
+
+	server.ClearServiceCalls()
+
+	// WHEN: Sex mode is activated (e.g., via Siri)
+	t.Log("WHEN: Sex mode is activated (input_boolean.sex → on)")
+
+	server.SetState("input_boolean.sex", "on", nil)
+
+	// THEN: musicPlaybackType should be "sex"
+	t.Log("THEN: musicPlaybackType should be 'sex'")
+	waitForStringState(t, stateManager, "musicPlaybackType", "sex", "musicPlaybackType should be 'sex' after sex mode activation")
+
+	// AND: isWakeSequenceActive should be cancelled (set to false)
+	t.Log("AND: isWakeSequenceActive should be cancelled")
+	waitForBoolState(t, stateManager, "isWakeSequenceActive", false, "isWakeSequenceActive should be false after sex mode cancels it")
+
+	t.Log("  ✓ musicPlaybackType = 'sex'")
+	t.Log("  ✓ isWakeSequenceActive = false (wake sequence cancelled)")
+}
+
+// TestScenario_SexModeDuringWakeSequence_PreventsWakeMusicOverride validates that
+// after sex mode cancels the wake sequence, the sleephygiene plugin does NOT
+// override musicPlaybackType back to "wakeup".
+//
+// This is the full timeline test that reproduces the production bug from issue #750.
+func TestScenario_SexModeDuringWakeSequence_PreventsWakeMusicOverride(t *testing.T) {
+	t.Parallel()
+	server, _, sleepMgr, stateManager, cleanup := setupSexModeWithSleepHygieneTest(t)
+	defer cleanup()
+
+	// GIVEN: Master is asleep, wake sequence is active (begin_wake done, waiting for wake)
+	t.Log("GIVEN: Master is asleep, wake sequence active, lights fading in")
+
+	require.NoError(t, stateManager.SetBool("isAnyoneHome", true))
+	require.NoError(t, stateManager.SetBool("isMasterAsleep", true))
+	require.NoError(t, stateManager.SetBool("isAnyoneAsleep", true))
+	require.NoError(t, stateManager.SetString("musicPlaybackType", "sleep"))
+	require.NoError(t, stateManager.SetString("dayPhase", "morning"))
+
+	server.SetState("media_player.bedroom", "playing", map[string]interface{}{
+		"volume_level": 0.30,
+	})
+	waitForProcessing(t, stateManager)
+
+	// T+0: Begin wake fires, sets isWakeSequenceActive=true
+	t.Log("T+0: Begin wake fires")
+	sleepMgr.TriggerBeginWakeForTest()
+	waitForProcessing(t, stateManager)
+	waitForBoolState(t, stateManager, "isWakeSequenceActive", true, "wake sequence should be active")
+
+	// T+5min (simulated): Wake fires, starts light fade-in and schedules wake music
+	t.Log("T+5min: Wake fires (lights start, wake music scheduled)")
+	sleepMgr.TriggerWakeForTest()
+	waitForProcessing(t, stateManager)
+
+	// T+9min (simulated): Sex mode activated before wake music fires at T+30
+	t.Log("T+9min: Sex mode activated during wake sequence")
+	server.SetState("input_boolean.sex", "on", nil)
+	waitForStringState(t, stateManager, "musicPlaybackType", "sex", "musicPlaybackType should be 'sex'")
+
+	// Verify wake sequence was cancelled
+	waitForBoolState(t, stateManager, "isWakeSequenceActive", false, "wake sequence should be cancelled")
+	t.Log("  ✓ Wake sequence cancelled by sex mode")
+
+	// T+30min (simulated): scheduleWakeMusic goroutine runs (sleepFunc is instant)
+	// Since isWakeSequenceActive is now false, scheduleWakeMusic should abort
+	// Give time for any goroutines to complete
+	waitForProcessing(t, stateManager)
+	time.Sleep(50 * time.Millisecond) // Allow goroutine to complete
+
+	// THEN: musicPlaybackType should STILL be "sex" (not overridden to "wakeup")
+	t.Log("T+30min: Verifying musicPlaybackType was NOT overridden by sleephygiene")
+
+	musicType, err := stateManager.GetString("musicPlaybackType")
+	require.NoError(t, err)
+	assert.Equal(t, "sex", musicType,
+		"INVARIANT VIOLATED: musicPlaybackType should still be 'sex', not overridden by sleephygiene wake music")
+
+	t.Log("  ✓ musicPlaybackType still 'sex' — sleephygiene did NOT override it")
+	t.Log("✓ Full timeline validated: sex mode protected from wake music override")
 }
