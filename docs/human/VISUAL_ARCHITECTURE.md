@@ -1036,7 +1036,9 @@ graph LR
     DayPhase --> SexModePlugin
     MasterAsleep --> SexModePlugin
     AnyoneAsleep --> SexModePlugin
+    WakeActive --> SexModePlugin
     SexModePlugin --> MusicType
+    SexModePlugin --> WakeActive
     SexModePlugin -.->|Triggers| Lighting
     SexModePlugin -.->|Controls| EightSleep[Eight Sleep]
 

@@ -145,6 +145,10 @@ func (m *Manager) handleSexModeOn() {
 
 	m.logger.Info("Activating sex mode")
 
+	// 0. Cancel any active wake sequence to prevent sleephygiene from
+	// overriding musicPlaybackType later (issue #750)
+	m.cancelWakeSequenceIfActive()
+
 	// 1. Save current music playback type and set to "sex"
 	m.saveMusicStateAndActivate()
 
@@ -245,6 +249,28 @@ func (m *Manager) handleIsAnyoneAsleepChange(key string, oldValue, newValue inte
 				m.logger.Error("Failed to turn off sex mode on wake-up", zap.Error(err))
 			}
 		}
+	}
+}
+
+// cancelWakeSequenceIfActive cancels any active wake sequence by setting
+// isWakeSequenceActive to false. This prevents the sleephygiene plugin from
+// overriding musicPlaybackType to "wakeup" after sex mode has set it to "sex".
+// See issue #750.
+func (m *Manager) cancelWakeSequenceIfActive() {
+	isWakeActive, err := m.stateManager.GetBool("isWakeSequenceActive")
+	if err != nil || !isWakeActive {
+		return
+	}
+
+	m.logger.Info("Cancelling active wake sequence (sex mode takes priority)")
+
+	if m.readOnly {
+		m.logger.Info("READ-ONLY: Would set isWakeSequenceActive to false")
+		return
+	}
+
+	if err := m.stateManager.SetBool("isWakeSequenceActive", false); err != nil {
+		m.logger.Error("Failed to cancel wake sequence", zap.Error(err))
 	}
 }
 
