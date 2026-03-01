@@ -15,14 +15,15 @@ import (
 
 // Zone represents an active music zone with its own Sonos group
 type Zone struct {
-	Name         string
-	MusicType    string
-	Priority     int
-	LeadSpeaker  string
-	Participants []ParticipantWithVolume
-	PlaylistURI  string
-	MediaType    string
-	StartedAt    time.Time
+	Name             string
+	MusicType        string
+	Priority         int
+	LeadSpeaker      string
+	Participants     []ParticipantWithVolume
+	PlaylistURI      string
+	MediaType        string
+	VolumeMultiplier float64 // from active PlaybackOption; used when speakers are added dynamically
+	StartedAt        time.Time
 
 	// Playback monitoring (managed by Manager)
 	monitorCancel context.CancelFunc
@@ -868,14 +869,15 @@ func (zm *ZoneManager) startZone(zoneName string, speakers []string, trigger str
 
 	// Create zone struct
 	zone := &Zone{
-		Name:         zoneName,
-		MusicType:    zoneName,
-		Priority:     zoneConfig.Priority,
-		LeadSpeaker:  leadSpeaker,
-		Participants: participants,
-		PlaylistURI:  playbackOption.URI,
-		MediaType:    playbackOption.MediaType,
-		StartedAt:    time.Now(),
+		Name:             zoneName,
+		MusicType:        zoneName,
+		Priority:         zoneConfig.Priority,
+		LeadSpeaker:      leadSpeaker,
+		Participants:     participants,
+		PlaylistURI:      playbackOption.URI,
+		MediaType:        playbackOption.MediaType,
+		VolumeMultiplier: playbackOption.VolumeMultiplier,
+		StartedAt:        time.Now(),
 	}
 
 	// Store zone state
@@ -1023,7 +1025,7 @@ func (zm *ZoneManager) updateZoneSpeakers(zoneName string, newSpeakers []string,
 		for _, s := range speakersToAdd {
 			for _, p := range mode.Participants {
 				if p.PlayerName == s {
-					volume := zm.manager.calculateVolume(p.BaseVolume, 1.0)
+					volume := zm.manager.calculateVolume(p.BaseVolume, zone.VolumeMultiplier)
 					updatedParticipants = append(updatedParticipants, ParticipantWithVolume{
 						PlayerName:    p.PlayerName,
 						BaseVolume:    p.BaseVolume,
