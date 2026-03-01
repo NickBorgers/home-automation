@@ -232,7 +232,7 @@ music:
           - variable: isTVPlaying
             value: true
       - player_name: "Bedroom"
-        base_volume: 6
+        base_volume: 8
         exclude_if:
           - variable: isMasterAsleep
             value: true
@@ -245,7 +245,7 @@ music:
         base_volume: 8
         leave_muted_if: []
       - player_name: "Primary Bathroom"
-        base_volume: 6
+        base_volume: 8
         exclude_if:
           - variable: isMasterAsleep
             value: true
