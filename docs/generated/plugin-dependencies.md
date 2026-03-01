@@ -91,6 +91,7 @@ graph LR
     music --> musicPlaybackType
     music --> musicPlaylistRotation
     reset --> reset
+    sexmode --> isWakeSequenceActive
     sexmode --> musicPlaybackType
     sleephygiene --> currentlyPlayingMusic
     sleephygiene --> isFadeOutInProgress
