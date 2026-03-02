@@ -94,6 +94,9 @@ type HAClient interface {
 	GetConnectionDuration() time.Duration
 	GetDevices() ([]*Device, error)
 	GetEntityRegistry() ([]*EntityRegistryEntry, error)
+	// ReloadConfigEntry reloads a Home Assistant config entry by its entry ID.
+	// Used to recover stale integrations (e.g., Bravia TV).
+	ReloadConfigEntry(ctx context.Context, entryID string) error
 	// WaitForHandlers blocks until all in-flight event handler goroutines complete.
 	// Used in tests to replace time.Sleep-based synchronization with deterministic waiting.
 	WaitForHandlers()
@@ -696,6 +699,8 @@ func (c *Client) sendMessage(msg interface{}) (*Message, error) {
 	case *DeviceRegistryListRequest:
 		m.ID = msgID
 	case *EntityRegistryListRequest:
+		m.ID = msgID
+	case *ConfigEntryReloadRequest:
 		m.ID = msgID
 	default:
 		c.writeMu.Unlock()
@@ -1366,4 +1371,21 @@ func (c *Client) GetEntityRegistry() ([]*EntityRegistryEntry, error) {
 	}
 
 	return entities, nil
+}
+
+// ReloadConfigEntry reloads a Home Assistant config entry by its entry ID.
+// This sends a config_entries/reload WebSocket command which is equivalent to
+// POST /api/config/config_entries/entry/{entry_id}/reload.
+func (c *Client) ReloadConfigEntry(ctx context.Context, entryID string) error {
+	req := &ConfigEntryReloadRequest{
+		Type:    "config_entries/reload",
+		EntryID: entryID,
+	}
+
+	_, err := c.sendMessage(req)
+	if err != nil {
+		return fmt.Errorf("failed to reload config entry %s: %w", entryID, err)
+	}
+
+	return nil
 }

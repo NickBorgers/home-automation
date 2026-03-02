@@ -42,6 +42,18 @@ type MockClient struct {
 	devicesMu      sync.RWMutex
 	entityRegistry []*EntityRegistryEntry
 	entityRegMu    sync.RWMutex
+
+	// Config entry reload tracking
+	configReloads   []ConfigEntryReload
+	configReloadsMu sync.Mutex
+	reloadErrors    map[string]error // key: entry_id
+	reloadErrorsMu  sync.RWMutex
+}
+
+// ConfigEntryReload records a config entry reload for testing
+type ConfigEntryReload struct {
+	EntryID string
+	Time    time.Time
 }
 
 func (m *MockClient) clearSubscribers() {
@@ -83,6 +95,8 @@ func NewMockClient() *MockClient {
 		serviceFailError:  make(map[string]error),
 		stateSequences:    make(map[string][]string),
 		stateSequenceIdx:  make(map[string]int),
+		configReloads:     make([]ConfigEntryReload, 0),
+		reloadErrors:      make(map[string]error),
 		connected:         false,
 	}
 }
@@ -719,4 +733,57 @@ func (m *MockClient) AddEntityRegistryEntry(entry *EntityRegistryEntry) {
 	m.entityRegMu.Lock()
 	defer m.entityRegMu.Unlock()
 	m.entityRegistry = append(m.entityRegistry, entry)
+}
+
+// ReloadConfigEntry records a config entry reload for testing.
+func (m *MockClient) ReloadConfigEntry(ctx context.Context, entryID string) error {
+	select {
+	case <-ctx.Done():
+		return fmt.Errorf("config entry reload cancelled: %w", ctx.Err())
+	default:
+	}
+
+	m.reloadErrorsMu.RLock()
+	if err, exists := m.reloadErrors[entryID]; exists {
+		m.reloadErrorsMu.RUnlock()
+		return err
+	}
+	m.reloadErrorsMu.RUnlock()
+
+	m.configReloadsMu.Lock()
+	m.configReloads = append(m.configReloads, ConfigEntryReload{
+		EntryID: entryID,
+		Time:    time.Now(),
+	})
+	m.configReloadsMu.Unlock()
+
+	return nil
+}
+
+// SetReloadError configures the mock to return an error for a config entry reload.
+func (m *MockClient) SetReloadError(entryID string, err error) {
+	m.reloadErrorsMu.Lock()
+	defer m.reloadErrorsMu.Unlock()
+	if err == nil {
+		delete(m.reloadErrors, entryID)
+	} else {
+		m.reloadErrors[entryID] = err
+	}
+}
+
+// GetConfigEntryReloads returns all recorded config entry reloads.
+func (m *MockClient) GetConfigEntryReloads() []ConfigEntryReload {
+	m.configReloadsMu.Lock()
+	defer m.configReloadsMu.Unlock()
+
+	reloads := make([]ConfigEntryReload, len(m.configReloads))
+	copy(reloads, m.configReloads)
+	return reloads
+}
+
+// ClearConfigEntryReloads clears the config entry reload history.
+func (m *MockClient) ClearConfigEntryReloads() {
+	m.configReloadsMu.Lock()
+	defer m.configReloadsMu.Unlock()
+	m.configReloads = make([]ConfigEntryReload, 0)
 }

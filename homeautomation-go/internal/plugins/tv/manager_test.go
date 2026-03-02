@@ -1548,3 +1548,541 @@ func TestTVManager_PowerCycleRecovery_AllRetriesExhausted(t *testing.T) {
 			sleepCount, sleepDurations)
 	}
 }
+
+// ============================================================================
+// Bravia Staleness Detection Tests
+// ============================================================================
+
+func TestTVManager_BraviaStaleness_HDMIInputChange_TriggersReload(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
+	manager.sleepFunc = func(d time.Duration) {}
+	manager.timeNow = time.Now
+
+	// Set up initial states: sync box is on, TV remote reports "off" (stale)
+	if err := stateMgr.SetBool("isTVon", true); err != nil {
+		t.Fatalf("Failed to set isTVon: %v", err)
+	}
+	// TV remote is off (stale Bravia integration)
+	manager.tvRemoteMu.Lock()
+	manager.tvRemoteOn = false
+	manager.tvRemoteMu.Unlock()
+
+	// Also set sync box HDMI input state for post-reload recalculation
+	mockHA.SetState(SyncBoxHDMIInputEntity, "Nintendo Switch", nil)
+	// After reload, TV remote should report "on"
+	mockHA.SetState(TVRemoteEntity, "on", nil)
+
+	// Trigger HDMI input change
+	newState := &ha.State{
+		EntityID: SyncBoxHDMIInputEntity,
+		State:    "Nintendo Switch",
+	}
+	manager.handleHDMIInputChange(SyncBoxHDMIInputEntity, nil, newState)
+
+	// Wait for async reload
+	time.Sleep(100 * time.Millisecond)
+
+	// Verify Bravia reload was triggered
+	reloads := mockHA.GetConfigEntryReloads()
+	if len(reloads) != 1 {
+		t.Fatalf("Expected 1 config entry reload, got %d", len(reloads))
+	}
+	if reloads[0].EntryID != BraviaEntryID {
+		t.Errorf("Expected reload for entry %s, got %s", BraviaEntryID, reloads[0].EntryID)
+	}
+
+	// Verify reload state was tracked
+	lastReload, dailyCount, _ := manager.GetBraviaReloadState()
+	if lastReload.IsZero() {
+		t.Error("Expected lastBraviaReload to be set")
+	}
+	if dailyCount != 1 {
+		t.Errorf("Expected dailyBraviaReloadCount to be 1, got %d", dailyCount)
+	}
+}
+
+func TestTVManager_BraviaStaleness_SyncBoxPowerOn_TriggersReload(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
+	manager.sleepFunc = func(d time.Duration) {}
+	manager.timeNow = time.Now
+
+	// TV remote reports "off" (stale Bravia integration)
+	manager.tvRemoteMu.Lock()
+	manager.tvRemoteOn = false
+	manager.tvRemoteMu.Unlock()
+
+	// Set up mock states for post-reload verification
+	mockHA.SetState(SyncBoxHDMIInputEntity, "Xbox", nil)
+	mockHA.SetState(TVRemoteEntity, "on", nil)
+
+	// Simulate sync box turning on (which sets isTVon=true internally)
+	newState := &ha.State{
+		EntityID: SyncBoxSoftwarePowerEntity,
+		State:    "on",
+	}
+	manager.handleSyncBoxPowerChange(SyncBoxSoftwarePowerEntity, nil, newState)
+
+	// Wait for async reload
+	time.Sleep(100 * time.Millisecond)
+
+	// Verify Bravia reload was triggered
+	reloads := mockHA.GetConfigEntryReloads()
+	if len(reloads) != 1 {
+		t.Fatalf("Expected 1 config entry reload, got %d", len(reloads))
+	}
+	if reloads[0].EntryID != BraviaEntryID {
+		t.Errorf("Expected reload for entry %s, got %s", BraviaEntryID, reloads[0].EntryID)
+	}
+}
+
+func TestTVManager_BraviaStaleness_NoReload_WhenTVRemoteOn(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
+	manager.sleepFunc = func(d time.Duration) {}
+	manager.timeNow = time.Now
+
+	// Sync box is on, TV remote is also on (no mismatch)
+	if err := stateMgr.SetBool("isTVon", true); err != nil {
+		t.Fatalf("Failed to set isTVon: %v", err)
+	}
+	manager.tvRemoteMu.Lock()
+	manager.tvRemoteOn = true
+	manager.tvRemoteMu.Unlock()
+
+	mockHA.SetState(SyncBoxHDMIInputEntity, "Nintendo Switch", nil)
+
+	// Trigger HDMI input change
+	newState := &ha.State{
+		EntityID: SyncBoxHDMIInputEntity,
+		State:    "Nintendo Switch",
+	}
+	manager.handleHDMIInputChange(SyncBoxHDMIInputEntity, nil, newState)
+
+	// Wait for any potential async operations
+	time.Sleep(100 * time.Millisecond)
+
+	// Verify NO reload was triggered (no mismatch)
+	reloads := mockHA.GetConfigEntryReloads()
+	if len(reloads) != 0 {
+		t.Errorf("Expected 0 config entry reloads when TV remote is on, got %d", len(reloads))
+	}
+}
+
+func TestTVManager_BraviaStaleness_NoReload_WhenSyncBoxOff(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
+	manager.sleepFunc = func(d time.Duration) {}
+	manager.timeNow = time.Now
+
+	// Sync box is off, TV remote is off (consistent — both off)
+	if err := stateMgr.SetBool("isTVon", false); err != nil {
+		t.Fatalf("Failed to set isTVon: %v", err)
+	}
+	manager.tvRemoteMu.Lock()
+	manager.tvRemoteOn = false
+	manager.tvRemoteMu.Unlock()
+
+	mockHA.SetState(SyncBoxHDMIInputEntity, "Xbox", nil)
+
+	// Trigger HDMI input change
+	newState := &ha.State{
+		EntityID: SyncBoxHDMIInputEntity,
+		State:    "Xbox",
+	}
+	manager.handleHDMIInputChange(SyncBoxHDMIInputEntity, nil, newState)
+
+	time.Sleep(100 * time.Millisecond)
+
+	// Verify NO reload when sync box is off
+	reloads := mockHA.GetConfigEntryReloads()
+	if len(reloads) != 0 {
+		t.Errorf("Expected 0 config entry reloads when sync box is off, got %d", len(reloads))
+	}
+}
+
+func TestTVManager_BraviaReload_Cooldown(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
+	manager.sleepFunc = func(d time.Duration) {}
+
+	currentTime := time.Now()
+	manager.timeNow = func() time.Time { return currentTime }
+
+	// Set up stale state
+	if err := stateMgr.SetBool("isTVon", true); err != nil {
+		t.Fatalf("Failed to set isTVon: %v", err)
+	}
+	manager.tvRemoteMu.Lock()
+	manager.tvRemoteOn = false
+	manager.tvRemoteMu.Unlock()
+
+	mockHA.SetState(TVRemoteEntity, "on", nil)
+	mockHA.SetState(SyncBoxHDMIInputEntity, "Xbox", nil)
+
+	// Simulate a recent reload (within cooldown period)
+	manager.braviaMu.Lock()
+	manager.lastBraviaReload = currentTime.Add(-2 * time.Minute) // 2 min ago, cooldown is 5 min
+	manager.braviaMu.Unlock()
+
+	// Trigger HDMI input change
+	newState := &ha.State{
+		EntityID: SyncBoxHDMIInputEntity,
+		State:    "Xbox",
+	}
+	manager.handleHDMIInputChange(SyncBoxHDMIInputEntity, nil, newState)
+
+	time.Sleep(100 * time.Millisecond)
+
+	// Verify NO reload (in cooldown)
+	reloads := mockHA.GetConfigEntryReloads()
+	if len(reloads) != 0 {
+		t.Errorf("Expected 0 config entry reloads during cooldown, got %d", len(reloads))
+	}
+}
+
+func TestTVManager_BraviaReload_MaxDailyLimit(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
+	manager.sleepFunc = func(d time.Duration) {}
+
+	currentTime := time.Now()
+	manager.timeNow = func() time.Time { return currentTime }
+
+	// Set up stale state
+	if err := stateMgr.SetBool("isTVon", true); err != nil {
+		t.Fatalf("Failed to set isTVon: %v", err)
+	}
+	manager.tvRemoteMu.Lock()
+	manager.tvRemoteOn = false
+	manager.tvRemoteMu.Unlock()
+
+	mockHA.SetState(TVRemoteEntity, "on", nil)
+	mockHA.SetState(SyncBoxHDMIInputEntity, "Xbox", nil)
+
+	// Already at max daily reloads
+	manager.braviaMu.Lock()
+	manager.dailyBraviaReloadCount = BraviaMaxDailyReloads
+	manager.braviaReloadCountResetAt = currentTime
+	manager.braviaMu.Unlock()
+
+	// Trigger HDMI input change
+	newState := &ha.State{
+		EntityID: SyncBoxHDMIInputEntity,
+		State:    "Xbox",
+	}
+	manager.handleHDMIInputChange(SyncBoxHDMIInputEntity, nil, newState)
+
+	time.Sleep(100 * time.Millisecond)
+
+	// Verify NO reload (max daily reached)
+	reloads := mockHA.GetConfigEntryReloads()
+	if len(reloads) != 0 {
+		t.Errorf("Expected 0 config entry reloads at max daily limit, got %d", len(reloads))
+	}
+}
+
+func TestTVManager_BraviaReload_ReadOnlyMode(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, true) // Read-only mode
+
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, true, nil)
+	manager.sleepFunc = func(d time.Duration) {}
+	manager.timeNow = time.Now
+
+	// Set up stale state
+	if err := stateMgr.SetBool("isTVon", true); err != nil {
+		// In read-only mode, SetBool returns error - need to set up differently
+		// Use the internal tracking directly
+	}
+
+	// Force isTVon via direct state manager (non-read-only) or use the internal mock
+	// Since stateMgr is read-only, we need a workaround
+	roStateMgr := state.NewManager(mockHA, logger, false)
+	roManager := NewManager(context.Background(), mockHA, roStateMgr, logger, true, nil)
+	roManager.sleepFunc = func(d time.Duration) {}
+	roManager.timeNow = time.Now
+
+	if err := roStateMgr.SetBool("isTVon", true); err != nil {
+		t.Fatalf("Failed to set isTVon: %v", err)
+	}
+	roManager.tvRemoteMu.Lock()
+	roManager.tvRemoteOn = false
+	roManager.tvRemoteMu.Unlock()
+
+	mockHA.SetState(TVRemoteEntity, "on", nil)
+	mockHA.SetState(SyncBoxHDMIInputEntity, "Xbox", nil)
+
+	// Trigger HDMI input change
+	newState := &ha.State{
+		EntityID: SyncBoxHDMIInputEntity,
+		State:    "Xbox",
+	}
+	roManager.handleHDMIInputChange(SyncBoxHDMIInputEntity, nil, newState)
+
+	time.Sleep(100 * time.Millisecond)
+
+	// Verify NO reload in read-only mode
+	reloads := mockHA.GetConfigEntryReloads()
+	if len(reloads) != 0 {
+		t.Errorf("Expected 0 config entry reloads in read-only mode, got %d", len(reloads))
+	}
+}
+
+func TestTVManager_BraviaReload_InProgressSkipsDuplicate(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
+	manager.timeNow = time.Now
+
+	if err := stateMgr.SetBool("isTVon", true); err != nil {
+		t.Fatalf("Failed to set isTVon: %v", err)
+	}
+	manager.tvRemoteMu.Lock()
+	manager.tvRemoteOn = false
+	manager.tvRemoteMu.Unlock()
+
+	mockHA.SetState(TVRemoteEntity, "on", nil)
+	mockHA.SetState(SyncBoxHDMIInputEntity, "Xbox", nil)
+
+	// Use a channel to control when the first reload completes
+	reloadStarted := make(chan struct{}, 1)
+	reloadComplete := make(chan struct{})
+
+	manager.sleepFunc = func(d time.Duration) {
+		select {
+		case reloadStarted <- struct{}{}:
+		default:
+		}
+		<-reloadComplete
+	}
+
+	// Start first reload
+	go manager.reloadBraviaIntegration("test")
+
+	// Wait for first reload to start
+	<-reloadStarted
+
+	// Verify reload is in progress
+	_, _, inProgress := manager.GetBraviaReloadState()
+	if !inProgress {
+		t.Error("Expected reload to be in progress")
+	}
+
+	// Try to start second reload (should skip)
+	secondDone := make(chan struct{})
+	go func() {
+		manager.reloadBraviaIntegration("test2")
+		close(secondDone)
+	}()
+
+	// Second reload should return immediately
+	select {
+	case <-secondDone:
+		// Good
+	case <-time.After(100 * time.Millisecond):
+		t.Error("Second reload should have returned immediately")
+	}
+
+	// Allow first reload to complete
+	close(reloadComplete)
+	time.Sleep(50 * time.Millisecond)
+
+	// Verify only one reload happened
+	reloads := mockHA.GetConfigEntryReloads()
+	if len(reloads) != 1 {
+		t.Errorf("Expected exactly 1 config entry reload, got %d", len(reloads))
+	}
+}
+
+func TestTVManager_BraviaReload_PostReloadRecalculation(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
+	manager.sleepFunc = func(d time.Duration) {}
+	manager.timeNow = time.Now
+
+	// Set up stale state
+	if err := stateMgr.SetBool("isTVon", true); err != nil {
+		t.Fatalf("Failed to set isTVon: %v", err)
+	}
+	manager.tvRemoteMu.Lock()
+	manager.tvRemoteOn = false
+	manager.tvRemoteMu.Unlock()
+
+	// After reload, TV remote will report "on"
+	mockHA.SetState(TVRemoteEntity, "on", nil)
+	mockHA.SetState(SyncBoxHDMIInputEntity, "Nintendo Switch", nil)
+
+	// Trigger staleness detection
+	newState := &ha.State{
+		EntityID: SyncBoxHDMIInputEntity,
+		State:    "Nintendo Switch",
+	}
+	manager.handleHDMIInputChange(SyncBoxHDMIInputEntity, nil, newState)
+
+	// Wait for async reload and recalculation
+	time.Sleep(100 * time.Millisecond)
+
+	// Verify TV remote state was updated after reload
+	manager.tvRemoteMu.RLock()
+	tvPanelOn := manager.tvRemoteOn
+	manager.tvRemoteMu.RUnlock()
+
+	if !tvPanelOn {
+		t.Error("Expected tvRemoteOn to be true after Bravia reload")
+	}
+
+	// Verify isTVPlaying was recalculated (non-AppleTV input + TV on = playing)
+	isTVPlaying, err := stateMgr.GetBool("isTVPlaying")
+	if err != nil {
+		t.Fatalf("Failed to get isTVPlaying: %v", err)
+	}
+	if !isTVPlaying {
+		t.Error("Expected isTVPlaying=true after Bravia reload (Nintendo Switch input, TV panel on)")
+	}
+}
+
+func TestTVManager_BraviaReload_ShadowStateTracking(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
+	manager.sleepFunc = func(d time.Duration) {}
+	manager.timeNow = time.Now
+
+	// Verify initial shadow state
+	shadowState := manager.GetShadowState()
+	if shadowState.Outputs.BraviaReloadCount != 0 {
+		t.Errorf("Expected initial BraviaReloadCount to be 0, got %d", shadowState.Outputs.BraviaReloadCount)
+	}
+	if !shadowState.Outputs.LastBraviaReload.IsZero() {
+		t.Error("Expected initial LastBraviaReload to be zero")
+	}
+
+	// Set up stale state and trigger reload
+	if err := stateMgr.SetBool("isTVon", true); err != nil {
+		t.Fatalf("Failed to set isTVon: %v", err)
+	}
+	manager.tvRemoteMu.Lock()
+	manager.tvRemoteOn = false
+	manager.tvRemoteMu.Unlock()
+
+	mockHA.SetState(TVRemoteEntity, "on", nil)
+	mockHA.SetState(SyncBoxHDMIInputEntity, "Xbox", nil)
+
+	// Trigger
+	newState := &ha.State{
+		EntityID: SyncBoxHDMIInputEntity,
+		State:    "Xbox",
+	}
+	manager.handleHDMIInputChange(SyncBoxHDMIInputEntity, nil, newState)
+
+	time.Sleep(100 * time.Millisecond)
+
+	// Verify shadow state was updated
+	shadowState = manager.GetShadowState()
+	if shadowState.Outputs.BraviaReloadCount != 1 {
+		t.Errorf("Expected BraviaReloadCount to be 1, got %d", shadowState.Outputs.BraviaReloadCount)
+	}
+	if shadowState.Outputs.LastBraviaReload.IsZero() {
+		t.Error("Expected LastBraviaReload to be set after reload")
+	}
+}
+
+func TestTVManager_BraviaReload_DailyCounterReset(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
+	manager.sleepFunc = func(d time.Duration) {}
+
+	currentTime := time.Now()
+	manager.timeNow = func() time.Time { return currentTime }
+
+	// Set up stale state
+	if err := stateMgr.SetBool("isTVon", true); err != nil {
+		t.Fatalf("Failed to set isTVon: %v", err)
+	}
+	manager.tvRemoteMu.Lock()
+	manager.tvRemoteOn = false
+	manager.tvRemoteMu.Unlock()
+
+	mockHA.SetState(TVRemoteEntity, "on", nil)
+	mockHA.SetState(SyncBoxHDMIInputEntity, "Xbox", nil)
+
+	// Simulate reloads from more than 24 hours ago
+	manager.braviaMu.Lock()
+	manager.dailyBraviaReloadCount = 5
+	manager.braviaReloadCountResetAt = currentTime.Add(-25 * time.Hour)
+	manager.braviaMu.Unlock()
+
+	// Trigger HDMI input change
+	newState := &ha.State{
+		EntityID: SyncBoxHDMIInputEntity,
+		State:    "Xbox",
+	}
+	manager.handleHDMIInputChange(SyncBoxHDMIInputEntity, nil, newState)
+
+	time.Sleep(100 * time.Millisecond)
+
+	// Verify reload WAS triggered (counter was reset)
+	reloads := mockHA.GetConfigEntryReloads()
+	if len(reloads) != 1 {
+		t.Errorf("Expected 1 config entry reload after daily reset, got %d", len(reloads))
+	}
+
+	// Verify daily count was reset and incremented to 1
+	_, dailyCount, _ := manager.GetBraviaReloadState()
+	if dailyCount != 1 {
+		t.Errorf("Expected dailyBraviaReloadCount to be 1 after reset, got %d", dailyCount)
+	}
+}

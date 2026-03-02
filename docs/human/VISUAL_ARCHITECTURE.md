@@ -116,6 +116,8 @@ graph TB
     Energy -.->|Register Shadow| ShadowTracker
 
     TV -->|Get/Set State| StateManager
+    TV -->|Call Services| HAClient
+    TV -.->|Register Shadow| ShadowTracker
 
     Sleep -->|Get/Set State| StateManager
     Sleep -->|Call Services| HAClient
