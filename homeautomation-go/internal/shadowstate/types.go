@@ -759,6 +759,8 @@ type EnvironmentalOutputs struct {
 	AlertLevel           string                 `json:"alertLevel"`                     // Overall humidity level: "none", "warning", "critical"
 	ConditionStartTime   time.Time              `json:"conditionStartTime,omitempty"`   // When current condition started
 	IsSustained          bool                   `json:"isSustained"`                    // Whether condition is sustained (30+ min)
+	OutdoorHumidity      float64                `json:"outdoorHumidity"`                // Current outdoor reference humidity
+	OutdoorHumidityValid bool                   `json:"outdoorHumidityValid"`           // Whether outdoor reading is available
 	LastNotification     *NotificationRecord    `json:"lastNotification,omitempty"`     // Last alert notification sent
 	LastResolutionNotice *NotificationRecord    `json:"lastResolutionNotice,omitempty"` // Last resolution notification sent
 	LastWaterLeakNotice  *WaterLeakNotification `json:"lastWaterLeakNotice,omitempty"`  // Last water leak notification sent
@@ -767,12 +769,13 @@ type EnvironmentalOutputs struct {
 
 // HumiditySensorData represents a single humidity sensor's state for shadow tracking
 type HumiditySensorData struct {
-	EntityID     string  `json:"entityId"`
-	FriendlyName string  `json:"friendlyName"`
-	DeviceID     string  `json:"deviceId,omitempty"`
-	IsIndoor     bool    `json:"isIndoor"` // true = alerts enabled, false = informational only
-	Value        float64 `json:"value"`
-	Valid        bool    `json:"valid"`
+	EntityID        string  `json:"entityId"`
+	FriendlyName    string  `json:"friendlyName"`
+	DeviceID        string  `json:"deviceId,omitempty"`
+	IsIndoor        bool    `json:"isIndoor"`        // true = alerts enabled, false = informational only
+	IsUnconditioned bool    `json:"isUnconditioned"` // true = unconditioned space (barn, attic) with relaxed thresholds
+	Value           float64 `json:"value"`
+	Valid           bool    `json:"valid"`
 }
 
 // WaterLeakSensorData represents a discovered water leak sensor

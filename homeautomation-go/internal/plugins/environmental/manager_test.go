@@ -15,9 +15,11 @@ import (
 
 // Test sensor entity IDs
 const (
-	testIndoorSensor1  = "sensor.indoor_humidity_1"
-	testIndoorSensor2  = "sensor.indoor_humidity_2"
-	testOutdoorSensor1 = "sensor.outdoor_humidity_1"
+	testIndoorSensor1        = "sensor.indoor_humidity_1"
+	testIndoorSensor2        = "sensor.indoor_humidity_2"
+	testOutdoorSensor1       = "sensor.outdoor_humidity_1"
+	testUnconditionedSensor1 = "sensor.unconditioned_humidity_1"
+	testWeatherStation       = OutdoorHumidityEntityID // "sensor.weather_station_humidity"
 )
 
 // setupMockEnvironment creates a mock HA client with test devices and entity registry
@@ -1886,5 +1888,592 @@ func TestEnvironmentalManager_WaterLeak_RenotificationAfterClear(t *testing.T) {
 	notificationCount := countNtfyNotifications(mockNtfy)
 	if notificationCount != 2 {
 		t.Errorf("Expected 2 notifications (new leak after clearing), got %d", notificationCount)
+	}
+}
+
+// ============================================================================
+// Unconditioned Space / Outdoor Humidity Comparison Tests
+// ============================================================================
+
+func TestEnvironmentalManager_UnconditionedSensor_SuppressedByOutdoor(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	mockNtfy := ntfy.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+	mockClock := clock.NewMockClock(time.Now())
+
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
+
+	// Add unconditioned sensor (barn) and set outdoor humidity
+	manager.AddSensor(&HumiditySensor{
+		EntityID:        testUnconditionedSensor1,
+		FriendlyName:    "Barn Humidity",
+		IsIndoor:        true,
+		IsUnconditioned: true,
+		Valid:           true,
+	})
+	manager.SetOutdoorHumidity(70.0) // Outdoor at 70%
+
+	// Simulate barn at 61% (below outdoor 70% + 5% margin = 75%)
+	// This matches the issue scenario: barn at 61%, outdoor at ~70%
+	manager.SimulateSensorChange(testUnconditionedSensor1, 61.0)
+	mockClock.Advance(31 * time.Minute)
+	manager.SimulateSensorChange(testUnconditionedSensor1, 61.0)
+
+	// Should NOT trigger alert (suppressed - tracking outdoor humidity)
+	alertLevel := manager.GetCurrentState()
+	if alertLevel != "none" {
+		t.Errorf("Expected no alert for unconditioned sensor tracking outdoor humidity, got '%s'", alertLevel)
+	}
+
+	notificationCount := countNtfyNotifications(mockNtfy)
+	if notificationCount > 0 {
+		t.Errorf("Expected no notifications for suppressed unconditioned sensor, got %d", notificationCount)
+	}
+}
+
+func TestEnvironmentalManager_UnconditionedSensor_AtticSuppressedByOutdoor(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	mockNtfy := ntfy.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+	mockClock := clock.NewMockClock(time.Now())
+
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
+
+	// Add unconditioned sensor (attic) and set outdoor humidity
+	manager.AddSensor(&HumiditySensor{
+		EntityID:        testUnconditionedSensor1,
+		FriendlyName:    "Attic High Humidity",
+		IsIndoor:        true,
+		IsUnconditioned: true,
+		Valid:           true,
+	})
+	manager.SetOutdoorHumidity(69.6) // From the issue
+
+	// Simulate attic at 56% (well below outdoor)
+	manager.SimulateSensorChange(testUnconditionedSensor1, 56.0)
+	mockClock.Advance(31 * time.Minute)
+	manager.SimulateSensorChange(testUnconditionedSensor1, 56.0)
+
+	// Should NOT trigger alert (suppressed)
+	alertLevel := manager.GetCurrentState()
+	if alertLevel != "none" {
+		t.Errorf("Expected no alert for attic at 56%% with outdoor at 69.6%%, got '%s'", alertLevel)
+	}
+}
+
+func TestEnvironmentalManager_UnconditionedSensor_HigherThresholds(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	mockNtfy := ntfy.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+	mockClock := clock.NewMockClock(time.Now())
+
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
+
+	// Add unconditioned sensor with outdoor humidity available
+	manager.AddSensor(&HumiditySensor{
+		EntityID:        testUnconditionedSensor1,
+		FriendlyName:    "Barn Humidity",
+		IsIndoor:        true,
+		IsUnconditioned: true,
+		Valid:           true,
+	})
+	manager.SetOutdoorHumidity(50.0) // Outdoor is moderate
+
+	// Barn at 60% - above conditioned threshold (55%) but below unconditioned (75%)
+	// Also exceeds outdoor + margin (50+5=55), so not suppressed
+	manager.SimulateSensorChange(testUnconditionedSensor1, 60.0)
+	mockClock.Advance(31 * time.Minute)
+	manager.SimulateSensorChange(testUnconditionedSensor1, 60.0)
+
+	// Should NOT alert - below unconditioned warning threshold of 75%
+	alertLevel := manager.GetCurrentState()
+	if alertLevel != "none" {
+		t.Errorf("Expected no alert for unconditioned sensor at 60%% (below 75%% threshold), got '%s'", alertLevel)
+	}
+}
+
+func TestEnvironmentalManager_UnconditionedSensor_WarningAboveThreshold(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	mockNtfy := ntfy.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+	mockClock := clock.NewMockClock(time.Now())
+
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
+
+	// Add unconditioned sensor
+	manager.AddSensor(&HumiditySensor{
+		EntityID:        testUnconditionedSensor1,
+		FriendlyName:    "Barn Humidity",
+		IsIndoor:        true,
+		IsUnconditioned: true,
+		Valid:           true,
+	})
+	manager.SetOutdoorHumidity(50.0) // Outdoor moderate
+
+	// Barn at 78% - exceeds outdoor + margin AND above unconditioned warning (75%)
+	manager.SimulateSensorChange(testUnconditionedSensor1, 78.0)
+	mockClock.Advance(31 * time.Minute)
+	manager.SimulateSensorChange(testUnconditionedSensor1, 78.0)
+
+	// Should trigger warning
+	alertLevel := manager.GetCurrentState()
+	if alertLevel != "warning" {
+		t.Errorf("Expected 'warning' for unconditioned sensor at 78%%, got '%s'", alertLevel)
+	}
+
+	notificationCount := countNtfyNotifications(mockNtfy)
+	if notificationCount != 1 {
+		t.Errorf("Expected 1 notification, got %d", notificationCount)
+	}
+}
+
+func TestEnvironmentalManager_UnconditionedSensor_AbsoluteCeiling(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	mockNtfy := ntfy.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+	mockClock := clock.NewMockClock(time.Now())
+
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
+
+	// Add unconditioned sensor with HIGH outdoor humidity
+	manager.AddSensor(&HumiditySensor{
+		EntityID:        testUnconditionedSensor1,
+		FriendlyName:    "Barn Humidity",
+		IsIndoor:        true,
+		IsUnconditioned: true,
+		Valid:           true,
+	})
+	manager.SetOutdoorHumidity(85.0) // Very high outdoor
+
+	// Barn at 82% - below outdoor + margin (85+5=90), BUT >= absolute ceiling (80%)
+	// Should NOT be suppressed because 82% >= UnconditionedCriticalThreshold
+	manager.SimulateSensorChange(testUnconditionedSensor1, 82.0)
+	mockClock.Advance(31 * time.Minute)
+	manager.SimulateSensorChange(testUnconditionedSensor1, 82.0)
+
+	// Should trigger critical (absolute ceiling)
+	alertLevel := manager.GetCurrentState()
+	if alertLevel != "critical" {
+		t.Errorf("Expected 'critical' for unconditioned sensor at 82%% (absolute ceiling), got '%s'", alertLevel)
+	}
+
+	notification := getLastNtfyNotification(mockNtfy)
+	if notification == nil {
+		t.Fatal("Expected notification for absolute ceiling breach")
+	}
+	if notification.Title != "High Humidity Critical" {
+		t.Errorf("Expected critical notification, got '%s'", notification.Title)
+	}
+}
+
+func TestEnvironmentalManager_UnconditionedSensor_OutdoorUnavailable(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	mockNtfy := ntfy.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+	mockClock := clock.NewMockClock(time.Now())
+
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
+
+	// Add unconditioned sensor WITHOUT outdoor reference
+	manager.AddSensor(&HumiditySensor{
+		EntityID:        testUnconditionedSensor1,
+		FriendlyName:    "Barn Humidity",
+		IsIndoor:        true,
+		IsUnconditioned: true,
+		Valid:           true,
+	})
+	// Do NOT set outdoor humidity - simulates weather station unavailable
+
+	// Barn at 60% - above conditioned threshold (55%) but below unconditioned (75%)
+	manager.SimulateSensorChange(testUnconditionedSensor1, 60.0)
+	mockClock.Advance(31 * time.Minute)
+	manager.SimulateSensorChange(testUnconditionedSensor1, 60.0)
+
+	// Should NOT alert - uses unconditioned thresholds (75%) as fallback
+	alertLevel := manager.GetCurrentState()
+	if alertLevel != "none" {
+		t.Errorf("Expected no alert at 60%% with unconditioned thresholds (75%%), got '%s'", alertLevel)
+	}
+
+	// Now raise to 78% - above unconditioned warning threshold
+	manager.SimulateSensorChange(testUnconditionedSensor1, 78.0)
+	mockClock.Advance(31 * time.Minute)
+	manager.SimulateSensorChange(testUnconditionedSensor1, 78.0)
+
+	alertLevel = manager.GetCurrentState()
+	if alertLevel != "warning" {
+		t.Errorf("Expected 'warning' at 78%% with unconditioned thresholds, got '%s'", alertLevel)
+	}
+}
+
+func TestEnvironmentalManager_UnconditionedSensor_SuppressionAtExactMargin(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	mockNtfy := ntfy.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+	mockClock := clock.NewMockClock(time.Now())
+
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
+
+	manager.AddSensor(&HumiditySensor{
+		EntityID:        testUnconditionedSensor1,
+		FriendlyName:    "Barn Humidity",
+		IsIndoor:        true,
+		IsUnconditioned: true,
+		Valid:           true,
+	})
+	manager.SetOutdoorHumidity(70.0) // Outdoor at 70%
+
+	// At exactly outdoor + margin (70 + 5 = 75), should still be suppressed
+	manager.SimulateSensorChange(testUnconditionedSensor1, 75.0)
+	mockClock.Advance(31 * time.Minute)
+	manager.SimulateSensorChange(testUnconditionedSensor1, 75.0)
+
+	alertLevel := manager.GetCurrentState()
+	if alertLevel != "none" {
+		t.Errorf("Expected no alert at exact margin boundary (75%% with outdoor 70%%), got '%s'", alertLevel)
+	}
+
+	// Just above margin: 75.1% > 70 + 5 = 75, NOT suppressed, and >= 75 = warning
+	manager.Reset()
+	manager.SetOutdoorHumidity(70.0)
+	manager.SimulateSensorChange(testUnconditionedSensor1, 75.1)
+	mockClock.Advance(31 * time.Minute)
+	manager.SimulateSensorChange(testUnconditionedSensor1, 75.1)
+
+	alertLevel = manager.GetCurrentState()
+	if alertLevel != "warning" {
+		t.Errorf("Expected 'warning' just above margin (75.1%% with outdoor 70%%), got '%s'", alertLevel)
+	}
+}
+
+func TestEnvironmentalManager_MixedConditionedAndUnconditioned(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	mockNtfy := ntfy.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+	mockClock := clock.NewMockClock(time.Now())
+
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
+
+	// Add one conditioned (living room) and one unconditioned (barn)
+	manager.AddSensor(&HumiditySensor{
+		EntityID:     testIndoorSensor1,
+		FriendlyName: "Living Room Humidity",
+		IsIndoor:     true,
+		Valid:        true,
+	})
+	manager.AddSensor(&HumiditySensor{
+		EntityID:        testUnconditionedSensor1,
+		FriendlyName:    "Barn Humidity",
+		IsIndoor:        true,
+		IsUnconditioned: true,
+		Valid:           true,
+	})
+	manager.SetOutdoorHumidity(70.0)
+
+	// Barn at 61% (suppressed - tracking outdoor) + Living room at 58% (conditioned warning)
+	manager.SimulateSensorChange(testUnconditionedSensor1, 61.0)
+	manager.SimulateSensorChange(testIndoorSensor1, 58.0)
+	mockClock.Advance(31 * time.Minute)
+	manager.SimulateSensorChange(testIndoorSensor1, 58.0)
+
+	// Should trigger warning from the conditioned sensor only
+	alertLevel := manager.GetCurrentState()
+	if alertLevel != "warning" {
+		t.Errorf("Expected 'warning' from conditioned sensor, got '%s'", alertLevel)
+	}
+
+	// Notification should mention the living room, not the barn
+	notification := getLastNtfyNotification(mockNtfy)
+	if notification == nil {
+		t.Fatal("Expected notification")
+	}
+	if !strings.Contains(notification.Body, "Living Room") {
+		t.Errorf("Expected notification to mention Living Room, got: %s", notification.Body)
+	}
+	if strings.Contains(notification.Body, "Barn") {
+		t.Errorf("Expected notification NOT to mention suppressed Barn sensor, got: %s", notification.Body)
+	}
+}
+
+func TestEnvironmentalManager_OutdoorHumidityDropTriggersReEvaluation(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	mockNtfy := ntfy.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+	mockClock := clock.NewMockClock(time.Now())
+
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
+
+	// Add unconditioned sensor and weather station sensor
+	manager.AddSensor(&HumiditySensor{
+		EntityID:        testUnconditionedSensor1,
+		FriendlyName:    "Barn Humidity",
+		IsIndoor:        true,
+		IsUnconditioned: true,
+		Valid:           true,
+	})
+	manager.AddSensor(&HumiditySensor{
+		EntityID:     testWeatherStation,
+		FriendlyName: "Weather Station Humidity",
+		IsIndoor:     false,
+		Valid:        true,
+	})
+	manager.SetOutdoorHumidity(80.0)
+
+	// Barn at 78% - suppressed (78 <= 80+5)
+	manager.SimulateSensorChange(testUnconditionedSensor1, 78.0)
+	mockClock.Advance(31 * time.Minute)
+	manager.SimulateSensorChange(testUnconditionedSensor1, 78.0)
+
+	alertLevel := manager.GetCurrentState()
+	if alertLevel != "none" {
+		t.Errorf("Expected no alert while barn tracks outdoor humidity, got '%s'", alertLevel)
+	}
+
+	// Outdoor humidity drops significantly via weather station update
+	// 78 > 50 + 5 = 55, and 78 >= 75 → warning should start tracking
+	manager.SimulateSensorChange(testWeatherStation, 50.0)
+
+	// Need sustained duration - advance time and re-trigger
+	mockClock.Advance(31 * time.Minute)
+	manager.SimulateSensorChange(testUnconditionedSensor1, 78.0)
+
+	alertLevel = manager.GetCurrentState()
+	if alertLevel != "warning" {
+		t.Errorf("Expected 'warning' after outdoor humidity dropped and barn exceeds threshold, got '%s'", alertLevel)
+	}
+}
+
+func TestEnvironmentalManager_NotificationIncludesOutdoorHumidity(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	mockNtfy := ntfy.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+	mockClock := clock.NewMockClock(time.Now())
+
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
+
+	manager.AddSensor(&HumiditySensor{
+		EntityID:     testIndoorSensor1,
+		FriendlyName: "Indoor Humidity 1",
+		IsIndoor:     true,
+		Valid:        true,
+	})
+	manager.SetOutdoorHumidity(45.0)
+
+	// Trigger a sustained warning
+	manager.SimulateSensorChange(testIndoorSensor1, 58.0)
+	mockClock.Advance(31 * time.Minute)
+	manager.SimulateSensorChange(testIndoorSensor1, 58.0)
+
+	notification := getLastNtfyNotification(mockNtfy)
+	if notification == nil {
+		t.Fatal("Expected notification")
+	}
+	// Notification should include outdoor humidity context
+	if !strings.Contains(notification.Body, "Outdoor: 45%") {
+		t.Errorf("Expected notification to include outdoor humidity context, got: %s", notification.Body)
+	}
+}
+
+func TestEnvironmentalManager_ConditionedSensorUnchangedByOutdoor(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	mockNtfy := ntfy.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+	mockClock := clock.NewMockClock(time.Now())
+
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
+
+	// Conditioned indoor sensor - should use original thresholds regardless of outdoor
+	manager.AddSensor(&HumiditySensor{
+		EntityID:     testIndoorSensor1,
+		FriendlyName: "Indoor Humidity 1",
+		IsIndoor:     true,
+		Valid:        true,
+	})
+	manager.SetOutdoorHumidity(90.0) // Very high outdoor
+
+	// Indoor at 58% - above conditioned threshold (55%), should still alert
+	// even though outdoor is 90% (conditioned spaces have HVAC)
+	manager.SimulateSensorChange(testIndoorSensor1, 58.0)
+	mockClock.Advance(31 * time.Minute)
+	manager.SimulateSensorChange(testIndoorSensor1, 58.0)
+
+	alertLevel := manager.GetCurrentState()
+	if alertLevel != "warning" {
+		t.Errorf("Expected 'warning' for conditioned sensor at 58%% even with high outdoor, got '%s'", alertLevel)
+	}
+}
+
+func TestEnvironmentalManager_UnconditionedDiscovery(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+
+	// Add device with "unconditioned" label (no "indoor" label needed)
+	mockHA.AddDevice(&ha.Device{
+		ID:     "device_barn",
+		Name:   "Barn Sensor",
+		Labels: []string{"Unconditioned"}, // Case-insensitive
+	})
+	// Add device with "indoor" label (conditioned)
+	mockHA.AddDevice(&ha.Device{
+		ID:     "device_living",
+		Name:   "Living Room Sensor",
+		Labels: []string{"Indoor"},
+	})
+	// Add outdoor device (no labels)
+	mockHA.AddDevice(&ha.Device{
+		ID:     "device_outdoor",
+		Name:   "Weather Station",
+		Labels: []string{},
+	})
+
+	mockHA.AddEntityRegistryEntry(&ha.EntityRegistryEntry{
+		EntityID: "sensor.barn_humidity",
+		DeviceID: "device_barn",
+	})
+	mockHA.AddEntityRegistryEntry(&ha.EntityRegistryEntry{
+		EntityID: "sensor.living_humidity",
+		DeviceID: "device_living",
+	})
+	mockHA.AddEntityRegistryEntry(&ha.EntityRegistryEntry{
+		EntityID: "sensor.weather_station_humidity",
+		DeviceID: "device_outdoor",
+	})
+
+	mockHA.SetState("sensor.barn_humidity", "55.0", map[string]interface{}{
+		"device_class":  "humidity",
+		"friendly_name": "Barn Humidity",
+	})
+	mockHA.SetState("sensor.living_humidity", "45.0", map[string]interface{}{
+		"device_class":  "humidity",
+		"friendly_name": "Living Room Humidity",
+	})
+	mockHA.SetState("sensor.weather_station_humidity", "70.0", map[string]interface{}{
+		"device_class":  "humidity",
+		"friendly_name": "Weather Station Humidity",
+	})
+
+	mockNtfy := ntfy.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+
+	manager := NewManager(mockHA, stateMgr, logger, false, nil, mockNtfy)
+	err := manager.Start()
+	if err != nil {
+		t.Fatalf("Failed to start manager: %v", err)
+	}
+	defer manager.Stop()
+
+	sensors := manager.GetSensors()
+
+	// Barn should be indoor AND unconditioned (label implies indoor)
+	barn, ok := sensors["sensor.barn_humidity"]
+	if !ok {
+		t.Fatal("Barn sensor not discovered")
+	}
+	if !barn.IsIndoor {
+		t.Error("Expected barn to be classified as indoor (unconditioned implies indoor)")
+	}
+	if !barn.IsUnconditioned {
+		t.Error("Expected barn to be classified as unconditioned")
+	}
+
+	// Living room should be indoor but NOT unconditioned
+	living, ok := sensors["sensor.living_humidity"]
+	if !ok {
+		t.Fatal("Living room sensor not discovered")
+	}
+	if !living.IsIndoor {
+		t.Error("Expected living room to be classified as indoor")
+	}
+	if living.IsUnconditioned {
+		t.Error("Expected living room NOT to be classified as unconditioned")
+	}
+
+	// Weather station should be neither indoor nor unconditioned
+	weather, ok := sensors["sensor.weather_station_humidity"]
+	if !ok {
+		t.Fatal("Weather station not discovered")
+	}
+	if weather.IsIndoor {
+		t.Error("Expected weather station NOT to be classified as indoor")
+	}
+	if weather.IsUnconditioned {
+		t.Error("Expected weather station NOT to be classified as unconditioned")
+	}
+}
+
+func TestEnvironmentalManager_UnconditionedHysteresis(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	mockNtfy := ntfy.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+	mockClock := clock.NewMockClock(time.Now())
+
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
+
+	manager.AddSensor(&HumiditySensor{
+		EntityID:        testUnconditionedSensor1,
+		FriendlyName:    "Barn Humidity",
+		IsIndoor:        true,
+		IsUnconditioned: true,
+		Valid:           true,
+	})
+	manager.SetOutdoorHumidity(40.0) // Low outdoor
+
+	// Trigger warning at 78%
+	manager.SimulateSensorChange(testUnconditionedSensor1, 78.0)
+	mockClock.Advance(31 * time.Minute)
+	manager.SimulateSensorChange(testUnconditionedSensor1, 78.0)
+
+	if manager.GetCurrentState() != "warning" {
+		t.Fatal("Expected warning at 78%")
+	}
+
+	// Drop to 72% - above unconditioned clear threshold (70%), should remain warning
+	manager.SimulateSensorChange(testUnconditionedSensor1, 72.0)
+	if manager.GetCurrentState() != "warning" {
+		t.Error("Expected warning to persist at 72% (above unconditioned clear threshold of 70%)")
+	}
+
+	// Drop to 69% - below unconditioned clear threshold (70%), should resolve
+	manager.SimulateSensorChange(testUnconditionedSensor1, 69.0)
+	if manager.GetCurrentState() != "none" {
+		t.Error("Expected alert to resolve at 69% (below unconditioned clear threshold of 70%)")
 	}
 }

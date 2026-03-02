@@ -959,6 +959,7 @@ graph LR
 
     subgraph "HA Entities (Sensors)"
         HumiditySensors[sensor.*_humidity]
+        WeatherStationHumidity[sensor.weather_station_humidity]
         WaterLeakSensors[binary_sensor.*water_leak*]
         BatteryStateSensors[sensor.*_battery]
         NodeStatusSensors[sensor.*_node_status]
@@ -1050,6 +1051,7 @@ graph LR
     AnyoneHome --> ChristmasPlugin
 
     HumiditySensors --> EnvironmentalPlugin
+    WeatherStationHumidity -->|Outdoor Reference| EnvironmentalPlugin
     WaterLeakSensors --> EnvironmentalPlugin
     EnvironmentalPlugin -.->|Notifications| Ntfy[ntfy.sh]
 

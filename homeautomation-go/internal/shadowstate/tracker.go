@@ -1247,6 +1247,16 @@ func (et *EnvironmentalTracker) UpdateHumiditySensors(sensors []HumiditySensorDa
 	et.State().Metadata.LastUpdated = time.Now()
 }
 
+// UpdateOutdoorHumidity updates the outdoor reference humidity value
+func (et *EnvironmentalTracker) UpdateOutdoorHumidity(humidity float64, valid bool) {
+	et.Lock()
+	defer et.Unlock()
+
+	et.State().Outputs.OutdoorHumidity = humidity
+	et.State().Outputs.OutdoorHumidityValid = valid
+	et.State().Metadata.LastUpdated = time.Now()
+}
+
 // UpdateAlertLevel updates the current alert level and sustained status
 func (et *EnvironmentalTracker) UpdateAlertLevel(level string, conditionStartTime time.Time, isSustained bool) {
 	et.Lock()
@@ -1332,13 +1342,15 @@ func (et *EnvironmentalTracker) GetState() *EnvironmentalShadowState {
 			Current: copyInputMap(s.Inputs.Current),
 		},
 		Outputs: EnvironmentalOutputs{
-			HumiditySensors:    make([]HumiditySensorData, len(s.Outputs.HumiditySensors)),
-			WaterLeakSensors:   make([]WaterLeakSensorData, len(s.Outputs.WaterLeakSensors)),
-			ActiveWaterLeaks:   make([]WaterLeakAlert, len(s.Outputs.ActiveWaterLeaks)),
-			AlertLevel:         s.Outputs.AlertLevel,
-			ConditionStartTime: s.Outputs.ConditionStartTime,
-			IsSustained:        s.Outputs.IsSustained,
-			LastUpdate:         s.Outputs.LastUpdate,
+			HumiditySensors:      make([]HumiditySensorData, len(s.Outputs.HumiditySensors)),
+			WaterLeakSensors:     make([]WaterLeakSensorData, len(s.Outputs.WaterLeakSensors)),
+			ActiveWaterLeaks:     make([]WaterLeakAlert, len(s.Outputs.ActiveWaterLeaks)),
+			AlertLevel:           s.Outputs.AlertLevel,
+			ConditionStartTime:   s.Outputs.ConditionStartTime,
+			IsSustained:          s.Outputs.IsSustained,
+			OutdoorHumidity:      s.Outputs.OutdoorHumidity,
+			OutdoorHumidityValid: s.Outputs.OutdoorHumidityValid,
+			LastUpdate:           s.Outputs.LastUpdate,
 		},
 		Metadata: s.Metadata,
 	}

@@ -15,6 +15,13 @@ const (
 
 	// IndoorLabel is used to identify indoor devices for humidity alerting
 	IndoorLabel = "indoor"
+
+	// UnconditionedLabel identifies unconditioned spaces (barns, attics, sheds) for humidity alerting.
+	// These spaces naturally track outdoor humidity and use relaxed thresholds.
+	// Devices with this label are automatically treated as indoor (alertable) with:
+	// - Higher absolute thresholds (75% warning, 80% critical vs 55%/65% for conditioned)
+	// - Alert suppression when humidity tracks close to outdoor levels
+	UnconditionedLabel = "unconditioned"
 )
 
 // DeviceLabelChecker provides centralized device label checking functionality.
