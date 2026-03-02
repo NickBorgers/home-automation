@@ -362,6 +362,130 @@ func TestScenario_WakeUp_StopsWhenWakeSequenceEnds(t *testing.T) {
 	t.Log("SUCCESS: Wakeup zone stopped and musicPlaybackType cleared when wake sequence ended")
 }
 
+// ============================================================================
+// Test: Clearing musicPlaybackType does not stop auto-triggered zones
+// ============================================================================
+
+// TestScenario_WakeUp_ClearingPlaybackTypeDoesNotStopMorningZone validates that
+// when sleephygiene clears musicPlaybackType to "" (wake sequence ending), the
+// morning zone continues playing without being stopped and restarted.
+//
+// User story: "When I say 'good morning' to Siri after my alarm goes off,
+// the whole-house morning music should keep playing seamlessly. It should NOT
+// cut out for 6 minutes while speakers regroup."
+//
+// PRODUCTION BUG (2026-03-02, Issue #755):
+// When the wake sequence ended (isMasterAsleep → false), sleephygiene cleared
+// musicPlaybackType to "". The music plugin's handleMusicPlaybackTypeChange
+// interpreted "" as "stop everything" (StopAllZones), killing the morning zone
+// that was already playing on whole-house speakers. The morning zone then had
+// to restart from scratch: break all speaker groups, re-group, and fade in
+// over ~6 minutes.
+//
+// INVARIANTS:
+// - Clearing musicPlaybackType must NOT stop auto-triggered zones (morning, evening, etc.)
+// - Only manually-triggered zones (wakeup, sex) should stop when their musicPlaybackType is cleared
+// - Morning zone must continue uninterrupted through the wakeup → morning transition
+func TestScenario_WakeUp_ClearingPlaybackTypeDoesNotStopMorningZone(t *testing.T) {
+	t.Parallel()
+	env, cleanup := setupWakeupZoneResolutionTest(t)
+	defer cleanup()
+
+	// ===== GIVEN: Morning phase, wake sequence active, both wakeup and morning zones playing
+	t.Log("GIVEN: Morning phase, wake sequence active, wakeup music on bedroom, morning music on whole-house speakers")
+
+	// Set up the wake sequence state (morning zone + wakeup zone should both be active)
+	env.server.SetState("input_boolean.anyone_home", "on", map[string]interface{}{})
+	env.server.SetState("input_text.day_phase", "morning", map[string]interface{}{})
+	env.server.SetState("input_boolean.master_asleep", "on", map[string]interface{}{})
+	env.server.SetState("input_boolean.anyone_asleep", "on", map[string]interface{}{})
+	env.server.SetState("input_boolean.wake_sequence_active", "on", map[string]interface{}{})
+
+	// Wait for initial zone resolution
+	waitForProcessing(t, env.stateManager)
+	time.Sleep(100 * time.Millisecond)
+
+	// Set musicPlaybackType="wakeup" to activate wakeup zone (simulates T+30)
+	env.server.SetState("input_text.music_playback_type", "wakeup", map[string]interface{}{})
+
+	waitForProcessing(t, env.stateManager)
+	time.Sleep(200 * time.Millisecond)
+
+	// Verify both zones are active
+	activeZones := env.music.GetActiveZones()
+	zoneNames := getZoneNames(activeZones)
+	require.Contains(t, zoneNames, "wakeup", "Expected wakeup zone to be active, got: %v", zoneNames)
+	require.Contains(t, zoneNames, "morning", "Expected morning zone to be active, got: %v", zoneNames)
+
+	// Clear service calls from setup — we only care about calls after the transition
+	env.server.ClearServiceCalls()
+
+	// ===== WHEN: User wakes up (isMasterAsleep → false), triggering sleephygiene
+	// to clear isWakeSequenceActive and musicPlaybackType
+	t.Log("WHEN: isMasterAsleep → false (sleephygiene clears isWakeSequenceActive and musicPlaybackType)")
+
+	// Simulate the production flow: only isMasterAsleep changes externally.
+	// Sleephygiene's handleMasterAsleepChange will:
+	//   1. Set isWakeSequenceActive=false
+	//   2. Clear musicPlaybackType="" (because it was "wakeup")
+	// We also set isAnyoneAsleep=false since state tracking would update this.
+	env.server.SetState("input_boolean.anyone_asleep", "off", map[string]interface{}{})
+	env.server.SetState("input_boolean.master_asleep", "off", map[string]interface{}{})
+
+	// Wait for all handlers to process
+	waitForProcessing(t, env.stateManager)
+	time.Sleep(300 * time.Millisecond)
+
+	// ===== THEN: Morning zone should still be active (never stopped), wakeup zone stopped
+	t.Log("THEN: Morning zone continues uninterrupted, wakeup zone stops")
+
+	activeZones = env.music.GetActiveZones()
+	zoneNames = getZoneNames(activeZones)
+
+	assert.NotContains(t, zoneNames, "wakeup",
+		"Wakeup zone should have stopped after musicPlaybackType was cleared")
+	assert.Contains(t, zoneNames, "morning",
+		"Morning zone should still be active — clearing musicPlaybackType must not stop auto-triggered zones")
+
+	// CRITICAL: Verify no StopAllZones behavior occurred.
+	// If StopAllZones fired, morning zone speakers (Kitchen, Sitting Room) would have
+	// been faded out (volume_set to 0) before being restarted. Check that morning
+	// zone speakers were NOT set to volume 0.
+	calls := env.server.GetServiceCalls()
+	morningZoneSpeakers := map[string]bool{
+		"media_player.kitchen":      true,
+		"media_player.sitting_room": true,
+	}
+	for _, call := range calls {
+		if call.Domain == "media_player" && call.Service == "volume_set" {
+			entityID, _ := call.ServiceData["entity_id"].(string)
+			volumeLevel, _ := call.ServiceData["volume_level"].(float64)
+			if morningZoneSpeakers[entityID] && volumeLevel == 0 {
+				t.Errorf("Morning zone speaker %s was set to volume 0 — StopAllZones killed it (issue #755)", entityID)
+			}
+		}
+	}
+
+	// Verify musicPlaybackType transitioned to "morning" (set by morning zone)
+	musicType, err := env.stateManager.GetString("musicPlaybackType")
+	require.NoError(t, err)
+	assert.Equal(t, "morning", musicType,
+		"musicPlaybackType should be 'morning' after transition")
+
+	t.Logf("Active zones after transition: %v", zoneNames)
+	t.Logf("Total service calls: %d", len(calls))
+	for i, call := range calls {
+		if i >= 15 {
+			t.Logf("  ... and %d more calls", len(calls)-15)
+			break
+		}
+		t.Logf("  Call %d: %s.%s entity=%v vol=%v", i, call.Domain, call.Service,
+			call.ServiceData["entity_id"], call.ServiceData["volume_level"])
+	}
+
+	t.Log("SUCCESS: Morning zone continued uninterrupted through wakeup zone cleanup (issue #755 fixed)")
+}
+
 // getZoneNames is a helper to extract zone names from a slice of zones
 func getZoneNames(zones []*music.Zone) []string {
 	names := make([]string, len(zones))
