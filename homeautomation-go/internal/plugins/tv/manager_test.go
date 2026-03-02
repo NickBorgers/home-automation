@@ -1818,31 +1818,20 @@ func TestTVManager_BraviaReload_ReadOnlyMode(t *testing.T) {
 
 	mockHA := ha.NewMockClient()
 	logger := zap.NewNop()
-	stateMgr := state.NewManager(mockHA, logger, true) // Read-only mode
-
+	// Use a non-read-only state manager so we can set isTVon, but create the
+	// Manager with readOnly=true so it skips the actual reload call.
+	stateMgr := state.NewManager(mockHA, logger, false)
 	manager := NewManager(context.Background(), mockHA, stateMgr, logger, true, nil)
 	manager.sleepFunc = func(d time.Duration) {}
 	manager.timeNow = time.Now
 
-	// Set up stale state
+	// Set up stale state (sync box on, TV remote off)
 	if err := stateMgr.SetBool("isTVon", true); err != nil {
-		// In read-only mode, SetBool returns error - need to set up differently
-		// Use the internal tracking directly
-	}
-
-	// Force isTVon via direct state manager (non-read-only) or use the internal mock
-	// Since stateMgr is read-only, we need a workaround
-	roStateMgr := state.NewManager(mockHA, logger, false)
-	roManager := NewManager(context.Background(), mockHA, roStateMgr, logger, true, nil)
-	roManager.sleepFunc = func(d time.Duration) {}
-	roManager.timeNow = time.Now
-
-	if err := roStateMgr.SetBool("isTVon", true); err != nil {
 		t.Fatalf("Failed to set isTVon: %v", err)
 	}
-	roManager.tvRemoteMu.Lock()
-	roManager.tvRemoteOn = false
-	roManager.tvRemoteMu.Unlock()
+	manager.tvRemoteMu.Lock()
+	manager.tvRemoteOn = false
+	manager.tvRemoteMu.Unlock()
 
 	mockHA.SetState(TVRemoteEntity, "on", nil)
 	mockHA.SetState(SyncBoxHDMIInputEntity, "Xbox", nil)
@@ -1852,7 +1841,7 @@ func TestTVManager_BraviaReload_ReadOnlyMode(t *testing.T) {
 		EntityID: SyncBoxHDMIInputEntity,
 		State:    "Xbox",
 	}
-	roManager.handleHDMIInputChange(SyncBoxHDMIInputEntity, nil, newState)
+	manager.handleHDMIInputChange(SyncBoxHDMIInputEntity, nil, newState)
 
 	time.Sleep(100 * time.Millisecond)
 
