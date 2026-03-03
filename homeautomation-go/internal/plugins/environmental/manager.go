@@ -19,14 +19,25 @@ import (
 
 // Humidity thresholds (RH percentage)
 const (
-	// Warning threshold - approaching mold risk
-	HumidityWarningThreshold = 55.0
-	// Critical threshold - definite mold risk
-	HumidityCriticalThreshold = 65.0
-	// Hysteresis: warning clears when humidity drops to this level
-	HumidityWarningClear = 50.0
-	// Hysteresis: critical clears when humidity drops to this level
-	HumidityCriticalClear = 60.0
+	// Conditioned space thresholds (living areas with HVAC)
+	HumidityWarningThreshold  = 55.0 // Warning - approaching mold risk
+	HumidityCriticalThreshold = 65.0 // Critical - definite mold risk
+	HumidityWarningClear      = 50.0 // Hysteresis: warning clears at this level
+	HumidityCriticalClear     = 60.0 // Hysteresis: critical clears at this level
+
+	// Unconditioned space thresholds (barns, attics, sheds)
+	// These spaces naturally track outdoor humidity, so thresholds are higher.
+	// Alert suppression also applies when tracking close to outdoor levels.
+	UnconditionedWarningThreshold  = 75.0 // Warning for unconditioned spaces
+	UnconditionedCriticalThreshold = 80.0 // Critical / absolute ceiling for unconditioned spaces
+	UnconditionedWarningClear      = 70.0 // Hysteresis: warning clears at this level
+	UnconditionedCriticalClear     = 75.0 // Hysteresis: critical clears at this level
+
+	// Outdoor humidity comparison
+	OutdoorHumidityEntityID = "sensor.weather_station_humidity"
+	// OutdoorHumidityMargin is the margin above outdoor humidity within which
+	// unconditioned spaces are considered to be simply tracking outdoor conditions.
+	OutdoorHumidityMargin = 5.0
 
 	// Debounce: condition must be sustained this long before alerting
 	SustainedConditionDuration = 30 * time.Minute
@@ -38,14 +49,15 @@ const (
 
 // HumiditySensor represents a discovered humidity sensor
 type HumiditySensor struct {
-	EntityID      string
-	DeviceID      string
-	FriendlyName  string
-	IsIndoor      bool // true = alerts enabled, false = informational only
-	Value         float64
-	Valid         bool
-	WarningStart  time.Time
-	CriticalStart time.Time
+	EntityID        string
+	DeviceID        string
+	FriendlyName    string
+	IsIndoor        bool // true = alerts enabled, false = informational only
+	IsUnconditioned bool // true = unconditioned space (barn, attic) with relaxed thresholds
+	Value           float64
+	Valid           bool
+	WarningStart    time.Time
+	CriticalStart   time.Time
 }
 
 // WaterLeakSensor represents a discovered water leak sensor
@@ -83,6 +95,10 @@ type Manager struct {
 
 	// Current alert level for humidity ("none", "warning", "critical")
 	currentAlertLevel string
+
+	// Outdoor reference humidity (from weather station) for comparison
+	outdoorHumidity      float64
+	outdoorHumidityValid bool
 
 	// Rate limiting for humidity
 	lastWarningNotification    time.Time
@@ -147,9 +163,13 @@ func (m *Manager) Start() error {
 	m.mu.Lock()
 	sensorCount := len(m.sensors)
 	indoorCount := 0
+	unconditionedCount := 0
 	for _, s := range m.sensors {
 		if s.IsIndoor {
 			indoorCount++
+		}
+		if s.IsUnconditioned {
+			unconditionedCount++
 		}
 	}
 	m.mu.Unlock()
@@ -160,6 +180,7 @@ func (m *Manager) Start() error {
 		m.logger.Info("Humidity sensors discovered",
 			zap.Int("total", sensorCount),
 			zap.Int("indoor_alertable", indoorCount),
+			zap.Int("unconditioned", unconditionedCount),
 			zap.Int("outdoor_informational", sensorCount-indoorCount))
 	}
 
@@ -245,13 +266,21 @@ func (m *Manager) discoverHumiditySensors() error {
 	labelChecker := ha.NewDeviceLabelChecker(devices)
 
 	indoorDevices := make(map[string]bool)
+	unconditionedDevices := make(map[string]bool)
 	for _, device := range devices {
 		if labelChecker.HasLabelIgnoreCase(device.ID, ha.IndoorLabel) {
 			indoorDevices[device.ID] = true
 		}
+		if labelChecker.HasLabelIgnoreCase(device.ID, ha.UnconditionedLabel) {
+			unconditionedDevices[device.ID] = true
+			// Unconditioned label implies indoor monitoring (with relaxed thresholds)
+			indoorDevices[device.ID] = true
+		}
 	}
 
-	m.logger.Info("Indoor devices discovered", zap.Int("count", len(indoorDevices)))
+	m.logger.Info("Indoor devices discovered",
+		zap.Int("count", len(indoorDevices)),
+		zap.Int("unconditioned", len(unconditionedDevices)))
 
 	// Create HumiditySensor structs and subscribe to each
 	m.mu.Lock()
@@ -265,11 +294,12 @@ func (m *Manager) discoverHumiditySensors() error {
 		}
 
 		sensor := &HumiditySensor{
-			EntityID:     state.EntityID,
-			DeviceID:     deviceID,
-			FriendlyName: friendlyName,
-			IsIndoor:     isIndoor,
-			Valid:        false,
+			EntityID:        state.EntityID,
+			DeviceID:        deviceID,
+			FriendlyName:    friendlyName,
+			IsIndoor:        isIndoor,
+			IsUnconditioned: unconditionedDevices[deviceID],
+			Valid:           false,
 		}
 
 		// Parse initial value
@@ -285,6 +315,7 @@ func (m *Manager) discoverHumiditySensors() error {
 			zap.String("friendly_name", friendlyName),
 			zap.String("device_id", deviceID),
 			zap.Bool("is_indoor", isIndoor),
+			zap.Bool("is_unconditioned", sensor.IsUnconditioned),
 			zap.Float64("current_value", sensor.Value))
 	}
 	m.mu.Unlock()
@@ -298,6 +329,20 @@ func (m *Manager) discoverHumiditySensors() error {
 			errs = append(errs, err)
 		}
 	}
+
+	// Initialize outdoor reference humidity from weather station sensor
+	m.mu.Lock()
+	if sensor, ok := m.sensors[OutdoorHumidityEntityID]; ok && sensor.Valid {
+		m.outdoorHumidity = sensor.Value
+		m.outdoorHumidityValid = true
+		m.logger.Info("Outdoor reference sensor found for humidity comparison",
+			zap.Float64("humidity", sensor.Value))
+	} else if _, ok := m.sensors[OutdoorHumidityEntityID]; ok {
+		m.logger.Info("Outdoor reference sensor found but value not yet available")
+	} else {
+		m.logger.Info("Outdoor reference sensor not found - unconditioned spaces will use absolute thresholds only")
+	}
+	m.mu.Unlock()
 
 	// Update shadow state with all discovered sensors
 	m.updateShadowSensors()
@@ -442,6 +487,10 @@ func (m *Manager) handleHumidityChange(entityID string, oldState, newState *ha.S
 		if sensor, ok := m.sensors[entityID]; ok {
 			sensor.Valid = false
 		}
+		if entityID == OutdoorHumidityEntityID {
+			m.outdoorHumidityValid = false
+			m.shadowTracker.UpdateOutdoorHumidity(0, false)
+		}
 		m.mu.Unlock()
 		return
 	}
@@ -456,6 +505,13 @@ func (m *Manager) handleHumidityChange(entityID string, oldState, newState *ha.S
 
 	sensor.Value = humidity
 	sensor.Valid = true
+
+	// Track outdoor reference humidity from weather station
+	isOutdoorRef := entityID == OutdoorHumidityEntityID
+	if isOutdoorRef {
+		m.outdoorHumidity = humidity
+		m.outdoorHumidityValid = true
+	}
 	m.mu.Unlock()
 
 	m.logger.Debug("Humidity sensor changed",
@@ -466,9 +522,13 @@ func (m *Manager) handleHumidityChange(entityID string, oldState, newState *ha.S
 
 	// Update shadow state
 	m.updateShadowSensors()
+	if isOutdoorRef {
+		m.shadowTracker.UpdateOutdoorHumidity(humidity, true)
+	}
 
-	// Only evaluate alerts for indoor sensors
-	if sensor.IsIndoor {
+	// Evaluate alerts for indoor sensors, or when outdoor reference changes
+	// (outdoor changes can affect suppression for unconditioned sensors)
+	if sensor.IsIndoor || isOutdoorRef {
 		m.evaluateHumidity()
 	}
 }
@@ -518,12 +578,13 @@ func (m *Manager) updateShadowSensors() {
 	sensorData := make([]shadowstate.HumiditySensorData, 0, len(m.sensors))
 	for _, sensor := range m.sensors {
 		sensorData = append(sensorData, shadowstate.HumiditySensorData{
-			EntityID:     sensor.EntityID,
-			FriendlyName: sensor.FriendlyName,
-			DeviceID:     sensor.DeviceID,
-			IsIndoor:     sensor.IsIndoor,
-			Value:        sensor.Value,
-			Valid:        sensor.Valid,
+			EntityID:        sensor.EntityID,
+			FriendlyName:    sensor.FriendlyName,
+			DeviceID:        sensor.DeviceID,
+			IsIndoor:        sensor.IsIndoor,
+			IsUnconditioned: sensor.IsUnconditioned,
+			Value:           sensor.Value,
+			Valid:           sensor.Valid,
 		})
 	}
 
@@ -637,8 +698,26 @@ func (m *Manager) evaluateHumidity() {
 			continue
 		}
 
-		isWarning := sensor.Value >= HumidityWarningThreshold
-		isCritical := sensor.Value >= HumidityCriticalThreshold
+		// Determine effective thresholds based on sensor type
+		warningThreshold := HumidityWarningThreshold
+		criticalThreshold := HumidityCriticalThreshold
+		if sensor.IsUnconditioned {
+			warningThreshold = UnconditionedWarningThreshold
+			criticalThreshold = UnconditionedCriticalThreshold
+		}
+
+		// Suppress unconditioned sensors that are simply tracking outdoor humidity.
+		// Suppression applies when:
+		// 1. Sensor is in an unconditioned space
+		// 2. Outdoor humidity reference is available
+		// 3. Indoor reading is within margin of outdoor reading
+		// 4. Indoor reading is below the absolute ceiling (80%)
+		suppressed := sensor.IsUnconditioned && m.outdoorHumidityValid &&
+			sensor.Value <= m.outdoorHumidity+OutdoorHumidityMargin &&
+			sensor.Value < UnconditionedCriticalThreshold
+
+		isWarning := !suppressed && sensor.Value >= warningThreshold
+		isCritical := !suppressed && sensor.Value >= criticalThreshold
 
 		// Warning tracking
 		if isWarning {
@@ -728,18 +807,32 @@ func (m *Manager) getConditionStartTime() time.Time {
 
 // checkConditionResolved checks if the alert condition has resolved with hysteresis
 func (m *Manager) checkConditionResolved(now time.Time) {
-	// Determine clear threshold based on current alert level
-	clearThreshold := HumidityWarningClear
-	if m.currentAlertLevel == "critical" {
-		clearThreshold = HumidityCriticalClear
-	}
-
 	// Check if ALL indoor sensors are below their clear thresholds
 	allCleared := true
 	for _, sensor := range m.sensors {
 		if !sensor.IsIndoor {
 			continue
 		}
+
+		// Suppressed unconditioned sensors (tracking outdoor humidity) are considered cleared
+		if sensor.IsUnconditioned && sensor.Valid && m.outdoorHumidityValid &&
+			sensor.Value <= m.outdoorHumidity+OutdoorHumidityMargin &&
+			sensor.Value < UnconditionedCriticalThreshold {
+			continue
+		}
+
+		// Determine per-sensor clear threshold
+		clearThreshold := HumidityWarningClear
+		if m.currentAlertLevel == "critical" {
+			clearThreshold = HumidityCriticalClear
+		}
+		if sensor.IsUnconditioned {
+			clearThreshold = UnconditionedWarningClear
+			if m.currentAlertLevel == "critical" {
+				clearThreshold = UnconditionedCriticalClear
+			}
+		}
+
 		// An alerted sensor going unavailable means we lost visibility, not that it cleared
 		if !sensor.Valid && m.alertedSensorNames[sensor.FriendlyName] {
 			allCleared = false
@@ -785,7 +878,12 @@ func (m *Manager) sendAlertNotification(now time.Time, level string) {
 		if !sensor.IsIndoor || !sensor.Valid {
 			continue
 		}
-		if sensor.Value >= HumidityWarningThreshold {
+		// Use per-sensor warning threshold to determine which sensors to include
+		threshold := HumidityWarningThreshold
+		if sensor.IsUnconditioned {
+			threshold = UnconditionedWarningThreshold
+		}
+		if sensor.Value >= threshold {
 			sensorLocations = append(sensorLocations, sensor.FriendlyName)
 			if sensor.Value > maxHumidity {
 				maxHumidity = sensor.Value
@@ -821,21 +919,26 @@ func (m *Manager) sendAlertNotification(now time.Time, level string) {
 		return
 	}
 
-	// Build notification message
+	// Build notification message with optional outdoor humidity context
 	var title, message string
 	var priority int
 	var tags []string
 
+	outdoorContext := ""
+	if m.outdoorHumidityValid {
+		outdoorContext = fmt.Sprintf(" Outdoor: %.0f%%.", m.outdoorHumidity)
+	}
+
 	if level == "critical" {
 		title = "High Humidity Critical"
-		message = fmt.Sprintf("Humidity at %.0f%% (%s) for 30+ minutes. Mold risk - take action!",
-			maxHumidity, formatSensorLocations(sensorLocations))
+		message = fmt.Sprintf("Humidity at %.0f%% (%s) for 30+ minutes.%s Mold risk - take action!",
+			maxHumidity, formatSensorLocations(sensorLocations), outdoorContext)
 		priority = ntfy.PriorityHigh
 		tags = []string{"rotating_light", "droplet"}
 	} else {
 		title = "High Humidity Warning"
-		message = fmt.Sprintf("Humidity at %.0f%% (%s) for 30+ minutes. Check ventilation.",
-			maxHumidity, formatSensorLocations(sensorLocations))
+		message = fmt.Sprintf("Humidity at %.0f%% (%s) for 30+ minutes.%s Check ventilation.",
+			maxHumidity, formatSensorLocations(sensorLocations), outdoorContext)
 		priority = ntfy.PriorityDefault
 		tags = []string{"warning", "droplet"}
 	}
@@ -990,6 +1093,8 @@ func (m *Manager) Reset() {
 		sensor.NotificationSent = false
 	}
 	m.currentAlertLevel = "none"
+	m.outdoorHumidity = 0
+	m.outdoorHumidityValid = false
 	m.lastWarningNotification = time.Time{}
 	m.lastCriticalNotification = time.Time{}
 	m.lastResolutionNotification = time.Time{}
@@ -1031,6 +1136,22 @@ func (m *Manager) SimulateSensorChange(entityID string, humidity float64) {
 		EntityID: entityID,
 		State:    fmt.Sprintf("%.1f", humidity),
 	})
+}
+
+// SetOutdoorHumidity sets the outdoor reference humidity for testing
+func (m *Manager) SetOutdoorHumidity(humidity float64) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.outdoorHumidity = humidity
+	m.outdoorHumidityValid = true
+}
+
+// ClearOutdoorHumidity clears the outdoor reference humidity for testing
+func (m *Manager) ClearOutdoorHumidity() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.outdoorHumidity = 0
+	m.outdoorHumidityValid = false
 }
 
 // SimulateSensorUnavailable simulates a sensor going unavailable (for testing)
