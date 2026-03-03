@@ -699,6 +699,8 @@ type TVOutputs struct {
 	SyncBoxAvailable  bool      `json:"syncBoxAvailable"`
 	LastSyncBoxReboot time.Time `json:"lastSyncBoxReboot,omitempty"`
 	DailyRebootCount  int       `json:"dailyRebootCount"`
+	LastBraviaReload  time.Time `json:"lastBraviaReload,omitempty"`
+	BraviaReloadCount int       `json:"braviaReloadCount"`
 }
 
 // ============================================================================

@@ -154,3 +154,10 @@ type EntityRegistryListRequest struct {
 	ID   int    `json:"id"`
 	Type string `json:"type"`
 }
+
+// ConfigEntryReloadRequest represents a config_entries/reload WebSocket command
+type ConfigEntryReloadRequest struct {
+	ID      int    `json:"id"`
+	Type    string `json:"type"`     // "config_entries/reload"
+	EntryID string `json:"entry_id"` // Config entry ID to reload
+}

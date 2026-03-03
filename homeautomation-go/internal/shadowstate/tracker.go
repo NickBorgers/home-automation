@@ -1119,6 +1119,17 @@ func (tvt *TVTracker) UpdateLastRecovery(rebootTime time.Time, dailyCount int) {
 	tvt.State().Metadata.LastUpdated = time.Now()
 }
 
+// UpdateLastBraviaReload updates the last Bravia integration reload timestamp and count
+func (tvt *TVTracker) UpdateLastBraviaReload(reloadTime time.Time, reloadCount int) {
+	tvt.Lock()
+	defer tvt.Unlock()
+
+	tvt.State().Outputs.LastBraviaReload = reloadTime
+	tvt.State().Outputs.BraviaReloadCount = reloadCount
+	tvt.State().Outputs.LastUpdate = time.Now()
+	tvt.State().Metadata.LastUpdated = time.Now()
+}
+
 // GetState returns the current shadow state (thread-safe copy)
 func (tvt *TVTracker) GetState() *TVShadowState {
 	tvt.RLock()
