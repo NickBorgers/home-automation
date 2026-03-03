@@ -25,7 +25,7 @@ flowchart TD
     C -->|50-300W| E[Normal - Clear Timers]
     C -->|> 300W| F[Track Pump Running Start]
 
-    D --> G{Duration > 5 min?}
+    D --> G{Duration > 10 min?}
     G -->|No| H[Continue Monitoring]
     G -->|Yes| I[AERATOR FAILURE<br/>Send Alert + TTS]
 
@@ -42,7 +42,7 @@ flowchart TD
 
 | Condition | Threshold | Debounce | Severity |
 |-----------|-----------|----------|----------|
-| Aerator Failure | Power < 50W | 5 minutes | Urgent |
+| Aerator Failure | Power < 50W | 10 minutes | Urgent |
 | Pump Stuck Running | Power > 300W | 60 minutes | Urgent |
 
 ## Notification Flow
@@ -88,7 +88,7 @@ stateDiagram-v2
     Normal --> HighPowerTracking: Power > 300W
 
     LowPowerTracking --> Normal: Power returns to 50-300W
-    LowPowerTracking --> AeratorFailure: Duration > 5 min
+    LowPowerTracking --> AeratorFailure: Duration > 10 min
 
     HighPowerTracking --> Normal: Power returns to 50-300W
     HighPowerTracking --> PumpStuck: Duration > 60 min
@@ -131,7 +131,7 @@ The plugin uses hardcoded thresholds based on the system specifications:
 const (
     AeratorMinPowerW = 50.0              // Below = aerator failure
     PumpMaxNormalPowerW = 300.0          // Above = pump running
-    AeratorFailureDebounceMinutes = 5    // Debounce for transient dips
+    AeratorFailureDebounceMinutes = 10   // Debounce for transient dips (increased from 5, see #769)
     PumpStuckThresholdMinutes = 60       // Pump should cycle off within this time
 )
 ```

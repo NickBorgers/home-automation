@@ -139,21 +139,21 @@ func TestInfrastructureManager_AeratorFailureWithDebounce(t *testing.T) {
 		t.Errorf("Expected 0 notifications during debounce period, got %d", count)
 	}
 
-	// Advance time by 3 minutes (still within debounce)
-	mockClock.Advance(3 * time.Minute)
+	// Advance time by 5 minutes (still within 10 minute debounce)
+	mockClock.Advance(5 * time.Minute)
 	manager.TriggerEvaluation()
 
 	if manager.IsAeratorFailure() {
-		t.Error("Should not trigger aerator failure before 5 minute debounce")
+		t.Error("Should not trigger aerator failure before 10 minute debounce")
 	}
 
-	// Advance past 5 minute threshold
-	mockClock.Advance(3 * time.Minute)
+	// Advance past 10 minute threshold
+	mockClock.Advance(6 * time.Minute)
 	manager.TriggerEvaluation()
 
 	// Now should be in failure state
 	if !manager.IsAeratorFailure() {
-		t.Error("Should be in aerator failure state after 5+ minutes of low power")
+		t.Error("Should be in aerator failure state after 10+ minutes of low power")
 	}
 
 	// Should have sent notification
@@ -223,6 +223,49 @@ func TestInfrastructureManager_TransientPowerDipNoAlert(t *testing.T) {
 	}
 }
 
+func TestInfrastructureManager_TransientBlipUnder10MinutesNoAlert(t *testing.T) {
+	// Regression test for issue #769: a ~5-minute sensor blip should NOT trigger an alert
+	// with the 10-minute debounce threshold.
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	mockNtfy := ntfy.NewMockClient()
+	startTime := time.Now()
+	mockClock := clock.NewMockClock(startTime)
+
+	manager := createTestManager(mockHA, mockNtfy, mockClock)
+
+	// Start with normal power
+	manager.SimulatePowerReading(100.0)
+
+	// Power drops to 0W (sensor blip)
+	manager.SimulatePowerReading(0.0)
+
+	// Advance 5 minutes - still within 10 minute debounce
+	mockClock.Advance(5 * time.Minute)
+	manager.TriggerEvaluation()
+
+	if manager.IsAeratorFailure() {
+		t.Error("Should not trigger aerator failure after only 5 minutes (debounce is 10 minutes)")
+	}
+
+	// Power recovers after ~5 minutes (like the issue scenario)
+	manager.SimulatePowerReading(96.0)
+
+	// Advance more time and evaluate again
+	mockClock.Advance(10 * time.Minute)
+	manager.TriggerEvaluation()
+
+	// Should never have triggered any alerts
+	if manager.IsAeratorFailure() {
+		t.Error("Should not be in aerator failure state after recovery")
+	}
+
+	if count := countNtfyNotifications(mockNtfy); count != 0 {
+		t.Errorf("Expected 0 notifications for transient blip under 10 minutes, got %d", count)
+	}
+}
+
 func TestInfrastructureManager_PumpStuckAlert(t *testing.T) {
 	t.Parallel()
 
@@ -280,7 +323,7 @@ func TestInfrastructureManager_RecoveryNotification(t *testing.T) {
 
 	// Simulate aerator failure
 	manager.SimulatePowerReading(30.0)
-	mockClock.Advance(6 * time.Minute)
+	mockClock.Advance(11 * time.Minute)
 	manager.TriggerEvaluation()
 
 	// Verify failure alert was sent
@@ -331,7 +374,7 @@ func TestInfrastructureManager_RateLimiting(t *testing.T) {
 
 	// Trigger first failure
 	manager.SimulatePowerReading(30.0)
-	mockClock.Advance(6 * time.Minute)
+	mockClock.Advance(11 * time.Minute)
 	manager.TriggerEvaluation()
 
 	initialCount := countNtfyNotifications(mockNtfy)
@@ -342,7 +385,7 @@ func TestInfrastructureManager_RateLimiting(t *testing.T) {
 
 	// Immediately trigger another failure
 	manager.SimulatePowerReading(30.0)
-	mockClock.Advance(6 * time.Minute)
+	mockClock.Advance(11 * time.Minute)
 	manager.TriggerEvaluation()
 
 	// Should NOT send another alert due to rate limiting (4 hour cooldown)
@@ -358,7 +401,7 @@ func TestInfrastructureManager_RateLimiting(t *testing.T) {
 	// But we need to reset the failure state first
 	manager.Reset()
 	manager.SimulatePowerReading(30.0)
-	mockClock.Advance(6 * time.Minute)
+	mockClock.Advance(11 * time.Minute)
 	manager.TriggerEvaluation()
 
 	// Now should have sent another notification
@@ -379,7 +422,7 @@ func TestInfrastructureManager_RecoveryRateLimiting(t *testing.T) {
 
 	// Trigger failure
 	manager.SimulatePowerReading(30.0)
-	mockClock.Advance(6 * time.Minute)
+	mockClock.Advance(11 * time.Minute)
 	manager.TriggerEvaluation()
 
 	// First recovery
@@ -388,7 +431,7 @@ func TestInfrastructureManager_RecoveryRateLimiting(t *testing.T) {
 
 	// Immediately fail and recover again
 	manager.SimulatePowerReading(30.0)
-	mockClock.Advance(6 * time.Minute)
+	mockClock.Advance(11 * time.Minute)
 	manager.TriggerEvaluation()
 	manager.SimulatePowerReading(100.0)
 
@@ -416,7 +459,7 @@ func TestInfrastructureManager_ReadOnlyMode(t *testing.T) {
 
 	// Trigger failure
 	manager.SimulatePowerReading(30.0)
-	mockClock.Advance(6 * time.Minute)
+	mockClock.Advance(11 * time.Minute)
 	manager.TriggerEvaluation()
 
 	// ntfy notifications should still be sent (read-only only affects HA calls)
@@ -461,7 +504,7 @@ func TestInfrastructureManager_ShadowStateTracking(t *testing.T) {
 
 	// Trigger failure
 	manager.SimulatePowerReading(30.0)
-	mockClock.Advance(6 * time.Minute)
+	mockClock.Advance(11 * time.Minute)
 	manager.TriggerEvaluation()
 
 	shadowState = manager.GetShadowState()
@@ -492,7 +535,7 @@ func TestInfrastructureManager_Reset(t *testing.T) {
 
 	// Trigger failure and get notification
 	manager.SimulatePowerReading(30.0)
-	mockClock.Advance(6 * time.Minute)
+	mockClock.Advance(11 * time.Minute)
 	manager.TriggerEvaluation()
 
 	initialCount := countNtfyNotifications(mockNtfy)
@@ -584,7 +627,7 @@ func TestInfrastructureManager_NtfyClientNil(t *testing.T) {
 
 	// Trigger failure - should not panic
 	manager.SimulatePowerReading(30.0)
-	mockClock.Advance(6 * time.Minute)
+	mockClock.Advance(11 * time.Minute)
 	manager.TriggerEvaluation()
 
 	// Should still track state correctly

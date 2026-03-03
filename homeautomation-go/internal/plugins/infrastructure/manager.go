@@ -28,8 +28,9 @@ const (
 	// PumpMaxNormalPowerW is the max power before considering pump is running
 	PumpMaxNormalPowerW = 300.0
 
-	// AeratorFailureDebounceMinutes is how long low power must persist before alerting
-	AeratorFailureDebounceMinutes = 5
+	// AeratorFailureDebounceMinutes is how long low power must persist before alerting.
+	// Set to 10 minutes to filter out transient SPAN sensor blips (see issue #769).
+	AeratorFailureDebounceMinutes = 10
 
 	// PumpStuckThresholdMinutes is how long pump can run before alerting
 	PumpStuckThresholdMinutes = 60
@@ -289,7 +290,7 @@ func (m *Manager) evaluateConditions() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	// Check for aerator failure (low power for > 5 minutes)
+	// Check for aerator failure (low power for > 10 minutes)
 	if !m.lowPowerStartTime.IsZero() {
 		duration := now.Sub(m.lowPowerStartTime)
 		if duration >= AeratorFailureDebounceMinutes*time.Minute && !m.isAeratorFailure {
