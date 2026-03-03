@@ -95,9 +95,20 @@ type ZoneResolutionAudit struct {
 
 // ZoneChangesSummary summarizes the zone changes resulting from resolution
 type ZoneChangesSummary struct {
-	Start  []string            `json:"start,omitempty"`
-	Stop   []string            `json:"stop,omitempty"`
-	Update map[string][]string `json:"update,omitempty"` // zone -> new speakers
+	Start    []string            `json:"start,omitempty"`
+	Stop     []string            `json:"stop,omitempty"`
+	Update   map[string][]string `json:"update,omitempty"`   // zone -> new speakers
+	Seamless []string            `json:"seamless,omitempty"` // zones transitioned seamlessly (e.g., "sleep-prep→sleep")
+}
+
+// seamlessTransition describes a zone transition where shared speakers can continue
+// playing without interruption because both zones use compatible music (same URIs).
+type seamlessTransition struct {
+	stoppingZone   string   // zone being stopped
+	startingZone   string   // zone being started
+	sharedSpeakers []string // speakers present in both zones (continue playing)
+	removeSpeakers []string // speakers only in stopping zone (need fade-out + unjoin)
+	addSpeakers    []string // speakers only in starting zone (need join + fade-in)
 }
 
 // defaultDebounceDelay is the default time to wait for additional triggers before
@@ -691,6 +702,38 @@ func (zm *ZoneManager) ResolveZonesWithContext(eventCtx *state.EventContext, tri
 	}
 	zm.mu.Unlock()
 
+	// Check for seamless transitions: pairs of (stopping, starting) zones that share
+	// speakers and compatible music. Shared speakers continue playing without interruption.
+	seamlessTransitions := zm.findSeamlessTransitions(zonesToStop, zonesToStart, zoneToSpeakers)
+	var seamlessLabels []string
+
+	if len(seamlessTransitions) > 0 {
+		// Remove seamless pairs from normal stop/start lists
+		seamlessStops := make(map[string]bool)
+		seamlessStarts := make(map[string]bool)
+		for _, st := range seamlessTransitions {
+			seamlessStops[st.stoppingZone] = true
+			seamlessStarts[st.startingZone] = true
+			seamlessLabels = append(seamlessLabels, fmt.Sprintf("%s→%s", st.stoppingZone, st.startingZone))
+		}
+
+		filteredStops := make([]string, 0, len(zonesToStop))
+		for _, z := range zonesToStop {
+			if !seamlessStops[z] {
+				filteredStops = append(filteredStops, z)
+			}
+		}
+		zonesToStop = filteredStops
+
+		filteredStarts := make([]string, 0, len(zonesToStart))
+		for _, z := range zonesToStart {
+			if !seamlessStarts[z] {
+				filteredStarts = append(filteredStarts, z)
+			}
+		}
+		zonesToStart = filteredStarts
+	}
+
 	// Build and log comprehensive zone resolution audit
 	// This consolidates state snapshot, zone evaluations, speaker assignments, and zone changes
 	// into a single log entry for easier debugging via Gravwell queries
@@ -702,9 +745,10 @@ func (zm *ZoneManager) ResolveZonesWithContext(eventCtx *state.EventContext, tri
 		ZoneToSpeakers:    zoneToSpeakers,
 		SpeakersToTurnOff: speakersToTurnOff,
 		ZoneChanges: ZoneChangesSummary{
-			Start:  zonesToStart,
-			Stop:   zonesToStop,
-			Update: zonesToUpdate,
+			Start:    zonesToStart,
+			Stop:     zonesToStop,
+			Update:   zonesToUpdate,
+			Seamless: seamlessLabels,
 		},
 	}
 	if eventCtx != nil {
@@ -719,11 +763,25 @@ func (zm *ZoneManager) ResolveZonesWithContext(eventCtx *state.EventContext, tri
 		zap.Strings("stop", zonesToStop),
 		zap.Strings("start", zonesToStart),
 		zap.Any("update", zonesToUpdate),
+		zap.Strings("seamless", seamlessLabels),
 	}
 	if eventCtx != nil {
 		changeLogFields = append(changeLogFields, zap.String("correlation_id", eventCtx.CorrelationID))
 	}
 	zm.logger.Info("Zone changes", changeLogFields...)
+
+	// Execute seamless transitions first (before normal stops/starts)
+	for _, st := range seamlessTransitions {
+		if err := zm.executeSeamlessTransition(st, zoneToSpeakers[st.startingZone], trigger); err != nil {
+			zm.logger.Error("Failed to execute seamless transition, falling back to normal stop/start",
+				zap.String("from", st.stoppingZone),
+				zap.String("to", st.startingZone),
+				zap.Error(err))
+			// Fall back to normal stop/start
+			zonesToStop = append(zonesToStop, st.stoppingZone)
+			zonesToStart = append(zonesToStart, st.startingZone)
+		}
+	}
 
 	// Stop zones first (releases speakers)
 	for _, zoneName := range zonesToStop {
@@ -839,6 +897,267 @@ func stringSlicesEqual(a, b []string) bool {
 	}
 
 	return true
+}
+
+// findSeamlessTransitions identifies pairs of (stopping, starting) zones that can
+// transition seamlessly because they share speakers and the currently playing music
+// URI exists in the new zone's playback options.
+//
+// A seamless transition avoids tearing down and rebuilding shared speakers:
+// instead of fade-out → unjoin → rejoin → fade-in, shared speakers just get a
+// smooth volume adjustment to the new zone's target volume.
+func (zm *ZoneManager) findSeamlessTransitions(zonesToStop, zonesToStart []string, zoneToSpeakers map[string][]string) []seamlessTransition {
+	var transitions []seamlessTransition
+
+	zm.mu.RLock()
+	defer zm.mu.RUnlock()
+
+	for _, stopZoneName := range zonesToStop {
+		activeZone, exists := zm.activeZones[stopZoneName]
+		if !exists {
+			continue
+		}
+
+		// Get stopping zone's speaker names
+		stoppingSpeakers := make([]string, len(activeZone.Participants))
+		for i, p := range activeZone.Participants {
+			stoppingSpeakers[i] = p.PlayerName
+		}
+
+		for _, startZoneName := range zonesToStart {
+			// Check if the currently playing URI exists in the new zone's playback options
+			if !zm.hasCompatibleMusic(activeZone, startZoneName) {
+				continue
+			}
+
+			startingSpeakers := zoneToSpeakers[startZoneName]
+
+			stopSet := make(map[string]bool, len(stoppingSpeakers))
+			for _, s := range stoppingSpeakers {
+				stopSet[s] = true
+			}
+			startSet := make(map[string]bool, len(startingSpeakers))
+			for _, s := range startingSpeakers {
+				startSet[s] = true
+			}
+
+			var shared, remove, add []string
+			for _, s := range stoppingSpeakers {
+				if startSet[s] {
+					shared = append(shared, s)
+				} else {
+					remove = append(remove, s)
+				}
+			}
+			for _, s := range startingSpeakers {
+				if !stopSet[s] {
+					add = append(add, s)
+				}
+			}
+
+			if len(shared) > 0 {
+				transitions = append(transitions, seamlessTransition{
+					stoppingZone:   stopZoneName,
+					startingZone:   startZoneName,
+					sharedSpeakers: shared,
+					removeSpeakers: remove,
+					addSpeakers:    add,
+				})
+			}
+		}
+	}
+
+	return transitions
+}
+
+// hasCompatibleMusic checks if the currently playing URI from an active zone
+// exists in the playback options of the target zone. This determines whether
+// shared speakers can continue playing without a music restart.
+func (zm *ZoneManager) hasCompatibleMusic(activeZone *Zone, targetZoneName string) bool {
+	mode, ok := zm.config.Music[targetZoneName]
+	if !ok {
+		return false
+	}
+
+	currentURI := activeZone.PlaylistURI
+	if currentURI == "" {
+		return false
+	}
+
+	for _, option := range mode.PlaybackOptions {
+		if option.URI == currentURI {
+			return true
+		}
+	}
+	return false
+}
+
+// executeSeamlessTransition transfers shared speakers from a stopping zone to a
+// starting zone without interrupting playback. Non-shared speakers in the old zone
+// are faded out and unjoined. Volume is smoothly adjusted for shared speakers.
+func (zm *ZoneManager) executeSeamlessTransition(st seamlessTransition, newSpeakers []string, trigger string) error {
+	zm.logger.Info("Executing seamless zone transition",
+		zap.String("from", st.stoppingZone),
+		zap.String("to", st.startingZone),
+		zap.Strings("shared", st.sharedSpeakers),
+		zap.Strings("removing", st.removeSpeakers),
+		zap.Strings("adding", st.addSpeakers))
+
+	// Get old zone info and validate new zone config BEFORE modifying state
+	zm.mu.RLock()
+	oldZone, exists := zm.activeZones[st.stoppingZone]
+	if !exists {
+		zm.mu.RUnlock()
+		return fmt.Errorf("stopping zone not found: %s", st.stoppingZone)
+	}
+	// Copy values we need from old zone before releasing lock
+	oldPlaylistURI := oldZone.PlaylistURI
+	oldMediaType := oldZone.MediaType
+	zm.mu.RUnlock()
+
+	// Build new zone config
+	var zoneConfig *ZoneConfig
+	for _, zc := range zm.config.GetZones() {
+		if zc.Name == st.startingZone {
+			zcCopy := zc
+			zoneConfig = &zcCopy
+			break
+		}
+	}
+	if zoneConfig == nil {
+		return fmt.Errorf("zone config not found: %s", st.startingZone)
+	}
+
+	mode, ok := zm.config.Music[st.startingZone]
+	if !ok {
+		return fmt.Errorf("music mode not found: %s", st.startingZone)
+	}
+
+	// Find the playback option matching the currently playing URI
+	var playbackOption PlaybackOption
+	found := false
+	for _, opt := range mode.PlaybackOptions {
+		if opt.URI == oldPlaylistURI {
+			playbackOption = opt
+			found = true
+			break
+		}
+	}
+	if !found {
+		return fmt.Errorf("compatible playback option not found in zone %s for URI %s", st.startingZone, oldPlaylistURI)
+	}
+
+	// Build participant list for the new zone
+	speakerSet := make(map[string]bool, len(newSpeakers))
+	for _, s := range newSpeakers {
+		speakerSet[s] = true
+	}
+
+	participants := make([]ParticipantWithVolume, 0, len(newSpeakers))
+	for _, p := range mode.Participants {
+		if !speakerSet[p.PlayerName] {
+			continue
+		}
+		volume := zm.manager.calculateVolume(p.BaseVolume, playbackOption.VolumeMultiplier)
+		participants = append(participants, ParticipantWithVolume{
+			PlayerName:    p.PlayerName,
+			BaseVolume:    p.BaseVolume,
+			Volume:        volume,
+			DefaultVolume: volume,
+			LeaveMutedIf:  p.LeaveMutedIf,
+			ExcludeIf:     p.ExcludeIf,
+		})
+	}
+
+	if len(participants) == 0 {
+		return fmt.Errorf("no participants for zone: %s", st.startingZone)
+	}
+
+	leadSpeaker := participants[0].PlayerName
+
+	// Create new zone (reuses the currently playing URI and media type)
+	newZone := &Zone{
+		Name:             st.startingZone,
+		MusicType:        st.startingZone,
+		Priority:         zoneConfig.Priority,
+		LeadSpeaker:      leadSpeaker,
+		Participants:     participants,
+		PlaylistURI:      oldPlaylistURI,
+		MediaType:        oldMediaType,
+		VolumeMultiplier: playbackOption.VolumeMultiplier,
+		StartedAt:        time.Now(),
+	}
+
+	// Now atomically swap zones in tracking
+	zm.mu.Lock()
+	// Cancel old zone's monitor
+	if oldZone.monitorCancel != nil {
+		oldZone.monitorCancel()
+	}
+
+	// Remove old zone from tracking
+	for _, p := range oldZone.Participants {
+		delete(zm.speakerZone, p.PlayerName)
+	}
+	delete(zm.activeZones, st.stoppingZone)
+
+	// Register new zone
+	zm.activeZones[st.startingZone] = newZone
+	for _, p := range participants {
+		zm.speakerZone[p.PlayerName] = st.startingZone
+	}
+	zm.mu.Unlock()
+
+	// Update musicPlaybackType
+	if err := zm.manager.setMusicPlaybackType(st.startingZone); err != nil {
+		zm.logger.Warn("Failed to update musicPlaybackType for seamless transition",
+			zap.String("zone", st.startingZone),
+			zap.Error(err))
+	}
+
+	// Update currently playing state (same URI, new zone metadata)
+	zm.manager.mu.Lock()
+	zm.manager.currentlyPlaying = &CurrentlyPlayingMusic{
+		Type:         newZone.MusicType,
+		URI:          newZone.PlaylistURI,
+		MediaType:    newZone.MediaType,
+		LeadPlayer:   leadSpeaker,
+		Participants: participants,
+	}
+	zm.manager.mu.Unlock()
+
+	// Handle non-shared speakers: fade out and remove from old group
+	if len(st.removeSpeakers) > 0 {
+		go zm.manager.removeSpeakersFromZone(oldZone, st.removeSpeakers, trigger)
+	}
+
+	// Handle shared speakers: smooth volume adjustment to new target
+	sharedSet := make(map[string]bool, len(st.sharedSpeakers))
+	for _, s := range st.sharedSpeakers {
+		sharedSet[s] = true
+	}
+	go func() {
+		for _, p := range participants {
+			if !sharedSet[p.PlayerName] {
+				continue
+			}
+			zm.manager.smoothVolumeAdjust(p.PlayerName, p.Volume)
+		}
+	}()
+
+	// Handle new speakers (if any): add to the new zone
+	if len(st.addSpeakers) > 0 {
+		go zm.manager.addSpeakersToZone(newZone, st.addSpeakers, trigger)
+	}
+
+	zm.logger.Info("Seamless zone transition complete",
+		zap.String("from", st.stoppingZone),
+		zap.String("to", st.startingZone),
+		zap.Int("shared_speakers", len(st.sharedSpeakers)),
+		zap.Int("removed_speakers", len(st.removeSpeakers)),
+		zap.Int("added_speakers", len(st.addSpeakers)))
+
+	return nil
 }
 
 // startZone starts playback for a new zone
