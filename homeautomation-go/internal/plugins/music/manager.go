@@ -273,7 +273,12 @@ func (m *Manager) Stop() {
 // handleMusicPlaybackTypeChange is called when musicPlaybackType changes.
 // The zone manager orchestrates playback directly via orchestrateZonePlayback
 // when zones start. musicPlaybackType is set by startZone for fade-in safety
-// check consistency; this handler only handles the stop case (empty string).
+// check consistency.
+//
+// When musicPlaybackType is cleared to "", this triggers zone resolution to
+// re-evaluate which zones should be active. Auto-triggered zones (morning,
+// evening) continue playing; manually-triggered zones (wakeup, sex) stop
+// because their musicPlaybackType fallback no longer matches.
 //
 // For manually-triggered zones (sex, wakeup) that are activated by setting
 // musicPlaybackType directly, this handler triggers zone resolution so the
@@ -289,13 +294,25 @@ func (m *Manager) handleMusicPlaybackTypeChange(key string, oldValue, newValue i
 		return
 	}
 
-	// If empty string, stop playback and all zones
+	// If empty string, re-evaluate zones rather than stopping everything.
+	// This ensures auto-triggered zones (morning, evening, etc.) continue playing
+	// while manually-triggered zones (wakeup, sex) stop because their
+	// musicPlaybackType fallback no longer matches (zone_manager.go getActiveZoneConfigs).
+	//
+	// Fix for issue #755: Previously this called StopAllZones which killed all zones
+	// including the morning zone that was already playing. The morning zone then had
+	// to restart from scratch (regroup speakers, fade in over ~6 minutes).
 	if newType == "" {
-		m.logger.Info("Stopping music playback")
-		if m.zoneManager != nil {
-			m.zoneManager.StopAllZones("musicPlaybackType cleared")
+		m.logger.Info("musicPlaybackType cleared, resolving zones to stop manually-triggered zones")
+		if m.zoneManager != nil && !m.zoneManager.IsResolving() {
+			if err := m.zoneManager.ResolveZones("musicPlaybackType cleared"); err != nil {
+				m.logger.Error("Failed to resolve zones after musicPlaybackType cleared",
+					zap.Error(err))
+			}
+		} else if m.zoneManager == nil {
+			// Fallback when zone manager is not initialized (startup, tests)
+			m.stopPlayback()
 		}
-		m.stopPlayback()
 		return
 	}
 

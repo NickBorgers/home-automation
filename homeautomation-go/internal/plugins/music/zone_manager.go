@@ -771,6 +771,39 @@ func (zm *ZoneManager) ResolveZonesWithContext(eventCtx *state.EventContext, tri
 		}
 	}
 
+	// If zones were stopped but other zones remain active and musicPlaybackType
+	// is stale (empty or refers to a stopped zone), update it to the highest-priority
+	// remaining zone. This handles the case where musicPlaybackType was cleared
+	// (e.g., wakeup → "") but auto-triggered zones (morning) continue playing.
+	// Without this, musicPlaybackType would stay "" even though music is still active.
+	if len(zonesToStop) > 0 {
+		currentType, _ := zm.manager.stateManager.GetString("musicPlaybackType")
+		zm.mu.RLock()
+		_, stoppedZoneStillTracked := zm.activeZones[currentType]
+		remainingCount := len(zm.activeZones)
+		// Find highest-priority remaining zone
+		var highestPriorityZone string
+		var highestPriority int
+		for name, zone := range zm.activeZones {
+			if zone.Priority > highestPriority {
+				highestPriority = zone.Priority
+				highestPriorityZone = name
+			}
+		}
+		zm.mu.RUnlock()
+
+		if remainingCount > 0 && (currentType == "" || (!stoppedZoneStillTracked && currentType != highestPriorityZone)) {
+			zm.logger.Info("Updating musicPlaybackType to reflect remaining active zone",
+				zap.String("old_type", currentType),
+				zap.String("new_type", highestPriorityZone),
+				zap.String("trigger", trigger))
+			if err := zm.manager.setMusicPlaybackType(highestPriorityZone); err != nil {
+				zm.logger.Warn("Failed to update musicPlaybackType for remaining zone",
+					zap.Error(err))
+			}
+		}
+	}
+
 	return nil
 }
 
