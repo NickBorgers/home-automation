@@ -149,6 +149,31 @@ func waitForCondition(t *testing.T, condition func() bool, msgAndArgs ...interfa
 	assert.Eventually(t, condition, stateWaitTimeout, statePollInterval, msgAndArgs...)
 }
 
+// waitForServiceCallsToStabilize waits until the service call count has been stable
+// (unchanged) for at least stabilizeWindow, indicating all async goroutines have finished
+// making service calls. Use this before inspecting service calls when fire-and-forget
+// goroutines (e.g., zone orchestration) may still be in flight.
+func waitForServiceCallsToStabilize(t *testing.T, server *MockHAServer, stabilizeWindow time.Duration) {
+	t.Helper()
+	// First wait for at least one call to appear
+	assert.Eventually(t, func() bool {
+		return len(server.GetServiceCalls()) > 0
+	}, stateWaitTimeout, statePollInterval, "expected at least one service call before checking stability")
+
+	// Then wait for count to stop changing for stabilizeWindow
+	lastCount := -1
+	var stableStart time.Time
+	assert.Eventually(t, func() bool {
+		count := len(server.GetServiceCalls())
+		if count != lastCount {
+			lastCount = count
+			stableStart = time.Now()
+			return false
+		}
+		return time.Since(stableStart) >= stabilizeWindow
+	}, stateWaitTimeout, statePollInterval, "service calls should stabilize")
+}
+
 // waitForNtfyNotification polls until a notification with the given title is found in the mock Ntfy client.
 // Use this when testing notification delivery through the Ntfy service.
 func waitForNtfyNotification(t *testing.T, mockNtfy *ntfy.MockClient, title string, msgAndArgs ...interface{}) {

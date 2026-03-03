@@ -187,14 +187,7 @@ func TestScenario_SleepPrepToSleep_NonBedroomSpeakersBehavior(t *testing.T) {
 	// the THEN phase assertions.
 	//
 	// Strategy: wait until service call count stabilizes (no new calls for 200ms).
-	waitForCondition(t, func() bool {
-		count := len(env.server.GetServiceCalls())
-		if count == 0 {
-			return false
-		}
-		time.Sleep(200 * time.Millisecond)
-		return len(env.server.GetServiceCalls()) == count
-	}, "service calls should stabilize after sleep-prep orchestration completes")
+	waitForServiceCallsToStabilize(t, env.server, 200*time.Millisecond)
 
 	// Clear service calls to isolate the transition
 	env.server.ClearServiceCalls()
@@ -224,9 +217,9 @@ func TestScenario_SleepPrepToSleep_NonBedroomSpeakersBehavior(t *testing.T) {
 		return hasSleep && !hasSleepPrep
 	}, "sleep zone should be active and sleep-prep should be stopped")
 
-	// Allow time for all service calls to settle (secondary zone resolutions
+	// Wait for all service calls to settle (secondary zone resolutions
 	// from sleephygiene state changes may still be completing)
-	time.Sleep(300 * time.Millisecond)
+	waitForServiceCallsToStabilize(t, env.server, 300*time.Millisecond)
 
 	// ===== THEN: Verify correct transition behavior =====
 	t.Log("THEN: Verify transition behavior for all speakers")
