@@ -134,17 +134,20 @@ music:
       - uri: spotify:playlist:62CFZGi01r81y81tSuj155
         media_type: playlist
         volume_multiplier: 1.0
-      # Instrumental Techno Mix
-      - uri: spotify:playlist:37i9dQZF1EIgBWjkyfXHmo
-        media_type: playlist
+      # Instrumental Techno Mix (Tidal: Techno Bunker)
+      - uri: >-
+          https://tidal.com/browse/playlist/d1316b44-e9c9-41bd-b1fb-732c8069295e
+        media_type: tidal
         volume_multiplier: 1.0
-      # Instrumental House Mix
-      - uri: spotify:playlist:37i9dQZF1EIhris6SwzGuN
-        media_type: playlist
+      # Instrumental House Mix (Tidal: Chill Lounge Deluxe)
+      - uri: >-
+          https://tidal.com/browse/playlist/c845f9cc-2b59-4ff0-8536-2f69e94b99e9
+        media_type: tidal
         volume_multiplier: 1.0
-      # Epic Classical
-      - uri: spotify:playlist:37i9dQZF1E4vSnB7GD9Gct
-        media_type: playlist
+      # Epic Classical (Tidal: Epic and Soulful)
+      - uri: >-
+          https://tidal.com/browse/playlist/0f68e61c-40ca-4d3a-baa2-bb99730376bc
+        media_type: tidal
         volume_multiplier: 1.0
       # Hans Zimmer - LIVE
       # yamllint disable-line rule:line-length
