@@ -250,29 +250,41 @@ music:
           - variable: isMasterAsleep
             value: true
     playback_options:
-      # Instrumental Study
-      - uri: spotify:playlist:37i9dQZF1DX9sIqqvKsjG8
-        media_type: playlist
+      # BRAIN & FOCUS INSTRUMENTALS (Tidal equivalent of Instrumental Study)
+      # yamllint disable-line rule:line-length
+      - uri: >-
+          https://tidal.com/browse/playlist/da8546c7-eb6e-49b3-bdcc-ed09966df03b
+        media_type: tidal
         volume_multiplier: 1.2
-      # Jazz in the background
-      - uri: spotify:playlist:37i9dQZF1DWV7EzJMK2FUI
-        media_type: playlist
+      # Late Night Jazz (Tidal equivalent of Jazz in the Background)
+      # yamllint disable-line rule:line-length
+      - uri: >-
+          https://tidal.com/browse/playlist/e7dde025-2ea1-4413-af9e-6c53bfa50733
+        media_type: tidal
         volume_multiplier: 1.0
-      # This is Hilary Hahn
-      - uri: spotify:playlist:37i9dQZF1DZ06evO3ngxkl
-        media_type: playlist
+      # Hilary Hahn Essentials (Tidal equivalent of This is Hilary Hahn)
+      # yamllint disable-line rule:line-length
+      - uri: >-
+          https://tidal.com/browse/playlist/e4c7182a-273b-4727-8980-7fe0ad8138f4
+        media_type: tidal
         volume_multiplier: 1.5
-      # Blowin' in the wind radio
-      - uri: spotify:playlist:37i9dQZF1E8Q7fAfKoKDtW
-        media_type: playlist
+      # Singer-Songwriter Classics (Tidal equivalent of Blowin' in the Wind Radio)
+      # yamllint disable-line rule:line-length
+      - uri: >-
+          https://tidal.com/browse/playlist/d3454ad3-41f5-497b-8fdf-25af07738d5a
+        media_type: tidal
         volume_multiplier: 1.0
-      # Calming Classical (Needs much higher volumes for parity)
-      - uri: spotify:playlist:37i9dQZF1DWVFeEut75IAL
-        media_type: playlist
+      # Relaxing Classical (Tidal equivalent of Calming Classical)
+      # yamllint disable-line rule:line-length
+      - uri: >-
+          https://tidal.com/browse/playlist/741b54e8-3fde-4ce4-b797-7874e33227ce
+        media_type: tidal
         volume_multiplier: 1.5
-      # Chilled Jazz
-      - uri: spotify:playlist:37i9dQZF1DX2vYju3i0lNX
-        media_type: playlist
+      # COOL: A Jazz Playlist (Tidal equivalent of Chilled Jazz)
+      # yamllint disable-line rule:line-length
+      - uri: >-
+          https://tidal.com/browse/playlist/6fb95baf-9e5d-4731-95ac-424da6e98aa2
+        media_type: tidal
         volume_multiplier: 1.0
       # Instrumental Classical
       - uri: spotify:playlist:5fSuIObNY9SB8gUMt1xrsB
