@@ -374,17 +374,20 @@ music:
           - variable: isMasterAsleep
             value: true
     playback_options:
-      # Floating Through Space
-      - uri: spotify:playlist:37i9dQZF1DX1n9whBbBKoL
-        media_type: playlist
+      # Floating Ambient (Tidal) — ambient/space atmosphere, replaces Spotify "Floating Through Space"
+      - uri: >-
+          https://tidal.com/browse/playlist/c6c1a2e3-9f35-43ad-aefd-a1e32c680fde
+        media_type: tidal
         volume_multiplier: 1.0
-      # Ambient Relaxation
-      - uri: spotify:playlist:37i9dQZF1DX3Ogo9pFvBkY
-        media_type: playlist
+      # Low Ambient (Tidal) — ambient/calming, replaces Spotify "Ambient Relaxation"
+      - uri: >-
+          https://tidal.com/browse/playlist/bd6eaf2a-bbcf-4953-b6f4-70c59efc6310
+        media_type: tidal
         volume_multiplier: 1.0
-      # Sleep
-      - uri: spotify:playlist:37i9dQZF1DWZd79rJ6a7lp
-        media_type: playlist
+      # The Best of Sleep Music (Tidal) — sleep/calm ambient, replaces Spotify "Sleep"
+      - uri: >-
+          https://tidal.com/browse/playlist/41a2ba3c-bdc8-4a98-a1ec-411eff9f5ed5
+        media_type: tidal
         volume_multiplier: 1.0
       # Ryuichi Sakamoto - 12
       # yamllint disable-line rule:line-length
@@ -477,7 +480,8 @@ music:
         base_volume: 6
         leave_muted_if: []
     playback_options:
-      # Ambient Relaxation
-      - uri: spotify:playlist:37i9dQZF1DX3Ogo9pFvBkY
-        media_type: playlist
+      # Soft Soundtracks (Tidal) — gentle ambient/modern classical, replaces Spotify "Ambient Relaxation"
+      - uri: >-
+          https://tidal.com/browse/playlist/5b477a6a-84b5-4b30-8f32-b84accacd604
+        media_type: tidal
         volume_multiplier: 1.0
