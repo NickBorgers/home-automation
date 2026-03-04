@@ -1204,7 +1204,7 @@ T+5ms:  winddown fade-in checks musicPlaybackType → "sleep-prep" ≠ "winddown
 T+5ms:  sleep-prep fade-in checks musicPlaybackType → "sleep-prep" = "sleep-prep" → continues ✓
 ```
 
-**Fix**: Check zone-level state (a map of active zones) instead of the global scalar:
+**Fix**: Check zone-level state (a map of active zones) instead of the global scalar. Critically, do NOT keep a fallback path that checks the global scalar — it defeats the fix:
 ```go
 // WRONG: Single global variable can only represent one zone
 musicType, _ := m.stateManager.GetString("musicPlaybackType")
@@ -1213,16 +1213,25 @@ if musicType != startingMusicType {
     return
 }
 
-// RIGHT: Check if the zone that started this fade-in is still active
-if !m.zoneManager.IsZoneActive(startingMusicType) {
+// ALSO WRONG: Fallback path re-introduces the race (issue #777)
+if m.zoneManager != nil {
+    // ... zone check (correct) ...
+} else {
+    // Falls back to global musicPlaybackType check — STILL RACES
+}
+
+// RIGHT: Only use zone-level check, skip when zone manager is nil
+if m.zoneManager != nil && !m.zoneManager.IsZoneActive(startingMusicType) {
     return  // Zone was genuinely stopped
 }
+// When zoneManager is nil, context cancellation provides safety
 ```
 
 **General Pattern**:
 - **Identify**: A shared variable that multiple goroutines read/write to track "am I still active?"
 - **Problem**: The variable can only hold one value, but N goroutines need N independent values
 - **Solution**: Replace with a concurrent-safe collection (map + mutex) where each goroutine checks its own entry
+- **Corollary**: When replacing a check, remove the old path entirely. A fallback to the old check defeats the fix
 
 **Where Applied**:
 - `internal/plugins/music/fadein.go` - Multi-zone fade-in checks `IsZoneActive()` instead of global `musicPlaybackType`
@@ -1231,6 +1240,7 @@ if !m.zoneManager.IsZoneActive(startingMusicType) {
 **Tests That Validate This**:
 - `TestFadeInSpeaker_MultiZone_DoesNotAbortWhenOtherZoneActive` - Both zones' fade-ins complete
 - `TestFadeInSpeaker_ZoneRemoved_AbortsFadeIn` - Fade-in correctly aborts when zone is stopped
+- `TestFadeInSpeaker_NoZoneManager_DoesNotAbortOnPlaybackTypeMismatch` - No abort when zone manager absent (issue #777)
 - `TestMultiZoneStartup_BothZonesActive` - Both zones become active simultaneously
 
 ---
