@@ -1190,7 +1190,59 @@ type Manager struct {
 
 ---
 
+## Lesson 16: Don't Use a Shared Scalar to Guard Concurrent Multi-Value Operations
+
+**Pattern**: When multiple concurrent operations each need to track their own identity, don't rely on a single global variable that can only hold one value at a time. Use a concurrent-safe collection (e.g., a map protected by a mutex) to track all active operations independently.
+
+**Why**: A single global variable creates a last-writer-wins race. When multiple goroutines start simultaneously, each writes its identity to the shared variable. Only the last write survives, causing all earlier goroutines to see a mismatch and abort.
+
+**Race Scenario (Before Fix)**:
+```
+T+0ms:  Zone "winddown" starts    → sets musicPlaybackType = "winddown"
+T+1ms:  Zone "sleep-prep" starts  → sets musicPlaybackType = "sleep-prep"  ← overwrites!
+T+5ms:  winddown fade-in checks musicPlaybackType → "sleep-prep" ≠ "winddown" → ABORTS ← BUG
+T+5ms:  sleep-prep fade-in checks musicPlaybackType → "sleep-prep" = "sleep-prep" → continues ✓
+```
+
+**Fix**: Check zone-level state (a map of active zones) instead of the global scalar:
+```go
+// WRONG: Single global variable can only represent one zone
+musicType, _ := m.stateManager.GetString("musicPlaybackType")
+if musicType != startingMusicType {
+    // Aborts fade-in — but this is a false positive in multi-zone!
+    return
+}
+
+// RIGHT: Check if the zone that started this fade-in is still active
+if !m.zoneManager.IsZoneActive(startingMusicType) {
+    return  // Zone was genuinely stopped
+}
+```
+
+**General Pattern**:
+- **Identify**: A shared variable that multiple goroutines read/write to track "am I still active?"
+- **Problem**: The variable can only hold one value, but N goroutines need N independent values
+- **Solution**: Replace with a concurrent-safe collection (map + mutex) where each goroutine checks its own entry
+
+**Where Applied**:
+- `internal/plugins/music/fadein.go` - Multi-zone fade-in checks `IsZoneActive()` instead of global `musicPlaybackType`
+- `internal/plugins/music/zone_manager.go` - `IsZoneActive()` checks the `activeZones` map (protected by `sync.RWMutex`)
+
+**Tests That Validate This**:
+- `TestFadeInSpeaker_MultiZone_DoesNotAbortWhenOtherZoneActive` - Both zones' fade-ins complete
+- `TestFadeInSpeaker_ZoneRemoved_AbortsFadeIn` - Fade-in correctly aborts when zone is stopped
+- `TestMultiZoneStartup_BothZonesActive` - Both zones become active simultaneously
+
+---
+
 ## Change Log
+
+### 2026-03-04
+- **Added Lesson 16**: Don't Use a Shared Scalar to Guard Concurrent Multi-Value Operations
+  - Documents multi-zone startup race where `musicPlaybackType` could only represent one zone (Issue #772)
+  - Pattern: Replace shared scalar with concurrent-safe map when N goroutines need independent identity tracking
+  - Applied to `internal/plugins/music/fadein.go` - checks `IsZoneActive()` instead of global state
+  - Added `IsZoneActive()` to `internal/plugins/music/zone_manager.go`
 
 ### 2026-02-11
 - **Added Lesson 15**: Track Pending Writes to Suppress Echo-Back Races
