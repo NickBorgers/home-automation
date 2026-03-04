@@ -589,9 +589,9 @@ func TestScenario_SleepToMorningTransition_BedroomMutedUntilActualWake(t *testin
 	require.NoError(t, env.stateManager.SetBool("isAnyoneAsleep", true))
 	require.NoError(t, env.stateManager.SetString("musicPlaybackType", "sleep"))
 
-	// Brief delay before clearing service calls to ensure setup state propagates
+	// Brief delay to ensure setup state propagates before snapshotting
 	waitForProcessing(t, env.stateManager)
-	env.server.ClearServiceCalls()
+	snapshot := len(env.server.GetServiceCalls())
 
 	// ========== WHEN ==========
 	t.Log("WHEN: Music type changes to morning (but isMasterAsleep still true)")
@@ -605,7 +605,7 @@ func TestScenario_SleepToMorningTransition_BedroomMutedUntilActualWake(t *testin
 	// ========== THEN ==========
 	t.Log("THEN: Bedroom should be MUTED during morning music while master sleeps")
 
-	calls := env.server.GetServiceCalls()
+	calls := env.server.GetServiceCallsSince(snapshot)
 
 	foundBedroomMute := false
 	for _, call := range calls {
@@ -632,7 +632,7 @@ func TestScenario_SleepToMorningTransition_BedroomMutedUntilActualWake(t *testin
 
 	// ========== PHASE 2 ==========
 	t.Log("WHEN: isMasterAsleep becomes false (actual wake-up)")
-	env.server.ClearServiceCalls()
+	snapshot = len(env.server.GetServiceCalls())
 
 	env.server.SetState("input_boolean.master_asleep", "off", map[string]interface{}{})
 	require.NoError(t, env.stateManager.SetBool("isMasterAsleep", false))
@@ -641,7 +641,7 @@ func TestScenario_SleepToMorningTransition_BedroomMutedUntilActualWake(t *testin
 	// ========== THEN ==========
 	t.Log("THEN: Bedroom should be UNMUTED (person actually woke up)")
 
-	calls = env.server.GetServiceCalls()
+	calls = env.server.GetServiceCallsSince(snapshot)
 
 	foundBedroomUnmute := false
 	for _, call := range calls {
