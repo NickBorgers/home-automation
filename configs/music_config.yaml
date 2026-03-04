@@ -182,33 +182,34 @@ music:
           - variable: isMasterAsleep
             value: true
     playback_options:
-      # Kygo Radio
-      - uri: spotify:playlist:37i9dQZF1E4zvzTbEfkwF2
-        media_type: playlist
+      # Tropical House (Tidal) - tropical/chill house, Kygo & Robin Schulz style
+      # yamllint disable-line rule:line-length
+      - uri: "https://tidal.com/browse/playlist/0fac431d-5918-41da-b4a6-febdc0d7f57b"
+        media_type: tidal
         volume_multiplier: 1.0
-      # Chill Tracks
-      - uri: spotify:playlist:37i9dQZF1DX6VdMW310YC7
-        media_type: playlist
+      # Kygo Essentials (Tidal) - Kygo-centric tropical house
+      # yamllint disable-line rule:line-length
+      - uri: "https://tidal.com/browse/playlist/f57e2db5-acc4-4e30-9edf-cf8cd90216c2"
+        media_type: tidal
         volume_multiplier: 1.0
-      # Lounge - Soft House
-      - uri: spotify:playlist:37i9dQZF1DX82pCGH5USnM
-        media_type: playlist
+      # Chill Pop (Tidal) - mellow, relaxed pop vibes
+      # yamllint disable-line rule:line-length
+      - uri: "https://tidal.com/browse/playlist/0dfc3b10-fbdb-4419-bf54-11b90051fa6c"
+        media_type: tidal
+        volume_multiplier: 1.0
+      # Chill Lounge Deluxe (Tidal) - deep house, lounge, soft house
+      # yamllint disable-line rule:line-length
+      - uri: "https://tidal.com/browse/playlist/c845f9cc-2b59-4ff0-8536-2f69e94b99e9"
+        media_type: tidal
         volume_multiplier: 1.0
       # Caroline's country playlist
       - uri: spotify:playlist:5Wyuc2BN76JyKioxcaY7ud
         media_type: playlist
         volume_multiplier: 1.0
-      # Summer Party
-      - uri: spotify:playlist:37i9dQZF1DX5Ozry5U6G0d
-        media_type: playlist
-        volume_multiplier: 1.0
-      # Lowkey tech
-      - uri: spotify:playlist:37i9dQZF1E4zvzTbEfkwF2
-        media_type: playlist
-        volume_multiplier: 1.0
-      # Kygo Radio
-      - uri: spotify:playlist:37i9dQZF1E4zvzTbEfkwF2
-        media_type: playlist
+      # Pop Party Hits (Tidal) - upbeat summer/party hits
+      # yamllint disable-line rule:line-length
+      - uri: "https://tidal.com/browse/playlist/230b543f-8395-47dc-b3d5-958f39154e4d"
+        media_type: tidal
         volume_multiplier: 1.0
       # Blockheady Instrumental
       - uri: spotify:playlist:7hw5bkUl4xLPDCymveIfnK
