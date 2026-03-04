@@ -53,7 +53,7 @@ func TestThermalBattery_ActivatesOnWhiteEnergyLevel(t *testing.T) {
 	require.NoError(t, err)
 	defer ls.Stop()
 
-	env.MockHA.ClearServiceCalls()
+	snapshot := env.MockHA.ServiceCallCount()
 
 	// Set energy state to white
 	err = env.StateMgr.SetString("currentEnergyLevel", "white")
@@ -63,7 +63,7 @@ func TestThermalBattery_ActivatesOnWhiteEnergyLevel(t *testing.T) {
 	assert.True(t, ls.IsThermalBatteryActive(), "Thermal battery should be active at white energy level")
 
 	// Verify thermostat hold was enabled before temperature changes
-	calls := env.MockHA.GetServiceCalls()
+	calls := env.MockHA.GetServiceCallsSince(snapshot)
 	holdCalls := 0
 	climateCalls := 0
 	holdCallIndex := -1
@@ -124,7 +124,7 @@ func TestThermalBattery_DeactivatesOnGreenEnergyLevel(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, ls.IsThermalBatteryActive())
 
-	env.MockHA.ClearServiceCalls()
+	snapshot := env.MockHA.ServiceCallCount()
 
 	// Drop to green
 	err = env.StateMgr.SetString("currentEnergyLevel", "green")
@@ -134,7 +134,7 @@ func TestThermalBattery_DeactivatesOnGreenEnergyLevel(t *testing.T) {
 	assert.False(t, ls.IsThermalBatteryActive(), "Thermal battery should be inactive after green")
 
 	// Verify setpoints were reverted and hold was disabled
-	calls := env.MockHA.GetServiceCalls()
+	calls := env.MockHA.GetServiceCallsSince(snapshot)
 	revertCalls := 0
 	holdOffCalls := 0
 	lastRevertIndex := -1
@@ -189,9 +189,9 @@ func TestThermalBattery_DeactivatesOnRedEnergyLevel(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, ls.IsThermalBatteryActive())
 
-	// Reset rate limit and clear calls
+	// Reset rate limit
 	ls.lastAction = time.Now().Add(-2 * time.Hour)
-	env.MockHA.ClearServiceCalls()
+	_ = env.MockHA.ServiceCallCount()
 
 	// Drop to red (should deactivate thermal battery AND enable load shedding)
 	err = env.StateMgr.SetString("currentEnergyLevel", "red")
@@ -214,7 +214,7 @@ func TestThermalBattery_SkipsWhenNoOneHome(t *testing.T) {
 	require.NoError(t, err)
 	defer ls.Stop()
 
-	env.MockHA.ClearServiceCalls()
+	snapshot := env.MockHA.ServiceCallCount()
 
 	// Try to activate
 	err = env.StateMgr.SetString("currentEnergyLevel", "white")
@@ -223,7 +223,7 @@ func TestThermalBattery_SkipsWhenNoOneHome(t *testing.T) {
 	assert.False(t, ls.IsThermalBatteryActive(), "Thermal battery should not activate when no one is home")
 
 	// Verify no climate service calls were made (only SetString call)
-	calls := env.MockHA.GetServiceCalls()
+	calls := env.MockHA.GetServiceCallsSince(snapshot)
 	for _, call := range calls {
 		if call.Domain == "climate" {
 			t.Error("No climate service calls should be made when no one is home")
@@ -248,7 +248,7 @@ func TestThermalBattery_SkipsWhenEveryoneAsleep(t *testing.T) {
 	require.NoError(t, err)
 	defer ls.Stop()
 
-	env.MockHA.ClearServiceCalls()
+	_ = env.MockHA.ServiceCallCount()
 
 	// Try to activate
 	err = env.StateMgr.SetString("currentEnergyLevel", "white")
@@ -275,7 +275,7 @@ func TestThermalBattery_DeactivatesWhenEveryoneLeaves(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, ls.IsThermalBatteryActive())
 
-	env.MockHA.ClearServiceCalls()
+	snapshot := env.MockHA.ServiceCallCount()
 
 	// Everyone leaves
 	err = env.StateMgr.SetBool("isAnyoneHome", false)
@@ -284,7 +284,7 @@ func TestThermalBattery_DeactivatesWhenEveryoneLeaves(t *testing.T) {
 	assert.False(t, ls.IsThermalBatteryActive(), "Thermal battery should deactivate when everyone leaves")
 
 	// Verify setpoints were reverted
-	calls := env.MockHA.GetServiceCalls()
+	calls := env.MockHA.GetServiceCallsSince(snapshot)
 	revertCalls := 0
 	for _, call := range calls {
 		if call.Domain == "climate" && call.Service == "set_temperature" {
@@ -308,7 +308,7 @@ func TestThermalBattery_DeactivatesWhenEveryoneFallsAsleep(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, ls.IsThermalBatteryActive())
 
-	env.MockHA.ClearServiceCalls()
+	_ = env.MockHA.ServiceCallCount()
 
 	// Everyone falls asleep
 	err = env.StateMgr.SetBool("isEveryoneAsleep", true)
@@ -347,7 +347,7 @@ func TestThermalBattery_HeatingMode(t *testing.T) {
 	require.NoError(t, err)
 	defer ls.Stop()
 
-	env.MockHA.ClearServiceCalls()
+	snapshot := env.MockHA.ServiceCallCount()
 
 	// Activate thermal battery
 	err = env.StateMgr.SetString("currentEnergyLevel", "white")
@@ -356,7 +356,7 @@ func TestThermalBattery_HeatingMode(t *testing.T) {
 	assert.True(t, ls.IsThermalBatteryActive())
 
 	// In heating mode, first step should shift UP by 1°F
-	calls := env.MockHA.GetServiceCalls()
+	calls := env.MockHA.GetServiceCallsSince(snapshot)
 	for _, call := range calls {
 		if call.Domain == "climate" && call.Service == "set_temperature" {
 			entityID, _ := call.Data["entity_id"].(string)
@@ -419,7 +419,7 @@ func TestThermalBattery_HeatCoolMode_ColdOutdoor(t *testing.T) {
 	require.NoError(t, err)
 	defer ls.Stop()
 
-	env.MockHA.ClearServiceCalls()
+	snapshot := env.MockHA.ServiceCallCount()
 
 	err = env.StateMgr.SetString("currentEnergyLevel", "white")
 	require.NoError(t, err)
@@ -427,7 +427,7 @@ func TestThermalBattery_HeatCoolMode_ColdOutdoor(t *testing.T) {
 	assert.True(t, ls.IsThermalBatteryActive())
 
 	// Cold outside → first step shifts band UP by 1°F: 69/72 → 70/73
-	calls := env.MockHA.GetServiceCalls()
+	calls := env.MockHA.GetServiceCallsSince(snapshot)
 	for _, call := range calls {
 		if call.Domain == "climate" && call.Service == "set_temperature" {
 			entityID, _ := call.Data["entity_id"].(string)
@@ -456,7 +456,7 @@ func TestThermalBattery_HeatCoolMode_HotOutdoor(t *testing.T) {
 	require.NoError(t, err)
 	defer ls.Stop()
 
-	env.MockHA.ClearServiceCalls()
+	snapshot := env.MockHA.ServiceCallCount()
 
 	err = env.StateMgr.SetString("currentEnergyLevel", "white")
 	require.NoError(t, err)
@@ -464,7 +464,7 @@ func TestThermalBattery_HeatCoolMode_HotOutdoor(t *testing.T) {
 	assert.True(t, ls.IsThermalBatteryActive())
 
 	// Hot outside → first step shifts band DOWN by 1°F: 69/72 → 68/71
-	calls := env.MockHA.GetServiceCalls()
+	calls := env.MockHA.GetServiceCallsSince(snapshot)
 	for _, call := range calls {
 		if call.Domain == "climate" && call.Service == "set_temperature" {
 			entityID, _ := call.Data["entity_id"].(string)
@@ -493,7 +493,7 @@ func TestThermalBattery_HeatCoolMode_MildOutdoor_SkipsInSkipZone(t *testing.T) {
 	require.NoError(t, err)
 	defer ls.Stop()
 
-	env.MockHA.ClearServiceCalls()
+	snapshot := env.MockHA.ServiceCallCount()
 
 	err = env.StateMgr.SetString("currentEnergyLevel", "white")
 	require.NoError(t, err)
@@ -501,7 +501,7 @@ func TestThermalBattery_HeatCoolMode_MildOutdoor_SkipsInSkipZone(t *testing.T) {
 	assert.False(t, ls.IsThermalBatteryActive(), "Thermal battery should skip when outdoor temp is within skip zone")
 
 	// Verify no climate service calls were made
-	calls := env.MockHA.GetServiceCalls()
+	calls := env.MockHA.GetServiceCallsSince(snapshot)
 	for _, call := range calls {
 		if call.Domain == "climate" && call.Service == "set_temperature" {
 			t.Error("No climate.set_temperature calls should be made when in skip zone")
@@ -522,7 +522,7 @@ func TestThermalBattery_HeatCoolMode_OutdoorSensorUnavailable(t *testing.T) {
 	require.NoError(t, err)
 	defer ls.Stop()
 
-	env.MockHA.ClearServiceCalls()
+	_ = env.MockHA.ServiceCallCount()
 
 	err = env.StateMgr.SetString("currentEnergyLevel", "white")
 	require.NoError(t, err)
@@ -549,7 +549,7 @@ func TestThermalBattery_HeatCoolMode_DeactivationRestoresOriginal(t *testing.T) 
 	require.NoError(t, err)
 	assert.True(t, ls.IsThermalBatteryActive())
 
-	env.MockHA.ClearServiceCalls()
+	snapshot := env.MockHA.ServiceCallCount()
 
 	// Deactivate by dropping to green
 	err = env.StateMgr.SetString("currentEnergyLevel", "green")
@@ -558,7 +558,7 @@ func TestThermalBattery_HeatCoolMode_DeactivationRestoresOriginal(t *testing.T) 
 	assert.False(t, ls.IsThermalBatteryActive())
 
 	// Verify original setpoints were restored (69/72)
-	calls := env.MockHA.GetServiceCalls()
+	calls := env.MockHA.GetServiceCallsSince(snapshot)
 	revertCalls := 0
 	for _, call := range calls {
 		if call.Domain == "climate" && call.Service == "set_temperature" {
@@ -583,7 +583,7 @@ func TestThermalBattery_NtfyNotificationOnActivation(t *testing.T) {
 	require.NoError(t, err)
 	defer ls.Stop()
 
-	env.MockHA.ClearServiceCalls()
+	_ = env.MockHA.ServiceCallCount()
 
 	err = env.StateMgr.SetString("currentEnergyLevel", "white")
 	require.NoError(t, err)
@@ -610,7 +610,7 @@ func TestThermalBattery_SkipsWhenThermostatOff(t *testing.T) {
 	require.NoError(t, err)
 	defer ls.Stop()
 
-	env.MockHA.ClearServiceCalls()
+	_ = env.MockHA.ServiceCallCount()
 
 	err = env.StateMgr.SetString("currentEnergyLevel", "white")
 	require.NoError(t, err)
@@ -630,7 +630,7 @@ func TestThermalBattery_ReadOnlyMode(t *testing.T) {
 	require.NoError(t, err)
 	defer ls.Stop()
 
-	env.MockHA.ClearServiceCalls()
+	snapshot := env.MockHA.ServiceCallCount()
 
 	err = env.StateMgr.SetString("currentEnergyLevel", "white")
 	require.NoError(t, err)
@@ -639,7 +639,7 @@ func TestThermalBattery_ReadOnlyMode(t *testing.T) {
 	assert.True(t, ls.IsThermalBatteryActive(), "Thermal battery should track state in read-only mode")
 
 	// Verify no climate service calls were made (just SetString)
-	calls := env.MockHA.GetServiceCalls()
+	calls := env.MockHA.GetServiceCallsSince(snapshot)
 	for _, call := range calls {
 		if call.Domain == "climate" {
 			t.Error("No climate service calls should be made in read-only mode")
@@ -665,7 +665,7 @@ func TestThermalBattery_DoesNotActivateDuringLoadShedding(t *testing.T) {
 
 	// Reset rate limit
 	ls.lastAction = time.Now().Add(-2 * time.Hour)
-	env.MockHA.ClearServiceCalls()
+	_ = env.MockHA.ServiceCallCount()
 
 	// Now try white - load shedding should be disabled first, then thermal battery should activate
 	// But since disableLoadShedding runs first and then activateThermalBattery,
@@ -695,14 +695,14 @@ func TestThermalBattery_IdempotentActivation(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, ls.IsThermalBatteryActive())
 
-	env.MockHA.ClearServiceCalls()
+	snapshot := env.MockHA.ServiceCallCount()
 
 	// Try to activate again (should be idempotent)
 	err = env.StateMgr.SetString("currentEnergyLevel", "white")
 	require.NoError(t, err)
 
 	// Should not make any climate service calls since already active
-	calls := env.MockHA.GetServiceCalls()
+	calls := env.MockHA.GetServiceCallsSince(snapshot)
 	climateCalls := 0
 	for _, call := range calls {
 		if call.Domain == "climate" && call.Service == "set_temperature" {
@@ -726,7 +726,7 @@ func TestThermalBattery_YellowMaintainsState(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, ls.IsThermalBatteryActive())
 
-	env.MockHA.ClearServiceCalls()
+	_ = env.MockHA.ServiceCallCount()
 
 	// Move to yellow (hysteresis) - thermal battery should remain active
 	err = env.StateMgr.SetString("currentEnergyLevel", "yellow")
@@ -759,7 +759,7 @@ func TestThermalBattery_SteppingCompletesFullOffset(t *testing.T) {
 	require.NoError(t, err)
 	defer ls.Stop()
 
-	env.MockHA.ClearServiceCalls()
+	snapshot := env.MockHA.ServiceCallCount()
 
 	// Activate: first step shifts by 1°F (cool mode: 72→71, 71→70)
 	err = env.StateMgr.SetString("currentEnergyLevel", "white")
@@ -785,7 +785,7 @@ func TestThermalBattery_SteppingCompletesFullOffset(t *testing.T) {
 	wg.Wait()
 
 	// Verify both steps were applied
-	calls := env.MockHA.GetServiceCalls()
+	calls := env.MockHA.GetServiceCallsSince(snapshot)
 	step1Calls := 0
 	step2Calls := 0
 	for _, call := range calls {
@@ -834,7 +834,7 @@ func TestThermalBattery_DeactivationMidStep(t *testing.T) {
 	require.NoError(t, err)
 	defer ls.Stop()
 
-	env.MockHA.ClearServiceCalls()
+	_ = env.MockHA.ServiceCallCount()
 
 	// Activate: only step 1 applied (poll interval is 1h so step 2 won't happen)
 	err = env.StateMgr.SetString("currentEnergyLevel", "white")
@@ -846,7 +846,7 @@ func TestThermalBattery_DeactivationMidStep(t *testing.T) {
 	assert.Equal(t, 1, shadow.Outputs.ThermalBattery.StepsCompleted)
 	assert.True(t, shadow.Outputs.ThermalBattery.Stepping)
 
-	env.MockHA.ClearServiceCalls()
+	snapshot := env.MockHA.ServiceCallCount()
 
 	// Deactivate by dropping to green
 	err = env.StateMgr.SetString("currentEnergyLevel", "green")
@@ -855,7 +855,7 @@ func TestThermalBattery_DeactivationMidStep(t *testing.T) {
 	assert.False(t, ls.IsThermalBatteryActive())
 
 	// Verify original setpoints were restored (not step-1 values)
-	calls := env.MockHA.GetServiceCalls()
+	calls := env.MockHA.GetServiceCallsSince(snapshot)
 	revertCalls := 0
 	for _, call := range calls {
 		if call.Domain == "climate" && call.Service == "set_temperature" {
@@ -891,14 +891,14 @@ func TestThermalBattery_SteppingCancelledByPresenceChange(t *testing.T) {
 	require.NoError(t, err)
 	defer ls.Stop()
 
-	env.MockHA.ClearServiceCalls()
+	_ = env.MockHA.ServiceCallCount()
 
 	// Activate
 	err = env.StateMgr.SetString("currentEnergyLevel", "white")
 	require.NoError(t, err)
 	assert.True(t, ls.IsThermalBatteryActive())
 
-	env.MockHA.ClearServiceCalls()
+	snapshot := env.MockHA.ServiceCallCount()
 
 	// Everyone leaves mid-stepping
 	err = env.StateMgr.SetBool("isAnyoneHome", false)
@@ -908,7 +908,7 @@ func TestThermalBattery_SteppingCancelledByPresenceChange(t *testing.T) {
 	assert.False(t, ls.IsThermalBatteryActive(), "Thermal battery should deactivate when everyone leaves during stepping")
 
 	// Verify original setpoints were restored
-	calls := env.MockHA.GetServiceCalls()
+	calls := env.MockHA.GetServiceCallsSince(snapshot)
 	revertCalls := 0
 	for _, call := range calls {
 		if call.Domain == "climate" && call.Service == "set_temperature" {
@@ -932,7 +932,7 @@ func TestThermalBattery_RevertsStaleHoldsOnActivation(t *testing.T) {
 	require.NoError(t, err)
 	defer ls.Stop()
 
-	env.MockHA.ClearServiceCalls()
+	snapshot := env.MockHA.ServiceCallCount()
 
 	// Activate thermal battery
 	err = env.StateMgr.SetString("currentEnergyLevel", "white")
@@ -941,7 +941,7 @@ func TestThermalBattery_RevertsStaleHoldsOnActivation(t *testing.T) {
 	assert.True(t, ls.IsThermalBatteryActive())
 
 	// Verify holds were turned off (revert stale) then turned on (for thermal battery)
-	calls := env.MockHA.GetServiceCalls()
+	calls := env.MockHA.GetServiceCallsSince(snapshot)
 	holdOffIndex := -1
 	holdOnIndex := -1
 	for i, call := range calls {
@@ -987,7 +987,7 @@ func TestThermalBattery_HeatCoolSteppingCompletesFullOffset(t *testing.T) {
 	require.NoError(t, err)
 	defer ls.Stop()
 
-	env.MockHA.ClearServiceCalls()
+	snapshot := env.MockHA.ServiceCallCount()
 
 	// Activate: first step shifts band UP by 1°F: 69/72 → 70/73
 	err = env.StateMgr.SetString("currentEnergyLevel", "white")
@@ -1013,7 +1013,7 @@ func TestThermalBattery_HeatCoolSteppingCompletesFullOffset(t *testing.T) {
 	wg.Wait()
 
 	// Verify final step applies full 2°F offset: 69/72 → 71/74
-	calls := env.MockHA.GetServiceCalls()
+	calls := env.MockHA.GetServiceCallsSince(snapshot)
 	step2Found := false
 	for _, call := range calls {
 		if call.Domain == "climate" && call.Service == "set_temperature" {
@@ -1058,7 +1058,7 @@ func TestThermalBattery_SafetyTimeoutForcesStepAdvancement(t *testing.T) {
 	require.NoError(t, err)
 	defer ls.Stop()
 
-	env.MockHA.ClearServiceCalls()
+	snapshot := env.MockHA.ServiceCallCount()
 
 	// Activate: first step shifts by 1°F (cool mode: 72→71, 71→70)
 	err = env.StateMgr.SetString("currentEnergyLevel", "white")
@@ -1074,7 +1074,7 @@ func TestThermalBattery_SafetyTimeoutForcesStepAdvancement(t *testing.T) {
 	wg.Wait()
 
 	// Verify both steps were applied despite thermostat never reaching target
-	calls := env.MockHA.GetServiceCalls()
+	calls := env.MockHA.GetServiceCallsSince(snapshot)
 	step2Calls := 0
 	for _, call := range calls {
 		if call.Domain == "climate" && call.Service == "set_temperature" {

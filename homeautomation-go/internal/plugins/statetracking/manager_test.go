@@ -704,8 +704,8 @@ func TestStateTrackingManager_ArrivalAnnouncements(t *testing.T) {
 			}
 			defer manager.Stop()
 
-			// Clear any initial service calls
-			mockHA.ClearServiceCalls()
+			// Snapshot service call count before action
+			snapshot := mockHA.ServiceCallCount()
 
 			// Simulate arrival (off -> on)
 			mockHA.SetState(tt.entityID, "off", nil)
@@ -715,7 +715,7 @@ func TestStateTrackingManager_ArrivalAnnouncements(t *testing.T) {
 			time.Sleep(50 * time.Millisecond)
 
 			// Verify TTS service was called
-			calls := mockHA.GetServiceCalls()
+			calls := mockHA.GetServiceCallsSince(snapshot)
 			if len(calls) == 0 {
 				t.Fatal("Expected TTS service call, but no service calls were made")
 			}
@@ -831,8 +831,8 @@ func TestStateTrackingManager_NoAnnouncement(t *testing.T) {
 			}
 			defer manager.Stop()
 
-			// Clear any initial service calls
-			mockHA.ClearServiceCalls()
+			// Snapshot service call count before action
+			snapshot := mockHA.ServiceCallCount()
 
 			tt.simulate(mockHA)
 
@@ -840,7 +840,7 @@ func TestStateTrackingManager_NoAnnouncement(t *testing.T) {
 			time.Sleep(50 * time.Millisecond)
 
 			// Verify NO TTS service was called
-			calls := mockHA.GetServiceCalls()
+			calls := mockHA.GetServiceCallsSince(snapshot)
 			for _, call := range calls {
 				if call.Domain == "tts" && call.Service == "speak" {
 					t.Error("Expected no TTS announcement, but TTS service was called")

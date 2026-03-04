@@ -37,14 +37,16 @@ func TestSexModeManager_ActivationSetsMusic(t *testing.T) {
 	}
 	defer manager.Stop()
 
-	// Clear any initial service calls
-	mockHA.ClearServiceCalls()
+	// Snapshot service call count before action
+	snapshot := mockHA.ServiceCallCount()
 
 	// Simulate sex mode being turned on
 	mockHA.SimulateStateChange("input_boolean.sex", "on")
 
 	// Wait for async processing
 	time.Sleep(100 * time.Millisecond)
+
+	_ = snapshot // ClearServiceCalls had no matching GetServiceCalls in this test
 
 	// Verify music type was changed to "sex"
 	musicType, err := stateManager.GetString("musicPlaybackType")
@@ -86,8 +88,8 @@ func TestSexModeManager_ActivationSetsLighting(t *testing.T) {
 	}
 	defer manager.Stop()
 
-	// Clear any initial service calls
-	mockHA.ClearServiceCalls()
+	// Snapshot service call count before action
+	snapshot := mockHA.ServiceCallCount()
 
 	// Simulate sex mode being turned on
 	mockHA.SimulateStateChange("input_boolean.sex", "on")
@@ -96,7 +98,7 @@ func TestSexModeManager_ActivationSetsLighting(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	// Verify night scene was activated for Primary Suite
-	calls := mockHA.GetServiceCalls()
+	calls := mockHA.GetServiceCallsSince(snapshot)
 	foundSceneCall := false
 	for _, call := range calls {
 		if call.Domain == "scene" && call.Service == "turn_on" {
@@ -142,8 +144,8 @@ func TestSexModeManager_ActivationSetsEightSleep(t *testing.T) {
 	}
 	defer manager.Stop()
 
-	// Clear any initial service calls
-	mockHA.ClearServiceCalls()
+	// Snapshot service call count before action
+	snapshot := mockHA.ServiceCallCount()
 
 	// Simulate sex mode being turned on
 	mockHA.SimulateStateChange("input_boolean.sex", "on")
@@ -152,7 +154,7 @@ func TestSexModeManager_ActivationSetsEightSleep(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	// Verify Eight Sleep was set to coldest (auto-detected min_temp)
-	calls := mockHA.GetServiceCalls()
+	calls := mockHA.GetServiceCallsSince(snapshot)
 	nickFound := false
 	carolineFound := false
 
@@ -232,8 +234,9 @@ func TestSexModeManager_DeactivationRestoresMusic(t *testing.T) {
 		t.Errorf("Expected musicPlaybackType to be 'sex' after activation, got '%s'", musicType)
 	}
 
-	// Clear service calls before deactivation
-	mockHA.ClearServiceCalls()
+	// Snapshot service call count before deactivation
+	snapshot := mockHA.ServiceCallCount()
+	_ = snapshot
 
 	// Deactivate sex mode
 	mockHA.SimulateStateChange("input_boolean.sex", "off")
@@ -282,15 +285,15 @@ func TestSexModeManager_DeactivationReEvaluatesLighting(t *testing.T) {
 	mockHA.SimulateStateChange("input_boolean.sex", "on")
 	time.Sleep(100 * time.Millisecond)
 
-	// Clear service calls before deactivation
-	mockHA.ClearServiceCalls()
+	// Snapshot service call count before deactivation
+	snapshot := mockHA.ServiceCallCount()
 
 	// Deactivate sex mode
 	mockHA.SimulateStateChange("input_boolean.sex", "off")
 	time.Sleep(100 * time.Millisecond)
 
 	// Verify Primary Suite scene was activated based on day phase (sunset)
-	calls := mockHA.GetServiceCalls()
+	calls := mockHA.GetServiceCallsSince(snapshot)
 	foundSceneCall := false
 	for _, call := range calls {
 		if call.Domain == "scene" && call.Service == "turn_on" {
@@ -339,15 +342,15 @@ func TestSexModeManager_DeactivationTurnsOffLightsWhenAsleep(t *testing.T) {
 	mockHA.SimulateStateChange("input_boolean.sex", "on")
 	time.Sleep(100 * time.Millisecond)
 
-	// Clear service calls before deactivation
-	mockHA.ClearServiceCalls()
+	// Snapshot service call count before deactivation
+	snapshot := mockHA.ServiceCallCount()
 
 	// Deactivate sex mode
 	mockHA.SimulateStateChange("input_boolean.sex", "off")
 	time.Sleep(100 * time.Millisecond)
 
 	// Verify Primary Suite lights were turned off
-	calls := mockHA.GetServiceCalls()
+	calls := mockHA.GetServiceCallsSince(snapshot)
 	foundTurnOff := false
 	for _, call := range calls {
 		if call.Domain == "light" && call.Service == "turn_off" {
@@ -388,15 +391,15 @@ func TestSexModeManager_DuplicateActivationIgnored(t *testing.T) {
 	mockHA.SimulateStateChange("input_boolean.sex", "on")
 	time.Sleep(100 * time.Millisecond)
 
-	// Clear calls
-	mockHA.ClearServiceCalls()
+	// Snapshot service call count before duplicate activation
+	snapshot := mockHA.ServiceCallCount()
 
 	// Try to activate again (simulate duplicate)
 	manager.handleSexModeOn()
 	time.Sleep(100 * time.Millisecond)
 
 	// Verify no additional service calls were made
-	calls := mockHA.GetServiceCalls()
+	calls := mockHA.GetServiceCallsSince(snapshot)
 	if len(calls) > 0 {
 		t.Errorf("Expected no service calls on duplicate activation, got %d calls", len(calls))
 	}
@@ -423,15 +426,15 @@ func TestSexModeManager_ReadOnlyMode(t *testing.T) {
 	}
 	defer manager.Stop()
 
-	// Clear any initial service calls
-	mockHA.ClearServiceCalls()
+	// Snapshot service call count before action
+	snapshot := mockHA.ServiceCallCount()
 
 	// Activate sex mode
 	mockHA.SimulateStateChange("input_boolean.sex", "on")
 	time.Sleep(100 * time.Millisecond)
 
 	// Verify no service calls were made (all should be read-only)
-	calls := mockHA.GetServiceCalls()
+	calls := mockHA.GetServiceCallsSince(snapshot)
 	if len(calls) > 0 {
 		t.Errorf("Expected no service calls in read-only mode, got %d calls: %+v", len(calls), calls)
 	}
@@ -516,8 +519,8 @@ func TestSexModeManager_Reset(t *testing.T) {
 		t.Errorf("Expected isActive to be false before reset")
 	}
 
-	// Clear any calls
-	mockHA.ClearServiceCalls()
+	// Snapshot service call count before reset
+	snapshot := mockHA.ServiceCallCount()
 
 	// Reset should detect the HA state and activate
 	if err := manager.Reset(); err != nil {
@@ -533,7 +536,7 @@ func TestSexModeManager_Reset(t *testing.T) {
 	}
 
 	// Verify services were called
-	calls := mockHA.GetServiceCalls()
+	calls := mockHA.GetServiceCallsSince(snapshot)
 	if len(calls) == 0 {
 		t.Errorf("Expected service calls after reset, got none")
 	}
@@ -592,8 +595,8 @@ func TestSexModeManager_AutoClearOnWakeUp(t *testing.T) {
 		t.Errorf("Expected preSexMusicType to be 'sleep', got '%s'", savedType)
 	}
 
-	// Clear service calls to track what happens on wake-up
-	mockHA.ClearServiceCalls()
+	// Snapshot service call count to track what happens on wake-up
+	snapshot := mockHA.ServiceCallCount()
 
 	// Simulate wake-up event: isAnyoneAsleep becomes false
 	// The music plugin would normally set musicPlaybackType to "day" here,
@@ -606,7 +609,7 @@ func TestSexModeManager_AutoClearOnWakeUp(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	// Verify that input_boolean.sex was turned off via service call
-	calls := mockHA.GetServiceCalls()
+	calls := mockHA.GetServiceCallsSince(snapshot)
 	foundTurnOff := false
 	for _, call := range calls {
 		if call.Domain == "input_boolean" && call.Service == "turn_off" {
@@ -700,8 +703,9 @@ func TestSexModeManager_DeactivationRestoresMusicWhenStillAsleep(t *testing.T) {
 
 	// isAnyoneAsleep remains true (no wake-up occurred)
 
-	// Clear service calls before deactivation
-	mockHA.ClearServiceCalls()
+	// Snapshot service call count before deactivation
+	snapshot := mockHA.ServiceCallCount()
+	_ = snapshot
 
 	// Deactivate sex mode
 	mockHA.SimulateStateChange("input_boolean.sex", "off")
@@ -752,8 +756,8 @@ func TestSexModeManager_WakeUpIgnoredWhenNotActive(t *testing.T) {
 		t.Fatalf("Expected sex mode to be inactive initially")
 	}
 
-	// Clear service calls
-	mockHA.ClearServiceCalls()
+	// Snapshot service call count before wake-up event
+	snapshot := mockHA.ServiceCallCount()
 
 	// Simulate wake-up event: isAnyoneAsleep becomes false
 	if err := stateManager.SetBool("isAnyoneAsleep", false); err != nil {
@@ -765,7 +769,7 @@ func TestSexModeManager_WakeUpIgnoredWhenNotActive(t *testing.T) {
 
 	// Verify that input_boolean.sex was NOT turned off (sex mode wasn't active)
 	// Note: Other turn_off calls may occur (e.g., state manager syncing input_boolean.anyone_asleep)
-	calls := mockHA.GetServiceCalls()
+	calls := mockHA.GetServiceCallsSince(snapshot)
 	for _, call := range calls {
 		if call.Domain == "input_boolean" && call.Service == "turn_off" {
 			if entityID, ok := call.Data["entity_id"].(string); ok && entityID == "input_boolean.sex" {

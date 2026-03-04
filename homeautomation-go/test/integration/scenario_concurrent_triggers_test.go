@@ -125,7 +125,7 @@ func TestScenario_SimultaneousDayPhaseAndPresence_ConsistentState(t *testing.T) 
 	env.server.SetState("input_text.day_phase", "morning", map[string]interface{}{})
 
 	waitForProcessing(t, env.stateManager)
-	env.server.ClearServiceCalls()
+	snapshot := env.server.ServiceCallCount()
 
 	// ========== WHEN ==========
 	t.Log("WHEN: Day phase changes to 'evening' AND second person arrives (simultaneously)")
@@ -140,7 +140,7 @@ func TestScenario_SimultaneousDayPhaseAndPresence_ConsistentState(t *testing.T) 
 
 	// Wait for lighting plugin to react (state cascades through state tracking first)
 	waitForCondition(t, func() bool {
-		calls := env.server.GetServiceCalls()
+		calls := env.server.GetServiceCallsSince(snapshot)
 		sceneActivations := filterServiceCalls(calls, "scene", "turn_on")
 		return len(sceneActivations) > 0
 	}, "Lighting should activate scenes when day phase changes")
@@ -158,7 +158,7 @@ func TestScenario_SimultaneousDayPhaseAndPresence_ConsistentState(t *testing.T) 
 	assert.True(t, isCarolineHome, "Caroline should be home")
 
 	// ASSERTION 2: Lighting plugin responded (at least one scene activation)
-	calls := env.server.GetServiceCalls()
+	calls := env.server.GetServiceCallsSince(snapshot)
 	sceneActivations := filterServiceCalls(calls, "scene", "turn_on")
 	t.Logf("Total service calls: %d, Scene activations: %d", len(calls), len(sceneActivations))
 
@@ -198,7 +198,6 @@ func TestScenario_RapidPresenceChanges_StableState(t *testing.T) {
 	env.server.SetState("input_text.day_phase", "evening", map[string]interface{}{})
 
 	waitForProcessing(t, env.stateManager)
-	env.server.ClearServiceCalls()
 
 	// ========== WHEN ==========
 	t.Log("WHEN: Caroline's presence rapidly toggles (sensor flicker)")
@@ -264,7 +263,7 @@ func TestScenario_SimultaneousSleepAndDayPhase_CorrectPriority(t *testing.T) {
 	env.server.SetState("input_text.day_phase", "evening", map[string]interface{}{})
 
 	waitForProcessing(t, env.stateManager)
-	env.server.ClearServiceCalls()
+	snapshot := env.server.ServiceCallCount()
 
 	// ========== WHEN ==========
 	t.Log("WHEN: Day phase changes to 'night' AND master goes to sleep (simultaneously)")
@@ -278,7 +277,7 @@ func TestScenario_SimultaneousSleepAndDayPhase_CorrectPriority(t *testing.T) {
 
 	// Wait for lighting plugin to react (state cascades through state tracking first)
 	waitForCondition(t, func() bool {
-		calls := env.server.GetServiceCalls()
+		calls := env.server.GetServiceCallsSince(snapshot)
 		sceneActivations := filterServiceCalls(calls, "scene", "turn_on")
 		lightTurnOffs := filterServiceCalls(calls, "light", "turn_off")
 		return len(sceneActivations)+len(lightTurnOffs) > 0
@@ -298,7 +297,7 @@ func TestScenario_SimultaneousSleepAndDayPhase_CorrectPriority(t *testing.T) {
 
 	// ASSERTION 2: Lighting plugin made at least one service call
 	// (scenes or turn-offs for the combined night + asleep state)
-	calls := env.server.GetServiceCalls()
+	calls := env.server.GetServiceCallsSince(snapshot)
 	t.Logf("Total service calls after simultaneous changes: %d", len(calls))
 
 	sceneActivations := filterServiceCalls(calls, "scene", "turn_on")
@@ -341,7 +340,7 @@ func TestScenario_MultiVariableBurst_NoPanics(t *testing.T) {
 	env.server.SetState("input_text.day_phase", "morning", map[string]interface{}{})
 
 	waitForProcessing(t, env.stateManager)
-	env.server.ClearServiceCalls()
+	snapshot := env.server.ServiceCallCount()
 
 	// ========== WHEN ==========
 	t.Log("WHEN: Multiple state variables change in rapid succession")
@@ -378,7 +377,7 @@ func TestScenario_MultiVariableBurst_NoPanics(t *testing.T) {
 	assert.True(t, isMasterAsleep, "Master should be asleep")
 
 	// ASSERTION 2: Service calls were tracked (plugins processed events)
-	calls := env.server.GetServiceCalls()
+	calls := env.server.GetServiceCallsSince(snapshot)
 	t.Logf("Total service calls after burst: %d", len(calls))
 	assert.GreaterOrEqual(t, len(calls), 0,
 		"Service calls should be tracked without crashes")

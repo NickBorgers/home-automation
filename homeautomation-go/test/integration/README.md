@@ -149,7 +149,7 @@ All critical bugs discovered during testing have been fixed:
 
 ### TestScenario_MockServerServiceCallTracking 🆕
 - Validates mock server tracks service calls
-- Tests GetServiceCalls(), FindServiceCall(), ClearServiceCalls()
+- Tests GetServiceCalls(), FindServiceCall(), ServiceCallCount(), GetServiceCallsSince()
 - Verifies service call filtering and counting
 - Foundation for automation behavior testing
 
@@ -209,17 +209,19 @@ fmt.Printf("Current state: %s\n", state.State)
 
 ### Service Call Tracking 🆕
 ```go
-// Get all service calls made
-calls := server.GetServiceCalls()
+// Take a snapshot before triggering an action (race-free)
+snapshot := server.ServiceCallCount()
+
+// ... trigger action ...
+
+// Get only service calls made since the snapshot
+calls := server.GetServiceCallsSince(snapshot)
 
 // Find specific service call
 call := server.FindServiceCall("scene", "activate", "scene.living_room_evening")
 
 // Count service calls
 count := server.CountServiceCalls("light", "turn_on")
-
-// Clear tracked calls
-server.ClearServiceCalls()
 ```
 
 **Use case:** Verify that automation plugins call the correct Home Assistant services with the correct parameters.
@@ -270,14 +272,14 @@ func TestScenario_DayPhaseChangeActivatesScenes(t *testing.T) {
 
     // GIVEN: Morning, someone is home
     server.SetState("input_text.day_phase", "morning", ...)
-    server.ClearServiceCalls()
+    snapshot := server.ServiceCallCount()
 
     // WHEN: Day phase changes to evening
     server.SetState("input_text.day_phase", "evening", ...)
     time.Sleep(500 * time.Millisecond)
 
     // THEN: Verify evening scenes were activated
-    calls := server.GetServiceCalls()
+    calls := server.GetServiceCallsSince(snapshot)
     sceneActivations := filterServiceCalls(calls, "scene", "activate")
     assert.Greater(t, len(sceneActivations), 0)
 }

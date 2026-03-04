@@ -225,9 +225,8 @@ func TestScenario_SleepMusic_ContinuesWhenMasterAsleep(t *testing.T) {
 	env.server.SetState("media_player.bedroom", "idle", map[string]interface{}{})
 	env.server.SetState("media_player.kitchen", "idle", map[string]interface{}{})
 
-	// Brief delay before clearing service calls to ensure setup state propagates
+	// Brief delay before taking snapshot to ensure setup state propagates
 	waitForProcessing(t, env.stateManager)
-	env.server.ClearServiceCalls()
 
 	// ========== WHEN ==========
 	t.Log("WHEN: Music type changes to sleep (rain sounds)")
@@ -235,9 +234,9 @@ func TestScenario_SleepMusic_ContinuesWhenMasterAsleep(t *testing.T) {
 	env.server.SetState("input_text.music_playback_type", "sleep", map[string]interface{}{})
 	waitForStringState(t, env.stateManager, "musicPlaybackType", "sleep", "Music type should be sleep")
 
-	// Wait for all music plugin service calls to complete before clearing
+	// Wait for all music plugin service calls to complete before taking snapshot
 	waitForProcessing(t, env.stateManager)
-	env.server.ClearServiceCalls()
+	snapshot := env.server.ServiceCallCount()
 	t.Log("WHEN: Master goes to sleep")
 
 	env.server.SetState("input_boolean.master_asleep", "on", map[string]interface{}{})
@@ -247,7 +246,7 @@ func TestScenario_SleepMusic_ContinuesWhenMasterAsleep(t *testing.T) {
 	t.Log("THEN: Sleep music continues (no stop commands for bedroom)")
 
 	// Verify no media_player.stop calls for bedroom
-	calls := env.server.GetServiceCalls()
+	calls := env.server.GetServiceCallsSince(snapshot)
 	foundBedroomStop := false
 	for _, call := range calls {
 		if call.Domain == "media_player" {
@@ -367,9 +366,9 @@ func TestScenario_WakeSequence_LightsOnDespiteMasterAsleep(t *testing.T) {
 	require.NoError(t, stateManager.SetBool("isAnyoneHomeAndAwake", false))
 	require.NoError(t, stateManager.SetBool("isWakeSequenceActive", false)) // Not yet active
 
-	// Brief delay before clearing service calls to ensure setup state propagates
+	// Brief delay before taking snapshot to ensure setup state propagates
 	waitForProcessing(t, stateManager)
-	server.ClearServiceCalls()
+	snapshot := server.ServiceCallCount()
 
 	// ========== WHEN ==========
 	t.Log("WHEN: isWakeSequenceActive becomes true (sleephygiene starts wake sequence)")
@@ -381,7 +380,7 @@ func TestScenario_WakeSequence_LightsOnDespiteMasterAsleep(t *testing.T) {
 	// ========== THEN ==========
 	t.Log("THEN: Bedroom lights should come ON (scene activation), not turn off")
 
-	calls := server.GetServiceCalls()
+	calls := server.GetServiceCallsSince(snapshot)
 	t.Logf("Total service calls after wake sequence active: %d", len(calls))
 
 	foundBedroomTurnOff := false
@@ -451,9 +450,8 @@ func TestScenario_WakeCancellation_RevertsToSleepMusicDuringNight(t *testing.T) 
 		"brightness": 128,
 	})
 
-	// Brief delay before clearing service calls to ensure setup state propagates
+	// Brief delay before taking snapshot to ensure setup state propagates
 	waitForProcessing(t, env.stateManager)
-	env.server.ClearServiceCalls()
 
 	// ========== WHEN ==========
 	t.Log("WHEN: User turns off bedroom lights (wants to sleep more)")
@@ -589,9 +587,9 @@ func TestScenario_SleepToMorningTransition_BedroomMutedUntilActualWake(t *testin
 	require.NoError(t, env.stateManager.SetBool("isAnyoneAsleep", true))
 	require.NoError(t, env.stateManager.SetString("musicPlaybackType", "sleep"))
 
-	// Brief delay to ensure setup state propagates before snapshotting
+	// Brief delay before taking snapshot to ensure setup state propagates
 	waitForProcessing(t, env.stateManager)
-	snapshot := len(env.server.GetServiceCalls())
+	snapshot := env.server.ServiceCallCount()
 
 	// ========== WHEN ==========
 	t.Log("WHEN: Music type changes to morning (but isMasterAsleep still true)")
@@ -632,7 +630,7 @@ func TestScenario_SleepToMorningTransition_BedroomMutedUntilActualWake(t *testin
 
 	// ========== PHASE 2 ==========
 	t.Log("WHEN: isMasterAsleep becomes false (actual wake-up)")
-	snapshot = len(env.server.GetServiceCalls())
+	snapshot = env.server.ServiceCallCount()
 
 	env.server.SetState("input_boolean.master_asleep", "off", map[string]interface{}{})
 	require.NoError(t, env.stateManager.SetBool("isMasterAsleep", false))
@@ -700,6 +698,8 @@ func TestScenario_MultipleMuteConditions_WorkIndependently(t *testing.T) {
 	// ========== WHEN ==========
 	t.Log("WHEN: Day music starts via zone resolution")
 
+	snapshot := env.server.ServiceCallCount()
+
 	// Zone triggers (dayPhase=day, isAnyoneHome=true, isAnyoneAsleep=false) match the day zone.
 	waitForStringState(t, env.stateManager, "musicPlaybackType", "day", "Music type should be day")
 
@@ -712,10 +712,10 @@ func TestScenario_MultipleMuteConditions_WorkIndependently(t *testing.T) {
 
 	// Wait for playback setup to complete by polling for service calls
 	waitForCondition(t, func() bool {
-		return len(env.server.GetServiceCalls()) > 0
+		return len(env.server.GetServiceCallsSince(snapshot)) > 0
 	}, "Day zone playback should produce service calls")
 
-	calls := env.server.GetServiceCalls()
+	calls := env.server.GetServiceCallsSince(snapshot)
 	t.Logf("  %d service calls observed during day zone playback", len(calls))
 
 	t.Log("✓ Multiple mute conditions work independently")
@@ -747,9 +747,9 @@ func TestScenario_RapidStateChanges_NoBriefUnmute(t *testing.T) {
 	require.NoError(t, env.stateManager.SetBool("isEveryoneAsleep", true))
 	require.NoError(t, env.stateManager.SetString("musicPlaybackType", "sleep"))
 
-	// Brief delay before clearing service calls to ensure setup state propagates
+	// Brief delay before taking snapshot to ensure setup state propagates
 	waitForProcessing(t, env.stateManager)
-	env.server.ClearServiceCalls()
+	snapshot := env.server.ServiceCallCount()
 
 	// ========== WHEN ==========
 	t.Log("WHEN: Rapid state changes occur (simulating sensor noise)")
@@ -775,7 +775,7 @@ func TestScenario_RapidStateChanges_NoBriefUnmute(t *testing.T) {
 	assert.True(t, isMasterAsleep, "isMasterAsleep should remain true after rapid changes")
 
 	// Check for any unexpected bedroom unmute calls
-	calls := env.server.GetServiceCalls()
+	calls := env.server.GetServiceCallsSince(snapshot)
 
 	unexpectedUnmutes := 0
 	for _, call := range calls {

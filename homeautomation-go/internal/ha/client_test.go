@@ -396,12 +396,12 @@ func TestMockClient(t *testing.T) {
 
 	t.Run("service calls", func(t *testing.T) {
 
-		mock.ClearServiceCalls()
+		snapshot := mock.ServiceCallCount()
 
 		err := mock.SetInputBoolean("test", true)
 		assert.NoError(t, err)
 
-		calls := mock.GetServiceCalls()
+		calls := mock.GetServiceCallsSince(snapshot)
 		assert.Len(t, calls, 1)
 		assert.Equal(t, "input_boolean", calls[0].Domain)
 		assert.Equal(t, "turn_on", calls[0].Service)
@@ -409,7 +409,7 @@ func TestMockClient(t *testing.T) {
 
 	t.Run("service calls with target", func(t *testing.T) {
 
-		mock.ClearServiceCalls()
+		snapshot := mock.ServiceCallCount()
 
 		target := &ServiceTarget{
 			LabelID: []string{"holiday_light"},
@@ -420,7 +420,7 @@ func TestMockClient(t *testing.T) {
 		})
 		assert.NoError(t, err)
 
-		calls := mock.GetServiceCalls()
+		calls := mock.GetServiceCallsSince(snapshot)
 		assert.Len(t, calls, 1)
 		assert.Equal(t, "light", calls[0].Domain)
 		assert.Equal(t, "turn_on", calls[0].Service)
@@ -431,8 +431,6 @@ func TestMockClient(t *testing.T) {
 	})
 
 	t.Run("service error injection", func(t *testing.T) {
-
-		mock.ClearServiceCalls()
 
 		// Set a service error
 		testErr := fmt.Errorf("test service error")
@@ -883,12 +881,13 @@ func TestClient_CallServiceContextCancellation(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
 
+		snapshot := mock.ServiceCallCount()
 		err := mock.CallService(ctx, "light", "turn_on", nil)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "cancelled")
 
 		// Verify the service was never called
-		calls := mock.GetServiceCalls()
+		calls := mock.GetServiceCallsSince(snapshot)
 		assert.Len(t, calls, 0, "Service should not be called when context is already cancelled")
 	})
 
@@ -901,13 +900,14 @@ func TestClient_CallServiceContextCancellation(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
 
+		snapshot := mock.ServiceCallCount()
 		target := &ServiceTarget{LabelID: []string{"test"}}
 		err := mock.CallServiceWithTarget(ctx, "light", "turn_on", target, nil)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "cancelled")
 
 		// Verify the service was never called
-		calls := mock.GetServiceCalls()
+		calls := mock.GetServiceCallsSince(snapshot)
 		assert.Len(t, calls, 0, "Service should not be called when context is already cancelled")
 	})
 }

@@ -45,7 +45,7 @@ func createOccupancyTestConfig() *HueConfig {
 }
 
 // setupOccupancyManager creates a manager with standard occupancy state initialized.
-func setupOccupancyManager(t *testing.T, config *HueConfig, overrides map[string]bool) (*Manager, *ha.MockClient) {
+func setupOccupancyManager(t *testing.T, config *HueConfig, overrides map[string]bool) (*Manager, *ha.MockClient, int) {
 	t.Helper()
 	logger := zap.NewNop()
 	mockClient := ha.NewMockClient()
@@ -74,9 +74,9 @@ func setupOccupancyManager(t *testing.T, config *HueConfig, overrides map[string
 	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, nil)
 	err := manager.Start()
 	assert.NoError(t, err)
-	mockClient.ClearServiceCalls()
+	snapshot := mockClient.ServiceCallCount()
 
-	return manager, mockClient
+	return manager, mockClient, snapshot
 }
 
 func TestScenario_OccupancyLighting(t *testing.T) {
@@ -132,7 +132,7 @@ func TestScenario_OccupancyLighting(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			config := createOccupancyTestConfig()
-			manager, mockClient := setupOccupancyManager(t, config, tt.overrides)
+			manager, mockClient, snapshot := setupOccupancyManager(t, config, tt.overrides)
 			defer manager.Stop()
 
 			if tt.dayPhase != "" {
@@ -142,7 +142,7 @@ func TestScenario_OccupancyLighting(t *testing.T) {
 			err := manager.stateManager.SetBool(tt.changeVar, tt.changeVal)
 			assert.NoError(t, err)
 
-			calls := mockClient.GetServiceCalls()
+			calls := mockClient.GetServiceCallsSince(snapshot)
 			found := false
 			for _, call := range calls {
 				if call.Domain == tt.expectDomain && call.Service == tt.expectService {
@@ -171,14 +171,14 @@ func TestScenario_OccupancyLighting(t *testing.T) {
 func TestScenario_OccupancyChangeOnlyAffectsRelevantRoom(t *testing.T) {
 	t.Parallel()
 	config := createOccupancyTestConfig()
-	manager, mockClient := setupOccupancyManager(t, config, nil)
+	manager, mockClient, snapshot := setupOccupancyManager(t, config, nil)
 	defer manager.Stop()
 
 	// Nick enters his office
 	err := manager.stateManager.SetBool("isNickOfficeOccupied", true)
 	assert.NoError(t, err)
 
-	calls := mockClient.GetServiceCalls()
+	calls := mockClient.GetServiceCallsSince(snapshot)
 	for _, call := range calls {
 		if call.Domain == "scene" && call.Service == "turn_on" {
 			if entityID, ok := call.Data["entity_id"].(string); ok {

@@ -190,15 +190,15 @@ func TestLoadShedding_RateLimiting(t *testing.T) {
 	initialCallCount := len(env.MockHA.GetServiceCalls())
 	assert.Greater(t, initialCallCount, 0, "First action should execute")
 
-	// Clear service calls to make counting easier
-	env.MockHA.ClearServiceCalls()
+	// Snapshot service call count to make counting easier
+	snapshot := env.MockHA.ServiceCallCount()
 
 	// Immediately change to green (should be rate limited)
 	err = env.StateMgr.SetString("currentEnergyLevel", "green")
 	assert.NoError(t, err)
 
 	// Should only have the SetString call, not the load shedding action (rate limited)
-	finalCallCount := len(env.MockHA.GetServiceCalls())
+	finalCallCount := len(env.MockHA.GetServiceCallsSince(snapshot))
 	assert.Equal(t, 1, finalCallCount,
 		"Should only have SetString call, load shedding action should be rate limited")
 }
@@ -330,8 +330,8 @@ func TestLoadShedding_DeferredActionAfterRateLimit(t *testing.T) {
 	env.MockHA.SetState(thermostatHoldHouse, "on", nil)
 	env.MockHA.SetState(thermostatHoldSuite, "on", nil)
 
-	// Clear service calls for cleaner verification
-	env.MockHA.ClearServiceCalls()
+	// Snapshot service call count for cleaner verification
+	snapshot := env.MockHA.ServiceCallCount()
 
 	// Step 2: Immediately set energy state to white (should be rate-limited and deferred)
 	err = env.StateMgr.SetString("currentEnergyLevel", "white")
@@ -346,7 +346,7 @@ func TestLoadShedding_DeferredActionAfterRateLimit(t *testing.T) {
 	}
 
 	// Step 4: Verify the deferred disable action was executed
-	calls = env.MockHA.GetServiceCalls()
+	calls = env.MockHA.GetServiceCallsSince(snapshot)
 	foundThermostatOff := false
 	for _, call := range calls {
 		if call.Domain == "switch" && call.Service == "turn_off" {
@@ -400,7 +400,7 @@ func TestLoadShedding_DeferredActionCancelledByNewAction(t *testing.T) {
 	env.MockHA.SetState(thermostatHoldHouse, "on", nil)
 	env.MockHA.SetState(thermostatHoldSuite, "on", nil)
 
-	env.MockHA.ClearServiceCalls()
+	snapshot := env.MockHA.ServiceCallCount()
 
 	// Step 2: Set energy state to white (rate-limited, deferred)
 	err = env.StateMgr.SetString("currentEnergyLevel", "white")
@@ -420,7 +420,7 @@ func TestLoadShedding_DeferredActionCancelledByNewAction(t *testing.T) {
 	}
 
 	// Verify that switch.turn_off was NOT called (deferred disable was cancelled)
-	calls := env.MockHA.GetServiceCalls()
+	calls := env.MockHA.GetServiceCallsSince(snapshot)
 	testutil.AssertNoServiceCall(t, calls, "switch", "turn_off")
 
 	// Load shedding should still be on

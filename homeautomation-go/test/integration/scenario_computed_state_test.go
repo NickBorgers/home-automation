@@ -254,19 +254,19 @@ func TestScenario_ComputedState_SyncsToHomeAssistant(t *testing.T) {
 	// Allow async handlers to process before clearing
 	waitForProcessing(t, manager)
 
-	// Clear service calls to track new ones
-	server.ClearServiceCalls()
+	// Snapshot service calls to track new ones
+	snapshot := server.ServiceCallCount()
 
 	// WHEN: Owner comes home (triggering computed state change)
 	t.Log("WHEN: Owner comes home")
 	server.SetState("input_boolean.any_owner_home", "on", map[string]interface{}{})
 
 	// Wait for sync to HA
-	waitForServiceCall(t, server, "input_boolean", "turn_on", "computed state should sync to HA")
+	waitForServiceCallSince(t, server, snapshot, "input_boolean", "turn_on", "computed state should sync to HA")
 
 	// THEN: A service call should be made to update isAnyoneHomeAndAwake in HA
 	t.Log("THEN: Computed state should be synced to HA")
-	calls := server.GetServiceCalls()
+	calls := server.GetServiceCallsSince(snapshot)
 
 	// Find the call that updated anyone_home_and_awake
 	var foundCall *ServiceCall

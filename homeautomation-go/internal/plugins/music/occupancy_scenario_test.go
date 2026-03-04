@@ -162,9 +162,6 @@ func TestScenario_StudySpeaker_UnmutedWhenOccupied(t *testing.T) {
 	// Allow initial processing
 	time.Sleep(100 * time.Millisecond)
 
-	// Clear initial service calls
-	mockClient.ClearServiceCalls()
-
 	// Create participant with mute conditions from config
 	participant := ParticipantWithVolume{
 		PlayerName:   "Study",
@@ -312,8 +309,8 @@ func TestScenario_StudySpeaker_UnmuteOnOccupancyChangeDuringPlayback(t *testing.
 	// Allow some processing time for initial music start
 	time.Sleep(50 * time.Millisecond)
 
-	// Clear service calls from initial music start
-	mockClient.ClearServiceCalls()
+	// Snapshot service calls from initial music start
+	snapshot := mockClient.ServiceCallCount()
 
 	// ==========================================================
 	// ACTION: Someone enters the study during active playback
@@ -331,7 +328,7 @@ func TestScenario_StudySpeaker_UnmuteOnOccupancyChangeDuringPlayback(t *testing.
 	// ==========================================================
 	// VERIFICATION: Study speaker should be unmuted
 	// ==========================================================
-	calls := mockClient.GetServiceCalls()
+	calls := mockClient.GetServiceCallsSince(snapshot)
 
 	// Look for volume_mute call with is_volume_muted=false (unmute)
 	foundStudyUnmute := false
@@ -413,8 +410,8 @@ func TestScenario_MutedSpeaker_GetsTargetVolumeSetDuringPlayback(t *testing.T) {
 		State:    "playing",
 	})
 
-	// Clear any existing service calls
-	mockClient.ClearServiceCalls()
+	// Snapshot before executePlayback
+	snapshot := mockClient.ServiceCallCount()
 
 	// ==========================================================
 	// ACTION: Call executePlayback with both Kitchen and Study
@@ -454,7 +451,7 @@ func TestScenario_MutedSpeaker_GetsTargetVolumeSetDuringPlayback(t *testing.T) {
 	// ==========================================================
 	// VERIFICATION: Study speaker received both volume_set and volume_mute
 	// ==========================================================
-	calls := mockClient.GetServiceCalls()
+	calls := mockClient.GetServiceCallsSince(snapshot)
 
 	// Look for volume_set call for Study with target volume (6% = 0.06)
 	foundStudyVolumeSet := false

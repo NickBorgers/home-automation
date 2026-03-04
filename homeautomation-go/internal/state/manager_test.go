@@ -114,6 +114,7 @@ func TestManager_SetBool(t *testing.T) {
 
 	t.Run("set to true", func(t *testing.T) {
 
+		snapshot := mockClient.ServiceCallCount()
 		err := manager.SetBool("isExpectingSomeone", true)
 		assert.NoError(t, err)
 
@@ -122,7 +123,7 @@ func TestManager_SetBool(t *testing.T) {
 		assert.True(t, value)
 
 		// Verify service call
-		calls := mockClient.GetServiceCalls()
+		calls := mockClient.GetServiceCallsSince(snapshot)
 		assert.NotEmpty(t, calls)
 		lastCall := calls[len(calls)-1]
 		assert.Equal(t, "input_boolean", lastCall.Domain)
@@ -131,7 +132,7 @@ func TestManager_SetBool(t *testing.T) {
 
 	t.Run("set to false", func(t *testing.T) {
 
-		mockClient.ClearServiceCalls()
+		snapshot := mockClient.ServiceCallCount()
 		err := manager.SetBool("isExpectingSomeone", false)
 		assert.NoError(t, err)
 
@@ -139,7 +140,7 @@ func TestManager_SetBool(t *testing.T) {
 		assert.NoError(t, err)
 		assert.False(t, value)
 
-		calls := mockClient.GetServiceCalls()
+		calls := mockClient.GetServiceCallsSince(snapshot)
 		assert.NotEmpty(t, calls)
 		assert.Equal(t, "turn_off", calls[0].Service)
 	})
@@ -173,6 +174,7 @@ func TestManager_GetSetString(t *testing.T) {
 	assert.Equal(t, "morning", value)
 
 	// Set
+	snapshot := mockClient.ServiceCallCount()
 	err = manager.SetString("dayPhase", "evening")
 	assert.NoError(t, err)
 
@@ -181,7 +183,7 @@ func TestManager_GetSetString(t *testing.T) {
 	assert.Equal(t, "evening", value)
 
 	// Verify service call
-	calls := mockClient.GetServiceCalls()
+	calls := mockClient.GetServiceCallsSince(snapshot)
 	assert.NotEmpty(t, calls)
 	lastCall := calls[len(calls)-1]
 	assert.Equal(t, "input_text", lastCall.Domain)
@@ -205,6 +207,7 @@ func TestManager_GetSetNumber(t *testing.T) {
 	assert.Equal(t, 1668524400000.0, value)
 
 	// Set
+	snapshot := mockClient.ServiceCallCount()
 	err = manager.SetNumber("alarmTime", 9999.5)
 	assert.NoError(t, err)
 
@@ -213,7 +216,7 @@ func TestManager_GetSetNumber(t *testing.T) {
 	assert.Equal(t, 9999.5, value)
 
 	// Verify service call
-	calls := mockClient.GetServiceCalls()
+	calls := mockClient.GetServiceCallsSince(snapshot)
 	assert.NotEmpty(t, calls)
 	lastCall := calls[len(calls)-1]
 	assert.Equal(t, "input_number", lastCall.Domain)
@@ -242,14 +245,14 @@ func TestManager_ChangeDetection(t *testing.T) {
 		assert.False(t, value)
 
 		// Count service calls before
-		callsBefore := len(mockClient.GetServiceCalls())
+		callsBefore := mockClient.ServiceCallCount()
 
 		// Set to same value
 		err = manager.SetBool("isNickHome", false)
 		assert.NoError(t, err)
 
 		// Verify no new service calls
-		callsAfter := len(mockClient.GetServiceCalls())
+		callsAfter := mockClient.ServiceCallCount()
 		assert.Equal(t, callsBefore, callsAfter, "Setting to same value should not trigger HA call")
 	})
 
@@ -262,14 +265,14 @@ func TestManager_ChangeDetection(t *testing.T) {
 		assert.Equal(t, "morning", value)
 
 		// Count service calls before
-		callsBefore := len(mockClient.GetServiceCalls())
+		callsBefore := mockClient.ServiceCallCount()
 
 		// Set to same value
 		err = manager.SetString("dayPhase", "morning")
 		assert.NoError(t, err)
 
 		// Verify no new service calls
-		callsAfter := len(mockClient.GetServiceCalls())
+		callsAfter := mockClient.ServiceCallCount()
 		assert.Equal(t, callsBefore, callsAfter, "Setting to same value should not trigger HA call")
 	})
 
@@ -282,14 +285,14 @@ func TestManager_ChangeDetection(t *testing.T) {
 		assert.Equal(t, 100.0, value)
 
 		// Count service calls before
-		callsBefore := len(mockClient.GetServiceCalls())
+		callsBefore := mockClient.ServiceCallCount()
 
 		// Set to same value
 		err = manager.SetNumber("alarmTime", 100.0)
 		assert.NoError(t, err)
 
 		// Verify no new service calls
-		callsAfter := len(mockClient.GetServiceCalls())
+		callsAfter := mockClient.ServiceCallCount()
 		assert.Equal(t, callsBefore, callsAfter, "Setting to same value should not trigger HA call")
 	})
 
@@ -709,6 +712,7 @@ func TestManager_ReadOnlyMode(t *testing.T) {
 
 	t.Run("regular variable write blocked in read-only mode", func(t *testing.T) {
 
+		snapshot := mockClient.ServiceCallCount()
 		err := manager.SetBool("isExpectingSomeone", true)
 		assert.Error(t, err)
 		assert.ErrorIs(t, err, ErrReadOnlyMode)
@@ -718,14 +722,13 @@ func TestManager_ReadOnlyMode(t *testing.T) {
 		assert.False(t, value)
 
 		// Verify no service call was made
-		mockClient.ClearServiceCalls()
-		calls := mockClient.GetServiceCalls()
+		calls := mockClient.GetServiceCallsSince(snapshot)
 		assert.Empty(t, calls)
 	})
 
 	t.Run("computed output variable write allowed in read-only mode", func(t *testing.T) {
 
-		mockClient.ClearServiceCalls()
+		snapshot := mockClient.ServiceCallCount()
 
 		// batteryEnergyLevel is marked as ComputedOutput: true
 		err := manager.SetString("batteryEnergyLevel", "yellow")
@@ -736,7 +739,7 @@ func TestManager_ReadOnlyMode(t *testing.T) {
 		assert.Equal(t, "yellow", value)
 
 		// Verify service call was made to HA
-		calls := mockClient.GetServiceCalls()
+		calls := mockClient.GetServiceCallsSince(snapshot)
 		assert.NotEmpty(t, calls)
 		lastCall := calls[len(calls)-1]
 		assert.Equal(t, "input_text", lastCall.Domain)
@@ -746,7 +749,7 @@ func TestManager_ReadOnlyMode(t *testing.T) {
 
 	t.Run("all energy variables writable in read-only mode", func(t *testing.T) {
 
-		mockClient.ClearServiceCalls()
+		snapshot := mockClient.ServiceCallCount()
 
 		// Test all three energy variables
 		err := manager.SetString("batteryEnergyLevel", "red")
@@ -759,7 +762,7 @@ func TestManager_ReadOnlyMode(t *testing.T) {
 		assert.NoError(t, err)
 
 		// Verify all three service calls were made
-		calls := mockClient.GetServiceCalls()
+		calls := mockClient.GetServiceCallsSince(snapshot)
 		assert.Len(t, calls, 3)
 	})
 

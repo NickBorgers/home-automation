@@ -126,7 +126,7 @@ func TestScenario_PlaybackVerificationSucceeds_FadeInProceeds(t *testing.T) {
 	defer manager.Stop()
 
 	time.Sleep(50 * time.Millisecond)
-	mockClient.ClearServiceCalls()
+	snapshot := mockClient.ServiceCallCount()
 
 	// ==========================================================
 	// ACTION: Call executePlayback directly
@@ -162,7 +162,7 @@ func TestScenario_PlaybackVerificationSucceeds_FadeInProceeds(t *testing.T) {
 	assert.Equal(t, 1, attempts, "Verification should succeed on first attempt")
 
 	// Check that play_media was called
-	serviceCalls := mockClient.GetServiceCalls()
+	serviceCalls := mockClient.GetServiceCallsSince(snapshot)
 	playMediaCalled := false
 	for _, call := range serviceCalls {
 		if call.Domain == "media_player" && call.Service == "play_media" {
@@ -281,7 +281,7 @@ func TestScenario_PlaybackVerificationFails_FadeInStillProceeds(t *testing.T) {
 	defer manager.Stop()
 
 	time.Sleep(50 * time.Millisecond)
-	mockClient.ClearServiceCalls()
+	snapshot := mockClient.ServiceCallCount()
 
 	// ==========================================================
 	// ACTION: Call executePlayback directly
@@ -320,7 +320,7 @@ func TestScenario_PlaybackVerificationFails_FadeInStillProceeds(t *testing.T) {
 	assert.Equal(t, 3, attempts, "Verification should have exhausted all 3 retry attempts")
 
 	// Check that play_media was called
-	serviceCalls := mockClient.GetServiceCalls()
+	serviceCalls := mockClient.GetServiceCallsSince(snapshot)
 	playMediaCalled := false
 	for _, call := range serviceCalls {
 		if call.Domain == "media_player" && call.Service == "play_media" {
@@ -465,7 +465,6 @@ func TestScenario_MultiSpeaker_VerificationFailureAllSpeakersFadeIn(t *testing.T
 	defer manager.Stop()
 
 	time.Sleep(50 * time.Millisecond)
-	mockClient.ClearServiceCalls()
 
 	// ==========================================================
 	// ACTION: Call executePlayback with multiple speakers

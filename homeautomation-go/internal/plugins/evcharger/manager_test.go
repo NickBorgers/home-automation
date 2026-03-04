@@ -365,7 +365,7 @@ func TestManager_ResetRechecksSafetyState(t *testing.T) {
 	require.NoError(t, manager.Start())
 	defer manager.Stop()
 
-	mockHA.ClearServiceCalls()
+	snapshot := mockHA.ServiceCallCount()
 
 	// Set overcurrent sensor to "on" (simulating condition already active)
 	mockHA.SetState(OverCurrentSensor, "on", nil)
@@ -374,7 +374,7 @@ func TestManager_ResetRechecksSafetyState(t *testing.T) {
 	err := manager.Reset()
 	assert.NoError(t, err)
 
-	calls := mockHA.GetServiceCalls()
+	calls := mockHA.GetServiceCallsSince(snapshot)
 	found := false
 	for _, call := range calls {
 		if call.Domain == "switch" && call.Service == "turn_off" {

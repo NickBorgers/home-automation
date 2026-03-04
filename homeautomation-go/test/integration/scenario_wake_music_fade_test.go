@@ -171,7 +171,7 @@ func TestScenario_WakeSequence_BedroomFadeIsGradualNotAbrupt(t *testing.T) {
 
 	// Allow all plugins to process the initial state
 	waitForProcessing(t, env.stateManager)
-	env.server.ClearServiceCalls()
+	snapshot := env.server.ServiceCallCount()
 
 	// ========== WHEN ==========
 	t.Log("WHEN: Eight Sleep alarm fires (sensor state -> 'alarm')")
@@ -211,7 +211,7 @@ func TestScenario_WakeSequence_BedroomFadeIsGradualNotAbrupt(t *testing.T) {
 	// ========== THEN ==========
 	t.Log("THEN: Verify the bedroom volume fade-out was GRADUAL, not abrupt")
 
-	calls := env.server.GetServiceCalls()
+	calls := env.server.GetServiceCallsSince(snapshot)
 	volumeCalls := filterServiceCalls(calls, "media_player", "volume_set")
 
 	// Filter to only bedroom speaker volume calls

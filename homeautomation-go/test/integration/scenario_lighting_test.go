@@ -55,29 +55,26 @@ func TestScenario_DayPhaseEvening_ActivatesCorrectScenes(t *testing.T) {
 	defer cleanup()
 	_ = lightingMgr
 
-	// Clear any initialization service calls
-	server.ClearServiceCalls()
-
 	// GIVEN: Day phase is morning, someone is home and awake
 	t.Log("GIVEN: Day phase is morning, someone is home and awake")
 	server.SetState("input_text.day_phase", "morning", map[string]interface{}{})
 	server.SetState("input_boolean.anyone_home", "on", map[string]interface{}{})
 	server.SetState("input_boolean.anyone_home_and_awake", "on", map[string]interface{}{})
-	// Brief delay to let initialization complete before clearing service calls
+	// Brief delay to let initialization complete before taking snapshot
 	waitForProcessing(t, stateManager)
 
-	server.ClearServiceCalls()
+	snapshot := server.ServiceCallCount()
 
 	// WHEN: Day phase changes to evening
 	t.Log("WHEN: Day phase changes to evening")
 	server.SetState("input_text.day_phase", "evening", map[string]interface{}{})
 
 	// Wait for scene activation
-	waitForServiceCall(t, server, "scene", "turn_on", "evening scenes should be activated")
+	waitForServiceCallSince(t, server, snapshot, "scene", "turn_on", "evening scenes should be activated")
 
 	// THEN: Verify correct scenes were activated
 	t.Log("THEN: Verify correct scenes were activated")
-	calls := server.GetServiceCalls()
+	calls := server.GetServiceCallsSince(snapshot)
 	t.Logf("Total service calls: %d", len(calls))
 
 	// Filter to scene activations only (scene.turn_on)
@@ -119,27 +116,27 @@ func TestScenario_SunEventSunset_ActivatesScenes(t *testing.T) {
 	waitForProcessing(t, stateManager)
 
 	// Get count before sun event change
-	initialCalls := len(server.GetServiceCalls())
-	t.Logf("Service calls before sunset: %d", initialCalls)
+	snapshot := server.ServiceCallCount()
+	t.Logf("Service calls before sunset: %d", snapshot)
 
 	// WHEN: Sun event changes to sunset
 	t.Log("WHEN: Sun event changes to sunset")
 	server.SetState("input_text.sun_event", "sunset", map[string]interface{}{})
 
 	// Wait for scene activation
-	waitForServiceCall(t, server, "scene", "turn_on", "sunset scenes should be activated")
+	waitForServiceCallSince(t, server, snapshot, "scene", "turn_on", "sunset scenes should be activated")
 
 	// THEN: Verify scenes were activated
 	t.Log("THEN: Verify scenes were activated")
-	calls := server.GetServiceCalls()
+	calls := server.GetServiceCallsSince(snapshot)
 	sceneActivations := filterServiceCalls(calls, "scene", "turn_on")
 
 	t.Logf("Scene activations total: %d", len(sceneActivations))
-	t.Logf("Total service calls: %d", len(calls))
+	t.Logf("Total service calls since snapshot: %d", len(calls))
 
 	// Sun event changes should trigger scene activations for all rooms
-	// Check that we have more calls after the sun event change
-	assert.Greater(t, len(calls), initialCalls,
+	// Check that we have calls after the sun event change
+	assert.Greater(t, len(calls), 0,
 		"Should make service calls when sun event changes to sunset")
 }
 
@@ -156,21 +153,21 @@ func TestScenario_TVStateChange_TriggersLightingAdjustment(t *testing.T) {
 	server.SetState("input_boolean.anyone_home", "on", map[string]interface{}{})
 	server.SetState("input_boolean.anyone_home_and_awake", "on", map[string]interface{}{})
 	server.SetState("input_boolean.tv_playing", "off", map[string]interface{}{})
-	// Brief delay to let initialization complete before clearing service calls
+	// Brief delay to let initialization complete before taking snapshot
 	waitForProcessing(t, stateManager)
 
-	server.ClearServiceCalls()
+	snapshot := server.ServiceCallCount()
 
 	// WHEN: TV starts playing
 	t.Log("WHEN: TV starts playing")
 	server.SetState("input_boolean.tv_playing", "on", map[string]interface{}{})
 
 	// Wait for scene re-evaluation
-	waitForServiceCall(t, server, "scene", "turn_on", "scenes should be re-evaluated when TV starts")
+	waitForServiceCallSince(t, server, snapshot, "scene", "turn_on", "scenes should be re-evaluated when TV starts")
 
 	// THEN: Verify lighting was re-evaluated
 	t.Log("THEN: Verify lighting was re-evaluated")
-	calls := server.GetServiceCalls()
+	calls := server.GetServiceCallsSince(snapshot)
 	sceneActivations := filterServiceCalls(calls, "scene", "turn_on")
 
 	t.Logf("Scene activations after TV state change: %d", len(sceneActivations))
@@ -198,12 +195,12 @@ func TestScenario_EveryoneAsleep_TurnsOffLights(t *testing.T) {
 	// isEveryoneAsleep is computed from isMasterAsleep AND isGuestAsleep
 	server.SetState("input_boolean.master_asleep", "off", map[string]interface{}{})
 	server.SetState("input_boolean.guest_asleep", "off", map[string]interface{}{})
-	// Brief delay to let initialization complete before counting initial calls
+	// Brief delay to let initialization complete before taking snapshot
 	waitForProcessing(t, stateManager)
 
 	// Get count before sleep state change
-	initialCalls := len(server.GetServiceCalls())
-	t.Logf("Service calls before everyone asleep: %d", initialCalls)
+	snapshot := server.ServiceCallCount()
+	t.Logf("Service calls before everyone asleep: %d", snapshot)
 
 	// WHEN: Everyone goes to sleep (set both master and guest asleep)
 	t.Log("WHEN: Everyone goes to sleep")
@@ -211,22 +208,22 @@ func TestScenario_EveryoneAsleep_TurnsOffLights(t *testing.T) {
 	server.SetState("input_boolean.guest_asleep", "on", map[string]interface{}{})
 
 	// Wait for lights to turn off
-	waitForServiceCall(t, server, "light", "turn_off", "lights should turn off when everyone asleep")
+	waitForServiceCallSince(t, server, snapshot, "light", "turn_off", "lights should turn off when everyone asleep")
 
 	// THEN: Verify lights were turned off or night mode activated
 	t.Log("THEN: Verify lights were turned off or night mode activated")
-	calls := server.GetServiceCalls()
+	calls := server.GetServiceCallsSince(snapshot)
 
 	// Look for light turn_off calls
 	lightOffCalls := filterServiceCalls(calls, "light", "turn_off")
 
 	t.Logf("Light turn_off calls: %d", len(lightOffCalls))
-	t.Logf("Total service calls: %d", len(calls))
+	t.Logf("Total service calls since snapshot: %d", len(calls))
 
 	// When everyone is asleep, the off_if_true: isEveryoneAsleep condition
 	// should trigger, causing lights to turn off
-	// Check that we have more service calls after the state change
-	assert.Greater(t, len(calls), initialCalls,
+	// Check that we have service calls after the state change
+	assert.Greater(t, len(calls), 0,
 		"Should make service calls when everyone goes to sleep")
 
 	// And specifically should have turned off lights
@@ -246,10 +243,10 @@ func TestScenario_PresenceChangeHome_ActivatesScenes(t *testing.T) {
 	server.SetState("input_text.day_phase", "evening", map[string]interface{}{})
 	server.SetState("input_boolean.anyone_home", "off", map[string]interface{}{})
 	server.SetState("input_boolean.anyone_home_and_awake", "off", map[string]interface{}{})
-	// Brief delay to let initialization complete before clearing service calls
+	// Brief delay to let initialization complete before taking snapshot
 	waitForProcessing(t, stateManager)
 
-	server.ClearServiceCalls()
+	snapshot := server.ServiceCallCount()
 
 	// WHEN: Someone arrives home (they're awake)
 	t.Log("WHEN: Someone arrives home (they're awake)")
@@ -257,11 +254,11 @@ func TestScenario_PresenceChangeHome_ActivatesScenes(t *testing.T) {
 	server.SetState("input_boolean.anyone_home_and_awake", "on", map[string]interface{}{})
 
 	// Wait for scene activation
-	waitForServiceCall(t, server, "scene", "turn_on", "scenes should activate when someone arrives home")
+	waitForServiceCallSince(t, server, snapshot, "scene", "turn_on", "scenes should activate when someone arrives home")
 
 	// THEN: Verify scenes were activated
 	t.Log("THEN: Verify scenes were activated")
-	calls := server.GetServiceCalls()
+	calls := server.GetServiceCallsSince(snapshot)
 	sceneActivations := filterServiceCalls(calls, "scene", "turn_on")
 
 	t.Logf("Scene activations after arrival: %d", len(sceneActivations))
@@ -285,10 +282,10 @@ func TestScenario_GuestArrival_ActivatesGuestScenes(t *testing.T) {
 	server.SetState("input_boolean.anyone_home", "on", map[string]interface{}{})
 	server.SetState("input_boolean.anyone_home_and_awake", "on", map[string]interface{}{})
 	server.SetState("input_boolean.have_guests", "off", map[string]interface{}{})
-	// Brief delay to let initialization complete before clearing service calls
+	// Brief delay to let initialization complete before taking snapshot
 	waitForProcessing(t, stateManager)
 
-	server.ClearServiceCalls()
+	snapshot := server.ServiceCallCount()
 
 	// WHEN: Guests arrive
 	t.Log("WHEN: Guests arrive")
@@ -301,7 +298,7 @@ func TestScenario_GuestArrival_ActivatesGuestScenes(t *testing.T) {
 
 	// THEN: Verify scenes were re-evaluated for guest presence (if any)
 	t.Log("THEN: Verify scenes were re-evaluated for guest presence")
-	calls := server.GetServiceCalls()
+	calls := server.GetServiceCallsSince(snapshot)
 	sceneActivations := filterServiceCalls(calls, "scene", "turn_on")
 
 	t.Logf("Scene activations after guest arrival: %d", len(sceneActivations))
@@ -325,21 +322,21 @@ func TestScenario_MasterBedroomSleep_HandlesConditionalLogic(t *testing.T) {
 	server.SetState("input_boolean.anyone_home", "on", map[string]interface{}{})
 	server.SetState("input_boolean.anyone_home_and_awake", "on", map[string]interface{}{})
 	server.SetState("input_boolean.master_asleep", "off", map[string]interface{}{})
-	// Brief delay to let initialization complete before clearing service calls
+	// Brief delay to let initialization complete before taking snapshot
 	waitForProcessing(t, stateManager)
 
-	server.ClearServiceCalls()
+	snapshot := server.ServiceCallCount()
 
 	// WHEN: Master bedroom occupants go to sleep
 	t.Log("WHEN: Master bedroom occupants go to sleep")
 	server.SetState("input_boolean.master_asleep", "on", map[string]interface{}{})
 
 	// Wait for lights to turn off
-	waitForServiceCall(t, server, "light", "turn_off", "master bedroom lights should turn off")
+	waitForServiceCallSince(t, server, snapshot, "light", "turn_off", "master bedroom lights should turn off")
 
 	// THEN: Verify master bedroom lights were turned off
 	t.Log("THEN: Verify master bedroom lights were turned off")
-	calls := server.GetServiceCalls()
+	calls := server.GetServiceCallsSince(snapshot)
 
 	lightOffCalls := filterServiceCalls(calls, "light", "turn_off")
 	sceneActivations := filterServiceCalls(calls, "scene", "turn_on")
@@ -388,10 +385,8 @@ func TestScenario_MultipleStateChanges_HandlesCorrectly(t *testing.T) {
 	// Brief delay to let initialization complete before counting initial calls
 	waitForProcessing(t, stateManager)
 
-	// Don't clear service calls - we want to see all the activity
-
-	initialCalls := len(server.GetServiceCalls())
-	t.Logf("Service calls before rapid changes: %d", initialCalls)
+	snapshot := server.ServiceCallCount()
+	t.Logf("Service calls before rapid changes: %d", snapshot)
 
 	// WHEN: Multiple rapid state changes occur
 	// Wait for each change to be processed before triggering the next, using polling
@@ -399,38 +394,37 @@ func TestScenario_MultipleStateChanges_HandlesCorrectly(t *testing.T) {
 	t.Log("WHEN: Multiple rapid state changes occur")
 	server.SetState("input_boolean.anyone_home", "on", map[string]interface{}{})
 	server.SetState("input_boolean.anyone_home_and_awake", "on", map[string]interface{}{})
-	callsBeforeAfternoon := len(server.GetServiceCalls())
+	callsBeforeAfternoon := server.ServiceCallCount()
 	waitForCondition(t, func() bool {
-		return len(server.GetServiceCalls()) > callsBeforeAfternoon
+		return server.ServiceCallCount() > callsBeforeAfternoon
 	}, "should process anyone_home state change before next change")
 	server.SetState("input_text.day_phase", "afternoon", map[string]interface{}{})
-	callsBeforeEvening := len(server.GetServiceCalls())
+	callsBeforeEvening := server.ServiceCallCount()
 	waitForCondition(t, func() bool {
-		return len(server.GetServiceCalls()) > callsBeforeEvening
+		return server.ServiceCallCount() > callsBeforeEvening
 	}, "should process afternoon day phase change before next change")
 	server.SetState("input_text.day_phase", "evening", map[string]interface{}{})
-	callsBeforeTV := len(server.GetServiceCalls())
+	callsBeforeTV := server.ServiceCallCount()
 	waitForCondition(t, func() bool {
-		return len(server.GetServiceCalls()) > callsBeforeTV
+		return server.ServiceCallCount() > callsBeforeTV
 	}, "should process evening day phase change before next change")
 	server.SetState("input_boolean.tv_playing", "on", map[string]interface{}{})
 
 	// Wait for final scene activation after all rapid changes
-	waitForServiceCall(t, server, "scene", "turn_on", "scenes should activate after rapid state changes")
+	waitForServiceCallSince(t, server, snapshot, "scene", "turn_on", "scenes should activate after rapid state changes")
 
 	// THEN: All state changes should be processed without errors
 	t.Log("THEN: All state changes should be processed without errors")
-	calls := server.GetServiceCalls()
+	calls := server.GetServiceCallsSince(snapshot)
 	sceneActivations := filterServiceCalls(calls, "scene", "turn_on")
 
-	t.Logf("Total service calls after changes: %d", len(calls))
+	t.Logf("Total service calls since snapshot: %d", len(calls))
 	t.Logf("Scene activations: %d", len(sceneActivations))
-	t.Logf("New service calls: %d", len(calls)-initialCalls)
 
 	// Should have processed state changes and made service calls
 	// The exact number depends on the implementation, but we should have
-	// more service calls than we started with
-	assert.Greater(t, len(calls), initialCalls,
+	// service calls after the snapshot
+	assert.Greater(t, len(calls), 0,
 		"Should have made service calls in response to state changes")
 
 	// The system should handle rapid changes without crashing or deadlocking
@@ -457,7 +451,7 @@ func TestScenario_PersonDetectionOverridesSuneventTurnOff(t *testing.T) {
 	server.SetState("input_text.day_phase", "evening", map[string]interface{}{})
 	server.SetState("input_text.sun_event", "sunset", map[string]interface{}{})
 	waitForProcessing(t, stateManager)
-	server.ClearServiceCalls()
+	snapshot := server.ServiceCallCount()
 
 	// WHEN: Sunevent changes (triggers evaluation for all rooms, including Front of House)
 	t.Log("WHEN: Sunevent changes to dusk (would turn off front lights since no person)")
@@ -469,12 +463,12 @@ func TestScenario_PersonDetectionOverridesSuneventTurnOff(t *testing.T) {
 	server.SetState("input_boolean.front_of_house_person_present", "on", map[string]interface{}{})
 
 	// Wait for the person detection to trigger scene activation
-	waitForServiceCall(t, server, "scene", "turn_on", "person detection should trigger scene activation for Front of House")
+	waitForServiceCallSince(t, server, snapshot, "scene", "turn_on", "person detection should trigger scene activation for Front of House")
 
 	// THEN: The last service action for Front of House should be a scene activation (turn-on),
 	// not a turn-off. The sunevent turn-off should have been superseded.
 	t.Log("THEN: Last action for Front of House should be scene activation, not turn-off")
-	calls := server.GetServiceCalls()
+	calls := server.GetServiceCallsSince(snapshot)
 
 	// Find the last service call that targeted front_of_house
 	var lastFrontAction *ServiceCall
