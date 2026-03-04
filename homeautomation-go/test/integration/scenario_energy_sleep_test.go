@@ -147,7 +147,6 @@ func TestScenario_BatteryDropsDuringWakeSequence(t *testing.T) {
 	require.NoError(t, env.manager.SetBool("isWakeSequenceActive", true))
 
 	waitForProcessing(t, env.manager)
-	env.server.ClearServiceCalls()
 
 	// ========== WHEN ==========
 	t.Log("WHEN: Battery drops to critical level (15%) during wake sequence")
@@ -222,7 +221,7 @@ func TestScenario_WakeSequenceStartsWithLowBattery(t *testing.T) {
 	assert.NoError(t, err)
 	t.Logf("Battery level before wake attempt: %s", batteryLevel)
 
-	env.server.ClearServiceCalls()
+	snapshot := env.server.ServiceCallCount()
 
 	// ========== WHEN ==========
 	t.Log("WHEN: Alarm time triggers wake sequence (begin_wake)")
@@ -239,7 +238,7 @@ func TestScenario_WakeSequenceStartsWithLowBattery(t *testing.T) {
 
 	// The sleep hygiene plugin should have attempted to start the wake sequence
 	// regardless of battery state. Check for wake-related service calls.
-	calls := env.server.GetServiceCalls()
+	calls := env.server.GetServiceCallsSince(snapshot)
 	t.Logf("Total service calls after alarm: %d", len(calls))
 
 	// Check if fade-out started (indicates begin_wake ran)
@@ -298,8 +297,6 @@ func TestScenario_EnergyTransitions_SleepStateUnaffected(t *testing.T) {
 	isMasterAsleep, err := env.manager.GetBool("isMasterAsleep")
 	require.NoError(t, err)
 	require.True(t, isMasterAsleep, "Master should be asleep initially")
-
-	env.server.ClearServiceCalls()
 
 	// ========== WHEN ==========
 	t.Log("WHEN: Battery drops through multiple levels: green -> yellow -> red")

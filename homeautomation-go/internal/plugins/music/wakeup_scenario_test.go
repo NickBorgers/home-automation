@@ -263,9 +263,6 @@ func TestScenario_WakeUpDuringMorning_TriggersMorningMusic(t *testing.T) {
 	// Allow initial processing
 	time.Sleep(50 * time.Millisecond)
 
-	// Clear any initial service calls
-	mockClient.ClearServiceCalls()
-
 	// ==========================================================
 	// ACTION: Wake-up event - isAnyoneAsleep changes to false
 	// ==========================================================
@@ -350,7 +347,6 @@ func TestScenario_WakeUpOnSunday_TriggersMorningMusic(t *testing.T) {
 	defer manager.Stop()
 
 	time.Sleep(50 * time.Millisecond)
-	mockClient.ClearServiceCalls()
 
 	// ACTION: Wake-up event on Sunday
 	// Use SimulateStateChange to properly trigger the subscription callback
@@ -424,7 +420,6 @@ func TestScenario_WakeUp_UsesLocalTimezoneForSundayCheck(t *testing.T) {
 	defer manager.Stop()
 
 	time.Sleep(50 * time.Millisecond)
-	mockClient.ClearServiceCalls()
 
 	// ACTION: Wake-up event
 	// UTC: Sunday 00:30 AM (but CST: Saturday 6:30 PM)
@@ -489,7 +484,6 @@ func TestScenario_DayPhaseChangesToMorning_TriggersMorningMusic(t *testing.T) {
 	defer manager.Stop()
 
 	time.Sleep(50 * time.Millisecond)
-	mockClient.ClearServiceCalls()
 
 	// ACTION: Day phase changes to morning (sunrise)
 	_ = stateManager.SetString("dayPhase", "morning")
@@ -549,7 +543,6 @@ func TestScenario_NoOneHome_StopsMusic(t *testing.T) {
 	defer manager.Stop()
 
 	time.Sleep(50 * time.Millisecond)
-	mockClient.ClearServiceCalls()
 
 	// ACTION: Everyone leaves
 	_ = stateManager.SetBool("isAnyoneHome", false)
@@ -609,7 +602,6 @@ func TestScenario_SomeoneFallsAsleep_TriggersSleepMusic(t *testing.T) {
 	defer manager.Stop()
 
 	time.Sleep(50 * time.Millisecond)
-	mockClient.ClearServiceCalls()
 
 	// ACTION: Someone goes to sleep
 	_ = stateManager.SetBool("isAnyoneAsleep", true)
@@ -689,7 +681,6 @@ func TestScenario_SleepMusicPersistsDuringWinddown(t *testing.T) {
 	defer manager.Stop()
 
 	time.Sleep(100 * time.Millisecond)
-	mockClient.ClearServiceCalls()
 
 	// Verify sleep music is playing (sleep zone has priority 100)
 	musicType, err := stateManager.GetString("musicPlaybackType")
@@ -772,7 +763,6 @@ func TestScenario_FullWakeUpCycle(t *testing.T) {
 	// PHASE 2: Sunrise - day phase changes to morning, still asleep
 	// ==========================================================
 	timeProvider.SetTime(time.Date(2024, 1, 15, 6, 30, 0, 0, time.UTC))
-	mockClient.ClearServiceCalls()
 
 	_ = stateManager.SetString("dayPhase", "morning")
 
@@ -786,7 +776,6 @@ func TestScenario_FullWakeUpCycle(t *testing.T) {
 	// PHASE 3: Wake-up event - person wakes up during morning
 	// ==========================================================
 	timeProvider.SetTime(time.Date(2024, 1, 15, 7, 0, 0, 0, time.UTC))
-	mockClient.ClearServiceCalls()
 
 	// Use SimulateStateChange to properly trigger the subscription callback with correct old/new values
 	mockClient.SimulateStateChange("input_boolean.anyone_asleep", "off")
@@ -804,7 +793,6 @@ func TestScenario_FullWakeUpCycle(t *testing.T) {
 	// PHASE 4: Day phase change
 	// ==========================================================
 	timeProvider.SetTime(time.Date(2024, 1, 15, 9, 0, 0, 0, time.UTC))
-	mockClient.ClearServiceCalls()
 
 	_ = stateManager.SetString("dayPhase", "day")
 
@@ -1454,8 +1442,8 @@ func TestScenario_RapidZoneResolution_IsIdempotent(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "day", musicType, "Day zone should be active")
 
-	// Count service calls after initial setup
-	mockClient.ClearServiceCalls()
+	// Snapshot service calls after initial setup
+	snapshot := mockClient.ServiceCallCount()
 
 	// Trigger multiple rapid zone resolutions
 	manager.zoneManager.ResolveZones("rapid-test-1")
@@ -1471,7 +1459,7 @@ func TestScenario_RapidZoneResolution_IsIdempotent(t *testing.T) {
 		"Rapid zone resolutions should be idempotent - day zone should remain active")
 
 	// No new service calls should have been made (zone was already active)
-	calls := mockClient.GetServiceCalls()
+	calls := mockClient.GetServiceCallsSince(snapshot)
 	assert.Empty(t, calls,
 		"No new service calls expected when zone is already active")
 }
@@ -1732,8 +1720,8 @@ func TestScenario_WakeSequence_SleepZoneSkipsFastFadeOut(t *testing.T) {
 	manager.zoneManager.mu.RUnlock()
 	require.True(t, bedroomInSleepZone, "GIVEN: Bedroom should be a participant in the sleep zone")
 
-	// Clear service calls to track only what happens during wake sequence
-	mockClient.ClearServiceCalls()
+	// Snapshot service calls to track only what happens during wake sequence
+	snapshot := mockClient.ServiceCallCount()
 
 	// ==========================================================
 	// WHEN: isWakeSequenceActive becomes true
@@ -1771,7 +1759,7 @@ func TestScenario_WakeSequence_SleepZoneSkipsFastFadeOut(t *testing.T) {
 	// ==========================================================
 	t.Log("THEN: Zone manager should NOT have called fast fade-out on bedroom")
 
-	serviceCalls := mockClient.GetServiceCalls()
+	serviceCalls := mockClient.GetServiceCallsSince(snapshot)
 	bedroomFastFadeOutCalled := false
 	for _, call := range serviceCalls {
 		if call.Domain == "media_player" && call.Service == "volume_set" {
@@ -2111,8 +2099,8 @@ func TestScenario_HandleMusicPlaybackTypeChange_NoDoublePlayback(t *testing.T) {
 	activeZones := manager.zoneManager.GetActiveZones()
 	require.GreaterOrEqual(t, len(activeZones), 1, "Morning zone should be active after startup")
 
-	// Clear any startup service calls
-	mockClient.ClearServiceCalls()
+	// Snapshot before action
+	snapshot := mockClient.ServiceCallCount()
 
 	// ==========================================================
 	// WHEN: musicPlaybackType changes (as startZone would set it)
@@ -2127,7 +2115,7 @@ func TestScenario_HandleMusicPlaybackTypeChange_NoDoublePlayback(t *testing.T) {
 	// THEN: No service calls because zone is already active (resolution is a no-op)
 	// ==========================================================
 	t.Log("THEN: No media_player service calls (zone already active, resolution is no-op)")
-	serviceCalls := mockClient.GetServiceCalls()
+	serviceCalls := mockClient.GetServiceCallsSince(snapshot)
 
 	mediaPlayerCalls := 0
 	for _, call := range serviceCalls {

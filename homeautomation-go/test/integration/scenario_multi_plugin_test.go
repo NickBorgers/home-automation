@@ -64,8 +64,8 @@ func setupMultiPluginTest(t *testing.T) (*pluginTestEnv, func()) {
 	require.NoError(t, env.tv.Start(), "Failed to start TV plugin")
 	require.NoError(t, env.energy.Start(), "Failed to start energy plugin")
 
-	// Brief delay for plugin goroutines to start - required before ClearServiceCalls
-	// to ensure initialization service calls are captured
+	// Brief delay for plugin goroutines to start - required before taking service call
+	// snapshots to ensure initialization service calls are captured
 	waitForProcessing(t, env.manager)
 
 	cleanup := func() {
@@ -125,10 +125,10 @@ func TestScenario_TVPlaying_DimsLivingRoomLights(t *testing.T) {
 	require.NoError(t, env.manager.SetBool("isAnyoneHome", true))
 	require.NoError(t, env.manager.SetBool("isAnyoneHomeAndAwake", true))
 	require.NoError(t, env.manager.SetBool("isEveryoneAsleep", false))
-	// Brief delay before ClearServiceCalls to allow lighting plugin to process initial scene activations
+	// Brief delay to allow lighting plugin to process initial scene activations
 	waitForProcessing(t, env.manager)
 
-	env.server.ClearServiceCalls() // Clear initialization calls
+	snapshot := env.server.ServiceCallCount() // Track position after initialization calls
 
 	// Verify TV is not playing initially
 	isTVPlaying, err := env.manager.GetBool("isTVPlaying")
@@ -160,7 +160,7 @@ func TestScenario_TVPlaying_DimsLivingRoomLights(t *testing.T) {
 	assert.True(t, isAppleTVPlaying, "isAppleTVPlaying should be true")
 
 	// ASSERTION 2: Lighting plugin reacted to TV state change
-	calls := env.server.GetServiceCalls()
+	calls := env.server.GetServiceCallsSince(snapshot)
 	t.Logf("Total service calls after TV started: %d", len(calls))
 
 	// The lighting plugin should have reactivated scenes when isTVPlaying changed
@@ -193,9 +193,9 @@ func TestScenario_LowEnergy_PluginsCoexist(t *testing.T) {
 	require.NoError(t, env.manager.SetBool("isAnyoneHome", true))
 	require.NoError(t, env.manager.SetBool("isAnyoneHomeAndAwake", true))
 
-	// Brief delay before ClearServiceCalls to allow plugins to process initial state
+	// Brief delay to allow plugins to process initial state
 	waitForProcessing(t, env.manager)
-	env.server.ClearServiceCalls()
+	snapshot := env.server.ServiceCallCount()
 
 	// ========== WHEN ==========
 	t.Log("WHEN: Day phase changes (triggering lighting) and energy states are monitored")
@@ -213,7 +213,7 @@ func TestScenario_LowEnergy_PluginsCoexist(t *testing.T) {
 	assert.Equal(t, "night", dayPhase)
 
 	// ASSERTION 2: Lighting plugin responded
-	calls := env.server.GetServiceCalls()
+	calls := env.server.GetServiceCallsSince(snapshot)
 	sceneActivations := filterServiceCalls(calls, "scene", "turn_on")
 	assert.GreaterOrEqual(t, len(sceneActivations), 0,
 		"Lighting plugin should respond to day phase changes")
@@ -252,9 +252,9 @@ func TestScenario_EveryoneLeaves_CoordinatedResponse(t *testing.T) {
 	require.NoError(t, env.manager.SetBool("isAnyoneHomeAndAwake", true))
 	require.NoError(t, env.manager.SetString("dayPhase", "afternoon"))
 
-	// Brief delay before ClearServiceCalls to allow plugins to process initial state
+	// Brief delay to allow plugins to process initial state
 	waitForProcessing(t, env.manager)
-	env.server.ClearServiceCalls()
+	snapshot := env.server.ServiceCallCount()
 
 	// ========== WHEN ==========
 	t.Log("WHEN: Both Nick and Caroline leave home")
@@ -284,7 +284,7 @@ func TestScenario_EveryoneLeaves_CoordinatedResponse(t *testing.T) {
 	assert.False(t, isAnyoneHome, "isAnyoneHome should be false when everyone leaves")
 
 	// ASSERTION 2: Lighting plugin should respond to absence
-	calls := env.server.GetServiceCalls()
+	calls := env.server.GetServiceCallsSince(snapshot)
 	t.Logf("Total service calls after everyone left: %d", len(calls))
 
 	// The lighting plugin should reactivate scenes based on the new presence state
@@ -319,9 +319,9 @@ func TestScenario_SleepSequence_CoordinatesLighting(t *testing.T) {
 	require.NoError(t, env.manager.SetBool("isMasterAsleep", false))
 	require.NoError(t, env.manager.SetBool("isEveryoneAsleep", false))
 
-	// Brief delay before ClearServiceCalls to allow plugins to process initial state
+	// Brief delay to allow plugins to process initial state
 	waitForProcessing(t, env.manager)
-	env.server.ClearServiceCalls()
+	snapshot := env.server.ServiceCallCount()
 
 	// ========== WHEN ==========
 	t.Log("WHEN: Master bedroom goes to sleep")
@@ -339,7 +339,7 @@ func TestScenario_SleepSequence_CoordinatesLighting(t *testing.T) {
 	assert.True(t, isMasterAsleep, "isMasterAsleep should be true")
 
 	// ASSERTION 2: Lighting plugin responds to sleep state
-	calls := env.server.GetServiceCalls()
+	calls := env.server.GetServiceCallsSince(snapshot)
 	t.Logf("Total service calls after sleep: %d", len(calls))
 
 	// The lighting plugin should respond to sleep state changes
@@ -376,9 +376,9 @@ func TestScenario_DayPhaseChange_MultiPluginCoordination(t *testing.T) {
 	require.NoError(t, env.manager.SetBool("isAnyoneHomeAndAwake", true))
 	require.NoError(t, env.manager.SetBool("isEveryoneAsleep", false))
 
-	// Brief delay before ClearServiceCalls to allow plugins to process initial state
+	// Brief delay to allow plugins to process initial state
 	waitForProcessing(t, env.manager)
-	env.server.ClearServiceCalls()
+	snapshot := env.server.ServiceCallCount()
 
 	// ========== WHEN ==========
 	t.Log("WHEN: Day phase changes from morning → evening")
@@ -395,7 +395,7 @@ func TestScenario_DayPhaseChange_MultiPluginCoordination(t *testing.T) {
 	assert.Equal(t, "evening", dayPhase, "Day phase should be evening")
 
 	// ASSERTION 2: Lighting plugin activates evening scenes
-	calls := env.server.GetServiceCalls()
+	calls := env.server.GetServiceCallsSince(snapshot)
 	t.Logf("Total service calls after day phase change: %d", len(calls))
 
 	sceneActivations := filterServiceCalls(calls, "scene", "turn_on")
@@ -413,9 +413,9 @@ func TestScenario_DayPhaseChange_MultiPluginCoordination(t *testing.T) {
 	// ========== WHEN (Phase 2) ==========
 	t.Log("WHEN: Day phase changes from evening → night")
 
-	// Wait for all Phase 1 service calls to settle before clearing
+	// Wait for all Phase 1 service calls to settle before taking snapshot
 	waitForProcessing(t, env.manager)
-	env.server.ClearServiceCalls()
+	snapshot2 := env.server.ServiceCallCount()
 	env.server.SetState("input_text.day_phase", "night", map[string]interface{}{})
 
 	// ========== THEN (Phase 2) ==========
@@ -426,7 +426,7 @@ func TestScenario_DayPhaseChange_MultiPluginCoordination(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, "night", dayPhase)
 
-	calls = env.server.GetServiceCalls()
+	calls = env.server.GetServiceCallsSince(snapshot2)
 	sceneActivations = filterServiceCalls(calls, "scene", "turn_on")
 
 	assert.GreaterOrEqual(t, len(sceneActivations), 0,
@@ -453,10 +453,10 @@ func TestScenario_SimultaneousStateChanges_NoRaceConditions(t *testing.T) {
 	require.NoError(t, env.manager.SetString("dayPhase", "afternoon"))
 	require.NoError(t, env.manager.SetBool("isAnyoneHome", true))
 	require.NoError(t, env.manager.SetBool("isAnyoneHomeAndAwake", true))
-	// Brief delay before ClearServiceCalls to allow plugins to process initial state
+	// Brief delay to allow plugins to process initial state
 	waitForProcessing(t, env.manager)
 
-	env.server.ClearServiceCalls()
+	snapshot := env.server.ServiceCallCount()
 
 	// ========== WHEN ==========
 	t.Log("WHEN: Multiple state changes happen simultaneously")
@@ -496,7 +496,7 @@ func TestScenario_SimultaneousStateChanges_NoRaceConditions(t *testing.T) {
 	assert.True(t, isMasterAsleep)
 
 	// ASSERTION: Service calls should be tracked (no crashes)
-	calls := env.server.GetServiceCalls()
+	calls := env.server.GetServiceCallsSince(snapshot)
 	t.Logf("Total service calls after simultaneous changes: %d", len(calls))
 
 	// Just verify we got calls and didn't crash/deadlock

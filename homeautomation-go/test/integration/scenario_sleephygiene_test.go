@@ -91,9 +91,6 @@ func TestScenario_AlarmTimeReached_TriggersBeginWakeSequence(t *testing.T) {
 	defer cleanup()
 	_ = sleepMgr // silence unused variable warning
 
-	// Clear any initialization service calls
-	server.ClearServiceCalls()
-
 	// GIVEN: Someone is home, master is asleep, playing sleep music
 	t.Log("GIVEN: Someone is home, master is asleep, playing sleep music")
 	server.SetState("input_boolean.anyone_home", "on", map[string]interface{}{})
@@ -113,9 +110,9 @@ func TestScenario_AlarmTimeReached_TriggersBeginWakeSequence(t *testing.T) {
 	// Set initial fade out flag to false
 	server.SetState("input_boolean.fade_out_in_progress", "off", map[string]interface{}{})
 
-	// Allow async handlers to process before clearing
+	// Allow async handlers to process before snapshotting
 	waitForProcessing(t, stateManager)
-	server.ClearServiceCalls()
+	snapshot := server.ServiceCallCount()
 
 	// WHEN: Time reaches alarm time (trigger begin_wake)
 	t.Log("WHEN: Time reaches alarm time - triggering check")
@@ -131,7 +128,7 @@ func TestScenario_AlarmTimeReached_TriggersBeginWakeSequence(t *testing.T) {
 
 	// THEN: Verify begin_wake sequence started
 	t.Log("THEN: Verify begin_wake sequence started")
-	calls := server.GetServiceCalls()
+	calls := server.GetServiceCallsSince(snapshot)
 	t.Logf("Total service calls: %d", len(calls))
 
 	// Should have set isFadeOutInProgress to true
@@ -170,9 +167,10 @@ func TestScenario_BeginWakeSequence_FadesOutMusic(t *testing.T) {
 		"volume_level": 0.60, // 60% volume
 	})
 
-	// Allow async handlers to process before clearing
+	// Allow async handlers to process before snapshotting
 	waitForProcessing(t, stateManager)
-	server.ClearServiceCalls()
+	snapshot := server.ServiceCallCount()
+	_ = snapshot // snapshot available if needed for future assertions
 
 	// WHEN: Begin wake sequence is triggered manually (via helper method if available)
 	// For this test, we'll verify the behavior by checking service calls
@@ -212,8 +210,9 @@ func TestScenario_FullWakeSequence_ActivatesLights(t *testing.T) {
 	defer cleanup()
 	_ = sleepMgr // silence unused variable warning
 
-	// Clear any initialization service calls
-	server.ClearServiceCalls()
+	// Snapshot service call count past any initialization calls
+	snapshot := server.ServiceCallCount()
+	_ = snapshot // snapshot available if needed for future assertions
 
 	// GIVEN: Begin wake has completed, fade out is in progress
 	t.Log("GIVEN: Begin wake completed, fade out in progress")
@@ -315,18 +314,15 @@ func TestScenario_EveningReminder_SendsStopScreensNotification(t *testing.T) {
 	defer cleanup()
 	_ = sleepMgr // silence unused variable warning
 
-	// Clear any initialization service calls
-	server.ClearServiceCalls()
-
 	// GIVEN: Someone is home, not everyone is asleep, evening time
 	t.Log("GIVEN: Someone is home, not everyone is asleep, evening time")
 	server.SetState("input_boolean.anyone_home", "on", map[string]interface{}{})
 	server.SetState("input_boolean.everyone_asleep", "off", map[string]interface{}{})
 	server.SetState("input_text.day_phase", "evening", map[string]interface{}{})
 
-	// Allow async handlers to process before clearing
+	// Allow async handlers to process before snapshotting
 	waitForProcessing(t, stateManager)
-	server.ClearServiceCalls()
+	snapshot := server.ServiceCallCount()
 
 	// WHEN: stop_screens time is reached
 	t.Log("WHEN: stop_screens time is reached - triggering check")
@@ -339,7 +335,7 @@ func TestScenario_EveningReminder_SendsStopScreensNotification(t *testing.T) {
 
 	// THEN: Verify lights flash as a reminder
 	t.Log("THEN: Verify lights flash as a reminder")
-	calls := server.GetServiceCalls()
+	calls := server.GetServiceCallsSince(snapshot)
 	t.Logf("Total service calls: %d", len(calls))
 
 	// Check for light turn_on calls with flash parameter
@@ -384,7 +380,7 @@ func TestScenario_WakeCancellation_RevertsToSleepMusic(t *testing.T) {
 	require.NotNil(t, musicTypeState)
 	assert.Equal(t, "wakeup", musicTypeState.State, "Should start with wake-up music")
 
-	server.ClearServiceCalls()
+	snapshot := server.ServiceCallCount()
 
 	// WHEN: Bedroom lights are turned off (user cancels wake)
 	t.Log("WHEN: Bedroom lights are turned off")
@@ -394,7 +390,7 @@ func TestScenario_WakeCancellation_RevertsToSleepMusic(t *testing.T) {
 	waitForServerState(t, server, "input_text.music_playback_type", "sleep", "music should revert to sleep")
 
 	// Poll until bathroom light turn_off call is recorded
-	waitForServiceCallWithEntity(t, server, "light", "turn_off", "light.primary_bathroom_main_lights", "bathroom lights should be turned off")
+	waitForServiceCallWithEntitySince(t, server, snapshot, "light", "turn_off", "light.primary_bathroom_main_lights", "bathroom lights should be turned off")
 
 	// THEN: Music should revert to sleep mode, bathroom lights turn off
 	t.Log("THEN: Verify music reverts to sleep mode and bathroom lights turn off")
@@ -404,7 +400,7 @@ func TestScenario_WakeCancellation_RevertsToSleepMusic(t *testing.T) {
 		assert.Equal(t, "sleep", musicTypeState.State, "Should revert to sleep music when wake is cancelled")
 	}
 
-	calls := server.GetServiceCalls()
+	calls := server.GetServiceCallsSince(snapshot)
 	t.Logf("Total service calls: %d", len(calls))
 
 	// Check for bathroom light turn_off
@@ -498,9 +494,9 @@ func TestScenario_WakeSequence_VolumeFadesOutMonotonically(t *testing.T) {
 	currentMusicJSON := `{"participants":[{"player_name":"media_player.bedroom","volume":10}]}`
 	server.SetState("input_text.currently_playing_music", currentMusicJSON, map[string]interface{}{})
 
-	// Allow async handlers to process before clearing
+	// Allow async handlers to process before snapshotting
 	waitForProcessing(t, stateManager)
-	server.ClearServiceCalls()
+	snapshot := server.ServiceCallCount()
 
 	// WHEN: Begin wake sequence triggers the fade-out
 	t.Log("WHEN: Begin wake sequence is triggered")
@@ -523,14 +519,14 @@ func TestScenario_WakeSequence_VolumeFadesOutMonotonically(t *testing.T) {
 
 	// Poll until volume_set calls are recorded
 	waitForCondition(t, func() bool {
-		calls := server.GetServiceCalls()
+		calls := server.GetServiceCallsSince(snapshot)
 		return len(filterServiceCalls(calls, "media_player", "volume_set")) >= 2
 	}, "volume_set calls should be recorded")
 
 	// THEN: Verify all volume_set calls show monotonically DECREASING volume
 	t.Log("THEN: Verify all volume_set calls show monotonically decreasing volume")
 
-	calls := server.GetServiceCalls()
+	calls := server.GetServiceCallsSince(snapshot)
 	volumeCalls := filterServiceCalls(calls, "media_player", "volume_set")
 
 	// Should have multiple volume_set calls (one for each step from 10 down to 0)
@@ -587,9 +583,6 @@ func TestScenario_SleepStateIntegration_ChecksConditions(t *testing.T) {
 	defer cleanup()
 	_ = sleepMgr // silence unused variable warning
 
-	// Clear any initialization service calls
-	server.ClearServiceCalls()
-
 	// GIVEN: Alarm time reached, but master is NOT asleep
 	t.Log("GIVEN: Alarm time reached, but master is NOT asleep")
 	server.SetState("input_boolean.anyone_home", "on", map[string]interface{}{})
@@ -599,9 +592,9 @@ func TestScenario_SleepStateIntegration_ChecksConditions(t *testing.T) {
 	alarmTimeMs := float64(alarmTime.Unix() * 1000)
 	server.SetState("input_number.alarm_time", fmt.Sprintf("%.0f", alarmTimeMs), map[string]interface{}{})
 
-	// Allow async handlers to process before clearing
+	// Allow async handlers to process before snapshotting
 	waitForProcessing(t, stateManager)
-	server.ClearServiceCalls()
+	snapshot := server.ServiceCallCount()
 
 	// WHEN: Time reaches alarm time
 	t.Log("WHEN: Time reaches alarm time but master is awake")
@@ -612,7 +605,7 @@ func TestScenario_SleepStateIntegration_ChecksConditions(t *testing.T) {
 
 	// THEN: Wake sequence should NOT trigger (no fade out, no service calls)
 	t.Log("THEN: Verify wake sequence does NOT trigger when master is awake")
-	calls := server.GetServiceCalls()
+	calls := server.GetServiceCallsSince(snapshot)
 	t.Logf("Service calls when master awake: %d", len(calls))
 
 	// Should not have started fade out
@@ -622,7 +615,6 @@ func TestScenario_SleepStateIntegration_ChecksConditions(t *testing.T) {
 
 	// Now set master asleep and verify it DOES trigger
 	t.Log("NOW: Set master asleep and verify wake sequence triggers")
-	server.ClearServiceCalls()
 	server.SetState("input_boolean.master_asleep", "on", map[string]interface{}{})
 
 	// Set currentlyPlayingMusic with bedroom speaker
@@ -679,9 +671,9 @@ func TestScenario_WakeUpLightFadeIn_StartsAtLowBrightness(t *testing.T) {
 		"brightness": 255,
 	})
 
-	// Allow async handlers to process before clearing
+	// Allow async handlers to process before snapshotting
 	waitForProcessing(t, stateManager)
-	server.ClearServiceCalls()
+	snapshot := server.ServiceCallCount()
 
 	// WHEN: Wake sequence triggers (light fade-in phase, after 5-min delay)
 	t.Log("WHEN: Wake sequence triggers via TriggerWakeForTest")
@@ -692,12 +684,12 @@ func TestScenario_WakeUpLightFadeIn_StartsAtLowBrightness(t *testing.T) {
 	sleepMgr.TriggerWakeForTest()
 
 	// Wait for light service calls to be processed
-	waitForServiceCall(t, server, "light", "turn_on", "lights should be turned on")
+	waitForServiceCallSince(t, server, snapshot, "light", "turn_on", "lights should be turned on")
 
 	// THEN: Verify the light service calls show LOW initial brightness
 	t.Log("THEN: Verify lights start at 1% brightness and fade to 100%")
 
-	calls := server.GetServiceCalls()
+	calls := server.GetServiceCallsSince(snapshot)
 	t.Logf("Total service calls during wake sequence: %d", len(calls))
 
 	// Find light.turn_on calls to primary_suite
@@ -819,9 +811,9 @@ func TestScenario_WakeSequence_LightingPluginYieldsToSleepHygiene(t *testing.T) 
 	server.SetState("input_boolean.fade_out_in_progress", "on", map[string]interface{}{})
 	server.SetState("input_text.day_phase", "morning", map[string]interface{}{})
 
-	// Allow async handlers to process before clearing
+	// Allow async handlers to process before snapshotting
 	waitForProcessing(t, manager)
-	server.ClearServiceCalls()
+	snapshot := server.ServiceCallCount()
 
 	// WHEN: Something triggers the lighting plugin to re-evaluate the bedroom
 	t.Log("WHEN: Lighting plugin re-evaluates Master Bedroom conditions")
@@ -838,7 +830,7 @@ func TestScenario_WakeSequence_LightingPluginYieldsToSleepHygiene(t *testing.T) 
 	t.Log("THEN: Lighting plugin should NOT turn off bedroom lights")
 	t.Log("      (Because isFadeOutInProgress=true takes priority)")
 
-	calls := server.GetServiceCalls()
+	calls := server.GetServiceCallsSince(snapshot)
 	t.Logf("Service calls after state change: %d", len(calls))
 
 	// Check for any light.turn_off calls to master_bedroom area
@@ -952,7 +944,7 @@ func TestScenario_WakeSequence_LightingConditionPriority(t *testing.T) {
 		t.Logf("isAnyoneHomeAndAwake = %v (expected false for bug scenario)", isAnyoneHomeAndAwake)
 	}
 
-	server.ClearServiceCalls()
+	snapshot := server.ServiceCallCount()
 
 	// WHEN: Wake sequence becomes active (sleephygiene plugin sets this)
 	t.Log("WHEN: isWakeSequenceActive changes to true (wake sequence starting)")
@@ -968,7 +960,7 @@ func TestScenario_WakeSequence_LightingConditionPriority(t *testing.T) {
 	t.Log("THEN: Verify bedroom lights are NOT turned off")
 	t.Log("      (isWakeSequenceActive=true should take priority)")
 
-	calls := server.GetServiceCalls()
+	calls := server.GetServiceCallsSince(snapshot)
 	t.Logf("Total service calls: %d", len(calls))
 
 	// Check for any light.turn_off calls to master_bedroom area
@@ -1046,9 +1038,9 @@ func TestScenario_WakeSequence_ActivatesWakeMusic(t *testing.T) {
 	// Start with sleep music playing (typical state before wake)
 	server.SetState("input_text.music_playback_type", "sleep", map[string]interface{}{})
 
-	// Allow async handlers to process before clearing
+	// Allow async handlers to process before snapshotting
 	waitForProcessing(t, stateManager)
-	server.ClearServiceCalls()
+	snapshot := server.ServiceCallCount()
 
 	// WHEN: Wake sequence triggers (light fade-in phase, after 5-min delay)
 	t.Log("WHEN: Wake sequence triggers via TriggerWakeForTest")
@@ -1072,7 +1064,7 @@ func TestScenario_WakeSequence_ActivatesWakeMusic(t *testing.T) {
 	t.Log("SUCCESS: Wake music activated after light fade-in complete")
 
 	// Also verify service call was made to set the state
-	calls := server.GetServiceCalls()
+	calls := server.GetServiceCallsSince(snapshot)
 	foundMusicTypeCall := false
 	for _, call := range calls {
 		if call.Domain == "input_text" && call.Service == "set_value" {

@@ -529,11 +529,11 @@ func TestHandleTVStateChange(t *testing.T) {
 			_ = env.StateMgr.SetBool("isAnyoneHome", true)
 			_ = env.StateMgr.SetBool("isEveryoneAsleep", false)
 			_ = env.StateMgr.SetBool("isTVPlaying", tt.tvPlaying)
-			env.MockHA.ClearServiceCalls()
+			snapshot := env.MockHA.ServiceCallCount()
 
 			manager.handleTVStateChange("isTVPlaying", tt.oldVal, tt.newVal)
 
-			calls := env.MockHA.GetServiceCalls()
+			calls := env.MockHA.GetServiceCallsSince(snapshot)
 			if tt.expectNoLivingRoom {
 				for _, call := range calls {
 					if call.Domain == "scene" {
@@ -615,11 +615,11 @@ func TestHandleSleepStateChange(t *testing.T) {
 			for k, v := range tt.sleepState {
 				_ = env.StateMgr.SetBool(k, v)
 			}
-			env.MockHA.ClearServiceCalls()
+			snapshot := env.MockHA.ServiceCallCount()
 
 			manager.handleSleepStateChange(tt.triggerVar, tt.oldVal, tt.newVal)
 
-			calls := env.MockHA.GetServiceCalls()
+			calls := env.MockHA.GetServiceCallsSince(snapshot)
 			found := false
 			for _, call := range calls {
 				if call.Domain == tt.expectDomain && call.Service == tt.expectService {

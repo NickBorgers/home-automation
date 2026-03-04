@@ -28,14 +28,14 @@ func TestChristmasManager_ActivationTurnsOnHolidayLights(t *testing.T) {
 	}
 	defer manager.Stop()
 
-	// Clear any initial service calls
-	mockHA.ClearServiceCalls()
+	// Snapshot service call count before action
+	snapshot := mockHA.ServiceCallCount()
 
 	// Simulate christmas being turned on
 	mockHA.SimulateStateChange("input_boolean.christmas", "on")
 
 	// Verify holiday lights were turned on with label via Target
-	calls := mockHA.GetServiceCalls()
+	calls := mockHA.GetServiceCallsSince(snapshot)
 	foundLightCall := false
 	for _, call := range calls {
 		if call.Domain == "light" && call.Service == "turn_on" {
@@ -70,14 +70,14 @@ func TestChristmasManager_ActivationResetsToggle(t *testing.T) {
 	}
 	defer manager.Stop()
 
-	// Clear any initial service calls
-	mockHA.ClearServiceCalls()
+	// Snapshot service call count before action
+	snapshot := mockHA.ServiceCallCount()
 
 	// Simulate christmas being turned on
 	mockHA.SimulateStateChange("input_boolean.christmas", "on")
 
 	// Verify input_boolean.christmas was turned off
-	calls := mockHA.GetServiceCalls()
+	calls := mockHA.GetServiceCallsSince(snapshot)
 	foundTurnOff := false
 	for _, call := range calls {
 		if call.Domain == "input_boolean" && call.Service == "turn_off" {
@@ -112,14 +112,14 @@ func TestChristmasManager_OffDoesNothing(t *testing.T) {
 	}
 	defer manager.Stop()
 
-	// Clear any initial service calls
-	mockHA.ClearServiceCalls()
+	// Snapshot service call count before action
+	snapshot := mockHA.ServiceCallCount()
 
 	// Simulate christmas being turned off
 	mockHA.SimulateStateChange("input_boolean.christmas", "off")
 
 	// Verify no service calls were made
-	calls := mockHA.GetServiceCalls()
+	calls := mockHA.GetServiceCallsSince(snapshot)
 	if len(calls) > 0 {
 		t.Errorf("Expected no service calls when christmas is turned off, got %d calls: %+v", len(calls), calls)
 	}
@@ -144,14 +144,14 @@ func TestChristmasManager_ReadOnlyMode(t *testing.T) {
 	}
 	defer manager.Stop()
 
-	// Clear any initial service calls
-	mockHA.ClearServiceCalls()
+	// Snapshot service call count before action
+	snapshot := mockHA.ServiceCallCount()
 
 	// Activate christmas
 	mockHA.SimulateStateChange("input_boolean.christmas", "on")
 
 	// Verify no service calls were made (all should be read-only)
-	calls := mockHA.GetServiceCalls()
+	calls := mockHA.GetServiceCallsSince(snapshot)
 	if len(calls) > 0 {
 		t.Errorf("Expected no service calls in read-only mode, got %d calls: %+v", len(calls), calls)
 	}
@@ -218,8 +218,8 @@ func TestChristmasManager_Reset(t *testing.T) {
 	}
 	defer manager.Stop()
 
-	// Clear any calls
-	mockHA.ClearServiceCalls()
+	// Snapshot service call count before reset
+	snapshot := mockHA.ServiceCallCount()
 
 	// Reset should detect the HA state and activate
 	if err := manager.Reset(); err != nil {
@@ -227,7 +227,7 @@ func TestChristmasManager_Reset(t *testing.T) {
 	}
 
 	// Verify services were called (light turn on and toggle reset)
-	calls := mockHA.GetServiceCalls()
+	calls := mockHA.GetServiceCallsSince(snapshot)
 	if len(calls) < 2 {
 		t.Errorf("Expected at least 2 service calls after reset (light.turn_on and input_boolean.turn_off), got %d", len(calls))
 	}
@@ -267,8 +267,8 @@ func TestChristmasManager_ResetWhenOff(t *testing.T) {
 	}
 	defer manager.Stop()
 
-	// Clear any calls
-	mockHA.ClearServiceCalls()
+	// Snapshot service call count before reset
+	snapshot := mockHA.ServiceCallCount()
 
 	// Reset should not trigger any actions
 	if err := manager.Reset(); err != nil {
@@ -276,7 +276,7 @@ func TestChristmasManager_ResetWhenOff(t *testing.T) {
 	}
 
 	// Verify no services were called
-	calls := mockHA.GetServiceCalls()
+	calls := mockHA.GetServiceCallsSince(snapshot)
 	if len(calls) > 0 {
 		t.Errorf("Expected no service calls when christmas is off, got %d calls: %+v", len(calls), calls)
 	}

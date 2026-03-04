@@ -132,7 +132,7 @@ func TestScenario_DayPhaseChange_TriggersLightingAndMusicZone(t *testing.T) {
 	env.server.SetState("input_text.day_phase", "afternoon", map[string]interface{}{})
 
 	waitForProcessing(t, env.stateManager)
-	env.server.ClearServiceCalls()
+	snapshot := env.server.ServiceCallCount()
 
 	// ========== WHEN ==========
 	t.Log("WHEN: Day phase changes to 'evening'")
@@ -142,7 +142,7 @@ func TestScenario_DayPhaseChange_TriggersLightingAndMusicZone(t *testing.T) {
 	// Wait for both plugins to react - use polling since state changes cascade
 	// through state tracking (derived state) before reaching lighting/music plugins
 	waitForCondition(t, func() bool {
-		calls := env.server.GetServiceCalls()
+		calls := env.server.GetServiceCallsSince(snapshot)
 		sceneActivations := filterServiceCalls(calls, "scene", "turn_on")
 		return len(sceneActivations) >= 1
 	}, "Lighting plugin should activate scenes when day phase changes to evening")
@@ -150,7 +150,7 @@ func TestScenario_DayPhaseChange_TriggersLightingAndMusicZone(t *testing.T) {
 	// ========== THEN ==========
 	t.Log("THEN: Lighting activates evening scenes AND music resolves evening zone")
 
-	calls := env.server.GetServiceCalls()
+	calls := env.server.GetServiceCallsSince(snapshot)
 	t.Logf("Total service calls after day phase change: %d", len(calls))
 
 	// ASSERTION 1: Lighting plugin activated evening scenes
@@ -221,7 +221,7 @@ func TestScenario_SleepTransition_MusicAndLightingCoordinate(t *testing.T) {
 	env.server.SetState("input_text.day_phase", "evening", map[string]interface{}{})
 
 	waitForProcessing(t, env.stateManager)
-	env.server.ClearServiceCalls()
+	snapshot := env.server.ServiceCallCount()
 
 	// ========== WHEN ==========
 	t.Log("WHEN: Master goes to sleep (isMasterAsleep becomes true)")
@@ -231,7 +231,7 @@ func TestScenario_SleepTransition_MusicAndLightingCoordinate(t *testing.T) {
 	// Wait for both plugins to react - use polling since state changes cascade
 	// through state tracking (derived state) before reaching lighting/music plugins
 	waitForCondition(t, func() bool {
-		calls := env.server.GetServiceCalls()
+		calls := env.server.GetServiceCallsSince(snapshot)
 		sceneActivations := filterServiceCalls(calls, "scene", "turn_on")
 		lightTurnOffs := filterServiceCalls(calls, "light", "turn_off")
 		return len(sceneActivations)+len(lightTurnOffs) > 0
@@ -240,7 +240,7 @@ func TestScenario_SleepTransition_MusicAndLightingCoordinate(t *testing.T) {
 	// ========== THEN ==========
 	t.Log("THEN: Music transitions to sleep zone AND lighting adjusts for sleep")
 
-	calls := env.server.GetServiceCalls()
+	calls := env.server.GetServiceCallsSince(snapshot)
 	t.Logf("Total service calls after sleep transition: %d", len(calls))
 
 	// ASSERTION 1: Lighting plugin responded to sleep state
@@ -299,11 +299,10 @@ func TestScenario_MusicZoneChange_LightingUnaffected(t *testing.T) {
 	waitForProcessing(t, env.stateManager)
 
 	// Record scene activations from initial setup
-	initialCalls := env.server.GetServiceCalls()
-	initialSceneCount := len(filterServiceCalls(initialCalls, "scene", "turn_on"))
+	initialSceneCount := len(filterServiceCalls(env.server.GetServiceCallsSince(0), "scene", "turn_on"))
 	t.Logf("Initial scene activations (from setup): %d", initialSceneCount)
 
-	env.server.ClearServiceCalls()
+	snapshot := env.server.ServiceCallCount()
 
 	// ========== WHEN ==========
 	t.Log("WHEN: Music playback type is manually changed (does not affect lighting)")
@@ -317,7 +316,7 @@ func TestScenario_MusicZoneChange_LightingUnaffected(t *testing.T) {
 	// ========== THEN ==========
 	t.Log("THEN: Lighting does NOT re-activate scenes (only music changes)")
 
-	calls := env.server.GetServiceCalls()
+	calls := env.server.GetServiceCallsSince(snapshot)
 	t.Logf("Total service calls after music type change: %d", len(calls))
 
 	// ASSERTION: Lighting should not have activated any new scenes

@@ -504,9 +504,29 @@ func (s *MockHAServer) GetServiceCalls() []ServiceCall {
 	return calls
 }
 
-// GetServiceCallsSince returns service calls recorded after the given index.
-// Use with len(GetServiceCalls()) to snapshot before an action, then retrieve
-// only new calls — avoids the race in ClearServiceCalls()/GetServiceCalls().
+// ClearServiceCalls resets the service call log.
+// Deprecated: Use ServiceCallCount() + GetServiceCallsSince() instead for race-free tracking.
+func (s *MockHAServer) ClearServiceCalls() {
+	s.callsMu.Lock()
+	defer s.callsMu.Unlock()
+	s.serviceCalls = nil
+}
+
+// ServiceCallCount returns the current number of recorded service calls.
+// Use this to take a snapshot index before triggering an action, then pass
+// the index to GetServiceCallsSince() to retrieve only the new calls.
+func (s *MockHAServer) ServiceCallCount() int {
+	s.callsMu.Lock()
+	defer s.callsMu.Unlock()
+	return len(s.serviceCalls)
+}
+
+// GetServiceCallsSince returns all service calls recorded after the given index.
+// Use with ServiceCallCount() for race-free assertion windows:
+//
+//	snapshot := server.ServiceCallCount()
+//	// ... trigger action ...
+//	calls := server.GetServiceCallsSince(snapshot)
 func (s *MockHAServer) GetServiceCallsSince(index int) []ServiceCall {
 	s.callsMu.Lock()
 	defer s.callsMu.Unlock()
@@ -516,13 +536,6 @@ func (s *MockHAServer) GetServiceCallsSince(index int) []ServiceCall {
 	calls := make([]ServiceCall, len(s.serviceCalls)-index)
 	copy(calls, s.serviceCalls[index:])
 	return calls
-}
-
-// ClearServiceCalls resets the service call log
-func (s *MockHAServer) ClearServiceCalls() {
-	s.callsMu.Lock()
-	defer s.callsMu.Unlock()
-	s.serviceCalls = nil
 }
 
 // FindServiceCall finds the most recent service call matching criteria

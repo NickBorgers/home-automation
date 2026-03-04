@@ -704,8 +704,8 @@ func TestRateLimiting(t *testing.T) {
 		t.Fatal("First playback should have succeeded")
 	}
 
-	// Clear service calls
-	env.MockHA.ClearServiceCalls()
+	// Snapshot service calls
+	snapshot := env.MockHA.ServiceCallCount()
 
 	// Immediate second resolution should not restart (zone already active)
 	err = manager.zoneManager.ResolveZones("test-second")
@@ -714,7 +714,7 @@ func TestRateLimiting(t *testing.T) {
 	}
 
 	// Verify no new service calls (zone was already active, effectively rate-limited)
-	serviceCalls := env.MockHA.GetServiceCalls()
+	serviceCalls := env.MockHA.GetServiceCallsSince(snapshot)
 	mediaPlayerCalls := 0
 	for _, call := range serviceCalls {
 		if call.Domain == "media_player" {
@@ -823,8 +823,8 @@ func TestDoubleActivationPrevention(t *testing.T) {
 		t.Fatalf("Expected 1 active zone, got %d", len(activeZones))
 	}
 
-	// Clear service calls from first resolution
-	env.MockHA.ClearServiceCalls()
+	// Snapshot service calls from first resolution
+	snapshot := env.MockHA.ServiceCallCount()
 
 	// Second resolution should NOT restart the zone (idempotent)
 	err = manager.zoneManager.ResolveZones("test-second")
@@ -833,7 +833,7 @@ func TestDoubleActivationPrevention(t *testing.T) {
 	}
 
 	// Verify no service calls (zone already active, nothing changed)
-	serviceCalls := env.MockHA.GetServiceCalls()
+	serviceCalls := env.MockHA.GetServiceCallsSince(snapshot)
 	mediaPlayerCalls := 0
 	for _, call := range serviceCalls {
 		if call.Domain == "media_player" {
@@ -1170,8 +1170,8 @@ func TestBuildSpeakerGroup(t *testing.T) {
 	config := &MusicConfig{Music: map[string]MusicMode{}}
 	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, false, nil, nil)
 
-	// Clear any previous calls
-	env.MockHA.ClearServiceCalls()
+	// Snapshot before action
+	snapshot := env.MockHA.ServiceCallCount()
 
 	participants := []ParticipantWithVolume{
 		{PlayerName: "Kitchen", Volume: 9},
@@ -1191,7 +1191,7 @@ func TestBuildSpeakerGroup(t *testing.T) {
 	}
 
 	// Verify the service call was made with correct parameters
-	calls := env.MockHA.GetServiceCalls()
+	calls := env.MockHA.GetServiceCallsSince(snapshot)
 
 	// Should be exactly one call (single call with all followers)
 	joinCalls := 0
@@ -1291,7 +1291,6 @@ func TestBuildSpeakerGroupOutcomes(t *testing.T) {
 			config := &MusicConfig{Music: map[string]MusicMode{}}
 			manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, false, nil, nil)
 			manager.SetSleepFunc(func(d time.Duration) {})
-			env.MockHA.ClearServiceCalls()
 
 			if tt.failCount == -1 {
 				env.MockHA.SetServiceError("media_player", "join", errors.New(tt.failErr))
@@ -2307,11 +2306,11 @@ func TestBreakSpeakerGroups(t *testing.T) {
 			if tt.failCount > 0 {
 				env.MockHA.SetServiceFailCount("media_player", "unjoin", tt.failCount, fmt.Errorf("speaker not reachable"))
 			}
-			env.MockHA.ClearServiceCalls()
+			snapshot := env.MockHA.ServiceCallCount()
 
 			manager.breakSpeakerGroups(tt.participants)
 
-			calls := env.MockHA.GetServiceCalls()
+			calls := env.MockHA.GetServiceCallsSince(snapshot)
 			unjoinCalls := 0
 			unjoinedSpeakers := make(map[string]bool)
 			for _, call := range calls {
@@ -2372,7 +2371,7 @@ func TestExecutePlayback_BreakThenBuildSequence(t *testing.T) {
 			manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, false, nil, nil)
 			manager.SetSleepFunc(func(d time.Duration) {})
 			env.MockHA.SetState("media_player.kitchen", "playing", nil)
-			env.MockHA.ClearServiceCalls()
+			snapshot := env.MockHA.ServiceCallCount()
 
 			option := PlaybackOption{URI: "spotify:playlist:test", MediaType: "playlist", VolumeMultiplier: 1.0}
 			_, _, err := manager.executePlayback("day", option, tt.participants, "Kitchen")
@@ -2384,7 +2383,7 @@ func TestExecutePlayback_BreakThenBuildSequence(t *testing.T) {
 			var calls []ha.ServiceCall
 			if tt.expectJoin {
 				for attempt := 0; attempt < 100; attempt++ {
-					calls = env.MockHA.GetServiceCalls()
+					calls = env.MockHA.GetServiceCallsSince(snapshot)
 					for _, call := range calls {
 						if call.Domain == "media_player" && call.Service == "join" {
 							goto donePolling
@@ -2395,7 +2394,7 @@ func TestExecutePlayback_BreakThenBuildSequence(t *testing.T) {
 			}
 		donePolling:
 			if calls == nil {
-				calls = env.MockHA.GetServiceCalls()
+				calls = env.MockHA.GetServiceCallsSince(snapshot)
 			}
 
 			unjoinCalls, joinCalls := 0, 0
@@ -3183,9 +3182,8 @@ func TestBuildSpeakerGroupAsync_ParallelExecution(t *testing.T) {
 	var joinMu sync.Mutex
 	var joinedSpeakers []string
 
-	// Capture the join calls to track order
-	originalCallService := env.MockHA.GetServiceCalls
-	env.MockHA.ClearServiceCalls()
+	// Snapshot service calls before action
+	snapshot := env.MockHA.ServiceCallCount()
 
 	// Use no-op sleep so the test runs fast
 	manager.SetSleepFunc(func(d time.Duration) {})
@@ -3198,8 +3196,8 @@ func TestBuildSpeakerGroupAsync_ParallelExecution(t *testing.T) {
 
 	manager.buildSpeakerGroupAsync(participants, "media_player.kitchen", "day")
 
-	// Get all service calls
-	calls := originalCallService()
+	// Get all service calls since snapshot
+	calls := env.MockHA.GetServiceCallsSince(snapshot)
 
 	// Extract joined speakers from calls
 	for _, call := range calls {
@@ -3237,11 +3235,11 @@ func TestJoinSpeakerWithRetry_Success(t *testing.T) {
 	manager.SetSleepFunc(func(d time.Duration) {})
 
 	participant := ParticipantWithVolume{PlayerName: "Living Room", Volume: 10, LeaveMutedIf: []MuteCondition{}}
-	env.MockHA.ClearServiceCalls()
+	snapshot := env.MockHA.ServiceCallCount()
 	manager.joinSpeakerWithRetry(participant, "media_player.kitchen", "day")
 
 	joinCalls := 0
-	for _, call := range env.MockHA.GetServiceCalls() {
+	for _, call := range env.MockHA.GetServiceCallsSince(snapshot) {
 		if call.Domain == "media_player" && call.Service == "join" {
 			joinCalls++
 			if call.Data["entity_id"] != "media_player.kitchen" {
@@ -3287,10 +3285,10 @@ func TestJoinSpeakerWithRetry_RetryOnTransientError(t *testing.T) {
 		LeaveMutedIf: []MuteCondition{},
 	}
 
-	env.MockHA.ClearServiceCalls()
+	snapshot := env.MockHA.ServiceCallCount()
 	manager.joinSpeakerWithRetry(participant, "media_player.kitchen", "day")
 
-	calls := env.MockHA.GetServiceCalls()
+	calls := env.MockHA.GetServiceCallsSince(snapshot)
 
 	// Mock only records SUCCESSFUL calls. With 2 failures configured:
 	// - Attempt 1: calls fail (not recorded)
@@ -3350,7 +3348,6 @@ func TestJoinSpeakerWithRetry_ExponentialBackoff(t *testing.T) {
 		LeaveMutedIf: []MuteCondition{},
 	}
 
-	env.MockHA.ClearServiceCalls()
 	manager.joinSpeakerWithRetry(participant, "media_player.kitchen", "day")
 
 	sleepMu.Lock()
@@ -3396,7 +3393,6 @@ func TestJoinSpeakerWithRetry_PermanentError(t *testing.T) {
 	env.MockHA.SetServiceFailCount("media_player", "join", 100, fmt.Errorf("service call failed: entity not found"))
 
 	participant := ParticipantWithVolume{PlayerName: "Nonexistent Speaker", Volume: 10, LeaveMutedIf: []MuteCondition{}}
-	env.MockHA.ClearServiceCalls()
 	manager.joinSpeakerWithRetry(participant, "media_player.kitchen", "day")
 
 	if sleepCallCount != 0 {
@@ -3423,7 +3419,7 @@ func TestBuildSpeakerGroupAsync_WaitGroupCompletion(t *testing.T) {
 
 	// Wrap service calls to track completion
 	originalCalls := 0
-	env.MockHA.ClearServiceCalls()
+	snapshot := env.MockHA.ServiceCallCount()
 
 	participants := []ParticipantWithVolume{
 		{PlayerName: "Kitchen", Volume: 9},      // Lead
@@ -3436,7 +3432,7 @@ func TestBuildSpeakerGroupAsync_WaitGroupCompletion(t *testing.T) {
 	manager.buildSpeakerGroupAsync(participants, "media_player.kitchen", "day")
 
 	// After buildSpeakerGroupAsync returns, all joins should be complete
-	calls := env.MockHA.GetServiceCalls()
+	calls := env.MockHA.GetServiceCallsSince(snapshot)
 	for _, call := range calls {
 		if call.Domain == "media_player" && call.Service == "join" {
 			completionMu.Lock()
@@ -3495,13 +3491,13 @@ func TestAddSpeakersToZone_JoinParameterOrder(t *testing.T) {
 		},
 	}
 
-	env.MockHA.ClearServiceCalls()
+	snapshot := env.MockHA.ServiceCallCount()
 
 	// Dynamically add Primary Bathroom to the active zone
 	manager.addSpeakersToZone(zone, []string{"Primary Bathroom"}, "test")
 
 	// Verify the join call has correct parameter order
-	calls := env.MockHA.GetServiceCalls()
+	calls := env.MockHA.GetServiceCallsSince(snapshot)
 	var joinCalls []ha.ServiceCall
 	for _, call := range calls {
 		if call.Domain == "media_player" && call.Service == "join" {
@@ -3567,13 +3563,13 @@ func TestAddSpeakersToZone_ExcludeIfRespected(t *testing.T) {
 		},
 	}
 
-	env.MockHA.ClearServiceCalls()
+	snapshot := env.MockHA.ServiceCallCount()
 
 	// Try to add Primary Bathroom — should be excluded by exclude_if
 	manager.addSpeakersToZone(zone, []string{"Primary Bathroom"}, "test")
 
 	// No join call should be made for the excluded speaker
-	calls := env.MockHA.GetServiceCalls()
+	calls := env.MockHA.GetServiceCallsSince(snapshot)
 	joinCallCount := 0
 	for _, call := range calls {
 		if call.Domain == "media_player" && call.Service == "join" {

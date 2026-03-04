@@ -37,8 +37,8 @@ func TestSecurityManager_LockdownOnEveryoneAsleep(t *testing.T) {
 		t.Fatalf("Failed to start security manager: %v", err)
 	}
 
-	// Clear any initial service calls
-	mockHA.ClearServiceCalls()
+	// Snapshot service call index before action
+	snapshot := mockHA.ServiceCallCount()
 
 	// Set everyone asleep
 	if err := stateManager.SetBool("isEveryoneAsleep", true); err != nil {
@@ -49,7 +49,7 @@ func TestSecurityManager_LockdownOnEveryoneAsleep(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	// Verify lockdown activation sequence: turn_off first, then turn_on
-	calls := mockHA.GetServiceCalls()
+	calls := mockHA.GetServiceCallsSince(snapshot)
 	turnOffIdx := -1
 	turnOnIdx := -1
 
@@ -101,8 +101,8 @@ func TestSecurityManager_LockdownOnNoOneHome(t *testing.T) {
 		t.Fatalf("Failed to start security manager: %v", err)
 	}
 
-	// Clear any initial service calls
-	mockHA.ClearServiceCalls()
+	// Snapshot service call index before action
+	snapshot := mockHA.ServiceCallCount()
 
 	// Set no one home
 	if err := stateManager.SetBool("isAnyoneHome", false); err != nil {
@@ -113,7 +113,7 @@ func TestSecurityManager_LockdownOnNoOneHome(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	// Verify lockdown activation sequence: turn_off first, then turn_on
-	calls := mockHA.GetServiceCalls()
+	calls := mockHA.GetServiceCallsSince(snapshot)
 	turnOffIdx := -1
 	turnOnIdx := -1
 
@@ -164,8 +164,8 @@ func TestSecurityManager_LockdownAutoReset(t *testing.T) {
 		t.Fatalf("Failed to start security manager: %v", err)
 	}
 
-	// Clear any initial service calls
-	mockHA.ClearServiceCalls()
+	// Snapshot service call index before action
+	snapshot := mockHA.ServiceCallCount()
 
 	// Simulate lockdown being turned on in HA
 	mockHA.SimulateStateChange("input_boolean.lockdown", "on")
@@ -174,7 +174,7 @@ func TestSecurityManager_LockdownAutoReset(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	// Verify lockdown was reset
-	calls := mockHA.GetServiceCalls()
+	calls := mockHA.GetServiceCallsSince(snapshot)
 	found := false
 	for _, call := range calls {
 		if call.Domain == "input_boolean" && call.Service == "turn_off" {
@@ -212,8 +212,8 @@ func TestSecurityManager_GarageAutoOpen(t *testing.T) {
 		t.Fatalf("Failed to start security manager: %v", err)
 	}
 
-	// Clear any initial service calls
-	mockHA.ClearServiceCalls()
+	// Snapshot service call index before action
+	snapshot := mockHA.ServiceCallCount()
 
 	// Trigger owner return
 	if err := stateManager.SetBool("didOwnerJustReturnHome", true); err != nil {
@@ -224,7 +224,7 @@ func TestSecurityManager_GarageAutoOpen(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	// Verify garage door was opened
-	calls := mockHA.GetServiceCalls()
+	calls := mockHA.GetServiceCallsSince(snapshot)
 	found := false
 	for _, call := range calls {
 		if call.Domain == "cover" && call.Service == "open_cover" {
@@ -262,8 +262,8 @@ func TestSecurityManager_GarageNotOpenedWhenOccupied(t *testing.T) {
 		t.Fatalf("Failed to start security manager: %v", err)
 	}
 
-	// Clear any initial service calls
-	mockHA.ClearServiceCalls()
+	// Snapshot service call index before action
+	snapshot := mockHA.ServiceCallCount()
 
 	// Trigger owner return
 	if err := stateManager.SetBool("didOwnerJustReturnHome", true); err != nil {
@@ -274,7 +274,7 @@ func TestSecurityManager_GarageNotOpenedWhenOccupied(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	// Verify garage door was NOT opened
-	calls := mockHA.GetServiceCalls()
+	calls := mockHA.GetServiceCallsSince(snapshot)
 	for _, call := range calls {
 		if call.Domain == "cover" && call.Service == "open_cover" {
 			if entityID, ok := call.Data["entity_id"].(string); ok && entityID == "cover.garage_door_door" {
@@ -308,8 +308,8 @@ func TestSecurityManager_DoorbellNotification(t *testing.T) {
 		t.Fatalf("Failed to start security manager: %v", err)
 	}
 
-	// Clear any initial service calls
-	mockHA.ClearServiceCalls()
+	// Snapshot service call index before action
+	snapshot := mockHA.ServiceCallCount()
 
 	// Simulate doorbell press
 	mockHA.SimulateStateChange("input_button.doorbell", "2024-01-01T12:00:01")
@@ -318,7 +318,7 @@ func TestSecurityManager_DoorbellNotification(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	// Verify TTS was sent
-	calls := mockHA.GetServiceCalls()
+	calls := mockHA.GetServiceCallsSince(snapshot)
 	ttsFound := false
 	lightsFlashed := 0
 
@@ -363,20 +363,20 @@ func TestSecurityManager_DoorbellRateLimiting(t *testing.T) {
 		t.Fatalf("Failed to start security manager: %v", err)
 	}
 
-	// Clear any initial service calls
-	mockHA.ClearServiceCalls()
+	// Snapshot service call index before action
+	snapshot := mockHA.ServiceCallCount()
 
 	// Simulate first doorbell press
 	mockHA.SimulateStateChange("input_button.doorbell", "2024-01-01T12:00:01")
 
 	time.Sleep(100 * time.Millisecond)
-	firstCallCount := len(mockHA.GetServiceCalls())
+	firstCallCount := len(mockHA.GetServiceCallsSince(snapshot))
 
 	// Simulate second doorbell press (within 20 seconds - should be rate limited)
 	mockHA.SimulateStateChange("input_button.doorbell", "2024-01-01T12:00:02")
 
 	time.Sleep(100 * time.Millisecond)
-	secondCallCount := len(mockHA.GetServiceCalls())
+	secondCallCount := len(mockHA.GetServiceCallsSince(snapshot))
 
 	// Verify second press did not trigger new notifications
 	if secondCallCount > firstCallCount {
@@ -404,8 +404,8 @@ func TestSecurityManager_VehicleArrivalWithExpecting(t *testing.T) {
 		t.Fatalf("Failed to start security manager: %v", err)
 	}
 
-	// Clear any initial service calls
-	mockHA.ClearServiceCalls()
+	// Snapshot service call index before action
+	snapshot := mockHA.ServiceCallCount()
 
 	// Simulate vehicle arriving
 	mockHA.SimulateStateChange("input_button.vehicle_arriving", "2024-01-01T12:00:01")
@@ -414,7 +414,7 @@ func TestSecurityManager_VehicleArrivalWithExpecting(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	// Verify TTS was sent
-	calls := mockHA.GetServiceCalls()
+	calls := mockHA.GetServiceCallsSince(snapshot)
 	ttsFound := false
 	expectingReset := false
 
@@ -460,8 +460,8 @@ func TestSecurityManager_VehicleArrivalWithoutExpecting(t *testing.T) {
 		t.Fatalf("Failed to start security manager: %v", err)
 	}
 
-	// Clear any initial service calls
-	mockHA.ClearServiceCalls()
+	// Snapshot service call index before action
+	snapshot := mockHA.ServiceCallCount()
 
 	// Simulate vehicle arriving
 	mockHA.SimulateStateChange("input_button.vehicle_arriving", "2024-01-01T12:00:01")
@@ -470,7 +470,7 @@ func TestSecurityManager_VehicleArrivalWithoutExpecting(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	// Verify TTS was NOT sent
-	calls := mockHA.GetServiceCalls()
+	calls := mockHA.GetServiceCallsSince(snapshot)
 	for _, call := range calls {
 		if call.Domain == "tts" && call.Service == "speak" {
 			if msg, ok := call.Data["message"].(string); ok && msg == "They have arrived" {
@@ -501,8 +501,8 @@ func TestSecurityManager_ReadOnlyMode(t *testing.T) {
 		t.Fatalf("Failed to start security manager: %v", err)
 	}
 
-	// Clear any initial service calls
-	mockHA.ClearServiceCalls()
+	// Snapshot service call index before action
+	snapshot := mockHA.ServiceCallCount()
 
 	// Simulate HA state change that would trigger lockdown
 	mockHA.SimulateStateChange("input_boolean.everyone_asleep", "on")
@@ -511,7 +511,7 @@ func TestSecurityManager_ReadOnlyMode(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	// Verify NO service calls were made (read-only mode)
-	calls := mockHA.GetServiceCalls()
+	calls := mockHA.GetServiceCallsSince(snapshot)
 	for _, call := range calls {
 		if call.Domain == "input_boolean" && call.Service == "turn_on" {
 			t.Errorf("Expected NO service calls in read-only mode, but got: %s.%s", call.Domain, call.Service)
@@ -538,14 +538,14 @@ func TestSecurityManager_InvalidTypeHandling(t *testing.T) {
 		t.Fatalf("Failed to start security manager: %v", err)
 	}
 
-	mockHA.ClearServiceCalls()
+	snapshot := mockHA.ServiceCallCount()
 
 	// Test handleEveryoneAsleepChange with invalid type (should log error and return)
 	securityManager.handleEveryoneAsleepChange("isEveryoneAsleep", false, "invalid_string")
 	time.Sleep(50 * time.Millisecond)
 
 	// Should not have called any services due to type error
-	calls := mockHA.GetServiceCalls()
+	calls := mockHA.GetServiceCallsSince(snapshot)
 	if len(calls) > 0 {
 		t.Errorf("Expected no service calls with invalid type, got %d calls", len(calls))
 	}
@@ -554,7 +554,7 @@ func TestSecurityManager_InvalidTypeHandling(t *testing.T) {
 	securityManager.handleAnyoneHomeChange("isAnyoneHome", true, 123) // invalid int instead of bool
 	time.Sleep(50 * time.Millisecond)
 
-	calls = mockHA.GetServiceCalls()
+	calls = mockHA.GetServiceCallsSince(snapshot)
 	if len(calls) > 0 {
 		t.Errorf("Expected no service calls with invalid type, got %d calls", len(calls))
 	}
@@ -563,7 +563,7 @@ func TestSecurityManager_InvalidTypeHandling(t *testing.T) {
 	securityManager.handleOwnerReturnHome("didOwnerJustReturnHome", false, map[string]string{"invalid": "map"})
 	time.Sleep(50 * time.Millisecond)
 
-	calls = mockHA.GetServiceCalls()
+	calls = mockHA.GetServiceCallsSince(snapshot)
 	if len(calls) > 0 {
 		t.Errorf("Expected no service calls with invalid type, got %d calls", len(calls))
 	}
@@ -589,7 +589,7 @@ func TestSecurityManager_OwnerReturnHome_DidNotReturn(t *testing.T) {
 		t.Fatalf("Failed to start security manager: %v", err)
 	}
 
-	mockHA.ClearServiceCalls()
+	snapshot := mockHA.ServiceCallCount()
 
 	// Set didOwnerJustReturnHome to false (did NOT return)
 	if err := stateManager.SetBool("didOwnerJustReturnHome", false); err != nil {
@@ -599,7 +599,7 @@ func TestSecurityManager_OwnerReturnHome_DidNotReturn(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	// Verify garage door was NOT opened
-	calls := mockHA.GetServiceCalls()
+	calls := mockHA.GetServiceCallsSince(snapshot)
 	for _, call := range calls {
 		if call.Domain == "cover" && call.Service == "open_cover" {
 			t.Errorf("Garage door should not open when owner did not return")
@@ -627,13 +627,13 @@ func TestSecurityManager_VehicleArrivalRateLimiting(t *testing.T) {
 		t.Fatalf("Failed to start security manager: %v", err)
 	}
 
-	mockHA.ClearServiceCalls()
+	snapshot := mockHA.ServiceCallCount()
 
 	// Simulate first vehicle arriving
 	mockHA.SimulateStateChange("input_button.vehicle_arriving", "2024-01-01T12:00:01")
 
 	time.Sleep(100 * time.Millisecond)
-	firstCallCount := len(mockHA.GetServiceCalls())
+	firstCallCount := len(mockHA.GetServiceCallsSince(snapshot))
 
 	// Reset expecting someone for second test
 	mockHA.SetState("input_boolean.expecting_someone", "on", nil)
@@ -642,7 +642,7 @@ func TestSecurityManager_VehicleArrivalRateLimiting(t *testing.T) {
 	mockHA.SimulateStateChange("input_button.vehicle_arriving", "2024-01-01T12:00:02")
 
 	time.Sleep(100 * time.Millisecond)
-	secondCallCount := len(mockHA.GetServiceCalls())
+	secondCallCount := len(mockHA.GetServiceCallsSince(snapshot))
 
 	// Verify second arrival was rate limited (should have same or fewer calls, not more)
 	// Note: We already reset expecting_someone in first call, so second won't trigger
@@ -671,7 +671,7 @@ func TestSecurityManager_ReadOnlyModeGarage(t *testing.T) {
 		t.Fatalf("Failed to start security manager: %v", err)
 	}
 
-	mockHA.ClearServiceCalls()
+	snapshot := mockHA.ServiceCallCount()
 
 	// Trigger owner return
 	if err := stateManager.SetBool("didOwnerJustReturnHome", true); err != nil {
@@ -681,7 +681,7 @@ func TestSecurityManager_ReadOnlyModeGarage(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	// Verify NO garage door service calls in read-only mode
-	calls := mockHA.GetServiceCalls()
+	calls := mockHA.GetServiceCallsSince(snapshot)
 	for _, call := range calls {
 		if call.Domain == "cover" {
 			t.Errorf("Expected NO cover service calls in read-only mode, but got: %s.%s", call.Domain, call.Service)
@@ -713,7 +713,7 @@ func TestSecurityManager_ReadOnlyModeLockdownReset(t *testing.T) {
 		t.Fatalf("Failed to start security manager: %v", err)
 	}
 
-	mockHA.ClearServiceCalls()
+	snapshot := mockHA.ServiceCallCount()
 
 	// Simulate lockdown being turned on in HA
 	mockHA.SimulateStateChange("input_boolean.lockdown", "on")
@@ -722,7 +722,7 @@ func TestSecurityManager_ReadOnlyModeLockdownReset(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	// Verify NO lockdown reset in read-only mode
-	calls := mockHA.GetServiceCalls()
+	calls := mockHA.GetServiceCallsSince(snapshot)
 	for _, call := range calls {
 		if call.Domain == "input_boolean" && call.Service == "turn_off" {
 			t.Errorf("Expected NO service calls in read-only mode for lockdown reset")
@@ -750,7 +750,7 @@ func TestSecurityManager_ReadOnlyModeVehicleArrival(t *testing.T) {
 		t.Fatalf("Failed to start security manager: %v", err)
 	}
 
-	mockHA.ClearServiceCalls()
+	snapshot := mockHA.ServiceCallCount()
 
 	// Simulate vehicle arriving
 	mockHA.SimulateStateChange("input_button.vehicle_arriving", "2024-01-01T12:00:01")
@@ -758,7 +758,7 @@ func TestSecurityManager_ReadOnlyModeVehicleArrival(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	// Verify NO service calls in read-only mode
-	calls := mockHA.GetServiceCalls()
+	calls := mockHA.GetServiceCallsSince(snapshot)
 	for _, call := range calls {
 		if call.Domain == "input_boolean" && call.Service == "turn_off" {
 			t.Errorf("Expected NO reset of expecting_someone in read-only mode")

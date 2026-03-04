@@ -135,8 +135,8 @@ func TestScenario_WakeUp_DebouncesRapidTriggers(t *testing.T) {
 	waitForProcessing(t, env.stateManager)
 	time.Sleep(200 * time.Millisecond) // Extra settle time for zone resolution
 
-	// Clear service calls from setup
-	env.server.ClearServiceCalls()
+	// Take snapshot before the action phase
+	snapshot := env.server.ServiceCallCount()
 
 	// Enable production debouncing (500ms) to test coalescing behavior
 	env.music.SetDebounceDelay(500 * time.Millisecond)
@@ -159,7 +159,7 @@ func TestScenario_WakeUp_DebouncesRapidTriggers(t *testing.T) {
 	// ===== THEN: Only one set of zone resolution service calls
 	t.Log("THEN: Bedroom should receive at most one set of join/volume commands (not three)")
 
-	calls := env.server.GetServiceCalls()
+	calls := env.server.GetServiceCallsSince(snapshot)
 
 	// Count how many times media_player.join was called for the bedroom speaker.
 	// Before the fix, each of the 3 triggers would independently try to join
@@ -252,9 +252,6 @@ func TestScenario_WakeUp_StopsWhenWakeSequenceEnds(t *testing.T) {
 	waitForProcessing(t, env.stateManager)
 	time.Sleep(100 * time.Millisecond)
 
-	// Clear service calls from initial setup
-	env.server.ClearServiceCalls()
-
 	// Now simulate T+30: sleephygiene sets musicPlaybackType="wakeup"
 	// This should trigger wakeup zone to start
 	env.server.SetState("input_text.music_playback_type", "wakeup", map[string]interface{}{})
@@ -275,8 +272,8 @@ func TestScenario_WakeUp_StopsWhenWakeSequenceEnds(t *testing.T) {
 
 	require.True(t, hasWakeup, "Expected wakeup zone to be active after setting musicPlaybackType=wakeup, got zones: %v", getZoneNames(activeZones))
 
-	// Clear service calls from setup
-	env.server.ClearServiceCalls()
+	// Take snapshot before the action phase
+	snapshot := env.server.ServiceCallCount()
 
 	// ===== WHEN: User opens bedroom door, wake sequence ends
 	t.Log("WHEN: User opens bedroom door, wake sequence ends (isWakeSequenceActive → false)")
@@ -347,7 +344,7 @@ func TestScenario_WakeUp_StopsWhenWakeSequenceEnds(t *testing.T) {
 		"musicPlaybackType should transition to 'morning' when wake sequence ends and morning zone takes over")
 
 	// Verify service calls show zone transition (fade-out wakeup, start/continue morning)
-	calls := env.server.GetServiceCalls()
+	calls := env.server.GetServiceCallsSince(snapshot)
 	t.Logf("Total service calls after wake sequence ended: %d", len(calls))
 
 	// Log service calls for debugging (first 20 only to avoid clutter)
@@ -417,8 +414,8 @@ func TestScenario_WakeUp_ClearingPlaybackTypeDoesNotStopMorningZone(t *testing.T
 	require.Contains(t, zoneNames, "wakeup", "Expected wakeup zone to be active, got: %v", zoneNames)
 	require.Contains(t, zoneNames, "morning", "Expected morning zone to be active, got: %v", zoneNames)
 
-	// Clear service calls from setup — we only care about calls after the transition
-	env.server.ClearServiceCalls()
+	// Take snapshot — we only care about calls after the transition
+	snapshot := env.server.ServiceCallCount()
 
 	// ===== WHEN: User wakes up (isMasterAsleep → false), triggering sleephygiene
 	// to clear isWakeSequenceActive and musicPlaybackType
@@ -451,7 +448,7 @@ func TestScenario_WakeUp_ClearingPlaybackTypeDoesNotStopMorningZone(t *testing.T
 	// If StopAllZones fired, morning zone speakers (Kitchen, Sitting Room) would have
 	// been faded out (volume_set to 0) before being restarted. Check that morning
 	// zone speakers were NOT set to volume 0.
-	calls := env.server.GetServiceCalls()
+	calls := env.server.GetServiceCallsSince(snapshot)
 	morningZoneSpeakers := map[string]bool{
 		"media_player.kitchen":      true,
 		"media_player.sitting_room": true,

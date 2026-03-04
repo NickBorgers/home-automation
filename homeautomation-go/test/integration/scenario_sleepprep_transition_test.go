@@ -183,14 +183,14 @@ func TestScenario_SleepPrepToSleep_NonBedroomSpeakersBehavior(t *testing.T) {
 	// startZone launches orchestrateZonePlayback in a goroutine, which spawns
 	// sub-goroutines (buildSpeakerGroupAsync, fadeInSpeaker). Even with no-op
 	// sleepFunc, these make service calls to the mock server. We must wait for
-	// ALL calls to finish before ClearServiceCalls(), otherwise they leak into
+	// ALL calls to finish before taking the snapshot, otherwise they leak into
 	// the THEN phase assertions.
 	//
 	// Strategy: wait until service call count stabilizes (no new calls for 200ms).
 	waitForServiceCallsToStabilize(t, env.server, 200*time.Millisecond)
 
-	// Clear service calls to isolate the transition
-	env.server.ClearServiceCalls()
+	// Snapshot service calls to isolate the transition
+	snapshot := env.server.ServiceCallCount()
 
 	// ===== WHEN: isMasterAsleep becomes true (triggering sleep zone) =====
 	t.Log("WHEN: isMasterAsleep becomes true (triggering sleep zone)")
@@ -219,7 +219,7 @@ func TestScenario_SleepPrepToSleep_NonBedroomSpeakersBehavior(t *testing.T) {
 
 	// Wait for all service calls to settle (secondary zone resolutions
 	// from sleephygiene state changes may still be completing)
-	waitForServiceCallsToStabilize(t, env.server, 300*time.Millisecond)
+	waitForServiceCallsToStabilizeSince(t, env.server, snapshot, 300*time.Millisecond)
 
 	// ===== THEN: Verify correct transition behavior =====
 	t.Log("THEN: Verify transition behavior for all speakers")
@@ -232,7 +232,7 @@ func TestScenario_SleepPrepToSleep_NonBedroomSpeakersBehavior(t *testing.T) {
 	assert.NotContains(t, zoneNames, "sleep-prep",
 		"Sleep-prep zone should stop after isMasterAsleep=true")
 
-	calls := env.server.GetServiceCalls()
+	calls := env.server.GetServiceCallsSince(snapshot)
 	t.Logf("Total service calls during transition: %d", len(calls))
 	for i, call := range calls {
 		if i >= 30 {

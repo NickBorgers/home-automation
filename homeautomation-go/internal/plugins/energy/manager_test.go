@@ -478,15 +478,15 @@ func TestHandleGridAvailabilityChange(t *testing.T) {
 		env := testutil.NewEnv(t)
 		manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, false, nil, nil)
 
-		// Clear any initial service calls
-		env.MockHA.ClearServiceCalls()
+		// Snapshot service call count before action
+		snapshot := env.MockHA.ServiceCallCount()
 
 		// Simulate grid availability change to true
 		manager.handleGridAvailabilityChange("isGridAvailable", false, true)
 
 		// Verify SetInputBoolean was called for grid_available
 		// Note: checkFreeEnergy() is also called, which may make additional service calls
-		serviceCalls := env.MockHA.GetServiceCalls()
+		serviceCalls := env.MockHA.GetServiceCallsSince(snapshot)
 		assert.GreaterOrEqual(t, len(serviceCalls), 1, "Expected at least one service call")
 
 		// Find the grid_available service call
@@ -502,15 +502,15 @@ func TestHandleGridAvailabilityChange(t *testing.T) {
 		env := testutil.NewEnv(t)
 		manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, false, nil, nil)
 
-		// Clear any initial service calls
-		env.MockHA.ClearServiceCalls()
+		// Snapshot service call count before action
+		snapshot := env.MockHA.ServiceCallCount()
 
 		// Simulate grid availability change to false
 		manager.handleGridAvailabilityChange("isGridAvailable", true, false)
 
 		// Verify SetInputBoolean was called with turn_off for grid_available
 		// Note: checkFreeEnergy() is also called, which may make additional service calls
-		serviceCalls := env.MockHA.GetServiceCalls()
+		serviceCalls := env.MockHA.GetServiceCallsSince(snapshot)
 		assert.GreaterOrEqual(t, len(serviceCalls), 1, "Expected at least one service call")
 
 		// Find the grid_available service call
@@ -527,14 +527,14 @@ func TestHandleGridAvailabilityChange(t *testing.T) {
 		readOnlyStateMgr := state.NewManager(env.MockHA, env.Logger, true) // read-only mode
 		manager := NewManager(context.Background(), env.MockHA, readOnlyStateMgr, config, env.Logger, true, nil, nil)
 
-		// Clear any initial service calls
-		env.MockHA.ClearServiceCalls()
+		// Snapshot service call count before action
+		snapshot := env.MockHA.ServiceCallCount()
 
 		// Simulate grid availability change
 		manager.handleGridAvailabilityChange("isGridAvailable", false, true)
 
 		// Verify no service calls were made
-		serviceCalls := env.MockHA.GetServiceCalls()
+		serviceCalls := env.MockHA.GetServiceCallsSince(snapshot)
 		assert.Len(t, serviceCalls, 0, "Expected no service calls in read-only mode")
 	})
 
@@ -543,14 +543,14 @@ func TestHandleGridAvailabilityChange(t *testing.T) {
 		env := testutil.NewEnv(t)
 		manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, false, nil, nil)
 
-		// Clear any initial service calls
-		env.MockHA.ClearServiceCalls()
+		// Snapshot service call count before action
+		snapshot := env.MockHA.ServiceCallCount()
 
 		// Simulate grid availability change with invalid value
 		manager.handleGridAvailabilityChange("isGridAvailable", false, "not_a_boolean")
 
 		// Verify no service calls were made (error was handled)
-		serviceCalls := env.MockHA.GetServiceCalls()
+		serviceCalls := env.MockHA.GetServiceCallsSince(snapshot)
 		assert.Len(t, serviceCalls, 0, "Expected no service calls with invalid value")
 	})
 
@@ -565,8 +565,9 @@ func TestHandleGridAvailabilityChange(t *testing.T) {
 
 		manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, false, nil, nil)
 
-		// Clear any initial service calls
-		env.MockHA.ClearServiceCalls()
+		// Snapshot service call count before action
+		snapshot := env.MockHA.ServiceCallCount()
+		_ = snapshot
 
 		// Get initial free energy state
 		initialFreeEnergy, _ := env.StateMgr.GetBool("isFreeEnergyAvailable")
@@ -674,15 +675,15 @@ func TestIndicatorLightsServiceCall(t *testing.T) {
 	// Wait for startup goroutines to complete initial work
 	manager.WaitForStartup()
 
-	// Clear any service calls from startup
-	env.MockHA.ClearServiceCalls()
+	// Snapshot service call count before action
+	snapshot := env.MockHA.ServiceCallCount()
 
 	// Test updateIndicatorLights directly with a specific energy level
 	// This avoids complications with free energy time and recalculation
 	manager.updateIndicatorLights("yellow")
 
 	// Verify the light service was called
-	calls := env.MockHA.GetServiceCalls()
+	calls := env.MockHA.GetServiceCallsSince(snapshot)
 
 	// Find the light.turn_on call (ignore other background calls like input_boolean updates)
 	lightCall := testutil.FindServiceCall(calls, "light", "turn_on")
@@ -726,14 +727,14 @@ func TestIndicatorLightsReadOnlyMode(t *testing.T) {
 	assert.NoError(t, err)
 	defer manager.Stop()
 
-	// Clear any service calls from startup
-	env.MockHA.ClearServiceCalls()
+	// Snapshot service call count before action
+	snapshot := env.MockHA.ServiceCallCount()
 
 	// Trigger updateIndicatorLights directly
 	manager.updateIndicatorLights("black")
 
 	// Verify NO light.turn_on service was called in read-only mode
-	calls := env.MockHA.GetServiceCalls()
+	calls := env.MockHA.GetServiceCallsSince(snapshot)
 	testutil.AssertNoServiceCall(t, calls, "light", "turn_on")
 
 	// But shadow state should still be updated
@@ -832,8 +833,9 @@ func TestIndicatorLightsServiceCallError(t *testing.T) {
 	// Wait for startup goroutines to complete initial work
 	manager.WaitForStartup()
 
-	// Clear any service calls from startup
-	env.MockHA.ClearServiceCalls()
+	// Snapshot service call count before action
+	snapshot := env.MockHA.ServiceCallCount()
+	_ = snapshot
 
 	// Configure mock to return an error for light.turn_on AFTER startup
 	// (so startup doesn't fail)
@@ -876,14 +878,14 @@ func TestIndicatorLightsUnknownEnergyLevel(t *testing.T) {
 	// Wait for startup goroutines to complete initial work
 	manager.WaitForStartup()
 
-	// Clear any service calls from startup
-	env.MockHA.ClearServiceCalls()
+	// Snapshot service call count before action
+	snapshot := env.MockHA.ServiceCallCount()
 
 	// Call updateIndicatorLights with an unknown energy level
 	manager.updateIndicatorLights("purple") // Not a valid energy level
 
 	// Verify NO light.turn_on service call was made (should return early)
-	calls := env.MockHA.GetServiceCalls()
+	calls := env.MockHA.GetServiceCallsSince(snapshot)
 	testutil.AssertNoServiceCall(t, calls, "light", "turn_on")
 }
 
@@ -1195,14 +1197,14 @@ func TestAdaptiveBrightnessDisabled(t *testing.T) {
 	// Wait for startup goroutines to complete initial work
 	manager.WaitForStartup()
 
-	// Clear service calls from startup
-	env.MockHA.ClearServiceCalls()
+	// Snapshot service call count before action
+	snapshot := env.MockHA.ServiceCallCount()
 
 	// Update indicator lights
 	manager.updateIndicatorLights("yellow")
 
 	// Verify static brightness was used (not adaptive)
-	calls := env.MockHA.GetServiceCalls()
+	calls := env.MockHA.GetServiceCallsSince(snapshot)
 	lightCall := testutil.FindServiceCall(calls, "light", "turn_on")
 
 	assert.NotNil(t, lightCall)
@@ -1253,14 +1255,14 @@ func TestAdaptiveBrightnessPerDevice(t *testing.T) {
 	// Wait for startup goroutines to complete initial work
 	manager.WaitForStartup()
 
-	// Clear service calls
-	env.MockHA.ClearServiceCalls()
+	// Snapshot service call count before action
+	snapshot := env.MockHA.ServiceCallCount()
 
 	// Update indicator lights (should use per-device brightness)
 	manager.updateIndicatorLights("yellow")
 
 	// Verify two separate service calls with different brightness values
-	calls := env.MockHA.GetServiceCalls()
+	calls := env.MockHA.GetServiceCallsSince(snapshot)
 	lightCalls := make(map[string]int) // entity -> brightness
 
 	for _, c := range calls {
@@ -1356,8 +1358,8 @@ func TestDebouncing(t *testing.T) {
 	// Wait for startup goroutines to complete initial work
 	manager.WaitForStartup()
 
-	// Clear service calls from startup
-	env.MockHA.ClearServiceCalls()
+	// Snapshot service call count before action
+	snapshot := env.MockHA.ServiceCallCount()
 
 	lightEntity := "light.apollo_msr_2_1294c8_rgb_light"
 
@@ -1380,7 +1382,7 @@ func TestDebouncing(t *testing.T) {
 	manager.updateLightBrightness(lightEntity, 150)
 
 	// Count service calls (should be 2: first + third)
-	calls := env.MockHA.GetServiceCalls()
+	calls := env.MockHA.GetServiceCallsSince(snapshot)
 	lightCallCount := testutil.CountServiceCalls(calls, "light", "turn_on")
 
 	assert.Equal(t, 2, lightCallCount, "Should have exactly 2 light updates (debounce blocked the second)")
@@ -1413,14 +1415,14 @@ func TestFallbackToStaticBrightness(t *testing.T) {
 	// Wait for startup goroutines to complete initial work
 	manager.WaitForStartup()
 
-	// Clear service calls from startup
-	env.MockHA.ClearServiceCalls()
+	// Snapshot service call count before action
+	snapshot := env.MockHA.ServiceCallCount()
 
 	// Update indicator lights
 	manager.updateIndicatorLights("yellow")
 
 	// Should fall back to static brightness (45%) since no lux sensor available
-	calls := env.MockHA.GetServiceCalls()
+	calls := env.MockHA.GetServiceCallsSince(snapshot)
 	lightCall := testutil.FindServiceCall(calls, "light", "turn_on")
 
 	assert.NotNil(t, lightCall)
@@ -1456,23 +1458,23 @@ func TestHandleLuxChangeWithInvalidValues(t *testing.T) {
 	// Wait for startup goroutines to complete initial work
 	manager.WaitForStartup()
 
-	// Clear service calls from startup
-	env.MockHA.ClearServiceCalls()
-	initialCount := testutil.CountServiceCalls(env.MockHA.GetServiceCalls(), "light", "turn_on")
+	// Snapshot service call count before action
+	snapshot := env.MockHA.ServiceCallCount()
+	initialCount := testutil.CountServiceCalls(env.MockHA.GetServiceCallsSince(snapshot), "light", "turn_on")
 
 	// Test NaN - should be ignored, no light service call
 	manager.handleLuxChange("sensor.apollo_msr_2_1294c8_ltr390_light", math.NaN())
-	assert.Equal(t, initialCount, testutil.CountServiceCalls(env.MockHA.GetServiceCalls(), "light", "turn_on"),
+	assert.Equal(t, initialCount, testutil.CountServiceCalls(env.MockHA.GetServiceCallsSince(snapshot), "light", "turn_on"),
 		"NaN lux value should be ignored, no light service call expected")
 
 	// Test positive infinity - should be ignored
 	manager.handleLuxChange("sensor.apollo_msr_2_1294c8_ltr390_light", math.Inf(1))
-	assert.Equal(t, initialCount, testutil.CountServiceCalls(env.MockHA.GetServiceCalls(), "light", "turn_on"),
+	assert.Equal(t, initialCount, testutil.CountServiceCalls(env.MockHA.GetServiceCallsSince(snapshot), "light", "turn_on"),
 		"Positive infinity lux value should be ignored")
 
 	// Test negative infinity - should be ignored
 	manager.handleLuxChange("sensor.apollo_msr_2_1294c8_ltr390_light", math.Inf(-1))
-	assert.Equal(t, initialCount, testutil.CountServiceCalls(env.MockHA.GetServiceCalls(), "light", "turn_on"),
+	assert.Equal(t, initialCount, testutil.CountServiceCalls(env.MockHA.GetServiceCallsSince(snapshot), "light", "turn_on"),
 		"Negative infinity lux value should be ignored")
 
 	// Verify currentLuxValues was NOT updated with invalid values
@@ -1701,15 +1703,15 @@ func TestUpdateIndicatorLightsSkipsCalibrating(t *testing.T) {
 	manager.calibrationState[lightEntity] = CalibrationStateDimmed
 	manager.indicatorMu.Unlock()
 
-	// Clear any service calls
-	env.MockHA.ClearServiceCalls()
+	// Snapshot service call count before action
+	snapshot := env.MockHA.ServiceCallCount()
 
 	// Update indicator lights - the calibrating light should be skipped
 	manager.updateIndicatorLights("yellow")
 
 	// Verify no light.turn_on calls were made for this device
 	// (it should skip because it's in calibration mode)
-	calls := env.MockHA.GetServiceCalls()
+	calls := env.MockHA.GetServiceCallsSince(snapshot)
 	deviceCall := testutil.FindServiceCallWithEntity(calls, "light", "turn_on", lightEntity)
 
 	assert.Nil(t, deviceCall, "Should skip updating lights that are currently calibrating")
@@ -1754,14 +1756,14 @@ func TestUpdateIndicatorLightsUsesBaseline(t *testing.T) {
 	manager.currentLuxValues[luxSensor] = 2000  // High reading contaminated by LED
 	manager.indicatorMu.Unlock()
 
-	// Clear any service calls
-	env.MockHA.ClearServiceCalls()
+	// Snapshot service call count before action
+	snapshot := env.MockHA.ServiceCallCount()
 
 	// Update indicator lights - should use baseline lux (50) not current lux (2000)
 	manager.updateIndicatorLights("yellow")
 
 	// Find the light.turn_on call for this device
-	calls := env.MockHA.GetServiceCalls()
+	calls := env.MockHA.GetServiceCallsSince(snapshot)
 	lightCall := testutil.FindServiceCallWithEntity(calls, "light", "turn_on", lightEntity)
 
 	assert.NotNil(t, lightCall, "Expected a light.turn_on call")
@@ -1815,8 +1817,8 @@ func TestRestoreLightAfterCalibration(t *testing.T) {
 	manager.currentLuxValues[luxSensor] = 75 // Baseline reading
 	manager.indicatorMu.Unlock()
 
-	// Clear service calls
-	env.MockHA.ClearServiceCalls()
+	// Snapshot service call count before action
+	snapshot := env.MockHA.ServiceCallCount()
 
 	// Call restoreLightAfterCalibration
 	manager.restoreLightAfterCalibration(lightEntity)
@@ -1831,7 +1833,7 @@ func TestRestoreLightAfterCalibration(t *testing.T) {
 	assert.Equal(t, CalibrationStateNormal, calibState, "Should return to Normal state")
 
 	// Verify light was updated
-	calls := env.MockHA.GetServiceCalls()
+	calls := env.MockHA.GetServiceCallsSince(snapshot)
 	lightCall := testutil.FindServiceCall(calls, "light", "turn_on")
 
 	assert.NotNil(t, lightCall, "Expected a light.turn_on call to restore brightness")
@@ -1933,8 +1935,9 @@ func TestCalibrationWithNoLuxReadingYet(t *testing.T) {
 	// Note: currentLuxValues[luxSensor] is NOT set - simulating sensor hasn't updated
 	manager.indicatorMu.Unlock()
 
-	// Clear service calls
-	env.MockHA.ClearServiceCalls()
+	// Snapshot service call count before action
+	snapshot := env.MockHA.ServiceCallCount()
+	_ = snapshot
 
 	// Call restoreLightAfterCalibration
 	manager.restoreLightAfterCalibration(lightEntity)
@@ -1967,14 +1970,14 @@ func TestSetLightBrightness(t *testing.T) {
 
 	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, false, nil, nil)
 
-	// Clear service calls
-	env.MockHA.ClearServiceCalls()
+	// Snapshot service call count before action
+	snapshot := env.MockHA.ServiceCallCount()
 
 	// Call setLightBrightness
 	manager.setLightBrightness("light.test_light", 5)
 
 	// Verify service call was made
-	calls := env.MockHA.GetServiceCalls()
+	calls := env.MockHA.GetServiceCallsSince(snapshot)
 	lightCall := testutil.FindServiceCall(calls, "light", "turn_on")
 
 	assert.NotNil(t, lightCall, "Expected a light.turn_on call")
@@ -1999,14 +2002,14 @@ func TestSetLightBrightnessReadOnly(t *testing.T) {
 	// Create manager in read-only mode
 	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, true, nil, nil)
 
-	// Clear service calls
-	env.MockHA.ClearServiceCalls()
+	// Snapshot service call count before action
+	snapshot := env.MockHA.ServiceCallCount()
 
 	// Call setLightBrightness - should not make any service calls
 	manager.setLightBrightness("light.test_light", 5)
 
 	// Verify no service call was made
-	calls := env.MockHA.GetServiceCalls()
+	calls := env.MockHA.GetServiceCallsSince(snapshot)
 	assert.Empty(t, calls, "No service calls should be made in read-only mode")
 }
 
@@ -2032,14 +2035,14 @@ func TestRunCalibrationCycleWithNoLights(t *testing.T) {
 
 	// Don't discover any lights - indicatorLightEntities will be empty
 
-	// Clear service calls
-	env.MockHA.ClearServiceCalls()
+	// Snapshot service call count before action
+	snapshot := env.MockHA.ServiceCallCount()
 
 	// Call runCalibrationCycle - should return early with no lights
 	manager.runCalibrationCycle()
 
 	// No errors should occur, function should return gracefully
-	calls := env.MockHA.GetServiceCalls()
+	calls := env.MockHA.GetServiceCallsSince(snapshot)
 	assert.Empty(t, calls, "No service calls should be made with no lights")
 }
 
@@ -2069,13 +2072,13 @@ func TestRunCalibrationCycleLightWithoutLuxSensor(t *testing.T) {
 	// Don't add lightToLuxSensor mapping
 	manager.indicatorMu.Unlock()
 
-	// Clear service calls
-	env.MockHA.ClearServiceCalls()
+	// Snapshot service call count before action
+	snapshot := env.MockHA.ServiceCallCount()
 
 	// Call runCalibrationCycle - should skip lights without lux sensors
 	manager.runCalibrationCycle()
 
 	// No service calls should be made since light has no lux sensor
-	calls := env.MockHA.GetServiceCalls()
+	calls := env.MockHA.GetServiceCallsSince(snapshot)
 	assert.Empty(t, calls, "No service calls should be made for lights without lux sensors")
 }

@@ -105,22 +105,39 @@ func waitForServiceCallWithEntity(t *testing.T, server *MockHAServer, domain, se
 	}, stateWaitTimeout, statePollInterval, msgAndArgs...)
 }
 
-// waitForServiceCallCount polls until the expected number of service calls is reached.
-// Use this when verifying that a specific number of service calls have been made.
-func waitForServiceCallCount(t *testing.T, server *MockHAServer, expectedCount int, msgAndArgs ...interface{}) {
+// waitForServiceCallWithEntitySince polls until a service call matching the criteria (including entity)
+// is found among calls recorded after the given index.
+func waitForServiceCallWithEntitySince(t *testing.T, server *MockHAServer, since int, domain, service, entityID string, msgAndArgs ...interface{}) {
 	t.Helper()
 	assert.Eventually(t, func() bool {
-		calls := server.GetServiceCalls()
+		calls := server.GetServiceCallsSince(since)
+		for _, call := range calls {
+			if call.Domain == domain && call.Service == service {
+				if id, ok := call.ServiceData["entity_id"].(string); ok && id == entityID {
+					return true
+				}
+			}
+		}
+		return false
+	}, stateWaitTimeout, statePollInterval, msgAndArgs...)
+}
+
+// waitForServiceCallCountSince polls until at least expectedCount service calls have been
+// recorded after the given index.
+func waitForServiceCallCountSince(t *testing.T, server *MockHAServer, since int, expectedCount int, msgAndArgs ...interface{}) {
+	t.Helper()
+	assert.Eventually(t, func() bool {
+		calls := server.GetServiceCallsSince(since)
 		return len(calls) >= expectedCount
 	}, stateWaitTimeout, statePollInterval, msgAndArgs...)
 }
 
-// waitForServiceCall polls until any service call matching domain/service is found.
-// Use this when you need to verify a service call was made without checking a specific entity.
-func waitForServiceCall(t *testing.T, server *MockHAServer, domain, service string, msgAndArgs ...interface{}) {
+// waitForServiceCallSince polls until any service call matching domain/service is found
+// among calls recorded after the given index.
+func waitForServiceCallSince(t *testing.T, server *MockHAServer, since int, domain, service string, msgAndArgs ...interface{}) {
 	t.Helper()
 	assert.Eventually(t, func() bool {
-		calls := server.GetServiceCalls()
+		calls := server.GetServiceCallsSince(since)
 		for _, call := range calls {
 			if call.Domain == domain && call.Service == service {
 				return true
@@ -130,10 +147,33 @@ func waitForServiceCall(t *testing.T, server *MockHAServer, domain, service stri
 	}, stateWaitTimeout, statePollInterval, msgAndArgs...)
 }
 
+// waitForServiceCallsToStabilizeSince waits until the service call count has been stable
+// (unchanged) for at least stabilizeWindow, only considering calls after the given index.
+func waitForServiceCallsToStabilizeSince(t *testing.T, server *MockHAServer, since int, stabilizeWindow time.Duration) {
+	t.Helper()
+	// First wait for at least one call to appear
+	assert.Eventually(t, func() bool {
+		return len(server.GetServiceCallsSince(since)) > 0
+	}, stateWaitTimeout, statePollInterval, "expected at least one service call since snapshot before checking stability")
+
+	// Then wait for count to stop changing for stabilizeWindow
+	lastCount := -1
+	var stableStart time.Time
+	assert.Eventually(t, func() bool {
+		count := len(server.GetServiceCallsSince(since))
+		if count != lastCount {
+			lastCount = count
+			stableStart = time.Now()
+			return false
+		}
+		return time.Since(stableStart) >= stabilizeWindow
+	}, stateWaitTimeout, statePollInterval, "service calls should stabilize")
+}
+
 // waitForProcessing blocks until all in-flight HA event handler goroutines have completed.
 // Use this instead of time.Sleep(50 * time.Millisecond) after server.SetState() or
 // stateManager.SetBool()/SetString() calls to ensure all handlers have finished processing
-// before continuing with assertions or ClearServiceCalls().
+// before continuing with assertions or taking service call snapshots.
 //
 // This is deterministic: it waits for actual handler completion rather than an arbitrary
 // fixed delay, making tests both faster and more reliable.

@@ -213,13 +213,13 @@ func TestComputedState_IsAnyoneHomeAndAwake_SyncsToHA(t *testing.T) {
 	err := manager.SyncFromHA()
 	require.NoError(t, err)
 
-	mockClient.ClearServiceCalls()
+	snapshot := mockClient.ServiceCallCount()
 
 	err = manager.SetupComputedState()
 	require.NoError(t, err)
 
 	// Should have synced the computed value to HA
-	calls := mockClient.GetServiceCalls()
+	calls := mockClient.GetServiceCallsSince(snapshot)
 	assert.NotEmpty(t, calls, "SetupComputedState should sync computed value to HA")
 
 	// Find the call that set anyone_home_and_awake
@@ -255,7 +255,7 @@ func TestComputedState_IsAnyoneHomeAndAwake_WorksInReadOnlyMode(t *testing.T) {
 	err := manager.SyncFromHA()
 	require.NoError(t, err)
 
-	mockClient.ClearServiceCalls()
+	snapshot := mockClient.ServiceCallCount()
 
 	// SetupComputedState should work because isAnyoneHomeAndAwake is ComputedOutput
 	err = manager.SetupComputedState()
@@ -266,7 +266,7 @@ func TestComputedState_IsAnyoneHomeAndAwake_WorksInReadOnlyMode(t *testing.T) {
 	assert.True(t, value, "Computed state should work in read-only mode")
 
 	// Should have synced to HA even in read-only mode
-	calls := mockClient.GetServiceCalls()
+	calls := mockClient.GetServiceCallsSince(snapshot)
 	assert.NotEmpty(t, calls, "ComputedOutput should sync to HA even in read-only mode")
 }
 

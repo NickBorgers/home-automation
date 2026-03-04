@@ -129,7 +129,7 @@ func TestScenario_TVStartsPlaying_MusicSpeakersMute(t *testing.T) {
 	env.server.SetState("input_text.day_phase", "evening", map[string]interface{}{})
 
 	waitForProcessing(t, env.stateManager)
-	env.server.ClearServiceCalls()
+	snapshot := env.server.ServiceCallCount()
 
 	// Verify TV is not playing initially
 	waitForBoolState(t, env.stateManager, "isTVPlaying", false, "TV should not be playing initially")
@@ -158,7 +158,7 @@ func TestScenario_TVStartsPlaying_MusicSpeakersMute(t *testing.T) {
 	assert.True(t, isTVPlaying, "isTVPlaying should be true when Apple TV is playing")
 
 	// ASSERTION 2: Check that volume_set calls were made (muting speakers)
-	calls := env.server.GetServiceCalls()
+	calls := env.server.GetServiceCallsSince(snapshot)
 	volumeCalls := filterServiceCalls(calls, "media_player", "volume_set")
 	t.Logf("Volume set calls after TV started: %d", len(volumeCalls))
 
@@ -211,7 +211,7 @@ func TestScenario_TVStops_MusicSpeakersUnmute(t *testing.T) {
 	waitForBoolState(t, env.stateManager, "isTVPlaying", true, "isTVPlaying should be true initially")
 
 	waitForProcessing(t, env.stateManager)
-	env.server.ClearServiceCalls()
+	snapshot := env.server.ServiceCallCount()
 
 	// ========== WHEN ==========
 	t.Log("WHEN: TV stops playing (Apple TV goes to standby)")
@@ -235,7 +235,7 @@ func TestScenario_TVStops_MusicSpeakersUnmute(t *testing.T) {
 	assert.False(t, isTVPlaying, "isTVPlaying should be false after Apple TV goes to standby")
 
 	// ASSERTION 2: Check for volume restore calls
-	calls := env.server.GetServiceCalls()
+	calls := env.server.GetServiceCallsSince(snapshot)
 	volumeCalls := filterServiceCalls(calls, "media_player", "volume_set")
 	t.Logf("Volume set calls after TV stopped: %d", len(volumeCalls))
 
@@ -279,8 +279,6 @@ func TestScenario_TVRemoteOff_KillSwitch(t *testing.T) {
 	})
 
 	waitForBoolState(t, env.stateManager, "isTVPlaying", true, "isTVPlaying should be true")
-
-	env.server.ClearServiceCalls()
 
 	// ========== WHEN ==========
 	t.Log("WHEN: TV remote turns off (kill switch) while sync box stays on")

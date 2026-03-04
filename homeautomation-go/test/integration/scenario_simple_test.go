@@ -28,12 +28,12 @@ func TestScenario_MockServerServiceCallTracking(t *testing.T) {
 	server, _, manager, cleanup := setupTest(t)
 	defer cleanup()
 
-	// Clear any initialization calls
-	server.ClearServiceCalls()
+	// Take snapshot after initialization
+	snapshot := server.ServiceCallCount()
 
-	t.Log("GIVEN: No service calls have been made")
-	calls := server.GetServiceCalls()
-	assert.Equal(t, 0, len(calls), "Should start with no service calls")
+	t.Log("GIVEN: No service calls have been made since snapshot")
+	calls := server.GetServiceCallsSince(snapshot)
+	assert.Equal(t, 0, len(calls), "Should start with no service calls since snapshot")
 
 	// WHEN: We make various service calls through the manager
 	t.Log("WHEN: Making service calls through the state manager")
@@ -51,11 +51,11 @@ func TestScenario_MockServerServiceCallTracking(t *testing.T) {
 	require.NoError(t, err)
 
 	// Wait for all service calls to be tracked
-	waitForServiceCallCount(t, server, 3, "Should have at least 3 service calls")
+	waitForServiceCallCountSince(t, server, snapshot, 3, "Should have at least 3 service calls since snapshot")
 
 	// THEN: All service calls should be tracked
 	t.Log("THEN: Verifying all service calls were tracked")
-	calls = server.GetServiceCalls()
+	calls = server.GetServiceCallsSince(snapshot)
 
 	t.Logf("Total service calls tracked: %d", len(calls))
 
@@ -93,14 +93,14 @@ func TestScenario_MockServerServiceCallTracking(t *testing.T) {
 	assert.GreaterOrEqual(t, boolCallCount, 1, "Should have at least one input_boolean.turn_on call")
 	t.Logf("Total input_boolean.turn_on calls: %d", boolCallCount)
 
-	// WHEN: We clear service calls
-	t.Log("WHEN: Clearing service calls")
-	server.ClearServiceCalls()
+	// WHEN: We take a new snapshot
+	t.Log("WHEN: Taking new snapshot")
+	snapshot = server.ServiceCallCount()
 
-	// THEN: No calls should be tracked
-	t.Log("THEN: Service call tracking should be empty")
-	calls = server.GetServiceCalls()
-	assert.Equal(t, 0, len(calls), "Should have no calls after clearing")
+	// THEN: No new calls should be tracked since snapshot
+	t.Log("THEN: Service call tracking should show no new calls since snapshot")
+	calls = server.GetServiceCallsSince(snapshot)
+	assert.Equal(t, 0, len(calls), "Should have no calls since new snapshot")
 }
 
 // TestScenario_ServiceCallFiltering tests the helper functions for filtering service calls

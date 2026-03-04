@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+
 	"homeautomation/internal/config"
 	"homeautomation/internal/ha"
 	"homeautomation/internal/state"
@@ -103,6 +105,9 @@ func TestBeginWake_AllConditionsMet(t *testing.T) {
 	stateManager.SetString("musicPlaybackType", "sleep")
 	stateManager.SetBool("isFadeOutInProgress", false)
 
+	// Snapshot service call count before action
+	snapshot := mockHA.ServiceCallCount()
+
 	// Trigger begin_wake
 	manager.handleBeginWake()
 
@@ -113,7 +118,7 @@ func TestBeginWake_AllConditionsMet(t *testing.T) {
 	}
 
 	// Verify at least one call to SetState (for isFadeOutInProgress)
-	calls := mockHA.GetServiceCalls()
+	calls := mockHA.GetServiceCallsSince(snapshot)
 	if len(calls) < 1 {
 		t.Error("Expected at least one service call to set isFadeOutInProgress")
 	}
@@ -135,12 +140,11 @@ func TestBeginWake_ConditionsRequired(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			now := time.Date(2024, 1, 15, 9, 5, 0, 0, time.UTC)
-			manager, mockHA, stateManager, _ := setupTest(t, now)
+			manager, _, stateManager, _ := setupTest(t, now)
 
 			stateManager.SetBool("isAnyoneHome", tt.isAnyoneHome)
 			stateManager.SetBool("isMasterAsleep", tt.isMasterAsleep)
 			stateManager.SetString("musicPlaybackType", tt.musicType)
-			mockHA.ClearServiceCalls()
 
 			manager.handleBeginWake()
 
@@ -174,8 +178,8 @@ func TestWake_AllConditionsMet(t *testing.T) {
 	// Since this test calls handleWake() directly (the second step), we need to set this state.
 	stateManager.SetBool("isWakeSequenceActive", true)
 
-	// Clear previous calls
-	mockHA.ClearServiceCalls()
+	// Snapshot service call count before action
+	snapshot := mockHA.ServiceCallCount()
 
 	// Trigger wake
 	manager.handleWake()
@@ -184,7 +188,7 @@ func TestWake_AllConditionsMet(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	// Verify service calls were made
-	calls := mockHA.GetServiceCalls()
+	calls := mockHA.GetServiceCallsSince(snapshot)
 
 	// Should have:
 	// - 2 calls for master bedroom lights (initial + transition)
@@ -216,14 +220,14 @@ func TestStopScreens_AllConditionsMet(t *testing.T) {
 	stateManager.SetBool("isAnyoneHome", true)
 	stateManager.SetBool("isEveryoneAsleep", false)
 
-	// Clear previous calls
-	mockHA.ClearServiceCalls()
+	// Snapshot service call count before action
+	snapshot := mockHA.ServiceCallCount()
 
 	// Trigger stop_screens
 	manager.handleStopScreens()
 
 	// Verify light flash calls were made
-	calls := mockHA.GetServiceCalls()
+	calls := mockHA.GetServiceCallsSince(snapshot)
 
 	foundFlash := false
 	for _, call := range calls {
@@ -249,14 +253,14 @@ func TestStopScreens_EveryoneAsleep(t *testing.T) {
 	stateManager.SetBool("isAnyoneHome", true)
 	stateManager.SetBool("isEveryoneAsleep", true)
 
-	// Clear previous calls
-	mockHA.ClearServiceCalls()
+	// Snapshot service call count before action
+	snapshot := mockHA.ServiceCallCount()
 
 	// Trigger stop_screens
 	manager.handleStopScreens()
 
 	// Verify NO calls were made
-	calls := mockHA.GetServiceCalls()
+	calls := mockHA.GetServiceCallsSince(snapshot)
 	if len(calls) > 0 {
 		t.Error("Should not flash lights when everyone is asleep")
 	}
@@ -279,15 +283,16 @@ func TestReadOnlyMode(t *testing.T) {
 	timeProvider := plugin.FixedTimeProvider{FixedTime: now}
 	manager := NewManager(context.Background(), env.MockHA, stateManager, configLoader, env.Logger, true, timeProvider, nil)
 
-	// Clear previous calls
-	env.MockHA.ClearServiceCalls()
+	// Snapshot service call count before action
+	snapshot := env.MockHA.ServiceCallCount()
 
 	// Trigger begin_wake
 	manager.handleBeginWake()
 
-	// In read-only mode, no state changes should be made
-	// The state manager is in read-only mode, so SetBool will not actually update HA
-	// But we can verify the manager respects read-only flag
+	// In read-only mode, no service calls should be made to Home Assistant
+	assert.Empty(t, env.MockHA.GetServiceCallsSince(snapshot), "read-only mode should make no service calls")
+
+	// Verify the manager is in read-only mode
 	if !manager.readOnly {
 		t.Error("Manager should be in read-only mode")
 	}
@@ -312,8 +317,8 @@ func TestCheckTimeTriggers_StopScreens(t *testing.T) {
 	stateManager.SetBool("isAnyoneHome", true)
 	stateManager.SetBool("isEveryoneAsleep", false)
 
-	// Clear calls
-	mockHA.ClearServiceCalls()
+	// Snapshot service call count before action
+	snapshot := mockHA.ServiceCallCount()
 
 	// Check triggers
 	manager.checkTimeTriggers()
@@ -324,7 +329,7 @@ func TestCheckTimeTriggers_StopScreens(t *testing.T) {
 	}
 
 	// Verify flash light calls were made
-	calls := mockHA.GetServiceCalls()
+	calls := mockHA.GetServiceCallsSince(snapshot)
 	if len(calls) == 0 {
 		t.Error("Expected flash light service calls for stop_screens")
 	}
@@ -343,8 +348,8 @@ func TestHandleGoToBed_SetsSleepMusicAndFlashesLights(t *testing.T) {
 	stateManager.SetBool("isEveryoneAsleep", false)
 	stateManager.SetString("musicPlaybackType", "winddown") // Start with winddown
 
-	// Clear previous calls
-	mockHA.ClearServiceCalls()
+	// Snapshot service call count before action
+	snapshot := mockHA.ServiceCallCount()
 
 	// Trigger go_to_bed
 	manager.handleGoToBed()
@@ -359,7 +364,7 @@ func TestHandleGoToBed_SetsSleepMusicAndFlashesLights(t *testing.T) {
 	}
 
 	// Verify flash light calls were made
-	calls := mockHA.GetServiceCalls()
+	calls := mockHA.GetServiceCallsSince(snapshot)
 	foundFlash := false
 	for _, call := range calls {
 		if call.Domain == "light" && call.Service == "turn_on" {
@@ -387,8 +392,8 @@ func TestHandleGoToBed_SetsSleepMusicEvenWhenEveryoneAsleep(t *testing.T) {
 	stateManager.SetBool("isEveryoneAsleep", true)
 	stateManager.SetString("musicPlaybackType", "winddown")
 
-	// Clear previous calls
-	mockHA.ClearServiceCalls()
+	// Snapshot service call count before action
+	snapshot := mockHA.ServiceCallCount()
 
 	// Trigger go_to_bed
 	manager.handleGoToBed()
@@ -403,7 +408,7 @@ func TestHandleGoToBed_SetsSleepMusicEvenWhenEveryoneAsleep(t *testing.T) {
 	}
 
 	// Verify NO flash light calls were made (everyone is asleep)
-	calls := mockHA.GetServiceCalls()
+	calls := mockHA.GetServiceCallsSince(snapshot)
 	for _, call := range calls {
 		if call.Domain == "light" && call.Service == "turn_on" {
 			if flash, ok := call.Data["flash"].(string); ok && flash == "short" {
@@ -436,8 +441,8 @@ func TestHandleGoToBed_NoOneHome(t *testing.T) {
 	stateManager.SetBool("isEveryoneAsleep", false)
 	stateManager.SetString("musicPlaybackType", "winddown")
 
-	// Clear previous calls
-	mockHA.ClearServiceCalls()
+	// Snapshot service call count before action
+	snapshot := mockHA.ServiceCallCount()
 
 	// Trigger go_to_bed
 	manager.handleGoToBed()
@@ -452,7 +457,7 @@ func TestHandleGoToBed_NoOneHome(t *testing.T) {
 	}
 
 	// Verify NO flash light calls were made (no one home)
-	calls := mockHA.GetServiceCalls()
+	calls := mockHA.GetServiceCallsSince(snapshot)
 	for _, call := range calls {
 		if call.Domain == "light" && call.Service == "turn_on" {
 			if flash, ok := call.Data["flash"].(string); ok && flash == "short" {
@@ -490,7 +495,8 @@ func TestHandleGoToBed_ReadOnly(t *testing.T) {
 	timeProvider := plugin.FixedTimeProvider{FixedTime: now}
 	manager := NewManager(context.Background(), env.MockHA, stateManager, configLoader, env.Logger, true, timeProvider, nil) // READ-ONLY
 
-	env.MockHA.ClearServiceCalls()
+	// Snapshot service call count before action
+	snapshot := env.MockHA.ServiceCallCount()
 
 	// Trigger go_to_bed
 	manager.handleGoToBed()
@@ -502,7 +508,7 @@ func TestHandleGoToBed_ReadOnly(t *testing.T) {
 	}
 
 	// Verify NO service calls were made
-	calls := env.MockHA.GetServiceCalls()
+	calls := env.MockHA.GetServiceCallsSince(snapshot)
 	if len(calls) > 0 {
 		t.Errorf("Expected no service calls in read-only mode, got %d", len(calls))
 	}
@@ -539,13 +545,14 @@ func TestHandleWake_ErrorGettingState(t *testing.T) {
 	timeProvider := plugin.FixedTimeProvider{FixedTime: now}
 	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, configLoader, env.Logger, false, timeProvider, nil)
 
-	env.MockHA.ClearServiceCalls()
+	// Snapshot service call count before action
+	snapshot := env.MockHA.ServiceCallCount()
 
 	// Call handleWake - should handle errors gracefully
 	manager.handleWake()
 
 	// Should not have made service calls due to errors getting state
-	calls := env.MockHA.GetServiceCalls()
+	calls := env.MockHA.GetServiceCallsSince(snapshot)
 	if len(calls) > 0 {
 		t.Error("Should not make service calls when state retrieval fails")
 	}
@@ -611,7 +618,8 @@ func TestReadOnlyModeBlocksServiceCalls(t *testing.T) {
 			timeProvider := plugin.FixedTimeProvider{FixedTime: now}
 			manager := NewManager(context.Background(), env.MockHA, stateManager, configLoader, env.Logger, true, timeProvider, nil)
 
-			env.MockHA.ClearServiceCalls()
+			// Snapshot service call count before action
+			snapshot := env.MockHA.ServiceCallCount()
 
 			switch tt.handler {
 			case "beginWake":
@@ -622,7 +630,7 @@ func TestReadOnlyModeBlocksServiceCalls(t *testing.T) {
 				manager.handleStopScreens()
 			}
 
-			calls := env.MockHA.GetServiceCalls()
+			calls := env.MockHA.GetServiceCallsSince(snapshot)
 			if len(calls) > 0 {
 				t.Errorf("Expected no service calls in read-only mode for %s, got %d", tt.name, len(calls))
 			}
@@ -651,11 +659,11 @@ func TestHandleWake_ConditionsRequired(t *testing.T) {
 			stateManager.SetBool("isAnyoneHome", tt.isAnyoneHome)
 			stateManager.SetBool("isMasterAsleep", tt.isMasterAsleep)
 			stateManager.SetBool("isFadeOutInProgress", tt.isFadeOutInProgress)
-			mockHA.ClearServiceCalls()
+			snapshot := mockHA.ServiceCallCount()
 
 			manager.handleWake()
 
-			calls := mockHA.GetServiceCalls()
+			calls := mockHA.GetServiceCallsSince(snapshot)
 			if len(calls) > 0 {
 				t.Errorf("Should not execute wake sequence when %s", tt.name)
 			}
@@ -712,8 +720,8 @@ func TestFadeOutBedroomSpeaker_Complete(t *testing.T) {
 	stateManager.SetBool("isWakeSequenceActive", true)
 	stateManager.SetString("musicPlaybackType", "sleep")
 
-	// Clear previous calls
-	mockHA.ClearServiceCalls()
+	// Snapshot service call count before action
+	snapshot := mockHA.ServiceCallCount()
 
 	// Use instant sleep for fast test
 	stepCount := 0
@@ -744,7 +752,7 @@ func TestFadeOutBedroomSpeaker_Complete(t *testing.T) {
 	}
 
 	// Verify volume_set calls were made
-	calls := mockHA.GetServiceCalls()
+	calls := mockHA.GetServiceCallsSince(snapshot)
 	volumeSetCalls := testutil.CountServiceCalls(calls, "media_player", "volume_set")
 
 	// Should have made multiple volume set calls
@@ -788,8 +796,8 @@ func TestFadeOutBedroomSpeaker_AbortedByFlag(t *testing.T) {
 	stateManager.SetBool("isWakeSequenceActive", true)
 	stateManager.SetString("musicPlaybackType", "sleep")
 
-	// Clear previous calls
-	mockHA.ClearServiceCalls()
+	// Snapshot service call count before action
+	snapshot := mockHA.ServiceCallCount()
 
 	// Use a channel-based sleep to deterministically know when the fade loop
 	// has started (first sleep = first volume step completed)
@@ -830,7 +838,7 @@ func TestFadeOutBedroomSpeaker_AbortedByFlag(t *testing.T) {
 	}
 
 	// Verify volume_set calls were made but not all 60
-	calls := mockHA.GetServiceCalls()
+	calls := mockHA.GetServiceCallsSince(snapshot)
 	volumeSetCalls := testutil.CountServiceCalls(calls, "media_player", "volume_set")
 
 	// Should have fewer than 60 calls since we aborted early
@@ -855,8 +863,8 @@ func TestFadeOutBedroomSpeaker_CancelledByWakeSequenceEnd(t *testing.T) {
 	stateManager.SetBool("isWakeSequenceActive", true)
 	stateManager.SetString("musicPlaybackType", "sleep")
 
-	// Clear previous calls
-	mockHA.ClearServiceCalls()
+	// Snapshot service call count before action
+	snapshot := mockHA.ServiceCallCount()
 
 	// Use a channel-based sleep for deterministic synchronization
 	sleepCalled := make(chan struct{}, 10)
@@ -894,7 +902,7 @@ func TestFadeOutBedroomSpeaker_CancelledByWakeSequenceEnd(t *testing.T) {
 	}
 
 	// Verify volume_set calls were made but not all 60
-	calls := mockHA.GetServiceCalls()
+	calls := mockHA.GetServiceCallsSince(snapshot)
 	volumeSetCalls := testutil.CountServiceCalls(calls, "media_player", "volume_set")
 
 	// Should have fewer than 60 calls since we cancelled early
@@ -919,8 +927,8 @@ func TestFadeOutBedroomSpeaker_VolumeSequence(t *testing.T) {
 	stateManager.SetBool("isWakeSequenceActive", true)
 	stateManager.SetString("musicPlaybackType", "sleep")
 
-	// Clear previous calls
-	mockHA.ClearServiceCalls()
+	// Snapshot service call count before action
+	snapshot := mockHA.ServiceCallCount()
 
 	// Use a channel-gated sleep: each iteration signals it completed a step,
 	// then waits for the test to allow the next one. This gives us deterministic
@@ -977,7 +985,7 @@ func TestFadeOutBedroomSpeaker_VolumeSequence(t *testing.T) {
 	}
 
 	// Verify volume levels are decreasing
-	calls := mockHA.GetServiceCalls()
+	calls := mockHA.GetServiceCallsSince(snapshot)
 	var volumeLevels []float64
 	for _, call := range calls {
 		if call.Domain == "media_player" && call.Service == "volume_set" {
@@ -1016,8 +1024,8 @@ func TestBeginWake_LaunchesFadeOut(t *testing.T) {
 	stateManager.SetString("musicPlaybackType", "sleep")
 	stateManager.SetBool("isFadeOutInProgress", false)
 
-	// Clear previous calls
-	mockHA.ClearServiceCalls()
+	// Snapshot service call count before action
+	snapshot := mockHA.ServiceCallCount()
 
 	// Use a channel-based sleep to deterministically know when the fade
 	// goroutine has started (first sleep = first volume step completed)
@@ -1044,7 +1052,7 @@ func TestBeginWake_LaunchesFadeOut(t *testing.T) {
 	sleepCalled <- struct{}{}
 
 	// Verify volume_set calls were made
-	calls := mockHA.GetServiceCalls()
+	calls := mockHA.GetServiceCallsSince(snapshot)
 	volumeSetCalls := testutil.CountServiceCalls(calls, "media_player", "volume_set")
 
 	// Should have at least 1 volume set call (fade out started)
@@ -1253,8 +1261,8 @@ func TestFadeOutSpeaker_WithVolumeQuery(t *testing.T) {
 	}
 	stateManager.SetJSON("currentlyPlayingMusic", currentMusic)
 
-	// Clear previous calls
-	mockHA.ClearServiceCalls()
+	// Snapshot service call count before action
+	snapshot := mockHA.ServiceCallCount()
 
 	// Use instant sleep and abort after 2 steps for fast test
 	stepCount := 0
@@ -1289,7 +1297,7 @@ func TestFadeOutSpeaker_WithVolumeQuery(t *testing.T) {
 	}
 
 	// Verify volume_set calls were made
-	calls := mockHA.GetServiceCalls()
+	calls := mockHA.GetServiceCallsSince(snapshot)
 	volumeSetCalls := testutil.CountServiceCalls(calls, "media_player", "volume_set")
 
 	// Should have made multiple volume set calls
@@ -1354,7 +1362,6 @@ func TestFadeOutSpeaker_HumanOverrideDetection(t *testing.T) {
 		},
 	}
 	stateManager.SetJSON("currentlyPlayingMusic", currentMusic)
-	mockHA.ClearServiceCalls()
 
 	// Track step count and inject human override
 	volumeStep := 0
@@ -1429,7 +1436,6 @@ func TestFadeOutSpeaker_NoHumanOverrideWithMatchingVolume(t *testing.T) {
 		},
 	}
 	stateManager.SetJSON("currentlyPlayingMusic", currentMusic)
-	mockHA.ClearServiceCalls()
 
 	// Track current volume and always return what automation expects
 	currentVolume := startVolume
@@ -1517,8 +1523,8 @@ func TestBeginWake_MultipleSpeakers(t *testing.T) {
 		},
 	})
 
-	// Clear previous calls
-	mockHA.ClearServiceCalls()
+	// Snapshot service call count before action
+	snapshot := mockHA.ServiceCallCount()
 
 	// Trigger begin_wake
 	manager.handleBeginWake()
@@ -1541,7 +1547,7 @@ func TestBeginWake_MultipleSpeakers(t *testing.T) {
 	}
 
 	// Verify volume_set calls were made for both speakers
-	calls := mockHA.GetServiceCalls()
+	calls := mockHA.GetServiceCallsSince(snapshot)
 	bedroomCalls := 0
 	bedroomLeftCalls := 0
 	for _, call := range calls {
@@ -1651,7 +1657,7 @@ func TestEightSleepAlarm_IgnoresNonAlarmState(t *testing.T) {
 func TestEightSleepAlarm_DeduplicatesToday(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2024, 1, 15, 6, 30, 0, 0, time.UTC)
-	manager, mockHA, stateManager, _ := setupTest(t, now)
+	manager, _, stateManager, _ := setupTest(t, now)
 
 	// Ensure conditions are met
 	stateManager.SetBool("isAnyoneHome", true)
@@ -1666,7 +1672,6 @@ func TestEightSleepAlarm_DeduplicatesToday(t *testing.T) {
 
 	// Reset isFadeOutInProgress to detect if second trigger runs
 	stateManager.SetBool("isFadeOutInProgress", false)
-	mockHA.ClearServiceCalls()
 
 	// Second alarm trigger (e.g., from Caroline's side) - should be deduplicated
 	manager.handleEightSleepAlarm("sensor.caroline_s_eight_sleep_side_bed_state_type", oldState, newState)

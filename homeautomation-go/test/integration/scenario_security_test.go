@@ -86,8 +86,8 @@ func TestScenario_NickReturnsHomeGarageEmpty(t *testing.T) {
 	server.SetState("binary_sensor.garage_door_vehicle_detected", "off", nil) // Empty garage
 	waitForBoolState(t, manager, "isNickHome", false, "isNickHome should be false initially")
 
-	// Clear any initialization calls
-	server.ClearServiceCalls()
+	// Take snapshot before the action that generates calls
+	snapshot := server.ServiceCallCount()
 
 	t.Log("WHEN: Nick arrives home (isNickHome changes from false → true)")
 
@@ -100,9 +100,9 @@ func TestScenario_NickReturnsHomeGarageEmpty(t *testing.T) {
 
 	t.Log("AND: Garage door should be opened")
 
-	waitForServiceCallWithEntity(t, server, "cover", "open_cover", "cover.garage_door_door", "Garage door should be opened when Nick returns and garage is empty")
+	waitForServiceCallWithEntitySince(t, server, snapshot, "cover", "open_cover", "cover.garage_door_door", "Garage door should be opened when Nick returns and garage is empty")
 
-	garageOpenCall := server.FindServiceCall("cover", "open_cover", "cover.garage_door_door")
+	garageOpenCall := FindServiceCallWithEntityID(server.GetServiceCallsSince(snapshot), "cover", "open_cover", "cover.garage_door_door")
 	if garageOpenCall != nil {
 		t.Logf("✓ Garage door opened: %s.%s for %v",
 			garageOpenCall.Domain,
@@ -124,7 +124,7 @@ func TestScenario_CarolineReturnsHomeGarageEmpty(t *testing.T) {
 	server.SetState("binary_sensor.garage_door_vehicle_detected", "off", nil)
 	waitForBoolState(t, manager, "isCarolineHome", false, "isCarolineHome should be false initially")
 
-	server.ClearServiceCalls()
+	snapshot := server.ServiceCallCount()
 
 	t.Log("WHEN: Caroline arrives home")
 
@@ -133,7 +133,7 @@ func TestScenario_CarolineReturnsHomeGarageEmpty(t *testing.T) {
 	t.Log("THEN: didOwnerJustReturnHome should be set to true and garage should open")
 
 	waitForBoolState(t, manager, "didOwnerJustReturnHome", true, "didOwnerJustReturnHome should be true after Caroline arrives")
-	waitForServiceCallWithEntity(t, server, "cover", "open_cover", "cover.garage_door_door", "Garage door should be opened when Caroline returns")
+	waitForServiceCallWithEntitySince(t, server, snapshot, "cover", "open_cover", "cover.garage_door_door", "Garage door should be opened when Caroline returns")
 }
 
 // TestScenario_OwnerReturnsHomeGarageOccupied tests that the garage door does NOT
@@ -149,7 +149,7 @@ func TestScenario_OwnerReturnsHomeGarageOccupied(t *testing.T) {
 	server.SetState("binary_sensor.garage_door_vehicle_detected", "on", nil) // Occupied garage
 	waitForBoolState(t, manager, "isNickHome", false, "isNickHome should be false initially")
 
-	server.ClearServiceCalls()
+	snapshot := server.ServiceCallCount()
 
 	t.Log("WHEN: Nick arrives home")
 
@@ -164,7 +164,7 @@ func TestScenario_OwnerReturnsHomeGarageOccupied(t *testing.T) {
 	// Wait for all handlers to complete, then verify no garage open call was made
 	waitForProcessing(t, manager)
 
-	garageOpenCall := server.FindServiceCall("cover", "open_cover", "cover.garage_door_door")
+	garageOpenCall := FindServiceCallWithEntityID(server.GetServiceCallsSince(snapshot), "cover", "open_cover", "cover.garage_door_door")
 	assert.Nil(t, garageOpenCall, "Garage door should NOT open when garage is occupied")
 
 	t.Log("✓ Garage door correctly NOT opened (garage occupied)")
@@ -292,7 +292,7 @@ func TestScenario_OwnerLeavesAndReturns(t *testing.T) {
 	// Use polling helper instead of time.Sleep to wait for the departure to be processed
 	waitForBoolState(t, manager, "didOwnerJustReturnHome", false, "didOwnerJustReturnHome should be false when owner leaves")
 
-	server.ClearServiceCalls()
+	snapshot := server.ServiceCallCount()
 
 	t.Log("WHEN: Nick returns 5 minutes later")
 
@@ -304,7 +304,7 @@ func TestScenario_OwnerLeavesAndReturns(t *testing.T) {
 
 	t.Log("AND: Garage should open again")
 
-	waitForServiceCallWithEntity(t, server, "cover", "open_cover", "cover.garage_door_door", "Garage should open on second arrival")
+	waitForServiceCallWithEntitySince(t, server, snapshot, "cover", "open_cover", "cover.garage_door_door", "Garage should open on second arrival")
 }
 
 // TestScenario_OnlyOwnersTriggersGarage tests that only owners (Nick/Caroline)
@@ -320,7 +320,7 @@ func TestScenario_OnlyOwnersTriggersGarage(t *testing.T) {
 	server.SetState("binary_sensor.garage_door_vehicle_detected", "off", nil)
 	waitForProcessing(t, manager)
 
-	server.ClearServiceCalls()
+	snapshot := server.ServiceCallCount()
 
 	t.Log("WHEN: Tori arrives (isToriHere changes to true)")
 
@@ -337,7 +337,7 @@ func TestScenario_OnlyOwnersTriggersGarage(t *testing.T) {
 
 	waitForProcessing(t, manager)
 
-	garageOpenCall := server.FindServiceCall("cover", "open_cover", "cover.garage_door_door")
+	garageOpenCall := FindServiceCallWithEntityID(server.GetServiceCallsSince(snapshot), "cover", "open_cover", "cover.garage_door_door")
 	assert.Nil(t, garageOpenCall, "Garage should not open for guest arrival")
 
 	t.Log("✓ Garage automation only triggers for owners, not guests")

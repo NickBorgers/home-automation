@@ -447,11 +447,38 @@ func (m *MockClient) GetServiceCalls() []ServiceCall {
 	return calls
 }
 
-// ClearServiceCalls clears the service call history
+// ClearServiceCalls clears the service call history.
+// Deprecated: Use ServiceCallCount() + GetServiceCallsSince() instead for race-free tracking.
 func (m *MockClient) ClearServiceCalls() {
 	m.callsMu.Lock()
 	defer m.callsMu.Unlock()
 	m.serviceCalls = make([]ServiceCall, 0)
+}
+
+// ServiceCallCount returns the current number of recorded service calls.
+// Use this to take a snapshot index before triggering an action, then pass
+// the index to GetServiceCallsSince() to retrieve only the new calls.
+func (m *MockClient) ServiceCallCount() int {
+	m.callsMu.Lock()
+	defer m.callsMu.Unlock()
+	return len(m.serviceCalls)
+}
+
+// GetServiceCallsSince returns all service calls recorded after the given index.
+// Use with ServiceCallCount() for race-free assertion windows:
+//
+//	snapshot := mock.ServiceCallCount()
+//	// ... trigger action ...
+//	calls := mock.GetServiceCallsSince(snapshot)
+func (m *MockClient) GetServiceCallsSince(index int) []ServiceCall {
+	m.callsMu.Lock()
+	defer m.callsMu.Unlock()
+	if index >= len(m.serviceCalls) {
+		return nil
+	}
+	calls := make([]ServiceCall, len(m.serviceCalls)-index)
+	copy(calls, m.serviceCalls[index:])
+	return calls
 }
 
 // updateStateFromServiceCall updates state based on a service call

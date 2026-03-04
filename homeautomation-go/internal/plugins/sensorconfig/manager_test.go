@@ -194,8 +194,9 @@ func TestManager_Reset(t *testing.T) {
 	err := manager.Start()
 	assert.NoError(t, err)
 
-	// Clear service calls to track reset
-	mockClient.ClearServiceCalls()
+	// Snapshot service call count before reset
+	snapshot := mockClient.ServiceCallCount()
+	_ = snapshot
 
 	// After first Start, the state will be "50.00" due to mock's updateStateFromServiceCall
 	// So Reset should not make any more calls since value is correct
@@ -532,7 +533,8 @@ func TestManager_Reset_ClearsShadowState(t *testing.T) {
 	assert.Len(t, shadowState.Outputs.Configurations, 2)
 
 	// Reset should clear and re-populate
-	mockClient.ClearServiceCalls()
+	snapshot := mockClient.ServiceCallCount()
+	_ = snapshot
 	err = manager.Reset()
 	assert.NoError(t, err)
 

@@ -129,6 +129,17 @@ func (e *TestEnv) GetServiceCalls() []ServiceCall {
 }
 
 // ClearServiceCalls clears the recorded service calls.
+// Deprecated: Use ServiceCallCount() + GetServiceCallsSince() instead for race-free tracking.
 func (e *TestEnv) ClearServiceCalls() {
 	e.Server.ClearServiceCalls()
+}
+
+// ServiceCallCount returns the current number of recorded service calls.
+func (e *TestEnv) ServiceCallCount() int {
+	return e.Server.ServiceCallCount()
+}
+
+// GetServiceCallsSince returns all service calls recorded after the given index.
+func (e *TestEnv) GetServiceCallsSince(index int) []ServiceCall {
+	return e.Server.GetServiceCallsSince(index)
 }
