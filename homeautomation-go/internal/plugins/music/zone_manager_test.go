@@ -1400,40 +1400,6 @@ func TestIsZoneActive(t *testing.T) {
 	assert.False(t, zm.IsZoneActive("morning"))
 }
 
-// TestGetHighestPriorityActiveZone verifies correct priority-based zone selection.
-func TestGetHighestPriorityActiveZone(t *testing.T) {
-	t.Parallel()
-
-	logger := zap.NewNop()
-	mockClient := ha.NewMockClient()
-	stateManager := state.NewManager(mockClient, logger, false)
-	config := createTestZoneConfig()
-
-	mgr := NewManager(context.Background(), mockClient, stateManager, config, logger, true, nil, nil)
-	zm := NewZoneManager(mgr, config, logger)
-
-	// No zones → empty string
-	assert.Equal(t, "", zm.getHighestPriorityActiveZone())
-
-	// Single zone
-	zm.mu.Lock()
-	zm.activeZones["morning"] = &Zone{Name: "morning", Priority: 50}
-	zm.mu.Unlock()
-	assert.Equal(t, "morning", zm.getHighestPriorityActiveZone())
-
-	// Add higher-priority zone
-	zm.mu.Lock()
-	zm.activeZones["sleep-prep"] = &Zone{Name: "sleep-prep", Priority: 90}
-	zm.mu.Unlock()
-	assert.Equal(t, "sleep-prep", zm.getHighestPriorityActiveZone())
-
-	// Add even higher-priority zone
-	zm.mu.Lock()
-	zm.activeZones["sleep"] = &Zone{Name: "sleep", Priority: 100}
-	zm.mu.Unlock()
-	assert.Equal(t, "sleep", zm.getHighestPriorityActiveZone())
-}
-
 // TestMultiZoneStartup_BothZonesActive verifies that when multiple zones start
 // simultaneously, both zones become active. The fade-in fix (issue #772) ensures
 // each zone's speakers complete their fade-in by checking zone activity instead

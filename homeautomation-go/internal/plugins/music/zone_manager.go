@@ -277,23 +277,6 @@ func (zm *ZoneManager) IsZoneActive(zoneName string) bool {
 	return exists
 }
 
-// getHighestPriorityActiveZone returns the name of the active zone with the
-// highest priority, or "" if no zones are active. Used to set musicPlaybackType
-// to the most important active zone when multiple zones run simultaneously.
-func (zm *ZoneManager) getHighestPriorityActiveZone() string {
-	zm.mu.RLock()
-	defer zm.mu.RUnlock()
-	var highest string
-	var highestPriority int
-	for name, zone := range zm.activeZones {
-		if zone.Priority > highestPriority {
-			highestPriority = zone.Priority
-			highest = name
-		}
-	}
-	return highest
-}
-
 // GetSpeakerZone returns which zone a speaker is assigned to
 func (zm *ZoneManager) GetSpeakerZone(speaker string) (string, bool) {
 	zm.mu.RLock()
@@ -1268,11 +1251,11 @@ func (zm *ZoneManager) startZone(zoneName string, speakers []string, trigger str
 	}
 	zm.mu.Unlock()
 
-	// Update musicPlaybackType to reflect the active zone.
-	// This is critical for the fade-in safety check (fadein.go) which reads
-	// musicPlaybackType to ensure the music type hasn't changed during fade-in.
-	// Without this, zone activation and fade-in can race with the legacy
-	// selectAppropriateMusicMode, causing fade-in to abort.
+	// Update musicPlaybackType to reflect the active zone. This keeps shadow
+	// state and other plugin consumers (e.g., sleephygiene, sexmode) informed
+	// about the current playback context. The fade-in safety check (fadein.go)
+	// no longer reads musicPlaybackType when a zone manager is present; it uses
+	// IsZoneActive() instead, which is immune to multi-zone write-ordering races.
 	if err := zm.manager.setMusicPlaybackType(zoneName); err != nil {
 		zm.logger.Warn("Failed to update musicPlaybackType for zone",
 			zap.String("zone", zoneName),
