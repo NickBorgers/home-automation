@@ -666,15 +666,32 @@ func (m *Manager) fadeInSpeaker(ctx context.Context, speakerName string, targetV
 		default:
 		}
 
-		// Check if music type changed (stop fade if switched)
-		musicType, err := m.stateManager.GetString("musicPlaybackType")
-		if err == nil && musicType != startingMusicType {
-			m.logger.Info("Music type changed during fade-in, stopping",
-				zap.String("speaker", speakerName),
-				zap.String("starting_type", startingMusicType),
-				zap.String("current_type", musicType))
-			m.clearFadeInProgress(entityID)
-			return
+		// Check if this speaker's zone is still active.
+		// In a multi-zone system, musicPlaybackType is a single global variable that
+		// can only represent one zone. When multiple zones start simultaneously, the
+		// last zone to call setMusicPlaybackType wins, causing all other zones' fade-
+		// ins to see a mismatch and abort (issue #772). Instead, we check whether the
+		// zone that started this fade-in is still active in the zone manager.
+		if m.zoneManager != nil {
+			if !m.zoneManager.IsZoneActive(startingMusicType) {
+				m.logger.Info("Zone no longer active during fade-in, stopping",
+					zap.String("speaker", speakerName),
+					zap.String("zone", startingMusicType))
+				m.clearFadeInProgress(entityID)
+				return
+			}
+		} else {
+			// Fallback for non-zone mode (unit tests without zone manager):
+			// check global musicPlaybackType as before
+			musicType, err := m.stateManager.GetString("musicPlaybackType")
+			if err == nil && musicType != startingMusicType {
+				m.logger.Info("Music type changed during fade-in, stopping",
+					zap.String("speaker", speakerName),
+					zap.String("starting_type", startingMusicType),
+					zap.String("current_type", musicType))
+				m.clearFadeInProgress(entityID)
+				return
+			}
 		}
 
 		// Set volume

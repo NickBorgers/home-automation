@@ -266,6 +266,34 @@ func (zm *ZoneManager) GetZone(name string) (*Zone, bool) {
 	return &zoneCopy, true
 }
 
+// IsZoneActive returns true if the named zone is currently active.
+// Used by fadeInSpeaker to check if its zone is still running, instead of
+// comparing against the global musicPlaybackType which can only represent
+// one zone at a time (fixes multi-zone startup race, issue #772).
+func (zm *ZoneManager) IsZoneActive(zoneName string) bool {
+	zm.mu.RLock()
+	defer zm.mu.RUnlock()
+	_, exists := zm.activeZones[zoneName]
+	return exists
+}
+
+// getHighestPriorityActiveZone returns the name of the active zone with the
+// highest priority, or "" if no zones are active. Used to set musicPlaybackType
+// to the most important active zone when multiple zones run simultaneously.
+func (zm *ZoneManager) getHighestPriorityActiveZone() string {
+	zm.mu.RLock()
+	defer zm.mu.RUnlock()
+	var highest string
+	var highestPriority int
+	for name, zone := range zm.activeZones {
+		if zone.Priority > highestPriority {
+			highestPriority = zone.Priority
+			highest = name
+		}
+	}
+	return highest
+}
+
 // GetSpeakerZone returns which zone a speaker is assigned to
 func (zm *ZoneManager) GetSpeakerZone(speaker string) (string, bool) {
 	zm.mu.RLock()
