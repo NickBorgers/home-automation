@@ -3583,3 +3583,125 @@ func TestAddSpeakersToZone_ExcludeIfRespected(t *testing.T) {
 	assert.Equal(t, 0, joinCallCount,
 		"No join call should be made when speaker is excluded by exclude_if condition")
 }
+
+// TestFadeInSpeaker_MultiZone_DoesNotAbortWhenOtherZoneActive verifies that
+// fade-in for a speaker in one zone does not abort when another zone is also
+// active with a different musicPlaybackType (issue #772).
+//
+// INVARIANT: When multiple zones are active simultaneously, each zone's speakers
+// must complete their fade-in regardless of what musicPlaybackType is set to.
+func TestFadeInSpeaker_MultiZone_DoesNotAbortWhenOtherZoneActive(t *testing.T) {
+	t.Parallel()
+	env := testutil.NewEnv(t)
+
+	config := &MusicConfig{
+		Music: map[string]MusicMode{
+			"sleep-prep": {},
+			"winddown":   {},
+		},
+	}
+
+	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, false, nil, nil)
+	manager.SetSleepFunc(func(d time.Duration) {})
+
+	// Set up zone manager with both zones active (simulating multi-zone startup)
+	zm := NewZoneManager(manager, config, env.Logger)
+	manager.zoneManager = zm
+
+	zm.mu.Lock()
+	zm.activeZones["sleep-prep"] = &Zone{Name: "sleep-prep", Priority: 90}
+	zm.activeZones["winddown"] = &Zone{Name: "winddown", Priority: 40}
+	zm.mu.Unlock()
+
+	// Set musicPlaybackType to "sleep-prep" (highest-priority zone), simulating
+	// the fixed behavior where startZone sets it to highest priority
+	require.NoError(t, env.StateMgr.SetString("musicPlaybackType", "sleep-prep"))
+
+	// GIVEN: A speaker in the sleep-prep zone starts fade-in with startingMusicType="sleep-prep"
+	// WHEN: musicPlaybackType happens to be "sleep-prep" (matching), fade-in should complete
+	t.Log("GIVEN: sleep-prep zone active, fade-in for sleep-prep speaker")
+	manager.fadeInSpeaker(context.Background(), "Bedroom", 3, "sleep-prep")
+
+	// Verify fade-in completed (volume_set calls were made for volume 1, 2, 3)
+	calls := env.MockHA.GetServiceCalls()
+	volumeSetCount := 0
+	for _, call := range calls {
+		if call.Domain == "media_player" && call.Service == "volume_set" {
+			volumeSetCount++
+		}
+	}
+	// Expected: 1 (set to 0) + 3 (fade from 1 to 3) = 4 volume_set calls
+	assert.Equal(t, 4, volumeSetCount, "Fade-in should complete all volume steps")
+
+	// Now test the critical case: winddown speaker should also complete fade-in
+	// even though musicPlaybackType="sleep-prep" ≠ "winddown"
+	env.MockHA.ClearServiceCalls()
+
+	t.Log("GIVEN: winddown zone also active, fade-in for winddown speaker")
+	t.Log("WHEN: musicPlaybackType='sleep-prep' (different from winddown)")
+	t.Log("THEN: winddown speaker should still complete fade-in (zone is active)")
+	manager.fadeInSpeaker(context.Background(), "Kids Bathroom", 3, "winddown")
+
+	calls = env.MockHA.GetServiceCalls()
+	volumeSetCount = 0
+	for _, call := range calls {
+		if call.Domain == "media_player" && call.Service == "volume_set" {
+			volumeSetCount++
+		}
+	}
+	// Before the fix: fade-in would abort immediately (0 fade volume steps)
+	// After the fix: fade-in completes because winddown zone is still active
+	assert.Equal(t, 4, volumeSetCount,
+		"Winddown speaker fade-in must complete even when musicPlaybackType differs (issue #772)")
+}
+
+// TestFadeInSpeaker_ZoneRemoved_AbortsFadeIn verifies that fade-in correctly
+// aborts when the speaker's zone is stopped (no longer active).
+func TestFadeInSpeaker_ZoneRemoved_AbortsFadeIn(t *testing.T) {
+	t.Parallel()
+	env := testutil.NewEnv(t)
+
+	config := &MusicConfig{
+		Music: map[string]MusicMode{
+			"sleep-prep": {},
+		},
+	}
+
+	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, false, nil, nil)
+
+	stepCount := 0
+	manager.SetSleepFunc(func(d time.Duration) {
+		stepCount++
+		// Remove the zone after 2 fade steps to simulate zone being stopped
+		if stepCount == 4 { // After volume 0, unmute, volume 1 sleep, volume 2 sleep
+			zm := manager.zoneManager
+			zm.mu.Lock()
+			delete(zm.activeZones, "sleep-prep")
+			zm.mu.Unlock()
+		}
+	})
+
+	// Set up zone manager with sleep-prep active
+	zm := NewZoneManager(manager, config, env.Logger)
+	manager.zoneManager = zm
+
+	zm.mu.Lock()
+	zm.activeZones["sleep-prep"] = &Zone{Name: "sleep-prep", Priority: 90}
+	zm.mu.Unlock()
+
+	require.NoError(t, env.StateMgr.SetString("musicPlaybackType", "sleep-prep"))
+
+	// Start fade-in to target volume 10 — should abort after zone removed at step 2
+	manager.fadeInSpeaker(context.Background(), "Bedroom", 10, "sleep-prep")
+
+	calls := env.MockHA.GetServiceCalls()
+	volumeSetCount := 0
+	for _, call := range calls {
+		if call.Domain == "media_player" && call.Service == "volume_set" {
+			volumeSetCount++
+		}
+	}
+	// Should abort before completing all 10 volume steps (+ 1 for initial 0)
+	assert.Less(t, volumeSetCount, 11,
+		"Fade-in should abort when zone is removed before completing all steps")
+}

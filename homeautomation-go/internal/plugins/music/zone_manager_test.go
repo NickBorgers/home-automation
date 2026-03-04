@@ -1371,3 +1371,112 @@ func TestFindSeamlessTransitions(t *testing.T) {
 		assert.Empty(t, transitions)
 	})
 }
+
+// TestIsZoneActive verifies that IsZoneActive correctly reports zone status.
+func TestIsZoneActive(t *testing.T) {
+	t.Parallel()
+
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	config := createTestZoneConfig()
+
+	mgr := NewManager(context.Background(), mockClient, stateManager, config, logger, true, nil, nil)
+	zm := NewZoneManager(mgr, config, logger)
+
+	// No zones active initially
+	assert.False(t, zm.IsZoneActive("sleep"))
+	assert.False(t, zm.IsZoneActive("morning"))
+
+	// Add a zone
+	zm.mu.Lock()
+	zm.activeZones["sleep"] = &Zone{
+		Name:     "sleep",
+		Priority: 100,
+	}
+	zm.mu.Unlock()
+
+	assert.True(t, zm.IsZoneActive("sleep"))
+	assert.False(t, zm.IsZoneActive("morning"))
+}
+
+// TestMultiZoneStartup_BothZonesActive verifies that when multiple zones start
+// simultaneously, both zones become active. The fade-in fix (issue #772) ensures
+// each zone's speakers complete their fade-in by checking zone activity instead
+// of the global musicPlaybackType.
+func TestMultiZoneStartup_BothZonesActive(t *testing.T) {
+	t.Parallel()
+
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+
+	// Config with sleep-prep (priority 90) and winddown (priority 40)
+	// that can both be active simultaneously during night phase
+	config := &MusicConfig{
+		Zones: []ZoneConfig{
+			{
+				Name:     "sleep-prep",
+				Priority: 90,
+				Triggers: []TriggerCondition{
+					{Variable: "dayPhase", Value: "night"},
+					{Variable: "isAnyoneHome", Value: true},
+					{Variable: "isMasterAsleep", Value: false},
+				},
+			},
+			{
+				Name:     "winddown",
+				Priority: 40,
+				TriggerGroups: []TriggerGroup{
+					{
+						Triggers: []TriggerCondition{
+							{Variable: "dayPhase", Value: "night"},
+							{Variable: "isAnyoneHome", Value: true},
+							{Variable: "isAnyoneAsleep", Value: false},
+						},
+					},
+				},
+			},
+		},
+		Music: map[string]MusicMode{
+			"sleep-prep": {
+				Participants: []Participant{
+					{PlayerName: "Bedroom", BaseVolume: 16},
+					{PlayerName: "Kitchen", BaseVolume: 16},
+				},
+				PlaybackOptions: []PlaybackOption{
+					{URI: "http://rain.example/1.m4a", MediaType: "music", VolumeMultiplier: 1.0},
+				},
+			},
+			"winddown": {
+				Participants: []Participant{
+					{PlayerName: "Kids Bathroom", BaseVolume: 8},
+				},
+				PlaybackOptions: []PlaybackOption{
+					{URI: "http://ambient.example/1.m4a", MediaType: "music", VolumeMultiplier: 1.0},
+				},
+			},
+		},
+	}
+
+	// Read-only so we don't need a real HA server
+	mgr := NewManager(context.Background(), mockClient, stateManager, config, logger, true, nil, nil)
+	mgr.SetSleepFunc(func(d time.Duration) {})
+	zm := NewZoneManager(mgr, config, logger)
+	mgr.zoneManager = zm
+
+	// Set state for both zones to trigger
+	require.NoError(t, stateManager.SetString("dayPhase", "night"))
+	require.NoError(t, stateManager.SetBool("isAnyoneHome", true))
+	require.NoError(t, stateManager.SetBool("isMasterAsleep", false))
+	require.NoError(t, stateManager.SetBool("isAnyoneAsleep", false))
+	require.NoError(t, stateManager.SetString("musicPlaybackType", ""))
+
+	// Resolve zones — should start both sleep-prep and winddown
+	err := zm.ResolveZones("startup")
+	require.NoError(t, err)
+
+	// Both zones should be active simultaneously
+	assert.True(t, zm.IsZoneActive("sleep-prep"), "sleep-prep should be active")
+	assert.True(t, zm.IsZoneActive("winddown"), "winddown should be active")
+}

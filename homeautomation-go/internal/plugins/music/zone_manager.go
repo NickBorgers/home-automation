@@ -266,6 +266,17 @@ func (zm *ZoneManager) GetZone(name string) (*Zone, bool) {
 	return &zoneCopy, true
 }
 
+// IsZoneActive returns true if the named zone is currently active.
+// Used by fadeInSpeaker to check if its zone is still running, instead of
+// comparing against the global musicPlaybackType which can only represent
+// one zone at a time (fixes multi-zone startup race, issue #772).
+func (zm *ZoneManager) IsZoneActive(zoneName string) bool {
+	zm.mu.RLock()
+	defer zm.mu.RUnlock()
+	_, exists := zm.activeZones[zoneName]
+	return exists
+}
+
 // GetSpeakerZone returns which zone a speaker is assigned to
 func (zm *ZoneManager) GetSpeakerZone(speaker string) (string, bool) {
 	zm.mu.RLock()
@@ -1240,11 +1251,11 @@ func (zm *ZoneManager) startZone(zoneName string, speakers []string, trigger str
 	}
 	zm.mu.Unlock()
 
-	// Update musicPlaybackType to reflect the active zone.
-	// This is critical for the fade-in safety check (fadein.go) which reads
-	// musicPlaybackType to ensure the music type hasn't changed during fade-in.
-	// Without this, zone activation and fade-in can race with the legacy
-	// selectAppropriateMusicMode, causing fade-in to abort.
+	// Update musicPlaybackType to reflect the active zone. This keeps shadow
+	// state and other plugin consumers (e.g., sleephygiene, sexmode) informed
+	// about the current playback context. The fade-in safety check (fadein.go)
+	// no longer reads musicPlaybackType when a zone manager is present; it uses
+	// IsZoneActive() instead, which is immune to multi-zone write-ordering races.
 	if err := zm.manager.setMusicPlaybackType(zoneName); err != nil {
 		zm.logger.Warn("Failed to update musicPlaybackType for zone",
 			zap.String("zone", zoneName),
