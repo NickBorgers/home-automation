@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+
 	"homeautomation/internal/config"
 	"homeautomation/internal/ha"
 	"homeautomation/internal/state"
@@ -138,13 +140,11 @@ func TestBeginWake_ConditionsRequired(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			now := time.Date(2024, 1, 15, 9, 5, 0, 0, time.UTC)
-			manager, mockHA, stateManager, _ := setupTest(t, now)
+			manager, _, stateManager, _ := setupTest(t, now)
 
 			stateManager.SetBool("isAnyoneHome", tt.isAnyoneHome)
 			stateManager.SetBool("isMasterAsleep", tt.isMasterAsleep)
 			stateManager.SetString("musicPlaybackType", tt.musicType)
-			snapshot := mockHA.ServiceCallCount()
-			_ = snapshot
 
 			manager.handleBeginWake()
 
@@ -285,14 +285,14 @@ func TestReadOnlyMode(t *testing.T) {
 
 	// Snapshot service call count before action
 	snapshot := env.MockHA.ServiceCallCount()
-	_ = snapshot
 
 	// Trigger begin_wake
 	manager.handleBeginWake()
 
-	// In read-only mode, no state changes should be made
-	// The state manager is in read-only mode, so SetBool will not actually update HA
-	// But we can verify the manager respects read-only flag
+	// In read-only mode, no service calls should be made to Home Assistant
+	assert.Empty(t, env.MockHA.GetServiceCallsSince(snapshot), "read-only mode should make no service calls")
+
+	// Verify the manager is in read-only mode
 	if !manager.readOnly {
 		t.Error("Manager should be in read-only mode")
 	}
@@ -1362,8 +1362,6 @@ func TestFadeOutSpeaker_HumanOverrideDetection(t *testing.T) {
 		},
 	}
 	stateManager.SetJSON("currentlyPlayingMusic", currentMusic)
-	snapshot := mockHA.ServiceCallCount()
-	_ = snapshot
 
 	// Track step count and inject human override
 	volumeStep := 0
@@ -1438,8 +1436,6 @@ func TestFadeOutSpeaker_NoHumanOverrideWithMatchingVolume(t *testing.T) {
 		},
 	}
 	stateManager.SetJSON("currentlyPlayingMusic", currentMusic)
-	snapshot := mockHA.ServiceCallCount()
-	_ = snapshot
 
 	// Track current volume and always return what automation expects
 	currentVolume := startVolume
@@ -1661,7 +1657,7 @@ func TestEightSleepAlarm_IgnoresNonAlarmState(t *testing.T) {
 func TestEightSleepAlarm_DeduplicatesToday(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2024, 1, 15, 6, 30, 0, 0, time.UTC)
-	manager, mockHA, stateManager, _ := setupTest(t, now)
+	manager, _, stateManager, _ := setupTest(t, now)
 
 	// Ensure conditions are met
 	stateManager.SetBool("isAnyoneHome", true)
@@ -1676,8 +1672,6 @@ func TestEightSleepAlarm_DeduplicatesToday(t *testing.T) {
 
 	// Reset isFadeOutInProgress to detect if second trigger runs
 	stateManager.SetBool("isFadeOutInProgress", false)
-	snapshot := mockHA.ServiceCallCount()
-	_ = snapshot
 
 	// Second alarm trigger (e.g., from Caroline's side) - should be deduplicated
 	manager.handleEightSleepAlarm("sensor.caroline_s_eight_sleep_side_bed_state_type", oldState, newState)
