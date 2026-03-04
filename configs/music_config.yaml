@@ -100,6 +100,9 @@ zones:
 music:
   morning:
     participants:
+      - player_name: "Front Room"
+        base_volume: 8
+        leave_muted_if: []
       - player_name: "Kitchen"
         base_volume: 9
         leave_muted_if:
@@ -121,9 +124,6 @@ music:
         leave_muted_if:
           - variable: isTVPlaying
             value: true
-      - player_name: "Front Room"
-        base_volume: 8
-        leave_muted_if: []
       - player_name: "Primary Bathroom"
         base_volume: 9
         exclude_if:
@@ -153,6 +153,9 @@ music:
         volume_multiplier: 1.3
   day:
     participants:
+      - player_name: "Front Room"
+        base_volume: 9
+        leave_muted_if: []
       - player_name: "Kitchen"
         base_volume: 9
         leave_muted_if:
@@ -173,9 +176,6 @@ music:
         leave_muted_if:
           - variable: isTVPlaying
             value: true
-      - player_name: "Front Room"
-        base_volume: 9
-        leave_muted_if: []
       - player_name: "Primary Bathroom"
         base_volume: 9
         leave_muted_if:
@@ -221,6 +221,9 @@ music:
         volume_multiplier: 1.0
   evening:
     participants:
+      - player_name: "Front Room"
+        base_volume: 8
+        leave_muted_if: []
       - player_name: "Kitchen"
         base_volume: 9
         leave_muted_if:
@@ -241,9 +244,6 @@ music:
         leave_muted_if:
           - variable: isTVPlaying
             value: true
-      - player_name: "Front Room"
-        base_volume: 8
-        leave_muted_if: []
       - player_name: "Primary Bathroom"
         base_volume: 6
         exclude_if:
@@ -345,6 +345,9 @@ music:
         volume_multiplier: 1.8
   winddown:
     participants:
+      - player_name: "Front Room"
+        base_volume: 7
+        leave_muted_if: []
       - player_name: "Kitchen"
         base_volume: 10
         leave_muted_if:
@@ -365,9 +368,6 @@ music:
         leave_muted_if:
           - variable: isTVPlaying
             value: true
-      - player_name: "Front Room"
-        base_volume: 7
-        leave_muted_if: []
       - player_name: "Primary Bathroom"
         base_volume: 8
         exclude_if:
@@ -395,6 +395,9 @@ music:
   # Plays during night phase to help direct people to bed
   sleep-prep:
     participants:
+      - player_name: "Front Room"
+        base_volume: 9
+        leave_muted_if: []
       - player_name: "Bedroom"
         base_volume: 16
         leave_muted_if: []
@@ -403,9 +406,6 @@ music:
         leave_muted_if:
           - variable: isTVPlaying
             value: true
-      - player_name: "Front Room"
-        base_volume: 9
-        leave_muted_if: []
       - player_name: "Kitchen"
         base_volume: 16
         leave_muted_if: []
