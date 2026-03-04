@@ -1207,3 +1207,167 @@ func TestUpdateZoneSpeakers_UsesZoneVolumeMultiplier(t *testing.T) {
 		"DefaultVolume should also use zone's VolumeMultiplier")
 	zm.mu.RUnlock()
 }
+
+func TestHasCompatibleMusic(t *testing.T) {
+	t.Parallel()
+
+	config := &MusicConfig{
+		Music: map[string]MusicMode{
+			"sleep": {
+				PlaybackOptions: []PlaybackOption{
+					{URI: "http://rain.example/1.m4a"},
+					{URI: "http://rain.example/2.m4a"},
+				},
+			},
+		},
+	}
+
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, true)
+	mgr := NewManager(context.Background(), mockClient, stateManager, config, logger, true, nil, nil)
+	zm := NewZoneManager(mgr, config, logger)
+
+	t.Run("returns true when URI matches a playback option", func(t *testing.T) {
+		zone := &Zone{PlaylistURI: "http://rain.example/1.m4a"}
+		assert.True(t, zm.hasCompatibleMusic(zone, "sleep"))
+	})
+
+	t.Run("returns false when URI does not match any playback option", func(t *testing.T) {
+		zone := &Zone{PlaylistURI: "http://jazz.example/1.m4a"}
+		assert.False(t, zm.hasCompatibleMusic(zone, "sleep"))
+	})
+
+	t.Run("returns false when PlaylistURI is empty", func(t *testing.T) {
+		zone := &Zone{PlaylistURI: ""}
+		assert.False(t, zm.hasCompatibleMusic(zone, "sleep"))
+	})
+
+	t.Run("returns false when target zone is not in config", func(t *testing.T) {
+		zone := &Zone{PlaylistURI: "http://rain.example/1.m4a"}
+		assert.False(t, zm.hasCompatibleMusic(zone, "nonexistent-zone"))
+	})
+}
+
+func TestFindSeamlessTransitions(t *testing.T) {
+	t.Parallel()
+
+	config := &MusicConfig{
+		Music: map[string]MusicMode{
+			"sleep-prep": {
+				Participants: []Participant{
+					{PlayerName: "Bedroom"},
+					{PlayerName: "Sitting Room"},
+				},
+				PlaybackOptions: []PlaybackOption{
+					{URI: "http://rain.example/1.m4a"},
+				},
+			},
+			"sleep": {
+				Participants: []Participant{
+					{PlayerName: "Bedroom"},
+					{PlayerName: "Kitchen"},
+				},
+				PlaybackOptions: []PlaybackOption{
+					{URI: "http://rain.example/1.m4a"},
+				},
+			},
+		},
+	}
+
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, true)
+	mgr := NewManager(context.Background(), mockClient, stateManager, config, logger, true, nil, nil)
+	zm := NewZoneManager(mgr, config, logger)
+
+	t.Run("detects shared speakers and produces transition", func(t *testing.T) {
+		zm.mu.Lock()
+		zm.activeZones["sleep-prep"] = &Zone{
+			Name:        "sleep-prep",
+			PlaylistURI: "http://rain.example/1.m4a",
+			Participants: []ParticipantWithVolume{
+				{PlayerName: "Bedroom"},
+				{PlayerName: "Sitting Room"},
+			},
+		}
+		zm.mu.Unlock()
+
+		zoneToSpeakers := map[string][]string{
+			"sleep": {"Bedroom", "Kitchen"},
+		}
+
+		transitions := zm.findSeamlessTransitions([]string{"sleep-prep"}, []string{"sleep"}, zoneToSpeakers)
+
+		require.Len(t, transitions, 1)
+		assert.Equal(t, "sleep-prep", transitions[0].stoppingZone)
+		assert.Equal(t, "sleep", transitions[0].startingZone)
+		assert.Equal(t, []string{"Bedroom"}, transitions[0].sharedSpeakers)
+		assert.Equal(t, []string{"Sitting Room"}, transitions[0].removeSpeakers)
+		assert.Equal(t, []string{"Kitchen"}, transitions[0].addSpeakers)
+
+		zm.mu.Lock()
+		delete(zm.activeZones, "sleep-prep")
+		zm.mu.Unlock()
+	})
+
+	t.Run("returns no transitions when no speakers are shared", func(t *testing.T) {
+		zm.mu.Lock()
+		zm.activeZones["sleep-prep"] = &Zone{
+			Name:        "sleep-prep",
+			PlaylistURI: "http://rain.example/1.m4a",
+			Participants: []ParticipantWithVolume{
+				{PlayerName: "Sitting Room"},
+				{PlayerName: "Front Room"},
+			},
+		}
+		zm.mu.Unlock()
+
+		zoneToSpeakers := map[string][]string{
+			"sleep": {"Bedroom", "Kitchen"},
+		}
+
+		transitions := zm.findSeamlessTransitions([]string{"sleep-prep"}, []string{"sleep"}, zoneToSpeakers)
+
+		assert.Empty(t, transitions, "no shared speakers means no seamless transition")
+
+		zm.mu.Lock()
+		delete(zm.activeZones, "sleep-prep")
+		zm.mu.Unlock()
+	})
+
+	t.Run("returns no transitions when music URIs are incompatible", func(t *testing.T) {
+		zm.mu.Lock()
+		zm.activeZones["sleep-prep"] = &Zone{
+			Name:        "sleep-prep",
+			PlaylistURI: "http://different-music.example/1.m4a",
+			Participants: []ParticipantWithVolume{
+				{PlayerName: "Bedroom"},
+			},
+		}
+		zm.mu.Unlock()
+
+		zoneToSpeakers := map[string][]string{
+			"sleep": {"Bedroom"},
+		}
+
+		transitions := zm.findSeamlessTransitions([]string{"sleep-prep"}, []string{"sleep"}, zoneToSpeakers)
+
+		assert.Empty(t, transitions, "incompatible music URI should prevent seamless transition")
+
+		zm.mu.Lock()
+		delete(zm.activeZones, "sleep-prep")
+		zm.mu.Unlock()
+	})
+
+	t.Run("skips stopping zone not in activeZones", func(t *testing.T) {
+		// No active zone for "sleep-prep"
+		zoneToSpeakers := map[string][]string{
+			"sleep": {"Bedroom"},
+		}
+
+		transitions := zm.findSeamlessTransitions([]string{"sleep-prep"}, []string{"sleep"}, zoneToSpeakers)
+
+		assert.Empty(t, transitions)
+	})
+}

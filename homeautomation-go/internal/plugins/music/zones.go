@@ -2,6 +2,7 @@ package music
 
 import (
 	"fmt"
+	"time"
 
 	"go.uber.org/zap"
 )
@@ -213,6 +214,61 @@ func (m *Manager) removeSpeakersFromZone(zone *Zone, speakers []string, trigger 
 				zap.String("zone", zone.Name),
 				zap.Error(err))
 		}
+	}
+}
+
+// smoothVolumeAdjust gradually adjusts a speaker's volume to the target.
+// Used during seamless zone transitions where speakers continue playing
+// but need a volume change (e.g., sleep-prep multiplier 1.3 → sleep multiplier 1.45).
+func (m *Manager) smoothVolumeAdjust(speakerName string, targetVolume int) {
+	entityID := m.getSpeakerEntityID(speakerName)
+	if entityID == "" {
+		return
+	}
+
+	currentVolume := m.getSpeakerVolume(entityID)
+	if currentVolume < 0 {
+		// Can't read current volume, set target directly
+		if err := m.callServiceWithRetry("media_player", "volume_set", map[string]interface{}{
+			"entity_id":    entityID,
+			"volume_level": float64(targetVolume) / 100.0,
+		}); err != nil {
+			m.logger.Error("Failed to set volume during seamless transition",
+				zap.String("speaker", speakerName),
+				zap.Error(err))
+		}
+		return
+	}
+
+	if currentVolume == targetVolume {
+		return // Already at target
+	}
+
+	m.logger.Info("Smoothly adjusting volume for seamless transition",
+		zap.String("speaker", speakerName),
+		zap.Int("from", currentVolume),
+		zap.Int("to", targetVolume))
+
+	// Adjust volume in steps of 1
+	step := 1
+	if currentVolume > targetVolume {
+		step = -1
+	}
+
+	for vol := currentVolume + step; ; vol += step {
+		if (step > 0 && vol > targetVolume) || (step < 0 && vol < targetVolume) {
+			break
+		}
+		if err := m.callServiceWithRetry("media_player", "volume_set", map[string]interface{}{
+			"entity_id":    entityID,
+			"volume_level": float64(vol) / 100.0,
+		}); err != nil {
+			m.logger.Error("Failed to adjust volume during seamless transition",
+				zap.String("speaker", speakerName),
+				zap.Int("volume", vol),
+				zap.Error(err))
+		}
+		m.sleepFunc(250 * time.Millisecond)
 	}
 }
 
