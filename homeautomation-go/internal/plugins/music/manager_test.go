@@ -3655,6 +3655,53 @@ func TestFadeInSpeaker_MultiZone_DoesNotAbortWhenOtherZoneActive(t *testing.T) {
 		"Winddown speaker fade-in must complete even when musicPlaybackType differs (issue #772)")
 }
 
+// TestFadeInSpeaker_NoZoneManager_DoesNotAbortOnPlaybackTypeMismatch verifies that
+// fade-in does NOT abort based on global musicPlaybackType when no zone manager is set.
+// This catches the regression from issue #777 where the fallback path (checking global
+// musicPlaybackType) caused false aborts during multi-zone startup.
+//
+// INVARIANT: The global musicPlaybackType scalar must NEVER be used to abort fade-ins.
+// Context cancellation (cancelAllFadeIns) is the only mechanism for aborting stale fade-ins.
+func TestFadeInSpeaker_NoZoneManager_DoesNotAbortOnPlaybackTypeMismatch(t *testing.T) {
+	t.Parallel()
+	env := testutil.NewEnv(t)
+
+	config := &MusicConfig{
+		Music: map[string]MusicMode{
+			"sleep-prep": {},
+			"winddown":   {},
+		},
+	}
+
+	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, false, nil, nil)
+	manager.SetSleepFunc(func(d time.Duration) {})
+
+	// Deliberately do NOT set up a zone manager (simulating the fallback path)
+	// Set musicPlaybackType to a DIFFERENT value than the fade-in's starting type
+	// This simulates the multi-zone race: sleep-prep starts fade-in, but winddown
+	// overwrites musicPlaybackType to "winddown"
+	require.NoError(t, env.StateMgr.SetString("musicPlaybackType", "winddown"))
+
+	// GIVEN: No zone manager, musicPlaybackType="winddown"
+	// WHEN: Fade-in starts with startingMusicType="sleep-prep" (mismatch)
+	// THEN: Fade-in should complete anyway (no abort based on global musicPlaybackType)
+	t.Log("GIVEN: No zone manager, musicPlaybackType=winddown (different from sleep-prep)")
+	t.Log("WHEN: Fade-in starts for sleep-prep speaker")
+	t.Log("THEN: Fade-in must complete (global musicPlaybackType check removed, issue #777)")
+	manager.fadeInSpeaker(context.Background(), "Front Room", 3, "sleep-prep")
+
+	calls := env.MockHA.GetServiceCalls()
+	volumeSetCount := 0
+	for _, call := range calls {
+		if call.Domain == "media_player" && call.Service == "volume_set" {
+			volumeSetCount++
+		}
+	}
+	// Expected: 1 (set to 0) + 3 (fade from 1 to 3) = 4 volume_set calls
+	assert.Equal(t, 4, volumeSetCount,
+		"Fade-in must NOT abort based on global musicPlaybackType mismatch (issue #777)")
+}
+
 // TestFadeInSpeaker_ZoneRemoved_AbortsFadeIn verifies that fade-in correctly
 // aborts when the speaker's zone is stopped (no longer active).
 func TestFadeInSpeaker_ZoneRemoved_AbortsFadeIn(t *testing.T) {
