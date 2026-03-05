@@ -1047,10 +1047,10 @@ func (m *Manager) handleBedroomLightsOff(state string) {
 	}
 
 	if musicPlaybackType == "wakeup" || isWakeSequenceActive {
-		m.logger.Info("Bedroom lights turned off during wake sequence - cancelling wake and reverting to sleep music")
+		m.logger.Info("Bedroom lights turned off during wake sequence - cancelling wake and clearing musicPlaybackType")
 
 		// Record cancel wake action in shadow state
-		m.recordAction("cancel_wake", "Bedroom lights turned off during wake sequence, reverting to sleep music", "bedroom_lights_off")
+		m.recordAction("cancel_wake", "Bedroom lights turned off during wake sequence, clearing musicPlaybackType", "bedroom_lights_off")
 		m.shadowTracker.UpdateWakeSequenceStatus("inactive")
 		m.shadowTracker.ClearFadeOutProgress()
 
@@ -1060,18 +1060,13 @@ func (m *Manager) handleBedroomLightsOff(state string) {
 				m.logger.Error("Failed to clear isWakeSequenceActive", zap.Error(err))
 			}
 
-			// Revert music back to sleep mode
-			// If musicPlaybackType is already "sleep" (which happens when cancel occurs
-			// before wake music starts), we need to force a restart by first clearing it.
-			// The state manager won't notify subscribers if the value doesn't change.
-			if musicPlaybackType == "sleep" {
-				m.logger.Info("musicPlaybackType already sleep, clearing first to force restart")
-				if err := m.stateManager.SetString("musicPlaybackType", ""); err != nil {
-					m.logger.Error("Failed to clear musicPlaybackType", zap.Error(err))
-				}
-			}
-			if err := m.stateManager.SetString("musicPlaybackType", "sleep"); err != nil {
-				m.logger.Error("Failed to set musicPlaybackType to sleep", zap.Error(err))
+			// Clear musicPlaybackType so zone-based resolution takes over.
+			// The sleep zone will activate via its own triggers (isMasterAsleep=true,
+			// isAnyoneHome=true, isWakeSequenceActive=false) for bedroom speakers.
+			// The morning zone stays active via the wake latch trigger group
+			// (isAnyoneHomeAndAwake=true) for common area speakers.
+			if err := m.stateManager.SetString("musicPlaybackType", ""); err != nil {
+				m.logger.Error("Failed to clear musicPlaybackType", zap.Error(err))
 			}
 
 			// Turn off bathroom lights
