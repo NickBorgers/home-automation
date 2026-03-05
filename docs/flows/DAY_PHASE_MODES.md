@@ -334,7 +334,7 @@ flowchart TB
 |------|----------|-------------------|----------|
 | `sleep-prep` | 90 | `dayPhase=night` + `isAnyoneHome=true` + `isMasterAsleep=false` | Bedroom, Kitchen, Primary Bathroom (whole house) |
 | `sleep` | 100 | `isMasterAsleep=true` + `isAnyoneHome=true` + `isWakeSequenceActive=false` | Bedroom, Kitchen, Primary Bathroom |
-| `morning` | 50 | `isWakeSequenceActive=true` + `dayPhase=morning` + `isAnyoneHome=true` **OR** `dayPhase=morning` + `isAnyoneAsleep=false` + `isAnyoneHome=true` | Kitchen (Bedroom + Primary Bathroom excluded via `exclude_if: isMasterAsleep=true`) |
+| `morning` | 50 | `dayPhase=morning` + `isAnyoneAsleep=false` + `isAnyoneHome=true` **OR** `isWakeSequenceActive=true` + `dayPhase=morning` + `isAnyoneHome=true` **OR** `dayPhase=morning` + `isAnyoneHomeAndAwake=true` (wake latch) | Kitchen (Bedroom + Primary Bathroom excluded via `exclude_if: isMasterAsleep=true`) |
 
 ### Key Behaviors
 
@@ -345,8 +345,11 @@ flowchart TB
 3. **OR logic in morning triggers**: The morning zone uses `trigger_groups` with OR logic:
    - Group 1: Normal morning conditions (`isAnyoneAsleep=false`)
    - Group 2: Wake sequence active (`isWakeSequenceActive=true`)
+   - Group 3: Wake latch (`isAnyoneHomeAndAwake=true`) — keeps morning music active in common areas after wake cancellation
 
-4. **Seamless join**: When `isMasterAsleep` becomes false, the Bedroom speaker joins the existing morning zone rather than starting new playback.
+4. **Wake cancellation clears musicPlaybackType**: When bedroom lights are turned off during wake sequence, sleephygiene clears `musicPlaybackType` to `""` (instead of setting it to `"sleep"`). This lets zone-based resolution take over: the sleep zone activates for bedroom speakers, while the morning zone continues in common areas via the wake latch trigger group.
+
+5. **Seamless join**: When `isMasterAsleep` becomes false, the Bedroom speaker joins the existing morning zone rather than starting new playback.
 
 ### Timeline Example
 

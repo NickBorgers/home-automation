@@ -358,9 +358,11 @@ func TestScenario_EveningReminder_SendsStopScreensNotification(t *testing.T) {
 	t.Logf("Flash call found: %v", foundFlashCall)
 }
 
-// TestScenario_WakeCancellation_RevertsToSleepMusic validates that when
-// bedroom lights are turned off during wake sequence, it reverts to sleep music
-func TestScenario_WakeCancellation_RevertsToSleepMusic(t *testing.T) {
+// TestScenario_WakeCancellation_ClearsMusicPlaybackType validates that when
+// bedroom lights are turned off during wake sequence, musicPlaybackType is
+// cleared to "" so zone-based resolution takes over (sleep zone for bedroom,
+// morning zone for common areas via wake latch).
+func TestScenario_WakeCancellation_ClearsMusicPlaybackType(t *testing.T) {
 	t.Parallel()
 	server, sleepMgr, stateManager, cleanup := setupSleepHygieneScenarioTest(t)
 	defer cleanup()
@@ -386,18 +388,18 @@ func TestScenario_WakeCancellation_RevertsToSleepMusic(t *testing.T) {
 	t.Log("WHEN: Bedroom lights are turned off")
 	server.SetState("light.primary_suite", "off", map[string]interface{}{})
 
-	// Poll until music reverts to sleep mode
-	waitForServerState(t, server, "input_text.music_playback_type", "sleep", "music should revert to sleep")
+	// Poll until musicPlaybackType is cleared
+	waitForServerState(t, server, "input_text.music_playback_type", "", "musicPlaybackType should be cleared")
 
 	// Poll until bathroom light turn_off call is recorded
 	waitForServiceCallWithEntitySince(t, server, snapshot, "light", "turn_off", "light.primary_bathroom_main_lights", "bathroom lights should be turned off")
 
-	// THEN: Music should revert to sleep mode, bathroom lights turn off
-	t.Log("THEN: Verify music reverts to sleep mode and bathroom lights turn off")
+	// THEN: musicPlaybackType should be cleared, bathroom lights turn off
+	t.Log("THEN: Verify musicPlaybackType is cleared and bathroom lights turn off")
 
 	musicTypeState = server.GetState("input_text.music_playback_type")
 	if musicTypeState != nil {
-		assert.Equal(t, "sleep", musicTypeState.State, "Should revert to sleep music when wake is cancelled")
+		assert.Equal(t, "", musicTypeState.State, "musicPlaybackType should be cleared when wake is cancelled")
 	}
 
 	calls := server.GetServiceCallsSince(snapshot)
@@ -416,6 +418,97 @@ func TestScenario_WakeCancellation_RevertsToSleepMusic(t *testing.T) {
 	}
 
 	assert.True(t, foundBathroomOff, "Should turn off bathroom lights when wake is cancelled")
+}
+
+// TestScenario_WakeCancellation_MorningMusicContinuesInCommonAreas validates
+// that when the wake sequence is cancelled (bedroom lights turned off), morning
+// music continues in common areas. The wake latch keeps isAnyoneHomeAndAwake=true
+// so the morning zone remains active for common area speakers while the sleep
+// zone activates for bedroom speakers.
+//
+// This is a regression test for GitHub issue #779: wake cancellation was setting
+// musicPlaybackType="sleep" globally, which killed morning music everywhere.
+func TestScenario_WakeCancellation_MorningMusicContinuesInCommonAreas(t *testing.T) {
+	t.Parallel()
+	server, client, stateManager, baseCleanup := setupTest(t)
+
+	// Set up computed state so the wake latch works
+	err := stateManager.SetupComputedState()
+	require.NoError(t, err, "Failed to set up computed state")
+
+	logger := testlogger.New()
+	configLoader := config.NewLoader("../../configs", logger)
+	sleepMgr := sleephygiene.NewManager(context.Background(), client, stateManager, configLoader, logger, false, nil, nil)
+	err = sleepMgr.Start()
+	require.NoError(t, err, "Failed to start sleep hygiene manager")
+	defer func() {
+		sleepMgr.Stop()
+		stateManager.StopComputedState()
+		baseCleanup()
+	}()
+
+	// GIVEN: dayPhase=morning, master asleep, owner home, wake sequence active
+	t.Log("GIVEN: Morning phase, master asleep, wake sequence active")
+	server.SetState("input_text.day_phase", "morning", map[string]interface{}{})
+	server.SetState("input_boolean.master_asleep", "on", map[string]interface{}{})
+	server.SetState("input_boolean.any_owner_home", "on", map[string]interface{}{})
+	server.SetState("input_boolean.anyone_home", "on", map[string]interface{}{})
+	server.SetState("input_boolean.anyone_asleep", "on", map[string]interface{}{})
+	server.SetState("input_text.music_playback_type", "wakeup", map[string]interface{}{})
+	server.SetState("light.primary_suite", "on", map[string]interface{}{})
+
+	// Activate wake sequence - this triggers the wake latch (rising edge)
+	server.SetState("input_boolean.wake_sequence_active", "on", map[string]interface{}{})
+
+	waitForProcessing(t, stateManager)
+
+	// Verify wake latch activated: isAnyoneHomeAndAwake should be true
+	waitForCondition(t, func() bool {
+		val, err := stateManager.GetBool("isAnyoneHomeAndAwake")
+		return err == nil && val
+	}, "isAnyoneHomeAndAwake should be true via wake latch")
+
+	// WHEN: Bedroom lights are turned off (user cancels wake)
+	t.Log("WHEN: Bedroom lights turned off (cancel wake)")
+	server.SetState("light.primary_suite", "off", map[string]interface{}{})
+
+	// Wait for musicPlaybackType to be cleared
+	waitForServerState(t, server, "input_text.music_playback_type", "", "musicPlaybackType should be cleared")
+
+	// Wait for isWakeSequenceActive to be cleared
+	waitForServerState(t, server, "input_boolean.wake_sequence_active", "off", "isWakeSequenceActive should be cleared")
+
+	// THEN: Verify state after wake cancellation
+	t.Log("THEN: Verify morning music can continue in common areas")
+
+	// musicPlaybackType should be cleared (not "sleep")
+	musicTypeState := server.GetState("input_text.music_playback_type")
+	require.NotNil(t, musicTypeState)
+	assert.Equal(t, "", musicTypeState.State,
+		"musicPlaybackType should be cleared, NOT set to 'sleep'")
+
+	// isWakeSequenceActive should be false
+	wakeState := server.GetState("input_boolean.wake_sequence_active")
+	require.NotNil(t, wakeState)
+	assert.Equal(t, "off", wakeState.State,
+		"isWakeSequenceActive should be cleared")
+
+	// CRITICAL: isAnyoneHomeAndAwake should STILL be true via the wake latch.
+	// The latch only clears when isAnyoneAsleep transitions true→false (everyone wakes up).
+	// Since isAnyoneAsleep is still true (master still in bed), the latch holds.
+	isAnyoneHomeAndAwake, err := stateManager.GetBool("isAnyoneHomeAndAwake")
+	require.NoError(t, err)
+	assert.True(t, isAnyoneHomeAndAwake,
+		"isAnyoneHomeAndAwake should remain true via wake latch after cancellation")
+
+	t.Log("========================================")
+	t.Log("SUCCESS:")
+	t.Log("  - musicPlaybackType cleared to '' (not 'sleep')")
+	t.Log("  - isWakeSequenceActive cleared")
+	t.Log("  - isAnyoneHomeAndAwake still true (wake latch)")
+	t.Log("  - Morning zone can remain active for common areas")
+	t.Log("  - Sleep zone activates for bedroom via triggers")
+	t.Log("========================================")
 }
 
 // TestScenario_MultipleAlarms_UpdatesCorrectly validates that when alarm time

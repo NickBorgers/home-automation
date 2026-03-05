@@ -1480,3 +1480,105 @@ func TestMultiZoneStartup_BothZonesActive(t *testing.T) {
 	assert.True(t, zm.IsZoneActive("sleep-prep"), "sleep-prep should be active")
 	assert.True(t, zm.IsZoneActive("winddown"), "winddown should be active")
 }
+
+// TestZoneManager_MorningZone_ActivatesViaWakeLatch validates that the morning
+// zone activates when isAnyoneHomeAndAwake=true and dayPhase=morning, even when
+// isAnyoneAsleep=true and isWakeSequenceActive=false. This is the wake latch
+// trigger group added for issue #779.
+//
+// Scenario: Wake cancelled (isWakeSequenceActive=false), master still in bed
+// (isAnyoneAsleep=true), but wake latch keeps isAnyoneHomeAndAwake=true.
+// Morning zone should remain active for common area speakers.
+func TestZoneManager_MorningZone_ActivatesViaWakeLatch(t *testing.T) {
+	t.Parallel()
+
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+
+	// Config with morning zone using 3 trigger groups (matching production config)
+	config := &MusicConfig{
+		Zones: []ZoneConfig{
+			{
+				Name:     "sleep",
+				Priority: 100,
+				Triggers: []TriggerCondition{
+					{Variable: "isMasterAsleep", Value: true},
+					{Variable: "isAnyoneHome", Value: true},
+					{Variable: "isWakeSequenceActive", Value: false},
+				},
+			},
+			{
+				Name:     "morning",
+				Priority: 50,
+				TriggerGroups: []TriggerGroup{
+					{Triggers: []TriggerCondition{
+						{Variable: "dayPhase", Value: "morning"},
+						{Variable: "isAnyoneHome", Value: true},
+						{Variable: "isAnyoneAsleep", Value: false},
+					}},
+					{Triggers: []TriggerCondition{
+						{Variable: "isWakeSequenceActive", Value: true},
+						{Variable: "dayPhase", Value: "morning"},
+						{Variable: "isAnyoneHome", Value: true},
+					}},
+					{Triggers: []TriggerCondition{
+						{Variable: "dayPhase", Value: "morning"},
+						{Variable: "isAnyoneHomeAndAwake", Value: true},
+					}},
+				},
+			},
+		},
+		Music: map[string]MusicMode{
+			"sleep": {
+				Participants:    []Participant{{PlayerName: "Bedroom", BaseVolume: 10}},
+				PlaybackOptions: []PlaybackOption{{URI: "http://rain.example/1.m4a", MediaType: "music", VolumeMultiplier: 1.0}},
+			},
+			"morning": {
+				Participants:    []Participant{{PlayerName: "Kitchen", BaseVolume: 9}},
+				PlaybackOptions: []PlaybackOption{{URI: "spotify:playlist:morning", MediaType: "playlist", VolumeMultiplier: 1.0}},
+			},
+		},
+	}
+
+	mgr := NewManager(context.Background(), mockClient, stateManager, config, logger, true, nil, nil)
+	mgr.SetSleepFunc(func(d time.Duration) {})
+	zm := NewZoneManager(mgr, config, logger)
+
+	// State: wake cancelled, master still in bed, but wake latch active
+	// isAnyoneAsleep=true (Group 1 fails), isWakeSequenceActive=false (Group 2 fails),
+	// but isAnyoneHomeAndAwake=true (Group 3 matches via wake latch)
+	require.NoError(t, stateManager.SetString("dayPhase", "morning"))
+	require.NoError(t, stateManager.SetBool("isAnyoneHome", true))
+	require.NoError(t, stateManager.SetBool("isAnyoneAsleep", true))
+	require.NoError(t, stateManager.SetBool("isWakeSequenceActive", false))
+	require.NoError(t, stateManager.SetBool("isAnyoneHomeAndAwake", true))
+	require.NoError(t, stateManager.SetBool("isMasterAsleep", true))
+	require.NoError(t, stateManager.SetString("musicPlaybackType", ""))
+
+	// Morning zone should be active via the third trigger group (wake latch)
+	assert.True(t, zm.evaluateTriggers(config.Zones[1]),
+		"Morning zone should activate via isAnyoneHomeAndAwake=true trigger group")
+
+	// Sleep zone should also be active (isMasterAsleep=true, isWakeSequenceActive=false)
+	assert.True(t, zm.evaluateTriggers(config.Zones[0]),
+		"Sleep zone should also activate (bedroom speakers)")
+
+	// Verify with detailed evaluation that Group 3 is the matching group
+	eval := zm.evaluateTriggersWithDetails(config.Zones[1])
+	assert.True(t, eval.Matched)
+	assert.Equal(t, "trigger_group", eval.MatchedVia)
+	// Group 1 (normal morning) should NOT match (isAnyoneAsleep=true)
+	assert.False(t, eval.GroupResults[0].Matched, "Group 1 should not match when isAnyoneAsleep=true")
+	// Group 2 (wake sequence active) should NOT match (isWakeSequenceActive=false)
+	assert.False(t, eval.GroupResults[1].Matched, "Group 2 should not match when isWakeSequenceActive=false")
+	// Group 3 (wake latch) SHOULD match (isAnyoneHomeAndAwake=true, dayPhase=morning)
+	assert.True(t, eval.GroupResults[2].Matched, "Group 3 (wake latch) should match")
+	assert.Equal(t, 3, eval.MatchedGroupIndex, "Should match via Group 3")
+
+	// Verify that without the wake latch (isAnyoneHomeAndAwake=false),
+	// morning zone does NOT activate
+	require.NoError(t, stateManager.SetBool("isAnyoneHomeAndAwake", false))
+	assert.False(t, zm.evaluateTriggers(config.Zones[1]),
+		"Morning zone should NOT activate when isAnyoneHomeAndAwake=false and other groups fail")
+}

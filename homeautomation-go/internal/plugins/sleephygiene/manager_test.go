@@ -2142,8 +2142,8 @@ func TestCancelWake_AllowsGenuineLightOffAfterGracePeriod(t *testing.T) {
 	}
 
 	musicType, _ := stateManager.GetString("musicPlaybackType")
-	if musicType != "sleep" {
-		t.Errorf("Expected musicPlaybackType to be 'sleep' after cancel, got %s", musicType)
+	if musicType != "" {
+		t.Errorf("Expected musicPlaybackType to be '' (cleared) after cancel, got %s", musicType)
 	}
 }
 
@@ -2169,12 +2169,12 @@ func TestCancelWake_AllowsCancelWhenNoTurnOnCommandSent(t *testing.T) {
 	}
 }
 
-func TestCancelWake_ForcesMusicRestartWhenAlreadySleep(t *testing.T) {
+func TestCancelWake_ClearsMusicPlaybackTypeWhenAlreadySleep(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2024, 1, 15, 7, 30, 0, 0, time.UTC)
 	manager, _, stateManager, _ := setupTest(t, now)
 
-	// Track state changes to verify the clear-then-set behavior
+	// Track state changes to verify the clear behavior
 	var stateChanges []string
 	stateManager.Subscribe("musicPlaybackType", func(key string, oldValue, newValue interface{}) {
 		stateChanges = append(stateChanges, newValue.(string))
@@ -2206,28 +2206,17 @@ func TestCancelWake_ForcesMusicRestartWhenAlreadySleep(t *testing.T) {
 		t.Error("Expected isWakeSequenceActive to be false after cancel")
 	}
 
-	// KEY TEST: Verify that musicPlaybackType was changed (not a no-op)
-	// The fix should first clear to "" then set to "sleep", causing 2 state changes
-	if len(stateChanges) < 2 {
-		t.Errorf("Expected at least 2 musicPlaybackType state changes (clear then set), got %d: %v",
+	// KEY TEST: musicPlaybackType should be cleared to "" (not set to "sleep")
+	// Zone-based resolution takes over: sleep zone for bedroom, morning zone
+	// for common areas via wake latch.
+	if len(stateChanges) < 1 {
+		t.Errorf("Expected at least 1 musicPlaybackType state change (clear to ''), got %d: %v",
 			len(stateChanges), stateChanges)
 	}
 
-	// Verify the final state is "sleep"
+	// Verify the final state is "" (cleared)
 	musicType, _ := stateManager.GetString("musicPlaybackType")
-	if musicType != "sleep" {
-		t.Errorf("Expected musicPlaybackType to be 'sleep', got %s", musicType)
-	}
-
-	// Verify the state changes include the clear (empty string) before "sleep"
-	foundClear := false
-	for _, change := range stateChanges {
-		if change == "" {
-			foundClear = true
-			break
-		}
-	}
-	if !foundClear {
-		t.Errorf("Expected musicPlaybackType to be cleared to '' before setting to 'sleep', changes: %v", stateChanges)
+	if musicType != "" {
+		t.Errorf("Expected musicPlaybackType to be '' (cleared), got %s", musicType)
 	}
 }

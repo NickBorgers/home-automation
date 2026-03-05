@@ -45,6 +45,11 @@ zones:
             value: morning
           - variable: isAnyoneHome
             value: true
+      - triggers:  # Wake latch: morning continues after wake cancellation
+          - variable: dayPhase
+            value: morning
+          - variable: isAnyoneHomeAndAwake
+            value: true
   - name: "day"
     priority: 40
     trigger:
