@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -2073,5 +2074,108 @@ func TestTVManager_BraviaReload_DailyCounterReset(t *testing.T) {
 	_, dailyCount, _ := manager.GetBraviaReloadState()
 	if dailyCount != 1 {
 		t.Errorf("Expected dailyBraviaReloadCount to be 1 after reset, got %d", dailyCount)
+	}
+}
+
+func TestTVManager_SyncBoxRecoveryFromUnavailable_ForceNotifiesIsTVPlaying(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+
+	// Set up initial state: TV is off, not playing
+	mockHA.SetState("switch.sync_box_power", "on", map[string]interface{}{})
+	mockHA.SetState("remote.big_beautiful_oled", "off", map[string]interface{}{})
+	mockHA.SetState("select.sync_box_hdmi_input", "AppleTV", map[string]interface{}{})
+	mockHA.Connect()
+	stateMgr.SyncFromHA()
+
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
+
+	// Set isTVPlaying to false (simulating it was already false before crash)
+	_ = stateMgr.SetBool("isTVPlaying", false)
+
+	// Subscribe to isTVPlaying to track notifications
+	var notifyCount int32
+	sub, err := stateMgr.Subscribe("isTVPlaying", func(key string, oldValue, newValue interface{}) {
+		atomic.AddInt32(&notifyCount, 1)
+	})
+	if err != nil {
+		t.Fatalf("Failed to subscribe: %v", err)
+	}
+	defer sub.Unsubscribe()
+
+	// Simulate sync box recovering: unavailable -> on
+	oldState := &ha.State{
+		EntityID: "switch.sync_box_power",
+		State:    "unavailable",
+	}
+	newState := &ha.State{
+		EntityID: "switch.sync_box_power",
+		State:    "on",
+	}
+	manager.handleSyncBoxPowerChange("switch.sync_box_power", oldState, newState)
+
+	// isTVPlaying should still be false (TV panel is off)
+	isPlaying, err := stateMgr.GetBool("isTVPlaying")
+	if err != nil {
+		t.Fatalf("Failed to get isTVPlaying: %v", err)
+	}
+	if isPlaying {
+		t.Errorf("Expected isTVPlaying=false after recovery, got true")
+	}
+
+	// But subscribers SHOULD have been notified via ForceNotifyBool,
+	// so the lighting plugin can re-apply the correct scene
+	count := atomic.LoadInt32(&notifyCount)
+	if count == 0 {
+		t.Errorf("Expected isTVPlaying subscribers to be notified after recovery from unavailable, but got 0 notifications")
+	}
+}
+
+func TestTVManager_SyncBoxNormalPowerOn_DoesNotForceNotify(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+
+	mockHA.SetState("switch.sync_box_power", "on", map[string]interface{}{})
+	mockHA.SetState("remote.big_beautiful_oled", "off", map[string]interface{}{})
+	mockHA.SetState("select.sync_box_hdmi_input", "AppleTV", map[string]interface{}{})
+	mockHA.Connect()
+	stateMgr.SyncFromHA()
+
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
+
+	// Set isTVPlaying to false
+	_ = stateMgr.SetBool("isTVPlaying", false)
+
+	// Subscribe to track notifications
+	var notifyCount int32
+	sub, err := stateMgr.Subscribe("isTVPlaying", func(key string, oldValue, newValue interface{}) {
+		atomic.AddInt32(&notifyCount, 1)
+	})
+	if err != nil {
+		t.Fatalf("Failed to subscribe: %v", err)
+	}
+	defer sub.Unsubscribe()
+
+	// Simulate normal power on (off -> on, NOT unavailable -> on)
+	oldState := &ha.State{
+		EntityID: "switch.sync_box_power",
+		State:    "off",
+	}
+	newState := &ha.State{
+		EntityID: "switch.sync_box_power",
+		State:    "on",
+	}
+	manager.handleSyncBoxPowerChange("switch.sync_box_power", oldState, newState)
+
+	// Normal power-on should NOT force-notify since entertainment area wasn't disrupted
+	count := atomic.LoadInt32(&notifyCount)
+	if count != 0 {
+		t.Errorf("Expected no force-notification for normal power-on, but got %d notifications", count)
 	}
 }

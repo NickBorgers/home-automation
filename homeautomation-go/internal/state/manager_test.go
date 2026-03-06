@@ -497,6 +497,72 @@ func TestSetBool_SameValue_DoesNotNotify(t *testing.T) {
 		"SetBool should notify subscribers when value changes")
 }
 
+func TestForceNotifyBool_NotifiesEvenWhenValueUnchanged(t *testing.T) {
+	t.Parallel()
+	logger := testlogger.New()
+	mockClient := ha.NewMockClient()
+
+	mockClient.SetState("input_boolean.wake_sequence_active", "on", map[string]interface{}{})
+	mockClient.Connect()
+
+	manager := NewManager(mockClient, logger, false)
+	manager.SyncFromHA()
+
+	// Subscribe to changes
+	var notificationCount int32
+	var lastOld, lastNew interface{}
+
+	sub, err := manager.Subscribe("isWakeSequenceActive", func(key string, oldValue, newValue interface{}) {
+		atomic.AddInt32(&notificationCount, 1)
+		lastOld = oldValue
+		lastNew = newValue
+	})
+	require.NoError(t, err)
+	defer sub.Unsubscribe()
+
+	// SetBool with same value should NOT notify
+	err = manager.SetBool("isWakeSequenceActive", true)
+	require.NoError(t, err)
+	assert.Equal(t, int32(0), atomic.LoadInt32(&notificationCount))
+
+	// ForceNotifyBool SHOULD notify even though value hasn't changed
+	err = manager.ForceNotifyBool("isWakeSequenceActive")
+	require.NoError(t, err)
+	assert.Equal(t, int32(1), atomic.LoadInt32(&notificationCount),
+		"ForceNotifyBool should notify subscribers even when value hasn't changed")
+	assert.Equal(t, true, lastOld)
+	assert.Equal(t, true, lastNew)
+}
+
+func TestForceNotifyBool_ErrorOnUnknownVariable(t *testing.T) {
+	t.Parallel()
+	logger := testlogger.New()
+	mockClient := ha.NewMockClient()
+	mockClient.Connect()
+
+	manager := NewManager(mockClient, logger, false)
+	manager.SyncFromHA()
+
+	err := manager.ForceNotifyBool("nonExistentVariable")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "not found")
+}
+
+func TestForceNotifyBool_ErrorOnNonBoolVariable(t *testing.T) {
+	t.Parallel()
+	logger := testlogger.New()
+	mockClient := ha.NewMockClient()
+	mockClient.SetState("input_text.music_playback_type", "day", map[string]interface{}{})
+	mockClient.Connect()
+
+	manager := NewManager(mockClient, logger, false)
+	manager.SyncFromHA()
+
+	err := manager.ForceNotifyBool("musicPlaybackType")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "not a boolean")
+}
+
 func TestManagerNotifySubscribersIsSynchronous(t *testing.T) {
 	t.Parallel()
 	manager := &Manager{
