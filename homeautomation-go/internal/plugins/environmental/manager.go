@@ -869,8 +869,9 @@ func (m *Manager) checkConditionResolved(now time.Time) {
 
 // sendAlertNotification sends an alert notification with rate limiting
 func (m *Manager) sendAlertNotification(now time.Time, level string) {
-	// Build sensor location list and find max humidity
+	// Build sensor detail list and find max humidity
 	// (must happen before rate limit check so alertedSensorNames is always populated)
+	var sensorDetails []string
 	var sensorLocations []string
 	var maxHumidity float64
 
@@ -884,6 +885,7 @@ func (m *Manager) sendAlertNotification(now time.Time, level string) {
 			threshold = UnconditionedWarningThreshold
 		}
 		if sensor.Value >= threshold {
+			sensorDetails = append(sensorDetails, fmt.Sprintf("%s: %.0f%%", sensor.FriendlyName, sensor.Value))
 			sensorLocations = append(sensorLocations, sensor.FriendlyName)
 			if sensor.Value > maxHumidity {
 				maxHumidity = sensor.Value
@@ -932,13 +934,13 @@ func (m *Manager) sendAlertNotification(now time.Time, level string) {
 	if level == "critical" {
 		title = "High Humidity Critical"
 		message = fmt.Sprintf("Humidity at %.0f%% (%s) for 30+ minutes.%s Mold risk - take action!",
-			maxHumidity, formatSensorLocations(sensorLocations), outdoorContext)
+			maxHumidity, formatSensorDetails(sensorDetails), outdoorContext)
 		priority = ntfy.PriorityHigh
 		tags = []string{"rotating_light", "droplet"}
 	} else {
 		title = "High Humidity Warning"
 		message = fmt.Sprintf("Humidity at %.0f%% (%s) for 30+ minutes.%s Check ventilation.",
-			maxHumidity, formatSensorLocations(sensorLocations), outdoorContext)
+			maxHumidity, formatSensorDetails(sensorDetails), outdoorContext)
 		priority = ntfy.PriorityDefault
 		tags = []string{"warning", "droplet"}
 	}
@@ -1075,6 +1077,20 @@ func formatSensorLocations(locations []string) string {
 	}
 	// For 3+ sensors, list all names joined with commas
 	return strings.Join(locations, ", ")
+}
+
+// formatSensorDetails formats sensor name:value pairs for display in notifications
+func formatSensorDetails(details []string) string {
+	if len(details) == 0 {
+		return "unknown"
+	}
+	if len(details) == 1 {
+		return details[0]
+	}
+	if len(details) == 2 {
+		return details[0] + " and " + details[1]
+	}
+	return strings.Join(details, ", ")
 }
 
 // Reset resets the manager state (for testing)
