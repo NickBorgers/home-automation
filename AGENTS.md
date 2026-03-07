@@ -387,7 +387,7 @@ curl -s -X POST \
 
 **Example output (home-assistant):** Entity state changes from Home Assistant (excludes `sensor.*`)
 ```
-<14>1 2026-01-03T10:47:31-06:00 home-assistant homeassistant - - - remote.big_beautiful_oled: on → off
+<14>1 2026-01-03T10:47:31-06:00 home-assistant homeassistant - - - media_player.sony_xr_65a80k: on → off
 <14>1 2026-01-03T10:46:52-06:00 home-assistant homeassistant - - - select.span_right_hvac_and_well_kids_hot_water_heater_circuit_priority: unavailable → Nice To Have
 <14>1 2026-01-03T10:45:37-06:00 home-assistant homeassistant - - - binary_sensor.span_right_hvac_and_well_door_state: unavailable → unknown
 ```
