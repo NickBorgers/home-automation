@@ -31,6 +31,13 @@ const (
 	// to allow the Sonos system to stabilize before forming new groups.
 	speakerUnjoinSettleDelay = 500 * time.Millisecond
 
+	// speakerUnjoinTimeout is the maximum time to wait for a single unjoin call.
+	// Unjoin is best-effort cleanup — if a speaker is unresponsive, we skip it
+	// rather than blocking startup or playback transitions for minutes.
+	// This bounds each unjoin to ~15s (one HA attempt at 10s + margin) instead of
+	// the default CallService retry loop (~3 minutes with 12 retries).
+	speakerUnjoinTimeout = 15 * time.Second
+
 	// speakerGroupSettleDelay is the delay after building a speaker group
 	// to allow the Sonos system to stabilize before starting playback.
 	speakerGroupSettleDelay = 500 * time.Millisecond

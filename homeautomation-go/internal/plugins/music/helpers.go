@@ -1,8 +1,10 @@
 package music
 
 import (
+	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"go.uber.org/zap"
 )
@@ -99,6 +101,36 @@ func (m *Manager) validateConfiguredSpeakers() {
 			}
 		}
 	}
+}
+
+// callServiceBestEffort calls a Home Assistant service with a short timeout and
+// no retries. Used for cleanup operations (like unjoin) where blocking on
+// unresponsive speakers would be worse than skipping them.
+// The timeout bounds the total time including the HA client's internal retries —
+// context cancellation prevents retry attempts after the deadline.
+func (m *Manager) callServiceBestEffort(domain, service string, serviceData map[string]interface{}, timeout time.Duration) error {
+	if m.readOnly {
+		m.logger.Debug("Read-only mode: would call service (best-effort)",
+			zap.String("domain", domain),
+			zap.String("service", service),
+			zap.Any("service_data", serviceData))
+		return nil
+	}
+
+	ctx, cancel := context.WithTimeout(m.ctx, timeout)
+	defer cancel()
+
+	m.logger.Debug("Calling HA service (best-effort)",
+		zap.String("domain", domain),
+		zap.String("service", service),
+		zap.Duration("timeout", timeout),
+		zap.Any("service_data", serviceData))
+
+	if err := m.haClient.CallService(ctx, domain, service, serviceData); err != nil {
+		return fmt.Errorf("best-effort service call failed: %w", err)
+	}
+
+	return nil
 }
 
 // callServiceWithRetry wraps callService with refresh-on-error logic
