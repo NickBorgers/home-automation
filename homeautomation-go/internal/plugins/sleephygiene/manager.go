@@ -757,12 +757,6 @@ func (m *Manager) updateSpeakerVolumeInState(speakerEntityID string, volume int)
 	}
 }
 
-// fadeOutBedroomSpeaker is a legacy wrapper that calls fadeOutSpeaker
-// Kept for backward compatibility with existing tests
-func (m *Manager) fadeOutBedroomSpeaker() {
-	m.fadeOutSpeaker("media_player.bedroom")
-}
-
 // scheduleWakeSequence waits for the configured delay and then triggers handleWake
 // This implements the Node-RED behavior where lights fade in 5 minutes after
 // the sleep music starts fading out

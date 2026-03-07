@@ -736,7 +736,7 @@ func TestFadeOutBedroomSpeaker_Complete(t *testing.T) {
 	// Start fade out in goroutine
 	done := make(chan bool)
 	go func() {
-		manager.fadeOutBedroomSpeaker()
+		manager.fadeOutSpeaker("media_player.bedroom")
 		done <- true
 	}()
 
@@ -811,7 +811,7 @@ func TestFadeOutBedroomSpeaker_AbortedByFlag(t *testing.T) {
 	// Start fade out in goroutine
 	done := make(chan bool)
 	go func() {
-		manager.fadeOutBedroomSpeaker()
+		manager.fadeOutSpeaker("media_player.bedroom")
 		done <- true
 	}()
 
@@ -876,7 +876,7 @@ func TestFadeOutBedroomSpeaker_CancelledByWakeSequenceEnd(t *testing.T) {
 	// Start fade out in goroutine
 	done := make(chan bool)
 	go func() {
-		manager.fadeOutBedroomSpeaker()
+		manager.fadeOutSpeaker("media_player.bedroom")
 		done <- true
 	}()
 
@@ -952,7 +952,7 @@ func TestFadeOutBedroomSpeaker_VolumeSequence(t *testing.T) {
 	// Start fade out in goroutine
 	done := make(chan bool)
 	go func() {
-		manager.fadeOutBedroomSpeaker()
+		manager.fadeOutSpeaker("media_player.bedroom")
 		done <- true
 	}()
 
