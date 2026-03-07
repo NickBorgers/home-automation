@@ -26,6 +26,9 @@ type Manager struct {
 	// Subscription helper for automatic shadow state input capture
 	subHelper *shadowstate.SubscriptionHelper
 
+	// Bridge monitor for detecting stale Hue bridge
+	bridgeMonitor *BridgeMonitor
+
 	// Context for graceful shutdown
 	ctx context.Context
 
@@ -39,14 +42,17 @@ type Manager struct {
 func NewManager(ctx context.Context, haClient ha.HAClient, stateManager *state.Manager, config *HueConfig, logger *zap.Logger, readOnly bool, registry *shadowstate.SubscriptionRegistry) *Manager {
 	shadowTracker := shadowstate.NewLightingTracker()
 
+	lgr := logger.Named("lighting")
+
 	return &Manager{
 		haClient:      haClient,
 		stateManager:  stateManager,
 		config:        config,
-		logger:        logger.Named("lighting"),
+		logger:        lgr,
 		readOnly:      readOnly,
 		shadowTracker: shadowTracker,
-		subHelper:     shadowstate.NewSubscriptionHelper(haClient, stateManager, registry, shadowTracker, "lighting", logger.Named("lighting")),
+		subHelper:     shadowstate.NewSubscriptionHelper(haClient, stateManager, registry, shadowTracker, "lighting", lgr),
+		bridgeMonitor: NewBridgeMonitor(haClient, lgr, readOnly, shadowTracker),
 		ctx:           ctx,
 		roomContexts:  make(map[string]context.CancelFunc),
 	}
@@ -527,6 +533,11 @@ func (m *Manager) activateScene(ctx context.Context, room *RoomConfig, dayPhase 
 	m.recordAction(room.HueGroup, "activate_scene",
 		fmt.Sprintf("Activated scene '%s'", dayPhase),
 		dayPhase, false, trigger)
+
+	// Asynchronously verify the scene actually took effect (Hue bridge staleness detection)
+	if room.LightEntityID != "" {
+		go m.bridgeMonitor.VerifySceneActivation(m.ctx, room, dayPhase)
+	}
 }
 
 // turnOffRoom turns off lights in a room

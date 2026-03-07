@@ -206,6 +206,15 @@ func (lt *LightingTracker) RecordRoomAction(roomName string, actionType string, 
 	lt.State().Metadata.LastUpdated = now
 }
 
+// SetBridgeMonitor updates the bridge monitor portion of the lighting shadow state.
+func (lt *LightingTracker) SetBridgeMonitor(monitor *LightingBridgeMonitor) {
+	lt.Lock()
+	defer lt.Unlock()
+
+	lt.State().Outputs.BridgeMonitor = monitor
+	lt.State().Metadata.LastUpdated = time.Now()
+}
+
 // GetState returns the current shadow state (thread-safe copy)
 func (lt *LightingTracker) GetState() *LightingShadowState {
 	lt.RLock()
@@ -221,6 +230,7 @@ func (lt *LightingTracker) GetState() *LightingShadowState {
 		Outputs: LightingOutputs{
 			Rooms:          make(map[string]RoomState),
 			LastActionTime: s.Outputs.LastActionTime,
+			BridgeMonitor:  s.Outputs.BridgeMonitor,
 		},
 		Metadata: s.Metadata,
 	}

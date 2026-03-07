@@ -2,6 +2,7 @@
 rooms:
   - hue_group: Living Room
     hass_area_id: living_room_2
+    light_entity_id: light.living_room
     conditions:
       # Priority 0: TV playing -> skip (Hue Sync controls the lights)
       # When Hue Sync is active, don't override with scene activation
@@ -25,6 +26,7 @@ rooms:
 
   - hue_group: Primary Suite
     hass_area_id: master_bedroom
+    light_entity_id: light.primary_suite
     conditions:
       # CRITICAL: isWakeSequenceActive and isMasterAsleep MUST be checked
       # BEFORE isAnyoneHomeAndAwake!
@@ -61,6 +63,7 @@ rooms:
 
   - hue_group: Sitting Room
     hass_area_id: dining_room
+    light_entity_id: light.sitting_room
     conditions:
       # Priority 1: No one home -> OFF
       - action: off
@@ -153,6 +156,7 @@ rooms:
 
   - hue_group: Kitchen
     hass_area_id: kitchen
+    light_entity_id: light.kitchen
     conditions:
       # Priority 1: No one home and awake -> OFF
       - action: off

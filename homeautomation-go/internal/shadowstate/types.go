@@ -305,8 +305,27 @@ func NewEVChargerShadowState() *EVChargerShadowState {
 
 // LightingOutputs tracks the state of lighting control outputs
 type LightingOutputs struct {
-	Rooms          map[string]RoomState `json:"rooms"`
-	LastActionTime time.Time            `json:"lastActionTime"`
+	Rooms          map[string]RoomState   `json:"rooms"`
+	LastActionTime time.Time              `json:"lastActionTime"`
+	BridgeMonitor  *LightingBridgeMonitor `json:"bridgeMonitor,omitempty"`
+}
+
+// LightingBridgeMonitor tracks Hue bridge health from the lighting plugin's perspective.
+// The actual bridge monitor logic lives in the lighting plugin; this type is just for
+// shadow state serialization.
+type LightingBridgeMonitor struct {
+	BridgeStale          bool                          `json:"bridgeStale"`
+	ConsecutiveFailures  int                           `json:"consecutiveFailures"`
+	RecentFailures       []LightingVerificationFailure `json:"recentFailures,omitempty"`
+	LastNotificationTime time.Time                     `json:"lastNotificationTime,omitempty"`
+}
+
+// LightingVerificationFailure records a single scene verification failure for shadow state.
+type LightingVerificationFailure struct {
+	RoomName      string    `json:"roomName"`
+	SceneName     string    `json:"sceneName"`
+	FailureReason string    `json:"failureReason,omitempty"`
+	Timestamp     time.Time `json:"timestamp"`
 }
 
 // RoomState represents the state of a single room
