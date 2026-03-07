@@ -497,6 +497,33 @@ func (m *Manager) SetBool(key string, value bool) error {
 	return nil
 }
 
+// ForceNotifyBool re-notifies subscribers of a boolean state variable's current value,
+// even if the value hasn't changed. This is useful when external systems (e.g., Hue
+// entertainment areas) may have overridden physical state without changing the logical
+// state variable, and downstream plugins need to re-apply their actions.
+func (m *Manager) ForceNotifyBool(key string) error {
+	variable, ok := m.variables[key]
+	if !ok {
+		return fmt.Errorf("variable %s not found", key)
+	}
+
+	if variable.Type != TypeBool {
+		return fmt.Errorf("variable %s is not a boolean", key)
+	}
+
+	m.cacheMu.RLock()
+	value, ok := m.cache[key]
+	m.cacheMu.RUnlock()
+
+	if !ok {
+		return fmt.Errorf("variable %s has no cached value", key)
+	}
+
+	// Notify subscribers with old=new to trigger re-evaluation
+	m.notifySubscribers(key, value, value)
+	return nil
+}
+
 // GetString retrieves a string state variable
 func (m *Manager) GetString(key string) (string, error) {
 	variable, ok := m.variables[key]

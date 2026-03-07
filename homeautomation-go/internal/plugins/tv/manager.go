@@ -336,6 +336,9 @@ func (m *Manager) handleSyncBoxPowerChange(entityID string, oldState, newState *
 		return
 	}
 
+	// Detect recovery from unavailable — the entertainment area may have overridden light states
+	recoveredFromUnavailable := oldState != nil && oldState.State == "unavailable"
+
 	// Sync box is available
 	m.shadowTracker.UpdateSyncBoxAvailable(true)
 
@@ -345,7 +348,8 @@ func (m *Manager) handleSyncBoxPowerChange(entityID string, oldState, newState *
 	m.logger.Debug("Sync box power state changed",
 		zap.String("entity_id", entityID),
 		zap.String("new_state", newState.State),
-		zap.Bool("is_tv_on", isTVOn))
+		zap.Bool("is_tv_on", isTVOn),
+		zap.Bool("recovered_from_unavailable", recoveredFromUnavailable))
 
 	// Update isTVon state variable
 	if err := m.stateManager.SetBool("isTVon", isTVOn); err != nil {
@@ -387,6 +391,17 @@ func (m *Manager) handleSyncBoxPowerChange(entityID string, oldState, newState *
 		}
 		if hdmiInputState != nil {
 			m.calculateTVPlaying(hdmiInputState.State)
+		}
+	}
+
+	// After sync box recovery, the Hue entertainment area reconnects and can override
+	// light states. Force-notify isTVPlaying so the lighting plugin re-applies the
+	// correct scene, even if the value hasn't changed.
+	if recoveredFromUnavailable {
+		m.logger.Info("Sync box recovered from unavailable, force-notifying isTVPlaying to restore lighting",
+			zap.Bool("is_tv_on", isTVOn))
+		if err := m.stateManager.ForceNotifyBool("isTVPlaying"); err != nil {
+			m.logger.Error("Failed to force-notify isTVPlaying after recovery", zap.Error(err))
 		}
 	}
 }
