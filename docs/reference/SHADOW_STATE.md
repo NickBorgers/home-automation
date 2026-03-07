@@ -158,7 +158,7 @@ Each plugin type has a dedicated tracker in `internal/shadowstate/tracker.go`:
 
 | Plugin | Tracker | Key Outputs |
 |--------|---------|-------------|
-| Lighting | `LightingTracker` | Room states, active scenes |
+| Lighting | `LightingTracker` | Room states, active scenes, bridge monitor (bridgeStale, consecutiveFailures, recentFailures) |
 | Security | `SecurityTracker` | Lockdown state, doorbell events |
 | LoadShedding | `LoadSheddingTracker` | Active state, thermostat settings |
 | SleepHygiene | `SleepHygieneTracker` | Wake sequence, fade-out progress |
@@ -202,6 +202,7 @@ tracker.UpdateRemainingSolarKWH(kwh)
 
 // Lighting tracker
 tracker.RecordRoomAction(roomName, actionType, reason, activeScene, turnedOff)
+tracker.SetBridgeMonitor(&shadowstate.LightingBridgeMonitor{...})
 
 // Security tracker
 tracker.RecordLockdownAction(active, reason)

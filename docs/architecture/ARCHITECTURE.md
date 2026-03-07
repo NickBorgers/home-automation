@@ -308,6 +308,12 @@ Each plugin corresponds to a Node-RED flow and implements domain-specific automa
 - **Day Phase Scenes**: When `dayPhase` changes → Apply scene to each room
 - **TV Brightness**: Dim TV area when TV playing
 
+**Bridge Verification:**
+- After each scene activation, asynchronously verifies the Hue bridge applied the change by reading back light brightness
+- Detects stale bridges when 2+ distinct rooms fail verification within a 30-minute window
+- Sends mobile notification (with 1-hour cooldown) when bridge appears stale and needs power cycling
+- Each room in `hue_config.yaml` specifies a `light_entity_id` used for verification
+
 **Events Consumed:** `state.dayPhase.changed`, `state.sunevent.changed`, `state.isAnyoneHome.changed`, `state.isTVPlaying.changed`
 
 **Config File:** `hue_config.yaml`

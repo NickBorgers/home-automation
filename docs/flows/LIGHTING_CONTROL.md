@@ -261,6 +261,45 @@ flowchart TD
     style porchOn fill:#27ae60,color:#fff
 ```
 
+## Bridge Verification Flow
+
+After each scene activation, the lighting plugin asynchronously verifies the Hue bridge actually applied the change. This detects stale bridges that need power cycling.
+
+```mermaid
+flowchart TD
+    activate["Scene activated<br/>(scene.turn_on sent to HA)"] --> hasEntity{Room has<br/>light_entity_id?}
+    hasEntity -->|No| skip([Skip verification])
+    hasEntity -->|Yes| readBefore["Read brightness BEFORE<br/>from light_entity_id"]
+
+    readBefore --> wait["Wait 15 seconds<br/>(bridge processing + HA poll)"]
+    wait --> readAfter["Read brightness AFTER"]
+    readAfter --> delta{Brightness delta<br/>>= 10?}
+
+    delta -->|Yes| success["Verification passed"]
+    delta -->|No| recordFail["Record room failure"]
+
+    recordFail --> countRooms{"2+ distinct rooms<br/>failed in 30 min?"}
+    countRooms -->|No| updateShadow["Update shadow state"]
+    countRooms -->|Yes| notify["Send mobile notification:<br/>Hue bridge may need<br/>power cycle"]
+    notify --> markStale["Set bridgeStale = true"]
+    markStale --> updateShadow
+
+    success --> updateShadow
+    updateShadow --> done([Done])
+
+    style activate fill:#e1f5ff
+    style success fill:#c8e6c9
+    style recordFail fill:#ffebee
+    style notify fill:#e74c3c,color:#fff
+    style markStale fill:#e74c3c,color:#fff
+```
+
+**Key design decisions:**
+- Verification runs **asynchronously** after scene activation returns
+- Only rooms with `light_entity_id` configured in `hue_config.yaml` are verified
+- Failures age out after 30 minutes to avoid false positives from transient issues
+- Notifications have a 1-hour cooldown to prevent spam
+
 ## Related Documentation
 
 - [DAY_PHASE_MODES.md](./DAY_PHASE_MODES.md) - Day phase calculation and schedule configuration

@@ -413,7 +413,7 @@ graph TB
     end
 
     subgraph "Plugin Shadow States"
-        LightingShadow[LightingShadowState<br/>- Inputs: current, atLastAction<br/>- Outputs: rooms, scenes<br/>- Metadata]
+        LightingShadow[LightingShadowState<br/>- Inputs: current, atLastAction<br/>- Outputs: rooms, scenes,<br/>bridgeMonitor<br/>- Metadata]
 
         MusicShadow[MusicShadowState<br/>- Inputs: current, atLastAction<br/>- Outputs: mode, playlist, speakers<br/>- Metadata]
 
