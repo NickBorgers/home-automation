@@ -36,7 +36,7 @@ func TestLoadShedding_EnergyStateRed(t *testing.T) {
 
 	// Verify service calls
 	calls := env.MockHA.GetServiceCalls()
-	assert.GreaterOrEqual(t, len(calls), 3, "Expected at least 3 service calls (thermostat hold, temp range, EV charger)")
+	assert.GreaterOrEqual(t, len(calls), 4, "Expected at least 4 service calls (thermostat hold, temp range, EV charger, dehumidifier)")
 
 	// Check for switch.turn_on call (thermostat holds)
 	call := testutil.AssertServiceCall(t, calls, "switch", "turn_on")
@@ -57,6 +57,10 @@ func TestLoadShedding_EnergyStateRed(t *testing.T) {
 	// Check for switch.turn_off call (EV charger)
 	evCall := testutil.FindServiceCallWithEntity(calls, "switch", "turn_off", evChargerSwitch)
 	assert.NotNil(t, evCall, "Expected switch.turn_off service call for EV charger")
+
+	// Check for switch.turn_off call (dehumidifier)
+	dehumCall := testutil.FindServiceCallWithEntity(calls, "switch", "turn_off", dehumidifierSwitch)
+	assert.NotNil(t, dehumCall, "Expected switch.turn_off service call for dehumidifier")
 }
 
 func TestLoadShedding_EnergyStateBlack(t *testing.T) {
@@ -74,13 +78,17 @@ func TestLoadShedding_EnergyStateBlack(t *testing.T) {
 
 	// Verify service calls (should be same as red)
 	calls := env.MockHA.GetServiceCalls()
-	assert.GreaterOrEqual(t, len(calls), 3, "Expected at least 3 service calls (thermostat hold, temp range, EV charger)")
+	assert.GreaterOrEqual(t, len(calls), 4, "Expected at least 4 service calls (thermostat hold, temp range, EV charger, dehumidifier)")
 
 	testutil.AssertServiceCall(t, calls, "switch", "turn_on")
 
 	// Check for switch.turn_off call (EV charger)
 	evCall := testutil.FindServiceCallWithEntity(calls, "switch", "turn_off", evChargerSwitch)
 	assert.NotNil(t, evCall, "Expected switch.turn_off service call for EV charger")
+
+	// Check for switch.turn_off call (dehumidifier)
+	dehumCall := testutil.FindServiceCallWithEntity(calls, "switch", "turn_off", dehumidifierSwitch)
+	assert.NotNil(t, dehumCall, "Expected switch.turn_off service call for dehumidifier")
 }
 
 func TestLoadShedding_EnergyStateGreen(t *testing.T) {
@@ -108,7 +116,7 @@ func TestLoadShedding_EnergyStateGreen(t *testing.T) {
 
 	// Verify service calls
 	calls := env.MockHA.GetServiceCalls()
-	assert.GreaterOrEqual(t, len(calls), 2, "Expected at least 2 service calls (thermostat hold off, EV charger on)")
+	assert.GreaterOrEqual(t, len(calls), 3, "Expected at least 3 service calls (thermostat hold off, EV charger on, dehumidifier on)")
 
 	// Check for switch.turn_off call (thermostat holds)
 	foundThermostatOff := false
@@ -127,6 +135,10 @@ func TestLoadShedding_EnergyStateGreen(t *testing.T) {
 	// Check for switch.turn_on call (EV charger)
 	evCall := testutil.FindServiceCallWithEntity(calls, "switch", "turn_on", evChargerSwitch)
 	assert.NotNil(t, evCall, "Expected switch.turn_on service call for EV charger")
+
+	// Check for switch.turn_on call (dehumidifier)
+	dehumCall := testutil.FindServiceCallWithEntity(calls, "switch", "turn_on", dehumidifierSwitch)
+	assert.NotNil(t, dehumCall, "Expected switch.turn_on service call for dehumidifier")
 }
 
 func TestLoadShedding_EnergyStateWhite(t *testing.T) {
@@ -154,7 +166,7 @@ func TestLoadShedding_EnergyStateWhite(t *testing.T) {
 
 	// Verify service calls (should be same as green)
 	calls := env.MockHA.GetServiceCalls()
-	assert.GreaterOrEqual(t, len(calls), 2, "Expected at least 2 service calls (thermostat hold off, EV charger on)")
+	assert.GreaterOrEqual(t, len(calls), 3, "Expected at least 3 service calls (thermostat hold off, EV charger on, dehumidifier on)")
 
 	foundThermostatOff := false
 	for _, call := range calls {
@@ -170,6 +182,10 @@ func TestLoadShedding_EnergyStateWhite(t *testing.T) {
 	// Check for switch.turn_on call (EV charger)
 	evCall := testutil.FindServiceCallWithEntity(calls, "switch", "turn_on", evChargerSwitch)
 	assert.NotNil(t, evCall, "Expected switch.turn_on service call for EV charger")
+
+	// Check for switch.turn_on call (dehumidifier)
+	dehumCall := testutil.FindServiceCallWithEntity(calls, "switch", "turn_on", dehumidifierSwitch)
+	assert.NotNil(t, dehumCall, "Expected switch.turn_on service call for dehumidifier")
 }
 
 func TestLoadShedding_RateLimiting(t *testing.T) {
@@ -365,6 +381,11 @@ func TestLoadShedding_DeferredActionAfterRateLimit(t *testing.T) {
 	evCall := testutil.FindServiceCallWithEntity(calls, "switch", "turn_on", evChargerSwitch)
 	assert.NotNil(t, evCall,
 		"Deferred action should execute switch.turn_on for EV charger after rate limit expires")
+
+	// Verify dehumidifier was turned on in deferred action
+	dehumCall := testutil.FindServiceCallWithEntity(calls, "switch", "turn_on", dehumidifierSwitch)
+	assert.NotNil(t, dehumCall,
+		"Deferred action should execute switch.turn_on for dehumidifier after rate limit expires")
 
 	// Verify load shedding state is now disabled
 	assert.False(t, ls.IsLoadSheddingOn(), "Load shedding should be disabled after deferred action")
