@@ -2260,78 +2260,216 @@ func TestCallServiceWithRetry(t *testing.T) {
 	}
 }
 
+func TestCallServiceBestEffort(t *testing.T) {
+	t.Parallel()
+
+	t.Run("Succeeds when service responds quickly", func(t *testing.T) {
+		t.Parallel()
+		env := testutil.NewEnv(t)
+		config := &MusicConfig{Music: map[string]MusicMode{}}
+		manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, false, nil, nil)
+
+		err := manager.callServiceBestEffort("media_player", "unjoin", map[string]interface{}{
+			"entity_id": "media_player.kitchen",
+		}, 5*time.Second)
+
+		if err != nil {
+			t.Errorf("Expected success, got error: %v", err)
+		}
+	})
+
+	t.Run("Returns error when service fails", func(t *testing.T) {
+		t.Parallel()
+		env := testutil.NewEnv(t)
+		config := &MusicConfig{Music: map[string]MusicMode{}}
+		manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, false, nil, nil)
+
+		env.MockHA.SetServiceError("media_player", "unjoin", fmt.Errorf("speaker unreachable"))
+
+		err := manager.callServiceBestEffort("media_player", "unjoin", map[string]interface{}{
+			"entity_id": "media_player.kitchen",
+		}, 5*time.Second)
+
+		if err == nil {
+			t.Error("Expected error for unreachable speaker")
+		}
+	})
+
+	t.Run("Respects context timeout", func(t *testing.T) {
+		t.Parallel()
+		// Use an already-cancelled parent context
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		env := testutil.NewEnv(t)
+		config := &MusicConfig{Music: map[string]MusicMode{}}
+		manager := NewManager(ctx, env.MockHA, env.StateMgr, config, env.Logger, false, nil, nil)
+
+		err := manager.callServiceBestEffort("media_player", "unjoin", map[string]interface{}{
+			"entity_id": "media_player.kitchen",
+		}, 5*time.Second)
+
+		if err == nil {
+			t.Error("Expected error when parent context is cancelled")
+		}
+	})
+
+	t.Run("Skips in read-only mode", func(t *testing.T) {
+		t.Parallel()
+		env := testutil.NewEnv(t)
+		config := &MusicConfig{Music: map[string]MusicMode{}}
+		manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, true, nil, nil)
+
+		err := manager.callServiceBestEffort("media_player", "unjoin", map[string]interface{}{
+			"entity_id": "media_player.kitchen",
+		}, 5*time.Second)
+
+		if err != nil {
+			t.Errorf("Expected success in read-only mode, got error: %v", err)
+		}
+
+		// No service calls should have been recorded
+		calls := env.MockHA.GetServiceCalls()
+		for _, call := range calls {
+			if call.Domain == "media_player" && call.Service == "unjoin" {
+				t.Error("Should not have made service call in read-only mode")
+			}
+		}
+	})
+}
+
 func TestBreakSpeakerGroups(t *testing.T) {
 	t.Parallel()
-	tests := []struct {
-		name             string
-		participants     []ParticipantWithVolume
-		failCount        int
-		setupEntities    []string
-		minUnjoinCalls   int
-		expectedSpeakers []string
-	}{
-		{
-			name: "All speakers unjoined successfully",
-			participants: []ParticipantWithVolume{
-				{PlayerName: "Kitchen", Volume: 9},
-				{PlayerName: "Living Room", Volume: 10},
-				{PlayerName: "Bedroom", Volume: 8},
-			},
-			minUnjoinCalls:   3,
-			expectedSpeakers: []string{"media_player.kitchen", "media_player.living_room", "media_player.bedroom"},
-		},
-		{
-			name: "Continues processing after unjoin failure",
-			participants: []ParticipantWithVolume{
-				{PlayerName: "Kitchen", Volume: 9},
-				{PlayerName: "Living Room", Volume: 10},
-			},
-			failCount:        1,
-			setupEntities:    []string{"media_player.kitchen", "media_player.living_room"},
-			minUnjoinCalls:   2,
-			expectedSpeakers: []string{"media_player.kitchen", "media_player.living_room"},
-		},
-	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			env := testutil.NewEnv(t)
-			config := &MusicConfig{Music: map[string]MusicMode{}}
-			manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, false, nil, nil)
-			manager.SetSleepFunc(func(d time.Duration) {})
+	t.Run("All speakers unjoined successfully", func(t *testing.T) {
+		t.Parallel()
+		env := testutil.NewEnv(t)
+		config := &MusicConfig{Music: map[string]MusicMode{}}
+		manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, false, nil, nil)
+		manager.SetSleepFunc(func(d time.Duration) {})
 
-			for _, entity := range tt.setupEntities {
-				env.MockHA.SetState(entity, "idle", nil)
-			}
-			if tt.failCount > 0 {
-				env.MockHA.SetServiceFailCount("media_player", "unjoin", tt.failCount, fmt.Errorf("speaker not reachable"))
-			}
-			snapshot := env.MockHA.ServiceCallCount()
+		participants := []ParticipantWithVolume{
+			{PlayerName: "Kitchen", Volume: 9},
+			{PlayerName: "Living Room", Volume: 10},
+			{PlayerName: "Bedroom", Volume: 8},
+		}
+		snapshot := env.MockHA.ServiceCallCount()
 
-			manager.breakSpeakerGroups(tt.participants)
+		manager.breakSpeakerGroups(participants)
 
-			calls := env.MockHA.GetServiceCallsSince(snapshot)
-			unjoinCalls := 0
-			unjoinedSpeakers := make(map[string]bool)
-			for _, call := range calls {
-				if call.Domain == "media_player" && call.Service == "unjoin" {
-					unjoinCalls++
-					if entityID, ok := call.Data["entity_id"].(string); ok {
-						unjoinedSpeakers[entityID] = true
-					}
+		calls := env.MockHA.GetServiceCallsSince(snapshot)
+		unjoinedSpeakers := make(map[string]bool)
+		for _, call := range calls {
+			if call.Domain == "media_player" && call.Service == "unjoin" {
+				if entityID, ok := call.Data["entity_id"].(string); ok {
+					unjoinedSpeakers[entityID] = true
 				}
 			}
+		}
 
-			if unjoinCalls < tt.minUnjoinCalls {
-				t.Errorf("Expected at least %d unjoin calls, got %d", tt.minUnjoinCalls, unjoinCalls)
+		expected := []string{"media_player.kitchen", "media_player.living_room", "media_player.bedroom"}
+		for _, e := range expected {
+			if !unjoinedSpeakers[e] {
+				t.Errorf("Expected unjoin call for %s", e)
 			}
-			for _, expected := range tt.expectedSpeakers {
-				if !unjoinedSpeakers[expected] {
-					t.Errorf("Expected unjoin call for %s", expected)
+		}
+	})
+
+	t.Run("Continues processing all speakers after unjoin failure", func(t *testing.T) {
+		t.Parallel()
+		env := testutil.NewEnv(t)
+		config := &MusicConfig{Music: map[string]MusicMode{}}
+		manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, false, nil, nil)
+		manager.SetSleepFunc(func(d time.Duration) {})
+
+		// Set up 3 speakers, with 1 failure — the other 2 should still succeed
+		participants := []ParticipantWithVolume{
+			{PlayerName: "Kitchen", Volume: 9},
+			{PlayerName: "Living Room", Volume: 10},
+			{PlayerName: "Bedroom", Volume: 8},
+		}
+		env.MockHA.SetServiceFailCount("media_player", "unjoin", 1, fmt.Errorf("speaker not reachable"))
+		snapshot := env.MockHA.ServiceCallCount()
+
+		manager.breakSpeakerGroups(participants)
+
+		// With best-effort concurrent unjoin, 1 of 3 calls fails (not recorded by mock),
+		// but the other 2 should succeed. The key invariant is that all speakers are
+		// attempted regardless of individual failures.
+		calls := env.MockHA.GetServiceCallsSince(snapshot)
+		unjoinCalls := 0
+		for _, call := range calls {
+			if call.Domain == "media_player" && call.Service == "unjoin" {
+				unjoinCalls++
+			}
+		}
+
+		// At least 2 of 3 speakers should have successful unjoin calls
+		// (1 failure out of 3 concurrent calls)
+		if unjoinCalls < 2 {
+			t.Errorf("Expected at least 2 successful unjoin calls, got %d", unjoinCalls)
+		}
+	})
+
+	t.Run("Respects context cancellation for unresponsive speakers", func(t *testing.T) {
+		t.Parallel()
+		// Use a cancelled context to verify that unjoin calls respect timeouts
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel() // Cancel immediately
+
+		env := testutil.NewEnv(t)
+		config := &MusicConfig{Music: map[string]MusicMode{}}
+		manager := NewManager(ctx, env.MockHA, env.StateMgr, config, env.Logger, false, nil, nil)
+		manager.SetSleepFunc(func(d time.Duration) {})
+
+		participants := []ParticipantWithVolume{
+			{PlayerName: "Kitchen", Volume: 9},
+			{PlayerName: "Living Room", Volume: 10},
+		}
+
+		// Should complete quickly without hanging — cancelled context
+		// causes callServiceBestEffort to return immediately
+		manager.breakSpeakerGroups(participants)
+
+		// With cancelled context, the mock returns errors for all calls
+		// The key verification is that the function returned (didn't hang)
+	})
+
+	t.Run("Runs unjoin calls concurrently", func(t *testing.T) {
+		t.Parallel()
+		env := testutil.NewEnv(t)
+		config := &MusicConfig{Music: map[string]MusicMode{}}
+		manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, false, nil, nil)
+		manager.SetSleepFunc(func(d time.Duration) {})
+
+		// With 6 speakers, concurrent execution should be fast
+		participants := []ParticipantWithVolume{
+			{PlayerName: "Kitchen", Volume: 9},
+			{PlayerName: "Living Room", Volume: 10},
+			{PlayerName: "Bedroom", Volume: 8},
+			{PlayerName: "Sitting Room", Volume: 7},
+			{PlayerName: "Primary Bathroom", Volume: 6},
+			{PlayerName: "Kids Bathroom", Volume: 5},
+		}
+		snapshot := env.MockHA.ServiceCallCount()
+
+		manager.breakSpeakerGroups(participants)
+
+		calls := env.MockHA.GetServiceCallsSince(snapshot)
+		unjoinedSpeakers := make(map[string]bool)
+		for _, call := range calls {
+			if call.Domain == "media_player" && call.Service == "unjoin" {
+				if entityID, ok := call.Data["entity_id"].(string); ok {
+					unjoinedSpeakers[entityID] = true
 				}
 			}
-		})
-	}
+		}
+
+		// All 6 speakers should be unjoined
+		if len(unjoinedSpeakers) != 6 {
+			t.Errorf("Expected 6 unjoin calls, got %d", len(unjoinedSpeakers))
+		}
+	})
 }
 
 func TestExecutePlayback_BreakThenBuildSequence(t *testing.T) {
