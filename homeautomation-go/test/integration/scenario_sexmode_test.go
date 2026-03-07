@@ -276,8 +276,14 @@ func TestScenario_SexModeDeactivation_ActivatesDayPhaseScene(t *testing.T) {
 	// Activate sex mode
 	server.SetState("input_boolean.sex", "on", nil)
 	waitForStringState(t, stateManager, "musicPlaybackType", "sex", "sex mode should activate")
-	// Wait for activation handler to fully complete (night scene is called before isActive is set)
+	// Wait for activation handler to fully complete (night scene + Eight Sleep calls)
 	waitForServiceCallWithEntity(t, server, "scene", "turn_on", "scene.primary_suite_night", "activation should complete with night scene")
+	// Wait for all Eight Sleep climate calls to complete (these happen asynchronously)
+	assert.Eventually(t, func() bool {
+		allCalls := server.GetServiceCalls()
+		eightSleepCalls := FilterServiceCalls(allCalls, "climate", "set_temperature")
+		return len(eightSleepCalls) >= 2
+	}, stateWaitTimeout, statePollInterval, "Both Eight Sleep beds should be adjusted during activation")
 
 	snapshot := server.ServiceCallCount()
 
@@ -372,8 +378,14 @@ func TestScenario_SexModeDeactivation_DifferentDayPhases(t *testing.T) {
 			// Activate sex mode
 			server.SetState("input_boolean.sex", "on", nil)
 			waitForStringState(t, stateManager, "musicPlaybackType", "sex", "sex mode should activate")
-			// Wait for activation handler to fully complete (night scene is called before isActive is set)
+			// Wait for activation handler to fully complete (night scene + Eight Sleep calls)
 			waitForServiceCallWithEntity(t, server, "scene", "turn_on", "scene.primary_suite_night", "activation should complete with night scene")
+			// Wait for all Eight Sleep climate calls to complete (these happen asynchronously)
+			assert.Eventually(t, func() bool {
+				allCalls := server.GetServiceCalls()
+				eightSleepCalls := FilterServiceCalls(allCalls, "climate", "set_temperature")
+				return len(eightSleepCalls) >= 2
+			}, stateWaitTimeout, statePollInterval, "Both Eight Sleep beds should be adjusted during activation")
 
 			snapshot := server.ServiceCallCount()
 
