@@ -34,6 +34,9 @@ const (
 	// EV Charger entity
 	evChargerSwitch = "switch.leaf_charger"
 
+	// Dehumidifier entity
+	dehumidifierSwitch = "switch.dehumidifier_power_control"
+
 	// Temperature ranges
 	tempLowRestricted  = 65.0
 	tempHighRestricted = 80.0
@@ -341,11 +344,12 @@ func (m *Manager) executeEnableLoadShedding(energyLevel string, trigger string) 
 	}
 
 	if m.readOnly {
-		m.logger.Info("READ-ONLY: Would enable thermostat hold mode and turn off EV charger",
+		m.logger.Info("READ-ONLY: Would enable thermostat hold mode, turn off EV charger, and turn off dehumidifier",
 			zap.Strings("thermostat_entities", []string{thermostatHoldHouse, thermostatHoldSuite}),
-			zap.String("ev_charger_entity", evChargerSwitch))
+			zap.String("ev_charger_entity", evChargerSwitch),
+			zap.String("dehumidifier_entity", dehumidifierSwitch))
 		// Record shadow state even in read-only mode for consistency
-		reason := fmt.Sprintf("Energy state is %s (low battery) - would restrict HVAC and disable EV charger", energyLevel)
+		reason := fmt.Sprintf("Energy state is %s (low battery) - would restrict HVAC, disable EV charger, and disable dehumidifier", energyLevel)
 		m.recordAction(true, "enable", reason, true, tempLowRestricted, tempHighRestricted, trigger)
 		return
 	}
@@ -395,8 +399,21 @@ func (m *Manager) executeEnableLoadShedding(energyLevel string, trigger string) 
 		m.logger.Info("✓ Successfully turned off EV charger")
 	}
 
+	// Turn off dehumidifier to reduce load
+	m.logger.Info("Executing: Turn off dehumidifier",
+		zap.String("entity", dehumidifierSwitch))
+
+	if err := m.haClient.CallService(m.ctx, "switch", "turn_off", map[string]interface{}{
+		"entity_id": dehumidifierSwitch,
+	}); err != nil {
+		m.logger.Error("Failed to turn off dehumidifier", zap.Error(err))
+		// Continue - previous controls already succeeded
+	} else {
+		m.logger.Info("✓ Successfully turned off dehumidifier")
+	}
+
 	m.logger.Info("=== LOAD SHEDDING ACTIVATED ===",
-		zap.String("action", "HVAC restricted and EV charger disabled to conserve battery"))
+		zap.String("action", "HVAC restricted, EV charger disabled, and dehumidifier disabled to conserve battery"))
 
 	// Update state tracking and last action time
 	m.stateMu.Lock()
@@ -472,11 +489,12 @@ func (m *Manager) executeDisableLoadShedding(energyLevel string, trigger string)
 	}
 
 	if m.readOnly {
-		m.logger.Info("READ-ONLY: Would disable thermostat hold mode and turn on EV charger (restore schedule)",
+		m.logger.Info("READ-ONLY: Would disable thermostat hold mode, turn on EV charger, and turn on dehumidifier (restore schedule)",
 			zap.Strings("thermostat_entities", []string{thermostatHoldHouse, thermostatHoldSuite}),
-			zap.String("ev_charger_entity", evChargerSwitch))
+			zap.String("ev_charger_entity", evChargerSwitch),
+			zap.String("dehumidifier_entity", dehumidifierSwitch))
 		// Record shadow state even in read-only mode for consistency
-		reason := fmt.Sprintf("Energy state is %s (battery restored) - would return to normal HVAC and re-enable EV charger", energyLevel)
+		reason := fmt.Sprintf("Energy state is %s (battery restored) - would return to normal HVAC, re-enable EV charger, and re-enable dehumidifier", energyLevel)
 		m.recordAction(false, "disable", reason, false, 0, 0, trigger)
 		return
 	}
@@ -508,8 +526,21 @@ func (m *Manager) executeDisableLoadShedding(energyLevel string, trigger string)
 		m.logger.Info("✓ Successfully turned on EV charger")
 	}
 
+	// Turn on dehumidifier (restore normal operation)
+	m.logger.Info("Executing: Turn on dehumidifier",
+		zap.String("entity", dehumidifierSwitch))
+
+	if err := m.haClient.CallService(m.ctx, "switch", "turn_on", map[string]interface{}{
+		"entity_id": dehumidifierSwitch,
+	}); err != nil {
+		m.logger.Error("Failed to turn on dehumidifier", zap.Error(err))
+		// Continue - previous controls already succeeded
+	} else {
+		m.logger.Info("✓ Successfully turned on dehumidifier")
+	}
+
 	m.logger.Info("=== LOAD SHEDDING DEACTIVATED ===",
-		zap.String("action", "HVAC returned to normal schedule and EV charger re-enabled"))
+		zap.String("action", "HVAC returned to normal schedule, EV charger re-enabled, and dehumidifier re-enabled"))
 
 	// Update state tracking and last action time
 	m.stateMu.Lock()
