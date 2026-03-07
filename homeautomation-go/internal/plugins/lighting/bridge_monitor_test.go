@@ -41,14 +41,12 @@ func TestBridgeMonitor_VerifySceneActivation_BrightnessChanged(t *testing.T) {
 
 	// Use a state sequence: first call returns 30 (before), second returns 200 (after)
 	// Since SetState already set it, we need to update it to simulate the change
-	// We'll use a goroutine-safe approach: change the state after the "sleep"
-	sleepCalled := make(chan struct{}, 1)
+	// We change the state inside the sleep func to simulate the bridge responding.
 	bm.sleepFunc = func(_ context.Context, _ time.Duration) error {
 		// After "sleeping", update the mock state to simulate bridge response
 		mock.SetState("light.living_room", "on", map[string]interface{}{
 			"brightness": float64(200),
 		})
-		sleepCalled <- struct{}{}
 		return nil
 	}
 

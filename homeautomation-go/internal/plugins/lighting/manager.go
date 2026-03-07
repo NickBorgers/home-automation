@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"time"
 
 	"homeautomation/internal/ha"
 	"homeautomation/internal/shadowstate"
@@ -631,4 +632,9 @@ func (m *Manager) recordAction(roomName string, actionType string, reason string
 // GetShadowState returns the current shadow state
 func (m *Manager) GetShadowState() *shadowstate.LightingShadowState {
 	return m.shadowTracker.GetState()
+}
+
+// SetBridgeMonitorSleepFunc overrides the bridge monitor's sleep function. Only for testing.
+func (m *Manager) SetBridgeMonitorSleepFunc(fn func(ctx context.Context, d time.Duration) error) {
+	m.bridgeMonitor.sleepFunc = fn
 }
