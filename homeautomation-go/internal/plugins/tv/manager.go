@@ -45,7 +45,7 @@ const (
 	SyncBoxLightSyncEntity = "switch.sync_box_light_sync"
 
 	// Entity ID for the TV remote (actual TV power state)
-	TVRemoteEntity = "remote.big_beautiful_oled"
+	TVRemoteEntity = "media_player.sony_xr_65a80k"
 
 	// LightSyncOffDebounce is how long to wait before turning off light sync
 	// after Apple TV reports "paused". Prevents flapping due to Apple TV
@@ -89,7 +89,7 @@ type Manager struct {
 
 	// TV remote (panel power) state — tracked locally to avoid HA GetState races
 	tvRemoteMu sync.RWMutex
-	tvRemoteOn bool // last-known state of remote.big_beautiful_oled
+	tvRemoteOn bool // last-known state of media_player.sony_xr_65a80k
 
 	// Light sync debounce state
 	lightSyncOffMu       sync.Mutex
@@ -258,20 +258,23 @@ func (m *Manager) handleAppleTVStateChange(entityID string, oldState, newState *
 	m.shadowTracker.UpdateAppleTVState(isPlaying, newState.State)
 }
 
-// handleTVRemoteChange processes remote.big_beautiful_oled state changes (TV panel power).
-// The TV remote acts as a kill switch: when the TV panel turns off, light sync is forced off.
+// handleTVRemoteChange processes media_player.sony_xr_65a80k state changes (TV panel power).
+// The TV media_player acts as a kill switch: when the TV panel turns off, light sync is forced off.
 // TV turning on does NOT trigger light sync — that's driven by sync box state changes.
 func (m *Manager) handleTVRemoteChange(entityID string, oldState, newState *ha.State) {
 	if newState == nil {
 		return
 	}
 
-	isOn := newState.State == "on"
+	// media_player entities use states like "on", "playing", "paused", "idle", "standby", "off", "unavailable"
+	// The TV is considered on when state is anything other than "off", "standby", "unavailable", or "unknown"
+	// For Sony Bravia, "standby" means the TV screen is off (low power mode)
+	isOn := newState.State != "off" && newState.State != "standby" && newState.State != "unavailable" && newState.State != "unknown"
 	m.tvRemoteMu.Lock()
 	m.tvRemoteOn = isOn
 	m.tvRemoteMu.Unlock()
 
-	m.logger.Debug("TV remote state changed",
+	m.logger.Debug("TV media_player state changed",
 		zap.String("entity_id", entityID),
 		zap.String("new_state", newState.State),
 		zap.Bool("is_on", isOn))
@@ -279,7 +282,7 @@ func (m *Manager) handleTVRemoteChange(entityID string, oldState, newState *ha.S
 	// Only act when TV turns off — force isTVPlaying=false and light sync off.
 	// TV turning on is intentionally ignored: the sync box state drives light sync enablement,
 	// not the TV panel (which may just be showing a screensaver).
-	if newState.State != "on" {
+	if !isOn {
 		m.logger.Info("TV panel turned off, forcing isTVPlaying=false and light sync off",
 			zap.String("tv_state", newState.State))
 
@@ -867,7 +870,7 @@ func (m *Manager) ensurePhysicalPowerOn() {
 
 // checkBraviaStaleness detects when the Bravia TV integration has become stale.
 // This happens when the sync box indicates the TV should be on (it's powered on with an active
-// HDMI input), but remote.big_beautiful_oled reports "off". This mismatch means the
+// HDMI input), but media_player.sony_xr_65a80k reports "off". This mismatch means the
 // Bravia integration needs to be reloaded.
 func (m *Manager) checkBraviaStaleness(trigger string) {
 	// Check if sync box is on

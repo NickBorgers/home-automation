@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"net/http"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -1374,17 +1375,33 @@ func (c *Client) GetEntityRegistry() ([]*EntityRegistryEntry, error) {
 }
 
 // ReloadConfigEntry reloads a Home Assistant config entry by its entry ID.
-// This sends a config_entries/reload WebSocket command which is equivalent to
-// POST /api/config/config_entries/entry/{entry_id}/reload.
+// Uses the REST API (POST /api/config/config_entries/entry/{entry_id}/reload)
+// because the WebSocket config_entries/reload command is not supported in all HA versions.
 func (c *Client) ReloadConfigEntry(ctx context.Context, entryID string) error {
-	req := &ConfigEntryReloadRequest{
-		Type:    "config_entries/reload",
-		EntryID: entryID,
-	}
+	// Derive REST API base URL from WebSocket URL
+	// wss://host/api/websocket -> https://host
+	// ws://host/api/websocket -> http://host
+	restBase := c.url
+	restBase = strings.Replace(restBase, "wss://", "https://", 1)
+	restBase = strings.Replace(restBase, "ws://", "http://", 1)
+	restBase = strings.TrimSuffix(restBase, "/api/websocket")
 
-	_, err := c.sendMessage(req)
+	endpoint := fmt.Sprintf("%s/api/config/config_entries/entry/%s/reload", restBase, entryID)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create reload request for entry %s: %w", entryID, err)
+	}
+	req.Header.Set("Authorization", "Bearer "+c.token)
+
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("failed to reload config entry %s: %w", entryID, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("failed to reload config entry %s: HTTP %d", entryID, resp.StatusCode)
 	}
 
 	return nil

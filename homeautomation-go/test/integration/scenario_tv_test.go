@@ -47,7 +47,7 @@ func TestScenario_AppleTVPlaying(t *testing.T) {
 	server.SetState("media_player.big_beautiful_oled", "idle", map[string]interface{}{
 		"friendly_name": "Apple TV",
 	})
-	server.SetState("remote.big_beautiful_oled", "on", map[string]interface{}{})
+	server.SetState("media_player.sony_xr_65a80k", "on", map[string]interface{}{})
 	server.SetState("switch.sync_box_power", "on", map[string]interface{}{})
 	server.SetState("select.sync_box_hdmi_input", "AppleTV", map[string]interface{}{})
 
@@ -81,7 +81,7 @@ func TestScenario_HDMIInputSwitch(t *testing.T) {
 	server.SetState("media_player.big_beautiful_oled", "playing", map[string]interface{}{
 		"friendly_name": "Apple TV",
 	})
-	server.SetState("remote.big_beautiful_oled", "on", map[string]interface{}{})
+	server.SetState("media_player.sony_xr_65a80k", "on", map[string]interface{}{})
 	server.SetState("switch.sync_box_power", "on", map[string]interface{}{})
 	server.SetState("select.sync_box_hdmi_input", "AppleTV", map[string]interface{}{})
 
@@ -130,7 +130,7 @@ func TestScenario_TVRemoteKillSwitch(t *testing.T) {
 	t.Log("GIVEN: Sync box is on, TV is on, Apple TV is playing on AppleTV input")
 
 	// Set initial states - everything on and playing
-	server.SetState("remote.big_beautiful_oled", "on", map[string]interface{}{})
+	server.SetState("media_player.sony_xr_65a80k", "on", map[string]interface{}{})
 	server.SetState("switch.sync_box_power", "on", map[string]interface{}{})
 	server.SetState("media_player.big_beautiful_oled", "playing", map[string]interface{}{
 		"friendly_name": "Apple TV",
@@ -143,7 +143,7 @@ func TestScenario_TVRemoteKillSwitch(t *testing.T) {
 	t.Log("WHEN: TV panel turns off (remote entity goes off) but sync box stays on")
 
 	// TV panel turns off - sync box stays on
-	server.SetState("remote.big_beautiful_oled", "off", map[string]interface{}{})
+	server.SetState("media_player.sony_xr_65a80k", "off", map[string]interface{}{})
 
 	t.Log("THEN: isTVPlaying should be forced false (kill switch)")
 
@@ -161,7 +161,7 @@ func TestScenario_MultipleInputs(t *testing.T) {
 	t.Log("GIVEN: TV is on, sync box is on, Apple TV is idle, HDMI input is AppleTV")
 
 	// Set initial states
-	server.SetState("remote.big_beautiful_oled", "on", map[string]interface{}{})
+	server.SetState("media_player.sony_xr_65a80k", "on", map[string]interface{}{})
 	server.SetState("switch.sync_box_power", "on", map[string]interface{}{})
 	server.SetState("media_player.big_beautiful_oled", "idle", map[string]interface{}{
 		"friendly_name": "Apple TV",
@@ -201,7 +201,7 @@ func TestScenario_TVOffState(t *testing.T) {
 	t.Log("GIVEN: TV is initially on with Apple TV playing")
 
 	// Set initial states - everything on and playing
-	server.SetState("remote.big_beautiful_oled", "on", map[string]interface{}{})
+	server.SetState("media_player.sony_xr_65a80k", "on", map[string]interface{}{})
 	server.SetState("switch.sync_box_power", "on", map[string]interface{}{})
 	server.SetState("media_player.big_beautiful_oled", "playing", map[string]interface{}{
 		"friendly_name": "Apple TV",
@@ -249,7 +249,7 @@ func TestScenario_RapidInputSwitching(t *testing.T) {
 	t.Log("GIVEN: TV is on, sync box is on, Apple TV is playing")
 
 	// Set initial states
-	server.SetState("remote.big_beautiful_oled", "on", map[string]interface{}{})
+	server.SetState("media_player.sony_xr_65a80k", "on", map[string]interface{}{})
 	server.SetState("switch.sync_box_power", "on", map[string]interface{}{})
 	server.SetState("media_player.big_beautiful_oled", "playing", map[string]interface{}{
 		"friendly_name": "Apple TV",
@@ -280,7 +280,7 @@ func TestScenario_AppleTVPlaybackStateChanges(t *testing.T) {
 	t.Log("GIVEN: TV is on, sync box is on, HDMI input is AppleTV")
 
 	// Set initial states
-	server.SetState("remote.big_beautiful_oled", "on", map[string]interface{}{})
+	server.SetState("media_player.sony_xr_65a80k", "on", map[string]interface{}{})
 	server.SetState("switch.sync_box_power", "on", map[string]interface{}{})
 	server.SetState("select.sync_box_hdmi_input", "AppleTV", map[string]interface{}{})
 	server.SetState("media_player.big_beautiful_oled", "idle", map[string]interface{}{
@@ -328,7 +328,7 @@ func TestScenario_SyncBoxUnavailable_ClearsTVStates(t *testing.T) {
 	t.Log("GIVEN: TV is on, playing via Apple TV")
 
 	// Set initial states - everything on and playing
-	server.SetState("remote.big_beautiful_oled", "on", map[string]interface{}{})
+	server.SetState("media_player.sony_xr_65a80k", "on", map[string]interface{}{})
 	server.SetState("switch.sync_box_power", "on", map[string]interface{}{})
 	server.SetState("media_player.big_beautiful_oled", "playing", map[string]interface{}{
 		"friendly_name": "Apple TV",
@@ -359,7 +359,7 @@ func TestScenario_TVOffSyncBoxOn(t *testing.T) {
 	t.Log("GIVEN: TV is off, sync box is off, HDMI input is on a non-AppleTV input")
 
 	// Set initial states - TV is off
-	server.SetState("remote.big_beautiful_oled", "off", map[string]interface{}{})
+	server.SetState("media_player.sony_xr_65a80k", "off", map[string]interface{}{})
 	server.SetState("switch.sync_box_power", "off", map[string]interface{}{})
 	server.SetState("select.sync_box_hdmi_input", "HDMI 1", map[string]interface{}{})
 	server.SetState("media_player.big_beautiful_oled", "off", map[string]interface{}{
@@ -400,7 +400,7 @@ func TestScenario_SyncBoxPowerOnRecalculates(t *testing.T) {
 	t.Log("GIVEN: TV panel is on, sync box is off, HDMI input is AppleTV")
 
 	// Set initial states - TV panel on, sync box off
-	server.SetState("remote.big_beautiful_oled", "on", map[string]interface{}{})
+	server.SetState("media_player.sony_xr_65a80k", "on", map[string]interface{}{})
 	server.SetState("switch.sync_box_power", "off", map[string]interface{}{})
 	server.SetState("select.sync_box_hdmi_input", "AppleTV", map[string]interface{}{})
 	server.SetState("media_player.big_beautiful_oled", "idle", map[string]interface{}{

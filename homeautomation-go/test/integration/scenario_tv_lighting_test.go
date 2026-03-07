@@ -102,7 +102,7 @@ func TestScenario_SyncBoxRecovery_LightingPluginRestoresScene(t *testing.T) {
 	// Without these, GetState returns an error and the recovery handler exits early
 	// before reaching ForceNotifyBool. In production these entities always exist.
 	env.server.SetState("select.sync_box_hdmi_input", "Xbox", map[string]interface{}{})
-	env.server.SetState("remote.big_beautiful_oled", "off", map[string]interface{}{})
+	env.server.SetState("media_player.sony_xr_65a80k", "off", map[string]interface{}{})
 
 	// Simulate sync box crash: state transitions to "unavailable"
 	// This sets isTVPlaying=false (which it already is by default)

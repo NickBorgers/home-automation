@@ -343,7 +343,7 @@ defer stateTrackingManager.Stop()  // Stops first (registered first)
 - `isTVPlaying` - Whether content is actively playing
 
 **HA Entities Subscribed:**
-- `media_player.big_beautiful_oled`
+- `media_player.sony_xr_65a80k`
 - `switch.sync_box_power`
 - `select.sync_box_hdmi_input`
 
