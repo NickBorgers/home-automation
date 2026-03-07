@@ -116,25 +116,8 @@ type SensorConfigShadowState = ShadowState[ReadOnlyInputs, SensorConfigOutputs]
 type WaterFlowShadowState = ShadowState[ReadOnlyInputs, WaterFlowOutputs]
 type EVChargerShadowState = ShadowState[ReadOnlyInputs, EVChargerOutputs]
 
-// Backward-compatible input type aliases
-type LightingInputs = ActionInputs
-type MusicInputs = ActionInputs
-type SecurityInputs = ActionInputs
-type LoadSheddingInputs = ActionInputs
-type SleepHygieneInputs = ActionInputs
-type SexModeInputs = ActionInputs
-type ChristmasInputs = ActionInputs
-type EnergyInputs = ReadOnlyInputs
-type StateTrackingInputs = ReadOnlyInputs
-type DayPhaseInputs = ReadOnlyInputs
-type TVInputs = ReadOnlyInputs
+// SystemInputs is used by cmd/app/run.go for system plugin shadow state.
 type SystemInputs = ReadOnlyInputs
-type EnvironmentalInputs = ReadOnlyInputs
-type SensorHealthInputs = ReadOnlyInputs
-type InfrastructureInputs = ReadOnlyInputs
-type SensorConfigInputs = ReadOnlyInputs
-type WaterFlowInputs = ReadOnlyInputs
-type EVChargerInputs = ReadOnlyInputs
 
 // ============================================================================
 // Constructors
