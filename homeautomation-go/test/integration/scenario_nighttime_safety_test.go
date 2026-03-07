@@ -576,6 +576,14 @@ func TestScenario_SleepToMorningTransition_BedroomMutedUntilActualWake(t *testin
 	env, cleanup := setupNighttimeSafetyTest(t)
 	defer cleanup()
 
+	// Mock sleep to make zone orchestration goroutines complete immediately.
+	// Without this, the sleep zone's orchestrateZonePlayback goroutine (launched
+	// asynchronously when isAnyoneAsleep=true is set) can still be running when
+	// the snapshot is taken. Its service calls (unjoin, play_media, join) would
+	// then appear in GetServiceCallsSince(snapshot), causing len(calls)>0 with no
+	// bedroom mute — even though the morning transition itself made no calls.
+	env.music.SetSleepFunc(func(d time.Duration) {})
+
 	t.Log("========== TEST: Sleep to Morning Transition - Bedroom Muted Until Actual Wake ==========")
 
 	// ========== GIVEN ==========
@@ -587,8 +595,11 @@ func TestScenario_SleepToMorningTransition_BedroomMutedUntilActualWake(t *testin
 	require.NoError(t, env.stateManager.SetBool("isAnyoneAsleep", true))
 	require.NoError(t, env.stateManager.SetString("musicPlaybackType", "sleep"))
 
-	// Brief delay before taking snapshot to ensure setup state propagates
-	waitForProcessing(t, env.stateManager)
+	// Wait for ALL async zone orchestration goroutines (sleep zone breakSpeakerGroups,
+	// play_media, buildSpeakerGroupAsync for Kitchen) to complete before snapshot.
+	// waitForProcessing only tracks HA WebSocket handlers; zone orchestration uses
+	// fire-and-forget goroutines not registered with the state manager.
+	waitForServiceCallsToStabilizeSince(t, env.server, 0, 200*time.Millisecond)
 	snapshot := env.server.ServiceCallCount()
 
 	// ========== WHEN ==========
