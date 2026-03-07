@@ -27,7 +27,7 @@ import (
 // - TV playing sets isTVPlaying=true, which mutes configured speakers
 // - TV stopping sets isTVPlaying=false, which unmutes configured speakers
 // - Music playback continues (not stopped) when TV starts, just speakers mute
-// - TV remote entity (remote.big_beautiful_oled) acts as kill switch
+// - TV remote entity (media_player.sony_xr_65a80k) acts as kill switch
 // ============================================================================
 
 // tvMusicEnv holds plugins for TV + music tests
@@ -76,7 +76,7 @@ func setupTVMusicTest(t *testing.T) (*tvMusicEnv, func()) {
 	server.SetState("media_player.big_beautiful_oled", "standby", map[string]interface{}{
 		"friendly_name": "Apple TV",
 	})
-	server.SetState("remote.big_beautiful_oled", "off", map[string]interface{}{})
+	server.SetState("media_player.sony_xr_65a80k", "off", map[string]interface{}{})
 	server.SetState("switch.sync_box_power", "off", map[string]interface{}{})
 	server.SetState("select.sync_box_hdmi_input", "AppleTV", map[string]interface{}{})
 	server.SetState("switch.sync_box_light_sync", "off", map[string]interface{}{})
@@ -137,7 +137,7 @@ func TestScenario_TVStartsPlaying_MusicSpeakersMute(t *testing.T) {
 	// ========== WHEN ==========
 	t.Log("WHEN: TV starts playing (Apple TV turns on, sync box powers up)")
 
-	env.server.SetState("remote.big_beautiful_oled", "on", map[string]interface{}{})
+	env.server.SetState("media_player.sony_xr_65a80k", "on", map[string]interface{}{})
 	env.server.SetState("switch.sync_box_power", "on", map[string]interface{}{})
 	env.server.SetState("media_player.big_beautiful_oled", "playing", map[string]interface{}{
 		"friendly_name": "Apple TV",
@@ -201,7 +201,7 @@ func TestScenario_TVStops_MusicSpeakersUnmute(t *testing.T) {
 	env.server.SetState("input_text.day_phase", "evening", map[string]interface{}{})
 
 	// TV is currently on and playing
-	env.server.SetState("remote.big_beautiful_oled", "on", map[string]interface{}{})
+	env.server.SetState("media_player.sony_xr_65a80k", "on", map[string]interface{}{})
 	env.server.SetState("switch.sync_box_power", "on", map[string]interface{}{})
 	env.server.SetState("media_player.big_beautiful_oled", "playing", map[string]interface{}{
 		"friendly_name": "Apple TV",
@@ -253,13 +253,13 @@ func TestScenario_TVStops_MusicSpeakersUnmute(t *testing.T) {
 // ============================================================================
 
 // TestScenario_TVRemoteOff_KillSwitch validates that when the TV remote
-// (remote.big_beautiful_oled) turns off, isTVPlaying is forced to false
+// (media_player.sony_xr_65a80k) turns off, isTVPlaying is forced to false
 // regardless of other TV entity states.
 //
 // User story: "If the TV panel is off, the system should treat the TV as
 // not playing, even if the sync box is still powered on."
 //
-// INVARIANT: remote.big_beautiful_oled=off forces isTVPlaying=false
+// INVARIANT: media_player.sony_xr_65a80k=off forces isTVPlaying=false
 func TestScenario_TVRemoteOff_KillSwitch(t *testing.T) {
 	t.Parallel()
 	env, cleanup := setupTVMusicTest(t)
@@ -272,7 +272,7 @@ func TestScenario_TVRemoteOff_KillSwitch(t *testing.T) {
 	env.server.SetState("input_boolean.anyone_home_and_awake", "on", map[string]interface{}{})
 	env.server.SetState("input_text.day_phase", "evening", map[string]interface{}{})
 
-	env.server.SetState("remote.big_beautiful_oled", "on", map[string]interface{}{})
+	env.server.SetState("media_player.sony_xr_65a80k", "on", map[string]interface{}{})
 	env.server.SetState("switch.sync_box_power", "on", map[string]interface{}{})
 	env.server.SetState("media_player.big_beautiful_oled", "playing", map[string]interface{}{
 		"friendly_name": "Apple TV",
@@ -284,7 +284,7 @@ func TestScenario_TVRemoteOff_KillSwitch(t *testing.T) {
 	t.Log("WHEN: TV remote turns off (kill switch) while sync box stays on")
 
 	// Only the remote turns off — sync box still powered
-	env.server.SetState("remote.big_beautiful_oled", "off", map[string]interface{}{})
+	env.server.SetState("media_player.sony_xr_65a80k", "off", map[string]interface{}{})
 
 	// ========== THEN ==========
 	t.Log("THEN: isTVPlaying forced to false (kill switch takes priority)")

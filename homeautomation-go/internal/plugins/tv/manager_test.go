@@ -123,10 +123,10 @@ func TestTVManager_TVRemoteOff_KillsLightSync(t *testing.T) {
 
 			// Simulate TV remote state change
 			newState := &ha.State{
-				EntityID: "remote.big_beautiful_oled",
+				EntityID: "media_player.sony_xr_65a80k",
 				State:    tt.remoteState,
 			}
-			manager.handleTVRemoteChange("remote.big_beautiful_oled", nil, newState)
+			manager.handleTVRemoteChange("media_player.sony_xr_65a80k", nil, newState)
 
 			// Verify isTVPlaying state
 			isTVPlaying, err := stateMgr.GetBool("isTVPlaying")
@@ -488,7 +488,7 @@ func TestTVManager_Start_InitializesStates(t *testing.T) {
 
 	// Set up initial entity states in mock HA
 	mockHA.SetState("media_player.big_beautiful_oled", "playing", nil)
-	mockHA.SetState("remote.big_beautiful_oled", "on", nil)
+	mockHA.SetState("media_player.sony_xr_65a80k", "on", nil)
 	mockHA.SetState("switch.sync_box_power", "on", nil)
 	mockHA.SetState("select.sync_box_hdmi_input", "AppleTV", nil)
 
@@ -2086,7 +2086,7 @@ func TestTVManager_SyncBoxRecoveryFromUnavailable_ForceNotifiesIsTVPlaying(t *te
 
 	// Set up initial state: TV is off, not playing
 	mockHA.SetState("switch.sync_box_power", "on", map[string]interface{}{})
-	mockHA.SetState("remote.big_beautiful_oled", "off", map[string]interface{}{})
+	mockHA.SetState("media_player.sony_xr_65a80k", "off", map[string]interface{}{})
 	mockHA.SetState("select.sync_box_hdmi_input", "AppleTV", map[string]interface{}{})
 	mockHA.Connect()
 	stateMgr.SyncFromHA()
@@ -2142,7 +2142,7 @@ func TestTVManager_SyncBoxNormalPowerOn_DoesNotForceNotify(t *testing.T) {
 	stateMgr := state.NewManager(mockHA, logger, false)
 
 	mockHA.SetState("switch.sync_box_power", "on", map[string]interface{}{})
-	mockHA.SetState("remote.big_beautiful_oled", "off", map[string]interface{}{})
+	mockHA.SetState("media_player.sony_xr_65a80k", "off", map[string]interface{}{})
 	mockHA.SetState("select.sync_box_hdmi_input", "AppleTV", map[string]interface{}{})
 	mockHA.Connect()
 	stateMgr.SyncFromHA()
