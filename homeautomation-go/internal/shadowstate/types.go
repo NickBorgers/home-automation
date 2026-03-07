@@ -23,14 +23,6 @@ type (
 	InputSnapshot = pkgshadow.InputSnapshot
 )
 
-// ActionRecord represents a single action taken by a plugin
-type ActionRecord struct {
-	Timestamp  time.Time              `json:"timestamp"`
-	ActionType string                 `json:"actionType"`
-	Reason     string                 `json:"reason"`
-	Details    map[string]interface{} `json:"details,omitempty"`
-}
-
 // ============================================================================
 // Generic Shadow State Types
 // ============================================================================
