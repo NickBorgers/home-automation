@@ -137,6 +137,56 @@ func NewManager(ctx context.Context, haClient ha.HAClient, stateManager *state.M
 	}
 }
 
+// validateTidalAvailability checks whether Tidal playlists are configured but
+// SoCo-CLI is not available, and logs warnings about affected music modes.
+// Tidal playlists will be skipped at playback time; modes with only Tidal
+// playlists will have no playable options.
+func (m *Manager) validateTidalAvailability() {
+	if m.socoClient != nil {
+		return // SoCo-CLI configured, all playlists available
+	}
+
+	var degradedModes []string
+	var brokenModes []string
+	totalTidal := 0
+
+	for modeName, mode := range m.config.Music {
+		tidalCount := 0
+		for _, opt := range mode.PlaybackOptions {
+			if opt.MediaType == "tidal" {
+				tidalCount++
+			}
+		}
+		if tidalCount == 0 {
+			continue
+		}
+		totalTidal += tidalCount
+
+		nonTidalCount := len(mode.PlaybackOptions) - tidalCount
+		if nonTidalCount == 0 {
+			brokenModes = append(brokenModes, modeName)
+		} else {
+			degradedModes = append(degradedModes, modeName)
+		}
+	}
+
+	if totalTidal == 0 {
+		return
+	}
+
+	m.logger.Warn("SoCo-CLI not configured: Tidal playlists will be skipped (set SOCO_CLI_URL to enable)",
+		zap.Int("tidal_playlists_skipped", totalTidal))
+
+	if len(degradedModes) > 0 {
+		m.logger.Warn("Music modes with reduced playlist options (some Tidal playlists skipped)",
+			zap.Strings("modes", degradedModes))
+	}
+	if len(brokenModes) > 0 {
+		m.logger.Error("Music modes with NO playable options (all playlists are Tidal)",
+			zap.Strings("modes", brokenModes))
+	}
+}
+
 // SetSleepFunc allows overriding the sleep function for testing
 func (m *Manager) SetSleepFunc(fn SleepFunc) {
 	m.sleepFunc = fn
@@ -177,6 +227,9 @@ func (m *Manager) GetActiveZones() []*Zone {
 // Start begins monitoring state changes and managing music playback
 func (m *Manager) Start() error {
 	m.logger.Info("Starting Music Manager")
+
+	// Warn about unavailable Tidal playlists when SoCo-CLI is not configured
+	m.validateTidalAvailability()
 
 	// Ensure zones are always populated. LoadConfig calls ensureZones at load time,
 	// but programmatically-constructed configs (e.g., in tests) may not have zones.

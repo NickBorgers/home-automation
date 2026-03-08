@@ -21,6 +21,12 @@ func (m *Manager) getNextPlaylistIndex(musicType string, optionsCount int) int {
 		currentIndex = 0
 	}
 
+	// Bounds check: index may be out of range if available options count changed
+	// (e.g., Tidal playlists filtered out when SoCo-CLI unavailable)
+	if currentIndex >= optionsCount {
+		currentIndex = currentIndex % optionsCount
+	}
+
 	// Save the index to use
 	indexToUse := currentIndex
 

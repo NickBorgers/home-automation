@@ -94,6 +94,23 @@ const (
 	playbackRecoveryDelay = 2 * time.Second
 )
 
+// filterPlaybackOptions returns only the playback options that can be used
+// with the current system configuration. Tidal options are excluded when
+// SoCo-CLI is not configured (socoClient is nil).
+func (m *Manager) filterPlaybackOptions(options []PlaybackOption) []PlaybackOption {
+	if m.socoClient != nil {
+		return options
+	}
+
+	filtered := make([]PlaybackOption, 0, len(options))
+	for _, opt := range options {
+		if opt.MediaType != "tidal" {
+			filtered = append(filtered, opt)
+		}
+	}
+	return filtered
+}
+
 // orchestratePlayback coordinates the complete playback flow
 func (m *Manager) orchestratePlayback(musicType string, trigger string) error {
 	m.logger.Info("Orchestrating playback", zap.String("type", musicType), zap.String("trigger", trigger))
@@ -104,9 +121,24 @@ func (m *Manager) orchestratePlayback(musicType string, trigger string) error {
 		return fmt.Errorf("unknown music type: %s", musicType)
 	}
 
+	// Filter playback options based on available capabilities.
+	// Tidal playlists are excluded when SoCo-CLI is not configured.
+	availableOptions := m.filterPlaybackOptions(mode.PlaybackOptions)
+	if len(availableOptions) == 0 {
+		return fmt.Errorf("no playable options for music type %s: all %d playlists require Tidal (set SOCO_CLI_URL to enable)",
+			musicType, len(mode.PlaybackOptions))
+	}
+
+	if len(availableOptions) < len(mode.PlaybackOptions) {
+		m.logger.Info("Filtered unavailable Tidal playlists",
+			zap.String("type", musicType),
+			zap.Int("total", len(mode.PlaybackOptions)),
+			zap.Int("available", len(availableOptions)))
+	}
+
 	// Select playlist with rotation
-	playlistIndex := m.getNextPlaylistIndex(musicType, len(mode.PlaybackOptions))
-	playbackOption := mode.PlaybackOptions[playlistIndex]
+	playlistIndex := m.getNextPlaylistIndex(musicType, len(availableOptions))
+	playbackOption := availableOptions[playlistIndex]
 
 	m.logger.Info("Selected playlist",
 		zap.String("type", musicType),
