@@ -135,9 +135,10 @@ music:
           - variable: isMasterAsleep
             value: true
     playback_options:
-      # Instrumental Melodic House and Techno
-      - uri: spotify:playlist:62CFZGi01r81y81tSuj155
-        media_type: playlist
+      # Beatport Best New Melodic House & Techno (Tidal)
+      # yamllint disable-line rule:line-length
+      - uri: "https://tidal.com/browse/playlist/b9c278db-c54b-405c-995c-48542a7e12c2"
+        media_type: tidal
         volume_multiplier: 1.0
       # Instrumental Techno Mix (Tidal: Techno Bunker)
       - uri: >-
@@ -210,18 +211,20 @@ music:
       - uri: "https://tidal.com/browse/playlist/c845f9cc-2b59-4ff0-8536-2f69e94b99e9"
         media_type: tidal
         volume_multiplier: 1.0
-      # Caroline's country playlist
-      - uri: spotify:playlist:5Wyuc2BN76JyKioxcaY7ud
-        media_type: playlist
+      # Country Classics (Tidal) — iconic country hits, replaces Caroline's country playlist
+      # yamllint disable-line rule:line-length
+      - uri: "https://tidal.com/browse/playlist/5a224abf-f6b2-4a33-918e-e33386210fac"
+        media_type: tidal
         volume_multiplier: 1.0
       # Pop Party Hits (Tidal) - upbeat summer/party hits
       # yamllint disable-line rule:line-length
       - uri: "https://tidal.com/browse/playlist/230b543f-8395-47dc-b3d5-958f39154e4d"
         media_type: tidal
         volume_multiplier: 1.0
-      # Blockheady Instrumental
-      - uri: spotify:playlist:7hw5bkUl4xLPDCymveIfnK
-        media_type: playlist
+      # lofi hip hop / chill beats / instrumentals (Tidal) — replaces Blockheady Instrumental
+      # yamllint disable-line rule:line-length
+      - uri: "https://tidal.com/browse/playlist/188fc182-623c-49ca-8874-dd79e4009fa6"
+        media_type: tidal
         volume_multiplier: 1.0
       # Tidal playlist (via SoCo-CLI)
       - uri: >-
@@ -295,9 +298,10 @@ music:
           https://tidal.com/browse/playlist/6fb95baf-9e5d-4731-95ac-424da6e98aa2
         media_type: tidal
         volume_multiplier: 1.0
-      # Instrumental Classical
-      - uri: spotify:playlist:5fSuIObNY9SB8gUMt1xrsB
-        media_type: playlist
+      # Classical Classics (Tidal) — replaces Instrumental Classical
+      # yamllint disable-line rule:line-length
+      - uri: "https://tidal.com/browse/playlist/de10425c-026c-44e2-add5-68b3714637e1"
+        media_type: tidal
         volume_multiplier: 1.0
       # Arthur Rubinstein - Chopin Nocturnes
       # yamllint disable-line rule:line-length
@@ -489,8 +493,10 @@ music:
         base_volume: 10
         leave_muted_if: []
     playback_options:
-      - uri: spotify:playlist:1WaopApISE1aAT83aIYKRw
-        media_type: playlist
+      # Sensual songs for naughty times (Tidal) — 256 tracks, sensual mood
+      # yamllint disable-line rule:line-length
+      - uri: "https://tidal.com/browse/playlist/c9e5c9db-ebd8-4a89-872d-db09672677d8"
+        media_type: tidal
         volume_multiplier: 1.0
   wakeup:
     participants:

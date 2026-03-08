@@ -97,8 +97,8 @@ music:
           - variable: isTVPlaying
             value: true
     playback_options:
-      - uri: "spotify:playlist:test_morning_playlist"
-        media_type: playlist
+      - uri: "https://tidal.com/browse/playlist/test_morning_playlist"
+        media_type: tidal
         volume_multiplier: 1.0
 
   day:
@@ -119,8 +119,8 @@ music:
           - variable: isTVPlaying
             value: true
     playback_options:
-      - uri: "spotify:playlist:test_day_playlist"
-        media_type: playlist
+      - uri: "https://tidal.com/browse/playlist/test_day_playlist"
+        media_type: tidal
         volume_multiplier: 1.0
 
   evening:
@@ -141,8 +141,8 @@ music:
           - variable: isTVPlaying
             value: true
     playback_options:
-      - uri: "spotify:playlist:test_evening_playlist"
-        media_type: playlist
+      - uri: "https://tidal.com/browse/playlist/test_evening_playlist"
+        media_type: tidal
         volume_multiplier: 1.0
 
   winddown:
@@ -163,8 +163,8 @@ music:
           - variable: isTVPlaying
             value: true
     playback_options:
-      - uri: "spotify:playlist:test_winddown_playlist"
-        media_type: playlist
+      - uri: "https://tidal.com/browse/playlist/test_winddown_playlist"
+        media_type: tidal
         volume_multiplier: 1.0
 
   sleep-prep:
@@ -213,8 +213,8 @@ music:
         base_volume: 10
         leave_muted_if: []
     playback_options:
-      - uri: "spotify:playlist:test_sex_playlist"
-        media_type: playlist
+      - uri: "https://tidal.com/browse/playlist/test_sex_playlist"
+        media_type: tidal
         volume_multiplier: 1.0
 
   wakeup:
@@ -223,6 +223,6 @@ music:
         base_volume: 6
         leave_muted_if: []
     playback_options:
-      - uri: "spotify:playlist:test_wakeup_playlist"
-        media_type: playlist
+      - uri: "https://tidal.com/browse/playlist/test_wakeup_playlist"
+        media_type: tidal
         volume_multiplier: 1.0
