@@ -68,17 +68,18 @@ type deferredAction struct {
 
 // Manager manages thermostat control based on energy state
 type Manager struct {
-	ctx            context.Context
-	haClient       ha.HAClient
-	stateManager   *state.Manager
-	logger         *zap.Logger
-	readOnly       bool
-	lastAction     time.Time
-	lastActionMu   sync.Mutex
-	enabled        bool
-	loadSheddingOn bool
-	stateMu        sync.Mutex
-	shadowTracker  *shadowstate.LoadSheddingTracker
+	ctx              context.Context
+	haClient         ha.HAClient
+	stateManager     *state.Manager
+	logger           *zap.Logger
+	readOnly         bool
+	lastAction       time.Time
+	lastActionMu     sync.Mutex
+	enabled          bool
+	loadSheddingOn   bool
+	nonHVACLoadsShed bool // Whether non-HVAC loads (EV charger, dehumidifier) are shed
+	stateMu          sync.Mutex
+	shadowTracker    *shadowstate.LoadSheddingTracker
 
 	// Subscription helper for automatic shadow state input capture
 	subHelper *shadowstate.SubscriptionHelper
@@ -271,17 +272,124 @@ func (m *Manager) handleEnergyChangeWithTrigger(key string, oldValue, newValue i
 		m.enableLoadShedding(newLevel, trigger)
 	case energyStateGreen:
 		m.deactivateThermalBattery("energy level dropped to green")
+		m.restoreNonHVACLoads(newLevel)
 		m.disableLoadShedding(newLevel, trigger)
 	case energyStateWhite:
+		m.restoreNonHVACLoads(newLevel)
 		m.disableLoadShedding(newLevel, trigger)
 		m.activateThermalBattery()
 	case energyStateYellow:
-		m.logger.Info("Energy state is yellow - maintaining current load shedding state",
-			zap.String("reason", "Hysteresis buffer to prevent rapid toggling"))
+		m.deactivateThermalBattery("energy level dropped to yellow")
+		m.shedNonHVACLoads(newLevel)
+		m.logger.Info("Energy state is yellow - shedding non-HVAC loads, HVAC maintains current state",
+			zap.String("reason", "Hysteresis buffer for HVAC, but non-essential loads shed"))
 	default:
 		m.logger.Warn("Unknown energy state",
 			zap.String("state", newLevel))
 	}
+}
+
+// shedNonHVACLoads turns off non-essential loads (EV charger, dehumidifier) without
+// touching HVAC. Used at yellow energy level for partial load shedding.
+func (m *Manager) shedNonHVACLoads(energyLevel string) {
+	m.stateMu.Lock()
+	alreadyShed := m.nonHVACLoadsShed
+	m.stateMu.Unlock()
+
+	if alreadyShed {
+		m.logger.Info("⏭  Non-HVAC loads already shed")
+		return
+	}
+
+	m.logger.Info("=== NON-HVAC LOAD SHEDDING: ENABLE ===",
+		zap.String("energy_level", energyLevel),
+		zap.String("reason", "Shedding non-essential loads at "+energyLevel+" energy level"))
+
+	if m.readOnly {
+		m.logger.Info("READ-ONLY: Would turn off EV charger and dehumidifier",
+			zap.String("ev_charger_entity", evChargerSwitch),
+			zap.String("dehumidifier_entity", dehumidifierSwitch))
+		m.stateMu.Lock()
+		m.nonHVACLoadsShed = true
+		m.stateMu.Unlock()
+		return
+	}
+
+	// Turn off EV charger
+	if err := m.haClient.CallService(m.ctx, "switch", "turn_off", map[string]interface{}{
+		"entity_id": evChargerSwitch,
+	}); err != nil {
+		m.logger.Error("Failed to turn off EV charger", zap.Error(err))
+	} else {
+		m.logger.Info("✓ Successfully turned off EV charger")
+	}
+
+	// Turn off dehumidifier
+	if err := m.haClient.CallService(m.ctx, "switch", "turn_off", map[string]interface{}{
+		"entity_id": dehumidifierSwitch,
+	}); err != nil {
+		m.logger.Error("Failed to turn off dehumidifier", zap.Error(err))
+	} else {
+		m.logger.Info("✓ Successfully turned off dehumidifier")
+	}
+
+	m.stateMu.Lock()
+	m.nonHVACLoadsShed = true
+	m.stateMu.Unlock()
+
+	m.logger.Info("=== NON-HVAC LOADS SHED ===",
+		zap.String("action", "EV charger and dehumidifier disabled to conserve battery"))
+}
+
+// restoreNonHVACLoads turns on non-essential loads (EV charger, dehumidifier).
+// Called at green/white energy levels to restore loads that were shed at yellow.
+func (m *Manager) restoreNonHVACLoads(energyLevel string) {
+	m.stateMu.Lock()
+	needsRestore := m.nonHVACLoadsShed && !m.loadSheddingOn
+	m.stateMu.Unlock()
+
+	if !needsRestore {
+		return
+	}
+
+	m.logger.Info("=== NON-HVAC LOAD SHEDDING: DISABLE ===",
+		zap.String("energy_level", energyLevel),
+		zap.String("reason", "Restoring non-essential loads at "+energyLevel+" energy level"))
+
+	if m.readOnly {
+		m.logger.Info("READ-ONLY: Would turn on EV charger and dehumidifier",
+			zap.String("ev_charger_entity", evChargerSwitch),
+			zap.String("dehumidifier_entity", dehumidifierSwitch))
+		m.stateMu.Lock()
+		m.nonHVACLoadsShed = false
+		m.stateMu.Unlock()
+		return
+	}
+
+	// Turn on EV charger
+	if err := m.haClient.CallService(m.ctx, "switch", "turn_on", map[string]interface{}{
+		"entity_id": evChargerSwitch,
+	}); err != nil {
+		m.logger.Error("Failed to turn on EV charger", zap.Error(err))
+	} else {
+		m.logger.Info("✓ Successfully turned on EV charger")
+	}
+
+	// Turn on dehumidifier
+	if err := m.haClient.CallService(m.ctx, "switch", "turn_on", map[string]interface{}{
+		"entity_id": dehumidifierSwitch,
+	}); err != nil {
+		m.logger.Error("Failed to turn on dehumidifier", zap.Error(err))
+	} else {
+		m.logger.Info("✓ Successfully turned on dehumidifier")
+	}
+
+	m.stateMu.Lock()
+	m.nonHVACLoadsShed = false
+	m.stateMu.Unlock()
+
+	m.logger.Info("=== NON-HVAC LOADS RESTORED ===",
+		zap.String("action", "EV charger and dehumidifier re-enabled"))
 }
 
 // enableLoadShedding activates load shedding (energy state red/black)
@@ -418,6 +526,7 @@ func (m *Manager) executeEnableLoadShedding(energyLevel string, trigger string) 
 	// Update state tracking and last action time
 	m.stateMu.Lock()
 	m.loadSheddingOn = true
+	m.nonHVACLoadsShed = true
 	m.stateMu.Unlock()
 
 	m.lastActionMu.Lock()
@@ -545,6 +654,7 @@ func (m *Manager) executeDisableLoadShedding(energyLevel string, trigger string)
 	// Update state tracking and last action time
 	m.stateMu.Lock()
 	m.loadSheddingOn = false
+	m.nonHVACLoadsShed = false
 	m.stateMu.Unlock()
 
 	m.lastActionMu.Lock()

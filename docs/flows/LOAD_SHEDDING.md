@@ -8,7 +8,7 @@ The load shedding plugin controls thermostats, EV charger, and dehumidifier base
 1. Restrict HVAC, disable EV charger, and disable dehumidifier when battery is low (red/black)
 2. Return to normal schedules and re-enable EV charger and dehumidifier when energy is available (green/white)
 3. **Thermal battery**: Pre-condition the house by shifting HVAC setpoints when energy is abundant (white)
-4. Maintain hysteresis to prevent rapid toggling (yellow)
+4. Shed non-HVAC loads (EV charger, dehumidifier) at yellow while maintaining HVAC hysteresis
 
 ## Energy Level Response
 
@@ -29,12 +29,12 @@ flowchart TD
     checkLevel -->|red, black| enableLS
     checkLevel -->|green| disableLS
     checkLevel -->|white| thermalBattery["Disable load shedding<br/>+ Activate thermal battery"]
-    checkLevel -->|yellow| maintain
+    checkLevel -->|yellow| shedPartial["Shed non-HVAC loads<br/>Deactivate thermal battery<br/>HVAC maintains current state"]
 
     style enableLS fill:#e74c3c,color:#fff
     style disableLS fill:#27ae60,color:#fff
     style thermalBattery fill:#3498db,color:#fff
-    style maintain fill:#f39c12,color:#fff
+    style shedPartial fill:#f39c12,color:#fff
 ```
 
 ## Thermostat Control
@@ -222,9 +222,14 @@ Thermal battery deactivates (reverting to original setpoints) when:
 
 Any in-progress stepping goroutine is cancelled on deactivation.
 
-## Yellow State Hysteresis
+## Yellow State — Partial Load Shedding
 
-The yellow (moderate) energy state acts as a buffer to prevent rapid toggling:
+The yellow (moderate) energy state applies partial load shedding: non-HVAC loads are shed, but HVAC maintains its current state (hysteresis) to prevent rapid toggling of thermostats.
+
+**Yellow actions:**
+- Shed non-HVAC loads (EV charger, dehumidifier)
+- Deactivate thermal battery (energy is declining, stop pre-conditioning)
+- HVAC unchanged (hysteresis buffer prevents rapid toggling)
 
 ```mermaid
 sequenceDiagram
@@ -232,27 +237,31 @@ sequenceDiagram
     participant EM as Energy Manager
     participant LS as Load Shedding
     participant HVAC as Thermostats
+    participant NonHVAC as EV Charger / Dehumidifier
 
     Note over Battery: Battery drops to 25%
 
     Battery->>EM: Battery = 25% (red)
     EM->>LS: currentEnergyLevel = red
     LS->>HVAC: Enable hold mode<br/>Set 65-80°F range
+    LS->>NonHVAC: Turn off
 
     Note over Battery: Battery recovers to 35%
 
     Battery->>EM: Battery = 35% (yellow)
     EM->>LS: currentEnergyLevel = yellow
-    LS->>LS: Maintain current state<br/>(still restricted)
+    LS->>LS: HVAC maintains current state<br/>(hysteresis)
+    LS->>NonHVAC: Remain off<br/>(already shed)
 
     Note over Battery: Battery recovers to 65%
 
     Battery->>EM: Battery = 65% (green)
     EM->>LS: currentEnergyLevel = green
     LS->>HVAC: Disable hold mode<br/>(resume schedule)
+    LS->>NonHVAC: Turn on<br/>(restore loads)
 ```
 
-Without hysteresis, the system would rapidly toggle at threshold boundaries (e.g., 29%↔31% repeatedly enabling/disabling).
+HVAC hysteresis prevents rapid toggling at threshold boundaries (e.g., 29%↔31% repeatedly enabling/disabling). Non-HVAC loads are simpler to toggle and don't have the same wear concerns, so they are shed at yellow to conserve energy.
 
 ## Controlled Entities
 
@@ -319,7 +328,8 @@ flowchart LR
 
 | Variable | Type | Description |
 |----------|------|-------------|
-| `loadSheddingOn` | bool | Current load shedding state |
+| `loadSheddingOn` | bool | Current full load shedding state (HVAC + non-HVAC) |
+| `nonHVACLoadsShed` | bool | Whether non-HVAC loads (EV charger, dehumidifier) are shed |
 | `lastAction` | time | Timestamp of last action (rate limiting) |
 | `thermalBatteryActive` | bool | Whether thermal battery is currently active |
 | `savedSetpoints` | map | Original thermostat setpoints saved for restoration |

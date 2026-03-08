@@ -264,6 +264,94 @@ func TestLoadShedding_UnknownState(t *testing.T) {
 	assert.Equal(t, "set_value", calls[0].Service)
 }
 
+func TestLoadShedding_EnergyStateYellow_ShedsNonHVACLoads(t *testing.T) {
+	t.Parallel()
+	env := setupLoadSheddingEnv(t)
+
+	ls := NewManager(context.Background(), env.MockHA, env.StateMgr, env.Logger, false, nil, nil)
+	err := ls.Start()
+	assert.NoError(t, err)
+	defer ls.Stop()
+
+	// Set energy state to yellow
+	err = env.StateMgr.SetString("currentEnergyLevel", "yellow")
+	assert.NoError(t, err)
+
+	// Verify EV charger was turned off
+	calls := env.MockHA.GetServiceCalls()
+	evCall := testutil.FindServiceCallWithEntity(calls, "switch", "turn_off", evChargerSwitch)
+	assert.NotNil(t, evCall, "Expected switch.turn_off for EV charger at yellow energy level")
+
+	// Verify dehumidifier was turned off
+	dehumCall := testutil.FindServiceCallWithEntity(calls, "switch", "turn_off", dehumidifierSwitch)
+	assert.NotNil(t, dehumCall, "Expected switch.turn_off for dehumidifier at yellow energy level")
+
+	// Verify HVAC was NOT touched (no thermostat hold changes)
+	thermostatCall := testutil.FindServiceCallWithEntity(calls, "switch", "turn_on", thermostatHoldHouse)
+	assert.Nil(t, thermostatCall, "HVAC should NOT be touched at yellow energy level")
+
+	// Verify load shedding is NOT fully active (HVAC hysteresis maintained)
+	assert.False(t, ls.IsLoadSheddingOn(), "Full load shedding should not be active at yellow")
+}
+
+func TestLoadShedding_YellowToGreenTransition_RestoresNonHVACLoads(t *testing.T) {
+	t.Parallel()
+	env := setupLoadSheddingEnv(t)
+
+	ls := NewManager(context.Background(), env.MockHA, env.StateMgr, env.Logger, false, nil, nil)
+	err := ls.Start()
+	assert.NoError(t, err)
+	defer ls.Stop()
+
+	// Set energy state to yellow (sheds non-HVAC loads)
+	err = env.StateMgr.SetString("currentEnergyLevel", "yellow")
+	assert.NoError(t, err)
+
+	// Snapshot service calls after yellow
+	snapshot := env.MockHA.ServiceCallCount()
+
+	// Transition to green (should restore non-HVAC loads)
+	err = env.StateMgr.SetString("currentEnergyLevel", "green")
+	assert.NoError(t, err)
+
+	// Verify EV charger was turned on
+	calls := env.MockHA.GetServiceCallsSince(snapshot)
+	evCall := testutil.FindServiceCallWithEntity(calls, "switch", "turn_on", evChargerSwitch)
+	assert.NotNil(t, evCall, "Expected switch.turn_on for EV charger when transitioning from yellow to green")
+
+	// Verify dehumidifier was turned on
+	dehumCall := testutil.FindServiceCallWithEntity(calls, "switch", "turn_on", dehumidifierSwitch)
+	assert.NotNil(t, dehumCall, "Expected switch.turn_on for dehumidifier when transitioning from yellow to green")
+}
+
+func TestLoadShedding_YellowIdempotent(t *testing.T) {
+	t.Parallel()
+	env := setupLoadSheddingEnv(t)
+
+	ls := NewManager(context.Background(), env.MockHA, env.StateMgr, env.Logger, false, nil, nil)
+	err := ls.Start()
+	assert.NoError(t, err)
+	defer ls.Stop()
+
+	// Set energy state to yellow
+	err = env.StateMgr.SetString("currentEnergyLevel", "yellow")
+	assert.NoError(t, err)
+
+	// Snapshot after first yellow
+	snapshot := env.MockHA.ServiceCallCount()
+
+	// Set yellow again (should be idempotent - no duplicate calls)
+	err = env.StateMgr.SetString("currentEnergyLevel", "yellow")
+	assert.NoError(t, err)
+
+	// Only the SetString call, no additional switch calls
+	calls := env.MockHA.GetServiceCallsSince(snapshot)
+	evCall := testutil.FindServiceCallWithEntity(calls, "switch", "turn_off", evChargerSwitch)
+	assert.Nil(t, evCall, "Second yellow should not re-shed already-shed EV charger")
+	dehumCall := testutil.FindServiceCallWithEntity(calls, "switch", "turn_off", dehumidifierSwitch)
+	assert.Nil(t, dehumCall, "Second yellow should not re-shed already-shed dehumidifier")
+}
+
 func TestLoadShedding_RedToGreenTransition(t *testing.T) {
 	t.Parallel()
 	env := setupLoadSheddingEnv(t)
