@@ -712,7 +712,7 @@ func TestThermalBattery_IdempotentActivation(t *testing.T) {
 	assert.Equal(t, 0, climateCalls, "No climate calls should be made when thermal battery already active")
 }
 
-func TestThermalBattery_YellowMaintainsState(t *testing.T) {
+func TestThermalBattery_YellowDeactivatesThermalBattery(t *testing.T) {
 	t.Parallel()
 	env := setupThermalBatteryEnv(t)
 
@@ -728,11 +728,11 @@ func TestThermalBattery_YellowMaintainsState(t *testing.T) {
 
 	_ = env.MockHA.ServiceCallCount()
 
-	// Move to yellow (hysteresis) - thermal battery should remain active
+	// Move to yellow - thermal battery should be deactivated (energy is declining)
 	err = env.StateMgr.SetString("currentEnergyLevel", "yellow")
 	require.NoError(t, err)
 
-	assert.True(t, ls.IsThermalBatteryActive(), "Thermal battery should remain active during yellow hysteresis")
+	assert.False(t, ls.IsThermalBatteryActive(), "Thermal battery should be deactivated at yellow energy level")
 }
 
 // =============================================================================
