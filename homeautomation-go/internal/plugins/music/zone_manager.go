@@ -1203,9 +1203,16 @@ func (zm *ZoneManager) startZone(zoneName string, speakers []string, trigger str
 		speakerSet[s] = true
 	}
 
+	// Filter playback options based on available capabilities.
+	// Tidal playlists are excluded when SoCo-CLI is not configured.
+	availableOptions := zm.manager.filterPlaybackOptions(mode.PlaybackOptions)
+	if len(availableOptions) == 0 {
+		return fmt.Errorf("no playable options for zone %s: all playlists require Tidal (set SOCO_CLI_URL to enable)", zoneName)
+	}
+
 	// Get next playlist
-	playlistIndex := zm.manager.getNextPlaylistIndex(zoneName, len(mode.PlaybackOptions))
-	playbackOption := mode.PlaybackOptions[playlistIndex]
+	playlistIndex := zm.manager.getNextPlaylistIndex(zoneName, len(availableOptions))
+	playbackOption := availableOptions[playlistIndex]
 
 	for _, p := range mode.Participants {
 		if !speakerSet[p.PlayerName] {
