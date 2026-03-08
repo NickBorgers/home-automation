@@ -950,10 +950,10 @@ func (m *Manager) turnOnMasterBedroomLights() {
 
 	// First, ensure lights start dim and white
 	if err := m.haClient.CallService(m.ctx, "light", "turn_on", map[string]interface{}{
-		"entity_id":      "light.primary_suite",
-		"transition":     0,
-		"color_temp":     290,
-		"brightness_pct": 1,
+		"entity_id":         "light.primary_suite",
+		"transition":        0,
+		"color_temp_kelvin": 3448,
+		"brightness_pct":    1,
 	}); err != nil {
 		m.logger.Error("Failed to set initial bedroom light state", zap.Error(err))
 		return
@@ -963,10 +963,10 @@ func (m *Manager) turnOnMasterBedroomLights() {
 
 	// Then start slow transition to full brightness
 	if err := m.haClient.CallService(m.ctx, "light", "turn_on", map[string]interface{}{
-		"entity_id":      "light.primary_suite",
-		"transition":     transitionSeconds,
-		"color_temp":     290,
-		"brightness_pct": 100,
+		"entity_id":         "light.primary_suite",
+		"transition":        transitionSeconds,
+		"color_temp_kelvin": 3448,
+		"brightness_pct":    100,
 	}); err != nil {
 		m.logger.Error("Failed to start bedroom light transition", zap.Error(err))
 		return
