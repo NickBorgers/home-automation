@@ -110,7 +110,7 @@ func TestPlaybackMonitor_DetectsUnexpectedPause(t *testing.T) {
 	})
 
 	// Start the playback monitor directly (no manager.Start() needed)
-	manager.startPlaybackMonitor("media_player.kitchen", "day")
+	manager.startPlaybackMonitor("media_player.kitchen", "Kitchen", "day")
 
 	// Wait for monitor to complete - uses deterministic callback instead of time-based wait
 	<-monitorDone
@@ -199,7 +199,7 @@ func TestPlaybackMonitor_RecoverySucceeds(t *testing.T) {
 	})
 
 	// Start the monitor directly
-	manager.startPlaybackMonitor("media_player.kitchen", "day")
+	manager.startPlaybackMonitor("media_player.kitchen", "Kitchen", "day")
 
 	// Wait for monitor to complete - deterministic callback
 	<-monitorDone
@@ -279,7 +279,7 @@ func TestPlaybackMonitor_RecoveryFails_StopsMonitoring(t *testing.T) {
 	})
 
 	// Start monitor directly
-	manager.startPlaybackMonitor("media_player.kitchen", "day")
+	manager.startPlaybackMonitor("media_player.kitchen", "Kitchen", "day")
 
 	// Wait for monitor to complete - deterministic callback
 	<-monitorDone
@@ -367,13 +367,13 @@ func TestPlaybackMonitor_CancelledOnNewPlayback(t *testing.T) {
 	})
 
 	// Start first monitor
-	manager.startPlaybackMonitor("media_player.kitchen", "day")
+	manager.startPlaybackMonitor("media_player.kitchen", "Kitchen", "day")
 
 	// Wait for first monitor to start sleeping
 	<-firstMonitorStarted
 
 	// Start second monitor (should cancel first)
-	manager.startPlaybackMonitor("media_player.kitchen", "evening")
+	manager.startPlaybackMonitor("media_player.kitchen", "Kitchen", "evening")
 
 	// Release the sleep gate so monitors can proceed
 	close(sleepGate)
@@ -448,7 +448,7 @@ func TestPlaybackMonitor_ShadowStateUpdated(t *testing.T) {
 	})
 
 	// Start monitor and check shadow state immediately
-	manager.startPlaybackMonitor("media_player.kitchen", "day")
+	manager.startPlaybackMonitor("media_player.kitchen", "Kitchen", "day")
 
 	// Wait for monitor to start its first sleep - this ensures shadow state is populated
 	<-sleepStarted

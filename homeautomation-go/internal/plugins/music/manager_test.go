@@ -1179,7 +1179,7 @@ func TestBuildSpeakerGroup(t *testing.T) {
 		{PlayerName: "Bedroom", Volume: 8},
 	}
 
-	result, err := manager.buildSpeakerGroup(participants, "media_player.kitchen")
+	result, err := manager.buildSpeakerGroup(participants, "Kitchen")
 	if err != nil {
 		t.Errorf("buildSpeakerGroup() failed: %v", err)
 	}
@@ -1298,7 +1298,7 @@ func TestBuildSpeakerGroupOutcomes(t *testing.T) {
 				env.MockHA.SetServiceFailCount("media_player", "join", tt.failCount, errors.New(tt.failErr))
 			}
 
-			result, err := manager.buildSpeakerGroup(tt.participants, "media_player.kitchen")
+			result, err := manager.buildSpeakerGroup(tt.participants, "Kitchen")
 			if tt.expectErr && err == nil {
 				t.Error("Expected error")
 			} else if !tt.expectErr && err != nil {
@@ -3377,7 +3377,7 @@ func TestJoinSpeakerWithRetry_Success(t *testing.T) {
 
 	participant := ParticipantWithVolume{PlayerName: "Living Room", Volume: 10, LeaveMutedIf: []MuteCondition{}}
 	snapshot := env.MockHA.ServiceCallCount()
-	manager.joinSpeakerWithRetry(participant, "media_player.kitchen", "day")
+	manager.joinSpeakerWithRetry(participant, "Kitchen", "day")
 
 	joinCalls := 0
 	for _, call := range env.MockHA.GetServiceCallsSince(snapshot) {
@@ -3427,7 +3427,7 @@ func TestJoinSpeakerWithRetry_RetryOnTransientError(t *testing.T) {
 	}
 
 	snapshot := env.MockHA.ServiceCallCount()
-	manager.joinSpeakerWithRetry(participant, "media_player.kitchen", "day")
+	manager.joinSpeakerWithRetry(participant, "Kitchen", "day")
 
 	calls := env.MockHA.GetServiceCallsSince(snapshot)
 
@@ -3489,7 +3489,7 @@ func TestJoinSpeakerWithRetry_ExponentialBackoff(t *testing.T) {
 		LeaveMutedIf: []MuteCondition{},
 	}
 
-	manager.joinSpeakerWithRetry(participant, "media_player.kitchen", "day")
+	manager.joinSpeakerWithRetry(participant, "Kitchen", "day")
 
 	sleepMu.Lock()
 	defer sleepMu.Unlock()
@@ -3534,7 +3534,7 @@ func TestJoinSpeakerWithRetry_PermanentError(t *testing.T) {
 	env.MockHA.SetServiceFailCount("media_player", "join", 100, fmt.Errorf("service call failed: entity not found"))
 
 	participant := ParticipantWithVolume{PlayerName: "Nonexistent Speaker", Volume: 10, LeaveMutedIf: []MuteCondition{}}
-	manager.joinSpeakerWithRetry(participant, "media_player.kitchen", "day")
+	manager.joinSpeakerWithRetry(participant, "Kitchen", "day")
 
 	if sleepCallCount != 0 {
 		t.Errorf("Expected no retry delays for permanent error, got %d", sleepCallCount)

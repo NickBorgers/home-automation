@@ -246,6 +246,9 @@ func (m *Manager) Start() error {
 	// Validate configured speakers exist in Home Assistant
 	m.validateConfiguredSpeakers()
 
+	// Log which path speaker commands will use (SoCo vs HA)
+	m.logSpeakerCommandPath()
+
 	// Perform initial zone resolution to start appropriate zones
 	if m.zoneManager != nil {
 		if err := m.zoneManager.ResolveZones("startup"); err != nil {
@@ -523,7 +526,7 @@ func (m *Manager) handleMuteConditionChange(key string, oldValue, newValue inter
 	}
 }
 
-// unmuteSpeaker unmutes a Sonos speaker using the volume_mute service.
+// unmuteSpeaker unmutes a Sonos speaker.
 // This is used during active playback when a room becomes occupied.
 // Volume was already set to the target during initial playback (even for muted speakers),
 // so unmuting will immediately play at the correct volume level.
@@ -534,22 +537,17 @@ func (m *Manager) unmuteSpeaker(participant ParticipantWithVolume) {
 		return
 	}
 
-	entityID := m.getSpeakerEntityID(participant.PlayerName)
-
 	m.logger.Info("Unmuting speaker",
 		zap.String("speaker", participant.PlayerName))
 
-	if err := m.callServiceWithRetry("media_player", "volume_mute", map[string]interface{}{
-		"entity_id":       entityID,
-		"is_volume_muted": false,
-	}); err != nil {
+	if err := m.speakerSetMute(participant.PlayerName, false); err != nil {
 		m.logger.Error("Failed to unmute speaker",
 			zap.String("speaker", participant.PlayerName),
 			zap.Error(err))
 	}
 }
 
-// muteSpeaker mutes a Sonos speaker using the volume_mute service.
+// muteSpeaker mutes a Sonos speaker.
 // This is used during active playback when a room becomes unoccupied.
 func (m *Manager) muteSpeaker(participant ParticipantWithVolume) {
 	if m.readOnly {
@@ -558,15 +556,10 @@ func (m *Manager) muteSpeaker(participant ParticipantWithVolume) {
 		return
 	}
 
-	entityID := m.getSpeakerEntityID(participant.PlayerName)
-
 	m.logger.Info("Muting speaker",
 		zap.String("speaker", participant.PlayerName))
 
-	if err := m.callServiceWithRetry("media_player", "volume_mute", map[string]interface{}{
-		"entity_id":       entityID,
-		"is_volume_muted": true,
-	}); err != nil {
+	if err := m.speakerSetMute(participant.PlayerName, true); err != nil {
 		m.logger.Error("Failed to mute speaker",
 			zap.String("speaker", participant.PlayerName),
 			zap.Error(err))
@@ -605,11 +598,7 @@ func (m *Manager) stopPlayback() {
 	}
 
 	for _, participant := range lastPlaying.Participants {
-		entityID := m.getSpeakerEntityID(participant.PlayerName)
-		if err := m.callServiceWithRetry("media_player", "volume_set", map[string]interface{}{
-			"entity_id":    entityID,
-			"volume_level": 0,
-		}); err != nil {
+		if err := m.speakerSetVolume(participant.PlayerName, 0); err != nil {
 			m.logger.Error("Failed to set speaker volume to 0",
 				zap.String("speaker", participant.PlayerName),
 				zap.Error(err))

@@ -29,12 +29,13 @@ func (m *Manager) fadeOutSpeakers() {
 		zap.Int("speaker_count", len(currentlyPlaying.Participants)))
 
 	// Get current volumes for each speaker to fade from
+	// Key is speaker name for SoCo routing; HA state reads use entity IDs
 	speakerVolumes := make(map[string]int)
 	for _, p := range currentlyPlaying.Participants {
 		entityID := m.getSpeakerEntityID(p.PlayerName)
 		currentVolume := m.getSpeakerVolume(entityID)
 		if currentVolume > 0 {
-			speakerVolumes[entityID] = currentVolume
+			speakerVolumes[p.PlayerName] = currentVolume
 		}
 	}
 
@@ -48,16 +49,12 @@ func (m *Manager) fadeOutSpeakers() {
 		// Calculate progress (1.0 at start, 0.0 at end)
 		progress := float64(fadeOutSteps-step) / float64(fadeOutSteps)
 
-		for entityID, startVolume := range speakerVolumes {
+		for speakerName, startVolume := range speakerVolumes {
 			targetVolume := int(float64(startVolume) * progress)
-			volumeLevel := float64(targetVolume) / 100.0
 
-			if err := m.callServiceWithRetry("media_player", "volume_set", map[string]interface{}{
-				"entity_id":    entityID,
-				"volume_level": volumeLevel,
-			}); err != nil {
+			if err := m.speakerSetVolume(speakerName, targetVolume); err != nil {
 				m.logger.Debug("Failed to set volume during fade-out",
-					zap.String("entity_id", entityID),
+					zap.String("speaker", speakerName),
 					zap.Int("step", step),
 					zap.Error(err))
 				// Continue with other speakers even if one fails
@@ -96,17 +93,13 @@ func (m *Manager) breakSpeakerGroups(participants []ParticipantWithVolume) {
 		wg.Add(1)
 		go func(p ParticipantWithVolume) {
 			defer wg.Done()
-			entityID := m.getSpeakerEntityID(p.PlayerName)
 
 			m.logger.Debug("Unjoining speaker from existing group",
-				zap.String("speaker", p.PlayerName),
-				zap.String("entity_id", entityID))
+				zap.String("speaker", p.PlayerName))
 
-			// Use best-effort call with short timeout instead of callServiceWithRetry.
+			// Use best-effort call with short timeout instead of full retry.
 			// This limits each unjoin to ~15s instead of ~3 minutes of retries.
-			if err := m.callServiceBestEffort("media_player", "unjoin", map[string]interface{}{
-				"entity_id": entityID,
-			}, speakerUnjoinTimeout); err != nil {
+			if err := m.speakerUnjoinBestEffort(p.PlayerName, speakerUnjoinTimeout); err != nil {
 				// Log warning but continue - speaker might not be in a group
 				// or might be temporarily unreachable
 				m.logger.Warn("Failed to unjoin speaker (best-effort, continuing)",
@@ -127,7 +120,7 @@ func (m *Manager) breakSpeakerGroups(participants []ParticipantWithVolume) {
 // Returns a SpeakerGroupResult indicating which speakers successfully joined.
 // Continues with partial group if some speakers are unavailable.
 // Only fails entirely if lead speaker is unavailable or all speakers fail.
-func (m *Manager) buildSpeakerGroup(participants []ParticipantWithVolume, leadEntityID string) (*SpeakerGroupResult, error) {
+func (m *Manager) buildSpeakerGroup(participants []ParticipantWithVolume, leadSpeakerName string) (*SpeakerGroupResult, error) {
 	m.logger.Info("Building speaker group", zap.Int("count", len(participants)))
 
 	result := &SpeakerGroupResult{
@@ -153,14 +146,13 @@ func (m *Manager) buildSpeakerGroup(participants []ParticipantWithVolume, leadEn
 		return result, nil
 	}
 
-	// Build list of follower entity IDs
-	var groupMembers []string
+	// Build list of follower names for batch join
+	var followerNames []string
 	for i, p := range participants {
 		if i == 0 {
-			// Skip lead player
-			continue
+			continue // Skip lead player
 		}
-		groupMembers = append(groupMembers, m.getSpeakerEntityID(p.PlayerName))
+		followerNames = append(followerNames, p.PlayerName)
 	}
 
 	// First attempt: try to add all speakers at once (most efficient)
@@ -168,22 +160,19 @@ func (m *Manager) buildSpeakerGroup(participants []ParticipantWithVolume, leadEn
 	var lastErr error
 
 	for attempt := 1; attempt <= maxSpeakerGroupRetries; attempt++ {
-		err := m.callServiceWithRetry("media_player", "join", map[string]interface{}{
-			"entity_id":     leadEntityID,
-			"group_members": groupMembers,
-		})
+		err := m.speakerJoinGroupBatch(leadSpeakerName, followerNames)
 
 		if err == nil {
 			allSucceeded = true
 			if attempt > 1 {
 				m.logger.Info("Speaker group created after retry",
-					zap.String("lead", leadEntityID),
-					zap.Strings("members", groupMembers),
+					zap.String("lead", leadSpeakerName),
+					zap.Strings("members", followerNames),
 					zap.Int("attempt", attempt))
 			} else {
 				m.logger.Info("Speaker group created",
-					zap.String("lead", leadEntityID),
-					zap.Strings("members", groupMembers))
+					zap.String("lead", leadSpeakerName),
+					zap.Strings("members", followerNames))
 			}
 			break
 		}
@@ -230,14 +219,10 @@ func (m *Manager) buildSpeakerGroup(participants []ParticipantWithVolume, leadEn
 	// Try each follower individually
 	for i := 1; i < len(participants); i++ {
 		p := participants[i]
-		entityID := m.getSpeakerEntityID(p.PlayerName)
 		speakerJoined := false
 
 		for attempt := 1; attempt <= maxSpeakerGroupRetries; attempt++ {
-			err := m.callServiceWithRetry("media_player", "join", map[string]interface{}{
-				"entity_id":     leadEntityID,
-				"group_members": []string{entityID},
-			})
+			err := m.speakerJoinGroup(p.PlayerName, leadSpeakerName)
 
 			if err == nil {
 				speakerJoined = true
@@ -353,10 +338,10 @@ const asyncJoinConcurrencyLimit = 3
 //
 // Uses errgroup for structured concurrency with bounded parallelism. Individual speaker
 // join failures are logged but don't stop other speakers from joining (partial success).
-func (m *Manager) buildSpeakerGroupAsync(participants []ParticipantWithVolume, leadEntityID string, musicType string) {
+func (m *Manager) buildSpeakerGroupAsync(participants []ParticipantWithVolume, leadSpeakerName string, musicType string) {
 	followers := len(participants) - 1
 	m.logger.Info("Starting async speaker group building",
-		zap.String("lead", leadEntityID),
+		zap.String("lead", leadSpeakerName),
 		zap.Int("followers", followers))
 
 	// Use errgroup for structured concurrency with bounded parallelism
@@ -378,7 +363,7 @@ func (m *Manager) buildSpeakerGroupAsync(participants []ParticipantWithVolume, l
 				m.sleepFunc(staggerDelay)
 			}
 
-			return m.joinSpeakerWithRetry(p, leadEntityID, musicType)
+			return m.joinSpeakerWithRetry(p, leadSpeakerName, musicType)
 		})
 	}
 
@@ -396,15 +381,12 @@ func (m *Manager) buildSpeakerGroupAsync(participants []ParticipantWithVolume, l
 // joinSpeakerWithRetry attempts to join a single speaker to the group with retries.
 // Called from goroutines in buildSpeakerGroupAsync.
 // Returns an error if the speaker fails to join after all retries.
-func (m *Manager) joinSpeakerWithRetry(p ParticipantWithVolume, leadEntityID string, musicType string) error {
+func (m *Manager) joinSpeakerWithRetry(p ParticipantWithVolume, leadSpeakerName string, musicType string) error {
 	entityID := m.getSpeakerEntityID(p.PlayerName)
 
 	var joinErr error
 	for attempt := 1; attempt <= maxAsyncSpeakerRetries; attempt++ {
-		joinErr = m.callServiceWithRetry("media_player", "join", map[string]interface{}{
-			"entity_id":     leadEntityID,
-			"group_members": []string{entityID},
-		})
+		joinErr = m.speakerJoinGroup(p.PlayerName, leadSpeakerName)
 
 		if joinErr == nil {
 			m.logger.Info("Speaker joined group (async)",
@@ -459,19 +441,13 @@ func (m *Manager) joinSpeakerWithRetry(p ParticipantWithVolume, leadEntityID str
 			zap.String("speaker", p.PlayerName),
 			zap.Int("target_volume", p.Volume))
 
-		if err := m.callServiceWithRetry("media_player", "volume_set", map[string]interface{}{
-			"entity_id":    entityID,
-			"volume_level": float64(p.Volume) / 100.0,
-		}); err != nil {
+		if err := m.speakerSetVolume(p.PlayerName, p.Volume); err != nil {
 			m.logger.Error("Failed to set volume for muted speaker (async)",
 				zap.String("speaker", p.PlayerName),
 				zap.Error(err))
 		}
 
-		if err := m.callServiceWithRetry("media_player", "volume_mute", map[string]interface{}{
-			"entity_id":       entityID,
-			"is_volume_muted": true,
-		}); err != nil {
+		if err := m.speakerSetMute(p.PlayerName, true); err != nil {
 			m.logger.Error("Failed to mute speaker (async)",
 				zap.String("speaker", p.PlayerName),
 				zap.Error(err))
@@ -639,10 +615,7 @@ func (m *Manager) fadeInSpeaker(ctx context.Context, speakerName string, targetV
 	// SAFETY: Set volume to 0 BEFORE unmuting to prevent sudden loud noise.
 	// If the speaker was previously at high volume and muted, unmuting without
 	// lowering volume first would cause an immediate loud playback.
-	if err := m.callServiceWithRetry("media_player", "volume_set", map[string]interface{}{
-		"entity_id":    entityID,
-		"volume_level": 0.0,
-	}); err != nil {
+	if err := m.speakerSetVolume(speakerName, 0); err != nil {
 		m.logger.Error("Failed to set initial volume before unmute",
 			zap.String("speaker", speakerName),
 			zap.Error(err))
@@ -651,10 +624,7 @@ func (m *Manager) fadeInSpeaker(ctx context.Context, speakerName string, targetV
 	}
 
 	// Now safe to unmute - Sonos maintains mute state independently of volume
-	if err := m.callServiceWithRetry("media_player", "volume_mute", map[string]interface{}{
-		"entity_id":       entityID,
-		"is_volume_muted": false,
-	}); err != nil {
+	if err := m.speakerSetMute(speakerName, false); err != nil {
 		m.logger.Error("Failed to unmute speaker before fade-in",
 			zap.String("speaker", speakerName),
 			zap.Error(err))
@@ -701,11 +671,8 @@ func (m *Manager) fadeInSpeaker(ctx context.Context, speakerName string, targetV
 			return
 		}
 
-		// Set volume
-		if err := m.callServiceWithRetry("media_player", "volume_set", map[string]interface{}{
-			"entity_id":    entityID,
-			"volume_level": float64(currentVolume) / 100.0, // Normalize percentage (0-100) to 0.0-1.0
-		}); err != nil {
+		// Set volume (routed to SoCo or HA)
+		if err := m.speakerSetVolume(speakerName, currentVolume); err != nil {
 			consecutiveFailures++
 			totalFailures++
 			m.logger.Error("Failed to set volume during fade-in",
