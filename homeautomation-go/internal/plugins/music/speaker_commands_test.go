@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"homeautomation/internal/ha"
 	"homeautomation/internal/state"
@@ -289,6 +290,19 @@ func TestSpeakerPlayMedia_FallsBackToHA(t *testing.T) {
 	assert.Equal(t, "music", calls[0].Data["media_content_type"])
 }
 
+func TestSpeakerUnjoinBestEffort_FallsBackToHA(t *testing.T) {
+	t.Parallel()
+	manager, mockClient := createTestManager(t)
+
+	err := manager.speakerUnjoinBestEffort("Kitchen", 5*time.Second)
+	require.NoError(t, err)
+
+	calls := mockClient.GetServiceCalls()
+	require.Len(t, calls, 1)
+	assert.Equal(t, "unjoin", calls[0].Service)
+	assert.Equal(t, "media_player.kitchen", calls[0].Data["entity_id"])
+}
+
 func TestSpeakerSetShuffle_RoutesThroughSoCo(t *testing.T) {
 	t.Parallel()
 	manager, _ := createTestManager(t)
@@ -306,6 +320,20 @@ func TestSpeakerSetShuffle_RoutesThroughSoCo(t *testing.T) {
 	assert.Equal(t, "/Kitchen/shuffle/off", (*paths)[1])
 }
 
+func TestSpeakerSetShuffle_FallsBackToHA(t *testing.T) {
+	t.Parallel()
+	manager, mockClient := createTestManager(t)
+
+	err := manager.speakerSetShuffle("Kitchen", true)
+	require.NoError(t, err)
+
+	calls := mockClient.GetServiceCalls()
+	require.Len(t, calls, 1)
+	assert.Equal(t, "shuffle_set", calls[0].Service)
+	assert.Equal(t, "media_player.kitchen", calls[0].Data["entity_id"])
+	assert.Equal(t, true, calls[0].Data["shuffle"])
+}
+
 func TestSpeakerSetRepeat_RoutesThroughSoCo(t *testing.T) {
 	t.Parallel()
 	manager, _ := createTestManager(t)
@@ -317,6 +345,20 @@ func TestSpeakerSetRepeat_RoutesThroughSoCo(t *testing.T) {
 	err := manager.speakerSetRepeat("Kitchen", "all")
 	require.NoError(t, err)
 	assert.Equal(t, "/Kitchen/repeat/all", (*paths)[0])
+}
+
+func TestSpeakerSetRepeat_FallsBackToHA(t *testing.T) {
+	t.Parallel()
+	manager, mockClient := createTestManager(t)
+
+	err := manager.speakerSetRepeat("Kitchen", "all")
+	require.NoError(t, err)
+
+	calls := mockClient.GetServiceCalls()
+	require.Len(t, calls, 1)
+	assert.Equal(t, "repeat_set", calls[0].Service)
+	assert.Equal(t, "media_player.kitchen", calls[0].Data["entity_id"])
+	assert.Equal(t, "all", calls[0].Data["repeat"])
 }
 
 func TestSpeakerCommandPath_ReportsCorrectly(t *testing.T) {
