@@ -79,9 +79,29 @@ func (c *SoCoClient) PlayFromQueue(speakerName string) error {
 	return c.doGet(endpoint, "play_from_queue", speakerName)
 }
 
-// PlayShareLink is a convenience method that adds a Tidal share link to the queue
-// and starts playback. This is the main entry point for Tidal playlist playback.
+// ClearQueue removes all items from the specified speaker's queue.
+// This should be called before ShareLink to prevent stale content from playing.
+func (c *SoCoClient) ClearQueue(speakerName string) error {
+	if c.readOnly {
+		c.logger.Info("READ_ONLY: Would send clear_queue to SoCo-CLI",
+			zap.String("speaker", speakerName))
+		return nil
+	}
+
+	// GET /{speaker}/clear_queue
+	endpoint := fmt.Sprintf("%s/%s/clear_queue",
+		c.baseURL,
+		url.PathEscape(speakerName))
+
+	return c.doGet(endpoint, "clear_queue", speakerName)
+}
+
+// PlayShareLink clears the queue, adds a Tidal share link, and starts playback.
+// This is the main entry point for Tidal playlist playback.
 func (c *SoCoClient) PlayShareLink(speakerName, tidalURL string) error {
+	if err := c.ClearQueue(speakerName); err != nil {
+		return fmt.Errorf("clear_queue failed: %w", err)
+	}
 	if err := c.ShareLink(speakerName, tidalURL); err != nil {
 		return fmt.Errorf("sharelink failed: %w", err)
 	}

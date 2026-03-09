@@ -2913,9 +2913,12 @@ func TestStartPlaybackWithVerification_TidalDispatch(t *testing.T) {
 	t.Run("tidal dispatches to SoCo-CLI client", func(t *testing.T) {
 		var actions []string
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.URL.Path == "/Kitchen/play_from_queue" {
+			switch {
+			case r.URL.Path == "/Kitchen/clear_queue":
+				actions = append(actions, "clear_queue")
+			case r.URL.Path == "/Kitchen/play_from_queue":
 				actions = append(actions, "play_from_queue")
-			} else {
+			default:
 				actions = append(actions, "sharelink")
 			}
 			resp := SoCoResponse{Result: "ok", ExitCode: 0}
@@ -2940,7 +2943,7 @@ func TestStartPlaybackWithVerification_TidalDispatch(t *testing.T) {
 		attempts, err := manager.startPlaybackWithVerification("media_player.kitchen", "Kitchen", option)
 		require.NoError(t, err)
 		assert.Equal(t, 1, attempts)
-		assert.Equal(t, []string{"sharelink", "play_from_queue"}, actions)
+		assert.Equal(t, []string{"clear_queue", "sharelink", "play_from_queue"}, actions)
 
 		// Verify no HA play_media calls were made (Tidal goes through SoCo-CLI)
 		for _, call := range env.MockHA.GetServiceCalls() {
