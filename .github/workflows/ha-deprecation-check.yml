@@ -1,0 +1,199 @@
+name: HA Deprecation Check
+
+# Monthly check for deprecated Home Assistant APIs
+# Scans HA release notes for deprecations and checks codebase for usage
+# Creates issues for any deprecated API usage found, which the existing
+# claude.yml resolve-issue job will auto-fix
+
+# SECURITY NOTE: This workflow has low prompt injection risk because:
+# - It only triggers on schedule or manual dispatch (not user-controlled events)
+# - It analyzes HA release notes and codebase, not user-provided content
+# - It only creates issues (write) and reads code (read)
+
+on:
+  schedule:
+    # Run on the 5th of each month at 10am UTC
+    # HA typically releases on the first Wednesday of each month
+    - cron: '0 10 5 * *'
+  workflow_dispatch:
+    inputs:
+      ha_version:
+        description: 'Specific HA version to check (e.g., 2026.3). Leave empty to check latest releases.'
+        required: false
+        type: string
+
+concurrency:
+  group: ha-deprecation-check
+  cancel-in-progress: true
+
+env:
+  DEVCONTAINER_IMAGE: ghcr.io/nickborgers/home-automation-devcontainer
+
+jobs:
+  build-devcontainer:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push devcontainer
+        uses: devcontainers/ci@v0.3
+        with:
+          imageName: ${{ env.DEVCONTAINER_IMAGE }}
+          cacheFrom: ${{ env.DEVCONTAINER_IMAGE }}
+          push: always
+
+  check-deprecations:
+    needs: build-devcontainer
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+      packages: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Create gh config directory for devcontainer mount
+        run: mkdir -p ~/.config/gh
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Note: GH_TOKEN uses WORKFLOW_PAT so created issues trigger the resolve-issue job in claude.yml
+      # (issues created with GITHUB_TOKEN don't trigger other workflows)
+      - name: Check for deprecated HA APIs with Claude
+        uses: devcontainers/ci@v0.3
+        with:
+          imageName: ${{ env.DEVCONTAINER_IMAGE }}
+          cacheFrom: ${{ env.DEVCONTAINER_IMAGE }}
+          push: never
+          env: |
+            CLAUDE_CODE_OAUTH_TOKEN=${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+            GH_TOKEN=${{ secrets.WORKFLOW_PAT }}
+            REPO=${{ github.repository }}
+            HA_VERSION=${{ inputs.ha_version || '' }}
+          runCmd: |
+            # Using Sonnet: This is a classification/search task, not deep reasoning
+            claude --print \
+              --verbose \
+              --output-format stream-json \
+              --model sonnet \
+              --dangerously-skip-permissions \
+              --max-turns 100 \
+              "You are a Home Assistant deprecation checker. Your job is to find deprecated HA APIs
+            that this codebase still uses, and create GitHub issues so they get fixed proactively.
+
+            PHASE 1: GATHER DEPRECATIONS
+            =============================
+            Fetch the Home Assistant release notes to identify deprecated APIs.
+
+            $(if [ -n "${HA_VERSION}" ]; then echo "CHECK SPECIFIC VERSION: ${HA_VERSION}"; echo "Fetch the release notes for HA ${HA_VERSION} from https://www.home-assistant.io/blog/"; else echo "Check the LAST 3 HA releases."; fi)
+
+            Fetch release notes from https://www.home-assistant.io/blog/categories/release-notes/
+            For each release, look for:
+            - Deprecated service calls (e.g., service parameters renamed or removed)
+            - Deprecated entity attributes
+            - Breaking changes to WebSocket API
+            - Deprecated YAML configuration options
+            - Parameters that have been renamed (e.g., color_temp -> color_temp_kelvin)
+            - Services that have been renamed or split
+
+            Also check these known deprecation patterns that HA has introduced over time:
+            - light.turn_on: color_temp (deprecated) -> color_temp_kelvin
+            - light.turn_on: brightness (0-255) still works but brightness_pct (0-100) is preferred
+            - media_player service consolidation changes
+            - Climate entity mode changes
+
+            PHASE 2: SCAN CODEBASE
+            =======================
+            Search the codebase for usage of any deprecated APIs found in Phase 1.
+
+            Focus on:
+            - homeautomation-go/internal/plugins/ - all plugin code
+            - configs/ - YAML configuration files
+            - Look for CallService and CallServiceWithTarget calls
+            - Look for entity attribute references
+            - Look for WebSocket message construction
+
+            Search patterns to check:
+            - grep for deprecated parameter names in service call data maps
+            - grep for deprecated service names
+            - Check map literals passed to CallService/CallServiceWithTarget
+
+            PHASE 3: REPORT
+            ================
+            If you find deprecated API usage in the codebase:
+
+            1. First check for existing open issues to avoid duplicates:
+               gh issue list --repo ${REPO} --label ha-deprecation --state open --json title,number
+
+            2. If no duplicate exists, create the ha-deprecation label if needed:
+               gh label create \"ha-deprecation\" --color \"d93f0b\" --description \"Deprecated Home Assistant API usage\" --repo ${REPO} 2>/dev/null || true
+
+            3. Create a GitHub issue with @claude in the title (so resolve-issue picks it up):
+               gh issue create --repo ${REPO} \
+                 --title '@claude Replace deprecated Home Assistant API usage' \
+                 --label 'ha-deprecation' \
+                 --body '<issue body>'
+
+               The issue body MUST include:
+               - Which deprecated APIs were found and in which files (with line numbers)
+               - What each deprecated call should be replaced with
+               - Links to the relevant HA release notes
+               - A clear description of what changes are needed
+
+               Example issue body format:
+               ## Deprecated HA API Usage Found
+
+               The following deprecated Home Assistant APIs are used in this codebase:
+
+               ### 1. \`deprecated_param\` in \`file.go:123\`
+               - **Current**: Uses \`deprecated_param\` in \`service.call\`
+               - **Replace with**: \`new_param\`
+               - **HA Release**: [2026.3 Release Notes](url)
+
+               ## Required Changes
+               - Update \`file.go\` to use \`new_param\` instead of \`deprecated_param\`
+
+               ---
+               🤖 Generated by HA Deprecation Check workflow
+
+            4. If a duplicate issue already exists (same deprecation already reported), skip creating a new one
+               and output: DUPLICATE_ISSUE_EXISTS - skipping issue creation.
+
+            If NO deprecated usage is found in the codebase:
+            Output: NO_DEPRECATIONS_FOUND
+            This is a successful outcome - the codebase is up to date.
+
+            IMPORTANT:
+            - Be thorough in scanning - check ALL plugin files
+            - Only report deprecations that actually affect code in THIS repository
+            - Do not report theoretical deprecations that aren't used here
+            - Include specific file paths and line numbers in the issue" < /dev/null 2>&1 | tee /workspaces/home-automation/deprecation-check-output.jsonl
+
+      - name: Upload deprecation check output
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: deprecation-check-output
+          path: deprecation-check-output.jsonl
+          retention-days: 30
