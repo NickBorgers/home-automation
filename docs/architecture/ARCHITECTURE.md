@@ -321,11 +321,12 @@ Each plugin corresponds to a Node-RED flow and implements domain-specific automa
 - Select appropriate music mode based on context
 - Handle volume management with fade in/out
 - Prevent playback when inappropriate (sleep, away)
-- Tidal playlist playback via SoCo-CLI HTTP API (for `media_type: tidal` entries)
+- Direct Sonos speaker control via SoCo-CLI HTTP API (volume, mute, group, playback, shuffle, repeat)
+- Tidal playlist playback via SoCo-CLI sharelink mechanism
 
 **Key Automations:**
 - **Mode Selection**: Based on `dayPhase`, presence, sleep state → Determine music mode
-- **Playback Control**: Mode change → Build participant groups → Set volumes → Start playback (Spotify via HA, Tidal via SoCo-CLI)
+- **Playback Control**: Mode change → Build participant groups → Set volumes → Start playback (all speaker commands via SoCo-CLI when configured, fallback to HA)
 - **Shutdown on Exit**: Everyone leaves → Stop all playback
 
 **Events Consumed:** `state.dayPhase.changed`, `state.isAnyoneHome.changed`, `state.isMasterAsleep.changed`, `state.isGuestAsleep.changed`, `state.isToriHere.changed`, `state.isTVPlaying.changed`
