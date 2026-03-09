@@ -7,21 +7,21 @@ This document describes the complex Claude Code-based GitHub Actions pipelines i
 The repository uses several interconnected workflows that leverage Claude Code to automate software development tasks:
 
 ```
-┌──────────────────────────────────────────────────────────────────┐
-│                        TRIGGER EVENTS                             │
-├──────────────────────────────────────────────────────────────────┤
-│  Issue Opened  │  @claude Mention  │  PR Tests Complete/Failed   │
-└───────┬────────┴────────┬──────────┴─────────┬───────────────────┘
-        │                 │                    │
-        ▼                 ▼                    ▼
-┌───────────────┐ ┌───────────────┐ ┌──────────────────┐
-│ claude.yml    │ │ claude.yml    │ │ claude-code-     │
-│ resolve-issue │ │ claude job    │ │ review.yml       │
-└───────────────┘ └───────────────┘ └──────────────────┘
-        │                 │                    │
-        ▼                 ▼                    │
-┌──────────────────────────────────────────────┤
-│                                              │
+┌──────────────────────────────────────────────────────────────────────────┐
+│                           TRIGGER EVENTS                                  │
+├──────────────────────────────────────────────────────────────────────────┤
+│  Issue Opened  │  @claude Mention  │  PR Tests Complete/Failed  │ Monthly │
+└───────┬────────┴────────┬──────────┴─────────┬─────────────────┴────┬────┘
+        │                 │                    │                      │
+        ▼                 ▼                    ▼                      ▼
+┌───────────────┐ ┌───────────────┐ ┌──────────────────┐ ┌──────────────────┐
+│ claude.yml    │ │ claude.yml    │ │ claude-code-     │ │ ha-deprecation-  │
+│ resolve-issue │ │ claude job    │ │ review.yml       │ │ check.yml        │
+└───────────────┘ └───────────────┘ └──────────────────┘ └────────┬─────────┘
+        │                 │                    │                   │
+        ▼                 ▼                    │          (creates issues)
+┌──────────────────────────────────────────────┤                   │
+│                                              │◄──────────────────┘
 │  DEVCONTAINER EXECUTION                      │◄───────────────────┐
 │  Claude Code runs inside a cached            │                    │
 │  devcontainer with full access               │                    │
@@ -54,6 +54,7 @@ Key security measures:
 | Claude Code Review | `claude-code-review.yml` | PR Tests completion, PR reopened | Multi-agent code review, fix failures, merge decision |
 | PR Tests | `pr-tests.yml` | PRs, pushes to claude/** | Run tests, trigger review pipeline |
 | Claude Diagnose Workflow Failure | `claude-diagnose-workflow-failure.yml` | Any workflow failure | Diagnose Actions config problems (not test failures) |
+| HA Deprecation Check | `ha-deprecation-check.yml` | Monthly schedule, manual dispatch | Scan HA release notes for deprecated APIs, create issues |
 
 ---
 
@@ -561,12 +562,63 @@ When an `ACTIONS_FAILURE` is detected, an issue is created with:
 
 ---
 
+## 5. HA Deprecation Check (`ha-deprecation-check.yml`)
+
+Proactively scans Home Assistant release notes for deprecated APIs and checks if the codebase uses them. Creates GitHub issues for any deprecated usage found, which the existing `resolve-issue` job in `claude.yml` will auto-fix.
+
+### Triggers
+
+- **Schedule**: 5th of each month at 10am UTC (HA typically releases on the first Wednesday)
+- **Manual**: `workflow_dispatch` with optional `ha_version` input to check a specific release
+
+### Concurrency Control
+
+```yaml
+concurrency:
+  group: ha-deprecation-check
+  cancel-in-progress: true
+```
+
+### Jobs
+
+#### 5.1 `build-devcontainer`
+
+Checks if the devcontainer image already exists in GHCR and only builds if missing. Since this is a monthly job, it relies on other workflows (claude.yml, pr-tests) to keep the image up to date.
+
+#### 5.2 `check-deprecations`
+
+Runs Claude (Sonnet) to perform a three-phase check:
+
+1. **Gather Deprecations**: Fetches HA release notes from the blog, looking for deprecated service calls, entity attributes, WebSocket API changes, and renamed parameters
+2. **Scan Codebase**: Searches plugin code and configs for usage of any deprecated APIs found
+3. **Report**: Creates one GitHub issue per deprecated API found (with `ha-deprecation` label), skipping duplicates
+
+**Issue Integration**: Issues are created with `@claude` in the title prefix, so the `resolve-issue` job in `claude.yml` automatically picks them up and creates fix PRs.
+
+**Token Note**: Uses `WORKFLOW_PAT` (not `GITHUB_TOKEN`) so created issues trigger the `resolve-issue` workflow.
+
+**Result Codes**:
+
+| Result | Meaning |
+|--------|---------|
+| `NO_DEPRECATIONS_FOUND` | Codebase is up to date |
+| `ISSUES_CREATED <N>` | Created N issues for deprecated API usage |
+| `ALL_DUPLICATES` | Deprecations found but already tracked in existing issues |
+| `FETCH_FAILED` | Could not retrieve HA release notes (workflow fails) |
+
+### Artifacts
+
+- `deprecation-check-output`: Full Claude output in JSONL format
+- Retention: 30 days (longer than default since this runs monthly)
+
+---
+
 ## Required Secrets
 
 | Secret | Used By | Purpose |
 |--------|---------|---------|
-| `CLAUDE_CODE_OAUTH_TOKEN` | claude.yml, claude-code-review.yml, claude-diagnose-workflow-failure.yml | Claude Code authentication |
-| `WORKFLOW_PAT` | claude.yml, claude-code-review.yml | Push workflow file changes, create PRs that trigger workflows |
+| `CLAUDE_CODE_OAUTH_TOKEN` | claude.yml, claude-code-review.yml, claude-diagnose-workflow-failure.yml, ha-deprecation-check.yml | Claude Code authentication |
+| `WORKFLOW_PAT` | claude.yml, claude-code-review.yml, ha-deprecation-check.yml | Push workflow file changes, create PRs/issues that trigger workflows |
 | `PRIVATE_REPO_TRIGGER_TOKEN` | notify-pr-merged.yml | Cross-repo workflow triggers |
 
 ### Why `WORKFLOW_PAT`?
@@ -656,6 +708,7 @@ The pipelines use a mix of Claude Opus and Claude Sonnet models, selected based 
 | **claude-code-review.yml - docs-review** | Opus | Documentation updates require accurate changes when PR opener missed them |
 | **claude-code-review.yml - merge-decision** | Sonnet | Summarization task synthesizing existing review results |
 | **claude-diagnose-workflow-failure.yml** | Sonnet | Classification task with clear decision tree (3 categories) |
+| **ha-deprecation-check.yml** | Sonnet | Classification/search task scanning release notes and codebase |
 
 **When to use Opus:**
 - Open-ended, creative tasks
