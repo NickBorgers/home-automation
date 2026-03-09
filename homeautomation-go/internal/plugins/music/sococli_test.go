@@ -155,17 +155,60 @@ func TestSoCoClient_PlayFromQueue(t *testing.T) {
 	})
 }
 
+func TestSoCoClient_ClearQueue(t *testing.T) {
+	t.Parallel()
+	logger := zaptest.NewLogger(t)
+
+	t.Run("successful clear_queue", func(t *testing.T) {
+		var requestPath string
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			requestPath = r.URL.Path
+			resp := SoCoResponse{
+				Result:   "",
+				ExitCode: 0,
+				Speaker:  "Front Room",
+				Action:   "clear_queue",
+			}
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(resp)
+		}))
+		defer server.Close()
+
+		client := NewSoCoClient(server.URL, logger, false)
+		err := client.ClearQueue("Front Room")
+		require.NoError(t, err)
+		assert.Equal(t, "/Front Room/clear_queue", requestPath)
+	})
+
+	t.Run("read-only mode does not call server", func(t *testing.T) {
+		callCount := 0
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			callCount++
+			w.WriteHeader(http.StatusOK)
+		}))
+		defer server.Close()
+
+		client := NewSoCoClient(server.URL, logger, true)
+		err := client.ClearQueue("Front Room")
+		assert.NoError(t, err)
+		assert.Equal(t, 0, callCount, "server should not have been called")
+	})
+}
+
 func TestSoCoClient_PlayShareLink(t *testing.T) {
 	t.Parallel()
 	logger := zaptest.NewLogger(t)
 
-	t.Run("calls sharelink then play_from_queue", func(t *testing.T) {
+	t.Run("calls clear_queue then sharelink then play_from_queue", func(t *testing.T) {
 		var actions []string
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			action := "unknown"
-			if r.URL.Path == "/Kitchen/play_from_queue" {
+			switch {
+			case r.URL.Path == "/Kitchen/clear_queue":
+				action = "clear_queue"
+			case r.URL.Path == "/Kitchen/play_from_queue":
 				action = "play_from_queue"
-			} else {
+			default:
 				action = "sharelink"
 			}
 			actions = append(actions, action)
@@ -183,14 +226,33 @@ func TestSoCoClient_PlayShareLink(t *testing.T) {
 		client := NewSoCoClient(server.URL, logger, false)
 		err := client.PlayShareLink("Kitchen", "https://tidal.com/browse/playlist/abc123")
 		require.NoError(t, err)
-		assert.Equal(t, []string{"sharelink", "play_from_queue"}, actions)
+		assert.Equal(t, []string{"clear_queue", "sharelink", "play_from_queue"}, actions)
 	})
 
-	t.Run("returns error if sharelink fails", func(t *testing.T) {
+	t.Run("returns error if clear_queue fails", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			resp := SoCoResponse{
 				ExitCode: 1,
-				ErrorMsg: "bad url",
+				ErrorMsg: "speaker not found",
+			}
+			json.NewEncoder(w).Encode(resp)
+		}))
+		defer server.Close()
+
+		client := NewSoCoClient(server.URL, logger, false)
+		err := client.PlayShareLink("Kitchen", "https://tidal.com/browse/playlist/abc123")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "clear_queue failed")
+	})
+
+	t.Run("returns error if sharelink fails", func(t *testing.T) {
+		callNum := 0
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			callNum++
+			resp := SoCoResponse{ExitCode: 0, Result: "ok"}
+			if callNum == 2 {
+				// Second call (sharelink) fails
+				resp = SoCoResponse{ExitCode: 1, ErrorMsg: "bad url"}
 			}
 			json.NewEncoder(w).Encode(resp)
 		}))
@@ -207,8 +269,8 @@ func TestSoCoClient_PlayShareLink(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			callNum++
 			resp := SoCoResponse{ExitCode: 0, Result: "ok"}
-			if callNum > 1 {
-				// Second call (play_from_queue) fails
+			if callNum == 3 {
+				// Third call (play_from_queue) fails
 				resp = SoCoResponse{ExitCode: 1, ErrorMsg: "queue empty"}
 			}
 			json.NewEncoder(w).Encode(resp)
