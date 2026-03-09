@@ -229,10 +229,7 @@ func (m *Manager) executePlayback(musicType string, option PlaybackOption, parti
 
 	// Step 2: Mute LEAD speaker only before starting playback
 	// Followers will be muted when they join asynchronously
-	if err := m.callServiceWithRetry("media_player", "volume_set", map[string]interface{}{
-		"entity_id":    leadEntityID,
-		"volume_level": 0,
-	}); err != nil {
+	if err := m.speakerSetVolume(leadPlayer, 0); err != nil {
 		m.logger.Error("Failed to mute lead speaker",
 			zap.String("speaker", leadPlayer),
 			zap.Error(err))
@@ -258,15 +255,12 @@ func (m *Manager) executePlayback(musicType string, option PlaybackOption, parti
 	// Start post-playback health monitor to detect auto-pause
 	// Only in non-read-only mode since we may need to send recovery commands
 	if !m.readOnly && verifyErr == nil {
-		m.startPlaybackMonitor(leadEntityID, musicType)
+		m.startPlaybackMonitor(leadEntityID, leadPlayer, musicType)
 	}
 
 	// Step 4: Enable shuffle for playlists (Spotify and Tidal)
 	if option.MediaType == "playlist" || option.MediaType == "tidal" {
-		if err := m.callServiceWithRetry("media_player", "shuffle_set", map[string]interface{}{
-			"entity_id": leadEntityID,
-			"shuffle":   true,
-		}); err != nil {
+		if err := m.speakerSetShuffle(leadPlayer, true); err != nil {
 			m.logger.Warn("Failed to enable shuffle",
 				zap.String("speaker", leadPlayer),
 				zap.Error(err))
@@ -276,10 +270,7 @@ func (m *Manager) executePlayback(musicType string, option PlaybackOption, parti
 	// Step 5: Enable repeat for all playback types
 	// Repeat ensures continuous playback, especially important for single-file
 	// media like rain sounds that would otherwise stop after playing once
-	if err := m.callServiceWithRetry("media_player", "repeat_set", map[string]interface{}{
-		"entity_id": leadEntityID,
-		"repeat":    "all",
-	}); err != nil {
+	if err := m.speakerSetRepeat(leadPlayer, "all"); err != nil {
 		m.logger.Warn("Failed to enable repeat",
 			zap.String("speaker", leadPlayer),
 			zap.Error(err))
@@ -301,19 +292,13 @@ func (m *Manager) executePlayback(musicType string, option PlaybackOption, parti
 			zap.String("speaker", leadPlayer),
 			zap.Int("target_volume", leadParticipant.Volume))
 
-		if err := m.callServiceWithRetry("media_player", "volume_set", map[string]interface{}{
-			"entity_id":    leadEntityID,
-			"volume_level": float64(leadParticipant.Volume) / 100.0,
-		}); err != nil {
+		if err := m.speakerSetVolume(leadPlayer, leadParticipant.Volume); err != nil {
 			m.logger.Error("Failed to set volume for muted lead speaker",
 				zap.String("speaker", leadPlayer),
 				zap.Error(err))
 		}
 
-		if err := m.callServiceWithRetry("media_player", "volume_mute", map[string]interface{}{
-			"entity_id":       leadEntityID,
-			"is_volume_muted": true,
-		}); err != nil {
+		if err := m.speakerSetMute(leadPlayer, true); err != nil {
 			m.logger.Error("Failed to mute lead speaker",
 				zap.String("speaker", leadPlayer),
 				zap.Error(err))
@@ -325,7 +310,7 @@ func (m *Manager) executePlayback(musicType string, option PlaybackOption, parti
 	if len(participants) > 1 {
 		m.logger.Info("Launching async speaker group building",
 			zap.Int("followers", len(participants)-1))
-		go m.buildSpeakerGroupAsync(participants, leadEntityID, musicType)
+		go m.buildSpeakerGroupAsync(participants, leadPlayer, musicType)
 	}
 
 	// Create result - for async mode, we only report the lead as definitely active
@@ -373,19 +358,15 @@ func (m *Manager) startPlaybackWithVerification(leadEntityID string, leadPlayerN
 	}
 
 	for attempt := 1; attempt <= playbackVerificationRetries; attempt++ {
-		// Send play_media command
-		if err := m.callServiceWithRetry("media_player", "play_media", map[string]interface{}{
-			"entity_id":          leadEntityID,
-			"media_content_id":   option.URI,
-			"media_content_type": option.MediaType,
-		}); err != nil {
+		// Send play_media command (routed to SoCo play_uri or HA play_media)
+		if err := m.speakerPlayMedia(leadPlayerName, option.URI, option.MediaType); err != nil {
 			return attempt, fmt.Errorf("failed to send play_media: %w", err)
 		}
 
 		// Wait for speaker to start playing
 		m.sleepFunc(playbackVerificationDelay)
 
-		// Check if playback actually started
+		// Check if playback actually started (state read still goes through HA)
 		playing, checkErr := m.isPlaybackActive(leadEntityID)
 		if checkErr != nil {
 			m.logger.Warn("Failed to verify playback state",
@@ -411,10 +392,8 @@ func (m *Manager) startPlaybackWithVerification(leadEntityID string, leadPlayerN
 			zap.Int("attempt", attempt),
 			zap.Int("max_attempts", playbackVerificationRetries))
 
-		// Try media_player.play as a nudge in case the speaker is paused
-		if nudgeErr := m.callServiceWithRetry("media_player", "media_play", map[string]interface{}{
-			"entity_id": leadEntityID,
-		}); nudgeErr != nil {
+		// Try play as a nudge in case the speaker is paused
+		if nudgeErr := m.speakerPlay(leadPlayerName); nudgeErr != nil {
 			m.logger.Debug("Play nudge failed", zap.Error(nudgeErr))
 		}
 
