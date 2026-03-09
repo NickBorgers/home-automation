@@ -706,7 +706,7 @@ type Context struct {
     Logger       *zap.Logger
     ReadOnly     bool
     ConfigDir    string
-    SoCoCliURL   string        // SoCo-CLI HTTP API base URL (optional, for Tidal playback)
+    SoCoCliURL   string        // SoCo-CLI HTTP API base URL (optional, for direct speaker control and Tidal playback)
 }
 ```
 
