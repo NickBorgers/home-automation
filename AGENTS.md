@@ -340,11 +340,36 @@ Logs are centralized in Gravwell. Authenticate using the token stored in `./grav
 |-----|-------------|
 | `tag=home-automation` | Home automation Go application logs |
 | `tag=home-assistant` | Home Assistant entity state changes (excludes `sensor.*` entities - too noisy) |
+| `tag=soco` | SoCo-CLI HTTP API server logs (Tidal playback via Sonos) |
+
+**Version Verification (first debugging step):**
+
+When debugging production issues, first confirm the running code matches what you expect:
+
+```bash
+curl -s -X POST \
+  -H "Gravwell-Token: $(tr -d '\n' < ./gravwell.token)" \
+  -H "query: tag=home-automation grep \"Home Automation starting\"" \
+  -H "duration: 24h" \
+  -H "format: text" \
+  "https://gravwell.featherback-mermaid.ts.net/api/search/direct"
+```
+
+Example output:
+```json
+{"level":"info","ts":"2026-03-09T00:30:56.858Z","msg":"Home Automation starting","commit":"2df98a08...","branch":"main","build_time":"2026-03-08T19:09:45Z","dirty":"false"}
+```
+
+- **`commit`**: Compare against `git log` in this repo to verify the deployed version
+- **`branch`**: Should be `main` in production
+- **`build_time`**: When the binary was compiled
+- **`dirty`**: If `true`, the binary was built from a working tree with uncommitted changes — the `commit` hash alone won't fully represent what's running
 
 **Example queries:**
 ```
 tag=home-automation
 tag=home-assistant
+tag=soco                            # SoCo-CLI logs
 tag=home-automation,home-assistant  # Both sources
 ```
 
@@ -369,6 +394,14 @@ curl -s -X POST \
   -H "format: text" \
   "https://gravwell.featherback-mermaid.ts.net/api/search/direct"
 
+# Query SoCo-CLI logs (last 30 minutes)
+curl -s -X POST \
+  -H "Gravwell-Token: $(tr -d '\n' < ./gravwell.token)" \
+  -H "query: tag=soco" \
+  -H "duration: 30m" \
+  -H "format: text" \
+  "https://gravwell.featherback-mermaid.ts.net/api/search/direct"
+
 # Filter for error-level logs using JSON field extraction
 curl -s -X POST \
   -H "Gravwell-Token: $(tr -d '\n' < ./gravwell.token)" \
@@ -390,6 +423,13 @@ curl -s -X POST \
 <14>1 2026-01-03T10:47:31-06:00 home-assistant homeassistant - - - media_player.sony_xr_65a80k: on → off
 <14>1 2026-01-03T10:46:52-06:00 home-assistant homeassistant - - - select.span_right_hvac_and_well_kids_hot_water_heater_circuit_priority: unavailable → Nice To Have
 <14>1 2026-01-03T10:45:37-06:00 home-assistant homeassistant - - - binary_sensor.span_right_hvac_and_well_door_state: unavailable → unknown
+```
+
+**Example output (soco):** SoCo-CLI HTTP API server logs
+```
+<27>1 2026-03-09T00:33:43Z dockergeneric soco 875 soco - INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+<27>1 2026-03-09T00:33:43Z dockergeneric soco 875 soco - INFO:     Application startup complete.
+<27>1 2026-03-09T00:33:43Z dockergeneric soco 875 soco - INFO:     Started server process [1]
 ```
 
 **API Parameters:**
