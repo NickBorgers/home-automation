@@ -625,8 +625,11 @@ func (c *Client) WaitForHandlers() {
 	// After Phase 1 completes, there may be WebSocket messages in the buffer
 	// that haven't been read yet. We wait for the next event to complete,
 	// with a short timeout in case there are no pending events.
+	// Use 15ms to allow time for any buffered WebSocket events to arrive
+	// and be dispatched, avoiding a race where WaitForHandlers returns
+	// before an in-flight event has been delivered and processed.
 	snapshot := c.processedEvents.Load()
-	timer := time.NewTimer(5 * time.Millisecond)
+	timer := time.NewTimer(15 * time.Millisecond)
 	defer timer.Stop()
 	for {
 		select {
