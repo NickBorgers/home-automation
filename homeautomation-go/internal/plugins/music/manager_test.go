@@ -3420,10 +3420,14 @@ func TestJoinSpeakerWithRetry_RetryOnTransientError(t *testing.T) {
 	// then the second attempt (calls 3+) succeeds
 	env.MockHA.SetServiceFailCount("media_player", "join", 2, fmt.Errorf("service call failed: timeout"))
 
+	// Set mute condition to prevent fade-in goroutine from launching after successful join.
+	// Without this, fadeInSpeaker runs concurrently and adds extra sleepFunc calls that
+	// interfere with retry delay assertions.
+	env.StateMgr.SetBool("isMasterAsleep", true)
 	participant := ParticipantWithVolume{
 		PlayerName:   "Living Room",
 		Volume:       10,
-		LeaveMutedIf: []MuteCondition{},
+		LeaveMutedIf: []MuteCondition{{Variable: "isMasterAsleep", Value: true}},
 	}
 
 	snapshot := env.MockHA.ServiceCallCount()
