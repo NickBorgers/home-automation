@@ -73,7 +73,9 @@ jobs:
       is_draft: ${{ steps.get-pr.outputs.is_draft }}
       # Handle workflow_run, workflow_dispatch, and pull_request events
       # For pull_request (reopen), tests haven't run yet so tests_passed is false
-      tests_passed: ${{ github.event_name == 'workflow_dispatch' && inputs.tests_passed == 'true' || github.event_name == 'pull_request' && 'false' || github.event.workflow_run.conclusion == 'success' }}
+      # Defense-in-depth: also check the latest "All Required Tests" check run status
+      # to guard against duplicate PR Tests runs where one passes and one fails
+      tests_passed: ${{ github.event_name == 'workflow_dispatch' && inputs.tests_passed == 'true' || github.event_name == 'pull_request' && 'false' || (github.event.workflow_run.conclusion == 'success' && steps.verify-test-status.outputs.verified != 'false') }}
       run_id: ${{ github.event_name == 'workflow_dispatch' && inputs.run_id || github.event_name == 'pull_request' && github.run_id || github.event.workflow_run.id }}
       # SHA that triggered this workflow - used to detect if author pushed newer commits
       triggering_sha: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.event.workflow_run.head_sha }}
@@ -92,6 +94,34 @@ jobs:
       cross_pr_context_b64: ${{ steps.generate-cross-pr-context.outputs.cross_pr_context_b64 }}
 
     steps:
+      # Defense-in-depth: quick check of the latest "All Required Tests" status
+      # Guards against duplicate PR Tests runs where one passes and one fails
+      # This is a non-retrying check; per-reviewer verify-tests steps provide the second layer
+      - name: Verify latest test status for commit
+        if: github.event_name == 'workflow_run'
+        id: verify-test-status
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          HEAD_SHA="${{ github.event.workflow_run.head_sha }}"
+          echo "Quick-checking test status for commit $HEAD_SHA"
+
+          # Check latest "All Required Tests" check run (non-retrying)
+          STATUS=$(gh api repos/${{ github.repository }}/commits/$HEAD_SHA/check-runs \
+            --jq '[.check_runs[] | select(.name == "All Required Tests")] | sort_by(.completed_at) | last | .conclusion' 2>/dev/null || echo "")
+
+          if [ "$STATUS" = "success" ]; then
+            echo "✅ Latest 'All Required Tests' check passed"
+            echo "verified=true" >> $GITHUB_OUTPUT
+          elif [ "$STATUS" = "failure" ]; then
+            echo "❌ Latest 'All Required Tests' check FAILED - blocking reviews"
+            echo "verified=false" >> $GITHUB_OUTPUT
+          else
+            # If status is pending/unknown, don't block - let per-reviewer verify-tests handle it
+            echo "⚠️ Test status is '${STATUS:-not found}' - deferring to per-reviewer checks"
+            echo "verified=true" >> $GITHUB_OUTPUT
+          fi
+
       - name: Get PR from workflow run or dispatch inputs
         uses: actions/github-script@v7
         id: get-pr
@@ -715,7 +745,40 @@ jobs:
       packages: read
 
     steps:
+      - name: Verify tests passed on current commit
+        id: verify-tests
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Get the current HEAD SHA of the PR
+          HEAD_SHA=$(gh api repos/${{ github.repository }}/pulls/${{ needs.get-context.outputs.pr_number }} --jq '.head.sha')
+          echo "Checking test status for commit $HEAD_SHA"
+
+          # Retry loop - check run may not be visible immediately after workflow triggers
+          MAX_ATTEMPTS=40
+          ATTEMPT=1
+          while [ $ATTEMPT -le $MAX_ATTEMPTS ]; do
+            STATUS=$(gh api repos/${{ github.repository }}/commits/$HEAD_SHA/check-runs --jq '[.check_runs[] | select(.name == "All Required Tests")] | sort_by(.completed_at) | last | .conclusion' 2>/dev/null || echo "")
+
+            if [ "$STATUS" = "success" ]; then
+              echo "✅ All Required Tests passed on current commit"
+              echo "verified=true" >> $GITHUB_OUTPUT
+              exit 0
+            fi
+
+            if [ $ATTEMPT -lt $MAX_ATTEMPTS ]; then
+              echo "Attempt $ATTEMPT/$MAX_ATTEMPTS: Check run not found yet (status: ${STATUS:-not found}), waiting 10s..."
+              sleep 10
+            fi
+            ATTEMPT=$((ATTEMPT + 1))
+          done
+
+          echo "⚠️ Tests have not passed on current commit after $MAX_ATTEMPTS attempts (status: ${STATUS:-not found})"
+          echo "Skipping review - tests must pass first"
+          echo "verified=false" >> $GITHUB_OUTPUT
+
       - name: Checkout PR branch
+        if: steps.verify-tests.outputs.verified == 'true'
         uses: actions/checkout@v4
         with:
           ref: ${{ needs.get-context.outputs.head_ref }}
@@ -724,9 +787,11 @@ jobs:
           token: ${{ secrets.WORKFLOW_PAT }}  # PAT required to push workflow file changes
 
       - name: Create gh config directory for devcontainer mount
+        if: steps.verify-tests.outputs.verified == 'true'
         run: mkdir -p ~/.config/gh
 
       - name: Log in to GHCR
+        if: steps.verify-tests.outputs.verified == 'true'
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -734,6 +799,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Run Claude review in devcontainer
+        if: steps.verify-tests.outputs.verified == 'true'
         uses: devcontainers/ci@v0.3
         with:
           imageName: ${{ env.DEVCONTAINER_IMAGE }}
