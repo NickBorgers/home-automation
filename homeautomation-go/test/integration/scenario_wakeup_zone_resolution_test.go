@@ -174,28 +174,55 @@ func TestScenario_WakeUp_DebouncesRapidTriggers(t *testing.T) {
 	// ===== THEN: Only one set of zone resolution service calls
 	t.Log("THEN: Bedroom should receive at most one set of join/volume commands (not three)")
 
+	// Wait for morning zone orchestration to complete — bedroom should join once as a follower.
+	// In morning zone, Front Room is the lead speaker. Bedroom joins as a follower, so the
+	// join call is: entity_id=media_player.front_room, group_members=[media_player.bedroom].
+	// We poll until that join call appears so the assertion below is not vacuously true.
+	waitForCondition(t, func() bool {
+		for _, call := range env.server.GetServiceCallsSince(snapshot) {
+			if call.Domain == "media_player" && call.Service == "join" {
+				if members, ok := call.ServiceData["group_members"].([]interface{}); ok {
+					for _, m := range members {
+						if s, ok := m.(string); ok && s == "media_player.bedroom" {
+							return true
+						}
+					}
+				}
+			}
+		}
+		return false
+	}, "bedroom should join morning zone as follower after wake-up debounce fires")
+
 	calls := env.server.GetServiceCallsSince(snapshot)
 
-	// Count how many times media_player.join was called for the bedroom speaker.
-	// Before the fix, each of the 3 triggers would independently try to join
-	// the bedroom to the morning zone, resulting in 3 join calls that would
-	// race and cancel each other on the Sonos speaker.
+	// Count how many times bedroom was told to join a group as a FOLLOWER
+	// (i.e., "media_player.bedroom" appears in group_members, not entity_id).
+	//
+	// In morning zone, Front Room is the lead. Bedroom joins as a follower:
+	//   join entity_id=media_player.front_room group_members=[media_player.bedroom]
+	//
+	// We must NOT count entity_id=bedroom, which would instead count sleep zone
+	// orchestration calls where bedroom is the lead and Kitchen/Primary Bathroom
+	// join its group. Those calls are an artifact of the async orchestrateZonePlayback
+	// goroutine from the initial sleep zone setup running after the snapshot was taken.
 	bedroomJoinCount := 0
 	for _, call := range calls {
 		if call.Domain == "media_player" && call.Service == "join" {
-			if entityID, ok := call.ServiceData["entity_id"].(string); ok {
-				if entityID == "media_player.bedroom" {
-					bedroomJoinCount++
+			if members, ok := call.ServiceData["group_members"].([]interface{}); ok {
+				for _, m := range members {
+					if s, ok := m.(string); ok && s == "media_player.bedroom" {
+						bedroomJoinCount++
+					}
 				}
 			}
 		}
 	}
 
-	// With debouncing, we should see at most 1 join call for bedroom
+	// With debouncing, we should see at most 1 join call for bedroom as a follower
 	// (the exact number may be 0 or 1 depending on zone transition logic,
 	// but it should never be 3)
 	assert.LessOrEqual(t, bedroomJoinCount, 1,
-		"Bedroom should receive at most 1 join command (got %d) — debouncing should prevent duplicate joins",
+		"Bedroom should receive at most 1 join command as follower (got %d) — debouncing should prevent duplicate joins",
 		bedroomJoinCount)
 
 	// Also verify that volume_set calls for bedroom are not tripled
