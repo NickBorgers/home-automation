@@ -571,7 +571,7 @@ Proactively scans Home Assistant release notes for deprecated APIs and checks if
 ### Triggers
 
 - **Schedule**: 5th of each month at 10am UTC (HA typically releases on the first Wednesday)
-- **Manual**: `workflow_dispatch` with optional `ha_version` input to check a specific release
+- **Manual**: `workflow_dispatch` with optional `ha_version` input (validated as `YYYY.M[.P]`) to check a specific release
 
 ### Concurrency Control
 
@@ -607,6 +607,7 @@ Runs Claude (Sonnet) to perform a three-phase check:
 | `ISSUES_CREATED <N>` | Created N issues for deprecated API usage |
 | `ALL_DUPLICATES` | Deprecations found but already tracked in existing issues |
 | `FETCH_FAILED` | Could not retrieve HA release notes (workflow fails) |
+| Unrecognized | Could not parse Claude output (workflow fails) |
 
 ### Artifacts
 
