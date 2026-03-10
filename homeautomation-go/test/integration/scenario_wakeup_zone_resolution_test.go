@@ -137,6 +137,12 @@ func TestScenario_WakeUp_DebouncesRapidTriggers(t *testing.T) {
 		return len(env.music.GetActiveZones()) > 0
 	}, "initial zone resolution should complete")
 
+	// Wait for ALL async zone orchestration goroutines (including sleep zone's
+	// buildSpeakerGroupAsync) to complete before taking the snapshot. Without this,
+	// the sleep zone's async goroutine can leak join calls into the measurement
+	// window, producing a spurious second bedroom join.
+	waitForServiceCallsToStabilizeSince(t, env.server, 0, 200*time.Millisecond)
+
 	// Take snapshot before the action phase
 	snapshot := env.server.ServiceCallCount()
 
@@ -218,13 +224,12 @@ func TestScenario_WakeUp_DebouncesRapidTriggers(t *testing.T) {
 		}
 	}
 
-	// With debouncing, we should see at most 2 join calls for bedroom as a follower.
-	// A second join can occur when the sleep zone's async buildSpeakerGroupAsync()
-	// goroutine (launched before the snapshot) completes concurrently with the
-	// morning zone's seamless transition. Without debouncing we'd see 3+ joins
-	// (one per state change), so ≤2 still validates that coalescing works.
-	assert.LessOrEqual(t, bedroomJoinCount, 2,
-		"Bedroom should receive at most 2 join commands as follower (got %d) — debouncing should prevent triplicate joins",
+	// With debouncing, the three rapid state changes should coalesce into a single
+	// zone resolution, producing exactly 1 join call for bedroom as a follower.
+	// The snapshot is taken after all initial sleep zone async goroutines complete,
+	// so no stale join calls leak into the measurement window.
+	assert.LessOrEqual(t, bedroomJoinCount, 1,
+		"Bedroom should receive at most 1 join command as follower (got %d) — debouncing should coalesce 3 triggers into 1",
 		bedroomJoinCount)
 
 	// Also verify that volume_set calls for bedroom are not tripled
