@@ -283,3 +283,226 @@ func TestSoCoClient_PlayShareLink(t *testing.T) {
 		assert.Contains(t, err.Error(), "play_from_queue failed")
 	})
 }
+
+// =============================================================================
+// Direct Speaker Command Tests
+// =============================================================================
+
+func TestSoCoClient_SetVolume(t *testing.T) {
+	t.Parallel()
+	logger := zaptest.NewLogger(t)
+
+	t.Run("sets volume with correct endpoint", func(t *testing.T) {
+		var requestPath string
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			requestPath = r.URL.Path
+			resp := SoCoResponse{Result: "success", ExitCode: 0}
+			json.NewEncoder(w).Encode(resp)
+		}))
+		defer server.Close()
+
+		client := NewSoCoClient(server.URL, logger, false)
+		err := client.SetVolume("Kitchen", 42)
+		require.NoError(t, err)
+		assert.Equal(t, "/Kitchen/volume/42", requestPath)
+	})
+
+	t.Run("read-only mode skips call", func(t *testing.T) {
+		callCount := 0
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			callCount++
+		}))
+		defer server.Close()
+
+		client := NewSoCoClient(server.URL, logger, true)
+		err := client.SetVolume("Kitchen", 50)
+		assert.NoError(t, err)
+		assert.Equal(t, 0, callCount)
+	})
+}
+
+func TestSoCoClient_MuteUnmute(t *testing.T) {
+	t.Parallel()
+	logger := zaptest.NewLogger(t)
+
+	t.Run("mute uses correct endpoint", func(t *testing.T) {
+		var requestPath string
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			requestPath = r.URL.Path
+			resp := SoCoResponse{Result: "success", ExitCode: 0}
+			json.NewEncoder(w).Encode(resp)
+		}))
+		defer server.Close()
+
+		client := NewSoCoClient(server.URL, logger, false)
+		err := client.Mute("Kitchen")
+		require.NoError(t, err)
+		assert.Equal(t, "/Kitchen/mute", requestPath)
+	})
+
+	t.Run("unmute uses correct endpoint", func(t *testing.T) {
+		var requestPath string
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			requestPath = r.URL.Path
+			resp := SoCoResponse{Result: "success", ExitCode: 0}
+			json.NewEncoder(w).Encode(resp)
+		}))
+		defer server.Close()
+
+		client := NewSoCoClient(server.URL, logger, false)
+		err := client.Unmute("Kitchen")
+		require.NoError(t, err)
+		assert.Equal(t, "/Kitchen/unmute", requestPath)
+	})
+}
+
+func TestSoCoClient_GroupSpeaker(t *testing.T) {
+	t.Parallel()
+	logger := zaptest.NewLogger(t)
+
+	t.Run("follower joins lead group", func(t *testing.T) {
+		var requestPath string
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			requestPath = r.URL.Path
+			resp := SoCoResponse{Result: "success", ExitCode: 0}
+			json.NewEncoder(w).Encode(resp)
+		}))
+		defer server.Close()
+
+		client := NewSoCoClient(server.URL, logger, false)
+		err := client.GroupSpeaker("Bedroom", "Kitchen")
+		require.NoError(t, err)
+		assert.Equal(t, "/Bedroom/group/Kitchen", requestPath)
+	})
+
+	t.Run("handles speaker names with spaces", func(t *testing.T) {
+		var requestPath string
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// r.URL.Path is decoded by Go's HTTP server, so spaces appear as-is
+			requestPath = r.URL.Path
+			resp := SoCoResponse{Result: "success", ExitCode: 0}
+			json.NewEncoder(w).Encode(resp)
+		}))
+		defer server.Close()
+
+		client := NewSoCoClient(server.URL, logger, false)
+		err := client.GroupSpeaker("Front Room", "Primary Bathroom")
+		require.NoError(t, err)
+		assert.Equal(t, "/Front Room/group/Primary Bathroom", requestPath)
+	})
+}
+
+func TestSoCoClient_UngroupSpeaker(t *testing.T) {
+	t.Parallel()
+	logger := zaptest.NewLogger(t)
+
+	t.Run("uses correct endpoint", func(t *testing.T) {
+		var requestPath string
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			requestPath = r.URL.Path
+			resp := SoCoResponse{Result: "success", ExitCode: 0}
+			json.NewEncoder(w).Encode(resp)
+		}))
+		defer server.Close()
+
+		client := NewSoCoClient(server.URL, logger, false)
+		err := client.UngroupSpeaker("Kitchen")
+		require.NoError(t, err)
+		assert.Equal(t, "/Kitchen/ungroup", requestPath)
+	})
+}
+
+func TestSoCoClient_Play(t *testing.T) {
+	t.Parallel()
+	logger := zaptest.NewLogger(t)
+
+	t.Run("uses correct endpoint", func(t *testing.T) {
+		var requestPath string
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			requestPath = r.URL.Path
+			resp := SoCoResponse{Result: "success", ExitCode: 0}
+			json.NewEncoder(w).Encode(resp)
+		}))
+		defer server.Close()
+
+		client := NewSoCoClient(server.URL, logger, false)
+		err := client.Play("Kitchen")
+		require.NoError(t, err)
+		assert.Equal(t, "/Kitchen/play", requestPath)
+	})
+}
+
+func TestSoCoClient_PlayURI(t *testing.T) {
+	t.Parallel()
+	logger := zaptest.NewLogger(t)
+
+	t.Run("uses correct endpoint with URI", func(t *testing.T) {
+		var requestPath string
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			requestPath = r.URL.Path
+			resp := SoCoResponse{Result: "success", ExitCode: 0}
+			json.NewEncoder(w).Encode(resp)
+		}))
+		defer server.Close()
+
+		client := NewSoCoClient(server.URL, logger, false)
+		err := client.PlayURI("Kitchen", "http://example.com/rain.mp3")
+		require.NoError(t, err)
+		assert.Contains(t, requestPath, "/Kitchen/play_uri/")
+	})
+}
+
+func TestSoCoClient_SetShuffle(t *testing.T) {
+	t.Parallel()
+	logger := zaptest.NewLogger(t)
+
+	t.Run("shuffle on", func(t *testing.T) {
+		var requestPath string
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			requestPath = r.URL.Path
+			resp := SoCoResponse{Result: "success", ExitCode: 0}
+			json.NewEncoder(w).Encode(resp)
+		}))
+		defer server.Close()
+
+		client := NewSoCoClient(server.URL, logger, false)
+		err := client.SetShuffle("Kitchen", true)
+		require.NoError(t, err)
+		assert.Equal(t, "/Kitchen/shuffle/on", requestPath)
+	})
+
+	t.Run("shuffle off", func(t *testing.T) {
+		var requestPath string
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			requestPath = r.URL.Path
+			resp := SoCoResponse{Result: "success", ExitCode: 0}
+			json.NewEncoder(w).Encode(resp)
+		}))
+		defer server.Close()
+
+		client := NewSoCoClient(server.URL, logger, false)
+		err := client.SetShuffle("Kitchen", false)
+		require.NoError(t, err)
+		assert.Equal(t, "/Kitchen/shuffle/off", requestPath)
+	})
+}
+
+func TestSoCoClient_SetRepeat(t *testing.T) {
+	t.Parallel()
+	logger := zaptest.NewLogger(t)
+
+	t.Run("repeat all", func(t *testing.T) {
+		var requestPath string
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			requestPath = r.URL.Path
+			resp := SoCoResponse{Result: "success", ExitCode: 0}
+			json.NewEncoder(w).Encode(resp)
+		}))
+		defer server.Close()
+
+		client := NewSoCoClient(server.URL, logger, false)
+		err := client.SetRepeat("Kitchen", "all")
+		require.NoError(t, err)
+		assert.Equal(t, "/Kitchen/repeat/all", requestPath)
+	})
+}

@@ -105,7 +105,7 @@ graph TB
 
     Music -->|Get/Set State| StateManager
     Music -->|Call Services| HAClient
-    Music -->|Tidal Playback| SoCoCLI
+    Music -->|Speaker Commands<br/>& Tidal Playback| SoCoCLI
     Music -.->|Register Shadow| ShadowTracker
 
     Lighting -->|Get/Set State| StateManager
@@ -690,13 +690,13 @@ flowchart TD
     Changes -->|No Change| Done([Done])
 
     StartZone --> SelectPlaylist[Select Playlist with Rotation<br/>from music_config.yaml]
-    SelectPlaylist --> BreakGroups[Break Existing Speaker Groups<br/>media_player.unjoin]
-    BreakGroups --> BuildGroup[Build Sonos Speaker Group]
-    BuildGroup --> MuteAll[Mute All Speakers to 0]
+    SelectPlaylist --> BreakGroups[Break Existing Speaker Groups<br/>via SoCo-CLI ungroup]
+    BreakGroups --> BuildGroup[Build Sonos Speaker Group<br/>via SoCo-CLI group]
+    BuildGroup --> MuteAll[Mute All Speakers to 0<br/>via SoCo-CLI volume]
     MuteAll --> StartPlayback{Media Type?}
-    StartPlayback -->|Spotify| HAPlay[Start via HA play_media]
+    StartPlayback -->|Spotify| SoCoPlayURI[Start via SoCo-CLI play_uri]
     StartPlayback -->|Tidal| SoCoPlay[Start via SoCo-CLI<br/>sharelink + play_from_queue]
-    HAPlay --> VerifyPlay[Verify Playback Started]
+    SoCoPlayURI --> VerifyPlay[Verify Playback Started]
     SoCoPlay --> VerifyPlay
     VerifyPlay --> EnableShuffle[Enable Shuffle for Playlists]
     EnableShuffle --> EvalConditions[Evaluate Mute Conditions<br/>for Each Speaker]
@@ -730,12 +730,14 @@ flowchart TD
 
 **Playback Sequence (per zone):**
 1. Select playlist with rotation
-2. Break existing speaker groups (media_player.unjoin)
-3. Build new speaker group (media_player.join)
-4. Mute all speakers to 0
-5. Start playback on lead player (Spotify via HA play_media; Tidal via SoCo-CLI HTTP API)
-6. Enable shuffle for playlists
-7. Fade in eligible speakers
+2. Break existing speaker groups (SoCo-CLI ungroup)
+3. Build new speaker group (SoCo-CLI group)
+4. Mute all speakers to 0 (SoCo-CLI volume)
+5. Start playback on lead player (Spotify via SoCo-CLI play_uri; Tidal via SoCo-CLI sharelink)
+6. Enable shuffle for playlists (SoCo-CLI shuffle)
+7. Fade in eligible speakers (SoCo-CLI volume)
+
+> **Note:** All speaker commands route through SoCo-CLI (direct UPnP) when configured. State reads (current volume, playback status) still go through Home Assistant.
 
 ---
 

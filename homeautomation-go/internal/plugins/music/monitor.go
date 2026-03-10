@@ -45,7 +45,8 @@ func (m *Manager) cancelPlaybackMonitor() {
 // startPlaybackMonitor starts a new playback health monitor goroutine.
 // It cancels any existing monitor first, then launches a new one.
 // The monitor polls the lead speaker state and attempts recovery if auto-pause is detected.
-func (m *Manager) startPlaybackMonitor(leadEntityID, musicType string) {
+// leadEntityID is used for state reads (via HA), leadSpeakerName for commands (via SoCo/HA).
+func (m *Manager) startPlaybackMonitor(leadEntityID, leadSpeakerName, musicType string) {
 	m.playbackMonitorMu.Lock()
 	defer m.playbackMonitorMu.Unlock()
 
@@ -63,18 +64,19 @@ func (m *Manager) startPlaybackMonitor(leadEntityID, musicType string) {
 	m.recordPlaybackMonitorStart(leadEntityID, musicType)
 
 	m.logger.Info("Starting playback health monitor",
-		zap.String("lead_speaker", leadEntityID),
+		zap.String("lead_speaker", leadSpeakerName),
 		zap.String("music_type", musicType),
 		zap.Duration("duration", playbackMonitorDuration))
 
 	// Launch monitor goroutine
-	go m.monitorPlaybackHealth(ctx, leadEntityID, musicType)
+	go m.monitorPlaybackHealth(ctx, leadEntityID, leadSpeakerName, musicType)
 }
 
 // monitorPlaybackHealth polls the lead speaker state and detects auto-pause.
 // If auto-pause is detected (playing -> paused), it attempts recovery ONCE via media_play.
 // The monitor exits after: recovery attempt, timeout, or cancellation.
-func (m *Manager) monitorPlaybackHealth(ctx context.Context, leadEntityID, musicType string) {
+// leadEntityID is used for state reads, leadSpeakerName for recovery commands.
+func (m *Manager) monitorPlaybackHealth(ctx context.Context, leadEntityID, leadSpeakerName, musicType string) {
 	// Signal completion for test synchronization (if callback is set)
 	defer func() {
 		if m.monitorDoneCallback != nil {
@@ -110,16 +112,16 @@ func (m *Manager) monitorPlaybackHealth(ctx context.Context, leadEntityID, music
 		// Check if monitor duration has expired
 		if m.timeProvider.Now().After(endTime) {
 			m.logger.Info("Playback health monitor completed - no auto-pause detected",
-				zap.String("lead_speaker", leadEntityID))
+				zap.String("lead_speaker", leadSpeakerName))
 			m.recordPlaybackMonitorEnd("completed")
 			return
 		}
 
-		// Get current speaker state
+		// Get current speaker state (state read via HA)
 		playing, err := m.isPlaybackActive(leadEntityID)
 		if err != nil {
 			m.logger.Warn("Failed to check playback state during health monitor",
-				zap.String("lead_speaker", leadEntityID),
+				zap.String("lead_speaker", leadSpeakerName),
 				zap.Error(err))
 			m.updatePlaybackHealthState("unknown")
 			continue
@@ -134,7 +136,7 @@ func (m *Manager) monitorPlaybackHealth(ctx context.Context, leadEntityID, music
 		// Detect unexpected pause (playing -> paused transition)
 		if lastState == "playing" && currentState == "paused" {
 			m.logger.Warn("Auto-pause detected during health monitoring",
-				zap.String("lead_speaker", leadEntityID),
+				zap.String("lead_speaker", leadSpeakerName),
 				zap.String("music_type", musicType))
 
 			// Wait briefly to confirm it's not transient
@@ -145,23 +147,23 @@ func (m *Manager) monitorPlaybackHealth(ctx context.Context, leadEntityID, music
 			if checkErr == nil && resumedOnItsOwn {
 				// Speaker resumed on its own (transient state)
 				m.logger.Debug("Speaker resumed on its own, continuing monitoring",
-					zap.String("lead_speaker", leadEntityID))
+					zap.String("lead_speaker", leadSpeakerName))
 				lastState = "playing"
 				continue
 			}
 
 			// Still paused (or error checking), attempt recovery
 			m.logger.Info("Attempting playback recovery after auto-pause",
-				zap.String("lead_speaker", leadEntityID))
+				zap.String("lead_speaker", leadSpeakerName))
 
-			success := m.attemptPlaybackRecovery(leadEntityID)
+			success := m.attemptPlaybackRecovery(leadEntityID, leadSpeakerName)
 			if success {
 				m.logger.Info("Playback recovery successful",
-					zap.String("lead_speaker", leadEntityID))
+					zap.String("lead_speaker", leadSpeakerName))
 				m.recordPlaybackRecoveryResult("success")
 			} else {
 				m.logger.Warn("Playback recovery failed - stopping monitor to avoid fighting human pause",
-					zap.String("lead_speaker", leadEntityID))
+					zap.String("lead_speaker", leadSpeakerName))
 				m.recordPlaybackRecoveryResult("failed")
 			}
 
@@ -174,15 +176,14 @@ func (m *Manager) monitorPlaybackHealth(ctx context.Context, leadEntityID, music
 	}
 }
 
-// attemptPlaybackRecovery sends a media_play command to resume playback.
+// attemptPlaybackRecovery sends a play command to resume playback.
 // Returns true if playback resumed successfully, false otherwise.
-func (m *Manager) attemptPlaybackRecovery(leadEntityID string) bool {
-	// Send media_play command
-	if err := m.callServiceWithRetry("media_player", "media_play", map[string]interface{}{
-		"entity_id": leadEntityID,
-	}); err != nil {
-		m.logger.Error("Failed to send recovery media_play command",
-			zap.String("entity_id", leadEntityID),
+// leadEntityID is used for state verification, leadSpeakerName for the play command.
+func (m *Manager) attemptPlaybackRecovery(leadEntityID, leadSpeakerName string) bool {
+	// Send play command (routed to SoCo or HA)
+	if err := m.speakerPlay(leadSpeakerName); err != nil {
+		m.logger.Error("Failed to send recovery play command",
+			zap.String("speaker", leadSpeakerName),
 			zap.Error(err))
 		return false
 	}
@@ -190,11 +191,11 @@ func (m *Manager) attemptPlaybackRecovery(leadEntityID string) bool {
 	// Wait for command to take effect
 	m.sleepFunc(playbackRecoveryDelay)
 
-	// Verify playback resumed
+	// Verify playback resumed (state read via HA)
 	playing, err := m.isPlaybackActive(leadEntityID)
 	if err != nil {
 		m.logger.Warn("Failed to verify recovery",
-			zap.String("entity_id", leadEntityID),
+			zap.String("speaker", leadSpeakerName),
 			zap.Error(err))
 		return false
 	}

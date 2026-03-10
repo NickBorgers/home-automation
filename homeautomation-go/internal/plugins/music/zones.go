@@ -78,10 +78,7 @@ func (m *Manager) fadeOutZoneSpeakers(zone *Zone, reason string) error {
 
 	// Fade out each speaker individually
 	for _, p := range zone.Participants {
-		entityID := m.getSpeakerEntityID(p.PlayerName)
-		if entityID != "" {
-			m.fadeOutSingleSpeaker(entityID)
-		}
+		m.fadeOutSingleSpeaker(p.PlayerName)
 	}
 
 	return nil
@@ -106,8 +103,6 @@ func (m *Manager) addSpeakersToZone(zone *Zone, speakers []string, trigger strin
 		speakerSet[s] = true
 	}
 
-	leadEntityID := m.getSpeakerEntityID(zone.LeadSpeaker)
-
 	// Find participants to add
 	for _, p := range mode.Participants {
 		if !speakerSet[p.PlayerName] {
@@ -122,19 +117,8 @@ func (m *Manager) addSpeakersToZone(zone *Zone, speakers []string, trigger strin
 			continue
 		}
 
-		// Get entity ID
-		entityID := m.getSpeakerEntityID(p.PlayerName)
-		if entityID == "" {
-			m.logger.Warn("Speaker entity ID not found", zap.String("speaker", p.PlayerName))
-			continue
-		}
-
 		// Join the zone's Sonos group
-		// entity_id = lead (group coordinator), group_members = speakers joining
-		if err := m.callServiceWithRetry("media_player", "join", map[string]interface{}{
-			"entity_id":     leadEntityID,
-			"group_members": []string{entityID},
-		}); err != nil {
+		if err := m.speakerJoinGroup(p.PlayerName, zone.LeadSpeaker); err != nil {
 			m.logger.Error("Failed to join speaker to zone",
 				zap.String("speaker", p.PlayerName),
 				zap.String("zone", zone.Name),
@@ -159,6 +143,7 @@ func (m *Manager) addSpeakersToZone(zone *Zone, speakers []string, trigger strin
 		if m.shouldUnmuteSpeaker(participant) {
 			// Use startFadeInWithContext to enable cancellation when new playback starts
 			// This prevents false "human override" detection and allows cancelAllFadeIns() to work
+			entityID := m.getSpeakerEntityID(p.PlayerName)
 			ctx := m.startFadeInWithContext(entityID)
 			go m.fadeInSpeaker(ctx, p.PlayerName, volume, zone.MusicType)
 		} else {
@@ -168,19 +153,13 @@ func (m *Manager) addSpeakersToZone(zone *Zone, speakers []string, trigger strin
 				zap.String("zone", zone.Name),
 				zap.Int("target_volume", volume))
 
-			if err := m.callServiceWithRetry("media_player", "volume_set", map[string]interface{}{
-				"entity_id":    entityID,
-				"volume_level": float64(volume) / 100.0,
-			}); err != nil {
+			if err := m.speakerSetVolume(p.PlayerName, volume); err != nil {
 				m.logger.Error("Failed to set volume for muted speaker",
 					zap.String("speaker", p.PlayerName),
 					zap.Error(err))
 			}
 
-			if err := m.callServiceWithRetry("media_player", "volume_mute", map[string]interface{}{
-				"entity_id":       entityID,
-				"is_volume_muted": true,
-			}); err != nil {
+			if err := m.speakerSetMute(p.PlayerName, true); err != nil {
 				m.logger.Error("Failed to mute speaker",
 					zap.String("speaker", p.PlayerName),
 					zap.Error(err))
@@ -197,18 +176,11 @@ func (m *Manager) removeSpeakersFromZone(zone *Zone, speakers []string, trigger 
 		zap.String("trigger", trigger))
 
 	for _, speaker := range speakers {
-		entityID := m.getSpeakerEntityID(speaker)
-		if entityID == "" {
-			continue
-		}
-
 		// Fade out the speaker first
-		m.fadeOutSingleSpeaker(entityID)
+		m.fadeOutSingleSpeaker(speaker)
 
 		// Unjoin from group
-		if err := m.callServiceWithRetry("media_player", "unjoin", map[string]interface{}{
-			"entity_id": entityID,
-		}); err != nil {
+		if err := m.speakerUnjoin(speaker); err != nil {
 			m.logger.Error("Failed to unjoin speaker from zone",
 				zap.String("speaker", speaker),
 				zap.String("zone", zone.Name),
@@ -226,13 +198,11 @@ func (m *Manager) smoothVolumeAdjust(speakerName string, targetVolume int) {
 		return
 	}
 
+	// State read via HA (getSpeakerVolume queries HA entity state)
 	currentVolume := m.getSpeakerVolume(entityID)
 	if currentVolume < 0 {
 		// Can't read current volume, set target directly
-		if err := m.callServiceWithRetry("media_player", "volume_set", map[string]interface{}{
-			"entity_id":    entityID,
-			"volume_level": float64(targetVolume) / 100.0,
-		}); err != nil {
+		if err := m.speakerSetVolume(speakerName, targetVolume); err != nil {
 			m.logger.Error("Failed to set volume during seamless transition",
 				zap.String("speaker", speakerName),
 				zap.Error(err))
@@ -259,10 +229,7 @@ func (m *Manager) smoothVolumeAdjust(speakerName string, targetVolume int) {
 		if (step > 0 && vol > targetVolume) || (step < 0 && vol < targetVolume) {
 			break
 		}
-		if err := m.callServiceWithRetry("media_player", "volume_set", map[string]interface{}{
-			"entity_id":    entityID,
-			"volume_level": float64(vol) / 100.0,
-		}); err != nil {
+		if err := m.speakerSetVolume(speakerName, vol); err != nil {
 			m.logger.Error("Failed to adjust volume during seamless transition",
 				zap.String("speaker", speakerName),
 				zap.Int("volume", vol),
@@ -272,17 +239,13 @@ func (m *Manager) smoothVolumeAdjust(speakerName string, targetVolume int) {
 	}
 }
 
-// fadeOutSingleSpeaker fades out a single speaker
-func (m *Manager) fadeOutSingleSpeaker(entityID string) {
-	m.logger.Debug("Fading out single speaker", zap.String("entity_id", entityID))
+// fadeOutSingleSpeaker fades out a single speaker by setting volume to 0.
+func (m *Manager) fadeOutSingleSpeaker(speakerName string) {
+	m.logger.Debug("Fading out single speaker", zap.String("speaker", speakerName))
 
-	// Set volume to 0 (simple fade out for now)
-	if err := m.callServiceWithRetry("media_player", "volume_set", map[string]interface{}{
-		"entity_id":    entityID,
-		"volume_level": 0.0,
-	}); err != nil {
+	if err := m.speakerSetVolume(speakerName, 0); err != nil {
 		m.logger.Error("Failed to set volume for fade out",
-			zap.String("entity_id", entityID),
+			zap.String("speaker", speakerName),
 			zap.Error(err))
 	}
 }
