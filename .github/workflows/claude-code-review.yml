@@ -962,7 +962,8 @@ jobs:
                  data transfers. A shared 30s default is usually wrong.)
                - Is there graceful degradation if the external service is unavailable?
                - Does error handling distinguish transient vs permanent errors?
-            6. Evaluate design decisions: simpler alternatives, edge cases, architectural fit, production risk.
+            6. Evaluate design decisions: could a simpler approach work? Flag new abstractions,
+               helpers, or wrapper types that serve only one call site as BLOCKING over-engineering.
 
             Reference docs/architecture/ARCHITECTURE.md and docs/reference/SHADOW_STATE.md for context.
 
