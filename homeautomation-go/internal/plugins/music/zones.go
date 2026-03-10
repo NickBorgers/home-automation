@@ -145,7 +145,15 @@ func (m *Manager) addSpeakersToZone(zone *Zone, speakers []string, trigger strin
 			// This prevents false "human override" detection and allows cancelAllFadeIns() to work
 			entityID := m.getSpeakerEntityID(p.PlayerName)
 			ctx := m.startFadeInWithContext(entityID)
-			go m.fadeInSpeaker(ctx, p.PlayerName, volume, zone.MusicType)
+			if m.zoneManager != nil {
+				m.zoneManager.wg.Add(1)
+			}
+			go func() {
+				if m.zoneManager != nil {
+					defer m.zoneManager.wg.Done()
+				}
+				m.fadeInSpeaker(ctx, p.PlayerName, volume, zone.MusicType)
+			}()
 		} else {
 			// Speaker should stay muted, but set its target volume
 			m.logger.Info("Speaker joined zone, keeping muted",

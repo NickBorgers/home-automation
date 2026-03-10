@@ -445,39 +445,36 @@ func TestScenario_MutedSpeaker_GetsTargetVolumeSetDuringPlayback(t *testing.T) {
 	_, _, err := manager.executePlayback("day", option, participants, "Kitchen")
 	assert.NoError(t, err, "executePlayback should succeed")
 
-	// Allow time for fade-in goroutines to start (they will return quickly due to SetSleepFunc)
-	time.Sleep(50 * time.Millisecond)
-
 	// ==========================================================
 	// VERIFICATION: Study speaker received volume and mute via SoCo-CLI
 	// ==========================================================
 	// With SoCo configured, volume and mute commands route through SoCo HTTP API
 	// instead of HA service calls. Verify the SoCo paths contain the expected calls.
-	allPaths := socoPaths.All()
+	// Use assert.Eventually because buildSpeakerGroupAsync runs asynchronously.
 
 	// Look for volume command for Study with target volume (6%)
-	foundStudyVolumeSet := false
-	for _, path := range allPaths {
-		if path == "/Study/volume/6" {
-			foundStudyVolumeSet = true
+	assert.Eventually(t, func() bool {
+		for _, path := range socoPaths.All() {
+			if path == "/Study/volume/6" {
+				return true
+			}
 		}
-	}
-
-	assert.True(t, foundStudyVolumeSet,
+		return false
+	}, 2*time.Second, 25*time.Millisecond,
 		"Expected SoCo volume/6 for Study speaker. "+
-			"This ensures muted speakers have correct volume pre-set via SoCo-CLI. Paths: %v", allPaths)
+			"This ensures muted speakers have correct volume pre-set via SoCo-CLI.")
 
 	// Look for mute command for Study
-	foundStudyMute := false
-	for _, path := range allPaths {
-		if path == "/Study/mute" {
-			foundStudyMute = true
+	assert.Eventually(t, func() bool {
+		for _, path := range socoPaths.All() {
+			if path == "/Study/mute" {
+				return true
+			}
 		}
-	}
-
-	assert.True(t, foundStudyMute,
+		return false
+	}, 2*time.Second, 25*time.Millisecond,
 		"Expected SoCo mute for Study speaker. "+
-			"Muted speakers should be explicitly muted via SoCo-CLI. Paths: %v", allPaths)
+			"Muted speakers should be explicitly muted via SoCo-CLI.")
 }
 
 // =============================================================================

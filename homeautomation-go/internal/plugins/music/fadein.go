@@ -434,7 +434,15 @@ func (m *Manager) joinSpeakerWithRetry(p ParticipantWithVolume, leadSpeakerName 
 			zap.Int("target_volume", p.Volume))
 
 		ctx := m.startFadeInWithContext(entityID)
-		go m.fadeInSpeaker(ctx, p.PlayerName, p.Volume, musicType)
+		if m.zoneManager != nil {
+			m.zoneManager.wg.Add(1)
+		}
+		go func() {
+			if m.zoneManager != nil {
+				defer m.zoneManager.wg.Done()
+			}
+			m.fadeInSpeaker(ctx, p.PlayerName, p.Volume, musicType)
+		}()
 	} else {
 		// Speaker should stay muted, but set its target volume
 		m.logger.Info("Speaker joined (async), keeping muted",

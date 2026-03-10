@@ -73,7 +73,9 @@ jobs:
       is_draft: ${{ steps.get-pr.outputs.is_draft }}
       # Handle workflow_run, workflow_dispatch, and pull_request events
       # For pull_request (reopen), tests haven't run yet so tests_passed is false
-      tests_passed: ${{ github.event_name == 'workflow_dispatch' && inputs.tests_passed == 'true' || github.event_name == 'pull_request' && 'false' || github.event.workflow_run.conclusion == 'success' }}
+      # Defense-in-depth: also check the latest "All Required Tests" check run status
+      # to guard against duplicate PR Tests runs where one passes and one fails
+      tests_passed: ${{ github.event_name == 'workflow_dispatch' && inputs.tests_passed == 'true' || github.event_name == 'pull_request' && 'false' || (github.event.workflow_run.conclusion == 'success' && steps.verify-test-status.outputs.verified != 'false') }}
       run_id: ${{ github.event_name == 'workflow_dispatch' && inputs.run_id || github.event_name == 'pull_request' && github.run_id || github.event.workflow_run.id }}
       # SHA that triggered this workflow - used to detect if author pushed newer commits
       triggering_sha: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.event.workflow_run.head_sha }}
@@ -89,8 +91,37 @@ jobs:
       # has_go_code: true if PR modifies .go files
       config_only: ${{ steps.classify-files.outputs.config_only }}
       has_go_code: ${{ steps.classify-files.outputs.has_go_code }}
+      cross_pr_context_b64: ${{ steps.generate-cross-pr-context.outputs.cross_pr_context_b64 }}
 
     steps:
+      # Defense-in-depth: quick check of the latest "All Required Tests" status
+      # Guards against duplicate PR Tests runs where one passes and one fails
+      # This is a non-retrying check; per-reviewer verify-tests steps provide the second layer
+      - name: Verify latest test status for commit
+        if: github.event_name == 'workflow_run'
+        id: verify-test-status
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          HEAD_SHA="${{ github.event.workflow_run.head_sha }}"
+          echo "Quick-checking test status for commit $HEAD_SHA"
+
+          # Check latest "All Required Tests" check run (non-retrying)
+          STATUS=$(gh api repos/${{ github.repository }}/commits/$HEAD_SHA/check-runs \
+            --jq '[.check_runs[] | select(.name == "All Required Tests")] | sort_by(.completed_at) | last | .conclusion' 2>/dev/null || echo "")
+
+          if [ "$STATUS" = "success" ]; then
+            echo "✅ Latest 'All Required Tests' check passed"
+            echo "verified=true" >> $GITHUB_OUTPUT
+          elif [ "$STATUS" = "failure" ]; then
+            echo "❌ Latest 'All Required Tests' check FAILED - blocking reviews"
+            echo "verified=false" >> $GITHUB_OUTPUT
+          else
+            # If status is pending/unknown, don't block - let per-reviewer verify-tests handle it
+            echo "⚠️ Test status is '${STATUS:-not found}' - deferring to per-reviewer checks"
+            echo "verified=true" >> $GITHUB_OUTPUT
+          fi
+
       - name: Get PR from workflow run or dispatch inputs
         uses: actions/github-script@v7
         id: get-pr
@@ -340,6 +371,56 @@ jobs:
           echo "config_only=$CONFIG_ONLY" >> $GITHUB_OUTPUT
           echo "has_go_code=$HAS_GO_CODE" >> $GITHUB_OUTPUT
 
+      # Generate cross-PR context digest for reviewers
+      # Uses gh and git only (no AI tokens) to build a summary of recent project activity
+      - name: Generate cross-PR context
+        if: steps.get-pr.outputs.pr_number != ''
+        id: generate-cross-pr-context
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          PR_NUMBER="${{ steps.get-pr.outputs.pr_number }}"
+          HEAD_REF="${{ steps.get-pr.outputs.head_ref }}"
+          CONTEXT=""
+
+          # Last 10 merged PR titles/summaries
+          CONTEXT+="=== RECENTLY MERGED PRs ===\n"
+          RECENT_PRS=$(gh pr list --state merged --limit 10 --json number,title,mergedAt \
+            --jq '.[] | "#\(.number) (\(.mergedAt[:10])): \(.title)"' \
+            --repo ${{ github.repository }} 2>/dev/null || echo "")
+          if [ -n "$RECENT_PRS" ]; then
+            CONTEXT+="$RECENT_PRS\n"
+          else
+            CONTEXT+="(none found)\n"
+          fi
+
+          # For each changed file, show recent PRs that also touched it
+          CONTEXT+="\n=== RECENT CHANGES TO FILES IN THIS PR ===\n"
+          FILES=$(gh pr diff $PR_NUMBER --name-only --repo ${{ github.repository }} 2>/dev/null || echo "")
+
+          # Checkout needed for git log
+          # Note: full checkout happens in downstream jobs; here we just need the log
+          # Use the GitHub API instead to avoid needing a checkout
+          for file in $FILES; do
+            [ -z "$file" ] && continue
+            # Get commits that touched this file in the last 30 days via API
+            FILE_HISTORY=$(gh api "repos/${{ github.repository }}/commits?path=${file}&since=$(date -u -d '30 days ago' +%Y-%m-%dT%H:%M:%SZ)&per_page=5" \
+              --jq '.[] | "\(.sha[:7]) \(.commit.message | split("\n")[0])"' 2>/dev/null || echo "")
+            if [ -n "$FILE_HISTORY" ]; then
+              CONTEXT+="$file:\n$FILE_HISTORY\n"
+            fi
+          done
+
+          # Diff stats for this PR
+          CONTEXT+="\n=== THIS PR DIFF STATS ===\n"
+          DIFF_STATS=$(gh pr diff $PR_NUMBER --repo ${{ github.repository }} 2>/dev/null | diffstat 2>/dev/null || \
+            gh api "repos/${{ github.repository }}/pulls/$PR_NUMBER" --jq '"additions: \(.additions), deletions: \(.deletions), changed_files: \(.changed_files)"' 2>/dev/null || echo "")
+          CONTEXT+="$DIFF_STATS\n"
+
+          # Base64 encode and cap at 15KB
+          ENCODED=$(printf '%b' "$CONTEXT" | head -c 15000 | base64 -w 0)
+          echo "cross_pr_context_b64=$ENCODED" >> $GITHUB_OUTPUT
+
   # Build and cache devcontainer image
   # SECURITY: Always build from main branch, NEVER from PR branches
   # This prevents malicious Dockerfile modifications from being used to build the container
@@ -406,7 +487,7 @@ jobs:
           ref: ${{ needs.get-context.outputs.head_ref }}
           repository: ${{ needs.get-context.outputs.head_repo }}
           fetch-depth: 0
-          token: ${{ secrets.WORKFLOW_PAT }}  # PAT required to push workflow file changes
+          token: ${{ github.token }}  # Read-only: parallel reviewers must not push
 
       - name: Increment fix attempt counter
         env:
@@ -429,6 +510,11 @@ jobs:
 
       - name: Create gh config directory for devcontainer mount
         run: mkdir -p ~/.config/gh
+
+      - name: Configure git identity for commits
+        run: |
+          git config user.name "claude[bot]"
+          git config user.email "claude[bot]@users.noreply.github.com"
 
       - name: Log in to GHCR
         uses: docker/login-action@v3
@@ -647,112 +733,6 @@ jobs:
   # SKIP for config-only PRs (no code to review)
   # SKIP for draft PRs (work in progress)
   claude-review:
-    needs: [get-context, build-devcontainer, design-review]
-    if: |
-      always() &&
-      needs.get-context.outputs.pr_number != '' &&
-      needs.get-context.outputs.is_draft != 'true' &&
-      needs.get-context.outputs.reviews_already_passed != 'true' &&
-      needs.get-context.outputs.author_authorized == 'true' &&
-      needs.get-context.outputs.tests_passed == 'true' &&
-      needs.get-context.outputs.config_only != 'true'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      pull-requests: write
-      issues: write
-      id-token: write
-      packages: read
-
-    steps:
-      - name: Checkout PR branch
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ needs.get-context.outputs.head_ref }}
-          repository: ${{ needs.get-context.outputs.head_repo }}
-          fetch-depth: 0
-          token: ${{ secrets.WORKFLOW_PAT }}  # PAT required to push workflow file changes
-
-      - name: Create gh config directory for devcontainer mount
-        run: mkdir -p ~/.config/gh
-
-      - name: Log in to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Run Claude review in devcontainer
-        uses: devcontainers/ci@v0.3
-        with:
-          imageName: ${{ env.DEVCONTAINER_IMAGE }}
-          cacheFrom: ${{ env.DEVCONTAINER_IMAGE }}
-          push: never
-          env: |
-            CLAUDE_CODE_OAUTH_TOKEN=${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-            GH_TOKEN=${{ secrets.WORKFLOW_PAT }}
-            PR_NUMBER=${{ needs.get-context.outputs.pr_number }}
-            REPO=${{ github.repository }}
-            HEAD_REF=${{ needs.get-context.outputs.head_ref }}
-          runCmd: |
-            # Run Claude Code review inside the devcontainer
-            claude --print \
-              --verbose \
-              --output-format stream-json \
-              --model opus \
-              --dangerously-skip-permissions \
-              --max-turns 450 \
-              "You are reviewing PR #${PR_NUMBER} in ${REPO}.
-
-            Review like an experienced staff engineer. Be direct and selective.
-            Don't praise the code or list things that are fine — focus on what you'd actually say in a review.
-            Non-blocking observations are welcome when they teach something, but keep each to one sentence.
-            If there are no issues, approve in one line and move on.
-
-            Tests have already passed. Focus on code quality review.
-
-            BEFORE PUSHING: rebase with \`git pull --rebase origin ${HEAD_REF}\`
-            Use: \`make unit-tests\`, \`make integration-tests\`, \`make pre-commit\`
-
-            Check for:
-            - Shadow state pattern compliance (docs/reference/SHADOW_STATE.md)
-            - Missing mutex locks on WebSocket writes
-            - Race conditions
-            - Missing error handling
-
-            For HIGH SEVERITY issues, fix directly, commit, and push.
-
-            Post exactly ONE comment using:
-            gh pr comment ${PR_NUMBER} --body '## Code Review
-
-            [If no issues: \"✅ Approved — {one-sentence summary}\" and stop here]
-
-            ### Blocking Issues
-            [Issues that must be fixed before merge. Reference file:line. Skip section if none.]
-
-            ### Worth Considering
-            [Optional. Non-blocking observations, one sentence each. Skip section if nothing worth noting.]
-
-            ### Fixes Applied
-            [Commits pushed, if any. Skip section if none.]
-
-            ### Conclusion
-            [✅ Approved | ⚠️ Needs changes | ❌ Blocking issues]'" < /dev/null 2>&1 | tee /workspaces/home-automation/claude-review-output.jsonl
-
-      - name: Upload Claude review output
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: claude-review-output
-          path: claude-review-output.jsonl
-          retention-days: 7
-
-  # Design review specialist - validates PR implements issue intent and reviews design quality
-  # Runs FIRST (before code review) because intent and design must be validated before code quality
-  # SKIP for config-only PRs (no design decisions to review)
-  # SKIP for draft PRs (work in progress)
-  design-review:
     needs: [get-context, build-devcontainer]
     if: |
       needs.get-context.outputs.pr_number != '' &&
@@ -763,7 +743,7 @@ jobs:
       needs.get-context.outputs.config_only != 'true'
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: read  # Read-only: parallel reviewers only comment, merge-decision pushes fixes
       pull-requests: write
       issues: write
       id-token: write
@@ -809,7 +789,159 @@ jobs:
           ref: ${{ needs.get-context.outputs.head_ref }}
           repository: ${{ needs.get-context.outputs.head_repo }}
           fetch-depth: 0
-          token: ${{ secrets.WORKFLOW_PAT }}  # PAT required to push workflow file changes
+          token: ${{ github.token }}  # Read-only: parallel reviewers must not push
+
+      - name: Create gh config directory for devcontainer mount
+        if: steps.verify-tests.outputs.verified == 'true'
+        run: mkdir -p ~/.config/gh
+
+      - name: Log in to GHCR
+        if: steps.verify-tests.outputs.verified == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Run Claude review in devcontainer
+        if: steps.verify-tests.outputs.verified == 'true'
+        uses: devcontainers/ci@v0.3
+        with:
+          imageName: ${{ env.DEVCONTAINER_IMAGE }}
+          cacheFrom: ${{ env.DEVCONTAINER_IMAGE }}
+          push: never
+          env: |
+            CLAUDE_CODE_OAUTH_TOKEN=${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+            GH_TOKEN=${{ secrets.WORKFLOW_PAT }}
+            PR_NUMBER=${{ needs.get-context.outputs.pr_number }}
+            REPO=${{ github.repository }}
+            HEAD_REF=${{ needs.get-context.outputs.head_ref }}
+            CROSS_PR_CONTEXT_B64=${{ needs.get-context.outputs.cross_pr_context_b64 }}
+          runCmd: |
+            CROSS_PR_CONTEXT=$(echo "$CROSS_PR_CONTEXT_B64" | base64 -d 2>/dev/null || echo "")
+
+            # Run Claude Code review inside the devcontainer
+            claude --print \
+              --verbose \
+              --output-format stream-json \
+              --model opus \
+              --dangerously-skip-permissions \
+              --max-turns 450 \
+              "You are reviewing PR #${PR_NUMBER} in ${REPO}.
+
+            Review like an experienced staff engineer. Be direct and selective.
+            Don't praise the code or list things that are fine — focus on what you'd actually say in a review.
+            Non-blocking observations are welcome when they teach something, but keep each to one sentence.
+            If there are no issues, approve in one line and move on.
+
+            Tests have already passed. Focus on code quality review.
+
+            RECENT PROJECT CONTEXT (last 10 merged PRs and recent changes to files you are reviewing):
+            ${CROSS_PR_CONTEXT}
+            Consider whether this PR contradicts, duplicates, or undermines recent changes. Flag test/config
+            divergence from production code paths.
+
+            Use: \`make unit-tests\`, \`make integration-tests\`, \`make pre-commit\` to verify code.
+
+            Check for:
+            - Shadow state pattern compliance (docs/reference/SHADOW_STATE.md)
+            - Missing mutex locks on WebSocket writes
+            - Race conditions
+            - Missing error handling
+
+            IMPORTANT: Do NOT push commits. You are a parallel reviewer — only comment.
+            If you find issues that need fixing, describe them precisely (file:line, what to change)
+            so the merge-decision agent can apply fixes.
+
+            For line-specific findings, also post inline review comments via
+            \`gh api repos/${REPO}/pulls/${PR_NUMBER}/reviews\` with event=COMMENT.
+            Batch all inline comments into one review. Only comment on lines visible in the diff.
+
+            **SUMMARY COMMENT (always required):**
+            Post exactly ONE top-level summary comment using:
+            gh pr comment ${PR_NUMBER} --body '## Code Review
+
+            [If no issues: \"✅ Approved — {one-sentence summary}\" and stop here]
+
+            ### Blocking Issues
+            [Issues that must be fixed before merge. Reference file:line. Skip section if none.]
+
+            ### Worth Considering
+            [Optional. Non-blocking observations, one sentence each. Skip section if nothing worth noting.]
+
+            ### Conclusion
+            [✅ Approved | ⚠️ Needs changes | ❌ Blocking issues]'" < /dev/null 2>&1 | tee /workspaces/home-automation/claude-review-output.jsonl
+
+      - name: Upload Claude review output
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: claude-review-output
+          path: claude-review-output.jsonl
+          retention-days: 7
+
+  # Design review specialist - validates PR implements issue intent and reviews design quality
+  # Runs in parallel with other reviews after context and devcontainer are ready
+  # SKIP for config-only PRs (no design decisions to review)
+  # SKIP for draft PRs (work in progress)
+  design-review:
+    needs: [get-context, build-devcontainer]
+    if: |
+      needs.get-context.outputs.pr_number != '' &&
+      needs.get-context.outputs.is_draft != 'true' &&
+      needs.get-context.outputs.reviews_already_passed != 'true' &&
+      needs.get-context.outputs.author_authorized == 'true' &&
+      needs.get-context.outputs.tests_passed == 'true' &&
+      needs.get-context.outputs.config_only != 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read  # Read-only: parallel reviewers only comment, merge-decision pushes fixes
+      pull-requests: write
+      issues: write
+      id-token: write
+      packages: read
+
+    steps:
+      - name: Verify tests passed on current commit
+        id: verify-tests
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Get the current HEAD SHA of the PR
+          HEAD_SHA=$(gh api repos/${{ github.repository }}/pulls/${{ needs.get-context.outputs.pr_number }} --jq '.head.sha')
+          echo "Checking test status for commit $HEAD_SHA"
+
+          # Retry loop - check run may not be visible immediately after workflow triggers
+          MAX_ATTEMPTS=40
+          ATTEMPT=1
+          while [ $ATTEMPT -le $MAX_ATTEMPTS ]; do
+            STATUS=$(gh api repos/${{ github.repository }}/commits/$HEAD_SHA/check-runs --jq '[.check_runs[] | select(.name == "All Required Tests")] | sort_by(.completed_at) | last | .conclusion' 2>/dev/null || echo "")
+
+            if [ "$STATUS" = "success" ]; then
+              echo "✅ All Required Tests passed on current commit"
+              echo "verified=true" >> $GITHUB_OUTPUT
+              exit 0
+            fi
+
+            if [ $ATTEMPT -lt $MAX_ATTEMPTS ]; then
+              echo "Attempt $ATTEMPT/$MAX_ATTEMPTS: Check run not found yet (status: ${STATUS:-not found}), waiting 10s..."
+              sleep 10
+            fi
+            ATTEMPT=$((ATTEMPT + 1))
+          done
+
+          echo "⚠️ Tests have not passed on current commit after $MAX_ATTEMPTS attempts (status: ${STATUS:-not found})"
+          echo "Skipping review - tests must pass first"
+          echo "verified=false" >> $GITHUB_OUTPUT
+
+      - name: Checkout PR branch
+        if: steps.verify-tests.outputs.verified == 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.get-context.outputs.head_ref }}
+          repository: ${{ needs.get-context.outputs.head_repo }}
+          fetch-depth: 0
+          token: ${{ github.token }}  # Read-only: parallel reviewers must not push
 
       - name: Pull latest changes
         if: steps.verify-tests.outputs.verified == 'true'
@@ -845,10 +977,12 @@ jobs:
             ISSUE_BODY_B64=${{ needs.get-context.outputs.issue_body_b64 }}
             HEAD_REF=${{ needs.get-context.outputs.head_ref }}
             REPO=${{ github.repository }}
+            CROSS_PR_CONTEXT_B64=${{ needs.get-context.outputs.cross_pr_context_b64 }}
           runCmd: |
             # Decode base64-encoded bodies (handles special characters safely)
             PR_BODY=$(echo "$PR_BODY_B64" | base64 -d 2>/dev/null || echo "")
             ISSUE_BODY=$(echo "$ISSUE_BODY_B64" | base64 -d 2>/dev/null || echo "")
+            CROSS_PR_CONTEXT=$(echo "$CROSS_PR_CONTEXT_B64" | base64 -d 2>/dev/null || echo "")
 
             # Fetch all comments on the linked issue (may contain additional context/requirements)
             ISSUE_COMMENTS=""
@@ -861,7 +995,7 @@ jobs:
               --output-format stream-json \
               --model opus \
               --dangerously-skip-permissions \
-              --max-turns 450 \
+              --max-turns 750 \
               "You are a DESIGN REVIEW specialist for PR #${PR_NUMBER} in ${REPO}.
 
             Review like an experienced staff engineer. Be direct and selective.
@@ -881,17 +1015,44 @@ jobs:
             Issue Comments (additional context/requirements):
             ${ISSUE_COMMENTS}
 
+            RECENT PROJECT CONTEXT (last 10 merged PRs and recent changes to files you are reviewing):
+            ${CROSS_PR_CONTEXT}
+            Consider whether this PR contradicts, duplicates, or undermines recent changes. Flag test/config
+            divergence from production code paths.
+
             **YOUR TASK:**
             1. Read the issue/PR description to understand the problem being solved.
             2. Examine the code changes (\`git diff origin/main...HEAD\`).
             3. Validate: does the PR solve the stated problem? Gaps between intent and delivery are blocking.
-            4. Evaluate design decisions: simpler alternatives, edge cases, architectural fit, production risk.
+            4. SCOPE CHECK: Compare the PR title/issue description against the actual diff.
+               - Run: \`git diff --stat origin/main...HEAD\`
+               - If the title suggests a narrow fix but the diff introduces new abstractions,
+                 new files, or >300 lines of non-test code beyond what the title implies,
+                 flag as BLOCKING scope creep.
+               - State explicitly: \"Scope check: PASS\" or \"Scope check: FAIL — [reason]\"
+            5. PRODUCTION RESILIENCE: For any new external integration or service call path:
+               - Does it have retry logic? If replacing an existing path, does it match or exceed
+                 the resilience of the path it replaces? Missing retries on a path that replaces
+                 a retrying path is BLOCKING.
+               - Are HTTP timeouts appropriate per operation type? (5-10s for commands, longer for
+                 data transfers. A shared 30s default is usually wrong.)
+               - Is there graceful degradation if the external service is unavailable?
+               - Does error handling distinguish transient vs permanent errors?
+            6. Evaluate design decisions: could a simpler approach work? Flag new abstractions,
+               helpers, or wrapper types that serve only one call site as BLOCKING over-engineering.
 
             Reference docs/architecture/ARCHITECTURE.md and docs/reference/SHADOW_STATE.md for context.
 
-            BEFORE PUSHING: rebase with \`git pull --rebase origin ${HEAD_REF}\`
+            IMPORTANT: Do NOT push commits. You are a parallel reviewer — only comment.
+            If you find issues that need fixing, describe them precisely so the merge-decision agent can apply fixes.
 
-            Post exactly ONE comment using:
+            For line-specific design concerns, you may also post inline review comments via
+            \`gh api repos/${REPO}/pulls/${PR_NUMBER}/reviews\` with event=COMMENT.
+            Only comment on lines visible in the diff.
+            Use sparingly — most design feedback is cross-cutting and belongs in the summary only.
+
+            **SUMMARY COMMENT (always required):**
+            Post exactly ONE top-level summary comment using:
             gh pr comment ${PR_NUMBER} --body '## Design Review
 
             [If no issues: \"✅ Approved — {one-sentence summary}\" and stop here]
@@ -901,9 +1062,6 @@ jobs:
 
             ### Worth Considering
             [Optional. Non-blocking observations, one sentence each. Skip section if nothing worth noting.]
-
-            ### Fixes Applied
-            [Commits pushed, if any. Skip section if none.]
 
             ### Conclusion
             [✅ Approved | ⚠️ Needs changes | ❌ Blocking issues]'" < /dev/null 2>&1 | tee /workspaces/home-automation/design-review-output.jsonl
@@ -916,13 +1074,12 @@ jobs:
           path: design-review-output.jsonl
           retention-days: 7
 
-  # Test-focused reviewer - runs after claude-review (code review)
+  # Test-focused reviewer - runs in parallel with other reviews
   # SKIP for config-only PRs (no tests to review for config changes)
   # SKIP for draft PRs (work in progress)
   test-review:
-    needs: [get-context, build-devcontainer, claude-review]
+    needs: [get-context, build-devcontainer]
     if: |
-      always() &&
       needs.get-context.outputs.pr_number != '' &&
       needs.get-context.outputs.is_draft != 'true' &&
       needs.get-context.outputs.reviews_already_passed != 'true' &&
@@ -931,7 +1088,7 @@ jobs:
       needs.get-context.outputs.config_only != 'true'
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: read  # Read-only: parallel reviewers only comment, merge-decision pushes fixes
       pull-requests: write
       issues: write
       id-token: write
@@ -977,7 +1134,7 @@ jobs:
           ref: ${{ needs.get-context.outputs.head_ref }}
           repository: ${{ needs.get-context.outputs.head_repo }}
           fetch-depth: 0
-          token: ${{ secrets.WORKFLOW_PAT }}  # PAT required to push workflow file changes
+          token: ${{ github.token }}  # Read-only: parallel reviewers must not push
 
       - name: Pull latest changes
         if: steps.verify-tests.outputs.verified == 'true'
@@ -1007,12 +1164,13 @@ jobs:
             GH_TOKEN=${{ secrets.WORKFLOW_PAT }}
             PR_NUMBER=${{ needs.get-context.outputs.pr_number }}
             HEAD_REF=${{ needs.get-context.outputs.head_ref }}
+            REPO=${{ github.repository }}
           runCmd: |
-            # Using Sonnet: Checklist-based review with clear criteria
+            # Using Opus: Test review requires catching subtle anti-patterns (race conditions in helpers, weakened assertions)
             claude --print \
               --verbose \
               --output-format stream-json \
-              --model sonnet \
+              --model opus \
               --dangerously-skip-permissions \
               --max-turns 200 \
               "You are a QA tester for PR #${PR_NUMBER}.
@@ -1025,17 +1183,35 @@ jobs:
             - Workflows: YAML syntax, action refs, permissions
             - Config: syntax validation
 
-            Flag new tests with unnecessary time.Sleep or missing t.Parallel().
+            ANTI-PATTERNS TO FLAG AS BLOCKING:
+            - Race conditions in test helpers: shared mutable state (slices, maps, counters) accessed
+              from HTTP handlers or goroutines without mutex protection. grep for 'append(' in test
+              files and verify synchronization.
+            - assert.Eventually in shared test helpers: should be require.Eventually (assert continues
+              on failure causing cascading errors, require stops the test cleanly).
+            - Weakened assertions: if the PR relaxes numeric thresholds in assertions (e.g., >= 80% to
+              >= 50%, <= 1 to <= 2), this is BLOCKING unless the commit message explains why the
+              original threshold was wrong (not just flaky).
+            - Dead code path testing: if production config/code has removed a feature or code path,
+              flag NEW tests that exercise the removed path instead of the current production path.
+            - time.Sleep in new test code: flag unless there is a comment explaining why polling/channels
+              won't work. Check for existing helpers like waitForProcessing(), waitForServiceCallsToStabilize().
 
             If the PR modifies risky areas (sleep/wake logic, music playback, multi-plugin interactions),
             check for scenario test coverage. Reference existing patterns in test/integration/scenario_*_test.go.
 
             Run \`make unit-tests\` to verify.
 
-            For HIGH SEVERITY issues, fix directly and push.
-            BEFORE PUSHING: rebase with \`git pull --rebase origin ${HEAD_REF}\`
+            IMPORTANT: Do NOT push commits. You are a parallel reviewer — only comment.
+            If you find issues that need fixing, describe them precisely (file:line, what to change)
+            so the merge-decision agent can apply fixes.
 
-            Post exactly ONE comment using:
+            For line-specific findings, also post inline review comments via
+            \`gh api repos/${REPO}/pulls/${PR_NUMBER}/reviews\` with event=COMMENT.
+            Batch all inline comments into one review. Only comment on lines visible in the diff.
+
+            **SUMMARY COMMENT (always required):**
+            Post exactly ONE top-level summary comment using:
             gh pr comment ${PR_NUMBER} --body '## Test Review
 
             [If no issues: \"✅ Approved — {one-sentence summary}\" and stop here]
@@ -1045,9 +1221,6 @@ jobs:
 
             ### Worth Considering
             [Optional. Non-blocking observations, one sentence each. Skip section if nothing worth noting.]
-
-            ### Fixes Applied
-            [Commits pushed, if any. Skip section if none.]
 
             ### Conclusion
             [✅ Approved | ⚠️ Needs changes | ❌ Blocking issues]'" < /dev/null 2>&1 | tee /workspaces/home-automation/test-review-output.jsonl
@@ -1060,13 +1233,12 @@ jobs:
           path: test-review-output.jsonl
           retention-days: 7
 
-  # Concurrency/race condition specialist - runs after test-review
+  # Concurrency/race condition specialist - runs in parallel with other reviews
   # SKIP for config-only PRs (no Go code to analyze)
   # SKIP for draft PRs (work in progress)
   concurrency-review:
-    needs: [get-context, build-devcontainer, test-review]
+    needs: [get-context, build-devcontainer]
     if: |
-      always() &&
       needs.get-context.outputs.pr_number != '' &&
       needs.get-context.outputs.is_draft != 'true' &&
       needs.get-context.outputs.reviews_already_passed != 'true' &&
@@ -1075,7 +1247,7 @@ jobs:
       needs.get-context.outputs.has_go_code == 'true'
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: read  # Read-only: parallel reviewers only comment, merge-decision pushes fixes
       pull-requests: write
       issues: write
       id-token: write
@@ -1121,7 +1293,7 @@ jobs:
           ref: ${{ needs.get-context.outputs.head_ref }}
           repository: ${{ needs.get-context.outputs.head_repo }}
           fetch-depth: 0
-          token: ${{ secrets.WORKFLOW_PAT }}  # PAT required to push workflow file changes
+          token: ${{ github.token }}  # Read-only: parallel reviewers must not push
 
       - name: Pull latest changes
         if: steps.verify-tests.outputs.verified == 'true'
@@ -1151,6 +1323,7 @@ jobs:
             GH_TOKEN=${{ secrets.WORKFLOW_PAT }}
             PR_NUMBER=${{ needs.get-context.outputs.pr_number }}
             HEAD_REF=${{ needs.get-context.outputs.head_ref }}
+            REPO=${{ github.repository }}
           runCmd: |
             claude --print \
               --verbose \
@@ -1172,12 +1345,23 @@ jobs:
             - Goroutine leaks (missing context cancellation)
             - Channel deadlocks
 
+            ALSO CHECK TEST CODE (test helpers have real race conditions caught by -race):
+            - Mock servers with shared mutable state (slices, maps) appended from HTTP handlers.
+            - Test helpers with counters/accumulators accessed from goroutines without sync.
+            - Run: \`grep -rn 'append(' \` in test files near httptest.NewServer and check for mutex.
+
             Run \`make unit-tests\` (uses -race flag).
 
-            For HIGH SEVERITY bugs, fix directly and push.
-            BEFORE PUSHING: rebase with \`git pull --rebase origin ${HEAD_REF}\`
+            IMPORTANT: Do NOT push commits. You are a parallel reviewer — only comment.
+            If you find issues that need fixing, describe them precisely (file:line, what to change)
+            so the merge-decision agent can apply fixes.
 
-            Post exactly ONE comment using:
+            For line-specific findings, also post inline review comments via
+            \`gh api repos/${REPO}/pulls/${PR_NUMBER}/reviews\` with event=COMMENT.
+            Batch all inline comments into one review. Only comment on lines visible in the diff.
+
+            **SUMMARY COMMENT (always required):**
+            Post exactly ONE top-level summary comment using:
             gh pr comment ${PR_NUMBER} --body '## Concurrency Review
 
             [If no issues: \"✅ Approved — {one-sentence summary}\" and stop here]
@@ -1187,9 +1371,6 @@ jobs:
 
             ### Worth Considering
             [Optional. Non-blocking observations, one sentence each. Skip section if nothing worth noting.]
-
-            ### Fixes Applied
-            [Commits pushed, if any. Skip section if none.]
 
             ### Conclusion
             [✅ Approved | ⚠️ Needs changes | ❌ Blocking issues]'" < /dev/null 2>&1 | tee /workspaces/home-automation/concurrency-review-output.jsonl
@@ -1202,13 +1383,12 @@ jobs:
           path: concurrency-review-output.jsonl
           retention-days: 7
 
-  # Documentation update specialist - runs after concurrency-review
+  # Documentation update specialist - runs in parallel with other reviews
   # SKIP for config-only PRs (config changes don't need doc updates)
   # SKIP for draft PRs (work in progress)
   docs-review:
-    needs: [get-context, build-devcontainer, concurrency-review]
+    needs: [get-context, build-devcontainer]
     if: |
-      always() &&
       needs.get-context.outputs.pr_number != '' &&
       needs.get-context.outputs.is_draft != 'true' &&
       needs.get-context.outputs.reviews_already_passed != 'true' &&
@@ -1217,7 +1397,7 @@ jobs:
       needs.get-context.outputs.config_only != 'true'
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: read  # Read-only: parallel reviewers only comment, merge-decision pushes fixes
       pull-requests: write
       issues: write
       id-token: write
@@ -1263,7 +1443,7 @@ jobs:
           ref: ${{ needs.get-context.outputs.head_ref }}
           repository: ${{ needs.get-context.outputs.head_repo }}
           fetch-depth: 0
-          token: ${{ secrets.WORKFLOW_PAT }}  # PAT required to push workflow file changes
+          token: ${{ github.token }}  # Read-only: parallel reviewers must not push
 
       - name: Pull latest changes
         if: steps.verify-tests.outputs.verified == 'true'
@@ -1329,8 +1509,9 @@ jobs:
 
             If Mermaid edits needed: run \`make validate-mermaid\` after editing.
 
-            If updates needed, make changes directly and push.
-            BEFORE PUSHING: rebase with \`git pull --rebase origin ${HEAD_REF}\`
+            IMPORTANT: Do NOT push commits. You are a parallel reviewer — only comment.
+            If docs need updating, describe precisely what needs to change so the merge-decision
+            agent can apply the updates.
 
             Post exactly ONE comment using:
             gh pr comment ${PR_NUMBER} --body '## Documentation Review
@@ -1338,13 +1519,10 @@ jobs:
             [If no updates needed: \"✅ Approved — {one-sentence summary}\" and stop here]
 
             ### Blocking Issues
-            [Docs that MUST be updated before merge. Skip section if none.]
+            [Docs that MUST be updated before merge. Describe exact changes needed. Skip section if none.]
 
             ### Worth Considering
             [Optional. Non-blocking observations, one sentence each. Skip section if nothing worth noting.]
-
-            ### Updates Applied
-            [Commits pushed, if any. Skip section if none.]
 
             ### Conclusion
             [✅ Approved | ⚠️ Needs changes | ❌ Blocking issues]'" < /dev/null 2>&1 | tee /workspaces/home-automation/docs-review-output.jsonl
@@ -1422,6 +1600,12 @@ jobs:
         if: steps.verify-tests.outputs.verified == 'true'
         run: git pull origin ${{ needs.get-context.outputs.head_ref }} || true
 
+      - name: Configure git identity for commits
+        if: steps.verify-tests.outputs.verified == 'true'
+        run: |
+          git config user.name "claude[bot]"
+          git config user.email "claude[bot]@users.noreply.github.com"
+
       - name: Create gh config directory for devcontainer mount
         if: steps.verify-tests.outputs.verified == 'true'
         run: mkdir -p ~/.config/gh
@@ -1452,6 +1636,7 @@ jobs:
             CONCURRENCY_REVIEW_RESULT=${{ needs.concurrency-review.result }}
             DOCS_REVIEW_RESULT=${{ needs.docs-review.result }}
             CONFIG_ONLY=${{ needs.get-context.outputs.config_only }}
+            CROSS_PR_CONTEXT_B64=${{ needs.get-context.outputs.cross_pr_context_b64 }}
           runCmd: |
             # Pre-compute conditional values to avoid $() inside double-quoted claude argument
             # (bash -c wrapping by devcontainers/ci breaks $() inside escaped quotes)
@@ -1463,16 +1648,20 @@ jobs:
               CONFIG_NOTE=""
             fi
 
-            # Using Sonnet: Summarization task - synthesizes existing review results
+            CROSS_PR_CONTEXT=$(echo "$CROSS_PR_CONTEXT_B64" | base64 -d 2>/dev/null || echo "")
+
+            # Using Opus: Merge decision requires independent verification of the diff, not just summarization
             claude --print \
               --verbose \
               --output-format stream-json \
-              --model sonnet \
+              --model opus \
               --dangerously-skip-permissions \
-              --max-turns 150 \
+              --max-turns 200 \
               "You are the FINAL DECISION MAKER for PR #${PR_NUMBER}.
 
             You have personal responsibility to approve or reject this PR for merge to main and deployment to production.
+            You are the last line of defense — if you find a concrete issue that reviewers missed, your verdict is
+            NO-GO regardless of individual approvals.
 
             **PR TYPE:** ${PR_TYPE_DESC}
 
@@ -1485,19 +1674,38 @@ jobs:
 
             ${CONFIG_NOTE}
 
+            RECENT PROJECT CONTEXT (last 10 merged PRs and recent changes to files in this PR):
+            ${CROSS_PR_CONTEXT}
+
             **YOUR TASK:**
-            1. Read the review comments on this PR: \`gh pr view ${PR_NUMBER} --comments\`
-            2. Check for merge conflicts: \`git fetch origin main && git merge-base --is-ancestor origin/main HEAD || git merge origin/main --no-commit --no-ff\`
-            3. If there are merge conflicts AND you believe the PR should be merged, resolve them
-            4. Make a GO/NO-GO decision
+            1. Read ALL review comments: \`gh pr view ${PR_NUMBER} --comments\`
+            2. Read the actual diff: \`git diff origin/main...HEAD\` (focus on largest changed files)
+            3. ADDRESS ALL FINDINGS: For EVERY \"Worth Considering\" and \"Blocking Issues\" item from all reviews,
+               you must do ONE of these three things:
+               (a) Fix it in this PR (apply the change, run tests), OR
+               (b) Accept it as-is with a concrete reason why it doesn't need fixing, OR
+               (c) Create a GitHub issue to track it if the fix is outside the scope of this PR
+               Do NOT silently ignore review findings. Your merge decision comment must reference each finding.
+            4. SPOT CHECK: For the 2-3 most-changed files, verify reviewers addressed the most
+               significant changes. A one-line approval on a 500+ line diff is suspicious — dig in.
+            5. CROSS-PR CHECK: Read the recent context above. Does this PR conflict with or
+               undermine recently merged changes? (e.g., tests still exercising a removed feature)
+            6. APPLY FIXES: You are the ONLY agent that pushes commits. If any reviewer identified
+               blocking issues that have clear fixes (code changes, doc updates, missing tests),
+               implement those fixes now. Run \`make unit-tests\` and \`make pre-commit\` to verify.
+            7. Check for merge conflicts: \`git fetch origin main && git merge-base --is-ancestor origin/main HEAD || git merge origin/main --no-commit --no-ff\`
+            8. If there are merge conflicts AND you believe the PR should be merged, resolve them
+            9. Make a GO/NO-GO decision
 
             **DECISION CRITERIA:**
-            - GO: All reviews passed or had only minor non-blocking issues, no merge conflicts (or you resolved them)
-            - NO-GO: Any review found blocking issues, unresolvable merge conflicts, or tests are failing
+            - GO: All reviews passed or had only minor non-blocking issues (which you fixed), no merge conflicts
+              (or you resolved them), and your spot check found no issues reviewers missed
+            - NO-GO: Any review found blocking issues you cannot fix, unresolvable merge conflicts, tests are failing,
+              or you found a concrete issue that reviewers missed
 
             **IF NO-GO:** Explain what must be fixed before the PR can merge.
 
-            **IF GO with fixes needed:** Make the fixes (merge conflicts, minor issues), commit, push, then approve.
+            **IF GO with fixes applied:** Describe fixes made, commit, push, then approve.
 
             BEFORE PUSHING: rebase with \`git pull --rebase origin ${HEAD_REF}\`
 
@@ -1505,6 +1713,9 @@ jobs:
             gh pr comment ${PR_NUMBER} --body '## 🚦 Merge Decision
 
             **Decision: [🟢 GO | 🔴 NO-GO]**
+
+            **Findings addressed:**
+            - [For each finding from reviews: \"Fixed: [description]\" or \"Accepted: [reason]\" or \"Deferred: [issue link]\"]
 
             [If GO: \"Ready for merge to main and production deployment.\"]
             [If NO-GO: List specific blockers that must be resolved.]

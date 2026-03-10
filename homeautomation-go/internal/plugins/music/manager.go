@@ -272,11 +272,23 @@ func (m *Manager) Start() error {
 func (m *Manager) Stop() {
 	m.logger.Info("Stopping Music Manager")
 
+	// Cancel all active fade-ins so goroutines exit promptly
+	m.cancelAllFadeIns()
+
+	// Cancel the playback health monitor
+	m.cancelPlaybackMonitor()
+
 	// Unsubscribe from all subscriptions
 	for _, sub := range m.subscriptions {
 		sub.Unsubscribe()
 	}
 	m.subscriptions = nil
+
+	// Stop all zones (cancels debounce timers)
+	if m.zoneManager != nil {
+		m.zoneManager.StopAllZones("manager_stop")
+		m.zoneManager.Wait()
+	}
 
 	m.logger.Info("Music Manager stopped")
 }

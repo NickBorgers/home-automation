@@ -141,6 +141,10 @@ type ZoneManager struct {
 	manager *Manager
 	config  *MusicConfig
 	logger  *zap.Logger
+
+	// wg tracks background goroutines (orchestration, fade-out) so Stop can wait
+	// for them to complete, preventing data races with test loggers.
+	wg sync.WaitGroup
 }
 
 // NewZoneManager creates a new ZoneManager.
@@ -155,6 +159,12 @@ func NewZoneManager(manager *Manager, config *MusicConfig, logger *zap.Logger) *
 		config:        config,
 		logger:        logger.Named("zone_manager"),
 	}
+}
+
+// Wait blocks until all background goroutines (orchestration, fade-out) complete.
+// Called by Manager.Stop() to ensure clean shutdown in tests.
+func (zm *ZoneManager) Wait() {
+	zm.wg.Wait()
 }
 
 // SetDebounceDelay overrides the debounce delay for testing.
@@ -1157,7 +1167,11 @@ func (zm *ZoneManager) executeSeamlessTransition(st seamlessTransition, newSpeak
 
 	// Handle non-shared speakers: fade out and remove from old group
 	if len(st.removeSpeakers) > 0 {
-		go zm.manager.removeSpeakersFromZone(oldZone, st.removeSpeakers, trigger)
+		zm.wg.Add(1)
+		go func() {
+			defer zm.wg.Done()
+			zm.manager.removeSpeakersFromZone(oldZone, st.removeSpeakers, trigger)
+		}()
 	}
 
 	// Handle shared speakers: smooth volume adjustment to new target
@@ -1165,7 +1179,9 @@ func (zm *ZoneManager) executeSeamlessTransition(st seamlessTransition, newSpeak
 	for _, s := range st.sharedSpeakers {
 		sharedSet[s] = true
 	}
+	zm.wg.Add(1)
 	go func() {
+		defer zm.wg.Done()
 		for _, p := range participants {
 			if !sharedSet[p.PlayerName] {
 				continue
@@ -1176,7 +1192,11 @@ func (zm *ZoneManager) executeSeamlessTransition(st seamlessTransition, newSpeak
 
 	// Handle new speakers (if any): add to the new zone
 	if len(st.addSpeakers) > 0 {
-		go zm.manager.addSpeakersToZone(newZone, st.addSpeakers, trigger)
+		zm.wg.Add(1)
+		go func() {
+			defer zm.wg.Done()
+			zm.manager.addSpeakersToZone(newZone, st.addSpeakers, trigger)
+		}()
 	}
 
 	zm.logger.Info("Seamless zone transition complete",
@@ -1282,7 +1302,9 @@ func (zm *ZoneManager) startZone(zoneName string, speakers []string, trigger str
 	}
 
 	// Delegate actual playback to manager
+	zm.wg.Add(1)
 	go func() {
+		defer zm.wg.Done()
 		if err := zm.manager.orchestrateZonePlayback(zone, playbackOption, trigger); err != nil {
 			zm.logger.Error("Failed to orchestrate zone playback",
 				zap.String("zone", zoneName),
@@ -1337,7 +1359,9 @@ func (zm *ZoneManager) stopZone(zoneName string, reason string) error {
 	}
 
 	// Fade out speakers (delegate to manager)
+	zm.wg.Add(1)
 	go func() {
+		defer zm.wg.Done()
 		if err := zm.manager.fadeOutZoneSpeakers(zone, reason); err != nil {
 			zm.logger.Error("Failed to fade out zone speakers",
 				zap.String("zone", zoneName),
@@ -1430,10 +1454,18 @@ func (zm *ZoneManager) updateZoneSpeakers(zoneName string, newSpeakers []string,
 
 	// Delegate speaker changes to manager
 	if len(speakersToRemove) > 0 {
-		go zm.manager.removeSpeakersFromZone(zone, speakersToRemove, trigger)
+		zm.wg.Add(1)
+		go func() {
+			defer zm.wg.Done()
+			zm.manager.removeSpeakersFromZone(zone, speakersToRemove, trigger)
+		}()
 	}
 	if len(speakersToAdd) > 0 {
-		go zm.manager.addSpeakersToZone(zone, speakersToAdd, trigger)
+		zm.wg.Add(1)
+		go func() {
+			defer zm.wg.Done()
+			zm.manager.addSpeakersToZone(zone, speakersToAdd, trigger)
+		}()
 	}
 
 	return nil

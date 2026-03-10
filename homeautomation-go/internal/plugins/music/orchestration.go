@@ -285,7 +285,15 @@ func (m *Manager) executePlayback(musicType string, option PlaybackOption, parti
 			zap.Int("target_volume", leadParticipant.Volume))
 
 		leadCtx := m.startFadeInWithContext(leadEntityID)
-		go m.fadeInSpeaker(leadCtx, leadPlayer, leadParticipant.Volume, musicType)
+		if m.zoneManager != nil {
+			m.zoneManager.wg.Add(1)
+		}
+		go func() {
+			if m.zoneManager != nil {
+				defer m.zoneManager.wg.Done()
+			}
+			m.fadeInSpeaker(leadCtx, leadPlayer, leadParticipant.Volume, musicType)
+		}()
 	} else {
 		// Lead speaker should stay muted, but set its target volume
 		m.logger.Info("Keeping lead speaker muted, setting target volume",
@@ -310,7 +318,15 @@ func (m *Manager) executePlayback(musicType string, option PlaybackOption, parti
 	if len(participants) > 1 {
 		m.logger.Info("Launching async speaker group building",
 			zap.Int("followers", len(participants)-1))
-		go m.buildSpeakerGroupAsync(participants, leadPlayer, musicType)
+		if m.zoneManager != nil {
+			m.zoneManager.wg.Add(1)
+		}
+		go func() {
+			if m.zoneManager != nil {
+				defer m.zoneManager.wg.Done()
+			}
+			m.buildSpeakerGroupAsync(participants, leadPlayer, musicType)
+		}()
 	}
 
 	// Create result - for async mode, we only report the lead as definitely active
