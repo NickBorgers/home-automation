@@ -2511,8 +2511,11 @@ func TestExecutePlayback_BreakThenBuildSequence(t *testing.T) {
 			config := &MusicConfig{Music: map[string]MusicMode{}}
 			manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, false, nil, nil)
 			manager.SetSleepFunc(func(d time.Duration) {})
+
+			// Wire up mock SoCo server for Tidal playback path
+			socoPaths := setupSoCoForTest(t, manager, false)
+
 			env.MockHA.SetState("media_player.kitchen", "playing", nil)
-			snapshot := env.MockHA.ServiceCallCount()
 
 			option := PlaybackOption{URI: "https://tidal.com/browse/playlist/test", MediaType: "tidal", VolumeMultiplier: 1.0}
 			_, _, err := manager.executePlayback("day", option, tt.participants, "Kitchen")
@@ -2520,13 +2523,12 @@ func TestExecutePlayback_BreakThenBuildSequence(t *testing.T) {
 				t.Fatalf("executePlayback() failed: %v", err)
 			}
 
-			// Poll for async join call if expected
-			var calls []ha.ServiceCall
+			// Poll for async group/join via SoCo if expected
 			if tt.expectJoin {
 				for attempt := 0; attempt < 100; attempt++ {
-					calls = env.MockHA.GetServiceCallsSince(snapshot)
-					for _, call := range calls {
-						if call.Domain == "media_player" && call.Service == "join" {
+					allPaths := socoPaths.All()
+					for _, p := range allPaths {
+						if strings.Contains(p, "/group/") {
 							goto donePolling
 						}
 					}
@@ -2534,40 +2536,40 @@ func TestExecutePlayback_BreakThenBuildSequence(t *testing.T) {
 				}
 			}
 		donePolling:
-			if calls == nil {
-				calls = env.MockHA.GetServiceCallsSince(snapshot)
-			}
 
-			unjoinCalls, joinCalls := 0, 0
-			firstUnjoinIdx, firstJoinIdx := -1, -1
-			for i, call := range calls {
-				if call.Domain == "media_player" && call.Service == "unjoin" {
-					unjoinCalls++
-					if firstUnjoinIdx == -1 {
-						firstUnjoinIdx = i
+			// With SoCo configured, unjoin/join route through SoCo HTTP API
+			allPaths := socoPaths.All()
+
+			ungroupCalls, groupCalls := 0, 0
+			firstUngroupIdx, firstGroupIdx := -1, -1
+			for i, p := range allPaths {
+				if strings.Contains(p, "/ungroup") {
+					ungroupCalls++
+					if firstUngroupIdx == -1 {
+						firstUngroupIdx = i
 					}
 				}
-				if call.Domain == "media_player" && call.Service == "join" {
-					joinCalls++
-					if firstJoinIdx == -1 {
-						firstJoinIdx = i
+				if strings.Contains(p, "/group/") {
+					groupCalls++
+					if firstGroupIdx == -1 {
+						firstGroupIdx = i
 					}
 				}
 			}
 
-			if unjoinCalls < tt.unjoinCount {
-				t.Errorf("Expected at least %d unjoin calls, got %d", tt.unjoinCount, unjoinCalls)
+			if ungroupCalls < tt.unjoinCount {
+				t.Errorf("Expected at least %d ungroup calls via SoCo, got %d. Paths: %v", tt.unjoinCount, ungroupCalls, allPaths)
 			}
 			if tt.expectJoin {
-				if firstJoinIdx == -1 {
-					t.Error("Expected join call")
+				if firstGroupIdx == -1 {
+					t.Errorf("Expected group call via SoCo. Paths: %v", allPaths)
 				}
-				if firstUnjoinIdx >= firstJoinIdx {
-					t.Errorf("SEQUENCE ERROR: unjoin (idx %d) must come BEFORE join (idx %d)", firstUnjoinIdx, firstJoinIdx)
+				if firstUngroupIdx >= firstGroupIdx {
+					t.Errorf("SEQUENCE ERROR: ungroup (idx %d) must come BEFORE group (idx %d)", firstUngroupIdx, firstGroupIdx)
 				}
 			} else {
-				if joinCalls != 0 {
-					t.Errorf("Expected 0 join calls for single speaker, got %d", joinCalls)
+				if groupCalls != 0 {
+					t.Errorf("Expected 0 group calls for single speaker, got %d", groupCalls)
 				}
 			}
 		})
