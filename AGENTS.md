@@ -126,6 +126,8 @@ For periodic/timer-based plugins that don't use subscriptions (e.g., `dayphase`,
 
 **Style:** Follow `gofmt`, use `staticcheck`, 120 char max line length, godoc comments on exports.
 
+**Scope Discipline:** Solve what was asked, nothing more. Don't add helpers or abstractions for one-time operations. Don't refactor adjacent code. Three similar lines is better than a premature abstraction.
+
 **Testing:** 65% minimum coverage, table-driven tests, always use `-race` flag.
 
 **Error Handling:** Always check errors, wrap with context (`fmt.Errorf("context: %w", err)`), never panic.
