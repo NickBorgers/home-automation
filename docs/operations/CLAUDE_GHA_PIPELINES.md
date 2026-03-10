@@ -407,11 +407,12 @@ Final decision maker that synthesizes all reviews and makes a go/no-go call.
 
 **Responsibilities**:
 1. Reads all previous review comments on the PR
-2. **Spot checks** the 2-3 most-changed files to verify reviewers addressed significant changes
-3. **Cross-PR check**: Verifies the PR doesn't conflict with or undermine recently merged changes
-4. Checks for merge conflicts with main branch
-5. Resolves merge conflicts if the PR should be merged
-6. Makes a GO/NO-GO decision based on all review results and its own verification
+2. **Addresses all findings**: For every "Worth Considering" and "Blocking Issues" item, either fixes it, accepts it with justification, or creates a tracking issue
+3. **Spot checks** the 2-3 most-changed files to verify reviewers addressed significant changes
+4. **Cross-PR check**: Verifies the PR doesn't conflict with or undermine recently merged changes
+5. Checks for merge conflicts with main branch
+6. Resolves merge conflicts if the PR should be merged
+7. Makes a GO/NO-GO decision based on all review results and its own verification
 
 **Override Rule**: If the merge-decision agent finds a concrete issue that reviewers missed, its verdict is NO-GO regardless of individual approvals. It is the last line of defense.
 

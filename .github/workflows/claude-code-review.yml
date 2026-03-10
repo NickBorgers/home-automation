@@ -487,7 +487,7 @@ jobs:
           ref: ${{ needs.get-context.outputs.head_ref }}
           repository: ${{ needs.get-context.outputs.head_repo }}
           fetch-depth: 0
-          token: ${{ secrets.WORKFLOW_PAT }}  # PAT required to push workflow file changes
+          token: ${{ github.token }}  # Read-only: parallel reviewers must not push
 
       - name: Increment fix attempt counter
         env:
@@ -510,6 +510,11 @@ jobs:
 
       - name: Create gh config directory for devcontainer mount
         run: mkdir -p ~/.config/gh
+
+      - name: Configure git identity for commits
+        run: |
+          git config user.name "claude[bot]"
+          git config user.email "claude[bot]@users.noreply.github.com"
 
       - name: Log in to GHCR
         uses: docker/login-action@v3
@@ -784,7 +789,7 @@ jobs:
           ref: ${{ needs.get-context.outputs.head_ref }}
           repository: ${{ needs.get-context.outputs.head_repo }}
           fetch-depth: 0
-          token: ${{ secrets.WORKFLOW_PAT }}  # PAT required to push workflow file changes
+          token: ${{ github.token }}  # Read-only: parallel reviewers must not push
 
       - name: Create gh config directory for devcontainer mount
         if: steps.verify-tests.outputs.verified == 'true'
@@ -936,7 +941,7 @@ jobs:
           ref: ${{ needs.get-context.outputs.head_ref }}
           repository: ${{ needs.get-context.outputs.head_repo }}
           fetch-depth: 0
-          token: ${{ secrets.WORKFLOW_PAT }}  # PAT required to push workflow file changes
+          token: ${{ github.token }}  # Read-only: parallel reviewers must not push
 
       - name: Pull latest changes
         if: steps.verify-tests.outputs.verified == 'true'
@@ -990,7 +995,7 @@ jobs:
               --output-format stream-json \
               --model opus \
               --dangerously-skip-permissions \
-              --max-turns 450 \
+              --max-turns 750 \
               "You are a DESIGN REVIEW specialist for PR #${PR_NUMBER} in ${REPO}.
 
             Review like an experienced staff engineer. Be direct and selective.
@@ -1129,7 +1134,7 @@ jobs:
           ref: ${{ needs.get-context.outputs.head_ref }}
           repository: ${{ needs.get-context.outputs.head_repo }}
           fetch-depth: 0
-          token: ${{ secrets.WORKFLOW_PAT }}  # PAT required to push workflow file changes
+          token: ${{ github.token }}  # Read-only: parallel reviewers must not push
 
       - name: Pull latest changes
         if: steps.verify-tests.outputs.verified == 'true'
@@ -1288,7 +1293,7 @@ jobs:
           ref: ${{ needs.get-context.outputs.head_ref }}
           repository: ${{ needs.get-context.outputs.head_repo }}
           fetch-depth: 0
-          token: ${{ secrets.WORKFLOW_PAT }}  # PAT required to push workflow file changes
+          token: ${{ github.token }}  # Read-only: parallel reviewers must not push
 
       - name: Pull latest changes
         if: steps.verify-tests.outputs.verified == 'true'
@@ -1438,7 +1443,7 @@ jobs:
           ref: ${{ needs.get-context.outputs.head_ref }}
           repository: ${{ needs.get-context.outputs.head_repo }}
           fetch-depth: 0
-          token: ${{ secrets.WORKFLOW_PAT }}  # PAT required to push workflow file changes
+          token: ${{ github.token }}  # Read-only: parallel reviewers must not push
 
       - name: Pull latest changes
         if: steps.verify-tests.outputs.verified == 'true'
@@ -1595,6 +1600,12 @@ jobs:
         if: steps.verify-tests.outputs.verified == 'true'
         run: git pull origin ${{ needs.get-context.outputs.head_ref }} || true
 
+      - name: Configure git identity for commits
+        if: steps.verify-tests.outputs.verified == 'true'
+        run: |
+          git config user.name "claude[bot]"
+          git config user.email "claude[bot]@users.noreply.github.com"
+
       - name: Create gh config directory for devcontainer mount
         if: steps.verify-tests.outputs.verified == 'true'
         run: mkdir -p ~/.config/gh
@@ -1669,16 +1680,22 @@ jobs:
             **YOUR TASK:**
             1. Read ALL review comments: \`gh pr view ${PR_NUMBER} --comments\`
             2. Read the actual diff: \`git diff origin/main...HEAD\` (focus on largest changed files)
-            3. SPOT CHECK: For the 2-3 most-changed files, verify reviewers addressed the most
+            3. ADDRESS ALL FINDINGS: For EVERY \"Worth Considering\" and \"Blocking Issues\" item from all reviews,
+               you must do ONE of these three things:
+               (a) Fix it in this PR (apply the change, run tests), OR
+               (b) Accept it as-is with a concrete reason why it doesn't need fixing, OR
+               (c) Create a GitHub issue to track it if the fix is outside the scope of this PR
+               Do NOT silently ignore review findings. Your merge decision comment must reference each finding.
+            4. SPOT CHECK: For the 2-3 most-changed files, verify reviewers addressed the most
                significant changes. A one-line approval on a 500+ line diff is suspicious — dig in.
-            4. CROSS-PR CHECK: Read the recent context above. Does this PR conflict with or
+            5. CROSS-PR CHECK: Read the recent context above. Does this PR conflict with or
                undermine recently merged changes? (e.g., tests still exercising a removed feature)
-            5. APPLY FIXES: You are the ONLY agent that pushes commits. If any reviewer identified
+            6. APPLY FIXES: You are the ONLY agent that pushes commits. If any reviewer identified
                blocking issues that have clear fixes (code changes, doc updates, missing tests),
                implement those fixes now. Run \`make unit-tests\` and \`make pre-commit\` to verify.
-            6. Check for merge conflicts: \`git fetch origin main && git merge-base --is-ancestor origin/main HEAD || git merge origin/main --no-commit --no-ff\`
-            7. If there are merge conflicts AND you believe the PR should be merged, resolve them
-            8. Make a GO/NO-GO decision
+            7. Check for merge conflicts: \`git fetch origin main && git merge-base --is-ancestor origin/main HEAD || git merge origin/main --no-commit --no-ff\`
+            8. If there are merge conflicts AND you believe the PR should be merged, resolve them
+            9. Make a GO/NO-GO decision
 
             **DECISION CRITERIA:**
             - GO: All reviews passed or had only minor non-blocking issues (which you fixed), no merge conflicts
@@ -1696,6 +1713,9 @@ jobs:
             gh pr comment ${PR_NUMBER} --body '## 🚦 Merge Decision
 
             **Decision: [🟢 GO | 🔴 NO-GO]**
+
+            **Findings addressed:**
+            - [For each finding from reviews: \"Fixed: [description]\" or \"Accepted: [reason]\" or \"Deferred: [issue link]\"]
 
             [If GO: \"Ready for merge to main and production deployment.\"]
             [If NO-GO: List specific blockers that must be resolved.]
