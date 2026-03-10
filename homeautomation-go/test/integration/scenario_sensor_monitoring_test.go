@@ -595,6 +595,8 @@ func TestScenario_SensorHealth_NodeStatusMonitoring(t *testing.T) {
 
 	// Advance mock clock past the debounce delay and process timer callbacks
 	env.mockClock.AdvanceAndProcess(sensorhealth.NodeDeadDebounceDelay + 1*time.Second)
+	// Wait for handler goroutines (including AfterFunc callback) to complete
+	waitForProcessing(t, env.manager)
 
 	// Wait for dead device notification (notification is sent by AfterFunc callback)
 	waitForCondition(t, func() bool {
@@ -641,6 +643,8 @@ func TestScenario_SensorHealth_NodeStatusMonitoring(t *testing.T) {
 	env.server.SetState("sensor.front_door_lock_node_status", "alive", map[string]interface{}{
 		"friendly_name": "Front Door Lock Node Status",
 	})
+	// Wait for handler goroutines to process the state change
+	waitForProcessing(t, env.manager)
 
 	// Wait for recovery notification
 	waitForCondition(t, func() bool {

@@ -193,10 +193,10 @@ func TestScenario_DidOwnerJustReturnHomeAutoReset(t *testing.T) {
 
 	t.Log("WHEN: 10 minutes pass (simulated via mock clock)")
 
-	// Brief real sleep to ensure the mock clock timer from setOwnerJustReturnedHome()
-	// is fully registered. The waitForBoolState above confirms the state was set, but
-	// the timer registration happens after SetBool in the handler goroutine.
-	time.Sleep(50 * time.Millisecond)
+	// Wait for all handler goroutines to complete, including timer registration
+	// in setOwnerJustReturnedHome(). waitForBoolState above confirms the state was
+	// set, but the timer registration happens after SetBool in the handler goroutine.
+	waitForProcessing(t, manager)
 
 	// Use mock clock to advance time instantly; AdvanceAndProcess fires callbacks
 	// and yields to the scheduler so any woken goroutines can complete
@@ -231,9 +231,9 @@ func TestScenario_MultipleArrivalsWithin10Minutes(t *testing.T) {
 
 	t.Log("WHEN: Caroline arrives 2 minutes later (simulated)")
 
-	// Brief real sleep to ensure Nick's mock clock timer is fully registered
-	// before advancing the clock.
-	time.Sleep(50 * time.Millisecond)
+	// Wait for all handler goroutines to complete, including Nick's timer
+	// registration in setOwnerJustReturnedHome(), before advancing the clock.
+	waitForProcessing(t, manager)
 
 	// Use mock clock to advance time instantly
 	mockClock.AdvanceAndProcess(2 * time.Minute)
@@ -249,9 +249,9 @@ func TestScenario_MultipleArrivalsWithin10Minutes(t *testing.T) {
 
 	t.Log("AND: Timer should have been extended (10 minutes from Caroline's arrival)")
 
-	// Brief real sleep to ensure Caroline's mock clock timer is fully registered
-	// before advancing the clock.
-	time.Sleep(50 * time.Millisecond)
+	// Wait for all handler goroutines to complete, including Caroline's timer
+	// registration in setOwnerJustReturnedHome(), before advancing the clock.
+	waitForProcessing(t, manager)
 
 	// Advance 9 minutes - should still be true (timer was reset by Caroline's arrival)
 	mockClock.AdvanceAndProcess(9 * time.Minute)
