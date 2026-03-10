@@ -708,7 +708,7 @@ jobs:
       needs.get-context.outputs.config_only != 'true'
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: read  # Read-only: parallel reviewers only comment, merge-decision pushes fixes
       pull-requests: write
       issues: write
       id-token: write
@@ -770,8 +770,7 @@ jobs:
             Consider whether this PR contradicts, duplicates, or undermines recent changes. Flag test/config
             divergence from production code paths.
 
-            BEFORE PUSHING: rebase with \`git pull --rebase origin ${HEAD_REF}\`
-            Use: \`make unit-tests\`, \`make integration-tests\`, \`make pre-commit\`
+            Use: \`make unit-tests\`, \`make integration-tests\`, \`make pre-commit\` to verify code.
 
             Check for:
             - Shadow state pattern compliance (docs/reference/SHADOW_STATE.md)
@@ -779,7 +778,9 @@ jobs:
             - Race conditions
             - Missing error handling
 
-            For HIGH SEVERITY issues, fix directly, commit, and push.
+            IMPORTANT: Do NOT push commits. You are a parallel reviewer — only comment.
+            If you find issues that need fixing, describe them precisely (file:line, what to change)
+            so the merge-decision agent can apply fixes.
 
             Post exactly ONE comment using:
             gh pr comment ${PR_NUMBER} --body '## Code Review
@@ -791,9 +792,6 @@ jobs:
 
             ### Worth Considering
             [Optional. Non-blocking observations, one sentence each. Skip section if nothing worth noting.]
-
-            ### Fixes Applied
-            [Commits pushed, if any. Skip section if none.]
 
             ### Conclusion
             [✅ Approved | ⚠️ Needs changes | ❌ Blocking issues]'" < /dev/null 2>&1 | tee /workspaces/home-automation/claude-review-output.jsonl
@@ -821,7 +819,7 @@ jobs:
       needs.get-context.outputs.config_only != 'true'
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: read  # Read-only: parallel reviewers only comment, merge-decision pushes fixes
       pull-requests: write
       issues: write
       id-token: write
@@ -968,7 +966,8 @@ jobs:
 
             Reference docs/architecture/ARCHITECTURE.md and docs/reference/SHADOW_STATE.md for context.
 
-            BEFORE PUSHING: rebase with \`git pull --rebase origin ${HEAD_REF}\`
+            IMPORTANT: Do NOT push commits. You are a parallel reviewer — only comment.
+            If you find issues that need fixing, describe them precisely so the merge-decision agent can apply fixes.
 
             Post exactly ONE comment using:
             gh pr comment ${PR_NUMBER} --body '## Design Review
@@ -980,9 +979,6 @@ jobs:
 
             ### Worth Considering
             [Optional. Non-blocking observations, one sentence each. Skip section if nothing worth noting.]
-
-            ### Fixes Applied
-            [Commits pushed, if any. Skip section if none.]
 
             ### Conclusion
             [✅ Approved | ⚠️ Needs changes | ❌ Blocking issues]'" < /dev/null 2>&1 | tee /workspaces/home-automation/design-review-output.jsonl
@@ -1009,7 +1005,7 @@ jobs:
       needs.get-context.outputs.config_only != 'true'
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: read  # Read-only: parallel reviewers only comment, merge-decision pushes fixes
       pull-requests: write
       issues: write
       id-token: write
@@ -1122,8 +1118,9 @@ jobs:
 
             Run \`make unit-tests\` to verify.
 
-            For HIGH SEVERITY issues, fix directly and push.
-            BEFORE PUSHING: rebase with \`git pull --rebase origin ${HEAD_REF}\`
+            IMPORTANT: Do NOT push commits. You are a parallel reviewer — only comment.
+            If you find issues that need fixing, describe them precisely (file:line, what to change)
+            so the merge-decision agent can apply fixes.
 
             Post exactly ONE comment using:
             gh pr comment ${PR_NUMBER} --body '## Test Review
@@ -1135,9 +1132,6 @@ jobs:
 
             ### Worth Considering
             [Optional. Non-blocking observations, one sentence each. Skip section if nothing worth noting.]
-
-            ### Fixes Applied
-            [Commits pushed, if any. Skip section if none.]
 
             ### Conclusion
             [✅ Approved | ⚠️ Needs changes | ❌ Blocking issues]'" < /dev/null 2>&1 | tee /workspaces/home-automation/test-review-output.jsonl
@@ -1164,7 +1158,7 @@ jobs:
       needs.get-context.outputs.has_go_code == 'true'
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: read  # Read-only: parallel reviewers only comment, merge-decision pushes fixes
       pull-requests: write
       issues: write
       id-token: write
@@ -1268,8 +1262,9 @@ jobs:
 
             Run \`make unit-tests\` (uses -race flag).
 
-            For HIGH SEVERITY bugs, fix directly and push.
-            BEFORE PUSHING: rebase with \`git pull --rebase origin ${HEAD_REF}\`
+            IMPORTANT: Do NOT push commits. You are a parallel reviewer — only comment.
+            If you find issues that need fixing, describe them precisely (file:line, what to change)
+            so the merge-decision agent can apply fixes.
 
             Post exactly ONE comment using:
             gh pr comment ${PR_NUMBER} --body '## Concurrency Review
@@ -1281,9 +1276,6 @@ jobs:
 
             ### Worth Considering
             [Optional. Non-blocking observations, one sentence each. Skip section if nothing worth noting.]
-
-            ### Fixes Applied
-            [Commits pushed, if any. Skip section if none.]
 
             ### Conclusion
             [✅ Approved | ⚠️ Needs changes | ❌ Blocking issues]'" < /dev/null 2>&1 | tee /workspaces/home-automation/concurrency-review-output.jsonl
@@ -1310,7 +1302,7 @@ jobs:
       needs.get-context.outputs.config_only != 'true'
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: read  # Read-only: parallel reviewers only comment, merge-decision pushes fixes
       pull-requests: write
       issues: write
       id-token: write
@@ -1422,8 +1414,9 @@ jobs:
 
             If Mermaid edits needed: run \`make validate-mermaid\` after editing.
 
-            If updates needed, make changes directly and push.
-            BEFORE PUSHING: rebase with \`git pull --rebase origin ${HEAD_REF}\`
+            IMPORTANT: Do NOT push commits. You are a parallel reviewer — only comment.
+            If docs need updating, describe precisely what needs to change so the merge-decision
+            agent can apply the updates.
 
             Post exactly ONE comment using:
             gh pr comment ${PR_NUMBER} --body '## Documentation Review
@@ -1431,13 +1424,10 @@ jobs:
             [If no updates needed: \"✅ Approved — {one-sentence summary}\" and stop here]
 
             ### Blocking Issues
-            [Docs that MUST be updated before merge. Skip section if none.]
+            [Docs that MUST be updated before merge. Describe exact changes needed. Skip section if none.]
 
             ### Worth Considering
             [Optional. Non-blocking observations, one sentence each. Skip section if nothing worth noting.]
-
-            ### Updates Applied
-            [Commits pushed, if any. Skip section if none.]
 
             ### Conclusion
             [✅ Approved | ⚠️ Needs changes | ❌ Blocking issues]'" < /dev/null 2>&1 | tee /workspaces/home-automation/docs-review-output.jsonl
@@ -1593,19 +1583,22 @@ jobs:
                significant changes. A one-line approval on a 500+ line diff is suspicious — dig in.
             4. CROSS-PR CHECK: Read the recent context above. Does this PR conflict with or
                undermine recently merged changes? (e.g., tests still exercising a removed feature)
-            5. Check for merge conflicts: \`git fetch origin main && git merge-base --is-ancestor origin/main HEAD || git merge origin/main --no-commit --no-ff\`
-            6. If there are merge conflicts AND you believe the PR should be merged, resolve them
-            7. Make a GO/NO-GO decision
+            5. APPLY FIXES: You are the ONLY agent that pushes commits. If any reviewer identified
+               blocking issues that have clear fixes (code changes, doc updates, missing tests),
+               implement those fixes now. Run \`make unit-tests\` and \`make pre-commit\` to verify.
+            6. Check for merge conflicts: \`git fetch origin main && git merge-base --is-ancestor origin/main HEAD || git merge origin/main --no-commit --no-ff\`
+            7. If there are merge conflicts AND you believe the PR should be merged, resolve them
+            8. Make a GO/NO-GO decision
 
             **DECISION CRITERIA:**
-            - GO: All reviews passed or had only minor non-blocking issues, no merge conflicts (or you resolved them),
-              and your spot check found no issues reviewers missed
-            - NO-GO: Any review found blocking issues, unresolvable merge conflicts, tests are failing,
+            - GO: All reviews passed or had only minor non-blocking issues (which you fixed), no merge conflicts
+              (or you resolved them), and your spot check found no issues reviewers missed
+            - NO-GO: Any review found blocking issues you cannot fix, unresolvable merge conflicts, tests are failing,
               or you found a concrete issue that reviewers missed
 
             **IF NO-GO:** Explain what must be fixed before the PR can merge.
 
-            **IF GO with fixes needed:** Make the fixes (merge conflicts, minor issues), commit, push, then approve.
+            **IF GO with fixes applied:** Describe fixes made, commit, push, then approve.
 
             BEFORE PUSHING: rebase with \`git pull --rebase origin ${HEAD_REF}\`
 

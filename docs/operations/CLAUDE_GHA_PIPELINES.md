@@ -313,7 +313,7 @@ Design validation and critical design review specialist. Runs in parallel with o
 
 **Max Turns**: 450 (high turn count for thorough analysis)
 
-**Actions**: Posts design analysis with intent validation, strengths, concerns, and suggestions
+**Actions**: Posts design analysis with intent validation, concerns, and suggestions. Does not push fixes (comment-only; merge-decision applies fixes).
 
 #### 2.4 `claude-review`
 
@@ -329,7 +329,7 @@ General code quality review. Runs in parallel with other reviews. Includes cross
 - Error wrapping with context
 - Table-driven test patterns
 
-**Actions**: Fixes high-severity issues directly
+**Actions**: Comments on issues found. Does not push fixes (comment-only; merge-decision applies fixes).
 
 #### 2.5 `test-review`
 
@@ -354,7 +354,7 @@ The test reviewer analyzes whether PRs increase test execution time:
 - **PR-specific issues** are fixed directly (add `t.Parallel()`, reduce sleeps, optimize setup)
 - **Infrastructure improvements** are filed as GitHub issues for broader test optimization opportunities
 
-**Actions**: Adds test coverage for high-severity gaps, fixes test performance issues, files issues for infrastructure improvements
+**Actions**: Comments on test issues with precise file:line references. Does not push fixes (comment-only; merge-decision applies fixes).
 
 #### 2.6 `concurrency-review`
 
@@ -374,7 +374,7 @@ Specialized concurrency/race condition review.
 
 **Reference**: `docs/reference/CONCURRENCY_LESSONS.md`
 
-**Actions**: Fixes high-severity concurrency bugs
+**Actions**: Comments on concurrency issues with precise file:line references. Does not push fixes (comment-only; merge-decision applies fixes).
 
 #### 2.7 `docs-review`
 
@@ -395,7 +395,7 @@ Documentation synchronization review.
 | Plugin logic | Relevant logic flow diagram |
 | Workflow changes (.github/workflows/*.yml) | CLAUDE_GHA_PIPELINES.md |
 
-**Actions**: Updates documentation, validates Mermaid diagrams
+**Actions**: Comments on needed documentation updates. Does not push fixes (comment-only; merge-decision applies fixes).
 
 #### 2.8 `merge-decision`
 
@@ -419,7 +419,7 @@ Final decision maker that synthesizes all reviews and makes a go/no-go call.
 - **GO**: All reviews passed or had only minor non-blocking issues, no merge conflicts (or resolved them), and spot check found no missed issues
 - **NO-GO**: Any review found blocking issues, unresolvable merge conflicts, tests are failing, or a concrete issue was found that reviewers missed
 
-**Actions**: Posts a final comment with the merge decision (🟢 GO or 🔴 NO-GO)
+**Actions**: Applies fixes identified by reviewers, resolves merge conflicts, and posts a final comment with the merge decision (🟢 GO or 🔴 NO-GO). This is the **only agent that pushes commits** in the review pipeline.
 
 **Output**: The job outputs the actual decision (`GO` or `NO-GO`) which is used by `all-reviews-passed` to determine the overall workflow result
 
@@ -731,10 +731,10 @@ The pipelines use a mix of Claude Opus and Claude Sonnet models, selected based 
 
 ### Why Parallel Reviews?
 
-The review jobs run in parallel (after context gathering and devcontainer build) to reduce wall-clock time from ~45 min to ~15-20 min. Risk of concurrent pushes conflicting is mitigated by:
-1. Each reviewer runs `git pull --rebase` before pushing
-2. The merge-decision agent resolves any remaining conflicts
-3. The speed improvement enables using Opus for all reviewers without excessive pipeline duration
+The review jobs run in parallel (after context gathering and devcontainer build) to reduce wall-clock time from ~45 min to ~15-20 min. To prevent git conflicts from concurrent pushes:
+1. All 5 parallel reviewers are **comment-only** — they have `contents: read` permissions and are explicitly instructed not to push
+2. The merge-decision agent is the **sole agent that pushes fixes**, running sequentially after all reviews complete
+3. This eliminates the conflict risk entirely while preserving the ability to auto-fix issues
 
 ### Why Max 3 Fix Attempts?
 
