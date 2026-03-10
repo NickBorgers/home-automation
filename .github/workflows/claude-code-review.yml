@@ -702,7 +702,7 @@ jobs:
               --output-format stream-json \
               --model opus \
               --dangerously-skip-permissions \
-              --max-turns 200 \
+              --max-turns 450 \
               "You are reviewing PR #${PR_NUMBER} in ${REPO}.
 
             Review like an experienced staff engineer. Be direct and selective.
@@ -861,7 +861,7 @@ jobs:
               --output-format stream-json \
               --model opus \
               --dangerously-skip-permissions \
-              --max-turns 200 \
+              --max-turns 450 \
               "You are a DESIGN REVIEW specialist for PR #${PR_NUMBER} in ${REPO}.
 
             Review like an experienced staff engineer. Be direct and selective.
