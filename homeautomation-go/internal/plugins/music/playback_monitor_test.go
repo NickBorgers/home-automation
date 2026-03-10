@@ -72,7 +72,7 @@ func TestPlaybackMonitor_DetectsUnexpectedPause(t *testing.T) {
 					{PlayerName: "Kitchen", BaseVolume: 15},
 				},
 				PlaybackOptions: []PlaybackOption{
-					{URI: "spotify:playlist:test", MediaType: "playlist", VolumeMultiplier: 1.0},
+					{URI: "https://tidal.com/browse/playlist/test", MediaType: "tidal", VolumeMultiplier: 1.0},
 				},
 			},
 		},
@@ -161,7 +161,7 @@ func TestPlaybackMonitor_RecoverySucceeds(t *testing.T) {
 					{PlayerName: "Kitchen", BaseVolume: 15},
 				},
 				PlaybackOptions: []PlaybackOption{
-					{URI: "spotify:playlist:test", MediaType: "playlist", VolumeMultiplier: 1.0},
+					{URI: "https://tidal.com/browse/playlist/test", MediaType: "tidal", VolumeMultiplier: 1.0},
 				},
 			},
 		},
@@ -241,7 +241,7 @@ func TestPlaybackMonitor_RecoveryFails_StopsMonitoring(t *testing.T) {
 					{PlayerName: "Kitchen", BaseVolume: 15},
 				},
 				PlaybackOptions: []PlaybackOption{
-					{URI: "spotify:playlist:test", MediaType: "playlist", VolumeMultiplier: 1.0},
+					{URI: "https://tidal.com/browse/playlist/test", MediaType: "tidal", VolumeMultiplier: 1.0},
 				},
 			},
 		},
@@ -322,7 +322,7 @@ func TestPlaybackMonitor_CancelledOnNewPlayback(t *testing.T) {
 					{PlayerName: "Kitchen", BaseVolume: 15},
 				},
 				PlaybackOptions: []PlaybackOption{
-					{URI: "spotify:playlist:test", MediaType: "playlist", VolumeMultiplier: 1.0},
+					{URI: "https://tidal.com/browse/playlist/test", MediaType: "tidal", VolumeMultiplier: 1.0},
 				},
 			},
 		},
@@ -410,7 +410,7 @@ func TestPlaybackMonitor_ShadowStateUpdated(t *testing.T) {
 					{PlayerName: "Kitchen", BaseVolume: 15},
 				},
 				PlaybackOptions: []PlaybackOption{
-					{URI: "spotify:playlist:test", MediaType: "playlist", VolumeMultiplier: 1.0},
+					{URI: "https://tidal.com/browse/playlist/test", MediaType: "tidal", VolumeMultiplier: 1.0},
 				},
 			},
 		},

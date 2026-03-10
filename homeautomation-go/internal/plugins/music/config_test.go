@@ -24,8 +24,8 @@ music:
           - variable: isMasterAsleep
             value: true
     playback_options:
-      - uri: spotify:playlist:37i9dQZF1DWSf2RDTDayIx
-        media_type: playlist
+      - uri: "https://tidal.com/browse/playlist/test-morning"
+        media_type: tidal
         volume_multiplier: 1.0
   day:
     participants:
@@ -33,8 +33,8 @@ music:
         base_volume: 20
         leave_muted_if: []
     playback_options:
-      - uri: spotify:playlist:37i9dQZF1DX0XUsuxWHRQd
-        media_type: playlist
+      - uri: "https://tidal.com/browse/playlist/test-day"
+        media_type: tidal
         volume_multiplier: 1.0
   evening:
     participants:
@@ -42,8 +42,8 @@ music:
         base_volume: 30
         leave_muted_if: []
     playback_options:
-      - uri: spotify:playlist:37i9dQZF1DX4WYpdgoIcn6
-        media_type: playlist
+      - uri: "https://tidal.com/browse/playlist/test-evening"
+        media_type: tidal
         volume_multiplier: 1.0
   winddown:
     participants:
@@ -51,8 +51,8 @@ music:
         base_volume: 15
         leave_muted_if: []
     playback_options:
-      - uri: spotify:playlist:37i9dQZF1DWZd79rJ6a7lp
-        media_type: playlist
+      - uri: "https://tidal.com/browse/playlist/test-winddown"
+        media_type: tidal
         volume_multiplier: 0.8
   sleep:
     participants:
@@ -60,8 +60,8 @@ music:
         base_volume: 10
         leave_muted_if: []
     playback_options:
-      - uri: spotify:playlist:37i9dQZF1DWZd79rJ6a7lp
-        media_type: playlist
+      - uri: "https://tidal.com/browse/playlist/test-winddown"
+        media_type: tidal
         volume_multiplier: 0.5
   sex:
     participants:
@@ -69,8 +69,8 @@ music:
         base_volume: 35
         leave_muted_if: []
     playback_options:
-      - uri: spotify:playlist:37i9dQZF1DX4WYpdgoIcn6
-        media_type: playlist
+      - uri: "https://tidal.com/browse/playlist/test-evening"
+        media_type: tidal
         volume_multiplier: 1.2
   wakeup:
     participants:
@@ -78,8 +78,8 @@ music:
         base_volume: 20
         leave_muted_if: []
     playback_options:
-      - uri: spotify:playlist:37i9dQZF1DWSf2RDTDayIx
-        media_type: playlist
+      - uri: "https://tidal.com/browse/playlist/test-morning"
+        media_type: tidal
         volume_multiplier: 1.0
 `
 
@@ -174,8 +174,8 @@ music:
         base_volume: 25
         leave_muted_if: []
     playback_options:
-      - uri: spotify:playlist:test
-        media_type: playlist
+      - uri: "https://tidal.com/browse/playlist/test"
+        media_type: tidal
         volume_multiplier: 1.0
   day:
     participants:
@@ -183,8 +183,8 @@ music:
         base_volume: 20
         leave_muted_if: []
     playback_options:
-      - uri: spotify:playlist:test
-        media_type: playlist
+      - uri: "https://tidal.com/browse/playlist/test"
+        media_type: tidal
         volume_multiplier: 1.0
   evening:
     participants:
@@ -192,8 +192,8 @@ music:
         base_volume: 30
         leave_muted_if: []
     playback_options:
-      - uri: spotify:playlist:test
-        media_type: playlist
+      - uri: "https://tidal.com/browse/playlist/test"
+        media_type: tidal
         volume_multiplier: 1.0
   winddown:
     participants:
@@ -201,8 +201,8 @@ music:
         base_volume: 15
         leave_muted_if: []
     playback_options:
-      - uri: spotify:playlist:test
-        media_type: playlist
+      - uri: "https://tidal.com/browse/playlist/test"
+        media_type: tidal
         volume_multiplier: 0.8
   sleep:
     participants:
@@ -210,8 +210,8 @@ music:
         base_volume: 10
         leave_muted_if: []
     playback_options:
-      - uri: spotify:playlist:test
-        media_type: playlist
+      - uri: "https://tidal.com/browse/playlist/test"
+        media_type: tidal
         volume_multiplier: 0.5
   sex:
     participants:
@@ -219,8 +219,8 @@ music:
         base_volume: 35
         leave_muted_if: []
     playback_options:
-      - uri: spotify:playlist:test
-        media_type: playlist
+      - uri: "https://tidal.com/browse/playlist/test"
+        media_type: tidal
         volume_multiplier: 1.2
 `
 
@@ -264,8 +264,8 @@ music:
           - variable: isGuestAsleep
             value: true
     playback_options:
-      - uri: spotify:playlist:test
-        media_type: playlist
+      - uri: "https://tidal.com/browse/playlist/test"
+        media_type: tidal
         volume_multiplier: 1.0
   day:
     participants:
@@ -273,8 +273,8 @@ music:
         base_volume: 20
         leave_muted_if: []
     playback_options:
-      - uri: spotify:playlist:test
-        media_type: playlist
+      - uri: "https://tidal.com/browse/playlist/test"
+        media_type: tidal
         volume_multiplier: 1.0
   evening:
     participants:
@@ -282,8 +282,8 @@ music:
         base_volume: 30
         leave_muted_if: []
     playback_options:
-      - uri: spotify:playlist:test
-        media_type: playlist
+      - uri: "https://tidal.com/browse/playlist/test"
+        media_type: tidal
         volume_multiplier: 1.0
   winddown:
     participants:
@@ -291,8 +291,8 @@ music:
         base_volume: 15
         leave_muted_if: []
     playback_options:
-      - uri: spotify:playlist:test
-        media_type: playlist
+      - uri: "https://tidal.com/browse/playlist/test"
+        media_type: tidal
         volume_multiplier: 0.8
   sleep:
     participants:
@@ -300,8 +300,8 @@ music:
         base_volume: 10
         leave_muted_if: []
     playback_options:
-      - uri: spotify:playlist:test
-        media_type: playlist
+      - uri: "https://tidal.com/browse/playlist/test"
+        media_type: tidal
         volume_multiplier: 0.5
   sex:
     participants:
@@ -309,8 +309,8 @@ music:
         base_volume: 35
         leave_muted_if: []
     playback_options:
-      - uri: spotify:playlist:test
-        media_type: playlist
+      - uri: "https://tidal.com/browse/playlist/test"
+        media_type: tidal
         volume_multiplier: 1.2
   wakeup:
     participants:
@@ -318,8 +318,8 @@ music:
         base_volume: 20
         leave_muted_if: []
     playback_options:
-      - uri: spotify:playlist:test
-        media_type: playlist
+      - uri: "https://tidal.com/browse/playlist/test"
+        media_type: tidal
         volume_multiplier: 1.0
 `
 

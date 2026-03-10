@@ -62,7 +62,7 @@ func createTestZoneConfig() *MusicConfig {
 					{PlayerName: "Bedroom", BaseVolume: 9},
 				},
 				PlaybackOptions: []PlaybackOption{
-					{URI: "spotify:playlist:morning", MediaType: "playlist", VolumeMultiplier: 1.0},
+					{URI: "https://tidal.com/browse/playlist/test-morning", MediaType: "tidal", VolumeMultiplier: 1.0},
 				},
 			},
 			"day": {
@@ -72,7 +72,7 @@ func createTestZoneConfig() *MusicConfig {
 					{PlayerName: "Office", BaseVolume: 6},
 				},
 				PlaybackOptions: []PlaybackOption{
-					{URI: "spotify:playlist:day", MediaType: "playlist", VolumeMultiplier: 1.0},
+					{URI: "https://tidal.com/browse/playlist/test-day", MediaType: "tidal", VolumeMultiplier: 1.0},
 				},
 			},
 		},
@@ -563,7 +563,7 @@ func TestZoneManager_BackwardCompatibility(t *testing.T) {
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false) // readOnly=false to allow SetBool/SetString
 
-	testPlayback := []PlaybackOption{{URI: "test:uri", MediaType: "playlist", VolumeMultiplier: 1.0}}
+	testPlayback := []PlaybackOption{{URI: "https://tidal.com/browse/playlist/test", MediaType: "tidal", VolumeMultiplier: 1.0}}
 	// Config without explicit zones
 	config := &MusicConfig{
 		Music: map[string]MusicMode{
@@ -1562,7 +1562,7 @@ func TestZoneManager_MorningZone_ActivatesViaWakeLatch(t *testing.T) {
 			},
 			"morning": {
 				Participants:    []Participant{{PlayerName: "Kitchen", BaseVolume: 9}},
-				PlaybackOptions: []PlaybackOption{{URI: "spotify:playlist:morning", MediaType: "playlist", VolumeMultiplier: 1.0}},
+				PlaybackOptions: []PlaybackOption{{URI: "https://tidal.com/browse/playlist/test-morning", MediaType: "tidal", VolumeMultiplier: 1.0}},
 			},
 		},
 	}

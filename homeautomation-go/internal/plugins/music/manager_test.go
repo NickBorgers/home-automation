@@ -105,7 +105,7 @@ func TestMusicManager_ZoneResolutionSelectsCorrectMode(t *testing.T) {
 
 			// Create music config with participants and playback options (needed for zone start)
 			testParticipant := []Participant{{PlayerName: "Kitchen", BaseVolume: 9}}
-			testPlayback := []PlaybackOption{{URI: "test:uri", MediaType: "playlist", VolumeMultiplier: 1.0}}
+			testPlayback := []PlaybackOption{{URI: "https://tidal.com/browse/playlist/test", MediaType: "tidal", VolumeMultiplier: 1.0}}
 			config := &MusicConfig{
 				Music: map[string]MusicMode{
 					"morning":  {Participants: testParticipant, PlaybackOptions: testPlayback},
@@ -224,7 +224,7 @@ func TestMusicManager_StateChangeHandling(t *testing.T) {
 	env := testutil.NewEnv(t)
 
 	testParticipant := []Participant{{PlayerName: "Kitchen", BaseVolume: 9}}
-	defaultOption := []PlaybackOption{{URI: "test:uri", MediaType: "playlist", VolumeMultiplier: 1.0}}
+	defaultOption := []PlaybackOption{{URI: "https://tidal.com/browse/playlist/test", MediaType: "tidal", VolumeMultiplier: 1.0}}
 	config := &MusicConfig{
 		Music: map[string]MusicMode{
 			"morning":  {Participants: testParticipant, PlaybackOptions: defaultOption},
@@ -553,7 +553,7 @@ func TestMusicManager_ReadOnlyMode(t *testing.T) {
 	_ = readOnlyStateMgr.SetString("dayPhase", "day")
 	_ = readOnlyStateMgr.SetString("musicPlaybackType", "")
 
-	defaultOption := []PlaybackOption{{URI: "test:uri", MediaType: "playlist", VolumeMultiplier: 1.0}}
+	defaultOption := []PlaybackOption{{URI: "https://tidal.com/browse/playlist/test", MediaType: "tidal", VolumeMultiplier: 1.0}}
 	config := &MusicConfig{
 		Music: map[string]MusicMode{
 			"day":   {PlaybackOptions: defaultOption},
@@ -669,7 +669,7 @@ func TestRateLimiting(t *testing.T) {
 					{PlayerName: "Kitchen", BaseVolume: 9, LeaveMutedIf: []MuteCondition{}},
 				},
 				PlaybackOptions: []PlaybackOption{
-					{URI: "spotify:playlist:test", MediaType: "playlist", VolumeMultiplier: 1.0},
+					{URI: "https://tidal.com/browse/playlist/test", MediaType: "tidal", VolumeMultiplier: 1.0},
 				},
 			},
 		},
@@ -740,7 +740,7 @@ func TestResetRestartsSleepMusic(t *testing.T) {
 					{PlayerName: "Bedroom", BaseVolume: 5, LeaveMutedIf: []MuteCondition{}},
 				},
 				PlaybackOptions: []PlaybackOption{
-					{URI: "spotify:playlist:sleep", MediaType: "playlist", VolumeMultiplier: 1.0},
+					{URI: "http://rain-sounds.example.com/sleep.m4a", MediaType: "music", VolumeMultiplier: 1.0},
 				},
 			},
 		},
@@ -795,7 +795,7 @@ func TestDoubleActivationPrevention(t *testing.T) {
 					{PlayerName: "Kitchen", BaseVolume: 9, LeaveMutedIf: []MuteCondition{}},
 				},
 				PlaybackOptions: []PlaybackOption{
-					{URI: "spotify:playlist:test", MediaType: "playlist", VolumeMultiplier: 1.0},
+					{URI: "https://tidal.com/browse/playlist/test", MediaType: "tidal", VolumeMultiplier: 1.0},
 				},
 			},
 		},
@@ -954,7 +954,7 @@ func TestStopPlayback(t *testing.T) {
 	// Set up currently playing music
 	manager.currentlyPlaying = &CurrentlyPlayingMusic{
 		Type: "day",
-		URI:  "spotify:playlist:test",
+		URI:  "https://tidal.com/browse/playlist/test",
 	}
 
 	// Stop playback
@@ -998,7 +998,7 @@ func TestStopPlayback_OnlyAffectsActiveSpeakers(t *testing.T) {
 	// Set up currently playing as EVENING mode (which does NOT include Soundbar)
 	manager.currentlyPlaying = &CurrentlyPlayingMusic{
 		Type: "evening",
-		URI:  "spotify:playlist:evening",
+		URI:  "https://tidal.com/browse/playlist/test-evening",
 		Participants: []ParticipantWithVolume{
 			{PlayerName: "Kitchen", Volume: 9},
 			{PlayerName: "Living Room", Volume: 10},
@@ -1046,8 +1046,8 @@ func TestOrchestratePlayback(t *testing.T) {
 					{PlayerName: "Living Room", BaseVolume: 10, LeaveMutedIf: []MuteCondition{}},
 				},
 				PlaybackOptions: []PlaybackOption{
-					{URI: "spotify:playlist:test1", MediaType: "playlist", VolumeMultiplier: 1.0},
-					{URI: "spotify:playlist:test2", MediaType: "playlist", VolumeMultiplier: 1.5},
+					{URI: "https://tidal.com/browse/playlist/test1", MediaType: "tidal", VolumeMultiplier: 1.0},
+					{URI: "https://tidal.com/browse/playlist/test2", MediaType: "tidal", VolumeMultiplier: 1.5},
 				},
 			},
 		},
@@ -1106,7 +1106,7 @@ func TestHandleMusicPlaybackTypeChange_EmptyString(t *testing.T) {
 	// Set up currently playing music
 	manager.currentlyPlaying = &CurrentlyPlayingMusic{
 		Type: "day",
-		URI:  "spotify:playlist:test",
+		URI:  "https://tidal.com/browse/playlist/test",
 	}
 
 	// Trigger empty music type (stop)
@@ -1323,7 +1323,7 @@ func TestBuildSpeakerGroupOutcomes(t *testing.T) {
 func TestManagerReset(t *testing.T) {
 	t.Parallel()
 	testParticipant := []Participant{{PlayerName: "Kitchen", BaseVolume: 9}}
-	testPlayback := []PlaybackOption{{URI: "test:uri", MediaType: "playlist", VolumeMultiplier: 1.0}}
+	testPlayback := []PlaybackOption{{URI: "https://tidal.com/browse/playlist/test", MediaType: "tidal", VolumeMultiplier: 1.0}}
 
 	tests := []struct {
 		name             string
@@ -1430,9 +1430,9 @@ func TestManagerReset_RestartsSameMode(t *testing.T) {
 		Music: map[string]MusicMode{
 			"day": {
 				PlaybackOptions: []PlaybackOption{
-					{URI: "spotify:playlist:day1", MediaType: "playlist"},
-					{URI: "spotify:playlist:day2", MediaType: "playlist"},
-					{URI: "spotify:playlist:day3", MediaType: "playlist"},
+					{URI: "https://tidal.com/browse/playlist/day1", MediaType: "tidal"},
+					{URI: "https://tidal.com/browse/playlist/day2", MediaType: "tidal"},
+					{URI: "https://tidal.com/browse/playlist/day3", MediaType: "tidal"},
 				},
 				Participants: []Participant{
 					{PlayerName: "Kitchen", BaseVolume: 9},
@@ -1525,13 +1525,13 @@ func TestManagerReset_RestartsSameMode(t *testing.T) {
 // is set on playback and cleared on stop
 func TestCurrentlyPlayingMusicUri_Lifecycle(t *testing.T) {
 	t.Parallel()
-	testURI := "spotify:playlist:37i9dQZF1DX4dyzvuaRJ0n"
+	testURI := "https://tidal.com/browse/playlist/test-lifecycle"
 
 	config := &MusicConfig{
 		Music: map[string]MusicMode{
 			"day": {
 				Participants:    []Participant{{PlayerName: "Kitchen", BaseVolume: 9, LeaveMutedIf: []MuteCondition{}}},
-				PlaybackOptions: []PlaybackOption{{URI: testURI, MediaType: "playlist", VolumeMultiplier: 1.0}},
+				PlaybackOptions: []PlaybackOption{{URI: testURI, MediaType: "tidal", VolumeMultiplier: 1.0}},
 			},
 		},
 	}
@@ -1578,8 +1578,8 @@ func TestCurrentlyPlayingMusicUri_UpdateOnModeChange(t *testing.T) {
 	t.Parallel()
 	env := testutil.NewEnv(t)
 
-	dayURI := "spotify:playlist:day-playlist"
-	eveningURI := "spotify:playlist:evening-playlist"
+	dayURI := "https://tidal.com/browse/playlist/test-day"
+	eveningURI := "https://tidal.com/browse/playlist/test-evening"
 
 	config := &MusicConfig{
 		Music: map[string]MusicMode{
@@ -1588,7 +1588,7 @@ func TestCurrentlyPlayingMusicUri_UpdateOnModeChange(t *testing.T) {
 					{PlayerName: "Kitchen", BaseVolume: 9, LeaveMutedIf: []MuteCondition{}},
 				},
 				PlaybackOptions: []PlaybackOption{
-					{URI: dayURI, MediaType: "playlist", VolumeMultiplier: 1.0},
+					{URI: dayURI, MediaType: "tidal", VolumeMultiplier: 1.0},
 				},
 			},
 			"evening": {
@@ -1596,7 +1596,7 @@ func TestCurrentlyPlayingMusicUri_UpdateOnModeChange(t *testing.T) {
 					{PlayerName: "Kitchen", BaseVolume: 9, LeaveMutedIf: []MuteCondition{}},
 				},
 				PlaybackOptions: []PlaybackOption{
-					{URI: eveningURI, MediaType: "playlist", VolumeMultiplier: 1.0},
+					{URI: eveningURI, MediaType: "tidal", VolumeMultiplier: 1.0},
 				},
 			},
 		},
@@ -2508,22 +2508,27 @@ func TestExecutePlayback_BreakThenBuildSequence(t *testing.T) {
 			config := &MusicConfig{Music: map[string]MusicMode{}}
 			manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, false, nil, nil)
 			manager.SetSleepFunc(func(d time.Duration) {})
-			env.MockHA.SetState("media_player.kitchen", "playing", nil)
-			snapshot := env.MockHA.ServiceCallCount()
 
-			option := PlaybackOption{URI: "spotify:playlist:test", MediaType: "playlist", VolumeMultiplier: 1.0}
+			// Wire up mock SoCo server for Tidal playback path
+			socoPaths := setupSoCoForTest(t, manager, false)
+
+			// Cancel fade-ins before mock server closes (t.Cleanup runs LIFO)
+			t.Cleanup(func() { manager.cancelAllFadeIns() })
+
+			env.MockHA.SetState("media_player.kitchen", "playing", nil)
+
+			option := PlaybackOption{URI: "https://tidal.com/browse/playlist/test", MediaType: "tidal", VolumeMultiplier: 1.0}
 			_, _, err := manager.executePlayback("day", option, tt.participants, "Kitchen")
 			if err != nil {
 				t.Fatalf("executePlayback() failed: %v", err)
 			}
 
-			// Poll for async join call if expected
-			var calls []ha.ServiceCall
+			// Poll for async group/join via SoCo if expected
 			if tt.expectJoin {
 				for attempt := 0; attempt < 100; attempt++ {
-					calls = env.MockHA.GetServiceCallsSince(snapshot)
-					for _, call := range calls {
-						if call.Domain == "media_player" && call.Service == "join" {
+					allPaths := socoPaths.All()
+					for _, p := range allPaths {
+						if strings.Contains(p, "/group/") {
 							goto donePolling
 						}
 					}
@@ -2531,40 +2536,40 @@ func TestExecutePlayback_BreakThenBuildSequence(t *testing.T) {
 				}
 			}
 		donePolling:
-			if calls == nil {
-				calls = env.MockHA.GetServiceCallsSince(snapshot)
-			}
 
-			unjoinCalls, joinCalls := 0, 0
-			firstUnjoinIdx, firstJoinIdx := -1, -1
-			for i, call := range calls {
-				if call.Domain == "media_player" && call.Service == "unjoin" {
-					unjoinCalls++
-					if firstUnjoinIdx == -1 {
-						firstUnjoinIdx = i
+			// With SoCo configured, unjoin/join route through SoCo HTTP API
+			allPaths := socoPaths.All()
+
+			ungroupCalls, groupCalls := 0, 0
+			firstUngroupIdx, firstGroupIdx := -1, -1
+			for i, p := range allPaths {
+				if strings.Contains(p, "/ungroup") {
+					ungroupCalls++
+					if firstUngroupIdx == -1 {
+						firstUngroupIdx = i
 					}
 				}
-				if call.Domain == "media_player" && call.Service == "join" {
-					joinCalls++
-					if firstJoinIdx == -1 {
-						firstJoinIdx = i
+				if strings.Contains(p, "/group/") {
+					groupCalls++
+					if firstGroupIdx == -1 {
+						firstGroupIdx = i
 					}
 				}
 			}
 
-			if unjoinCalls < tt.unjoinCount {
-				t.Errorf("Expected at least %d unjoin calls, got %d", tt.unjoinCount, unjoinCalls)
+			if ungroupCalls < tt.unjoinCount {
+				t.Errorf("Expected at least %d ungroup calls via SoCo, got %d. Paths: %v", tt.unjoinCount, ungroupCalls, allPaths)
 			}
 			if tt.expectJoin {
-				if firstJoinIdx == -1 {
-					t.Error("Expected join call")
+				if firstGroupIdx == -1 {
+					t.Errorf("Expected group call via SoCo. Paths: %v", allPaths)
 				}
-				if firstUnjoinIdx >= firstJoinIdx {
-					t.Errorf("SEQUENCE ERROR: unjoin (idx %d) must come BEFORE join (idx %d)", firstUnjoinIdx, firstJoinIdx)
+				if firstUngroupIdx >= firstGroupIdx {
+					t.Errorf("SEQUENCE ERROR: ungroup (idx %d) must come BEFORE group (idx %d)", firstUngroupIdx, firstGroupIdx)
 				}
 			} else {
-				if joinCalls != 0 {
-					t.Errorf("Expected 0 join calls for single speaker, got %d", joinCalls)
+				if groupCalls != 0 {
+					t.Errorf("Expected 0 group calls for single speaker, got %d", groupCalls)
 				}
 			}
 		})
@@ -2829,8 +2834,8 @@ func TestPlaylistRotationSync(t *testing.T) {
 	})
 }
 
-// TestPlaybackVerification tests that playback verification detects and handles
-// various speaker states correctly.
+// TestPlaybackVerification tests that Tidal playback verification detects and handles
+// various speaker states correctly via SoCo-CLI.
 func TestPlaybackVerification(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
@@ -2839,7 +2844,6 @@ func TestPlaybackVerification(t *testing.T) {
 		stateSequence  []string // State sequence for recovery scenarios
 		expectAttempts int
 		expectError    bool
-		expectNudge    bool // Whether media_play nudge should be called
 	}{
 		{
 			name:           "Speaker playing on first try",
@@ -2859,10 +2863,11 @@ func TestPlaybackVerification(t *testing.T) {
 			expectError:    true,
 		},
 		{
-			name:           "Recovery after nudge",
+			// Tidal path retries PlayShareLink on failure, no HA nudge mechanism.
+			// State goes idle → playing on second attempt.
+			name:           "Recovery after retry via SoCo-CLI",
 			stateSequence:  []string{"idle", "playing"},
-			expectAttempts: 1,
-			expectNudge:    true,
+			expectAttempts: 2,
 		},
 	}
 
@@ -2873,13 +2878,16 @@ func TestPlaybackVerification(t *testing.T) {
 			manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, false, nil, nil)
 			manager.SetSleepFunc(func(d time.Duration) {})
 
+			// Wire up mock SoCo server for Tidal playback path
+			setupSoCoForTest(t, manager, false)
+
 			if tt.stateSequence != nil {
 				env.MockHA.SetStateSequence("media_player.kitchen", tt.stateSequence)
 			} else {
 				env.MockHA.SetState("media_player.kitchen", tt.speakerState, nil)
 			}
 
-			option := PlaybackOption{URI: "spotify:playlist:test", MediaType: "playlist", VolumeMultiplier: 1.0}
+			option := PlaybackOption{URI: "https://tidal.com/browse/playlist/test", MediaType: "tidal", VolumeMultiplier: 1.0}
 			attempts, err := manager.startPlaybackWithVerification("media_player.kitchen", "Kitchen", option)
 
 			if tt.expectError && err == nil {
@@ -2890,17 +2898,6 @@ func TestPlaybackVerification(t *testing.T) {
 			}
 			if tt.expectAttempts > 0 && attempts != tt.expectAttempts {
 				t.Errorf("Expected %d attempts, got %d", tt.expectAttempts, attempts)
-			}
-			if tt.expectNudge {
-				var hasNudge bool
-				for _, call := range env.MockHA.GetServiceCalls() {
-					if call.Domain == "media_player" && call.Service == "media_play" {
-						hasNudge = true
-					}
-				}
-				if !hasNudge {
-					t.Error("Expected media_play nudge service call")
-				}
 			}
 		})
 	}
@@ -3080,7 +3077,7 @@ func TestShouldIncludeInZone_MultipleConditions(t *testing.T) {
 func TestOrchestratePlayback_ExcludeIf(t *testing.T) {
 	t.Parallel()
 	emptyMode := MusicMode{Participants: []Participant{}, PlaybackOptions: []PlaybackOption{}}
-	playbackOpt := []PlaybackOption{{URI: "spotify:playlist:test", MediaType: "playlist", VolumeMultiplier: 1.0}}
+	playbackOpt := []PlaybackOption{{URI: "https://tidal.com/browse/playlist/test", MediaType: "tidal", VolumeMultiplier: 1.0}}
 
 	tests := []struct {
 		name               string
@@ -3238,7 +3235,7 @@ func TestExcludeIf_ParticipantWithVolumePreservesExcludeIf(t *testing.T) {
 						LeaveMutedIf: []MuteCondition{{Variable: "isTVPlaying", Value: true}},
 						ExcludeIf:    []MuteCondition{{Variable: "isMasterAsleep", Value: true}}},
 				},
-				PlaybackOptions: []PlaybackOption{{URI: "spotify:playlist:test", MediaType: "playlist", VolumeMultiplier: 1.0}},
+				PlaybackOptions: []PlaybackOption{{URI: "https://tidal.com/browse/playlist/test", MediaType: "tidal", VolumeMultiplier: 1.0}},
 			},
 			"day": emptyMode, "evening": emptyMode, "winddown": emptyMode,
 			"sleep": emptyMode, "sex": emptyMode, "wakeup": emptyMode,
@@ -3618,7 +3615,7 @@ func TestAddSpeakersToZone_JoinParameterOrder(t *testing.T) {
 					{PlayerName: "Primary Bathroom", BaseVolume: 6},
 				},
 				PlaybackOptions: []PlaybackOption{
-					{URI: "test:uri", MediaType: "playlist", VolumeMultiplier: 1.0},
+					{URI: "https://tidal.com/browse/playlist/test", MediaType: "tidal", VolumeMultiplier: 1.0},
 				},
 			},
 		},
@@ -3691,7 +3688,7 @@ func TestAddSpeakersToZone_ExcludeIfRespected(t *testing.T) {
 					},
 				},
 				PlaybackOptions: []PlaybackOption{
-					{URI: "test:uri", MediaType: "playlist", VolumeMultiplier: 1.0},
+					{URI: "https://tidal.com/browse/playlist/test", MediaType: "tidal", VolumeMultiplier: 1.0},
 				},
 			},
 		},
