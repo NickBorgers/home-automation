@@ -175,7 +175,7 @@ func (d *DevServer) populateSampleData() {
 	d.server.SetState("input_text.music_playback_type", "background", map[string]interface{}{
 		"friendly_name": "Music Playback Type",
 	})
-	d.server.SetState("input_text.currently_playing_music_uri", "spotify:playlist:37i9dQZF1DXcBWIGoYBM5M", map[string]interface{}{
+	d.server.SetState("input_text.currently_playing_music_uri", "https://tidal.com/browse/playlist/b9c278db-c54b-405c-995c-48542a7e12c2", map[string]interface{}{
 		"friendly_name": "Currently Playing Music URI",
 	})
 	d.server.SetState("input_text.battery_energy_level", "green", map[string]interface{}{
@@ -209,9 +209,9 @@ func (d *DevServer) populateSampleData() {
 	d.server.SetState("media_player.sonos_living_room", "playing", map[string]interface{}{
 		"friendly_name":      "Sonos Living Room",
 		"media_title":        "Today's Top Hits",
-		"media_artist":       "Spotify",
+		"media_artist":       "Tidal",
 		"volume_level":       0.35,
-		"source":             "Spotify",
+		"source":             "Tidal",
 		"supported_features": 65471,
 	})
 

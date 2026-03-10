@@ -100,7 +100,7 @@ func TestMusicShadowState_UpdateOutputs(t *testing.T) {
 
 	// Create test data
 	playlistInfo := &shadowstate.PlaylistInfo{
-		URI:       "spotify:playlist:test123",
+		URI:       "https://tidal.com/browse/playlist/test123",
 		Name:      "Test Playlist",
 		MediaType: "music",
 	}
@@ -132,8 +132,8 @@ func TestMusicShadowState_UpdateOutputs(t *testing.T) {
 		t.Errorf("Expected CurrentMode='evening', got '%s'", shadowState.Outputs.CurrentMode)
 	}
 
-	if shadowState.Outputs.ActivePlaylist.URI != "spotify:playlist:test123" {
-		t.Errorf("Expected playlist URI='spotify:playlist:test123', got '%s'", shadowState.Outputs.ActivePlaylist.URI)
+	if shadowState.Outputs.ActivePlaylist.URI != "https://tidal.com/browse/playlist/test123" {
+		t.Errorf("Expected playlist URI='https://tidal.com/browse/playlist/test123', got '%s'", shadowState.Outputs.ActivePlaylist.URI)
 	}
 
 	if shadowState.Outputs.ActivePlaylist.Name != "Test Playlist" {

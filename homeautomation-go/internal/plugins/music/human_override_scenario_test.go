@@ -65,7 +65,7 @@ func TestScenario_HumanOverrideDetection_LowVolumeTarget(t *testing.T) {
 					},
 				},
 				PlaybackOptions: []PlaybackOption{
-					{URI: "spotify:playlist:test", MediaType: "playlist", VolumeMultiplier: 1.0},
+					{URI: "https://tidal.com/browse/playlist/test", MediaType: "tidal", VolumeMultiplier: 1.0},
 				},
 			},
 		},

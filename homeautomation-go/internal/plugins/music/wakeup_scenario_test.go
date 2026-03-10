@@ -131,8 +131,8 @@ func createWakeupTestConfig() *MusicConfig {
 				},
 				PlaybackOptions: []PlaybackOption{
 					{
-						URI:              "spotify:playlist:morning_instrumental",
-						MediaType:        "playlist",
+						URI:              "https://tidal.com/browse/playlist/test-morning",
+						MediaType:        "tidal",
 						VolumeMultiplier: 1.0,
 					},
 				},
@@ -152,8 +152,8 @@ func createWakeupTestConfig() *MusicConfig {
 				},
 				PlaybackOptions: []PlaybackOption{
 					{
-						URI:              "spotify:playlist:day_chill",
-						MediaType:        "playlist",
+						URI:              "https://tidal.com/browse/playlist/test-day",
+						MediaType:        "tidal",
 						VolumeMultiplier: 1.0,
 					},
 				},
@@ -163,7 +163,7 @@ func createWakeupTestConfig() *MusicConfig {
 					{PlayerName: "Kitchen", BaseVolume: 9, LeaveMutedIf: []MuteCondition{}},
 				},
 				PlaybackOptions: []PlaybackOption{
-					{URI: "spotify:playlist:evening", MediaType: "playlist", VolumeMultiplier: 1.0},
+					{URI: "https://tidal.com/browse/playlist/test-evening", MediaType: "tidal", VolumeMultiplier: 1.0},
 				},
 			},
 			"winddown": {
@@ -171,7 +171,7 @@ func createWakeupTestConfig() *MusicConfig {
 					{PlayerName: "Kitchen", BaseVolume: 10, LeaveMutedIf: []MuteCondition{}},
 				},
 				PlaybackOptions: []PlaybackOption{
-					{URI: "spotify:playlist:winddown", MediaType: "playlist", VolumeMultiplier: 1.0},
+					{URI: "https://tidal.com/browse/playlist/test-winddown", MediaType: "tidal", VolumeMultiplier: 1.0},
 				},
 			},
 			"sleep": {
@@ -187,7 +187,7 @@ func createWakeupTestConfig() *MusicConfig {
 					{PlayerName: "Bedroom", BaseVolume: 10, LeaveMutedIf: []MuteCondition{}},
 				},
 				PlaybackOptions: []PlaybackOption{
-					{URI: "spotify:playlist:sex", MediaType: "playlist", VolumeMultiplier: 1.0},
+					{URI: "https://tidal.com/browse/playlist/test-sex", MediaType: "tidal", VolumeMultiplier: 1.0},
 				},
 			},
 			"wakeup": {
@@ -195,7 +195,7 @@ func createWakeupTestConfig() *MusicConfig {
 					{PlayerName: "Bedroom", BaseVolume: 6, LeaveMutedIf: []MuteCondition{}},
 				},
 				PlaybackOptions: []PlaybackOption{
-					{URI: "spotify:playlist:wakeup", MediaType: "playlist", VolumeMultiplier: 1.0},
+					{URI: "https://tidal.com/browse/playlist/test-wakeup", MediaType: "tidal", VolumeMultiplier: 1.0},
 				},
 			},
 		},
@@ -1070,7 +1070,7 @@ func createWakeSequenceTestConfig() *MusicConfig {
 					},
 				},
 				PlaybackOptions: []PlaybackOption{
-					{URI: "spotify:playlist:morning_instrumental", MediaType: "playlist", VolumeMultiplier: 1.0},
+					{URI: "https://tidal.com/browse/playlist/test-morning", MediaType: "tidal", VolumeMultiplier: 1.0},
 				},
 			},
 			"day": {
@@ -1080,7 +1080,7 @@ func createWakeSequenceTestConfig() *MusicConfig {
 					{PlayerName: "Bedroom", BaseVolume: 9, LeaveMutedIf: []MuteCondition{}},
 				},
 				PlaybackOptions: []PlaybackOption{
-					{URI: "spotify:playlist:day_chill", MediaType: "playlist", VolumeMultiplier: 1.0},
+					{URI: "https://tidal.com/browse/playlist/test-day", MediaType: "tidal", VolumeMultiplier: 1.0},
 				},
 			},
 			"evening": {
@@ -1088,7 +1088,7 @@ func createWakeSequenceTestConfig() *MusicConfig {
 					{PlayerName: "Kitchen", BaseVolume: 9, LeaveMutedIf: []MuteCondition{}},
 				},
 				PlaybackOptions: []PlaybackOption{
-					{URI: "spotify:playlist:evening", MediaType: "playlist", VolumeMultiplier: 1.0},
+					{URI: "https://tidal.com/browse/playlist/test-evening", MediaType: "tidal", VolumeMultiplier: 1.0},
 				},
 			},
 			"winddown": {
@@ -1096,7 +1096,7 @@ func createWakeSequenceTestConfig() *MusicConfig {
 					{PlayerName: "Kitchen", BaseVolume: 10, LeaveMutedIf: []MuteCondition{}},
 				},
 				PlaybackOptions: []PlaybackOption{
-					{URI: "spotify:playlist:winddown", MediaType: "playlist", VolumeMultiplier: 1.0},
+					{URI: "https://tidal.com/browse/playlist/test-winddown", MediaType: "tidal", VolumeMultiplier: 1.0},
 				},
 			},
 			// sleep-prep: Whole-house sleep sounds before master goes to bed
@@ -1124,7 +1124,7 @@ func createWakeSequenceTestConfig() *MusicConfig {
 					{PlayerName: "Bedroom", BaseVolume: 10, LeaveMutedIf: []MuteCondition{}},
 				},
 				PlaybackOptions: []PlaybackOption{
-					{URI: "spotify:playlist:sex", MediaType: "playlist", VolumeMultiplier: 1.0},
+					{URI: "https://tidal.com/browse/playlist/test-sex", MediaType: "tidal", VolumeMultiplier: 1.0},
 				},
 			},
 			"wakeup": {
@@ -1132,7 +1132,7 @@ func createWakeSequenceTestConfig() *MusicConfig {
 					{PlayerName: "Bedroom", BaseVolume: 6, LeaveMutedIf: []MuteCondition{}},
 				},
 				PlaybackOptions: []PlaybackOption{
-					{URI: "spotify:playlist:wakeup", MediaType: "playlist", VolumeMultiplier: 1.0},
+					{URI: "https://tidal.com/browse/playlist/test-wakeup", MediaType: "tidal", VolumeMultiplier: 1.0},
 				},
 			},
 		},

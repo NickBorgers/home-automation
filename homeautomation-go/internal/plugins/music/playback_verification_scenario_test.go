@@ -1,8 +1,13 @@
 package music
 
 // =============================================================================
-// PLAYBACK VERIFICATION SCENARIO TESTS
+// PLAYBACK VERIFICATION SCENARIO TESTS (HA FALLBACK PATH)
 // =============================================================================
+//
+// NOTE: These tests intentionally use media_type "playlist" to exercise the
+// Home Assistant play_media fallback path. Production uses media_type "tidal"
+// routed through SoCo-CLI, but these tests verify the HA fallback still works
+// when SoCo is not configured. See issue #816 for context.
 //
 // PURPOSE:
 // These tests validate that the Music Manager correctly handles playback verification

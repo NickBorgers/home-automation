@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 	"time"
 
@@ -28,12 +29,47 @@ import (
 // - When socoClient is set, all commands go through SoCo-CLI HTTP API
 // - Parameters are correctly translated between the two paths
 
-// mockSoCoServer creates a test HTTP server that records SoCo-CLI API calls
-func mockSoCoServer(t *testing.T) (*httptest.Server, *[]string) {
+// threadSafePaths provides thread-safe recording of HTTP request paths.
+// Used by mockSoCoServer to avoid data races when tests run in parallel.
+type threadSafePaths struct {
+	mu    sync.Mutex
+	paths []string
+}
+
+func (p *threadSafePaths) Append(path string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.paths = append(p.paths, path)
+}
+
+func (p *threadSafePaths) Get(index int) string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.paths[index]
+}
+
+func (p *threadSafePaths) Len() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return len(p.paths)
+}
+
+func (p *threadSafePaths) All() []string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	result := make([]string, len(p.paths))
+	copy(result, p.paths)
+	return result
+}
+
+// mockSoCoServer creates a test HTTP server that records SoCo-CLI API calls.
+// The returned threadSafePaths is safe for concurrent access from HTTP handler
+// goroutines and test goroutines.
+func mockSoCoServer(t *testing.T) (*httptest.Server, *threadSafePaths) {
 	t.Helper()
-	var paths []string
+	recorded := &threadSafePaths{}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		paths = append(paths, r.URL.Path)
+		recorded.Append(r.URL.Path)
 		resp := SoCoResponse{
 			Result:   "success",
 			ExitCode: 0,
@@ -44,7 +80,17 @@ func mockSoCoServer(t *testing.T) (*httptest.Server, *[]string) {
 		json.NewEncoder(w).Encode(resp)
 	}))
 	t.Cleanup(server.Close)
-	return server, &paths
+	return server, recorded
+}
+
+// setupSoCoForTest creates a mock SoCo-CLI server and wires it into the manager.
+// Use this for tests with media_type "tidal" to exercise the production code path.
+func setupSoCoForTest(t *testing.T, manager *Manager, readOnly bool) *threadSafePaths {
+	t.Helper()
+	server, paths := mockSoCoServer(t)
+	socoClient := NewSoCoClient(server.URL, zaptest.NewLogger(t), readOnly)
+	manager.SetSoCoClient(socoClient)
+	return paths
 }
 
 // createTestManager creates a Manager wired up to a mock HA client for testing.
@@ -102,8 +148,8 @@ func TestSpeakerSetVolume_RoutesThroughSoCo(t *testing.T) {
 	assert.Empty(t, mockClient.GetServiceCalls(), "HA should not be called when SoCo is configured")
 
 	// Should have called SoCo
-	require.Len(t, *paths, 1)
-	assert.Equal(t, "/Kitchen/volume/75", (*paths)[0])
+	require.Equal(t, 1, paths.Len())
+	assert.Equal(t, "/Kitchen/volume/75", paths.Get(0))
 }
 
 func TestSpeakerSetMute_FallsBackToHA(t *testing.T) {
@@ -131,12 +177,12 @@ func TestSpeakerSetMute_RoutesThroughSoCo(t *testing.T) {
 	// Test mute
 	err := manager.speakerSetMute("Kitchen", true)
 	require.NoError(t, err)
-	assert.Equal(t, "/Kitchen/mute", (*paths)[0])
+	assert.Equal(t, "/Kitchen/mute", paths.Get(0))
 
 	// Test unmute
 	err = manager.speakerSetMute("Kitchen", false)
 	require.NoError(t, err)
-	assert.Equal(t, "/Kitchen/unmute", (*paths)[1])
+	assert.Equal(t, "/Kitchen/unmute", paths.Get(1))
 }
 
 func TestSpeakerJoinGroup_FallsBackToHA(t *testing.T) {
@@ -166,8 +212,8 @@ func TestSpeakerJoinGroup_RoutesThroughSoCo(t *testing.T) {
 	err := manager.speakerJoinGroup("Bedroom", "Kitchen")
 	require.NoError(t, err)
 
-	require.Len(t, *paths, 1)
-	assert.Equal(t, "/Bedroom/group/Kitchen", (*paths)[0])
+	require.Equal(t, 1, paths.Len())
+	assert.Equal(t, "/Bedroom/group/Kitchen", paths.Get(0))
 }
 
 func TestSpeakerJoinGroupBatch_RoutesThroughSoCo(t *testing.T) {
@@ -182,10 +228,10 @@ func TestSpeakerJoinGroupBatch_RoutesThroughSoCo(t *testing.T) {
 	require.NoError(t, err)
 
 	// SoCo joins each follower individually
-	require.Len(t, *paths, 2)
-	assert.Equal(t, "/Bedroom/group/Kitchen", (*paths)[0])
+	require.Equal(t, 2, paths.Len())
+	assert.Equal(t, "/Bedroom/group/Kitchen", paths.Get(0))
 	// URL path is decoded by Go's HTTP server, so spaces appear as-is
-	assert.Equal(t, "/Front Room/group/Kitchen", (*paths)[1])
+	assert.Equal(t, "/Front Room/group/Kitchen", paths.Get(1))
 }
 
 func TestSpeakerJoinGroupBatch_FallsBackToHA(t *testing.T) {
@@ -216,8 +262,8 @@ func TestSpeakerUnjoin_RoutesThroughSoCo(t *testing.T) {
 	err := manager.speakerUnjoin("Kitchen")
 	require.NoError(t, err)
 
-	require.Len(t, *paths, 1)
-	assert.Equal(t, "/Kitchen/ungroup", (*paths)[0])
+	require.Equal(t, 1, paths.Len())
+	assert.Equal(t, "/Kitchen/ungroup", paths.Get(0))
 }
 
 func TestSpeakerUnjoin_FallsBackToHA(t *testing.T) {
@@ -244,8 +290,8 @@ func TestSpeakerPlay_RoutesThroughSoCo(t *testing.T) {
 	err := manager.speakerPlay("Kitchen")
 	require.NoError(t, err)
 
-	require.Len(t, *paths, 1)
-	assert.Equal(t, "/Kitchen/play", (*paths)[0])
+	require.Equal(t, 1, paths.Len())
+	assert.Equal(t, "/Kitchen/play", paths.Get(0))
 }
 
 func TestSpeakerPlay_FallsBackToHA(t *testing.T) {
@@ -272,8 +318,8 @@ func TestSpeakerPlayMedia_RoutesThroughSoCo(t *testing.T) {
 	err := manager.speakerPlayMedia("Kitchen", "http://example.com/stream.mp3", "music")
 	require.NoError(t, err)
 
-	require.Len(t, *paths, 1)
-	assert.Contains(t, (*paths)[0], "/Kitchen/play_uri/")
+	require.Equal(t, 1, paths.Len())
+	assert.Contains(t, paths.Get(0), "/Kitchen/play_uri/")
 }
 
 func TestSpeakerPlayMedia_FallsBackToHA(t *testing.T) {
@@ -313,11 +359,11 @@ func TestSpeakerSetShuffle_RoutesThroughSoCo(t *testing.T) {
 
 	err := manager.speakerSetShuffle("Kitchen", true)
 	require.NoError(t, err)
-	assert.Equal(t, "/Kitchen/shuffle/on", (*paths)[0])
+	assert.Equal(t, "/Kitchen/shuffle/on", paths.Get(0))
 
 	err = manager.speakerSetShuffle("Kitchen", false)
 	require.NoError(t, err)
-	assert.Equal(t, "/Kitchen/shuffle/off", (*paths)[1])
+	assert.Equal(t, "/Kitchen/shuffle/off", paths.Get(1))
 }
 
 func TestSpeakerSetShuffle_FallsBackToHA(t *testing.T) {
@@ -344,7 +390,7 @@ func TestSpeakerSetRepeat_RoutesThroughSoCo(t *testing.T) {
 
 	err := manager.speakerSetRepeat("Kitchen", "all")
 	require.NoError(t, err)
-	assert.Equal(t, "/Kitchen/repeat/all", (*paths)[0])
+	assert.Equal(t, "/Kitchen/repeat/all", paths.Get(0))
 }
 
 func TestSpeakerSetRepeat_FallsBackToHA(t *testing.T) {

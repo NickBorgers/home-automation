@@ -83,8 +83,8 @@ func createOccupancyMusicConfig() *MusicConfig {
 				},
 				PlaybackOptions: []PlaybackOption{
 					{
-						URI:              "spotify:playlist:test123",
-						MediaType:        "playlist",
+						URI:              "https://tidal.com/browse/playlist/test123",
+						MediaType:        "tidal",
 						VolumeMultiplier: 1.0,
 					},
 				},
@@ -109,8 +109,8 @@ func createOccupancyMusicConfig() *MusicConfig {
 				},
 				PlaybackOptions: []PlaybackOption{
 					{
-						URI:              "spotify:playlist:morning123",
-						MediaType:        "playlist",
+						URI:              "https://tidal.com/browse/playlist/test-morning",
+						MediaType:        "tidal",
 						VolumeMultiplier: 1.0,
 					},
 				},
@@ -410,9 +410,6 @@ func TestScenario_MutedSpeaker_GetsTargetVolumeSetDuringPlayback(t *testing.T) {
 		State:    "playing",
 	})
 
-	// Snapshot before executePlayback
-	snapshot := mockClient.ServiceCallCount()
-
 	// ==========================================================
 	// ACTION: Call executePlayback with both Kitchen and Study
 	// ==========================================================
@@ -437,10 +434,13 @@ func TestScenario_MutedSpeaker_GetsTargetVolumeSetDuringPlayback(t *testing.T) {
 	}
 
 	option := PlaybackOption{
-		URI:              "spotify:playlist:test123",
-		MediaType:        "playlist",
+		URI:              "https://tidal.com/browse/playlist/test123",
+		MediaType:        "tidal",
 		VolumeMultiplier: 1.0,
 	}
+
+	// Wire up mock SoCo server for Tidal playback path
+	socoPaths := setupSoCoForTest(t, manager, false)
 
 	_, _, err := manager.executePlayback("day", option, participants, "Kitchen")
 	assert.NoError(t, err, "executePlayback should succeed")
@@ -449,55 +449,35 @@ func TestScenario_MutedSpeaker_GetsTargetVolumeSetDuringPlayback(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 
 	// ==========================================================
-	// VERIFICATION: Study speaker received both volume_set and volume_mute
+	// VERIFICATION: Study speaker received volume and mute via SoCo-CLI
 	// ==========================================================
-	calls := mockClient.GetServiceCallsSince(snapshot)
+	// With SoCo configured, volume and mute commands route through SoCo HTTP API
+	// instead of HA service calls. Verify the SoCo paths contain the expected calls.
+	allPaths := socoPaths.All()
 
-	// Look for volume_set call for Study with target volume (6% = 0.06)
+	// Look for volume command for Study with target volume (6%)
 	foundStudyVolumeSet := false
-	var studyVolumeLevel float64
-	for _, call := range calls {
-		if call.Domain == "media_player" && call.Service == "volume_set" {
-			entityID, ok := call.Data["entity_id"].(string)
-			if ok && entityID == "media_player.study" {
-				if volumeLevel, hasVolume := call.Data["volume_level"].(float64); hasVolume {
-					// We expect 0.06 (6%), but the muted speaker volume_set happens
-					// after the initial mute (which sets to 0), so look for the target volume
-					if volumeLevel > 0.05 && volumeLevel < 0.07 { // 6% = 0.06
-						foundStudyVolumeSet = true
-						studyVolumeLevel = volumeLevel
-					}
-				}
-			}
+	for _, path := range allPaths {
+		if path == "/Study/volume/6" {
+			foundStudyVolumeSet = true
 		}
 	}
 
 	assert.True(t, foundStudyVolumeSet,
-		"Expected media_player.volume_set for Study speaker with target volume (~0.06). "+
-			"This ensures muted speakers have correct volume pre-set. Calls: %+v", calls)
+		"Expected SoCo volume/6 for Study speaker. "+
+			"This ensures muted speakers have correct volume pre-set via SoCo-CLI. Paths: %v", allPaths)
 
-	if foundStudyVolumeSet {
-		assert.InDelta(t, 0.06, studyVolumeLevel, 0.01,
-			"Study speaker volume should be set to ~6%% (0.06)")
-	}
-
-	// Look for volume_mute call for Study with is_volume_muted=true
+	// Look for mute command for Study
 	foundStudyMute := false
-	for _, call := range calls {
-		if call.Domain == "media_player" && call.Service == "volume_mute" {
-			entityID, ok := call.Data["entity_id"].(string)
-			if ok && entityID == "media_player.study" {
-				isMuted, hasMuted := call.Data["is_volume_muted"].(bool)
-				if hasMuted && isMuted {
-					foundStudyMute = true
-				}
-			}
+	for _, path := range allPaths {
+		if path == "/Study/mute" {
+			foundStudyMute = true
 		}
 	}
 
 	assert.True(t, foundStudyMute,
-		"Expected media_player.volume_mute for Study speaker with is_volume_muted=true. "+
-			"Muted speakers should be explicitly muted. Calls: %+v", calls)
+		"Expected SoCo mute for Study speaker. "+
+			"Muted speakers should be explicitly muted via SoCo-CLI. Paths: %v", allPaths)
 }
 
 // =============================================================================
