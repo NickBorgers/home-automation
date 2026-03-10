@@ -445,35 +445,34 @@ func TestScenario_MutedSpeaker_GetsTargetVolumeSetDuringPlayback(t *testing.T) {
 	_, _, err := manager.executePlayback("day", option, participants, "Kitchen")
 	assert.NoError(t, err, "executePlayback should succeed")
 
-	// Allow time for fade-in goroutines to start (they will return quickly due to SetSleepFunc)
-	time.Sleep(50 * time.Millisecond)
-
 	// ==========================================================
 	// VERIFICATION: Study speaker received volume and mute via SoCo-CLI
 	// ==========================================================
 	// With SoCo configured, volume and mute commands route through SoCo HTTP API
-	// instead of HA service calls. Verify the SoCo paths contain the expected calls.
-	allPaths := socoPaths.All()
-
-	// Look for volume command for Study with target volume (6%)
+	// instead of HA service calls. Poll for expected paths since buildSpeakerGroupAsync
+	// runs asynchronously and may not complete within a fixed sleep window.
+	var allPaths []string
 	foundStudyVolumeSet := false
-	for _, path := range allPaths {
-		if path == "/Study/volume/6" {
-			foundStudyVolumeSet = true
+	foundStudyMute := false
+	for attempt := 0; attempt < 200; attempt++ {
+		allPaths = socoPaths.All()
+		for _, path := range allPaths {
+			if path == "/Study/volume/6" {
+				foundStudyVolumeSet = true
+			}
+			if path == "/Study/mute" {
+				foundStudyMute = true
+			}
 		}
+		if foundStudyVolumeSet && foundStudyMute {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 
 	assert.True(t, foundStudyVolumeSet,
 		"Expected SoCo volume/6 for Study speaker. "+
 			"This ensures muted speakers have correct volume pre-set via SoCo-CLI. Paths: %v", allPaths)
-
-	// Look for mute command for Study
-	foundStudyMute := false
-	for _, path := range allPaths {
-		if path == "/Study/mute" {
-			foundStudyMute = true
-		}
-	}
 
 	assert.True(t, foundStudyMute,
 		"Expected SoCo mute for Study speaker. "+

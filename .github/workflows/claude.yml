@@ -454,6 +454,10 @@ jobs:
             - Use \`make pre-commit\` for linting/formatting
             - Follow shadow state pattern (docs/reference/SHADOW_STATE.md)
             - Never use \`git push --no-verify\`
+            - Write the minimum code that solves the issue. No more.
+            - Don't add helpers, utilities, or abstractions unless the issue requires them.
+            - Don't refactor adjacent code or make "while I'm here" improvements.
+            - If three similar lines work, don't extract a function.
 
             TDD FOR CROSS-PLUGIN FEATURES:
             - If implementing a feature that spans multiple plugins, write the user story test FIRST
@@ -462,6 +466,14 @@ jobs:
             - Document invariants: rules that should ALWAYS hold (e.g., 'isWakeSequenceActive=true blocks sleep music')
             - Test the full timeline, not just end states (T+0, T+2min, T+5min)
             - Reference: scenario_sleephygiene_test.go for TDD-style cross-plugin tests
+
+            BEFORE CREATING THE PR — SELF-REVIEW:
+            6. Run \`git diff --stat\` and verify ONLY issue-scoped changes remain.
+               If the diff includes code beyond the issue scope, REMOVE IT.
+               The fix should be the smallest correct change.
+            7. For any new external service calls: verify retry logic and appropriate timeouts.
+            8. For any new test helpers with shared state: verify mutex protection.
+            9. Verify new tests exercise the CURRENT production code path, not a legacy path.
 
             BRANCH NAMING: Use \`claude/issue-${ISSUE_NUMBER}\` as the branch name.
 

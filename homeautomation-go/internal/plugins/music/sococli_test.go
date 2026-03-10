@@ -2,8 +2,10 @@ package music
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -352,7 +354,7 @@ func TestSoCoClient_MuteUnmute(t *testing.T) {
 		client := NewSoCoClient(server.URL, logger, false)
 		err := client.Unmute("Kitchen")
 		require.NoError(t, err)
-		assert.Equal(t, "/Kitchen/unmute", requestPath)
+		assert.Equal(t, "/Kitchen/mute/off", requestPath)
 	})
 }
 
@@ -505,4 +507,126 @@ func TestSoCoClient_SetRepeat(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "/Kitchen/repeat/all", requestPath)
 	})
+}
+
+// =============================================================================
+// Retry Logic Tests
+// =============================================================================
+
+func TestSoCoClient_RetryOnServerError(t *testing.T) {
+	t.Parallel()
+	logger := zaptest.NewLogger(t)
+
+	t.Run("retries on HTTP 500 and succeeds on second attempt", func(t *testing.T) {
+		var attemptCount int32
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			attempt := atomic.AddInt32(&attemptCount, 1)
+			if attempt == 1 {
+				w.WriteHeader(http.StatusInternalServerError)
+				w.Write([]byte("temporary error"))
+				return
+			}
+			resp := SoCoResponse{Result: "success", ExitCode: 0}
+			json.NewEncoder(w).Encode(resp)
+		}))
+		defer server.Close()
+
+		client := NewSoCoClient(server.URL, logger, false)
+		err := client.SetVolume("Kitchen", 42)
+		require.NoError(t, err)
+		assert.Equal(t, int32(2), atomic.LoadInt32(&attemptCount))
+	})
+
+	t.Run("exhausts all retries on persistent server error", func(t *testing.T) {
+		var attemptCount int32
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			atomic.AddInt32(&attemptCount, 1)
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte("persistent error"))
+		}))
+		defer server.Close()
+
+		client := NewSoCoClient(server.URL, logger, false)
+		err := client.SetVolume("Kitchen", 42)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), fmt.Sprintf("all %d attempts failed", socoMaxRetries+1))
+		assert.Equal(t, int32(socoMaxRetries+1), atomic.LoadInt32(&attemptCount))
+	})
+}
+
+func TestSoCoClient_NoRetryOnApplicationError(t *testing.T) {
+	t.Parallel()
+	logger := zaptest.NewLogger(t)
+
+	t.Run("does not retry SoCo application error (non-zero exit_code)", func(t *testing.T) {
+		var attemptCount int32
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			atomic.AddInt32(&attemptCount, 1)
+			resp := SoCoResponse{ExitCode: 1, ErrorMsg: "speaker not found"}
+			json.NewEncoder(w).Encode(resp)
+		}))
+		defer server.Close()
+
+		client := NewSoCoClient(server.URL, logger, false)
+		err := client.SetVolume("Kitchen", 42)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "speaker not found")
+		assert.Equal(t, int32(1), atomic.LoadInt32(&attemptCount), "should not retry SoCo application errors")
+	})
+
+	t.Run("does not retry HTTP 404", func(t *testing.T) {
+		var attemptCount int32
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			atomic.AddInt32(&attemptCount, 1)
+			w.WriteHeader(http.StatusNotFound)
+			w.Write([]byte("not found"))
+		}))
+		defer server.Close()
+
+		client := NewSoCoClient(server.URL, logger, false)
+		err := client.SetVolume("Kitchen", 42)
+		assert.Error(t, err)
+		assert.Equal(t, int32(1), atomic.LoadInt32(&attemptCount), "should not retry HTTP 4xx errors")
+	})
+}
+
+func TestSoCoClient_RetryOnConnectionError(t *testing.T) {
+	t.Parallel()
+	logger := zaptest.NewLogger(t)
+
+	t.Run("retries on connection refused", func(t *testing.T) {
+		// Point to a port that is not listening
+		client := NewSoCoClient("http://127.0.0.1:1", logger, false)
+		err := client.SetVolume("Kitchen", 42)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "all 3 attempts failed")
+	})
+}
+
+func TestIsRetryableError(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		err       error
+		retryable bool
+	}{
+		{"nil error", nil, false},
+		{"network error", fmt.Errorf("sococli volume request failed: connection refused"), true},
+		{"HTTP 500", fmt.Errorf("sococli volume returned HTTP 500: error"), true},
+		{"HTTP 502", fmt.Errorf("sococli volume returned HTTP 502: bad gateway"), true},
+		{"HTTP 503", fmt.Errorf("sococli volume returned HTTP 503: unavailable"), true},
+		{"HTTP 429", fmt.Errorf("sococli volume returned HTTP 429: rate limited"), true},
+		{"read body failure", fmt.Errorf("sococli volume: failed to read response body: reset"), true},
+		{"HTTP 404", fmt.Errorf("sococli volume returned HTTP 404: not found"), false},
+		{"HTTP 400", fmt.Errorf("sococli volume returned HTTP 400: bad request"), false},
+		{"SoCo exit_code", fmt.Errorf("sococli volume failed (exit_code=1): speaker not found"), false},
+		{"parse error", fmt.Errorf("sococli volume: failed to parse response: invalid json"), false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.retryable, isRetryableError(tt.err))
+		})
+	}
 }

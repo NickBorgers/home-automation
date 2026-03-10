@@ -1152,13 +1152,10 @@ func TestExecutePlayback(t *testing.T) {
 	}
 
 	option := PlaybackOption{
-		URI:              "https://tidal.com/browse/playlist/test",
-		MediaType:        "tidal",
+		URI:              "spotify:playlist:test",
+		MediaType:        "playlist",
 		VolumeMultiplier: 1.0,
 	}
-
-	// Wire up mock SoCo server for Tidal playback path
-	setupSoCoForTest(t, manager, false)
 
 	_, _, err := manager.executePlayback("day", option, participants, "Kitchen")
 	if err != nil {
@@ -2514,6 +2511,9 @@ func TestExecutePlayback_BreakThenBuildSequence(t *testing.T) {
 
 			// Wire up mock SoCo server for Tidal playback path
 			socoPaths := setupSoCoForTest(t, manager, false)
+
+			// Cancel fade-ins before mock server closes (t.Cleanup runs LIFO)
+			t.Cleanup(func() { manager.cancelAllFadeIns() })
 
 			env.MockHA.SetState("media_player.kitchen", "playing", nil)
 

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest"
 )
 
@@ -85,10 +87,12 @@ func mockSoCoServer(t *testing.T) (*httptest.Server, *threadSafePaths) {
 
 // setupSoCoForTest creates a mock SoCo-CLI server and wires it into the manager.
 // Use this for tests with media_type "tidal" to exercise the production code path.
+// Uses zap.NewNop() to avoid panics when goroutines spawned by executePlayback
+// (fade-in, speaker group building) outlive the test and attempt to log.
 func setupSoCoForTest(t *testing.T, manager *Manager, readOnly bool) *threadSafePaths {
 	t.Helper()
 	server, paths := mockSoCoServer(t)
-	socoClient := NewSoCoClient(server.URL, zaptest.NewLogger(t), readOnly)
+	socoClient := NewSoCoClient(server.URL, zap.NewNop(), readOnly)
 	manager.SetSoCoClient(socoClient)
 	return paths
 }
@@ -182,7 +186,7 @@ func TestSpeakerSetMute_RoutesThroughSoCo(t *testing.T) {
 	// Test unmute
 	err = manager.speakerSetMute("Kitchen", false)
 	require.NoError(t, err)
-	assert.Equal(t, "/Kitchen/unmute", paths.Get(1))
+	assert.Equal(t, "/Kitchen/mute/off", paths.Get(1))
 }
 
 func TestSpeakerJoinGroup_FallsBackToHA(t *testing.T) {
@@ -232,6 +236,36 @@ func TestSpeakerJoinGroupBatch_RoutesThroughSoCo(t *testing.T) {
 	assert.Equal(t, "/Bedroom/group/Kitchen", paths.Get(0))
 	// URL path is decoded by Go's HTTP server, so spaces appear as-is
 	assert.Equal(t, "/Front Room/group/Kitchen", paths.Get(1))
+}
+
+func TestSpeakerJoinGroupBatch_SoCoContinuesOnError(t *testing.T) {
+	t.Parallel()
+	manager, _ := createTestManager(t)
+
+	var callCount int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempt := atomic.AddInt32(&callCount, 1)
+		if attempt == 1 {
+			// First speaker fails with non-retryable SoCo error
+			resp := SoCoResponse{ExitCode: 1, ErrorMsg: "speaker not found"}
+			json.NewEncoder(w).Encode(resp)
+			return
+		}
+		resp := SoCoResponse{Result: "success", ExitCode: 0}
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	socoClient := NewSoCoClient(server.URL, zaptest.NewLogger(t), false)
+	manager.SetSoCoClient(socoClient)
+
+	err := manager.speakerJoinGroupBatch("Kitchen", []string{"Bedroom", "Front Room"})
+	// Should return an error (first speaker failed)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "speaker not found")
+	// But should have attempted both speakers (not stopped at first error)
+	assert.Equal(t, int32(2), atomic.LoadInt32(&callCount),
+		"should attempt all speakers even when one fails")
 }
 
 func TestSpeakerJoinGroupBatch_FallsBackToHA(t *testing.T) {

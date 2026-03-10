@@ -7,9 +7,28 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	"go.uber.org/zap"
+)
+
+const (
+	// socoAttemptTimeout is the per-attempt timeout for most SoCo-CLI operations.
+	// Kept short so that a hung request during volume fades (~1s steps) doesn't
+	// block the entire fade sequence.
+	socoAttemptTimeout = 5 * time.Second
+
+	// socoLongTimeout is the per-attempt timeout for operations that are
+	// inherently slower, such as sharelink (downloads and enqueues content).
+	socoLongTimeout = 30 * time.Second
+
+	// socoMaxRetries is the number of retry attempts after the initial call.
+	// Total attempts = socoMaxRetries + 1.
+	socoMaxRetries = 2
+
+	// socoRetryDelay is the fixed delay between retry attempts.
+	socoRetryDelay = 500 * time.Millisecond
 )
 
 // SoCoResponse represents the JSON response from the SoCo-CLI HTTP API.
@@ -39,12 +58,10 @@ func NewSoCoClient(baseURL string, logger *zap.Logger, readOnly bool) *SoCoClien
 		return nil
 	}
 	return &SoCoClient{
-		baseURL: baseURL,
-		httpClient: &http.Client{
-			Timeout: 30 * time.Second,
-		},
-		logger:   logger.Named("sococli"),
-		readOnly: readOnly,
+		baseURL:    baseURL,
+		httpClient: &http.Client{}, // Per-operation timeouts via context in doGetWithRetry
+		logger:     logger.Named("sococli"),
+		readOnly:   readOnly,
 	}
 }
 
@@ -53,6 +70,7 @@ func NewSoCoClient(baseURL string, logger *zap.Logger, readOnly bool) *SoCoClien
 // =============================================================================
 
 // ShareLink sends a Tidal share link to the specified speaker's queue.
+// Uses a longer per-attempt timeout since sharelink downloads and enqueues content.
 func (c *SoCoClient) ShareLink(speakerName, tidalURL string) error {
 	if c.readOnly {
 		c.logger.Info("READ_ONLY: Would send sharelink to SoCo-CLI",
@@ -67,7 +85,7 @@ func (c *SoCoClient) ShareLink(speakerName, tidalURL string) error {
 		url.PathEscape(speakerName),
 		url.PathEscape(tidalURL))
 
-	return c.doGet(endpoint, "sharelink", speakerName)
+	return c.doGetWithRetry(endpoint, "sharelink", speakerName, socoLongTimeout)
 }
 
 // PlayFromQueue starts playback from the speaker's queue.
@@ -165,8 +183,8 @@ func (c *SoCoClient) Unmute(speakerName string) error {
 		return nil
 	}
 
-	// GET /{speaker}/unmute
-	endpoint := fmt.Sprintf("%s/%s/unmute",
+	// GET /{speaker}/mute/off — SoCo-CLI uses "mute off", not "unmute"
+	endpoint := fmt.Sprintf("%s/%s/mute/off",
 		c.baseURL,
 		url.PathEscape(speakerName))
 
@@ -305,9 +323,67 @@ func (c *SoCoClient) SetRepeat(speakerName string, mode string) error {
 // HTTP helpers
 // =============================================================================
 
-// doGet performs a GET request and checks the SoCo-CLI response for errors.
+// doGet performs a GET request with retry logic and per-attempt timeouts.
 func (c *SoCoClient) doGet(endpoint, action, speaker string) error {
-	return c.doGetCtx(context.Background(), endpoint, action, speaker)
+	return c.doGetWithRetry(endpoint, action, speaker, socoAttemptTimeout)
+}
+
+// doGetWithRetry performs a GET request with retries on transient errors.
+// Each attempt uses the specified timeout via context. Non-retryable errors
+// (SoCo application errors, HTTP 4xx) are returned immediately without retry.
+func (c *SoCoClient) doGetWithRetry(endpoint, action, speaker string, attemptTimeout time.Duration) error {
+	var lastErr error
+	for attempt := 0; attempt <= socoMaxRetries; attempt++ {
+		if attempt > 0 {
+			c.logger.Warn("SoCo-CLI retrying",
+				zap.String("action", action),
+				zap.String("speaker", speaker),
+				zap.Int("attempt", attempt+1),
+				zap.Error(lastErr))
+			time.Sleep(socoRetryDelay)
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), attemptTimeout)
+		lastErr = c.doGetCtx(ctx, endpoint, action, speaker)
+		cancel()
+
+		if lastErr == nil {
+			return nil
+		}
+
+		if !isRetryableError(lastErr) {
+			return lastErr
+		}
+	}
+	return fmt.Errorf("sococli %s: all %d attempts failed: %w", action, socoMaxRetries+1, lastErr)
+}
+
+// isRetryableError returns true for transient errors worth retrying:
+// network errors (connection refused, timeouts) and HTTP 5xx/429 server errors.
+// SoCo application errors (non-zero exit_code) and HTTP 4xx client errors are
+// not retried since they indicate issues that won't resolve with a retry.
+func isRetryableError(err error) bool {
+	if err == nil {
+		return false
+	}
+	s := err.Error()
+	// Network-level errors: "sococli <action> request failed: ..."
+	if strings.Contains(s, "request failed") {
+		return true
+	}
+	// Server errors: "sococli <action> returned HTTP 5xx"
+	if strings.Contains(s, "returned HTTP 5") {
+		return true
+	}
+	// Rate limiting: "sococli <action> returned HTTP 429"
+	if strings.Contains(s, "returned HTTP 429") {
+		return true
+	}
+	// Read body failures (connection reset during read)
+	if strings.Contains(s, "failed to read response body") {
+		return true
+	}
+	return false
 }
 
 // doGetCtx performs a GET request with context support.

@@ -70,15 +70,23 @@ func (m *Manager) speakerJoinGroup(followerName, leadName string) error {
 }
 
 // speakerJoinGroupBatch adds multiple follower speakers to the lead speaker's group.
-// For SoCo-CLI, each follower joins individually. For HA, uses a single batch call.
+// For SoCo-CLI, each follower joins individually; errors are logged but do not
+// prevent remaining speakers from being attempted. For HA, uses a single batch call.
 func (m *Manager) speakerJoinGroupBatch(leadName string, followerNames []string) error {
 	if m.socoClient != nil {
+		var firstErr error
 		for _, follower := range followerNames {
 			if err := m.socoClient.GroupSpeaker(follower, leadName); err != nil {
-				return err
+				m.logger.Warn("Failed to join speaker to group, continuing with remaining speakers",
+					zap.String("follower", follower),
+					zap.String("lead", leadName),
+					zap.Error(err))
+				if firstErr == nil {
+					firstErr = err
+				}
 			}
 		}
-		return nil
+		return firstErr
 	}
 	leadEntityID := m.getSpeakerEntityID(leadName)
 	var groupMembers []string
@@ -137,6 +145,11 @@ func (m *Manager) speakerPlay(speakerName string) error {
 // For Tidal playback, use socoClient.PlayShareLink directly instead.
 func (m *Manager) speakerPlayMedia(speakerName, mediaContentID, mediaContentType string) error {
 	if m.socoClient != nil {
+		if mediaContentType != "" {
+			m.logger.Debug("SoCo-CLI play_uri does not use mediaContentType; parameter ignored",
+				zap.String("speaker", speakerName),
+				zap.String("mediaContentType", mediaContentType))
+		}
 		return m.socoClient.PlayURI(speakerName, mediaContentID)
 	}
 	entityID := m.getSpeakerEntityID(speakerName)

@@ -526,9 +526,9 @@ func TestClient_HandleEventBackpressuresHandlers(t *testing.T) {
 	elapsed := time.Since(start)
 
 	// With async handlers, handleEvent should return immediately (not block).
-	// Use a generous threshold (200ms) to avoid flakes under CI load where
-	// goroutine scheduling can be slow even for "immediate" returns.
-	assert.Less(t, elapsed, 200*time.Millisecond, "handleEvent should not block on handlers")
+	// Each handler sleeps 50ms; if handleEvent blocked on any handler, elapsed
+	// would be ≥50ms. Use 50ms as the threshold to validate non-blocking dispatch.
+	assert.Less(t, elapsed, 50*time.Millisecond, "handleEvent should return immediately, not block on handlers")
 
 	// Wait for both handlers to complete
 	select {
