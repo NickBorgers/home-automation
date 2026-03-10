@@ -976,6 +976,7 @@ jobs:
 
             For line-specific design concerns, you may also post inline review comments via
             \`gh api repos/${REPO}/pulls/${PR_NUMBER}/reviews\` with event=COMMENT.
+            Only comment on lines visible in the diff.
             Use sparingly — most design feedback is cross-cutting and belongs in the summary only.
 
             **SUMMARY COMMENT (always required):**
