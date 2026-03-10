@@ -3483,10 +3483,14 @@ func TestJoinSpeakerWithRetry_ExponentialBackoff(t *testing.T) {
 	// Fail first 5 attempts to test backoff progression and capping
 	env.MockHA.SetServiceFailCount("media_player", "join", 5, fmt.Errorf("service call failed: timeout"))
 
+	// Use a mute condition that matches so the speaker stays muted after joining.
+	// This prevents fadeInSpeaker from launching a goroutine that also calls sleepFunc,
+	// which would add spurious entries to sleepDurations and cause flaky failures.
+	_ = env.StateMgr.SetBool("isMasterAsleep", true)
 	participant := ParticipantWithVolume{
 		PlayerName:   "Living Room",
 		Volume:       10,
-		LeaveMutedIf: []MuteCondition{},
+		LeaveMutedIf: []MuteCondition{{Variable: "isMasterAsleep", Value: true}},
 	}
 
 	manager.joinSpeakerWithRetry(participant, "Kitchen", "day")
