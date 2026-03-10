@@ -386,6 +386,8 @@ func TestScenario_SexModeDeactivation_DifferentDayPhases(t *testing.T) {
 				eightSleepCalls := FilterServiceCalls(allCalls, "climate", "set_temperature")
 				return len(eightSleepCalls) >= 2
 			}, stateWaitTimeout, statePollInterval, "Both Eight Sleep beds should be adjusted during activation")
+			// Wait for all activation handler goroutines to fully complete before snapshot
+			waitForProcessing(t, stateManager)
 
 			snapshot := server.ServiceCallCount()
 

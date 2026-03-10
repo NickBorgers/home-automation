@@ -608,8 +608,11 @@ func TestScenario_SleepToMorningTransition_BedroomMutedUntilActualWake(t *testin
 	env.server.SetState("input_text.music_playback_type", "morning", map[string]interface{}{})
 	waitForStringState(t, env.stateManager, "musicPlaybackType", "morning", "Music type should be morning")
 
-	// Wait for all music plugin service calls (mute/volume) to complete
+	// Wait for all music plugin service calls (mute/volume) to complete.
+	// waitForProcessing handles HA WebSocket handlers; the brief sleep allows
+	// any fire-and-forget zone orchestration goroutines to finish their work.
 	waitForProcessing(t, env.stateManager)
+	time.Sleep(200 * time.Millisecond)
 
 	// ========== THEN ==========
 	t.Log("THEN: Bedroom should be MUTED during morning music while master sleeps")
