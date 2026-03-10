@@ -8,7 +8,7 @@ name: HA Deprecation Check
 # SECURITY NOTE: This workflow has low prompt injection risk because:
 # - Schedule trigger is not user-controlled
 # - workflow_dispatch IS user-controlled (requires repo write access): the ha_version input
-#   is interpolated into the Claude prompt, but write-access users can already do anything
+#   is validated against a strict version pattern (YYYY.M[.P]) before use
 # - It analyzes HA release notes and codebase, not arbitrary user-provided content
 # - It only creates issues (write) and reads code (read)
 
@@ -89,6 +89,16 @@ jobs:
         with:
           fetch-depth: 1
 
+      - name: Validate ha_version input
+        if: inputs.ha_version != ''
+        env:
+          HA_VERSION: ${{ inputs.ha_version }}
+        run: |
+          if ! echo "$HA_VERSION" | grep -qP '^\d{4}\.\d{1,2}(\.\d+)?$'; then
+            echo "::error::Invalid HA version format '${HA_VERSION}'. Expected format: YYYY.M or YYYY.M.P (e.g., 2026.3)"
+            exit 1
+          fi
+
       - name: Create gh config directory for devcontainer mount
         run: mkdir -p ~/.config/gh
 
@@ -119,7 +129,7 @@ jobs:
               --output-format stream-json \
               --model sonnet \
               --dangerously-skip-permissions \
-              --max-turns 200 \
+              --max-turns 30 \
               "You are a Home Assistant deprecation checker. Your job is to find deprecated HA APIs
             that this codebase still uses, and create GitHub issues so they get fixed proactively.
 
@@ -242,13 +252,13 @@ jobs:
         if: always()
         with:
           name: deprecation-check-output
-          path: deprecation-check-output.jsonl
+          path: ${{ github.workspace }}/deprecation-check-output.jsonl
           retention-days: 30  # Intentionally longer than 7-day default since this runs monthly
 
       - name: Validate deprecation check result
         if: always()
         run: |
-          OUTPUT_FILE="deprecation-check-output.jsonl"
+          OUTPUT_FILE="${GITHUB_WORKSPACE}/deprecation-check-output.jsonl"
           if [ ! -f "$OUTPUT_FILE" ]; then
             echo "::error::Deprecation check output file not found"
             exit 1
@@ -277,7 +287,8 @@ jobs:
             echo "Check the deprecation-check-output artifact for details." >> $GITHUB_STEP_SUMMARY
             exit 1
           else
-            echo "::warning::Could not determine deprecation check outcome from Claude output"
-            echo "## Deprecation Check: Unknown Result ⚠️" >> $GITHUB_STEP_SUMMARY
+            echo "::error::Could not determine deprecation check outcome from Claude output"
+            echo "## Deprecation Check: Unknown Result ❌" >> $GITHUB_STEP_SUMMARY
             echo "Could not parse the check result. Review the deprecation-check-output artifact." >> $GITHUB_STEP_SUMMARY
+            exit 1
           fi
