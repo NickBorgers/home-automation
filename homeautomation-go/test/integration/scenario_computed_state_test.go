@@ -3,7 +3,6 @@ package integration
 import (
 	"fmt"
 	"testing"
-	"time"
 
 	"homeautomation/internal/ha"
 	"homeautomation/internal/state"
@@ -306,12 +305,13 @@ func TestScenario_ComputedState_RapidChanges(t *testing.T) {
 	// WHEN: Rapid state changes occur
 	t.Log("WHEN: Rapid state changes occur")
 
-	// Simulate rapid toggling - keep short delays to test rapid change handling
+	// Simulate rapid toggling - use waitForProcessing between changes to ensure
+	// each state change is fully processed before the next one
 	for i := 0; i < 5; i++ {
 		server.SetState("input_boolean.anyone_asleep", "on", map[string]interface{}{})
-		time.Sleep(20 * time.Millisecond)
+		waitForProcessing(t, manager)
 		server.SetState("input_boolean.anyone_asleep", "off", map[string]interface{}{})
-		time.Sleep(20 * time.Millisecond)
+		waitForProcessing(t, manager)
 	}
 
 	// Allow final state to settle
@@ -345,8 +345,8 @@ func TestScenario_ComputedState_BothDependenciesChange(t *testing.T) {
 	// WHEN: Both dependencies change almost simultaneously
 	t.Log("WHEN: Owner comes home AND someone falls asleep almost simultaneously")
 	server.SetState("input_boolean.any_owner_home", "on", map[string]interface{}{})
-	// Brief delay to simulate near-simultaneous changes
-	time.Sleep(20 * time.Millisecond)
+	// Ensure first change is processed before sending second
+	waitForProcessing(t, manager)
 	server.SetState("input_boolean.anyone_asleep", "on", map[string]interface{}{})
 
 	// THEN: Final state should be false (owner home but asleep)
@@ -356,8 +356,8 @@ func TestScenario_ComputedState_BothDependenciesChange(t *testing.T) {
 	// WHEN: Wake up then leave
 	t.Log("WHEN: Everyone wakes up then owner leaves")
 	server.SetState("input_boolean.anyone_asleep", "off", map[string]interface{}{})
-	// Brief delay to simulate near-simultaneous changes
-	time.Sleep(20 * time.Millisecond)
+	// Ensure first change is processed before sending second
+	waitForProcessing(t, manager)
 	server.SetState("input_boolean.any_owner_home", "off", map[string]interface{}{})
 
 	// THEN: Final state should be false (no owner home)

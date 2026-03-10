@@ -188,10 +188,13 @@ func TestConcurrentReadsAndWrites(t *testing.T) {
 
 	const duration = 1 * time.Second
 	done := make(chan bool)
+	var wg sync.WaitGroup
 
 	// Readers
 	for i := 0; i < 10; i++ {
+		wg.Add(1)
 		go func() {
+			defer wg.Done()
 			for {
 				select {
 				case <-done:
@@ -207,7 +210,9 @@ func TestConcurrentReadsAndWrites(t *testing.T) {
 
 	// Writers
 	for i := 0; i < 5; i++ {
+		wg.Add(1)
 		go func(id int) {
+			defer wg.Done()
 			count := 0
 			for {
 				select {
@@ -222,12 +227,12 @@ func TestConcurrentReadsAndWrites(t *testing.T) {
 		}(i)
 	}
 
-	// Run for duration
+	// Run for duration then signal goroutines to stop
 	time.Sleep(duration)
 	close(done)
 
-	// Wait a bit for goroutines to exit
-	time.Sleep(100 * time.Millisecond)
+	// Wait for all goroutines to exit deterministically
+	wg.Wait()
 }
 
 // TestSubscriptionWithConcurrentWrites tests the deadlock scenario
@@ -238,6 +243,7 @@ func TestSubscriptionWithConcurrentWrites(t *testing.T) {
 
 	const duration = 1 * time.Second
 	done := make(chan bool)
+	var wg sync.WaitGroup
 
 	changeCount := 0
 	var countMu sync.Mutex
@@ -256,7 +262,9 @@ func TestSubscriptionWithConcurrentWrites(t *testing.T) {
 	defer sub.Unsubscribe()
 
 	// Trigger rapid state changes from server
+	wg.Add(1)
 	go func() {
+		defer wg.Done()
 		count := 0
 		for {
 			select {
@@ -275,7 +283,9 @@ func TestSubscriptionWithConcurrentWrites(t *testing.T) {
 	}()
 
 	// Also trigger writes from manager side
+	wg.Add(1)
 	go func() {
+		defer wg.Done()
 		count := 0
 		for {
 			select {
@@ -289,12 +299,12 @@ func TestSubscriptionWithConcurrentWrites(t *testing.T) {
 		}
 	}()
 
-	// Run for duration
+	// Run for duration then signal goroutines to stop
 	time.Sleep(duration)
 	close(done)
 
-	// Wait for things to settle
-	time.Sleep(100 * time.Millisecond)
+	// Wait for all goroutines to exit deterministically
+	wg.Wait()
 
 	countMu.Lock()
 	t.Logf("Total state changes observed: %d", changeCount)
@@ -463,8 +473,10 @@ func TestReconnection(t *testing.T) {
 	t.Log("Stopping server to trigger reconnection...")
 	server.Stop()
 
-	// Wait for disconnect detection
-	time.Sleep(1 * time.Second)
+	// Wait for disconnect detection using polling instead of fixed sleep
+	waitForCondition(t, func() bool {
+		return !client.IsConnected()
+	}, "client should detect disconnect")
 
 	// Restart server on the same address
 	t.Log("Restarting server...")
@@ -474,18 +486,11 @@ func TestReconnection(t *testing.T) {
 	require.NoError(t, err)
 	defer server.Stop()
 
-	// Wait for reconnection (with timeout)
+	// Wait for reconnection using polling instead of sleep loop
 	t.Log("Waiting for reconnection...")
-	reconnected := false
-	for i := 0; i < 40; i++ { // 40 seconds max
-		if client.IsConnected() {
-			reconnected = true
-			break
-		}
-		time.Sleep(1 * time.Second)
-	}
-
-	assert.True(t, reconnected, "Client should reconnect automatically")
+	waitForCondition(t, func() bool {
+		return client.IsConnected()
+	}, "client should reconnect automatically")
 
 	client.Disconnect()
 }
@@ -522,8 +527,10 @@ func TestReconnectionMessageIDReset(t *testing.T) {
 	t.Log("Stopping server to trigger reconnection...")
 	server.Stop()
 
-	// Wait for disconnect detection
-	time.Sleep(1 * time.Second)
+	// Wait for disconnect detection using polling instead of fixed sleep
+	waitForCondition(t, func() bool {
+		return !client.IsConnected()
+	}, "client should detect disconnect")
 
 	// Restart server on the same address (this simulates a new HA session that expects message IDs from 1)
 	t.Log("Restarting server (new session)...")
@@ -533,17 +540,11 @@ func TestReconnectionMessageIDReset(t *testing.T) {
 	require.NoError(t, err)
 	defer server.Stop()
 
-	// Wait for reconnection (with timeout)
+	// Wait for reconnection using polling instead of sleep loop
 	t.Log("Waiting for reconnection...")
-	reconnected := false
-	for i := 0; i < 40; i++ { // 40 seconds max
-		if client.IsConnected() {
-			reconnected = true
-			break
-		}
-		time.Sleep(1 * time.Second)
-	}
-	require.True(t, reconnected, "Client should reconnect automatically")
+	waitForCondition(t, func() bool {
+		return client.IsConnected()
+	}, "client should reconnect automatically")
 
 	// CRITICAL TEST: Send messages after reconnection
 	// If message IDs are NOT reset, HA will reject these with "id_reuse" error
@@ -729,8 +730,10 @@ func TestReconnectStateSync(t *testing.T) {
 	t.Log("Stopping server to trigger reconnection...")
 	server.Stop()
 
-	// Wait for disconnect detection
-	time.Sleep(1 * time.Second)
+	// Wait for disconnect detection using polling instead of fixed sleep
+	waitForCondition(t, func() bool {
+		return !client.IsConnected()
+	}, "client should detect disconnect")
 
 	// Restart server on the same address with CHANGED state
 	// This simulates state changing while disconnected
@@ -745,17 +748,11 @@ func TestReconnectStateSync(t *testing.T) {
 	require.NoError(t, err)
 	defer server.Stop()
 
-	// Wait for reconnection (with timeout)
+	// Wait for reconnection using polling instead of sleep loop
 	t.Log("Waiting for reconnection...")
-	reconnected := false
-	for i := 0; i < 40; i++ { // 40 seconds max
-		if client.IsConnected() {
-			reconnected = true
-			break
-		}
-		time.Sleep(1 * time.Second)
-	}
-	require.True(t, reconnected, "Client should reconnect automatically")
+	waitForCondition(t, func() bool {
+		return client.IsConnected()
+	}, "client should reconnect automatically")
 
 	// Wait for callback to be invoked
 	waitForCondition(t, func() bool {
@@ -811,7 +808,11 @@ func TestReconnectCountIncrementsOnMultipleReconnects(t *testing.T) {
 
 		// Stop server to force disconnect
 		server.Stop()
-		time.Sleep(1 * time.Second)
+
+		// Wait for disconnect detection using polling instead of fixed sleep
+		waitForCondition(t, func() bool {
+			return !client.IsConnected()
+		}, "client should detect disconnect on cycle %d", i)
 
 		// Restart server on the same address
 		server = NewMockHAServer(serverAddr, testToken)
@@ -819,16 +820,10 @@ func TestReconnectCountIncrementsOnMultipleReconnects(t *testing.T) {
 		err = server.Start()
 		require.NoError(t, err)
 
-		// Wait for reconnection
-		reconnected := false
-		for j := 0; j < 40; j++ {
-			if client.IsConnected() {
-				reconnected = true
-				break
-			}
-			time.Sleep(1 * time.Second)
-		}
-		require.True(t, reconnected, "Client should reconnect on cycle %d", i)
+		// Wait for reconnection using polling instead of sleep loop
+		waitForCondition(t, func() bool {
+			return client.IsConnected()
+		}, "client should reconnect on cycle %d", i)
 
 		// Wait for reconnect count to update
 		waitForCondition(t, func() bool {

@@ -164,6 +164,14 @@ func (m *Manager) SetDebounceDelay(d time.Duration) {
 	}
 }
 
+// SetDebounceDoneCallback sets a callback invoked after each debounce fires.
+// This allows integration tests to wait deterministically for debounce completion.
+func (m *Manager) SetDebounceDoneCallback(fn func()) {
+	if m.zoneManager != nil {
+		m.zoneManager.SetDebounceDoneCallback(fn)
+	}
+}
+
 // GetActiveZones returns a copy of all currently active music zones.
 // Returns nil if the zone manager hasn't been initialized yet.
 // This is primarily used for testing and debugging.

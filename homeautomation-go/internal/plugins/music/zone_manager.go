@@ -130,12 +130,13 @@ type ZoneManager struct {
 
 	// Debounce fields: coalesce rapid trigger changes into a single zone resolution.
 	// Protected by debounceMu (separate from mu to avoid holding the main lock during timer operations).
-	debounceMu       sync.Mutex
-	debounceTimer    *time.Timer
-	debouncePending  bool
-	debounceCtx      *state.EventContext // latest event context (most recent trigger wins)
-	debounceTriggers []string            // accumulated trigger names
-	debounceDelay    time.Duration       // configurable for tests; defaults to defaultDebounceDelay
+	debounceMu           sync.Mutex
+	debounceTimer        *time.Timer
+	debouncePending      bool
+	debounceCtx          *state.EventContext // latest event context (most recent trigger wins)
+	debounceTriggers     []string            // accumulated trigger names
+	debounceDelay        time.Duration       // configurable for tests; defaults to defaultDebounceDelay
+	debounceDoneCallback func()              // optional callback invoked after debounce fires (for testing)
 
 	manager *Manager
 	config  *MusicConfig
@@ -161,6 +162,15 @@ func (zm *ZoneManager) SetDebounceDelay(d time.Duration) {
 	zm.debounceMu.Lock()
 	defer zm.debounceMu.Unlock()
 	zm.debounceDelay = d
+}
+
+// SetDebounceDoneCallback sets a callback invoked after each debounce fires.
+// This allows tests to wait deterministically for debounce completion
+// instead of using time.Sleep with arbitrary delays.
+func (zm *ZoneManager) SetDebounceDoneCallback(fn func()) {
+	zm.debounceMu.Lock()
+	defer zm.debounceMu.Unlock()
+	zm.debounceDoneCallback = fn
 }
 
 // ScheduleResolve schedules a debounced zone resolution. When multiple triggers arrive
@@ -225,6 +235,14 @@ func (zm *ZoneManager) fireDebounce() {
 		zm.logger.Error("Failed to resolve zones after debounced triggers",
 			zap.String("trigger", combinedTrigger),
 			zap.Error(err))
+	}
+
+	// Notify test callback if set
+	zm.debounceMu.Lock()
+	cb := zm.debounceDoneCallback
+	zm.debounceMu.Unlock()
+	if cb != nil {
+		cb()
 	}
 }
 
