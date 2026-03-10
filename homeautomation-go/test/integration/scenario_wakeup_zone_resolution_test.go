@@ -499,6 +499,12 @@ func TestScenario_WakeUp_ClearingPlaybackTypeDoesNotStopMorningZone(t *testing.T
 	require.Contains(t, zoneNames, "wakeup", "Expected wakeup zone to be active, got: %v", zoneNames)
 	require.Contains(t, zoneNames, "morning", "Expected morning zone to be active, got: %v", zoneNames)
 
+	// Wait for ALL async zone orchestration goroutines (including morning zone and wakeup zone's
+	// orchestrateZonePlayback) to complete before taking the snapshot. Without this,
+	// the initial fade-out from orchestrateZonePlayback can leak into the measurement window
+	// under CI load (goroutines delayed and executing after snapshot is taken).
+	waitForServiceCallsToStabilizeSince(t, env.server, 0, 200*time.Millisecond)
+
 	// Take snapshot — we only care about calls after the transition
 	snapshot := env.server.ServiceCallCount()
 

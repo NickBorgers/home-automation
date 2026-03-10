@@ -10,6 +10,7 @@ import (
 	"homeautomation/internal/state"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // ============================================================================
@@ -170,6 +171,25 @@ func waitForServiceCallsToStabilizeSince(t *testing.T, server *MockHAServer, sin
 	}, stateWaitTimeout, statePollInterval, "service calls should stabilize")
 }
 
+// waitForServiceCallQuiescenceSince waits until the service call count (since the given
+// snapshot index) has been stable for at least stabilizeWindow. Unlike
+// waitForServiceCallsToStabilizeSince, this does NOT require any new calls to appear —
+// it's suitable when the action under test may or may not produce service calls.
+func waitForServiceCallQuiescenceSince(t *testing.T, server *MockHAServer, since int, stabilizeWindow time.Duration) {
+	t.Helper()
+	lastCount := -1
+	var stableStart time.Time
+	require.Eventually(t, func() bool {
+		count := len(server.GetServiceCallsSince(since))
+		if count != lastCount {
+			lastCount = count
+			stableStart = time.Now()
+			return false
+		}
+		return time.Since(stableStart) >= stabilizeWindow
+	}, stateWaitTimeout, statePollInterval, "service calls should reach quiescence")
+}
+
 // waitForProcessing blocks until all in-flight HA event handler goroutines have completed.
 // Use this instead of time.Sleep(50 * time.Millisecond) after server.SetState() or
 // stateManager.SetBool()/SetString() calls to ensure all handlers have finished processing
@@ -184,9 +204,11 @@ func waitForProcessing(t *testing.T, manager *state.Manager) {
 
 // waitForCondition polls until the provided condition function returns true or times out.
 // Use this for generic conditions that don't fit the other helper patterns.
+// Uses require.Eventually so that a timeout immediately fails the test instead of
+// continuing with subsequent assertions that would produce confusing cascading failures.
 func waitForCondition(t *testing.T, condition func() bool, msgAndArgs ...interface{}) {
 	t.Helper()
-	assert.Eventually(t, condition, stateWaitTimeout, statePollInterval, msgAndArgs...)
+	require.Eventually(t, condition, stateWaitTimeout, statePollInterval, msgAndArgs...)
 }
 
 // waitForServiceCallsToStabilize waits until the service call count has been stable
