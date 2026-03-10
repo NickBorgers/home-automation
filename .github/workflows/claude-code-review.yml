@@ -702,20 +702,17 @@ jobs:
               --output-format stream-json \
               --model opus \
               --dangerously-skip-permissions \
-              --max-turns 450 \
+              --max-turns 200 \
               "You are reviewing PR #${PR_NUMBER} in ${REPO}.
 
-            **CRITICAL: BE BRIEF. Only report issues that require action from the PR author.**
-            Do NOT comment on code that is fine. Do NOT provide general observations or praise.
-            If there are no actionable issues, post a short approval and move on.
+            Review like an experienced staff engineer. Be direct and selective.
+            Don't praise the code or list things that are fine — focus on what you'd actually say in a review.
+            Non-blocking observations are welcome when they teach something, but keep each to one sentence.
+            If there are no issues, approve in one line and move on.
 
             Tests have already passed. Focus on code quality review.
 
-            BEFORE PUSHING CHANGES:
-            1. git fetch origin ${HEAD_REF}
-            2. If author pushed new commits, rebase: git pull --rebase origin ${HEAD_REF}
-            3. If conflicts, abort and note in comment
-
+            BEFORE PUSHING: rebase with \`git pull --rebase origin ${HEAD_REF}\`
             Use: \`make unit-tests\`, \`make integration-tests\`, \`make pre-commit\`
 
             Check for:
@@ -729,13 +726,16 @@ jobs:
             Post exactly ONE comment using:
             gh pr comment ${PR_NUMBER} --body '## Code Review
 
-            [If no issues: \"✅ Approved - No issues found\" and stop here]
+            [If no issues: \"✅ Approved — {one-sentence summary}\" and stop here]
 
-            ### Issues Found
-            [Only list actionable items. Reference specific files:lines. Skip if none.]
+            ### Blocking Issues
+            [Issues that must be fixed before merge. Reference file:line. Skip section if none.]
+
+            ### Worth Considering
+            [Optional. Non-blocking observations, one sentence each. Skip section if nothing worth noting.]
 
             ### Fixes Applied
-            [List commits pushed, if any. Skip section if none.]
+            [Commits pushed, if any. Skip section if none.]
 
             ### Conclusion
             [✅ Approved | ⚠️ Needs changes | ❌ Blocking issues]'" < /dev/null 2>&1 | tee /workspaces/home-automation/claude-review-output.jsonl
@@ -861,11 +861,13 @@ jobs:
               --output-format stream-json \
               --model opus \
               --dangerously-skip-permissions \
-              --max-turns 450 \
+              --max-turns 200 \
               "You are a DESIGN REVIEW specialist for PR #${PR_NUMBER} in ${REPO}.
 
-            Your role is to validate that this PR correctly implements the intent described in the
-            linked issue and/or PR description, AND to critically review the design decisions made.
+            Review like an experienced staff engineer. Be direct and selective.
+            Don't praise the design or list strengths — focus on what you'd actually say in a review.
+            Non-blocking observations are welcome when they steer toward better future decisions, but keep each to one sentence. No justification paragraphs.
+            If the design is sound, approve in one line and move on.
 
             **CONTEXT:**
             PR Title: ${PR_TITLE}
@@ -880,66 +882,31 @@ jobs:
             ${ISSUE_COMMENTS}
 
             **YOUR TASK:**
+            1. Read the issue/PR description to understand the problem being solved.
+            2. Examine the code changes (\`git diff origin/main...HEAD\`).
+            3. Validate: does the PR solve the stated problem? Gaps between intent and delivery are blocking.
+            4. Evaluate design decisions: simpler alternatives, edge cases, architectural fit, production risk.
 
-            1. **Understand the Intent**: Read the issue and PR description carefully to understand
-               what problem is being solved and what the expected outcome should be.
-
-            2. **Review the Implementation**: Examine the code changes (\`git diff origin/main...HEAD\`)
-               to understand what was actually implemented.
-
-            3. **Validate Intent Fulfillment**: Does this PR actually solve the problem described?
-               Are there gaps between what was requested and what was delivered?
-
-            4. **Critical Design Review**: Evaluate the design decisions:
-               - Is this a good design for solving the problem?
-               - Are there predictable challenges or edge cases not addressed?
-               - What trade-offs does this design bring?
-               - Are there simpler or more robust alternatives?
-               - Does this design fit well with the existing architecture?
-               - Will this design scale or be maintainable?
-
-            5. **For Design-Heavy PRs** (PRs that introduce new patterns, architectures, or significant
-               structural changes): Be especially thorough in your design critique. Consider:
-               - Extensibility and flexibility
-               - Error handling and failure modes
-               - Performance implications
-               - Coupling and cohesion
-               - Testability
-
-            **IMPORTANT RULES:**
-            - Reference docs/architecture/ARCHITECTURE.md for system design context
-            - Reference docs/reference/SHADOW_STATE.md for plugin patterns
-            - If the PR doesn't clearly address the issue, this is a blocking concern
-            - Design flaws that could cause production issues are blocking
-            - Minor design suggestions are non-blocking but should be noted
+            Reference docs/architecture/ARCHITECTURE.md and docs/reference/SHADOW_STATE.md for context.
 
             BEFORE PUSHING: rebase with \`git pull --rebase origin ${HEAD_REF}\`
 
             Post exactly ONE comment using:
             gh pr comment ${PR_NUMBER} --body '## Design Review
 
-            ### Intent Validation
-            [Does this PR fulfill the intent of the issue/description?]
-            - ✅ Fully addresses the stated requirements, OR
-            - ⚠️ Partially addresses (explain gaps), OR
-            - ❌ Does not address the core issue (explain why)
+            [If no issues: \"✅ Approved — {one-sentence summary}\" and stop here]
 
-            ### Design Analysis
-            [Your critical review of the design decisions]
+            ### Blocking Issues
+            [Issues that must be fixed before merge. Skip section if none.]
 
-            **Strengths:**
-            [What the design does well - be specific]
+            ### Worth Considering
+            [Optional. Non-blocking observations, one sentence each. Skip section if nothing worth noting.]
 
-            **Concerns:**
-            [Potential issues, edge cases, trade-offs - be specific]
-
-            **Suggestions:**
-            [Alternative approaches or improvements to consider]
+            ### Fixes Applied
+            [Commits pushed, if any. Skip section if none.]
 
             ### Conclusion
-            [✅ Approved - Design is sound and fulfills intent |
-             ⚠️ Approved with reservations - Minor design concerns noted |
-             ❌ Needs revision - Significant design issues or intent mismatch]'" < /dev/null 2>&1 | tee /workspaces/home-automation/design-review-output.jsonl
+            [✅ Approved | ⚠️ Needs changes | ❌ Blocking issues]'" < /dev/null 2>&1 | tee /workspaces/home-automation/design-review-output.jsonl
 
       - name: Upload design review output
         uses: actions/upload-artifact@v4
@@ -1050,62 +1017,18 @@ jobs:
               --max-turns 200 \
               "You are a QA tester for PR #${PR_NUMBER}.
 
-            **CRITICAL: BE BRIEF. Only report issues that require action from the PR author.**
-            Do NOT list files reviewed. Do NOT describe what tests do. Do NOT praise good tests.
-            If there are no actionable issues, post a short approval and move on.
+            Review like an experienced staff engineer. Be direct and selective.
+            Don't list files reviewed or describe what tests do. If there are no issues, approve in one line and move on.
 
             Check changed files (\`git diff origin/main...HEAD --name-only\`):
+            - Go code: missing tests, time-dependent tests, slow tests (>1s)
+            - Workflows: YAML syntax, action refs, permissions
+            - Config: syntax validation
 
-            FOR GO CODE: Check for missing tests, time-dependent tests, slow tests (>1s)
-            FOR WORKFLOWS: Validate YAML syntax, check action refs, verify permissions
-            FOR CONFIG: Validate syntax
+            Flag new tests with unnecessary time.Sleep or missing t.Parallel().
 
-            **TEST EXECUTION TIME ANALYSIS:**
-            Analyze whether the PR increases how long tests take to execute:
-            1. Run \`make unit-tests\` and \`make integration-tests\` with \`go test -v\` output to observe test timing
-            2. For any new or modified tests, check if individual tests take >1s (slow) or >5s (very slow)
-            3. Look for patterns that indicate test performance issues:
-               - Unnecessary sleeps or time.Sleep calls
-               - Missing t.Parallel() in tests that could run concurrently
-               - Repeated expensive setup that could be shared
-               - Tests that don't use the mock HA server efficiently
-
-            When you find a test performance issue, determine its scope:
-            - **PR-specific issue**: The problem is with new/modified tests in this PR
-              → Fix the issue directly (add t.Parallel(), reduce sleeps, optimize setup)
-            - **Infrastructure improvement opportunity**: The problem reveals a better approach for ALL tests
-              → Create a GitHub issue describing the improvement opportunity using:
-              \`gh issue create --title 'perf(tests): <brief description>' --body '<detailed explanation of the opportunity and suggested approach>'\`
-
-            Examples of PR-specific issues to fix directly:
-            - New test missing t.Parallel() when it could run concurrently
-            - New test using time.Sleep(5*time.Second) when 100ms would suffice
-            - New test creating its own mock server when it could reuse testutil.MockHAServer
-
-            Examples of infrastructure improvements to file as issues:
-            - \"All scenario tests could share a single mock server pool\"
-            - \"Test setup could be parallelized across test files\"
-            - \"A test fixture caching system would speed up repeated runs\"
-
-            **SCENARIO TEST RECOMMENDATION:**
-            If the PR modifies any of these RISKY areas, recommend creating scenario tests:
-            - State management (isMasterAsleep, isAnyoneAsleep, musicPlaybackType, isWakeSequenceActive)
-            - Sleep/wake logic (internal/plugins/sleephygiene/)
-            - Music playback (internal/plugins/music/, especially zone/mute logic)
-            - Lighting conditions (internal/plugins/lighting/, especially conditions based on sleep state)
-            - Multi-plugin interactions that could cause unintended side effects
-
-            RISKY changes can cause issues like:
-            - Loud music playing when someone is asleep
-            - Lights turning on/off unexpectedly during wake sequences
-            - State variables affecting multiple plugins simultaneously
-
-            Example scenario test patterns to reference:
-            - test/integration/scenario_nighttime_safety_test.go (sleep/wake/music safety)
-            - test/integration/scenario_sleephygiene_test.go (wake sequence behavior)
-            - internal/plugins/music/occupancy_scenario_test.go (mute conditions)
-
-            If risky changes lack scenario tests, recommend adding them with specific examples.
+            If the PR modifies risky areas (sleep/wake logic, music playback, multi-plugin interactions),
+            check for scenario test coverage. Reference existing patterns in test/integration/scenario_*_test.go.
 
             Run \`make unit-tests\` to verify.
 
@@ -1115,23 +1038,16 @@ jobs:
             Post exactly ONE comment using:
             gh pr comment ${PR_NUMBER} --body '## Test Review
 
-            [If no issues: \"✅ Approved - Tests look good\" and stop here]
+            [If no issues: \"✅ Approved — {one-sentence summary}\" and stop here]
 
-            ### Issues Found
-            [Only list actionable items: missing tests, flaky tests, etc. Skip if none.]
+            ### Blocking Issues
+            [Issues that must be fixed before merge. Skip section if none.]
 
-            ### Test Performance
-            [If tests significantly increase execution time, describe the issue and action taken:
-            - \"Fixed: Added t.Parallel() to new tests\"
-            - \"Fixed: Reduced unnecessary sleep from 5s to 100ms\"
-            - \"Filed issue #XXX: Opportunity to share mock server pool across all scenario tests\"
-            Skip section if no performance concerns.]
-
-            ### Scenario Tests Recommended
-            [If risky changes lack scenario tests, recommend specific tests to add. Reference existing examples. Skip section if not applicable.]
+            ### Worth Considering
+            [Optional. Non-blocking observations, one sentence each. Skip section if nothing worth noting.]
 
             ### Fixes Applied
-            [List commits pushed, if any. Skip section if none.]
+            [Commits pushed, if any. Skip section if none.]
 
             ### Conclusion
             [✅ Approved | ⚠️ Needs changes | ❌ Blocking issues]'" < /dev/null 2>&1 | tee /workspaces/home-automation/test-review-output.jsonl
@@ -1244,9 +1160,8 @@ jobs:
               --max-turns 240 \
               "You are a CONCURRENCY specialist reviewing PR #${PR_NUMBER}.
 
-            **CRITICAL: BE BRIEF. Only report issues that require action from the PR author.**
-            Do NOT list files reviewed. Do NOT explain concurrency concepts.
-            If there are no actionable issues, post a short approval and move on.
+            Review like an experienced staff engineer. Be direct and selective.
+            Don't explain concurrency concepts or list files reviewed. If there are no issues, approve in one line and move on.
 
             Reference docs/reference/CONCURRENCY_LESSONS.md for context.
             Run \`git diff origin/main...HEAD\` to see changes.
@@ -1265,13 +1180,16 @@ jobs:
             Post exactly ONE comment using:
             gh pr comment ${PR_NUMBER} --body '## Concurrency Review
 
-            [If no issues: \"✅ Approved - No concurrency issues\" and stop here]
+            [If no issues: \"✅ Approved — {one-sentence summary}\" and stop here]
 
-            ### Issues Found
-            [Only list race conditions, missing locks, etc. Reference file:line. Skip if none.]
+            ### Blocking Issues
+            [Race conditions, missing locks, etc. Reference file:line. Skip section if none.]
+
+            ### Worth Considering
+            [Optional. Non-blocking observations, one sentence each. Skip section if nothing worth noting.]
 
             ### Fixes Applied
-            [List commits pushed, if any. Skip section if none.]
+            [Commits pushed, if any. Skip section if none.]
 
             ### Conclusion
             [✅ Approved | ⚠️ Needs changes | ❌ Blocking issues]'" < /dev/null 2>&1 | tee /workspaces/home-automation/concurrency-review-output.jsonl
@@ -1394,9 +1312,8 @@ jobs:
               --max-turns 200 \
               "You are a DOCUMENTATION specialist reviewing PR #${PR_NUMBER}.
 
-            **CRITICAL: BE BRIEF. Only report documentation that MUST be updated.**
-            Do NOT list docs that don't need changes. Do NOT provide checklists of N/A items.
-            If no docs need updating, post a short approval and move on.
+            Review like an experienced staff engineer. Be direct and selective.
+            Don't list docs that don't need changes. If no docs need updating, approve in one line and move on.
 
             Context (if available):
             Issue #${ISSUE_NUMBER}: ${ISSUE_TITLE}
@@ -1418,13 +1335,16 @@ jobs:
             Post exactly ONE comment using:
             gh pr comment ${PR_NUMBER} --body '## Documentation Review
 
-            [If no updates needed: \"✅ Approved - No doc updates required\" and stop here]
+            [If no updates needed: \"✅ Approved — {one-sentence summary}\" and stop here]
 
-            ### Updates Required
-            [Only list docs that MUST be updated. Skip if none.]
+            ### Blocking Issues
+            [Docs that MUST be updated before merge. Skip section if none.]
+
+            ### Worth Considering
+            [Optional. Non-blocking observations, one sentence each. Skip section if nothing worth noting.]
 
             ### Updates Applied
-            [List commits pushed, if any. Skip section if none.]
+            [Commits pushed, if any. Skip section if none.]
 
             ### Conclusion
             [✅ Approved | ⚠️ Needs changes | ❌ Blocking issues]'" < /dev/null 2>&1 | tee /workspaces/home-automation/docs-review-output.jsonl
