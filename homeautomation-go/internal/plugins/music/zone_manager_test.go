@@ -980,6 +980,15 @@ func TestScheduleResolve_CoalescesRapidTriggers(t *testing.T) {
 	// Use a very short debounce delay for testing
 	zm.SetDebounceDelay(50 * time.Millisecond)
 
+	// Set up channel-based synchronization for debounce completion
+	debounceDone := make(chan struct{}, 1)
+	zm.SetDebounceDoneCallback(func() {
+		select {
+		case debounceDone <- struct{}{}:
+		default:
+		}
+	})
+
 	// Set up state so resolution can proceed
 	require.NoError(t, stateManager.SetBool("isAnyoneHome", true))
 	require.NoError(t, stateManager.SetBool("isAnyoneAsleep", false))
@@ -1002,8 +1011,12 @@ func TestScheduleResolve_CoalescesRapidTriggers(t *testing.T) {
 	assert.Equal(t, ctx3, zm.debounceCtx, "Should keep the latest event context")
 	zm.debounceMu.Unlock()
 
-	// Wait for the debounce timer to fire
-	time.Sleep(100 * time.Millisecond)
+	// Wait for the debounce timer to fire using channel synchronization
+	select {
+	case <-debounceDone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Timeout waiting for debounce to fire")
+	}
 
 	// After firing, debounce state should be cleared
 	zm.debounceMu.Lock()
@@ -1029,6 +1042,15 @@ func TestScheduleResolve_SingleTriggerStillWorks(t *testing.T) {
 	// Use a very short debounce delay for testing
 	zm.SetDebounceDelay(50 * time.Millisecond)
 
+	// Set up channel-based synchronization for debounce completion
+	debounceDone := make(chan struct{}, 1)
+	zm.SetDebounceDoneCallback(func() {
+		select {
+		case debounceDone <- struct{}{}:
+		default:
+		}
+	})
+
 	// Set up state
 	require.NoError(t, stateManager.SetBool("isAnyoneHome", true))
 	require.NoError(t, stateManager.SetBool("isAnyoneAsleep", false))
@@ -1045,8 +1067,12 @@ func TestScheduleResolve_SingleTriggerStillWorks(t *testing.T) {
 	assert.Len(t, zm.debounceTriggers, 1, "Should have 1 trigger")
 	zm.debounceMu.Unlock()
 
-	// Wait for the debounce timer to fire
-	time.Sleep(100 * time.Millisecond)
+	// Wait for the debounce timer to fire using channel synchronization
+	select {
+	case <-debounceDone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Timeout waiting for debounce to fire")
+	}
 
 	// After firing, debounce state should be cleared
 	zm.debounceMu.Lock()

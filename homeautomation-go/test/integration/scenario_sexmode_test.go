@@ -828,9 +828,8 @@ func TestScenario_SexModeDuringWakeSequence_PreventsWakeMusicOverride(t *testing
 
 	// T+30min (simulated): scheduleWakeMusic goroutine runs (sleepFunc is instant)
 	// Since isWakeSequenceActive is now false, scheduleWakeMusic should abort
-	// Give time for any goroutines to complete
+	// waitForProcessing ensures all handler goroutines (including scheduleWakeMusic) complete
 	waitForProcessing(t, stateManager)
-	time.Sleep(50 * time.Millisecond) // Allow goroutine to complete
 
 	// THEN: musicPlaybackType should STILL be "sex" (not overridden to "wakeup")
 	t.Log("T+30min: Verifying musicPlaybackType was NOT overridden by sleephygiene")
