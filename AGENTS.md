@@ -333,6 +333,8 @@ READ_ONLY=true
 
 **Dashboard (view current state):** https://home-automation.featherback-mermaid.ts.net/
 
+**SoCo-CLI HTTP API (Sonos speaker control):** https://soco-cli.featherback-mermaid.ts.net/
+
 **View logs via Gravwell:** https://gravwell.featherback-mermaid.ts.net/
 
 Logs are centralized in Gravwell. Authenticate using the token stored in `./gravwell.token`.
