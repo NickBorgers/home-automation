@@ -511,7 +511,17 @@ func TestScenario_WakeUp_ClearingPlaybackTypeDoesNotStopMorningZone(t *testing.T
 	//   1. Set isWakeSequenceActive=false
 	//   2. Clear musicPlaybackType="" (because it was "wakeup")
 	// We also set isAnyoneAsleep=false since state tracking would update this.
+	//
+	// IMPORTANT: Set anyone_asleep FIRST and wait for it to propagate before
+	// setting master_asleep. This prevents a race condition where:
+	//   - Goroutine A: processes anyone_asleep→off (updates isAnyoneAsleep=false)
+	//   - Goroutine B: processes master_asleep→off (sleephygiene clears musicPlaybackType)
+	// If goroutine B's zone resolution runs before goroutine A finishes updating
+	// isAnyoneAsleep, the morning zone briefly loses its triggers and stops.
+	// waitForProcessing ensures isAnyoneAsleep=false is in the state manager before
+	// sleephygiene runs and clears musicPlaybackType.
 	env.server.SetState("input_boolean.anyone_asleep", "off", map[string]interface{}{})
+	waitForProcessing(t, env.stateManager)
 	env.server.SetState("input_boolean.master_asleep", "off", map[string]interface{}{})
 
 	// Wait for all handlers to process and wakeup zone to stop
