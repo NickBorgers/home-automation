@@ -782,7 +782,12 @@ jobs:
             If you find issues that need fixing, describe them precisely (file:line, what to change)
             so the merge-decision agent can apply fixes.
 
-            Post exactly ONE comment using:
+            For line-specific findings, also post inline review comments via
+            \`gh api repos/${REPO}/pulls/${PR_NUMBER}/reviews\` with event=COMMENT.
+            Batch all inline comments into one review. Only comment on lines visible in the diff.
+
+            **SUMMARY COMMENT (always required):**
+            Post exactly ONE top-level summary comment using:
             gh pr comment ${PR_NUMBER} --body '## Code Review
 
             [If no issues: \"✅ Approved — {one-sentence summary}\" and stop here]
@@ -969,7 +974,12 @@ jobs:
             IMPORTANT: Do NOT push commits. You are a parallel reviewer — only comment.
             If you find issues that need fixing, describe them precisely so the merge-decision agent can apply fixes.
 
-            Post exactly ONE comment using:
+            For line-specific design concerns, you may also post inline review comments via
+            \`gh api repos/${REPO}/pulls/${PR_NUMBER}/reviews\` with event=COMMENT.
+            Use sparingly — most design feedback is cross-cutting and belongs in the summary only.
+
+            **SUMMARY COMMENT (always required):**
+            Post exactly ONE top-level summary comment using:
             gh pr comment ${PR_NUMBER} --body '## Design Review
 
             [If no issues: \"✅ Approved — {one-sentence summary}\" and stop here]
@@ -1081,6 +1091,7 @@ jobs:
             GH_TOKEN=${{ secrets.WORKFLOW_PAT }}
             PR_NUMBER=${{ needs.get-context.outputs.pr_number }}
             HEAD_REF=${{ needs.get-context.outputs.head_ref }}
+            REPO=${{ github.repository }}
           runCmd: |
             # Using Opus: Test review requires catching subtle anti-patterns (race conditions in helpers, weakened assertions)
             claude --print \
@@ -1122,7 +1133,12 @@ jobs:
             If you find issues that need fixing, describe them precisely (file:line, what to change)
             so the merge-decision agent can apply fixes.
 
-            Post exactly ONE comment using:
+            For line-specific findings, also post inline review comments via
+            \`gh api repos/${REPO}/pulls/${PR_NUMBER}/reviews\` with event=COMMENT.
+            Batch all inline comments into one review. Only comment on lines visible in the diff.
+
+            **SUMMARY COMMENT (always required):**
+            Post exactly ONE top-level summary comment using:
             gh pr comment ${PR_NUMBER} --body '## Test Review
 
             [If no issues: \"✅ Approved — {one-sentence summary}\" and stop here]
@@ -1234,6 +1250,7 @@ jobs:
             GH_TOKEN=${{ secrets.WORKFLOW_PAT }}
             PR_NUMBER=${{ needs.get-context.outputs.pr_number }}
             HEAD_REF=${{ needs.get-context.outputs.head_ref }}
+            REPO=${{ github.repository }}
           runCmd: |
             claude --print \
               --verbose \
@@ -1266,7 +1283,12 @@ jobs:
             If you find issues that need fixing, describe them precisely (file:line, what to change)
             so the merge-decision agent can apply fixes.
 
-            Post exactly ONE comment using:
+            For line-specific findings, also post inline review comments via
+            \`gh api repos/${REPO}/pulls/${PR_NUMBER}/reviews\` with event=COMMENT.
+            Batch all inline comments into one review. Only comment on lines visible in the diff.
+
+            **SUMMARY COMMENT (always required):**
+            Post exactly ONE top-level summary comment using:
             gh pr comment ${PR_NUMBER} --body '## Concurrency Review
 
             [If no issues: \"✅ Approved — {one-sentence summary}\" and stop here]
