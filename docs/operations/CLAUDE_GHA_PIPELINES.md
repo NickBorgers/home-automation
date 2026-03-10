@@ -172,21 +172,14 @@ build-devcontainer
      │
      ├──────────────────────────────────────────┐
      │                                          │
-     ▼ (tests failed)                           ▼ (tests passed)
-fix-test-failures                         design-review  ◄─ Intent/design validated FIRST
-     │                                          │
-     │ (triggers new test run)                  ▼
-     │                                     claude-review  ◄─ Code quality review
-     │                                          │
-     │                                          ▼
-     │                                     test-review
-     │                                          │
-     │                                          ▼
-     │                                   concurrency-review (requires has_go_code = true)
-     │                                          │
-     │                                          ▼
-     │                                      docs-review
-     │                                          │
+     ▼ (tests failed)                           ▼ (tests passed, all run in parallel)
+fix-test-failures                    ┌──────────┼──────────┐──────────┐──────────┐
+     │                               │          │          │          │          │
+     │ (triggers new test run)       ▼          ▼          ▼          ▼          ▼
+     │                          design-   claude-   test-    concur-   docs-
+     │                          review    review    review   rency-    review
+     │                               │          │          │  review        │
+     │                               └──────────┼──────────┘──────┘────────┘
      │                                          ▼
      │                                    merge-decision
      │                                          │
@@ -256,6 +249,7 @@ Extracts PR and issue context for downstream jobs.
 - `is_draft`: Whether the PR is a draft (skips auto-fix and all reviews for TDD support)
 - `config_only`: Whether the PR only modifies files in `configs/` (skips heavy reviews)
 - `has_go_code`: Whether the PR modifies any `.go` files (required for concurrency review)
+- `cross_pr_context_b64`: Base64-encoded digest of recent merged PRs and file change history (capped at 15KB), passed to design-review, code-review, and merge-decision
 
 #### 2.2 `fix-test-failures`
 
@@ -287,7 +281,7 @@ Automatically fixes failing tests (up to 3 attempts).
 
 #### 2.3 `design-review`
 
-Design validation and critical design review specialist. **Runs first** (before code review) because intent and design must be validated before code quality matters.
+Design validation and critical design review specialist. Runs in parallel with other reviews.
 
 **Condition**: Tests passed on current commit (verified via commit status check)
 
@@ -300,12 +294,13 @@ Design validation and critical design review specialist. **Runs first** (before 
 **Focus Areas**:
 - Does the PR solve the stated problem?
 - Are there gaps between requirements and implementation?
+- **Scope check**: Does the diff match the PR title/issue scope? Flags >300 lines of non-test code beyond what the title implies as BLOCKING scope creep
+- **Production resilience**: New external integrations must have retry logic, appropriate timeouts, and graceful degradation
+- **Cross-PR context**: Considers whether the PR contradicts or undermines recently merged changes
 - Is this a good design for the problem?
 - What predictable challenges or edge cases exist?
-- What trade-offs does the design bring?
 - Are there simpler or more robust alternatives?
 - Does it fit with existing architecture?
-- Will it scale and be maintainable?
 
 **For Design-Heavy PRs** (new patterns, architectures, structural changes):
 - Extensibility and flexibility
@@ -322,7 +317,7 @@ Design validation and critical design review specialist. **Runs first** (before 
 
 #### 2.4 `claude-review`
 
-General code quality review. Runs **after design-review** because code quality only matters if the intent and design are correct.
+General code quality review. Runs in parallel with other reviews. Includes cross-PR context to detect divergence from recent changes.
 
 **Condition**: Tests passed
 
@@ -350,6 +345,7 @@ QA-focused test review.
 - Slow tests
 - Test quality issues
 - **Test execution time analysis** (new/modified tests taking >1s or >5s)
+- **Anti-pattern detection** (BLOCKING): race conditions in test helpers, assert.Eventually in shared helpers (should be require.Eventually), weakened assertions without justification, dead code path testing, time.Sleep without justification
 
 **Test Performance Analysis**:
 The test reviewer analyzes whether PRs increase test execution time:
@@ -374,6 +370,7 @@ Specialized concurrency/race condition review.
 - WebSocket write serialization (`writeMu`)
 - Goroutine leaks (missing context cancellation)
 - Channel deadlocks
+- **Test code**: Mock servers with shared mutable state, test helpers with unprotected counters/accumulators
 
 **Reference**: `docs/reference/CONCURRENCY_LESSONS.md`
 
@@ -410,13 +407,17 @@ Final decision maker that synthesizes all reviews and makes a go/no-go call.
 
 **Responsibilities**:
 1. Reads all previous review comments on the PR
-2. Checks for merge conflicts with main branch
-3. Resolves merge conflicts if the PR should be merged
-4. Makes a GO/NO-GO decision based on all review results
+2. **Spot checks** the 2-3 most-changed files to verify reviewers addressed significant changes
+3. **Cross-PR check**: Verifies the PR doesn't conflict with or undermine recently merged changes
+4. Checks for merge conflicts with main branch
+5. Resolves merge conflicts if the PR should be merged
+6. Makes a GO/NO-GO decision based on all review results and its own verification
+
+**Override Rule**: If the merge-decision agent finds a concrete issue that reviewers missed, its verdict is NO-GO regardless of individual approvals. It is the last line of defense.
 
 **Decision Criteria**:
-- **GO**: All reviews passed or had only minor non-blocking issues, no merge conflicts (or resolved them)
-- **NO-GO**: Any review found blocking issues, unresolvable merge conflicts, or tests are failing
+- **GO**: All reviews passed or had only minor non-blocking issues, no merge conflicts (or resolved them), and spot check found no missed issues
+- **NO-GO**: Any review found blocking issues, unresolvable merge conflicts, tests are failing, or a concrete issue was found that reviewers missed
 
 **Actions**: Posts a final comment with the merge decision (🟢 GO or 🔴 NO-GO)
 
@@ -703,10 +704,10 @@ The pipelines use a mix of Claude Opus and Claude Sonnet models, selected based 
 | **claude.yml - resolve-issue** | Opus | Full issue resolution requires design, implementation, and multi-file changes |
 | **claude-code-review.yml - fix-test-failures** | Sonnet | Debugging task with clear error messages; has 3 retry attempts as safety net |
 | **claude-code-review.yml - claude-review** | Opus | Code quality review may require nuanced understanding of patterns and architecture |
-| **claude-code-review.yml - test-review** | Sonnet | Checklist-based review with clear criteria (missing tests, slow tests) |
+| **claude-code-review.yml - test-review** | Opus | Anti-pattern detection requires catching subtle issues (race conditions in helpers, weakened assertions) |
 | **claude-code-review.yml - concurrency-review** | Opus | Race conditions require nuanced understanding of concurrent programming |
 | **claude-code-review.yml - docs-review** | Opus | Documentation updates require accurate changes when PR opener missed them |
-| **claude-code-review.yml - merge-decision** | Sonnet | Summarization task synthesizing existing review results |
+| **claude-code-review.yml - merge-decision** | Opus | Active verification of diff and cross-PR context, not just summarization |
 | **claude-diagnose-workflow-failure.yml** | Sonnet | Classification task with clear decision tree (3 categories) |
 | **ha-deprecation-check.yml** | Sonnet | Classification/search task scanning release notes and codebase |
 
@@ -728,12 +729,12 @@ The pipelines use a mix of Claude Opus and Claude Sonnet models, selected based 
 2. **Caching**: Devcontainer image is cached in GHCR for fast startup
 3. **Tool Access**: Claude Code runs with full access to git, gh CLI, make, go, etc.
 
-### Why Sequential Reviews?
+### Why Parallel Reviews?
 
-The review jobs run sequentially (not in parallel) because:
-1. Each reviewer may push fixes
-2. Later reviewers see all previous changes
-3. Avoids merge conflicts between reviewers
+The review jobs run in parallel (after context gathering and devcontainer build) to reduce wall-clock time from ~45 min to ~15-20 min. Risk of concurrent pushes conflicting is mitigated by:
+1. Each reviewer runs `git pull --rebase` before pushing
+2. The merge-decision agent resolves any remaining conflicts
+3. The speed improvement enables using Opus for all reviewers without excessive pipeline duration
 
 ### Why Max 3 Fix Attempts?
 
@@ -754,13 +755,12 @@ Conversation logs are uploaded even on failure to help debug:
 
 ### Adding a New Review Specialist
 
-1. Add a new job after the appropriate dependency
+1. Add a new job that depends on `get-context` and `build-devcontainer` (runs in parallel with other reviews)
 2. Follow the pattern:
    ```yaml
    new-review:
-     needs: [get-context, build-devcontainer, previous-review]
+     needs: [get-context, build-devcontainer]
      if: |
-       always() &&
        needs.get-context.outputs.pr_number != '' &&
        needs.get-context.outputs.reviews_already_passed != 'true' &&
        needs.get-context.outputs.tests_passed == 'true'
