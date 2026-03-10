@@ -183,8 +183,8 @@ func (c *SoCoClient) Unmute(speakerName string) error {
 		return nil
 	}
 
-	// GET /{speaker}/unmute
-	endpoint := fmt.Sprintf("%s/%s/unmute",
+	// GET /{speaker}/mute/off — SoCo-CLI uses "mute off", not "unmute"
+	endpoint := fmt.Sprintf("%s/%s/mute/off",
 		c.baseURL,
 		url.PathEscape(speakerName))
 

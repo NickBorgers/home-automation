@@ -584,6 +584,11 @@ func TestHighFrequencyStateChanges(t *testing.T) {
 	server, _, manager, cleanup := setupTest(t)
 	defer cleanup()
 
+	// Eliminate mock server's eventDelay so 1ms-spaced state changes don't
+	// pile up behind the default 10ms latency simulation. This lets us keep
+	// a meaningful 80% delivery threshold without false failures.
+	server.SetEventDelay(0)
+
 	const numChanges = 200
 	changeCount := 0
 	var mu sync.Mutex
@@ -608,14 +613,13 @@ func TestHighFrequencyStateChanges(t *testing.T) {
 	}
 	duration := time.Since(start)
 
-	// Wait for events to propagate. Use a 50% threshold because under heavy
-	// CI load the mock server's eventDelay (10ms) plus WebSocket processing
-	// can cause significant coalescing of the 1ms-spaced state changes.
+	// Wait for events to propagate. With eventDelay=0 the mock server
+	// broadcasts immediately, so 80% delivery is a realistic expectation.
 	waitForCondition(t, func() bool {
 		mu.Lock()
 		defer mu.Unlock()
-		return changeCount >= numChanges/2
-	}, "should receive at least 50%% of changes")
+		return changeCount >= numChanges*4/5
+	}, "should receive at least 80%% of changes")
 
 	mu.Lock()
 	finalCount := changeCount
@@ -623,9 +627,9 @@ func TestHighFrequencyStateChanges(t *testing.T) {
 
 	t.Logf("Sent %d changes in %v, received %d callbacks", numChanges, duration, finalCount)
 
-	// Allow generous loss margin — the important thing is the system handles
-	// high-frequency updates without crashing, not the exact delivery count.
-	assert.Greater(t, finalCount, numChanges/2, "Should receive at least 50% of changes")
+	// Validate at least 80% delivery — the system must reliably propagate
+	// high-frequency state changes, not silently drop half of them.
+	assert.GreaterOrEqual(t, finalCount, numChanges*4/5, "Should receive at least 80%% of changes")
 }
 
 // TestAllStateTypes tests all supported state types

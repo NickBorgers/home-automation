@@ -137,7 +137,7 @@ func TestSpeakerSetMute_RoutesThroughSoCo(t *testing.T) {
 	// Test unmute
 	err = manager.speakerSetMute("Kitchen", false)
 	require.NoError(t, err)
-	assert.Equal(t, "/Kitchen/unmute", (*paths)[1])
+	assert.Equal(t, "/Kitchen/mute/off", (*paths)[1])
 }
 
 func TestSpeakerJoinGroup_FallsBackToHA(t *testing.T) {
