@@ -463,6 +463,14 @@ jobs:
             - Test the full timeline, not just end states (T+0, T+2min, T+5min)
             - Reference: scenario_sleephygiene_test.go for TDD-style cross-plugin tests
 
+            BEFORE CREATING THE PR — SELF-REVIEW:
+            6. Run \`git diff --stat\` and verify your changes match the issue scope.
+               If you introduced abstractions beyond what the issue asked for, the PR
+               title and description MUST reflect the full scope.
+            7. For any new external service calls: verify retry logic and appropriate timeouts.
+            8. For any new test helpers with shared state: verify mutex protection.
+            9. Verify new tests exercise the CURRENT production code path, not a legacy path.
+
             BRANCH NAMING: Use \`claude/issue-${ISSUE_NUMBER}\` as the branch name.
 
             PR CREATION:
