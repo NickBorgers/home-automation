@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -186,6 +187,36 @@ func TestSpeakerJoinGroupBatch_RoutesThroughSoCo(t *testing.T) {
 	assert.Equal(t, "/Bedroom/group/Kitchen", (*paths)[0])
 	// URL path is decoded by Go's HTTP server, so spaces appear as-is
 	assert.Equal(t, "/Front Room/group/Kitchen", (*paths)[1])
+}
+
+func TestSpeakerJoinGroupBatch_SoCoContinuesOnError(t *testing.T) {
+	t.Parallel()
+	manager, _ := createTestManager(t)
+
+	var callCount int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempt := atomic.AddInt32(&callCount, 1)
+		if attempt == 1 {
+			// First speaker fails with non-retryable SoCo error
+			resp := SoCoResponse{ExitCode: 1, ErrorMsg: "speaker not found"}
+			json.NewEncoder(w).Encode(resp)
+			return
+		}
+		resp := SoCoResponse{Result: "success", ExitCode: 0}
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	socoClient := NewSoCoClient(server.URL, zaptest.NewLogger(t), false)
+	manager.SetSoCoClient(socoClient)
+
+	err := manager.speakerJoinGroupBatch("Kitchen", []string{"Bedroom", "Front Room"})
+	// Should return an error (first speaker failed)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "speaker not found")
+	// But should have attempted both speakers (not stopped at first error)
+	assert.Equal(t, int32(2), atomic.LoadInt32(&callCount),
+		"should attempt all speakers even when one fails")
 }
 
 func TestSpeakerJoinGroupBatch_FallsBackToHA(t *testing.T) {
