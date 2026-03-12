@@ -443,6 +443,94 @@ curl -s -X POST \
 | `duration` | Time range using Go duration syntax (`5m`, `1h`, `24h`) |
 | `format` | Output format: `text`, `json`, `csv` |
 
+## Testing SoCo-CLI Changes
+
+When modifying the SoCo-CLI integration (`homeautomation-go/internal/plugins/music/sococli.go` or `speaker_commands.go`), you can test against the live API at `https://soco-cli.featherback-mermaid.ts.net/`.
+
+### API Overview
+
+The SoCo-CLI HTTP API (v0.4.82) provides direct UPnP control of Sonos speakers. All endpoints are `GET` requests with path-based parameters. Swagger docs are available at `/docs`.
+
+**Response format** (matches `SoCoResponse` struct in `sococli.go`):
+```json
+{"speaker": "Kitchen", "action": "volume", "args": [], "exit_code": 0, "result": "9", "error_msg": ""}
+```
+
+### Read-Only Test Commands
+
+These commands query state without modifying anything:
+
+```bash
+# List all discovered speakers
+curl -s https://soco-cli.featherback-mermaid.ts.net/speakers | jq
+
+# Get current volume (read-only)
+curl -s https://soco-cli.featherback-mermaid.ts.net/Kitchen/volume | jq
+curl -s "https://soco-cli.featherback-mermaid.ts.net/Front%20Room/volume" | jq
+
+# Check playback status
+curl -s https://soco-cli.featherback-mermaid.ts.net/Bedroom/playback | jq
+
+# View speaker groups
+curl -s https://soco-cli.featherback-mermaid.ts.net/Kitchen/groups | jq
+
+# Force speaker rediscovery
+curl -s https://soco-cli.featherback-mermaid.ts.net/rediscover | jq
+```
+
+### Write Commands (Use With Care)
+
+These commands change speaker state. Use only when actively testing:
+
+```bash
+# Set volume (0-100)
+curl -s https://soco-cli.featherback-mermaid.ts.net/Kitchen/volume/10 | jq
+
+# Mute / unmute
+curl -s https://soco-cli.featherback-mermaid.ts.net/Kitchen/mute | jq
+curl -s https://soco-cli.featherback-mermaid.ts.net/Kitchen/mute/off | jq
+
+# Group / ungroup speakers
+curl -s "https://soco-cli.featherback-mermaid.ts.net/Kitchen/group/Front%20Room" | jq
+curl -s https://soco-cli.featherback-mermaid.ts.net/Kitchen/ungroup | jq
+
+# Playback control
+curl -s https://soco-cli.featherback-mermaid.ts.net/Kitchen/play | jq
+curl -s https://soco-cli.featherback-mermaid.ts.net/Kitchen/pause | jq
+
+# Shuffle / repeat
+curl -s https://soco-cli.featherback-mermaid.ts.net/Kitchen/shuffle/on | jq
+curl -s https://soco-cli.featherback-mermaid.ts.net/Kitchen/repeat/all | jq
+
+# Tidal playback (the full sequence used by PlayShareLink)
+curl -s "https://soco-cli.featherback-mermaid.ts.net/Front%20Room/clear_queue" | jq
+curl -s "https://soco-cli.featherback-mermaid.ts.net/Front%20Room/sharelink/https%3A%2F%2Ftidal.com%2Fbrowse%2Fplaylist%2F..." | jq
+curl -s "https://soco-cli.featherback-mermaid.ts.net/Front%20Room/play_from_queue" | jq
+```
+
+### Available Speakers
+
+These speakers are discovered by SoCo and match the `player_name` values in `configs/music_config.yaml`:
+
+| Speaker | In Music Config | Notes |
+|---------|----------------|-------|
+| Front Room | Yes | Typical group leader |
+| Kitchen | Yes | |
+| Kids Bathroom | Yes | |
+| Bedroom | Yes | Excluded from some zones when master is asleep |
+| Sitting Room | Yes | |
+| Primary Bathroom | Yes | |
+| Barn | No | Not used in music automation |
+| Soundbar | No | Not used in music automation |
+
+### Key Implementation Details
+
+- **URL encoding:** Speaker names with spaces use `url.PathEscape()` (e.g., `Front%20Room`). The API handles this correctly.
+- **Fallback:** If `SOCO_CLI_URL` env var is unset, all speaker commands fall back to Home Assistant WebSocket API (`speaker_commands.go` dual-path routing).
+- **Timeouts:** Standard operations use 5s per-attempt timeout; `sharelink` uses 30s (downloads and enqueues content).
+- **Retries:** Network errors and HTTP 5xx/429 retry up to 3 total attempts with 500ms delay. Application errors (`exit_code != 0`) and HTTP 4xx do not retry.
+- **Read-only mode:** When `READ_ONLY=true`, all SoCo commands are logged but not executed.
+
 ## Testing UI Changes
 
 The Go application includes a dashboard at `/dashboard` for viewing shadow state. To test UI changes without requiring a real Home Assistant instance, use **DEV_MODE**.
