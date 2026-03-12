@@ -451,7 +451,7 @@ When modifying the SoCo-CLI integration (`homeautomation-go/internal/plugins/mus
 
 The SoCo-CLI HTTP API (v0.4.82) provides direct UPnP control of Sonos speakers. All endpoints are `GET` requests with path-based parameters. Swagger docs are available at `/docs`.
 
-**Response format** (matches `SoCoResponse` struct in `sococli.go`):
+**Response format** (Go struct `SoCoResponse` in `sococli.go` captures all fields except `args`):
 ```json
 {"speaker": "Kitchen", "action": "volume", "args": [], "exit_code": 0, "result": "9", "error_msg": ""}
 ```
