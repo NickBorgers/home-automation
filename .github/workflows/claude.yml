@@ -363,8 +363,9 @@ jobs:
     needs: [authorize, build-devcontainer]
     if: |
       needs.authorize.outputs.authorized == 'true' &&
-      github.event_name == 'issues' && github.event.action == 'opened'
+      github.event_name == 'issues' && (github.event.action == 'opened' || github.event.action == 'assigned')
     runs-on: ubuntu-latest
+    timeout-minutes: 120
     permissions:
       contents: write
       pull-requests: write
