@@ -414,6 +414,14 @@ jobs:
             REPO=${{ github.repository }}
             CLAUDE_CONFIG_DIR=/workspaces/home-automation/.claude-session
           runCmd: |
+            # Debug: trace each step to diagnose hanging (see issue #830 et al.)
+            set -x
+            echo "=== resolve-issue runCmd starting at $(date -u) ==="
+            echo "ISSUE_NUMBER=${ISSUE_NUMBER}"
+            echo "REPO=${REPO}"
+            echo "Claude version: $(claude --version 2>&1 || echo 'claude not found')"
+            echo "gh version: $(gh --version 2>&1 | head -1)"
+
             # Use < /dev/null to prevent hanging on TTY input
             # Use tee to capture output for artifact upload
             # Use --verbose and --output-format stream-json for complete conversation logs
@@ -421,11 +429,16 @@ jobs:
 
             # Fetch issue body via API to avoid multi-line env var escaping issues
             # (see https://github.com/NickBorgers/home-automation/issues/441)
+            echo "=== Fetching issue body ==="
             ISSUE_BODY=$(gh api "repos/${REPO}/issues/${ISSUE_NUMBER}" --jq '.body')
+            echo "=== Issue body fetched (${#ISSUE_BODY} chars) ==="
 
             # Fetch all comments on the issue (may contain additional context/requirements)
+            echo "=== Fetching issue comments ==="
             ISSUE_COMMENTS=$(gh api "repos/${REPO}/issues/${ISSUE_NUMBER}/comments" --jq '.[] | "---\n**\(.user.login)** commented at \(.created_at):\n\(.body)\n"' 2>/dev/null | head -c 50000 || echo "")
+            echo "=== Issue comments fetched (${#ISSUE_COMMENTS} chars) ==="
 
+            echo "=== Starting claude --print at $(date -u) ==="
             claude --print \
               --verbose \
               --output-format stream-json \
