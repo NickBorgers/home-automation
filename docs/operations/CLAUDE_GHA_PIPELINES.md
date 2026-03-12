@@ -120,7 +120,7 @@ claude --print \
 
 Automatically resolves newly opened issues.
 
-**Condition**: Runs on `issues: [opened]` event
+**Condition**: Runs on `issues: [opened, assigned]` event
 
 **Workflow**:
 1. Labels issue with `claude-started`
@@ -131,6 +131,8 @@ Automatically resolves newly opened issues.
 6. Opens a PR with the solution
 
 **Max Turns**: 600 (longer for complex issues)
+
+**Timeout**: 120 minutes
 
 ### Artifacts
 
