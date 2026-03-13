@@ -71,5 +71,7 @@ RUN cd ~/.claude/plugins/cache/playwright-skill/playwright-skill/*/skills/playwr
     && npm install \
     && npx playwright install chromium
 
-# Switch back to root for any remaining operations
-USER root
+# Keep vscode as the default user
+# Note: devcontainers/ci runs commands as the Dockerfile's USER,
+# and Claude Code refuses --dangerously-skip-permissions as root
+USER vscode

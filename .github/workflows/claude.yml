@@ -438,23 +438,7 @@ jobs:
             ISSUE_COMMENTS=$(gh api "repos/${REPO}/issues/${ISSUE_NUMBER}/comments" --jq '.[] | "---\n**\(.user.login)** commented at \(.created_at):\n\(.body)\n"' 2>/dev/null | head -c 50000 || echo "")
             echo "=== Issue comments fetched (${#ISSUE_COMMENTS} chars) ==="
 
-            # Smoke test: verify Claude Code can start and authenticate
-            echo "=== Smoke test: claude --print 'say hello' at $(date -u) ==="
-            echo "=== CLAUDE_CODE_OAUTH_TOKEN length: ${#CLAUDE_CODE_OAUTH_TOKEN} ==="
-            echo "=== Node version: $(node --version) ==="
-            echo "=== Which claude: $(which claude) ==="
-            # Use --kill-after to SIGKILL if SIGTERM is ignored
-            timeout --kill-after=10 60 claude --print --dangerously-skip-permissions "say hello" < /dev/null > /tmp/smoke-stdout.txt 2> /tmp/smoke-stderr.txt
-            SMOKE_EXIT=$?
-            echo "=== Smoke test exit code: ${SMOKE_EXIT} ==="
-            echo "=== Smoke stdout: $(cat /tmp/smoke-stdout.txt | head -20) ==="
-            echo "=== Smoke stderr: $(cat /tmp/smoke-stderr.txt | head -20) ==="
-            if [ ${SMOKE_EXIT} -ne 0 ]; then
-              echo "=== SMOKE TEST FAILED — Claude Code cannot start or authenticate ==="
-              exit 1
-            fi
-            echo "=== Smoke test passed at $(date -u) ==="
-
+            echo "=== Running as user: $(whoami) ==="
             echo "=== Starting claude --print at $(date -u) ==="
             claude --print \
               --verbose \
