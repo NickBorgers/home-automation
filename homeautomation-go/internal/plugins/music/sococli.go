@@ -259,22 +259,38 @@ func (c *SoCoClient) Play(speakerName string) error {
 	return c.doGet(endpoint, "play", speakerName)
 }
 
-// PlayURI plays a media URI on a speaker.
-func (c *SoCoClient) PlayURI(speakerName, uri string) error {
+// AddURIToQueue adds a media URI to the speaker's queue.
+// Uses a longer per-attempt timeout since Sonos may need to fetch and parse M3U playlists.
+func (c *SoCoClient) AddURIToQueue(speakerName, uri string) error {
 	if c.readOnly {
-		c.logger.Debug("READ_ONLY: Would play_uri via SoCo-CLI",
+		c.logger.Info("READ_ONLY: Would add_uri_to_queue via SoCo-CLI",
 			zap.String("speaker", speakerName),
 			zap.String("uri", uri))
 		return nil
 	}
 
-	// GET /{speaker}/play_uri/{uri}
-	endpoint := fmt.Sprintf("%s/%s/play_uri/%s",
+	// GET /{speaker}/add_uri_to_queue/{uri}
+	endpoint := fmt.Sprintf("%s/%s/add_uri_to_queue/%s",
 		c.baseURL,
 		url.PathEscape(speakerName),
 		url.PathEscape(uri))
 
-	return c.doGet(endpoint, "play_uri", speakerName)
+	return c.doGetWithRetry(endpoint, "add_uri_to_queue", speakerName, socoLongTimeout)
+}
+
+// PlayURIFromQueue clears the queue, adds a URI to the queue, and starts playback.
+// This ensures the content is in the Sonos queue so that repeat mode works correctly.
+func (c *SoCoClient) PlayURIFromQueue(speakerName, uri string) error {
+	if err := c.ClearQueue(speakerName); err != nil {
+		return fmt.Errorf("clear_queue failed: %w", err)
+	}
+	if err := c.AddURIToQueue(speakerName, uri); err != nil {
+		return fmt.Errorf("add_uri_to_queue failed: %w", err)
+	}
+	if err := c.PlayFromQueue(speakerName); err != nil {
+		return fmt.Errorf("play_from_queue failed: %w", err)
+	}
+	return nil
 }
 
 // SetShuffle enables or disables shuffle mode on a speaker.
