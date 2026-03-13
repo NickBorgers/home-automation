@@ -39,7 +39,7 @@ permissions:
 jobs:
   changes:
     name: Detect Changes
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, homelab]
     outputs:
       code: ${{ steps.filter.outputs.code }}
       docker: ${{ steps.filter.outputs.docker }}
@@ -67,7 +67,7 @@ jobs:
     name: Go Style & Linting
     needs: changes
     if: needs.changes.outputs.code == 'true'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, homelab]
 
     steps:
       - name: Checkout code
@@ -92,7 +92,7 @@ jobs:
     name: Unit Tests (Required for PR Merge)
     needs: changes
     if: needs.changes.outputs.code == 'true'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, homelab]
 
     steps:
       - name: Checkout code
@@ -114,7 +114,7 @@ jobs:
     name: Integration Tests (Required for PR Merge)
     needs: changes
     if: needs.changes.outputs.code == 'true'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, homelab]
 
     steps:
       - name: Checkout code
@@ -138,7 +138,7 @@ jobs:
     name: Config Validation Tests
     needs: changes
     if: needs.changes.outputs.code == 'true'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, homelab]
 
     steps:
       - name: Checkout code
@@ -182,7 +182,7 @@ jobs:
     name: Generated Diagram Validation
     needs: changes
     if: needs.changes.outputs.code == 'true'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, homelab]
 
     steps:
       - name: Checkout code
@@ -213,7 +213,7 @@ jobs:
     name: Docker Build Validation
     needs: changes
     if: needs.changes.outputs.docker == 'true'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, homelab]
 
     steps:
       - name: Checkout code
@@ -327,7 +327,7 @@ jobs:
 
   all-tests-passed:
     name: All Required Tests
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, homelab]
     needs: [changes, style-checks, unit-tests, integration-tests, config-tests, diagram-validation, docker-build]
     if: always()
 
