@@ -384,3 +384,122 @@ func TestScenario_SleepPrepToSleep_NonBedroomSpeakersBehavior(t *testing.T) {
 
 	t.Log("SUCCESS: Sleep-prep → sleep transition handled shared speakers seamlessly")
 }
+
+// ============================================================================
+// Test: Repeat mode is re-applied to new leader during seamless transition
+// ============================================================================
+
+// TestScenario_SleepPrepToSleep_RepeatModeOnNewLeader validates that when a
+// seamless zone transition changes the group leader, repeat mode is re-applied
+// to the new leader so playback loops continuously.
+//
+// User story: "When I fall asleep, rain sounds should loop all night. They
+// shouldn't stop after the current track ends just because the leader changed."
+//
+// PRODUCTION BUG (2026-03-12, Issue #837):
+// Sleep-prep zone had Front Room as leader with repeat enabled. When
+// transitioning to sleep zone, Bedroom became the new leader but repeat was
+// never re-applied. Rain sounds stopped after the ~2h FLAC file ended.
+//
+// INVARIANTS:
+// - When leader changes during seamless transition, repeat must be set on new leader
+// - Repeat mode "all" must be applied to the new leader speaker
+func TestScenario_SleepPrepToSleep_RepeatModeOnNewLeader(t *testing.T) {
+	t.Parallel()
+	env, cleanup := setupSleepPrepTransitionTest(t)
+	defer cleanup()
+
+	// ===== GIVEN: Sleep-prep zone is active with Front Room as leader =====
+	t.Log("GIVEN: Sleep-prep zone is active with Front Room as leader")
+
+	env.server.SetState("input_boolean.anyone_home", "on", map[string]interface{}{})
+	env.server.SetState("input_text.day_phase", "night", map[string]interface{}{})
+	env.server.SetState("input_boolean.master_asleep", "off", map[string]interface{}{})
+	env.server.SetState("input_boolean.wake_sequence_active", "off", map[string]interface{}{})
+	env.server.SetState("input_boolean.anyone_asleep", "off", map[string]interface{}{})
+
+	waitForProcessing(t, env.stateManager)
+
+	waitForCondition(t, func() bool {
+		zones := env.music.GetActiveZones()
+		for _, z := range zones {
+			if z.Name == "sleep-prep" && z.PlaylistURI != "" {
+				return true
+			}
+		}
+		return false
+	}, "sleep-prep zone should be active with a playlist URI")
+
+	activeZones := env.music.GetActiveZones()
+	var sleepPrepZone *music.Zone
+	for _, z := range activeZones {
+		if z.Name == "sleep-prep" {
+			sleepPrepZone = z
+			break
+		}
+	}
+	require.NotNil(t, sleepPrepZone, "Sleep-prep zone should exist")
+	assert.Equal(t, "Front Room", sleepPrepZone.LeadSpeaker,
+		"Sleep-prep leader should be Front Room (first participant in config)")
+
+	// Wait for initial orchestration to complete
+	waitForServiceCallsToStabilize(t, env.server, 200*time.Millisecond)
+
+	// Snapshot service calls to isolate the transition
+	snapshot := env.server.ServiceCallCount()
+
+	// ===== WHEN: isMasterAsleep becomes true (triggering sleep zone) =====
+	t.Log("WHEN: isMasterAsleep becomes true — leader changes from Front Room to Bedroom")
+
+	env.server.SetState("input_boolean.master_asleep", "on", map[string]interface{}{})
+
+	waitForProcessing(t, env.stateManager)
+
+	// Wait for sleep zone to become active
+	waitForCondition(t, func() bool {
+		zones := env.music.GetActiveZones()
+		for _, z := range zones {
+			if z.Name == "sleep" {
+				return true
+			}
+		}
+		return false
+	}, "sleep zone should be active")
+
+	waitForServiceCallsToStabilizeSince(t, env.server, snapshot, 300*time.Millisecond)
+
+	// ===== THEN: Repeat mode should be set on the new leader (Bedroom) =====
+	t.Log("THEN: Repeat mode should be re-applied to new leader (Bedroom)")
+
+	// Verify leader changed
+	activeZones = env.music.GetActiveZones()
+	var sleepZone *music.Zone
+	for _, z := range activeZones {
+		if z.Name == "sleep" {
+			sleepZone = z
+			break
+		}
+	}
+	require.NotNil(t, sleepZone, "Sleep zone should exist")
+	assert.Equal(t, "Bedroom", sleepZone.LeadSpeaker,
+		"Sleep zone leader should be Bedroom (first participant in sleep config)")
+
+	// Check that repeat_set was called on the new leader during the transition
+	calls := env.server.GetServiceCallsSince(snapshot)
+	bedroomRepeatSet := false
+	for _, call := range calls {
+		entityID, _ := call.ServiceData["entity_id"].(string)
+		if entityID == "media_player.bedroom" &&
+			call.Domain == "media_player" && call.Service == "repeat_set" {
+			repeat, _ := call.ServiceData["repeat"].(string)
+			if repeat == "all" {
+				bedroomRepeatSet = true
+			}
+		}
+	}
+	assert.True(t, bedroomRepeatSet,
+		"Repeat mode 'all' must be set on new leader (Bedroom) during seamless transition — "+
+			"without this, playback stops when current track ends (Issue #837)")
+
+	t.Log("SUCCESS: Repeat mode re-applied to new leader during seamless transition")
+}

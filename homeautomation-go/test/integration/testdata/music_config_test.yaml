@@ -169,6 +169,9 @@ music:
 
   sleep-prep:
     participants:
+      - player_name: "Front Room"
+        base_volume: 9
+        leave_muted_if: []
       - player_name: "Bedroom"
         base_volume: 16
         leave_muted_if: []
@@ -177,9 +180,6 @@ music:
         leave_muted_if:
           - variable: isTVPlaying
             value: true
-      - player_name: "Front Room"
-        base_volume: 9
-        leave_muted_if: []
       - player_name: "Kitchen"
         base_volume: 16
         leave_muted_if: []

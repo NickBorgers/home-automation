@@ -1155,6 +1155,29 @@ func (zm *ZoneManager) executeSeamlessTransition(st seamlessTransition, newSpeak
 	}
 	zm.manager.mu.Unlock()
 
+	// Re-apply repeat/shuffle to new leader if the leader changed.
+	// Shuffle and repeat are per-speaker Sonos properties. When the old leader
+	// (e.g., Front Room) is removed and a shared speaker (e.g., Bedroom) becomes
+	// the new leader, the new leader won't have repeat enabled — causing playback
+	// to stop at end of track instead of looping. (Issue #837)
+	if leadSpeaker != oldZone.LeadSpeaker {
+		zm.logger.Info("Leader changed during seamless transition, re-applying playback modes",
+			zap.String("old_leader", oldZone.LeadSpeaker),
+			zap.String("new_leader", leadSpeaker))
+		if err := zm.manager.speakerSetRepeat(leadSpeaker, "all"); err != nil {
+			zm.logger.Warn("Failed to set repeat on new leader",
+				zap.String("speaker", leadSpeaker),
+				zap.Error(err))
+		}
+		if oldMediaType == "playlist" || oldMediaType == "tidal" {
+			if err := zm.manager.speakerSetShuffle(leadSpeaker, true); err != nil {
+				zm.logger.Warn("Failed to set shuffle on new leader",
+					zap.String("speaker", leadSpeaker),
+					zap.Error(err))
+			}
+		}
+	}
+
 	// Handle non-shared speakers: fade out and remove from old group
 	if len(st.removeSpeakers) > 0 {
 		go zm.manager.removeSpeakersFromZone(oldZone, st.removeSpeakers, trigger)
