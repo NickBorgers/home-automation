@@ -436,7 +436,9 @@ music:
             value: true
       - player_name: "Kitchen"
         base_volume: 16
-        leave_muted_if: []
+        leave_muted_if:
+          - variable: isTVPlaying
+            value: true
       - player_name: "Primary Bathroom"
         base_volume: 16
         leave_muted_if: []
