@@ -438,6 +438,15 @@ jobs:
             ISSUE_COMMENTS=$(gh api "repos/${REPO}/issues/${ISSUE_NUMBER}/comments" --jq '.[] | "---\n**\(.user.login)** commented at \(.created_at):\n\(.body)\n"' 2>/dev/null | head -c 50000 || echo "")
             echo "=== Issue comments fetched (${#ISSUE_COMMENTS} chars) ==="
 
+            # Smoke test: verify Claude Code can start and authenticate
+            echo "=== Smoke test: claude --print 'say hello' ==="
+            timeout 120 claude --print --dangerously-skip-permissions "say hello" < /dev/null 2>&1 || {
+              echo "=== SMOKE TEST FAILED (exit code $?) ==="
+              echo "Claude Code cannot start or authenticate. Aborting."
+              exit 1
+            }
+            echo "=== Smoke test passed ==="
+
             echo "=== Starting claude --print at $(date -u) ==="
             claude --print \
               --verbose \
