@@ -448,6 +448,12 @@ jobs:
             echo ""
 
             # Run claude with stderr separated to see any errors
+            # Remove project .claude settings that may interfere with CI
+            # (hooks, local permissions - not needed in CI with --dangerously-skip-permissions)
+            echo "=== Removing .claude project settings ==="
+            rm -rf /workspaces/home-automation/.claude/settings.json /workspaces/home-automation/.claude/settings.local.json /workspaces/home-automation/.claude/hooks
+            echo "=== .claude cleanup done ==="
+
             echo "=== Starting claude --print at $(date -u) ==="
             claude --print \
               --verbose \
