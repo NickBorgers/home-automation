@@ -1,16 +1,17 @@
 name: PR Tests
 
-# SECURITY NOTE: This workflow runs on all PRs including from forks.
-# This is intentional - we want to test external contributions.
+# SECURITY NOTE: This workflow runs on a self-hosted runner.
+# Fork PRs are blocked to prevent arbitrary code execution on the homelab runner.
+# Only PRs from branches within this repository (non-fork) will run tests.
 #
 # Security model:
-# - This workflow has READ-ONLY permissions (contents: read, pull-requests: read)
+# - Self-hosted runner: jobs only run for same-repo PRs (fork PRs are skipped)
+# - READ-ONLY permissions (contents: read, pull-requests: read)
 # - No secrets are exposed to PR builds
-# - This workflow does NOT trigger Claude or any AI-powered reviews for external PRs
-# - The Claude Code Review workflow has separate authorization checks that block external PRs
+# - Push trigger limited to claude/** branches (requires write access)
+# - workflow_dispatch requires write access
 #
-# External PRs will have their tests run but will NOT trigger automated Claude reviews.
-# A repository maintainer must manually review external contributions.
+# External contributors: A maintainer must manually test fork PRs.
 
 on:
   pull_request:
@@ -39,6 +40,9 @@ permissions:
 jobs:
   changes:
     name: Detect Changes
+    # Block fork PRs from running on self-hosted runner (security: prevents arbitrary code execution)
+    # Non-PR events (push, workflow_dispatch) are safe — they require write access to the repo
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [self-hosted, homelab]
     outputs:
       code: ${{ steps.filter.outputs.code }}
