@@ -438,6 +438,16 @@ jobs:
             ISSUE_COMMENTS=$(gh api "repos/${REPO}/issues/${ISSUE_NUMBER}/comments" --jq '.[] | "---\n**\(.user.login)** commented at \(.created_at):\n\(.body)\n"' 2>/dev/null | head -c 50000 || echo "")
             echo "=== Issue comments fetched (${#ISSUE_COMMENTS} chars) ==="
 
+            echo "=== whoami: $(whoami) ==="
+            echo "=== id: $(id) ==="
+            echo "=== CLAUDE_CODE_OAUTH_TOKEN length: ${#CLAUDE_CODE_OAUTH_TOKEN} ==="
+
+            # Quick connectivity test to Anthropic API
+            echo "=== Testing API connectivity ==="
+            curl -s -o /dev/null -w "HTTP %{http_code} in %{time_total}s" https://api.anthropic.com/ || echo "FAILED"
+            echo ""
+
+            # Run claude with stderr separated to see any errors
             echo "=== Starting claude --print at $(date -u) ==="
             claude --print \
               --verbose \
