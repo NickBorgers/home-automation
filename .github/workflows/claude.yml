@@ -438,7 +438,6 @@ jobs:
             ISSUE_COMMENTS=$(gh api "repos/${REPO}/issues/${ISSUE_NUMBER}/comments" --jq '.[] | "---\n**\(.user.login)** commented at \(.created_at):\n\(.body)\n"' 2>/dev/null | head -c 50000 || echo "")
             echo "=== Issue comments fetched (${#ISSUE_COMMENTS} chars) ==="
 
-            echo "=== Running as user: $(whoami) ==="
             echo "=== Starting claude --print at $(date -u) ==="
             claude --print \
               --verbose \
