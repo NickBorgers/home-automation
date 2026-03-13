@@ -12,6 +12,11 @@ name: PR Tests
 # - workflow_dispatch requires write access
 #
 # External contributors: A maintainer must manually test fork PRs.
+#
+# INVARIANT: Every job must either (a) transitively depend on `changes` (which
+# blocks forks), or (b) include the fork check in its own `if` condition.
+# The `all-tests-passed` job uses `if: always()` which bypasses dependency
+# skipping, so it needs the fork check directly.
 
 on:
   pull_request:
@@ -333,7 +338,7 @@ jobs:
     name: All Required Tests
     runs-on: [self-hosted, homelab]
     needs: [changes, style-checks, unit-tests, integration-tests, config-tests, diagram-validation, docker-build]
-    if: always()
+    if: always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
 
     steps:
       - name: Check test results
