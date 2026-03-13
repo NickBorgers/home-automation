@@ -486,7 +486,7 @@ jobs:
             - Never use \`git push --no-verify\`
             - Write the minimum code that solves the issue. No more.
             - Don't add helpers, utilities, or abstractions unless the issue requires them.
-            - Don't refactor adjacent code or make "while I'm here" improvements.
+            - Don't refactor adjacent code or make unrelated improvements.
             - If three similar lines work, don't extract a function.
 
             TDD FOR CROSS-PLUGIN FEATURES:
