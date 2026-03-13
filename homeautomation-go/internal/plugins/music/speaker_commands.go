@@ -140,17 +140,17 @@ func (m *Manager) speakerPlay(speakerName string) error {
 }
 
 // speakerPlayMedia starts playback of specific media content on a speaker.
-// Routes to SoCo-CLI (play_uri) when available. Note: SoCo play_uri does not
-// support all media types that HA's play_media does (e.g., Spotify URIs).
+// Routes to SoCo-CLI (queue-based: clear_queue → add_uri_to_queue → play_from_queue)
+// when available. Queue-based playback ensures Sonos repeat mode works correctly.
 // For Tidal playback, use socoClient.PlayShareLink directly instead.
 func (m *Manager) speakerPlayMedia(speakerName, mediaContentID, mediaContentType string) error {
 	if m.socoClient != nil {
 		if mediaContentType != "" {
-			m.logger.Debug("SoCo-CLI play_uri does not use mediaContentType; parameter ignored",
+			m.logger.Debug("SoCo-CLI queue-based playback does not use mediaContentType; parameter ignored",
 				zap.String("speaker", speakerName),
 				zap.String("mediaContentType", mediaContentType))
 		}
-		return m.socoClient.PlayURI(speakerName, mediaContentID)
+		return m.socoClient.PlayURIFromQueue(speakerName, mediaContentID)
 	}
 	entityID := m.getSpeakerEntityID(speakerName)
 	return m.callServiceWithRetry("media_player", "play_media", map[string]interface{}{

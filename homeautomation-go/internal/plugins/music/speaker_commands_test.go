@@ -352,8 +352,12 @@ func TestSpeakerPlayMedia_RoutesThroughSoCo(t *testing.T) {
 	err := manager.speakerPlayMedia("Kitchen", "http://example.com/stream.mp3", "music")
 	require.NoError(t, err)
 
-	require.Equal(t, 1, paths.Len())
-	assert.Contains(t, paths.Get(0), "/Kitchen/play_uri/")
+	// Queue-based playback: clear_queue → add_uri_to_queue → play_from_queue
+	allPaths := paths.All()
+	require.Len(t, allPaths, 3)
+	assert.Equal(t, "/Kitchen/clear_queue", allPaths[0])
+	assert.Contains(t, allPaths[1], "/Kitchen/add_uri_to_queue/")
+	assert.Equal(t, "/Kitchen/play_from_queue", allPaths[2])
 }
 
 func TestSpeakerPlayMedia_FallsBackToHA(t *testing.T) {

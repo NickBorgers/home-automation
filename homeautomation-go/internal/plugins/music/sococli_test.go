@@ -434,7 +434,7 @@ func TestSoCoClient_Play(t *testing.T) {
 	})
 }
 
-func TestSoCoClient_PlayURI(t *testing.T) {
+func TestSoCoClient_AddURIToQueue(t *testing.T) {
 	t.Parallel()
 	logger := zaptest.NewLogger(t)
 
@@ -448,9 +448,114 @@ func TestSoCoClient_PlayURI(t *testing.T) {
 		defer server.Close()
 
 		client := NewSoCoClient(server.URL, logger, false)
-		err := client.PlayURI("Kitchen", "http://example.com/rain.mp3")
+		err := client.AddURIToQueue("Kitchen", "http://example.com/rain.m3u")
 		require.NoError(t, err)
-		assert.Contains(t, requestPath, "/Kitchen/play_uri/")
+		assert.Contains(t, requestPath, "/Kitchen/add_uri_to_queue/")
+	})
+
+	t.Run("non-zero exit code returns error", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			resp := SoCoResponse{ExitCode: 1, ErrorMsg: "invalid URI"}
+			json.NewEncoder(w).Encode(resp)
+		}))
+		defer server.Close()
+
+		client := NewSoCoClient(server.URL, logger, false)
+		err := client.AddURIToQueue("Kitchen", "http://example.com/rain.m3u")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "invalid URI")
+	})
+
+	t.Run("read-only mode does not call server", func(t *testing.T) {
+		callCount := 0
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			callCount++
+		}))
+		defer server.Close()
+
+		client := NewSoCoClient(server.URL, logger, true)
+		err := client.AddURIToQueue("Kitchen", "http://example.com/rain.m3u")
+		assert.NoError(t, err)
+		assert.Equal(t, 0, callCount, "server should not have been called")
+	})
+}
+
+func TestSoCoClient_PlayURIFromQueue(t *testing.T) {
+	t.Parallel()
+	logger := zaptest.NewLogger(t)
+
+	t.Run("calls clear_queue then add_uri_to_queue then play_from_queue", func(t *testing.T) {
+		var actions []string
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			action := "unknown"
+			switch {
+			case r.URL.Path == "/Kitchen/clear_queue":
+				action = "clear_queue"
+			case r.URL.Path == "/Kitchen/play_from_queue":
+				action = "play_from_queue"
+			default:
+				action = "add_uri_to_queue"
+			}
+			actions = append(actions, action)
+			resp := SoCoResponse{Result: "success", ExitCode: 0}
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(resp)
+		}))
+		defer server.Close()
+
+		client := NewSoCoClient(server.URL, logger, false)
+		err := client.PlayURIFromQueue("Kitchen", "http://example.com/rain.m3u")
+		require.NoError(t, err)
+		assert.Equal(t, []string{"clear_queue", "add_uri_to_queue", "play_from_queue"}, actions)
+	})
+
+	t.Run("returns error if clear_queue fails", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			resp := SoCoResponse{ExitCode: 1, ErrorMsg: "speaker not found"}
+			json.NewEncoder(w).Encode(resp)
+		}))
+		defer server.Close()
+
+		client := NewSoCoClient(server.URL, logger, false)
+		err := client.PlayURIFromQueue("Kitchen", "http://example.com/rain.m3u")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "clear_queue failed")
+	})
+
+	t.Run("returns error if add_uri_to_queue fails", func(t *testing.T) {
+		callNum := 0
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			callNum++
+			resp := SoCoResponse{ExitCode: 0, Result: "ok"}
+			if callNum == 2 {
+				resp = SoCoResponse{ExitCode: 1, ErrorMsg: "invalid URI"}
+			}
+			json.NewEncoder(w).Encode(resp)
+		}))
+		defer server.Close()
+
+		client := NewSoCoClient(server.URL, logger, false)
+		err := client.PlayURIFromQueue("Kitchen", "http://example.com/rain.m3u")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "add_uri_to_queue failed")
+	})
+
+	t.Run("returns error if play_from_queue fails", func(t *testing.T) {
+		callNum := 0
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			callNum++
+			resp := SoCoResponse{ExitCode: 0, Result: "ok"}
+			if callNum == 3 {
+				resp = SoCoResponse{ExitCode: 1, ErrorMsg: "queue empty"}
+			}
+			json.NewEncoder(w).Encode(resp)
+		}))
+		defer server.Close()
+
+		client := NewSoCoClient(server.URL, logger, false)
+		err := client.PlayURIFromQueue("Kitchen", "http://example.com/rain.m3u")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "play_from_queue failed")
 	})
 }
 
