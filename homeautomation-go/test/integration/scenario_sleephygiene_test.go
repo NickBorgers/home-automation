@@ -764,8 +764,12 @@ func TestScenario_WakeUpLightFadeIn_StartsAtLowBrightness(t *testing.T) {
 		"brightness": 255,
 	})
 
-	// Allow async handlers to process before snapshotting
-	waitForProcessing(t, stateManager)
+	// Wait for all state variables to propagate before triggering wake sequence.
+	// handleWake() checks isAnyoneHome, isMasterAsleep, and isFadeOutInProgress — all
+	// three must be true in the state manager or it will skip the wake sequence.
+	waitForBoolState(t, stateManager, "isAnyoneHome", true, "isAnyoneHome should be true")
+	waitForBoolState(t, stateManager, "isMasterAsleep", true, "isMasterAsleep should be true")
+	waitForBoolState(t, stateManager, "isFadeOutInProgress", true, "isFadeOutInProgress should be true")
 	snapshot := server.ServiceCallCount()
 
 	// WHEN: Wake sequence triggers (light fade-in phase, after 5-min delay)
