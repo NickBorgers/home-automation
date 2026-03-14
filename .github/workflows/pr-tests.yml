@@ -261,17 +261,16 @@ jobs:
         run: |
           echo "🚀 Running container startup smoke test..."
 
-          # Use unique container name and port per run to prevent concurrent job conflicts
+          # Use unique container name per run to prevent concurrent job conflicts on the same runner
           CONTAINER_NAME="smoke-test-${{ github.run_id }}"
-          HTTP_PORT=$(python3 -c "import socket; s=socket.socket(); s.bind(('', 0)); print(s.getsockname()[1]); s.close()")
-          echo "Using container name: $CONTAINER_NAME, port: $HTTP_PORT"
+          echo "Using container name: $CONTAINER_NAME"
 
-          # Start container in DEV_MODE (uses mock HA server)
+          # Start container in DEV_MODE (uses mock HA server) without host port binding
+          # (avoids port conflicts between concurrent runs on the same self-hosted runner)
+          # Health checks use docker exec instead of host-side curl
           # This catches any panics during initialization (e.g., issue #237)
           docker run -d --name "$CONTAINER_NAME" \
             -e DEV_MODE=true \
-            -e HTTP_PORT="$HTTP_PORT" \
-            -p "$HTTP_PORT:$HTTP_PORT" \
             homeautomation-test:pr
 
           # Wait for container to either become healthy or crash
@@ -287,8 +286,8 @@ jobs:
               exit 1
             fi
 
-            # Check if health endpoint responds
-            if curl -sf "http://localhost:$HTTP_PORT/health" >/dev/null 2>&1; then
+            # Check health endpoint from inside the container (avoids host port mapping issues)
+            if docker exec "$CONTAINER_NAME" wget -q -O- http://localhost:8080/health >/dev/null 2>&1; then
               echo "✅ Container started successfully (health check passed)"
               break
             fi
@@ -306,15 +305,8 @@ jobs:
             sleep 1
           done
 
-          # Additional verification: check dashboard endpoint
-          if curl -sf "http://localhost:$HTTP_PORT/dashboard" >/dev/null 2>&1; then
-            echo "✅ Dashboard endpoint responding"
-          else
-            echo "⚠️  Dashboard endpoint not responding (non-fatal)"
-          fi
-
-          # Check shadow API returns valid JSON
-          if curl -sf "http://localhost:$HTTP_PORT/api/shadow" | jq . >/dev/null 2>&1; then
+          # Additional verification: check shadow API returns valid JSON from inside container
+          if docker exec "$CONTAINER_NAME" wget -q -O- http://localhost:8080/api/shadow | jq . >/dev/null 2>&1; then
             echo "✅ Shadow API returns valid JSON"
           else
             echo "⚠️  Shadow API not returning valid JSON (non-fatal)"
