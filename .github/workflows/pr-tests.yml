@@ -261,6 +261,9 @@ jobs:
         run: |
           echo "🚀 Running container startup smoke test..."
 
+          # Clean up any leftover containers from previous failed runs (self-hosted runner persistence)
+          docker rm -f smoke-test 2>/dev/null || true
+
           # Start container in DEV_MODE (uses mock HA server)
           # This catches any panics during initialization (e.g., issue #237)
           docker run -d --name smoke-test \
