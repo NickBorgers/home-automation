@@ -9,5 +9,8 @@ coverage.out
 .test-cache/
 gravwell.token
 
+# Build artifacts (copied from root at build time)
+config-test/.yamllint
+
 # Claude Code artifacts
 claude-review-output.jsonl

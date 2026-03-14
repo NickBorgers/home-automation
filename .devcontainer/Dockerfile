@@ -44,7 +44,7 @@ RUN curl -fsSL https://deb.nodesource.com/setup_${NODE_VERSION}.x | bash - \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Claude Code CLI globally
-ARG CLAUDE_CODE_VERSION=2.1.38
+ARG CLAUDE_CODE_VERSION=2.1.75
 RUN npm install -g @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}
 
 # Create directories for vscode user with correct ownership

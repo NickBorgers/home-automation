@@ -1,16 +1,22 @@
 name: PR Tests
 
-# SECURITY NOTE: This workflow runs on all PRs including from forks.
-# This is intentional - we want to test external contributions.
+# SECURITY NOTE: This workflow runs on a self-hosted runner.
+# Fork PRs are blocked to prevent arbitrary code execution on the homelab runner.
+# Only PRs from branches within this repository (non-fork) will run tests.
 #
 # Security model:
-# - This workflow has READ-ONLY permissions (contents: read, pull-requests: read)
+# - Self-hosted runner: jobs only run for same-repo PRs (fork PRs are skipped)
+# - READ-ONLY permissions (contents: read, pull-requests: read)
 # - No secrets are exposed to PR builds
-# - This workflow does NOT trigger Claude or any AI-powered reviews for external PRs
-# - The Claude Code Review workflow has separate authorization checks that block external PRs
+# - Push trigger limited to claude/** branches (requires write access)
+# - workflow_dispatch requires write access
 #
-# External PRs will have their tests run but will NOT trigger automated Claude reviews.
-# A repository maintainer must manually review external contributions.
+# External contributors: A maintainer must manually test fork PRs.
+#
+# INVARIANT: Every job must either (a) transitively depend on `changes` (which
+# blocks forks), or (b) include the fork check in its own `if` condition.
+# The `all-tests-passed` job uses `if: always()` which bypasses dependency
+# skipping, so it needs the fork check directly.
 
 on:
   pull_request:
@@ -39,7 +45,10 @@ permissions:
 jobs:
   changes:
     name: Detect Changes
-    runs-on: ubuntu-latest
+    # Block fork PRs from running on self-hosted runner (security: prevents arbitrary code execution)
+    # Non-PR events (push, workflow_dispatch) are safe — they require write access to the repo
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, homelab]
     outputs:
       code: ${{ steps.filter.outputs.code }}
       docker: ${{ steps.filter.outputs.docker }}
@@ -67,7 +76,7 @@ jobs:
     name: Go Style & Linting
     needs: changes
     if: needs.changes.outputs.code == 'true'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, homelab]
 
     steps:
       - name: Checkout code
@@ -92,7 +101,7 @@ jobs:
     name: Unit Tests (Required for PR Merge)
     needs: changes
     if: needs.changes.outputs.code == 'true'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, homelab]
 
     steps:
       - name: Checkout code
@@ -114,7 +123,7 @@ jobs:
     name: Integration Tests (Required for PR Merge)
     needs: changes
     if: needs.changes.outputs.code == 'true'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, homelab]
 
     steps:
       - name: Checkout code
@@ -138,7 +147,7 @@ jobs:
     name: Config Validation Tests
     needs: changes
     if: needs.changes.outputs.code == 'true'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, homelab]
 
     steps:
       - name: Checkout code
@@ -182,7 +191,7 @@ jobs:
     name: Generated Diagram Validation
     needs: changes
     if: needs.changes.outputs.code == 'true'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, homelab]
 
     steps:
       - name: Checkout code
@@ -213,7 +222,7 @@ jobs:
     name: Docker Build Validation
     needs: changes
     if: needs.changes.outputs.docker == 'true'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, homelab]
 
     steps:
       - name: Checkout code
@@ -327,9 +336,9 @@ jobs:
 
   all-tests-passed:
     name: All Required Tests
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, homelab]
     needs: [changes, style-checks, unit-tests, integration-tests, config-tests, diagram-validation, docker-build]
-    if: always()
+    if: always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
 
     steps:
       - name: Check test results

@@ -16,25 +16,27 @@ yamllint-local: ## Run yamllint on all config files natively (no Docker, require
 	@echo "✅ All config files passed yamllint"
 
 run-yamllint-hue: build-config-tester
-	docker run --rm --mount type=bind,source=${CURDIR}/.yamllint,destination=/app/.yamllint --mount type=bind,source=${CURDIR}/configs/hue_config.yaml,destination=/app/hue_config.yaml node-red-config-tester yamllint hue_config.yaml
+	cat ${CURDIR}/configs/hue_config.yaml | docker run --rm -i node-red-config-tester sh -c "cat > /tmp/hue_config.yaml && yamllint -c /app/.yamllint /tmp/hue_config.yaml"
 
 run-yamllint-music: build-config-tester
-	docker run --rm --mount type=bind,source=${CURDIR}/.yamllint,destination=/app/.yamllint --mount type=bind,source=${CURDIR}/configs/music_config.yaml,destination=/app/music_config.yaml node-red-config-tester yamllint music_config.yaml
+	cat ${CURDIR}/configs/music_config.yaml | docker run --rm -i node-red-config-tester sh -c "cat > /tmp/music_config.yaml && yamllint -c /app/.yamllint /tmp/music_config.yaml"
 
 run-yamllint-energy: build-config-tester
-	docker run --rm --mount type=bind,source=${CURDIR}/.yamllint,destination=/app/.yamllint --mount type=bind,source=${CURDIR}/configs/energy_config.yaml,destination=/app/energy_config.yaml node-red-config-tester yamllint energy_config.yaml
+	cat ${CURDIR}/configs/energy_config.yaml | docker run --rm -i node-red-config-tester sh -c "cat > /tmp/energy_config.yaml && yamllint -c /app/.yamllint /tmp/energy_config.yaml"
 
 run-yamllint-schedule: build-config-tester
-	docker run --rm --mount type=bind,source=${CURDIR}/.yamllint,destination=/app/.yamllint --mount type=bind,source=${CURDIR}/configs/schedule_config.yaml,destination=/app/schedule_config.yaml node-red-config-tester yamllint schedule_config.yaml
+	cat ${CURDIR}/configs/schedule_config.yaml | docker run --rm -i node-red-config-tester sh -c "cat > /tmp/schedule_config.yaml && yamllint -c /app/.yamllint /tmp/schedule_config.yaml"
 
 run-yamllint-sensor: build-config-tester
-	docker run --rm --mount type=bind,source=${CURDIR}/.yamllint,destination=/app/.yamllint --mount type=bind,source=${CURDIR}/configs/sensor_config.yaml,destination=/app/sensor_config.yaml node-red-config-tester yamllint sensor_config.yaml
+	cat ${CURDIR}/configs/sensor_config.yaml | docker run --rm -i node-red-config-tester sh -c "cat > /tmp/sensor_config.yaml && yamllint -c /app/.yamllint /tmp/sensor_config.yaml"
 
 run-spotify-validation-music: build-config-tester
-	docker run --rm --mount type=bind,source=${CURDIR}/configs/music_config.yaml,destination=/app/music_config.yaml node-red-config-tester python3 -u validate_spotify_uris.py
+	cat ${CURDIR}/configs/music_config.yaml | docker run --rm -i node-red-config-tester sh -c "cat > /app/music_config.yaml && python3 -u validate_spotify_uris.py"
 
 build-config-tester:
+	cp ${CURDIR}/.yamllint ${CURDIR}/config-test/.yamllint
 	docker build -t node-red-config-tester ./config-test/
+	rm -f ${CURDIR}/config-test/.yamllint
 
 # ============================================================================
 # Documentation Validation Targets
@@ -214,7 +216,7 @@ pre-commit: ## Run fast pre-commit checks (style, format, lint, build)
 	@cd homeautomation-go && \
 	  if ! command -v goimports >/dev/null 2>&1; then \
 	    echo "⚠️  goimports not installed. Installing..."; \
-	    go install golang.org/x/tools/cmd/goimports@latest; \
+	    go install golang.org/x/tools/cmd/goimports@v0.33.0; \
 	  fi && \
 	  GOIMPORTS=$$(command -v goimports 2>/dev/null || echo "$(HOME)/go/bin/goimports") && \
 	  unformatted=$$($$GOIMPORTS -l .) && \
@@ -318,7 +320,7 @@ format-go: ## Format Go code with gofmt and goimports
 	@cd homeautomation-go && \
 	  if ! command -v goimports >/dev/null 2>&1; then \
 	    echo "⚠️  goimports not installed. Installing..."; \
-	    go install golang.org/x/tools/cmd/goimports@latest; \
+	    go install golang.org/x/tools/cmd/goimports@v0.33.0; \
 	  fi && \
 	  (command -v goimports >/dev/null 2>&1 && goimports -w . || $(HOME)/go/bin/goimports -w .)
 	@echo "✅ Code formatted successfully"
