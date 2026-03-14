@@ -6,6 +6,8 @@ COPY requirements.txt /app/requirements.txt
 
 COPY validate_spotify_uris.py /app/validate_spotify_uris.py
 
+COPY .yamllint /app/.yamllint
+
 WORKDIR /app/
 
 RUN pip install -r requirements.txt
