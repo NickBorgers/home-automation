@@ -329,6 +329,27 @@ HA_TOKEN=your_long_lived_access_token
 READ_ONLY=true
 ```
 
+## CI Runner (Self-Hosted GitHub Actions)
+
+Self-hosted GitHub Actions runner on `dockergeneric` for home-automation CI. Two containers share a network namespace: Tailscale sidecar (`ci-runner-ts`) and the runner itself (`ci-runner`).
+
+- **Network isolation:** `tag:ci-runner` ACL grants Internet-only access — no access to any internal Tailscale services
+- **Docker:** Runner mounts the host Docker socket (`/var/run/docker.sock`) and bind-mounts `/tmp/runner-work` so CI workflow bind mounts resolve correctly
+- **Image:** `myoung34/github-runner:2.332.0-ubuntu-jammy`
+- **Config:** `/etc/container-configs/ci-runner/.env` on `dockergeneric` (contains GitHub PAT)
+- **Deployment:** `make deploy-dockergeneric`
+- **Details:** See `services/dockergeneric/ci-runner/README.md`
+
+**Query CI runner logs in Gravwell:**
+```bash
+curl -s -X POST \
+  -H "Gravwell-Token: $(tr -d '\n' < ./gravwell.token)" \
+  -H 'query: tag=ci-runner | text' \
+  -H 'duration: 1h' \
+  -H 'format: text' \
+  'https://gravwell.featherback-mermaid.ts.net/api/search/direct'
+```
+
 ## Production Debugging
 
 **Dashboard (view current state):** https://home-automation.featherback-mermaid.ts.net/
@@ -345,6 +366,7 @@ Logs are centralized in Gravwell. Authenticate using the token stored in `./grav
 | `tag=home-automation` | Home automation Go application logs |
 | `tag=home-assistant` | Home Assistant entity state changes (excludes `sensor.*` entities - too noisy) |
 | `tag=soco` | SoCo-CLI HTTP API server logs (Tidal playback via Sonos) |
+| `tag=ci-runner` | Self-hosted GitHub Actions runner logs |
 
 **Version Verification (first debugging step):**
 
