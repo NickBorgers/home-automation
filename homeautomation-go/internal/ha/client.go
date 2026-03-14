@@ -1237,6 +1237,7 @@ func (c *Client) CallServiceWithTarget(ctx context.Context, domain, service stri
 
 		_, err := c.sendMessage(req)
 		if err == nil {
+			c.recordServiceResult(true)
 			if attempt > 0 {
 				c.logger.Info("Service call with target succeeded after retry",
 					zap.String("domain", domain),
@@ -1251,10 +1252,12 @@ func (c *Client) CallServiceWithTarget(ctx context.Context, domain, service stri
 
 		// Only retry for transient network errors
 		if !isRetryableError(err) {
+			c.recordServiceResult(false)
 			return err
 		}
 	}
 
+	c.recordServiceResult(false)
 	return fmt.Errorf("service call with target failed after %d attempts: %w", maxRetries+1, lastErr)
 }
 
