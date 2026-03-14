@@ -315,8 +315,35 @@ func (s *MockHAServer) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			s.handleCallService(wrapper, msg)
 		case "ping":
 			s.handlePing(wrapper, msg)
+		case "config/entity_registry/list":
+			s.handleRegistryList(wrapper, msg)
+		case "config/device_registry/list":
+			s.handleRegistryList(wrapper, msg)
 		}
 	}
+}
+
+// handleRegistryList handles config/entity_registry/list and config/device_registry/list requests.
+// Returns an empty list so plugins that discover sensors via the registry fail fast instead of
+// waiting 10 seconds for a timeout. This keeps DEV_MODE startup time short.
+func (s *MockHAServer) handleRegistryList(wrapper *connWrapper, msg json.RawMessage) {
+	var req struct {
+		ID int `json:"id"`
+	}
+	if err := json.Unmarshal(msg, &req); err != nil {
+		return
+	}
+
+	success := true
+	emptyList := json.RawMessage(`[]`)
+	wrapper.writeMu.Lock()
+	wrapper.conn.WriteJSON(Message{
+		ID:      req.ID,
+		Type:    "result",
+		Success: &success,
+		Result:  emptyList,
+	})
+	wrapper.writeMu.Unlock()
 }
 
 // handlePing responds to application-level ping messages with a pong.
