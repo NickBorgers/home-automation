@@ -95,10 +95,10 @@ permissions:
 ```
 
 **Security model:**
-- Runs on ALL PRs including forks (intentional - we want to test contributions)
+- Runs on self-hosted homelab runner (fork PRs are blocked to prevent arbitrary code execution)
 - READ-ONLY permissions only
 - No secrets exposed to test runs
-- Does NOT trigger Claude for external PRs (Claude Code Review has its own checks)
+- Fork PRs are skipped at the `changes` gate job and the `all-tests-passed` aggregator
 
 #### `claude-diagnose-workflow-failure.yml`
 
@@ -169,10 +169,9 @@ func TestMalicious(t *testing.T) {
 ```
 
 **Mitigation:**
-- `pr-tests.yml` has only read permissions
-- No write access to repository
-- Claude workflows are blocked (author_association check)
-- Secrets are not exposed to fork PR workflows
+- Fork PRs are blocked entirely — `pr-tests.yml` skips all jobs for fork PRs (prevents code execution on self-hosted runner)
+- Even if the fork check were bypassed, `pr-tests.yml` has only read permissions with no secrets exposed
+- Maintainers must manually test fork contributions before merging
 
 ## Monitoring and Alerts
 

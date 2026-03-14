@@ -44,7 +44,7 @@ The repository uses several interconnected workflows that leverage Claude Code t
 Key security measures:
 - **Authorization checks**: Only repository collaborators/members/owners can trigger Claude
 - **Devcontainer isolation**: Always built from `main` branch, never from PR branches
-- **External PR handling**: Fork PRs trigger tests but NOT Claude reviews
+- **Fork PR blocking**: Fork PRs are blocked from running on the self-hosted runner (security). Maintainers must test fork contributions manually
 
 ## Workflow Files
 
@@ -445,11 +445,13 @@ Aggregator job for branch protection.
 
 ## 3. PR Tests (`pr-tests.yml`)
 
-Standard test workflow that gates merging and triggers Claude reviews.
+Standard test workflow that gates merging and triggers Claude reviews. Runs on the self-hosted homelab runner.
+
+**Fork PR blocking:** Fork PRs are blocked at the `changes` gate job (prevents arbitrary code execution on the self-hosted runner). The `all-tests-passed` aggregator job also includes the fork check directly since it uses `if: always()` which bypasses dependency skipping. Maintainers must manually test fork contributions.
 
 ### Triggers
 
-- Pull requests to any branch
+- Pull requests to any branch (same-repo only; fork PRs are skipped)
 - Pushes to `claude/**` branches
 - Manual trigger with optional ref
 

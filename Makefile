@@ -34,7 +34,9 @@ run-spotify-validation-music: build-config-tester
 	cat ${CURDIR}/configs/music_config.yaml | docker run --rm -i node-red-config-tester sh -c "cat > /app/music_config.yaml && python3 -u validate_spotify_uris.py"
 
 build-config-tester:
+	cp ${CURDIR}/.yamllint ${CURDIR}/config-test/.yamllint
 	docker build -t node-red-config-tester ./config-test/
+	rm -f ${CURDIR}/config-test/.yamllint
 
 # ============================================================================
 # Documentation Validation Targets
@@ -214,7 +216,7 @@ pre-commit: ## Run fast pre-commit checks (style, format, lint, build)
 	@cd homeautomation-go && \
 	  if ! command -v goimports >/dev/null 2>&1; then \
 	    echo "⚠️  goimports not installed. Installing..."; \
-	    go install golang.org/x/tools/cmd/goimports@latest; \
+	    go install golang.org/x/tools/cmd/goimports@v0.33.0; \
 	  fi && \
 	  GOIMPORTS=$$(command -v goimports 2>/dev/null || echo "$(HOME)/go/bin/goimports") && \
 	  unformatted=$$($$GOIMPORTS -l .) && \
@@ -318,7 +320,7 @@ format-go: ## Format Go code with gofmt and goimports
 	@cd homeautomation-go && \
 	  if ! command -v goimports >/dev/null 2>&1; then \
 	    echo "⚠️  goimports not installed. Installing..."; \
-	    go install golang.org/x/tools/cmd/goimports@latest; \
+	    go install golang.org/x/tools/cmd/goimports@v0.33.0; \
 	  fi && \
 	  (command -v goimports >/dev/null 2>&1 && goimports -w . || $(HOME)/go/bin/goimports -w .)
 	@echo "✅ Code formatted successfully"
