@@ -263,6 +263,7 @@ jobs:
 
           # Cleanup any leftover containers from previous runs (prevents exit 125 on name/port conflict)
           docker rm -f smoke-test 2>/dev/null || true
+          docker ps -q --filter "publish=8080" | xargs -r docker rm -f 2>/dev/null || true
 
           # Start container in DEV_MODE (uses mock HA server)
           # This catches any panics during initialization (e.g., issue #237)
