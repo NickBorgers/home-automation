@@ -313,8 +313,27 @@ func (s *MockHAServer) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			s.handleGetStates(wrapper, msg)
 		case "call_service":
 			s.handleCallService(wrapper, msg)
+		case "ping":
+			s.handlePing(wrapper, msg)
 		}
 	}
+}
+
+// handlePing responds to JSON ping messages with a pong to keep the connection alive.
+// The real HA client sends {"id": N, "type": "ping"} and expects {"id": N, "type": "pong"}.
+func (s *MockHAServer) handlePing(wrapper *connWrapper, msg json.RawMessage) {
+	var req struct {
+		ID int `json:"id"`
+	}
+	if err := json.Unmarshal(msg, &req); err != nil {
+		return
+	}
+	wrapper.writeMu.Lock()
+	wrapper.conn.WriteJSON(Message{
+		ID:   req.ID,
+		Type: "pong",
+	})
+	wrapper.writeMu.Unlock()
 }
 
 // handleSubscribeEvents handles event subscriptions
