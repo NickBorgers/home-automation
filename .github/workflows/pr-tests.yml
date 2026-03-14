@@ -261,32 +261,34 @@ jobs:
         run: |
           echo "🚀 Running container startup smoke test..."
 
-          # Cleanup any leftover containers from previous runs (prevents exit 125 on name/port conflict)
-          docker rm -f smoke-test 2>/dev/null || true
-          docker ps -q --filter "publish=8080" | xargs -r docker rm -f 2>/dev/null || true
+          # Use unique container name and port per run to prevent concurrent job conflicts
+          CONTAINER_NAME="smoke-test-${{ github.run_id }}"
+          HTTP_PORT=$(python3 -c "import socket; s=socket.socket(); s.bind(('', 0)); print(s.getsockname()[1]); s.close()")
+          echo "Using container name: $CONTAINER_NAME, port: $HTTP_PORT"
 
           # Start container in DEV_MODE (uses mock HA server)
           # This catches any panics during initialization (e.g., issue #237)
-          docker run -d --name smoke-test \
+          docker run -d --name "$CONTAINER_NAME" \
             -e DEV_MODE=true \
-            -p 8080:8080 \
+            -e HTTP_PORT="$HTTP_PORT" \
+            -p "$HTTP_PORT:$HTTP_PORT" \
             homeautomation-test:pr
 
           # Wait for container to either become healthy or crash
           echo "Waiting for container to start (max 30 seconds)..."
           for i in $(seq 1 30); do
             # Check if container is still running
-            if ! docker ps -q --filter "name=smoke-test" | grep -q .; then
+            if ! docker ps -q --filter "name=$CONTAINER_NAME" | grep -q .; then
               echo "❌ Container exited unexpectedly!"
               echo ""
               echo "Container logs:"
-              docker logs smoke-test
-              docker rm smoke-test || true
+              docker logs "$CONTAINER_NAME" 2>/dev/null || echo "(no logs available)"
+              docker rm "$CONTAINER_NAME" 2>/dev/null || true
               exit 1
             fi
 
             # Check if health endpoint responds
-            if curl -sf http://localhost:8080/health >/dev/null 2>&1; then
+            if curl -sf "http://localhost:$HTTP_PORT/health" >/dev/null 2>&1; then
               echo "✅ Container started successfully (health check passed)"
               break
             fi
@@ -295,9 +297,9 @@ jobs:
               echo "❌ Container failed to become healthy within 30 seconds"
               echo ""
               echo "Container logs:"
-              docker logs smoke-test
-              docker stop smoke-test || true
-              docker rm smoke-test || true
+              docker logs "$CONTAINER_NAME" 2>/dev/null || echo "(no logs available)"
+              docker stop "$CONTAINER_NAME" || true
+              docker rm "$CONTAINER_NAME" || true
               exit 1
             fi
 
@@ -305,22 +307,22 @@ jobs:
           done
 
           # Additional verification: check dashboard endpoint
-          if curl -sf http://localhost:8080/dashboard >/dev/null 2>&1; then
+          if curl -sf "http://localhost:$HTTP_PORT/dashboard" >/dev/null 2>&1; then
             echo "✅ Dashboard endpoint responding"
           else
             echo "⚠️  Dashboard endpoint not responding (non-fatal)"
           fi
 
           # Check shadow API returns valid JSON
-          if curl -sf http://localhost:8080/api/shadow | jq . >/dev/null 2>&1; then
+          if curl -sf "http://localhost:$HTTP_PORT/api/shadow" | jq . >/dev/null 2>&1; then
             echo "✅ Shadow API returns valid JSON"
           else
             echo "⚠️  Shadow API not returning valid JSON (non-fatal)"
           fi
 
           # Cleanup
-          docker stop smoke-test
-          docker rm smoke-test
+          docker stop "$CONTAINER_NAME"
+          docker rm "$CONTAINER_NAME"
           echo "✅ Container smoke test passed"
 
       - name: Docker Build Summary
