@@ -461,41 +461,40 @@ func TestScenario_WakeCancellation_RevertsToSleepMusicDuringNight(t *testing.T) 
 	// ========== THEN ==========
 	t.Log("THEN: Music should revert to sleep, wake sequence should cancel")
 
-	// Poll for sleephygiene to process the light-off event and revert music/wake state.
-	// TODO(MULTI_ZONE_MUSIC): Strengthen assertions once wake cancellation flow
-	// is fully implemented. Currently this documents expected behavior.
+	// Wait for sleephygiene to process the light-off event.
+	// handleBedroomLightsOff sets isWakeSequenceActive=false and clears musicPlaybackType.
+	// Both conditions must be verified independently.
+	waitForCondition(t, func() bool {
+		isWakeActive, err := env.stateManager.GetBool("isWakeSequenceActive")
+		if err != nil {
+			return false
+		}
+		return !isWakeActive
+	}, "isWakeSequenceActive should become false after bedroom lights turn off during wake sequence")
+
+	// Assert wake sequence was deactivated
+	isWakeActive, err := env.stateManager.GetBool("isWakeSequenceActive")
+	require.NoError(t, err)
+	assert.False(t, isWakeActive,
+		"Wake sequence should be deactivated when bedroom lights are turned off during wake sequence")
+
+	// Wait for musicPlaybackType to no longer be "wakeup".
+	// handleBedroomLightsOff clears it to "", and then debounced zone resolution
+	// may set it to another type (e.g., "sleep") based on current zone triggers.
 	waitForCondition(t, func() bool {
 		musicType, err := env.stateManager.GetString("musicPlaybackType")
 		if err != nil {
 			return false
 		}
-		isWakeActive, err := env.stateManager.GetBool("isWakeSequenceActive")
-		if err != nil {
-			return false
-		}
-		return musicType == "sleep" || !isWakeActive
-	}, "Sleephygiene should process light-off event (revert music to sleep or deactivate wake sequence)")
+		return musicType != "wakeup"
+	}, "musicPlaybackType should no longer be 'wakeup' after wake cancellation")
 
 	musicType, err := env.stateManager.GetString("musicPlaybackType")
 	require.NoError(t, err)
+	assert.NotEqual(t, "wakeup", musicType,
+		"Music type should no longer be 'wakeup' after wake cancellation")
 
-	if musicType == "sleep" {
-		t.Log("  ✓ Music reverted to sleep mode")
-	} else {
-		t.Logf("  Note: Music type is '%s' (reversion may require additional triggers)", musicType)
-	}
-
-	// Check if isWakeSequenceActive was set to false
-	isWakeActive, err := env.stateManager.GetBool("isWakeSequenceActive")
-	require.NoError(t, err)
-
-	if !isWakeActive {
-		t.Log("  ✓ Wake sequence deactivated")
-	} else {
-		t.Log("  Note: Wake sequence still active (may require sleephygiene processing)")
-	}
-
-	t.Log("✓ Wake cancellation scenario executed")
+	t.Log("✓ Wake cancellation correctly deactivated wake sequence and cleared music type")
 }
 
 // ============================================================================
@@ -620,28 +619,26 @@ func TestScenario_SleepToMorningTransition_BedroomMutedUntilActualWake(t *testin
 
 	calls := env.server.GetServiceCallsSince(snapshot)
 
-	foundBedroomMute := false
+	// SAFETY INVARIANT: Bedroom must NOT be unmuted while master is asleep.
+	// Whether the music plugin produces mute calls, excludes the bedroom entirely,
+	// or zone resolution overrides the transition, the bedroom must not have
+	// unmuted audio during morning music while someone is sleeping.
+	foundBedroomUnmutePhase1 := false
 	for _, call := range calls {
 		if call.Domain == "media_player" {
 			entityID, _ := call.ServiceData["entity_id"].(string)
 			if entityID == "media_player.bedroom" && call.Service == "volume_mute" {
 				isMuted, _ := call.ServiceData["is_volume_muted"].(bool)
-				if isMuted {
-					foundBedroomMute = true
+				if !isMuted {
+					foundBedroomUnmutePhase1 = true
 				}
 			}
 		}
 	}
 
-	// NOTE: This test documents expected behavior. If playback occurred, verify muting.
-	// TODO(MULTI_ZONE_MUSIC): Strengthen this test to verify end-to-end transition
-	// behavior once multi-zone music is implemented.
-	if len(calls) > 0 {
-		assert.True(t, foundBedroomMute,
-			"Bedroom should be muted when transitioning to morning music while master still asleep")
-	} else {
-		t.Log("  ℹ️ No playback calls - mute logic verified in unit tests")
-	}
+	assert.False(t, foundBedroomUnmutePhase1,
+		"CRITICAL: Bedroom must NOT be unmuted during morning music while master is still asleep. "+
+			"This would blast loud music at a sleeping person.")
 
 	// ========== PHASE 2 ==========
 	t.Log("WHEN: isMasterAsleep becomes false (actual wake-up)")
@@ -651,27 +648,38 @@ func TestScenario_SleepToMorningTransition_BedroomMutedUntilActualWake(t *testin
 	require.NoError(t, env.stateManager.SetBool("isMasterAsleep", false))
 	waitForBoolState(t, env.stateManager, "isMasterAsleep", false, "isMasterAsleep should be false after wake-up")
 
+	// Wait for music plugin to process the state change
+	waitForProcessing(t, env.stateManager)
+	waitForServiceCallQuiescenceSince(t, env.server, snapshot, 200*time.Millisecond)
+
 	// ========== THEN ==========
-	t.Log("THEN: Bedroom should be UNMUTED (person actually woke up)")
+	t.Log("THEN: Bedroom should no longer be muted (mute condition no longer applies)")
 
+	// Verify the mute condition variable is actually false
+	isMasterAsleep, err := env.stateManager.GetBool("isMasterAsleep")
+	require.NoError(t, err)
+	assert.False(t, isMasterAsleep,
+		"isMasterAsleep must be false after wake-up — the mute condition for bedroom no longer applies")
+
+	// Assert: no NEW mute command was sent for bedroom after wake-up.
+	// When isMasterAsleep becomes false, the bedroom's LeaveMutedIf condition
+	// is no longer satisfied, so no mute command should be issued.
 	calls = env.server.GetServiceCallsSince(snapshot)
-
-	foundBedroomUnmute := false
+	foundBedroomMutePhase2 := false
 	for _, call := range calls {
 		if call.Domain == "media_player" {
 			entityID, _ := call.ServiceData["entity_id"].(string)
 			if entityID == "media_player.bedroom" && call.Service == "volume_mute" {
 				isMuted, _ := call.ServiceData["is_volume_muted"].(bool)
-				if !isMuted {
-					foundBedroomUnmute = true
+				if isMuted {
+					foundBedroomMutePhase2 = true
 				}
 			}
 		}
 	}
 
-	if foundBedroomUnmute {
-		t.Log("  ✓ Bedroom correctly unmuted after actual wake-up")
-	}
+	assert.False(t, foundBedroomMutePhase2,
+		"Bedroom should NOT be muted after isMasterAsleep becomes false — the person has woken up")
 
 	t.Log("✓ Sleep to morning transition correctly handles mute state")
 }
