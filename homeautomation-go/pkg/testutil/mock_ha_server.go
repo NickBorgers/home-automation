@@ -352,8 +352,7 @@ func (s *MockHAServer) handleRegistryList(wrapper *connWrapper, msg json.RawMess
 // after pongWait (15s) due to read deadline expiry.
 func (s *MockHAServer) handlePing(wrapper *connWrapper, msg json.RawMessage) {
 	var req struct {
-		ID   int    `json:"id"`
-		Type string `json:"type"`
+		ID int `json:"id"`
 	}
 	if err := json.Unmarshal(msg, &req); err != nil {
 		return
