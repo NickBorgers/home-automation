@@ -313,8 +313,31 @@ func (s *MockHAServer) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			s.handleGetStates(wrapper, msg)
 		case "call_service":
 			s.handleCallService(wrapper, msg)
+		case "ping":
+			s.handlePing(wrapper, msg)
 		}
 	}
+}
+
+// handlePing responds to application-level ping messages with a pong.
+// The HA client sends {"id": N, "type": "ping"} every 5 seconds and expects
+// {"id": N, "type": "pong"} back. Without this, the client drops the connection
+// after pongWait (15s) due to read deadline expiry.
+func (s *MockHAServer) handlePing(wrapper *connWrapper, msg json.RawMessage) {
+	var req struct {
+		ID   int    `json:"id"`
+		Type string `json:"type"`
+	}
+	if err := json.Unmarshal(msg, &req); err != nil {
+		return
+	}
+
+	wrapper.writeMu.Lock()
+	wrapper.conn.WriteJSON(Message{
+		ID:   req.ID,
+		Type: "pong",
+	})
+	wrapper.writeMu.Unlock()
 }
 
 // handleSubscribeEvents handles event subscriptions
