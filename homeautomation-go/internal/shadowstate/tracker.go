@@ -1130,6 +1130,16 @@ func (tvt *TVTracker) UpdateLastBraviaReload(reloadTime time.Time, reloadCount i
 	tvt.State().Metadata.LastUpdated = time.Now()
 }
 
+// UpdateBraviaReloadFailed updates whether the last Bravia reload attempt failed
+func (tvt *TVTracker) UpdateBraviaReloadFailed(failed bool) {
+	tvt.Lock()
+	defer tvt.Unlock()
+
+	tvt.State().Outputs.BraviaReloadFailed = failed
+	tvt.State().Outputs.LastUpdate = time.Now()
+	tvt.State().Metadata.LastUpdated = time.Now()
+}
+
 // GetState returns the current shadow state (thread-safe copy)
 func (tvt *TVTracker) GetState() *TVShadowState {
 	tvt.RLock()
