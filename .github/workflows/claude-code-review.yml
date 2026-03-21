@@ -426,7 +426,7 @@ jobs:
   # This prevents malicious Dockerfile modifications from being used to build the container
   # SKIP for draft PRs (no reviews or fixes will run)
   build-devcontainer:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, homelab]
     needs: get-context
     if: |
       needs.get-context.outputs.pr_number != '' &&
@@ -470,7 +470,7 @@ jobs:
       needs.get-context.outputs.author_authorized == 'true' &&
       needs.get-context.outputs.tests_passed == 'false' &&
       needs.get-context.outputs.fix_attempts < 3
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, homelab]
     permissions:
       contents: write
       pull-requests: write
@@ -741,7 +741,7 @@ jobs:
       needs.get-context.outputs.author_authorized == 'true' &&
       needs.get-context.outputs.tests_passed == 'true' &&
       needs.get-context.outputs.config_only != 'true'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, homelab]
     permissions:
       contents: read  # Read-only: parallel reviewers only comment, merge-decision pushes fixes
       pull-requests: write
@@ -893,7 +893,7 @@ jobs:
       needs.get-context.outputs.author_authorized == 'true' &&
       needs.get-context.outputs.tests_passed == 'true' &&
       needs.get-context.outputs.config_only != 'true'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, homelab]
     permissions:
       contents: read  # Read-only: parallel reviewers only comment, merge-decision pushes fixes
       pull-requests: write
@@ -1086,7 +1086,7 @@ jobs:
       needs.get-context.outputs.author_authorized == 'true' &&
       needs.get-context.outputs.tests_passed == 'true' &&
       needs.get-context.outputs.config_only != 'true'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, homelab]
     permissions:
       contents: read  # Read-only: parallel reviewers only comment, merge-decision pushes fixes
       pull-requests: write
@@ -1245,7 +1245,7 @@ jobs:
       needs.get-context.outputs.author_authorized == 'true' &&
       needs.get-context.outputs.tests_passed == 'true' &&
       needs.get-context.outputs.has_go_code == 'true'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, homelab]
     permissions:
       contents: read  # Read-only: parallel reviewers only comment, merge-decision pushes fixes
       pull-requests: write
@@ -1395,7 +1395,7 @@ jobs:
       needs.get-context.outputs.author_authorized == 'true' &&
       needs.get-context.outputs.tests_passed == 'true' &&
       needs.get-context.outputs.config_only != 'true'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, homelab]
     permissions:
       contents: read  # Read-only: parallel reviewers only comment, merge-decision pushes fixes
       pull-requests: write
@@ -1546,7 +1546,7 @@ jobs:
       needs.get-context.outputs.reviews_already_passed != 'true' &&
       needs.get-context.outputs.author_authorized == 'true' &&
       needs.get-context.outputs.tests_passed == 'true'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, homelab]
     outputs:
       decision: ${{ steps.parse-decision.outputs.decision }}
     permissions:
@@ -1768,9 +1768,9 @@ jobs:
   # Aggregator job - use this as the required check for branch protection
   all-reviews-passed:
     name: All Required Agent Reviews
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, homelab]
     needs: [get-context, build-devcontainer, fix-test-failures, claude-review, design-review, test-review, concurrency-review, docs-review, merge-decision]
-    if: always()
+    if: always() && needs.get-context.outputs.author_authorized == 'true'
     permissions:
       statuses: write  # Required to create commit status on PR
       pull-requests: write  # Required to add label
