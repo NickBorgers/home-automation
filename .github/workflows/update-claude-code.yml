@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   update-claude-code:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, homelab]
     steps:
       - uses: actions/checkout@v4
 

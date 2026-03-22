@@ -36,7 +36,7 @@ jobs:
   # Other workflows (claude.yml, pr-tests) rebuild when .devcontainer/ changes,
   # so for a monthly scheduled job we just need to ensure the image is available.
   build-devcontainer:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, homelab]
     permissions:
       contents: read
       packages: write
@@ -76,7 +76,7 @@ jobs:
 
   check-deprecations:
     needs: build-devcontainer
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, homelab]
     timeout-minutes: 30
     permissions:
       contents: read
