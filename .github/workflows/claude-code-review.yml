@@ -618,7 +618,7 @@ jobs:
 
             [Describe what you found and fixed]
 
-            Pushed fix - triggering new test run.'" < /dev/null 2>&1 | tee /workspaces/home-automation/fix-failures-output.jsonl
+            Pushed fix - triggering new test run.'" < /dev/null 2>&1 | tee /tmp/fix-failures-output.jsonl
 
       - name: Trigger PR Tests and reviews after fix
         if: success()
@@ -727,7 +727,7 @@ jobs:
         if: always()
         with:
           name: fix-failures-output-attempt-${{ needs.get-context.outputs.fix_attempts }}
-          path: fix-failures-output.jsonl
+          path: /tmp/fix-failures-output.jsonl
           retention-days: 7
 
   # Claude review (code review) - runs after design-review
@@ -1067,14 +1067,14 @@ jobs:
             [Optional. Non-blocking observations, one sentence each. Skip section if nothing worth noting.]
 
             ### Conclusion
-            [✅ Approved | ⚠️ Needs changes | ❌ Blocking issues]'" < /dev/null 2>&1 | tee /workspaces/home-automation/design-review-output.jsonl
+            [✅ Approved | ⚠️ Needs changes | ❌ Blocking issues]'" < /dev/null 2>&1 | tee /tmp/design-review-output.jsonl
 
       - name: Upload design review output
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: design-review-output
-          path: design-review-output.jsonl
+          path: /tmp/design-review-output.jsonl
           retention-days: 7
 
   # Test-focused reviewer - runs in parallel with other reviews
@@ -1227,14 +1227,14 @@ jobs:
             [Optional. Non-blocking observations, one sentence each. Skip section if nothing worth noting.]
 
             ### Conclusion
-            [✅ Approved | ⚠️ Needs changes | ❌ Blocking issues]'" < /dev/null 2>&1 | tee /workspaces/home-automation/test-review-output.jsonl
+            [✅ Approved | ⚠️ Needs changes | ❌ Blocking issues]'" < /dev/null 2>&1 | tee /tmp/test-review-output.jsonl
 
       - name: Upload test review output
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: test-review-output
-          path: test-review-output.jsonl
+          path: /tmp/test-review-output.jsonl
           retention-days: 7
 
   # Concurrency/race condition specialist - runs in parallel with other reviews
@@ -1378,14 +1378,14 @@ jobs:
             [Optional. Non-blocking observations, one sentence each. Skip section if nothing worth noting.]
 
             ### Conclusion
-            [✅ Approved | ⚠️ Needs changes | ❌ Blocking issues]'" < /dev/null 2>&1 | tee /workspaces/home-automation/concurrency-review-output.jsonl
+            [✅ Approved | ⚠️ Needs changes | ❌ Blocking issues]'" < /dev/null 2>&1 | tee /tmp/concurrency-review-output.jsonl
 
       - name: Upload concurrency review output
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: concurrency-review-output
-          path: concurrency-review-output.jsonl
+          path: /tmp/concurrency-review-output.jsonl
           retention-days: 7
 
   # Documentation update specialist - runs in parallel with other reviews
@@ -1531,14 +1531,14 @@ jobs:
             [Optional. Non-blocking observations, one sentence each. Skip section if nothing worth noting.]
 
             ### Conclusion
-            [✅ Approved | ⚠️ Needs changes | ❌ Blocking issues]'" < /dev/null 2>&1 | tee /workspaces/home-automation/docs-review-output.jsonl
+            [✅ Approved | ⚠️ Needs changes | ❌ Blocking issues]'" < /dev/null 2>&1 | tee /tmp/docs-review-output.jsonl
 
       - name: Upload documentation review output
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: docs-review-output
-          path: docs-review-output.jsonl
+          path: /tmp/docs-review-output.jsonl
           retention-days: 7
 
   # Final decision maker - synthesizes all reviews and makes go/no-go call
@@ -1727,14 +1727,14 @@ jobs:
             [If GO: \"Ready for merge to main and production deployment.\"]
             [If NO-GO: List specific blockers that must be resolved.]
 
-            [If you made fixes: \"Applied fixes: [brief description]\"]'" < /dev/null 2>&1 | tee /workspaces/home-automation/merge-decision-output.jsonl
+            [If you made fixes: \"Applied fixes: [brief description]\"]'" < /dev/null 2>&1 | tee /tmp/merge-decision-output.jsonl
 
       - name: Upload merge decision output
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: merge-decision-output
-          path: merge-decision-output.jsonl
+          path: /tmp/merge-decision-output.jsonl
           retention-days: 7
 
       - name: Parse merge decision from PR comments
