@@ -29,5 +29,5 @@
     "SSH_AUTH_SOCK": ""
   },
   "updateRemoteUserUID": true,
-  "remoteUser": "${localEnv:USER}"
+  "remoteUser": "vscode"
 }
