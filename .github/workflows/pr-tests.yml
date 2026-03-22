@@ -1,15 +1,16 @@
 name: PR Tests
 
-# SECURITY NOTE: This workflow runs on a self-hosted runner.
-# Fork PRs are blocked to prevent arbitrary code execution on the homelab runner.
-# Only PRs from branches within this repository (non-fork) will run tests.
+# SECURITY NOTE: This workflow runs on GitHub-hosted runners (ubuntu-latest).
+# Fork PRs are blocked to prevent unnecessary CI consumption and to maintain
+# the same-repo-only policy for test execution.
 #
 # Security model:
-# - Self-hosted runner: jobs only run for same-repo PRs (fork PRs are skipped)
+# - GitHub-hosted runners: safe for untrusted code (ephemeral VMs)
 # - READ-ONLY permissions (contents: read, pull-requests: read)
 # - No secrets are exposed to PR builds
 # - Push trigger limited to claude/** branches (requires write access)
 # - workflow_dispatch requires write access
+# - Fork PR check retained for consistency and to avoid wasting CI minutes
 #
 # External contributors: A maintainer must manually test fork PRs.
 #
@@ -48,7 +49,7 @@ jobs:
     # Block fork PRs from running on self-hosted runner (security: prevents arbitrary code execution)
     # Non-PR events (push, workflow_dispatch) are safe — they require write access to the repo
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: [self-hosted, homelab]
+    runs-on: ubuntu-latest
     outputs:
       code: ${{ steps.filter.outputs.code }}
       docker: ${{ steps.filter.outputs.docker }}
@@ -76,7 +77,7 @@ jobs:
     name: Go Style & Linting
     needs: changes
     if: needs.changes.outputs.code == 'true'
-    runs-on: [self-hosted, homelab]
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout code
@@ -101,7 +102,7 @@ jobs:
     name: Unit Tests (Required for PR Merge)
     needs: changes
     if: needs.changes.outputs.code == 'true'
-    runs-on: [self-hosted, homelab]
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout code
@@ -123,7 +124,7 @@ jobs:
     name: Integration Tests (Required for PR Merge)
     needs: changes
     if: needs.changes.outputs.code == 'true'
-    runs-on: [self-hosted, homelab]
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout code
@@ -147,7 +148,7 @@ jobs:
     name: Config Validation Tests
     needs: changes
     if: needs.changes.outputs.code == 'true'
-    runs-on: [self-hosted, homelab]
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout code
@@ -191,7 +192,7 @@ jobs:
     name: Generated Diagram Validation
     needs: changes
     if: needs.changes.outputs.code == 'true'
-    runs-on: [self-hosted, homelab]
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout code
@@ -222,7 +223,7 @@ jobs:
     name: Docker Build Validation
     needs: changes
     if: needs.changes.outputs.docker == 'true'
-    runs-on: [self-hosted, homelab]
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout code
@@ -337,7 +338,7 @@ jobs:
 
   all-tests-passed:
     name: All Required Tests
-    runs-on: [self-hosted, homelab]
+    runs-on: ubuntu-latest
     needs: [changes, style-checks, unit-tests, integration-tests, config-tests, diagram-validation, docker-build]
     if: always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
 

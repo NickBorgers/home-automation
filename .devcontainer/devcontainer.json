@@ -17,15 +17,17 @@
       ]
     }
   },
+  "onCreateCommand": "bash .devcontainer/setup-user.sh \"${localEnv:USER}\"",
   "postCreateCommand": "bash .devcontainer/post-create.sh",
   "postStartCommand": "bash .devcontainer/fix-dns-order.sh",
   "forwardPorts": [],
   "portsAttributes": {},
   "mounts": [
-    "source=${localEnv:HOME}/.config/gh,target=/home/vscode/.config/gh,type=bind"
+    "source=${localEnv:HOME}/.config/gh,target=/tmp/gh-config,type=bind"
   ],
   "remoteEnv": {
     "SSH_AUTH_SOCK": ""
   },
+  "updateRemoteUserUID": true,
   "remoteUser": "vscode"
 }
