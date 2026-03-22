@@ -1423,7 +1423,8 @@ func (c *Client) reloadConfigEntryREST(ctx context.Context, entryID string) erro
 	}
 	req.Header.Set("Authorization", "Bearer "+c.token)
 
-	resp, err := http.DefaultClient.Do(req)
+	httpClient := &http.Client{Timeout: 10 * time.Second}
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("failed to reload config entry %s: %w", entryID, err)
 	}
