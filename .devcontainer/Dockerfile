@@ -71,5 +71,8 @@ RUN cd ~/.claude/plugins/cache/playwright-skill/playwright-skill/*/skills/playwr
     && npm install \
     && npx playwright install chromium
 
-# Note: devcontainers/ci runs commands as the Dockerfile's USER (vscode since line 59).
-# Claude Code refuses --dangerously-skip-permissions as root, so we must NOT switch back.
+# Switch back to root so onCreateCommand can create users dynamically.
+# The devcontainer's remoteUser setting ensures all commands run as the correct
+# non-root user. Claude Code refuses --dangerously-skip-permissions as root,
+# but remoteUser ensures we're never root at runtime.
+USER root
