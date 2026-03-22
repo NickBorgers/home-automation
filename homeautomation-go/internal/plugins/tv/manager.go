@@ -103,6 +103,7 @@ type Manager struct {
 	dailyBraviaReloadCount   int
 	braviaReloadCountResetAt time.Time
 	braviaReloadInProgress   bool
+	braviaReloadFailed       bool // true when last reload attempt failed; fallback trusts sync box
 
 	// For testing: injectable time and sleep functions
 	timeNow   func() time.Time
@@ -273,6 +274,19 @@ func (m *Manager) handleTVRemoteChange(entityID string, oldState, newState *ha.S
 	m.tvRemoteMu.Lock()
 	m.tvRemoteOn = isOn
 	m.tvRemoteMu.Unlock()
+
+	// Clear reload-failed flag when Bravia reports a real state (integration is responsive again)
+	if newState.State != "unavailable" {
+		m.braviaMu.Lock()
+		if m.braviaReloadFailed {
+			m.braviaReloadFailed = false
+			m.braviaMu.Unlock()
+			m.shadowTracker.UpdateBraviaReloadFailed(false)
+			m.logger.Info("Bravia integration recovered, cleared reload-failed fallback")
+		} else {
+			m.braviaMu.Unlock()
+		}
+	}
 
 	m.logger.Debug("TV media_player state changed",
 		zap.String("entity_id", entityID),
@@ -503,20 +517,31 @@ func (m *Manager) calculateTVPlaying(hdmiInput string) {
 	m.tvRemoteMu.RUnlock()
 
 	if !tvPanelOn {
-		m.logger.Debug("TV panel is off, setting isTVPlaying to false",
-			zap.String("hdmi_input", hdmiInput))
+		// Check if we should trust the sync box instead (Bravia reload failed)
+		m.braviaMu.Lock()
+		reloadFailed := m.braviaReloadFailed
+		m.braviaMu.Unlock()
 
-		if err := m.stateManager.SetBool("isTVPlaying", false); err != nil {
-			if errors.Is(err, state.ErrReadOnlyMode) {
-				m.logger.Debug("Skipping isTVPlaying update in read-only mode",
-					zap.Bool("is_playing", false))
-			} else {
-				m.logger.Error("Failed to set isTVPlaying", zap.Error(err))
+		if reloadFailed {
+			m.logger.Warn("TV panel reports off but Bravia reload failed — trusting sync box state",
+				zap.String("hdmi_input", hdmiInput))
+			// Fall through to normal HDMI input / Apple TV calculation below
+		} else {
+			m.logger.Debug("TV panel is off, setting isTVPlaying to false",
+				zap.String("hdmi_input", hdmiInput))
+
+			if err := m.stateManager.SetBool("isTVPlaying", false); err != nil {
+				if errors.Is(err, state.ErrReadOnlyMode) {
+					m.logger.Debug("Skipping isTVPlaying update in read-only mode",
+						zap.Bool("is_playing", false))
+				} else {
+					m.logger.Error("Failed to set isTVPlaying", zap.Error(err))
+				}
 			}
+			m.shadowTracker.UpdateTVPlaying(false)
+			m.controlSyncBoxLightSync(false)
+			return
 		}
-		m.shadowTracker.UpdateTVPlaying(false)
-		m.controlSyncBoxLightSync(false)
-		return
 	}
 
 	// Check if Apple TV is the current input
@@ -946,8 +971,24 @@ func (m *Manager) reloadBraviaIntegration(trigger string) {
 		m.logger.Error("Failed to reload Bravia TV integration",
 			zap.Error(err),
 			zap.String("entry_id", BraviaEntryID))
+
+		m.braviaMu.Lock()
+		m.braviaReloadFailed = true
+		m.braviaMu.Unlock()
+		m.shadowTracker.UpdateBraviaReloadFailed(true)
+
+		// Recalculate isTVPlaying with fallback now that we know reload failed
+		hdmiInputState, getErr := m.haClient.GetState(SyncBoxHDMIInputEntity)
+		if getErr == nil && hdmiInputState != nil {
+			m.calculateTVPlaying(hdmiInputState.State)
+		}
 		return
 	}
+
+	m.braviaMu.Lock()
+	m.braviaReloadFailed = false
+	m.braviaMu.Unlock()
+	m.shadowTracker.UpdateBraviaReloadFailed(false)
 
 	m.logger.Info("Bravia TV integration reload completed, waiting for state to update",
 		zap.Duration("delay", BraviaPostReloadDelay))
@@ -1015,10 +1056,10 @@ func (m *Manager) canAttemptBraviaReload() bool {
 }
 
 // GetBraviaReloadState returns the current Bravia reload state for testing
-func (m *Manager) GetBraviaReloadState() (lastReload time.Time, dailyCount int, inProgress bool) {
+func (m *Manager) GetBraviaReloadState() (lastReload time.Time, dailyCount int, inProgress bool, reloadFailed bool) {
 	m.braviaMu.Lock()
 	defer m.braviaMu.Unlock()
-	return m.lastBraviaReload, m.dailyBraviaReloadCount, m.braviaReloadInProgress
+	return m.lastBraviaReload, m.dailyBraviaReloadCount, m.braviaReloadInProgress, m.braviaReloadFailed
 }
 
 // GetRecoveryState returns the current recovery state for testing
