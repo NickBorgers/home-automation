@@ -117,6 +117,14 @@ func (m *Manager) addSpeakersToZone(zone *Zone, speakers []string, trigger strin
 			continue
 		}
 
+		// Zero volume before joining to prevent audio pop when speaker starts
+		// playing at its current volume before fadeInSpeaker can zero it.
+		if err := m.speakerSetVolume(p.PlayerName, 0); err != nil {
+			m.logger.Warn("Failed to zero volume before group join",
+				zap.String("speaker", p.PlayerName),
+				zap.Error(err))
+		}
+
 		// Join the zone's Sonos group
 		if err := m.speakerJoinGroup(p.PlayerName, zone.LeadSpeaker); err != nil {
 			m.logger.Error("Failed to join speaker to zone",

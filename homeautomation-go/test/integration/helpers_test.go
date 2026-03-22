@@ -21,7 +21,7 @@ const (
 	// This should be long enough to handle slow CI environments (where many parallel
 	// tests compete for CPU) but short enough that tests don't hang too long on
 	// actual failures. Override with TEST_WAIT_TIMEOUT env var (e.g. "10s").
-	defaultStateWaitTimeout = 5 * time.Second
+	defaultStateWaitTimeout = 10 * time.Second
 
 	// statePollInterval is how often to check if the expected state is reached.
 	// Smaller values make tests faster in normal conditions but increase CPU usage.

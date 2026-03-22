@@ -3726,6 +3726,74 @@ func TestAddSpeakersToZone_ExcludeIfRespected(t *testing.T) {
 		"No join call should be made when speaker is excluded by exclude_if condition")
 }
 
+// TestAddSpeakersToZone_ZerosVolumeBeforeJoin verifies that addSpeakersToZone
+// sets speaker volume to 0 BEFORE joining the Sonos group.
+// Regression test for issue #830: without pre-zeroing, the speaker plays at its
+// previous volume during the window between group join and fadeInSpeaker's volume
+// reset, causing an audible pop.
+func TestAddSpeakersToZone_ZerosVolumeBeforeJoin(t *testing.T) {
+	t.Parallel()
+	env := testutil.NewEnv(t)
+
+	config := &MusicConfig{
+		Music: map[string]MusicMode{
+			"winddown": {
+				Participants: []Participant{
+					{PlayerName: "Kitchen", BaseVolume: 10},
+					{PlayerName: "Primary Bathroom", BaseVolume: 6},
+				},
+				PlaybackOptions: []PlaybackOption{
+					{URI: "https://tidal.com/browse/playlist/test", MediaType: "tidal", VolumeMultiplier: 1.0},
+				},
+			},
+		},
+	}
+
+	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, false, nil, nil)
+	manager.SetSleepFunc(func(d time.Duration) {})
+
+	_ = env.StateMgr.SetBool("isMasterAsleep", false)
+
+	zone := &Zone{
+		Name:             "winddown",
+		MusicType:        "winddown",
+		LeadSpeaker:      "Kitchen",
+		VolumeMultiplier: 1.0,
+		Participants: []ParticipantWithVolume{
+			{PlayerName: "Kitchen", BaseVolume: 10, Volume: 10},
+		},
+	}
+
+	snapshot := env.MockHA.ServiceCallCount()
+
+	manager.addSpeakersToZone(zone, []string{"Primary Bathroom"}, "test")
+
+	calls := env.MockHA.GetServiceCallsSince(snapshot)
+
+	// Find the indices of the volume_set(0) and join calls for Primary Bathroom
+	volumeZeroIdx := -1
+	joinIdx := -1
+	for i, call := range calls {
+		if call.Domain == "media_player" && call.Service == "volume_set" {
+			if vol, ok := call.Data["volume_level"].(float64); ok && vol == 0.0 {
+				if eid, ok := call.Data["entity_id"].(string); ok && eid == "media_player.primary_bathroom" {
+					volumeZeroIdx = i
+				}
+			}
+		}
+		if call.Domain == "media_player" && call.Service == "join" {
+			joinIdx = i
+		}
+	}
+
+	assert.NotEqual(t, -1, volumeZeroIdx, "Expected a volume_set(0) call for Primary Bathroom")
+	assert.NotEqual(t, -1, joinIdx, "Expected a media_player.join call")
+	if volumeZeroIdx >= 0 && joinIdx >= 0 {
+		assert.Less(t, volumeZeroIdx, joinIdx,
+			"volume_set(0) must come BEFORE join to prevent audio pop (issue #830)")
+	}
+}
+
 // TestFadeInSpeaker_MultiZone_DoesNotAbortWhenOtherZoneActive verifies that
 // fade-in for a speaker in one zone does not abort when another zone is also
 // active with a different musicPlaybackType (issue #772).
