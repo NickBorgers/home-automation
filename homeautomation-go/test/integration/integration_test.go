@@ -123,7 +123,7 @@ func TestStateChangeSubscription(t *testing.T) {
 	// Wait for subscription callback to fire — state update and callback delivery are
 	// asynchronous; waitForBoolState returns when the manager reflects the new value,
 	// but the subscriber goroutine may not have run yet under high CI load.
-	assert.Eventually(t, func() bool {
+	require.Eventually(t, func() bool {
 		mu.Lock()
 		defer mu.Unlock()
 		return changeCount >= 1
