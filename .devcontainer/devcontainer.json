@@ -26,8 +26,7 @@
     "source=${localEnv:HOME}/.config/gh,target=/tmp/gh-config,type=bind"
   ],
   "remoteEnv": {
-    "SSH_AUTH_SOCK": "",
-    "CLAUDE_CODE_OAUTH_TOKEN": "${localEnv:CLAUDE_CODE_OAUTH_TOKEN}"
+    "SSH_AUTH_SOCK": ""
   },
   "updateRemoteUserUID": true,
   "remoteUser": "vscode"
