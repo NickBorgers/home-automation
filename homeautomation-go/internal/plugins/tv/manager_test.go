@@ -1599,12 +1599,15 @@ func TestTVManager_BraviaStaleness_HDMIInputChange_TriggersReload(t *testing.T) 
 	}
 
 	// Verify reload state was tracked
-	lastReload, dailyCount, _ := manager.GetBraviaReloadState()
+	lastReload, dailyCount, _, reloadFailed := manager.GetBraviaReloadState()
 	if lastReload.IsZero() {
 		t.Error("Expected lastBraviaReload to be set")
 	}
 	if dailyCount != 1 {
 		t.Errorf("Expected dailyBraviaReloadCount to be 1, got %d", dailyCount)
+	}
+	if reloadFailed {
+		t.Error("Expected braviaReloadFailed to be false after successful reload")
 	}
 }
 
@@ -1892,7 +1895,7 @@ func TestTVManager_BraviaReload_InProgressSkipsDuplicate(t *testing.T) {
 	<-reloadStarted
 
 	// Verify reload is in progress
-	_, _, inProgress := manager.GetBraviaReloadState()
+	_, _, inProgress, _ := manager.GetBraviaReloadState()
 	if !inProgress {
 		t.Error("Expected reload to be in progress")
 	}
@@ -2071,7 +2074,7 @@ func TestTVManager_BraviaReload_DailyCounterReset(t *testing.T) {
 	}
 
 	// Verify daily count was reset and incremented to 1
-	_, dailyCount, _ := manager.GetBraviaReloadState()
+	_, dailyCount, _, _ := manager.GetBraviaReloadState()
 	if dailyCount != 1 {
 		t.Errorf("Expected dailyBraviaReloadCount to be 1 after reset, got %d", dailyCount)
 	}
@@ -2177,5 +2180,176 @@ func TestTVManager_SyncBoxNormalPowerOn_DoesNotForceNotify(t *testing.T) {
 	count := atomic.LoadInt32(&notifyCount)
 	if count != 0 {
 		t.Errorf("Expected no force-notification for normal power-on, but got %d notifications", count)
+	}
+}
+
+// ============================================================================
+// Bravia Reload Failure Fallback Tests
+// ============================================================================
+
+func TestTVManager_CalculateTVPlaying_BraviaReloadFailed_TrustsSyncBox(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
+
+	// Set up: sync box on, TV remote off (stale), reload has failed
+	if err := stateMgr.SetBool("isTVon", true); err != nil {
+		t.Fatalf("Failed to set isTVon: %v", err)
+	}
+	manager.tvRemoteMu.Lock()
+	manager.tvRemoteOn = false
+	manager.tvRemoteMu.Unlock()
+
+	manager.braviaMu.Lock()
+	manager.braviaReloadFailed = true
+	manager.braviaMu.Unlock()
+
+	// Non-AppleTV input should be treated as playing (trusting sync box)
+	manager.calculateTVPlaying("Nintendo Switch")
+
+	isTVPlaying, err := stateMgr.GetBool("isTVPlaying")
+	if err != nil {
+		t.Fatalf("Failed to get isTVPlaying: %v", err)
+	}
+	if !isTVPlaying {
+		t.Error("Expected isTVPlaying=true when Bravia reload failed and sync box is on (non-AppleTV input)")
+	}
+}
+
+func TestTVManager_CalculateTVPlaying_BraviaReloadFailed_AppleTVInput(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
+
+	// Set up: sync box on, TV remote off (stale), reload has failed, Apple TV playing
+	if err := stateMgr.SetBool("isTVon", true); err != nil {
+		t.Fatalf("Failed to set isTVon: %v", err)
+	}
+	if err := stateMgr.SetBool("isAppleTVPlaying", true); err != nil {
+		t.Fatalf("Failed to set isAppleTVPlaying: %v", err)
+	}
+	manager.tvRemoteMu.Lock()
+	manager.tvRemoteOn = false
+	manager.tvRemoteMu.Unlock()
+
+	manager.braviaMu.Lock()
+	manager.braviaReloadFailed = true
+	manager.braviaMu.Unlock()
+
+	manager.calculateTVPlaying("AppleTV")
+
+	isTVPlaying, err := stateMgr.GetBool("isTVPlaying")
+	if err != nil {
+		t.Fatalf("Failed to get isTVPlaying: %v", err)
+	}
+	if !isTVPlaying {
+		t.Error("Expected isTVPlaying=true when Bravia reload failed, Apple TV is playing, and sync box is on")
+	}
+}
+
+func TestTVManager_CalculateTVPlaying_BraviaReloadSucceeded_BlocksWhenTVOff(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
+
+	// Set up: sync box on, TV remote off, reload has NOT failed (normal behavior)
+	if err := stateMgr.SetBool("isTVon", true); err != nil {
+		t.Fatalf("Failed to set isTVon: %v", err)
+	}
+	manager.tvRemoteMu.Lock()
+	manager.tvRemoteOn = false
+	manager.tvRemoteMu.Unlock()
+
+	// braviaReloadFailed defaults to false — normal behavior preserved
+	manager.calculateTVPlaying("Nintendo Switch")
+
+	isTVPlaying, err := stateMgr.GetBool("isTVPlaying")
+	if err != nil {
+		t.Fatalf("Failed to get isTVPlaying: %v", err)
+	}
+	if isTVPlaying {
+		t.Error("Expected isTVPlaying=false when TV panel is off and Bravia reload has not failed")
+	}
+}
+
+func TestTVManager_BraviaReloadFailure_SetsFlag_And_TriggersRecalculation(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
+	manager.sleepFunc = func(d time.Duration) {}
+	manager.timeNow = time.Now
+
+	// Set up: sync box on, TV remote off (stale)
+	if err := stateMgr.SetBool("isTVon", true); err != nil {
+		t.Fatalf("Failed to set isTVon: %v", err)
+	}
+	manager.tvRemoteMu.Lock()
+	manager.tvRemoteOn = false
+	manager.tvRemoteMu.Unlock()
+
+	// Configure mock to fail reload (simulating HTTP 401)
+	mockHA.SetReloadError(BraviaEntryID, fmt.Errorf("failed to reload config entry %s: HTTP 401", BraviaEntryID))
+	mockHA.SetState(SyncBoxHDMIInputEntity, "Nintendo Switch", nil)
+
+	// Trigger reload (synchronous since sleepFunc is no-op)
+	manager.reloadBraviaIntegration("test")
+
+	// Verify the reload-failed flag was set
+	_, _, _, reloadFailed := manager.GetBraviaReloadState()
+	if !reloadFailed {
+		t.Error("Expected braviaReloadFailed to be true after failed reload")
+	}
+
+	// Verify isTVPlaying was recalculated with fallback (trusting sync box)
+	isTVPlaying, err := stateMgr.GetBool("isTVPlaying")
+	if err != nil {
+		t.Fatalf("Failed to get isTVPlaying: %v", err)
+	}
+	if !isTVPlaying {
+		t.Error("Expected isTVPlaying=true after reload failure triggers recalculation with fallback")
+	}
+}
+
+func TestTVManager_BraviaReloadFailed_ClearedOnTVRemoteChange(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
+
+	// Set reload-failed flag
+	manager.braviaMu.Lock()
+	manager.braviaReloadFailed = true
+	manager.braviaMu.Unlock()
+
+	// Simulate TV remote reporting a real state
+	newState := &ha.State{
+		EntityID: TVRemoteEntity,
+		State:    "on",
+	}
+	manager.handleTVRemoteChange(TVRemoteEntity, nil, newState)
+
+	// Verify flag was cleared
+	_, _, _, reloadFailed := manager.GetBraviaReloadState()
+	if reloadFailed {
+		t.Error("Expected braviaReloadFailed to be cleared after TV remote reports a real state")
 	}
 }

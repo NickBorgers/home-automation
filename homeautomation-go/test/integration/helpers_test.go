@@ -9,7 +9,6 @@ import (
 	"homeautomation/internal/ntfy"
 	"homeautomation/internal/state"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -55,7 +54,7 @@ func init() {
 // Use this instead of time.Sleep after triggering state changes that should set boolean values.
 func waitForBoolState(t *testing.T, manager *state.Manager, key string, expected bool, msgAndArgs ...interface{}) {
 	t.Helper()
-	assert.Eventually(t, func() bool {
+	require.Eventually(t, func() bool {
 		val, err := manager.GetBool(key)
 		return err == nil && val == expected
 	}, stateWaitTimeout, statePollInterval, msgAndArgs...)
@@ -65,7 +64,7 @@ func waitForBoolState(t *testing.T, manager *state.Manager, key string, expected
 // Use this instead of time.Sleep after triggering state changes that should set string values.
 func waitForStringState(t *testing.T, manager *state.Manager, key string, expected string, msgAndArgs ...interface{}) {
 	t.Helper()
-	assert.Eventually(t, func() bool {
+	require.Eventually(t, func() bool {
 		val, err := manager.GetString(key)
 		return err == nil && val == expected
 	}, stateWaitTimeout, statePollInterval, msgAndArgs...)
@@ -75,7 +74,7 @@ func waitForStringState(t *testing.T, manager *state.Manager, key string, expect
 // Use this when multiple values are acceptable (e.g., "red" or "yellow" are both valid low-energy states).
 func waitForStringStateOneOf(t *testing.T, manager *state.Manager, key string, expected []string, msgAndArgs ...interface{}) {
 	t.Helper()
-	assert.Eventually(t, func() bool {
+	require.Eventually(t, func() bool {
 		val, err := manager.GetString(key)
 		if err != nil {
 			return false
@@ -93,7 +92,7 @@ func waitForStringStateOneOf(t *testing.T, manager *state.Manager, key string, e
 // Use this when you need to verify a service call was made for a specific entity.
 func waitForServiceCallWithEntity(t *testing.T, server *MockHAServer, domain, service, entityID string, msgAndArgs ...interface{}) {
 	t.Helper()
-	assert.Eventually(t, func() bool {
+	require.Eventually(t, func() bool {
 		calls := server.GetServiceCalls()
 		for _, call := range calls {
 			if call.Domain == domain && call.Service == service {
@@ -110,7 +109,7 @@ func waitForServiceCallWithEntity(t *testing.T, server *MockHAServer, domain, se
 // is found among calls recorded after the given index.
 func waitForServiceCallWithEntitySince(t *testing.T, server *MockHAServer, since int, domain, service, entityID string, msgAndArgs ...interface{}) {
 	t.Helper()
-	assert.Eventually(t, func() bool {
+	require.Eventually(t, func() bool {
 		calls := server.GetServiceCallsSince(since)
 		for _, call := range calls {
 			if call.Domain == domain && call.Service == service {
@@ -127,7 +126,7 @@ func waitForServiceCallWithEntitySince(t *testing.T, server *MockHAServer, since
 // recorded after the given index.
 func waitForServiceCallCountSince(t *testing.T, server *MockHAServer, since int, expectedCount int, msgAndArgs ...interface{}) {
 	t.Helper()
-	assert.Eventually(t, func() bool {
+	require.Eventually(t, func() bool {
 		calls := server.GetServiceCallsSince(since)
 		return len(calls) >= expectedCount
 	}, stateWaitTimeout, statePollInterval, msgAndArgs...)
@@ -137,7 +136,7 @@ func waitForServiceCallCountSince(t *testing.T, server *MockHAServer, since int,
 // among calls recorded after the given index.
 func waitForServiceCallSince(t *testing.T, server *MockHAServer, since int, domain, service string, msgAndArgs ...interface{}) {
 	t.Helper()
-	assert.Eventually(t, func() bool {
+	require.Eventually(t, func() bool {
 		calls := server.GetServiceCallsSince(since)
 		for _, call := range calls {
 			if call.Domain == domain && call.Service == service {
@@ -153,14 +152,14 @@ func waitForServiceCallSince(t *testing.T, server *MockHAServer, since int, doma
 func waitForServiceCallsToStabilizeSince(t *testing.T, server *MockHAServer, since int, stabilizeWindow time.Duration) {
 	t.Helper()
 	// First wait for at least one call to appear
-	assert.Eventually(t, func() bool {
+	require.Eventually(t, func() bool {
 		return len(server.GetServiceCallsSince(since)) > 0
 	}, stateWaitTimeout, statePollInterval, "expected at least one service call since snapshot before checking stability")
 
 	// Then wait for count to stop changing for stabilizeWindow
 	lastCount := -1
 	var stableStart time.Time
-	assert.Eventually(t, func() bool {
+	require.Eventually(t, func() bool {
 		count := len(server.GetServiceCallsSince(since))
 		if count != lastCount {
 			lastCount = count
@@ -218,14 +217,14 @@ func waitForCondition(t *testing.T, condition func() bool, msgAndArgs ...interfa
 func waitForServiceCallsToStabilize(t *testing.T, server *MockHAServer, stabilizeWindow time.Duration) {
 	t.Helper()
 	// First wait for at least one call to appear
-	assert.Eventually(t, func() bool {
+	require.Eventually(t, func() bool {
 		return len(server.GetServiceCalls()) > 0
 	}, stateWaitTimeout, statePollInterval, "expected at least one service call before checking stability")
 
 	// Then wait for count to stop changing for stabilizeWindow
 	lastCount := -1
 	var stableStart time.Time
-	assert.Eventually(t, func() bool {
+	require.Eventually(t, func() bool {
 		count := len(server.GetServiceCalls())
 		if count != lastCount {
 			lastCount = count
@@ -240,7 +239,7 @@ func waitForServiceCallsToStabilize(t *testing.T, server *MockHAServer, stabiliz
 // Use this when testing notification delivery through the Ntfy service.
 func waitForNtfyNotification(t *testing.T, mockNtfy *ntfy.MockClient, title string, msgAndArgs ...interface{}) {
 	t.Helper()
-	assert.Eventually(t, func() bool {
+	require.Eventually(t, func() bool {
 		calls := mockNtfy.GetCalls()
 		for _, call := range calls {
 			if call.Title == title {
@@ -255,7 +254,7 @@ func waitForNtfyNotification(t *testing.T, mockNtfy *ntfy.MockClient, title stri
 // Use this instead of time.Sleep when waiting for server-side state propagation.
 func waitForServerState(t *testing.T, server *MockHAServer, entityID, expectedState string, msgAndArgs ...interface{}) {
 	t.Helper()
-	assert.Eventually(t, func() bool {
+	require.Eventually(t, func() bool {
 		state := server.GetState(entityID)
 		return state != nil && state.State == expectedState
 	}, stateWaitTimeout, statePollInterval, msgAndArgs...)
@@ -265,7 +264,7 @@ func waitForServerState(t *testing.T, server *MockHAServer, entityID, expectedSt
 // Use this instead of time.Sleep when waiting for subscriber callbacks to complete.
 func waitForSubscriberNotification(t *testing.T, counter *int32, expected int32, msgAndArgs ...interface{}) {
 	t.Helper()
-	assert.Eventually(t, func() bool {
+	require.Eventually(t, func() bool {
 		return atomic.LoadInt32(counter) >= expected
 	}, stateWaitTimeout, statePollInterval, msgAndArgs...)
 }
