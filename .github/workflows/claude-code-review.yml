@@ -532,7 +532,7 @@ jobs:
           push: never
           env: |
 
-            CLAUDE_CODE_OAUTH_TOKEN=${{ env.CLAUDE_CODE_OAUTH_TOKEN }}
+            CLAUDE_CODE_OAUTH_TOKEN=${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
             GH_TOKEN=${{ secrets.WORKFLOW_PAT }}
             PR_NUMBER=${{ needs.get-context.outputs.pr_number }}
             PR_TITLE=${{ needs.get-context.outputs.pr_title }}
@@ -813,7 +813,7 @@ jobs:
           push: never
           env: |
 
-            CLAUDE_CODE_OAUTH_TOKEN=${{ env.CLAUDE_CODE_OAUTH_TOKEN }}
+            CLAUDE_CODE_OAUTH_TOKEN=${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
             GH_TOKEN=${{ secrets.WORKFLOW_PAT }}
             PR_NUMBER=${{ needs.get-context.outputs.pr_number }}
             REPO=${{ github.repository }}
@@ -970,7 +970,7 @@ jobs:
           push: never
           env: |
 
-            CLAUDE_CODE_OAUTH_TOKEN=${{ env.CLAUDE_CODE_OAUTH_TOKEN }}
+            CLAUDE_CODE_OAUTH_TOKEN=${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
             GH_TOKEN=${{ secrets.WORKFLOW_PAT }}
             PR_NUMBER=${{ needs.get-context.outputs.pr_number }}
             PR_TITLE=${{ needs.get-context.outputs.pr_title }}
@@ -1164,7 +1164,7 @@ jobs:
           push: never
           env: |
 
-            CLAUDE_CODE_OAUTH_TOKEN=${{ env.CLAUDE_CODE_OAUTH_TOKEN }}
+            CLAUDE_CODE_OAUTH_TOKEN=${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
             GH_TOKEN=${{ secrets.WORKFLOW_PAT }}
             PR_NUMBER=${{ needs.get-context.outputs.pr_number }}
             HEAD_REF=${{ needs.get-context.outputs.head_ref }}
@@ -1324,7 +1324,7 @@ jobs:
           push: never
           env: |
 
-            CLAUDE_CODE_OAUTH_TOKEN=${{ env.CLAUDE_CODE_OAUTH_TOKEN }}
+            CLAUDE_CODE_OAUTH_TOKEN=${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
             GH_TOKEN=${{ secrets.WORKFLOW_PAT }}
             PR_NUMBER=${{ needs.get-context.outputs.pr_number }}
             HEAD_REF=${{ needs.get-context.outputs.head_ref }}
@@ -1475,7 +1475,7 @@ jobs:
           push: never
           env: |
 
-            CLAUDE_CODE_OAUTH_TOKEN=${{ env.CLAUDE_CODE_OAUTH_TOKEN }}
+            CLAUDE_CODE_OAUTH_TOKEN=${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
             GH_TOKEN=${{ secrets.WORKFLOW_PAT }}
             PR_NUMBER=${{ needs.get-context.outputs.pr_number }}
             PR_TITLE=${{ needs.get-context.outputs.pr_title }}
@@ -1633,7 +1633,7 @@ jobs:
           push: never
           env: |
 
-            CLAUDE_CODE_OAUTH_TOKEN=${{ env.CLAUDE_CODE_OAUTH_TOKEN }}
+            CLAUDE_CODE_OAUTH_TOKEN=${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
             GH_TOKEN=${{ secrets.WORKFLOW_PAT }}
             PR_NUMBER=${{ needs.get-context.outputs.pr_number }}
             HEAD_REF=${{ needs.get-context.outputs.head_ref }}
