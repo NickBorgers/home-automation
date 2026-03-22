@@ -452,6 +452,12 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Configure npm for user-local global installs
+        run: |
+          mkdir -p $HOME/.npm-global
+          npm config set prefix $HOME/.npm-global
+          echo "$HOME/.npm-global/bin" >> $GITHUB_PATH
+
       - name: Build and push devcontainer
         uses: devcontainers/ci@v0.3
         with:
