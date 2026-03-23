@@ -1832,6 +1832,12 @@ jobs:
             exit 0
           fi
 
+          # PR reopen trigger only resets the label — real reviews come from workflow_run
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "PR reopened — waiting for PR Tests to trigger the real review run"
+            exit 1
+          fi
+
           # If tests failed and we're still under max attempts, fix-test-failures ran
           # and pushed changes - this workflow run is complete, next run will continue
           TESTS_PASSED="${{ needs.get-context.outputs.tests_passed }}"
