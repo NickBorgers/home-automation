@@ -23,7 +23,8 @@ if id "$TARGET_USER" &>/dev/null; then
 fi
 
 # Detect host UID/GID from workspace file ownership
-WORKSPACE="/workspaces/home-automation-two"
+# Detect workspace directory dynamically
+WORKSPACE=$(find /workspaces -maxdepth 1 -mindepth 1 -type d 2>/dev/null | head -1)
 if [ -d "$WORKSPACE" ]; then
     TARGET_UID=$(stat -c '%u' "$WORKSPACE")
     TARGET_GID=$(stat -c '%g' "$WORKSPACE")
