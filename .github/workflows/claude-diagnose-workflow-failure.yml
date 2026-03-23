@@ -271,12 +271,12 @@ jobs:
             For TEST_FAILURE/CONFIG_FAILURE: 'This failure type is handled by the Claude Code Review workflow.'
             For INFRASTRUCTURE_FAILURE: 'This is a transient external service issue that will self-resolve. No action needed.'
 
-            Be thorough in your analysis. Examine the actual error messages in the logs." < /dev/null 2>&1 | tee /workspaces/home-automation/diagnose-output.jsonl
+            Be thorough in your analysis. Examine the actual error messages in the logs." < /dev/null 2>&1 | tee /tmp/diagnose-output.jsonl
 
       - name: Upload diagnosis output
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: workflow-diagnosis-output
-          path: diagnose-output.jsonl
+          path: /tmp/diagnose-output.jsonl
           retention-days: 7
