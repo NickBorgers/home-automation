@@ -8,7 +8,7 @@ name: PR Tests
 # - GitHub-hosted runners: safe for untrusted code (ephemeral VMs)
 # - READ-ONLY permissions (contents: read, pull-requests: read)
 # - No secrets are exposed to PR builds
-# - Push trigger limited to claude/** branches (requires write access)
+# - pull_request trigger covers all branches targeting main (including claude/**)
 # - workflow_dispatch requires write access
 # - Fork PR check retained for consistency and to avoid wasting CI minutes
 #
@@ -25,9 +25,6 @@ on:
       - main
       - master
       - '**'
-  push:
-    branches:
-      - 'claude/**'  # Only test development branches; main/master tested in docker-build-push.yml
   workflow_dispatch:
     inputs:
       ref:
