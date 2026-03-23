@@ -265,7 +265,7 @@ jobs:
             COMMENT_BODY=${{ steps.comment.outputs.body }}
             ISSUE_NUMBER=${{ github.event.issue.number || github.event.pull_request.number }}
             REPO=${{ github.repository }}
-            CLAUDE_CONFIG_DIR=/workspaces/home-automation/.claude-session
+            CLAUDE_CONFIG_DIR=/tmp/.claude-session
             IS_PR=${{ steps.pr-context.outputs.is_pr }}
             PR_HEAD_REF=${{ steps.pr-context.outputs.pr_head_ref }}
           runCmd: |
@@ -354,7 +354,7 @@ jobs:
         if: always()
         with:
           name: claude-session-data
-          path: .claude-session/
+          path: /tmp/.claude-session/
           retention-days: 7
           if-no-files-found: ignore
 
@@ -412,7 +412,7 @@ jobs:
             ISSUE_NUMBER=${{ github.event.issue.number }}
             ISSUE_TITLE=${{ github.event.issue.title }}
             REPO=${{ github.repository }}
-            CLAUDE_CONFIG_DIR=/workspaces/home-automation/.claude-session
+            CLAUDE_CONFIG_DIR=/tmp/.claude-session
           runCmd: |
             # Use < /dev/null to prevent hanging on TTY input
             # Use tee to capture output for artifact upload
@@ -508,6 +508,6 @@ jobs:
         if: always()
         with:
           name: resolve-issue-session-data
-          path: .claude-session/
+          path: /tmp/.claude-session/
           retention-days: 7
           if-no-files-found: ignore
