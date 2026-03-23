@@ -785,9 +785,12 @@ func TestReconnectStateSync(t *testing.T) {
 
 	// CRITICAL: Verify state was synced after reconnect
 	// The state manager should now see Nick as home (changed while disconnected)
-	nickHome, err := manager.GetBool("isNickHome")
-	require.NoError(t, err)
-	assert.True(t, nickHome, "Nick should be home after reconnect sync - state changed while disconnected")
+	// Note: callbackInvoked is set before SyncFromHA() completes, so we must poll
+	// until the state is actually synced rather than asserting immediately.
+	waitForCondition(t, func() bool {
+		nickHome, err := manager.GetBool("isNickHome")
+		return err == nil && nickHome
+	}, "Nick should be home after reconnect sync - state changed while disconnected")
 
 	t.Log("✅ State successfully synchronized after reconnection!")
 
