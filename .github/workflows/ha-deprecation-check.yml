@@ -245,14 +245,14 @@ jobs:
             - Be thorough in scanning - check ALL plugin files
             - Only report deprecations that actually affect code in THIS repository
             - Do not report theoretical deprecations that aren't used here
-            - Include specific file paths and line numbers in the issue" < /dev/null 2>&1 | tee /workspaces/home-automation/deprecation-check-output.jsonl
+            - Include specific file paths and line numbers in the issue" < /dev/null 2>&1 | tee /tmp/deprecation-check-output.jsonl
 
       - name: Upload deprecation check output
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: deprecation-check-output
-          path: ${{ github.workspace }}/deprecation-check-output.jsonl
+          path: /tmp/deprecation-check-output.jsonl
           retention-days: 30  # Intentionally longer than 7-day default since this runs monthly
 
       - name: Validate deprecation check result
