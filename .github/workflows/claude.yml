@@ -339,14 +339,14 @@ jobs:
               --model opus \
               --dangerously-skip-permissions \
               --max-turns 400 \
-              "$PROMPT" < /dev/null 2>&1 | tee /workspaces/home-automation/claude-conversation.jsonl
+              "$PROMPT" < /dev/null 2>&1 | tee /tmp/claude-conversation.jsonl
 
       - name: Upload Claude conversation log
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: claude-conversation-log
-          path: claude-conversation.jsonl
+          path: /tmp/claude-conversation.jsonl
           retention-days: 7
 
       - name: Upload Claude session data
@@ -493,14 +493,14 @@ jobs:
 
             If you cannot resolve the issue (unclear requirements, needs human decision, etc.),
             comment on the issue explaining what clarification is needed:
-            gh issue comment ${ISSUE_NUMBER} --body 'YOUR_EXPLANATION'" < /dev/null 2>&1 | tee /workspaces/home-automation/resolve-issue-conversation.jsonl
+            gh issue comment ${ISSUE_NUMBER} --body 'YOUR_EXPLANATION'" < /dev/null 2>&1 | tee /tmp/resolve-issue-conversation.jsonl
 
       - name: Upload issue resolution conversation log
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: resolve-issue-conversation-log
-          path: resolve-issue-conversation.jsonl
+          path: /tmp/resolve-issue-conversation.jsonl
           retention-days: 7
 
       - name: Upload Claude session data
