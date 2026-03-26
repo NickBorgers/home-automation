@@ -23,6 +23,7 @@ graph LR
         isHaveGuests["isHaveGuests"]
         isMasterAsleep["isMasterAsleep"]
         isNickHome["isNickHome"]
+        isSleepPrepActive["isSleepPrepActive"]
         isTVPlaying["isTVPlaying"]
         isTVon["isTVon"]
         isToriHere["isToriHere"]
@@ -95,6 +96,7 @@ graph LR
     sexmode --> musicPlaybackType
     sleephygiene --> currentlyPlayingMusic
     sleephygiene --> isFadeOutInProgress
+    sleephygiene --> isSleepPrepActive
     sleephygiene --> isWakeSequenceActive
     sleephygiene --> musicPlaybackType
     statetracking --> didOwnerJustReturnHome
