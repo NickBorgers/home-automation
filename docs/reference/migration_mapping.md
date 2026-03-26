@@ -18,7 +18,7 @@ This document maps Node Red global state variables to their Home Assistant entit
 
 ## Complete State Variable Reference
 
-All 41 state variables currently implemented in the Go application, organized by type.
+All 42 state variables currently implemented in the Go application, organized by type.
 
 ### Boolean Variables (29)
 
