@@ -625,7 +625,7 @@ Runs Claude (Sonnet) to perform a three-phase check:
 | Secret | Used By | Purpose |
 |--------|---------|---------|
 | `CLAUDE_CODE_OAUTH_TOKEN` | claude.yml, claude-code-review.yml, claude-diagnose-workflow-failure.yml, ha-deprecation-check.yml | Claude Code authentication |
-| `WORKFLOW_PAT` | claude.yml, claude-code-review.yml, ha-deprecation-check.yml | Push workflow file changes, create PRs/issues that trigger workflows |
+| `WORKFLOW_PAT` | claude.yml, claude-code-review.yml, ha-deprecation-check.yml, update-claude-code.yml | Push workflow file changes, create PRs/issues that trigger workflows |
 | `PRIVATE_REPO_TRIGGER_TOKEN` | notify-pr-merged.yml | Cross-repo workflow triggers |
 
 ### Why `WORKFLOW_PAT`?
