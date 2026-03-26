@@ -2435,14 +2435,14 @@ func TestBreakSpeakerGroups(t *testing.T) {
 		// The key verification is that the function returned (didn't hang)
 	})
 
-	t.Run("Runs unjoin calls concurrently", func(t *testing.T) {
+	t.Run("Unjoins all speakers serially", func(t *testing.T) {
 		t.Parallel()
 		env := testutil.NewEnv(t)
 		config := &MusicConfig{Music: map[string]MusicMode{}}
 		manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, false, nil, nil)
 		manager.SetSleepFunc(func(d time.Duration) {})
 
-		// With 6 speakers, concurrent execution should be fast
+		// With 6 speakers, serial unjoin with no-op sleep completes immediately
 		participants := []ParticipantWithVolume{
 			{PlayerName: "Kitchen", Volume: 9},
 			{PlayerName: "Living Room", Volume: 10},
