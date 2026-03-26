@@ -1178,8 +1178,25 @@ func (zm *ZoneManager) executeSeamlessTransition(st seamlessTransition, newSpeak
 		}
 	}
 
-	// Handle non-shared speakers: fade out and remove from old group
+	// Handle non-shared speakers: fade out and remove from old group.
+	// If the old leader is being removed, ensure it's removed LAST so Sonos
+	// can promote a new coordinator from shared speakers before the old
+	// coordinator leaves the group.
 	if len(st.removeSpeakers) > 0 {
+		if leadSpeaker != oldZone.LeadSpeaker {
+			reordered := make([]string, 0, len(st.removeSpeakers))
+			for _, s := range st.removeSpeakers {
+				if s != oldZone.LeadSpeaker {
+					reordered = append(reordered, s)
+				}
+			}
+			for _, s := range st.removeSpeakers {
+				if s == oldZone.LeadSpeaker {
+					reordered = append(reordered, s)
+				}
+			}
+			st.removeSpeakers = reordered
+		}
 		go zm.manager.removeSpeakersFromZone(oldZone, st.removeSpeakers, trigger)
 	}
 
