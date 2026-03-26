@@ -32,7 +32,7 @@ rooms:
       #
       # Priority 1: Wake sequence in progress -> yield to sleephygiene
       # This takes absolute priority to prevent race condition with wake sequence
-      - action: on
+      - action: skip
         variable: isWakeSequenceActive
         value: true
       # Priority 2: No one home and awake -> OFF
