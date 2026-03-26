@@ -697,7 +697,7 @@ git commit -m "docs: Add screenshot of [feature]"
 **Current Phase:** Production ✅
 
 - Go implementation is the primary automation system
-- All 40 state variables supported
+- All 42 state variables supported
 - Node-RED deprecated (flows.json archived for reference)
 
 ---

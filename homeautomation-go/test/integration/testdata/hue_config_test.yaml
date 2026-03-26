@@ -35,15 +35,19 @@ rooms:
       - action: on
         variable: isWakeSequenceActive
         value: true
-      # Priority 2: No one home and awake -> OFF
+      # Priority 2: Sleep prep active -> yield (bedtime initiated, waiting for sleep detection)
+      - action: skip
+        variable: isSleepPrepActive
+        value: true
+      # Priority 3: No one home and awake -> OFF
       - action: off
         variable: isAnyoneHomeAndAwake
         value: false
-      # Priority 3: Master asleep -> OFF
+      # Priority 4: Master asleep -> OFF
       - action: off
         variable: isMasterAsleep
         value: true
-      # Priority 4: Master not asleep -> ON
+      # Priority 5: Master not asleep -> ON
       - action: on
         variable: isMasterAsleep
         value: false

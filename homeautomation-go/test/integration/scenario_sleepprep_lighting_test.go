@@ -1,0 +1,171 @@
+package integration
+
+import (
+	"context"
+	"path/filepath"
+	"testing"
+	"time"
+
+	"homeautomation/internal/config"
+	"homeautomation/internal/plugins/lighting"
+	"homeautomation/internal/plugins/sleephygiene"
+	"homeautomation/internal/state"
+	"homeautomation/internal/testlogger"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+// ============================================================================
+// Sleep Prep + Lighting Integration Tests
+//
+// These tests validate the fix for the chicken-and-egg bug where the lighting
+// plugin re-activated bedroom lights after manual turn-off during sleep prep,
+// preventing isMasterAsleep from ever triggering.
+//
+// Root cause: Between go_to_bed firing and isMasterAsleep becoming true,
+// any state change caused lighting to re-activate Primary Suite lights,
+// cancelling the sleep detection timer.
+//
+// Fix: isSleepPrepActive bridges the gap — set by handleGoToBed, cleared
+// when person wakes up or on midnight crossing.
+// ============================================================================
+
+// setupSleepPrepLightingTest creates a test environment with both lighting and
+// sleep hygiene plugins for cross-plugin testing.
+func setupSleepPrepLightingTest(t *testing.T) (*MockHAServer, *lighting.Manager, *sleephygiene.Manager, *state.Manager, func()) {
+	server, client, stateManager, baseCleanup := setupTest(t)
+
+	logger := testlogger.New()
+
+	// Load test lighting config (includes isSleepPrepActive skip condition)
+	configPath := filepath.Join("testdata", "hue_config_test.yaml")
+	lightingConfig, err := lighting.LoadConfig(configPath)
+	require.NoError(t, err, "Failed to load test lighting config")
+
+	// Create lighting plugin
+	lightingMgr := lighting.NewManager(context.Background(), client, stateManager, lightingConfig, logger, false, nil)
+	err = lightingMgr.Start()
+	require.NoError(t, err, "Failed to start lighting manager")
+
+	// Create sleep hygiene plugin
+	configLoader := config.NewLoader("../../configs", logger)
+	sleepMgr := sleephygiene.NewManager(context.Background(), client, stateManager, configLoader, logger, false, nil, nil)
+	err = sleepMgr.Start()
+	require.NoError(t, err, "Failed to start sleep hygiene manager")
+
+	cleanup := func() {
+		sleepMgr.Stop()
+		lightingMgr.Stop()
+		baseCleanup()
+	}
+
+	return server, lightingMgr, sleepMgr, stateManager, cleanup
+}
+
+// TestScenario_GoToBed_LightingDoesNotReactivatePrimarySuite validates that
+// after go_to_bed fires (isSleepPrepActive=true), a state change does NOT
+// cause the lighting plugin to re-activate the Master Bedroom lights.
+func TestScenario_GoToBed_LightingDoesNotReactivatePrimarySuite(t *testing.T) {
+	t.Parallel()
+	server, _, _, stateManager, cleanup := setupSleepPrepLightingTest(t)
+	defer cleanup()
+
+	// GIVEN: Night phase, someone home, go_to_bed has fired (isSleepPrepActive=true)
+	t.Log("GIVEN: Night phase, someone home, isSleepPrepActive=true (go_to_bed has fired)")
+	server.SetState("input_text.day_phase", "night", map[string]interface{}{})
+	server.SetState("input_text.sun_event", "night", map[string]interface{}{})
+	server.SetState("input_boolean.anyone_home", "on", map[string]interface{}{})
+	server.SetState("input_boolean.anyone_home_and_awake", "on", map[string]interface{}{})
+	server.SetState("input_boolean.master_asleep", "off", map[string]interface{}{})
+	server.SetState("input_boolean.sleep_prep_active", "on", map[string]interface{}{})
+	server.SetState("input_boolean.wake_sequence_active", "off", map[string]interface{}{})
+	waitForProcessing(t, stateManager)
+
+	// Take snapshot of service calls
+	snapshot := server.ServiceCallCount()
+
+	// WHEN: A state change triggers lighting re-evaluation (e.g., sunevent changes)
+	t.Log("WHEN: sunevent changes, triggering lighting re-evaluation")
+	server.SetState("input_text.sun_event", "astronomical_twilight", map[string]interface{}{})
+
+	// Wait briefly for any lighting reactions to propagate
+	waitForServiceCallsToStabilizeSince(t, server, snapshot, 300*time.Millisecond)
+
+	// THEN: Lighting should NOT have activated a scene for Master Bedroom
+	t.Log("THEN: Lighting should skip Master Bedroom (isSleepPrepActive=true)")
+	calls := server.GetServiceCallsSince(snapshot)
+	sceneActivations := filterServiceCalls(calls, "scene", "turn_on")
+
+	for _, call := range sceneActivations {
+		if entityID, ok := call.ServiceData["entity_id"].(string); ok {
+			// Master Bedroom scenes should NOT be activated
+			assert.NotContains(t, entityID, "master_bedroom",
+				"Lighting should NOT activate master_bedroom scene when isSleepPrepActive=true, but activated: %s", entityID)
+		}
+	}
+}
+
+// TestScenario_SleepPrepActive_ClearedOnWakeUp validates that when a person
+// wakes up (isMasterAsleep → false), isSleepPrepActive is cleared so that
+// the lighting plugin resumes normal control of the Primary Suite.
+func TestScenario_SleepPrepActive_ClearedOnWakeUp(t *testing.T) {
+	t.Parallel()
+	server, _, _, stateManager, cleanup := setupSleepPrepLightingTest(t)
+	defer cleanup()
+
+	// GIVEN: isSleepPrepActive=true, isMasterAsleep=true (person is asleep)
+	t.Log("GIVEN: Person is asleep, isSleepPrepActive=true, isMasterAsleep=true")
+	server.SetState("input_text.day_phase", "night", map[string]interface{}{})
+	server.SetState("input_boolean.anyone_home", "on", map[string]interface{}{})
+	server.SetState("input_boolean.anyone_home_and_awake", "off", map[string]interface{}{})
+	server.SetState("input_boolean.master_asleep", "on", map[string]interface{}{})
+	server.SetState("input_boolean.sleep_prep_active", "on", map[string]interface{}{})
+	server.SetState("input_boolean.wake_sequence_active", "off", map[string]interface{}{})
+	waitForProcessing(t, stateManager)
+
+	// WHEN: Person wakes up (isMasterAsleep → false)
+	t.Log("WHEN: Person wakes up (isMasterAsleep changes to false)")
+	server.SetState("input_boolean.master_asleep", "off", map[string]interface{}{})
+
+	// THEN: isSleepPrepActive should be cleared
+	t.Log("THEN: isSleepPrepActive should be cleared to false")
+	waitForBoolState(t, stateManager, "isSleepPrepActive", false,
+		"isSleepPrepActive should be cleared when person wakes up")
+}
+
+// TestScenario_SleepPrepNotActive_LightingControlsBedroom validates that
+// when isSleepPrepActive=false (normal operation), the lighting plugin
+// still controls the Master Bedroom normally.
+func TestScenario_SleepPrepNotActive_LightingControlsBedroom(t *testing.T) {
+	t.Parallel()
+	server, _, _, stateManager, cleanup := setupSleepPrepLightingTest(t)
+	defer cleanup()
+
+	// GIVEN: Evening, someone home, isSleepPrepActive=false (normal operation)
+	t.Log("GIVEN: Evening, someone home and awake, isSleepPrepActive=false")
+	server.SetState("input_text.day_phase", "evening", map[string]interface{}{})
+	server.SetState("input_text.sun_event", "sunset", map[string]interface{}{})
+	server.SetState("input_boolean.anyone_home", "on", map[string]interface{}{})
+	server.SetState("input_boolean.anyone_home_and_awake", "on", map[string]interface{}{})
+	server.SetState("input_boolean.master_asleep", "off", map[string]interface{}{})
+	server.SetState("input_boolean.sleep_prep_active", "off", map[string]interface{}{})
+	server.SetState("input_boolean.wake_sequence_active", "off", map[string]interface{}{})
+	waitForProcessing(t, stateManager)
+
+	snapshot := server.ServiceCallCount()
+
+	// WHEN: Day phase changes (triggers lighting re-evaluation)
+	t.Log("WHEN: Day phase changes to winddown")
+	server.SetState("input_text.day_phase", "winddown", map[string]interface{}{})
+
+	// Wait for scene activation
+	waitForServiceCallSince(t, server, snapshot, "scene", "turn_on", "scenes should be activated")
+
+	// THEN: Lighting should activate scenes including Master Bedroom
+	t.Log("THEN: Lighting should activate scenes normally (including Master Bedroom)")
+	calls := server.GetServiceCallsSince(snapshot)
+	sceneActivations := filterServiceCalls(calls, "scene", "turn_on")
+	assert.Greater(t, len(sceneActivations), 0,
+		"Should activate scenes when isSleepPrepActive=false")
+}

@@ -21,9 +21,9 @@ type StateVariable struct {
 	ComputedOutput bool        // If true, can be written even in read-only mode (for computed values)
 }
 
-// AllVariables contains all 40 state variables (38 synced with HA + 2 local-only)
+// AllVariables contains all 42 state variables (40 synced with HA + 2 local-only)
 var AllVariables = []StateVariable{
-	// Booleans (27)
+	// Booleans (29)
 	{Key: "isNickHome", EntityID: "input_boolean.nick_home", Type: TypeBool, Default: false},
 	{Key: "isCarolineHome", EntityID: "input_boolean.caroline_home", Type: TypeBool, Default: false},
 	{Key: "isToriHere", EntityID: "input_boolean.tori_here", Type: TypeBool, Default: false},
@@ -41,6 +41,7 @@ var AllVariables = []StateVariable{
 	{Key: "isTVon", EntityID: "input_boolean.tv_on", Type: TypeBool, Default: false},
 	{Key: "isFadeOutInProgress", EntityID: "input_boolean.fade_out_in_progress", Type: TypeBool, Default: false},
 	{Key: "isWakeSequenceActive", EntityID: "input_boolean.wake_sequence_active", Type: TypeBool, Default: false},
+	{Key: "isSleepPrepActive", EntityID: "input_boolean.sleep_prep_active", Type: TypeBool, Default: false},
 	{Key: "isFreeEnergyAvailable", EntityID: "input_boolean.free_energy_available", Type: TypeBool, Default: false},
 	{Key: "isGridAvailable", EntityID: "input_boolean.grid_available", Type: TypeBool, Default: true},
 	{Key: "isExpectingSomeone", EntityID: "input_boolean.expecting_someone", Type: TypeBool, Default: false},
