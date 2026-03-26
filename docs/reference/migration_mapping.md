@@ -6,10 +6,10 @@ This document maps Node Red global state variables to their Home Assistant entit
 
 ## Migration Summary
 
-- **Total state variables in Go implementation**: 41
-- **Synced with Home Assistant**: 39
+- **Total state variables in Go implementation**: 42
+- **Synced with Home Assistant**: 40
 - **Local-only (memory only)**: 2
-- **Booleans**: 28
+- **Booleans**: 29
 - **Numbers**: 3
 - **Text/String**: 8
 - **JSON (local-only)**: 1
@@ -20,7 +20,7 @@ This document maps Node Red global state variables to their Home Assistant entit
 
 All 41 state variables currently implemented in the Go application, organized by type.
 
-### Boolean Variables (28)
+### Boolean Variables (29)
 
 | Variable | Home Assistant Entity | Description | Flags |
 |----------|----------------------|-------------|-------|
@@ -41,6 +41,7 @@ All 41 state variables currently implemented in the Go application, organized by
 | isTVon | input_boolean.tv_on | TV power status | - |
 | isFadeOutInProgress | input_boolean.fade_out_in_progress | Music fade out status | - |
 | isWakeSequenceActive | input_boolean.wake_sequence_active | Wake lights fade-in active | - |
+| isSleepPrepActive | input_boolean.sleep_prep_active | Sleep prep in progress (go_to_bed fired, waiting for sleep detection) | - |
 | isFreeEnergyAvailable | input_boolean.free_energy_available | Free energy availability | - |
 | isGridAvailable | input_boolean.grid_available | Grid power availability | - |
 | isExpectingSomeone | input_boolean.expecting_someone | Expecting a visitor | - |

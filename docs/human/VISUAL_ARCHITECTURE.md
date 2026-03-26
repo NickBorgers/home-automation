@@ -935,6 +935,7 @@ graph LR
         MusicURI[currentlyPlayingMusicUri]
         FadeOut[isFadeOutInProgress]
         WakeActive[isWakeSequenceActive]
+        SleepPrep[isSleepPrepActive]
         Lockdown[isLockdown]
         AppleTVPlaying[isAppleTVPlaying]
         TVon[isTVon]
@@ -1024,6 +1025,8 @@ graph LR
     MasterAsleep --> SleepHygiene
     SleepHygiene --> FadeOut
     SleepHygiene --> WakeActive
+    SleepHygiene --> SleepPrep
+    SleepPrep --> Lighting
     SleepHygiene -.->|Triggers| Music
     SleepHygiene -.->|Triggers| Lighting
 
@@ -1111,7 +1114,7 @@ graph LR
 |----------|-------|----------|
 | **Boolean (input)** | 19 | isNickHome, isCarolineHome, isToriHere, isMasterAsleep, isHaveGuests, isNickOfficeOccupied, isKitchenOccupied, isPrimaryBedroomDoorOpen, isNickNearHome, isCarolineNearHome, isFrontOfHousePersonPresent |
 | **Boolean (computed)** | 6 | isAnyOwnerHome, isAnyoneHome, isAnyoneAsleep, isEveryoneAsleep, isAnyoneHomeAndAwake, isGuestAsleep |
-| **Boolean (output)** | 3 | isFadeOutInProgress, isWakeSequenceActive, isLockdown |
+| **Boolean (output)** | 4 | isFadeOutInProgress, isWakeSequenceActive, isSleepPrepActive, isLockdown |
 | **Number** | 3 | alarmTime, remainingSolarGeneration, thisHourSolarGeneration |
 | **String (computed)** | 5 | dayPhase, sunevent, batteryEnergyLevel, currentEnergyLevel, solarProductionEnergyLevel |
 | **String (output)** | 3 | musicPlaybackType, currentlyPlayingMusicUri, musicPlaylistRotation |

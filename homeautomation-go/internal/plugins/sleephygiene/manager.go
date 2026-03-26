@@ -180,6 +180,16 @@ func (m *Manager) Start() error {
 				m.logger.Error("Failed to clear stale isWakeSequenceActive", zap.Error(err))
 			}
 		}
+
+		// Clear any stale isSleepPrepActive from previous run/crash.
+		// Sleep prep state can't persist across restarts.
+		isSleepPrep, _ := m.stateManager.GetBool("isSleepPrepActive")
+		if isSleepPrep {
+			m.logger.Info("Clearing stale isSleepPrepActive from previous run")
+			if err := m.stateManager.SetBool("isSleepPrepActive", false); err != nil {
+				m.logger.Error("Failed to clear stale isSleepPrepActive", zap.Error(err))
+			}
+		}
 	}
 
 	// Start ticker to check time triggers every minute
@@ -255,6 +265,17 @@ func (m *Manager) handleMasterAsleepChange(key string, oldValue, newValue interf
 
 	// If person woke up (isMasterAsleep changed to false)
 	if !newAsleep {
+		// Clear isSleepPrepActive - person is awake, lighting should resume normal control
+		if !m.readOnly {
+			isSleepPrep, _ := m.stateManager.GetBool("isSleepPrepActive")
+			if isSleepPrep {
+				m.logger.Info("Person woke up, clearing isSleepPrepActive")
+				if err := m.stateManager.SetBool("isSleepPrepActive", false); err != nil {
+					m.logger.Error("Failed to clear isSleepPrepActive", zap.Error(err))
+				}
+			}
+		}
+
 		// Check if wake sequence was active
 		isWakeActive, _ := m.stateManager.GetBool("isWakeSequenceActive")
 		if isWakeActive {
@@ -345,6 +366,23 @@ func (m *Manager) runTimerLoop() {
 						m.logger.Debug("Resetting trigger for new day",
 							zap.String("trigger", trigger))
 						delete(m.triggeredToday, trigger)
+					}
+				}
+			}
+
+			// Safety net: clear isSleepPrepActive on midnight crossing.
+			// If go_to_bed fired but user never fell asleep, this prevents
+			// isSleepPrepActive from persisting indefinitely into the next day.
+			if !m.readOnly {
+				isSleepPrep, _ := m.stateManager.GetBool("isSleepPrepActive")
+				if isSleepPrep {
+					// Only clear on actual midnight crossing: hour 0, minute 0
+					localNow := now.In(m.timezone)
+					if localNow.Hour() == 0 && localNow.Minute() == 0 {
+						m.logger.Info("Midnight crossing: clearing stale isSleepPrepActive")
+						if err := m.stateManager.SetBool("isSleepPrepActive", false); err != nil {
+							m.logger.Error("Failed to clear isSleepPrepActive at midnight", zap.Error(err))
+						}
 					}
 				}
 			}
@@ -898,8 +936,18 @@ func (m *Manager) handleGoToBed() {
 		} else {
 			m.logger.Info("Set musicPlaybackType to sleep for bedtime")
 		}
+
+		// Set isSleepPrepActive to prevent the lighting plugin from re-activating
+		// bedroom lights during the gap between go_to_bed and isMasterAsleep.
+		// Without this, any state change (sunevent, presence, etc.) would cause
+		// lighting to turn the Primary Suite back on, resetting the sleep timer.
+		if err := m.stateManager.SetBool("isSleepPrepActive", true); err != nil {
+			m.logger.Error("Failed to set isSleepPrepActive", zap.Error(err))
+		} else {
+			m.logger.Info("Set isSleepPrepActive to prevent lighting interference during sleep prep")
+		}
 	} else {
-		m.logger.Info("READ-ONLY: Would set musicPlaybackType to sleep")
+		m.logger.Info("READ-ONLY: Would set musicPlaybackType to sleep and isSleepPrepActive")
 	}
 
 	// Check conditions for flashing lights: anyone home and not everyone asleep
@@ -1145,6 +1193,9 @@ func (m *Manager) captureCurrentInputs() map[string]interface{} {
 	}
 	if val, err := m.stateManager.GetBool("isWakeSequenceActive"); err == nil {
 		inputs["isWakeSequenceActive"] = val
+	}
+	if val, err := m.stateManager.GetBool("isSleepPrepActive"); err == nil {
+		inputs["isSleepPrepActive"] = val
 	}
 	if val, err := m.stateManager.GetBool("isNickHome"); err == nil {
 		inputs["isNickHome"] = val
