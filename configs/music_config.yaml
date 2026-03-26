@@ -421,6 +421,9 @@ music:
         volume_multiplier: 1.0
   # sleep-prep: Whole-house rain sounds before master goes to bed
   # Plays during night phase to help direct people to bed
+  # NOTE: Front Room must be first (leader/coordinator). Bedroom wifi is too
+  # unreliable to coordinate a whole-house Sonos group. The zone_manager handles
+  # the leader change to Bedroom during sleep-prep → sleep transition.
   sleep-prep:
     participants:
       - player_name: "Front Room"
