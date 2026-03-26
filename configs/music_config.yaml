@@ -423,11 +423,11 @@ music:
   # Plays during night phase to help direct people to bed
   sleep-prep:
     participants:
-      - player_name: "Bedroom"
-        base_volume: 16
-        leave_muted_if: []
       - player_name: "Front Room"
         base_volume: 9
+        leave_muted_if: []
+      - player_name: "Bedroom"
+        base_volume: 16
         leave_muted_if: []
       - player_name: "Sitting Room"
         base_volume: 9

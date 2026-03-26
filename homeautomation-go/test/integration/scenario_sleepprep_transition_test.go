@@ -389,26 +389,27 @@ func TestScenario_SleepPrepToSleep_NonBedroomSpeakersBehavior(t *testing.T) {
 // Test: Repeat mode is re-applied to new leader during seamless transition
 // ============================================================================
 
-// TestScenario_SleepPrepToSleep_LeaderStaysBedroomNoRepeatReapply validates that
-// when transitioning from sleep-prep to sleep, the leader stays Bedroom (since
-// both zones list Bedroom as first participant). No repeat re-application is
-// needed because the same leader retains its playback modes.
+// TestScenario_SleepPrepToSleep_LeaderChangesToBedroom validates that when
+// transitioning from sleep-prep to sleep, the leader changes from Front Room
+// (sleep-prep leader) to Bedroom (sleep leader). Repeat mode is re-applied
+// to the new leader since Sonos repeat/shuffle are per-speaker properties.
 //
-// FIX (2026-03-26): Sleep-prep participants were reordered so Bedroom is first,
-// matching the sleep zone. This prevents the Sonos coordinator from changing
-// during the transition, which previously caused playback to stop when the
-// coordinator (Front Room) was removed from the group.
+// REVERT (2026-03-26): Sleep-prep leader changed back to Front Room because
+// Bedroom's wifi cannot handle being the Sonos group coordinator for a
+// whole-house group. The zone_manager handles leader changes during seamless
+// transitions by removing the old coordinator last (zone_manager.go:1182).
 //
 // INVARIANTS:
-// - Leader stays Bedroom across sleep-prep → sleep transition
-// - No repeat_set needed (same leader retains its settings)
-func TestScenario_SleepPrepToSleep_LeaderStaysBedroom(t *testing.T) {
+// - Sleep-prep leader is Front Room, sleep leader is Bedroom
+// - Repeat mode is re-applied to Bedroom (new leader)
+// - Front Room is removed last (after other non-shared speakers)
+func TestScenario_SleepPrepToSleep_LeaderChangesToBedroom(t *testing.T) {
 	t.Parallel()
 	env, cleanup := setupSleepPrepTransitionTest(t)
 	defer cleanup()
 
-	// ===== GIVEN: Sleep-prep zone is active with Bedroom as leader =====
-	t.Log("GIVEN: Sleep-prep zone is active with Bedroom as leader")
+	// ===== GIVEN: Sleep-prep zone is active with Front Room as leader =====
+	t.Log("GIVEN: Sleep-prep zone is active with Front Room as leader")
 
 	env.server.SetState("input_boolean.anyone_home", "on", map[string]interface{}{})
 	env.server.SetState("input_text.day_phase", "night", map[string]interface{}{})
@@ -437,8 +438,8 @@ func TestScenario_SleepPrepToSleep_LeaderStaysBedroom(t *testing.T) {
 		}
 	}
 	require.NotNil(t, sleepPrepZone, "Sleep-prep zone should exist")
-	assert.Equal(t, "Bedroom", sleepPrepZone.LeadSpeaker,
-		"Sleep-prep leader should be Bedroom (first participant in config)")
+	assert.Equal(t, "Front Room", sleepPrepZone.LeadSpeaker,
+		"Sleep-prep leader should be Front Room (first participant in config)")
 
 	// Wait for initial orchestration to complete
 	waitForServiceCallsToStabilize(t, env.server, 200*time.Millisecond)
@@ -447,7 +448,7 @@ func TestScenario_SleepPrepToSleep_LeaderStaysBedroom(t *testing.T) {
 	snapshot := env.server.ServiceCallCount()
 
 	// ===== WHEN: isMasterAsleep becomes true (triggering sleep zone) =====
-	t.Log("WHEN: isMasterAsleep becomes true — leader stays Bedroom")
+	t.Log("WHEN: isMasterAsleep becomes true — leader changes to Bedroom")
 
 	env.server.SetState("input_boolean.master_asleep", "on", map[string]interface{}{})
 
@@ -466,8 +467,8 @@ func TestScenario_SleepPrepToSleep_LeaderStaysBedroom(t *testing.T) {
 
 	waitForServiceCallsToStabilizeSince(t, env.server, snapshot, 300*time.Millisecond)
 
-	// ===== THEN: Leader should still be Bedroom, no repeat re-application needed =====
-	t.Log("THEN: Leader stays Bedroom, no repeat_set needed")
+	// ===== THEN: Leader should change to Bedroom, repeat re-applied =====
+	t.Log("THEN: Leader changes to Bedroom, repeat_set re-applied")
 
 	activeZones = env.music.GetActiveZones()
 	var sleepZone *music.Zone
@@ -479,10 +480,10 @@ func TestScenario_SleepPrepToSleep_LeaderStaysBedroom(t *testing.T) {
 	}
 	require.NotNil(t, sleepZone, "Sleep zone should exist")
 	assert.Equal(t, "Bedroom", sleepZone.LeadSpeaker,
-		"Sleep zone leader should be Bedroom (same as sleep-prep)")
+		"Sleep zone leader should be Bedroom (first participant in sleep config)")
 
-	// Since the leader didn't change, repeat_set should NOT be called on Bedroom
-	// during the transition (it already has repeat enabled from sleep-prep).
+	// Since the leader changed from Front Room to Bedroom, repeat_set SHOULD
+	// be called on Bedroom to re-apply playback modes (Issue #837).
 	calls := env.server.GetServiceCallsSince(snapshot)
 	bedroomRepeatSet := false
 	for _, call := range calls {
@@ -492,11 +493,10 @@ func TestScenario_SleepPrepToSleep_LeaderStaysBedroom(t *testing.T) {
 			bedroomRepeatSet = true
 		}
 	}
-	assert.False(t, bedroomRepeatSet,
-		"Repeat mode should NOT be re-applied when leader stays the same — "+
-			"Bedroom retains its repeat setting from sleep-prep")
+	assert.True(t, bedroomRepeatSet,
+		"Repeat mode SHOULD be re-applied to Bedroom when leader changes from Front Room")
 
-	t.Log("SUCCESS: Leader stays Bedroom during sleep-prep → sleep transition")
+	t.Log("SUCCESS: Leader changed from Front Room to Bedroom during sleep-prep → sleep transition")
 }
 
 // ============================================================================
@@ -504,22 +504,22 @@ func TestScenario_SleepPrepToSleep_LeaderStaysBedroom(t *testing.T) {
 // ============================================================================
 
 // TestScenario_SleepPrepToSleep_CoordinatorPreserved validates that the
-// sleep-prep → sleep transition does not break Sonos playback by removing the
-// group coordinator before other speakers.
+// sleep-prep → sleep transition handles the coordinator change correctly.
+// Sleep-prep uses Front Room as coordinator; sleep uses Bedroom. The
+// zone_manager removes the old coordinator (Front Room) last so Sonos can
+// promote Bedroom as the new coordinator before Front Room leaves the group.
 //
-// PRODUCTION BUG (2026-03-26):
-// Sleep-prep had Front Room as first participant (coordinator). Transitioning
-// to sleep removed Front Room from the Sonos group. Removing the coordinator
-// caused all remaining speakers to lose playback. Fix: reorder sleep-prep
-// participants so Bedroom is first (matching sleep zone), and add a code guard
-// that removes the old coordinator last during seamless transitions.
+// REVERT (2026-03-26): Front Room restored as sleep-prep leader because
+// Bedroom wifi cannot handle coordinating a whole-house speaker group.
+// The seamless transition code (zone_manager.go:1182) already handles
+// removing the old coordinator last.
 //
 // User story: "When I go to bed and lights turn off, the rain sounds should
 // keep playing in the bedroom without any interruption."
 //
 // INVARIANTS:
-// - Sleep-prep and sleep zones both use Bedroom as leader/coordinator
-// - Transition is seamless (no stopPlayback, no play_media restart)
+// - Sleep-prep uses Front Room as coordinator, sleep uses Bedroom
+// - Transition is seamless (no stopPlayback, no play_media restart on shared speakers)
 // - musicPlaybackType transitions from "sleep-prep" to "sleep"
 // - Front Room and Sitting Room are removed; Bedroom/Kitchen/Primary Bathroom continue
 func TestScenario_SleepPrepToSleep_CoordinatorPreserved(t *testing.T) {
@@ -527,7 +527,7 @@ func TestScenario_SleepPrepToSleep_CoordinatorPreserved(t *testing.T) {
 	env, cleanup := setupSleepPrepTransitionTest(t)
 	defer cleanup()
 
-	// ===== GIVEN: Sleep-prep zone is active with Bedroom as coordinator =====
+	// ===== GIVEN: Sleep-prep zone is active with Front Room as coordinator =====
 	t.Log("GIVEN: Night phase, anyone home, master NOT asleep — sleep-prep zone playing rain")
 
 	env.server.SetState("input_boolean.anyone_home", "on", map[string]interface{}{})
@@ -549,7 +549,7 @@ func TestScenario_SleepPrepToSleep_CoordinatorPreserved(t *testing.T) {
 		return false
 	}, "sleep-prep zone should be active with a playlist URI")
 
-	// Verify sleep-prep is active with Bedroom as coordinator
+	// Verify sleep-prep is active with Front Room as coordinator
 	activeZones := env.music.GetActiveZones()
 	var sleepPrepZone *music.Zone
 	for _, z := range activeZones {
@@ -559,8 +559,8 @@ func TestScenario_SleepPrepToSleep_CoordinatorPreserved(t *testing.T) {
 		}
 	}
 	require.NotNil(t, sleepPrepZone, "Sleep-prep zone should exist")
-	require.Equal(t, "Bedroom", sleepPrepZone.LeadSpeaker,
-		"Sleep-prep coordinator must be Bedroom to match sleep zone")
+	require.Equal(t, "Front Room", sleepPrepZone.LeadSpeaker,
+		"Sleep-prep coordinator must be Front Room (wifi-reliable speaker)")
 
 	sleepPrepURI := sleepPrepZone.PlaylistURI
 
@@ -594,7 +594,7 @@ func TestScenario_SleepPrepToSleep_CoordinatorPreserved(t *testing.T) {
 	waitForServiceCallsToStabilizeSince(t, env.server, snapshot, 300*time.Millisecond)
 
 	// ===== THEN: Verify seamless transition preserved playback =====
-	t.Log("THEN: Verify seamless transition — no playback restart, same URI, coordinator preserved")
+	t.Log("THEN: Verify seamless transition — no playback restart, same URI, coordinator changed to Bedroom")
 
 	// 1. Sleep zone is active with Bedroom as leader and same rain URI
 	activeZones = env.music.GetActiveZones()
@@ -607,7 +607,7 @@ func TestScenario_SleepPrepToSleep_CoordinatorPreserved(t *testing.T) {
 	}
 	require.NotNil(t, sleepZone, "Sleep zone should exist")
 	assert.Equal(t, "Bedroom", sleepZone.LeadSpeaker,
-		"Sleep zone coordinator should be Bedroom (same as sleep-prep)")
+		"Sleep zone coordinator should be Bedroom (first participant in sleep config)")
 	assert.Equal(t, sleepPrepURI, sleepZone.PlaylistURI,
 		"Sleep zone should use the same rain sounds URI as sleep-prep")
 
@@ -667,5 +667,5 @@ func TestScenario_SleepPrepToSleep_CoordinatorPreserved(t *testing.T) {
 	assert.True(t, musicTypeSet,
 		"musicPlaybackType should be set to 'sleep' during transition")
 
-	t.Log("SUCCESS: Sleep-prep → sleep transition preserved playback with coordinator staying on Bedroom")
+	t.Log("SUCCESS: Sleep-prep → sleep transition preserved playback with coordinator changing to Bedroom")
 }
