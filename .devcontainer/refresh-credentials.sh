@@ -8,7 +8,7 @@ REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 # Refresh gh CLI credentials
 GH_TOKEN_FILE="$REPO_ROOT/.devcontainer/.gh-token"
 if [ -s "$GH_TOKEN_FILE" ]; then
-    echo "$( cat "$GH_TOKEN_FILE" )" | gh auth login --with-token 2>/dev/null \
+    cat "$GH_TOKEN_FILE" | gh auth login --with-token 2>/dev/null \
         && echo "gh auth refreshed." || echo "Warning: gh auth refresh failed."
     rm -f "$GH_TOKEN_FILE"
 fi
