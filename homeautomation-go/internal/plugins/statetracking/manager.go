@@ -25,6 +25,12 @@ const (
 
 	// OwnerReturnHomeResetDelay is how long before didOwnerJustReturnHome auto-resets
 	OwnerReturnHomeResetDelay = 10 * time.Minute
+
+	// DepartureCooldown is how long after leaving the home zone to suppress
+	// near_home triggers. On departure, the home zone (smaller) clears before
+	// the near_home zone (larger) fires. Without this cooldown, the near_home
+	// trigger is indistinguishable from a genuine arrival.
+	DepartureCooldown = 2 * time.Minute
 )
 
 // Manager handles automatic computation of derived state variables.
@@ -57,6 +63,10 @@ type Manager struct {
 	ownerReturnHomeTimer clock.Timer
 
 	timerMutex sync.Mutex
+
+	// Departure timestamps to suppress near_home false positives (issue #918)
+	nickDepartureTime     time.Time
+	carolineDepartureTime time.Time
 
 	// Shadow state tracking
 	shadowTracker *shadowstate.StateTrackingTracker
@@ -371,7 +381,10 @@ func (m *Manager) handleNickHomeChange(entityID string, oldState, newState *ha.S
 			m.logger.Debug("Nobody else was home, not announcing Nick's arrival")
 		}
 	} else if newState.State != "on" && oldState.State == "on" {
-		// Nick left home - clear didOwnerJustReturnHome
+		// Nick left home - record departure time and clear didOwnerJustReturnHome
+		m.timerMutex.Lock()
+		m.nickDepartureTime = m.clock.Now()
+		m.timerMutex.Unlock()
 		m.clearOwnerJustReturnedHome()
 	}
 }
@@ -417,7 +430,10 @@ func (m *Manager) handleCarolineHomeChange(entityID string, oldState, newState *
 			m.logger.Debug("Nobody else was home, not announcing Caroline's arrival")
 		}
 	} else if newState.State != "on" && oldState.State == "on" {
-		// Caroline left home - clear didOwnerJustReturnHome
+		// Caroline left home - record departure time and clear didOwnerJustReturnHome
+		m.timerMutex.Lock()
+		m.carolineDepartureTime = m.clock.Now()
+		m.timerMutex.Unlock()
 		m.clearOwnerJustReturnedHome()
 	}
 }
@@ -485,6 +501,19 @@ func (m *Manager) handleNickNearHomeChange(entityID string, oldState, newState *
 		}
 
 		if !isNickHome {
+			// Check departure cooldown to distinguish arrival from departure (issue #918)
+			m.timerMutex.Lock()
+			timeSinceDeparture := m.clock.Now().Sub(m.nickDepartureTime)
+			recentlyDeparted := !m.nickDepartureTime.IsZero() && timeSinceDeparture < DepartureCooldown
+			m.timerMutex.Unlock()
+
+			if recentlyDeparted {
+				m.logger.Info("Nick near_home triggered but recently departed - suppressing (departure cooldown)",
+					zap.Duration("timeSinceDeparture", timeSinceDeparture),
+					zap.Duration("cooldown", DepartureCooldown))
+				return
+			}
+
 			// Nick is NOT home and just triggered near_home → he is ARRIVING
 			m.logger.Info("Nick near_home triggered while NOT home - setting didOwnerJustReturnHome",
 				zap.Bool("isNickHome", isNickHome))
@@ -520,6 +549,19 @@ func (m *Manager) handleCarolineNearHomeChange(entityID string, oldState, newSta
 		}
 
 		if !isCarolineHome {
+			// Check departure cooldown to distinguish arrival from departure (issue #918)
+			m.timerMutex.Lock()
+			timeSinceDeparture := m.clock.Now().Sub(m.carolineDepartureTime)
+			recentlyDeparted := !m.carolineDepartureTime.IsZero() && timeSinceDeparture < DepartureCooldown
+			m.timerMutex.Unlock()
+
+			if recentlyDeparted {
+				m.logger.Info("Caroline near_home triggered but recently departed - suppressing (departure cooldown)",
+					zap.Duration("timeSinceDeparture", timeSinceDeparture),
+					zap.Duration("cooldown", DepartureCooldown))
+				return
+			}
+
 			// Caroline is NOT home and just triggered near_home → she is ARRIVING
 			m.logger.Info("Caroline near_home triggered while NOT home - setting didOwnerJustReturnHome",
 				zap.Bool("isCarolineHome", isCarolineHome))

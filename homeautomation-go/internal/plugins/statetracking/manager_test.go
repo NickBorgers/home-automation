@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"homeautomation/internal/clock"
 	"homeautomation/internal/ha"
 	"homeautomation/internal/state"
 
@@ -1034,6 +1035,102 @@ func TestStateTrackingManager_NearHomeDetection(t *testing.T) {
 			if didOwnerReturn != tt.expectedResult {
 				t.Errorf("Expected didOwnerJustReturnHome=%v, got %v (entityID=%s, alreadyHome=%v)",
 					tt.expectedResult, didOwnerReturn, tt.entityID, tt.isAlreadyHome)
+			}
+		})
+	}
+}
+
+// TestStateTrackingManager_NearHomeDepartureCooldown tests that near_home triggers
+// are suppressed during the departure cooldown period (issue #918).
+func TestStateTrackingManager_NearHomeDepartureCooldown(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name             string
+		homeEntityID     string
+		nearHomeEntityID string
+		homeStateVar     string
+		timeSinceDepart  time.Duration
+		expectedResult   bool
+	}{
+		{
+			name:             "Nick near_home suppressed during cooldown",
+			homeEntityID:     "input_boolean.nick_home",
+			nearHomeEntityID: "input_boolean.nick_near_home",
+			homeStateVar:     "isNickHome",
+			timeSinceDepart:  1 * time.Minute,
+			expectedResult:   false,
+		},
+		{
+			name:             "Nick near_home allowed after cooldown",
+			homeEntityID:     "input_boolean.nick_home",
+			nearHomeEntityID: "input_boolean.nick_near_home",
+			homeStateVar:     "isNickHome",
+			timeSinceDepart:  3 * time.Minute,
+			expectedResult:   true,
+		},
+		{
+			name:             "Caroline near_home suppressed during cooldown",
+			homeEntityID:     "input_boolean.caroline_home",
+			nearHomeEntityID: "input_boolean.caroline_near_home",
+			homeStateVar:     "isCarolineHome",
+			timeSinceDepart:  30 * time.Second,
+			expectedResult:   false,
+		},
+		{
+			name:             "Caroline near_home allowed after cooldown",
+			homeEntityID:     "input_boolean.caroline_home",
+			nearHomeEntityID: "input_boolean.caroline_near_home",
+			homeStateVar:     "isCarolineHome",
+			timeSinceDepart:  5 * time.Minute,
+			expectedResult:   true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockHA := ha.NewMockClient()
+			logger := zap.NewNop()
+			stateMgr := state.NewManager(mockHA, logger, false)
+
+			mockClock := clock.NewMockClock(time.Now())
+
+			// Setup: person is home initially
+			if err := stateMgr.SetBool(tt.homeStateVar, true); err != nil {
+				t.Fatalf("Failed to set %s: %v", tt.homeStateVar, err)
+			}
+			if err := stateMgr.SetBool("didOwnerJustReturnHome", false); err != nil {
+				t.Fatalf("Failed to set didOwnerJustReturnHome: %v", err)
+			}
+
+			manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
+			manager.SetClock(mockClock)
+			if err := manager.Start(); err != nil {
+				t.Fatalf("Failed to start manager: %v", err)
+			}
+			defer manager.Stop()
+
+			// Simulate person leaving home (on -> off)
+			mockHA.SetState(tt.homeEntityID, "on", nil)
+			mockHA.SetState(tt.homeEntityID, "off", nil)
+
+			// Clear any didOwnerJustReturnHome set by initial arrival event
+			_ = stateMgr.SetBool("didOwnerJustReturnHome", false)
+
+			// Advance time by the configured duration
+			mockClock.AdvanceAndProcess(tt.timeSinceDepart)
+
+			// Simulate near_home going on
+			mockHA.SetState(tt.nearHomeEntityID, "off", nil)
+			mockHA.SetState(tt.nearHomeEntityID, "on", nil)
+
+			// Verify result
+			didOwnerReturn, err := stateMgr.GetBool("didOwnerJustReturnHome")
+			if err != nil {
+				t.Fatalf("Failed to get didOwnerJustReturnHome: %v", err)
+			}
+			if didOwnerReturn != tt.expectedResult {
+				t.Errorf("Expected didOwnerJustReturnHome=%v, got %v (timeSinceDepart=%v)",
+					tt.expectedResult, didOwnerReturn, tt.timeSinceDepart)
 			}
 		})
 	}

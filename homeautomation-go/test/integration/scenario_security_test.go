@@ -342,3 +342,81 @@ func TestScenario_OnlyOwnersTriggersGarage(t *testing.T) {
 
 	t.Log("✓ Garage automation only triggers for owners, not guests")
 }
+
+// TestScenario_NearHomeDepartureDoesNotOpenGarage tests that passing through the
+// near_home geofence while LEAVING does not falsely trigger didOwnerJustReturnHome.
+// Regression test for issue #918: on departure, the home zone (smaller) clears first,
+// then the near_home zone (larger) fires. At that point isHome is already false,
+// making it look like an arrival.
+func TestScenario_NearHomeDepartureDoesNotOpenGarage(t *testing.T) {
+	t.Parallel()
+	server, _, _, manager, mockClock, cleanup := setupSecurityScenarioTestWithMockClock(t)
+	defer cleanup()
+
+	t.Log("GIVEN: Nick is home")
+	server.SetState("input_boolean.nick_home", "on", nil)
+	server.SetState("input_boolean.nick_near_home", "off", nil)
+	server.SetState("binary_sensor.garage_door_vehicle_detected", "off", nil)
+	waitForBoolState(t, manager, "isNickHome", true, "isNickHome should be true initially")
+
+	// Clear the didOwnerJustReturnHome that was set by the arrival above
+	waitForBoolState(t, manager, "didOwnerJustReturnHome", true, "didOwnerJustReturnHome set by initial arrival")
+	waitForProcessing(t, manager)
+	mockClock.AdvanceAndProcess(11 * time.Minute)
+	waitForBoolState(t, manager, "didOwnerJustReturnHome", false, "didOwnerJustReturnHome should auto-reset")
+
+	t.Log("WHEN: Nick leaves home (home zone clears first)")
+	server.SetState("input_boolean.nick_home", "off", nil)
+	waitForBoolState(t, manager, "isNickHome", false, "isNickHome should be false after departure")
+
+	snapshot := server.ServiceCallCount()
+
+	t.Log("AND: Nick passes through near_home geofence on the way out (1 minute later)")
+	mockClock.AdvanceAndProcess(1 * time.Minute)
+	server.SetState("input_boolean.nick_near_home", "on", nil)
+
+	t.Log("THEN: didOwnerJustReturnHome should NOT be set (departure, not arrival)")
+	waitForProcessing(t, manager)
+
+	didReturn, err := manager.GetBool("didOwnerJustReturnHome")
+	require.NoError(t, err)
+	assert.False(t, didReturn, "didOwnerJustReturnHome should remain false during departure through near_home")
+
+	t.Log("AND: Garage door should NOT be opened")
+	garageOpenCall := FindServiceCallWithEntityID(server.GetServiceCallsSince(snapshot), "cover", "open_cover", "cover.garage_door_door")
+	assert.Nil(t, garageOpenCall, "Garage should NOT open when passing through near_home on departure")
+
+	t.Log("✓ Near-home geofence correctly suppressed during departure")
+}
+
+// TestScenario_NearHomeArrivalStillWorks tests that genuine arrivals through the
+// near_home geofence still trigger didOwnerJustReturnHome correctly after the
+// departure cooldown fix.
+func TestScenario_NearHomeArrivalStillWorks(t *testing.T) {
+	t.Parallel()
+	server, _, _, manager, mockClock, cleanup := setupSecurityScenarioTestWithMockClock(t)
+	defer cleanup()
+
+	t.Log("GIVEN: Nick is not home (has been away for a while)")
+	server.SetState("input_boolean.nick_home", "off", nil)
+	server.SetState("input_boolean.nick_near_home", "off", nil)
+	server.SetState("binary_sensor.garage_door_vehicle_detected", "off", nil)
+	waitForBoolState(t, manager, "isNickHome", false, "isNickHome should be false")
+	waitForProcessing(t, manager)
+
+	// Advance well past any cooldown period
+	mockClock.AdvanceAndProcess(10 * time.Minute)
+
+	snapshot := server.ServiceCallCount()
+
+	t.Log("WHEN: Nick enters near_home geofence (genuine arrival)")
+	server.SetState("input_boolean.nick_near_home", "on", nil)
+
+	t.Log("THEN: didOwnerJustReturnHome should be set to true")
+	waitForBoolState(t, manager, "didOwnerJustReturnHome", true, "didOwnerJustReturnHome should be true for genuine arrival via near_home")
+
+	t.Log("AND: Garage door should be opened")
+	waitForServiceCallWithEntitySince(t, server, snapshot, "cover", "open_cover", "cover.garage_door_door", "Garage should open for genuine near_home arrival")
+
+	t.Log("✓ Genuine near-home arrival still triggers garage correctly")
+}
