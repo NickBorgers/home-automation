@@ -4,7 +4,9 @@ This document provides guidance for AI agents and developers working on this hom
 
 ## Project Overview
 
-This repository contains a home automation system migrating from Node-RED to Golang for improved type safety, testability, and maintainability.
+This repository contains a home automation system implemented in Golang. The system uses a plugin architecture where each plugin handles a specific domain (lighting, music, security, etc.).
+
+**Important:** This is a public repository that contains the core automation framework and most plugins. Some plugins (e.g., `security-private`) live in a separate private downstream repository that extends this codebase. If you encounter log entries, state variables, or entity references that don't exist in this repo, they likely belong to a private downstream plugin — do NOT assume they are from a legacy system.
 
 ## Important: Test Commands and Pre-Push Hook
 
@@ -57,7 +59,7 @@ make lint-go           # Run linters
 │   ├── reference/PLUGIN_SYSTEM.md    # Plugin interfaces
 │   ├── reference/migration_mapping.md # State variable mapping
 │   └── reference/CONCURRENCY_LESSONS.md # Concurrency patterns
-├── docs/archive/flows.json     # Node-RED legacy implementation (archived)
+├── docs/archive/flows.json     # Archived Node-RED flows (historical reference only)
 └── configs/                    # YAML configuration files
 ```
 
@@ -65,18 +67,18 @@ make lint-go           # Run linters
 
 | Document | Purpose |
 |----------|---------|
-| [ARCHITECTURE.md](./docs/architecture/ARCHITECTURE.md) | System design, implementation status, migration roadmap |
+| [ARCHITECTURE.md](./docs/architecture/ARCHITECTURE.md) | System design and implementation status |
 | [SHADOW_STATE.md](./docs/reference/SHADOW_STATE.md) | **READ BEFORE WRITING PLUGINS** - Shadow state pattern |
 | [PLUGIN_SYSTEM.md](./docs/reference/PLUGIN_SYSTEM.md) | Plugin interfaces and lifecycle |
-| [migration_mapping.md](./docs/reference/migration_mapping.md) | State variable mapping from Node-RED |
+| [migration_mapping.md](./docs/reference/migration_mapping.md) | State variable mapping reference |
 | [CONCURRENCY_LESSONS.md](./docs/reference/CONCURRENCY_LESSONS.md) | Concurrency patterns and lessons |
 | [DAY_PHASE_MODES.md](./docs/flows/DAY_PHASE_MODES.md) | Day phase, music mode, and lighting relationships |
 
-## Understanding Node-RED Behavior
+## Archived Node-RED Reference
 
-Before implementing features, understand the current Node-RED behavior.
+The system was originally implemented in Node-RED and has been fully migrated to Go. Node-RED is no longer in use. The archived flows are retained only as a historical reference for understanding original design intent when the Go implementation's behavior is unclear.
 
-**⚠️ WARNING:** `docs/archive/flows.json` is ~650KB. Do NOT read it all at once. Use targeted searches:
+**⚠️ WARNING:** `docs/archive/flows.json` is ~650KB. Do NOT read it all at once. Only consult it as a last resort when Go code and docs are insufficient. Use targeted searches:
 
 ```bash
 # Search patterns
@@ -84,16 +86,6 @@ grep -A 5 '"label":"Music"' docs/archive/flows.json              # Find a flow
 grep -A 20 '"name":"Pick Appropriate Music"' docs/archive/flows.json  # Find function node
 grep -n "isNickHome" docs/archive/flows.json                     # Find state variable usage
 ```
-
-**Flow to Config Mapping:**
-
-| Flow | Config File | Key State Variables |
-|------|-------------|---------------------|
-| State Tracking | N/A | isNickHome, isCarolineHome, isToriHere, isMasterAsleep |
-| Lighting Control | hue_config.yaml | dayPhase, sunevent, isAnyoneHome |
-| Music | music_config.yaml | musicPlaybackType, currentlyPlayingMusic |
-| Sleep Hygiene | schedule_config.yaml | isMasterAsleep, alarmTime |
-| Energy State | energy_config.yaml | batteryEnergyLevel, currentEnergyLevel |
 
 ## Development Standards
 
@@ -696,12 +688,12 @@ git commit -m "docs: Add screenshot of [feature]"
 
 **Current Phase:** Production ✅
 
-- Go implementation is the primary automation system
+- Go implementation is the sole automation system (Node-RED migration completed, no longer in use)
 - All 42 state variables supported
-- Node-RED deprecated (flows.json archived for reference)
+- Some plugins live in a private downstream repository (see Project Overview)
 
 ---
 
-**Last Updated:** 2026-01-10
+**Last Updated:** 2026-03-27
 **Go Version:** 1.24
 **Project Status:** Production
