@@ -390,6 +390,11 @@ func TestScenario_DayPhaseChange_MultiPluginCoordination(t *testing.T) {
 
 	// ASSERTION 1: Day phase state updated
 	waitForStringState(t, env.manager, "dayPhase", "evening", "dayPhase should become evening")
+	// Wait for all in-flight handlers to complete (e.g. lighting plugin's CallService calls
+	// triggered synchronously inside the statetracking goroutine). Without this, the test
+	// goroutine may check service calls before the mock server has recorded them — a race
+	// that manifests as 0 scene activations in slow CI environments.
+	waitForProcessing(t, env.manager)
 	dayPhase, err := env.manager.GetString("dayPhase")
 	assert.NoError(t, err)
 	assert.Equal(t, "evening", dayPhase, "Day phase should be evening")

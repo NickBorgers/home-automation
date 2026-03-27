@@ -22,9 +22,8 @@
   "postStartCommand": "bash .devcontainer/fix-dns-order.sh && sudo chown -R \"$(id -u):$(id -g)\" /workspaces 2>/dev/null || true",
   "forwardPorts": [],
   "portsAttributes": {},
-  "mounts": [
-    "source=${localEnv:HOME}/.config/gh,target=/tmp/gh-config,type=bind"
-  ],
+  "mounts": [],
+  "initializeCommand": "bash .devcontainer/init-host-credentials.sh",
   "remoteEnv": {
     "SSH_AUTH_SOCK": ""
   },

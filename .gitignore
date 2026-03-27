@@ -12,5 +12,9 @@ gravwell.token
 # Build artifacts (copied from root at build time)
 config-test/.yamllint
 
+# Devcontainer secrets (written by initializeCommand, consumed by postCreateCommand)
+.devcontainer/.gh-token
+.devcontainer/.claude-credentials
+
 # Claude Code artifacts
 claude-review-output.jsonl

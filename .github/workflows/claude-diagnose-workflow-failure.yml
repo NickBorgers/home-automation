@@ -137,9 +137,6 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Create gh config directory for devcontainer mount
-        run: mkdir -p ~/.config/gh
-
       - name: Log in to GHCR
         uses: docker/login-action@v3
         with:

@@ -221,9 +221,6 @@ jobs:
           token: ${{ secrets.WORKFLOW_PAT }}  # PAT required to push workflow file changes
           ref: ${{ steps.pr-context.outputs.is_pr == 'true' && steps.pr-context.outputs.pr_head_ref || github.ref }}
 
-      - name: Create gh config directory for devcontainer mount
-        run: mkdir -p ~/.config/gh
-
       - name: Extract comment body
         id: comment
         env:
@@ -379,9 +376,6 @@ jobs:
         with:
           fetch-depth: 0
           token: ${{ secrets.WORKFLOW_PAT }}  # PAT required to push workflow file changes
-
-      - name: Create gh config directory for devcontainer mount
-        run: mkdir -p ~/.config/gh
 
       - name: Label issue as claude-started
         env:
