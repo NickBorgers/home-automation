@@ -35,6 +35,17 @@ else
     echo "Warning: repository root $REPO_ROOT not found; skipping git hooks installation."
 fi
 
+# Set up gh CLI credentials from host token (written by initializeCommand)
+REPO_TOKEN_FILE="$REPO_ROOT/.devcontainer/.gh-token"
+if [ -s "$REPO_TOKEN_FILE" ]; then
+    echo "Setting up GitHub CLI credentials..."
+    GH_TOKEN=$(cat "$REPO_TOKEN_FILE")
+    echo "$GH_TOKEN" | gh auth login --with-token 2>/dev/null && echo "gh auth configured." || echo "Warning: gh auth login failed."
+    rm -f "$REPO_TOKEN_FILE"
+else
+    echo "Warning: No gh token found; gh CLI credentials not available."
+fi
+
 # Note: Claude Code and playwright-skill plugin are now pre-installed
 # in the Dockerfile for faster rebuilds via Docker layer caching.
 
