@@ -47,17 +47,17 @@ else
 fi
 
 # Set up Claude Code credentials from host keychain (written by initializeCommand)
-# Claude Code reads CLAUDE_CODE_OAUTH_TOKEN env var on Linux (no keychain available)
-CLAUDE_TOKEN_FILE="$REPO_ROOT/.devcontainer/.claude-token"
-if [ -s "$CLAUDE_TOKEN_FILE" ]; then
+# Claude Code reads ~/.claude/.credentials.json on Linux (no keychain available)
+CLAUDE_CRED_FILE="$REPO_ROOT/.devcontainer/.claude-credentials"
+if [ -s "$CLAUDE_CRED_FILE" ]; then
     echo "Setting up Claude Code credentials..."
-    CLAUDE_OAUTH_TOKEN=$(cat "$CLAUDE_TOKEN_FILE")
-    # Write to shell profile so it persists across terminal sessions
-    echo "export CLAUDE_CODE_OAUTH_TOKEN='$CLAUDE_OAUTH_TOKEN'" >> "$HOME/.zshrc"
+    mkdir -p "$HOME/.claude"
+    cp "$CLAUDE_CRED_FILE" "$HOME/.claude/.credentials.json"
+    chmod 600 "$HOME/.claude/.credentials.json"
     echo "Claude Code credentials configured."
-    rm -f "$CLAUDE_TOKEN_FILE"
+    rm -f "$CLAUDE_CRED_FILE"
 else
-    echo "Warning: No Claude token found; Claude Code credentials not available."
+    echo "Warning: No Claude credentials found; Claude Code credentials not available."
 fi
 
 # Note: Claude Code and playwright-skill plugin are now pre-installed
