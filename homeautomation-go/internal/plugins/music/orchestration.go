@@ -34,9 +34,15 @@ const (
 	// speakerUnjoinTimeout is the maximum time to wait for a single unjoin call.
 	// Unjoin is best-effort cleanup — if a speaker is unresponsive, we skip it
 	// rather than blocking startup or playback transitions for minutes.
-	// This bounds each unjoin to ~15s (one HA attempt at 10s + margin) instead of
-	// the default CallService retry loop (~3 minutes with 12 retries).
-	speakerUnjoinTimeout = 15 * time.Second
+	// With serial unjoin, each call is a single UPnP request (no retries),
+	// so 3s is sufficient. Worst case = 6 × (3s + 500ms) + 500ms settle ≈ 21.5s.
+	speakerUnjoinTimeout = 3 * time.Second
+
+	// speakerUnjoinInterDelay is the delay between sequential unjoin calls.
+	// Serializing with a short gap avoids flooding the Sonos mesh with
+	// simultaneous UPnP BecomeCoordinatorOfStandaloneGroup SOAP requests,
+	// which caused ~63% timeout failures when all 6 speakers were unjoined in parallel.
+	speakerUnjoinInterDelay = 500 * time.Millisecond
 
 	// speakerGroupSettleDelay is the delay after building a speaker group
 	// to allow the Sonos system to stabilize before starting playback.

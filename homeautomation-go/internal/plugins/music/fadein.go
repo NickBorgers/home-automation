@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"strings"
-	"sync"
 	"time"
 
 	"go.uber.org/zap"
@@ -75,40 +74,34 @@ func (m *Manager) fadeOutSpeakers() {
 // aren't already grouped together in unpredictable ways.
 // Matches Node-RED behavior: "Break group for player" -> player.become.standalone
 //
-// Unjoin calls run concurrently with a short timeout (speakerUnjoinTimeout) to
-// prevent unresponsive speakers from blocking startup or playback transitions.
-// When speakers are systematically unreachable (e.g., HA Sonos integration issues),
-// sequential unjoin with full retries could block for 18+ minutes (6 speakers ×
-// 3 min retry budget each), causing HA to close the websocket and crash the app.
+// Unjoin calls run serially with a short inter-call delay (speakerUnjoinInterDelay)
+// to avoid flooding the Sonos mesh with simultaneous UPnP SOAP requests. Parallel
+// ungroup caused ~63% HTTPConnectionPool read-timeout failures on port 1400.
+// Each call uses speakerUnjoinTimeout (3s) with no retries, so worst case is
+// 6 × (3s + 500ms) + 500ms settle ≈ 21.5s — well under the old #787 concern of
+// 18+ minutes (which required full 3-min retry budgets per speaker).
 // See: https://github.com/NickBorgers/home-automation/issues/787
 func (m *Manager) breakSpeakerGroups(participants []ParticipantWithVolume) {
 	m.logger.Info("Breaking existing speaker groups before building new group",
 		zap.Int("participant_count", len(participants)))
 
-	// Unjoin all speakers concurrently with a short timeout per speaker.
-	// Each unjoin is independent and best-effort — if a speaker is unreachable,
-	// we log a warning and continue rather than blocking for minutes of retries.
-	var wg sync.WaitGroup
-	for _, p := range participants {
-		wg.Add(1)
-		go func(p ParticipantWithVolume) {
-			defer wg.Done()
+	// Unjoin speakers serially with a short timeout per call and inter-call delay.
+	// Each unjoin is best-effort — if a speaker is unreachable, we log and continue.
+	for i, p := range participants {
+		m.logger.Debug("Unjoining speaker from existing group",
+			zap.String("speaker", p.PlayerName))
 
-			m.logger.Debug("Unjoining speaker from existing group",
-				zap.String("speaker", p.PlayerName))
+		if err := m.speakerUnjoinBestEffort(p.PlayerName, speakerUnjoinTimeout); err != nil {
+			m.logger.Warn("Failed to unjoin speaker (best-effort, continuing)",
+				zap.String("speaker", p.PlayerName),
+				zap.Error(err))
+		}
 
-			// Use best-effort call with short timeout instead of full retry.
-			// This limits each unjoin to ~15s instead of ~3 minutes of retries.
-			if err := m.speakerUnjoinBestEffort(p.PlayerName, speakerUnjoinTimeout); err != nil {
-				// Log warning but continue - speaker might not be in a group
-				// or might be temporarily unreachable
-				m.logger.Warn("Failed to unjoin speaker (best-effort, continuing)",
-					zap.String("speaker", p.PlayerName),
-					zap.Error(err))
-			}
-		}(p)
+		// Brief delay between calls to avoid UPnP congestion (not after last speaker)
+		if i < len(participants)-1 {
+			m.sleepFunc(speakerUnjoinInterDelay)
+		}
 	}
-	wg.Wait()
 
 	// Allow time for Sonos to process the unjoin commands before building new group
 	m.sleepFunc(speakerUnjoinSettleDelay)

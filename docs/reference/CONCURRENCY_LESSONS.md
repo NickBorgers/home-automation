@@ -1245,7 +1245,59 @@ if m.zoneManager != nil && !m.zoneManager.IsZoneActive(startingMusicType) {
 
 ---
 
+## Lesson 17: Serialize Calls to Congestion-Sensitive External Device Networks
+
+**Pattern**: When calling external devices on a shared network (e.g., UPnP/SOAP on a Sonos mesh), serialize requests with inter-call delays instead of fanning out concurrently — even when the calls are logically independent.
+
+**Why**: Device mesh networks like Sonos UPnP have limited capacity for concurrent SOAP requests. When 6 speakers received simultaneous `BecomeCoordinatorOfStandaloneGroup` calls, ~63% failed with `HTTPConnectionPool ReadTimeoutError` on port 1400. The devices share a mesh network and overwhelm each other when processing concurrent topology changes.
+
+**Symptoms**:
+- High failure rates on logically-independent device calls sent in parallel
+- `HTTPConnectionPool ReadTimeoutError` or similar network-layer timeouts
+- Failures are intermittent and load-dependent (work fine with 2 speakers, fail with 6)
+
+**Fix**: Replace goroutine fan-out (`sync.WaitGroup` + goroutines) with a serial loop and inter-call delay:
+
+```go
+// BEFORE: Parallel fan-out overwhelms device mesh
+var wg sync.WaitGroup
+for _, speaker := range speakers {
+    wg.Add(1)
+    go func(s Speaker) {
+        defer wg.Done()
+        unjoin(s) // All hit mesh simultaneously
+    }(speaker)
+}
+wg.Wait()
+
+// AFTER: Serial with inter-call delay
+for i, speaker := range speakers {
+    unjoin(speaker)
+    if i < len(speakers)-1 {
+        time.Sleep(500 * time.Millisecond) // Let mesh settle
+    }
+}
+```
+
+**Key Insight**: Concurrency is not always faster. When the bottleneck is a shared external resource (device mesh, rate-limited API, shared bus), serialization with pacing can be both faster (fewer retries/timeouts) and more reliable than parallel execution.
+
+**Where Applied**:
+- `internal/plugins/music/fadein.go` - `breakSpeakerGroups()` serializes unjoin calls with 500ms inter-delay
+- `internal/plugins/music/orchestration.go` - `removeSpeakersFromZone()` already used serial pattern
+
+**Tests That Validate This**:
+- `TestBreakSpeakerGroups/Unjoins_all_speakers_serially` - All speakers unjoined with mock sleep
+- `TestBreakSpeakerGroups/Handles_unjoin_failures_gracefully` - Failures don't block subsequent speakers
+
+---
+
 ## Change Log
+
+### 2026-03-26
+- **Added Lesson 17**: Serialize Calls to Congestion-Sensitive External Device Networks
+  - Documents UPnP timeout storm from parallel Sonos ungroup calls (PR #911)
+  - Pattern: Serial + inter-call delay for device mesh networks
+  - Applied to `internal/plugins/music/fadein.go` - `breakSpeakerGroups()`
 
 ### 2026-03-04
 - **Added Lesson 16**: Don't Use a Shared Scalar to Guard Concurrent Multi-Value Operations
