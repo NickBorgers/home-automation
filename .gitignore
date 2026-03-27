@@ -14,6 +14,7 @@ config-test/.yamllint
 
 # Devcontainer secrets (written by initializeCommand, consumed by postCreateCommand)
 .devcontainer/.gh-token
+.devcontainer/.claude-token
 
 # Claude Code artifacts
 claude-review-output.jsonl

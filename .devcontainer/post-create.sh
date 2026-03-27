@@ -46,6 +46,20 @@ else
     echo "Warning: No gh token found; gh CLI credentials not available."
 fi
 
+# Set up Claude Code credentials from host keychain (written by initializeCommand)
+# Claude Code reads CLAUDE_CODE_OAUTH_TOKEN env var on Linux (no keychain available)
+CLAUDE_TOKEN_FILE="$REPO_ROOT/.devcontainer/.claude-token"
+if [ -s "$CLAUDE_TOKEN_FILE" ]; then
+    echo "Setting up Claude Code credentials..."
+    CLAUDE_OAUTH_TOKEN=$(cat "$CLAUDE_TOKEN_FILE")
+    # Write to shell profile so it persists across terminal sessions
+    echo "export CLAUDE_CODE_OAUTH_TOKEN='$CLAUDE_OAUTH_TOKEN'" >> "$HOME/.zshrc"
+    echo "Claude Code credentials configured."
+    rm -f "$CLAUDE_TOKEN_FILE"
+else
+    echo "Warning: No Claude token found; Claude Code credentials not available."
+fi
+
 # Note: Claude Code and playwright-skill plugin are now pre-installed
 # in the Dockerfile for faster rebuilds via Docker layer caching.
 

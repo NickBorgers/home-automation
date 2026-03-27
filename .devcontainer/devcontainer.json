@@ -23,7 +23,7 @@
   "forwardPorts": [],
   "portsAttributes": {},
   "mounts": [],
-  "initializeCommand": "gh auth token > .devcontainer/.gh-token 2>/dev/null || true",
+  "initializeCommand": "bash .devcontainer/init-host-credentials.sh",
   "remoteEnv": {
     "SSH_AUTH_SOCK": ""
   },
