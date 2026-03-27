@@ -12,6 +12,7 @@ import (
 
 // createTestConfig creates a test hue configuration using the new conditions format
 func createTestConfig() *HueConfig {
+	transition3 := 3
 	transition30 := 30
 	transition180 := 180
 
@@ -48,6 +49,16 @@ func createTestConfig() *HueConfig {
 				},
 				IncreaseBrightnessIfTrue: nil,
 				TransitionSeconds:        &transition180,
+			},
+			{
+				HueGroup:   "Kitchen",
+				HASSAreaID: "kitchen",
+				Conditions: []LightingCondition{
+					{Action: "off", Variable: "isAnyoneHome", Value: false},
+					{Action: "on", Variable: "isAnyoneHome", Value: true},
+				},
+				IncreaseBrightnessIfTrue: nil,
+				TransitionSeconds:        &transition3,
 			},
 		},
 	}
@@ -164,8 +175,8 @@ func TestActivateScene(t *testing.T) {
 			expectedTrans: 30,
 		},
 		{
-			// Issue #913: presence trigger with short transition stays unchanged
-			name:          "Presence trigger with short transition keeps original",
+			// Issue #913: presence trigger with moderate transition gets capped
+			name:          "Presence trigger caps moderate transition",
 			readOnly:      false,
 			dayPhase:      "Morning",
 			trigger:       "isAnyoneHome",
@@ -195,6 +206,17 @@ func TestActivateScene(t *testing.T) {
 			expectedCalls: 1,
 			expectedScene: "scene.primary_suite_morning",
 			expectedTrans: 180, // not capped
+		},
+		{
+			// Issue #913: presence trigger with transition <= cap keeps original
+			name:          "Presence trigger with short transition keeps original",
+			readOnly:      false,
+			dayPhase:      "Morning",
+			trigger:       "isHaveGuests",
+			roomIndex:     2, // Kitchen: 3s transition (below 5s cap)
+			expectedCalls: 1,
+			expectedScene: "scene.kitchen_morning",
+			expectedTrans: 3, // not capped — already below maxReturnHomeTransition
 		},
 	}
 
@@ -228,6 +250,7 @@ func TestIsPresenceTrigger(t *testing.T) {
 	assert.True(t, isPresenceTrigger("isAnyoneHomeAndAwake"))
 	assert.True(t, isPresenceTrigger("isNickHome"))
 	assert.True(t, isPresenceTrigger("isCarolineHome"))
+	assert.True(t, isPresenceTrigger("isHaveGuests"))
 	assert.False(t, isPresenceTrigger("dayPhase"))
 	assert.False(t, isPresenceTrigger("sunevent"))
 	assert.False(t, isPresenceTrigger("isTVPlaying"))

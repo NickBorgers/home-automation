@@ -464,7 +464,7 @@ const maxReturnHomeTransition = 5
 // (someone arriving/leaving), which means lights may be transitioning from off to on.
 func isPresenceTrigger(trigger string) bool {
 	switch trigger {
-	case "isAnyoneHome", "isAnyoneHomeAndAwake", "isNickHome", "isCarolineHome":
+	case "isAnyoneHome", "isAnyoneHomeAndAwake", "isNickHome", "isCarolineHome", "isHaveGuests":
 		return true
 	default:
 		return false
