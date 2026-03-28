@@ -2,6 +2,7 @@ package ha
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sync"
@@ -42,6 +43,10 @@ type MockClient struct {
 	devicesMu      sync.RWMutex
 	entityRegistry []*EntityRegistryEntry
 	entityRegMu    sync.RWMutex
+
+	// Service response injection for CallServiceWithResponse
+	serviceResponses   map[string]json.RawMessage // key: "domain.service"
+	serviceResponsesMu sync.RWMutex
 
 	// Config entry reload tracking
 	configReloads   []ConfigEntryReload
@@ -95,6 +100,7 @@ func NewMockClient() *MockClient {
 		serviceFailError:  make(map[string]error),
 		stateSequences:    make(map[string][]string),
 		stateSequenceIdx:  make(map[string]int),
+		serviceResponses:  make(map[string]json.RawMessage),
 		configReloads:     make([]ConfigEntryReload, 0),
 		reloadErrors:      make(map[string]error),
 		connected:         false,
@@ -310,6 +316,52 @@ func (m *MockClient) CallServiceWithTarget(ctx context.Context, domain, service 
 	m.callsMu.Unlock()
 
 	return nil
+}
+
+// CallServiceWithResponse records a service call and returns injected response data.
+func (m *MockClient) CallServiceWithResponse(ctx context.Context, domain, service string, data map[string]interface{}) (json.RawMessage, error) {
+	select {
+	case <-ctx.Done():
+		return nil, fmt.Errorf("service call cancelled: %w", ctx.Err())
+	default:
+	}
+
+	key := domain + "." + service
+
+	// Check for permanent injected errors
+	m.serviceErrorsMu.RLock()
+	if err, exists := m.serviceErrors[key]; exists {
+		m.serviceErrorsMu.RUnlock()
+		return nil, err
+	}
+	m.serviceErrorsMu.RUnlock()
+
+	m.callsMu.Lock()
+	m.serviceCalls = append(m.serviceCalls, ServiceCall{
+		Domain:  domain,
+		Service: service,
+		Data:    data,
+		Time:    time.Now(),
+	})
+	m.callsMu.Unlock()
+
+	// Return injected response if available
+	m.serviceResponsesMu.RLock()
+	resp, exists := m.serviceResponses[key]
+	m.serviceResponsesMu.RUnlock()
+	if exists {
+		return resp, nil
+	}
+
+	return nil, nil
+}
+
+// SetServiceResponse configures the mock to return specific response data for CallServiceWithResponse.
+// The key format is "domain.service" (e.g., "weather.get_forecasts").
+func (m *MockClient) SetServiceResponse(domain, service string, response json.RawMessage) {
+	m.serviceResponsesMu.Lock()
+	defer m.serviceResponsesMu.Unlock()
+	m.serviceResponses[domain+"."+service] = response
 }
 
 // SubscribeStateChanges subscribes to state changes

@@ -2,6 +2,8 @@ package loadshedding
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -372,9 +374,21 @@ func TestThermalBattery_HeatingMode(t *testing.T) {
 	}
 }
 
+// makeForecastResponse builds a JSON forecast response for the mock HA client.
+func makeForecastResponse(high, low float64) json.RawMessage {
+	resp := fmt.Sprintf(`{"%s":{"forecast":[{"temperature":%v,"templow":%v}]}}`, forecastWeatherEntity, high, low)
+	return json.RawMessage(resp)
+}
+
 // setupHeatCoolEnv creates a test environment with thermostats in heat_cool mode
 // using realistic owner setpoints (69/72, 3°F dead band).
+// forecastHigh/forecastLow set the forecast; if both are 0, no forecast is configured.
+// outdoorTemp sets the fallback outdoor temp sensor (used when forecast unavailable).
 func setupHeatCoolEnv(t *testing.T, outdoorTemp string) *testutil.Env {
+	return setupHeatCoolEnvWithForecast(t, outdoorTemp, 0, 0)
+}
+
+func setupHeatCoolEnvWithForecast(t *testing.T, outdoorTemp string, forecastHigh, forecastLow float64) *testutil.Env {
 	t.Helper()
 	env := testutil.NewEnv(t)
 	env.MockHA.SetState(thermostatHoldHouse, "off", nil)
@@ -394,7 +408,12 @@ func setupHeatCoolEnv(t *testing.T, outdoorTemp string) *testutil.Env {
 		"hvac_action":         "idle",
 	})
 
-	// Set outdoor temperature sensor
+	// Set forecast response if provided
+	if forecastHigh != 0 || forecastLow != 0 {
+		env.MockHA.SetServiceResponse("weather", "get_forecasts", makeForecastResponse(forecastHigh, forecastLow))
+	}
+
+	// Set outdoor temperature sensor (fallback)
 	if outdoorTemp != "" {
 		env.MockHA.SetState(outdoorTempSensor, outdoorTemp, nil)
 	}
@@ -409,10 +428,11 @@ func setupHeatCoolEnv(t *testing.T, outdoorTemp string) *testutil.Env {
 	return env
 }
 
-func TestThermalBattery_HeatCoolMode_ColdOutdoor(t *testing.T) {
+func TestThermalBattery_HeatCoolMode_ColdForecast(t *testing.T) {
 	t.Parallel()
-	// Winter scenario: 35°F outside, 69/72 setpoints → first step shifts UP by 1°F to 70/73
-	env := setupHeatCoolEnv(t, "35.0")
+	// Winter scenario: forecast high 45°F, low 25°F → cold day, shifts UP by 1°F to 70/73
+	// Low 25°F < skipLow (69-20=49), so direction = "up" (pre-heat)
+	env := setupHeatCoolEnvWithForecast(t, "", 45.0, 25.0)
 
 	ls := NewManager(context.Background(), env.MockHA, env.StateMgr, env.Logger, false, nil, nil)
 	err := ls.Start()
@@ -426,7 +446,7 @@ func TestThermalBattery_HeatCoolMode_ColdOutdoor(t *testing.T) {
 
 	assert.True(t, ls.IsThermalBatteryActive())
 
-	// Cold outside → first step shifts band UP by 1°F: 69/72 → 70/73
+	// Cold forecast → first step shifts band UP by 1°F: 69/72 → 70/73
 	calls := env.MockHA.GetServiceCallsSince(snapshot)
 	for _, call := range calls {
 		if call.Domain == "climate" && call.Service == "set_temperature" {
@@ -446,10 +466,11 @@ func TestThermalBattery_HeatCoolMode_ColdOutdoor(t *testing.T) {
 	}
 }
 
-func TestThermalBattery_HeatCoolMode_HotOutdoor(t *testing.T) {
+func TestThermalBattery_HeatCoolMode_HotForecast(t *testing.T) {
 	t.Parallel()
-	// Summer scenario: 95°F outside, 69/72 setpoints → first step shifts DOWN by 1°F to 68/71
-	env := setupHeatCoolEnv(t, "95.0")
+	// Summer scenario: forecast high 95°F, low 70°F → hot day, shifts DOWN by 1°F to 68/71
+	// High 95°F > skipHigh (72+20=92), so direction = "down" (pre-cool)
+	env := setupHeatCoolEnvWithForecast(t, "", 95.0, 70.0)
 
 	ls := NewManager(context.Background(), env.MockHA, env.StateMgr, env.Logger, false, nil, nil)
 	err := ls.Start()
@@ -463,7 +484,7 @@ func TestThermalBattery_HeatCoolMode_HotOutdoor(t *testing.T) {
 
 	assert.True(t, ls.IsThermalBatteryActive())
 
-	// Hot outside → first step shifts band DOWN by 1°F: 69/72 → 68/71
+	// Hot forecast → first step shifts band DOWN by 1°F: 69/72 → 68/71
 	calls := env.MockHA.GetServiceCallsSince(snapshot)
 	for _, call := range calls {
 		if call.Domain == "climate" && call.Service == "set_temperature" {
@@ -483,10 +504,11 @@ func TestThermalBattery_HeatCoolMode_HotOutdoor(t *testing.T) {
 	}
 }
 
-func TestThermalBattery_HeatCoolMode_MildOutdoor_SkipsInSkipZone(t *testing.T) {
+func TestThermalBattery_HeatCoolMode_MildForecast_SkipsInSkipZone(t *testing.T) {
 	t.Parallel()
-	// Spring scenario: 70°F outside, 69/72 setpoints → skip zone is 49-92°F → should skip
-	env := setupHeatCoolEnv(t, "70.0")
+	// Spring scenario: forecast high 75°F, low 55°F, 69/72 setpoints → skip zone is 49-92°F
+	// Both high (75) <= 92 and low (55) >= 49 → should skip
+	env := setupHeatCoolEnvWithForecast(t, "", 75.0, 55.0)
 
 	ls := NewManager(context.Background(), env.MockHA, env.StateMgr, env.Logger, false, nil, nil)
 	err := ls.Start()
@@ -512,10 +534,10 @@ func TestThermalBattery_HeatCoolMode_MildOutdoor_SkipsInSkipZone(t *testing.T) {
 	assert.Contains(t, shadow.Outputs.ThermalBattery.SkipReason, "skip zone")
 }
 
-func TestThermalBattery_HeatCoolMode_OutdoorSensorUnavailable(t *testing.T) {
+func TestThermalBattery_HeatCoolMode_ForecastUnavailable_FallsBackToOutdoor(t *testing.T) {
 	t.Parallel()
-	// No outdoor temp sensor configured → should skip
-	env := setupHeatCoolEnv(t, "") // empty = don't set the sensor state
+	// No forecast configured, but outdoor temp sensor is available → uses fallback
+	env := setupHeatCoolEnv(t, "35.0") // No forecast, outdoor temp = 35°F (cold)
 
 	ls := NewManager(context.Background(), env.MockHA, env.StateMgr, env.Logger, false, nil, nil)
 	err := ls.Start()
@@ -527,7 +549,26 @@ func TestThermalBattery_HeatCoolMode_OutdoorSensorUnavailable(t *testing.T) {
 	err = env.StateMgr.SetString("currentEnergyLevel", "white")
 	require.NoError(t, err)
 
-	assert.False(t, ls.IsThermalBatteryActive(), "Thermal battery should skip when outdoor sensor unavailable")
+	// Should activate using fallback outdoor temp (35°F < 49 skip_low → direction "up")
+	assert.True(t, ls.IsThermalBatteryActive(), "Thermal battery should activate using outdoor temp fallback")
+}
+
+func TestThermalBattery_HeatCoolMode_BothUnavailable(t *testing.T) {
+	t.Parallel()
+	// No forecast AND no outdoor temp sensor → should skip
+	env := setupHeatCoolEnv(t, "") // No forecast, no outdoor temp
+
+	ls := NewManager(context.Background(), env.MockHA, env.StateMgr, env.Logger, false, nil, nil)
+	err := ls.Start()
+	require.NoError(t, err)
+	defer ls.Stop()
+
+	_ = env.MockHA.ServiceCallCount()
+
+	err = env.StateMgr.SetString("currentEnergyLevel", "white")
+	require.NoError(t, err)
+
+	assert.False(t, ls.IsThermalBatteryActive(), "Thermal battery should skip when both forecast and outdoor sensor unavailable")
 
 	shadow := ls.GetShadowState()
 	assert.Contains(t, shadow.Outputs.ThermalBattery.SkipReason, "outdoor temp sensor unavailable")
@@ -535,8 +576,8 @@ func TestThermalBattery_HeatCoolMode_OutdoorSensorUnavailable(t *testing.T) {
 
 func TestThermalBattery_HeatCoolMode_DeactivationRestoresOriginal(t *testing.T) {
 	t.Parallel()
-	// Activate with cold outdoor, then deactivate → verify original 69/72 restored
-	env := setupHeatCoolEnv(t, "35.0")
+	// Activate with cold forecast, then deactivate → verify original 69/72 restored
+	env := setupHeatCoolEnvWithForecast(t, "", 45.0, 25.0)
 
 	ls := NewManager(context.Background(), env.MockHA, env.StateMgr, env.Logger, false, nil, nil)
 	ls.lastAction = time.Now().Add(-2 * time.Hour)
@@ -574,8 +615,8 @@ func TestThermalBattery_HeatCoolMode_DeactivationRestoresOriginal(t *testing.T) 
 
 func TestThermalBattery_NtfyNotificationOnActivation(t *testing.T) {
 	t.Parallel()
-	// Verify ntfy notification is sent when thermal battery activates
-	env := setupHeatCoolEnv(t, "35.0")
+	// Verify ntfy notification is sent when thermal battery activates with forecast
+	env := setupHeatCoolEnvWithForecast(t, "", 45.0, 25.0)
 
 	mockNtfy := ntfy.NewMockClient()
 	ls := NewManager(context.Background(), env.MockHA, env.StateMgr, env.Logger, false, nil, mockNtfy)
@@ -590,12 +631,13 @@ func TestThermalBattery_NtfyNotificationOnActivation(t *testing.T) {
 
 	assert.True(t, ls.IsThermalBatteryActive())
 
-	// Verify ntfy notification was sent
+	// Verify ntfy notification was sent with forecast info
 	ntfyCalls := mockNtfy.GetCalls()
 	require.Len(t, ntfyCalls, 1, "Should have sent exactly one ntfy notification")
 	assert.Equal(t, "Thermal Battery Activated", ntfyCalls[0].Title)
 	assert.Contains(t, ntfyCalls[0].Body, "UP (pre-heat)")
-	assert.Contains(t, ntfyCalls[0].Body, "outdoor: 35.0")
+	assert.Contains(t, ntfyCalls[0].Body, "forecast high: 45")
+	assert.Contains(t, ntfyCalls[0].Body, "low: 25")
 }
 
 func TestThermalBattery_SkipsWhenThermostatOff(t *testing.T) {
@@ -969,8 +1011,8 @@ func TestThermalBattery_RevertsStaleHoldsOnActivation(t *testing.T) {
 
 func TestThermalBattery_HeatCoolSteppingCompletesFullOffset(t *testing.T) {
 	t.Parallel()
-	// Cold outdoor: 35°F → direction "up" → heat_cool band shifts up
-	env := setupHeatCoolEnv(t, "35.0")
+	// Cold forecast: high 45°F, low 25°F → direction "up" → heat_cool band shifts up
+	env := setupHeatCoolEnvWithForecast(t, "", 45.0, 25.0)
 
 	ls := NewManager(context.Background(), env.MockHA, env.StateMgr, env.Logger, false, nil, nil)
 	ls.SetThermalBatteryPollIntervalForTesting(10 * time.Millisecond)

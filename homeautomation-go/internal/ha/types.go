@@ -67,12 +67,13 @@ type Context struct {
 
 // CallServiceRequest represents a call_service request
 type CallServiceRequest struct {
-	ID          int                    `json:"id"`
-	Type        string                 `json:"type"`
-	Domain      string                 `json:"domain"`
-	Service     string                 `json:"service"`
-	ServiceData map[string]interface{} `json:"service_data,omitempty"`
-	Target      *ServiceTarget         `json:"target,omitempty"`
+	ID             int                    `json:"id"`
+	Type           string                 `json:"type"`
+	Domain         string                 `json:"domain"`
+	Service        string                 `json:"service"`
+	ServiceData    map[string]interface{} `json:"service_data,omitempty"`
+	Target         *ServiceTarget         `json:"target,omitempty"`
+	ReturnResponse bool                   `json:"return_response,omitempty"`
 }
 
 // ServiceTarget represents service call target

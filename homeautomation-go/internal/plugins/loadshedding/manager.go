@@ -44,11 +44,17 @@ const (
 	// Thermal battery: setpoint offset in degrees F
 	thermalBatteryOffset = 2.0
 
-	// Outdoor temperature sensor for thermal battery direction in heat_cool mode
+	// Outdoor temperature sensor for thermal battery direction in heat_cool mode (fallback)
 	outdoorTempSensor = "sensor.weather_station_temperature"
 
-	// Skip margin: if outdoor temp is within this many degrees of the comfort band, skip thermal battery
+	// Forecast weather entity for thermal battery direction planning
+	forecastWeatherEntity = "weather.forecast_home_2"
+
+	// Skip margin: if forecast high AND low are within this many degrees of the comfort band, skip thermal battery
 	thermalBatterySkipMargin = 20.0
+
+	// How long to cache forecast data before refreshing
+	forecastCacheDuration = 1 * time.Hour
 
 	// Thermal battery stepping: apply offset gradually to avoid triggering auxiliary heat
 	thermalBatteryStepSize       = 1.0              // degrees F per step
@@ -105,6 +111,12 @@ type Manager struct {
 	thermalBatteryHoldRevertDelay time.Duration
 	thermalBatteryStepStart       time.Time     // when the current step began (for safety timeout)
 	thermalBatteryMaxStepWaitDur  time.Duration // configurable max wait per step (defaults to thermalBatteryMaxStepWait)
+
+	// Forecast cache for thermal battery
+	forecastHigh     float64
+	forecastLow      float64
+	forecastCachedAt time.Time
+	forecastMu       sync.Mutex
 
 	// Push notifications
 	ntfyClient ntfy.Notifier
