@@ -31,6 +31,12 @@ const (
 	// the near_home zone (larger) fires. Without this cooldown, the near_home
 	// trigger is indistinguishable from a genuine arrival.
 	DepartureCooldown = 2 * time.Minute
+
+	// ArrivalDebounceDuration is how long after a departure to suppress
+	// re-arrival triggers. When a presence sensor bounces (GPS/WiFi flicker),
+	// the person briefly drops out then re-appears. Without this debounce,
+	// each re-appearance triggers a fresh TTS announcement and garage open.
+	ArrivalDebounceDuration = 5 * time.Minute
 )
 
 // Manager handles automatic computation of derived state variables.
@@ -65,8 +71,10 @@ type Manager struct {
 	timerMutex sync.Mutex
 
 	// Departure timestamps to suppress near_home false positives (issue #918)
+	// and arrival bounce debounce (issue #922)
 	nickDepartureTime     time.Time
 	carolineDepartureTime time.Time
+	toriDepartureTime     time.Time
 
 	// Shadow state tracking
 	shadowTracker *shadowstate.StateTrackingTracker
@@ -356,6 +364,19 @@ func (m *Manager) handleNickHomeChange(entityID string, oldState, newState *ha.S
 			zap.String("old_state", oldState.State),
 			zap.String("new_state", newState.State))
 
+		// Check arrival debounce to suppress presence sensor bounce (issue #922)
+		m.timerMutex.Lock()
+		timeSinceDeparture := m.clock.Now().Sub(m.nickDepartureTime)
+		recentlyDeparted := !m.nickDepartureTime.IsZero() && timeSinceDeparture < ArrivalDebounceDuration
+		m.timerMutex.Unlock()
+
+		if recentlyDeparted {
+			m.logger.Info("Nick arrival suppressed - presence sensor bounce (arrival debounce)",
+				zap.Duration("timeSinceDeparture", timeSinceDeparture),
+				zap.Duration("debounceDuration", ArrivalDebounceDuration))
+			return
+		}
+
 		// Set didOwnerJustReturnHome for garage automation
 		m.setOwnerJustReturnedHome()
 
@@ -404,6 +425,19 @@ func (m *Manager) handleCarolineHomeChange(entityID string, oldState, newState *
 			zap.String("entity_id", entityID),
 			zap.String("old_state", oldState.State),
 			zap.String("new_state", newState.State))
+
+		// Check arrival debounce to suppress presence sensor bounce (issue #922)
+		m.timerMutex.Lock()
+		timeSinceDeparture := m.clock.Now().Sub(m.carolineDepartureTime)
+		recentlyDeparted := !m.carolineDepartureTime.IsZero() && timeSinceDeparture < ArrivalDebounceDuration
+		m.timerMutex.Unlock()
+
+		if recentlyDeparted {
+			m.logger.Info("Caroline arrival suppressed - presence sensor bounce (arrival debounce)",
+				zap.Duration("timeSinceDeparture", timeSinceDeparture),
+				zap.Duration("debounceDuration", ArrivalDebounceDuration))
+			return
+		}
 
 		// Set didOwnerJustReturnHome for garage automation
 		m.setOwnerJustReturnedHome()
@@ -454,6 +488,19 @@ func (m *Manager) handleToriHereChange(entityID string, oldState, newState *ha.S
 			zap.String("old_state", oldState.State),
 			zap.String("new_state", newState.State))
 
+		// Check arrival debounce to suppress presence sensor bounce (issue #922)
+		m.timerMutex.Lock()
+		timeSinceDeparture := m.clock.Now().Sub(m.toriDepartureTime)
+		recentlyDeparted := !m.toriDepartureTime.IsZero() && timeSinceDeparture < ArrivalDebounceDuration
+		m.timerMutex.Unlock()
+
+		if recentlyDeparted {
+			m.logger.Info("Tori arrival suppressed - presence sensor bounce (arrival debounce)",
+				zap.Duration("timeSinceDeparture", timeSinceDeparture),
+				zap.Duration("debounceDuration", ArrivalDebounceDuration))
+			return
+		}
+
 		// Check if anyone else was already home (Nick or Caroline)
 		wasAnyoneHome := false
 		if isNickHome, err := m.stateManager.GetBool("isNickHome"); err == nil && isNickHome {
@@ -475,6 +522,11 @@ func (m *Manager) handleToriHereChange(entityID string, oldState, newState *ha.S
 		} else {
 			m.logger.Debug("Nobody else was home, not announcing Tori's arrival")
 		}
+	} else if newState.State != "on" && oldState.State == "on" {
+		// Tori left - record departure time for arrival debounce (issue #922)
+		m.timerMutex.Lock()
+		m.toriDepartureTime = m.clock.Now()
+		m.timerMutex.Unlock()
 	}
 }
 
