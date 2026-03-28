@@ -2,6 +2,7 @@ package shadowstate
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -47,6 +48,9 @@ func (m *mockHAClient) IsHealthy() bool                    { return true }
 func (m *mockHAClient) GetAllStates() ([]*ha.State, error) { return nil, nil }
 func (m *mockHAClient) CallService(ctx context.Context, domain, service string, data map[string]interface{}) error {
 	return nil
+}
+func (m *mockHAClient) CallServiceWithResponse(ctx context.Context, domain, service string, data map[string]interface{}) (json.RawMessage, error) {
+	return nil, nil
 }
 func (m *mockHAClient) CallServiceWithTarget(ctx context.Context, domain, service string, target *ha.ServiceTarget, data map[string]interface{}) error {
 	return nil

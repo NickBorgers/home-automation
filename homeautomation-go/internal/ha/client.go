@@ -79,6 +79,7 @@ type HAClient interface {
 	GetState(entityID string) (*State, error)
 	GetAllStates() ([]*State, error)
 	CallService(ctx context.Context, domain, service string, data map[string]interface{}) error
+	CallServiceWithResponse(ctx context.Context, domain, service string, data map[string]interface{}) (json.RawMessage, error)
 	CallServiceWithTarget(ctx context.Context, domain, service string, target *ServiceTarget, data map[string]interface{}) error
 	SubscribeStateChanges(entityID string, handler StateChangeHandler) (Subscription, error)
 	SetInputBoolean(name string, value bool) error
@@ -1187,6 +1188,70 @@ func (c *Client) CallService(ctx context.Context, domain, service string, data m
 
 	c.recordServiceResult(false)
 	return fmt.Errorf("service call failed after %d attempts: %w", maxRetries+1, lastErr)
+}
+
+// CallServiceWithResponse calls a Home Assistant service and returns the response data.
+// Used for services that return data (e.g., weather.get_forecasts with return_response).
+// Uses the same retry logic as CallService.
+func (c *Client) CallServiceWithResponse(ctx context.Context, domain, service string, data map[string]interface{}) (json.RawMessage, error) {
+	var lastErr error
+	delay := initialRetryDelay
+
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		select {
+		case <-ctx.Done():
+			return nil, fmt.Errorf("service call cancelled: %w", ctx.Err())
+		default:
+		}
+
+		if attempt > 0 {
+			c.logger.Warn("Retrying service call with response",
+				zap.String("domain", domain),
+				zap.String("service", service),
+				zap.Int("attempt", attempt),
+				zap.Duration("delay", delay),
+				zap.Error(lastErr),
+			)
+
+			select {
+			case <-ctx.Done():
+				return nil, fmt.Errorf("service call cancelled during retry: %w", ctx.Err())
+			case <-time.After(delay):
+			}
+
+			delay *= 2
+			if delay > maxRetryDelay {
+				delay = maxRetryDelay
+			}
+		}
+
+		req := &CallServiceRequest{
+			Type:           "call_service",
+			Domain:         domain,
+			Service:        service,
+			ServiceData:    data,
+			ReturnResponse: true,
+		}
+
+		resp, err := c.sendMessage(req)
+		if err == nil {
+			c.recordServiceResult(true)
+			if resp != nil {
+				return resp.Result, nil
+			}
+			return nil, nil
+		}
+
+		lastErr = err
+
+		if !isRetryableError(err) {
+			c.recordServiceResult(false)
+			return nil, err
+		}
+	}
+
+	c.recordServiceResult(false)
+	return nil, fmt.Errorf("service call with response failed after %d attempts: %w", maxRetries+1, lastErr)
 }
 
 // CallServiceWithTarget calls a Home Assistant service with an explicit target.
