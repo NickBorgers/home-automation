@@ -20,7 +20,9 @@ type forecastEntry struct {
 
 // getForecastHighLow fetches the forecast daily high and low for today.
 // Returns (high, low, true) if forecast is available, or (0, 0, false) if unavailable.
-// Results are cached for forecastCacheDuration.
+// Results are cached for forecastCacheDuration. Failures are negative-cached for
+// forecastNegativeCacheDuration to avoid spamming HA when the service is durably down.
+// Tries forecastWeatherEntityPrimary first, then forecastWeatherEntitySecondary.
 func (m *Manager) getForecastHighLow() (float64, float64, bool) {
 	m.forecastMu.Lock()
 	defer m.forecastMu.Unlock()
@@ -30,48 +32,75 @@ func (m *Manager) getForecastHighLow() (float64, float64, bool) {
 		return m.forecastHigh, m.forecastLow, true
 	}
 
+	// Negative cache: don't retry if we failed recently
+	if !m.forecastFailedAt.IsZero() && time.Since(m.forecastFailedAt) < forecastNegativeCacheDuration {
+		m.logger.Debug("Skipping forecast fetch: within negative cache window",
+			zap.Duration("since_failure", time.Since(m.forecastFailedAt)))
+		return 0, 0, false
+	}
+
+	// Try each forecast entity in priority order
+	entities := []string{forecastWeatherEntityPrimary, forecastWeatherEntitySecondary}
+	for _, entity := range entities {
+		high, low, ok := m.tryFetchForecast(entity)
+		if ok {
+			m.forecastHigh = high
+			m.forecastLow = low
+			m.forecastCachedAt = time.Now()
+			m.forecastFailedAt = time.Time{} // clear negative cache on success
+
+			m.logger.Info("Fetched weather forecast for thermal battery",
+				zap.String("source", entity),
+				zap.Float64("forecast_high", high),
+				zap.Float64("forecast_low", low))
+
+			return high, low, true
+		}
+	}
+
+	// All sources failed — set negative cache
+	m.forecastFailedAt = time.Now()
+	m.logger.Warn("All forecast sources failed, will fall back to current outdoor temp")
+	return 0, 0, false
+}
+
+// tryFetchForecast attempts to fetch a daily forecast from a single weather entity.
+// Returns (high, low, true) on success, or (0, 0, false) on any failure.
+func (m *Manager) tryFetchForecast(entity string) (float64, float64, bool) {
 	result, err := m.haClient.CallServiceWithResponse(m.ctx, "weather", "get_forecasts", map[string]interface{}{
-		"entity_id": forecastWeatherEntity,
+		"entity_id": entity,
 		"type":      "daily",
 	})
 	if err != nil {
-		m.logger.Warn("Failed to fetch weather forecast, will fall back to current outdoor temp",
-			zap.String("entity", forecastWeatherEntity), zap.Error(err))
+		m.logger.Warn("Failed to fetch weather forecast",
+			zap.String("entity", entity), zap.Error(err))
 		return 0, 0, false
 	}
 
 	if result == nil {
-		m.logger.Warn("Weather forecast returned nil response")
+		m.logger.Warn("Weather forecast returned nil response",
+			zap.String("entity", entity))
 		return 0, 0, false
 	}
 
-	// Parse the response: {"weather.forecast_home_2": {"forecast": [...]}}
 	var parsed map[string]struct {
 		Forecast []forecastEntry `json:"forecast"`
 	}
 	if err := json.Unmarshal(result, &parsed); err != nil {
-		m.logger.Warn("Failed to parse weather forecast response", zap.Error(err))
+		m.logger.Warn("Failed to parse weather forecast response",
+			zap.String("entity", entity), zap.Error(err))
 		return 0, 0, false
 	}
 
-	entityData, ok := parsed[forecastWeatherEntity]
+	entityData, ok := parsed[entity]
 	if !ok || len(entityData.Forecast) == 0 {
 		m.logger.Warn("No forecast entries found in response",
-			zap.String("entity", forecastWeatherEntity))
+			zap.String("entity", entity))
 		return 0, 0, false
 	}
 
-	// Use today's forecast (first entry)
 	today := entityData.Forecast[0]
-	m.forecastHigh = today.Temperature
-	m.forecastLow = today.TempLow
-	m.forecastCachedAt = time.Now()
-
-	m.logger.Info("Fetched weather forecast for thermal battery",
-		zap.Float64("forecast_high", m.forecastHigh),
-		zap.Float64("forecast_low", m.forecastLow))
-
-	return m.forecastHigh, m.forecastLow, true
+	return today.Temperature, today.TempLow, true
 }
 
 // activateThermalBattery shifts HVAC setpoints to pre-condition the house when energy is abundant (white level).

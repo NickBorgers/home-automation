@@ -375,8 +375,9 @@ func TestThermalBattery_HeatingMode(t *testing.T) {
 }
 
 // makeForecastResponse builds a JSON forecast response for the mock HA client.
+// Uses the primary forecast entity (weather.strawberry_creek).
 func makeForecastResponse(high, low float64) json.RawMessage {
-	resp := fmt.Sprintf(`{"%s":{"forecast":[{"temperature":%v,"templow":%v}]}}`, forecastWeatherEntity, high, low)
+	resp := fmt.Sprintf(`{"%s":{"forecast":[{"temperature":%v,"templow":%v}]}}`, forecastWeatherEntityPrimary, high, low)
 	return json.RawMessage(resp)
 }
 
