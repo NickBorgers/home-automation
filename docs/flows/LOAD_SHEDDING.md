@@ -204,12 +204,14 @@ flowchart TD
 |-----------|-----------------|--------|
 | `cool` | Setpoint **down** 2°F | Pre-cool the house |
 | `heat` | Setpoint **up** 2°F | Pre-heat the house |
-| `heat_cool`/`auto` | Entire band shifts based on outdoor temp | See below |
+| `heat_cool`/`auto` | Entire band shifts based on weather forecast (or outdoor temp fallback) | See below |
 
-**`heat_cool`/`auto` mode** uses the outdoor temperature sensor (`sensor.weather_station_temperature`) to determine shift direction:
-- **Cold outside** (below comfort band - 20°F): Both low and high shift **up** 2°F (pre-heat)
-- **Hot outside** (above comfort band + 20°F): Both low and high shift **down** 2°F (pre-cool)
-- **Mild outside** (within ±20°F of comfort band): Thermal battery **skipped** — insufficient benefit
+**`heat_cool`/`auto` mode** uses the daily weather forecast to determine shift direction:
+- **Primary**: Fetches daily forecast high/low via `weather.get_forecasts` service call (cached 1 hour). Tries `weather.strawberry_creek` (WeatherFlow Tempest API) first, then `weather.forecast_home_2` (Met.no) as secondary.
+- **Fallback**: If all forecast sources are unavailable, falls back to current outdoor temp sensor (`sensor.weather_station_temperature`) with single-point logic.
+- **Skip logic (forecast)**: Skip only if **both** forecast high AND low fall within the comfort band ± 20°F margin — truly mild day.
+- **Direction (forecast)**: If forecast high exceeds the skip zone → pre-cool (shift **down**). If forecast low falls below → pre-heat (shift **up**).
+- **Direction (fallback)**: Cold outside (below comfort band - 20°F) → shift **up**. Hot outside (above comfort band + 20°F) → shift **down**. Mild → **skipped**.
 
 Original setpoints are saved and restored on deactivation.
 

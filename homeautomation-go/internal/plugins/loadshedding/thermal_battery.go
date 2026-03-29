@@ -1,6 +1,7 @@
 package loadshedding
 
 import (
+	"encoding/json"
 	"fmt"
 	"math"
 	"strconv"
@@ -11,6 +12,96 @@ import (
 
 	"go.uber.org/zap"
 )
+
+type forecastEntry struct {
+	Temperature float64 `json:"temperature"`
+	TempLow     float64 `json:"templow"`
+}
+
+// getForecastHighLow fetches the forecast daily high and low for today.
+// Returns (high, low, true) if forecast is available, or (0, 0, false) if unavailable.
+// Results are cached for forecastCacheDuration. Failures are negative-cached for
+// forecastNegativeCacheDuration to avoid spamming HA when the service is durably down.
+// Tries forecastWeatherEntityPrimary first, then forecastWeatherEntitySecondary.
+func (m *Manager) getForecastHighLow() (float64, float64, bool) {
+	m.forecastMu.Lock()
+	defer m.forecastMu.Unlock()
+
+	// Return cached forecast if still fresh
+	if !m.forecastCachedAt.IsZero() && time.Since(m.forecastCachedAt) < forecastCacheDuration {
+		return m.forecastHigh, m.forecastLow, true
+	}
+
+	// Negative cache: don't retry if we failed recently
+	if !m.forecastFailedAt.IsZero() && time.Since(m.forecastFailedAt) < forecastNegativeCacheDuration {
+		m.logger.Debug("Skipping forecast fetch: within negative cache window",
+			zap.Duration("since_failure", time.Since(m.forecastFailedAt)))
+		return 0, 0, false
+	}
+
+	// Try each forecast entity in priority order
+	entities := []string{forecastWeatherEntityPrimary, forecastWeatherEntitySecondary}
+	for _, entity := range entities {
+		high, low, ok := m.tryFetchForecast(entity)
+		if ok {
+			m.forecastHigh = high
+			m.forecastLow = low
+			m.forecastCachedAt = time.Now()
+			m.forecastFailedAt = time.Time{} // clear negative cache on success
+
+			m.logger.Info("Fetched weather forecast for thermal battery",
+				zap.String("source", entity),
+				zap.Float64("forecast_high", high),
+				zap.Float64("forecast_low", low))
+
+			return high, low, true
+		}
+	}
+
+	// All sources failed — set negative cache
+	m.forecastFailedAt = time.Now()
+	m.logger.Warn("All forecast sources failed, will fall back to current outdoor temp")
+	return 0, 0, false
+}
+
+// tryFetchForecast attempts to fetch a daily forecast from a single weather entity.
+// Returns (high, low, true) on success, or (0, 0, false) on any failure.
+func (m *Manager) tryFetchForecast(entity string) (float64, float64, bool) {
+	result, err := m.haClient.CallServiceWithResponse(m.ctx, "weather", "get_forecasts", map[string]interface{}{
+		"entity_id": entity,
+		"type":      "daily",
+	})
+	if err != nil {
+		m.logger.Warn("Failed to fetch weather forecast",
+			zap.String("entity", entity), zap.Error(err))
+		return 0, 0, false
+	}
+
+	if result == nil {
+		m.logger.Warn("Weather forecast returned nil response",
+			zap.String("entity", entity))
+		return 0, 0, false
+	}
+
+	var parsed map[string]struct {
+		Forecast []forecastEntry `json:"forecast"`
+	}
+	if err := json.Unmarshal(result, &parsed); err != nil {
+		m.logger.Warn("Failed to parse weather forecast response",
+			zap.String("entity", entity), zap.Error(err))
+		return 0, 0, false
+	}
+
+	entityData, ok := parsed[entity]
+	if !ok || len(entityData.Forecast) == 0 {
+		m.logger.Warn("No forecast entries found in response",
+			zap.String("entity", entity))
+		return 0, 0, false
+	}
+
+	today := entityData.Forecast[0]
+	return today.Temperature, today.TempLow, true
+}
 
 // activateThermalBattery shifts HVAC setpoints to pre-condition the house when energy is abundant (white level).
 // It reads current thermostat state, saves the original setpoints, and applies the first 1°F step.
@@ -130,10 +221,12 @@ func (m *Manager) activateThermalBattery() {
 		savedSetpoints[entityID] = sp
 	}
 
-	// For heat_cool/auto mode, determine shift direction from outdoor temperature
+	// For heat_cool/auto mode, determine shift direction from weather forecast (or fallback to current outdoor temp)
 	direction := "" // "up" or "down" - used for all modes
 	var outdoorTemp float64
 	hasHeatCool := false
+	usedForecast := false
+	var forecastHigh, forecastLow float64
 	for _, sp := range savedSetpoints {
 		if sp.HVACMode == "heat_cool" || sp.HVACMode == "auto" {
 			hasHeatCool = true
@@ -142,42 +235,81 @@ func (m *Manager) activateThermalBattery() {
 	}
 
 	if hasHeatCool {
-		outdoorState, err := m.haClient.GetState(outdoorTempSensor)
-		if err != nil {
-			m.logger.Warn("Skipping thermal battery: outdoor temp sensor unavailable",
-				zap.String("sensor", outdoorTempSensor), zap.Error(err))
-			m.shadowTracker.RecordThermalBatterySkipped("outdoor temp sensor unavailable")
-			return
-		}
-		parsed, err := strconv.ParseFloat(outdoorState.State, 64)
-		if err != nil {
-			m.logger.Warn("Skipping thermal battery: could not parse outdoor temp",
-				zap.String("sensor", outdoorTempSensor), zap.String("value", outdoorState.State), zap.Error(err))
-			m.shadowTracker.RecordThermalBatterySkipped("outdoor temp not parseable")
-			return
-		}
-		outdoorTemp = parsed
+		// Try forecast first, fall back to current outdoor temp
+		fHigh, fLow, hasForecast := m.getForecastHighLow()
 
-		// Use the first heat_cool thermostat's setpoints to define the skip zone
-		for _, sp := range savedSetpoints {
-			if sp.HVACMode == "heat_cool" || sp.HVACMode == "auto" {
-				skipLow := sp.TargetLow - thermalBatterySkipMargin
-				skipHigh := sp.TargetHigh + thermalBatterySkipMargin
-				if outdoorTemp >= skipLow && outdoorTemp <= skipHigh {
-					m.logger.Info("Skipping thermal battery: outdoor temp within skip zone",
-						zap.Float64("outdoor_temp", outdoorTemp),
-						zap.Float64("skip_low", skipLow),
-						zap.Float64("skip_high", skipHigh))
-					m.shadowTracker.RecordThermalBatterySkipped(
-						fmt.Sprintf("outdoor temp %.1f°F within skip zone (%.0f-%.0f°F)", outdoorTemp, skipLow, skipHigh))
-					return
+		if hasForecast {
+			usedForecast = true
+			forecastHigh = fHigh
+			forecastLow = fLow
+
+			// Use the first heat_cool thermostat's setpoints to define the skip zone
+			for _, sp := range savedSetpoints {
+				if sp.HVACMode == "heat_cool" || sp.HVACMode == "auto" {
+					skipLow := sp.TargetLow - thermalBatterySkipMargin
+					skipHigh := sp.TargetHigh + thermalBatterySkipMargin
+
+					// Skip only if both forecast high AND low are within the comfort band + margin
+					if forecastHigh <= skipHigh && forecastLow >= skipLow {
+						m.logger.Info("Skipping thermal battery: forecast within skip zone",
+							zap.Float64("forecast_high", forecastHigh),
+							zap.Float64("forecast_low", forecastLow),
+							zap.Float64("skip_low", skipLow),
+							zap.Float64("skip_high", skipHigh))
+						m.shadowTracker.RecordThermalBatterySkipped(
+							fmt.Sprintf("forecast high %.1f°F/low %.1f°F within skip zone (%.0f-%.0f°F)", forecastHigh, forecastLow, skipLow, skipHigh))
+						return
+					}
+
+					// Direction based on which extreme is outside the comfort band
+					if forecastHigh > skipHigh {
+						direction = "down" // hot day coming, pre-cool
+					} else {
+						direction = "up" // cold night coming, pre-heat
+					}
+					break
 				}
-				if outdoorTemp < skipLow {
-					direction = "up"
-				} else {
-					direction = "down"
+			}
+		} else {
+			// Fallback: use current outdoor temperature (existing behavior)
+			m.logger.Warn("Using current outdoor temp as fallback for thermal battery direction")
+
+			outdoorState, err := m.haClient.GetState(outdoorTempSensor)
+			if err != nil {
+				m.logger.Warn("Skipping thermal battery: outdoor temp sensor unavailable",
+					zap.String("sensor", outdoorTempSensor), zap.Error(err))
+				m.shadowTracker.RecordThermalBatterySkipped("outdoor temp sensor unavailable")
+				return
+			}
+			parsed, err := strconv.ParseFloat(outdoorState.State, 64)
+			if err != nil {
+				m.logger.Warn("Skipping thermal battery: could not parse outdoor temp",
+					zap.String("sensor", outdoorTempSensor), zap.String("value", outdoorState.State), zap.Error(err))
+				m.shadowTracker.RecordThermalBatterySkipped("outdoor temp not parseable")
+				return
+			}
+			outdoorTemp = parsed
+
+			for _, sp := range savedSetpoints {
+				if sp.HVACMode == "heat_cool" || sp.HVACMode == "auto" {
+					skipLow := sp.TargetLow - thermalBatterySkipMargin
+					skipHigh := sp.TargetHigh + thermalBatterySkipMargin
+					if outdoorTemp >= skipLow && outdoorTemp <= skipHigh {
+						m.logger.Info("Skipping thermal battery: outdoor temp within skip zone (fallback)",
+							zap.Float64("outdoor_temp", outdoorTemp),
+							zap.Float64("skip_low", skipLow),
+							zap.Float64("skip_high", skipHigh))
+						m.shadowTracker.RecordThermalBatterySkipped(
+							fmt.Sprintf("outdoor temp %.1f°F within skip zone (%.0f-%.0f°F) (fallback)", outdoorTemp, skipLow, skipHigh))
+						return
+					}
+					if outdoorTemp < skipLow {
+						direction = "up"
+					} else {
+						direction = "down"
+					}
+					break
 				}
-				break
 			}
 		}
 	} else {
@@ -252,7 +384,9 @@ func (m *Manager) activateThermalBattery() {
 	// Send push notification
 	if m.ntfyClient != nil && directionLabel != "" {
 		body := fmt.Sprintf("Shifting HVAC %s by %.0f°F (step 1/%d)", directionLabel, thermalBatteryOffset, totalSteps)
-		if hasHeatCool {
+		if hasHeatCool && usedForecast {
+			body = fmt.Sprintf("Shifting HVAC %s by %.0f°F (step 1/%d, forecast high: %.0f°F, low: %.0f°F)", directionLabel, thermalBatteryOffset, totalSteps, forecastHigh, forecastLow)
+		} else if hasHeatCool {
 			body = fmt.Sprintf("Shifting HVAC %s by %.0f°F (step 1/%d, outdoor: %.1f°F)", directionLabel, thermalBatteryOffset, totalSteps, outdoorTemp)
 		}
 		if err := m.ntfyClient.Send(&ntfy.Message{
