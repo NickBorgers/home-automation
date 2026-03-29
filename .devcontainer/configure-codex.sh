@@ -2,11 +2,6 @@
 
 set -euo pipefail
 
-# Ensure npm global binaries are on PATH. The devcontainer base image uses
-# nvm which can shadow /usr/bin; codex is installed globally via npm under
-# /usr/bin but may not be reachable if nvm initializes a different prefix.
-export PATH="/usr/bin:$PATH"
-
 mkdir -p "$HOME/.codex"
 
 # Configure Codex CLI to use the self-hosted LiteLLM proxy (no-auth).

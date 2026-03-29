@@ -52,6 +52,9 @@ ARG CRUSH_CLI_VERSION=0.53.0
 ARG CODEX_CLI_VERSION=0.117.0
 RUN npm install -g @charmland/crush@${CRUSH_CLI_VERSION} @openai/codex@${CODEX_CLI_VERSION}
 
+# Symlink codex to /usr/local/bin so it's on PATH even when nvm overrides /usr/bin
+RUN ln -sf /usr/lib/node_modules/@openai/codex/bin/codex.js /usr/local/bin/codex
+
 # Create directories for vscode user with correct ownership
 RUN mkdir -p /home/vscode/.claude/tmp \
     && mkdir -p /home/vscode/.claude/plugins/cache \
