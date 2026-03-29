@@ -26,7 +26,7 @@ docs/
 ├── operations/             # Deployment and process documentation
 │   ├── DOCKER.md           # Docker build, run, and deployment guide
 │   ├── BRANCH_PROTECTION.md # PR requirements and branch protection setup
-│   └── CLAUDE_GHA_PIPELINES.md # Claude Code GitHub Actions documentation
+│   └── AI_GHA_PIPELINES.md     # AI GitHub Actions documentation
 │
 └── archive/                # Historical documents (not required reading)
     ├── flows.json          # Node-RED legacy implementation (archived)
@@ -60,7 +60,7 @@ Visual documentation for understanding the system:
 Deployment and process documentation:
 - **[operations/DOCKER.md](./operations/DOCKER.md)** - Docker deployment
 - **[operations/BRANCH_PROTECTION.md](./operations/BRANCH_PROTECTION.md)** - PR requirements
-- **[operations/CLAUDE_GHA_PIPELINES.md](./operations/CLAUDE_GHA_PIPELINES.md)** - Claude Code GitHub Actions pipelines
+- **[operations/AI_GHA_PIPELINES.md](./operations/AI_GHA_PIPELINES.md)** - AI GitHub Actions pipelines
 
 ### Archive
 Historical and proposal documents (not required reading):

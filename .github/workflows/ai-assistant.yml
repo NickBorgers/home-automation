@@ -1,4 +1,4 @@
-name: Claude Code
+name: Codex
 
 on:
   issue_comment:
@@ -12,23 +12,23 @@ on:
 
 concurrency:
   group: >-
-    claude-interactive-${{
+    codex-interactive-${{
       github.event_name == 'pull_request_review_comment' && github.event.pull_request.number ||
       github.event_name == 'pull_request_review' && github.event.pull_request.number ||
       github.event.issue.number
     }}
   cancel-in-progress: false
 
-# SECURITY NOTE: This workflow grants Claude Code access to secrets and write permissions.
+# SECURITY NOTE: This workflow grants Codex access to secrets and write permissions.
 # Authorization checks are implemented to prevent prompt injection from untrusted users.
-# Only repository collaborators, members, and owners can trigger Claude.
+# Only repository collaborators, members, and owners can trigger Codex.
 
 env:
   # Note: must be lowercase for Docker compatibility
   DEVCONTAINER_IMAGE: ghcr.io/nickborgers/home-automation-devcontainer
 
 jobs:
-  # Security gate: Check if the actor is authorized to trigger Claude
+  # Security gate: Check if the actor is authorized to trigger Codex
   # This prevents prompt injection attacks from untrusted external users
   authorize:
     runs-on: ubuntu-latest
@@ -80,7 +80,7 @@ jobs:
               ;;
             *)
               echo "❌ Not authorized: $ACTOR is a $AUTHOR_ASSOC"
-              echo "External users cannot trigger Claude Code workflows."
+              echo "External users cannot trigger Codex workflows."
               echo "This is a security measure to prevent prompt injection attacks."
               echo "authorized=false" >> $GITHUB_OUTPUT
               ;;
@@ -163,15 +163,16 @@ jobs:
           cacheFrom: ${{ env.DEVCONTAINER_IMAGE }}
           push: always
 
-  claude:
+  codex:
     needs: [authorize, build-devcontainer]
     if: |
       needs.authorize.outputs.authorized == 'true' &&
-      ((github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude')) ||
-      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude')) ||
-      (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude')) ||
-      (github.event_name == 'issues' && (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude'))))
+      ((github.event_name == 'issue_comment' && contains(github.event.comment.body, '@codex')) ||
+      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@codex')) ||
+      (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@codex')) ||
+      (github.event_name == 'issues' && (contains(github.event.issue.body, '@codex') || contains(github.event.issue.title, '@codex'))))
     runs-on: [self-hosted, homelab]
+    timeout-minutes: 60
     permissions:
       contents: write
       pull-requests: write
@@ -250,27 +251,22 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       # Note: GH_TOKEN uses WORKFLOW_PAT because PRs created with GITHUB_TOKEN don't trigger workflows
-      - name: Run Claude in devcontainer
+      - name: Run Codex in devcontainer
         uses: devcontainers/ci@v0.3
         with:
           imageName: ${{ env.DEVCONTAINER_IMAGE }}
           cacheFrom: ${{ env.DEVCONTAINER_IMAGE }}
           push: never
           env: |
-            CLAUDE_CODE_OAUTH_TOKEN=${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+            OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
             GH_TOKEN=${{ secrets.WORKFLOW_PAT }}
             COMMENT_BODY=${{ steps.comment.outputs.body }}
             ISSUE_NUMBER=${{ github.event.issue.number || github.event.pull_request.number }}
             REPO=${{ github.repository }}
-            CLAUDE_CONFIG_DIR=/tmp/.claude-session
             IS_PR=${{ steps.pr-context.outputs.is_pr }}
             PR_HEAD_REF=${{ steps.pr-context.outputs.pr_head_ref }}
           runCmd: |
-            # Run Claude Code inside the devcontainer with full tool access
-            # Use < /dev/null to prevent hanging on TTY input
-            # Use tee to capture output for artifact upload
-            # Use --verbose and --output-format stream-json for complete conversation logs
-            mkdir -p "${CLAUDE_CONFIG_DIR}"
+            bash .devcontainer/configure-codex.sh
 
             # Build the prompt based on whether this is a PR or issue comment
             if [ "$IS_PR" = "true" ]; then
@@ -330,30 +326,18 @@ jobs:
             Reply to the user using: gh issue comment ${ISSUE_NUMBER} --body 'YOUR_RESPONSE'"
             fi
 
-            claude --print \
-              --verbose \
-              --output-format stream-json \
-              --model opus \
-              --dangerously-skip-permissions \
-              --max-turns 400 \
-              "$PROMPT" < /dev/null 2>&1 | tee /tmp/claude-conversation.jsonl
+            codex exec \
+              --json \
+              --dangerously-bypass-approvals-and-sandbox \
+              "$PROMPT" 2>&1 | tee /tmp/codex-conversation.jsonl
 
-      - name: Upload Claude conversation log
+      - name: Upload Codex conversation log
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: claude-conversation-log
-          path: /tmp/claude-conversation.jsonl
+          name: codex-conversation-log
+          path: /tmp/codex-conversation.jsonl
           retention-days: 7
-
-      - name: Upload Claude session data
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: claude-session-data
-          path: /tmp/.claude-session/
-          retention-days: 7
-          if-no-files-found: ignore
 
   # Auto-resolve new issues by opening a PR
   resolve-issue:
@@ -377,14 +361,14 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.WORKFLOW_PAT }}  # PAT required to push workflow file changes
 
-      - name: Label issue as claude-started
+      - name: Label issue as codex-started
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           # Create the label if it doesn't exist (ignore error if it does)
-          gh label create "claude-started" --color "7057ff" --description "Claude Code is working on this issue" --repo ${{ github.repository }} 2>/dev/null || true
+          gh label create "codex-started" --color "7057ff" --description "Codex is working on this issue" --repo ${{ github.repository }} 2>/dev/null || true
           # Add the label to the issue
-          gh issue edit ${{ github.event.issue.number }} --add-label "claude-started" --repo ${{ github.repository }}
+          gh issue edit ${{ github.event.issue.number }} --add-label "codex-started" --repo ${{ github.repository }}
 
       - name: Log in to GHCR
         uses: docker/login-action@v3
@@ -394,24 +378,20 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       # Note: GH_TOKEN uses WORKFLOW_PAT because PRs created with GITHUB_TOKEN don't trigger workflows
-      - name: Resolve issue in devcontainer
+      - name: Resolve issue in Codex
         uses: devcontainers/ci@v0.3
         with:
           imageName: ${{ env.DEVCONTAINER_IMAGE }}
           cacheFrom: ${{ env.DEVCONTAINER_IMAGE }}
           push: never
           env: |
-            CLAUDE_CODE_OAUTH_TOKEN=${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+            OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
             GH_TOKEN=${{ secrets.WORKFLOW_PAT }}
             ISSUE_NUMBER=${{ github.event.issue.number }}
             ISSUE_TITLE=${{ github.event.issue.title }}
             REPO=${{ github.repository }}
-            CLAUDE_CONFIG_DIR=/tmp/.claude-session
           runCmd: |
-            # Use < /dev/null to prevent hanging on TTY input
-            # Use tee to capture output for artifact upload
-            # Use --verbose and --output-format stream-json for complete conversation logs
-            mkdir -p "${CLAUDE_CONFIG_DIR}"
+            bash .devcontainer/configure-codex.sh
 
             # Fetch issue body via API to avoid multi-line env var escaping issues
             # (see https://github.com/NickBorgers/home-automation/issues/441)
@@ -420,12 +400,9 @@ jobs:
             # Fetch all comments on the issue (may contain additional context/requirements)
             ISSUE_COMMENTS=$(gh api "repos/${REPO}/issues/${ISSUE_NUMBER}/comments" --jq '.[] | "---\n**\(.user.login)** commented at \(.created_at):\n\(.body)\n"' 2>/dev/null | head -c 50000 || echo "")
 
-            claude --print \
-              --verbose \
-              --output-format stream-json \
-              --model opus \
-              --dangerously-skip-permissions \
-              --max-turns 600 \
+            codex exec \
+              --json \
+              --dangerously-bypass-approvals-and-sandbox \
               "You are an autonomous agent tasked with resolving GitHub issue #${ISSUE_NUMBER}.
 
             ISSUE TITLE: ${ISSUE_TITLE}
@@ -470,7 +447,7 @@ jobs:
             8. For any new test helpers with shared state: verify mutex protection.
             9. Verify new tests exercise the CURRENT production code path, not a legacy path.
 
-            BRANCH NAMING: Use \`claude/issue-${ISSUE_NUMBER}\` as the branch name.
+            BRANCH NAMING: Use \`codex/issue-${ISSUE_NUMBER}\` as the branch name.
 
             PR CREATION:
             gh pr create --title 'Fix #${ISSUE_NUMBER}: <brief description>' \\
@@ -482,12 +459,12 @@ jobs:
             ## Test Plan
             <how to verify the fix>
 
-            🤖 Generated with Claude Code' \\
-              --head claude/issue-${ISSUE_NUMBER}
+            🤖 Generated with Codex' \\
+              --head codex/issue-${ISSUE_NUMBER}
 
             If you cannot resolve the issue (unclear requirements, needs human decision, etc.),
             comment on the issue explaining what clarification is needed:
-            gh issue comment ${ISSUE_NUMBER} --body 'YOUR_EXPLANATION'" < /dev/null 2>&1 | tee /tmp/resolve-issue-conversation.jsonl
+            gh issue comment ${ISSUE_NUMBER} --body 'YOUR_EXPLANATION'" 2>&1 | tee /tmp/resolve-issue-conversation.jsonl
 
       - name: Upload issue resolution conversation log
         uses: actions/upload-artifact@v4
@@ -496,12 +473,3 @@ jobs:
           name: resolve-issue-conversation-log
           path: /tmp/resolve-issue-conversation.jsonl
           retention-days: 7
-
-      - name: Upload Claude session data
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: resolve-issue-session-data
-          path: /tmp/.claude-session/
-          retention-days: 7
-          if-no-files-found: ignore

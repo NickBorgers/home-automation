@@ -19,8 +19,8 @@ RUN rm -f /etc/apt/sources.list.d/yarn.list \
     fonts-liberation fonts-noto-color-emoji \
     # Playwright host dependencies (recommended)
     libcairo2 libpango-1.0-0 \
-    # Utilities used by Claude Code
-    bc \
+    # Utilities used by Claude Code and OpenCode
+    bc ripgrep fzf \
     # YAML validation
     yamllint \
     && rm -rf /var/lib/apt/lists/* \
@@ -46,6 +46,11 @@ RUN curl -fsSL https://deb.nodesource.com/setup_${NODE_VERSION}.x | bash - \
 # Install Claude Code CLI globally
 ARG CLAUDE_CODE_VERSION=2.1.75
 RUN npm install -g @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}
+
+# Install AI coding assistants (Crush + Codex)
+ARG CRUSH_CLI_VERSION=0.53.0
+ARG CODEX_CLI_VERSION=0.117.0
+RUN npm install -g @charmland/crush@${CRUSH_CLI_VERSION} @openai/codex@${CODEX_CLI_VERSION}
 
 # Create directories for vscode user with correct ownership
 RUN mkdir -p /home/vscode/.claude/tmp \

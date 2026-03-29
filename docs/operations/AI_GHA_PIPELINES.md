@@ -1,29 +1,29 @@
-# Claude Code GitHub Actions Pipelines
+# Codex GitHub Actions Pipelines
 
-This document describes the complex Claude Code-based GitHub Actions pipelines in this repository. These pipelines enable AI-powered issue resolution, PR creation, code review, and automated test failure fixes.
+This document describes the Codex-based GitHub Actions pipelines in this repository. These pipelines enable AI-powered issue resolution, PR creation, code review, and automated test failure fixes.
 
 ## Overview
 
-The repository uses several interconnected workflows that leverage Claude Code to automate software development tasks:
+The repository uses several interconnected workflows that leverage Codex to automate software development tasks:
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────┐
 │                           TRIGGER EVENTS                                  │
 ├──────────────────────────────────────────────────────────────────────────┤
-│  Issue Opened  │  @claude Mention  │  PR Tests Complete/Failed  │ Monthly │
+│  Issue Opened  │  @codex Mention   │  PR Tests Complete/Failed  │ Monthly │
 └───────┬────────┴────────┬──────────┴─────────┬─────────────────┴────┬────┘
         │                 │                    │                      │
         ▼                 ▼                    ▼                      ▼
 ┌───────────────┐ ┌───────────────┐ ┌──────────────────┐ ┌──────────────────┐
-│ claude.yml    │ │ claude.yml    │ │ claude-code-     │ │ ha-deprecation-  │
-│ resolve-issue │ │ claude job    │ │ review.yml       │ │ check.yml        │
+│ ai-assistant  │ │ ai-assistant  │ │ ai-code-review   │ │ ha-deprecation-  │
+│ resolve-issue │ │ codex job     │ │ review.yml       │ │ check.yml        │
 └───────────────┘ └───────────────┘ └──────────────────┘ └────────┬─────────┘
         │                 │                    │                   │
         ▼                 ▼                    │          (creates issues)
 ┌──────────────────────────────────────────────┤                   │
 │                                              │◄──────────────────┘
 │  DEVCONTAINER EXECUTION                      │◄───────────────────┐
-│  Claude Code runs inside a cached            │                    │
+│  Codex runs inside a cached                  │                    │
 │  devcontainer with full access               │                    │
 │                                              │                    │
 └──────────────────────────────────────────────┘                    │
@@ -32,7 +32,7 @@ The repository uses several interconnected workflows that leverage Claude Code t
                        │
                        ▼
               ┌────────────────────┐
-              │ claude-diagnose-   │
+              │ ai-diagnose-       │
               │ workflow-failure   │  (on workflow failures)
               └────────────────────┘
 ```
@@ -42,7 +42,7 @@ The repository uses several interconnected workflows that leverage Claude Code t
 **Important:** These workflows implement authorization checks to prevent prompt injection attacks. See [CI_CD_SECURITY.md](./CI_CD_SECURITY.md) for the full security model.
 
 Key security measures:
-- **Authorization checks**: Only repository collaborators/members/owners can trigger Claude
+- **Authorization checks**: Only repository collaborators/members/owners can trigger Codex
 - **Devcontainer isolation**: Always built from `main` branch, never from PR branches
 - **Fork PR blocking**: Fork PRs are blocked from running on the self-hosted runner (security). Maintainers must test fork contributions manually
 
@@ -50,36 +50,36 @@ Key security measures:
 
 | Workflow | File | Trigger | Purpose |
 |----------|------|---------|---------|
-| Claude Code | `claude.yml` | @claude mentions, new issues | Respond to requests, auto-resolve issues |
-| Claude Code Review | `claude-code-review.yml` | PR Tests completion, PR reopened | Multi-agent code review, fix failures, merge decision |
-| PR Tests | `pr-tests.yml` | PRs, pushes to claude/** | Run tests, trigger review pipeline |
-| Claude Diagnose Workflow Failure | `claude-diagnose-workflow-failure.yml` | Any workflow failure | Diagnose Actions config problems (not test failures) |
+| Codex | `ai-assistant.yml` | @codex mentions, new issues | Respond to requests, auto-resolve issues |
+| Codex Code Review | `ai-code-review.yml` | PR Tests completion, PR reopened | Multi-agent code review, fix failures, merge decision |
+| PR Tests | `pr-tests.yml` | PRs, pushes to all branches | Run tests, trigger review pipeline |
+| Codex Diagnose Workflow Failure | `ai-diagnose-workflow-failure.yml` | Any workflow failure | Diagnose Actions config problems (not test failures) |
 | HA Deprecation Check | `ha-deprecation-check.yml` | Monthly schedule, manual dispatch | Scan HA release notes for deprecated APIs, create issues |
 
 ---
 
-## 1. Claude Code (`claude.yml`)
+## 1. Codex (`ai-assistant.yml`)
 
-The main workflow that enables Claude to respond to requests and automatically resolve issues.
+The main workflow that enables Codex to respond to requests and automatically resolve issues.
 
 ### Triggers
 
-- **Issue Comment**: When a comment contains `@claude`
-- **PR Review Comment**: When a review comment contains `@claude`
-- **PR Review**: When a review body contains `@claude`
+- **Issue Comment**: When a comment contains `@codex`
+- **PR Review Comment**: When a review comment contains `@codex`
+- **PR Review**: When a review body contains `@codex`
 - **New Issue**: When an issue is opened
 
 ### Concurrency Control
 
 ```yaml
 concurrency:
-  group: claude-interactive-${{ issue_or_pr_number }}
+  group: codex-interactive-${{ issue_or_pr_number }}
   cancel-in-progress: false  # Complete first request, queue the second
 ```
 
 Scoped by issue/PR number so that:
-- Two rapid `@claude` mentions on the **same** PR/issue are serialized (second queues until first completes)
-- `@claude` on **different** PRs/issues runs in parallel (separate concurrency groups)
+- Two rapid `@codex` mentions on the **same** PR/issue are serialized (second queues until first completes)
+- `@codex` on **different** PRs/issues runs in parallel (separate concurrency groups)
 
 `cancel-in-progress: false` ensures the first request completes (it may already be mid-commit). The second request runs after the first finishes and sees its changes.
 
@@ -93,26 +93,25 @@ Builds and caches a devcontainer image to speed up subsequent runs.
 - **Skip optimization**: Skips the build entirely when `.devcontainer/` files haven't changed in the PR and the image already exists in GHCR. Falls back to always building for new issues and non-PR contexts.
 - **Output**: `should-build` — consumed by downstream steps via conditional `if` guards
 
-#### 1.2 `claude`
+#### 1.2 `codex`
 
-Responds to `@claude` mentions in comments.
+Responds to `@codex` mentions in comments.
 
-**Condition**: Only runs if the comment/body contains `@claude`
+**Condition**: Only runs if the comment/body contains `@codex`
 
 **Workflow**:
 1. Detects if the context is a PR or issue
 2. Checks out the appropriate branch (PR head or default)
-3. Runs Claude Code inside the devcontainer
-4. Claude implements requested changes or responds to questions
+3. Runs Codex inside the devcontainer
+4. Codex implements requested changes or responds to questions
 5. For PRs: commits and pushes changes to the PR branch
 6. For issues: creates branches and opens PRs as needed
 
 **Key Configuration**:
 ```yaml
-claude --print \
-  --model opus \  # Opus for open-ended requests
-  --dangerously-skip-permissions \
-  --max-turns 400 \
+codex exec \
+  --json \
+  --dangerously-bypass-approvals-and-sandbox \
   "$PROMPT"
 ```
 
@@ -123,11 +122,11 @@ Automatically resolves newly opened issues.
 **Condition**: Runs on `issues: [opened, assigned]` event
 
 **Workflow**:
-1. Labels issue with `claude-started`
+1. Labels issue with `codex-started`
 2. Analyzes the issue title, body, and **all comments** on the issue
 3. Explores the codebase to understand context
 4. Implements fixes or features
-5. Creates a branch (`claude/issue-{number}`)
+5. Creates a branch (`codex/issue-{number}`)
 6. Opens a PR with the solution
 
 **Max Turns**: 600 (longer for complex issues)
@@ -136,13 +135,12 @@ Automatically resolves newly opened issues.
 
 ### Artifacts
 
-- `claude-conversation-log`: Full conversation log in JSONL format
-- `claude-session-data`: Session state for debugging
+- `codex-conversation-log`: Full conversation log in JSONL format
 - Retention: 7 days
 
 ---
 
-## 2. Claude Code Review (`claude-code-review.yml`)
+## 2. Codex Code Review (`ai-code-review.yml`)
 
 A sophisticated multi-agent review system that runs after PR tests complete.
 
@@ -156,7 +154,7 @@ A sophisticated multi-agent review system that runs after PR tests complete.
 
 ```yaml
 concurrency:
-  group: claude-review-${{ branch_name }}
+  group: codex-review-${{ branch_name }}
   cancel-in-progress: false  # Complete first review, don't restart
 ```
 
@@ -178,7 +176,7 @@ build-devcontainer
 fix-test-failures                    ┌──────────┼──────────┐──────────┐──────────┐
      │                               │          │          │          │          │
      │ (triggers new test run)       ▼          ▼          ▼          ▼          ▼
-     │                          design-   claude-   test-    concur-   docs-
+     │                          design-   codex-    test-    concur-   docs-
      │                          review    review    review   rency-    review
      │                               │          │          │  review        │
      │                               └──────────┼──────────┘──────┘────────┘
@@ -217,7 +215,7 @@ PRs that only modify files in `configs/` receive streamlined review:
 | Review Job | Skipped for Config-Only | Reason |
 |------------|------------------------|--------|
 | design-review | Yes | No design decisions to review |
-| claude-review | Yes | No code to review |
+| codex-review | Yes | No code to review |
 | test-review | Yes | No tests to review |
 | concurrency-review | Yes | No Go code to analyze |
 | docs-review | Yes | Config changes don't need doc updates |
@@ -266,7 +264,7 @@ Automatically fixes failing tests (up to 3 attempts).
 4. Fixes issues in code
 5. Commits and pushes fix
 6. Triggers new PR Tests run
-7. If tests pass, triggers Claude Code Review
+7. If tests pass, triggers Codex Code Review
 8. If tests still fail, triggers another fix attempt (self-retry)
 9. After 3 failed attempts, posts a comment to the PR requesting human intervention
 
@@ -277,7 +275,7 @@ Automatically fixes failing tests (up to 3 attempts).
 - Links to the most recent failed test run
 - Requests human intervention
 
-**Labels**: Adds `claude-fix-attempt-N` label to track attempts
+**Labels**: Adds `codex-fix-attempt-N` label to track attempts
 
 **Max Attempts**: 3 (after which human intervention is required)
 
@@ -317,7 +315,7 @@ Design validation and critical design review specialist. Runs in parallel with o
 
 **Actions**: Posts design analysis with intent validation, concerns, and suggestions. Does not push fixes (comment-only; merge-decision applies fixes).
 
-#### 2.4 `claude-review`
+#### 2.4 `codex-review`
 
 General code quality review. Runs in parallel with other reviews. Includes cross-PR context to detect divergence from recent changes.
 
@@ -395,7 +393,7 @@ Documentation synchronization review.
 | State variable added | migration_mapping.md, VISUAL_ARCHITECTURE.md |
 | Concurrency fix | CONCURRENCY_LESSONS.md |
 | Plugin logic | Relevant logic flow diagram |
-| Workflow changes (.github/workflows/*.yml) | CLAUDE_GHA_PIPELINES.md |
+| Workflow changes (.github/workflows/*.yml) | AI_GHA_PIPELINES.md |
 
 **Actions**: Comments on needed documentation updates. Does not push fixes (comment-only; merge-decision applies fixes).
 
@@ -445,14 +443,14 @@ Aggregator job for branch protection.
 
 ## 3. PR Tests (`pr-tests.yml`)
 
-Standard test workflow that gates merging and triggers Claude reviews. Runs on the self-hosted homelab runner.
+Standard test workflow that gates merging and triggers Codex reviews. Runs on the self-hosted homelab runner.
 
 **Fork PR blocking:** Fork PRs are blocked at the `changes` gate job (prevents arbitrary code execution on the self-hosted runner). The `all-tests-passed` aggregator job also includes the fork check directly since it uses `if: always()` which bypasses dependency skipping. Maintainers must manually test fork contributions.
 
 ### Triggers
 
 - Pull requests to any branch (same-repo only; fork PRs are skipped)
-- Pushes to `claude/**` branches
+- Pushes to all branches (`**`)
 - Manual trigger with optional ref
 
 ### Jobs
@@ -486,7 +484,7 @@ Only runs relevant jobs based on changed files:
 
 ---
 
-## 4. Claude Diagnose Workflow Failure (`claude-diagnose-workflow-failure.yml`)
+## 4. Codex Diagnose Workflow Failure (`ai-diagnose-workflow-failure.yml`)
 
 Automatically diagnoses workflow failures to determine if they're GitHub Actions configuration problems (which need issues filed) versus normal test/code failures (which are handled by the existing review pipeline).
 
@@ -498,8 +496,8 @@ Automatically diagnoses workflow failures to determine if they're GitHub Actions
   - Publish-Screenshots
   - Trigger Private Security Rebuild
   - Notify Private Repo of PR Merge
-  - Claude Code
-  - Claude Code Review
+  - Codex
+  - Codex Code Review
 
 ### Concurrency Control
 
@@ -524,14 +522,14 @@ Pre-flight checks before running diagnosis.
 
 #### 4.2 `diagnose-failure`
 
-Runs Claude to analyze the failure and classify it.
+Runs Codex to analyze the failure and classify it.
 
 **Classification Categories**:
 
 | Category | Description | Action |
 |----------|-------------|--------|
-| `TEST_FAILURE` | Unit tests, integration tests, code compilation | No issue - handled by Claude Code Review |
-| `CONFIG_FAILURE` | Issues in configs/ (YAML validation, etc.) | No issue - handled by Claude Code Review |
+| `TEST_FAILURE` | Unit tests, integration tests, code compilation | No issue - handled by Codex Code Review |
+| `CONFIG_FAILURE` | Issues in configs/ (YAML validation, etc.) | No issue - handled by Codex Code Review |
 | `INFRASTRUCTURE_FAILURE` | Transient external service availability issues | No issue - self-resolves |
 | `ACTIONS_FAILURE` | GitHub Actions workflow definition problems | **Create issue** |
 
@@ -570,7 +568,7 @@ When an `ACTIONS_FAILURE` is detected, an issue is created with:
 
 ## 5. HA Deprecation Check (`ha-deprecation-check.yml`)
 
-Proactively scans Home Assistant release notes for deprecated APIs and checks if the codebase uses them. Creates GitHub issues for any deprecated usage found, which the existing `resolve-issue` job in `claude.yml` will auto-fix.
+Proactively scans Home Assistant release notes for deprecated APIs and checks if the codebase uses them. Creates GitHub issues for any deprecated usage found, which the existing `resolve-issue` job in `ai-assistant.yml` will auto-fix.
 
 ### Triggers
 
@@ -589,17 +587,17 @@ concurrency:
 
 #### 5.1 `build-devcontainer`
 
-Checks if the devcontainer image already exists in GHCR and only builds if missing. Since this is a monthly job, it relies on other workflows (claude.yml, pr-tests) to keep the image up to date.
+Checks if the devcontainer image already exists in GHCR and only builds if missing. Since this is a monthly job, it relies on other workflows (`ai-assistant.yml`, `pr-tests.yml`) to keep the image up to date.
 
 #### 5.2 `check-deprecations`
 
-Runs Claude (Sonnet) to perform a three-phase check:
+Runs Codex to perform a three-phase check:
 
 1. **Gather Deprecations**: Fetches HA release notes from the blog, looking for deprecated service calls, entity attributes, WebSocket API changes, and renamed parameters
 2. **Scan Codebase**: Searches plugin code and configs for usage of any deprecated APIs found
 3. **Report**: Creates one GitHub issue per deprecated API found (with `ha-deprecation` label), skipping duplicates
 
-**Issue Integration**: Issues are created with `@claude` in the title prefix, so the `resolve-issue` job in `claude.yml` automatically picks them up and creates fix PRs.
+**Issue Integration**: Issues are created with `@codex` in the title prefix, so the `resolve-issue` job in `ai-assistant.yml` automatically picks them up and creates fix PRs.
 
 **Token Note**: Uses `WORKFLOW_PAT` (not `GITHUB_TOKEN`) so created issues trigger the `resolve-issue` workflow.
 
@@ -611,11 +609,11 @@ Runs Claude (Sonnet) to perform a three-phase check:
 | `ISSUES_CREATED <N>` | Created N issues for deprecated API usage |
 | `ALL_DUPLICATES` | Deprecations found but already tracked in existing issues |
 | `FETCH_FAILED` | Could not retrieve HA release notes (workflow fails) |
-| Unrecognized | Could not parse Claude output (workflow fails) |
+| Unrecognized | Could not parse Codex output (workflow fails) |
 
 ### Artifacts
 
-- `deprecation-check-output`: Full Claude output in JSONL format
+- `deprecation-check-output`: Full Codex output in JSONL format
 - Retention: 30 days (longer than default since this runs monthly)
 
 ---
@@ -624,8 +622,8 @@ Runs Claude (Sonnet) to perform a three-phase check:
 
 | Secret | Used By | Purpose |
 |--------|---------|---------|
-| `CLAUDE_CODE_OAUTH_TOKEN` | claude.yml, claude-code-review.yml, claude-diagnose-workflow-failure.yml, ha-deprecation-check.yml | Claude Code authentication |
-| `WORKFLOW_PAT` | claude.yml, claude-code-review.yml, ha-deprecation-check.yml, update-claude-code.yml | Push workflow file changes, create PRs/issues that trigger workflows |
+| `OPENAI_API_KEY` | ai-assistant.yml, ai-code-review.yml, ai-diagnose-workflow-failure.yml, ha-deprecation-check.yml | Codex authentication via LiteLLM |
+| `WORKFLOW_PAT` | ai-assistant.yml, ai-code-review.yml, ha-deprecation-check.yml, update-ai-clis.yml | Push workflow file changes, create PRs/issues that trigger workflows |
 | `PRIVATE_REPO_TRIGGER_TOKEN` | notify-pr-merged.yml | Cross-repo workflow triggers |
 
 ### Why `WORKFLOW_PAT`?
@@ -654,7 +652,7 @@ Required status checks:
   - "All Required Tests"
   - "All Required Agent Reviews"
 
-Required approvals: 0  # Claude provides automated review
+Required approvals: 0  # Codex provides automated review
 ```
 
 ---
@@ -664,14 +662,14 @@ Required approvals: 0  # Claude provides automated review
 ### View Conversation Logs
 
 1. Go to the workflow run in GitHub Actions
-2. Download the `claude-conversation-log` artifact
+2. Download the `codex-conversation-log` artifact
 3. Parse the JSONL file for the full conversation
 
 ### Common Issues
 
 | Issue | Cause | Solution |
 |-------|-------|----------|
-| "Detected newer commits - aborting" | Author pushed while Claude was fixing | Normal - Claude yields to human |
+| "Detected newer commits - aborting" | Author pushed while Codex was fixing | Normal - Codex yields to human |
 | Max fix attempts reached | Tests keep failing after 3 tries | Human intervention needed (PR will have a comment) |
 | "Automated Fix Failed" comment | All 3 fix attempts exhausted | Review the linked test run, fix manually |
 | Review job skipped | Tests haven't passed on current commit | Wait for tests to pass or fix them first |
@@ -679,16 +677,16 @@ Required approvals: 0  # Claude provides automated review
 | Reviews skipped (draft PR) | PR is marked as draft | Mark PR as "Ready for review" to enable reviews |
 | Reviews skipped (config-only) | PR only modifies `configs/` files | Expected - config PRs use streamlined review |
 | Devcontainer build slow | First run or cache miss | Subsequent runs use cached image; builds are skipped entirely when `.devcontainer/` files are unchanged |
-| Claude doesn't respond | Comment doesn't contain `@claude` | Ensure @claude is in comment |
-| Workflow failure issue not created | Diagnosed as TEST_FAILURE or CONFIG_FAILURE | Expected - these are handled by Claude Code Review |
+| Codex doesn't respond | Comment doesn't contain `@codex` | Ensure @codex is in comment |
+| Workflow failure issue not created | Diagnosed as TEST_FAILURE or CONFIG_FAILURE | Expected - these are handled by Codex Code Review |
 
 ### Manual Triggers
 
 All workflows support `workflow_dispatch` for manual testing:
 
 ```bash
-# Trigger Claude Code Review manually
-gh workflow run "Claude Code Review" \
+# Trigger Codex Code Review manually
+gh workflow run "Codex Code Review" \
   -f head_ref="your-branch" \
   -f head_repo="owner/repo" \
   -f pr_number="123" \
@@ -700,40 +698,24 @@ gh workflow run "Claude Code Review" \
 
 ## Architecture Decisions
 
-### Model Selection (Opus vs Sonnet)
+### Model Selection
 
-The pipelines use a mix of Claude Opus and Claude Sonnet models, selected based on task complexity:
+The pipelines standardize on `gpt-5-codex` via Codex and the LiteLLM proxy.
 
 | Pipeline/Job | Model | Rationale |
 |-------------|-------|-----------|
-| **claude.yml - claude** | Opus | Open-ended requests need maximum capability for design thinking and complex reasoning |
-| **claude.yml - resolve-issue** | Opus | Full issue resolution requires design, implementation, and multi-file changes |
-| **claude-code-review.yml - fix-test-failures** | Sonnet | Debugging task with clear error messages; has 3 retry attempts as safety net |
-| **claude-code-review.yml - claude-review** | Opus | Code quality review may require nuanced understanding of patterns and architecture |
-| **claude-code-review.yml - test-review** | Opus | Anti-pattern detection requires catching subtle issues (race conditions in helpers, weakened assertions) |
-| **claude-code-review.yml - concurrency-review** | Opus | Race conditions require nuanced understanding of concurrent programming |
-| **claude-code-review.yml - docs-review** | Opus | Documentation updates require accurate changes when PR opener missed them |
-| **claude-code-review.yml - merge-decision** | Opus | Active verification of diff and cross-PR context, not just summarization |
-| **claude-diagnose-workflow-failure.yml** | Sonnet | Classification task with clear decision tree (3 categories) |
-| **ha-deprecation-check.yml** | Sonnet | Classification/search task scanning release notes and codebase |
+| `ai-assistant.yml` interactive and issue resolution | `gpt-5-codex` | Open-ended implementation and repo changes |
+| `ai-code-review.yml` review and merge jobs | `gpt-5-codex` | Consistent review quality across the pipeline |
+| `ai-diagnose-workflow-failure.yml` | `gpt-5-codex` | Failure triage and classification |
+| `ha-deprecation-check.yml` | `gpt-5-codex` | Release-note scanning and issue creation |
 
-**When to use Opus:**
-- Open-ended, creative tasks
-- Design and architecture decisions
-- Complex debugging requiring deep reasoning
-- Tasks where subtle issues could have major impact
-
-**When to use Sonnet:**
-- Checklist-based reviews with clear criteria
-- Classification tasks with defined categories
-- Summarization of existing information
-- Tasks with built-in retry mechanisms
+The workflow display names are `Codex`, `Codex Code Review`, and `Codex Diagnose Workflow Failure`, with filenames `ai-assistant.yml`, `ai-code-review.yml`, and `ai-diagnose-workflow-failure.yml`.
 
 ### Why Devcontainers?
 
 1. **Consistent Environment**: Same tools and dependencies across all runs
 2. **Caching**: Devcontainer image is cached in GHCR for fast startup
-3. **Tool Access**: Claude Code runs with full access to git, gh CLI, make, go, etc.
+3. **Tool Access**: Codex runs with full access to git, gh CLI, make, go, etc.
 
 ### Why Parallel Reviews?
 
@@ -745,13 +727,13 @@ The review jobs run in parallel (after context gathering and devcontainer build)
 ### Why Max 3 Fix Attempts?
 
 - Prevents infinite loops if the issue can't be fixed automatically
-- Leaves clear trail via labels (`claude-fix-attempt-1`, etc.)
+- Leaves clear trail via labels (`codex-fix-attempt-1`, etc.)
 - Human can review after 3 attempts
 
 ### Why Artifact Upload on `always()`?
 
 Conversation logs are uploaded even on failure to help debug:
-- What Claude tried
+- What Codex tried
 - Where it failed
 - Full context for investigation
 
@@ -777,10 +759,10 @@ Conversation logs are uploaded even on failure to help debug:
 5. Add to the summary comment in `all-reviews-passed`
 6. Document the new reviewer's focus area in this file
 
-### Modifying Claude Prompts
+### Modifying Codex Prompts
 
 The prompts are embedded in the workflow YAML in the `runCmd` block. Key sections:
-- `YOUR TASK`: What Claude should do
+- `YOUR TASK`: What Codex should do
 - `IMPORTANT RULES`: Repository-specific constraints
 - Post-task actions: How to report results
 
@@ -788,8 +770,8 @@ The prompts are embedded in the workflow YAML in the `runCmd` block. Key section
 
 ## Related Documentation
 
-- [CI_CD_SECURITY.md](./CI_CD_SECURITY.md) - **Security model for Claude-powered workflows** (authorization, threat model)
+- [CI_CD_SECURITY.md](./CI_CD_SECURITY.md) - **Security model for Codex-powered workflows** (authorization, threat model)
 - [BRANCH_PROTECTION.md](./BRANCH_PROTECTION.md) - Branch protection setup
 - [DOCKER.md](./DOCKER.md) - Container image details
-- [../reference/SHADOW_STATE.md](../reference/SHADOW_STATE.md) - Pattern Claude reviews for
+- [../reference/SHADOW_STATE.md](../reference/SHADOW_STATE.md) - Pattern Codex reviews for
 - [../reference/CONCURRENCY_LESSONS.md](../reference/CONCURRENCY_LESSONS.md) - Concurrency reviewer reference

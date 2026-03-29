@@ -66,7 +66,7 @@ The devcontainer automatically:
 - Installs Go 1.25 and all required dependencies
 - Sets up Go modules (`go mod tidy && go mod download`)
 - Installs git hooks (pre-commit and pre-push validation)
-- Installs GitHub CLI, Claude Code CLI, and Playwright (with Chromium)
+- Installs GitHub CLI, Codex CLI, and Playwright (with Chromium)
 - Configures VS Code extensions for Go and Mermaid
 
 ### Manual Setup (Without Devcontainer)
@@ -75,7 +75,7 @@ If you cannot use a devcontainer, you can set up the environment manually by run
 
 **Prerequisites:**
 - Go 1.24
-- Node.js 20+ (for Claude Code and Playwright)
+- Node.js 20+ (for Codex CLI and Playwright)
 - Home Assistant with WebSocket API enabled
 - Long-lived access token from Home Assistant
 
@@ -89,8 +89,8 @@ cd ..
 # 2. Install git hooks (IMPORTANT: ensures code quality)
 bash .githooks/install-hooks.sh
 
-# 3. (Optional) Install Claude Code CLI
-npm install -g @anthropic-ai/claude-code
+# 3. (Optional) Install Codex CLI
+npm install -g @openai/codex
 
 # 4. (Optional) For Playwright/screenshot testing, see AGENTS.md "Testing UI Changes" section
 ```
@@ -149,7 +149,7 @@ All pull requests go through a two-phase review process before merge:
 - Coverage check (≥65%)
 - Docker build validation
 
-### 2. AI-Powered Code Review (Claude Code Review)
+### 2. AI-Powered Code Review (Codex Code Review)
 After tests pass, a multi-agent AI review pipeline automatically runs:
 
 | Agent | Focus |
@@ -163,11 +163,11 @@ After tests pass, a multi-agent AI review pipeline automatically runs:
 
 **Important notes:**
 - AI reviewers may push commits directly to your PR branch (fixes, doc updates)
-- If tests fail, Claude will attempt to fix them (up to 3 times) and push fixes to your branch
+- If tests fail, Codex will attempt to fix them (up to 3 times) and push fixes to your branch
 - Reviews are skipped for PRs from forks (security measure) - maintainers will review manually
 - To re-run reviews after they pass, close and reopen the PR
 
-See [docs/operations/CLAUDE_GHA_PIPELINES.md](docs/operations/CLAUDE_GHA_PIPELINES.md) for the full workflow details and [docs/operations/BRANCH_PROTECTION.md](docs/operations/BRANCH_PROTECTION.md) for branch protection rules.
+See [docs/operations/AI_GHA_PIPELINES.md](docs/operations/AI_GHA_PIPELINES.md) for the full workflow details and [docs/operations/BRANCH_PROTECTION.md](docs/operations/BRANCH_PROTECTION.md) for branch protection rules.
 
 ## Legacy Reference
 

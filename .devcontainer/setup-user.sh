@@ -4,8 +4,8 @@
 #
 # When the host user is not "vscode" (e.g., CI runner user "ci-runner"),
 # this script creates the user with a matching UID/GID derived from
-# workspace file ownership, and copies Claude Code config from the
-# pre-built vscode user.
+# workspace file ownership, and copies prebuilt tool caches/config from
+# the default vscode user.
 #
 # Runs as the remoteUser (vscode), so privileged commands use sudo.
 set -e
@@ -34,9 +34,9 @@ else
     TARGET_GID=1000
 fi
 
-# Refuse to create root user — Claude Code requires non-root
+# Refuse to create root user — devcontainer tooling requires non-root
 if [ "$TARGET_UID" = "0" ]; then
-    echo "ERROR: Host UID is 0 (root). Claude Code requires a non-root user."
+    echo "ERROR: Host UID is 0 (root). Devcontainer tooling requires a non-root user."
     echo "Set a non-root user in your CI runner or devcontainer configuration."
     exit 1
 fi
@@ -67,9 +67,12 @@ sudo useradd -m -s /usr/bin/zsh -u "$TARGET_UID" -g "$TARGET_GID" "$TARGET_USER"
 echo "$TARGET_USER ALL=(ALL) NOPASSWD:ALL" | sudo tee /etc/sudoers.d/"$TARGET_USER" > /dev/null
 sudo chmod 0440 /etc/sudoers.d/"$TARGET_USER"
 
-# Copy Claude Code config and plugins from pre-built vscode user
+# Copy prebuilt AI tooling config and caches from the default vscode user
 if [ -d /home/vscode/.claude ]; then
     sudo cp -r /home/vscode/.claude /home/"$TARGET_USER"/.claude 2>/dev/null || true
+fi
+if [ -d /home/vscode/.codex ]; then
+    sudo cp -r /home/vscode/.codex /home/"$TARGET_USER"/.codex 2>/dev/null || true
 fi
 if [ -d /home/vscode/.cache ]; then
     sudo cp -r /home/vscode/.cache /home/"$TARGET_USER"/.cache 2>/dev/null || true

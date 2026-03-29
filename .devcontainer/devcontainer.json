@@ -25,7 +25,8 @@
   "mounts": [],
   "initializeCommand": "bash .devcontainer/init-host-credentials.sh",
   "remoteEnv": {
-    "SSH_AUTH_SOCK": ""
+    "SSH_AUTH_SOCK": "",
+    "OPENAI_API_KEY": "fake-key"
   },
   "updateRemoteUserUID": true,
   "remoteUser": "vscode"
