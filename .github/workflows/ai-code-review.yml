@@ -554,7 +554,6 @@ jobs:
 
             codex exec \
               --json \
-              --model gpt-5.4 \
               --dangerously-bypass-approvals-and-sandbox \
               "You are fixing CI test failures for PR #${PR_NUMBER} in ${REPO}.
             This is fix attempt ${ATTEMPT} of 3.
@@ -817,7 +816,6 @@ jobs:
 
             codex exec \
               --json \
-              --model gpt-5.4 \
               --dangerously-bypass-approvals-and-sandbox \
               "You are reviewing PR #${PR_NUMBER} in ${REPO}.
 
@@ -983,7 +981,6 @@ jobs:
 
             codex exec \
               --json \
-              --model gpt-5.4 \
               --dangerously-bypass-approvals-and-sandbox \
               "You are a DESIGN REVIEW specialist for PR #${PR_NUMBER} in ${REPO}.
 
@@ -1156,7 +1153,6 @@ jobs:
 
             codex exec \
               --json \
-              --model gpt-5.4 \
               --dangerously-bypass-approvals-and-sandbox \
               "You are a QA tester for PR #${PR_NUMBER}.
 
@@ -1311,7 +1307,6 @@ jobs:
 
             codex exec \
               --json \
-              --model gpt-5.4 \
               --dangerously-bypass-approvals-and-sandbox \
               "You are a CONCURRENCY specialist reviewing PR #${PR_NUMBER}.
 
@@ -1466,7 +1461,6 @@ jobs:
 
             codex exec \
               --json \
-              --model gpt-5.4 \
               --dangerously-bypass-approvals-and-sandbox \
               "You are a DOCUMENTATION specialist reviewing PR #${PR_NUMBER}.
 
@@ -1483,7 +1477,7 @@ jobs:
             - Plugin changes → VISUAL_ARCHITECTURE.md, ARCHITECTURE.md, docs/flows/
             - New Subscribe() → State Variable Dependency Graph
             - Concurrency fix → CONCURRENCY_LESSONS.md
-            - Workflow changes (.github/workflows/*.yml) → docs/operations/CLAUDE_GHA_PIPELINES.md
+            - Workflow changes (.github/workflows/*.yml) → docs/operations/AI_GHA_PIPELINES.md
 
             If Mermaid edits needed: run \`make validate-mermaid\` after editing.
 
@@ -1629,7 +1623,6 @@ jobs:
 
             codex exec \
               --json \
-              --model gpt-5.4 \
               --dangerously-bypass-approvals-and-sandbox \
               "You are the FINAL DECISION MAKER for PR #${PR_NUMBER}.
 

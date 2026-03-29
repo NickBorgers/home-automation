@@ -41,7 +41,7 @@ All Codex-powered workflows implement authorization checks based on `author_asso
 
 ### Workflow-Specific Controls
 
-#### `claude.yml` (Issue/Comment Handler, workflow name `Codex`)
+#### `ai-assistant.yml` (Issue/Comment Handler, workflow name `Codex`)
 
 ```yaml
 jobs:
@@ -63,7 +63,7 @@ jobs:
 - External users' issues/comments are ignored
 - No secrets exposed to unauthorized users
 
-#### `claude-code-review.yml` (PR Review Pipeline, workflow name `Codex Code Review`)
+#### `ai-code-review.yml` (PR Review Pipeline, workflow name `Codex Code Review`)
 
 ```yaml
 jobs:
@@ -100,7 +100,7 @@ permissions:
 - No secrets exposed to test runs
 - Fork PRs are skipped at the `changes` gate job and the `all-tests-passed` aggregator
 
-#### `claude-diagnose-workflow-failure.yml` (workflow name `Codex Diagnose Workflow Failure`)
+#### `ai-diagnose-workflow-failure.yml` (workflow name `Codex Diagnose Workflow Failure`)
 
 **Lower risk because:**
 - Only triggers on `workflow_run` events (not user-controlled)
@@ -112,7 +112,7 @@ permissions:
 The devcontainer is used to run Codex in a sandboxed environment.
 
 **Protection against Dockerfile injection:**
-- `claude-code-review.yml` always checks out from `main` when building devcontainer
+- `ai-code-review.yml` always checks out from `main` when building devcontainer
 - PR modifications to `.devcontainer/Dockerfile` are NOT used during review
 - This prevents attackers from injecting malicious packages or backdoors
 
@@ -207,7 +207,7 @@ Watch for:
 
 ## Related Documentation
 
-- [CLAUDE_GHA_PIPELINES.md](./CLAUDE_GHA_PIPELINES.md) - Pipeline architecture
+- [AI_GHA_PIPELINES.md](./AI_GHA_PIPELINES.md) - Pipeline architecture
 - [BRANCH_PROTECTION.md](./BRANCH_PROTECTION.md) - Branch protection rules
 - GitHub Docs: [Security hardening for GitHub Actions](https://docs.github.com/en/actions/security-guides/security-hardening-for-github-actions)
 

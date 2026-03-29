@@ -33,7 +33,7 @@ env:
 
 jobs:
   # Optimization: Skip devcontainer build if image already exists in GHCR.
-  # Other workflows (claude.yml, pr-tests) rebuild when .devcontainer/ changes,
+  # Other workflows (ai-assistant.yml, pr-tests) rebuild when .devcontainer/ changes,
   # so for a monthly scheduled job we just need to ensure the image is available.
   build-devcontainer:
     runs-on: [self-hosted, homelab]
@@ -124,7 +124,6 @@ jobs:
 
             codex exec \
               --json \
-              --model gpt-5.4 \
               --dangerously-bypass-approvals-and-sandbox \
               "You are a Home Assistant deprecation checker. Your job is to find deprecated HA APIs
             that this codebase still uses, and create GitHub issues so they get fixed proactively.

@@ -48,8 +48,9 @@ ARG CLAUDE_CODE_VERSION=2.1.75
 RUN npm install -g @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}
 
 # Install AI coding assistants (Crush + Codex)
+ARG CRUSH_CLI_VERSION=0.53.0
 ARG CODEX_CLI_VERSION=0.117.0
-RUN npm install -g @charmland/crush @openai/codex@${CODEX_CLI_VERSION}
+RUN npm install -g @charmland/crush@${CRUSH_CLI_VERSION} @openai/codex@${CODEX_CLI_VERSION}
 
 # Create directories for vscode user with correct ownership
 RUN mkdir -p /home/vscode/.claude/tmp \

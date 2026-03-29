@@ -164,7 +164,6 @@ jobs:
 
             codex exec \
               --json \
-              --model gpt-5.4 \
               --dangerously-bypass-approvals-and-sandbox \
               "You are a GitHub Actions diagnostician. A workflow has failed and you need to determine
             if it's a GitHub Actions configuration problem or a normal test/code failure.

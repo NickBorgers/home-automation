@@ -327,7 +327,6 @@ jobs:
 
             codex exec \
               --json \
-              --model gpt-5.4 \
               --dangerously-bypass-approvals-and-sandbox \
               "$PROMPT" 2>&1 | tee /tmp/codex-conversation.jsonl
 
@@ -402,7 +401,6 @@ jobs:
 
             codex exec \
               --json \
-              --model gpt-5.4 \
               --dangerously-bypass-approvals-and-sandbox \
               "You are an autonomous agent tasked with resolving GitHub issue #${ISSUE_NUMBER}.
 

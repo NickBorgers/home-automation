@@ -1,0 +1,74 @@
+name: Update AI CLI Versions
+
+on:
+  schedule:
+    # Weekly on Mondays at 09:00 UTC
+    - cron: '0 9 * * 1'
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  update-ai-clis:
+    runs-on: [self-hosted, homelab]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Check for AI CLI updates
+        id: check
+        run: |
+          CURRENT_CLAUDE=$(grep -oP 'ARG CLAUDE_CODE_VERSION=\K[0-9.]+' .devcontainer/Dockerfile)
+          CURRENT_CRUSH=$(grep -oP 'ARG CRUSH_CLI_VERSION=\K[0-9.]+' .devcontainer/Dockerfile)
+          CURRENT_CODEX=$(grep -oP 'ARG CODEX_CLI_VERSION=\K[0-9.]+' .devcontainer/Dockerfile)
+
+          LATEST_CLAUDE=$(npm view @anthropic-ai/claude-code version)
+          LATEST_CRUSH=$(npm view @charmland/crush version | sed 's/^v//')
+          LATEST_CODEX=$(npm view @openai/codex version)
+
+          echo "current_claude=$CURRENT_CLAUDE" >> "$GITHUB_OUTPUT"
+          echo "current_crush=$CURRENT_CRUSH" >> "$GITHUB_OUTPUT"
+          echo "current_codex=$CURRENT_CODEX" >> "$GITHUB_OUTPUT"
+          echo "latest_claude=$LATEST_CLAUDE" >> "$GITHUB_OUTPUT"
+          echo "latest_crush=$LATEST_CRUSH" >> "$GITHUB_OUTPUT"
+          echo "latest_codex=$LATEST_CODEX" >> "$GITHUB_OUTPUT"
+
+          if [ "$CURRENT_CLAUDE" != "$LATEST_CLAUDE" ] || [ "$CURRENT_CRUSH" != "$LATEST_CRUSH" ] || [ "$CURRENT_CODEX" != "$LATEST_CODEX" ]; then
+            echo "needs_update=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "needs_update=false" >> "$GITHUB_OUTPUT"
+          fi
+          echo "Claude Code: $CURRENT_CLAUDE -> $LATEST_CLAUDE"
+          echo "Crush: $CURRENT_CRUSH -> $LATEST_CRUSH"
+          echo "Codex: $CURRENT_CODEX -> $LATEST_CODEX"
+
+      - name: Update Dockerfile
+        if: steps.check.outputs.needs_update == 'true'
+        run: |
+          sed -i "s/ARG CLAUDE_CODE_VERSION=.*/ARG CLAUDE_CODE_VERSION=${{ steps.check.outputs.latest_claude }}/" .devcontainer/Dockerfile
+          sed -i "s/ARG CRUSH_CLI_VERSION=.*/ARG CRUSH_CLI_VERSION=${{ steps.check.outputs.latest_crush }}/" .devcontainer/Dockerfile
+          sed -i "s/ARG CODEX_CLI_VERSION=.*/ARG CODEX_CLI_VERSION=${{ steps.check.outputs.latest_codex }}/" .devcontainer/Dockerfile
+
+      - name: Create Pull Request
+        if: steps.check.outputs.needs_update == 'true'
+        uses: peter-evans/create-pull-request@v7
+        with:
+          # PAT required so the created PR triggers pull_request events (GITHUB_TOKEN suppresses them)
+          token: ${{ secrets.WORKFLOW_PAT }}
+          commit-message: "chore: update AI CLIs in devcontainer"
+          title: "chore: update AI CLIs in devcontainer"
+          body: |
+            Automated weekly update of the AI CLIs bundled in the devcontainer.
+
+            - **Claude Code:** ${{ steps.check.outputs.current_claude }} → ${{ steps.check.outputs.latest_claude }}
+            - **Crush:** ${{ steps.check.outputs.current_crush }} → ${{ steps.check.outputs.latest_crush }}
+            - **Codex:** ${{ steps.check.outputs.current_codex }} → ${{ steps.check.outputs.latest_codex }}
+
+            🤖 Generated automatically by the `update-ai-clis` workflow.
+          branch: chore/update-ai-clis
+          delete-branch: true

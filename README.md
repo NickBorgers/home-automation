@@ -167,7 +167,7 @@ After tests pass, a multi-agent AI review pipeline automatically runs:
 - Reviews are skipped for PRs from forks (security measure) - maintainers will review manually
 - To re-run reviews after they pass, close and reopen the PR
 
-See [docs/operations/CLAUDE_GHA_PIPELINES.md](docs/operations/CLAUDE_GHA_PIPELINES.md) for the full workflow details and [docs/operations/BRANCH_PROTECTION.md](docs/operations/BRANCH_PROTECTION.md) for branch protection rules.
+See [docs/operations/AI_GHA_PIPELINES.md](docs/operations/AI_GHA_PIPELINES.md) for the full workflow details and [docs/operations/BRANCH_PROTECTION.md](docs/operations/BRANCH_PROTECTION.md) for branch protection rules.
 
 ## Legacy Reference
 
