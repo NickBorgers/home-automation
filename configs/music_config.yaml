@@ -500,7 +500,7 @@ music:
     playback_options:
       # Sensual songs for naughty times (Tidal) — 256 tracks, sensual mood
       # yamllint disable-line rule:line-length
-      - uri: "https://tidal.com/browse/playlist/c9e5c9db-ebd8-4a89-872d-db09672677d8"
+      - uri: "https://tidal.com/browse/playlist/326e15e7-cab6-4600-9687-affd6d6ba5a9"
         media_type: tidal
         volume_multiplier: 1.0
   wakeup:
