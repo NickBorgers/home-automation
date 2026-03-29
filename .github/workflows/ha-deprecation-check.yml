@@ -282,7 +282,7 @@ jobs:
             echo "Check the deprecation-check-output artifact for details." >> $GITHUB_STEP_SUMMARY
             exit 1
           else
-            echo "::error::Could not determine deprecation check outcome from Claude output"
+            echo "::error::Could not determine deprecation check outcome from Codex output"
             echo "## Deprecation Check: Unknown Result ❌" >> $GITHUB_STEP_SUMMARY
             echo "Could not parse the check result. Review the deprecation-check-output artifact." >> $GITHUB_STEP_SUMMARY
             exit 1

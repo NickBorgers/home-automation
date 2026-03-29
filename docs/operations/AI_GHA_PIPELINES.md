@@ -700,14 +700,14 @@ gh workflow run "Codex Code Review" \
 
 ### Model Selection
 
-The pipelines standardize on `gpt-5.4` via Codex and the LiteLLM proxy.
+The pipelines standardize on `gpt-5-codex` via Codex and the LiteLLM proxy.
 
 | Pipeline/Job | Model | Rationale |
 |-------------|-------|-----------|
-| `ai-assistant.yml` interactive and issue resolution | `gpt-5.4` | Open-ended implementation and repo changes |
-| `ai-code-review.yml` review and merge jobs | `gpt-5.4` | Consistent review quality across the pipeline |
-| `ai-diagnose-workflow-failure.yml` | `gpt-5.4` | Failure triage and classification |
-| `ha-deprecation-check.yml` | `gpt-5.4` | Release-note scanning and issue creation |
+| `ai-assistant.yml` interactive and issue resolution | `gpt-5-codex` | Open-ended implementation and repo changes |
+| `ai-code-review.yml` review and merge jobs | `gpt-5-codex` | Consistent review quality across the pipeline |
+| `ai-diagnose-workflow-failure.yml` | `gpt-5-codex` | Failure triage and classification |
+| `ha-deprecation-check.yml` | `gpt-5-codex` | Release-note scanning and issue creation |
 
 The workflow display names are `Codex`, `Codex Code Review`, and `Codex Diagnose Workflow Failure`, with filenames `ai-assistant.yml`, `ai-code-review.yml`, and `ai-diagnose-workflow-failure.yml`.
 

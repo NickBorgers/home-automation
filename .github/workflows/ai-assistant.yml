@@ -172,6 +172,7 @@ jobs:
       (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@codex')) ||
       (github.event_name == 'issues' && (contains(github.event.issue.body, '@codex') || contains(github.event.issue.title, '@codex'))))
     runs-on: [self-hosted, homelab]
+    timeout-minutes: 60
     permissions:
       contents: write
       pull-requests: write

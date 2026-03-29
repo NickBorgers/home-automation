@@ -17,4 +17,3 @@ config-test/.yamllint
 
 # Claude Code artifacts
 claude-review-output.jsonl
-.aider*
