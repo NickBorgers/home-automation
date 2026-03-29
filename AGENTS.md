@@ -568,7 +568,7 @@ Use Playwright to capture screenshots for PR documentation or visual regression 
 **Quick Method (using Playwright skill if installed):**
 ```bash
 make dev-ui
-# Ask Claude Code to use the playwright-skill to capture a screenshot
+# Ask Codex to capture a screenshot with Playwright
 ```
 
 **Manual Method (requires Node.js):**

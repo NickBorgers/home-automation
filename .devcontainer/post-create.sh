@@ -46,21 +46,9 @@ else
     echo "Warning: No gh token found; gh CLI credentials not available."
 fi
 
-# Set up Claude Code credentials from host keychain (written by initializeCommand)
-# Claude Code reads ~/.claude/.credentials.json on Linux (no keychain available)
-CLAUDE_CRED_FILE="$REPO_ROOT/.devcontainer/.claude-credentials"
-if [ -s "$CLAUDE_CRED_FILE" ]; then
-    echo "Setting up Claude Code credentials..."
-    mkdir -p "$HOME/.claude"
-    cp "$CLAUDE_CRED_FILE" "$HOME/.claude/.credentials.json"
-    chmod 600 "$HOME/.claude/.credentials.json"
-    echo "Claude Code credentials configured."
-    rm -f "$CLAUDE_CRED_FILE"
-else
-    echo "Warning: No Claude credentials found; Claude Code credentials not available."
-fi
+bash "$(dirname "$0")/configure-codex.sh"
 
-# Note: Claude Code and playwright-skill plugin are now pre-installed
-# in the Dockerfile for faster rebuilds via Docker layer caching.
+# Note: Claude Code, Crush, Codex, and playwright-skill plugin are
+# now pre-installed in the Dockerfile for faster rebuilds via Docker layer caching.
 
 echo "=== Devcontainer setup complete ==="

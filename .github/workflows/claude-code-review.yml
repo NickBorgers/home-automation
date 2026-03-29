@@ -1,17 +1,17 @@
-name: Claude Code Review
+name: Codex Code Review
 
 # Dynamic run name shows PR number for easy identification in the Actions UI
-# Format: "Claude Code Review (PR #123)" or "Claude Code Review (branch-name)"
+# Format: "Codex Code Review (PR #123)" or "Codex Code Review (branch-name)"
 run-name: >-
-  ${{ github.event_name == 'workflow_dispatch' && format('Claude Code Review (PR #{0})', inputs.pr_number) ||
-      github.event_name == 'pull_request' && format('Claude Code Review (PR #{0})', github.event.pull_request.number) ||
-      format('Claude Code Review ({0})', github.event.workflow_run.head_branch) }}
+  ${{ github.event_name == 'workflow_dispatch' && format('Codex Code Review (PR #{0})', inputs.pr_number) ||
+      github.event_name == 'pull_request' && format('Codex Code Review (PR #{0})', github.event.pull_request.number) ||
+      format('Codex Code Review ({0})', github.event.workflow_run.head_branch) }}
 
-# SECURITY NOTE: This workflow grants Claude Code access to secrets and write permissions.
+# SECURITY NOTE: This workflow grants Codex access to secrets and write permissions.
 # Authorization checks are implemented to prevent prompt injection and code execution from untrusted users.
-# - Only PRs from repository collaborators, members, and owners trigger Claude reviews
+# - Only PRs from repository collaborators, members, and owners trigger Codex reviews
 # - The devcontainer is NEVER rebuilt from PR branches to prevent malicious Dockerfile injection
-# - External PRs (from forks) are blocked from triggering Claude
+# - External PRs (from forks) are blocked from triggering Codex
 
 on:
   workflow_run:
@@ -49,7 +49,7 @@ on:
 # Uses branch name for concurrency group
 # cancel-in-progress: false ensures we complete the first review rather than restarting
 concurrency:
-  group: claude-review-${{ github.event_name == 'workflow_dispatch' && inputs.head_ref || github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.event.workflow_run.head_branch }}
+  group: codex-review-${{ github.event_name == 'workflow_dispatch' && inputs.head_ref || github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.event.workflow_run.head_branch }}
   cancel-in-progress: false
 
 env:
@@ -231,10 +231,10 @@ jobs:
           # Get all labels on the PR
           LABELS=$(gh api repos/${{ github.repository }}/issues/$PR_NUMBER/labels --jq '.[].name' 2>/dev/null || echo "")
 
-          # Count claude-fix-attempt-N labels
+          # Count codex-fix-attempt-N labels
           COUNT=0
           for label in $LABELS; do
-            if [[ "$label" =~ ^claude-fix-attempt-[0-9]+$ ]]; then
+            if [[ "$label" =~ ^codex-fix-attempt-[0-9]+$ ]]; then
               NUM=$(echo "$label" | grep -oP '\d+$')
               if [ "$NUM" -gt "$COUNT" ]; then
                 COUNT=$NUM
@@ -273,7 +273,7 @@ jobs:
             echo "already_passed=false" >> $GITHUB_OUTPUT
           fi
 
-      # SECURITY: Check if PR author is authorized to trigger Claude reviews
+      # SECURITY: Check if PR author is authorized to trigger Codex reviews
       # This prevents prompt injection and code execution from external/untrusted users
       - name: Check PR author authorization
         if: steps.get-pr.outputs.pr_number != ''
@@ -311,16 +311,16 @@ jobs:
               ;;
             *)
               echo "❌ Not authorized: $AUTHOR_LOGIN is a $AUTHOR_ASSOC"
-              echo "External users cannot trigger Claude Code Review workflows."
+              echo "External users cannot trigger Codex Code Review workflows."
               echo "This is a security measure to prevent prompt injection attacks."
               echo "authorized=false" >> $GITHUB_OUTPUT
 
               # Post a comment explaining why the review was skipped
-              gh pr comment $PR_NUMBER --body "## Claude Code Review Skipped
+              gh pr comment $PR_NUMBER --body "## Codex Code Review Skipped
 
           This PR was opened by an external contributor ($AUTHOR_LOGIN with association: $AUTHOR_ASSOC).
 
-          For security reasons, Claude Code reviews are only enabled for repository collaborators, members, and owners. This prevents potential prompt injection attacks through PR descriptions or issue content.
+          For security reasons, Codex reviews are only enabled for repository collaborators, members, and owners. This prevents potential prompt injection attacks through PR descriptions or issue content.
 
           A repository maintainer will review this PR manually.
 
@@ -498,20 +498,20 @@ jobs:
           NEXT_ATTEMPT=$((CURRENT_ATTEMPTS + 1))
 
           # Create the label if it doesn't exist
-          gh label create "claude-fix-attempt-$NEXT_ATTEMPT" \
+          gh label create "codex-fix-attempt-$NEXT_ATTEMPT" \
             --color "ff9500" \
-            --description "Claude fix attempt $NEXT_ATTEMPT" \
+            --description "Codex fix attempt $NEXT_ATTEMPT" \
             --repo ${{ github.repository }} 2>/dev/null || true
 
           # Add the label to the PR
-          gh pr edit $PR_NUMBER --add-label "claude-fix-attempt-$NEXT_ATTEMPT" --repo ${{ github.repository }}
+          gh pr edit $PR_NUMBER --add-label "codex-fix-attempt-$NEXT_ATTEMPT" --repo ${{ github.repository }}
 
           echo "Marked as fix attempt $NEXT_ATTEMPT"
 
       - name: Configure git identity for commits
         run: |
-          git config user.name "claude[bot]"
-          git config user.email "claude[bot]@users.noreply.github.com"
+          git config user.name "codex[bot]"
+          git config user.email "codex[bot]@users.noreply.github.com"
 
       - name: Log in to GHCR
         uses: docker/login-action@v3
@@ -520,8 +520,8 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Run Claude to fix test failures
-        id: claude-fix
+      - name: Run Codex to fix test failures
+        id: codex-fix
         uses: devcontainers/ci@v0.3
         with:
           imageName: ${{ env.DEVCONTAINER_IMAGE }}
@@ -529,7 +529,7 @@ jobs:
           push: never
           env: |
 
-            CLAUDE_CODE_OAUTH_TOKEN=${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+            OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
             GH_TOKEN=${{ secrets.WORKFLOW_PAT }}
             PR_NUMBER=${{ needs.get-context.outputs.pr_number }}
             PR_TITLE=${{ needs.get-context.outputs.pr_title }}
@@ -550,14 +550,12 @@ jobs:
             PR_BODY=$(echo "$PR_BODY_B64" | base64 -d 2>/dev/null || echo "")
             ISSUE_BODY=$(echo "$ISSUE_BODY_B64" | base64 -d 2>/dev/null || echo "")
 
-            # Run Claude Code to fix test failures
-            # Using Sonnet: Task is debugging with clear error messages and 3 retry attempts
-            claude --print \
-              --verbose \
-              --output-format stream-json \
-              --model sonnet \
-              --dangerously-skip-permissions \
-              --max-turns 200 \
+            bash .devcontainer/configure-codex.sh
+
+            codex exec \
+              --json \
+              --model gpt-5.4 \
+              --dangerously-bypass-approvals-and-sandbox \
               "You are fixing CI test failures for PR #${PR_NUMBER} in ${REPO}.
             This is fix attempt ${ATTEMPT} of 3.
 
@@ -615,7 +613,7 @@ jobs:
 
             [Describe what you found and fixed]
 
-            Pushed fix - triggering new test run.'" < /dev/null 2>&1 | tee /tmp/fix-failures-output.jsonl
+            Pushed fix - triggering new test run.'" 2>&1 | tee /tmp/fix-failures-output.jsonl
 
       - name: Trigger PR Tests and reviews after fix
         if: success()
@@ -678,8 +676,8 @@ jobs:
                 -f context="All Required Tests"
               echo "Commit status created successfully"
 
-              echo "Triggering Claude Code Review..."
-              gh workflow run "Claude Code Review" \
+              echo "Triggering Codex Code Review..."
+              gh workflow run "Codex Code Review" \
                 --ref "main" \
                 --repo ${{ github.repository }} \
                 -f head_ref="${{ needs.get-context.outputs.head_ref }}" \
@@ -687,17 +685,17 @@ jobs:
                 -f pr_number="${{ needs.get-context.outputs.pr_number }}" \
                 -f tests_passed="true" \
                 -f run_id="$RUN_ID"
-              echo "Claude Code Review workflow triggered successfully"
+              echo "Codex Code Review workflow triggered successfully"
             else
               echo "Tests still failing after fix attempt"
 
-              # Trigger another Claude Code Review run to retry the fix
+              # Trigger another Codex Code Review run to retry the fix
               # This is necessary because workflow_run events don't fire for
               # workflow_dispatch-triggered runs, so we must manually trigger
               NEXT_ATTEMPT=$((FIX_ATTEMPTS + 1))
               if [ "$NEXT_ATTEMPT" -lt 3 ]; then
                 echo "Triggering fix attempt $((NEXT_ATTEMPT + 1))/3..."
-                gh workflow run "Claude Code Review" \
+                gh workflow run "Codex Code Review" \
                   --ref "main" \
                   --repo ${{ github.repository }} \
                   -f head_ref="${{ needs.get-context.outputs.head_ref }}" \
@@ -711,12 +709,12 @@ jobs:
                 COMMENT_BODY="## ❌ Automated Fix Failed"
                 COMMENT_BODY="$COMMENT_BODY"$'\n\n'"All 3 automated fix attempts were unsuccessful. Human intervention is required."
                 COMMENT_BODY="$COMMENT_BODY"$'\n\n'"**Recent Test Run:** https://github.com/${{ github.repository }}/actions/runs/$RUN_ID"
-                COMMENT_BODY="$COMMENT_BODY"$'\n\n'"🤖 Generated by Claude Code Review workflow"
+                COMMENT_BODY="$COMMENT_BODY"$'\n\n'"🤖 Generated by Codex Code Review workflow"
                 gh pr comment ${{ needs.get-context.outputs.pr_number }} --body "$COMMENT_BODY"
               fi
             fi
           else
-            echo "No new commits - Claude may have aborted or found no fix needed"
+            echo "No new commits - Codex may have aborted or found no fix needed"
           fi
 
       - name: Upload fix attempt output
@@ -727,10 +725,10 @@ jobs:
           path: /tmp/fix-failures-output.jsonl
           retention-days: 7
 
-  # Claude review (code review) - runs after design-review
+  # Codex review (code review) - runs after design-review
   # SKIP for config-only PRs (no code to review)
   # SKIP for draft PRs (work in progress)
-  claude-review:
+  codex-review:
     needs: [get-context, build-devcontainer]
     if: |
       needs.get-context.outputs.pr_number != '' &&
@@ -797,7 +795,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Run Claude review in devcontainer
+      - name: Run Codex review in devcontainer
         if: steps.verify-tests.outputs.verified == 'true'
         uses: devcontainers/ci@v0.3
         with:
@@ -806,7 +804,7 @@ jobs:
           push: never
           env: |
 
-            CLAUDE_CODE_OAUTH_TOKEN=${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+            OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
             GH_TOKEN=${{ secrets.WORKFLOW_PAT }}
             PR_NUMBER=${{ needs.get-context.outputs.pr_number }}
             REPO=${{ github.repository }}
@@ -815,13 +813,12 @@ jobs:
           runCmd: |
             CROSS_PR_CONTEXT=$(echo "$CROSS_PR_CONTEXT_B64" | base64 -d 2>/dev/null || echo "")
 
-            # Run Claude Code review inside the devcontainer
-            claude --print \
-              --verbose \
-              --output-format stream-json \
-              --model opus \
-              --dangerously-skip-permissions \
-              --max-turns 450 \
+            bash .devcontainer/configure-codex.sh
+
+            codex exec \
+              --json \
+              --model gpt-5.4 \
+              --dangerously-bypass-approvals-and-sandbox \
               "You are reviewing PR #${PR_NUMBER} in ${REPO}.
 
             Review like an experienced staff engineer. Be direct and selective.
@@ -865,14 +862,14 @@ jobs:
             [Optional. Non-blocking observations, one sentence each. Skip section if nothing worth noting.]
 
             ### Conclusion
-            [✅ Approved | ⚠️ Needs changes | ❌ Blocking issues]'" < /dev/null 2>&1 | tee /tmp/claude-review-output.jsonl
+            [✅ Approved | ⚠️ Needs changes | ❌ Blocking issues]'" 2>&1 | tee /tmp/codex-review-output.jsonl
 
-      - name: Upload Claude review output
+      - name: Upload Codex review output
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: claude-review-output
-          path: /tmp/claude-review-output.jsonl
+          name: codex-review-output
+          path: /tmp/codex-review-output.jsonl
           retention-days: 7
 
   # Design review specialist - validates PR implements issue intent and reviews design quality
@@ -959,7 +956,7 @@ jobs:
           push: never
           env: |
 
-            CLAUDE_CODE_OAUTH_TOKEN=${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+            OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
             GH_TOKEN=${{ secrets.WORKFLOW_PAT }}
             PR_NUMBER=${{ needs.get-context.outputs.pr_number }}
             PR_TITLE=${{ needs.get-context.outputs.pr_title }}
@@ -982,12 +979,12 @@ jobs:
               ISSUE_COMMENTS=$(gh api "repos/${REPO}/issues/${ISSUE_NUMBER}/comments" --jq '.[] | "---\n**\(.user.login)** commented at \(.created_at):\n\(.body)\n"' 2>/dev/null | head -c 50000 || echo "")
             fi
 
-            claude --print \
-              --verbose \
-              --output-format stream-json \
-              --model opus \
-              --dangerously-skip-permissions \
-              --max-turns 750 \
+            bash .devcontainer/configure-codex.sh
+
+            codex exec \
+              --json \
+              --model gpt-5.4 \
+              --dangerously-bypass-approvals-and-sandbox \
               "You are a DESIGN REVIEW specialist for PR #${PR_NUMBER} in ${REPO}.
 
             Review like an experienced staff engineer. Be direct and selective.
@@ -1056,7 +1053,7 @@ jobs:
             [Optional. Non-blocking observations, one sentence each. Skip section if nothing worth noting.]
 
             ### Conclusion
-            [✅ Approved | ⚠️ Needs changes | ❌ Blocking issues]'" < /dev/null 2>&1 | tee /tmp/design-review-output.jsonl
+            [✅ Approved | ⚠️ Needs changes | ❌ Blocking issues]'" 2>&1 | tee /tmp/design-review-output.jsonl
 
       - name: Upload design review output
         uses: actions/upload-artifact@v4
@@ -1149,19 +1146,18 @@ jobs:
           push: never
           env: |
 
-            CLAUDE_CODE_OAUTH_TOKEN=${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+            OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
             GH_TOKEN=${{ secrets.WORKFLOW_PAT }}
             PR_NUMBER=${{ needs.get-context.outputs.pr_number }}
             HEAD_REF=${{ needs.get-context.outputs.head_ref }}
             REPO=${{ github.repository }}
           runCmd: |
-            # Using Opus: Test review requires catching subtle anti-patterns (race conditions in helpers, weakened assertions)
-            claude --print \
-              --verbose \
-              --output-format stream-json \
-              --model opus \
-              --dangerously-skip-permissions \
-              --max-turns 200 \
+            bash .devcontainer/configure-codex.sh
+
+            codex exec \
+              --json \
+              --model gpt-5.4 \
+              --dangerously-bypass-approvals-and-sandbox \
               "You are a QA tester for PR #${PR_NUMBER}.
 
             Review like an experienced staff engineer. Be direct and selective.
@@ -1212,7 +1208,7 @@ jobs:
             [Optional. Non-blocking observations, one sentence each. Skip section if nothing worth noting.]
 
             ### Conclusion
-            [✅ Approved | ⚠️ Needs changes | ❌ Blocking issues]'" < /dev/null 2>&1 | tee /tmp/test-review-output.jsonl
+            [✅ Approved | ⚠️ Needs changes | ❌ Blocking issues]'" 2>&1 | tee /tmp/test-review-output.jsonl
 
       - name: Upload test review output
         uses: actions/upload-artifact@v4
@@ -1305,18 +1301,18 @@ jobs:
           push: never
           env: |
 
-            CLAUDE_CODE_OAUTH_TOKEN=${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+            OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
             GH_TOKEN=${{ secrets.WORKFLOW_PAT }}
             PR_NUMBER=${{ needs.get-context.outputs.pr_number }}
             HEAD_REF=${{ needs.get-context.outputs.head_ref }}
             REPO=${{ github.repository }}
           runCmd: |
-            claude --print \
-              --verbose \
-              --output-format stream-json \
-              --model opus \
-              --dangerously-skip-permissions \
-              --max-turns 240 \
+            bash .devcontainer/configure-codex.sh
+
+            codex exec \
+              --json \
+              --model gpt-5.4 \
+              --dangerously-bypass-approvals-and-sandbox \
               "You are a CONCURRENCY specialist reviewing PR #${PR_NUMBER}.
 
             Review like an experienced staff engineer. Be direct and selective.
@@ -1359,7 +1355,7 @@ jobs:
             [Optional. Non-blocking observations, one sentence each. Skip section if nothing worth noting.]
 
             ### Conclusion
-            [✅ Approved | ⚠️ Needs changes | ❌ Blocking issues]'" < /dev/null 2>&1 | tee /tmp/concurrency-review-output.jsonl
+            [✅ Approved | ⚠️ Needs changes | ❌ Blocking issues]'" 2>&1 | tee /tmp/concurrency-review-output.jsonl
 
       - name: Upload concurrency review output
         uses: actions/upload-artifact@v4
@@ -1452,7 +1448,7 @@ jobs:
           push: never
           env: |
 
-            CLAUDE_CODE_OAUTH_TOKEN=${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+            OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
             GH_TOKEN=${{ secrets.WORKFLOW_PAT }}
             PR_NUMBER=${{ needs.get-context.outputs.pr_number }}
             PR_TITLE=${{ needs.get-context.outputs.pr_title }}
@@ -1466,13 +1462,12 @@ jobs:
             PR_BODY=$(echo "$PR_BODY_B64" | base64 -d 2>/dev/null || echo "")
             ISSUE_BODY=$(echo "$ISSUE_BODY_B64" | base64 -d 2>/dev/null || echo "")
 
-            # Using Opus: Documentation updates require accurate changes when PR opener missed them
-            claude --print \
-              --verbose \
-              --output-format stream-json \
-              --model opus \
-              --dangerously-skip-permissions \
-              --max-turns 200 \
+            bash .devcontainer/configure-codex.sh
+
+            codex exec \
+              --json \
+              --model gpt-5.4 \
+              --dangerously-bypass-approvals-and-sandbox \
               "You are a DOCUMENTATION specialist reviewing PR #${PR_NUMBER}.
 
             Review like an experienced staff engineer. Be direct and selective.
@@ -1508,7 +1503,7 @@ jobs:
             [Optional. Non-blocking observations, one sentence each. Skip section if nothing worth noting.]
 
             ### Conclusion
-            [✅ Approved | ⚠️ Needs changes | ❌ Blocking issues]'" < /dev/null 2>&1 | tee /tmp/docs-review-output.jsonl
+            [✅ Approved | ⚠️ Needs changes | ❌ Blocking issues]'" 2>&1 | tee /tmp/docs-review-output.jsonl
 
       - name: Upload documentation review output
         uses: actions/upload-artifact@v4
@@ -1521,7 +1516,7 @@ jobs:
   # Final decision maker - synthesizes all reviews and makes go/no-go call
   # SKIP for draft PRs (work in progress)
   merge-decision:
-    needs: [get-context, build-devcontainer, claude-review, design-review, test-review, concurrency-review, docs-review]
+    needs: [get-context, build-devcontainer, codex-review, design-review, test-review, concurrency-review, docs-review]
     if: |
       always() &&
       needs.get-context.outputs.pr_number != '' &&
@@ -1586,8 +1581,8 @@ jobs:
       - name: Configure git identity for commits
         if: steps.verify-tests.outputs.verified == 'true'
         run: |
-          git config user.name "claude[bot]"
-          git config user.email "claude[bot]@users.noreply.github.com"
+          git config user.name "codex[bot]"
+          git config user.email "codex[bot]@users.noreply.github.com"
 
       - name: Log in to GHCR
         if: steps.verify-tests.outputs.verified == 'true'
@@ -1606,11 +1601,11 @@ jobs:
           push: never
           env: |
 
-            CLAUDE_CODE_OAUTH_TOKEN=${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+            OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
             GH_TOKEN=${{ secrets.WORKFLOW_PAT }}
             PR_NUMBER=${{ needs.get-context.outputs.pr_number }}
             HEAD_REF=${{ needs.get-context.outputs.head_ref }}
-            CLAUDE_REVIEW_RESULT=${{ needs.claude-review.result }}
+            CODEX_REVIEW_RESULT=${{ needs.codex-review.result }}
             DESIGN_REVIEW_RESULT=${{ needs.design-review.result }}
             TEST_REVIEW_RESULT=${{ needs.test-review.result }}
             CONCURRENCY_REVIEW_RESULT=${{ needs.concurrency-review.result }}
@@ -1618,7 +1613,7 @@ jobs:
             CONFIG_ONLY=${{ needs.get-context.outputs.config_only }}
             CROSS_PR_CONTEXT_B64=${{ needs.get-context.outputs.cross_pr_context_b64 }}
           runCmd: |
-            # Pre-compute conditional values to avoid $() inside double-quoted claude argument
+            # Pre-compute conditional values to avoid $() inside double-quoted codex argument
             # (bash -c wrapping by devcontainers/ci breaks $() inside escaped quotes)
             if [ "${CONFIG_ONLY}" = "true" ]; then
               PR_TYPE_DESC="Config-only (reviews were streamlined)"
@@ -1630,13 +1625,12 @@ jobs:
 
             CROSS_PR_CONTEXT=$(echo "$CROSS_PR_CONTEXT_B64" | base64 -d 2>/dev/null || echo "")
 
-            # Using Opus: Merge decision requires independent verification of the diff, not just summarization
-            claude --print \
-              --verbose \
-              --output-format stream-json \
-              --model opus \
-              --dangerously-skip-permissions \
-              --max-turns 200 \
+            bash .devcontainer/configure-codex.sh
+
+            codex exec \
+              --json \
+              --model gpt-5.4 \
+              --dangerously-bypass-approvals-and-sandbox \
               "You are the FINAL DECISION MAKER for PR #${PR_NUMBER}.
 
             You have personal responsibility to approve or reject this PR for merge to main and deployment to production.
@@ -1646,7 +1640,7 @@ jobs:
             **PR TYPE:** ${PR_TYPE_DESC}
 
             **REVIEW STATUS:**
-            - Code Review: ${CLAUDE_REVIEW_RESULT}
+            - Code Review: ${CODEX_REVIEW_RESULT}
             - Design Review: ${DESIGN_REVIEW_RESULT}
             - Test Review: ${TEST_REVIEW_RESULT}
             - Concurrency Review: ${CONCURRENCY_REVIEW_RESULT}
@@ -1700,7 +1694,7 @@ jobs:
             [If GO: \"Ready for merge to main and production deployment.\"]
             [If NO-GO: List specific blockers that must be resolved.]
 
-            [If you made fixes: \"Applied fixes: [brief description]\"]'" < /dev/null 2>&1 | tee /tmp/merge-decision-output.jsonl
+            [If you made fixes: \"Applied fixes: [brief description]\"]'" 2>&1 | tee /tmp/merge-decision-output.jsonl
 
       - name: Upload merge decision output
         uses: actions/upload-artifact@v4
@@ -1749,7 +1743,7 @@ jobs:
   all-reviews-passed:
     name: All Required Agent Reviews
     runs-on: [self-hosted, homelab]
-    needs: [get-context, build-devcontainer, fix-test-failures, claude-review, design-review, test-review, concurrency-review, docs-review, merge-decision]
+    needs: [get-context, build-devcontainer, fix-test-failures, codex-review, design-review, test-review, concurrency-review, docs-review, merge-decision]
     if: always() && needs.get-context.outputs.author_authorized == 'true'
     permissions:
       statuses: write  # Required to create commit status on PR
@@ -1797,8 +1791,8 @@ jobs:
           # SECURITY: Check if author was authorized
           AUTHOR_AUTHORIZED="${{ needs.get-context.outputs.author_authorized }}"
           if [ "$AUTHOR_AUTHORIZED" != "true" ]; then
-            echo "⚠️ PR author was not authorized to trigger Claude reviews"
-            echo "External contributors cannot trigger Claude Code Review workflows."
+            echo "⚠️ PR author was not authorized to trigger Codex reviews"
+            echo "External contributors cannot trigger Codex Code Review workflows."
             echo "This is a security measure to prevent prompt injection attacks."
             echo "A repository maintainer will need to review this PR manually."
             echo "unauthorized=true" >> $GITHUB_OUTPUT
@@ -1834,8 +1828,8 @@ jobs:
               echo "Build Devcontainer: ${{ needs.build-devcontainer.result }}"
               failed=true
             fi
-            if ! check_result "${{ needs.claude-review.result }}"; then
-              echo "Claude Review: ${{ needs.claude-review.result }}"
+            if ! check_result "${{ needs.codex-review.result }}"; then
+              echo "Codex Review: ${{ needs.codex-review.result }}"
               failed=true
             fi
             if ! check_result "${{ needs.design-review.result }}"; then
@@ -1894,7 +1888,7 @@ jobs:
           echo "  Fix Attempts: ${{ needs.get-context.outputs.fix_attempts }}"
           echo "  Build Devcontainer: ${{ needs.build-devcontainer.result }}"
           echo "  Fix Test Failures: ${{ needs.fix-test-failures.result }}"
-          echo "  Claude Review: ${{ needs.claude-review.result }}"
+          echo "  Codex Review: ${{ needs.codex-review.result }}"
           echo "  Design Review: ${{ needs.design-review.result }}"
           echo "  Test Review: ${{ needs.test-review.result }}"
           echo "  Concurrency Review: ${{ needs.concurrency-review.result }}"
@@ -1973,7 +1967,7 @@ jobs:
           FIX_ATTEMPTS: ${{ needs.get-context.outputs.fix_attempts }}
           BUILD_RESULT: ${{ needs.build-devcontainer.result }}
           FIX_RESULT: ${{ needs.fix-test-failures.result }}
-          CLAUDE_RESULT: ${{ needs.claude-review.result }}
+          CODEX_RESULT: ${{ needs.codex-review.result }}
           DESIGN_RESULT: ${{ needs.design-review.result }}
           TEST_RESULT: ${{ needs.test-review.result }}
           CONCURRENCY_RESULT: ${{ needs.concurrency-review.result }}
@@ -2046,7 +2040,7 @@ jobs:
               COMMENT+="| 📚 Docs Review | ⏭️ Skipped (config-only) |\n"
             else
               COMMENT+="| 🎨 Design Review | $(format_result "$DESIGN_RESULT") |\n"
-              COMMENT+="| 🔍 Code Review | $(format_result "$CLAUDE_RESULT") |\n"
+              COMMENT+="| 🔍 Code Review | $(format_result "$CODEX_RESULT") |\n"
               COMMENT+="| 🧪 Test Review | $(format_result "$TEST_RESULT") |\n"
               COMMENT+="| 🔀 Concurrency Review | $(format_result "$CONCURRENCY_RESULT") |\n"
               COMMENT+="| 📚 Docs Review | $(format_result "$DOCS_RESULT") |\n"
@@ -2061,7 +2055,7 @@ jobs:
           else
             COMMENT+="_See individual agent comments above for details._\n"
           fi
-          COMMENT+="\n🤖 Generated by Claude Code Review workflow"
+          COMMENT+="\n🤖 Generated by Codex Code Review workflow"
 
           # Post the comment
           echo -e "$COMMENT" | gh pr comment "$PR_NUMBER" --body-file - --repo "$REPO"

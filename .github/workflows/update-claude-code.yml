@@ -1,4 +1,4 @@
-name: Update Claude Code Version
+name: Update Codex CLI Version
 
 on:
   schedule:
@@ -11,7 +11,7 @@ permissions:
   pull-requests: write
 
 jobs:
-  update-claude-code:
+  update-codex-cli:
     runs-on: [self-hosted, homelab]
     steps:
       - uses: actions/checkout@v4
@@ -20,11 +20,11 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Check for Claude Code update
+      - name: Check for Codex CLI update
         id: check
         run: |
-          CURRENT=$(grep -oP 'ARG CLAUDE_CODE_VERSION=\K[0-9.]+' .devcontainer/Dockerfile)
-          LATEST=$(npm view @anthropic-ai/claude-code version)
+          CURRENT=$(grep -oP 'ARG CODEX_CLI_VERSION=\K[0-9.]+' .devcontainer/Dockerfile)
+          LATEST=$(npm view @openai/codex version)
           echo "current=$CURRENT" >> "$GITHUB_OUTPUT"
           echo "latest=$LATEST" >> "$GITHUB_OUTPUT"
           if [ "$CURRENT" != "$LATEST" ]; then
@@ -37,7 +37,7 @@ jobs:
       - name: Update Dockerfile
         if: steps.check.outputs.needs_update == 'true'
         run: |
-          sed -i "s/ARG CLAUDE_CODE_VERSION=.*/ARG CLAUDE_CODE_VERSION=${{ steps.check.outputs.latest }}/" .devcontainer/Dockerfile
+          sed -i "s/ARG CODEX_CLI_VERSION=.*/ARG CODEX_CLI_VERSION=${{ steps.check.outputs.latest }}/" .devcontainer/Dockerfile
 
       - name: Create Pull Request
         if: steps.check.outputs.needs_update == 'true'
@@ -45,15 +45,15 @@ jobs:
         with:
           # PAT required so the created PR triggers pull_request events (GITHUB_TOKEN suppresses them)
           token: ${{ secrets.WORKFLOW_PAT }}
-          commit-message: "chore: Update Claude Code to ${{ steps.check.outputs.latest }}"
-          title: "chore: Update Claude Code ${{ steps.check.outputs.current }} → ${{ steps.check.outputs.latest }}"
+          commit-message: "chore: Update Codex CLI to ${{ steps.check.outputs.latest }}"
+          title: "chore: Update Codex CLI ${{ steps.check.outputs.current }} → ${{ steps.check.outputs.latest }}"
           body: |
-            Automated weekly update of Claude Code CLI version.
+            Automated weekly update of Codex CLI version.
 
             - **Current:** ${{ steps.check.outputs.current }}
             - **Latest:** ${{ steps.check.outputs.latest }}
-            - **Changelog:** https://www.npmjs.com/package/@anthropic-ai/claude-code?activeTab=versions
+            - **Changelog:** https://www.npmjs.com/package/@openai/codex?activeTab=versions
 
-            🤖 Generated automatically by the `update-claude-code` workflow.
-          branch: chore/update-claude-code
+            🤖 Generated automatically by the `update-codex-cli` workflow.
+          branch: chore/update-codex-cli
           delete-branch: true
