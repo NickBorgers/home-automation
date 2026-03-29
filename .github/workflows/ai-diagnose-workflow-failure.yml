@@ -161,7 +161,7 @@ jobs:
             HEAD_SHA=${{ needs.check-failure.outputs.head_sha }}
             REPO=${{ github.repository }}
           runCmd: |
-            bash .devcontainer/configure-codex.sh
+            source .devcontainer/configure-codex.sh
 
             codex exec \
               --json \

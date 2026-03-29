@@ -120,7 +120,7 @@ jobs:
             REPO=${{ github.repository }}
             HA_VERSION=${{ inputs.ha_version || '' }}
           runCmd: |
-            bash .devcontainer/configure-codex.sh
+            source .devcontainer/configure-codex.sh
 
             codex exec \
               --json \

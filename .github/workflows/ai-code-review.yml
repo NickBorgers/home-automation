@@ -554,7 +554,7 @@ jobs:
             PR_BODY=$(echo "$PR_BODY_B64" | base64 -d 2>/dev/null || echo "")
             ISSUE_BODY=$(echo "$ISSUE_BODY_B64" | base64 -d 2>/dev/null || echo "")
 
-            bash .devcontainer/configure-codex.sh
+            source .devcontainer/configure-codex.sh
 
             codex exec \
               --json \
@@ -821,7 +821,7 @@ jobs:
           runCmd: |
             CROSS_PR_CONTEXT=$(echo "$CROSS_PR_CONTEXT_B64" | base64 -d 2>/dev/null || echo "")
 
-            bash .devcontainer/configure-codex.sh
+            source .devcontainer/configure-codex.sh
 
             codex exec \
               --json \
@@ -991,7 +991,7 @@ jobs:
               ISSUE_COMMENTS=$(gh api "repos/${REPO}/issues/${ISSUE_NUMBER}/comments" --jq '.[] | "---\n**\(.user.login)** commented at \(.created_at):\n\(.body)\n"' 2>/dev/null | head -c 50000 || echo "")
             fi
 
-            bash .devcontainer/configure-codex.sh
+            source .devcontainer/configure-codex.sh
 
             codex exec \
               --json \
@@ -1168,7 +1168,7 @@ jobs:
             HEAD_REF=${{ needs.get-context.outputs.head_ref }}
             REPO=${{ github.repository }}
           runCmd: |
-            bash .devcontainer/configure-codex.sh
+            source .devcontainer/configure-codex.sh
 
             codex exec \
               --json \
@@ -1327,7 +1327,7 @@ jobs:
             HEAD_REF=${{ needs.get-context.outputs.head_ref }}
             REPO=${{ github.repository }}
           runCmd: |
-            bash .devcontainer/configure-codex.sh
+            source .devcontainer/configure-codex.sh
 
             codex exec \
               --json \
@@ -1486,7 +1486,7 @@ jobs:
             PR_BODY=$(echo "$PR_BODY_B64" | base64 -d 2>/dev/null || echo "")
             ISSUE_BODY=$(echo "$ISSUE_BODY_B64" | base64 -d 2>/dev/null || echo "")
 
-            bash .devcontainer/configure-codex.sh
+            source .devcontainer/configure-codex.sh
 
             codex exec \
               --json \
@@ -1653,7 +1653,7 @@ jobs:
 
             CROSS_PR_CONTEXT=$(echo "$CROSS_PR_CONTEXT_B64" | base64 -d 2>/dev/null || echo "")
 
-            bash .devcontainer/configure-codex.sh
+            source .devcontainer/configure-codex.sh
 
             codex exec \
               --json \

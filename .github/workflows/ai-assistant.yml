@@ -266,7 +266,7 @@ jobs:
             IS_PR=${{ steps.pr-context.outputs.is_pr }}
             PR_HEAD_REF=${{ steps.pr-context.outputs.pr_head_ref }}
           runCmd: |
-            bash .devcontainer/configure-codex.sh
+            source .devcontainer/configure-codex.sh
 
             # Build the prompt based on whether this is a PR or issue comment
             if [ "$IS_PR" = "true" ]; then
@@ -391,7 +391,7 @@ jobs:
             ISSUE_TITLE=${{ github.event.issue.title }}
             REPO=${{ github.repository }}
           runCmd: |
-            bash .devcontainer/configure-codex.sh
+            source .devcontainer/configure-codex.sh
 
             # Fetch issue body via API to avoid multi-line env var escaping issues
             # (see https://github.com/NickBorgers/home-automation/issues/441)
