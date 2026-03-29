@@ -16,7 +16,7 @@ The repository uses several interconnected workflows that leverage Codex to auto
         ▼                 ▼                    ▼                      ▼
 ┌───────────────┐ ┌───────────────┐ ┌──────────────────┐ ┌──────────────────┐
 │ ai-assistant  │ │ ai-assistant  │ │ ai-code-review   │ │ ha-deprecation-  │
-│ resolve-issue │ │ claude job    │ │ review.yml       │ │ check.yml        │
+│ resolve-issue │ │ codex job     │ │ review.yml       │ │ check.yml        │
 └───────────────┘ └───────────────┘ └──────────────────┘ └────────┬─────────┘
         │                 │                    │                   │
         ▼                 ▼                    │          (creates issues)
@@ -32,7 +32,7 @@ The repository uses several interconnected workflows that leverage Codex to auto
                        │
                        ▼
               ┌────────────────────┐
-              │ claude-diagnose-   │
+              │ ai-diagnose-       │
               │ workflow-failure   │  (on workflow failures)
               └────────────────────┘
 ```
@@ -52,7 +52,7 @@ Key security measures:
 |----------|------|---------|---------|
 | Codex | `ai-assistant.yml` | @codex mentions, new issues | Respond to requests, auto-resolve issues |
 | Codex Code Review | `ai-code-review.yml` | PR Tests completion, PR reopened | Multi-agent code review, fix failures, merge decision |
-| PR Tests | `pr-tests.yml` | PRs, pushes to claude/** | Run tests, trigger review pipeline |
+| PR Tests | `pr-tests.yml` | PRs, pushes to all branches | Run tests, trigger review pipeline |
 | Codex Diagnose Workflow Failure | `ai-diagnose-workflow-failure.yml` | Any workflow failure | Diagnose Actions config problems (not test failures) |
 | HA Deprecation Check | `ha-deprecation-check.yml` | Monthly schedule, manual dispatch | Scan HA release notes for deprecated APIs, create issues |
 
@@ -450,7 +450,7 @@ Standard test workflow that gates merging and triggers Codex reviews. Runs on th
 ### Triggers
 
 - Pull requests to any branch (same-repo only; fork PRs are skipped)
-- Pushes to `codex/**` branches
+- Pushes to all branches (`**`)
 - Manual trigger with optional ref
 
 ### Jobs
@@ -709,7 +709,7 @@ The pipelines standardize on `gpt-5.4` via Codex and the LiteLLM proxy.
 | `ai-diagnose-workflow-failure.yml` | `gpt-5.4` | Failure triage and classification |
 | `ha-deprecation-check.yml` | `gpt-5.4` | Release-note scanning and issue creation |
 
-The workflow display names are `Codex`, `Codex Code Review`, and `Codex Diagnose Workflow Failure`, while the workflow filenames remain on the legacy `claude*.yml` paths for now.
+The workflow display names are `Codex`, `Codex Code Review`, and `Codex Diagnose Workflow Failure`, with filenames `ai-assistant.yml`, `ai-code-review.yml`, and `ai-diagnose-workflow-failure.yml`.
 
 ### Why Devcontainers?
 

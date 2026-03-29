@@ -471,6 +471,7 @@ jobs:
       needs.get-context.outputs.tests_passed == 'false' &&
       needs.get-context.outputs.fix_attempts < 3
     runs-on: [self-hosted, homelab]
+    timeout-minutes: 60
     permissions:
       contents: write
       pull-requests: write
@@ -737,6 +738,7 @@ jobs:
       needs.get-context.outputs.tests_passed == 'true' &&
       needs.get-context.outputs.config_only != 'true'
     runs-on: [self-hosted, homelab]
+    timeout-minutes: 30
     permissions:
       contents: read  # Read-only: parallel reviewers only comment, merge-decision pushes fixes
       pull-requests: write
@@ -884,6 +886,7 @@ jobs:
       needs.get-context.outputs.tests_passed == 'true' &&
       needs.get-context.outputs.config_only != 'true'
     runs-on: [self-hosted, homelab]
+    timeout-minutes: 30
     permissions:
       contents: read  # Read-only: parallel reviewers only comment, merge-decision pushes fixes
       pull-requests: write
@@ -1073,6 +1076,7 @@ jobs:
       needs.get-context.outputs.tests_passed == 'true' &&
       needs.get-context.outputs.config_only != 'true'
     runs-on: [self-hosted, homelab]
+    timeout-minutes: 30
     permissions:
       contents: read  # Read-only: parallel reviewers only comment, merge-decision pushes fixes
       pull-requests: write
@@ -1227,6 +1231,7 @@ jobs:
       needs.get-context.outputs.tests_passed == 'true' &&
       needs.get-context.outputs.has_go_code == 'true'
     runs-on: [self-hosted, homelab]
+    timeout-minutes: 30
     permissions:
       contents: read  # Read-only: parallel reviewers only comment, merge-decision pushes fixes
       pull-requests: write
@@ -1373,6 +1378,7 @@ jobs:
       needs.get-context.outputs.tests_passed == 'true' &&
       needs.get-context.outputs.config_only != 'true'
     runs-on: [self-hosted, homelab]
+    timeout-minutes: 30
     permissions:
       contents: read  # Read-only: parallel reviewers only comment, merge-decision pushes fixes
       pull-requests: write
@@ -1519,6 +1525,7 @@ jobs:
       needs.get-context.outputs.author_authorized == 'true' &&
       needs.get-context.outputs.tests_passed == 'true'
     runs-on: [self-hosted, homelab]
+    timeout-minutes: 45
     outputs:
       decision: ${{ steps.parse-decision.outputs.decision }}
     permissions:

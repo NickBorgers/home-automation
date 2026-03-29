@@ -8,7 +8,7 @@ name: PR Tests
 # - GitHub-hosted runners: safe for untrusted code (ephemeral VMs)
 # - READ-ONLY permissions (contents: read, pull-requests: read)
 # - No secrets are exposed to PR builds
-# - pull_request trigger covers all branches targeting main (including claude/**)
+# - pull_request trigger covers all branches targeting main (including codex/**)
 # - workflow_dispatch requires write access
 # - Fork PR check retained for consistency and to avoid wasting CI minutes
 #
