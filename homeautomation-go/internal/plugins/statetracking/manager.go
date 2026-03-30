@@ -371,12 +371,13 @@ func (m *Manager) handleNickHomeChange(entityID string, oldState, newState *ha.S
 
 		if wasAnyoneHome {
 			// Run announcement asynchronously to avoid deadlocks
-			go m.announceArrivalDirect("Nick", "Nick is home", []string{
+			speakers := m.getTTSSpeakers([]string{
 				"media_player.kitchen",
 				"media_player.dining_room",
 				"media_player.soundbar",
 				"media_player.kids_bathroom",
 			})
+			go m.announceArrivalDirect("Nick", "Nick is home", speakers)
 		} else {
 			m.logger.Debug("Nobody else was home, not announcing Nick's arrival")
 		}
@@ -419,13 +420,14 @@ func (m *Manager) handleCarolineHomeChange(entityID string, oldState, newState *
 
 		if wasAnyoneHome {
 			// Run announcement asynchronously to avoid deadlocks
-			go m.announceArrivalDirect("Caroline", "Caroline is home", []string{
+			speakers := m.getTTSSpeakers([]string{
 				"media_player.kitchen",
 				"media_player.dining_room",
 				"media_player.kids_bathroom",
 				"media_player.soundbar",
 				"media_player.office",
 			})
+			go m.announceArrivalDirect("Caroline", "Caroline is home", speakers)
 		} else {
 			m.logger.Debug("Nobody else was home, not announcing Caroline's arrival")
 		}
@@ -465,13 +467,14 @@ func (m *Manager) handleToriHereChange(entityID string, oldState, newState *ha.S
 
 		if wasAnyoneHome {
 			// Run announcement asynchronously to avoid deadlocks
-			go m.announceArrivalDirect("Tori", "Tori is here", []string{
+			speakers := m.getTTSSpeakers([]string{
 				"media_player.kitchen",
 				"media_player.dining_room",
 				"media_player.kids_bathroom",
 				"media_player.soundbar",
 				"media_player.office",
 			})
+			go m.announceArrivalDirect("Tori", "Tori is here", speakers)
 		} else {
 			m.logger.Debug("Nobody else was home, not announcing Tori's arrival")
 		}
@@ -673,6 +676,40 @@ func (m *Manager) resetOwnerJustReturnedHome() {
 	if err := m.stateManager.SetBool("didOwnerJustReturnHome", false); err != nil {
 		m.logger.Error("Failed to reset didOwnerJustReturnHome", zap.Error(err))
 	}
+}
+
+// speakerNameToEntityID converts a speaker name like "Front Room" to "media_player.front_room".
+// This duplicates the logic from music/fadein.go to avoid a cross-package dependency.
+func speakerNameToEntityID(name string) string {
+	result := make([]byte, 0, len("media_player.")+len(name))
+	result = append(result, "media_player."...)
+	for _, ch := range name {
+		if ch == ' ' {
+			result = append(result, '_')
+		} else if ch >= 'A' && ch <= 'Z' {
+			result = append(result, byte(ch)+32)
+		} else {
+			result = append(result, byte(ch))
+		}
+	}
+	return string(result)
+}
+
+// getTTSSpeakers returns the speakers to use for TTS announcements.
+// If music is currently playing, it returns only the group leader to avoid
+// breaking Sonos speaker groups. Otherwise it returns the provided defaults.
+func (m *Manager) getTTSSpeakers(defaults []string) []string {
+	var cpMusic map[string]interface{}
+	if err := m.stateManager.GetJSON("currentlyPlayingMusic", &cpMusic); err != nil {
+		return defaults
+	}
+	leadPlayer, ok := cpMusic["leadPlayer"].(string)
+	if !ok || leadPlayer == "" {
+		return defaults
+	}
+	m.logger.Info("TTS targeting music group leader instead of default speakers",
+		zap.String("leadPlayer", leadPlayer))
+	return []string{speakerNameToEntityID(leadPlayer)}
 }
 
 // Reset re-computes all derived states

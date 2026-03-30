@@ -32,6 +32,8 @@ func (m *Manager) orchestrateZonePlayback(zone *Zone, playbackOption PlaybackOpt
 		Participants: zone.Participants,
 	}
 	m.mu.Unlock()
+	// Publish playback state for cross-plugin discovery (e.g., TTS speaker selection)
+	m.publishCurrentlyPlayingMusic()
 
 	if m.readOnly {
 		m.logger.Info("Read-only mode: would start zone playback",

@@ -2,9 +2,12 @@ package music
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
+
+	"homeautomation/internal/state"
 
 	"go.uber.org/zap"
 )
@@ -192,6 +195,7 @@ func (m *Manager) Reset() error {
 	m.mu.Lock()
 	m.currentlyPlaying = nil
 	m.mu.Unlock()
+	m.clearCurrentlyPlayingMusic()
 
 	// Clear musicPlaybackType so zone resolution starts clean
 	if err := m.setMusicPlaybackType(""); err != nil {
@@ -208,4 +212,29 @@ func (m *Manager) Reset() error {
 
 	m.logger.Info("Successfully reset Music")
 	return nil
+}
+
+// publishCurrentlyPlayingMusic writes the current playback state to shared state
+// so other plugins (e.g., statetracking for TTS) can discover the active speaker group.
+func (m *Manager) publishCurrentlyPlayingMusic() {
+	m.mu.RLock()
+	cp := m.currentlyPlaying
+	m.mu.RUnlock()
+	if cp == nil {
+		return
+	}
+	if err := m.stateManager.SetJSON("currentlyPlayingMusic", cp); err != nil {
+		if !errors.Is(err, state.ErrReadOnlyMode) {
+			m.logger.Warn("Failed to publish currentlyPlayingMusic", zap.Error(err))
+		}
+	}
+}
+
+// clearCurrentlyPlayingMusic removes the current playback state from shared state.
+func (m *Manager) clearCurrentlyPlayingMusic() {
+	if err := m.stateManager.SetJSON("currentlyPlayingMusic", map[string]interface{}{}); err != nil {
+		if !errors.Is(err, state.ErrReadOnlyMode) {
+			m.logger.Warn("Failed to clear currentlyPlayingMusic", zap.Error(err))
+		}
+	}
 }

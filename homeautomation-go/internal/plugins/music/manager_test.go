@@ -3962,3 +3962,66 @@ func TestFadeInSpeaker_ZoneRemoved_AbortsFadeIn(t *testing.T) {
 	assert.Less(t, volumeSetCount, 11,
 		"Fade-in should abort when zone is removed before completing all steps")
 }
+
+func TestCurrentlyPlayingMusic_PublishOnPlayback(t *testing.T) {
+	t.Parallel()
+	env := testutil.NewEnv(t)
+
+	config := &MusicConfig{
+		Music: map[string]MusicMode{
+			"morning": {
+				Participants:    []Participant{{PlayerName: "Front Room", BaseVolume: 10}},
+				PlaybackOptions: []PlaybackOption{{URI: "https://tidal.com/test", MediaType: "tidal", VolumeMultiplier: 1.0}},
+			},
+		},
+	}
+
+	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, true, nil, nil)
+
+	err := manager.orchestratePlayback("morning", "test")
+	require.NoError(t, err)
+
+	var cpMusic map[string]interface{}
+	err = env.StateMgr.GetJSON("currentlyPlayingMusic", &cpMusic)
+	require.NoError(t, err)
+
+	assert.Equal(t, "Front Room", cpMusic["leadPlayer"])
+	assert.Equal(t, "morning", cpMusic["type"])
+	assert.Equal(t, "https://tidal.com/test", cpMusic["uri"])
+}
+
+func TestCurrentlyPlayingMusic_ClearOnStop(t *testing.T) {
+	t.Parallel()
+	env := testutil.NewEnv(t)
+
+	config := &MusicConfig{
+		Music: map[string]MusicMode{
+			"day": {
+				Participants:    []Participant{{PlayerName: "Kitchen", BaseVolume: 9}},
+				PlaybackOptions: []PlaybackOption{{URI: "spotify:test", MediaType: "playlist", VolumeMultiplier: 1.0}},
+			},
+		},
+	}
+
+	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, false, nil, nil)
+
+	// Set up currently playing state
+	manager.mu.Lock()
+	manager.currentlyPlaying = &CurrentlyPlayingMusic{Type: "day", LeadPlayer: "Kitchen"}
+	manager.mu.Unlock()
+
+	_ = env.StateMgr.SetJSON("currentlyPlayingMusic", map[string]interface{}{
+		"leadPlayer": "Kitchen",
+		"type":       "day",
+	})
+
+	manager.stopPlayback()
+
+	var cpMusic map[string]interface{}
+	err := env.StateMgr.GetJSON("currentlyPlayingMusic", &cpMusic)
+	require.NoError(t, err)
+
+	// After stop, leadPlayer should be gone (empty map)
+	_, hasLead := cpMusic["leadPlayer"]
+	assert.False(t, hasLead, "currentlyPlayingMusic should be cleared after stop")
+}

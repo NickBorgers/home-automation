@@ -181,6 +181,7 @@ func (m *Manager) orchestratePlayback(musicType string, trigger string) error {
 		Participants: participants,
 	}
 	m.mu.Unlock()
+	m.publishCurrentlyPlayingMusic()
 
 	if m.readOnly {
 		m.logger.Info("Read-only mode: would start playback",

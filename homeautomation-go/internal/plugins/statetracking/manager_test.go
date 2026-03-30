@@ -1135,3 +1135,112 @@ func TestStateTrackingManager_NearHomeDepartureCooldown(t *testing.T) {
 		})
 	}
 }
+
+func TestSpeakerNameToEntityID(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{"simple lowercase", "Kitchen", "media_player.kitchen"},
+		{"two words", "Front Room", "media_player.front_room"},
+		{"multiple words", "Kids Bathroom", "media_player.kids_bathroom"},
+		{"already lowercase", "bedroom", "media_player.bedroom"},
+		{"mixed case with spaces", "Primary Bathroom", "media_player.primary_bathroom"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := speakerNameToEntityID(tt.input)
+			if result != tt.expected {
+				t.Errorf("speakerNameToEntityID(%q) = %q, want %q", tt.input, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestGetTTSSpeakers_MusicPlaying(t *testing.T) {
+	t.Parallel()
+	mockHA := ha.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+
+	// Set currentlyPlayingMusic with a lead player
+	err := stateMgr.SetJSON("currentlyPlayingMusic", map[string]interface{}{
+		"leadPlayer": "Front Room",
+		"type":       "morning",
+	})
+	if err != nil {
+		t.Fatalf("Failed to set currentlyPlayingMusic: %v", err)
+	}
+
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
+
+	defaults := []string{"media_player.kitchen", "media_player.kids_bathroom"}
+	speakers := manager.getTTSSpeakers(defaults)
+
+	if len(speakers) != 1 || speakers[0] != "media_player.front_room" {
+		t.Errorf("Expected [media_player.front_room], got %v", speakers)
+	}
+}
+
+func TestGetTTSSpeakers_NoMusicPlaying(t *testing.T) {
+	t.Parallel()
+	mockHA := ha.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
+
+	defaults := []string{"media_player.kitchen", "media_player.kids_bathroom"}
+	speakers := manager.getTTSSpeakers(defaults)
+
+	if len(speakers) != len(defaults) {
+		t.Errorf("Expected defaults %v, got %v", defaults, speakers)
+	}
+	for i, s := range speakers {
+		if s != defaults[i] {
+			t.Errorf("Expected speaker[%d] = %q, got %q", i, defaults[i], s)
+		}
+	}
+}
+
+func TestGetTTSSpeakers_EmptyState(t *testing.T) {
+	t.Parallel()
+	mockHA := ha.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+
+	// Set empty map (music stopped)
+	_ = stateMgr.SetJSON("currentlyPlayingMusic", map[string]interface{}{})
+
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
+
+	defaults := []string{"media_player.kitchen"}
+	speakers := manager.getTTSSpeakers(defaults)
+
+	if len(speakers) != 1 || speakers[0] != "media_player.kitchen" {
+		t.Errorf("Expected defaults %v, got %v", defaults, speakers)
+	}
+}
+
+func TestGetTTSSpeakers_MissingLeadPlayer(t *testing.T) {
+	t.Parallel()
+	mockHA := ha.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+
+	// Set state without leadPlayer field
+	_ = stateMgr.SetJSON("currentlyPlayingMusic", map[string]interface{}{
+		"type": "morning",
+	})
+
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
+
+	defaults := []string{"media_player.kitchen", "media_player.office"}
+	speakers := manager.getTTSSpeakers(defaults)
+
+	if len(speakers) != len(defaults) {
+		t.Errorf("Expected defaults %v, got %v", defaults, speakers)
+	}
+}

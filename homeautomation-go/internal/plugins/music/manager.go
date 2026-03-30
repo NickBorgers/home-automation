@@ -586,6 +586,7 @@ func (m *Manager) stopPlayback() {
 	lastPlaying := m.currentlyPlaying // Save before clearing
 	m.currentlyPlaying = nil
 	m.mu.Unlock()
+	m.clearCurrentlyPlayingMusic()
 
 	// Clear the currently playing music URI in Home Assistant
 	if err := m.stateManager.SetString("currentlyPlayingMusicUri", ""); err != nil {

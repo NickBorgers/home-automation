@@ -177,7 +177,7 @@ var pluginRegistry = []PluginMetadata{
 	{
 		Name:        "statetracking",
 		Description: "Tracks presence and sleep states, computes derived states",
-		Reads:       []string{"isNickHome", "isCarolineHome", "isToriHere"},
+		Reads:       []string{"isNickHome", "isCarolineHome", "isToriHere", "currentlyPlayingMusic"},
 		Writes:      []string{"isAnyOwnerHome", "isAnyoneHome", "isAnyoneAsleep", "isEveryoneAsleep", "isMasterAsleep", "isGuestAsleep", "didOwnerJustReturnHome"},
 	},
 	{
@@ -190,7 +190,7 @@ var pluginRegistry = []PluginMetadata{
 		Name:        "music",
 		Description: "Manages music playback mode and Sonos control",
 		Reads:       []string{"dayPhase", "isAnyoneAsleep", "isAnyoneHome", "musicPlaybackType"},
-		Writes:      []string{"musicPlaybackType", "currentlyPlayingMusicUri"},
+		Writes:      []string{"musicPlaybackType", "currentlyPlayingMusicUri", "currentlyPlayingMusic"},
 	},
 	{
 		Name:        "lighting",
