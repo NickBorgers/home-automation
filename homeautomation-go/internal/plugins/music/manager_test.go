@@ -3988,6 +3988,15 @@ func TestCurrentlyPlayingMusic_PublishOnPlayback(t *testing.T) {
 	assert.Equal(t, "Front Room", cpMusic["leadPlayer"])
 	assert.Equal(t, "morning", cpMusic["type"])
 	assert.Equal(t, "https://tidal.com/test", cpMusic["uri"])
+
+	// Verify participants use entity IDs (not display names) so sleephygiene can match
+	participants, ok := cpMusic["participants"].([]interface{})
+	require.True(t, ok, "participants should be a list")
+	require.Len(t, participants, 1)
+	p0, ok := participants[0].(map[string]interface{})
+	require.True(t, ok)
+	assert.Equal(t, "media_player.front_room", p0["player_name"],
+		"participant player_name should be HA entity ID, not display name")
 }
 
 func TestCurrentlyPlayingMusic_ClearOnStop(t *testing.T) {

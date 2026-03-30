@@ -215,7 +215,12 @@ func (m *Manager) Reset() error {
 }
 
 // publishCurrentlyPlayingMusic writes the current playback state to shared state
-// so other plugins (e.g., statetracking for TTS) can discover the active speaker group.
+// so other plugins (e.g., statetracking for TTS, sleephygiene volume tracking)
+// can discover the active speaker group.
+//
+// Participant player_name values are converted from display names ("Kitchen")
+// to HA entity IDs ("media_player.kitchen") so downstream consumers (e.g.,
+// sleephygiene updateSpeakerVolumeInState) can match by entity ID.
 func (m *Manager) publishCurrentlyPlayingMusic() {
 	m.mu.RLock()
 	cp := m.currentlyPlaying
@@ -223,7 +228,24 @@ func (m *Manager) publishCurrentlyPlayingMusic() {
 	if cp == nil {
 		return
 	}
-	if err := m.stateManager.SetJSON("currentlyPlayingMusic", cp); err != nil {
+
+	// Build a serialisable copy with entity IDs instead of display names.
+	participants := make([]map[string]interface{}, 0, len(cp.Participants))
+	for _, p := range cp.Participants {
+		participants = append(participants, map[string]interface{}{
+			"player_name": m.getSpeakerEntityID(p.PlayerName),
+			"volume":      p.Volume,
+		})
+	}
+	payload := map[string]interface{}{
+		"type":         cp.Type,
+		"uri":          cp.URI,
+		"media_type":   cp.MediaType,
+		"leadPlayer":   cp.LeadPlayer,
+		"participants": participants,
+	}
+
+	if err := m.stateManager.SetJSON("currentlyPlayingMusic", payload); err != nil {
 		if !errors.Is(err, state.ErrReadOnlyMode) {
 			m.logger.Warn("Failed to publish currentlyPlayingMusic", zap.Error(err))
 		}

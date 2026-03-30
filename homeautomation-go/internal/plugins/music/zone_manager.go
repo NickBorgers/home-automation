@@ -1154,6 +1154,7 @@ func (zm *ZoneManager) executeSeamlessTransition(st seamlessTransition, newSpeak
 		Participants: participants,
 	}
 	zm.manager.mu.Unlock()
+	zm.manager.publishCurrentlyPlayingMusic()
 
 	// Re-apply repeat/shuffle to new leader if the leader changed.
 	// Shuffle and repeat are per-speaker Sonos properties. When the old leader

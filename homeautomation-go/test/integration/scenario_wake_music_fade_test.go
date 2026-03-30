@@ -287,7 +287,23 @@ func TestScenario_WakeSequence_BedroomFadeIsGradualNotAbrupt(t *testing.T) {
 				"prematurely (not the same as skipping because volume was already 0).",
 			len(fadeOutVolumes))
 	} else {
-		t.Log("NOTE: sleephygiene fade-out found volume already at 0 (music plugin zeroed it first) — this is acceptable")
+		// When 0 fade-out steps are captured, the music plugin's zone transition
+		// (sleep -> morning) called fadeOutSpeakers before the sleephygiene goroutine
+		// read the volume. Verify that the music plugin DID zero the bedroom by
+		// checking that a volume_set call with volume_level=0 was sent.
+		musicZeroedBedroom := false
+		for _, call := range volumeCalls {
+			entityID, _ := call.ServiceData["entity_id"].(string)
+			volumeLevel, _ := call.ServiceData["volume_level"].(float64)
+			if entityID == "media_player.bedroom" && volumeLevel == 0 {
+				musicZeroedBedroom = true
+				break
+			}
+		}
+		assert.True(t, musicZeroedBedroom,
+			"No gradual fade-out AND no volume_set to 0 for bedroom — "+
+				"speaker was never zeroed, which means the fade was truly aborted")
+		t.Log("NOTE: music plugin zeroed bedroom volume before sleephygiene started — fade-out correctly skipped")
 	}
 
 	// ASSERTION 2: Fade-out volume decreases monotonically
