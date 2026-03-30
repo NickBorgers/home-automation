@@ -37,19 +37,19 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | d
     && apt-get install -y gh \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Node.js LTS (needed for Claude Code and Playwright)
+# Pin AI CLI versions so Dockerfile, post-create script, and updater workflow stay in sync
+ARG CLAUDE_CODE_VERSION=2.1.75
+ARG CODEX_CLI_VERSION=0.117.0
+ARG CRUSH_CLI_VERSION=0.53.0
+
+# Install Node.js LTS (needed for Claude Code plugins and Playwright build step)
 ARG NODE_VERSION=20
 RUN curl -fsSL https://deb.nodesource.com/setup_${NODE_VERSION}.x | bash - \
     && apt-get install -y nodejs \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Claude Code CLI globally
-ARG CLAUDE_CODE_VERSION=2.1.75
-RUN npm install -g @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}
-
-# Note: Codex and Crush are installed in post-create.sh, NOT here.
-# Devcontainer features (e.g., docker-in-docker) use a multi-stage build
-# that wipes npm global packages installed during the Dockerfile build phase.
+# Codex and Crush are installed at container runtime (post-create) so devcontainer rebuilds
+# stay fast even when their installers change upstream.
 
 # Create directories for vscode user with correct ownership
 RUN mkdir -p /home/vscode/.claude/tmp \
@@ -59,12 +59,19 @@ RUN mkdir -p /home/vscode/.claude/tmp \
     && chown -R vscode:vscode /home/vscode/.claude \
     && chown -R vscode:vscode /home/vscode/.cache
 
-# Switch to vscode user for plugin installation
+# Switch to vscode user for CLI/plugin installation
 USER vscode
 WORKDIR /home/vscode
 
+# Ensure the native CLI installers land on PATH for subsequent RUN steps
+ENV PATH=/home/vscode/.local/bin:$PATH
+
 # Set TMPDIR to avoid EXDEV errors during plugin installation
 ENV TMPDIR=/home/vscode/.claude/tmp
+
+# Install Claude Code via the official installer (respects CLAUDE_CODE_VERSION)
+RUN curl -fsSL --retry 5 --retry-delay 2 --retry-connrefused https://claude.ai/install.sh \
+    | bash -s -- ${CLAUDE_CODE_VERSION}
 
 # Install playwright-skill plugin
 RUN claude plugin marketplace add lackeyjb/playwright-skill \

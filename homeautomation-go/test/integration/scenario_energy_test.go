@@ -284,23 +284,26 @@ func TestScenario_OverallEnergyLevel_ReflectsWorstState(t *testing.T) {
 	})
 
 	// Verify overall level is green (not white, since we're outside free energy window)
+	waitForProcessing(t, manager)
 	waitForStringState(t, manager, "currentEnergyLevel", "green", "Overall level should be green when both are green (outside free energy window)")
 
-	// WHEN: Battery drops to red (15%), solar still green
-	t.Log("WHEN: Battery drops to red, solar stays green")
+	// WHEN: Battery drops to black (15%), solar still green
+	t.Log("WHEN: Battery drops to black, solar stays green")
 	server.SetState("sensor.span_panel_span_storage_battery_percentage_2", "15.0", map[string]interface{}{
 		"unit_of_measurement": "%",
 	})
 
 	// THEN: Overall level should reflect the lower state
-	// According to the algorithm: min(battery=red, solar=green) + 1 level = yellow
+	// According to the algorithm, solar can boost the battery-derived result by at most one level.
 	t.Log("THEN: Overall level should reflect worst state")
-	// The overall level should be at most one level higher than the worst input
-	waitForStringStateOneOf(t, manager, "currentEnergyLevel", []string{"red", "yellow"},
-		"Overall level should be red or yellow when battery is red and solar is green")
+	waitForStringState(t, manager, "batteryEnergyLevel", "black", "Battery level should settle before checking overall level")
+	waitForProcessing(t, manager)
+	// The overall level should be exactly one level higher than the battery input
+	waitForStringState(t, manager, "currentEnergyLevel", "red",
+		"Overall level should be red when battery is black and solar is green")
 
-	// WHEN: Solar also drops to black (0kW, 0kWh)
-	t.Log("WHEN: Solar also drops to black")
+	// WHEN: Solar drops to the floor of the test config (0kW, 0kWh -> yellow)
+	t.Log("WHEN: Solar drops to the floor of the test config")
 	server.SetState("sensor.energy_next_hour", "0.0", map[string]interface{}{
 		"unit_of_measurement": "kW",
 	})
@@ -308,10 +311,12 @@ func TestScenario_OverallEnergyLevel_ReflectsWorstState(t *testing.T) {
 		"unit_of_measurement": "kWh",
 	})
 
-	// THEN: Overall level should be black or red (both are low)
-	t.Log("THEN: Overall level should be very low")
-	waitForStringStateOneOf(t, manager, "currentEnergyLevel", []string{"black", "red"},
-		"Overall level should be black or red when both battery and solar are low")
+	// THEN: Solar should settle to yellow for this test config, and overall should stay red
+	t.Log("THEN: Overall level should stay low")
+	waitForStringState(t, manager, "solarProductionEnergyLevel", "yellow", "Solar level should settle before checking overall level")
+	waitForProcessing(t, manager)
+	waitForStringState(t, manager, "currentEnergyLevel", "red",
+		"Overall level should stay red when battery is black and solar is at the lowest configured solar tier")
 }
 
 // TestScenario_FreeEnergyTimeWindow_OverridesEnergyLevel validates that when

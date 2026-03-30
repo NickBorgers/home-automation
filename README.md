@@ -75,7 +75,7 @@ If you cannot use a devcontainer, you can set up the environment manually by run
 
 **Prerequisites:**
 - Go 1.24
-- Node.js 20+ (for Codex CLI and Playwright)
+- Node.js 20+ (required for Playwright tooling)
 - Home Assistant with WebSocket API enabled
 - Long-lived access token from Home Assistant
 
@@ -90,9 +90,12 @@ cd ..
 bash .githooks/install-hooks.sh
 
 # 3. (Optional) Install Codex CLI
-npm install -g @openai/codex
+curl -fsSL https://github.com/openai/codex/releases/latest/download/install.sh | sh
 
-# 4. (Optional) For Playwright/screenshot testing, see AGENTS.md "Testing UI Changes" section
+# 4. (Optional) Install Claude Code CLI
+curl -fsSL https://claude.ai/install.sh | bash
+
+# 5. (Optional) For Playwright/screenshot testing, see AGENTS.md "Testing UI Changes" section
 ```
 
 ### Quick Start
