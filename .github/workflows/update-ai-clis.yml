@@ -25,10 +25,10 @@ jobs:
           CURRENT_CRUSH=$(grep -oP 'ARG CRUSH_CLI_VERSION=\K[0-9.]+' .devcontainer/Dockerfile)
           CURRENT_CODEX=$(grep -oP 'ARG CODEX_CLI_VERSION=\K[0-9.]+' .devcontainer/Dockerfile)
 
-          LATEST_CLAUDE=$(curl -fsSL https://storage.googleapis.com/claude-code-dist-86c565f3-f756-42ad-8dfa-d59b1c096819/claude-code-releases/latest)
+          LATEST_CLAUDE=$(curl -fsSL --retry 5 --retry-delay 2 --retry-connrefused https://storage.googleapis.com/claude-code-dist-86c565f3-f756-42ad-8dfa-d59b1c096819/claude-code-releases/latest)
           GITHUB_HEADERS=(-H "Authorization: Bearer ${GITHUB_TOKEN}" -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28")
-          LATEST_CRUSH=$(curl -fsSL "${GITHUB_HEADERS[@]}" https://api.github.com/repos/charmbracelet/crush/releases/latest | python3 -c 'import json, sys; print(json.load(sys.stdin)["tag_name"].removeprefix("v"))')
-          LATEST_CODEX=$(curl -fsSL "${GITHUB_HEADERS[@]}" https://api.github.com/repos/openai/codex/releases/latest | python3 -c 'import json, sys; print(json.load(sys.stdin)["tag_name"].removeprefix("rust-v"))')
+          LATEST_CRUSH=$(curl -fsSL --retry 5 --retry-delay 2 --retry-connrefused "${GITHUB_HEADERS[@]}" https://api.github.com/repos/charmbracelet/crush/releases/latest | python3 -c 'import json, sys; print(json.load(sys.stdin)["tag_name"].removeprefix("v"))')
+          LATEST_CODEX=$(curl -fsSL --retry 5 --retry-delay 2 --retry-connrefused "${GITHUB_HEADERS[@]}" https://api.github.com/repos/openai/codex/releases/latest | python3 -c 'import json, sys; print(json.load(sys.stdin)["tag_name"].removeprefix("rust-v"))')
 
           echo "current_claude=$CURRENT_CLAUDE" >> "$GITHUB_OUTPUT"
           echo "current_crush=$CURRENT_CRUSH" >> "$GITHUB_OUTPUT"

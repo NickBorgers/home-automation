@@ -70,7 +70,7 @@ CRUSH_CLI_VERSION="$(get_arg_version CRUSH_CLI_VERSION)"
 # Install/update Codex via official installer
 install_codex() {
     echo "Installing Codex CLI ${CODEX_CLI_VERSION}..."
-    curl -fsSL "https://github.com/openai/codex/releases/download/rust-v${CODEX_CLI_VERSION}/install.sh" \
+    curl -fsSL --retry 5 --retry-delay 2 --retry-connrefused "https://github.com/openai/codex/releases/download/rust-v${CODEX_CLI_VERSION}/install.sh" \
         | sh -s -- "${CODEX_CLI_VERSION}"
 }
 
@@ -101,7 +101,7 @@ install_crush() {
             ;;
     esac
     local archive="crush_${CRUSH_CLI_VERSION}_Linux_${arch}.tar.gz"
-    curl -fsSL -o "$tmpdir/${archive}" \
+    curl -fsSL --retry 5 --retry-delay 2 --retry-connrefused -o "$tmpdir/${archive}" \
         "https://github.com/charmbracelet/crush/releases/download/v${CRUSH_CLI_VERSION}/${archive}"
     tar -xzf "$tmpdir/${archive}" -C "$tmpdir"
     sudo install -m 0755 "$tmpdir/crush_${CRUSH_CLI_VERSION}_Linux_${arch}/crush" /usr/local/bin/crush

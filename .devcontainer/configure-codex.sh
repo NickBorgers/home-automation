@@ -24,7 +24,7 @@ export PATH="$HOME/.local/bin:$PATH"
 # was skipped or if devcontainer features wiped the install).
 if ! command -v codex &>/dev/null; then
   echo "codex not found, installing..."
-  curl -fsSL "https://github.com/openai/codex/releases/download/rust-v${CODEX_CLI_VERSION}/install.sh" \
+  curl -fsSL --retry 5 --retry-delay 2 --retry-connrefused "https://github.com/openai/codex/releases/download/rust-v${CODEX_CLI_VERSION}/install.sh" \
     | sh -s -- "${CODEX_CLI_VERSION}"
 fi
 

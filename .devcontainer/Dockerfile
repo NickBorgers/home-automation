@@ -70,7 +70,8 @@ ENV PATH=/home/vscode/.local/bin:$PATH
 ENV TMPDIR=/home/vscode/.claude/tmp
 
 # Install Claude Code via the official installer (respects CLAUDE_CODE_VERSION)
-RUN curl -fsSL https://claude.ai/install.sh | bash -s -- ${CLAUDE_CODE_VERSION}
+RUN curl -fsSL --retry 5 --retry-delay 2 --retry-connrefused https://claude.ai/install.sh \
+    | bash -s -- ${CLAUDE_CODE_VERSION}
 
 # Install playwright-skill plugin
 RUN claude plugin marketplace add lackeyjb/playwright-skill \
