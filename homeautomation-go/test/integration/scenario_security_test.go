@@ -368,6 +368,7 @@ func TestScenario_NearHomeDepartureDoesNotOpenGarage(t *testing.T) {
 	t.Log("WHEN: Nick leaves home (home zone clears first)")
 	server.SetState("input_boolean.nick_home", "off", nil)
 	waitForBoolState(t, manager, "isNickHome", false, "isNickHome should be false after departure")
+	waitForProcessing(t, manager)
 
 	snapshot := server.ServiceCallCount()
 
