@@ -3,7 +3,6 @@ package integration
 import (
 	"context"
 	"testing"
-	"time"
 
 	"homeautomation/internal/plugins/lighting"
 	"homeautomation/internal/plugins/music"
@@ -204,12 +203,13 @@ func TestScenario_RapidPresenceChanges_StableState(t *testing.T) {
 
 	// Simulate rapid presence changes
 	for i := 0; i < 5; i++ {
+		expectedHome := i%2 == 0
 		if i%2 == 0 {
 			env.server.SetState("input_boolean.caroline_home", "on", map[string]interface{}{})
 		} else {
 			env.server.SetState("input_boolean.caroline_home", "off", map[string]interface{}{})
 		}
-		time.Sleep(20 * time.Millisecond) // Intentional: simulates rapid sensor changes
+		waitForBoolState(t, env.stateManager, "isCarolineHome", expectedHome, "presence change %d should propagate", i)
 	}
 
 	// Final state: Caroline is home (last toggle was i=4, even → on)

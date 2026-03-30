@@ -158,9 +158,9 @@ func TestScenario_WakeUp_DebouncesRapidTriggers(t *testing.T) {
 	// These three changes would each independently trigger zone resolution
 	// without debouncing. With debouncing, they should coalesce into one.
 	env.server.SetState("input_boolean.anyone_asleep", "off", map[string]interface{}{})
-	time.Sleep(30 * time.Millisecond) // Intentional: simulates real timing between state changes
+	waitForBoolState(t, env.stateManager, "isAnyoneAsleep", false, "isAnyoneAsleep should update before next wake event")
 	env.server.SetState("input_boolean.master_asleep", "off", map[string]interface{}{})
-	time.Sleep(30 * time.Millisecond) // Intentional: simulates real timing between state changes
+	waitForBoolState(t, env.stateManager, "isMasterAsleep", false, "isMasterAsleep should update before next wake event")
 	env.server.SetState("input_boolean.wake_sequence_active", "on", map[string]interface{}{})
 
 	// Wait for debounce timer to fire using channel synchronization
