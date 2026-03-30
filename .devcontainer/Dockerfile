@@ -1,4 +1,4 @@
-# Devcontainer Dockerfile with pre-installed Claude Code and Playwright
+# Devcontainer Dockerfile with pre-installed AI CLIs and Playwright
 # This caches system packages and tools so rebuilds are faster
 # Consolidates devcontainer features into Dockerfile for better layer caching
 
@@ -37,17 +37,13 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | d
     && apt-get install -y gh \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Node.js LTS (needed for Claude Code and Playwright)
+# Install Node.js LTS (needed for Codex, Crush, and Playwright)
 ARG NODE_VERSION=20
 RUN curl -fsSL https://deb.nodesource.com/setup_${NODE_VERSION}.x | bash - \
     && apt-get install -y nodejs \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Claude Code CLI globally
-ARG CLAUDE_CODE_VERSION=2.1.75
-RUN npm install -g @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}
-
-# Install AI coding assistants (Crush + Codex)
+# Install AI coding assistants (Crush + Codex) via npm
 ARG CRUSH_CLI_VERSION=0.53.0
 ARG CODEX_CLI_VERSION=0.117.0
 RUN npm install -g @charmland/crush@${CRUSH_CLI_VERSION} @openai/codex@${CODEX_CLI_VERSION}
@@ -63,9 +59,13 @@ RUN mkdir -p /home/vscode/.claude/tmp \
     && chown -R vscode:vscode /home/vscode/.claude \
     && chown -R vscode:vscode /home/vscode/.cache
 
-# Switch to vscode user for plugin installation
+# Switch to vscode user for Claude Code native install and plugin setup
 USER vscode
 WORKDIR /home/vscode
+
+# Install Claude Code via native installer (auto-updates, no npm dependency)
+RUN curl -fsSL https://claude.ai/install.sh | bash
+ENV PATH="/home/vscode/.claude/bin:${PATH}"
 
 # Set TMPDIR to avoid EXDEV errors during plugin installation
 ENV TMPDIR=/home/vscode/.claude/tmp

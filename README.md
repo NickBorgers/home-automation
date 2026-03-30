@@ -66,7 +66,7 @@ The devcontainer automatically:
 - Installs Go 1.25 and all required dependencies
 - Sets up Go modules (`go mod tidy && go mod download`)
 - Installs git hooks (pre-commit and pre-push validation)
-- Installs GitHub CLI, Codex CLI, and Playwright (with Chromium)
+- Installs Claude Code (native installer), GitHub CLI, Codex CLI, and Playwright (with Chromium)
 - Configures VS Code extensions for Go and Mermaid
 
 ### Manual Setup (Without Devcontainer)
