@@ -16,20 +16,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
       - name: Check for AI CLI updates
         id: check
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           CURRENT_CLAUDE=$(grep -oP 'ARG CLAUDE_CODE_VERSION=\K[0-9.]+' .devcontainer/Dockerfile)
           CURRENT_CRUSH=$(grep -oP 'ARG CRUSH_CLI_VERSION=\K[0-9.]+' .devcontainer/Dockerfile)
           CURRENT_CODEX=$(grep -oP 'ARG CODEX_CLI_VERSION=\K[0-9.]+' .devcontainer/Dockerfile)
 
-          LATEST_CLAUDE=$(npm view @anthropic-ai/claude-code version)
-          LATEST_CRUSH=$(npm view @charmland/crush version | sed 's/^v//')
-          LATEST_CODEX=$(npm view @openai/codex version)
+          LATEST_CLAUDE=$(curl -fsSL https://storage.googleapis.com/claude-code-dist-86c565f3-f756-42ad-8dfa-d59b1c096819/claude-code-releases/latest)
+          GITHUB_HEADERS=(-H "Authorization: Bearer ${GITHUB_TOKEN}" -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28")
+          LATEST_CRUSH=$(curl -fsSL "${GITHUB_HEADERS[@]}" https://api.github.com/repos/charmbracelet/crush/releases/latest | python3 -c 'import json, sys; print(json.load(sys.stdin)["tag_name"].removeprefix("v"))')
+          LATEST_CODEX=$(curl -fsSL "${GITHUB_HEADERS[@]}" https://api.github.com/repos/openai/codex/releases/latest | python3 -c 'import json, sys; print(json.load(sys.stdin)["tag_name"].removeprefix("rust-v"))')
 
           echo "current_claude=$CURRENT_CLAUDE" >> "$GITHUB_OUTPUT"
           echo "current_crush=$CURRENT_CRUSH" >> "$GITHUB_OUTPUT"
