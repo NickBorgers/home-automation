@@ -88,6 +88,7 @@ graph LR
     energy --> isFreeEnergyAvailable
     energy --> remainingSolarGeneration
     energy --> thisHourSolarGeneration
+    music --> currentlyPlayingMusic
     music --> currentlyPlayingMusicUri
     music --> musicPlaybackType
     music --> musicPlaylistRotation
