@@ -365,10 +365,13 @@ func TestScenario_NearHomeDepartureDoesNotOpenGarage(t *testing.T) {
 	mockClock.AdvanceAndProcess(11 * time.Minute)
 	waitForBoolState(t, manager, "didOwnerJustReturnHome", false, "didOwnerJustReturnHome should auto-reset")
 
+	departureSnapshot := server.ServiceCallCount()
+
 	t.Log("WHEN: Nick leaves home (home zone clears first)")
 	server.SetState("input_boolean.nick_home", "off", nil)
 	waitForBoolState(t, manager, "isNickHome", false, "isNickHome should be false after departure")
 	waitForProcessing(t, manager)
+	waitForServiceCallQuiescenceSince(t, server, departureSnapshot, 200*time.Millisecond)
 
 	snapshot := server.ServiceCallCount()
 
@@ -378,6 +381,7 @@ func TestScenario_NearHomeDepartureDoesNotOpenGarage(t *testing.T) {
 
 	t.Log("THEN: didOwnerJustReturnHome should NOT be set (departure, not arrival)")
 	waitForProcessing(t, manager)
+	waitForServiceCallQuiescenceSince(t, server, snapshot, 200*time.Millisecond)
 
 	didReturn, err := manager.GetBool("didOwnerJustReturnHome")
 	require.NoError(t, err)
