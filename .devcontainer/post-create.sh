@@ -46,9 +46,18 @@ else
     echo "Warning: No gh token found; gh CLI credentials not available."
 fi
 
+# Install AI coding assistants (Codex + Crush) via npm.
+# These MUST be installed here (not in the Dockerfile) because devcontainer
+# features (e.g., docker-in-docker) use a multi-stage build that wipes
+# npm global packages installed during the Dockerfile build phase.
+echo "Installing AI coding assistants..."
+CODEX_CLI_VERSION="0.117.0"
+CRUSH_CLI_VERSION="0.53.0"
+sudo npm install -g "@charmland/crush@${CRUSH_CLI_VERSION}" "@openai/codex@${CODEX_CLI_VERSION}"
+
 bash "$(dirname "$0")/configure-codex.sh"
 
-# Note: Claude Code, Crush, Codex, and playwright-skill plugin are
-# now pre-installed in the Dockerfile for faster rebuilds via Docker layer caching.
+# Note: Claude Code and playwright-skill plugin are pre-installed in the
+# Dockerfile for faster rebuilds via Docker layer caching.
 
 echo "=== Devcontainer setup complete ==="
