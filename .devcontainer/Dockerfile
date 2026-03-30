@@ -77,10 +77,10 @@ RUN curl -fsSL --retry 5 --retry-delay 2 --retry-connrefused https://claude.ai/i
 RUN claude plugin marketplace add lackeyjb/playwright-skill \
     && claude plugin install playwright-skill@playwright-skill
 
-# Install Playwright npm dependencies and browser
+# Install Playwright npm dependencies and the browsers used by AI reviews.
 RUN cd ~/.claude/plugins/cache/playwright-skill/playwright-skill/*/skills/playwright-skill \
     && npm install \
-    && npx playwright install chromium
+    && npx playwright install chromium chrome
 
 # Switch back to root so onCreateCommand can create users dynamically.
 # The devcontainer's remoteUser setting ensures all commands run as the correct
