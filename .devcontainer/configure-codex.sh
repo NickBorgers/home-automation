@@ -30,7 +30,14 @@ EOF
 # Debug: show PATH and codex resolution (helps diagnose CI failures)
 echo "DEBUG: PATH=$PATH"
 echo "DEBUG: which codex = $(which codex 2>&1 || echo 'NOT FOUND')"
+echo "DEBUG: which node = $(which node 2>&1 || echo 'NOT FOUND')"
+echo "DEBUG: node --version = $(node --version 2>&1 || echo 'FAILED')"
+echo "DEBUG: npm root -g = $(npm root -g 2>&1 || echo 'FAILED')"
 echo "DEBUG: ls -la /usr/local/bin/codex = $(ls -la /usr/local/bin/codex 2>&1 || echo 'MISSING')"
 echo "DEBUG: ls -la /usr/bin/codex = $(ls -la /usr/bin/codex 2>&1 || echo 'MISSING')"
+echo "DEBUG: find codex.js = $(find /usr -name codex.js -path '*/codex/bin/*' 2>/dev/null || echo 'NOT FOUND')"
+echo "DEBUG: ls /usr/lib/node_modules/@openai/ = $(ls /usr/lib/node_modules/@openai/ 2>&1 || echo 'MISSING')"
+echo "DEBUG: ls /usr/local/lib/node_modules/@openai/ = $(ls /usr/local/lib/node_modules/@openai/ 2>&1 || echo 'MISSING')"
+echo "DEBUG: npm ls -g codex = $(npm ls -g @openai/codex 2>&1 || echo 'NOT INSTALLED')"
 
 echo "Codex configured for LiteLLM proxy."
