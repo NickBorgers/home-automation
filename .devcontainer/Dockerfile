@@ -20,7 +20,7 @@ RUN rm -f /etc/apt/sources.list.d/yarn.list \
     # Playwright host dependencies (recommended)
     libcairo2 libpango-1.0-0 \
     # Utilities used by Claude Code and OpenCode
-    bc ripgrep fzf \
+    bc ripgrep fzf tmux \
     # YAML validation
     yamllint \
     && rm -rf /var/lib/apt/lists/* \
