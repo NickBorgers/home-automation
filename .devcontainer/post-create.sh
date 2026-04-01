@@ -61,6 +61,32 @@ else
     echo "Warning: No Claude credentials found; Claude Code credentials not available."
 fi
 
+# Merge host Claude Code config into container config (written by initializeCommand)
+# The container .claude.json has plugin settings from the Dockerfile build;
+# the host .claude.json has hasCompletedOnboarding and account info.
+CLAUDE_CONFIG_FILE="$SCRIPT_DIR/.claude-config"
+if [ -s "$CLAUDE_CONFIG_FILE" ]; then
+    echo "Merging Claude Code config from host..."
+    EXISTING_CONFIG="$HOME/.claude.json"
+    if [ -s "$EXISTING_CONFIG" ]; then
+        # Merge: host config as base, container config on top (preserves plugin settings)
+        python3 -c "
+import json, sys
+host = json.load(open(sys.argv[1]))
+container = json.load(open(sys.argv[2]))
+host.update(container)
+json.dump(host, open(sys.argv[2], 'w'), indent=2)
+" "$CLAUDE_CONFIG_FILE" "$EXISTING_CONFIG"
+    else
+        cp "$CLAUDE_CONFIG_FILE" "$EXISTING_CONFIG"
+    fi
+    chmod 600 "$EXISTING_CONFIG"
+    echo "Claude Code config merged."
+    rm -f "$CLAUDE_CONFIG_FILE"
+else
+    echo "Warning: No Claude config found; skipping config merge."
+fi
+
 # Helper to read pinned versions from the Dockerfile (single source of truth)
 DEVCONTAINER_DOCKERFILE="$SCRIPT_DIR/Dockerfile"
 get_arg_version() {
