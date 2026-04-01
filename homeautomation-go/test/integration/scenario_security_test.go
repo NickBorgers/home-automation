@@ -271,10 +271,10 @@ func TestScenario_MultipleArrivalsWithin10Minutes(t *testing.T) {
 }
 
 // TestScenario_OwnerLeavesAndReturns tests that leaving and returning
-// within 10 minutes still triggers the automation
+// after the arrival debounce period still triggers the automation
 func TestScenario_OwnerLeavesAndReturns(t *testing.T) {
 	t.Parallel()
-	server, _, _, manager, cleanup := setupSecurityScenarioTest(t)
+	server, _, _, manager, mockClock, cleanup := setupSecurityScenarioTestWithMockClock(t)
 	defer cleanup()
 
 	t.Log("GIVEN: Nick is home, then leaves")
@@ -294,7 +294,10 @@ func TestScenario_OwnerLeavesAndReturns(t *testing.T) {
 
 	snapshot := server.ServiceCallCount()
 
-	t.Log("WHEN: Nick returns 5 minutes later")
+	t.Log("WHEN: Nick returns 6 minutes later (past the arrival debounce window)")
+
+	// Advance past the arrival debounce duration (5 minutes) so the return is not suppressed
+	mockClock.AdvanceAndProcess(6 * time.Minute)
 
 	server.SetState("input_boolean.nick_home", "on", nil)
 
