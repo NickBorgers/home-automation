@@ -52,7 +52,7 @@ func setupMultiPluginTest(t *testing.T) (*pluginTestEnv, func()) {
 		client:        client,
 		manager:       manager,
 		logger:        logger,
-		stateTracking: statetracking.NewManager(context.Background(), client, manager, logger, false, nil),
+		stateTracking: statetracking.NewManager(context.Background(), client, manager, logger, false, nil, ""),
 		lighting:      lighting.NewManager(context.Background(), client, manager, lightingConfig, logger, false, nil),
 		tv:            tv.NewManager(context.Background(), client, manager, logger, false, nil),
 		energy:        energy.NewManager(context.Background(), client, manager, energyConfig, logger, false, nil, nil),
