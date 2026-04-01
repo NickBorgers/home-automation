@@ -8,6 +8,13 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 echo "=== Setting up devcontainer ==="
 
+# Configure tmux to use xterm-256color so CLI tools (e.g. Claude Code) render correctly
+echo "Configuring tmux..."
+cat > "$HOME/.tmux.conf" << 'TMUXEOF'
+set -g default-terminal "xterm-256color"
+set-environment -g LANG en_US.UTF-8
+TMUXEOF
+
 # Fix DNS order to prioritize Tailscale MagicDNS
 # (Also runs via postStartCommand on every container start)
 echo "Checking DNS configuration..."
