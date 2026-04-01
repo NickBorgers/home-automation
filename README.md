@@ -68,6 +68,7 @@ The devcontainer automatically:
 - Installs git hooks (pre-commit and pre-push validation)
 - Installs GitHub CLI, Codex CLI, and Playwright (with Chromium)
 - Configures VS Code extensions for Go and Mermaid
+- Imports your host GitHub CLI token and Claude Code credentials into the container so long as you are logged in locally before opening the devcontainer (you will see warnings during startup if host credentials are missing)
 
 ### Manual Setup (Without Devcontainer)
 

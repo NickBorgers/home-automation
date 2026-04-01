@@ -72,10 +72,25 @@ if [ -s "$CLAUDE_CONFIG_FILE" ]; then
         # Merge: host config as base, container config on top (preserves plugin settings)
         python3 -c "
 import json, sys
+from copy import deepcopy
+
+
+def deep_merge(base, overlay):
+    if isinstance(base, dict) and isinstance(overlay, dict):
+        merged = deepcopy(base)
+        for key, value in overlay.items():
+            if key in merged:
+                merged[key] = deep_merge(merged[key], value)
+            else:
+                merged[key] = deepcopy(value)
+        return merged
+    return deepcopy(overlay)
+
+
 host = json.load(open(sys.argv[1]))
 container = json.load(open(sys.argv[2]))
-host.update(container)
-json.dump(host, open(sys.argv[2], 'w'), indent=2)
+merged = deep_merge(host, container)
+json.dump(merged, open(sys.argv[2], 'w'), indent=2)
 " "$CLAUDE_CONFIG_FILE" "$EXISTING_CONFIG"
     else
         cp "$CLAUDE_CONFIG_FILE" "$EXISTING_CONFIG"
