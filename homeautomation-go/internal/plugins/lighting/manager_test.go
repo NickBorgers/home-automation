@@ -12,6 +12,7 @@ import (
 
 // createTestConfig creates a test hue configuration using the new conditions format
 func createTestConfig() *HueConfig {
+	transition3 := 3
 	transition30 := 30
 	transition180 := 180
 
@@ -48,6 +49,16 @@ func createTestConfig() *HueConfig {
 				},
 				IncreaseBrightnessIfTrue: nil,
 				TransitionSeconds:        &transition180,
+			},
+			{
+				HueGroup:   "Kitchen",
+				HASSAreaID: "kitchen",
+				Conditions: []LightingCondition{
+					{Action: "off", Variable: "isAnyoneHome", Value: false},
+					{Action: "on", Variable: "isAnyoneHome", Value: true},
+				},
+				IncreaseBrightnessIfTrue: nil,
+				TransitionSeconds:        &transition3,
 			},
 		},
 	}
@@ -131,6 +142,8 @@ func TestActivateScene(t *testing.T) {
 		name          string
 		readOnly      bool
 		dayPhase      string
+		trigger       string
+		roomIndex     int // index into createTestConfig().Rooms
 		expectedCalls int
 		expectedScene string
 		expectedTrans int
@@ -139,12 +152,14 @@ func TestActivateScene(t *testing.T) {
 			name:          "Read-only mode makes no service calls",
 			readOnly:      true,
 			dayPhase:      "Morning",
+			trigger:       "test_trigger",
 			expectedCalls: 0,
 		},
 		{
 			name:          "Morning scene activates correctly",
 			readOnly:      false,
 			dayPhase:      "Morning",
+			trigger:       "test_trigger",
 			expectedCalls: 1,
 			expectedScene: "scene.living_room_morning",
 			expectedTrans: 30,
@@ -154,9 +169,54 @@ func TestActivateScene(t *testing.T) {
 			name:          "Dusk scene activates correctly (not energize)",
 			readOnly:      false,
 			dayPhase:      "Dusk",
+			trigger:       "test_trigger",
 			expectedCalls: 1,
 			expectedScene: "scene.living_room_dusk",
 			expectedTrans: 30,
+		},
+		{
+			// Issue #913: presence trigger with moderate transition gets capped
+			name:          "Presence trigger caps moderate transition",
+			readOnly:      false,
+			dayPhase:      "Morning",
+			trigger:       "isAnyoneHome",
+			roomIndex:     0, // Living Room: 30s transition
+			expectedCalls: 1,
+			expectedScene: "scene.living_room_morning",
+			expectedTrans: 5, // capped to maxReturnHomeTransition
+		},
+		{
+			// Issue #913: presence trigger with long transition gets capped
+			name:          "Presence trigger caps long transition to avoid Hue bridge failure",
+			readOnly:      false,
+			dayPhase:      "Morning",
+			trigger:       "isAnyoneHomeAndAwake",
+			roomIndex:     1, // Primary Suite: 180s transition
+			expectedCalls: 1,
+			expectedScene: "scene.primary_suite_morning",
+			expectedTrans: 5, // capped to maxReturnHomeTransition
+		},
+		{
+			// Issue #913: non-presence trigger preserves long transition
+			name:          "Day phase trigger preserves long transition",
+			readOnly:      false,
+			dayPhase:      "Morning",
+			trigger:       "dayPhase",
+			roomIndex:     1, // Primary Suite: 180s transition
+			expectedCalls: 1,
+			expectedScene: "scene.primary_suite_morning",
+			expectedTrans: 180, // not capped
+		},
+		{
+			// Issue #913: presence trigger with transition <= cap keeps original
+			name:          "Presence trigger with short transition keeps original",
+			readOnly:      false,
+			dayPhase:      "Morning",
+			trigger:       "isHaveGuests",
+			roomIndex:     2, // Kitchen: 3s transition (below 5s cap)
+			expectedCalls: 1,
+			expectedScene: "scene.kitchen_morning",
+			expectedTrans: 3, // not capped — already below maxReturnHomeTransition
 		},
 	}
 
@@ -166,8 +226,8 @@ func TestActivateScene(t *testing.T) {
 			config := createTestConfig()
 			manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, tt.readOnly, nil)
 
-			room := &config.Rooms[0]
-			manager.activateScene(context.Background(), room, tt.dayPhase, "test_trigger")
+			room := &config.Rooms[tt.roomIndex]
+			manager.activateScene(context.Background(), room, tt.dayPhase, tt.trigger)
 
 			calls := env.MockHA.GetServiceCalls()
 			assert.Equal(t, tt.expectedCalls, len(calls))
@@ -182,6 +242,19 @@ func TestActivateScene(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestIsPresenceTrigger(t *testing.T) {
+	t.Parallel()
+	assert.True(t, isPresenceTrigger("isAnyoneHome"))
+	assert.True(t, isPresenceTrigger("isAnyoneHomeAndAwake"))
+	assert.True(t, isPresenceTrigger("isNickHome"))
+	assert.True(t, isPresenceTrigger("isCarolineHome"))
+	assert.True(t, isPresenceTrigger("isHaveGuests"))
+	assert.False(t, isPresenceTrigger("dayPhase"))
+	assert.False(t, isPresenceTrigger("sunevent"))
+	assert.False(t, isPresenceTrigger("isTVPlaying"))
+	assert.False(t, isPresenceTrigger("reset"))
 }
 
 func TestTurnOffRoom(t *testing.T) {
