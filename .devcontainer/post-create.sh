@@ -8,6 +8,56 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 echo "=== Setting up devcontainer ==="
 
+# Configure tmux to use xterm-256color so CLI tools (e.g. Claude Code) render correctly
+echo "Configuring tmux..."
+TMUX_CONF="$HOME/.tmux.conf"
+TMUX_BLOCK_START="# >>> home-automation devcontainer tmux >>>"
+TMUX_BLOCK_END="# <<< home-automation devcontainer tmux <<<"
+TMUX_MANAGED_BLOCK=$(cat <<'TMUXEOF'
+# >>> home-automation devcontainer tmux >>>
+set -g default-terminal "xterm-256color"
+set-environment -g LANG en_US.UTF-8
+# <<< home-automation devcontainer tmux <<<
+TMUXEOF
+)
+
+if [ -f "$TMUX_CONF" ] && grep -Fq "$TMUX_BLOCK_START" "$TMUX_CONF"; then
+    python3 - "$TMUX_CONF" "$TMUX_BLOCK_START" "$TMUX_BLOCK_END" "$TMUX_MANAGED_BLOCK" <<'PY'
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+start = sys.argv[2]
+end = sys.argv[3]
+block = sys.argv[4]
+
+lines = path.read_text().splitlines()
+output = []
+inside_block = False
+replaced = False
+
+for line in lines:
+    if line == start:
+        if not replaced:
+            output.extend(block.splitlines())
+            replaced = True
+        inside_block = True
+        continue
+    if line == end and inside_block:
+        inside_block = False
+        continue
+    if not inside_block:
+        output.append(line)
+
+path.write_text("\n".join(output) + "\n")
+PY
+else
+    if [ -f "$TMUX_CONF" ] && [ -s "$TMUX_CONF" ]; then
+        printf '\n' >> "$TMUX_CONF"
+    fi
+    printf '%s\n' "$TMUX_MANAGED_BLOCK" >> "$TMUX_CONF"
+fi
+
 # Fix DNS order to prioritize Tailscale MagicDNS
 # (Also runs via postStartCommand on every container start)
 echo "Checking DNS configuration..."
