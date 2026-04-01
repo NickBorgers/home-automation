@@ -665,6 +665,23 @@ Required approvals: 0  # Codex provides automated review
 2. Download the `codex-conversation-log` artifact
 3. Parse the JSONL file for the full conversation
 
+### Inspect Devcontainer Cache Reuse
+
+When a devcontainer build looks noisy, fetch the workflow log and summarize it with the helper script:
+
+```bash
+gh run view <run-id> --log > /tmp/run.log
+python3 tools/devcontainer_cache_report.py --log /tmp/run.log --job build-devcontainer
+python3 tools/devcontainer_cache_report.py --log /tmp/run.log --job resolve-issue
+```
+
+This reports:
+- BuildKit cache hits (`#11 CACHED`, etc.)
+- Registry layer reuse (`Layer already exists`)
+- Newly pushed layers (`Pushed`)
+
+Reference example: `docs/operations/DEVCONTAINER_CACHE_REPORT_2026-03-30.md`.
+
 ### Common Issues
 
 | Issue | Cause | Solution |
