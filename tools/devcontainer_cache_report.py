@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import sys
 from collections import OrderedDict
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -187,7 +188,7 @@ def parse_lines(lines: Iterable[str], job: str) -> CacheReport:
 def load_lines(source: Optional[str]) -> Sequence[str]:
     if source:
         return Path(source).read_text(encoding="utf-8").splitlines()
-    return [line.rstrip("\n") for line in iter(input, "")]
+    return [line.rstrip("\n") for line in sys.stdin]
 
 
 def main() -> None:
