@@ -98,6 +98,60 @@ else
     echo "Warning: No gh token found; gh CLI credentials not available."
 fi
 
+# Set up Claude Code credentials from host (written by initializeCommand)
+CLAUDE_CREDS_FILE="$SCRIPT_DIR/.claude-credentials"
+if [ -s "$CLAUDE_CREDS_FILE" ]; then
+    echo "Setting up Claude Code credentials..."
+    mkdir -p "$HOME/.claude"
+    cp "$CLAUDE_CREDS_FILE" "$HOME/.claude/.credentials.json"
+    chmod 600 "$HOME/.claude/.credentials.json"
+    echo "Claude Code credentials configured."
+    rm -f "$CLAUDE_CREDS_FILE"
+else
+    echo "Warning: No Claude credentials found; Claude Code credentials not available."
+fi
+
+# Merge host Claude Code config into container config (written by initializeCommand)
+# The container .claude.json has plugin settings from the Dockerfile build;
+# the host .claude.json has hasCompletedOnboarding and account info.
+CLAUDE_CONFIG_FILE="$SCRIPT_DIR/.claude-config"
+if [ -s "$CLAUDE_CONFIG_FILE" ]; then
+    echo "Merging Claude Code config from host..."
+    EXISTING_CONFIG="$HOME/.claude.json"
+    if [ -s "$EXISTING_CONFIG" ]; then
+        # Merge: host config as base, container config on top (preserves plugin settings)
+        python3 -c "
+import json, sys
+from copy import deepcopy
+
+
+def deep_merge(base, overlay):
+    if isinstance(base, dict) and isinstance(overlay, dict):
+        merged = deepcopy(base)
+        for key, value in overlay.items():
+            if key in merged:
+                merged[key] = deep_merge(merged[key], value)
+            else:
+                merged[key] = deepcopy(value)
+        return merged
+    return deepcopy(overlay)
+
+
+host = json.load(open(sys.argv[1]))
+container = json.load(open(sys.argv[2]))
+merged = deep_merge(host, container)
+json.dump(merged, open(sys.argv[2], 'w'), indent=2)
+" "$CLAUDE_CONFIG_FILE" "$EXISTING_CONFIG"
+    else
+        cp "$CLAUDE_CONFIG_FILE" "$EXISTING_CONFIG"
+    fi
+    chmod 600 "$EXISTING_CONFIG"
+    echo "Claude Code config merged."
+    rm -f "$CLAUDE_CONFIG_FILE"
+else
+    echo "Warning: No Claude config found; skipping config merge."
+fi
+
 # Helper to read pinned versions from the Dockerfile (single source of truth)
 DEVCONTAINER_DOCKERFILE="$SCRIPT_DIR/Dockerfile"
 get_arg_version() {
