@@ -9,3 +9,13 @@ cd "$(dirname "$0")"
 
 # GitHub CLI token
 gh auth token > .gh-token 2>/dev/null || true
+
+# Claude Code credentials
+CLAUDE_CREDS="$HOME/.claude/.credentials.json"
+if [ -f "$CLAUDE_CREDS" ]; then
+    cp "$CLAUDE_CREDS" .claude-credentials
+    chmod 600 .claude-credentials
+    echo "[init-host-credentials] Claude Code credentials captured."
+else
+    echo "[init-host-credentials] No Claude Code credentials found — skipping."
+fi
