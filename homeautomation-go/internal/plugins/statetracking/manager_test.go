@@ -80,53 +80,53 @@ func TestStateTrackingManager_IsAnyOwnerHome(t *testing.T) {
 func TestStateTrackingManager_IsAnyoneHome(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		name           string
-		isNickHome     bool
-		isCarolineHome bool
-		isToriHere     bool
-		expectedAnyone bool
+		name            string
+		isNickHome      bool
+		isCarolineHome  bool
+		isAssistantHere bool
+		expectedAnyone  bool
 	}{
 		{
-			name:           "Everyone away",
-			isNickHome:     false,
-			isCarolineHome: false,
-			isToriHere:     false,
-			expectedAnyone: false,
+			name:            "Everyone away",
+			isNickHome:      false,
+			isCarolineHome:  false,
+			isAssistantHere: false,
+			expectedAnyone:  false,
 		},
 		{
-			name:           "Only Nick home",
-			isNickHome:     true,
-			isCarolineHome: false,
-			isToriHere:     false,
-			expectedAnyone: true,
+			name:            "Only Nick home",
+			isNickHome:      true,
+			isCarolineHome:  false,
+			isAssistantHere: false,
+			expectedAnyone:  true,
 		},
 		{
-			name:           "Only Caroline home",
-			isNickHome:     false,
-			isCarolineHome: true,
-			isToriHere:     false,
-			expectedAnyone: true,
+			name:            "Only Caroline home",
+			isNickHome:      false,
+			isCarolineHome:  true,
+			isAssistantHere: false,
+			expectedAnyone:  true,
 		},
 		{
-			name:           "Only Tori here",
-			isNickHome:     false,
-			isCarolineHome: false,
-			isToriHere:     true,
-			expectedAnyone: true,
+			name:            "Only Assistant here",
+			isNickHome:      false,
+			isCarolineHome:  false,
+			isAssistantHere: true,
+			expectedAnyone:  true,
 		},
 		{
-			name:           "Nick and Tori home",
-			isNickHome:     true,
-			isCarolineHome: false,
-			isToriHere:     true,
-			expectedAnyone: true,
+			name:            "Nick and Assistant home",
+			isNickHome:      true,
+			isCarolineHome:  false,
+			isAssistantHere: true,
+			expectedAnyone:  true,
 		},
 		{
-			name:           "Everyone home",
-			isNickHome:     true,
-			isCarolineHome: true,
-			isToriHere:     true,
-			expectedAnyone: true,
+			name:            "Everyone home",
+			isNickHome:      true,
+			isCarolineHome:  true,
+			isAssistantHere: true,
+			expectedAnyone:  true,
 		},
 	}
 
@@ -142,8 +142,8 @@ func TestStateTrackingManager_IsAnyoneHome(t *testing.T) {
 			if err := stateMgr.SetBool("isCarolineHome", tt.isCarolineHome); err != nil {
 				t.Fatalf("Failed to set isCarolineHome: %v", err)
 			}
-			if err := stateMgr.SetBool("isToriHere", tt.isToriHere); err != nil {
-				t.Fatalf("Failed to set isToriHere: %v", err)
+			if err := stateMgr.SetBool("isAssistantHere", tt.isAssistantHere); err != nil {
+				t.Fatalf("Failed to set isAssistantHere: %v", err)
 			}
 
 			manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
@@ -157,8 +157,8 @@ func TestStateTrackingManager_IsAnyoneHome(t *testing.T) {
 				t.Fatalf("Failed to get isAnyoneHome: %v", err)
 			}
 			if actualAnyone != tt.expectedAnyone {
-				t.Errorf("Expected isAnyoneHome=%v, got %v (Nick=%v, Caroline=%v, Tori=%v)",
-					tt.expectedAnyone, actualAnyone, tt.isNickHome, tt.isCarolineHome, tt.isToriHere)
+				t.Errorf("Expected isAnyoneHome=%v, got %v (Nick=%v, Caroline=%v, Assistant=%v)",
+					tt.expectedAnyone, actualAnyone, tt.isNickHome, tt.isCarolineHome, tt.isAssistantHere)
 			}
 		})
 	}
@@ -265,8 +265,8 @@ func TestStateTrackingManager_DynamicUpdates(t *testing.T) {
 	if err := stateMgr.SetBool("isCarolineHome", false); err != nil {
 		t.Fatalf("Failed to set isCarolineHome: %v", err)
 	}
-	if err := stateMgr.SetBool("isToriHere", false); err != nil {
-		t.Fatalf("Failed to set isToriHere: %v", err)
+	if err := stateMgr.SetBool("isAssistantHere", false); err != nil {
+		t.Fatalf("Failed to set isAssistantHere: %v", err)
 	}
 
 	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
@@ -294,12 +294,12 @@ func TestStateTrackingManager_DynamicUpdates(t *testing.T) {
 		t.Errorf("Expected isAnyoneHome=true after Nick arrives, got %v", isAnyoneHome)
 	}
 
-	// Nick leaves, but Tori arrives
+	// Nick leaves, but Assistant arrives
 	if err := stateMgr.SetBool("isNickHome", false); err != nil {
 		t.Fatalf("Failed to update isNickHome: %v", err)
 	}
-	if err := stateMgr.SetBool("isToriHere", true); err != nil {
-		t.Fatalf("Failed to update isToriHere: %v", err)
+	if err := stateMgr.SetBool("isAssistantHere", true); err != nil {
+		t.Fatalf("Failed to update isAssistantHere: %v", err)
 	}
 	isAnyOwnerHome, _ = stateMgr.GetBool("isAnyOwnerHome")
 	if isAnyOwnerHome != false {
@@ -307,7 +307,7 @@ func TestStateTrackingManager_DynamicUpdates(t *testing.T) {
 	}
 	isAnyoneHome, _ = stateMgr.GetBool("isAnyoneHome")
 	if isAnyoneHome != true {
-		t.Errorf("Expected isAnyoneHome=true with Tori here, got %v", isAnyoneHome)
+		t.Errorf("Expected isAnyoneHome=true with Assistant here, got %v", isAnyoneHome)
 	}
 }
 
@@ -673,13 +673,13 @@ func TestStateTrackingManager_ArrivalAnnouncements(t *testing.T) {
 			},
 		},
 		{
-			name:            "Tori arrival announced when someone home",
-			entityID:        "input_boolean.tori_here",
-			expectedMessage: "Tori is here",
+			name:            "Assistant arrival announced when someone home",
+			entityID:        "input_boolean.assistant_here",
+			expectedMessage: "Assistant is here",
 			setupState: func(sm *state.Manager) {
-				// Nick is already home, Tori is not here
+				// Nick is already home, Assistant is not here
 				sm.SetBool("isNickHome", true)
-				sm.SetBool("isToriHere", false)
+				sm.SetBool("isAssistantHere", false)
 			},
 			expectedPlayers: []string{
 				"media_player.kitchen",
@@ -783,7 +783,7 @@ func TestStateTrackingManager_NoAnnouncement(t *testing.T) {
 			setupState: func(sm *state.Manager) {
 				sm.SetBool("isCarolineHome", false)
 				sm.SetBool("isNickHome", false)
-				sm.SetBool("isToriHere", false)
+				sm.SetBool("isAssistantHere", false)
 			},
 			simulate: func(mc *ha.MockClient) {
 				// Simulate Nick arriving home when nobody else is home

@@ -26,7 +26,7 @@ graph LR
         isSleepPrepActive["isSleepPrepActive"]
         isTVPlaying["isTVPlaying"]
         isTVon["isTVon"]
-        isToriHere["isToriHere"]
+        isAssistantHere["isAssistantHere"]
         isWakeSequenceActive["isWakeSequenceActive"]
         musicPlaybackType["musicPlaybackType"]
         musicPlaylistRotation["musicPlaylistRotation"]

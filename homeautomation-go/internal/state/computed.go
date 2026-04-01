@@ -10,11 +10,11 @@ import (
 // subscriptions to automatically recompute them when dependencies change.
 //
 // Computed state variables are derived from other state variables:
-// - isAnyoneHomeAndAwake = (isAnyOwnerHome && !isAnyoneAsleep) || isToriHere || wakeSequenceLatch
+// - isAnyoneHomeAndAwake = (isAnyOwnerHome && !isAnyoneAsleep) || isAssistantHere || wakeSequenceLatch
 //
-// Note: Tori doesn't have a sleep state tracked, so her presence means someone
+// Note: Assistant doesn't have a sleep state tracked, so their presence means someone
 // is home AND awake by definition. The formula accounts for this by including
-// isToriHere as an independent condition.
+// isAssistantHere as an independent condition.
 //
 // Wake Sequence Latch:
 // When Nick's alarm triggers (isWakeSequenceActive becomes true), the rest of the
@@ -58,7 +58,7 @@ func (m *Manager) SetupComputedState() error {
 		return err
 	}
 
-	_, err = m.Subscribe("isToriHere", func(key string, oldValue, newValue interface{}) {
+	_, err = m.Subscribe("isAssistantHere", func(key string, oldValue, newValue interface{}) {
 		if err := m.recomputeAnyoneHomeAndAwake(); err != nil {
 			m.logger.Error("Failed to recompute isAnyoneHomeAndAwake",
 				zap.String("trigger", key),
@@ -129,10 +129,10 @@ func (m *Manager) SetupComputedState() error {
 }
 
 // recomputeAnyoneHomeAndAwake computes isAnyoneHomeAndAwake from its dependencies.
-// Formula: isAnyoneHomeAndAwake = (isAnyOwnerHome && !isAnyoneAsleep) || isToriHere || wakeSequenceLatch
+// Formula: isAnyoneHomeAndAwake = (isAnyOwnerHome && !isAnyoneAsleep) || isAssistantHere || wakeSequenceLatch
 //
-// This formula correctly handles the case where Tori arrives while owners are asleep.
-// Since Tori doesn't have a sleep state tracked, her presence means someone is
+// This formula correctly handles the case where Assistant arrives while owners are asleep.
+// Since Assistant doesn't have a sleep state tracked, their presence means someone is
 // home AND awake by definition.
 //
 // The wakeSequenceLatch ensures that when Nick's alarm triggers, the rest of the
@@ -149,7 +149,7 @@ func (m *Manager) recomputeAnyoneHomeAndAwake() error {
 		return err
 	}
 
-	isToriHere, err := m.GetBool("isToriHere")
+	isAssistantHere, err := m.GetBool("isAssistantHere")
 	if err != nil {
 		return err
 	}
@@ -159,7 +159,7 @@ func (m *Manager) recomputeAnyoneHomeAndAwake() error {
 	wakeSequenceLatch := m.wakeSequenceLatch
 	m.cacheMu.RUnlock()
 
-	newValue := (isAnyOwnerHome && !isAnyoneAsleep) || isToriHere || wakeSequenceLatch
+	newValue := (isAnyOwnerHome && !isAnyoneAsleep) || isAssistantHere || wakeSequenceLatch
 
 	// Get current value to check if it changed
 	currentValue, _ := m.GetBool("isAnyoneHomeAndAwake")
@@ -167,7 +167,7 @@ func (m *Manager) recomputeAnyoneHomeAndAwake() error {
 		m.logger.Debug("Recomputing isAnyoneHomeAndAwake",
 			zap.Bool("isAnyOwnerHome", isAnyOwnerHome),
 			zap.Bool("isAnyoneAsleep", isAnyoneAsleep),
-			zap.Bool("isToriHere", isToriHere),
+			zap.Bool("isAssistantHere", isAssistantHere),
 			zap.Bool("wakeSequenceLatch", wakeSequenceLatch),
 			zap.Bool("result", newValue))
 	}
@@ -186,10 +186,10 @@ func (m *Manager) recomputeAnyoneHomeAndAwake() error {
 //
 // This method registers all basic computed states:
 // - isAnyOwnerHome = isNickHome OR isCarolineHome
-// - isAnyoneHome = isAnyOwnerHome OR isToriHere
+// - isAnyoneHome = isAnyOwnerHome OR isAssistantHere
 // - isAnyoneAsleep = isMasterAsleep OR isGuestAsleep
 // - isEveryoneAsleep = isMasterAsleep AND isGuestAsleep
-// - isAnyoneHomeAndAwake = (isAnyOwnerHome && !isAnyoneAsleep) || isToriHere || wakeSequenceLatch
+// - isAnyoneHomeAndAwake = (isAnyOwnerHome && !isAnyoneAsleep) || isAssistantHere || wakeSequenceLatch
 //
 // Note: This is distinct from SetupComputedState() which uses the legacy
 // approach. Both methods are supported during the migration period.

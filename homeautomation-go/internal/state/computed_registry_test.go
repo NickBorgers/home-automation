@@ -21,7 +21,7 @@ func setupTestManagerForRegistry(t *testing.T) (*Manager, *ha.MockClient) {
 	// Set up all required entities with default values
 	mockClient.SetState("input_boolean.nick_home", "off", map[string]interface{}{})
 	mockClient.SetState("input_boolean.caroline_home", "off", map[string]interface{}{})
-	mockClient.SetState("input_boolean.tori_here", "off", map[string]interface{}{})
+	mockClient.SetState("input_boolean.assistant_here", "off", map[string]interface{}{})
 	mockClient.SetState("input_boolean.any_owner_home", "off", map[string]interface{}{})
 	mockClient.SetState("input_boolean.anyone_home", "off", map[string]interface{}{})
 	mockClient.SetState("input_boolean.master_asleep", "off", map[string]interface{}{})
@@ -248,14 +248,14 @@ func TestComputedStateRegistry_DependencyOrder(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Level 2: isAnyoneHome depends on isAnyOwnerHome, isToriHere
+	// Level 2: isAnyoneHome depends on isAnyOwnerHome, isAssistantHere
 	err = registry.Register(&ComputedStateProvider{
 		Name:         "isAnyoneHome",
-		Dependencies: []string{"isAnyOwnerHome", "isToriHere"},
+		Dependencies: []string{"isAnyOwnerHome", "isAssistantHere"},
 		ComputeFunc: func(ctx *ComputeContext) (interface{}, error) {
 			anyOwner, _ := ctx.GetBool("isAnyOwnerHome")
-			tori, _ := ctx.GetBool("isToriHere")
-			return anyOwner || tori, nil
+			assistant, _ := ctx.GetBool("isAssistantHere")
+			return anyOwner || assistant, nil
 		},
 		UpdateMode: UpdateOnDependencyChange,
 	})
@@ -286,7 +286,7 @@ func TestComputedStateRegistry_TopologicalSort(t *testing.T) {
 	// isAnyoneHome depends on isAnyOwnerHome
 	err := registry.Register(&ComputedStateProvider{
 		Name:         "isAnyoneHome",
-		Dependencies: []string{"isAnyOwnerHome", "isToriHere"},
+		Dependencies: []string{"isAnyOwnerHome", "isAssistantHere"},
 		ComputeFunc: func(ctx *ComputeContext) (interface{}, error) {
 			return true, nil
 		},
@@ -415,7 +415,7 @@ func TestComputedStateRegistry_RecalculateAll(t *testing.T) {
 
 	err = registry.Register(&ComputedStateProvider{
 		Name:         "isAnyoneHome",
-		Dependencies: []string{"isAnyOwnerHome", "isToriHere"},
+		Dependencies: []string{"isAnyOwnerHome", "isAssistantHere"},
 		ComputeFunc: func(ctx *ComputeContext) (interface{}, error) {
 			atomic.AddInt32(&computeCount2, 1)
 			return true, nil

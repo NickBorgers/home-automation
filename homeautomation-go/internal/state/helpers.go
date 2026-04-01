@@ -121,9 +121,9 @@ func (h *DerivedStateHelper) setupPresenceTracking() error {
 	}
 	h.subs = append(h.subs, sub2)
 
-	// Subscribe to Tori's presence
-	sub3, err := h.manager.Subscribe("isToriHere", func(key string, oldValue, newValue interface{}) {
-		h.logger.Debug("Tori's presence changed", zap.Any("old", oldValue), zap.Any("new", newValue))
+	// Subscribe to Assistant's presence
+	sub3, err := h.manager.Subscribe("isAssistantHere", func(key string, oldValue, newValue interface{}) {
+		h.logger.Debug("Assistant's presence changed", zap.Any("old", oldValue), zap.Any("new", newValue))
 		h.updateIsAnyoneHome()
 	})
 	if err != nil {
@@ -222,10 +222,10 @@ func (h *DerivedStateHelper) updateIsAnyOwnerHome() {
 	h.notifyCallback()
 }
 
-// updateIsAnyoneHome computes: isAnyoneHome = isAnyOwnerHome OR isToriHere
+// updateIsAnyoneHome computes: isAnyoneHome = isAnyOwnerHome OR isAssistantHere
 func (h *DerivedStateHelper) updateIsAnyoneHome() {
 	isAnyOwnerHome, err1 := h.manager.GetBool("isAnyOwnerHome")
-	isToriHere, err2 := h.manager.GetBool("isToriHere")
+	isAssistantHere, err2 := h.manager.GetBool("isAssistantHere")
 
 	if err1 != nil || err2 != nil {
 		h.logger.Error("Failed to get presence states",
@@ -234,7 +234,7 @@ func (h *DerivedStateHelper) updateIsAnyoneHome() {
 		return
 	}
 
-	isAnyoneHome := isAnyOwnerHome || isToriHere
+	isAnyoneHome := isAnyOwnerHome || isAssistantHere
 
 	// Get current value to check if it changed
 	currentValue, _ := h.manager.GetBool("isAnyoneHome")
@@ -249,7 +249,7 @@ func (h *DerivedStateHelper) updateIsAnyoneHome() {
 
 	h.logger.Info("Updated isAnyoneHome",
 		zap.Bool("isAnyOwnerHome", isAnyOwnerHome),
-		zap.Bool("isToriHere", isToriHere),
+		zap.Bool("isAssistantHere", isAssistantHere),
 		zap.Bool("isAnyoneHome", isAnyoneHome))
 
 	// Notify callback with updated derived states

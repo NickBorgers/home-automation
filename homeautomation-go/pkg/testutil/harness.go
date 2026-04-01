@@ -102,7 +102,7 @@ func (e *TestEnv) InitializeSecurityStates() {
 	// Presence and sleep states (used by State Tracking plugin)
 	e.Server.SetState("input_boolean.nick_home", "off", nil)
 	e.Server.SetState("input_boolean.caroline_home", "off", nil)
-	e.Server.SetState("input_boolean.tori_here", "off", nil)
+	e.Server.SetState("input_boolean.assistant_here", "off", nil)
 	e.Server.SetState("input_boolean.master_asleep", "off", nil)
 	e.Server.SetState("input_boolean.guest_asleep", "off", nil)
 	e.Server.SetState("input_boolean.have_guests", "off", nil)

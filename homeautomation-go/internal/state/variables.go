@@ -26,7 +26,7 @@ var AllVariables = []StateVariable{
 	// Booleans (29)
 	{Key: "isNickHome", EntityID: "input_boolean.nick_home", Type: TypeBool, Default: false},
 	{Key: "isCarolineHome", EntityID: "input_boolean.caroline_home", Type: TypeBool, Default: false},
-	{Key: "isToriHere", EntityID: "input_boolean.tori_here", Type: TypeBool, Default: false},
+	{Key: "isAssistantHere", EntityID: "input_boolean.assistant_here", Type: TypeBool, Default: false},
 	{Key: "isAnyOwnerHome", EntityID: "input_boolean.any_owner_home", Type: TypeBool, Default: false, ComputedOutput: true},
 	{Key: "isAnyoneHome", EntityID: "input_boolean.anyone_home", Type: TypeBool, Default: false, ComputedOutput: true},
 	{Key: "isAnyoneHomeAndAwake", EntityID: "input_boolean.anyone_home_and_awake", Type: TypeBool, Default: false, ComputedOutput: true},

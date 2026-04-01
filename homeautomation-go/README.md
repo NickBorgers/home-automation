@@ -33,7 +33,7 @@ The system includes several automation plugins that implement intelligent home a
 The system manages 30 state variables across 3 types (28 synced with HA + 2 local-only):
 
 ### Booleans (18) - Synced with HA
-- Home presence: `isNickHome`, `isCarolineHome`, `isToriHere`, `isAnyOwnerHome`, `isAnyoneHome`
+- Home presence: `isNickHome`, `isCarolineHome`, `isAssistantHere`, `isAnyOwnerHome`, `isAnyoneHome`
 - Sleep status: `isMasterAsleep`, `isGuestAsleep`, `isAnyoneAsleep`, `isEveryoneAsleep`
 - Guest management: `isGuestBedroomDoorOpen`, `isHaveGuests`, `isExpectingSomeone`
 - Media: `isAppleTVPlaying`, `isTVPlaying`, `isTVon`

@@ -18,14 +18,14 @@ flowchart TD
     subgraph Inputs["Source States"]
         nick["isNickHome"]
         caroline["isCarolineHome"]
-        tori["isToriHere"]
+        assistant["isAssistantHere"]
         master["isMasterAsleep"]
         guest["isGuestAsleep"]
     end
 
     subgraph Derived["Derived States"]
         anyOwner["isAnyOwnerHome<br/>= Nick OR Caroline"]
-        anyone["isAnyoneHome<br/>= anyOwner OR Tori"]
+        anyone["isAnyoneHome<br/>= anyOwner OR Assistant"]
         anyAsleep["isAnyoneAsleep<br/>= Master OR Guest"]
         everyAsleep["isEveryoneAsleep<br/>= Master AND Guest"]
     end
@@ -33,7 +33,7 @@ flowchart TD
     nick --> anyOwner
     caroline --> anyOwner
     anyOwner --> anyone
-    tori --> anyone
+    assistant --> anyone
     master --> anyAsleep
     guest --> anyAsleep
     master --> everyAsleep
@@ -47,7 +47,7 @@ flowchart TD
 
 ### Boolean Logic Table
 
-| Nick | Caroline | Tori | Master Asleep | Guest Asleep | isAnyOwnerHome | isAnyoneHome | isAnyoneAsleep | isEveryoneAsleep |
+| Nick | Caroline | Assistant | Master Asleep | Guest Asleep | isAnyOwnerHome | isAnyoneHome | isAnyoneAsleep | isEveryoneAsleep |
 |------|----------|------|---------------|--------------|----------------|--------------|----------------|------------------|
 | Y | N | N | N | N | Y | Y | N | N |
 | N | Y | N | N | N | Y | Y | N | N |
@@ -130,7 +130,7 @@ flowchart TD
     subgraph Trigger["Arrival Detection"]
         nickArrives["input_boolean.nick_home<br/>changes to 'on'"]
         carolineArrives["input_boolean.caroline_home<br/>changes to 'on'"]
-        toriArrives["input_boolean.tori_here<br/>changes to 'on'"]
+        assistantArrives["input_boolean.assistant_here<br/>changes to 'on'"]
     end
 
     subgraph Check["Announcement Check"]
@@ -140,17 +140,17 @@ flowchart TD
     subgraph Action["TTS Announcement"]
         announceNick["'Nick is home'"]
         announceCaroline["'Caroline is home'"]
-        announceTori["'Tori is here'"]
+        announceAssistant["'Assistant is here'"]
         skip["No announcement<br/>(no one to hear it)"]
     end
 
     nickArrives --> wasAnyoneHome
     carolineArrives --> wasAnyoneHome
-    toriArrives --> wasAnyoneHome
+    assistantArrives --> wasAnyoneHome
 
     wasAnyoneHome -->|Yes, Nick arriving| announceNick
     wasAnyoneHome -->|Yes, Caroline arriving| announceCaroline
-    wasAnyoneHome -->|Yes, Tori arriving| announceTori
+    wasAnyoneHome -->|Yes, Assistant arriving| announceAssistant
     wasAnyoneHome -->|No| skip
 
     style skip fill:#95a5a6,color:#fff
@@ -162,7 +162,7 @@ flowchart TD
 |--------|--------------|
 | Nick | Kitchen, Dining Room, Soundbar, Kids Bathroom |
 | Caroline | Kitchen, Dining Room, Kids Bathroom, Soundbar, Office |
-| Tori | Kitchen, Dining Room, Kids Bathroom, Soundbar, Office |
+| Assistant | Kitchen, Dining Room, Kids Bathroom, Soundbar, Office |
 
 ## Owner Return Detection
 
@@ -232,7 +232,7 @@ flowchart TD
 |----------|---------------|-------------|
 | `isNickHome` | `input_boolean.nick_home` | Nick's presence |
 | `isCarolineHome` | `input_boolean.caroline_home` | Caroline's presence |
-| `isToriHere` | `input_boolean.tori_here` | Tori's presence |
+| `isAssistantHere` | `input_boolean.assistant_here` | Assistant's presence |
 | `isMasterAsleep` | (computed) | Primary suite occupant asleep |
 | `isGuestAsleep` | (computed) | Guest room occupant asleep |
 
@@ -241,7 +241,7 @@ flowchart TD
 | Variable | Formula | Description |
 |----------|---------|-------------|
 | `isAnyOwnerHome` | Nick OR Caroline | Any owner present |
-| `isAnyoneHome` | anyOwner OR Tori | Anyone present |
+| `isAnyoneHome` | anyOwner OR Assistant | Anyone present |
 | `isAnyoneAsleep` | Master OR Guest | Someone asleep |
 | `isEveryoneAsleep` | Master AND Guest | Everyone asleep |
 | `didOwnerJustReturnHome` | (tracked) | Owner arrived recently |

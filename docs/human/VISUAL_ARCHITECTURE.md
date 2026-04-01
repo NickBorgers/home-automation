@@ -363,7 +363,7 @@ flowchart TD
 
     UpdateCache[Update State Manager Cache] --> RecomputeDerived{Triggers<br/>Computed State?}
 
-    RecomputeDerived -->|Yes| Recompute[Recompute Derived Variables<br/>isAnyoneHomeAndAwake =<br/>isAnyOwnerHome AND !isAnyoneAsleep OR isToriHere OR wakeSequenceLatch]
+    RecomputeDerived -->|Yes| Recompute[Recompute Derived Variables<br/>isAnyoneHomeAndAwake =<br/>isAnyOwnerHome AND !isAnyoneAsleep OR isAssistantHere OR wakeSequenceLatch]
     RecomputeDerived -->|No| NotifyPlugins
 
     Recompute --> SyncDerived[Sync Derived Value to HA]
@@ -898,7 +898,7 @@ graph LR
     subgraph "Input State Variables"
         NickHome[isNickHome]
         CarolineHome[isCarolineHome]
-        ToriHere[isToriHere]
+        AssistantHere[isAssistantHere]
         MasterAsleep[isMasterAsleep]
         GuestAsleep[isGuestAsleep]
         TVPlaying[isTVPlaying]
@@ -974,7 +974,7 @@ graph LR
 
     NickHome --> StateTracking
     CarolineHome --> StateTracking
-    ToriHere --> StateTracking
+    AssistantHere --> StateTracking
     MasterAsleep --> StateTracking
     GuestAsleep --> StateTracking
     GuestDoor --> StateTracking
@@ -1112,7 +1112,7 @@ graph LR
 
 | Category | Count | Examples |
 |----------|-------|----------|
-| **Boolean (input)** | 19 | isNickHome, isCarolineHome, isToriHere, isMasterAsleep, isHaveGuests, isNickOfficeOccupied, isKitchenOccupied, isPrimaryBedroomDoorOpen, isNickNearHome, isCarolineNearHome, isFrontOfHousePersonPresent |
+| **Boolean (input)** | 19 | isNickHome, isCarolineHome, isAssistantHere, isMasterAsleep, isHaveGuests, isNickOfficeOccupied, isKitchenOccupied, isPrimaryBedroomDoorOpen, isNickNearHome, isCarolineNearHome, isFrontOfHousePersonPresent |
 | **Boolean (computed)** | 6 | isAnyOwnerHome, isAnyoneHome, isAnyoneAsleep, isEveryoneAsleep, isAnyoneHomeAndAwake, isGuestAsleep |
 | **Boolean (output)** | 4 | isFadeOutInProgress, isWakeSequenceActive, isSleepPrepActive, isLockdown |
 | **Number** | 3 | alarmTime, remainingSolarGeneration, thisHourSolarGeneration |

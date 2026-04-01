@@ -361,8 +361,8 @@ func TestScenario_WakeSequence_LightsOnDespiteMasterAsleep(t *testing.T) {
 	require.NoError(t, stateManager.SetBool("isEveryoneAsleep", true))
 	require.NoError(t, stateManager.SetBool("isAnyoneAsleep", true))
 	require.NoError(t, stateManager.SetBool("isAnyOwnerHome", true))
-	require.NoError(t, stateManager.SetBool("isToriHere", false))
-	// This will compute to false: (isAnyOwnerHome && !isAnyoneAsleep) || isToriHere
+	require.NoError(t, stateManager.SetBool("isAssistantHere", false))
+	// This will compute to false: (isAnyOwnerHome && !isAnyoneAsleep) || isAssistantHere
 	require.NoError(t, stateManager.SetBool("isAnyoneHomeAndAwake", false))
 	require.NoError(t, stateManager.SetBool("isWakeSequenceActive", false)) // Not yet active
 

@@ -37,7 +37,7 @@ type Manager struct {
 ```go
 // @diagram:state-variable
 // @type: boolean
-// @computed-from: isNickHome, isCarolineHome, isToriHere
+// @computed-from: isNickHome, isCarolineHome, isAssistantHere
 // @used-by: music-plugin, lighting-plugin, security-plugin
 var isAnyoneHome = StateVariable{
     Key: "isAnyoneHome",

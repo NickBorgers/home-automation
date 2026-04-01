@@ -38,7 +38,7 @@ const (
 //
 // Derived states computed:
 //   - isAnyOwnerHome = isNickHome OR isCarolineHome
-//   - isAnyoneHome = isAnyOwnerHome OR isToriHere
+//   - isAnyoneHome = isAnyOwnerHome OR isAssistantHere
 //   - isAnyoneAsleep = isMasterAsleep OR isGuestAsleep
 //   - isEveryoneAsleep = isMasterAsleep AND isGuestAsleep
 //
@@ -138,9 +138,9 @@ func (m *Manager) Start() error {
 		return fmt.Errorf("failed to subscribe to input_boolean.caroline_home: %w", err)
 	}
 
-	// Subscribe to Tori's presence for arrival announcements
-	if err := m.subHelper.SubscribeToEntity("input_boolean.tori_here", m.handleToriHereChange); err != nil {
-		return fmt.Errorf("failed to subscribe to input_boolean.tori_here: %w", err)
+	// Subscribe to Assistant's presence for arrival announcements
+	if err := m.subHelper.SubscribeToEntity("input_boolean.assistant_here", m.handleAssistantHereChange); err != nil {
+		return fmt.Errorf("failed to subscribe to input_boolean.assistant_here: %w", err)
 	}
 
 	// Subscribe to near_home presence for owner return detection
@@ -169,7 +169,7 @@ func (m *Manager) Start() error {
 		zap.Strings("presenceAnnouncements", []string{
 			"input_boolean.nick_home (arrival → TTS)",
 			"input_boolean.caroline_home (arrival → TTS)",
-			"input_boolean.tori_here (arrival → TTS)",
+			"input_boolean.assistant_here (arrival → TTS)",
 		}),
 		zap.Strings("ownerReturnHome", []string{
 			"isNickHome/isCarolineHome (arrival → didOwnerJustReturnHome=true, 10min auto-reset)",
@@ -359,13 +359,13 @@ func (m *Manager) handleNickHomeChange(entityID string, oldState, newState *ha.S
 		// Set didOwnerJustReturnHome for garage automation
 		m.setOwnerJustReturnedHome()
 
-		// Check if anyone else was already home (Caroline or Tori)
+		// Check if anyone else was already home (Caroline or Assistant)
 		// We check the OLD value of isAnyoneHome before Nick arrived
 		wasAnyoneHome := false
 		if isCarolineHome, err := m.stateManager.GetBool("isCarolineHome"); err == nil && isCarolineHome {
 			wasAnyoneHome = true
 		}
-		if isToriHere, err := m.stateManager.GetBool("isToriHere"); err == nil && isToriHere {
+		if isAssistantHere, err := m.stateManager.GetBool("isAssistantHere"); err == nil && isAssistantHere {
 			wasAnyoneHome = true
 		}
 
@@ -408,12 +408,12 @@ func (m *Manager) handleCarolineHomeChange(entityID string, oldState, newState *
 		// Set didOwnerJustReturnHome for garage automation
 		m.setOwnerJustReturnedHome()
 
-		// Check if anyone else was already home (Nick or Tori)
+		// Check if anyone else was already home (Nick or Assistant)
 		wasAnyoneHome := false
 		if isNickHome, err := m.stateManager.GetBool("isNickHome"); err == nil && isNickHome {
 			wasAnyoneHome = true
 		}
-		if isToriHere, err := m.stateManager.GetBool("isToriHere"); err == nil && isToriHere {
+		if isAssistantHere, err := m.stateManager.GetBool("isAssistantHere"); err == nil && isAssistantHere {
 			wasAnyoneHome = true
 		}
 
@@ -438,8 +438,8 @@ func (m *Manager) handleCarolineHomeChange(entityID string, oldState, newState *
 	}
 }
 
-// handleToriHereChange processes Tori's presence state changes for TTS announcements
-func (m *Manager) handleToriHereChange(entityID string, oldState, newState *ha.State) {
+// handleAssistantHereChange processes Assistant's presence state changes for TTS announcements
+func (m *Manager) handleAssistantHereChange(entityID string, oldState, newState *ha.State) {
 	if newState == nil || oldState == nil {
 		return
 	}
@@ -447,9 +447,9 @@ func (m *Manager) handleToriHereChange(entityID string, oldState, newState *ha.S
 	// Update shadow state inputs
 	// Shadow state inputs are automatically captured by SubscriptionHelper
 
-	// Check if Tori just arrived (state changed to "on" from something else)
+	// Check if Assistant just arrived (state changed to "on" from something else)
 	if newState.State == "on" && oldState.State != "on" {
-		m.logger.Debug("Tori arrived, checking if should announce",
+		m.logger.Debug("Assistant arrived, checking if should announce",
 			zap.String("entity_id", entityID),
 			zap.String("old_state", oldState.State),
 			zap.String("new_state", newState.State))
@@ -465,7 +465,7 @@ func (m *Manager) handleToriHereChange(entityID string, oldState, newState *ha.S
 
 		if wasAnyoneHome {
 			// Run announcement asynchronously to avoid deadlocks
-			go m.announceArrivalDirect("Tori", "Tori is here", []string{
+			go m.announceArrivalDirect("Assistant", "Assistant is here", []string{
 				"media_player.kitchen",
 				"media_player.dining_room",
 				"media_player.kids_bathroom",
@@ -473,7 +473,7 @@ func (m *Manager) handleToriHereChange(entityID string, oldState, newState *ha.S
 				"media_player.office",
 			})
 		} else {
-			m.logger.Debug("Nobody else was home, not announcing Tori's arrival")
+			m.logger.Debug("Nobody else was home, not announcing Assistant's arrival")
 		}
 	}
 }

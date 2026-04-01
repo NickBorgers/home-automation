@@ -84,7 +84,7 @@ func TestHandleGetState(t *testing.T) {
 	}
 
 	// Verify all expected keys are present (at least some of them)
-	expectedBoolKeys := []string{"isNickHome", "isCarolineHome", "isToriHere", "isAnyoneHome"}
+	expectedBoolKeys := []string{"isNickHome", "isCarolineHome", "isAssistantHere", "isAnyoneHome"}
 	for _, key := range expectedBoolKeys {
 		if _, ok := response.Booleans[key]; !ok {
 			t.Errorf("Expected boolean key %s to be present", key)
@@ -361,7 +361,7 @@ func TestHandleGetStatesByPlugin(t *testing.T) {
 	// Set some test values for different plugins
 	stateManager.SetBool("isNickHome", true)
 	stateManager.SetBool("isCarolineHome", false)
-	stateManager.SetBool("isToriHere", true)
+	stateManager.SetBool("isAssistantHere", true)
 	stateManager.SetBool("isAnyoneHome", true)
 	stateManager.SetBool("isAnyoneAsleep", false)
 	stateManager.SetString("dayPhase", "evening")

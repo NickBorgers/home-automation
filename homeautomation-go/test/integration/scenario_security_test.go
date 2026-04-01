@@ -308,26 +308,26 @@ func TestScenario_OwnerLeavesAndReturns(t *testing.T) {
 }
 
 // TestScenario_OnlyOwnersTriggersGarage tests that only owners (Nick/Caroline)
-// trigger the garage automation, not guests (Tori)
+// trigger the garage automation, not guests (Assistant)
 func TestScenario_OnlyOwnersTriggersGarage(t *testing.T) {
 	t.Parallel()
 	server, _, _, manager, cleanup := setupSecurityScenarioTest(t)
 	defer cleanup()
 
-	t.Log("GIVEN: Tori is not here, garage is empty")
+	t.Log("GIVEN: Assistant is not here, garage is empty")
 
-	server.SetState("input_boolean.tori_here", "off", nil)
+	server.SetState("input_boolean.assistant_here", "off", nil)
 	server.SetState("binary_sensor.garage_door_vehicle_detected", "off", nil)
 	waitForProcessing(t, manager)
 
 	snapshot := server.ServiceCallCount()
 
-	t.Log("WHEN: Tori arrives (isToriHere changes to true)")
+	t.Log("WHEN: Assistant arrives (isAssistantHere changes to true)")
 
-	server.SetState("input_boolean.tori_here", "on", nil)
-	waitForBoolState(t, manager, "isToriHere", true, "isToriHere should become true")
+	server.SetState("input_boolean.assistant_here", "on", nil)
+	waitForBoolState(t, manager, "isAssistantHere", true, "isAssistantHere should become true")
 
-	t.Log("THEN: didOwnerJustReturnHome should remain false (Tori is not an owner)")
+	t.Log("THEN: didOwnerJustReturnHome should remain false (Assistant is not an owner)")
 
 	didReturn, err := manager.GetBool("didOwnerJustReturnHome")
 	require.NoError(t, err)

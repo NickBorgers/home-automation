@@ -177,7 +177,7 @@ var pluginRegistry = []PluginMetadata{
 	{
 		Name:        "statetracking",
 		Description: "Tracks presence and sleep states, computes derived states",
-		Reads:       []string{"isNickHome", "isCarolineHome", "isToriHere"},
+		Reads:       []string{"isNickHome", "isCarolineHome", "isAssistantHere"},
 		Writes:      []string{"isAnyOwnerHome", "isAnyoneHome", "isAnyoneAsleep", "isEveryoneAsleep", "isMasterAsleep", "isGuestAsleep", "didOwnerJustReturnHome"},
 	},
 	{

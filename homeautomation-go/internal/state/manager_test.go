@@ -369,7 +369,7 @@ func TestManager_Subscribe(t *testing.T) {
 	mockClient := ha.NewMockClient()
 	mockClient.SetState("input_boolean.nick_home", "off", map[string]interface{}{})
 	mockClient.SetState("input_boolean.caroline_home", "off", map[string]interface{}{})
-	mockClient.SetState("input_boolean.tori_here", "off", map[string]interface{}{})
+	mockClient.SetState("input_boolean.assistant_here", "off", map[string]interface{}{})
 	mockClient.Connect()
 
 	manager := NewManager(mockClient, logger, false)
@@ -425,17 +425,17 @@ func TestManager_Subscribe(t *testing.T) {
 
 		var changeCount int32
 
-		sub, err := manager.Subscribe("isToriHere", func(key string, oldValue, newValue interface{}) {
+		sub, err := manager.Subscribe("isAssistantHere", func(key string, oldValue, newValue interface{}) {
 			atomic.AddInt32(&changeCount, 1)
 		})
 		require.NoError(t, err)
 
-		mockClient.SimulateStateChange("input_boolean.tori_here", "on")
+		mockClient.SimulateStateChange("input_boolean.assistant_here", "on")
 		assert.Equal(t, int32(1), atomic.LoadInt32(&changeCount))
 
 		sub.Unsubscribe()
 
-		mockClient.SimulateStateChange("input_boolean.tori_here", "off")
+		mockClient.SimulateStateChange("input_boolean.assistant_here", "off")
 		assert.Equal(t, int32(1), atomic.LoadInt32(&changeCount)) // Should not increment
 	})
 

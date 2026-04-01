@@ -19,7 +19,7 @@ func setupTestManagerForV2(t *testing.T) (*Manager, *ha.MockClient) {
 	// Set up all required entities with default values
 	mockClient.SetState("input_boolean.nick_home", "off", map[string]interface{}{})
 	mockClient.SetState("input_boolean.caroline_home", "off", map[string]interface{}{})
-	mockClient.SetState("input_boolean.tori_here", "off", map[string]interface{}{})
+	mockClient.SetState("input_boolean.assistant_here", "off", map[string]interface{}{})
 	mockClient.SetState("input_boolean.any_owner_home", "off", map[string]interface{}{})
 	mockClient.SetState("input_boolean.anyone_home", "off", map[string]interface{}{})
 	mockClient.SetState("input_boolean.master_asleep", "off", map[string]interface{}{})
@@ -68,7 +68,7 @@ func TestSetupComputedStateV2_ComputesInitialValues(t *testing.T) {
 	// Nick is home, awake
 	mockClient.SetState("input_boolean.nick_home", "on", map[string]interface{}{})
 	mockClient.SetState("input_boolean.caroline_home", "off", map[string]interface{}{})
-	mockClient.SetState("input_boolean.tori_here", "off", map[string]interface{}{})
+	mockClient.SetState("input_boolean.assistant_here", "off", map[string]interface{}{})
 	mockClient.SetState("input_boolean.any_owner_home", "off", map[string]interface{}{})
 	mockClient.SetState("input_boolean.anyone_home", "off", map[string]interface{}{})
 	mockClient.SetState("input_boolean.master_asleep", "off", map[string]interface{}{})
@@ -138,7 +138,7 @@ func TestSetupComputedStateV2_WakeSequenceLatch(t *testing.T) {
 	// Nick is home but asleep
 	mockClient.SetState("input_boolean.nick_home", "on", map[string]interface{}{})
 	mockClient.SetState("input_boolean.caroline_home", "off", map[string]interface{}{})
-	mockClient.SetState("input_boolean.tori_here", "off", map[string]interface{}{})
+	mockClient.SetState("input_boolean.assistant_here", "off", map[string]interface{}{})
 	mockClient.SetState("input_boolean.any_owner_home", "off", map[string]interface{}{})
 	mockClient.SetState("input_boolean.anyone_home", "off", map[string]interface{}{})
 	mockClient.SetState("input_boolean.master_asleep", "on", map[string]interface{}{})
@@ -190,7 +190,7 @@ func TestSetupComputedStateV2_WakeSequenceLatch(t *testing.T) {
 	assert.True(t, value, "isAnyoneHomeAndAwake should be TRUE via normal formula (owner awake)")
 }
 
-func TestSetupComputedStateV2_ToriArrivesWhileOwnerAsleep(t *testing.T) {
+func TestSetupComputedStateV2_AssistantArrivesWhileOwnerAsleep(t *testing.T) {
 	// This is a key test case from the original computed_test.go
 	t.Parallel()
 	logger := testlogger.New()
@@ -199,7 +199,7 @@ func TestSetupComputedStateV2_ToriArrivesWhileOwnerAsleep(t *testing.T) {
 	// Nick is home but asleep
 	mockClient.SetState("input_boolean.nick_home", "on", map[string]interface{}{})
 	mockClient.SetState("input_boolean.caroline_home", "off", map[string]interface{}{})
-	mockClient.SetState("input_boolean.tori_here", "off", map[string]interface{}{})
+	mockClient.SetState("input_boolean.assistant_here", "off", map[string]interface{}{})
 	mockClient.SetState("input_boolean.any_owner_home", "off", map[string]interface{}{})
 	mockClient.SetState("input_boolean.anyone_home", "off", map[string]interface{}{})
 	mockClient.SetState("input_boolean.master_asleep", "on", map[string]interface{}{})
@@ -218,23 +218,23 @@ func TestSetupComputedStateV2_ToriArrivesWhileOwnerAsleep(t *testing.T) {
 	require.NoError(t, err)
 	defer manager.StopComputedState()
 
-	// Initially false (owner asleep, Tori not here)
+	// Initially false (owner asleep, Assistant not here)
 	value, _ := manager.GetBool("isAnyoneHomeAndAwake")
-	assert.False(t, value, "isAnyoneHomeAndAwake should be false when owner is asleep and Tori is not here")
+	assert.False(t, value, "isAnyoneHomeAndAwake should be false when owner is asleep and Assistant is not here")
 
-	// Tori arrives while owner is still asleep
-	mockClient.SimulateStateChange("input_boolean.tori_here", "on")
+	// Assistant arrives while owner is still asleep
+	mockClient.SimulateStateChange("input_boolean.assistant_here", "on")
 
-	// Should now be true because Tori is here (and implicitly awake)
+	// Should now be true because Assistant is here (and implicitly awake)
 	value, _ = manager.GetBool("isAnyoneHomeAndAwake")
-	assert.True(t, value, "isAnyoneHomeAndAwake should be TRUE when Tori arrives, even if owner is asleep")
+	assert.True(t, value, "isAnyoneHomeAndAwake should be TRUE when Assistant arrives, even if owner is asleep")
 
-	// Tori leaves
-	mockClient.SimulateStateChange("input_boolean.tori_here", "off")
+	// Assistant leaves
+	mockClient.SimulateStateChange("input_boolean.assistant_here", "off")
 
 	// Should be false again (owner still asleep)
 	value, _ = manager.GetBool("isAnyoneHomeAndAwake")
-	assert.False(t, value, "isAnyoneHomeAndAwake should be false when Tori leaves and owner is still asleep")
+	assert.False(t, value, "isAnyoneHomeAndAwake should be false when Assistant leaves and owner is still asleep")
 }
 
 func TestSetupComputedStateV2_DependencyGraph(t *testing.T) {
@@ -252,14 +252,14 @@ func TestSetupComputedStateV2_DependencyGraph(t *testing.T) {
 	assert.Contains(t, graph["isAnyOwnerHome"], "isNickHome")
 	assert.Contains(t, graph["isAnyOwnerHome"], "isCarolineHome")
 	assert.Contains(t, graph["isAnyoneHome"], "isAnyOwnerHome")
-	assert.Contains(t, graph["isAnyoneHome"], "isToriHere")
+	assert.Contains(t, graph["isAnyoneHome"], "isAssistantHere")
 	assert.Contains(t, graph["isAnyoneAsleep"], "isMasterAsleep")
 	assert.Contains(t, graph["isAnyoneAsleep"], "isGuestAsleep")
 	assert.Contains(t, graph["isEveryoneAsleep"], "isMasterAsleep")
 	assert.Contains(t, graph["isEveryoneAsleep"], "isGuestAsleep")
 	assert.Contains(t, graph["isAnyoneHomeAndAwake"], "isAnyOwnerHome")
 	assert.Contains(t, graph["isAnyoneHomeAndAwake"], "isAnyoneAsleep")
-	assert.Contains(t, graph["isAnyoneHomeAndAwake"], "isToriHere")
+	assert.Contains(t, graph["isAnyoneHomeAndAwake"], "isAssistantHere")
 }
 
 func TestSetupComputedStateV2_StopCleansUp(t *testing.T) {
