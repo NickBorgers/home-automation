@@ -189,6 +189,8 @@ fix-test-failures                    ┌──────────┼──�
                                      (adds agent-reviews-passed label)
 ```
 
+**Devcontainer caching:** To keep Codex runs fast while still picking up infrastructure changes, the `build-devcontainer` job hashes the `.devcontainer/` directory on the `main` branch and publishes the build as both `latest` and `treehash-<hash>` in GHCR. If the tree hash tag already exists, the build is skipped and the existing image is reused.
+
 ### Draft PR Handling
 
 Draft PRs are completely skipped by the review pipeline to support TDD workflows where tests may intentionally fail during development.
@@ -509,7 +511,11 @@ concurrency:
 
 ### Jobs
 
-#### 4.1 `check-failure`
+#### 4.1 `build-devcontainer`
+
+Builds the Codex devcontainer from the `main` branch when needed, tagging the resulting image with both `latest` and `treehash-<hash>`. If a matching tree hash tag already exists in GHCR, the job skips the rebuild and reuses the cached image, keeping diagnosis runs fast while still updating whenever `.devcontainer/` changes land on `main`.
+
+#### 4.2 `check-failure`
 
 Pre-flight checks before running diagnosis.
 
@@ -520,7 +526,7 @@ Pre-flight checks before running diagnosis.
 
 **Outputs**: Workflow metadata for the diagnosis job
 
-#### 4.2 `diagnose-failure`
+#### 4.3 `diagnose-failure`
 
 Runs Codex to analyze the failure and classify it.
 

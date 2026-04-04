@@ -446,34 +446,28 @@ jobs:
         with:
           ref: main
 
-      - name: Check if devcontainer files changed
-        id: check-changes
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Compute devcontainer tree hash
+        id: devcontainer-hash
         run: |
-          PR_NUMBER="${{ needs.get-context.outputs.pr_number }}"
-          # Get list of changed files in the PR
-          CHANGED_FILES=$(gh api "repos/${{ github.repository }}/pulls/${PR_NUMBER}/files" --paginate --jq '.[].filename')
-          if echo "$CHANGED_FILES" | grep -q "^\.devcontainer/"; then
-            DEVCONTAINER_CHANGED="true"
-          else
-            DEVCONTAINER_CHANGED="false"
-          fi
+          set -euo pipefail
+          TREE_HASH=$(git rev-parse HEAD:.devcontainer)
+          echo "tree_hash=$TREE_HASH" >> $GITHUB_OUTPUT
+          echo "Computed .devcontainer tree hash: $TREE_HASH"
 
-          # Check if the image exists in GHCR
-          if docker manifest inspect ${{ env.DEVCONTAINER_IMAGE }}:latest >/dev/null 2>&1; then
-            IMAGE_EXISTS="true"
-          else
-            IMAGE_EXISTS="false"
-            DEVCONTAINER_CHANGED="true"  # Force build if image doesn't exist
-          fi
+      - name: Check devcontainer cache
+        id: check-changes
+        run: |
+          set -euo pipefail
+          TREE_HASH="${{ steps.devcontainer-hash.outputs.tree_hash }}"
+          IMAGE="${{ env.DEVCONTAINER_IMAGE }}"
+          TREE_TAG="treehash-${TREE_HASH}"
 
-          if [ "$DEVCONTAINER_CHANGED" = "true" ] || [ "$IMAGE_EXISTS" = "false" ]; then
-            echo "should-build=true" >> $GITHUB_OUTPUT
-            echo "✅ Devcontainer will be built (changed=$DEVCONTAINER_CHANGED, exists=$IMAGE_EXISTS)"
-          else
+          if docker manifest inspect "${IMAGE}:${TREE_TAG}" >/dev/null 2>&1; then
             echo "should-build=false" >> $GITHUB_OUTPUT
-            echo "⏭️  Skipping devcontainer build (no changes detected)"
+            echo "⏭️  Skipping devcontainer build (found ${IMAGE}:${TREE_TAG})"
+          else
+            echo "should-build=true" >> $GITHUB_OUTPUT
+            echo "✅ Devcontainer will be built (missing ${IMAGE}:${TREE_TAG})"
           fi
 
       - name: Log in to GHCR
@@ -491,6 +485,17 @@ jobs:
           imageName: ${{ env.DEVCONTAINER_IMAGE }}
           cacheFrom: ${{ env.DEVCONTAINER_IMAGE }}
           push: always
+
+      - name: Tag devcontainer image with tree hash
+        if: steps.check-changes.outputs.should-build == 'true'
+        run: |
+          set -euo pipefail
+          TREE_HASH="${{ steps.devcontainer-hash.outputs.tree_hash }}"
+          IMAGE="${{ env.DEVCONTAINER_IMAGE }}"
+          TREE_TAG="treehash-${TREE_HASH}"
+
+          docker buildx imagetools create -t "${IMAGE}:${TREE_TAG}" "${IMAGE}:latest"
+          echo "📌 Pushed ${IMAGE}:${TREE_TAG} to record .devcontainer tree state"
 
   # Fix test failures - runs in a retry loop until tests pass (max 3 attempts)
   # Skips draft PRs to support TDD workflows where tests are intentionally failing

@@ -106,16 +106,31 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          ref: main
 
-      - name: Check if devcontainer image exists
+      - name: Compute devcontainer tree hash
+        id: devcontainer-hash
+        run: |
+          set -euo pipefail
+          TREE_HASH=$(git rev-parse HEAD:.devcontainer)
+          echo "tree_hash=$TREE_HASH" >> $GITHUB_OUTPUT
+          echo "Computed .devcontainer tree hash: $TREE_HASH"
+
+      - name: Check devcontainer cache
         id: check-image
         run: |
-          if docker manifest inspect ${{ env.DEVCONTAINER_IMAGE }}:latest >/dev/null 2>&1; then
+          set -euo pipefail
+          TREE_HASH="${{ steps.devcontainer-hash.outputs.tree_hash }}"
+          IMAGE="${{ env.DEVCONTAINER_IMAGE }}"
+          TREE_TAG="treehash-${TREE_HASH}"
+
+          if docker manifest inspect "${IMAGE}:${TREE_TAG}" >/dev/null 2>&1; then
             echo "should-build=false" >> $GITHUB_OUTPUT
-            echo "⏭️  Skipping devcontainer build (image already exists)"
+            echo "⏭️  Skipping devcontainer build (found ${IMAGE}:${TREE_TAG})"
           else
             echo "should-build=true" >> $GITHUB_OUTPUT
-            echo "✅ Devcontainer will be built (image not found)"
+            echo "✅ Devcontainer will be built (missing ${IMAGE}:${TREE_TAG})"
           fi
 
       - name: Log in to GHCR
@@ -133,6 +148,17 @@ jobs:
           imageName: ${{ env.DEVCONTAINER_IMAGE }}
           cacheFrom: ${{ env.DEVCONTAINER_IMAGE }}
           push: always
+
+      - name: Tag devcontainer image with tree hash
+        if: steps.check-image.outputs.should-build == 'true'
+        run: |
+          set -euo pipefail
+          TREE_HASH="${{ steps.devcontainer-hash.outputs.tree_hash }}"
+          IMAGE="${{ env.DEVCONTAINER_IMAGE }}"
+          TREE_TAG="treehash-${TREE_HASH}"
+
+          docker buildx imagetools create -t "${IMAGE}:${TREE_TAG}" "${IMAGE}:latest"
+          echo "📌 Pushed ${IMAGE}:${TREE_TAG} to record .devcontainer tree state"
 
   # Run Codex to diagnose the failure
   diagnose-failure:
