@@ -2,6 +2,9 @@ package statetracking
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -59,7 +62,7 @@ func TestStateTrackingManager_IsAnyOwnerHome(t *testing.T) {
 				t.Fatalf("Failed to set isCarolineHome: %v", err)
 			}
 
-			manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
+			manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil, "")
 			if err := manager.Start(); err != nil {
 				t.Fatalf("Failed to start manager: %v", err)
 			}
@@ -146,7 +149,7 @@ func TestStateTrackingManager_IsAnyoneHome(t *testing.T) {
 				t.Fatalf("Failed to set isToriHere: %v", err)
 			}
 
-			manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
+			manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil, "")
 			if err := manager.Start(); err != nil {
 				t.Fatalf("Failed to start manager: %v", err)
 			}
@@ -220,7 +223,7 @@ func TestStateTrackingManager_SleepDerivedStates(t *testing.T) {
 				t.Fatalf("Failed to set isGuestAsleep: %v", err)
 			}
 
-			manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
+			manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil, "")
 			if err := manager.Start(); err != nil {
 				t.Fatalf("Failed to start manager: %v", err)
 			}
@@ -269,7 +272,7 @@ func TestStateTrackingManager_DynamicUpdates(t *testing.T) {
 		t.Fatalf("Failed to set isToriHere: %v", err)
 	}
 
-	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil, "")
 	if err := manager.Start(); err != nil {
 		t.Fatalf("Failed to start manager: %v", err)
 	}
@@ -331,7 +334,7 @@ func TestStateTrackingManager_SleepDynamicUpdates(t *testing.T) {
 		t.Fatalf("Failed to set isGuestAsleep: %v", err)
 	}
 
-	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil, "")
 	if err := manager.Start(); err != nil {
 		t.Fatalf("Failed to start manager: %v", err)
 	}
@@ -391,7 +394,7 @@ func TestStateTrackingManager_StopCleansUpSubscriptions(t *testing.T) {
 	if err := stateMgr.SetBool("isNickHome", false); err != nil {
 		t.Fatalf("Failed to set isNickHome: %v", err)
 	}
-	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil, "")
 	if err := manager.Start(); err != nil {
 		t.Fatalf("Failed to start manager: %v", err)
 	}
@@ -432,7 +435,7 @@ func TestStateTrackingManager_GuestAsleepAutoSync_NoGuests(t *testing.T) {
 	if err := stateMgr.SetBool("isGuestAsleep", false); err != nil {
 		t.Fatalf("Failed to set isGuestAsleep: %v", err)
 	}
-	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil, "")
 	if err := manager.Start(); err != nil {
 		t.Fatalf("Failed to start manager: %v", err)
 	}
@@ -481,7 +484,7 @@ func TestStateTrackingManager_GuestAsleepAutoSync_WithGuests(t *testing.T) {
 	if err := stateMgr.SetBool("isGuestAsleep", true); err != nil {
 		t.Fatalf("Failed to set isGuestAsleep: %v", err)
 	}
-	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil, "")
 	if err := manager.Start(); err != nil {
 		t.Fatalf("Failed to start manager: %v", err)
 	}
@@ -526,7 +529,7 @@ func TestStateTrackingManager_GuestAsleepAutoSync_GuestsLeave(t *testing.T) {
 	if err := stateMgr.SetBool("isGuestAsleep", false); err != nil {
 		t.Fatalf("Failed to set isGuestAsleep: %v", err)
 	}
-	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil, "")
 	if err := manager.Start(); err != nil {
 		t.Fatalf("Failed to start manager: %v", err)
 	}
@@ -574,7 +577,7 @@ func TestStateTrackingManager_GuestAsleepAutoSync_InitialSync(t *testing.T) {
 		t.Fatalf("Failed to set isGuestAsleep: %v", err)
 	}
 	// Start manager - should auto-sync immediately
-	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil, "")
 	if err := manager.Start(); err != nil {
 		t.Fatalf("Failed to start manager: %v", err)
 	}
@@ -606,7 +609,7 @@ func TestStateTrackingManager_Reset(t *testing.T) {
 	if err := stateMgr.SetBool("isCarolineHome", false); err != nil {
 		t.Fatalf("Failed to set isCarolineHome: %v", err)
 	}
-	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil, "")
 	if err := manager.Start(); err != nil {
 		t.Fatalf("Failed to start manager: %v", err)
 	}
@@ -699,7 +702,7 @@ func TestStateTrackingManager_ArrivalAnnouncements(t *testing.T) {
 
 			tt.setupState(stateMgr)
 
-			manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
+			manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil, "")
 			if err := manager.Start(); err != nil {
 				t.Fatalf("Failed to start manager: %v", err)
 			}
@@ -826,7 +829,7 @@ func TestStateTrackingManager_NoAnnouncement(t *testing.T) {
 
 			tt.setupState(stateMgr)
 
-			manager := NewManager(context.Background(), mockHA, stateMgr, logger, tt.readOnly, nil)
+			manager := NewManager(context.Background(), mockHA, stateMgr, logger, tt.readOnly, nil, "")
 			if err := manager.Start(); err != nil {
 				t.Fatalf("Failed to start manager: %v", err)
 			}
@@ -876,7 +879,7 @@ func TestStateTrackingManager_ShadowState_DerivedStatesUpdated(t *testing.T) {
 	}
 
 	// Create and start manager
-	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil, "")
 	if err := manager.Start(); err != nil {
 		t.Fatalf("Failed to start manager: %v", err)
 	}
@@ -920,7 +923,7 @@ func TestStateTrackingManager_ShadowState_DerivedStatesUpdateOnChange(t *testing
 	}
 
 	// Create and start manager
-	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil, "")
 	if err := manager.Start(); err != nil {
 		t.Fatalf("Failed to start manager: %v", err)
 	}
@@ -1011,7 +1014,7 @@ func TestStateTrackingManager_NearHomeDetection(t *testing.T) {
 				t.Fatalf("Failed to set didOwnerJustReturnHome: %v", err)
 			}
 
-			manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
+			manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil, "")
 			if err := manager.Start(); err != nil {
 				t.Fatalf("Failed to start manager: %v", err)
 			}
@@ -1102,7 +1105,7 @@ func TestStateTrackingManager_NearHomeDepartureCooldown(t *testing.T) {
 				t.Fatalf("Failed to set didOwnerJustReturnHome: %v", err)
 			}
 
-			manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
+			manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil, "")
 			manager.SetClock(mockClock)
 			if err := manager.Start(); err != nil {
 				t.Fatalf("Failed to start manager: %v", err)
@@ -1231,7 +1234,7 @@ func TestStateTrackingManager_ArrivalDebounce(t *testing.T) {
 				t.Fatalf("Failed to set didOwnerJustReturnHome: %v", err)
 			}
 
-			manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
+			manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil, "")
 			manager.SetClock(mockClock)
 			if err := manager.Start(); err != nil {
 				t.Fatalf("Failed to start manager: %v", err)
@@ -1305,7 +1308,7 @@ func TestStateTrackingManager_ArrivalDebounce_FirstArrivalNotSuppressed(t *testi
 		t.Fatalf("Failed to set didOwnerJustReturnHome: %v", err)
 	}
 
-	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil, "")
 	if err := manager.Start(); err != nil {
 		t.Fatalf("Failed to start manager: %v", err)
 	}
@@ -1336,5 +1339,209 @@ func TestStateTrackingManager_ArrivalDebounce_FirstArrivalNotSuppressed(t *testi
 	didOwnerReturn, _ := stateMgr.GetBool("didOwnerJustReturnHome")
 	if !didOwnerReturn {
 		t.Error("Expected didOwnerJustReturnHome=true for first arrival, got false")
+	}
+}
+
+func TestEntityIDToSpeakerName(t *testing.T) {
+	tests := []struct {
+		entityID string
+		expected string
+	}{
+		{"media_player.kitchen", "Kitchen"},
+		{"media_player.front_room", "Front Room"},
+		{"media_player.kids_bathroom", "Kids Bathroom"},
+		{"media_player.primary_bathroom", "Primary Bathroom"},
+	}
+	for _, tt := range tests {
+		if got := entityIDToSpeakerName(tt.entityID); got != tt.expected {
+			t.Errorf("entityIDToSpeakerName(%q) = %q, want %q", tt.entityID, got, tt.expected)
+		}
+	}
+}
+
+func TestSpeakerNameToEntityID(t *testing.T) {
+	tests := []struct {
+		name     string
+		expected string
+	}{
+		{"Kitchen", "media_player.kitchen"},
+		{"Front Room", "media_player.front_room"},
+		{"Kids Bathroom", "media_player.kids_bathroom"},
+	}
+	for _, tt := range tests {
+		if got := speakerNameToEntityID(tt.name); got != tt.expected {
+			t.Errorf("speakerNameToEntityID(%q) = %q, want %q", tt.name, got, tt.expected)
+		}
+	}
+}
+
+func TestGetGroupCoordinator(t *testing.T) {
+	tests := []struct {
+		name          string
+		socoResponse  socoGroupsResponse
+		speakerEntity string
+		wantCoord     string
+		socoDown      bool
+	}{
+		{
+			name: "speaker is group member - returns coordinator",
+			socoResponse: socoGroupsResponse{
+				ExitCode: 0,
+				Result:   "\nFront Room: Primary Bathroom, Kitchen, Bedroom, Kids Bathroom, Sitting Room\nSoundbar: \nBarn:\n",
+			},
+			speakerEntity: "media_player.kitchen",
+			wantCoord:     "media_player.front_room",
+		},
+		{
+			name: "speaker is the coordinator - returns itself",
+			socoResponse: socoGroupsResponse{
+				ExitCode: 0,
+				Result:   "\nFront Room: Primary Bathroom, Kitchen\nSoundbar: \n",
+			},
+			speakerEntity: "media_player.front_room",
+			wantCoord:     "media_player.front_room",
+		},
+		{
+			name: "speaker is standalone - returns empty",
+			socoResponse: socoGroupsResponse{
+				ExitCode: 0,
+				Result:   "\nFront Room: Kitchen\nSoundbar: \nBarn:\n",
+			},
+			speakerEntity: "media_player.barn",
+			wantCoord:     "",
+		},
+		{
+			name: "soco error - returns empty for graceful fallback",
+			socoResponse: socoGroupsResponse{
+				ExitCode: 1,
+				ErrorMsg: "speaker not found",
+			},
+			speakerEntity: "media_player.kitchen",
+			wantCoord:     "",
+		},
+		{
+			name:          "soco unavailable - returns empty for graceful fallback",
+			speakerEntity: "media_player.kitchen",
+			wantCoord:     "",
+			socoDown:      true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var serverURL string
+			if tt.socoDown {
+				serverURL = "http://127.0.0.1:1" // unreachable
+			} else {
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					json.NewEncoder(w).Encode(tt.socoResponse)
+				}))
+				defer server.Close()
+				serverURL = server.URL
+			}
+
+			logger := zap.NewNop()
+			mockHA := ha.NewMockClient()
+			stateMgr := state.NewManager(mockHA, logger, false)
+			manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil, serverURL)
+
+			got := manager.getGroupCoordinator(tt.speakerEntity)
+			if got != tt.wantCoord {
+				t.Errorf("getGroupCoordinator(%q) = %q, want %q", tt.speakerEntity, got, tt.wantCoord)
+			}
+		})
+	}
+}
+
+func TestGetGroupCoordinator_NoSocoURL(t *testing.T) {
+	logger := zap.NewNop()
+	mockHA := ha.NewMockClient()
+	stateMgr := state.NewManager(mockHA, logger, false)
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil, "")
+
+	got := manager.getGroupCoordinator("media_player.kitchen")
+	if got != "" {
+		t.Errorf("expected empty string when socoCliURL is empty, got %q", got)
+	}
+}
+
+func TestAnnounceArrivalDirect_UsesGroupCoordinator(t *testing.T) {
+	// Set up a mock SoCo server that reports Front Room as group coordinator
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(socoGroupsResponse{
+			ExitCode: 0,
+			Result:   "\nFront Room: Primary Bathroom, Kitchen, Bedroom\nSoundbar: \n",
+		})
+	}))
+	defer server.Close()
+
+	logger := zap.NewNop()
+	mockHA := ha.NewMockClient()
+	stateMgr := state.NewManager(mockHA, logger, false)
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil, server.URL)
+
+	manager.announceArrivalDirect("Nick", "Nick is home", []string{
+		"media_player.kitchen",
+		"media_player.dining_room",
+		"media_player.soundbar",
+	})
+
+	// Verify TTS was called with just the group coordinator
+	calls := mockHA.GetServiceCalls()
+	var ttsCall *ha.ServiceCall
+	for i := range calls {
+		if calls[i].Domain == "tts" && calls[i].Service == "speak" {
+			ttsCall = &calls[i]
+			break
+		}
+	}
+
+	if ttsCall == nil {
+		t.Fatal("Expected TTS service call")
+	}
+
+	mediaPlayers, ok := ttsCall.Data["media_player_entity_id"].([]string)
+	if !ok {
+		t.Fatalf("Expected media_player_entity_id to be []string, got %T", ttsCall.Data["media_player_entity_id"])
+	}
+
+	if len(mediaPlayers) != 1 || mediaPlayers[0] != "media_player.front_room" {
+		t.Errorf("Expected TTS to target [media_player.front_room], got %v", mediaPlayers)
+	}
+}
+
+func TestAnnounceArrivalDirect_FallsBackWhenSocoDown(t *testing.T) {
+	logger := zap.NewNop()
+	mockHA := ha.NewMockClient()
+	stateMgr := state.NewManager(mockHA, logger, false)
+	// Use unreachable URL to simulate SoCo being down
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil, "http://127.0.0.1:1")
+
+	defaultSpeakers := []string{
+		"media_player.kitchen",
+		"media_player.dining_room",
+	}
+	manager.announceArrivalDirect("Nick", "Nick is home", defaultSpeakers)
+
+	calls := mockHA.GetServiceCalls()
+	var ttsCall *ha.ServiceCall
+	for i := range calls {
+		if calls[i].Domain == "tts" && calls[i].Service == "speak" {
+			ttsCall = &calls[i]
+			break
+		}
+	}
+
+	if ttsCall == nil {
+		t.Fatal("Expected TTS service call even when SoCo is down")
+	}
+
+	mediaPlayers, ok := ttsCall.Data["media_player_entity_id"].([]string)
+	if !ok {
+		t.Fatalf("Expected media_player_entity_id to be []string, got %T", ttsCall.Data["media_player_entity_id"])
+	}
+
+	if len(mediaPlayers) != 2 {
+		t.Errorf("Expected fallback to default speakers (2), got %v", mediaPlayers)
 	}
 }

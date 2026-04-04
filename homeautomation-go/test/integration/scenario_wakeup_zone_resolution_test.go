@@ -64,7 +64,7 @@ func setupWakeupZoneResolutionTest(t *testing.T) (*wakeupZoneEnv, func()) {
 		server:        server,
 		stateManager:  stateManager,
 		logger:        logger,
-		stateTracking: statetracking.NewManager(context.Background(), client, stateManager, logger, false, nil),
+		stateTracking: statetracking.NewManager(context.Background(), client, stateManager, logger, false, nil, ""),
 		music:         music.NewManager(context.Background(), client, stateManager, musicConfig, logger, false, nil, nil),
 		sleepHygiene:  sleephygiene.NewManager(context.Background(), client, stateManager, configLoader, logger, false, nil, nil),
 	}

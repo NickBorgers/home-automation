@@ -2,10 +2,15 @@ package statetracking
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/url"
+	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"homeautomation/internal/clock"
 	"homeautomation/internal/ha"
@@ -76,6 +81,9 @@ type Manager struct {
 	carolineDepartureTime time.Time
 	toriDepartureTime     time.Time
 
+	// SoCo-CLI base URL for querying Sonos speaker groups (optional)
+	socoCliURL string
+
 	// Shadow state tracking
 	shadowTracker *shadowstate.StateTrackingTracker
 
@@ -84,7 +92,7 @@ type Manager struct {
 }
 
 // NewManager creates a new State Tracking manager
-func NewManager(ctx context.Context, haClient ha.HAClient, stateManager *state.Manager, logger *zap.Logger, readOnly bool, registry *shadowstate.SubscriptionRegistry) *Manager {
+func NewManager(ctx context.Context, haClient ha.HAClient, stateManager *state.Manager, logger *zap.Logger, readOnly bool, registry *shadowstate.SubscriptionRegistry, socoCliURL string) *Manager {
 	shadowTracker := shadowstate.NewStateTrackingTracker()
 
 	return &Manager{
@@ -94,6 +102,7 @@ func NewManager(ctx context.Context, haClient ha.HAClient, stateManager *state.M
 		logger:        logger.Named("statetracking"),
 		readOnly:      readOnly,
 		clock:         clock.NewRealClock(),
+		socoCliURL:    socoCliURL,
 		shadowTracker: shadowTracker,
 		subHelper:     shadowstate.NewSubscriptionHelper(haClient, stateManager, registry, shadowTracker, "statetracking", logger.Named("statetracking")),
 	}
@@ -626,6 +635,97 @@ func (m *Manager) handleCarolineNearHomeChange(entityID string, oldState, newSta
 	}
 }
 
+// entityIDToSpeakerName converts "media_player.front_room" to "Front Room".
+func entityIDToSpeakerName(entityID string) string {
+	name := strings.TrimPrefix(entityID, "media_player.")
+	words := strings.Split(name, "_")
+	for i, w := range words {
+		if len(w) > 0 {
+			runes := []rune(w)
+			runes[0] = unicode.ToUpper(runes[0])
+			words[i] = string(runes)
+		}
+	}
+	return strings.Join(words, " ")
+}
+
+// speakerNameToEntityID converts "Front Room" to "media_player.front_room".
+func speakerNameToEntityID(name string) string {
+	return "media_player." + strings.ToLower(strings.ReplaceAll(name, " ", "_"))
+}
+
+// socoGroupsResponse matches the JSON returned by SoCo-CLI's /groups endpoint.
+type socoGroupsResponse struct {
+	ExitCode int    `json:"exit_code"`
+	Result   string `json:"result"`
+	ErrorMsg string `json:"error_msg"`
+}
+
+// getGroupCoordinator queries SoCo-CLI to find the group coordinator for a speaker.
+// Returns the coordinator's entity ID if the speaker is in a group, or empty string if
+// ungrouped or SoCo-CLI is unavailable. Errors are logged and result in graceful fallback.
+func (m *Manager) getGroupCoordinator(speakerEntityID string) string {
+	if m.socoCliURL == "" {
+		return ""
+	}
+
+	speakerName := entityIDToSpeakerName(speakerEntityID)
+	endpoint := fmt.Sprintf("%s/%s/groups", m.socoCliURL, url.PathEscape(speakerName))
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Get(endpoint)
+	if err != nil {
+		m.logger.Warn("Failed to query SoCo-CLI for speaker groups, using default speakers",
+			zap.String("speaker", speakerName), zap.Error(err))
+		return ""
+	}
+	defer resp.Body.Close()
+
+	var socoResp socoGroupsResponse
+	if err := json.NewDecoder(resp.Body).Decode(&socoResp); err != nil {
+		m.logger.Warn("Failed to decode SoCo-CLI groups response", zap.Error(err))
+		return ""
+	}
+
+	if socoResp.ExitCode != 0 {
+		m.logger.Warn("SoCo-CLI groups query failed",
+			zap.Int("exit_code", socoResp.ExitCode), zap.String("error", socoResp.ErrorMsg))
+		return ""
+	}
+
+	// Parse result lines like "Front Room: Kitchen, Bedroom\nSoundbar:\n"
+	// Each line is "Coordinator: member1, member2, ..."
+	// A coordinator with no members is standalone.
+	for _, line := range strings.Split(socoResp.Result, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		parts := strings.SplitN(line, ":", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		coordinator := strings.TrimSpace(parts[0])
+		members := strings.TrimSpace(parts[1])
+		if members == "" {
+			// Standalone speaker, no group
+			continue
+		}
+
+		// Check if our speaker is the coordinator or a member of this group
+		if strings.EqualFold(coordinator, speakerName) {
+			return speakerNameToEntityID(coordinator)
+		}
+		for _, member := range strings.Split(members, ",") {
+			if strings.EqualFold(strings.TrimSpace(member), speakerName) {
+				return speakerNameToEntityID(coordinator)
+			}
+		}
+	}
+
+	return ""
+}
+
 // announceArrivalDirect makes a TTS announcement (caller has already checked if someone is home)
 func (m *Manager) announceArrivalDirect(person, message string, mediaPlayers []string) {
 	// Skip TTS in read-only mode
@@ -637,6 +737,15 @@ func (m *Manager) announceArrivalDirect(person, message string, mediaPlayers []s
 		// Still record in shadow state even in read-only mode
 		m.shadowTracker.RecordArrivalAnnouncement(person, message)
 		return
+	}
+
+	// Check if any target speaker is in a Sonos group; if so, send TTS to the
+	// group coordinator only (sending to individual group members breaks playback).
+	if coordinator := m.getGroupCoordinator(mediaPlayers[0]); coordinator != "" {
+		m.logger.Info("TTS targeting Sonos group coordinator instead of default speakers",
+			zap.String("coordinator", coordinator),
+			zap.Strings("original_speakers", mediaPlayers))
+		mediaPlayers = []string{coordinator}
 	}
 
 	// Make the TTS announcement
