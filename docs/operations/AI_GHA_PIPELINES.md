@@ -74,11 +74,11 @@ The main workflow that enables Codex to respond to requests and automatically re
 ```yaml
 concurrency:
   group: codex-interactive-${{ issue_or_pr_number }}
-  cancel-in-progress: true   # New invocation cancels the in-flight run
+  cancel-in-progress: true  # Cancel in-flight runs so the newest request executes
 ```
 
 Scoped by issue/PR number so that:
-- Two rapid `@codex` mentions on the **same** PR/issue cannot overlap (new one cancels the prior run)
+- Two rapid `@codex` mentions on the **same** PR/issue cannot overlap; the newer invocation cancels the prior run and starts immediately
 - `@codex` on **different** PRs/issues runs in parallel (separate concurrency groups)
 
 `cancel-in-progress: true` prevents queued work from racing stale context—Codex immediately restarts with the newest request, ensuring the comment that triggered it is always the one being processed.
@@ -89,8 +89,8 @@ Scoped by issue/PR number so that:
 
 Builds and caches a devcontainer image to speed up subsequent runs.
 
+- **Guard**: Runs only on newly opened issues or when the triggering comment/review body explicitly includes `@codex`, matching the workflow's `if` conditions.
 - Pushes to `ghcr.io/nickborgers/home-automation-devcontainer`
-- Only runs for newly opened issues or comments/reviews that explicitly mention `@codex`, matching the workflow guard
 - **Skip optimization**: Skips the build entirely when `.devcontainer/` files haven't changed in the PR and the image already exists in GHCR. Falls back to always building for new issues and non-PR contexts.
 - **Output**: `should-build` — consumed by downstream steps via conditional `if` guards
 
