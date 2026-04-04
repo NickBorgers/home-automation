@@ -64,10 +64,12 @@ The main workflow that enables Codex to respond to requests and automatically re
 
 ### Triggers
 
-- **Issue Comment**: When a comment contains `@codex`
-- **PR Review Comment**: When a review comment contains `@codex`
-- **PR Review**: When a review body contains `@codex`
+- **Issue Comment**: When a comment includes a plain-text `@codex` mention (not inside code blocks/links)
+- **PR Review Comment**: When a review comment includes a plain-text `@codex`
+- **PR Review**: When a review body includes a plain-text `@codex`
 - **New Issue**: When an issue is opened
+
+The authorize guard ignores quoted/code-fenced literals so automated Codex comments like templates or logs can safely include `@codex` without retriggering the workflow.
 
 ### Concurrency Control
 
@@ -95,18 +97,18 @@ Scoped by issue/PR number so that:
 
 Builds and caches a devcontainer image to speed up subsequent runs.
 
-- **Guard (critical)**: Runs **only** on newly opened issues or when the triggering comment/review body explicitly includes `@codex`, matching the workflow's `if` conditions. Routine chatter, reactions, or maintainer notes without an `@codex` mention never burn minutes on a container rebuild—the GitHub Actions summary records the skip as `Skipped (no @codex mention)` so it’s obvious a guard fired. If you need a fresh image, explicitly ping `@codex`; otherwise the cached container stays in place.
+- **Guard (critical)**: Runs **only** when the `authorize` job sets `should_run_codex=true` (plain-text mention from an authorized actor) and the triggering payload actually includes `@codex`. Routine chatter, quoted literals, or Codex’s own templated reviews produce `should_run_codex=false`, so the devcontainer rebuild is skipped (`should_build_devcontainer=false`) and the Actions summary records it as an intentional guard skip. If you really need a fresh image, post a new plain-text `@codex` mention; otherwise the cached container stays in place.
 - **Actions callout**: When the guard skips this job, the workflow summary surfaces the same message so maintainers understand why no rebuild occurred and that the container cache remains untouched.
 - Pushes to `ghcr.io/nickborgers/home-automation-devcontainer`
 - **Skip optimization**: Skips the build entirely when `.devcontainer/` files haven't changed in the PR and the image already exists in GHCR. Falls back to always building for new issues and non-PR contexts.
-- **Output**: `should-build` — consumed by downstream steps via conditional `if` guards
+- **Output**: `should_build_devcontainer` — consumed by downstream steps via conditional `if` guards
 - **Why it matters**: The guard keeps routine comments (status updates, reactions, etc.) from burning self-hosted minutes—the container build triggers only when Codex is actually going to run.
 
 #### 1.2 `codex`
 
 Responds to `@codex` mentions in comments.
 
-**Condition**: Only runs if the comment/body contains `@codex`
+**Condition**: Executes only when `needs.authorize.outputs.should_run_codex == 'true'` **and** the comment/body has a plain-text `@codex` mention, so Codex never responds to its own templated comments or quoted strings.
 
 **Workflow**:
 1. Detects if the context is a PR or issue

@@ -34,7 +34,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       authorized: ${{ steps.check-auth.outputs.authorized }}
-      should_run: ${{ steps.check-auth.outputs.should_run }}
+      should_run_codex: ${{ steps.check-auth.outputs.should_run_codex }}
     steps:
       - name: Check authorization
         id: check-auth
@@ -42,8 +42,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           COMMENT_BODY: ${{ github.event.comment.body || '' }}
           REVIEW_BODY: ${{ github.event.review.body || '' }}
-          ISSUE_BODY: ${{ github.event.issue.body || '' }}
-          ISSUE_TITLE: ${{ github.event.issue.title || '' }}
         run: |
           # Get the author association based on event type
           EVENT_NAME="${{ github.event_name }}"
@@ -69,7 +67,7 @@ jobs:
             *)
               echo "Unknown event type: $EVENT_NAME"
               echo "authorized=false" >> $GITHUB_OUTPUT
-              echo "should_run=false" >> $GITHUB_OUTPUT
+              echo "should_run_codex=false" >> $GITHUB_OUTPUT
               exit 0
               ;;
           esac
@@ -95,23 +93,31 @@ jobs:
           esac
 
           if [ "$SHOULD_RUN" = "true" ]; then
-            if [ "$EVENT_NAME" = "pull_request_review" ] || [ "$EVENT_NAME" = "pull_request_review_comment" ]; then
+            if [ "$EVENT_NAME" = "pull_request_review" ] || [ "$EVENT_NAME" = "pull_request_review_comment" ] || [ "$EVENT_NAME" = "issue_comment" ]; then
               AUTO_REVIEW_PATTERNS="## Code Review|## Design Review|## Test Review|## Concurrency Review|## Documentation Review|## Fix Attempt|## 🚦 Merge Decision|## 📋 Agent Review Summary|## Codex Code Review Skipped|## ❌ Automated Fix Failed"
-              if [ "$EVENT_NAME" = "pull_request_review" ]; then
-                BODY="$REVIEW_BODY"
-              else
-                BODY="$COMMENT_BODY"
-              fi
+              case "$EVENT_NAME" in
+                pull_request_review)
+                  BODY="$REVIEW_BODY"
+                  ;;
+                pull_request_review_comment|issue_comment)
+                  BODY="$COMMENT_BODY"
+                  ;;
+                *)
+                  BODY=""
+                  ;;
+              esac
 
-              if [ -n "$BODY" ] && echo "$BODY" | grep -q "@codex" && echo "$BODY" | grep -Eq "$AUTO_REVIEW_PATTERNS"; then
-                echo "🛑 Detected auto-generated Codex review comment containing '@codex' (matches known review headings)."
-                echo "Skipping Codex run to prevent feedback loop."
-                SHOULD_RUN="false"
+              if [ -n "$BODY" ] && echo "$BODY" | grep -q "@codex"; then
+                if echo "$BODY" | grep -Eq "$AUTO_REVIEW_PATTERNS"; then
+                  echo "🛑 Detected auto-generated Codex review comment containing '@codex' (matches known review headings)."
+                  echo "Skipping Codex run to prevent feedback loop."
+                  SHOULD_RUN="false"
+                fi
               fi
             fi
           fi
 
-          echo "should_run=$SHOULD_RUN" >> $GITHUB_OUTPUT
+          echo "should_run_codex=$SHOULD_RUN" >> $GITHUB_OUTPUT
 
   # Build and cache devcontainer image first
   # Optimization: Skip build if .devcontainer/ files haven't changed
@@ -120,7 +126,7 @@ jobs:
     needs: authorize
     if: |
       needs.authorize.outputs.authorized == 'true' &&
-      needs.authorize.outputs.should_run == 'true' &&
+      needs.authorize.outputs.should_run_codex == 'true' &&
       (
         (github.event_name == 'issues') ||
         (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@codex')) ||
@@ -132,7 +138,7 @@ jobs:
       contents: read
       packages: write
     outputs:
-      should-build: ${{ steps.check-changes.outputs.should-build }}
+      should_build_devcontainer: ${{ steps.check-changes.outputs.should_build_devcontainer }}
 
     steps:
       - name: Checkout repository
@@ -173,17 +179,17 @@ jobs:
           fi
 
           if [ "$DEVCONTAINER_CHANGED" = "true" ] || [ "$IMAGE_EXISTS" = "false" ]; then
-            echo "should-build=true" >> $GITHUB_OUTPUT
+            echo "should_build_devcontainer=true" >> $GITHUB_OUTPUT
             echo "✅ Devcontainer will be built (changed=$DEVCONTAINER_CHANGED, exists=$IMAGE_EXISTS)"
           else
-            echo "should-build=false" >> $GITHUB_OUTPUT
+            echo "should_build_devcontainer=false" >> $GITHUB_OUTPUT
             echo "⏭️  Skipping devcontainer build (no changes detected)"
           fi
         env:
           GH_TOKEN: ${{ github.token }}
 
       - name: Log in to GHCR
-        if: steps.check-changes.outputs.should-build == 'true'
+        if: steps.check-changes.outputs.should_build_devcontainer == 'true'
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -191,7 +197,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push devcontainer
-        if: steps.check-changes.outputs.should-build == 'true'
+        if: steps.check-changes.outputs.should_build_devcontainer == 'true'
         uses: devcontainers/ci@v0.3
         with:
           imageName: ${{ env.DEVCONTAINER_IMAGE }}
@@ -202,7 +208,7 @@ jobs:
     needs: [authorize, build-devcontainer]
     if: |
       needs.authorize.outputs.authorized == 'true' &&
-      needs.authorize.outputs.should_run == 'true' &&
+      needs.authorize.outputs.should_run_codex == 'true' &&
       ((github.event_name == 'issue_comment' && contains(github.event.comment.body, '@codex')) ||
       (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@codex')) ||
       (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@codex')) ||
@@ -380,7 +386,7 @@ jobs:
     needs: [authorize, build-devcontainer]
     if: |
       needs.authorize.outputs.authorized == 'true' &&
-      needs.authorize.outputs.should_run == 'true' &&
+      needs.authorize.outputs.should_run_codex == 'true' &&
       github.event_name == 'issues' && (github.event.action == 'opened' || github.event.action == 'assigned')
     runs-on: [self-hosted, homelab]
     timeout-minutes: 120
