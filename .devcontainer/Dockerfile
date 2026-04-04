@@ -48,8 +48,8 @@ RUN curl -fsSL https://deb.nodesource.com/setup_${NODE_VERSION}.x | bash - \
     && apt-get install -y nodejs \
     && rm -rf /var/lib/apt/lists/*
 
-# Codex and Crush are installed at container runtime (post-create) so devcontainer rebuilds
-# stay fast even when their installers change upstream.
+# Crush is installed at container runtime (post-create) so devcontainer rebuilds
+# stay fast even when its installer changes upstream.
 
 # Create directories for vscode user with correct ownership
 RUN mkdir -p /home/vscode/.claude/tmp \
@@ -81,6 +81,11 @@ RUN claude plugin marketplace add lackeyjb/playwright-skill \
 RUN cd ~/.claude/plugins/cache/playwright-skill/playwright-skill/*/skills/playwright-skill \
     && npm install \
     && npx playwright install chromium chrome
+
+# Install Codex CLI (baked into image to avoid runtime downloads during CI runs)
+RUN curl -fsSL --retry 5 --retry-delay 2 --retry-connrefused \
+    "https://github.com/openai/codex/releases/download/rust-v${CODEX_CLI_VERSION}/install.sh" \
+    | sh -s -- "${CODEX_CLI_VERSION}"
 
 # Switch back to root so onCreateCommand can create users dynamically.
 # The devcontainer's remoteUser setting ensures all commands run as the correct

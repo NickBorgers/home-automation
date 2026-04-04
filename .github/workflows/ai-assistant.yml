@@ -17,7 +17,7 @@ concurrency:
       github.event_name == 'pull_request_review' && github.event.pull_request.number ||
       github.event.issue.number
     }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 # SECURITY NOTE: This workflow grants Codex access to secrets and write permissions.
 # Authorization checks are implemented to prevent prompt injection from untrusted users.
@@ -91,7 +91,14 @@ jobs:
   # This saves ~1 minute per run when devcontainer is unchanged
   build-devcontainer:
     needs: authorize
-    if: needs.authorize.outputs.authorized == 'true'
+    if: |
+      needs.authorize.outputs.authorized == 'true' &&
+      (
+        (github.event_name == 'issues') ||
+        (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@codex')) ||
+        (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@codex')) ||
+        (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@codex'))
+      )
     runs-on: [self-hosted, homelab]
     permissions:
       contents: read
