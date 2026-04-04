@@ -223,7 +223,7 @@ type StateManager interface {
 
 See **[docs/reference/migration_mapping.md](../reference/migration_mapping.md)** for complete mapping.
 
-- **Boolean (27):** isNickHome, isCarolineHome, isToriHere, isAnyOwnerHome, isAnyoneHome, isAnyoneHomeAndAwake, isMasterAsleep, isGuestAsleep, isAnyoneAsleep, isEveryoneAsleep, isGuestBedroomDoorOpen, isHaveGuests, isAppleTVPlaying, isTVPlaying, isTVon, isFadeOutInProgress, isFreeEnergyAvailable, isGridAvailable, isExpectingSomeone, isNickOfficeOccupied, isKitchenOccupied, isPrimaryBedroomDoorOpen, isNickNearHome, isCarolineNearHome, isLockdown, reset, isFrontOfHousePersonPresent
+- **Boolean (27):** isNickHome, isCarolineHome, isAssistantHere, isAnyOwnerHome, isAnyoneHome, isAnyoneHomeAndAwake, isMasterAsleep, isGuestAsleep, isAnyoneAsleep, isEveryoneAsleep, isGuestBedroomDoorOpen, isHaveGuests, isAppleTVPlaying, isTVPlaying, isTVon, isFadeOutInProgress, isFreeEnergyAvailable, isGridAvailable, isExpectingSomeone, isNickOfficeOccupied, isKitchenOccupied, isPrimaryBedroomDoorOpen, isNickNearHome, isCarolineNearHome, isLockdown, reset, isFrontOfHousePersonPresent
 - **Number (3):** alarmTime, remainingSolarGeneration, thisHourSolarGeneration
 - **Text (8):** dayPhase, sunevent, musicPlaybackType, currentlyPlayingMusicUri, musicPlaylistRotation, batteryEnergyLevel, currentEnergyLevel, solarProductionEnergyLevel
 - **Local-only (2):** didOwnerJustReturnHome (bool), currentlyPlayingMusic (JSON)
@@ -277,7 +277,7 @@ Each plugin corresponds to a Node-RED flow and implements domain-specific automa
 **Node-RED Flow:** State Tracking
 
 **Responsibilities:**
-- Track presence (Nick, Caroline, Tori home/away)
+- Track presence (Nick, Caroline, Assistant home/away)
 - Determine derived states (any owner home, anyone home)
 - Track sleep states (master asleep, guest asleep, everyone asleep)
 - Monitor door states (guest bedroom door, office occupancy)
@@ -329,7 +329,7 @@ Each plugin corresponds to a Node-RED flow and implements domain-specific automa
 - **Playback Control**: Mode change → Build participant groups → Set volumes → Start playback (all speaker commands via SoCo-CLI when configured, fallback to HA)
 - **Shutdown on Exit**: Everyone leaves → Stop all playback
 
-**Events Consumed:** `state.dayPhase.changed`, `state.isAnyoneHome.changed`, `state.isMasterAsleep.changed`, `state.isGuestAsleep.changed`, `state.isToriHere.changed`, `state.isTVPlaying.changed`
+**Events Consumed:** `state.dayPhase.changed`, `state.isAnyoneHome.changed`, `state.isMasterAsleep.changed`, `state.isGuestAsleep.changed`, `state.isAssistantHere.changed`, `state.isTVPlaying.changed`
 
 **Config File:** `music_config.yaml`
 
@@ -582,10 +582,10 @@ The system includes a **ComputedStateRegistry** for managing derived state varia
 | Variable | Formula | Dependencies |
 |----------|---------|--------------|
 | `isAnyOwnerHome` | `isNickHome OR isCarolineHome` | isNickHome, isCarolineHome |
-| `isAnyoneHome` | `isAnyOwnerHome OR isToriHere` | isAnyOwnerHome, isToriHere |
+| `isAnyoneHome` | `isAnyOwnerHome OR isAssistantHere` | isAnyOwnerHome, isAssistantHere |
 | `isAnyoneAsleep` | `isMasterAsleep OR isGuestAsleep` | isMasterAsleep, isGuestAsleep |
 | `isEveryoneAsleep` | `isMasterAsleep AND isGuestAsleep` | isMasterAsleep, isGuestAsleep |
-| `isAnyoneHomeAndAwake` | `(isAnyOwnerHome && !isAnyoneAsleep) \|\| isToriHere \|\| wakeSequenceLatch` | isAnyOwnerHome, isAnyoneAsleep, isToriHere, isWakeSequenceActive |
+| `isAnyoneHomeAndAwake` | `(isAnyOwnerHome && !isAnyoneAsleep) \|\| isAssistantHere \|\| wakeSequenceLatch` | isAnyOwnerHome, isAnyoneAsleep, isAssistantHere, isWakeSequenceActive |
 | `solarProductionEnergyLevel` | Solar level from thresholds | thisHourSolarGeneration, remainingSolarGeneration |
 | `currentEnergyLevel` | Combined battery + solar level | isFreeEnergyAvailable, batteryEnergyLevel, solarProductionEnergyLevel |
 

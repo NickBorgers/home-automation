@@ -763,7 +763,7 @@ func TestZoneManager_EvaluateTriggersWithDetails_AllGroupsEvaluated(t *testing.T
 				TriggerGroups: []TriggerGroup{
 					{Triggers: []TriggerCondition{{Variable: "isNickHome", Value: true}}},
 					{Triggers: []TriggerCondition{{Variable: "isCarolineHome", Value: true}}},
-					{Triggers: []TriggerCondition{{Variable: "isToriHere", Value: true}}},
+					{Triggers: []TriggerCondition{{Variable: "isAssistantHere", Value: true}}},
 				},
 			},
 		},
@@ -781,7 +781,7 @@ func TestZoneManager_EvaluateTriggersWithDetails_AllGroupsEvaluated(t *testing.T
 	// Set all variables to false first
 	require.NoError(t, stateManager.SetBool("isNickHome", false))
 	require.NoError(t, stateManager.SetBool("isCarolineHome", false))
-	require.NoError(t, stateManager.SetBool("isToriHere", false))
+	require.NoError(t, stateManager.SetBool("isAssistantHere", false))
 
 	// Test when no group matches
 	eval := zm.evaluateTriggersWithDetails(config.Zones[0])
@@ -799,7 +799,7 @@ func TestZoneManager_EvaluateTriggersWithDetails_AllGroupsEvaluated(t *testing.T
 	// Verify each group's match status
 	assert.False(t, eval.GroupResults[0].Matched) // isNickHome=false
 	assert.True(t, eval.GroupResults[1].Matched)  // isCarolineHome=true
-	assert.False(t, eval.GroupResults[2].Matched) // isToriHere=false
+	assert.False(t, eval.GroupResults[2].Matched) // isAssistantHere=false
 }
 
 // Test evaluateTriggerListWithDetails returns correct results

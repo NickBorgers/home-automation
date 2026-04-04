@@ -1024,13 +1024,13 @@ func TestScenario_WakeSequence_LightingConditionPriority(t *testing.T) {
 	// The computed state will derive isAnyoneHomeAndAwake=false
 	require.NoError(t, manager.SetBool("isAnyOwnerHome", true))
 	require.NoError(t, manager.SetBool("isAnyoneAsleep", true)) // Makes isAnyoneHomeAndAwake=false
-	require.NoError(t, manager.SetBool("isToriHere", false))
+	require.NoError(t, manager.SetBool("isAssistantHere", false))
 	require.NoError(t, manager.SetBool("isMasterAsleep", true))
 	require.NoError(t, manager.SetBool("isAnyoneHome", true))
 	require.NoError(t, manager.SetString("dayPhase", "morning"))
 
 	// Trigger recomputation of isAnyoneHomeAndAwake
-	// This should now be false: (isAnyOwnerHome && !isAnyoneAsleep) || isToriHere
+	// This should now be false: (isAnyOwnerHome && !isAnyoneAsleep) || isAssistantHere
 	// = (true && !true) || false = false
 	// Allow computed state to be recalculated
 	waitForProcessing(t, manager)

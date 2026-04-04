@@ -85,8 +85,8 @@ func (d *DevServer) populateSampleData() {
 	d.server.SetState("input_boolean.caroline_home", "off", map[string]interface{}{
 		"friendly_name": "Caroline Home",
 	})
-	d.server.SetState("input_boolean.tori_here", "off", map[string]interface{}{
-		"friendly_name": "Tori Here",
+	d.server.SetState("input_boolean.assistant_here", "off", map[string]interface{}{
+		"friendly_name": "Assistant Here",
 	})
 	d.server.SetState("input_boolean.any_owner_home", "on", map[string]interface{}{
 		"friendly_name": "Any Owner Home",

@@ -18,7 +18,7 @@ type ComputedStateCallback struct {
 // RegisterPresenceProviders registers all presence-related computed state providers.
 // Level 1 computed states:
 //   - isAnyOwnerHome = isNickHome OR isCarolineHome
-//   - isAnyoneHome = isAnyOwnerHome OR isToriHere
+//   - isAnyoneHome = isAnyOwnerHome OR isAssistantHere
 //
 // These are the foundational presence states that other computations depend on.
 func RegisterPresenceProviders(registry *ComputedStateRegistry, callbacks *ComputedStateCallback) error {
@@ -57,25 +57,25 @@ func RegisterPresenceProviders(registry *ComputedStateRegistry, callbacks *Compu
 		return err
 	}
 
-	// isAnyoneHome = isAnyOwnerHome OR isToriHere
+	// isAnyoneHome = isAnyOwnerHome OR isAssistantHere
 	if err := registry.Register(&ComputedStateProvider{
 		Name:         "isAnyoneHome",
-		Dependencies: []string{"isAnyOwnerHome", "isToriHere"},
+		Dependencies: []string{"isAnyOwnerHome", "isAssistantHere"},
 		ComputeFunc: func(ctx *ComputeContext) (interface{}, error) {
 			isAnyOwnerHome, err := ctx.GetBool("isAnyOwnerHome")
 			if err != nil {
 				return nil, err
 			}
-			isToriHere, err := ctx.GetBool("isToriHere")
+			isAssistantHere, err := ctx.GetBool("isAssistantHere")
 			if err != nil {
 				return nil, err
 			}
 
-			result := isAnyOwnerHome || isToriHere
+			result := isAnyOwnerHome || isAssistantHere
 
 			ctx.Logger().Debug("Computed isAnyoneHome",
 				zap.Bool("isAnyOwnerHome", isAnyOwnerHome),
-				zap.Bool("isToriHere", isToriHere),
+				zap.Bool("isAssistantHere", isAssistantHere),
 				zap.Bool("result", result))
 
 			return result, nil
@@ -158,7 +158,7 @@ func RegisterSleepProviders(registry *ComputedStateRegistry, callbacks *Computed
 
 // RegisterAnyoneHomeAndAwakeProvider registers the isAnyoneHomeAndAwake computed state.
 // Level 2 computed state:
-//   - isAnyoneHomeAndAwake = (isAnyOwnerHome AND NOT isAnyoneAsleep) OR isToriHere OR wakeSequenceLatch
+//   - isAnyoneHomeAndAwake = (isAnyOwnerHome AND NOT isAnyoneAsleep) OR isAssistantHere OR wakeSequenceLatch
 //
 // This is a more complex computed state that includes:
 //   - Dependency on Level 1 computed states (isAnyOwnerHome, isAnyoneAsleep)
@@ -168,7 +168,7 @@ func RegisterSleepProviders(registry *ComputedStateRegistry, callbacks *Computed
 func RegisterAnyoneHomeAndAwakeProvider(registry *ComputedStateRegistry, latch *WakeSequenceLatch, callbacks *ComputedStateCallback) error {
 	if err := registry.Register(&ComputedStateProvider{
 		Name:         "isAnyoneHomeAndAwake",
-		Dependencies: []string{"isAnyOwnerHome", "isAnyoneAsleep", "isToriHere"},
+		Dependencies: []string{"isAnyOwnerHome", "isAnyoneAsleep", "isAssistantHere"},
 		ComputeFunc: func(ctx *ComputeContext) (interface{}, error) {
 			isAnyOwnerHome, err := ctx.GetBool("isAnyOwnerHome")
 			if err != nil {
@@ -178,7 +178,7 @@ func RegisterAnyoneHomeAndAwakeProvider(registry *ComputedStateRegistry, latch *
 			if err != nil {
 				return nil, err
 			}
-			isToriHere, err := ctx.GetBool("isToriHere")
+			isAssistantHere, err := ctx.GetBool("isAssistantHere")
 			if err != nil {
 				return nil, err
 			}
@@ -186,12 +186,12 @@ func RegisterAnyoneHomeAndAwakeProvider(registry *ComputedStateRegistry, latch *
 			// Get latch state
 			latchActive := latch.IsActive()
 
-			result := (isAnyOwnerHome && !isAnyoneAsleep) || isToriHere || latchActive
+			result := (isAnyOwnerHome && !isAnyoneAsleep) || isAssistantHere || latchActive
 
 			ctx.Logger().Debug("Computed isAnyoneHomeAndAwake",
 				zap.Bool("isAnyOwnerHome", isAnyOwnerHome),
 				zap.Bool("isAnyoneAsleep", isAnyoneAsleep),
-				zap.Bool("isToriHere", isToriHere),
+				zap.Bool("isAssistantHere", isAssistantHere),
 				zap.Bool("wakeSequenceLatch", latchActive),
 				zap.Bool("result", result))
 

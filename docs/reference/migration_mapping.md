@@ -26,7 +26,7 @@ All 42 state variables currently implemented in the Go application, organized by
 |----------|----------------------|-------------|-------|
 | isNickHome | input_boolean.nick_home | Nick's presence status | - |
 | isCarolineHome | input_boolean.caroline_home | Caroline's presence status | - |
-| isToriHere | input_boolean.tori_here | Tori's presence status | - |
+| isAssistantHere | input_boolean.assistant_here | Assistant's presence status | - |
 | isAnyOwnerHome | input_boolean.any_owner_home | Whether any owner is home | ComputedOutput |
 | isAnyoneHome | input_boolean.anyone_home | Whether anyone is home | ComputedOutput |
 | isAnyoneHomeAndAwake | input_boolean.anyone_home_and_awake | Anyone home and not asleep | ComputedOutput |

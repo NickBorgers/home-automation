@@ -426,7 +426,7 @@ func displayState(manager *state.Manager, logger *zap.Logger) {
 	// Display booleans
 	logger.Info("--- Boolean Variables ---")
 	boolVars := []string{
-		"isNickHome", "isCarolineHome", "isToriHere",
+		"isNickHome", "isCarolineHome", "isAssistantHere",
 		"isAnyOwnerHome", "isAnyoneHome", "isAnyoneHomeAndAwake",
 		"isMasterAsleep", "isGuestAsleep", "isAnyoneAsleep", "isEveryoneAsleep",
 		"isGuestBedroomDoorOpen", "isHaveGuests",

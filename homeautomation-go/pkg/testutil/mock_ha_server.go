@@ -206,7 +206,7 @@ func (s *MockHAServer) GetState(entityID string) *EntityState {
 func (s *MockHAServer) InitializeStates() {
 	// Boolean states
 	boolEntities := []string{
-		"nick_home", "caroline_home", "tori_here",
+		"nick_home", "caroline_home", "assistant_here",
 		"any_owner_home", "anyone_home", "anyone_home_and_awake",
 		"master_asleep", "guest_asleep", "anyone_asleep", "everyone_asleep",
 		"guest_bedroom_door_open", "have_guests",

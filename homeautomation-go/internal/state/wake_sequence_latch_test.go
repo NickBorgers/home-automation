@@ -20,7 +20,7 @@ func setupTestManagerForLatch(t *testing.T) (*Manager, *ha.MockClient) {
 	// Set up required entities
 	mockClient.SetState("input_boolean.nick_home", "off", map[string]interface{}{})
 	mockClient.SetState("input_boolean.caroline_home", "off", map[string]interface{}{})
-	mockClient.SetState("input_boolean.tori_here", "off", map[string]interface{}{})
+	mockClient.SetState("input_boolean.assistant_here", "off", map[string]interface{}{})
 	mockClient.SetState("input_boolean.any_owner_home", "off", map[string]interface{}{})
 	mockClient.SetState("input_boolean.anyone_home", "off", map[string]interface{}{})
 	mockClient.SetState("input_boolean.master_asleep", "off", map[string]interface{}{})

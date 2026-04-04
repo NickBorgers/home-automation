@@ -263,7 +263,7 @@ defer stateTrackingManager.Stop()  // Stops first (registered first)
 - `isAnyoneHomeAndAwake` - Computed from `isAnyoneHome && !isAnyoneAsleep`
 
 **Events Subscribed:**
-- `isNickHome`, `isCarolineHome`, `isToriHere`
+- `isNickHome`, `isCarolineHome`, `isAssistantHere`
 - `isMasterAsleep`, `isGuestAsleep`
 - `isHaveGuests`
 
@@ -304,7 +304,7 @@ defer stateTrackingManager.Stop()  // Stops first (registered first)
 
 **Events Subscribed:**
 - `dayPhase`, `isAnyoneHome`, `isAnyoneAsleep`
-- `isMasterAsleep`, `isGuestAsleep`, `isToriHere`
+- `isMasterAsleep`, `isGuestAsleep`, `isAssistantHere`
 
 **Configuration:** Uses `music_config.yaml` for playlists and speaker groups.
 
