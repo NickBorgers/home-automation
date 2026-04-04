@@ -86,9 +86,10 @@ Scoped by issue/PR number so that:
 **Practical effect:**
 - Follow-up `@codex` comments or issue bodies automatically cancel the in-flight ai-assistant run for that PR/issue as soon as GitHub receives the new request.
 - The cancelled run lands in Actions with the yellow `Cancelled` badge and the event log cites the concurrency guard ("Superseded by another run in codex-interactive-<number>"). Only the newest comment gets a response.
+- Actions now displays a concurrency guard callout in the cancelled run’s summary so it’s obvious why it stopped and which replacement run superseded it.
 - GitHub immediately starts a fresh run using the latest payload so Codex never executes stale instructions.
 
-**What you’ll see in Actions:** the superseded run flips to yellow `Cancelled` within a few seconds and its summary panel explicitly calls out that a newer run for the same concurrency group began. The replacement run starts cleanly with the latest comment payload, so there’s no risk of Codex responding to stale instructions.
+**What you’ll see in Actions:** the superseded run flips to yellow `Cancelled` within a few seconds and its summary panel explicitly calls out that a newer run for the same concurrency group began (the same message shown in the concurrency guard callout). The replacement run starts cleanly with the latest comment payload, so there’s no risk of Codex responding to stale instructions.
 
 ### Jobs
 
@@ -97,6 +98,7 @@ Scoped by issue/PR number so that:
 Builds and caches a devcontainer image to speed up subsequent runs.
 
 - **Guard (critical)**: Runs **only** on newly opened issues or when the triggering comment/review body explicitly includes `@codex`, matching the workflow's `if` conditions. Routine chatter, reactions, or maintainer notes without an `@codex` mention never burn minutes on a container rebuild.
+- **Actions callout**: When the guard skips this job, the workflow summary surfaces the same concurrency message (“skipped: no @codex mention”) so maintainers understand why no rebuild occurred.
 - Pushes to `ghcr.io/nickborgers/home-automation-devcontainer`
 - **Skip optimization**: Skips the build entirely when `.devcontainer/` files haven't changed in the PR and the image already exists in GHCR. Falls back to always building for new issues and non-PR contexts.
 - **Output**: `should-build` — consumed by downstream steps via conditional `if` guards
