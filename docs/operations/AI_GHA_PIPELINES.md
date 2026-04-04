@@ -83,9 +83,12 @@ Scoped by issue/PR number so that:
 
 `cancel-in-progress: true` prevents queued work from racing stale context—Codex immediately restarts with the newest request, ensuring the comment that triggered it is always the one being processed.
 
-**Practical effect:** If someone asks Codex to do something while a previous run is still executing, GitHub cancels the in-flight run within a few seconds and spins up a fresh run for the new request. The cancelled run shows as yellow "Cancelled," and only the latest comment gets a response.
+**Practical effect:**
+- Follow-up `@codex` comments or issue bodies automatically cancel the in-flight ai-assistant run for that PR/issue as soon as GitHub receives the new request.
+- The cancelled run lands in Actions with the yellow `Cancelled` badge and the event log cites the concurrency guard ("Superseded by another run in codex-interactive-<number>"). Only the newest comment gets a response.
+- GitHub immediately starts a fresh run using the latest payload so Codex never executes stale instructions.
 
-**What you’ll see in Actions:** the superseded run flips to a yellow "Cancelled" status within a few seconds and its summary panel notes that a newer run for the same concurrency group started. The replacement run starts cleanly with the latest comment payload, so there’s no risk of Codex responding to stale instructions.
+**What you’ll see in Actions:** the superseded run flips to yellow `Cancelled` within a few seconds and its summary panel explicitly calls out that a newer run for the same concurrency group began. The replacement run starts cleanly with the latest comment payload, so there’s no risk of Codex responding to stale instructions.
 
 ### Jobs
 
