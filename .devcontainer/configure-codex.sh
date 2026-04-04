@@ -12,6 +12,11 @@ fi
 
 mkdir -p "$HOME/.codex"
 
+CODEX_GIT_NAME_DEFAULT="codex[bot]"
+CODEX_GIT_EMAIL_DEFAULT="codex[bot]@users.noreply.github.com"
+CODEX_GIT_NAME="${CODEX_GIT_NAME:-$CODEX_GIT_NAME_DEFAULT}"
+CODEX_GIT_EMAIL="${CODEX_GIT_EMAIL:-$CODEX_GIT_EMAIL_DEFAULT}"
+
 # Configure Codex CLI to use the self-hosted LiteLLM proxy (no-auth).
 # OPENAI_API_KEY is set to a placeholder in devcontainer.json because
 # the LiteLLM proxy doesn't require authentication.
@@ -24,5 +29,15 @@ name = "LiteLLM"
 base_url = "https://llm.featherback-mermaid.ts.net/v1"
 env_key = "OPENAI_API_KEY"
 EOF
+
+if [ "${GITHUB_ACTIONS:-}" = "true" ]; then
+  git config --global user.name "${CODEX_GIT_NAME}"
+  git config --global user.email "${CODEX_GIT_EMAIL}"
+
+  export GIT_AUTHOR_NAME="${CODEX_GIT_NAME}"
+  export GIT_AUTHOR_EMAIL="${CODEX_GIT_EMAIL}"
+  export GIT_COMMITTER_NAME="${CODEX_GIT_NAME}"
+  export GIT_COMMITTER_EMAIL="${CODEX_GIT_EMAIL}"
+fi
 
 echo "Codex configured for LiteLLM proxy."
