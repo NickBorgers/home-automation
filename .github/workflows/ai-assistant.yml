@@ -149,6 +149,13 @@ PY
                     SHOULD_RUN="false"
                   fi
                 fi
+              else
+                if [ -n "$BODY" ]; then
+                  echo "ℹ️ No plain-text '@codex' mention found in comment/review body. Skipping Codex run."
+                else
+                  echo "ℹ️ Empty comment/review body received. Skipping Codex run."
+                fi
+                SHOULD_RUN="false"
               fi
             fi
 
