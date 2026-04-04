@@ -74,14 +74,20 @@ The main workflow that enables Codex to respond to requests and automatically re
 ```yaml
 concurrency:
   group: codex-interactive-${{ issue_or_pr_number }}
-  cancel-in-progress: false  # Complete first request, queue the second
+  cancel-in-progress: true  # Cancel in-flight runs so the newest request executes
 ```
 
 Scoped by issue/PR number so that:
-- Two rapid `@codex` mentions on the **same** PR/issue are serialized (second queues until first completes)
+- Two rapid `@codex` mentions on the **same** PR/issue cannot overlap; the newer invocation cancels the prior run and starts immediately
 - `@codex` on **different** PRs/issues runs in parallel (separate concurrency groups)
 
-`cancel-in-progress: false` ensures the first request completes (it may already be mid-commit). The second request runs after the first finishes and sees its changes.
+`cancel-in-progress: true` prevents queued work from racing stale context—Codex immediately restarts with the newest request so the freshly posted comment is always the one being processed.
+
+**When the guard trips (GitHub Actions summary messaging):**
+- In-flight runs flip to the yellow `Cancelled` badge within seconds; the GitHub Actions run summary surfaces the callout “Superseded by another run in codex-interactive-<number>,” so you immediately know a newer request preempted it.
+- Runs blocked before they start show up in the Actions summary as `Skipped by concurrency guard` with the same superseded message, making it obvious the skip was intentional and not a workflow failure.
+- Only the newest comment gets a response; stale runs never emit results because GitHub immediately launches a fresh execution with the latest payload.
+- Treat the coloured cancellation/skip messaging as confirmation that the guard worked—no manual cleanup required.
 
 ### Jobs
 
@@ -89,9 +95,12 @@ Scoped by issue/PR number so that:
 
 Builds and caches a devcontainer image to speed up subsequent runs.
 
+- **Guard (critical)**: Runs **only** on newly opened issues or when the triggering comment/review body explicitly includes `@codex`, matching the workflow's `if` conditions. Routine chatter, reactions, or maintainer notes without an `@codex` mention never burn minutes on a container rebuild—the GitHub Actions summary records the skip as `Skipped (no @codex mention)` so it’s obvious a guard fired. If you need a fresh image, explicitly ping `@codex`; otherwise the cached container stays in place.
+- **Actions callout**: When the guard skips this job, the workflow summary surfaces the same message so maintainers understand why no rebuild occurred and that the container cache remains untouched.
 - Pushes to `ghcr.io/nickborgers/home-automation-devcontainer`
 - **Skip optimization**: Skips the build entirely when `.devcontainer/` files haven't changed in the PR and the image already exists in GHCR. Falls back to always building for new issues and non-PR contexts.
 - **Output**: `should-build` — consumed by downstream steps via conditional `if` guards
+- **Why it matters**: The guard keeps routine comments (status updates, reactions, etc.) from burning self-hosted minutes—the container build triggers only when Codex is actually going to run.
 
 #### 1.2 `codex`
 
