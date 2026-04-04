@@ -123,6 +123,7 @@ FENCED_CODE_RE = re.compile(r"```.*?```", re.DOTALL | re.IGNORECASE)
 INLINE_CODE_RE = re.compile(r"`[^`]*`")
 HTML_CODE_RE = re.compile(r"<code>.*?</code>", re.DOTALL | re.IGNORECASE)
 LINK_RE = re.compile(r"\[[^\]]*\]\([^)]+\)")
+HTML_LINK_RE = re.compile(r"<a\s[^>]*>.*?</a>", re.DOTALL | re.IGNORECASE)
 PLAIN_MENTION_RE = re.compile(r"(?<![\w@\[/`\"'])@codex(?![\w-])", re.IGNORECASE)
 
 def strip_code(text: str) -> str:
@@ -132,7 +133,9 @@ def strip_code(text: str) -> str:
     return text
 
 def strip_links(text: str) -> str:
-    return LINK_RE.sub(" ", text)
+    text = LINK_RE.sub(" ", text)
+    text = HTML_LINK_RE.sub(" ", text)
+    return text
 
 sanitized = strip_links(strip_code(body))
 print("true" if PLAIN_MENTION_RE.search(sanitized) else "false")

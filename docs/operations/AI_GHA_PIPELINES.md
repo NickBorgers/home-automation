@@ -64,7 +64,7 @@ The main workflow that enables Codex to respond to requests and automatically re
 
 ### Triggers
 
-- **Issue Comment**: When a comment includes a plain-text `@codex` mention (not inside code blocks/links)
+- **Issue Comment**: When a comment includes a plain-text `@codex` mention (not inside code blocks or Markdown/HTML links)
 - **PR Review Comment**: When a review comment includes a plain-text `@codex`
 - **PR Review**: When a review body includes a plain-text `@codex`
 - **New Issue**: When an issue is opened
@@ -97,7 +97,7 @@ Scoped by issue/PR number so that:
 
 Builds and caches a devcontainer image to speed up subsequent runs.
 
-- **Guard (critical)**: Runs **only** when the `authorize` job sets `should_run_codex=true` (plain-text mention from an authorized actor) and the triggering payload actually includes `@codex`. Routine chatter, quoted literals, or Codex’s own templated reviews produce `should_run_codex=false`, so the devcontainer rebuild is skipped (`should_build_devcontainer=false`) and the Actions summary records it as an intentional guard skip. If you really need a fresh image, post a new plain-text `@codex` mention; otherwise the cached container stays in place.
+- **Guard (critical)**: Runs **only** when the `authorize` job sets `should_run_codex=true` (plain-text mention from an authorized actor; guard strips Markdown/HTML links and code blocks first) and the triggering payload actually includes `@codex`. Routine chatter, quoted literals, or Codex’s own templated reviews produce `should_run_codex=false`, so the devcontainer rebuild is skipped (`should_build_devcontainer=false`) and the Actions summary records it as an intentional guard skip. If you really need a fresh image, post a new plain-text `@codex` mention; otherwise the cached container stays in place.
 - **Actions callout**: When the guard skips this job, the workflow summary surfaces the same message so maintainers understand why no rebuild occurred and that the container cache remains untouched.
 - Pushes to `ghcr.io/nickborgers/home-automation-devcontainer`
 - **Skip optimization**: Skips the build entirely when `.devcontainer/` files haven't changed in the PR and the image already exists in GHCR. Falls back to always building for new issues and non-PR contexts.
@@ -108,7 +108,7 @@ Builds and caches a devcontainer image to speed up subsequent runs.
 
 Responds to `@codex` mentions in comments.
 
-**Condition**: Executes only when `needs.authorize.outputs.should_run_codex == 'true'` **and** the comment/body has a plain-text `@codex` mention, so Codex never responds to its own templated comments or quoted strings.
+**Condition**: Executes only when `needs.authorize.outputs.should_run_codex == 'true'` **and** the comment/body has a plain-text `@codex` mention (after stripping Markdown/HTML links and code blocks), so Codex never responds to its own templated comments or quoted strings.
 
 **Workflow**:
 1. Detects if the context is a PR or issue
