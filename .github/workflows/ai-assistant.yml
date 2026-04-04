@@ -34,14 +34,20 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       authorized: ${{ steps.check-auth.outputs.authorized }}
+      should_run: ${{ steps.check-auth.outputs.should_run }}
     steps:
       - name: Check authorization
         id: check-auth
         env:
           GH_TOKEN: ${{ github.token }}
+          COMMENT_BODY: ${{ github.event.comment.body || '' }}
+          REVIEW_BODY: ${{ github.event.review.body || '' }}
+          ISSUE_BODY: ${{ github.event.issue.body || '' }}
+          ISSUE_TITLE: ${{ github.event.issue.title || '' }}
         run: |
           # Get the author association based on event type
           EVENT_NAME="${{ github.event_name }}"
+          SHOULD_RUN="true"
 
           case "$EVENT_NAME" in
             issue_comment)
@@ -63,6 +69,7 @@ jobs:
             *)
               echo "Unknown event type: $EVENT_NAME"
               echo "authorized=false" >> $GITHUB_OUTPUT
+              echo "should_run=false" >> $GITHUB_OUTPUT
               exit 0
               ;;
           esac
@@ -83,8 +90,28 @@ jobs:
               echo "External users cannot trigger Codex workflows."
               echo "This is a security measure to prevent prompt injection attacks."
               echo "authorized=false" >> $GITHUB_OUTPUT
+              SHOULD_RUN="false"
               ;;
           esac
+
+          if [ "$SHOULD_RUN" = "true" ]; then
+            if [ "$EVENT_NAME" = "pull_request_review" ] || [ "$EVENT_NAME" = "pull_request_review_comment" ]; then
+              AUTO_REVIEW_PATTERNS="## Code Review|## Design Review|## Test Review|## Concurrency Review|## Documentation Review|## Fix Attempt|## 🚦 Merge Decision|## 📋 Agent Review Summary|## Codex Code Review Skipped|## ❌ Automated Fix Failed"
+              if [ "$EVENT_NAME" = "pull_request_review" ]; then
+                BODY="$REVIEW_BODY"
+              else
+                BODY="$COMMENT_BODY"
+              fi
+
+              if [ -n "$BODY" ] && echo "$BODY" | grep -q "@codex" && echo "$BODY" | grep -Eq "$AUTO_REVIEW_PATTERNS"; then
+                echo "🛑 Detected auto-generated Codex review comment containing '@codex' (matches known review headings)."
+                echo "Skipping Codex run to prevent feedback loop."
+                SHOULD_RUN="false"
+              fi
+            fi
+          fi
+
+          echo "should_run=$SHOULD_RUN" >> $GITHUB_OUTPUT
 
   # Build and cache devcontainer image first
   # Optimization: Skip build if .devcontainer/ files haven't changed
@@ -93,6 +120,7 @@ jobs:
     needs: authorize
     if: |
       needs.authorize.outputs.authorized == 'true' &&
+      needs.authorize.outputs.should_run == 'true' &&
       (
         (github.event_name == 'issues') ||
         (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@codex')) ||
@@ -174,6 +202,7 @@ jobs:
     needs: [authorize, build-devcontainer]
     if: |
       needs.authorize.outputs.authorized == 'true' &&
+      needs.authorize.outputs.should_run == 'true' &&
       ((github.event_name == 'issue_comment' && contains(github.event.comment.body, '@codex')) ||
       (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@codex')) ||
       (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@codex')) ||
@@ -351,6 +380,7 @@ jobs:
     needs: [authorize, build-devcontainer]
     if: |
       needs.authorize.outputs.authorized == 'true' &&
+      needs.authorize.outputs.should_run == 'true' &&
       github.event_name == 'issues' && (github.event.action == 'opened' || github.event.action == 'assigned')
     runs-on: [self-hosted, homelab]
     timeout-minutes: 120
