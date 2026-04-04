@@ -34,14 +34,20 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       authorized: ${{ steps.check-auth.outputs.authorized }}
+      should_run_codex: ${{ steps.check-auth.outputs.should_run_codex }}
     steps:
       - name: Check authorization
         id: check-auth
         env:
           GH_TOKEN: ${{ github.token }}
+          COMMENT_BODY: ${{ github.event.comment.body || '' }}
+          REVIEW_BODY: ${{ github.event.review.body || '' }}
+          ISSUE_BODY: ${{ github.event.issue.body || '' }}
+          ISSUE_TITLE: ${{ github.event.issue.title || '' }}
         run: |
           # Get the author association based on event type
           EVENT_NAME="${{ github.event_name }}"
+          SHOULD_RUN="true"
 
           case "$EVENT_NAME" in
             issue_comment)
@@ -63,6 +69,7 @@ jobs:
             *)
               echo "Unknown event type: $EVENT_NAME"
               echo "authorized=false" >> $GITHUB_OUTPUT
+              echo "should_run_codex=false" >> $GITHUB_OUTPUT
               exit 0
               ;;
           esac
@@ -83,8 +90,187 @@ jobs:
               echo "External users cannot trigger Codex workflows."
               echo "This is a security measure to prevent prompt injection attacks."
               echo "authorized=false" >> $GITHUB_OUTPUT
+              SHOULD_RUN="false"
               ;;
           esac
+
+          if [ "$SHOULD_RUN" = "true" ]; then
+            if [ "$EVENT_NAME" = "pull_request_review" ] || [ "$EVENT_NAME" = "pull_request_review_comment" ] || [ "$EVENT_NAME" = "issue_comment" ]; then
+              AUTO_REVIEW_PATTERNS="## Code Review|## Design Review|## Test Review|## Concurrency Review|## Documentation Review|## Fix Attempt|## 🚦 Merge Decision|## 📋 Agent Review Summary|## Codex Code Review Skipped|## ❌ Automated Fix Failed"
+              case "$EVENT_NAME" in
+                pull_request_review)
+                  BODY="$REVIEW_BODY"
+                  ;;
+                pull_request_review_comment|issue_comment)
+                  BODY="$COMMENT_BODY"
+                  ;;
+                *)
+                  BODY=""
+                  ;;
+              esac
+
+              if [ -n "$BODY" ] && echo "$BODY" | grep -q "@codex"; then
+                if echo "$BODY" | grep -Eq "$AUTO_REVIEW_PATTERNS"; then
+                  echo "🛑 Detected auto-generated Codex review comment containing '@codex' (matches known review headings)."
+                  echo "Skipping Codex run to prevent feedback loop."
+                  SHOULD_RUN="false"
+                else
+                  PLAIN_MENTION=$(env BODY="$BODY" python3 <<'PY'
+import os
+import re
+
+body = os.environ.get("BODY", "")
+
+FENCED_CODE_RE = re.compile(r"```.*?```", re.DOTALL | re.IGNORECASE)
+INLINE_CODE_RE = re.compile(r"`[^`]*`")
+HTML_CODE_RE = re.compile(r"<code>.*?</code>", re.DOTALL | re.IGNORECASE)
+LINK_RE = re.compile(r"\[[^\]]*\]\([^)]+\)")
+HTML_LINK_RE = re.compile(r"<a\s[^>]*>.*?</a>", re.DOTALL | re.IGNORECASE)
+PLAIN_MENTION_RE = re.compile(r"(?<![\w@\[/`\"'])@codex(?![\w-])", re.IGNORECASE)
+
+def strip_code(text: str) -> str:
+    text = FENCED_CODE_RE.sub(" ", text)
+    text = HTML_CODE_RE.sub(" ", text)
+    text = INLINE_CODE_RE.sub(" ", text)
+    return text
+
+def strip_links(text: str) -> str:
+    text = LINK_RE.sub(" ", text)
+    text = HTML_LINK_RE.sub(" ", text)
+    return text
+
+sanitized = strip_links(strip_code(body))
+print("true" if PLAIN_MENTION_RE.search(sanitized) else "false")
+PY
+)
+
+                  if [ "$PLAIN_MENTION" != "true" ]; then
+                    echo "ℹ️ '@codex' mention found only inside code blocks, links, or structured text. Skipping Codex run."
+                    SHOULD_RUN="false"
+                  fi
+                fi
+              else
+                if [ -n "$BODY" ]; then
+                  echo "ℹ️ No plain-text '@codex' mention found in comment/review body. Skipping Codex run."
+                else
+                  echo "ℹ️ Empty comment/review body received. Skipping Codex run."
+                fi
+                SHOULD_RUN="false"
+              fi
+            fi
+
+            if [ "$SHOULD_RUN" = "true" ] && [ "$EVENT_NAME" = "issue_comment" ]; then
+              IS_PR_CONTEXT=$(python3 <<'PY'
+import json
+import os
+
+event_path = os.environ.get("GITHUB_EVENT_PATH")
+
+def is_pr_issue() -> bool:
+    if not event_path:
+        return False
+
+    with open(event_path, "r", encoding="utf-8") as f:
+        event = json.load(f)
+
+    issue = event.get("issue")
+    return bool(issue and issue.get("pull_request"))
+
+print("true" if is_pr_issue() else "false")
+PY
+)
+
+              if [ "$IS_PR_CONTEXT" != "true" ]; then
+                ISSUE_HAS_PLAIN=$(env ISSUE_BODY="$ISSUE_BODY" ISSUE_TITLE="$ISSUE_TITLE" python3 <<'PY'
+import os
+import re
+
+body = os.environ.get("ISSUE_BODY", "") or ""
+title = os.environ.get("ISSUE_TITLE", "") or ""
+
+FENCED_CODE_RE = re.compile(r"```.*?```", re.DOTALL | re.IGNORECASE)
+INLINE_CODE_RE = re.compile(r"`[^`]*`")
+HTML_CODE_RE = re.compile(r"<code>.*?</code>", re.DOTALL | re.IGNORECASE)
+LINK_RE = re.compile(r"\[[^\]]*\]\([^\)]+\)")
+HTML_LINK_RE = re.compile(r"<a\s[^>]*>.*?</a>", re.DOTALL | re.IGNORECASE)
+PLAIN_MENTION_RE = re.compile(r"(?<![\w@\[/`\"'])@codex(?![\w-])", re.IGNORECASE)
+
+
+def strip_code(text: str) -> str:
+    text = FENCED_CODE_RE.sub(" ", text)
+    text = HTML_CODE_RE.sub(" ", text)
+    text = INLINE_CODE_RE.sub(" ", text)
+    return text
+
+
+def strip_links(text: str) -> str:
+    text = LINK_RE.sub(" ", text)
+    text = HTML_LINK_RE.sub(" ", text)
+    return text
+
+
+def has_plain(text: str) -> bool:
+    sanitized = strip_links(strip_code(text))
+    return bool(PLAIN_MENTION_RE.search(sanitized))
+
+
+print("true" if has_plain(body) or has_plain(title) else "false")
+PY
+)
+
+                if [ "$ISSUE_HAS_PLAIN" != "true" ]; then
+                  echo "ℹ️ Issue title/body does not contain a plain-text '@codex' mention. Skipping Codex run."
+                  SHOULD_RUN="false"
+                fi
+              fi
+            fi
+
+            if [ "$SHOULD_RUN" = "true" ] && [ "$EVENT_NAME" = "issues" ]; then
+              PLAIN_ISSUE=$(env ISSUE_BODY="$ISSUE_BODY" ISSUE_TITLE="$ISSUE_TITLE" python3 <<'PY'
+import os
+import re
+
+body = os.environ.get("ISSUE_BODY", "") or ""
+title = os.environ.get("ISSUE_TITLE", "") or ""
+
+FENCED_CODE_RE = re.compile(r"```.*?```", re.DOTALL | re.IGNORECASE)
+INLINE_CODE_RE = re.compile(r"`[^`]*`")
+HTML_CODE_RE = re.compile(r"<code>.*?</code>", re.DOTALL | re.IGNORECASE)
+LINK_RE = re.compile(r"\[[^\]]*\]\([^)]+\)")
+HTML_LINK_RE = re.compile(r"<a\s[^>]*>.*?</a>", re.DOTALL | re.IGNORECASE)
+PLAIN_MENTION_RE = re.compile(r"(?<![\w@\[/`\"'])@codex(?![\w-])", re.IGNORECASE)
+
+
+def strip_code(text: str) -> str:
+    text = FENCED_CODE_RE.sub(" ", text)
+    text = HTML_CODE_RE.sub(" ", text)
+    text = INLINE_CODE_RE.sub(" ", text)
+    return text
+
+
+def strip_links(text: str) -> str:
+    text = LINK_RE.sub(" ", text)
+    text = HTML_LINK_RE.sub(" ", text)
+    return text
+
+
+def has_plain(text: str) -> bool:
+    sanitized = strip_links(strip_code(text))
+    return bool(PLAIN_MENTION_RE.search(sanitized))
+
+
+print("true" if has_plain(body) or has_plain(title) else "false")
+PY
+)
+
+              if [ "$PLAIN_ISSUE" != "true" ]; then
+                echo "ℹ️ '@codex' mention not found in plain text of issue title/body. Skipping Codex run."
+                SHOULD_RUN="false"
+              fi
+            fi
+          fi
+
+          echo "should_run_codex=$SHOULD_RUN" >> $GITHUB_OUTPUT
 
   # Build and cache devcontainer image first
   # Optimization: Skip build if .devcontainer/ files haven't changed
@@ -93,6 +279,7 @@ jobs:
     needs: authorize
     if: |
       needs.authorize.outputs.authorized == 'true' &&
+      needs.authorize.outputs.should_run_codex == 'true' &&
       (
         (github.event_name == 'issues') ||
         (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@codex')) ||
@@ -104,7 +291,7 @@ jobs:
       contents: read
       packages: write
     outputs:
-      should-build: ${{ steps.check-changes.outputs.should-build }}
+      should_build_devcontainer: ${{ steps.check-changes.outputs.should_build_devcontainer }}
 
     steps:
       - name: Checkout repository
@@ -145,17 +332,17 @@ jobs:
           fi
 
           if [ "$DEVCONTAINER_CHANGED" = "true" ] || [ "$IMAGE_EXISTS" = "false" ]; then
-            echo "should-build=true" >> $GITHUB_OUTPUT
+            echo "should_build_devcontainer=true" >> $GITHUB_OUTPUT
             echo "✅ Devcontainer will be built (changed=$DEVCONTAINER_CHANGED, exists=$IMAGE_EXISTS)"
           else
-            echo "should-build=false" >> $GITHUB_OUTPUT
+            echo "should_build_devcontainer=false" >> $GITHUB_OUTPUT
             echo "⏭️  Skipping devcontainer build (no changes detected)"
           fi
         env:
           GH_TOKEN: ${{ github.token }}
 
       - name: Log in to GHCR
-        if: steps.check-changes.outputs.should-build == 'true'
+        if: steps.check-changes.outputs.should_build_devcontainer == 'true'
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -163,7 +350,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push devcontainer
-        if: steps.check-changes.outputs.should-build == 'true'
+        if: steps.check-changes.outputs.should_build_devcontainer == 'true'
         uses: devcontainers/ci@v0.3
         with:
           imageName: ${{ env.DEVCONTAINER_IMAGE }}
@@ -174,6 +361,7 @@ jobs:
     needs: [authorize, build-devcontainer]
     if: |
       needs.authorize.outputs.authorized == 'true' &&
+      needs.authorize.outputs.should_run_codex == 'true' &&
       ((github.event_name == 'issue_comment' && contains(github.event.comment.body, '@codex')) ||
       (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@codex')) ||
       (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@codex')) ||
@@ -351,6 +539,7 @@ jobs:
     needs: [authorize, build-devcontainer]
     if: |
       needs.authorize.outputs.authorized == 'true' &&
+      needs.authorize.outputs.should_run_codex == 'true' &&
       github.event_name == 'issues' && (github.event.action == 'opened' || github.event.action == 'assigned')
     runs-on: [self-hosted, homelab]
     timeout-minutes: 120
