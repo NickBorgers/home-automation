@@ -42,4 +42,7 @@ type Manager interface {
 
 	// Query
 	GetAllValues() map[string]interface{}
+
+	// WaitForProcessing blocks until all in-flight event handler goroutines complete.
+	WaitForProcessing()
 }

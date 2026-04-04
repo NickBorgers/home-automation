@@ -73,3 +73,7 @@ func (a *ManagerAdapter) Subscribe(key string, handler StateChangeHandler) (Subs
 func (a *ManagerAdapter) GetAllValues() map[string]interface{} {
 	return a.internal.GetAllValues()
 }
+
+func (a *ManagerAdapter) WaitForProcessing() {
+	a.internal.WaitForProcessing()
+}
