@@ -83,6 +83,8 @@ Scoped by issue/PR number so that:
 
 `cancel-in-progress: true` prevents queued work from racing stale context—Codex immediately restarts with the newest request, ensuring the comment that triggered it is always the one being processed.
 
+**What you’ll see in Actions:** the superseded run flips to a yellow "Cancelled" status within a few seconds and its summary panel notes that a newer run for the same concurrency group started. The replacement run starts cleanly with the latest comment payload, so there’s no risk of Codex responding to stale instructions.
+
 ### Jobs
 
 #### 1.1 `build-devcontainer`
@@ -93,6 +95,7 @@ Builds and caches a devcontainer image to speed up subsequent runs.
 - Pushes to `ghcr.io/nickborgers/home-automation-devcontainer`
 - **Skip optimization**: Skips the build entirely when `.devcontainer/` files haven't changed in the PR and the image already exists in GHCR. Falls back to always building for new issues and non-PR contexts.
 - **Output**: `should-build` — consumed by downstream steps via conditional `if` guards
+- **Why it matters**: The guard keeps routine comments (status updates, reactions, etc.) from burning self-hosted minutes—the container build triggers only when Codex is actually going to run.
 
 #### 1.2 `codex`
 
