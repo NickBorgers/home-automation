@@ -42,6 +42,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           COMMENT_BODY: ${{ github.event.comment.body || '' }}
           REVIEW_BODY: ${{ github.event.review.body || '' }}
+          ISSUE_BODY: ${{ github.event.issue.body || '' }}
+          ISSUE_TITLE: ${{ github.event.issue.title || '' }}
         run: |
           # Get the author association based on event type
           EVENT_NAME="${{ github.event_name }}"
@@ -147,6 +149,50 @@ PY
                     SHOULD_RUN="false"
                   fi
                 fi
+              fi
+            fi
+
+            if [ "$SHOULD_RUN" = "true" ] && [ "$EVENT_NAME" = "issues" ]; then
+              PLAIN_ISSUE=$(env ISSUE_BODY="$ISSUE_BODY" ISSUE_TITLE="$ISSUE_TITLE" python3 <<'PY'
+import os
+import re
+
+body = os.environ.get("ISSUE_BODY", "") or ""
+title = os.environ.get("ISSUE_TITLE", "") or ""
+
+FENCED_CODE_RE = re.compile(r"```.*?```", re.DOTALL | re.IGNORECASE)
+INLINE_CODE_RE = re.compile(r"`[^`]*`")
+HTML_CODE_RE = re.compile(r"<code>.*?</code>", re.DOTALL | re.IGNORECASE)
+LINK_RE = re.compile(r"\[[^\]]*\]\([^)]+\)")
+HTML_LINK_RE = re.compile(r"<a\s[^>]*>.*?</a>", re.DOTALL | re.IGNORECASE)
+PLAIN_MENTION_RE = re.compile(r"(?<![\w@\[/`\"'])@codex(?![\w-])", re.IGNORECASE)
+
+
+def strip_code(text: str) -> str:
+    text = FENCED_CODE_RE.sub(" ", text)
+    text = HTML_CODE_RE.sub(" ", text)
+    text = INLINE_CODE_RE.sub(" ", text)
+    return text
+
+
+def strip_links(text: str) -> str:
+    text = LINK_RE.sub(" ", text)
+    text = HTML_LINK_RE.sub(" ", text)
+    return text
+
+
+def has_plain(text: str) -> bool:
+    sanitized = strip_links(strip_code(text))
+    return bool(PLAIN_MENTION_RE.search(sanitized))
+
+
+print("true" if has_plain(body) or has_plain(title) else "false")
+PY
+)
+
+              if [ "$PLAIN_ISSUE" != "true" ]; then
+                echo "ℹ️ '@codex' mention not found in plain text of issue title/body. Skipping Codex run."
+                SHOULD_RUN="false"
               fi
             fi
           fi
