@@ -69,6 +69,7 @@ The main workflow that enables Codex to respond to requests and automatically re
 - **PR Review**: When a review body includes a plain-text `@codex`
 - **New Issue**: When an issue is opened _and_ the issue title or body includes a plain-text `@codex` mention
 
+For **issue threads**, the guard now insists that the issue title or body already contains a plain-text `@codex` mention before any follow-up comments can launch Codex. This ensures maintainers explicitly opt-in when opening the issue instead of retroactively adding a mention inside backticks or hyperlinks.
 The authorize guard ignores quoted/code-fenced literals so automated Codex comments like templates or logs can safely include `@codex` without retriggering the workflow.
 
 ### Concurrency Control
@@ -97,7 +98,11 @@ Scoped by issue/PR number so that:
 
 Builds and caches a devcontainer image to speed up subsequent runs.
 
-- **Guard (critical)**: Runs **only** when the `authorize` job sets `should_run_codex=true` (plain-text mention from an authorized actor; guard strips Markdown/HTML links and code blocks first). For issue triggers, the title or body must contain a plain-text `@codex`. Routine chatter, quoted literals, or Codex’s own templated reviews produce `should_run_codex=false`, so the devcontainer rebuild is skipped (`should_build_devcontainer=false`) and the Actions summary records it as an intentional guard skip. If you really need a fresh image, post a new plain-text `@codex` mention; otherwise the cached container stays in place.
+- **Guard (critical)**: Runs **only** when the `authorize` job sets `should_run_codex=true`. The guard strips Markdown/HTML links and code blocks before searching for a plain-text `@codex`, and surfaces its decision through two outputs:
+  - `should_run_codex`: `true` only for authorized actors whose payload includes a plain-text `@codex`. For issue threads, the issue title/body must already contain the mention before any comment @-pings can execute.
+  - `should_build_devcontainer`: `true` when Codex is about to run and the devcontainer needs a rebuild.
+
+Routine chatter, quoted literals, or Codex’s own templated reviews flip `should_run_codex=false`, so the devcontainer rebuild is skipped (`should_build_devcontainer=false`) and the Actions summary records it as an intentional guard skip. If you really need a fresh image, post a new plain-text `@codex`; otherwise the cached container stays in place.
 - **Actions callout**: When the guard skips this job, the workflow summary surfaces the same message so maintainers understand why no rebuild occurred and that the container cache remains untouched.
 - Pushes to `ghcr.io/nickborgers/home-automation-devcontainer`
 - **Skip optimization**: Skips the build entirely when `.devcontainer/` files haven't changed in the PR and the image already exists in GHCR. Falls back to always building for new issues and non-PR contexts.
@@ -108,7 +113,7 @@ Builds and caches a devcontainer image to speed up subsequent runs.
 
 Responds to `@codex` mentions in comments.
 
-**Condition**: Executes only when `needs.authorize.outputs.should_run_codex == 'true'` **and** the payload includes a plain-text `@codex` mention (after stripping Markdown/HTML links and code blocks). For issues, the title or body must contain the mention. This prevents Codex from responding to its own templated comments or to quoted strings.
+**Condition**: Executes only when `needs.authorize.outputs.should_run_codex == 'true'`, meaning an authorized actor supplied a plain-text `@codex` (after stripping Markdown/HTML links and code blocks). Issue comments also require the issue title/body to contain a plain-text mention. This prevents Codex from responding to its own templated comments, quoted strings, or retroactive edits that never updated the original issue text.
 
 **Workflow**:
 1. Detects if the context is a PR or issue

@@ -152,6 +152,72 @@ PY
               fi
             fi
 
+            if [ "$SHOULD_RUN" = "true" ] && [ "$EVENT_NAME" = "issue_comment" ]; then
+              IS_PR_CONTEXT=$(python3 <<'PY'
+import json
+import os
+
+event_path = os.environ.get("GITHUB_EVENT_PATH")
+
+def is_pr_issue() -> bool:
+    if not event_path:
+        return False
+
+    with open(event_path, "r", encoding="utf-8") as f:
+        event = json.load(f)
+
+    issue = event.get("issue")
+    return bool(issue and issue.get("pull_request"))
+
+print("true" if is_pr_issue() else "false")
+PY
+)
+
+              if [ "$IS_PR_CONTEXT" != "true" ]; then
+                ISSUE_HAS_PLAIN=$(env ISSUE_BODY="$ISSUE_BODY" ISSUE_TITLE="$ISSUE_TITLE" python3 <<'PY'
+import os
+import re
+
+body = os.environ.get("ISSUE_BODY", "") or ""
+title = os.environ.get("ISSUE_TITLE", "") or ""
+
+FENCED_CODE_RE = re.compile(r"```.*?```", re.DOTALL | re.IGNORECASE)
+INLINE_CODE_RE = re.compile(r"`[^`]*`")
+HTML_CODE_RE = re.compile(r"<code>.*?</code>", re.DOTALL | re.IGNORECASE)
+LINK_RE = re.compile(r"\[[^\]]*\]\([^\)]+\)")
+HTML_LINK_RE = re.compile(r"<a\s[^>]*>.*?</a>", re.DOTALL | re.IGNORECASE)
+PLAIN_MENTION_RE = re.compile(r"(?<![\w@\[/`\"'])@codex(?![\w-])", re.IGNORECASE)
+
+
+def strip_code(text: str) -> str:
+    text = FENCED_CODE_RE.sub(" ", text)
+    text = HTML_CODE_RE.sub(" ", text)
+    text = INLINE_CODE_RE.sub(" ", text)
+    return text
+
+
+def strip_links(text: str) -> str:
+    text = LINK_RE.sub(" ", text)
+    text = HTML_LINK_RE.sub(" ", text)
+    return text
+
+
+def has_plain(text: str) -> bool:
+    sanitized = strip_links(strip_code(text))
+    return bool(PLAIN_MENTION_RE.search(sanitized))
+
+
+print("true" if has_plain(body) or has_plain(title) else "false")
+PY
+)
+
+                if [ "$ISSUE_HAS_PLAIN" != "true" ]; then
+                  echo "ℹ️ Issue title/body does not contain a plain-text '@codex' mention. Skipping Codex run."
+                  SHOULD_RUN="false"
+                fi
+              fi
+            fi
+
             if [ "$SHOULD_RUN" = "true" ] && [ "$EVENT_NAME" = "issues" ]; then
               PLAIN_ISSUE=$(env ISSUE_BODY="$ISSUE_BODY" ISSUE_TITLE="$ISSUE_TITLE" python3 <<'PY'
 import os
