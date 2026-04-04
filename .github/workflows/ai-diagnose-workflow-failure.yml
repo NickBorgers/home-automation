@@ -94,6 +94,7 @@ jobs:
           echo "should_diagnose=true" >> $GITHUB_OUTPUT
 
   # Build devcontainer for Codex
+  # Optimization: Skip build if image already exists in GHCR
   build-devcontainer:
     runs-on: [self-hosted, homelab]
     needs: check-failure
@@ -106,7 +107,19 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Check if devcontainer image exists
+        id: check-image
+        run: |
+          if docker manifest inspect ${{ env.DEVCONTAINER_IMAGE }}:latest >/dev/null 2>&1; then
+            echo "should-build=false" >> $GITHUB_OUTPUT
+            echo "⏭️  Skipping devcontainer build (image already exists)"
+          else
+            echo "should-build=true" >> $GITHUB_OUTPUT
+            echo "✅ Devcontainer will be built (image not found)"
+          fi
+
       - name: Log in to GHCR
+        if: steps.check-image.outputs.should-build == 'true'
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -114,6 +127,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push devcontainer
+        if: steps.check-image.outputs.should-build == 'true'
         uses: devcontainers/ci@v0.3
         with:
           imageName: ${{ env.DEVCONTAINER_IMAGE }}
