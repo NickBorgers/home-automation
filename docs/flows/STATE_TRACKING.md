@@ -133,6 +133,11 @@ flowchart TD
         assistantArrives["input_boolean.assistant_here<br/>changes to 'on'"]
     end
 
+    subgraph Debounce["Arrival Debounce (issue #922)"]
+        debounceCheck{"Departed < 5min ago?<br/>(sensor bounce)"}
+        suppressed["Suppressed<br/>(presence sensor bounce)"]
+    end
+
     subgraph Check["Announcement Check"]
         wasAnyoneHome{"Was anyone else<br/>already home?"}
     end
@@ -144,15 +149,19 @@ flowchart TD
         skip["No announcement<br/>(no one to hear it)"]
     end
 
-    nickArrives --> wasAnyoneHome
-    carolineArrives --> wasAnyoneHome
-    assistantArrives --> wasAnyoneHome
+    nickArrives --> debounceCheck
+    carolineArrives --> debounceCheck
+    assistantArrives --> debounceCheck
+
+    debounceCheck -->|Yes| suppressed
+    debounceCheck -->|No| wasAnyoneHome
 
     wasAnyoneHome -->|Yes, Nick arriving| announceNick
     wasAnyoneHome -->|Yes, Caroline arriving| announceCaroline
     wasAnyoneHome -->|Yes, Assistant arriving| announceAssistant
     wasAnyoneHome -->|No| skip
 
+    style suppressed fill:#e74c3c,color:#fff
     style skip fill:#95a5a6,color:#fff
 ```
 

@@ -455,6 +455,22 @@ func toSnakeCase(str string) string {
 	return strings.Trim(result, "_")
 }
 
+// maxReturnHomeTransition is the maximum transition (in seconds) when activating
+// scenes after someone returns home. Long transitions on lights that are off can
+// silently fail on Hue bridges, and users want lights up quickly when arriving.
+const maxReturnHomeTransition = 5
+
+// isPresenceTrigger returns true if the trigger variable indicates a presence change
+// (someone arriving/leaving), which means lights may be transitioning from off to on.
+func isPresenceTrigger(trigger string) bool {
+	switch trigger {
+	case "isAnyoneHome", "isAnyoneHomeAndAwake", "isNickHome", "isCarolineHome", "isHaveGuests":
+		return true
+	default:
+		return false
+	}
+}
+
 // activateScene activates a Hue scene for a room
 func (m *Manager) activateScene(ctx context.Context, room *RoomConfig, dayPhase string, trigger string) {
 	// Construct scene entity ID: scene.{snake_case(hue_group + " " + day_phase)}
@@ -490,9 +506,20 @@ func (m *Manager) activateScene(ctx context.Context, room *RoomConfig, dayPhase 
 		"entity_id": sceneEntityID,
 	}
 
-	// Add transition if specified
+	// Add transition if specified.
+	// When triggered by a presence change (someone returning home), cap the transition
+	// to avoid Hue bridge issues where long transitions on off lights silently fail.
 	if room.TransitionSeconds != nil {
-		serviceData["transition"] = *room.TransitionSeconds
+		transition := *room.TransitionSeconds
+		if isPresenceTrigger(trigger) && transition > maxReturnHomeTransition {
+			m.logger.Info("Capping transition for presence-triggered scene activation",
+				zap.String("room", room.HueGroup),
+				zap.Int("original_transition", transition),
+				zap.Int("capped_transition", maxReturnHomeTransition),
+				zap.String("trigger", trigger))
+			transition = maxReturnHomeTransition
+		}
+		serviceData["transition"] = transition
 	}
 
 	// The Nook doesn't do well with dynamics because of its lights

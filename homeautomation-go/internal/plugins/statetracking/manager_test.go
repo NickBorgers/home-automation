@@ -1135,3 +1135,206 @@ func TestStateTrackingManager_NearHomeDepartureCooldown(t *testing.T) {
 		})
 	}
 }
+
+// TestStateTrackingManager_ArrivalDebounce tests that arrival announcements and
+// didOwnerJustReturnHome are suppressed when a presence sensor bounces (issue #922).
+func TestStateTrackingManager_ArrivalDebounce(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name              string
+		homeEntityID      string
+		homeStateVar      string
+		otherHomeStateVar string
+		otherHomeValue    bool
+		timeSinceDepart   time.Duration
+		expectTTS         bool
+		expectOwnerReturn bool
+	}{
+		{
+			name:              "Nick arrival suppressed during debounce (bounce)",
+			homeEntityID:      "input_boolean.nick_home",
+			homeStateVar:      "isNickHome",
+			otherHomeStateVar: "isCarolineHome",
+			otherHomeValue:    true,
+			timeSinceDepart:   72 * time.Second,
+			expectTTS:         false,
+			expectOwnerReturn: false,
+		},
+		{
+			name:              "Nick arrival allowed after debounce (genuine arrival)",
+			homeEntityID:      "input_boolean.nick_home",
+			homeStateVar:      "isNickHome",
+			otherHomeStateVar: "isCarolineHome",
+			otherHomeValue:    true,
+			timeSinceDepart:   6 * time.Minute,
+			expectTTS:         true,
+			expectOwnerReturn: true,
+		},
+		{
+			name:              "Caroline arrival suppressed during debounce (bounce)",
+			homeEntityID:      "input_boolean.caroline_home",
+			homeStateVar:      "isCarolineHome",
+			otherHomeStateVar: "isNickHome",
+			otherHomeValue:    true,
+			timeSinceDepart:   30 * time.Second,
+			expectTTS:         false,
+			expectOwnerReturn: false,
+		},
+		{
+			name:              "Caroline arrival allowed after debounce (genuine arrival)",
+			homeEntityID:      "input_boolean.caroline_home",
+			homeStateVar:      "isCarolineHome",
+			otherHomeStateVar: "isNickHome",
+			otherHomeValue:    true,
+			timeSinceDepart:   10 * time.Minute,
+			expectTTS:         true,
+			expectOwnerReturn: true,
+		},
+		{
+			name:              "Tori arrival suppressed during debounce (bounce)",
+			homeEntityID:      "input_boolean.tori_here",
+			homeStateVar:      "isToriHere",
+			otherHomeStateVar: "isNickHome",
+			otherHomeValue:    true,
+			timeSinceDepart:   1 * time.Minute,
+			expectTTS:         false,
+			expectOwnerReturn: false,
+		},
+		{
+			name:              "Tori arrival allowed after debounce (genuine arrival)",
+			homeEntityID:      "input_boolean.tori_here",
+			homeStateVar:      "isToriHere",
+			otherHomeStateVar: "isNickHome",
+			otherHomeValue:    true,
+			timeSinceDepart:   6 * time.Minute,
+			expectTTS:         true,
+			expectOwnerReturn: false, // Tori doesn't set didOwnerJustReturnHome
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockHA := ha.NewMockClient()
+			logger := zap.NewNop()
+			stateMgr := state.NewManager(mockHA, logger, false)
+
+			mockClock := clock.NewMockClock(time.Now())
+
+			// Setup: person is home initially, someone else is also home (for TTS)
+			if err := stateMgr.SetBool(tt.homeStateVar, true); err != nil {
+				t.Fatalf("Failed to set %s: %v", tt.homeStateVar, err)
+			}
+			if err := stateMgr.SetBool(tt.otherHomeStateVar, tt.otherHomeValue); err != nil {
+				t.Fatalf("Failed to set %s: %v", tt.otherHomeStateVar, err)
+			}
+			if err := stateMgr.SetBool("didOwnerJustReturnHome", false); err != nil {
+				t.Fatalf("Failed to set didOwnerJustReturnHome: %v", err)
+			}
+
+			manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
+			manager.SetClock(mockClock)
+			if err := manager.Start(); err != nil {
+				t.Fatalf("Failed to start manager: %v", err)
+			}
+			defer manager.Stop()
+
+			// Simulate person leaving home (on -> off) — records departure time
+			mockHA.SetState(tt.homeEntityID, "on", nil)
+			mockHA.SetState(tt.homeEntityID, "off", nil)
+
+			// Clear any state set by the departure handler
+			_ = stateMgr.SetBool("didOwnerJustReturnHome", false)
+
+			// Advance time by the configured duration
+			mockClock.AdvanceAndProcess(tt.timeSinceDepart)
+
+			// Snapshot service call count before re-arrival
+			snapshot := mockHA.ServiceCallCount()
+
+			// Simulate re-arrival (off -> on)
+			mockHA.SetState(tt.homeEntityID, "off", nil)
+			mockHA.SetState(tt.homeEntityID, "on", nil)
+
+			// Give the async handler a moment to process
+			time.Sleep(50 * time.Millisecond)
+
+			// Verify TTS
+			calls := mockHA.GetServiceCallsSince(snapshot)
+			var ttsCalled bool
+			for _, call := range calls {
+				if call.Domain == "tts" && call.Service == "speak" {
+					ttsCalled = true
+					break
+				}
+			}
+			if ttsCalled != tt.expectTTS {
+				t.Errorf("Expected TTS called=%v, got %v (timeSinceDepart=%v)",
+					tt.expectTTS, ttsCalled, tt.timeSinceDepart)
+			}
+
+			// Verify didOwnerJustReturnHome
+			didOwnerReturn, err := stateMgr.GetBool("didOwnerJustReturnHome")
+			if err != nil {
+				t.Fatalf("Failed to get didOwnerJustReturnHome: %v", err)
+			}
+			if didOwnerReturn != tt.expectOwnerReturn {
+				t.Errorf("Expected didOwnerJustReturnHome=%v, got %v (timeSinceDepart=%v)",
+					tt.expectOwnerReturn, didOwnerReturn, tt.timeSinceDepart)
+			}
+		})
+	}
+}
+
+// TestStateTrackingManager_ArrivalDebounce_FirstArrivalNotSuppressed tests that
+// the very first arrival (no prior departure) is NOT suppressed by the debounce.
+func TestStateTrackingManager_ArrivalDebounce_FirstArrivalNotSuppressed(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+
+	// Caroline is home, Nick is away (never departed — zero departure time)
+	if err := stateMgr.SetBool("isCarolineHome", true); err != nil {
+		t.Fatalf("Failed to set isCarolineHome: %v", err)
+	}
+	if err := stateMgr.SetBool("isNickHome", false); err != nil {
+		t.Fatalf("Failed to set isNickHome: %v", err)
+	}
+	if err := stateMgr.SetBool("didOwnerJustReturnHome", false); err != nil {
+		t.Fatalf("Failed to set didOwnerJustReturnHome: %v", err)
+	}
+
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
+	if err := manager.Start(); err != nil {
+		t.Fatalf("Failed to start manager: %v", err)
+	}
+	defer manager.Stop()
+
+	// Snapshot before arrival
+	snapshot := mockHA.ServiceCallCount()
+
+	// Nick arrives for the first time (no prior departure)
+	mockHA.SetState("input_boolean.nick_home", "off", nil)
+	mockHA.SetState("input_boolean.nick_home", "on", nil)
+
+	time.Sleep(50 * time.Millisecond)
+
+	// Should NOT be suppressed — first arrival
+	calls := mockHA.GetServiceCallsSince(snapshot)
+	var ttsCalled bool
+	for _, call := range calls {
+		if call.Domain == "tts" && call.Service == "speak" {
+			ttsCalled = true
+			break
+		}
+	}
+	if !ttsCalled {
+		t.Error("Expected TTS announcement for first arrival (no prior departure), but none was made")
+	}
+
+	didOwnerReturn, _ := stateMgr.GetBool("didOwnerJustReturnHome")
+	if !didOwnerReturn {
+		t.Error("Expected didOwnerJustReturnHome=true for first arrival, got false")
+	}
+}
