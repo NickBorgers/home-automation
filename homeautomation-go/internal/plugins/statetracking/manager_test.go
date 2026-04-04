@@ -1191,9 +1191,9 @@ func TestStateTrackingManager_ArrivalDebounce(t *testing.T) {
 			expectOwnerReturn: true,
 		},
 		{
-			name:              "Tori arrival suppressed during debounce (bounce)",
-			homeEntityID:      "input_boolean.tori_here",
-			homeStateVar:      "isToriHere",
+			name:              "Assistant arrival suppressed during debounce (bounce)",
+			homeEntityID:      "input_boolean.assistant_here",
+			homeStateVar:      "isAssistantHere",
 			otherHomeStateVar: "isNickHome",
 			otherHomeValue:    true,
 			timeSinceDepart:   1 * time.Minute,
@@ -1201,14 +1201,14 @@ func TestStateTrackingManager_ArrivalDebounce(t *testing.T) {
 			expectOwnerReturn: false,
 		},
 		{
-			name:              "Tori arrival allowed after debounce (genuine arrival)",
-			homeEntityID:      "input_boolean.tori_here",
-			homeStateVar:      "isToriHere",
+			name:              "Assistant arrival allowed after debounce (genuine arrival)",
+			homeEntityID:      "input_boolean.assistant_here",
+			homeStateVar:      "isAssistantHere",
 			otherHomeStateVar: "isNickHome",
 			otherHomeValue:    true,
 			timeSinceDepart:   6 * time.Minute,
 			expectTTS:         true,
-			expectOwnerReturn: false, // Tori doesn't set didOwnerJustReturnHome
+			expectOwnerReturn: false, // Assistant doesn't set didOwnerJustReturnHome
 		},
 	}
 

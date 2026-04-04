@@ -72,9 +72,9 @@ type Manager struct {
 
 	// Departure timestamps to suppress near_home false positives (issue #918)
 	// and arrival bounce debounce (issue #922)
-	nickDepartureTime     time.Time
-	carolineDepartureTime time.Time
-	toriDepartureTime     time.Time
+	nickDepartureTime      time.Time
+	carolineDepartureTime  time.Time
+	assistantDepartureTime time.Time
 
 	// Shadow state tracking
 	shadowTracker *shadowstate.StateTrackingTracker
@@ -490,12 +490,12 @@ func (m *Manager) handleAssistantHereChange(entityID string, oldState, newState 
 
 		// Check arrival debounce to suppress presence sensor bounce (issue #922)
 		m.timerMutex.Lock()
-		timeSinceDeparture := m.clock.Now().Sub(m.toriDepartureTime)
-		recentlyDeparted := !m.toriDepartureTime.IsZero() && timeSinceDeparture < ArrivalDebounceDuration
+		timeSinceDeparture := m.clock.Now().Sub(m.assistantDepartureTime)
+		recentlyDeparted := !m.assistantDepartureTime.IsZero() && timeSinceDeparture < ArrivalDebounceDuration
 		m.timerMutex.Unlock()
 
 		if recentlyDeparted {
-			m.logger.Info("Tori arrival suppressed - presence sensor bounce (arrival debounce)",
+			m.logger.Info("Assistant arrival suppressed - presence sensor bounce (arrival debounce)",
 				zap.Duration("timeSinceDeparture", timeSinceDeparture),
 				zap.Duration("debounceDuration", ArrivalDebounceDuration))
 			return
@@ -523,9 +523,9 @@ func (m *Manager) handleAssistantHereChange(entityID string, oldState, newState 
 			m.logger.Debug("Nobody else was home, not announcing Assistant's arrival")
 		}
 	} else if newState.State != "on" && oldState.State == "on" {
-		// Tori left - record departure time for arrival debounce (issue #922)
+		// Assistant left - record departure time for arrival debounce (issue #922)
 		m.timerMutex.Lock()
-		m.toriDepartureTime = m.clock.Now()
+		m.assistantDepartureTime = m.clock.Now()
 		m.timerMutex.Unlock()
 	}
 }
