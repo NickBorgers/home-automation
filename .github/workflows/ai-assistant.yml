@@ -97,25 +97,34 @@ jobs:
           if [ "$SHOULD_RUN" = "true" ]; then
             if [ "$EVENT_NAME" = "pull_request_review" ] || [ "$EVENT_NAME" = "pull_request_review_comment" ] || [ "$EVENT_NAME" = "issue_comment" ]; then
               AUTO_REVIEW_PATTERNS="## Code Review|## Design Review|## Test Review|## Concurrency Review|## Documentation Review|## Fix Attempt|## 🚦 Merge Decision|## 📋 Agent Review Summary|## Codex Code Review Skipped|## ❌ Automated Fix Failed"
+              TARGET_LABEL="comment"
               case "$EVENT_NAME" in
                 pull_request_review)
                   BODY="$REVIEW_BODY"
+                  TARGET_LABEL="review"
                   ;;
                 pull_request_review_comment|issue_comment)
                   BODY="$COMMENT_BODY"
+                  if [ "$EVENT_NAME" = "pull_request_review_comment" ]; then
+                    TARGET_LABEL="review comment"
+                  else
+                    TARGET_LABEL="comment"
+                  fi
                   ;;
                 *)
                   BODY=""
+                  TARGET_LABEL="payload"
                   ;;
               esac
 
-              if [ -n "$BODY" ] && echo "$BODY" | grep -q "@codex"; then
+              if [ -n "$BODY" ]; then
                 if echo "$BODY" | grep -Eq "$AUTO_REVIEW_PATTERNS"; then
                   echo "🛑 Detected auto-generated Codex review comment containing '@codex' (matches known review headings)."
                   echo "Skipping Codex run to prevent feedback loop."
                   SHOULD_RUN="false"
                 else
-                  PLAIN_MENTION=$(env BODY="$BODY" python3 <<'PY'
+                  if echo "$BODY" | grep -qi "@codex"; then
+                    PLAIN_MENTION=$(env BODY="$BODY" python3 <<'PY'
 import os
 import re
 
@@ -144,17 +153,17 @@ print("true" if PLAIN_MENTION_RE.search(sanitized) else "false")
 PY
 )
 
-                  if [ "$PLAIN_MENTION" != "true" ]; then
-                    echo "ℹ️ '@codex' mention found only inside code blocks, links, or structured text. Skipping Codex run."
+                    if [ "$PLAIN_MENTION" != "true" ]; then
+                      echo "ℹ️ '@codex' mention found only inside code blocks, links, or structured text in the $TARGET_LABEL by $ACTOR. Skipping Codex run."
+                      SHOULD_RUN="false"
+                    fi
+                  else
+                    echo "ℹ️ $TARGET_LABEL by $ACTOR lacks a plain-text '@codex' mention. Skipping Codex run."
                     SHOULD_RUN="false"
                   fi
                 fi
               else
-                if [ -n "$BODY" ]; then
-                  echo "ℹ️ No plain-text '@codex' mention found in comment/review body. Skipping Codex run."
-                else
-                  echo "ℹ️ Empty comment/review body received. Skipping Codex run."
-                fi
+                echo "ℹ️ Empty $TARGET_LABEL body received from $ACTOR. Skipping Codex run."
                 SHOULD_RUN="false"
               fi
             fi
