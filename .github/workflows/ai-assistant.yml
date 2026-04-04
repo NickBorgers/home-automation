@@ -112,6 +112,37 @@ jobs:
                   echo "🛑 Detected auto-generated Codex review comment containing '@codex' (matches known review headings)."
                   echo "Skipping Codex run to prevent feedback loop."
                   SHOULD_RUN="false"
+                else
+                  PLAIN_MENTION=$(env BODY="$BODY" python3 <<'PY'
+import os
+import re
+
+body = os.environ.get("BODY", "")
+
+FENCED_CODE_RE = re.compile(r"```.*?```", re.DOTALL | re.IGNORECASE)
+INLINE_CODE_RE = re.compile(r"`[^`]*`")
+HTML_CODE_RE = re.compile(r"<code>.*?</code>", re.DOTALL | re.IGNORECASE)
+LINK_RE = re.compile(r"\[[^\]]*\]\([^)]+\)")
+PLAIN_MENTION_RE = re.compile(r"(?<![\w@\[/`\"'])@codex(?![\w-])", re.IGNORECASE)
+
+def strip_code(text: str) -> str:
+    text = FENCED_CODE_RE.sub(" ", text)
+    text = HTML_CODE_RE.sub(" ", text)
+    text = INLINE_CODE_RE.sub(" ", text)
+    return text
+
+def strip_links(text: str) -> str:
+    return LINK_RE.sub(" ", text)
+
+sanitized = strip_links(strip_code(body))
+print("true" if PLAIN_MENTION_RE.search(sanitized) else "false")
+PY
+)
+
+                  if [ "$PLAIN_MENTION" != "true" ]; then
+                    echo "ℹ️ '@codex' mention found only inside code blocks, links, or structured text. Skipping Codex run."
+                    SHOULD_RUN="false"
+                  fi
                 fi
               fi
             fi
