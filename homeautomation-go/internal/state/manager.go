@@ -42,13 +42,15 @@ func (s *subscription) Unsubscribe() {
 
 // Manager manages state synchronization with Home Assistant
 type Manager struct {
-	client      ha.HAClient
-	logger      *zap.Logger
-	cache       map[string]interface{}
-	cacheMu     sync.RWMutex
-	variables   map[string]StateVariable
-	entityToKey map[string]string
-	subscribers map[string]map[uint64]StateChangeHandler
+	client             ha.HAClient
+	logger             *zap.Logger
+	cache              map[string]interface{}
+	cacheMu            sync.RWMutex
+	variables          map[string]StateVariable
+	entityToKey        map[string]string
+	effectiveEntityIDs map[string]string
+	effectiveEntityMu  sync.RWMutex
+	subscribers        map[string]map[uint64]StateChangeHandler
 	// subscribersWithContext holds handlers that receive event correlation context
 	subscribersWithContext map[string]map[uint64]StateChangeHandlerWithContext
 	subsMu                 sync.RWMutex
@@ -85,11 +87,19 @@ type Manager struct {
 
 // NewManager creates a new state manager
 func NewManager(client ha.HAClient, logger *zap.Logger, readOnly bool) *Manager {
-	variables := VariablesByKey()
+	variables := make(map[string]StateVariable)
 	entityToKey := make(map[string]string)
+	effectiveEntityIDs := make(map[string]string)
 
-	for key, v := range variables {
-		entityToKey[v.EntityID] = key
+	for _, v := range AllVariables {
+		variables[v.Key] = v
+		if v.EntityID != "" {
+			entityToKey[v.EntityID] = v.Key
+			effectiveEntityIDs[v.Key] = v.EntityID
+			if fallback, ok := EntityFallback(v.EntityID); ok && fallback != "" {
+				entityToKey[fallback] = v.Key
+			}
+		}
 	}
 
 	return &Manager{
@@ -98,12 +108,49 @@ func NewManager(client ha.HAClient, logger *zap.Logger, readOnly bool) *Manager 
 		cache:                  make(map[string]interface{}),
 		variables:              variables,
 		entityToKey:            entityToKey,
+		effectiveEntityIDs:     effectiveEntityIDs,
 		subscribers:            make(map[string]map[uint64]StateChangeHandler),
 		subscribersWithContext: make(map[string]map[uint64]StateChangeHandlerWithContext),
 		haSubs:                 make(map[string]ha.Subscription),
 		readOnly:               readOnly,
 		pendingWrites:          make(map[string]interface{}),
 	}
+}
+
+func (m *Manager) canonicalKey(key string) string {
+	return CanonicalKey(key)
+}
+
+func (m *Manager) canonicalVariable(key string) (StateVariable, string, bool) {
+	canonicalKey := m.canonicalKey(key)
+	variable, ok := m.variables[canonicalKey]
+	return variable, canonicalKey, ok
+}
+
+func (m *Manager) effectiveEntityID(variable StateVariable) string {
+	if variable.EntityID == "" {
+		return ""
+	}
+
+	m.effectiveEntityMu.RLock()
+	entityID, ok := m.effectiveEntityIDs[variable.Key]
+	m.effectiveEntityMu.RUnlock()
+	if ok && entityID != "" {
+		return entityID
+	}
+
+	return variable.EntityID
+}
+
+func (m *Manager) setEffectiveEntityID(key, entityID string) {
+	if entityID == "" {
+		return
+	}
+
+	m.effectiveEntityMu.Lock()
+	m.effectiveEntityIDs[key] = entityID
+	m.effectiveEntityMu.Unlock()
+	m.entityToKey[entityID] = key
 }
 
 // SyncFromHA reads all state variables from Home Assistant
@@ -144,7 +191,17 @@ func (m *Manager) SyncFromHA() error {
 			continue
 		}
 
-		state, ok := stateMap[variable.EntityID]
+		entityID := variable.EntityID
+		state, ok := stateMap[entityID]
+		if !ok {
+			if fallbackEntityID, hasFallback := EntityFallback(variable.EntityID); hasFallback {
+				if fallbackState, foundFallback := stateMap[fallbackEntityID]; foundFallback {
+					entityID = fallbackEntityID
+					state = fallbackState
+					ok = true
+				}
+			}
+		}
 		if !ok {
 			m.logger.Warn("Entity not found in HA, using default",
 				zap.String("entity_id", variable.EntityID),
@@ -171,12 +228,13 @@ func (m *Manager) SyncFromHA() error {
 		m.cacheMu.Lock()
 		m.cache[variable.Key] = value
 		m.cacheMu.Unlock()
+		m.setEffectiveEntityID(variable.Key, entityID)
 		syncCount++
 
 		// Subscribe to state changes
-		if err := m.subscribeToEntity(variable.EntityID, variable.Key); err != nil {
+		if err := m.subscribeToEntity(entityID, variable.Key); err != nil {
 			m.logger.Warn("Failed to subscribe to entity",
-				zap.String("entity_id", variable.EntityID),
+				zap.String("entity_id", entityID),
 				zap.Error(err))
 		}
 	}
@@ -233,7 +291,7 @@ func (m *Manager) subscribeToEntity(entityID, key string) error {
 			return
 		}
 
-		variable, ok := m.variables[key]
+		variable, _, ok := m.canonicalVariable(key)
 		if !ok {
 			return
 		}
@@ -407,7 +465,7 @@ func (m *Manager) ensureWritable(variable StateVariable) error {
 
 // GetBool retrieves a boolean state variable
 func (m *Manager) GetBool(key string) (bool, error) {
-	variable, ok := m.variables[key]
+	variable, key, ok := m.canonicalVariable(key)
 	if !ok {
 		return false, fmt.Errorf("variable %s not found", key)
 	}
@@ -434,7 +492,7 @@ func (m *Manager) GetBool(key string) (bool, error) {
 
 // SetBool sets a boolean state variable
 func (m *Manager) SetBool(key string, value bool) error {
-	variable, ok := m.variables[key]
+	variable, key, ok := m.canonicalVariable(key)
 	if !ok {
 		return fmt.Errorf("variable %s not found", key)
 	}
@@ -462,7 +520,8 @@ func (m *Manager) SetBool(key string, value bool) error {
 
 	// Track pending write if there's an active HA subscription that would
 	// deliver an echo-back for this entity.
-	if !variable.LocalOnly && m.hasActiveHASub(variable.EntityID) {
+	entityID := m.effectiveEntityID(variable)
+	if !variable.LocalOnly && entityID != "" && m.hasActiveHASub(entityID) {
 		m.pendingWrites[key] = value
 	}
 	m.cacheMu.Unlock()
@@ -480,14 +539,14 @@ func (m *Manager) SetBool(key string, value bool) error {
 	}
 
 	// Sync to HA
-	entityName := extractEntityName(variable.EntityID)
+	entityName := extractEntityName(entityID)
 	if err := m.client.SetInputBoolean(entityName, value); err != nil {
 		// Rollback cache and pending write on error
 		m.cacheMu.Lock()
 		m.cache[key] = oldValue
 		delete(m.pendingWrites, key)
 		m.cacheMu.Unlock()
-		return fmt.Errorf("failed to set HA value: %w", err)
+		return fmt.Errorf("failed to set HA value for %s: %w", entityID, err)
 	}
 
 	// Notify subscribers after successful HA sync
@@ -502,7 +561,7 @@ func (m *Manager) SetBool(key string, value bool) error {
 // entertainment areas) may have overridden physical state without changing the logical
 // state variable, and downstream plugins need to re-apply their actions.
 func (m *Manager) ForceNotifyBool(key string) error {
-	variable, ok := m.variables[key]
+	variable, key, ok := m.canonicalVariable(key)
 	if !ok {
 		return fmt.Errorf("variable %s not found", key)
 	}
@@ -526,7 +585,7 @@ func (m *Manager) ForceNotifyBool(key string) error {
 
 // GetString retrieves a string state variable
 func (m *Manager) GetString(key string) (string, error) {
-	variable, ok := m.variables[key]
+	variable, key, ok := m.canonicalVariable(key)
 	if !ok {
 		return "", fmt.Errorf("variable %s not found", key)
 	}
@@ -553,7 +612,7 @@ func (m *Manager) GetString(key string) (string, error) {
 
 // SetString sets a string state variable
 func (m *Manager) SetString(key string, value string) error {
-	variable, ok := m.variables[key]
+	variable, key, ok := m.canonicalVariable(key)
 	if !ok {
 		return fmt.Errorf("variable %s not found", key)
 	}
@@ -580,7 +639,8 @@ func (m *Manager) SetString(key string, value string) error {
 	m.cache[key] = value
 
 	// Track pending write if there's an active HA subscription
-	if !variable.LocalOnly && m.hasActiveHASub(variable.EntityID) {
+	entityID := m.effectiveEntityID(variable)
+	if !variable.LocalOnly && entityID != "" && m.hasActiveHASub(entityID) {
 		m.pendingWrites[key] = value
 	}
 	m.cacheMu.Unlock()
@@ -598,14 +658,14 @@ func (m *Manager) SetString(key string, value string) error {
 	}
 
 	// Sync to HA
-	entityName := extractEntityName(variable.EntityID)
+	entityName := extractEntityName(entityID)
 	if err := m.client.SetInputText(entityName, value); err != nil {
 		// Rollback cache and pending write on error
 		m.cacheMu.Lock()
 		m.cache[key] = oldValue
 		delete(m.pendingWrites, key)
 		m.cacheMu.Unlock()
-		return fmt.Errorf("failed to set HA value: %w", err)
+		return fmt.Errorf("failed to set HA value for %s: %w", entityID, err)
 	}
 
 	// Notify subscribers after successful HA sync
@@ -617,7 +677,7 @@ func (m *Manager) SetString(key string, value string) error {
 
 // GetNumber retrieves a number state variable
 func (m *Manager) GetNumber(key string) (float64, error) {
-	variable, ok := m.variables[key]
+	variable, key, ok := m.canonicalVariable(key)
 	if !ok {
 		return 0, fmt.Errorf("variable %s not found", key)
 	}
@@ -644,7 +704,7 @@ func (m *Manager) GetNumber(key string) (float64, error) {
 
 // SetNumber sets a number state variable
 func (m *Manager) SetNumber(key string, value float64) error {
-	variable, ok := m.variables[key]
+	variable, key, ok := m.canonicalVariable(key)
 	if !ok {
 		return fmt.Errorf("variable %s not found", key)
 	}
@@ -671,7 +731,8 @@ func (m *Manager) SetNumber(key string, value float64) error {
 	m.cache[key] = value
 
 	// Track pending write if there's an active HA subscription
-	if !variable.LocalOnly && m.hasActiveHASub(variable.EntityID) {
+	entityID := m.effectiveEntityID(variable)
+	if !variable.LocalOnly && entityID != "" && m.hasActiveHASub(entityID) {
 		m.pendingWrites[key] = value
 	}
 	m.cacheMu.Unlock()
@@ -689,14 +750,14 @@ func (m *Manager) SetNumber(key string, value float64) error {
 	}
 
 	// Sync to HA
-	entityName := extractEntityName(variable.EntityID)
+	entityName := extractEntityName(entityID)
 	if err := m.client.SetInputNumber(entityName, value); err != nil {
 		// Rollback cache and pending write on error
 		m.cacheMu.Lock()
 		m.cache[key] = oldValue
 		delete(m.pendingWrites, key)
 		m.cacheMu.Unlock()
-		return fmt.Errorf("failed to set HA value: %w", err)
+		return fmt.Errorf("failed to set HA value for %s: %w", entityID, err)
 	}
 
 	// Notify subscribers after successful HA sync
@@ -708,7 +769,7 @@ func (m *Manager) SetNumber(key string, value float64) error {
 
 // GetJSON retrieves a JSON state variable
 func (m *Manager) GetJSON(key string, target interface{}) error {
-	variable, ok := m.variables[key]
+	variable, key, ok := m.canonicalVariable(key)
 	if !ok {
 		return fmt.Errorf("variable %s not found", key)
 	}
@@ -740,7 +801,7 @@ func (m *Manager) GetJSON(key string, target interface{}) error {
 
 // SetJSON sets a JSON state variable
 func (m *Manager) SetJSON(key string, value interface{}) error {
-	variable, ok := m.variables[key]
+	variable, key, ok := m.canonicalVariable(key)
 	if !ok {
 		return fmt.Errorf("variable %s not found", key)
 	}
@@ -765,7 +826,8 @@ func (m *Manager) SetJSON(key string, value interface{}) error {
 	m.cache[key] = value
 
 	// Track pending write if there's an active HA subscription
-	if !variable.LocalOnly && m.hasActiveHASub(variable.EntityID) {
+	entityID := m.effectiveEntityID(variable)
+	if !variable.LocalOnly && entityID != "" && m.hasActiveHASub(entityID) {
 		m.pendingWrites[key] = value
 	}
 	m.cacheMu.Unlock()
@@ -794,14 +856,14 @@ func (m *Manager) SetJSON(key string, value interface{}) error {
 	}
 
 	// Sync to HA
-	entityName := extractEntityName(variable.EntityID)
+	entityName := extractEntityName(entityID)
 	if err := m.client.SetInputText(entityName, string(jsonBytes)); err != nil {
 		// Rollback cache and pending write on error
 		m.cacheMu.Lock()
 		m.cache[key] = oldValue
 		delete(m.pendingWrites, key)
 		m.cacheMu.Unlock()
-		return fmt.Errorf("failed to set HA value: %w", err)
+		return fmt.Errorf("failed to set HA value for %s: %w", entityID, err)
 	}
 
 	// Notify subscribers after successful HA sync
@@ -813,7 +875,7 @@ func (m *Manager) SetJSON(key string, value interface{}) error {
 
 // CompareAndSwapBool atomically compares and swaps a boolean value
 func (m *Manager) CompareAndSwapBool(key string, old, new bool) (bool, error) {
-	variable, ok := m.variables[key]
+	variable, key, ok := m.canonicalVariable(key)
 	if !ok {
 		return false, fmt.Errorf("variable %s not found", key)
 	}
@@ -847,7 +909,8 @@ func (m *Manager) CompareAndSwapBool(key string, old, new bool) (bool, error) {
 	m.cache[key] = new
 
 	// Track pending write if there's an active HA subscription
-	if !variable.LocalOnly && m.hasActiveHASub(variable.EntityID) {
+	entityID := m.effectiveEntityID(variable)
+	if !variable.LocalOnly && entityID != "" && m.hasActiveHASub(entityID) {
 		m.pendingWrites[key] = new
 	}
 
@@ -860,14 +923,14 @@ func (m *Manager) CompareAndSwapBool(key string, old, new bool) (bool, error) {
 	}
 
 	// Sync to HA
-	entityName := extractEntityName(variable.EntityID)
+	entityName := extractEntityName(entityID)
 	if err := m.client.SetInputBoolean(entityName, new); err != nil {
 		// Rollback on error
 		m.cacheMu.Lock()
 		m.cache[key] = old
 		delete(m.pendingWrites, key)
 		m.cacheMu.Unlock()
-		return false, fmt.Errorf("failed to set HA value: %w", err)
+		return false, fmt.Errorf("failed to set HA value for %s: %w", entityID, err)
 	}
 
 	return true, nil
@@ -875,11 +938,11 @@ func (m *Manager) CompareAndSwapBool(key string, old, new bool) (bool, error) {
 
 // Subscribe subscribes to state changes for a variable
 func (m *Manager) Subscribe(key string, handler StateChangeHandler) (Subscription, error) {
-	if _, ok := m.variables[key]; !ok {
+	variable, canonicalKey, ok := m.canonicalVariable(key)
+	if !ok {
 		return nil, fmt.Errorf("variable %s not found", key)
 	}
 
-	variable := m.variables[key]
 	if !variable.LocalOnly {
 		if err := m.ensureHASubscription(variable); err != nil {
 			return nil, err
@@ -888,14 +951,14 @@ func (m *Manager) Subscribe(key string, handler StateChangeHandler) (Subscriptio
 
 	subID := atomic.AddUint64(&m.nextSubID, 1)
 	m.subsMu.Lock()
-	if _, ok := m.subscribers[key]; !ok {
-		m.subscribers[key] = make(map[uint64]StateChangeHandler)
+	if _, ok := m.subscribers[canonicalKey]; !ok {
+		m.subscribers[canonicalKey] = make(map[uint64]StateChangeHandler)
 	}
-	m.subscribers[key][subID] = handler
+	m.subscribers[canonicalKey][subID] = handler
 	m.subsMu.Unlock()
 
 	return &subscription{
-		key:     key,
+		key:     canonicalKey,
 		id:      subID,
 		manager: m,
 	}, nil
@@ -905,11 +968,11 @@ func (m *Manager) Subscribe(key string, handler StateChangeHandler) (Subscriptio
 // The handler receives an EventContext that contains a correlation ID and timestamp,
 // allowing cross-plugin event tracking in logs (e.g., Gravwell queries).
 func (m *Manager) SubscribeWithContext(key string, handler StateChangeHandlerWithContext) (Subscription, error) {
-	if _, ok := m.variables[key]; !ok {
+	variable, canonicalKey, ok := m.canonicalVariable(key)
+	if !ok {
 		return nil, fmt.Errorf("variable %s not found", key)
 	}
 
-	variable := m.variables[key]
 	if !variable.LocalOnly {
 		if err := m.ensureHASubscription(variable); err != nil {
 			return nil, err
@@ -918,14 +981,14 @@ func (m *Manager) SubscribeWithContext(key string, handler StateChangeHandlerWit
 
 	subID := atomic.AddUint64(&m.nextSubID, 1)
 	m.subsMu.Lock()
-	if _, ok := m.subscribersWithContext[key]; !ok {
-		m.subscribersWithContext[key] = make(map[uint64]StateChangeHandlerWithContext)
+	if _, ok := m.subscribersWithContext[canonicalKey]; !ok {
+		m.subscribersWithContext[canonicalKey] = make(map[uint64]StateChangeHandlerWithContext)
 	}
-	m.subscribersWithContext[key][subID] = handler
+	m.subscribersWithContext[canonicalKey][subID] = handler
 	m.subsMu.Unlock()
 
 	return &subscriptionWithContext{
-		key:     key,
+		key:     canonicalKey,
 		id:      subID,
 		manager: m,
 	}, nil
@@ -989,25 +1052,27 @@ func (m *Manager) ensureHASubscription(variable StateVariable) error {
 	if variable.EntityID == "" {
 		return nil
 	}
+	entityID := m.effectiveEntityID(variable)
 	m.haSubsMu.Lock()
-	_, ok := m.haSubs[variable.EntityID]
+	_, ok := m.haSubs[entityID]
 	m.haSubsMu.Unlock()
 	if ok {
 		return nil
 	}
-	return m.subscribeToEntity(variable.EntityID, variable.Key)
+	return m.subscribeToEntity(entityID, variable.Key)
 }
 
 func (m *Manager) teardownHASubscription(key string) {
-	variable, ok := m.variables[key]
+	variable, _, ok := m.canonicalVariable(key)
 	if !ok || variable.LocalOnly || variable.EntityID == "" {
 		return
 	}
+	entityID := m.effectiveEntityID(variable)
 
 	m.haSubsMu.Lock()
-	sub, ok := m.haSubs[variable.EntityID]
+	sub, ok := m.haSubs[entityID]
 	if ok {
-		delete(m.haSubs, variable.EntityID)
+		delete(m.haSubs, entityID)
 	}
 	m.haSubsMu.Unlock()
 
@@ -1016,7 +1081,7 @@ func (m *Manager) teardownHASubscription(key string) {
 	}
 
 	if err := sub.Unsubscribe(); err != nil {
-		m.logger.Warn("Failed to unsubscribe from HA entity", zap.String("entity_id", variable.EntityID), zap.Error(err))
+		m.logger.Warn("Failed to unsubscribe from HA entity", zap.String("entity_id", entityID), zap.Error(err))
 	}
 }
 

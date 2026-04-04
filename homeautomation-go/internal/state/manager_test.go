@@ -446,6 +446,77 @@ func TestManager_Subscribe(t *testing.T) {
 	})
 }
 
+func TestManager_LegacyAssistantAlias(t *testing.T) {
+	t.Parallel()
+	logger := testlogger.New()
+	mockClient := ha.NewMockClient()
+	mockClient.SetState("input_boolean.tori_here", "off", map[string]interface{}{})
+	mockClient.Connect()
+
+	manager := NewManager(mockClient, logger, false)
+	require.NoError(t, manager.SyncFromHA())
+
+	value, err := manager.GetBool("isToriHere")
+	require.NoError(t, err)
+	assert.False(t, value)
+
+	var notifications int32
+	sub, err := manager.Subscribe("isToriHere", func(key string, oldValue, newValue interface{}) {
+		atomic.AddInt32(&notifications, 1)
+		assert.Equal(t, "isAssistantHere", key)
+	})
+	require.NoError(t, err)
+	defer sub.Unsubscribe()
+
+	mockClient.SimulateStateChange("input_boolean.tori_here", "on")
+
+	value, err = manager.GetBool("isToriHere")
+	require.NoError(t, err)
+	assert.True(t, value)
+
+	assistantValue, err := manager.GetBool("isAssistantHere")
+	require.NoError(t, err)
+	assert.True(t, assistantValue)
+	assert.Equal(t, int32(1), atomic.LoadInt32(&notifications))
+
+	snapshot := mockClient.ServiceCallCount()
+	require.NoError(t, manager.SetBool("isToriHere", false))
+
+	calls := mockClient.GetServiceCallsSince(snapshot)
+	require.Len(t, calls, 1)
+	assert.Equal(t, "input_boolean", calls[0].Domain)
+	assert.Equal(t, "turn_off", calls[0].Service)
+	assert.Equal(t, "input_boolean.tori_here", calls[0].Data["entity_id"])
+}
+
+func TestManager_AssistantFallbackWritesWithCanonicalKey(t *testing.T) {
+	t.Parallel()
+	logger := testlogger.New()
+	mockClient := ha.NewMockClient()
+	mockClient.SetState("input_boolean.tori_here", "on", map[string]interface{}{})
+	mockClient.Connect()
+
+	manager := NewManager(mockClient, logger, false)
+	require.NoError(t, manager.SyncFromHA())
+
+	value, err := manager.GetBool("isAssistantHere")
+	require.NoError(t, err)
+	assert.True(t, value, "fallback entity should seed canonical state")
+
+	snapshot := mockClient.ServiceCallCount()
+	require.NoError(t, manager.SetBool("isAssistantHere", false))
+
+	calls := mockClient.GetServiceCallsSince(snapshot)
+	require.Len(t, calls, 1)
+	assert.Equal(t, "input_boolean", calls[0].Domain)
+	assert.Equal(t, "turn_off", calls[0].Service)
+	assert.Equal(t, "input_boolean.tori_here", calls[0].Data["entity_id"])
+
+	value, err = manager.GetBool("isAssistantHere")
+	require.NoError(t, err)
+	assert.False(t, value)
+}
+
 // TestSetBool_SameValue_DoesNotNotify verifies that SetBool does NOT notify subscribers
 // when setting a variable to its current value. This is intentional behavior to avoid
 // unnecessary Home Assistant updates and subscriber notifications.
@@ -762,6 +833,22 @@ func TestVariablesByEntityID(t *testing.T) {
 	assert.True(t, ok)
 	assert.Equal(t, "isNickHome", nickHome.Key)
 	assert.Equal(t, TypeBool, nickHome.Type)
+
+	assistantFallback, ok := vars["input_boolean.tori_here"]
+	assert.True(t, ok, "legacy entity should map to assistant presence")
+	assert.Equal(t, "isAssistantHere", assistantFallback.Key)
+	assert.Equal(t, TypeBool, assistantFallback.Type)
+}
+
+func TestVariablesByKey_LegacyAlias(t *testing.T) {
+	t.Parallel()
+	vars := VariablesByKey()
+
+	legacyVar, ok := vars["isToriHere"]
+	assert.True(t, ok, "legacy key should remain available during migration")
+	assert.Equal(t, "isToriHere", legacyVar.Key)
+	assert.Equal(t, "input_boolean.assistant_here", legacyVar.EntityID)
+	assert.Equal(t, TypeBool, legacyVar.Type)
 }
 
 func TestManager_ReadOnlyMode(t *testing.T) {

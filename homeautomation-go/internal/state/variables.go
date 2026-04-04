@@ -74,11 +74,60 @@ var AllVariables = []StateVariable{
 	{Key: "currentlyPlayingMusic", EntityID: "", Type: TypeJSON, Default: map[string]interface{}{}, LocalOnly: true},
 }
 
+// keyAliases maps deprecated state keys to their canonical replacements.
+// The deprecated keys remain usable for downstream plugins until they migrate.
+var keyAliases = map[string]string{
+	"isToriHere": "isAssistantHere",
+}
+
+// entityFallbacks maps canonical entity IDs to the deprecated entity IDs that
+// should be used when the new entity has not been provisioned yet. This allows
+// a transitional deployment where Home Assistant still exposes the legacy
+// entity name while the Go application has already migrated.
+var entityFallbacks = map[string]string{
+	"input_boolean.assistant_here": "input_boolean.tori_here",
+}
+
+// CanonicalKey returns the canonical state key for the given key, applying
+// any compatibility aliases that remain available for downstream integrations.
+func CanonicalKey(key string) string {
+	if canonical, ok := keyAliases[key]; ok {
+		return canonical
+	}
+	return key
+}
+
+// KeyAliases exposes a copy of the key alias mapping for callers that need to
+// enumerate available compatibility aliases (primarily for tests and tooling).
+func KeyAliases() map[string]string {
+	cp := make(map[string]string, len(keyAliases))
+	for alias, canonical := range keyAliases {
+		cp[alias] = canonical
+	}
+	return cp
+}
+
+// EntityFallback returns the legacy entity ID that should be used if the
+// provided canonical entity ID is not yet available. The boolean indicates
+// whether a fallback exists.
+func EntityFallback(entityID string) (string, bool) {
+	fallback, ok := entityFallbacks[entityID]
+	return fallback, ok
+}
+
 // VariablesByKey creates a map of variables by their key
 func VariablesByKey() map[string]StateVariable {
 	vars := make(map[string]StateVariable)
 	for _, v := range AllVariables {
 		vars[v.Key] = v
+	}
+
+	for alias, canonical := range keyAliases {
+		if canonicalVar, ok := vars[canonical]; ok {
+			aliasVar := canonicalVar
+			aliasVar.Key = alias
+			vars[alias] = aliasVar
+		}
 	}
 	return vars
 }
@@ -88,6 +137,12 @@ func VariablesByEntityID() map[string]StateVariable {
 	vars := make(map[string]StateVariable)
 	for _, v := range AllVariables {
 		vars[v.EntityID] = v
+
+		if fallback, ok := entityFallbacks[v.EntityID]; ok && fallback != "" {
+			aliasVar := v
+			aliasVar.EntityID = fallback
+			vars[fallback] = aliasVar
+		}
 	}
 	return vars
 }
