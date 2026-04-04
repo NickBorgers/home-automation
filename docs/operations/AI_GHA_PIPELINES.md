@@ -81,12 +81,12 @@ Scoped by issue/PR number so that:
 - Two rapid `@codex` mentions on the **same** PR/issue cannot overlap; the newer invocation cancels the prior run and starts immediately
 - `@codex` on **different** PRs/issues runs in parallel (separate concurrency groups)
 
-`cancel-in-progress: true` prevents queued work from racing stale context—Codex immediately restarts with the newest request, ensuring the comment that triggered it is always the one being processed.
+`cancel-in-progress: true` prevents queued work from racing stale context—Codex immediately restarts with the newest request, ensuring the comment that triggered it is always the one being processed. When GitHub suppresses a queued run before it ever starts, the Actions summary labels it `Skipped by concurrency guard` so maintainers understand why nothing executed.
 
 **Practical effect:**
 - Follow-up `@codex` comments or issue bodies automatically cancel the in-flight ai-assistant run for that PR/issue as soon as GitHub receives the new request.
-- The cancelled run lands in Actions with the yellow `Cancelled` badge and the event log cites the concurrency guard ("Superseded by another run in codex-interactive-<number>"). Only the newest comment gets a response.
-- Actions now displays a concurrency guard callout in the cancelled run’s summary so it’s obvious why it stopped and which replacement run superseded it.
+- The cancelled run lands in Actions with the yellow `Cancelled` badge and the event log cites the concurrency guard ("Superseded by another run in codex-interactive-<number>"). Runs that never started show up as `Skipped by concurrency guard` in the summary panel. Only the newest comment gets a response.
+- Actions now displays a concurrency guard callout in the cancelled or skipped run’s summary so it’s obvious why it stopped and which replacement run superseded it.
 - GitHub immediately starts a fresh run using the latest payload so Codex never executes stale instructions.
 
 **What you’ll see in Actions:** the superseded run flips to yellow `Cancelled` within a few seconds and its summary panel explicitly calls out that a newer run for the same concurrency group began (the same message shown in the concurrency guard callout). The replacement run starts cleanly with the latest comment payload, so there’s no risk of Codex responding to stale instructions.
