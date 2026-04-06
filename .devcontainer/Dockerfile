@@ -38,9 +38,9 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | d
     && rm -rf /var/lib/apt/lists/*
 
 # Pin AI CLI versions so Dockerfile, post-create script, and updater workflow stay in sync
-ARG CLAUDE_CODE_VERSION=2.1.87
-ARG CODEX_CLI_VERSION=0.117.0
-ARG CRUSH_CLI_VERSION=0.53.0
+ARG CLAUDE_CODE_VERSION=2.1.92
+ARG CODEX_CLI_VERSION=0.118.0
+ARG CRUSH_CLI_VERSION=0.55.0
 
 # Install Node.js LTS (needed for Claude Code plugins and Playwright build step)
 ARG NODE_VERSION=20
