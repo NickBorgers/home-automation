@@ -118,8 +118,25 @@ runs:
       run: |
         set -euo pipefail
 
-        OUTPUT_DIR="$(dirname "$CI_AGENT_OUTPUT_FILE")"
-        mkdir -p "$OUTPUT_DIR"
+        # The output directory needs two properties:
+        #   1. Host-visible to the docker daemon (same constraint as the
+        #      pre-script — see the stage-files step for the full rationale).
+        #   2. Writable as the container's non-root `ci` user (UID 1000).
+        #
+        # Path (1) means the mount source must live under $RUNNER_TEMP so
+        # the daemon on dockergeneric can resolve it. Property (2) means
+        # the directory must be world-writable, because it's created by
+        # the runner user (UID 1001) and then written by a different uid
+        # inside the container.
+        #
+        # We stage into $RUNNER_TEMP/ci-agent-output/<unique>/, then after
+        # the container exits we copy the result to the caller's requested
+        # output_file path so their upload-artifact step (which expects
+        # that path) keeps working.
+        OUTPUT_STAGING_ROOT="${RUNNER_TEMP:-/tmp}/ci-agent-output"
+        OUTPUT_STAGING_DIR="$(mktemp -d "${OUTPUT_STAGING_ROOT}/XXXXXX")"
+        chmod 777 "$OUTPUT_STAGING_DIR"
+        STAGED_OUTPUT_FILE="${OUTPUT_STAGING_DIR}/$(basename "$CI_AGENT_OUTPUT_FILE")"
 
         # Mount the pre-script into a known path inside the container; the
         # wrapper below sources it so any vars it exports are visible to
@@ -128,11 +145,11 @@ runs:
           --network host \
           --workdir /workspace \
           -v "${{ github.workspace }}:/workspace" \
-          -v "$OUTPUT_DIR:$OUTPUT_DIR" \
+          -v "$OUTPUT_STAGING_DIR:$OUTPUT_STAGING_DIR" \
           -v "$CI_AGENT_PRE_SCRIPT_FILE:/tmp/ci-agent-pre-script.sh:ro" \
           --env-file "$CI_AGENT_ENV_FILE" \
           -e CI_AGENT_PROMPT_FILE \
-          -e CI_AGENT_OUTPUT_FILE \
+          -e "CI_AGENT_OUTPUT_FILE=$STAGED_OUTPUT_FILE" \
           "$CI_AGENT_IMAGE" \
           -lc '
             set -euo pipefail
@@ -145,6 +162,17 @@ runs:
             bash .devcontainer/run-ai.sh "$PROMPT" 2>&1 \
               | tee "$CI_AGENT_OUTPUT_FILE"
           '
+
+        # Copy the staged output back to the caller-requested path so
+        # their upload-artifact step reads it from the same path they
+        # wrote when declaring the step. The staged path lives inside
+        # $RUNNER_TEMP which is ephemeral; the caller's path is typically
+        # /tmp/<name>-output/<name>-output.jsonl on the runner fs.
+        mkdir -p "$(dirname "$CI_AGENT_OUTPUT_FILE")"
+        if [ -f "$STAGED_OUTPUT_FILE" ]; then
+          cp "$STAGED_OUTPUT_FILE" "$CI_AGENT_OUTPUT_FILE"
+        fi
+        rm -rf "$OUTPUT_STAGING_DIR"
 
     - name: Clean up staged files
       if: always()
