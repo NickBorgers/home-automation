@@ -134,6 +134,7 @@ runs:
         # output_file path so their upload-artifact step (which expects
         # that path) keeps working.
         OUTPUT_STAGING_ROOT="${RUNNER_TEMP:-/tmp}/ci-agent-output"
+        mkdir -p "$OUTPUT_STAGING_ROOT"
         OUTPUT_STAGING_DIR="$(mktemp -d "${OUTPUT_STAGING_ROOT}/XXXXXX")"
         chmod 777 "$OUTPUT_STAGING_DIR"
         STAGED_OUTPUT_FILE="${OUTPUT_STAGING_DIR}/$(basename "$CI_AGENT_OUTPUT_FILE")"
