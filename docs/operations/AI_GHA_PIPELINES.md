@@ -127,7 +127,7 @@ Responds to `@ai` mentions in comments.
 
 **Key Configuration**:
 ```yaml
-claude -p --model claude-sonnet-4-6 "$PROMPT"
+claude -p --dangerously-skip-permissions --permission-mode=bypassPermissions --model claude-sonnet-4-6 "$PROMPT"
 ```
 
 The CLI reads `ANTHROPIC_API_KEY` and `ANTHROPIC_BASE_URL` (pointing at the self-hosted LiteLLM proxy) from the environment — see `.devcontainer/configure-ai.sh`.

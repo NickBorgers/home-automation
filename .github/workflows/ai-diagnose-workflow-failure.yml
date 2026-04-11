@@ -204,7 +204,7 @@ jobs:
           runCmd: |
             source .devcontainer/configure-ai.sh
 
-            claude -p --model claude-sonnet-4-6 "You are a GitHub Actions diagnostician. A workflow has failed and you need to determine
+            claude -p --dangerously-skip-permissions --permission-mode=bypassPermissions --model claude-sonnet-4-6 "You are a GitHub Actions diagnostician. A workflow has failed and you need to determine
             if it's a GitHub Actions configuration problem or a normal test/code failure.
 
             WORKFLOW INFORMATION:

@@ -522,7 +522,7 @@ PY
             Reply to the user using: gh issue comment ${ISSUE_NUMBER} --body 'YOUR_RESPONSE'"
             fi
 
-            claude -p --model claude-sonnet-4-6 "$PROMPT" 2>&1 | tee /tmp/ai-conversation.jsonl
+            claude -p --dangerously-skip-permissions --permission-mode=bypassPermissions --model claude-sonnet-4-6 "$PROMPT" 2>&1 | tee /tmp/ai-conversation.jsonl
 
       - name: Upload AI conversation log
         uses: actions/upload-artifact@v4
@@ -595,7 +595,7 @@ PY
             # Fetch all comments on the issue (may contain additional context/requirements)
             ISSUE_COMMENTS=$(gh api "repos/${REPO}/issues/${ISSUE_NUMBER}/comments" --jq '.[] | "---\n**\(.user.login)** commented at \(.created_at):\n\(.body)\n"' 2>/dev/null | head -c 50000 || echo "")
 
-            claude -p --model claude-sonnet-4-6 "You are an autonomous agent tasked with resolving GitHub issue #${ISSUE_NUMBER}.
+            claude -p --dangerously-skip-permissions --permission-mode=bypassPermissions --model claude-sonnet-4-6 "You are an autonomous agent tasked with resolving GitHub issue #${ISSUE_NUMBER}.
 
             ISSUE TITLE: ${ISSUE_TITLE}
 
