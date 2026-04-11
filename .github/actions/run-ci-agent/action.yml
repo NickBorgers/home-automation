@@ -1,0 +1,110 @@
+---
+name: Run CI agent
+description: >
+  Runs an AI agent (via `.devcontainer/run-ai.sh`) inside the dedicated CI
+  container image (`.github/ci/Dockerfile` → `ghcr.io/nickborgers/home-automation-ci:latest`),
+  bypassing `@devcontainers/cli` / `devcontainers/ci@v0.3` entirely. The CI
+  image is built and pushed by `.github/workflows/ci-image.yml`.
+  This is the replacement for the legacy devcontainers/ci-based invocation
+  pattern.
+
+inputs:
+  image:
+    description: CI image tag. Defaults to ghcr.io/nickborgers/home-automation-ci:latest.
+    required: false
+    default: ghcr.io/nickborgers/home-automation-ci:latest
+  prompt_file:
+    description: >
+      Path (relative to workspace) to the envsubst-templated prompt file. The
+      file's ${VAR} references are expanded from the environment variables
+      passed via `env` before being handed to `.devcontainer/run-ai.sh`.
+    required: true
+  output_file:
+    description: >
+      Absolute path inside the container (also mounted back to the runner) to
+      capture the agent's stdout stream. Parent directory is created
+      automatically.
+    required: true
+  env:
+    description: >
+      Newline-separated KEY=VALUE pairs forwarded into the container as
+      environment variables. Blank lines and `#` comments are ignored. Values
+      may contain arbitrary characters (they are not parsed by the shell).
+    required: false
+    default: ''
+  pull:
+    description: >
+      When 'true' (default), `docker pull` the image before running. Set to
+      'false' only if you are certain the image is already present (e.g., an
+      earlier step in the same job built it).
+    required: false
+    default: 'true'
+
+runs:
+  using: composite
+  steps:
+    - name: Log in to GHCR
+      shell: bash
+      env:
+        GHCR_USERNAME: ${{ github.actor }}
+        GHCR_TOKEN: ${{ github.token }}
+      run: |
+        set -euo pipefail
+        printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USERNAME" --password-stdin
+
+    - name: Pull CI image
+      if: inputs.pull == 'true'
+      shell: bash
+      run: docker pull "${{ inputs.image }}"
+
+    - name: Stage env file
+      id: stage-env
+      shell: bash
+      env:
+        ENV_INPUT: ${{ inputs.env }}
+      run: |
+        set -euo pipefail
+        ENV_FILE="$(mktemp)"
+        # Filter blank lines and comment lines; pass everything else through.
+        printf '%s\n' "$ENV_INPUT" \
+          | grep -Ev '^\s*(#|$)' \
+          > "$ENV_FILE" || true
+        chmod 600 "$ENV_FILE"
+        echo "env_file=$ENV_FILE" >> "$GITHUB_OUTPUT"
+
+    - name: Run agent
+      shell: bash
+      env:
+        CI_AGENT_IMAGE: ${{ inputs.image }}
+        CI_AGENT_PROMPT_FILE: ${{ inputs.prompt_file }}
+        CI_AGENT_OUTPUT_FILE: ${{ inputs.output_file }}
+        CI_AGENT_ENV_FILE: ${{ steps.stage-env.outputs.env_file }}
+      run: |
+        set -euo pipefail
+
+        OUTPUT_DIR="$(dirname "$CI_AGENT_OUTPUT_FILE")"
+        mkdir -p "$OUTPUT_DIR"
+
+        docker run --rm \
+          --network host \
+          --workdir /workspace \
+          -v "${{ github.workspace }}:/workspace" \
+          -v "$OUTPUT_DIR:$OUTPUT_DIR" \
+          --env-file "$CI_AGENT_ENV_FILE" \
+          -e CI_AGENT_PROMPT_FILE \
+          -e CI_AGENT_OUTPUT_FILE \
+          "$CI_AGENT_IMAGE" \
+          -lc '
+            set -euo pipefail
+            source .devcontainer/configure-ai.sh
+            PROMPT=$(envsubst < "$CI_AGENT_PROMPT_FILE")
+            bash .devcontainer/run-ai.sh "$PROMPT" 2>&1 \
+              | tee "$CI_AGENT_OUTPUT_FILE"
+          '
+
+    - name: Clean up env file
+      if: always()
+      shell: bash
+      env:
+        CI_AGENT_ENV_FILE: ${{ steps.stage-env.outputs.env_file }}
+      run: rm -f "$CI_AGENT_ENV_FILE"
