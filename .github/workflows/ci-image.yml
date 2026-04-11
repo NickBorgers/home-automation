@@ -58,7 +58,8 @@ jobs:
       - name: Load pinned CLI versions
         run: |
           set -eux
-          cat .github/ci/versions.env >> "$GITHUB_ENV"
+          # $GITHUB_ENV rejects comment lines and blank lines — strip them.
+          grep -Ev '^\s*(#|$)' .github/ci/versions.env >> "$GITHUB_ENV"
 
       - name: Resolve tag
         id: tag
