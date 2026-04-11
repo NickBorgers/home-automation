@@ -152,6 +152,24 @@ else
     echo "Warning: No Claude config found; skipping config merge."
 fi
 
+# Link developer's host ~/.claude user-level customizations into the container.
+# The host directory is bind-mounted read-only at the same absolute path via
+# devcontainer.json; this just links the three pieces we want into the
+# container user's $HOME/.claude. Missing pieces (or an empty mount on a CI
+# runner) are a no-op.
+if [ -n "${CLAUDE_HOST_CONFIG_DIR:-}" ] \
+   && [ -d "$CLAUDE_HOST_CONFIG_DIR" ] \
+   && [ "$CLAUDE_HOST_CONFIG_DIR" != "$HOME/.claude" ]; then
+    mkdir -p "$HOME/.claude"
+    for item in CLAUDE.md settings.json hooks; do
+        src="$CLAUDE_HOST_CONFIG_DIR/$item"
+        if [ -e "$src" ]; then
+            ln -sfn "$src" "$HOME/.claude/$item"
+            echo "Linked host Claude Code $item from $src"
+        fi
+    done
+fi
+
 # Helper to read pinned versions from the Dockerfile (single source of truth)
 DEVCONTAINER_DOCKERFILE="$SCRIPT_DIR/Dockerfile"
 get_arg_version() {
