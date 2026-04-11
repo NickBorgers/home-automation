@@ -35,6 +35,7 @@
   "remoteEnv": {
     "SSH_AUTH_SOCK": "",
     "OPENAI_API_KEY": "fake-key",
+    "ANTHROPIC_API_KEY": "fake-key",
     "TERM": "xterm-256color",
     "LANG": "en_US.UTF-8",
     "CLAUDE_HOST_CONFIG_DIR": "${localEnv:HOME}/.claude"

@@ -153,7 +153,7 @@ All pull requests go through a two-phase review process before merge:
 - Coverage check (≥65%)
 - Docker build validation
 
-### 2. AI-Powered Code Review (Codex Code Review)
+### 2. AI-Powered Code Review (AI Code Review)
 After tests pass, a multi-agent AI review pipeline automatically runs:
 
 | Agent | Focus |
@@ -167,7 +167,7 @@ After tests pass, a multi-agent AI review pipeline automatically runs:
 
 **Important notes:**
 - AI reviewers may push commits directly to your PR branch (fixes, doc updates)
-- If tests fail, Codex will attempt to fix them (up to 3 times) and push fixes to your branch
+- If tests fail, the AI assistant will attempt to fix them (up to 3 times) and push fixes to your branch
 - Reviews are skipped for PRs from forks (security measure) - maintainers will review manually
 - To re-run reviews after they pass, close and reopen the PR
 
