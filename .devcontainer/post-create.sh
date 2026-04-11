@@ -170,6 +170,24 @@ if [ -n "${CLAUDE_HOST_CONFIG_DIR:-}" ] \
     done
 fi
 
+# Append a source line to the container user's .bashrc so the host ~/.bashrc
+# (bind-mounted read-only at the same absolute path) is loaded on top of the
+# container's baseline. Idempotent: re-running post-create won't duplicate
+# the line. The host .bashrc's internal `source .../code/util/profile` line
+# resolves via the matching bind mount.
+if [ -n "${HOST_BASHRC:-}" ] \
+   && [ -f "$HOST_BASHRC" ] \
+   && [ "$HOST_BASHRC" != "$HOME/.bashrc" ]; then
+    bashrc_mark="# host-bashrc-passthrough: $HOST_BASHRC"
+    if [ ! -f "$HOME/.bashrc" ] || ! grep -qF "$bashrc_mark" "$HOME/.bashrc"; then
+        {
+            printf '\n%s\n' "$bashrc_mark"
+            printf '[ -r "%s" ] && . "%s"\n' "$HOST_BASHRC" "$HOST_BASHRC"
+        } >> "$HOME/.bashrc"
+        echo "Wired host .bashrc passthrough into $HOME/.bashrc"
+    fi
+fi
+
 # Helper to read pinned versions from the Dockerfile (single source of truth)
 DEVCONTAINER_DOCKERFILE="$SCRIPT_DIR/Dockerfile"
 get_arg_version() {

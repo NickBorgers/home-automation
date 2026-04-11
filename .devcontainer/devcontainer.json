@@ -29,7 +29,16 @@
     // as on the host so absolute paths inside settings.json resolve verbatim.
     // On CI runners without ~/.claude, Docker creates an empty directory and
     // post-create.sh no-ops.
-    "source=${localEnv:HOME}/.claude,target=${localEnv:HOME}/.claude,type=bind,readonly,consistency=cached"
+    "source=${localEnv:HOME}/.claude,target=${localEnv:HOME}/.claude,type=bind,readonly,consistency=cached",
+    // Same pattern for the developer's host ~/.bashrc and the external
+    // util/profile file it sources (shell functions, mise activation, the
+    // claude-yolo alias, etc.). Mounting at the same absolute path lets the
+    // source line inside ~/.bashrc resolve verbatim inside the container.
+    // post-create.sh appends a source line to the container user's .bashrc
+    // rather than overlaying it, so the container's baseline PS1 /
+    // bash-completion are preserved.
+    "source=${localEnv:HOME}/.bashrc,target=${localEnv:HOME}/.bashrc,type=bind,readonly,consistency=cached",
+    "source=${localEnv:HOME}/code/util/profile,target=${localEnv:HOME}/code/util/profile,type=bind,readonly,consistency=cached"
   ],
   "initializeCommand": "bash .devcontainer/init-host-credentials.sh",
   "remoteEnv": {
@@ -37,7 +46,8 @@
     "OPENAI_API_KEY": "fake-key",
     "TERM": "xterm-256color",
     "LANG": "en_US.UTF-8",
-    "CLAUDE_HOST_CONFIG_DIR": "${localEnv:HOME}/.claude"
+    "CLAUDE_HOST_CONFIG_DIR": "${localEnv:HOME}/.claude",
+    "HOST_BASHRC": "${localEnv:HOME}/.bashrc"
   },
   "updateRemoteUserUID": true,
   "remoteUser": "vscode"
