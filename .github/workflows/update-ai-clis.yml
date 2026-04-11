@@ -21,9 +21,11 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
-          CURRENT_CLAUDE=$(grep -oP 'ARG CLAUDE_CODE_VERSION=\K[0-9.]+' .devcontainer/Dockerfile)
-          CURRENT_CRUSH=$(grep -oP 'ARG CRUSH_CLI_VERSION=\K[0-9.]+' .devcontainer/Dockerfile)
-          CURRENT_CODEX=$(grep -oP 'ARG CODEX_CLI_VERSION=\K[0-9.]+' .devcontainer/Dockerfile)
+          # Single source of truth for pinned versions: .github/ci/versions.env.
+          # The .devcontainer/Dockerfile references the same pins via build-arg.
+          CURRENT_CLAUDE=$(grep -oP 'CLAUDE_CODE_VERSION=\K[0-9.]+' .github/ci/versions.env)
+          CURRENT_CRUSH=$(grep -oP 'CRUSH_CLI_VERSION=\K[0-9.]+' .github/ci/versions.env)
+          CURRENT_CODEX=$(grep -oP 'CODEX_CLI_VERSION=\K[0-9.]+' .github/ci/versions.env)
 
           LATEST_CLAUDE=$(curl -fsSL --retry 5 --retry-delay 2 --retry-connrefused https://storage.googleapis.com/claude-code-dist-86c565f3-f756-42ad-8dfa-d59b1c096819/claude-code-releases/latest)
           GITHUB_HEADERS=(-H "Authorization: Bearer ${GITHUB_TOKEN}" -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28")
@@ -46,9 +48,15 @@ jobs:
           echo "Crush: $CURRENT_CRUSH -> $LATEST_CRUSH"
           echo "Codex: $CURRENT_CODEX -> $LATEST_CODEX"
 
-      - name: Update Dockerfile
+      - name: Update versions.env
         if: steps.check.outputs.needs_update == 'true'
         run: |
+          sed -i "s/^CLAUDE_CODE_VERSION=.*/CLAUDE_CODE_VERSION=${{ steps.check.outputs.latest_claude }}/" .github/ci/versions.env
+          sed -i "s/^CRUSH_CLI_VERSION=.*/CRUSH_CLI_VERSION=${{ steps.check.outputs.latest_crush }}/" .github/ci/versions.env
+          sed -i "s/^CODEX_CLI_VERSION=.*/CODEX_CLI_VERSION=${{ steps.check.outputs.latest_codex }}/" .github/ci/versions.env
+          # Keep the devcontainer Dockerfile's ARG defaults in sync — dev
+          # machines that build the devcontainer image directly (without
+          # passing build-args) still need a fallback value.
           sed -i "s/ARG CLAUDE_CODE_VERSION=.*/ARG CLAUDE_CODE_VERSION=${{ steps.check.outputs.latest_claude }}/" .devcontainer/Dockerfile
           sed -i "s/ARG CRUSH_CLI_VERSION=.*/ARG CRUSH_CLI_VERSION=${{ steps.check.outputs.latest_crush }}/" .devcontainer/Dockerfile
           sed -i "s/ARG CODEX_CLI_VERSION=.*/ARG CODEX_CLI_VERSION=${{ steps.check.outputs.latest_codex }}/" .devcontainer/Dockerfile
@@ -59,10 +67,14 @@ jobs:
         with:
           # PAT required so the created PR triggers pull_request events (GITHUB_TOKEN suppresses them)
           token: ${{ secrets.WORKFLOW_PAT }}
-          commit-message: "chore: update AI CLIs in devcontainer"
-          title: "chore: update AI CLIs in devcontainer"
+          commit-message: "chore: update AI CLI pins"
+          title: "chore: update AI CLI pins"
           body: |
-            Automated weekly update of the AI CLIs bundled in the devcontainer.
+            Automated weekly update of the pinned AI CLI versions.
+
+            Updated in `.github/ci/versions.env` (the single source of
+            truth for both the CI agent image and the devcontainer) and
+            mirrored into `.devcontainer/Dockerfile`'s ARG defaults.
 
             - **Claude Code:** ${{ steps.check.outputs.current_claude }} → ${{ steps.check.outputs.latest_claude }}
             - **Crush:** ${{ steps.check.outputs.current_crush }} → ${{ steps.check.outputs.latest_crush }}
