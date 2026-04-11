@@ -25,7 +25,7 @@ concurrency:
 
 env:
   # Note: must be lowercase for Docker compatibility
-  DEVCONTAINER_IMAGE: ghcr.io/nickborgers/home-automation-devcontainer
+  CI_IMAGE: ghcr.io/nickborgers/home-automation-ci:latest
 
 jobs:
   # Security gate: Check if the actor is authorized to trigger the AI assistant
@@ -157,10 +157,10 @@ jobs:
 
           echo "should_run_ai=$SHOULD_RUN" >> $GITHUB_OUTPUT
 
-  # Build and cache devcontainer image first
-  # Optimization: Skip build if .devcontainer/ files haven't changed
-  # This saves ~1 minute per run when devcontainer is unchanged
-  build-devcontainer:
+  # Ensure the CI image exists in GHCR. If .github/ci/** changed in this
+  # PR or the image isn't yet published, rebuild. Otherwise the agent job
+  # just pulls the existing latest tag.
+  ensure-ci-image:
     needs: authorize
     if: |
       needs.authorize.outputs.authorized == 'true' &&
@@ -169,75 +169,88 @@ jobs:
     permissions:
       contents: read
       packages: write
-    outputs:
-      should_build_devcontainer: ${{ steps.check-changes.outputs.should_build_devcontainer }}
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 1  # Shallow clone suffices; change detection uses GitHub API, not local git history
+          fetch-depth: 1
 
-      - name: Check if devcontainer files changed
+      - name: Check if CI image files changed
         id: check-changes
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          # Check if this is the first run or if devcontainer files changed
+          set -euo pipefail
           if [ "${{ github.event_name }}" = "issues" ] && [ "${{ github.event.action }}" = "opened" ]; then
-            # For new issues, always check if devcontainer needs update
-            DEVCONTAINER_CHANGED="true"
-          else
-            # For PR comments, check if devcontainer files changed in the PR
-            if [ -n "${{ github.event.issue.pull_request || github.event.pull_request.number }}" ]; then
-              PR_NUMBER="${{ github.event.issue.number || github.event.pull_request.number }}"
-              # Get list of changed files in the PR
-              CHANGED_FILES=$(gh api "repos/${{ github.repository }}/pulls/${PR_NUMBER}/files" --paginate --jq '.[].filename')
-              if echo "$CHANGED_FILES" | grep -q "^\.devcontainer/"; then
-                DEVCONTAINER_CHANGED="true"
-              else
-                DEVCONTAINER_CHANGED="false"
-              fi
+            CI_FILES_CHANGED="false"
+          elif [ -n "${{ github.event.issue.pull_request || github.event.pull_request.number }}" ]; then
+            PR_NUMBER="${{ github.event.issue.number || github.event.pull_request.number }}"
+            CHANGED_FILES=$(gh api "repos/${{ github.repository }}/pulls/${PR_NUMBER}/files" --paginate --jq '.[].filename')
+            if echo "$CHANGED_FILES" | grep -qE "^\.github/ci/"; then
+              CI_FILES_CHANGED="true"
             else
-              # For non-PR contexts, always build to be safe
-              DEVCONTAINER_CHANGED="true"
+              CI_FILES_CHANGED="false"
             fi
+          else
+            CI_FILES_CHANGED="false"
           fi
 
-          # Check if the image exists in GHCR
-          if docker manifest inspect ghcr.io/nickborgers/home-automation-devcontainer:latest >/dev/null 2>&1; then
+          if docker manifest inspect "${{ env.CI_IMAGE }}" >/dev/null 2>&1; then
             IMAGE_EXISTS="true"
           else
             IMAGE_EXISTS="false"
-            DEVCONTAINER_CHANGED="true"  # Force build if image doesn't exist
           fi
 
-          if [ "$DEVCONTAINER_CHANGED" = "true" ] || [ "$IMAGE_EXISTS" = "false" ]; then
-            echo "should_build_devcontainer=true" >> $GITHUB_OUTPUT
-            echo "✅ Devcontainer will be built (changed=$DEVCONTAINER_CHANGED, exists=$IMAGE_EXISTS)"
+          if [ "$CI_FILES_CHANGED" = "true" ] || [ "$IMAGE_EXISTS" = "false" ]; then
+            echo "should_build=true" >> $GITHUB_OUTPUT
+            echo "✅ Will build CI image (ci_files_changed=$CI_FILES_CHANGED, image_exists=$IMAGE_EXISTS)"
           else
-            echo "should_build_devcontainer=false" >> $GITHUB_OUTPUT
-            echo "⏭️  Skipping devcontainer build (no changes detected)"
+            echo "should_build=false" >> $GITHUB_OUTPUT
+            echo "⏭️  Skipping CI image build (image present, no CI files changed)"
           fi
-        env:
-          GH_TOKEN: ${{ github.token }}
 
       - name: Log in to GHCR
-        if: steps.check-changes.outputs.should_build_devcontainer == 'true'
+        if: steps.check-changes.outputs.should_build == 'true'
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push devcontainer
-        if: steps.check-changes.outputs.should_build_devcontainer == 'true'
-        uses: devcontainers/ci@v0.3
+      - name: Set up Buildx
+        if: steps.check-changes.outputs.should_build == 'true'
+        uses: docker/setup-buildx-action@v3
+
+      - name: Load pinned CLI versions
+        if: steps.check-changes.outputs.should_build == 'true'
+        run: |
+          cat .github/ci/versions.env >> "$GITHUB_ENV"
+
+      - name: Build and push CI image
+        if: steps.check-changes.outputs.should_build == 'true'
+        uses: docker/build-push-action@v5
         with:
-          imageName: ${{ env.DEVCONTAINER_IMAGE }}
-          cacheFrom: ${{ env.DEVCONTAINER_IMAGE }}
-          push: always
+          context: .
+          file: .github/ci/Dockerfile
+          push: true
+          tags: |
+            ${{ env.CI_IMAGE }}
+            ghcr.io/nickborgers/home-automation-ci:${{ github.sha }}
+          build-args: |
+            CLAUDE_CODE_VERSION=${{ env.CLAUDE_CODE_VERSION }}
+            CODEX_CLI_VERSION=${{ env.CODEX_CLI_VERSION }}
+            CRUSH_CLI_VERSION=${{ env.CRUSH_CLI_VERSION }}
+            NODE_MAJOR=${{ env.NODE_MAJOR }}
+          cache-from: |
+            type=gha
+            type=registry,ref=ghcr.io/nickborgers/home-automation-ci:buildcache
+          cache-to: |
+            type=gha,mode=max
+            type=registry,ref=ghcr.io/nickborgers/home-automation-ci:buildcache,mode=max
 
   ai:
-    needs: [authorize, build-devcontainer]
+    needs: [authorize, ensure-ci-image]
     # The authorize job has already confirmed the actor is authorized and that
     # a plain-text /autoresolve mention is present in the comment/review body
     # (ignoring code blocks and links). This job handles the comment/review
@@ -264,7 +277,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # Determine if this is a PR comment and get PR details
           IS_PR="false"
           PR_HEAD_REF=""
           PR_NUMBER=""
@@ -278,11 +290,9 @@ jobs:
             PR_NUMBER="${{ github.event.pull_request.number }}"
             PR_HEAD_REF="${{ github.event.pull_request.head.ref }}"
           elif [ "${{ github.event_name }}" = "issue_comment" ]; then
-            # Check if the issue is actually a PR
             if [ -n "${{ github.event.issue.pull_request }}" ]; then
               IS_PR="true"
               PR_NUMBER="${{ github.event.issue.number }}"
-              # Fetch PR details to get head ref
               PR_HEAD_REF=$(gh api repos/${{ github.repository }}/pulls/${PR_NUMBER} --jq '.head.ref')
             fi
           fi
@@ -306,116 +316,85 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # Note: GH_TOKEN uses WORKFLOW_PAT because PRs created with GITHUB_TOKEN don't trigger workflows
-      - name: Run AI assistant in devcontainer
-        uses: devcontainers/ci@v0.3
-        with:
-          imageName: ${{ env.DEVCONTAINER_IMAGE }}
-          cacheFrom: ${{ env.DEVCONTAINER_IMAGE }}
-          push: never
-          env: |
-            AI_API_KEY=${{ secrets.ANTHROPIC_API_KEY }}
-            GH_TOKEN=${{ secrets.WORKFLOW_PAT }}
-            EVENT_NAME=${{ github.event_name }}
-            COMMENT_ID=${{ github.event.comment.id }}
-            REVIEW_ID=${{ github.event.review.id }}
-            PR_NUMBER=${{ github.event.pull_request.number }}
-            ISSUE_NUMBER=${{ github.event.issue.number || github.event.pull_request.number }}
-            REPO=${{ github.repository }}
-            IS_PR=${{ steps.pr-context.outputs.is_pr }}
-            PR_HEAD_REF=${{ steps.pr-context.outputs.pr_head_ref }}
-          runCmd: |
-            source .devcontainer/configure-ai.sh
+      - name: Pull CI image
+        run: docker pull "${CI_IMAGE}"
 
-            # Fetch comment/review/issue body via API to avoid Docker env escaping issues
-            # Multi-line content with special characters breaks docker exec -e args
-            # (see https://github.com/NickBorgers/home-automation/issues/950)
-            case "$EVENT_NAME" in
-              issue_comment)
-                COMMENT_BODY=$(gh api "repos/${REPO}/issues/comments/${COMMENT_ID}" --jq '.body // ""')
-                ;;
-              pull_request_review_comment)
-                COMMENT_BODY=$(gh api "repos/${REPO}/pulls/comments/${COMMENT_ID}" --jq '.body // ""')
-                ;;
-              pull_request_review)
-                COMMENT_BODY=$(gh api "repos/${REPO}/pulls/${PR_NUMBER}/reviews/${REVIEW_ID}" --jq '.body // ""')
-                ;;
-              issues)
-                COMMENT_BODY=$(gh api "repos/${REPO}/issues/${ISSUE_NUMBER}" --jq '.body // ""')
-                ;;
-            esac
+      - name: Run AI assistant
+        env:
+          AI_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GH_TOKEN: ${{ secrets.WORKFLOW_PAT }}
+          EVENT_NAME: ${{ github.event_name }}
+          COMMENT_ID: ${{ github.event.comment.id }}
+          REVIEW_ID: ${{ github.event.review.id }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          ISSUE_NUMBER: ${{ github.event.issue.number || github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+          IS_PR: ${{ steps.pr-context.outputs.is_pr }}
+          PR_HEAD_REF: ${{ steps.pr-context.outputs.pr_head_ref }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/ai-output
 
-            # Build the prompt based on whether this is a PR or issue comment
-            if [ "$IS_PR" = "true" ]; then
-              PROMPT="You are an autonomous agent responding to a request on PR #${ISSUE_NUMBER} in ${REPO}.
+          docker run --rm \
+            --network host \
+            --workdir /workspace \
+            -v "${{ github.workspace }}:/workspace" \
+            -v /tmp/ai-output:/tmp/ai-output \
+            -e AI_API_KEY \
+            -e GH_TOKEN \
+            -e EVENT_NAME \
+            -e COMMENT_ID \
+            -e REVIEW_ID \
+            -e PR_NUMBER \
+            -e ISSUE_NUMBER \
+            -e REPO \
+            -e IS_PR \
+            -e PR_HEAD_REF \
+            "${CI_IMAGE}" \
+            -lc '
+              set -euo pipefail
+              source .devcontainer/configure-ai.sh
 
-            The user said: ${COMMENT_BODY}
+              # Fetch comment/review/issue body via API to avoid docker env-var
+              # escaping issues for multi-line content with special characters.
+              case "$EVENT_NAME" in
+                issue_comment)
+                  COMMENT_BODY=$(gh api "repos/${REPO}/issues/comments/${COMMENT_ID}" --jq ".body // \"\"")
+                  ;;
+                pull_request_review_comment)
+                  COMMENT_BODY=$(gh api "repos/${REPO}/pulls/comments/${COMMENT_ID}" --jq ".body // \"\"")
+                  ;;
+                pull_request_review)
+                  COMMENT_BODY=$(gh api "repos/${REPO}/pulls/${PR_NUMBER}/reviews/${REVIEW_ID}" --jq ".body // \"\"")
+                  ;;
+                issues)
+                  COMMENT_BODY=$(gh api "repos/${REPO}/issues/${ISSUE_NUMBER}" --jq ".body // \"\"")
+                  ;;
+              esac
+              export COMMENT_BODY
 
-            YOUR TASK: IMPLEMENT the requested changes. Do NOT just provide review comments or suggestions.
+              if [ "$IS_PR" = "true" ]; then
+                PROMPT_FILE=.github/ci/prompts/ai-comment-pr.md
+              else
+                PROMPT_FILE=.github/ci/prompts/ai-comment-issue.md
+              fi
 
-            WORKFLOW:
-            1. Read the user's request carefully
-            2. If they reference another comment, fetch it: gh api repos/${REPO}/issues/${ISSUE_NUMBER}/comments
-            3. Understand what changes are needed
-            4. Implement the changes in the code
-            5. Run \`make unit-tests\` to verify your changes work
-            6. Commit your changes with a descriptive message
-            7. Push to the PR branch: git push origin ${PR_HEAD_REF}
-            8. Post a summary comment: gh pr comment ${ISSUE_NUMBER} --body 'YOUR_SUMMARY'
-
-            IMPORTANT RULES FOR THIS REPOSITORY:
-            - Use \`make unit-tests\` NOT \`go test\` (caching)
-            - Use \`make integration-tests\` for integration tests
-            - Use \`make pre-commit\` for linting/formatting
-            - Follow shadow state pattern (docs/reference/SHADOW_STATE.md)
-            - Never use \`git push --no-verify\`
-
-            TDD FOR CROSS-PLUGIN FEATURES:
-            - If implementing a feature that spans multiple plugins, write the user story test FIRST
-            - User story tests go in test/integration/scenario_*_test.go
-            - Tests should verify behavior from the user's perspective using GIVEN/WHEN/THEN
-            - Document invariants: rules that should ALWAYS hold (e.g., 'isWakeSequenceActive=true blocks sleep music')
-            - Test the full timeline, not just end states (T+0, T+2min, T+5min)
-            - Reference: scenario_sleephygiene_test.go for TDD-style cross-plugin tests
-
-            You are on branch ${PR_HEAD_REF}. Make the changes, commit, and push them."
-            else
-              PROMPT="You are responding to a request in ${REPO} issue #${ISSUE_NUMBER}.
-
-            The user said: ${COMMENT_BODY}
-
-            IMPORTANT RULES FOR THIS REPOSITORY:
-            - Use \`make unit-tests\` NOT \`go test\` (caching)
-            - Use \`make integration-tests\` for integration tests
-            - Use \`make pre-commit\` for linting/formatting
-            - Follow shadow state pattern (docs/reference/SHADOW_STATE.md)
-            - Never use \`git push --no-verify\`
-
-            TDD FOR CROSS-PLUGIN FEATURES:
-            - If implementing a feature that spans multiple plugins, write the user story test FIRST
-            - User story tests go in test/integration/scenario_*_test.go
-            - Tests should verify behavior from the user's perspective using GIVEN/WHEN/THEN
-            - Document invariants: rules that should ALWAYS hold (e.g., 'isWakeSequenceActive=true blocks sleep music')
-            - Test the full timeline, not just end states (T+0, T+2min, T+5min)
-            - Reference: scenario_sleephygiene_test.go for TDD-style cross-plugin tests
-
-            Complete the user's request. If you make changes, create a branch, commit them, and open a PR.
-            Reply to the user using: gh issue comment ${ISSUE_NUMBER} --body 'YOUR_RESPONSE'"
-            fi
-
-            bash .devcontainer/run-ai.sh "$PROMPT" 2>&1 | tee /tmp/ai-conversation.jsonl
+              PROMPT=$(envsubst < "$PROMPT_FILE")
+              bash .devcontainer/run-ai.sh "$PROMPT" 2>&1 \
+                | tee /tmp/ai-output/ai-conversation.jsonl
+            '
 
       - name: Upload AI conversation log
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: ai-conversation-log
-          path: /tmp/ai-conversation.jsonl
+          path: /tmp/ai-output/ai-conversation.jsonl
           retention-days: 7
 
   # Auto-resolve new issues by opening a PR
   resolve-issue:
-    needs: [authorize, build-devcontainer]
+    needs: [authorize, ensure-ci-image]
     if: |
       needs.authorize.outputs.authorized == 'true' &&
       needs.authorize.outputs.should_run_ai == 'true' &&
@@ -446,9 +425,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # Create the label if it doesn't exist (ignore error if it does)
           gh label create "ai-started" --color "7057ff" --description "AI assistant is working on this issue" --repo ${{ github.repository }} 2>/dev/null || true
-          # Add the label to the issue
           gh issue edit ${{ github.event.issue.number }} --add-label "ai-started" --repo ${{ github.repository }}
 
       - name: Log in to GHCR
@@ -458,96 +435,52 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # Note: GH_TOKEN uses WORKFLOW_PAT because PRs created with GITHUB_TOKEN don't trigger workflows
+      - name: Pull CI image
+        run: docker pull "${CI_IMAGE}"
+
       - name: Resolve issue with AI assistant
-        uses: devcontainers/ci@v0.3
-        with:
-          imageName: ${{ env.DEVCONTAINER_IMAGE }}
-          cacheFrom: ${{ env.DEVCONTAINER_IMAGE }}
-          push: never
-          env: |
-            AI_API_KEY=${{ secrets.ANTHROPIC_API_KEY }}
-            GH_TOKEN=${{ secrets.WORKFLOW_PAT }}
-            ISSUE_NUMBER=${{ github.event.issue.number }}
-            ISSUE_TITLE=${{ github.event.issue.title }}
-            REPO=${{ github.repository }}
-          runCmd: |
-            source .devcontainer/configure-ai.sh
+        env:
+          AI_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GH_TOKEN: ${{ secrets.WORKFLOW_PAT }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/resolve-output
 
-            # Fetch issue body via API to avoid multi-line env var escaping issues
-            # (see https://github.com/NickBorgers/home-automation/issues/441)
-            ISSUE_BODY=$(gh api "repos/${REPO}/issues/${ISSUE_NUMBER}" --jq '.body')
+          docker run --rm \
+            --network host \
+            --workdir /workspace \
+            -v "${{ github.workspace }}:/workspace" \
+            -v /tmp/resolve-output:/tmp/resolve-output \
+            -e AI_API_KEY \
+            -e GH_TOKEN \
+            -e ISSUE_NUMBER \
+            -e ISSUE_TITLE \
+            -e REPO \
+            "${CI_IMAGE}" \
+            -lc '
+              set -euo pipefail
+              source .devcontainer/configure-ai.sh
 
-            # Fetch all comments on the issue (may contain additional context/requirements)
-            ISSUE_COMMENTS=$(gh api "repos/${REPO}/issues/${ISSUE_NUMBER}/comments" --jq '.[] | "---\n**\(.user.login)** commented at \(.created_at):\n\(.body)\n"' 2>/dev/null | head -c 50000 || echo "")
+              # Fetch issue body and comments via API; export into env for
+              # envsubst expansion against the prompt template.
+              ISSUE_BODY=$(gh api "repos/${REPO}/issues/${ISSUE_NUMBER}" --jq ".body")
+              ISSUE_COMMENTS=$(gh api "repos/${REPO}/issues/${ISSUE_NUMBER}/comments" \
+                --jq ".[] | \"---\n**\(.user.login)** commented at \(.created_at):\n\(.body)\n\"" 2>/dev/null \
+                | head -c 50000 || echo "")
+              export ISSUE_BODY ISSUE_COMMENTS
 
-            bash .devcontainer/run-ai.sh "You are an autonomous agent tasked with resolving GitHub issue #${ISSUE_NUMBER}.
-
-            ISSUE TITLE: ${ISSUE_TITLE}
-
-            ISSUE BODY:
-            ${ISSUE_BODY}
-
-            ISSUE COMMENTS (if any):
-            ${ISSUE_COMMENTS}
-
-            YOUR TASK:
-            1. Analyze the issue and understand what needs to be done
-            2. Explore the codebase to find relevant files
-            3. Implement the fix or feature
-            4. Run \`make unit-tests\` to verify your changes work
-            5. Create a branch, commit your changes, and open a PR
-
-            IMPORTANT RULES:
-            - Use \`make unit-tests\` NOT \`go test\` (caching)
-            - Use \`make integration-tests\` for integration tests
-            - Use \`make pre-commit\` for linting/formatting
-            - Follow shadow state pattern (docs/reference/SHADOW_STATE.md)
-            - Never use \`git push --no-verify\`
-            - Write the minimum code that solves the issue. No more.
-            - Don't add helpers, utilities, or abstractions unless the issue requires them.
-            - Don't refactor adjacent code or make unrelated improvements.
-            - If three similar lines work, don't extract a function.
-
-            TDD FOR CROSS-PLUGIN FEATURES:
-            - If implementing a feature that spans multiple plugins, write the user story test FIRST
-            - User story tests go in test/integration/scenario_*_test.go
-            - Tests should verify behavior from the user's perspective using GIVEN/WHEN/THEN
-            - Document invariants: rules that should ALWAYS hold (e.g., 'isWakeSequenceActive=true blocks sleep music')
-            - Test the full timeline, not just end states (T+0, T+2min, T+5min)
-            - Reference: scenario_sleephygiene_test.go for TDD-style cross-plugin tests
-
-            BEFORE CREATING THE PR — SELF-REVIEW:
-            6. Run \`git diff --stat\` and verify ONLY issue-scoped changes remain.
-               If the diff includes code beyond the issue scope, REMOVE IT.
-               The fix should be the smallest correct change.
-            7. For any new external service calls: verify retry logic and appropriate timeouts.
-            8. For any new test helpers with shared state: verify mutex protection.
-            9. Verify new tests exercise the CURRENT production code path, not a legacy path.
-
-            BRANCH NAMING: Use \`ai/issue-${ISSUE_NUMBER}\` as the branch name.
-
-            PR CREATION:
-            gh pr create --title 'Fix #${ISSUE_NUMBER}: <brief description>' \\
-              --body 'Resolves #${ISSUE_NUMBER}
-
-            ## Summary
-            <describe what you changed>
-
-            ## Test Plan
-            <how to verify the fix>
-
-            🤖 Generated by the AI assistant' \\
-              --head ai/issue-${ISSUE_NUMBER}
-
-            If you cannot resolve the issue (unclear requirements, needs human decision, etc.),
-            comment on the issue explaining what clarification is needed:
-            gh issue comment ${ISSUE_NUMBER} --body 'YOUR_EXPLANATION'" 2>&1 | tee /tmp/resolve-issue-conversation.jsonl
+              PROMPT=$(envsubst < .github/ci/prompts/resolve-issue.md)
+              bash .devcontainer/run-ai.sh "$PROMPT" 2>&1 \
+                | tee /tmp/resolve-output/resolve-issue-conversation.jsonl
+            '
 
       - name: Upload issue resolution conversation log
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: resolve-issue-conversation-log
-          path: /tmp/resolve-issue-conversation.jsonl
+          path: /tmp/resolve-output/resolve-issue-conversation.jsonl
           retention-days: 7
