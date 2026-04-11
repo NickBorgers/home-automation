@@ -225,7 +225,8 @@ jobs:
       - name: Load pinned CLI versions
         if: steps.check-changes.outputs.should_build == 'true'
         run: |
-          cat .github/ci/versions.env >> "$GITHUB_ENV"
+          # $GITHUB_ENV rejects comment lines and blank lines — strip them.
+          grep -Ev '^\s*(#|$)' .github/ci/versions.env >> "$GITHUB_ENV"
 
       - name: Build and push CI image
         if: steps.check-changes.outputs.should_build == 'true'
