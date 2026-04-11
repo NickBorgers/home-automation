@@ -12,7 +12,9 @@ The repository uses several interconnected workflows that leverage an AI assista
 ┌──────────────────────────────────────────────────────────────────────────┐
 │                           TRIGGER EVENTS                                  │
 ├──────────────────────────────────────────────────────────────────────────┤
-│  Issue Opened  │  @ai Mention      │  PR Tests Complete/Failed  │ Monthly │
+│ Issue Opened / │ /autoresolve in │  PR Tests Complete/Failed  │ Monthly  │
+│ ai-started     │ comment or      │                            │          │
+│ unlabeled      │ review          │                            │          │
 └───────┬────────┴────────┬──────────┴─────────┬─────────────────┴────┬────┘
         │                 │                    │                      │
         ▼                 ▼                    ▼                      ▼
@@ -52,7 +54,7 @@ Key security measures:
 
 | Workflow | File | Trigger | Purpose |
 |----------|------|---------|---------|
-| AI Assistant | `ai-assistant.yml` | @ai mentions, new issues | Respond to requests, auto-resolve issues |
+| AI Assistant | `ai-assistant.yml` | New issues, ai-started label removal, `/autoresolve` comments | Auto-resolve issues, respond to comments |
 | AI Code Review | `ai-code-review.yml` | PR Tests completion, PR reopened | Multi-agent code review, fix failures, merge decision |
 | PR Tests | `pr-tests.yml` | PRs, pushes to all branches | Run tests, trigger review pipeline |
 | AI Diagnose Workflow Failure | `ai-diagnose-workflow-failure.yml` | Any workflow failure | Diagnose Actions config problems (not test failures) |
@@ -66,13 +68,15 @@ The main workflow that enables the AI assistant to respond to requests and autom
 
 ### Triggers
 
-- **Issue Comment**: When a comment includes a plain-text `@ai` mention (not inside code blocks or Markdown/HTML links)
-- **PR Review Comment**: When a review comment includes a plain-text `@ai`
-- **PR Review**: When a review body includes a plain-text `@ai`
-- **New Issue**: When an issue is opened _and_ the issue title or body includes a plain-text `@ai` mention
+The workflow has three primary trigger paths, all gated by the `authorize` job:
 
-For **issue threads**, the guard insists that the issue title or body already contains a plain-text `@ai` mention before any follow-up comments can launch the AI assistant. This ensures maintainers explicitly opt-in when opening the issue instead of retroactively adding a mention inside backticks or hyperlinks.
-The authorize guard ignores quoted/code-fenced literals so automated review comments from the pipeline itself can safely include `@ai` without retriggering the workflow.
+- **Issue opened / assigned** (`issues: opened` / `issues: assigned`): Any issue opened by an authorized actor (OWNER / MEMBER / COLLABORATOR) fires the AI automatically. **No opt-in keyword required** in the title or body. This is the primary path for "please fix this."
+- **`ai-started` label removed** (`issues: unlabeled`): The `resolve-issue` job stamps every issue it processes with an `ai-started` label. Removing that label from an open issue is the "try again" gesture — it re-fires the `resolve-issue` job so the AI takes another pass (useful when the previous attempt got stuck or produced the wrong PR). The unlabeled trigger is ignored unless the removed label is literally `ai-started` **and** the issue is still open.
+- **`/autoresolve` in a comment or review** (fallback): When a comment, PR review, or PR review comment contains a plain-text `/autoresolve` token, the AI fires against that comment's context (PR branch or issue thread). This is the fallback path for directing the AI at an existing thread after opening. The `authorize` job strips fenced code blocks, inline code, HTML `<code>` blocks, markdown links, and HTML `<a>` links before searching for the token, so pasted examples and docs never retrigger the workflow.
+
+Why `/autoresolve` and not `@something`? `@ai`, `@autoresolve`, and similar tags are all real GitHub usernames — using them in comments would ping live users. The slash-command style is unambiguously a bot directive and pings nobody.
+
+The authorize job also short-circuits any comment whose body matches a known auto-generated review heading (e.g. `## Code Review`, `## Merge Decision`). This prevents the code-review pipeline from recursively triggering the AI with its own output.
 
 ### Concurrency Control
 
@@ -83,13 +87,13 @@ concurrency:
 ```
 
 Scoped by issue/PR number so that:
-- Two rapid `@ai` mentions on the **same** PR/issue cannot overlap; the newer invocation cancels the prior run and starts immediately
-- `@ai` on **different** PRs/issues runs in parallel (separate concurrency groups)
+- Two rapid triggers on the **same** PR/issue cannot overlap; the newer invocation cancels the prior run and starts immediately
+- Triggers on **different** PRs/issues run in parallel (separate concurrency groups)
 
-`cancel-in-progress: true` prevents queued work from racing stale context — the AI assistant immediately restarts with the newest request so the freshly posted comment is always the one being processed.
+`cancel-in-progress: true` prevents queued work from racing stale context — the AI assistant immediately restarts with the newest request so the freshest state is always the one being processed.
 
 **When the guard trips (GitHub Actions summary messaging):**
-- In-flight runs flip to the yellow `Cancelled` badge within seconds; the GitHub Actions run summary surfaces the callout “Superseded by another run in ai-interactive-<number>,” so you immediately know a newer request preempted it.
+- In-flight runs flip to the yellow `Cancelled` badge within seconds; the GitHub Actions run summary surfaces the callout "Superseded by another run in ai-interactive-<number>," so you immediately know a newer request preempted it.
 - Runs blocked before they start show up in the Actions summary as `Skipped by concurrency guard` with the same superseded message, making it obvious the skip was intentional and not a workflow failure.
 - Only the newest comment gets a response; stale runs never emit results because GitHub immediately launches a fresh execution with the latest payload.
 - Treat the coloured cancellation/skip messaging as confirmation that the guard worked — no manual cleanup required.
@@ -100,12 +104,8 @@ Scoped by issue/PR number so that:
 
 Builds and caches a devcontainer image to speed up subsequent runs.
 
-- **Guard (critical)**: Runs **only** when the `authorize` job sets `should_run_ai=true`. The guard strips Markdown/HTML links and code blocks before searching for a plain-text `@ai`, and surfaces its decision through two outputs:
-  - `should_run_ai`: `true` only for authorized actors whose payload includes a plain-text `@ai`. For issue threads, the issue title/body must already contain the mention before any comment @-pings can execute.
-  - `should_build_devcontainer`: `true` when the AI assistant is about to run and the devcontainer needs a rebuild.
-
-Routine chatter, quoted literals, or the pipeline’s own templated reviews flip `should_run_ai=false`, so the devcontainer rebuild is skipped (`should_build_devcontainer=false`) and the Actions summary records it as an intentional guard skip. If you really need a fresh image, post a new plain-text `@ai`; otherwise the cached container stays in place.
-- **Actions callout**: When the guard skips this job, the workflow summary surfaces the same message so maintainers understand why no rebuild occurred and that the container cache remains untouched.
+- **Guard (critical)**: Runs **only** when the `authorize` job sets `should_run_ai=true`. For issue events this just means the actor is authorized and the event action is one of `opened`, `assigned`, or `unlabeled` on the `ai-started` label. For comment/review events it additionally requires a plain-text `/autoresolve` token in the body (ignoring fenced/inline code and markdown/HTML links) AND the body must not match any known auto-generated review heading.
+- **Actions callout**: When the guard skips this job, the workflow summary surfaces the skip reason so maintainers understand why no rebuild occurred and that the container cache remains untouched.
 - Pushes to `ghcr.io/nickborgers/home-automation-devcontainer`
 - **Skip optimization**: Skips the build entirely when `.devcontainer/` files haven't changed in the PR and the image already exists in GHCR. Falls back to always building for new issues and non-PR contexts.
 - **Output**: `should_build_devcontainer` — consumed by downstream steps via conditional `if` guards
@@ -113,9 +113,9 @@ Routine chatter, quoted literals, or the pipeline’s own templated reviews flip
 
 #### 1.2 `ai`
 
-Responds to `@ai` mentions in comments.
+Responds to `/autoresolve` invocations in comments, PR reviews, and PR review comments. Does **not** handle issue events — those are routed to `resolve-issue` below.
 
-**Condition**: Executes only when `needs.authorize.outputs.should_run_ai == 'true'`, meaning an authorized actor supplied a plain-text `@ai` (after stripping Markdown/HTML links and code blocks). Issue comments also require the issue title/body to contain a plain-text mention. This prevents the AI assistant from responding to its own templated comments, quoted strings, or retroactive edits that never updated the original issue text.
+**Condition**: Executes only when `needs.authorize.outputs.should_run_ai == 'true'` AND the event type is `issue_comment`, `pull_request_review_comment`, or `pull_request_review`. The authorize job has already verified the comment body contains a plain-text `/autoresolve` and does not match an auto-generated review heading, so this job's `if:` is intentionally thin.
 
 **Workflow**:
 1. Detects if the context is a PR or issue
@@ -134,17 +134,22 @@ The CLI reads `ANTHROPIC_API_KEY` and `ANTHROPIC_BASE_URL` (pointing at the self
 
 #### 1.3 `resolve-issue`
 
-Automatically resolves newly opened issues.
+Automatically resolves newly opened issues and re-runs on explicit retry requests.
 
-**Condition**: Runs on `issues: [opened, assigned]` event
+**Condition**: Runs on `issues` events when:
+- `action == 'opened'` — every new issue by an authorized actor
+- `action == 'assigned'` — assignment is treated as an explicit re-invocation
+- `action == 'unlabeled' && label.name == 'ai-started' && issue.state == 'open'` — the retry gesture: removing the `ai-started` label from a still-open issue tells the AI to take another pass
 
 **Workflow**:
-1. Labels issue with `ai-started`
-2. Analyzes the issue title, body, and **all comments** on the issue
+1. Labels issue with `ai-started` (idempotent — will no-op if already present)
+2. Analyzes the issue title, body, and **all comments** on the issue (including any PR review feedback from a previous attempt)
 3. Explores the codebase to understand context
 4. Implements fixes or features
 5. Creates a branch (`ai/issue-{number}`)
 6. Opens a PR with the solution
+
+**`ai-started` is sticky.** Once added, the workflow never automatically removes it. Its only consumer is the retry trigger itself: if you want the AI to try again on the same issue, hand-remove the label and a new `resolve-issue` run fires.
 
 **Timeout**: 120 minutes
 
@@ -609,7 +614,7 @@ Runs the AI assistant to perform a three-phase check:
 2. **Scan Codebase**: Searches plugin code and configs for usage of any deprecated APIs found
 3. **Report**: Creates one GitHub issue per deprecated API found (with `ha-deprecation` label), skipping duplicates
 
-**Issue Integration**: Issues are created with `@ai` in the title prefix, so the `resolve-issue` job in `ai-assistant.yml` automatically picks them up and creates fix PRs.
+**Issue Integration**: Issues are created with the standard `ha-deprecation` label; the `resolve-issue` job in `ai-assistant.yml` now fires automatically on every newly opened issue by an authorized actor (no keyword opt-in required), so these issues are picked up and turned into fix PRs as soon as they're created.
 
 **Token Note**: Uses `WORKFLOW_PAT` (not `GITHUB_TOKEN`) so created issues trigger the `resolve-issue` workflow.
 
@@ -691,7 +696,9 @@ Required approvals: 0  # AI assistant provides automated review
 | Reviews skipped (draft PR) | PR is marked as draft | Mark PR as "Ready for review" to enable reviews |
 | Reviews skipped (config-only) | PR only modifies `configs/` files | Expected - config PRs use streamlined review |
 | Devcontainer build slow | First run or cache miss | Subsequent runs use cached image; builds are skipped entirely when `.devcontainer/` files are unchanged |
-| AI doesn't respond | Comment doesn't contain `@ai` | Ensure @ai is in comment |
+| AI doesn't respond on a comment | Body missing a plain-text `/autoresolve` token, or token is inside a code block / link | Post a comment with `/autoresolve` as plain text (not inside backticks or a markdown link) |
+| AI didn't run on a newly opened issue | Issue author is not an OWNER / MEMBER / COLLABORATOR | Check the `authorize` job logs — external contributors' issues are intentionally skipped |
+| Want to re-run AI on an issue after it finished | `resolve-issue` only fires once per issue open | Remove the `ai-started` label from the (still-open) issue — that re-fires `resolve-issue` |
 | Workflow failure issue not created | Diagnosed as TEST_FAILURE or CONFIG_FAILURE | Expected - these are handled by AI Code Review |
 
 ### Manual Triggers
