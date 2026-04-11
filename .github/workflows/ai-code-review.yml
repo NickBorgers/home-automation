@@ -571,8 +571,7 @@ jobs:
           push: never
           env: |
 
-            ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY }}
-            ANTHROPIC_BASE_URL=https://llm.featherback-mermaid.ts.net/anthropic/
+            AI_API_KEY=${{ secrets.ANTHROPIC_API_KEY }}
             GH_TOKEN=${{ secrets.WORKFLOW_PAT }}
             PR_NUMBER=${{ needs.get-context.outputs.pr_number }}
             PR_TITLE=${{ needs.get-context.outputs.pr_title }}
@@ -595,7 +594,7 @@ jobs:
 
             source .devcontainer/configure-ai.sh
 
-            claude -p --dangerously-skip-permissions --permission-mode=bypassPermissions --model claude-sonnet-4-6 "You are fixing CI test failures for PR #${PR_NUMBER} in ${REPO}.
+            bash .devcontainer/run-ai.sh "You are fixing CI test failures for PR #${PR_NUMBER} in ${REPO}.
             This is fix attempt ${ATTEMPT} of 3.
 
             CRITICAL: BEFORE PUSHING ANY CHANGES, you MUST check if the PR author has pushed
@@ -848,8 +847,7 @@ jobs:
           push: never
           env: |
 
-            ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY }}
-            ANTHROPIC_BASE_URL=https://llm.featherback-mermaid.ts.net/anthropic/
+            AI_API_KEY=${{ secrets.ANTHROPIC_API_KEY }}
             GH_TOKEN=${{ secrets.WORKFLOW_PAT }}
             PR_NUMBER=${{ needs.get-context.outputs.pr_number }}
             REPO=${{ github.repository }}
@@ -860,7 +858,7 @@ jobs:
 
             source .devcontainer/configure-ai.sh
 
-            claude -p --dangerously-skip-permissions --permission-mode=bypassPermissions --model claude-sonnet-4-6 "You are reviewing PR #${PR_NUMBER} in ${REPO}.
+            bash .devcontainer/run-ai.sh "You are reviewing PR #${PR_NUMBER} in ${REPO}.
 
             Review like an experienced staff engineer. Be direct and selective.
             Don't praise the code or list things that are fine — focus on what you'd actually say in a review.
@@ -1002,8 +1000,7 @@ jobs:
           push: never
           env: |
 
-            ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY }}
-            ANTHROPIC_BASE_URL=https://llm.featherback-mermaid.ts.net/anthropic/
+            AI_API_KEY=${{ secrets.ANTHROPIC_API_KEY }}
             GH_TOKEN=${{ secrets.WORKFLOW_PAT }}
             PR_NUMBER=${{ needs.get-context.outputs.pr_number }}
             PR_TITLE=${{ needs.get-context.outputs.pr_title }}
@@ -1028,7 +1025,7 @@ jobs:
 
             source .devcontainer/configure-ai.sh
 
-            claude -p --dangerously-skip-permissions --permission-mode=bypassPermissions --model claude-sonnet-4-6 "You are a DESIGN REVIEW specialist for PR #${PR_NUMBER} in ${REPO}.
+            bash .devcontainer/run-ai.sh "You are a DESIGN REVIEW specialist for PR #${PR_NUMBER} in ${REPO}.
 
             Review like an experienced staff engineer. Be direct and selective.
             Don't praise the design or list strengths — focus on what you'd actually say in a review.
@@ -1194,8 +1191,7 @@ jobs:
           push: never
           env: |
 
-            ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY }}
-            ANTHROPIC_BASE_URL=https://llm.featherback-mermaid.ts.net/anthropic/
+            AI_API_KEY=${{ secrets.ANTHROPIC_API_KEY }}
             GH_TOKEN=${{ secrets.WORKFLOW_PAT }}
             PR_NUMBER=${{ needs.get-context.outputs.pr_number }}
             HEAD_REF=${{ needs.get-context.outputs.head_ref }}
@@ -1203,7 +1199,7 @@ jobs:
           runCmd: |
             source .devcontainer/configure-ai.sh
 
-            claude -p --dangerously-skip-permissions --permission-mode=bypassPermissions --model claude-sonnet-4-6 "You are a QA tester for PR #${PR_NUMBER}.
+            bash .devcontainer/run-ai.sh "You are a QA tester for PR #${PR_NUMBER}.
 
             Review like an experienced staff engineer. Be direct and selective.
             Don't list files reviewed or describe what tests do. If there are no issues, approve in one line and move on.
@@ -1351,8 +1347,7 @@ jobs:
           push: never
           env: |
 
-            ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY }}
-            ANTHROPIC_BASE_URL=https://llm.featherback-mermaid.ts.net/anthropic/
+            AI_API_KEY=${{ secrets.ANTHROPIC_API_KEY }}
             GH_TOKEN=${{ secrets.WORKFLOW_PAT }}
             PR_NUMBER=${{ needs.get-context.outputs.pr_number }}
             HEAD_REF=${{ needs.get-context.outputs.head_ref }}
@@ -1360,7 +1355,7 @@ jobs:
           runCmd: |
             source .devcontainer/configure-ai.sh
 
-            claude -p --dangerously-skip-permissions --permission-mode=bypassPermissions --model claude-sonnet-4-6 "You are a CONCURRENCY specialist reviewing PR #${PR_NUMBER}.
+            bash .devcontainer/run-ai.sh "You are a CONCURRENCY specialist reviewing PR #${PR_NUMBER}.
 
             Review like an experienced staff engineer. Be direct and selective.
             Don't explain concurrency concepts or list files reviewed. If there are no issues, approve in one line and move on.
@@ -1500,8 +1495,7 @@ jobs:
           push: never
           env: |
 
-            ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY }}
-            ANTHROPIC_BASE_URL=https://llm.featherback-mermaid.ts.net/anthropic/
+            AI_API_KEY=${{ secrets.ANTHROPIC_API_KEY }}
             GH_TOKEN=${{ secrets.WORKFLOW_PAT }}
             PR_NUMBER=${{ needs.get-context.outputs.pr_number }}
             PR_TITLE=${{ needs.get-context.outputs.pr_title }}
@@ -1517,7 +1511,7 @@ jobs:
 
             source .devcontainer/configure-ai.sh
 
-            claude -p --dangerously-skip-permissions --permission-mode=bypassPermissions --model claude-sonnet-4-6 "You are a DOCUMENTATION specialist reviewing PR #${PR_NUMBER}.
+            bash .devcontainer/run-ai.sh "You are a DOCUMENTATION specialist reviewing PR #${PR_NUMBER}.
 
             Review like an experienced staff engineer. Be direct and selective.
             Don't list docs that don't need changes. If no docs need updating, approve in one line and move on.
@@ -1655,8 +1649,7 @@ jobs:
           push: never
           env: |
 
-            ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY }}
-            ANTHROPIC_BASE_URL=https://llm.featherback-mermaid.ts.net/anthropic/
+            AI_API_KEY=${{ secrets.ANTHROPIC_API_KEY }}
             GH_TOKEN=${{ secrets.WORKFLOW_PAT }}
             PR_NUMBER=${{ needs.get-context.outputs.pr_number }}
             HEAD_REF=${{ needs.get-context.outputs.head_ref }}
@@ -1682,7 +1675,7 @@ jobs:
 
             source .devcontainer/configure-ai.sh
 
-            claude -p --dangerously-skip-permissions --permission-mode=bypassPermissions --model claude-sonnet-4-6 "You are the FINAL DECISION MAKER for PR #${PR_NUMBER}.
+            bash .devcontainer/run-ai.sh "You are the FINAL DECISION MAKER for PR #${PR_NUMBER}.
 
             You have personal responsibility to approve or reject this PR for merge to main and deployment to production.
             You are the last line of defense — if you find a concrete issue that reviewers missed, your verdict is

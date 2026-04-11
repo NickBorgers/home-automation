@@ -192,8 +192,7 @@ jobs:
           cacheFrom: ${{ env.DEVCONTAINER_IMAGE }}
           push: never
           env: |
-            ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY }}
-            ANTHROPIC_BASE_URL=https://llm.featherback-mermaid.ts.net/anthropic/
+            AI_API_KEY=${{ secrets.ANTHROPIC_API_KEY }}
             GH_TOKEN=${{ github.token }}
             WORKFLOW_NAME=${{ needs.check-failure.outputs.workflow_name }}
             RUN_ID=${{ needs.check-failure.outputs.run_id }}
@@ -204,7 +203,7 @@ jobs:
           runCmd: |
             source .devcontainer/configure-ai.sh
 
-            claude -p --dangerously-skip-permissions --permission-mode=bypassPermissions --model claude-sonnet-4-6 "You are a GitHub Actions diagnostician. A workflow has failed and you need to determine
+            bash .devcontainer/run-ai.sh "You are a GitHub Actions diagnostician. A workflow has failed and you need to determine
             if it's a GitHub Actions configuration problem or a normal test/code failure.
 
             WORKFLOW INFORMATION:
