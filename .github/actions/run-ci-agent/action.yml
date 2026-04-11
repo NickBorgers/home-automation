@@ -74,8 +74,21 @@ runs:
         PRE_SCRIPT_INPUT: ${{ inputs.pre_script }}
       run: |
         set -euo pipefail
-        ENV_FILE="$(mktemp)"
-        PRE_SCRIPT_FILE="$(mktemp --suffix=.sh)"
+        # The pre-script file needs to be visible to the docker daemon that
+        # resolves the `-v` bind mount. On the self-hosted runner, that
+        # daemon runs on the host (dockergeneric), not inside the runner
+        # container — so files under /tmp (the runner's private /tmp) are
+        # NOT host-visible and bind-mounting them ends up materializing a
+        # root-owned empty directory at the mount target.
+        #
+        # $RUNNER_TEMP lives inside /tmp/runner-work-<repo>-<N>/_temp/,
+        # which IS bind-mounted from host → runner. Files written here are
+        # host-visible at the same absolute path. This is also why the
+        # workspace bind mount works end-to-end.
+        STAGING_DIR="${RUNNER_TEMP:-/tmp}/ci-agent"
+        mkdir -p "$STAGING_DIR"
+        ENV_FILE="$(mktemp "${STAGING_DIR}/env.XXXXXX")"
+        PRE_SCRIPT_FILE="$(mktemp "${STAGING_DIR}/pre-script.XXXXXX.sh")"
         # Filter blank lines and comment lines in env input; pass the rest through.
         printf '%s\n' "$ENV_INPUT" \
           | grep -Ev '^\s*(#|$)' \
