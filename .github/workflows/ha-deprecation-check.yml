@@ -29,53 +29,10 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  DEVCONTAINER_IMAGE: ghcr.io/nickborgers/home-automation-devcontainer
+  CI_IMAGE: ghcr.io/nickborgers/home-automation-ci:latest
 
 jobs:
-  # Optimization: Skip devcontainer build if image already exists in GHCR.
-  # Other workflows (ai-assistant.yml, pr-tests) rebuild when .devcontainer/ changes,
-  # so for a monthly scheduled job we just need to ensure the image is available.
-  build-devcontainer:
-    runs-on: [self-hosted, homelab]
-    permissions:
-      contents: read
-      packages: write
-    outputs:
-      should-build: ${{ steps.check-image.outputs.should-build }}
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Check if devcontainer image exists
-        id: check-image
-        run: |
-          if docker manifest inspect ghcr.io/nickborgers/home-automation-devcontainer:latest >/dev/null 2>&1; then
-            echo "should-build=false" >> $GITHUB_OUTPUT
-            echo "⏭️  Skipping devcontainer build (image already exists in GHCR)"
-          else
-            echo "should-build=true" >> $GITHUB_OUTPUT
-            echo "✅ Devcontainer will be built (image not found in GHCR)"
-          fi
-
-      - name: Log in to GHCR
-        if: steps.check-image.outputs.should-build == 'true'
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Build and push devcontainer
-        if: steps.check-image.outputs.should-build == 'true'
-        uses: devcontainers/ci@v0.3
-        with:
-          imageName: ${{ env.DEVCONTAINER_IMAGE }}
-          cacheFrom: ${{ env.DEVCONTAINER_IMAGE }}
-          push: always
-
   check-deprecations:
-    needs: build-devcontainer
     runs-on: [self-hosted, homelab]
     timeout-minutes: 30
     permissions:
@@ -106,153 +63,64 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Pull CI image
+        run: docker pull "${CI_IMAGE}"
+
       # Note: GH_TOKEN uses WORKFLOW_PAT so created issues trigger the resolve-issue job in the AI assistant workflow
       # (issues created with GITHUB_TOKEN don't trigger other workflows)
       - name: Check for deprecated HA APIs with AI assistant
-        uses: devcontainers/ci@v0.3
-        with:
-          imageName: ${{ env.DEVCONTAINER_IMAGE }}
-          cacheFrom: ${{ env.DEVCONTAINER_IMAGE }}
-          push: never
-          env: |
-            AI_API_KEY=${{ secrets.ANTHROPIC_API_KEY }}
-            GH_TOKEN=${{ secrets.WORKFLOW_PAT }}
-            REPO=${{ github.repository }}
-            HA_VERSION=${{ inputs.ha_version || '' }}
-          runCmd: |
-            source .devcontainer/configure-ai.sh
+        env:
+          AI_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GH_TOKEN: ${{ secrets.WORKFLOW_PAT }}
+          REPO: ${{ github.repository }}
+          HA_VERSION: ${{ inputs.ha_version || '' }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/deprecation-output
 
-            bash .devcontainer/run-ai.sh "You are a Home Assistant deprecation checker. Your job is to find deprecated HA APIs
-            that this codebase still uses, and create GitHub issues so they get fixed proactively.
+          # The HA_VERSION_LINE paragraph swaps based on whether a specific
+          # HA version was passed as an input. Computing it here (rather than
+          # embedding `$(…)` command substitution inside the prompt template)
+          # keeps the prompt file purely textual and envsubst-safe.
+          if [ -n "$HA_VERSION" ]; then
+            HA_VERSION_LINE=$(printf 'CHECK SPECIFIC VERSION: %s\nFetch the release notes for HA %s from https://www.home-assistant.io/blog/' "$HA_VERSION" "$HA_VERSION")
+          else
+            HA_VERSION_LINE="Check the LAST 3 HA releases."
+          fi
+          export HA_VERSION_LINE
 
-            PHASE 1: GATHER DEPRECATIONS
-            =============================
-            Fetch the Home Assistant release notes to identify deprecated APIs.
+          docker run --rm \
+            --network host \
+            --workdir /workspace \
+            -v "${{ github.workspace }}:/workspace" \
+            -v /tmp/deprecation-output:/tmp/deprecation-output \
+            -e AI_API_KEY \
+            -e GH_TOKEN \
+            -e REPO \
+            -e HA_VERSION \
+            -e HA_VERSION_LINE \
+            "${CI_IMAGE}" \
+            -lc '
+              set -euo pipefail
+              source .devcontainer/configure-ai.sh
 
-            $(if [ -n "${HA_VERSION}" ]; then echo "CHECK SPECIFIC VERSION: ${HA_VERSION}"; echo "Fetch the release notes for HA ${HA_VERSION} from https://www.home-assistant.io/blog/"; else echo "Check the LAST 3 HA releases."; fi)
-
-            Fetch release notes from https://www.home-assistant.io/blog/categories/release-notes/
-            For each release, look for:
-            - Deprecated service calls (e.g., service parameters renamed or removed)
-            - Deprecated entity attributes
-            - Breaking changes to WebSocket API
-            - Deprecated YAML configuration options
-            - Parameters that have been renamed (e.g., color_temp -> color_temp_kelvin)
-            - Services that have been renamed or split
-
-            Also check these known deprecation patterns that HA has introduced over time:
-            - light.turn_on: color_temp (deprecated) -> color_temp_kelvin
-            - light.turn_on: brightness (0-255) still works but brightness_pct (0-100) is preferred
-            - media_player service consolidation changes
-            - Climate entity mode changes
-
-            IMPORTANT: If you CANNOT fetch the release notes page (network error, timeout, empty
-            response, or the page structure has changed and you can't find release content), you
-            MUST output exactly:
-              FETCH_FAILED: Unable to retrieve HA release notes
-            followed by a brief description of the error. Do NOT fall back to reporting
-            NO_DEPRECATIONS_FOUND if you were unable to actually check the release notes.
-
-            PHASE 2: SCAN CODEBASE
-            =======================
-            Search the codebase for usage of any deprecated APIs found in Phase 1.
-
-            Focus on:
-            - homeautomation-go/internal/plugins/ - all plugin code
-            - configs/ - YAML configuration files
-            - Look for CallService and CallServiceWithTarget calls
-            - Look for entity attribute references
-            - Look for WebSocket message construction
-
-            Search patterns to check:
-            - grep for deprecated parameter names in service call data maps
-            - grep for deprecated service names
-            - Check map literals passed to CallService/CallServiceWithTarget
-
-            PHASE 3: REPORT
-            ================
-            If you find deprecated API usage in the codebase:
-
-            1. First check for existing open issues with specific title matches to avoid duplicates:
-               gh issue list --repo ${REPO} --label ha-deprecation --state open --json title,number
-
-               Check whether each SPECIFIC deprecation you found already has an open issue by
-               comparing the deprecated API name against existing issue titles. For example, if
-               you found deprecated usage of 'color_temp', check if any open issue title contains
-               'color_temp'. Only skip creating an issue for deprecations that are already covered
-               by an existing open issue. Create new issues for any NEW deprecations not yet reported.
-
-            2. If creating new issues, ensure the ha-deprecation label exists:
-               gh label create \"ha-deprecation\" --color \"d93f0b\" --description \"Deprecated Home Assistant API usage\" --repo ${REPO} 2>/dev/null || true
-
-            3. Create ONE GitHub issue PER deprecated API, with a specific title including the API name.
-               The AI Assistant workflow fires automatically on every authorized issue open, so the
-               title no longer needs any opt-in prefix — just describe the change:
-               gh issue create --repo ${REPO} \
-                 --title 'Replace deprecated HA API: <specific_api_name>' \
-                 --label 'ha-deprecation' \
-                 --body '<issue body>'
-
-               For example:
-                 --title 'Replace deprecated HA API: color_temp in light.turn_on'
-                 --title 'Replace deprecated HA API: old_service_name'
-
-               The issue body MUST include:
-               - Which deprecated APIs were found and in which files (with line numbers)
-               - What each deprecated call should be replaced with
-               - Links to the relevant HA release notes
-               - A clear description of what changes are needed
-
-               Example issue body format:
-               ## Deprecated HA API Usage Found
-
-               The following deprecated Home Assistant APIs are used in this codebase:
-
-               ### 1. \`deprecated_param\` in \`file.go:123\`
-               - **Current**: Uses \`deprecated_param\` in \`service.call\`
-               - **Replace with**: \`new_param\`
-               - **HA Release**: [2026.3 Release Notes](url)
-
-               ## Required Changes
-               - Update \`file.go\` to use \`new_param\` instead of \`deprecated_param\`
-
-               ---
-               🤖 Generated by HA Deprecation Check workflow
-
-            4. For each deprecation, if a matching open issue already exists (title contains the
-               same API name), skip it and output: DUPLICATE_ISSUE_EXISTS: <api_name> - already tracked in #<number>
-
-            If NO deprecated usage is found in the codebase:
-            Output: NO_DEPRECATIONS_FOUND
-            This is a successful outcome - the codebase is up to date.
-
-            FINAL OUTPUT:
-            =============
-            As your very last output, print exactly ONE of these summary lines:
-            - RESULT: NO_DEPRECATIONS_FOUND
-            - RESULT: ISSUES_CREATED <count>
-            - RESULT: ALL_DUPLICATES
-            - RESULT: FETCH_FAILED
-            This summary line is used by the workflow to determine the outcome.
-
-            IMPORTANT:
-            - Be thorough in scanning - check ALL plugin files
-            - Only report deprecations that actually affect code in THIS repository
-            - Do not report theoretical deprecations that aren't used here
-            - Include specific file paths and line numbers in the issue" 2>&1 | tee /tmp/deprecation-check-output.jsonl
+              PROMPT=$(envsubst < .github/ci/prompts/deprecation-check.md)
+              bash .devcontainer/run-ai.sh "$PROMPT" 2>&1 \
+                | tee /tmp/deprecation-output/deprecation-check-output.jsonl
+            '
 
       - name: Upload deprecation check output
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: deprecation-check-output
-          path: /tmp/deprecation-check-output.jsonl
+          path: /tmp/deprecation-output/deprecation-check-output.jsonl
           retention-days: 30  # Intentionally longer than 7-day default since this runs monthly
 
       - name: Validate deprecation check result
         if: always()
         run: |
-          OUTPUT_FILE="${GITHUB_WORKSPACE}/deprecation-check-output.jsonl"
+          OUTPUT_FILE="/tmp/deprecation-output/deprecation-check-output.jsonl"
           if [ ! -f "$OUTPUT_FILE" ]; then
             echo "::error::Deprecation check output file not found"
             exit 1
