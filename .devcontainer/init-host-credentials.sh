@@ -7,6 +7,20 @@
 set -e
 cd "$(dirname "$0")"
 
+# Ensure every devcontainer.json bind-mount source exists before Docker
+# tries to resolve it. Missing bind-mount sources are dangerous: Docker
+# silently materializes them as root-owned directories on the host (on
+# Linux) or errors out at container start (on macOS / Docker Desktop).
+# Creating user-owned placeholders here is a cheap no-op when the files
+# already exist, and guarantees the devcontainer can spin up on any
+# contributor's machine. post-create.sh uses `-s` (non-empty) guards
+# before wiring anything in, so empty placeholders are installed but
+# never activated.
+[ -e "$HOME/.claude"           ] || mkdir -p "$HOME/.claude"
+[ -e "$HOME/.bashrc"           ] || touch    "$HOME/.bashrc"
+[ -d "$HOME/code/util"         ] || mkdir -p "$HOME/code/util"
+[ -e "$HOME/code/util/profile" ] || touch    "$HOME/code/util/profile"
+
 # GitHub CLI token
 gh auth token > .gh-token 2>/dev/null || true
 

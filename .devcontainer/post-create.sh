@@ -174,9 +174,11 @@ fi
 # (bind-mounted read-only at the same absolute path) is loaded on top of the
 # container's baseline. Idempotent: re-running post-create won't duplicate
 # the line. The host .bashrc's internal `source .../code/util/profile` line
-# resolves via the matching bind mount.
+# resolves via the matching bind mount. Uses `-s` (non-empty) rather than
+# `-f` so an empty placeholder created by init-host-credentials.sh (for
+# contributors who don't have the host file) is a silent no-op.
 if [ -n "${HOST_BASHRC:-}" ] \
-   && [ -f "$HOST_BASHRC" ] \
+   && [ -s "$HOST_BASHRC" ] \
    && [ "$HOST_BASHRC" != "$HOME/.bashrc" ]; then
     bashrc_mark="# host-bashrc-passthrough: $HOST_BASHRC"
     if [ ! -f "$HOME/.bashrc" ] || ! grep -qF "$bashrc_mark" "$HOME/.bashrc"; then
