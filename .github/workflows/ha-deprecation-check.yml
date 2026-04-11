@@ -115,15 +115,14 @@ jobs:
           cacheFrom: ${{ env.DEVCONTAINER_IMAGE }}
           push: never
           env: |
-            ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY }}
-            ANTHROPIC_BASE_URL=https://llm.featherback-mermaid.ts.net/anthropic/
+            AI_API_KEY=${{ secrets.ANTHROPIC_API_KEY }}
             GH_TOKEN=${{ secrets.WORKFLOW_PAT }}
             REPO=${{ github.repository }}
             HA_VERSION=${{ inputs.ha_version || '' }}
           runCmd: |
             source .devcontainer/configure-ai.sh
 
-            claude -p --dangerously-skip-permissions --permission-mode=bypassPermissions --model claude-sonnet-4-6 "You are a Home Assistant deprecation checker. Your job is to find deprecated HA APIs
+            bash .devcontainer/run-ai.sh "You are a Home Assistant deprecation checker. Your job is to find deprecated HA APIs
             that this codebase still uses, and create GitHub issues so they get fixed proactively.
 
             PHASE 1: GATHER DEPRECATIONS

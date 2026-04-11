@@ -127,10 +127,10 @@ Responds to `@ai` mentions in comments.
 
 **Key Configuration**:
 ```yaml
-claude -p --dangerously-skip-permissions --permission-mode=bypassPermissions --model claude-sonnet-4-6 "$PROMPT"
+bash .devcontainer/run-ai.sh "$PROMPT"
 ```
 
-The CLI reads `ANTHROPIC_API_KEY` and `ANTHROPIC_BASE_URL` (pointing at the self-hosted LiteLLM proxy) from the environment — see `.devcontainer/configure-ai.sh`.
+`run-ai.sh` is a tool-agnostic wrapper that dispatches to whichever CLI is currently configured. It reads `.devcontainer/ai-tool.env` to decide which tool to invoke and translates the generic `AI_API_KEY` env var into the tool-specific name (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, etc.). See [Swapping the Backing AI Tool](#swapping-the-backing-ai-tool) below.
 
 #### 1.3 `resolve-issue`
 
@@ -724,6 +724,22 @@ The pipelines currently invoke Claude Code CLI with `claude-sonnet-4-6` via the 
 | `ha-deprecation-check.yml` | `claude-sonnet-4-6` | Release-note scanning and issue creation |
 
 The workflow display names are `AI Assistant`, `AI Code Review`, and `AI Diagnose Workflow Failure`, with filenames `ai-assistant.yml`, `ai-code-review.yml`, and `ai-diagnose-workflow-failure.yml`. Plumbing is tool-agnostic so the underlying CLI can be swapped without renaming anything.
+
+### Swapping the Backing AI Tool
+
+The pipelines route every CLI invocation through `.devcontainer/run-ai.sh`, which reads `.devcontainer/ai-tool.env` to decide which tool to actually run. Swapping between supported tools is a one-file change:
+
+1. Edit `.devcontainer/ai-tool.env` and change `AI_TOOL` to the desired value (currently `claude` or `codex`). The `AI_BASE_URL` for that tool is selected automatically by the `case` block in the same file.
+2. If the new tool needs a different API key, update the `ANTHROPIC_API_KEY` secret value in GitHub Actions settings — the secret name is kept for historical reasons, but the value can hold whatever key the new tool needs. (Workflow env blocks map it to a generic `AI_API_KEY` that `run-ai.sh` re-exports under the tool-specific env var name.)
+3. Rebuild the devcontainer image once so the next CI run picks up the new `ai-tool.env`.
+
+What each script does on a swap:
+
+- **`ai-tool.env`** — Single source of truth for `AI_TOOL` + `AI_BASE_URL`. Sourced by both scripts below.
+- **`configure-ai.sh`** — Verifies the selected tool's binary is in the devcontainer image, picks a matching bot git identity (`claude[bot]` / `codex[bot]`), and writes any on-disk config the CLI requires (e.g. `~/.codex/config.toml`).
+- **`run-ai.sh`** — Takes `$PROMPT` as `$1`, exports the right tool-specific env vars (`ANTHROPIC_API_KEY` / `ANTHROPIC_BASE_URL` for Claude, `OPENAI_API_KEY` for Codex), and `exec`s the CLI with the right flags.
+
+Adding a new tool (e.g. a different backend) requires adding a `case` arm to both `configure-ai.sh` and `run-ai.sh`, plus baking the tool's binary into the devcontainer Dockerfile. Workflow YAML files do **not** need to change.
 
 ### Why Devcontainers?
 
