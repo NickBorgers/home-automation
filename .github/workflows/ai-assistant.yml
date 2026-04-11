@@ -6,7 +6,7 @@ on:
   pull_request_review_comment:
     types: [created]
   issues:
-    types: [opened, assigned]
+    types: [opened, assigned, unlabeled]
   pull_request_review:
     types: [submitted]
 
@@ -36,16 +36,22 @@ jobs:
       authorized: ${{ steps.check-auth.outputs.authorized }}
       should_run_ai: ${{ steps.check-auth.outputs.should_run_ai }}
     steps:
+      - name: Checkout for access to helper scripts
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
       - name: Check authorization
         id: check-auth
         env:
           GH_TOKEN: ${{ github.token }}
           COMMENT_BODY: ${{ github.event.comment.body || '' }}
           REVIEW_BODY: ${{ github.event.review.body || '' }}
-          ISSUE_BODY: ${{ github.event.issue.body || '' }}
-          ISSUE_TITLE: ${{ github.event.issue.title || '' }}
+          LABEL_NAME: ${{ github.event.label.name || '' }}
+          ISSUE_STATE: ${{ github.event.issue.state || '' }}
+          ACTION_TYPE: ${{ github.event.action || '' }}
+          TRIGGER_TOKEN: "/autoresolve"
         run: |
-          # Get the author association based on event type
           EVENT_NAME="${{ github.event_name }}"
           SHOULD_RUN="true"
 
@@ -74,9 +80,10 @@ jobs:
               ;;
           esac
 
-          echo "Event: $EVENT_NAME"
+          echo "Event: $EVENT_NAME (action=${ACTION_TYPE:-n/a})"
           echo "Actor: $ACTOR"
           echo "Author association: $AUTHOR_ASSOC"
+          echo "Trigger token: $TRIGGER_TOKEN"
 
           # Allow: OWNER, MEMBER, COLLABORATOR
           # Deny: CONTRIBUTOR, FIRST_TIMER, FIRST_TIME_CONTRIBUTOR, MANNEQUIN, NONE
@@ -94,180 +101,58 @@ jobs:
               ;;
           esac
 
-          if [ "$SHOULD_RUN" = "true" ]; then
-            if [ "$EVENT_NAME" = "pull_request_review" ] || [ "$EVENT_NAME" = "pull_request_review_comment" ] || [ "$EVENT_NAME" = "issue_comment" ]; then
-              AUTO_REVIEW_PATTERNS="## Code Review|## Design Review|## Test Review|## Concurrency Review|## Documentation Review|## Fix Attempt|## 🚦 Merge Decision|## 📋 Agent Review Summary|## AI Code Review Skipped|## ❌ Automated Fix Failed"
-              case "$EVENT_NAME" in
-                pull_request_review)
-                  BODY="$REVIEW_BODY"
-                  ;;
-                pull_request_review_comment|issue_comment)
-                  BODY="$COMMENT_BODY"
-                  ;;
-                *)
-                  BODY=""
-                  ;;
-              esac
+          # Comment / review fallback path: require a plain-text /autoresolve
+          # mention and screen out auto-generated review comments to prevent
+          # feedback loops.
+          if [ "$SHOULD_RUN" = "true" ] && { [ "$EVENT_NAME" = "pull_request_review" ] || [ "$EVENT_NAME" = "pull_request_review_comment" ] || [ "$EVENT_NAME" = "issue_comment" ]; }; then
+            AUTO_REVIEW_PATTERNS="## Code Review|## Design Review|## Test Review|## Concurrency Review|## Documentation Review|## Fix Attempt|## 🚦 Merge Decision|## 📋 Agent Review Summary|## AI Code Review Skipped|## ❌ Automated Fix Failed"
+            case "$EVENT_NAME" in
+              pull_request_review)          BODY="$REVIEW_BODY" ;;
+              pull_request_review_comment)  BODY="$COMMENT_BODY" ;;
+              issue_comment)                BODY="$COMMENT_BODY" ;;
+              *)                            BODY="" ;;
+            esac
 
-              if [ -n "$BODY" ] && echo "$BODY" | grep -q "@ai"; then
-                if echo "$BODY" | grep -Eq "$AUTO_REVIEW_PATTERNS"; then
-                  echo "🛑 Detected auto-generated AI review comment containing '@ai' (matches known review headings)."
-                  echo "Skipping AI run to prevent feedback loop."
-                  SHOULD_RUN="false"
-                else
-                  PLAIN_MENTION=$(env BODY="$BODY" python3 <<'PY'
-import os
-import re
-
-body = os.environ.get("BODY", "")
-
-FENCED_CODE_RE = re.compile(r"```.*?```", re.DOTALL | re.IGNORECASE)
-INLINE_CODE_RE = re.compile(r"`[^`]*`")
-HTML_CODE_RE = re.compile(r"<code>.*?</code>", re.DOTALL | re.IGNORECASE)
-LINK_RE = re.compile(r"\[[^\]]*\]\([^)]+\)")
-HTML_LINK_RE = re.compile(r"<a\s[^>]*>.*?</a>", re.DOTALL | re.IGNORECASE)
-PLAIN_MENTION_RE = re.compile(r"(?<![\w@\[/`\"'])@ai(?![\w-])", re.IGNORECASE)
-
-def strip_code(text: str) -> str:
-    text = FENCED_CODE_RE.sub(" ", text)
-    text = HTML_CODE_RE.sub(" ", text)
-    text = INLINE_CODE_RE.sub(" ", text)
-    return text
-
-def strip_links(text: str) -> str:
-    text = LINK_RE.sub(" ", text)
-    text = HTML_LINK_RE.sub(" ", text)
-    return text
-
-sanitized = strip_links(strip_code(body))
-print("true" if PLAIN_MENTION_RE.search(sanitized) else "false")
-PY
-)
-
-                  if [ "$PLAIN_MENTION" != "true" ]; then
-                    echo "ℹ️ '@ai' mention found only inside code blocks, links, or structured text. Skipping AI run."
-                    SHOULD_RUN="false"
-                  fi
-                fi
-              else
-                if [ -n "$BODY" ]; then
-                  echo "ℹ️ No plain-text '@ai' mention found in comment/review body. Skipping AI run."
-                else
-                  echo "ℹ️ Empty comment/review body received. Skipping AI run."
-                fi
+            if [ -z "$BODY" ]; then
+              echo "ℹ️ Empty comment/review body received. Skipping AI run."
+              SHOULD_RUN="false"
+            elif echo "$BODY" | grep -Eq "$AUTO_REVIEW_PATTERNS"; then
+              echo "🛑 Detected auto-generated review comment (matches known review headings). Skipping AI run to prevent feedback loop."
+              SHOULD_RUN="false"
+            else
+              PLAIN_MENTION=$(printf %s "$BODY" | python3 .github/scripts/has_plain_token.py "$TRIGGER_TOKEN")
+              if [ "$PLAIN_MENTION" != "true" ]; then
+                echo "ℹ️ No plain-text '$TRIGGER_TOKEN' found in comment/review body (ignoring code blocks and links). Skipping AI run."
                 SHOULD_RUN="false"
               fi
             fi
+          fi
 
-            if [ "$SHOULD_RUN" = "true" ] && [ "$EVENT_NAME" = "issue_comment" ]; then
-              IS_PR_CONTEXT=$(python3 <<'PY'
-import json
-import os
-
-event_path = os.environ.get("GITHUB_EVENT_PATH")
-
-def is_pr_issue() -> bool:
-    if not event_path:
-        return False
-
-    with open(event_path, "r", encoding="utf-8") as f:
-        event = json.load(f)
-
-    issue = event.get("issue")
-    return bool(issue and issue.get("pull_request"))
-
-print("true" if is_pr_issue() else "false")
-PY
-)
-
-              if [ "$IS_PR_CONTEXT" != "true" ]; then
-                ISSUE_HAS_PLAIN=$(env ISSUE_BODY="$ISSUE_BODY" ISSUE_TITLE="$ISSUE_TITLE" python3 <<'PY'
-import os
-import re
-
-body = os.environ.get("ISSUE_BODY", "") or ""
-title = os.environ.get("ISSUE_TITLE", "") or ""
-
-FENCED_CODE_RE = re.compile(r"```.*?```", re.DOTALL | re.IGNORECASE)
-INLINE_CODE_RE = re.compile(r"`[^`]*`")
-HTML_CODE_RE = re.compile(r"<code>.*?</code>", re.DOTALL | re.IGNORECASE)
-LINK_RE = re.compile(r"\[[^\]]*\]\([^\)]+\)")
-HTML_LINK_RE = re.compile(r"<a\s[^>]*>.*?</a>", re.DOTALL | re.IGNORECASE)
-PLAIN_MENTION_RE = re.compile(r"(?<![\w@\[/`\"'])@ai(?![\w-])", re.IGNORECASE)
-
-
-def strip_code(text: str) -> str:
-    text = FENCED_CODE_RE.sub(" ", text)
-    text = HTML_CODE_RE.sub(" ", text)
-    text = INLINE_CODE_RE.sub(" ", text)
-    return text
-
-
-def strip_links(text: str) -> str:
-    text = LINK_RE.sub(" ", text)
-    text = HTML_LINK_RE.sub(" ", text)
-    return text
-
-
-def has_plain(text: str) -> bool:
-    sanitized = strip_links(strip_code(text))
-    return bool(PLAIN_MENTION_RE.search(sanitized))
-
-
-print("true" if has_plain(body) or has_plain(title) else "false")
-PY
-)
-
-                if [ "$ISSUE_HAS_PLAIN" != "true" ]; then
-                  echo "ℹ️ Issue title/body does not contain a plain-text '@ai' mention. Skipping AI run."
+          # Issues path: opened/assigned fire automatically for authorized
+          # actors — no keyword opt-in required. Unlabeled fires only when the
+          # label removed is 'ai-started' and the issue is still open (the
+          # "try again" gesture).
+          if [ "$SHOULD_RUN" = "true" ] && [ "$EVENT_NAME" = "issues" ]; then
+            case "$ACTION_TYPE" in
+              opened|assigned)
+                echo "ℹ️ Issue $ACTION_TYPE — firing AI automatically for authorized actor."
+                ;;
+              unlabeled)
+                if [ "$LABEL_NAME" != "ai-started" ]; then
+                  echo "ℹ️ Label '$LABEL_NAME' removed, not 'ai-started'. Skipping AI run."
                   SHOULD_RUN="false"
+                elif [ "$ISSUE_STATE" != "open" ]; then
+                  echo "ℹ️ 'ai-started' removed from a non-open issue (state=$ISSUE_STATE). Skipping AI run."
+                  SHOULD_RUN="false"
+                else
+                  echo "ℹ️ 'ai-started' label removed from open issue — re-firing AI (retry gesture)."
                 fi
-              fi
-            fi
-
-            if [ "$SHOULD_RUN" = "true" ] && [ "$EVENT_NAME" = "issues" ]; then
-              PLAIN_ISSUE=$(env ISSUE_BODY="$ISSUE_BODY" ISSUE_TITLE="$ISSUE_TITLE" python3 <<'PY'
-import os
-import re
-
-body = os.environ.get("ISSUE_BODY", "") or ""
-title = os.environ.get("ISSUE_TITLE", "") or ""
-
-FENCED_CODE_RE = re.compile(r"```.*?```", re.DOTALL | re.IGNORECASE)
-INLINE_CODE_RE = re.compile(r"`[^`]*`")
-HTML_CODE_RE = re.compile(r"<code>.*?</code>", re.DOTALL | re.IGNORECASE)
-LINK_RE = re.compile(r"\[[^\]]*\]\([^)]+\)")
-HTML_LINK_RE = re.compile(r"<a\s[^>]*>.*?</a>", re.DOTALL | re.IGNORECASE)
-PLAIN_MENTION_RE = re.compile(r"(?<![\w@\[/`\"'])@ai(?![\w-])", re.IGNORECASE)
-
-
-def strip_code(text: str) -> str:
-    text = FENCED_CODE_RE.sub(" ", text)
-    text = HTML_CODE_RE.sub(" ", text)
-    text = INLINE_CODE_RE.sub(" ", text)
-    return text
-
-
-def strip_links(text: str) -> str:
-    text = LINK_RE.sub(" ", text)
-    text = HTML_LINK_RE.sub(" ", text)
-    return text
-
-
-def has_plain(text: str) -> bool:
-    sanitized = strip_links(strip_code(text))
-    return bool(PLAIN_MENTION_RE.search(sanitized))
-
-
-print("true" if has_plain(body) or has_plain(title) else "false")
-PY
-)
-
-              if [ "$PLAIN_ISSUE" != "true" ]; then
-                echo "ℹ️ '@ai' mention not found in plain text of issue title/body. Skipping AI run."
+                ;;
+              *)
+                echo "ℹ️ Unhandled issues action '$ACTION_TYPE'. Skipping AI run."
                 SHOULD_RUN="false"
-              fi
-            fi
+                ;;
+            esac
           fi
 
           echo "should_run_ai=$SHOULD_RUN" >> $GITHUB_OUTPUT
@@ -279,13 +164,7 @@ PY
     needs: authorize
     if: |
       needs.authorize.outputs.authorized == 'true' &&
-      needs.authorize.outputs.should_run_ai == 'true' &&
-      (
-        (github.event_name == 'issues') ||
-        (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@ai')) ||
-        (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@ai')) ||
-        (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@ai'))
-      )
+      needs.authorize.outputs.should_run_ai == 'true'
     runs-on: [self-hosted, homelab]
     permissions:
       contents: read
@@ -359,13 +238,16 @@ PY
 
   ai:
     needs: [authorize, build-devcontainer]
+    # The authorize job has already confirmed the actor is authorized and that
+    # a plain-text /autoresolve mention is present in the comment/review body
+    # (ignoring code blocks and links). This job handles the comment/review
+    # fallback path only — issues events are routed to resolve-issue below.
     if: |
       needs.authorize.outputs.authorized == 'true' &&
       needs.authorize.outputs.should_run_ai == 'true' &&
-      ((github.event_name == 'issue_comment' && contains(github.event.comment.body, '@ai')) ||
-      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@ai')) ||
-      (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@ai')) ||
-      (github.event_name == 'issues' && (contains(github.event.issue.body, '@ai') || contains(github.event.issue.title, '@ai'))))
+      (github.event_name == 'issue_comment' ||
+       github.event_name == 'pull_request_review_comment' ||
+       github.event_name == 'pull_request_review')
     runs-on: [self-hosted, homelab]
     timeout-minutes: 60
     permissions:
@@ -538,7 +420,13 @@ PY
     if: |
       needs.authorize.outputs.authorized == 'true' &&
       needs.authorize.outputs.should_run_ai == 'true' &&
-      github.event_name == 'issues' && (github.event.action == 'opened' || github.event.action == 'assigned')
+      github.event_name == 'issues' && (
+        github.event.action == 'opened' ||
+        github.event.action == 'assigned' ||
+        (github.event.action == 'unlabeled' &&
+         github.event.label.name == 'ai-started' &&
+         github.event.issue.state == 'open')
+      )
     runs-on: [self-hosted, homelab]
     timeout-minutes: 120
     permissions:

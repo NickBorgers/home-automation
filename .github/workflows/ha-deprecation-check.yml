@@ -186,15 +186,17 @@ jobs:
             2. If creating new issues, ensure the ha-deprecation label exists:
                gh label create \"ha-deprecation\" --color \"d93f0b\" --description \"Deprecated Home Assistant API usage\" --repo ${REPO} 2>/dev/null || true
 
-            3. Create ONE GitHub issue PER deprecated API, with a specific title including the API name:
+            3. Create ONE GitHub issue PER deprecated API, with a specific title including the API name.
+               The AI Assistant workflow fires automatically on every authorized issue open, so the
+               title no longer needs any opt-in prefix — just describe the change:
                gh issue create --repo ${REPO} \
-                 --title '@ai Replace deprecated HA API: <specific_api_name>' \
+                 --title 'Replace deprecated HA API: <specific_api_name>' \
                  --label 'ha-deprecation' \
                  --body '<issue body>'
 
                For example:
-                 --title '@ai Replace deprecated HA API: color_temp in light.turn_on'
-                 --title '@ai Replace deprecated HA API: old_service_name'
+                 --title 'Replace deprecated HA API: color_temp in light.turn_on'
+                 --title 'Replace deprecated HA API: old_service_name'
 
                The issue body MUST include:
                - Which deprecated APIs were found and in which files (with line numbers)
