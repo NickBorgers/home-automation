@@ -23,11 +23,11 @@ RUN rm -f /etc/apt/sources.list.d/yarn.list \
     bc ripgrep fzf tmux \
     # YAML validation
     yamllint \
-    && rm -rf /var/lib/apt/lists/* \
-    # Set zsh as default shell for vscode user
-    && chsh -s /usr/bin/zsh vscode
+    && rm -rf /var/lib/apt/lists/*
 
-# Note: oh-my-zsh is already included in the base Go devcontainer image
+# Note: zsh is still installed above and oh-my-zsh ships in the base Go
+# devcontainer image; users who want zsh can invoke it explicitly. The
+# vscode user keeps the base image default login shell (bash).
 
 # Install GitHub CLI (from github-cli feature)
 RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg \
