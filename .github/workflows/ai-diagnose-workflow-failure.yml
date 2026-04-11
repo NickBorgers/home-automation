@@ -34,7 +34,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  DEVCONTAINER_IMAGE: ghcr.io/nickborgers/home-automation-devcontainer
+  CI_IMAGE: ghcr.io/nickborgers/home-automation-ci:latest
 
 jobs:
   # Only proceed if the workflow failed
@@ -93,76 +93,9 @@ jobs:
 
           echo "should_diagnose=true" >> $GITHUB_OUTPUT
 
-  # Build devcontainer for AI assistant
-  # Optimization: Skip build if image already exists in GHCR
-  build-devcontainer:
-    runs-on: [self-hosted, homelab]
-    needs: check-failure
-    if: needs.check-failure.outputs.should_diagnose == 'true'
-    permissions:
-      contents: read
-      packages: write
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          ref: main
-
-      - name: Compute devcontainer tree hash
-        id: devcontainer-hash
-        run: |
-          set -euo pipefail
-          TREE_HASH=$(git rev-parse HEAD:.devcontainer)
-          echo "tree_hash=$TREE_HASH" >> $GITHUB_OUTPUT
-          echo "Computed .devcontainer tree hash: $TREE_HASH"
-
-      - name: Check devcontainer cache
-        id: check-image
-        run: |
-          set -euo pipefail
-          TREE_HASH="${{ steps.devcontainer-hash.outputs.tree_hash }}"
-          IMAGE="${{ env.DEVCONTAINER_IMAGE }}"
-          TREE_TAG="treehash-${TREE_HASH}"
-
-          if docker manifest inspect "${IMAGE}:${TREE_TAG}" >/dev/null 2>&1; then
-            echo "should-build=false" >> $GITHUB_OUTPUT
-            echo "⏭️  Skipping devcontainer build (found ${IMAGE}:${TREE_TAG})"
-          else
-            echo "should-build=true" >> $GITHUB_OUTPUT
-            echo "✅ Devcontainer will be built (missing ${IMAGE}:${TREE_TAG})"
-          fi
-
-      - name: Log in to GHCR
-        if: steps.check-image.outputs.should-build == 'true'
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Build and push devcontainer
-        if: steps.check-image.outputs.should-build == 'true'
-        uses: devcontainers/ci@v0.3
-        with:
-          imageName: ${{ env.DEVCONTAINER_IMAGE }}
-          cacheFrom: ${{ env.DEVCONTAINER_IMAGE }}
-          push: always
-
-      - name: Tag devcontainer image with tree hash
-        if: steps.check-image.outputs.should-build == 'true'
-        run: |
-          set -euo pipefail
-          TREE_HASH="${{ steps.devcontainer-hash.outputs.tree_hash }}"
-          IMAGE="${{ env.DEVCONTAINER_IMAGE }}"
-          TREE_TAG="treehash-${TREE_HASH}"
-
-          docker buildx imagetools create -t "${IMAGE}:${TREE_TAG}" "${IMAGE}:latest"
-          echo "📌 Pushed ${IMAGE}:${TREE_TAG} to record .devcontainer tree state"
-
   # Run AI assistant to diagnose the failure
   diagnose-failure:
-    needs: [check-failure, build-devcontainer]
+    needs: check-failure
     if: needs.check-failure.outputs.should_diagnose == 'true'
     runs-on: [self-hosted, homelab]
     timeout-minutes: 30
@@ -185,130 +118,59 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Pull CI image
+        run: docker pull "${CI_IMAGE}"
+
       - name: Diagnose failure with AI assistant
-        uses: devcontainers/ci@v0.3
-        with:
-          imageName: ${{ env.DEVCONTAINER_IMAGE }}
-          cacheFrom: ${{ env.DEVCONTAINER_IMAGE }}
-          push: never
-          env: |
-            AI_API_KEY=${{ secrets.ANTHROPIC_API_KEY }}
-            GH_TOKEN=${{ github.token }}
-            WORKFLOW_NAME=${{ needs.check-failure.outputs.workflow_name }}
-            RUN_ID=${{ needs.check-failure.outputs.run_id }}
-            RUN_URL=${{ needs.check-failure.outputs.run_url }}
-            HEAD_BRANCH=${{ needs.check-failure.outputs.head_branch }}
-            HEAD_SHA=${{ needs.check-failure.outputs.head_sha }}
-            REPO=${{ github.repository }}
-          runCmd: |
-            source .devcontainer/configure-ai.sh
+        env:
+          AI_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GH_TOKEN: ${{ github.token }}
+          WORKFLOW_NAME: ${{ needs.check-failure.outputs.workflow_name }}
+          RUN_ID: ${{ needs.check-failure.outputs.run_id }}
+          RUN_URL: ${{ needs.check-failure.outputs.run_url }}
+          HEAD_BRANCH: ${{ needs.check-failure.outputs.head_branch }}
+          HEAD_SHA: ${{ needs.check-failure.outputs.head_sha }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
 
-            bash .devcontainer/run-ai.sh "You are a GitHub Actions diagnostician. A workflow has failed and you need to determine
-            if it's a GitHub Actions configuration problem or a normal test/code failure.
+          mkdir -p /tmp/diagnose-output
 
-            WORKFLOW INFORMATION:
-            - Workflow Name: ${WORKFLOW_NAME}
-            - Run ID: ${RUN_ID}
-            - Run URL: ${RUN_URL}
-            - Branch: ${HEAD_BRANCH}
-            - Commit SHA: ${HEAD_SHA}
-            - Repository: ${REPO}
+          # Run the agent inside the CI image. The prompt lives in the repo
+          # at .github/ci/prompts/diagnose-workflow-failure.md and uses shell
+          # variable references (${WORKFLOW_NAME}, etc.) so run-ai.sh can
+          # expand them at invocation time via `envsubst` before passing to
+          # the model.
+          docker run --rm \
+            --network host \
+            --workdir /workspace \
+            -v "${{ github.workspace }}:/workspace" \
+            -v /tmp/diagnose-output:/tmp/diagnose-output \
+            -e AI_API_KEY \
+            -e GH_TOKEN \
+            -e WORKFLOW_NAME \
+            -e RUN_ID \
+            -e RUN_URL \
+            -e HEAD_BRANCH \
+            -e HEAD_SHA \
+            -e REPO \
+            "${CI_IMAGE}" \
+            -lc '
+              set -euo pipefail
+              source .devcontainer/configure-ai.sh
 
-            YOUR TASK:
-            1. Fetch the workflow run logs using: gh run view ${RUN_ID} --log-failed
-            2. Read the workflow YAML file: .github/workflows/ (find the matching file for '${WORKFLOW_NAME}')
-            3. Analyze the failure to classify it as one of:
-               a) TEST_FAILURE: Unit tests, integration tests, or code compilation failures
-               b) CONFIG_FAILURE: Issues in configs/ directory (YAML validation, etc.)
-               c) INFRASTRUCTURE_FAILURE: Transient external service availability issues
-               d) ACTIONS_FAILURE: Problems with the GitHub Actions workflow definition itself
-
-            INFRASTRUCTURE_FAILURE examples (do NOT create an issue for these):
-            - GitHub Cache Service errors (502, 503, timeouts, EOF errors)
-            - Container registry availability issues (MCR, GHCR, Docker Hub being temporarily unavailable)
-            - Network connectivity issues to external services (EOF, connection reset, timeouts)
-            - GitHub Actions Cache service returning 'Unicorn' error pages
-            - Rate limiting from external services
-            - DNS resolution failures for external registries
-            - TLS/SSL handshake failures to external services
-            - Any error message containing '502', '503', '504' from external services
-            - Errors like 'failed to solve: Unavailable: error reading from server: EOF'
-
-            ACTIONS_FAILURE examples (CREATE AN ISSUE for these):
-            - Workflow YAML syntax errors
-            - Missing or invalid action references (e.g., uses: unknown-action@v1)
-            - Invalid workflow triggers or event configurations
-            - Missing required secrets or environment variables (not test code)
-            - Permission issues with GitHub tokens/actions
-            - Docker build failures in workflow steps (not Dockerfile issues)
-            - Job dependency issues
-            - Concurrency/matrix configuration problems
-            - Runner environment issues
-
-            NOT ACTIONS_FAILURE (do NOT create an issue):
-            - Go test failures (make unit-tests, make integration-tests)
-            - Code compilation errors (go build failures)
-            - Style/lint check failures (staticcheck, gofmt)
-            - Coverage below threshold
-            - Config validation failures (yamllint on configs/)
-            - Application Dockerfile build failures
-
-            DECISION LOGIC:
-            - If the failure is ACTIONS_FAILURE: Create a GitHub issue
-            - If the failure is TEST_FAILURE, CONFIG_FAILURE, or INFRASTRUCTURE_FAILURE: Do NOT create an issue
-              (TEST_FAILURE and CONFIG_FAILURE are handled by the existing AI Code Review workflow)
-              (INFRASTRUCTURE_FAILURE issues are transient external problems that will self-resolve)
-
-            IF YOU DETERMINE THIS IS AN ACTIONS_FAILURE, create an issue:
-            # First ensure the github-actions label exists
-            gh label create \"github-actions\" --color \"0366d6\" --description \"GitHub Actions workflow issues\" 2>/dev/null || true
-            gh issue create \\
-              --title \"Workflow Failure: ${WORKFLOW_NAME} run #${RUN_ID} - Actions Configuration Issue\" \\
-              --label \"bug,github-actions\" \\
-              --body \"\$(cat <<'ISSUE_BODY'
-            ## Workflow Failure Report
-
-            A GitHub Actions configuration problem has been detected.
-
-            ### Workflow Details
-            - **Workflow**: ${WORKFLOW_NAME}
-            - **Run ID**: [${RUN_ID}](${RUN_URL})
-            - **Branch**: ${HEAD_BRANCH}
-            - **Commit**: ${HEAD_SHA}
-
-            ### Failure Analysis
-
-            [DESCRIBE THE ACTIONS CONFIGURATION PROBLEM HERE]
-
-            ### Relevant Logs
-
-            \\\`\\\`\\\`
-            [PASTE KEY ERROR LOGS HERE]
-            \\\`\\\`\\\`
-
-            ### Suggested Fix
-
-            [DESCRIBE HOW TO FIX THE ACTIONS CONFIGURATION]
-
-            ### Files to Review
-            - [LIST WORKFLOW YAML FILES THAT NEED CHANGES]
-
-            ---
-            🤖 Generated by the AI Workflow Diagnostician
-            ISSUE_BODY
-            )\"
-
-            IF THIS IS NOT AN ACTIONS_FAILURE, output:
-            'DIAGNOSIS: [TEST_FAILURE|CONFIG_FAILURE|INFRASTRUCTURE_FAILURE] - No issue created.'
-            For TEST_FAILURE/CONFIG_FAILURE: 'This failure type is handled by the AI Code Review workflow.'
-            For INFRASTRUCTURE_FAILURE: 'This is a transient external service issue that will self-resolve. No action needed.'
-
-            Be thorough in your analysis. Examine the actual error messages in the logs." 2>&1 | tee /tmp/diagnose-output.jsonl
+              # envsubst substitutes ${WORKFLOW_NAME}, ${RUN_ID}, etc. from the
+              # environment. It leaves $(cat <<…) command substitutions alone
+              # because it only recognizes $VAR / ${VAR} patterns.
+              PROMPT=$(envsubst < .github/ci/prompts/diagnose-workflow-failure.md)
+              bash .devcontainer/run-ai.sh "$PROMPT" 2>&1 \
+                | tee /tmp/diagnose-output/diagnose-output.jsonl
+            '
 
       - name: Upload diagnosis output
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: workflow-diagnosis-output
-          path: /tmp/diagnose-output.jsonl
+          path: /tmp/diagnose-output/diagnose-output.jsonl
           retention-days: 7
