@@ -39,6 +39,15 @@ inputs:
       earlier step in the same job built it).
     required: false
     default: 'true'
+  pre_script:
+    description: >
+      Optional bash snippet executed inside the container AFTER
+      `source .devcontainer/configure-ai.sh` and BEFORE envsubst expands
+      the prompt file. Use this to decode base64 env vars, fetch data via
+      `gh api`, or set derived variables that the prompt template
+      references. Any variables exported here are visible to envsubst.
+    required: false
+    default: ''
 
 runs:
   using: composite
@@ -57,20 +66,26 @@ runs:
       shell: bash
       run: docker pull "${{ inputs.image }}"
 
-    - name: Stage env file
-      id: stage-env
+    - name: Stage env + pre-script files
+      id: stage-files
       shell: bash
       env:
         ENV_INPUT: ${{ inputs.env }}
+        PRE_SCRIPT_INPUT: ${{ inputs.pre_script }}
       run: |
         set -euo pipefail
         ENV_FILE="$(mktemp)"
-        # Filter blank lines and comment lines; pass everything else through.
+        PRE_SCRIPT_FILE="$(mktemp --suffix=.sh)"
+        # Filter blank lines and comment lines in env input; pass the rest through.
         printf '%s\n' "$ENV_INPUT" \
           | grep -Ev '^\s*(#|$)' \
           > "$ENV_FILE" || true
         chmod 600 "$ENV_FILE"
+        # The pre-script goes in verbatim (or empty).
+        printf '%s\n' "$PRE_SCRIPT_INPUT" > "$PRE_SCRIPT_FILE"
+        chmod 600 "$PRE_SCRIPT_FILE"
         echo "env_file=$ENV_FILE" >> "$GITHUB_OUTPUT"
+        echo "pre_script_file=$PRE_SCRIPT_FILE" >> "$GITHUB_OUTPUT"
 
     - name: Run agent
       shell: bash
@@ -78,18 +93,23 @@ runs:
         CI_AGENT_IMAGE: ${{ inputs.image }}
         CI_AGENT_PROMPT_FILE: ${{ inputs.prompt_file }}
         CI_AGENT_OUTPUT_FILE: ${{ inputs.output_file }}
-        CI_AGENT_ENV_FILE: ${{ steps.stage-env.outputs.env_file }}
+        CI_AGENT_ENV_FILE: ${{ steps.stage-files.outputs.env_file }}
+        CI_AGENT_PRE_SCRIPT_FILE: ${{ steps.stage-files.outputs.pre_script_file }}
       run: |
         set -euo pipefail
 
         OUTPUT_DIR="$(dirname "$CI_AGENT_OUTPUT_FILE")"
         mkdir -p "$OUTPUT_DIR"
 
+        # Mount the pre-script into a known path inside the container; the
+        # wrapper below sources it so any vars it exports are visible to
+        # envsubst.
         docker run --rm \
           --network host \
           --workdir /workspace \
           -v "${{ github.workspace }}:/workspace" \
           -v "$OUTPUT_DIR:$OUTPUT_DIR" \
+          -v "$CI_AGENT_PRE_SCRIPT_FILE:/tmp/ci-agent-pre-script.sh:ro" \
           --env-file "$CI_AGENT_ENV_FILE" \
           -e CI_AGENT_PROMPT_FILE \
           -e CI_AGENT_OUTPUT_FILE \
@@ -97,14 +117,19 @@ runs:
           -lc '
             set -euo pipefail
             source .devcontainer/configure-ai.sh
+            if [ -s /tmp/ci-agent-pre-script.sh ]; then
+              # shellcheck disable=SC1091
+              source /tmp/ci-agent-pre-script.sh
+            fi
             PROMPT=$(envsubst < "$CI_AGENT_PROMPT_FILE")
             bash .devcontainer/run-ai.sh "$PROMPT" 2>&1 \
               | tee "$CI_AGENT_OUTPUT_FILE"
           '
 
-    - name: Clean up env file
+    - name: Clean up staged files
       if: always()
       shell: bash
       env:
-        CI_AGENT_ENV_FILE: ${{ steps.stage-env.outputs.env_file }}
-      run: rm -f "$CI_AGENT_ENV_FILE"
+        CI_AGENT_ENV_FILE: ${{ steps.stage-files.outputs.env_file }}
+        CI_AGENT_PRE_SCRIPT_FILE: ${{ steps.stage-files.outputs.pre_script_file }}
+      run: rm -f "$CI_AGENT_ENV_FILE" "$CI_AGENT_PRE_SCRIPT_FILE"
