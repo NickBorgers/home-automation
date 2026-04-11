@@ -3,7 +3,7 @@ name: HA Deprecation Check
 # Monthly check for deprecated Home Assistant APIs
 # Scans HA release notes for deprecations and checks codebase for usage
 # Creates issues for any deprecated API usage found, which the existing
-# Codex workflow resolve-issue job will auto-fix
+# AI Assistant workflow's resolve-issue job will auto-fix
 
 # SECURITY NOTE: This workflow has low prompt injection risk because:
 # - Schedule trigger is not user-controlled
@@ -106,26 +106,24 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # Note: GH_TOKEN uses WORKFLOW_PAT so created issues trigger the resolve-issue job in Codex
+      # Note: GH_TOKEN uses WORKFLOW_PAT so created issues trigger the resolve-issue job in the AI assistant workflow
       # (issues created with GITHUB_TOKEN don't trigger other workflows)
-      - name: Check for deprecated HA APIs with Codex
+      - name: Check for deprecated HA APIs with AI assistant
         uses: devcontainers/ci@v0.3
         with:
           imageName: ${{ env.DEVCONTAINER_IMAGE }}
           cacheFrom: ${{ env.DEVCONTAINER_IMAGE }}
           push: never
           env: |
-            OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
+            ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY }}
+            ANTHROPIC_BASE_URL=https://llm.featherback-mermaid.ts.net/anthropic/
             GH_TOKEN=${{ secrets.WORKFLOW_PAT }}
             REPO=${{ github.repository }}
             HA_VERSION=${{ inputs.ha_version || '' }}
           runCmd: |
-            source .devcontainer/configure-codex.sh
+            source .devcontainer/configure-ai.sh
 
-            codex exec \
-              --json \
-              --dangerously-bypass-approvals-and-sandbox \
-              "You are a Home Assistant deprecation checker. Your job is to find deprecated HA APIs
+            claude -p --dangerously-skip-permissions --permission-mode=bypassPermissions --model claude-sonnet-4-6 "You are a Home Assistant deprecation checker. Your job is to find deprecated HA APIs
             that this codebase still uses, and create GitHub issues so they get fixed proactively.
 
             PHASE 1: GATHER DEPRECATIONS
@@ -190,13 +188,13 @@ jobs:
 
             3. Create ONE GitHub issue PER deprecated API, with a specific title including the API name:
                gh issue create --repo ${REPO} \
-                 --title '@codex Replace deprecated HA API: <specific_api_name>' \
+                 --title '@ai Replace deprecated HA API: <specific_api_name>' \
                  --label 'ha-deprecation' \
                  --body '<issue body>'
 
                For example:
-                 --title '@codex Replace deprecated HA API: color_temp in light.turn_on'
-                 --title '@codex Replace deprecated HA API: old_service_name'
+                 --title '@ai Replace deprecated HA API: color_temp in light.turn_on'
+                 --title '@ai Replace deprecated HA API: old_service_name'
 
                The issue body MUST include:
                - Which deprecated APIs were found and in which files (with line numbers)
@@ -259,7 +257,7 @@ jobs:
             exit 1
           fi
 
-          # Extract the RESULT summary line from Codex's output
+          # Extract the RESULT summary line from the AI's output
           # The stream-json format wraps content in JSON, so search for the RESULT marker
           if grep -q "RESULT: NO_DEPRECATIONS_FOUND" "$OUTPUT_FILE"; then
             echo "✅ No deprecated APIs found in codebase"
@@ -282,7 +280,7 @@ jobs:
             echo "Check the deprecation-check-output artifact for details." >> $GITHUB_STEP_SUMMARY
             exit 1
           else
-            echo "::error::Could not determine deprecation check outcome from Codex output"
+            echo "::error::Could not determine deprecation check outcome from AI output"
             echo "## Deprecation Check: Unknown Result ❌" >> $GITHUB_STEP_SUMMARY
             echo "Could not parse the check result. Review the deprecation-check-output artifact." >> $GITHUB_STEP_SUMMARY
             exit 1

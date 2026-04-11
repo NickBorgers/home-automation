@@ -254,7 +254,7 @@ else
     echo "Crush CLI already at ${CURRENT_CRUSH_VERSION}, skipping install."
 fi
 
-bash "$SCRIPT_DIR/configure-codex.sh"
+bash "$SCRIPT_DIR/configure-ai.sh"
 
 # Note: Claude Code and playwright-skill plugin are pre-installed in the
 # Dockerfile for faster rebuilds via Docker layer caching.

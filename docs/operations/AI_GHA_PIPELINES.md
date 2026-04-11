@@ -1,29 +1,31 @@
-# Codex GitHub Actions Pipelines
+# AI GitHub Actions Pipelines
 
-This document describes the Codex-based GitHub Actions pipelines in this repository. These pipelines enable AI-powered issue resolution, PR creation, code review, and automated test failure fixes.
+This document describes the AI-assistant-backed GitHub Actions pipelines in this repository. These pipelines enable AI-powered issue resolution, PR creation, code review, and automated test failure fixes.
+
+The pipeline plumbing (file names, job names, labels, mention tag, secret name, branch prefix) is tool-agnostic: the underlying AI tool can be swapped without renaming anything. The commit author identity, however, names whichever tool is actually running — currently `claude[bot]`.
 
 ## Overview
 
-The repository uses several interconnected workflows that leverage Codex to automate software development tasks:
+The repository uses several interconnected workflows that leverage an AI assistant to automate software development tasks:
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────┐
 │                           TRIGGER EVENTS                                  │
 ├──────────────────────────────────────────────────────────────────────────┤
-│  Issue Opened  │  @codex Mention   │  PR Tests Complete/Failed  │ Monthly │
+│  Issue Opened  │  @ai Mention      │  PR Tests Complete/Failed  │ Monthly │
 └───────┬────────┴────────┬──────────┴─────────┬─────────────────┴────┬────┘
         │                 │                    │                      │
         ▼                 ▼                    ▼                      ▼
 ┌───────────────┐ ┌───────────────┐ ┌──────────────────┐ ┌──────────────────┐
 │ ai-assistant  │ │ ai-assistant  │ │ ai-code-review   │ │ ha-deprecation-  │
-│ resolve-issue │ │ codex job     │ │ review.yml       │ │ check.yml        │
+│ resolve-issue │ │ ai job        │ │ review.yml       │ │ check.yml        │
 └───────────────┘ └───────────────┘ └──────────────────┘ └────────┬─────────┘
         │                 │                    │                   │
         ▼                 ▼                    │          (creates issues)
 ┌──────────────────────────────────────────────┤                   │
 │                                              │◄──────────────────┘
 │  DEVCONTAINER EXECUTION                      │◄───────────────────┐
-│  Codex runs inside a cached                  │                    │
+│  AI assistant runs inside a cached           │                    │
 │  devcontainer with full access               │                    │
 │                                              │                    │
 └──────────────────────────────────────────────┘                    │
@@ -42,7 +44,7 @@ The repository uses several interconnected workflows that leverage Codex to auto
 **Important:** These workflows implement authorization checks to prevent prompt injection attacks. See [CI_CD_SECURITY.md](./CI_CD_SECURITY.md) for the full security model.
 
 Key security measures:
-- **Authorization checks**: Only repository collaborators/members/owners can trigger Codex
+- **Authorization checks**: Only repository collaborators/members/owners can trigger the AI assistant
 - **Devcontainer isolation**: Always built from `main` branch, never from PR branches
 - **Fork PR blocking**: Fork PRs are blocked from running on the self-hosted runner (security). Maintainers must test fork contributions manually
 
@@ -50,47 +52,47 @@ Key security measures:
 
 | Workflow | File | Trigger | Purpose |
 |----------|------|---------|---------|
-| Codex | `ai-assistant.yml` | @codex mentions, new issues | Respond to requests, auto-resolve issues |
-| Codex Code Review | `ai-code-review.yml` | PR Tests completion, PR reopened | Multi-agent code review, fix failures, merge decision |
+| AI Assistant | `ai-assistant.yml` | @ai mentions, new issues | Respond to requests, auto-resolve issues |
+| AI Code Review | `ai-code-review.yml` | PR Tests completion, PR reopened | Multi-agent code review, fix failures, merge decision |
 | PR Tests | `pr-tests.yml` | PRs, pushes to all branches | Run tests, trigger review pipeline |
-| Codex Diagnose Workflow Failure | `ai-diagnose-workflow-failure.yml` | Any workflow failure | Diagnose Actions config problems (not test failures) |
+| AI Diagnose Workflow Failure | `ai-diagnose-workflow-failure.yml` | Any workflow failure | Diagnose Actions config problems (not test failures) |
 | HA Deprecation Check | `ha-deprecation-check.yml` | Monthly schedule, manual dispatch | Scan HA release notes for deprecated APIs, create issues |
 
 ---
 
-## 1. Codex (`ai-assistant.yml`)
+## 1. AI Assistant (`ai-assistant.yml`)
 
-The main workflow that enables Codex to respond to requests and automatically resolve issues.
+The main workflow that enables the AI assistant to respond to requests and automatically resolve issues.
 
 ### Triggers
 
-- **Issue Comment**: When a comment includes a plain-text `@codex` mention (not inside code blocks or Markdown/HTML links)
-- **PR Review Comment**: When a review comment includes a plain-text `@codex`
-- **PR Review**: When a review body includes a plain-text `@codex`
-- **New Issue**: When an issue is opened _and_ the issue title or body includes a plain-text `@codex` mention
+- **Issue Comment**: When a comment includes a plain-text `@ai` mention (not inside code blocks or Markdown/HTML links)
+- **PR Review Comment**: When a review comment includes a plain-text `@ai`
+- **PR Review**: When a review body includes a plain-text `@ai`
+- **New Issue**: When an issue is opened _and_ the issue title or body includes a plain-text `@ai` mention
 
-For **issue threads**, the guard now insists that the issue title or body already contains a plain-text `@codex` mention before any follow-up comments can launch Codex. This ensures maintainers explicitly opt-in when opening the issue instead of retroactively adding a mention inside backticks or hyperlinks.
-The authorize guard ignores quoted/code-fenced literals so automated Codex comments like templates or logs can safely include `@codex` without retriggering the workflow.
+For **issue threads**, the guard insists that the issue title or body already contains a plain-text `@ai` mention before any follow-up comments can launch the AI assistant. This ensures maintainers explicitly opt-in when opening the issue instead of retroactively adding a mention inside backticks or hyperlinks.
+The authorize guard ignores quoted/code-fenced literals so automated review comments from the pipeline itself can safely include `@ai` without retriggering the workflow.
 
 ### Concurrency Control
 
 ```yaml
 concurrency:
-  group: codex-interactive-${{ issue_or_pr_number }}
+  group: ai-interactive-${{ issue_or_pr_number }}
   cancel-in-progress: true  # Cancel in-flight runs so the newest request executes
 ```
 
 Scoped by issue/PR number so that:
-- Two rapid `@codex` mentions on the **same** PR/issue cannot overlap; the newer invocation cancels the prior run and starts immediately
-- `@codex` on **different** PRs/issues runs in parallel (separate concurrency groups)
+- Two rapid `@ai` mentions on the **same** PR/issue cannot overlap; the newer invocation cancels the prior run and starts immediately
+- `@ai` on **different** PRs/issues runs in parallel (separate concurrency groups)
 
-`cancel-in-progress: true` prevents queued work from racing stale context—Codex immediately restarts with the newest request so the freshly posted comment is always the one being processed.
+`cancel-in-progress: true` prevents queued work from racing stale context — the AI assistant immediately restarts with the newest request so the freshly posted comment is always the one being processed.
 
 **When the guard trips (GitHub Actions summary messaging):**
-- In-flight runs flip to the yellow `Cancelled` badge within seconds; the GitHub Actions run summary surfaces the callout “Superseded by another run in codex-interactive-<number>,” so you immediately know a newer request preempted it.
+- In-flight runs flip to the yellow `Cancelled` badge within seconds; the GitHub Actions run summary surfaces the callout “Superseded by another run in ai-interactive-<number>,” so you immediately know a newer request preempted it.
 - Runs blocked before they start show up in the Actions summary as `Skipped by concurrency guard` with the same superseded message, making it obvious the skip was intentional and not a workflow failure.
 - Only the newest comment gets a response; stale runs never emit results because GitHub immediately launches a fresh execution with the latest payload.
-- Treat the coloured cancellation/skip messaging as confirmation that the guard worked—no manual cleanup required.
+- Treat the coloured cancellation/skip messaging as confirmation that the guard worked — no manual cleanup required.
 
 ### Jobs
 
@@ -98,38 +100,37 @@ Scoped by issue/PR number so that:
 
 Builds and caches a devcontainer image to speed up subsequent runs.
 
-- **Guard (critical)**: Runs **only** when the `authorize` job sets `should_run_codex=true`. The guard strips Markdown/HTML links and code blocks before searching for a plain-text `@codex`, and surfaces its decision through two outputs:
-  - `should_run_codex`: `true` only for authorized actors whose payload includes a plain-text `@codex`. For issue threads, the issue title/body must already contain the mention before any comment @-pings can execute.
-  - `should_build_devcontainer`: `true` when Codex is about to run and the devcontainer needs a rebuild.
+- **Guard (critical)**: Runs **only** when the `authorize` job sets `should_run_ai=true`. The guard strips Markdown/HTML links and code blocks before searching for a plain-text `@ai`, and surfaces its decision through two outputs:
+  - `should_run_ai`: `true` only for authorized actors whose payload includes a plain-text `@ai`. For issue threads, the issue title/body must already contain the mention before any comment @-pings can execute.
+  - `should_build_devcontainer`: `true` when the AI assistant is about to run and the devcontainer needs a rebuild.
 
-Routine chatter, quoted literals, or Codex’s own templated reviews flip `should_run_codex=false`, so the devcontainer rebuild is skipped (`should_build_devcontainer=false`) and the Actions summary records it as an intentional guard skip. If you really need a fresh image, post a new plain-text `@codex`; otherwise the cached container stays in place.
+Routine chatter, quoted literals, or the pipeline’s own templated reviews flip `should_run_ai=false`, so the devcontainer rebuild is skipped (`should_build_devcontainer=false`) and the Actions summary records it as an intentional guard skip. If you really need a fresh image, post a new plain-text `@ai`; otherwise the cached container stays in place.
 - **Actions callout**: When the guard skips this job, the workflow summary surfaces the same message so maintainers understand why no rebuild occurred and that the container cache remains untouched.
 - Pushes to `ghcr.io/nickborgers/home-automation-devcontainer`
 - **Skip optimization**: Skips the build entirely when `.devcontainer/` files haven't changed in the PR and the image already exists in GHCR. Falls back to always building for new issues and non-PR contexts.
 - **Output**: `should_build_devcontainer` — consumed by downstream steps via conditional `if` guards
-- **Why it matters**: The guard keeps routine comments (status updates, reactions, etc.) from burning self-hosted minutes—the container build triggers only when Codex is actually going to run.
+- **Why it matters**: The guard keeps routine comments (status updates, reactions, etc.) from burning self-hosted minutes — the container build triggers only when the AI assistant is actually going to run.
 
-#### 1.2 `codex`
+#### 1.2 `ai`
 
-Responds to `@codex` mentions in comments.
+Responds to `@ai` mentions in comments.
 
-**Condition**: Executes only when `needs.authorize.outputs.should_run_codex == 'true'`, meaning an authorized actor supplied a plain-text `@codex` (after stripping Markdown/HTML links and code blocks). Issue comments also require the issue title/body to contain a plain-text mention. This prevents Codex from responding to its own templated comments, quoted strings, or retroactive edits that never updated the original issue text.
+**Condition**: Executes only when `needs.authorize.outputs.should_run_ai == 'true'`, meaning an authorized actor supplied a plain-text `@ai` (after stripping Markdown/HTML links and code blocks). Issue comments also require the issue title/body to contain a plain-text mention. This prevents the AI assistant from responding to its own templated comments, quoted strings, or retroactive edits that never updated the original issue text.
 
 **Workflow**:
 1. Detects if the context is a PR or issue
 2. Checks out the appropriate branch (PR head or default)
-3. Runs Codex inside the devcontainer
-4. Codex implements requested changes or responds to questions
+3. Runs the AI assistant inside the devcontainer
+4. Implements requested changes or responds to questions
 5. For PRs: commits and pushes changes to the PR branch
 6. For issues: creates branches and opens PRs as needed
 
 **Key Configuration**:
 ```yaml
-codex exec \
-  --json \
-  --dangerously-bypass-approvals-and-sandbox \
-  "$PROMPT"
+claude -p --dangerously-skip-permissions --permission-mode=bypassPermissions --model claude-sonnet-4-6 "$PROMPT"
 ```
+
+The CLI reads `ANTHROPIC_API_KEY` and `ANTHROPIC_BASE_URL` (pointing at the self-hosted LiteLLM proxy) from the environment — see `.devcontainer/configure-ai.sh`.
 
 #### 1.3 `resolve-issue`
 
@@ -138,25 +139,23 @@ Automatically resolves newly opened issues.
 **Condition**: Runs on `issues: [opened, assigned]` event
 
 **Workflow**:
-1. Labels issue with `codex-started`
+1. Labels issue with `ai-started`
 2. Analyzes the issue title, body, and **all comments** on the issue
 3. Explores the codebase to understand context
 4. Implements fixes or features
-5. Creates a branch (`codex/issue-{number}`)
+5. Creates a branch (`ai/issue-{number}`)
 6. Opens a PR with the solution
-
-**Max Turns**: 600 (longer for complex issues)
 
 **Timeout**: 120 minutes
 
 ### Artifacts
 
-- `codex-conversation-log`: Full conversation log in JSONL format
+- `ai-conversation-log`: Full conversation log in JSONL format
 - Retention: 7 days
 
 ---
 
-## 2. Codex Code Review (`ai-code-review.yml`)
+## 2. AI Code Review (`ai-code-review.yml`)
 
 A sophisticated multi-agent review system that runs after PR tests complete.
 
@@ -170,7 +169,7 @@ A sophisticated multi-agent review system that runs after PR tests complete.
 
 ```yaml
 concurrency:
-  group: codex-review-${{ branch_name }}
+  group: ai-review-${{ branch_name }}
   cancel-in-progress: false  # Complete first review, don't restart
 ```
 
@@ -192,8 +191,8 @@ build-devcontainer
 fix-test-failures                    ┌──────────┼──────────┐──────────┐──────────┐
      │                               │          │          │          │          │
      │ (triggers new test run)       ▼          ▼          ▼          ▼          ▼
-     │                          design-   codex-    test-    concur-   docs-
-     │                          review    review    review   rency-    review
+     │                          design-    ai-       test-    concur-   docs-
+     │                          review     review    review   rency-    review
      │                               │          │          │  review        │
      │                               └──────────┼──────────┘──────┘────────┘
      │                                          ▼
@@ -205,7 +204,7 @@ fix-test-failures                    ┌──────────┼──�
                                      (adds agent-reviews-passed label)
 ```
 
-**Devcontainer caching:** To keep Codex runs fast while still picking up infrastructure changes, the `build-devcontainer` job hashes the `.devcontainer/` directory on the `main` branch and publishes the build as both `latest` and `treehash-<hash>` in GHCR. If the tree hash tag already exists, the build is skipped and the existing image is reused.
+**Devcontainer caching:** To keep AI runs fast while still picking up infrastructure changes, the `build-devcontainer` job hashes the `.devcontainer/` directory on the `main` branch and publishes the build as both `latest` and `treehash-<hash>` in GHCR. If the tree hash tag already exists, the build is skipped and the existing image is reused.
 
 ### Draft PR Handling
 
@@ -233,7 +232,7 @@ PRs that only modify files in `configs/` receive streamlined review:
 | Review Job | Skipped for Config-Only | Reason |
 |------------|------------------------|--------|
 | design-review | Yes | No design decisions to review |
-| codex-review | Yes | No code to review |
+| ai-review | Yes | No code to review |
 | test-review | Yes | No tests to review |
 | concurrency-review | Yes | No Go code to analyze |
 | docs-review | Yes | Config changes don't need doc updates |
@@ -282,7 +281,7 @@ Automatically fixes failing tests (up to 3 attempts).
 4. Fixes issues in code
 5. Commits and pushes fix
 6. Triggers new PR Tests run
-7. If tests pass, triggers Codex Code Review
+7. If tests pass, triggers AI Code Review
 8. If tests still fail, triggers another fix attempt (self-retry)
 9. After 3 failed attempts, posts a comment to the PR requesting human intervention
 
@@ -293,7 +292,7 @@ Automatically fixes failing tests (up to 3 attempts).
 - Links to the most recent failed test run
 - Requests human intervention
 
-**Labels**: Adds `codex-fix-attempt-N` label to track attempts
+**Labels**: Adds `ai-fix-attempt-N` label to track attempts
 
 **Max Attempts**: 3 (after which human intervention is required)
 
@@ -320,20 +319,11 @@ Design validation and critical design review specialist. Runs in parallel with o
 - Are there simpler or more robust alternatives?
 - Does it fit with existing architecture?
 
-**For Design-Heavy PRs** (new patterns, architectures, structural changes):
-- Extensibility and flexibility
-- Error handling and failure modes
-- Performance implications
-- Coupling and cohesion
-- Testability
-
 **Reference**: `docs/architecture/ARCHITECTURE.md`, `docs/reference/SHADOW_STATE.md`
-
-**Max Turns**: 450 (high turn count for thorough analysis)
 
 **Actions**: Posts design analysis with intent validation, concerns, and suggestions. Does not push fixes (comment-only; merge-decision applies fixes).
 
-#### 2.4 `codex-review`
+#### 2.4 `ai-review`
 
 General code quality review. Runs in parallel with other reviews. Includes cross-PR context to detect divergence from recent changes.
 
@@ -461,7 +451,7 @@ Aggregator job for branch protection.
 
 ## 3. PR Tests (`pr-tests.yml`)
 
-Standard test workflow that gates merging and triggers Codex reviews. Runs on the self-hosted homelab runner.
+Standard test workflow that gates merging and triggers AI reviews. Runs on the self-hosted homelab runner.
 
 **Fork PR blocking:** Fork PRs are blocked at the `changes` gate job (prevents arbitrary code execution on the self-hosted runner). The `all-tests-passed` aggregator job also includes the fork check directly since it uses `if: always()` which bypasses dependency skipping. Maintainers must manually test fork contributions.
 
@@ -502,7 +492,7 @@ Only runs relevant jobs based on changed files:
 
 ---
 
-## 4. Codex Diagnose Workflow Failure (`ai-diagnose-workflow-failure.yml`)
+## 4. AI Diagnose Workflow Failure (`ai-diagnose-workflow-failure.yml`)
 
 Automatically diagnoses workflow failures to determine if they're GitHub Actions configuration problems (which need issues filed) versus normal test/code failures (which are handled by the existing review pipeline).
 
@@ -514,8 +504,8 @@ Automatically diagnoses workflow failures to determine if they're GitHub Actions
   - Publish-Screenshots
   - Trigger Private Security Rebuild
   - Notify Private Repo of PR Merge
-  - Codex
-  - Codex Code Review
+  - AI Assistant
+  - AI Code Review
 
 ### Concurrency Control
 
@@ -529,7 +519,7 @@ concurrency:
 
 #### 4.1 `build-devcontainer`
 
-Builds the Codex devcontainer from the `main` branch when needed, tagging the resulting image with both `latest` and `treehash-<hash>`. If a matching tree hash tag already exists in GHCR, the job skips the rebuild and reuses the cached image, keeping diagnosis runs fast while still updating whenever `.devcontainer/` changes land on `main`.
+Builds the devcontainer from the `main` branch when needed, tagging the resulting image with both `latest` and `treehash-<hash>`. If a matching tree hash tag already exists in GHCR, the job skips the rebuild and reuses the cached image, keeping diagnosis runs fast while still updating whenever `.devcontainer/` changes land on `main`.
 
 #### 4.2 `check-failure`
 
@@ -544,14 +534,14 @@ Pre-flight checks before running diagnosis.
 
 #### 4.3 `diagnose-failure`
 
-Runs Codex to analyze the failure and classify it.
+Runs the AI assistant to analyze the failure and classify it.
 
 **Classification Categories**:
 
 | Category | Description | Action |
 |----------|-------------|--------|
-| `TEST_FAILURE` | Unit tests, integration tests, code compilation | No issue - handled by Codex Code Review |
-| `CONFIG_FAILURE` | Issues in configs/ (YAML validation, etc.) | No issue - handled by Codex Code Review |
+| `TEST_FAILURE` | Unit tests, integration tests, code compilation | No issue - handled by AI Code Review |
+| `CONFIG_FAILURE` | Issues in configs/ (YAML validation, etc.) | No issue - handled by AI Code Review |
 | `INFRASTRUCTURE_FAILURE` | Transient external service availability issues | No issue - self-resolves |
 | `ACTIONS_FAILURE` | GitHub Actions workflow definition problems | **Create issue** |
 
@@ -613,13 +603,13 @@ Checks if the devcontainer image already exists in GHCR and only builds if missi
 
 #### 5.2 `check-deprecations`
 
-Runs Codex to perform a three-phase check:
+Runs the AI assistant to perform a three-phase check:
 
 1. **Gather Deprecations**: Fetches HA release notes from the blog, looking for deprecated service calls, entity attributes, WebSocket API changes, and renamed parameters
 2. **Scan Codebase**: Searches plugin code and configs for usage of any deprecated APIs found
 3. **Report**: Creates one GitHub issue per deprecated API found (with `ha-deprecation` label), skipping duplicates
 
-**Issue Integration**: Issues are created with `@codex` in the title prefix, so the `resolve-issue` job in `ai-assistant.yml` automatically picks them up and creates fix PRs.
+**Issue Integration**: Issues are created with `@ai` in the title prefix, so the `resolve-issue` job in `ai-assistant.yml` automatically picks them up and creates fix PRs.
 
 **Token Note**: Uses `WORKFLOW_PAT` (not `GITHUB_TOKEN`) so created issues trigger the `resolve-issue` workflow.
 
@@ -631,11 +621,11 @@ Runs Codex to perform a three-phase check:
 | `ISSUES_CREATED <N>` | Created N issues for deprecated API usage |
 | `ALL_DUPLICATES` | Deprecations found but already tracked in existing issues |
 | `FETCH_FAILED` | Could not retrieve HA release notes (workflow fails) |
-| Unrecognized | Could not parse Codex output (workflow fails) |
+| Unrecognized | Could not parse AI output (workflow fails) |
 
 ### Artifacts
 
-- `deprecation-check-output`: Full Codex output in JSONL format
+- `deprecation-check-output`: Full AI output in JSONL format
 - Retention: 30 days (longer than default since this runs monthly)
 
 ---
@@ -644,9 +634,11 @@ Runs Codex to perform a three-phase check:
 
 | Secret | Used By | Purpose |
 |--------|---------|---------|
-| `OPENAI_API_KEY` | ai-assistant.yml, ai-code-review.yml, ai-diagnose-workflow-failure.yml, ha-deprecation-check.yml | Codex authentication via LiteLLM |
+| `ANTHROPIC_API_KEY` | ai-assistant.yml, ai-code-review.yml, ai-diagnose-workflow-failure.yml, ha-deprecation-check.yml | Authenticates the Claude Code CLI via the self-hosted LiteLLM Anthropic-compatible passthrough |
 | `WORKFLOW_PAT` | ai-assistant.yml, ai-code-review.yml, ha-deprecation-check.yml, update-ai-clis.yml | Push workflow file changes, create PRs/issues that trigger workflows |
 | `PRIVATE_REPO_TRIGGER_TOKEN` | notify-pr-merged.yml | Cross-repo workflow triggers |
+
+The workflows also pass `ANTHROPIC_BASE_URL=https://llm.featherback-mermaid.ts.net/anthropic/` into the devcontainer so the CLI hits the LiteLLM proxy rather than the public Anthropic API.
 
 ### Why `WORKFLOW_PAT`?
 
@@ -674,7 +666,7 @@ Required status checks:
   - "All Required Tests"
   - "All Required Agent Reviews"
 
-Required approvals: 0  # Codex provides automated review
+Required approvals: 0  # AI assistant provides automated review
 ```
 
 ---
@@ -684,14 +676,14 @@ Required approvals: 0  # Codex provides automated review
 ### View Conversation Logs
 
 1. Go to the workflow run in GitHub Actions
-2. Download the `codex-conversation-log` artifact
+2. Download the `ai-conversation-log` artifact
 3. Parse the JSONL file for the full conversation
 
 ### Common Issues
 
 | Issue | Cause | Solution |
 |-------|-------|----------|
-| "Detected newer commits - aborting" | Author pushed while Codex was fixing | Normal - Codex yields to human |
+| "Detected newer commits - aborting" | Author pushed while AI was fixing | Normal - AI yields to human |
 | Max fix attempts reached | Tests keep failing after 3 tries | Human intervention needed (PR will have a comment) |
 | "Automated Fix Failed" comment | All 3 fix attempts exhausted | Review the linked test run, fix manually |
 | Review job skipped | Tests haven't passed on current commit | Wait for tests to pass or fix them first |
@@ -699,16 +691,16 @@ Required approvals: 0  # Codex provides automated review
 | Reviews skipped (draft PR) | PR is marked as draft | Mark PR as "Ready for review" to enable reviews |
 | Reviews skipped (config-only) | PR only modifies `configs/` files | Expected - config PRs use streamlined review |
 | Devcontainer build slow | First run or cache miss | Subsequent runs use cached image; builds are skipped entirely when `.devcontainer/` files are unchanged |
-| Codex doesn't respond | Comment doesn't contain `@codex` | Ensure @codex is in comment |
-| Workflow failure issue not created | Diagnosed as TEST_FAILURE or CONFIG_FAILURE | Expected - these are handled by Codex Code Review |
+| AI doesn't respond | Comment doesn't contain `@ai` | Ensure @ai is in comment |
+| Workflow failure issue not created | Diagnosed as TEST_FAILURE or CONFIG_FAILURE | Expected - these are handled by AI Code Review |
 
 ### Manual Triggers
 
 All workflows support `workflow_dispatch` for manual testing:
 
 ```bash
-# Trigger Codex Code Review manually
-gh workflow run "Codex Code Review" \
+# Trigger AI Code Review manually
+gh workflow run "AI Code Review" \
   -f head_ref="your-branch" \
   -f head_repo="owner/repo" \
   -f pr_number="123" \
@@ -722,22 +714,22 @@ gh workflow run "Codex Code Review" \
 
 ### Model Selection
 
-The pipelines standardize on `gpt-5-codex` via Codex and the LiteLLM proxy.
+The pipelines currently invoke Claude Code CLI with `claude-sonnet-4-6` via the self-hosted LiteLLM Anthropic-compatible passthrough.
 
 | Pipeline/Job | Model | Rationale |
 |-------------|-------|-----------|
-| `ai-assistant.yml` interactive and issue resolution | `gpt-5-codex` | Open-ended implementation and repo changes |
-| `ai-code-review.yml` review and merge jobs | `gpt-5-codex` | Consistent review quality across the pipeline |
-| `ai-diagnose-workflow-failure.yml` | `gpt-5-codex` | Failure triage and classification |
-| `ha-deprecation-check.yml` | `gpt-5-codex` | Release-note scanning and issue creation |
+| `ai-assistant.yml` interactive and issue resolution | `claude-sonnet-4-6` | Open-ended implementation and repo changes |
+| `ai-code-review.yml` review and merge jobs | `claude-sonnet-4-6` | Consistent review quality across the pipeline |
+| `ai-diagnose-workflow-failure.yml` | `claude-sonnet-4-6` | Failure triage and classification |
+| `ha-deprecation-check.yml` | `claude-sonnet-4-6` | Release-note scanning and issue creation |
 
-The workflow display names are `Codex`, `Codex Code Review`, and `Codex Diagnose Workflow Failure`, with filenames `ai-assistant.yml`, `ai-code-review.yml`, and `ai-diagnose-workflow-failure.yml`.
+The workflow display names are `AI Assistant`, `AI Code Review`, and `AI Diagnose Workflow Failure`, with filenames `ai-assistant.yml`, `ai-code-review.yml`, and `ai-diagnose-workflow-failure.yml`. Plumbing is tool-agnostic so the underlying CLI can be swapped without renaming anything.
 
 ### Why Devcontainers?
 
 1. **Consistent Environment**: Same tools and dependencies across all runs
 2. **Caching**: Devcontainer image is cached in GHCR for fast startup
-3. **Tool Access**: Codex runs with full access to git, gh CLI, make, go, etc.
+3. **Tool Access**: The AI assistant runs with full access to git, gh CLI, make, go, etc.
 
 ### Why Parallel Reviews?
 
@@ -749,13 +741,13 @@ The review jobs run in parallel (after context gathering and devcontainer build)
 ### Why Max 3 Fix Attempts?
 
 - Prevents infinite loops if the issue can't be fixed automatically
-- Leaves clear trail via labels (`codex-fix-attempt-1`, etc.)
+- Leaves clear trail via labels (`ai-fix-attempt-1`, etc.)
 - Human can review after 3 attempts
 
 ### Why Artifact Upload on `always()`?
 
 Conversation logs are uploaded even on failure to help debug:
-- What Codex tried
+- What the AI tried
 - Where it failed
 - Full context for investigation
 
@@ -781,10 +773,10 @@ Conversation logs are uploaded even on failure to help debug:
 5. Add to the summary comment in `all-reviews-passed`
 6. Document the new reviewer's focus area in this file
 
-### Modifying Codex Prompts
+### Modifying AI Prompts
 
 The prompts are embedded in the workflow YAML in the `runCmd` block. Key sections:
-- `YOUR TASK`: What Codex should do
+- `YOUR TASK`: What the AI assistant should do
 - `IMPORTANT RULES`: Repository-specific constraints
 - Post-task actions: How to report results
 
@@ -792,8 +784,8 @@ The prompts are embedded in the workflow YAML in the `runCmd` block. Key section
 
 ## Related Documentation
 
-- [CI_CD_SECURITY.md](./CI_CD_SECURITY.md) - **Security model for Codex-powered workflows** (authorization, threat model)
+- [CI_CD_SECURITY.md](./CI_CD_SECURITY.md) - **Security model for AI-powered workflows** (authorization, threat model)
 - [BRANCH_PROTECTION.md](./BRANCH_PROTECTION.md) - Branch protection setup
 - [DOCKER.md](./DOCKER.md) - Container image details
-- [../reference/SHADOW_STATE.md](../reference/SHADOW_STATE.md) - Pattern Codex reviews for
+- [../reference/SHADOW_STATE.md](../reference/SHADOW_STATE.md) - Pattern the AI assistant reviews for
 - [../reference/CONCURRENCY_LESSONS.md](../reference/CONCURRENCY_LESSONS.md) - Concurrency reviewer reference

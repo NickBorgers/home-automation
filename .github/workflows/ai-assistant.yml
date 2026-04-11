@@ -1,4 +1,4 @@
-name: Codex
+name: AI Assistant
 
 on:
   issue_comment:
@@ -12,29 +12,29 @@ on:
 
 concurrency:
   group: >-
-    codex-interactive-${{
+    ai-interactive-${{
       github.event_name == 'pull_request_review_comment' && github.event.pull_request.number ||
       github.event_name == 'pull_request_review' && github.event.pull_request.number ||
       github.event.issue.number
     }}
   cancel-in-progress: true
 
-# SECURITY NOTE: This workflow grants Codex access to secrets and write permissions.
+# SECURITY NOTE: This workflow grants the AI assistant access to secrets and write permissions.
 # Authorization checks are implemented to prevent prompt injection from untrusted users.
-# Only repository collaborators, members, and owners can trigger Codex.
+# Only repository collaborators, members, and owners can trigger the AI assistant.
 
 env:
   # Note: must be lowercase for Docker compatibility
   DEVCONTAINER_IMAGE: ghcr.io/nickborgers/home-automation-devcontainer
 
 jobs:
-  # Security gate: Check if the actor is authorized to trigger Codex
+  # Security gate: Check if the actor is authorized to trigger the AI assistant
   # This prevents prompt injection attacks from untrusted external users
   authorize:
     runs-on: ubuntu-latest
     outputs:
       authorized: ${{ steps.check-auth.outputs.authorized }}
-      should_run_codex: ${{ steps.check-auth.outputs.should_run_codex }}
+      should_run_ai: ${{ steps.check-auth.outputs.should_run_ai }}
     steps:
       - name: Check authorization
         id: check-auth
@@ -69,7 +69,7 @@ jobs:
             *)
               echo "Unknown event type: $EVENT_NAME"
               echo "authorized=false" >> $GITHUB_OUTPUT
-              echo "should_run_codex=false" >> $GITHUB_OUTPUT
+              echo "should_run_ai=false" >> $GITHUB_OUTPUT
               exit 0
               ;;
           esac
@@ -87,7 +87,7 @@ jobs:
               ;;
             *)
               echo "❌ Not authorized: $ACTOR is a $AUTHOR_ASSOC"
-              echo "External users cannot trigger Codex workflows."
+              echo "External users cannot trigger AI assistant workflows."
               echo "This is a security measure to prevent prompt injection attacks."
               echo "authorized=false" >> $GITHUB_OUTPUT
               SHOULD_RUN="false"
@@ -96,7 +96,7 @@ jobs:
 
           if [ "$SHOULD_RUN" = "true" ]; then
             if [ "$EVENT_NAME" = "pull_request_review" ] || [ "$EVENT_NAME" = "pull_request_review_comment" ] || [ "$EVENT_NAME" = "issue_comment" ]; then
-              AUTO_REVIEW_PATTERNS="## Code Review|## Design Review|## Test Review|## Concurrency Review|## Documentation Review|## Fix Attempt|## 🚦 Merge Decision|## 📋 Agent Review Summary|## Codex Code Review Skipped|## ❌ Automated Fix Failed"
+              AUTO_REVIEW_PATTERNS="## Code Review|## Design Review|## Test Review|## Concurrency Review|## Documentation Review|## Fix Attempt|## 🚦 Merge Decision|## 📋 Agent Review Summary|## AI Code Review Skipped|## ❌ Automated Fix Failed"
               case "$EVENT_NAME" in
                 pull_request_review)
                   BODY="$REVIEW_BODY"
@@ -109,10 +109,10 @@ jobs:
                   ;;
               esac
 
-              if [ -n "$BODY" ] && echo "$BODY" | grep -q "@codex"; then
+              if [ -n "$BODY" ] && echo "$BODY" | grep -q "@ai"; then
                 if echo "$BODY" | grep -Eq "$AUTO_REVIEW_PATTERNS"; then
-                  echo "🛑 Detected auto-generated Codex review comment containing '@codex' (matches known review headings)."
-                  echo "Skipping Codex run to prevent feedback loop."
+                  echo "🛑 Detected auto-generated AI review comment containing '@ai' (matches known review headings)."
+                  echo "Skipping AI run to prevent feedback loop."
                   SHOULD_RUN="false"
                 else
                   PLAIN_MENTION=$(env BODY="$BODY" python3 <<'PY'
@@ -126,7 +126,7 @@ INLINE_CODE_RE = re.compile(r"`[^`]*`")
 HTML_CODE_RE = re.compile(r"<code>.*?</code>", re.DOTALL | re.IGNORECASE)
 LINK_RE = re.compile(r"\[[^\]]*\]\([^)]+\)")
 HTML_LINK_RE = re.compile(r"<a\s[^>]*>.*?</a>", re.DOTALL | re.IGNORECASE)
-PLAIN_MENTION_RE = re.compile(r"(?<![\w@\[/`\"'])@codex(?![\w-])", re.IGNORECASE)
+PLAIN_MENTION_RE = re.compile(r"(?<![\w@\[/`\"'])@ai(?![\w-])", re.IGNORECASE)
 
 def strip_code(text: str) -> str:
     text = FENCED_CODE_RE.sub(" ", text)
@@ -145,15 +145,15 @@ PY
 )
 
                   if [ "$PLAIN_MENTION" != "true" ]; then
-                    echo "ℹ️ '@codex' mention found only inside code blocks, links, or structured text. Skipping Codex run."
+                    echo "ℹ️ '@ai' mention found only inside code blocks, links, or structured text. Skipping AI run."
                     SHOULD_RUN="false"
                   fi
                 fi
               else
                 if [ -n "$BODY" ]; then
-                  echo "ℹ️ No plain-text '@codex' mention found in comment/review body. Skipping Codex run."
+                  echo "ℹ️ No plain-text '@ai' mention found in comment/review body. Skipping AI run."
                 else
-                  echo "ℹ️ Empty comment/review body received. Skipping Codex run."
+                  echo "ℹ️ Empty comment/review body received. Skipping AI run."
                 fi
                 SHOULD_RUN="false"
               fi
@@ -193,7 +193,7 @@ INLINE_CODE_RE = re.compile(r"`[^`]*`")
 HTML_CODE_RE = re.compile(r"<code>.*?</code>", re.DOTALL | re.IGNORECASE)
 LINK_RE = re.compile(r"\[[^\]]*\]\([^\)]+\)")
 HTML_LINK_RE = re.compile(r"<a\s[^>]*>.*?</a>", re.DOTALL | re.IGNORECASE)
-PLAIN_MENTION_RE = re.compile(r"(?<![\w@\[/`\"'])@codex(?![\w-])", re.IGNORECASE)
+PLAIN_MENTION_RE = re.compile(r"(?<![\w@\[/`\"'])@ai(?![\w-])", re.IGNORECASE)
 
 
 def strip_code(text: str) -> str:
@@ -219,7 +219,7 @@ PY
 )
 
                 if [ "$ISSUE_HAS_PLAIN" != "true" ]; then
-                  echo "ℹ️ Issue title/body does not contain a plain-text '@codex' mention. Skipping Codex run."
+                  echo "ℹ️ Issue title/body does not contain a plain-text '@ai' mention. Skipping AI run."
                   SHOULD_RUN="false"
                 fi
               fi
@@ -238,7 +238,7 @@ INLINE_CODE_RE = re.compile(r"`[^`]*`")
 HTML_CODE_RE = re.compile(r"<code>.*?</code>", re.DOTALL | re.IGNORECASE)
 LINK_RE = re.compile(r"\[[^\]]*\]\([^)]+\)")
 HTML_LINK_RE = re.compile(r"<a\s[^>]*>.*?</a>", re.DOTALL | re.IGNORECASE)
-PLAIN_MENTION_RE = re.compile(r"(?<![\w@\[/`\"'])@codex(?![\w-])", re.IGNORECASE)
+PLAIN_MENTION_RE = re.compile(r"(?<![\w@\[/`\"'])@ai(?![\w-])", re.IGNORECASE)
 
 
 def strip_code(text: str) -> str:
@@ -264,13 +264,13 @@ PY
 )
 
               if [ "$PLAIN_ISSUE" != "true" ]; then
-                echo "ℹ️ '@codex' mention not found in plain text of issue title/body. Skipping Codex run."
+                echo "ℹ️ '@ai' mention not found in plain text of issue title/body. Skipping AI run."
                 SHOULD_RUN="false"
               fi
             fi
           fi
 
-          echo "should_run_codex=$SHOULD_RUN" >> $GITHUB_OUTPUT
+          echo "should_run_ai=$SHOULD_RUN" >> $GITHUB_OUTPUT
 
   # Build and cache devcontainer image first
   # Optimization: Skip build if .devcontainer/ files haven't changed
@@ -279,12 +279,12 @@ PY
     needs: authorize
     if: |
       needs.authorize.outputs.authorized == 'true' &&
-      needs.authorize.outputs.should_run_codex == 'true' &&
+      needs.authorize.outputs.should_run_ai == 'true' &&
       (
         (github.event_name == 'issues') ||
-        (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@codex')) ||
-        (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@codex')) ||
-        (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@codex'))
+        (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@ai')) ||
+        (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@ai')) ||
+        (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@ai'))
       )
     runs-on: [self-hosted, homelab]
     permissions:
@@ -357,15 +357,15 @@ PY
           cacheFrom: ${{ env.DEVCONTAINER_IMAGE }}
           push: always
 
-  codex:
+  ai:
     needs: [authorize, build-devcontainer]
     if: |
       needs.authorize.outputs.authorized == 'true' &&
-      needs.authorize.outputs.should_run_codex == 'true' &&
-      ((github.event_name == 'issue_comment' && contains(github.event.comment.body, '@codex')) ||
-      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@codex')) ||
-      (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@codex')) ||
-      (github.event_name == 'issues' && (contains(github.event.issue.body, '@codex') || contains(github.event.issue.title, '@codex'))))
+      needs.authorize.outputs.should_run_ai == 'true' &&
+      ((github.event_name == 'issue_comment' && contains(github.event.comment.body, '@ai')) ||
+      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@ai')) ||
+      (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@ai')) ||
+      (github.event_name == 'issues' && (contains(github.event.issue.body, '@ai') || contains(github.event.issue.title, '@ai'))))
     runs-on: [self-hosted, homelab]
     timeout-minutes: 60
     permissions:
@@ -425,14 +425,15 @@ PY
           password: ${{ secrets.GITHUB_TOKEN }}
 
       # Note: GH_TOKEN uses WORKFLOW_PAT because PRs created with GITHUB_TOKEN don't trigger workflows
-      - name: Run Codex in devcontainer
+      - name: Run AI assistant in devcontainer
         uses: devcontainers/ci@v0.3
         with:
           imageName: ${{ env.DEVCONTAINER_IMAGE }}
           cacheFrom: ${{ env.DEVCONTAINER_IMAGE }}
           push: never
           env: |
-            OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
+            ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY }}
+            ANTHROPIC_BASE_URL=https://llm.featherback-mermaid.ts.net/anthropic/
             GH_TOKEN=${{ secrets.WORKFLOW_PAT }}
             EVENT_NAME=${{ github.event_name }}
             COMMENT_ID=${{ github.event.comment.id }}
@@ -443,7 +444,7 @@ PY
             IS_PR=${{ steps.pr-context.outputs.is_pr }}
             PR_HEAD_REF=${{ steps.pr-context.outputs.pr_head_ref }}
           runCmd: |
-            source .devcontainer/configure-codex.sh
+            source .devcontainer/configure-ai.sh
 
             # Fetch comment/review/issue body via API to avoid Docker env escaping issues
             # Multi-line content with special characters breaks docker exec -e args
@@ -521,17 +522,14 @@ PY
             Reply to the user using: gh issue comment ${ISSUE_NUMBER} --body 'YOUR_RESPONSE'"
             fi
 
-            codex exec \
-              --json \
-              --dangerously-bypass-approvals-and-sandbox \
-              "$PROMPT" 2>&1 | tee /tmp/codex-conversation.jsonl
+            claude -p --dangerously-skip-permissions --permission-mode=bypassPermissions --model claude-sonnet-4-6 "$PROMPT" 2>&1 | tee /tmp/ai-conversation.jsonl
 
-      - name: Upload Codex conversation log
+      - name: Upload AI conversation log
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: codex-conversation-log
-          path: /tmp/codex-conversation.jsonl
+          name: ai-conversation-log
+          path: /tmp/ai-conversation.jsonl
           retention-days: 7
 
   # Auto-resolve new issues by opening a PR
@@ -539,7 +537,7 @@ PY
     needs: [authorize, build-devcontainer]
     if: |
       needs.authorize.outputs.authorized == 'true' &&
-      needs.authorize.outputs.should_run_codex == 'true' &&
+      needs.authorize.outputs.should_run_ai == 'true' &&
       github.event_name == 'issues' && (github.event.action == 'opened' || github.event.action == 'assigned')
     runs-on: [self-hosted, homelab]
     timeout-minutes: 120
@@ -557,14 +555,14 @@ PY
           fetch-depth: 0
           token: ${{ secrets.WORKFLOW_PAT }}  # PAT required to push workflow file changes
 
-      - name: Label issue as codex-started
+      - name: Label issue as ai-started
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           # Create the label if it doesn't exist (ignore error if it does)
-          gh label create "codex-started" --color "7057ff" --description "Codex is working on this issue" --repo ${{ github.repository }} 2>/dev/null || true
+          gh label create "ai-started" --color "7057ff" --description "AI assistant is working on this issue" --repo ${{ github.repository }} 2>/dev/null || true
           # Add the label to the issue
-          gh issue edit ${{ github.event.issue.number }} --add-label "codex-started" --repo ${{ github.repository }}
+          gh issue edit ${{ github.event.issue.number }} --add-label "ai-started" --repo ${{ github.repository }}
 
       - name: Log in to GHCR
         uses: docker/login-action@v3
@@ -574,20 +572,21 @@ PY
           password: ${{ secrets.GITHUB_TOKEN }}
 
       # Note: GH_TOKEN uses WORKFLOW_PAT because PRs created with GITHUB_TOKEN don't trigger workflows
-      - name: Resolve issue in Codex
+      - name: Resolve issue with AI assistant
         uses: devcontainers/ci@v0.3
         with:
           imageName: ${{ env.DEVCONTAINER_IMAGE }}
           cacheFrom: ${{ env.DEVCONTAINER_IMAGE }}
           push: never
           env: |
-            OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
+            ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY }}
+            ANTHROPIC_BASE_URL=https://llm.featherback-mermaid.ts.net/anthropic/
             GH_TOKEN=${{ secrets.WORKFLOW_PAT }}
             ISSUE_NUMBER=${{ github.event.issue.number }}
             ISSUE_TITLE=${{ github.event.issue.title }}
             REPO=${{ github.repository }}
           runCmd: |
-            source .devcontainer/configure-codex.sh
+            source .devcontainer/configure-ai.sh
 
             # Fetch issue body via API to avoid multi-line env var escaping issues
             # (see https://github.com/NickBorgers/home-automation/issues/441)
@@ -596,10 +595,7 @@ PY
             # Fetch all comments on the issue (may contain additional context/requirements)
             ISSUE_COMMENTS=$(gh api "repos/${REPO}/issues/${ISSUE_NUMBER}/comments" --jq '.[] | "---\n**\(.user.login)** commented at \(.created_at):\n\(.body)\n"' 2>/dev/null | head -c 50000 || echo "")
 
-            codex exec \
-              --json \
-              --dangerously-bypass-approvals-and-sandbox \
-              "You are an autonomous agent tasked with resolving GitHub issue #${ISSUE_NUMBER}.
+            claude -p --dangerously-skip-permissions --permission-mode=bypassPermissions --model claude-sonnet-4-6 "You are an autonomous agent tasked with resolving GitHub issue #${ISSUE_NUMBER}.
 
             ISSUE TITLE: ${ISSUE_TITLE}
 
@@ -643,7 +639,7 @@ PY
             8. For any new test helpers with shared state: verify mutex protection.
             9. Verify new tests exercise the CURRENT production code path, not a legacy path.
 
-            BRANCH NAMING: Use \`codex/issue-${ISSUE_NUMBER}\` as the branch name.
+            BRANCH NAMING: Use \`ai/issue-${ISSUE_NUMBER}\` as the branch name.
 
             PR CREATION:
             gh pr create --title 'Fix #${ISSUE_NUMBER}: <brief description>' \\
@@ -655,8 +651,8 @@ PY
             ## Test Plan
             <how to verify the fix>
 
-            🤖 Generated with Codex' \\
-              --head codex/issue-${ISSUE_NUMBER}
+            🤖 Generated by the AI assistant' \\
+              --head ai/issue-${ISSUE_NUMBER}
 
             If you cannot resolve the issue (unclear requirements, needs human decision, etc.),
             comment on the issue explaining what clarification is needed:

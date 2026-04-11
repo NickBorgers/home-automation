@@ -569,6 +569,7 @@ Use Playwright to capture screenshots for PR documentation or visual regression 
 ```bash
 make dev-ui
 # Ask Codex to capture a screenshot with Playwright
+# (any AI CLI — Claude Code, Codex, etc. — can drive this)
 ```
 
 **Manual Method (requires Node.js):**

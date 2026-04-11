@@ -66,7 +66,7 @@ The devcontainer automatically:
 - Installs Go 1.25 and all required dependencies
 - Sets up Go modules (`go mod tidy && go mod download`)
 - Installs git hooks (pre-commit and pre-push validation)
-- Installs GitHub CLI, Codex CLI, and Playwright (with Chromium)
+- Installs GitHub CLI, Claude Code CLI, and Playwright (with Chromium)
 - Configures VS Code extensions for Go and Mermaid
 - Imports your host GitHub CLI token and Claude Code credentials into the container so long as you are logged in locally before opening the devcontainer (you will see warnings during startup if host credentials are missing)
 
@@ -90,13 +90,10 @@ cd ..
 # 2. Install git hooks (IMPORTANT: ensures code quality)
 bash .githooks/install-hooks.sh
 
-# 3. (Optional) Install Codex CLI
-curl -fsSL https://github.com/openai/codex/releases/latest/download/install.sh | sh
-
-# 4. (Optional) Install Claude Code CLI
+# 3. (Optional) Install Claude Code CLI
 curl -fsSL https://claude.ai/install.sh | bash
 
-# 5. (Optional) For Playwright/screenshot testing, see AGENTS.md "Testing UI Changes" section
+# 4. (Optional) For Playwright/screenshot testing, see AGENTS.md "Testing UI Changes" section
 ```
 
 ### Quick Start
@@ -153,7 +150,7 @@ All pull requests go through a two-phase review process before merge:
 - Coverage check (≥65%)
 - Docker build validation
 
-### 2. AI-Powered Code Review (Codex Code Review)
+### 2. AI-Powered Code Review (AI Code Review)
 After tests pass, a multi-agent AI review pipeline automatically runs:
 
 | Agent | Focus |
@@ -167,7 +164,7 @@ After tests pass, a multi-agent AI review pipeline automatically runs:
 
 **Important notes:**
 - AI reviewers may push commits directly to your PR branch (fixes, doc updates)
-- If tests fail, Codex will attempt to fix them (up to 3 times) and push fixes to your branch
+- If tests fail, the AI assistant will attempt to fix them (up to 3 times) and push fixes to your branch
 - Reviews are skipped for PRs from forks (security measure) - maintainers will review manually
 - To re-run reviews after they pass, close and reopen the PR
 
