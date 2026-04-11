@@ -93,10 +93,17 @@ runs:
         printf '%s\n' "$ENV_INPUT" \
           | grep -Ev '^\s*(#|$)' \
           > "$ENV_FILE" || true
+        # --env-file is read client-side by `docker` on the runner, so it
+        # only needs to be readable by the runner user.
         chmod 600 "$ENV_FILE"
-        # The pre-script goes in verbatim (or empty).
+        # The pre-script goes in verbatim (or empty). It's mounted into the
+        # container and sourced as UID 1000 (`ci` user) — but created here
+        # by the runner user (typically UID 1001). Mode 644 lets the `ci`
+        # user read it despite the uid mismatch. Safe: the content is
+        # generated from workflow YAML and contains no secrets (credentials
+        # come in via `--env-file`, not the pre-script body).
         printf '%s\n' "$PRE_SCRIPT_INPUT" > "$PRE_SCRIPT_FILE"
-        chmod 600 "$PRE_SCRIPT_FILE"
+        chmod 644 "$PRE_SCRIPT_FILE"
         echo "env_file=$ENV_FILE" >> "$GITHUB_OUTPUT"
         echo "pre_script_file=$PRE_SCRIPT_FILE" >> "$GITHUB_OUTPUT"
 
