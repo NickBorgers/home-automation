@@ -55,7 +55,7 @@ Key security measures:
 | Workflow | File | Trigger | Purpose |
 |----------|------|---------|---------|
 | AI Assistant | `ai-assistant.yml` | New issues, ai-started label removal, `/autoresolve` comments | Auto-resolve issues, respond to comments |
-| AI Code Review | `ai-code-review.yml` | PR Tests completion, PR reopened | Multi-agent code review, fix failures, merge decision |
+| AI Code Review | `ai-code-review.yml` | PR Tests completion, PR reopened, `/review` comment | Multi-agent code review, fix failures, merge decision |
 | PR Tests | `pr-tests.yml` | PRs, pushes to all branches | Run tests, trigger review pipeline |
 | AI Diagnose Workflow Failure | `ai-diagnose-workflow-failure.yml` | Any workflow failure | Diagnose Actions config problems (not test failures) |
 | HA Deprecation Check | `ha-deprecation-check.yml` | Monthly schedule, manual dispatch | Scan HA release notes for deprecated APIs, create issues |
@@ -169,6 +169,18 @@ A sophisticated multi-agent review system that runs after PR tests complete.
 - **workflow_run**: When "PR Tests" workflow completes
 - **pull_request**: When a PR is reopened (resets reviews to allow re-review)
 - **workflow_dispatch**: Manual trigger with PR details
+- **issue_comment**: When a PR comment contains a plain-text `/review` token (collaborators/owners/members only)
+
+#### The `/review` command
+
+Posting `/review` as plain text in any PR comment re-triggers the full review cycle. This is useful when you want to force a re-review after making changes without reopening the PR, or when the automatic review was skipped.
+
+Security checks applied before the command takes effect:
+- The comment must be on a **PR**, not a plain issue (checked via `pull_request.url` field)
+- The `/review` token must appear as **plain text** — not inside a fenced code block, inline code, or HTML `<code>` tag (enforced by `has_plain_token.py`)
+- The comment author must be a repository **OWNER**, **MEMBER**, or **COLLABORATOR**
+
+When all checks pass, the `agent-reviews-passed` label is removed so the full review cycle runs again.
 
 ### Concurrency Control
 
@@ -251,7 +263,7 @@ To avoid redundant reviews on every push, the workflow uses an `agent-reviews-pa
 
 1. After all reviews complete successfully, the label is added to the PR
 2. Subsequent pushes detect the label and skip the full review cycle
-3. When a PR is **reopened**, the label is removed to allow re-review
+3. When a PR is **reopened** or the **/review command** is used, the label is removed to allow re-review
 
 This prevents review agents from running repeatedly on the same PR while still allowing re-reviews when needed.
 

@@ -5,6 +5,7 @@ name: AI Code Review
 run-name: >-
   ${{ github.event_name == 'workflow_dispatch' && format('AI Code Review (PR #{0})', inputs.pr_number) ||
       github.event_name == 'pull_request' && format('AI Code Review (PR #{0})', github.event.pull_request.number) ||
+      github.event_name == 'issue_comment' && format('AI Code Review (PR #{0} /review)', github.event.issue.number) ||
       format('AI Code Review ({0})', github.event.workflow_run.head_branch) }}
 
 # SECURITY NOTE: This workflow grants the AI assistant access to secrets and write permissions.
@@ -44,12 +45,15 @@ on:
         description: 'PR Tests workflow run ID'
         required: true
         type: string
+  # Allow re-triggering reviews via /review comment on PR
+  issue_comment:
+    types: [created]
 
 # Prevent duplicate reviews when multiple PR Tests complete around the same time
 # Uses branch name for concurrency group
 # cancel-in-progress: false ensures we complete the first review rather than restarting
 concurrency:
-  group: ai-review-${{ github.event_name == 'workflow_dispatch' && inputs.head_ref || github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.event.workflow_run.head_branch }}
+  group: ai-review-${{ github.event_name == 'workflow_dispatch' && inputs.head_ref || github.event_name == 'issue_comment' && format('pr-{0}', github.event.issue.number) || github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.event.workflow_run.head_branch }}
   cancel-in-progress: false
 
 env:
@@ -60,9 +64,12 @@ jobs:
   # Extract PR and Issue context from workflow_run or workflow_dispatch event
   get-context:
     runs-on: ubuntu-latest
-    # Note: We don't filter by event type here. The concurrency group (line 36) prevents
-    # duplicate runs for the same branch, and downstream jobs skip if no PR is found.
-    # This allows reviews to run even when push happens before PR creation.
+    # For issue_comment events, skip the job entirely unless the comment contains /review.
+    # This avoids running checkout, API calls, and JS steps for every bot/human comment.
+    if: github.event_name != 'issue_comment' || contains(github.event.comment.body, '/review')
+    # Note: For non-issue_comment events, we don't filter by event type here. The concurrency
+    # group (line 36) prevents duplicate runs for the same branch, and downstream jobs skip
+    # if no PR is found. This allows reviews to run even when push happens before PR creation.
     outputs:
       pr_number: ${{ steps.get-pr.outputs.pr_number }}
       pr_title: ${{ steps.get-pr.outputs.pr_title }}
@@ -71,14 +78,15 @@ jobs:
       head_repo: ${{ steps.get-pr.outputs.head_repo }}
       # Draft PR status - used to skip auto-fix pipeline for TDD workflows
       is_draft: ${{ steps.get-pr.outputs.is_draft }}
-      # Handle workflow_run, workflow_dispatch, and pull_request events
+      # Handle workflow_run, workflow_dispatch, pull_request, and issue_comment events
       # For pull_request (reopen), tests haven't run yet so tests_passed is false
+      # For issue_comment (/review), test status is looked up from check runs API
       # Defense-in-depth: also check the latest "All Required Tests" check run status
       # to guard against duplicate PR Tests runs where one passes and one fails
-      tests_passed: ${{ github.event_name == 'workflow_dispatch' && inputs.tests_passed == 'true' || github.event_name == 'pull_request' && 'false' || (github.event.workflow_run.conclusion == 'success' && steps.verify-test-status.outputs.verified != 'false') }}
-      run_id: ${{ github.event_name == 'workflow_dispatch' && inputs.run_id || github.event_name == 'pull_request' && github.run_id || github.event.workflow_run.id }}
+      tests_passed: ${{ github.event_name == 'issue_comment' && steps.review-command.outputs.tests_passed == 'true' || github.event_name == 'workflow_dispatch' && inputs.tests_passed == 'true' || github.event_name == 'pull_request' && 'false' || (github.event.workflow_run.conclusion == 'success' && steps.verify-test-status.outputs.verified != 'false') }}
+      run_id: ${{ github.event_name == 'issue_comment' && steps.review-command.outputs.run_id || github.event_name == 'workflow_dispatch' && inputs.run_id || github.event_name == 'pull_request' && github.run_id || github.event.workflow_run.id }}
       # SHA that triggered this workflow - used to detect if author pushed newer commits
-      triggering_sha: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.event.workflow_run.head_sha }}
+      triggering_sha: ${{ github.event_name == 'issue_comment' && steps.review-command.outputs.head_sha || github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.event.workflow_run.head_sha }}
       issue_number: ${{ steps.get-issue.outputs.issue_number }}
       issue_title: ${{ steps.get-issue.outputs.issue_title }}
       issue_body_b64: ${{ steps.get-issue.outputs.issue_body_b64 }}
@@ -94,6 +102,83 @@ jobs:
       cross_pr_context_b64: ${{ steps.generate-cross-pr-context.outputs.cross_pr_context_b64 }}
 
     steps:
+      # Checkout needed for /review validation (has_plain_token.py)
+      - name: Checkout for /review validation
+        if: github.event_name == 'issue_comment'
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/scripts
+          fetch-depth: 1
+
+      # Validate /review comment: must be on a PR, plain text, from a collaborator
+      - name: Validate /review command
+        if: github.event_name == 'issue_comment'
+        id: review-command
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COMMENT_BODY: ${{ github.event.comment.body || '' }}
+        run: |
+          # Must be a PR comment, not a plain issue comment
+          if [ -z "${{ github.event.issue.pull_request.url }}" ]; then
+            echo "Comment is on an issue, not a PR - skipping"
+            echo "valid=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # Validate /review is plain text (not in code blocks)
+          PLAIN=$(printf %s "$COMMENT_BODY" | python3 .github/scripts/has_plain_token.py "/review")
+          if [ "$PLAIN" != "true" ]; then
+            echo "No plain-text /review found in comment body - skipping"
+            echo "valid=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # Check comment author association
+          AUTHOR_ASSOC="${{ github.event.comment.author_association }}"
+          case "$AUTHOR_ASSOC" in
+            OWNER|MEMBER|COLLABORATOR)
+              echo "✅ Authorized: comment author is a $AUTHOR_ASSOC"
+              ;;
+            *)
+              echo "❌ Not authorized: comment author is a $AUTHOR_ASSOC"
+              echo "valid=false" >> $GITHUB_OUTPUT
+              exit 0
+              ;;
+          esac
+
+          # Fetch PR details
+          PR_NUMBER="${{ github.event.issue.number }}"
+          PR_JSON=$(gh api repos/${{ github.repository }}/pulls/$PR_NUMBER)
+
+          HEAD_REF=$(echo "$PR_JSON" | jq -r '.head.ref')
+          HEAD_REPO=$(echo "$PR_JSON" | jq -r '.head.repo.full_name')
+          IS_DRAFT=$(echo "$PR_JSON" | jq -r '.draft')
+          HEAD_SHA=$(echo "$PR_JSON" | jq -r '.head.sha')
+
+          echo "PR #$PR_NUMBER: head=$HEAD_REF repo=$HEAD_REPO draft=$IS_DRAFT sha=$HEAD_SHA"
+
+          # Look up test status via check runs API
+          STATUS=$(gh api repos/${{ github.repository }}/commits/$HEAD_SHA/check-runs \
+            --jq '[.check_runs[] | select(.name == "All Required Tests")] | sort_by(.completed_at) | last | .conclusion' 2>/dev/null || echo "")
+          TESTS_PASSED="false"
+          if [ "$STATUS" = "success" ]; then
+            TESTS_PASSED="true"
+          fi
+          echo "Tests passed: $TESTS_PASSED (status: ${STATUS:-not found})"
+
+          # Look up latest PR Tests run_id
+          RUN_ID=$(gh run list --workflow="pr-tests.yml" --branch="$HEAD_REF" --limit=1 --json databaseId --jq '.[0].databaseId' 2>/dev/null || echo "")
+          echo "PR Tests run_id: $RUN_ID"
+
+          echo "valid=true" >> $GITHUB_OUTPUT
+          echo "pr_number=$PR_NUMBER" >> $GITHUB_OUTPUT
+          echo "head_ref=$HEAD_REF" >> $GITHUB_OUTPUT
+          echo "head_repo=$HEAD_REPO" >> $GITHUB_OUTPUT
+          echo "is_draft=$([ \"$IS_DRAFT\" = 'true' ] && echo 'true' || echo 'false')" >> $GITHUB_OUTPUT
+          echo "tests_passed=$TESTS_PASSED" >> $GITHUB_OUTPUT
+          echo "run_id=$RUN_ID" >> $GITHUB_OUTPUT
+          echo "head_sha=$HEAD_SHA" >> $GITHUB_OUTPUT
+
       # Defense-in-depth: quick check of the latest "All Required Tests" status
       # Guards against duplicate PR Tests runs where one passes and one fails
       # This is a non-retrying check; per-reviewer verify-tests steps provide the second layer
@@ -131,7 +216,20 @@ jobs:
             const eventName = context.eventName;
             let headBranch, headRepo, prNumber;
 
-            if (eventName === 'workflow_dispatch') {
+            if (eventName === 'issue_comment') {
+              // Use outputs from /review validation step
+              const valid = '${{ steps.review-command.outputs.valid }}';
+              if (valid !== 'true') {
+                console.log('issue_comment event but /review validation failed - no PR');
+                core.setOutput('pr_number', '');
+                core.setOutput('is_draft', 'false');
+                return;
+              }
+              prNumber = parseInt('${{ steps.review-command.outputs.pr_number }}', 10);
+              headBranch = '${{ steps.review-command.outputs.head_ref }}';
+              headRepo = '${{ steps.review-command.outputs.head_repo }}';
+              console.log(`Triggered via /review comment for PR #${prNumber}`);
+            } else if (eventName === 'workflow_dispatch') {
               // Use inputs from workflow_dispatch
               headBranch = '${{ inputs.head_ref }}';
               headRepo = '${{ inputs.head_repo }}';
@@ -254,9 +352,16 @@ jobs:
           PR_NUMBER="${{ steps.get-pr.outputs.pr_number }}"
           EVENT_NAME="${{ github.event_name }}"
 
-          # If PR was reopened, remove the reviews-passed label to allow re-review
+          # If PR was reopened or /review command used, remove the reviews-passed label to allow re-review
           if [ "$EVENT_NAME" = "pull_request" ] && [ "${{ github.event.action }}" = "reopened" ]; then
             echo "PR was reopened - removing agent-reviews-passed label to allow re-review"
+            gh pr edit $PR_NUMBER --remove-label "agent-reviews-passed" --repo ${{ github.repository }} 2>/dev/null || true
+            echo "already_passed=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          if [ "$EVENT_NAME" = "issue_comment" ]; then
+            echo "/review command used - removing agent-reviews-passed label to allow re-review"
             gh pr edit $PR_NUMBER --remove-label "agent-reviews-passed" --repo ${{ github.repository }} 2>/dev/null || true
             echo "already_passed=false" >> $GITHUB_OUTPUT
             exit 0
