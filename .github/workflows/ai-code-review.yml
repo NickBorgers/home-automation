@@ -64,9 +64,12 @@ jobs:
   # Extract PR and Issue context from workflow_run or workflow_dispatch event
   get-context:
     runs-on: ubuntu-latest
-    # Note: We don't filter by event type here. The concurrency group (line 36) prevents
-    # duplicate runs for the same branch, and downstream jobs skip if no PR is found.
-    # This allows reviews to run even when push happens before PR creation.
+    # For issue_comment events, skip the job entirely unless the comment contains /review.
+    # This avoids running checkout, API calls, and JS steps for every bot/human comment.
+    if: github.event_name != 'issue_comment' || contains(github.event.comment.body, '/review')
+    # Note: For non-issue_comment events, we don't filter by event type here. The concurrency
+    # group (line 36) prevents duplicate runs for the same branch, and downstream jobs skip
+    # if no PR is found. This allows reviews to run even when push happens before PR creation.
     outputs:
       pr_number: ${{ steps.get-pr.outputs.pr_number }}
       pr_title: ${{ steps.get-pr.outputs.pr_title }}
@@ -116,7 +119,7 @@ jobs:
           COMMENT_BODY: ${{ github.event.comment.body || '' }}
         run: |
           # Must be a PR comment, not a plain issue comment
-          if [ -z "${{ github.event.issue.pull_request }}" ]; then
+          if [ -z "${{ github.event.issue.pull_request.url }}" ]; then
             echo "Comment is on an issue, not a PR - skipping"
             echo "valid=false" >> $GITHUB_OUTPUT
             exit 0
@@ -164,7 +167,7 @@ jobs:
           echo "Tests passed: $TESTS_PASSED (status: ${STATUS:-not found})"
 
           # Look up latest PR Tests run_id
-          RUN_ID=$(gh run list --workflow="pr-tests.yml" --branch="$HEAD_REF" --limit=1 --json databaseId --jq '.[0].databaseId' 2>/dev/null || echo "${{ github.run_id }}")
+          RUN_ID=$(gh run list --workflow="pr-tests.yml" --branch="$HEAD_REF" --limit=1 --json databaseId --jq '.[0].databaseId' 2>/dev/null || echo "")
           echo "PR Tests run_id: $RUN_ID"
 
           echo "valid=true" >> $GITHUB_OUTPUT
