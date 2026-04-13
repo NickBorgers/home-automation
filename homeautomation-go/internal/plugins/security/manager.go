@@ -31,6 +31,10 @@ const (
 
 	// VehicleArrivalRateLimit is the minimum time between vehicle arrival notifications
 	VehicleArrivalRateLimit = 20 * time.Second
+
+	// ArrivalLockdownGracePeriod suppresses lockdown activation for this duration after an owner
+	// arrives home, guarding against spurious presence-sensor flaps that briefly show no one home.
+	ArrivalLockdownGracePeriod = 5 * time.Minute
 )
 
 // Manager handles security-related automation
@@ -49,6 +53,7 @@ type Manager struct {
 	// Rate limiting for notifications
 	lastDoorbellNotification       time.Time
 	lastVehicleArrivalNotification time.Time
+	lastOwnerArrivalTime           time.Time
 	mu                             sync.Mutex
 }
 
@@ -152,10 +157,25 @@ func (m *Manager) handleAnyoneHomeChange(key string, oldValue, newValue interfac
 		return
 	}
 
-	if !anyoneHome {
-		m.logger.Info("No one is home, activating lockdown")
-		m.activateLockdown("No one is home", key)
+	if anyoneHome {
+		// Record arrival time to support the grace period guard below.
+		m.mu.Lock()
+		m.lastOwnerArrivalTime = m.clock.Now()
+		m.mu.Unlock()
+		return
 	}
+
+	m.mu.Lock()
+	withinGrace := !m.lastOwnerArrivalTime.IsZero() && m.clock.Since(m.lastOwnerArrivalTime) < ArrivalLockdownGracePeriod
+	m.mu.Unlock()
+
+	if withinGrace {
+		m.logger.Info("No one is home, but within arrival grace period — suppressing lockdown")
+		return
+	}
+
+	m.logger.Info("No one is home, activating lockdown")
+	m.activateLockdown("No one is home", key)
 }
 
 // activateLockdown turns on the lockdown input_boolean
@@ -494,8 +514,16 @@ func (m *Manager) Reset() error {
 	if err != nil {
 		m.logger.Error("Failed to get isAnyoneHome", zap.Error(err))
 	} else if !isAnyoneHome {
-		m.logger.Info("No one is home, re-activating lockdown")
-		m.activateLockdown("No one is home (reset)", "reset")
+		m.mu.Lock()
+		withinGrace := !m.lastOwnerArrivalTime.IsZero() && m.clock.Since(m.lastOwnerArrivalTime) < ArrivalLockdownGracePeriod
+		m.mu.Unlock()
+
+		if withinGrace {
+			m.logger.Info("No one is home, but within arrival grace period — suppressing lockdown during reset")
+		} else {
+			m.logger.Info("No one is home, re-activating lockdown")
+			m.activateLockdown("No one is home (reset)", "reset")
+		}
 	}
 
 	m.logger.Info("Successfully reset Security")

@@ -765,3 +765,151 @@ func TestSecurityManager_ReadOnlyModeVehicleArrival(t *testing.T) {
 		}
 	}
 }
+
+// TestSecurityManager_ArrivalGracePeriod_SuppressesLockdown tests that a presence sensor flap
+// within ArrivalLockdownGracePeriod after an owner arrives does NOT trigger lockdown.
+func TestSecurityManager_ArrivalGracePeriod_SuppressesLockdown(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	mockHA.Connect()
+
+	logger := zap.NewNop()
+	stateManager := state.NewManager(mockHA, logger, false)
+	stateManager.SyncFromHA()
+
+	securityManager := NewManager(context.Background(), mockHA, stateManager, logger, false, nil)
+	mockClock := clock.NewMockClock(time.Now())
+	securityManager.SetClock(mockClock)
+
+	if err := securityManager.Start(); err != nil {
+		t.Fatalf("Failed to start security manager: %v", err)
+	}
+
+	// GIVEN: Owner arrives home (records lastOwnerArrivalTime)
+	if err := stateManager.SetBool("isAnyoneHome", true); err != nil {
+		t.Fatalf("Failed to set isAnyoneHome true: %v", err)
+	}
+	time.Sleep(50 * time.Millisecond)
+
+	snapshot := mockHA.ServiceCallCount()
+
+	// WHEN: Presence sensor briefly flaps false within the grace period (no clock advance)
+	if err := stateManager.SetBool("isAnyoneHome", false); err != nil {
+		t.Fatalf("Failed to set isAnyoneHome false: %v", err)
+	}
+	time.Sleep(100 * time.Millisecond)
+
+	// THEN: No lockdown activated
+	calls := mockHA.GetServiceCallsSince(snapshot)
+	for _, call := range calls {
+		if call.Domain == "input_boolean" {
+			if entityID, ok := call.Data["entity_id"].(string); ok && entityID == "input_boolean.lockdown" {
+				t.Errorf("Expected no lockdown during arrival grace period, but got: %s.%s", call.Domain, call.Service)
+			}
+		}
+	}
+}
+
+// TestSecurityManager_ArrivalGracePeriod_AllowsLockdownAfterExpiry tests that after the grace
+// period expires, a no-one-home transition still triggers lockdown normally.
+func TestSecurityManager_ArrivalGracePeriod_AllowsLockdownAfterExpiry(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	mockHA.Connect()
+
+	logger := zap.NewNop()
+	stateManager := state.NewManager(mockHA, logger, false)
+	stateManager.SyncFromHA()
+
+	securityManager := NewManager(context.Background(), mockHA, stateManager, logger, false, nil)
+	mockClock := clock.NewMockClock(time.Now())
+	securityManager.SetClock(mockClock)
+
+	if err := securityManager.Start(); err != nil {
+		t.Fatalf("Failed to start security manager: %v", err)
+	}
+
+	// GIVEN: Owner arrives home
+	if err := stateManager.SetBool("isAnyoneHome", true); err != nil {
+		t.Fatalf("Failed to set isAnyoneHome true: %v", err)
+	}
+	time.Sleep(50 * time.Millisecond)
+
+	// Advance clock past the grace period
+	mockClock.Advance(ArrivalLockdownGracePeriod + time.Second)
+
+	snapshot := mockHA.ServiceCallCount()
+
+	// WHEN: No one is home after grace period has expired
+	if err := stateManager.SetBool("isAnyoneHome", false); err != nil {
+		t.Fatalf("Failed to set isAnyoneHome false: %v", err)
+	}
+	time.Sleep(100 * time.Millisecond)
+
+	// THEN: Lockdown IS activated
+	calls := mockHA.GetServiceCallsSince(snapshot)
+	turnOffFound := false
+	for _, call := range calls {
+		if call.Domain == "input_boolean" && call.Service == "turn_off" {
+			if entityID, ok := call.Data["entity_id"].(string); ok && entityID == "input_boolean.lockdown" {
+				turnOffFound = true
+			}
+		}
+	}
+	if !turnOffFound {
+		t.Errorf("Expected lockdown to be activated after grace period expired, but no lockdown service call was made")
+	}
+}
+
+// TestSecurityManager_Reset_ArrivalGracePeriod_SuppressesLockdown tests that Reset() does not
+// bypass ArrivalLockdownGracePeriod when called during the grace window.
+func TestSecurityManager_Reset_ArrivalGracePeriod_SuppressesLockdown(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	mockHA.Connect()
+
+	logger := zap.NewNop()
+	stateManager := state.NewManager(mockHA, logger, false)
+	stateManager.SyncFromHA()
+
+	securityManager := NewManager(context.Background(), mockHA, stateManager, logger, false, nil)
+	mockClock := clock.NewMockClock(time.Now())
+	securityManager.SetClock(mockClock)
+
+	if err := securityManager.Start(); err != nil {
+		t.Fatalf("Failed to start security manager: %v", err)
+	}
+
+	// GIVEN: Owner arrives, then presence flaps to false (within grace period)
+	if err := stateManager.SetBool("isAnyoneHome", true); err != nil {
+		t.Fatalf("Failed to set isAnyoneHome true: %v", err)
+	}
+	time.Sleep(50 * time.Millisecond)
+
+	if err := stateManager.SetBool("isAnyoneHome", false); err != nil {
+		t.Fatalf("Failed to set isAnyoneHome false: %v", err)
+	}
+	time.Sleep(50 * time.Millisecond)
+
+	// isAnyoneHome is now false in stateManager; clock has not advanced past grace period
+	snapshot := mockHA.ServiceCallCount()
+
+	// WHEN: A manual Reset() is triggered during the grace window
+	if err := securityManager.Reset(); err != nil {
+		t.Fatalf("Reset() returned error: %v", err)
+	}
+	time.Sleep(100 * time.Millisecond)
+
+	// THEN: Reset() must NOT activate lockdown (grace period applies)
+	calls := mockHA.GetServiceCallsSince(snapshot)
+	for _, call := range calls {
+		if call.Domain == "input_boolean" {
+			if entityID, ok := call.Data["entity_id"].(string); ok && entityID == "input_boolean.lockdown" {
+				t.Errorf("Reset() bypassed arrival grace period and activated lockdown: %s.%s", call.Domain, call.Service)
+			}
+		}
+	}
+}
