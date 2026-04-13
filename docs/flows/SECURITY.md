@@ -21,6 +21,11 @@ flowchart TD
         everyoneAsleep["isEveryoneAsleep = true"]
     end
 
+    subgraph GraceCheck["Arrival Grace Period (issue #991)"]
+        checkGrace{"Owner arrived within\nArrivalLockdownGracePeriod?"}
+        suppress["Suppress lockdown\n(log and return)"]
+    end
+
     subgraph Sequence["Activation Sequence"]
         turnOff["Turn lockdown OFF"]
         wait["Wait 30 seconds"]
@@ -33,7 +38,9 @@ flowchart TD
         reset["Turn lockdown OFF"]
     end
 
-    noOneHome --> turnOff
+    noOneHome --> checkGrace
+    checkGrace -->|Yes| suppress
+    checkGrace -->|No| turnOff
     everyoneAsleep --> turnOff
     turnOff --> wait
     wait --> turnOn
@@ -195,6 +202,7 @@ flowchart TD
 |----------|----------|---------|
 | Lockdown clear delay | 30 seconds | Time to wait before re-activating lockdown |
 | Lockdown reset delay | 5 seconds | Time before auto-resetting lockdown |
+| `ArrivalLockdownGracePeriod` | 5 minutes | Suppress "no one home" lockdown after recent owner arrival |
 | Doorbell rate limit | 20 seconds | Minimum time between doorbell notifications |
 | Doorbell flash delay | 2 seconds | Delay between light flashes |
 | Vehicle rate limit | 20 seconds | Minimum time between vehicle notifications |
