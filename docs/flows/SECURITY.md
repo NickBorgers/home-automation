@@ -12,13 +12,18 @@ The security plugin provides:
 
 ## Lockdown Activation
 
-Lockdown mode activates when no one is home or everyone is asleep:
+Lockdown mode activates when no one is home or everyone is asleep. Exception: an `isAnyoneHome = false` transition is suppressed for 5 minutes after an owner arrives home (`ArrivalLockdownGracePeriod`), guarding against spurious presence-sensor flaps.
 
 ```mermaid
 flowchart TD
     subgraph Triggers["Lockdown Triggers"]
         noOneHome["isAnyoneHome = false"]
         everyoneAsleep["isEveryoneAsleep = true"]
+    end
+
+    subgraph GraceCheck["Arrival Grace Period"]
+        graceCheck{"Within 5-min\narrival grace?"}
+        suppress["Suppress lockdown"]
     end
 
     subgraph Sequence["Activation Sequence"]
@@ -33,7 +38,9 @@ flowchart TD
         reset["Turn lockdown OFF"]
     end
 
-    noOneHome --> turnOff
+    noOneHome --> graceCheck
+    graceCheck -- Yes --> suppress
+    graceCheck -- No --> turnOff
     everyoneAsleep --> turnOff
     turnOff --> wait
     wait --> turnOn
@@ -44,6 +51,7 @@ flowchart TD
 
     style turnOn fill:#e74c3c,color:#fff
     style reset fill:#27ae60,color:#fff
+    style suppress fill:#95a5a6,color:#fff
 ```
 
 ### Why Turn Off First?
@@ -193,6 +201,7 @@ flowchart TD
 
 | Constant | Duration | Purpose |
 |----------|----------|---------|
+| `ArrivalLockdownGracePeriod` | 5 minutes | Suppresses lockdown after owner arrival to guard against presence-sensor flaps |
 | Lockdown clear delay | 30 seconds | Time to wait before re-activating lockdown |
 | Lockdown reset delay | 5 seconds | Time before auto-resetting lockdown |
 | Doorbell rate limit | 20 seconds | Minimum time between doorbell notifications |

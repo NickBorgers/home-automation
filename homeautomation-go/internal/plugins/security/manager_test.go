@@ -848,7 +848,10 @@ func TestSecurityManager_ArrivalGracePeriod_AllowsLockdownAfterExpiry(t *testing
 	}
 	time.Sleep(100 * time.Millisecond)
 
-	// THEN: Lockdown IS activated
+	// THEN: Lockdown IS activated.
+	// We look for turn_off (the first step in activateLockdown's goroutine) within 100ms.
+	// activateLockdown calls turn_off synchronously before sleeping 30s, so this reliably
+	// completes within the 100ms window without any flakiness.
 	calls := mockHA.GetServiceCallsSince(snapshot)
 	turnOffFound := false
 	for _, call := range calls {

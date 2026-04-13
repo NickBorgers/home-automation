@@ -520,6 +520,9 @@ func (m *Manager) Reset() error {
 
 		if withinGrace {
 			m.logger.Info("No one is home, but within arrival grace period — suppressing lockdown during reset")
+			// lastOwnerArrivalTime is intentionally not cleared here: if Reset() is called
+			// while the grace period is active (e.g. during a re-subscribe reconnect), we
+			// want the grace window to continue protecting against flapping sensors.
 		} else {
 			m.logger.Info("No one is home, re-activating lockdown")
 			m.activateLockdown("No one is home (reset)", "reset")
