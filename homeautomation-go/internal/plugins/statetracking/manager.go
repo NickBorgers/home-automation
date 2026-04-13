@@ -373,6 +373,18 @@ func (m *Manager) handleNickHomeChange(entityID string, oldState, newState *ha.S
 			zap.String("old_state", oldState.State),
 			zap.String("new_state", newState.State))
 
+		// Cancel any pending sleep detection timer when an owner arrives home (issue #991).
+		// The timer may have been started when lights went off during away/lockdown behavior
+		// for the departing owner, and must not fire now that someone has returned.
+		m.timerMutex.Lock()
+		if m.masterSleepTimer != nil {
+			m.logger.Info("Owner arrived home - cancelling pending sleep detection timer")
+			m.masterSleepTimer.Stop()
+			m.masterSleepTimer = nil
+			m.shadowTracker.UpdateSleepDetectionTimer(false)
+		}
+		m.timerMutex.Unlock()
+
 		// Check arrival debounce to suppress presence sensor bounce (issue #922)
 		m.timerMutex.Lock()
 		timeSinceDeparture := m.clock.Now().Sub(m.nickDepartureTime)
@@ -434,6 +446,18 @@ func (m *Manager) handleCarolineHomeChange(entityID string, oldState, newState *
 			zap.String("entity_id", entityID),
 			zap.String("old_state", oldState.State),
 			zap.String("new_state", newState.State))
+
+		// Cancel any pending sleep detection timer when an owner arrives home (issue #991).
+		// The timer may have been started when lights went off during away/lockdown behavior
+		// for the departing owner, and must not fire now that someone has returned.
+		m.timerMutex.Lock()
+		if m.masterSleepTimer != nil {
+			m.logger.Info("Owner arrived home - cancelling pending sleep detection timer")
+			m.masterSleepTimer.Stop()
+			m.masterSleepTimer = nil
+			m.shadowTracker.UpdateSleepDetectionTimer(false)
+		}
+		m.timerMutex.Unlock()
 
 		// Check arrival debounce to suppress presence sensor bounce (issue #922)
 		m.timerMutex.Lock()
