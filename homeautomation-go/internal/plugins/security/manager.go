@@ -31,6 +31,10 @@ const (
 
 	// VehicleArrivalRateLimit is the minimum time between vehicle arrival notifications
 	VehicleArrivalRateLimit = 20 * time.Second
+
+	// ArrivalLockdownGracePeriod is how long after an owner arrives home to suppress
+	// "no one home" lockdown activations, guarding against brief presence flaps (issue #991).
+	ArrivalLockdownGracePeriod = 5 * time.Minute
 )
 
 // Manager handles security-related automation
@@ -49,7 +53,12 @@ type Manager struct {
 	// Rate limiting for notifications
 	lastDoorbellNotification       time.Time
 	lastVehicleArrivalNotification time.Time
-	mu                             sync.Mutex
+
+	// lastOwnerArrivalTime records when didOwnerJustReturnHome last became true.
+	// Used to suppress lockdown during brief presence flaps after an owner arrives (issue #991).
+	lastOwnerArrivalTime time.Time
+
+	mu sync.Mutex
 }
 
 // NewManager creates a new Security manager
@@ -153,6 +162,20 @@ func (m *Manager) handleAnyoneHomeChange(key string, oldValue, newValue interfac
 	}
 
 	if !anyoneHome {
+		// Suppress lockdown if an owner arrived recently — guards against brief presence
+		// flaps that cause isAnyoneHome to momentarily go false (issue #991).
+		m.mu.Lock()
+		timeSinceArrival := m.clock.Since(m.lastOwnerArrivalTime)
+		withinGrace := !m.lastOwnerArrivalTime.IsZero() && timeSinceArrival < ArrivalLockdownGracePeriod
+		m.mu.Unlock()
+
+		if withinGrace {
+			m.logger.Info("No one home but owner arrived recently — suppressing lockdown (arrival grace period)",
+				zap.Duration("timeSinceArrival", timeSinceArrival),
+				zap.Duration("gracePeriod", ArrivalLockdownGracePeriod))
+			return
+		}
+
 		m.logger.Info("No one is home, activating lockdown")
 		m.activateLockdown("No one is home", key)
 	}
@@ -236,6 +259,14 @@ func (m *Manager) handleOwnerReturnHome(key string, oldValue, newValue interface
 	if !returned {
 		return
 	}
+
+	// Record arrival time for lockdown grace period (issue #991).
+	// This timestamp persists even after didOwnerJustReturnHome is cleared (e.g. on
+	// departure or flap), so we can suppress lockdown for ArrivalLockdownGracePeriod
+	// minutes after the owner physically arrived.
+	m.mu.Lock()
+	m.lastOwnerArrivalTime = m.clock.Now()
+	m.mu.Unlock()
 
 	m.logger.Info("Owner just returned home, checking garage status")
 

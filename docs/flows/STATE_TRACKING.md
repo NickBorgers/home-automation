@@ -83,6 +83,7 @@ flowchart TD
 
     lightsOff --> start
     start -->|Lights turn on| cancel
+    start -->|Owner arrives home| cancel
     start -->|1 minute passes| expire
     expire --> checkHome
     checkHome -->|No| skip
@@ -93,6 +94,8 @@ flowchart TD
     style setAsleep fill:#6c5ce7,color:#fff
     style cancel fill:#e74c3c,color:#fff
 ```
+
+The timer cancels on two events: lights turning back on (normal wake-up) and an owner arriving home (issue #991 — prevents false sleep detection when lights turn off during away/lockdown behavior and an owner subsequently walks in).
 
 ### Master Awake Detection
 
