@@ -283,7 +283,10 @@ func (m *Manager) runDeferredActivationTimer(cancelCh <-chan struct{}) {
 		case <-ticker.C:
 			// Check if still deferred before re-evaluating.
 			// deactivateThermalBattery() may have cleared the deferred state and closed
-			// cancelCh between our last select and now; the isDeferred guard handles it.
+			// cancelCh between our last select and now. Note: this guard alone does not
+			// prevent activateThermalBattery() from running if deactivateThermalBattery()
+			// races in after we release the lock below. activateThermalBattery() itself
+			// re-checks the energy level under thermalBatteryMu, which closes that window.
 			m.thermalBatteryMu.Lock()
 			isDeferred := m.thermalBatteryDeferred
 			m.thermalBatteryMu.Unlock()
@@ -313,6 +316,19 @@ func (m *Manager) activateThermalBattery() {
 
 	if m.thermalBatteryActive {
 		m.logger.Info("Thermal battery already active, skipping activation")
+		return
+	}
+
+	// Guard: energy must still be white. This is the primary trigger condition; if energy
+	// dropped between the caller's check and acquiring the lock (TOCTOU), abort safely.
+	// This also defends against the deferred-timer race: deactivateThermalBattery() may
+	// run after the timer goroutine releases thermalBatteryMu but before we re-acquire it,
+	// so energy may no longer be white by the time we get here.
+	energyLevel, err := m.stateManager.GetString("currentEnergyLevel")
+	if err != nil || energyLevel != "white" {
+		m.logger.Info("Skipping thermal battery: energy no longer white",
+			zap.String("energy_level", energyLevel))
+		m.shadowTracker.RecordThermalBatterySkipped("energy not white")
 		return
 	}
 

@@ -68,7 +68,10 @@ const (
 	// Restart safety: delay after reverting stale holds to let thermostat schedule take effect
 	thermalBatteryDefaultHoldRevertDelay = 5 * time.Second
 
-	// Thermal battery: hourly forecast timing
+	// Thermal battery: hourly forecast timing.
+	// Note: thermalBatteryHourlyComfortMargin (5°F) is intentionally tighter than thermalBatterySkipMargin
+	// (20°F). The hourly path triggers on genuine near-term stress; the daily path uses a wide band
+	// to skip only on truly mild days. Normalizing them would break the intended behavior of each path.
 	thermalBatteryDefaultLeadTimeHours   = 3.0              // hours before forecast stress to activate
 	thermalBatteryHourlyComfortMargin    = 5.0              // °F outside comfort band to consider "stress" (hourly)
 	thermalBatteryDeferredRecheckDefault = 15 * time.Minute // how often to re-evaluate while deferred

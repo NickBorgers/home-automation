@@ -405,13 +405,17 @@ func (lst *LoadSheddingTracker) RecordThermalBatteryStepProgress(stepsCompleted,
 	lst.State().Metadata.LastUpdated = now
 }
 
-// RecordThermalBatterySkipped records that thermal battery activation was skipped
+// RecordThermalBatterySkipped records that thermal battery activation was skipped.
+// Also clears any deferred state so the dashboard does not show deferred=true
+// alongside a skip reason simultaneously (e.g. when a guard fires during a timer re-check).
 func (lst *LoadSheddingTracker) RecordThermalBatterySkipped(reason string) {
 	lst.Lock()
 	defer lst.Unlock()
 
 	now := time.Now()
 	lst.State().Outputs.ThermalBattery.SkipReason = reason
+	lst.State().Outputs.ThermalBattery.Deferred = false
+	lst.State().Outputs.ThermalBattery.PlannedActivation = time.Time{}
 	lst.State().Metadata.LastUpdated = now
 }
 

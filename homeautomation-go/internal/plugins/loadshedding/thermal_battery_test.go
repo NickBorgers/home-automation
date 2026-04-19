@@ -1372,16 +1372,9 @@ func TestThermalBattery_HourlyForecast_DeferredTimerActivatesWhenWithinLeadTime(
 	shadow := ls.GetShadowState()
 	assert.True(t, shadow.Outputs.ThermalBattery.Deferred, "Should show deferred in shadow state")
 
-	// Wait for the timer to re-evaluate and activate (up to 4s)
-	deadline := time.Now().Add(4 * time.Second)
-	for time.Now().Before(deadline) {
-		if ls.IsThermalBatteryActive() {
-			break
-		}
-		time.Sleep(recheckInterval)
-	}
-
-	assert.True(t, ls.IsThermalBatteryActive(), "Thermal battery should activate after stress enters lead-time window")
+	// Wait for the timer to re-evaluate and activate (up to 4s).
+	require.Eventually(t, ls.IsThermalBatteryActive, 4*time.Second, recheckInterval,
+		"Thermal battery should activate after stress enters lead-time window")
 	shadow = ls.GetShadowState()
 	assert.False(t, shadow.Outputs.ThermalBattery.Deferred, "Shadow state should not be deferred after activation")
 	assert.True(t, shadow.Outputs.ThermalBattery.Active, "Shadow state should show active=true")
