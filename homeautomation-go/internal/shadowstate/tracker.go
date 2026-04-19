@@ -415,6 +415,32 @@ func (lst *LoadSheddingTracker) RecordThermalBatterySkipped(reason string) {
 	lst.State().Metadata.LastUpdated = now
 }
 
+// RecordThermalBatteryDeferred records that thermal battery activation has been deferred
+// because the forecast stress event is not yet within the lead time window.
+func (lst *LoadSheddingTracker) RecordThermalBatteryDeferred(plannedActivation time.Time, direction string) {
+	lst.Lock()
+	defer lst.Unlock()
+
+	now := time.Now()
+	lst.State().Outputs.ThermalBattery.Deferred = true
+	lst.State().Outputs.ThermalBattery.PlannedActivation = plannedActivation
+	lst.State().Outputs.ThermalBattery.StressDirection = direction
+	lst.State().Metadata.LastUpdated = now
+}
+
+// RecordThermalBatteryDeferredCleared records that the deferred thermal battery state
+// was cleared (e.g., because energy dropped below white or presence conditions changed).
+func (lst *LoadSheddingTracker) RecordThermalBatteryDeferredCleared() {
+	lst.Lock()
+	defer lst.Unlock()
+
+	now := time.Now()
+	lst.State().Outputs.ThermalBattery.Deferred = false
+	lst.State().Outputs.ThermalBattery.PlannedActivation = time.Time{}
+	lst.State().Outputs.ThermalBattery.StressDirection = ""
+	lst.State().Metadata.LastUpdated = now
+}
+
 // GetState returns the current shadow state (thread-safe copy)
 func (lst *LoadSheddingTracker) GetState() *LoadSheddingShadowState {
 	lst.RLock()
