@@ -135,6 +135,11 @@ flowchart TD
     checkSleep{"Everyone<br/>asleep?"}
     checkHVAC{"Thermostats<br/>on?"}
     checkMode{"heat_cool<br/>mode?"}
+    checkHourly{"Hourly forecast<br/>available?"}
+    checkStress{"Stress event<br/>in window?"}
+    checkLeadTime{"Stress within<br/>lead time (3h)?"}
+    deferred["Defer activation<br/>Re-check every 15 min"]
+    checkDaily{"Daily forecast<br/>available?"}
     checkOutdoor{"Outdoor temp<br/>within ±20°F of<br/>comfort band?"}
     activate["Activate thermal battery<br/>Apply first 1°F step"]
     skip["Skip activation"]
@@ -152,12 +157,22 @@ flowchart TD
     checkHVAC -->|Off| skip
     checkHVAC -->|On| checkMode
     checkMode -->|No| activate
-    checkMode -->|Yes| checkOutdoor
+    checkMode -->|Yes| checkHourly
+    checkHourly -->|Yes| checkStress
+    checkStress -->|No stress| skip
+    checkStress -->|Stress found| checkLeadTime
+    checkLeadTime -->|No: too far away| deferred
+    checkLeadTime -->|Yes: within 3h| activate
+    checkHourly -->|No| checkDaily
+    checkDaily -->|Yes: mild forecast| skip
+    checkDaily -->|Yes: hot/cold forecast| activate
+    checkDaily -->|No| checkOutdoor
     checkOutdoor -->|Yes: mild| skip
     checkOutdoor -->|No: hot/cold| activate
 
     style activate fill:#3498db,color:#fff
     style skip fill:#95a5a6,color:#fff
+    style deferred fill:#f39c12,color:#fff
     style revertHolds fill:#f39c12,color:#fff
 ```
 
@@ -206,23 +221,38 @@ flowchart TD
 | `heat` | Setpoint **up** 2°F | Pre-heat the house |
 | `heat_cool`/`auto` | Entire band shifts based on weather forecast (or outdoor temp fallback) | See below |
 
-**`heat_cool`/`auto` mode** uses the daily weather forecast to determine shift direction:
-- **Primary**: Fetches daily forecast high/low via `weather.get_forecasts` service call (cached 1 hour). Tries `weather.strawberry_creek` (WeatherFlow Tempest API) first, then `weather.forecast_home_2` (Met.no) as secondary.
-- **Fallback**: If all forecast sources are unavailable, falls back to current outdoor temp sensor (`sensor.weather_station_temperature`) with single-point logic.
-- **Skip logic (forecast)**: Skip only if **both** forecast high AND low fall within the comfort band ± 20°F margin — truly mild day.
-- **Direction (forecast)**: If forecast high exceeds the skip zone → pre-cool (shift **down**). If forecast low falls below → pre-heat (shift **up**).
-- **Direction (fallback)**: Cold outside (below comfort band - 20°F) → shift **up**. Hot outside (above comfort band + 20°F) → shift **down**. Mild → **skipped**.
+**`heat_cool`/`auto` mode** uses a three-level forecast cascade to determine shift direction and timing:
+
+1. **Hourly forecast** (primary) — `weather.get_forecasts` with `type=hourly`. Scans forward from now for the first hour where outdoor temp falls outside the comfort band ± 5°F margin.
+   - **No stress in window** → skip entirely.
+   - **Stress found, > 3h away** → defer activation; re-check every 15 min until within lead time.
+   - **Stress found, ≤ 3h away** → activate now.
+   - Direction: temp below band → pre-heat (shift **up**); temp above band → pre-cool (shift **down**).
+   - Note: the hourly comfort margin (±5°F) is intentionally tighter than the daily skip margin (±20°F); the two paths use different thresholds by design.
+
+2. **Daily forecast** (fallback when hourly unavailable) — `weather.get_forecasts` with `type=daily`. Tries `weather.strawberry_creek` first, then `weather.forecast_home_2`.
+   - **Skip logic**: Skip only if **both** forecast high AND low fall within the comfort band ± 20°F margin.
+   - **Direction**: If forecast high exceeds the skip zone → pre-cool (shift **down**). If forecast low falls below → pre-heat (shift **up**).
+
+3. **Outdoor temp sensor** (tertiary fallback) — `sensor.weather_station_temperature`. Single-point logic: cold (below comfort band - 20°F) → shift **up**; hot (above + 20°F) → shift **down**; mild → **skipped**.
+
+| Parameter | Value | Description |
+|-----------|-------|-------------|
+| Hourly comfort margin | 5°F | Outside comfort band to consider "stress" (hourly path) |
+| Hourly lead time | 3h | Hours before forecast stress event to activate |
+| Deferral recheck interval | 15 min | How often to re-evaluate while deferred |
+| Daily skip margin | 20°F | Comfort band expansion for daily skip logic |
 
 Original setpoints are saved and restored on deactivation.
 
 ### Deactivation Triggers
 
-Thermal battery deactivates (reverting to original setpoints) when:
+Thermal battery deactivates — or, if deferred, the pending activation is cancelled — when:
 - Energy level drops below white (green, yellow, red, or black)
 - Nobody is home (`isAnyoneHome` → false)
 - Everyone falls asleep (`isEveryoneAsleep` → true)
 
-Any in-progress stepping goroutine is cancelled on deactivation.
+Any in-progress stepping goroutine and any deferred-activation recheck timer are cancelled on deactivation.
 
 ## Yellow State — Partial Load Shedding
 

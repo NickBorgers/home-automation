@@ -67,6 +67,14 @@ const (
 
 	// Restart safety: delay after reverting stale holds to let thermostat schedule take effect
 	thermalBatteryDefaultHoldRevertDelay = 5 * time.Second
+
+	// Thermal battery: hourly forecast timing.
+	// Note: thermalBatteryHourlyComfortMargin (5°F) is intentionally tighter than thermalBatterySkipMargin
+	// (20°F). The hourly path triggers on genuine near-term stress; the daily path uses a wide band
+	// to skip only on truly mild days. Normalizing them would break the intended behavior of each path.
+	thermalBatteryDefaultLeadTimeHours   = 3.0              // hours before forecast stress to activate
+	thermalBatteryHourlyComfortMargin    = 5.0              // °F outside comfort band to consider "stress" (hourly)
+	thermalBatteryDeferredRecheckDefault = 15 * time.Minute // how often to re-evaluate while deferred
 )
 
 // deferredAction represents a pending action that was rate-limited
@@ -116,6 +124,13 @@ type Manager struct {
 	thermalBatteryStepStart       time.Time     // when the current step began (for safety timeout)
 	thermalBatteryMaxStepWaitDur  time.Duration // configurable max wait per step (defaults to thermalBatteryMaxStepWait)
 
+	// Hourly forecast timing: deferred activation state (guarded by thermalBatteryMu)
+	thermalBatteryLeadTimeHours           float64       // hours before stress to activate (configurable for tests)
+	thermalBatteryDeferredRecheckInterval time.Duration // how often to re-evaluate while deferred
+	thermalBatteryDeferred                bool          // true when activation is deferred due to timing
+	thermalBatteryPlannedActivation       time.Time     // when we plan to activate (stress_time - lead_time)
+	thermalBatteryDeferCancel             chan struct{} // signal to stop deferred timer goroutine
+
 	// Forecast cache for thermal battery.
 	// forecastMu is intentionally held across the network call in getForecastHighLow.
 	// This is acceptable because: (1) callers are serialized via state-change handlers,
@@ -125,6 +140,11 @@ type Manager struct {
 	forecastCachedAt time.Time
 	forecastFailedAt time.Time // negative cache: last forecast fetch failure time
 	forecastMu       sync.Mutex
+
+	// Hourly forecast cache (guarded by forecastMu)
+	hourlyForecastEntries  []hourlyForecastEntry
+	hourlyForecastAt       time.Time
+	hourlyForecastFailedAt time.Time
 
 	// Push notifications
 	ntfyClient ntfy.Notifier
@@ -139,20 +159,22 @@ func NewManager(ctx context.Context, haClient ha.HAClient, stateManager *state.M
 	shadowTracker := shadowstate.NewLoadSheddingTracker()
 
 	return &Manager{
-		ctx:                           ctx,
-		haClient:                      haClient,
-		stateManager:                  stateManager,
-		logger:                        logger.Named("loadshedding"),
-		readOnly:                      readOnly,
-		enabled:                       false,
-		shadowTracker:                 shadowTracker,
-		subHelper:                     shadowstate.NewSubscriptionHelper(haClient, stateManager, registry, shadowTracker, "loadshedding", logger.Named("loadshedding")),
-		rateLimitInterval:             minActionInterval,
-		deferredStopChan:              make(chan struct{}),
-		ntfyClient:                    ntfyClient,
-		thermalBatteryPollInt:         thermalBatteryDefaultPollInt,
-		thermalBatteryHoldRevertDelay: thermalBatteryDefaultHoldRevertDelay,
-		thermalBatteryMaxStepWaitDur:  thermalBatteryMaxStepWait,
+		ctx:                                   ctx,
+		haClient:                              haClient,
+		stateManager:                          stateManager,
+		logger:                                logger.Named("loadshedding"),
+		readOnly:                              readOnly,
+		enabled:                               false,
+		shadowTracker:                         shadowTracker,
+		subHelper:                             shadowstate.NewSubscriptionHelper(haClient, stateManager, registry, shadowTracker, "loadshedding", logger.Named("loadshedding")),
+		rateLimitInterval:                     minActionInterval,
+		deferredStopChan:                      make(chan struct{}),
+		ntfyClient:                            ntfyClient,
+		thermalBatteryPollInt:                 thermalBatteryDefaultPollInt,
+		thermalBatteryHoldRevertDelay:         thermalBatteryDefaultHoldRevertDelay,
+		thermalBatteryMaxStepWaitDur:          thermalBatteryMaxStepWait,
+		thermalBatteryLeadTimeHours:           thermalBatteryDefaultLeadTimeHours,
+		thermalBatteryDeferredRecheckInterval: thermalBatteryDeferredRecheckDefault,
 	}
 }
 
@@ -186,6 +208,16 @@ func (m *Manager) SetThermalBatteryHoldRevertDelayForTesting(d time.Duration) {
 // SetThermalBatteryMaxStepWaitForTesting allows tests to use a shorter safety timeout per step.
 func (m *Manager) SetThermalBatteryMaxStepWaitForTesting(d time.Duration) {
 	m.thermalBatteryMaxStepWaitDur = d
+}
+
+// SetThermalBatteryLeadTimeHoursForTesting allows tests to override the default lead time.
+func (m *Manager) SetThermalBatteryLeadTimeHoursForTesting(h float64) {
+	m.thermalBatteryLeadTimeHours = h
+}
+
+// SetThermalBatteryDeferredRecheckIntervalForTesting allows tests to use a shorter recheck interval.
+func (m *Manager) SetThermalBatteryDeferredRecheckIntervalForTesting(d time.Duration) {
+	m.thermalBatteryDeferredRecheckInterval = d
 }
 
 // IsLoadSheddingOn returns whether load shedding is currently active (thread-safe)
@@ -242,9 +274,10 @@ func (m *Manager) Stop() {
 
 	m.logger.Info("Stopping Load Shedding Manager")
 
-	// Stop any thermal battery stepping goroutine
+	// Stop any thermal battery stepping or deferred timer goroutines
 	m.thermalBatteryMu.Lock()
 	m.stopThermalBatteryStepping()
+	m.stopDeferredActivationTimer()
 	m.thermalBatteryMu.Unlock()
 
 	// Cancel any pending deferred action

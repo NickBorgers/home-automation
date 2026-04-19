@@ -471,16 +471,19 @@ type ThermostatSettings struct {
 
 // ThermalBatteryState tracks the thermal battery pre-conditioning state
 type ThermalBatteryState struct {
-	Active         bool                     `json:"active"`
-	OffsetApplied  float64                  `json:"offsetApplied,omitempty"` // Degrees F shifted so far
-	ActivatedAt    time.Time                `json:"activatedAt,omitempty"`
-	DeactivatedAt  time.Time                `json:"deactivatedAt,omitempty"`
-	SkipReason     string                   `json:"skipReason,omitempty"` // Why activation was skipped
-	SavedSetpoints map[string]SavedSetpoint `json:"savedSetpoints,omitempty"`
-	StepsCompleted int                      `json:"stepsCompleted,omitempty"`
-	TotalSteps     int                      `json:"totalSteps,omitempty"`
-	StepSize       float64                  `json:"stepSize,omitempty"`
-	Stepping       bool                     `json:"stepping,omitempty"` // true while steps remain
+	Active            bool                     `json:"active"`
+	OffsetApplied     float64                  `json:"offsetApplied,omitempty"` // Degrees F shifted so far
+	ActivatedAt       time.Time                `json:"activatedAt,omitempty"`
+	DeactivatedAt     time.Time                `json:"deactivatedAt,omitempty"`
+	SkipReason        string                   `json:"skipReason,omitempty"` // Why activation was skipped
+	SavedSetpoints    map[string]SavedSetpoint `json:"savedSetpoints,omitempty"`
+	StepsCompleted    int                      `json:"stepsCompleted,omitempty"`
+	TotalSteps        int                      `json:"totalSteps,omitempty"`
+	StepSize          float64                  `json:"stepSize,omitempty"`
+	Stepping          bool                     `json:"stepping,omitempty"`          // true while steps remain
+	Deferred          bool                     `json:"deferred,omitempty"`          // true when activation is deferred due to timing
+	PlannedActivation time.Time                `json:"plannedActivation,omitempty"` // when we plan to activate
+	StressDirection   string                   `json:"stressDirection,omitempty"`   // "up" or "down"
 }
 
 // SavedSetpoint records the original thermostat setpoint before thermal battery offset was applied

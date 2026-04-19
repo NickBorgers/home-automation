@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -1140,4 +1141,259 @@ func TestThermalBattery_SafetyTimeoutForcesStepAdvancement(t *testing.T) {
 	assert.Equal(t, 2, shadow.Outputs.ThermalBattery.StepsCompleted)
 	assert.Equal(t, 2, shadow.Outputs.ThermalBattery.TotalSteps)
 	assert.False(t, shadow.Outputs.ThermalBattery.Stepping, "Should not be stepping (all steps done)")
+}
+
+// =============================================================================
+// Hourly forecast timing tests (issue #1002)
+// =============================================================================
+
+// makeHourlyStressForecast creates an hourly forecast with a single stress event
+// at stressTime at stressTemp. Used for testing hourly timing deferral.
+// The response uses the real HA WebSocket API envelope format.
+func makeHourlyStressForecast(stressTemp float64, stressTime time.Time) json.RawMessage {
+	resp := fmt.Sprintf(
+		`{"context":{"id":"test"},"response":{"%s":{"forecast":[{"datetime":"%s","temperature":%.1f}]}}}`,
+		forecastWeatherEntityPrimary,
+		stressTime.UTC().Format(time.RFC3339),
+		stressTemp,
+	)
+	return json.RawMessage(resp)
+}
+
+// makeHourlyNoStressForecast creates an hourly forecast with mild temperatures
+// that stay within the comfort zone (69/72 ±5°F = 64-77°F) for 24 hours.
+func makeHourlyNoStressForecast() json.RawMessage {
+	now := time.Now().Truncate(time.Hour)
+	parts := make([]string, 0, 24)
+	for h := 1; h <= 24; h++ {
+		t := now.Add(time.Duration(h) * time.Hour)
+		parts = append(parts, fmt.Sprintf(`{"datetime":"%s","temperature":70.0}`, t.UTC().Format(time.RFC3339)))
+	}
+	resp := fmt.Sprintf(`{"context":{"id":"test"},"response":{"%s":{"forecast":[%s]}}}`,
+		forecastWeatherEntityPrimary, strings.Join(parts, ","))
+	return json.RawMessage(resp)
+}
+
+// setupHeatCoolEnvWithHourlyForecast creates a heat_cool test environment with an
+// hourly forecast for timing tests. stressTemp below 64°F triggers "up" (pre-heat),
+// above 77°F triggers "down" (pre-cool). stressTime is when the stress event occurs.
+func setupHeatCoolEnvWithHourlyForecast(t *testing.T, stressTemp float64, stressTime time.Time) *testutil.Env {
+	t.Helper()
+	env := testutil.NewEnv(t)
+	env.MockHA.SetState(thermostatHoldHouse, "off", nil)
+	env.MockHA.SetState(thermostatHoldSuite, "off", nil)
+
+	env.MockHA.SetState(climateHouse, "heat_cool", map[string]interface{}{
+		"target_temp_low":     69.0,
+		"target_temp_high":    72.0,
+		"current_temperature": 70.0,
+		"hvac_action":         "idle",
+	})
+	env.MockHA.SetState(climateSuite, "heat_cool", map[string]interface{}{
+		"target_temp_low":     69.0,
+		"target_temp_high":    72.0,
+		"current_temperature": 71.0,
+		"hvac_action":         "idle",
+	})
+
+	env.MockHA.SetServiceResponse("weather", "get_forecasts", makeHourlyStressForecast(stressTemp, stressTime))
+
+	require.NoError(t, env.StateMgr.SetBool("isAnyoneHome", true))
+	require.NoError(t, env.StateMgr.SetBool("isEveryoneAsleep", false))
+	require.NoError(t, env.StateMgr.SyncFromHA())
+	return env
+}
+
+func TestThermalBattery_HourlyForecast_DeferredWhenStressFarAway(t *testing.T) {
+	t.Parallel()
+	// Comfort band: 69/72. Margin: 5°F. Stress threshold: < 64°F (cold).
+	// Stress event: cold (50°F) 8 hours away. Lead time: 3 hours.
+	// Expected: deferred (8h > 3h lead time), shadow state shows deferred=true.
+	stressTime := time.Now().Add(8 * time.Hour)
+	env := setupHeatCoolEnvWithHourlyForecast(t, 50.0, stressTime) // 50°F < 64°F = cold stress
+
+	ls := NewManager(context.Background(), env.MockHA, env.StateMgr, env.Logger, false, nil, nil)
+	ls.SetThermalBatteryLeadTimeHoursForTesting(3.0)
+	require.NoError(t, ls.Start())
+	defer ls.Stop()
+
+	_ = env.MockHA.ServiceCallCount()
+
+	require.NoError(t, env.StateMgr.SetString("currentEnergyLevel", "white"))
+
+	// Should be deferred, not active
+	assert.False(t, ls.IsThermalBatteryActive(), "Thermal battery should be deferred, not active")
+
+	// No climate service calls should be made
+	calls := env.MockHA.GetServiceCallsSince(0)
+	for _, call := range calls {
+		if call.Domain == "climate" {
+			t.Error("No climate.set_temperature calls should be made when thermal battery is deferred")
+		}
+	}
+
+	// Shadow state should show deferred
+	shadow := ls.GetShadowState()
+	assert.True(t, shadow.Outputs.ThermalBattery.Deferred, "Shadow state should show deferred=true")
+	assert.False(t, shadow.Outputs.ThermalBattery.PlannedActivation.IsZero(), "PlannedActivation should be set")
+	assert.Equal(t, "up", shadow.Outputs.ThermalBattery.StressDirection, "Cold stress should be 'up' direction")
+}
+
+func TestThermalBattery_HourlyForecast_ActivatesImmediatelyWhenStressImminent(t *testing.T) {
+	t.Parallel()
+	// Stress event: cold (50°F) 1 hour away. Lead time: 3 hours.
+	// Expected: activates immediately (1h < 3h lead time).
+	stressTime := time.Now().Add(1 * time.Hour)
+	env := setupHeatCoolEnvWithHourlyForecast(t, 50.0, stressTime)
+
+	ls := NewManager(context.Background(), env.MockHA, env.StateMgr, env.Logger, false, nil, nil)
+	ls.SetThermalBatteryLeadTimeHoursForTesting(3.0)
+	require.NoError(t, ls.Start())
+	defer ls.Stop()
+
+	require.NoError(t, env.StateMgr.SetString("currentEnergyLevel", "white"))
+
+	// Should activate immediately (stress within lead time)
+	assert.True(t, ls.IsThermalBatteryActive(), "Thermal battery should activate when stress is within lead time")
+
+	// Shadow state should NOT be deferred
+	shadow := ls.GetShadowState()
+	assert.False(t, shadow.Outputs.ThermalBattery.Deferred, "Shadow state should not be deferred")
+	assert.True(t, shadow.Outputs.ThermalBattery.Active, "Shadow state should show active=true")
+}
+
+func TestThermalBattery_HourlyForecast_SkipsWhenNoStress(t *testing.T) {
+	t.Parallel()
+	// Hourly forecast with mild temps (70°F, within 64-77°F comfort zone).
+	// Expected: skip (no thermal stress in window).
+	env := testutil.NewEnv(t)
+	env.MockHA.SetState(thermostatHoldHouse, "off", nil)
+	env.MockHA.SetState(thermostatHoldSuite, "off", nil)
+	env.MockHA.SetState(climateHouse, "heat_cool", map[string]interface{}{
+		"target_temp_low": 69.0, "target_temp_high": 72.0, "current_temperature": 70.0,
+	})
+	env.MockHA.SetState(climateSuite, "heat_cool", map[string]interface{}{
+		"target_temp_low": 69.0, "target_temp_high": 72.0, "current_temperature": 70.0,
+	})
+	env.MockHA.SetServiceResponse("weather", "get_forecasts", makeHourlyNoStressForecast())
+	require.NoError(t, env.StateMgr.SetBool("isAnyoneHome", true))
+	require.NoError(t, env.StateMgr.SetBool("isEveryoneAsleep", false))
+	require.NoError(t, env.StateMgr.SyncFromHA())
+
+	ls := NewManager(context.Background(), env.MockHA, env.StateMgr, env.Logger, false, nil, nil)
+	require.NoError(t, ls.Start())
+	defer ls.Stop()
+
+	require.NoError(t, env.StateMgr.SetString("currentEnergyLevel", "white"))
+
+	assert.False(t, ls.IsThermalBatteryActive(), "Thermal battery should skip when no stress in forecast")
+
+	shadow := ls.GetShadowState()
+	assert.Contains(t, shadow.Outputs.ThermalBattery.SkipReason, "no thermal stress")
+}
+
+func TestThermalBattery_HourlyForecast_DeferredClearedOnEnergyDrop(t *testing.T) {
+	t.Parallel()
+	// Set up deferred state, then drop energy level. Deferred state should clear.
+	stressTime := time.Now().Add(8 * time.Hour)
+	env := setupHeatCoolEnvWithHourlyForecast(t, 50.0, stressTime)
+
+	ls := NewManager(context.Background(), env.MockHA, env.StateMgr, env.Logger, false, nil, nil)
+	ls.SetThermalBatteryLeadTimeHoursForTesting(3.0)
+	ls.lastAction = time.Now().Add(-2 * time.Hour) // avoid rate limiting
+	require.NoError(t, ls.Start())
+	defer ls.Stop()
+
+	// Activate to white → should defer
+	require.NoError(t, env.StateMgr.SetString("currentEnergyLevel", "white"))
+	assert.False(t, ls.IsThermalBatteryActive())
+	shadow := ls.GetShadowState()
+	assert.True(t, shadow.Outputs.ThermalBattery.Deferred, "Should be deferred initially")
+
+	// Drop to yellow → deferred state should clear
+	require.NoError(t, env.StateMgr.SetString("currentEnergyLevel", "yellow"))
+
+	assert.False(t, ls.IsThermalBatteryActive(), "Should not be active after energy drop")
+	shadow = ls.GetShadowState()
+	assert.False(t, shadow.Outputs.ThermalBattery.Deferred, "Deferred state should be cleared after energy drop")
+	assert.True(t, shadow.Outputs.ThermalBattery.PlannedActivation.IsZero(), "PlannedActivation should be cleared")
+}
+
+func TestThermalBattery_HourlyForecast_DeferredClearedWhenNoOneHome(t *testing.T) {
+	t.Parallel()
+	// Set up deferred state, then mark no one home. Deferred state should clear.
+	stressTime := time.Now().Add(8 * time.Hour)
+	env := setupHeatCoolEnvWithHourlyForecast(t, 50.0, stressTime)
+
+	ls := NewManager(context.Background(), env.MockHA, env.StateMgr, env.Logger, false, nil, nil)
+	ls.SetThermalBatteryLeadTimeHoursForTesting(3.0)
+	require.NoError(t, ls.Start())
+	defer ls.Stop()
+
+	// Activate to white → should defer
+	require.NoError(t, env.StateMgr.SetString("currentEnergyLevel", "white"))
+	assert.False(t, ls.IsThermalBatteryActive())
+	shadow := ls.GetShadowState()
+	assert.True(t, shadow.Outputs.ThermalBattery.Deferred, "Should be deferred initially")
+
+	// Everyone leaves → deferred state should clear
+	require.NoError(t, env.StateMgr.SetBool("isAnyoneHome", false))
+
+	shadow = ls.GetShadowState()
+	assert.False(t, shadow.Outputs.ThermalBattery.Deferred, "Deferred state should be cleared when no one is home")
+	assert.True(t, shadow.Outputs.ThermalBattery.PlannedActivation.IsZero(), "PlannedActivation should be cleared")
+}
+
+func TestThermalBattery_HourlyForecast_DeferredTimerActivatesWhenWithinLeadTime(t *testing.T) {
+	t.Parallel()
+	// Use a very short lead time and recheck interval so the timer fires quickly.
+	// Stress event is 2s away. Lead time is 500ms (in hours). Recheck is 50ms.
+	// Initial check: 2s > 500ms → defers.
+	// After ~1.5s: recheck timer fires, stress is ≤500ms away → activates.
+	recheckInterval := 50 * time.Millisecond
+	leadTimeDuration := 500 * time.Millisecond
+	leadTimeHours := float64(leadTimeDuration) / float64(time.Hour)
+
+	// Use a 2-second stress window so test setup overhead (~200ms) stays well within
+	// the deferral window (2s - 0.5s lead = 1.5s), giving robust initial deferral.
+	stressTime := time.Now().Add(2 * time.Second)
+	env := setupHeatCoolEnvWithHourlyForecast(t, 50.0, stressTime)
+
+	ls := NewManager(context.Background(), env.MockHA, env.StateMgr, env.Logger, false, nil, nil)
+	ls.SetThermalBatteryLeadTimeHoursForTesting(leadTimeHours)
+	ls.SetThermalBatteryDeferredRecheckIntervalForTesting(recheckInterval)
+	require.NoError(t, ls.Start())
+	defer ls.Stop()
+
+	require.NoError(t, env.StateMgr.SetString("currentEnergyLevel", "white"))
+
+	// Initially deferred
+	assert.False(t, ls.IsThermalBatteryActive(), "Should be deferred initially")
+	shadow := ls.GetShadowState()
+	assert.True(t, shadow.Outputs.ThermalBattery.Deferred, "Should show deferred in shadow state")
+
+	// Wait for the timer to re-evaluate and activate (up to 4s).
+	require.Eventually(t, ls.IsThermalBatteryActive, 4*time.Second, recheckInterval,
+		"Thermal battery should activate after stress enters lead-time window")
+	shadow = ls.GetShadowState()
+	assert.False(t, shadow.Outputs.ThermalBattery.Deferred, "Shadow state should not be deferred after activation")
+	assert.True(t, shadow.Outputs.ThermalBattery.Active, "Shadow state should show active=true")
+}
+
+func TestThermalBattery_HourlyForecast_FallsBackToDailyWhenHourlyUnavailable(t *testing.T) {
+	t.Parallel()
+	// No hourly forecast configured (daily format returned = no valid datetimes).
+	// Fall back to daily forecast logic. Cold daily forecast → activates.
+	env := setupHeatCoolEnvWithForecast(t, "", 45.0, 25.0) // daily forecast only
+
+	ls := NewManager(context.Background(), env.MockHA, env.StateMgr, env.Logger, false, nil, nil)
+	require.NoError(t, ls.Start())
+	defer ls.Stop()
+
+	require.NoError(t, env.StateMgr.SetString("currentEnergyLevel", "white"))
+
+	// Should activate using daily forecast fallback (not deferred)
+	assert.True(t, ls.IsThermalBatteryActive(), "Should activate using daily forecast when hourly unavailable")
+	shadow := ls.GetShadowState()
+	assert.False(t, shadow.Outputs.ThermalBattery.Deferred, "Should not be deferred when using daily fallback")
 }

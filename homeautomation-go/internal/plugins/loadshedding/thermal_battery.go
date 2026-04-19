@@ -18,6 +18,13 @@ type forecastEntry struct {
 	TempLow     float64 `json:"templow"`
 }
 
+// hourlyForecastEntry represents a single hourly forecast entry from HA.
+// Only Temperature and DateTime are used; other fields are ignored.
+type hourlyForecastEntry struct {
+	DateTime    string  `json:"datetime"`
+	Temperature float64 `json:"temperature"`
+}
+
 // getForecastHighLow fetches the forecast daily high and low for today.
 // Returns (high, low, true) if forecast is available, or (0, 0, false) if unavailable.
 // Results are cached for forecastCacheDuration. Failures are negative-cached for
@@ -119,6 +126,185 @@ func (m *Manager) tryFetchForecast(entity string) (float64, float64, bool) {
 	return today.Temperature, today.TempLow, true
 }
 
+// getHourlyForecast fetches hourly forecast entries for thermal battery timing.
+// Only entries with non-empty datetimes are returned; entries without datetimes
+// (e.g., daily forecast data mistakenly fetched as hourly) are filtered out.
+// Cached for forecastCacheDuration; failures negatively cached separately from daily.
+// Shares forecastMu with getForecastHighLow.
+func (m *Manager) getHourlyForecast() ([]hourlyForecastEntry, bool) {
+	m.forecastMu.Lock()
+	defer m.forecastMu.Unlock()
+
+	// Return cached entries if still fresh
+	if !m.hourlyForecastAt.IsZero() && time.Since(m.hourlyForecastAt) < forecastCacheDuration {
+		return m.hourlyForecastEntries, true
+	}
+
+	// Negative cache: don't retry if we failed recently
+	if !m.hourlyForecastFailedAt.IsZero() && time.Since(m.hourlyForecastFailedAt) < forecastNegativeCacheDuration {
+		m.logger.Debug("Skipping hourly forecast fetch: within negative cache window",
+			zap.Duration("since_failure", time.Since(m.hourlyForecastFailedAt)))
+		return nil, false
+	}
+
+	entities := []string{forecastWeatherEntityPrimary, forecastWeatherEntitySecondary}
+	for _, entity := range entities {
+		entries, ok := m.tryFetchHourlyForecast(entity)
+		if ok {
+			m.hourlyForecastEntries = entries
+			m.hourlyForecastAt = time.Now()
+			m.hourlyForecastFailedAt = time.Time{} // clear negative cache on success
+			m.logger.Info("Fetched hourly forecast for thermal battery timing",
+				zap.String("source", entity),
+				zap.Int("entries", len(entries)))
+			return entries, true
+		}
+	}
+
+	m.hourlyForecastFailedAt = time.Now()
+	m.logger.Warn("All hourly forecast sources failed, cannot check timing")
+	return nil, false
+}
+
+// tryFetchHourlyForecast fetches hourly forecast entries from a single weather entity.
+// Filters out entries with empty datetimes (e.g., malformed or daily data served as hourly).
+func (m *Manager) tryFetchHourlyForecast(entity string) ([]hourlyForecastEntry, bool) {
+	result, err := m.haClient.CallServiceWithResponse(m.ctx, "weather", "get_forecasts", map[string]interface{}{
+		"entity_id": entity,
+		"type":      "hourly",
+	})
+	if err != nil {
+		m.logger.Warn("Failed to fetch hourly weather forecast",
+			zap.String("entity", entity), zap.Error(err))
+		return nil, false
+	}
+	if result == nil {
+		m.logger.Warn("Hourly weather forecast returned nil response",
+			zap.String("entity", entity))
+		return nil, false
+	}
+
+	var wrapper struct {
+		Response json.RawMessage `json:"response"`
+	}
+	if err := json.Unmarshal(result, &wrapper); err != nil || wrapper.Response == nil {
+		m.logger.Warn("Hourly weather forecast response malformed",
+			zap.String("entity", entity))
+		return nil, false
+	}
+
+	var parsed map[string]struct {
+		Forecast []hourlyForecastEntry `json:"forecast"`
+	}
+	if err := json.Unmarshal(wrapper.Response, &parsed); err != nil {
+		m.logger.Warn("Failed to parse hourly forecast response",
+			zap.String("entity", entity), zap.Error(err))
+		return nil, false
+	}
+
+	entityData, ok := parsed[entity]
+	if !ok || len(entityData.Forecast) == 0 {
+		m.logger.Warn("No hourly forecast entries found",
+			zap.String("entity", entity))
+		return nil, false
+	}
+
+	// Filter out entries without parseable datetimes
+	var valid []hourlyForecastEntry
+	for _, e := range entityData.Forecast {
+		if e.DateTime == "" {
+			continue
+		}
+		valid = append(valid, e)
+	}
+	if len(valid) == 0 {
+		m.logger.Warn("Hourly forecast has no entries with valid datetimes",
+			zap.String("entity", entity))
+		return nil, false
+	}
+	return valid, true
+}
+
+// findHourlyStressEvent scans hourly forecast entries (forward from now) to find the first
+// hour where outdoor temp crosses outside the comfort band: below targetLow-margin or above
+// targetHigh+margin. Returns (stressTime, direction, true) if found, or (zero,"",false) if not.
+// direction is "up" (pre-heat) or "down" (pre-cool).
+func findHourlyStressEvent(entries []hourlyForecastEntry, targetLow, targetHigh, margin float64) (time.Time, string, bool) {
+	stressLow := targetLow - margin
+	stressHigh := targetHigh + margin
+	now := time.Now()
+
+	for _, entry := range entries {
+		// Parse datetime (RFC3339 with timezone, or without)
+		t, err := time.Parse(time.RFC3339, entry.DateTime)
+		if err != nil {
+			t, err = time.Parse("2006-01-02T15:04:05", entry.DateTime)
+			if err != nil {
+				continue
+			}
+		}
+		// Skip past entries
+		if !t.After(now) {
+			continue
+		}
+		if entry.Temperature < stressLow {
+			return t, "up", true // cold stress — pre-heat
+		}
+		if entry.Temperature > stressHigh {
+			return t, "down", true // hot stress — pre-cool
+		}
+	}
+	return time.Time{}, "", false
+}
+
+// stopDeferredActivationTimer cancels the deferred activation goroutine if running.
+// Must be called with thermalBatteryMu held.
+func (m *Manager) stopDeferredActivationTimer() {
+	if m.thermalBatteryDeferCancel != nil {
+		close(m.thermalBatteryDeferCancel)
+		m.thermalBatteryDeferCancel = nil
+	}
+}
+
+// runDeferredActivationTimer periodically re-evaluates whether it is time to activate
+// the thermal battery. It exits when the cancel channel is closed or context is done.
+// cancelCh is a local copy of the cancel channel, safe to read without holding the lock.
+func (m *Manager) runDeferredActivationTimer(cancelCh <-chan struct{}) {
+	ticker := time.NewTicker(m.thermalBatteryDeferredRecheckInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-cancelCh:
+			m.logger.Info("Deferred thermal battery timer cancelled")
+			return
+		case <-m.ctx.Done():
+			return
+		case <-ticker.C:
+			// Check if still deferred before re-evaluating.
+			// deactivateThermalBattery() may have cleared the deferred state and closed
+			// cancelCh between our last select and now. Note: this guard alone does not
+			// prevent activateThermalBattery() from running if deactivateThermalBattery()
+			// races in after we release the lock below. activateThermalBattery() itself
+			// re-checks the energy level under thermalBatteryMu, which closes that window.
+			m.thermalBatteryMu.Lock()
+			isDeferred := m.thermalBatteryDeferred
+			m.thermalBatteryMu.Unlock()
+
+			if !isDeferred {
+				return
+			}
+
+			// Invalidate the hourly cache so activation re-fetches fresh forecast data.
+			m.forecastMu.Lock()
+			m.hourlyForecastAt = time.Time{}
+			m.forecastMu.Unlock()
+
+			m.activateThermalBattery()
+		}
+	}
+}
+
 // activateThermalBattery shifts HVAC setpoints to pre-condition the house when energy is abundant (white level).
 // It reads current thermostat state, saves the original setpoints, and applies the first 1°F step.
 // If more steps are needed (thermalBatteryOffset > thermalBatteryStepSize), a background goroutine
@@ -130,6 +316,19 @@ func (m *Manager) activateThermalBattery() {
 
 	if m.thermalBatteryActive {
 		m.logger.Info("Thermal battery already active, skipping activation")
+		return
+	}
+
+	// Guard: energy must still be white. This is the primary trigger condition; if energy
+	// dropped between the caller's check and acquiring the lock (TOCTOU), abort safely.
+	// This also defends against the deferred-timer race: deactivateThermalBattery() may
+	// run after the timer goroutine releases thermalBatteryMu but before we re-acquire it,
+	// so energy may no longer be white by the time we get here.
+	energyLevel, err := m.stateManager.GetString("currentEnergyLevel")
+	if err != nil || energyLevel != "white" {
+		m.logger.Info("Skipping thermal battery: energy no longer white",
+			zap.String("energy_level", energyLevel))
+		m.shadowTracker.RecordThermalBatterySkipped("energy not white")
 		return
 	}
 
@@ -251,80 +450,143 @@ func (m *Manager) activateThermalBattery() {
 	}
 
 	if hasHeatCool {
-		// Try forecast first, fall back to current outdoor temp
-		fHigh, fLow, hasForecast := m.getForecastHighLow()
-
-		if hasForecast {
-			usedForecast = true
-			forecastHigh = fHigh
-			forecastLow = fLow
-
-			// Use the first heat_cool thermostat's setpoints to define the skip zone
+		// Try hourly forecast first for precise timing (issue #1002).
+		// If hourly data is available, use it to both determine direction AND decide whether
+		// to defer activation until the stress event is within the lead time window.
+		// Falls back to daily forecast / outdoor temp when hourly is unavailable.
+		hourlyEntries, hasHourly := m.getHourlyForecast()
+		if hasHourly {
+			// Use the first heat_cool thermostat's setpoints for the stress scan
 			for _, sp := range savedSetpoints {
-				if sp.HVACMode == "heat_cool" || sp.HVACMode == "auto" {
-					skipLow := sp.TargetLow - thermalBatterySkipMargin
-					skipHigh := sp.TargetHigh + thermalBatterySkipMargin
-
-					// Skip only if both forecast high AND low are within the comfort band + margin
-					if forecastHigh <= skipHigh && forecastLow >= skipLow {
-						m.logger.Info("Skipping thermal battery: forecast within skip zone",
-							zap.Float64("forecast_high", forecastHigh),
-							zap.Float64("forecast_low", forecastLow),
-							zap.Float64("skip_low", skipLow),
-							zap.Float64("skip_high", skipHigh))
-						m.shadowTracker.RecordThermalBatterySkipped(
-							fmt.Sprintf("forecast high %.1f°F/low %.1f°F within skip zone (%.0f-%.0f°F)", forecastHigh, forecastLow, skipLow, skipHigh))
-						return
-					}
-
-					// Direction based on which extreme is outside the comfort band
-					if forecastHigh > skipHigh {
-						direction = "down" // hot day coming, pre-cool
-					} else {
-						direction = "up" // cold night coming, pre-heat
-					}
-					break
+				if sp.HVACMode != "heat_cool" && sp.HVACMode != "auto" {
+					continue
 				}
+
+				stressTime, stressDir, hasStress := findHourlyStressEvent(
+					hourlyEntries, sp.TargetLow, sp.TargetHigh, thermalBatteryHourlyComfortMargin)
+
+				if !hasStress {
+					// No stress in forecast window — thermal battery not needed
+					m.logger.Info("Skipping thermal battery: no thermal stress in hourly forecast window",
+						zap.Float64("comfort_margin_f", thermalBatteryHourlyComfortMargin))
+					m.shadowTracker.RecordThermalBatterySkipped("no thermal stress in hourly forecast window")
+					return
+				}
+
+				hoursUntilStress := time.Until(stressTime).Hours()
+				direction = stressDir
+
+				if hoursUntilStress > m.thermalBatteryLeadTimeHours {
+					// Stress is too far away — defer activation
+					plannedActivation := stressTime.Add(
+						-time.Duration(m.thermalBatteryLeadTimeHours * float64(time.Hour)))
+					m.thermalBatteryDeferred = true
+					m.thermalBatteryPlannedActivation = plannedActivation
+
+					// Start re-evaluation timer if not already running
+					if m.thermalBatteryDeferCancel == nil {
+						cancelCh := make(chan struct{})
+						m.thermalBatteryDeferCancel = cancelCh
+						go m.runDeferredActivationTimer(cancelCh)
+					}
+
+					m.shadowTracker.RecordThermalBatteryDeferred(plannedActivation, stressDir)
+					m.logger.Info("Thermal battery deferred: stress not yet within lead time",
+						zap.Float64("hours_until_stress", hoursUntilStress),
+						zap.Float64("lead_time_hours", m.thermalBatteryLeadTimeHours),
+						zap.Time("planned_activation", plannedActivation),
+						zap.String("stress_direction", stressDir))
+					return
+				}
+
+				// Within lead time — proceed to activate now.
+				// Clear any deferred state (timer goroutine will see deferred=false and exit).
+				if m.thermalBatteryDeferred {
+					m.stopDeferredActivationTimer()
+					m.thermalBatteryDeferred = false
+					m.thermalBatteryPlannedActivation = time.Time{}
+				}
+
+				m.logger.Info("Thermal battery: stress within lead time, activating now",
+					zap.Float64("hours_until_stress", hoursUntilStress),
+					zap.String("stress_direction", stressDir))
+				break
 			}
 		} else {
-			// Fallback: use current outdoor temperature (existing behavior)
-			m.logger.Warn("Using current outdoor temp as fallback for thermal battery direction")
+			// Hourly forecast unavailable — fall back to daily forecast / outdoor temp
+			fHigh, fLow, hasForecast := m.getForecastHighLow()
 
-			outdoorState, err := m.haClient.GetState(outdoorTempSensor)
-			if err != nil {
-				m.logger.Warn("Skipping thermal battery: outdoor temp sensor unavailable",
-					zap.String("sensor", outdoorTempSensor), zap.Error(err))
-				m.shadowTracker.RecordThermalBatterySkipped("outdoor temp sensor unavailable")
-				return
-			}
-			parsed, err := strconv.ParseFloat(outdoorState.State, 64)
-			if err != nil {
-				m.logger.Warn("Skipping thermal battery: could not parse outdoor temp",
-					zap.String("sensor", outdoorTempSensor), zap.String("value", outdoorState.State), zap.Error(err))
-				m.shadowTracker.RecordThermalBatterySkipped("outdoor temp not parseable")
-				return
-			}
-			outdoorTemp = parsed
+			if hasForecast {
+				usedForecast = true
+				forecastHigh = fHigh
+				forecastLow = fLow
 
-			for _, sp := range savedSetpoints {
-				if sp.HVACMode == "heat_cool" || sp.HVACMode == "auto" {
-					skipLow := sp.TargetLow - thermalBatterySkipMargin
-					skipHigh := sp.TargetHigh + thermalBatterySkipMargin
-					if outdoorTemp >= skipLow && outdoorTemp <= skipHigh {
-						m.logger.Info("Skipping thermal battery: outdoor temp within skip zone (fallback)",
-							zap.Float64("outdoor_temp", outdoorTemp),
-							zap.Float64("skip_low", skipLow),
-							zap.Float64("skip_high", skipHigh))
-						m.shadowTracker.RecordThermalBatterySkipped(
-							fmt.Sprintf("outdoor temp %.1f°F within skip zone (%.0f-%.0f°F) (fallback)", outdoorTemp, skipLow, skipHigh))
-						return
+				for _, sp := range savedSetpoints {
+					if sp.HVACMode == "heat_cool" || sp.HVACMode == "auto" {
+						skipLow := sp.TargetLow - thermalBatterySkipMargin
+						skipHigh := sp.TargetHigh + thermalBatterySkipMargin
+
+						if forecastHigh <= skipHigh && forecastLow >= skipLow {
+							m.logger.Info("Skipping thermal battery: forecast within skip zone",
+								zap.Float64("forecast_high", forecastHigh),
+								zap.Float64("forecast_low", forecastLow),
+								zap.Float64("skip_low", skipLow),
+								zap.Float64("skip_high", skipHigh))
+							m.shadowTracker.RecordThermalBatterySkipped(
+								fmt.Sprintf("forecast high %.1f°F/low %.1f°F within skip zone (%.0f-%.0f°F)",
+									forecastHigh, forecastLow, skipLow, skipHigh))
+							return
+						}
+
+						if forecastHigh > skipHigh {
+							direction = "down" // hot day coming, pre-cool
+						} else {
+							direction = "up" // cold night coming, pre-heat
+						}
+						break
 					}
-					if outdoorTemp < skipLow {
-						direction = "up"
-					} else {
-						direction = "down"
+				}
+			} else {
+				// Fallback: use current outdoor temperature
+				m.logger.Warn("Using current outdoor temp as fallback for thermal battery direction")
+
+				outdoorState, err := m.haClient.GetState(outdoorTempSensor)
+				if err != nil {
+					m.logger.Warn("Skipping thermal battery: outdoor temp sensor unavailable",
+						zap.String("sensor", outdoorTempSensor), zap.Error(err))
+					m.shadowTracker.RecordThermalBatterySkipped("outdoor temp sensor unavailable")
+					return
+				}
+				parsed, err := strconv.ParseFloat(outdoorState.State, 64)
+				if err != nil {
+					m.logger.Warn("Skipping thermal battery: could not parse outdoor temp",
+						zap.String("sensor", outdoorTempSensor), zap.String("value", outdoorState.State), zap.Error(err))
+					m.shadowTracker.RecordThermalBatterySkipped("outdoor temp not parseable")
+					return
+				}
+				outdoorTemp = parsed
+
+				for _, sp := range savedSetpoints {
+					if sp.HVACMode == "heat_cool" || sp.HVACMode == "auto" {
+						skipLow := sp.TargetLow - thermalBatterySkipMargin
+						skipHigh := sp.TargetHigh + thermalBatterySkipMargin
+						if outdoorTemp >= skipLow && outdoorTemp <= skipHigh {
+							m.logger.Info("Skipping thermal battery: outdoor temp within skip zone (fallback)",
+								zap.Float64("outdoor_temp", outdoorTemp),
+								zap.Float64("skip_low", skipLow),
+								zap.Float64("skip_high", skipHigh))
+							m.shadowTracker.RecordThermalBatterySkipped(
+								fmt.Sprintf("outdoor temp %.1f°F within skip zone (%.0f-%.0f°F) (fallback)",
+									outdoorTemp, skipLow, skipHigh))
+							return
+						}
+						if outdoorTemp < skipLow {
+							direction = "up"
+						} else {
+							direction = "down"
+						}
+						break
 					}
-					break
 				}
 			}
 		}
@@ -636,10 +898,20 @@ func (m *Manager) stopThermalBatteryStepping() {
 	}
 }
 
-// deactivateThermalBattery reverts HVAC setpoints to their original values.
+// deactivateThermalBattery reverts HVAC setpoints to their original values and clears
+// any deferred activation state. Safe to call when not active (no-op) or when deferred.
 func (m *Manager) deactivateThermalBattery(reason string) {
 	m.thermalBatteryMu.Lock()
 	defer m.thermalBatteryMu.Unlock()
+
+	// Clear deferred state if present (even when not yet active)
+	if m.thermalBatteryDeferred {
+		m.logger.Info("Clearing deferred thermal battery activation", zap.String("reason", reason))
+		m.stopDeferredActivationTimer()
+		m.thermalBatteryDeferred = false
+		m.thermalBatteryPlannedActivation = time.Time{}
+		m.shadowTracker.RecordThermalBatteryDeferredCleared()
+	}
 
 	if !m.thermalBatteryActive {
 		return
@@ -716,13 +988,14 @@ func (m *Manager) deactivateThermalBattery(reason string) {
 }
 
 // handlePresenceChange handles changes to presence/sleep states.
-// If thermal battery is active and conditions no longer apply, deactivate it.
+// If thermal battery is active or deferred and conditions no longer apply, deactivate it.
 func (m *Manager) handlePresenceChange(key string, oldValue, newValue interface{}) {
 	m.thermalBatteryMu.Lock()
 	isActive := m.thermalBatteryActive
+	isDeferred := m.thermalBatteryDeferred
 	m.thermalBatteryMu.Unlock()
 
-	if !isActive {
+	if !isActive && !isDeferred {
 		return
 	}
 
