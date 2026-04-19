@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"homeautomation/internal/ha"
 	"homeautomation/internal/shadowstate"
 	"homeautomation/internal/state"
 	"homeautomation/pkg/plugin"
@@ -301,4 +302,58 @@ func TestMusicShadowState_InterfaceImplementation(t *testing.T) {
 	_ = shadowState.GetMetadata()
 
 	// If this compiles, the interface is implemented correctly
+}
+
+// TestMusicShadowState_CaptureInputs_IncludesMuteConditionVariables verifies that
+// captureCurrentInputs includes variables referenced in leave_muted_if conditions.
+//
+// Regression test for GitHub issue #998: when isTVPlaying=true, the shadow state
+// inputs did not include isTVPlaying, making it impossible to diagnose why speakers
+// with leave_muted_if: isTVPlaying=true were not being muted.
+func TestMusicShadowState_CaptureInputs_IncludesMuteConditionVariables(t *testing.T) {
+	t.Parallel()
+
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, zap.NewNop(), false)
+	_ = stateManager.SetBool("isTVPlaying", true)
+
+	// Config with isTVPlaying as a leave_muted_if condition
+	config := &MusicConfig{
+		Music: map[string]MusicMode{
+			"day": {
+				Participants: []Participant{
+					{
+						PlayerName:   "Front Room",
+						BaseVolume:   9,
+						LeaveMutedIf: []MuteCondition{},
+					},
+					{
+						PlayerName: "Kitchen",
+						BaseVolume: 9,
+						LeaveMutedIf: []MuteCondition{
+							{Variable: "isTVPlaying", Value: true},
+						},
+					},
+				},
+				PlaybackOptions: []PlaybackOption{
+					{URI: "https://tidal.com/browse/playlist/test", MediaType: "tidal", VolumeMultiplier: 1.0},
+				},
+			},
+		},
+	}
+
+	manager := NewManager(context.Background(), mockClient, stateManager, config, zap.NewNop(), true, nil, nil)
+
+	inputs := manager.captureCurrentInputs()
+
+	if _, exists := inputs["isTVPlaying"]; !exists {
+		t.Error("captureCurrentInputs() must include isTVPlaying when it is referenced in a leave_muted_if condition. " +
+			"Without this, shadow state inputs omit isTVPlaying and operators cannot diagnose muting failures (issue #998).")
+	}
+	if val, exists := inputs["isTVPlaying"]; exists {
+		boolVal, ok := val.(bool)
+		if !ok || !boolVal {
+			t.Errorf("Expected isTVPlaying=true in shadow inputs, got %v (type %T)", val, val)
+		}
+	}
 }

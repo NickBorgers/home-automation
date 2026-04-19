@@ -32,6 +32,19 @@ func (m *Manager) captureCurrentInputs() map[string]interface{} {
 		inputs["isWakeSequenceActive"] = val
 	}
 
+	// Capture variables referenced in leave_muted_if / exclude_if conditions across all
+	// music modes. These variables (e.g. isTVPlaying, isNickOfficeOccupied) control
+	// per-speaker muting and must appear in shadow inputs so operators can diagnose
+	// why speakers are or aren't muted (issue #998).
+	for _, varName := range m.collectMuteConditionVariables() {
+		if _, already := inputs[varName]; already {
+			continue // Already captured above
+		}
+		if val, err := m.getStateValue(varName); err == nil {
+			inputs[varName] = val
+		}
+	}
+
 	return inputs
 }
 

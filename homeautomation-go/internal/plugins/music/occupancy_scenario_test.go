@@ -50,6 +50,7 @@ import (
 	"homeautomation/pkg/plugin"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 )
 
@@ -477,6 +478,133 @@ func TestScenario_MutedSpeaker_GetsTargetVolumeSetDuringPlayback(t *testing.T) {
 	assert.True(t, foundStudyMute,
 		"Expected SoCo mute for Study speaker. "+
 			"Muted speakers should be explicitly muted via SoCo-CLI. Paths: %v", allPaths)
+}
+
+// =============================================================================
+// TEST: TV Playing - Followers Pre-Muted Even If Group Join Fails
+// =============================================================================
+//
+// WHAT THIS TEST VALIDATES:
+// When isTVPlaying=true before music starts, follower speakers with
+// leave_muted_if: isTVPlaying=true must be pre-muted SYNCHRONOUSLY inside
+// executePlayback(), BEFORE the async group join attempt.
+//
+// Without this pre-muting step (issue #998), a follower that fails to join the
+// Sonos group never has shouldUnmuteSpeaker() called (joinSpeakerWithRetry returns
+// early on failure), leaving the speaker playing audio unmuted as a standalone device.
+//
+// SCENARIO:
+// 1. isTVPlaying=true before music starts
+// 2. executePlayback() runs with Kitchen as a follower (leave_muted_if: isTVPlaying=true)
+// 3. The Sonos group join for Kitchen fails (simulated by custom SoCo mock)
+// 4. Kitchen must still receive volume+mute commands from the pre-muting step
+//
+// EXPECTED:
+// SoCo paths /Kitchen/volume/9 and /Kitchen/mute appear even though join fails.
+//
+// REGRESSION TEST FOR: https://github.com/NickBorgers/home-automation/issues/998
+func TestScenario_TVPlaying_PreMutesFollowers_EvenIfJoinFails(t *testing.T) {
+	t.Parallel()
+	logger := zap.NewNop()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	config := createOccupancyMusicConfig()
+
+	fixedTime := time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC)
+	timeProvider := plugin.FixedTimeProvider{FixedTime: fixedTime}
+
+	manager := NewManager(context.Background(), mockClient, stateManager, config, logger, false, timeProvider, nil)
+	manager.SetSleepFunc(func(d time.Duration) {}) // Skip all sleeps for fast test
+
+	// TV is playing BEFORE music starts — Kitchen must be muted.
+	_ = stateManager.SetBool("isTVPlaying", true)
+	_ = stateManager.SetString("dayPhase", "day")
+	_ = stateManager.SetBool("isAnyoneHome", true)
+	_ = stateManager.SetBool("isAnyoneAsleep", false)
+	_ = stateManager.SetBool("isMasterAsleep", false)
+	_ = stateManager.SetBool("isEveryoneAsleep", false)
+	_ = stateManager.SetBool("isNickOfficeOccupied", false)
+
+	// HA mock: lead speaker reports "playing" for verification step.
+	mockClient.SetMockState("media_player.kitchen", &ha.State{
+		EntityID: "media_player.kitchen",
+		State:    "playing",
+	})
+	mockClient.SetMockState("media_player.study", &ha.State{
+		EntityID: "media_player.study",
+		State:    "playing",
+	})
+
+	// SoCo mock: group join operations fail; all other operations succeed.
+	// This simulates the production scenario where Sonos group join is flaky.
+	socoPaths := setupFailingGroupJoinSoCo(t, manager)
+
+	// Kitchen is lead (no mute conditions), Study is follower muted if TV playing.
+	// Reuse the existing occupancy config participants but override the mute condition
+	// to test isTVPlaying specifically.
+	participants := []ParticipantWithVolume{
+		{
+			PlayerName:   "Kitchen",
+			BaseVolume:   9,
+			Volume:       9,
+			LeaveMutedIf: []MuteCondition{}, // Lead is always unmuted
+		},
+		{
+			PlayerName: "Study",
+			BaseVolume: 6,
+			Volume:     6,
+			LeaveMutedIf: []MuteCondition{
+				{
+					Variable: "isTVPlaying",
+					Value:    true, // Mute when TV is playing
+				},
+			},
+		},
+	}
+
+	option := PlaybackOption{
+		URI:              "https://example.com/music.mp3",
+		MediaType:        "music", // Non-tidal avoids SoCo sharelink path
+		VolumeMultiplier: 1.0,
+	}
+
+	_, _, err := manager.executePlayback("day", option, participants, "Kitchen")
+	require.NoError(t, err, "executePlayback should succeed even when follower join fails")
+
+	// Poll for pre-mute commands on Study. These must appear regardless of whether
+	// the group join succeeds, because pre-muting happens before the async join.
+	// Note: Even though pre-muting is synchronous in executePlayback(), the mock HTTP
+	// server handler runs in a separate goroutine (httptest.Server), so there is a
+	// propagation delay between the HTTP call completing and the path appearing in
+	// socoPaths. The poll ensures we don't race against that goroutine.
+	var allPaths []string
+	foundStudyVolumeSet := false
+	foundStudyMute := false
+	for attempt := 0; attempt < 200; attempt++ {
+		allPaths = socoPaths.All()
+		for _, path := range allPaths {
+			if path == "/Study/volume/6" {
+				foundStudyVolumeSet = true
+			}
+			if path == "/Study/mute" {
+				foundStudyMute = true
+			}
+		}
+		if foundStudyVolumeSet && foundStudyMute {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	assert.True(t, foundStudyVolumeSet,
+		"Study speaker must be pre-muted with target volume even when group join fails (issue #998). "+
+			"Pre-muting happens synchronously in executePlayback() before the async join attempt. "+
+			"SoCo paths seen: %v", allPaths)
+
+	assert.True(t, foundStudyMute,
+		"Study speaker must receive mute command even when group join fails (issue #998). "+
+			"Without pre-muting, speakers play audio unmuted as standalone devices. "+
+			"SoCo paths seen: %v", allPaths)
 }
 
 // =============================================================================

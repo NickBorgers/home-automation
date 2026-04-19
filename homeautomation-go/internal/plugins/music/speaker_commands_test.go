@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -95,6 +96,49 @@ func setupSoCoForTest(t *testing.T, manager *Manager, readOnly bool) *threadSafe
 	socoClient := NewSoCoClient(server.URL, zap.NewNop(), readOnly)
 	manager.SetSoCoClient(socoClient)
 	return paths
+}
+
+// setupFailingGroupJoinSoCo creates a mock SoCo-CLI server where group join operations
+// always fail (exit_code=1) while all other operations succeed. This is used to test
+// that pre-muting happens before the async join attempt (issue #998): if a follower
+// speaker fails to join the group, it should still have been pre-muted so it doesn't
+// play audio unmuted as a standalone speaker.
+func setupFailingGroupJoinSoCo(t *testing.T, manager *Manager) *threadSafePaths {
+	t.Helper()
+	recorded := &threadSafePaths{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		recorded.Append(r.URL.Path)
+
+		resp := SoCoResponse{
+			Speaker: "test",
+			Action:  "test",
+		}
+
+		// Return error for group join operations: /{follower}/group/{lead}
+		if containsGroupJoin(r.URL.Path) {
+			resp.ExitCode = 1
+			resp.ErrorMsg = "forced group join failure (test)"
+			resp.Result = "error"
+		} else {
+			resp.ExitCode = 0
+			resp.Result = "success"
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(resp); err != nil {
+			http.Error(w, "encode failed", http.StatusInternalServerError)
+		}
+	}))
+	t.Cleanup(server.Close)
+	socoClient := NewSoCoClient(server.URL, zap.NewNop(), false)
+	manager.SetSoCoClient(socoClient)
+	return recorded
+}
+
+// containsGroupJoin returns true for SoCo paths that represent a group join operation:
+// /{follower}/group/{lead} — e.g., /Kitchen/group/Front%20Room
+func containsGroupJoin(path string) bool {
+	return strings.Contains(path, "/group/")
 }
 
 // createTestManager creates a Manager wired up to a mock HA client for testing.
