@@ -471,19 +471,22 @@ type ThermostatSettings struct {
 
 // ThermalBatteryState tracks the thermal battery pre-conditioning state
 type ThermalBatteryState struct {
-	Active            bool                     `json:"active"`
-	OffsetApplied     float64                  `json:"offsetApplied,omitempty"` // Degrees F shifted so far
-	ActivatedAt       time.Time                `json:"activatedAt,omitempty"`
-	DeactivatedAt     time.Time                `json:"deactivatedAt,omitempty"`
-	SkipReason        string                   `json:"skipReason,omitempty"` // Why activation was skipped
-	SavedSetpoints    map[string]SavedSetpoint `json:"savedSetpoints,omitempty"`
-	StepsCompleted    int                      `json:"stepsCompleted,omitempty"`
-	TotalSteps        int                      `json:"totalSteps,omitempty"`
-	StepSize          float64                  `json:"stepSize,omitempty"`
-	Stepping          bool                     `json:"stepping,omitempty"`          // true while steps remain
-	Deferred          bool                     `json:"deferred,omitempty"`          // true when activation is deferred due to timing
-	PlannedActivation time.Time                `json:"plannedActivation,omitempty"` // when we plan to activate
-	StressDirection   string                   `json:"stressDirection,omitempty"`   // "up" or "down"
+	Active                bool                     `json:"active"`
+	OffsetApplied         float64                  `json:"offsetApplied,omitempty"` // Degrees F shifted so far
+	ActivatedAt           time.Time                `json:"activatedAt,omitempty"`
+	DeactivatedAt         time.Time                `json:"deactivatedAt,omitempty"`
+	SkipReason            string                   `json:"skipReason,omitempty"` // Why activation was skipped
+	SavedSetpoints        map[string]SavedSetpoint `json:"savedSetpoints,omitempty"`
+	StepsCompleted        int                      `json:"stepsCompleted,omitempty"`
+	TotalSteps            int                      `json:"totalSteps,omitempty"`
+	StepSize              float64                  `json:"stepSize,omitempty"`
+	Stepping              bool                     `json:"stepping,omitempty"`              // true while steps remain
+	Deferred              bool                     `json:"deferred,omitempty"`              // true when activation is deferred waiting for solar tail
+	DeferReason           string                   `json:"deferReason,omitempty"`           // human-readable reason activation is deferred
+	StressDirection       string                   `json:"stressDirection,omitempty"`       // "up" (pre-heat) or "down" (pre-cool)
+	ForecastStress        string                   `json:"forecastStress,omitempty"`        // description of the upcoming stress event
+	RemainingSolarKWh     float64                  `json:"remainingSolarKWh,omitempty"`     // remaining solar production forecast at defer time
+	SolarTailThresholdKWh float64                  `json:"solarTailThresholdKWh,omitempty"` // configured activation threshold
 }
 
 // SavedSetpoint records the original thermostat setpoint before thermal battery offset was applied

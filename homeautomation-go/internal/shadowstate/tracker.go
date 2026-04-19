@@ -415,20 +415,28 @@ func (lst *LoadSheddingTracker) RecordThermalBatterySkipped(reason string) {
 	now := time.Now()
 	lst.State().Outputs.ThermalBattery.SkipReason = reason
 	lst.State().Outputs.ThermalBattery.Deferred = false
-	lst.State().Outputs.ThermalBattery.PlannedActivation = time.Time{}
+	lst.State().Outputs.ThermalBattery.DeferReason = ""
+	lst.State().Outputs.ThermalBattery.ForecastStress = ""
+	lst.State().Outputs.ThermalBattery.RemainingSolarKWh = 0
+	lst.State().Outputs.ThermalBattery.SolarTailThresholdKWh = 0
 	lst.State().Metadata.LastUpdated = now
 }
 
 // RecordThermalBatteryDeferred records that thermal battery activation has been deferred
-// because the forecast stress event is not yet within the lead time window.
-func (lst *LoadSheddingTracker) RecordThermalBatteryDeferred(plannedActivation time.Time, direction string) {
+// because solar production still exceeds the tail threshold. The goal of the thermal
+// battery is to pre-condition the house using the tail end of solar production so that
+// battery energy is not spent maintaining a shifted setpoint all day.
+func (lst *LoadSheddingTracker) RecordThermalBatteryDeferred(deferReason, direction, forecastStress string, remainingKWh, thresholdKWh float64) {
 	lst.Lock()
 	defer lst.Unlock()
 
 	now := time.Now()
 	lst.State().Outputs.ThermalBattery.Deferred = true
-	lst.State().Outputs.ThermalBattery.PlannedActivation = plannedActivation
+	lst.State().Outputs.ThermalBattery.DeferReason = deferReason
 	lst.State().Outputs.ThermalBattery.StressDirection = direction
+	lst.State().Outputs.ThermalBattery.ForecastStress = forecastStress
+	lst.State().Outputs.ThermalBattery.RemainingSolarKWh = remainingKWh
+	lst.State().Outputs.ThermalBattery.SolarTailThresholdKWh = thresholdKWh
 	lst.State().Metadata.LastUpdated = now
 }
 
@@ -440,8 +448,11 @@ func (lst *LoadSheddingTracker) RecordThermalBatteryDeferredCleared() {
 
 	now := time.Now()
 	lst.State().Outputs.ThermalBattery.Deferred = false
-	lst.State().Outputs.ThermalBattery.PlannedActivation = time.Time{}
+	lst.State().Outputs.ThermalBattery.DeferReason = ""
 	lst.State().Outputs.ThermalBattery.StressDirection = ""
+	lst.State().Outputs.ThermalBattery.ForecastStress = ""
+	lst.State().Outputs.ThermalBattery.RemainingSolarKWh = 0
+	lst.State().Outputs.ThermalBattery.SolarTailThresholdKWh = 0
 	lst.State().Metadata.LastUpdated = now
 }
 

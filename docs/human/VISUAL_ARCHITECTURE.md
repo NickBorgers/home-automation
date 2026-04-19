@@ -928,6 +928,7 @@ graph LR
         CurrentEnergy[currentEnergyLevel]
         FreeEnergy[isFreeEnergyAvailable]
         OwnerJustReturned[didOwnerJustReturnHome]
+        RemainingSolar[remainingSolarGeneration]
     end
 
     subgraph "Output State Variables"
@@ -1020,6 +1021,7 @@ graph LR
     Energy --> SolarLevel
     Energy --> CurrentEnergy
     Energy --> FreeEnergy
+    Energy --> RemainingSolar
 
     AlarmTime --> SleepHygiene
     MasterAsleep --> SleepHygiene
@@ -1054,6 +1056,8 @@ graph LR
     CurrentEnergy --> LoadShedding
     AnyoneHome --> LoadShedding
     EveryoneAsleep --> LoadShedding
+    FreeEnergy --> LoadShedding
+    RemainingSolar --> LoadShedding
 
     DayPhase --> ChristmasPlugin
     AnyoneHome --> ChristmasPlugin
@@ -1099,6 +1103,7 @@ graph LR
     style CurrentEnergy fill:#fff3e0
     style FreeEnergy fill:#fff3e0
     style OwnerJustReturned fill:#fff3e0
+    style RemainingSolar fill:#fff3e0
 
     style MusicType fill:#e8f5e9
     style MusicURI fill:#e8f5e9

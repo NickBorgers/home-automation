@@ -227,9 +227,9 @@ func (m *Manager) tryFetchHourlyForecast(entity string) ([]hourlyForecastEntry, 
 
 // findHourlyStressEvent scans hourly forecast entries (forward from now) to find the first
 // hour where outdoor temp crosses outside the comfort band: below targetLow-margin or above
-// targetHigh+margin. Returns (stressTime, direction, true) if found, or (zero,"",false) if not.
-// direction is "up" (pre-heat) or "down" (pre-cool).
-func findHourlyStressEvent(entries []hourlyForecastEntry, targetLow, targetHigh, margin float64) (time.Time, string, bool) {
+// targetHigh+margin. Returns (stressTime, stressTemp, direction, true) if found, or
+// (zero, 0, "", false) if not. direction is "up" (pre-heat) or "down" (pre-cool).
+func findHourlyStressEvent(entries []hourlyForecastEntry, targetLow, targetHigh, margin float64) (time.Time, float64, string, bool) {
 	stressLow := targetLow - margin
 	stressHigh := targetHigh + margin
 	now := time.Now()
@@ -248,13 +248,19 @@ func findHourlyStressEvent(entries []hourlyForecastEntry, targetLow, targetHigh,
 			continue
 		}
 		if entry.Temperature < stressLow {
-			return t, "up", true // cold stress — pre-heat
+			return t, entry.Temperature, "up", true // cold stress — pre-heat
 		}
 		if entry.Temperature > stressHigh {
-			return t, "down", true // hot stress — pre-cool
+			return t, entry.Temperature, "down", true // hot stress — pre-cool
 		}
 	}
-	return time.Time{}, "", false
+	return time.Time{}, 0, "", false
+}
+
+// formatForecastStress produces a human-readable description of the upcoming
+// stress event for logging and shadow state, e.g. "up: 37.0°F at 05:00".
+func formatForecastStress(direction string, stressTemp float64, stressTime time.Time) string {
+	return fmt.Sprintf("%s: %.1f°F at %s", direction, stressTemp, stressTime.Local().Format("15:04"))
 }
 
 // stopDeferredActivationTimer cancels the deferred activation goroutine if running.
@@ -450,9 +456,13 @@ func (m *Manager) activateThermalBattery() {
 	}
 
 	if hasHeatCool {
-		// Try hourly forecast first for precise timing (issue #1002).
-		// If hourly data is available, use it to both determine direction AND decide whether
-		// to defer activation until the stress event is within the lead time window.
+		// Try hourly forecast first for precise direction + stress detection (issue #1002).
+		// If hourly data is available, use it to determine direction AND check whether
+		// it is time to activate based on the solar production tail. The goal of the
+		// thermal battery is to pre-condition the house using solar, not battery — so
+		// activation is deferred while remainingSolarGeneration still exceeds the
+		// configured tail threshold. This naturally targets the afternoon solar tail.
+		//
 		// Falls back to daily forecast / outdoor temp when hourly is unavailable.
 		hourlyEntries, hasHourly := m.getHourlyForecast()
 		if hasHourly {
@@ -462,7 +472,7 @@ func (m *Manager) activateThermalBattery() {
 					continue
 				}
 
-				stressTime, stressDir, hasStress := findHourlyStressEvent(
+				stressTime, stressTemp, stressDir, hasStress := findHourlyStressEvent(
 					hourlyEntries, sp.TargetLow, sp.TargetHigh, thermalBatteryHourlyComfortMargin)
 
 				if !hasStress {
@@ -473,43 +483,58 @@ func (m *Manager) activateThermalBattery() {
 					return
 				}
 
-				hoursUntilStress := time.Until(stressTime).Hours()
 				direction = stressDir
+				forecastStress := formatForecastStress(stressDir, stressTemp, stressTime)
 
-				if hoursUntilStress > m.thermalBatteryLeadTimeHours {
-					// Stress is too far away — defer activation
-					plannedActivation := stressTime.Add(
-						-time.Duration(m.thermalBatteryLeadTimeHours * float64(time.Hour)))
-					m.thermalBatteryDeferred = true
-					m.thermalBatteryPlannedActivation = plannedActivation
-
-					// Start re-evaluation timer if not already running
-					if m.thermalBatteryDeferCancel == nil {
-						cancelCh := make(chan struct{})
-						m.thermalBatteryDeferCancel = cancelCh
-						go m.runDeferredActivationTimer(cancelCh)
+				// Solar-tail gate: during normal daylight, defer activation until the
+				// remaining solar production drops below the tail threshold. During
+				// free-energy hours (overnight utility window), the stored thermal
+				// mass is being charged from cheap grid energy, so solar timing does
+				// not apply — proceed to activate immediately.
+				freeEnergy, _ := m.stateManager.GetBool("isFreeEnergyAvailable")
+				if !freeEnergy {
+					remainingKWh, err := m.stateManager.GetNumber("remainingSolarGeneration")
+					if err != nil {
+						m.logger.Info("remainingSolarGeneration unavailable, activating without solar-tail gate",
+							zap.Error(err))
 					}
+					if err == nil && remainingKWh > m.thermalBatterySolarTailThresholdKWh {
+						deferReason := fmt.Sprintf(
+							"solar tail not yet reached (remaining: %.1f kWh, threshold: %.1f kWh)",
+							remainingKWh, m.thermalBatterySolarTailThresholdKWh)
 
-					m.shadowTracker.RecordThermalBatteryDeferred(plannedActivation, stressDir)
-					m.logger.Info("Thermal battery deferred: stress not yet within lead time",
-						zap.Float64("hours_until_stress", hoursUntilStress),
-						zap.Float64("lead_time_hours", m.thermalBatteryLeadTimeHours),
-						zap.Time("planned_activation", plannedActivation),
-						zap.String("stress_direction", stressDir))
-					return
+						m.thermalBatteryDeferred = true
+
+						// Start re-evaluation timer if not already running
+						if m.thermalBatteryDeferCancel == nil {
+							cancelCh := make(chan struct{})
+							m.thermalBatteryDeferCancel = cancelCh
+							go m.runDeferredActivationTimer(cancelCh)
+						}
+
+						m.shadowTracker.RecordThermalBatteryDeferred(
+							deferReason, stressDir, forecastStress,
+							remainingKWh, m.thermalBatterySolarTailThresholdKWh)
+						m.logger.Info("Thermal battery deferred: solar tail not yet reached",
+							zap.Float64("remaining_solar_kwh", remainingKWh),
+							zap.Float64("threshold_kwh", m.thermalBatterySolarTailThresholdKWh),
+							zap.String("stress_direction", stressDir),
+							zap.String("forecast_stress", forecastStress))
+						return
+					}
 				}
 
-				// Within lead time — proceed to activate now.
+				// Solar tail reached (or free energy in effect) — proceed to activate.
 				// Clear any deferred state (timer goroutine will see deferred=false and exit).
 				if m.thermalBatteryDeferred {
 					m.stopDeferredActivationTimer()
 					m.thermalBatteryDeferred = false
-					m.thermalBatteryPlannedActivation = time.Time{}
 				}
 
-				m.logger.Info("Thermal battery: stress within lead time, activating now",
-					zap.Float64("hours_until_stress", hoursUntilStress),
-					zap.String("stress_direction", stressDir))
+				m.logger.Info("Thermal battery: solar tail reached, activating now",
+					zap.String("stress_direction", stressDir),
+					zap.String("forecast_stress", forecastStress),
+					zap.Bool("free_energy", freeEnergy))
 				break
 			}
 		} else {
@@ -909,7 +934,6 @@ func (m *Manager) deactivateThermalBattery(reason string) {
 		m.logger.Info("Clearing deferred thermal battery activation", zap.String("reason", reason))
 		m.stopDeferredActivationTimer()
 		m.thermalBatteryDeferred = false
-		m.thermalBatteryPlannedActivation = time.Time{}
 		m.shadowTracker.RecordThermalBatteryDeferredCleared()
 	}
 

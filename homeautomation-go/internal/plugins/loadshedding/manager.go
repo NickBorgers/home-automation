@@ -68,13 +68,18 @@ const (
 	// Restart safety: delay after reverting stale holds to let thermostat schedule take effect
 	thermalBatteryDefaultHoldRevertDelay = 5 * time.Second
 
-	// Thermal battery: hourly forecast timing.
-	// Note: thermalBatteryHourlyComfortMargin (5°F) is intentionally tighter than thermalBatterySkipMargin
-	// (20°F). The hourly path triggers on genuine near-term stress; the daily path uses a wide band
-	// to skip only on truly mild days. Normalizing them would break the intended behavior of each path.
-	thermalBatteryDefaultLeadTimeHours   = 3.0              // hours before forecast stress to activate
-	thermalBatteryHourlyComfortMargin    = 5.0              // °F outside comfort band to consider "stress" (hourly)
-	thermalBatteryDeferredRecheckDefault = 15 * time.Minute // how often to re-evaluate while deferred
+	// Thermal battery: solar-tail timing.
+	// Goal: charge the thermal battery using the tail end of solar production, so the
+	// house reaches peak thermal storage just as solar fades. Activation is deferred
+	// while remainingSolarGeneration exceeds the threshold, which naturally targets
+	// the afternoon solar tail.
+	//
+	// Note: thermalBatteryHourlyComfortMargin (5°F) is intentionally tighter than
+	// thermalBatterySkipMargin (20°F). The hourly path triggers on genuine near-term
+	// stress; the daily path uses a wide band to skip only on truly mild days.
+	thermalBatteryDefaultSolarTailThresholdKWh = 15.0             // activate when remaining solar forecast drops below this
+	thermalBatteryHourlyComfortMargin          = 5.0              // °F outside comfort band to consider "stress" (hourly)
+	thermalBatteryDeferredRecheckDefault       = 15 * time.Minute // how often to re-evaluate while deferred
 )
 
 // deferredAction represents a pending action that was rate-limited
@@ -124,11 +129,10 @@ type Manager struct {
 	thermalBatteryStepStart       time.Time     // when the current step began (for safety timeout)
 	thermalBatteryMaxStepWaitDur  time.Duration // configurable max wait per step (defaults to thermalBatteryMaxStepWait)
 
-	// Hourly forecast timing: deferred activation state (guarded by thermalBatteryMu)
-	thermalBatteryLeadTimeHours           float64       // hours before stress to activate (configurable for tests)
+	// Solar-tail timing: deferred activation state (guarded by thermalBatteryMu)
+	thermalBatterySolarTailThresholdKWh   float64       // activate when remaining solar drops below this (configurable for tests)
 	thermalBatteryDeferredRecheckInterval time.Duration // how often to re-evaluate while deferred
-	thermalBatteryDeferred                bool          // true when activation is deferred due to timing
-	thermalBatteryPlannedActivation       time.Time     // when we plan to activate (stress_time - lead_time)
+	thermalBatteryDeferred                bool          // true when activation is deferred waiting for solar tail
 	thermalBatteryDeferCancel             chan struct{} // signal to stop deferred timer goroutine
 
 	// Forecast cache for thermal battery.
@@ -173,7 +177,7 @@ func NewManager(ctx context.Context, haClient ha.HAClient, stateManager *state.M
 		thermalBatteryPollInt:                 thermalBatteryDefaultPollInt,
 		thermalBatteryHoldRevertDelay:         thermalBatteryDefaultHoldRevertDelay,
 		thermalBatteryMaxStepWaitDur:          thermalBatteryMaxStepWait,
-		thermalBatteryLeadTimeHours:           thermalBatteryDefaultLeadTimeHours,
+		thermalBatterySolarTailThresholdKWh:   thermalBatteryDefaultSolarTailThresholdKWh,
 		thermalBatteryDeferredRecheckInterval: thermalBatteryDeferredRecheckDefault,
 	}
 }
@@ -210,9 +214,10 @@ func (m *Manager) SetThermalBatteryMaxStepWaitForTesting(d time.Duration) {
 	m.thermalBatteryMaxStepWaitDur = d
 }
 
-// SetThermalBatteryLeadTimeHoursForTesting allows tests to override the default lead time.
-func (m *Manager) SetThermalBatteryLeadTimeHoursForTesting(h float64) {
-	m.thermalBatteryLeadTimeHours = h
+// SetThermalBatterySolarTailThresholdForTesting allows tests to override the solar-tail
+// activation threshold (remaining kWh below which activation fires).
+func (m *Manager) SetThermalBatterySolarTailThresholdForTesting(kwh float64) {
+	m.thermalBatterySolarTailThresholdKWh = kwh
 }
 
 // SetThermalBatteryDeferredRecheckIntervalForTesting allows tests to use a shorter recheck interval.
