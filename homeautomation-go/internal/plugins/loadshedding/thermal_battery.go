@@ -494,6 +494,10 @@ func (m *Manager) activateThermalBattery() {
 				freeEnergy, _ := m.stateManager.GetBool("isFreeEnergyAvailable")
 				if !freeEnergy {
 					remainingKWh, err := m.stateManager.GetNumber("remainingSolarGeneration")
+					if err != nil {
+						m.logger.Info("remainingSolarGeneration unavailable, activating without solar-tail gate",
+							zap.Error(err))
+					}
 					if err == nil && remainingKWh > m.thermalBatterySolarTailThresholdKWh {
 						deferReason := fmt.Sprintf(
 							"solar tail not yet reached (remaining: %.1f kWh, threshold: %.1f kWh)",
