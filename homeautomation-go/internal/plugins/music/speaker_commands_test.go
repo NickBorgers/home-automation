@@ -97,6 +97,72 @@ func setupSoCoForTest(t *testing.T, manager *Manager, readOnly bool) *threadSafe
 	return paths
 }
 
+// setupFailingGroupJoinSoCo creates a mock SoCo-CLI server where group join operations
+// always fail (exit_code=1) while all other operations succeed. This is used to test
+// that pre-muting happens before the async join attempt (issue #998): if a follower
+// speaker fails to join the group, it should still have been pre-muted so it doesn't
+// play audio unmuted as a standalone speaker.
+func setupFailingGroupJoinSoCo(t *testing.T, manager *Manager) *threadSafePaths {
+	t.Helper()
+	recorded := &threadSafePaths{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		recorded.Append(r.URL.Path)
+
+		resp := SoCoResponse{
+			Speaker: "test",
+			Action:  "test",
+		}
+
+		// Return error for group join operations: /{follower}/group/{lead}
+		if containsGroupJoin(r.URL.Path) {
+			resp.ExitCode = 1
+			resp.ErrorMsg = "forced group join failure (test)"
+			resp.Result = "error"
+		} else {
+			resp.ExitCode = 0
+			resp.Result = "success"
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(resp); err != nil {
+			http.Error(w, "encode failed", http.StatusInternalServerError)
+		}
+	}))
+	t.Cleanup(server.Close)
+	socoClient := NewSoCoClient(server.URL, zap.NewNop(), false)
+	manager.SetSoCoClient(socoClient)
+	return recorded
+}
+
+// containsGroupJoin returns true for SoCo paths that represent a group join operation:
+// /{follower}/group/{lead} — e.g., /Kitchen/group/Front%20Room
+func containsGroupJoin(path string) bool {
+	// A group join path has at least two segments after the split, with "group" as the second
+	// segment and a third non-empty segment (the lead speaker name).
+	// Example: /Kitchen/group/Front%20Room → ["", "Kitchen", "group", "Front%20Room"]
+	parts := splitPath(path)
+	return len(parts) >= 3 && parts[1] == "group"
+}
+
+// splitPath splits a URL path by "/" and returns non-empty segments.
+// Input: /Kitchen/group/Front%20Room → ["Kitchen", "group", "Front%20Room"]
+func splitPath(path string) []string {
+	var segments []string
+	start := 0
+	for i, c := range path {
+		if c == '/' {
+			if i > start {
+				segments = append(segments, path[start:i])
+			}
+			start = i + 1
+		}
+	}
+	if start < len(path) {
+		segments = append(segments, path[start:])
+	}
+	return segments
+}
+
 // createTestManager creates a Manager wired up to a mock HA client for testing.
 func createTestManager(t *testing.T) (*Manager, *ha.MockClient) {
 	t.Helper()

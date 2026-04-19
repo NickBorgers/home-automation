@@ -311,6 +311,31 @@ func (m *Manager) executePlayback(musicType string, option PlaybackOption, parti
 		}
 	}
 
+	// Step 6.5: Pre-mute followers whose mute conditions are already met.
+	// This must happen BEFORE launching buildSpeakerGroupAsync so that speakers
+	// are silenced even if the async group join fails. Without this step, a follower
+	// that exhausts all join retries never has shouldUnmuteSpeaker() called
+	// (joinSpeakerWithRetry returns early on failure), leaving it playing audio
+	// unmuted as a standalone device after breakSpeakerGroups() unjoined it (issue #998).
+	for i := 1; i < len(participants); i++ {
+		p := participants[i]
+		if !m.shouldUnmuteSpeaker(p) {
+			m.logger.Info("Pre-muting follower (mute condition met before async join)",
+				zap.String("speaker", p.PlayerName),
+				zap.Int("volume", p.Volume))
+			if err := m.speakerSetVolume(p.PlayerName, p.Volume); err != nil {
+				m.logger.Warn("Failed to pre-set volume for muted follower",
+					zap.String("speaker", p.PlayerName),
+					zap.Error(err))
+			}
+			if err := m.speakerSetMute(p.PlayerName, true); err != nil {
+				m.logger.Warn("Failed to pre-mute follower speaker",
+					zap.String("speaker", p.PlayerName),
+					zap.Error(err))
+			}
+		}
+	}
+
 	// Step 7: Build speaker group ASYNCHRONOUSLY for followers
 	// Each speaker joins and starts its own fade-in without blocking the main flow
 	if len(participants) > 1 {
