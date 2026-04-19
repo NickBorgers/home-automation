@@ -1347,14 +1347,16 @@ func TestThermalBattery_HourlyForecast_DeferredClearedWhenNoOneHome(t *testing.T
 func TestThermalBattery_HourlyForecast_DeferredTimerActivatesWhenWithinLeadTime(t *testing.T) {
 	t.Parallel()
 	// Use a very short lead time and recheck interval so the timer fires quickly.
-	// Stress event is 200ms away. Lead time is 100ms (in hours). Recheck is 20ms.
-	// Initial check: 200ms > 100ms → defers.
-	// After ~100ms: recheck timer fires, stress is ~100ms away ≤ lead_time → activates.
-	recheckInterval := 20 * time.Millisecond
-	leadTimeDuration := 100 * time.Millisecond
+	// Stress event is 2s away. Lead time is 500ms (in hours). Recheck is 50ms.
+	// Initial check: 2s > 500ms → defers.
+	// After ~1.5s: recheck timer fires, stress is ≤500ms away → activates.
+	recheckInterval := 50 * time.Millisecond
+	leadTimeDuration := 500 * time.Millisecond
 	leadTimeHours := float64(leadTimeDuration) / float64(time.Hour)
 
-	stressTime := time.Now().Add(200 * time.Millisecond)
+	// Use a 2-second stress window so test setup overhead (~200ms) stays well within
+	// the deferral window (2s - 0.5s lead = 1.5s), giving robust initial deferral.
+	stressTime := time.Now().Add(2 * time.Second)
 	env := setupHeatCoolEnvWithHourlyForecast(t, 50.0, stressTime)
 
 	ls := NewManager(context.Background(), env.MockHA, env.StateMgr, env.Logger, false, nil, nil)
@@ -1370,8 +1372,8 @@ func TestThermalBattery_HourlyForecast_DeferredTimerActivatesWhenWithinLeadTime(
 	shadow := ls.GetShadowState()
 	assert.True(t, shadow.Outputs.ThermalBattery.Deferred, "Should show deferred in shadow state")
 
-	// Wait for the timer to re-evaluate and activate (up to 500ms)
-	deadline := time.Now().Add(500 * time.Millisecond)
+	// Wait for the timer to re-evaluate and activate (up to 4s)
+	deadline := time.Now().Add(4 * time.Second)
 	for time.Now().Before(deadline) {
 		if ls.IsThermalBatteryActive() {
 			break
