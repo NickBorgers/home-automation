@@ -83,10 +83,26 @@ func (m *Manager) tryFetchForecast(entity string) (float64, float64, bool) {
 		return 0, 0, false
 	}
 
+	// The HA WebSocket API wraps entity data under a "response" key when using
+	// call_service with return_response:true. Unwrap it before parsing entity data.
+	var wrapper struct {
+		Response json.RawMessage `json:"response"`
+	}
+	if err := json.Unmarshal(result, &wrapper); err != nil {
+		m.logger.Warn("Weather forecast response JSON malformed",
+			zap.String("entity", entity), zap.Error(err))
+		return 0, 0, false
+	}
+	if wrapper.Response == nil {
+		m.logger.Warn("Weather forecast response missing 'response' key",
+			zap.String("entity", entity))
+		return 0, 0, false
+	}
+
 	var parsed map[string]struct {
 		Forecast []forecastEntry `json:"forecast"`
 	}
-	if err := json.Unmarshal(result, &parsed); err != nil {
+	if err := json.Unmarshal(wrapper.Response, &parsed); err != nil {
 		m.logger.Warn("Failed to parse weather forecast response",
 			zap.String("entity", entity), zap.Error(err))
 		return 0, 0, false
