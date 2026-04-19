@@ -664,6 +664,7 @@ func TestThermalBattery_NtfyNotificationOnActivation_HourlyPath(t *testing.T) {
 	assert.Equal(t, "Thermal Battery Activated", ntfyCalls[0].Title)
 	assert.Contains(t, ntfyCalls[0].Body, "UP (pre-heat)")
 	assert.Contains(t, ntfyCalls[0].Body, "stress at")
+	assert.Contains(t, ntfyCalls[0].Body, stressTime.Local().Format("3:04 PM"))
 	assert.Contains(t, ntfyCalls[0].Body, "37")
 	// Must NOT show zeroed-out outdoor temp (the bug)
 	assert.NotContains(t, ntfyCalls[0].Body, "outdoor: 0.0°F")
