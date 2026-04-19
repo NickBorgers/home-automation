@@ -143,11 +143,14 @@ Automatically resolves newly opened issues and re-runs on explicit retry request
 
 **Workflow**:
 1. Labels issue with `ai-started` (idempotent — will no-op if already present)
-2. Analyzes the issue title, body, and **all comments** on the issue (including any PR review feedback from a previous attempt)
-3. Explores the codebase to understand context
-4. Implements fixes or features
-5. Creates a branch (`ai/issue-{number}`)
-6. Opens a PR with the solution
+2. Waits 5 minutes (on `opened` events only) to allow the issue author to refine the description before ingestion
+3. Analyzes the issue title, body, and **all comments** on the issue (including any PR review feedback from a previous attempt)
+4. Explores the codebase to understand context
+5. Implements fixes or features
+6. Creates a branch (`ai/issue-{number}`)
+7. Opens a PR with the solution
+
+> **Note:** The 5-minute delay (step 2) only fires when `action == opened`. Retries triggered via `assigned` or by removing the `ai-started` label skip the wait entirely.
 
 **`ai-started` is sticky.** Once added, the workflow never automatically removes it. Its only consumer is the retry trigger itself: if you want the AI to try again on the same issue, hand-remove the label and a new `resolve-issue` run fires.
 
