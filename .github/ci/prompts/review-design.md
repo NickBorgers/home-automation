@@ -41,8 +41,11 @@ divergence from production code paths.
      equivalent to what the issue proposed, OR the PR body explicitly justifies a
      deliberate divergence (e.g., "issue proposed X but X is infeasible because Y,
      doing Z instead").
+   - If the issue specifies no algorithm or data sources (e.g., a simple bug report),
+     note that and mark PASS (N/A) — do not fabricate a quote.
    - FAIL is BLOCKING. Do not issue a FAIL for pure style / naming divergence; only for
-     strategy or data-source divergence.
+     strategy or data-source divergence. When issuing a FAIL, also list it under
+     ### Blocking Issues so reviewers scanning that section cannot miss it.
 5. SCOPE CHECK (did the PR do too MUCH?): Compare the PR title/issue description against
    the actual diff.
    - Run: `git diff --stat origin/main...HEAD`
