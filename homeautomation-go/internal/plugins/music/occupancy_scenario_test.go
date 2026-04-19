@@ -50,6 +50,7 @@ import (
 	"homeautomation/pkg/plugin"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 )
 
@@ -568,10 +569,14 @@ func TestScenario_TVPlaying_PreMutesFollowers_EvenIfJoinFails(t *testing.T) {
 	}
 
 	_, _, err := manager.executePlayback("day", option, participants, "Kitchen")
-	assert.NoError(t, err, "executePlayback should succeed even when follower join fails")
+	require.NoError(t, err, "executePlayback should succeed even when follower join fails")
 
 	// Poll for pre-mute commands on Study. These must appear regardless of whether
 	// the group join succeeds, because pre-muting happens before the async join.
+	// Note: Even though pre-muting is synchronous in executePlayback(), the mock HTTP
+	// server handler runs in a separate goroutine (httptest.Server), so there is a
+	// propagation delay between the HTTP call completing and the path appearing in
+	// socoPaths. The poll ensures we don't race against that goroutine.
 	var allPaths []string
 	foundStudyVolumeSet := false
 	foundStudyMute := false

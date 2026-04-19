@@ -146,6 +146,9 @@ sequenceDiagram
 
     Music->>HA: Update currentlyPlayingMusicUri
 
+    Note over Music,Followers: Step 6.5 — Pre-mute followers whose mute<br/>conditions are already met (synchronous,<br/>before async join — issue #998)
+    Music->>Followers: Set target volume + mute (if leave_muted_if matches)
+
     par Async speaker group building
         loop For each follower
             Music->>Followers: Join to lead (with retries)
@@ -156,7 +159,7 @@ sequenceDiagram
                     Music->>Followers: Set target volume (stays muted)
                 end
             else Join failed (permanent error)
-                Note over Followers: Skip speaker
+                Note over Followers: Follower already pre-muted if<br/>mute condition was met; join<br/>failure leaves it silent
             end
         end
     end
@@ -168,7 +171,7 @@ The async approach provides faster perceived playback start:
 - **Before**: Wait for all speakers to join group → then start playback (slower)
 - **After**: Start playback on lead immediately → followers join in background (faster)
 
-Followers that fail to join (e.g., speaker offline) are logged but don't block playback.
+Followers that fail to join (e.g., speaker offline) are logged but don't block playback. Followers whose mute conditions were met at playback start are pre-silenced before the join attempt, so a join failure cannot leave them playing unmuted (issue #998).
 
 ## Post-Playback Health Monitoring
 

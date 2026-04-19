@@ -317,6 +317,7 @@ func (m *Manager) executePlayback(musicType string, option PlaybackOption, parti
 	// that exhausts all join retries never has shouldUnmuteSpeaker() called
 	// (joinSpeakerWithRetry returns early on failure), leaving it playing audio
 	// unmuted as a standalone device after breakSpeakerGroups() unjoined it (issue #998).
+	// participants[0] is the lead speaker, already handled in Step 6 above.
 	for i := 1; i < len(participants); i++ {
 		p := participants[i]
 		if !m.shouldUnmuteSpeaker(p) {

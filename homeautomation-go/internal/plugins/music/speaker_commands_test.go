@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -137,30 +138,7 @@ func setupFailingGroupJoinSoCo(t *testing.T, manager *Manager) *threadSafePaths 
 // containsGroupJoin returns true for SoCo paths that represent a group join operation:
 // /{follower}/group/{lead} — e.g., /Kitchen/group/Front%20Room
 func containsGroupJoin(path string) bool {
-	// A group join path has at least two segments after the split, with "group" as the second
-	// segment and a third non-empty segment (the lead speaker name).
-	// Example: /Kitchen/group/Front%20Room → ["", "Kitchen", "group", "Front%20Room"]
-	parts := splitPath(path)
-	return len(parts) >= 3 && parts[1] == "group"
-}
-
-// splitPath splits a URL path by "/" and returns non-empty segments.
-// Input: /Kitchen/group/Front%20Room → ["Kitchen", "group", "Front%20Room"]
-func splitPath(path string) []string {
-	var segments []string
-	start := 0
-	for i, c := range path {
-		if c == '/' {
-			if i > start {
-				segments = append(segments, path[start:i])
-			}
-			start = i + 1
-		}
-	}
-	if start < len(path) {
-		segments = append(segments, path[start:])
-	}
-	return segments
+	return strings.Contains(path, "/group/")
 }
 
 // createTestManager creates a Manager wired up to a mock HA client for testing.
