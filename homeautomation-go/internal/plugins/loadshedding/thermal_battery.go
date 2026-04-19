@@ -18,12 +18,6 @@ type forecastEntry struct {
 	TempLow     float64 `json:"templow"`
 }
 
-// serviceResponseWrapper matches the HA WebSocket API envelope for call_service with return_response:true.
-// The actual entity data is nested under "response", not at the top level.
-type serviceResponseWrapper struct {
-	Response json.RawMessage `json:"response"`
-}
-
 // getForecastHighLow fetches the forecast daily high and low for today.
 // Returns (high, low, true) if forecast is available, or (0, 0, false) if unavailable.
 // Results are cached for forecastCacheDuration. Failures are negative-cached for
@@ -91,9 +85,16 @@ func (m *Manager) tryFetchForecast(entity string) (float64, float64, bool) {
 
 	// The HA WebSocket API wraps entity data under a "response" key when using
 	// call_service with return_response:true. Unwrap it before parsing entity data.
-	var wrapper serviceResponseWrapper
-	if err := json.Unmarshal(result, &wrapper); err != nil || wrapper.Response == nil {
-		m.logger.Warn("Weather forecast response missing 'response' wrapper",
+	var wrapper struct {
+		Response json.RawMessage `json:"response"`
+	}
+	if err := json.Unmarshal(result, &wrapper); err != nil {
+		m.logger.Warn("Weather forecast response JSON malformed",
+			zap.String("entity", entity), zap.Error(err))
+		return 0, 0, false
+	}
+	if wrapper.Response == nil {
+		m.logger.Warn("Weather forecast response missing 'response' key",
 			zap.String("entity", entity))
 		return 0, 0, false
 	}
