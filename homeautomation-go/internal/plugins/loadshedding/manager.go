@@ -126,7 +126,7 @@ type Manager struct {
 	thermalBatteryDeferredRecheckInterval time.Duration // how often to re-evaluate while deferred
 	thermalBatteryDeferred                bool          // true when activation is deferred due to timing
 	thermalBatteryPlannedActivation       time.Time     // when we plan to activate (stress_time - lead_time)
-	thermalBatteryDeferCancel             chan struct{}  // signal to stop deferred timer goroutine
+	thermalBatteryDeferCancel             chan struct{} // signal to stop deferred timer goroutine
 
 	// Forecast cache for thermal battery.
 	// forecastMu is intentionally held across the network call in getForecastHighLow.
@@ -156,21 +156,21 @@ func NewManager(ctx context.Context, haClient ha.HAClient, stateManager *state.M
 	shadowTracker := shadowstate.NewLoadSheddingTracker()
 
 	return &Manager{
-		ctx:                           ctx,
-		haClient:                      haClient,
-		stateManager:                  stateManager,
-		logger:                        logger.Named("loadshedding"),
-		readOnly:                      readOnly,
-		enabled:                       false,
-		shadowTracker:                 shadowTracker,
-		subHelper:                     shadowstate.NewSubscriptionHelper(haClient, stateManager, registry, shadowTracker, "loadshedding", logger.Named("loadshedding")),
-		rateLimitInterval:             minActionInterval,
-		deferredStopChan:              make(chan struct{}),
-		ntfyClient:                    ntfyClient,
-		thermalBatteryPollInt:                thermalBatteryDefaultPollInt,
-		thermalBatteryHoldRevertDelay:        thermalBatteryDefaultHoldRevertDelay,
-		thermalBatteryMaxStepWaitDur:         thermalBatteryMaxStepWait,
-		thermalBatteryLeadTimeHours:          thermalBatteryDefaultLeadTimeHours,
+		ctx:                                   ctx,
+		haClient:                              haClient,
+		stateManager:                          stateManager,
+		logger:                                logger.Named("loadshedding"),
+		readOnly:                              readOnly,
+		enabled:                               false,
+		shadowTracker:                         shadowTracker,
+		subHelper:                             shadowstate.NewSubscriptionHelper(haClient, stateManager, registry, shadowTracker, "loadshedding", logger.Named("loadshedding")),
+		rateLimitInterval:                     minActionInterval,
+		deferredStopChan:                      make(chan struct{}),
+		ntfyClient:                            ntfyClient,
+		thermalBatteryPollInt:                 thermalBatteryDefaultPollInt,
+		thermalBatteryHoldRevertDelay:         thermalBatteryDefaultHoldRevertDelay,
+		thermalBatteryMaxStepWaitDur:          thermalBatteryMaxStepWait,
+		thermalBatteryLeadTimeHours:           thermalBatteryDefaultLeadTimeHours,
 		thermalBatteryDeferredRecheckInterval: thermalBatteryDeferredRecheckDefault,
 	}
 }
