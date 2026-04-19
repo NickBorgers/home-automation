@@ -325,13 +325,16 @@ Design validation and critical design review specialist. Runs in parallel with o
 **Pre-Flight Check**: Before running the review, verifies that "All Required Tests" commit status is `success` on the current HEAD. If tests haven't passed, the review is skipped to avoid reviewing broken code that can't be merged anyway.
 
 **Purpose**: This reviewer serves two functions:
-1. **Intent Validation**: Ensures the PR actually implements what was requested in the linked issue and/or PR description (including **all comments** on the linked issue)
+1. **Intent Validation**: Two mandatory checks run on every PR:
+   - **Alignment check** — did the PR solve the same problem the issue proposed (scope miss)? FAIL is blocking. Both `Alignment check:` and `Scope check:` verdicts always appear at the top of every review comment.
+   - **Scope check** — did the PR do too much beyond what was asked (scope creep)?
 2. **Design Critique**: Critically reviews the design decisions for quality, trade-offs, and potential issues
 
 **Focus Areas**:
 - Does the PR solve the stated problem?
 - Are there gaps between requirements and implementation?
-- **Scope check**: Does the diff match the PR title/issue scope? Flags >300 lines of non-test code beyond what the title implies as BLOCKING scope creep
+- **Alignment check**: Does the PR implement the same algorithm/data sources the linked issue proposed, or does it solve an adjacent/simpler problem? FAIL is blocking. Both `Alignment check:` and `Scope check:` verdicts always appear at the top of every review comment.
+- **Scope check** (scope creep): Does the diff match the PR title/issue scope? Flags >300 lines of non-test code beyond what the title implies as BLOCKING scope creep.
 - **Production resilience**: New external integrations must have retry logic, appropriate timeouts, and graceful degradation
 - **Cross-PR context**: Considers whether the PR contradicts or undermines recently merged changes
 - Is this a good design for the problem?
