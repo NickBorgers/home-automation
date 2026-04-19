@@ -642,6 +642,33 @@ func TestThermalBattery_NtfyNotificationOnActivation(t *testing.T) {
 	assert.Contains(t, ntfyCalls[0].Body, "low: 25")
 }
 
+func TestThermalBattery_NtfyNotificationOnActivation_HourlyPath(t *testing.T) {
+	t.Parallel()
+	// Regression test for issue #1011: hourly-forecast path showed "outdoor: 0.0°F" in notification.
+	// Verify that when activated via hourly forecast (solar tail reached), the notification
+	// includes stress time and temperature instead of zeroed-out outdoor temp.
+	stressTime := time.Now().Add(8 * time.Hour)
+	env := setupHeatCoolEnvWithHourlyForecast(t, 37.0, stressTime, 6.0) // 6 kWh < threshold → activates
+
+	mockNtfy := ntfy.NewMockClient()
+	ls := NewManager(context.Background(), env.MockHA, env.StateMgr, env.Logger, false, nil, mockNtfy)
+	ls.SetThermalBatterySolarTailThresholdForTesting(15.0)
+	require.NoError(t, ls.Start())
+	defer ls.Stop()
+
+	require.NoError(t, env.StateMgr.SetString("currentEnergyLevel", "white"))
+	assert.True(t, ls.IsThermalBatteryActive(), "Thermal battery should activate when solar tail is reached")
+
+	ntfyCalls := mockNtfy.GetCalls()
+	require.Len(t, ntfyCalls, 1, "Should have sent exactly one ntfy notification")
+	assert.Equal(t, "Thermal Battery Activated", ntfyCalls[0].Title)
+	assert.Contains(t, ntfyCalls[0].Body, "UP (pre-heat)")
+	assert.Contains(t, ntfyCalls[0].Body, "stress at")
+	assert.Contains(t, ntfyCalls[0].Body, "37")
+	// Must NOT show zeroed-out outdoor temp (the bug)
+	assert.NotContains(t, ntfyCalls[0].Body, "outdoor: 0.0°F")
+}
+
 func TestThermalBattery_SkipsWhenThermostatOff(t *testing.T) {
 	t.Parallel()
 	env := setupThermalBatteryEnv(t)

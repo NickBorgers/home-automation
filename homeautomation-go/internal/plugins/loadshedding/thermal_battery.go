@@ -447,7 +447,10 @@ func (m *Manager) activateThermalBattery() {
 	var outdoorTemp float64
 	hasHeatCool := false
 	usedForecast := false
+	usedHourlyForecast := false
 	var forecastHigh, forecastLow float64
+	var hourlyStressTime time.Time
+	var hourlyStressTemp float64
 	for _, sp := range savedSetpoints {
 		if sp.HVACMode == "heat_cool" || sp.HVACMode == "auto" {
 			hasHeatCool = true
@@ -530,6 +533,10 @@ func (m *Manager) activateThermalBattery() {
 					m.stopDeferredActivationTimer()
 					m.thermalBatteryDeferred = false
 				}
+
+				usedHourlyForecast = true
+				hourlyStressTime = stressTime
+				hourlyStressTemp = stressTemp
 
 				m.logger.Info("Thermal battery: solar tail reached, activating now",
 					zap.String("stress_direction", stressDir),
@@ -687,7 +694,15 @@ func (m *Manager) activateThermalBattery() {
 	// Send push notification
 	if m.ntfyClient != nil && directionLabel != "" {
 		body := fmt.Sprintf("Shifting HVAC %s by %.0f°F (step 1/%d)", directionLabel, thermalBatteryOffset, totalSteps)
-		if hasHeatCool && usedForecast {
+		if hasHeatCool && usedHourlyForecast {
+			tempLabel := "low"
+			if direction == "down" {
+				tempLabel = "high"
+			}
+			body = fmt.Sprintf("Shifting HVAC %s by %.0f°F (step 1/%d, stress at %s, %s %.0f°F)",
+				directionLabel, thermalBatteryOffset, totalSteps,
+				hourlyStressTime.Local().Format("3:04 PM"), tempLabel, hourlyStressTemp)
+		} else if hasHeatCool && usedForecast {
 			body = fmt.Sprintf("Shifting HVAC %s by %.0f°F (step 1/%d, forecast high: %.0f°F, low: %.0f°F)", directionLabel, thermalBatteryOffset, totalSteps, forecastHigh, forecastLow)
 		} else if hasHeatCool {
 			body = fmt.Sprintf("Shifting HVAC %s by %.0f°F (step 1/%d, outdoor: %.1f°F)", directionLabel, thermalBatteryOffset, totalSteps, outdoorTemp)
