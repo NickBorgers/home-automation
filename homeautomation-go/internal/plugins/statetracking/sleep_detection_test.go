@@ -126,7 +126,7 @@ func TestDetectMasterAsleep_Conditions(t *testing.T) {
 	tests := []struct {
 		name              string
 		isNickHome        bool
-		setAnyoneHome     bool   // if true, sets isAnyoneHome directly instead of isNickHome
+		setAnyoneHome     bool // if true, sets isAnyoneHome directly instead of isNickHome
 		isMasterAsleep    bool
 		primarySuiteState string // HA entity state for light.primary_suite; empty = not set (early-return tests)
 		expectedAsleep    bool
