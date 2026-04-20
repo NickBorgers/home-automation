@@ -60,7 +60,19 @@ func TestScenario_DayPhaseEvening_ActivatesCorrectScenes(t *testing.T) {
 	server.SetState("input_text.day_phase", "morning", map[string]interface{}{})
 	server.SetState("input_boolean.anyone_home", "on", map[string]interface{}{})
 	server.SetState("input_boolean.anyone_home_and_awake", "on", map[string]interface{}{})
-	// Brief delay to let initialization complete before taking snapshot
+
+	// Wait for state changes to fully propagate through state manager AND lighting plugin handlers.
+	// waitForProcessing() alone is unreliable here: WaitForHandlers Phase 2 only waits for one
+	// event notification, so when multiple events are queued (morning, anyone_home,
+	// anyone_home_and_awake), it may return before all handlers have run. This causes morning
+	// scene activations to leak past the snapshot into the post-setup assertion window.
+	//
+	// Polling isAnyoneHomeAndAwake=true is reliable: the state manager updates cache and calls
+	// notifySubscribers synchronously in the same goroutine, so when GetBool returns true, the
+	// lighting plugin's handleOccupancyChange (and its scene activations) have already completed.
+	waitForBoolState(t, stateManager, "isAnyoneHome", true, "isAnyoneHome should be true after setup")
+	waitForBoolState(t, stateManager, "isAnyoneHomeAndAwake", true, "isAnyoneHomeAndAwake should be true after setup")
+	// Additional flush for any remaining in-flight work
 	waitForProcessing(t, stateManager)
 
 	snapshot := server.ServiceCallCount()
