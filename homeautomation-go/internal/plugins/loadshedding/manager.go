@@ -77,7 +77,7 @@ const (
 	// Note: thermalBatteryHourlyComfortMargin (5°F) is intentionally tighter than
 	// thermalBatterySkipMargin (20°F). The hourly path triggers on genuine near-term
 	// stress; the daily path uses a wide band to skip only on truly mild days.
-	thermalBatteryDefaultSolarTailThresholdKWh = 15.0             // activate when remaining solar forecast drops below this
+	thermalBatteryDefaultSolarTailThresholdKWh = 28.0             // activate when remaining solar forecast drops below this (~3hr window before solar ends)
 	thermalBatteryHourlyComfortMargin          = 5.0              // °F outside comfort band to consider "stress" (hourly)
 	thermalBatteryDeferredRecheckDefault       = 15 * time.Minute // how often to re-evaluate while deferred
 )
