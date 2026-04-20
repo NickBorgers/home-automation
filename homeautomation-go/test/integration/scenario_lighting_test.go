@@ -4,6 +4,7 @@ import (
 	"context"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"homeautomation/internal/plugins/lighting"
 	"homeautomation/internal/state"
@@ -68,12 +69,14 @@ func TestScenario_DayPhaseEvening_ActivatesCorrectScenes(t *testing.T) {
 	// scene activations to leak past the snapshot into the post-setup assertion window.
 	//
 	// Polling isAnyoneHome/isAnyoneHomeAndAwake drains at least two of the three event handlers,
-	// reducing the window of in-flight morning activations. The actual synchronization guarantee
-	// comes from the final waitForProcessing() call, which flushes any remaining in-flight work.
+	// reducing the window of in-flight morning activations. The final waitForProcessing() flushes
+	// any remaining in-flight work, and waitForServiceCallsToStabilize ensures fire-and-forget
+	// scene goroutines have fully completed before the snapshot is taken.
 	waitForBoolState(t, stateManager, "isAnyoneHome", true, "isAnyoneHome should be true after setup")
 	waitForBoolState(t, stateManager, "isAnyoneHomeAndAwake", true, "isAnyoneHomeAndAwake should be true after setup")
-	// Final flush for any remaining in-flight work
+	// Final flush and wait for fire-and-forget scene goroutines to finish
 	waitForProcessing(t, stateManager)
+	waitForServiceCallsToStabilize(t, server, 200*time.Millisecond)
 
 	snapshot := server.ServiceCallCount()
 
@@ -462,7 +465,11 @@ func TestScenario_PersonDetectionOverridesSuneventTurnOff(t *testing.T) {
 	server.SetState("input_boolean.front_of_house_person_present", "off", map[string]interface{}{})
 	server.SetState("input_text.day_phase", "evening", map[string]interface{}{})
 	server.SetState("input_text.sun_event", "sunset", map[string]interface{}{})
+	// Wait for initial scene activations (and any sunset-triggered retry loops)
+	// to stabilize before snapshotting — otherwise they land in the "since" window
+	// and can be mistaken for the later dusk/person-detection actions.
 	waitForProcessing(t, stateManager)
+	waitForServiceCallsToStabilize(t, server, 200*time.Millisecond)
 	snapshot := server.ServiceCallCount()
 
 	// WHEN: Sunevent changes (triggers evaluation for all rooms, including Front of House)
