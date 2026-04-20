@@ -169,8 +169,12 @@ func TestScenario_WakeSequence_BedroomFadeIsGradualNotAbrupt(t *testing.T) {
 	currentMusicJSON := `{"participants":[{"player_name":"media_player.bedroom","volume":14}]}`
 	env.server.SetState("input_text.currently_playing_music", currentMusicJSON, map[string]interface{}{})
 
-	// Allow all plugins to process the initial state
+	// Allow all plugins to process the initial state. Use a stabilization window
+	// in addition to waitForProcessing because zone orchestration spawns
+	// fire-and-forget goroutines (volume_set for bedroom seeding) that would
+	// otherwise land post-snapshot and pollute the bedroom fade-out measurement.
 	waitForProcessing(t, env.stateManager)
+	waitForServiceCallQuiescenceSince(t, env.server, 0, 200*time.Millisecond)
 	snapshot := env.server.ServiceCallCount()
 
 	// ========== WHEN ==========
