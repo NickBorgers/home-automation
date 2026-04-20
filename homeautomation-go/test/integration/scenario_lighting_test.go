@@ -67,12 +67,12 @@ func TestScenario_DayPhaseEvening_ActivatesCorrectScenes(t *testing.T) {
 	// anyone_home_and_awake), it may return before all handlers have run. This causes morning
 	// scene activations to leak past the snapshot into the post-setup assertion window.
 	//
-	// Polling isAnyoneHomeAndAwake=true is reliable: the state manager updates cache and calls
-	// notifySubscribers synchronously in the same goroutine, so when GetBool returns true, the
-	// lighting plugin's handleOccupancyChange (and its scene activations) have already completed.
+	// Polling isAnyoneHome/isAnyoneHomeAndAwake drains at least two of the three event handlers,
+	// reducing the window of in-flight morning activations. The actual synchronization guarantee
+	// comes from the final waitForProcessing() call, which flushes any remaining in-flight work.
 	waitForBoolState(t, stateManager, "isAnyoneHome", true, "isAnyoneHome should be true after setup")
 	waitForBoolState(t, stateManager, "isAnyoneHomeAndAwake", true, "isAnyoneHomeAndAwake should be true after setup")
-	// Additional flush for any remaining in-flight work
+	// Final flush for any remaining in-flight work
 	waitForProcessing(t, stateManager)
 
 	snapshot := server.ServiceCallCount()
