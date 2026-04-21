@@ -68,7 +68,7 @@ The devcontainer automatically:
 - Installs git hooks (pre-commit and pre-push validation)
 - Installs GitHub CLI, Claude Code CLI, and Playwright (with Chromium)
 - Configures VS Code extensions for Go and Mermaid
-- Imports your host GitHub CLI token and Claude Code credentials into the container so long as you are logged in locally before opening the devcontainer (you will see warnings during startup if host credentials are missing)
+- Imports your host GitHub CLI token and Claude Code credentials into the container so long as you are logged in locally before opening the devcontainer (you will see warnings during startup if host credentials are missing). When running inside another devcontainer (nested), credentials are used via the existing bind-mount rather than being copied; token refresh requires re-running `claude login` on the host if the token expires.
 
 ### Manual Setup (Without Devcontainer)
 
