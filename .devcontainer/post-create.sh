@@ -102,11 +102,23 @@ fi
 CLAUDE_CREDS_FILE="$SCRIPT_DIR/.claude-credentials"
 if [ -s "$CLAUDE_CREDS_FILE" ]; then
     echo "Setting up Claude Code credentials..."
-    mkdir -p "$HOME/.claude"
-    cp "$CLAUDE_CREDS_FILE" "$HOME/.claude/.credentials.json"
-    chmod 600 "$HOME/.claude/.credentials.json"
-    echo "Claude Code credentials configured."
-    rm -f "$CLAUDE_CREDS_FILE"
+    if [ "${CLAUDE_HOST_CONFIG_DIR:-}" = "$HOME/.claude" ]; then
+        # Host ~/.claude is bind-mounted read-only on top of the container's
+        # $HOME/.claude (happens when devcontainer up is invoked with
+        # HOME=/home/vscode, e.g., from inside another devcontainer). We can't
+        # write credentials here, but the host's .credentials.json is already
+        # visible via the mount. OAuth token refresh will not work while the
+        # credentials file is read-only; re-run `claude login` on the host if
+        # the token expires.
+        echo "Host ~/.claude shadows \$HOME/.claude (read-only mount). Using host credentials in place; token refresh disabled."
+        rm -f "$CLAUDE_CREDS_FILE"
+    else
+        mkdir -p "$HOME/.claude"
+        cp "$CLAUDE_CREDS_FILE" "$HOME/.claude/.credentials.json"
+        chmod 600 "$HOME/.claude/.credentials.json"
+        echo "Claude Code credentials configured."
+        rm -f "$CLAUDE_CREDS_FILE"
+    fi
 else
     echo "Warning: No Claude credentials found; Claude Code credentials not available."
 fi
