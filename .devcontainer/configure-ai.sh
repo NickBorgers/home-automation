@@ -16,8 +16,14 @@ case "$AI_TOOL" in
       echo "ERROR: claude not found — expected it baked into the devcontainer image" >&2
       exit 1
     fi
+    # Author name preserves tool branding for `git log --author`.
+    # Email intentionally uses the RFC 6761 `.invalid` TLD so it cannot map to
+    # any GitHub account — if it did (e.g. `claude[bot]@users.noreply.github.com`
+    # maps to the claude[bot] GitHub App), then every AI-authored commit would
+    # trip GitHub's "require approval for first-time contributors" gate and
+    # block PR Tests from running until a maintainer manually approves.
     AI_GIT_NAME_DEFAULT="claude[bot]"
-    AI_GIT_EMAIL_DEFAULT="claude[bot]@users.noreply.github.com"
+    AI_GIT_EMAIL_DEFAULT="claude-bot@ci.invalid"
     # Claude Code reads ANTHROPIC_API_KEY / ANTHROPIC_BASE_URL straight from the
     # environment — run-ai.sh sets those at invocation time. Nothing to write here.
     ;;
@@ -26,8 +32,10 @@ case "$AI_TOOL" in
       echo "ERROR: codex not found — expected it baked into the devcontainer image" >&2
       exit 1
     fi
+    # See claude arm above for why the email uses `.invalid` instead of
+    # `@users.noreply.github.com`.
     AI_GIT_NAME_DEFAULT="codex[bot]"
-    AI_GIT_EMAIL_DEFAULT="codex[bot]@users.noreply.github.com"
+    AI_GIT_EMAIL_DEFAULT="codex-bot@ci.invalid"
     # Codex reads its provider config from ~/.codex/config.toml.
     mkdir -p "$HOME/.codex"
     cat > "$HOME/.codex/config.toml" <<EOF
