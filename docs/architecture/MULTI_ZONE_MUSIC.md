@@ -45,7 +45,7 @@ flowchart TB
 
         subgraph Zones["Active Zones"]
             zone1["Zone 1: morning<br/>Kitchen (lead), Sitting Room"]
-            zone2["Zone 2: sleep<br/>Bedroom (lead)"]
+            zone2["Zone 2: sleep<br/>Primary Bathroom (lead)"]
         end
 
         subgraph SpeakerAssignment["Speaker Assignment"]
@@ -288,8 +288,8 @@ flowchart LR
       },
       {
         "musicType": "sleep",
-        "leadSpeaker": "Bedroom",
-        "participants": ["Bedroom"],
+        "leadSpeaker": "Primary Bathroom",
+        "participants": ["Primary Bathroom", "Bedroom", "Kitchen"],
         "startedAt": "2026-01-06T07:00:00Z"
       }
     ]
