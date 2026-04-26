@@ -463,15 +463,18 @@ music:
 
   # sleep: Bedroom-only rain sounds after master goes to bed
   # Rest of house doesn't need sleep sounds once master is in bed
+  # NOTE: Primary Bathroom must be first (leader/coordinator). Bedroom wifi is too
+  # unreliable to coordinate a Sonos group. If Bedroom drops as a follower, only
+  # Bedroom loses audio; if it drops as leader, the entire group dies.
   sleep:
     participants:
+      - player_name: "Primary Bathroom"
+        base_volume: 16
+        leave_muted_if: []
       - player_name: "Bedroom"
         base_volume: 16
         leave_muted_if: []
       - player_name: "Kitchen"
-        base_volume: 16
-        leave_muted_if: []
-      - player_name: "Primary Bathroom"
         base_volume: 16
         leave_muted_if: []
     playback_options:

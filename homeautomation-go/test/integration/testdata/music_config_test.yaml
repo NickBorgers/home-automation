@@ -193,13 +193,13 @@ music:
 
   sleep:
     participants:
+      - player_name: "Primary Bathroom"
+        base_volume: 16
+        leave_muted_if: []
       - player_name: "Bedroom"
         base_volume: 16
         leave_muted_if: []
       - player_name: "Kitchen"
-        base_volume: 16
-        leave_muted_if: []
-      - player_name: "Primary Bathroom"
         base_volume: 16
         leave_muted_if: []
     playback_options:

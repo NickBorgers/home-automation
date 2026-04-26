@@ -389,9 +389,9 @@ func TestScenario_SleepPrepToSleep_NonBedroomSpeakersBehavior(t *testing.T) {
 // Test: Repeat mode is re-applied to new leader during seamless transition
 // ============================================================================
 
-// TestScenario_SleepPrepToSleep_LeaderChangesToBedroom validates that when
+// TestScenario_SleepPrepToSleep_LeaderChangesToPrimaryBathroom validates that when
 // transitioning from sleep-prep to sleep, the leader changes from Front Room
-// (sleep-prep leader) to Bedroom (sleep leader). Repeat mode is re-applied
+// (sleep-prep leader) to Primary Bathroom (sleep leader). Repeat mode is re-applied
 // to the new leader since Sonos repeat/shuffle are per-speaker properties.
 //
 // REVERT (2026-03-26): Sleep-prep leader changed back to Front Room because
@@ -400,10 +400,10 @@ func TestScenario_SleepPrepToSleep_NonBedroomSpeakersBehavior(t *testing.T) {
 // transitions by removing the old coordinator last (zone_manager.go:1182).
 //
 // INVARIANTS:
-// - Sleep-prep leader is Front Room, sleep leader is Bedroom
-// - Repeat mode is re-applied to Bedroom (new leader)
+// - Sleep-prep leader is Front Room, sleep leader is Primary Bathroom
+// - Repeat mode is re-applied to Primary Bathroom (new leader)
 // - Front Room is removed last (after other non-shared speakers)
-func TestScenario_SleepPrepToSleep_LeaderChangesToBedroom(t *testing.T) {
+func TestScenario_SleepPrepToSleep_LeaderChangesToPrimaryBathroom(t *testing.T) {
 	t.Parallel()
 	env, cleanup := setupSleepPrepTransitionTest(t)
 	defer cleanup()
@@ -448,7 +448,7 @@ func TestScenario_SleepPrepToSleep_LeaderChangesToBedroom(t *testing.T) {
 	snapshot := env.server.ServiceCallCount()
 
 	// ===== WHEN: isMasterAsleep becomes true (triggering sleep zone) =====
-	t.Log("WHEN: isMasterAsleep becomes true — leader changes to Bedroom")
+	t.Log("WHEN: isMasterAsleep becomes true — leader changes to Primary Bathroom")
 
 	env.server.SetState("input_boolean.master_asleep", "on", map[string]interface{}{})
 
@@ -467,8 +467,8 @@ func TestScenario_SleepPrepToSleep_LeaderChangesToBedroom(t *testing.T) {
 
 	waitForServiceCallsToStabilizeSince(t, env.server, snapshot, 300*time.Millisecond)
 
-	// ===== THEN: Leader should change to Bedroom, repeat re-applied =====
-	t.Log("THEN: Leader changes to Bedroom, repeat_set re-applied")
+	// ===== THEN: Leader should change to Primary Bathroom, repeat re-applied =====
+	t.Log("THEN: Leader changes to Primary Bathroom, repeat_set re-applied")
 
 	activeZones = env.music.GetActiveZones()
 	var sleepZone *music.Zone
@@ -479,24 +479,24 @@ func TestScenario_SleepPrepToSleep_LeaderChangesToBedroom(t *testing.T) {
 		}
 	}
 	require.NotNil(t, sleepZone, "Sleep zone should exist")
-	assert.Equal(t, "Bedroom", sleepZone.LeadSpeaker,
-		"Sleep zone leader should be Bedroom (first participant in sleep config)")
+	assert.Equal(t, "Primary Bathroom", sleepZone.LeadSpeaker,
+		"Sleep zone leader should be Primary Bathroom (first participant in sleep config)")
 
-	// Since the leader changed from Front Room to Bedroom, repeat_set SHOULD
-	// be called on Bedroom to re-apply playback modes (Issue #837).
+	// Since the leader changed from Front Room to Primary Bathroom, repeat_set SHOULD
+	// be called on Primary Bathroom to re-apply playback modes (Issue #837).
 	calls := env.server.GetServiceCallsSince(snapshot)
-	bedroomRepeatSet := false
+	primaryBathroomRepeatSet := false
 	for _, call := range calls {
 		entityID, _ := call.ServiceData["entity_id"].(string)
-		if entityID == "media_player.bedroom" &&
+		if entityID == "media_player.primary_bathroom" &&
 			call.Domain == "media_player" && call.Service == "repeat_set" {
-			bedroomRepeatSet = true
+			primaryBathroomRepeatSet = true
 		}
 	}
-	assert.True(t, bedroomRepeatSet,
-		"Repeat mode SHOULD be re-applied to Bedroom when leader changes from Front Room")
+	assert.True(t, primaryBathroomRepeatSet,
+		"Repeat mode SHOULD be re-applied to Primary Bathroom when leader changes from Front Room")
 
-	t.Log("SUCCESS: Leader changed from Front Room to Bedroom during sleep-prep → sleep transition")
+	t.Log("SUCCESS: Leader changed from Front Room to Primary Bathroom during sleep-prep → sleep transition")
 }
 
 // ============================================================================
@@ -505,9 +505,9 @@ func TestScenario_SleepPrepToSleep_LeaderChangesToBedroom(t *testing.T) {
 
 // TestScenario_SleepPrepToSleep_CoordinatorPreserved validates that the
 // sleep-prep → sleep transition handles the coordinator change correctly.
-// Sleep-prep uses Front Room as coordinator; sleep uses Bedroom. The
+// Sleep-prep uses Front Room as coordinator; sleep uses Primary Bathroom. The
 // zone_manager removes the old coordinator (Front Room) last so Sonos can
-// promote Bedroom as the new coordinator before Front Room leaves the group.
+// promote Primary Bathroom as the new coordinator before Front Room leaves the group.
 //
 // REVERT (2026-03-26): Front Room restored as sleep-prep leader because
 // Bedroom wifi cannot handle coordinating a whole-house speaker group.
@@ -518,7 +518,7 @@ func TestScenario_SleepPrepToSleep_LeaderChangesToBedroom(t *testing.T) {
 // keep playing in the bedroom without any interruption."
 //
 // INVARIANTS:
-// - Sleep-prep uses Front Room as coordinator, sleep uses Bedroom
+// - Sleep-prep uses Front Room as coordinator, sleep uses Primary Bathroom
 // - Transition is seamless (no stopPlayback, no play_media restart on shared speakers)
 // - musicPlaybackType transitions from "sleep-prep" to "sleep"
 // - Front Room and Sitting Room are removed; Bedroom/Kitchen/Primary Bathroom continue
@@ -594,7 +594,7 @@ func TestScenario_SleepPrepToSleep_CoordinatorPreserved(t *testing.T) {
 	waitForServiceCallsToStabilizeSince(t, env.server, snapshot, 300*time.Millisecond)
 
 	// ===== THEN: Verify seamless transition preserved playback =====
-	t.Log("THEN: Verify seamless transition — no playback restart, same URI, coordinator changed to Bedroom")
+	t.Log("THEN: Verify seamless transition — no playback restart, same URI, coordinator changed to Primary Bathroom")
 
 	// 1. Sleep zone is active with Bedroom as leader and same rain URI
 	activeZones = env.music.GetActiveZones()
@@ -606,8 +606,8 @@ func TestScenario_SleepPrepToSleep_CoordinatorPreserved(t *testing.T) {
 		}
 	}
 	require.NotNil(t, sleepZone, "Sleep zone should exist")
-	assert.Equal(t, "Bedroom", sleepZone.LeadSpeaker,
-		"Sleep zone coordinator should be Bedroom (first participant in sleep config)")
+	assert.Equal(t, "Primary Bathroom", sleepZone.LeadSpeaker,
+		"Sleep zone coordinator should be Primary Bathroom (first participant in sleep config)")
 	assert.Equal(t, sleepPrepURI, sleepZone.PlaylistURI,
 		"Sleep zone should use the same rain sounds URI as sleep-prep")
 
@@ -667,5 +667,5 @@ func TestScenario_SleepPrepToSleep_CoordinatorPreserved(t *testing.T) {
 	assert.True(t, musicTypeSet,
 		"musicPlaybackType should be set to 'sleep' during transition")
 
-	t.Log("SUCCESS: Sleep-prep → sleep transition preserved playback with coordinator changing to Bedroom")
+	t.Log("SUCCESS: Sleep-prep → sleep transition preserved playback with coordinator changing to Primary Bathroom")
 }
