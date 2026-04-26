@@ -461,7 +461,7 @@ func TestScenario_MutedSpeaker_GetsTargetVolumeSetDuringPlayback(t *testing.T) {
 			if path == "/Study/volume/6" {
 				foundStudyVolumeSet = true
 			}
-			if path == "/Study/mute" {
+			if path == "/Study/mute/on" {
 				foundStudyMute = true
 			}
 		}
@@ -586,7 +586,7 @@ func TestScenario_TVPlaying_PreMutesFollowers_EvenIfJoinFails(t *testing.T) {
 			if path == "/Study/volume/6" {
 				foundStudyVolumeSet = true
 			}
-			if path == "/Study/mute" {
+			if path == "/Study/mute/on" {
 				foundStudyMute = true
 			}
 		}
