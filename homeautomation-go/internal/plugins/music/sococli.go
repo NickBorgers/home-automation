@@ -167,8 +167,8 @@ func (c *SoCoClient) Mute(speakerName string) error {
 		return nil
 	}
 
-	// GET /{speaker}/mute
-	endpoint := fmt.Sprintf("%s/%s/mute",
+	// GET /{speaker}/mute/on (explicit mute-on, not toggle)
+	endpoint := fmt.Sprintf("%s/%s/mute/on",
 		c.baseURL,
 		url.PathEscape(speakerName))
 

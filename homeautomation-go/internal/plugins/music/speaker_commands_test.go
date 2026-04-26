@@ -225,7 +225,7 @@ func TestSpeakerSetMute_RoutesThroughSoCo(t *testing.T) {
 	// Test mute
 	err := manager.speakerSetMute("Kitchen", true)
 	require.NoError(t, err)
-	assert.Equal(t, "/Kitchen/mute", paths.Get(0))
+	assert.Equal(t, "/Kitchen/mute/on", paths.Get(0))
 
 	// Test unmute
 	err = manager.speakerSetMute("Kitchen", false)

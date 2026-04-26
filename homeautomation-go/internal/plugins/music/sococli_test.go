@@ -339,7 +339,7 @@ func TestSoCoClient_MuteUnmute(t *testing.T) {
 		client := NewSoCoClient(server.URL, logger, false)
 		err := client.Mute("Kitchen")
 		require.NoError(t, err)
-		assert.Equal(t, "/Kitchen/mute", requestPath)
+		assert.Equal(t, "/Kitchen/mute/on", requestPath)
 	})
 
 	t.Run("unmute uses correct endpoint", func(t *testing.T) {
