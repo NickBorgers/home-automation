@@ -190,13 +190,14 @@ jobs:
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          mkdir -p /tmp/resolve-output
+          OUTPUT_DIR="${{ runner.temp }}/resolve-output"
+          mkdir -p "$OUTPUT_DIR"
 
           docker run --rm \
             --network host \
             --workdir /workspace \
             -v "${{ github.workspace }}:/workspace" \
-            -v /tmp/resolve-output:/tmp/resolve-output \
+            -v "$OUTPUT_DIR:/tmp/resolve-output" \
             -e AI_API_KEY \
             -e GH_TOKEN \
             -e ISSUE_NUMBER \
@@ -225,5 +226,5 @@ jobs:
         if: always()
         with:
           name: resolve-issue-conversation-log
-          path: /tmp/resolve-output/resolve-issue-conversation.jsonl
+          path: ${{ runner.temp }}/resolve-output/resolve-issue-conversation.jsonl
           retention-days: 7
