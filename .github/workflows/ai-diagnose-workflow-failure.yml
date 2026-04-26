@@ -133,9 +133,8 @@ jobs:
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-
-          mkdir -p /tmp/diagnose-output
-          chmod 777 /tmp/diagnose-output
+          OUTPUT_DIR="${{ runner.temp }}/diagnose-output"
+          mkdir -p "$OUTPUT_DIR"
 
           # Run the agent inside the CI image. The prompt lives in the repo
           # at .github/ci/prompts/diagnose-workflow-failure.md and uses shell
@@ -146,7 +145,7 @@ jobs:
             --network host \
             --workdir /workspace \
             -v "${{ github.workspace }}:/workspace" \
-            -v /tmp/diagnose-output:/tmp/diagnose-output \
+            -v "$OUTPUT_DIR:/tmp/diagnose-output" \
             -e AI_API_KEY \
             -e GH_TOKEN \
             -e WORKFLOW_NAME \
@@ -173,5 +172,5 @@ jobs:
         if: always()
         with:
           name: workflow-diagnosis-output
-          path: /tmp/diagnose-output/diagnose-output.jsonl
+          path: ${{ runner.temp }}/diagnose-output/diagnose-output.jsonl
           retention-days: 7

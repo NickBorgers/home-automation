@@ -76,8 +76,8 @@ jobs:
           HA_VERSION: ${{ inputs.ha_version || '' }}
         run: |
           set -euo pipefail
-          mkdir -p /tmp/deprecation-output
-          chmod 777 /tmp/deprecation-output
+          OUTPUT_DIR="${{ runner.temp }}/deprecation-output"
+          mkdir -p "$OUTPUT_DIR"
 
           # The HA_VERSION_LINE paragraph swaps based on whether a specific
           # HA version was passed as an input. Computing it here (rather than
@@ -94,7 +94,7 @@ jobs:
             --network host \
             --workdir /workspace \
             -v "${{ github.workspace }}:/workspace" \
-            -v /tmp/deprecation-output:/tmp/deprecation-output \
+            -v "$OUTPUT_DIR:/tmp/deprecation-output" \
             -e AI_API_KEY \
             -e GH_TOKEN \
             -e REPO \
@@ -115,13 +115,13 @@ jobs:
         if: always()
         with:
           name: deprecation-check-output
-          path: /tmp/deprecation-output/deprecation-check-output.jsonl
+          path: ${{ runner.temp }}/deprecation-output/deprecation-check-output.jsonl
           retention-days: 30  # Intentionally longer than 7-day default since this runs monthly
 
       - name: Validate deprecation check result
         if: always()
         run: |
-          OUTPUT_FILE="/tmp/deprecation-output/deprecation-check-output.jsonl"
+          OUTPUT_FILE="${{ runner.temp }}/deprecation-output/deprecation-check-output.jsonl"
           if [ ! -f "$OUTPUT_FILE" ]; then
             echo "::error::Deprecation check output file not found"
             exit 1
