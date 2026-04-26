@@ -2,7 +2,7 @@
 
 This document describes the AI-assistant-backed GitHub Actions pipelines in this repository. These pipelines enable AI-powered issue resolution, PR creation, code review, and automated test failure fixes.
 
-The pipeline plumbing (file names, job names, labels, mention tag, secret name, branch prefix) is tool-agnostic: the underlying AI tool can be swapped without renaming anything. The commit author identity, however, names whichever tool is actually running — currently `claude[bot]`.
+The pipeline plumbing (file names, job names, labels, mention tag, secret name, branch prefix) is tool-agnostic: the underlying AI tool can be swapped without renaming anything. Commits from the interactive assistant (`ai-assistant.yml`) are attributed to the tool currently configured (e.g. `claude[bot]`). Commits from the review pipeline (`ai-code-review.yml`) are attributed to `github-actions[bot]` — this avoids mapping to the claude[bot] GitHub App, which would otherwise trip GitHub's "require approval for first-time contributors" gate and block PR Tests from running until a maintainer manually approves.
 
 ## Overview
 
@@ -761,7 +761,7 @@ The pipelines route every CLI invocation through `.devcontainer/run-ai.sh`, whic
 What each script does on a swap:
 
 - **`ai-tool.env`** — Single source of truth for `AI_TOOL` + `AI_BASE_URL`. Sourced by both scripts below.
-- **`configure-ai.sh`** — Verifies the selected tool's binary is in the devcontainer image, picks a matching bot git identity (`claude[bot]` / `codex[bot]`), and writes any on-disk config the CLI requires (e.g. `~/.codex/config.toml`).
+- **`configure-ai.sh`** — Verifies the selected tool's binary is in the devcontainer image, picks a matching bot git identity (`claude[bot]` / `codex[bot]`) with an email using the RFC 6761 `.invalid` TLD (e.g. `claude-bot@ci.invalid`) so it cannot map to any GitHub account and avoids tripping the first-time contributor gate, and writes any on-disk config the CLI requires (e.g. `~/.codex/config.toml`).
 - **`run-ai.sh`** — Takes `$PROMPT` as `$1`, exports the right tool-specific env vars (`ANTHROPIC_API_KEY` / `ANTHROPIC_BASE_URL` for Claude, `OPENAI_API_KEY` for Codex), and `exec`s the CLI with the right flags.
 
 Adding a new tool (e.g. a different backend) requires adding a `case` arm to both `configure-ai.sh` and `run-ai.sh`, plus baking the tool's binary into the devcontainer Dockerfile. Workflow YAML files do **not** need to change.

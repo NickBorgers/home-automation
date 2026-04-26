@@ -583,8 +583,8 @@ jobs:
 
       - name: Configure git identity for commits
         run: |
-          git config user.name "claude[bot]"
-          git config user.email "claude[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
       - name: Run AI to fix test failures
         id: ai-fix
@@ -1263,8 +1263,8 @@ jobs:
       - name: Configure git identity for commits
         if: steps.verify-tests.outputs.verified == 'true'
         run: |
-          git config user.name "claude[bot]"
-          git config user.email "claude[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
       - name: Run merge decision
         if: steps.verify-tests.outputs.verified == 'true'
