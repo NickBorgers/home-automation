@@ -77,6 +77,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p /tmp/deprecation-output
+          chmod 777 /tmp/deprecation-output
 
           # The HA_VERSION_LINE paragraph swaps based on whether a specific
           # HA version was passed as an input. Computing it here (rather than

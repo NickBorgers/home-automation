@@ -135,6 +135,7 @@ jobs:
           set -euo pipefail
 
           mkdir -p /tmp/diagnose-output
+          chmod 777 /tmp/diagnose-output
 
           # Run the agent inside the CI image. The prompt lives in the repo
           # at .github/ci/prompts/diagnose-workflow-failure.md and uses shell

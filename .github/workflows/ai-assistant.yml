@@ -191,6 +191,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p /tmp/resolve-output
+          chmod 777 /tmp/resolve-output
 
           docker run --rm \
             --network host \
