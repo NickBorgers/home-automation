@@ -55,6 +55,7 @@ graph LR
         sleephygiene["sleephygiene"]
         statetracking["statetracking"]
         tv["tv"]
+        vacuum["vacuum"]
         waterflow["waterflow"]
     end
 

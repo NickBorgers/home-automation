@@ -486,6 +486,23 @@ Each plugin corresponds to a Node-RED flow and implements domain-specific automa
 
 **Entities Monitored:** `binary_sensor.leaf_charger_overheat_detected`, `binary_sensor.leaf_charger_over_current_detected`, `binary_sensor.leaf_charger_over_voltage_detected`, `sensor.leaf_charger_electric_consumption_w`, `switch.leaf_charger`
 
+### 15. Vacuum Plugin ✅
+
+**Responsibilities:**
+- Monitor the robot vacuum's error sensor and announce actionable errors via TTS
+- Suppress announcements while master is asleep (configurable)
+- Re-announce unresolved errors on a configurable interval (default 2 hours) until cleared
+
+**Key Automations:**
+- **Error Announcement**: On error sensor transition from "No error" to a real error → TTS to common-area speakers
+- **Quiet Hours**: When `isMasterAsleep=true` (and `suppress_while_master_asleep` is set) → record error in shadow state but do not speak
+- **Repeat Cadence**: Background ticker re-announces unresolved errors every `repeat_interval`
+- **Initial State**: On plugin start → if sensor already reports an error, announce immediately
+
+**Entities Monitored:** `sensor.valetudo_mellowslimyloris_error` (configurable)
+
+**Config File:** `vacuum_config.yaml` (also reserves shape for future schedule, room sequencing, and per-room vacuum/mop parameters)
+
 ---
 
 ## Data Flow

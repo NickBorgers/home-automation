@@ -115,6 +115,7 @@ type InfrastructureShadowState = ShadowState[ReadOnlyInputs, InfrastructureOutpu
 type SensorConfigShadowState = ShadowState[ReadOnlyInputs, SensorConfigOutputs]
 type WaterFlowShadowState = ShadowState[ReadOnlyInputs, WaterFlowOutputs]
 type EVChargerShadowState = ShadowState[ReadOnlyInputs, EVChargerOutputs]
+type VacuumShadowState = ShadowState[ReadOnlyInputs, VacuumOutputs]
 
 // SystemInputs is used by cmd/app/run.go for system plugin shadow state.
 type SystemInputs = ReadOnlyInputs
@@ -297,6 +298,11 @@ func NewWaterFlowShadowState() *WaterFlowShadowState {
 // NewEVChargerShadowState creates a new EV charger shadow state.
 func NewEVChargerShadowState() *EVChargerShadowState {
 	return newReadOnlyShadowState("evcharger", EVChargerOutputs{})
+}
+
+// NewVacuumShadowState creates a new vacuum shadow state.
+func NewVacuumShadowState() *VacuumShadowState {
+	return newReadOnlyShadowState("vacuum", VacuumOutputs{})
 }
 
 // ============================================================================
@@ -1079,4 +1085,33 @@ type EVChargerNotice struct {
 type EVChargerRecovery struct {
 	ConditionType string    `json:"conditionType"`
 	Timestamp     time.Time `json:"timestamp"`
+}
+
+// ============================================================================
+// Vacuum Output Types - Robot Vacuum Error Announcements
+// ============================================================================
+
+// VacuumOutputs tracks the state of robot vacuum error announcement handling.
+// Today this only covers error TTS; future fields for schedule/room control
+// will live alongside these.
+type VacuumOutputs struct {
+	// CurrentError is the active error description from the vacuum's error
+	// sensor, or "" when the sensor is in its no-error state.
+	CurrentError string `json:"currentError"`
+
+	// LastAnnouncementMessage is the most recent TTS message that was sent
+	// (or would have been sent in read-only mode).
+	LastAnnouncementMessage string `json:"lastAnnouncementMessage,omitempty"`
+
+	// LastAnnouncementAt is the timestamp of the last announcement attempt
+	// (regardless of whether it was suppressed).
+	LastAnnouncementAt *time.Time `json:"lastAnnouncementAt,omitempty"`
+
+	// AnnouncementsSinceErrorBegan counts TTS announcements emitted for the
+	// currently active error (resets when CurrentError clears).
+	AnnouncementsSinceErrorBegan int `json:"announcementsSinceErrorBegan"`
+
+	// SuppressedWhileAsleepCount counts how many announcements were suppressed
+	// because master was asleep.
+	SuppressedWhileAsleepCount int `json:"suppressedWhileAsleepCount"`
 }
