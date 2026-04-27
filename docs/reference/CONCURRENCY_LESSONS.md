@@ -899,6 +899,11 @@ Go's runtime only detects deadlocks when **all** goroutines are blocked. If even
 11. **Maintain consistent lock ordering** - Prevents deadlocks when multiple locks are needed
 12. **Use errgroup for structured concurrency** - Provides bounded parallelism, error propagation, and cleaner code than manual WaitGroup
 13. **Propagate shutdown context through service calls** - Enables fast graceful shutdown by allowing retry loops to exit immediately
+14. **Establish clear ownership for shared state changes** - When multiple handlers react to the same variable, one must have explicit authority; others defer
+15. **Track pending writes to suppress echo-back races** - Record the expected value when writing to HA so the echo-back can be recognized and dropped
+16. **Don't use a shared scalar to guard concurrent multi-value operations** - A single flag can't safely represent the combination of values it is meant to protect
+17. **Serialize calls to congestion-sensitive device networks** - Parallel UPnP calls to Sonos triggers timeout storms; sequence them instead
+18. **Use `waitForServiceCallQuiescenceSince` for absence assertions** - `waitForProcessing` only covers the HA handler fence; fire-and-forget goroutines require quiescence polling
 
 ---
 
@@ -1075,7 +1080,7 @@ func handleShutdown() {
 - State manager: `internal/state/manager.go`
 - Mock server: `test/integration/mock_ha_server.go`
 
-**Last Updated**: 2026-02-09
+**Last Updated**: 2026-04-27
 **Test Status**: All 11/11 integration tests passing with `-race` flag
 
 ---
@@ -1291,7 +1296,69 @@ for i, speaker := range speakers {
 
 ---
 
+## Lesson 18: Use `waitForServiceCallQuiescenceSince` When Asserting Absence of Async Service Calls
+
+**Pattern**: After triggering an async handler, use `waitForServiceCallQuiescenceSince` (not `waitForProcessing` alone) before asserting that a service call was NOT made.
+
+**Why**: `waitForProcessing` only synchronizes on the HA event handler fence — it waits for all goroutines registered through `state.Manager`'s handler dispatch to return. But handlers frequently spawn fire-and-forget goroutines (e.g., opening a garage door, launching zone orchestration) that are NOT covered by the handler fence. If you assert "no service call was made" immediately after `waitForProcessing`, a fire-and-forget goroutine spawned by the handler may still be in flight, causing a false pass before the goroutine makes its service call.
+
+**Problem Scenario**:
+```go
+// ❌ WRONG: waitForProcessing doesn't cover fire-and-forget goroutines
+server.SetState("input_boolean.nick_near_home", "on", nil)
+waitForProcessing(t, manager)
+// BUG: The security handler returns quickly after spawning a goroutine
+// that may open the garage. That goroutine is NOT inside the handler
+// fence — the assertion below can falsely pass before it runs.
+garageCall := FindServiceCallWithEntityID(server.GetServiceCallsSince(snapshot), "cover", "open_cover", "cover.garage_door_door")
+assert.Nil(t, garageCall, "Garage should NOT open")
+```
+
+**Correct Approach**:
+```go
+// ✅ CORRECT: quiescence waits until all fire-and-forget goroutines settle
+snapshot := server.ServiceCallCount()
+server.SetState("input_boolean.nick_near_home", "on", nil)
+waitForProcessing(t, manager)
+waitForServiceCallQuiescenceSince(t, server, snapshot, 200*time.Millisecond)
+// Safe: service call count has been stable for 200ms — any goroutines
+// spawned by the handler have either completed or did not run.
+garageCall := FindServiceCallWithEntityID(server.GetServiceCallsSince(snapshot), "cover", "open_cover", "cover.garage_door_door")
+assert.Nil(t, garageCall, "Garage should NOT open")
+```
+
+**Helper Selection Table**:
+
+| Scenario | Helper to Use |
+|----------|--------------|
+| Assert a specific call **was** made | `waitForServiceCallSince(t, server, snapshot, domain, service, msg)` |
+| Assert a specific call **was** made (with entity) | `waitForServiceCallWithEntitySince(t, server, snapshot, domain, service, entityID, msg)` |
+| Assert a call **was NOT** made after async trigger | `waitForProcessing` + `waitForServiceCallQuiescenceSince(t, server, snapshot, 200ms)` |
+| Wait for multiple async calls to finish and stabilize | `waitForServiceCallsToStabilizeSince(t, server, snapshot, window)` |
+| Assert call count reaches N | `waitForServiceCallCountSince(t, server, snapshot, n, msg)` |
+
+**`waitForServiceCallQuiescenceSince` vs `waitForServiceCallsToStabilizeSince`**:
+
+These helpers look similar but serve different purposes:
+- `waitForServiceCallsToStabilizeSince` **requires at least one call to appear first** before it checks for stability — it will time out if no call is ever made. Use this when you expect a service call and want to wait for all related calls to complete.
+- `waitForServiceCallQuiescenceSince` **does not require any calls** — it succeeds immediately if no calls appear and the count stays stable. Use this when zero calls is the expected outcome.
+
+**Where Applied**:
+- `test/integration/scenario_security_test.go` — Garage door absence assertions after Nick passes through `near_home` geofence during departure
+- `test/integration/scenario_sexmode_test.go` — No-scene and no-duplicate service call assertions after sex mode activation
+
+**References**:
+- PR #1033 — Replaced five `waitForProcessing`-only guards with `waitForProcessing` + `waitForServiceCallQuiescenceSince`
+
+---
+
 ## Change Log
+
+### 2026-04-27
+- **Added Lesson 18**: Use `waitForServiceCallQuiescenceSince` When Asserting Absence of Async Service Calls
+  - Documents why `waitForProcessing` alone is insufficient for "no service call" assertions
+  - Provides helper-selection table for all service call assertion scenarios
+  - Applied in `scenario_security_test.go` (garage absence) and `scenario_sexmode_test.go` (no-scene, no-duplicate)
 
 ### 2026-03-26
 - **Added Lesson 17**: Serialize Calls to Congestion-Sensitive External Device Networks
