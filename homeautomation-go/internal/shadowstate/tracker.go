@@ -2252,3 +2252,91 @@ func (et *EVChargerTracker) GetState() *EVChargerShadowState {
 
 	return stateCopy
 }
+
+// ============================================================================
+// Vacuum Tracker
+// ============================================================================
+
+// VacuumTracker manages shadow state for the robot vacuum plugin.
+type VacuumTracker struct {
+	ReadOnlyTracker[VacuumOutputs]
+}
+
+// NewVacuumTracker creates a new vacuum shadow state tracker.
+func NewVacuumTracker() *VacuumTracker {
+	return &VacuumTracker{
+		ReadOnlyTracker: NewReadOnlyTracker(NewVacuumShadowState()),
+	}
+}
+
+// SetCurrentError sets the active error description. Pass "" to clear.
+// Clearing also resets AnnouncementsSinceErrorBegan.
+func (vt *VacuumTracker) SetCurrentError(errorDesc string) {
+	vt.Lock()
+	defer vt.Unlock()
+
+	if errorDesc == "" {
+		vt.State().Outputs.CurrentError = ""
+		vt.State().Outputs.AnnouncementsSinceErrorBegan = 0
+	} else {
+		// New error string (different from previous) → reset counter so
+		// AnnouncementsSinceErrorBegan tracks the current condition only.
+		if vt.State().Outputs.CurrentError != errorDesc {
+			vt.State().Outputs.AnnouncementsSinceErrorBegan = 0
+		}
+		vt.State().Outputs.CurrentError = errorDesc
+	}
+	vt.State().Metadata.LastUpdated = time.Now()
+}
+
+// RecordAnnouncement records that a TTS announcement was emitted (or would
+// have been, in read-only mode). The timestamp is captured by the tracker.
+func (vt *VacuumTracker) RecordAnnouncement(message string, at time.Time) {
+	vt.Lock()
+	defer vt.Unlock()
+
+	vt.State().Outputs.LastAnnouncementMessage = message
+	atCopy := at
+	vt.State().Outputs.LastAnnouncementAt = &atCopy
+	vt.State().Outputs.AnnouncementsSinceErrorBegan++
+	vt.State().Metadata.LastUpdated = time.Now()
+}
+
+// RecordSuppressedWhileAsleep increments the count of announcements suppressed
+// because master was asleep. The timestamp on LastAnnouncementAt is also bumped
+// so dashboards show recent activity even when nothing was spoken.
+func (vt *VacuumTracker) RecordSuppressedWhileAsleep(at time.Time) {
+	vt.Lock()
+	defer vt.Unlock()
+
+	vt.State().Outputs.SuppressedWhileAsleepCount++
+	atCopy := at
+	vt.State().Outputs.LastAnnouncementAt = &atCopy
+	vt.State().Metadata.LastUpdated = time.Now()
+}
+
+// GetState returns a thread-safe copy of the current shadow state.
+func (vt *VacuumTracker) GetState() *VacuumShadowState {
+	vt.RLock()
+	defer vt.RUnlock()
+
+	s := vt.State()
+	stateCopy := &VacuumShadowState{
+		Plugin: s.Plugin,
+		Inputs: ReadOnlyInputs{
+			Current: copyInputMap(s.Inputs.Current),
+		},
+		Outputs: VacuumOutputs{
+			CurrentError:                 s.Outputs.CurrentError,
+			LastAnnouncementMessage:      s.Outputs.LastAnnouncementMessage,
+			AnnouncementsSinceErrorBegan: s.Outputs.AnnouncementsSinceErrorBegan,
+			SuppressedWhileAsleepCount:   s.Outputs.SuppressedWhileAsleepCount,
+		},
+		Metadata: s.Metadata,
+	}
+	if s.Outputs.LastAnnouncementAt != nil {
+		t := *s.Outputs.LastAnnouncementAt
+		stateCopy.Outputs.LastAnnouncementAt = &t
+	}
+	return stateCopy
+}

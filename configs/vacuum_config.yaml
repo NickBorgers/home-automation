@@ -1,0 +1,37 @@
+# Robot vacuum plugin configuration.
+#
+# Today this only drives the error-announcement subsystem. Future fields for
+# scheduling, room sequencing, and per-room vacuum/mop parameters will be added
+# alongside these without changing the file's top-level shape.
+vacuum:
+  # Home Assistant sensor exposing the vacuum's current error state. The state
+  # equals no_error_value when the vacuum is healthy; any other value is treated
+  # as an active error description that gets announced verbatim.
+  error_sensor_id: "sensor.valetudo_mellowslimyloris_error"
+  no_error_value: "No error"
+
+  announcement:
+    # Re-announce an unresolved error this often, in Go duration syntax.
+    repeat_interval: "2h"
+
+    # When true, suppress TTS while input_boolean.master_asleep is on. The
+    # repeat timer keeps running so the next announcement happens once master
+    # wakes (or after repeat_interval, whichever comes first).
+    suppress_while_master_asleep: true
+
+    # Sentence prefix; the error description is appended after a colon.
+    message_prefix: "Robot vacuum needs attention"
+
+    # Speakers to announce on. These match the post-rename speaker layout
+    # (Sitting Room replaced the old Dining Room).
+    speakers:
+      - "media_player.kitchen"
+      - "media_player.sitting_room"
+      - "media_player.front_room"
+      - "media_player.soundbar"
+      - "media_player.kids_bathroom"
+
+  # Future sections (intentionally not wired today; commented stubs only):
+  # entity_id: "vacuum.valetudo_mellowslimyloris"
+  # schedule: {}
+  # rooms: []

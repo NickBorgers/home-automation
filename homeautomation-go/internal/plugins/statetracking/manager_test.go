@@ -653,7 +653,8 @@ func TestStateTrackingManager_ArrivalAnnouncements(t *testing.T) {
 			},
 			expectedPlayers: []string{
 				"media_player.kitchen",
-				"media_player.dining_room",
+				"media_player.sitting_room",
+				"media_player.front_room",
 				"media_player.soundbar",
 				"media_player.kids_bathroom",
 			},
@@ -669,7 +670,8 @@ func TestStateTrackingManager_ArrivalAnnouncements(t *testing.T) {
 			},
 			expectedPlayers: []string{
 				"media_player.kitchen",
-				"media_player.dining_room",
+				"media_player.sitting_room",
+				"media_player.front_room",
 				"media_player.kids_bathroom",
 				"media_player.soundbar",
 				"media_player.office",
@@ -686,7 +688,8 @@ func TestStateTrackingManager_ArrivalAnnouncements(t *testing.T) {
 			},
 			expectedPlayers: []string{
 				"media_player.kitchen",
-				"media_player.dining_room",
+				"media_player.sitting_room",
+				"media_player.front_room",
 				"media_player.kids_bathroom",
 				"media_player.soundbar",
 				"media_player.office",
@@ -1482,7 +1485,7 @@ func TestAnnounceArrivalDirect_UsesGroupCoordinator(t *testing.T) {
 
 	manager.announceArrivalDirect("Nick", "Nick is home", []string{
 		"media_player.kitchen",
-		"media_player.dining_room",
+		"media_player.sitting_room",
 		"media_player.soundbar",
 	})
 
@@ -1519,7 +1522,7 @@ func TestAnnounceArrivalDirect_FallsBackWhenSocoDown(t *testing.T) {
 
 	defaultSpeakers := []string{
 		"media_player.kitchen",
-		"media_player.dining_room",
+		"media_player.sitting_room",
 	}
 	manager.announceArrivalDirect("Nick", "Nick is home", defaultSpeakers)
 
