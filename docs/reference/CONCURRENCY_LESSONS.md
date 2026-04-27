@@ -899,6 +899,10 @@ Go's runtime only detects deadlocks when **all** goroutines are blocked. If even
 11. **Maintain consistent lock ordering** - Prevents deadlocks when multiple locks are needed
 12. **Use errgroup for structured concurrency** - Provides bounded parallelism, error propagation, and cleaner code than manual WaitGroup
 13. **Propagate shutdown context through service calls** - Enables fast graceful shutdown by allowing retry loops to exit immediately
+14. **Establish clear ownership for shared state changes** - When multiple handlers react to the same variable, one must have explicit authority; others defer
+15. **Track pending writes to suppress echo-back races** - Record the expected value when writing to HA so the echo-back can be recognized and dropped
+16. **Don't use a shared scalar to guard concurrent multi-value operations** - A single flag can't safely represent the combination of values it is meant to protect
+17. **Serialize calls to congestion-sensitive device networks** - Parallel UPnP calls to Sonos triggers timeout storms; sequence them instead
 18. **Use `waitForServiceCallQuiescenceSince` for absence assertions** - `waitForProcessing` only covers the HA handler fence; fire-and-forget goroutines require quiescence polling
 
 ---
