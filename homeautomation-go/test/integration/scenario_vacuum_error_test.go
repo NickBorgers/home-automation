@@ -135,8 +135,7 @@ func TestScenario_VacuumError_SuppressedWhileMasterAsleep(t *testing.T) {
 		"shadow state should reflect the active error")
 
 	t.Log("...but no tts.speak service call is sent.")
-	// Wait briefly to ensure no async announcement sneaks in.
-	time.Sleep(200 * time.Millisecond)
+	waitForServiceCallQuiescenceSince(t, env.server, snapshot, 200*time.Millisecond)
 	calls := FilterServiceCalls(env.server.GetServiceCallsSince(snapshot), "tts", "speak")
 	assert.Empty(t, calls, "TTS must not fire while master is asleep")
 
@@ -171,7 +170,6 @@ func TestScenario_VacuumError_StopsRepeatingAfterClear(t *testing.T) {
 
 	t.Log("THEN: Subsequent repeat ticks must not produce a new announcement")
 	env.vacuum.TickRepeatForTest()
-	time.Sleep(100 * time.Millisecond)
 	newCalls := FilterServiceCalls(env.server.GetServiceCallsSince(snapshot), "tts", "speak")
 	assert.Empty(t, newCalls, "no announcements should fire after the error has cleared")
 }

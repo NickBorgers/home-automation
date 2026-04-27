@@ -302,6 +302,13 @@ func (m *Manager) tickRepeat() {
 
 	now := m.timeProvider.Now()
 	if last.IsZero() || now.Sub(last) >= m.cfg.Vacuum.Announcement.RepeatInterval {
+		// Re-validate under lock: error may have cleared between the snapshot above and now.
+		m.mu.Lock()
+		if m.currentError != currentErr {
+			m.mu.Unlock()
+			return
+		}
+		m.mu.Unlock()
 		m.maybeAnnounce(currentErr)
 	}
 }

@@ -15,8 +15,8 @@ vacuum:
     repeat_interval: "2h"
 
     # When true, suppress TTS while input_boolean.master_asleep is on. The
-    # repeat timer keeps running so the next announcement happens once master
-    # wakes (or after repeat_interval, whichever comes first).
+    # repeat timer keeps running; the next announcement fires at the next
+    # repeat_interval tick after master wakes.
     suppress_while_master_asleep: true
 
     # Sentence prefix; the error description is appended after a colon.
