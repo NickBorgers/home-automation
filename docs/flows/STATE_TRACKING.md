@@ -74,6 +74,7 @@ flowchart TD
     subgraph Check["Condition Check"]
         checkHome{"isAnyoneHome?"}
         checkAsleep{"Already<br/>isMasterAsleep?"}
+        checkLights{"Lights still off?<br/>(re-validate #1017)"}
     end
 
     subgraph Action["Action"]
@@ -89,7 +90,9 @@ flowchart TD
     checkHome -->|No| skip
     checkHome -->|Yes| checkAsleep
     checkAsleep -->|Yes| skip
-    checkAsleep -->|No| setAsleep
+    checkAsleep -->|No| checkLights
+    checkLights -->|No| skip
+    checkLights -->|Yes| setAsleep
 
     style setAsleep fill:#6c5ce7,color:#fff
     style cancel fill:#e74c3c,color:#fff
@@ -111,14 +114,21 @@ flowchart TD
         expire["Timer expires"]
     end
 
+    subgraph Check["Condition Check"]
+        checkDoor{"Door still open?<br/>(re-validate #1017)"}
+    end
+
     subgraph Action["Action"]
         setAwake["Set isMasterAsleep = false"]
+        skipWake["No action"]
     end
 
     doorOpen --> start
     start -->|Door closes| cancel
     start -->|20 seconds pass| expire
-    expire --> setAwake
+    expire --> checkDoor
+    checkDoor -->|No| skipWake
+    checkDoor -->|Yes| setAwake
 
     style setAwake fill:#ffd93d,color:#000
     style cancel fill:#e74c3c,color:#fff
