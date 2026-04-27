@@ -340,6 +340,10 @@ func TestScenario_SexModeDeactivation_TurnsOffLightsWhenAsleep(t *testing.T) {
 
 	// Wait for light turn off call
 	waitForServiceCallSince(t, server, snapshot, "light", "turn_off", "lights should be turned off")
+	// Quiescence ensures all concurrent goroutines have drained before we assert
+	// that no scene was activated. Quiescence (not Stabilize) because we expect
+	// no additional calls beyond light.turn_off.
+	waitForServiceCallQuiescenceSince(t, server, snapshot, 200*time.Millisecond)
 
 	// Should NOT activate a scene
 	calls := server.GetServiceCallsSince(snapshot)
@@ -449,8 +453,10 @@ func TestScenario_SexModeDuplicateActivation_Ignored(t *testing.T) {
 	// Manually trigger handleSexModeOn to simulate duplicate
 	// This tests the internal guard
 	sexModeManager.Reset() // Reset checks current state and won't re-activate
-	// Allow async Reset to complete
-	waitForProcessing(t, stateManager)
+	// Reset launches handlers asynchronously; wait for quiescence (no new calls for
+	// stabilizeWindow) rather than waitForProcessing, which only covers HA event
+	// handlers, not fire-and-forget goroutines spawned by them.
+	waitForServiceCallQuiescenceSince(t, server, snapshot, 200*time.Millisecond)
 
 	t.Log("THEN: No additional service calls should be made")
 
@@ -480,8 +486,9 @@ func TestScenario_SexModeDeactivationWithoutActivation_Ignored(t *testing.T) {
 	t.Log("WHEN: Sex mode is turned off (was already off)")
 
 	server.SetState("input_boolean.sex", "off", nil)
-	// Wait for state to be processed (expecting no change)
-	waitForProcessing(t, stateManager)
+	// SetState launches handlers asynchronously; use quiescence (not waitForProcessing)
+	// to ensure fire-and-forget goroutines have drained before asserting zero calls.
+	waitForServiceCallQuiescenceSince(t, server, snapshot, 200*time.Millisecond)
 
 	t.Log("THEN: No actions should be taken and music type should remain 'day'")
 

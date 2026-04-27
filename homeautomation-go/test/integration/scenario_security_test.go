@@ -161,8 +161,9 @@ func TestScenario_OwnerReturnsHomeGarageOccupied(t *testing.T) {
 
 	t.Log("BUT: Garage door should NOT be opened (occupied)")
 
-	// Wait for all handlers to complete, then verify no garage open call was made
-	waitForProcessing(t, manager)
+	// Use quiescence to drain fire-and-forget goroutines before asserting no garage call.
+	// waitForProcessing only covers HA event handlers, not goroutines spawned by them.
+	waitForServiceCallQuiescenceSince(t, server, snapshot, 200*time.Millisecond)
 
 	garageOpenCall := FindServiceCallWithEntityID(server.GetServiceCallsSince(snapshot), "cover", "open_cover", "cover.garage_door_door")
 	assert.Nil(t, garageOpenCall, "Garage door should NOT open when garage is occupied")
@@ -338,7 +339,9 @@ func TestScenario_OnlyOwnersTriggersGarage(t *testing.T) {
 
 	t.Log("AND: Garage door should NOT be opened")
 
-	waitForProcessing(t, manager)
+	// Use quiescence to drain fire-and-forget goroutines before asserting no garage call.
+	// waitForProcessing only covers HA event handlers, not goroutines spawned by them.
+	waitForServiceCallQuiescenceSince(t, server, snapshot, 200*time.Millisecond)
 
 	garageOpenCall := FindServiceCallWithEntityID(server.GetServiceCallsSince(snapshot), "cover", "open_cover", "cover.garage_door_door")
 	assert.Nil(t, garageOpenCall, "Garage should not open for guest arrival")
