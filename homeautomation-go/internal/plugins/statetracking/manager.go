@@ -293,6 +293,20 @@ func (m *Manager) detectMasterAsleep() {
 		return
 	}
 
+	// Re-validate trigger condition: confirm lights are still off before marking asleep.
+	// During the 1-minute delay the scene may have been activated (e.g. owner arrived home),
+	// so we must re-read the current entity state rather than assuming it hasn't changed. (#1017)
+	lightState, err := m.haClient.GetState("light.primary_suite")
+	if err != nil {
+		m.logger.Warn("Failed to re-read light.primary_suite, aborting sleep detection", zap.Error(err))
+		return
+	}
+	if lightState.State != "off" {
+		m.logger.Debug("Primary suite lights no longer off, aborting sleep detection",
+			zap.String("light_state", lightState.State))
+		return
+	}
+
 	// All checks passed, mark master as asleep
 	m.logger.Info("Marking master as asleep (lights off for 1 minute)")
 	if err := m.stateManager.SetBool("isMasterAsleep", true); err != nil {
@@ -346,6 +360,19 @@ func (m *Manager) handlePrimaryBedroomDoorChange(entityID string, oldState, newS
 
 // detectMasterAwake runs after door has been open for 20 seconds
 func (m *Manager) detectMasterAwake() {
+	// Re-validate trigger condition: confirm the bedroom door is still open before marking awake.
+	// The door may have been closed again during the 20-second delay. (#1017)
+	doorState, err := m.haClient.GetState("input_boolean.primary_bedroom_door_open")
+	if err != nil {
+		m.logger.Warn("Failed to re-read primary_bedroom_door_open, aborting wake detection", zap.Error(err))
+		return
+	}
+	if doorState.State != "on" {
+		m.logger.Debug("Primary bedroom door no longer open, aborting wake detection",
+			zap.String("door_state", doorState.State))
+		return
+	}
+
 	m.logger.Info("Marking master as awake (bedroom door open for 20 seconds)")
 
 	if err := m.stateManager.SetBool("isMasterAsleep", false); err != nil {
