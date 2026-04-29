@@ -1038,6 +1038,7 @@ graph LR
     SleepHygiene --> WakeActive
     SleepHygiene --> SleepPrep
     SleepPrep --> Lighting
+    SleepHygiene -.->|Controls| EightSleep
     SleepHygiene -.->|Triggers| Music
     SleepHygiene -.->|Triggers| Lighting
 
