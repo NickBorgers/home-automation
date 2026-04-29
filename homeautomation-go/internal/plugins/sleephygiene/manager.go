@@ -274,6 +274,19 @@ func (m *Manager) handleMasterAsleepChange(key string, oldValue, newValue interf
 					m.logger.Error("Failed to clear isSleepPrepActive", zap.Error(err))
 				}
 			}
+
+			// Turn off Eight Sleep Pod - no need to heat/cool when nobody is in bed
+			m.logger.Info("Turning off Eight Sleep Pod climate for both sides")
+			for _, entity := range []string{
+				"climate.nick_s_eight_sleep_side_climate",
+				"climate.caroline_s_eight_sleep_side_climate",
+			} {
+				if err := m.haClient.CallService(m.ctx, "climate", "turn_off", map[string]interface{}{
+					"entity_id": entity,
+				}); err != nil {
+					m.logger.Error("Failed to turn off Eight Sleep climate", zap.String("entity", entity), zap.Error(err))
+				}
+			}
 		}
 
 		// Check if wake sequence was active
