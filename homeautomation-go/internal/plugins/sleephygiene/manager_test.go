@@ -2220,3 +2220,81 @@ func TestCancelWake_ClearsMusicPlaybackTypeWhenAlreadySleep(t *testing.T) {
 		t.Errorf("Expected musicPlaybackType to be '' (cleared), got %s", musicType)
 	}
 }
+
+func TestHandleMasterAsleepChange_TurnsOffEightSleepOnWake(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2024, 1, 15, 7, 30, 0, 0, time.UTC)
+	manager, mockHA, stateManager, _ := setupTest(t, now)
+
+	stateManager.SetBool("isMasterAsleep", true)
+	snapshot := mockHA.ServiceCallCount()
+
+	manager.handleMasterAsleepChange("isMasterAsleep", true, false)
+
+	calls := mockHA.GetServiceCallsSince(snapshot)
+
+	// Find climate turn_off calls
+	var climateCalls []ha.ServiceCall
+	for _, c := range calls {
+		if c.Domain == "climate" && c.Service == "turn_off" {
+			climateCalls = append(climateCalls, c)
+		}
+	}
+
+	if len(climateCalls) != 2 {
+		t.Fatalf("Expected 2 climate.turn_off calls, got %d", len(climateCalls))
+	}
+
+	entities := map[string]bool{}
+	for _, c := range climateCalls {
+		if id, ok := c.Data["entity_id"].(string); ok {
+			entities[id] = true
+		}
+	}
+	if !entities["climate.nick_s_eight_sleep_side_climate"] {
+		t.Error("Expected climate.turn_off for nick_s_eight_sleep_side_climate")
+	}
+	if !entities["climate.caroline_s_eight_sleep_side_climate"] {
+		t.Error("Expected climate.turn_off for caroline_s_eight_sleep_side_climate")
+	}
+}
+
+func TestHandleMasterAsleepChange_NoEightSleepTurnOffInReadOnly(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2024, 1, 15, 7, 30, 0, 0, time.UTC)
+	env := testutil.NewEnv(t)
+	configLoader := config.NewLoader("../../../configs", env.Logger)
+	timeProvider := plugin.FixedTimeProvider{FixedTime: now}
+	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, configLoader, env.Logger, true, timeProvider, nil)
+
+	env.StateMgr.SetBool("isMasterAsleep", true)
+	snapshot := env.MockHA.ServiceCallCount()
+
+	manager.handleMasterAsleepChange("isMasterAsleep", true, false)
+
+	calls := env.MockHA.GetServiceCallsSince(snapshot)
+	for _, c := range calls {
+		if c.Domain == "climate" {
+			t.Errorf("Unexpected climate service call in read-only mode: %s.%s", c.Domain, c.Service)
+		}
+	}
+}
+
+func TestHandleMasterAsleepChange_NoEightSleepTurnOffWhenFallingAsleep(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2024, 1, 15, 22, 0, 0, 0, time.UTC)
+	manager, mockHA, stateManager, _ := setupTest(t, now)
+
+	stateManager.SetBool("isMasterAsleep", false)
+	snapshot := mockHA.ServiceCallCount()
+
+	// isMasterAsleep becomes true (person going to sleep) — no climate turn_off expected
+	manager.handleMasterAsleepChange("isMasterAsleep", false, true)
+
+	calls := mockHA.GetServiceCallsSince(snapshot)
+	for _, c := range calls {
+		if c.Domain == "climate" {
+			t.Errorf("Unexpected climate service call when going to sleep: %s.%s", c.Domain, c.Service)
+		}
+	}
+}

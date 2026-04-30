@@ -282,6 +282,8 @@ flowchart TD
 | `isWakeSequenceActive` | bool | Wake sequence lights are protected |
 | `musicPlaybackType` | string | Set to "sleep" at bedtime, "wakeup" after lights up |
 
+On wake (when `isMasterAsleep` transitions false), the plugin also calls `climate.turn_off` on both Eight Sleep Pod climate entities (`climate.nick_s_eight_sleep_side_climate` and `climate.caroline_s_eight_sleep_side_climate`). This is a fire-and-forget side-effect — errors are logged but do not affect the wake sequence.
+
 ## Related Documentation
 
 - [DAY_PHASE_MODES.md](./DAY_PHASE_MODES.md) - Day phase and schedule configuration
