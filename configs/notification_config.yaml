@@ -1,0 +1,47 @@
+# Verbal (TTS) announcement configuration.
+#
+# Used by all plugins that produce verbal announcements (vacuum errors,
+# security doorbell/vehicle/intruder alerts, energy/charging notifications,
+# infrastructure alerts, water-flow alerts, presence announcements).
+#
+# Before each announcement the notifier:
+#   1. Snapshots each target speaker's current volume.
+#   2. Sets volume to awake_volume_percent (or asleep_volume_percent for
+#      routine announcements while master is asleep).
+#   3. Calls tts.speak.
+#   4. After restore_delay_seconds, restores each speaker's prior volume.
+#
+# Urgent announcements (security alerts) ignore the asleep volume reduction.
+notification:
+  # Default speaker list when a plugin does not override. Union of all
+  # per-plugin lists in use today, so removing a plugin's hardcoded list
+  # does not silence any room.
+  default_speakers:
+    - media_player.kitchen
+    - media_player.front_room
+    - media_player.sitting_room
+    - media_player.bedroom
+    - media_player.dining_room
+    - media_player.soundbar
+    - media_player.kids_bathroom
+
+  # Volume (0-100) used when the master is awake, or for any urgent
+  # announcement regardless of sleep state.
+  awake_volume_percent: 60
+
+  # Volume (0-100) used for routine announcements while master is asleep.
+  # Vacuum already suppresses entirely while asleep; this only affects
+  # announcements that don't suppress (e.g. presence).
+  asleep_volume_percent: 30
+
+  # TTS engine. tts.google_translate_en_com is the default in Home Assistant.
+  tts_entity_id: tts.google_translate_en_com
+
+  # When true, snapshot speaker volume before the announcement and restore
+  # after. Set to false only for diagnostics.
+  snapshot_restore: true
+
+  # How long to wait after the tts.speak call returns before restoring
+  # speaker volumes. Sized to cover typical announcement playback duration
+  # (3-7 seconds for short alerts).
+  restore_delay_seconds: 8

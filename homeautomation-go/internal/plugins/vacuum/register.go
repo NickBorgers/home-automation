@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"path/filepath"
 
+	"homeautomation/internal/notify"
 	pkgha "homeautomation/pkg/ha"
 	"homeautomation/pkg/plugin"
 	"homeautomation/pkg/shadowstate"
@@ -36,7 +37,14 @@ func createPlugin(ctx *plugin.Context) (plugin.Plugin, error) {
 		return nil, fmt.Errorf("failed to load vacuum config: %w", err)
 	}
 
-	manager := NewManager(ctx.ShutdownCtx, haClient, stateManager, cfg, ctx.Logger, ctx.ReadOnly, ctx.TimeProvider, ctx.Registry)
+	notifier := ctx.Notifier
+	if notifier == nil {
+		// Fall back to a non-functional mock so the plugin can still load
+		// when the notifier is not wired (tests, partial bootstraps).
+		notifier = &notify.MockNotifier{}
+	}
+
+	manager := NewManager(ctx.ShutdownCtx, haClient, stateManager, notifier, cfg, ctx.Logger, ctx.ReadOnly, ctx.TimeProvider, ctx.Registry)
 	return &pluginAdapter{manager: manager}, nil
 }
 

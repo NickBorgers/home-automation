@@ -17,6 +17,7 @@ import (
 	"homeautomation/internal/devserver"
 	"homeautomation/internal/ha"
 	"homeautomation/internal/logbuffer"
+	"homeautomation/internal/notify"
 	"homeautomation/internal/ntfy"
 	"homeautomation/internal/plugins/energy"
 	"homeautomation/internal/plugins/reset"
@@ -343,6 +344,24 @@ func Run() {
 	pluginCtx.SoCoCliURL = socoCliURL
 	pluginCtx.ShutdownCtx = shutdownCtx
 
+	// Construct verbal-announcement notifier. Falls back to safe defaults if
+	// no notification_config.yaml is present so existing deployments keep working.
+	notifyCfgPath := filepath.Join(configDir, "notification_config.yaml")
+	notifyCfg, err := notify.LoadConfig(notifyCfgPath)
+	if err != nil {
+		logger.Warn("Failed to load notification config, using defaults",
+			zap.String("path", notifyCfgPath),
+			zap.Error(err))
+		defaultCfg := notify.DefaultConfig()
+		notifyCfg = &defaultCfg
+	}
+	notifier := notify.NewManager(client, stateManager, *notifyCfg, logger, readOnly)
+	pluginCtx.Notifier = notifier
+	logger.Info("Notifier initialized",
+		zap.Int("awake_volume_percent", notifyCfg.AwakeVolumePercent),
+		zap.Int("asleep_volume_percent", notifyCfg.AsleepVolumePercent),
+		zap.Int("default_speaker_count", len(notifyCfg.DefaultSpeakers)))
+
 	// Create all registered plugins using the plugin registry
 	plugins, err := plugin.CreateAll(pluginCtx)
 	if err != nil {
@@ -411,6 +430,9 @@ func Run() {
 	// waiting for their full retry budget (which could take several minutes).
 	cancelShutdown()
 	logger.Info("Cancelled shutdown context - service calls will exit quickly")
+
+	// Wait for any pending TTS volume restores so we don't leave speakers loud.
+	notifier.WaitForRestores()
 
 	// Stop dev server if running
 	if devServer != nil {

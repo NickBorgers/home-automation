@@ -5,6 +5,7 @@ import (
 	"os"
 	"testing"
 
+	"homeautomation/internal/notify"
 	"homeautomation/internal/plugins/lighting"
 	"homeautomation/internal/plugins/music"
 	"homeautomation/internal/plugins/statetracking"
@@ -57,7 +58,7 @@ func setupMusicLightingTest(t *testing.T) (*musicLightingEnv, func()) {
 		server:        server,
 		stateManager:  manager,
 		logger:        logger,
-		stateTracking: statetracking.NewManager(context.Background(), client, manager, logger, false, nil, ""),
+		stateTracking: statetracking.NewManager(context.Background(), client, manager, logger, false, nil, "", &notify.MockNotifier{}),
 		lighting:      lighting.NewManager(context.Background(), client, manager, lightingConfig, logger, false, nil),
 		music:         music.NewManager(context.Background(), client, manager, musicConfig, logger, false, nil, nil),
 	}

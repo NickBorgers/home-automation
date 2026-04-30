@@ -8,6 +8,7 @@ import (
 
 	"homeautomation/internal/clock"
 	"homeautomation/internal/ha"
+	"homeautomation/internal/notify"
 	"homeautomation/internal/shadowstate"
 	"homeautomation/internal/state"
 
@@ -42,6 +43,7 @@ type Manager struct {
 	ctx           context.Context
 	haClient      ha.HAClient
 	stateManager  *state.Manager
+	notifier      notify.Notifier
 	logger        *zap.Logger
 	readOnly      bool
 	clock         clock.Clock
@@ -62,13 +64,14 @@ type Manager struct {
 }
 
 // NewManager creates a new Security manager
-func NewManager(ctx context.Context, haClient ha.HAClient, stateManager *state.Manager, logger *zap.Logger, readOnly bool, registry *shadowstate.SubscriptionRegistry) *Manager {
+func NewManager(ctx context.Context, haClient ha.HAClient, stateManager *state.Manager, notifier notify.Notifier, logger *zap.Logger, readOnly bool, registry *shadowstate.SubscriptionRegistry) *Manager {
 	shadowTracker := shadowstate.NewSecurityTracker()
 
 	return &Manager{
 		ctx:           ctx,
 		haClient:      haClient,
 		stateManager:  stateManager,
+		notifier:      notifier,
 		logger:        logger.Named("security"),
 		readOnly:      readOnly,
 		clock:         clock.NewRealClock(),
@@ -414,13 +417,10 @@ func (m *Manager) handleVehicleArriving(entity string, oldState, newState *ha.St
 	}
 }
 
-// sendTTSNotification sends a TTS message to all Sonos speakers
+// sendTTSNotification sends an urgent verbal announcement via the shared
+// notifier. Urgent announcements ignore the asleep volume reduction so they
+// remain audible at night (doorbell, vehicle arrival, intruder alerts).
 func (m *Manager) sendTTSNotification(message string) {
-	if m.readOnly {
-		m.logger.Info("READ-ONLY: Would send TTS notification", zap.String("message", message))
-		return
-	}
-
 	speakers := []string{
 		"media_player.bedroom",
 		"media_player.kitchen",
@@ -429,16 +429,14 @@ func (m *Manager) sendTTSNotification(message string) {
 		"media_player.kids_bathroom",
 	}
 
-	if err := m.haClient.CallService(m.ctx, "tts", "speak", map[string]interface{}{
-		"entity_id":              "tts.google_translate_en_com",
-		"media_player_entity_id": speakers,
-		"message":                message,
-		"cache":                  true,
-	}); err != nil {
-		m.logger.Error("Failed to send TTS notification", zap.Error(err), zap.String("message", message))
-	} else {
-		m.logger.Info("TTS notification sent", zap.String("message", message))
+	if err := m.notifier.Announce(m.ctx, message,
+		notify.WithSpeakers(speakers),
+		notify.WithUrgency(notify.UrgencyUrgent),
+	); err != nil {
+		m.logger.Error("Failed to send security announcement", zap.Error(err), zap.String("message", message))
+		return
 	}
+	m.logger.Info("Security announcement sent", zap.String("message", message))
 }
 
 // addTriggerToInputs adds the trigger field to the current shadow state inputs
