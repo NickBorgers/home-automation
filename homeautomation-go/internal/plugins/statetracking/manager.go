@@ -360,6 +360,7 @@ func (m *Manager) handlePrimaryBedroomDoorChange(entityID string, oldState, newS
 
 // detectMasterAwake runs after door has been open for 20 seconds
 func (m *Manager) detectMasterAwake() {
+	m.logger.Info("20-second timer expired, checking if should mark master awake")
 	// Re-validate trigger condition: confirm the bedroom door is still open before marking awake.
 	// The door may have been closed again during the 20-second delay. (#1017)
 	doorState, err := m.haClient.GetState("input_boolean.primary_bedroom_door_open")
