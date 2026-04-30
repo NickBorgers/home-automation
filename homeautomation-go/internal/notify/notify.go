@@ -221,6 +221,11 @@ func (m *Manager) setVolumes(ctx context.Context, speakers []string, level float
 	}
 }
 
+// scheduleRestore waits RestoreDelay then restores priorVolumes. If two
+// announcements overlap within the delay window, the second snapshot captures
+// the announcement volume rather than the true prior level; the second restore
+// will then land at the first announcement's volume. This is acceptable given
+// that overlapping announcements are unlikely in practice.
 func (m *Manager) scheduleRestore(parentCtx context.Context, priorVolumes map[string]float64) {
 	m.wg.Add(1)
 	go func() {
