@@ -7,6 +7,7 @@ import (
 
 	"homeautomation/internal/clock"
 	"homeautomation/internal/ha"
+	"homeautomation/internal/notify"
 	"homeautomation/internal/ntfy"
 	"homeautomation/internal/state"
 
@@ -32,7 +33,7 @@ func getLastNtfyNotification(mockNtfy *ntfy.MockClient) *ntfy.Message {
 func createTestManager(mockHA *ha.MockClient, mockNtfy *ntfy.MockClient, mockClock *clock.MockClock) *Manager {
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
-	return NewManagerWithClock(context.Background(), mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
+	return NewManagerWithClock(context.Background(), mockHA, stateMgr, logger, false, nil, mockNtfy, notify.NewMockNotifier(), mockClock)
 }
 
 func TestInfrastructureManager_NormalOperation(t *testing.T) {
@@ -412,7 +413,7 @@ func TestInfrastructureManager_ReadOnlyMode(t *testing.T) {
 	stateMgr := state.NewManager(mockHA, logger, false)
 
 	// Create manager in read-only mode
-	manager := NewManagerWithClock(context.Background(), mockHA, stateMgr, logger, true, nil, mockNtfy, mockClock)
+	manager := NewManagerWithClock(context.Background(), mockHA, stateMgr, logger, true, nil, mockNtfy, notify.NewMockNotifier(), mockClock)
 
 	// Trigger failure
 	manager.SimulatePowerReading(30.0)
@@ -580,7 +581,7 @@ func TestInfrastructureManager_NtfyClientNil(t *testing.T) {
 	stateMgr := state.NewManager(mockHA, logger, false)
 
 	// Create manager without ntfy client
-	manager := NewManagerWithClock(context.Background(), mockHA, stateMgr, logger, false, nil, nil, mockClock)
+	manager := NewManagerWithClock(context.Background(), mockHA, stateMgr, logger, false, nil, nil, notify.NewMockNotifier(), mockClock)
 
 	// Trigger failure - should not panic
 	manager.SimulatePowerReading(30.0)

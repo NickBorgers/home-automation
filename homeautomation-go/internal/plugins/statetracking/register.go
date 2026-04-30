@@ -32,7 +32,7 @@ func createPlugin(ctx *plugin.Context) (plugin.Plugin, error) {
 		return nil, fmt.Errorf("statetracking plugin requires internal state.Manager")
 	}
 
-	manager := NewManager(ctx.ShutdownCtx, haClient, stateManager, ctx.Logger, ctx.ReadOnly, ctx.Registry, ctx.SoCoCliURL)
+	manager := NewManager(ctx.ShutdownCtx, haClient, stateManager, ctx.Logger, ctx.ReadOnly, ctx.Registry, ctx.SoCoCliURL, ctx.Notifier)
 	return &pluginAdapter{manager: manager}, nil
 }
 

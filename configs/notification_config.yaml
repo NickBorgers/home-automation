@@ -1,0 +1,38 @@
+# Shared TTS notification configuration.
+#
+# All plugins that produce verbal announcements use this config to ensure
+# a consistent, audible volume regardless of what the speakers were playing
+# before the announcement.
+#
+# Volume management flow for each announcement:
+#   1. Snapshot each speaker's current volume_level.
+#   2. Override to awake_volume_percent (or asleep_volume_percent for routine
+#      announcements when master is asleep).
+#   3. Call tts.speak.
+#   4. After restore_delay_seconds, restore each speaker to its prior volume.
+notification:
+  # Union of the speaker lists previously hardcoded in each plugin.
+  default_speakers:
+    - "media_player.kitchen"
+    - "media_player.sitting_room"
+    - "media_player.front_room"
+    - "media_player.soundbar"
+    - "media_player.kids_bathroom"
+    - "media_player.bedroom"
+
+  # Volume used when the household is awake, and always for urgent announcements.
+  awake_volume_percent: 60
+
+  # Volume used for routine (non-urgent) announcements when master is asleep.
+  asleep_volume_percent: 30
+
+  # Home Assistant TTS service entity.
+  tts_entity_id: "tts.google_translate_en_com"
+
+  # When true, each speaker's volume is restored to its pre-announcement level
+  # after restore_delay_seconds.
+  snapshot_restore: true
+
+  # Seconds to wait after tts.speak before restoring speaker volumes.
+  # Should be long enough for a typical announcement to finish playing.
+  restore_delay_seconds: 8

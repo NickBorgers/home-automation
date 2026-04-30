@@ -14,6 +14,7 @@ import (
 
 	"homeautomation/internal/clock"
 	"homeautomation/internal/ha"
+	"homeautomation/internal/notify"
 	"homeautomation/internal/shadowstate"
 	"homeautomation/internal/state"
 
@@ -84,6 +85,9 @@ type Manager struct {
 	// SoCo-CLI base URL for querying Sonos speaker groups (optional)
 	socoCliURL string
 
+	// Shared TTS notifier with volume management
+	notifier notify.Notifier
+
 	// Shadow state tracking
 	shadowTracker *shadowstate.StateTrackingTracker
 
@@ -92,7 +96,7 @@ type Manager struct {
 }
 
 // NewManager creates a new State Tracking manager
-func NewManager(ctx context.Context, haClient ha.HAClient, stateManager *state.Manager, logger *zap.Logger, readOnly bool, registry *shadowstate.SubscriptionRegistry, socoCliURL string) *Manager {
+func NewManager(ctx context.Context, haClient ha.HAClient, stateManager *state.Manager, logger *zap.Logger, readOnly bool, registry *shadowstate.SubscriptionRegistry, socoCliURL string, notifier notify.Notifier) *Manager {
 	shadowTracker := shadowstate.NewStateTrackingTracker()
 
 	return &Manager{
@@ -103,6 +107,7 @@ func NewManager(ctx context.Context, haClient ha.HAClient, stateManager *state.M
 		readOnly:      readOnly,
 		clock:         clock.NewRealClock(),
 		socoCliURL:    socoCliURL,
+		notifier:      notifier,
 		shadowTracker: shadowTracker,
 		subHelper:     shadowstate.NewSubscriptionHelper(haClient, stateManager, registry, shadowTracker, "statetracking", logger.Named("statetracking")),
 	}
@@ -802,20 +807,18 @@ func (m *Manager) announceArrivalDirect(person, message string, mediaPlayers []s
 		mediaPlayers = []string{coordinator}
 	}
 
+	if m.notifier == nil {
+		m.shadowTracker.RecordArrivalAnnouncement(person, message)
+		return
+	}
+
 	// Make the TTS announcement
 	m.logger.Info("Announcing arrival via TTS",
 		zap.String("person", person),
 		zap.String("message", message),
 		zap.Strings("media_players", mediaPlayers))
 
-	err := m.haClient.CallService(m.ctx, "tts", "speak", map[string]interface{}{
-		"entity_id":              "tts.google_translate_en_com",
-		"message":                message,
-		"cache":                  true,
-		"media_player_entity_id": mediaPlayers,
-	})
-
-	if err != nil {
+	if err := m.notifier.Speak(m.ctx, message, notify.Routine, mediaPlayers); err != nil {
 		m.logger.Error("Failed to announce arrival via TTS",
 			zap.String("person", person),
 			zap.Error(err))

@@ -10,6 +10,7 @@ import (
 
 	"homeautomation/internal/clock"
 	"homeautomation/internal/ha"
+	"homeautomation/internal/notify"
 	"homeautomation/internal/ntfy"
 	"homeautomation/internal/shadowstate"
 	"homeautomation/internal/state"
@@ -57,6 +58,7 @@ type Manager struct {
 	readOnly     bool
 	clock        clock.Clock
 	ntfyClient   ntfy.Notifier
+	notifier     notify.Notifier
 
 	// Shadow state tracking
 	shadowTracker *shadowstate.WaterFlowTracker
@@ -80,7 +82,7 @@ type Manager struct {
 }
 
 // NewManager creates a new water flow manager
-func NewManager(ctx context.Context, haClient ha.HAClient, stateManager *state.Manager, logger *zap.Logger, readOnly bool, registry *shadowstate.SubscriptionRegistry, ntfyClient ntfy.Notifier) *Manager {
+func NewManager(ctx context.Context, haClient ha.HAClient, stateManager *state.Manager, logger *zap.Logger, readOnly bool, registry *shadowstate.SubscriptionRegistry, ntfyClient ntfy.Notifier, notifier notify.Notifier) *Manager {
 	shadowTracker := shadowstate.NewWaterFlowTracker()
 
 	return &Manager{
@@ -91,14 +93,15 @@ func NewManager(ctx context.Context, haClient ha.HAClient, stateManager *state.M
 		readOnly:      readOnly,
 		clock:         clock.NewRealClock(),
 		ntfyClient:    ntfyClient,
+		notifier:      notifier,
 		shadowTracker: shadowTracker,
 		subHelper:     shadowstate.NewSubscriptionHelper(haClient, stateManager, registry, shadowTracker, "waterflow", logger.Named("waterflow")),
 	}
 }
 
 // NewManagerWithClock creates a new water flow manager with a custom clock (for testing)
-func NewManagerWithClock(ctx context.Context, haClient ha.HAClient, stateManager *state.Manager, logger *zap.Logger, readOnly bool, registry *shadowstate.SubscriptionRegistry, ntfyClient ntfy.Notifier, c clock.Clock) *Manager {
-	m := NewManager(ctx, haClient, stateManager, logger, readOnly, registry, ntfyClient)
+func NewManagerWithClock(ctx context.Context, haClient ha.HAClient, stateManager *state.Manager, logger *zap.Logger, readOnly bool, registry *shadowstate.SubscriptionRegistry, ntfyClient ntfy.Notifier, notifier notify.Notifier, c clock.Clock) *Manager {
+	m := NewManager(ctx, haClient, stateManager, logger, readOnly, registry, ntfyClient, notifier)
 	m.clock = c
 	return m
 }
@@ -451,27 +454,18 @@ func (m *Manager) sendRecoveryNotification() {
 	}
 }
 
-// sendTTSAnnouncement sends a TTS message to Sonos speakers
+// sendTTSAnnouncement sends a TTS message via the shared notifier.
 func (m *Manager) sendTTSAnnouncement(message string) {
 	if m.readOnly {
 		m.logger.Info("READ-ONLY: Would send TTS announcement", zap.String("message", message))
 		return
 	}
 
-	speakers := []string{
-		"media_player.bedroom",
-		"media_player.kitchen",
-		"media_player.dining_room",
-		"media_player.soundbar",
-		"media_player.kids_bathroom",
+	if m.notifier == nil {
+		return
 	}
 
-	if err := m.haClient.CallService(m.ctx, "tts", "speak", map[string]interface{}{
-		"entity_id":              "tts.google_translate_en_com",
-		"media_player_entity_id": speakers,
-		"message":                message,
-		"cache":                  true,
-	}); err != nil {
+	if err := m.notifier.Speak(m.ctx, message, notify.Urgent, nil); err != nil {
 		m.logger.Error("Failed to send TTS announcement", zap.Error(err), zap.String("message", message))
 	} else {
 		m.logger.Info("TTS announcement sent", zap.String("message", message))

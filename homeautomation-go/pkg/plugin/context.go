@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"homeautomation/internal/notify"
 	"homeautomation/internal/ntfy"
 	"homeautomation/internal/shadowstate"
 	pkgha "homeautomation/pkg/ha"
@@ -68,6 +69,11 @@ type Context struct {
 	// SoCoCliURL is the base URL for the SoCo-CLI HTTP API (Tidal playback).
 	// May be empty if SoCo-CLI is not available.
 	SoCoCliURL string
+
+	// Notifier is the shared TTS announcement service with volume management.
+	// All plugins that produce verbal announcements should use this instead of
+	// calling tts.speak directly.
+	Notifier notify.Notifier
 
 	// ShutdownCtx is a context that is cancelled during application shutdown.
 	// Plugins should use this context for service calls to enable graceful

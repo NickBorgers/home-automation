@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"homeautomation/internal/ha"
+	"homeautomation/internal/notify"
 	"homeautomation/internal/ntfy"
 	"homeautomation/internal/shadowstate"
 	"homeautomation/internal/state"
@@ -21,7 +22,8 @@ func createTestManager(mockHA *ha.MockClient, mockNtfy *ntfy.MockClient) *Manage
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 	registry := shadowstate.NewSubscriptionRegistry()
-	return NewManager(context.Background(), mockHA, stateMgr, logger, false, registry, mockNtfy)
+	mockNotifier := notify.NewMockNotifier()
+	return NewManager(context.Background(), mockHA, stateMgr, logger, false, registry, mockNtfy, mockNotifier)
 }
 
 // Helper to create a test manager in read-only mode
@@ -29,7 +31,8 @@ func createTestManagerReadOnly(mockHA *ha.MockClient, mockNtfy *ntfy.MockClient)
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 	registry := shadowstate.NewSubscriptionRegistry()
-	return NewManager(context.Background(), mockHA, stateMgr, logger, true, registry, mockNtfy)
+	mockNotifier := notify.NewMockNotifier()
+	return NewManager(context.Background(), mockHA, stateMgr, logger, true, registry, mockNtfy, mockNotifier)
 }
 
 func TestManager_OverheatDetection(t *testing.T) {
@@ -537,7 +540,7 @@ func TestManager_NotificationWithoutNtfyClient(t *testing.T) {
 	registry := shadowstate.NewSubscriptionRegistry()
 
 	// Create manager with nil ntfy client
-	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, registry, nil)
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, registry, nil, notify.NewMockNotifier())
 
 	require.NoError(t, manager.Start())
 	defer manager.Stop()
@@ -582,11 +585,13 @@ func TestManager_TTSAnnouncementFailure(t *testing.T) {
 
 	mockHA := ha.NewMockClient()
 	mockNtfy := ntfy.NewMockClient()
+	mockNotifier := notify.NewMockNotifier()
+	mockNotifier.SetError(fmt.Errorf("tts service unavailable"))
 
-	// Make TTS calls fail
-	mockHA.SetServiceError("tts", "speak", fmt.Errorf("tts service unavailable"))
-
-	manager := createTestManager(mockHA, mockNtfy)
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+	registry := shadowstate.NewSubscriptionRegistry()
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, registry, mockNtfy, mockNotifier)
 
 	require.NoError(t, manager.Start())
 	defer manager.Stop()

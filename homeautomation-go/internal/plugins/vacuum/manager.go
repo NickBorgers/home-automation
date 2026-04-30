@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"homeautomation/internal/ha"
+	"homeautomation/internal/notify"
 	"homeautomation/internal/shadowstate"
 	"homeautomation/internal/state"
 	"homeautomation/pkg/plugin"
@@ -31,14 +32,6 @@ const defaultRepeatCheckInterval = 1 * time.Minute
 // MasterAsleepStateVar is the state-manager key for the master-asleep flag.
 const MasterAsleepStateVar = "isMasterAsleep"
 
-// TTSDomain/TTSService are the HA service for spoken announcements.
-const (
-	TTSDomain     = "tts"
-	TTSService    = "speak"
-	TTSEntityID   = "tts.google_translate_en_com"
-	TTSCacheParam = true
-)
-
 // Manager handles vacuum error announcements.
 type Manager struct {
 	ctx          context.Context
@@ -47,6 +40,7 @@ type Manager struct {
 	logger       *zap.Logger
 	readOnly     bool
 	timeProvider plugin.TimeProvider
+	notifier     notify.Notifier
 
 	cfg *Config
 
@@ -79,6 +73,7 @@ func NewManager(
 	readOnly bool,
 	timeProvider plugin.TimeProvider,
 	registry *shadowstate.SubscriptionRegistry,
+	notifier notify.Notifier,
 ) *Manager {
 	if timeProvider == nil {
 		timeProvider = plugin.RealTimeProvider{}
@@ -91,6 +86,7 @@ func NewManager(
 		logger:              logger.Named("vacuum"),
 		readOnly:            readOnly,
 		timeProvider:        timeProvider,
+		notifier:            notifier,
 		cfg:                 cfg,
 		shadowTracker:       tracker,
 		subHelper:           shadowstate.NewSubscriptionHelper(haClient, stateManager, registry, tracker, "vacuum", logger.Named("vacuum")),
@@ -211,9 +207,7 @@ func (m *Manager) maybeAnnounce(errorDesc string) {
 	message := fmt.Sprintf("%s: %s", m.cfg.Vacuum.Announcement.MessagePrefix, errorDesc)
 
 	if m.readOnly {
-		m.logger.Info("READ-ONLY: Would send TTS announcement",
-			zap.String("message", message),
-			zap.Strings("speakers", m.cfg.Vacuum.Announcement.Speakers))
+		m.logger.Info("READ-ONLY: Would send TTS announcement", zap.String("message", message))
 		m.recordAnnounced(now, message)
 		return
 	}
@@ -228,12 +222,10 @@ func (m *Manager) maybeAnnounce(errorDesc string) {
 		return
 	}
 
-	if err := m.haClient.CallService(m.ctx, TTSDomain, TTSService, map[string]interface{}{
-		"entity_id":              TTSEntityID,
-		"media_player_entity_id": m.cfg.Vacuum.Announcement.Speakers,
-		"message":                message,
-		"cache":                  TTSCacheParam,
-	}); err != nil {
+	if m.notifier == nil {
+		return
+	}
+	if err := m.notifier.Speak(m.ctx, message, notify.Routine, nil); err != nil {
 		m.logger.Error("Failed to send vacuum TTS announcement",
 			zap.String("message", message),
 			zap.Error(err))
@@ -242,9 +234,7 @@ func (m *Manager) maybeAnnounce(errorDesc string) {
 		return
 	}
 
-	m.logger.Info("Vacuum TTS announcement sent",
-		zap.String("message", message),
-		zap.Strings("speakers", m.cfg.Vacuum.Announcement.Speakers))
+	m.logger.Info("Vacuum TTS announcement sent", zap.String("message", message))
 	m.recordAnnounced(now, message)
 }
 

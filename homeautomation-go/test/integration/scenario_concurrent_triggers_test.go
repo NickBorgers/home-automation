@@ -56,7 +56,7 @@ func setupConcurrentTest(t *testing.T) (*concurrentEnv, func()) {
 		server:        server,
 		stateManager:  manager,
 		logger:        logger,
-		stateTracking: statetracking.NewManager(context.Background(), client, manager, logger, false, nil, ""),
+		stateTracking: statetracking.NewManager(context.Background(), client, manager, logger, false, nil, "", nil),
 		lighting:      lighting.NewManager(context.Background(), client, manager, lightingConfig, logger, false, nil),
 		music:         music.NewManager(context.Background(), client, manager, musicConfig, logger, false, nil, nil),
 	}

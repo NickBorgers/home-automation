@@ -7,6 +7,7 @@ import (
 
 	"homeautomation/internal/clock"
 	"homeautomation/internal/ha"
+	"homeautomation/internal/notify"
 	"homeautomation/internal/state"
 
 	"go.uber.org/zap"
@@ -27,7 +28,7 @@ func TestSecurityManager_LockdownOnEveryoneAsleep(t *testing.T) {
 	stateManager.SyncFromHA()
 
 	// Create security manager (not read-only so it can call services)
-	securityManager := NewManager(context.Background(), mockHA, stateManager, logger, false, nil)
+	securityManager := NewManager(context.Background(), mockHA, stateManager, logger, false, nil, notify.NewMockNotifier())
 
 	// Use MockClock so the 30-second delay is instant (MockClock.Sleep is a no-op)
 	mockClock := clock.NewMockClock(time.Now())
@@ -91,7 +92,7 @@ func TestSecurityManager_LockdownOnNoOneHome(t *testing.T) {
 	stateManager.SyncFromHA()
 
 	// Create security manager
-	securityManager := NewManager(context.Background(), mockHA, stateManager, logger, false, nil)
+	securityManager := NewManager(context.Background(), mockHA, stateManager, logger, false, nil, notify.NewMockNotifier())
 
 	// Use MockClock so the 30-second delay is instant (MockClock.Sleep is a no-op)
 	mockClock := clock.NewMockClock(time.Now())
@@ -154,7 +155,7 @@ func TestSecurityManager_LockdownAutoReset(t *testing.T) {
 	stateManager.SyncFromHA()
 
 	// Create security manager
-	securityManager := NewManager(context.Background(), mockHA, stateManager, logger, false, nil)
+	securityManager := NewManager(context.Background(), mockHA, stateManager, logger, false, nil, notify.NewMockNotifier())
 
 	// Use MockClock so the 5-second delay is instant (MockClock.Sleep is a no-op)
 	mockClock := clock.NewMockClock(time.Now())
@@ -207,7 +208,7 @@ func TestSecurityManager_GarageAutoOpen(t *testing.T) {
 	stateManager.SyncFromHA()
 
 	// Create security manager
-	securityManager := NewManager(context.Background(), mockHA, stateManager, logger, false, nil)
+	securityManager := NewManager(context.Background(), mockHA, stateManager, logger, false, nil, notify.NewMockNotifier())
 	if err := securityManager.Start(); err != nil {
 		t.Fatalf("Failed to start security manager: %v", err)
 	}
@@ -257,7 +258,7 @@ func TestSecurityManager_GarageNotOpenedWhenOccupied(t *testing.T) {
 	stateManager.SyncFromHA()
 
 	// Create security manager
-	securityManager := NewManager(context.Background(), mockHA, stateManager, logger, false, nil)
+	securityManager := NewManager(context.Background(), mockHA, stateManager, logger, false, nil, notify.NewMockNotifier())
 	if err := securityManager.Start(); err != nil {
 		t.Fatalf("Failed to start security manager: %v", err)
 	}
@@ -298,7 +299,8 @@ func TestSecurityManager_DoorbellNotification(t *testing.T) {
 	stateManager.SyncFromHA()
 
 	// Create security manager
-	securityManager := NewManager(context.Background(), mockHA, stateManager, logger, false, nil)
+	mockNotifier := notify.NewMockNotifier()
+	securityManager := NewManager(context.Background(), mockHA, stateManager, logger, false, nil, mockNotifier)
 
 	// Use MockClock so the 2-second delay between light flashes is instant
 	mockClock := clock.NewMockClock(time.Now())
@@ -317,26 +319,27 @@ func TestSecurityManager_DoorbellNotification(t *testing.T) {
 	// Wait for async processing (goroutine runs instantly with MockClock.Sleep as no-op)
 	time.Sleep(100 * time.Millisecond)
 
-	// Verify TTS was sent
-	calls := mockHA.GetServiceCallsSince(snapshot)
+	// Verify TTS was sent via notifier
+	notifyCalls := mockNotifier.GetCalls()
 	ttsFound := false
-	lightsFlashed := 0
-
-	for _, call := range calls {
-		if call.Domain == "tts" && call.Service == "speak" {
-			if msg, ok := call.Data["message"].(string); ok && msg == "Doorbell ringing" {
-				ttsFound = true
-			}
+	for _, c := range notifyCalls {
+		if c.Message == "Doorbell ringing" {
+			ttsFound = true
 		}
+	}
+	if !ttsFound {
+		t.Errorf("Expected TTS notification for doorbell, but notifier was not called with correct message")
+	}
+
+	// Verify lights were flashed
+	calls := mockHA.GetServiceCallsSince(snapshot)
+	lightsFlashed := 0
+	for _, call := range calls {
 		if call.Domain == "light" && call.Service == "turn_on" {
 			if flash, ok := call.Data["flash"].(string); ok && flash == "short" {
 				lightsFlashed++
 			}
 		}
-	}
-
-	if !ttsFound {
-		t.Errorf("Expected TTS notification for doorbell, but service was not called")
 	}
 
 	if lightsFlashed != 2 {
@@ -358,7 +361,7 @@ func TestSecurityManager_DoorbellRateLimiting(t *testing.T) {
 	stateManager.SyncFromHA()
 
 	// Create security manager
-	securityManager := NewManager(context.Background(), mockHA, stateManager, logger, false, nil)
+	securityManager := NewManager(context.Background(), mockHA, stateManager, logger, false, nil, notify.NewMockNotifier())
 	if err := securityManager.Start(); err != nil {
 		t.Fatalf("Failed to start security manager: %v", err)
 	}
@@ -399,7 +402,8 @@ func TestSecurityManager_VehicleArrivalWithExpecting(t *testing.T) {
 	stateManager.SyncFromHA()
 
 	// Create security manager
-	securityManager := NewManager(context.Background(), mockHA, stateManager, logger, false, nil)
+	mockNotifier := notify.NewMockNotifier()
+	securityManager := NewManager(context.Background(), mockHA, stateManager, logger, false, nil, mockNotifier)
 	if err := securityManager.Start(); err != nil {
 		t.Fatalf("Failed to start security manager: %v", err)
 	}
@@ -413,26 +417,27 @@ func TestSecurityManager_VehicleArrivalWithExpecting(t *testing.T) {
 	// Wait for async processing
 	time.Sleep(100 * time.Millisecond)
 
-	// Verify TTS was sent
-	calls := mockHA.GetServiceCallsSince(snapshot)
+	// Verify TTS was sent via notifier
+	notifyCalls := mockNotifier.GetCalls()
 	ttsFound := false
-	expectingReset := false
-
-	for _, call := range calls {
-		if call.Domain == "tts" && call.Service == "speak" {
-			if msg, ok := call.Data["message"].(string); ok && msg == "They have arrived" {
-				ttsFound = true
-			}
+	for _, c := range notifyCalls {
+		if c.Message == "They have arrived" {
+			ttsFound = true
 		}
+	}
+	if !ttsFound {
+		t.Errorf("Expected TTS notification for vehicle arrival, but notifier was not called with correct message")
+	}
+
+	// Verify expecting_someone was reset
+	calls := mockHA.GetServiceCallsSince(snapshot)
+	expectingReset := false
+	for _, call := range calls {
 		if call.Domain == "input_boolean" && call.Service == "turn_off" {
 			if entityID, ok := call.Data["entity_id"].(string); ok && entityID == "input_boolean.expecting_someone" {
 				expectingReset = true
 			}
 		}
-	}
-
-	if !ttsFound {
-		t.Errorf("Expected TTS notification for vehicle arrival, but service was not called")
 	}
 
 	if !expectingReset {
@@ -455,7 +460,7 @@ func TestSecurityManager_VehicleArrivalWithoutExpecting(t *testing.T) {
 	stateManager.SyncFromHA()
 
 	// Create security manager
-	securityManager := NewManager(context.Background(), mockHA, stateManager, logger, false, nil)
+	securityManager := NewManager(context.Background(), mockHA, stateManager, logger, false, nil, notify.NewMockNotifier())
 	if err := securityManager.Start(); err != nil {
 		t.Fatalf("Failed to start security manager: %v", err)
 	}
@@ -496,7 +501,7 @@ func TestSecurityManager_ReadOnlyMode(t *testing.T) {
 	stateManager.SyncFromHA()
 
 	// Create security manager in read-only mode (this is what we're testing)
-	securityManager := NewManager(context.Background(), mockHA, stateManager, logger, true, nil)
+	securityManager := NewManager(context.Background(), mockHA, stateManager, logger, true, nil, notify.NewMockNotifier())
 	if err := securityManager.Start(); err != nil {
 		t.Fatalf("Failed to start security manager: %v", err)
 	}
@@ -533,7 +538,7 @@ func TestSecurityManager_InvalidTypeHandling(t *testing.T) {
 	stateManager.SyncFromHA()
 
 	// Create security manager
-	securityManager := NewManager(context.Background(), mockHA, stateManager, logger, false, nil)
+	securityManager := NewManager(context.Background(), mockHA, stateManager, logger, false, nil, notify.NewMockNotifier())
 	if err := securityManager.Start(); err != nil {
 		t.Fatalf("Failed to start security manager: %v", err)
 	}
@@ -584,7 +589,7 @@ func TestSecurityManager_OwnerReturnHome_DidNotReturn(t *testing.T) {
 	stateManager.SyncFromHA()
 
 	// Create security manager
-	securityManager := NewManager(context.Background(), mockHA, stateManager, logger, false, nil)
+	securityManager := NewManager(context.Background(), mockHA, stateManager, logger, false, nil, notify.NewMockNotifier())
 	if err := securityManager.Start(); err != nil {
 		t.Fatalf("Failed to start security manager: %v", err)
 	}
@@ -622,7 +627,7 @@ func TestSecurityManager_VehicleArrivalRateLimiting(t *testing.T) {
 	stateManager.SyncFromHA()
 
 	// Create security manager
-	securityManager := NewManager(context.Background(), mockHA, stateManager, logger, false, nil)
+	securityManager := NewManager(context.Background(), mockHA, stateManager, logger, false, nil, notify.NewMockNotifier())
 	if err := securityManager.Start(); err != nil {
 		t.Fatalf("Failed to start security manager: %v", err)
 	}
@@ -666,7 +671,7 @@ func TestSecurityManager_ReadOnlyModeGarage(t *testing.T) {
 	stateManager.SyncFromHA()
 
 	// Create security manager in READ-ONLY mode
-	securityManager := NewManager(context.Background(), mockHA, stateManager, logger, true, nil)
+	securityManager := NewManager(context.Background(), mockHA, stateManager, logger, true, nil, notify.NewMockNotifier())
 	if err := securityManager.Start(); err != nil {
 		t.Fatalf("Failed to start security manager: %v", err)
 	}
@@ -703,7 +708,7 @@ func TestSecurityManager_ReadOnlyModeLockdownReset(t *testing.T) {
 	stateManager.SyncFromHA()
 
 	// Create security manager in READ-ONLY mode
-	securityManager := NewManager(context.Background(), mockHA, stateManager, logger, true, nil)
+	securityManager := NewManager(context.Background(), mockHA, stateManager, logger, true, nil, notify.NewMockNotifier())
 
 	// Use MockClock so the 5-second delay is instant (MockClock.Sleep is a no-op)
 	mockClock := clock.NewMockClock(time.Now())
@@ -745,7 +750,7 @@ func TestSecurityManager_ReadOnlyModeVehicleArrival(t *testing.T) {
 	stateManager.SyncFromHA()
 
 	// Create security manager in READ-ONLY mode
-	securityManager := NewManager(context.Background(), mockHA, stateManager, logger, true, nil)
+	securityManager := NewManager(context.Background(), mockHA, stateManager, logger, true, nil, notify.NewMockNotifier())
 	if err := securityManager.Start(); err != nil {
 		t.Fatalf("Failed to start security manager: %v", err)
 	}

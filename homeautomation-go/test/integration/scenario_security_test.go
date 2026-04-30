@@ -23,11 +23,11 @@ func setupSecurityScenarioTest(t *testing.T) (*MockHAServer, *statetracking.Mana
 	logger := testlogger.New()
 
 	// Create and start State Tracking plugin (must start before Security)
-	stateTracking := statetracking.NewManager(context.Background(), client, stateManager, logger, false, nil, "")
+	stateTracking := statetracking.NewManager(context.Background(), client, stateManager, logger, false, nil, "", nil)
 	require.NoError(t, stateTracking.Start(), "State Tracking manager should start successfully")
 
 	// Create and start Security plugin
-	securityManager := security.NewManager(context.Background(), client, stateManager, logger, false, nil)
+	securityManager := security.NewManager(context.Background(), client, stateManager, logger, false, nil, nil)
 	require.NoError(t, securityManager.Start(), "Security manager should start successfully")
 
 	cleanup := func() {
@@ -50,12 +50,12 @@ func setupSecurityScenarioTestWithMockClock(t *testing.T) (*MockHAServer, *state
 	mockClock := clock.NewMockClock(time.Now())
 
 	// Create and start State Tracking plugin with mock clock
-	stateTracking := statetracking.NewManager(context.Background(), client, stateManager, logger, false, nil, "")
+	stateTracking := statetracking.NewManager(context.Background(), client, stateManager, logger, false, nil, "", nil)
 	stateTracking.SetClock(mockClock)
 	require.NoError(t, stateTracking.Start(), "State Tracking manager should start successfully")
 
 	// Create and start Security plugin with mock clock
-	securityManager := security.NewManager(context.Background(), client, stateManager, logger, false, nil)
+	securityManager := security.NewManager(context.Background(), client, stateManager, logger, false, nil, nil)
 	securityManager.SetClock(mockClock)
 	require.NoError(t, securityManager.Start(), "Security manager should start successfully")
 

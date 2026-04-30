@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"homeautomation/internal/notify"
 	"homeautomation/internal/plugins/vacuum"
 	"homeautomation/internal/state"
 	"homeautomation/internal/testlogger"
@@ -36,10 +37,11 @@ import (
 const vacuumErrorEntity = "sensor.valetudo_test_error"
 
 type vacuumEnv struct {
-	server  *MockHAServer
-	manager *state.Manager
-	logger  *zap.Logger
-	vacuum  *vacuum.Manager
+	server   *MockHAServer
+	manager  *state.Manager
+	logger   *zap.Logger
+	vacuum   *vacuum.Manager
+	notifier *notify.MockNotifier
 }
 
 func setupVacuumTest(t *testing.T, fixedTime time.Time) (*vacuumEnv, func()) {
@@ -65,22 +67,19 @@ func setupVacuumTest(t *testing.T, fixedTime time.Time) (*vacuumEnv, func()) {
 		"media_player.kids_bathroom",
 	}
 
+	mockNotifier := notify.NewMockNotifier()
 	tp := plugin.FixedTimeProvider{FixedTime: fixedTime}
-	mgr := vacuum.NewManager(context.Background(), client, manager, cfg, logger, false, tp, nil)
+	mgr := vacuum.NewManager(context.Background(), client, manager, cfg, logger, false, tp, nil, mockNotifier)
 	mgr.SetRepeatCheckIntervalForTest(time.Hour) // park the background ticker; tests drive ticks explicitly
 	require.NoError(t, mgr.Start(), "vacuum plugin should start")
 
-	env := &vacuumEnv{server: server, manager: manager, logger: logger, vacuum: mgr}
+	env := &vacuumEnv{server: server, manager: manager, logger: logger, vacuum: mgr, notifier: mockNotifier}
 
 	cleanup := func() {
 		mgr.Stop()
 		baseCleanup()
 	}
 	return env, cleanup
-}
-
-func vacuumTTSCalls(server *MockHAServer) []ServiceCall {
-	return FilterServiceCalls(server.GetServiceCalls(), "tts", "speak")
 }
 
 // TestScenario_VacuumError_AnnouncesWhenErrorAppears verifies that a transition
@@ -99,15 +98,13 @@ func TestScenario_VacuumError_AnnouncesWhenErrorAppears(t *testing.T) {
 
 	t.Log("THEN: A TTS announcement is sent within stateWaitTimeout")
 	require.Eventually(t, func() bool {
-		return len(vacuumTTSCalls(env.server)) >= 1
-	}, stateWaitTimeout, statePollInterval, "expected at least one tts.speak call")
+		return env.notifier.CallCount() >= 1
+	}, stateWaitTimeout, statePollInterval, "expected at least one notifier.Speak call")
 
-	calls := vacuumTTSCalls(env.server)
+	calls := env.notifier.GetCalls()
 	require.NotEmpty(t, calls)
-	msg, _ := calls[0].ServiceData["message"].(string)
-	assert.Contains(t, msg, "Mop Dock Clean Water Tank empty",
+	assert.Contains(t, calls[0].Message, "Mop Dock Clean Water Tank empty",
 		"announcement message must include the error description")
-	assert.Equal(t, "tts.google_translate_en_com", calls[0].ServiceData["entity_id"])
 }
 
 // TestScenario_VacuumError_SuppressedWhileMasterAsleep verifies that an error
@@ -123,8 +120,6 @@ func TestScenario_VacuumError_SuppressedWhileMasterAsleep(t *testing.T) {
 	waitForBoolState(t, env.manager, "isMasterAsleep", true,
 		"isMasterAsleep should be true before sensor change")
 
-	snapshot := env.server.ServiceCallCount()
-
 	t.Log("WHEN: Sensor flips to a real error")
 	env.server.SetState(vacuumErrorEntity, "Dustbin missing", nil)
 
@@ -134,10 +129,8 @@ func TestScenario_VacuumError_SuppressedWhileMasterAsleep(t *testing.T) {
 	}, stateWaitTimeout, statePollInterval,
 		"shadow state should reflect the active error")
 
-	t.Log("...but no tts.speak service call is sent.")
-	waitForServiceCallQuiescenceSince(t, env.server, snapshot, 200*time.Millisecond)
-	calls := FilterServiceCalls(env.server.GetServiceCallsSince(snapshot), "tts", "speak")
-	assert.Empty(t, calls, "TTS must not fire while master is asleep")
+	t.Log("...but no TTS announcement is sent.")
+	assert.Equal(t, 0, env.notifier.CallCount(), "TTS must not fire while master is asleep")
 
 	st := env.vacuum.GetShadowState()
 	assert.GreaterOrEqual(t, st.Outputs.SuppressedWhileAsleepCount, 1,
@@ -157,10 +150,10 @@ func TestScenario_VacuumError_StopsRepeatingAfterClear(t *testing.T) {
 	t.Log("GIVEN: An active error was announced")
 	env.server.SetState(vacuumErrorEntity, "Dustbin missing", nil)
 	require.Eventually(t, func() bool {
-		return len(vacuumTTSCalls(env.server)) >= 1
+		return env.notifier.CallCount() >= 1
 	}, stateWaitTimeout, statePollInterval)
 
-	snapshot := env.server.ServiceCallCount()
+	countAfterFirst := env.notifier.CallCount()
 
 	t.Log("WHEN: The error clears")
 	env.server.SetState(vacuumErrorEntity, "No error", nil)
@@ -170,6 +163,6 @@ func TestScenario_VacuumError_StopsRepeatingAfterClear(t *testing.T) {
 
 	t.Log("THEN: Subsequent repeat ticks must not produce a new announcement")
 	env.vacuum.TickRepeatForTest()
-	newCalls := FilterServiceCalls(env.server.GetServiceCallsSince(snapshot), "tts", "speak")
-	assert.Empty(t, newCalls, "no announcements should fire after the error has cleared")
+	assert.Equal(t, countAfterFirst, env.notifier.CallCount(),
+		"no announcements should fire after the error has cleared")
 }

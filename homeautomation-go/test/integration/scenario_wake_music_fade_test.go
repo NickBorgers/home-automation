@@ -65,7 +65,7 @@ func setupWakeMusicFadeTest(t *testing.T) (*wakeMusicFadeEnv, func()) {
 		server:        server,
 		logger:        logger,
 		stateManager:  stateManager,
-		stateTracking: statetracking.NewManager(context.Background(), client, stateManager, logger, false, nil, ""),
+		stateTracking: statetracking.NewManager(context.Background(), client, stateManager, logger, false, nil, "", nil),
 		music:         music.NewManager(context.Background(), client, stateManager, musicConfig, logger, false, nil, nil),
 		sleepHygiene:  sleephygiene.NewManager(context.Background(), client, stateManager, configLoader, logger, false, nil, nil),
 	}

@@ -17,6 +17,7 @@ import (
 	"homeautomation/internal/devserver"
 	"homeautomation/internal/ha"
 	"homeautomation/internal/logbuffer"
+	"homeautomation/internal/notify"
 	"homeautomation/internal/ntfy"
 	"homeautomation/internal/plugins/energy"
 	"homeautomation/internal/plugins/reset"
@@ -190,6 +191,16 @@ func Run() {
 		logger.Info("ntfy client initialized for push notifications")
 	}
 
+	// Load notification config for TTS volume management.
+	notifyConfigPath := filepath.Join(configDir, "notification_config.yaml")
+	notifyCfg, err := notify.LoadConfig(notifyConfigPath)
+	if err != nil {
+		logger.Warn("Failed to load notification config, using defaults",
+			zap.String("path", notifyConfigPath),
+			zap.Error(err))
+		notifyCfg, _ = notify.LoadConfig("/nonexistent") // returns defaults
+	}
+
 	// SoCo-CLI HTTP API for Tidal playlist support
 	socoCliURL := os.Getenv("SOCO_CLI_URL")
 	if socoCliURL != "" {
@@ -342,6 +353,7 @@ func Run() {
 	pluginCtx.NtfyClient = ntfyClient
 	pluginCtx.SoCoCliURL = socoCliURL
 	pluginCtx.ShutdownCtx = shutdownCtx
+	pluginCtx.Notifier = notify.NewTTSNotifier(client, stateManager, notifyCfg, logger, readOnly)
 
 	// Create all registered plugins using the plugin registry
 	plugins, err := plugin.CreateAll(pluginCtx)
