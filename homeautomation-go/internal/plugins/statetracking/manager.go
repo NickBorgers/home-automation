@@ -255,14 +255,14 @@ func (m *Manager) handlePrimarySuiteLightsChange(entityID string, oldState, newS
 
 	if lightsOff {
 		// Start 1-minute timer for sleep detection
-		m.logger.Debug("Primary suite lights turned off, starting 1-minute sleep detection timer")
+		m.logger.Info("Primary suite lights turned off, starting 1-minute sleep detection timer")
 		m.masterSleepTimer = m.clock.AfterFunc(SleepDetectionDelay, func() {
 			m.detectMasterAsleep()
 		})
 		// Update shadow state
 		m.shadowTracker.UpdateSleepDetectionTimer(true)
 	} else {
-		m.logger.Debug("Primary suite lights turned on, canceling sleep detection")
+		m.logger.Info("Primary suite lights turned on, canceling sleep detection")
 		// Update shadow state
 		m.shadowTracker.UpdateSleepDetectionTimer(false)
 	}
@@ -270,7 +270,7 @@ func (m *Manager) handlePrimarySuiteLightsChange(entityID string, oldState, newS
 
 // detectMasterAsleep runs after lights have been off for 1 minute
 func (m *Manager) detectMasterAsleep() {
-	m.logger.Debug("1-minute timer expired, checking if should mark master asleep")
+	m.logger.Info("1-minute timer expired, checking if should mark master asleep")
 
 	// Check if anyone is home
 	isAnyoneHome, err := m.stateManager.GetBool("isAnyoneHome")
@@ -280,7 +280,7 @@ func (m *Manager) detectMasterAsleep() {
 	}
 
 	if !isAnyoneHome {
-		m.logger.Debug("Nobody home, not marking master asleep")
+		m.logger.Info("Nobody home, not marking master asleep")
 		return
 	}
 
@@ -292,7 +292,7 @@ func (m *Manager) detectMasterAsleep() {
 	}
 
 	if isMasterAsleep {
-		m.logger.Debug("Master already marked asleep, nothing to do")
+		m.logger.Info("Master already marked asleep, nothing to do")
 		return
 	}
 
@@ -305,7 +305,7 @@ func (m *Manager) detectMasterAsleep() {
 		return
 	}
 	if lightState.State != "off" {
-		m.logger.Debug("Primary suite lights no longer off, aborting sleep detection",
+		m.logger.Warn("Primary suite lights no longer off, aborting sleep detection",
 			zap.String("light_state", lightState.State))
 		return
 	}
@@ -348,14 +348,14 @@ func (m *Manager) handlePrimaryBedroomDoorChange(entityID string, oldState, newS
 
 	if doorOpen {
 		// Start 20-second timer for wake detection
-		m.logger.Debug("Primary bedroom door opened, starting 20-second wake detection timer")
+		m.logger.Info("Primary bedroom door opened, starting 20-second wake detection timer")
 		m.masterWakeTimer = m.clock.AfterFunc(WakeDetectionDelay, func() {
 			m.detectMasterAwake()
 		})
 		// Update shadow state
 		m.shadowTracker.UpdateWakeDetectionTimer(true)
 	} else {
-		m.logger.Debug("Primary bedroom door closed, canceling wake detection")
+		m.logger.Info("Primary bedroom door closed, canceling wake detection")
 		// Update shadow state
 		m.shadowTracker.UpdateWakeDetectionTimer(false)
 	}
@@ -363,6 +363,7 @@ func (m *Manager) handlePrimaryBedroomDoorChange(entityID string, oldState, newS
 
 // detectMasterAwake runs after door has been open for 20 seconds
 func (m *Manager) detectMasterAwake() {
+	m.logger.Info("20-second timer expired, checking if should mark master awake")
 	// Re-validate trigger condition: confirm the bedroom door is still open before marking awake.
 	// The door may have been closed again during the 20-second delay. (#1017)
 	doorState, err := m.haClient.GetState("input_boolean.primary_bedroom_door_open")
@@ -371,7 +372,7 @@ func (m *Manager) detectMasterAwake() {
 		return
 	}
 	if doorState.State != "on" {
-		m.logger.Debug("Primary bedroom door no longer open, aborting wake detection",
+		m.logger.Warn("Primary bedroom door no longer open, aborting wake detection",
 			zap.String("door_state", doorState.State))
 		return
 	}
