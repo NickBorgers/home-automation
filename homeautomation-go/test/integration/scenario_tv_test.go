@@ -358,13 +358,15 @@ func TestScenario_TVOffSyncBoxOn(t *testing.T) {
 
 	t.Log("GIVEN: TV is off, sync box is off, HDMI input is on a non-AppleTV input")
 
-	// Set initial states - TV is off
+	// Set initial states - TV is off. Note: switch.sync_box_power is intentionally NOT set here
+	// because its default in MockHAServer is also "off", and setting it redundantly would spawn a
+	// handler goroutine that can race with the "on" event we send later.
 	server.SetState("media_player.sony_xr_65a80k", "off", map[string]interface{}{})
-	server.SetState("switch.sync_box_power", "off", map[string]interface{}{})
 	server.SetState("select.sync_box_hdmi_input", "HDMI 1", map[string]interface{}{})
 	server.SetState("media_player.big_beautiful_oled", "off", map[string]interface{}{
 		"friendly_name": "Apple TV",
 	})
+	waitForProcessing(t, manager)
 
 	// Wait for initial state
 	waitForBoolState(t, manager, "isTVon", false, "isTVon should be false when TV remote is off")
@@ -399,13 +401,15 @@ func TestScenario_SyncBoxPowerOnRecalculates(t *testing.T) {
 
 	t.Log("GIVEN: TV panel is on, sync box is off, HDMI input is AppleTV")
 
-	// Set initial states - TV panel on, sync box off
+	// Set initial states - TV panel on, sync box off. Note: switch.sync_box_power is intentionally
+	// NOT set here; its default in MockHAServer is already "off". Setting it redundantly would spawn
+	// a handler goroutine that can race with the "on" event sent later in the test.
 	server.SetState("media_player.sony_xr_65a80k", "on", map[string]interface{}{})
-	server.SetState("switch.sync_box_power", "off", map[string]interface{}{})
 	server.SetState("select.sync_box_hdmi_input", "AppleTV", map[string]interface{}{})
 	server.SetState("media_player.big_beautiful_oled", "idle", map[string]interface{}{
 		"friendly_name": "Apple TV",
 	})
+	waitForProcessing(t, manager)
 
 	// Wait for initial state
 	waitForBoolState(t, manager, "isTVon", false, "isTVon should be false when sync box is off")

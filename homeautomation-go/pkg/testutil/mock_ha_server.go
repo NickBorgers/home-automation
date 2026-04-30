@@ -319,6 +319,8 @@ func (s *MockHAServer) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			s.handleRegistryList(wrapper, msg)
 		case "config/device_registry/list":
 			s.handleRegistryList(wrapper, msg)
+		case "config_entries/reload":
+			s.handleConfigEntryReload(wrapper, msg)
 		}
 	}
 }
@@ -342,6 +344,27 @@ func (s *MockHAServer) handleRegistryList(wrapper *connWrapper, msg json.RawMess
 		Type:    "result",
 		Success: &success,
 		Result:  emptyList,
+	})
+	wrapper.writeMu.Unlock()
+}
+
+// handleConfigEntryReload handles config_entries/reload requests.
+// Returns immediate success so the TV plugin's reloadBraviaIntegration does not block
+// the 10-second sendMessage timeout during integration tests.
+func (s *MockHAServer) handleConfigEntryReload(wrapper *connWrapper, msg json.RawMessage) {
+	var req struct {
+		ID int `json:"id"`
+	}
+	if err := json.Unmarshal(msg, &req); err != nil {
+		return
+	}
+
+	success := true
+	wrapper.writeMu.Lock()
+	wrapper.conn.WriteJSON(Message{
+		ID:      req.ID,
+		Type:    "result",
+		Success: &success,
 	})
 	wrapper.writeMu.Unlock()
 }
