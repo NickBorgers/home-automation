@@ -27,7 +27,7 @@ notification:
 
   # Volume (0-100) used when the master is awake, or for any urgent
   # announcement regardless of sleep state.
-  awake_volume_percent: 60
+  awake_volume_percent: 35
 
   # Volume (0-100) used for routine announcements while master is asleep.
   # Vacuum already suppresses entirely while asleep; this only affects
