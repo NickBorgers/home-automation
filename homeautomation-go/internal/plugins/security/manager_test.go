@@ -786,7 +786,11 @@ func TestSecurityManager_ArrivalGracePeriod_SuppressesLockdown(t *testing.T) {
 		t.Fatalf("Failed to start security manager: %v", err)
 	}
 
-	// GIVEN: Owner arrives home (records lastOwnerArrivalTime)
+	// GIVEN: Owner arrives home — record lastOwnerArrivalTime and set isAnyoneHome=true
+	// so the subsequent false transition triggers handleAnyoneHomeChange.
+	if err := stateManager.SetBool("didOwnerJustReturnHome", true); err != nil {
+		t.Fatalf("Failed to set didOwnerJustReturnHome: %v", err)
+	}
 	if err := stateManager.SetBool("isAnyoneHome", true); err != nil {
 		t.Fatalf("Failed to set isAnyoneHome true: %v", err)
 	}
@@ -831,7 +835,11 @@ func TestSecurityManager_ArrivalGracePeriod_AllowsLockdownAfterExpiry(t *testing
 		t.Fatalf("Failed to start security manager: %v", err)
 	}
 
-	// GIVEN: Owner arrives home
+	// GIVEN: Owner arrives home — record lastOwnerArrivalTime and set isAnyoneHome=true
+	// so the subsequent false transition triggers handleAnyoneHomeChange.
+	if err := stateManager.SetBool("didOwnerJustReturnHome", true); err != nil {
+		t.Fatalf("Failed to set didOwnerJustReturnHome: %v", err)
+	}
 	if err := stateManager.SetBool("isAnyoneHome", true); err != nil {
 		t.Fatalf("Failed to set isAnyoneHome true: %v", err)
 	}
@@ -850,8 +858,8 @@ func TestSecurityManager_ArrivalGracePeriod_AllowsLockdownAfterExpiry(t *testing
 
 	// THEN: Lockdown IS activated.
 	// We look for turn_off (the first step in activateLockdown's goroutine) within 100ms.
-	// activateLockdown calls turn_off synchronously before sleeping 30s, so this reliably
-	// completes within the 100ms window without any flakiness.
+	// turn_off runs inside the goroutine spawned by activateLockdown before the 30s sleep;
+	// MockClock.Sleep is a no-op so the goroutine completes immediately in tests.
 	calls := mockHA.GetServiceCallsSince(snapshot)
 	turnOffFound := false
 	for _, call := range calls {
@@ -886,7 +894,11 @@ func TestSecurityManager_Reset_ArrivalGracePeriod_SuppressesLockdown(t *testing.
 		t.Fatalf("Failed to start security manager: %v", err)
 	}
 
-	// GIVEN: Owner arrives, then presence flaps to false (within grace period)
+	// GIVEN: Owner arrives, then presence flaps to false (within grace period).
+	// Set isAnyoneHome=true first so the subsequent false transition triggers handleAnyoneHomeChange.
+	if err := stateManager.SetBool("didOwnerJustReturnHome", true); err != nil {
+		t.Fatalf("Failed to set didOwnerJustReturnHome: %v", err)
+	}
 	if err := stateManager.SetBool("isAnyoneHome", true); err != nil {
 		t.Fatalf("Failed to set isAnyoneHome true: %v", err)
 	}

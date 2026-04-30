@@ -157,25 +157,38 @@ func (m *Manager) handleAnyoneHomeChange(key string, oldValue, newValue interfac
 		return
 	}
 
-	if anyoneHome {
-		// Record arrival time to support the grace period guard below.
+	if !anyoneHome {
+		// Suppress lockdown if an owner arrived recently — guards against brief presence
+		// flaps that cause isAnyoneHome to momentarily go false (issue #991).
 		m.mu.Lock()
-		m.lastOwnerArrivalTime = m.clock.Now()
+		timeSinceArrival := m.clock.Since(m.lastOwnerArrivalTime)
+		withinGrace := !m.lastOwnerArrivalTime.IsZero() && timeSinceArrival < ArrivalLockdownGracePeriod
 		m.mu.Unlock()
-		return
+
+		if withinGrace {
+			m.logger.Info("No one home but owner arrived recently — suppressing lockdown (arrival grace period)",
+				zap.Duration("timeSinceArrival", timeSinceArrival),
+				zap.Duration("gracePeriod", ArrivalLockdownGracePeriod))
+			// Schedule a re-check when the grace period expires: if the departure was genuine
+			// (not a sensor flap that self-corrects), activate lockdown at that point.
+			remaining := ArrivalLockdownGracePeriod - timeSinceArrival
+			go func() {
+				select {
+				case <-m.ctx.Done():
+					return
+				case <-m.clock.After(remaining):
+				}
+				if stillGone, err := m.stateManager.GetBool("isAnyoneHome"); err == nil && !stillGone {
+					m.logger.Info("Arrival grace period expired — no one returned, activating lockdown")
+					m.activateLockdown("No one is home (post-grace)", key)
+				}
+			}()
+			return
+		}
+
+		m.logger.Info("No one is home, activating lockdown")
+		m.activateLockdown("No one is home", key)
 	}
-
-	m.mu.Lock()
-	withinGrace := !m.lastOwnerArrivalTime.IsZero() && m.clock.Since(m.lastOwnerArrivalTime) < ArrivalLockdownGracePeriod
-	m.mu.Unlock()
-
-	if withinGrace {
-		m.logger.Info("No one is home, but within arrival grace period — suppressing lockdown")
-		return
-	}
-
-	m.logger.Info("No one is home, activating lockdown")
-	m.activateLockdown("No one is home", key)
 }
 
 // activateLockdown turns on the lockdown input_boolean
@@ -256,6 +269,14 @@ func (m *Manager) handleOwnerReturnHome(key string, oldValue, newValue interface
 	if !returned {
 		return
 	}
+
+	// Record arrival time for lockdown grace period (issue #991).
+	// This timestamp persists even after didOwnerJustReturnHome is cleared (e.g. on
+	// departure or flap), so we can suppress lockdown for ArrivalLockdownGracePeriod
+	// minutes after the owner physically arrived.
+	m.mu.Lock()
+	m.lastOwnerArrivalTime = m.clock.Now()
+	m.mu.Unlock()
 
 	m.logger.Info("Owner just returned home, checking garage status")
 
