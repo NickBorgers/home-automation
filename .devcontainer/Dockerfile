@@ -85,7 +85,7 @@ RUN cd ~/.claude/plugins/cache/playwright-skill/playwright-skill/*/skills/playwr
 # Install Codex CLI (baked into image to avoid runtime downloads during CI runs)
 RUN curl -fsSL --retry 5 --retry-delay 2 --retry-connrefused \
     "https://github.com/openai/codex/releases/download/rust-v${CODEX_CLI_VERSION}/install.sh" \
-    | sh -s -- "${CODEX_CLI_VERSION}"
+    | sh -s -- --release "${CODEX_CLI_VERSION}"
 
 # Switch back to root so onCreateCommand can create users dynamically.
 # The devcontainer's remoteUser setting ensures all commands run as the correct

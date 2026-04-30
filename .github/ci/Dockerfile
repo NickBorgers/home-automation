@@ -121,7 +121,7 @@ RUN cd ~/.claude/plugins/cache/playwright-skill/playwright-skill/*/skills/playwr
 # Install Codex CLI (pinned).
 RUN curl -fsSL --retry 5 --retry-delay 2 --retry-connrefused \
         "https://github.com/openai/codex/releases/download/rust-v${CODEX_CLI_VERSION}/install.sh" \
-    | sh -s -- "${CODEX_CLI_VERSION}"
+    | sh -s -- --release "${CODEX_CLI_VERSION}"
 
 # Default entrypoint is bash — callers pass `-c '…'` (or `-lc '…'` if they
 # want a login shell; either works because /etc/profile.d/ci-path.sh
