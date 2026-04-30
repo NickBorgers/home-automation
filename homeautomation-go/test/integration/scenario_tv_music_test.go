@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"homeautomation/internal/notify"
 	"homeautomation/internal/plugins/music"
 	"homeautomation/internal/plugins/statetracking"
 	"homeautomation/internal/plugins/tv"
@@ -53,7 +54,7 @@ func setupTVMusicTest(t *testing.T) (*tvMusicEnv, func()) {
 		server:        server,
 		stateManager:  manager,
 		logger:        logger,
-		stateTracking: statetracking.NewManager(context.Background(), client, manager, logger, false, nil, ""),
+		stateTracking: statetracking.NewManager(context.Background(), client, manager, logger, false, nil, "", &notify.MockNotifier{}),
 		tv:            tv.NewManager(context.Background(), client, manager, logger, false, nil),
 		music:         music.NewManager(context.Background(), client, manager, musicConfig, logger, false, nil, nil),
 	}

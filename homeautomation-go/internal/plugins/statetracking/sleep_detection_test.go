@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"homeautomation/internal/ha"
+	"homeautomation/internal/notify"
 	"homeautomation/internal/state"
 
 	"go.uber.org/zap"
@@ -28,7 +29,7 @@ func TestSleepDetection_HandlersInitialized(t *testing.T) {
 	}
 
 	// Create and start manager
-	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil, "")
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil, "", &notify.MockNotifier{})
 	if err := manager.Start(); err != nil {
 		t.Fatalf("Failed to start manager: %v", err)
 	}
@@ -54,7 +55,7 @@ func TestSleepDetection_LightsTimerControl(t *testing.T) {
 		t.Fatalf("Failed to set isMasterAsleep: %v", err)
 	}
 
-	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil, "")
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil, "", &notify.MockNotifier{})
 	if err := manager.Start(); err != nil {
 		t.Fatalf("Failed to start manager: %v", err)
 	}
@@ -93,7 +94,7 @@ func TestWakeDetection_DoorTimerControl(t *testing.T) {
 		t.Fatalf("Failed to set isMasterAsleep: %v", err)
 	}
 
-	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil, "")
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil, "", &notify.MockNotifier{})
 	if err := manager.Start(); err != nil {
 		t.Fatalf("Failed to start manager: %v", err)
 	}
@@ -183,7 +184,7 @@ func TestDetectMasterAsleep_Conditions(t *testing.T) {
 				mockHA.SetState("light.primary_suite", tt.primarySuiteState, nil)
 			}
 
-			manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil, "")
+			manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil, "", &notify.MockNotifier{})
 			if err := manager.Start(); err != nil {
 				t.Fatalf("Failed to start manager: %v", err)
 			}
@@ -215,7 +216,7 @@ func TestDetectMasterAwake_SetsAwake(t *testing.T) {
 	}
 	mockHA.SetState("input_boolean.primary_bedroom_door_open", "on", nil)
 
-	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil, "")
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil, "", &notify.MockNotifier{})
 	if err := manager.Start(); err != nil {
 		t.Fatalf("Failed to start manager: %v", err)
 	}
@@ -245,7 +246,7 @@ func TestDetectMasterAwake_AbortsIfDoorClosed(t *testing.T) {
 	}
 	mockHA.SetState("input_boolean.primary_bedroom_door_open", "off", nil)
 
-	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil, "")
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil, "", &notify.MockNotifier{})
 	if err := manager.Start(); err != nil {
 		t.Fatalf("Failed to start manager: %v", err)
 	}

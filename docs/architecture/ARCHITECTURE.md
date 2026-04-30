@@ -655,6 +655,10 @@ homeautomation-go/
 │   │   ├── manager.go               # ✅ State manager implementation
 │   │   ├── manager_test.go          # ✅ Unit tests
 │   │   └── variables.go             # ✅ 40 state variable definitions
+│   ├── notify/                      # ✅ Shared verbal (TTS) notifier
+│   │   ├── notify.go                # ✅ Notifier implementation (volume snapshot/restore)
+│   │   ├── config.go                # ✅ Config loader (notification_config.yaml)
+│   │   └── mock.go                  # ✅ MockNotifier for unit tests
 │   └── plugins/                     # ✅ Automation plugins (13 total)
 │       ├── statetracking/           # ✅ State Tracking plugin
 │       ├── dayphase/                # ✅ Day Phase plugin

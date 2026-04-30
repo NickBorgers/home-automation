@@ -14,6 +14,7 @@ import (
 
 	"homeautomation/internal/clock"
 	"homeautomation/internal/ha"
+	"homeautomation/internal/notify"
 	"homeautomation/internal/shadowstate"
 	"homeautomation/internal/state"
 
@@ -64,6 +65,7 @@ type Manager struct {
 	logger       *zap.Logger
 	readOnly     bool
 	helper       *state.DerivedStateHelper
+	notifier     notify.Notifier
 	clock        clock.Clock
 
 	// Timers for sleep/wake detection
@@ -92,7 +94,7 @@ type Manager struct {
 }
 
 // NewManager creates a new State Tracking manager
-func NewManager(ctx context.Context, haClient ha.HAClient, stateManager *state.Manager, logger *zap.Logger, readOnly bool, registry *shadowstate.SubscriptionRegistry, socoCliURL string) *Manager {
+func NewManager(ctx context.Context, haClient ha.HAClient, stateManager *state.Manager, logger *zap.Logger, readOnly bool, registry *shadowstate.SubscriptionRegistry, socoCliURL string, notifier notify.Notifier) *Manager {
 	shadowTracker := shadowstate.NewStateTrackingTracker()
 
 	return &Manager{
@@ -103,6 +105,7 @@ func NewManager(ctx context.Context, haClient ha.HAClient, stateManager *state.M
 		readOnly:      readOnly,
 		clock:         clock.NewRealClock(),
 		socoCliURL:    socoCliURL,
+		notifier:      notifier,
 		shadowTracker: shadowTracker,
 		subHelper:     shadowstate.NewSubscriptionHelper(haClient, stateManager, registry, shadowTracker, "statetracking", logger.Named("statetracking")),
 	}
@@ -780,19 +783,9 @@ func (m *Manager) getGroupCoordinator(speakerEntityID string) string {
 	return ""
 }
 
-// announceArrivalDirect makes a TTS announcement (caller has already checked if someone is home)
+// announceArrivalDirect makes an arrival announcement via the shared notifier
+// (caller has already checked if someone is home).
 func (m *Manager) announceArrivalDirect(person, message string, mediaPlayers []string) {
-	// Skip TTS in read-only mode
-	if m.readOnly {
-		m.logger.Info("Would announce arrival (read-only mode)",
-			zap.String("person", person),
-			zap.String("message", message),
-			zap.Strings("media_players", mediaPlayers))
-		// Still record in shadow state even in read-only mode
-		m.shadowTracker.RecordArrivalAnnouncement(person, message)
-		return
-	}
-
 	// Check if any target speaker is in a Sonos group; if so, send TTS to the
 	// group coordinator only (sending to individual group members breaks playback).
 	if coordinator := m.getGroupCoordinator(mediaPlayers[0]); coordinator != "" {
@@ -802,26 +795,18 @@ func (m *Manager) announceArrivalDirect(person, message string, mediaPlayers []s
 		mediaPlayers = []string{coordinator}
 	}
 
-	// Make the TTS announcement
-	m.logger.Info("Announcing arrival via TTS",
+	m.logger.Info("Announcing arrival via notifier",
 		zap.String("person", person),
 		zap.String("message", message),
 		zap.Strings("media_players", mediaPlayers))
 
-	err := m.haClient.CallService(m.ctx, "tts", "speak", map[string]interface{}{
-		"entity_id":              "tts.google_translate_en_com",
-		"message":                message,
-		"cache":                  true,
-		"media_player_entity_id": mediaPlayers,
-	})
-
-	if err != nil {
-		m.logger.Error("Failed to announce arrival via TTS",
+	if err := m.notifier.Announce(m.ctx, message, notify.WithSpeakers(mediaPlayers)); err != nil {
+		m.logger.Error("Failed to announce arrival",
 			zap.String("person", person),
 			zap.Error(err))
 	}
 
-	// Record in shadow state
+	// Record in shadow state regardless (the notifier itself records read-only intent).
 	m.shadowTracker.RecordArrivalAnnouncement(person, message)
 }
 

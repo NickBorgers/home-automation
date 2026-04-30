@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"homeautomation/internal/ha"
+	"homeautomation/internal/notify"
 	"homeautomation/internal/ntfy"
 	"homeautomation/internal/shadowstate"
 	"homeautomation/internal/state"
@@ -21,7 +22,7 @@ func createTestManager(mockHA *ha.MockClient, mockNtfy *ntfy.MockClient) *Manage
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 	registry := shadowstate.NewSubscriptionRegistry()
-	return NewManager(context.Background(), mockHA, stateMgr, logger, false, registry, mockNtfy)
+	return NewManager(context.Background(), mockHA, stateMgr, logger, false, registry, mockNtfy, &notify.MockNotifier{})
 }
 
 // Helper to create a test manager in read-only mode
@@ -29,7 +30,7 @@ func createTestManagerReadOnly(mockHA *ha.MockClient, mockNtfy *ntfy.MockClient)
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 	registry := shadowstate.NewSubscriptionRegistry()
-	return NewManager(context.Background(), mockHA, stateMgr, logger, true, registry, mockNtfy)
+	return NewManager(context.Background(), mockHA, stateMgr, logger, true, registry, mockNtfy, &notify.MockNotifier{})
 }
 
 func TestManager_OverheatDetection(t *testing.T) {
@@ -537,7 +538,7 @@ func TestManager_NotificationWithoutNtfyClient(t *testing.T) {
 	registry := shadowstate.NewSubscriptionRegistry()
 
 	// Create manager with nil ntfy client
-	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, registry, nil)
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, registry, nil, &notify.MockNotifier{})
 
 	require.NoError(t, manager.Start())
 	defer manager.Stop()

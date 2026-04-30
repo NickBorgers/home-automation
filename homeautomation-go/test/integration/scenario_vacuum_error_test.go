@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"homeautomation/internal/notify"
 	"homeautomation/internal/plugins/vacuum"
 	"homeautomation/internal/state"
 	"homeautomation/internal/testlogger"
@@ -66,7 +67,15 @@ func setupVacuumTest(t *testing.T, fixedTime time.Time) (*vacuumEnv, func()) {
 	}
 
 	tp := plugin.FixedTimeProvider{FixedTime: fixedTime}
-	mgr := vacuum.NewManager(context.Background(), client, manager, cfg, logger, false, tp, nil)
+	// Use a real notifier with snapshot/restore disabled so its tts.speak
+	// service call still flows through the mock HA server (where the test
+	// asserts it). Snapshot is disabled because mock speakers have no
+	// volume_level attribute and the per-speaker volume_set noise would
+	// confuse assertions.
+	notifyCfg := notify.DefaultConfig()
+	notifyCfg.SnapshotRestore = false
+	notifier := notify.NewManager(client, manager, notifyCfg, logger, false)
+	mgr := vacuum.NewManager(context.Background(), client, manager, notifier, cfg, logger, false, tp, nil)
 	mgr.SetRepeatCheckIntervalForTest(time.Hour) // park the background ticker; tests drive ticks explicitly
 	require.NoError(t, mgr.Start(), "vacuum plugin should start")
 

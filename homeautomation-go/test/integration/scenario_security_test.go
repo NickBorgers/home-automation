@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"homeautomation/internal/clock"
+	"homeautomation/internal/notify"
 	"homeautomation/internal/plugins/security"
 	"homeautomation/internal/plugins/statetracking"
 	"homeautomation/internal/state"
@@ -23,11 +24,11 @@ func setupSecurityScenarioTest(t *testing.T) (*MockHAServer, *statetracking.Mana
 	logger := testlogger.New()
 
 	// Create and start State Tracking plugin (must start before Security)
-	stateTracking := statetracking.NewManager(context.Background(), client, stateManager, logger, false, nil, "")
+	stateTracking := statetracking.NewManager(context.Background(), client, stateManager, logger, false, nil, "", &notify.MockNotifier{})
 	require.NoError(t, stateTracking.Start(), "State Tracking manager should start successfully")
 
 	// Create and start Security plugin
-	securityManager := security.NewManager(context.Background(), client, stateManager, logger, false, nil)
+	securityManager := security.NewManager(context.Background(), client, stateManager, &notify.MockNotifier{}, logger, false, nil)
 	require.NoError(t, securityManager.Start(), "Security manager should start successfully")
 
 	cleanup := func() {
@@ -50,12 +51,12 @@ func setupSecurityScenarioTestWithMockClock(t *testing.T) (*MockHAServer, *state
 	mockClock := clock.NewMockClock(time.Now())
 
 	// Create and start State Tracking plugin with mock clock
-	stateTracking := statetracking.NewManager(context.Background(), client, stateManager, logger, false, nil, "")
+	stateTracking := statetracking.NewManager(context.Background(), client, stateManager, logger, false, nil, "", &notify.MockNotifier{})
 	stateTracking.SetClock(mockClock)
 	require.NoError(t, stateTracking.Start(), "State Tracking manager should start successfully")
 
 	// Create and start Security plugin with mock clock
-	securityManager := security.NewManager(context.Background(), client, stateManager, logger, false, nil)
+	securityManager := security.NewManager(context.Background(), client, stateManager, &notify.MockNotifier{}, logger, false, nil)
 	securityManager.SetClock(mockClock)
 	require.NoError(t, securityManager.Start(), "Security manager should start successfully")
 

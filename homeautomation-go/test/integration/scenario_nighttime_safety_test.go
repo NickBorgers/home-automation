@@ -7,6 +7,7 @@ import (
 
 	"homeautomation/internal/config"
 	"homeautomation/internal/ha"
+	"homeautomation/internal/notify"
 	"homeautomation/internal/plugins/lighting"
 	"homeautomation/internal/plugins/music"
 	"homeautomation/internal/plugins/sleephygiene"
@@ -67,7 +68,7 @@ func setupNighttimeSafetyTest(t *testing.T) (*nighttimeSafetyTestEnv, func()) {
 		client:        client,
 		stateManager:  stateManager,
 		logger:        logger,
-		stateTracking: statetracking.NewManager(context.Background(), client, stateManager, logger, false, nil, ""),
+		stateTracking: statetracking.NewManager(context.Background(), client, stateManager, logger, false, nil, "", &notify.MockNotifier{}),
 		lighting:      lighting.NewManager(context.Background(), client, stateManager, lightingConfig, logger, false, nil),
 		music:         music.NewManager(context.Background(), client, stateManager, musicConfig, logger, false, nil, nil),
 		sleepHygiene:  sleephygiene.NewManager(context.Background(), client, stateManager, configLoader, logger, false, nil, nil),

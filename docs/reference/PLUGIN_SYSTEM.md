@@ -932,6 +932,80 @@ make pre-push
 
 ---
 
+## Verbal Notifications
+
+Plugins that need to make spoken (TTS) announcements **must** use the shared `notify.Notifier` from `internal/notify` instead of calling `tts.speak` directly through the HA client. The notifier:
+
+1. **Snapshots** each target speaker's current volume.
+2. **Overrides** to a configured announcement volume (sleep-aware: louder when awake, quieter when asleep, unless the announcement is urgent).
+3. **Speaks** the message via Home Assistant.
+4. **Restores** the prior speaker volume after a delay.
+
+This guarantees announcements remain audible regardless of the speakers' state (ducked music, paused playback, low background volume) without any per-plugin volume bookkeeping.
+
+### Accessing the notifier
+
+The notifier is available on `plugin.Context` as `ctx.Notifier`:
+
+```go
+func createPlugin(ctx *plugin.Context) (plugin.Plugin, error) {
+    notifier := ctx.Notifier
+    if notifier == nil {
+        // Fall back to a non-functional mock so the plugin can still
+        // load when the notifier is not wired (tests, partial bootstraps).
+        notifier = &notify.MockNotifier{}
+    }
+    manager := NewManager(..., notifier, ...)
+    return &pluginAdapter{manager: manager}, nil
+}
+```
+
+### Calling Announce
+
+```go
+import "homeautomation/internal/notify"
+
+// Routine announcement (e.g. presence, vacuum, infrastructure alerts)
+m.notifier.Announce(m.ctx, "Robot vacuum needs attention: dustbin missing",
+    notify.WithSpeakers([]string{"media_player.kitchen", "media_player.front_room"}),
+)
+
+// Urgent announcement (e.g. doorbell, intruder, EV-charger overheat)
+m.notifier.Announce(m.ctx, "Person detected outside",
+    notify.WithSpeakers(securitySpeakers),
+    notify.WithUrgency(notify.UrgencyUrgent),
+)
+```
+
+`WithSpeakers` is optional — if omitted, the notifier uses the `default_speakers` list from `configs/notification_config.yaml`.
+
+### Urgency levels
+
+- **`UrgencyRoutine`** (default) — uses `asleep_volume_percent` while `isMasterAsleep` is true. Use for: vacuum errors, presence announcements, infrastructure/septic alerts, water-flow alerts, EV-charger battery levels.
+- **`UrgencyUrgent`** — always uses `awake_volume_percent` regardless of sleep state. Use for: doorbell, vehicle arrival, intruder detection, EV-charger safety alerts, anything else that **must** be heard.
+
+### Read-only mode
+
+Plugins **should not** check `m.readOnly` before calling `Announce`. The notifier itself logs the intended announcement and skips the service call when the application is in read-only mode. This centralises read-only handling and avoids divergent per-plugin behavior.
+
+### Testing
+
+Use `notify.MockNotifier` to assert announcement behavior in unit tests without making any real service calls:
+
+```go
+mockNotifier := &notify.MockNotifier{}
+manager := NewManager(..., mockNotifier, ...)
+// trigger the code path that should announce
+calls := mockNotifier.Calls()
+require.Len(t, calls, 1)
+assert.Equal(t, "Doorbell ringing", calls[0].Message)
+assert.Equal(t, notify.UrgencyUrgent, calls[0].Urgency)
+```
+
+Configuration lives at `configs/notification_config.yaml` — see that file for the full set of tunables (default speakers, awake/asleep volumes, restore delay, TTS engine).
+
+---
+
 ## Best Practices
 
 ### 1. Always Respect Read-Only Mode

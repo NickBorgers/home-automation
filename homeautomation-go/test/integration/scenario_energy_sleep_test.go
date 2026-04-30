@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"homeautomation/internal/config"
+	"homeautomation/internal/notify"
 	"homeautomation/internal/plugins/energy"
 	"homeautomation/internal/plugins/sleephygiene"
 	"homeautomation/internal/plugins/statetracking"
@@ -81,7 +82,7 @@ func setupEnergySleepTest(t *testing.T, fixedTime time.Time) (*energySleepEnv, f
 		server:        server,
 		manager:       manager,
 		logger:        logger,
-		stateTracking: statetracking.NewManager(context.Background(), client, manager, logger, false, nil, ""),
+		stateTracking: statetracking.NewManager(context.Background(), client, manager, logger, false, nil, "", &notify.MockNotifier{}),
 		energy:        energy.NewManager(context.Background(), client, manager, energyConfig, logger, false, time.UTC, nil),
 		sleepHygiene:  sleephygiene.NewManager(context.Background(), client, manager, configLoader, logger, false, timeProvider, nil),
 	}
