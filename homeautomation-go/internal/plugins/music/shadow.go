@@ -357,6 +357,13 @@ func (m *Manager) updateSpeakerGroupStatus(playerName string, active bool, failu
 			return
 		}
 	}
+	// playerName not found: a new playback session likely replaced the SpeakerGroup slice
+	// before this async goroutine finished. Log so stale goroutines are observable.
+	m.logger.Warn("updateSpeakerGroupStatus: speaker not found in SpeakerGroup (stale goroutine?)",
+		zap.String("speaker", playerName),
+		zap.Bool("active", active),
+		zap.String("failureReason", failureReason),
+	)
 }
 
 // recordPlaybackShadowState records shadow state after playback orchestration.
