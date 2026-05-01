@@ -118,7 +118,10 @@ func (m *Manager) updateShadowOutputs(mode string, playlist *shadowstate.Playlis
 					BaseVolume:    p.BaseVolume,
 					DefaultVolume: p.DefaultVolume,
 					IsLeader:      p.PlayerName == zone.LeadSpeaker,
-					Active:        true,
+					// Active=true here means "configured member of this active zone",
+					// not "successfully joined the Sonos group". For actual join status
+					// see SpeakerGroup which is updated by async join goroutines.
+					Active: true,
 				})
 			}
 			zoneShadowStates = append(zoneShadowStates, shadowstate.ZoneShadowState{
@@ -338,6 +341,22 @@ func (m *Manager) clearFadeInProgress(entityID string) {
 	}
 
 	m.shadowState.Metadata.LastUpdated = m.timeProvider.Now()
+}
+
+// updateSpeakerGroupStatus updates a single speaker's join status in the SpeakerGroup
+// shadow state. Called from async join goroutines after each speaker joins or fails.
+func (m *Manager) updateSpeakerGroupStatus(playerName string, active bool, failureReason string) {
+	m.shadowMu.Lock()
+	defer m.shadowMu.Unlock()
+
+	for i := range m.shadowState.Outputs.SpeakerGroup {
+		if m.shadowState.Outputs.SpeakerGroup[i].PlayerName == playerName {
+			m.shadowState.Outputs.SpeakerGroup[i].Active = active
+			m.shadowState.Outputs.SpeakerGroup[i].FailureReason = failureReason
+			m.shadowState.Metadata.LastUpdated = m.timeProvider.Now()
+			return
+		}
+	}
 }
 
 // recordPlaybackShadowState records shadow state after playback orchestration.

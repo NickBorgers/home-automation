@@ -417,10 +417,14 @@ func (m *Manager) joinSpeakerWithRetry(p ParticipantWithVolume, leadSpeakerName 
 		m.logger.Warn("Speaker unavailable (async), skipping",
 			zap.String("speaker", p.PlayerName),
 			zap.Error(joinErr))
+		m.updateSpeakerGroupStatus(p.PlayerName, false, joinErr.Error())
 		return fmt.Errorf("speaker %s failed to join: %w", p.PlayerName, joinErr)
 	}
 
-	// Speaker joined successfully - check if it should be unmuted and start fade-in
+	// Speaker joined successfully - update shadow state and check if it should be unmuted
+	m.updateSpeakerGroupStatus(p.PlayerName, true, "")
+
+	// Check if it should be unmuted and start fade-in
 	if m.shouldUnmuteSpeaker(p) {
 		m.logger.Info("Speaker joined (async), starting fade-in",
 			zap.String("speaker", p.PlayerName),
