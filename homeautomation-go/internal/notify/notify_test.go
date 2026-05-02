@@ -163,7 +163,7 @@ func TestAnnounce_TTSFailureRestoresImmediately(t *testing.T) {
 	}
 }
 
-func TestAnnounce_SleepAwareVolumeRoutine(t *testing.T) {
+func TestAnnounce_DeferableWhileAsleep_SuppressesWithSentinel(t *testing.T) {
 	mockHA := ha.NewMockClient()
 	mockHA.SetState("media_player.kitchen", "playing", map[string]interface{}{"volume_level": 0.40})
 
@@ -171,32 +171,54 @@ func TestAnnounce_SleepAwareVolumeRoutine(t *testing.T) {
 	if err := stateMgr.SetBool("isMasterAsleep", true); err != nil {
 		t.Fatalf("SetBool failed: %v", err)
 	}
-	// Clear the service calls SetBool may have made (e.g. input_boolean.turn_on)
-	// so we only observe Announce's calls below.
+	// Clear service calls from the SetBool (e.g. input_boolean.turn_on) so
+	// only the Announce's calls (or absence thereof) are observed.
 	mockHA.ClearServiceCalls()
 
 	m := newTestManager(t, mockHA, stateMgr, false, true)
 
-	if err := m.Announce(context.Background(), "Hi", WithSpeakers([]string{"media_player.kitchen"})); err != nil {
+	err := m.Announce(context.Background(), "Vacuum needs attention",
+		WithSpeakers([]string{"media_player.kitchen"}),
+		WithUrgency(UrgencyDeferable))
+	if !errors.Is(err, ErrSuppressedAsleep) {
+		t.Fatalf("expected ErrSuppressedAsleep, got %v", err)
+	}
+
+	if calls := mockHA.GetServiceCalls(); len(calls) != 0 {
+		t.Errorf("deferable+asleep should make zero HA calls, got %d: %+v", len(calls), calls)
+	}
+}
+
+func TestAnnounce_DeferableWhileAwake_PlaysAtAwakeVolume(t *testing.T) {
+	mockHA := ha.NewMockClient()
+	mockHA.SetState("media_player.kitchen", "playing", map[string]interface{}{"volume_level": 0.40})
+
+	stateMgr := state.NewManager(mockHA, zaptest.NewLogger(t), false)
+	if err := stateMgr.SetBool("isMasterAsleep", false); err != nil {
+		t.Fatalf("SetBool failed: %v", err)
+	}
+	mockHA.ClearServiceCalls()
+
+	m := newTestManager(t, mockHA, stateMgr, false, true)
+
+	if err := m.Announce(context.Background(), "Hi",
+		WithSpeakers([]string{"media_player.kitchen"}),
+		WithUrgency(UrgencyDeferable)); err != nil {
 		t.Fatalf("Announce returned error: %v", err)
 	}
 	m.WaitForRestores()
 
-	// First call is the volume override - should use AsleepVolumePercent (30%)
 	calls := mockHA.GetServiceCalls()
 	if len(calls) < 1 {
 		t.Fatalf("expected at least one call")
 	}
 	override := calls[0]
-	if override.Domain != "media_player" || override.Service != "volume_set" {
-		t.Fatalf("expected first call to be volume_set, got %s.%s", override.Domain, override.Service)
-	}
-	if v, _ := override.Data["volume_level"].(float64); v != 0.30 {
-		t.Errorf("routine announcement while asleep: expected volume 0.30, got %v", v)
+	if v, _ := override.Data["volume_level"].(float64); v != 0.60 {
+		t.Errorf("deferable+awake: expected volume 0.60, got %v", v)
 	}
 }
 
-func TestAnnounce_SleepAwareVolumeUrgent(t *testing.T) {
+func TestAnnounce_UrgentWhileAsleep_PlaysAtAwakeVolume(t *testing.T) {
 	mockHA := ha.NewMockClient()
 	mockHA.SetState("media_player.kitchen", "playing", map[string]interface{}{"volume_level": 0.40})
 
@@ -204,21 +226,24 @@ func TestAnnounce_SleepAwareVolumeUrgent(t *testing.T) {
 	if err := stateMgr.SetBool("isMasterAsleep", true); err != nil {
 		t.Fatalf("SetBool failed: %v", err)
 	}
-	// Clear the service calls SetBool may have made (e.g. input_boolean.turn_on)
-	// so we only observe Announce's calls below.
 	mockHA.ClearServiceCalls()
 
 	m := newTestManager(t, mockHA, stateMgr, false, true)
 
-	if err := m.Announce(context.Background(), "Person at door", WithSpeakers([]string{"media_player.kitchen"}), WithUrgency(UrgencyUrgent)); err != nil {
+	if err := m.Announce(context.Background(), "Person at door",
+		WithSpeakers([]string{"media_player.kitchen"}),
+		WithUrgency(UrgencyUrgent)); err != nil {
 		t.Fatalf("Announce returned error: %v", err)
 	}
 	m.WaitForRestores()
 
 	calls := mockHA.GetServiceCalls()
+	if len(calls) < 1 {
+		t.Fatalf("expected at least one call")
+	}
 	override := calls[0]
 	if v, _ := override.Data["volume_level"].(float64); v != 0.60 {
-		t.Errorf("urgent announcement while asleep: expected volume 0.60 (awake), got %v", v)
+		t.Errorf("urgent+asleep: expected volume 0.60, got %v", v)
 	}
 }
 
@@ -333,9 +358,6 @@ func TestLoadConfig_AppliesDefaults(t *testing.T) {
 	if cfg.AwakeVolumePercent != defaultAwakeVolumePercent {
 		t.Errorf("AwakeVolumePercent: expected %d, got %d", defaultAwakeVolumePercent, cfg.AwakeVolumePercent)
 	}
-	if cfg.AsleepVolumePercent != defaultAsleepVolumePercent {
-		t.Errorf("AsleepVolumePercent: expected %d, got %d", defaultAsleepVolumePercent, cfg.AsleepVolumePercent)
-	}
 	if cfg.TTSDomain != defaultTTSDomain {
 		t.Errorf("TTSDomain: expected %s, got %s", defaultTTSDomain, cfg.TTSDomain)
 	}
@@ -358,7 +380,7 @@ func TestConfigValidate_RejectsInvalidVolume(t *testing.T) {
 	}
 
 	cfg = DefaultConfig()
-	cfg.AsleepVolumePercent = -1
+	cfg.AwakeVolumePercent = -1
 	if err := cfg.validate(); err == nil {
 		t.Error("expected validate to reject negative volume")
 	}

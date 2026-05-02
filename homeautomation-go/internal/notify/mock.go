@@ -23,7 +23,7 @@ type MockCall struct {
 
 // Announce implements Notifier.
 func (m *MockNotifier) Announce(_ context.Context, message string, opts ...AnnounceOption) error {
-	o := announceOpts{urgency: UrgencyRoutine}
+	o := announceOpts{urgency: UrgencyDeferable}
 	for _, opt := range opts {
 		opt(&o)
 	}

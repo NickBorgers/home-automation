@@ -24,7 +24,6 @@ func newTestConfig() *Config {
 	cfg.Vacuum.NoErrorValue = "No error"
 	cfg.Vacuum.Announcement.MessagePrefix = "Robot vacuum needs attention"
 	cfg.Vacuum.Announcement.RepeatInterval = 2 * time.Hour
-	cfg.Vacuum.Announcement.SuppressWhileMasterAsleep = true
 	cfg.Vacuum.Announcement.Speakers = []string{
 		"media_player.kitchen",
 		"media_player.sitting_room",
@@ -90,7 +89,7 @@ func TestVacuum_TransitionToError_Announces(t *testing.T) {
 			"media_player.kids_bathroom",
 		},
 		calls[0].Speakers)
-	assert.Equal(t, notify.UrgencyRoutine, calls[0].Urgency)
+	assert.Equal(t, notify.UrgencyDeferable, calls[0].Urgency)
 
 	st := mgr.GetShadowState()
 	assert.Equal(t, "Mop Dock Clean Water Tank empty", st.Outputs.CurrentError)
@@ -126,17 +125,24 @@ func TestVacuum_DifferentError_Announces(t *testing.T) {
 	assert.Contains(t, calls[1].Message, "Mop Dock Clean Water Tank empty")
 }
 
-func TestVacuum_SuppressedWhileMasterAsleep(t *testing.T) {
+func TestVacuum_NotifierSuppressedAsleep_RecordsAndPreservesCadence(t *testing.T) {
 	t.Parallel()
-	mgr, mockHA, stateMgr, mockNotifier := newTestManager(t, false, time.Now())
+	// Asleep-suppression now lives in the shared notifier, not vacuum. Vacuum
+	// passes UrgencyDeferable; the notifier returns ErrSuppressedAsleep when
+	// master is asleep. Vacuum reacts by incrementing the suppress counter and
+	// updating lastAnnouncedAt so the 2h repeat cadence still applies.
+	mgr, mockHA, _, mockNotifier := newTestManager(t, false, time.Now())
+	mockNotifier.Err = notify.ErrSuppressedAsleep
 	mockHA.SimulateStateChange(testErrorSensor, "No error")
-	require.NoError(t, stateMgr.SetBool("isMasterAsleep", true))
 	require.NoError(t, mgr.Start())
 	defer mgr.Stop()
 
 	setSensor(t, mockHA, "Mop Dock Clean Water Tank empty")
 
-	assert.Empty(t, mockNotifier.Calls(), "must not announce while master is asleep")
+	calls := mockNotifier.Calls()
+	require.Len(t, calls, 1, "vacuum still calls notifier; suppression is the notifier's decision")
+	assert.Equal(t, notify.UrgencyDeferable, calls[0].Urgency,
+		"vacuum errors must be Deferable so the notifier suppresses them while asleep")
 
 	st := mgr.GetShadowState()
 	assert.Equal(t, "Mop Dock Clean Water Tank empty", st.Outputs.CurrentError,

@@ -6,11 +6,12 @@
 // Notifier interface rather than calling tts.speak directly. This guarantees
 // announcements remain audible regardless of the speakers' current state
 // (ducked music, paused playback, low background volume) and centralises
-// behavior such as sleep-aware volume reduction.
+// the asleep-aware suppression policy.
 package notify
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -26,19 +27,32 @@ type Notifier interface {
 	Announce(ctx context.Context, message string, opts ...AnnounceOption) error
 }
 
-// UrgencyLevel controls volume behavior when the master is asleep.
+// ErrSuppressedAsleep is returned by Announce when a UrgencyDeferable
+// announcement is dropped because the master is asleep. Callers that want to
+// track suppressed events (e.g. for shadow-state observability) should
+// errors.Is against this sentinel; callers that don't can ignore it.
+var ErrSuppressedAsleep = errors.New("notify: announcement suppressed (master asleep)")
+
+// UrgencyLevel controls how the notifier handles an announcement when the
+// master is asleep. Volume is always cfg.AwakeVolumePercent; urgency only
+// changes whether the announcement plays at all.
 type UrgencyLevel int
 
 const (
-	// UrgencyRoutine uses the asleep volume when isMasterAsleep is true.
-	UrgencyRoutine UrgencyLevel = iota
+	// UrgencyDeferable: drop entirely while master is asleep. Notifier returns
+	// ErrSuppressedAsleep. Persistent-state plugins (vacuum errors, etc.) own
+	// their own retry cadence and will re-announce after wake; transient
+	// events (presence arrival) accept being missed since they are stale by
+	// morning anyway.
+	UrgencyDeferable UrgencyLevel = iota
 
-	// UrgencyUrgent uses the awake volume even when asleep. Use for security
-	// alerts (doorbell, vehicle arrival, intruder detection) that must be heard.
+	// UrgencyUrgent: always play, even when asleep. Use for events that must
+	// wake the household (security alerts, doorbell, broken-pipe water flow,
+	// EV-charger safety conditions, infrastructure crashes).
 	UrgencyUrgent
 )
 
-// MasterAsleepStateVar is the state variable consulted for sleep-aware volume.
+// MasterAsleepStateVar is the state variable consulted for the suppress check.
 const MasterAsleepStateVar = "isMasterAsleep"
 
 type announceOpts struct {
@@ -56,7 +70,7 @@ func WithSpeakers(speakers []string) AnnounceOption {
 	}
 }
 
-// WithUrgency sets the announcement urgency. Default is UrgencyRoutine.
+// WithUrgency sets the announcement urgency. Default is UrgencyDeferable.
 func WithUrgency(level UrgencyLevel) AnnounceOption {
 	return func(o *announceOpts) { o.urgency = level }
 }
@@ -72,8 +86,9 @@ type Manager struct {
 	wg sync.WaitGroup
 }
 
-// NewManager constructs a Notifier. stateManager may be nil in tests; sleep-aware
-// volume falls back to AwakeVolumePercent in that case.
+// NewManager constructs a Notifier. stateManager may be nil in tests; the
+// asleep-suppression check then defaults to "awake" so announcements are not
+// silently dropped during tests that don't model sleep state.
 func NewManager(haClient ha.HAClient, stateManager *state.Manager, cfg Config, logger *zap.Logger, readOnly bool) *Manager {
 	cfg.applyDefaults()
 	return &Manager{
@@ -99,7 +114,7 @@ func (m *Manager) WaitForRestores() { m.wg.Wait() }
 func (m *Manager) Announce(ctx context.Context, message string, opts ...AnnounceOption) error {
 	o := announceOpts{
 		speakers: m.cfg.DefaultSpeakers,
-		urgency:  UrgencyRoutine,
+		urgency:  UrgencyDeferable,
 	}
 	for _, opt := range opts {
 		opt(&o)
@@ -111,7 +126,14 @@ func (m *Manager) Announce(ctx context.Context, message string, opts ...Announce
 		return fmt.Errorf("notify.Announce: empty message")
 	}
 
-	targetVolume := m.targetVolumePercent(o.urgency)
+	if o.urgency == UrgencyDeferable && m.isMasterAsleep() {
+		m.logger.Info("Announcement suppressed (master asleep)",
+			zap.String("message", message),
+			zap.Strings("speakers", o.speakers))
+		return ErrSuppressedAsleep
+	}
+
+	targetVolume := m.cfg.AwakeVolumePercent
 
 	if m.readOnly {
 		m.logger.Info("READ-ONLY: would announce TTS",
@@ -153,20 +175,14 @@ func (m *Manager) Announce(ctx context.Context, message string, opts ...Announce
 	return nil
 }
 
-func (m *Manager) targetVolumePercent(urgency UrgencyLevel) int {
-	if urgency == UrgencyRoutine && m.isMasterAsleep() {
-		return m.cfg.AsleepVolumePercent
-	}
-	return m.cfg.AwakeVolumePercent
-}
-
 func (m *Manager) isMasterAsleep() bool {
 	if m.stateManager == nil {
 		return false
 	}
 	v, err := m.stateManager.GetBool(MasterAsleepStateVar)
 	if err != nil {
-		// Conservative: treat as awake so announcements stay loud.
+		// Conservative: treat as awake so announcements still play. A missed
+		// urgent announcement is worse than one that played at the wrong time.
 		return false
 	}
 	return v

@@ -29,9 +29,8 @@ type AnnouncementConfig struct {
 	// RepeatInterval is parsed from a Go duration string (e.g. "2h").
 	RepeatIntervalRaw string `yaml:"repeat_interval"`
 
-	SuppressWhileMasterAsleep bool     `yaml:"suppress_while_master_asleep"`
-	MessagePrefix             string   `yaml:"message_prefix"`
-	Speakers                  []string `yaml:"speakers"`
+	MessagePrefix string   `yaml:"message_prefix"`
+	Speakers      []string `yaml:"speakers"`
 
 	// RepeatInterval holds the parsed duration. Populated by LoadConfig.
 	RepeatInterval time.Duration `yaml:"-"`

@@ -4,14 +4,20 @@
 # security doorbell/vehicle/intruder alerts, energy/charging notifications,
 # infrastructure alerts, water-flow alerts, presence announcements).
 #
+# Each Announce call carries an UrgencyLevel:
+#   - UrgencyDeferable (default): suppressed entirely while master is asleep.
+#     Persistent-state plugins (vacuum, water-flow) own their own retry
+#     cadence and re-announce after wake; transient events (presence
+#     arrival) accept being missed.
+#   - UrgencyUrgent: always plays, even while asleep. Use for events that
+#     must wake the household (security, broken-pipe water flow, EV-charger
+#     safety, infrastructure crashes).
+#
 # Before each announcement the notifier:
 #   1. Snapshots each target speaker's current volume.
-#   2. Sets volume to awake_volume_percent (or asleep_volume_percent for
-#      routine announcements while master is asleep).
+#   2. Sets volume to awake_volume_percent.
 #   3. Calls tts.speak.
 #   4. After restore_delay_seconds, restores each speaker's prior volume.
-#
-# Urgent announcements (security alerts) ignore the asleep volume reduction.
 notification:
   # Default speaker list when a plugin does not override. Union of all
   # per-plugin lists in use today, so removing a plugin's hardcoded list
@@ -24,14 +30,10 @@ notification:
     - media_player.dining_room
     - media_player.kids_bathroom
 
-  # Volume (0-100) used when the master is awake, or for any urgent
-  # announcement regardless of sleep state.
+  # Volume (0-100) used for every announcement that plays. Announcements while
+  # master is asleep either play at this volume (UrgencyUrgent) or are dropped
+  # entirely (UrgencyDeferable) — there is no quieter mid-tier.
   awake_volume_percent: 20
-
-  # Volume (0-100) used for routine announcements while master is asleep.
-  # Vacuum already suppresses entirely while asleep; this only affects
-  # announcements that don't suppress (e.g. presence).
-  asleep_volume_percent: 30
 
   # TTS engine. tts.google_translate_en_com is the default in Home Assistant.
   tts_entity_id: tts.google_translate_en_com

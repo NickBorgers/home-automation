@@ -57,7 +57,6 @@ func setupVacuumTest(t *testing.T, fixedTime time.Time) (*vacuumEnv, func()) {
 	cfg.Vacuum.NoErrorValue = "No error"
 	cfg.Vacuum.Announcement.MessagePrefix = "Robot vacuum needs attention"
 	cfg.Vacuum.Announcement.RepeatInterval = 2 * time.Hour
-	cfg.Vacuum.Announcement.SuppressWhileMasterAsleep = true
 	cfg.Vacuum.Announcement.Speakers = []string{
 		"media_player.kitchen",
 		"media_player.sitting_room",

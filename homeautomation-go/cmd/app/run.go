@@ -359,7 +359,6 @@ func Run() {
 	pluginCtx.Notifier = notifier
 	logger.Info("Notifier initialized",
 		zap.Int("awake_volume_percent", notifyCfg.AwakeVolumePercent),
-		zap.Int("asleep_volume_percent", notifyCfg.AsleepVolumePercent),
 		zap.Int("default_speaker_count", len(notifyCfg.DefaultSpeakers)))
 
 	// Create all registered plugins using the plugin registry
