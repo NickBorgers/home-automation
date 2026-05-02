@@ -182,9 +182,9 @@ flowchart TD
 
 | Person | TTS Speakers |
 |--------|--------------|
-| Nick | Kitchen, Dining Room, Soundbar, Kids Bathroom |
-| Caroline | Kitchen, Dining Room, Kids Bathroom, Soundbar, Office |
-| Assistant | Kitchen, Dining Room, Kids Bathroom, Soundbar, Office |
+| Nick | Kitchen, Dining Room, Kids Bathroom |
+| Caroline | Kitchen, Dining Room, Kids Bathroom, Office |
+| Assistant | Kitchen, Dining Room, Kids Bathroom, Office |
 
 ## Owner Return Detection
 

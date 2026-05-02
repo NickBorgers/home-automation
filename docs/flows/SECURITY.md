@@ -130,7 +130,6 @@ flowchart TD
 - Bedroom
 - Kitchen
 - Dining Room
-- Soundbar
 - Kids Bathroom
 
 **Flashing Lights:**

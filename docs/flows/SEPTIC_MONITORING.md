@@ -56,7 +56,7 @@ When a failure condition is detected:
    - Tags: `warning`, `toilet`
 
 2. **TTS Announcement** via Sonos speakers
-   - Speakers: bedroom, kitchen, dining room, soundbar, kids bathroom
+   - Speakers: bedroom, kitchen, dining room, kids bathroom
    - Uses Google Translate TTS
 
 ### Recovery Notifications

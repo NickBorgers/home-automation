@@ -425,7 +425,6 @@ func (m *Manager) sendTTSNotification(message string) {
 		"media_player.bedroom",
 		"media_player.kitchen",
 		"media_player.dining_room",
-		"media_player.soundbar",
 		"media_player.kids_bathroom",
 	}
 

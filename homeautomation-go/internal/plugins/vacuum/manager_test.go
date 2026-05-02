@@ -29,7 +29,6 @@ func newTestConfig() *Config {
 		"media_player.kitchen",
 		"media_player.sitting_room",
 		"media_player.front_room",
-		"media_player.soundbar",
 		"media_player.kids_bathroom",
 	}
 	return cfg
@@ -88,7 +87,6 @@ func TestVacuum_TransitionToError_Announces(t *testing.T) {
 			"media_player.kitchen",
 			"media_player.sitting_room",
 			"media_player.front_room",
-			"media_player.soundbar",
 			"media_player.kids_bathroom",
 		},
 		calls[0].Speakers)
