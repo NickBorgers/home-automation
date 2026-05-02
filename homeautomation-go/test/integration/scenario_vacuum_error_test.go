@@ -27,7 +27,7 @@ import (
 //
 // INVARIANTS:
 //   - "No error" must NEVER trigger a TTS call.
-//   - When master is asleep and suppress_while_master_asleep is true, the
+//   - When master is asleep (vacuum uses UrgencyDeferable), the
 //     error must be tracked but NOT spoken.
 //   - The same error string re-emitted by HA must NOT cause an immediate
 //     duplicate announcement (the repeat timer governs cadence).

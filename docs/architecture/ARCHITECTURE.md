@@ -490,12 +490,12 @@ Each plugin corresponds to a Node-RED flow and implements domain-specific automa
 
 **Responsibilities:**
 - Monitor the robot vacuum's error sensor and announce actionable errors via TTS
-- Suppress announcements while master is asleep (configurable)
+- Suppress announcements while master is asleep
 - Re-announce unresolved errors on a configurable interval (default 2 hours) until cleared
 
 **Key Automations:**
 - **Error Announcement**: On error sensor transition from "No error" to a real error → TTS to common-area speakers
-- **Quiet Hours**: When `isMasterAsleep=true` (and `suppress_while_master_asleep` is set) → record error in shadow state but do not speak
+- **Quiet Hours**: When `isMasterAsleep=true` → notifier returns `ErrSuppressedAsleep`; vacuum records in shadow state and preserves repeat cadence
 - **Repeat Cadence**: Background ticker re-announces unresolved errors every `repeat_interval`
 - **Initial State**: On plugin start → if sensor already reports an error, announce immediately
 
