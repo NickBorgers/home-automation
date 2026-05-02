@@ -326,6 +326,8 @@ func (m *Manager) sendAlertNotifications(conditionType, sensor string) {
 
 // sendTTSAnnouncement sends an urgent verbal safety announcement.
 func (m *Manager) sendTTSAnnouncement(message string) {
+	// Intentionally excludes kids_bathroom and other common-area speakers —
+	// EV charging alerts are adult safety concerns, not whole-house announcements.
 	speakers := []string{
 		"media_player.bedroom",
 		"media_player.kitchen",
