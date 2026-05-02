@@ -934,7 +934,7 @@ make pre-push
 
 ## Verbal Notifications
 
-Plugins that need to make spoken (TTS) announcements **must** use the shared `notify.Notifier` from `internal/notify` instead of calling `tts.speak` directly through the HA client. The notifier:
+Plugins that need to make spoken (TTS) announcements **must** use the shared `notify.Notifier` from `pkg/notify` instead of calling `tts.speak` directly through the HA client. The notifier:
 
 1. **Snapshots** each target speaker's current volume.
 2. **Overrides** to `awake_volume_percent`. Deferable announcements are dropped entirely while master is asleep; Urgent announcements always play.
@@ -963,7 +963,7 @@ func createPlugin(ctx *plugin.Context) (plugin.Plugin, error) {
 ### Calling Announce
 
 ```go
-import "homeautomation/internal/notify"
+import "homeautomation/pkg/notify"
 
 // Deferable announcement (dropped while master is asleep; e.g. presence, vacuum errors)
 m.notifier.Announce(m.ctx, "Robot vacuum needs attention: dustbin missing",
