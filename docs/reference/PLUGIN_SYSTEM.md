@@ -937,7 +937,7 @@ make pre-push
 Plugins that need to make spoken (TTS) announcements **must** use the shared `notify.Notifier` from `internal/notify` instead of calling `tts.speak` directly through the HA client. The notifier:
 
 1. **Snapshots** each target speaker's current volume.
-2. **Overrides** to a configured announcement volume (sleep-aware: louder when awake, quieter when asleep, unless the announcement is urgent).
+2. **Overrides** to `awake_volume_percent`. Deferable announcements are dropped entirely while master is asleep; Urgent announcements always play.
 3. **Speaks** the message via Home Assistant.
 4. **Restores** the prior speaker volume after a delay.
 
@@ -965,7 +965,7 @@ func createPlugin(ctx *plugin.Context) (plugin.Plugin, error) {
 ```go
 import "homeautomation/internal/notify"
 
-// Routine announcement (e.g. presence, vacuum, infrastructure alerts)
+// Deferable announcement (dropped while master is asleep; e.g. presence, vacuum errors)
 m.notifier.Announce(m.ctx, "Robot vacuum needs attention: dustbin missing",
     notify.WithSpeakers([]string{"media_player.kitchen", "media_player.front_room"}),
 )
@@ -981,7 +981,7 @@ m.notifier.Announce(m.ctx, "Person detected outside",
 
 ### Urgency levels
 
-- **`UrgencyRoutine`** (default) — uses `asleep_volume_percent` while `isMasterAsleep` is true. Use for: vacuum errors, presence announcements, infrastructure/septic alerts, water-flow alerts, EV-charger battery levels.
+- **`UrgencyDeferable`** (default) — dropped entirely while master is asleep; returns `ErrSuppressedAsleep`. Use for: vacuum errors, presence announcements, EV-charger battery levels.
 - **`UrgencyUrgent`** — always uses `awake_volume_percent` regardless of sleep state. Use for: doorbell, vehicle arrival, intruder detection, EV-charger safety alerts, anything else that **must** be heard.
 
 ### Read-only mode
@@ -1002,7 +1002,7 @@ assert.Equal(t, "Doorbell ringing", calls[0].Message)
 assert.Equal(t, notify.UrgencyUrgent, calls[0].Urgency)
 ```
 
-Configuration lives at `configs/notification_config.yaml` — see that file for the full set of tunables (default speakers, awake/asleep volumes, restore delay, TTS engine).
+Configuration lives at `configs/notification_config.yaml` — see that file for the full set of tunables (default speakers, awake volume, restore delay, TTS engine).
 
 ---
 

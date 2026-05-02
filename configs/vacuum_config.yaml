@@ -12,12 +12,10 @@ vacuum:
 
   announcement:
     # Re-announce an unresolved error this often, in Go duration syntax.
+    # Vacuum errors use UrgencyDeferable: the shared notifier suppresses
+    # delivery while input_boolean.master_asleep is on, but this repeat timer
+    # keeps ticking so the next attempt after wake makes it through.
     repeat_interval: "2h"
-
-    # When true, suppress TTS while input_boolean.master_asleep is on. The
-    # repeat timer keeps running; the next announcement fires at the next
-    # repeat_interval tick after master wakes.
-    suppress_while_master_asleep: true
 
     # Sentence prefix; the error description is appended after a colon.
     message_prefix: "Robot vacuum needs attention"

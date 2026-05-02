@@ -463,7 +463,10 @@ func (m *Manager) sendTTSAnnouncement(message string) {
 		"media_player.kids_bathroom",
 	}
 
-	if err := m.notifier.Announce(m.ctx, message, notify.WithSpeakers(speakers)); err != nil {
+	if err := m.notifier.Announce(m.ctx, message,
+		notify.WithSpeakers(speakers),
+		notify.WithUrgency(notify.UrgencyUrgent),
+	); err != nil {
 		m.logger.Error("Failed to send waterflow announcement", zap.Error(err), zap.String("message", message))
 		return
 	}

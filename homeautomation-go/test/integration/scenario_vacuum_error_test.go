@@ -27,7 +27,7 @@ import (
 //
 // INVARIANTS:
 //   - "No error" must NEVER trigger a TTS call.
-//   - When master is asleep and suppress_while_master_asleep is true, the
+//   - When master is asleep (vacuum uses UrgencyDeferable), the
 //     error must be tracked but NOT spoken.
 //   - The same error string re-emitted by HA must NOT cause an immediate
 //     duplicate announcement (the repeat timer governs cadence).
@@ -57,7 +57,6 @@ func setupVacuumTest(t *testing.T, fixedTime time.Time) (*vacuumEnv, func()) {
 	cfg.Vacuum.NoErrorValue = "No error"
 	cfg.Vacuum.Announcement.MessagePrefix = "Robot vacuum needs attention"
 	cfg.Vacuum.Announcement.RepeatInterval = 2 * time.Hour
-	cfg.Vacuum.Announcement.SuppressWhileMasterAsleep = true
 	cfg.Vacuum.Announcement.Speakers = []string{
 		"media_player.kitchen",
 		"media_player.sitting_room",

@@ -9,6 +9,7 @@ package vacuum
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -28,9 +29,6 @@ import (
 // (now - lastAnnouncedAt) >= config.Announcement.RepeatInterval, so this can
 // be small without spamming.
 const defaultRepeatCheckInterval = 1 * time.Minute
-
-// MasterAsleepStateVar is the state-manager key for the master-asleep flag.
-const MasterAsleepStateVar = "isMasterAsleep"
 
 // Manager handles vacuum error announcements.
 type Manager struct {
@@ -198,37 +196,37 @@ func (m *Manager) handleErrorChange(entityID string, oldState, newState *ha.Stat
 	m.maybeAnnounce(value)
 }
 
-// maybeAnnounce sends a TTS announcement for errorDesc, respecting read-only
-// mode and the suppress-while-asleep policy. Updates lastAnnouncedAt regardless
-// of whether the announcement was actually spoken (so the repeat cadence
-// applies uniformly to suppressed and spoken events).
+// maybeAnnounce sends a TTS announcement for errorDesc as a Deferable
+// announcement. The notifier suppresses delivery while master is asleep and
+// returns notify.ErrSuppressedAsleep; we update lastAnnouncedAt regardless so
+// the 2h repeat cadence applies uniformly to suppressed and spoken events.
 func (m *Manager) maybeAnnounce(errorDesc string) {
 	now := m.timeProvider.Now()
 	message := fmt.Sprintf("%s: %s", m.cfg.Vacuum.Announcement.MessagePrefix, errorDesc)
 
-	if m.cfg.Vacuum.Announcement.SuppressWhileMasterAsleep && m.isMasterAsleep() {
+	err := m.notifier.Announce(m.ctx, message,
+		notify.WithSpeakers(m.cfg.Vacuum.Announcement.Speakers),
+		notify.WithUrgency(notify.UrgencyDeferable))
+	switch {
+	case errors.Is(err, notify.ErrSuppressedAsleep):
 		m.logger.Info("Vacuum error TTS suppressed (master asleep)",
 			zap.String("error", errorDesc))
 		m.shadowTracker.RecordSuppressedWhileAsleep(now)
 		m.mu.Lock()
 		m.lastAnnouncedAt = now
 		m.mu.Unlock()
-		return
-	}
-
-	if err := m.notifier.Announce(m.ctx, message, notify.WithSpeakers(m.cfg.Vacuum.Announcement.Speakers)); err != nil {
+	case err != nil:
 		m.logger.Error("Failed to send vacuum announcement",
 			zap.String("message", message),
 			zap.Error(err))
 		// Still record the attempt so the repeat timer doesn't immediately retry.
 		m.recordAnnounced(now, message)
-		return
+	default:
+		m.logger.Info("Vacuum announcement sent",
+			zap.String("message", message),
+			zap.Strings("speakers", m.cfg.Vacuum.Announcement.Speakers))
+		m.recordAnnounced(now, message)
 	}
-
-	m.logger.Info("Vacuum announcement sent",
-		zap.String("message", message),
-		zap.Strings("speakers", m.cfg.Vacuum.Announcement.Speakers))
-	m.recordAnnounced(now, message)
 }
 
 func (m *Manager) recordAnnounced(at time.Time, message string) {
@@ -236,20 +234,6 @@ func (m *Manager) recordAnnounced(at time.Time, message string) {
 	m.lastAnnouncedAt = at
 	m.mu.Unlock()
 	m.shadowTracker.RecordAnnouncement(message, at)
-}
-
-func (m *Manager) isMasterAsleep() bool {
-	if m.stateManager == nil {
-		return false
-	}
-	v, err := m.stateManager.GetBool(MasterAsleepStateVar)
-	if err != nil {
-		// Conservative: if we can't determine sleep state, do NOT suppress.
-		// An audible announcement is preferable to silently swallowing an alert.
-		m.logger.Debug("Could not read isMasterAsleep, assuming awake", zap.Error(err))
-		return false
-	}
-	return v
 }
 
 // runRepeatLoop periodically re-evaluates whether to re-announce a stale error.

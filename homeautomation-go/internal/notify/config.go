@@ -13,13 +13,11 @@ type Config struct {
 	// DefaultSpeakers are used when a caller does not pass WithSpeakers.
 	DefaultSpeakers []string `yaml:"default_speakers"`
 
-	// AwakeVolumePercent is the speaker volume (0-100) used while master is awake.
+	// AwakeVolumePercent is the speaker volume (0-100) used for every
+	// announcement that plays. Announcements while master is asleep either
+	// play at this volume (UrgencyUrgent) or are dropped entirely
+	// (UrgencyDeferable) — there is no quieter mid-tier.
 	AwakeVolumePercent int `yaml:"awake_volume_percent"`
-
-	// AsleepVolumePercent is the speaker volume (0-100) used for routine
-	// announcements while master is asleep. Urgent announcements ignore this
-	// and use AwakeVolumePercent.
-	AsleepVolumePercent int `yaml:"asleep_volume_percent"`
 
 	// TTSDomain / TTSService identify the Home Assistant service to call.
 	// Defaults to tts.speak.
@@ -49,7 +47,6 @@ type fileShape struct {
 
 const (
 	defaultAwakeVolumePercent  = 60
-	defaultAsleepVolumePercent = 30
 	defaultTTSDomain           = "tts"
 	defaultTTSService          = "speak"
 	defaultTTSEntityID         = "tts.google_translate_en_com"
@@ -101,9 +98,6 @@ func (c *Config) applyDefaults() {
 	if c.AwakeVolumePercent == 0 {
 		c.AwakeVolumePercent = defaultAwakeVolumePercent
 	}
-	if c.AsleepVolumePercent == 0 {
-		c.AsleepVolumePercent = defaultAsleepVolumePercent
-	}
 	if c.TTSDomain == "" {
 		c.TTSDomain = defaultTTSDomain
 	}
@@ -122,9 +116,6 @@ func (c *Config) applyDefaults() {
 func (c *Config) validate() error {
 	if c.AwakeVolumePercent < 0 || c.AwakeVolumePercent > 100 {
 		return fmt.Errorf("awake_volume_percent must be 0-100, got %d", c.AwakeVolumePercent)
-	}
-	if c.AsleepVolumePercent < 0 || c.AsleepVolumePercent > 100 {
-		return fmt.Errorf("asleep_volume_percent must be 0-100, got %d", c.AsleepVolumePercent)
 	}
 	if c.RestoreDelaySeconds < 0 {
 		return fmt.Errorf("restore_delay_seconds must be non-negative, got %d", c.RestoreDelaySeconds)

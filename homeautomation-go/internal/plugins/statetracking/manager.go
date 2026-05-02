@@ -798,7 +798,10 @@ func (m *Manager) announceArrivalDirect(person, message string, mediaPlayers []s
 		zap.String("message", message),
 		zap.Strings("media_players", mediaPlayers))
 
-	if err := m.notifier.Announce(m.ctx, message, notify.WithSpeakers(mediaPlayers)); err != nil {
+	if err := m.notifier.Announce(m.ctx, message,
+		notify.WithSpeakers(mediaPlayers),
+		notify.WithUrgency(notify.UrgencyDeferable),
+	); err != nil && !errors.Is(err, notify.ErrSuppressedAsleep) {
 		m.logger.Error("Failed to announce arrival",
 			zap.String("person", person),
 			zap.Error(err))
