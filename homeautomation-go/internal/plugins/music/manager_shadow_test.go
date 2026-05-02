@@ -357,3 +357,47 @@ func TestMusicShadowState_CaptureInputs_IncludesMuteConditionVariables(t *testin
 		}
 	}
 }
+
+// TestUpdateSpeakerGroupStatus verifies that async join results update the SpeakerGroup
+// shadow state entry for the correct speaker (regression test for issue #1049).
+func TestUpdateSpeakerGroupStatus(t *testing.T) {
+	t.Parallel()
+
+	stateManager := state.NewManager(nil, zap.NewNop(), true)
+	mockConfig := &MusicConfig{Music: make(map[string]MusicMode)}
+	manager := NewManager(context.Background(), nil, stateManager, mockConfig, zap.NewNop(), true, nil, nil)
+
+	// Seed SpeakerGroup with the initial "pending async join" state that
+	// executePlayback writes before launching the async goroutine.
+	initialSpeakers := []shadowstate.SpeakerState{
+		{PlayerName: "Front Room", IsLeader: true, Active: true},
+		{PlayerName: "Kitchen", Active: false, FailureReason: "pending async join"},
+		{PlayerName: "Bedroom", Active: false, FailureReason: "pending async join"},
+	}
+	manager.updateShadowOutputs("evening", nil, initialSpeakers, nil)
+
+	// Simulate Kitchen joining successfully.
+	manager.updateSpeakerGroupStatus("Kitchen", true, "")
+
+	// Simulate Bedroom failing.
+	manager.updateSpeakerGroupStatus("Bedroom", false, "connection timeout")
+
+	shadow := manager.GetShadowState()
+
+	for _, s := range shadow.Outputs.SpeakerGroup {
+		switch s.PlayerName {
+		case "Front Room":
+			if !s.Active || s.FailureReason != "" {
+				t.Errorf("Front Room: want active=true reason='', got active=%v reason=%q", s.Active, s.FailureReason)
+			}
+		case "Kitchen":
+			if !s.Active || s.FailureReason != "" {
+				t.Errorf("Kitchen: want active=true reason='', got active=%v reason=%q", s.Active, s.FailureReason)
+			}
+		case "Bedroom":
+			if s.Active || s.FailureReason != "connection timeout" {
+				t.Errorf("Bedroom: want active=false reason='connection timeout', got active=%v reason=%q", s.Active, s.FailureReason)
+			}
+		}
+	}
+}
