@@ -330,7 +330,6 @@ func (m *Manager) sendTTSAnnouncement(message string) {
 		"media_player.bedroom",
 		"media_player.kitchen",
 		"media_player.dining_room",
-		"media_player.soundbar",
 	}
 
 	if err := m.notifier.Announce(m.ctx, message,

@@ -22,12 +22,11 @@ notification:
     - media_player.sitting_room
     - media_player.bedroom
     - media_player.dining_room
-    - media_player.soundbar
     - media_player.kids_bathroom
 
   # Volume (0-100) used when the master is awake, or for any urgent
   # announcement regardless of sleep state.
-  awake_volume_percent: 35
+  awake_volume_percent: 20
 
   # Volume (0-100) used for routine announcements while master is asleep.
   # Vacuum already suppresses entirely while asleep; this only affects

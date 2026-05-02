@@ -64,7 +64,6 @@ var defaultSpeakers = []string{
 	"media_player.sitting_room",
 	"media_player.bedroom",
 	"media_player.dining_room",
-	"media_player.soundbar",
 	"media_player.kids_bathroom",
 }
 

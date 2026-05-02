@@ -448,7 +448,6 @@ func (m *Manager) handleNickHomeChange(entityID string, oldState, newState *ha.S
 				"media_player.kitchen",
 				"media_player.sitting_room",
 				"media_player.front_room",
-				"media_player.soundbar",
 				"media_player.kids_bathroom",
 			})
 		} else {
@@ -523,7 +522,6 @@ func (m *Manager) handleCarolineHomeChange(entityID string, oldState, newState *
 				"media_player.sitting_room",
 				"media_player.front_room",
 				"media_player.kids_bathroom",
-				"media_player.soundbar",
 				"media_player.office",
 			})
 		} else {
@@ -583,7 +581,6 @@ func (m *Manager) handleAssistantHereChange(entityID string, oldState, newState 
 				"media_player.sitting_room",
 				"media_player.front_room",
 				"media_player.kids_bathroom",
-				"media_player.soundbar",
 				"media_player.office",
 			})
 		} else {
