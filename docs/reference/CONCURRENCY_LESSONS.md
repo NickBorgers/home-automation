@@ -904,6 +904,7 @@ Go's runtime only detects deadlocks when **all** goroutines are blocked. If even
 16. **Don't use a shared scalar to guard concurrent multi-value operations** - A single flag can't safely represent the combination of values it is meant to protect
 17. **Serialize calls to congestion-sensitive device networks** - Parallel UPnP calls to Sonos triggers timeout storms; sequence them instead
 18. **Use `waitForServiceCallQuiescenceSince` for absence assertions** - `waitForProcessing` only covers the HA handler fence; fire-and-forget goroutines require quiescence polling
+19. **Fence between GIVEN and WHEN phases** - always call `waitForProcessing` or `waitForBoolState` after GIVEN-phase `SetState` calls; only `input_boolean.*` entities have `MockHAServer` defaults and can be omitted when their default matches the test's starting value
 
 ---
 
@@ -1080,7 +1081,7 @@ func handleShutdown() {
 - State manager: `internal/state/manager.go`
 - Mock server: `test/integration/mock_ha_server.go`
 
-**Last Updated**: 2026-04-27
+**Last Updated**: 2026-04-30
 **Test Status**: All 11/11 integration tests passing with `-race` flag
 
 ---
@@ -1352,7 +1353,62 @@ These helpers look similar but serve different purposes:
 
 ---
 
+## Lesson 19: Fence Between GIVEN and WHEN Phases to Prevent Handler Goroutine Races
+
+**Pattern**: After all GIVEN-phase `server.SetState()` calls, call `waitForProcessing` (or `waitForBoolState`) before the first WHEN-phase `SetState`. Additionally, for `input_boolean.*` entities that `InitializeStates()` already sets to `"off"`, omit the redundant GIVEN-phase `SetState` entirely.
+
+**Why**: `MockHAServer.SetState()` is not idempotent — it always broadcasts a `state_changed` event regardless of whether the value actually changed. Each broadcast causes the app's event handler to spawn a goroutine. If a GIVEN-phase goroutine is still running when the WHEN-phase `SetState` arrives milliseconds later, both goroutines race to update the same derived state, producing flaky results.
+
+**Race Scenario (Without Fix)**:
+```
+T+0ms:  GIVEN: server.SetState("switch.sync_box_power", "off", ...)
+        → broadcasts state_changed → spawns goroutine G1
+T+2ms:  WHEN:  server.SetState("switch.sync_box_power", "on", ...)
+        → broadcasts state_changed → spawns goroutine G2
+T+3ms:  G1 runs: sees "off" → sets isTVon=false
+T+4ms:  G2 runs: sees "on"  → sets isTVon=true   ← correct result (lucky ordering)
+
+// But if scheduling flips G1/G2:
+T+3ms:  G2 runs: sees "on"  → sets isTVon=true
+T+4ms:  G1 runs: sees "off" → sets isTVon=false   ← STALE RESULT (flaky failure)
+```
+
+**Correct Pattern**:
+```go
+// GIVEN: Initialize entities to their test-scenario starting values.
+server.SetState("media_player.sony_xr_65a80k", "off", map[string]interface{}{})
+server.SetState("switch.sync_box_power", "off", map[string]interface{}{})
+
+// Fence: drain all GIVEN-phase handler goroutines before the WHEN phase.
+// waitForBoolState polls until derived state settles; also acceptable: waitForProcessing.
+waitForBoolState(t, manager, "isTVon", false, "isTVon should be false when sync box is off")
+
+// WHEN: trigger the event under test.
+server.SetState("switch.sync_box_power", "on", map[string]interface{}{})
+```
+
+**Key Elements**:
+1. **Know which entities have defaults**: `MockHAServer.InitializeStates()` pre-sets `input_boolean.*` entities to `"off"`. See `pkg/testutil/mock_ha_server.go`. All other domains (`switch.*`, `media_player.*`, `select.*`, etc.) start absent from the states map — their first `SetState` call is a necessary initialization, not a redundant one.
+2. **Omit truly redundant calls**: For `input_boolean.*` entities, don't call `SetState("off", ...)` if the scenario needs `"off"` as the starting value — `InitializeStates()` already handles that. Add a comment explaining the omission rather than silently dropping the call.
+3. **Drain before WHEN**: After all GIVEN-phase `SetState` calls, call `waitForProcessing` or `waitForBoolState` to ensure all spawned goroutines finish before the next state change.
+4. **One SetState per entity per phase**: Multiple calls to the same entity in quick succession compound the race window.
+
+**Where Applied**:
+- `test/integration/scenario_tv_test.go` - `TestScenario_TVOffSyncBoxOn` and `TestScenario_SyncBoxPowerOnRecalculates` (PR #1045): added `waitForBoolState` fence between GIVEN and WHEN phases to prevent GIVEN-phase handler goroutines from racing with WHEN-phase events.
+
+**Tests That Validate This**:
+- `TestScenario_TVOffSyncBoxOn` - `waitForBoolState(isTVon=false)` used as GIVEN/WHEN fence
+- `TestScenario_SyncBoxPowerOnRecalculates` - `waitForBoolState(isTVon=false)` used as GIVEN/WHEN fence for simultaneous HDMI input + power-on events
+
+---
+
 ## Change Log
+
+### 2026-04-30
+- **Added Lesson 19**: Fence Between GIVEN and WHEN Phases to Prevent Handler Goroutine Races
+  - Documents race between GIVEN-phase handler goroutines and WHEN-phase events when no fence separates them
+  - Pattern: call `waitForProcessing` or `waitForBoolState` after GIVEN-phase `SetState` calls; additionally omit `SetState` calls that duplicate `InitializeStates()` defaults (`input_boolean.*` only)
+  - Applied to `scenario_tv_test.go` `TestScenario_TVOffSyncBoxOn` and `TestScenario_SyncBoxPowerOnRecalculates` (PR #1045): added `waitForBoolState` fences
 
 ### 2026-04-27
 - **Added Lesson 18**: Use `waitForServiceCallQuiescenceSince` When Asserting Absence of Async Service Calls
