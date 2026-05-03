@@ -89,6 +89,7 @@ type Manager struct {
 
 	// Septic alarm tracking
 	septicAlarmActive     bool      // Whether the physical alarm is currently sounding
+	septicAlarmNotified   bool      // Whether we sent a notification for the current alarm burst
 	lastAlarmNotification time.Time // Last time we sent an alarm notification (for cooldown)
 
 	// Thermostat state tracking
@@ -475,9 +476,13 @@ func (m *Manager) handleSepticAlarmEvent(entityID string, oldState, newState *ha
 		}
 		m.septicAlarmActive = true
 		inCooldown := !m.lastAlarmNotification.IsZero() && m.clock.Since(m.lastAlarmNotification) < SepticAlarmCooldown
-		if !inCooldown {
+		var sinceLastNotification time.Duration
+		if inCooldown {
+			sinceLastNotification = m.clock.Since(m.lastAlarmNotification)
+		} else {
 			m.lastAlarmNotification = now
 		}
+		m.septicAlarmNotified = !inCooldown
 		m.shadowTracker.UpdateSepticAlarmActive(now)
 		m.mu.Unlock()
 
@@ -486,17 +491,19 @@ func (m *Manager) handleSepticAlarmEvent(entityID string, oldState, newState *ha
 			m.sendSepticAlarmNotification()
 		} else {
 			m.logger.Debug("Septic alarm notification suppressed (cooldown)",
-				zap.Duration("since_last", m.clock.Since(m.lastAlarmNotification)))
+				zap.Duration("since_last", sinceLastNotification))
 		}
 
 	case "KeyReleased":
 		m.mu.Lock()
 		wasActive := m.septicAlarmActive
+		wasNotified := m.septicAlarmNotified
 		m.septicAlarmActive = false
+		m.septicAlarmNotified = false
 		m.shadowTracker.UpdateSepticAlarmCleared(now)
 		m.mu.Unlock()
 
-		if wasActive {
+		if wasActive && wasNotified {
 			m.logger.Info("Septic alarm cleared")
 			m.sendSepticAlarmRecoveryNotification()
 		}

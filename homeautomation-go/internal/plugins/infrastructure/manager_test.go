@@ -762,6 +762,32 @@ func TestSepticAlarm_KeyReleasedWithoutActiveAlarmNoRecovery(t *testing.T) {
 	}
 }
 
+func TestSepticAlarm_CooldownReleaseNoRecoveryNotification(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	mockNtfy := ntfy.NewMockClient()
+	startTime := time.Now()
+	mockClock := clock.NewMockClock(startTime)
+
+	manager := createTestManager(mockHA, mockNtfy, mockClock)
+
+	// First alarm fires and clears (establishes cooldown)
+	manager.SimulateSepticAlarmEvent("KeyPressed")
+	manager.SimulateSepticAlarmEvent("KeyReleased")
+	afterFirstCycle := countNtfyNotifications(mockNtfy) // alarm + recovery = 2
+
+	// Second alarm fires within cooldown — notification suppressed
+	mockClock.Advance(5 * time.Minute)
+	manager.SimulateSepticAlarmEvent("KeyPressed")
+	// Alarm clears — should NOT send recovery because no alarm notification was sent
+	manager.SimulateSepticAlarmEvent("KeyReleased")
+
+	if count := countNtfyNotifications(mockNtfy); count != afterFirstCycle {
+		t.Errorf("Expected no new notifications when alarm was suppressed by cooldown, got %d extra", count-afterFirstCycle)
+	}
+}
+
 func TestSepticAlarm_ShadowStateTracking(t *testing.T) {
 	t.Parallel()
 
