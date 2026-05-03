@@ -739,11 +739,12 @@ gh workflow run "AI Code Review" \
 
 ### Model Selection
 
-The pipelines currently invoke Claude Code CLI with `claude-sonnet-4-6` via the self-hosted LiteLLM Anthropic-compatible passthrough.
+Most pipeline jobs invoke Claude Code CLI with `claude-sonnet-4-6` via the self-hosted LiteLLM Anthropic-compatible passthrough; the `resolve-issue` job uses Codex with `gpt-5.5`.
 
 | Pipeline/Job | Model | Rationale |
 |-------------|-------|-----------|
-| `ai-assistant.yml` interactive and issue resolution | `claude-sonnet-4-6` | Open-ended implementation and repo changes |
+| `ai-assistant.yml` — interactive (`/autoresolve`) | `claude-sonnet-4-6` | Open-ended implementation and repo changes |
+| `ai-assistant.yml` — `resolve-issue` | `gpt-5.5` (Codex, via `CODEX_MODEL`) | Issue resolution |
 | `ai-code-review.yml` review and merge jobs | `claude-sonnet-4-6` | Consistent review quality across the pipeline |
 | `ai-diagnose-workflow-failure.yml` | `claude-sonnet-4-6` | Failure triage and classification |
 | `ha-deprecation-check.yml` | `claude-sonnet-4-6` | Release-note scanning and issue creation |
@@ -752,11 +753,23 @@ The workflow display names are `AI Assistant`, `AI Code Review`, and `AI Diagnos
 
 ### Swapping the Backing AI Tool
 
-The pipelines route every CLI invocation through `.devcontainer/run-ai.sh`, which reads `.devcontainer/ai-tool.env` to decide which tool to actually run. Swapping between supported tools is a one-file change:
+The pipelines route every CLI invocation through `.devcontainer/run-ai.sh`, which reads `.devcontainer/ai-tool.env` to decide which tool to actually run. There are two ways to swap the tool:
+
+**Global swap (all jobs):** A one-file change to `ai-tool.env`:
 
 1. Edit `.devcontainer/ai-tool.env` and change `AI_TOOL` to the desired value (currently `claude` or `codex`). The `AI_BASE_URL` for that tool is selected automatically by the `case` block in the same file.
 2. If the new tool needs a different API key, update the `ANTHROPIC_API_KEY` secret value in GitHub Actions settings — the secret name is kept for historical reasons, but the value can hold whatever key the new tool needs. (Workflow env blocks map it to a generic `AI_API_KEY` that `run-ai.sh` re-exports under the tool-specific env var name.)
 3. Rebuild the devcontainer image once so the next CI run picks up the new `ai-tool.env`.
+
+**Per-job override (individual jobs only):** Individual jobs can override the tool and model by injecting variables into the workflow's `env-file` block. For example, to run a specific job with Codex at a particular model version:
+
+```yaml
+env-file: |
+  AI_TOOL=codex
+  CODEX_MODEL=gpt-5.5
+```
+
+The equivalent override for Claude is `AI_TOOL=claude` with `CLAUDE_MODEL=claude-sonnet-4-6`. These env vars are picked up by `configure-ai.sh` (which writes the tool-specific on-disk config) and `run-ai.sh` (which selects the right CLI invocation). Per-job overrides take precedence over the global `ai-tool.env` defaults.
 
 What each script does on a swap:
 
