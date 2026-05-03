@@ -36,10 +36,15 @@ case "$AI_TOOL" in
     # `@users.noreply.github.com`.
     AI_GIT_NAME_DEFAULT="codex[bot]"
     AI_GIT_EMAIL_DEFAULT="codex-bot@ci.invalid"
-    # Codex reads its provider config from ~/.codex/config.toml.
+    # Codex reads its provider config from ~/.codex/config.toml. The model
+    # is settable per-workflow via the CODEX_MODEL env var (passed through
+    # the run-ci-agent composite action's env-file plumbing). Falling back
+    # to the default lets local devcontainer use work without a workflow
+    # context.
+    CODEX_MODEL="${CODEX_MODEL:-gpt-5.5}"
     mkdir -p "$HOME/.codex"
     cat > "$HOME/.codex/config.toml" <<EOF
-model = "gpt-5-codex"
+model = "${CODEX_MODEL}"
 model_provider = "litellm"
 
 [model_providers.litellm]

@@ -183,6 +183,8 @@ jobs:
             ISSUE_NUMBER=${{ github.event.issue.number }}
             ISSUE_TITLE=${{ github.event.issue.title }}
             REPO=${{ github.repository }}
+            AI_TOOL=codex
+            CODEX_MODEL=gpt-5.5
           # Fetch issue body and comments inside the container (gh is on PATH
           # there with GH_TOKEN already injected via --env-file). The exported
           # vars are picked up by envsubst when it expands the prompt template.
