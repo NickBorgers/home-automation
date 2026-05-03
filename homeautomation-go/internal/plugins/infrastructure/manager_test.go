@@ -600,6 +600,208 @@ func TestInfrastructureManager_NtfyClientNil(t *testing.T) {
 }
 
 // ============================================================================
+// Septic Alarm Tests
+// ============================================================================
+
+func TestSepticAlarm_KeyPressedSendsNotification(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	mockNtfy := ntfy.NewMockClient()
+	mockClock := clock.NewMockClock(time.Now())
+
+	manager := createTestManager(mockHA, mockNtfy, mockClock)
+
+	// Alarm fires
+	manager.SimulateSepticAlarmEvent("KeyPressed")
+
+	if !manager.IsSepticAlarmActive() {
+		t.Error("Expected alarm to be active after KeyPressed")
+	}
+	if count := countNtfyNotifications(mockNtfy); count != 1 {
+		t.Errorf("Expected 1 notification on KeyPressed, got %d", count)
+	}
+	msg := getLastNtfyNotification(mockNtfy)
+	if msg.Title != "Septic Alarm" {
+		t.Errorf("Expected title 'Septic Alarm', got '%s'", msg.Title)
+	}
+
+	// Verify shadow state
+	shadow := manager.GetShadowState()
+	if !shadow.Outputs.SepticAlarmStatus.IsActive {
+		t.Error("Expected SepticAlarmStatus.IsActive to be true")
+	}
+	if shadow.Outputs.SepticAlarmStatus.NotificationCount != 1 {
+		t.Errorf("Expected NotificationCount 1, got %d", shadow.Outputs.SepticAlarmStatus.NotificationCount)
+	}
+}
+
+func TestSepticAlarm_KeyHeldDownDebounced(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	mockNtfy := ntfy.NewMockClient()
+	mockClock := clock.NewMockClock(time.Now())
+
+	manager := createTestManager(mockHA, mockNtfy, mockClock)
+
+	// First event activates alarm
+	manager.SimulateSepticAlarmEvent("KeyPressed")
+	// Hundreds of held-down events should not send additional notifications
+	for i := 0; i < 100; i++ {
+		manager.SimulateSepticAlarmEvent("KeyHeldDown")
+	}
+
+	if count := countNtfyNotifications(mockNtfy); count != 1 {
+		t.Errorf("Expected exactly 1 notification despite 101 events, got %d", count)
+	}
+}
+
+func TestSepticAlarm_KeyReleasedClearsAlarm(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	mockNtfy := ntfy.NewMockClient()
+	mockClock := clock.NewMockClock(time.Now())
+
+	manager := createTestManager(mockHA, mockNtfy, mockClock)
+
+	manager.SimulateSepticAlarmEvent("KeyPressed")
+	manager.SimulateSepticAlarmEvent("KeyReleased")
+
+	if manager.IsSepticAlarmActive() {
+		t.Error("Expected alarm to be inactive after KeyReleased")
+	}
+	// Should have alarm notification + recovery notification
+	if count := countNtfyNotifications(mockNtfy); count != 2 {
+		t.Errorf("Expected 2 notifications (alarm + recovery), got %d", count)
+	}
+	msg := getLastNtfyNotification(mockNtfy)
+	if msg.Title != "Septic Alarm Cleared" {
+		t.Errorf("Expected title 'Septic Alarm Cleared', got '%s'", msg.Title)
+	}
+
+	// Verify shadow state
+	shadow := manager.GetShadowState()
+	if shadow.Outputs.SepticAlarmStatus.IsActive {
+		t.Error("Expected SepticAlarmStatus.IsActive to be false after cleared")
+	}
+	if shadow.Outputs.SepticAlarmStatus.LastCleared.IsZero() {
+		t.Error("Expected LastCleared to be set")
+	}
+}
+
+func TestSepticAlarm_CooldownPreventsRepeatNotification(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	mockNtfy := ntfy.NewMockClient()
+	startTime := time.Now()
+	mockClock := clock.NewMockClock(startTime)
+
+	manager := createTestManager(mockHA, mockNtfy, mockClock)
+
+	// First alarm fires and clears
+	manager.SimulateSepticAlarmEvent("KeyPressed")
+	manager.SimulateSepticAlarmEvent("KeyReleased")
+	firstCount := countNtfyNotifications(mockNtfy)
+
+	// Second alarm fires within cooldown — should not send alarm notification
+	mockClock.Advance(5 * time.Minute)
+	manager.SimulateSepticAlarmEvent("KeyPressed")
+
+	if count := countNtfyNotifications(mockNtfy); count != firstCount {
+		t.Errorf("Expected %d notifications (cooldown active), got %d", firstCount, count)
+	}
+}
+
+func TestSepticAlarm_NotifiesAfterCooldownExpires(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	mockNtfy := ntfy.NewMockClient()
+	startTime := time.Now()
+	mockClock := clock.NewMockClock(startTime)
+
+	manager := createTestManager(mockHA, mockNtfy, mockClock)
+
+	// First alarm
+	manager.SimulateSepticAlarmEvent("KeyPressed")
+	manager.SimulateSepticAlarmEvent("KeyReleased")
+	afterFirstAlarm := countNtfyNotifications(mockNtfy)
+
+	// Wait past cooldown
+	mockClock.Advance(31 * time.Minute)
+
+	// Second alarm should notify again
+	manager.SimulateSepticAlarmEvent("KeyPressed")
+
+	if count := countNtfyNotifications(mockNtfy); count <= afterFirstAlarm {
+		t.Errorf("Expected new notification after cooldown expired, got same count %d", count)
+	}
+	msg := getLastNtfyNotification(mockNtfy)
+	if msg.Title != "Septic Alarm" {
+		t.Errorf("Expected title 'Septic Alarm', got '%s'", msg.Title)
+	}
+}
+
+func TestSepticAlarm_KeyReleasedWithoutActiveAlarmNoRecovery(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	mockNtfy := ntfy.NewMockClient()
+	mockClock := clock.NewMockClock(time.Now())
+
+	manager := createTestManager(mockHA, mockNtfy, mockClock)
+
+	// KeyReleased with no prior alarm should not send recovery notification
+	manager.SimulateSepticAlarmEvent("KeyReleased")
+
+	if count := countNtfyNotifications(mockNtfy); count != 0 {
+		t.Errorf("Expected 0 notifications for spurious KeyReleased, got %d", count)
+	}
+}
+
+func TestSepticAlarm_ShadowStateTracking(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	mockNtfy := ntfy.NewMockClient()
+	mockClock := clock.NewMockClock(time.Now())
+
+	manager := createTestManager(mockHA, mockNtfy, mockClock)
+
+	// Initial state
+	shadow := manager.GetShadowState()
+	if shadow.Outputs.SepticAlarmStatus.IsActive {
+		t.Error("Expected alarm initially inactive")
+	}
+	if shadow.Outputs.SepticAlarmStatus.NotificationCount != 0 {
+		t.Errorf("Expected NotificationCount 0 initially, got %d", shadow.Outputs.SepticAlarmStatus.NotificationCount)
+	}
+
+	// After alarm
+	manager.SimulateSepticAlarmEvent("KeyPressed")
+	shadow = manager.GetShadowState()
+	if !shadow.Outputs.SepticAlarmStatus.IsActive {
+		t.Error("Expected alarm active after KeyPressed")
+	}
+	if shadow.Outputs.SepticAlarmStatus.LastDetected.IsZero() {
+		t.Error("Expected LastDetected to be set after KeyPressed")
+	}
+
+	// After cleared
+	manager.SimulateSepticAlarmEvent("KeyReleased")
+	shadow = manager.GetShadowState()
+	if shadow.Outputs.SepticAlarmStatus.IsActive {
+		t.Error("Expected alarm inactive after KeyReleased")
+	}
+	if shadow.Outputs.SepticAlarmStatus.LastCleared.IsZero() {
+		t.Error("Expected LastCleared to be set after KeyReleased")
+	}
+}
+
+// ============================================================================
 // Thermostat Monitoring Tests
 // ============================================================================
 

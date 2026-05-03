@@ -923,11 +923,20 @@ type LowBatteryAlert struct {
 // InfrastructureOutputs tracks septic system state and alerts
 type InfrastructureOutputs struct {
 	SepticSystemStatus  SepticSystemStatus          `json:"septicSystemStatus"`
+	SepticAlarmStatus   SepticAlarmStatus           `json:"septicAlarmStatus"`
 	ThermostatStatus    ThermostatStatus            `json:"thermostatStatus"`
 	ActiveAlerts        []InfrastructureAlert       `json:"activeAlerts,omitempty"`
 	LastNotification    *InfrastructureNotification `json:"lastNotification,omitempty"`
 	LastTTSAnnouncement *InfrastructureTTS          `json:"lastTTSAnnouncement,omitempty"`
 	LastUpdate          time.Time                   `json:"lastUpdate"`
+}
+
+// SepticAlarmStatus tracks the physical septic alarm sensor state
+type SepticAlarmStatus struct {
+	IsActive          bool      `json:"isActive"`
+	LastDetected      time.Time `json:"lastDetected,omitempty"`
+	LastCleared       time.Time `json:"lastCleared,omitempty"`
+	NotificationCount int       `json:"notificationCount"`
 }
 
 // ThermostatStatus tracks the current state of monitored thermostats
