@@ -739,15 +739,16 @@ gh workflow run "AI Code Review" \
 
 ### Model Selection
 
-Most pipeline jobs invoke Claude Code CLI with `claude-sonnet-4-6` via the self-hosted LiteLLM Anthropic-compatible passthrough; the `resolve-issue` job uses Codex with `gpt-5.5`.
+Most pipelines invoke Claude Code CLI with `claude-sonnet-4-6` via the self-hosted LiteLLM Anthropic-compatible passthrough. The `resolve-issue` job in `ai-assistant.yml` is the exception — it runs the Codex CLI against `gpt-5.5` via the LiteLLM OpenAI-compatible passthrough.
 
-| Pipeline/Job | Model | Rationale |
-|-------------|-------|-----------|
-| `ai-assistant.yml` — interactive (`/autoresolve`) | `claude-sonnet-4-6` | Open-ended implementation and repo changes |
-| `ai-assistant.yml` — `resolve-issue` | `gpt-5.5` (Codex, via `CODEX_MODEL`) | Issue resolution |
-| `ai-code-review.yml` review and merge jobs | `claude-sonnet-4-6` | Consistent review quality across the pipeline |
-| `ai-diagnose-workflow-failure.yml` | `claude-sonnet-4-6` | Failure triage and classification |
-| `ha-deprecation-check.yml` | `claude-sonnet-4-6` | Release-note scanning and issue creation |
+The model for each path is overridable per-workflow via env vars passed into the run-ci-agent composite action: `CODEX_MODEL` (codex path) and `CLAUDE_MODEL` (claude path). Defaults live in `.devcontainer/configure-ai.sh` (codex) and `.devcontainer/run-ai.sh` (claude).
+
+| Pipeline/Job | Tool | Model | Rationale |
+|-------------|------|-------|-----------|
+| `ai-assistant.yml` resolve-issue | codex | `gpt-5.5` | Issue resolution; uses Codex per cross-repo alignment |
+| `ai-code-review.yml` review and merge jobs | claude | `claude-sonnet-4-6` | Consistent review quality across the pipeline |
+| `ai-diagnose-workflow-failure.yml` | claude | `claude-sonnet-4-6` | Failure triage and classification |
+| `ha-deprecation-check.yml` | claude | `claude-sonnet-4-6` | Release-note scanning and issue creation |
 
 The workflow display names are `AI Assistant`, `AI Code Review`, and `AI Diagnose Workflow Failure`, with filenames `ai-assistant.yml`, `ai-code-review.yml`, and `ai-diagnose-workflow-failure.yml`. Plumbing is tool-agnostic so the underlying CLI can be swapped without renaming anything.
 
