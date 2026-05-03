@@ -327,7 +327,7 @@ func TestWaterFlowManager_RateLimiting(t *testing.T) {
 	manager.SimulateFlowReading(0.1)
 	recoveryCount := countNtfyNotifications(mockNtfy)
 
-	// Immediately trigger another urgent condition (window still has old readings)
+	// Immediately trigger another urgent condition with a fresh 31-minute window
 	simulateSteadyFlow(manager, mockClock, 0.5, 31*time.Minute, time.Minute)
 	manager.TriggerEvaluation()
 

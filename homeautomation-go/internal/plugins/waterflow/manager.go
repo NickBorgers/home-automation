@@ -157,7 +157,9 @@ func (m *Manager) Stop() {
 	m.logger.Info("Water Flow Manager stopped")
 }
 
-// Reset re-evaluates conditions and clears rate limiters
+// Reset re-evaluates conditions and clears rate limiters.
+// flowReadings is intentionally not cleared so that a reset mid-flow immediately re-fires any
+// in-progress alert once the rate limiter is lifted.
 func (m *Manager) Reset() error {
 	m.logger.Info("Resetting Water Flow Manager")
 
@@ -227,6 +229,9 @@ func (m *Manager) handleFlowChange(entityID string, oldState, newState *ha.State
 				zap.Duration("debounce_duration", now.Sub(m.recoveryStartTime)))
 			m.isWarningActive = false
 			m.isUrgentActive = false
+			// Clear the rolling window so the next evaluateConditions tick cannot immediately
+			// re-fire the alert using stale high-flow readings.
+			m.flowReadings = nil
 			m.recoveryStartTime = time.Time{}
 			m.shadowTracker.UpdateConditionsMet(false, false)
 			m.shadowTracker.ClearAlerts()
@@ -330,6 +335,7 @@ func (m *Manager) evaluateConditions() {
 			m.shadowTracker.UpdateAlertLevel("urgent")
 			m.shadowTracker.UpdateConditionsMet(true, true)
 
+			// DetectedAt is the start of the evaluation window, not the precise onset of high flow.
 			alerts := []shadowstate.WaterFlowAlert{{
 				AlertType:       "urgent",
 				Message:         fmt.Sprintf("High water flow of %.2f GPM for over 30 minutes. Possible broken pipe!", m.currentFlowRateGPM),
