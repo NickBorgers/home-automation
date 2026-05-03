@@ -1862,6 +1862,32 @@ func (it *InfrastructureTracker) UpdateBarnThermostat(state ThermostatState) {
 	it.State().Metadata.LastUpdated = time.Now()
 }
 
+// UpdateSepticAlarmActive marks the septic alarm as active with the detection time
+func (it *InfrastructureTracker) UpdateSepticAlarmActive(detected time.Time) {
+	it.Lock()
+	defer it.Unlock()
+	it.state.Outputs.SepticAlarmStatus.IsActive = true
+	it.state.Outputs.SepticAlarmStatus.LastDetected = detected
+	it.state.Metadata.LastUpdated = time.Now()
+}
+
+// UpdateSepticAlarmCleared marks the septic alarm as cleared
+func (it *InfrastructureTracker) UpdateSepticAlarmCleared(cleared time.Time) {
+	it.Lock()
+	defer it.Unlock()
+	it.state.Outputs.SepticAlarmStatus.IsActive = false
+	it.state.Outputs.SepticAlarmStatus.LastCleared = cleared
+	it.state.Metadata.LastUpdated = time.Now()
+}
+
+// IncrementAlarmNotificationCount increments the septic alarm notification counter
+func (it *InfrastructureTracker) IncrementAlarmNotificationCount() {
+	it.Lock()
+	defer it.Unlock()
+	it.state.Outputs.SepticAlarmStatus.NotificationCount++
+	it.state.Metadata.LastUpdated = time.Now()
+}
+
 // GetState returns the current shadow state (thread-safe copy)
 func (it *InfrastructureTracker) GetState() *InfrastructureShadowState {
 	it.RLock()
@@ -1875,6 +1901,7 @@ func (it *InfrastructureTracker) GetState() *InfrastructureShadowState {
 		},
 		Outputs: InfrastructureOutputs{
 			SepticSystemStatus: s.Outputs.SepticSystemStatus,
+			SepticAlarmStatus:  s.Outputs.SepticAlarmStatus,
 			ThermostatStatus:   s.Outputs.ThermostatStatus,
 			ActiveAlerts:       make([]InfrastructureAlert, len(s.Outputs.ActiveAlerts)),
 			LastUpdate:         s.Outputs.LastUpdate,

@@ -23,6 +23,9 @@ const (
 	// SepticSensorEntity is the Home Assistant entity for the septic system power sensor
 	SepticSensorEntity = "sensor.span_left_most_of_house_aerobic_septic_system_power"
 
+	// SepticAlarmEntity is the Z-Wave event entity for the physical septic alarm buzzer
+	SepticAlarmEntity = "event.septic_alarm_going_off"
+
 	// AeratorMinPowerW is the minimum power expected from the aerator (below = failure)
 	AeratorMinPowerW = 50.0
 
@@ -43,6 +46,9 @@ const (
 
 	// RepeatAlertCooldown prevents repeat alert spam
 	RepeatAlertCooldown = 4 * time.Hour
+
+	// SepticAlarmCooldown is the minimum time between septic alarm notifications
+	SepticAlarmCooldown = 30 * time.Minute
 )
 
 // Thermostat entity constants
@@ -80,6 +86,11 @@ type Manager struct {
 	lastRecoveryNotification time.Time // Last time we sent a recovery notification
 	isAeratorFailure         bool      // Currently in aerator failure state
 	isPumpStuck              bool      // Currently in pump stuck state
+
+	// Septic alarm tracking
+	septicAlarmActive     bool      // Whether the physical alarm is currently sounding
+	septicAlarmNotified   bool      // Whether we sent a notification for the current alarm burst
+	lastAlarmNotification time.Time // Last time we sent an alarm notification (for cooldown)
 
 	// Thermostat state tracking
 	wellHVACAction string // Current hvac_action for well thermostat
@@ -126,6 +137,11 @@ func (m *Manager) Start() error {
 	// Subscribe to the septic power sensor
 	if err := m.subHelper.SubscribeToEntity(SepticSensorEntity, m.handlePowerChange); err != nil {
 		return fmt.Errorf("failed to subscribe to septic power sensor: %w", err)
+	}
+
+	// Subscribe to the septic alarm event entity
+	if err := m.subHelper.SubscribeToEntity(SepticAlarmEntity, m.handleSepticAlarmEvent); err != nil {
+		return fmt.Errorf("failed to subscribe to septic alarm entity: %w", err)
 	}
 
 	// Subscribe to thermostat entities
@@ -437,6 +453,121 @@ func (m *Manager) sendTTSAnnouncement(message string) {
 	m.shadowTracker.RecordTTSAnnouncement(message)
 }
 
+// handleSepticAlarmEvent processes Z-Wave key events from the physical septic alarm sensor
+func (m *Manager) handleSepticAlarmEvent(entityID string, oldState, newState *ha.State) {
+	if newState == nil {
+		return
+	}
+
+	eventType, ok := newState.Attributes["event_type"].(string)
+	if !ok {
+		return
+	}
+
+	now := m.clock.Now()
+
+	switch eventType {
+	case "KeyPressed", "KeyHeldDown":
+		m.mu.Lock()
+		if m.septicAlarmActive {
+			// Already tracking this alarm burst — skip duplicate events
+			m.mu.Unlock()
+			return
+		}
+		m.septicAlarmActive = true
+		inCooldown := !m.lastAlarmNotification.IsZero() && m.clock.Since(m.lastAlarmNotification) < SepticAlarmCooldown
+		var sinceLastNotification time.Duration
+		if inCooldown {
+			sinceLastNotification = m.clock.Since(m.lastAlarmNotification)
+		} else {
+			m.lastAlarmNotification = now
+		}
+		m.septicAlarmNotified = !inCooldown
+		m.shadowTracker.UpdateSepticAlarmActive(now)
+		m.mu.Unlock()
+
+		m.logger.Info("Septic alarm activated", zap.String("event_type", eventType))
+		if !inCooldown {
+			m.sendSepticAlarmNotification()
+		} else {
+			m.logger.Debug("Septic alarm notification suppressed (cooldown)",
+				zap.Duration("since_last", sinceLastNotification))
+		}
+
+	case "KeyReleased":
+		m.mu.Lock()
+		wasActive := m.septicAlarmActive
+		wasNotified := m.septicAlarmNotified
+		m.septicAlarmActive = false
+		m.septicAlarmNotified = false
+		m.shadowTracker.UpdateSepticAlarmCleared(now)
+		m.mu.Unlock()
+
+		if wasActive && wasNotified {
+			m.logger.Info("Septic alarm cleared")
+			m.sendSepticAlarmRecoveryNotification()
+		}
+	}
+}
+
+// sendSepticAlarmNotification sends ntfy + deferable TTS when the septic alarm fires
+func (m *Manager) sendSepticAlarmNotification() {
+	const message = "The septic tank alarm is going off. The tank may be full."
+
+	m.shadowTracker.RecordNotification("septic_alarm", message, "default")
+	m.shadowTracker.IncrementAlarmNotificationCount()
+
+	if m.ntfyClient != nil {
+		if err := m.ntfyClient.Send(&ntfy.Message{
+			Title:    "Septic Alarm",
+			Body:     message,
+			Priority: ntfy.PriorityDefault,
+			Tags:     []string{"warning", "toilet"},
+		}); err != nil {
+			m.logger.Error("Failed to send septic alarm notification", zap.Error(err))
+		} else {
+			m.logger.Info("Septic alarm notification sent")
+		}
+	} else {
+		m.logger.Warn("ntfy client not configured, cannot send septic alarm notification")
+	}
+
+	speakers := []string{
+		"media_player.bedroom",
+		"media_player.kitchen",
+		"media_player.dining_room",
+		"media_player.kids_bathroom",
+	}
+	if err := m.notifier.Announce(m.ctx, message,
+		notify.WithSpeakers(speakers),
+		notify.WithUrgency(notify.UrgencyDeferable),
+	); err != nil && err != notify.ErrSuppressedAsleep {
+		m.logger.Error("Failed to send septic alarm announcement", zap.Error(err))
+	} else if err == nil {
+		m.shadowTracker.RecordTTSAnnouncement(message)
+	}
+}
+
+// sendSepticAlarmRecoveryNotification sends ntfy when the septic alarm stops
+func (m *Manager) sendSepticAlarmRecoveryNotification() {
+	const message = "Septic alarm has stopped."
+
+	m.shadowTracker.RecordNotification("septic_alarm_cleared", message, "default")
+
+	if m.ntfyClient != nil {
+		if err := m.ntfyClient.Send(&ntfy.Message{
+			Title:    "Septic Alarm Cleared",
+			Body:     message,
+			Priority: ntfy.PriorityDefault,
+			Tags:     []string{"white_check_mark"},
+		}); err != nil {
+			m.logger.Error("Failed to send septic alarm recovery notification", zap.Error(err))
+		} else {
+			m.logger.Info("Septic alarm recovery notification sent")
+		}
+	}
+}
+
 // handleThermostatChange processes changes to thermostat entities
 func (m *Manager) handleThermostatChange(entityID string, oldState, newState *ha.State) {
 	if newState == nil {
@@ -568,6 +699,23 @@ func (m *Manager) sendThermostatNotification(alertType, message string, currentT
 // ============================================================================
 // Test Helpers - exported for testing only
 // ============================================================================
+
+// SimulateSepticAlarmEvent simulates a septic alarm event for testing
+func (m *Manager) SimulateSepticAlarmEvent(eventType string) {
+	newState := &ha.State{
+		EntityID:   SepticAlarmEntity,
+		State:      m.clock.Now().Format(time.RFC3339),
+		Attributes: map[string]interface{}{"event_type": eventType},
+	}
+	m.handleSepticAlarmEvent(SepticAlarmEntity, nil, newState)
+}
+
+// IsSepticAlarmActive returns whether the septic alarm is currently active for testing
+func (m *Manager) IsSepticAlarmActive() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.septicAlarmActive
+}
 
 // SimulatePowerReading simulates a power sensor reading for testing
 func (m *Manager) SimulatePowerReading(powerW float64) {

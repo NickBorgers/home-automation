@@ -968,6 +968,7 @@ graph LR
         WaterFlowPlugin[Water Flow Plugin<br/>Order: 71]
         EVChargerPlugin[EV Charger Safety Plugin<br/>Order: 5]
         VacuumPlugin[Robot Vacuum Plugin<br/>Order: 60]
+        InfrastructurePlugin[Infrastructure Plugin]
         ResetCoord[Reset Coordinator<br/>Order: 90]
     end
 
@@ -980,6 +981,7 @@ graph LR
         WaterFlowSensor[sensor.droplet_flow_rate]
         EVChargerSensors[binary_sensor.leaf_charger_*<br/>sensor.leaf_charger_*<br/>switch.leaf_charger]
         VacuumErrorSensor[sensor.valetudo_*_error]
+        SepticAlarmSensor[event.septic_alarm_going_off]
     end
 
     NickHome --> StateTracking
@@ -1089,6 +1091,9 @@ graph LR
 
     VacuumErrorSensor --> VacuumPlugin
     MasterAsleep --> VacuumPlugin
+
+    SepticAlarmSensor --> InfrastructurePlugin
+    InfrastructurePlugin -.->|Notifications| Ntfy
 
     Reset --> ResetCoord
     ResetCoord -.->|Reset| StateTracking
