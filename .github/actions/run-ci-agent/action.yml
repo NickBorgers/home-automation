@@ -142,6 +142,16 @@ runs:
         # Mount the pre-script into a known path inside the container; the
         # wrapper below sources it so any vars it exports are visible to
         # envsubst.
+        #
+        # Capture the docker exit code instead of letting `set -e` abort
+        # this step — on a non-zero exit (timeout's 124, SIGKILL's 137,
+        # an agent crash) we still need to copy the staged log to the
+        # caller-requested path so upload-artifact has something to grab.
+        # Without this, the partial conversation log `tee` flushed inside
+        # the container is stranded at $STAGED_OUTPUT_FILE and the artifact
+        # upload finds nothing — exactly the diagnostic blackout the
+        # 90-min inner timeout was meant to prevent.
+        DOCKER_EXIT=0
         docker run --rm \
           --network host \
           --workdir /workspace \
@@ -167,7 +177,7 @@ runs:
             # OOM SIGKILL (exit 137), which leaves no diagnostic.
             timeout 90m bash .devcontainer/run-ai.sh "$PROMPT" 2>&1 \
               | tee "$CI_AGENT_OUTPUT_FILE"
-          '
+          ' || DOCKER_EXIT=$?
 
         # Copy the staged output back to the caller-requested path so
         # their upload-artifact step reads it from the same path they
@@ -179,6 +189,8 @@ runs:
           cp "$STAGED_OUTPUT_FILE" "$CI_AGENT_OUTPUT_FILE"
         fi
         rm -rf "$OUTPUT_STAGING_DIR"
+
+        exit "$DOCKER_EXIT"
 
     - name: Clean up staged files
       if: always()
