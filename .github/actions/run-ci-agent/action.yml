@@ -160,7 +160,12 @@ runs:
               source /tmp/ci-agent-pre-script.sh
             fi
             PROMPT=$(envsubst < "$CI_AGENT_PROMPT_FILE")
-            bash .devcontainer/run-ai.sh "$PROMPT" 2>&1 \
+            # Inner timeout sits below the typical 120-min workflow job
+            # timeout so SIGTERM fires first, letting `tee` flush a partial
+            # conversation log before the runner host kills the container.
+            # `timeout` exits 124 on TERM hit — distinguishable from a host
+            # OOM SIGKILL (exit 137), which leaves no diagnostic.
+            timeout 90m bash .devcontainer/run-ai.sh "$PROMPT" 2>&1 \
               | tee "$CI_AGENT_OUTPUT_FILE"
           '
 
