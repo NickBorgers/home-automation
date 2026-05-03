@@ -26,14 +26,26 @@ const (
 	// WarningFlowRateGPM is the flow rate threshold for warning alerts (gallons per minute)
 	WarningFlowRateGPM = 0.3
 
-	// WarningDurationMinutes is how long flow must exceed warning threshold before alerting
+	// WarningDurationMinutes is the rolling window size for warning alerts
 	WarningDurationMinutes = 60
+
+	// WarningWindowPercent is the minimum fraction of readings in the warning window that must
+	// exceed WarningFlowRateGPM before alerting. Handles intermittent sensor noise.
+	WarningWindowPercent = 0.75
 
 	// UrgentFlowRateGPM is the flow rate threshold for urgent alerts (gallons per minute)
 	UrgentFlowRateGPM = 0.4
 
-	// UrgentDurationMinutes is how long flow must exceed urgent threshold before alerting
+	// UrgentDurationMinutes is the rolling window size for urgent alerts
 	UrgentDurationMinutes = 30
+
+	// UrgentWindowPercent is the minimum fraction of readings in the urgent window that must
+	// exceed UrgentFlowRateGPM before alerting. Handles intermittent sensor noise.
+	UrgentWindowPercent = 0.67
+
+	// maxReadingAgeMinutes is how long to keep readings in the rolling window buffer.
+	// Must exceed WarningDurationMinutes so the window-ready check can pass.
+	maxReadingAgeMinutes = WarningDurationMinutes * 2
 
 	// AlertCheckInterval is how often to check for duration-based alerts
 	AlertCheckInterval = 1 * time.Minute
@@ -48,6 +60,12 @@ const (
 	// This prevents rapid alert/recovery flapping from sensor noise
 	RecoveryDebounceSeconds = 30
 )
+
+// flowReading is a timestamped flow sensor sample stored in the rolling window buffer.
+type flowReading struct {
+	at  time.Time
+	gpm float64
+}
 
 // Manager handles water flow monitoring
 type Manager struct {
@@ -67,15 +85,14 @@ type Manager struct {
 	subHelper *shadowstate.SubscriptionHelper
 
 	// State tracking
-	mu                        sync.Mutex
-	currentFlowRateGPM        float64
-	warningThresholdStartTime time.Time // When flow exceeded WarningFlowRateGPM
-	urgentThresholdStartTime  time.Time // When flow exceeded UrgentFlowRateGPM
-	recoveryStartTime         time.Time // When flow first dropped below threshold (for debounce)
-	lastAlertNotification     time.Time // Last time we sent an alert notification
-	lastRecoveryNotification  time.Time // Last time we sent a recovery notification
-	isWarningActive           bool      // Currently in warning alert state
-	isUrgentActive            bool      // Currently in urgent alert state
+	mu                       sync.Mutex
+	currentFlowRateGPM       float64
+	flowReadings             []flowReading // Rolling window buffer of timestamped sensor readings
+	recoveryStartTime        time.Time     // When flow first dropped below threshold (for debounce)
+	lastAlertNotification    time.Time     // Last time we sent an alert notification
+	lastRecoveryNotification time.Time     // Last time we sent a recovery notification
+	isWarningActive          bool          // Currently in warning alert state
+	isUrgentActive           bool          // Currently in urgent alert state
 
 	// Periodic checker
 	stopChecker chan struct{}
@@ -140,7 +157,9 @@ func (m *Manager) Stop() {
 	m.logger.Info("Water Flow Manager stopped")
 }
 
-// Reset re-evaluates conditions and clears rate limiters
+// Reset re-evaluates conditions and clears rate limiters.
+// flowReadings is intentionally not cleared so that a reset mid-flow immediately re-fires any
+// in-progress alert once the rate limiter is lifted.
 func (m *Manager) Reset() error {
 	m.logger.Info("Resetting Water Flow Manager")
 
@@ -186,78 +205,46 @@ func (m *Manager) handleFlowChange(entityID string, oldState, newState *ha.State
 	m.currentFlowRateGPM = flowRateGPM
 	m.shadowTracker.UpdateFlowRate(flowRateGPM)
 
-	// Update threshold tracking based on flow rate
-	if flowRateGPM >= UrgentFlowRateGPM {
-		// High flow - possible broken pipe
-		if m.urgentThresholdStartTime.IsZero() {
-			m.urgentThresholdStartTime = now
-			m.shadowTracker.UpdateUrgentThresholdStart(&now)
-			m.logger.Info("Urgent flow threshold exceeded, starting timer",
-				zap.Float64("flow_rate_gpm", flowRateGPM))
-		}
-		// Also track warning threshold if not already set
-		if m.warningThresholdStartTime.IsZero() {
-			m.warningThresholdStartTime = now
-			m.shadowTracker.UpdateWarningThresholdStart(&now)
-		}
-		// Clear recovery tracking since we're above threshold
+	// Append reading to the rolling window buffer. Alert evaluation happens in evaluateConditions.
+	m.flowReadings = append(m.flowReadings, flowReading{at: now, gpm: flowRateGPM})
+
+	wasAlerting := m.isWarningActive || m.isUrgentActive
+
+	if flowRateGPM >= WarningFlowRateGPM {
+		// Flow above threshold — clear any pending recovery
 		m.recoveryStartTime = time.Time{}
 		m.shadowTracker.UpdateRecoveryStart(nil)
-	} else if flowRateGPM >= WarningFlowRateGPM {
-		// Moderate flow - possible forgotten fixture
-		if m.warningThresholdStartTime.IsZero() {
-			m.warningThresholdStartTime = now
-			m.shadowTracker.UpdateWarningThresholdStart(&now)
-			m.logger.Info("Warning flow threshold exceeded, starting timer",
+	} else if wasAlerting {
+		// Flow below threshold while alert is active — handle recovery debounce
+		if m.recoveryStartTime.IsZero() {
+			m.recoveryStartTime = now
+			m.shadowTracker.UpdateRecoveryStart(&now)
+			m.logger.Info("Flow dropped below threshold, starting recovery debounce",
 				zap.Float64("flow_rate_gpm", flowRateGPM))
 		}
-		// Clear urgent tracking since we're below that threshold
-		m.urgentThresholdStartTime = time.Time{}
-		m.shadowTracker.UpdateUrgentThresholdStart(nil)
-		// Clear recovery tracking since we're above warning threshold
-		m.recoveryStartTime = time.Time{}
-		m.shadowTracker.UpdateRecoveryStart(nil)
-	} else {
-		// Flow below thresholds - start or continue recovery debounce
-		wasAlerting := m.isWarningActive || m.isUrgentActive
 
-		// Clear threshold tracking
-		m.warningThresholdStartTime = time.Time{}
-		m.urgentThresholdStartTime = time.Time{}
-		m.shadowTracker.UpdateWarningThresholdStart(nil)
-		m.shadowTracker.UpdateUrgentThresholdStart(nil)
-
-		// If we were alerting, implement recovery debounce
-		if wasAlerting {
-			// Start recovery timer if not already started
-			if m.recoveryStartTime.IsZero() {
-				m.recoveryStartTime = now
-				m.shadowTracker.UpdateRecoveryStart(&now)
-				m.logger.Info("Flow dropped below threshold, starting recovery debounce",
-					zap.Float64("flow_rate_gpm", flowRateGPM))
-			}
-
-			// Check if debounce period has passed
-			if now.Sub(m.recoveryStartTime) >= RecoveryDebounceSeconds*time.Second {
-				m.logger.Info("Recovery debounce complete, declaring recovery",
-					zap.Float64("flow_rate_gpm", flowRateGPM),
-					zap.Duration("debounce_duration", now.Sub(m.recoveryStartTime)))
-				m.isWarningActive = false
-				m.isUrgentActive = false
-				m.recoveryStartTime = time.Time{}
-				m.shadowTracker.UpdateConditionsMet(false, false)
-				m.shadowTracker.ClearAlerts()
-				m.shadowTracker.UpdateAlertLevel("none")
-				m.shadowTracker.UpdateRecoveryStart(nil)
-				m.mu.Unlock()
-				m.sendRecoveryNotification()
-				return
-			}
-			// Still in debounce period - don't clear alert state yet
-		} else {
-			// Not alerting - just clear alert level
+		if now.Sub(m.recoveryStartTime) >= RecoveryDebounceSeconds*time.Second {
+			m.logger.Info("Recovery debounce complete, declaring recovery",
+				zap.Float64("flow_rate_gpm", flowRateGPM),
+				zap.Duration("debounce_duration", now.Sub(m.recoveryStartTime)))
+			m.isWarningActive = false
+			m.isUrgentActive = false
+			// Clear the rolling window so the next evaluateConditions tick cannot immediately
+			// re-fire the alert using stale high-flow readings.
+			m.flowReadings = nil
+			m.recoveryStartTime = time.Time{}
+			m.shadowTracker.UpdateConditionsMet(false, false)
+			m.shadowTracker.ClearAlerts()
 			m.shadowTracker.UpdateAlertLevel("none")
+			m.shadowTracker.UpdateRecoveryStart(nil)
+			m.mu.Unlock()
+			m.sendRecoveryNotification()
+			return
 		}
+		// Still within debounce period — leave alert state unchanged
+	} else {
+		// Not alerting and below threshold — ensure alert level is cleared
+		m.shadowTracker.UpdateAlertLevel("none")
 	}
 	m.mu.Unlock()
 }
@@ -298,34 +285,66 @@ func (m *Manager) stopPeriodicCheckerFunc() {
 	m.mu.Unlock()
 }
 
-// evaluateConditions checks if any alert thresholds have been exceeded
+// evaluateConditions checks if any alert thresholds have been exceeded using a rolling window.
+// It fires an alert when UrgentWindowPercent of readings in the last UrgentDurationMinutes exceed
+// UrgentFlowRateGPM, or WarningWindowPercent of readings in the last WarningDurationMinutes exceed
+// WarningFlowRateGPM. This tolerates intermittent sensor noise that would otherwise reset a
+// consecutive-duration timer.
 func (m *Manager) evaluateConditions() {
 	now := m.clock.Now()
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	// Check for urgent condition (> 0.4 GPM for > 30 minutes)
-	if !m.urgentThresholdStartTime.IsZero() {
-		duration := now.Sub(m.urgentThresholdStartTime)
-		if duration >= UrgentDurationMinutes*time.Minute && !m.isUrgentActive {
+	// Prune readings older than the buffer retention period
+	cutoff := now.Add(-maxReadingAgeMinutes * time.Minute)
+	i := 0
+	for i < len(m.flowReadings) && m.flowReadings[i].at.Before(cutoff) {
+		i++
+	}
+	if i > 0 {
+		m.flowReadings = m.flowReadings[i:]
+	}
+
+	if len(m.flowReadings) == 0 {
+		return
+	}
+
+	// The window is "ready" only when data spans the full required duration, ensuring we don't
+	// fire prematurely during startup or after a long gap in readings.
+
+	// Check urgent condition: UrgentWindowPercent of readings in last UrgentDurationMinutes
+	// must exceed UrgentFlowRateGPM.
+	urgentWindowStart := now.Add(-UrgentDurationMinutes * time.Minute)
+	if !m.isUrgentActive && !m.flowReadings[0].at.After(urgentWindowStart) {
+		var total, above int
+		for _, r := range m.flowReadings {
+			if !r.at.Before(urgentWindowStart) {
+				total++
+				if r.gpm >= UrgentFlowRateGPM {
+					above++
+				}
+			}
+		}
+		if total > 0 && float64(above)/float64(total) >= UrgentWindowPercent {
 			m.logger.Warn("Urgent water flow condition detected",
 				zap.Float64("flow_rate_gpm", m.currentFlowRateGPM),
-				zap.Duration("duration", duration))
+				zap.Int("above_threshold", above),
+				zap.Int("total_readings", total))
 			m.isUrgentActive = true
 			m.shadowTracker.UpdateAlertLevel("urgent")
 			m.shadowTracker.UpdateConditionsMet(true, true)
 
+			// DetectedAt is the start of the evaluation window, not the precise onset of high flow.
 			alerts := []shadowstate.WaterFlowAlert{{
 				AlertType:       "urgent",
 				Message:         fmt.Sprintf("High water flow of %.2f GPM for over 30 minutes. Possible broken pipe!", m.currentFlowRateGPM),
 				FlowRateGPM:     m.currentFlowRateGPM,
-				DurationMinutes: int(duration.Minutes()),
-				DetectedAt:      m.urgentThresholdStartTime,
+				DurationMinutes: UrgentDurationMinutes,
+				DetectedAt:      urgentWindowStart,
 			}}
 			m.shadowTracker.UpdateActiveAlerts(alerts)
 
-			// Send urgent notification with TTS
 			m.sendAlertNotification("urgent",
 				fmt.Sprintf("High water flow of %.2f GPM for over 30 minutes. Possible broken pipe!", m.currentFlowRateGPM),
 				true)
@@ -333,13 +352,24 @@ func (m *Manager) evaluateConditions() {
 		}
 	}
 
-	// Check for warning condition (> 0.3 GPM for > 60 minutes)
-	if !m.warningThresholdStartTime.IsZero() && !m.isUrgentActive {
-		duration := now.Sub(m.warningThresholdStartTime)
-		if duration >= WarningDurationMinutes*time.Minute && !m.isWarningActive {
+	// Check warning condition: WarningWindowPercent of readings in last WarningDurationMinutes
+	// must exceed WarningFlowRateGPM.
+	warningWindowStart := now.Add(-WarningDurationMinutes * time.Minute)
+	if !m.isWarningActive && !m.isUrgentActive && !m.flowReadings[0].at.After(warningWindowStart) {
+		var total, above int
+		for _, r := range m.flowReadings {
+			if !r.at.Before(warningWindowStart) {
+				total++
+				if r.gpm >= WarningFlowRateGPM {
+					above++
+				}
+			}
+		}
+		if total > 0 && float64(above)/float64(total) >= WarningWindowPercent {
 			m.logger.Warn("Warning water flow condition detected",
 				zap.Float64("flow_rate_gpm", m.currentFlowRateGPM),
-				zap.Duration("duration", duration))
+				zap.Int("above_threshold", above),
+				zap.Int("total_readings", total))
 			m.isWarningActive = true
 			m.shadowTracker.UpdateAlertLevel("warning")
 			m.shadowTracker.UpdateConditionsMet(true, false)
@@ -348,12 +378,11 @@ func (m *Manager) evaluateConditions() {
 				AlertType:       "warning",
 				Message:         fmt.Sprintf("Continuous water flow of %.2f GPM for over 60 minutes. Check for running fixtures.", m.currentFlowRateGPM),
 				FlowRateGPM:     m.currentFlowRateGPM,
-				DurationMinutes: int(duration.Minutes()),
-				DetectedAt:      m.warningThresholdStartTime,
+				DurationMinutes: WarningDurationMinutes,
+				DetectedAt:      warningWindowStart,
 			}}
 			m.shadowTracker.UpdateActiveAlerts(alerts)
 
-			// Send warning notification (no TTS)
 			m.sendAlertNotification("warning",
 				fmt.Sprintf("Continuous water flow of %.2f GPM for over 60 minutes. Check for running fixtures.", m.currentFlowRateGPM),
 				false)
@@ -511,20 +540,6 @@ func (m *Manager) IsUrgentActive() bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.isUrgentActive
-}
-
-// GetWarningThresholdStartTime returns when warning threshold was exceeded for testing
-func (m *Manager) GetWarningThresholdStartTime() time.Time {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.warningThresholdStartTime
-}
-
-// GetUrgentThresholdStartTime returns when urgent threshold was exceeded for testing
-func (m *Manager) GetUrgentThresholdStartTime() time.Time {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.urgentThresholdStartTime
 }
 
 // GetRecoveryStartTime returns when recovery debounce started for testing
