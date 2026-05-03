@@ -34,7 +34,7 @@ case "$AI_TOOL" in
     exec claude -p \
       --dangerously-skip-permissions \
       --permission-mode=bypassPermissions \
-      --model claude-sonnet-4-6 \
+      --model "${CLAUDE_MODEL:-claude-sonnet-4-6}" \
       "$PROMPT"
     ;;
   codex)
