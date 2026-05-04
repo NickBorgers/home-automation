@@ -91,7 +91,7 @@ func createTestServer(t *testing.T) *Server {
 
 // TestAllReadEndpointsRejectNonGetMethods verifies that every read endpoint rejects
 // all non-GET HTTP methods with 405 Method Not Allowed.
-func TestAllEndpointsRejectNonGetMethods(t *testing.T) {
+func TestAllReadEndpointsRejectNonGetMethods(t *testing.T) {
 	t.Parallel()
 	server := createTestServer(t)
 

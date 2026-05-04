@@ -190,6 +190,8 @@ func (s *Server) handleNotify(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, 65536)
+
 	var req notifyRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeAPIError(w, http.StatusBadRequest, err.Error())
@@ -208,9 +210,21 @@ func (s *Server) handleNotify(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusBadRequest, "tags must contain 16 items or fewer")
 		return
 	}
+	for _, tag := range req.Tags {
+		if utf8.RuneCountInString(tag) > 256 {
+			writeAPIError(w, http.StatusBadRequest, "each tag must be 256 characters or fewer")
+			return
+		}
+	}
 	if len(req.Speakers) > 16 {
 		writeAPIError(w, http.StatusBadRequest, "speakers must contain 16 items or fewer")
 		return
+	}
+	for _, speaker := range req.Speakers {
+		if utf8.RuneCountInString(speaker) > 256 {
+			writeAPIError(w, http.StatusBadRequest, "each speaker must be 256 characters or fewer")
+			return
+		}
 	}
 	if req.Priority != 0 && (req.Priority < 1 || req.Priority > 5) {
 		writeAPIError(w, http.StatusBadRequest, "priority must be between 1 and 5")
@@ -247,7 +261,6 @@ func (s *Server) handleNotify(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(notifyResponse{Dispatched: true, SuppressedAsleep: suppressedAsleep}); err != nil {
 		s.logger.Error("Failed to encode notify response", zap.Error(err))
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
