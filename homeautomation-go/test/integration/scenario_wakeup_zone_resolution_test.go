@@ -138,6 +138,13 @@ func TestScenario_WakeUp_DebouncesRapidTriggers(t *testing.T) {
 		return len(env.music.GetActiveZones()) > 0
 	}, "initial zone resolution should complete")
 
+	// Wait for ALL async zone orchestration goroutines to complete before taking the snapshot.
+	// Without this, the sleep zone's orchestrateZonePlayback goroutine (launched during initial
+	// setup) can still be running when the snapshot is taken, causing its bedroom join calls to
+	// leak into the measurement window under CI load (goroutines delayed and executing after
+	// snapshot is taken).
+	waitForServiceCallsToStabilizeSince(t, env.server, 0, 200*time.Millisecond)
+
 	// Take snapshot before the action phase
 	snapshot := env.server.ServiceCallCount()
 
