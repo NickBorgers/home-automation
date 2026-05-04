@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"homeautomation/internal/alert"
 	"homeautomation/internal/ha"
 	"homeautomation/internal/logbuffer"
 	"homeautomation/internal/shadowstate"
@@ -18,17 +19,18 @@ import (
 // Security Test Suite for HTTP Interface
 //
 // This file contains security-focused tests that verify the HTTP interface
-// is truly read-only and cannot be used to modify system state.
+// keeps read endpoints read-only and constrains write endpoints to their
+// intended method.
 //
 // Security Properties Verified:
-// 1. All endpoints reject non-GET HTTP methods (POST, PUT, DELETE, PATCH)
-// 2. No endpoint reads or processes request bodies
-// 3. No endpoint modifies internal state
+// 1. Read endpoints reject non-GET HTTP methods (POST, PUT, DELETE, PATCH)
+// 2. Read endpoints do not read or process request bodies
+// 3. Read endpoints do not modify internal state
 // 4. Query parameters cannot trigger state changes
 //
 // Related Issue: #324 - Security review of HTTP interfaces
 
-// allEndpoints lists all HTTP endpoints exposed by the API server
+// allEndpoints lists all read-only HTTP endpoints exposed by the API server.
 var allEndpoints = []string{
 	"/",
 	"/api/state",
@@ -49,7 +51,11 @@ var allEndpoints = []string{
 	"/api/timeline/events",
 }
 
-// nonGetMethods lists HTTP methods that should be rejected by all endpoints
+var writeEndpoints = []string{
+	"/api/notify",
+}
+
+// nonGetMethods lists HTTP methods that should be rejected by all read endpoints.
 var nonGetMethods = []string{
 	http.MethodPost,
 	http.MethodPut,
@@ -80,19 +86,49 @@ func createTestServer(t *testing.T) *Server {
 	shadowTracker.RegisterPlugin("tv", shadowstate.NewTVShadowState())
 
 	buffer := logbuffer.NewBuffer(100)
-	return NewServer(mockClient, stateManager, shadowTracker, buffer, logger, 8080, time.UTC)
+	return NewServer(mockClient, stateManager, shadowTracker, buffer, logger, 8080, time.UTC, &alert.MockAlerter{})
 }
 
-// TestAllEndpointsRejectNonGetMethods verifies that every endpoint rejects
+// TestAllReadEndpointsRejectNonGetMethods verifies that every read endpoint rejects
 // all non-GET HTTP methods with 405 Method Not Allowed.
-//
-// This is the primary security control ensuring the API is read-only.
 func TestAllEndpointsRejectNonGetMethods(t *testing.T) {
 	t.Parallel()
 	server := createTestServer(t)
 
 	for _, endpoint := range allEndpoints {
 		for _, method := range nonGetMethods {
+			endpoint := endpoint // capture for parallel
+			method := method     // capture for parallel
+
+			t.Run(method+" "+endpoint, func(t *testing.T) {
+				t.Parallel()
+				req := httptest.NewRequest(method, endpoint, nil)
+				w := httptest.NewRecorder()
+				server.server.Handler.ServeHTTP(w, req)
+
+				if w.Code != http.StatusMethodNotAllowed {
+					t.Errorf("%s %s: expected status 405, got %d", method, endpoint, w.Code)
+				}
+			})
+		}
+	}
+}
+
+func TestWriteEndpointsRejectNonPostMethods(t *testing.T) {
+	t.Parallel()
+	server := createTestServer(t)
+
+	nonPostMethods := []string{
+		http.MethodGet,
+		http.MethodPut,
+		http.MethodDelete,
+		http.MethodPatch,
+		http.MethodConnect,
+		http.MethodTrace,
+	}
+
+	for _, endpoint := range writeEndpoints {
+		for _, method := range nonPostMethods {
 			endpoint := endpoint // capture for parallel
 			method := method     // capture for parallel
 
@@ -180,7 +216,7 @@ func TestQueryParametersCannotModifyState(t *testing.T) {
 	stateManager := state.NewManager(mockClient, logger, false)
 	shadowTracker := shadowstate.NewTracker()
 	buffer := logbuffer.NewBuffer(100)
-	server := NewServer(mockClient, stateManager, shadowTracker, buffer, logger, 8080, time.UTC)
+	server := NewServer(mockClient, stateManager, shadowTracker, buffer, logger, 8080, time.UTC, &alert.MockAlerter{})
 
 	// Set initial state values
 	stateManager.SetBool("isNickHome", true)
