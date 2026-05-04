@@ -513,7 +513,7 @@ classDiagram
 
 ## API Server Endpoints
 
-The HTTP API server provides observability into the system state.
+The HTTP API server provides observability into system state and a write endpoint for dispatching alerts.
 
 ```mermaid
 graph LR
@@ -533,6 +533,7 @@ graph LR
         ShadowDayPhase["GET /api/shadow/dayphase"]
         ShadowTV["GET /api/shadow/tv"]
         ShadowSexMode["GET /api/shadow/sexmode"]
+        Notify["POST /api/notify"]
     end
 
     subgraph "Response Types"
@@ -542,6 +543,7 @@ graph LR
         ByPlugin[Variables<br/>by Plugin]
         AllShadow[All Plugin<br/>Shadow States]
         PluginShadow[Single Plugin<br/>Shadow State]
+        NotifyResp[Alert dispatched]
     end
 
     Root --> Sitemap
@@ -559,6 +561,7 @@ graph LR
     ShadowDayPhase --> PluginShadow
     ShadowTV --> PluginShadow
     ShadowSexMode --> PluginShadow
+    Notify --> NotifyResp
 
     style Root fill:#e1f5ff
     style Health fill:#e8f5e9

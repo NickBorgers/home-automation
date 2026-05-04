@@ -138,7 +138,7 @@ type writeRateLimiter struct {
 	mu      sync.Mutex
 	limit   int
 	window  time.Duration
-	windows map[string]rateLimitWindow
+	windows map[string]rateLimitWindow // TODO: evict expired entries if callers ever become untrusted/varied
 }
 
 func newWriteRateLimiter(limit int, window time.Duration) *writeRateLimiter {
@@ -281,10 +281,7 @@ func (s *Server) handleGetState(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleNotify(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
+	r.Body = http.MaxBytesReader(w, r.Body, 4096)
 
 	var req notifyRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {

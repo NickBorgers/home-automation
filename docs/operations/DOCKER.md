@@ -140,6 +140,7 @@ The container requires these environment variables (via `.env` file or `-e` flag
 | `HA_URL` | Yes | Home Assistant WebSocket URL | `wss://homeassistant.local/api/websocket` |
 | `HA_TOKEN` | Yes | Long-lived access token | `eyJ0eXAiOiJKV1QiLCJhbGc...` |
 | `READ_ONLY` | No | Run in read-only mode | `true` or `false` (default: `false`) |
+| `HA_API_TOKEN` | No | Token for write API endpoints (e.g. `POST /api/notify`). Pass as `Authorization: Bearer <token>` or `X-HA-API-Token` header. | `long random secret` |
 
 ### Example .env File
 
@@ -147,6 +148,7 @@ The container requires these environment variables (via `.env` file or `-e` flag
 HA_URL=wss://homeassistant.local/api/websocket
 HA_TOKEN=your_long_lived_access_token_here
 READ_ONLY=true
+HA_API_TOKEN=replace_with_a_long_random_secret
 ```
 
 ## Running in Production
