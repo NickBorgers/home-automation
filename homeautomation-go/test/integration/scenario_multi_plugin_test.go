@@ -4,8 +4,10 @@ import (
 	"context"
 	"os"
 	"testing"
+	"time"
 
 	"homeautomation/internal/alert"
+	"homeautomation/internal/clock"
 	"homeautomation/internal/ha"
 	"homeautomation/internal/plugins/energy"
 	"homeautomation/internal/plugins/lighting"
@@ -30,6 +32,7 @@ type pluginTestEnv struct {
 	client        *ha.Client
 	manager       *state.Manager
 	logger        *zap.Logger
+	clock         *clock.MockClock
 	stateTracking *statetracking.Manager
 	lighting      *lighting.Manager
 	tv            *tv.Manager
@@ -42,6 +45,7 @@ func setupMultiPluginTest(t *testing.T) (*pluginTestEnv, func()) {
 	server, client, manager, baseCleanup := setupTest(t)
 
 	logger := testlogger.New()
+	mockClock := clock.NewMockClock(time.Date(2026, 4, 15, 4, 10, 3, 0, time.UTC))
 
 	// Load test configs
 	lightingConfig := loadTestLightingConfig(t)
@@ -53,11 +57,13 @@ func setupMultiPluginTest(t *testing.T) (*pluginTestEnv, func()) {
 		client:        client,
 		manager:       manager,
 		logger:        logger,
+		clock:         mockClock,
 		stateTracking: statetracking.NewManager(context.Background(), client, manager, logger, false, nil, "", &alert.MockAlerter{}),
 		lighting:      lighting.NewManager(context.Background(), client, manager, lightingConfig, logger, false, nil),
 		tv:            tv.NewManager(context.Background(), client, manager, logger, false, nil),
 		energy:        energy.NewManager(context.Background(), client, manager, energyConfig, logger, false, nil, nil),
 	}
+	env.stateTracking.SetClock(mockClock)
 
 	// Start all plugins (state tracking MUST start first as other plugins depend on derived states)
 	require.NoError(t, env.stateTracking.Start(), "Failed to start state tracking plugin")
@@ -242,7 +248,7 @@ func TestScenario_EveryoneLeaves_CoordinatedResponse(t *testing.T) {
 	env, cleanup := setupMultiPluginTest(t)
 	defer cleanup()
 
-	t.Log("========== TEST: Presence + Multiple Plugins Integration ==========")
+	t.Log("========== TEST: Departure debounce protects presence-dependent plugins ==========")
 
 	// ========== GIVEN ==========
 	t.Log("GIVEN: Nick and Caroline are both home, house is active")
@@ -267,11 +273,11 @@ func TestScenario_EveryoneLeaves_CoordinatedResponse(t *testing.T) {
 	env.server.SetState("input_boolean.caroline_home", "off", map[string]interface{}{})
 
 	// ========== THEN ==========
-	t.Log("THEN: Verify all presence-dependent plugins respond appropriately")
+	t.Log("THEN: isAnyoneHome stays true during the debounce window")
 
 	// ASSERTION 1: Presence states updated correctly
 	waitForBoolState(t, env.manager, "isCarolineHome", false, "isCarolineHome should become false")
-	waitForBoolState(t, env.manager, "isAnyoneHome", false, "isAnyoneHome should become false when everyone leaves")
+	waitForProcessing(t, env.manager)
 	isNickHome, err := env.manager.GetBool("isNickHome")
 	assert.NoError(t, err)
 	assert.False(t, isNickHome)
@@ -282,21 +288,20 @@ func TestScenario_EveryoneLeaves_CoordinatedResponse(t *testing.T) {
 
 	isAnyoneHome, err := env.manager.GetBool("isAnyoneHome")
 	assert.NoError(t, err)
-	assert.False(t, isAnyoneHome, "isAnyoneHome should be false when everyone leaves")
+	assert.True(t, isAnyoneHome, "isAnyoneHome should remain true until the departure debounce expires")
 
-	// ASSERTION 2: Lighting plugin should respond to absence
 	calls := env.server.GetServiceCallsSince(snapshot)
-	t.Logf("Total service calls after everyone left: %d", len(calls))
-
-	// The lighting plugin should reactivate scenes based on the new presence state
 	sceneActivations := filterServiceCalls(calls, "scene", "turn_on")
-	t.Logf("Scene activations in response to absence: %d", len(sceneActivations))
+	assert.Empty(t, sceneActivations,
+		"Presence-dependent plugins should not react to absence before the departure debounce expires")
 
-	// We expect lighting to respond when presence changes
-	assert.GreaterOrEqual(t, len(sceneActivations), 0,
-		"Lighting should respond to presence changes (may turn off or activate away scenes)")
+	t.Log("THEN: after the full debounce delay, isAnyoneHome emits false")
+	env.clock.AdvanceAndProcess(state.AnyoneHomeDepartureDebounceDelay)
+	waitForProcessing(t, env.manager)
 
-	t.Log("✓ Presence + Multiple Plugins integration test passed")
+	waitForBoolState(t, env.manager, "isAnyoneHome", false, "isAnyoneHome should become false after debounce")
+
+	t.Log("✓ Departure debounce integration test passed")
 }
 
 // ============================================================================

@@ -6,8 +6,14 @@ import (
 	"sync"
 	"time"
 
+	"homeautomation/internal/clock"
+
 	"go.uber.org/zap"
 )
+
+// AnyoneHomeDepartureDebounceDelay is how long isAnyoneHome must remain false
+// before the computed output emits the departure.
+const AnyoneHomeDepartureDebounceDelay = 5 * time.Minute
 
 // UpdateMode defines how a computed state is updated
 type UpdateMode int
@@ -78,6 +84,10 @@ type ComputedStateRegistry struct {
 	providers map[string]*providerState
 	mu        sync.RWMutex
 	started   bool
+
+	clock                    clock.Clock
+	anyoneHomeDepartureMu    sync.Mutex
+	anyoneHomeDepartureTimer clock.Timer
 }
 
 // NewComputedStateRegistry creates a new computed state registry
@@ -86,6 +96,7 @@ func NewComputedStateRegistry(manager *Manager, logger *zap.Logger) *ComputedSta
 		manager:   manager,
 		logger:    logger.Named("computed-registry"),
 		providers: make(map[string]*providerState),
+		clock:     clock.NewRealClock(),
 	}
 }
 
@@ -261,6 +272,9 @@ func (r *ComputedStateRegistry) computeAndSet(provider *ComputedStateProvider) e
 		if !ok {
 			return fmt.Errorf("expected bool for %s, got %T", provider.Name, newValue)
 		}
+		if provider.Name == "isAnyoneHome" {
+			return r.setAnyoneHomeWithDepartureDebounce(provider, boolVal)
+		}
 		if err := r.manager.SetBool(provider.Name, boolVal); err != nil {
 			return fmt.Errorf("failed to set bool: %w", err)
 		}
@@ -292,6 +306,97 @@ func (r *ComputedStateRegistry) computeAndSet(provider *ComputedStateProvider) e
 	return nil
 }
 
+func (r *ComputedStateRegistry) setAnyoneHomeWithDepartureDebounce(
+	provider *ComputedStateProvider,
+	newValue bool,
+) error {
+	if newValue {
+		r.cancelAnyoneHomeDepartureDebounce()
+		if err := r.manager.SetBool(provider.Name, true); err != nil {
+			return fmt.Errorf("failed to set bool: %w", err)
+		}
+		if provider.OnComputed != nil {
+			provider.OnComputed(true)
+		}
+		return nil
+	}
+
+	currentValue, err := r.manager.GetBool(provider.Name)
+	if err != nil {
+		return fmt.Errorf("failed to get current bool: %w", err)
+	}
+	if !currentValue {
+		if err := r.manager.SetBool(provider.Name, false); err != nil {
+			return fmt.Errorf("failed to set bool: %w", err)
+		}
+		if provider.OnComputed != nil {
+			provider.OnComputed(false)
+		}
+		return nil
+	}
+
+	r.anyoneHomeDepartureMu.Lock()
+	if r.anyoneHomeDepartureTimer != nil {
+		r.anyoneHomeDepartureMu.Unlock()
+		return nil
+	}
+	r.anyoneHomeDepartureTimer = r.clock.AfterFunc(AnyoneHomeDepartureDebounceDelay, func() {
+		r.finishAnyoneHomeDepartureDebounce(provider)
+	})
+	r.anyoneHomeDepartureMu.Unlock()
+
+	r.logger.Info("Started isAnyoneHome departure debounce",
+		zap.Duration("delay", AnyoneHomeDepartureDebounceDelay))
+	return nil
+}
+
+func (r *ComputedStateRegistry) cancelAnyoneHomeDepartureDebounce() {
+	r.anyoneHomeDepartureMu.Lock()
+	defer r.anyoneHomeDepartureMu.Unlock()
+
+	if r.anyoneHomeDepartureTimer == nil {
+		return
+	}
+	r.anyoneHomeDepartureTimer.Stop()
+	r.anyoneHomeDepartureTimer = nil
+	r.logger.Info("Canceled isAnyoneHome departure debounce")
+}
+
+func (r *ComputedStateRegistry) finishAnyoneHomeDepartureDebounce(provider *ComputedStateProvider) {
+	r.anyoneHomeDepartureMu.Lock()
+	r.anyoneHomeDepartureTimer = nil
+	r.anyoneHomeDepartureMu.Unlock()
+
+	ctx := &ComputeContext{
+		manager: r.manager,
+		logger:  r.logger.Named(provider.Name),
+	}
+
+	value, err := provider.ComputeFunc(ctx)
+	if err != nil {
+		r.logger.Error("Failed to recompute after isAnyoneHome departure debounce",
+			zap.Error(err))
+		return
+	}
+	boolVal, ok := value.(bool)
+	if !ok {
+		r.logger.Error("Unexpected isAnyoneHome computed type",
+			zap.String("type", fmt.Sprintf("%T", value)))
+		return
+	}
+	if boolVal {
+		return
+	}
+	if err := r.manager.SetBool(provider.Name, false); err != nil {
+		r.logger.Error("Failed to emit debounced isAnyoneHome departure",
+			zap.Error(err))
+		return
+	}
+	if provider.OnComputed != nil {
+		provider.OnComputed(false)
+	}
+}
+
 // Stop stops all providers and cleans up subscriptions
 func (r *ComputedStateRegistry) Stop() {
 	r.mu.Lock()
@@ -309,6 +414,8 @@ func (r *ComputedStateRegistry) Stop() {
 
 // stopAllProviders stops all providers without locking
 func (r *ComputedStateRegistry) stopAllProviders() {
+	r.cancelAnyoneHomeDepartureDebounce()
+
 	// First, signal all periodic goroutines to stop
 	for _, ps := range r.providers {
 		if ps.stopChan != nil {
