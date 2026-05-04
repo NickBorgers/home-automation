@@ -5,35 +5,35 @@ import (
 	"testing"
 	"time"
 
+	"homeautomation/internal/alert"
 	"homeautomation/internal/clock"
 	"homeautomation/internal/ha"
-	"homeautomation/internal/notify"
 	"homeautomation/internal/ntfy"
 	"homeautomation/internal/state"
 
 	"go.uber.org/zap"
 )
 
-// Helper to count ntfy notifications
-func countNtfyNotifications(mockNtfy *ntfy.MockClient) int {
-	return len(mockNtfy.GetCalls())
+// Helper to count alert notifications
+func countAlerts(mockAlerter *alert.MockAlerter) int {
+	return len(mockAlerter.Calls())
 }
 
-// Helper to get the last ntfy notification
-func getLastNtfyNotification(mockNtfy *ntfy.MockClient) *ntfy.Message {
-	calls := mockNtfy.GetCalls()
+// Helper to get the last alert notification
+func getLastAlert(mockAlerter *alert.MockAlerter) *alert.Alert {
+	calls := mockAlerter.Calls()
 	if len(calls) == 0 {
 		return nil
 	}
-	msg := calls[len(calls)-1]
-	return &msg
+	a := calls[len(calls)-1]
+	return &a
 }
 
 // Helper to create a test manager
-func createTestManager(mockHA *ha.MockClient, mockNtfy *ntfy.MockClient, mockClock *clock.MockClock) *Manager {
+func createTestManager(mockHA *ha.MockClient, mockAlerter *alert.MockAlerter, mockClock *clock.MockClock) *Manager {
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
-	return NewManagerWithClock(context.Background(), mockHA, stateMgr, logger, false, nil, mockNtfy, &notify.MockNotifier{}, mockClock)
+	return NewManagerWithClock(context.Background(), mockHA, stateMgr, logger, false, nil, mockAlerter, mockClock)
 }
 
 // simulateSteadyFlow sends flow readings at the given interval for the given duration,
@@ -50,10 +50,10 @@ func TestWaterFlowManager_NormalFlow(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
-	mockNtfy := ntfy.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
 	mockClock := clock.NewMockClock(time.Now())
 
-	manager := createTestManager(mockHA, mockNtfy, mockClock)
+	manager := createTestManager(mockHA, mockAlerter, mockClock)
 
 	// Simulate normal low flow (~0.1 GPM)
 	manager.SimulateFlowReading(0.1)
@@ -72,7 +72,7 @@ func TestWaterFlowManager_NormalFlow(t *testing.T) {
 	}
 
 	// No notifications should be sent for normal operation
-	if count := countNtfyNotifications(mockNtfy); count != 0 {
+	if count := countAlerts(mockAlerter); count != 0 {
 		t.Errorf("Expected 0 notifications for normal operation, got %d", count)
 	}
 
@@ -87,11 +87,11 @@ func TestWaterFlowManager_ShortHighFlowNoAlert(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
-	mockNtfy := ntfy.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
 	startTime := time.Now()
 	mockClock := clock.NewMockClock(startTime)
 
-	manager := createTestManager(mockHA, mockNtfy, mockClock)
+	manager := createTestManager(mockHA, mockAlerter, mockClock)
 
 	// Simulate high flow (0.5 GPM) for 20 minutes — less than the 30 min urgent window
 	simulateSteadyFlow(manager, mockClock, 0.5, 20*time.Minute, time.Minute)
@@ -103,7 +103,7 @@ func TestWaterFlowManager_ShortHighFlowNoAlert(t *testing.T) {
 	}
 
 	// No alerts should be sent
-	if count := countNtfyNotifications(mockNtfy); count != 0 {
+	if count := countAlerts(mockAlerter); count != 0 {
 		t.Errorf("Expected 0 notifications for short high flow, got %d", count)
 	}
 
@@ -121,11 +121,11 @@ func TestWaterFlowManager_WarningAlert(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
-	mockNtfy := ntfy.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
 	startTime := time.Now()
 	mockClock := clock.NewMockClock(startTime)
 
-	manager := createTestManager(mockHA, mockNtfy, mockClock)
+	manager := createTestManager(mockHA, mockAlerter, mockClock)
 
 	// Simulate moderate flow (0.35 GPM) for 59 minutes — just under the 60-minute warning window
 	simulateSteadyFlow(manager, mockClock, 0.35, 59*time.Minute, time.Minute)
@@ -135,7 +135,7 @@ func TestWaterFlowManager_WarningAlert(t *testing.T) {
 		t.Error("Should not trigger warning before 60 minutes")
 	}
 
-	if count := countNtfyNotifications(mockNtfy); count != 0 {
+	if count := countAlerts(mockAlerter); count != 0 {
 		t.Errorf("Expected 0 notifications during debounce period, got %d", count)
 	}
 
@@ -150,12 +150,12 @@ func TestWaterFlowManager_WarningAlert(t *testing.T) {
 	}
 
 	// Should have sent notification
-	if count := countNtfyNotifications(mockNtfy); count != 1 {
+	if count := countAlerts(mockAlerter); count != 1 {
 		t.Errorf("Expected 1 notification for warning, got %d", count)
 	}
 
 	// Verify notification content
-	msg := getLastNtfyNotification(mockNtfy)
+	msg := getLastAlert(mockAlerter)
 	if msg == nil {
 		t.Fatal("Expected notification message")
 	}
@@ -183,11 +183,11 @@ func TestWaterFlowManager_UrgentAlert(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
-	mockNtfy := ntfy.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
 	startTime := time.Now()
 	mockClock := clock.NewMockClock(startTime)
 
-	manager := createTestManager(mockHA, mockNtfy, mockClock)
+	manager := createTestManager(mockHA, mockAlerter, mockClock)
 
 	// Simulate high flow (0.5 GPM) for 29 minutes — just under the 30 min urgent window
 	simulateSteadyFlow(manager, mockClock, 0.5, 29*time.Minute, time.Minute)
@@ -208,12 +208,12 @@ func TestWaterFlowManager_UrgentAlert(t *testing.T) {
 	}
 
 	// Should have sent notification
-	if count := countNtfyNotifications(mockNtfy); count != 1 {
+	if count := countAlerts(mockAlerter); count != 1 {
 		t.Errorf("Expected 1 notification for urgent, got %d", count)
 	}
 
 	// Verify notification content
-	msg := getLastNtfyNotification(mockNtfy)
+	msg := getLastAlert(mockAlerter)
 	if msg == nil {
 		t.Fatal("Expected notification message")
 	}
@@ -238,18 +238,18 @@ func TestWaterFlowManager_RecoveryNotification(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
-	mockNtfy := ntfy.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
 	startTime := time.Now()
 	mockClock := clock.NewMockClock(startTime)
 
-	manager := createTestManager(mockHA, mockNtfy, mockClock)
+	manager := createTestManager(mockHA, mockAlerter, mockClock)
 
 	// Simulate urgent alert
 	simulateSteadyFlow(manager, mockClock, 0.5, 31*time.Minute, time.Minute)
 	manager.TriggerEvaluation()
 
 	// Verify urgent alert was sent
-	if count := countNtfyNotifications(mockNtfy); count != 1 {
+	if count := countAlerts(mockAlerter); count != 1 {
 		t.Fatalf("Expected 1 notification for urgent, got %d", count)
 	}
 
@@ -257,7 +257,7 @@ func TestWaterFlowManager_RecoveryNotification(t *testing.T) {
 	manager.SimulateFlowReading(0.1)
 
 	// Should NOT have sent recovery notification yet (debounce in progress)
-	if count := countNtfyNotifications(mockNtfy); count != 1 {
+	if count := countAlerts(mockAlerter); count != 1 {
 		t.Errorf("Expected 1 notification (recovery debounce not complete), got %d", count)
 	}
 
@@ -278,12 +278,12 @@ func TestWaterFlowManager_RecoveryNotification(t *testing.T) {
 	manager.SimulateFlowReading(0.1)
 
 	// Should have sent recovery notification now
-	if count := countNtfyNotifications(mockNtfy); count != 2 {
+	if count := countAlerts(mockAlerter); count != 2 {
 		t.Errorf("Expected 2 notifications (urgent + recovery), got %d", count)
 	}
 
 	// Verify recovery notification
-	msg := getLastNtfyNotification(mockNtfy)
+	msg := getLastAlert(mockAlerter)
 	if msg == nil {
 		t.Fatal("Expected recovery notification message")
 	}
@@ -309,30 +309,30 @@ func TestWaterFlowManager_RateLimiting(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
-	mockNtfy := ntfy.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
 	startTime := time.Now()
 	mockClock := clock.NewMockClock(startTime)
 
-	manager := createTestManager(mockHA, mockNtfy, mockClock)
+	manager := createTestManager(mockHA, mockAlerter, mockClock)
 
 	// Trigger first urgent alert
 	simulateSteadyFlow(manager, mockClock, 0.5, 31*time.Minute, time.Minute)
 	manager.TriggerEvaluation()
 
-	initialCount := countNtfyNotifications(mockNtfy)
+	initialCount := countAlerts(mockAlerter)
 
 	// Recover
 	manager.SimulateFlowReading(0.1)
 	mockClock.Advance(31 * time.Second)
 	manager.SimulateFlowReading(0.1)
-	recoveryCount := countNtfyNotifications(mockNtfy)
+	recoveryCount := countAlerts(mockAlerter)
 
 	// Immediately trigger another urgent condition with a fresh 31-minute window
 	simulateSteadyFlow(manager, mockClock, 0.5, 31*time.Minute, time.Minute)
 	manager.TriggerEvaluation()
 
 	// Should NOT send another alert due to rate limiting (4 hour cooldown)
-	if count := countNtfyNotifications(mockNtfy); count != recoveryCount {
+	if count := countAlerts(mockAlerter); count != recoveryCount {
 		t.Errorf("Expected %d notifications (rate limited), got %d", recoveryCount, count)
 	}
 
@@ -345,7 +345,7 @@ func TestWaterFlowManager_RateLimiting(t *testing.T) {
 	manager.TriggerEvaluation()
 
 	// Now should have sent another notification
-	if count := countNtfyNotifications(mockNtfy); count <= initialCount+1 {
+	if count := countAlerts(mockAlerter); count <= initialCount+1 {
 		t.Log("Rate limiting working correctly - alert sent after cooldown period")
 	}
 }
@@ -354,11 +354,11 @@ func TestWaterFlowManager_RecoveryRateLimiting(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
-	mockNtfy := ntfy.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
 	startTime := time.Now()
 	mockClock := clock.NewMockClock(startTime)
 
-	manager := createTestManager(mockHA, mockNtfy, mockClock)
+	manager := createTestManager(mockHA, mockAlerter, mockClock)
 
 	// Trigger urgent alert
 	simulateSteadyFlow(manager, mockClock, 0.5, 31*time.Minute, time.Minute)
@@ -368,7 +368,7 @@ func TestWaterFlowManager_RecoveryRateLimiting(t *testing.T) {
 	manager.SimulateFlowReading(0.1)
 	mockClock.Advance(31 * time.Second)
 	manager.SimulateFlowReading(0.1)
-	firstRecoveryCount := countNtfyNotifications(mockNtfy)
+	firstRecoveryCount := countAlerts(mockAlerter)
 
 	// Immediately fail and recover again
 	simulateSteadyFlow(manager, mockClock, 0.5, 31*time.Minute, time.Minute)
@@ -378,7 +378,7 @@ func TestWaterFlowManager_RecoveryRateLimiting(t *testing.T) {
 	manager.SimulateFlowReading(0.1)
 
 	// Second recovery should be rate limited (30 min cooldown)
-	if count := countNtfyNotifications(mockNtfy); count != firstRecoveryCount {
+	if count := countAlerts(mockAlerter); count != firstRecoveryCount {
 		t.Logf("Notification count after second recovery: %d (expected rate limiting)", count)
 	}
 }
@@ -387,7 +387,7 @@ func TestWaterFlowManager_ReadOnlyMode(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
-	mockNtfy := ntfy.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
 	startTime := time.Now()
 	mockClock := clock.NewMockClock(startTime)
 
@@ -395,23 +395,15 @@ func TestWaterFlowManager_ReadOnlyMode(t *testing.T) {
 	stateMgr := state.NewManager(mockHA, logger, false)
 
 	// Create manager in read-only mode
-	manager := NewManagerWithClock(context.Background(), mockHA, stateMgr, logger, true, nil, mockNtfy, &notify.MockNotifier{}, mockClock)
+	manager := NewManagerWithClock(context.Background(), mockHA, stateMgr, logger, true, nil, mockAlerter, mockClock)
 
 	// Trigger urgent alert
 	simulateSteadyFlow(manager, mockClock, 0.5, 31*time.Minute, time.Minute)
 	manager.TriggerEvaluation()
 
-	// ntfy notifications should still be sent (read-only only affects HA calls)
-	if count := countNtfyNotifications(mockNtfy); count != 1 {
+	// Alerts should still be dispatched (read-only behavior is internal to alert.Manager)
+	if count := countAlerts(mockAlerter); count != 1 {
 		t.Errorf("Expected 1 notification in read-only mode, got %d", count)
-	}
-
-	// Verify no TTS calls were made to HA (read-only)
-	serviceCalls := mockHA.GetServiceCalls()
-	for _, call := range serviceCalls {
-		if call.Domain == "tts" {
-			t.Error("TTS call should not be made in read-only mode")
-		}
 	}
 }
 
@@ -419,11 +411,11 @@ func TestWaterFlowManager_ShadowStateTracking(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
-	mockNtfy := ntfy.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
 	startTime := time.Now()
 	mockClock := clock.NewMockClock(startTime)
 
-	manager := createTestManager(mockHA, mockNtfy, mockClock)
+	manager := createTestManager(mockHA, mockAlerter, mockClock)
 
 	// Initial state
 	shadowState := manager.GetShadowState()
@@ -465,17 +457,17 @@ func TestWaterFlowManager_Reset(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
-	mockNtfy := ntfy.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
 	startTime := time.Now()
 	mockClock := clock.NewMockClock(startTime)
 
-	manager := createTestManager(mockHA, mockNtfy, mockClock)
+	manager := createTestManager(mockHA, mockAlerter, mockClock)
 
 	// Trigger urgent alert
 	simulateSteadyFlow(manager, mockClock, 0.5, 31*time.Minute, time.Minute)
 	manager.TriggerEvaluation()
 
-	initialCount := countNtfyNotifications(mockNtfy)
+	initialCount := countAlerts(mockAlerter)
 
 	// Reset the manager
 	err := manager.Reset()
@@ -488,12 +480,12 @@ func TestWaterFlowManager_Reset(t *testing.T) {
 	manager.TriggerEvaluation()
 
 	// Verify no extra notifications during reset itself
-	if count := countNtfyNotifications(mockNtfy); count < initialCount {
+	if count := countAlerts(mockAlerter); count < initialCount {
 		t.Errorf("Should have at least %d notifications, got %d", initialCount, count)
 	}
 }
 
-func TestWaterFlowManager_NtfyClientNil(t *testing.T) {
+func TestWaterFlowManager_AlerterNil(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
@@ -503,8 +495,8 @@ func TestWaterFlowManager_NtfyClientNil(t *testing.T) {
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 
-	// Create manager without ntfy client
-	manager := NewManagerWithClock(context.Background(), mockHA, stateMgr, logger, false, nil, nil, &notify.MockNotifier{}, mockClock)
+	// Create manager without an alerter — should not panic
+	manager := NewManagerWithClock(context.Background(), mockHA, stateMgr, logger, false, nil, nil, mockClock)
 
 	// Trigger urgent alert — should not panic
 	simulateSteadyFlow(manager, mockClock, 0.5, 31*time.Minute, time.Minute)
@@ -512,7 +504,7 @@ func TestWaterFlowManager_NtfyClientNil(t *testing.T) {
 
 	// Should still track state correctly
 	if !manager.IsUrgentActive() {
-		t.Error("Should still detect urgent condition without ntfy client")
+		t.Error("Should still detect urgent condition without alerter")
 	}
 
 	shadowState := manager.GetShadowState()
@@ -525,11 +517,11 @@ func TestWaterFlowManager_TransitionFromWarningToUrgent(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
-	mockNtfy := ntfy.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
 	startTime := time.Now()
 	mockClock := clock.NewMockClock(startTime)
 
-	manager := createTestManager(mockHA, mockNtfy, mockClock)
+	manager := createTestManager(mockHA, mockAlerter, mockClock)
 
 	// Simulate moderate flow (warning threshold) for 30 minutes, then increase to urgent
 	simulateSteadyFlow(manager, mockClock, 0.35, 30*time.Minute, time.Minute)
@@ -545,11 +537,11 @@ func TestWaterFlowManager_TransitionFromWarningToUrgent(t *testing.T) {
 	}
 
 	// Should have sent urgent notification only
-	if count := countNtfyNotifications(mockNtfy); count != 1 {
+	if count := countAlerts(mockAlerter); count != 1 {
 		t.Errorf("Expected 1 notification (urgent), got %d", count)
 	}
 
-	msg := getLastNtfyNotification(mockNtfy)
+	msg := getLastAlert(mockAlerter)
 	if msg.Title != "Possible Pipe Break" {
 		t.Errorf("Expected urgent notification, got title '%s'", msg.Title)
 	}
@@ -559,18 +551,18 @@ func TestWaterFlowManager_RecoveryDebounce(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
-	mockNtfy := ntfy.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
 	startTime := time.Now()
 	mockClock := clock.NewMockClock(startTime)
 
-	manager := createTestManager(mockHA, mockNtfy, mockClock)
+	manager := createTestManager(mockHA, mockAlerter, mockClock)
 
 	// Simulate urgent alert
 	simulateSteadyFlow(manager, mockClock, 0.5, 31*time.Minute, time.Minute)
 	manager.TriggerEvaluation()
 
 	// Verify urgent alert was sent
-	if count := countNtfyNotifications(mockNtfy); count != 1 {
+	if count := countAlerts(mockAlerter); count != 1 {
 		t.Fatalf("Expected 1 notification for urgent, got %d", count)
 	}
 
@@ -604,7 +596,7 @@ func TestWaterFlowManager_RecoveryDebounce(t *testing.T) {
 	}
 
 	// No recovery notification should have been sent
-	if count := countNtfyNotifications(mockNtfy); count != 1 {
+	if count := countAlerts(mockAlerter); count != 1 {
 		t.Errorf("Expected 1 notification (no recovery), got %d", count)
 	}
 }
@@ -613,18 +605,18 @@ func TestWaterFlowManager_RecoveryDebounceWithWarningThreshold(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
-	mockNtfy := ntfy.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
 	startTime := time.Now()
 	mockClock := clock.NewMockClock(startTime)
 
-	manager := createTestManager(mockHA, mockNtfy, mockClock)
+	manager := createTestManager(mockHA, mockAlerter, mockClock)
 
 	// Simulate warning alert (0.35 GPM for 61 minutes)
 	simulateSteadyFlow(manager, mockClock, 0.35, 61*time.Minute, time.Minute)
 	manager.TriggerEvaluation()
 
 	// Verify warning alert was sent
-	if count := countNtfyNotifications(mockNtfy); count != 1 {
+	if count := countAlerts(mockAlerter); count != 1 {
 		t.Fatalf("Expected 1 notification for warning, got %d", count)
 	}
 
@@ -656,11 +648,11 @@ func TestWaterFlowManager_SensorNoiseDoesNotPreventAlert(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
-	mockNtfy := ntfy.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
 	startTime := time.Now()
 	mockClock := clock.NewMockClock(startTime)
 
-	manager := createTestManager(mockHA, mockNtfy, mockClock)
+	manager := createTestManager(mockHA, mockAlerter, mockClock)
 
 	// Simulate the real-world pattern from issue #1055:
 	// pressure washer running at ~1.0 GPM with sensor noise every ~5th reading dropping to 0.
@@ -683,7 +675,7 @@ func TestWaterFlowManager_SensorNoiseDoesNotPreventAlert(t *testing.T) {
 		t.Error("Expected urgent alert to fire despite intermittent sensor noise — this is the regression from issue #1055")
 	}
 
-	if count := countNtfyNotifications(mockNtfy); count != 1 {
+	if count := countAlerts(mockAlerter); count != 1 {
 		t.Errorf("Expected 1 urgent notification, got %d", count)
 	}
 }
@@ -694,11 +686,11 @@ func TestWaterFlowManager_TooMuchNoiseSuppressesAlert(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
-	mockNtfy := ntfy.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
 	startTime := time.Now()
 	mockClock := clock.NewMockClock(startTime)
 
-	manager := createTestManager(mockHA, mockNtfy, mockClock)
+	manager := createTestManager(mockHA, mockAlerter, mockClock)
 
 	// Simulate 50% high / 50% low readings over 35 minutes — below the 67% urgent threshold
 	interval := 4 * time.Second
@@ -720,7 +712,7 @@ func TestWaterFlowManager_TooMuchNoiseSuppressesAlert(t *testing.T) {
 		t.Error("Should NOT fire warning alert when only 50% of readings exceed threshold (below 75%)")
 	}
 
-	if count := countNtfyNotifications(mockNtfy); count != 0 {
+	if count := countAlerts(mockAlerter); count != 0 {
 		t.Errorf("Expected 0 notifications for noisy low flow, got %d", count)
 	}
 }

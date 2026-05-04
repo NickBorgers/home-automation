@@ -3,7 +3,6 @@ package security
 import (
 	"fmt"
 
-	"homeautomation/internal/notify"
 	pkgha "homeautomation/pkg/ha"
 	"homeautomation/pkg/plugin"
 	"homeautomation/pkg/shadowstate"
@@ -33,12 +32,7 @@ func createPlugin(ctx *plugin.Context) (plugin.Plugin, error) {
 		return nil, fmt.Errorf("security plugin requires internal state.Manager")
 	}
 
-	notifier := ctx.Notifier
-	if notifier == nil {
-		notifier = &notify.MockNotifier{}
-	}
-
-	manager := NewManager(ctx.ShutdownCtx, haClient, stateManager, notifier, ctx.Logger, ctx.ReadOnly, ctx.Registry)
+	manager := NewManager(ctx.ShutdownCtx, haClient, stateManager, ctx.AlertNotifier, ctx.Logger, ctx.ReadOnly, ctx.Registry)
 	return &pluginAdapter{manager: manager}, nil
 }
 

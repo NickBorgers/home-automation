@@ -12,9 +12,11 @@ import (
 	"time"
 	"unicode"
 
+	"homeautomation/internal/alert"
 	"homeautomation/internal/clock"
 	"homeautomation/internal/ha"
 	"homeautomation/internal/notify"
+	"homeautomation/internal/ntfy"
 	"homeautomation/internal/shadowstate"
 	"homeautomation/internal/state"
 
@@ -65,7 +67,7 @@ type Manager struct {
 	logger       *zap.Logger
 	readOnly     bool
 	helper       *state.DerivedStateHelper
-	notifier     notify.Notifier
+	alerter      alert.Alerter
 	clock        clock.Clock
 
 	// Timers for sleep/wake detection
@@ -94,7 +96,7 @@ type Manager struct {
 }
 
 // NewManager creates a new State Tracking manager
-func NewManager(ctx context.Context, haClient ha.HAClient, stateManager *state.Manager, logger *zap.Logger, readOnly bool, registry *shadowstate.SubscriptionRegistry, socoCliURL string, notifier notify.Notifier) *Manager {
+func NewManager(ctx context.Context, haClient ha.HAClient, stateManager *state.Manager, logger *zap.Logger, readOnly bool, registry *shadowstate.SubscriptionRegistry, socoCliURL string, alerter alert.Alerter) *Manager {
 	shadowTracker := shadowstate.NewStateTrackingTracker()
 
 	return &Manager{
@@ -105,7 +107,7 @@ func NewManager(ctx context.Context, haClient ha.HAClient, stateManager *state.M
 		readOnly:      readOnly,
 		clock:         clock.NewRealClock(),
 		socoCliURL:    socoCliURL,
-		notifier:      notifier,
+		alerter:       alerter,
 		shadowTracker: shadowTracker,
 		subHelper:     shadowstate.NewSubscriptionHelper(haClient, stateManager, registry, shadowTracker, "statetracking", logger.Named("statetracking")),
 	}
@@ -781,7 +783,7 @@ func (m *Manager) getGroupCoordinator(speakerEntityID string) string {
 	return ""
 }
 
-// announceArrivalDirect makes an arrival announcement via the shared notifier
+// announceArrivalDirect makes an arrival announcement via the shared alerter
 // (caller has already checked if someone is home).
 func (m *Manager) announceArrivalDirect(person, message string, mediaPlayers []string) {
 	// Check if any target speaker is in a Sonos group; if so, send TTS to the
@@ -793,21 +795,31 @@ func (m *Manager) announceArrivalDirect(person, message string, mediaPlayers []s
 		mediaPlayers = []string{coordinator}
 	}
 
-	m.logger.Info("Announcing arrival via notifier",
+	m.logger.Info("Announcing arrival",
 		zap.String("person", person),
 		zap.String("message", message),
 		zap.Strings("media_players", mediaPlayers))
 
-	if err := m.notifier.Announce(m.ctx, message,
-		notify.WithSpeakers(mediaPlayers),
-		notify.WithUrgency(notify.UrgencyDeferable),
-	); err != nil && !errors.Is(err, notify.ErrSuppressedAsleep) {
+	if m.alerter == nil {
+		m.logger.Warn("alerter not configured, skipping arrival announcement")
+		m.shadowTracker.RecordArrivalAnnouncement(person, message)
+		return
+	}
+
+	if err := m.alerter.Send(m.ctx, alert.Alert{
+		Title:    "Someone arrived home",
+		Body:     message,
+		Urgency:  notify.UrgencyDeferable,
+		Tags:     []string{"house"},
+		Priority: ntfy.PriorityDefault,
+		Speakers: mediaPlayers,
+	}); err != nil && !errors.Is(err, notify.ErrSuppressedAsleep) {
 		m.logger.Error("Failed to announce arrival",
 			zap.String("person", person),
 			zap.Error(err))
 	}
 
-	// Record in shadow state regardless (the notifier itself records read-only intent).
+	// Record in shadow state regardless.
 	m.shadowTracker.RecordArrivalAnnouncement(person, message)
 }
 

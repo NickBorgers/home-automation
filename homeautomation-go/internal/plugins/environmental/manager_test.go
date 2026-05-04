@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"homeautomation/internal/alert"
 	"homeautomation/internal/clock"
 	"homeautomation/internal/ha"
 	"homeautomation/internal/ntfy"
@@ -71,17 +72,18 @@ func setupMockEnvironment(mockHA *ha.MockClient) {
 }
 
 // Helper to count notifications sent via ntfy mock
-func countNtfyNotifications(mockNtfy *ntfy.MockClient) int {
-	return len(mockNtfy.GetCalls())
+func countAlerts(mockAlerter *alert.MockAlerter) int {
+	return len(mockAlerter.Calls())
 }
 
-// Helper to get the last notification sent via ntfy mock
-func getLastNtfyNotification(mockNtfy *ntfy.MockClient) *ntfy.Message {
-	calls := mockNtfy.GetCalls()
+// Helper to get the last alert sent
+func getLastAlert(mockAlerter *alert.MockAlerter) *alert.Alert {
+	calls := mockAlerter.Calls()
 	if len(calls) == 0 {
 		return nil
 	}
-	return &calls[len(calls)-1]
+	last := calls[len(calls)-1]
+	return &last
 }
 
 func TestEnvironmentalManager_DynamicDiscovery(t *testing.T) {
@@ -89,12 +91,12 @@ func TestEnvironmentalManager_DynamicDiscovery(t *testing.T) {
 
 	mockHA := ha.NewMockClient()
 	setupMockEnvironment(mockHA)
-	mockNtfy := ntfy.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
 
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 
-	manager := NewManager(mockHA, stateMgr, logger, false, nil, mockNtfy)
+	manager := NewManager(mockHA, stateMgr, logger, false, nil, mockAlerter)
 
 	// Start discovery
 	err := manager.Start()
@@ -136,12 +138,12 @@ func TestEnvironmentalManager_NormalHumidity(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
-	mockNtfy := ntfy.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 	mockClock := clock.NewMockClock(time.Now())
 
-	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockAlerter, mockClock)
 
 	// Add test sensors directly (skip discovery)
 	manager.AddSensor(&HumiditySensor{
@@ -161,7 +163,7 @@ func TestEnvironmentalManager_NormalHumidity(t *testing.T) {
 	}
 
 	// Verify no notifications were sent
-	notificationCount := countNtfyNotifications(mockNtfy)
+	notificationCount := countAlerts(mockAlerter)
 	if notificationCount > 0 {
 		t.Errorf("Expected no notifications for normal humidity, got %d", notificationCount)
 	}
@@ -171,12 +173,12 @@ func TestEnvironmentalManager_WarningThreshold_NotSustained(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
-	mockNtfy := ntfy.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 	mockClock := clock.NewMockClock(time.Now())
 
-	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockAlerter, mockClock)
 
 	// Add test sensor
 	manager.AddSensor(&HumiditySensor{
@@ -200,7 +202,7 @@ func TestEnvironmentalManager_WarningThreshold_NotSustained(t *testing.T) {
 	}
 
 	// Verify no notifications were sent
-	notificationCount := countNtfyNotifications(mockNtfy)
+	notificationCount := countAlerts(mockAlerter)
 	if notificationCount > 0 {
 		t.Errorf("Expected no notifications for non-sustained warning, got %d", notificationCount)
 	}
@@ -210,12 +212,12 @@ func TestEnvironmentalManager_WarningThreshold_Sustained(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
-	mockNtfy := ntfy.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 	mockClock := clock.NewMockClock(time.Now())
 
-	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockAlerter, mockClock)
 
 	// Add test sensor
 	manager.AddSensor(&HumiditySensor{
@@ -239,13 +241,13 @@ func TestEnvironmentalManager_WarningThreshold_Sustained(t *testing.T) {
 	}
 
 	// Verify notification was sent
-	notificationCount := countNtfyNotifications(mockNtfy)
+	notificationCount := countAlerts(mockAlerter)
 	if notificationCount != 1 {
 		t.Errorf("Expected 1 notification for sustained warning, got %d", notificationCount)
 		return
 	}
 
-	notification := getLastNtfyNotification(mockNtfy)
+	notification := getLastAlert(mockAlerter)
 	if notification == nil {
 		t.Error("Expected to find a notification")
 		return
@@ -259,12 +261,12 @@ func TestEnvironmentalManager_CriticalThreshold_Sustained(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
-	mockNtfy := ntfy.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 	mockClock := clock.NewMockClock(time.Now())
 
-	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockAlerter, mockClock)
 
 	// Add test sensor
 	manager.AddSensor(&HumiditySensor{
@@ -288,13 +290,13 @@ func TestEnvironmentalManager_CriticalThreshold_Sustained(t *testing.T) {
 	}
 
 	// Verify notification was sent
-	notificationCount := countNtfyNotifications(mockNtfy)
+	notificationCount := countAlerts(mockAlerter)
 	if notificationCount != 1 {
 		t.Errorf("Expected 1 notification for sustained critical, got %d", notificationCount)
 		return
 	}
 
-	notification := getLastNtfyNotification(mockNtfy)
+	notification := getLastAlert(mockAlerter)
 	if notification == nil {
 		t.Error("Expected to find a notification")
 		return
@@ -312,12 +314,12 @@ func TestEnvironmentalManager_OutdoorSensor_NoAlert(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
-	mockNtfy := ntfy.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 	mockClock := clock.NewMockClock(time.Now())
 
-	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockAlerter, mockClock)
 
 	// Add outdoor sensor (should NOT trigger alerts)
 	manager.AddSensor(&HumiditySensor{
@@ -341,7 +343,7 @@ func TestEnvironmentalManager_OutdoorSensor_NoAlert(t *testing.T) {
 	}
 
 	// Verify no notifications were sent
-	notificationCount := countNtfyNotifications(mockNtfy)
+	notificationCount := countAlerts(mockAlerter)
 	if notificationCount > 0 {
 		t.Errorf("Expected no notifications for outdoor sensor, got %d", notificationCount)
 	}
@@ -351,12 +353,12 @@ func TestEnvironmentalManager_MixedSensors_OnlyIndoorAlerts(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
-	mockNtfy := ntfy.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 	mockClock := clock.NewMockClock(time.Now())
 
-	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockAlerter, mockClock)
 
 	// Add both indoor and outdoor sensors
 	manager.AddSensor(&HumiditySensor{
@@ -390,7 +392,7 @@ func TestEnvironmentalManager_MixedSensors_OnlyIndoorAlerts(t *testing.T) {
 	}
 
 	// Verify notification was sent
-	notification := getLastNtfyNotification(mockNtfy)
+	notification := getLastAlert(mockAlerter)
 	if notification == nil {
 		t.Error("Expected to find a notification")
 	}
@@ -400,12 +402,12 @@ func TestEnvironmentalManager_BothSensorsElevated(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
-	mockNtfy := ntfy.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 	mockClock := clock.NewMockClock(time.Now())
 
-	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockAlerter, mockClock)
 
 	// Add two indoor sensors
 	manager.AddSensor(&HumiditySensor{
@@ -431,13 +433,13 @@ func TestEnvironmentalManager_BothSensorsElevated(t *testing.T) {
 	manager.SimulateSensorChange(testIndoorSensor2, 56.0)
 
 	// Verify at least 1 notification was sent
-	notificationCount := countNtfyNotifications(mockNtfy)
+	notificationCount := countAlerts(mockAlerter)
 	if notificationCount < 1 {
 		t.Error("Expected at least 1 notification")
 		return
 	}
 
-	notification := getLastNtfyNotification(mockNtfy)
+	notification := getLastAlert(mockAlerter)
 	if notification == nil {
 		t.Error("Expected to find a notification")
 		return
@@ -451,12 +453,12 @@ func TestEnvironmentalManager_Hysteresis_WarningClear(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
-	mockNtfy := ntfy.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 	mockClock := clock.NewMockClock(time.Now())
 
-	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockAlerter, mockClock)
 
 	// Add two indoor sensors - only sensor 1 will be elevated
 	manager.AddSensor(&HumiditySensor{
@@ -485,7 +487,7 @@ func TestEnvironmentalManager_Hysteresis_WarningClear(t *testing.T) {
 		t.Fatalf("Expected alertLevel 'warning', got '%s'", alertLevel)
 	}
 
-	initialNotifications := countNtfyNotifications(mockNtfy)
+	initialNotifications := countAlerts(mockAlerter)
 
 	// Now lower humidity to just below warning threshold (but above clear threshold)
 	manager.SimulateSensorChange(testIndoorSensor1, 52.0)
@@ -506,14 +508,14 @@ func TestEnvironmentalManager_Hysteresis_WarningClear(t *testing.T) {
 	}
 
 	// Should have sent a resolution notification
-	finalNotifications := countNtfyNotifications(mockNtfy)
+	finalNotifications := countAlerts(mockAlerter)
 	if finalNotifications <= initialNotifications {
 		t.Error("Expected resolution notification to be sent")
 	}
 
 	// Verify resolution notification only mentions the sensor that was elevated (sensor 1),
 	// not all indoor sensors
-	resolutionNotification := getLastNtfyNotification(mockNtfy)
+	resolutionNotification := getLastAlert(mockAlerter)
 	if resolutionNotification == nil {
 		t.Fatal("Expected resolution notification")
 	}
@@ -533,12 +535,12 @@ func TestEnvironmentalManager_MultipleSensorsElevated_Resolution(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
-	mockNtfy := ntfy.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 	mockClock := clock.NewMockClock(time.Now())
 
-	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockAlerter, mockClock)
 
 	// Add three indoor sensors - two will be elevated, one normal
 	manager.AddSensor(&HumiditySensor{
@@ -575,7 +577,7 @@ func TestEnvironmentalManager_MultipleSensorsElevated_Resolution(t *testing.T) {
 		t.Fatalf("Expected alertLevel 'warning', got '%s'", alertLevel)
 	}
 
-	initialNotifications := countNtfyNotifications(mockNtfy)
+	initialNotifications := countAlerts(mockAlerter)
 
 	// Now lower both sensors below clear threshold
 	manager.SimulateSensorChange(testIndoorSensor1, 48.0)
@@ -588,13 +590,13 @@ func TestEnvironmentalManager_MultipleSensorsElevated_Resolution(t *testing.T) {
 	}
 
 	// Should have sent a resolution notification
-	finalNotifications := countNtfyNotifications(mockNtfy)
+	finalNotifications := countAlerts(mockAlerter)
 	if finalNotifications <= initialNotifications {
 		t.Error("Expected resolution notification to be sent")
 	}
 
 	// Verify resolution notification mentions both alerted sensors, not the third
-	resolutionNotification := getLastNtfyNotification(mockNtfy)
+	resolutionNotification := getLastAlert(mockAlerter)
 	if resolutionNotification == nil {
 		t.Fatal("Expected resolution notification")
 	}
@@ -622,12 +624,12 @@ func TestEnvironmentalManager_RateLimiting_Warning(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
-	mockNtfy := ntfy.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 	mockClock := clock.NewMockClock(time.Now())
 
-	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockAlerter, mockClock)
 
 	// Add test sensor
 	manager.AddSensor(&HumiditySensor{
@@ -642,7 +644,7 @@ func TestEnvironmentalManager_RateLimiting_Warning(t *testing.T) {
 	mockClock.Advance(31 * time.Minute)
 	manager.SimulateSensorChange(testIndoorSensor1, 58.0)
 
-	initialNotifications := countNtfyNotifications(mockNtfy)
+	initialNotifications := countAlerts(mockAlerter)
 	if initialNotifications != 1 {
 		t.Fatalf("Expected 1 initial notification, got %d", initialNotifications)
 	}
@@ -652,7 +654,7 @@ func TestEnvironmentalManager_RateLimiting_Warning(t *testing.T) {
 	manager.SimulateSensorChange(testIndoorSensor1, 58.0)
 
 	// Should not have sent another notification for the same incident
-	finalNotifications := countNtfyNotifications(mockNtfy)
+	finalNotifications := countAlerts(mockAlerter)
 	if finalNotifications > initialNotifications {
 		t.Errorf("Expected no additional notifications for same incident, got %d extra",
 			finalNotifications-initialNotifications)
@@ -663,12 +665,12 @@ func TestEnvironmentalManager_RateLimiting_Critical(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
-	mockNtfy := ntfy.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 	mockClock := clock.NewMockClock(time.Now())
 
-	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockAlerter, mockClock)
 
 	// Add test sensor
 	manager.AddSensor(&HumiditySensor{
@@ -683,7 +685,7 @@ func TestEnvironmentalManager_RateLimiting_Critical(t *testing.T) {
 	mockClock.Advance(31 * time.Minute)
 	manager.SimulateSensorChange(testIndoorSensor1, 70.0)
 
-	initialNotifications := countNtfyNotifications(mockNtfy)
+	initialNotifications := countAlerts(mockAlerter)
 	if initialNotifications != 1 {
 		t.Fatalf("Expected 1 initial notification, got %d", initialNotifications)
 	}
@@ -693,7 +695,7 @@ func TestEnvironmentalManager_RateLimiting_Critical(t *testing.T) {
 	manager.SimulateSensorChange(testIndoorSensor1, 70.0)
 
 	// Should not have sent another notification (already notified for this incident)
-	finalNotifications := countNtfyNotifications(mockNtfy)
+	finalNotifications := countAlerts(mockAlerter)
 	if finalNotifications > initialNotifications {
 		t.Errorf("Expected no additional notifications due to rate limiting, got %d",
 			finalNotifications-initialNotifications)
@@ -716,11 +718,11 @@ func TestEnvironmentalManager_InvalidHumidityValues(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			mockHA := ha.NewMockClient()
-			mockNtfy := ntfy.NewMockClient()
+			mockAlerter := &alert.MockAlerter{}
 			logger := zap.NewNop()
 			stateMgr := state.NewManager(mockHA, logger, false)
 
-			manager := NewManager(mockHA, stateMgr, logger, false, nil, mockNtfy)
+			manager := NewManager(mockHA, stateMgr, logger, false, nil, mockAlerter)
 
 			// Add test sensor
 			manager.AddSensor(&HumiditySensor{
@@ -757,13 +759,13 @@ func TestEnvironmentalManager_ReadOnlyMode(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
-	mockNtfy := ntfy.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, true) // read-only
 	mockClock := clock.NewMockClock(time.Now())
 
 	// Create manager in read-only mode
-	manager := NewManagerWithClock(mockHA, stateMgr, logger, true, nil, mockNtfy, mockClock)
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, true, nil, mockAlerter, mockClock)
 
 	// Add test sensor
 	manager.AddSensor(&HumiditySensor{
@@ -785,7 +787,7 @@ func TestEnvironmentalManager_ReadOnlyMode(t *testing.T) {
 	}
 
 	// But no actual notifications should be sent (read-only mode)
-	notificationCount := countNtfyNotifications(mockNtfy)
+	notificationCount := countAlerts(mockAlerter)
 	if notificationCount > 0 {
 		t.Errorf("Expected no notifications in read-only mode, got %d", notificationCount)
 	}
@@ -795,12 +797,12 @@ func TestEnvironmentalManager_ShadowState(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
-	mockNtfy := ntfy.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 	mockClock := clock.NewMockClock(time.Now())
 
-	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockAlerter, mockClock)
 
 	// Add test sensors
 	manager.AddSensor(&HumiditySensor{
@@ -873,12 +875,12 @@ func TestEnvironmentalManager_EscalationFromWarningToCritical(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
-	mockNtfy := ntfy.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 	mockClock := clock.NewMockClock(time.Now())
 
-	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockAlerter, mockClock)
 
 	// Add test sensor
 	manager.AddSensor(&HumiditySensor{
@@ -898,7 +900,7 @@ func TestEnvironmentalManager_EscalationFromWarningToCritical(t *testing.T) {
 		t.Fatalf("Expected initial alertLevel 'warning', got '%s'", alertLevel)
 	}
 
-	warningNotifications := countNtfyNotifications(mockNtfy)
+	warningNotifications := countAlerts(mockAlerter)
 
 	// Now escalate to critical level
 	manager.SimulateSensorChange(testIndoorSensor1, 70.0)
@@ -911,7 +913,7 @@ func TestEnvironmentalManager_EscalationFromWarningToCritical(t *testing.T) {
 	}
 
 	// Should have sent a critical notification
-	finalNotifications := countNtfyNotifications(mockNtfy)
+	finalNotifications := countAlerts(mockAlerter)
 	if finalNotifications <= warningNotifications {
 		t.Error("Expected critical notification to be sent on escalation")
 	}
@@ -921,12 +923,12 @@ func TestEnvironmentalManager_OneSensorHighOtherNormal(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
-	mockNtfy := ntfy.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 	mockClock := clock.NewMockClock(time.Now())
 
-	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockAlerter, mockClock)
 
 	// Add two indoor sensors
 	manager.AddSensor(&HumiditySensor{
@@ -1034,7 +1036,7 @@ func TestEnvironmentalManager_CaseInsensitiveLabelMatching(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			mockHA := ha.NewMockClient()
-			mockNtfy := ntfy.NewMockClient()
+			mockAlerter := &alert.MockAlerter{}
 
 			// Add device with the test label
 			mockHA.AddDevice(&ha.Device{
@@ -1057,7 +1059,7 @@ func TestEnvironmentalManager_CaseInsensitiveLabelMatching(t *testing.T) {
 
 			logger := zap.NewNop()
 			stateMgr := state.NewManager(mockHA, logger, false)
-			manager := NewManager(mockHA, stateMgr, logger, false, nil, mockNtfy)
+			manager := NewManager(mockHA, stateMgr, logger, false, nil, mockAlerter)
 
 			// Start discovery
 			err := manager.Start()
@@ -1089,12 +1091,12 @@ func TestEnvironmentalManager_TransientUnavailability_NoFalseResolution(t *testi
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
-	mockNtfy := ntfy.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 	mockClock := clock.NewMockClock(time.Now())
 
-	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockAlerter, mockClock)
 
 	// Add two indoor sensors (simulates Z-Wave sensor + non-Z-Wave sensor)
 	manager.AddSensor(&HumiditySensor{
@@ -1122,7 +1124,7 @@ func TestEnvironmentalManager_TransientUnavailability_NoFalseResolution(t *testi
 		t.Fatalf("Expected warning alert active, got '%s'", alertLevel)
 	}
 
-	initialNotifications := countNtfyNotifications(mockNtfy)
+	initialNotifications := countAlerts(mockAlerter)
 
 	// WHEN: The alerted sensor goes unavailable (Z-Wave dropout)
 	t.Log("WHEN: Barn sensor goes unavailable (Z-Wave dropout)")
@@ -1140,9 +1142,9 @@ func TestEnvironmentalManager_TransientUnavailability_NoFalseResolution(t *testi
 	}
 
 	// No resolution notification should have been sent
-	finalNotifications := countNtfyNotifications(mockNtfy)
+	finalNotifications := countAlerts(mockAlerter)
 	if finalNotifications > initialNotifications {
-		lastNotification := getLastNtfyNotification(mockNtfy)
+		lastNotification := getLastAlert(mockAlerter)
 		t.Errorf("Expected no new notifications, but got one: %s", lastNotification.Body)
 	}
 }
@@ -1151,12 +1153,12 @@ func TestEnvironmentalManager_UnavailableRecovery_StillElevated(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
-	mockNtfy := ntfy.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 	mockClock := clock.NewMockClock(time.Now())
 
-	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockAlerter, mockClock)
 
 	manager.AddSensor(&HumiditySensor{
 		EntityID:     testIndoorSensor1,
@@ -1193,12 +1195,12 @@ func TestEnvironmentalManager_UnavailableRecovery_BelowThreshold(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
-	mockNtfy := ntfy.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 	mockClock := clock.NewMockClock(time.Now())
 
-	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockAlerter, mockClock)
 
 	manager.AddSensor(&HumiditySensor{
 		EntityID:     testIndoorSensor1,
@@ -1217,7 +1219,7 @@ func TestEnvironmentalManager_UnavailableRecovery_BelowThreshold(t *testing.T) {
 		t.Fatal("Expected warning alert active")
 	}
 
-	initialNotifications := countNtfyNotifications(mockNtfy)
+	initialNotifications := countAlerts(mockAlerter)
 
 	// WHEN: Sensor goes unavailable, then recovers below clear threshold
 	t.Log("WHEN: Sensor goes unavailable, then recovers at 45%")
@@ -1233,13 +1235,13 @@ func TestEnvironmentalManager_UnavailableRecovery_BelowThreshold(t *testing.T) {
 	}
 
 	// Resolution notification should have been sent
-	finalNotifications := countNtfyNotifications(mockNtfy)
+	finalNotifications := countAlerts(mockAlerter)
 	if finalNotifications <= initialNotifications {
 		t.Error("Expected resolution notification to be sent")
 	}
 
 	// Resolution should mention the correct sensor
-	lastNotification := getLastNtfyNotification(mockNtfy)
+	lastNotification := getLastAlert(mockAlerter)
 	if lastNotification == nil {
 		t.Fatal("Expected a resolution notification")
 	}
@@ -1252,12 +1254,12 @@ func TestEnvironmentalManager_AllSensorsUnavailable_NoResolution(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
-	mockNtfy := ntfy.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 	mockClock := clock.NewMockClock(time.Now())
 
-	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockAlerter, mockClock)
 
 	// Single indoor sensor
 	manager.AddSensor(&HumiditySensor{
@@ -1277,7 +1279,7 @@ func TestEnvironmentalManager_AllSensorsUnavailable_NoResolution(t *testing.T) {
 		t.Fatal("Expected warning alert active")
 	}
 
-	initialNotifications := countNtfyNotifications(mockNtfy)
+	initialNotifications := countAlerts(mockAlerter)
 
 	// WHEN: The only sensor goes unavailable
 	t.Log("WHEN: The only sensor goes unavailable")
@@ -1290,7 +1292,7 @@ func TestEnvironmentalManager_AllSensorsUnavailable_NoResolution(t *testing.T) {
 		t.Error("Expected alert to remain active when all sensors unavailable, but got 'none'")
 	}
 
-	finalNotifications := countNtfyNotifications(mockNtfy)
+	finalNotifications := countAlerts(mockAlerter)
 	if finalNotifications > initialNotifications {
 		t.Error("Expected no new notifications when sensor goes unavailable")
 	}
@@ -1300,12 +1302,12 @@ func TestEnvironmentalManager_RateLimited_AlertedSensorNamesPopulated(t *testing
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
-	mockNtfy := ntfy.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 	mockClock := clock.NewMockClock(time.Now())
 
-	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockAlerter, mockClock)
 
 	manager.AddSensor(&HumiditySensor{
 		EntityID:     testIndoorSensor1,
@@ -1341,7 +1343,7 @@ func TestEnvironmentalManager_RateLimited_AlertedSensorNamesPopulated(t *testing
 		t.Fatal("Expected warning alert on re-trigger")
 	}
 
-	notificationsBeforeResolution := countNtfyNotifications(mockNtfy)
+	notificationsBeforeResolution := countAlerts(mockAlerter)
 
 	// Clear the condition again
 	manager.SimulateSensorChange(testIndoorSensor1, 45.0)
@@ -1353,13 +1355,13 @@ func TestEnvironmentalManager_RateLimited_AlertedSensorNamesPopulated(t *testing
 		t.Errorf("Expected alert to clear, got '%s'", alertLevel)
 	}
 
-	finalNotifications := countNtfyNotifications(mockNtfy)
+	finalNotifications := countAlerts(mockAlerter)
 	if finalNotifications <= notificationsBeforeResolution {
 		t.Error("Expected resolution notification to be sent")
 		return
 	}
 
-	lastNotification := getLastNtfyNotification(mockNtfy)
+	lastNotification := getLastAlert(mockAlerter)
 	if lastNotification == nil {
 		t.Fatal("Expected a notification")
 	}
@@ -1435,12 +1437,12 @@ func TestEnvironmentalManager_WaterLeakSensor_Discovery(t *testing.T) {
 
 	mockHA := ha.NewMockClient()
 	setupMockWaterLeakEnvironment(mockHA)
-	mockNtfy := ntfy.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
 
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 
-	manager := NewManager(mockHA, stateMgr, logger, false, nil, mockNtfy)
+	manager := NewManager(mockHA, stateMgr, logger, false, nil, mockAlerter)
 
 	// Start discovery
 	err := manager.Start()
@@ -1472,7 +1474,7 @@ func TestEnvironmentalManager_WaterLeakSensor_DiscoveryByEntityID(t *testing.T) 
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
-	mockNtfy := ntfy.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
 
 	// Add device
 	mockHA.AddDevice(&ha.Device{
@@ -1494,7 +1496,7 @@ func TestEnvironmentalManager_WaterLeakSensor_DiscoveryByEntityID(t *testing.T) 
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 
-	manager := NewManager(mockHA, stateMgr, logger, false, nil, mockNtfy)
+	manager := NewManager(mockHA, stateMgr, logger, false, nil, mockAlerter)
 
 	err := manager.Start()
 	if err != nil {
@@ -1517,7 +1519,7 @@ func TestEnvironmentalManager_WaterLeakSensor_MonitoringIgnoreLabel(t *testing.T
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
-	mockNtfy := ntfy.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
 
 	// Add device with monitoring_ignore label
 	mockHA.AddDevice(&ha.Device{
@@ -1552,7 +1554,7 @@ func TestEnvironmentalManager_WaterLeakSensor_MonitoringIgnoreLabel(t *testing.T
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 
-	manager := NewManager(mockHA, stateMgr, logger, false, nil, mockNtfy)
+	manager := NewManager(mockHA, stateMgr, logger, false, nil, mockAlerter)
 
 	err := manager.Start()
 	if err != nil {
@@ -1577,12 +1579,12 @@ func TestEnvironmentalManager_WaterLeak_Detection(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
-	mockNtfy := ntfy.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 	mockClock := clock.NewMockClock(time.Now())
 
-	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockAlerter, mockClock)
 
 	// Add water leak sensor manually
 	manager.AddWaterLeakSensor(&WaterLeakSensor{
@@ -1601,12 +1603,12 @@ func TestEnvironmentalManager_WaterLeak_Detection(t *testing.T) {
 	}
 
 	// Verify notification was sent
-	notificationCount := countNtfyNotifications(mockNtfy)
+	notificationCount := countAlerts(mockAlerter)
 	if notificationCount != 1 {
 		t.Errorf("Expected 1 water leak notification, got %d", notificationCount)
 	}
 
-	notification := getLastNtfyNotification(mockNtfy)
+	notification := getLastAlert(mockAlerter)
 	if notification == nil {
 		t.Fatal("Expected to find a notification")
 	}
@@ -1622,12 +1624,12 @@ func TestEnvironmentalManager_WaterLeak_NoDoubleNotification(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
-	mockNtfy := ntfy.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 	mockClock := clock.NewMockClock(time.Now())
 
-	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockAlerter, mockClock)
 
 	// Add water leak sensor
 	manager.AddWaterLeakSensor(&WaterLeakSensor{
@@ -1639,7 +1641,7 @@ func TestEnvironmentalManager_WaterLeak_NoDoubleNotification(t *testing.T) {
 	// Trigger leak
 	manager.SimulateWaterLeakChange(testWaterLeakSensor1, "on")
 
-	initialNotifications := countNtfyNotifications(mockNtfy)
+	initialNotifications := countAlerts(mockAlerter)
 	if initialNotifications != 1 {
 		t.Fatalf("Expected 1 initial notification, got %d", initialNotifications)
 	}
@@ -1648,7 +1650,7 @@ func TestEnvironmentalManager_WaterLeak_NoDoubleNotification(t *testing.T) {
 	manager.SimulateWaterLeakChange(testWaterLeakSensor1, "on")
 
 	// Should not have sent another notification
-	finalNotifications := countNtfyNotifications(mockNtfy)
+	finalNotifications := countAlerts(mockAlerter)
 	if finalNotifications != initialNotifications {
 		t.Errorf("Expected no additional notifications for same leak, got %d extra",
 			finalNotifications-initialNotifications)
@@ -1659,12 +1661,12 @@ func TestEnvironmentalManager_WaterLeak_Recovery(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
-	mockNtfy := ntfy.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 	mockClock := clock.NewMockClock(time.Now())
 
-	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockAlerter, mockClock)
 
 	// Add water leak sensor
 	manager.AddWaterLeakSensor(&WaterLeakSensor{
@@ -1681,7 +1683,7 @@ func TestEnvironmentalManager_WaterLeak_Recovery(t *testing.T) {
 		t.Error("Expected 1 active leak")
 	}
 
-	notificationsAfterLeak := countNtfyNotifications(mockNtfy)
+	notificationsAfterLeak := countAlerts(mockAlerter)
 
 	// Now clear the leak
 	manager.SimulateWaterLeakChange(testWaterLeakSensor1, "off")
@@ -1699,7 +1701,7 @@ func TestEnvironmentalManager_WaterLeak_Recovery(t *testing.T) {
 	}
 
 	// No additional notifications expected (water leaks don't have recovery notifications)
-	notificationsAfterClear := countNtfyNotifications(mockNtfy)
+	notificationsAfterClear := countAlerts(mockAlerter)
 	if notificationsAfterClear != notificationsAfterLeak {
 		t.Errorf("Expected no additional notifications after clearing, got %d",
 			notificationsAfterClear-notificationsAfterLeak)
@@ -1710,12 +1712,12 @@ func TestEnvironmentalManager_WaterLeak_MultipleLeaks(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
-	mockNtfy := ntfy.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 	mockClock := clock.NewMockClock(time.Now())
 
-	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockAlerter, mockClock)
 
 	// Add multiple water leak sensors
 	manager.AddWaterLeakSensor(&WaterLeakSensor{
@@ -1744,7 +1746,7 @@ func TestEnvironmentalManager_WaterLeak_MultipleLeaks(t *testing.T) {
 	}
 
 	// Verify both sent notifications
-	notificationCount := countNtfyNotifications(mockNtfy)
+	notificationCount := countAlerts(mockAlerter)
 	if notificationCount != 2 {
 		t.Errorf("Expected 2 notifications (one per leak), got %d", notificationCount)
 	}
@@ -1770,13 +1772,13 @@ func TestEnvironmentalManager_WaterLeak_ReadOnlyMode(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
-	mockNtfy := ntfy.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, true) // read-only
 	mockClock := clock.NewMockClock(time.Now())
 
 	// Create manager in read-only mode
-	manager := NewManagerWithClock(mockHA, stateMgr, logger, true, nil, mockNtfy, mockClock)
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, true, nil, mockAlerter, mockClock)
 
 	// Add water leak sensor
 	manager.AddWaterLeakSensor(&WaterLeakSensor{
@@ -1794,7 +1796,7 @@ func TestEnvironmentalManager_WaterLeak_ReadOnlyMode(t *testing.T) {
 	}
 
 	// But no actual notifications should be sent (read-only mode)
-	notificationCount := countNtfyNotifications(mockNtfy)
+	notificationCount := countAlerts(mockAlerter)
 	if notificationCount > 0 {
 		t.Errorf("Expected no notifications in read-only mode, got %d", notificationCount)
 	}
@@ -1804,12 +1806,12 @@ func TestEnvironmentalManager_WaterLeak_ShadowState(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
-	mockNtfy := ntfy.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 	mockClock := clock.NewMockClock(time.Now())
 
-	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockAlerter, mockClock)
 
 	// Add water leak sensors
 	manager.AddWaterLeakSensor(&WaterLeakSensor{
@@ -1858,12 +1860,12 @@ func TestEnvironmentalManager_WaterLeak_RenotificationAfterClear(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
-	mockNtfy := ntfy.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 	mockClock := clock.NewMockClock(time.Now())
 
-	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockAlerter, mockClock)
 
 	// Add water leak sensor
 	manager.AddWaterLeakSensor(&WaterLeakSensor{
@@ -1874,7 +1876,7 @@ func TestEnvironmentalManager_WaterLeak_RenotificationAfterClear(t *testing.T) {
 
 	// First leak
 	manager.SimulateWaterLeakChange(testWaterLeakSensor1, "on")
-	if countNtfyNotifications(mockNtfy) != 1 {
+	if countAlerts(mockAlerter) != 1 {
 		t.Fatal("Expected first leak notification")
 	}
 
@@ -1885,7 +1887,7 @@ func TestEnvironmentalManager_WaterLeak_RenotificationAfterClear(t *testing.T) {
 	manager.SimulateWaterLeakChange(testWaterLeakSensor1, "on")
 
 	// Should have 2 notifications total (one per leak event)
-	notificationCount := countNtfyNotifications(mockNtfy)
+	notificationCount := countAlerts(mockAlerter)
 	if notificationCount != 2 {
 		t.Errorf("Expected 2 notifications (new leak after clearing), got %d", notificationCount)
 	}
@@ -1899,12 +1901,12 @@ func TestEnvironmentalManager_UnconditionedSensor_SuppressedByOutdoor(t *testing
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
-	mockNtfy := ntfy.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 	mockClock := clock.NewMockClock(time.Now())
 
-	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockAlerter, mockClock)
 
 	// Add unconditioned sensor (barn) and set outdoor humidity
 	manager.AddSensor(&HumiditySensor{
@@ -1928,7 +1930,7 @@ func TestEnvironmentalManager_UnconditionedSensor_SuppressedByOutdoor(t *testing
 		t.Errorf("Expected no alert for unconditioned sensor tracking outdoor humidity, got '%s'", alertLevel)
 	}
 
-	notificationCount := countNtfyNotifications(mockNtfy)
+	notificationCount := countAlerts(mockAlerter)
 	if notificationCount > 0 {
 		t.Errorf("Expected no notifications for suppressed unconditioned sensor, got %d", notificationCount)
 	}
@@ -1938,12 +1940,12 @@ func TestEnvironmentalManager_UnconditionedSensor_AtticSuppressedByOutdoor(t *te
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
-	mockNtfy := ntfy.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 	mockClock := clock.NewMockClock(time.Now())
 
-	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockAlerter, mockClock)
 
 	// Add unconditioned sensor (attic) and set outdoor humidity
 	manager.AddSensor(&HumiditySensor{
@@ -1971,12 +1973,12 @@ func TestEnvironmentalManager_UnconditionedSensor_HigherThresholds(t *testing.T)
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
-	mockNtfy := ntfy.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 	mockClock := clock.NewMockClock(time.Now())
 
-	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockAlerter, mockClock)
 
 	// Add unconditioned sensor with outdoor humidity available
 	manager.AddSensor(&HumiditySensor{
@@ -2005,12 +2007,12 @@ func TestEnvironmentalManager_UnconditionedSensor_WarningAboveThreshold(t *testi
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
-	mockNtfy := ntfy.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 	mockClock := clock.NewMockClock(time.Now())
 
-	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockAlerter, mockClock)
 
 	// Add unconditioned sensor
 	manager.AddSensor(&HumiditySensor{
@@ -2033,7 +2035,7 @@ func TestEnvironmentalManager_UnconditionedSensor_WarningAboveThreshold(t *testi
 		t.Errorf("Expected 'warning' for unconditioned sensor at 78%%, got '%s'", alertLevel)
 	}
 
-	notificationCount := countNtfyNotifications(mockNtfy)
+	notificationCount := countAlerts(mockAlerter)
 	if notificationCount != 1 {
 		t.Errorf("Expected 1 notification, got %d", notificationCount)
 	}
@@ -2043,12 +2045,12 @@ func TestEnvironmentalManager_UnconditionedSensor_AbsoluteCeiling(t *testing.T) 
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
-	mockNtfy := ntfy.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 	mockClock := clock.NewMockClock(time.Now())
 
-	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockAlerter, mockClock)
 
 	// Add unconditioned sensor with HIGH outdoor humidity
 	manager.AddSensor(&HumiditySensor{
@@ -2072,7 +2074,7 @@ func TestEnvironmentalManager_UnconditionedSensor_AbsoluteCeiling(t *testing.T) 
 		t.Errorf("Expected 'critical' for unconditioned sensor at 82%% (absolute ceiling), got '%s'", alertLevel)
 	}
 
-	notification := getLastNtfyNotification(mockNtfy)
+	notification := getLastAlert(mockAlerter)
 	if notification == nil {
 		t.Fatal("Expected notification for absolute ceiling breach")
 	}
@@ -2085,12 +2087,12 @@ func TestEnvironmentalManager_UnconditionedSensor_OutdoorUnavailable(t *testing.
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
-	mockNtfy := ntfy.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 	mockClock := clock.NewMockClock(time.Now())
 
-	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockAlerter, mockClock)
 
 	// Add unconditioned sensor WITHOUT outdoor reference
 	manager.AddSensor(&HumiditySensor{
@@ -2128,12 +2130,12 @@ func TestEnvironmentalManager_UnconditionedSensor_SuppressionAtExactMargin(t *te
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
-	mockNtfy := ntfy.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 	mockClock := clock.NewMockClock(time.Now())
 
-	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockAlerter, mockClock)
 
 	manager.AddSensor(&HumiditySensor{
 		EntityID:        testUnconditionedSensor1,
@@ -2171,12 +2173,12 @@ func TestEnvironmentalManager_MixedConditionedAndUnconditioned(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
-	mockNtfy := ntfy.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 	mockClock := clock.NewMockClock(time.Now())
 
-	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockAlerter, mockClock)
 
 	// Add one conditioned (living room) and one unconditioned (barn)
 	manager.AddSensor(&HumiditySensor{
@@ -2207,7 +2209,7 @@ func TestEnvironmentalManager_MixedConditionedAndUnconditioned(t *testing.T) {
 	}
 
 	// Notification should mention the living room, not the barn
-	notification := getLastNtfyNotification(mockNtfy)
+	notification := getLastAlert(mockAlerter)
 	if notification == nil {
 		t.Fatal("Expected notification")
 	}
@@ -2223,12 +2225,12 @@ func TestEnvironmentalManager_OutdoorHumidityDropTriggersReEvaluation(t *testing
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
-	mockNtfy := ntfy.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 	mockClock := clock.NewMockClock(time.Now())
 
-	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockAlerter, mockClock)
 
 	// Add unconditioned sensor and weather station sensor
 	manager.AddSensor(&HumiditySensor{
@@ -2274,12 +2276,12 @@ func TestEnvironmentalManager_NotificationIncludesOutdoorHumidity(t *testing.T) 
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
-	mockNtfy := ntfy.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 	mockClock := clock.NewMockClock(time.Now())
 
-	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockAlerter, mockClock)
 
 	manager.AddSensor(&HumiditySensor{
 		EntityID:     testIndoorSensor1,
@@ -2294,7 +2296,7 @@ func TestEnvironmentalManager_NotificationIncludesOutdoorHumidity(t *testing.T) 
 	mockClock.Advance(31 * time.Minute)
 	manager.SimulateSensorChange(testIndoorSensor1, 58.0)
 
-	notification := getLastNtfyNotification(mockNtfy)
+	notification := getLastAlert(mockAlerter)
 	if notification == nil {
 		t.Fatal("Expected notification")
 	}
@@ -2308,12 +2310,12 @@ func TestEnvironmentalManager_ConditionedSensorUnchangedByOutdoor(t *testing.T) 
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
-	mockNtfy := ntfy.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 	mockClock := clock.NewMockClock(time.Now())
 
-	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockAlerter, mockClock)
 
 	// Conditioned indoor sensor - should use original thresholds regardless of outdoor
 	manager.AddSensor(&HumiditySensor{
@@ -2386,11 +2388,11 @@ func TestEnvironmentalManager_UnconditionedDiscovery(t *testing.T) {
 		"friendly_name": "Weather Station Humidity",
 	})
 
-	mockNtfy := ntfy.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 
-	manager := NewManager(mockHA, stateMgr, logger, false, nil, mockNtfy)
+	manager := NewManager(mockHA, stateMgr, logger, false, nil, mockAlerter)
 	err := manager.Start()
 	if err != nil {
 		t.Fatalf("Failed to start manager: %v", err)
@@ -2440,12 +2442,12 @@ func TestEnvironmentalManager_UnconditionedHysteresis(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
-	mockNtfy := ntfy.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 	mockClock := clock.NewMockClock(time.Now())
 
-	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockAlerter, mockClock)
 
 	manager.AddSensor(&HumiditySensor{
 		EntityID:        testUnconditionedSensor1,

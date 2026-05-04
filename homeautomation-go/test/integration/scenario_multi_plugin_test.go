@@ -5,8 +5,8 @@ import (
 	"os"
 	"testing"
 
+	"homeautomation/internal/alert"
 	"homeautomation/internal/ha"
-	"homeautomation/internal/notify"
 	"homeautomation/internal/plugins/energy"
 	"homeautomation/internal/plugins/lighting"
 	"homeautomation/internal/plugins/statetracking"
@@ -53,7 +53,7 @@ func setupMultiPluginTest(t *testing.T) (*pluginTestEnv, func()) {
 		client:        client,
 		manager:       manager,
 		logger:        logger,
-		stateTracking: statetracking.NewManager(context.Background(), client, manager, logger, false, nil, "", &notify.MockNotifier{}),
+		stateTracking: statetracking.NewManager(context.Background(), client, manager, logger, false, nil, "", &alert.MockAlerter{}),
 		lighting:      lighting.NewManager(context.Background(), client, manager, lightingConfig, logger, false, nil),
 		tv:            tv.NewManager(context.Background(), client, manager, logger, false, nil),
 		energy:        energy.NewManager(context.Background(), client, manager, energyConfig, logger, false, nil, nil),

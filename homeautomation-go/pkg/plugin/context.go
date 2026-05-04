@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"homeautomation/internal/alert"
 	"homeautomation/internal/notify"
 	"homeautomation/internal/ntfy"
 	"homeautomation/internal/shadowstate"
@@ -71,6 +72,11 @@ type Context struct {
 	// audible regardless of the speakers' current state. Plugins should use
 	// this instead of calling tts.speak directly.
 	Notifier notify.Notifier
+
+	// AlertNotifier dispatches alerts to both push (ntfy) and TTS channels from
+	// a single call. Prefer this over NtfyClient and Notifier for new plugins and
+	// when migrating existing plugins.
+	AlertNotifier alert.Alerter
 
 	// SoCoCliURL is the base URL for the SoCo-CLI HTTP API (Tidal playback).
 	// May be empty if SoCo-CLI is not available.

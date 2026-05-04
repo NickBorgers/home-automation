@@ -1,6 +1,7 @@
 package environmental
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strconv"
@@ -8,8 +9,10 @@ import (
 	"sync"
 	"time"
 
+	"homeautomation/internal/alert"
 	"homeautomation/internal/clock"
 	"homeautomation/internal/ha"
+	"homeautomation/internal/notify"
 	"homeautomation/internal/ntfy"
 	"homeautomation/internal/shadowstate"
 	"homeautomation/internal/state"
@@ -78,7 +81,7 @@ type Manager struct {
 	logger       *zap.Logger
 	readOnly     bool
 	clock        clock.Clock
-	ntfyClient   ntfy.Notifier // nil if notifications disabled
+	alerter      alert.Alerter // nil if notifications disabled
 
 	// Shadow state tracking
 	shadowTracker *shadowstate.EnvironmentalTracker
@@ -113,13 +116,13 @@ type Manager struct {
 }
 
 // NewManager creates a new environmental monitoring manager.
-// ntfyClient can be nil if notifications are disabled (NTFY_TOPIC_URL not set).
-func NewManager(haClient ha.HAClient, stateManager *state.Manager, logger *zap.Logger, readOnly bool, registry *shadowstate.SubscriptionRegistry, ntfyClient ntfy.Notifier) *Manager {
+// alerter can be nil if notifications are disabled (NTFY_TOPIC_URL not set).
+func NewManager(haClient ha.HAClient, stateManager *state.Manager, logger *zap.Logger, readOnly bool, registry *shadowstate.SubscriptionRegistry, alerter alert.Alerter) *Manager {
 	shadowTracker := shadowstate.NewEnvironmentalTracker()
 
 	namedLogger := logger.Named("environmental")
-	if ntfyClient == nil {
-		namedLogger.Warn("ntfy client not configured - notifications will be disabled")
+	if alerter == nil {
+		namedLogger.Warn("alerter not configured - notifications will be disabled")
 	}
 
 	return &Manager{
@@ -128,7 +131,7 @@ func NewManager(haClient ha.HAClient, stateManager *state.Manager, logger *zap.L
 		logger:             namedLogger,
 		readOnly:           readOnly,
 		clock:              clock.NewRealClock(),
-		ntfyClient:         ntfyClient,
+		alerter:            alerter,
 		shadowTracker:      shadowTracker,
 		subHelper:          shadowstate.NewSubscriptionHelper(haClient, stateManager, registry, shadowTracker, "environmental", namedLogger),
 		sensors:            make(map[string]*HumiditySensor),
@@ -139,8 +142,8 @@ func NewManager(haClient ha.HAClient, stateManager *state.Manager, logger *zap.L
 }
 
 // NewManagerWithClock creates a new environmental monitoring manager with a custom clock (for testing)
-func NewManagerWithClock(haClient ha.HAClient, stateManager *state.Manager, logger *zap.Logger, readOnly bool, registry *shadowstate.SubscriptionRegistry, ntfyClient ntfy.Notifier, c clock.Clock) *Manager {
-	m := NewManager(haClient, stateManager, logger, readOnly, registry, ntfyClient)
+func NewManagerWithClock(haClient ha.HAClient, stateManager *state.Manager, logger *zap.Logger, readOnly bool, registry *shadowstate.SubscriptionRegistry, alerter alert.Alerter, c clock.Clock) *Manager {
+	m := NewManager(haClient, stateManager, logger, readOnly, registry, alerter)
 	m.clock = c
 	return m
 }
@@ -664,18 +667,18 @@ func (m *Manager) sendWaterLeakNotification(sensor *WaterLeakSensor) {
 		return
 	}
 
-	if m.ntfyClient == nil {
-		m.logger.Warn("ntfy client not configured, cannot send water leak notification",
+	if m.alerter == nil {
+		m.logger.Warn("alerter not configured, cannot send water leak notification",
 			zap.String("entity_id", sensor.EntityID))
 		return
 	}
 
-	// Send notification via ntfy
-	if err := m.ntfyClient.Send(&ntfy.Message{
+	if err := m.alerter.Send(context.Background(), alert.Alert{
 		Title:    "Water Leak Detected",
 		Body:     message,
-		Priority: ntfy.PriorityUrgent,
+		Urgency:  notify.UrgencyUrgent,
 		Tags:     []string{"warning", "droplet"},
+		Priority: ntfy.PriorityUrgent,
 	}); err != nil {
 		m.logger.Error("Failed to send water leak notification",
 			zap.String("entity_id", sensor.EntityID),
@@ -960,19 +963,23 @@ func (m *Manager) sendAlertNotification(now time.Time, level string) {
 		return
 	}
 
-	// Check if ntfy client is configured
-	if m.ntfyClient == nil {
-		m.logger.Warn("Cannot send humidity notification - ntfy client not configured",
+	if m.alerter == nil {
+		m.logger.Warn("Cannot send humidity notification - alerter not configured",
 			zap.String("level", level))
 		return
 	}
 
-	// Send notification via ntfy
-	if err := m.ntfyClient.Send(&ntfy.Message{
+	urgency := notify.UrgencyDeferable
+	if level == "critical" {
+		urgency = notify.UrgencyUrgent
+	}
+
+	if err := m.alerter.Send(context.Background(), alert.Alert{
 		Title:    title,
 		Body:     message,
-		Priority: priority,
+		Urgency:  urgency,
 		Tags:     tags,
+		Priority: priority,
 	}); err != nil {
 		m.logger.Error("Failed to send humidity notification",
 			zap.String("level", level),
@@ -1036,18 +1043,17 @@ func (m *Manager) sendResolutionNotification(now time.Time) {
 		return
 	}
 
-	// Check if ntfy client is configured
-	if m.ntfyClient == nil {
-		m.logger.Warn("Cannot send resolution notification - ntfy client not configured")
+	if m.alerter == nil {
+		m.logger.Warn("Cannot send resolution notification - alerter not configured")
 		return
 	}
 
-	// Send notification via ntfy
-	if err := m.ntfyClient.Send(&ntfy.Message{
+	if err := m.alerter.Send(context.Background(), alert.Alert{
 		Title:    "Humidity Resolved",
 		Body:     message,
-		Priority: ntfy.PriorityDefault,
+		Urgency:  notify.UrgencyDeferable,
 		Tags:     []string{"white_check_mark", "droplet"},
+		Priority: ntfy.PriorityDefault,
 	}); err != nil {
 		m.logger.Error("Failed to send resolution notification", zap.Error(err))
 		return

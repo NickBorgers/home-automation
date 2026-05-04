@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"homeautomation/internal/alert"
 	"homeautomation/internal/api"
 	"homeautomation/internal/devserver"
 	"homeautomation/internal/ha"
@@ -357,6 +358,7 @@ func Run() {
 	}
 	notifier := notify.NewManager(client, stateManager, *notifyCfg, logger, readOnly)
 	pluginCtx.Notifier = notifier
+	pluginCtx.AlertNotifier = alert.NewManager(ntfyClient, notifier, logger)
 	logger.Info("Notifier initialized",
 		zap.Int("awake_volume_percent", notifyCfg.AwakeVolumePercent),
 		zap.Int("default_speaker_count", len(notifyCfg.DefaultSpeakers)))

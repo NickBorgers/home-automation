@@ -1,6 +1,7 @@
 package sensorhealth
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strconv"
@@ -8,8 +9,10 @@ import (
 	"sync"
 	"time"
 
+	"homeautomation/internal/alert"
 	"homeautomation/internal/clock"
 	"homeautomation/internal/ha"
+	"homeautomation/internal/notify"
 	"homeautomation/internal/ntfy"
 	"homeautomation/internal/shadowstate"
 	"homeautomation/internal/state"
@@ -91,7 +94,7 @@ type Manager struct {
 	logger       *zap.Logger
 	readOnly     bool
 	clock        clock.Clock
-	ntfyClient   ntfy.Notifier
+	alerter      alert.Alerter
 
 	// Shadow state tracking
 	shadowTracker *shadowstate.SensorHealthTracker
@@ -113,7 +116,7 @@ type Manager struct {
 }
 
 // NewManager creates a new sensor health manager
-func NewManager(haClient ha.HAClient, stateManager *state.Manager, logger *zap.Logger, readOnly bool, registry *shadowstate.SubscriptionRegistry, ntfyClient ntfy.Notifier) *Manager {
+func NewManager(haClient ha.HAClient, stateManager *state.Manager, logger *zap.Logger, readOnly bool, registry *shadowstate.SubscriptionRegistry, alerter alert.Alerter) *Manager {
 	shadowTracker := shadowstate.NewSensorHealthTracker()
 
 	return &Manager{
@@ -122,7 +125,7 @@ func NewManager(haClient ha.HAClient, stateManager *state.Manager, logger *zap.L
 		logger:              logger.Named("sensorhealth"),
 		readOnly:            readOnly,
 		clock:               clock.NewRealClock(),
-		ntfyClient:          ntfyClient,
+		alerter:             alerter,
 		shadowTracker:       shadowTracker,
 		subHelper:           shadowstate.NewSubscriptionHelper(haClient, stateManager, registry, shadowTracker, "sensorhealth", logger.Named("sensorhealth")),
 		batterySensors:      make(map[string]*BatterySensor),
@@ -133,8 +136,8 @@ func NewManager(haClient ha.HAClient, stateManager *state.Manager, logger *zap.L
 }
 
 // NewManagerWithClock creates a new sensor health manager with a custom clock (for testing)
-func NewManagerWithClock(haClient ha.HAClient, stateManager *state.Manager, logger *zap.Logger, readOnly bool, registry *shadowstate.SubscriptionRegistry, ntfyClient ntfy.Notifier, c clock.Clock) *Manager {
-	m := NewManager(haClient, stateManager, logger, readOnly, registry, ntfyClient)
+func NewManagerWithClock(haClient ha.HAClient, stateManager *state.Manager, logger *zap.Logger, readOnly bool, registry *shadowstate.SubscriptionRegistry, alerter alert.Alerter, c clock.Clock) *Manager {
+	m := NewManager(haClient, stateManager, logger, readOnly, registry, alerter)
 	m.clock = c
 	return m
 }
@@ -694,18 +697,18 @@ func (m *Manager) sendDeviceDeadNotification(node *NodeStatus) {
 		return
 	}
 
-	if m.ntfyClient == nil {
-		m.logger.Warn("ntfy client not configured, cannot send dead device notification",
+	if m.alerter == nil {
+		m.logger.Warn("alerter not configured, cannot send dead device notification",
 			zap.String("entity_id", node.EntityID))
 		return
 	}
 
-	// Send notification via ntfy
-	if err := m.ntfyClient.Send(&ntfy.Message{
+	if err := m.alerter.Send(context.Background(), alert.Alert{
 		Title:    "Device Offline",
 		Body:     message,
-		Priority: ntfy.PriorityHigh,
+		Urgency:  notify.UrgencyDeferable,
 		Tags:     []string{"warning", "electric_plug"},
+		Priority: ntfy.PriorityHigh,
 	}); err != nil {
 		m.logger.Error("Failed to send dead device notification",
 			zap.String("entity_id", node.EntityID),
@@ -734,18 +737,18 @@ func (m *Manager) sendDeviceRecoveredNotification(node *NodeStatus) {
 		return
 	}
 
-	if m.ntfyClient == nil {
-		m.logger.Warn("ntfy client not configured, cannot send device recovery notification",
+	if m.alerter == nil {
+		m.logger.Warn("alerter not configured, cannot send device recovery notification",
 			zap.String("entity_id", node.EntityID))
 		return
 	}
 
-	// Send notification via ntfy
-	if err := m.ntfyClient.Send(&ntfy.Message{
+	if err := m.alerter.Send(context.Background(), alert.Alert{
 		Title:    "Device Online",
 		Body:     message,
-		Priority: ntfy.PriorityDefault,
+		Urgency:  notify.UrgencyDeferable,
 		Tags:     []string{"white_check_mark", "electric_plug"},
+		Priority: ntfy.PriorityDefault,
 	}); err != nil {
 		m.logger.Error("Failed to send device recovery notification",
 			zap.String("entity_id", node.EntityID),
@@ -842,18 +845,18 @@ func (m *Manager) sendDeviceDeadAtStartupNotification(node *NodeStatus) {
 		return
 	}
 
-	if m.ntfyClient == nil {
-		m.logger.Warn("ntfy client not configured, cannot send dead device startup notification",
+	if m.alerter == nil {
+		m.logger.Warn("alerter not configured, cannot send dead device startup notification",
 			zap.String("entity_id", node.EntityID))
 		return
 	}
 
-	// Send notification via ntfy
-	if err := m.ntfyClient.Send(&ntfy.Message{
+	if err := m.alerter.Send(context.Background(), alert.Alert{
 		Title:    "Device Offline (Startup Check)",
 		Body:     message,
-		Priority: ntfy.PriorityHigh,
+		Urgency:  notify.UrgencyDeferable,
 		Tags:     []string{"warning", "electric_plug"},
+		Priority: ntfy.PriorityHigh,
 	}); err != nil {
 		m.logger.Error("Failed to send dead device startup notification",
 			zap.String("entity_id", node.EntityID),
@@ -1016,18 +1019,18 @@ func (m *Manager) sendLowBatteryNotification(sensor *BatterySensor) {
 	sensor.NotificationSent = true
 	m.mu.Unlock()
 
-	if m.ntfyClient == nil {
-		m.logger.Warn("ntfy client not configured, cannot send low battery notification",
+	if m.alerter == nil {
+		m.logger.Warn("alerter not configured, cannot send low battery notification",
 			zap.String("entity_id", sensor.EntityID))
 		return
 	}
 
-	// Send notification via ntfy
-	if err := m.ntfyClient.Send(&ntfy.Message{
+	if err := m.alerter.Send(context.Background(), alert.Alert{
 		Title:    "Low Battery",
 		Body:     message,
-		Priority: ntfy.PriorityDefault,
+		Urgency:  notify.UrgencyDeferable,
 		Tags:     []string{"battery"},
+		Priority: ntfy.PriorityDefault,
 	}); err != nil {
 		m.logger.Error("Failed to send low battery notification",
 			zap.String("entity_id", sensor.EntityID),
@@ -1155,18 +1158,18 @@ func (m *Manager) sendTemperatureLockupNotification(sensor *TemperatureSensor) {
 	}
 
 	// Check if ntfy client is configured
-	if m.ntfyClient == nil {
-		m.logger.Warn("Cannot send temperature lockup notification - ntfy client not configured",
+	if m.alerter == nil {
+		m.logger.Warn("Cannot send temperature lockup notification - alerter not configured",
 			zap.String("entity_id", entityID))
 		return
 	}
 
-	// Send notification via ntfy
-	if err := m.ntfyClient.Send(&ntfy.Message{
+	if err := m.alerter.Send(context.Background(), alert.Alert{
 		Title:    "Temperature Sensor Locked Up",
 		Body:     message,
-		Priority: ntfy.PriorityHigh,
+		Urgency:  notify.UrgencyDeferable,
 		Tags:     []string{"warning", "thermometer"},
+		Priority: ntfy.PriorityHigh,
 	}); err != nil {
 		m.logger.Error("Failed to send temperature lockup notification",
 			zap.String("entity_id", entityID),
@@ -1212,18 +1215,18 @@ func (m *Manager) sendTemperatureRecoveryNotification(sensor *TemperatureSensor,
 	}
 
 	// Check if ntfy client is configured
-	if m.ntfyClient == nil {
-		m.logger.Warn("Cannot send temperature recovery notification - ntfy client not configured",
+	if m.alerter == nil {
+		m.logger.Warn("Cannot send temperature recovery notification - alerter not configured",
 			zap.String("entity_id", sensor.EntityID))
 		return
 	}
 
-	// Send notification via ntfy
-	if err := m.ntfyClient.Send(&ntfy.Message{
+	if err := m.alerter.Send(context.Background(), alert.Alert{
 		Title:    "Temperature Sensor Recovered",
 		Body:     message,
-		Priority: ntfy.PriorityDefault,
+		Urgency:  notify.UrgencyDeferable,
 		Tags:     []string{"white_check_mark", "thermometer"},
+		Priority: ntfy.PriorityDefault,
 	}); err != nil {
 		m.logger.Error("Failed to send temperature recovery notification",
 			zap.String("entity_id", sensor.EntityID),

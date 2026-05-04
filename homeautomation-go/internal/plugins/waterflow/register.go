@@ -3,7 +3,6 @@ package waterflow
 import (
 	"fmt"
 
-	"homeautomation/internal/notify"
 	pkgha "homeautomation/pkg/ha"
 	"homeautomation/pkg/plugin"
 	"homeautomation/pkg/shadowstate"
@@ -33,12 +32,7 @@ func createPlugin(ctx *plugin.Context) (plugin.Plugin, error) {
 		return nil, fmt.Errorf("waterflow plugin requires internal state.Manager")
 	}
 
-	notifier := ctx.Notifier
-	if notifier == nil {
-		notifier = &notify.MockNotifier{}
-	}
-
-	manager := NewManager(ctx.ShutdownCtx, haClient, stateManager, ctx.Logger, ctx.ReadOnly, ctx.Registry, ctx.NtfyClient, notifier)
+	manager := NewManager(ctx.ShutdownCtx, haClient, stateManager, ctx.Logger, ctx.ReadOnly, ctx.Registry, ctx.AlertNotifier)
 	return &pluginAdapter{manager: manager}, nil
 }
 
