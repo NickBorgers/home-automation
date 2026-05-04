@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
+	"homeautomation/internal/alert"
 	"homeautomation/internal/config"
 	"homeautomation/internal/ha"
-	"homeautomation/internal/alert"
 	"homeautomation/internal/plugins/lighting"
 	"homeautomation/internal/plugins/music"
 	"homeautomation/internal/plugins/sleephygiene"

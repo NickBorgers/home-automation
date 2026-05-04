@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
+	"homeautomation/internal/alert"
 	"homeautomation/internal/clock"
 	"homeautomation/internal/ha"
-	"homeautomation/internal/alert"
 	"homeautomation/internal/ntfy"
 	"homeautomation/internal/state"
 

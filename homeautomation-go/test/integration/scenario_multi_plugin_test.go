@@ -5,8 +5,8 @@ import (
 	"os"
 	"testing"
 
-	"homeautomation/internal/ha"
 	"homeautomation/internal/alert"
+	"homeautomation/internal/ha"
 	"homeautomation/internal/plugins/energy"
 	"homeautomation/internal/plugins/lighting"
 	"homeautomation/internal/plugins/statetracking"

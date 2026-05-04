@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"homeautomation/internal/ha"
 	"homeautomation/internal/alert"
+	"homeautomation/internal/ha"
 	"homeautomation/internal/state"
 
 	"go.uber.org/zap"

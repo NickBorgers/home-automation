@@ -4,9 +4,9 @@ import (
 	"testing"
 	"time"
 
+	"homeautomation/internal/alert"
 	"homeautomation/internal/clock"
 	"homeautomation/internal/ha"
-	"homeautomation/internal/alert"
 	"homeautomation/internal/ntfy"
 	"homeautomation/internal/plugins/environmental"
 	"homeautomation/internal/plugins/sensorhealth"
@@ -45,7 +45,7 @@ type sensorMonitoringEnv struct {
 	logger        *zap.Logger
 	sensorHealth  *sensorhealth.Manager
 	environmental *environmental.Manager
-	mockAlerter    *alert.MockAlerter
+	mockAlerter   *alert.MockAlerter
 	mockClock     *clock.MockClock
 }
 
@@ -64,7 +64,7 @@ func setupSensorMonitoringTest(t *testing.T) (*sensorMonitoringEnv, func()) {
 		client:        client,
 		manager:       manager,
 		logger:        logger,
-		mockAlerter:    mockAlerter,
+		mockAlerter:   mockAlerter,
 		mockClock:     mockClock,
 		sensorHealth:  sensorhealth.NewManagerWithClock(client, manager, logger, false, nil, mockAlerter, mockClock),
 		environmental: environmental.NewManagerWithClock(client, manager, logger, false, nil, mockAlerter, mockClock),
