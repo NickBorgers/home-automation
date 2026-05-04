@@ -599,7 +599,7 @@ The system includes a **ComputedStateRegistry** for managing derived state varia
 | Variable | Formula | Dependencies |
 |----------|---------|--------------|
 | `isAnyOwnerHome` | `isNickHome OR isCarolineHome` | isNickHome, isCarolineHome |
-| `isAnyoneHome` | `isAnyOwnerHome OR isAssistantHere` | isAnyOwnerHome, isAssistantHere |
+| `isAnyoneHome` | `isAnyOwnerHome OR isAssistantHere` (departure debounced 5 min) | isAnyOwnerHome, isAssistantHere |
 | `isAnyoneAsleep` | `isMasterAsleep OR isGuestAsleep` | isMasterAsleep, isGuestAsleep |
 | `isEveryoneAsleep` | `isMasterAsleep AND isGuestAsleep` | isMasterAsleep, isGuestAsleep |
 | `isAnyoneHomeAndAwake` | `(isAnyOwnerHome && !isAnyoneAsleep) \|\| isAssistantHere \|\| wakeSequenceLatch` | isAnyOwnerHome, isAnyoneAsleep, isAssistantHere, isWakeSequenceActive |

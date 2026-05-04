@@ -23,23 +23,31 @@ flowchart TD
         guest["isGuestAsleep"]
     end
 
-    subgraph Derived["Derived States"]
+    subgraph Presence["Presence Derived States"]
         anyOwner["isAnyOwnerHome<br/>= Nick OR Caroline"]
+        departureDebounce["Departure Debounce<br/>5 min (issue #995)"]
         anyone["isAnyoneHome<br/>= anyOwner OR Assistant"]
+    end
+
+    subgraph Sleep["Sleep Derived States"]
         anyAsleep["isAnyoneAsleep<br/>= Master OR Guest"]
         everyAsleep["isEveryoneAsleep<br/>= Master AND Guest"]
     end
 
     nick --> anyOwner
     caroline --> anyOwner
-    anyOwner --> anyone
-    assistant --> anyone
+    anyOwner -->|"arrival: immediate"| anyone
+    anyOwner -->|"departure"| departureDebounce
+    assistant -->|"arrival: immediate"| anyone
+    assistant -->|"departure"| departureDebounce
+    departureDebounce -->|"5 min elapsed,<br/>still departed"| anyone
     master --> anyAsleep
     guest --> anyAsleep
     master --> everyAsleep
     guest --> everyAsleep
 
     style anyOwner fill:#3498db,color:#fff
+    style departureDebounce fill:#e67e22,color:#fff
     style anyone fill:#27ae60,color:#fff
     style anyAsleep fill:#6c5ce7,color:#fff
     style everyAsleep fill:#1a1a2e,color:#fff
@@ -263,7 +271,7 @@ flowchart TD
 | Variable | Formula | Description |
 |----------|---------|-------------|
 | `isAnyOwnerHome` | Nick OR Caroline | Any owner present |
-| `isAnyoneHome` | anyOwner OR Assistant | Anyone present |
+| `isAnyoneHome` | anyOwner OR Assistant (departures debounced 5 min) | Anyone present |
 | `isAnyoneAsleep` | Master OR Guest | Someone asleep |
 | `isEveryoneAsleep` | Master AND Guest | Everyone asleep |
 | `didOwnerJustReturnHome` | (tracked) | Owner arrived recently |

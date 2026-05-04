@@ -130,6 +130,7 @@ func (m *Manager) Start() error {
 
 	// Create and start the derived state helper
 	m.helper = state.NewDerivedStateHelper(m.stateManager, m.logger)
+	m.helper.SetClock(m.clock)
 
 	// Wire up callback to update shadow state when derived states are computed
 	m.helper.SetUpdateCallback(func(anyOwnerHome, anyoneHome, anyoneAsleep, everyoneAsleep bool) {

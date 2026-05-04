@@ -1,6 +1,10 @@
 package state
 
 import (
+	"sync"
+
+	"homeautomation/internal/clock"
+
 	"go.uber.org/zap"
 )
 
@@ -13,10 +17,13 @@ type DerivedStatesCallback func(anyOwnerHome, anyoneHome, anyoneAsleep, everyone
 
 // DerivedStateHelper manages automatic computation of derived states
 type DerivedStateHelper struct {
-	manager  *Manager
-	logger   *zap.Logger
-	subs     []Subscription
-	onUpdate DerivedStatesCallback
+	manager                  *Manager
+	logger                   *zap.Logger
+	subs                     []Subscription
+	onUpdate                 DerivedStatesCallback
+	clock                    clock.Clock
+	anyoneHomeDepartureMu    sync.Mutex
+	anyoneHomeDepartureTimer clock.Timer
 }
 
 // NewDerivedStateHelper creates a new helper for managing derived states
@@ -25,7 +32,13 @@ func NewDerivedStateHelper(manager *Manager, logger *zap.Logger) *DerivedStateHe
 		manager: manager,
 		logger:  logger,
 		subs:    make([]Subscription, 0),
+		clock:   clock.NewRealClock(),
 	}
+}
+
+// SetClock sets the clock implementation for debounce timers.
+func (h *DerivedStateHelper) SetClock(c clock.Clock) {
+	h.clock = c
 }
 
 // SetUpdateCallback sets a callback that is invoked whenever derived states are computed.
@@ -75,6 +88,7 @@ func (h *DerivedStateHelper) Start() error {
 // Stop unsubscribes from all state changes
 func (h *DerivedStateHelper) Stop() {
 	h.logger.Info("Stopping derived state helper")
+	h.cancelAnyoneHomeDepartureDebounce()
 	for _, sub := range h.subs {
 		sub.Unsubscribe()
 	}
@@ -238,21 +252,82 @@ func (h *DerivedStateHelper) updateIsAnyoneHome() {
 
 	// Get current value to check if it changed
 	currentValue, _ := h.manager.GetBool("isAnyoneHome")
-	if currentValue == isAnyoneHome {
-		return // No change
+	if isAnyoneHome {
+		h.cancelAnyoneHomeDepartureDebounce()
+		if currentValue == isAnyoneHome {
+			return // No change
+		}
+		if err := h.manager.SetBool("isAnyoneHome", true); err != nil {
+			h.logger.Error("Failed to update isAnyoneHome", zap.Error(err))
+			return
+		}
+
+		h.logger.Info("Updated isAnyoneHome",
+			zap.Bool("isAnyOwnerHome", isAnyOwnerHome),
+			zap.Bool("isAssistantHere", isAssistantHere),
+			zap.Bool("isAnyoneHome", true))
+
+		// Notify callback with updated derived states
+		h.notifyCallback()
+		return
 	}
 
-	if err := h.manager.SetBool("isAnyoneHome", isAnyoneHome); err != nil {
+	if !currentValue {
+		return
+	}
+
+	h.anyoneHomeDepartureMu.Lock()
+	defer h.anyoneHomeDepartureMu.Unlock()
+
+	if h.anyoneHomeDepartureTimer != nil {
+		return
+	}
+	h.anyoneHomeDepartureTimer = h.clock.AfterFunc(AnyoneHomeDepartureDebounceDelay, func() {
+		h.finishAnyoneHomeDepartureDebounce()
+	})
+	h.logger.Info("Started isAnyoneHome departure debounce",
+		zap.Duration("delay", AnyoneHomeDepartureDebounceDelay))
+}
+
+func (h *DerivedStateHelper) cancelAnyoneHomeDepartureDebounce() {
+	h.anyoneHomeDepartureMu.Lock()
+	defer h.anyoneHomeDepartureMu.Unlock()
+
+	if h.anyoneHomeDepartureTimer == nil {
+		return
+	}
+	h.anyoneHomeDepartureTimer.Stop()
+	h.anyoneHomeDepartureTimer = nil
+	h.logger.Info("Canceled isAnyoneHome departure debounce")
+}
+
+func (h *DerivedStateHelper) finishAnyoneHomeDepartureDebounce() {
+	h.anyoneHomeDepartureMu.Lock()
+	h.anyoneHomeDepartureTimer = nil
+	h.anyoneHomeDepartureMu.Unlock()
+
+	isAnyOwnerHome, err1 := h.manager.GetBool("isAnyOwnerHome")
+	isAssistantHere, err2 := h.manager.GetBool("isAssistantHere")
+	if err1 != nil || err2 != nil {
+		h.logger.Error("Failed to get presence states after departure debounce",
+			zap.Error(err1),
+			zap.Error(err2))
+		return
+	}
+	if isAnyOwnerHome || isAssistantHere {
+		return
+	}
+
+	if err := h.manager.SetBool("isAnyoneHome", false); err != nil {
 		h.logger.Error("Failed to update isAnyoneHome", zap.Error(err))
 		return
 	}
 
-	h.logger.Info("Updated isAnyoneHome",
+	h.logger.Info("Updated isAnyoneHome after departure debounce",
 		zap.Bool("isAnyOwnerHome", isAnyOwnerHome),
 		zap.Bool("isAssistantHere", isAssistantHere),
-		zap.Bool("isAnyoneHome", isAnyoneHome))
+		zap.Bool("isAnyoneHome", false))
 
-	// Notify callback with updated derived states
 	h.notifyCallback()
 }
 

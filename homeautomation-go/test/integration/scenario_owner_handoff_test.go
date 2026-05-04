@@ -4,6 +4,8 @@ import (
 	"testing"
 	"time"
 
+	"homeautomation/internal/state"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -147,6 +149,11 @@ func TestScenario_OwnerHandoff_LockdownAllowedAfterGracePeriod(t *testing.T) {
 	t.Log("AND: Nick genuinely departs")
 	server.SetState("input_boolean.nick_home", "off", nil)
 	waitForBoolState(t, manager, "isNickHome", false, "isNickHome should be false after departure")
+	waitForProcessing(t, manager)
+
+	t.Log("AND: The departure debounce expires")
+	mockClock.AdvanceAndProcess(state.AnyoneHomeDepartureDebounceDelay)
+	waitForBoolState(t, manager, "isAnyoneHome", false, "isAnyoneHome should become false after departure debounce")
 
 	t.Log("THEN: Lockdown MUST be activated (grace period has expired)")
 	waitForServiceCallWithEntitySince(t, server, snapshot, "input_boolean", "turn_off", "input_boolean.lockdown",

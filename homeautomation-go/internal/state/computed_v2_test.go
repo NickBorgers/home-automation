@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"homeautomation/internal/clock"
 	"homeautomation/internal/ha"
 	"homeautomation/internal/testlogger"
 
@@ -128,6 +129,98 @@ func TestSetupComputedStateV2_ReactsToDependencyChanges(t *testing.T) {
 
 	isAnyoneHomeAndAwake, _ := manager.GetBool("isAnyoneHomeAndAwake")
 	assert.True(t, isAnyoneHomeAndAwake, "isAnyoneHomeAndAwake should be true after Nick arrives")
+}
+
+func TestSetupComputedStateV2_DebouncesAnyoneHomeDeparture(t *testing.T) {
+	t.Parallel()
+	logger := testlogger.New()
+	mockClient := ha.NewMockClient()
+	mockClock := clock.NewMockClock(time.Date(2026, 4, 15, 4, 10, 3, 0, time.UTC))
+
+	mockClient.SetState("input_boolean.nick_home", "on", map[string]interface{}{})
+	mockClient.SetState("input_boolean.caroline_home", "off", map[string]interface{}{})
+	mockClient.SetState("input_boolean.assistant_here", "off", map[string]interface{}{})
+	mockClient.SetState("input_boolean.any_owner_home", "on", map[string]interface{}{})
+	mockClient.SetState("input_boolean.anyone_home", "on", map[string]interface{}{})
+	mockClient.SetState("input_boolean.master_asleep", "off", map[string]interface{}{})
+	mockClient.SetState("input_boolean.guest_asleep", "off", map[string]interface{}{})
+	mockClient.SetState("input_boolean.anyone_asleep", "off", map[string]interface{}{})
+	mockClient.SetState("input_boolean.everyone_asleep", "off", map[string]interface{}{})
+	mockClient.SetState("input_boolean.anyone_home_and_awake", "on", map[string]interface{}{})
+	mockClient.SetState("input_boolean.wake_sequence_active", "off", map[string]interface{}{})
+	mockClient.Connect()
+
+	manager := NewManager(mockClient, logger, false)
+	require.NoError(t, manager.SyncFromHA())
+
+	registry := manager.GetComputedStateRegistry()
+	registry.clock = mockClock
+
+	require.NoError(t, manager.SetupComputedStateV2())
+	defer manager.StopComputedState()
+
+	value, err := manager.GetBool("isAnyoneHome")
+	require.NoError(t, err)
+	assert.True(t, value, "GIVEN: someone is home")
+
+	mockClient.SimulateStateChange("input_boolean.nick_home", "off")
+
+	value, err = manager.GetBool("isAnyoneHome")
+	require.NoError(t, err)
+	assert.True(t, value, "THEN: isAnyoneHome stays true during the departure debounce window")
+
+	mockClock.AdvanceAndProcess(AnyoneHomeDepartureDebounceDelay - time.Second)
+	value, err = manager.GetBool("isAnyoneHome")
+	require.NoError(t, err)
+	assert.True(t, value, "THEN: isAnyoneHome remains true before the full debounce delay elapses")
+
+	mockClock.AdvanceAndProcess(time.Second)
+	value, err = manager.GetBool("isAnyoneHome")
+	require.NoError(t, err)
+	assert.False(t, value, "THEN: isAnyoneHome emits false after the full debounce delay")
+}
+
+func TestSetupComputedStateV2_CancelsAnyoneHomeDepartureDebounceOnBounce(t *testing.T) {
+	t.Parallel()
+	logger := testlogger.New()
+	mockClient := ha.NewMockClient()
+	mockClock := clock.NewMockClock(time.Date(2026, 4, 15, 4, 10, 3, 0, time.UTC))
+
+	mockClient.SetState("input_boolean.nick_home", "on", map[string]interface{}{})
+	mockClient.SetState("input_boolean.caroline_home", "off", map[string]interface{}{})
+	mockClient.SetState("input_boolean.assistant_here", "off", map[string]interface{}{})
+	mockClient.SetState("input_boolean.any_owner_home", "on", map[string]interface{}{})
+	mockClient.SetState("input_boolean.anyone_home", "on", map[string]interface{}{})
+	mockClient.SetState("input_boolean.master_asleep", "off", map[string]interface{}{})
+	mockClient.SetState("input_boolean.guest_asleep", "off", map[string]interface{}{})
+	mockClient.SetState("input_boolean.anyone_asleep", "off", map[string]interface{}{})
+	mockClient.SetState("input_boolean.everyone_asleep", "off", map[string]interface{}{})
+	mockClient.SetState("input_boolean.anyone_home_and_awake", "on", map[string]interface{}{})
+	mockClient.SetState("input_boolean.wake_sequence_active", "off", map[string]interface{}{})
+	mockClient.Connect()
+
+	manager := NewManager(mockClient, logger, false)
+	require.NoError(t, manager.SyncFromHA())
+
+	registry := manager.GetComputedStateRegistry()
+	registry.clock = mockClock
+
+	require.NoError(t, manager.SetupComputedStateV2())
+	defer manager.StopComputedState()
+
+	mockClient.SimulateStateChange("input_boolean.nick_home", "off")
+	mockClock.AdvanceAndProcess(85 * time.Second)
+
+	value, err := manager.GetBool("isAnyoneHome")
+	require.NoError(t, err)
+	assert.True(t, value, "THEN: a short departure does not emit isAnyoneHome=false")
+
+	mockClient.SimulateStateChange("input_boolean.nick_home", "on")
+	mockClock.AdvanceAndProcess(AnyoneHomeDepartureDebounceDelay)
+
+	value, err = manager.GetBool("isAnyoneHome")
+	require.NoError(t, err)
+	assert.True(t, value, "THEN: returning during the window cancels the pending false emission")
 }
 
 func TestSetupComputedStateV2_WakeSequenceLatch(t *testing.T) {
