@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"homeautomation/internal/alert"
 	"homeautomation/internal/notify"
 	"homeautomation/internal/plugins/vacuum"
 	"homeautomation/internal/state"
@@ -73,7 +74,8 @@ func setupVacuumTest(t *testing.T, fixedTime time.Time) (*vacuumEnv, func()) {
 	notifyCfg := notify.DefaultConfig()
 	notifyCfg.SnapshotRestore = false
 	notifier := notify.NewManager(client, manager, notifyCfg, logger, false)
-	mgr := vacuum.NewManager(context.Background(), client, manager, notifier, cfg, logger, false, tp, nil)
+	alerter := alert.NewManager(nil, notifier, logger)
+	mgr := vacuum.NewManager(context.Background(), client, manager, alerter, cfg, logger, false, tp, nil)
 	mgr.SetRepeatCheckIntervalForTest(time.Hour) // park the background ticker; tests drive ticks explicitly
 	require.NoError(t, mgr.Start(), "vacuum plugin should start")
 

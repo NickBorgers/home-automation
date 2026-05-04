@@ -15,8 +15,10 @@ import (
 	"sync"
 	"time"
 
+	"homeautomation/internal/alert"
 	"homeautomation/internal/ha"
 	"homeautomation/internal/notify"
+	"homeautomation/internal/ntfy"
 	"homeautomation/internal/shadowstate"
 	"homeautomation/internal/state"
 	"homeautomation/pkg/plugin"
@@ -35,7 +37,7 @@ type Manager struct {
 	ctx          context.Context
 	haClient     ha.HAClient
 	stateManager *state.Manager
-	notifier     notify.Notifier
+	alerter      alert.Alerter
 	logger       *zap.Logger
 	readOnly     bool
 	timeProvider plugin.TimeProvider
@@ -66,7 +68,7 @@ func NewManager(
 	ctx context.Context,
 	haClient ha.HAClient,
 	stateManager *state.Manager,
-	notifier notify.Notifier,
+	alerter alert.Alerter,
 	cfg *Config,
 	logger *zap.Logger,
 	readOnly bool,
@@ -81,7 +83,7 @@ func NewManager(
 		ctx:                 ctx,
 		haClient:            haClient,
 		stateManager:        stateManager,
-		notifier:            notifier,
+		alerter:             alerter,
 		logger:              logger.Named("vacuum"),
 		readOnly:            readOnly,
 		timeProvider:        timeProvider,
@@ -196,17 +198,27 @@ func (m *Manager) handleErrorChange(entityID string, oldState, newState *ha.Stat
 	m.maybeAnnounce(value)
 }
 
-// maybeAnnounce sends a TTS announcement for errorDesc as a Deferable
-// announcement. The notifier suppresses delivery while master is asleep and
-// returns notify.ErrSuppressedAsleep; we update lastAnnouncedAt regardless so
-// the 2h repeat cadence applies uniformly to suppressed and spoken events.
+// maybeAnnounce sends an alert (TTS + push) for errorDesc as a Deferable
+// announcement. When the alerter returns notify.ErrSuppressedAsleep (possible
+// with MockAlerter in tests), we track suppression in shadow state. In
+// production the real alerter always returns nil.
 func (m *Manager) maybeAnnounce(errorDesc string) {
 	now := m.timeProvider.Now()
 	message := fmt.Sprintf("%s: %s", m.cfg.Vacuum.Announcement.MessagePrefix, errorDesc)
 
-	err := m.notifier.Announce(m.ctx, message,
-		notify.WithSpeakers(m.cfg.Vacuum.Announcement.Speakers),
-		notify.WithUrgency(notify.UrgencyDeferable))
+	if m.alerter == nil {
+		m.logger.Warn("alerter not configured, skipping vacuum announcement")
+		return
+	}
+
+	err := m.alerter.Send(m.ctx, alert.Alert{
+		Title:    "Vacuum Needs Attention",
+		Body:     message,
+		Urgency:  notify.UrgencyDeferable,
+		Tags:     []string{"robot"},
+		Priority: ntfy.PriorityDefault,
+		Speakers: m.cfg.Vacuum.Announcement.Speakers,
+	})
 	switch {
 	case errors.Is(err, notify.ErrSuppressedAsleep):
 		m.logger.Info("Vacuum error TTS suppressed (master asleep)",

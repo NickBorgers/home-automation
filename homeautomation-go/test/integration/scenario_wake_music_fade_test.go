@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"homeautomation/internal/config"
-	"homeautomation/internal/notify"
+	"homeautomation/internal/alert"
 	"homeautomation/internal/plugins/music"
 	"homeautomation/internal/plugins/sleephygiene"
 	"homeautomation/internal/plugins/statetracking"
@@ -66,7 +66,7 @@ func setupWakeMusicFadeTest(t *testing.T) (*wakeMusicFadeEnv, func()) {
 		server:        server,
 		logger:        logger,
 		stateManager:  stateManager,
-		stateTracking: statetracking.NewManager(context.Background(), client, stateManager, logger, false, nil, "", &notify.MockNotifier{}),
+		stateTracking: statetracking.NewManager(context.Background(), client, stateManager, logger, false, nil, "", &alert.MockAlerter{}),
 		music:         music.NewManager(context.Background(), client, stateManager, musicConfig, logger, false, nil, nil),
 		sleepHygiene:  sleephygiene.NewManager(context.Background(), client, stateManager, configLoader, logger, false, nil, nil),
 	}

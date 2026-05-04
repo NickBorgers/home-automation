@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"homeautomation/internal/alert"
 	"homeautomation/internal/ha"
 	"homeautomation/internal/notify"
 	"homeautomation/internal/ntfy"
@@ -44,8 +45,7 @@ type Manager struct {
 	stateManager *state.Manager
 	logger       *zap.Logger
 	readOnly     bool
-	ntfyClient   ntfy.Notifier
-	notifier     notify.Notifier
+	alerter      alert.Alerter
 
 	// Shadow state tracking
 	shadowTracker *shadowstate.EVChargerTracker
@@ -57,7 +57,7 @@ type Manager struct {
 }
 
 // NewManager creates a new EV charger safety manager
-func NewManager(ctx context.Context, haClient ha.HAClient, stateManager *state.Manager, logger *zap.Logger, readOnly bool, registry *shadowstate.SubscriptionRegistry, ntfyClient ntfy.Notifier, notifier notify.Notifier) *Manager {
+func NewManager(ctx context.Context, haClient ha.HAClient, stateManager *state.Manager, logger *zap.Logger, readOnly bool, registry *shadowstate.SubscriptionRegistry, alerter alert.Alerter) *Manager {
 	shadowTracker := shadowstate.NewEVChargerTracker()
 
 	return &Manager{
@@ -66,8 +66,7 @@ func NewManager(ctx context.Context, haClient ha.HAClient, stateManager *state.M
 		stateManager:  stateManager,
 		logger:        logger.Named("evcharger"),
 		readOnly:      readOnly,
-		ntfyClient:    ntfyClient,
-		notifier:      notifier,
+		alerter:       alerter,
 		shadowTracker: shadowTracker,
 		subHelper:     shadowstate.NewSubscriptionHelper(haClient, stateManager, registry, shadowTracker, "evcharger", logger.Named("evcharger")),
 	}
@@ -301,46 +300,31 @@ func (m *Manager) sendAlertNotifications(conditionType, sensor string) {
 	m.lastNotificationTime = time.Now()
 	m.mu.Unlock()
 
-	message := fmt.Sprintf("EV Charger %s detected! Plug has been automatically turned off for safety.", conditionType)
-
-	// Send ntfy notification (urgent priority)
-	if m.ntfyClient != nil {
-		if err := m.ntfyClient.Send(&ntfy.Message{
-			Title:    "EV Charger Safety Alert",
-			Body:     message,
-			Priority: ntfy.PriorityUrgent,
-			Tags:     []string{"rotating_light", "electric_plug", "warning"},
-		}); err != nil {
-			m.logger.Error("Failed to send ntfy notification", zap.Error(err))
-		} else {
-			m.logger.Info("Safety alert notification sent", zap.String("condition", conditionType))
-			m.shadowTracker.RecordNotification(conditionType, message)
-		}
-	} else {
-		m.logger.Warn("ntfy client not configured, cannot send safety notification")
-	}
-
-	// Send TTS announcement
-	m.sendTTSAnnouncement(fmt.Sprintf("Warning: EV charger %s detected. The charger has been automatically turned off.", conditionType))
-}
-
-// sendTTSAnnouncement sends an urgent verbal safety announcement.
-func (m *Manager) sendTTSAnnouncement(message string) {
-	// Intentionally excludes kids_bathroom and other common-area speakers —
-	// EV charging alerts are adult safety concerns, not whole-house announcements.
+	// Intentionally excludes kids_bathroom — EV charging alerts are adult safety concerns.
 	speakers := []string{
 		"media_player.bedroom",
 		"media_player.kitchen",
 		"media_player.dining_room",
 	}
 
-	if err := m.notifier.Announce(m.ctx, message,
-		notify.WithSpeakers(speakers),
-		notify.WithUrgency(notify.UrgencyUrgent),
-	); err != nil {
-		m.logger.Error("Failed to send EV charger announcement", zap.Error(err))
-		return
+	message := fmt.Sprintf("Warning: EV charger %s detected. The charger has been automatically turned off.", conditionType)
+
+	if m.alerter != nil {
+		if err := m.alerter.Send(m.ctx, alert.Alert{
+			Title:    "EV Charger Safety Alert",
+			Body:     message,
+			Urgency:  notify.UrgencyUrgent,
+			Tags:     []string{"rotating_light", "electric_plug", "warning"},
+			Speakers: speakers,
+			Priority: ntfy.PriorityUrgent,
+		}); err != nil {
+			m.logger.Error("Failed to send alert notification", zap.String("condition", conditionType), zap.Error(err))
+		} else {
+			m.logger.Info("Safety alert notification sent", zap.String("condition", conditionType))
+			m.shadowTracker.RecordNotification(conditionType, message)
+			m.shadowTracker.RecordTTSAnnouncement()
+		}
+	} else {
+		m.logger.Warn("alerter not configured, cannot send safety notification")
 	}
-	m.logger.Info("EV charger announcement sent", zap.String("message", message))
-	m.shadowTracker.RecordTTSAnnouncement()
 }

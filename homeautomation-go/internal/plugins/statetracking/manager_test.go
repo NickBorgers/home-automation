@@ -10,7 +10,7 @@ import (
 
 	"homeautomation/internal/clock"
 	"homeautomation/internal/ha"
-	"homeautomation/internal/notify"
+	"homeautomation/internal/alert"
 	"homeautomation/internal/state"
 
 	"go.uber.org/zap"
@@ -63,7 +63,7 @@ func TestStateTrackingManager_IsAnyOwnerHome(t *testing.T) {
 				t.Fatalf("Failed to set isCarolineHome: %v", err)
 			}
 
-			manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil, "", &notify.MockNotifier{})
+			manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil, "", &alert.MockAlerter{})
 			if err := manager.Start(); err != nil {
 				t.Fatalf("Failed to start manager: %v", err)
 			}
@@ -150,7 +150,7 @@ func TestStateTrackingManager_IsAnyoneHome(t *testing.T) {
 				t.Fatalf("Failed to set isAssistantHere: %v", err)
 			}
 
-			manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil, "", &notify.MockNotifier{})
+			manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil, "", &alert.MockAlerter{})
 			if err := manager.Start(); err != nil {
 				t.Fatalf("Failed to start manager: %v", err)
 			}
@@ -224,7 +224,7 @@ func TestStateTrackingManager_SleepDerivedStates(t *testing.T) {
 				t.Fatalf("Failed to set isGuestAsleep: %v", err)
 			}
 
-			manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil, "", &notify.MockNotifier{})
+			manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil, "", &alert.MockAlerter{})
 			if err := manager.Start(); err != nil {
 				t.Fatalf("Failed to start manager: %v", err)
 			}
@@ -273,7 +273,7 @@ func TestStateTrackingManager_DynamicUpdates(t *testing.T) {
 		t.Fatalf("Failed to set isAssistantHere: %v", err)
 	}
 
-	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil, "", &notify.MockNotifier{})
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil, "", &alert.MockAlerter{})
 	if err := manager.Start(); err != nil {
 		t.Fatalf("Failed to start manager: %v", err)
 	}
@@ -335,7 +335,7 @@ func TestStateTrackingManager_SleepDynamicUpdates(t *testing.T) {
 		t.Fatalf("Failed to set isGuestAsleep: %v", err)
 	}
 
-	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil, "", &notify.MockNotifier{})
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil, "", &alert.MockAlerter{})
 	if err := manager.Start(); err != nil {
 		t.Fatalf("Failed to start manager: %v", err)
 	}
@@ -395,7 +395,7 @@ func TestStateTrackingManager_StopCleansUpSubscriptions(t *testing.T) {
 	if err := stateMgr.SetBool("isNickHome", false); err != nil {
 		t.Fatalf("Failed to set isNickHome: %v", err)
 	}
-	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil, "", &notify.MockNotifier{})
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil, "", &alert.MockAlerter{})
 	if err := manager.Start(); err != nil {
 		t.Fatalf("Failed to start manager: %v", err)
 	}
@@ -436,7 +436,7 @@ func TestStateTrackingManager_GuestAsleepAutoSync_NoGuests(t *testing.T) {
 	if err := stateMgr.SetBool("isGuestAsleep", false); err != nil {
 		t.Fatalf("Failed to set isGuestAsleep: %v", err)
 	}
-	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil, "", &notify.MockNotifier{})
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil, "", &alert.MockAlerter{})
 	if err := manager.Start(); err != nil {
 		t.Fatalf("Failed to start manager: %v", err)
 	}
@@ -485,7 +485,7 @@ func TestStateTrackingManager_GuestAsleepAutoSync_WithGuests(t *testing.T) {
 	if err := stateMgr.SetBool("isGuestAsleep", true); err != nil {
 		t.Fatalf("Failed to set isGuestAsleep: %v", err)
 	}
-	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil, "", &notify.MockNotifier{})
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil, "", &alert.MockAlerter{})
 	if err := manager.Start(); err != nil {
 		t.Fatalf("Failed to start manager: %v", err)
 	}
@@ -530,7 +530,7 @@ func TestStateTrackingManager_GuestAsleepAutoSync_GuestsLeave(t *testing.T) {
 	if err := stateMgr.SetBool("isGuestAsleep", false); err != nil {
 		t.Fatalf("Failed to set isGuestAsleep: %v", err)
 	}
-	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil, "", &notify.MockNotifier{})
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil, "", &alert.MockAlerter{})
 	if err := manager.Start(); err != nil {
 		t.Fatalf("Failed to start manager: %v", err)
 	}
@@ -578,7 +578,7 @@ func TestStateTrackingManager_GuestAsleepAutoSync_InitialSync(t *testing.T) {
 		t.Fatalf("Failed to set isGuestAsleep: %v", err)
 	}
 	// Start manager - should auto-sync immediately
-	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil, "", &notify.MockNotifier{})
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil, "", &alert.MockAlerter{})
 	if err := manager.Start(); err != nil {
 		t.Fatalf("Failed to start manager: %v", err)
 	}
@@ -610,7 +610,7 @@ func TestStateTrackingManager_Reset(t *testing.T) {
 	if err := stateMgr.SetBool("isCarolineHome", false); err != nil {
 		t.Fatalf("Failed to set isCarolineHome: %v", err)
 	}
-	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil, "", &notify.MockNotifier{})
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil, "", &alert.MockAlerter{})
 	if err := manager.Start(); err != nil {
 		t.Fatalf("Failed to start manager: %v", err)
 	}
@@ -703,8 +703,8 @@ func TestStateTrackingManager_ArrivalAnnouncements(t *testing.T) {
 
 			tt.setupState(stateMgr)
 
-			mockNotifier := &notify.MockNotifier{}
-			manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil, "", mockNotifier)
+			mockAlerter := &alert.MockAlerter{}
+			manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil, "", mockAlerter)
 			if err := manager.Start(); err != nil {
 				t.Fatalf("Failed to start manager: %v", err)
 			}
@@ -717,14 +717,14 @@ func TestStateTrackingManager_ArrivalAnnouncements(t *testing.T) {
 			// Give the async handler a moment to process
 			time.Sleep(50 * time.Millisecond)
 
-			calls := mockNotifier.Calls()
+			calls := mockAlerter.Calls()
 			if len(calls) == 0 {
 				t.Fatal("Expected announcement via notifier, but no calls were made")
 			}
 
 			ann := calls[0]
-			if ann.Message != tt.expectedMessage {
-				t.Errorf("Expected message='%s', got %q", tt.expectedMessage, ann.Message)
+			if ann.Body != tt.expectedMessage {
+				t.Errorf("Expected message='%s', got %q", tt.expectedMessage, ann.Body)
 			}
 
 			if len(ann.Speakers) != len(tt.expectedPlayers) {
@@ -794,8 +794,8 @@ func TestStateTrackingManager_NoAnnouncement(t *testing.T) {
 
 			tt.setupState(stateMgr)
 
-			mockNotifier := &notify.MockNotifier{}
-			manager := NewManager(context.Background(), mockHA, stateMgr, logger, tt.readOnly, nil, "", mockNotifier)
+			mockAlerter := &alert.MockAlerter{}
+			manager := NewManager(context.Background(), mockHA, stateMgr, logger, tt.readOnly, nil, "", mockAlerter)
 			if err := manager.Start(); err != nil {
 				t.Fatalf("Failed to start manager: %v", err)
 			}
@@ -806,7 +806,7 @@ func TestStateTrackingManager_NoAnnouncement(t *testing.T) {
 			// Give the async handler a moment to process
 			time.Sleep(50 * time.Millisecond)
 
-			if calls := mockNotifier.Calls(); len(calls) > 0 {
+			if calls := mockAlerter.Calls(); len(calls) > 0 {
 				t.Errorf("Expected no announcement, but got %d call(s): %+v", len(calls), calls)
 			}
 		})
@@ -838,7 +838,7 @@ func TestStateTrackingManager_ShadowState_DerivedStatesUpdated(t *testing.T) {
 	}
 
 	// Create and start manager
-	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil, "", &notify.MockNotifier{})
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil, "", &alert.MockAlerter{})
 	if err := manager.Start(); err != nil {
 		t.Fatalf("Failed to start manager: %v", err)
 	}
@@ -882,7 +882,7 @@ func TestStateTrackingManager_ShadowState_DerivedStatesUpdateOnChange(t *testing
 	}
 
 	// Create and start manager
-	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil, "", &notify.MockNotifier{})
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil, "", &alert.MockAlerter{})
 	if err := manager.Start(); err != nil {
 		t.Fatalf("Failed to start manager: %v", err)
 	}
@@ -973,7 +973,7 @@ func TestStateTrackingManager_NearHomeDetection(t *testing.T) {
 				t.Fatalf("Failed to set didOwnerJustReturnHome: %v", err)
 			}
 
-			manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil, "", &notify.MockNotifier{})
+			manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil, "", &alert.MockAlerter{})
 			if err := manager.Start(); err != nil {
 				t.Fatalf("Failed to start manager: %v", err)
 			}
@@ -1064,7 +1064,7 @@ func TestStateTrackingManager_NearHomeDepartureCooldown(t *testing.T) {
 				t.Fatalf("Failed to set didOwnerJustReturnHome: %v", err)
 			}
 
-			manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil, "", &notify.MockNotifier{})
+			manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil, "", &alert.MockAlerter{})
 			manager.SetClock(mockClock)
 			if err := manager.Start(); err != nil {
 				t.Fatalf("Failed to start manager: %v", err)
@@ -1193,8 +1193,8 @@ func TestStateTrackingManager_ArrivalDebounce(t *testing.T) {
 				t.Fatalf("Failed to set didOwnerJustReturnHome: %v", err)
 			}
 
-			mockNotifier := &notify.MockNotifier{}
-			manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil, "", mockNotifier)
+			mockAlerter := &alert.MockAlerter{}
+			manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil, "", mockAlerter)
 			manager.SetClock(mockClock)
 			if err := manager.Start(); err != nil {
 				t.Fatalf("Failed to start manager: %v", err)
@@ -1212,7 +1212,7 @@ func TestStateTrackingManager_ArrivalDebounce(t *testing.T) {
 			mockClock.AdvanceAndProcess(tt.timeSinceDepart)
 
 			// Snapshot announcement count before re-arrival
-			beforeReArrival := len(mockNotifier.Calls())
+			beforeReArrival := len(mockAlerter.Calls())
 
 			// Simulate re-arrival (off -> on)
 			mockHA.SetState(tt.homeEntityID, "off", nil)
@@ -1221,7 +1221,7 @@ func TestStateTrackingManager_ArrivalDebounce(t *testing.T) {
 			// Give the async handler a moment to process
 			time.Sleep(50 * time.Millisecond)
 
-			ttsCalled := len(mockNotifier.Calls()) > beforeReArrival
+			ttsCalled := len(mockAlerter.Calls()) > beforeReArrival
 			if ttsCalled != tt.expectTTS {
 				t.Errorf("Expected TTS called=%v, got %v (timeSinceDepart=%v)",
 					tt.expectTTS, ttsCalled, tt.timeSinceDepart)
@@ -1260,8 +1260,8 @@ func TestStateTrackingManager_ArrivalDebounce_FirstArrivalNotSuppressed(t *testi
 		t.Fatalf("Failed to set didOwnerJustReturnHome: %v", err)
 	}
 
-	mockNotifier := &notify.MockNotifier{}
-	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil, "", mockNotifier)
+	mockAlerter := &alert.MockAlerter{}
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil, "", mockAlerter)
 	if err := manager.Start(); err != nil {
 		t.Fatalf("Failed to start manager: %v", err)
 	}
@@ -1274,7 +1274,7 @@ func TestStateTrackingManager_ArrivalDebounce_FirstArrivalNotSuppressed(t *testi
 	time.Sleep(50 * time.Millisecond)
 
 	// Should NOT be suppressed — first arrival
-	if len(mockNotifier.Calls()) == 0 {
+	if len(mockAlerter.Calls()) == 0 {
 		t.Error("Expected announcement for first arrival (no prior departure), but none was made")
 	}
 
@@ -1385,7 +1385,7 @@ func TestGetGroupCoordinator(t *testing.T) {
 			logger := zap.NewNop()
 			mockHA := ha.NewMockClient()
 			stateMgr := state.NewManager(mockHA, logger, false)
-			manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil, serverURL, &notify.MockNotifier{})
+			manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil, serverURL, &alert.MockAlerter{})
 
 			got := manager.getGroupCoordinator(tt.speakerEntity)
 			if got != tt.wantCoord {
@@ -1399,7 +1399,7 @@ func TestGetGroupCoordinator_NoSocoURL(t *testing.T) {
 	logger := zap.NewNop()
 	mockHA := ha.NewMockClient()
 	stateMgr := state.NewManager(mockHA, logger, false)
-	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil, "", &notify.MockNotifier{})
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil, "", &alert.MockAlerter{})
 
 	got := manager.getGroupCoordinator("media_player.kitchen")
 	if got != "" {
@@ -1420,8 +1420,8 @@ func TestAnnounceArrivalDirect_UsesGroupCoordinator(t *testing.T) {
 	logger := zap.NewNop()
 	mockHA := ha.NewMockClient()
 	stateMgr := state.NewManager(mockHA, logger, false)
-	mockNotifier := &notify.MockNotifier{}
-	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil, server.URL, mockNotifier)
+	mockAlerter := &alert.MockAlerter{}
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil, server.URL, mockAlerter)
 
 	manager.announceArrivalDirect("Nick", "Nick is home", []string{
 		"media_player.kitchen",
@@ -1429,7 +1429,7 @@ func TestAnnounceArrivalDirect_UsesGroupCoordinator(t *testing.T) {
 		"media_player.soundbar",
 	})
 
-	calls := mockNotifier.Calls()
+	calls := mockAlerter.Calls()
 	if len(calls) != 1 {
 		t.Fatalf("Expected exactly 1 announcement, got %d", len(calls))
 	}
@@ -1442,9 +1442,9 @@ func TestAnnounceArrivalDirect_FallsBackWhenSocoDown(t *testing.T) {
 	logger := zap.NewNop()
 	mockHA := ha.NewMockClient()
 	stateMgr := state.NewManager(mockHA, logger, false)
-	mockNotifier := &notify.MockNotifier{}
+	mockAlerter := &alert.MockAlerter{}
 	// Use unreachable URL to simulate SoCo being down
-	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil, "http://127.0.0.1:1", mockNotifier)
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil, "http://127.0.0.1:1", mockAlerter)
 
 	defaultSpeakers := []string{
 		"media_player.kitchen",
@@ -1452,7 +1452,7 @@ func TestAnnounceArrivalDirect_FallsBackWhenSocoDown(t *testing.T) {
 	}
 	manager.announceArrivalDirect("Nick", "Nick is home", defaultSpeakers)
 
-	calls := mockNotifier.Calls()
+	calls := mockAlerter.Calls()
 	if len(calls) != 1 {
 		t.Fatalf("Expected exactly 1 announcement even when SoCo is down, got %d", len(calls))
 	}

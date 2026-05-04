@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"homeautomation/internal/ntfy"
+	"homeautomation/internal/alert"
 	"homeautomation/pkg/testutil"
 
 	"github.com/stretchr/testify/assert"
@@ -620,8 +620,8 @@ func TestThermalBattery_NtfyNotificationOnActivation(t *testing.T) {
 	// Verify ntfy notification is sent when thermal battery activates with forecast
 	env := setupHeatCoolEnvWithForecast(t, "", 45.0, 25.0)
 
-	mockNtfy := ntfy.NewMockClient()
-	ls := NewManager(context.Background(), env.MockHA, env.StateMgr, env.Logger, false, nil, mockNtfy)
+	mockAlerter := &alert.MockAlerter{}
+	ls := NewManager(context.Background(), env.MockHA, env.StateMgr, env.Logger, false, nil, mockAlerter)
 	err := ls.Start()
 	require.NoError(t, err)
 	defer ls.Stop()
@@ -634,12 +634,12 @@ func TestThermalBattery_NtfyNotificationOnActivation(t *testing.T) {
 	assert.True(t, ls.IsThermalBatteryActive())
 
 	// Verify ntfy notification was sent with forecast info
-	ntfyCalls := mockNtfy.GetCalls()
-	require.Len(t, ntfyCalls, 1, "Should have sent exactly one ntfy notification")
-	assert.Equal(t, "Thermal Battery Activated", ntfyCalls[0].Title)
-	assert.Contains(t, ntfyCalls[0].Body, "UP (pre-heat)")
-	assert.Contains(t, ntfyCalls[0].Body, "forecast high: 45")
-	assert.Contains(t, ntfyCalls[0].Body, "low: 25")
+	alertCalls := mockAlerter.Calls()
+	require.Len(t, alertCalls, 1, "Should have sent exactly one ntfy notification")
+	assert.Equal(t, "Thermal Battery Activated", alertCalls[0].Title)
+	assert.Contains(t, alertCalls[0].Body, "UP (pre-heat)")
+	assert.Contains(t, alertCalls[0].Body, "forecast high: 45")
+	assert.Contains(t, alertCalls[0].Body, "low: 25")
 }
 
 func TestThermalBattery_NtfyNotificationOnActivation_HourlyPath(t *testing.T) {
@@ -650,8 +650,8 @@ func TestThermalBattery_NtfyNotificationOnActivation_HourlyPath(t *testing.T) {
 	stressTime := time.Now().Add(8 * time.Hour)
 	env := setupHeatCoolEnvWithHourlyForecast(t, 37.0, stressTime, 6.0) // 6 kWh < threshold → activates
 
-	mockNtfy := ntfy.NewMockClient()
-	ls := NewManager(context.Background(), env.MockHA, env.StateMgr, env.Logger, false, nil, mockNtfy)
+	mockAlerter := &alert.MockAlerter{}
+	ls := NewManager(context.Background(), env.MockHA, env.StateMgr, env.Logger, false, nil, mockAlerter)
 	ls.SetThermalBatterySolarTailThresholdForTesting(15.0)
 	require.NoError(t, ls.Start())
 	defer ls.Stop()
@@ -659,15 +659,15 @@ func TestThermalBattery_NtfyNotificationOnActivation_HourlyPath(t *testing.T) {
 	require.NoError(t, env.StateMgr.SetString("currentEnergyLevel", "white"))
 	assert.True(t, ls.IsThermalBatteryActive(), "Thermal battery should activate when solar tail is reached")
 
-	ntfyCalls := mockNtfy.GetCalls()
-	require.Len(t, ntfyCalls, 1, "Should have sent exactly one ntfy notification")
-	assert.Equal(t, "Thermal Battery Activated", ntfyCalls[0].Title)
-	assert.Contains(t, ntfyCalls[0].Body, "UP (pre-heat)")
-	assert.Contains(t, ntfyCalls[0].Body, "stress at")
-	assert.Contains(t, ntfyCalls[0].Body, stressTime.Local().Format("3:04 PM"))
-	assert.Contains(t, ntfyCalls[0].Body, "37")
+	alertCalls := mockAlerter.Calls()
+	require.Len(t, alertCalls, 1, "Should have sent exactly one ntfy notification")
+	assert.Equal(t, "Thermal Battery Activated", alertCalls[0].Title)
+	assert.Contains(t, alertCalls[0].Body, "UP (pre-heat)")
+	assert.Contains(t, alertCalls[0].Body, "stress at")
+	assert.Contains(t, alertCalls[0].Body, stressTime.Local().Format("3:04 PM"))
+	assert.Contains(t, alertCalls[0].Body, "37")
 	// Must NOT show zeroed-out outdoor temp (the bug)
-	assert.NotContains(t, ntfyCalls[0].Body, "outdoor: 0.0°F")
+	assert.NotContains(t, alertCalls[0].Body, "outdoor: 0.0°F")
 }
 
 func TestThermalBattery_SkipsWhenThermostatOff(t *testing.T) {

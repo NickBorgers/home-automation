@@ -6,9 +6,11 @@ import (
 	"sync"
 	"time"
 
+	"homeautomation/internal/alert"
 	"homeautomation/internal/clock"
 	"homeautomation/internal/ha"
 	"homeautomation/internal/notify"
+	"homeautomation/internal/ntfy"
 	"homeautomation/internal/shadowstate"
 	"homeautomation/internal/state"
 
@@ -43,7 +45,7 @@ type Manager struct {
 	ctx           context.Context
 	haClient      ha.HAClient
 	stateManager  *state.Manager
-	notifier      notify.Notifier
+	alerter       alert.Alerter
 	logger        *zap.Logger
 	readOnly      bool
 	clock         clock.Clock
@@ -64,14 +66,14 @@ type Manager struct {
 }
 
 // NewManager creates a new Security manager
-func NewManager(ctx context.Context, haClient ha.HAClient, stateManager *state.Manager, notifier notify.Notifier, logger *zap.Logger, readOnly bool, registry *shadowstate.SubscriptionRegistry) *Manager {
+func NewManager(ctx context.Context, haClient ha.HAClient, stateManager *state.Manager, alerter alert.Alerter, logger *zap.Logger, readOnly bool, registry *shadowstate.SubscriptionRegistry) *Manager {
 	shadowTracker := shadowstate.NewSecurityTracker()
 
 	return &Manager{
 		ctx:           ctx,
 		haClient:      haClient,
 		stateManager:  stateManager,
-		notifier:      notifier,
+		alerter:       alerter,
 		logger:        logger.Named("security"),
 		readOnly:      readOnly,
 		clock:         clock.NewRealClock(),
@@ -417,21 +419,28 @@ func (m *Manager) handleVehicleArriving(entity string, oldState, newState *ha.St
 	}
 }
 
-// sendTTSNotification sends an urgent verbal announcement via the shared
-// notifier. Urgent announcements ignore the asleep volume reduction so they
-// remain audible at night (doorbell, vehicle arrival, intruder alerts).
+// sendTTSNotification sends an urgent TTS + ntfy alert via the shared alerter.
+// Urgent announcements ignore the asleep volume reduction so they remain
+// audible at night (doorbell, vehicle arrival, intruder alerts).
 func (m *Manager) sendTTSNotification(message string) {
+	if m.alerter == nil {
+		m.logger.Warn("alerter not configured, skipping security announcement")
+		return
+	}
 	speakers := []string{
 		"media_player.bedroom",
 		"media_player.kitchen",
 		"media_player.dining_room",
 		"media_player.kids_bathroom",
 	}
-
-	if err := m.notifier.Announce(m.ctx, message,
-		notify.WithSpeakers(speakers),
-		notify.WithUrgency(notify.UrgencyUrgent),
-	); err != nil {
+	if err := m.alerter.Send(m.ctx, alert.Alert{
+		Title:    "Security Alert",
+		Body:     message,
+		Urgency:  notify.UrgencyUrgent,
+		Tags:     []string{"rotating_light"},
+		Priority: ntfy.PriorityUrgent,
+		Speakers: speakers,
+	}); err != nil {
 		m.logger.Error("Failed to send security announcement", zap.Error(err), zap.String("message", message))
 		return
 	}

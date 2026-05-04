@@ -6,8 +6,8 @@ import (
 	"sync"
 	"time"
 
+	"homeautomation/internal/alert"
 	"homeautomation/internal/ha"
-	"homeautomation/internal/ntfy"
 	"homeautomation/internal/shadowstate"
 	"homeautomation/internal/state"
 
@@ -150,8 +150,8 @@ type Manager struct {
 	hourlyForecastAt       time.Time
 	hourlyForecastFailedAt time.Time
 
-	// Push notifications
-	ntfyClient ntfy.Notifier
+	// Push notifications and TTS announcements
+	alerter alert.Alerter
 
 	// Test hooks
 	deferredActionDoneCallback     func()
@@ -159,7 +159,7 @@ type Manager struct {
 }
 
 // NewManager creates a new Load Shedding manager
-func NewManager(ctx context.Context, haClient ha.HAClient, stateManager *state.Manager, logger *zap.Logger, readOnly bool, registry *shadowstate.SubscriptionRegistry, ntfyClient ntfy.Notifier) *Manager {
+func NewManager(ctx context.Context, haClient ha.HAClient, stateManager *state.Manager, logger *zap.Logger, readOnly bool, registry *shadowstate.SubscriptionRegistry, alerter alert.Alerter) *Manager {
 	shadowTracker := shadowstate.NewLoadSheddingTracker()
 
 	return &Manager{
@@ -173,7 +173,7 @@ func NewManager(ctx context.Context, haClient ha.HAClient, stateManager *state.M
 		subHelper:                             shadowstate.NewSubscriptionHelper(haClient, stateManager, registry, shadowTracker, "loadshedding", logger.Named("loadshedding")),
 		rateLimitInterval:                     minActionInterval,
 		deferredStopChan:                      make(chan struct{}),
-		ntfyClient:                            ntfyClient,
+		alerter:                               alerter,
 		thermalBatteryPollInt:                 thermalBatteryDefaultPollInt,
 		thermalBatteryHoldRevertDelay:         thermalBatteryDefaultHoldRevertDelay,
 		thermalBatteryMaxStepWaitDur:          thermalBatteryMaxStepWait,

@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"time"
 
+	"homeautomation/internal/alert"
+	"homeautomation/internal/notify"
 	"homeautomation/internal/ntfy"
 	"homeautomation/internal/shadowstate"
 
@@ -691,8 +693,8 @@ func (m *Manager) activateThermalBattery() {
 	m.shadowTracker.RecordThermalBatteryActivation(thermalBatteryStepSize, savedSetpoints)
 	m.shadowTracker.RecordThermalBatteryStepProgress(1, totalSteps, thermalBatteryStepSize)
 
-	// Send push notification
-	if m.ntfyClient != nil && directionLabel != "" {
+	// Send push and TTS notification
+	if m.alerter != nil && directionLabel != "" {
 		body := fmt.Sprintf("Shifting HVAC %s by %.0f°F (step 1/%d)", directionLabel, thermalBatteryOffset, totalSteps)
 		if hasHeatCool && usedHourlyForecast {
 			tempLabel := "low"
@@ -707,13 +709,14 @@ func (m *Manager) activateThermalBattery() {
 		} else if hasHeatCool {
 			body = fmt.Sprintf("Shifting HVAC %s by %.0f°F (step 1/%d, outdoor: %.1f°F)", directionLabel, thermalBatteryOffset, totalSteps, outdoorTemp)
 		}
-		if err := m.ntfyClient.Send(&ntfy.Message{
+		if err := m.alerter.Send(m.ctx, alert.Alert{
 			Title:    "Thermal Battery Activated",
 			Body:     body,
-			Priority: ntfy.PriorityDefault,
+			Urgency:  notify.UrgencyDeferable,
 			Tags:     []string{"thermometer", "sunny"},
+			Priority: ntfy.PriorityDefault,
 		}); err != nil {
-			m.logger.Error("Failed to send thermal battery ntfy notification", zap.Error(err))
+			m.logger.Error("Failed to send thermal battery notification", zap.Error(err))
 		}
 	}
 

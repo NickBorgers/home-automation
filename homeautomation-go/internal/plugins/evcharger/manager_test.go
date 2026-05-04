@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"homeautomation/internal/alert"
 	"homeautomation/internal/ha"
-	"homeautomation/internal/notify"
 	"homeautomation/internal/ntfy"
 	"homeautomation/internal/shadowstate"
 	"homeautomation/internal/state"
@@ -18,28 +18,28 @@ import (
 )
 
 // Helper to create a test manager
-func createTestManager(mockHA *ha.MockClient, mockNtfy *ntfy.MockClient) *Manager {
+func createTestManager(mockHA *ha.MockClient, mockAlerter *alert.MockAlerter) *Manager {
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 	registry := shadowstate.NewSubscriptionRegistry()
-	return NewManager(context.Background(), mockHA, stateMgr, logger, false, registry, mockNtfy, &notify.MockNotifier{})
+	return NewManager(context.Background(), mockHA, stateMgr, logger, false, registry, mockAlerter)
 }
 
 // Helper to create a test manager in read-only mode
-func createTestManagerReadOnly(mockHA *ha.MockClient, mockNtfy *ntfy.MockClient) *Manager {
+func createTestManagerReadOnly(mockHA *ha.MockClient, mockAlerter *alert.MockAlerter) *Manager {
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 	registry := shadowstate.NewSubscriptionRegistry()
-	return NewManager(context.Background(), mockHA, stateMgr, logger, true, registry, mockNtfy, &notify.MockNotifier{})
+	return NewManager(context.Background(), mockHA, stateMgr, logger, true, registry, mockAlerter)
 }
 
 func TestManager_OverheatDetection(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
-	mockNtfy := ntfy.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
 
-	manager := createTestManager(mockHA, mockNtfy)
+	manager := createTestManager(mockHA, mockAlerter)
 
 	if err := manager.Start(); err != nil {
 		t.Fatalf("Failed to start manager: %v", err)
@@ -65,11 +65,11 @@ func TestManager_OverheatDetection(t *testing.T) {
 	}
 
 	// Verify notification was sent
-	ntfyCalls := mockNtfy.GetCalls()
-	if len(ntfyCalls) == 0 {
-		t.Error("Expected ntfy notification to be sent on overheat")
-	} else if ntfyCalls[0].Priority != ntfy.PriorityUrgent {
-		t.Errorf("Expected urgent priority, got %d", ntfyCalls[0].Priority)
+	alertCalls := mockAlerter.Calls()
+	if len(alertCalls) == 0 {
+		t.Error("Expected alert notification to be sent on overheat")
+	} else if alertCalls[0].Priority != ntfy.PriorityUrgent {
+		t.Errorf("Expected urgent priority, got %d", alertCalls[0].Priority)
 	}
 
 	// Verify shadow state
@@ -89,9 +89,9 @@ func TestManager_OverCurrentDetection(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
-	mockNtfy := ntfy.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
 
-	manager := createTestManager(mockHA, mockNtfy)
+	manager := createTestManager(mockHA, mockAlerter)
 
 	if err := manager.Start(); err != nil {
 		t.Fatalf("Failed to start manager: %v", err)
@@ -125,9 +125,9 @@ func TestManager_OverVoltageDetection(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
-	mockNtfy := ntfy.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
 
-	manager := createTestManager(mockHA, mockNtfy)
+	manager := createTestManager(mockHA, mockAlerter)
 
 	if err := manager.Start(); err != nil {
 		t.Fatalf("Failed to start manager: %v", err)
@@ -161,10 +161,10 @@ func TestManager_ReadOnlyMode(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
-	mockNtfy := ntfy.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
 
 	// Create manager in read-only mode
-	manager := createTestManagerReadOnly(mockHA, mockNtfy)
+	manager := createTestManagerReadOnly(mockHA, mockAlerter)
 
 	if err := manager.Start(); err != nil {
 		t.Fatalf("Failed to start manager: %v", err)
@@ -187,9 +187,9 @@ func TestManager_Recovery(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
-	mockNtfy := ntfy.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
 
-	manager := createTestManager(mockHA, mockNtfy)
+	manager := createTestManager(mockHA, mockAlerter)
 
 	if err := manager.Start(); err != nil {
 		t.Fatalf("Failed to start manager: %v", err)
@@ -216,12 +216,12 @@ func TestManager_InitialStateCheck(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
-	mockNtfy := ntfy.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
 
 	// Pre-set the overheat sensor to "on" before starting
 	mockHA.SetState(OverheatSensor, "on", nil)
 
-	manager := createTestManager(mockHA, mockNtfy)
+	manager := createTestManager(mockHA, mockAlerter)
 
 	if err := manager.Start(); err != nil {
 		t.Fatalf("Failed to start manager: %v", err)
@@ -246,12 +246,12 @@ func TestManager_EmergencyShutoffRetry(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
-	mockNtfy := ntfy.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
 
 	// Configure the switch turn_off to fail twice, then succeed on the third attempt
 	mockHA.SetServiceFailCount("switch", "turn_off", 2, fmt.Errorf("websocket connection lost"))
 
-	manager := createTestManager(mockHA, mockNtfy)
+	manager := createTestManager(mockHA, mockAlerter)
 
 	if err := manager.Start(); err != nil {
 		t.Fatalf("Failed to start manager: %v", err)
@@ -285,12 +285,12 @@ func TestManager_EmergencyShutoffAllRetriesFail(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
-	mockNtfy := ntfy.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
 
 	// Configure the switch turn_off to fail more times than the retry limit
 	mockHA.SetServiceFailCount("switch", "turn_off", shutoffMaxRetries+1, fmt.Errorf("persistent failure"))
 
-	manager := createTestManager(mockHA, mockNtfy)
+	manager := createTestManager(mockHA, mockAlerter)
 
 	if err := manager.Start(); err != nil {
 		t.Fatalf("Failed to start manager: %v", err)
@@ -324,9 +324,9 @@ func TestManager_Reset(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
-	mockNtfy := ntfy.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
 
-	manager := createTestManager(mockHA, mockNtfy)
+	manager := createTestManager(mockHA, mockAlerter)
 
 	require.NoError(t, manager.Start())
 	defer manager.Stop()
@@ -359,9 +359,9 @@ func TestManager_ResetRechecksSafetyState(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
-	mockNtfy := ntfy.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
 
-	manager := createTestManager(mockHA, mockNtfy)
+	manager := createTestManager(mockHA, mockAlerter)
 
 	require.NoError(t, manager.Start())
 	defer manager.Stop()
@@ -390,9 +390,9 @@ func TestManager_HandlePowerChange(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
-	mockNtfy := ntfy.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
 
-	manager := createTestManager(mockHA, mockNtfy)
+	manager := createTestManager(mockHA, mockAlerter)
 
 	require.NoError(t, manager.Start())
 	defer manager.Stop()
@@ -408,9 +408,9 @@ func TestManager_HandlePowerChangeNilState(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
-	mockNtfy := ntfy.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
 
-	manager := createTestManager(mockHA, mockNtfy)
+	manager := createTestManager(mockHA, mockAlerter)
 
 	// Call handler directly with nil newState - should not panic
 	assert.NotPanics(t, func() {
@@ -434,9 +434,9 @@ func TestManager_HandleSwitchChange(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			mockHA := ha.NewMockClient()
-			mockNtfy := ntfy.NewMockClient()
+			mockAlerter := &alert.MockAlerter{}
 
-			manager := createTestManager(mockHA, mockNtfy)
+			manager := createTestManager(mockHA, mockAlerter)
 			require.NoError(t, manager.Start())
 			defer manager.Stop()
 
@@ -452,9 +452,9 @@ func TestManager_HandleSwitchChangeNilState(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
-	mockNtfy := ntfy.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
 
-	manager := createTestManager(mockHA, mockNtfy)
+	manager := createTestManager(mockHA, mockAlerter)
 
 	// Call handler directly with nil newState - should not panic
 	assert.NotPanics(t, func() {
@@ -466,9 +466,9 @@ func TestManager_OverCurrentRecovery(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
-	mockNtfy := ntfy.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
 
-	manager := createTestManager(mockHA, mockNtfy)
+	manager := createTestManager(mockHA, mockAlerter)
 
 	require.NoError(t, manager.Start())
 	defer manager.Stop()
@@ -487,9 +487,9 @@ func TestManager_OverVoltageRecovery(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
-	mockNtfy := ntfy.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
 
-	manager := createTestManager(mockHA, mockNtfy)
+	manager := createTestManager(mockHA, mockAlerter)
 
 	require.NoError(t, manager.Start())
 	defer manager.Stop()
@@ -508,9 +508,9 @@ func TestManager_NotificationRateLimiting(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
-	mockNtfy := ntfy.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
 
-	manager := createTestManager(mockHA, mockNtfy)
+	manager := createTestManager(mockHA, mockAlerter)
 
 	require.NoError(t, manager.Start())
 	defer manager.Stop()
@@ -519,17 +519,17 @@ func TestManager_NotificationRateLimiting(t *testing.T) {
 	mockHA.SimulateStateChange(OverheatSensor, "on")
 	mockHA.SimulateStateChange(OverheatSensor, "off")
 
-	firstCalls := len(mockNtfy.GetCalls())
+	firstCalls := len(mockAlerter.Calls())
 	assert.Equal(t, 1, firstCalls, "Expected 1 notification for first event")
 
 	// Trigger second safety event immediately - within cooldown window
 	mockHA.SimulateStateChange(OverCurrentSensor, "on")
 
-	secondCalls := len(mockNtfy.GetCalls())
+	secondCalls := len(mockAlerter.Calls())
 	assert.Equal(t, 1, secondCalls, "Expected no additional notification within cooldown window")
 }
 
-func TestManager_NotificationWithoutNtfyClient(t *testing.T) {
+func TestManager_NotificationWithNilAlerter(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
@@ -537,13 +537,13 @@ func TestManager_NotificationWithoutNtfyClient(t *testing.T) {
 	stateMgr := state.NewManager(mockHA, logger, false)
 	registry := shadowstate.NewSubscriptionRegistry()
 
-	// Create manager with nil ntfy client
-	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, registry, nil, &notify.MockNotifier{})
+	// Create manager with nil alerter
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, registry, nil)
 
 	require.NoError(t, manager.Start())
 	defer manager.Stop()
 
-	// Trigger safety event - should not panic without ntfy client
+	// Trigger safety event - should not panic without alerter
 	assert.NotPanics(t, func() {
 		mockHA.SimulateStateChange(OverheatSensor, "on")
 	})
@@ -553,19 +553,18 @@ func TestManager_NotificationWithoutNtfyClient(t *testing.T) {
 	assert.Equal(t, 1, shadowState.Outputs.SafetyEventCount)
 }
 
-func TestManager_NtfyNotificationFailure(t *testing.T) {
+func TestManager_AlertSendFailure(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
-	mockNtfy := ntfy.NewMockClient()
-	mockNtfy.SetError(fmt.Errorf("ntfy service unavailable"))
+	mockAlerter := &alert.MockAlerter{Err: fmt.Errorf("alert service unavailable")}
 
-	manager := createTestManager(mockHA, mockNtfy)
+	manager := createTestManager(mockHA, mockAlerter)
 
 	require.NoError(t, manager.Start())
 	defer manager.Stop()
 
-	// Trigger safety event - ntfy send will fail but shouldn't crash
+	// Trigger safety event - alert send will fail but shouldn't crash
 	assert.NotPanics(t, func() {
 		mockHA.SimulateStateChange(OverheatSensor, "on")
 	})
@@ -578,26 +577,23 @@ func TestManager_NtfyNotificationFailure(t *testing.T) {
 	assert.Nil(t, shadowState.Outputs.LastNotification)
 }
 
-func TestManager_TTSAnnouncementFailure(t *testing.T) {
+func TestManager_SafetyEventRecordedOnAlert(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
-	mockNtfy := ntfy.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
 
-	// Make TTS calls fail
-	mockHA.SetServiceError("tts", "speak", fmt.Errorf("tts service unavailable"))
-
-	manager := createTestManager(mockHA, mockNtfy)
+	manager := createTestManager(mockHA, mockAlerter)
 
 	require.NoError(t, manager.Start())
 	defer manager.Stop()
 
-	// Trigger safety event - TTS will fail but shouldn't crash
+	// Trigger safety event - alert handles both ntfy and TTS internally
 	assert.NotPanics(t, func() {
 		mockHA.SimulateStateChange(OverheatSensor, "on")
 	})
 
-	// Safety event should still be recorded despite TTS failure
+	// Safety event should still be recorded
 	shadowState := manager.GetShadowState()
 	assert.Equal(t, 1, shadowState.Outputs.SafetyEventCount)
 	assert.Equal(t, 1, shadowState.Outputs.ShutoffCount)
@@ -607,9 +603,9 @@ func TestManager_TTSReadOnlyMode(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
-	mockNtfy := ntfy.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
 
-	manager := createTestManagerReadOnly(mockHA, mockNtfy)
+	manager := createTestManagerReadOnly(mockHA, mockAlerter)
 
 	require.NoError(t, manager.Start())
 	defer manager.Stop()
@@ -617,11 +613,11 @@ func TestManager_TTSReadOnlyMode(t *testing.T) {
 	// Trigger safety event in read-only mode
 	mockHA.SimulateStateChange(OverheatSensor, "on")
 
-	// Verify no TTS service calls were made
+	// Verify no switch service calls were made (read-only suppresses emergency shutoff)
 	calls := mockHA.GetServiceCalls()
 	for _, call := range calls {
-		if call.Domain == "tts" {
-			t.Error("Expected no TTS service calls in read-only mode")
+		if call.Domain == "switch" && call.Service == "turn_off" {
+			t.Error("Expected no switch turn_off calls in read-only mode")
 		}
 	}
 }
@@ -657,8 +653,8 @@ func TestManager_HandlerNilStateChecks(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			mockHA := ha.NewMockClient()
-			mockNtfy := ntfy.NewMockClient()
-			manager := createTestManager(mockHA, mockNtfy)
+			mockAlerter := &alert.MockAlerter{}
+			manager := createTestManager(mockHA, mockAlerter)
 
 			assert.NotPanics(t, func() {
 				tc.handler(manager)
@@ -671,12 +667,12 @@ func TestManager_InitialSafetyCheckErrorHandling(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
-	mockNtfy := ntfy.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
 
 	// Don't set any state for safety sensors - GetState will return nil
 	// This exercises the error handling in checkInitialSafetyState
 
-	manager := createTestManager(mockHA, mockNtfy)
+	manager := createTestManager(mockHA, mockAlerter)
 
 	// Start should succeed despite missing sensor states
 	assert.NotPanics(t, func() {
@@ -690,14 +686,14 @@ func TestManager_MultipleSimultaneousSafetyConditions(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
-	mockNtfy := ntfy.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
 
 	// Pre-set all three sensors to "on" before starting
 	mockHA.SetState(OverheatSensor, "on", nil)
 	mockHA.SetState(OverCurrentSensor, "on", nil)
 	mockHA.SetState(OverVoltageSensor, "on", nil)
 
-	manager := createTestManager(mockHA, mockNtfy)
+	manager := createTestManager(mockHA, mockAlerter)
 
 	require.NoError(t, manager.Start())
 	defer manager.Stop()
@@ -722,9 +718,9 @@ func TestManager_NotificationCooldownReset(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
-	mockNtfy := ntfy.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
 
-	manager := createTestManager(mockHA, mockNtfy)
+	manager := createTestManager(mockHA, mockAlerter)
 
 	require.NoError(t, manager.Start())
 	defer manager.Stop()
@@ -732,7 +728,7 @@ func TestManager_NotificationCooldownReset(t *testing.T) {
 	// Trigger first event
 	mockHA.SimulateStateChange(OverheatSensor, "on")
 	mockHA.SimulateStateChange(OverheatSensor, "off")
-	assert.Len(t, mockNtfy.GetCalls(), 1)
+	assert.Len(t, mockAlerter.Calls(), 1)
 
 	// Set notification time to far in the past to simulate cooldown expiry
 	manager.mu.Lock()
@@ -741,5 +737,5 @@ func TestManager_NotificationCooldownReset(t *testing.T) {
 
 	// Trigger another event - should send notification since cooldown expired
 	mockHA.SimulateStateChange(OverCurrentSensor, "on")
-	assert.Len(t, mockNtfy.GetCalls(), 2, "Expected notification after cooldown expired")
+	assert.Len(t, mockAlerter.Calls(), 2, "Expected notification after cooldown expired")
 }

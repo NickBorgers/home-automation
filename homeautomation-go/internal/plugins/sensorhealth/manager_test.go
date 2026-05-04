@@ -7,6 +7,7 @@ import (
 
 	"homeautomation/internal/clock"
 	"homeautomation/internal/ha"
+	"homeautomation/internal/alert"
 	"homeautomation/internal/ntfy"
 	"homeautomation/internal/state"
 
@@ -84,18 +85,17 @@ func setupMockEnvironment(mockHA *ha.MockClient) {
 	})
 }
 
-// Helper to count notifications sent via ntfy mock
-func countNtfyNotifications(mockNtfy *ntfy.MockClient) int {
-	return len(mockNtfy.GetCalls())
+func countAlerts(mockAlerter *alert.MockAlerter) int {
+	return len(mockAlerter.Calls())
 }
 
-// Helper to get the last notification sent via ntfy mock
-func getLastNtfyNotification(mockNtfy *ntfy.MockClient) *ntfy.Message {
-	calls := mockNtfy.GetCalls()
+func getLastAlert(mockAlerter *alert.MockAlerter) *alert.Alert {
+	calls := mockAlerter.Calls()
 	if len(calls) == 0 {
 		return nil
 	}
-	return &calls[len(calls)-1]
+	last := calls[len(calls)-1]
+	return &last
 }
 
 func TestSensorHealthManager_BatterySensor_Discovery(t *testing.T) {
@@ -103,12 +103,12 @@ func TestSensorHealthManager_BatterySensor_Discovery(t *testing.T) {
 
 	mockHA := ha.NewMockClient()
 	setupMockEnvironment(mockHA)
-	mockNtfy := ntfy.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
 
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 
-	manager := NewManager(mockHA, stateMgr, logger, false, nil, mockNtfy)
+	manager := NewManager(mockHA, stateMgr, logger, false, nil, mockAlerter)
 
 	// Start discovery
 	err := manager.Start()
@@ -138,12 +138,12 @@ func TestSensorHealthManager_TemperatureSensor_Discovery(t *testing.T) {
 
 	mockHA := ha.NewMockClient()
 	setupMockEnvironment(mockHA)
-	mockNtfy := ntfy.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
 
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 
-	manager := NewManager(mockHA, stateMgr, logger, false, nil, mockNtfy)
+	manager := NewManager(mockHA, stateMgr, logger, false, nil, mockAlerter)
 
 	// Start discovery
 	err := manager.Start()
@@ -164,12 +164,12 @@ func TestSensorHealthManager_LowBattery_Notification(t *testing.T) {
 
 	mockHA := ha.NewMockClient()
 	setupMockEnvironment(mockHA)
-	mockNtfy := ntfy.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
 
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 
-	manager := NewManager(mockHA, stateMgr, logger, false, nil, mockNtfy)
+	manager := NewManager(mockHA, stateMgr, logger, false, nil, mockAlerter)
 
 	// Start discovery
 	err := manager.Start()
@@ -179,7 +179,7 @@ func TestSensorHealthManager_LowBattery_Notification(t *testing.T) {
 	defer manager.Stop()
 
 	// Verify a notification was sent for the low battery
-	notificationCount := countNtfyNotifications(mockNtfy)
+	notificationCount := countAlerts(mockAlerter)
 	if notificationCount != 1 {
 		t.Errorf("Expected 1 low battery notification, got %d", notificationCount)
 	}
@@ -189,13 +189,13 @@ func TestSensorHealthManager_TemperatureLockup_ReadOnlyMode(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
-	mockNtfy := ntfy.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, true) // read-only
 	mockClock := clock.NewMockClock(time.Now())
 
 	// Create manager in read-only mode
-	manager := NewManagerWithClock(mockHA, stateMgr, logger, true, nil, mockNtfy, mockClock)
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, true, nil, mockAlerter, mockClock)
 
 	// Add test temperature sensor
 	initialTime := mockClock.Now()
@@ -219,7 +219,7 @@ func TestSensorHealthManager_TemperatureLockup_ReadOnlyMode(t *testing.T) {
 	}
 
 	// But no actual notifications should be sent (read-only mode)
-	notificationCount := countNtfyNotifications(mockNtfy)
+	notificationCount := countAlerts(mockAlerter)
 	if notificationCount > 0 {
 		t.Errorf("Expected no notifications in read-only mode, got %d", notificationCount)
 	}
@@ -230,12 +230,12 @@ func TestSensorHealthManager_ShadowState(t *testing.T) {
 
 	mockHA := ha.NewMockClient()
 	setupMockEnvironment(mockHA)
-	mockNtfy := ntfy.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
 
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 
-	manager := NewManager(mockHA, stateMgr, logger, false, nil, mockNtfy)
+	manager := NewManager(mockHA, stateMgr, logger, false, nil, mockAlerter)
 
 	// Start discovery
 	err := manager.Start()
@@ -269,12 +269,12 @@ func TestSensorHealthManager_TemperatureLockup_NoLockup(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
-	mockNtfy := ntfy.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 	mockClock := clock.NewMockClock(time.Now())
 
-	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockAlerter, mockClock)
 
 	// Add test temperature sensor manually
 	manager.AddTemperatureSensor(&TemperatureSensor{
@@ -308,12 +308,12 @@ func TestSensorHealthManager_TemperatureLockup_Detected(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
-	mockNtfy := ntfy.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 	mockClock := clock.NewMockClock(time.Now())
 
-	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockAlerter, mockClock)
 
 	// Add test temperature sensor
 	initialTime := mockClock.Now()
@@ -344,13 +344,13 @@ func TestSensorHealthManager_TemperatureLockup_Detected(t *testing.T) {
 	}
 
 	// Verify notification was sent
-	notificationCount := countNtfyNotifications(mockNtfy)
+	notificationCount := countAlerts(mockAlerter)
 	if notificationCount != 1 {
 		t.Errorf("Expected 1 lockup notification, got %d", notificationCount)
 		return
 	}
 
-	notification := getLastNtfyNotification(mockNtfy)
+	notification := getLastAlert(mockAlerter)
 	if notification == nil {
 		t.Error("Expected to find a notification")
 		return
@@ -364,12 +364,12 @@ func TestSensorHealthManager_TemperatureLockup_Recovery(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
-	mockNtfy := ntfy.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 	mockClock := clock.NewMockClock(time.Now())
 
-	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockAlerter, mockClock)
 
 	// Add test temperature sensor
 	initialTime := mockClock.Now()
@@ -394,7 +394,7 @@ func TestSensorHealthManager_TemperatureLockup_Recovery(t *testing.T) {
 	}
 
 	// Record the notification count after lockup
-	lockupNotifications := countNtfyNotifications(mockNtfy)
+	lockupNotifications := countAlerts(mockAlerter)
 	if lockupNotifications != 1 {
 		t.Fatalf("Expected 1 lockup notification, got %d", lockupNotifications)
 	}
@@ -409,7 +409,7 @@ func TestSensorHealthManager_TemperatureLockup_Recovery(t *testing.T) {
 	}
 
 	// Verify recovery notification was sent
-	totalNotifications := countNtfyNotifications(mockNtfy)
+	totalNotifications := countAlerts(mockAlerter)
 	if totalNotifications != 2 {
 		t.Errorf("Expected 2 notifications (1 lockup + 1 recovery), got %d", totalNotifications)
 	}
@@ -450,11 +450,11 @@ func TestSensorHealthManager_MonitoringIgnoreLabel(t *testing.T) {
 		"friendly_name": "Monitored Temperature",
 	})
 
-	mockNtfy := ntfy.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 
-	manager := NewManager(mockHA, stateMgr, logger, false, nil, mockNtfy)
+	manager := NewManager(mockHA, stateMgr, logger, false, nil, mockAlerter)
 
 	err := manager.Start()
 	if err != nil {
@@ -480,12 +480,12 @@ func TestSensorHealthManager_Reset(t *testing.T) {
 
 	mockHA := ha.NewMockClient()
 	setupMockEnvironment(mockHA)
-	mockNtfy := ntfy.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
 
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 
-	manager := NewManager(mockHA, stateMgr, logger, false, nil, mockNtfy)
+	manager := NewManager(mockHA, stateMgr, logger, false, nil, mockAlerter)
 
 	// Start
 	err := manager.Start()
@@ -809,7 +809,7 @@ func TestSensorHealthManager_NodeStatus_Discovery(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
-	mockNtfy := ntfy.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
 
 	// Add node status sensors
 	mockHA.AddDevice(&ha.Device{
@@ -842,7 +842,7 @@ func TestSensorHealthManager_NodeStatus_Discovery(t *testing.T) {
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 
-	manager := NewManager(mockHA, stateMgr, logger, false, nil, mockNtfy)
+	manager := NewManager(mockHA, stateMgr, logger, false, nil, mockAlerter)
 
 	err := manager.Start()
 	if err != nil {
@@ -861,12 +861,12 @@ func TestSensorHealthManager_NodeStatus_DeadDevice_Notification(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
-	mockNtfy := ntfy.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 	mockClock := clock.NewMockClock(time.Now())
 
-	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockAlerter, mockClock)
 
 	// Add a node status sensor manually
 	manager.AddNodeStatus(&NodeStatus{
@@ -886,21 +886,21 @@ func TestSensorHealthManager_NodeStatus_DeadDevice_Notification(t *testing.T) {
 	}
 
 	// Notification should NOT be sent yet (debounce timer is pending)
-	if countNtfyNotifications(mockNtfy) != 0 {
-		t.Errorf("Expected 0 notifications before debounce expires, got %d", countNtfyNotifications(mockNtfy))
+	if countAlerts(mockAlerter) != 0 {
+		t.Errorf("Expected 0 notifications before debounce expires, got %d", countAlerts(mockAlerter))
 	}
 
 	// Advance clock past the debounce delay to fire the timer
 	mockClock.Advance(NodeDeadDebounceDelay)
 
 	// Verify notification was sent after debounce
-	notificationCount := countNtfyNotifications(mockNtfy)
+	notificationCount := countAlerts(mockAlerter)
 	if notificationCount != 1 {
 		t.Errorf("Expected 1 dead device notification, got %d", notificationCount)
 		return
 	}
 
-	notification := getLastNtfyNotification(mockNtfy)
+	notification := getLastAlert(mockAlerter)
 	if notification == nil {
 		t.Error("Expected to find a notification")
 		return
@@ -917,12 +917,12 @@ func TestSensorHealthManager_NodeStatus_DeviceRecovery(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
-	mockNtfy := ntfy.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 	mockClock := clock.NewMockClock(time.Now())
 
-	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockAlerter, mockClock)
 
 	// Add a node status sensor that's already dead with notification sent
 	manager.AddNodeStatus(&NodeStatus{
@@ -943,13 +943,13 @@ func TestSensorHealthManager_NodeStatus_DeviceRecovery(t *testing.T) {
 	}
 
 	// Verify recovery notification was sent
-	notificationCount := countNtfyNotifications(mockNtfy)
+	notificationCount := countAlerts(mockAlerter)
 	if notificationCount != 1 {
 		t.Errorf("Expected 1 recovery notification, got %d", notificationCount)
 		return
 	}
 
-	notification := getLastNtfyNotification(mockNtfy)
+	notification := getLastAlert(mockAlerter)
 	if notification == nil {
 		t.Error("Expected to find a notification")
 		return
@@ -963,11 +963,11 @@ func TestSensorHealthManager_NodeStatus_AsleepDoesNotTriggerAlert(t *testing.T) 
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
-	mockNtfy := ntfy.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 
-	manager := NewManager(mockHA, stateMgr, logger, false, nil, mockNtfy)
+	manager := NewManager(mockHA, stateMgr, logger, false, nil, mockAlerter)
 
 	// Add a node status sensor that's alive
 	manager.AddNodeStatus(&NodeStatus{
@@ -987,7 +987,7 @@ func TestSensorHealthManager_NodeStatus_AsleepDoesNotTriggerAlert(t *testing.T) 
 	}
 
 	// Verify NO notification was sent (asleep is normal for battery devices)
-	notificationCount := countNtfyNotifications(mockNtfy)
+	notificationCount := countAlerts(mockAlerter)
 	if notificationCount != 0 {
 		t.Errorf("Expected no notifications for asleep status, got %d", notificationCount)
 	}
@@ -1032,11 +1032,11 @@ func TestSensorHealthManager_NodeStatus_MonitoringIgnoreLabel(t *testing.T) {
 		"friendly_name": "Monitored Device Node Status",
 	})
 
-	mockNtfy := ntfy.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 
-	manager := NewManager(mockHA, stateMgr, logger, false, nil, mockNtfy)
+	manager := NewManager(mockHA, stateMgr, logger, false, nil, mockAlerter)
 
 	err := manager.Start()
 	if err != nil {
@@ -1061,13 +1061,13 @@ func TestSensorHealthManager_NodeStatus_ReadOnlyMode(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
-	mockNtfy := ntfy.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, true) // read-only
 	mockClock := clock.NewMockClock(time.Now())
 
 	// Create manager in read-only mode
-	manager := NewManagerWithClock(mockHA, stateMgr, logger, true, nil, mockNtfy, mockClock)
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, true, nil, mockAlerter, mockClock)
 
 	// Add a node status sensor
 	manager.AddNodeStatus(&NodeStatus{
@@ -1090,7 +1090,7 @@ func TestSensorHealthManager_NodeStatus_ReadOnlyMode(t *testing.T) {
 	}
 
 	// But no actual notifications should be sent (read-only mode)
-	notificationCount := countNtfyNotifications(mockNtfy)
+	notificationCount := countAlerts(mockAlerter)
 	if notificationCount > 0 {
 		t.Errorf("Expected no notifications in read-only mode, got %d", notificationCount)
 	}
@@ -1100,11 +1100,11 @@ func TestSensorHealthManager_NodeStatus_ShadowState(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
-	mockNtfy := ntfy.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 
-	manager := NewManager(mockHA, stateMgr, logger, false, nil, mockNtfy)
+	manager := NewManager(mockHA, stateMgr, logger, false, nil, mockAlerter)
 
 	// Add node status sensors
 	manager.AddNodeStatus(&NodeStatus{
@@ -1144,11 +1144,11 @@ func TestGetDeadDeviceCount(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
-	mockNtfy := ntfy.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 
-	manager := NewManager(mockHA, stateMgr, logger, false, nil, mockNtfy)
+	manager := NewManager(mockHA, stateMgr, logger, false, nil, mockAlerter)
 
 	// Initially no dead devices
 	if manager.GetDeadDeviceCount() != 0 {
@@ -1188,11 +1188,11 @@ func TestSensorHealthManager_NotifyAlreadyDeadDevices_AtStartup(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
-	mockNtfy := ntfy.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 
-	manager := NewManager(mockHA, stateMgr, logger, false, nil, mockNtfy)
+	manager := NewManager(mockHA, stateMgr, logger, false, nil, mockAlerter)
 
 	// Add devices - some dead, some alive
 	manager.AddNodeStatus(&NodeStatus{
@@ -1218,7 +1218,7 @@ func TestSensorHealthManager_NotifyAlreadyDeadDevices_AtStartup(t *testing.T) {
 	manager.notifyAlreadyDeadDevices()
 
 	// Verify notifications were sent for dead devices
-	calls := mockNtfy.GetCalls()
+	calls := mockAlerter.Calls()
 	if len(calls) != 2 {
 		t.Errorf("Expected 2 startup notifications for dead devices, got %d", len(calls))
 	}
@@ -1250,11 +1250,11 @@ func TestSensorHealthManager_NotifyAlreadyDeadDevices_SkipsAlreadyNotified(t *te
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
-	mockNtfy := ntfy.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 
-	manager := NewManager(mockHA, stateMgr, logger, false, nil, mockNtfy)
+	manager := NewManager(mockHA, stateMgr, logger, false, nil, mockAlerter)
 
 	// Add a dead device that was already notified (simulating a previous run)
 	manager.AddNodeStatus(&NodeStatus{
@@ -1275,7 +1275,7 @@ func TestSensorHealthManager_NotifyAlreadyDeadDevices_SkipsAlreadyNotified(t *te
 	manager.notifyAlreadyDeadDevices()
 
 	// Verify only one notification was sent (for the un-notified device)
-	calls := mockNtfy.GetCalls()
+	calls := mockAlerter.Calls()
 	if len(calls) != 1 {
 		t.Errorf("Expected 1 startup notification (skipping already-notified), got %d", len(calls))
 	}
@@ -1285,7 +1285,7 @@ func TestSensorHealthManager_NodeStatus_UsesNameByUserOverDefaultName(t *testing
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
-	mockNtfy := ntfy.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
 
 	// Add device with both Name (product name) and NameByUser (user-assigned name)
 	// This simulates a Z-Wave device like "Wave Plug US" renamed to "Humidifier Power Control"
@@ -1321,7 +1321,7 @@ func TestSensorHealthManager_NodeStatus_UsesNameByUserOverDefaultName(t *testing
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 
-	manager := NewManager(mockHA, stateMgr, logger, false, nil, mockNtfy)
+	manager := NewManager(mockHA, stateMgr, logger, false, nil, mockAlerter)
 
 	err := manager.Start()
 	if err != nil {
@@ -1358,7 +1358,7 @@ func TestSensorHealthManager_NodeStatus_DeadDeviceNotification_UsesUserFriendlyN
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
-	mockNtfy := ntfy.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
 
 	// Add device with both Name (product name) and NameByUser (user-assigned name)
 	mockHA.AddDevice(&ha.Device{
@@ -1379,7 +1379,7 @@ func TestSensorHealthManager_NodeStatus_DeadDeviceNotification_UsesUserFriendlyN
 	stateMgr := state.NewManager(mockHA, logger, false)
 	mockClock := clock.NewMockClock(time.Now())
 
-	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockAlerter, mockClock)
 
 	err := manager.Start()
 	if err != nil {
@@ -1394,7 +1394,7 @@ func TestSensorHealthManager_NodeStatus_DeadDeviceNotification_UsesUserFriendlyN
 	mockClock.Advance(NodeDeadDebounceDelay)
 
 	// Verify notification was sent with user-friendly name
-	calls := mockNtfy.GetCalls()
+	calls := mockAlerter.Calls()
 	if len(calls) != 1 {
 		t.Fatalf("Expected 1 notification, got %d", len(calls))
 	}
@@ -1418,12 +1418,12 @@ func TestSensorHealthManager_NodeStatus_DeadDevice_DebounceSuppress(t *testing.T
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
-	mockNtfy := ntfy.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 	mockClock := clock.NewMockClock(time.Now())
 
-	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockAlerter, mockClock)
 
 	// Add a node status sensor
 	manager.AddNodeStatus(&NodeStatus{
@@ -1437,8 +1437,8 @@ func TestSensorHealthManager_NodeStatus_DeadDevice_DebounceSuppress(t *testing.T
 	manager.SimulateNodeStatusChange(testNodeStatus1, "dead")
 
 	// No notification yet — timer is pending
-	if countNtfyNotifications(mockNtfy) != 0 {
-		t.Errorf("Expected 0 notifications before debounce, got %d", countNtfyNotifications(mockNtfy))
+	if countAlerts(mockAlerter) != 0 {
+		t.Errorf("Expected 0 notifications before debounce, got %d", countAlerts(mockAlerter))
 	}
 
 	// Device recovers before the debounce timer fires (e.g., after 2 minutes)
@@ -1449,8 +1449,8 @@ func TestSensorHealthManager_NodeStatus_DeadDevice_DebounceSuppress(t *testing.T
 	mockClock.Advance(NodeDeadDebounceDelay)
 
 	// Zero notifications: the transient dead status was suppressed
-	if countNtfyNotifications(mockNtfy) != 0 {
-		t.Errorf("Expected 0 notifications (transient dead suppressed), got %d", countNtfyNotifications(mockNtfy))
+	if countAlerts(mockAlerter) != 0 {
+		t.Errorf("Expected 0 notifications (transient dead suppressed), got %d", countAlerts(mockAlerter))
 	}
 
 	// Verify device is back to alive
@@ -1467,12 +1467,12 @@ func TestSensorHealthManager_NodeStatus_DeadDevice_DebounceExpires(t *testing.T)
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
-	mockNtfy := ntfy.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 	mockClock := clock.NewMockClock(time.Now())
 
-	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockAlerter, mockClock)
 
 	// Add a node status sensor
 	manager.AddNodeStatus(&NodeStatus{
@@ -1486,18 +1486,18 @@ func TestSensorHealthManager_NodeStatus_DeadDevice_DebounceExpires(t *testing.T)
 	manager.SimulateNodeStatusChange(testNodeStatus1, "dead")
 
 	// No notification yet
-	if countNtfyNotifications(mockNtfy) != 0 {
-		t.Errorf("Expected 0 notifications before debounce, got %d", countNtfyNotifications(mockNtfy))
+	if countAlerts(mockAlerter) != 0 {
+		t.Errorf("Expected 0 notifications before debounce, got %d", countAlerts(mockAlerter))
 	}
 
 	// Debounce timer fires after 5 minutes — device is still dead
 	mockClock.Advance(NodeDeadDebounceDelay)
 
 	// Dead notification should now be sent
-	if countNtfyNotifications(mockNtfy) != 1 {
-		t.Fatalf("Expected 1 dead notification after debounce, got %d", countNtfyNotifications(mockNtfy))
+	if countAlerts(mockAlerter) != 1 {
+		t.Fatalf("Expected 1 dead notification after debounce, got %d", countAlerts(mockAlerter))
 	}
-	notification := getLastNtfyNotification(mockNtfy)
+	notification := getLastAlert(mockAlerter)
 	if notification.Title != "Device Offline" {
 		t.Errorf("Expected title 'Device Offline', got '%s'", notification.Title)
 	}
@@ -1505,10 +1505,10 @@ func TestSensorHealthManager_NodeStatus_DeadDevice_DebounceExpires(t *testing.T)
 	// Device recovers — recovery notification should be sent
 	manager.SimulateNodeStatusChange(testNodeStatus1, "alive")
 
-	if countNtfyNotifications(mockNtfy) != 2 {
-		t.Fatalf("Expected 2 notifications (1 dead + 1 recovery), got %d", countNtfyNotifications(mockNtfy))
+	if countAlerts(mockAlerter) != 2 {
+		t.Fatalf("Expected 2 notifications (1 dead + 1 recovery), got %d", countAlerts(mockAlerter))
 	}
-	recoveryNotification := getLastNtfyNotification(mockNtfy)
+	recoveryNotification := getLastAlert(mockAlerter)
 	if recoveryNotification.Title != "Device Online" {
 		t.Errorf("Expected title 'Device Online', got '%s'", recoveryNotification.Title)
 	}
@@ -1518,12 +1518,12 @@ func TestSensorHealthManager_NodeStatus_DeadDevice_CooldownSuppresses(t *testing
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
-	mockNtfy := ntfy.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 	mockClock := clock.NewMockClock(time.Now())
 
-	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockAlerter, mockClock)
 
 	// Add a node status sensor (simulates a flapping device like Leaf Charger)
 	manager.AddNodeStatus(&NodeStatus{
@@ -1537,10 +1537,10 @@ func TestSensorHealthManager_NodeStatus_DeadDevice_CooldownSuppresses(t *testing
 	manager.SimulateNodeStatusChange(testNodeStatus1, "dead")
 	mockClock.Advance(NodeDeadDebounceDelay)
 
-	if countNtfyNotifications(mockNtfy) != 1 {
-		t.Fatalf("Expected 1 dead notification after first debounce, got %d", countNtfyNotifications(mockNtfy))
+	if countAlerts(mockAlerter) != 1 {
+		t.Fatalf("Expected 1 dead notification after first debounce, got %d", countAlerts(mockAlerter))
 	}
-	notification := getLastNtfyNotification(mockNtfy)
+	notification := getLastAlert(mockAlerter)
 	if notification.Title != "Device Offline" {
 		t.Errorf("Expected title 'Device Offline', got '%s'", notification.Title)
 	}
@@ -1548,8 +1548,8 @@ func TestSensorHealthManager_NodeStatus_DeadDevice_CooldownSuppresses(t *testing
 	// Device recovers → recovery notification sent
 	manager.SimulateNodeStatusChange(testNodeStatus1, "alive")
 
-	if countNtfyNotifications(mockNtfy) != 2 {
-		t.Fatalf("Expected 2 notifications (1 dead + 1 recovery), got %d", countNtfyNotifications(mockNtfy))
+	if countAlerts(mockAlerter) != 2 {
+		t.Fatalf("Expected 2 notifications (1 dead + 1 recovery), got %d", countAlerts(mockAlerter))
 	}
 
 	// Advance 30 minutes (well within the 48h cooldown)
@@ -1560,16 +1560,16 @@ func TestSensorHealthManager_NodeStatus_DeadDevice_CooldownSuppresses(t *testing
 	mockClock.Advance(NodeDeadDebounceDelay)
 
 	// Notification should be suppressed by cooldown
-	if countNtfyNotifications(mockNtfy) != 2 {
-		t.Errorf("Expected 2 notifications (cooldown should suppress), got %d", countNtfyNotifications(mockNtfy))
+	if countAlerts(mockAlerter) != 2 {
+		t.Errorf("Expected 2 notifications (cooldown should suppress), got %d", countAlerts(mockAlerter))
 	}
 
 	// Device recovers — no recovery notification since dead notification was suppressed
 	// (NotificationSent was never set to true for this cycle)
 	manager.SimulateNodeStatusChange(testNodeStatus1, "alive")
 
-	if countNtfyNotifications(mockNtfy) != 2 {
-		t.Errorf("Expected 2 notifications (no recovery for suppressed dead), got %d", countNtfyNotifications(mockNtfy))
+	if countAlerts(mockAlerter) != 2 {
+		t.Errorf("Expected 2 notifications (no recovery for suppressed dead), got %d", countAlerts(mockAlerter))
 	}
 }
 
@@ -1577,12 +1577,12 @@ func TestSensorHealthManager_NodeStatus_DeadDevice_CooldownExpires(t *testing.T)
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
-	mockNtfy := ntfy.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
 	logger := zap.NewNop()
 	stateMgr := state.NewManager(mockHA, logger, false)
 	mockClock := clock.NewMockClock(time.Now())
 
-	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockNtfy, mockClock)
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockAlerter, mockClock)
 
 	// Add a node status sensor
 	manager.AddNodeStatus(&NodeStatus{
@@ -1596,15 +1596,15 @@ func TestSensorHealthManager_NodeStatus_DeadDevice_CooldownExpires(t *testing.T)
 	manager.SimulateNodeStatusChange(testNodeStatus1, "dead")
 	mockClock.Advance(NodeDeadDebounceDelay)
 
-	if countNtfyNotifications(mockNtfy) != 1 {
-		t.Fatalf("Expected 1 dead notification, got %d", countNtfyNotifications(mockNtfy))
+	if countAlerts(mockAlerter) != 1 {
+		t.Fatalf("Expected 1 dead notification, got %d", countAlerts(mockAlerter))
 	}
 
 	// Device recovers
 	manager.SimulateNodeStatusChange(testNodeStatus1, "alive")
 
-	if countNtfyNotifications(mockNtfy) != 2 {
-		t.Fatalf("Expected 2 notifications (dead + recovery), got %d", countNtfyNotifications(mockNtfy))
+	if countAlerts(mockAlerter) != 2 {
+		t.Fatalf("Expected 2 notifications (dead + recovery), got %d", countAlerts(mockAlerter))
 	}
 
 	// Advance past the 48h cooldown
@@ -1615,10 +1615,10 @@ func TestSensorHealthManager_NodeStatus_DeadDevice_CooldownExpires(t *testing.T)
 	mockClock.Advance(NodeDeadDebounceDelay)
 
 	// Notification should be sent (cooldown expired)
-	if countNtfyNotifications(mockNtfy) != 3 {
-		t.Fatalf("Expected 3 notifications (cooldown expired, new dead notification), got %d", countNtfyNotifications(mockNtfy))
+	if countAlerts(mockAlerter) != 3 {
+		t.Fatalf("Expected 3 notifications (cooldown expired, new dead notification), got %d", countAlerts(mockAlerter))
 	}
-	notification := getLastNtfyNotification(mockNtfy)
+	notification := getLastAlert(mockAlerter)
 	if notification.Title != "Device Offline" {
 		t.Errorf("Expected title 'Device Offline', got '%s'", notification.Title)
 	}
@@ -1626,10 +1626,10 @@ func TestSensorHealthManager_NodeStatus_DeadDevice_CooldownExpires(t *testing.T)
 	// Device recovers — recovery notification should be sent
 	manager.SimulateNodeStatusChange(testNodeStatus1, "alive")
 
-	if countNtfyNotifications(mockNtfy) != 4 {
-		t.Fatalf("Expected 4 notifications (dead + recovery x2), got %d", countNtfyNotifications(mockNtfy))
+	if countAlerts(mockAlerter) != 4 {
+		t.Fatalf("Expected 4 notifications (dead + recovery x2), got %d", countAlerts(mockAlerter))
 	}
-	recoveryNotification := getLastNtfyNotification(mockNtfy)
+	recoveryNotification := getLastAlert(mockAlerter)
 	if recoveryNotification.Title != "Device Online" {
 		t.Errorf("Expected title 'Device Online', got '%s'", recoveryNotification.Title)
 	}

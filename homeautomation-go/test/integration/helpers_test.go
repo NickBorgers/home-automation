@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"homeautomation/internal/ntfy"
+	"homeautomation/internal/alert"
 	"homeautomation/internal/state"
 
 	"github.com/stretchr/testify/require"
@@ -235,14 +235,12 @@ func waitForServiceCallsToStabilize(t *testing.T, server *MockHAServer, stabiliz
 	}, stateWaitTimeout, statePollInterval, "service calls should stabilize")
 }
 
-// waitForNtfyNotification polls until a notification with the given title is found in the mock Ntfy client.
-// Use this when testing notification delivery through the Ntfy service.
-func waitForNtfyNotification(t *testing.T, mockNtfy *ntfy.MockClient, title string, msgAndArgs ...interface{}) {
+// waitForNtfyNotification polls until an alert with the given title is found in the mock alerter.
+func waitForNtfyNotification(t *testing.T, mockAlerter *alert.MockAlerter, title string, msgAndArgs ...interface{}) {
 	t.Helper()
 	require.Eventually(t, func() bool {
-		calls := mockNtfy.GetCalls()
-		for _, call := range calls {
-			if call.Title == title {
+		for _, a := range mockAlerter.Calls() {
+			if a.Title == title {
 				return true
 			}
 		}

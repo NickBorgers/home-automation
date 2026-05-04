@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"homeautomation/internal/notify"
+	"homeautomation/internal/alert"
 	"homeautomation/internal/plugins/lighting"
 	"homeautomation/internal/plugins/music"
 	"homeautomation/internal/plugins/statetracking"
@@ -57,7 +57,7 @@ func setupConcurrentTest(t *testing.T) (*concurrentEnv, func()) {
 		server:        server,
 		stateManager:  manager,
 		logger:        logger,
-		stateTracking: statetracking.NewManager(context.Background(), client, manager, logger, false, nil, "", &notify.MockNotifier{}),
+		stateTracking: statetracking.NewManager(context.Background(), client, manager, logger, false, nil, "", &alert.MockAlerter{}),
 		lighting:      lighting.NewManager(context.Background(), client, manager, lightingConfig, logger, false, nil),
 		music:         music.NewManager(context.Background(), client, manager, musicConfig, logger, false, nil, nil),
 	}

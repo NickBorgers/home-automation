@@ -6,6 +6,7 @@ import (
 
 	"homeautomation/internal/clock"
 	"homeautomation/internal/ha"
+	"homeautomation/internal/alert"
 	"homeautomation/internal/ntfy"
 	"homeautomation/internal/plugins/environmental"
 	"homeautomation/internal/plugins/sensorhealth"
@@ -44,7 +45,7 @@ type sensorMonitoringEnv struct {
 	logger        *zap.Logger
 	sensorHealth  *sensorhealth.Manager
 	environmental *environmental.Manager
-	mockNtfy      *ntfy.MockClient
+	mockAlerter    *alert.MockAlerter
 	mockClock     *clock.MockClock
 }
 
@@ -54,7 +55,7 @@ func setupSensorMonitoringTest(t *testing.T) (*sensorMonitoringEnv, func()) {
 	server, client, manager, baseCleanup := setupTest(t)
 
 	logger := testlogger.New()
-	mockNtfy := ntfy.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
 	mockClock := clock.NewMockClock(time.Now())
 
 	// Create plugin managers
@@ -63,10 +64,10 @@ func setupSensorMonitoringTest(t *testing.T) (*sensorMonitoringEnv, func()) {
 		client:        client,
 		manager:       manager,
 		logger:        logger,
-		mockNtfy:      mockNtfy,
+		mockAlerter:    mockAlerter,
 		mockClock:     mockClock,
-		sensorHealth:  sensorhealth.NewManagerWithClock(client, manager, logger, false, nil, mockNtfy, mockClock),
-		environmental: environmental.NewManagerWithClock(client, manager, logger, false, nil, mockNtfy, mockClock),
+		sensorHealth:  sensorhealth.NewManagerWithClock(client, manager, logger, false, nil, mockAlerter, mockClock),
+		environmental: environmental.NewManagerWithClock(client, manager, logger, false, nil, mockAlerter, mockClock),
 	}
 
 	cleanup := func() {
@@ -248,10 +249,10 @@ func TestScenario_SensorHealth_LowBatteryDetection(t *testing.T) {
 	defer env.sensorHealth.Stop()
 
 	// Wait for low battery notification to be sent
-	waitForNtfyNotification(t, env.mockNtfy, "Low Battery", "low battery notification")
+	waitForNtfyNotification(t, env.mockAlerter, "Low Battery", "low battery notification")
 
 	// Verify notification was sent for low battery
-	calls := env.mockNtfy.GetCalls()
+	calls := env.mockAlerter.Calls()
 	assert.GreaterOrEqual(t, len(calls), 1, "Should send notification for low battery")
 
 	// Check that we got a low battery notification
@@ -292,7 +293,7 @@ func TestScenario_Environmental_WaterLeakDetection(t *testing.T) {
 	defer env.environmental.Stop()
 
 	// Clear any initialization notifications
-	env.mockNtfy.Reset()
+	env.mockAlerter.Reset()
 
 	// Verify no active leaks initially
 	assert.Equal(t, 0, env.environmental.GetActiveWaterLeakCount())
@@ -314,7 +315,7 @@ func TestScenario_Environmental_WaterLeakDetection(t *testing.T) {
 		"Should detect 1 active water leak")
 
 	// Verify notification was sent
-	calls := env.mockNtfy.GetCalls()
+	calls := env.mockAlerter.Calls()
 	assert.GreaterOrEqual(t, len(calls), 1, "Should send notification for water leak")
 
 	foundWaterLeakNotification := false
@@ -362,7 +363,7 @@ func TestScenario_Environmental_HighHumidityAlert(t *testing.T) {
 	})
 
 	// Clear any setup notifications
-	env.mockNtfy.Reset()
+	env.mockAlerter.Reset()
 
 	// Simulate warning-level humidity
 	t.Log("Simulating warning-level humidity (58%)...")
@@ -382,7 +383,7 @@ func TestScenario_Environmental_HighHumidityAlert(t *testing.T) {
 	assert.Equal(t, "warning", alertLevel, "Should alert for sustained high humidity")
 
 	// Verify notification was sent
-	calls := env.mockNtfy.GetCalls()
+	calls := env.mockAlerter.Calls()
 	assert.GreaterOrEqual(t, len(calls), 1, "Should send notification for sustained humidity")
 
 	foundHumidityNotification := false
@@ -425,7 +426,7 @@ func TestScenario_SensorHealth_TemperatureLockupDetection(t *testing.T) {
 	})
 
 	// Clear any setup notifications
-	env.mockNtfy.Reset()
+	env.mockAlerter.Reset()
 
 	// Verify sensor is not locked up initially
 	sensors := env.sensorHealth.GetTemperatureSensors()
@@ -445,7 +446,7 @@ func TestScenario_SensorHealth_TemperatureLockupDetection(t *testing.T) {
 	assert.True(t, sensors["sensor.test_temp"].IsLockedUp, "Should be marked as locked up")
 
 	// Verify notification was sent
-	calls := env.mockNtfy.GetCalls()
+	calls := env.mockAlerter.Calls()
 	assert.GreaterOrEqual(t, len(calls), 1, "Should send notification for temperature lockup")
 
 	foundLockupNotification := false
@@ -492,10 +493,10 @@ func TestScenario_BothPlugins_ConcurrentOperation(t *testing.T) {
 	require.NoError(t, err)
 
 	// Wait for low battery notification (from plugin initialization)
-	waitForNtfyNotification(t, env.mockNtfy, "Low Battery", "low battery notification during init")
+	waitForNtfyNotification(t, env.mockAlerter, "Low Battery", "low battery notification during init")
 
 	// Record initial notifications (low battery should have triggered)
-	initialCalls := len(env.mockNtfy.GetCalls())
+	initialCalls := len(env.mockAlerter.Calls())
 	t.Logf("Initial notification count: %d (from low battery detection)", initialCalls)
 
 	// Now trigger a water leak
@@ -515,7 +516,7 @@ func TestScenario_BothPlugins_ConcurrentOperation(t *testing.T) {
 		"Environmental plugin should detect water leak while sensorhealth is running")
 
 	// Verify additional notification was sent
-	finalCalls := len(env.mockNtfy.GetCalls())
+	finalCalls := len(env.mockAlerter.Calls())
 	assert.Greater(t, finalCalls, initialCalls,
 		"Should have sent additional notification for water leak")
 
@@ -577,7 +578,7 @@ func TestScenario_SensorHealth_NodeStatusMonitoring(t *testing.T) {
 	t.Log("✓ Node status sensor discovered")
 
 	// ========== TEST: Dead Device Detection ==========
-	env.mockNtfy.Reset()
+	env.mockAlerter.Reset()
 
 	// Simulate device going dead
 	env.server.SetState("sensor.front_door_lock_node_status", "dead", map[string]interface{}{
@@ -600,12 +601,12 @@ func TestScenario_SensorHealth_NodeStatusMonitoring(t *testing.T) {
 
 	// Wait for dead device notification (notification is sent by AfterFunc callback)
 	waitForCondition(t, func() bool {
-		calls := env.mockNtfy.GetCalls()
+		calls := env.mockAlerter.Calls()
 		return len(calls) >= 1
 	}, "dead device notification")
 
 	// Verify notification sent
-	calls := env.mockNtfy.GetCalls()
+	calls := env.mockAlerter.Calls()
 	assert.GreaterOrEqual(t, len(calls), 1, "Should send notification for dead device")
 
 	if len(calls) > 0 {
@@ -637,7 +638,7 @@ func TestScenario_SensorHealth_NodeStatusMonitoring(t *testing.T) {
 	t.Log("✓ Dead device detected and notification sent")
 
 	// ========== TEST: Device Recovery ==========
-	env.mockNtfy.Reset()
+	env.mockAlerter.Reset()
 
 	// Simulate device recovery
 	env.server.SetState("sensor.front_door_lock_node_status", "alive", map[string]interface{}{
@@ -648,12 +649,12 @@ func TestScenario_SensorHealth_NodeStatusMonitoring(t *testing.T) {
 
 	// Wait for recovery notification
 	waitForCondition(t, func() bool {
-		calls := env.mockNtfy.GetCalls()
+		calls := env.mockAlerter.Calls()
 		return len(calls) >= 1
 	}, "device recovery notification")
 
 	// Verify recovery notification sent
-	calls = env.mockNtfy.GetCalls()
+	calls = env.mockAlerter.Calls()
 	assert.GreaterOrEqual(t, len(calls), 1, "Should send notification for device recovery")
 
 	if len(calls) > 0 {
