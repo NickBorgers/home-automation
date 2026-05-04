@@ -199,9 +199,9 @@ func (m *Manager) handleErrorChange(entityID string, oldState, newState *ha.Stat
 }
 
 // maybeAnnounce sends an alert (TTS + push) for errorDesc as a Deferable
-// announcement. When the alerter returns notify.ErrSuppressedAsleep (possible
-// with MockAlerter in tests), we track suppression in shadow state. In
-// production the real alerter always returns nil.
+// announcement. When the alerter returns notify.ErrSuppressedAsleep (master is
+// asleep), we track suppression in shadow state so the announcement replays
+// on wake.
 func (m *Manager) maybeAnnounce(errorDesc string) {
 	now := m.timeProvider.Now()
 	message := fmt.Sprintf("%s: %s", m.cfg.Vacuum.Announcement.MessagePrefix, errorDesc)

@@ -706,7 +706,7 @@ func (m *Manager) sendDeviceDeadNotification(node *NodeStatus) {
 	if err := m.alerter.Send(context.Background(), alert.Alert{
 		Title:    "Device Offline",
 		Body:     message,
-		Urgency:  notify.UrgencyUrgent,
+		Urgency:  notify.UrgencyDeferable,
 		Tags:     []string{"warning", "electric_plug"},
 		Priority: ntfy.PriorityHigh,
 	}); err != nil {
@@ -854,7 +854,7 @@ func (m *Manager) sendDeviceDeadAtStartupNotification(node *NodeStatus) {
 	if err := m.alerter.Send(context.Background(), alert.Alert{
 		Title:    "Device Offline (Startup Check)",
 		Body:     message,
-		Urgency:  notify.UrgencyUrgent,
+		Urgency:  notify.UrgencyDeferable,
 		Tags:     []string{"warning", "electric_plug"},
 		Priority: ntfy.PriorityHigh,
 	}); err != nil {
@@ -1167,7 +1167,7 @@ func (m *Manager) sendTemperatureLockupNotification(sensor *TemperatureSensor) {
 	if err := m.alerter.Send(context.Background(), alert.Alert{
 		Title:    "Temperature Sensor Locked Up",
 		Body:     message,
-		Urgency:  notify.UrgencyUrgent,
+		Urgency:  notify.UrgencyDeferable,
 		Tags:     []string{"warning", "thermometer"},
 		Priority: ntfy.PriorityHigh,
 	}); err != nil {

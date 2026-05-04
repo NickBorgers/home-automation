@@ -655,6 +655,10 @@ homeautomation-go/
 │   │   ├── manager.go               # ✅ State manager implementation
 │   │   ├── manager_test.go          # ✅ Unit tests
 │   │   └── variables.go             # ✅ 40 state variable definitions
+│   ├── alert/                       # ✅ Unified alert dispatcher (ntfy + TTS)
+│   │   ├── alert.go                 # ✅ Alerter interface and Manager implementation
+│   │   ├── alert_test.go            # ✅ Unit tests
+│   │   └── mock.go                  # ✅ MockAlerter for unit tests
 │   ├── notify/                      # ✅ Shared verbal (TTS) notifier
 │   │   ├── notify.go                # ✅ Notifier implementation (volume snapshot/restore)
 │   │   ├── config.go                # ✅ Config loader (notification_config.yaml)
