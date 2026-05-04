@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"homeautomation/internal/clock"
 	"homeautomation/internal/ha"
 	"homeautomation/internal/testlogger"
 
@@ -14,6 +15,7 @@ func TestDerivedStateHelper_IsAnyoneHome(t *testing.T) {
 	t.Parallel()
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
+	mockClock := clock.NewMockClock(time.Date(2026, 4, 15, 4, 10, 3, 0, time.UTC))
 	manager := NewManager(mockClient, logger, false)
 
 	// Initialize state
@@ -22,6 +24,7 @@ func TestDerivedStateHelper_IsAnyoneHome(t *testing.T) {
 	manager.SetBool("isAnyoneHome", false)
 
 	helper := NewDerivedStateHelper(manager, logger)
+	helper.SetClock(mockClock)
 	err := helper.Start()
 	assert.NoError(t, err)
 	defer helper.Stop()
@@ -57,6 +60,10 @@ func TestDerivedStateHelper_IsAnyoneHome(t *testing.T) {
 	manager.SetBool("isNickHome", false)
 	manager.SetBool("isCarolineHome", false)
 	time.Sleep(100 * time.Millisecond)
+	isAnyoneHome, _ = manager.GetBool("isAnyoneHome")
+	assert.True(t, isAnyoneHome, "isAnyoneHome should remain true during departure debounce")
+
+	mockClock.AdvanceAndProcess(AnyoneHomeDepartureDebounceDelay)
 	isAnyoneHome, _ = manager.GetBool("isAnyoneHome")
 	assert.False(t, isAnyoneHome, "isAnyoneHome should be false when both away")
 }
