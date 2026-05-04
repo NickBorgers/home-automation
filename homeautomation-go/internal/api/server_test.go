@@ -360,6 +360,98 @@ func TestHandleNotify_OtherErrorReturns500(t *testing.T) {
 	}
 }
 
+func TestNotifyEndpointRequiresToken(t *testing.T) {
+	t.Setenv(apiTokenEnv, "secret")
+	server, mockAlerter := newNotifyTestServer(t, nil)
+
+	tests := []struct {
+		name       string
+		token      string
+		wantStatus int
+	}{
+		{name: "missing", wantStatus: http.StatusUnauthorized},
+		{name: "wrong", token: "wrong", wantStatus: http.StatusUnauthorized},
+		{name: "correct", token: "secret", wantStatus: http.StatusOK},
+	}
+
+	for _, tc := range tests {
+		req := httptest.NewRequest(http.MethodPost, "/api/notify", strings.NewReader(`{"body":"hello"}`))
+		if tc.token != "" {
+			req.Header.Set("Authorization", "Bearer "+tc.token)
+		}
+		w := httptest.NewRecorder()
+		server.server.Handler.ServeHTTP(w, req)
+
+		if w.Code != tc.wantStatus {
+			t.Fatalf("%s: expected status %d, got %d", tc.name, tc.wantStatus, w.Code)
+		}
+	}
+
+	if len(mockAlerter.Calls()) != 1 {
+		t.Fatalf("Expected only the authorized request to dispatch, got %d calls", len(mockAlerter.Calls()))
+	}
+}
+
+func TestNotifyEndpointAcceptsTokenHeader(t *testing.T) {
+	t.Setenv(apiTokenEnv, "secret")
+	server, mockAlerter := newNotifyTestServer(t, nil)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/notify", strings.NewReader(`{"body":"hello"}`))
+	req.Header.Set("X-HA-API-Token", "secret")
+	w := httptest.NewRecorder()
+	server.server.Handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected status 200, got %d", w.Code)
+	}
+	if len(mockAlerter.Calls()) != 1 {
+		t.Fatalf("Expected 1 alert call, got %d", len(mockAlerter.Calls()))
+	}
+}
+
+func TestNotifyEndpointFailsClosedWhenTokenUnset(t *testing.T) {
+	t.Setenv(apiTokenEnv, "")
+	server, mockAlerter := newNotifyTestServer(t, nil)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/notify", strings.NewReader(`{"body":"hello"}`))
+	req.Header.Set("Authorization", "Bearer secret")
+	w := httptest.NewRecorder()
+	server.server.Handler.ServeHTTP(w, req)
+
+	assertNotifyError(t, w, http.StatusServiceUnavailable)
+	if len(mockAlerter.Calls()) != 0 {
+		t.Fatalf("Expected no alert calls, got %d", len(mockAlerter.Calls()))
+	}
+}
+
+func TestNotifyEndpointRateLimitsByIP(t *testing.T) {
+	t.Setenv(apiTokenEnv, "secret")
+	server, mockAlerter := newNotifyTestServer(t, nil)
+
+	for i := 0; i < writeRateLimit; i++ {
+		req := httptest.NewRequest(http.MethodPost, "/api/notify", strings.NewReader(`{"body":"hello"}`))
+		req.Header.Set("Authorization", "Bearer secret")
+		req.RemoteAddr = "203.0.113.10:1234"
+		w := httptest.NewRecorder()
+		server.server.Handler.ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("request %d: expected status 200, got %d", i+1, w.Code)
+		}
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/notify", strings.NewReader(`{"body":"hello"}`))
+	req.Header.Set("Authorization", "Bearer secret")
+	req.RemoteAddr = "203.0.113.10:1234"
+	w := httptest.NewRecorder()
+	server.server.Handler.ServeHTTP(w, req)
+
+	assertNotifyError(t, w, http.StatusTooManyRequests)
+	if len(mockAlerter.Calls()) != writeRateLimit {
+		t.Fatalf("Expected %d alert calls, got %d", writeRateLimit, len(mockAlerter.Calls()))
+	}
+}
+
 func newNotifyTestServer(t *testing.T, sendErr error) (*Server, *alert.MockAlerter) {
 	t.Helper()
 	logger := testlogger.New()

@@ -2,13 +2,17 @@ package api
 
 import (
 	"context"
+	"crypto/subtle"
 	_ "embed"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -38,7 +42,16 @@ type Server struct {
 	server        *http.Server
 	timezone      *time.Location
 	alertNotifier alert.Alerter
+	apiToken      string
+	writeLimiter  *writeRateLimiter
 }
+
+const (
+	apiTokenEnv            = "HA_API_TOKEN"
+	writeRateLimit         = 10
+	writeRateLimitWindow   = time.Minute
+	authHeaderBearerPrefix = "Bearer "
+)
 
 // NewServer creates a new API server
 func NewServer(
@@ -59,6 +72,8 @@ func NewServer(
 		logger:        logger,
 		timezone:      timezone,
 		alertNotifier: alertNotifier,
+		apiToken:      os.Getenv(apiTokenEnv),
+		writeLimiter:  newWriteRateLimiter(writeRateLimit, writeRateLimitWindow),
 	}
 
 	mux := http.NewServeMux()
@@ -75,7 +90,7 @@ func NewServer(
 	mux.HandleFunc("/api/shadow/statetracking", s.handleGetStateTrackingShadowState)
 	mux.HandleFunc("/api/shadow/dayphase", s.handleGetDayPhaseShadowState)
 	mux.HandleFunc("/api/shadow/tv", s.handleGetTVShadowState)
-	mux.HandleFunc("/api/notify", s.handleNotify)
+	mux.HandleFunc("/api/notify", s.protectWriteEndpoint(s.handleNotify))
 	mux.HandleFunc("/health", s.handleHealth)
 	mux.HandleFunc("/dashboard", s.handleDashboard)
 	mux.HandleFunc("/timeline", s.handleTimeline)
@@ -112,6 +127,87 @@ type notifyRequest struct {
 type notifyResponse struct {
 	Dispatched       bool `json:"dispatched"`
 	SuppressedAsleep bool `json:"suppressed_asleep"`
+}
+
+type rateLimitWindow struct {
+	start time.Time
+	count int
+}
+
+type writeRateLimiter struct {
+	mu      sync.Mutex
+	limit   int
+	window  time.Duration
+	windows map[string]rateLimitWindow
+}
+
+func newWriteRateLimiter(limit int, window time.Duration) *writeRateLimiter {
+	return &writeRateLimiter{
+		limit:   limit,
+		window:  window,
+		windows: make(map[string]rateLimitWindow),
+	}
+}
+
+func (l *writeRateLimiter) allow(ip string, now time.Time) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	current := l.windows[ip]
+	if current.start.IsZero() || now.Sub(current.start) >= l.window {
+		l.windows[ip] = rateLimitWindow{start: now, count: 1}
+		return true
+	}
+	if current.count >= l.limit {
+		return false
+	}
+	current.count++
+	l.windows[ip] = current
+	return true
+}
+
+func (s *Server) protectWriteEndpoint(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if s.apiToken == "" {
+			writeAPIError(w, http.StatusServiceUnavailable, "write API token is not configured")
+			return
+		}
+		if !s.authorizedWriteRequest(r) {
+			writeAPIError(w, http.StatusUnauthorized, "missing or invalid API token")
+			return
+		}
+		if !s.writeLimiter.allow(clientIP(r), time.Now()) {
+			writeAPIError(w, http.StatusTooManyRequests, "write API rate limit exceeded")
+			return
+		}
+		next(w, r)
+	}
+}
+
+func (s *Server) authorizedWriteRequest(r *http.Request) bool {
+	token := r.Header.Get("X-HA-API-Token")
+	if token == "" {
+		authHeader := r.Header.Get("Authorization")
+		if strings.HasPrefix(authHeader, authHeaderBearerPrefix) {
+			token = strings.TrimSpace(strings.TrimPrefix(authHeader, authHeaderBearerPrefix))
+		}
+	}
+	if token == "" {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(token), []byte(s.apiToken)) == 1
+}
+
+func clientIP(r *http.Request) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
 }
 
 // handleGetState returns all state variables as JSON
