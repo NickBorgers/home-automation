@@ -153,10 +153,11 @@ func (m *Manager) Reset() error {
 // handleErrorChange responds to error sensor changes.
 //
 // State transitions:
-//   - any → "No error":            clear, no announcement.
-//   - "No error" → real error:     announce + arm repeat.
-//   - real error A → real error A: no-op (timer keeps cadence).
-//   - real error A → real error B: announce (message updated).
+//   - any → ""/"unavailable"/"unknown": clear stale repeat state, no announcement.
+//   - any → "No error":                 clear, no announcement.
+//   - "No error" → real error:          announce + arm repeat.
+//   - real error A → real error A:      no-op (timer keeps cadence).
+//   - real error A → real error B:      announce (message updated).
 func (m *Manager) handleErrorChange(entityID string, oldState, newState *ha.State) {
 	if newState == nil {
 		return
