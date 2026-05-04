@@ -68,6 +68,26 @@ func TestVacuum_NoErrorAtStartup_NoAnnouncement(t *testing.T) {
 	assert.Empty(t, mgr.GetShadowState().Outputs.CurrentError)
 }
 
+func TestVacuum_NonActionableStartupState_NoAnnouncement(t *testing.T) {
+	t.Parallel()
+
+	for _, state := range []string{"unavailable", "unknown"} {
+		t.Run(state, func(t *testing.T) {
+			t.Parallel()
+			mgr, mockHA, _, mockAlerter := newTestManager(t, false, time.Now())
+
+			// Home Assistant can report the sensor as unavailable/unknown while
+			// the vacuum integration is still loading.
+			mockHA.SimulateStateChange(testErrorSensor, state)
+			require.NoError(t, mgr.Start())
+			defer mgr.Stop()
+
+			assert.Empty(t, mockAlerter.Calls(), "startup state is not an actionable vacuum error")
+			assert.Empty(t, mgr.GetShadowState().Outputs.CurrentError)
+		})
+	}
+}
+
 func TestVacuum_TransitionToError_Announces(t *testing.T) {
 	t.Parallel()
 	mgr, mockHA, _, mockAlerter := newTestManager(t, false, time.Now())
@@ -192,6 +212,31 @@ func TestVacuum_ErrorClears_StopsRepeating(t *testing.T) {
 	mgr.timeProvider = plugin.FixedTimeProvider{FixedTime: t0.Add(10 * time.Hour)}
 	mgr.TickRepeatForTest()
 	assert.Len(t, mockAlerter.Calls(), 1, "no re-announcement once error has cleared")
+}
+
+func TestVacuum_NonActionableStateClearsTrackedErrorAndStopsRepeating(t *testing.T) {
+	t.Parallel()
+
+	for _, state := range []string{"unavailable", "unknown"} {
+		t.Run(state, func(t *testing.T) {
+			t.Parallel()
+			t0 := time.Date(2026, 4, 27, 10, 0, 0, 0, time.UTC)
+			mgr, mockHA, _, mockAlerter := newTestManager(t, false, t0)
+			mockHA.SimulateStateChange(testErrorSensor, "No error")
+			require.NoError(t, mgr.Start())
+			defer mgr.Stop()
+
+			setSensor(t, mockHA, "Dustbin missing")
+			require.Len(t, mockAlerter.Calls(), 1)
+
+			setSensor(t, mockHA, state)
+			assert.Empty(t, mgr.GetShadowState().Outputs.CurrentError)
+
+			mgr.timeProvider = plugin.FixedTimeProvider{FixedTime: t0.Add(10 * time.Hour)}
+			mgr.TickRepeatForTest()
+			assert.Len(t, mockAlerter.Calls(), 1, "sensor state should not leave stale repeat alerts armed")
+		})
+	}
 }
 
 func TestVacuum_ReadOnly_StillRecordsAndCallsNotifier(t *testing.T) {

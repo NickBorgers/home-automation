@@ -163,8 +163,13 @@ func (m *Manager) handleErrorChange(entityID string, oldState, newState *ha.Stat
 	}
 
 	value := strings.TrimSpace(newState.State)
-	if value == "" {
-		// Skip transient empty/unknown states.
+	if value == "" || value == "unavailable" || value == "unknown" {
+		// Skip transient/non-actionable states and clear any stale repeat state.
+		m.mu.Lock()
+		m.currentError = ""
+		m.lastAnnouncedAt = time.Time{}
+		m.mu.Unlock()
+		m.shadowTracker.SetCurrentError("")
 		return
 	}
 
