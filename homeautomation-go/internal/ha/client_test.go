@@ -539,6 +539,88 @@ func TestClient_HandleEventBackpressuresHandlers(t *testing.T) {
 	}
 }
 
+func TestClient_HandleEventSerializesHandlersPerEntity(t *testing.T) {
+	t.Parallel()
+	client := &Client{
+		logger:         zap.NewNop(),
+		subscribers:    make(map[string][]subscriberEntry),
+		eventProcessed: make(chan struct{}, 8),
+	}
+
+	firstStarted := make(chan struct{})
+	releaseFirst := make(chan struct{})
+	secondStarted := make(chan struct{})
+
+	var mu sync.Mutex
+	sequence := make([]string, 0, 2)
+
+	client.subscribers["sensor.test"] = []subscriberEntry{
+		{
+			subID: 1,
+			handler: func(entityID string, oldState, newState *State) {
+				switch newState.State {
+				case "first":
+					close(firstStarted)
+					<-releaseFirst
+				case "second":
+					close(secondStarted)
+				}
+
+				mu.Lock()
+				sequence = append(sequence, newState.State)
+				mu.Unlock()
+			},
+		},
+	}
+
+	sendEvent := func(value string) {
+		eventPayload := StateChangedEvent{
+			EntityID: "sensor.test",
+			NewState: &State{
+				EntityID: "sensor.test",
+				State:    value,
+			},
+		}
+		data, err := json.Marshal(eventPayload)
+		require.NoError(t, err)
+
+		client.handleEvent(&Message{
+			Type: "event",
+			Event: &Event{
+				EventType: "state_changed",
+				Data:      data,
+			},
+		})
+	}
+
+	sendEvent("first")
+	select {
+	case <-firstStarted:
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("first handler did not start")
+	}
+
+	sendEvent("second")
+	select {
+	case <-secondStarted:
+		t.Fatal("second handler started before first handler completed")
+	case <-time.After(20 * time.Millisecond):
+	}
+
+	close(releaseFirst)
+	select {
+	case <-secondStarted:
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("second handler did not start after first handler completed")
+	}
+
+	client.WaitForHandlers()
+
+	mu.Lock()
+	defer mu.Unlock()
+	assert.Equal(t, []string{"first", "second"}, sequence)
+}
+
 // TestClient_ConcurrentCallService verifies that concurrent CallService calls
 // result in messages with monotonically increasing IDs being sent in order.
 func TestClient_ConcurrentCallService(t *testing.T) {

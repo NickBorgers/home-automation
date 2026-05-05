@@ -68,6 +68,11 @@ const (
 
 	// minResultsForHealth is the minimum number of results needed before declaring unhealthy
 	minResultsForHealth = 3
+
+	// entityEventQueueSize is the per-entity state_changed event buffer.
+	// A full queue backpressures receiveMessages for that entity instead of
+	// allowing later events to overtake earlier ones.
+	entityEventQueueSize = 256
 )
 
 // HAClient defines the interface for Home Assistant WebSocket client
@@ -202,6 +207,13 @@ type subscriberEntry struct {
 	handler StateChangeHandler
 }
 
+type entityEventJob struct {
+	entityID string
+	oldState *State
+	newState *State
+	entries  []subscriberEntry
+}
+
 // Client implements HAClient interface
 //
 // Lock ordering (to prevent deadlocks, always acquire in this order):
@@ -210,8 +222,9 @@ type subscriberEntry struct {
 //  3. writeMu - websocket writes (also protects msgID to ensure ordered sends)
 //  4. pendingMu - pending response channels
 //  5. subsMu - subscribers
-//  6. nextSubIDMu - subscription ID counter
-//  7. healthMu - health tracking (acquired last, never held while acquiring others)
+//  6. entityDispatchMu - per-entity event queues
+//  7. nextSubIDMu - subscription ID counter
+//  8. healthMu - health tracking (acquired last, never held while acquiring others)
 //
 // Note: msgIDMu has been eliminated; msgID is now protected by writeMu to ensure
 // message IDs are allocated and sent atomically, preventing out-of-order sends.
@@ -232,18 +245,20 @@ type Client struct {
 	writeTimeoutCount  int       // Number of write timeouts detected
 	connectedAt        time.Time // When the current connection was established
 
-	msgID       int // Protected by writeMu (not separate mutex) to ensure atomic ID+send
-	pending     map[int]chan Message
-	pendingMu   sync.Mutex
-	subscribers map[string][]subscriberEntry
-	subsMu      sync.RWMutex
-	nextSubID   int
-	nextSubIDMu sync.Mutex
-	ctx         context.Context
-	cancel      context.CancelFunc
-	ctxMu       sync.RWMutex // Protects ctx and cancel
-	reconnect   bool
-	writeMu     sync.Mutex // Protects websocket writes AND msgID counter
+	msgID             int // Protected by writeMu (not separate mutex) to ensure atomic ID+send
+	pending           map[int]chan Message
+	pendingMu         sync.Mutex
+	subscribers       map[string][]subscriberEntry
+	subsMu            sync.RWMutex
+	entityDispatchMu  sync.Mutex
+	entityEventQueues map[string]chan entityEventJob
+	nextSubID         int
+	nextSubIDMu       sync.Mutex
+	ctx               context.Context
+	cancel            context.CancelFunc
+	ctxMu             sync.RWMutex // Protects ctx and cancel
+	reconnect         bool
+	writeMu           sync.Mutex // Protects websocket writes AND msgID counter
 
 	// Ping goroutine lifecycle management
 	pingCancel context.CancelFunc // Cancels the ping goroutine; protected by connMu
@@ -304,16 +319,17 @@ func (c *Client) resetContext() {
 func NewClient(url, token string, logger *zap.Logger) *Client {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Client{
-		url:            url,
-		token:          token,
-		logger:         logger,
-		pending:        make(map[int]chan Message),
-		subscribers:    make(map[string][]subscriberEntry),
-		ctx:            ctx,
-		cancel:         cancel,
-		reconnect:      true,
-		recentResults:  make([]bool, healthWindowSize),
-		eventProcessed: make(chan struct{}, 256),
+		url:               url,
+		token:             token,
+		logger:            logger,
+		pending:           make(map[int]chan Message),
+		subscribers:       make(map[string][]subscriberEntry),
+		entityEventQueues: make(map[string]chan entityEventJob),
+		ctx:               ctx,
+		cancel:            cancel,
+		reconnect:         true,
+		recentResults:     make([]bool, healthWindowSize),
+		eventProcessed:    make(chan struct{}, 256),
 	}
 }
 
@@ -649,6 +665,54 @@ func (c *Client) WaitForHandlers() {
 	}
 }
 
+func (c *Client) getEntityEventQueue(entityID string) chan entityEventJob {
+	c.entityDispatchMu.Lock()
+	defer c.entityDispatchMu.Unlock()
+
+	if c.entityEventQueues == nil {
+		c.entityEventQueues = make(map[string]chan entityEventJob)
+	}
+
+	queue, ok := c.entityEventQueues[entityID]
+	if ok {
+		return queue
+	}
+
+	queue = make(chan entityEventJob, entityEventQueueSize)
+	c.entityEventQueues[entityID] = queue
+	go c.processEntityEventQueue(queue)
+	return queue
+}
+
+func (c *Client) processEntityEventQueue(queue <-chan entityEventJob) {
+	for job := range queue {
+		var eventWg sync.WaitGroup
+		for _, entry := range job.entries {
+			eventWg.Add(1)
+			go func(h StateChangeHandler) {
+				defer c.handlerCount.Add(-1)
+				defer eventWg.Done()
+				h(job.entityID, job.oldState, job.newState)
+			}(entry.handler)
+		}
+
+		eventWg.Wait()
+		c.signalEventProcessed()
+	}
+}
+
+func (c *Client) signalEventProcessed() {
+	c.processedEvents.Add(1)
+	if c.eventProcessed == nil {
+		return
+	}
+
+	select {
+	case c.eventProcessed <- struct{}{}:
+	default:
+	}
+}
+
 // nextMsgID returns the next message ID.
 // IMPORTANT: Caller must hold writeMu to ensure atomic ID allocation + send.
 func (c *Client) nextMsgID() int {
@@ -847,32 +911,25 @@ func (c *Client) handleEvent(msg *Message) {
 	entries := append([]subscriberEntry(nil), c.subscribers[eventData.EntityID]...)
 	c.subsMu.RUnlock()
 
-	// Call handlers in separate goroutines to avoid blocking receiveMessages
-	// This prevents deadlocks when handlers try to send messages back to HA
+	// Queue handlers by entity so successive events for the same entity are
+	// processed FIFO while still allowing different entities to run in parallel.
+	// The queue worker invokes handlers asynchronously so receiveMessages can
+	// continue reading responses for handlers that call back into HA.
 	if len(entries) == 0 {
 		return
 	}
 
-	var eventWg sync.WaitGroup
-	for _, entry := range entries {
+	for range entries {
 		c.handlerCount.Add(1)
-		eventWg.Add(1)
-		go func(h StateChangeHandler) {
-			defer c.handlerCount.Add(-1)
-			defer eventWg.Done()
-			h(eventData.EntityID, eventData.OldState, eventData.NewState)
-		}(entry.handler)
 	}
 
-	// Signal event completion after all handlers finish (non-blocking)
-	go func() {
-		eventWg.Wait()
-		c.processedEvents.Add(1)
-		select {
-		case c.eventProcessed <- struct{}{}:
-		default:
-		}
-	}()
+	queue := c.getEntityEventQueue(eventData.EntityID)
+	queue <- entityEventJob{
+		entityID: eventData.EntityID,
+		oldState: eventData.OldState,
+		newState: eventData.NewState,
+		entries:  entries,
+	}
 }
 
 // handleDisconnect handles connection loss
