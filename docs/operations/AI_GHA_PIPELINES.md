@@ -54,7 +54,7 @@ Key security measures:
 
 | Workflow | File | Trigger | Purpose |
 |----------|------|---------|---------|
-| AI Assistant | `ai-assistant.yml` | New issues, ai-started label removal, `/autoresolve` comments | Auto-resolve issues, respond to comments |
+| AI Assistant | `ai-assistant.yml` | New issues, ai-started label removal, `/autoresolve` comments, pushes to main | Auto-resolve issues, rebase conflicting PRs |
 | AI Code Review | `ai-code-review.yml` | PR Tests completion, PR reopened, `/review` comment | Multi-agent code review, fix failures, merge decision |
 | PR Tests | `pr-tests.yml` | PRs, pushes to all branches | Run tests, trigger review pipeline |
 | AI Diagnose Workflow Failure | `ai-diagnose-workflow-failure.yml` | Any workflow failure | Diagnose Actions config problems (not test failures) |
@@ -68,11 +68,12 @@ The main workflow that enables the AI assistant to respond to requests and autom
 
 ### Triggers
 
-The workflow has three primary trigger paths, all gated by the `authorize` job:
+The workflow has four primary trigger paths:
 
-- **Issue opened / assigned** (`issues: opened` / `issues: assigned`): Any issue opened by an authorized actor (OWNER / MEMBER / COLLABORATOR) fires the AI automatically. **No opt-in keyword required** in the title or body. This is the primary path for "please fix this."
+- **Issue opened / assigned** (`issues: opened` / `issues: assigned`): Any issue opened by an authorized actor (OWNER / MEMBER / COLLABORATOR) fires the AI automatically. **No opt-in keyword required** in the title or body. This is the primary path for "please fix this." Routed to `resolve-issue`.
 - **`ai-started` label removed** (`issues: unlabeled`): The `resolve-issue` job stamps every issue it processes with an `ai-started` label. Removing that label from an open issue is the "try again" gesture — it re-fires the `resolve-issue` job so the AI takes another pass (useful when the previous attempt got stuck or produced the wrong PR). The unlabeled trigger is ignored unless the removed label is literally `ai-started` **and** the issue is still open.
-- **`/autoresolve` in a comment or review** (fallback): When a comment, PR review, or PR review comment contains a plain-text `/autoresolve` token, the AI fires against that comment's context (PR branch or issue thread). This is the fallback path for directing the AI at an existing thread after opening. The `authorize` job strips fenced code blocks, inline code, HTML `<code>` blocks, markdown links, and HTML `<a>` links before searching for the token, so pasted examples and docs never retrigger the workflow.
+- **`/autoresolve` in a comment** (fallback): When a comment contains a plain-text `/autoresolve` token, the AI fires against that comment's context. On an **issue**, it routes to `resolve-issue` (open a PR for the issue). On a **PR**, it routes to `resolve-pr-conflicts` (rebase the PR onto its base, resolve conflicts, run tests, force-push). The `authorize` job strips fenced code blocks, inline code, HTML `<code>` blocks, markdown links, and HTML `<a>` links before searching for the token, so pasted examples and docs never retrigger the workflow.
+- **Push to `main`** (auto-fire conflicts): Every merge to `main` runs `prepare-targets`, which scans open PRs for `mergeStateStatus == DIRTY` and dispatches `resolve-pr-conflicts` onto each. This catches the common case where parallel PRs touch overlapping files — as one merges, the rest flip to DIRTY without any explicit user action. GitHub does not emit a dedicated "PR became DIRTY" event, so push-to-main is the closest reliable signal. There is no authorization gate on this path; branch protection on `main` already restricts who can push.
 
 Why `/autoresolve` and not `@something`? `@ai`, `@autoresolve`, and similar tags are all real GitHub usernames — using them in comments would ping live users. The slash-command style is unambiguously a bot directive and pings nobody.
 
@@ -80,20 +81,28 @@ The authorize job also short-circuits any comment whose body matches a known aut
 
 ### Concurrency Control
 
+Concurrency is scoped per job, not at the workflow level, so the issue and PR-conflict paths don't interfere:
+
 ```yaml
+# resolve-issue (issue events)
 concurrency:
-  group: ai-interactive-${{ issue_or_pr_number }}
-  cancel-in-progress: true  # Cancel in-flight runs so the newest request executes
+  group: ai-resolve-issue-${{ issue_number }}
+  cancel-in-progress: true
+
+# resolve-pr-conflicts (one matrix instance per PR)
+concurrency:
+  group: ai-pr-resolve-${{ matrix.target.pr_number }}
+  cancel-in-progress: true
 ```
 
-Scoped by issue/PR number so that:
-- Two rapid triggers on the **same** PR/issue cannot overlap; the newer invocation cancels the prior run and starts immediately
-- Triggers on **different** PRs/issues run in parallel (separate concurrency groups)
+- Two rapid triggers on the **same** issue or PR cancel the prior run and start the newer one with the freshest state.
+- Triggers on **different** PRs/issues run in parallel.
+- `resolve-pr-conflicts` runs with `max-parallel: 1` so a flood of DIRTY PRs after a big merge doesn't spawn N parallel agents on the self-hosted runner. Each PR's rebase is fast; sequencing is fine.
 
-`cancel-in-progress: true` prevents queued work from racing stale context — the AI assistant immediately restarts with the newest request so the freshest state is always the one being processed.
+`cancel-in-progress: true` prevents queued work from racing stale context.
 
 **When the guard trips (GitHub Actions summary messaging):**
-- In-flight runs flip to the yellow `Cancelled` badge within seconds; the GitHub Actions run summary surfaces the callout "Superseded by another run in ai-interactive-<number>," so you immediately know a newer request preempted it.
+- In-flight runs flip to the yellow `Cancelled` badge within seconds; the GitHub Actions run summary surfaces the callout "Superseded by another run in `ai-resolve-issue-<number>` or `ai-pr-resolve-<number>`," so you immediately know a newer request preempted it.
 - Runs blocked before they start show up in the Actions summary as `Skipped by concurrency guard` with the same superseded message, making it obvious the skip was intentional and not a workflow failure.
 - Only the newest comment gets a response; stale runs never emit results because GitHub immediately launches a fresh execution with the latest payload.
 - Treat the coloured cancellation/skip messaging as confirmation that the guard worked — no manual cleanup required.
@@ -111,28 +120,41 @@ Builds and caches a devcontainer image to speed up subsequent runs.
 - **Output**: `should_build_devcontainer` — consumed by downstream steps via conditional `if` guards
 - **Why it matters**: The guard keeps routine comments (status updates, reactions, etc.) from burning self-hosted minutes — the container build triggers only when the AI assistant is actually going to run.
 
-#### 1.2 `ai`
+#### 1.2 `prepare-targets`
 
-Responds to `/autoresolve` invocations in comments, PR reviews, and PR review comments. Does **not** handle issue events — those are routed to `resolve-issue` below.
+Builds the list of PRs that `resolve-pr-conflicts` should fan out over. Runs for both auto-fire and manual paths.
 
-**Condition**: Executes only when `needs.authorize.outputs.should_run_ai == 'true'` AND the event type is `issue_comment`, `pull_request_review_comment`, or `pull_request_review`. The authorize job has already verified the comment body contains a plain-text `/autoresolve` and does not match an auto-generated review heading, so this job's `if:` is intentionally thin.
+**Condition**:
+- `push` event on `main` — no authorization needed (branch protection gates pushes), OR
+- `issue_comment` event where the comment is on a PR, the actor is authorized, and the body contains a plain-text `/autoresolve`.
 
 **Workflow**:
-1. Detects if the context is a PR or issue
-2. Checks out the appropriate branch (PR head or default)
-3. Runs the AI assistant inside the devcontainer
-4. Implements requested changes or responds to questions
-5. For PRs: commits and pushes changes to the PR branch
-6. For issues: creates branches and opens PRs as needed
+1. **Push path**: `gh pr list` enumerates open PRs. For each PR (excluding any already labeled `ai-resolving`), poll `gh pr view --json mergeStateStatus,mergeable` up to ~30s — GitHub computes mergeability asynchronously, so freshly-affected PRs return `UNKNOWN` for several seconds. Keep PRs whose `mergeStateStatus == DIRTY`.
+2. **Comment path**: emit a single-element list with the commented PR. The agent itself re-confirms the conflict and exits cleanly if the PR is already mergeable.
 
-**Key Configuration**:
-```yaml
-bash .devcontainer/run-ai.sh "$PROMPT"
-```
+Outputs a JSON array `[{pr_number, head_ref}, …]` consumed by `resolve-pr-conflicts` as a matrix.
 
-`run-ai.sh` is a tool-agnostic wrapper that dispatches to whichever CLI is currently configured. It reads `.devcontainer/ai-tool.env` to decide which tool to invoke and translates the generic `AI_API_KEY` env var into the tool-specific name (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, etc.). See [Swapping the Backing AI Tool](#swapping-the-backing-ai-tool) below.
+#### 1.3 `resolve-pr-conflicts`
 
-#### 1.3 `resolve-issue`
+Rebases a conflicting PR onto its base, resolves conflicts in-context, runs `make unit-tests`, and force-pushes the rebased branch. One matrix instance per target from `prepare-targets`.
+
+**Condition**: `needs.prepare-targets.outputs.has_targets == 'true'`.
+
+**Workflow**:
+1. Adds the `ai-resolving` label so concurrent push-triggered runs skip this PR (the `prepare-targets` filter excludes labeled PRs).
+2. Runs the agent (`.github/ci/prompts/resolve-pr-conflicts.md`) inside the CI image:
+   - Verifies the PR head SHA hasn't moved since the trigger fired; if it has, aborts cleanly with a comment.
+   - Confirms `mergeStateStatus == DIRTY`; if already mergeable, comments "no conflict" and exits.
+   - `git rebase origin/<base_ref>`, resolves each conflict by reading both sides plus surrounding code on the new base, preserving the PR's stated intent.
+   - `make unit-tests` to validate, then `git push --force-with-lease`. Hooks run normally; never `--no-verify`.
+   - Comments on the PR with what was resolved and the new head SHA.
+3. Removes the `ai-resolving` label (`if: always()`).
+
+**Why `--force-with-lease`**: refuses to push if anyone else has pushed to the branch since we fetched it. If that fails, treat it as the "author pushed newer commits" path and abort cleanly — never overwrite a human's commit.
+
+**Why `max-parallel: 1`**: a flood of DIRTY PRs right after a big merge would otherwise spawn N parallel agents on the self-hosted runner. Sequencing keeps load bounded; each rebase is fast.
+
+#### 1.4 `resolve-issue`
 
 Automatically resolves newly opened issues and re-runs on explicit retry requests.
 
@@ -156,10 +178,16 @@ Automatically resolves newly opened issues and re-runs on explicit retry request
 
 **Timeout**: 120 minutes
 
+### Labels
+
+- **`ai-started`** (sticky): added by `resolve-issue` to every issue it processes; removed by hand to retry.
+- **`ai-resolving`** (transient): added by `resolve-pr-conflicts` at job start, removed at job end. Used by `prepare-targets` to skip in-flight PRs so a second push to main mid-rebase doesn't re-fire the agent on the same branch.
+
 ### Artifacts
 
-- `ai-conversation-log`: Full conversation log in JSONL format
-- Retention: 7 days
+- `resolve-issue-conversation-log`: full conversation log from issue resolution.
+- `resolve-pr-conflicts-conversation-log-<pr_number>`: full conversation log from each PR conflict resolution (one per matrix instance).
+- Retention: 7 days.
 
 ---
 
@@ -717,6 +745,8 @@ Required approvals: 0  # AI assistant provides automated review
 | AI doesn't respond on a comment | Body missing a plain-text `/autoresolve` token, or token is inside a code block / link | Post a comment with `/autoresolve` as plain text (not inside backticks or a markdown link) |
 | AI didn't run on a newly opened issue | Issue author is not an OWNER / MEMBER / COLLABORATOR | Check the `authorize` job logs — external contributors' issues are intentionally skipped |
 | Want to re-run AI on an issue after it finished | `resolve-issue` only fires once per issue open | Remove the `ai-started` label from the (still-open) issue — that re-fires `resolve-issue` |
+| `resolve-pr-conflicts` skipped a DIRTY PR | PR has the `ai-resolving` label (a previous run is still in flight, or crashed without cleanup) | Wait for the in-flight run, or hand-remove the label and post `/autoresolve` on the PR |
+| `resolve-pr-conflicts` aborted with "head moved" | Author pushed to the PR branch while the agent was working | Normal — the agent yields to humans. Re-comment `/autoresolve` once your push has landed |
 | Workflow failure issue not created | Diagnosed as TEST_FAILURE or CONFIG_FAILURE | Expected - these are handled by AI Code Review |
 
 ### Manual Triggers
