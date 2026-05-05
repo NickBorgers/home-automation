@@ -660,9 +660,14 @@ homeautomation-go/
 │   │   ├── alert_test.go            # ✅ Unit tests
 │   │   └── mock.go                  # ✅ MockAlerter for unit tests
 │   ├── notify/                      # ✅ Shared verbal (TTS) notifier
-│   │   ├── notify.go                # ✅ Notifier implementation (volume snapshot/restore)
+│   │   ├── notify.go                # ✅ Notifier implementation (Kokoro TTS + media_player.play_media announce:true)
 │   │   ├── config.go                # ✅ Config loader (notification_config.yaml)
 │   │   └── mock.go                  # ✅ MockNotifier for unit tests
+│   ├── tts/                         # ✅ Kokoro TTS client + local MP3 file server
+│   │   ├── client.go                # ✅ Kokoro HTTP client (OpenAI-compatible /audio/speech)
+│   │   ├── server.go                # ✅ LAN HTTP server — serves MP3s to Sonos speakers
+│   │   ├── synthesizer.go           # ✅ Synthesizer interface + Service wiring
+│   │   └── mock.go                  # ✅ MockSynthesizer for unit tests
 │   └── plugins/                     # ✅ Automation plugins (13 total)
 │       ├── statetracking/           # ✅ State Tracking plugin
 │       ├── dayphase/                # ✅ Day Phase plugin
