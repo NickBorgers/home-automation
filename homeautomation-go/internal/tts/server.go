@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"net"
 	"net/http"
 	"strings"
 	"sync"
@@ -63,14 +64,20 @@ func NewServer(addr, baseURL string, logger *zap.Logger) *Server {
 	return s
 }
 
-// Start launches the audio file server in a goroutine. Returns nil on
-// success; ListenAndServe errors are logged from the goroutine.
+// Start binds the listen port and launches the audio file server in a
+// goroutine. Returns an error immediately if the port cannot be bound so the
+// caller can Fatal at startup rather than discovering the failure later when
+// Sonos tries to fetch an audio URL that never existed.
 func (s *Server) Start() error {
+	ln, err := net.Listen("tcp", s.addr)
+	if err != nil {
+		return fmt.Errorf("TTS audio server listen %s: %w", s.addr, err)
+	}
 	s.logger.Info("Starting TTS audio file server",
 		zap.String("addr", s.addr),
 		zap.String("base_url", s.baseURL))
 	go func() {
-		if err := s.httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := s.httpServer.Serve(ln); err != nil && err != http.ErrServerClosed {
 			s.logger.Error("TTS audio server error", zap.Error(err))
 		}
 	}()

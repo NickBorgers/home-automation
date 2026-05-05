@@ -294,10 +294,10 @@ func TestMockNotifier_ConcurrentSafe(t *testing.T) {
 	var wg sync.WaitGroup
 	for i := 0; i < 10; i++ {
 		wg.Add(1)
-		go func() {
+		go func(n int) {
 			defer wg.Done()
-			_ = mock.Announce(context.Background(), fmt.Sprintf("concurrent-%d", 0))
-		}()
+			_ = mock.Announce(context.Background(), fmt.Sprintf("concurrent-%d", n))
+		}(i)
 	}
 	wg.Wait()
 	if len(mock.Calls()) != 10 {

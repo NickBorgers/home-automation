@@ -70,7 +70,7 @@ func TestServer_NotFound(t *testing.T) {
 func TestServer_PathTraversalRejected(t *testing.T) {
 	_, ts := newTestServer(t)
 
-	for _, p := range []string{"/audio/../etc.mp3", "/audio/.mp3", "/audio/.mp3"} {
+	for _, p := range []string{"/audio/../etc.mp3", "/audio/.mp3", "/audio/./etc.mp3"} {
 		resp, err := http.Get(ts.URL + p)
 		if err != nil {
 			t.Fatalf("GET %s: %v", p, err)
