@@ -16,7 +16,8 @@ import (
 // Alert describes a notification to dispatch to push and TTS channels.
 type Alert struct {
 	Title    string              // Push notification title (ntfy)
-	Body     string              // Message body: used for both ntfy and TTS
+	Body     string              // Message body: used for ntfy push, and for TTS when Speech is empty
+	Speech   string              // Optional TTS-specific body; falls back to Body if empty
 	Urgency  notify.UrgencyLevel // Controls TTS sleep suppression; maps to ntfy priority if Priority is 0
 	Tags     []string            // ntfy emoji tags (e.g. "warning", "droplet")
 	Speakers []string            // Optional TTS speaker override; uses default speakers if empty
@@ -81,7 +82,11 @@ func (m *Manager) Send(ctx context.Context, a Alert) error {
 	if len(a.Speakers) > 0 {
 		opts = append(opts, notify.WithSpeakers(a.Speakers))
 	}
-	if err := m.notifier.Announce(ctx, a.Body, opts...); err != nil {
+	ttsBody := a.Body
+	if a.Speech != "" {
+		ttsBody = a.Speech
+	}
+	if err := m.notifier.Announce(ctx, ttsBody, opts...); err != nil {
 		if errors.Is(err, notify.ErrSuppressedAsleep) {
 			m.logger.Debug("TTS announcement suppressed (master asleep)", zap.String("title", a.Title))
 			return notify.ErrSuppressedAsleep

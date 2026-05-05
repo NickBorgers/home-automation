@@ -111,7 +111,6 @@ func TestScenario_OwnerHandoff_LockdownSuppressedDuringGracePeriod(t *testing.T)
 
 	t.Log("AND: Nick's presence briefly flaps false (simulating 8-second sensor glitch)")
 	server.SetState("input_boolean.nick_home", "off", nil)
-	waitForProcessing(t, manager)
 	waitForBoolState(t, manager, "isNickHome", false, "isNickHome should be false during flap")
 	waitForServiceCallQuiescenceSince(t, server, snapshot, 200*time.Millisecond)
 

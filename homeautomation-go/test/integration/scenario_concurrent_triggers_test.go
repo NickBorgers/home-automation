@@ -202,19 +202,13 @@ func TestScenario_RapidPresenceChanges_StableState(t *testing.T) {
 	// ========== WHEN ==========
 	t.Log("WHEN: Caroline's presence rapidly toggles (sensor flicker)")
 
-	// Simulate rapid presence changes. waitForProcessing after each flip ensures
-	// each event fully propagates before the next is sent — this serializes the
-	// flips rather than truly firing them concurrently. The test validates that
-	// each individual change reaches a consistent state, not concurrency under load
-	// (see TestScenario_MultipleConcurrentChanges_HandlesCorrectly for that).
+	// Simulate rapid presence changes
 	for i := 0; i < 5; i++ {
 		expectedHome := i%2 == 0
 		if i%2 == 0 {
 			env.server.SetState("input_boolean.caroline_home", "on", map[string]interface{}{})
-			waitForProcessing(t, env.stateManager)
 		} else {
 			env.server.SetState("input_boolean.caroline_home", "off", map[string]interface{}{})
-			waitForProcessing(t, env.stateManager)
 		}
 		waitForBoolState(t, env.stateManager, "isCarolineHome", expectedHome, "presence change %d should propagate", i)
 	}

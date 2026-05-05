@@ -495,14 +495,6 @@ func TestClient_HandleEventBackpressuresHandlers(t *testing.T) {
 		subscribers:       make(map[string][]subscriberEntry),
 		entityEventQueues: make(map[string]chan entityEventJob),
 	}
-	t.Cleanup(func() {
-		client.entityDispatchMu.Lock()
-		for _, ch := range client.entityEventQueues {
-			close(ch)
-		}
-		client.entityEventQueues = make(map[string]chan entityEventJob)
-		client.entityDispatchMu.Unlock()
-	})
 
 	var calls int32
 	done := make(chan struct{})
@@ -548,6 +540,8 @@ func TestClient_HandleEventBackpressuresHandlers(t *testing.T) {
 	}
 }
 
+// TestClient_HandleEventSerializesHandlersPerEntity verifies that successive
+// events for the same entity are processed FIFO via the per-entity queue.
 func TestClient_HandleEventSerializesHandlersPerEntity(t *testing.T) {
 	t.Parallel()
 	client := &Client{

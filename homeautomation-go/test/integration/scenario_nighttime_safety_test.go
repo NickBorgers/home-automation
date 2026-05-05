@@ -222,7 +222,6 @@ func TestScenario_SleepMusic_ContinuesWhenMasterAsleep(t *testing.T) {
 	require.NoError(t, env.stateManager.SetBool("isMasterAsleep", false))
 	require.NoError(t, env.stateManager.SetBool("isEveryoneAsleep", false))
 	require.NoError(t, env.stateManager.SetString("musicPlaybackType", ""))
-	waitForProcessing(t, env.stateManager)
 
 	env.server.SetState("media_player.bedroom", "idle", map[string]interface{}{})
 	env.server.SetState("media_player.kitchen", "idle", map[string]interface{}{})
@@ -296,7 +295,6 @@ func TestScenario_MorningMusic_BedroomMutedWhenMasterAsleep(t *testing.T) {
 	require.NoError(t, env.stateManager.SetBool("isMasterAsleep", true)) // CRITICAL: Still asleep!
 	require.NoError(t, env.stateManager.SetBool("isEveryoneAsleep", false))
 	require.NoError(t, env.stateManager.SetBool("isAnyoneAsleep", true))
-	waitForProcessing(t, env.stateManager)
 
 	// Set up mock speakers
 	env.server.SetState("media_player.bedroom", "idle", map[string]interface{}{
@@ -447,7 +445,6 @@ func TestScenario_WakeCancellation_RevertsToSleepMusicDuringNight(t *testing.T) 
 	require.NoError(t, env.stateManager.SetBool("isMasterAsleep", true))
 	require.NoError(t, env.stateManager.SetBool("isWakeSequenceActive", true))
 	require.NoError(t, env.stateManager.SetString("musicPlaybackType", "wakeup"))
-	waitForProcessing(t, env.stateManager)
 
 	// Bedroom lights are on during wake sequence
 	env.server.SetState("light.primary_suite", "on", map[string]interface{}{
@@ -532,7 +529,6 @@ func TestScenario_DayMusic_BedroomMutedWhenMasterAsleep(t *testing.T) {
 	require.NoError(t, env.stateManager.SetBool("isAnyoneHomeAndAwake", true)) // Someone awake
 	require.NoError(t, env.stateManager.SetBool("isMasterAsleep", true))       // But master napping!
 	require.NoError(t, env.stateManager.SetBool("isEveryoneAsleep", false))
-	waitForProcessing(t, env.stateManager)
 
 	env.server.SetState("media_player.bedroom", "idle", map[string]interface{}{
 		"volume_level": 0.1,

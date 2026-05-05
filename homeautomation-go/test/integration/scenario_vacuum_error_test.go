@@ -10,7 +10,6 @@ import (
 	"homeautomation/internal/plugins/vacuum"
 	"homeautomation/internal/state"
 	"homeautomation/internal/testlogger"
-	"homeautomation/internal/tts"
 	"homeautomation/pkg/plugin"
 
 	"github.com/stretchr/testify/assert"
@@ -43,7 +42,6 @@ type vacuumEnv struct {
 	manager *state.Manager
 	logger  *zap.Logger
 	vacuum  *vacuum.Manager
-	synth   *tts.MockSynthesizer
 }
 
 func setupVacuumTest(t *testing.T, fixedTime time.Time) (*vacuumEnv, func()) {
@@ -68,19 +66,20 @@ func setupVacuumTest(t *testing.T, fixedTime time.Time) (*vacuumEnv, func()) {
 	}
 
 	tp := plugin.FixedTimeProvider{FixedTime: fixedTime}
-	// Use a real notifier with a fake TTS synthesizer so the resulting
-	// media_player.play_media service call flows through the mock HA server
-	// (where the test asserts it). The synth records the spoken text so the
-	// test can verify the message content without parsing the HA call.
+	// Use a real notifier with snapshot/restore disabled so its tts.speak
+	// service call still flows through the mock HA server (where the test
+	// asserts it). Snapshot is disabled because mock speakers have no
+	// volume_level attribute and the per-speaker volume_set noise would
+	// confuse assertions.
 	notifyCfg := notify.DefaultConfig()
-	synth := &tts.MockSynthesizer{URL: "http://test/audio/vacuum.mp3"}
-	notifier := notify.NewManager(client, manager, synth, notifyCfg, logger, false)
+	notifyCfg.SnapshotRestore = false
+	notifier := notify.NewManager(client, manager, notifyCfg, logger, false)
 	alerter := alert.NewManager(nil, notifier, logger)
 	mgr := vacuum.NewManager(context.Background(), client, manager, alerter, cfg, logger, false, tp, nil)
 	mgr.SetRepeatCheckIntervalForTest(time.Hour) // park the background ticker; tests drive ticks explicitly
 	require.NoError(t, mgr.Start(), "vacuum plugin should start")
 
-	env := &vacuumEnv{server: server, manager: manager, logger: logger, vacuum: mgr, synth: synth}
+	env := &vacuumEnv{server: server, manager: manager, logger: logger, vacuum: mgr}
 
 	cleanup := func() {
 		mgr.Stop()
@@ -90,7 +89,7 @@ func setupVacuumTest(t *testing.T, fixedTime time.Time) (*vacuumEnv, func()) {
 }
 
 func vacuumTTSCalls(server *MockHAServer) []ServiceCall {
-	return FilterServiceCalls(server.GetServiceCalls(), "media_player", "play_media")
+	return FilterServiceCalls(server.GetServiceCalls(), "tts", "speak")
 }
 
 // TestScenario_VacuumError_AnnouncesWhenErrorAppears verifies that a transition
@@ -110,18 +109,14 @@ func TestScenario_VacuumError_AnnouncesWhenErrorAppears(t *testing.T) {
 	t.Log("THEN: A TTS announcement is sent within stateWaitTimeout")
 	require.Eventually(t, func() bool {
 		return len(vacuumTTSCalls(env.server)) >= 1
-	}, stateWaitTimeout, statePollInterval, "expected at least one media_player.play_media call")
+	}, stateWaitTimeout, statePollInterval, "expected at least one tts.speak call")
 
 	calls := vacuumTTSCalls(env.server)
 	require.NotEmpty(t, calls)
-	assert.Equal(t, "music", calls[0].ServiceData["media_content_type"])
-	assert.Equal(t, true, calls[0].ServiceData["announce"])
-	assert.Equal(t, "http://test/audio/vacuum.mp3", calls[0].ServiceData["media_content_id"])
-
-	msgs := env.synth.Messages()
-	require.NotEmpty(t, msgs, "synthesizer should have been called")
-	assert.Contains(t, msgs[0], "Mop Dock Clean Water Tank empty",
-		"synthesized text must include the error description")
+	msg, _ := calls[0].ServiceData["message"].(string)
+	assert.Contains(t, msg, "Mop Dock Clean Water Tank empty",
+		"announcement message must include the error description")
+	assert.Equal(t, "tts.google_translate_en_com", calls[0].ServiceData["entity_id"])
 }
 
 // TestScenario_VacuumError_SuppressedWhileMasterAsleep verifies that an error
@@ -148,9 +143,9 @@ func TestScenario_VacuumError_SuppressedWhileMasterAsleep(t *testing.T) {
 	}, stateWaitTimeout, statePollInterval,
 		"shadow state should reflect the active error")
 
-	t.Log("...but no media_player.play_media service call is sent.")
+	t.Log("...but no tts.speak service call is sent.")
 	waitForServiceCallQuiescenceSince(t, env.server, snapshot, 200*time.Millisecond)
-	calls := FilterServiceCalls(env.server.GetServiceCallsSince(snapshot), "media_player", "play_media")
+	calls := FilterServiceCalls(env.server.GetServiceCallsSince(snapshot), "tts", "speak")
 	assert.Empty(t, calls, "TTS must not fire while master is asleep")
 
 	st := env.vacuum.GetShadowState()
@@ -184,6 +179,6 @@ func TestScenario_VacuumError_StopsRepeatingAfterClear(t *testing.T) {
 
 	t.Log("THEN: Subsequent repeat ticks must not produce a new announcement")
 	env.vacuum.TickRepeatForTest()
-	newCalls := FilterServiceCalls(env.server.GetServiceCallsSince(snapshot), "media_player", "play_media")
+	newCalls := FilterServiceCalls(env.server.GetServiceCallsSince(snapshot), "tts", "speak")
 	assert.Empty(t, newCalls, "no announcements should fire after the error has cleared")
 }

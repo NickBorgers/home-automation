@@ -97,7 +97,6 @@ func TestScenario_SyncBoxRecovery_LightingPluginRestoresScene(t *testing.T) {
 	require.NoError(t, env.stateManager.SetBool("isAnyoneHomeAndAwake", true))
 	require.NoError(t, env.stateManager.SetBool("isEveryoneAsleep", false))
 	require.NoError(t, env.stateManager.SetString("dayPhase", "evening"))
-	waitForProcessing(t, env.stateManager)
 
 	// Set up required entities so the TV plugin can recalculate state on recovery.
 	// Without these, GetState returns an error and the recovery handler exits early

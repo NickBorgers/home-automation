@@ -112,7 +112,6 @@ func TestScenario_SexModeActivation_ActivatesNightScene(t *testing.T) {
 	t.Log("WHEN: Sex mode is activated")
 
 	server.SetState("input_boolean.sex", "on", nil)
-	waitForProcessing(t, stateManager)
 
 	t.Log("THEN: Primary Suite night scene should be activated")
 
@@ -132,7 +131,7 @@ func TestScenario_SexModeActivation_ActivatesNightScene(t *testing.T) {
 // sets both Eight Sleep beds to the coldest setting (auto-detected from entity attributes)
 func TestScenario_SexModeActivation_SetsEightSleepToColdest(t *testing.T) {
 	t.Parallel()
-	server, _, stateManager, cleanup := setupSexModeScenarioTest(t)
+	server, _, _, cleanup := setupSexModeScenarioTest(t)
 	defer cleanup()
 
 	t.Log("GIVEN: Sex mode is off")
@@ -142,7 +141,6 @@ func TestScenario_SexModeActivation_SetsEightSleepToColdest(t *testing.T) {
 	t.Log("WHEN: Sex mode is activated")
 
 	server.SetState("input_boolean.sex", "on", nil)
-	waitForProcessing(t, stateManager)
 
 	t.Log("THEN: Both Eight Sleep sides should be set to coldest (auto-detected min_temp: 55)")
 
@@ -255,7 +253,6 @@ func TestScenario_SexModeDeactivation_RestoresMusicType(t *testing.T) {
 	t.Log("WHEN: Sex mode is deactivated")
 
 	server.SetState("input_boolean.sex", "off", nil)
-	waitForProcessing(t, stateManager)
 
 	t.Log("THEN: musicPlaybackType should be restored to 'working'")
 
@@ -275,7 +272,6 @@ func TestScenario_SexModeDeactivation_ActivatesDayPhaseScene(t *testing.T) {
 
 	require.NoError(t, stateManager.SetString("dayPhase", "sunset"))
 	require.NoError(t, stateManager.SetBool("isMasterAsleep", false))
-	waitForProcessing(t, stateManager)
 
 	// Activate sex mode
 	server.SetState("input_boolean.sex", "on", nil)
@@ -288,7 +284,6 @@ func TestScenario_SexModeDeactivation_ActivatesDayPhaseScene(t *testing.T) {
 		eightSleepCalls := FilterServiceCalls(allCalls, "climate", "set_temperature")
 		return len(eightSleepCalls) >= 2
 	}, stateWaitTimeout, statePollInterval, "Both Eight Sleep beds should be adjusted during activation")
-	waitForProcessing(t, stateManager)
 
 	snapshot := server.ServiceCallCount()
 
@@ -340,7 +335,6 @@ func TestScenario_SexModeDeactivation_TurnsOffLightsWhenAsleep(t *testing.T) {
 	t.Log("WHEN: Sex mode is deactivated")
 
 	server.SetState("input_boolean.sex", "off", nil)
-	waitForProcessing(t, stateManager)
 
 	t.Log("THEN: Primary Suite lights should be turned off (not scene activated)")
 
@@ -384,7 +378,6 @@ func TestScenario_SexModeDeactivation_DifferentDayPhases(t *testing.T) {
 
 			require.NoError(t, stateManager.SetString("dayPhase", phase))
 			require.NoError(t, stateManager.SetBool("isMasterAsleep", false))
-			waitForProcessing(t, stateManager)
 
 			// Activate sex mode
 			server.SetState("input_boolean.sex", "on", nil)
@@ -604,7 +597,6 @@ func TestScenario_SexModeActivationDeactivationCycle(t *testing.T) {
 		eightSleepCalls := FilterServiceCalls(sinceCalls, "climate", "set_temperature")
 		return len(eightSleepCalls) >= 2
 	}, stateWaitTimeout, statePollInterval, "Both Eight Sleep beds should be adjusted during activation")
-	waitForProcessing(t, stateManager)
 
 	activationCalls := len(server.GetServiceCallsSince(snapshot))
 	t.Logf("  Activation made %d service calls", activationCalls)
@@ -763,7 +755,6 @@ func TestScenario_SexModeDuringWakeSequence_CancelsWakeSequence(t *testing.T) {
 	require.NoError(t, stateManager.SetBool("isAnyoneAsleep", true))
 	require.NoError(t, stateManager.SetString("musicPlaybackType", "sleep"))
 	require.NoError(t, stateManager.SetString("dayPhase", "morning"))
-	waitForProcessing(t, stateManager)
 
 	// Set up bedroom speaker for the wake sequence
 	server.SetState("media_player.bedroom", "playing", map[string]interface{}{
@@ -816,7 +807,6 @@ func TestScenario_SexModeDuringWakeSequence_PreventsWakeMusicOverride(t *testing
 	require.NoError(t, stateManager.SetBool("isAnyoneAsleep", true))
 	require.NoError(t, stateManager.SetString("musicPlaybackType", "sleep"))
 	require.NoError(t, stateManager.SetString("dayPhase", "morning"))
-	waitForProcessing(t, stateManager)
 
 	server.SetState("media_player.bedroom", "playing", map[string]interface{}{
 		"volume_level": 0.30,

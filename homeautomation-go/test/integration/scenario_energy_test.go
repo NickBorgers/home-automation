@@ -84,7 +84,6 @@ func TestScenario_BatteryLevelChanges_UpdateEnergyLevels(t *testing.T) {
 	server.SetState("sensor.span_panel_span_storage_battery_percentage_2", "85.0", map[string]interface{}{
 		"unit_of_measurement": "%",
 	})
-	waitForProcessing(t, manager)
 
 	// Verify initial state is green
 	waitForStringState(t, manager, "batteryEnergyLevel", "green", "Battery level should be green at 85%")
@@ -94,7 +93,6 @@ func TestScenario_BatteryLevelChanges_UpdateEnergyLevels(t *testing.T) {
 	server.SetState("sensor.span_panel_span_storage_battery_percentage_2", "55.0", map[string]interface{}{
 		"unit_of_measurement": "%",
 	})
-	waitForProcessing(t, manager)
 
 	// THEN: Battery level should be yellow
 	t.Log("THEN: Battery level should be yellow")
@@ -105,7 +103,6 @@ func TestScenario_BatteryLevelChanges_UpdateEnergyLevels(t *testing.T) {
 	server.SetState("sensor.span_panel_span_storage_battery_percentage_2", "15.0", map[string]interface{}{
 		"unit_of_measurement": "%",
 	})
-	waitForProcessing(t, manager)
 
 	// THEN: Battery level should be black
 	t.Log("THEN: Battery level should be black")
@@ -124,11 +121,9 @@ func TestScenario_SolarProductionUpdates_CalculatesEnergyLevel(t *testing.T) {
 	server.SetState("sensor.energy_next_hour", "0.0", map[string]interface{}{
 		"unit_of_measurement": "kW",
 	})
-	waitForProcessing(t, manager)
 	server.SetState("sensor.energy_production_today_remaining", "0.0", map[string]interface{}{
 		"unit_of_measurement": "kWh",
 	})
-	waitForProcessing(t, manager)
 
 	// Verify initial state
 	waitForStringState(t, manager, "solarProductionEnergyLevel", "yellow", "Solar level should be yellow with no production (meets yellow threshold)")
@@ -138,11 +133,9 @@ func TestScenario_SolarProductionUpdates_CalculatesEnergyLevel(t *testing.T) {
 	server.SetState("sensor.energy_next_hour", "2.0", map[string]interface{}{
 		"unit_of_measurement": "kW",
 	})
-	waitForProcessing(t, manager)
 	server.SetState("sensor.energy_production_today_remaining", "15.0", map[string]interface{}{
 		"unit_of_measurement": "kWh",
 	})
-	waitForProcessing(t, manager)
 
 	// THEN: Solar level should be green (threshold: 0 kW, 10 kWh)
 	t.Log("THEN: Solar level should be green")
@@ -153,11 +146,9 @@ func TestScenario_SolarProductionUpdates_CalculatesEnergyLevel(t *testing.T) {
 	server.SetState("sensor.energy_next_hour", "1.0", map[string]interface{}{
 		"unit_of_measurement": "kW",
 	})
-	waitForProcessing(t, manager)
 	server.SetState("sensor.energy_production_today_remaining", "5.0", map[string]interface{}{
 		"unit_of_measurement": "kWh",
 	})
-	waitForProcessing(t, manager)
 
 	// THEN: Solar level should be yellow (threshold: 0 kW, 0 kWh)
 	t.Log("THEN: Solar level should be yellow")
@@ -212,7 +203,6 @@ func TestScenario_GridAvailability_RecalculatesFreeEnergy(t *testing.T) {
 	t.Log("WHEN: Grid goes offline")
 	err = manager.SetBool("isGridAvailable", false)
 	require.NoError(t, err)
-	waitForProcessing(t, manager)
 
 	// THEN: Free energy should be false (no grid = no free energy)
 	t.Log("THEN: Free energy should be false")
@@ -222,7 +212,6 @@ func TestScenario_GridAvailability_RecalculatesFreeEnergy(t *testing.T) {
 	t.Log("WHEN: Grid comes back online")
 	err = manager.SetBool("isGridAvailable", true)
 	require.NoError(t, err)
-	waitForProcessing(t, manager)
 
 	// THEN: Free energy should still be false (we're at noon, outside the window)
 	t.Log("THEN: Free energy should still be false (noon is outside 21:00-07:00)")
@@ -287,11 +276,9 @@ func TestScenario_OverallEnergyLevel_ReflectsWorstState(t *testing.T) {
 	server.SetState("sensor.span_panel_span_storage_battery_percentage_2", "85.0", map[string]interface{}{
 		"unit_of_measurement": "%",
 	})
-	waitForProcessing(t, manager)
 	server.SetState("sensor.energy_next_hour", "2.0", map[string]interface{}{
 		"unit_of_measurement": "kW",
 	})
-	waitForProcessing(t, manager)
 	server.SetState("sensor.energy_production_today_remaining", "15.0", map[string]interface{}{
 		"unit_of_measurement": "kWh",
 	})
@@ -305,7 +292,6 @@ func TestScenario_OverallEnergyLevel_ReflectsWorstState(t *testing.T) {
 	server.SetState("sensor.span_panel_span_storage_battery_percentage_2", "15.0", map[string]interface{}{
 		"unit_of_measurement": "%",
 	})
-	waitForProcessing(t, manager)
 
 	// THEN: Overall level should reflect the lower state
 	// According to the algorithm, solar can boost the battery-derived result by at most one level.
@@ -321,11 +307,9 @@ func TestScenario_OverallEnergyLevel_ReflectsWorstState(t *testing.T) {
 	server.SetState("sensor.energy_next_hour", "0.0", map[string]interface{}{
 		"unit_of_measurement": "kW",
 	})
-	waitForProcessing(t, manager)
 	server.SetState("sensor.energy_production_today_remaining", "0.0", map[string]interface{}{
 		"unit_of_measurement": "kWh",
 	})
-	waitForProcessing(t, manager)
 
 	// THEN: Solar should settle to yellow for this test config, and overall should stay red
 	t.Log("THEN: Overall level should stay low")
@@ -383,10 +367,8 @@ func TestScenario_FreeEnergyTimeWindow_OverridesEnergyLevel(t *testing.T) {
 	server.SetState("sensor.span_panel_span_storage_battery_percentage_2", "15.0", map[string]interface{}{
 		"unit_of_measurement": "%",
 	})
-	waitForProcessing(t, manager)
 	err = manager.SetBool("isGridAvailable", true)
 	require.NoError(t, err)
-	waitForProcessing(t, manager)
 
 	// Verify free energy is available (we're at 22:00, inside the 21:00-07:00 window)
 	waitForBoolState(t, manager, "isFreeEnergyAvailable", true, "Free energy should be available at 22:00 with grid online")
@@ -416,7 +398,6 @@ func TestScenario_ThresholdBoundaries_HandlesExactValues(t *testing.T) {
 	server.SetState("sensor.span_panel_span_storage_battery_percentage_2", "80.0", map[string]interface{}{
 		"unit_of_measurement": "%",
 	})
-	waitForProcessing(t, manager)
 
 	waitForStringState(t, manager, "batteryEnergyLevel", "green", "Battery level should be green at exactly 80%")
 
@@ -425,7 +406,6 @@ func TestScenario_ThresholdBoundaries_HandlesExactValues(t *testing.T) {
 	server.SetState("sensor.span_panel_span_storage_battery_percentage_2", "79.9", map[string]interface{}{
 		"unit_of_measurement": "%",
 	})
-	waitForProcessing(t, manager)
 
 	waitForStringState(t, manager, "batteryEnergyLevel", "yellow", "Battery level should be yellow at 79.9%")
 
@@ -434,7 +414,6 @@ func TestScenario_ThresholdBoundaries_HandlesExactValues(t *testing.T) {
 	server.SetState("sensor.span_panel_span_storage_battery_percentage_2", "50.0", map[string]interface{}{
 		"unit_of_measurement": "%",
 	})
-	waitForProcessing(t, manager)
 
 	waitForStringState(t, manager, "batteryEnergyLevel", "yellow", "Battery level should be yellow at exactly 50%")
 
@@ -443,7 +422,6 @@ func TestScenario_ThresholdBoundaries_HandlesExactValues(t *testing.T) {
 	server.SetState("sensor.span_panel_span_storage_battery_percentage_2", "49.9", map[string]interface{}{
 		"unit_of_measurement": "%",
 	})
-	waitForProcessing(t, manager)
 
 	waitForStringState(t, manager, "batteryEnergyLevel", "red", "Battery level should be red at 49.9%")
 
@@ -452,7 +430,6 @@ func TestScenario_ThresholdBoundaries_HandlesExactValues(t *testing.T) {
 	server.SetState("sensor.span_panel_span_storage_battery_percentage_2", "20.0", map[string]interface{}{
 		"unit_of_measurement": "%",
 	})
-	waitForProcessing(t, manager)
 
 	waitForStringState(t, manager, "batteryEnergyLevel", "red", "Battery level should be red at exactly 20%")
 
@@ -461,7 +438,6 @@ func TestScenario_ThresholdBoundaries_HandlesExactValues(t *testing.T) {
 	server.SetState("sensor.span_panel_span_storage_battery_percentage_2", "19.9", map[string]interface{}{
 		"unit_of_measurement": "%",
 	})
-	waitForProcessing(t, manager)
 
 	waitForStringState(t, manager, "batteryEnergyLevel", "black", "Battery level should be black at 19.9%")
 }
@@ -478,15 +454,12 @@ func TestScenario_MultipleConcurrentChanges_HandlesCorrectly(t *testing.T) {
 	server.SetState("sensor.span_panel_span_storage_battery_percentage_2", "85.0", map[string]interface{}{
 		"unit_of_measurement": "%",
 	})
-	waitForProcessing(t, manager)
 	server.SetState("sensor.energy_next_hour", "3.0", map[string]interface{}{
 		"unit_of_measurement": "kW",
 	})
-	waitForProcessing(t, manager)
 	server.SetState("sensor.energy_production_today_remaining", "20.0", map[string]interface{}{
 		"unit_of_measurement": "kWh",
 	})
-	waitForProcessing(t, manager)
 
 	// Wait for initial state to stabilize
 	waitForStringState(t, manager, "batteryEnergyLevel", "green", "Battery should be green at 85%")
@@ -505,10 +478,6 @@ func TestScenario_MultipleConcurrentChanges_HandlesCorrectly(t *testing.T) {
 	// WHEN: Multiple rapid changes occur simultaneously
 	t.Log("WHEN: Multiple rapid changes occur simultaneously")
 
-	// Barriers are intentionally omitted here: these three SetState calls fire
-	// without draining in between, exercising the system under true concurrent
-	// load across different entities (battery, solar, grid). Assertions below use
-	// waitForStringState/waitForBoolState to tolerate non-deterministic ordering.
 	// Change battery
 	server.SetState("sensor.span_panel_span_storage_battery_percentage_2", "25.0", map[string]interface{}{
 		"unit_of_measurement": "%",

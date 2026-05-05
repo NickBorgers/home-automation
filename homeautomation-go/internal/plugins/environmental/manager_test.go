@@ -2479,3 +2479,79 @@ func TestEnvironmentalManager_UnconditionedHysteresis(t *testing.T) {
 		t.Error("Expected alert to resolve at 69% (below unconditioned clear threshold of 70%)")
 	}
 }
+
+func TestCleanSensorName(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		in, want string
+	}{
+		// Real cases observed in production where HA appends entity name to a
+		// device name that already ends in the same noun.
+		{"Guest Bedroom Temperature and Humidity Humidity", "Guest Bedroom Temperature and Humidity"},
+		{"Caroline Office Temperature and Humidity Humidity", "Caroline Office Temperature and Humidity"},
+		{"Living Room Temperature Temperature", "Living Room Temperature"},
+
+		// Should NOT dedupe — last token isn't a sensor noun, or no duplication.
+		{"Indoor Humidity 1", "Indoor Humidity 1"},
+		{"Bedroom 2 Bedroom", "Bedroom 2 Bedroom"},
+		{"Barn Humidity", "Barn Humidity"},
+		{"Humidity", "Humidity"},
+		{"", ""},
+	}
+
+	for _, c := range cases {
+		got := cleanSensorName(c.in)
+		if got != c.want {
+			t.Errorf("cleanSensorName(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
+func TestEnvironmentalManager_HumidityAlert_HasSpeechWithoutSensorList(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+	mockClock := clock.NewMockClock(time.Now())
+
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockAlerter, mockClock)
+
+	manager.AddSensor(&HumiditySensor{
+		EntityID:     testIndoorSensor1,
+		FriendlyName: "Indoor Humidity 1",
+		IsIndoor:     true,
+		Valid:        true,
+	})
+
+	// Sustain warning for 30+ minutes to fire alert
+	manager.SimulateSensorChange(testIndoorSensor1, 58.0)
+	mockClock.Advance(31 * time.Minute)
+	manager.SimulateSensorChange(testIndoorSensor1, 58.0)
+
+	notification := getLastAlert(mockAlerter)
+	if notification == nil {
+		t.Fatal("Expected an alert to be sent")
+	}
+
+	// Speech variant must exist and read as a short sentence — no sensor list
+	if notification.Speech == "" {
+		t.Fatal("Expected non-empty Speech for TTS-friendly variant")
+	}
+	if strings.Contains(notification.Speech, "Indoor Humidity 1") {
+		t.Errorf("Speech should not contain sensor friendly_name, got %q", notification.Speech)
+	}
+	if !strings.Contains(notification.Speech, "percent") {
+		t.Errorf("Speech should spell out 'percent' for TTS, got %q", notification.Speech)
+	}
+	if !strings.Contains(notification.Speech, "Check ventilation") {
+		t.Errorf("Speech should retain action guidance, got %q", notification.Speech)
+	}
+
+	// Detailed Body still contains the sensor breakdown for ntfy push
+	if !strings.Contains(notification.Body, "Indoor Humidity 1") {
+		t.Errorf("Body should retain sensor detail for push notification, got %q", notification.Body)
+	}
+}

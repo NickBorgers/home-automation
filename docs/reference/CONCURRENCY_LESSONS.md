@@ -216,8 +216,6 @@ func (c *Client) handleEvent(msg *Message) {
 - **Before Fix**: Frequent 10-second timeout errors in energy manager
 - **After Fix**: No timeouts, all HA updates succeed immediately
 
-**Note**: The actual implementation no longer uses bare `go entry.handler(...)`. Successive events for the same entity are now routed through a per-entity channel queue so handlers run FIFO (see Lesson 20). The principle — handlers must not block `receiveMessages` — still applies; the queue worker dispatches handlers into goroutines, keeping `receiveMessages` unblocked.
-
 ---
 
 ## Lesson 6: Always Test with Race Detector
@@ -907,7 +905,7 @@ Go's runtime only detects deadlocks when **all** goroutines are blocked. If even
 17. **Serialize calls to congestion-sensitive device networks** - Parallel UPnP calls to Sonos triggers timeout storms; sequence them instead
 18. **Use `waitForServiceCallQuiescenceSince` for absence assertions** - `waitForProcessing` only covers the HA handler fence; fire-and-forget goroutines require quiescence polling
 19. **Fence between GIVEN and WHEN phases** - always call `waitForProcessing` or `waitForBoolState` after GIVEN-phase `SetState` calls; only `input_boolean.*` entities have `MockHAServer` defaults and can be omitted when their default matches the test's starting value
-20. **Serialize per-entity event handlers via channel queues** - prevents out-of-order execution while preserving cross-entity parallelism
+20. **Serialize per-entity event handlers via channel queues** - prevents out-of-order execution while preserving cross-entity parallelism; use a non-blocking send with drop to avoid blocking `receiveMessages`
 
 ---
 
@@ -1084,7 +1082,7 @@ func handleShutdown() {
 - State manager: `internal/state/manager.go`
 - Mock server: `test/integration/mock_ha_server.go`
 
-**Last Updated**: 2026-05-05
+**Last Updated**: 2026-04-30
 **Test Status**: All 11/11 integration tests passing with `-race` flag
 
 ---
@@ -1421,36 +1419,33 @@ G1 finishes: handler sees "first"   ← stale — flaky tests and incorrect stat
 
 **Correct Approach**: One buffered channel per entity; a single goroutine drains each queue. Successive events for the same entity are processed FIFO. Events for different entities still run in parallel (separate queues). All handlers for a single event run concurrently, but the queue worker waits for all to finish (`eventWg.Wait()`) before dequeuing the next event.
 
+**Current Implementation** (queue lookup and send are inlined in `handleEvent`; `getEntityEventQueue` no longer exists as a separate function):
+
 ```go
-// One channel per entity, drained by a single goroutine
-func (c *Client) getEntityEventQueue(entityID string) chan entityEventJob {
-    c.entityDispatchMu.Lock()
-    defer c.entityDispatchMu.Unlock()
-
-    if queue, ok := c.entityEventQueues[entityID]; ok {
-        return queue
-    }
-
-    queue := make(chan entityEventJob, entityEventQueueSize)
-    c.entityEventQueues[entityID] = queue
-    go c.processEntityEventQueue(queue)
-    return queue
+// Hold entityDispatchMu across lookup and send to prevent a race with Disconnect,
+// which closes queue channels under the same lock. A non-blocking send avoids
+// blocking receiveMessages when the queue is full (which would deadlock if a
+// queued handler awaits a HA response that receiveMessages needs to deliver).
+c.entityDispatchMu.Lock()
+queue, ok := c.entityEventQueues[eventData.EntityID]
+if !ok {
+    queue = make(chan entityEventJob, entityEventQueueSize)
+    c.entityEventQueues[eventData.EntityID] = queue
+    go c.processEntityEventQueue(queue) // goroutine start is intentionally inside the lock
 }
-
-func (c *Client) processEntityEventQueue(queue <-chan entityEventJob) {
-    for job := range queue {
-        var wg sync.WaitGroup
-        for _, entry := range job.entries {
-            wg.Add(1)
-            go func(h StateChangeHandler) {
-                defer wg.Done()
-                h(job.entityID, job.oldState, job.newState)
-            }(entry.handler)
-        }
-        wg.Wait() // wait for all handlers on this event before processing the next
+select {
+case queue <- entityEventJob{...}:
+default:
+    // Drop + decrement handlerCount to avoid leak; log the drop.
+    for range entries {
+        c.handlerCount.Add(-1)
     }
+    c.logger.Warn("entity event queue full, dropping event", ...)
 }
+c.entityDispatchMu.Unlock()
 ```
+
+**Why the non-blocking send**: Holding `entityDispatchMu` across a blocking channel send would deadlock: a full queue means a queued handler is running, and that handler may call back into HA, requiring `receiveMessages` to deliver a response — which cannot happen if `receiveMessages` is blocked on the send. The `select`/`default` drops the event and logs it instead of deadlocking. The 256-slot buffer makes drops extremely unlikely at home automation event rates.
 
 **Lifecycle — Close Channels on Disconnect**: The drain goroutines exit when the channel is closed. Always close all entity queue channels during shutdown:
 
@@ -1464,25 +1459,24 @@ c.entityEventQueues = make(map[string]chan entityEventJob)
 c.entityDispatchMu.Unlock()
 ```
 
-**Known Tradeoff**: The channel send in `handleEvent` is synchronous. If 256 events pile up for one entity while a handler is waiting for a HA response, `receiveMessages` stalls (head-of-line blocking), potentially deadlocking. The buffer size of 256 makes this theoretical for home automation event rates, but the original per-goroutine approach was deadlock-free. Document this tradeoff in a code comment.
+**Lock ordering**: `entityDispatchMu` is acquired after `subsMu` (which is released before the `entityDispatchMu.Lock()` call in `handleEvent`). This ordering is consistent across all callers.
 
-**New lock in ordering**: `entityDispatchMu` (position 6, between `subsMu` and `nextSubIDMu`) protects the `entityEventQueues` map.
-
-**Where Applied**: `internal/ha/client.go` — `getEntityEventQueue`, `processEntityEventQueue`, `handleEvent`, `Disconnect`
+**Where Applied**: `internal/ha/client.go` — `handleEvent`, `processEntityEventQueue`, `Disconnect`
 
 **Test That Validates This**: `TestClient_HandleEventSerializesHandlersPerEntity`
 
-**References**: PR #1076 (Issue #1074)
+**References**: PR #1076 (Issue #1074); non-blocking send refinement added in PR #1079 (Issue #1081)
 
 ---
 
 ## Change Log
 
 ### 2026-05-05
-- **Added Lesson 20**: Serialize Per-Entity Event Handlers via Channel Queues to Prevent Out-of-Order Execution
-  - Documents the per-entity buffered channel pattern that prevents handlers for the same entity from running out of order
-  - Covers lifecycle (close channels on Disconnect), lock ordering (entityDispatchMu at position 6), and the known head-of-line blocking tradeoff
-  - Applied to `internal/ha/client.go` — PR #1076
+- **Restored Lesson 20**: Serialize Per-Entity Event Handlers via Channel Queues
+  - Updated to reflect inlined `handleEvent` implementation (no longer uses separate `getEntityEventQueue` helper)
+  - Updated "Known Tradeoff" section: the blocking-send deadlock risk is now resolved by a non-blocking `select`/default that drops and logs overflows
+  - Lock ordering note updated: `entityDispatchMu` is held across both queue creation and the channel send
+  - Restored `TestClient_HandleEventSerializesHandlersPerEntity` regression test
 
 ### 2026-04-30
 - **Added Lesson 19**: Fence Between GIVEN and WHEN Phases to Prevent Handler Goroutine Races

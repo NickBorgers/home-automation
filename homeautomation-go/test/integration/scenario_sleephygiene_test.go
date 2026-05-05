@@ -1131,7 +1131,6 @@ func TestScenario_WakeSequence_ActivatesWakeMusic(t *testing.T) {
 	// Set on both server AND state manager since sleephygiene reads from state manager.
 	server.SetState("input_boolean.wake_sequence_active", "on", map[string]interface{}{})
 	require.NoError(t, stateManager.SetBool("isWakeSequenceActive", true))
-	waitForProcessing(t, stateManager)
 
 	// Start with sleep music playing (typical state before wake)
 	server.SetState("input_text.music_playback_type", "sleep", map[string]interface{}{})
