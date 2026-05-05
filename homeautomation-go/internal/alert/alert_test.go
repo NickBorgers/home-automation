@@ -208,6 +208,41 @@ func TestManager_Send_NtfyTagsForwarded(t *testing.T) {
 	}
 }
 
+func TestManager_Send_SpeechOverridesBodyForTTS(t *testing.T) {
+	ntfyMock := ntfy.NewMockClient()
+	notifyMock := &notify.MockNotifier{}
+	m := NewManager(ntfyMock, notifyMock, zaptest.NewLogger(t))
+
+	err := m.Send(context.Background(), Alert{
+		Title:  "Test",
+		Body:   "long detailed body for push",
+		Speech: "short spoken version",
+	})
+
+	if err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+	if ntfyMock.GetCalls()[0].Body != "long detailed body for push" {
+		t.Errorf("ntfy should receive Body, got %q", ntfyMock.GetCalls()[0].Body)
+	}
+	if notifyMock.Calls()[0].Message != "short spoken version" {
+		t.Errorf("TTS should receive Speech, got %q", notifyMock.Calls()[0].Message)
+	}
+}
+
+func TestManager_Send_EmptySpeechFallsBackToBody(t *testing.T) {
+	notifyMock := &notify.MockNotifier{}
+	m := NewManager(nil, notifyMock, zaptest.NewLogger(t))
+
+	err := m.Send(context.Background(), Alert{Body: "fallback body"})
+	if err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+	if notifyMock.Calls()[0].Message != "fallback body" {
+		t.Errorf("TTS should fall back to Body when Speech empty, got %q", notifyMock.Calls()[0].Message)
+	}
+}
+
 // zaptest.NewLogger returns a *zap.Logger, confirm we can accept it.
 func TestNewManager_ReturnsNonNil(t *testing.T) {
 	m := NewManager(nil, &notify.MockNotifier{}, zap.NewNop())

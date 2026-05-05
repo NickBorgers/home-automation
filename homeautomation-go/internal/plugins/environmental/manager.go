@@ -888,7 +888,7 @@ func (m *Manager) sendAlertNotification(now time.Time, level string) {
 			threshold = UnconditionedWarningThreshold
 		}
 		if sensor.Value >= threshold {
-			sensorDetails = append(sensorDetails, fmt.Sprintf("%s: %.0f%%", sensor.FriendlyName, sensor.Value))
+			sensorDetails = append(sensorDetails, fmt.Sprintf("%s: %.0f%%", cleanSensorName(sensor.FriendlyName), sensor.Value))
 			sensorLocations = append(sensorLocations, sensor.FriendlyName)
 			if sensor.Value > maxHumidity {
 				maxHumidity = sensor.Value
@@ -924,26 +924,34 @@ func (m *Manager) sendAlertNotification(now time.Time, level string) {
 		return
 	}
 
-	// Build notification message with optional outdoor humidity context
-	var title, message string
+	// Build notification message with optional outdoor humidity context.
+	// Body carries the detailed sensor breakdown for ntfy push; Speech carries
+	// a short conversational variant for TTS (no sensor list — reads better aloud).
+	var title, message, speech string
 	var priority int
 	var tags []string
 
 	outdoorContext := ""
+	outdoorSpeech := ""
 	if m.outdoorHumidityValid {
 		outdoorContext = fmt.Sprintf(" Outdoor: %.0f%%.", m.outdoorHumidity)
+		outdoorSpeech = fmt.Sprintf("Outdoor %.0f percent. ", m.outdoorHumidity)
 	}
 
 	if level == "critical" {
 		title = "High Humidity Critical"
 		message = fmt.Sprintf("Humidity at %.0f%% (%s) for 30+ minutes.%s Mold risk - take action!",
 			maxHumidity, formatSensorDetails(sensorDetails), outdoorContext)
+		speech = fmt.Sprintf("Indoor humidity at %.0f percent for over thirty minutes. %sMold risk. Take action.",
+			maxHumidity, outdoorSpeech)
 		priority = ntfy.PriorityHigh
 		tags = []string{"rotating_light", "droplet"}
 	} else {
 		title = "High Humidity Warning"
 		message = fmt.Sprintf("Humidity at %.0f%% (%s) for 30+ minutes.%s Check ventilation.",
 			maxHumidity, formatSensorDetails(sensorDetails), outdoorContext)
+		speech = fmt.Sprintf("Indoor humidity at %.0f percent for over thirty minutes. %sCheck ventilation.",
+			maxHumidity, outdoorSpeech)
 		priority = ntfy.PriorityDefault
 		tags = []string{"warning", "droplet"}
 	}
@@ -977,6 +985,7 @@ func (m *Manager) sendAlertNotification(now time.Time, level string) {
 	if err := m.alerter.Send(context.Background(), alert.Alert{
 		Title:    title,
 		Body:     message,
+		Speech:   speech,
 		Urgency:  urgency,
 		Tags:     tags,
 		Priority: priority,
@@ -1005,10 +1014,11 @@ func (m *Manager) sendResolutionNotification(now time.Time) {
 			continue
 		}
 		if m.alertedSensorNames[sensor.FriendlyName] {
+			displayName := cleanSensorName(sensor.FriendlyName)
 			if sensor.Valid {
-				sensorSummary = append(sensorSummary, fmt.Sprintf("%s: %.0f%%", sensor.FriendlyName, sensor.Value))
+				sensorSummary = append(sensorSummary, fmt.Sprintf("%s: %.0f%%", displayName, sensor.Value))
 			} else {
-				sensorSummary = append(sensorSummary, fmt.Sprintf("%s: unavailable", sensor.FriendlyName))
+				sensorSummary = append(sensorSummary, fmt.Sprintf("%s: unavailable", displayName))
 			}
 		}
 	}
@@ -1019,7 +1029,7 @@ func (m *Manager) sendResolutionNotification(now time.Time) {
 			if !sensor.IsIndoor || !sensor.Valid {
 				continue
 			}
-			sensorSummary = append(sensorSummary, fmt.Sprintf("%s: %.0f%%", sensor.FriendlyName, sensor.Value))
+			sensorSummary = append(sensorSummary, fmt.Sprintf("%s: %.0f%%", cleanSensorName(sensor.FriendlyName), sensor.Value))
 		}
 	}
 
@@ -1083,6 +1093,31 @@ func formatSensorLocations(locations []string) string {
 	}
 	// For 3+ sensors, list all names joined with commas
 	return strings.Join(locations, ", ")
+}
+
+// sensorNounsToDedupe lists trailing tokens that Home Assistant often
+// duplicates via device_name + entity_name concatenation
+// (e.g. a device named "Guest Bedroom Temperature and Humidity" with an
+// entity named "Humidity" yields friendly_name "...Humidity Humidity").
+var sensorNounsToDedupe = map[string]bool{
+	"Humidity":    true,
+	"Temperature": true,
+	"CO2":         true,
+	"VOC":         true,
+	"PM25":        true,
+}
+
+// cleanSensorName strips a redundant duplicated trailing sensor-type noun
+// from a Home Assistant friendly_name. Only triggers when the last two
+// whitespace-separated tokens are identical and match a known sensor noun.
+func cleanSensorName(name string) string {
+	tokens := strings.Fields(name)
+	if len(tokens) >= 2 &&
+		tokens[len(tokens)-1] == tokens[len(tokens)-2] &&
+		sensorNounsToDedupe[tokens[len(tokens)-1]] {
+		return strings.Join(tokens[:len(tokens)-1], " ")
+	}
+	return name
 }
 
 // formatSensorDetails formats sensor name:value pairs for display in notifications
