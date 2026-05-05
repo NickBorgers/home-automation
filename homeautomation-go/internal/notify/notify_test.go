@@ -3,9 +3,9 @@ package notify
 import (
 	"context"
 	"errors"
-	"fmt"
 	"sync"
 	"testing"
+	"time"
 
 	"homeautomation/internal/ha"
 	"homeautomation/internal/state"
@@ -13,132 +13,100 @@ import (
 	"go.uber.org/zap/zaptest"
 )
 
-// fakeSynth returns a canned URL (or err) and records what it was asked to say.
-type fakeSynth struct {
-	mu       sync.Mutex
-	url      string
-	err      error
-	messages []string
-}
-
-func (f *fakeSynth) SynthesizeAndServe(_ context.Context, text string) (string, error) {
-	f.mu.Lock()
-	f.messages = append(f.messages, text)
-	f.mu.Unlock()
-	if f.err != nil {
-		return "", f.err
-	}
-	return f.url, nil
-}
-
-func (f *fakeSynth) Messages() []string {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	out := make([]string, len(f.messages))
-	copy(out, f.messages)
-	return out
-}
-
-func newTestManager(t *testing.T, mockHA *ha.MockClient, stateMgr *state.Manager, synth *fakeSynth, readOnly bool) *Manager {
+func newTestManager(t *testing.T, mockHA *ha.MockClient, stateMgr *state.Manager, readOnly bool, snapshotRestore bool) *Manager {
 	t.Helper()
 	cfg := DefaultConfig()
-	if synth == nil {
-		synth = &fakeSynth{url: "http://test/audio/abc.mp3"}
-	}
-	return NewManager(mockHA, stateMgr, synth, cfg, zaptest.NewLogger(t), readOnly)
+	cfg.SnapshotRestore = snapshotRestore
+	// short restore delay so async restore tests don't take 8s
+	cfg.RestoreDelaySeconds = 1
+	cfg.RestoreDelay = 50 * time.Millisecond
+	return NewManager(mockHA, stateMgr, cfg, zaptest.NewLogger(t), readOnly)
 }
 
-// equalStringSlices compares two []string when one of them comes back as
-// interface{} from the mock service-call data.
-func equalStringSlices(want []string, got interface{}) bool {
-	gs, ok := got.([]string)
-	if !ok {
-		return false
-	}
-	if len(gs) != len(want) {
-		return false
-	}
-	for i := range want {
-		if gs[i] != want[i] {
-			return false
-		}
-	}
-	return true
-}
-
-func TestAnnounce_PlaysViaMediaPlayerWithAnnounceFlag(t *testing.T) {
+func TestAnnounce_SnapshotOverrideSpeakRestore(t *testing.T) {
 	mockHA := ha.NewMockClient()
-	synth := &fakeSynth{url: "http://10.212.100.100:8085/audio/deadbeef.mp3"}
+	mockHA.SetState("media_player.kitchen", "playing", map[string]interface{}{"volume_level": 0.25})
+	mockHA.SetState("media_player.front_room", "playing", map[string]interface{}{"volume_level": 0.40})
 
-	speakers := []string{"media_player.kitchen", "media_player.front_room"}
-	m := newTestManager(t, mockHA, nil, synth, false)
+	m := newTestManager(t, mockHA, nil, false, true)
 
-	if err := m.Announce(context.Background(), "Test announcement", WithSpeakers(speakers)); err != nil {
-		t.Fatalf("Announce: %v", err)
+	err := m.Announce(context.Background(), "Test announcement", WithSpeakers([]string{
+		"media_player.kitchen",
+		"media_player.front_room",
+	}))
+	if err != nil {
+		t.Fatalf("Announce returned error: %v", err)
 	}
 
-	// Synthesizer should have been asked to speak the message exactly once.
-	if msgs := synth.Messages(); len(msgs) != 1 || msgs[0] != "Test announcement" {
-		t.Errorf("synthesizer messages: want [Test announcement], got %v", msgs)
-	}
+	// Wait for async restore
+	m.WaitForRestores()
 
 	calls := mockHA.GetServiceCalls()
-	if len(calls) != 1 {
-		t.Fatalf("expected exactly 1 service call (media_player.play_media), got %d: %+v", len(calls), calls)
-	}
-	c := calls[0]
-	if c.Domain != "media_player" || c.Service != "play_media" {
-		t.Fatalf("call: want media_player.play_media, got %s.%s", c.Domain, c.Service)
-	}
-	if !equalStringSlices(speakers, c.Data["entity_id"]) {
-		t.Errorf("entity_id: want %v, got %v", speakers, c.Data["entity_id"])
-	}
-	if got, _ := c.Data["media_content_id"].(string); got != synth.url {
-		t.Errorf("media_content_id: want %s, got %v", synth.url, c.Data["media_content_id"])
-	}
-	if got, _ := c.Data["media_content_type"].(string); got != "music" {
-		t.Errorf("media_content_type: want music, got %v", c.Data["media_content_type"])
-	}
-	if got, _ := c.Data["announce"].(bool); !got {
-		t.Errorf("announce: want true, got %v", c.Data["announce"])
-	}
-	extra, ok := c.Data["extra"].(map[string]interface{})
-	if !ok {
-		t.Fatalf("extra: want map, got %T (%v)", c.Data["extra"], c.Data["extra"])
-	}
-	wantVol := float64(defaultAwakeVolumePercent) / 100.0
-	if got, _ := extra["volume"].(float64); got != wantVol {
-		t.Errorf("extra.volume: want %v, got %v", wantVol, got)
+
+	// Expect: 2 volume_set (override) + 1 tts.speak + 2 volume_set (restore) = 5
+	if len(calls) < 5 {
+		t.Fatalf("expected at least 5 service calls, got %d: %+v", len(calls), calls)
 	}
 
-	// Asserts the snapshot/restore code is gone: nothing should fiddle with volume_set.
-	for _, c := range calls {
-		if c.Domain == "media_player" && c.Service == "volume_set" {
-			t.Errorf("unexpected volume_set call: %+v", c)
+	// First two calls: override volume to 0.6 (default awake)
+	for i := 0; i < 2; i++ {
+		c := calls[i]
+		if c.Domain != "media_player" || c.Service != "volume_set" {
+			t.Errorf("call %d: expected media_player.volume_set, got %s.%s", i, c.Domain, c.Service)
 		}
+		if v, _ := c.Data["volume_level"].(float64); v != 0.60 {
+			t.Errorf("call %d: expected volume_level 0.60, got %v", i, c.Data["volume_level"])
+		}
+	}
+
+	// Third call: tts.speak
+	tts := calls[2]
+	if tts.Domain != "tts" || tts.Service != "speak" {
+		t.Errorf("call 2: expected tts.speak, got %s.%s", tts.Domain, tts.Service)
+	}
+	if msg, _ := tts.Data["message"].(string); msg != "Test announcement" {
+		t.Errorf("expected message 'Test announcement', got %v", tts.Data["message"])
+	}
+
+	// Last two calls: restore prior volumes
+	restoreCalls := calls[3:]
+	restoredVolumes := map[string]float64{}
+	for _, c := range restoreCalls {
+		if c.Domain != "media_player" || c.Service != "volume_set" {
+			t.Errorf("expected restore call media_player.volume_set, got %s.%s", c.Domain, c.Service)
+			continue
+		}
+		entityID, _ := c.Data["entity_id"].(string)
+		level, _ := c.Data["volume_level"].(float64)
+		restoredVolumes[entityID] = level
+	}
+	if got := restoredVolumes["media_player.kitchen"]; got != 0.25 {
+		t.Errorf("kitchen restore: expected 0.25, got %v", got)
+	}
+	if got := restoredVolumes["media_player.front_room"]; got != 0.40 {
+		t.Errorf("front_room restore: expected 0.40, got %v", got)
 	}
 }
 
 func TestAnnounce_ReadOnlyDoesNothing(t *testing.T) {
 	mockHA := ha.NewMockClient()
-	synth := &fakeSynth{url: "http://test/audio/x.mp3"}
+	mockHA.SetState("media_player.kitchen", "playing", map[string]interface{}{"volume_level": 0.25})
 
-	m := newTestManager(t, mockHA, nil, synth, true)
+	m := newTestManager(t, mockHA, nil, true, true)
 
 	if err := m.Announce(context.Background(), "Hi", WithSpeakers([]string{"media_player.kitchen"})); err != nil {
 		t.Fatalf("Announce returned error: %v", err)
 	}
+	m.WaitForRestores()
+
 	if calls := mockHA.GetServiceCalls(); len(calls) != 0 {
-		t.Errorf("read-only should make zero HA calls, got %d", len(calls))
-	}
-	if msgs := synth.Messages(); len(msgs) != 0 {
-		t.Errorf("read-only should not call synthesizer, got %d messages", len(msgs))
+		t.Errorf("read-only mode should not make service calls, got %d", len(calls))
 	}
 }
 
 func TestAnnounce_EmptyMessageReturnsError(t *testing.T) {
 	mockHA := ha.NewMockClient()
-	m := newTestManager(t, mockHA, nil, nil, false)
+	m := newTestManager(t, mockHA, nil, false, true)
 
 	if err := m.Announce(context.Background(), "", WithSpeakers([]string{"media_player.kitchen"})); err == nil {
 		t.Error("expected error for empty message")
@@ -147,7 +115,8 @@ func TestAnnounce_EmptyMessageReturnsError(t *testing.T) {
 
 func TestAnnounce_NoSpeakersReturnsError(t *testing.T) {
 	mockHA := ha.NewMockClient()
-	m := newTestManager(t, mockHA, nil, nil, false)
+	m := newTestManager(t, mockHA, nil, false, true)
+	// Override default speakers to empty
 	m.cfg.DefaultSpeakers = nil
 
 	if err := m.Announce(context.Background(), "Hi"); err == nil {
@@ -155,44 +124,58 @@ func TestAnnounce_NoSpeakersReturnsError(t *testing.T) {
 	}
 }
 
-func TestAnnounce_SynthesizerFailureSkipsHA(t *testing.T) {
+func TestAnnounce_TTSFailureRestoresImmediately(t *testing.T) {
 	mockHA := ha.NewMockClient()
-	synth := &fakeSynth{err: errors.New("kokoro down")}
+	mockHA.SetState("media_player.kitchen", "playing", map[string]interface{}{"volume_level": 0.30})
+	mockHA.SetServiceError("tts", "speak", errors.New("tts unavailable"))
 
-	m := newTestManager(t, mockHA, nil, synth, false)
+	m := newTestManager(t, mockHA, nil, false, true)
 
 	err := m.Announce(context.Background(), "Hi", WithSpeakers([]string{"media_player.kitchen"}))
 	if err == nil {
-		t.Fatal("expected error from synthesizer failure")
+		t.Fatal("expected error from failed TTS")
 	}
-	if calls := mockHA.GetServiceCalls(); len(calls) != 0 {
-		t.Errorf("synthesis failure should not trigger HA calls, got %d: %+v", len(calls), calls)
+
+	// Errored services don't get recorded by the mock, so we expect:
+	//   1. override volume_set (recorded)
+	//   2. tts.speak (errored - not recorded)
+	//   3. restore volume_set (recorded)
+	calls := mockHA.GetServiceCalls()
+	if len(calls) != 2 {
+		t.Fatalf("expected exactly 2 recorded calls (override + restore), got %d: %+v", len(calls), calls)
 	}
-}
 
-func TestAnnounce_PlayMediaFailurePropagates(t *testing.T) {
-	mockHA := ha.NewMockClient()
-	mockHA.SetServiceError("media_player", "play_media", errors.New("HA down"))
-	synth := &fakeSynth{url: "http://test/audio/x.mp3"}
+	// Override set to 0.60 (default awake), restore set back to 0.30
+	if v, _ := calls[0].Data["volume_level"].(float64); v != 0.60 {
+		t.Errorf("expected override to 0.60, got %v", v)
+	}
+	if v, _ := calls[1].Data["volume_level"].(float64); v != 0.30 {
+		t.Errorf("expected restore to 0.30, got %v", v)
+	}
 
-	m := newTestManager(t, mockHA, nil, synth, false)
-
-	err := m.Announce(context.Background(), "Hi", WithSpeakers([]string{"media_player.kitchen"}))
-	if err == nil {
-		t.Fatal("expected error from media_player.play_media failure")
+	// No goroutine restore should be pending
+	doneCh := make(chan struct{})
+	go func() { m.WaitForRestores(); close(doneCh) }()
+	select {
+	case <-doneCh:
+	case <-time.After(time.Second):
+		t.Error("WaitForRestores did not return promptly after TTS failure")
 	}
 }
 
 func TestAnnounce_DeferableWhileAsleep_SuppressesWithSentinel(t *testing.T) {
 	mockHA := ha.NewMockClient()
+	mockHA.SetState("media_player.kitchen", "playing", map[string]interface{}{"volume_level": 0.40})
+
 	stateMgr := state.NewManager(mockHA, zaptest.NewLogger(t), false)
 	if err := stateMgr.SetBool("isMasterAsleep", true); err != nil {
 		t.Fatalf("SetBool failed: %v", err)
 	}
+	// Clear service calls from the SetBool (e.g. input_boolean.turn_on) so
+	// only the Announce's calls (or absence thereof) are observed.
 	mockHA.ClearServiceCalls()
-	synth := &fakeSynth{url: "http://test/audio/x.mp3"}
 
-	m := newTestManager(t, mockHA, stateMgr, synth, false)
+	m := newTestManager(t, mockHA, stateMgr, false, true)
 
 	err := m.Announce(context.Background(), "Vacuum needs attention",
 		WithSpeakers([]string{"media_player.kitchen"}),
@@ -200,65 +183,129 @@ func TestAnnounce_DeferableWhileAsleep_SuppressesWithSentinel(t *testing.T) {
 	if !errors.Is(err, ErrSuppressedAsleep) {
 		t.Fatalf("expected ErrSuppressedAsleep, got %v", err)
 	}
+
 	if calls := mockHA.GetServiceCalls(); len(calls) != 0 {
 		t.Errorf("deferable+asleep should make zero HA calls, got %d: %+v", len(calls), calls)
-	}
-	if msgs := synth.Messages(); len(msgs) != 0 {
-		t.Errorf("suppressed announcement should not synthesize, got %d messages", len(msgs))
 	}
 }
 
 func TestAnnounce_DeferableWhileAwake_PlaysAtAwakeVolume(t *testing.T) {
 	mockHA := ha.NewMockClient()
+	mockHA.SetState("media_player.kitchen", "playing", map[string]interface{}{"volume_level": 0.40})
+
 	stateMgr := state.NewManager(mockHA, zaptest.NewLogger(t), false)
 	if err := stateMgr.SetBool("isMasterAsleep", false); err != nil {
 		t.Fatalf("SetBool failed: %v", err)
 	}
 	mockHA.ClearServiceCalls()
 
-	m := newTestManager(t, mockHA, stateMgr, nil, false)
+	m := newTestManager(t, mockHA, stateMgr, false, true)
 
 	if err := m.Announce(context.Background(), "Hi",
 		WithSpeakers([]string{"media_player.kitchen"}),
 		WithUrgency(UrgencyDeferable)); err != nil {
 		t.Fatalf("Announce returned error: %v", err)
 	}
+	m.WaitForRestores()
 
 	calls := mockHA.GetServiceCalls()
-	if len(calls) != 1 {
-		t.Fatalf("expected 1 call, got %d: %+v", len(calls), calls)
+	if len(calls) < 1 {
+		t.Fatalf("expected at least one call")
 	}
-	extra, _ := calls[0].Data["extra"].(map[string]interface{})
-	want := float64(defaultAwakeVolumePercent) / 100.0
-	if got, _ := extra["volume"].(float64); got != want {
-		t.Errorf("deferable+awake: want extra.volume %v, got %v", want, got)
+	override := calls[0]
+	if v, _ := override.Data["volume_level"].(float64); v != 0.60 {
+		t.Errorf("deferable+awake: expected volume 0.60, got %v", v)
 	}
 }
 
 func TestAnnounce_UrgentWhileAsleep_PlaysAtAwakeVolume(t *testing.T) {
 	mockHA := ha.NewMockClient()
+	mockHA.SetState("media_player.kitchen", "playing", map[string]interface{}{"volume_level": 0.40})
+
 	stateMgr := state.NewManager(mockHA, zaptest.NewLogger(t), false)
 	if err := stateMgr.SetBool("isMasterAsleep", true); err != nil {
 		t.Fatalf("SetBool failed: %v", err)
 	}
 	mockHA.ClearServiceCalls()
 
-	m := newTestManager(t, mockHA, stateMgr, nil, false)
+	m := newTestManager(t, mockHA, stateMgr, false, true)
 
 	if err := m.Announce(context.Background(), "Person at door",
 		WithSpeakers([]string{"media_player.kitchen"}),
 		WithUrgency(UrgencyUrgent)); err != nil {
 		t.Fatalf("Announce returned error: %v", err)
 	}
+	m.WaitForRestores()
 
 	calls := mockHA.GetServiceCalls()
-	if len(calls) != 1 {
-		t.Fatalf("expected 1 call, got %d: %+v", len(calls), calls)
+	if len(calls) < 1 {
+		t.Fatalf("expected at least one call")
 	}
-	extra, _ := calls[0].Data["extra"].(map[string]interface{})
-	want := float64(defaultAwakeVolumePercent) / 100.0
-	if got, _ := extra["volume"].(float64); got != want {
-		t.Errorf("urgent+asleep: want extra.volume %v, got %v", want, got)
+	override := calls[0]
+	if v, _ := override.Data["volume_level"].(float64); v != 0.60 {
+		t.Errorf("urgent+asleep: expected volume 0.60, got %v", v)
+	}
+}
+
+func TestAnnounce_SnapshotRestoreDisabled(t *testing.T) {
+	mockHA := ha.NewMockClient()
+	mockHA.SetState("media_player.kitchen", "playing", map[string]interface{}{"volume_level": 0.25})
+
+	m := newTestManager(t, mockHA, nil, false, false)
+
+	if err := m.Announce(context.Background(), "Hi", WithSpeakers([]string{"media_player.kitchen"})); err != nil {
+		t.Fatalf("Announce returned error: %v", err)
+	}
+	m.WaitForRestores()
+
+	// Only the tts.speak call should happen - no volume snapshot or restore.
+	calls := mockHA.GetServiceCalls()
+	if len(calls) != 1 {
+		t.Fatalf("expected exactly 1 call (tts.speak), got %d: %+v", len(calls), calls)
+	}
+	if calls[0].Domain != "tts" || calls[0].Service != "speak" {
+		t.Errorf("expected tts.speak, got %s.%s", calls[0].Domain, calls[0].Service)
+	}
+}
+
+func TestAnnounce_MissingSpeakerStateOmittedFromRestore(t *testing.T) {
+	mockHA := ha.NewMockClient()
+	mockHA.SetState("media_player.kitchen", "playing", map[string]interface{}{"volume_level": 0.25})
+	// Note: media_player.bedroom intentionally not set.
+
+	m := newTestManager(t, mockHA, nil, false, true)
+
+	if err := m.Announce(context.Background(), "Hi", WithSpeakers([]string{
+		"media_player.kitchen",
+		"media_player.bedroom",
+	})); err != nil {
+		t.Fatalf("Announce returned error: %v", err)
+	}
+	m.WaitForRestores()
+
+	calls := mockHA.GetServiceCalls()
+
+	// Count restore calls (volume_set) that happen after the tts.speak call
+	ttsIdx := -1
+	for i, c := range calls {
+		if c.Domain == "tts" && c.Service == "speak" {
+			ttsIdx = i
+			break
+		}
+	}
+	if ttsIdx == -1 {
+		t.Fatalf("tts.speak call not found")
+	}
+
+	// Restore calls only for entities with snapshotted state.
+	restoreCount := 0
+	for _, c := range calls[ttsIdx+1:] {
+		if c.Domain == "media_player" && c.Service == "volume_set" {
+			restoreCount++
+		}
+	}
+	if restoreCount != 1 {
+		t.Errorf("expected exactly 1 restore call (kitchen only), got %d", restoreCount)
 	}
 }
 
@@ -294,10 +341,10 @@ func TestMockNotifier_ConcurrentSafe(t *testing.T) {
 	var wg sync.WaitGroup
 	for i := 0; i < 10; i++ {
 		wg.Add(1)
-		go func(n int) {
+		go func() {
 			defer wg.Done()
-			_ = mock.Announce(context.Background(), fmt.Sprintf("concurrent-%d", n))
-		}(i)
+			_ = mock.Announce(context.Background(), "concurrent")
+		}()
 	}
 	wg.Wait()
 	if len(mock.Calls()) != 10 {
@@ -310,6 +357,15 @@ func TestLoadConfig_AppliesDefaults(t *testing.T) {
 
 	if cfg.AwakeVolumePercent != defaultAwakeVolumePercent {
 		t.Errorf("AwakeVolumePercent: expected %d, got %d", defaultAwakeVolumePercent, cfg.AwakeVolumePercent)
+	}
+	if cfg.TTSDomain != defaultTTSDomain {
+		t.Errorf("TTSDomain: expected %s, got %s", defaultTTSDomain, cfg.TTSDomain)
+	}
+	if cfg.TTSEntityID != defaultTTSEntityID {
+		t.Errorf("TTSEntityID: expected %s, got %s", defaultTTSEntityID, cfg.TTSEntityID)
+	}
+	if !cfg.SnapshotRestore {
+		t.Error("SnapshotRestore should default to true")
 	}
 	if len(cfg.DefaultSpeakers) == 0 {
 		t.Error("DefaultSpeakers should not be empty")

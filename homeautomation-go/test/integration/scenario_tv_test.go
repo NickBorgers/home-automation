@@ -60,7 +60,6 @@ func TestScenario_AppleTVPlaying(t *testing.T) {
 	server.SetState("media_player.big_beautiful_oled", "playing", map[string]interface{}{
 		"friendly_name": "Apple TV",
 	})
-	waitForProcessing(t, manager)
 
 	t.Log("THEN: Verify isAppleTVPlaying and isTVPlaying are both true")
 
@@ -85,7 +84,6 @@ func TestScenario_HDMIInputSwitch(t *testing.T) {
 	server.SetState("media_player.sony_xr_65a80k", "on", map[string]interface{}{})
 	server.SetState("switch.sync_box_power", "on", map[string]interface{}{})
 	server.SetState("select.sync_box_hdmi_input", "AppleTV", map[string]interface{}{})
-	waitForProcessing(t, manager)
 
 	// Wait for initial state
 	waitForBoolState(t, manager, "isTVPlaying", true, "isTVPlaying should initially be true when AppleTV is playing")
@@ -94,7 +92,6 @@ func TestScenario_HDMIInputSwitch(t *testing.T) {
 
 	// Switch HDMI input to Xbox
 	server.SetState("select.sync_box_hdmi_input", "Xbox", map[string]interface{}{})
-	waitForProcessing(t, manager)
 
 	t.Log("THEN: Verify isTVPlaying is still true (Xbox input assumes playing)")
 
@@ -105,7 +102,6 @@ func TestScenario_HDMIInputSwitch(t *testing.T) {
 
 	// Switch back to Apple TV
 	server.SetState("select.sync_box_hdmi_input", "AppleTV", map[string]interface{}{})
-	waitForProcessing(t, manager)
 
 	t.Log("THEN: Verify isTVPlaying remains true")
 
@@ -148,7 +144,6 @@ func TestScenario_TVRemoteKillSwitch(t *testing.T) {
 
 	// TV panel turns off - sync box stays on
 	server.SetState("media_player.sony_xr_65a80k", "off", map[string]interface{}{})
-	waitForProcessing(t, manager)
 
 	t.Log("THEN: isTVPlaying should be forced false (kill switch)")
 
@@ -172,28 +167,24 @@ func TestScenario_MultipleInputs(t *testing.T) {
 		"friendly_name": "Apple TV",
 	})
 	server.SetState("select.sync_box_hdmi_input", "AppleTV", map[string]interface{}{})
-	waitForProcessing(t, manager)
 	waitForBoolState(t, manager, "isTVon", true, "isTVon should be true when TV remote is on")
 
 	t.Log("WHEN: Switching between multiple HDMI inputs")
 
 	// Switch to Xbox
 	server.SetState("select.sync_box_hdmi_input", "Xbox", map[string]interface{}{})
-	waitForProcessing(t, manager)
 
 	// Verify isTVPlaying is true for Xbox
 	waitForBoolState(t, manager, "isTVPlaying", true, "isTVPlaying should be true for Xbox")
 
 	// Switch to Cable
 	server.SetState("select.sync_box_hdmi_input", "Cable", map[string]interface{}{})
-	waitForProcessing(t, manager)
 
 	// Verify isTVPlaying is true for Cable
 	waitForBoolState(t, manager, "isTVPlaying", true, "isTVPlaying should be true for Cable")
 
 	// Switch back to AppleTV (idle)
 	server.SetState("select.sync_box_hdmi_input", "AppleTV", map[string]interface{}{})
-	waitForProcessing(t, manager)
 
 	t.Log("THEN: Verify isTVPlaying is false (AppleTV is idle)")
 
@@ -264,7 +255,6 @@ func TestScenario_RapidInputSwitching(t *testing.T) {
 		"friendly_name": "Apple TV",
 	})
 	server.SetState("select.sync_box_hdmi_input", "AppleTV", map[string]interface{}{})
-	waitForProcessing(t, manager)
 	waitForBoolState(t, manager, "isTVPlaying", true, "isTVPlaying should be true when AppleTV is playing")
 
 	t.Log("WHEN: Rapidly switching HDMI inputs")
@@ -273,7 +263,6 @@ func TestScenario_RapidInputSwitching(t *testing.T) {
 	inputs := []string{"Xbox", "Cable", "AppleTV", "Xbox", "AppleTV", "Cable", "AppleTV"}
 	for _, input := range inputs {
 		server.SetState("select.sync_box_hdmi_input", input, map[string]interface{}{})
-		waitForProcessing(t, manager)
 	}
 
 	t.Log("THEN: Verify final state is consistent (AppleTV playing)")
@@ -297,7 +286,6 @@ func TestScenario_AppleTVPlaybackStateChanges(t *testing.T) {
 	server.SetState("media_player.big_beautiful_oled", "idle", map[string]interface{}{
 		"friendly_name": "Apple TV",
 	})
-	waitForProcessing(t, manager)
 	waitForBoolState(t, manager, "isTVon", true, "isTVon should be true when TV remote is on")
 
 	testCases := []struct {
@@ -318,7 +306,6 @@ func TestScenario_AppleTVPlaybackStateChanges(t *testing.T) {
 		server.SetState("media_player.big_beautiful_oled", tc.state, map[string]interface{}{
 			"friendly_name": "Apple TV",
 		})
-		waitForProcessing(t, manager)
 
 		t.Logf("THEN: Verify isAppleTVPlaying is %v and isTVPlaying is %v", tc.expectedPlaying, tc.expectedPlaying)
 

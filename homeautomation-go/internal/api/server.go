@@ -4,18 +4,13 @@ import (
 	"context"
 	_ "embed"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
-	"strings"
 	"time"
-	"unicode/utf8"
 
-	"homeautomation/internal/alert"
 	"homeautomation/internal/ha"
 	"homeautomation/internal/logbuffer"
-	"homeautomation/internal/notify"
 	"homeautomation/internal/shadowstate"
 	"homeautomation/internal/state"
 
@@ -37,20 +32,10 @@ type Server struct {
 	logger        *zap.Logger
 	server        *http.Server
 	timezone      *time.Location
-	alertNotifier alert.Alerter
 }
 
 // NewServer creates a new API server
-func NewServer(
-	haClient ha.HAClient,
-	stateManager *state.Manager,
-	shadowTracker *shadowstate.Tracker,
-	logBuffer *logbuffer.Buffer,
-	logger *zap.Logger,
-	port int,
-	timezone *time.Location,
-	alertNotifier alert.Alerter,
-) *Server {
+func NewServer(haClient ha.HAClient, stateManager *state.Manager, shadowTracker *shadowstate.Tracker, logBuffer *logbuffer.Buffer, logger *zap.Logger, port int, timezone *time.Location) *Server {
 	s := &Server{
 		haClient:      haClient,
 		stateManager:  stateManager,
@@ -58,7 +43,6 @@ func NewServer(
 		logBuffer:     logBuffer,
 		logger:        logger,
 		timezone:      timezone,
-		alertNotifier: alertNotifier,
 	}
 
 	mux := http.NewServeMux()
@@ -75,7 +59,6 @@ func NewServer(
 	mux.HandleFunc("/api/shadow/statetracking", s.handleGetStateTrackingShadowState)
 	mux.HandleFunc("/api/shadow/dayphase", s.handleGetDayPhaseShadowState)
 	mux.HandleFunc("/api/shadow/tv", s.handleGetTVShadowState)
-	mux.HandleFunc("/api/notify", s.handleNotify)
 	mux.HandleFunc("/health", s.handleHealth)
 	mux.HandleFunc("/dashboard", s.handleDashboard)
 	mux.HandleFunc("/timeline", s.handleTimeline)
@@ -98,20 +81,6 @@ type StateResponse struct {
 	Numbers  map[string]float64 `json:"numbers"`
 	Strings  map[string]string  `json:"strings"`
 	JSONs    map[string]any     `json:"jsons"`
-}
-
-type notifyRequest struct {
-	Title    string   `json:"title"`
-	Body     string   `json:"body"`
-	Urgency  string   `json:"urgency"`
-	Tags     []string `json:"tags"`
-	Speakers []string `json:"speakers"`
-	Priority int      `json:"priority"`
-}
-
-type notifyResponse struct {
-	Dispatched       bool `json:"dispatched"`
-	SuppressedAsleep bool `json:"suppressed_asleep"`
 }
 
 // handleGetState returns all state variables as JSON
@@ -182,98 +151,6 @@ func (s *Server) handleGetState(w http.ResponseWriter, r *http.Request) {
 
 	s.logger.Debug("State request served",
 		zap.String("remote_addr", r.RemoteAddr))
-}
-
-func (s *Server) handleNotify(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	r.Body = http.MaxBytesReader(w, r.Body, 65536)
-
-	var req notifyRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeAPIError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-
-	if strings.TrimSpace(req.Body) == "" {
-		writeAPIError(w, http.StatusBadRequest, "body field is required")
-		return
-	}
-	if utf8.RuneCountInString(req.Body) > 500 {
-		writeAPIError(w, http.StatusBadRequest, "body must be 500 characters or fewer")
-		return
-	}
-	if len(req.Tags) > 16 {
-		writeAPIError(w, http.StatusBadRequest, "tags must contain 16 items or fewer")
-		return
-	}
-	for _, tag := range req.Tags {
-		if utf8.RuneCountInString(tag) > 256 {
-			writeAPIError(w, http.StatusBadRequest, "each tag must be 256 characters or fewer")
-			return
-		}
-	}
-	if len(req.Speakers) > 16 {
-		writeAPIError(w, http.StatusBadRequest, "speakers must contain 16 items or fewer")
-		return
-	}
-	for _, speaker := range req.Speakers {
-		if utf8.RuneCountInString(speaker) > 256 {
-			writeAPIError(w, http.StatusBadRequest, "each speaker must be 256 characters or fewer")
-			return
-		}
-	}
-	if req.Priority != 0 && (req.Priority < 1 || req.Priority > 5) {
-		writeAPIError(w, http.StatusBadRequest, "priority must be between 1 and 5")
-		return
-	}
-
-	urgency := notify.UrgencyDeferable
-	switch req.Urgency {
-	case "", "deferable":
-	case "urgent":
-		urgency = notify.UrgencyUrgent
-	default:
-		writeAPIError(w, http.StatusBadRequest, "urgency must be deferable or urgent")
-		return
-	}
-
-	err := s.alertNotifier.Send(r.Context(), alert.Alert{
-		Title:    req.Title,
-		Body:     req.Body,
-		Urgency:  urgency,
-		Tags:     req.Tags,
-		Speakers: req.Speakers,
-		Priority: req.Priority,
-	})
-	suppressedAsleep := false
-	if errors.Is(err, notify.ErrSuppressedAsleep) {
-		suppressedAsleep = true
-	} else if err != nil {
-		s.logger.Error("notify request dispatch failed", zap.Error(err))
-		writeAPIError(w, http.StatusInternalServerError, "failed to dispatch notification")
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(notifyResponse{Dispatched: true, SuppressedAsleep: suppressedAsleep}); err != nil {
-		s.logger.Error("Failed to encode notify response", zap.Error(err))
-		return
-	}
-
-	s.logger.Info("notify request dispatched",
-		zap.String("remote_addr", r.RemoteAddr),
-		zap.String("title", req.Title),
-		zap.Bool("suppressed_asleep", suppressedAsleep))
-}
-
-func writeAPIError(w http.ResponseWriter, status int, message string) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(map[string]string{"error": message})
 }
 
 // PluginMetadata describes which state variables a plugin uses
@@ -592,11 +469,6 @@ func (s *Server) handleSitemap(w http.ResponseWriter, r *http.Request) {
 			Path:        "/api/timeline/events",
 			Method:      "GET",
 			Description: "Get recent log events from in-memory buffer - query params: since (ISO8601), limit (int, default 1000)",
-		},
-		{
-			Path:        "/api/notify",
-			Method:      "POST",
-			Description: "Dispatch an arbitrary alert to push notification and TTS channels",
 		},
 	}
 

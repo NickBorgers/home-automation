@@ -674,21 +674,6 @@ func (c *Client) WaitForHandlers() {
 	}
 }
 
-func (c *Client) getEntityEventQueue(entityID string) chan entityEventJob {
-	c.entityDispatchMu.Lock()
-	defer c.entityDispatchMu.Unlock()
-
-	queue, ok := c.entityEventQueues[entityID]
-	if ok {
-		return queue
-	}
-
-	queue = make(chan entityEventJob, entityEventQueueSize)
-	c.entityEventQueues[entityID] = queue
-	go c.processEntityEventQueue(queue)
-	return queue
-}
-
 func (c *Client) processEntityEventQueue(queue <-chan entityEventJob) {
 	for job := range queue {
 		var eventWg sync.WaitGroup
@@ -928,18 +913,31 @@ func (c *Client) handleEvent(msg *Message) {
 		c.handlerCount.Add(1)
 	}
 
-	queue := c.getEntityEventQueue(eventData.EntityID)
-	// Known tradeoff: this send blocks receiveMessages if the 256-slot queue is full
-	// (head-of-line blocking). A handler stuck waiting for a HA response while 256
-	// same-entity events pile up would deadlock. This is not a realistic scenario for
-	// home automation event rates, but the original goroutine-per-event approach was
-	// deadlock-free. See Lesson 20 in CONCURRENCY_LESSONS.md.
-	queue <- entityEventJob{
+	// Hold entityDispatchMu across lookup and send to prevent a race with Disconnect,
+	// which closes queue channels under the same lock. A non-blocking send avoids
+	// blocking receiveMessages when the queue is full (which would deadlock if a
+	// queued handler awaits a HA response that receiveMessages needs to deliver).
+	c.entityDispatchMu.Lock()
+	queue, ok := c.entityEventQueues[eventData.EntityID]
+	if !ok {
+		queue = make(chan entityEventJob, entityEventQueueSize)
+		c.entityEventQueues[eventData.EntityID] = queue
+		go c.processEntityEventQueue(queue)
+	}
+	select {
+	case queue <- entityEventJob{
 		entityID: eventData.EntityID,
 		oldState: eventData.OldState,
 		newState: eventData.NewState,
 		entries:  entries,
+	}:
+	default:
+		for range entries {
+			c.handlerCount.Add(-1)
+		}
+		c.logger.Warn("entity event queue full, dropping event", zap.String("entity_id", eventData.EntityID))
 	}
+	c.entityDispatchMu.Unlock()
 }
 
 // handleDisconnect handles connection loss

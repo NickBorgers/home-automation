@@ -321,15 +321,6 @@ HA_TOKEN=your_long_lived_access_token
 READ_ONLY=true
 ```
 
-**TTS env vars** (required in production for Kokoro TTS announcements):
-
-| Var | Default | Notes |
-|-----|---------|-------|
-| `TTS_ENDPOINT` | Kokoro URL on llms-mac-studio | OpenAI-compatible `/audio/speech` |
-| `TTS_VOICE` | `af_heart` | Kokoro voice name |
-| `TTS_SERVE_PORT` | `8085` | Port the local audio file server listens on |
-| `TTS_SERVE_URL` | **required** in non-dev | LAN base URL Sonos speakers can reach (e.g. `http://10.212.100.100:8085`) — Sonos cannot resolve Tailscale-served URLs |
-
 ## CI Runner (Self-Hosted GitHub Actions)
 
 Self-hosted GitHub Actions runner on `dockergeneric` for home-automation CI. Two containers share a network namespace: Tailscale sidecar (`ci-runner-ts`) and the runner itself (`ci-runner`).

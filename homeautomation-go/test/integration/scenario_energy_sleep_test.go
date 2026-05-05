@@ -290,7 +290,6 @@ func TestScenario_EnergyTransitions_SleepStateUnaffected(t *testing.T) {
 	env.server.SetState("sensor.span_panel_span_storage_battery_percentage_2", "90.0", map[string]interface{}{
 		"unit_of_measurement": "%",
 	})
-	waitForProcessing(t, env.manager)
 
 	// Wait for initial battery state to settle
 	waitForStringState(t, env.manager, "batteryEnergyLevel", "green", "Battery should start at green")

@@ -934,13 +934,14 @@ make pre-push
 
 ## Verbal Notifications
 
-Plugins that need to make spoken (TTS) announcements **must** use the shared `notify.Notifier` from `pkg/notify` instead of calling `media_player.play_media` directly through the HA client. The notifier:
+Plugins that need to make spoken (TTS) announcements **must** use the shared `notify.Notifier` from `pkg/notify` instead of calling `tts.speak` directly through the HA client. The notifier:
 
-1. **Synthesizes** the text to MP3 via the Kokoro TTS server.
-2. **Serves** the MP3 from a local in-memory audio server reachable by Sonos over the LAN.
-3. **Plays** the announcement via `media_player.play_media` with `announce: true` and `extra.volume = awake_volume_percent/100`. The Sonos/HA integration handles snapshot, ducking, playback, and seamless queue restoration — no per-plugin volume bookkeeping required.
+1. **Snapshots** each target speaker's current volume.
+2. **Overrides** to `awake_volume_percent`. Deferable announcements are dropped entirely while master is asleep; Urgent announcements always play.
+3. **Speaks** the message via Home Assistant.
+4. **Restores** the prior speaker volume after a delay.
 
-Deferable announcements are dropped entirely while master is asleep; Urgent announcements always play.
+This guarantees announcements remain audible regardless of the speakers' state (ducked music, paused playback, low background volume) without any per-plugin volume bookkeeping.
 
 ### Accessing the notifier
 
@@ -1001,7 +1002,7 @@ assert.Equal(t, "Doorbell ringing", calls[0].Message)
 assert.Equal(t, notify.UrgencyUrgent, calls[0].Urgency)
 ```
 
-Configuration lives at `configs/notification_config.yaml` — see that file for the full set of tunables (default speakers, awake volume).
+Configuration lives at `configs/notification_config.yaml` — see that file for the full set of tunables (default speakers, awake volume, restore delay, TTS engine).
 
 ---
 

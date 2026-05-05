@@ -16,8 +16,8 @@ type MockAlerter struct {
 // Send implements Alerter. Always records the call; returns Err if set.
 func (m *MockAlerter) Send(_ context.Context, a Alert) error {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	m.calls = append(m.calls, a)
+	m.mu.Unlock()
 	return m.Err
 }
 
