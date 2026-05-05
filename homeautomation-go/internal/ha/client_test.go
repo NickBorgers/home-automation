@@ -488,6 +488,49 @@ func TestClient_DisconnectClearsSubscribers(t *testing.T) {
 	assert.Empty(t, client.subscribers)
 }
 
+func TestClient_DisconnectWaitsForReceiverBeforeClosingEntityQueues(t *testing.T) {
+	t.Parallel()
+	logger := zap.NewNop()
+	client := NewClient("ws://example", "token", logger)
+	receiveDone := make(chan struct{})
+	queue := make(chan entityEventJob, 1)
+
+	client.connMu.Lock()
+	client.connected = true
+	client.receiveDone = receiveDone
+	client.connMu.Unlock()
+
+	client.entityDispatchMu.Lock()
+	client.entityEventQueues["sensor.test"] = queue
+	client.entityDispatchMu.Unlock()
+
+	disconnected := make(chan error, 1)
+	go func() {
+		disconnected <- client.Disconnect()
+	}()
+
+	select {
+	case err := <-disconnected:
+		require.NoError(t, err)
+		t.Fatal("Disconnect returned before receiveMessages exited")
+	case <-time.After(20 * time.Millisecond):
+	}
+
+	queue <- entityEventJob{}
+
+	close(receiveDone)
+	select {
+	case err := <-disconnected:
+		require.NoError(t, err)
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("Disconnect did not return after receiveMessages exited")
+	}
+
+	<-queue
+	_, ok := <-queue
+	assert.False(t, ok, "entity queue should close after receiveMessages exits")
+}
+
 func TestClient_HandleEventBackpressuresHandlers(t *testing.T) {
 	t.Parallel()
 	client := &Client{

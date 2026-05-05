@@ -217,14 +217,15 @@ type entityEventJob struct {
 // Client implements HAClient interface
 //
 // Lock ordering (to prevent deadlocks, always acquire in this order):
-//  1. connMu - connection state and metrics
-//  2. ctxMu - context for cancellation
-//  3. writeMu - websocket writes (also protects msgID to ensure ordered sends)
-//  4. pendingMu - pending response channels
-//  5. subsMu - subscribers
-//  6. entityDispatchMu - per-entity event queues
-//  7. nextSubIDMu - subscription ID counter
-//  8. healthMu - health tracking (acquired last, never held while acquiring others)
+//  1. lifecycleMu - connect/disconnect lifecycle
+//  2. connMu - connection state and metrics
+//  3. ctxMu - context for cancellation
+//  4. writeMu - websocket writes (also protects msgID to ensure ordered sends)
+//  5. pendingMu - pending response channels
+//  6. subsMu - subscribers
+//  7. entityDispatchMu - per-entity event queues
+//  8. nextSubIDMu - subscription ID counter
+//  9. healthMu - health tracking (acquired last, never held while acquiring others)
 //
 // Note: msgIDMu has been eliminated; msgID is now protected by writeMu to ensure
 // message IDs are allocated and sent atomically, preventing out-of-order sends.
@@ -238,6 +239,8 @@ type Client struct {
 	conn      *managedConn // Thread-safe connection wrapper
 	connected bool
 	connMu    sync.RWMutex // Protects connected, conn, reconnect, and connection metrics
+	// Serializes Connect and Disconnect while allowing receiveMessages to take connMu during teardown.
+	lifecycleMu sync.Mutex
 
 	// Connection metrics (protected by connMu)
 	disconnectCount    int       // Total number of disconnections
@@ -261,7 +264,8 @@ type Client struct {
 	writeMu           sync.Mutex // Protects websocket writes AND msgID counter
 
 	// Ping goroutine lifecycle management
-	pingCancel context.CancelFunc // Cancels the ping goroutine; protected by connMu
+	pingCancel  context.CancelFunc // Cancels the ping goroutine; protected by connMu
+	receiveDone chan struct{}      // Closed when the current receiveMessages goroutine exits; protected by connMu
 
 	// Reconnect callback (called after successful reconnection)
 	onReconnect   func()
@@ -335,6 +339,9 @@ func NewClient(url, token string, logger *zap.Logger) *Client {
 
 // Connect establishes WebSocket connection and authenticates
 func (c *Client) Connect() error {
+	c.lifecycleMu.Lock()
+	defer c.lifecycleMu.Unlock()
+
 	c.connMu.Lock()
 
 	if c.connected {
@@ -466,7 +473,9 @@ func (c *Client) Connect() error {
 	go c.sendPings(pingCtx, conn)
 
 	// Start background message receiver
-	go c.receiveMessages()
+	receiveDone := make(chan struct{})
+	c.receiveDone = receiveDone
+	go c.receiveMessages(receiveDone)
 
 	// Release lock before calling subscribeToStateChanges to avoid deadlock
 	c.connMu.Unlock()
@@ -481,10 +490,13 @@ func (c *Client) Connect() error {
 
 // Disconnect closes the WebSocket connection
 func (c *Client) Disconnect() error {
+	c.lifecycleMu.Lock()
+	defer c.lifecycleMu.Unlock()
+
 	c.connMu.Lock()
-	defer c.connMu.Unlock()
 
 	if !c.connected {
+		c.connMu.Unlock()
 		return nil
 	}
 
@@ -511,6 +523,16 @@ func (c *Client) Disconnect() error {
 
 		c.conn.Close()
 		c.conn = nil
+	}
+
+	receiveDone := c.receiveDone
+	c.receiveDone = nil
+	c.connMu.Unlock()
+
+	// Wait for receiveMessages to stop before closing entity queues. Otherwise
+	// handleEvent can still be sending to a per-entity queue while teardown closes it.
+	if receiveDone != nil {
+		<-receiveDone
 	}
 
 	c.clearSubscribers()
@@ -819,7 +841,9 @@ func (c *Client) sendMessage(msg interface{}) (*Message, error) {
 
 // receiveMessages handles incoming messages in the background.
 // Called from Connect() after connection is established, so conn is guaranteed non-nil.
-func (c *Client) receiveMessages() {
+func (c *Client) receiveMessages(done chan struct{}) {
+	defer close(done)
+
 	// Capture context reference - replaced on reconnect, so we capture once at start.
 	// When cancelled (by Disconnect or resetContext), we exit gracefully.
 	c.ctxMu.RLock()
