@@ -659,8 +659,13 @@ homeautomation-go/
 │   │   ├── alert.go                 # ✅ Alerter interface and Manager implementation
 │   │   ├── alert_test.go            # ✅ Unit tests
 │   │   └── mock.go                  # ✅ MockAlerter for unit tests
+│   ├── tts/                         # ✅ Kokoro TTS client, audio file server, synthesizer
+│   │   ├── client.go                # ✅ Kokoro HTTP client (OpenAI-compatible /audio/speech)
+│   │   ├── server.go                # ✅ Local audio file server (bounded in-memory cache)
+│   │   ├── synthesizer.go           # ✅ Service combining client + server
+│   │   └── mock.go                  # ✅ MockSynthesizer for unit tests
 │   ├── notify/                      # ✅ Shared verbal (TTS) notifier
-│   │   ├── notify.go                # ✅ Notifier implementation (volume snapshot/restore)
+│   │   ├── notify.go                # ✅ Notifier implementation (Kokoro TTS synthesis → media_player.play_media announce)
 │   │   ├── config.go                # ✅ Config loader (notification_config.yaml)
 │   │   └── mock.go                  # ✅ MockNotifier for unit tests
 │   └── plugins/                     # ✅ Automation plugins (13 total)
