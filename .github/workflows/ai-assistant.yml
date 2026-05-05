@@ -5,10 +5,12 @@ on:
     types: [created]
   issues:
     types: [opened, assigned, unlabeled]
-
-concurrency:
-  group: ai-interactive-${{ github.event.issue.number }}
-  cancel-in-progress: true
+  # Auto-fire conflict resolution: every merge to main is a chance for other
+  # open PRs to flip from MERGEABLE to DIRTY, and GitHub does not emit a
+  # dedicated event for that flip. The prepare-targets job enumerates open
+  # PRs after each push and dispatches resolve-pr-conflicts onto the dirty ones.
+  push:
+    branches: [main]
 
 # SECURITY NOTE: This workflow grants the AI assistant access to secrets and write permissions.
 # Authorization checks are implemented to prevent prompt injection from untrusted users.
@@ -23,9 +25,16 @@ jobs:
   # This prevents prompt injection attacks from untrusted external users
   authorize:
     runs-on: ubuntu-latest
+    # The push path doesn't need authorization (branch protection on main
+    # already restricts who can push) and doesn't use this job's outputs;
+    # prepare-targets gates itself on event_name == 'push' directly.
+    if: github.event_name != 'push'
     outputs:
       authorized: ${{ steps.check-auth.outputs.authorized }}
       should_run_ai: ${{ steps.check-auth.outputs.should_run_ai }}
+      # 'pr' when the comment is on a PR, 'issue' when on a plain issue, '' otherwise.
+      # Used by downstream jobs to dispatch /autoresolve to the right handler.
+      comment_target: ${{ steps.check-auth.outputs.comment_target }}
     steps:
       - name: Checkout for access to helper scripts
         uses: actions/checkout@v4
@@ -40,15 +49,24 @@ jobs:
           LABEL_NAME: ${{ github.event.label.name || '' }}
           ISSUE_STATE: ${{ github.event.issue.state || '' }}
           ACTION_TYPE: ${{ github.event.action || '' }}
+          IS_PR_COMMENT: ${{ github.event.issue.pull_request != null }}
           TRIGGER_TOKEN: "/autoresolve"
         run: |
           EVENT_NAME="${{ github.event_name }}"
           SHOULD_RUN="true"
+          COMMENT_TARGET=""
 
           case "$EVENT_NAME" in
             issue_comment)
               AUTHOR_ASSOC="${{ github.event.comment.author_association }}"
               ACTOR="${{ github.event.comment.user.login }}"
+              # GitHub fires issue_comment for both issue and PR comments;
+              # the issue.pull_request field disambiguates.
+              if [ "$IS_PR_COMMENT" = "true" ]; then
+                COMMENT_TARGET="pr"
+              else
+                COMMENT_TARGET="issue"
+              fi
               ;;
             issues)
               AUTHOR_ASSOC="${{ github.event.issue.author_association }}"
@@ -58,6 +76,7 @@ jobs:
               echo "Unknown event type: $EVENT_NAME"
               echo "authorized=false" >> $GITHUB_OUTPUT
               echo "should_run_ai=false" >> $GITHUB_OUTPUT
+              echo "comment_target=" >> $GITHUB_OUTPUT
               exit 0
               ;;
           esac
@@ -66,6 +85,7 @@ jobs:
           echo "Actor: $ACTOR"
           echo "Author association: $AUTHOR_ASSOC"
           echo "Trigger token: $TRIGGER_TOKEN"
+          echo "Comment target: ${COMMENT_TARGET:-n/a}"
 
           # Allow: OWNER, MEMBER, COLLABORATOR
           # Deny: CONTRIBUTOR, FIRST_TIMER, FIRST_TIME_CONTRIBUTOR, MANNEQUIN, NONE
@@ -127,6 +147,7 @@ jobs:
           fi
 
           echo "should_run_ai=$SHOULD_RUN" >> $GITHUB_OUTPUT
+          echo "comment_target=$COMMENT_TARGET" >> $GITHUB_OUTPUT
 
   # Auto-resolve new issues by opening a PR
   resolve-issue:
@@ -141,6 +162,12 @@ jobs:
          github.event.label.name == 'ai-started' &&
          github.event.issue.state == 'open')
       )
+    # Per-issue concurrency: a re-trigger on the same issue cancels the prior
+    # in-flight run. Replaces the previous workflow-level concurrency block —
+    # job-level keeps push-triggered conflict resolution unaffected.
+    concurrency:
+      group: ai-resolve-issue-${{ github.event.issue.number }}
+      cancel-in-progress: true
     runs-on: [self-hosted, homelab]
     timeout-minutes: 120
     permissions:
@@ -201,4 +228,185 @@ jobs:
         with:
           name: resolve-issue-conversation-log
           path: ${{ runner.temp }}/resolve-issue-conversation.jsonl
+          retention-days: 7
+
+  # Build the list of PRs that resolve-pr-conflicts should run against.
+  # Two entry paths:
+  #   - push to main:    enumerate open PRs, keep the DIRTY ones (the only
+  #                      reliable signal that a PR's mergeable flipped, since
+  #                      GitHub doesn't emit an event for that flip).
+  #   - /autoresolve PR comment: emit a single-element list with the commented PR.
+  prepare-targets:
+    needs: [authorize]
+    if: |
+      always() && (
+        github.event_name == 'push' || (
+          needs.authorize.result == 'success' &&
+          needs.authorize.outputs.authorized == 'true' &&
+          needs.authorize.outputs.should_run_ai == 'true' &&
+          needs.authorize.outputs.comment_target == 'pr'
+        )
+      )
+    runs-on: ubuntu-latest
+    outputs:
+      targets: ${{ steps.build.outputs.targets }}
+      has_targets: ${{ steps.build.outputs.has_targets }}
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Build resolve-pr-conflicts target matrix
+        id: build
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+          COMMENT_PR_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          set -euo pipefail
+
+          # GitHub computes mergeability asynchronously. Right after a push
+          # to main, freshly-affected PRs return mergeable=UNKNOWN for several
+          # seconds. Poll up to ~30s per PR; gh pr view forces computation.
+          poll_pr_state() {
+            local n=$1
+            local state mergeable merge_state
+            for i in 1 2 3 4 5 6; do
+              state=$(gh pr view "$n" --repo "$REPO" --json mergeStateStatus,mergeable 2>/dev/null \
+                --jq '"\(.mergeable)|\(.mergeStateStatus)"' || echo "UNKNOWN|UNKNOWN")
+              mergeable="${state%%|*}"
+              if [ "$mergeable" != "UNKNOWN" ]; then
+                printf '%s' "$state"
+                return 0
+              fi
+              sleep 5
+            done
+            printf '%s' "$state"
+          }
+
+          TARGETS='[]'
+
+          if [ "$EVENT_NAME" = "push" ]; then
+            # Pull all open PRs and dedupe out anything already being worked on.
+            JQ_LIST_FILTER='[.[] | {
+              pr_number: .number,
+              head_ref: .headRefName,
+              has_resolving: ([.labels[].name] | contains(["ai-resolving"]))
+            }]'
+            ALL_PRS=$(gh pr list --repo "$REPO" --state open \
+              --json number,headRefName,labels --jq "$JQ_LIST_FILTER")
+            ELIGIBLE=$(echo "$ALL_PRS" | jq -r '.[] | select(.has_resolving | not) | .pr_number')
+            for pr_n in $ELIGIBLE; do
+              STATE=$(poll_pr_state "$pr_n")
+              MERGE_STATE="${STATE#*|}"
+              echo "PR #$pr_n: $STATE"
+              if [ "$MERGE_STATE" = "DIRTY" ]; then
+                HEAD_REF=$(echo "$ALL_PRS" | jq -r \
+                  ".[] | select(.pr_number == $pr_n) | .head_ref")
+                TARGETS=$(echo "$TARGETS" | jq \
+                  --argjson n "$pr_n" --arg ref "$HEAD_REF" \
+                  '. + [{pr_number: $n, head_ref: $ref}]')
+              fi
+            done
+          else
+            # Comment path. Resolve head_ref now so the matrix entry is
+            # self-contained — the agent will re-confirm DIRTY state itself
+            # and exit cleanly if the PR is already mergeable.
+            HEAD_REF=$(gh pr view "$COMMENT_PR_NUMBER" --repo "$REPO" --json headRefName --jq '.headRefName')
+            TARGETS=$(jq -nc --argjson n "$COMMENT_PR_NUMBER" --arg ref "$HEAD_REF" \
+              '[{pr_number: $n, head_ref: $ref}]')
+          fi
+
+          COUNT=$(echo "$TARGETS" | jq 'length')
+          echo "Targets ($COUNT):"
+          echo "$TARGETS" | jq .
+          echo "targets=$(echo "$TARGETS" | jq -c .)" >> "$GITHUB_OUTPUT"
+          if [ "$COUNT" -gt 0 ]; then
+            echo "has_targets=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_targets=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  # Reconcile a conflicting PR with its base branch via rebase + push.
+  # One matrix job per target produced by prepare-targets.
+  resolve-pr-conflicts:
+    needs: [prepare-targets]
+    if: needs.prepare-targets.outputs.has_targets == 'true'
+    strategy:
+      fail-fast: false
+      # max-parallel: 1 keeps a flood of DIRTY PRs after a big merge from
+      # spawning N parallel agents on the self-hosted runner. Each PR's
+      # rebase is fast; sequencing is fine.
+      max-parallel: 1
+      matrix:
+        target: ${{ fromJSON(needs.prepare-targets.outputs.targets) }}
+    concurrency:
+      group: ai-pr-resolve-${{ matrix.target.pr_number }}
+      cancel-in-progress: true
+    runs-on: [self-hosted, homelab]
+    timeout-minutes: 120
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      id-token: write
+      actions: read
+      packages: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.WORKFLOW_PAT }}
+
+      - name: Add ai-resolving label
+        env:
+          GH_TOKEN: ${{ secrets.WORKFLOW_PAT }}
+        run: |
+          gh label create "ai-resolving" --color "fbca04" \
+            --description "AI assistant is rebasing this PR onto its base" \
+            --repo ${{ github.repository }} 2>/dev/null || true
+          gh pr edit ${{ matrix.target.pr_number }} --add-label "ai-resolving" \
+            --repo ${{ github.repository }}
+
+      - name: Resolve PR conflicts with AI assistant
+        uses: ./.github/actions/run-ci-agent
+        with:
+          image: ${{ env.CI_IMAGE }}
+          prompt_file: .github/ci/prompts/resolve-pr-conflicts.md
+          output_file: ${{ runner.temp }}/resolve-pr-conflicts-conversation.jsonl
+          env: |
+            AI_API_KEY=${{ vars.AI_API_KEY }}
+            GH_TOKEN=${{ secrets.WORKFLOW_PAT }}
+            PR_NUMBER=${{ matrix.target.pr_number }}
+            HEAD_REF=${{ matrix.target.head_ref }}
+            REPO=${{ github.repository }}
+            AI_TOOL=codex
+            CODEX_MODEL=gpt-5.5
+          # Fetch PR metadata inside the container so the prompt template
+          # has PR_TITLE, PR_BODY, BASE_REF, and TRIGGERING_SHA available
+          # without passing multi-line strings through the workflow YAML.
+          pre_script: |
+            PR_JSON=$(gh api "repos/${REPO}/pulls/${PR_NUMBER}")
+            PR_TITLE=$(echo "$PR_JSON" | jq -r '.title')
+            PR_BODY=$(echo "$PR_JSON" | jq -r '.body // ""')
+            BASE_REF=$(echo "$PR_JSON" | jq -r '.base.ref')
+            TRIGGERING_SHA=$(echo "$PR_JSON" | jq -r '.head.sha')
+            export PR_TITLE PR_BODY BASE_REF TRIGGERING_SHA
+
+      - name: Remove ai-resolving label
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.WORKFLOW_PAT }}
+        run: |
+          gh pr edit ${{ matrix.target.pr_number }} --remove-label "ai-resolving" \
+            --repo ${{ github.repository }} 2>/dev/null || true
+
+      - name: Upload PR conflict resolution conversation log
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: resolve-pr-conflicts-conversation-log-${{ matrix.target.pr_number }}
+          path: ${{ runner.temp }}/resolve-pr-conflicts-conversation.jsonl
           retention-days: 7
