@@ -496,6 +496,9 @@ func (c *Client) Disconnect() error {
 	c.connMu.Lock()
 
 	if !c.connected {
+		// Safe to skip <-receiveDone: receiveMessages only runs while connected, and
+		// handleDisconnect (the only path that exits receiveMessages) sets connected=false
+		// under connMu before returning, so this branch cannot race with handleEvent.
 		c.connMu.Unlock()
 		return nil
 	}

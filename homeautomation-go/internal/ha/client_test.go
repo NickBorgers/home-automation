@@ -511,7 +511,7 @@ func TestClient_DisconnectWaitsForReceiverBeforeClosingEntityQueues(t *testing.T
 
 	select {
 	case err := <-disconnected:
-		require.NoError(t, err)
+		assert.NoError(t, err)
 		t.Fatal("Disconnect returned before receiveMessages exited")
 	case <-time.After(20 * time.Millisecond):
 	}
