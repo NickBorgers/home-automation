@@ -37,4 +37,4 @@ notification:
   # Volume (0-100) the announcement is played at. Passed to
   # media_player.play_media as extra.volume; HA restores the speaker's prior
   # volume when the announcement ends.
-  awake_volume_percent: 20
+  awake_volume_percent: 40
