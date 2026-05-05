@@ -151,7 +151,7 @@ func (m *Manager) Announce(ctx context.Context, message string, opts ...Announce
 		"media_content_type": "music",
 		"announce":           true,
 		"extra": map[string]interface{}{
-			"volume": float64(targetVolume) / 100.0,
+			"volume": targetVolume,
 		},
 	}); err != nil {
 		return fmt.Errorf("media_player.play_media call failed: %w", err)

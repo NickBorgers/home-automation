@@ -72,6 +72,7 @@ func TestAnnounce_PlaysViaMediaPlayerWithAnnounceFlag(t *testing.T) {
 
 	speakers := []string{"media_player.kitchen", "media_player.front_room"}
 	m := newTestManager(t, mockHA, nil, synth, false)
+	m.cfg.AwakeVolumePercent = 40
 
 	if err := m.Announce(context.Background(), "Test announcement", WithSpeakers(speakers)); err != nil {
 		t.Fatalf("Announce: %v", err)
@@ -106,8 +107,8 @@ func TestAnnounce_PlaysViaMediaPlayerWithAnnounceFlag(t *testing.T) {
 	if !ok {
 		t.Fatalf("extra: want map, got %T (%v)", c.Data["extra"], c.Data["extra"])
 	}
-	wantVol := float64(defaultAwakeVolumePercent) / 100.0
-	if got, _ := extra["volume"].(float64); got != wantVol {
+	wantVol := 40
+	if got, _ := extra["volume"].(int); got != wantVol {
 		t.Errorf("extra.volume: want %v, got %v", wantVol, got)
 	}
 
@@ -229,8 +230,8 @@ func TestAnnounce_DeferableWhileAwake_PlaysAtAwakeVolume(t *testing.T) {
 		t.Fatalf("expected 1 call, got %d: %+v", len(calls), calls)
 	}
 	extra, _ := calls[0].Data["extra"].(map[string]interface{})
-	want := float64(defaultAwakeVolumePercent) / 100.0
-	if got, _ := extra["volume"].(float64); got != want {
+	want := defaultAwakeVolumePercent
+	if got, _ := extra["volume"].(int); got != want {
 		t.Errorf("deferable+awake: want extra.volume %v, got %v", want, got)
 	}
 }
@@ -256,8 +257,8 @@ func TestAnnounce_UrgentWhileAsleep_PlaysAtAwakeVolume(t *testing.T) {
 		t.Fatalf("expected 1 call, got %d: %+v", len(calls), calls)
 	}
 	extra, _ := calls[0].Data["extra"].(map[string]interface{})
-	want := float64(defaultAwakeVolumePercent) / 100.0
-	if got, _ := extra["volume"].(float64); got != want {
+	want := defaultAwakeVolumePercent
+	if got, _ := extra["volume"].(int); got != want {
 		t.Errorf("urgent+asleep: want extra.volume %v, got %v", want, got)
 	}
 }

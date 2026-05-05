@@ -938,7 +938,7 @@ Plugins that need to make spoken (TTS) announcements **must** use the shared `no
 
 1. **Synthesizes** the text to MP3 via the Kokoro TTS server.
 2. **Serves** the MP3 from a local in-memory audio server reachable by Sonos over the LAN.
-3. **Plays** the announcement via `media_player.play_media` with `announce: true` and `extra.volume = awake_volume_percent/100`. The Sonos/HA integration handles snapshot, ducking, playback, and seamless queue restoration — no per-plugin volume bookkeeping required.
+3. **Plays** the announcement via `media_player.play_media` with `announce: true` and `extra.volume = awake_volume_percent`. The Sonos/HA integration handles snapshot, ducking, playback, and seamless queue restoration — no per-plugin volume bookkeeping required.
 
 Deferable announcements are dropped entirely while master is asleep; Urgent announcements always play.
 
