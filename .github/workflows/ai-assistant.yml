@@ -247,6 +247,12 @@ jobs:
           needs.authorize.outputs.comment_target == 'pr'
         )
       )
+    # Dedupe rapid consecutive pushes to main — the second push cancels the
+    # first enumeration so we don't fan out duplicate matrix runs over the
+    # same dirty PRs. Comment-path runs are per-PR so they never collide.
+    concurrency:
+      group: ai-prepare-targets-${{ github.event_name == 'push' && 'push' || github.event.issue.number }}
+      cancel-in-progress: true
     runs-on: ubuntu-latest
     outputs:
       targets: ${{ steps.build.outputs.targets }}
@@ -288,14 +294,20 @@ jobs:
 
           if [ "$EVENT_NAME" = "push" ]; then
             # Pull all open PRs and dedupe out anything already being worked on.
+            # Include authorAssociation so we can scope to trusted authors only —
+            # PR_BODY is interpolated into the agent prompt and WORKFLOW_PAT has
+            # force-push rights, so external-contributor PRs are excluded here
+            # for the same reason the authorize job gates the comment path.
             JQ_LIST_FILTER='[.[] | {
               pr_number: .number,
               head_ref: .headRefName,
+              author_assoc: .authorAssociation,
               has_resolving: ([.labels[].name] | contains(["ai-resolving"]))
             }]'
             ALL_PRS=$(gh pr list --repo "$REPO" --state open \
-              --json number,headRefName,labels --jq "$JQ_LIST_FILTER")
-            ELIGIBLE=$(echo "$ALL_PRS" | jq -r '.[] | select(.has_resolving | not) | .pr_number')
+              --json number,headRefName,labels,authorAssociation --jq "$JQ_LIST_FILTER")
+            ELIGIBLE=$(echo "$ALL_PRS" | jq -r \
+              '.[] | select(.has_resolving | not) | select(.author_assoc | IN("OWNER","MEMBER","COLLABORATOR")) | .pr_number')
             for pr_n in $ELIGIBLE; do
               STATE=$(poll_pr_state "$pr_n")
               MERGE_STATE="${STATE#*|}"

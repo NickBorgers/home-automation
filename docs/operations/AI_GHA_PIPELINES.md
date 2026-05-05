@@ -102,7 +102,7 @@ concurrency:
 `cancel-in-progress: true` prevents queued work from racing stale context.
 
 **When the guard trips (GitHub Actions summary messaging):**
-- In-flight runs flip to the yellow `Cancelled` badge within seconds; the GitHub Actions run summary surfaces the callout "Superseded by another run in ai-interactive-<number>," so you immediately know a newer request preempted it.
+- In-flight runs flip to the yellow `Cancelled` badge within seconds; the GitHub Actions run summary surfaces the callout "Superseded by another run in `ai-resolve-issue-<number>` or `ai-pr-resolve-<number>`," so you immediately know a newer request preempted it.
 - Runs blocked before they start show up in the Actions summary as `Skipped by concurrency guard` with the same superseded message, making it obvious the skip was intentional and not a workflow failure.
 - Only the newest comment gets a response; stale runs never emit results because GitHub immediately launches a fresh execution with the latest payload.
 - Treat the coloured cancellation/skip messaging as confirmation that the guard worked — no manual cleanup required.
