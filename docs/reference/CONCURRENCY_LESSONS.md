@@ -1447,7 +1447,7 @@ c.entityDispatchMu.Unlock()
 
 **Why the non-blocking send**: Holding `entityDispatchMu` across a blocking channel send would deadlock: a full queue means a queued handler is running, and that handler may call back into HA, requiring `receiveMessages` to deliver a response — which cannot happen if `receiveMessages` is blocked on the send. The `select`/`default` drops the event and logs it instead of deadlocking. The 256-slot buffer makes drops extremely unlikely at home automation event rates.
 
-**Lifecycle — Close Channels on Disconnect**: The drain goroutines exit when the channel is closed. Always close all entity queue channels during shutdown:
+**Lifecycle — Close Channels on Disconnect**: The drain goroutines exit when the channel is closed. Always close all entity queue channels during shutdown. **Important**: before closing, wait for `receiveMessages` to exit via `<-receiveDone` so `handleEvent` can no longer send to these channels — see full sequence in `Disconnect()`.
 
 ```go
 // In Disconnect(), after clearSubscribers():
@@ -1470,6 +1470,12 @@ c.entityDispatchMu.Unlock()
 ---
 
 ## Change Log
+
+### 2026-05-05 (PR #1082)
+- **Fix race in Lesson 20 teardown**: `Disconnect()` previously closed per-entity queue channels while `receiveMessages` / `handleEvent` could still be sending to them — a use-after-close channel panic. Fix adds two primitives:
+  - `lifecycleMu sync.Mutex` (lock ordering position **1**, outermost) serializes concurrent `Connect()` / `Disconnect()` calls
+  - `receiveDone chan struct{}` closed by `receiveMessages` via `defer close(done)`; `Disconnect()` blocks on `<-receiveDone` before closing entity queues, ensuring the producer is gone first
+- **Updated Lesson 20**: corrected `entityDispatchMu` lock ordering position from 6 → **7** (shifted by the new `lifecycleMu` at position 1); added note that the channel-close loop must be preceded by the `receiveDone` drain step
 
 ### 2026-05-05
 - **Restored Lesson 20**: Serialize Per-Entity Event Handlers via Channel Queues
