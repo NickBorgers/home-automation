@@ -505,6 +505,10 @@ func TestScenario_MultipleConcurrentChanges_HandlesCorrectly(t *testing.T) {
 	// WHEN: Multiple rapid changes occur simultaneously
 	t.Log("WHEN: Multiple rapid changes occur simultaneously")
 
+	// Barriers are intentionally omitted here: these three SetState calls fire
+	// without draining in between, exercising the system under true concurrent
+	// load across different entities (battery, solar, grid). Assertions below use
+	// waitForStringState/waitForBoolState to tolerate non-deterministic ordering.
 	// Change battery
 	server.SetState("sensor.span_panel_span_storage_battery_percentage_2", "25.0", map[string]interface{}{
 		"unit_of_measurement": "%",
