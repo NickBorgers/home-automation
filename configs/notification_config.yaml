@@ -13,11 +13,17 @@
 #     must wake the household (security, broken-pipe water flow, EV-charger
 #     safety, infrastructure crashes).
 #
-# Before each announcement the notifier:
-#   1. Snapshots each target speaker's current volume.
-#   2. Sets volume to awake_volume_percent.
-#   3. Calls tts.speak.
-#   4. After restore_delay_seconds, restores each speaker's prior volume.
+# How an announcement is rendered:
+#   1. The text is synthesized to MP3 by a Kokoro TTS server (TTS_ENDPOINT).
+#   2. The MP3 is stored in a bounded in-memory cache and exposed at
+#      $TTS_SERVE_URL/audio/<id>.mp3 for Sonos to fetch over the LAN.
+#   3. Home Assistant's media_player.play_media is invoked with announce: true
+#      and extra.volume = awake_volume_percent (sent as int 0-100; HA's Sonos
+#      integration passes this through to SoCo, which uses 0-100 percent).
+#      The Sonos integration snapshots the queue, current track, position,
+#      transport state, and volume, ducks/plays the announcement at the
+#      configured volume, and restores everything when playback ends — so
+#      resumption of the prior music is seamless.
 notification:
   # Default speaker list when a plugin does not override. Union of all
   # per-plugin lists in use today, so removing a plugin's hardcoded list
@@ -30,19 +36,7 @@ notification:
     - media_player.dining_room
     - media_player.kids_bathroom
 
-  # Volume (0-100) used for every announcement that plays. Announcements while
-  # master is asleep either play at this volume (UrgencyUrgent) or are dropped
-  # entirely (UrgencyDeferable) — there is no quieter mid-tier.
+  # Volume (0-100, integer) the announcement is played at. Passed to
+  # media_player.play_media as extra.volume; HA restores the speaker's
+  # prior volume when the announcement ends.
   awake_volume_percent: 40
-
-  # TTS engine. tts.google_translate_en_com is the default in Home Assistant.
-  tts_entity_id: tts.google_translate_en_com
-
-  # When true, snapshot speaker volume before the announcement and restore
-  # after. Set to false only for diagnostics.
-  snapshot_restore: true
-
-  # How long to wait after the tts.speak call returns before restoring
-  # speaker volumes. Sized to cover typical announcement playback duration
-  # (3-7 seconds for short alerts).
-  restore_delay_seconds: 8

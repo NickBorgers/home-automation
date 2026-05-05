@@ -24,6 +24,7 @@ import (
 	"homeautomation/internal/plugins/reset"
 	"homeautomation/internal/shadowstate"
 	"homeautomation/internal/state"
+	"homeautomation/internal/tts"
 	"homeautomation/internal/version"
 	pkgha "homeautomation/pkg/ha"
 	"homeautomation/pkg/plugin"
@@ -198,6 +199,34 @@ func Run() {
 		logger.Info("SoCo-CLI URL configured for Tidal playback", zap.String("url", socoCliURL))
 	}
 
+	// TTS configuration: synthesize via Kokoro, serve MP3s on a LAN port that
+	// Sonos speakers can fetch from.
+	ttsEndpoint := os.Getenv("TTS_ENDPOINT")
+	if ttsEndpoint == "" {
+		ttsEndpoint = "https://llms-mac-studio.featherback-mermaid.ts.net/v1/audio/speech"
+	}
+	ttsVoice := os.Getenv("TTS_VOICE")
+	if ttsVoice == "" {
+		ttsVoice = "af_heart"
+	}
+	ttsServePort := 8085
+	if portStr := os.Getenv("TTS_SERVE_PORT"); portStr != "" {
+		if port, err := strconv.Atoi(portStr); err == nil {
+			ttsServePort = port
+		} else {
+			logger.Warn("Invalid TTS_SERVE_PORT value, using default",
+				zap.String("value", portStr), zap.Int("default", 8085))
+		}
+	}
+	ttsServeURL := os.Getenv("TTS_SERVE_URL")
+	if ttsServeURL == "" {
+		if devMode {
+			logger.Warn("TTS_SERVE_URL not set in DEV_MODE; announcements will fail (HA can't reach the audio server). Set it to a LAN URL Sonos speakers can fetch from.")
+		} else {
+			logger.Fatal("TTS_SERVE_URL must be set to the LAN base URL Sonos can reach (e.g. http://10.212.100.100:8085)")
+		}
+	}
+
 	logger.Info("Starting Home Automation Client",
 		zap.String("url", haURL),
 		zap.Bool("read_only", readOnly))
@@ -345,6 +374,26 @@ func Run() {
 	pluginCtx.SoCoCliURL = socoCliURL
 	pluginCtx.ShutdownCtx = shutdownCtx
 
+	// Start TTS audio file server and build the synthesizer that notify uses.
+	// Constructed here (before the notifier) because notify.NewManager requires
+	// a Synthesizer.
+	ttsClient := tts.NewClient(ttsEndpoint, ttsVoice, logger)
+	ttsServer := tts.NewServer(fmt.Sprintf(":%d", ttsServePort), ttsServeURL, logger)
+	if err := ttsServer.Start(); err != nil {
+		logger.Fatal("Failed to start TTS audio file server", zap.Error(err))
+	}
+	defer func() {
+		if err := ttsServer.Stop(); err != nil {
+			logger.Error("Failed to stop TTS audio file server", zap.Error(err))
+		}
+	}()
+	ttsService := tts.NewService(ttsClient, ttsServer, logger)
+	logger.Info("TTS service initialized",
+		zap.String("endpoint", ttsEndpoint),
+		zap.String("voice", ttsVoice),
+		zap.Int("serve_port", ttsServePort),
+		zap.String("serve_url", ttsServeURL))
+
 	// Construct verbal-announcement notifier. Falls back to safe defaults if
 	// no notification_config.yaml is present so existing deployments keep working.
 	notifyCfgPath := filepath.Join(configDir, "notification_config.yaml")
@@ -356,7 +405,7 @@ func Run() {
 		defaultCfg := notify.DefaultConfig()
 		notifyCfg = &defaultCfg
 	}
-	notifier := notify.NewManager(client, stateManager, *notifyCfg, logger, readOnly)
+	notifier := notify.NewManager(client, stateManager, ttsService, *notifyCfg, logger, readOnly)
 	pluginCtx.Notifier = notifier
 	pluginCtx.AlertNotifier = alert.NewManager(ntfyClient, notifier, logger)
 	logger.Info("Notifier initialized",
@@ -431,9 +480,6 @@ func Run() {
 	// waiting for their full retry budget (which could take several minutes).
 	cancelShutdown()
 	logger.Info("Cancelled shutdown context - service calls will exit quickly")
-
-	// Wait for any pending TTS volume restores so we don't leave speakers loud.
-	notifier.WaitForRestores()
 
 	// Stop dev server if running
 	if devServer != nil {

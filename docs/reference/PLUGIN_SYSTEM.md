@@ -934,14 +934,17 @@ make pre-push
 
 ## Verbal Notifications
 
-Plugins that need to make spoken (TTS) announcements **must** use the shared `notify.Notifier` from `pkg/notify` instead of calling `tts.speak` directly through the HA client. The notifier:
+Plugins that need to make spoken announcements **must** use the shared `notify.Notifier`
+instead of constructing HA service calls directly. The notifier:
 
-1. **Snapshots** each target speaker's current volume.
-2. **Overrides** to `awake_volume_percent`. Deferable announcements are dropped entirely while master is asleep; Urgent announcements always play.
-3. **Speaks** the message via Home Assistant.
-4. **Restores** the prior speaker volume after a delay.
+1. **Synthesizes** the message to MP3 via the Kokoro TTS server (configured by `TTS_ENDPOINT`).
+2. **Serves** the MP3 at a LAN HTTP URL reachable by Sonos speakers (`TTS_SERVE_URL`).
+3. **Plays** the announcement via `media_player.play_media` with `announce: true` and
+   `extra.volume = awake_volume_percent`. The Sonos integration snapshots the queue,
+   current track, position, and volume, ducks to the configured level, plays the
+   announcement, then restores everything — so music resumes seamlessly.
 
-This guarantees announcements remain audible regardless of the speakers' state (ducked music, paused playback, low background volume) without any per-plugin volume bookkeeping.
+Deferable announcements are dropped while master is asleep; Urgent announcements always play.
 
 ### Accessing the notifier
 

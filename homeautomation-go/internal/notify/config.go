@@ -3,7 +3,6 @@ package notify
 import (
 	"fmt"
 	"os"
-	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -13,32 +12,13 @@ type Config struct {
 	// DefaultSpeakers are used when a caller does not pass WithSpeakers.
 	DefaultSpeakers []string `yaml:"default_speakers"`
 
-	// AwakeVolumePercent is the speaker volume (0-100) used for every
-	// announcement that plays. Announcements while master is asleep either
-	// play at this volume (UrgencyUrgent) or are dropped entirely
-	// (UrgencyDeferable) — there is no quieter mid-tier.
+	// AwakeVolumePercent is the speaker volume (0-100) the announcement is
+	// played at. It is passed to media_player.play_media as extra.volume so
+	// the Sonos integration can duck/play at this level and then restore the
+	// speaker's prior volume when the announcement ends. Announcements while
+	// master is asleep either play at this volume (UrgencyUrgent) or are
+	// dropped entirely (UrgencyDeferable) — there is no quieter mid-tier.
 	AwakeVolumePercent int `yaml:"awake_volume_percent"`
-
-	// TTSDomain / TTSService identify the Home Assistant service to call.
-	// Defaults to tts.speak.
-	TTSDomain  string `yaml:"tts_domain"`
-	TTSService string `yaml:"tts_service"`
-
-	// TTSEntityID is the TTS engine to use (e.g. tts.google_translate_en_com).
-	TTSEntityID string `yaml:"tts_entity_id"`
-
-	// SnapshotRestore controls whether speaker volume is captured before the
-	// announcement and restored after RestoreDelay elapses. Set to false in
-	// the YAML to disable (e.g. for tests).
-	SnapshotRestore bool `yaml:"snapshot_restore"`
-
-	// RestoreDelaySeconds is how long to wait after the TTS service call
-	// returns before restoring speaker volumes. Sized to cover typical
-	// announcement playback duration.
-	RestoreDelaySeconds int `yaml:"restore_delay_seconds"`
-
-	// RestoreDelay is the parsed RestoreDelaySeconds. Populated by applyDefaults.
-	RestoreDelay time.Duration `yaml:"-"`
 }
 
 type fileShape struct {
@@ -46,11 +26,7 @@ type fileShape struct {
 }
 
 const (
-	defaultAwakeVolumePercent  = 60
-	defaultTTSDomain           = "tts"
-	defaultTTSService          = "speak"
-	defaultTTSEntityID         = "tts.google_translate_en_com"
-	defaultRestoreDelaySeconds = 8
+	defaultAwakeVolumePercent = 60
 )
 
 // defaultSpeakers is the union of speaker lists currently used by plugins.
@@ -86,7 +62,7 @@ func LoadConfig(path string) (*Config, error) {
 // DefaultConfig returns a Config populated with safe defaults. Used when no
 // notification_config.yaml file is present.
 func DefaultConfig() Config {
-	c := Config{SnapshotRestore: true}
+	c := Config{}
 	c.applyDefaults()
 	return c
 }
@@ -98,29 +74,11 @@ func (c *Config) applyDefaults() {
 	if c.AwakeVolumePercent == 0 {
 		c.AwakeVolumePercent = defaultAwakeVolumePercent
 	}
-	if c.TTSDomain == "" {
-		c.TTSDomain = defaultTTSDomain
-	}
-	if c.TTSService == "" {
-		c.TTSService = defaultTTSService
-	}
-	if c.TTSEntityID == "" {
-		c.TTSEntityID = defaultTTSEntityID
-	}
-	if c.RestoreDelaySeconds == 0 {
-		c.RestoreDelaySeconds = defaultRestoreDelaySeconds
-	}
-	if c.RestoreDelay == 0 {
-		c.RestoreDelay = time.Duration(c.RestoreDelaySeconds) * time.Second
-	}
 }
 
 func (c *Config) validate() error {
 	if c.AwakeVolumePercent < 0 || c.AwakeVolumePercent > 100 {
 		return fmt.Errorf("awake_volume_percent must be 0-100, got %d", c.AwakeVolumePercent)
-	}
-	if c.RestoreDelaySeconds < 0 {
-		return fmt.Errorf("restore_delay_seconds must be non-negative, got %d", c.RestoreDelaySeconds)
 	}
 	return nil
 }
