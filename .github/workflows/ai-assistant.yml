@@ -294,20 +294,30 @@ jobs:
 
           if [ "$EVENT_NAME" = "push" ]; then
             # Pull all open PRs and dedupe out anything already being worked on.
-            # Include authorAssociation so we can scope to trusted authors only —
+            # Include author_association so we can scope to trusted authors only —
             # PR_BODY is interpolated into the agent prompt and WORKFLOW_PAT has
             # force-push rights, so external-contributor PRs are excluded here
             # for the same reason the authorize job gates the comment path.
+            #
+            # `gh pr list --json` does NOT expose author_association; the REST
+            # `/repos/{owner}/{repo}/pulls` endpoint does. Use it directly.
             JQ_LIST_FILTER='[.[] | {
               pr_number: .number,
-              head_ref: .headRefName,
-              author_assoc: .authorAssociation,
+              head_ref: .head.ref,
+              author_assoc: .author_association,
               has_resolving: ([.labels[].name] | contains(["ai-resolving"]))
             }]'
-            ALL_PRS=$(gh pr list --repo "$REPO" --state open \
-              --json number,headRefName,labels,authorAssociation --jq "$JQ_LIST_FILTER")
-            ELIGIBLE=$(echo "$ALL_PRS" | jq -r \
-              '.[] | select(.has_resolving | not) | select(.author_assoc | IN("OWNER","MEMBER","COLLABORATOR")) | .pr_number')
+            # per_page=100 caps the page size; this repo will not have more
+            # than 100 open PRs at once, so a single page is fine. (Avoid
+            # --paginate: it concatenates pages as separate JSON arrays,
+            # which breaks the single-array filter below.)
+            ALL_PRS=$(gh api "repos/${REPO}/pulls?state=open&per_page=100" \
+              --jq "$JQ_LIST_FILTER")
+            JQ_ELIGIBLE='.[]
+              | select(.has_resolving | not)
+              | select(.author_assoc | IN("OWNER","MEMBER","COLLABORATOR"))
+              | .pr_number'
+            ELIGIBLE=$(echo "$ALL_PRS" | jq -r "$JQ_ELIGIBLE")
             for pr_n in $ELIGIBLE; do
               STATE=$(poll_pr_state "$pr_n")
               MERGE_STATE="${STATE#*|}"
