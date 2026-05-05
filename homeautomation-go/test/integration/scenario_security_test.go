@@ -182,6 +182,7 @@ func TestScenario_DidOwnerJustReturnHomeAutoReset(t *testing.T) {
 	t.Log("GIVEN: Nick arrives home")
 
 	server.SetState("input_boolean.nick_home", "off", nil)
+	waitForProcessing(t, manager)
 	waitForBoolState(t, manager, "isNickHome", false, "isNickHome should be false initially")
 
 	server.SetState("input_boolean.nick_home", "on", nil)
@@ -290,6 +291,7 @@ func TestScenario_OwnerLeavesAndReturns(t *testing.T) {
 	waitForBoolState(t, manager, "didOwnerJustReturnHome", true, "didOwnerJustReturnHome should be true after Nick arrives")
 
 	server.SetState("input_boolean.nick_home", "off", nil)
+	waitForProcessing(t, manager)
 
 	// Use polling helper instead of time.Sleep to wait for the departure to be processed
 	waitForBoolState(t, manager, "didOwnerJustReturnHome", false, "didOwnerJustReturnHome should be false when owner leaves")

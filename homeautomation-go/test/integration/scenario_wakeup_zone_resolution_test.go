@@ -138,6 +138,13 @@ func TestScenario_WakeUp_DebouncesRapidTriggers(t *testing.T) {
 		return len(env.music.GetActiveZones()) > 0
 	}, "initial zone resolution should complete")
 
+	// Wait for ALL async zone orchestration goroutines to complete before taking the snapshot.
+	// Without this, the sleep zone's orchestrateZonePlayback goroutine (launched during initial
+	// setup) can still be running when the snapshot is taken, causing its bedroom join calls to
+	// leak into the measurement window under CI load (goroutines delayed and executing after
+	// snapshot is taken).
+	waitForServiceCallsToStabilizeSince(t, env.server, 0, 200*time.Millisecond)
+
 	// Take snapshot before the action phase
 	snapshot := env.server.ServiceCallCount()
 
@@ -156,12 +163,16 @@ func TestScenario_WakeUp_DebouncesRapidTriggers(t *testing.T) {
 	// ===== WHEN: Three state variables change rapidly (simulating wake-up alarm)
 	t.Log("WHEN: isAnyoneAsleep, isMasterAsleep, isWakeSequenceActive all change within ~100ms")
 
-	// These three changes would each independently trigger zone resolution
-	// without debouncing. With debouncing, they should coalesce into one.
+	// Fire all three state changes rapidly so they fall within the 500ms debounce
+	// window and coalesce into a single zone resolution.
+	//
+	// Previously these had waitForBoolState calls between them to simulate realistic
+	// production ordering. However, under CI load those waits could exceed 500ms,
+	// causing the debounce to fire before all three changes were applied. That
+	// produced two zone resolutions (one with isMasterAsleep=true, one after it
+	// became false), resulting in a double morning-zone start and 3 bedroom joins.
 	env.server.SetState("input_boolean.anyone_asleep", "off", map[string]interface{}{})
-	waitForBoolState(t, env.stateManager, "isAnyoneAsleep", false, "isAnyoneAsleep should update before next wake event")
 	env.server.SetState("input_boolean.master_asleep", "off", map[string]interface{}{})
-	waitForBoolState(t, env.stateManager, "isMasterAsleep", false, "isMasterAsleep should update before next wake event")
 	env.server.SetState("input_boolean.wake_sequence_active", "on", map[string]interface{}{})
 
 	// Wait for debounce timer to fire using channel synchronization
