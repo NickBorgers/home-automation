@@ -491,9 +491,18 @@ func TestClient_DisconnectClearsSubscribers(t *testing.T) {
 func TestClient_HandleEventBackpressuresHandlers(t *testing.T) {
 	t.Parallel()
 	client := &Client{
-		logger:      zap.NewNop(),
-		subscribers: make(map[string][]subscriberEntry),
+		logger:            zap.NewNop(),
+		subscribers:       make(map[string][]subscriberEntry),
+		entityEventQueues: make(map[string]chan entityEventJob),
 	}
+	t.Cleanup(func() {
+		client.entityDispatchMu.Lock()
+		for _, ch := range client.entityEventQueues {
+			close(ch)
+		}
+		client.entityEventQueues = make(map[string]chan entityEventJob)
+		client.entityDispatchMu.Unlock()
+	})
 
 	var calls int32
 	done := make(chan struct{})
@@ -542,10 +551,19 @@ func TestClient_HandleEventBackpressuresHandlers(t *testing.T) {
 func TestClient_HandleEventSerializesHandlersPerEntity(t *testing.T) {
 	t.Parallel()
 	client := &Client{
-		logger:         zap.NewNop(),
-		subscribers:    make(map[string][]subscriberEntry),
-		eventProcessed: make(chan struct{}, 8),
+		logger:            zap.NewNop(),
+		subscribers:       make(map[string][]subscriberEntry),
+		eventProcessed:    make(chan struct{}, 8),
+		entityEventQueues: make(map[string]chan entityEventJob),
 	}
+	t.Cleanup(func() {
+		client.entityDispatchMu.Lock()
+		for _, ch := range client.entityEventQueues {
+			close(ch)
+		}
+		client.entityEventQueues = make(map[string]chan entityEventJob)
+		client.entityDispatchMu.Unlock()
+	})
 
 	firstStarted := make(chan struct{})
 	releaseFirst := make(chan struct{})

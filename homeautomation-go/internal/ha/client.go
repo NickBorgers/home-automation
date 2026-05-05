@@ -514,6 +514,15 @@ func (c *Client) Disconnect() error {
 	}
 
 	c.clearSubscribers()
+
+	// Close entity queue channels so processEntityEventQueue goroutines exit.
+	c.entityDispatchMu.Lock()
+	for _, ch := range c.entityEventQueues {
+		close(ch)
+	}
+	c.entityEventQueues = make(map[string]chan entityEventJob)
+	c.entityDispatchMu.Unlock()
+
 	c.logger.Info("Disconnected from Home Assistant")
 	return nil
 }
@@ -668,10 +677,6 @@ func (c *Client) WaitForHandlers() {
 func (c *Client) getEntityEventQueue(entityID string) chan entityEventJob {
 	c.entityDispatchMu.Lock()
 	defer c.entityDispatchMu.Unlock()
-
-	if c.entityEventQueues == nil {
-		c.entityEventQueues = make(map[string]chan entityEventJob)
-	}
 
 	queue, ok := c.entityEventQueues[entityID]
 	if ok {
@@ -924,6 +929,11 @@ func (c *Client) handleEvent(msg *Message) {
 	}
 
 	queue := c.getEntityEventQueue(eventData.EntityID)
+	// Known tradeoff: this send blocks receiveMessages if the 256-slot queue is full
+	// (head-of-line blocking). A handler stuck waiting for a HA response while 256
+	// same-entity events pile up would deadlock. This is not a realistic scenario for
+	// home automation event rates, but the original goroutine-per-event approach was
+	// deadlock-free. See Lesson 20 in CONCURRENCY_LESSONS.md.
 	queue <- entityEventJob{
 		entityID: eventData.EntityID,
 		oldState: eventData.OldState,
