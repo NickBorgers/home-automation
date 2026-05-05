@@ -110,7 +110,9 @@ func (c *Config) applyDefaults() {
 	if c.RestoreDelaySeconds == 0 {
 		c.RestoreDelaySeconds = defaultRestoreDelaySeconds
 	}
-	c.RestoreDelay = time.Duration(c.RestoreDelaySeconds) * time.Second
+	if c.RestoreDelay == 0 {
+		c.RestoreDelay = time.Duration(c.RestoreDelaySeconds) * time.Second
+	}
 }
 
 func (c *Config) validate() error {

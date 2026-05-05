@@ -33,7 +33,7 @@ notification:
   # Volume (0-100) used for every announcement that plays. Announcements while
   # master is asleep either play at this volume (UrgencyUrgent) or are dropped
   # entirely (UrgencyDeferable) — there is no quieter mid-tier.
-  awake_volume_percent: 20
+  awake_volume_percent: 40
 
   # TTS engine. tts.google_translate_en_com is the default in Home Assistant.
   tts_entity_id: tts.google_translate_en_com
