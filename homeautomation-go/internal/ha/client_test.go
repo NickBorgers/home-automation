@@ -491,8 +491,9 @@ func TestClient_DisconnectClearsSubscribers(t *testing.T) {
 func TestClient_HandleEventBackpressuresHandlers(t *testing.T) {
 	t.Parallel()
 	client := &Client{
-		logger:      zap.NewNop(),
-		subscribers: make(map[string][]subscriberEntry),
+		logger:            zap.NewNop(),
+		subscribers:       make(map[string][]subscriberEntry),
+		entityEventQueues: make(map[string]chan entityEventJob),
 	}
 
 	var calls int32
