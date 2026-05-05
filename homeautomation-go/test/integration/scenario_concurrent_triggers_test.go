@@ -207,8 +207,10 @@ func TestScenario_RapidPresenceChanges_StableState(t *testing.T) {
 		expectedHome := i%2 == 0
 		if i%2 == 0 {
 			env.server.SetState("input_boolean.caroline_home", "on", map[string]interface{}{})
+			waitForProcessing(t, env.stateManager)
 		} else {
 			env.server.SetState("input_boolean.caroline_home", "off", map[string]interface{}{})
+			waitForProcessing(t, env.stateManager)
 		}
 		waitForBoolState(t, env.stateManager, "isCarolineHome", expectedHome, "presence change %d should propagate", i)
 	}

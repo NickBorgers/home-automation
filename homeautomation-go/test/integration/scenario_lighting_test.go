@@ -83,6 +83,7 @@ func TestScenario_DayPhaseEvening_ActivatesCorrectScenes(t *testing.T) {
 	// WHEN: Day phase changes to evening
 	t.Log("WHEN: Day phase changes to evening")
 	server.SetState("input_text.day_phase", "evening", map[string]interface{}{})
+	waitForProcessing(t, stateManager)
 
 	// Wait for scene activation
 	waitForServiceCallSince(t, server, snapshot, "scene", "turn_on", "evening scenes should be activated")
@@ -418,6 +419,7 @@ func TestScenario_MultipleStateChanges_HandlesCorrectly(t *testing.T) {
 	waitForCondition(t, func() bool {
 		return server.ServiceCallCount() > callsBeforeEvening
 	}, "should process afternoon day phase change before next change")
+	waitForProcessing(t, stateManager)
 	server.SetState("input_text.day_phase", "evening", map[string]interface{}{})
 	callsBeforeTV := server.ServiceCallCount()
 	waitForCondition(t, func() bool {
