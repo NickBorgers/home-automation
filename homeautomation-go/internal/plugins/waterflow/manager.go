@@ -30,9 +30,9 @@ const (
 	// WarningDurationMinutes is the rolling window size for warning alerts
 	WarningDurationMinutes = 60
 
-	// WarningWindowPercent is the minimum fraction of readings in the warning window that must
-	// exceed WarningFlowRateGPM before alerting. Handles intermittent sensor noise.
-	WarningWindowPercent = 0.75
+	// WarningFlowDurationMinutes is the cumulative flow duration in the warning window that must
+	// exceed WarningFlowRateGPM before alerting. Handles event-driven sensors that are silent at idle.
+	WarningFlowDurationMinutes = 15
 
 	// UrgentFlowRateGPM is the flow rate threshold for urgent alerts (gallons per minute)
 	UrgentFlowRateGPM = 0.4
@@ -40,16 +40,21 @@ const (
 	// UrgentDurationMinutes is the rolling window size for urgent alerts
 	UrgentDurationMinutes = 30
 
-	// UrgentWindowPercent is the minimum fraction of readings in the urgent window that must
-	// exceed UrgentFlowRateGPM before alerting. Handles intermittent sensor noise.
-	UrgentWindowPercent = 0.67
+	// UrgentFlowDurationMinutes is the cumulative flow duration in the urgent window that must
+	// exceed UrgentFlowRateGPM before alerting. Handles event-driven sensors that are silent at idle.
+	UrgentFlowDurationMinutes = 20
 
 	// maxReadingAgeMinutes is how long to keep readings in the rolling window buffer.
-	// Must exceed WarningDurationMinutes so the window-ready check can pass.
+	// Must cover the largest alert window so evaluations have enough history.
 	maxReadingAgeMinutes = WarningDurationMinutes * 2
 
 	// AlertCheckInterval is how often to check for duration-based alerts
 	AlertCheckInterval = 1 * time.Minute
+
+	// maxFlowReadingDuration caps how much time one event-driven reading can represent. Droplet
+	// reports frequently while flowing but is silent at idle; the cap prevents a final high reading
+	// before an idle gap from being counted as sustained flow.
+	maxFlowReadingDuration = AlertCheckInterval
 
 	// RecoveryNotificationCooldown prevents recovery notification spam
 	RecoveryNotificationCooldown = 30 * time.Minute
@@ -90,6 +95,7 @@ type Manager struct {
 	flowReadings             []flowReading // Rolling window buffer of timestamped sensor readings
 	recoveryStartTime        time.Time     // When flow first dropped below threshold (for debounce)
 	lastAlertNotification    time.Time     // Last time we sent an alert notification
+	lastAlertType            string        // Last alert notification type for escalation handling
 	lastRecoveryNotification time.Time     // Last time we sent a recovery notification
 	isWarningActive          bool          // Currently in warning alert state
 	isUrgentActive           bool          // Currently in urgent alert state
@@ -164,6 +170,7 @@ func (m *Manager) Reset() error {
 
 	m.mu.Lock()
 	m.lastAlertNotification = time.Time{}
+	m.lastAlertType = ""
 	m.lastRecoveryNotification = time.Time{}
 	m.mu.Unlock()
 
@@ -285,10 +292,10 @@ func (m *Manager) stopPeriodicCheckerFunc() {
 }
 
 // evaluateConditions checks if any alert thresholds have been exceeded using a rolling window.
-// It fires an alert when UrgentWindowPercent of readings in the last UrgentDurationMinutes exceed
-// UrgentFlowRateGPM, or WarningWindowPercent of readings in the last WarningDurationMinutes exceed
-// WarningFlowRateGPM. This tolerates intermittent sensor noise that would otherwise reset a
-// consecutive-duration timer.
+// It fires an alert when flow above UrgentFlowRateGPM exceeds UrgentFlowDurationMinutes in the
+// last UrgentDurationMinutes, or flow above WarningFlowRateGPM exceeds WarningFlowDurationMinutes
+// in the last WarningDurationMinutes. Each reading represents the capped interval until the next
+// reading so event-driven idle silence does not bias the rolling window.
 func (m *Manager) evaluateConditions() {
 	now := m.clock.Now()
 
@@ -309,27 +316,14 @@ func (m *Manager) evaluateConditions() {
 		return
 	}
 
-	// The window is "ready" only when data spans the full required duration, ensuring we don't
-	// fire prematurely during startup or after a long gap in readings.
-
-	// Check urgent condition: UrgentWindowPercent of readings in last UrgentDurationMinutes
-	// must exceed UrgentFlowRateGPM.
 	urgentWindowStart := now.Add(-UrgentDurationMinutes * time.Minute)
-	if !m.isUrgentActive && !m.flowReadings[0].at.After(urgentWindowStart) {
-		var total, above int
-		for _, r := range m.flowReadings {
-			if !r.at.Before(urgentWindowStart) {
-				total++
-				if r.gpm >= UrgentFlowRateGPM {
-					above++
-				}
-			}
-		}
-		if total > 0 && float64(above)/float64(total) >= UrgentWindowPercent {
+	if !m.isUrgentActive {
+		flowDuration := m.flowDurationAboveThreshold(urgentWindowStart, now, UrgentFlowRateGPM)
+		if flowDuration > UrgentFlowDurationMinutes*time.Minute {
 			m.logger.Warn("Urgent water flow condition detected",
 				zap.Float64("flow_rate_gpm", m.currentFlowRateGPM),
-				zap.Int("above_threshold", above),
-				zap.Int("total_readings", total))
+				zap.Duration("flow_duration", flowDuration),
+				zap.Int("window_minutes", UrgentDurationMinutes))
 			m.isUrgentActive = true
 			m.shadowTracker.UpdateAlertLevel("urgent")
 			m.shadowTracker.UpdateConditionsMet(true, true)
@@ -337,66 +331,93 @@ func (m *Manager) evaluateConditions() {
 			// DetectedAt is the start of the evaluation window, not the precise onset of high flow.
 			alerts := []shadowstate.WaterFlowAlert{{
 				AlertType:       "urgent",
-				Message:         fmt.Sprintf("High water flow of %.2f GPM for over 30 minutes. Possible broken pipe!", m.currentFlowRateGPM),
+				Message:         fmt.Sprintf("High water flow of %.2f GPM for over 20 minutes. Possible broken pipe!", m.currentFlowRateGPM),
 				FlowRateGPM:     m.currentFlowRateGPM,
-				DurationMinutes: UrgentDurationMinutes,
+				DurationMinutes: UrgentFlowDurationMinutes,
 				DetectedAt:      urgentWindowStart,
 			}}
 			m.shadowTracker.UpdateActiveAlerts(alerts)
 
 			m.sendAlertNotification("urgent",
-				fmt.Sprintf("High water flow of %.2f GPM for over 30 minutes. Possible broken pipe!", m.currentFlowRateGPM))
+				fmt.Sprintf("High water flow of %.2f GPM for over 20 minutes. Possible broken pipe!", m.currentFlowRateGPM))
 			return // Don't also send warning if urgent
 		}
 	}
 
-	// Check warning condition: WarningWindowPercent of readings in last WarningDurationMinutes
-	// must exceed WarningFlowRateGPM.
 	warningWindowStart := now.Add(-WarningDurationMinutes * time.Minute)
-	if !m.isWarningActive && !m.isUrgentActive && !m.flowReadings[0].at.After(warningWindowStart) {
-		var total, above int
-		for _, r := range m.flowReadings {
-			if !r.at.Before(warningWindowStart) {
-				total++
-				if r.gpm >= WarningFlowRateGPM {
-					above++
-				}
-			}
-		}
-		if total > 0 && float64(above)/float64(total) >= WarningWindowPercent {
+	if !m.isWarningActive && !m.isUrgentActive {
+		flowDuration := m.flowDurationAboveThreshold(warningWindowStart, now, WarningFlowRateGPM)
+		if flowDuration > WarningFlowDurationMinutes*time.Minute {
 			m.logger.Warn("Warning water flow condition detected",
 				zap.Float64("flow_rate_gpm", m.currentFlowRateGPM),
-				zap.Int("above_threshold", above),
-				zap.Int("total_readings", total))
+				zap.Duration("flow_duration", flowDuration),
+				zap.Int("window_minutes", WarningDurationMinutes))
 			m.isWarningActive = true
 			m.shadowTracker.UpdateAlertLevel("warning")
 			m.shadowTracker.UpdateConditionsMet(true, false)
 
 			alerts := []shadowstate.WaterFlowAlert{{
 				AlertType:       "warning",
-				Message:         fmt.Sprintf("Continuous water flow of %.2f GPM for over 60 minutes. Check for running fixtures.", m.currentFlowRateGPM),
+				Message:         fmt.Sprintf("Water flow of %.2f GPM for over 15 minutes. Check for running fixtures.", m.currentFlowRateGPM),
 				FlowRateGPM:     m.currentFlowRateGPM,
-				DurationMinutes: WarningDurationMinutes,
+				DurationMinutes: WarningFlowDurationMinutes,
 				DetectedAt:      warningWindowStart,
 			}}
 			m.shadowTracker.UpdateActiveAlerts(alerts)
 
 			m.sendAlertNotification("warning",
-				fmt.Sprintf("Continuous water flow of %.2f GPM for over 60 minutes. Check for running fixtures.", m.currentFlowRateGPM))
+				fmt.Sprintf("Water flow of %.2f GPM for over 15 minutes. Check for running fixtures.", m.currentFlowRateGPM))
 		}
 	}
+}
+
+// flowDurationAboveThreshold returns the capped time represented by readings above threshold.
+// m.mu must be held by the caller.
+func (m *Manager) flowDurationAboveThreshold(windowStart, now time.Time, threshold float64) time.Duration {
+	var flowDuration time.Duration
+	for i, r := range m.flowReadings {
+		if r.gpm < threshold {
+			continue
+		}
+
+		intervalStart := r.at
+		if intervalStart.Before(windowStart) {
+			intervalStart = windowStart
+		}
+		if !intervalStart.Before(now) {
+			continue
+		}
+
+		intervalEnd := now
+		if i+1 < len(m.flowReadings) && m.flowReadings[i+1].at.Before(intervalEnd) {
+			intervalEnd = m.flowReadings[i+1].at
+		}
+		maxEnd := r.at.Add(maxFlowReadingDuration)
+		if intervalEnd.After(maxEnd) {
+			intervalEnd = maxEnd
+		}
+		if intervalEnd.After(now) {
+			intervalEnd = now
+		}
+		if intervalEnd.After(intervalStart) {
+			flowDuration += intervalEnd.Sub(intervalStart)
+		}
+	}
+	return flowDuration
 }
 
 // sendAlertNotification sends an alert via push and TTS channels.
 func (m *Manager) sendAlertNotification(alertType, message string) {
 	// Check rate limiting (must be called with lock held)
-	if !m.lastAlertNotification.IsZero() && m.clock.Since(m.lastAlertNotification) < RepeatAlertCooldown {
+	isEscalation := alertType == "urgent" && m.lastAlertType != "urgent"
+	if !isEscalation && !m.lastAlertNotification.IsZero() && m.clock.Since(m.lastAlertNotification) < RepeatAlertCooldown {
 		m.logger.Debug("Skipping alert notification due to rate limiting",
 			zap.String("alert_type", alertType),
 			zap.Duration("since_last", m.clock.Since(m.lastAlertNotification)))
 		return
 	}
 	m.lastAlertNotification = m.clock.Now()
+	m.lastAlertType = alertType
 
 	urgency := notify.UrgencyDeferable
 	priority := ntfy.PriorityHigh
@@ -409,7 +430,7 @@ func (m *Manager) sendAlertNotification(alertType, message string) {
 		priority = ntfy.PriorityUrgent
 		title = "Possible Pipe Break"
 		tags = []string{"rotating_light", "droplet"}
-		ttsMessage = "Attention: High water flow detected for over 30 minutes. Possible broken pipe. Please check immediately."
+		ttsMessage = "Attention: High water flow detected for over 20 minutes. Possible broken pipe. Please check immediately."
 	}
 
 	// Record notification in shadow state

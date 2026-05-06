@@ -93,11 +93,11 @@ func TestWaterFlowManager_ShortHighFlowNoAlert(t *testing.T) {
 
 	manager := createTestManager(mockHA, mockAlerter, mockClock)
 
-	// Simulate high flow (0.5 GPM) for 20 minutes — less than the 30 min urgent window
-	simulateSteadyFlow(manager, mockClock, 0.5, 20*time.Minute, time.Minute)
+	// Simulate high flow (0.5 GPM) for 14 minutes — below all flow duration thresholds
+	simulateSteadyFlow(manager, mockClock, 0.5, 14*time.Minute, time.Minute)
 	manager.TriggerEvaluation()
 
-	// Should not trigger urgent alert (window not yet full)
+	// Should not trigger urgent alert (duration threshold not yet met)
 	if manager.IsUrgentActive() {
 		t.Error("Should not be in urgent state for short high flow")
 	}
@@ -127,26 +127,26 @@ func TestWaterFlowManager_WarningAlert(t *testing.T) {
 
 	manager := createTestManager(mockHA, mockAlerter, mockClock)
 
-	// Simulate moderate flow (0.35 GPM) for 59 minutes — just under the 60-minute warning window
-	simulateSteadyFlow(manager, mockClock, 0.35, 59*time.Minute, time.Minute)
+	// Simulate moderate flow (0.35 GPM) for 15 minutes — not over the warning flow duration threshold
+	simulateSteadyFlow(manager, mockClock, 0.35, 15*time.Minute, time.Minute)
 	manager.TriggerEvaluation()
 
 	if manager.IsWarningActive() {
-		t.Error("Should not trigger warning before 60 minutes")
+		t.Error("Should not trigger warning before flow duration exceeds 15 minutes")
 	}
 
 	if count := countAlerts(mockAlerter); count != 0 {
 		t.Errorf("Expected 0 notifications during debounce period, got %d", count)
 	}
 
-	// Advance past 60 minute threshold with continued readings
-	mockClock.Advance(2 * time.Minute)
+	// Advance past 15 minute flow duration threshold with continued readings
+	mockClock.Advance(time.Minute)
 	manager.SimulateFlowReading(0.35)
 	manager.TriggerEvaluation()
 
 	// Now should be in warning state
 	if !manager.IsWarningActive() {
-		t.Error("Should be in warning state after 60+ minutes of elevated flow")
+		t.Error("Should be in warning state after 15+ minutes of elevated flow")
 	}
 
 	// Should have sent notification
@@ -189,22 +189,21 @@ func TestWaterFlowManager_UrgentAlert(t *testing.T) {
 
 	manager := createTestManager(mockHA, mockAlerter, mockClock)
 
-	// Simulate high flow (0.5 GPM) for 29 minutes — just under the 30 min urgent window
-	simulateSteadyFlow(manager, mockClock, 0.5, 29*time.Minute, time.Minute)
+	// Simulate high flow (0.5 GPM) for 14 minutes — below all flow duration thresholds
+	simulateSteadyFlow(manager, mockClock, 0.5, 14*time.Minute, time.Minute)
 	manager.TriggerEvaluation()
 
 	if manager.IsUrgentActive() {
-		t.Error("Should not trigger urgent before 30 minutes")
+		t.Error("Should not trigger urgent before flow duration exceeds 20 minutes")
 	}
 
-	// Advance past 30 minute threshold with continued readings
-	mockClock.Advance(2 * time.Minute)
-	manager.SimulateFlowReading(0.5)
+	// Advance past 20 minute flow duration threshold with continued readings
+	simulateSteadyFlow(manager, mockClock, 0.5, 7*time.Minute, time.Minute)
 	manager.TriggerEvaluation()
 
 	// Now should be in urgent state
 	if !manager.IsUrgentActive() {
-		t.Error("Should be in urgent state after 30+ minutes of high flow")
+		t.Error("Should be in urgent state after 20+ minutes of high flow")
 	}
 
 	// Should have sent notification
@@ -523,8 +522,8 @@ func TestWaterFlowManager_TransitionFromWarningToUrgent(t *testing.T) {
 
 	manager := createTestManager(mockHA, mockAlerter, mockClock)
 
-	// Simulate moderate flow (warning threshold) for 30 minutes, then increase to urgent
-	simulateSteadyFlow(manager, mockClock, 0.35, 30*time.Minute, time.Minute)
+	// Simulate low flow for 30 minutes, then increase to urgent
+	simulateSteadyFlow(manager, mockClock, 0.25, 30*time.Minute, time.Minute)
 	manager.TriggerEvaluation()
 
 	// Increase to urgent flow and continue for 31 more minutes
@@ -539,6 +538,44 @@ func TestWaterFlowManager_TransitionFromWarningToUrgent(t *testing.T) {
 	// Should have sent urgent notification only
 	if count := countAlerts(mockAlerter); count != 1 {
 		t.Errorf("Expected 1 notification (urgent), got %d", count)
+	}
+
+	msg := getLastAlert(mockAlerter)
+	if msg.Title != "Possible Pipe Break" {
+		t.Errorf("Expected urgent notification, got title '%s'", msg.Title)
+	}
+}
+
+func TestWaterFlowManager_UrgentEscalationBypassesWarningCooldown(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
+	startTime := time.Now()
+	mockClock := clock.NewMockClock(startTime)
+
+	manager := createTestManager(mockHA, mockAlerter, mockClock)
+
+	// Trigger a warning first, as the periodic checker would during sustained high usage.
+	simulateSteadyFlow(manager, mockClock, 0.35, 16*time.Minute, time.Minute)
+	manager.TriggerEvaluation()
+
+	if !manager.IsWarningActive() {
+		t.Fatal("Expected warning to be active")
+	}
+	if count := countAlerts(mockAlerter); count != 1 {
+		t.Fatalf("Expected 1 warning notification, got %d", count)
+	}
+
+	// Escalate to urgent before the repeat-alert cooldown expires.
+	simulateSteadyFlow(manager, mockClock, 0.5, 21*time.Minute, time.Minute)
+	manager.TriggerEvaluation()
+
+	if !manager.IsUrgentActive() {
+		t.Fatal("Expected urgent to be active")
+	}
+	if count := countAlerts(mockAlerter); count != 2 {
+		t.Fatalf("Expected urgent escalation notification despite warning cooldown, got %d notifications", count)
 	}
 
 	msg := getLastAlert(mockAlerter)
@@ -656,7 +693,7 @@ func TestWaterFlowManager_SensorNoiseDoesNotPreventAlert(t *testing.T) {
 
 	// Simulate the real-world pattern from issue #1055:
 	// pressure washer running at ~1.0 GPM with sensor noise every ~5th reading dropping to 0.
-	// This gives ~80% of readings above threshold — above the 67% urgent window threshold.
+	// This gives ~80% high-flow time — above the urgent flow duration threshold.
 	interval := 4 * time.Second
 	noiseEvery := 5 // 1 out of every 5 readings is a zero
 
@@ -680,6 +717,53 @@ func TestWaterFlowManager_SensorNoiseDoesNotPreventAlert(t *testing.T) {
 	}
 }
 
+func TestWaterFlowManager_EventDrivenIdleGapsDoNotBiasWindow(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
+	startTime := time.Now()
+	mockClock := clock.NewMockClock(startTime)
+
+	manager := createTestManager(mockHA, mockAlerter, mockClock)
+
+	// GIVEN: Four short normal-use sessions spread across 32 minutes. The sensor only reports
+	// while water is flowing, so the sample buffer is almost entirely above the urgent threshold.
+	sessionStarts := []time.Duration{
+		0,
+		10 * time.Minute,
+		20 * time.Minute,
+		30 * time.Minute,
+	}
+	for _, sessionStart := range sessionStarts {
+		if remaining := startTime.Add(sessionStart).Sub(mockClock.Now()); remaining > 0 {
+			mockClock.Advance(remaining)
+		}
+		for i := 0; i < 7; i++ {
+			manager.SimulateFlowReading(0.8)
+			mockClock.Advance(4 * time.Second)
+		}
+	}
+
+	if remaining := startTime.Add(32 * time.Minute).Sub(mockClock.Now()); remaining > 0 {
+		mockClock.Advance(remaining)
+	}
+
+	// WHEN: The rolling window is evaluated after the intermittent usage.
+	manager.TriggerEvaluation()
+
+	// THEN: No urgent alert fires; idle gaps must count as idle time, not missing samples.
+	if manager.IsUrgentActive() {
+		t.Error("Should NOT fire urgent alert for short event-driven flow bursts separated by idle gaps")
+	}
+	if manager.IsWarningActive() {
+		t.Error("Should NOT fire warning alert for short event-driven flow bursts separated by idle gaps")
+	}
+	if count := countAlerts(mockAlerter); count != 0 {
+		t.Errorf("Expected 0 notifications for intermittent normal usage, got %d", count)
+	}
+}
+
 // TestWaterFlowManager_TooMuchNoiseSuppressesAlert verifies that when the majority of readings
 // are zero/low, no spurious alert fires (e.g., genuinely intermittent low flow doesn't alarm).
 func TestWaterFlowManager_TooMuchNoiseSuppressesAlert(t *testing.T) {
@@ -692,9 +776,9 @@ func TestWaterFlowManager_TooMuchNoiseSuppressesAlert(t *testing.T) {
 
 	manager := createTestManager(mockHA, mockAlerter, mockClock)
 
-	// Simulate 50% high / 50% low readings over 35 minutes — below the 67% urgent threshold
+	// Simulate 50% high / 50% low readings over 25 minutes — below the cumulative duration thresholds.
 	interval := 4 * time.Second
-	end := startTime.Add(35 * time.Minute)
+	end := startTime.Add(25 * time.Minute)
 	for i := 0; mockClock.Now().Before(end); i++ {
 		if i%2 == 0 {
 			manager.SimulateFlowReading(1.0)
@@ -709,7 +793,7 @@ func TestWaterFlowManager_TooMuchNoiseSuppressesAlert(t *testing.T) {
 		t.Error("Should NOT fire urgent alert when only 50% of readings exceed threshold")
 	}
 	if manager.IsWarningActive() {
-		t.Error("Should NOT fire warning alert when only 50% of readings exceed threshold (below 75%)")
+		t.Error("Should NOT fire warning alert when cumulative flow duration is below threshold")
 	}
 
 	if count := countAlerts(mockAlerter); count != 0 {
