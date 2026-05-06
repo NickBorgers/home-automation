@@ -326,24 +326,21 @@ func TestWaterFlowManager_RateLimiting(t *testing.T) {
 	manager.SimulateFlowReading(0.1)
 	recoveryCount := countAlerts(mockAlerter)
 
-	// Immediately trigger another urgent condition with a fresh 31-minute window
+	// After recovery, a new urgent fires immediately — lastAlertType is cleared on recovery so the
+	// urgent-escalation bypass applies even though the 4-hour cooldown has not expired.
 	simulateSteadyFlow(manager, mockClock, 0.5, 31*time.Minute, time.Minute)
 	manager.TriggerEvaluation()
 
-	// Should NOT send another alert due to rate limiting (4 hour cooldown)
-	if count := countAlerts(mockAlerter); count != recoveryCount {
-		t.Errorf("Expected %d notifications (rate limited), got %d", recoveryCount, count)
+	if count := countAlerts(mockAlerter); count != recoveryCount+1 {
+		t.Errorf("Expected %d notifications (urgent after recovery), got %d", recoveryCount+1, count)
 	}
 
-	// Advance past rate limit cooldown
+	// Advance past rate limit cooldown and reset; additional alerts fire normally.
 	mockClock.Advance(5 * time.Hour)
-
-	// Reset to clear state and try again
 	manager.Reset()
 	simulateSteadyFlow(manager, mockClock, 0.5, 31*time.Minute, time.Minute)
 	manager.TriggerEvaluation()
 
-	// Now should have sent another notification
 	if count := countAlerts(mockAlerter); count <= initialCount+1 {
 		t.Log("Rate limiting working correctly - alert sent after cooldown period")
 	}
@@ -581,6 +578,56 @@ func TestWaterFlowManager_UrgentEscalationBypassesWarningCooldown(t *testing.T) 
 	msg := getLastAlert(mockAlerter)
 	if msg.Title != "Possible Pipe Break" {
 		t.Errorf("Expected urgent notification, got title '%s'", msg.Title)
+	}
+}
+
+func TestWaterFlowManager_RecoveryResetsEscalationState(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
+	startTime := time.Now()
+	mockClock := clock.NewMockClock(startTime)
+
+	manager := createTestManager(mockHA, mockAlerter, mockClock)
+
+	// GIVEN: Urgent alert fires.
+	simulateSteadyFlow(manager, mockClock, 0.5, 21*time.Minute, time.Minute)
+	manager.TriggerEvaluation()
+
+	if !manager.IsUrgentActive() {
+		t.Fatal("Expected urgent to be active")
+	}
+	if count := countAlerts(mockAlerter); count != 1 {
+		t.Fatalf("Expected 1 urgent notification, got %d", count)
+	}
+
+	// WHEN: Recovery completes within the 4-hour repeat-alert cooldown window.
+	manager.SimulateFlowReading(0.1)
+	mockClock.Advance(31 * time.Second)
+	manager.SimulateFlowReading(0.1)
+
+	if manager.IsUrgentActive() {
+		t.Fatal("Expected recovery to clear urgent state")
+	}
+	if count := countAlerts(mockAlerter); count != 2 {
+		t.Fatalf("Expected 2 notifications (urgent + recovery), got %d", count)
+	}
+
+	// THEN: A new urgent escalation fires (lastAlertType must be cleared on recovery so the
+	// urgent-escalation bypass applies even though the 4-hour cooldown has not expired).
+	simulateSteadyFlow(manager, mockClock, 0.5, 21*time.Minute, time.Minute)
+	manager.TriggerEvaluation()
+
+	if !manager.IsUrgentActive() {
+		t.Fatal("Expected urgent to be active after re-escalation")
+	}
+	if count := countAlerts(mockAlerter); count != 3 {
+		t.Fatalf("Expected urgent re-escalation notification after recovery, got %d notifications", count)
+	}
+	msg := getLastAlert(mockAlerter)
+	if msg.Title != "Possible Pipe Break" {
+		t.Errorf("Expected urgent notification title, got '%s'", msg.Title)
 	}
 }
 

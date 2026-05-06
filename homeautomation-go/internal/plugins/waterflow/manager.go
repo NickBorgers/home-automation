@@ -53,8 +53,9 @@ const (
 
 	// maxFlowReadingDuration caps how much time one event-driven reading can represent. Droplet
 	// reports frequently while flowing but is silent at idle; the cap prevents a final high reading
-	// before an idle gap from being counted as sustained flow.
-	maxFlowReadingDuration = AlertCheckInterval
+	// before an idle gap from being counted as sustained flow. One minute matches the expected
+	// inter-reading interval during active flow and is independent of AlertCheckInterval.
+	maxFlowReadingDuration = 1 * time.Minute
 
 	// RecoveryNotificationCooldown prevents recovery notification spam
 	RecoveryNotificationCooldown = 30 * time.Minute
@@ -235,6 +236,7 @@ func (m *Manager) handleFlowChange(entityID string, oldState, newState *ha.State
 				zap.Duration("debounce_duration", now.Sub(m.recoveryStartTime)))
 			m.isWarningActive = false
 			m.isUrgentActive = false
+			m.lastAlertType = ""
 			// Clear the rolling window so the next evaluateConditions tick cannot immediately
 			// re-fire the alert using stale high-flow readings.
 			m.flowReadings = nil
@@ -388,6 +390,8 @@ func (m *Manager) flowDurationAboveThreshold(windowStart, now time.Time, thresho
 			continue
 		}
 
+		// Readings are always appended in chronological order, so m.flowReadings[i+1].at
+		// is guaranteed to be >= r.at and provides the natural interval end for reading i.
 		intervalEnd := now
 		if i+1 < len(m.flowReadings) && m.flowReadings[i+1].at.Before(intervalEnd) {
 			intervalEnd = m.flowReadings[i+1].at
