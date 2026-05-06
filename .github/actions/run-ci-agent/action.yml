@@ -21,9 +21,9 @@ inputs:
     required: true
   output_file:
     description: >
-      Absolute path inside the container (also mounted back to the runner) to
-      capture the agent's stdout stream. Parent directory is created
-      automatically.
+      Runner-side destination path for the agent's stdout stream. The action
+      stages output under $RUNNER_TEMP and copies it here after the container
+      exits. Parent directory is created automatically.
     required: true
   env:
     description: >
@@ -173,6 +173,8 @@ runs:
             # Inner timeout sits below the typical 120-min workflow job
             # timeout so SIGTERM fires first, letting `tee` flush a partial
             # conversation log before the runner host kills the container.
+            # Callers with shorter job timeouts will hit the outer workflow
+            # timeout first.
             # `timeout` exits 124 on TERM hit — distinguishable from a host
             # OOM SIGKILL (exit 137), which leaves no diagnostic.
             timeout 90m bash .devcontainer/run-ai.sh "$PROMPT" 2>&1 \
