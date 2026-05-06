@@ -109,6 +109,10 @@ type notifyRequest struct {
 	Priority int      `json:"priority"`
 }
 
+// notifyResponse is the JSON body returned by POST /api/notify.
+// Dispatched is true whenever the request was accepted and forwarded to the
+// alerter (including when the alert was suppressed because someone is asleep).
+// Check SuppressedAsleep to determine whether audio/push channels actually fired.
 type notifyResponse struct {
 	Dispatched       bool `json:"dispatched"`
 	SuppressedAsleep bool `json:"suppressed_asleep"`
@@ -204,6 +208,10 @@ func (s *Server) handleNotify(w http.ResponseWriter, r *http.Request) {
 	}
 	if utf8.RuneCountInString(req.Body) > 500 {
 		writeAPIError(w, http.StatusBadRequest, "body must be 500 characters or fewer")
+		return
+	}
+	if utf8.RuneCountInString(req.Title) > 200 {
+		writeAPIError(w, http.StatusBadRequest, "title must be 200 characters or fewer")
 		return
 	}
 	if len(req.Tags) > 16 {

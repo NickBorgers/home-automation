@@ -320,6 +320,24 @@ func TestHandleNotify_OversizeBodyReturns400(t *testing.T) {
 	}
 }
 
+func TestHandleNotify_OversizeTitleReturns400(t *testing.T) {
+	t.Parallel()
+	server, mockAlerter := newNotifyTestServer(t, nil)
+
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/api/notify",
+		strings.NewReader(`{"title":"`+strings.Repeat("a", 201)+`","body":"hello"}`),
+	)
+	w := httptest.NewRecorder()
+	server.handleNotify(w, req)
+
+	assertNotifyError(t, w, http.StatusBadRequest)
+	if len(mockAlerter.Calls()) != 0 {
+		t.Error("Expected no alert calls")
+	}
+}
+
 func TestHandleNotify_SuppressedAsleepReturns200WithFlag(t *testing.T) {
 	t.Parallel()
 	server, mockAlerter := newNotifyTestServer(t, notify.ErrSuppressedAsleep)
