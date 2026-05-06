@@ -427,19 +427,12 @@ func (m *Manager) sendTTSNotification(message string) {
 		m.logger.Warn("alerter not configured, skipping security announcement")
 		return
 	}
-	speakers := []string{
-		"media_player.bedroom",
-		"media_player.kitchen",
-		"media_player.dining_room",
-		"media_player.kids_bathroom",
-	}
 	if err := m.alerter.Send(m.ctx, alert.Alert{
 		Title:    "Security Alert",
 		Body:     message,
 		Urgency:  notify.UrgencyUrgent,
 		Tags:     []string{"rotating_light"},
 		Priority: ntfy.PriorityUrgent,
-		Speakers: speakers,
 	}); err != nil {
 		m.logger.Error("Failed to send security announcement", zap.Error(err), zap.String("message", message))
 		return

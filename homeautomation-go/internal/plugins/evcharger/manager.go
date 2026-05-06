@@ -300,13 +300,6 @@ func (m *Manager) sendAlertNotifications(conditionType, sensor string) {
 	m.lastNotificationTime = time.Now()
 	m.mu.Unlock()
 
-	// Intentionally excludes kids_bathroom — EV charging alerts are adult safety concerns.
-	speakers := []string{
-		"media_player.bedroom",
-		"media_player.kitchen",
-		"media_player.dining_room",
-	}
-
 	message := fmt.Sprintf("Warning: EV charger %s detected. The charger has been automatically turned off.", conditionType)
 
 	if m.alerter != nil {
@@ -315,7 +308,6 @@ func (m *Manager) sendAlertNotifications(conditionType, sensor string) {
 			Body:     message,
 			Urgency:  notify.UrgencyUrgent,
 			Tags:     []string{"rotating_light", "electric_plug", "warning"},
-			Speakers: speakers,
 			Priority: ntfy.PriorityUrgent,
 		}); err != nil {
 			m.logger.Error("Failed to send alert notification", zap.String("condition", conditionType), zap.Error(err))
