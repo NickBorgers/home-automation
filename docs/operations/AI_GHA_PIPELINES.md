@@ -129,7 +129,7 @@ Builds the list of PRs that `resolve-pr-conflicts` should fan out over. Runs for
 - `issue_comment` event where the comment is on a PR, the actor is authorized, and the body contains a plain-text `/autoresolve`.
 
 **Workflow**:
-1. **Push path**: `gh pr list` enumerates open PRs. For each PR (excluding any already labeled `ai-resolving`), poll `gh pr view --json mergeStateStatus,mergeable` up to ~30s — GitHub computes mergeability asynchronously, so freshly-affected PRs return `UNKNOWN` for several seconds. Keep PRs whose `mergeStateStatus == DIRTY`.
+1. **Push path**: `gh api repos/{owner}/{repo}/pulls` enumerates open PRs (REST endpoint used because `gh pr list --json` does not expose `author_association`, which gates trusted-author filtering). For each PR (excluding any already labeled `ai-resolving`), poll `gh pr view --json mergeStateStatus,mergeable` up to ~30s — GitHub computes mergeability asynchronously, so freshly-affected PRs return `UNKNOWN` for several seconds. Keep PRs whose `mergeStateStatus == DIRTY`.
 2. **Comment path**: emit a single-element list with the commented PR. The agent itself re-confirms the conflict and exits cleanly if the PR is already mergeable.
 
 Outputs a JSON array `[{pr_number, head_ref}, …]` consumed by `resolve-pr-conflicts` as a matrix.
