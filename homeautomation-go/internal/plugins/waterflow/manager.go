@@ -449,18 +449,11 @@ func (m *Manager) sendAlertNotification(alertType, message string) {
 	defer m.mu.Lock()
 
 	if m.alerter != nil {
-		speakers := []string{
-			"media_player.bedroom",
-			"media_player.kitchen",
-			"media_player.dining_room",
-			"media_player.kids_bathroom",
-		}
 		if err := m.alerter.Send(m.ctx, alert.Alert{
 			Title:    title,
 			Body:     ttsMessage,
 			Urgency:  urgency,
 			Tags:     tags,
-			Speakers: speakers,
 			Priority: priority,
 		}); err != nil {
 			m.logger.Error("Failed to send water flow alert notification",
