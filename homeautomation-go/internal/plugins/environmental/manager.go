@@ -990,10 +990,15 @@ func (m *Manager) sendAlertNotification(now time.Time, level string) {
 		Tags:     tags,
 		Priority: priority,
 	}); err != nil {
-		m.logger.Error("Failed to send humidity notification",
-			zap.String("level", level),
-			zap.Error(err))
-		return
+		if errors.Is(err, notify.ErrSuppressedAsleep) {
+			m.logger.Info("Humidity notification TTS suppressed (master asleep)",
+				zap.String("level", level))
+		} else {
+			m.logger.Error("Failed to send humidity notification",
+				zap.String("level", level),
+				zap.Error(err))
+			return
+		}
 	}
 
 	// Update rate limiting timestamps

@@ -8,6 +8,7 @@ import (
 	"homeautomation/internal/alert"
 	"homeautomation/internal/clock"
 	"homeautomation/internal/ha"
+	"homeautomation/internal/notify"
 	"homeautomation/internal/ntfy"
 	"homeautomation/internal/state"
 
@@ -657,6 +658,47 @@ func TestEnvironmentalManager_RateLimiting_Warning(t *testing.T) {
 	finalNotifications := countAlerts(mockAlerter)
 	if finalNotifications > initialNotifications {
 		t.Errorf("Expected no additional notifications for same incident, got %d extra",
+			finalNotifications-initialNotifications)
+	}
+}
+
+func TestEnvironmentalManager_RateLimiting_WarningWhenTTSSuppressedAsleep(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	mockAlerter := &alert.MockAlerter{Err: notify.ErrSuppressedAsleep}
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+	mockClock := clock.NewMockClock(time.Now())
+
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, false, nil, mockAlerter, mockClock)
+
+	manager.AddSensor(&HumiditySensor{
+		EntityID:     testIndoorSensor1,
+		FriendlyName: "Indoor Humidity 1",
+		IsIndoor:     true,
+		Valid:        true,
+	})
+
+	// GIVEN: Humidity has been above the warning threshold long enough to alert.
+	manager.SimulateSensorChange(testIndoorSensor1, 58.0)
+	mockClock.Advance(31 * time.Minute)
+	manager.SimulateSensorChange(testIndoorSensor1, 58.0)
+
+	initialNotifications := countAlerts(mockAlerter)
+	if initialNotifications != 1 {
+		t.Fatalf("Expected 1 initial notification attempt, got %d", initialNotifications)
+	}
+
+	// WHEN: The sensor updates again while the same incident is active.
+	mockClock.Advance(1 * time.Minute)
+	manager.SimulateSensorChange(testIndoorSensor1, 59.0)
+
+	// THEN: ErrSuppressedAsleep still counts as delivered for rate limiting,
+	// because ntfy push was already sent before TTS was suppressed.
+	finalNotifications := countAlerts(mockAlerter)
+	if finalNotifications != initialNotifications {
+		t.Errorf("Expected no repeated notification after TTS suppression, got %d extra",
 			finalNotifications-initialNotifications)
 	}
 }
