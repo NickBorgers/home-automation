@@ -2,13 +2,18 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
+	"homeautomation/internal/alert"
 	"homeautomation/internal/ha"
 	"homeautomation/internal/logbuffer"
+	"homeautomation/internal/notify"
 	"homeautomation/internal/shadowstate"
 	"homeautomation/internal/state"
 	"homeautomation/internal/testlogger"
@@ -36,7 +41,7 @@ func TestHandleGetState(t *testing.T) {
 
 	// Create API server
 	shadowTracker := shadowstate.NewTracker()
-	server := NewServer(mockClient, stateManager, shadowTracker, logbuffer.NewBuffer(100), logger, 8080, time.UTC)
+	server := NewServer(mockClient, stateManager, shadowTracker, logbuffer.NewBuffer(100), logger, 8080, time.UTC, &alert.MockAlerter{})
 
 	// Create test request
 	req := httptest.NewRequest(http.MethodGet, "/api/state", nil)
@@ -112,7 +117,7 @@ func TestHandleGetStateMethodNotAllowed(t *testing.T) {
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 	shadowTracker := shadowstate.NewTracker()
-	server := NewServer(mockClient, stateManager, shadowTracker, logbuffer.NewBuffer(100), logger, 8080, time.UTC)
+	server := NewServer(mockClient, stateManager, shadowTracker, logbuffer.NewBuffer(100), logger, 8080, time.UTC, &alert.MockAlerter{})
 
 	// Test POST method (should be rejected)
 	req := httptest.NewRequest(http.MethodPost, "/api/state", nil)
@@ -125,6 +130,279 @@ func TestHandleGetStateMethodNotAllowed(t *testing.T) {
 	}
 }
 
+func TestHandleNotify_HappyPath(t *testing.T) {
+	t.Parallel()
+	server, mockAlerter := newNotifyTestServer(t, nil)
+
+	payload := `{
+		"title": "API test",
+		"body": "Notification API works.",
+		"urgency": "deferable",
+		"tags": ["test", "warning"],
+		"speakers": ["media_player.bedroom", "media_player.kitchen"],
+		"priority": 3
+	}`
+	req := httptest.NewRequest(http.MethodPost, "/api/notify", strings.NewReader(payload))
+	w := httptest.NewRecorder()
+
+	server.handleNotify(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected status 200, got %d", w.Code)
+	}
+
+	var response notifyResponse
+	if err := json.NewDecoder(w.Body).Decode(&response); err != nil {
+		t.Fatalf("Failed to decode response: %v", err)
+	}
+	if !response.Dispatched {
+		t.Error("Expected dispatched to be true")
+	}
+	if response.SuppressedAsleep {
+		t.Error("Expected suppressed_asleep to be false")
+	}
+
+	calls := mockAlerter.Calls()
+	if len(calls) != 1 {
+		t.Fatalf("Expected 1 alert call, got %d", len(calls))
+	}
+	call := calls[0]
+	if call.Title != "API test" {
+		t.Errorf("Expected title API test, got %q", call.Title)
+	}
+	if call.Body != "Notification API works." {
+		t.Errorf("Expected body Notification API works., got %q", call.Body)
+	}
+	if call.Urgency != notify.UrgencyDeferable {
+		t.Errorf("Expected deferable urgency, got %v", call.Urgency)
+	}
+	if call.Priority != 3 {
+		t.Errorf("Expected priority 3, got %d", call.Priority)
+	}
+	if len(call.Tags) != 2 || call.Tags[0] != "test" || call.Tags[1] != "warning" {
+		t.Errorf("Unexpected tags: %#v", call.Tags)
+	}
+	if len(call.Speakers) != 2 || call.Speakers[0] != "media_player.bedroom" || call.Speakers[1] != "media_player.kitchen" {
+		t.Errorf("Unexpected speakers: %#v", call.Speakers)
+	}
+}
+
+func TestHandleNotify_DefaultsUrgency(t *testing.T) {
+	t.Parallel()
+	server, mockAlerter := newNotifyTestServer(t, nil)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/notify", strings.NewReader(`{"body":"hello"}`))
+	w := httptest.NewRecorder()
+	server.handleNotify(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected status 200, got %d", w.Code)
+	}
+	calls := mockAlerter.Calls()
+	if len(calls) != 1 {
+		t.Fatalf("Expected 1 alert call, got %d", len(calls))
+	}
+	if calls[0].Urgency != notify.UrgencyDeferable {
+		t.Errorf("Expected deferable urgency, got %v", calls[0].Urgency)
+	}
+}
+
+func TestHandleNotify_UrgentMaps(t *testing.T) {
+	t.Parallel()
+	server, mockAlerter := newNotifyTestServer(t, nil)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/notify", strings.NewReader(`{"body":"hello","urgency":"urgent"}`))
+	w := httptest.NewRecorder()
+	server.handleNotify(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected status 200, got %d", w.Code)
+	}
+	calls := mockAlerter.Calls()
+	if len(calls) != 1 {
+		t.Fatalf("Expected 1 alert call, got %d", len(calls))
+	}
+	if calls[0].Urgency != notify.UrgencyUrgent {
+		t.Errorf("Expected urgent urgency, got %v", calls[0].Urgency)
+	}
+}
+
+func TestHandleNotify_EmptyBodyReturns400(t *testing.T) {
+	t.Parallel()
+	server, mockAlerter := newNotifyTestServer(t, nil)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/notify", strings.NewReader(`{"title":"x"}`))
+	w := httptest.NewRecorder()
+	server.handleNotify(w, req)
+
+	assertNotifyError(t, w, http.StatusBadRequest)
+	if len(mockAlerter.Calls()) != 0 {
+		t.Error("Expected no alert calls")
+	}
+}
+
+func TestHandleNotify_MalformedJSONReturns400(t *testing.T) {
+	t.Parallel()
+	server, mockAlerter := newNotifyTestServer(t, nil)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/notify", strings.NewReader(`{"body":`))
+	w := httptest.NewRecorder()
+	server.handleNotify(w, req)
+
+	assertNotifyError(t, w, http.StatusBadRequest)
+	if len(mockAlerter.Calls()) != 0 {
+		t.Error("Expected no alert calls")
+	}
+}
+
+func TestHandleNotify_BadUrgencyReturns400(t *testing.T) {
+	t.Parallel()
+	server, mockAlerter := newNotifyTestServer(t, nil)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/notify", strings.NewReader(`{"body":"hello","urgency":"later"}`))
+	w := httptest.NewRecorder()
+	server.handleNotify(w, req)
+
+	assertNotifyError(t, w, http.StatusBadRequest)
+	if len(mockAlerter.Calls()) != 0 {
+		t.Error("Expected no alert calls")
+	}
+}
+
+func TestHandleNotify_BadPriorityReturns400(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		priority int
+	}{
+		{name: "negative", priority: -1},
+		{name: "above max", priority: 6},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			server, mockAlerter := newNotifyTestServer(t, nil)
+
+			req := httptest.NewRequest(
+				http.MethodPost,
+				"/api/notify",
+				strings.NewReader(fmt.Sprintf(`{"body":"hello","priority":%d}`, tc.priority)),
+			)
+			w := httptest.NewRecorder()
+			server.handleNotify(w, req)
+
+			assertNotifyError(t, w, http.StatusBadRequest)
+			if len(mockAlerter.Calls()) != 0 {
+				t.Error("Expected no alert calls")
+			}
+		})
+	}
+}
+
+func TestHandleNotify_OversizeBodyReturns400(t *testing.T) {
+	t.Parallel()
+	server, mockAlerter := newNotifyTestServer(t, nil)
+
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/api/notify",
+		strings.NewReader(`{"body":"`+strings.Repeat("a", 501)+`"}`),
+	)
+	w := httptest.NewRecorder()
+	server.handleNotify(w, req)
+
+	assertNotifyError(t, w, http.StatusBadRequest)
+	if len(mockAlerter.Calls()) != 0 {
+		t.Error("Expected no alert calls")
+	}
+}
+
+func TestHandleNotify_OversizeTitleReturns400(t *testing.T) {
+	t.Parallel()
+	server, mockAlerter := newNotifyTestServer(t, nil)
+
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/api/notify",
+		strings.NewReader(`{"title":"`+strings.Repeat("a", 201)+`","body":"hello"}`),
+	)
+	w := httptest.NewRecorder()
+	server.handleNotify(w, req)
+
+	assertNotifyError(t, w, http.StatusBadRequest)
+	if len(mockAlerter.Calls()) != 0 {
+		t.Error("Expected no alert calls")
+	}
+}
+
+func TestHandleNotify_SuppressedAsleepReturns200WithFlag(t *testing.T) {
+	t.Parallel()
+	server, mockAlerter := newNotifyTestServer(t, notify.ErrSuppressedAsleep)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/notify", strings.NewReader(`{"body":"hello"}`))
+	w := httptest.NewRecorder()
+	server.handleNotify(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected status 200, got %d", w.Code)
+	}
+	var response notifyResponse
+	if err := json.NewDecoder(w.Body).Decode(&response); err != nil {
+		t.Fatalf("Failed to decode response: %v", err)
+	}
+	if !response.Dispatched {
+		t.Error("Expected dispatched to be true")
+	}
+	if !response.SuppressedAsleep {
+		t.Error("Expected suppressed_asleep to be true")
+	}
+	if len(mockAlerter.Calls()) != 1 {
+		t.Errorf("Expected 1 alert call, got %d", len(mockAlerter.Calls()))
+	}
+}
+
+func TestHandleNotify_OtherErrorReturns500(t *testing.T) {
+	t.Parallel()
+	server, mockAlerter := newNotifyTestServer(t, errors.New("boom"))
+
+	req := httptest.NewRequest(http.MethodPost, "/api/notify", strings.NewReader(`{"body":"hello"}`))
+	w := httptest.NewRecorder()
+	server.handleNotify(w, req)
+
+	assertNotifyError(t, w, http.StatusInternalServerError)
+	if len(mockAlerter.Calls()) != 1 {
+		t.Errorf("Expected 1 alert call, got %d", len(mockAlerter.Calls()))
+	}
+}
+
+func newNotifyTestServer(t *testing.T, sendErr error) (*Server, *alert.MockAlerter) {
+	t.Helper()
+	logger := testlogger.New()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	shadowTracker := shadowstate.NewTracker()
+	mockAlerter := &alert.MockAlerter{Err: sendErr}
+	server := NewServer(mockClient, stateManager, shadowTracker, logbuffer.NewBuffer(100), logger, 8080, time.UTC, mockAlerter)
+	return server, mockAlerter
+}
+
+func assertNotifyError(t *testing.T, w *httptest.ResponseRecorder, wantStatus int) {
+	t.Helper()
+	if w.Code != wantStatus {
+		t.Fatalf("Expected status %d, got %d", wantStatus, w.Code)
+	}
+	var response map[string]string
+	if err := json.NewDecoder(w.Body).Decode(&response); err != nil {
+		t.Fatalf("Failed to decode error response: %v", err)
+	}
+	if response["error"] == "" {
+		t.Error("Expected error response")
+	}
+}
+
 func TestHandleHealth(t *testing.T) {
 	t.Parallel()
 	logger := testlogger.New()
@@ -132,7 +410,7 @@ func TestHandleHealth(t *testing.T) {
 	mockClient.Connect() // Connect so IsHealthy returns true
 	stateManager := state.NewManager(mockClient, logger, false)
 	shadowTracker := shadowstate.NewTracker()
-	server := NewServer(mockClient, stateManager, shadowTracker, logbuffer.NewBuffer(100), logger, 8080, time.UTC)
+	server := NewServer(mockClient, stateManager, shadowTracker, logbuffer.NewBuffer(100), logger, 8080, time.UTC, &alert.MockAlerter{})
 
 	t.Run("healthy when connected", func(t *testing.T) {
 
@@ -190,7 +468,7 @@ func TestHandleSitemap(t *testing.T) {
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 	shadowTracker := shadowstate.NewTracker()
-	server := NewServer(mockClient, stateManager, shadowTracker, logbuffer.NewBuffer(100), logger, 8080, time.UTC)
+	server := NewServer(mockClient, stateManager, shadowTracker, logbuffer.NewBuffer(100), logger, 8080, time.UTC, &alert.MockAlerter{})
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	w := httptest.NewRecorder()
@@ -242,7 +520,7 @@ func TestHandleSitemapHTML(t *testing.T) {
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 	shadowTracker := shadowstate.NewTracker()
-	server := NewServer(mockClient, stateManager, shadowTracker, logbuffer.NewBuffer(100), logger, 8080, time.UTC)
+	server := NewServer(mockClient, stateManager, shadowTracker, logbuffer.NewBuffer(100), logger, 8080, time.UTC, &alert.MockAlerter{})
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.Header.Set("Accept", "text/html")
@@ -296,7 +574,7 @@ func TestHandleSitemapMethodNotAllowed(t *testing.T) {
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 	shadowTracker := shadowstate.NewTracker()
-	server := NewServer(mockClient, stateManager, shadowTracker, logbuffer.NewBuffer(100), logger, 8080, time.UTC)
+	server := NewServer(mockClient, stateManager, shadowTracker, logbuffer.NewBuffer(100), logger, 8080, time.UTC, &alert.MockAlerter{})
 
 	// Test POST method (should be rejected)
 	req := httptest.NewRequest(http.MethodPost, "/", nil)
@@ -315,7 +593,7 @@ func TestHandleSitemapNonRootPath(t *testing.T) {
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 	shadowTracker := shadowstate.NewTracker()
-	server := NewServer(mockClient, stateManager, shadowTracker, logbuffer.NewBuffer(100), logger, 8080, time.UTC)
+	server := NewServer(mockClient, stateManager, shadowTracker, logbuffer.NewBuffer(100), logger, 8080, time.UTC, &alert.MockAlerter{})
 
 	// Test non-root path (should return 404 without sitemap)
 	req := httptest.NewRequest(http.MethodGet, "/nonexistent", nil)
@@ -372,7 +650,7 @@ func TestHandleGetStatesByPlugin(t *testing.T) {
 
 	// Create API server
 	shadowTracker := shadowstate.NewTracker()
-	server := NewServer(mockClient, stateManager, shadowTracker, logbuffer.NewBuffer(100), logger, 8080, time.UTC)
+	server := NewServer(mockClient, stateManager, shadowTracker, logbuffer.NewBuffer(100), logger, 8080, time.UTC, &alert.MockAlerter{})
 
 	// Create test request
 	req := httptest.NewRequest(http.MethodGet, "/api/states", nil)
@@ -505,7 +783,7 @@ func TestHandleGetStatesByPluginMethodNotAllowed(t *testing.T) {
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 	shadowTracker := shadowstate.NewTracker()
-	server := NewServer(mockClient, stateManager, shadowTracker, logbuffer.NewBuffer(100), logger, 8080, time.UTC)
+	server := NewServer(mockClient, stateManager, shadowTracker, logbuffer.NewBuffer(100), logger, 8080, time.UTC, &alert.MockAlerter{})
 
 	// Test POST method (should be rejected)
 	req := httptest.NewRequest(http.MethodPost, "/api/states", nil)
@@ -527,7 +805,7 @@ func TestHandleGetStatesByPluginEmptyState(t *testing.T) {
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 	shadowTracker := shadowstate.NewTracker()
-	server := NewServer(mockClient, stateManager, shadowTracker, logbuffer.NewBuffer(100), logger, 8080, time.UTC)
+	server := NewServer(mockClient, stateManager, shadowTracker, logbuffer.NewBuffer(100), logger, 8080, time.UTC, &alert.MockAlerter{})
 
 	req := httptest.NewRequest(http.MethodGet, "/api/states", nil)
 	w := httptest.NewRecorder()
@@ -635,7 +913,7 @@ func TestHandleGetLightingShadowState(t *testing.T) {
 	shadowTracker.RegisterPlugin("lighting", lightingState)
 
 	// Create API server
-	server := NewServer(mockClient, stateManager, shadowTracker, logbuffer.NewBuffer(100), logger, 8080, time.UTC)
+	server := NewServer(mockClient, stateManager, shadowTracker, logbuffer.NewBuffer(100), logger, 8080, time.UTC, &alert.MockAlerter{})
 
 	// Create test request
 	req := httptest.NewRequest(http.MethodGet, "/api/shadow/lighting", nil)
@@ -687,7 +965,7 @@ func TestHandleGetLightingShadowState_NotFound(t *testing.T) {
 	shadowTracker := shadowstate.NewTracker()
 
 	// Create API server
-	server := NewServer(mockClient, stateManager, shadowTracker, logbuffer.NewBuffer(100), logger, 8080, time.UTC)
+	server := NewServer(mockClient, stateManager, shadowTracker, logbuffer.NewBuffer(100), logger, 8080, time.UTC, &alert.MockAlerter{})
 
 	// Create test request
 	req := httptest.NewRequest(http.MethodGet, "/api/shadow/lighting", nil)
@@ -727,7 +1005,7 @@ func TestHandleGetSecurityShadowState(t *testing.T) {
 	shadowTracker.RegisterPlugin("security", securityState)
 
 	// Create API server
-	server := NewServer(mockClient, stateManager, shadowTracker, logbuffer.NewBuffer(100), logger, 8080, time.UTC)
+	server := NewServer(mockClient, stateManager, shadowTracker, logbuffer.NewBuffer(100), logger, 8080, time.UTC, &alert.MockAlerter{})
 
 	// Create test request
 	req := httptest.NewRequest(http.MethodGet, "/api/shadow/security", nil)
@@ -787,7 +1065,7 @@ func TestHandleGetSecurityShadowState_NotFound(t *testing.T) {
 	shadowTracker := shadowstate.NewTracker()
 
 	// Create API server
-	server := NewServer(mockClient, stateManager, shadowTracker, logbuffer.NewBuffer(100), logger, 8080, time.UTC)
+	server := NewServer(mockClient, stateManager, shadowTracker, logbuffer.NewBuffer(100), logger, 8080, time.UTC, &alert.MockAlerter{})
 
 	// Create test request
 	req := httptest.NewRequest(http.MethodGet, "/api/shadow/security", nil)
@@ -828,7 +1106,7 @@ func TestHandleGetAllShadowStates(t *testing.T) {
 	shadowTracker.RegisterPlugin("security", securityState)
 
 	// Create API server
-	server := NewServer(mockClient, stateManager, shadowTracker, logbuffer.NewBuffer(100), logger, 8080, time.UTC)
+	server := NewServer(mockClient, stateManager, shadowTracker, logbuffer.NewBuffer(100), logger, 8080, time.UTC, &alert.MockAlerter{})
 
 	// Create test request
 	req := httptest.NewRequest(http.MethodGet, "/api/shadow", nil)
@@ -890,7 +1168,7 @@ func TestAddLocalTimestamps(t *testing.T) {
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 	shadowTracker := shadowstate.NewTracker()
-	server := NewServer(mockClient, stateManager, shadowTracker, logbuffer.NewBuffer(100), logger, 8080, estLocation)
+	server := NewServer(mockClient, stateManager, shadowTracker, logbuffer.NewBuffer(100), logger, 8080, estLocation, &alert.MockAlerter{})
 
 	// Test cases
 	tests := []struct {
@@ -1002,7 +1280,7 @@ func TestAddLocalTimestamps(t *testing.T) {
 
 			if tc.name == "nil timezone returns original" {
 				// Test with nil timezone
-				nilTzServer := NewServer(mockClient, stateManager, shadowTracker, logbuffer.NewBuffer(100), logger, 8080, nil)
+				nilTzServer := NewServer(mockClient, stateManager, shadowTracker, logbuffer.NewBuffer(100), logger, 8080, nil, &alert.MockAlerter{})
 				result := nilTzServer.addLocalTimestamps(tc.input)
 				m := result.(map[string]interface{})
 				if _, ok := m["tsLocal"]; ok {
@@ -1036,7 +1314,7 @@ func TestHandleDashboard(t *testing.T) {
 	shadowTracker.RegisterPlugin("lighting", lightingState)
 
 	// Create API server
-	server := NewServer(mockClient, stateManager, shadowTracker, logbuffer.NewBuffer(100), logger, 8080, time.UTC)
+	server := NewServer(mockClient, stateManager, shadowTracker, logbuffer.NewBuffer(100), logger, 8080, time.UTC, &alert.MockAlerter{})
 
 	// Create test request
 	req := httptest.NewRequest(http.MethodGet, "/dashboard", nil)
@@ -1088,7 +1366,7 @@ func TestHandleDashboardMethodNotAllowed(t *testing.T) {
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 	shadowTracker := shadowstate.NewTracker()
-	server := NewServer(mockClient, stateManager, shadowTracker, logbuffer.NewBuffer(100), logger, 8080, time.UTC)
+	server := NewServer(mockClient, stateManager, shadowTracker, logbuffer.NewBuffer(100), logger, 8080, time.UTC, &alert.MockAlerter{})
 
 	// Test POST method (should be rejected)
 	req := httptest.NewRequest(http.MethodPost, "/dashboard", nil)
@@ -1116,7 +1394,7 @@ func TestWriteJSONWithLocalTimestamps(t *testing.T) {
 	mockClient := ha.NewMockClient()
 	stateManager := state.NewManager(mockClient, logger, false)
 	shadowTracker := shadowstate.NewTracker()
-	server := NewServer(mockClient, stateManager, shadowTracker, logbuffer.NewBuffer(100), logger, 8080, estLocation)
+	server := NewServer(mockClient, stateManager, shadowTracker, logbuffer.NewBuffer(100), logger, 8080, estLocation, &alert.MockAlerter{})
 
 	// Create a test struct with a timestamp
 	type TestData struct {
@@ -1184,7 +1462,7 @@ func TestHandleTimelineEvents(t *testing.T) {
 		})
 	}
 
-	server := NewServer(mockClient, stateManager, shadowTracker, buffer, logger, 8080, time.UTC)
+	server := NewServer(mockClient, stateManager, shadowTracker, buffer, logger, 8080, time.UTC, &alert.MockAlerter{})
 
 	t.Run("basic request", func(t *testing.T) {
 

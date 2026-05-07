@@ -344,16 +344,6 @@ func Run() {
 	subscriptionRegistry := shadowstate.NewSubscriptionRegistry()
 	logger.Info("Subscription Registry created for automatic input tracking")
 
-	// Start HTTP API server
-	apiServer := api.NewServer(client, stateManager, shadowTracker, logBuffer, logger, httpPort, timezone)
-	if err := apiServer.Start(); err != nil {
-		logger.Fatal("Failed to start HTTP API server", zap.Error(err))
-	}
-	defer apiServer.Stop()
-	logger.Info("HTTP API server started",
-		zap.Int("port", httpPort),
-		zap.String("endpoint", fmt.Sprintf("http://localhost:%d/api/state", httpPort)))
-
 	// Display current state
 	displayState(stateManager, logger)
 
@@ -411,6 +401,16 @@ func Run() {
 	logger.Info("Notifier initialized",
 		zap.Int("awake_volume_percent", notifyCfg.AwakeVolumePercent),
 		zap.Int("default_speaker_count", len(notifyCfg.DefaultSpeakers)))
+
+	// Start HTTP API server
+	apiServer := api.NewServer(client, stateManager, shadowTracker, logBuffer, logger, httpPort, timezone, pluginCtx.AlertNotifier)
+	if err := apiServer.Start(); err != nil {
+		logger.Fatal("Failed to start HTTP API server", zap.Error(err))
+	}
+	defer apiServer.Stop()
+	logger.Info("HTTP API server started",
+		zap.Int("port", httpPort),
+		zap.String("endpoint", fmt.Sprintf("http://localhost:%d/api/state", httpPort)))
 
 	// Create all registered plugins using the plugin registry
 	plugins, err := plugin.CreateAll(pluginCtx)
