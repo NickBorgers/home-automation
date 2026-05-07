@@ -1237,7 +1237,7 @@ func TestThermalBattery_SteppingCancelledByPresenceChange(t *testing.T) {
 	assert.Equal(t, 2, revertCalls, "Should revert both thermostats")
 }
 
-func TestThermalBattery_RevertsStaleHoldsOnActivation(t *testing.T) {
+func TestThermalBattery_ActivationClearsHoldsSetAfterStart(t *testing.T) {
 	t.Parallel()
 	env := setupThermalBatteryEnv(t)
 

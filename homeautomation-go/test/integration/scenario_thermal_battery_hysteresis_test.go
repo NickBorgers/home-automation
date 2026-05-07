@@ -115,7 +115,7 @@ func TestScenario_ThermalBatteryHysteresis_GreenDipCoastsThenResumesOnWhite(t *t
 		return low == 70.0 && high == 73.0
 	}, 5*time.Second, 10*time.Millisecond, "Should apply preheat band 70/73")
 
-	snapshot := len(server.GetServiceCalls())
+	snapshot := server.ServiceCallCount()
 
 	// WHEN: Energy dips white→green (transient)
 	t.Log("WHEN: Energy drops to green (transient dip)")
@@ -149,7 +149,7 @@ func TestScenario_ThermalBatteryHysteresis_GreenDipCoastsThenResumesOnWhite(t *t
 		}
 	}
 
-	resumeSnapshot := len(server.GetServiceCalls())
+	resumeSnapshot := server.ServiceCallCount()
 
 	// WHEN: Energy returns to white during hysteresis
 	t.Log("WHEN: Energy returns to white during hysteresis")
@@ -191,7 +191,7 @@ func TestScenario_ThermalBatteryHysteresis_YellowDropHardDeactivates(t *testing.
 		return ls.GetShadowState().Outputs.ThermalBattery.HysteresisActive
 	}, 5*time.Second, 10*time.Millisecond, "Hysteresis should engage on green")
 
-	snapshot := len(server.GetServiceCalls())
+	snapshot := server.ServiceCallCount()
 
 	// WHEN: Energy drops to yellow (real load-shedding signal)
 	t.Log("WHEN: Energy drops to yellow during hysteresis")
