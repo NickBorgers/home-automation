@@ -31,10 +31,16 @@ func newTestConfig() *Config {
 		"media_player.front_room",
 		"media_player.kids_bathroom",
 	}
+	cfg.Vacuum.ClearAnnouncement.Message = "You have satisfied the robot"
+	cfg.Vacuum.ClearAnnouncement.Speakers = []string{"media_player.sitting_room"}
 	return cfg
 }
 
-func newTestManager(t *testing.T, readOnly bool, fixedTime time.Time) (*Manager, *ha.MockClient, *state.Manager, *alert.MockAlerter) {
+func newTestManager(
+	t *testing.T,
+	readOnly bool,
+	fixedTime time.Time,
+) (*Manager, *ha.MockClient, *state.Manager, *alert.MockAlerter, *notify.MockNotifier) {
 	t.Helper()
 	logger := zap.NewNop()
 	mockHA := ha.NewMockClient()
@@ -42,12 +48,24 @@ func newTestManager(t *testing.T, readOnly bool, fixedTime time.Time) (*Manager,
 	registry := shadowstate.NewSubscriptionRegistry()
 	tp := plugin.FixedTimeProvider{FixedTime: fixedTime}
 	mockAlerter := &alert.MockAlerter{}
+	mockNotifier := &notify.MockNotifier{}
 
-	mgr := NewManager(context.Background(), mockHA, stateMgr, mockAlerter, newTestConfig(), logger, readOnly, tp, registry)
+	mgr := NewManager(
+		context.Background(),
+		mockHA,
+		stateMgr,
+		mockAlerter,
+		mockNotifier,
+		newTestConfig(),
+		logger,
+		readOnly,
+		tp,
+		registry,
+	)
 	// Disable the background goroutine to keep tests fully synchronous;
 	// tests drive repeats via TickRepeatForTest.
 	mgr.SetRepeatCheckIntervalForTest(time.Hour)
-	return mgr, mockHA, stateMgr, mockAlerter
+	return mgr, mockHA, stateMgr, mockAlerter, mockNotifier
 }
 
 func setSensor(t *testing.T, mockHA *ha.MockClient, value string) {
@@ -57,7 +75,7 @@ func setSensor(t *testing.T, mockHA *ha.MockClient, value string) {
 
 func TestVacuum_NoErrorAtStartup_NoAnnouncement(t *testing.T) {
 	t.Parallel()
-	mgr, mockHA, _, mockAlerter := newTestManager(t, false, time.Now())
+	mgr, mockHA, _, mockAlerter, _ := newTestManager(t, false, time.Now())
 
 	// Pre-seed the sensor in its healthy state before Start.
 	mockHA.SimulateStateChange(testErrorSensor, "No error")
@@ -70,7 +88,7 @@ func TestVacuum_NoErrorAtStartup_NoAnnouncement(t *testing.T) {
 
 func TestVacuum_TransitionToError_Announces(t *testing.T) {
 	t.Parallel()
-	mgr, mockHA, _, mockAlerter := newTestManager(t, false, time.Now())
+	mgr, mockHA, _, mockAlerter, _ := newTestManager(t, false, time.Now())
 	mockHA.SimulateStateChange(testErrorSensor, "No error")
 	require.NoError(t, mgr.Start())
 	defer mgr.Stop()
@@ -99,7 +117,7 @@ func TestVacuum_TransitionToError_Announces(t *testing.T) {
 
 func TestVacuum_SameErrorReemitted_NoExtraAnnouncement(t *testing.T) {
 	t.Parallel()
-	mgr, mockHA, _, mockAlerter := newTestManager(t, false, time.Now())
+	mgr, mockHA, _, mockAlerter, _ := newTestManager(t, false, time.Now())
 	mockHA.SimulateStateChange(testErrorSensor, "No error")
 	require.NoError(t, mgr.Start())
 	defer mgr.Stop()
@@ -113,7 +131,7 @@ func TestVacuum_SameErrorReemitted_NoExtraAnnouncement(t *testing.T) {
 
 func TestVacuum_DifferentError_Announces(t *testing.T) {
 	t.Parallel()
-	mgr, mockHA, _, mockAlerter := newTestManager(t, false, time.Now())
+	mgr, mockHA, _, mockAlerter, _ := newTestManager(t, false, time.Now())
 	mockHA.SimulateStateChange(testErrorSensor, "No error")
 	require.NoError(t, mgr.Start())
 	defer mgr.Stop()
@@ -132,7 +150,7 @@ func TestVacuum_NotifierSuppressedAsleep_RecordsAndPreservesCadence(t *testing.T
 	// passes UrgencyDeferable; the notifier returns ErrSuppressedAsleep when
 	// master is asleep. Vacuum reacts by incrementing the suppress counter and
 	// updating lastAnnouncedAt so the 2h repeat cadence still applies.
-	mgr, mockHA, _, mockAlerter := newTestManager(t, false, time.Now())
+	mgr, mockHA, _, mockAlerter, _ := newTestManager(t, false, time.Now())
 	mockAlerter.Err = notify.ErrSuppressedAsleep
 	mockHA.SimulateStateChange(testErrorSensor, "No error")
 	require.NoError(t, mgr.Start())
@@ -154,7 +172,7 @@ func TestVacuum_NotifierSuppressedAsleep_RecordsAndPreservesCadence(t *testing.T
 func TestVacuum_RepeatAfterInterval(t *testing.T) {
 	t.Parallel()
 	t0 := time.Date(2026, 4, 27, 10, 0, 0, 0, time.UTC)
-	mgr, mockHA, _, mockAlerter := newTestManager(t, false, t0)
+	mgr, mockHA, _, mockAlerter, _ := newTestManager(t, false, t0)
 	mockHA.SimulateStateChange(testErrorSensor, "No error")
 	require.NoError(t, mgr.Start())
 	defer mgr.Stop()
@@ -176,7 +194,7 @@ func TestVacuum_RepeatAfterInterval(t *testing.T) {
 func TestVacuum_ErrorClears_StopsRepeating(t *testing.T) {
 	t.Parallel()
 	t0 := time.Date(2026, 4, 27, 10, 0, 0, 0, time.UTC)
-	mgr, mockHA, _, mockAlerter := newTestManager(t, false, t0)
+	mgr, mockHA, _, mockAlerter, _ := newTestManager(t, false, t0)
 	mockHA.SimulateStateChange(testErrorSensor, "No error")
 	require.NoError(t, mgr.Start())
 	defer mgr.Stop()
@@ -194,13 +212,80 @@ func TestVacuum_ErrorClears_StopsRepeating(t *testing.T) {
 	assert.Len(t, mockAlerter.Calls(), 1, "no re-announcement once error has cleared")
 }
 
+func TestVacuum_ErrorClearsWhileSomeoneHome_AnnouncesClearTTS(t *testing.T) {
+	t.Parallel()
+	mgr, mockHA, stateMgr, _, mockNotifier := newTestManager(t, false, time.Now())
+	mockHA.SimulateStateChange(testErrorSensor, "No error")
+	require.NoError(t, stateMgr.SetBool("isAnyoneHome", true))
+	require.NoError(t, mgr.Start())
+	defer mgr.Stop()
+
+	setSensor(t, mockHA, "Dustbin missing")
+	setSensor(t, mockHA, "No error")
+
+	calls := mockNotifier.Calls()
+	require.Len(t, calls, 1, "expected clear confirmation TTS")
+	assert.Equal(t, "You have satisfied the robot", calls[0].Message)
+	assert.Equal(t, []string{"media_player.sitting_room"}, calls[0].Speakers)
+	assert.Equal(t, notify.UrgencyDeferable, calls[0].Urgency)
+}
+
+func TestVacuum_ErrorClearsWhileNobodyHome_NoClearTTS(t *testing.T) {
+	t.Parallel()
+	mgr, mockHA, stateMgr, _, mockNotifier := newTestManager(t, false, time.Now())
+	mockHA.SimulateStateChange(testErrorSensor, "No error")
+	require.NoError(t, stateMgr.SetBool("isAnyoneHome", false))
+	require.NoError(t, mgr.Start())
+	defer mgr.Stop()
+
+	setSensor(t, mockHA, "Dustbin missing")
+	setSensor(t, mockHA, "No error")
+
+	assert.Empty(t, mockNotifier.Calls(), "clear confirmation should not speak to an empty house")
+}
+
+func TestVacuum_NoErrorToNoError_NoClearTTS(t *testing.T) {
+	t.Parallel()
+	mgr, mockHA, stateMgr, _, mockNotifier := newTestManager(t, false, time.Now())
+	mockHA.SimulateStateChange(testErrorSensor, "No error")
+	require.NoError(t, stateMgr.SetBool("isAnyoneHome", true))
+	require.NoError(t, mgr.Start())
+	defer mgr.Stop()
+
+	setSensor(t, mockHA, "No error")
+
+	assert.Empty(t, mockNotifier.Calls(), "healthy-to-healthy updates should not announce")
+}
+
+func TestVacuum_ErrorClears_UsesClearAnnouncementConfigOverride(t *testing.T) {
+	t.Parallel()
+	mgr, mockHA, stateMgr, _, mockNotifier := newTestManager(t, false, time.Now())
+	mgr.cfg.Vacuum.ClearAnnouncement.Message = "Robot status nominal"
+	mgr.cfg.Vacuum.ClearAnnouncement.Speakers = []string{
+		"media_player.sitting_room",
+		"media_player.kitchen",
+	}
+	mockHA.SimulateStateChange(testErrorSensor, "No error")
+	require.NoError(t, stateMgr.SetBool("isAnyoneHome", true))
+	require.NoError(t, mgr.Start())
+	defer mgr.Stop()
+
+	setSensor(t, mockHA, "Dustbin missing")
+	setSensor(t, mockHA, "No error")
+
+	calls := mockNotifier.Calls()
+	require.Len(t, calls, 1)
+	assert.Equal(t, "Robot status nominal", calls[0].Message)
+	assert.Equal(t, []string{"media_player.sitting_room", "media_player.kitchen"}, calls[0].Speakers)
+}
+
 func TestVacuum_ReadOnly_StillRecordsAndCallsNotifier(t *testing.T) {
 	t.Parallel()
 	// Vacuum no longer special-cases readOnly for TTS — that responsibility
 	// moved to the notifier. The plugin still records to shadow state and
 	// invokes the notifier; the notifier itself decides whether to actually
 	// call Home Assistant.
-	mgr, mockHA, _, mockAlerter := newTestManager(t, true, time.Now())
+	mgr, mockHA, _, mockAlerter, _ := newTestManager(t, true, time.Now())
 	mockHA.SimulateStateChange(testErrorSensor, "No error")
 	require.NoError(t, mgr.Start())
 	defer mgr.Stop()
@@ -215,7 +300,7 @@ func TestVacuum_ReadOnly_StillRecordsAndCallsNotifier(t *testing.T) {
 
 func TestVacuum_InitialErrorActiveAtStartup_Announces(t *testing.T) {
 	t.Parallel()
-	mgr, mockHA, _, mockAlerter := newTestManager(t, false, time.Now())
+	mgr, mockHA, _, mockAlerter, _ := newTestManager(t, false, time.Now())
 	// Sensor is already reporting an error before the plugin starts.
 	mockHA.SimulateStateChange(testErrorSensor, "Mop Dock Clean Water Tank empty")
 	require.NoError(t, mgr.Start())
@@ -235,6 +320,8 @@ func TestVacuum_LoadConfigDefaults(t *testing.T) {
 	assert.Equal(t, defaultMessagePrefix, cfg.Vacuum.Announcement.MessagePrefix)
 	assert.Equal(t, defaultRepeatInterval, cfg.Vacuum.Announcement.RepeatInterval)
 	assert.Equal(t, defaultSpeakers, cfg.Vacuum.Announcement.Speakers)
+	assert.Equal(t, defaultClearMessage, cfg.Vacuum.ClearAnnouncement.Message)
+	assert.Equal(t, []string{defaultClearSpeakerEntityID}, cfg.Vacuum.ClearAnnouncement.Speakers)
 }
 
 func TestVacuum_LoadConfigInvalidDuration(t *testing.T) {

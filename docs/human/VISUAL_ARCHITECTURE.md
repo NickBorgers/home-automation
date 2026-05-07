@@ -166,7 +166,7 @@ graph TB
 
     Vacuum -->|Entity Subscriptions| HAClient
     Vacuum -->|TTS Announcements| HAClient
-    Vacuum -->|Read isMasterAsleep| StateManager
+    Vacuum -->|Read isMasterAsleep/isAnyoneHome| StateManager
     Vacuum -.->|Register Shadow| ShadowTracker
 
     ResetCoord -->|Subscribe to reset| StateManager
@@ -1095,6 +1095,7 @@ graph LR
 
     VacuumErrorSensor --> VacuumPlugin
     MasterAsleep --> VacuumPlugin
+    AnyoneHome --> VacuumPlugin
 
     SepticAlarmSensor --> InfrastructurePlugin
     InfrastructurePlugin -.->|Notifications| Ntfy
