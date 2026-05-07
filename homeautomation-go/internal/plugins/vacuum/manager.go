@@ -119,6 +119,7 @@ func (m *Manager) Start() error {
 	if err := m.subHelper.SubscribeToEntity(m.cfg.Vacuum.ErrorSensorID, m.handleErrorChange); err != nil {
 		return fmt.Errorf("subscribe to vacuum error sensor: %w", err)
 	}
+	// Empty handler: registered solely to capture isAnyoneHome into shadow inputs.
 	if err := m.subHelper.SubscribeToState("isAnyoneHome", func(_ string, _, _ interface{}) {}); err != nil {
 		return fmt.Errorf("subscribe to isAnyoneHome: %w", err)
 	}
@@ -190,6 +191,9 @@ func (m *Manager) handleErrorChange(entityID string, oldState, newState *ha.Stat
 
 		if hadError {
 			m.logger.Info("Vacuum error cleared", zap.String("entity", entityID))
+			// Clear confirmation gates on isAnyoneHome (feel-good, skippable).
+			// Error announcements do not gate on presence — they use the alerter's
+			// repeat cadence and suppress via UrgencyDeferable when asleep.
 			m.maybeAnnounceClear()
 		}
 		m.shadowTracker.SetCurrentError("")

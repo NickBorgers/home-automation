@@ -200,7 +200,7 @@ func TestScenario_VacuumError_ClearAnnouncesWhenSomeoneHome(t *testing.T) {
 
 	t.Log("GIVEN: Someone is home, master is awake, and the vacuum has an active error")
 	require.NoError(t, env.manager.SetBool("isAnyoneHome", true))
-	require.NoError(t, env.manager.SetBool("isMasterAsleep", false))
+	require.NoError(t, env.manager.SetBool("isMasterAsleep", false)) // redundant with InitializeStates default; explicit for test readability
 	env.server.SetState(vacuumErrorEntity, "Dustbin missing", nil)
 	require.Eventually(t, func() bool {
 		return len(vacuumTTSCalls(env.server)) >= 1
