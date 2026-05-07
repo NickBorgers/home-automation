@@ -81,6 +81,7 @@ graph LR
     isAnyoneAsleep -.-> sexmode
     isMasterAsleep -.-> sleephygiene
     isAppleTVPlaying -.-> tv
+    isAnyoneHome -.-> vacuum
 
     %% Writes (plugin sets variable)
     dayphase --> dayPhase
