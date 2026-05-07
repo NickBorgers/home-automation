@@ -493,6 +493,11 @@ type ThermalBatteryState struct {
 	ForecastStress        string                   `json:"forecastStress,omitempty"`        // description of the upcoming stress event
 	RemainingSolarKWh     float64                  `json:"remainingSolarKWh,omitempty"`     // remaining solar production forecast at defer time
 	SolarTailThresholdKWh float64                  `json:"solarTailThresholdKWh,omitempty"` // configured activation threshold
+
+	// Hysteresis state: after a transient white→green dip, the band is widened so HVAC
+	// stays idle. Active=true throughout; HysteresisActive distinguishes coast from charge.
+	HysteresisActive    bool      `json:"hysteresisActive,omitempty"`
+	HysteresisExpiresAt time.Time `json:"hysteresisExpiresAt,omitempty"`
 }
 
 // SavedSetpoint records the original thermostat setpoint before thermal battery offset was applied

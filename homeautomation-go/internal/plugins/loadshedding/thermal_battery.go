@@ -323,6 +323,13 @@ func (m *Manager) activateThermalBattery() {
 	defer m.thermalBatteryMu.Unlock()
 
 	if m.thermalBatteryActive {
+		// If we're in hysteresis, energy returning to white means resume preheat:
+		// cancel the hysteresis timer and re-apply the most recent step to the same
+		// saved setpoints, restoring the shifted band.
+		if m.thermalBatteryHysteresisActive {
+			m.resumePreheatFromHysteresisLocked()
+			return
+		}
 		m.logger.Info("Thermal battery already active, skipping activation")
 		return
 	}
@@ -355,22 +362,8 @@ func (m *Manager) activateThermalBattery() {
 	// capture schedule-based values as our baseline, not stale shifted values.
 	// The load shedding guard above ensures we only reach here when load shedding is inactive,
 	// so we won't interfere with active load shedding holds.
-	holdOn, err := m.checkThermostatHoldState()
-	if err != nil {
-		m.logger.Warn("Failed to check thermostat hold state for thermal battery", zap.Error(err))
-	} else if holdOn {
-		m.logger.Info("Thermal battery: holds are on (likely stale from previous session), reverting to schedule",
-			zap.Strings("entities", []string{thermostatHoldHouse, thermostatHoldSuite}))
-		if !m.readOnly {
-			if err := m.haClient.CallService(m.ctx, "switch", "turn_off", map[string]interface{}{
-				"entity_id": []string{thermostatHoldHouse, thermostatHoldSuite},
-			}); err != nil {
-				m.logger.Error("Failed to revert thermostat holds for thermal battery", zap.Error(err))
-				return
-			}
-			// Wait for the thermostat to revert to its scheduled setpoints
-			time.Sleep(m.thermalBatteryHoldRevertDelay)
-		}
+	if !m.clearStaleThermostatHolds() {
+		return
 	}
 
 	// Guard: no one is home
@@ -942,7 +935,9 @@ func (m *Manager) stopThermalBatteryStepping() {
 }
 
 // deactivateThermalBattery reverts HVAC setpoints to their original values and clears
-// any deferred activation state. Safe to call when not active (no-op) or when deferred.
+// any deferred or hysteresis state. Safe to call when not active (no-op) or when deferred.
+// Used for hard-stop reasons (yellow/red/black drop, presence change) — the hysteresis-
+// expiry path uses completeHysteresis instead, which does not revert setpoints.
 func (m *Manager) deactivateThermalBattery(reason string) {
 	m.thermalBatteryMu.Lock()
 	defer m.thermalBatteryMu.Unlock()
@@ -953,6 +948,14 @@ func (m *Manager) deactivateThermalBattery(reason string) {
 		m.stopDeferredActivationTimer()
 		m.thermalBatteryDeferred = false
 		m.shadowTracker.RecordThermalBatteryDeferredCleared()
+	}
+
+	// Cancel any in-flight hysteresis. We're doing a hard deactivation, so the
+	// setpoint revert below is correct even though hysteresis had widened the band.
+	if m.thermalBatteryHysteresisActive {
+		m.stopHysteresisTimer()
+		m.thermalBatteryHysteresisActive = false
+		m.thermalBatteryHysteresisExpiresAt = time.Time{}
 	}
 
 	if !m.thermalBatteryActive {
@@ -1027,6 +1030,225 @@ func (m *Manager) deactivateThermalBattery(reason string) {
 		zap.String("reason", reason))
 
 	m.shadowTracker.RecordThermalBatteryDeactivation()
+}
+
+// enterThermalBatteryHysteresis is called when energy dips white→green while thermal
+// battery is active. Instead of reverting setpoints (which can trigger HVAC counter-runs),
+// it widens the band so neither heating nor cooling engages, and starts a timer that
+// completes hysteresis after thermalBatteryHysteresisDuration. If thermal battery is
+// not active or already in hysteresis, this is a no-op.
+func (m *Manager) enterThermalBatteryHysteresis() {
+	m.thermalBatteryMu.Lock()
+	defer m.thermalBatteryMu.Unlock()
+
+	if !m.thermalBatteryActive {
+		return
+	}
+	if m.thermalBatteryHysteresisActive {
+		return
+	}
+	if m.savedSetpoints == nil {
+		return
+	}
+
+	// Stop any in-flight stepping; we are entering coast mode.
+	m.stopThermalBatteryStepping()
+
+	currentOffset := float64(m.thermalBatteryStepsDone) * thermalBatteryStepSize
+	if currentOffset > thermalBatteryOffset {
+		currentOffset = thermalBatteryOffset
+	}
+
+	if !m.readOnly {
+		for entityID, sp := range m.savedSetpoints {
+			data := map[string]interface{}{
+				"entity_id": entityID,
+			}
+
+			switch sp.HVACMode {
+			case "heat_cool", "auto":
+				// Wide band: keep the side we'd been preheating toward at the shifted value,
+				// and loosen the opposite side back to the saved (original) value.
+				var lowVal, highVal float64
+				if m.thermalBatteryDirection == "up" {
+					lowVal = sp.TargetLow                   // original (lower) low — stop heating
+					highVal = sp.TargetHigh + currentOffset // shifted (higher) high — keep room
+				} else {
+					lowVal = sp.TargetLow - currentOffset // shifted (lower) low — keep room
+					highVal = sp.TargetHigh               // original (higher) high — stop cooling
+				}
+				data["target_temp_low"] = lowVal
+				data["target_temp_high"] = highVal
+				m.logger.Info("Thermal battery: widening band for hysteresis",
+					zap.String("entity", entityID),
+					zap.Float64("wide_low", lowVal),
+					zap.Float64("wide_high", highVal))
+			case "heat", "cool":
+				// Single-stage thermostats have only one setpoint; revert to the saved
+				// target so the equipment stops calling for heating/cooling.
+				data["temperature"] = sp.TargetTemp
+				m.logger.Info("Thermal battery: reverting setpoint for hysteresis",
+					zap.String("entity", entityID),
+					zap.Float64("target", sp.TargetTemp))
+			default:
+				continue
+			}
+
+			if err := m.haClient.CallService(m.ctx, "climate", "set_temperature", data); err != nil {
+				m.logger.Error("Failed to widen thermostat for hysteresis",
+					zap.String("entity", entityID), zap.Error(err))
+			}
+		}
+	}
+
+	m.thermalBatteryHysteresisActive = true
+	m.thermalBatteryHysteresisExpiresAt = time.Now().Add(m.thermalBatteryHysteresisDuration)
+
+	cancelCh := make(chan struct{})
+	m.thermalBatteryHysteresisCancel = cancelCh
+	go m.runHysteresisTimer(cancelCh)
+
+	m.logger.Info("=== THERMAL BATTERY HYSTERESIS ENTERED ===",
+		zap.Duration("duration", m.thermalBatteryHysteresisDuration),
+		zap.Time("expires_at", m.thermalBatteryHysteresisExpiresAt))
+
+	m.shadowTracker.RecordThermalBatteryHysteresisEntered(m.thermalBatteryHysteresisExpiresAt)
+}
+
+// runHysteresisTimer waits for the hysteresis duration, then completes hysteresis.
+// Exits early on cancellation (energy returned to white, or hard deactivation).
+func (m *Manager) runHysteresisTimer(cancelCh <-chan struct{}) {
+	timer := time.NewTimer(m.thermalBatteryHysteresisDuration)
+	defer timer.Stop()
+
+	select {
+	case <-cancelCh:
+		return
+	case <-m.ctx.Done():
+		return
+	case <-timer.C:
+		m.completeHysteresis()
+	}
+}
+
+// stopHysteresisTimer cancels the hysteresis goroutine if running.
+// Must be called with thermalBatteryMu held.
+func (m *Manager) stopHysteresisTimer() {
+	if m.thermalBatteryHysteresisCancel != nil {
+		close(m.thermalBatteryHysteresisCancel)
+		m.thermalBatteryHysteresisCancel = nil
+	}
+}
+
+// completeHysteresis ends the hysteresis window successfully (timer expired):
+// disables thermostat holds so the climate schedule resumes, and clears thermal
+// battery active state. Does NOT explicitly revert setpoints — releasing the hold
+// returns the thermostat to its schedule, which is more correct than restoring
+// a possibly stale "saved" value from N hours ago.
+func (m *Manager) completeHysteresis() {
+	m.thermalBatteryMu.Lock()
+	defer m.thermalBatteryMu.Unlock()
+
+	if !m.thermalBatteryHysteresisActive {
+		return
+	}
+
+	m.logger.Info("Thermal battery hysteresis window expired, releasing holds")
+
+	if !m.readOnly {
+		if err := m.haClient.CallService(m.ctx, "switch", "turn_off", map[string]interface{}{
+			"entity_id": []string{thermostatHoldHouse, thermostatHoldSuite},
+		}); err != nil {
+			m.logger.Error("Failed to disable thermostat hold mode after hysteresis", zap.Error(err))
+		}
+	}
+
+	m.thermalBatteryHysteresisActive = false
+	m.thermalBatteryHysteresisCancel = nil
+	m.thermalBatteryHysteresisExpiresAt = time.Time{}
+
+	m.thermalBatteryActive = false
+	m.savedSetpoints = nil
+	m.thermalBatteryStepsDone = 0
+	m.thermalBatteryTargetSteps = 0
+	m.thermalBatteryDirection = ""
+	m.thermalBatteryStepStart = time.Time{}
+
+	m.logger.Info("=== THERMAL BATTERY DEACTIVATED ===",
+		zap.String("reason", "hysteresis window expired"))
+
+	m.shadowTracker.RecordThermalBatteryDeactivation()
+}
+
+// resumePreheatFromHysteresisLocked re-applies the previously-active preheat band
+// after energy returns to white during hysteresis. The savedSetpoints, direction,
+// and step counter are still valid from the original activation, so we just re-issue
+// the most recent step. Must be called with thermalBatteryMu held.
+func (m *Manager) resumePreheatFromHysteresisLocked() {
+	m.logger.Info("Thermal battery: resuming preheat from hysteresis")
+
+	if m.thermalBatteryHysteresisCancel != nil {
+		close(m.thermalBatteryHysteresisCancel)
+		m.thermalBatteryHysteresisCancel = nil
+	}
+	m.thermalBatteryHysteresisActive = false
+	m.thermalBatteryHysteresisExpiresAt = time.Time{}
+
+	step := m.thermalBatteryStepsDone
+	if step < 1 {
+		step = 1
+	}
+	if err := m.applyThermalBatteryStep(step, m.thermalBatteryDirection); err != nil {
+		m.logger.Error("Failed to resume preheat band from hysteresis", zap.Error(err))
+		return
+	}
+
+	// If steps still remain, restart the stepping goroutine.
+	if m.thermalBatteryStepsDone < m.thermalBatteryTargetSteps && m.thermalBatteryStepCancel == nil {
+		cancelCh := make(chan struct{})
+		m.thermalBatteryStepCancel = cancelCh
+		m.thermalBatteryStepStart = time.Now()
+		go m.runThermalBatteryStepping(cancelCh)
+	}
+
+	m.shadowTracker.RecordThermalBatteryHysteresisResumed()
+}
+
+// clearStaleThermostatHolds detects thermostat holds left on from a previous process
+// (e.g., service restart mid-thermal-battery) and turns them off so the thermostat
+// reverts to its scheduled setpoints. Safe to call when no holds are on (no-op).
+//
+// Returns true if it is safe to proceed (no error or recovery succeeded), false if
+// a service call to turn off holds failed and the caller should abort.
+//
+// IMPORTANT: this must NOT run while load shedding is active — load shedding
+// legitimately uses the same hold switches. Callers must guard against that.
+func (m *Manager) clearStaleThermostatHolds() bool {
+	holdOn, err := m.checkThermostatHoldState()
+	if err != nil {
+		m.logger.Warn("Failed to check thermostat hold state", zap.Error(err))
+		return true
+	}
+	if !holdOn {
+		return true
+	}
+
+	m.logger.Info("Clearing stale thermostat holds (likely from previous session), reverting to schedule",
+		zap.Strings("entities", []string{thermostatHoldHouse, thermostatHoldSuite}))
+
+	if m.readOnly {
+		return true
+	}
+
+	if err := m.haClient.CallService(m.ctx, "switch", "turn_off", map[string]interface{}{
+		"entity_id": []string{thermostatHoldHouse, thermostatHoldSuite},
+	}); err != nil {
+		m.logger.Error("Failed to revert stale thermostat holds", zap.Error(err))
+		return false
+	}
+	// Wait for the thermostat to revert to its scheduled setpoints
+	time.Sleep(m.thermalBatteryHoldRevertDelay)
+	return true
 }
 
 // handlePresenceChange handles changes to presence/sleep states.
