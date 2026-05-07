@@ -112,12 +112,14 @@ func TestThermalBattery_ActivatesOnWhiteEnergyLevel(t *testing.T) {
 	assert.Len(t, shadow.Outputs.ThermalBattery.SavedSetpoints, 2)
 }
 
-func TestThermalBattery_DeactivatesOnGreenEnergyLevel(t *testing.T) {
+func TestThermalBattery_GreenDipEntersHysteresis_CoolMode(t *testing.T) {
 	t.Parallel()
 	env := setupThermalBatteryEnv(t)
 
 	ls := NewManager(context.Background(), env.MockHA, env.StateMgr, env.Logger, false, nil, nil)
 	ls.lastAction = time.Now().Add(-2 * time.Hour) // Avoid rate limiting
+	// Long hysteresis so the timer doesn't fire during the test
+	ls.SetThermalBatteryHysteresisDurationForTesting(1 * time.Hour)
 	err := ls.Start()
 	require.NoError(t, err)
 	defer ls.Stop()
@@ -129,52 +131,295 @@ func TestThermalBattery_DeactivatesOnGreenEnergyLevel(t *testing.T) {
 
 	snapshot := env.MockHA.ServiceCallCount()
 
-	// Drop to green
+	// Drop to green — should ENTER HYSTERESIS, not deactivate
 	err = env.StateMgr.SetString("currentEnergyLevel", "green")
 	require.NoError(t, err)
 
-	// Verify thermal battery is deactivated
-	assert.False(t, ls.IsThermalBatteryActive(), "Thermal battery should be inactive after green")
+	// Thermal battery is still considered active during hysteresis
+	assert.True(t, ls.IsThermalBatteryActive(),
+		"Thermal battery should remain active in hysteresis after green dip")
 
-	// Verify setpoints were reverted and hold was disabled
+	// In cool mode (single-stage), hysteresis reverts the setpoint to the saved value
+	// so the AC stops. Hold MUST remain enabled (no turn_off call yet).
 	calls := env.MockHA.GetServiceCallsSince(snapshot)
-	revertCalls := 0
-	holdOffCalls := 0
-	lastRevertIndex := -1
-	holdOffIndex := -1
-	for i, call := range calls {
+	tempReverts := 0
+	holdOffCount := 0
+	for _, call := range calls {
 		if call.Domain == "climate" && call.Service == "set_temperature" {
-			revertCalls++
-			lastRevertIndex = i
+			tempReverts++
 			entityID, _ := call.Data["entity_id"].(string)
 			temp, _ := call.Data["temperature"].(float64)
-
 			switch entityID {
 			case climateHouse:
-				assert.Equal(t, 72.0, temp, "House thermostat should be reverted to 72")
+				assert.Equal(t, 72.0, temp, "House should revert to saved 72")
 			case climateSuite:
-				assert.Equal(t, 71.0, temp, "Suite thermostat should be reverted to 71")
+				assert.Equal(t, 71.0, temp, "Suite should revert to saved 71")
 			}
 		}
 		if call.Domain == "switch" && call.Service == "turn_off" {
 			if entities, ok := call.Data["entity_id"].([]string); ok {
 				for _, e := range entities {
 					if e == thermostatHoldHouse || e == thermostatHoldSuite {
-						holdOffCalls++
-						holdOffIndex = i
-						break
+						holdOffCount++
+						break // one call counts once, not per-entity
 					}
 				}
 			}
 		}
 	}
-	assert.Equal(t, 2, revertCalls, "Should have made 2 climate.set_temperature calls to revert")
-	assert.Equal(t, 1, holdOffCalls, "Should have made 1 switch.turn_off call to disable thermostat holds")
-	assert.Greater(t, holdOffIndex, lastRevertIndex, "Hold should be disabled after setpoints are reverted")
+	assert.Equal(t, 2, tempReverts, "Should revert single-stage setpoints to saved values during hysteresis")
+	assert.Equal(t, 0, holdOffCount, "Hold MUST remain enabled during hysteresis")
 
-	// Verify shadow state
+	shadow := ls.GetShadowState()
+	assert.True(t, shadow.Outputs.ThermalBattery.Active, "Active flag stays true during hysteresis")
+	assert.True(t, shadow.Outputs.ThermalBattery.HysteresisActive, "Shadow shows hysteresis active")
+	assert.False(t, shadow.Outputs.ThermalBattery.HysteresisExpiresAt.IsZero(), "ExpiresAt is set")
+}
+
+func TestThermalBattery_GreenDipEntersHysteresis_HeatCoolMode_WideBand(t *testing.T) {
+	t.Parallel()
+	// Heat_cool mode is where wide-band hysteresis matters most.
+	// Saved 69/72, preheat shifts UP to 70/73. Wide band on green dip: 69/73
+	// (low reverts to saved, high stays at shifted) — neither heating nor cooling
+	// engages because indoor temp sits inside that wider band.
+	env := setupHeatCoolEnvWithForecast(t, "", 45.0, 25.0)
+
+	ls := NewManager(context.Background(), env.MockHA, env.StateMgr, env.Logger, false, nil, nil)
+	ls.SetThermalBatteryHysteresisDurationForTesting(1 * time.Hour)
+	err := ls.Start()
+	require.NoError(t, err)
+	defer ls.Stop()
+
+	err = env.StateMgr.SetString("currentEnergyLevel", "white")
+	require.NoError(t, err)
+	assert.True(t, ls.IsThermalBatteryActive())
+
+	snapshot := env.MockHA.ServiceCallCount()
+
+	err = env.StateMgr.SetString("currentEnergyLevel", "green")
+	require.NoError(t, err)
+
+	assert.True(t, ls.IsThermalBatteryActive(), "Should stay active during hysteresis")
+
+	calls := env.MockHA.GetServiceCallsSince(snapshot)
+	wideCalls := 0
+	holdOffCount := 0
+	for _, call := range calls {
+		if call.Domain == "climate" && call.Service == "set_temperature" {
+			wideCalls++
+			low, _ := call.Data["target_temp_low"].(float64)
+			high, _ := call.Data["target_temp_high"].(float64)
+			assert.Equal(t, 69.0, low, "Wide low = saved low (69) — heat off")
+			assert.Equal(t, 73.0, high, "Wide high = shifted high (73) — cool off")
+		}
+		if call.Domain == "switch" && call.Service == "turn_off" {
+			if entities, ok := call.Data["entity_id"].([]string); ok {
+				for _, e := range entities {
+					if e == thermostatHoldHouse || e == thermostatHoldSuite {
+						holdOffCount++
+						break // one call counts once, not per-entity
+					}
+				}
+			}
+		}
+	}
+	assert.Equal(t, 2, wideCalls, "Should widen both thermostats")
+	assert.Equal(t, 0, holdOffCount, "Hold MUST remain enabled during hysteresis")
+}
+
+func TestThermalBattery_HysteresisExpiry_ReleasesHoldsWithoutRevert(t *testing.T) {
+	t.Parallel()
+	env := setupHeatCoolEnvWithForecast(t, "", 45.0, 25.0)
+
+	ls := NewManager(context.Background(), env.MockHA, env.StateMgr, env.Logger, false, nil, nil)
+	// Very short hysteresis so the timer fires during the test
+	ls.SetThermalBatteryHysteresisDurationForTesting(50 * time.Millisecond)
+	err := ls.Start()
+	require.NoError(t, err)
+	defer ls.Stop()
+
+	err = env.StateMgr.SetString("currentEnergyLevel", "white")
+	require.NoError(t, err)
+	assert.True(t, ls.IsThermalBatteryActive())
+
+	// Enter hysteresis
+	err = env.StateMgr.SetString("currentEnergyLevel", "green")
+	require.NoError(t, err)
+
+	snapshot := env.MockHA.ServiceCallCount()
+
+	// Wait for hysteresis to expire
+	require.Eventually(t, func() bool {
+		return !ls.IsThermalBatteryActive()
+	}, 2*time.Second, 10*time.Millisecond, "Thermal battery should deactivate after hysteresis expiry")
+
+	// On expiry: hold MUST be disabled, but no climate.set_temperature calls
+	// (we trust the schedule to take over).
+	calls := env.MockHA.GetServiceCallsSince(snapshot)
+	holdOffCount := 0
+	revertCalls := 0
+	for _, call := range calls {
+		if call.Domain == "climate" && call.Service == "set_temperature" {
+			revertCalls++
+		}
+		if call.Domain == "switch" && call.Service == "turn_off" {
+			if entities, ok := call.Data["entity_id"].([]string); ok {
+				for _, e := range entities {
+					if e == thermostatHoldHouse || e == thermostatHoldSuite {
+						holdOffCount++
+						break // one call counts once, not per-entity
+					}
+				}
+			}
+		}
+	}
+	assert.Equal(t, 0, revertCalls, "Expiry must NOT explicitly revert setpoints — schedule resumes via hold off")
+	assert.Equal(t, 1, holdOffCount, "Expiry must disable thermostat holds")
+
 	shadow := ls.GetShadowState()
 	assert.False(t, shadow.Outputs.ThermalBattery.Active)
+	assert.False(t, shadow.Outputs.ThermalBattery.HysteresisActive)
+}
+
+func TestThermalBattery_WhiteRecoveryDuringHysteresis_ResumesPreheat(t *testing.T) {
+	t.Parallel()
+	env := setupHeatCoolEnvWithForecast(t, "", 45.0, 25.0)
+
+	ls := NewManager(context.Background(), env.MockHA, env.StateMgr, env.Logger, false, nil, nil)
+	ls.SetThermalBatteryHysteresisDurationForTesting(1 * time.Hour)
+	err := ls.Start()
+	require.NoError(t, err)
+	defer ls.Stop()
+
+	// Activate, then dip to green to enter hysteresis
+	err = env.StateMgr.SetString("currentEnergyLevel", "white")
+	require.NoError(t, err)
+	assert.True(t, ls.IsThermalBatteryActive())
+
+	err = env.StateMgr.SetString("currentEnergyLevel", "green")
+	require.NoError(t, err)
+
+	snapshot := env.MockHA.ServiceCallCount()
+
+	// White returns — should resume preheat band (re-apply step 1 → 70/73)
+	err = env.StateMgr.SetString("currentEnergyLevel", "white")
+	require.NoError(t, err)
+
+	assert.True(t, ls.IsThermalBatteryActive(), "Should remain active after recovery")
+
+	calls := env.MockHA.GetServiceCallsSince(snapshot)
+	resumeCalls := 0
+	for _, call := range calls {
+		if call.Domain == "climate" && call.Service == "set_temperature" {
+			resumeCalls++
+			low, _ := call.Data["target_temp_low"].(float64)
+			high, _ := call.Data["target_temp_high"].(float64)
+			assert.Equal(t, 70.0, low, "Should re-apply preheat step (low=70)")
+			assert.Equal(t, 73.0, high, "Should re-apply preheat step (high=73)")
+		}
+	}
+	assert.Equal(t, 2, resumeCalls, "Should re-apply preheat band to both thermostats")
+
+	shadow := ls.GetShadowState()
+	assert.True(t, shadow.Outputs.ThermalBattery.Active)
+	assert.False(t, shadow.Outputs.ThermalBattery.HysteresisActive,
+		"Hysteresis should be cleared after recovery")
+}
+
+func TestThermalBattery_YellowDropDuringHysteresis_ImmediateRevert(t *testing.T) {
+	t.Parallel()
+	env := setupHeatCoolEnvWithForecast(t, "", 45.0, 25.0)
+
+	ls := NewManager(context.Background(), env.MockHA, env.StateMgr, env.Logger, false, nil, nil)
+	ls.lastAction = time.Now().Add(-2 * time.Hour)
+	ls.SetThermalBatteryHysteresisDurationForTesting(1 * time.Hour)
+	err := ls.Start()
+	require.NoError(t, err)
+	defer ls.Stop()
+
+	err = env.StateMgr.SetString("currentEnergyLevel", "white")
+	require.NoError(t, err)
+	assert.True(t, ls.IsThermalBatteryActive())
+
+	// Enter hysteresis
+	err = env.StateMgr.SetString("currentEnergyLevel", "green")
+	require.NoError(t, err)
+	assert.True(t, ls.IsThermalBatteryActive())
+
+	snapshot := env.MockHA.ServiceCallCount()
+
+	// Drop to yellow during hysteresis — should hard-deactivate (cancel timer + revert)
+	err = env.StateMgr.SetString("currentEnergyLevel", "yellow")
+	require.NoError(t, err)
+
+	assert.False(t, ls.IsThermalBatteryActive(),
+		"Yellow drop must hard-deactivate even during hysteresis")
+
+	calls := env.MockHA.GetServiceCallsSince(snapshot)
+	revertCalls := 0
+	for _, call := range calls {
+		if call.Domain == "climate" && call.Service == "set_temperature" {
+			revertCalls++
+			low, _ := call.Data["target_temp_low"].(float64)
+			high, _ := call.Data["target_temp_high"].(float64)
+			assert.Equal(t, 69.0, low, "Should revert to saved low (69)")
+			assert.Equal(t, 72.0, high, "Should revert to saved high (72)")
+		}
+	}
+	assert.Equal(t, 2, revertCalls, "Should revert both thermostats on yellow drop")
+
+	shadow := ls.GetShadowState()
+	assert.False(t, shadow.Outputs.ThermalBattery.Active)
+	assert.False(t, shadow.Outputs.ThermalBattery.HysteresisActive)
+}
+
+func TestThermalBattery_StartClearsStaleHolds(t *testing.T) {
+	t.Parallel()
+	// Simulate restart: holds are ON in HA (from a previous session that crashed
+	// during thermal battery or hysteresis), no other thermal-battery activity.
+	env := testutil.NewEnv(t)
+	env.MockHA.SetState(thermostatHoldHouse, "on", nil)
+	env.MockHA.SetState(thermostatHoldSuite, "on", nil)
+	env.MockHA.SetState(climateHouse, "heat_cool", map[string]interface{}{
+		"target_temp_low": 69.0, "target_temp_high": 72.0,
+		"current_temperature": 70.0, "hvac_action": "idle",
+	})
+	env.MockHA.SetState(climateSuite, "heat_cool", map[string]interface{}{
+		"target_temp_low": 69.0, "target_temp_high": 72.0,
+		"current_temperature": 70.0, "hvac_action": "idle",
+	})
+	require.NoError(t, env.StateMgr.SyncFromHA())
+
+	ls := NewManager(context.Background(), env.MockHA, env.StateMgr, env.Logger, false, nil, nil)
+	ls.SetThermalBatteryHoldRevertDelayForTesting(0)
+	snapshot := env.MockHA.ServiceCallCount()
+
+	require.NoError(t, ls.Start())
+	defer ls.Stop()
+
+	// Start() must turn off both holds unconditionally — even though no activation
+	// is being attempted (currentEnergyLevel is empty / not white).
+	calls := env.MockHA.GetServiceCallsSince(snapshot)
+	holdOffCount := 0
+	for _, call := range calls {
+		if call.Domain == "switch" && call.Service == "turn_off" {
+			if entities, ok := call.Data["entity_id"].([]string); ok {
+				houseSeen, suiteSeen := false, false
+				for _, e := range entities {
+					if e == thermostatHoldHouse {
+						houseSeen = true
+					}
+					if e == thermostatHoldSuite {
+						suiteSeen = true
+					}
+				}
+				if houseSeen && suiteSeen {
+					holdOffCount++
+				}
+			}
+		}
+	}
+	assert.Equal(t, 1, holdOffCount, "Start() must clear stale holds on both thermostats")
 }
 
 func TestThermalBattery_DeactivatesOnRedEnergyLevel(t *testing.T) {
@@ -578,7 +823,9 @@ func TestThermalBattery_HeatCoolMode_BothUnavailable(t *testing.T) {
 
 func TestThermalBattery_HeatCoolMode_DeactivationRestoresOriginal(t *testing.T) {
 	t.Parallel()
-	// Activate with cold forecast, then deactivate → verify original 69/72 restored
+	// Activate with cold forecast, then hard-deactivate via yellow drop
+	// → verify original 69/72 restored. (Green now enters hysteresis instead of
+	// reverting; yellow/red/black are the hard-deactivation triggers.)
 	env := setupHeatCoolEnvWithForecast(t, "", 45.0, 25.0)
 
 	ls := NewManager(context.Background(), env.MockHA, env.StateMgr, env.Logger, false, nil, nil)
@@ -594,8 +841,8 @@ func TestThermalBattery_HeatCoolMode_DeactivationRestoresOriginal(t *testing.T) 
 
 	snapshot := env.MockHA.ServiceCallCount()
 
-	// Deactivate by dropping to green
-	err = env.StateMgr.SetString("currentEnergyLevel", "green")
+	// Hard-deactivate via yellow drop
+	err = env.StateMgr.SetString("currentEnergyLevel", "yellow")
 	require.NoError(t, err)
 
 	assert.False(t, ls.IsThermalBatteryActive())
@@ -920,8 +1167,8 @@ func TestThermalBattery_DeactivationMidStep(t *testing.T) {
 
 	snapshot := env.MockHA.ServiceCallCount()
 
-	// Deactivate by dropping to green
-	err = env.StateMgr.SetString("currentEnergyLevel", "green")
+	// Hard-deactivate by dropping to yellow (green now enters hysteresis instead)
+	err = env.StateMgr.SetString("currentEnergyLevel", "yellow")
 	require.NoError(t, err)
 
 	assert.False(t, ls.IsThermalBatteryActive())
@@ -990,19 +1237,21 @@ func TestThermalBattery_SteppingCancelledByPresenceChange(t *testing.T) {
 	assert.Equal(t, 2, revertCalls, "Should revert both thermostats")
 }
 
-func TestThermalBattery_RevertsStaleHoldsOnActivation(t *testing.T) {
+func TestThermalBattery_ActivationClearsHoldsSetAfterStart(t *testing.T) {
 	t.Parallel()
 	env := setupThermalBatteryEnv(t)
-
-	// Simulate stale holds from a previous session (e.g., app restarted while thermal battery was active)
-	env.MockHA.SetState(thermostatHoldHouse, "on", nil)
-	env.MockHA.SetState(thermostatHoldSuite, "on", nil)
 
 	ls := NewManager(context.Background(), env.MockHA, env.StateMgr, env.Logger, false, nil, nil)
 	ls.SetThermalBatteryHoldRevertDelayForTesting(0)
 	err := ls.Start()
 	require.NoError(t, err)
 	defer ls.Stop()
+
+	// Simulate user manually toggling holds ON between Start() and the activation
+	// trigger (Start's stale-hold cleanup ran with holds=off; defense-in-depth in
+	// activateThermalBattery should still catch this).
+	env.MockHA.SetState(thermostatHoldHouse, "on", nil)
+	env.MockHA.SetState(thermostatHoldSuite, "on", nil)
 
 	snapshot := env.MockHA.ServiceCallCount()
 

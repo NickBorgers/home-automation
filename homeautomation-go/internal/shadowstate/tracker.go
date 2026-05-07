@@ -456,6 +456,30 @@ func (lst *LoadSheddingTracker) RecordThermalBatteryDeferredCleared() {
 	lst.State().Metadata.LastUpdated = now
 }
 
+// RecordThermalBatteryHysteresisEntered records that the thermal battery has entered
+// hysteresis (wide band, no HVAC engagement) after a transient white→green dip.
+func (lst *LoadSheddingTracker) RecordThermalBatteryHysteresisEntered(expiresAt time.Time) {
+	lst.Lock()
+	defer lst.Unlock()
+
+	now := time.Now()
+	lst.State().Outputs.ThermalBattery.HysteresisActive = true
+	lst.State().Outputs.ThermalBattery.HysteresisExpiresAt = expiresAt
+	lst.State().Metadata.LastUpdated = now
+}
+
+// RecordThermalBatteryHysteresisResumed records that hysteresis ended early because
+// energy returned to white and preheat was resumed.
+func (lst *LoadSheddingTracker) RecordThermalBatteryHysteresisResumed() {
+	lst.Lock()
+	defer lst.Unlock()
+
+	now := time.Now()
+	lst.State().Outputs.ThermalBattery.HysteresisActive = false
+	lst.State().Outputs.ThermalBattery.HysteresisExpiresAt = time.Time{}
+	lst.State().Metadata.LastUpdated = now
+}
+
 // GetState returns the current shadow state (thread-safe copy)
 func (lst *LoadSheddingTracker) GetState() *LoadSheddingShadowState {
 	lst.RLock()

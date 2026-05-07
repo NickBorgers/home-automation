@@ -27,12 +27,12 @@ flowchart TD
 
     currentLevel --> checkLevel
     checkLevel -->|red, black| enableLS
-    checkLevel -->|green| disableLS
+    checkLevel -->|green| greenAction["Disable load shedding<br/>+ Thermal battery: enter hysteresis if active"]
     checkLevel -->|white| thermalBattery["Disable load shedding<br/>+ Activate thermal battery"]
     checkLevel -->|yellow| shedPartial["Shed non-HVAC loads<br/>Deactivate thermal battery<br/>HVAC maintains current state"]
 
     style enableLS fill:#e74c3c,color:#fff
-    style disableLS fill:#27ae60,color:#fff
+    style greenAction fill:#27ae60,color:#fff
     style thermalBattery fill:#3498db,color:#fff
     style shedPartial fill:#f39c12,color:#fff
 ```
@@ -247,10 +247,20 @@ Original setpoints are saved and restored on deactivation.
 
 ### Deactivation Triggers
 
-Thermal battery deactivates — or, if deferred, the pending activation is cancelled — when:
-- Energy level drops below white (green, yellow, red, or black)
+Thermal battery **hard-deactivates** — or, if deferred, the pending activation is cancelled — when:
+- Energy level drops to **yellow, red, or black**
 - Nobody is home (`isAnyoneHome` → false)
 - Everyone falls asleep (`isEveryoneAsleep` → true)
+
+**Green dip → Hysteresis (not deactivation)**
+
+When energy dips white→green while the thermal battery is active, the plugin enters a 4-hour hysteresis window instead of reverting setpoints. During hysteresis:
+- `heat_cool`/`auto` thermostats: band is widened (saved low + shifted high, or shifted low + saved high) so neither heating nor cooling engages
+- `heat`/`cool` thermostats: setpoint reverts to saved value to stop the equipment
+- Thermostat holds **remain enabled**
+- If energy returns to white during the window, preheat resumes (saved setpoints and step counter are still valid)
+- If energy drops to yellow/red/black, hard deactivation runs immediately (hysteresis timer cancelled, setpoints reverted)
+- If the window expires without recovery, holds are released and the climate schedule resumes (no explicit setpoint revert — the schedule is more correct than a stale saved value)
 
 Any in-progress stepping goroutine and any deferred-activation recheck timer are cancelled on deactivation.
 
@@ -366,6 +376,8 @@ flowchart LR
 | `nonHVACLoadsShed` | bool | Whether non-HVAC loads (EV charger, dehumidifier) are shed |
 | `lastAction` | time | Timestamp of last action (rate limiting) |
 | `thermalBatteryActive` | bool | Whether thermal battery is currently active |
+| `thermalBatteryHysteresisActive` | bool | Whether thermal battery is in wide-band hysteresis after a green dip |
+| `thermalBatteryHysteresisExpiresAt` | time | When the current hysteresis window expires |
 | `savedSetpoints` | map | Original thermostat setpoints saved for restoration |
 
 ## Related Documentation

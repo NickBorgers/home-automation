@@ -80,6 +80,13 @@ const (
 	thermalBatteryDefaultSolarTailThresholdKWh = 28.0             // activate when remaining solar forecast drops below this (~3hr window before solar ends)
 	thermalBatteryHourlyComfortMargin          = 5.0              // °F outside comfort band to consider "stress" (hourly)
 	thermalBatteryDeferredRecheckDefault       = 15 * time.Minute // how often to re-evaluate while deferred
+
+	// Thermal battery: hysteresis window after a transient white→green dip.
+	// On a green dip, instead of reverting setpoints (which can trigger HVAC counter-runs),
+	// we widen the band so neither heating nor cooling engages, and hold for this duration.
+	// If energy returns to white during the window, preheat resumes; if it drops further
+	// (yellow/red/black) or the window expires, holds are disabled and the schedule resumes.
+	thermalBatteryHysteresisDefault = 4 * time.Hour
 )
 
 // deferredAction represents a pending action that was rate-limited
@@ -135,6 +142,13 @@ type Manager struct {
 	thermalBatteryDeferred                bool          // true when activation is deferred waiting for solar tail
 	thermalBatteryDeferCancel             chan struct{} // signal to stop deferred timer goroutine
 
+	// Hysteresis state (guarded by thermalBatteryMu). When in hysteresis, thermal battery
+	// is still considered "active" but setpoints are widened so HVAC stays idle.
+	thermalBatteryHysteresisActive    bool
+	thermalBatteryHysteresisCancel    chan struct{}
+	thermalBatteryHysteresisExpiresAt time.Time
+	thermalBatteryHysteresisDuration  time.Duration
+
 	// Forecast cache for thermal battery.
 	// forecastMu is intentionally held across the network call in getForecastHighLow.
 	// This is acceptable because: (1) callers are serialized via state-change handlers,
@@ -179,6 +193,7 @@ func NewManager(ctx context.Context, haClient ha.HAClient, stateManager *state.M
 		thermalBatteryMaxStepWaitDur:          thermalBatteryMaxStepWait,
 		thermalBatterySolarTailThresholdKWh:   thermalBatteryDefaultSolarTailThresholdKWh,
 		thermalBatteryDeferredRecheckInterval: thermalBatteryDeferredRecheckDefault,
+		thermalBatteryHysteresisDuration:      thermalBatteryHysteresisDefault,
 	}
 }
 
@@ -225,6 +240,11 @@ func (m *Manager) SetThermalBatteryDeferredRecheckIntervalForTesting(d time.Dura
 	m.thermalBatteryDeferredRecheckInterval = d
 }
 
+// SetThermalBatteryHysteresisDurationForTesting allows tests to use a shorter hysteresis window.
+func (m *Manager) SetThermalBatteryHysteresisDurationForTesting(d time.Duration) {
+	m.thermalBatteryHysteresisDuration = d
+}
+
 // IsLoadSheddingOn returns whether load shedding is currently active (thread-safe)
 func (m *Manager) IsLoadSheddingOn() bool {
 	m.stateMu.Lock()
@@ -239,6 +259,15 @@ func (m *Manager) Start() error {
 	}
 
 	m.logger.Info("Starting Load Shedding Manager")
+
+	// Restart safety: if a previous process left thermostat holds enabled (mid-thermal-battery
+	// or mid-hysteresis), clear them so the climate schedule resumes. Skip when current
+	// energy is red/black — load shedding may legitimately have those holds enabled, and
+	// the energy-change handler below will re-evaluate and re-establish them as needed.
+	if level, err := m.stateManager.GetString("currentEnergyLevel"); err == nil &&
+		level != energyStateRed && level != energyStateBlack {
+		m.clearStaleThermostatHolds()
+	}
 
 	// Subscribe to energy level changes (shadow inputs captured automatically)
 	if err := m.subHelper.SubscribeToState("currentEnergyLevel", m.handleEnergyChange); err != nil {
@@ -279,10 +308,11 @@ func (m *Manager) Stop() {
 
 	m.logger.Info("Stopping Load Shedding Manager")
 
-	// Stop any thermal battery stepping or deferred timer goroutines
+	// Stop any thermal battery stepping, deferred, or hysteresis timer goroutines
 	m.thermalBatteryMu.Lock()
 	m.stopThermalBatteryStepping()
 	m.stopDeferredActivationTimer()
+	m.stopHysteresisTimer()
 	m.thermalBatteryMu.Unlock()
 
 	// Cancel any pending deferred action
@@ -329,7 +359,11 @@ func (m *Manager) handleEnergyChangeWithTrigger(key string, oldValue, newValue i
 		m.deactivateThermalBattery("energy level dropped to " + newLevel)
 		m.enableLoadShedding(newLevel, trigger)
 	case energyStateGreen:
-		m.deactivateThermalBattery("energy level dropped to green")
+		// Green is still a healthy state (battery ≥80% AND ≥10 kWh remaining solar).
+		// Don't snap thermostats back — entering hysteresis widens the setpoint band so
+		// HVAC stays idle, avoiding counter-runs from a transient white→green oscillation.
+		// If thermal battery isn't active, this is a no-op.
+		m.enterThermalBatteryHysteresis()
 		m.restoreNonHVACLoads(newLevel)
 		m.disableLoadShedding(newLevel, trigger)
 	case energyStateWhite:
@@ -617,20 +651,12 @@ func (m *Manager) disableLoadShedding(energyLevel string, trigger string) {
 		return
 	}
 
-	// Check current thermostat hold state
-	holdOn, err := m.checkThermostatHoldState()
-	if err != nil {
-		m.logger.Warn("Failed to check thermostat hold state, proceeding with action",
-			zap.Error(err))
-	} else if !holdOn {
-		m.logger.Info("⏭  Action skipped: Thermostat holds already disabled",
-			zap.String("reason", "Thermostats already in desired state"))
-		// Update our state tracking to match reality
-		m.stateMu.Lock()
-		m.loadSheddingOn = false
-		m.stateMu.Unlock()
-		return
-	}
+	// Note: we used to bail here if HA showed holds already off, on the assumption
+	// "holds off → load shedding fully disabled". That assumption no longer holds —
+	// thermal-battery hysteresis and the Start() stale-hold cleanup can independently
+	// turn holds off, leaving EV/dehumidifier still shed. executeDisableLoadShedding
+	// is idempotent on holds (turn_off-when-off is a no-op in HA), so we always run
+	// the full disable to guarantee EV/dehumidifier get restored.
 
 	// Check rate limiting - if rate limited, schedule deferred action
 	passed, timeRemaining := m.checkRateLimit()
