@@ -22,7 +22,7 @@ import (
 // Vacuum Error Announcement Tests
 //
 // User story:
-//   "When my robot vacuum reports an actionable error (e.g. 'Mop Dock Clean
+//   "When Casper reports an actionable error (e.g. 'Mop Dock Clean
 //    Water Tank empty'), I want a spoken TTS announcement on common-area
 //    speakers so I can address it. While I'm asleep, suppress the
 //    announcement. Re-announce every 2 hours until the error clears."
@@ -58,7 +58,7 @@ func setupVacuumTest(t *testing.T, fixedTime time.Time) (*vacuumEnv, func()) {
 	cfg := &vacuum.Config{}
 	cfg.Vacuum.ErrorSensorID = vacuumErrorEntity
 	cfg.Vacuum.NoErrorValue = "No error"
-	cfg.Vacuum.Announcement.MessagePrefix = "Robot vacuum needs attention"
+	cfg.Vacuum.Announcement.MessagePrefix = "Casper needs attention"
 	cfg.Vacuum.Announcement.RepeatInterval = 2 * time.Hour
 	cfg.Vacuum.Announcement.Speakers = []string{
 		"media_player.kitchen",
@@ -66,7 +66,7 @@ func setupVacuumTest(t *testing.T, fixedTime time.Time) (*vacuumEnv, func()) {
 		"media_player.front_room",
 		"media_player.kids_bathroom",
 	}
-	cfg.Vacuum.ClearAnnouncement.Message = "You have satisfied the robot"
+	cfg.Vacuum.ClearAnnouncement.Message = "You have satisfied Casper"
 	cfg.Vacuum.ClearAnnouncement.Speakers = []string{"media_player.sitting_room"}
 
 	tp := plugin.FixedTimeProvider{FixedTime: fixedTime}
@@ -220,7 +220,7 @@ func TestScenario_VacuumError_ClearAnnouncesWhenSomeoneHome(t *testing.T) {
 
 	msgs := env.synth.Messages()
 	require.Len(t, msgs, 2, "expected the original error message and the clear confirmation")
-	assert.Equal(t, "You have satisfied the robot", msgs[1])
+	assert.Equal(t, "You have satisfied Casper", msgs[1])
 }
 
 // TestScenario_VacuumError_ClearSkipsWhenNobodyHome verifies the invariant that

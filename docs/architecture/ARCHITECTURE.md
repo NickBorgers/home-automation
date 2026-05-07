@@ -489,7 +489,7 @@ Each plugin corresponds to a Node-RED flow and implements domain-specific automa
 ### 15. Vacuum Plugin ✅
 
 **Responsibilities:**
-- Monitor the robot vacuum's error sensor and announce actionable errors via TTS
+- Monitor Casper's error sensor and announce actionable errors via TTS
 - Announce a short recovery confirmation on configured speakers when an active
   error clears and someone is home
 - Suppress announcements while master is asleep

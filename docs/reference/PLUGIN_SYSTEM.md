@@ -969,7 +969,7 @@ func createPlugin(ctx *plugin.Context) (plugin.Plugin, error) {
 import "homeautomation/pkg/notify"
 
 // Deferable announcement (dropped while master is asleep; e.g. presence, vacuum errors)
-m.notifier.Announce(m.ctx, "Robot vacuum needs attention: dustbin missing",
+m.notifier.Announce(m.ctx, "Casper needs attention: dustbin missing",
     notify.WithSpeakers([]string{"media_player.kitchen", "media_player.front_room"}),
 )
 

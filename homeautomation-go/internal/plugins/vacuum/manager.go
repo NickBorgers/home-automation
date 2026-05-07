@@ -1,4 +1,4 @@
-// Package vacuum monitors the robot vacuum's error sensor and announces
+// Package vacuum monitors Casper's error sensor and announces
 // actionable errors and recovery confirmations via TTS.
 //
 // The plugin is structured (Manager + YAML config + shadow tracker) so future
@@ -268,7 +268,7 @@ func (m *Manager) maybeAnnounce(errorDesc string) {
 	}
 
 	err := m.alerter.Send(m.ctx, alert.Alert{
-		Title:    "Vacuum Needs Attention",
+		Title:    "Casper Needs Attention",
 		Body:     message,
 		Urgency:  notify.UrgencyDeferable,
 		Tags:     []string{"robot"},
