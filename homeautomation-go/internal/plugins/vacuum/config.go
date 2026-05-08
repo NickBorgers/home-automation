@@ -48,8 +48,8 @@ const (
 	defaultErrorSensorID        = "sensor.valetudo_mellowslimyloris_error"
 	defaultNoErrorValue         = "No error"
 	defaultRepeatInterval       = 2 * time.Hour
-	defaultMessagePrefix        = "Robot vacuum needs attention"
-	defaultClearMessage         = "You have satisfied the robot"
+	defaultMessagePrefix        = "Casper needs attention"
+	defaultClearMessage         = "You have satisfied Casper"
 	defaultClearSpeakerEntityID = "media_player.sitting_room"
 )
 

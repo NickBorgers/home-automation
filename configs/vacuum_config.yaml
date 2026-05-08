@@ -1,4 +1,4 @@
-# Robot vacuum plugin configuration.
+# Casper vacuum plugin configuration.
 #
 # Today this drives the error-announcement subsystem. Future fields for
 # scheduling, room sequencing, and per-room vacuum/mop parameters will be added
@@ -18,7 +18,7 @@ vacuum:
     repeat_interval: "2h"
 
     # Sentence prefix; the error description is appended after a colon.
-    message_prefix: "Robot vacuum needs attention"
+    message_prefix: "Casper needs attention"
 
     # Speakers to announce on. These match the post-rename speaker layout
     # (Sitting Room replaced the old Dining Room).
@@ -31,7 +31,7 @@ vacuum:
   clear_announcement:
     # Feel-good recovery confirmation after a real error returns to no_error_value.
     # Uses UrgencyDeferable, so it is skipped while master is asleep.
-    message: "You have satisfied the robot"
+    message: "You have satisfied Casper"
     speakers:
       - "media_player.sitting_room"
 

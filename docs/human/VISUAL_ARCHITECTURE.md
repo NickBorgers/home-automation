@@ -54,7 +54,7 @@ graph TB
             Infrastructure[Infrastructure<br/>internal/plugins/infrastructure/]
             WaterFlow[Water Flow<br/>internal/plugins/waterflow/]
             EVCharger[EV Charger Safety<br/>internal/plugins/evcharger/]
-            Vacuum[Robot Vacuum<br/>internal/plugins/vacuum/]
+            Vacuum[Casper Vacuum<br/>internal/plugins/vacuum/]
             ResetCoord[Reset Coordinator<br/>internal/plugins/reset/]
             SensorConfig[Sensor Config<br/>internal/plugins/sensorconfig/]
         end
@@ -971,7 +971,7 @@ graph LR
         SensorHealthPlugin[Sensor Health Plugin]
         WaterFlowPlugin[Water Flow Plugin<br/>Order: 71]
         EVChargerPlugin[EV Charger Safety Plugin<br/>Order: 5]
-        VacuumPlugin[Robot Vacuum Plugin<br/>Order: 60]
+        VacuumPlugin[Casper Vacuum Plugin<br/>Order: 60]
         InfrastructurePlugin[Infrastructure Plugin]
         ResetCoord[Reset Coordinator<br/>Order: 90]
     end

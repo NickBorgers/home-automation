@@ -1102,10 +1102,10 @@ type EVChargerRecovery struct {
 }
 
 // ============================================================================
-// Vacuum Output Types - Robot Vacuum Error Announcements
+// Vacuum Output Types - Casper Vacuum Error Announcements
 // ============================================================================
 
-// VacuumOutputs tracks the state of robot vacuum error announcement handling.
+// VacuumOutputs tracks the state of Casper vacuum error announcement handling.
 // Today this only covers error TTS; future fields for schedule/room control
 // will live alongside these.
 type VacuumOutputs struct {

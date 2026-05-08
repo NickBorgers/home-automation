@@ -13,7 +13,7 @@ import (
 func init() {
 	plugin.Register(plugin.PluginInfo{
 		Name:        "vacuum",
-		Description: "Robot vacuum monitoring (today: error TTS announcements)",
+		Description: "Casper (robot vacuum) monitoring (today: error TTS announcements)",
 		Priority:    plugin.PriorityDefault,
 		Order:       60,
 		Factory:     createPlugin,

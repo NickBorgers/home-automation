@@ -23,7 +23,7 @@ func newTestConfig() *Config {
 	cfg := &Config{}
 	cfg.Vacuum.ErrorSensorID = testErrorSensor
 	cfg.Vacuum.NoErrorValue = "No error"
-	cfg.Vacuum.Announcement.MessagePrefix = "Robot vacuum needs attention"
+	cfg.Vacuum.Announcement.MessagePrefix = "Casper needs attention"
 	cfg.Vacuum.Announcement.RepeatInterval = 2 * time.Hour
 	cfg.Vacuum.Announcement.Speakers = []string{
 		"media_player.kitchen",
@@ -31,7 +31,7 @@ func newTestConfig() *Config {
 		"media_player.front_room",
 		"media_player.kids_bathroom",
 	}
-	cfg.Vacuum.ClearAnnouncement.Message = "You have satisfied the robot"
+	cfg.Vacuum.ClearAnnouncement.Message = "You have satisfied Casper"
 	cfg.Vacuum.ClearAnnouncement.Speakers = []string{"media_player.sitting_room"}
 	return cfg
 }
@@ -98,7 +98,7 @@ func TestVacuum_TransitionToError_Announces(t *testing.T) {
 	calls := mockAlerter.Calls()
 	require.Len(t, calls, 1, "expected one announcement")
 	assert.Equal(t,
-		"Robot vacuum needs attention: Mop Dock Clean Water Tank empty",
+		"Casper needs attention: Mop Dock Clean Water Tank empty",
 		calls[0].Body)
 	assert.Equal(t,
 		[]string{
@@ -225,7 +225,7 @@ func TestVacuum_ErrorClearsWhileSomeoneHome_AnnouncesClearTTS(t *testing.T) {
 
 	calls := mockNotifier.Calls()
 	require.Len(t, calls, 1, "expected clear confirmation TTS")
-	assert.Equal(t, "You have satisfied the robot", calls[0].Message)
+	assert.Equal(t, "You have satisfied Casper", calls[0].Message)
 	assert.Equal(t, []string{"media_player.sitting_room"}, calls[0].Speakers)
 	assert.Equal(t, notify.UrgencyDeferable, calls[0].Urgency)
 }

@@ -2308,7 +2308,7 @@ func (et *EVChargerTracker) GetState() *EVChargerShadowState {
 // Vacuum Tracker
 // ============================================================================
 
-// VacuumTracker manages shadow state for the robot vacuum plugin.
+// VacuumTracker manages shadow state for Casper's vacuum plugin.
 type VacuumTracker struct {
 	ReadOnlyTracker[VacuumOutputs]
 }
