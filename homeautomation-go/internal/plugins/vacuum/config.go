@@ -10,9 +10,9 @@ import (
 
 // Config models the vacuum plugin's YAML configuration.
 //
-// The file is intentionally shaped to grow: today only the announcement subtree
-// is consumed, but schedule/rooms/entity_id fields are reserved for future
-// plugin features (vacuum triggering, per-room parameters).
+// The file is intentionally shaped to grow: today only the announcement
+// subtrees are consumed, but schedule/rooms/entity_id fields are reserved for
+// future plugin features (vacuum triggering, per-room parameters).
 type Config struct {
 	Vacuum struct {
 		// EntityID is reserved for future use (start/pause/stop service calls).
@@ -20,7 +20,8 @@ type Config struct {
 		ErrorSensorID string `yaml:"error_sensor_id"`
 		NoErrorValue  string `yaml:"no_error_value"`
 
-		Announcement AnnouncementConfig `yaml:"announcement"`
+		Announcement      AnnouncementConfig      `yaml:"announcement"`
+		ClearAnnouncement ClearAnnouncementConfig `yaml:"clear_announcement"`
 	} `yaml:"vacuum"`
 }
 
@@ -36,12 +37,20 @@ type AnnouncementConfig struct {
 	RepeatInterval time.Duration `yaml:"-"`
 }
 
+// ClearAnnouncementConfig governs the TTS confirmation sent when an error clears.
+type ClearAnnouncementConfig struct {
+	Message  string   `yaml:"message"`
+	Speakers []string `yaml:"speakers"`
+}
+
 // Default values applied when fields are missing from the YAML file.
 const (
-	defaultErrorSensorID  = "sensor.valetudo_mellowslimyloris_error"
-	defaultNoErrorValue   = "No error"
-	defaultRepeatInterval = 2 * time.Hour
-	defaultMessagePrefix  = "Robot vacuum needs attention"
+	defaultErrorSensorID        = "sensor.valetudo_mellowslimyloris_error"
+	defaultNoErrorValue         = "No error"
+	defaultRepeatInterval       = 2 * time.Hour
+	defaultMessagePrefix        = "Robot vacuum needs attention"
+	defaultClearMessage         = "You have satisfied the robot"
+	defaultClearSpeakerEntityID = "media_player.sitting_room"
 )
 
 var defaultSpeakers = []string{
@@ -82,6 +91,12 @@ func (c *Config) applyDefaultsAndValidate() error {
 	}
 	if len(c.Vacuum.Announcement.Speakers) == 0 {
 		c.Vacuum.Announcement.Speakers = append([]string(nil), defaultSpeakers...)
+	}
+	if c.Vacuum.ClearAnnouncement.Message == "" {
+		c.Vacuum.ClearAnnouncement.Message = defaultClearMessage
+	}
+	if len(c.Vacuum.ClearAnnouncement.Speakers) == 0 {
+		c.Vacuum.ClearAnnouncement.Speakers = []string{defaultClearSpeakerEntityID}
 	}
 
 	if c.Vacuum.Announcement.RepeatIntervalRaw == "" {

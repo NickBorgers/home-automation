@@ -36,7 +36,18 @@ func createPlugin(ctx *plugin.Context) (plugin.Plugin, error) {
 		return nil, fmt.Errorf("failed to load vacuum config: %w", err)
 	}
 
-	manager := NewManager(ctx.ShutdownCtx, haClient, stateManager, ctx.AlertNotifier, cfg, ctx.Logger, ctx.ReadOnly, ctx.TimeProvider, ctx.Registry)
+	manager := NewManager(
+		ctx.ShutdownCtx,
+		haClient,
+		stateManager,
+		ctx.AlertNotifier,
+		ctx.Notifier,
+		cfg,
+		ctx.Logger,
+		ctx.ReadOnly,
+		ctx.TimeProvider,
+		ctx.Registry,
+	)
 	return &pluginAdapter{manager: manager}, nil
 }
 

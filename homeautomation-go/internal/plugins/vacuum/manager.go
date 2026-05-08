@@ -1,10 +1,9 @@
 // Package vacuum monitors the robot vacuum's error sensor and announces
-// actionable errors via TTS.
+// actionable errors and recovery confirmations via TTS.
 //
-// Today this is the only behavior. The plugin is structured (Manager + YAML
-// config + shadow tracker) so future features — scheduling, room sequencing,
-// per-room vacuum/mop parameters, service-call triggering — slot in without
-// restructuring.
+// The plugin is structured (Manager + YAML config + shadow tracker) so future
+// features — scheduling, room sequencing, per-room vacuum/mop parameters,
+// service-call triggering — slot in without restructuring.
 package vacuum
 
 import (
@@ -38,6 +37,7 @@ type Manager struct {
 	haClient     ha.HAClient
 	stateManager *state.Manager
 	alerter      alert.Alerter
+	notifier     notify.Notifier
 	logger       *zap.Logger
 	readOnly     bool
 	timeProvider plugin.TimeProvider
@@ -69,6 +69,7 @@ func NewManager(
 	haClient ha.HAClient,
 	stateManager *state.Manager,
 	alerter alert.Alerter,
+	notifier notify.Notifier,
 	cfg *Config,
 	logger *zap.Logger,
 	readOnly bool,
@@ -80,16 +81,24 @@ func NewManager(
 	}
 	tracker := shadowstate.NewVacuumTracker()
 	return &Manager{
-		ctx:                 ctx,
-		haClient:            haClient,
-		stateManager:        stateManager,
-		alerter:             alerter,
-		logger:              logger.Named("vacuum"),
-		readOnly:            readOnly,
-		timeProvider:        timeProvider,
-		cfg:                 cfg,
-		shadowTracker:       tracker,
-		subHelper:           shadowstate.NewSubscriptionHelper(haClient, stateManager, registry, tracker, "vacuum", logger.Named("vacuum")),
+		ctx:           ctx,
+		haClient:      haClient,
+		stateManager:  stateManager,
+		alerter:       alerter,
+		notifier:      notifier,
+		logger:        logger.Named("vacuum"),
+		readOnly:      readOnly,
+		timeProvider:  timeProvider,
+		cfg:           cfg,
+		shadowTracker: tracker,
+		subHelper: shadowstate.NewSubscriptionHelper(
+			haClient,
+			stateManager,
+			registry,
+			tracker,
+			"vacuum",
+			logger.Named("vacuum"),
+		),
 		repeatCheckInterval: defaultRepeatCheckInterval,
 		stopCh:              make(chan struct{}),
 	}
@@ -109,6 +118,10 @@ func (m *Manager) Start() error {
 
 	if err := m.subHelper.SubscribeToEntity(m.cfg.Vacuum.ErrorSensorID, m.handleErrorChange); err != nil {
 		return fmt.Errorf("subscribe to vacuum error sensor: %w", err)
+	}
+	// Empty handler: registered solely to capture isAnyoneHome into shadow inputs.
+	if err := m.subHelper.SubscribeToState("isAnyoneHome", func(_ string, _, _ interface{}) {}); err != nil {
+		return fmt.Errorf("subscribe to isAnyoneHome: %w", err)
 	}
 	m.subHelper.CaptureInitialInputs()
 
@@ -153,7 +166,8 @@ func (m *Manager) Reset() error {
 // handleErrorChange responds to error sensor changes.
 //
 // State transitions:
-//   - any → "No error":            clear, no announcement.
+//   - real error → "No error":     clear, TTS confirmation when someone is home.
+//   - "No error" → "No error":     no-op.
 //   - "No error" → real error:     announce + arm repeat.
 //   - real error A → real error A: no-op (timer keeps cadence).
 //   - real error A → real error B: announce (message updated).
@@ -177,6 +191,10 @@ func (m *Manager) handleErrorChange(entityID string, oldState, newState *ha.Stat
 
 		if hadError {
 			m.logger.Info("Vacuum error cleared", zap.String("entity", entityID))
+			// Clear confirmation gates on isAnyoneHome (feel-good, skippable).
+			// Error announcements do not gate on presence — they use the alerter's
+			// repeat cadence and suppress via UrgencyDeferable when asleep.
+			m.maybeAnnounceClear()
 		}
 		m.shadowTracker.SetCurrentError("")
 		return
@@ -196,6 +214,44 @@ func (m *Manager) handleErrorChange(entityID string, oldState, newState *ha.Stat
 		zap.String("error", value))
 
 	m.maybeAnnounce(value)
+}
+
+func (m *Manager) maybeAnnounceClear() {
+	if m.stateManager == nil {
+		m.logger.Warn("state manager not configured, skipping vacuum clear announcement")
+		return
+	}
+	anyoneHome, err := m.stateManager.GetBool("isAnyoneHome")
+	if err != nil {
+		m.logger.Warn("Failed to read isAnyoneHome, skipping vacuum clear announcement", zap.Error(err))
+		return
+	}
+	if !anyoneHome {
+		m.logger.Info("Skipping vacuum clear announcement because nobody is home")
+		return
+	}
+	if m.notifier == nil {
+		m.logger.Warn("notifier not configured, skipping vacuum clear announcement")
+		return
+	}
+
+	message := m.cfg.Vacuum.ClearAnnouncement.Message
+	speakers := m.cfg.Vacuum.ClearAnnouncement.Speakers
+	err = m.notifier.Announce(m.ctx, message,
+		notify.WithUrgency(notify.UrgencyDeferable),
+		notify.WithSpeakers(speakers))
+	switch {
+	case errors.Is(err, notify.ErrSuppressedAsleep):
+		m.logger.Info("Vacuum clear TTS suppressed (master asleep)")
+	case err != nil:
+		m.logger.Error("Failed to send vacuum clear announcement",
+			zap.String("message", message),
+			zap.Error(err))
+	default:
+		m.logger.Info("Vacuum clear announcement sent",
+			zap.String("message", message),
+			zap.Strings("speakers", speakers))
+	}
 }
 
 // maybeAnnounce sends an alert (TTS + push) for errorDesc as a Deferable

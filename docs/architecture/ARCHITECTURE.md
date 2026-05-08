@@ -490,18 +490,25 @@ Each plugin corresponds to a Node-RED flow and implements domain-specific automa
 
 **Responsibilities:**
 - Monitor the robot vacuum's error sensor and announce actionable errors via TTS
+- Announce a short recovery confirmation on configured speakers when an active
+  error clears and someone is home
 - Suppress announcements while master is asleep
 - Re-announce unresolved errors on a configurable interval (default 2 hours) until cleared
 
 **Key Automations:**
 - **Error Announcement**: On error sensor transition from "No error" to a real error → TTS to common-area speakers
-- **Quiet Hours**: When `isMasterAsleep=true` → notifier returns `ErrSuppressedAsleep`; vacuum records in shadow state and preserves repeat cadence
+- **Clear Confirmation**: On real error transition back to "No error" while
+  `isAnyoneHome=true` → TTS to the sitting room speaker by default
+- **Quiet Hours**: When `isMasterAsleep=true` → notifier returns `ErrSuppressedAsleep`;
+  vacuum records in shadow state and preserves repeat cadence
 - **Repeat Cadence**: Background ticker re-announces unresolved errors every `repeat_interval`
 - **Initial State**: On plugin start → if sensor already reports an error, announce immediately
 
-**Entities Monitored:** `sensor.valetudo_mellowslimyloris_error` (configurable)
+**Entities Monitored:** `sensor.valetudo_mellowslimyloris_error` (configurable);
+reads `isAnyoneHome` for clear confirmations
 
-**Config File:** `vacuum_config.yaml` (also reserves shape for future schedule, room sequencing, and per-room vacuum/mop parameters)
+**Config File:** `vacuum_config.yaml` (also reserves shape for future schedule,
+room sequencing, and per-room vacuum/mop parameters)
 
 ---
 
