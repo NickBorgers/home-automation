@@ -285,7 +285,7 @@ defer stateTrackingManager.Stop()  // Stops first (registered first)
 - `batteryEnergyLevel` - Battery charge level category
 - `solarProductionEnergyLevel` - Solar production category
 - `currentEnergyLevel` - Combined energy availability
-- `isFreeEnergyAvailable` - Legacy metered-grid flag, kept false
+- `isFreeEnergyAvailable` - Legacy metered-grid flag, retired (always false)
 
 **HA Entities Subscribed:**
 - `sensor.span_panel_span_storage_battery_percentage_2`
@@ -1137,7 +1137,7 @@ Include a comment block documenting which state variables the plugin reads and w
 //
 // State Variables Written:
 //   - currentEnergyLevel (string)
-//   - isFreeEnergyAvailable (bool, legacy metered-grid flag kept false)
+//   - isFreeEnergyAvailable (bool, legacy metered-grid flag, retired (always false))
 //
 // HA Entities Subscribed:
 //   - sensor.span_panel_span_storage_battery_percentage_2
