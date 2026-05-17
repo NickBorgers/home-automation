@@ -42,7 +42,7 @@ All 42 state variables currently implemented in the Go application, organized by
 | isFadeOutInProgress | input_boolean.fade_out_in_progress | Music fade out status | - |
 | isWakeSequenceActive | input_boolean.wake_sequence_active | Wake lights fade-in active | - |
 | isSleepPrepActive | input_boolean.sleep_prep_active | Sleep prep in progress (go_to_bed fired, waiting for sleep detection) | - |
-| isFreeEnergyAvailable | input_boolean.free_energy_available | Free energy availability | - |
+| isFreeEnergyAvailable | input_boolean.free_energy_available | Legacy metered-grid flag, retired (always false) | - |
 | isGridAvailable | input_boolean.grid_available | Grid power availability | - |
 | isExpectingSomeone | input_boolean.expecting_someone | Expecting a visitor | - |
 | isNickOfficeOccupied | input_boolean.nick_office_occupied | Nick's office occupancy sensor | - |
