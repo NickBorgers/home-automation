@@ -315,6 +315,7 @@ func TestSubscriptionHelper_NilRegistry(t *testing.T) {
 }
 
 func TestSubscriptionHelper_FallbackCaptureConcurrentSubscribeToState(t *testing.T) {
+	t.Parallel()
 	logger := zap.NewNop()
 	stateManager := state.NewManager(nil, logger, true)
 	tracker := &lockedMockShadowTracker{}
