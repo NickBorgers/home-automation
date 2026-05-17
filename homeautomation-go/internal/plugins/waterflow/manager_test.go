@@ -127,8 +127,8 @@ func TestWaterFlowManager_WarningAlert(t *testing.T) {
 
 	manager := createTestManager(mockHA, mockAlerter, mockClock)
 
-	// Simulate moderate flow (0.35 GPM) for 30 minutes — not over the warning flow duration threshold
-	simulateSteadyFlow(manager, mockClock, 0.35, 30*time.Minute, time.Minute)
+	// Simulate moderate flow (0.35 GPM) for exactly the warning duration — not yet over the threshold
+	simulateSteadyFlow(manager, mockClock, 0.35, WarningFlowDurationMinutes*time.Minute, time.Minute)
 	manager.TriggerEvaluation()
 
 	if manager.IsWarningActive() {
@@ -554,7 +554,7 @@ func TestWaterFlowManager_UrgentEscalationBypassesWarningCooldown(t *testing.T) 
 	manager := createTestManager(mockHA, mockAlerter, mockClock)
 
 	// Trigger a warning first, as the periodic checker would during sustained high usage.
-	simulateSteadyFlow(manager, mockClock, 0.35, 31*time.Minute, time.Minute)
+	simulateSteadyFlow(manager, mockClock, 0.35, (WarningFlowDurationMinutes+1)*time.Minute, time.Minute)
 	manager.TriggerEvaluation()
 
 	if !manager.IsWarningActive() {

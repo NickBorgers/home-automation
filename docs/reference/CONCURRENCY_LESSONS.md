@@ -1469,7 +1469,54 @@ c.entityDispatchMu.Unlock()
 
 ---
 
+## Lesson 21: Copy-Under-Read-Lock to Protect Slices Appended During Setup
+
+**Pattern**: When a slice is appended to by setup goroutines (`Subscribe*`) and iterated by event-driven goroutines (`captureInputs`), protect it with a `sync.RWMutex`. Writers hold `mu.Lock()` around each `append`; the reader takes `mu.RLock()`, copies the slice, releases the lock, then iterates the copy.
+
+**Why**: During plugin startup, `SubscribeToState()`, `SubscribeToEntity()`, and `SubscribeToSensor()` append to `subscribedStateKeys` and `subscribedHAEntities` on the main goroutine. Simultaneously, incoming HA events trigger `captureInputs()` on a separate goroutine, which iterates the same slices. Go's race detector flags this as a concurrent read/write data race.
+
+**Race Scenario (Before Fix)**:
+```
+Main goroutine (plugin setup):           HA event goroutine:
+SubscribeToState("dayPhase", ...)        (dayPhase event arrives during setup)
+  → append(subscribedStateKeys, key)     → captureInputs() reads subscribedStateKeys
+                                           ← DATA RACE: concurrent read + write
+```
+
+**Correct Approach**:
+```go
+// Writer (setup, called once per subscription):
+h.mu.Lock()
+h.subscribedStateKeys = append(h.subscribedStateKeys, key)
+h.mu.Unlock()
+
+// Reader (called on every state-change event):
+h.mu.RLock()
+stateKeys := make([]string, len(h.subscribedStateKeys))
+copy(stateKeys, h.subscribedStateKeys)
+h.mu.RUnlock()
+// Iterate stateKeys (the copy) — lock is NOT held during slow HA/state calls
+for _, key := range stateKeys { ... }
+```
+
+The copy-under-lock pattern is important: holding the read lock across the entire iteration would block writers and could hold the lock across slow operations (HA `GetState` calls, state manager reads). Copying and releasing first keeps the critical section minimal.
+
+**Where Applied**: `internal/shadowstate/subscription_helper.go` — `SubscribeToState`, `SubscribeToEntity`, `SubscribeToSensor` (writers) and `captureInputs` (reader)
+
+**Discovered By**: Go race detector (`-race`) on integration tests; vacuum plugin test triggered it.
+
+**References**: PR #1110 (Issue #1107)
+
+---
+
 ## Change Log
+
+### 2026-05-17
+- **Added Lesson 21**: Copy-Under-Read-Lock to Protect Slices Appended During Setup
+  - Documents data race between `SubscribeToState/Entity/Sensor()` (appenders) and `captureInputs()` (iterator) in `SubscriptionHelper`
+  - Pattern: `sync.RWMutex` with copy-under-read-lock — take `RLock`, copy the slice, `RUnlock`, iterate the copy
+  - Keeps critical section minimal: lock not held across slow HA client or state manager calls
+  - Applied to `internal/shadowstate/subscription_helper.go` (PR #1110, Issue #1107)
 
 ### 2026-05-05 (PR #1082)
 - **Fix race in Lesson 20 teardown**: `Disconnect()` previously closed per-entity queue channels while `receiveMessages` / `handleEvent` could still be sending to them — a use-after-close channel panic. Fix adds two primitives:
