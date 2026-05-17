@@ -368,6 +368,8 @@ func TestScenario_MeteredGridFreeEnergyWindow_DoesNotOverrideEnergyLevel(t *test
 	waitForProcessing(t, manager)
 	overallLevel, err := manager.GetString("currentEnergyLevel")
 	require.NoError(t, err)
+	// setupTest initializes solar to "white"; the combine logic takes the worst non-white level
+	// ("black" battery), then the white solar boosts it one step to "red". So "red" is correct.
 	assert.Equal(t, "red", overallLevel, "Overall level should follow battery and solar without metered grid override")
 }
 
