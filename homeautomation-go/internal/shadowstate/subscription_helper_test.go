@@ -3,10 +3,12 @@ package shadowstate
 import (
 	"context"
 	"encoding/json"
+	"sync"
 	"testing"
 	"time"
 
 	"homeautomation/internal/ha"
+	"homeautomation/internal/state"
 
 	"go.uber.org/zap"
 )
@@ -26,6 +28,15 @@ func newMockShadowTracker() *mockShadowTracker {
 func (m *mockShadowTracker) UpdateCurrentInputs(inputs map[string]interface{}) {
 	m.inputs = inputs
 	m.updateCount++
+}
+
+type lockedMockShadowTracker struct {
+	mu sync.Mutex
+}
+
+func (m *lockedMockShadowTracker) UpdateCurrentInputs(inputs map[string]interface{}) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 }
 
 // mockHAClient implements ha.HAClient for testing
@@ -301,4 +312,39 @@ func TestSubscriptionHelper_NilRegistry(t *testing.T) {
 	if tracker.updateCount != 1 {
 		t.Errorf("Shadow tracker should have been updated via fallback capture, got %d updates", tracker.updateCount)
 	}
+}
+
+func TestSubscriptionHelper_FallbackCaptureConcurrentSubscribeToState(t *testing.T) {
+	logger := zap.NewNop()
+	stateManager := state.NewManager(nil, logger, true)
+	tracker := &lockedMockShadowTracker{}
+	helper := NewSubscriptionHelper(nil, stateManager, nil, tracker, "test", logger)
+
+	stop := make(chan struct{})
+	var wg sync.WaitGroup
+	for i := 0; i < 4; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+					helper.captureInputs()
+				}
+			}
+		}()
+	}
+
+	for i := 0; i < 1000; i++ {
+		if err := helper.SubscribeToState("didOwnerJustReturnHome", func(string, interface{}, interface{}) {}); err != nil {
+			close(stop)
+			wg.Wait()
+			t.Fatalf("SubscribeToState failed: %v", err)
+		}
+	}
+
+	close(stop)
+	wg.Wait()
 }
