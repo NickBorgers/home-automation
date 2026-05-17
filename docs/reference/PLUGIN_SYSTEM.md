@@ -279,20 +279,20 @@ defer stateTrackingManager.Stop()  // Stops first (registered first)
 
 ### Energy Plugin (`energy`)
 
-**Purpose:** Tracks energy availability from battery, solar, and grid sources.
+**Purpose:** Tracks energy availability from battery and solar sources.
 
 **State Variables Managed:**
 - `batteryEnergyLevel` - Battery charge level category
 - `solarProductionEnergyLevel` - Solar production category
 - `currentEnergyLevel` - Combined energy availability
-- `isFreeEnergyAvailable` - Whether grid is providing free energy
+- `isFreeEnergyAvailable` - Legacy metered-grid flag, kept false
 
 **HA Entities Subscribed:**
 - `sensor.span_panel_span_storage_battery_percentage_2`
 - `sensor.energy_next_hour`
 - `sensor.energy_production_today_remaining`
 
-**Configuration:** Uses `energy_config.yaml` for thresholds and free energy time windows.
+**Configuration:** Uses `energy_config.yaml` for battery, solar, and indicator-light thresholds.
 
 ### Music Plugin (`music`)
 
@@ -1137,7 +1137,7 @@ Include a comment block documenting which state variables the plugin reads and w
 //
 // State Variables Written:
 //   - currentEnergyLevel (string)
-//   - isFreeEnergyAvailable (bool)
+//   - isFreeEnergyAvailable (bool, legacy metered-grid flag kept false)
 //
 // HA Entities Subscribed:
 //   - sensor.span_panel_span_storage_battery_percentage_2

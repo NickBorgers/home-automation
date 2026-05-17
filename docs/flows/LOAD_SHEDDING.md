@@ -137,7 +137,7 @@ flowchart TD
     checkMode{"heat_cool<br/>mode?"}
     checkHourly{"Hourly forecast<br/>available?"}
     checkStress{"Stress event<br/>in window?"}
-    checkSolarTail{"Solar tail reached?<br/>(remaining &lt; 28 kWh<br/>or free energy?)"}
+    checkSolarTail{"Solar tail reached?<br/>(remaining &lt; 28 kWh)"}
     deferred["Defer activation<br/>Re-check every 15 min"]
     checkDaily{"Daily forecast<br/>available?"}
     checkOutdoor{"Outdoor temp<br/>within ±20°F of<br/>comfort band?"}
@@ -162,7 +162,7 @@ flowchart TD
     checkStress -->|No stress| skip
     checkStress -->|Stress found| checkSolarTail
     checkSolarTail -->|No: solar still high| deferred
-    checkSolarTail -->|Yes: tail reached or free energy| activate
+    checkSolarTail -->|Yes: tail reached| activate
     checkHourly -->|No| checkDaily
     checkDaily -->|Yes: mild forecast| skip
     checkDaily -->|Yes: hot/cold forecast| activate
@@ -225,8 +225,8 @@ flowchart TD
 
 1. **Hourly forecast** (primary) — `weather.get_forecasts` with `type=hourly`. Scans forward from now for the first hour where outdoor temp falls outside the comfort band ± 5°F margin.
    - **No stress in window** → skip entirely.
-   - **Stress found, remaining solar > 28 kWh and free energy not active** → defer activation; re-check every 15 min until solar tail is reached.
-   - **Solar tail reached (remaining ≤ 28 kWh) or free energy in effect** → activate now.
+   - **Stress found, remaining solar > 28 kWh** → defer activation; re-check every 15 min until solar tail is reached.
+   - **Solar tail reached (remaining ≤ 28 kWh)** → activate now.
    - Direction: temp below band → pre-heat (shift **up**); temp above band → pre-cool (shift **down**).
    - Note: the hourly comfort margin (±5°F) is intentionally tighter than the daily skip margin (±20°F); the two paths use different thresholds by design.
 
@@ -365,7 +365,6 @@ flowchart LR
 | `currentEnergyLevel` | string | Energy Plugin | Overall energy availability |
 | `isAnyoneHome` | bool | State Tracking Plugin | Whether anyone is home (thermal battery guard) |
 | `isEveryoneAsleep` | bool | State Tracking Plugin | Whether everyone is asleep (thermal battery guard) |
-| `isFreeEnergyAvailable` | bool | Energy Plugin | Bypasses solar-tail gate during free energy hours |
 | `remainingSolarGeneration` | number | Energy Plugin | Remaining solar kWh forecast; gate defers while above threshold |
 
 ### Internal State

@@ -211,7 +211,7 @@ func (m *Manager) SetupComputedStateV2() error {
 // - isAnyoneHomeAndAwake with wake sequence latch
 // - Energy computed states (if energyStates is provided):
 //   - solarProductionEnergyLevel = f(thisHourSolarGeneration, remainingSolarGeneration)
-//   - currentEnergyLevel = f(isFreeEnergyAvailable, batteryEnergyLevel, solarProductionEnergyLevel)
+//   - currentEnergyLevel = f(batteryEnergyLevel, solarProductionEnergyLevel)
 //
 // Note: batteryEnergyLevel is NOT registered as a computed state provider.
 // It depends on raw sensor data that comes through HA subscriptions, not state

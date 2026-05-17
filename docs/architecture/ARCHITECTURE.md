@@ -360,12 +360,12 @@ Each plugin corresponds to a Node-RED flow and implements domain-specific automa
 - Calculate current energy availability level
 - Track solar generation (current hour, remaining day)
 - Monitor battery state
-- Determine if free energy available
+- Clear retired metered-grid free-energy state
 
 **Key Automations:**
 - **Battery Level**: HA sensor → Convert to energy level enum → Update `batteryEnergyLevel`
 - **Solar Calculation**: Solar forecast → Calculate remaining generation
-- **Overall Level**: Combine battery + solar + grid → Determine `currentEnergyLevel`
+- **Overall Level**: Combine battery + solar → Determine `currentEnergyLevel`
 
 **Events Consumed:** `ha.sensor.battery_percentage.changed`, `ha.sensor.solar_generation.changed`
 
@@ -611,7 +611,7 @@ The system includes a **ComputedStateRegistry** for managing derived state varia
 | `isEveryoneAsleep` | `isMasterAsleep AND isGuestAsleep` | isMasterAsleep, isGuestAsleep |
 | `isAnyoneHomeAndAwake` | `(isAnyOwnerHome && !isAnyoneAsleep) \|\| isAssistantHere \|\| wakeSequenceLatch` | isAnyOwnerHome, isAnyoneAsleep, isAssistantHere, isWakeSequenceActive |
 | `solarProductionEnergyLevel` | Solar level from thresholds | thisHourSolarGeneration, remainingSolarGeneration |
-| `currentEnergyLevel` | Combined battery + solar level | isFreeEnergyAvailable, batteryEnergyLevel, solarProductionEnergyLevel |
+| `currentEnergyLevel` | Combined battery + solar level | batteryEnergyLevel, solarProductionEnergyLevel |
 
 **Key Features:**
 - **Dependency-triggered updates**: Automatically recomputes when any dependency changes

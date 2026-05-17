@@ -1,8 +1,5 @@
 ---
 energy:
-  free_energy_time:
-    start: "21:00"
-    end: "07:00"
   indicator_lights:
     friendly_name_pattern: "Radar"  # Matches Apollo MTR sensors
     adaptive_brightness:

@@ -17,14 +17,9 @@ import (
 func createTestConfig() *EnergyConfig {
 	return &EnergyConfig{
 		Energy: struct {
-			FreeEnergyTime  FreeEnergyTime        `yaml:"free_energy_time"`
 			IndicatorLights IndicatorLightsConfig `yaml:"indicator_lights"`
 			EnergyStates    []EnergyState         `yaml:"energy_states"`
 		}{
-			FreeEnergyTime: FreeEnergyTime{
-				Start: "21:00",
-				End:   "07:00",
-			},
 			IndicatorLights: IndicatorLightsConfig{
 				FriendlyNamePattern: "Radar",
 			},
@@ -101,37 +96,6 @@ func TestDetermineBatteryEnergyLevel(t *testing.T) {
 // removed because this logic is now handled by the ComputedStateRegistry.
 // See internal/state/computed_energy_providers_test.go for those tests.
 
-func TestIsFreeEnergyTime(t *testing.T) {
-	t.Parallel()
-	env := testutil.NewEnv(t)
-	config := createTestConfig()
-
-	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, false, nil, nil)
-
-	// Note: This test is time-dependent and may need adjustment
-	// For now, we test the logic with different scenarios
-
-	tests := []struct {
-		name            string
-		isGridAvailable bool
-		// We can't easily test specific times without mocking time
-		// So we'll just test the grid availability logic
-	}{
-		{"Grid not available", false},
-		{"Grid available", true},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-
-			result := manager.isFreeEnergyTime(tt.isGridAvailable)
-			// Without mocking time, we can only verify it doesn't panic
-			// and returns a boolean
-			assert.IsType(t, true, result)
-		})
-	}
-}
-
 func TestLoadConfigFromRepoFile(t *testing.T) {
 	t.Parallel(
 	// Test loading the actual config file
@@ -147,53 +111,12 @@ func TestLoadConfigFromRepoFile(t *testing.T) {
 	assert.NotNil(t, config)
 
 	// Verify config structure
-	assert.Equal(t, "21:00", config.Energy.FreeEnergyTime.Start)
-	assert.Equal(t, "07:00", config.Energy.FreeEnergyTime.End)
 	assert.Equal(t, 5, len(config.Energy.EnergyStates))
 
 	// Verify energy states are in order
 	expectedLevels := []string{"black", "red", "yellow", "green", "white"}
 	for i, state := range config.Energy.EnergyStates {
 		assert.Equal(t, expectedLevels[i], state.ConditionName)
-	}
-}
-
-func TestFreeEnergyTimeSpansMidnight(t *testing.T) {
-	t.Parallel()
-	env := testutil.NewEnv(t)
-	config := createTestConfig()
-
-	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, false, nil, nil)
-
-	// Test that the logic handles times that span midnight
-	// Start: 21:00, End: 07:00
-
-	// Mock times for testing
-	testCases := []struct {
-		hour     int
-		expected bool
-	}{
-		{6, true},   // 06:00 - should be in free energy time
-		{7, false},  // 07:00 - should be at the boundary (not included)
-		{8, false},  // 08:00 - should not be in free energy time
-		{12, false}, // 12:00 - should not be in free energy time
-		{20, false}, // 20:00 - should not be in free energy time
-		{21, true},  // 21:00 - should be at the boundary (included)
-		{22, true},  // 22:00 - should be in free energy time
-		{23, true},  // 23:00 - should be in free energy time
-		{0, true},   // 00:00 - should be in free energy time
-	}
-
-	for _, tc := range testCases {
-		t.Run(time.Now().Format("15:04"), func(t *testing.T) {
-
-			// This is a simplified test - in reality we'd need to mock time.Now()
-			// For now, we just verify the function doesn't panic
-
-			result := manager.isFreeEnergyTime(true)
-			_ = result // Use the result to avoid unused variable
-			_ = tc     // Use tc to avoid unused variable warning
-		})
 	}
 }
 
@@ -259,10 +182,10 @@ func TestManagerStartAndHandlers(t *testing.T) {
 	// removed because this logic is now handled by the ComputedStateRegistry.
 	// See internal/state/computed_energy_providers_test.go for those tests.
 
-	t.Run("checkFreeEnergy", func(t *testing.T) {
+	t.Run("clearMeteredFreeEnergyAvailability", func(t *testing.T) {
 
-		env.StateMgr.SetBool("isGridAvailable", false)
-		manager.checkFreeEnergy()
+		env.StateMgr.SetBool("isFreeEnergyAvailable", true)
+		manager.clearMeteredFreeEnergyAvailability()
 		isFree, _ := env.StateMgr.GetBool("isFreeEnergyAvailable")
 		assert.False(t, isFree)
 	})
@@ -296,54 +219,6 @@ func TestLoadConfigError(t *testing.T) {
 	assert.Error(t, err)
 }
 
-// TestIsFreeEnergyTime_EdgeCases tests edge cases for free energy time
-func TestIsFreeEnergyTime_EdgeCases(t *testing.T) {
-	t.Parallel()
-	env := testutil.NewEnv(t)
-
-	t.Run("invalid_start_time", func(t *testing.T) {
-
-		config := &EnergyConfig{
-			Energy: struct {
-				FreeEnergyTime  FreeEnergyTime        `yaml:"free_energy_time"`
-				IndicatorLights IndicatorLightsConfig `yaml:"indicator_lights"`
-				EnergyStates    []EnergyState         `yaml:"energy_states"`
-			}{
-				FreeEnergyTime: FreeEnergyTime{
-					Start: "invalid",
-					End:   "07:00",
-				},
-				EnergyStates: []EnergyState{},
-			},
-		}
-
-		manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, false, nil, nil)
-		result := manager.isFreeEnergyTime(true)
-		assert.False(t, result)
-	})
-
-	t.Run("invalid_end_time", func(t *testing.T) {
-
-		config := &EnergyConfig{
-			Energy: struct {
-				FreeEnergyTime  FreeEnergyTime        `yaml:"free_energy_time"`
-				IndicatorLights IndicatorLightsConfig `yaml:"indicator_lights"`
-				EnergyStates    []EnergyState         `yaml:"energy_states"`
-			}{
-				FreeEnergyTime: FreeEnergyTime{
-					Start: "21:00",
-					End:   "invalid",
-				},
-				EnergyStates: []EnergyState{},
-			},
-		}
-
-		manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, false, nil, nil)
-		result := manager.isFreeEnergyTime(true)
-		assert.False(t, result)
-	})
-}
-
 // TestEnergyManager_Stop tests the Stop method and subscription cleanup
 func TestEnergyManager_Stop(t *testing.T) {
 	t.Parallel()
@@ -362,9 +237,9 @@ func TestEnergyManager_Stop(t *testing.T) {
 	err := manager.Start()
 	assert.NoError(t, err)
 
-	// Verify subscriptions were created via subHelper
-	// HA subscriptions: battery sensor, this hour solar, remaining solar (3 total)
-	// State subscriptions: isGridAvailable, solarProductionEnergyLevel, currentEnergyLevel (3 total)
+	// Verify subscriptions were created via subHelper.
+	// HA subscriptions: battery sensor, this hour solar, remaining solar (3 total).
+	// State subscriptions: isGridAvailable, solarProductionEnergyLevel, currentEnergyLevel (3 total).
 	assert.Equal(t, 3, len(manager.subHelper.GetHASubscriptions()), "Should have 3 HA subscriptions")
 	assert.Equal(t, 3, len(manager.subHelper.GetStateSubscriptions()), "Should have 3 state subscriptions")
 
@@ -398,21 +273,13 @@ func TestTimezoneHandling(t *testing.T) {
 		assert.Equal(t, estLocation, manager.timezone)
 	})
 
-	t.Run("timezone_affects_free_energy_calculation", func(t *testing.T) {
-
-		// Create a config with a specific free energy window
-		// Let's use 02:00 to 03:00 for easier testing
+	t.Run("timezone_constructor_argument_is_preserved", func(t *testing.T) {
 
 		testConfig := &EnergyConfig{
 			Energy: struct {
-				FreeEnergyTime  FreeEnergyTime        `yaml:"free_energy_time"`
 				IndicatorLights IndicatorLightsConfig `yaml:"indicator_lights"`
 				EnergyStates    []EnergyState         `yaml:"energy_states"`
 			}{
-				FreeEnergyTime: FreeEnergyTime{
-					Start: "02:00",
-					End:   "03:00",
-				},
 				EnergyStates: []EnergyState{
 					{ConditionName: "black"},
 				},
@@ -429,9 +296,7 @@ func TestTimezoneHandling(t *testing.T) {
 		estManager := NewManager(context.Background(), env.MockHA, env.StateMgr, testConfig, env.Logger, false, estLocation, nil)
 		assert.Equal(t, estLocation, estManager.timezone)
 
-		// Both managers should use their configured timezone for calculations
-		// We can't easily test the exact behavior without mocking time.Now(),
-		// but we've verified the timezone is set correctly
+		// Timezone is still accepted for compatibility with the manager constructor.
 	})
 }
 
@@ -456,7 +321,7 @@ func TestManagerReset(t *testing.T) {
 	assert.NoError(t, err)
 	defer manager.Stop()
 
-	// Reset should re-check free energy and update indicator lights
+	// Reset should clear retired metered free energy and update indicator lights.
 	err = manager.Reset()
 	assert.NoError(t, err)
 
@@ -485,7 +350,6 @@ func TestHandleGridAvailabilityChange(t *testing.T) {
 		manager.handleGridAvailabilityChange("isGridAvailable", false, true)
 
 		// Verify SetInputBoolean was called for grid_available
-		// Note: checkFreeEnergy() is also called, which may make additional service calls
 		serviceCalls := env.MockHA.GetServiceCallsSince(snapshot)
 		assert.GreaterOrEqual(t, len(serviceCalls), 1, "Expected at least one service call")
 
@@ -509,7 +373,6 @@ func TestHandleGridAvailabilityChange(t *testing.T) {
 		manager.handleGridAvailabilityChange("isGridAvailable", true, false)
 
 		// Verify SetInputBoolean was called with turn_off for grid_available
-		// Note: checkFreeEnergy() is also called, which may make additional service calls
 		serviceCalls := env.MockHA.GetServiceCallsSince(snapshot)
 		assert.GreaterOrEqual(t, len(serviceCalls), 1, "Expected at least one service call")
 
@@ -554,14 +417,14 @@ func TestHandleGridAvailabilityChange(t *testing.T) {
 		assert.Len(t, serviceCalls, 0, "Expected no service calls with invalid value")
 	})
 
-	t.Run("triggers_free_energy_recalculation", func(t *testing.T) {
+	t.Run("clears_metered_free_energy_flag", func(t *testing.T) {
 
 		env := testutil.NewEnv(t)
 
 		// Initialize required state variables
 		_ = env.StateMgr.SyncFromHA()
 		_ = env.StateMgr.SetBool("isGridAvailable", true)
-		_ = env.StateMgr.SetBool("isFreeEnergyAvailable", false)
+		_ = env.StateMgr.SetBool("isFreeEnergyAvailable", true)
 
 		manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, false, nil, nil)
 
@@ -569,20 +432,13 @@ func TestHandleGridAvailabilityChange(t *testing.T) {
 		snapshot := env.MockHA.ServiceCallCount()
 		_ = snapshot
 
-		// Get initial free energy state
-		initialFreeEnergy, _ := env.StateMgr.GetBool("isFreeEnergyAvailable")
-
 		// Simulate grid availability change
 		manager.handleGridAvailabilityChange("isGridAvailable", false, true)
 
-		// Verify free energy was recalculated (may or may not change depending on time)
-		// The important thing is that checkFreeEnergy was called without error
+		// Verify the retired free grid flag is cleared.
 		currentFreeEnergy, err := env.StateMgr.GetBool("isFreeEnergyAvailable")
 		assert.NoError(t, err)
-
-		// Value might be the same, but at least we verify it was processed
-		_ = initialFreeEnergy
-		_ = currentFreeEnergy
+		assert.False(t, currentFreeEnergy)
 	})
 }
 
@@ -679,7 +535,6 @@ func TestIndicatorLightsServiceCall(t *testing.T) {
 	snapshot := env.MockHA.ServiceCallCount()
 
 	// Test updateIndicatorLights directly with a specific energy level
-	// This avoids complications with free energy time and recalculation
 	manager.updateIndicatorLights("yellow")
 
 	// Verify the light service was called
@@ -1449,7 +1304,7 @@ func TestHandleLuxChangeWithInvalidValues(t *testing.T) {
 	env.MockHA.Connect()
 	env.StateMgr.SetString("currentEnergyLevel", "yellow")
 
-	// Use readOnly=true to avoid side effects from free energy checker
+	// Use readOnly=true to avoid side effects while exercising adaptive brightness.
 	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, true, nil, nil)
 	err := manager.Start()
 	assert.NoError(t, err)
