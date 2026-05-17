@@ -1471,6 +1471,9 @@ c.entityDispatchMu.Unlock()
 
 ## Change Log
 
+### 2026-05-17 (PR #1116)
+- **Fix data race on SubscriptionHelper subscription slices**: `haSubscriptions`, `stateSubscriptions`, `subscribedStateKeys`, and `subscribedHAEntities` were read and written concurrently without synchronization. Added `subscriptionsMu sync.RWMutex` to `SubscriptionHelper`; all appends hold a write lock and all reads (including `captureInputs`, `GetHASubscriptions`, `GetStateSubscriptions`, `UnsubscribeAll`) take a copy under a read lock before iterating. Applied to `internal/shadowstate/subscription_helper.go`. (Existing Lesson 3 covers the RWMutex pattern; this entry records where it was applied.)
+
 ### 2026-05-05 (PR #1082)
 - **Fix race in Lesson 20 teardown**: `Disconnect()` previously closed per-entity queue channels while `receiveMessages` / `handleEvent` could still be sending to them — a use-after-close channel panic. Fix adds two primitives:
   - `lifecycleMu sync.Mutex` (lock ordering position **1**, outermost) serializes concurrent `Connect()` / `Disconnect()` calls
