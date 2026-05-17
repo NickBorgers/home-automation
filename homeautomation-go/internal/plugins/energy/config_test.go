@@ -16,9 +16,6 @@ func TestLoadConfig(t *testing.T) {
 
 	configContent := `---
 energy:
-  free_energy_time:
-    start: "21:00"
-    end: "07:00"
   energy_states:
     - condition_name: white
       battery_minimum_percentage: 80.0
@@ -66,14 +63,6 @@ energy:
 	config, err := LoadConfig(configPath)
 	if err != nil {
 		t.Fatalf("Failed to load config: %v", err)
-	}
-
-	// Verify free energy time
-	if config.Energy.FreeEnergyTime.Start != "21:00" {
-		t.Errorf("Expected Start '21:00', got '%s'", config.Energy.FreeEnergyTime.Start)
-	}
-	if config.Energy.FreeEnergyTime.End != "07:00" {
-		t.Errorf("Expected End '07:00', got '%s'", config.Energy.FreeEnergyTime.End)
 	}
 
 	// Verify energy states count
@@ -178,9 +167,6 @@ func TestLoadConfigEmptyEnergyStates(t *testing.T) {
 
 	emptyContent := `---
 energy:
-  free_energy_time:
-    start: "21:00"
-    end: "07:00"
   energy_states: []
 `
 
@@ -206,9 +192,6 @@ func TestLoadConfigMinimalLightConfig(t *testing.T) {
 
 	minimalContent := `---
 energy:
-  free_energy_time:
-    start: "22:00"
-    end: "06:00"
   energy_states:
     - condition_name: test
       battery_minimum_percentage: 50.0

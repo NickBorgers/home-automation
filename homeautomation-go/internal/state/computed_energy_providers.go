@@ -92,9 +92,7 @@ func RegisterSolarEnergyLevelProvider(
 }
 
 // RegisterCurrentEnergyLevelProvider registers the currentEnergyLevel computed state.
-// Formula:
-//   - if isFreeEnergyAvailable: level = "white"
-//   - else: level = combineEnergyLevels(batteryEnergyLevel, solarProductionEnergyLevel)
+// Formula: level = combineEnergyLevels(batteryEnergyLevel, solarProductionEnergyLevel)
 //
 // The combination logic:
 //   - Solar can only boost, never drag down the battery level
@@ -102,7 +100,6 @@ func RegisterSolarEnergyLevelProvider(
 //   - If solar is higher, it can boost by at most 1 level
 //
 // Dependencies:
-//   - isFreeEnergyAvailable
 //   - batteryEnergyLevel
 //   - solarProductionEnergyLevel
 func RegisterCurrentEnergyLevelProvider(
@@ -118,21 +115,8 @@ func RegisterCurrentEnergyLevelProvider(
 
 	return registry.Register(&ComputedStateProvider{
 		Name:         "currentEnergyLevel",
-		Dependencies: []string{"isFreeEnergyAvailable", "batteryEnergyLevel", "solarProductionEnergyLevel"},
+		Dependencies: []string{"batteryEnergyLevel", "solarProductionEnergyLevel"},
 		ComputeFunc: func(ctx *ComputeContext) (interface{}, error) {
-			// Check for free energy override
-			isFreeEnergy, err := ctx.GetBool("isFreeEnergyAvailable")
-			if err != nil {
-				return nil, err
-			}
-
-			if isFreeEnergy {
-				ctx.Logger().Debug("Computed currentEnergyLevel",
-					zap.Bool("isFreeEnergyAvailable", true),
-					zap.String("result", "white"))
-				return "white", nil
-			}
-
 			batteryLevel, err := ctx.GetString("batteryEnergyLevel")
 			if err != nil {
 				return nil, err

@@ -40,9 +40,6 @@ type Manager struct {
 	timezone     *time.Location
 	clock        clock.Clock
 
-	// Control for free energy checker
-	stopChecker chan struct{}
-
 	// Control for baseline calibration
 	stopCalibration chan struct{}
 
@@ -97,7 +94,6 @@ func NewManager(ctx context.Context, haClient ha.HAClient, stateManager *state.M
 		readOnly:             readOnly,
 		timezone:             timezone,
 		clock:                clock.NewRealClock(),
-		stopChecker:          make(chan struct{}),
 		stopCalibration:      make(chan struct{}),
 		shadowTracker:        shadowTracker,
 		subHelper:            shadowstate.NewSubscriptionHelper(haClient, stateManager, registry, shadowTracker, "energy", logger.Named("energy")),
@@ -158,9 +154,8 @@ func (m *Manager) Start() error {
 		return fmt.Errorf("failed to subscribe to current energy level: %w", err)
 	}
 
-	// Discover indicator light entities (Apollo sensors) BEFORE starting the
-	// free energy checker goroutine. This ensures indicatorLightEntities is
-	// populated before any state change handlers call updateIndicatorLights().
+	// Discover indicator light entities (Apollo sensors) before state change
+	// handlers call updateIndicatorLights().
 	m.discoverIndicatorLights()
 
 	// Discover lux sensors and associate with indicator lights (for adaptive brightness)
@@ -171,9 +166,9 @@ func (m *Manager) Start() error {
 		return fmt.Errorf("failed to subscribe to lux sensors: %w", err)
 	}
 
-	// Start free energy check timer (check every minute)
-	m.startupWg.Add(1)
-	go m.runFreeEnergyChecker()
+	// Scheduled free metered grid energy has been retired. Clear the legacy
+	// state so stale Home Assistant values do not suggest free grid energy.
+	m.clearMeteredFreeEnergyAvailability()
 
 	// Start baseline calibration if enabled
 	if m.config.Energy.IndicatorLights.AdaptiveBrightness.BaselineCalibration.Enabled {
@@ -203,9 +198,6 @@ func (m *Manager) captureInitialInputs() {
 // Stop stops the Energy State Manager and cleans up subscriptions
 func (m *Manager) Stop() {
 	m.logger.Info("Stopping Energy State Manager")
-
-	// Stop the free energy checker goroutine
-	close(m.stopChecker)
 
 	// Stop the baseline calibration goroutine if enabled
 	if m.config.Energy.IndicatorLights.AdaptiveBrightness.BaselineCalibration.Enabled {
@@ -355,8 +347,9 @@ func (m *Manager) handleGridAvailabilityChange(key string, oldValue, newValue in
 		}
 	}
 
-	// Trigger free energy recalculation
-	m.checkFreeEnergy()
+	// Scheduled free metered grid energy has been retired. Keep the legacy flag
+	// false even when grid availability changes.
+	m.clearMeteredFreeEnergyAvailability()
 }
 
 // handleSolarLevelChange handles changes to the solarProductionEnergyLevel computed state.
@@ -594,127 +587,36 @@ func (m *Manager) updateIndicatorLights(energyLevel string) {
 		zap.Int("entity_count", len(entities)))
 }
 
-// runFreeEnergyChecker runs the free energy checker every minute
-func (m *Manager) runFreeEnergyChecker() {
-	ticker := time.NewTicker(1 * time.Minute)
-	defer ticker.Stop()
-
-	// Check immediately on start
-	m.checkFreeEnergy()
-
-	// Signal that startup initialization is complete
-	m.startupWg.Done()
-
-	for {
-		select {
-		case <-ticker.C:
-			m.checkFreeEnergy()
-		case <-m.stopChecker:
-			m.logger.Info("Stopping free energy checker")
-			return
-		}
-	}
-}
-
-// checkFreeEnergy checks if free energy is currently available
-func (m *Manager) checkFreeEnergy() {
-	isGridAvailable, err := m.stateManager.GetBool("isGridAvailable")
-	if err != nil {
-		m.logger.Error("Failed to get isGridAvailable", zap.Error(err))
-		return
-	}
-
-	isFreeEnergy := m.isFreeEnergyTime(isGridAvailable)
-
-	// Get current state
+// clearMeteredFreeEnergyAvailability clears the retired scheduled free-grid-energy flag.
+func (m *Manager) clearMeteredFreeEnergyAvailability() {
 	currentFreeEnergy, err := m.stateManager.GetBool("isFreeEnergyAvailable")
 	if err != nil {
 		m.logger.Error("Failed to get isFreeEnergyAvailable", zap.Error(err))
 		return
 	}
 
-	// Only log changes
-	if isFreeEnergy != currentFreeEnergy {
-		m.logger.Info("Free energy availability changed",
-			zap.Bool("is_free_energy", isFreeEnergy),
-			zap.Bool("is_grid_available", isGridAvailable))
+	if currentFreeEnergy {
+		m.logger.Info("Clearing retired scheduled free grid energy flag")
 	}
 
-	// Update state
-	if err := m.stateManager.SetBool("isFreeEnergyAvailable", isFreeEnergy); err != nil {
+	if err := m.stateManager.SetBool("isFreeEnergyAvailable", false); err != nil {
 		if errors.Is(err, state.ErrReadOnlyMode) {
-			m.logger.Debug("Skipping isFreeEnergyAvailable update in read-only mode",
-				zap.Bool("is_free_energy", isFreeEnergy))
+			m.logger.Debug("Skipping isFreeEnergyAvailable clear in read-only mode")
 		} else {
 			m.logger.Error("Failed to set isFreeEnergyAvailable", zap.Error(err))
 		}
 	}
 
 	// Update shadow state
-	m.shadowTracker.UpdateFreeEnergyAvailable(isFreeEnergy)
-}
-
-// isFreeEnergyTime checks if current time is within free energy window
-func (m *Manager) isFreeEnergyTime(isGridAvailable bool) bool {
-	if !isGridAvailable {
-		m.logger.Debug("Grid is not available, no free energy")
-		return false
-	}
-
-	// Get current time in configured timezone
-	now := m.clock.Now().In(m.timezone)
-
-	// Parse times (format: "21:00")
-	startTime, err := time.Parse("15:04", m.config.Energy.FreeEnergyTime.Start)
-	if err != nil {
-		m.logger.Error("Failed to parse free energy start time", zap.Error(err))
-		return false
-	}
-
-	endTime, err := time.Parse("15:04", m.config.Energy.FreeEnergyTime.End)
-	if err != nil {
-		m.logger.Error("Failed to parse free energy end time", zap.Error(err))
-		return false
-	}
-
-	// Set the times to today in configured timezone
-	todayStart := time.Date(now.Year(), now.Month(), now.Day(),
-		startTime.Hour(), startTime.Minute(), 0, 0, m.timezone)
-
-	todayEnd := time.Date(now.Year(), now.Month(), now.Day(),
-		endTime.Hour(), endTime.Minute(), 0, 0, m.timezone)
-
-	// If end time is before start time, it spans midnight
-	if todayEnd.Before(todayStart) {
-		// Free energy is from start time yesterday to end time today
-		// OR from start time today to end time tomorrow
-		if now.After(todayStart) || now.Before(todayEnd) {
-			m.logger.Debug("Within free energy time (spans midnight)",
-				zap.Time("now", now),
-				zap.Time("start", todayStart),
-				zap.Time("end", todayEnd))
-			return true
-		}
-	} else {
-		// Normal case: start and end on same day
-		if now.After(todayStart) && now.Before(todayEnd) {
-			m.logger.Debug("Within free energy time",
-				zap.Time("now", now),
-				zap.Time("start", todayStart),
-				zap.Time("end", todayEnd))
-			return true
-		}
-	}
-
-	return false
+	m.shadowTracker.UpdateFreeEnergyAvailable(false)
 }
 
 // Reset re-calculates overall energy level
 func (m *Manager) Reset() error {
 	m.logger.Info("Resetting Energy State - refreshing indicator lights")
 
-	// Re-check free energy availability
-	m.checkFreeEnergy()
+	// Clear the retired scheduled free-grid-energy flag.
+	m.clearMeteredFreeEnergyAvailability()
 
 	// Read current energy level from state (computed by ComputedStateRegistry)
 	// and update indicator lights to match

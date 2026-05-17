@@ -337,8 +337,8 @@ var pluginRegistry = []PluginMetadata{
 	},
 	{
 		Name:        "energy",
-		Description: "Monitors battery, solar production, and grid availability",
-		Reads:       []string{"isGridAvailable", "batteryEnergyLevel", "solarProductionEnergyLevel", "isFreeEnergyAvailable"},
+		Description: "Monitors battery and solar production",
+		Reads:       []string{"isGridAvailable", "batteryEnergyLevel", "solarProductionEnergyLevel"},
 		Writes:      []string{"batteryEnergyLevel", "thisHourSolarGeneration", "remainingSolarGeneration", "solarProductionEnergyLevel", "currentEnergyLevel", "isFreeEnergyAvailable"},
 	},
 	{

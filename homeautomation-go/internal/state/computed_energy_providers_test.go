@@ -233,12 +233,12 @@ func TestCurrentEnergyLevelComputation(t *testing.T) {
 		description   string
 	}{
 		{
-			name:          "free energy override",
+			name:          "retired free energy flag ignored",
 			isFreeEnergy:  true,
 			batteryLevel:  "black",
 			solarLevel:    "black",
-			expectedLevel: "white",
-			description:   "Free energy always results in white",
+			expectedLevel: "black",
+			description:   "Legacy free energy flag no longer overrides the battery and solar levels",
 		},
 		{
 			name:          "battery and solar same",
@@ -363,13 +363,13 @@ func TestCurrentEnergyLevelRecomputesOnDependencyChange(t *testing.T) {
 		t.Errorf("After battery change: Expected 'green', got '%s'", level)
 	}
 
-	// Enable free energy - this triggers the subscription
+	// Enable the retired free energy flag - this is no longer a dependency.
 	_ = manager.SetBool("isFreeEnergyAvailable", true)
 
-	// Should override to white
+	// Should remain based on battery and solar.
 	level, _ = manager.GetString("currentEnergyLevel")
-	if level != "white" {
-		t.Errorf("With free energy: Expected 'white', got '%s'", level)
+	if level != "green" {
+		t.Errorf("With legacy free energy flag: Expected 'green', got '%s'", level)
 	}
 }
 
@@ -499,7 +499,6 @@ func TestDependencyGraph(t *testing.T) {
 		t.Fatal("currentEnergyLevel not in dependency graph")
 	}
 	expectedOverallDeps := map[string]bool{
-		"isFreeEnergyAvailable":      true,
 		"batteryEnergyLevel":         true,
 		"solarProductionEnergyLevel": true,
 	}

@@ -1546,10 +1546,10 @@ func TestThermalBattery_SolarTail_ActivatesWhenRemainingBelowThreshold(t *testin
 	assert.True(t, shadow.Outputs.ThermalBattery.Active, "Shadow state should show active=true")
 }
 
-func TestThermalBattery_SolarTail_ActivatesImmediatelyDuringFreeEnergy(t *testing.T) {
+func TestThermalBattery_SolarTail_LegacyFreeEnergyFlagDoesNotBypassTail(t *testing.T) {
 	t.Parallel()
-	// Free-energy hours (overnight utility window) — solar timing does not apply.
-	// Even with remaining solar above threshold, should activate immediately.
+	// The legacy free-energy flag no longer represents free metered grid energy.
+	// Even when it is true, remaining solar above the threshold should defer activation.
 	stressTime := time.Now().Add(2 * time.Hour)
 	env := setupHeatCoolEnvWithHourlyForecast(t, 37.0, stressTime, 35.0)
 	require.NoError(t, env.StateMgr.SetBool("isFreeEnergyAvailable", true))
@@ -1561,12 +1561,12 @@ func TestThermalBattery_SolarTail_ActivatesImmediatelyDuringFreeEnergy(t *testin
 
 	require.NoError(t, env.StateMgr.SetString("currentEnergyLevel", "white"))
 
-	// Should activate immediately (free energy in effect)
-	assert.True(t, ls.IsThermalBatteryActive(), "Thermal battery should activate during free-energy hours regardless of solar tail")
+	assert.False(t, ls.IsThermalBatteryActive(), "Thermal battery should wait for the solar tail")
 
 	shadow := ls.GetShadowState()
-	assert.False(t, shadow.Outputs.ThermalBattery.Deferred)
-	assert.True(t, shadow.Outputs.ThermalBattery.Active)
+	assert.True(t, shadow.Outputs.ThermalBattery.Deferred)
+	assert.False(t, shadow.Outputs.ThermalBattery.Active)
+	assert.Contains(t, shadow.Outputs.ThermalBattery.DeferReason, "solar tail not yet reached")
 }
 
 func TestThermalBattery_SolarTail_SkipsWhenNoStress(t *testing.T) {

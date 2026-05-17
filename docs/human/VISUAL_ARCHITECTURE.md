@@ -868,28 +868,20 @@ flowchart TD
     SyncToHA4 --> CalculateCurrent
     SyncToHA5 --> CalculateCurrent
 
-    CalculateCurrent[Calculate currentEnergyLevel] --> CheckFreeEnergy{isFreeEnergyAvailable?}
+    CalculateCurrent[Calculate currentEnergyLevel] --> CompareSolar{Solar level > battery level?}
 
-    CheckFreeEnergy -->|Yes| SetInfinite[currentEnergyLevel = 'infinite']
-    CheckFreeEnergy -->|No| CheckGrid{isGridAvailable?}
+    CompareSolar -->|Yes| BoostSolar[currentEnergyLevel = battery + 1<br/>capped at solar level]
+    CompareSolar -->|No| UseBattery[currentEnergyLevel = batteryEnergyLevel]
 
-    CheckGrid -->|Yes & battery high/full| SetAbundant[currentEnergyLevel = 'abundant']
-    CheckGrid -->|Yes & battery medium| SetPlenty[currentEnergyLevel = 'plenty']
-    CheckGrid -->|No or battery low/critical| UseBattery[currentEnergyLevel = batteryEnergyLevel]
-
-    SetInfinite --> UpdateOverall[Update Shadow State:<br/>Overall Level]
-    SetAbundant --> UpdateOverall
-    SetPlenty --> UpdateOverall
+    BoostSolar --> UpdateOverall[Update Shadow State:<br/>Overall Level]
     UseBattery --> UpdateOverall
 
     UpdateOverall --> End([End])
 
     style Start fill:#e1f5ff
     style CheckLevels fill:#fff3e0
-    style CheckFreeEnergy fill:#fff3e0
-    style CheckGrid fill:#fff3e0
-    style SetInfinite fill:#c8e6c9
-    style SetAbundant fill:#e8f5e9
+    style CompareSolar fill:#fff3e0
+    style BoostSolar fill:#e8f5e9
     style UseBattery fill:#ffebee
     style UpdateShadow1 fill:#f3e5f5
     style UpdateBattery1 fill:#f3e5f5
@@ -937,7 +929,6 @@ graph LR
         BatteryLevel[batteryEnergyLevel]
         SolarLevel[solarProductionEnergyLevel]
         CurrentEnergy[currentEnergyLevel]
-        FreeEnergy[isFreeEnergyAvailable]
         OwnerJustReturned[didOwnerJustReturnHome]
         RemainingSolar[remainingSolarGeneration]
     end
@@ -1035,7 +1026,6 @@ graph LR
     Energy --> BatteryLevel
     Energy --> SolarLevel
     Energy --> CurrentEnergy
-    Energy --> FreeEnergy
     Energy --> RemainingSolar
 
     AlarmTime --> SleepHygiene
@@ -1072,7 +1062,6 @@ graph LR
     CurrentEnergy --> LoadShedding
     AnyoneHome --> LoadShedding
     EveryoneAsleep --> LoadShedding
-    FreeEnergy --> LoadShedding
     RemainingSolar --> LoadShedding
 
     DayPhase --> ChristmasPlugin
@@ -1125,7 +1114,6 @@ graph LR
     style BatteryLevel fill:#fff3e0
     style SolarLevel fill:#fff3e0
     style CurrentEnergy fill:#fff3e0
-    style FreeEnergy fill:#fff3e0
     style OwnerJustReturned fill:#fff3e0
     style RemainingSolar fill:#fff3e0
 

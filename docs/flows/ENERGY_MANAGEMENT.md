@@ -20,13 +20,11 @@ flowchart TD
         battery["Battery %<br/>(SPAN Panel)"]
         thisHourSolar["This Hour Solar<br/>(kW)"]
         remainingSolar["Remaining Solar<br/>(kWh today)"]
-        gridAvail["Grid Available?"]
     end
 
     subgraph Intermediate["Intermediate Levels"]
         batteryLevel["Battery Energy Level"]
         solarLevel["Solar Production Level"]
-        freeEnergy["Free Energy Check"]
     end
 
     subgraph Output["Overall Energy Level"]
@@ -36,11 +34,9 @@ flowchart TD
     battery --> batteryLevel
     thisHourSolar --> solarLevel
     remainingSolar --> solarLevel
-    gridAvail --> freeEnergy
 
     batteryLevel --> overallLevel
     solarLevel --> overallLevel
-    freeEnergy --> overallLevel
 
     style overallLevel fill:#27ae60,color:#fff
 ```
@@ -55,14 +51,13 @@ Energy states are ordered from lowest to highest availability:
 | `red` | Red | 10% | 0.5 kW | Low - conserve power |
 | `yellow` | Yellow | 30% | 1.0 kW | Moderate - normal usage |
 | `green` | Green | 60% | 2.0 kW | Good - energy available |
-| `white` | White | N/A | N/A | Free energy time |
+| `white` | White | 95% | 4.0 kW / 20 kWh remaining | Abundant solar / stored energy |
 
 ### Overall Level Algorithm
 
 ```mermaid
 flowchart TD
-    subgraph Check["Priority Checks"]
-        freeCheck{"Free energy<br/>available?"}
+    subgraph Inputs["Inputs"]
         battLevel["Get batteryEnergyLevel"]
         solarLevel["Get solarProductionLevel"]
     end
@@ -74,12 +69,9 @@ flowchart TD
     end
 
     subgraph Result["Final Level"]
-        white["white"]
         calculated["Final output level"]
     end
 
-    freeCheck -->|Yes| white
-    freeCheck -->|No| battLevel
     battLevel --> compare
     solarLevel --> compare
     compare -->|No| useBase
@@ -87,7 +79,6 @@ flowchart TD
     useBase --> calculated
     boost --> calculated
 
-    style white fill:#fff,stroke:#333
     style calculated fill:#27ae60,color:#fff
 ```
 
@@ -103,27 +94,7 @@ Examples:
 
 ## Free Energy Detection
 
-During utility "free" hours, energy usage is unrestricted:
-
-```mermaid
-flowchart TD
-    subgraph FreeEnergy["Free Energy Check"]
-        checkGrid{"Grid<br/>available?"}
-        checkTime{"Within free<br/>energy hours?"}
-        notFree["Normal energy<br/>level calculation"]
-        isFree["Set level = white<br/>(unrestricted)"]
-    end
-
-    checkGrid -->|No| notFree
-    checkGrid -->|Yes| checkTime
-    checkTime -->|No| notFree
-    checkTime -->|Yes| isFree
-
-    style isFree fill:#fff,stroke:#333
-    style notFree fill:#3498db,color:#fff
-```
-
-Free energy hours are configured (typically overnight when utility rates are lowest or during grid surplus).
+Scheduled free metered grid energy is no longer used. The `white` energy level now comes from the configured battery and solar thresholds, so abundant solar production can still enable unrestricted-energy behavior.
 
 ## Indicator Light Updates
 
@@ -243,7 +214,7 @@ See [LOAD_SHEDDING.md](./LOAD_SHEDDING.md) for thermostat control and thermal ba
 |----------|------|-------------|
 | `batteryEnergyLevel` | string | Battery-based level (black/red/yellow/green) |
 | `solarProductionEnergyLevel` | string | Solar-based level |
-| `isFreeEnergyAvailable` | bool | True during free energy hours |
+| `isFreeEnergyAvailable` | bool | Legacy metered-grid flag, kept false |
 | `currentEnergyLevel` | string | Overall combined level |
 | `thisHourSolarGeneration` | number | Current solar kW |
 | `remainingSolarGeneration` | number | Remaining solar kWh |

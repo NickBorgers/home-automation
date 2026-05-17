@@ -6,12 +6,6 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// FreeEnergyTime represents the time range for free energy
-type FreeEnergyTime struct {
-	Start string `yaml:"start"` // Format: "21:00"
-	End   string `yaml:"end"`   // Format: "07:00"
-}
-
 // EnergyState represents a single energy state level
 type EnergyState struct {
 	ConditionName                       string      `yaml:"condition_name"`
@@ -95,7 +89,6 @@ type IndicatorLightsConfig struct {
 // EnergyConfig represents the energy configuration
 type EnergyConfig struct {
 	Energy struct {
-		FreeEnergyTime  FreeEnergyTime        `yaml:"free_energy_time"`
 		IndicatorLights IndicatorLightsConfig `yaml:"indicator_lights"`
 		EnergyStates    []EnergyState         `yaml:"energy_states"`
 	} `yaml:"energy"`

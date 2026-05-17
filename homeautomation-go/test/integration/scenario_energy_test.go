@@ -155,13 +155,10 @@ func TestScenario_SolarProductionUpdates_CalculatesEnergyLevel(t *testing.T) {
 	waitForStringState(t, manager, "solarProductionEnergyLevel", "yellow", "Solar level should be yellow with 1kW/5kWh")
 }
 
-// TestScenario_GridAvailability_RecalculatesFreeEnergy validates that when
-// grid availability changes, isFreeEnergyAvailable recalculates
-func TestScenario_GridAvailability_RecalculatesFreeEnergy(t *testing.T) {
+// TestScenario_GridAvailability_DoesNotEnableFreeEnergy validates that grid
+// availability changes no longer enable scheduled metered free energy.
+func TestScenario_GridAvailability_DoesNotEnableFreeEnergy(t *testing.T) {
 	t.Parallel()
-	// This test needs a controlled time to ensure consistent behavior.
-	// We use a fixed reference time of 12:00 noon UTC (outside free energy window 21:00-07:00).
-
 	server, client, manager, baseCleanup := setupTest(t)
 	defer baseCleanup()
 
@@ -173,8 +170,6 @@ func TestScenario_GridAvailability_RecalculatesFreeEnergy(t *testing.T) {
 	// Create logger
 	logger := testlogger.New()
 
-	// Use a fixed reference time: January 15, 2024 at 12:00 noon UTC
-	// This is clearly outside the free energy window (21:00-07:00)
 	fixedTime := time.Date(2024, 1, 15, 12, 0, 0, 0, time.UTC)
 	mockClock := clock.NewMockClock(fixedTime)
 
@@ -188,13 +183,12 @@ func TestScenario_GridAvailability_RecalculatesFreeEnergy(t *testing.T) {
 	// Wait for startup goroutines to complete initial work
 	energyMgr.WaitForStartup()
 
-	// GIVEN: Grid is available, outside free energy time window (12:00 noon)
-	t.Log("GIVEN: Grid is available, outside free energy time window (12:00 noon)")
+	// GIVEN: Grid is available
+	t.Log("GIVEN: Grid is available")
 	err = manager.SetBool("isGridAvailable", true)
 	require.NoError(t, err)
 
-	// Check initial free energy state - should be false since we're at noon (outside 21:00-07:00)
-	waitForBoolState(t, manager, "isFreeEnergyAvailable", false, "Free energy should be false at noon (outside 21:00-07:00 window)")
+	waitForBoolState(t, manager, "isFreeEnergyAvailable", false, "Metered grid free energy should remain false")
 	isFreeEnergy, err := manager.GetBool("isFreeEnergyAvailable")
 	require.NoError(t, err)
 	t.Logf("Initial free energy state: %v", isFreeEnergy)
@@ -204,18 +198,18 @@ func TestScenario_GridAvailability_RecalculatesFreeEnergy(t *testing.T) {
 	err = manager.SetBool("isGridAvailable", false)
 	require.NoError(t, err)
 
-	// THEN: Free energy should be false (no grid = no free energy)
+	// THEN: Metered grid free energy should be false
 	t.Log("THEN: Free energy should be false")
-	waitForBoolState(t, manager, "isFreeEnergyAvailable", false, "Free energy should be false when grid is offline")
+	waitForBoolState(t, manager, "isFreeEnergyAvailable", false, "Metered grid free energy should remain false")
 
 	// WHEN: Grid comes back online
 	t.Log("WHEN: Grid comes back online")
 	err = manager.SetBool("isGridAvailable", true)
 	require.NoError(t, err)
 
-	// THEN: Free energy should still be false (we're at noon, outside the window)
-	t.Log("THEN: Free energy should still be false (noon is outside 21:00-07:00)")
-	waitForBoolState(t, manager, "isFreeEnergyAvailable", false, "Free energy should be false at noon even with grid online")
+	// THEN: Metered grid free energy should still be false
+	t.Log("THEN: Free energy should still be false")
+	waitForBoolState(t, manager, "isFreeEnergyAvailable", false, "Metered grid free energy should remain false")
 
 	// Verify service call was made
 	calls := server.GetServiceCalls()
@@ -226,10 +220,6 @@ func TestScenario_GridAvailability_RecalculatesFreeEnergy(t *testing.T) {
 // currentEnergyLevel correctly reflects the worst state across battery/solar
 func TestScenario_OverallEnergyLevel_ReflectsWorstState(t *testing.T) {
 	t.Parallel()
-	// This test needs a controlled time to ensure we're outside the free energy window.
-	// During free energy time (21:00-07:00), currentEnergyLevel would be "white" instead of
-	// the expected battery/solar-derived levels.
-
 	server, client, manager, baseCleanup := setupTest(t)
 	defer baseCleanup()
 
@@ -256,8 +246,6 @@ func TestScenario_OverallEnergyLevel_ReflectsWorstState(t *testing.T) {
 	// Create logger
 	logger := testlogger.New()
 
-	// Use a fixed reference time: January 15, 2024 at 12:00 noon UTC
-	// This is clearly outside the free energy window (21:00-07:00)
 	fixedTime := time.Date(2024, 1, 15, 12, 0, 0, 0, time.UTC)
 	mockClock := clock.NewMockClock(fixedTime)
 
@@ -272,7 +260,7 @@ func TestScenario_OverallEnergyLevel_ReflectsWorstState(t *testing.T) {
 	energyMgr.WaitForStartup()
 
 	// GIVEN: Battery at green (85%), solar at green (2kW, 15kWh)
-	t.Log("GIVEN: Battery green, solar green (at noon, outside free energy window)")
+	t.Log("GIVEN: Battery green, solar green")
 	server.SetState("sensor.span_panel_span_storage_battery_percentage_2", "85.0", map[string]interface{}{
 		"unit_of_measurement": "%",
 	})
@@ -283,9 +271,9 @@ func TestScenario_OverallEnergyLevel_ReflectsWorstState(t *testing.T) {
 		"unit_of_measurement": "kWh",
 	})
 
-	// Verify overall level is green (not white, since we're outside free energy window)
+	// Verify overall level is green.
 	waitForProcessing(t, manager)
-	waitForStringState(t, manager, "currentEnergyLevel", "green", "Overall level should be green when both are green (outside free energy window)")
+	waitForStringState(t, manager, "currentEnergyLevel", "green", "Overall level should be green when both are green")
 
 	// WHEN: Battery drops to black (15%), solar still green
 	t.Log("WHEN: Battery drops to black, solar stays green")
@@ -319,16 +307,15 @@ func TestScenario_OverallEnergyLevel_ReflectsWorstState(t *testing.T) {
 		"Overall level should stay red when battery is black and solar is at the lowest configured solar tier")
 }
 
-// TestScenario_FreeEnergyTimeWindow_OverridesEnergyLevel validates that when
-// in free energy time window with grid available, currentEnergyLevel is "white"
-func TestScenario_FreeEnergyTimeWindow_OverridesEnergyLevel(t *testing.T) {
+// TestScenario_MeteredGridFreeEnergyWindow_DoesNotOverrideEnergyLevel validates
+// that the retired metered-grid free-energy schedule no longer sets white.
+func TestScenario_MeteredGridFreeEnergyWindow_DoesNotOverrideEnergyLevel(t *testing.T) {
 	t.Parallel()
 	// Setup test environment manually without starting energy manager
 	server, client, manager, baseCleanup := setupTest(t)
 	defer baseCleanup()
 
-	// Use a fixed reference time: January 15, 2024 at 22:00 (10 PM) UTC
-	// This is inside the free energy window (21:00-07:00)
+	// Use a fixed reference time that used to be inside the retired free grid window.
 	fixedTime := time.Date(2024, 1, 15, 22, 0, 0, 0, time.UTC)
 	mockClock := clock.NewMockClock(fixedTime)
 
@@ -362,28 +349,53 @@ func TestScenario_FreeEnergyTimeWindow_OverridesEnergyLevel(t *testing.T) {
 	// Wait for startup goroutines to complete initial work
 	energyMgr.WaitForStartup()
 
-	// GIVEN: Battery at red (15%), grid available, in free energy time window
-	t.Log("GIVEN: Battery red, grid available, in free energy time window")
+	// GIVEN: Battery at black (15%) and grid available during the old free grid window
+	t.Log("GIVEN: Battery black and grid available during the old free grid window")
 	server.SetState("sensor.span_panel_span_storage_battery_percentage_2", "15.0", map[string]interface{}{
 		"unit_of_measurement": "%",
 	})
 	err = manager.SetBool("isGridAvailable", true)
 	require.NoError(t, err)
 
-	// Verify free energy is available (we're at 22:00, inside the 21:00-07:00 window)
-	waitForBoolState(t, manager, "isFreeEnergyAvailable", true, "Free energy should be available at 22:00 with grid online")
+	// THEN: The retired free grid flag remains false and overall level follows battery + solar.
+	waitForBoolState(t, manager, "isFreeEnergyAvailable", false, "Metered grid free energy should remain false")
 	isFreeEnergy, err := manager.GetBool("isFreeEnergyAvailable")
 	require.NoError(t, err)
 	t.Logf("Free energy available: %v", isFreeEnergy)
 
-	if isFreeEnergy {
-		// THEN: Overall level should be white (free energy override)
-		t.Log("THEN: Overall level should be white")
-		overallLevel, err := manager.GetString("currentEnergyLevel")
-		require.NoError(t, err)
-		assert.Equal(t, "white", overallLevel,
-			"Overall level should be white during free energy time")
-	}
+	t.Log("THEN: Overall level should not be white from metered grid time")
+	waitForStringState(t, manager, "batteryEnergyLevel", "black", "Battery level should settle before checking overall level")
+	waitForProcessing(t, manager)
+	overallLevel, err := manager.GetString("currentEnergyLevel")
+	require.NoError(t, err)
+	// setupTest initializes solar to "white"; the combine logic takes the worst non-white level
+	// ("black" battery), then the white solar boosts it one step to "red". So "red" is correct.
+	assert.Equal(t, "red", overallLevel, "Overall level should follow battery and solar without metered grid override")
+}
+
+// TestScenario_HighSolarProduction_CanStillSetWhiteEnergyLevel validates that
+// abundant solar can still produce white energy level after grid free hours are removed.
+func TestScenario_HighSolarProduction_CanStillSetWhiteEnergyLevel(t *testing.T) {
+	t.Parallel()
+	server, _, manager, _, cleanup := setupEnergyScenarioTest(t)
+	defer cleanup()
+
+	// GIVEN: Battery is green and solar production is high enough for white.
+	t.Log("GIVEN: Battery green and solar production is high enough for white")
+	server.SetState("sensor.span_panel_span_storage_battery_percentage_2", "85.0", map[string]interface{}{
+		"unit_of_measurement": "%",
+	})
+	server.SetState("sensor.energy_next_hour", "4.0", map[string]interface{}{
+		"unit_of_measurement": "kW",
+	})
+	server.SetState("sensor.energy_production_today_remaining", "20.0", map[string]interface{}{
+		"unit_of_measurement": "kWh",
+	})
+
+	// THEN: Overall level can still become white from solar.
+	t.Log("THEN: Overall level becomes white from solar")
+	waitForStringState(t, manager, "solarProductionEnergyLevel", "white", "Solar level should be white with high production")
+	waitForStringState(t, manager, "currentEnergyLevel", "white", "Overall level should be white from solar boost")
 }
 
 // TestScenario_ThresholdBoundaries_HandlesExactValues validates that energy
@@ -516,17 +528,4 @@ func TestScenario_MultipleConcurrentChanges_HandlesCorrectly(t *testing.T) {
 	// The system should handle rapid changes without crashing or deadlocking
 	// This test passing at all (without timeout or panic) validates this
 	t.Log("SUCCESS: Handled multiple concurrent changes without errors")
-}
-
-// TestScenario_PeriodicChecker_UpdatesFreeEnergy validates that the periodic
-// free energy checker runs and updates state correctly
-func TestScenario_PeriodicChecker_UpdatesFreeEnergy(t *testing.T) {
-	t.Parallel()
-	// Note: This test would need to wait 1+ minute for the periodic checker
-	// For now, we validate that the checker can be triggered manually via grid change
-	t.Skip("Skipping periodic checker test - would require 1+ minute wait time")
-
-	// The free energy checker is tested indirectly via:
-	// - TestScenario_GridAvailability_RecalculatesFreeEnergy
-	// - TestScenario_FreeEnergyTimeWindow_OverridesEnergyLevel
 }

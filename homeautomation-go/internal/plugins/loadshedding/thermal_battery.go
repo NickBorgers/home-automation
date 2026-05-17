@@ -484,45 +484,39 @@ func (m *Manager) activateThermalBattery() {
 				direction = stressDir
 				forecastStress := formatForecastStress(stressDir, stressTemp, stressTime)
 
-				// Solar-tail gate: during normal daylight, defer activation until the
-				// remaining solar production drops below the tail threshold. During
-				// free-energy hours (overnight utility window), the stored thermal
-				// mass is being charged from cheap grid energy, so solar timing does
-				// not apply — proceed to activate immediately.
-				freeEnergy, _ := m.stateManager.GetBool("isFreeEnergyAvailable")
-				if !freeEnergy {
-					remainingKWh, err := m.stateManager.GetNumber("remainingSolarGeneration")
-					if err != nil {
-						m.logger.Info("remainingSolarGeneration unavailable, activating without solar-tail gate",
-							zap.Error(err))
+				// Solar-tail gate: defer activation until the remaining solar
+				// production drops below the tail threshold.
+				remainingKWh, err := m.stateManager.GetNumber("remainingSolarGeneration")
+				if err != nil {
+					m.logger.Info("remainingSolarGeneration unavailable, activating without solar-tail gate",
+						zap.Error(err))
+				}
+				if err == nil && remainingKWh > m.thermalBatterySolarTailThresholdKWh {
+					deferReason := fmt.Sprintf(
+						"solar tail not yet reached (remaining: %.1f kWh, threshold: %.1f kWh)",
+						remainingKWh, m.thermalBatterySolarTailThresholdKWh)
+
+					m.thermalBatteryDeferred = true
+
+					// Start re-evaluation timer if not already running
+					if m.thermalBatteryDeferCancel == nil {
+						cancelCh := make(chan struct{})
+						m.thermalBatteryDeferCancel = cancelCh
+						go m.runDeferredActivationTimer(cancelCh)
 					}
-					if err == nil && remainingKWh > m.thermalBatterySolarTailThresholdKWh {
-						deferReason := fmt.Sprintf(
-							"solar tail not yet reached (remaining: %.1f kWh, threshold: %.1f kWh)",
-							remainingKWh, m.thermalBatterySolarTailThresholdKWh)
 
-						m.thermalBatteryDeferred = true
-
-						// Start re-evaluation timer if not already running
-						if m.thermalBatteryDeferCancel == nil {
-							cancelCh := make(chan struct{})
-							m.thermalBatteryDeferCancel = cancelCh
-							go m.runDeferredActivationTimer(cancelCh)
-						}
-
-						m.shadowTracker.RecordThermalBatteryDeferred(
-							deferReason, stressDir, forecastStress,
-							remainingKWh, m.thermalBatterySolarTailThresholdKWh)
-						m.logger.Info("Thermal battery deferred: solar tail not yet reached",
-							zap.Float64("remaining_solar_kwh", remainingKWh),
-							zap.Float64("threshold_kwh", m.thermalBatterySolarTailThresholdKWh),
-							zap.String("stress_direction", stressDir),
-							zap.String("forecast_stress", forecastStress))
-						return
-					}
+					m.shadowTracker.RecordThermalBatteryDeferred(
+						deferReason, stressDir, forecastStress,
+						remainingKWh, m.thermalBatterySolarTailThresholdKWh)
+					m.logger.Info("Thermal battery deferred: solar tail not yet reached",
+						zap.Float64("remaining_solar_kwh", remainingKWh),
+						zap.Float64("threshold_kwh", m.thermalBatterySolarTailThresholdKWh),
+						zap.String("stress_direction", stressDir),
+						zap.String("forecast_stress", forecastStress))
+					return
 				}
 
-				// Solar tail reached (or free energy in effect) — proceed to activate.
+				// Solar tail reached — proceed to activate.
 				// Clear any deferred state (timer goroutine will see deferred=false and exit).
 				if m.thermalBatteryDeferred {
 					m.stopDeferredActivationTimer()
@@ -535,8 +529,7 @@ func (m *Manager) activateThermalBattery() {
 
 				m.logger.Info("Thermal battery: solar tail reached, activating now",
 					zap.String("stress_direction", stressDir),
-					zap.String("forecast_stress", forecastStress),
-					zap.Bool("free_energy", freeEnergy))
+					zap.String("forecast_stress", forecastStress))
 				break
 			}
 		} else {
