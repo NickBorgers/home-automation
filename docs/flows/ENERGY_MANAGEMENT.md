@@ -214,7 +214,7 @@ See [LOAD_SHEDDING.md](./LOAD_SHEDDING.md) for thermostat control and thermal ba
 |----------|------|-------------|
 | `batteryEnergyLevel` | string | Battery-based level (black/red/yellow/green) |
 | `solarProductionEnergyLevel` | string | Solar-based level |
-| `isFreeEnergyAvailable` | bool | Legacy metered-grid flag, kept false |
+| `isFreeEnergyAvailable` | bool | Legacy metered-grid flag, retired (always false) |
 | `currentEnergyLevel` | string | Overall combined level |
 | `thisHourSolarGeneration` | number | Current solar kW |
 | `remainingSolarGeneration` | number | Remaining solar kWh |

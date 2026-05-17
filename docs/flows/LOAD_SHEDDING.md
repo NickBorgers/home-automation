@@ -365,6 +365,7 @@ flowchart LR
 | `currentEnergyLevel` | string | Energy Plugin | Overall energy availability |
 | `isAnyoneHome` | bool | State Tracking Plugin | Whether anyone is home (thermal battery guard) |
 | `isEveryoneAsleep` | bool | State Tracking Plugin | Whether everyone is asleep (thermal battery guard) |
+| `isFreeEnergyAvailable` | bool | Energy Plugin | Legacy metered-grid flag, retired (always false); gate logic effectively disabled |
 | `remainingSolarGeneration` | number | Energy Plugin | Remaining solar kWh forecast; gate defers while above threshold |
 
 ### Internal State
