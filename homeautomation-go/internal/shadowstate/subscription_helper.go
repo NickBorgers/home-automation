@@ -2,6 +2,7 @@ package shadowstate
 
 import (
 	"fmt"
+	"sync"
 
 	"homeautomation/internal/ha"
 	"homeautomation/internal/state"
@@ -28,6 +29,7 @@ type SubscriptionHelper struct {
 	logger        *zap.Logger
 
 	// Track subscriptions for cleanup
+	subscriptionsMu    sync.RWMutex
 	haSubscriptions    []ha.Subscription
 	stateSubscriptions []state.Subscription
 
@@ -83,11 +85,15 @@ func (h *SubscriptionHelper) captureInputs() {
 
 	// Fallback: capture inputs directly from tracked subscriptions (for tests without registry)
 	inputs := make(map[string]interface{})
+	h.subscriptionsMu.RLock()
+	subscribedStateKeys := append([]string(nil), h.subscribedStateKeys...)
+	subscribedHAEntities := append([]string(nil), h.subscribedHAEntities...)
+	h.subscriptionsMu.RUnlock()
 
 	// Capture state variable values
 	if h.stateManager != nil {
 		allValues := h.stateManager.GetAllValues()
-		for _, key := range h.subscribedStateKeys {
+		for _, key := range subscribedStateKeys {
 			if val, ok := allValues[key]; ok {
 				inputs[key] = val
 			}
@@ -96,7 +102,7 @@ func (h *SubscriptionHelper) captureInputs() {
 
 	// Capture HA entity states
 	if h.haClient != nil {
-		for _, entityID := range h.subscribedHAEntities {
+		for _, entityID := range subscribedHAEntities {
 			if state, err := h.haClient.GetState(entityID); err == nil && state != nil {
 				inputs[entityID] = state.State
 			}
@@ -125,7 +131,9 @@ func (h *SubscriptionHelper) SubscribeToSensor(entityID string, handler func(val
 	}
 
 	// Track the entity for fallback input capture
+	h.subscriptionsMu.Lock()
 	h.subscribedHAEntities = append(h.subscribedHAEntities, entityID)
+	h.subscriptionsMu.Unlock()
 
 	sub, err := h.haClient.SubscribeStateChanges(entityID, func(entity string, oldState, newState *ha.State) {
 		if newState == nil {
@@ -152,7 +160,9 @@ func (h *SubscriptionHelper) SubscribeToSensor(entityID string, handler func(val
 		return fmt.Errorf("failed to subscribe to %s: %w", entityID, err)
 	}
 
+	h.subscriptionsMu.Lock()
 	h.haSubscriptions = append(h.haSubscriptions, sub)
+	h.subscriptionsMu.Unlock()
 	return nil
 }
 
@@ -165,7 +175,9 @@ func (h *SubscriptionHelper) SubscribeToEntity(entityID string, handler func(ent
 	}
 
 	// Track the entity for fallback input capture
+	h.subscriptionsMu.Lock()
 	h.subscribedHAEntities = append(h.subscribedHAEntities, entityID)
+	h.subscriptionsMu.Unlock()
 
 	sub, err := h.haClient.SubscribeStateChanges(entityID, func(entity string, oldState, newState *ha.State) {
 		// Capture shadow state inputs BEFORE calling the handler
@@ -178,7 +190,9 @@ func (h *SubscriptionHelper) SubscribeToEntity(entityID string, handler func(ent
 		return fmt.Errorf("failed to subscribe to %s: %w", entityID, err)
 	}
 
+	h.subscriptionsMu.Lock()
 	h.haSubscriptions = append(h.haSubscriptions, sub)
+	h.subscriptionsMu.Unlock()
 	return nil
 }
 
@@ -191,7 +205,9 @@ func (h *SubscriptionHelper) SubscribeToState(key string, handler func(key strin
 	}
 
 	// Track the key for fallback input capture
+	h.subscriptionsMu.Lock()
 	h.subscribedStateKeys = append(h.subscribedStateKeys, key)
+	h.subscriptionsMu.Unlock()
 
 	sub, err := h.stateManager.Subscribe(key, func(k string, oldValue, newValue interface{}) {
 		// Capture shadow state inputs BEFORE calling the handler
@@ -204,29 +220,40 @@ func (h *SubscriptionHelper) SubscribeToState(key string, handler func(key strin
 		return fmt.Errorf("failed to subscribe to %s: %w", key, err)
 	}
 
+	h.subscriptionsMu.Lock()
 	h.stateSubscriptions = append(h.stateSubscriptions, sub)
+	h.subscriptionsMu.Unlock()
 	return nil
 }
 
 // GetHASubscriptions returns all HA subscriptions (for manual cleanup if needed)
 func (h *SubscriptionHelper) GetHASubscriptions() []ha.Subscription {
-	return h.haSubscriptions
+	h.subscriptionsMu.RLock()
+	defer h.subscriptionsMu.RUnlock()
+	return append([]ha.Subscription(nil), h.haSubscriptions...)
 }
 
 // GetStateSubscriptions returns all state subscriptions (for manual cleanup if needed)
 func (h *SubscriptionHelper) GetStateSubscriptions() []state.Subscription {
-	return h.stateSubscriptions
+	h.subscriptionsMu.RLock()
+	defer h.subscriptionsMu.RUnlock()
+	return append([]state.Subscription(nil), h.stateSubscriptions...)
 }
 
 // UnsubscribeAll cleans up all subscriptions
 func (h *SubscriptionHelper) UnsubscribeAll() {
-	for _, sub := range h.haSubscriptions {
-		sub.Unsubscribe()
-	}
+	h.subscriptionsMu.Lock()
+	haSubscriptions := append([]ha.Subscription(nil), h.haSubscriptions...)
+	stateSubscriptions := append([]state.Subscription(nil), h.stateSubscriptions...)
 	h.haSubscriptions = nil
+	h.stateSubscriptions = nil
+	h.subscriptionsMu.Unlock()
 
-	for _, sub := range h.stateSubscriptions {
+	for _, sub := range haSubscriptions {
 		sub.Unsubscribe()
 	}
-	h.stateSubscriptions = nil
+
+	for _, sub := range stateSubscriptions {
+		sub.Unsubscribe()
+	}
 }
