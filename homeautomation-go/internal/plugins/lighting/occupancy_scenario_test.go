@@ -38,7 +38,8 @@ func createOccupancyTestConfig() *HueConfig {
 					{Action: "off", Variable: "isAnyoneHomeAndAwake", Value: false},
 					{Action: "on", Variable: "isKitchenOccupied", Value: true},
 				},
-				TransitionSeconds: &transition5,
+				TransitionSeconds:      &transition5,
+				SkipReactivationWhenOn: true,
 			},
 		},
 	}
@@ -193,6 +194,86 @@ func TestScenario_OccupancyChangeOnlyAffectsRelevantRoom(t *testing.T) {
 			}
 		}
 	}
+}
+
+// TestScenario_KitchenSkipsReactivationWhenAlreadyOn validates the fix for the
+// "lights go down on someone" bug. The kitchen mmWave radar can briefly drop
+// detection on a stationary person and then re-detect them. Without edge-
+// triggered activation, every re-detection re-fires the scene and overrides
+// any manual brightness the user set. The skip_reactivation_when_on flag
+// makes a duplicate on→on evaluation a no-op so manual adjustments stick.
+//
+// GIVEN: Kitchen scene has been activated (lights on)
+// WHEN:  isKitchenOccupied flips false (radar glitch), then back true (re-detect)
+// THEN:  No second scene.turn_on for the kitchen is issued
+func TestScenario_KitchenSkipsReactivationWhenAlreadyOn(t *testing.T) {
+	t.Parallel()
+	config := createOccupancyTestConfig()
+	manager, mockClient, _ := setupOccupancyManager(t, config, nil)
+	defer manager.Stop()
+
+	t.Log("GIVEN: Kitchen is occupied with scene already active")
+	err := manager.stateManager.SetBool("isKitchenOccupied", true)
+	assert.NoError(t, err)
+
+	// Snapshot AFTER the initial activation so we only observe what happens
+	// during the radar glitch sequence.
+	snapshot := mockClient.ServiceCallCount()
+
+	t.Log("WHEN: radar glitches (false) then re-detects (true)")
+	err = manager.stateManager.SetBool("isKitchenOccupied", false)
+	assert.NoError(t, err)
+	err = manager.stateManager.SetBool("isKitchenOccupied", true)
+	assert.NoError(t, err)
+
+	t.Log("THEN: no additional scene.turn_on for kitchen — user's brightness preserved")
+	calls := mockClient.GetServiceCallsSince(snapshot)
+	for _, call := range calls {
+		if call.Domain == "scene" && call.Service == "turn_on" {
+			if entityID, ok := call.Data["entity_id"].(string); ok {
+				assert.NotContains(t, entityID, "kitchen",
+					"Kitchen scene must NOT be re-activated after radar glitch — would override manual brightness. Got: %s", entityID)
+			}
+		}
+	}
+}
+
+// TestScenario_KitchenStillRespondsToDayPhaseChange validates that the
+// skip-reactivation flag does not break legitimate scene changes. Day phase
+// transitions target a different scene (e.g. kitchen_day → kitchen_evening)
+// and must always fire even when the room is already on.
+//
+// GIVEN: Kitchen is occupied with day scene active
+// WHEN:  dayPhase changes to evening
+// THEN:  scene.kitchen_evening IS activated
+func TestScenario_KitchenStillRespondsToDayPhaseChange(t *testing.T) {
+	t.Parallel()
+	config := createOccupancyTestConfig()
+	manager, mockClient, _ := setupOccupancyManager(t, config, nil)
+	defer manager.Stop()
+
+	t.Log("GIVEN: Kitchen is occupied with day scene active")
+	err := manager.stateManager.SetBool("isKitchenOccupied", true)
+	assert.NoError(t, err)
+
+	snapshot := mockClient.ServiceCallCount()
+
+	t.Log("WHEN: dayPhase changes to evening")
+	err = manager.stateManager.SetString("dayPhase", "evening")
+	assert.NoError(t, err)
+
+	t.Log("THEN: scene.kitchen_evening is activated (global trigger bypasses skip)")
+	calls := mockClient.GetServiceCallsSince(snapshot)
+	found := false
+	for _, call := range calls {
+		if call.Domain == "scene" && call.Service == "turn_on" {
+			if entityID, ok := call.Data["entity_id"].(string); ok && entityID == "scene.kitchen_evening" {
+				found = true
+				break
+			}
+		}
+	}
+	assert.True(t, found, "Expected scene.kitchen_evening to fire on dayPhase change. Calls: %+v", calls)
 }
 
 func intPtr(i int) *int { return &i }

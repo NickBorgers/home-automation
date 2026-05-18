@@ -22,6 +22,12 @@ type RoomConfig struct {
 	Conditions               []LightingCondition `yaml:"conditions"`                  // Ordered list of conditions (first match wins)
 	IncreaseBrightnessIfTrue interface{}         `yaml:"increase_brightness_if_true"` // Can be string or []string
 	TransitionSeconds        *int                `yaml:"transition_seconds"`          // Pointer to handle nil/~ values
+	// SkipReactivationWhenOn opts the room into edge-triggered scene activation.
+	// When true and the room's last applied action was already "on", a repeat "on"
+	// evaluation from an occupancy/condition trigger is skipped — preserving any
+	// manual brightness adjustments. Day phase and global triggers still re-fire.
+	// Used by rooms with unreliable presence sensors (e.g. mmWave radar).
+	SkipReactivationWhenOn bool `yaml:"skip_reactivation_when_on"`
 }
 
 // GetConditionVariables returns a list of all unique state variable names used in conditions
