@@ -15,7 +15,7 @@ func TestSetupComputedState(t *testing.T) {
 	t.Parallel()
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
-	mockClient.SetState("input_boolean.any_owner_home", "off", map[string]interface{}{})
+	mockClient.SetState("input_boolean.anyone_home", "off", map[string]interface{}{})
 	mockClient.SetState("input_boolean.anyone_asleep", "off", map[string]interface{}{})
 	mockClient.SetState("input_boolean.assistant_here", "off", map[string]interface{}{})
 	mockClient.SetState("input_boolean.anyone_home_and_awake", "off", map[string]interface{}{})
@@ -33,59 +33,61 @@ func TestSetupComputedState(t *testing.T) {
 
 func TestComputedState_IsAnyoneHomeAndAwake_InitialComputation(t *testing.T) {
 	t.Parallel()
-	// Formula: (isAnyOwnerHome && !isAnyoneAsleep) || isAssistantHere
+	// Formula: (isAnyoneHome && !isAnyoneAsleep) || isAssistantHere || wakeSequenceLatch
+	// isAnyoneHome is the debounced presence signal — this is the formula's
+	// home-presence input as of PR #1119.
 	testCases := []struct {
 		name            string
-		isAnyOwnerHome  string
+		isAnyoneHome    string
 		isAnyoneAsleep  string
 		isAssistantHere string
 		expected        bool
 	}{
 		{
-			name:            "owner home and awake -> true",
-			isAnyOwnerHome:  "on",
+			name:            "someone home and awake -> true",
+			isAnyoneHome:    "on",
 			isAnyoneAsleep:  "off",
 			isAssistantHere: "off",
 			expected:        true,
 		},
 		{
-			name:            "owner home and asleep -> false",
-			isAnyOwnerHome:  "on",
+			name:            "someone home and asleep -> false",
+			isAnyoneHome:    "on",
 			isAnyoneAsleep:  "on",
 			isAssistantHere: "off",
 			expected:        false,
 		},
 		{
-			name:            "no owner home and awake -> false",
-			isAnyOwnerHome:  "off",
+			name:            "nobody home and awake -> false",
+			isAnyoneHome:    "off",
 			isAnyoneAsleep:  "off",
 			isAssistantHere: "off",
 			expected:        false,
 		},
 		{
-			name:            "no owner home and asleep -> false",
-			isAnyOwnerHome:  "off",
+			name:            "nobody home and asleep -> false",
+			isAnyoneHome:    "off",
 			isAnyoneAsleep:  "on",
 			isAssistantHere: "off",
 			expected:        false,
 		},
 		{
-			name:            "assistant here alone -> true",
-			isAnyOwnerHome:  "off",
+			name:            "assistant here while isAnyoneHome=false (transitional) -> true",
+			isAnyoneHome:    "off",
 			isAnyoneAsleep:  "off",
 			isAssistantHere: "on",
 			expected:        true,
 		},
 		{
 			name:            "assistant here while owner asleep -> true (BUG FIX)",
-			isAnyOwnerHome:  "on",
+			isAnyoneHome:    "on",
 			isAnyoneAsleep:  "on",
 			isAssistantHere: "on",
 			expected:        true,
 		},
 		{
 			name:            "assistant here while no owner but someone asleep -> true",
-			isAnyOwnerHome:  "off",
+			isAnyoneHome:    "off",
 			isAnyoneAsleep:  "on",
 			isAssistantHere: "on",
 			expected:        true,
@@ -97,7 +99,7 @@ func TestComputedState_IsAnyoneHomeAndAwake_InitialComputation(t *testing.T) {
 			t.Parallel()
 			logger := testlogger.New()
 			mockClient := ha.NewMockClient()
-			mockClient.SetState("input_boolean.any_owner_home", tc.isAnyOwnerHome, map[string]interface{}{})
+			mockClient.SetState("input_boolean.anyone_home", tc.isAnyoneHome, map[string]interface{}{})
 			mockClient.SetState("input_boolean.anyone_asleep", tc.isAnyoneAsleep, map[string]interface{}{})
 			mockClient.SetState("input_boolean.assistant_here", tc.isAssistantHere, map[string]interface{}{})
 			mockClient.SetState("input_boolean.anyone_home_and_awake", "off", map[string]interface{}{})
@@ -119,12 +121,12 @@ func TestComputedState_IsAnyoneHomeAndAwake_InitialComputation(t *testing.T) {
 	}
 }
 
-func TestComputedState_IsAnyoneHomeAndAwake_ReactsToIsAnyOwnerHomeChange(t *testing.T) {
+func TestComputedState_IsAnyoneHomeAndAwake_ReactsToIsAnyoneHomeChange(t *testing.T) {
 	t.Parallel()
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	// Start with nobody home and nobody asleep
-	mockClient.SetState("input_boolean.any_owner_home", "off", map[string]interface{}{})
+	mockClient.SetState("input_boolean.anyone_home", "off", map[string]interface{}{})
 	mockClient.SetState("input_boolean.anyone_asleep", "off", map[string]interface{}{})
 	mockClient.SetState("input_boolean.assistant_here", "off", map[string]interface{}{})
 	mockClient.SetState("input_boolean.anyone_home_and_awake", "off", map[string]interface{}{})
@@ -143,19 +145,69 @@ func TestComputedState_IsAnyoneHomeAndAwake_ReactsToIsAnyOwnerHomeChange(t *test
 	value, _ := manager.GetBool("isAnyoneHomeAndAwake")
 	assert.False(t, value)
 
-	// Owner comes home (still awake)
-	mockClient.SimulateStateChange("input_boolean.any_owner_home", "on")
+	// Someone comes home (still awake)
+	mockClient.SimulateStateChange("input_boolean.anyone_home", "on")
 
 	// Should now be true
 	value, _ = manager.GetBool("isAnyoneHomeAndAwake")
-	assert.True(t, value, "isAnyoneHomeAndAwake should be true when owner comes home and is awake")
+	assert.True(t, value, "isAnyoneHomeAndAwake should be true when someone comes home and is awake")
 
-	// Owner leaves
-	mockClient.SimulateStateChange("input_boolean.any_owner_home", "off")
+	// Everyone leaves (isAnyoneHome's 5-min debounce has expired in production;
+	// the test fires the simulated change directly).
+	mockClient.SimulateStateChange("input_boolean.anyone_home", "off")
 
 	// Should be false again
 	value, _ = manager.GetBool("isAnyoneHomeAndAwake")
 	assert.False(t, value, "isAnyoneHomeAndAwake should be false when nobody is home")
+}
+
+func TestComputedState_IsAnyoneHomeAndAwake_StaysTrueDuringDepartureDebounce(t *testing.T) {
+	// Regression for PR #1119 (2026-05-17 incident). The lighting plugin's
+	// "everyone left" off-sweep keys off isAnyoneHomeAndAwake. We rely on the
+	// 5-minute departure debounce baked into isAnyoneHome (DerivedStateHelper)
+	// to absorb GPS bounce — when the last owner leaves, isAnyOwnerHome flips
+	// false immediately but isAnyoneHome stays true until the debounce expires.
+	// This test confirms that during that window, isAnyoneHomeAndAwake stays
+	// true, so the lighting plugin does NOT prematurely turn off the bedroom
+	// light (which previously caused sleep detection to misread the departure
+	// as "going to bed").
+	t.Parallel()
+	logger := testlogger.New()
+	mockClient := ha.NewMockClient()
+	// Initial state: owner home (both signals consistent), awake.
+	mockClient.SetState("input_boolean.any_owner_home", "on", map[string]interface{}{})
+	mockClient.SetState("input_boolean.anyone_home", "on", map[string]interface{}{})
+	mockClient.SetState("input_boolean.anyone_asleep", "off", map[string]interface{}{})
+	mockClient.SetState("input_boolean.assistant_here", "off", map[string]interface{}{})
+	mockClient.SetState("input_boolean.anyone_home_and_awake", "on", map[string]interface{}{})
+	mockClient.SetState("input_boolean.wake_sequence_active", "off", map[string]interface{}{})
+	mockClient.SetState("input_boolean.master_asleep", "off", map[string]interface{}{})
+	mockClient.Connect()
+
+	manager := NewManager(mockClient, logger, false)
+	require.NoError(t, manager.SyncFromHA())
+	require.NoError(t, manager.SetupComputedState())
+
+	// Sanity: starts true.
+	value, _ := manager.GetBool("isAnyoneHomeAndAwake")
+	assert.True(t, value, "precondition: should start true")
+
+	// Cascade order from the 2026-05-17 logs: the raw isAnyOwnerHome flag flips
+	// false immediately when the last owner leaves, while isAnyoneHome holds
+	// true because its 5-minute departure debounce is still running.
+	mockClient.SimulateStateChange("input_boolean.any_owner_home", "off")
+
+	// isAnyoneHomeAndAwake must still be true — otherwise the lighting plugin
+	// would fire its whole-house off-sweep mid-debounce. The formula must NOT
+	// react to isAnyOwnerHome directly.
+	value, _ = manager.GetBool("isAnyoneHomeAndAwake")
+	assert.True(t, value, "isAnyoneHomeAndAwake must stay true while isAnyoneHome is still in its departure debounce window")
+
+	// Once the debounce expires and isAnyoneHome flips false, the cascade
+	// drops correctly.
+	mockClient.SimulateStateChange("input_boolean.anyone_home", "off")
+	value, _ = manager.GetBool("isAnyoneHomeAndAwake")
+	assert.False(t, value, "isAnyoneHomeAndAwake should be false once isAnyoneHome debounce expires")
 }
 
 func TestComputedState_IsAnyoneHomeAndAwake_ReactsToIsAnyoneAsleepChange(t *testing.T) {
@@ -163,7 +215,7 @@ func TestComputedState_IsAnyoneHomeAndAwake_ReactsToIsAnyoneAsleepChange(t *test
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	// Start with owner home and awake
-	mockClient.SetState("input_boolean.any_owner_home", "on", map[string]interface{}{})
+	mockClient.SetState("input_boolean.anyone_home", "on", map[string]interface{}{})
 	mockClient.SetState("input_boolean.anyone_asleep", "off", map[string]interface{}{})
 	mockClient.SetState("input_boolean.assistant_here", "off", map[string]interface{}{})
 	mockClient.SetState("input_boolean.anyone_home_and_awake", "off", map[string]interface{}{})
@@ -201,7 +253,7 @@ func TestComputedState_IsAnyoneHomeAndAwake_SyncsToHA(t *testing.T) {
 	t.Parallel()
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
-	mockClient.SetState("input_boolean.any_owner_home", "on", map[string]interface{}{})
+	mockClient.SetState("input_boolean.anyone_home", "on", map[string]interface{}{})
 	mockClient.SetState("input_boolean.anyone_asleep", "off", map[string]interface{}{})
 	mockClient.SetState("input_boolean.assistant_here", "off", map[string]interface{}{})
 	mockClient.SetState("input_boolean.anyone_home_and_awake", "off", map[string]interface{}{})
@@ -242,7 +294,7 @@ func TestComputedState_IsAnyoneHomeAndAwake_WorksInReadOnlyMode(t *testing.T) {
 	t.Parallel()
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
-	mockClient.SetState("input_boolean.any_owner_home", "on", map[string]interface{}{})
+	mockClient.SetState("input_boolean.anyone_home", "on", map[string]interface{}{})
 	mockClient.SetState("input_boolean.anyone_asleep", "off", map[string]interface{}{})
 	mockClient.SetState("input_boolean.assistant_here", "off", map[string]interface{}{})
 	mockClient.SetState("input_boolean.anyone_home_and_awake", "off", map[string]interface{}{})
@@ -283,7 +335,7 @@ func TestComputedState_IsAnyoneHomeAndAwake_SubscriberNotification(t *testing.T)
 	t.Parallel()
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
-	mockClient.SetState("input_boolean.any_owner_home", "off", map[string]interface{}{})
+	mockClient.SetState("input_boolean.anyone_home", "off", map[string]interface{}{})
 	mockClient.SetState("input_boolean.anyone_asleep", "off", map[string]interface{}{})
 	mockClient.SetState("input_boolean.assistant_here", "off", map[string]interface{}{})
 	mockClient.SetState("input_boolean.anyone_home_and_awake", "off", map[string]interface{}{})
@@ -307,7 +359,7 @@ func TestComputedState_IsAnyoneHomeAndAwake_SubscriberNotification(t *testing.T)
 	defer sub.Unsubscribe()
 
 	// Trigger a change that should update isAnyoneHomeAndAwake
-	mockClient.SimulateStateChange("input_boolean.any_owner_home", "on")
+	mockClient.SimulateStateChange("input_boolean.anyone_home", "on")
 
 	// The computed value should have changed, triggering our subscriber
 	// Note: The subscription gets notified via the HA callback when SetBool syncs to HA
@@ -326,7 +378,7 @@ func TestComputedState_IsAnyoneHomeAndAwake_AssistantArrivesWhileOwnerAsleep(t *
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	// Owner is home and asleep
-	mockClient.SetState("input_boolean.any_owner_home", "on", map[string]interface{}{})
+	mockClient.SetState("input_boolean.anyone_home", "on", map[string]interface{}{})
 	mockClient.SetState("input_boolean.anyone_asleep", "on", map[string]interface{}{})
 	mockClient.SetState("input_boolean.assistant_here", "off", map[string]interface{}{})
 	mockClient.SetState("input_boolean.anyone_home_and_awake", "off", map[string]interface{}{})
@@ -368,7 +420,7 @@ func TestComputedState_IsAnyoneHomeAndAwake_LatchesOnWakeSequence(t *testing.T) 
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	// Owner is home and asleep, wake sequence not active
-	mockClient.SetState("input_boolean.any_owner_home", "on", map[string]interface{}{})
+	mockClient.SetState("input_boolean.anyone_home", "on", map[string]interface{}{})
 	mockClient.SetState("input_boolean.anyone_asleep", "on", map[string]interface{}{})
 	mockClient.SetState("input_boolean.assistant_here", "off", map[string]interface{}{})
 	mockClient.SetState("input_boolean.anyone_home_and_awake", "off", map[string]interface{}{})
@@ -409,7 +461,7 @@ func TestComputedState_IsAnyoneHomeAndAwake_LatchClearsOnWakeUp(t *testing.T) {
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	// Owner is home and asleep, wake sequence not active
-	mockClient.SetState("input_boolean.any_owner_home", "on", map[string]interface{}{})
+	mockClient.SetState("input_boolean.anyone_home", "on", map[string]interface{}{})
 	mockClient.SetState("input_boolean.anyone_asleep", "on", map[string]interface{}{})
 	mockClient.SetState("input_boolean.assistant_here", "off", map[string]interface{}{})
 	mockClient.SetState("input_boolean.anyone_home_and_awake", "off", map[string]interface{}{})
@@ -439,7 +491,7 @@ func TestComputedState_IsAnyoneHomeAndAwake_LatchClearsOnWakeUp(t *testing.T) {
 	assert.True(t, value, "isAnyoneHomeAndAwake should be TRUE (normal formula: owner home and awake)")
 
 	// Now verify the latch is cleared by having owner leave
-	mockClient.SimulateStateChange("input_boolean.any_owner_home", "off")
+	mockClient.SimulateStateChange("input_boolean.anyone_home", "off")
 
 	// Should be false (no owner home, latch cleared)
 	value, _ = manager.GetBool("isAnyoneHomeAndAwake")
@@ -453,7 +505,7 @@ func TestComputedState_IsAnyoneHomeAndAwake_LatchOnlyOnRisingEdge(t *testing.T) 
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 	// Owner is home and asleep, wake sequence ALREADY active
-	mockClient.SetState("input_boolean.any_owner_home", "on", map[string]interface{}{})
+	mockClient.SetState("input_boolean.anyone_home", "on", map[string]interface{}{})
 	mockClient.SetState("input_boolean.anyone_asleep", "on", map[string]interface{}{})
 	mockClient.SetState("input_boolean.assistant_here", "off", map[string]interface{}{})
 	mockClient.SetState("input_boolean.anyone_home_and_awake", "off", map[string]interface{}{})
@@ -490,7 +542,7 @@ func TestComputedState_IsAnyoneHomeAndAwake_GuestAsleepKeepsLatchActive(t *testi
 	t.Parallel()
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
-	mockClient.SetState("input_boolean.any_owner_home", "on", map[string]interface{}{})
+	mockClient.SetState("input_boolean.anyone_home", "on", map[string]interface{}{})
 	mockClient.SetState("input_boolean.anyone_asleep", "on", map[string]interface{}{})
 	mockClient.SetState("input_boolean.assistant_here", "off", map[string]interface{}{})
 	mockClient.SetState("input_boolean.anyone_home_and_awake", "off", map[string]interface{}{})
@@ -532,7 +584,7 @@ func TestComputedState_IsAnyoneHomeAndAwake_GuestAsleepKeepsLatchActive(t *testi
 	assert.True(t, value, "isAnyoneHomeAndAwake should be TRUE via normal formula (owner awake)")
 
 	// Verify latch is cleared by having owner leave
-	mockClient.SimulateStateChange("input_boolean.any_owner_home", "off")
+	mockClient.SimulateStateChange("input_boolean.anyone_home", "off")
 	value, _ = manager.GetBool("isAnyoneHomeAndAwake")
 	assert.False(t, value, "isAnyoneHomeAndAwake should be FALSE after owner leaves (latch was cleared)")
 }
@@ -561,7 +613,7 @@ func TestScenario_NickWakesUpCarolineSleepsIn(t *testing.T) {
 	mockClient := ha.NewMockClient()
 
 	// Initial state: Night time, both Nick and Caroline asleep
-	mockClient.SetState("input_boolean.any_owner_home", "on", map[string]interface{}{})
+	mockClient.SetState("input_boolean.anyone_home", "on", map[string]interface{}{})
 	mockClient.SetState("input_boolean.anyone_asleep", "on", map[string]interface{}{})
 	mockClient.SetState("input_boolean.assistant_here", "off", map[string]interface{}{})
 	mockClient.SetState("input_boolean.anyone_home_and_awake", "off", map[string]interface{}{})
@@ -619,7 +671,7 @@ func TestScenario_AssistantArrivesDuringWakeSequence(t *testing.T) {
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 
-	mockClient.SetState("input_boolean.any_owner_home", "on", map[string]interface{}{})
+	mockClient.SetState("input_boolean.anyone_home", "on", map[string]interface{}{})
 	mockClient.SetState("input_boolean.anyone_asleep", "on", map[string]interface{}{})
 	mockClient.SetState("input_boolean.assistant_here", "off", map[string]interface{}{})
 	mockClient.SetState("input_boolean.anyone_home_and_awake", "off", map[string]interface{}{})
@@ -681,7 +733,7 @@ func TestScenario_NickLeavesWhileLatchActive(t *testing.T) {
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 
-	mockClient.SetState("input_boolean.any_owner_home", "on", map[string]interface{}{})
+	mockClient.SetState("input_boolean.anyone_home", "on", map[string]interface{}{})
 	mockClient.SetState("input_boolean.anyone_asleep", "on", map[string]interface{}{})
 	mockClient.SetState("input_boolean.assistant_here", "off", map[string]interface{}{})
 	mockClient.SetState("input_boolean.anyone_home_and_awake", "off", map[string]interface{}{})
@@ -733,7 +785,7 @@ func TestScenario_NickLeavesEveryoneGone(t *testing.T) {
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 
-	mockClient.SetState("input_boolean.any_owner_home", "on", map[string]interface{}{})
+	mockClient.SetState("input_boolean.anyone_home", "on", map[string]interface{}{})
 	mockClient.SetState("input_boolean.anyone_asleep", "on", map[string]interface{}{})
 	mockClient.SetState("input_boolean.assistant_here", "off", map[string]interface{}{})
 	mockClient.SetState("input_boolean.anyone_home_and_awake", "off", map[string]interface{}{})
@@ -759,7 +811,7 @@ func TestScenario_NickLeavesEveryoneGone(t *testing.T) {
 	assert.True(t, value, "Step 2a: House awake (latch cleared, but owner home and awake)")
 
 	// Step 3: They leave
-	mockClient.SimulateStateChange("input_boolean.any_owner_home", "off")
+	mockClient.SimulateStateChange("input_boolean.anyone_home", "off")
 	value, _ = manager.GetBool("isAnyoneHomeAndAwake")
 	assert.False(t, value, "Step 3: House dark (nobody home, no latch)")
 }
@@ -772,7 +824,7 @@ func TestScenario_MultipleMornings(t *testing.T) {
 	logger := testlogger.New()
 	mockClient := ha.NewMockClient()
 
-	mockClient.SetState("input_boolean.any_owner_home", "on", map[string]interface{}{})
+	mockClient.SetState("input_boolean.anyone_home", "on", map[string]interface{}{})
 	mockClient.SetState("input_boolean.anyone_asleep", "on", map[string]interface{}{})
 	mockClient.SetState("input_boolean.assistant_here", "off", map[string]interface{}{})
 	mockClient.SetState("input_boolean.anyone_home_and_awake", "off", map[string]interface{}{})
@@ -837,7 +889,7 @@ func TestScenario_SystemRestartDuringWakeSequence(t *testing.T) {
 	mockClient := ha.NewMockClient()
 
 	// System starts with wake sequence already active (simulating restart)
-	mockClient.SetState("input_boolean.any_owner_home", "on", map[string]interface{}{})
+	mockClient.SetState("input_boolean.anyone_home", "on", map[string]interface{}{})
 	mockClient.SetState("input_boolean.anyone_asleep", "on", map[string]interface{}{})
 	mockClient.SetState("input_boolean.assistant_here", "off", map[string]interface{}{})
 	mockClient.SetState("input_boolean.anyone_home_and_awake", "off", map[string]interface{}{})
@@ -887,7 +939,7 @@ func TestScenario_Issue526_NoFlickerOnWakeUp(t *testing.T) {
 	mockClient := ha.NewMockClient()
 
 	// Initial state: Owner home and asleep, wake sequence active (latch engaged)
-	mockClient.SetState("input_boolean.any_owner_home", "on", map[string]interface{}{})
+	mockClient.SetState("input_boolean.anyone_home", "on", map[string]interface{}{})
 	mockClient.SetState("input_boolean.anyone_asleep", "on", map[string]interface{}{})
 	mockClient.SetState("input_boolean.assistant_here", "off", map[string]interface{}{})
 	mockClient.SetState("input_boolean.anyone_home_and_awake", "off", map[string]interface{}{})
@@ -923,7 +975,7 @@ func TestScenario_Issue526_NoFlickerOnWakeUp(t *testing.T) {
 	assert.True(t, value, "Step 3: Normal formula takes over (owner home and awake)")
 
 	// Step 4: Verify latch is actually cleared by making owner leave
-	mockClient.SimulateStateChange("input_boolean.any_owner_home", "off")
+	mockClient.SimulateStateChange("input_boolean.anyone_home", "off")
 	value, _ = manager.GetBool("isAnyoneHomeAndAwake")
 	assert.False(t, value, "Step 4: Latch was cleared - house is dark when nobody home")
 }

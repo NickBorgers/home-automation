@@ -350,7 +350,7 @@ func TestSetupComputedStateV2_DependencyGraph(t *testing.T) {
 	assert.Contains(t, graph["isAnyoneAsleep"], "isGuestAsleep")
 	assert.Contains(t, graph["isEveryoneAsleep"], "isMasterAsleep")
 	assert.Contains(t, graph["isEveryoneAsleep"], "isGuestAsleep")
-	assert.Contains(t, graph["isAnyoneHomeAndAwake"], "isAnyOwnerHome")
+	assert.Contains(t, graph["isAnyoneHomeAndAwake"], "isAnyoneHome")
 	assert.Contains(t, graph["isAnyoneHomeAndAwake"], "isAnyoneAsleep")
 	assert.Contains(t, graph["isAnyoneHomeAndAwake"], "isAssistantHere")
 }

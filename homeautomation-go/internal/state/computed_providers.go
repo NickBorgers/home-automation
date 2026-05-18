@@ -158,19 +158,23 @@ func RegisterSleepProviders(registry *ComputedStateRegistry, callbacks *Computed
 
 // RegisterAnyoneHomeAndAwakeProvider registers the isAnyoneHomeAndAwake computed state.
 // Level 2 computed state:
-//   - isAnyoneHomeAndAwake = (isAnyOwnerHome AND NOT isAnyoneAsleep) OR isAssistantHere OR wakeSequenceLatch
+//   - isAnyoneHomeAndAwake = (isAnyoneHome AND NOT isAnyoneAsleep) OR isAssistantHere OR wakeSequenceLatch
 //
 // This is a more complex computed state that includes:
-//   - Dependency on Level 1 computed states (isAnyOwnerHome, isAnyoneAsleep)
+//   - Dependency on the debounced isAnyoneHome rather than the raw isAnyOwnerHome,
+//     so downstream consumers (lighting off-sweep, sleep detection, etc.) inherit
+//     the 5-minute departure debounce that absorbs GPS/WiFi presence bounce.
+//     See computed.go SetupComputedState doc comment and PR #1119 (2026-05-17
+//     incident) for context.
 //   - Special wake sequence latch behavior for morning wake-up
 //
 // The wake sequence latch is handled via a LatchProvider that tracks the latch state.
 func RegisterAnyoneHomeAndAwakeProvider(registry *ComputedStateRegistry, latch *WakeSequenceLatch, callbacks *ComputedStateCallback) error {
 	if err := registry.Register(&ComputedStateProvider{
 		Name:         "isAnyoneHomeAndAwake",
-		Dependencies: []string{"isAnyOwnerHome", "isAnyoneAsleep", "isAssistantHere"},
+		Dependencies: []string{"isAnyoneHome", "isAnyoneAsleep", "isAssistantHere"},
 		ComputeFunc: func(ctx *ComputeContext) (interface{}, error) {
-			isAnyOwnerHome, err := ctx.GetBool("isAnyOwnerHome")
+			isAnyoneHome, err := ctx.GetBool("isAnyoneHome")
 			if err != nil {
 				return nil, err
 			}
@@ -186,10 +190,10 @@ func RegisterAnyoneHomeAndAwakeProvider(registry *ComputedStateRegistry, latch *
 			// Get latch state
 			latchActive := latch.IsActive()
 
-			result := (isAnyOwnerHome && !isAnyoneAsleep) || isAssistantHere || latchActive
+			result := (isAnyoneHome && !isAnyoneAsleep) || isAssistantHere || latchActive
 
 			ctx.Logger().Debug("Computed isAnyoneHomeAndAwake",
-				zap.Bool("isAnyOwnerHome", isAnyOwnerHome),
+				zap.Bool("isAnyoneHome", isAnyoneHome),
 				zap.Bool("isAnyoneAsleep", isAnyoneAsleep),
 				zap.Bool("isAssistantHere", isAssistantHere),
 				zap.Bool("wakeSequenceLatch", latchActive),

@@ -10,11 +10,22 @@ import (
 // subscriptions to automatically recompute them when dependencies change.
 //
 // Computed state variables are derived from other state variables:
-// - isAnyoneHomeAndAwake = (isAnyOwnerHome && !isAnyoneAsleep) || isAssistantHere || wakeSequenceLatch
+// - isAnyoneHomeAndAwake = (isAnyoneHome && !isAnyoneAsleep) || isAssistantHere || wakeSequenceLatch
+//
+// Note: We derive from the *debounced* isAnyoneHome (= isAnyOwnerHome || isAssistantHere
+// with a 5-minute departure debounce) rather than the raw isAnyOwnerHome. The debounce
+// absorbs GPS/WiFi presence bounce, and propagating it here keeps downstream consumers
+// (lighting whole-house off-sweep, sleep detection, etc.) on a single coherent signal.
+// Without this, the lighting plugin reacted to un-debounced owner departures and turned
+// the bedroom light off seconds after the last owner left, which the sleep-detection
+// timer then misread as "going to bed" — its isAnyoneHome guard was still in the
+// debounce window. (2026-05-17 incident; PR #1119.)
 //
 // Note: Assistant doesn't have a sleep state tracked, so their presence means someone
 // is home AND awake by definition. The formula accounts for this by including
-// isAssistantHere as an independent condition.
+// isAssistantHere as an independent condition (and not relying solely on the
+// (isAnyoneHome && !isAnyoneAsleep) term, which would be false if the owner is asleep
+// even when an assistant is present).
 //
 // Wake Sequence Latch:
 // When Nick's alarm triggers (isWakeSequenceActive becomes true), the rest of the
@@ -35,8 +46,10 @@ func (m *Manager) SetupComputedState() error {
 		return err
 	}
 
-	// Subscribe to dependency changes
-	_, err := m.Subscribe("isAnyOwnerHome", func(key string, oldValue, newValue interface{}) {
+	// Subscribe to dependency changes. We listen on isAnyoneHome (debounced)
+	// rather than isAnyOwnerHome so the cascade inherits the 5-minute
+	// departure debounce. See doc comment above.
+	_, err := m.Subscribe("isAnyoneHome", func(key string, oldValue, newValue interface{}) {
 		if err := m.recomputeAnyoneHomeAndAwake(); err != nil {
 			m.logger.Error("Failed to recompute isAnyoneHomeAndAwake",
 				zap.String("trigger", key),
@@ -129,17 +142,20 @@ func (m *Manager) SetupComputedState() error {
 }
 
 // recomputeAnyoneHomeAndAwake computes isAnyoneHomeAndAwake from its dependencies.
-// Formula: isAnyoneHomeAndAwake = (isAnyOwnerHome && !isAnyoneAsleep) || isAssistantHere || wakeSequenceLatch
+// Formula: isAnyoneHomeAndAwake = (isAnyoneHome && !isAnyoneAsleep) || isAssistantHere || wakeSequenceLatch
 //
-// This formula correctly handles the case where Assistant arrives while owners are asleep.
-// Since Assistant doesn't have a sleep state tracked, their presence means someone is
-// home AND awake by definition.
+// Deriving from isAnyoneHome (debounced) means a transient GPS/WiFi presence dip
+// or a real owner departure won't immediately drop this flag — downstream
+// consumers (lighting off-sweep, sleep detection, etc.) wait out the 5-minute
+// debounce together rather than racing each other. The explicit isAssistantHere
+// term keeps the "assistant present while owner asleep" case correct, since
+// (isAnyoneHome && !isAnyoneAsleep) is false in that case.
 //
 // The wakeSequenceLatch ensures that when Nick's alarm triggers, the rest of the
 // house wakes up (lights on) even though Caroline may still be asleep in the bedroom.
 // See SetupComputedState for details on latch activation and clearing.
 func (m *Manager) recomputeAnyoneHomeAndAwake() error {
-	isAnyOwnerHome, err := m.GetBool("isAnyOwnerHome")
+	isAnyoneHome, err := m.GetBool("isAnyoneHome")
 	if err != nil {
 		return err
 	}
@@ -159,13 +175,13 @@ func (m *Manager) recomputeAnyoneHomeAndAwake() error {
 	wakeSequenceLatch := m.wakeSequenceLatch
 	m.cacheMu.RUnlock()
 
-	newValue := (isAnyOwnerHome && !isAnyoneAsleep) || isAssistantHere || wakeSequenceLatch
+	newValue := (isAnyoneHome && !isAnyoneAsleep) || isAssistantHere || wakeSequenceLatch
 
 	// Get current value to check if it changed
 	currentValue, _ := m.GetBool("isAnyoneHomeAndAwake")
 	if currentValue != newValue {
 		m.logger.Debug("Recomputing isAnyoneHomeAndAwake",
-			zap.Bool("isAnyOwnerHome", isAnyOwnerHome),
+			zap.Bool("isAnyoneHome", isAnyoneHome),
 			zap.Bool("isAnyoneAsleep", isAnyoneAsleep),
 			zap.Bool("isAssistantHere", isAssistantHere),
 			zap.Bool("wakeSequenceLatch", wakeSequenceLatch),
