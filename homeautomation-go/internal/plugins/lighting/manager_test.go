@@ -346,6 +346,46 @@ func TestEvaluateAndActivateRoom(t *testing.T) {
 	}
 }
 
+func TestEvaluateAndActivateRoomSkipClearsLastRoomActionForSkipReactivationRoom(t *testing.T) {
+	t.Parallel()
+	env := testutil.NewEnv(t)
+	config := &HueConfig{
+		Rooms: []RoomConfig{
+			{
+				HueGroup:   "Kitchen",
+				HASSAreaID: "kitchen",
+				Conditions: []LightingCondition{
+					{Action: "skip", Variable: "isTVPlaying", Value: true},
+					{Action: "on", Variable: "isKitchenOccupied", Value: true},
+				},
+				SkipReactivationWhenOn: true,
+			},
+		},
+	}
+	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, false, nil)
+	room := &config.Rooms[0]
+
+	assert.NoError(t, env.StateMgr.SetBool("isTVPlaying", true))
+	assert.NoError(t, env.StateMgr.SetBool("isKitchenOccupied", true))
+	manager.setLastRoomAction(room.HueGroup, "on")
+
+	snapshot := env.MockHA.ServiceCallCount()
+	manager.evaluateAndActivateRoom(room, "Day", "isTVPlaying")
+	assert.Equal(t, 0, len(env.MockHA.GetServiceCallsSince(snapshot)), "skip should not call Home Assistant")
+
+	assert.NoError(t, env.StateMgr.SetBool("isTVPlaying", false))
+	snapshot = env.MockHA.ServiceCallCount()
+	manager.evaluateAndActivateRoom(room, "Day", "isKitchenOccupied")
+
+	calls := env.MockHA.GetServiceCallsSince(snapshot)
+	if !assert.Len(t, calls, 1) {
+		return
+	}
+	assert.Equal(t, "scene", calls[0].Domain)
+	assert.Equal(t, "turn_on", calls[0].Service)
+	assert.Equal(t, "scene.kitchen_day", calls[0].Data["entity_id"])
+}
+
 func TestStart(t *testing.T) {
 	t.Parallel()
 	env := testutil.NewEnv(t)

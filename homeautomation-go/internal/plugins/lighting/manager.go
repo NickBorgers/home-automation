@@ -392,6 +392,9 @@ func (m *Manager) evaluateAndActivateRoom(room *RoomConfig, dayPhase string, tri
 		m.logger.Info("Skipping room - external control active",
 			zap.String("room", room.HueGroup),
 			zap.String("matched_condition", matchedVar))
+		if room.SkipReactivationWhenOn {
+			m.setLastRoomAction(room.HueGroup, "")
+		}
 	default:
 		m.logger.Debug("No action needed for room",
 			zap.String("room", room.HueGroup))
