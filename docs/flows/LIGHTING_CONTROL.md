@@ -203,6 +203,19 @@ flowchart TD
     style protect fill:#e74c3c,color:#fff
 ```
 
+## Edge-Triggered Activation (skip_reactivation_when_on)
+
+Some rooms use presence sensors (e.g. mmWave radar) that briefly drop detection on stationary people, then re-detect. Without protection, every re-detection re-fires the scene and overrides manual brightness adjustments.
+
+The per-room `skip_reactivation_when_on: true` config flag makes activation **edge-triggered**: if the room's last applied action was already `"on"`, a repeat `"on"` evaluation from an occupancy or condition trigger is skipped, preserving any brightness the user dialed in since last activation.
+
+**Exceptions — triggers that always re-fire regardless of this flag:**
+- `dayPhase` changes (different target scene)
+- `sunevent` changes
+- Empty/reset triggers (startup initialization)
+
+Currently used by: Kitchen (Apollo MTR mmWave radar)
+
 ## Transition Timing
 
 Light transitions use appropriate timing for natural progression:

@@ -218,6 +218,8 @@ func TestScenario_KitchenSkipsReactivationWhenAlreadyOn(t *testing.T) {
 
 	// Snapshot AFTER the initial activation so we only observe what happens
 	// during the radar glitch sequence.
+	// NOTE: MockClient dispatches handlers synchronously, so snapshot is taken
+	// only after the GIVEN SetBool handler has fully completed.
 	snapshot := mockClient.ServiceCallCount()
 
 	t.Log("WHEN: radar glitches (false) then re-detects (true)")
@@ -256,6 +258,8 @@ func TestScenario_KitchenStillRespondsToDayPhaseChange(t *testing.T) {
 	err := manager.stateManager.SetBool("isKitchenOccupied", true)
 	assert.NoError(t, err)
 
+	// NOTE: MockClient dispatches handlers synchronously, so snapshot is taken
+	// only after the GIVEN SetBool handler has fully completed.
 	snapshot := mockClient.ServiceCallCount()
 
 	t.Log("WHEN: dayPhase changes to evening")
