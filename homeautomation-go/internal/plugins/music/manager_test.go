@@ -164,6 +164,117 @@ func TestMusicManager_ZoneResolutionSelectsCorrectMode(t *testing.T) {
 	}
 }
 
+func TestMusicManager_StartupReconciliationAdoptsExistingPlayback(t *testing.T) {
+	t.Parallel()
+	env := testutil.NewEnv(t)
+
+	config := &MusicConfig{
+		Music: map[string]MusicMode{
+			"day": {
+				Participants: []Participant{
+					{PlayerName: "Kitchen", BaseVolume: 9},
+					{PlayerName: "Bedroom", BaseVolume: 7},
+				},
+				PlaybackOptions: []PlaybackOption{
+					{URI: "https://tidal.com/browse/playlist/day-next", MediaType: "music", VolumeMultiplier: 1.0},
+					{URI: "https://tidal.com/browse/playlist/day-current", MediaType: "music", VolumeMultiplier: 1.0},
+				},
+			},
+		},
+	}
+
+	require.NoError(t, env.StateMgr.SetBool("isAnyoneHome", true))
+	require.NoError(t, env.StateMgr.SetBool("isAnyoneAsleep", false))
+	require.NoError(t, env.StateMgr.SetBool("isWakeSequenceActive", false))
+	require.NoError(t, env.StateMgr.SetString("dayPhase", "day"))
+	require.NoError(t, env.StateMgr.SetString("musicPlaybackType", ""))
+
+	env.MockHA.SetState("media_player.kitchen", "playing", map[string]interface{}{
+		"media_content_id":   "https://tidal.com/browse/playlist/day-current",
+		"media_content_type": "music",
+		"group_members": []interface{}{
+			"media_player.kitchen",
+		},
+		"volume_level": 0.11,
+	})
+	env.MockHA.SetState("media_player.bedroom", "idle", map[string]interface{}{
+		"volume_level": 0.03,
+	})
+
+	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, false, nil, nil)
+	require.NoError(t, manager.Start())
+	defer manager.Stop()
+
+	calls := env.MockHA.GetServiceCalls()
+	for _, call := range calls {
+		assert.False(t, call.Domain == "media_player",
+			"startup reconciliation should not re-orchestrate media_player services; got %s.%s",
+			call.Domain, call.Service)
+	}
+
+	shadow := manager.GetShadowState()
+	assert.Equal(t, "adopt_playback", shadow.Outputs.LastActionType)
+	assert.Equal(t, "day", shadow.Outputs.CurrentMode)
+	assert.Equal(t, "https://tidal.com/browse/playlist/day-current", shadow.Outputs.ActivePlaylist.URI)
+	require.Len(t, shadow.Outputs.SpeakerGroup, 2)
+	assert.Equal(t, "Kitchen", shadow.Outputs.SpeakerGroup[0].PlayerName)
+	assert.True(t, shadow.Outputs.SpeakerGroup[0].Active)
+	assert.Equal(t, 11, shadow.Outputs.SpeakerGroup[0].Volume)
+	assert.Equal(t, "Bedroom", shadow.Outputs.SpeakerGroup[1].PlayerName)
+	assert.False(t, shadow.Outputs.SpeakerGroup[1].Active, "missing desired follower is tolerated but reflected in shadow")
+}
+
+func TestMusicManager_StartupReconciliationReorchestratesWrongGroup(t *testing.T) {
+	t.Parallel()
+	env := testutil.NewEnv(t)
+
+	config := &MusicConfig{
+		Music: map[string]MusicMode{
+			"day": {
+				Participants: []Participant{
+					{PlayerName: "Kitchen", BaseVolume: 9},
+					{PlayerName: "Bedroom", BaseVolume: 7},
+				},
+				PlaybackOptions: []PlaybackOption{
+					{URI: "https://tidal.com/browse/playlist/day-current", MediaType: "music", VolumeMultiplier: 1.0},
+				},
+			},
+		},
+	}
+
+	require.NoError(t, env.StateMgr.SetBool("isAnyoneHome", true))
+	require.NoError(t, env.StateMgr.SetBool("isAnyoneAsleep", false))
+	require.NoError(t, env.StateMgr.SetBool("isWakeSequenceActive", false))
+	require.NoError(t, env.StateMgr.SetString("dayPhase", "day"))
+	require.NoError(t, env.StateMgr.SetString("musicPlaybackType", ""))
+
+	env.MockHA.SetState("media_player.kitchen", "playing", map[string]interface{}{
+		"media_content_id": "https://tidal.com/browse/playlist/day-current",
+		"group_members": []interface{}{
+			"media_player.kitchen",
+			"media_player.soundbar",
+		},
+		"volume_level": 0.11,
+	})
+	env.MockHA.SetState("media_player.bedroom", "idle", map[string]interface{}{
+		"volume_level": 0.03,
+	})
+
+	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, false, nil, nil)
+	manager.SetSleepFunc(func(d time.Duration) {})
+	require.NoError(t, manager.Start())
+	defer manager.Stop()
+
+	require.Eventually(t, func() bool {
+		for _, call := range env.MockHA.GetServiceCalls() {
+			if call.Domain == "media_player" && call.Service == "play_media" {
+				return true
+			}
+		}
+		return false
+	}, time.Second, 10*time.Millisecond, "wrong startup group should fall back to orchestration")
+}
+
 func TestEnsureZones_DayPhaseMapping(t *testing.T) {
 	t.Parallel()
 

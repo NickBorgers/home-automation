@@ -114,6 +114,8 @@ flowchart TD
 
 When a music mode is selected, the following sequence executes. The key optimization is **async speaker grouping**: the lead speaker starts playing immediately while follower speakers join the group in the background.
 
+On service startup, the plugin reconciles before orchestrating. If the lead speaker is already playing any URI from the selected mode's playlist pool and the current Sonos group contains only desired zone speakers, the plugin adopts that playback into shadow state and skips the fade-out/regroup/play/fade-in sequence. Missing desired followers are tolerated and reflected as inactive in shadow; foreign group members or an unknown URI fall back to normal orchestration.
+
 ```mermaid
 sequenceDiagram
     participant SM as State Manager
