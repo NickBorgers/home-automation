@@ -34,7 +34,7 @@ energy:
         blue: 112
         brightness_pct: 70
     - condition_name: red
-      battery_minimum_percentage: 40
+      battery_minimum_percentage: 19
       energy_production_minimum_kw: 0
       remaining_energy_production_minimum_kwh: 0
       light_config:
@@ -43,7 +43,7 @@ energy:
         blue: 0
         brightness_pct: 30
     - condition_name: yellow
-      battery_minimum_percentage: 60
+      battery_minimum_percentage: 20
       energy_production_minimum_kw: 0
       remaining_energy_production_minimum_kwh: 0
       light_config:
@@ -52,7 +52,7 @@ energy:
         blue: 0
         brightness_pct: 30
     - condition_name: green
-      battery_minimum_percentage: 80
+      battery_minimum_percentage: 40
       energy_production_minimum_kw: 0
       remaining_energy_production_minimum_kwh: 10
       light_config:
@@ -61,7 +61,7 @@ energy:
         blue: 0
         brightness_pct: 60
     - condition_name: white
-      battery_minimum_percentage: 95
+      battery_minimum_percentage: 70
       energy_production_minimum_kw: 4
       remaining_energy_production_minimum_kwh: 20
       light_config:
