@@ -3,13 +3,13 @@
 **Date:** 2026-05-17
 **Duration:** Same day, until the bedroom door opened and wake detection cleared sleep state
 **Severity:** Medium (incorrect sleep-mode automation while nobody was home)
-**Resolution:** PR #1119 replaces the sleep-detection presence guard with `isAnyOwnerHome`
+**Resolution:** PR #1119 fixes `isAnyoneHomeAndAwake` to derive from debounced `isAnyoneHome` instead of undebounced `isAnyOwnerHome`
 
 ## Summary
 
 The house incorrectly entered sleep mode while the owners were leaving, not going to bed. The lighting plugin turned off `light.primary_suite` because `isAnyoneHomeAndAwake` became false. One minute later the state-tracking sleep timer fired, saw `isAnyoneHome=true`, and marked `isMasterAsleep=true`.
 
-That `isAnyoneHome=true` value was stale by design: `isAnyoneHome` has a 5-minute departure debounce to avoid presence sensor false negatives. Sleep detection needed the immediate owner-presence signal, `isAnyOwnerHome`, instead.
+The root mismatch: `isAnyoneHomeAndAwake` derived from the raw (undebounced) `isAnyOwnerHome`, so it flipped false the instant the last owner left. But `detectMasterAsleep()` still checked `isAnyoneHome`, which carries a 5-minute departure debounce — so lighting reacted to departure immediately while sleep detection still believed someone was home for another five minutes.
 
 ## Timeline
 
@@ -24,9 +24,11 @@ That `isAnyoneHome=true` value was stale by design: `isAnyoneHome` has a 5-minut
 
 ## Root Cause
 
-`detectMasterAsleep()` guarded sleep detection with `isAnyoneHome`. That signal intentionally remains true for 5 minutes after departure, so it is not suitable for deciding whether a primary-suite lights-off event means an owner is still home.
+`isAnyoneHomeAndAwake` was derived from `isAnyOwnerHome` (undebounced). This meant that lighting consumers reacted immediately to departure — turning off `light.primary_suite` the instant the last owner left.
 
-The correct guard is `isAnyOwnerHome`, which tracks owner presence directly and has no departure debounce. It also matches the owner-presence input already used by `isAnyoneHomeAndAwake`, the computed state that triggered the lighting change.
+`detectMasterAsleep()`, however, read `isAnyoneHome` (debounced, 5-minute window). So for up to 5 minutes after departure, lighting saw "everyone gone" while sleep detection still saw "someone home". When lights went off in that window, sleep detection interpreted it as bedtime rather than departure.
+
+The fix is to change `isAnyoneHomeAndAwake` to derive from the debounced `isAnyoneHome` instead of `isAnyOwnerHome`, so lighting and sleep detection both see the same departure signal and can no longer race.
 
 ## Impact
 
@@ -36,16 +38,16 @@ The correct guard is `isAnyOwnerHome`, which tracks owner presence directly and 
 
 ## Resolution
 
-PR #1119 changes `detectMasterAsleep()` to check `isAnyOwnerHome` instead of `isAnyoneHome`. It also adds a regression test for the departure-debounce timeline: owner gone, `isAnyoneHome` still true, primary suite lights off, and sleep detection must not set `isMasterAsleep=true`.
+PR #1119 fixes `isAnyoneHomeAndAwake` in `computed_providers.go` to derive from `isAnyoneHome` (debounced) instead of `isAnyOwnerHome` (undebounced). This propagates the 5-minute departure debounce to all downstream consumers — lighting, sleep detection, and lockdown alike — so the lights-off sweep and `detectMasterAsleep()` no longer race. A regression test was added covering the cascade ordering: when raw `isAnyOwnerHome` flips false, `isAnyoneHomeAndAwake` stays true until debounced `isAnyoneHome` follows.
 
 ## Lessons Learned
 
-1. **Debounced derived state is not always a safe guard.** `isAnyoneHome` is useful for avoiding short presence drops, but that same debounce can be wrong for timer callbacks that need immediate departure truth.
+1. **Consumers sharing the same logical event should read the same upstream signal.** `isAnyoneHomeAndAwake` derived from undebounced `isAnyOwnerHome` while `detectMasterAsleep()` read debounced `isAnyoneHome` — two consumers of the same "owner left" event on different debounce timelines. When the correct debounce level for GPS/WiFi presence bounce is `isAnyoneHome`, all consumers should derive from it.
 2. **Cross-plugin timing matters.** Lighting, computed presence, and sleep detection each behaved as designed locally, but their one-minute and five-minute timing windows combined into the incident.
 3. **Regression tests should model the timeline.** The important state was not just "nobody home"; it was `isAnyOwnerHome=false` while `isAnyoneHome=true` during the departure debounce window.
 
 ## Action Items
 
-- [x] PR #1119: Guard sleep detection with `isAnyOwnerHome`
+- [x] PR #1119: Fix `isAnyoneHomeAndAwake` to derive from debounced `isAnyoneHome` instead of `isAnyOwnerHome`
 - [x] PR #1119: Add regression coverage for the departure-debounce false positive
-- [x] PR #1121: Add this incident writeup
+- [x] PR #1122: Add this incident writeup
