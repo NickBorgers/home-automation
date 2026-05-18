@@ -129,7 +129,7 @@ func TestScenario_ComputedState_IsAnyoneHomeAndAwake_InitialComputation(t *testi
 			server.InitializeStates()
 
 			// Set the initial states before connecting
-			server.SetState("input_boolean.any_owner_home", tc.isAnyOwnerHome, map[string]interface{}{})
+			server.SetState("input_boolean.anyone_home", tc.isAnyOwnerHome, map[string]interface{}{})
 			server.SetState("input_boolean.anyone_asleep", tc.isAnyoneAsleep, map[string]interface{}{})
 			server.SetState("input_boolean.assistant_here", tc.isAssistantHere, map[string]interface{}{})
 			server.SetState("input_boolean.anyone_home_and_awake", "off", map[string]interface{}{})
@@ -181,7 +181,7 @@ func TestScenario_ComputedState_ReactsToIsAnyOwnerHomeChange(t *testing.T) {
 
 	// GIVEN: No owner home and nobody is asleep
 	t.Log("GIVEN: No owner home and nobody is asleep")
-	server.SetState("input_boolean.any_owner_home", "off", map[string]interface{}{})
+	server.SetState("input_boolean.anyone_home", "off", map[string]interface{}{})
 	server.SetState("input_boolean.anyone_asleep", "off", map[string]interface{}{})
 	server.SetState("input_boolean.assistant_here", "off", map[string]interface{}{})
 
@@ -190,7 +190,7 @@ func TestScenario_ComputedState_ReactsToIsAnyOwnerHomeChange(t *testing.T) {
 
 	// WHEN: Owner comes home (still awake)
 	t.Log("WHEN: Owner comes home")
-	server.SetState("input_boolean.any_owner_home", "on", map[string]interface{}{})
+	server.SetState("input_boolean.anyone_home", "on", map[string]interface{}{})
 
 	// THEN: isAnyoneHomeAndAwake should become true
 	t.Log("THEN: isAnyoneHomeAndAwake should become true")
@@ -198,7 +198,7 @@ func TestScenario_ComputedState_ReactsToIsAnyOwnerHomeChange(t *testing.T) {
 
 	// WHEN: Owner leaves
 	t.Log("WHEN: Owner leaves")
-	server.SetState("input_boolean.any_owner_home", "off", map[string]interface{}{})
+	server.SetState("input_boolean.anyone_home", "off", map[string]interface{}{})
 
 	// THEN: isAnyoneHomeAndAwake should become false
 	t.Log("THEN: isAnyoneHomeAndAwake should become false")
@@ -214,7 +214,7 @@ func TestScenario_ComputedState_ReactsToIsAnyoneAsleepChange(t *testing.T) {
 
 	// GIVEN: Owner is home and awake
 	t.Log("GIVEN: Owner is home and awake")
-	server.SetState("input_boolean.any_owner_home", "on", map[string]interface{}{})
+	server.SetState("input_boolean.anyone_home", "on", map[string]interface{}{})
 	server.SetState("input_boolean.anyone_asleep", "off", map[string]interface{}{})
 	server.SetState("input_boolean.assistant_here", "off", map[string]interface{}{})
 
@@ -247,7 +247,7 @@ func TestScenario_ComputedState_SyncsToHomeAssistant(t *testing.T) {
 
 	// GIVEN: No owner is home initially
 	t.Log("GIVEN: No owner is home initially")
-	server.SetState("input_boolean.any_owner_home", "off", map[string]interface{}{})
+	server.SetState("input_boolean.anyone_home", "off", map[string]interface{}{})
 	server.SetState("input_boolean.anyone_asleep", "off", map[string]interface{}{})
 	server.SetState("input_boolean.assistant_here", "off", map[string]interface{}{})
 	// Allow async handlers to process before clearing
@@ -258,7 +258,7 @@ func TestScenario_ComputedState_SyncsToHomeAssistant(t *testing.T) {
 
 	// WHEN: Owner comes home (triggering computed state change)
 	t.Log("WHEN: Owner comes home")
-	server.SetState("input_boolean.any_owner_home", "on", map[string]interface{}{})
+	server.SetState("input_boolean.anyone_home", "on", map[string]interface{}{})
 
 	// Wait for sync to HA
 	waitForServiceCallSince(t, server, snapshot, "input_boolean", "turn_on", "computed state should sync to HA")
@@ -296,7 +296,7 @@ func TestScenario_ComputedState_RapidChanges(t *testing.T) {
 
 	// GIVEN: Initial state - owner home and awake
 	t.Log("GIVEN: Initial state - owner home and awake")
-	server.SetState("input_boolean.any_owner_home", "on", map[string]interface{}{})
+	server.SetState("input_boolean.anyone_home", "on", map[string]interface{}{})
 	server.SetState("input_boolean.anyone_asleep", "off", map[string]interface{}{})
 	server.SetState("input_boolean.assistant_here", "off", map[string]interface{}{})
 	// Allow computed state to settle
@@ -336,7 +336,7 @@ func TestScenario_ComputedState_BothDependenciesChange(t *testing.T) {
 
 	// GIVEN: No owner home, nobody asleep
 	t.Log("GIVEN: No owner home, nobody asleep")
-	server.SetState("input_boolean.any_owner_home", "off", map[string]interface{}{})
+	server.SetState("input_boolean.anyone_home", "off", map[string]interface{}{})
 	server.SetState("input_boolean.anyone_asleep", "off", map[string]interface{}{})
 	server.SetState("input_boolean.assistant_here", "off", map[string]interface{}{})
 
@@ -344,7 +344,7 @@ func TestScenario_ComputedState_BothDependenciesChange(t *testing.T) {
 
 	// WHEN: Both dependencies change almost simultaneously
 	t.Log("WHEN: Owner comes home AND someone falls asleep almost simultaneously")
-	server.SetState("input_boolean.any_owner_home", "on", map[string]interface{}{})
+	server.SetState("input_boolean.anyone_home", "on", map[string]interface{}{})
 	// Ensure first change is processed before sending second
 	waitForProcessing(t, manager)
 	server.SetState("input_boolean.anyone_asleep", "on", map[string]interface{}{})
@@ -358,7 +358,7 @@ func TestScenario_ComputedState_BothDependenciesChange(t *testing.T) {
 	server.SetState("input_boolean.anyone_asleep", "off", map[string]interface{}{})
 	// Ensure first change is processed before sending second
 	waitForProcessing(t, manager)
-	server.SetState("input_boolean.any_owner_home", "off", map[string]interface{}{})
+	server.SetState("input_boolean.anyone_home", "off", map[string]interface{}{})
 
 	// THEN: Final state should be false (no owner home)
 	t.Log("THEN: Should be false (no owner home)")
@@ -374,7 +374,7 @@ func TestScenario_ComputedState_AssistantArrivesWhileOwnerAsleep(t *testing.T) {
 
 	// GIVEN: Owner is home and asleep
 	t.Log("GIVEN: Owner is home and asleep")
-	server.SetState("input_boolean.any_owner_home", "on", map[string]interface{}{})
+	server.SetState("input_boolean.anyone_home", "on", map[string]interface{}{})
 	server.SetState("input_boolean.anyone_asleep", "on", map[string]interface{}{})
 	server.SetState("input_boolean.assistant_here", "off", map[string]interface{}{})
 
