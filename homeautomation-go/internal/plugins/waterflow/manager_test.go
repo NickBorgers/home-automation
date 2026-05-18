@@ -127,26 +127,26 @@ func TestWaterFlowManager_WarningAlert(t *testing.T) {
 
 	manager := createTestManager(mockHA, mockAlerter, mockClock)
 
-	// Simulate moderate flow (0.35 GPM) for 15 minutes — not over the warning flow duration threshold
-	simulateSteadyFlow(manager, mockClock, 0.35, 15*time.Minute, time.Minute)
+	// Simulate moderate flow (0.35 GPM) for exactly the warning duration — not yet over the threshold
+	simulateSteadyFlow(manager, mockClock, 0.35, WarningFlowDurationMinutes*time.Minute, time.Minute)
 	manager.TriggerEvaluation()
 
 	if manager.IsWarningActive() {
-		t.Error("Should not trigger warning before flow duration exceeds 15 minutes")
+		t.Error("Should not trigger warning before flow duration exceeds 30 minutes")
 	}
 
 	if count := countAlerts(mockAlerter); count != 0 {
 		t.Errorf("Expected 0 notifications during debounce period, got %d", count)
 	}
 
-	// Advance past 15 minute flow duration threshold with continued readings
+	// Advance past 30 minute flow duration threshold with continued readings
 	mockClock.Advance(time.Minute)
 	manager.SimulateFlowReading(0.35)
 	manager.TriggerEvaluation()
 
 	// Now should be in warning state
 	if !manager.IsWarningActive() {
-		t.Error("Should be in warning state after 15+ minutes of elevated flow")
+		t.Error("Should be in warning state after 30+ minutes of elevated flow")
 	}
 
 	// Should have sent notification
@@ -554,7 +554,7 @@ func TestWaterFlowManager_UrgentEscalationBypassesWarningCooldown(t *testing.T) 
 	manager := createTestManager(mockHA, mockAlerter, mockClock)
 
 	// Trigger a warning first, as the periodic checker would during sustained high usage.
-	simulateSteadyFlow(manager, mockClock, 0.35, 16*time.Minute, time.Minute)
+	simulateSteadyFlow(manager, mockClock, 0.35, (WarningFlowDurationMinutes+1)*time.Minute, time.Minute)
 	manager.TriggerEvaluation()
 
 	if !manager.IsWarningActive() {

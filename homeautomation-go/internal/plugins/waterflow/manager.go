@@ -32,7 +32,7 @@ const (
 
 	// WarningFlowDurationMinutes is the cumulative flow duration in the warning window that must
 	// exceed WarningFlowRateGPM before alerting. Handles event-driven sensors that are silent at idle.
-	WarningFlowDurationMinutes = 15
+	WarningFlowDurationMinutes = 30
 
 	// UrgentFlowRateGPM is the flow rate threshold for urgent alerts (gallons per minute)
 	UrgentFlowRateGPM = 0.4
@@ -359,8 +359,9 @@ func (m *Manager) evaluateConditions() {
 			m.shadowTracker.UpdateConditionsMet(true, false)
 
 			alerts := []shadowstate.WaterFlowAlert{{
-				AlertType:       "warning",
-				Message:         fmt.Sprintf("Water flow of %.2f GPM for over 15 minutes. Check for running fixtures.", m.currentFlowRateGPM),
+				AlertType: "warning",
+				Message: fmt.Sprintf("Water flow of %.2f GPM for over %d minutes. Check for running fixtures.",
+					m.currentFlowRateGPM, WarningFlowDurationMinutes),
 				FlowRateGPM:     m.currentFlowRateGPM,
 				DurationMinutes: WarningFlowDurationMinutes,
 				DetectedAt:      warningWindowStart,
@@ -368,7 +369,8 @@ func (m *Manager) evaluateConditions() {
 			m.shadowTracker.UpdateActiveAlerts(alerts)
 
 			m.sendAlertNotification("warning",
-				fmt.Sprintf("Water flow of %.2f GPM for over 15 minutes. Check for running fixtures.", m.currentFlowRateGPM))
+				fmt.Sprintf("Water flow of %.2f GPM for over %d minutes. Check for running fixtures.",
+					m.currentFlowRateGPM, WarningFlowDurationMinutes))
 		}
 	}
 }

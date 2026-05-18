@@ -2,6 +2,7 @@ package shadowstate
 
 import (
 	"fmt"
+	"sync"
 
 	"homeautomation/internal/ha"
 	"homeautomation/internal/state"
@@ -30,6 +31,10 @@ type SubscriptionHelper struct {
 	// Track subscriptions for cleanup
 	haSubscriptions    []ha.Subscription
 	stateSubscriptions []state.Subscription
+
+	// mu protects subscribedStateKeys and subscribedHAEntities against concurrent
+	// reads from captureInputs() and writes from SubscribeToState/Entity/Sensor().
+	mu sync.RWMutex
 
 	// Track subscribed keys for fallback input capture (when registry is nil)
 	subscribedStateKeys  []string
@@ -84,10 +89,17 @@ func (h *SubscriptionHelper) captureInputs() {
 	// Fallback: capture inputs directly from tracked subscriptions (for tests without registry)
 	inputs := make(map[string]interface{})
 
+	h.mu.RLock()
+	stateKeys := make([]string, len(h.subscribedStateKeys))
+	copy(stateKeys, h.subscribedStateKeys)
+	haEntities := make([]string, len(h.subscribedHAEntities))
+	copy(haEntities, h.subscribedHAEntities)
+	h.mu.RUnlock()
+
 	// Capture state variable values
 	if h.stateManager != nil {
 		allValues := h.stateManager.GetAllValues()
-		for _, key := range h.subscribedStateKeys {
+		for _, key := range stateKeys {
 			if val, ok := allValues[key]; ok {
 				inputs[key] = val
 			}
@@ -96,7 +108,7 @@ func (h *SubscriptionHelper) captureInputs() {
 
 	// Capture HA entity states
 	if h.haClient != nil {
-		for _, entityID := range h.subscribedHAEntities {
+		for _, entityID := range haEntities {
 			if state, err := h.haClient.GetState(entityID); err == nil && state != nil {
 				inputs[entityID] = state.State
 			}
@@ -125,7 +137,9 @@ func (h *SubscriptionHelper) SubscribeToSensor(entityID string, handler func(val
 	}
 
 	// Track the entity for fallback input capture
+	h.mu.Lock()
 	h.subscribedHAEntities = append(h.subscribedHAEntities, entityID)
+	h.mu.Unlock()
 
 	sub, err := h.haClient.SubscribeStateChanges(entityID, func(entity string, oldState, newState *ha.State) {
 		if newState == nil {
@@ -165,7 +179,9 @@ func (h *SubscriptionHelper) SubscribeToEntity(entityID string, handler func(ent
 	}
 
 	// Track the entity for fallback input capture
+	h.mu.Lock()
 	h.subscribedHAEntities = append(h.subscribedHAEntities, entityID)
+	h.mu.Unlock()
 
 	sub, err := h.haClient.SubscribeStateChanges(entityID, func(entity string, oldState, newState *ha.State) {
 		// Capture shadow state inputs BEFORE calling the handler
@@ -191,7 +207,9 @@ func (h *SubscriptionHelper) SubscribeToState(key string, handler func(key strin
 	}
 
 	// Track the key for fallback input capture
+	h.mu.Lock()
 	h.subscribedStateKeys = append(h.subscribedStateKeys, key)
+	h.mu.Unlock()
 
 	sub, err := h.stateManager.Subscribe(key, func(k string, oldValue, newValue interface{}) {
 		// Capture shadow state inputs BEFORE calling the handler
