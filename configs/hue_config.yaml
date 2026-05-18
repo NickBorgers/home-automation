@@ -168,6 +168,11 @@ rooms:
         value: true
     increase_brightness_if_true: ~
     transition_seconds: 5
+    # The kitchen mmWave radar (Apollo MTR) is unreliable for stationary people:
+    # it briefly drops detection then re-detects. Without this flag, every
+    # re-detection re-activates the scene and overrides any manual brightness
+    # the user dialed in. Edge-trigger so on→on reactivations are skipped.
+    skip_reactivation_when_on: true
 
   - hue_group: C Office
     hass_area_id: c_office

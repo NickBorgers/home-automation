@@ -33,6 +33,12 @@ type Manager struct {
 	// retry loops overriding newer actions for the same room.
 	roomContexts   map[string]context.CancelFunc
 	roomContextsMu sync.Mutex
+
+	// Tracks the last applied action ("on" or "off") per room. Used by rooms
+	// with skip_reactivation_when_on=true to skip duplicate on→on activations
+	// caused by unreliable presence sensors.
+	lastRoomAction   map[string]string
+	lastRoomActionMu sync.Mutex
 }
 
 // NewManager creates a new Lighting Control manager
@@ -40,15 +46,16 @@ func NewManager(ctx context.Context, haClient ha.HAClient, stateManager *state.M
 	shadowTracker := shadowstate.NewLightingTracker()
 
 	return &Manager{
-		haClient:      haClient,
-		stateManager:  stateManager,
-		config:        config,
-		logger:        logger.Named("lighting"),
-		readOnly:      readOnly,
-		shadowTracker: shadowTracker,
-		subHelper:     shadowstate.NewSubscriptionHelper(haClient, stateManager, registry, shadowTracker, "lighting", logger.Named("lighting")),
-		ctx:           ctx,
-		roomContexts:  make(map[string]context.CancelFunc),
+		haClient:       haClient,
+		stateManager:   stateManager,
+		config:         config,
+		logger:         logger.Named("lighting"),
+		readOnly:       readOnly,
+		shadowTracker:  shadowTracker,
+		subHelper:      shadowstate.NewSubscriptionHelper(haClient, stateManager, registry, shadowTracker, "lighting", logger.Named("lighting")),
+		ctx:            ctx,
+		roomContexts:   make(map[string]context.CancelFunc),
+		lastRoomAction: make(map[string]string),
 	}
 }
 
@@ -344,6 +351,27 @@ func (m *Manager) evaluateAndActivateRoom(room *RoomConfig, dayPhase string, tri
 		zap.String("action", action),
 		zap.String("matched_variable", matchedVar))
 
+	// Edge-trigger optimization for rooms with unreliable presence sensors
+	// (e.g. mmWave radar that drops detection on stationary people). Skip a
+	// duplicate on→on reactivation triggered by a condition variable so we
+	// don't override the user's manual brightness adjustments. Global triggers
+	// (dayPhase/sunevent) still re-fire because the target scene may differ.
+	if room.SkipReactivationWhenOn && action == "on" && !isGlobalTrigger(trigger) {
+		m.lastRoomActionMu.Lock()
+		lastAction := m.lastRoomAction[room.HueGroup]
+		m.lastRoomActionMu.Unlock()
+		if lastAction == "on" {
+			m.logger.Info("Skipping scene reactivation - room already on, preserving manual adjustments",
+				zap.String("room", room.HueGroup),
+				zap.String("trigger", trigger),
+				zap.String("matched_condition", matchedVar))
+			m.recordAction(room.HueGroup, "skip_reactivation",
+				fmt.Sprintf("Room already on; skipping to preserve manual brightness (trigger=%s)", trigger),
+				"", false, trigger)
+			return
+		}
+	}
+
 	switch action {
 	case "on":
 		m.logger.Info("Room should be turned on with scene",
@@ -351,11 +379,13 @@ func (m *Manager) evaluateAndActivateRoom(room *RoomConfig, dayPhase string, tri
 			zap.String("day_phase", dayPhase),
 			zap.String("matched_condition", matchedVar))
 		m.activateScene(roomCtx, room, dayPhase, trigger)
+		m.setLastRoomAction(room.HueGroup, "on")
 	case "off":
 		m.logger.Info("Room should be turned off",
 			zap.String("room", room.HueGroup),
 			zap.String("matched_condition", matchedVar))
 		m.turnOffRoom(roomCtx, room, trigger)
+		m.setLastRoomAction(room.HueGroup, "off")
 	case "skip":
 		// Skip action: do nothing for this room (e.g., when Hue Sync is controlling the lights)
 		// Previous operation cancelled by getRoomContext, no new action needed
@@ -459,6 +489,26 @@ func toSnakeCase(str string) string {
 // scenes after someone returns home. Long transitions on lights that are off can
 // silently fail on Hue bridges, and users want lights up quickly when arriving.
 const maxReturnHomeTransition = 5
+
+// isGlobalTrigger returns true for triggers that affect all rooms and should
+// always re-evaluate, even when a room has skip_reactivation_when_on=true.
+// Day phase and sun events change the target scene itself, so they must
+// re-fire. Matches the set treated as global in isTopicRelevant.
+func isGlobalTrigger(trigger string) bool {
+	switch trigger {
+	case "dayPhase", "sunevent", "", "reset":
+		return true
+	}
+	return false
+}
+
+// setLastRoomAction records the most recent action applied to a room, used
+// to detect on→on reactivations from unreliable presence sensors.
+func (m *Manager) setLastRoomAction(roomName, action string) {
+	m.lastRoomActionMu.Lock()
+	defer m.lastRoomActionMu.Unlock()
+	m.lastRoomAction[roomName] = action
+}
 
 // isPresenceTrigger returns true if the trigger variable indicates a presence change
 // (someone arriving/leaving), which means lights may be transitioning from off to on.
