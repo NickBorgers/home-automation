@@ -11,7 +11,7 @@ import (
 )
 
 func (m *Manager) adoptStartupZonePlayback(zone *Zone, selected PlaybackOption, trigger string) bool {
-	if trigger != "startup" || m.readOnly {
+	if trigger != "startup" {
 		return false
 	}
 
@@ -65,23 +65,20 @@ func (m *Manager) adoptStartupZonePlayback(zone *Zone, selected PlaybackOption, 
 	}
 	m.mu.Unlock()
 
-	if m.zoneManager != nil {
-		m.zoneManager.mu.Lock()
-		zone.PlaylistURI = currentURI
-		zone.MediaType = playbackOption.MediaType
-		zone.Participants = participants
-		m.zoneManager.mu.Unlock()
-	} else {
-		zone.PlaylistURI = currentURI
-		zone.MediaType = playbackOption.MediaType
-		zone.Participants = participants
-	}
+	m.zoneManager.mu.Lock()
+	zone.PlaylistURI = currentURI
+	zone.MediaType = playbackOption.MediaType
+	zone.Participants = participants
+	m.zoneManager.mu.Unlock()
 
 	m.recordAdoptedStartupShadowState(zone.MusicType, playbackOption, participants, zone.LeadSpeaker, actualGroup, trigger)
 	m.logger.Info("Adopted existing startup playback",
 		zap.String("zone", zone.Name),
 		zap.String("lead_speaker", zone.LeadSpeaker),
 		zap.String("uri", currentURI))
+	if !m.readOnly {
+		m.startPlaybackMonitor(leadEntityID, zone.LeadSpeaker, zone.MusicType)
+	}
 	return true
 }
 
@@ -121,7 +118,7 @@ func (m *Manager) groupRoughlyMatches(zone *Zone, actualGroup map[string]bool) b
 			return false
 		}
 	}
-	return actualGroup[m.getSpeakerEntityID(zone.LeadSpeaker)]
+	return true
 }
 
 func (m *Manager) participantsWithCurrentVolumes(participants []ParticipantWithVolume) []ParticipantWithVolume {
