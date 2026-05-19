@@ -1322,6 +1322,10 @@ func (zm *ZoneManager) startZone(zoneName string, speakers []string, trigger str
 	}
 
 	// Delegate actual playback to manager
+	if zm.manager.adoptStartupZonePlayback(zone, playbackOption, trigger) {
+		return nil
+	}
+
 	go func() {
 		if err := zm.manager.orchestrateZonePlayback(zone, playbackOption, trigger); err != nil {
 			zm.logger.Error("Failed to orchestrate zone playback",
