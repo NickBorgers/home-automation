@@ -309,6 +309,12 @@ func TestEnvironmentalManager_CriticalThreshold_Sustained(t *testing.T) {
 	if notification.Priority != ntfy.PriorityHigh {
 		t.Errorf("Expected critical notification to have high priority, got %d", notification.Priority)
 	}
+	// Regression: humidity TTS must be deferable so it is suppressed while
+	// master is asleep. ntfy push still fires at high priority (above) so the
+	// user sees the alert on wake — but the Sonos announcement must not play.
+	if notification.Urgency != notify.UrgencyDeferable {
+		t.Errorf("Expected critical humidity Urgency=UrgencyDeferable (suppressed when asleep), got %v", notification.Urgency)
+	}
 }
 
 func TestEnvironmentalManager_OutdoorSensor_NoAlert(t *testing.T) {
