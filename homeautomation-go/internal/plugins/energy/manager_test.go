@@ -25,32 +25,26 @@ func createTestConfig() *EnergyConfig {
 			},
 			EnergyStates: []EnergyState{
 				{
-					ConditionName:                       "black",
+					ConditionName:                       "red",
 					BatteryMinimumPercentage:            0,
 					EnergyProductionMinimumKW:           0,
 					RemainingEnergyProductionMinimumKWH: 0,
 				},
 				{
-					ConditionName:                       "red",
-					BatteryMinimumPercentage:            40,
-					EnergyProductionMinimumKW:           0,
-					RemainingEnergyProductionMinimumKWH: 0,
-				},
-				{
 					ConditionName:                       "yellow",
-					BatteryMinimumPercentage:            60,
-					EnergyProductionMinimumKW:           0,
+					BatteryMinimumPercentage:            15,
+					EnergyProductionMinimumKW:           0.1,
 					RemainingEnergyProductionMinimumKWH: 0,
 				},
 				{
 					ConditionName:                       "green",
-					BatteryMinimumPercentage:            80,
-					EnergyProductionMinimumKW:           0,
-					RemainingEnergyProductionMinimumKWH: 10,
+					BatteryMinimumPercentage:            60,
+					EnergyProductionMinimumKW:           1,
+					RemainingEnergyProductionMinimumKWH: 5,
 				},
 				{
 					ConditionName:                       "white",
-					BatteryMinimumPercentage:            95,
+					BatteryMinimumPercentage:            80,
 					EnergyProductionMinimumKW:           4,
 					RemainingEnergyProductionMinimumKWH: 20,
 				},
@@ -71,15 +65,14 @@ func TestDetermineBatteryEnergyLevel(t *testing.T) {
 		percentage float64
 		expected   string
 	}{
-		{"Below all thresholds", 0, "black"},
-		{"Just below red", 39, "black"},
-		{"At red threshold", 40, "red"},
-		{"Between red and yellow", 50, "red"},
-		{"At yellow threshold", 60, "yellow"},
-		{"Between yellow and green", 75, "yellow"},
-		{"At green threshold", 80, "green"},
-		{"Between green and white", 90, "green"},
-		{"At white threshold", 95, "white"},
+		{"At red floor", 0, "red"},
+		{"Just below yellow", 14, "red"},
+		{"At yellow threshold", 15, "yellow"},
+		{"Between yellow and green", 30, "yellow"},
+		{"Just below green", 59, "yellow"},
+		{"At green threshold", 60, "green"},
+		{"Between green and white", 70, "green"},
+		{"At white threshold", 80, "white"},
 		{"Above white", 100, "white"},
 	}
 
@@ -111,10 +104,10 @@ func TestLoadConfigFromRepoFile(t *testing.T) {
 	assert.NotNil(t, config)
 
 	// Verify config structure
-	assert.Equal(t, 5, len(config.Energy.EnergyStates))
+	assert.Equal(t, 4, len(config.Energy.EnergyStates))
 
 	// Verify energy states are in order
-	expectedLevels := []string{"black", "red", "yellow", "green", "white"}
+	expectedLevels := []string{"red", "yellow", "green", "white"}
 	for i, state := range config.Energy.EnergyStates {
 		assert.Equal(t, expectedLevels[i], state.ConditionName)
 	}
@@ -132,8 +125,8 @@ func TestManagerStartAndHandlers(t *testing.T) {
 
 	// Set initial state
 	env.StateMgr.SetBool("isGridAvailable", true)
-	env.StateMgr.SetString("batteryEnergyLevel", "black")
-	env.StateMgr.SetString("solarProductionEnergyLevel", "black")
+	env.StateMgr.SetString("batteryEnergyLevel", "red")
+	env.StateMgr.SetString("solarProductionEnergyLevel", "red")
 	env.StateMgr.SetNumber("thisHourSolarGeneration", 0.0)
 	env.StateMgr.SetNumber("remainingSolarGeneration", 0.0)
 
@@ -151,7 +144,7 @@ func TestManagerStartAndHandlers(t *testing.T) {
 
 		manager.handleBatteryChange(50.0)
 		level, _ := env.StateMgr.GetString("batteryEnergyLevel")
-		assert.Equal(t, "red", level)
+		assert.Equal(t, "yellow", level)
 	})
 
 	t.Run("handleBatteryChange_with_invalid_value", func(t *testing.T) {
@@ -159,9 +152,9 @@ func TestManagerStartAndHandlers(t *testing.T) {
 		// Test with Inf - should be ignored
 
 		manager.handleBatteryChange(math.Inf(1))
-		// Level should remain red from previous test
+		// Level should remain yellow from previous test
 		level, _ := env.StateMgr.GetString("batteryEnergyLevel")
-		assert.Equal(t, "red", level)
+		assert.Equal(t, "yellow", level)
 	})
 
 	t.Run("handleThisHourSolarChange", func(t *testing.T) {
@@ -198,13 +191,13 @@ func TestManagerStartAndHandlers(t *testing.T) {
 
 	t.Run("handleSolarLevelChange", func(t *testing.T) {
 
-		manager.handleSolarLevelChange("solarProductionEnergyLevel", "black", "green")
+		manager.handleSolarLevelChange("solarProductionEnergyLevel", "red", "green")
 		// Just verify it doesn't panic - shadow state update is tested
 	})
 
 	t.Run("handleCurrentEnergyLevelChange", func(t *testing.T) {
 
-		manager.handleCurrentEnergyLevelChange("currentEnergyLevel", "black", "green")
+		manager.handleCurrentEnergyLevelChange("currentEnergyLevel", "red", "green")
 		// Just verify it doesn't panic - shadow state and indicator light updates are tested
 	})
 }
@@ -281,7 +274,7 @@ func TestTimezoneHandling(t *testing.T) {
 				EnergyStates    []EnergyState         `yaml:"energy_states"`
 			}{
 				EnergyStates: []EnergyState{
-					{ConditionName: "black"},
+					{ConditionName: "red"},
 				},
 			},
 		}
@@ -505,11 +498,10 @@ func TestIndicatorLightsServiceCall(t *testing.T) {
 	// Create config with light configs for each energy level
 	config := createTestConfig()
 	// The createTestConfig doesn't have LightConfig, so let's update the EnergyStates
-	config.Energy.EnergyStates[0].LightConfig = LightConfig{Red: 25, Green: 25, Blue: 112, BrightnessPct: 70}    // black
-	config.Energy.EnergyStates[1].LightConfig = LightConfig{Red: 255, Green: 0, Blue: 0, BrightnessPct: 30}      // red
-	config.Energy.EnergyStates[2].LightConfig = LightConfig{Red: 255, Green: 255, Blue: 0, BrightnessPct: 30}    // yellow
-	config.Energy.EnergyStates[3].LightConfig = LightConfig{Red: 0, Green: 255, Blue: 0, BrightnessPct: 60}      // green
-	config.Energy.EnergyStates[4].LightConfig = LightConfig{Red: 255, Green: 255, Blue: 255, BrightnessPct: 100} // white
+	config.Energy.EnergyStates[0].LightConfig = LightConfig{Red: 255, Green: 0, Blue: 0, BrightnessPct: 30}      // red
+	config.Energy.EnergyStates[1].LightConfig = LightConfig{Red: 255, Green: 255, Blue: 0, BrightnessPct: 30}    // yellow
+	config.Energy.EnergyStates[2].LightConfig = LightConfig{Red: 0, Green: 255, Blue: 0, BrightnessPct: 60}      // green
+	config.Energy.EnergyStates[3].LightConfig = LightConfig{Red: 255, Green: 255, Blue: 255, BrightnessPct: 100} // white
 
 	// Set up mock light entities with "Radar" in friendly_name
 	env.MockHA.SetState("light.apollo_bedroom_rgb", "on", map[string]interface{}{
@@ -586,7 +578,7 @@ func TestIndicatorLightsReadOnlyMode(t *testing.T) {
 	snapshot := env.MockHA.ServiceCallCount()
 
 	// Trigger updateIndicatorLights directly
-	manager.updateIndicatorLights("black")
+	manager.updateIndicatorLights("red")
 
 	// Verify NO light.turn_on service was called in read-only mode
 	calls := env.MockHA.GetServiceCallsSince(snapshot)
@@ -595,7 +587,7 @@ func TestIndicatorLightsReadOnlyMode(t *testing.T) {
 	// But shadow state should still be updated
 	shadowState := manager.GetShadowState()
 	assert.NotNil(t, shadowState.Outputs.IndicatorLightsAction)
-	assert.Equal(t, "black", shadowState.Outputs.IndicatorLightsAction.EnergyLevel)
+	assert.Equal(t, "red", shadowState.Outputs.IndicatorLightsAction.EnergyLevel)
 }
 
 func TestIndicatorLightsDiscoveryCaseInsensitive(t *testing.T) {
@@ -701,13 +693,13 @@ func TestIndicatorLightsServiceCallError(t *testing.T) {
 	// Instead, we verify that:
 	// 1. The function doesn't panic
 	// 2. The shadow state was still updated before the service call
-	manager.updateIndicatorLights("black")
+	manager.updateIndicatorLights("red")
 
 	// Shadow state should still be updated even though service call failed
 	// (shadow state is updated BEFORE the service call is made)
 	shadowState := manager.GetShadowState()
 	assert.NotNil(t, shadowState.Outputs.IndicatorLightsAction)
-	assert.Equal(t, "black", shadowState.Outputs.IndicatorLightsAction.EnergyLevel)
+	assert.Equal(t, "red", shadowState.Outputs.IndicatorLightsAction.EnergyLevel)
 	assert.Equal(t, []int{25, 25, 112}, shadowState.Outputs.IndicatorLightsAction.RGBColor)
 	assert.Equal(t, 70, shadowState.Outputs.IndicatorLightsAction.BrightnessPct)
 }
@@ -750,11 +742,10 @@ func TestIndicatorLightsInitialUpdateOnStartup(t *testing.T) {
 	config := createTestConfig()
 
 	// Add LightConfig for all energy levels
-	config.Energy.EnergyStates[0].LightConfig = LightConfig{Red: 25, Green: 25, Blue: 112, BrightnessPct: 70}    // black
-	config.Energy.EnergyStates[1].LightConfig = LightConfig{Red: 255, Green: 0, Blue: 0, BrightnessPct: 30}      // red
-	config.Energy.EnergyStates[2].LightConfig = LightConfig{Red: 255, Green: 255, Blue: 0, BrightnessPct: 30}    // yellow
-	config.Energy.EnergyStates[3].LightConfig = LightConfig{Red: 0, Green: 255, Blue: 0, BrightnessPct: 60}      // green
-	config.Energy.EnergyStates[4].LightConfig = LightConfig{Red: 255, Green: 255, Blue: 255, BrightnessPct: 100} // white
+	config.Energy.EnergyStates[0].LightConfig = LightConfig{Red: 255, Green: 0, Blue: 0, BrightnessPct: 30}      // red
+	config.Energy.EnergyStates[1].LightConfig = LightConfig{Red: 255, Green: 255, Blue: 0, BrightnessPct: 30}    // yellow
+	config.Energy.EnergyStates[2].LightConfig = LightConfig{Red: 0, Green: 255, Blue: 0, BrightnessPct: 60}      // green
+	config.Energy.EnergyStates[3].LightConfig = LightConfig{Red: 255, Green: 255, Blue: 255, BrightnessPct: 100} // white
 
 	// Set up mock light entity
 	env.MockHA.SetState("light.apollo_bedroom_rgb", "on", map[string]interface{}{
@@ -1030,7 +1021,8 @@ func TestAdaptiveBrightnessDisabled(t *testing.T) {
 	config.Energy.IndicatorLights.AdaptiveBrightness = AdaptiveBrightnessConfig{
 		Enabled: false, // Disabled
 	}
-	config.Energy.EnergyStates[2].LightConfig = LightConfig{Red: 255, Green: 255, Blue: 0, BrightnessPct: 30}
+	// index 1 = yellow in the 4-level scheme
+	config.Energy.EnergyStates[1].LightConfig = LightConfig{Red: 255, Green: 255, Blue: 0, BrightnessPct: 30}
 
 	env.MockHA.SetState("light.apollo_msr_2_1294c8_rgb_light", "on", map[string]interface{}{
 		"friendly_name": "Bedroom Radar RGB Light",
@@ -1083,7 +1075,8 @@ func TestAdaptiveBrightnessPerDevice(t *testing.T) {
 			{LuxMax: 1000, BrightnessPct: 80},
 		},
 	}
-	config.Energy.EnergyStates[2].LightConfig = LightConfig{Red: 255, Green: 255, Blue: 0, BrightnessPct: 30}
+	// index 1 = yellow in the 4-level scheme
+	config.Energy.EnergyStates[1].LightConfig = LightConfig{Red: 255, Green: 255, Blue: 0, BrightnessPct: 30}
 
 	// Two lights with different lux values
 	env.MockHA.SetState("light.apollo_msr_2_1294c8_rgb_light", "on", map[string]interface{}{
@@ -1203,7 +1196,7 @@ func TestDebouncing(t *testing.T) {
 	env.MockHA.Connect()
 
 	// Initialize state variables
-	env.StateMgr.SetString("currentEnergyLevel", "black")
+	env.StateMgr.SetString("currentEnergyLevel", "red")
 
 	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, false, nil, nil)
 	err := manager.Start()
@@ -1252,7 +1245,7 @@ func TestFallbackToStaticBrightness(t *testing.T) {
 		Enabled:          true,
 		LuxSensorPattern: "ltr390_light",
 	}
-	config.Energy.EnergyStates[2].LightConfig = LightConfig{Red: 255, Green: 255, Blue: 0, BrightnessPct: 45} // yellow
+	config.Energy.EnergyStates[1].LightConfig = LightConfig{Red: 255, Green: 255, Blue: 0, BrightnessPct: 45} // yellow
 
 	// Light entity WITHOUT matching lux sensor
 	env.MockHA.SetState("light.apollo_msr_2_1294c8_rgb_light", "on", map[string]interface{}{
@@ -1537,7 +1530,8 @@ func TestUpdateIndicatorLightsSkipsCalibrating(t *testing.T) {
 			Enabled: false, // Disabled to prevent race with calibration goroutine
 		},
 	}
-	config.Energy.EnergyStates[2].LightConfig = LightConfig{Red: 255, Green: 255, Blue: 0, BrightnessPct: 30}
+	// index 1 = yellow in the 4-level scheme
+	config.Energy.EnergyStates[1].LightConfig = LightConfig{Red: 255, Green: 255, Blue: 0, BrightnessPct: 30}
 
 	// Set up mock light and sensor
 	env.MockHA.SetState("light.apollo_msr_2_1294c8_rgb_light", "on", map[string]interface{}{
@@ -1588,7 +1582,8 @@ func TestUpdateIndicatorLightsUsesBaseline(t *testing.T) {
 			Enabled: true,
 		},
 	}
-	config.Energy.EnergyStates[2].LightConfig = LightConfig{Red: 255, Green: 255, Blue: 0, BrightnessPct: 30}
+	// index 1 = yellow in the 4-level scheme
+	config.Energy.EnergyStates[1].LightConfig = LightConfig{Red: 255, Green: 255, Blue: 0, BrightnessPct: 30}
 
 	// Set up mock light and sensor
 	env.MockHA.SetState("light.apollo_msr_2_1294c8_rgb_light", "on", map[string]interface{}{
@@ -1655,7 +1650,7 @@ func TestRestoreLightAfterCalibration(t *testing.T) {
 	env.MockHA.Connect()
 
 	// Set energy level
-	env.StateMgr.SetString("currentEnergyLevel", "black")
+	env.StateMgr.SetString("currentEnergyLevel", "red")
 
 	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, false, nil, nil)
 	err := manager.Start()
@@ -1773,7 +1768,7 @@ func TestCalibrationWithNoLuxReadingYet(t *testing.T) {
 	env.MockHA.SetState("sensor.apollo_msr_2_1294c8_ltr390_light", "50", map[string]interface{}{})
 	env.MockHA.Connect()
 
-	env.StateMgr.SetString("currentEnergyLevel", "black")
+	env.StateMgr.SetString("currentEnergyLevel", "red")
 
 	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, false, nil, nil)
 	err := manager.Start()
@@ -1821,7 +1816,7 @@ func TestSetLightBrightness(t *testing.T) {
 	})
 	env.MockHA.Connect()
 
-	env.StateMgr.SetString("currentEnergyLevel", "black")
+	env.StateMgr.SetString("currentEnergyLevel", "red")
 
 	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, false, nil, nil)
 
@@ -1852,7 +1847,7 @@ func TestSetLightBrightnessReadOnly(t *testing.T) {
 
 	env.MockHA.Connect()
 
-	env.StateMgr.SetString("currentEnergyLevel", "black")
+	env.StateMgr.SetString("currentEnergyLevel", "red")
 
 	// Create manager in read-only mode
 	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, true, nil, nil)

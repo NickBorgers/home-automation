@@ -71,7 +71,7 @@ flowchart TD
 
     subgraph Context["Context Modifiers"]
         sunEvent{"sunevent<br/>recent?"}
-        energy{"currentEnergyLevel<br/>is red/black?"}
+        energy{"currentEnergyLevel<br/>is red?"}
     end
 
     subgraph Scenes["Lighting Scenes"]

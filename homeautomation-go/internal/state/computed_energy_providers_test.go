@@ -19,9 +19,9 @@ func setupTestManagerForEnergyRegistry(t *testing.T) (*Manager, *ha.MockClient) 
 	mockClient.SetState("input_number.this_hour_solar_generation", "0", map[string]interface{}{})
 	mockClient.SetState("input_number.remaining_solar_generation", "0", map[string]interface{}{})
 	mockClient.SetState("input_boolean.free_energy_available", "off", map[string]interface{}{})
-	mockClient.SetState("input_text.battery_energy_level", "black", map[string]interface{}{})
-	mockClient.SetState("input_text.solar_production_energy_level", "black", map[string]interface{}{})
-	mockClient.SetState("input_text.current_energy_level", "black", map[string]interface{}{})
+	mockClient.SetState("input_text.battery_energy_level", "red", map[string]interface{}{})
+	mockClient.SetState("input_text.solar_production_energy_level", "red", map[string]interface{}{})
+	mockClient.SetState("input_text.current_energy_level", "red", map[string]interface{}{})
 	mockClient.Connect()
 
 	manager := NewManager(mockClient, logger, false)
@@ -33,32 +33,32 @@ func setupTestManagerForEnergyRegistry(t *testing.T) (*Manager, *ha.MockClient) 
 }
 
 // testEnergyStates returns standard test energy state configurations.
-// This matches the ordering in the production energy config.
+// This matches the 4-level scheme in the production energy config.
 func testEnergyStates() []EnergyStateConfig {
 	return []EnergyStateConfig{
 		{
-			ConditionName:                       "black",
+			ConditionName:                       "red",
 			BatteryMinimumPercentage:            0,
 			EnergyProductionMinimumKW:           0,
 			RemainingEnergyProductionMinimumKWH: 0,
 		},
 		{
-			ConditionName:                       "red",
-			BatteryMinimumPercentage:            10,
-			EnergyProductionMinimumKW:           0.1,
-			RemainingEnergyProductionMinimumKWH: 0.5,
-		},
-		{
 			ConditionName:                       "yellow",
-			BatteryMinimumPercentage:            30,
-			EnergyProductionMinimumKW:           0.5,
-			RemainingEnergyProductionMinimumKWH: 2,
+			BatteryMinimumPercentage:            15,
+			EnergyProductionMinimumKW:           0.1,
+			RemainingEnergyProductionMinimumKWH: 0,
 		},
 		{
 			ConditionName:                       "green",
-			BatteryMinimumPercentage:            70,
-			EnergyProductionMinimumKW:           2,
-			RemainingEnergyProductionMinimumKWH: 10,
+			BatteryMinimumPercentage:            60,
+			EnergyProductionMinimumKW:           1,
+			RemainingEnergyProductionMinimumKWH: 5,
+		},
+		{
+			ConditionName:                       "white",
+			BatteryMinimumPercentage:            80,
+			EnergyProductionMinimumKW:           4,
+			RemainingEnergyProductionMinimumKWH: 20,
 		},
 	}
 }
@@ -88,16 +88,16 @@ func TestRegisterSolarEnergyLevelProvider(t *testing.T) {
 	}
 	defer registry.Stop()
 
-	// Initial value should be black (no solar generation)
+	// Initial value should be red (lowest level — no solar generation)
 	level, err := manager.GetString("solarProductionEnergyLevel")
 	if err != nil {
 		t.Fatalf("Failed to get solarProductionEnergyLevel: %v", err)
 	}
-	if level != "black" {
-		t.Errorf("Expected initial level 'black', got '%s'", level)
+	if level != "red" {
+		t.Errorf("Expected initial level 'red', got '%s'", level)
 	}
-	if solarLevelReceived != "black" {
-		t.Errorf("Expected callback with 'black', got '%s'", solarLevelReceived)
+	if solarLevelReceived != "red" {
+		t.Errorf("Expected callback with 'red', got '%s'", solarLevelReceived)
 	}
 }
 
@@ -109,40 +109,40 @@ func TestSolarEnergyLevelComputation(t *testing.T) {
 		expectedLevel string
 	}{
 		{
-			name:          "zero solar",
+			name:          "zero solar - red",
 			thisHourKW:    0,
 			remainingKWH:  0,
-			expectedLevel: "black",
-		},
-		{
-			name:          "minimal solar - red",
-			thisHourKW:    0.15,
-			remainingKWH:  1.0,
 			expectedLevel: "red",
 		},
 		{
-			name:          "moderate solar - yellow",
-			thisHourKW:    0.8,
-			remainingKWH:  5.0,
+			name:          "minimal current production - yellow",
+			thisHourKW:    0.15,
+			remainingKWH:  1.0,
 			expectedLevel: "yellow",
 		},
 		{
-			name:          "high solar - green",
-			thisHourKW:    3.0,
-			remainingKWH:  15.0,
+			name:          "moderate solar - green",
+			thisHourKW:    1.5,
+			remainingKWH:  10.0,
 			expectedLevel: "green",
 		},
 		{
-			name:          "high thisHourKW but low remaining - still black",
+			name:          "high solar - white",
 			thisHourKW:    5.0,
-			remainingKWH:  0,
-			expectedLevel: "black",
+			remainingKWH:  25.0,
+			expectedLevel: "white",
 		},
 		{
-			name:          "low thisHourKW but high remaining - still black",
+			name:          "high thisHourKW but low remaining - capped at yellow",
+			thisHourKW:    5.0,
+			remainingKWH:  0,
+			expectedLevel: "yellow",
+		},
+		{
+			name:          "low thisHourKW but high remaining - stays at red",
 			thisHourKW:    0,
 			remainingKWH:  20.0,
-			expectedLevel: "black",
+			expectedLevel: "red",
 		},
 	}
 
@@ -235,9 +235,9 @@ func TestCurrentEnergyLevelComputation(t *testing.T) {
 		{
 			name:          "retired free energy flag ignored",
 			isFreeEnergy:  true,
-			batteryLevel:  "black",
-			solarLevel:    "black",
-			expectedLevel: "black",
+			batteryLevel:  "red",
+			solarLevel:    "red",
+			expectedLevel: "red",
 			description:   "Legacy free energy flag no longer overrides the battery and solar levels",
 		},
 		{
@@ -267,25 +267,25 @@ func TestCurrentEnergyLevelComputation(t *testing.T) {
 		{
 			name:          "solar much higher - only boosts by 1",
 			isFreeEnergy:  false,
-			batteryLevel:  "black",
-			solarLevel:    "green",
-			expectedLevel: "red",
+			batteryLevel:  "red",
+			solarLevel:    "white",
+			expectedLevel: "yellow",
 			description:   "Solar can only boost by max 1 level",
 		},
 		{
 			name:          "battery at max, solar same",
 			isFreeEnergy:  false,
-			batteryLevel:  "green",
-			solarLevel:    "green",
-			expectedLevel: "green",
+			batteryLevel:  "white",
+			solarLevel:    "white",
+			expectedLevel: "white",
 			description:   "Already at max level",
 		},
 		{
 			name:          "both at minimum",
 			isFreeEnergy:  false,
-			batteryLevel:  "black",
-			solarLevel:    "black",
-			expectedLevel: "black",
+			batteryLevel:  "red",
+			solarLevel:    "red",
+			expectedLevel: "red",
 			description:   "Lowest possible level",
 		},
 	}
@@ -378,8 +378,8 @@ func TestRegisterEnergyProviders(t *testing.T) {
 	logger := testlogger.New()
 
 	// Set test values
-	_ = manager.SetNumber("thisHourSolarGeneration", 1.0)
-	_ = manager.SetNumber("remainingSolarGeneration", 5.0)
+	_ = manager.SetNumber("thisHourSolarGeneration", 1.5)
+	_ = manager.SetNumber("remainingSolarGeneration", 10.0)
 	_ = manager.SetBool("isFreeEnergyAvailable", false)
 	_ = manager.SetString("batteryEnergyLevel", "yellow")
 
@@ -413,24 +413,24 @@ func TestRegisterEnergyProviders(t *testing.T) {
 		t.Errorf("Expected 2 providers, got %d: %v", len(names), names)
 	}
 
-	// Solar level: thisHourKW=1.0, remainingKWH=5.0 -> yellow
+	// Solar level: thisHourKW=1.5, remainingKWH=10.0 -> green
 	solarLevel, _ := manager.GetString("solarProductionEnergyLevel")
-	if solarLevel != "yellow" {
-		t.Errorf("Expected solar level 'yellow', got '%s'", solarLevel)
+	if solarLevel != "green" {
+		t.Errorf("Expected solar level 'green', got '%s'", solarLevel)
 	}
 
-	// Overall level: battery=yellow, solar=yellow -> yellow
+	// Overall level: battery=yellow, solar=green -> green (boost by 1)
 	overallLevel, _ := manager.GetString("currentEnergyLevel")
-	if overallLevel != "yellow" {
-		t.Errorf("Expected overall level 'yellow', got '%s'", overallLevel)
+	if overallLevel != "green" {
+		t.Errorf("Expected overall level 'green', got '%s'", overallLevel)
 	}
 
 	// Check callbacks were called
-	if callbacksCalled["solar"] != "yellow" {
-		t.Errorf("Expected solar callback 'yellow', got '%s'", callbacksCalled["solar"])
+	if callbacksCalled["solar"] != "green" {
+		t.Errorf("Expected solar callback 'green', got '%s'", callbacksCalled["solar"])
 	}
-	if callbacksCalled["overall"] != "yellow" {
-		t.Errorf("Expected overall callback 'yellow', got '%s'", callbacksCalled["overall"])
+	if callbacksCalled["overall"] != "green" {
+		t.Errorf("Expected overall callback 'green', got '%s'", callbacksCalled["overall"])
 	}
 }
 
@@ -457,10 +457,10 @@ func TestEnergyLevelInvalidLevelHandling(t *testing.T) {
 	}
 	defer registry.Stop()
 
-	// Invalid levels should result in "black" (fallback)
+	// Invalid levels should fall back to the lowest configured level ("red")
 	level, _ := manager.GetString("currentEnergyLevel")
-	if level != "black" {
-		t.Errorf("Invalid levels should fallback to 'black', got '%s'", level)
+	if level != "red" {
+		t.Errorf("Invalid levels should fallback to 'red', got '%s'", level)
 	}
 }
 
@@ -517,13 +517,13 @@ func TestSolarBoostMaxOneLevel(t *testing.T) {
 		solar    string
 		expected string
 	}{
-		{"black", "red", "red"},      // boost by 1
-		{"black", "yellow", "red"},   // boost limited to 1
-		{"black", "green", "red"},    // boost limited to 1
 		{"red", "yellow", "yellow"},  // boost by 1
 		{"red", "green", "yellow"},   // boost limited to 1
+		{"red", "white", "yellow"},   // boost limited to 1
 		{"yellow", "green", "green"}, // boost by 1
-		{"green", "green", "green"},  // already at max
+		{"yellow", "white", "green"}, // boost limited to 1
+		{"green", "white", "white"},  // boost by 1
+		{"white", "white", "white"},  // already at max
 	}
 
 	for _, tc := range testCases {

@@ -622,9 +622,9 @@ func (m *Manager) Reset() error {
 	// and update indicator lights to match
 	currentLevel, err := m.stateManager.GetString("currentEnergyLevel")
 	if err != nil {
-		m.logger.Warn("Failed to get currentEnergyLevel during reset, using black",
+		m.logger.Warn("Failed to get currentEnergyLevel during reset, using red",
 			zap.Error(err))
-		currentLevel = "black"
+		currentLevel = "red"
 	}
 
 	m.updateIndicatorLights(currentLevel)
@@ -804,7 +804,7 @@ func (m *Manager) restoreLightAfterCalibration(lightEntity string) {
 	// Get current energy level for color
 	currentLevel, err := m.stateManager.GetString("currentEnergyLevel")
 	if err != nil {
-		currentLevel = "black"
+		currentLevel = "red"
 	}
 
 	m.logger.Debug("Restoring brightness after calibration",
@@ -827,7 +827,7 @@ func (m *Manager) setLightBrightness(entity string, brightness int) {
 	// Get current energy level for color
 	currentLevel, err := m.stateManager.GetString("currentEnergyLevel")
 	if err != nil {
-		currentLevel = "black"
+		currentLevel = "red"
 	}
 
 	lightConfig := m.getLightConfigForLevel(currentLevel)

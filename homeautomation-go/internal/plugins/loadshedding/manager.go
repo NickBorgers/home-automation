@@ -20,7 +20,6 @@ const (
 
 	// Energy states
 	energyStateRed    = "red"
-	energyStateBlack  = "black"
 	energyStateYellow = "yellow"
 	energyStateGreen  = "green"
 	energyStateWhite  = "white"
@@ -262,10 +261,10 @@ func (m *Manager) Start() error {
 
 	// Restart safety: if a previous process left thermostat holds enabled (mid-thermal-battery
 	// or mid-hysteresis), clear them so the climate schedule resumes. Skip when current
-	// energy is red/black — load shedding may legitimately have those holds enabled, and
+	// energy is red — load shedding may legitimately have those holds enabled, and
 	// the energy-change handler below will re-evaluate and re-establish them as needed.
 	if level, err := m.stateManager.GetString("currentEnergyLevel"); err == nil &&
-		level != energyStateRed && level != energyStateBlack {
+		level != energyStateRed {
 		m.clearStaleThermostatHolds()
 	}
 
@@ -352,17 +351,20 @@ func (m *Manager) handleEnergyChangeWithTrigger(key string, oldValue, newValue i
 		zap.String("new_level", newLevel),
 		zap.String("trigger", trigger))
 
-	// Determine action based on new state
-	// Yellow is a hysteresis buffer - maintain current state to prevent rapid toggling
+	// Determine action based on new state.
+	// Red triggers full load shedding (HVAC band + non-HVAC off) — battery is below the
+	// arbitrage floor (<15%) and we need to conserve aggressively.
+	// Yellow is the wide hysteresis band covering normal arbitrage operation: no change
+	// to load-shed state (carry whatever red/green set), thermal battery off.
 	switch newLevel {
-	case energyStateRed, energyStateBlack:
-		m.deactivateThermalBattery("energy level dropped to " + newLevel)
+	case energyStateRed:
+		m.deactivateThermalBattery("energy level dropped to red")
 		m.enableLoadShedding(newLevel, trigger)
 	case energyStateGreen:
-		// Green is still a healthy state (battery ≥80% AND ≥10 kWh remaining solar).
-		// Don't snap thermostats back — entering hysteresis widens the setpoint band so
-		// HVAC stays idle, avoiding counter-runs from a transient white→green oscillation.
-		// If thermal battery isn't active, this is a no-op.
+		// Green is still a healthy state. Don't snap thermostats back — entering
+		// hysteresis widens the setpoint band so HVAC stays idle, avoiding counter-runs
+		// from a transient white→green oscillation. If thermal battery isn't active,
+		// this is a no-op.
 		m.enterThermalBatteryHysteresis()
 		m.restoreNonHVACLoads(newLevel)
 		m.disableLoadShedding(newLevel, trigger)
@@ -372,65 +374,12 @@ func (m *Manager) handleEnergyChangeWithTrigger(key string, oldValue, newValue i
 		m.activateThermalBattery()
 	case energyStateYellow:
 		m.deactivateThermalBattery("energy level dropped to yellow")
-		m.shedNonHVACLoads(newLevel)
-		m.logger.Info("Energy state is yellow - shedding non-HVAC loads, HVAC maintains current state",
-			zap.String("reason", "Hysteresis buffer for HVAC, but non-essential loads shed"))
+		m.logger.Info("Energy state is yellow - hysteresis carry on load-shed state, thermal battery off",
+			zap.String("reason", "Wide hysteresis band covering normal arbitrage operation"))
 	default:
 		m.logger.Warn("Unknown energy state",
 			zap.String("state", newLevel))
 	}
-}
-
-// shedNonHVACLoads turns off non-essential loads (EV charger, dehumidifier) without
-// touching HVAC. Used at yellow energy level for partial load shedding.
-func (m *Manager) shedNonHVACLoads(energyLevel string) {
-	m.stateMu.Lock()
-	alreadyShed := m.nonHVACLoadsShed
-	m.stateMu.Unlock()
-
-	if alreadyShed {
-		m.logger.Info("⏭  Non-HVAC loads already shed")
-		return
-	}
-
-	m.logger.Info("=== NON-HVAC LOAD SHEDDING: ENABLE ===",
-		zap.String("energy_level", energyLevel),
-		zap.String("reason", "Shedding non-essential loads at "+energyLevel+" energy level"))
-
-	if m.readOnly {
-		m.logger.Info("READ-ONLY: Would turn off EV charger and dehumidifier",
-			zap.String("ev_charger_entity", evChargerSwitch),
-			zap.String("dehumidifier_entity", dehumidifierSwitch))
-		m.stateMu.Lock()
-		m.nonHVACLoadsShed = true
-		m.stateMu.Unlock()
-		return
-	}
-
-	// Turn off EV charger
-	if err := m.haClient.CallService(m.ctx, "switch", "turn_off", map[string]interface{}{
-		"entity_id": evChargerSwitch,
-	}); err != nil {
-		m.logger.Error("Failed to turn off EV charger", zap.Error(err))
-	} else {
-		m.logger.Info("✓ Successfully turned off EV charger")
-	}
-
-	// Turn off dehumidifier
-	if err := m.haClient.CallService(m.ctx, "switch", "turn_off", map[string]interface{}{
-		"entity_id": dehumidifierSwitch,
-	}); err != nil {
-		m.logger.Error("Failed to turn off dehumidifier", zap.Error(err))
-	} else {
-		m.logger.Info("✓ Successfully turned off dehumidifier")
-	}
-
-	m.stateMu.Lock()
-	m.nonHVACLoadsShed = true
-	m.stateMu.Unlock()
-
-	m.logger.Info("=== NON-HVAC LOADS SHED ===",
-		zap.String("action", "EV charger and dehumidifier disabled to conserve battery"))
 }
 
 // restoreNonHVACLoads turns on non-essential loads (EV charger, dehumidifier).
@@ -484,7 +433,7 @@ func (m *Manager) restoreNonHVACLoads(energyLevel string) {
 		zap.String("action", "EV charger and dehumidifier re-enabled"))
 }
 
-// enableLoadShedding activates load shedding (energy state red/black)
+// enableLoadShedding activates load shedding (energy state red)
 func (m *Manager) enableLoadShedding(energyLevel string, trigger string) {
 	m.logger.Info("=== LOAD SHEDDING DECISION: ENABLE ===",
 		zap.String("energy_level", energyLevel),

@@ -24,17 +24,8 @@ energy:
         calibration_brightness_pct: 5  # Dim to 5% during measurement
         calibration_wait_sec: 65       # Wait 65 seconds for fresh lux reading (sensors update every ~60s)
   energy_states:
-    - condition_name: black
-      battery_minimum_percentage: 0
-      energy_production_minimum_kw: 0
-      remaining_energy_production_minimum_kwh: 0
-      light_config:
-        red: 25
-        green: 25
-        blue: 112
-        brightness_pct: 70
     - condition_name: red
-      battery_minimum_percentage: 19
+      battery_minimum_percentage: 0
       energy_production_minimum_kw: 0
       remaining_energy_production_minimum_kwh: 0
       light_config:
@@ -43,8 +34,8 @@ energy:
         blue: 0
         brightness_pct: 30
     - condition_name: yellow
-      battery_minimum_percentage: 20
-      energy_production_minimum_kw: 0
+      battery_minimum_percentage: 15
+      energy_production_minimum_kw: 0.1
       remaining_energy_production_minimum_kwh: 0
       light_config:
         red: 255
@@ -52,16 +43,16 @@ energy:
         blue: 0
         brightness_pct: 30
     - condition_name: green
-      battery_minimum_percentage: 40
-      energy_production_minimum_kw: 0
-      remaining_energy_production_minimum_kwh: 10
+      battery_minimum_percentage: 60
+      energy_production_minimum_kw: 1
+      remaining_energy_production_minimum_kwh: 5
       light_config:
         red: 0
         green: 255
         blue: 0
         brightness_pct: 60
     - condition_name: white
-      battery_minimum_percentage: 70
+      battery_minimum_percentage: 80
       energy_production_minimum_kw: 4
       remaining_energy_production_minimum_kwh: 20
       light_config:

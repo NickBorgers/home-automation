@@ -61,8 +61,11 @@ func RegisterSolarEnergyLevelProvider(
 				return nil, err
 			}
 
-			// Default to black (lowest level)
-			level := "black"
+			// Default to the first configured level (lowest)
+			level := ""
+			if len(energyStates) > 0 {
+				level = energyStates[0].ConditionName
+			}
 
 			// Check each energy state in order
 			// Level is the highest where both conditions are met
@@ -140,12 +143,15 @@ func RegisterCurrentEnergyLevelProvider(
 				}
 			}
 
-			// Handle invalid levels
+			// Handle invalid levels — return the lowest configured level as a safe default
 			if batteryIndex == -1 || solarIndex == -1 {
 				ctx.Logger().Warn("Invalid battery or solar level",
 					zap.String("batteryLevel", batteryLevel),
 					zap.String("solarLevel", solarLevel))
-				return "black", nil
+				if len(levelNames) > 0 {
+					return levelNames[0], nil
+				}
+				return "", nil
 			}
 
 			// Solar can only boost, never drag down the battery level.
