@@ -23,10 +23,10 @@ import (
 // Humidity thresholds (RH percentage)
 const (
 	// Conditioned space thresholds (living areas with HVAC)
-	HumidityWarningThreshold  = 55.0 // Warning - approaching mold risk
-	HumidityCriticalThreshold = 65.0 // Critical - definite mold risk
-	HumidityWarningClear      = 50.0 // Hysteresis: warning clears at this level
-	HumidityCriticalClear     = 60.0 // Hysteresis: critical clears at this level
+	HumidityWarningThreshold  = 65.0 // Warning - approaching mold risk
+	HumidityCriticalThreshold = 70.0 // Critical - definite mold risk
+	HumidityWarningClear      = 60.0 // Hysteresis: warning clears at this level
+	HumidityCriticalClear     = 65.0 // Hysteresis: critical clears at this level
 
 	// Unconditioned space thresholds (barns, attics, sheds)
 	// These spaces naturally track outdoor humidity, so thresholds are higher.

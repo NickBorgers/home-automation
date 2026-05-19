@@ -366,8 +366,8 @@ func TestScenario_Environmental_HighHumidityAlert(t *testing.T) {
 	env.mockAlerter.Reset()
 
 	// Simulate warning-level humidity
-	t.Log("Simulating warning-level humidity (58%)...")
-	env.environmental.SimulateSensorChange("sensor.bathroom_humidity", 58.0)
+	t.Log("Simulating warning-level humidity (67%)...")
+	env.environmental.SimulateSensorChange("sensor.bathroom_humidity", 67.0)
 
 	// Should not alert yet (not sustained)
 	alertLevel := env.environmental.GetCurrentState()
@@ -376,7 +376,7 @@ func TestScenario_Environmental_HighHumidityAlert(t *testing.T) {
 	// Advance time past sustained threshold (30 minutes)
 	t.Log("Advancing time past sustained threshold...")
 	env.mockClock.Advance(31 * time.Minute)
-	env.environmental.SimulateSensorChange("sensor.bathroom_humidity", 58.0)
+	env.environmental.SimulateSensorChange("sensor.bathroom_humidity", 67.0)
 
 	// Should now be warning level
 	alertLevel = env.environmental.GetCurrentState()

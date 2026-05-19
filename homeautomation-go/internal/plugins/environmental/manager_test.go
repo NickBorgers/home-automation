@@ -155,7 +155,7 @@ func TestEnvironmentalManager_NormalHumidity(t *testing.T) {
 	})
 
 	// Simulate normal humidity readings (below warning threshold)
-	manager.SimulateSensorChange(testIndoorSensor1, 45.0)
+	manager.SimulateSensorChange(testIndoorSensor1, 55.0)
 
 	// Verify no alert
 	alertLevel := manager.GetCurrentState()
@@ -190,11 +190,11 @@ func TestEnvironmentalManager_WarningThreshold_NotSustained(t *testing.T) {
 	})
 
 	// Simulate warning-level humidity
-	manager.SimulateSensorChange(testIndoorSensor1, 58.0)
+	manager.SimulateSensorChange(testIndoorSensor1, 67.0)
 
 	// Advance time but not enough to be sustained (15 minutes)
 	mockClock.Advance(15 * time.Minute)
-	manager.SimulateSensorChange(testIndoorSensor1, 58.0)
+	manager.SimulateSensorChange(testIndoorSensor1, 67.0)
 
 	// Should not alert yet (not sustained 30 minutes)
 	alertLevel := manager.GetCurrentState()
@@ -229,11 +229,11 @@ func TestEnvironmentalManager_WarningThreshold_Sustained(t *testing.T) {
 	})
 
 	// Simulate warning-level humidity
-	manager.SimulateSensorChange(testIndoorSensor1, 58.0)
+	manager.SimulateSensorChange(testIndoorSensor1, 67.0)
 
 	// Advance time to sustained threshold (30+ minutes)
 	mockClock.Advance(31 * time.Minute)
-	manager.SimulateSensorChange(testIndoorSensor1, 58.0)
+	manager.SimulateSensorChange(testIndoorSensor1, 67.0)
 
 	// Should now be warning level
 	alertLevel := manager.GetCurrentState()
@@ -278,11 +278,11 @@ func TestEnvironmentalManager_CriticalThreshold_Sustained(t *testing.T) {
 	})
 
 	// Simulate critical-level humidity
-	manager.SimulateSensorChange(testIndoorSensor1, 70.0)
+	manager.SimulateSensorChange(testIndoorSensor1, 72.0)
 
 	// Advance time to sustained threshold (30+ minutes)
 	mockClock.Advance(31 * time.Minute)
-	manager.SimulateSensorChange(testIndoorSensor1, 70.0)
+	manager.SimulateSensorChange(testIndoorSensor1, 72.0)
 
 	// Should now be critical level
 	alertLevel := manager.GetCurrentState()
@@ -379,11 +379,11 @@ func TestEnvironmentalManager_MixedSensors_OnlyIndoorAlerts(t *testing.T) {
 	manager.SimulateSensorChange(testOutdoorSensor1, 90.0)
 
 	// Set indoor sensor to warning level
-	manager.SimulateSensorChange(testIndoorSensor1, 58.0)
+	manager.SimulateSensorChange(testIndoorSensor1, 67.0)
 
 	// Advance time to sustained threshold
 	mockClock.Advance(31 * time.Minute)
-	manager.SimulateSensorChange(testIndoorSensor1, 58.0)
+	manager.SimulateSensorChange(testIndoorSensor1, 67.0)
 	manager.SimulateSensorChange(testOutdoorSensor1, 90.0)
 
 	// Should be warning (from indoor sensor only)
@@ -425,13 +425,13 @@ func TestEnvironmentalManager_BothSensorsElevated(t *testing.T) {
 	})
 
 	// Simulate both sensors at warning level
-	manager.SimulateSensorChange(testIndoorSensor1, 58.0)
-	manager.SimulateSensorChange(testIndoorSensor2, 56.0)
+	manager.SimulateSensorChange(testIndoorSensor1, 67.0)
+	manager.SimulateSensorChange(testIndoorSensor2, 66.0)
 
 	// Advance time to sustained threshold
 	mockClock.Advance(31 * time.Minute)
-	manager.SimulateSensorChange(testIndoorSensor1, 58.0)
-	manager.SimulateSensorChange(testIndoorSensor2, 56.0)
+	manager.SimulateSensorChange(testIndoorSensor1, 67.0)
+	manager.SimulateSensorChange(testIndoorSensor2, 66.0)
 
 	// Verify at least 1 notification was sent
 	notificationCount := countAlerts(mockAlerter)
@@ -479,9 +479,9 @@ func TestEnvironmentalManager_Hysteresis_WarningClear(t *testing.T) {
 	manager.SimulateSensorChange(testIndoorSensor2, 40.0)
 
 	// First, trigger a sustained warning on sensor 1 only
-	manager.SimulateSensorChange(testIndoorSensor1, 58.0)
+	manager.SimulateSensorChange(testIndoorSensor1, 67.0)
 	mockClock.Advance(31 * time.Minute)
-	manager.SimulateSensorChange(testIndoorSensor1, 58.0)
+	manager.SimulateSensorChange(testIndoorSensor1, 67.0)
 
 	alertLevel := manager.GetCurrentState()
 	if alertLevel != "warning" {
@@ -491,16 +491,16 @@ func TestEnvironmentalManager_Hysteresis_WarningClear(t *testing.T) {
 	initialNotifications := countAlerts(mockAlerter)
 
 	// Now lower humidity to just below warning threshold (but above clear threshold)
-	manager.SimulateSensorChange(testIndoorSensor1, 52.0)
+	manager.SimulateSensorChange(testIndoorSensor1, 62.0)
 
-	// Should still be in warning due to hysteresis (clear threshold is 50%)
+	// Should still be in warning due to hysteresis (clear threshold is 60%)
 	alertLevel = manager.GetCurrentState()
 	if alertLevel != "warning" {
 		t.Errorf("Expected alertLevel 'warning' due to hysteresis, got '%s'", alertLevel)
 	}
 
 	// Now lower below clear threshold
-	manager.SimulateSensorChange(testIndoorSensor1, 48.0)
+	manager.SimulateSensorChange(testIndoorSensor1, 58.0)
 
 	// Should now be cleared
 	alertLevel = manager.GetCurrentState()
@@ -567,11 +567,11 @@ func TestEnvironmentalManager_MultipleSensorsElevated_Resolution(t *testing.T) {
 	manager.SimulateSensorChange("sensor.indoor_humidity_3", 40.0)
 
 	// Trigger sustained warning on sensors 1 and 2
-	manager.SimulateSensorChange(testIndoorSensor1, 58.0)
-	manager.SimulateSensorChange(testIndoorSensor2, 56.0)
+	manager.SimulateSensorChange(testIndoorSensor1, 67.0)
+	manager.SimulateSensorChange(testIndoorSensor2, 66.0)
 	mockClock.Advance(31 * time.Minute)
-	manager.SimulateSensorChange(testIndoorSensor1, 58.0)
-	manager.SimulateSensorChange(testIndoorSensor2, 56.0)
+	manager.SimulateSensorChange(testIndoorSensor1, 67.0)
+	manager.SimulateSensorChange(testIndoorSensor2, 66.0)
 
 	alertLevel := manager.GetCurrentState()
 	if alertLevel != "warning" {
@@ -581,8 +581,8 @@ func TestEnvironmentalManager_MultipleSensorsElevated_Resolution(t *testing.T) {
 	initialNotifications := countAlerts(mockAlerter)
 
 	// Now lower both sensors below clear threshold
-	manager.SimulateSensorChange(testIndoorSensor1, 48.0)
-	manager.SimulateSensorChange(testIndoorSensor2, 47.0)
+	manager.SimulateSensorChange(testIndoorSensor1, 58.0)
+	manager.SimulateSensorChange(testIndoorSensor2, 57.0)
 
 	// Should now be cleared
 	alertLevel = manager.GetCurrentState()
@@ -641,9 +641,9 @@ func TestEnvironmentalManager_RateLimiting_Warning(t *testing.T) {
 	})
 
 	// First, trigger a sustained warning
-	manager.SimulateSensorChange(testIndoorSensor1, 58.0)
+	manager.SimulateSensorChange(testIndoorSensor1, 67.0)
 	mockClock.Advance(31 * time.Minute)
-	manager.SimulateSensorChange(testIndoorSensor1, 58.0)
+	manager.SimulateSensorChange(testIndoorSensor1, 67.0)
 
 	initialNotifications := countAlerts(mockAlerter)
 	if initialNotifications != 1 {
@@ -652,7 +652,7 @@ func TestEnvironmentalManager_RateLimiting_Warning(t *testing.T) {
 
 	// Trigger another evaluation (same incident)
 	mockClock.Advance(1 * time.Minute)
-	manager.SimulateSensorChange(testIndoorSensor1, 58.0)
+	manager.SimulateSensorChange(testIndoorSensor1, 67.0)
 
 	// Should not have sent another notification for the same incident
 	finalNotifications := countAlerts(mockAlerter)
@@ -681,9 +681,9 @@ func TestEnvironmentalManager_RateLimiting_WarningWhenTTSSuppressedAsleep(t *tes
 	})
 
 	// GIVEN: Humidity has been above the warning threshold long enough to alert.
-	manager.SimulateSensorChange(testIndoorSensor1, 58.0)
+	manager.SimulateSensorChange(testIndoorSensor1, 67.0)
 	mockClock.Advance(31 * time.Minute)
-	manager.SimulateSensorChange(testIndoorSensor1, 58.0)
+	manager.SimulateSensorChange(testIndoorSensor1, 67.0)
 
 	initialNotifications := countAlerts(mockAlerter)
 	if initialNotifications != 1 {
@@ -692,7 +692,7 @@ func TestEnvironmentalManager_RateLimiting_WarningWhenTTSSuppressedAsleep(t *tes
 
 	// WHEN: The sensor updates again while the same incident is active.
 	mockClock.Advance(1 * time.Minute)
-	manager.SimulateSensorChange(testIndoorSensor1, 59.0)
+	manager.SimulateSensorChange(testIndoorSensor1, 68.0)
 
 	// THEN: ErrSuppressedAsleep still counts as delivered for rate limiting,
 	// because ntfy push was already sent before TTS was suppressed.
@@ -723,9 +723,9 @@ func TestEnvironmentalManager_RateLimiting_Critical(t *testing.T) {
 	})
 
 	// First, trigger a sustained critical
-	manager.SimulateSensorChange(testIndoorSensor1, 70.0)
+	manager.SimulateSensorChange(testIndoorSensor1, 72.0)
 	mockClock.Advance(31 * time.Minute)
-	manager.SimulateSensorChange(testIndoorSensor1, 70.0)
+	manager.SimulateSensorChange(testIndoorSensor1, 72.0)
 
 	initialNotifications := countAlerts(mockAlerter)
 	if initialNotifications != 1 {
@@ -734,7 +734,7 @@ func TestEnvironmentalManager_RateLimiting_Critical(t *testing.T) {
 
 	// Trigger evaluation again within rate limit (1 hour for critical)
 	mockClock.Advance(30 * time.Minute)
-	manager.SimulateSensorChange(testIndoorSensor1, 70.0)
+	manager.SimulateSensorChange(testIndoorSensor1, 72.0)
 
 	// Should not have sent another notification (already notified for this incident)
 	finalNotifications := countAlerts(mockAlerter)
@@ -818,9 +818,9 @@ func TestEnvironmentalManager_ReadOnlyMode(t *testing.T) {
 	})
 
 	// Trigger a sustained critical condition
-	manager.SimulateSensorChange(testIndoorSensor1, 70.0)
+	manager.SimulateSensorChange(testIndoorSensor1, 72.0)
 	mockClock.Advance(31 * time.Minute)
-	manager.SimulateSensorChange(testIndoorSensor1, 70.0)
+	manager.SimulateSensorChange(testIndoorSensor1, 72.0)
 
 	// Alert level should be set in shadow state
 	alertLevel := manager.GetCurrentState()
@@ -861,7 +861,7 @@ func TestEnvironmentalManager_ShadowState(t *testing.T) {
 	})
 
 	// Trigger handler with state change
-	manager.SimulateSensorChange(testIndoorSensor1, 45.0)
+	manager.SimulateSensorChange(testIndoorSensor1, 55.0)
 	manager.SimulateSensorChange(testOutdoorSensor1, 80.0)
 
 	// Get shadow state
@@ -891,8 +891,8 @@ func TestEnvironmentalManager_ShadowState(t *testing.T) {
 			if !sensor.IsIndoor {
 				t.Error("Expected indoor sensor to be marked as indoor")
 			}
-			if sensor.Value != 45.0 {
-				t.Errorf("Expected indoor sensor value 45.0, got %f", sensor.Value)
+			if sensor.Value != 55.0 {
+				t.Errorf("Expected indoor sensor value 55.0, got %f", sensor.Value)
 			}
 		}
 		if sensor.EntityID == testOutdoorSensor1 {
@@ -933,9 +933,9 @@ func TestEnvironmentalManager_EscalationFromWarningToCritical(t *testing.T) {
 	})
 
 	// First trigger warning level
-	manager.SimulateSensorChange(testIndoorSensor1, 58.0)
+	manager.SimulateSensorChange(testIndoorSensor1, 67.0)
 	mockClock.Advance(31 * time.Minute)
-	manager.SimulateSensorChange(testIndoorSensor1, 58.0)
+	manager.SimulateSensorChange(testIndoorSensor1, 67.0)
 
 	alertLevel := manager.GetCurrentState()
 	if alertLevel != "warning" {
@@ -945,9 +945,9 @@ func TestEnvironmentalManager_EscalationFromWarningToCritical(t *testing.T) {
 	warningNotifications := countAlerts(mockAlerter)
 
 	// Now escalate to critical level
-	manager.SimulateSensorChange(testIndoorSensor1, 70.0)
+	manager.SimulateSensorChange(testIndoorSensor1, 72.0)
 	mockClock.Advance(31 * time.Minute)
-	manager.SimulateSensorChange(testIndoorSensor1, 70.0)
+	manager.SimulateSensorChange(testIndoorSensor1, 72.0)
 
 	alertLevel = manager.GetCurrentState()
 	if alertLevel != "critical" {
@@ -987,12 +987,12 @@ func TestEnvironmentalManager_OneSensorHighOtherNormal(t *testing.T) {
 	})
 
 	// Sensor 1 at critical, sensor 2 normal
-	manager.SimulateSensorChange(testIndoorSensor1, 70.0)
+	manager.SimulateSensorChange(testIndoorSensor1, 72.0)
 	manager.SimulateSensorChange(testIndoorSensor2, 40.0)
 
 	// Sustain the condition
 	mockClock.Advance(31 * time.Minute)
-	manager.SimulateSensorChange(testIndoorSensor1, 70.0)
+	manager.SimulateSensorChange(testIndoorSensor1, 72.0)
 
 	// Should trigger critical based on just sensor 1
 	alertLevel := manager.GetCurrentState()
@@ -1155,11 +1155,11 @@ func TestEnvironmentalManager_TransientUnavailability_NoFalseResolution(t *testi
 	})
 
 	// GIVEN: Sensor 1 is at warning level (sustained 30+ min)
-	t.Log("GIVEN: Barn sensor at 58% for 30+ minutes (warning active)")
-	manager.SimulateSensorChange(testIndoorSensor1, 58.0)
+	t.Log("GIVEN: Barn sensor at 67% for 30+ minutes (warning active)")
+	manager.SimulateSensorChange(testIndoorSensor1, 67.0)
 	manager.SimulateSensorChange(testIndoorSensor2, 35.0) // normal
 	mockClock.Advance(31 * time.Minute)
-	manager.SimulateSensorChange(testIndoorSensor1, 58.0)
+	manager.SimulateSensorChange(testIndoorSensor1, 67.0)
 
 	alertLevel := manager.GetCurrentState()
 	if alertLevel != "warning" {
@@ -1210,20 +1210,20 @@ func TestEnvironmentalManager_UnavailableRecovery_StillElevated(t *testing.T) {
 	})
 
 	// GIVEN: Sensor at warning level (sustained)
-	t.Log("GIVEN: Sensor at 58% for 30+ minutes")
-	manager.SimulateSensorChange(testIndoorSensor1, 58.0)
+	t.Log("GIVEN: Sensor at 67% for 30+ minutes")
+	manager.SimulateSensorChange(testIndoorSensor1, 67.0)
 	mockClock.Advance(31 * time.Minute)
-	manager.SimulateSensorChange(testIndoorSensor1, 58.0)
+	manager.SimulateSensorChange(testIndoorSensor1, 67.0)
 
 	if manager.GetCurrentState() != "warning" {
 		t.Fatal("Expected warning alert active")
 	}
 
 	// WHEN: Sensor goes unavailable, then recovers still elevated
-	t.Log("WHEN: Sensor goes unavailable, then recovers at 57%")
+	t.Log("WHEN: Sensor goes unavailable, then recovers at 66%")
 	manager.SimulateSensorUnavailable(testIndoorSensor1)
 	mockClock.Advance(2 * time.Minute) // brief outage
-	manager.SimulateSensorChange(testIndoorSensor1, 57.0)
+	manager.SimulateSensorChange(testIndoorSensor1, 66.0)
 
 	// THEN: Alert should still be warning (sensor is still above clear threshold)
 	t.Log("THEN: Alert remains at warning level")
@@ -1252,10 +1252,10 @@ func TestEnvironmentalManager_UnavailableRecovery_BelowThreshold(t *testing.T) {
 	})
 
 	// GIVEN: Sensor at warning level (sustained)
-	t.Log("GIVEN: Sensor at 58% for 30+ minutes")
-	manager.SimulateSensorChange(testIndoorSensor1, 58.0)
+	t.Log("GIVEN: Sensor at 67% for 30+ minutes")
+	manager.SimulateSensorChange(testIndoorSensor1, 67.0)
 	mockClock.Advance(31 * time.Minute)
-	manager.SimulateSensorChange(testIndoorSensor1, 58.0)
+	manager.SimulateSensorChange(testIndoorSensor1, 67.0)
 
 	if manager.GetCurrentState() != "warning" {
 		t.Fatal("Expected warning alert active")
@@ -1264,10 +1264,10 @@ func TestEnvironmentalManager_UnavailableRecovery_BelowThreshold(t *testing.T) {
 	initialNotifications := countAlerts(mockAlerter)
 
 	// WHEN: Sensor goes unavailable, then recovers below clear threshold
-	t.Log("WHEN: Sensor goes unavailable, then recovers at 45%")
+	t.Log("WHEN: Sensor goes unavailable, then recovers at 55%")
 	manager.SimulateSensorUnavailable(testIndoorSensor1)
 	mockClock.Advance(2 * time.Minute)
-	manager.SimulateSensorChange(testIndoorSensor1, 45.0)
+	manager.SimulateSensorChange(testIndoorSensor1, 55.0)
 
 	// THEN: Alert should be resolved now
 	t.Log("THEN: Alert resolves and resolution notification mentions Barn Humidity")
@@ -1312,10 +1312,10 @@ func TestEnvironmentalManager_AllSensorsUnavailable_NoResolution(t *testing.T) {
 	})
 
 	// GIVEN: Sensor at warning level (sustained)
-	t.Log("GIVEN: Single sensor at 58% for 30+ minutes")
-	manager.SimulateSensorChange(testIndoorSensor1, 58.0)
+	t.Log("GIVEN: Single sensor at 67% for 30+ minutes")
+	manager.SimulateSensorChange(testIndoorSensor1, 67.0)
 	mockClock.Advance(31 * time.Minute)
-	manager.SimulateSensorChange(testIndoorSensor1, 58.0)
+	manager.SimulateSensorChange(testIndoorSensor1, 67.0)
 
 	if manager.GetCurrentState() != "warning" {
 		t.Fatal("Expected warning alert active")
@@ -1360,16 +1360,16 @@ func TestEnvironmentalManager_RateLimited_AlertedSensorNamesPopulated(t *testing
 
 	// GIVEN: First alert fires and clears
 	t.Log("GIVEN: First warning fires, then clears")
-	manager.SimulateSensorChange(testIndoorSensor1, 58.0)
+	manager.SimulateSensorChange(testIndoorSensor1, 67.0)
 	mockClock.Advance(31 * time.Minute)
-	manager.SimulateSensorChange(testIndoorSensor1, 58.0) // triggers warning + notification
+	manager.SimulateSensorChange(testIndoorSensor1, 67.0) // triggers warning + notification
 
 	if manager.GetCurrentState() != "warning" {
 		t.Fatal("Expected warning alert")
 	}
 
 	// Clear the condition
-	manager.SimulateSensorChange(testIndoorSensor1, 45.0)
+	manager.SimulateSensorChange(testIndoorSensor1, 55.0)
 	if manager.GetCurrentState() != "none" {
 		t.Fatal("Expected alert to clear")
 	}
@@ -1377,9 +1377,9 @@ func TestEnvironmentalManager_RateLimited_AlertedSensorNamesPopulated(t *testing
 	// WHEN: Re-trigger within 4h rate limit window
 	t.Log("WHEN: Warning re-triggers within 4h rate limit, then clears again")
 	mockClock.Advance(1 * time.Hour) // still within 4h rate limit
-	manager.SimulateSensorChange(testIndoorSensor1, 58.0)
+	manager.SimulateSensorChange(testIndoorSensor1, 67.0)
 	mockClock.Advance(31 * time.Minute)
-	manager.SimulateSensorChange(testIndoorSensor1, 58.0) // rate-limited, but alertedSensorNames should still be populated
+	manager.SimulateSensorChange(testIndoorSensor1, 67.0) // rate-limited, but alertedSensorNames should still be populated
 
 	if manager.GetCurrentState() != "warning" {
 		t.Fatal("Expected warning alert on re-trigger")
@@ -1388,7 +1388,7 @@ func TestEnvironmentalManager_RateLimited_AlertedSensorNamesPopulated(t *testing
 	notificationsBeforeResolution := countAlerts(mockAlerter)
 
 	// Clear the condition again
-	manager.SimulateSensorChange(testIndoorSensor1, 45.0)
+	manager.SimulateSensorChange(testIndoorSensor1, 55.0)
 
 	// THEN: Resolution should mention the correct sensor (not fallback to all sensors)
 	t.Log("THEN: Resolution notification mentions 'Barn Humidity' specifically")
@@ -2032,16 +2032,17 @@ func TestEnvironmentalManager_UnconditionedSensor_HigherThresholds(t *testing.T)
 	})
 	manager.SetOutdoorHumidity(50.0) // Outdoor is moderate
 
-	// Barn at 60% - above conditioned threshold (55%) but below unconditioned (75%)
+	// Barn at 68% - above conditioned warning (65%) but below unconditioned warning (75%)
 	// Also exceeds outdoor + margin (50+5=55), so not suppressed
-	manager.SimulateSensorChange(testUnconditionedSensor1, 60.0)
+	// This value is specifically chosen to confirm unconditioned sensors use the higher threshold.
+	manager.SimulateSensorChange(testUnconditionedSensor1, 68.0)
 	mockClock.Advance(31 * time.Minute)
-	manager.SimulateSensorChange(testUnconditionedSensor1, 60.0)
+	manager.SimulateSensorChange(testUnconditionedSensor1, 68.0)
 
 	// Should NOT alert - below unconditioned warning threshold of 75%
 	alertLevel := manager.GetCurrentState()
 	if alertLevel != "none" {
-		t.Errorf("Expected no alert for unconditioned sensor at 60%% (below 75%% threshold), got '%s'", alertLevel)
+		t.Errorf("Expected no alert for unconditioned sensor at 68%% (below 75%% threshold), got '%s'", alertLevel)
 	}
 }
 
@@ -2146,7 +2147,7 @@ func TestEnvironmentalManager_UnconditionedSensor_OutdoorUnavailable(t *testing.
 	})
 	// Do NOT set outdoor humidity - simulates weather station unavailable
 
-	// Barn at 60% - above conditioned threshold (55%) but below unconditioned (75%)
+	// Barn at 60% - below unconditioned (75%)
 	manager.SimulateSensorChange(testUnconditionedSensor1, 60.0)
 	mockClock.Advance(31 * time.Minute)
 	manager.SimulateSensorChange(testUnconditionedSensor1, 60.0)
@@ -2238,11 +2239,11 @@ func TestEnvironmentalManager_MixedConditionedAndUnconditioned(t *testing.T) {
 	})
 	manager.SetOutdoorHumidity(70.0)
 
-	// Barn at 61% (suppressed - tracking outdoor) + Living room at 58% (conditioned warning)
+	// Barn at 61% (suppressed - tracking outdoor) + Living room at 67% (conditioned warning)
 	manager.SimulateSensorChange(testUnconditionedSensor1, 61.0)
-	manager.SimulateSensorChange(testIndoorSensor1, 58.0)
+	manager.SimulateSensorChange(testIndoorSensor1, 67.0)
 	mockClock.Advance(31 * time.Minute)
-	manager.SimulateSensorChange(testIndoorSensor1, 58.0)
+	manager.SimulateSensorChange(testIndoorSensor1, 67.0)
 
 	// Should trigger warning from the conditioned sensor only
 	alertLevel := manager.GetCurrentState()
@@ -2334,9 +2335,9 @@ func TestEnvironmentalManager_NotificationIncludesOutdoorHumidity(t *testing.T) 
 	manager.SetOutdoorHumidity(45.0)
 
 	// Trigger a sustained warning
-	manager.SimulateSensorChange(testIndoorSensor1, 58.0)
+	manager.SimulateSensorChange(testIndoorSensor1, 67.0)
 	mockClock.Advance(31 * time.Minute)
-	manager.SimulateSensorChange(testIndoorSensor1, 58.0)
+	manager.SimulateSensorChange(testIndoorSensor1, 67.0)
 
 	notification := getLastAlert(mockAlerter)
 	if notification == nil {
@@ -2368,15 +2369,15 @@ func TestEnvironmentalManager_ConditionedSensorUnchangedByOutdoor(t *testing.T) 
 	})
 	manager.SetOutdoorHumidity(90.0) // Very high outdoor
 
-	// Indoor at 58% - above conditioned threshold (55%), should still alert
+	// Indoor at 67% - above conditioned threshold (65%), should still alert
 	// even though outdoor is 90% (conditioned spaces have HVAC)
-	manager.SimulateSensorChange(testIndoorSensor1, 58.0)
+	manager.SimulateSensorChange(testIndoorSensor1, 67.0)
 	mockClock.Advance(31 * time.Minute)
-	manager.SimulateSensorChange(testIndoorSensor1, 58.0)
+	manager.SimulateSensorChange(testIndoorSensor1, 67.0)
 
 	alertLevel := manager.GetCurrentState()
 	if alertLevel != "warning" {
-		t.Errorf("Expected 'warning' for conditioned sensor at 58%% even with high outdoor, got '%s'", alertLevel)
+		t.Errorf("Expected 'warning' for conditioned sensor at 67%% even with high outdoor, got '%s'", alertLevel)
 	}
 }
 
@@ -2569,9 +2570,9 @@ func TestEnvironmentalManager_HumidityAlert_HasSpeechWithoutSensorList(t *testin
 	})
 
 	// Sustain warning for 30+ minutes to fire alert
-	manager.SimulateSensorChange(testIndoorSensor1, 58.0)
+	manager.SimulateSensorChange(testIndoorSensor1, 67.0)
 	mockClock.Advance(31 * time.Minute)
-	manager.SimulateSensorChange(testIndoorSensor1, 58.0)
+	manager.SimulateSensorChange(testIndoorSensor1, 67.0)
 
 	notification := getLastAlert(mockAlerter)
 	if notification == nil {
