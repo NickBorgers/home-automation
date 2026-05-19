@@ -1,0 +1,84 @@
+# Integration Watchdog configuration.
+#
+# Each target lists the HA entity_ids to watch + a config_entry_id to reload
+# when those entities look stale. Reload safeguards (cooldown, daily cap) prevent
+# the watchdog from hammering HA when an integration is fundamentally broken.
+#
+# To find a config_entry_id:
+#   1. Open HA → Settings → Devices & Services
+#   2. Click the integration's "Configure" or "..." menu
+#   3. The URL fragment / page shows the entry_id (a 26-character ULID).
+
+check_interval_sec: 60
+
+watch_targets:
+  # Span Panel — Most of House (the "left" / kitchen-side panel).
+  # Battery percentage feeds the energy plugin; when it goes "unknown" the energy
+  # state silently degrades to red and load shedding engages on a healthy house.
+  - name: span_left
+    integration_name: "Span Panel — Most of House"
+    entities:
+      - sensor.span_panel_span_storage_battery_percentage_2
+      - binary_sensor.span_left_most_of_house_panel_status
+      - binary_sensor.span_left_most_of_house_cellular_link
+      - binary_sensor.span_left_most_of_house_wi_fi_link
+    config_entry_id: "01JSB74PV6YA6AH8KMQ76744JV"
+    detection:
+      bad_states: ["unknown", "unavailable"]
+      bad_state_duration_min: 10
+      stale_last_updated_min: 60
+    reload:
+      cooldown_min: 15
+      daily_max: 6
+      post_reload_delay_sec: 10
+
+  # Span Panel — HVAC and Well (the "right" panel).
+  - name: span_right
+    integration_name: "Span Panel — HVAC and Well"
+    entities:
+      - sensor.span_panel_span_storage_battery_percentage
+      - binary_sensor.span_right_hvac_and_well_panel_status
+      - binary_sensor.span_right_hvac_and_well_cellular_link
+      - binary_sensor.span_right_hvac_and_well_wi_fi_link
+    config_entry_id: "01JSCAXC40GQ548TRDTNC9YZ34"
+    detection:
+      bad_states: ["unknown", "unavailable"]
+      bad_state_duration_min: 10
+      stale_last_updated_min: 60
+    reload:
+      cooldown_min: 15
+      daily_max: 6
+      post_reload_delay_sec: 10
+
+  # Apple TV media player. When the integration freezes, media_player state stops
+  # advancing — give it a wide last_updated window because legitimate idle TV can
+  # be quiet for hours.
+  - name: apple_tv
+    integration_name: "Apple TV"
+    entities:
+      - media_player.big_beautiful_oled
+    config_entry_id: "01JZ74D97X4168PWMV53VRC09Z"
+    detection:
+      bad_states: ["unavailable"]
+      bad_state_duration_min: 30
+      stale_last_updated_min: 360
+    reload:
+      cooldown_min: 30
+      daily_max: 4
+      post_reload_delay_sec: 5
+
+  # Sony Bravia TV media player. config_entry_id is the same value the TV plugin
+  # previously hardcoded as BraviaEntryID.
+  - name: bravia_tv
+    integration_name: "Sony Bravia TV"
+    entities:
+      - media_player.sony_xr_65a80k
+    config_entry_id: "01KA5H11HD13BWB4B6016Z6MQZ"
+    detection:
+      bad_states: ["unavailable"]
+      bad_state_duration_min: 10
+      stale_last_updated_min: 30
+    reload:
+      cooldown_min: 5
+      daily_max: 10
+      post_reload_delay_sec: 5

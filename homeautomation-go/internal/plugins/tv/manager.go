@@ -51,19 +51,6 @@ const (
 	// after Apple TV reports "paused". Prevents flapping due to Apple TV
 	// integration briefly reporting "paused" state during active playback.
 	LightSyncOffDebounce = 60 * time.Second
-
-	// Bravia integration staleness detection constants
-	// BraviaEntryID is the Home Assistant config entry ID for the Bravia TV integration
-	BraviaEntryID = "01KA5H11HD13BWB4B6016Z6MQZ"
-
-	// BraviaReloadCooldown is the minimum time between Bravia integration reloads
-	BraviaReloadCooldown = 5 * time.Minute
-
-	// BraviaMaxDailyReloads is the maximum number of Bravia reloads allowed per day
-	BraviaMaxDailyReloads = 10
-
-	// BraviaPostReloadDelay is how long to wait after reload before re-checking state
-	BraviaPostReloadDelay = 5 * time.Second
 )
 
 // Manager handles TV monitoring and manipulation
@@ -88,22 +75,15 @@ type Manager struct {
 	recoveryInProgress bool
 
 	// TV remote (panel power) state — tracked locally to avoid HA GetState races
-	tvRemoteMu sync.RWMutex
-	tvRemoteOn bool // last-known state of media_player.sony_xr_65a80k
+	tvRemoteMu       sync.RWMutex
+	tvRemoteOn       bool   // last-known boolean state of media_player.sony_xr_65a80k
+	tvRemoteRawState string // last-known raw state ("on"/"off"/"standby"/"unavailable"/...)
 
 	// Light sync debounce state
 	lightSyncOffMu       sync.Mutex
 	lightSyncOffPending  bool          // true if a turn_off is pending
 	lightSyncOffCancel   chan struct{} // signal to cancel pending turn_off
 	lightSyncOffDebounce time.Duration // configurable debounce duration
-
-	// Bravia integration staleness detection state
-	braviaMu                 sync.Mutex
-	lastBraviaReload         time.Time
-	dailyBraviaReloadCount   int
-	braviaReloadCountResetAt time.Time
-	braviaReloadInProgress   bool
-	braviaReloadFailed       bool // true when last reload attempt failed; fallback trusts sync box
 
 	// For testing: injectable time and sleep functions
 	timeNow   func() time.Time
@@ -273,20 +253,8 @@ func (m *Manager) handleTVRemoteChange(entityID string, oldState, newState *ha.S
 	isOn := newState.State != "off" && newState.State != "standby" && newState.State != "unavailable" && newState.State != "unknown"
 	m.tvRemoteMu.Lock()
 	m.tvRemoteOn = isOn
+	m.tvRemoteRawState = newState.State
 	m.tvRemoteMu.Unlock()
-
-	// Clear reload-failed flag when Bravia reports a real state (integration is responsive again)
-	if newState.State != "unavailable" {
-		m.braviaMu.Lock()
-		if m.braviaReloadFailed {
-			m.braviaReloadFailed = false
-			m.braviaMu.Unlock()
-			m.shadowTracker.UpdateBraviaReloadFailed(false)
-			m.logger.Info("Bravia integration recovered, cleared reload-failed fallback")
-		} else {
-			m.braviaMu.Unlock()
-		}
-	}
 
 	m.logger.Debug("TV media_player state changed",
 		zap.String("entity_id", entityID),
@@ -394,10 +362,6 @@ func (m *Manager) handleSyncBoxPowerChange(entityID string, oldState, newState *
 		// Update shadow state
 		m.shadowTracker.UpdateTVPlaying(false)
 	} else {
-		// Sync box turned on — check for stale Bravia integration.
-		// If the sync box just turned on but the TV remote says "off", the integration may be stale.
-		m.checkBraviaStaleness("sync_box_power_on")
-
 		// Sync box turned on — recalculate isTVPlaying based on current HDMI input.
 		// This handles the race where HDMI input change arrives before power change
 		// (both at the same second), so the HDMI handler saw isTVon=false.
@@ -455,10 +419,6 @@ func (m *Manager) handleHDMIInputChange(entityID string, oldState, newState *ha.
 	// Update shadow state
 	m.shadowTracker.UpdateHDMIInput(hdmiInput)
 
-	// Check for stale Bravia integration: HDMI input changed (someone switched inputs)
-	// while the TV remote reports "off" — the TV must be on for the input to change.
-	m.checkBraviaStaleness("hdmi_input_change")
-
 	// Calculate isTVPlaying based on HDMI input
 	m.calculateTVPlaying(hdmiInput)
 }
@@ -514,17 +474,17 @@ func (m *Manager) calculateTVPlaying(hdmiInput string) {
 	// (e.g., sync box powers on overnight while TV is off).
 	m.tvRemoteMu.RLock()
 	tvPanelOn := m.tvRemoteOn
+	tvRemoteRaw := m.tvRemoteRawState
 	m.tvRemoteMu.RUnlock()
 
 	if !tvPanelOn {
-		// Check if we should trust the sync box instead (Bravia reload failed)
-		m.braviaMu.Lock()
-		reloadFailed := m.braviaReloadFailed
-		m.braviaMu.Unlock()
-
-		if reloadFailed {
-			m.logger.Warn("TV panel reports off but Bravia reload failed — trusting sync box state",
-				zap.String("hdmi_input", hdmiInput))
+		// When the Bravia integration is unavailable we can't trust its panel-off
+		// signal — the integrationwatchdog plugin will reload it shortly. In the
+		// meantime fall through and trust the sync box's state.
+		if tvRemoteRaw == "unavailable" || tvRemoteRaw == "unknown" {
+			m.logger.Warn("TV panel reports unavailable/unknown — trusting sync box state",
+				zap.String("hdmi_input", hdmiInput),
+				zap.String("tv_remote_state", tvRemoteRaw))
 			// Fall through to normal HDMI input / Apple TV calculation below
 		} else {
 			m.logger.Debug("TV panel is off, setting isTVPlaying to false",
@@ -891,175 +851,6 @@ func (m *Manager) ensurePhysicalPowerOn() {
 
 	m.logger.Error("CRITICAL: All attempts to turn on sync box physical power failed",
 		zap.Int("attempts", SyncBoxPowerOnMaxRetries))
-}
-
-// checkBraviaStaleness detects when the Bravia TV integration has become stale.
-// This happens when the sync box indicates the TV should be on (it's powered on with an active
-// HDMI input), but media_player.sony_xr_65a80k reports "off". This mismatch means the
-// Bravia integration needs to be reloaded.
-func (m *Manager) checkBraviaStaleness(trigger string) {
-	// Check if sync box is on
-	isTVOn, err := m.stateManager.GetBool("isTVon")
-	if err != nil || !isTVOn {
-		return
-	}
-
-	// Check if TV remote reports "off" (indicating stale integration)
-	m.tvRemoteMu.RLock()
-	tvPanelOn := m.tvRemoteOn
-	m.tvRemoteMu.RUnlock()
-
-	if tvPanelOn {
-		// No mismatch — Bravia integration is reporting correctly
-		return
-	}
-
-	m.logger.Warn("Bravia staleness detected: sync box is on but TV remote reports off",
-		zap.String("trigger", trigger))
-
-	// Trigger async reload
-	go m.reloadBraviaIntegration(trigger)
-}
-
-// reloadBraviaIntegration reloads the Bravia TV config entry to recover from stale state.
-func (m *Manager) reloadBraviaIntegration(trigger string) {
-	m.braviaMu.Lock()
-
-	// Check if reload is already in progress
-	if m.braviaReloadInProgress {
-		m.logger.Debug("Bravia reload already in progress, skipping")
-		m.braviaMu.Unlock()
-		return
-	}
-
-	m.braviaReloadInProgress = true
-	m.braviaMu.Unlock()
-
-	defer func() {
-		m.braviaMu.Lock()
-		m.braviaReloadInProgress = false
-		m.braviaMu.Unlock()
-	}()
-
-	// Check reload safeguards
-	if !m.canAttemptBraviaReload() {
-		return
-	}
-
-	if m.readOnly {
-		m.logger.Info("Skipping Bravia integration reload in read-only mode",
-			zap.String("trigger", trigger))
-		return
-	}
-
-	// Update tracking state
-	m.braviaMu.Lock()
-	m.lastBraviaReload = m.timeNow()
-	m.dailyBraviaReloadCount++
-	reloadCount := m.dailyBraviaReloadCount
-	m.braviaMu.Unlock()
-
-	m.shadowTracker.UpdateLastBraviaReload(m.lastBraviaReload, reloadCount)
-
-	m.logger.Warn("Reloading Bravia TV integration to recover from stale state",
-		zap.String("trigger", trigger),
-		zap.String("entry_id", BraviaEntryID),
-		zap.Int("daily_reload_count", reloadCount))
-
-	err := m.haClient.ReloadConfigEntry(m.ctx, BraviaEntryID)
-	if err != nil {
-		m.logger.Error("Failed to reload Bravia TV integration",
-			zap.Error(err),
-			zap.String("entry_id", BraviaEntryID))
-
-		m.braviaMu.Lock()
-		m.braviaReloadFailed = true
-		m.braviaMu.Unlock()
-		m.shadowTracker.UpdateBraviaReloadFailed(true)
-
-		// Recalculate isTVPlaying with fallback now that we know reload failed
-		hdmiInputState, getErr := m.haClient.GetState(SyncBoxHDMIInputEntity)
-		if getErr == nil && hdmiInputState != nil {
-			m.calculateTVPlaying(hdmiInputState.State)
-		}
-		return
-	}
-
-	m.braviaMu.Lock()
-	m.braviaReloadFailed = false
-	m.braviaMu.Unlock()
-	m.shadowTracker.UpdateBraviaReloadFailed(false)
-
-	m.logger.Info("Bravia TV integration reload completed, waiting for state to update",
-		zap.Duration("delay", BraviaPostReloadDelay))
-
-	// Wait for the integration to reinitialize
-	m.sleepFunc(BraviaPostReloadDelay)
-
-	// Re-check TV remote state after reload
-	tvRemoteState, err := m.haClient.GetState(TVRemoteEntity)
-	if err != nil {
-		m.logger.Warn("Failed to get TV remote state after Bravia reload", zap.Error(err))
-		return
-	}
-
-	if tvRemoteState != nil {
-		m.logger.Info("TV remote state after Bravia reload",
-			zap.String("state", tvRemoteState.State))
-
-		// Update local tracking with the fresh state
-		isOn := tvRemoteState.State == "on"
-		m.tvRemoteMu.Lock()
-		m.tvRemoteOn = isOn
-		m.tvRemoteMu.Unlock()
-
-		// If the TV is now reporting as on, recalculate isTVPlaying
-		if isOn {
-			hdmiInputState, err := m.haClient.GetState(SyncBoxHDMIInputEntity)
-			if err == nil && hdmiInputState != nil {
-				m.calculateTVPlaying(hdmiInputState.State)
-			}
-		}
-	}
-}
-
-// canAttemptBraviaReload checks if we're allowed to attempt a Bravia reload based on safeguards
-func (m *Manager) canAttemptBraviaReload() bool {
-	now := m.timeNow()
-
-	m.braviaMu.Lock()
-	defer m.braviaMu.Unlock()
-
-	// Reset daily counter if it's a new day (24-hour rolling window)
-	if now.Sub(m.braviaReloadCountResetAt) > 24*time.Hour {
-		m.dailyBraviaReloadCount = 0
-		m.braviaReloadCountResetAt = now
-	}
-
-	// Check daily limit
-	if m.dailyBraviaReloadCount >= BraviaMaxDailyReloads {
-		m.logger.Error("Maximum daily Bravia reloads reached, skipping",
-			zap.Int("daily_count", m.dailyBraviaReloadCount),
-			zap.Int("max_allowed", BraviaMaxDailyReloads))
-		return false
-	}
-
-	// Check cooldown
-	if !m.lastBraviaReload.IsZero() && now.Sub(m.lastBraviaReload) < BraviaReloadCooldown {
-		m.logger.Warn("Bravia reload in cooldown period",
-			zap.Duration("time_since_last_reload", now.Sub(m.lastBraviaReload)),
-			zap.Duration("cooldown_required", BraviaReloadCooldown))
-		return false
-	}
-
-	return true
-}
-
-// GetBraviaReloadState returns the current Bravia reload state for testing
-func (m *Manager) GetBraviaReloadState() (lastReload time.Time, dailyCount int, inProgress bool, reloadFailed bool) {
-	m.braviaMu.Lock()
-	defer m.braviaMu.Unlock()
-	return m.lastBraviaReload, m.dailyBraviaReloadCount, m.braviaReloadInProgress, m.braviaReloadFailed
 }
 
 // GetRecoveryState returns the current recovery state for testing

@@ -1184,27 +1184,6 @@ func (tvt *TVTracker) UpdateLastRecovery(rebootTime time.Time, dailyCount int) {
 	tvt.State().Metadata.LastUpdated = time.Now()
 }
 
-// UpdateLastBraviaReload updates the last Bravia integration reload timestamp and count
-func (tvt *TVTracker) UpdateLastBraviaReload(reloadTime time.Time, reloadCount int) {
-	tvt.Lock()
-	defer tvt.Unlock()
-
-	tvt.State().Outputs.LastBraviaReload = reloadTime
-	tvt.State().Outputs.BraviaReloadCount = reloadCount
-	tvt.State().Outputs.LastUpdate = time.Now()
-	tvt.State().Metadata.LastUpdated = time.Now()
-}
-
-// UpdateBraviaReloadFailed updates whether the last Bravia reload attempt failed
-func (tvt *TVTracker) UpdateBraviaReloadFailed(failed bool) {
-	tvt.Lock()
-	defer tvt.Unlock()
-
-	tvt.State().Outputs.BraviaReloadFailed = failed
-	tvt.State().Outputs.LastUpdate = time.Now()
-	tvt.State().Metadata.LastUpdated = time.Now()
-}
-
 // GetState returns the current shadow state (thread-safe copy)
 func (tvt *TVTracker) GetState() *TVShadowState {
 	tvt.RLock()
@@ -2390,4 +2369,110 @@ func (vt *VacuumTracker) GetState() *VacuumShadowState {
 		stateCopy.Outputs.LastAnnouncementAt = &t
 	}
 	return stateCopy
+}
+
+// ============================================================================
+// Integration Watchdog Tracker
+// ============================================================================
+
+// IntegrationWatchdogTracker manages shadow state for the integrationwatchdog
+// plugin, exposing one entry per configured watch target.
+type IntegrationWatchdogTracker struct {
+	ReadOnlyTracker[IntegrationWatchdogOutputs]
+}
+
+// NewIntegrationWatchdogTracker creates a new tracker.
+func NewIntegrationWatchdogTracker() *IntegrationWatchdogTracker {
+	return &IntegrationWatchdogTracker{
+		ReadOnlyTracker: NewReadOnlyTracker(NewIntegrationWatchdogShadowState()),
+	}
+}
+
+// InitTarget seeds the target map with config-derived fields so that targets
+// show up in the dashboard even before any state events have arrived.
+func (w *IntegrationWatchdogTracker) InitTarget(name, integrationName, configEntryID string) {
+	w.Lock()
+	defer w.Unlock()
+
+	t := w.State().Outputs.Targets[name]
+	t.IntegrationName = integrationName
+	t.ConfigEntryID = configEntryID
+	if t.EntityStates == nil {
+		t.EntityStates = make(map[string]string)
+	}
+	w.State().Outputs.Targets[name] = t
+	w.State().Metadata.LastUpdated = time.Now()
+}
+
+// UpdateEntityState records the latest observed state value for a watched entity
+// and the latest entity update timestamp.
+func (w *IntegrationWatchdogTracker) UpdateEntityState(targetName, entityID, state string, lastUpdated time.Time) {
+	w.Lock()
+	defer w.Unlock()
+
+	t := w.State().Outputs.Targets[targetName]
+	if t.EntityStates == nil {
+		t.EntityStates = make(map[string]string)
+	}
+	t.EntityStates[entityID] = state
+	if lastUpdated.After(t.LastEntityUpdateAt) {
+		t.LastEntityUpdateAt = lastUpdated
+	}
+	w.State().Outputs.Targets[targetName] = t
+	w.State().Metadata.LastUpdated = time.Now()
+}
+
+// UpdateStaleness records the current staleness verdict and (re-)opens or clears
+// the bad-state streak start time.
+func (w *IntegrationWatchdogTracker) UpdateStaleness(targetName string, stale bool, firstBadStateAt time.Time) {
+	w.Lock()
+	defer w.Unlock()
+
+	t := w.State().Outputs.Targets[targetName]
+	t.CurrentlyStale = stale
+	t.FirstBadStateAt = firstBadStateAt
+	w.State().Outputs.Targets[targetName] = t
+	w.State().Metadata.LastUpdated = time.Now()
+}
+
+// RecordReload records a reload attempt — timestamp, trigger, daily counter,
+// rolling-window reset, and whether it failed.
+func (w *IntegrationWatchdogTracker) RecordReload(targetName, trigger string, at time.Time, dailyCount int, dailyResetAt time.Time, failed bool) {
+	w.Lock()
+	defer w.Unlock()
+
+	t := w.State().Outputs.Targets[targetName]
+	t.LastReloadAt = at
+	t.LastReloadTrigger = trigger
+	t.DailyReloadCount = dailyCount
+	t.DailyResetAt = dailyResetAt
+	t.LastReloadFailed = failed
+	w.State().Outputs.Targets[targetName] = t
+	w.State().Metadata.LastUpdated = time.Now()
+}
+
+// GetState returns a thread-safe copy of the current shadow state.
+func (w *IntegrationWatchdogTracker) GetState() *IntegrationWatchdogShadowState {
+	w.RLock()
+	defer w.RUnlock()
+
+	s := w.State()
+	targetsCopy := make(map[string]IntegrationWatchdogTargetState, len(s.Outputs.Targets))
+	for name, t := range s.Outputs.Targets {
+		entityStatesCopy := make(map[string]string, len(t.EntityStates))
+		for k, v := range t.EntityStates {
+			entityStatesCopy[k] = v
+		}
+		t.EntityStates = entityStatesCopy
+		targetsCopy[name] = t
+	}
+
+	return &IntegrationWatchdogShadowState{
+		Plugin: s.Plugin,
+		Inputs: ReadOnlyInputs{
+			Current: copyInputMap(s.Inputs.Current),
+		},
+		Outputs:  IntegrationWatchdogOutputs{Targets: targetsCopy},
+		Metadata: s.Metadata,
+	}
 }

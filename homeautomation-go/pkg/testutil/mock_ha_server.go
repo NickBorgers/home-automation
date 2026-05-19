@@ -39,6 +39,15 @@ type MockHAServer struct {
 	token        string
 	serviceCalls []ServiceCall // Track all service calls for verification
 	callsMu      sync.Mutex    // Protects serviceCalls
+
+	configReloads   []ConfigEntryReload // Track config entry reloads for verification
+	configReloadsMu sync.Mutex          // Protects configReloads
+}
+
+// ConfigEntryReload records a config_entries/reload request received by the mock.
+type ConfigEntryReload struct {
+	EntryID string
+	Time    time.Time
 }
 
 // EntityState represents a Home Assistant entity state
@@ -349,15 +358,24 @@ func (s *MockHAServer) handleRegistryList(wrapper *connWrapper, msg json.RawMess
 }
 
 // handleConfigEntryReload handles config_entries/reload requests.
-// Returns immediate success so the TV plugin's reloadBraviaIntegration does not block
-// the 10-second sendMessage timeout during integration tests.
+// Returns immediate success so the integrationwatchdog plugin's reload calls do
+// not block the 10-second sendMessage timeout during integration tests. Each
+// request is also recorded for later verification via GetConfigEntryReloads.
 func (s *MockHAServer) handleConfigEntryReload(wrapper *connWrapper, msg json.RawMessage) {
 	var req struct {
-		ID int `json:"id"`
+		ID      int    `json:"id"`
+		EntryID string `json:"entry_id"`
 	}
 	if err := json.Unmarshal(msg, &req); err != nil {
 		return
 	}
+
+	s.configReloadsMu.Lock()
+	s.configReloads = append(s.configReloads, ConfigEntryReload{
+		EntryID: req.EntryID,
+		Time:    time.Now(),
+	})
+	s.configReloadsMu.Unlock()
 
 	success := true
 	wrapper.writeMu.Lock()
@@ -367,6 +385,16 @@ func (s *MockHAServer) handleConfigEntryReload(wrapper *connWrapper, msg json.Ra
 		Success: &success,
 	})
 	wrapper.writeMu.Unlock()
+}
+
+// GetConfigEntryReloads returns a snapshot of all config_entries/reload requests
+// received by the mock server.
+func (s *MockHAServer) GetConfigEntryReloads() []ConfigEntryReload {
+	s.configReloadsMu.Lock()
+	defer s.configReloadsMu.Unlock()
+	out := make([]ConfigEntryReload, len(s.configReloads))
+	copy(out, s.configReloads)
+	return out
 }
 
 // handlePing responds to application-level ping messages with a pong.
