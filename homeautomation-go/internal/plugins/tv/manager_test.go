@@ -549,12 +549,13 @@ func TestTVManager_Stop_CleansUpSubscriptions(t *testing.T) {
 		t.Fatalf("Failed to start TV manager: %v", err)
 	}
 
-	// Verify subscriptions exist (5 HA subs: AppleTV, TV remote, sync box software power, physical power, HDMI input)
+	// Verify subscriptions exist: 5 HA (AppleTV, TV remote, sync box software power, physical power, HDMI input)
+	// and 2 state (isAppleTVPlaying, resetTV)
 	if len(manager.subHelper.GetHASubscriptions()) != 5 {
 		t.Errorf("Expected 5 HA subscriptions after Start(), got %d", len(manager.subHelper.GetHASubscriptions()))
 	}
-	if len(manager.subHelper.GetStateSubscriptions()) != 1 {
-		t.Errorf("Expected 1 state subscription after Start(), got %d", len(manager.subHelper.GetStateSubscriptions()))
+	if len(manager.subHelper.GetStateSubscriptions()) != 2 {
+		t.Errorf("Expected 2 state subscriptions after Start(), got %d", len(manager.subHelper.GetStateSubscriptions()))
 	}
 
 	// Stop the manager
@@ -1035,12 +1036,13 @@ func TestTVManager_Start_AddsPhysicalPowerSubscription(t *testing.T) {
 		t.Fatalf("Failed to start TV manager: %v", err)
 	}
 
-	// Verify subscriptions exist - now should be 5 (AppleTV, TV remote, sync box software power, physical power, HDMI input)
+	// Verify subscriptions exist - 5 HA (AppleTV, TV remote, sync box software power, physical power, HDMI input)
+	// and 2 state (isAppleTVPlaying, resetTV)
 	if len(manager.subHelper.GetHASubscriptions()) != 5 {
 		t.Errorf("Expected 5 HA subscriptions after Start(), got %d", len(manager.subHelper.GetHASubscriptions()))
 	}
-	if len(manager.subHelper.GetStateSubscriptions()) != 1 {
-		t.Errorf("Expected 1 state subscription after Start(), got %d", len(manager.subHelper.GetStateSubscriptions()))
+	if len(manager.subHelper.GetStateSubscriptions()) != 2 {
+		t.Errorf("Expected 2 state subscriptions after Start(), got %d", len(manager.subHelper.GetStateSubscriptions()))
 	}
 
 	// Clean up
@@ -2351,5 +2353,161 @@ func TestTVManager_BraviaReloadFailed_ClearedOnTVRemoteChange(t *testing.T) {
 	_, _, _, reloadFailed := manager.GetBraviaReloadState()
 	if reloadFailed {
 		t.Error("Expected braviaReloadFailed to be cleared after TV remote reports a real state")
+	}
+}
+
+// TestTVManager_PerformManualReset_OrchestratesFullSequence verifies the user-triggered
+// reset bounces the Apple TV, power-cycles the sync box, and turns the Apple TV back on.
+func TestTVManager_PerformManualReset_OrchestratesFullSequence(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
+	manager.sleepFunc = func(d time.Duration) {}
+	manager.timeNow = time.Now
+
+	manager.PerformManualReset()
+
+	calls := mockHA.GetServiceCalls()
+
+	// Expect 4 calls in order:
+	//   media_player.turn_off (Apple TV) → switch.turn_off (sync box) →
+	//   switch.turn_on (sync box) → media_player.turn_on (Apple TV)
+	if len(calls) != 4 {
+		t.Fatalf("Expected 4 service calls, got %d: %+v", len(calls), calls)
+	}
+
+	expected := []struct {
+		domain   string
+		service  string
+		entityID string
+	}{
+		{"media_player", "turn_off", AppleTVEntity},
+		{"switch", "turn_off", SyncBoxPhysicalPowerEntity},
+		{"switch", "turn_on", SyncBoxPhysicalPowerEntity},
+		{"media_player", "turn_on", AppleTVEntity},
+	}
+
+	for i, want := range expected {
+		got := calls[i]
+		if got.Domain != want.domain || got.Service != want.service {
+			t.Errorf("Call %d: expected %s.%s, got %s.%s", i, want.domain, want.service, got.Domain, got.Service)
+		}
+		if got.Data["entity_id"] != want.entityID {
+			t.Errorf("Call %d: expected entity_id=%s, got %v", i, want.entityID, got.Data["entity_id"])
+		}
+	}
+}
+
+// TestTVManager_PerformManualReset_ReadOnly verifies that read-only mode skips
+// all service calls — neither the Apple TV nor the sync box should be touched.
+func TestTVManager_PerformManualReset_ReadOnly(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, true)
+
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, true, nil)
+	manager.sleepFunc = func(d time.Duration) {}
+	manager.timeNow = time.Now
+
+	manager.PerformManualReset()
+
+	if calls := mockHA.GetServiceCalls(); len(calls) != 0 {
+		t.Errorf("Expected no service calls in read-only mode, got %d: %+v", len(calls), calls)
+	}
+}
+
+// TestTVManager_PerformManualReset_SkipsWhenRecoveryInProgress verifies the
+// manual reset declines to run if automatic recovery is already underway,
+// preventing duplicate power cycles racing against each other.
+func TestTVManager_PerformManualReset_SkipsWhenRecoveryInProgress(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
+	manager.sleepFunc = func(d time.Duration) {}
+	manager.timeNow = time.Now
+
+	// Simulate auto-recovery already in flight
+	manager.recoveryMu.Lock()
+	manager.recoveryInProgress = true
+	manager.recoveryMu.Unlock()
+
+	manager.PerformManualReset()
+
+	if calls := mockHA.GetServiceCalls(); len(calls) != 0 {
+		t.Errorf("Expected no service calls when recovery already in progress, got %d: %+v", len(calls), calls)
+	}
+}
+
+// TestTVManager_HandleResetTVChange_TriggersResetAndClearsBoolean verifies
+// the false → true edge clears the input_boolean.reset_tv (loop prevention)
+// and kicks off the reset sequence.
+func TestTVManager_HandleResetTVChange_TriggersResetAndClearsBoolean(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
+	manager.sleepFunc = func(d time.Duration) {}
+	manager.timeNow = time.Now
+
+	// Seed resetTV as true so the handler sees a false → true transition
+	if err := stateMgr.SetBool("resetTV", true); err != nil {
+		t.Fatalf("Failed to seed resetTV: %v", err)
+	}
+
+	manager.handleResetTVChange("resetTV", false, true)
+
+	// Wait for async PerformManualReset goroutine to complete (4 service calls expected)
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) && len(mockHA.GetServiceCalls()) < 4 {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if got := len(mockHA.GetServiceCalls()); got < 4 {
+		t.Fatalf("Expected at least 4 service calls from manual reset, got %d", got)
+	}
+
+	// Boolean should have been turned back off to prevent re-triggering
+	val, err := stateMgr.GetBool("resetTV")
+	if err != nil {
+		t.Fatalf("Failed to read resetTV: %v", err)
+	}
+	if val {
+		t.Error("Expected resetTV to be cleared back to false after handler ran")
+	}
+}
+
+// TestTVManager_HandleResetTVChange_IgnoresFalseValue verifies that resetTV
+// going to false (or staying false) is a no-op — no service calls fire and
+// the boolean is not touched.
+func TestTVManager_HandleResetTVChange_IgnoresFalseValue(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
+	manager.sleepFunc = func(d time.Duration) {}
+	manager.timeNow = time.Now
+
+	manager.handleResetTVChange("resetTV", true, false)
+
+	// Give any (incorrectly fired) goroutine a chance to start
+	time.Sleep(50 * time.Millisecond)
+
+	if calls := mockHA.GetServiceCalls(); len(calls) != 0 {
+		t.Errorf("Expected no service calls for false-edge, got %d: %+v", len(calls), calls)
 	}
 }
