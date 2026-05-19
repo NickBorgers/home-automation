@@ -2032,16 +2032,17 @@ func TestEnvironmentalManager_UnconditionedSensor_HigherThresholds(t *testing.T)
 	})
 	manager.SetOutdoorHumidity(50.0) // Outdoor is moderate
 
-	// Barn at 60% - below unconditioned warning (75%)
+	// Barn at 68% - above conditioned warning (65%) but below unconditioned warning (75%)
 	// Also exceeds outdoor + margin (50+5=55), so not suppressed
-	manager.SimulateSensorChange(testUnconditionedSensor1, 60.0)
+	// This value is specifically chosen to confirm unconditioned sensors use the higher threshold.
+	manager.SimulateSensorChange(testUnconditionedSensor1, 68.0)
 	mockClock.Advance(31 * time.Minute)
-	manager.SimulateSensorChange(testUnconditionedSensor1, 60.0)
+	manager.SimulateSensorChange(testUnconditionedSensor1, 68.0)
 
 	// Should NOT alert - below unconditioned warning threshold of 75%
 	alertLevel := manager.GetCurrentState()
 	if alertLevel != "none" {
-		t.Errorf("Expected no alert for unconditioned sensor at 60%% (below 75%% threshold), got '%s'", alertLevel)
+		t.Errorf("Expected no alert for unconditioned sensor at 68%% (below 75%% threshold), got '%s'", alertLevel)
 	}
 }
 
