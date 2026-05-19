@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -164,7 +165,12 @@ func TestMusicManager_ZoneResolutionSelectsCorrectMode(t *testing.T) {
 	}
 }
 
-func TestMusicManager_StartupReconciliationAdoptsExistingPlayback(t *testing.T) {
+// TestMusicManager_StartupReconciliationAdoptsTidalTrack covers the realistic Tidal case:
+// Sonos reports the active track as x-sonos-http:track%2f...?sid=174&sn=9 (NOT the original
+// sharelink), and we must coarsely accept any Tidal-backed track when the mode has at least
+// one tidal PlaybackOption. The previous version of this test mistakenly used the sharelink
+// URL itself as media_content_id, which masked the production bug fixed here.
+func TestMusicManager_StartupReconciliationAdoptsTidalTrack(t *testing.T) {
 	t.Parallel()
 	env := testutil.NewEnv(t)
 
@@ -176,8 +182,8 @@ func TestMusicManager_StartupReconciliationAdoptsExistingPlayback(t *testing.T) 
 					{PlayerName: "Bedroom", BaseVolume: 7},
 				},
 				PlaybackOptions: []PlaybackOption{
-					{URI: "https://tidal.com/browse/playlist/day-next", MediaType: "music", VolumeMultiplier: 1.0},
-					{URI: "https://tidal.com/browse/playlist/day-current", MediaType: "music", VolumeMultiplier: 1.0},
+					{URI: "https://tidal.com/browse/playlist/day-next", MediaType: "tidal", VolumeMultiplier: 1.0},
+					{URI: "https://tidal.com/browse/playlist/day-current", MediaType: "tidal", VolumeMultiplier: 1.0},
 				},
 			},
 		},
@@ -190,7 +196,7 @@ func TestMusicManager_StartupReconciliationAdoptsExistingPlayback(t *testing.T) 
 	require.NoError(t, env.StateMgr.SetString("musicPlaybackType", ""))
 
 	env.MockHA.SetState("media_player.kitchen", "playing", map[string]interface{}{
-		"media_content_id":   "https://tidal.com/browse/playlist/day-current",
+		"media_content_id":   "x-sonos-http:track%2f219523260.flac?sid=174&flags=24616&sn=9",
 		"media_content_type": "music",
 		"group_members": []interface{}{
 			"media_player.kitchen",
@@ -215,7 +221,9 @@ func TestMusicManager_StartupReconciliationAdoptsExistingPlayback(t *testing.T) 
 	shadow := manager.GetShadowState()
 	assert.Equal(t, "adopt_playback", shadow.Outputs.LastActionType)
 	assert.Equal(t, "day", shadow.Outputs.CurrentMode)
-	assert.Equal(t, "https://tidal.com/browse/playlist/day-current", shadow.Outputs.ActivePlaylist.URI)
+	// First matching option wins; shadow records the sharelink URI of the matched option,
+	// not the opaque Sonos track URI (which is downstream-meaningless).
+	assert.Equal(t, "https://tidal.com/browse/playlist/day-next", shadow.Outputs.ActivePlaylist.URI)
 	require.Len(t, shadow.Outputs.SpeakerGroup, 2)
 	assert.Equal(t, "Kitchen", shadow.Outputs.SpeakerGroup[0].PlayerName)
 	assert.True(t, shadow.Outputs.SpeakerGroup[0].Active)
@@ -224,9 +232,124 @@ func TestMusicManager_StartupReconciliationAdoptsExistingPlayback(t *testing.T) 
 	assert.False(t, shadow.Outputs.SpeakerGroup[1].Active, "missing desired follower is tolerated but reflected in shadow")
 }
 
+// TestMusicManager_StartupReconciliationAdoptsM3UTrack covers the original issue #1124 case
+// (sleep-prep rain sounds): the configured PlaybackOption.URI is an m3u file, but Sonos
+// reports the currently-playing track URL from inside that m3u. We must fetch the m3u and
+// verify membership.
+func TestMusicManager_StartupReconciliationAdoptsM3UTrack(t *testing.T) {
+	t.Parallel()
+	env := testutil.NewEnv(t)
+
+	const trackInPlaylist = "http://rain.example/Rain%20Sounds/rain-2h-1.flac"
+	const trackNotInPlaylist = "http://rain.example/Rain%20Sounds/rain-2h-99.flac"
+	m3uBody := "#EXTM3U\n" + trackInPlaylist + "\n" + trackInPlaylist + "\n"
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/sleep-rain.m3u" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "audio/x-mpegurl")
+		_, _ = io.WriteString(w, m3uBody)
+	}))
+	defer server.Close()
+	playlistURI := server.URL + "/sleep-rain.m3u"
+
+	config := &MusicConfig{
+		Music: map[string]MusicMode{
+			"sleep": {
+				Participants: []Participant{
+					{PlayerName: "Bedroom", BaseVolume: 7},
+				},
+				PlaybackOptions: []PlaybackOption{
+					{URI: playlistURI, MediaType: "music", VolumeMultiplier: 1.0},
+				},
+			},
+		},
+	}
+
+	require.NoError(t, env.StateMgr.SetBool("isAnyoneHome", true))
+	require.NoError(t, env.StateMgr.SetBool("isAnyoneAsleep", true))
+	require.NoError(t, env.StateMgr.SetBool("isWakeSequenceActive", false))
+	require.NoError(t, env.StateMgr.SetString("dayPhase", "night"))
+	require.NoError(t, env.StateMgr.SetString("musicPlaybackType", ""))
+
+	env.MockHA.SetState("media_player.bedroom", "playing", map[string]interface{}{
+		"media_content_id":   trackInPlaylist,
+		"media_content_type": "music",
+		"group_members": []interface{}{
+			"media_player.bedroom",
+		},
+		"volume_level": 0.05,
+	})
+
+	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, false, nil, nil)
+	require.NoError(t, manager.Start())
+	defer manager.Stop()
+
+	for _, call := range env.MockHA.GetServiceCalls() {
+		assert.False(t, call.Domain == "media_player",
+			"m3u track match should adopt, not orchestrate; got %s.%s", call.Domain, call.Service)
+	}
+
+	shadow := manager.GetShadowState()
+	assert.Equal(t, "adopt_playback", shadow.Outputs.LastActionType)
+	assert.Equal(t, "sleep", shadow.Outputs.CurrentMode)
+	assert.Equal(t, playlistURI, shadow.Outputs.ActivePlaylist.URI)
+
+	// Sanity: a track NOT in the m3u must not match (no orchestration here, just direct call).
+	_, ok := manager.playbackOptionForURI("sleep", trackNotInPlaylist)
+	assert.False(t, ok, "track not in m3u must not be recognized as a member")
+}
+
+// TestMusicManager_StartupReconciliationRejectsTidalInNonTidalMode guards the dispatcher:
+// a Tidal-shaped track must not be accepted by a mode that only has music (m3u) options.
+func TestMusicManager_StartupReconciliationRejectsTidalInNonTidalMode(t *testing.T) {
+	t.Parallel()
+	env := testutil.NewEnv(t)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, "#EXTM3U\nhttp://rain.example/track-a.flac\n")
+	}))
+	defer server.Close()
+
+	config := &MusicConfig{
+		Music: map[string]MusicMode{
+			"sleep": {
+				Participants: []Participant{
+					{PlayerName: "Bedroom", BaseVolume: 7},
+				},
+				PlaybackOptions: []PlaybackOption{
+					{URI: server.URL + "/sleep.m3u", MediaType: "music", VolumeMultiplier: 1.0},
+				},
+			},
+		},
+	}
+	require.NoError(t, env.StateMgr.SetBool("isAnyoneHome", true))
+	require.NoError(t, env.StateMgr.SetBool("isAnyoneAsleep", true))
+	require.NoError(t, env.StateMgr.SetBool("isWakeSequenceActive", false))
+	require.NoError(t, env.StateMgr.SetString("dayPhase", "night"))
+	require.NoError(t, env.StateMgr.SetString("musicPlaybackType", ""))
+
+	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, false, nil, nil)
+
+	_, ok := manager.playbackOptionForURI("sleep", "x-sonos-http:track%2f1.flac?sid=174&sn=9")
+	assert.False(t, ok, "Tidal track must not match an m3u-only mode")
+}
+
 func TestMusicManager_StartupReconciliationReorchestratesWrongGroup(t *testing.T) {
 	t.Parallel()
 	env := testutil.NewEnv(t)
+
+	// Use a real m3u playlist (media_type: music) so URI matching succeeds and the
+	// test actually exercises the group-mismatch path. Tidal can't be used here because
+	// re-orchestration would route through SoCo-CLI (nil in tests) instead of media_player.
+	const trackInPlaylist = "http://rain.example/track-a.flac"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, "#EXTM3U\n"+trackInPlaylist+"\n")
+	}))
+	defer server.Close()
+	playlistURI := server.URL + "/day.m3u"
 
 	config := &MusicConfig{
 		Music: map[string]MusicMode{
@@ -236,7 +359,7 @@ func TestMusicManager_StartupReconciliationReorchestratesWrongGroup(t *testing.T
 					{PlayerName: "Bedroom", BaseVolume: 7},
 				},
 				PlaybackOptions: []PlaybackOption{
-					{URI: "https://tidal.com/browse/playlist/day-current", MediaType: "music", VolumeMultiplier: 1.0},
+					{URI: playlistURI, MediaType: "music", VolumeMultiplier: 1.0},
 				},
 			},
 		},
@@ -249,7 +372,7 @@ func TestMusicManager_StartupReconciliationReorchestratesWrongGroup(t *testing.T
 	require.NoError(t, env.StateMgr.SetString("musicPlaybackType", ""))
 
 	env.MockHA.SetState("media_player.kitchen", "playing", map[string]interface{}{
-		"media_content_id": "https://tidal.com/browse/playlist/day-current",
+		"media_content_id": trackInPlaylist,
 		"group_members": []interface{}{
 			"media_player.kitchen",
 			"media_player.soundbar",
