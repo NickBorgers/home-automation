@@ -977,16 +977,14 @@ func (m *Manager) sendAlertNotification(now time.Time, level string) {
 		return
 	}
 
-	urgency := notify.UrgencyDeferable
-	if level == "critical" {
-		urgency = notify.UrgencyUrgent
-	}
-
+	// Humidity is never time-critical (mold develops over hours), so humidity
+	// TTS is always deferable — push notification still fires at the priority
+	// set above, but Sonos announcement is suppressed while master is asleep.
 	if err := m.alerter.Send(context.Background(), alert.Alert{
 		Title:    title,
 		Body:     message,
 		Speech:   speech,
-		Urgency:  urgency,
+		Urgency:  notify.UrgencyDeferable,
 		Tags:     tags,
 		Priority: priority,
 	}); err != nil {
