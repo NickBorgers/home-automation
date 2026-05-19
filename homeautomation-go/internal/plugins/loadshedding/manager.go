@@ -383,7 +383,7 @@ func (m *Manager) handleEnergyChangeWithTrigger(key string, oldValue, newValue i
 }
 
 // restoreNonHVACLoads turns on non-essential loads (EV charger, dehumidifier).
-// Called at green/white energy levels to restore loads that were shed at yellow.
+// Called at green/white energy levels to restore loads shed by red-level load shedding.
 func (m *Manager) restoreNonHVACLoads(energyLevel string) {
 	m.stateMu.Lock()
 	needsRestore := m.nonHVACLoadsShed && !m.loadSheddingOn
