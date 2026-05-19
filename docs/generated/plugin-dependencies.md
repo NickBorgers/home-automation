@@ -32,6 +32,7 @@ graph LR
         musicPlaylistRotation["musicPlaylistRotation"]
         remainingSolarGeneration["remainingSolarGeneration"]
         reset["reset"]
+        resetTV["resetTV"]
         solarProductionEnergyLevel["solarProductionEnergyLevel"]
         sunevent["sunevent"]
         thisHourSolarGeneration["thisHourSolarGeneration"]
@@ -81,6 +82,7 @@ graph LR
     isAnyoneAsleep -.-> sexmode
     isMasterAsleep -.-> sleephygiene
     isAppleTVPlaying -.-> tv
+    resetTV -.-> tv
     isAnyoneHome -.-> vacuum
 
     %% Writes (plugin sets variable)
@@ -106,6 +108,7 @@ graph LR
     tv --> isAppleTVPlaying
     tv --> isTVPlaying
     tv --> isTVon
+    tv --> resetTV
 ```
 
 ## Legend
