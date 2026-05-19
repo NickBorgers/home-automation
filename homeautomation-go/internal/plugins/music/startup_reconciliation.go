@@ -72,7 +72,7 @@ func (m *Manager) adoptStartupZonePlayback(zone *Zone, selected PlaybackOption, 
 	m.mu.Lock()
 	m.currentlyPlaying = &CurrentlyPlayingMusic{
 		Type:         zone.MusicType,
-		URI:          currentURI,
+		URI:          playbackOption.URI,
 		MediaType:    playbackOption.MediaType,
 		LeadPlayer:   zone.LeadSpeaker,
 		Participants: participants,
@@ -80,7 +80,7 @@ func (m *Manager) adoptStartupZonePlayback(zone *Zone, selected PlaybackOption, 
 	m.mu.Unlock()
 
 	m.zoneManager.mu.Lock()
-	zone.PlaylistURI = currentURI
+	zone.PlaylistURI = playbackOption.URI
 	zone.MediaType = playbackOption.MediaType
 	zone.Participants = participants
 	m.zoneManager.mu.Unlock()
