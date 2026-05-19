@@ -47,11 +47,10 @@ Energy states are ordered from lowest to highest availability:
 
 | State | Color | Battery Min | Solar Min | Meaning |
 |-------|-------|-------------|-----------|---------|
-| `black` | Black | 0% | 0 kW | Critical - minimal energy |
-| `red` | Red | 10% | 0.5 kW | Low - conserve power |
-| `yellow` | Yellow | 30% | 1.0 kW | Moderate - normal usage |
-| `green` | Green | 60% | 2.0 kW | Good - energy available |
-| `white` | White | 95% | 4.0 kW / 20 kWh remaining | Abundant solar / stored energy |
+| `red` | Red | 0% | 0 kW | Critical - load shed (HVAC band + non-HVAC off) |
+| `yellow` | Yellow | 15% | 0.1 kW | Hysteresis band covering normal arbitrage operation |
+| `green` | Green | 60% | 1.0 kW / 5 kWh remaining | Good - energy available |
+| `white` | White | 80% | 4.0 kW / 20 kWh remaining | Abundant solar / stored energy |
 
 ### Overall Level Algorithm
 
@@ -88,9 +87,9 @@ flowchart TD
 - Solar > Battery → Output = Battery + 1 (boost by one level, capped at solar)
 
 Examples:
-- Battery: green (60%), Solar: black (0 kW) → Result: green (battery not penalized)
-- Battery: yellow (30%), Solar: green (2+ kW) → Result: green (boosted by 1)
-- Battery: red (10%), Solar: green (2+ kW) → Result: yellow (boosted by 1, not green)
+- Battery: green (60%), Solar: red (0 kW) → Result: green (battery not penalized)
+- Battery: yellow (15-59%), Solar: green (1+ kW, 5+ kWh) → Result: green (boosted by 1)
+- Battery: red (<15%), Solar: green (1+ kW, 5+ kWh) → Result: yellow (boosted by 1, not green)
 
 ## Free Energy Detection
 
@@ -212,7 +211,7 @@ See [LOAD_SHEDDING.md](./LOAD_SHEDDING.md) for thermostat control and thermal ba
 
 | Variable | Type | Description |
 |----------|------|-------------|
-| `batteryEnergyLevel` | string | Battery-based level (black/red/yellow/green) |
+| `batteryEnergyLevel` | string | Battery-based level (red/yellow/green/white) |
 | `solarProductionEnergyLevel` | string | Solar-based level |
 | `isFreeEnergyAvailable` | bool | Legacy metered-grid flag, retired (always false) |
 | `currentEnergyLevel` | string | Overall combined level |

@@ -825,7 +825,7 @@ func TestThermalBattery_HeatCoolMode_DeactivationRestoresOriginal(t *testing.T) 
 	t.Parallel()
 	// Activate with cold forecast, then hard-deactivate via yellow drop
 	// → verify original 69/72 restored. (Green now enters hysteresis instead of
-	// reverting; yellow/red/black are the hard-deactivation triggers.)
+	// reverting; yellow/red are the hard-deactivation triggers.)
 	env := setupHeatCoolEnvWithForecast(t, "", 45.0, 25.0)
 
 	ls := NewManager(context.Background(), env.MockHA, env.StateMgr, env.Logger, false, nil, nil)

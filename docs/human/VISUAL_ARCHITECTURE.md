@@ -844,29 +844,25 @@ flowchart TD
 
     UpdateShadow1 --> CheckLevels{Compare Battery %<br/>to Thresholds}
 
-    CheckLevels -->|< critical_threshold| SetCritical[batteryEnergyLevel = 'critical']
-    CheckLevels -->|< low_threshold| SetLow[batteryEnergyLevel = 'low']
-    CheckLevels -->|< medium_threshold| SetMedium[batteryEnergyLevel = 'medium']
-    CheckLevels -->|< high_threshold| SetHigh[batteryEnergyLevel = 'high']
-    CheckLevels -->|>= high_threshold| SetFull[batteryEnergyLevel = 'full']
+    CheckLevels -->|< 15%| SetRed[batteryEnergyLevel = 'red']
+    CheckLevels -->|< 60%| SetYellow[batteryEnergyLevel = 'yellow']
+    CheckLevels -->|< 80%| SetGreen[batteryEnergyLevel = 'green']
+    CheckLevels -->|>= 80%| SetWhite[batteryEnergyLevel = 'white']
 
-    SetCritical --> UpdateBattery1[Update Shadow State:<br/>Battery Level]
-    SetLow --> UpdateBattery2[Update Shadow State:<br/>Battery Level]
-    SetMedium --> UpdateBattery3[Update Shadow State:<br/>Battery Level]
-    SetHigh --> UpdateBattery4[Update Shadow State:<br/>Battery Level]
-    SetFull --> UpdateBattery5[Update Shadow State:<br/>Battery Level]
+    SetRed --> UpdateBattery1[Update Shadow State:<br/>Battery Level]
+    SetYellow --> UpdateBattery2[Update Shadow State:<br/>Battery Level]
+    SetGreen --> UpdateBattery3[Update Shadow State:<br/>Battery Level]
+    SetWhite --> UpdateBattery4[Update Shadow State:<br/>Battery Level]
 
     UpdateBattery1 --> SyncToHA1[Sync to HA:<br/>input_text.battery_energy_level]
     UpdateBattery2 --> SyncToHA2[Sync to HA:<br/>input_text.battery_energy_level]
     UpdateBattery3 --> SyncToHA3[Sync to HA:<br/>input_text.battery_energy_level]
     UpdateBattery4 --> SyncToHA4[Sync to HA:<br/>input_text.battery_energy_level]
-    UpdateBattery5 --> SyncToHA5[Sync to HA:<br/>input_text.battery_energy_level]
 
     SyncToHA1 --> CalculateCurrent
     SyncToHA2 --> CalculateCurrent
     SyncToHA3 --> CalculateCurrent
     SyncToHA4 --> CalculateCurrent
-    SyncToHA5 --> CalculateCurrent
 
     CalculateCurrent[Calculate currentEnergyLevel] --> CompareSolar{Solar level > battery level?}
 

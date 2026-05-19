@@ -5,7 +5,7 @@ This document describes the load shedding automation flow, which manages HVAC th
 ## Overview
 
 The load shedding plugin controls thermostats, EV charger, and dehumidifier based on energy levels to:
-1. Restrict HVAC, disable EV charger, and disable dehumidifier when battery is low (red/black)
+1. Restrict HVAC, disable EV charger, and disable dehumidifier when battery is low (red, <15%)
 2. Return to normal schedules and re-enable EV charger and dehumidifier when energy is available (green/white)
 3. **Thermal battery**: Pre-condition the house by shifting HVAC setpoints when energy is abundant (white)
 4. Shed non-HVAC loads (EV charger, dehumidifier) at yellow while maintaining HVAC hysteresis
@@ -26,10 +26,10 @@ flowchart TD
     end
 
     currentLevel --> checkLevel
-    checkLevel -->|red, black| enableLS
+    checkLevel -->|red| enableLS
     checkLevel -->|green| greenAction["Disable load shedding<br/>+ Thermal battery: enter hysteresis if active"]
     checkLevel -->|white| thermalBattery["Disable load shedding<br/>+ Activate thermal battery"]
-    checkLevel -->|yellow| shedPartial["Shed non-HVAC loads<br/>Deactivate thermal battery<br/>HVAC maintains current state"]
+    checkLevel -->|yellow| maintain["Maintain current load-shed state<br/>(hysteresis carry)<br/>Deactivate thermal battery"]
 
     style enableLS fill:#e74c3c,color:#fff
     style greenAction fill:#27ae60,color:#fff
@@ -248,7 +248,7 @@ Original setpoints are saved and restored on deactivation.
 ### Deactivation Triggers
 
 Thermal battery **hard-deactivates** — or, if deferred, the pending activation is cancelled — when:
-- Energy level drops to **yellow, red, or black**
+- Energy level drops to **yellow or red**
 - Nobody is home (`isAnyoneHome` → false)
 - Everyone falls asleep (`isEveryoneAsleep` → true)
 
@@ -259,19 +259,19 @@ When energy dips white→green while the thermal battery is active, the plugin e
 - `heat`/`cool` thermostats: setpoint reverts to saved value to stop the equipment
 - Thermostat holds **remain enabled**
 - If energy returns to white during the window, preheat resumes (saved setpoints and step counter are still valid)
-- If energy drops to yellow/red/black, hard deactivation runs immediately (hysteresis timer cancelled, setpoints reverted)
+- If energy drops to yellow/red, hard deactivation runs immediately (hysteresis timer cancelled, setpoints reverted)
 - If the window expires without recovery, holds are released and the climate schedule resumes (no explicit setpoint revert — the schedule is more correct than a stale saved value)
 
 Any in-progress stepping goroutine and any deferred-activation recheck timer are cancelled on deactivation.
 
-## Yellow State — Partial Load Shedding
+## Yellow State — Hysteresis Carry
 
-The yellow (moderate) energy state applies partial load shedding: non-HVAC loads are shed, but HVAC maintains its current state (hysteresis) to prevent rapid toggling of thermostats.
+The yellow (15-59%) energy state is the wide hysteresis band that covers normal nightly arbitrage operation. It does **not** trigger any new load-shed action — it just carries whatever load-shed state was last established by red (engage) or green (release).
 
 **Yellow actions:**
-- Shed non-HVAC loads (EV charger, dehumidifier)
 - Deactivate thermal battery (energy is declining, stop pre-conditioning)
-- HVAC unchanged (hysteresis buffer prevents rapid toggling)
+- No change to load-shed state (red's holds stay engaged; green's restored state stays)
+- No change to non-HVAC loads
 
 ```mermaid
 sequenceDiagram
@@ -281,19 +281,19 @@ sequenceDiagram
     participant HVAC as Thermostats
     participant NonHVAC as EV Charger / Dehumidifier
 
-    Note over Battery: Battery drops to 25%
+    Note over Battery: Battery drops to 10%
 
-    Battery->>EM: Battery = 25% (red)
+    Battery->>EM: Battery = 10% (red)
     EM->>LS: currentEnergyLevel = red
     LS->>HVAC: Enable hold mode<br/>Set 65-80°F range
     LS->>NonHVAC: Turn off
 
-    Note over Battery: Battery recovers to 35%
+    Note over Battery: Battery recovers to 25%
 
-    Battery->>EM: Battery = 35% (yellow)
+    Battery->>EM: Battery = 25% (yellow)
     EM->>LS: currentEnergyLevel = yellow
-    LS->>LS: HVAC maintains current state<br/>(hysteresis)
-    LS->>NonHVAC: Remain off<br/>(already shed)
+    LS->>LS: Load-shed state unchanged<br/>(hysteresis carry)
+    LS->>NonHVAC: Remain off<br/>(red's action persists)
 
     Note over Battery: Battery recovers to 65%
 
@@ -303,7 +303,7 @@ sequenceDiagram
     LS->>NonHVAC: Turn on<br/>(restore loads)
 ```
 
-HVAC hysteresis prevents rapid toggling at threshold boundaries (e.g., 29%↔31% repeatedly enabling/disabling). Non-HVAC loads are simpler to toggle and don't have the same wear concerns, so they are shed at yellow to conserve energy.
+The wide yellow band (15-59%) absorbs normal arbitrage cycling without engaging load shed. HVAC and non-HVAC loads are only shed when battery actually crosses the 15% floor into red.
 
 ## Controlled Entities
 
