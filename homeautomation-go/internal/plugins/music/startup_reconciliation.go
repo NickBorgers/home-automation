@@ -1,14 +1,28 @@
 package music
 
 import (
+	"bufio"
 	"fmt"
+	"io"
 	"math"
+	"net/http"
+	"strings"
+	"time"
 
 	"homeautomation/internal/ha"
 	"homeautomation/internal/shadowstate"
 
 	"go.uber.org/zap"
 )
+
+// tidalTrackURIPrefix is what Sonos reports in media_content_id for any Tidal-backed track
+// after resolving a sharelink. Example: "x-sonos-http:track%2f219523260.flac?sid=174&sn=9".
+// The original sharelink (https://tidal.com/browse/playlist/...) is never visible here.
+const tidalTrackURIPrefix = "x-sonos-http:track"
+
+// m3uFetchTimeout is the per-request timeout for fetching a configured m3u playlist
+// during startup reconciliation. Short — the m3u host is on the local network.
+const m3uFetchTimeout = 5 * time.Second
 
 func (m *Manager) adoptStartupZonePlayback(zone *Zone, selected PlaybackOption, trigger string) bool {
 	if trigger != "startup" {
@@ -82,17 +96,94 @@ func (m *Manager) adoptStartupZonePlayback(zone *Zone, selected PlaybackOption, 
 	return true
 }
 
+// playbackOptionForURI returns the configured PlaybackOption that the currently-playing
+// URI belongs to, branching by media_type because Sonos's media_content_id never equals
+// the configured URI in production:
+//   - tidal: configured value is a https://tidal.com/browse/playlist/... sharelink, but
+//     Sonos reports x-sonos-http:track%2f...?sid=174&sn=9 for the active track. We can't
+//     verify the originating sharelink, so we match coarsely: any Tidal-backed track is
+//     considered a hit if the mode has at least one tidal PlaybackOption.
+//   - music: configured value is an m3u URL; Sonos reports the active track URL from
+//     inside the playlist. We fetch the m3u (cached) and check membership.
+//   - other (none today): fall back to exact match.
 func (m *Manager) playbackOptionForURI(musicType, uri string) (PlaybackOption, bool) {
 	mode, ok := m.config.Music[musicType]
 	if !ok {
 		return PlaybackOption{}, false
 	}
 	for _, option := range mode.PlaybackOptions {
-		if option.URI == uri {
-			return option, true
+		switch option.MediaType {
+		case "tidal":
+			if strings.HasPrefix(uri, tidalTrackURIPrefix) {
+				return option, true
+			}
+		case "music":
+			contains, err := m.m3uContainsTrack(option.URI, uri)
+			if err != nil {
+				m.logger.Warn("Startup reconciliation: failed to fetch m3u playlist for membership check",
+					zap.String("playlist", option.URI),
+					zap.Error(err))
+				continue
+			}
+			if contains {
+				return option, true
+			}
+		default:
+			if option.URI == uri {
+				return option, true
+			}
 		}
 	}
 	return PlaybackOption{}, false
+}
+
+// m3uContainsTrack reports whether trackURI appears in the m3u playlist at m3uURI.
+// Results are cached for the Manager's lifetime.
+func (m *Manager) m3uContainsTrack(m3uURI, trackURI string) (bool, error) {
+	tracks, err := m.loadM3UTracks(m3uURI)
+	if err != nil {
+		return false, err
+	}
+	_, ok := tracks[trackURI]
+	return ok, nil
+}
+
+func (m *Manager) loadM3UTracks(m3uURI string) (map[string]struct{}, error) {
+	m.m3uCacheMu.Lock()
+	if cached, ok := m.m3uCache[m3uURI]; ok {
+		m.m3uCacheMu.Unlock()
+		return cached, nil
+	}
+	m.m3uCacheMu.Unlock()
+
+	client := &http.Client{Timeout: m3uFetchTimeout}
+	resp, err := client.Get(m3uURI)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		_, _ = io.Copy(io.Discard, resp.Body)
+		return nil, fmt.Errorf("m3u fetch returned HTTP %d", resp.StatusCode)
+	}
+
+	tracks := make(map[string]struct{})
+	scanner := bufio.NewScanner(resp.Body)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		tracks[line] = struct{}{}
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("m3u parse: %w", err)
+	}
+
+	m.m3uCacheMu.Lock()
+	m.m3uCache[m3uURI] = tracks
+	m.m3uCacheMu.Unlock()
+	return tracks, nil
 }
 
 func (m *Manager) actualGroupMembers(state *ha.State, leadEntityID string) map[string]bool {
