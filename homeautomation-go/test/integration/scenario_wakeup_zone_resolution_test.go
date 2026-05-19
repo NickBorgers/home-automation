@@ -138,6 +138,12 @@ func TestScenario_WakeUp_DebouncesRapidTriggers(t *testing.T) {
 		return len(env.music.GetActiveZones()) > 0
 	}, "initial zone resolution should complete")
 
+	// Wait for the sleep zone's async orchestrateZonePlayback goroutine to finish
+	// before snapshotting. Without this, the goroutine's join call (Primary Bathroom
+	// as lead, with Bedroom in group_members) can land after the snapshot and inflate
+	// bedroomJoinCount under CI load.
+	waitForServiceCallsToStabilizeSince(t, env.server, 0, 200*time.Millisecond)
+
 	// Take snapshot before the action phase
 	snapshot := env.server.ServiceCallCount()
 
@@ -150,8 +156,10 @@ func TestScenario_WakeUp_DebouncesRapidTriggers(t *testing.T) {
 		}
 	})
 
-	// Enable production debouncing (500ms) to test coalescing behavior
-	env.music.SetDebounceDelay(500 * time.Millisecond)
+	// Use a 2s debounce window so all three rapid state changes arrive within the
+	// window even when CI state propagation is slow. The debounceDone channel
+	// ensures the test waits for the exact fire time, not a fixed sleep.
+	env.music.SetDebounceDelay(2 * time.Second)
 
 	// ===== WHEN: Three state variables change rapidly (simulating wake-up alarm)
 	t.Log("WHEN: isAnyoneAsleep, isMasterAsleep, isWakeSequenceActive all change within ~100ms")
