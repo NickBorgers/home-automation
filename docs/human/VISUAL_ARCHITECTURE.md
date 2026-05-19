@@ -910,6 +910,7 @@ graph LR
         GuestDoor[isGuestBedroomDoorOpen]
         HaveGuests[isHaveGuests]
         Reset[reset]
+        ResetTV[resetTV]
         NickNearHome[isNickNearHome]
         CarolineNearHome[isCarolineNearHome]
         NickOffice[isNickOfficeOccupied]
@@ -1038,6 +1039,7 @@ graph LR
     SleepHygiene -.->|Triggers| Music
     SleepHygiene -.->|Triggers| Lighting
 
+    ResetTV --> TV
     TV --> AppleTVPlaying
     TV --> TVon
     TV --> TVPlaying
