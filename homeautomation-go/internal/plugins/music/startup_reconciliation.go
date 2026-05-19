@@ -102,7 +102,9 @@ func (m *Manager) adoptStartupZonePlayback(zone *Zone, selected PlaybackOption, 
 //   - tidal: configured value is a https://tidal.com/browse/playlist/... sharelink, but
 //     Sonos reports x-sonos-http:track%2f...?sid=174&sn=9 for the active track. We can't
 //     verify the originating sharelink, so we match coarsely: any Tidal-backed track is
-//     considered a hit if the mode has at least one tidal PlaybackOption.
+//     considered a hit if the mode has at least one tidal PlaybackOption. This is
+//     first-option-wins: shadow records the first tidal option's URI regardless of which
+//     tidal playlist was actually playing. Fidelity is limited by what Sonos exposes.
 //   - music: configured value is an m3u URL; Sonos reports the active track URL from
 //     inside the playlist. We fetch the m3u (cached) and check membership.
 //   - other (none today): fall back to exact match.
