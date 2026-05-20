@@ -98,9 +98,8 @@ func RegisterSolarEnergyLevelProvider(
 // Formula: level = combineEnergyLevels(batteryEnergyLevel, solarProductionEnergyLevel)
 //
 // The combination logic:
-//   - Solar can only boost, never drag down the battery level
-//   - The overall level is at least the battery level
-//   - If solar is higher, it can boost by at most 1 level
+//   - The overall level follows the stronger input, capped at one level above the weaker input
+//   - This allows active solar to boost a low battery without letting either input mask a weak other input
 //
 // Dependencies:
 //   - batteryEnergyLevel
@@ -154,17 +153,20 @@ func RegisterCurrentEnergyLevelProvider(
 				return "", nil
 			}
 
-			// Solar can only boost, never drag down the battery level.
-			// The overall level is:
-			// - At least the battery level (solar never penalizes)
-			// - At most battery + 1 (solar can boost by one level if it's higher)
-			outputIndex := batteryIndex
-			if solarIndex > batteryIndex {
-				// Solar is higher, boost by at most 1
-				outputIndex = batteryIndex + 1
-				if solarIndex < outputIndex {
-					outputIndex = solarIndex
-				}
+			// Overall energy follows the stronger input, capped at one level above
+			// the weaker input. This prevents a high battery from producing white
+			// when solar is weak, while still allowing active solar to boost.
+			minIndex := batteryIndex
+			maxIndex := solarIndex
+			if solarIndex < batteryIndex {
+				minIndex = solarIndex
+				maxIndex = batteryIndex
+			}
+
+			outputIndex := maxIndex
+			maxAllowedIndex := minIndex + 1
+			if outputIndex > maxAllowedIndex {
+				outputIndex = maxAllowedIndex
 			}
 
 			// Clamp to valid range

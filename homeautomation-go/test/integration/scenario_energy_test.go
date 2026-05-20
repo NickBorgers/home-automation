@@ -397,6 +397,33 @@ func TestScenario_HighSolarProduction_CanStillSetWhiteEnergyLevel(t *testing.T) 
 	waitForStringState(t, manager, "currentEnergyLevel", "white", "Overall level should be white from solar boost")
 }
 
+// TestScenario_HighBatteryWeakSolar_DoesNotSetWhiteEnergyLevel validates that a
+// high battery alone does not activate white-level behavior when solar is weak.
+func TestScenario_HighBatteryWeakSolar_DoesNotSetWhiteEnergyLevel(t *testing.T) {
+	t.Parallel()
+	server, _, manager, _, cleanup := setupEnergyScenarioTest(t)
+	defer cleanup()
+
+	// GIVEN: Battery is at the white threshold, but solar production is only yellow.
+	t.Log("GIVEN: Battery white and solar production yellow")
+	server.SetState("sensor.span_panel_span_storage_battery_percentage_2", "80.0", map[string]interface{}{
+		"unit_of_measurement": "%",
+	})
+	server.SetState("sensor.energy_next_hour", "0.908", map[string]interface{}{
+		"unit_of_measurement": "kW",
+	})
+	server.SetState("sensor.energy_production_today_remaining", "1.149", map[string]interface{}{
+		"unit_of_measurement": "kWh",
+	})
+
+	// THEN: The overall level stays below white. White requires high stored energy
+	// and active solar production, so downstream thermal battery behavior does not activate.
+	t.Log("THEN: Overall level is not white")
+	waitForStringState(t, manager, "batteryEnergyLevel", "white", "Battery level should be white at 80%")
+	waitForStringState(t, manager, "solarProductionEnergyLevel", "yellow", "Solar level should be yellow")
+	waitForStringState(t, manager, "currentEnergyLevel", "green", "Overall level should be capped by weak solar")
+}
+
 // TestScenario_ThresholdBoundaries_HandlesExactValues validates that energy
 // levels are calculated correctly at exact threshold boundaries
 func TestScenario_ThresholdBoundaries_HandlesExactValues(t *testing.T) {
