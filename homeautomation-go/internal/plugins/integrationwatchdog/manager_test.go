@@ -3,6 +3,7 @@ package integrationwatchdog
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -189,6 +190,7 @@ func TestWatchdog_CooldownBlocksSecondReload(t *testing.T) {
 	// Inside cooldown window (5 min).
 	clk.Advance(2 * time.Minute)
 	mgr.evaluateTarget("test_target")
+	// Negative assertion: sleep briefly so any spurious goroutine has time to fire.
 	time.Sleep(50 * time.Millisecond)
 	if reloads := mockHA.GetConfigEntryReloads(); len(reloads) != 1 {
 		t.Fatalf("expected exactly 1 reload during cooldown, got %d", len(reloads))
@@ -224,8 +226,10 @@ func TestWatchdog_DailyCapEnforced(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		clk.Advance(11 * time.Minute)
 		mgr.evaluateTarget("test_target")
-		// Give the goroutine a chance to run.
-		time.Sleep(30 * time.Millisecond)
+		if i < 2 {
+			// Wait for the expected reload goroutine to complete before the next iteration.
+			waitForReload(t, mockHA, i+1)
+		}
 	}
 
 	reloads := mockHA.GetConfigEntryReloads()
@@ -249,6 +253,7 @@ func TestWatchdog_ReadOnlySkipsReload(t *testing.T) {
 	mgr.evaluateTarget("test_target")
 	clk.Advance(11 * time.Minute)
 	mgr.evaluateTarget("test_target")
+	// Negative assertion: sleep briefly so any goroutine has time to fire; none expected in read-only mode.
 	time.Sleep(50 * time.Millisecond)
 
 	if reloads := mockHA.GetConfigEntryReloads(); len(reloads) != 0 {
@@ -367,7 +372,7 @@ func TestWatchdog_ConfigValidation(t *testing.T) {
 			cfg := buildTestConfig("sensor.x", time.Hour)
 			tc.mutate(cfg)
 			err := cfg.Validate()
-			if err == nil || !contains(err.Error(), tc.wantErr) {
+			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
 				t.Fatalf("expected error containing %q, got %v", tc.wantErr, err)
 			}
 		})
@@ -465,16 +470,13 @@ func TestWatchdog_NoGoroutineLeakOnStop(t *testing.T) {
 	wg.Wait() // panic via testing timeout if blocked
 }
 
-// helper: simple substring check
-func contains(s, sub string) bool {
-	return len(s) >= len(sub) && (s == sub || (len(sub) > 0 && stringIndex(s, sub) >= 0))
-}
-
-func stringIndex(s, sub string) int {
-	for i := 0; i+len(sub) <= len(s); i++ {
-		if s[i:i+len(sub)] == sub {
-			return i
-		}
+func TestWatchdog_LoadConfigFromFile(t *testing.T) {
+	t.Parallel()
+	cfg, err := LoadConfig("../../../test/integration/testdata/integration_watchdog_config_test.yaml")
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
 	}
-	return -1
+	if len(cfg.WatchTargets) == 0 {
+		t.Fatal("expected at least one watch target")
+	}
 }

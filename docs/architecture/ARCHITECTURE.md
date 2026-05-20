@@ -54,6 +54,7 @@
 - ✅ Infrastructure plugin (complete) - septic system monitoring, thermostat monitoring
 - ✅ Water Flow plugin (complete) - pipe break detection
 - ✅ Reset Coordinator (complete)
+- ✅ Integration Watchdog plugin (complete) - periodic entity-state scanning and config-entry reload
 
 ### Critical Bug Fixes
 
@@ -510,6 +511,24 @@ reads `isAnyoneHome` for clear confirmations
 **Config File:** `vacuum_config.yaml` (also reserves shape for future schedule,
 room sequencing, and per-room vacuum/mop parameters)
 
+### 16. Integration Watchdog Plugin ✅
+
+**Responsibilities:**
+- Periodically scan configured Home Assistant entities for bad states (e.g., `unavailable`, `unknown`) or stale `last_updated` timestamps
+- Trigger a HA config-entry reload via `homeassistant.reload_config_entry` WebSocket call when a detection rule fires
+- Enforce per-target cooldown and daily-cap safeguards to prevent reload storms
+- Track reload outcomes (success/failure, count, timestamps) in shadow state
+
+**Key Automations:**
+- **Bad-State Duration**: When all watched entities for a target have been in a bad state for `bad_state_duration_min` → reload
+- **Stale Timestamp**: When the newest `last_updated` across watched entities is older than `stale_last_updated_min` → reload
+- **Cooldown**: Block subsequent reloads for a target within `cooldown_min` after the last reload
+- **Daily Cap**: Block reloads once `daily_max` reloads have fired in the current calendar day
+
+**Entities Monitored:** Fully configurable per target via `integration_watchdog_config.yaml`
+
+**Config File:** `configs/integration_watchdog_config.yaml`
+
 ---
 
 ## Data Flow
@@ -675,7 +694,7 @@ homeautomation-go/
 │   │   ├── server.go                # ✅ LAN HTTP server — serves MP3s to Sonos speakers
 │   │   ├── synthesizer.go           # ✅ Synthesizer interface + Service wiring
 │   │   └── mock.go                  # ✅ MockSynthesizer for unit tests
-│   └── plugins/                     # ✅ Automation plugins (13 total)
+│   └── plugins/                     # ✅ Automation plugins (17 total)
 │       ├── statetracking/           # ✅ State Tracking plugin
 │       ├── dayphase/                # ✅ Day Phase plugin
 │       ├── energy/                  # ✅ Energy State plugin
@@ -691,7 +710,8 @@ homeautomation-go/
 │       ├── loadshedding/            # ✅ Load Shedding plugin
 │       ├── sexmode/                 # ✅ Sex Mode plugin
 │       ├── christmas/               # ✅ Christmas plugin
-│       └── reset/                   # ✅ Reset Coordinator
+│       ├── reset/                   # ✅ Reset Coordinator
+│       └── integrationwatchdog/     # ✅ Integration Watchdog plugin
 ├── test/
 │   └── integration/                 # ✅ Integration test suite
 ├── Dockerfile                       # ✅ Production container
