@@ -864,21 +864,17 @@ flowchart TD
     SyncToHA3 --> CalculateCurrent
     SyncToHA4 --> CalculateCurrent
 
-    CalculateCurrent[Calculate currentEnergyLevel] --> CompareSolar{Solar level > battery level?}
+    CalculateCurrent[Calculate currentEnergyLevel] --> FindMinMax[Find weaker and stronger inputs]
 
-    CompareSolar -->|Yes| BoostSolar[currentEnergyLevel = battery + 1<br/>capped at solar level]
-    CompareSolar -->|No| UseBattery[currentEnergyLevel = batteryEnergyLevel]
+    FindMinMax --> Cap[Output = stronger input<br/>capped at weaker + 1]
 
-    BoostSolar --> UpdateOverall[Update Shadow State:<br/>Overall Level]
-    UseBattery --> UpdateOverall
+    Cap --> UpdateOverall[Update Shadow State:<br/>Overall Level]
 
     UpdateOverall --> End([End])
 
     style Start fill:#e1f5ff
     style CheckLevels fill:#fff3e0
-    style CompareSolar fill:#fff3e0
-    style BoostSolar fill:#e8f5e9
-    style UseBattery fill:#ffebee
+    style Cap fill:#e8f5e9
     style UpdateShadow1 fill:#f3e5f5
     style UpdateBattery1 fill:#f3e5f5
     style UpdateOverall fill:#f3e5f5

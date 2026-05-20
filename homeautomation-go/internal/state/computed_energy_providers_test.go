@@ -249,12 +249,20 @@ func TestCurrentEnergyLevelComputation(t *testing.T) {
 			description:   "Same levels result in that level",
 		},
 		{
-			name:          "battery higher than solar",
+			name:          "battery higher than solar capped by weak solar",
 			isFreeEnergy:  false,
 			batteryLevel:  "green",
 			solarLevel:    "red",
+			expectedLevel: "yellow",
+			description:   "Overall can be at most one level above the weaker input",
+		},
+		{
+			name:          "white battery with weak solar does not produce white",
+			isFreeEnergy:  false,
+			batteryLevel:  "white",
+			solarLevel:    "yellow",
 			expectedLevel: "green",
-			description:   "Solar can't drag down battery",
+			description:   "High battery alone should not trigger white-level behavior when solar is weak",
 		},
 		{
 			name:          "solar higher by 1 - boosts",
