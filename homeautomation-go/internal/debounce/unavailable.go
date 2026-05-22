@@ -92,6 +92,9 @@ func (d *UnavailableDebouncer) Stop() {
 	d.mu.Unlock()
 }
 
+// cancelPending cancels any in-flight debounce timer and clears pending state.
+// It returns false when the debouncer is stopped, which signals the caller
+// (HandleStateChange) to drop even legitimate non-unavailable events during shutdown.
 func (d *UnavailableDebouncer) cancelPending() bool {
 	d.mu.Lock()
 	defer d.mu.Unlock()

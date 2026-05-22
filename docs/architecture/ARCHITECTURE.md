@@ -668,6 +668,9 @@ homeautomation-go/
 │   │   ├── alert.go                 # ✅ Alerter interface and Manager implementation
 │   │   ├── alert_test.go            # ✅ Unit tests
 │   │   └── mock.go                  # ✅ MockAlerter for unit tests
+│   ├── debounce/                    # ✅ Shared UnavailableDebouncer — debounces transient unavailable/unknown HA states
+│   │   ├── unavailable.go           # ✅ UnavailableDebouncer implementation
+│   │   └── unavailable_test.go      # ✅ Unit tests
 │   ├── notify/                      # ✅ Shared verbal (TTS) notifier
 │   │   ├── notify.go                # ✅ Notifier implementation (Kokoro TTS + media_player.play_media announce:true)
 │   │   ├── config.go                # ✅ Config loader (notification_config.yaml)

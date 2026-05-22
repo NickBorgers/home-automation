@@ -151,6 +151,11 @@ func TestScenario_VacuumError_CasperRebootDoesNotAlert(t *testing.T) {
 
 	t.Log("WHEN: Casper reboots and the error sensor briefly reports unavailable")
 	env.server.SetState(vacuumErrorEntity, "unavailable", nil)
+	// time.Sleep instead of polling: there is no observable intermediate state between
+	// the mock server sending the "unavailable" WebSocket frame and the debounce timer
+	// being armed inside the plugin. We sleep well within the 50 ms debounce window so
+	// the HA client goroutine has time to receive and dispatch the event before the
+	// recovery "No error" frame is sent.
 	time.Sleep(25 * time.Millisecond)
 	env.server.SetState(vacuumErrorEntity, "No error", nil)
 
