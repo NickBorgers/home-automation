@@ -47,6 +47,10 @@ type vacuumEnv struct {
 }
 
 func setupVacuumTest(t *testing.T, fixedTime time.Time) (*vacuumEnv, func()) {
+	return setupVacuumTestWithDebounce(t, fixedTime, 0)
+}
+
+func setupVacuumTestWithDebounce(t *testing.T, fixedTime time.Time, unavailableDebounce time.Duration) (*vacuumEnv, func()) {
 	t.Helper()
 	server, client, manager, baseCleanup := setupTest(t)
 	logger := testlogger.New()
@@ -80,6 +84,9 @@ func setupVacuumTest(t *testing.T, fixedTime time.Time) (*vacuumEnv, func()) {
 	alerter := alert.NewManager(nil, notifier, logger)
 	mgr := vacuum.NewManager(context.Background(), client, manager, alerter, notifier, cfg, logger, false, tp, nil)
 	mgr.SetRepeatCheckIntervalForTest(time.Hour) // park the background ticker; tests drive ticks explicitly
+	if unavailableDebounce > 0 {
+		mgr.SetUnavailableDebounceForTest(unavailableDebounce, nil)
+	}
 	require.NoError(t, mgr.Start(), "vacuum plugin should start")
 
 	env := &vacuumEnv{server: server, manager: manager, logger: logger, vacuum: mgr, synth: synth}
@@ -124,6 +131,66 @@ func TestScenario_VacuumError_AnnouncesWhenErrorAppears(t *testing.T) {
 	require.NotEmpty(t, msgs, "synthesizer should have been called")
 	assert.Contains(t, msgs[0], "Mop Dock Clean Water Tank empty",
 		"synthesized text must include the error description")
+}
+
+// TestScenario_VacuumError_CasperRebootDoesNotAlert verifies the Casper reboot
+// timeline: transient HA unavailable states must not be treated as actionable
+// robot errors when the sensor recovers inside the debounce window.
+func TestScenario_VacuumError_CasperRebootDoesNotAlert(t *testing.T) {
+	t.Parallel()
+	env, cleanup := setupVacuumTestWithDebounce(
+		t,
+		time.Date(2026, 5, 22, 10, 0, 0, 0, time.UTC),
+		50*time.Millisecond,
+	)
+	defer cleanup()
+
+	t.Log("GIVEN: Casper is healthy and master is awake")
+	require.NoError(t, env.manager.SetBool("isMasterAsleep", false))
+	snapshot := env.server.ServiceCallCount()
+
+	t.Log("WHEN: Casper reboots and the error sensor briefly reports unavailable")
+	env.server.SetState(vacuumErrorEntity, "unavailable", nil)
+	time.Sleep(25 * time.Millisecond)
+	env.server.SetState(vacuumErrorEntity, "No error", nil)
+
+	t.Log("THEN: The unavailable transition is discarded and no alert is sent")
+	waitForServiceCallQuiescenceSince(t, env.server, snapshot, 150*time.Millisecond)
+	calls := FilterServiceCalls(env.server.GetServiceCallsSince(snapshot), "media_player", "play_media")
+	assert.Empty(t, calls, "transient unavailable must not produce TTS")
+	assert.Empty(t, env.synth.Messages(), "transient unavailable must not synthesize speech")
+	assert.Empty(t, env.vacuum.GetShadowState().Outputs.CurrentError)
+}
+
+// TestScenario_VacuumError_ProlongedUnavailableForwards verifies that the
+// debouncer only suppresses transient unavailable states. A state held past the
+// debounce window reaches the existing vacuum error handling path.
+func TestScenario_VacuumError_ProlongedUnavailableForwards(t *testing.T) {
+	t.Parallel()
+	env, cleanup := setupVacuumTestWithDebounce(
+		t,
+		time.Date(2026, 5, 22, 10, 0, 0, 0, time.UTC),
+		50*time.Millisecond,
+	)
+	defer cleanup()
+
+	t.Log("GIVEN: Casper is healthy and master is awake")
+	require.NoError(t, env.manager.SetBool("isMasterAsleep", false))
+	snapshot := env.server.ServiceCallCount()
+
+	t.Log("WHEN: The error sensor remains unavailable beyond the debounce window")
+	env.server.SetState(vacuumErrorEntity, "unavailable", nil)
+
+	t.Log("THEN: The unavailable state forwards through the production alert path")
+	require.Eventually(t, func() bool {
+		return env.vacuum.GetShadowState().Outputs.CurrentError == "unavailable"
+	}, stateWaitTimeout, statePollInterval)
+	require.Eventually(t, func() bool {
+		return len(FilterServiceCalls(env.server.GetServiceCallsSince(snapshot), "media_player", "play_media")) >= 1
+	}, stateWaitTimeout, statePollInterval)
+	msgs := env.synth.Messages()
+	require.NotEmpty(t, msgs)
+	assert.Contains(t, msgs[len(msgs)-1], "unavailable")
 }
 
 // TestScenario_VacuumError_SuppressedWhileMasterAsleep verifies that an error

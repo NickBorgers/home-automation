@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"homeautomation/internal/alert"
+	"homeautomation/internal/clock"
 	"homeautomation/internal/ha"
 	"homeautomation/internal/notify"
 	"homeautomation/internal/shadowstate"
@@ -113,6 +114,45 @@ func TestVacuum_TransitionToError_Announces(t *testing.T) {
 	st := mgr.GetShadowState()
 	assert.Equal(t, "Mop Dock Clean Water Tank empty", st.Outputs.CurrentError)
 	assert.Equal(t, 1, st.Outputs.AnnouncementsSinceErrorBegan)
+}
+
+func TestVacuum_TransientUnavailable_DoesNotAnnounce(t *testing.T) {
+	t.Parallel()
+	clk := clock.NewMockClock(time.Date(2026, 5, 22, 10, 0, 0, 0, time.UTC))
+	mgr, mockHA, _, mockAlerter, _ := newTestManager(t, false, clk.Now())
+	mgr.SetUnavailableDebounceForTest(time.Minute, clk)
+	mockHA.SimulateStateChange(testErrorSensor, "No error")
+	require.NoError(t, mgr.Start())
+	defer mgr.Stop()
+
+	setSensor(t, mockHA, "unavailable")
+	clk.Advance(30 * time.Second)
+	setSensor(t, mockHA, "No error")
+	clk.Advance(time.Minute)
+
+	assert.Empty(t, mockAlerter.Calls(), "transient unavailable must not alert")
+	assert.Empty(t, mgr.GetShadowState().Outputs.CurrentError)
+}
+
+func TestVacuum_ProlongedUnavailable_ForwardsAfterDebounce(t *testing.T) {
+	t.Parallel()
+	clk := clock.NewMockClock(time.Date(2026, 5, 22, 10, 0, 0, 0, time.UTC))
+	mgr, mockHA, _, mockAlerter, _ := newTestManager(t, false, clk.Now())
+	mgr.SetUnavailableDebounceForTest(time.Minute, clk)
+	mockHA.SimulateStateChange(testErrorSensor, "No error")
+	require.NoError(t, mgr.Start())
+	defer mgr.Stop()
+
+	setSensor(t, mockHA, "unavailable")
+	clk.Advance(59 * time.Second)
+	assert.Empty(t, mockAlerter.Calls())
+
+	clk.Advance(time.Second)
+
+	calls := mockAlerter.Calls()
+	require.Len(t, calls, 1, "prolonged unavailable should forward to existing vacuum handling")
+	assert.Equal(t, "Casper needs attention: unavailable", calls[0].Body)
+	assert.Equal(t, "unavailable", mgr.GetShadowState().Outputs.CurrentError)
 }
 
 func TestVacuum_SameErrorReemitted_NoExtraAnnouncement(t *testing.T) {

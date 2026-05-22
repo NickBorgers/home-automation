@@ -497,6 +497,8 @@ Each plugin corresponds to a Node-RED flow and implements domain-specific automa
 
 **Key Automations:**
 - **Error Announcement**: On error sensor transition from "No error" to a real error → TTS to common-area speakers
+- **Unavailable Debounce**: Hold transient `"unavailable"` / `"unknown"` error
+  sensor states for 60 seconds; discard them if Casper recovers inside the window
 - **Clear Confirmation**: On real error transition back to "No error" while
   `isAnyoneHome=true` → TTS to the sitting room speaker by default
 - **Quiet Hours**: When `isMasterAsleep=true` → notifier returns `ErrSuppressedAsleep`;

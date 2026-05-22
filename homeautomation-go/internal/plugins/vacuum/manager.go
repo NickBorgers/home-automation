@@ -15,6 +15,8 @@ import (
 	"time"
 
 	"homeautomation/internal/alert"
+	"homeautomation/internal/clock"
+	"homeautomation/internal/debounce"
 	"homeautomation/internal/ha"
 	"homeautomation/internal/notify"
 	"homeautomation/internal/ntfy"
@@ -31,6 +33,10 @@ import (
 // be small without spamming.
 const defaultRepeatCheckInterval = 1 * time.Minute
 
+// defaultUnavailableDebounceDelay covers typical Casper reboot/network blips
+// before treating unavailable/unknown as a real sensor state.
+const defaultUnavailableDebounceDelay = 1 * time.Minute
+
 // Manager handles vacuum error announcements.
 type Manager struct {
 	ctx          context.Context
@@ -46,10 +52,13 @@ type Manager struct {
 
 	shadowTracker *shadowstate.VacuumTracker
 	subHelper     *shadowstate.SubscriptionHelper
+	errDebouncer  *debounce.UnavailableDebouncer
 
 	// repeatCheckInterval controls how often the background ticker re-checks
 	// for repeat announcements. Tests inject a smaller value via SetRepeatCheckIntervalForTest.
-	repeatCheckInterval time.Duration
+	repeatCheckInterval      time.Duration
+	unavailableDebounceDelay time.Duration
+	unavailableDebounceClock clock.Clock
 
 	mu              sync.Mutex
 	currentError    string
@@ -99,8 +108,10 @@ func NewManager(
 			"vacuum",
 			logger.Named("vacuum"),
 		),
-		repeatCheckInterval: defaultRepeatCheckInterval,
-		stopCh:              make(chan struct{}),
+		repeatCheckInterval:      defaultRepeatCheckInterval,
+		unavailableDebounceDelay: defaultUnavailableDebounceDelay,
+		unavailableDebounceClock: clock.NewRealClock(),
+		stopCh:                   make(chan struct{}),
 	}
 }
 
@@ -116,7 +127,15 @@ func (m *Manager) Start() error {
 		zap.String("error_sensor", m.cfg.Vacuum.ErrorSensorID),
 		zap.Duration("repeat_interval", m.cfg.Vacuum.Announcement.RepeatInterval))
 
-	if err := m.subHelper.SubscribeToEntity(m.cfg.Vacuum.ErrorSensorID, m.handleErrorChange); err != nil {
+	if m.errDebouncer == nil {
+		m.errDebouncer = debounce.NewUnavailableDebouncer(
+			m.unavailableDebounceDelay,
+			m.unavailableDebounceClock,
+			m.handleErrorChange,
+		)
+	}
+
+	if err := m.subHelper.SubscribeToEntity(m.cfg.Vacuum.ErrorSensorID, m.errDebouncer.HandleStateChange); err != nil {
 		return fmt.Errorf("subscribe to vacuum error sensor: %w", err)
 	}
 	// Empty handler: registered solely to capture isAnyoneHome into shadow inputs.
@@ -128,7 +147,7 @@ func (m *Manager) Start() error {
 	// Treat the sensor's current state as if we just received it. If the vacuum
 	// already has an active error when we start up, announce it.
 	if cur, err := m.haClient.GetState(m.cfg.Vacuum.ErrorSensorID); err == nil && cur != nil {
-		m.handleErrorChange(m.cfg.Vacuum.ErrorSensorID, nil, cur)
+		m.errDebouncer.HandleStateChange(m.cfg.Vacuum.ErrorSensorID, nil, cur)
 	} else if err != nil {
 		m.logger.Warn("Failed to read initial vacuum error sensor state",
 			zap.String("entity", m.cfg.Vacuum.ErrorSensorID),
@@ -148,6 +167,9 @@ func (m *Manager) Stop() {
 	m.stopOnce.Do(func() {
 		close(m.stopCh)
 	})
+	if m.errDebouncer != nil {
+		m.errDebouncer.Stop()
+	}
 	m.subHelper.UnsubscribeAll()
 	m.wg.Wait()
 	m.logger.Info("Vacuum Manager stopped")
@@ -352,6 +374,20 @@ func (m *Manager) tickRepeat() {
 // only — never call from production code.
 func (m *Manager) SetRepeatCheckIntervalForTest(d time.Duration) {
 	m.repeatCheckInterval = d
+}
+
+// SetUnavailableDebounceForTest overrides the unavailable-state debounce.
+// Tests only — never call from production code.
+func (m *Manager) SetUnavailableDebounceForTest(d time.Duration, clk clock.Clock) {
+	if clk == nil {
+		clk = clock.NewRealClock()
+	}
+	if m.errDebouncer != nil {
+		m.errDebouncer.Stop()
+	}
+	m.unavailableDebounceDelay = d
+	m.unavailableDebounceClock = clk
+	m.errDebouncer = debounce.NewUnavailableDebouncer(d, clk, m.handleErrorChange)
 }
 
 // TickRepeatForTest invokes the periodic check synchronously. Tests only.

@@ -6,7 +6,8 @@
 vacuum:
   # Home Assistant sensor exposing the vacuum's current error state. The state
   # equals no_error_value when the vacuum is healthy; any other value is treated
-  # as an active error description that gets announced verbatim.
+  # as an active error description after transient unavailable/unknown states
+  # have cleared the plugin's debounce window.
   error_sensor_id: "sensor.valetudo_mellowslimyloris_error"
   no_error_value: "No error"
 
