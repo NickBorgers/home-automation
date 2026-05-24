@@ -399,5 +399,5 @@ func (m *Manager) TickRepeatForTest() {
 // holding an unavailable state. Tests only — used to synchronize on the
 // debouncer state instead of real-time HA WebSocket dispatch.
 func (m *Manager) DebouncerHasPendingForTest() bool {
-	return m.errDebouncer.HasPending()
+	return m.errDebouncer.HasPendingForTest()
 }

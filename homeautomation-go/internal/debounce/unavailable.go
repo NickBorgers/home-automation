@@ -109,10 +109,10 @@ func (d *UnavailableDebouncer) cancelPending() bool {
 	return true
 }
 
-// HasPending reports whether an unavailable state is currently being debounced.
+// HasPendingForTest reports whether an unavailable state is currently being debounced.
 // Test-only: lets integration tests synchronize on the debouncer state instead
 // of waiting on real-time HA WebSocket dispatch.
-func (d *UnavailableDebouncer) HasPending() bool {
+func (d *UnavailableDebouncer) HasPendingForTest() bool {
 	if d == nil {
 		return false
 	}

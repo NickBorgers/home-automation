@@ -200,6 +200,9 @@ func TestScenario_VacuumError_ProlongedUnavailableForwards(t *testing.T) {
 		"debouncer should arm a timer for the unavailable state")
 	clk.Advance(time.Minute) // timer fires synchronously and forwards "unavailable"
 
+	// Advance fires forwardPending synchronously on the calling goroutine, which
+	// runs the full handleErrorChange → maybeAnnounce → alerter.Send chain before
+	// returning — no waitForProcessing needed here.
 	t.Log("THEN: The unavailable state forwards through the production alert path")
 	assert.Equal(t, "unavailable", env.vacuum.GetShadowState().Outputs.CurrentError)
 	calls := FilterServiceCalls(env.server.GetServiceCallsSince(snapshot), "media_player", "play_media")
