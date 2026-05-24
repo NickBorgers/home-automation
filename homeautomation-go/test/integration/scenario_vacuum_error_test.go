@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"homeautomation/internal/alert"
+	"homeautomation/internal/clock"
 	"homeautomation/internal/notify"
 	"homeautomation/internal/plugins/vacuum"
 	"homeautomation/internal/state"
@@ -47,10 +48,14 @@ type vacuumEnv struct {
 }
 
 func setupVacuumTest(t *testing.T, fixedTime time.Time) (*vacuumEnv, func()) {
-	return setupVacuumTestWithDebounce(t, fixedTime, 0)
+	env, _, cleanup := setupVacuumTestWithDebounce(t, fixedTime, 0)
+	return env, cleanup
 }
 
-func setupVacuumTestWithDebounce(t *testing.T, fixedTime time.Time, unavailableDebounce time.Duration) (*vacuumEnv, func()) {
+// setupVacuumTestWithDebounce wires the vacuum plugin with an UnavailableDebouncer
+// driven by a MockClock. The returned clock is only meaningful when
+// unavailableDebounce > 0; callers that don't use a debounce can discard it.
+func setupVacuumTestWithDebounce(t *testing.T, fixedTime time.Time, unavailableDebounce time.Duration) (*vacuumEnv, *clock.MockClock, func()) {
 	t.Helper()
 	server, client, manager, baseCleanup := setupTest(t)
 	logger := testlogger.New()
@@ -84,8 +89,9 @@ func setupVacuumTestWithDebounce(t *testing.T, fixedTime time.Time, unavailableD
 	alerter := alert.NewManager(nil, notifier, logger)
 	mgr := vacuum.NewManager(context.Background(), client, manager, alerter, notifier, cfg, logger, false, tp, nil)
 	mgr.SetRepeatCheckIntervalForTest(time.Hour) // park the background ticker; tests drive ticks explicitly
+	clk := clock.NewMockClock(fixedTime)
 	if unavailableDebounce > 0 {
-		mgr.SetUnavailableDebounceForTest(unavailableDebounce, nil)
+		mgr.SetUnavailableDebounceForTest(unavailableDebounce, clk)
 	}
 	require.NoError(t, mgr.Start(), "vacuum plugin should start")
 
@@ -95,7 +101,7 @@ func setupVacuumTestWithDebounce(t *testing.T, fixedTime time.Time, unavailableD
 		mgr.Stop()
 		baseCleanup()
 	}
-	return env, cleanup
+	return env, clk, cleanup
 }
 
 func vacuumTTSCalls(server *MockHAServer) []ServiceCall {
@@ -136,12 +142,17 @@ func TestScenario_VacuumError_AnnouncesWhenErrorAppears(t *testing.T) {
 // TestScenario_VacuumError_CasperRebootDoesNotAlert verifies the Casper reboot
 // timeline: transient HA unavailable states must not be treated as actionable
 // robot errors when the sensor recovers inside the debounce window.
+//
+// The debounce uses a MockClock so the timer cannot fire until the test
+// explicitly advances time. This eliminates the real-clock race that would
+// otherwise let CI scheduler jitter forward the "unavailable" state before the
+// recovery cancels it.
 func TestScenario_VacuumError_CasperRebootDoesNotAlert(t *testing.T) {
 	t.Parallel()
-	env, cleanup := setupVacuumTestWithDebounce(
+	env, clk, cleanup := setupVacuumTestWithDebounce(
 		t,
 		time.Date(2026, 5, 22, 10, 0, 0, 0, time.UTC),
-		50*time.Millisecond,
+		time.Minute,
 	)
 	defer cleanup()
 
@@ -149,18 +160,18 @@ func TestScenario_VacuumError_CasperRebootDoesNotAlert(t *testing.T) {
 	require.NoError(t, env.manager.SetBool("isMasterAsleep", false))
 	snapshot := env.server.ServiceCallCount()
 
-	t.Log("WHEN: Casper reboots and the error sensor briefly reports unavailable")
+	t.Log("WHEN: Casper reboots and the error sensor briefly reports unavailable, then recovers")
 	env.server.SetState(vacuumErrorEntity, "unavailable", nil)
-	// time.Sleep instead of polling: there is no observable intermediate state between
-	// the mock server sending the "unavailable" WebSocket frame and the debounce timer
-	// being armed inside the plugin. We sleep well within the 50 ms debounce window so
-	// the HA client goroutine has time to receive and dispatch the event before the
-	// recovery "No error" frame is sent.
-	time.Sleep(25 * time.Millisecond)
+	waitForCondition(t, env.vacuum.DebouncerHasPendingForTest,
+		"debouncer should hold the unavailable state before recovery")
 	env.server.SetState(vacuumErrorEntity, "No error", nil)
+	waitForCondition(t, func() bool { return !env.vacuum.DebouncerHasPendingForTest() },
+		"recovery should cancel the pending unavailable state")
 
-	t.Log("THEN: The unavailable transition is discarded and no alert is sent")
-	waitForServiceCallQuiescenceSince(t, env.server, snapshot, 150*time.Millisecond)
+	t.Log("THEN: Advancing past the debounce window does not fire the cancelled timer")
+	clk.Advance(2 * time.Minute)
+	waitForProcessing(t, env.manager)
+
 	calls := FilterServiceCalls(env.server.GetServiceCallsSince(snapshot), "media_player", "play_media")
 	assert.Empty(t, calls, "transient unavailable must not produce TTS")
 	assert.Empty(t, env.synth.Messages(), "transient unavailable must not synthesize speech")
@@ -172,10 +183,10 @@ func TestScenario_VacuumError_CasperRebootDoesNotAlert(t *testing.T) {
 // debounce window reaches the existing vacuum error handling path.
 func TestScenario_VacuumError_ProlongedUnavailableForwards(t *testing.T) {
 	t.Parallel()
-	env, cleanup := setupVacuumTestWithDebounce(
+	env, clk, cleanup := setupVacuumTestWithDebounce(
 		t,
 		time.Date(2026, 5, 22, 10, 0, 0, 0, time.UTC),
-		50*time.Millisecond,
+		time.Minute,
 	)
 	defer cleanup()
 
@@ -185,14 +196,14 @@ func TestScenario_VacuumError_ProlongedUnavailableForwards(t *testing.T) {
 
 	t.Log("WHEN: The error sensor remains unavailable beyond the debounce window")
 	env.server.SetState(vacuumErrorEntity, "unavailable", nil)
+	waitForCondition(t, env.vacuum.DebouncerHasPendingForTest,
+		"debouncer should arm a timer for the unavailable state")
+	clk.Advance(time.Minute) // timer fires synchronously and forwards "unavailable"
 
 	t.Log("THEN: The unavailable state forwards through the production alert path")
-	require.Eventually(t, func() bool {
-		return env.vacuum.GetShadowState().Outputs.CurrentError == "unavailable"
-	}, stateWaitTimeout, statePollInterval)
-	require.Eventually(t, func() bool {
-		return len(FilterServiceCalls(env.server.GetServiceCallsSince(snapshot), "media_player", "play_media")) >= 1
-	}, stateWaitTimeout, statePollInterval)
+	assert.Equal(t, "unavailable", env.vacuum.GetShadowState().Outputs.CurrentError)
+	calls := FilterServiceCalls(env.server.GetServiceCallsSince(snapshot), "media_player", "play_media")
+	require.NotEmpty(t, calls, "prolonged unavailable should produce TTS")
 	msgs := env.synth.Messages()
 	require.NotEmpty(t, msgs)
 	assert.Contains(t, msgs[len(msgs)-1], "unavailable")

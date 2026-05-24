@@ -394,3 +394,10 @@ func (m *Manager) SetUnavailableDebounceForTest(d time.Duration, clk clock.Clock
 func (m *Manager) TickRepeatForTest() {
 	m.tickRepeat()
 }
+
+// DebouncerHasPendingForTest reports whether the error-sensor debouncer is
+// holding an unavailable state. Tests only — used to synchronize on the
+// debouncer state instead of real-time HA WebSocket dispatch.
+func (m *Manager) DebouncerHasPendingForTest() bool {
+	return m.errDebouncer.HasPending()
+}
