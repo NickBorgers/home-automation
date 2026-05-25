@@ -407,15 +407,35 @@ jobs:
             AI_TOOL=codex
             CODEX_MODEL=gpt-5.5
           # Fetch PR metadata inside the container so the prompt template
-          # has PR_TITLE, PR_BODY, BASE_REF, and TRIGGERING_SHA available
-          # without passing multi-line strings through the workflow YAML.
+          # has PR, issue, and review context available without passing
+          # multi-line strings through the workflow YAML.
           pre_script: |
             PR_JSON=$(gh api "repos/${REPO}/pulls/${PR_NUMBER}")
             PR_TITLE=$(echo "$PR_JSON" | jq -r '.title')
             PR_BODY=$(echo "$PR_JSON" | jq -r '.body // ""')
             BASE_REF=$(echo "$PR_JSON" | jq -r '.base.ref')
             TRIGGERING_SHA=$(echo "$PR_JSON" | jq -r '.head.sha')
-            export PR_TITLE PR_BODY BASE_REF TRIGGERING_SHA
+
+            ISSUE_NUMBER=$(printf '%s\n' "$PR_BODY" | grep -oP '(Resolves|Fixes|Closes|Fix)\s*#\K\d+' | head -1 || true)
+            ISSUE_TITLE=""
+            ISSUE_BODY=""
+            if [ -n "$ISSUE_NUMBER" ]; then
+              ISSUE_JSON=$(gh api "repos/${REPO}/issues/${ISSUE_NUMBER}" 2>/dev/null || echo "{}")
+              ISSUE_TITLE=$(echo "$ISSUE_JSON" | jq -r '.title // ""')
+              ISSUE_BODY=$(echo "$ISSUE_JSON" | jq -r '.body // ""')
+            fi
+
+            ISSUE_COMMENTS=$(gh api "repos/${REPO}/issues/${PR_NUMBER}/comments" \
+              --jq '.[] | "---\n**PR comment by \(.user.login) at \(.created_at):**\n\(.body // "")\n"' 2>/dev/null \
+              | head -c 20000 || true)
+            PR_REVIEWS=$(gh api "repos/${REPO}/pulls/${PR_NUMBER}/reviews" \
+              --jq '.[] | "---\n**Review by \(.user.login) at \(.submitted_at // .created_at): \(.state)**\n\(.body // "")\n"' 2>/dev/null \
+              | head -c 20000 || true)
+            INLINE_REVIEW_COMMENTS=$(gh api "repos/${REPO}/pulls/${PR_NUMBER}/comments" \
+              --jq '.[] | "---\n**Inline review comment by \(.user.login) on \(.path):\(.line // .original_line // 0) at \(.created_at):**\n\(.body // "")\n"' 2>/dev/null \
+              | head -c 20000 || true)
+            PR_REVIEW_CONTEXT=$(printf '%s\n%s\n%s\n' "$ISSUE_COMMENTS" "$PR_REVIEWS" "$INLINE_REVIEW_COMMENTS" | head -c 50000)
+            export PR_TITLE PR_BODY BASE_REF TRIGGERING_SHA ISSUE_NUMBER ISSUE_TITLE ISSUE_BODY PR_REVIEW_CONTEXT
 
       - name: Remove ai-resolving label
         if: always()

@@ -5,6 +5,13 @@ PR TITLE: ${PR_TITLE}
 PR BODY:
 ${PR_BODY}
 
+LINKED ISSUE CONTEXT:
+Issue #${ISSUE_NUMBER}: ${ISSUE_TITLE}
+${ISSUE_BODY}
+
+PR COMMENTS AND REVIEW CONTEXT:
+${PR_REVIEW_CONTEXT}
+
 PR HEAD BRANCH: ${HEAD_REF}
 BASE BRANCH:    ${BASE_REF}
 TRIGGERING SHA: ${TRIGGERING_SHA}
@@ -38,7 +45,7 @@ YOUR TASK:
 4. For each conflicted file, resolve in-context:
    - Read both sides of the conflict markers AND the surrounding code on the new base.
    - Write a resolution that preserves the PR's stated intent (re-read the PR body / linked
-     issue if you are unsure what behavior the PR is meant to deliver).
+     issue and PR review comments above if you are unsure what behavior the PR is meant to deliver).
    - Apply the same scope discipline as a fresh implementation: minimum diff, no
      refactors, no unrelated cleanups.
    - Then: git add <file> && git rebase --continue. Loop until the rebase reports clean.
