@@ -65,6 +65,8 @@ jobs:
 
 **Push-triggered conflict resolution:** the `prepare-targets` and `resolve-pr-conflicts` jobs also fire on `push` to `main` to auto-rebase open PRs that have flipped to `mergeStateStatus == DIRTY`. This path bypasses the `authorize` job because branch protection on `main` already restricts who can push — there is no untrusted-input surface to gate. The agent only operates on existing PRs (rebase + force-push of the PR branch); it cannot create new PRs or land code on `main`.
 
+**Review-triggered conflict resolution:** `ai-code-review.yml` can also run the same conflict resolver after review comments exist, but only for authorized same-repo PRs that already passed tests and review jobs. The resolver prompt includes PR/issue context plus PR comments, review summaries, and inline review comments so conflict choices are grounded in the reviewed change.
+
 #### `ai-code-review.yml` (PR Review Pipeline, workflow name `AI Code Review`)
 
 ```yaml

@@ -138,6 +138,8 @@ Outputs a JSON array `[{pr_number, head_ref}, …]` consumed by `resolve-pr-conf
 
 Rebases a conflicting PR onto its base, resolves conflicts in-context, runs `make unit-tests`, and force-pushes the rebased branch. One matrix instance per target from `prepare-targets`.
 
+The same resolver is also used by `ai-code-review.yml` after review agents have posted comments. If tests and review jobs pass but GitHub reports `mergeStateStatus == DIRTY`, the review workflow runs conflict resolution with the PR body, linked issue context, PR comments, review summaries, and inline review comments. The current review run then stops without marking reviews passed; the resolver push starts a fresh PR Tests run and a fresh AI Code Review run for the new head.
+
 **Condition**: `needs.prepare-targets.outputs.has_targets == 'true'`.
 
 **Workflow**:
