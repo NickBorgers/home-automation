@@ -54,7 +54,15 @@ func (p *pluginAdapter) Name() string {
 }
 
 func (p *pluginAdapter) Start() error {
-	return p.manager.Start()
+	if err := p.manager.Start(); err != nil {
+		return err
+	}
+	// Enable production debouncing of per-room evaluations. Arrival flips
+	// several presence variables in a sub-second burst; without coalescing,
+	// the lighting plugin fires the same scene recall several times and
+	// destabilizes the Hue Bridge's dynamic palette.
+	p.manager.SetDebounceDelay(defaultLightingDebounceDelay)
+	return nil
 }
 
 func (p *pluginAdapter) Stop() {
