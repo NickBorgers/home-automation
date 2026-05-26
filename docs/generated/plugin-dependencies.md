@@ -45,6 +45,7 @@ graph LR
         environmental["environmental"]
         evcharger["evcharger"]
         infrastructure["infrastructure"]
+        integrationwatchdog["integrationwatchdog"]
         lighting["lighting"]
         loadshedding["loadshedding"]
         music["music"]

@@ -57,6 +57,7 @@ graph TB
             Vacuum[Casper Vacuum<br/>internal/plugins/vacuum/]
             ResetCoord[Reset Coordinator<br/>internal/plugins/reset/]
             SensorConfig[Sensor Config<br/>internal/plugins/sensorconfig/]
+            IntegrationWatchdog[Integration Watchdog<br/>internal/plugins/integrationwatchdog/]
         end
 
         subgraph "Public Interfaces"
@@ -177,6 +178,10 @@ graph TB
     SensorConfig -->|Configure Thresholds| HAClient
     SensorConfig -.->|Register Shadow| ShadowTracker
 
+    IntegrationWatchdog -->|Watch Entity States| HAClient
+    IntegrationWatchdog -->|Reload Config Entry| HAClient
+    IntegrationWatchdog -.->|Register Shadow| ShadowTracker
+
     HA -->|Control| Sonos
     HA -->|Control| Hue
     HA -->|Monitor| TV_Ext
@@ -204,6 +209,7 @@ graph TB
     style Vacuum fill:#f3e5f5
     style ResetCoord fill:#ffebee
     style SensorConfig fill:#f3e5f5
+    style IntegrationWatchdog fill:#f3e5f5
 ```
 
 ---
@@ -533,6 +539,7 @@ graph LR
         ShadowDayPhase["GET /api/shadow/dayphase"]
         ShadowTV["GET /api/shadow/tv"]
         ShadowSexMode["GET /api/shadow/sexmode"]
+        ShadowWatchdog["GET /api/shadow/integrationwatchdog"]
         Notify["POST /api/notify"]
     end
 
@@ -561,6 +568,7 @@ graph LR
     ShadowDayPhase --> PluginShadow
     ShadowTV --> PluginShadow
     ShadowSexMode --> PluginShadow
+    ShadowWatchdog --> PluginShadow
     Notify --> NotifyResp
 
     style Root fill:#e1f5ff

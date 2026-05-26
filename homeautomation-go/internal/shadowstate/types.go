@@ -116,6 +116,7 @@ type SensorConfigShadowState = ShadowState[ReadOnlyInputs, SensorConfigOutputs]
 type WaterFlowShadowState = ShadowState[ReadOnlyInputs, WaterFlowOutputs]
 type EVChargerShadowState = ShadowState[ReadOnlyInputs, EVChargerOutputs]
 type VacuumShadowState = ShadowState[ReadOnlyInputs, VacuumOutputs]
+type IntegrationWatchdogShadowState = ShadowState[ReadOnlyInputs, IntegrationWatchdogOutputs]
 
 // SystemInputs is used by cmd/app/run.go for system plugin shadow state.
 type SystemInputs = ReadOnlyInputs
@@ -303,6 +304,13 @@ func NewEVChargerShadowState() *EVChargerShadowState {
 // NewVacuumShadowState creates a new vacuum shadow state.
 func NewVacuumShadowState() *VacuumShadowState {
 	return newReadOnlyShadowState("vacuum", VacuumOutputs{})
+}
+
+// NewIntegrationWatchdogShadowState creates a new integration-watchdog shadow state.
+func NewIntegrationWatchdogShadowState() *IntegrationWatchdogShadowState {
+	return newReadOnlyShadowState("integrationwatchdog", IntegrationWatchdogOutputs{
+		Targets: make(map[string]IntegrationWatchdogTargetState),
+	})
 }
 
 // ============================================================================
@@ -682,18 +690,15 @@ type DayPhaseOutputs struct {
 
 // TVOutputs tracks computed TV states
 type TVOutputs struct {
-	IsAppleTVPlaying   bool      `json:"isAppleTVPlaying"`
-	IsTVOn             bool      `json:"isTVOn"`
-	IsTVPlaying        bool      `json:"isTVPlaying"`
-	CurrentHDMIInput   string    `json:"currentHDMIInput,omitempty"`
-	AppleTVState       string    `json:"appleTVState,omitempty"`
-	LastUpdate         time.Time `json:"lastUpdate"`
-	SyncBoxAvailable   bool      `json:"syncBoxAvailable"`
-	LastSyncBoxReboot  time.Time `json:"lastSyncBoxReboot,omitempty"`
-	DailyRebootCount   int       `json:"dailyRebootCount"`
-	LastBraviaReload   time.Time `json:"lastBraviaReload,omitempty"`
-	BraviaReloadCount  int       `json:"braviaReloadCount"`
-	BraviaReloadFailed bool      `json:"braviaReloadFailed"`
+	IsAppleTVPlaying  bool      `json:"isAppleTVPlaying"`
+	IsTVOn            bool      `json:"isTVOn"`
+	IsTVPlaying       bool      `json:"isTVPlaying"`
+	CurrentHDMIInput  string    `json:"currentHDMIInput,omitempty"`
+	AppleTVState      string    `json:"appleTVState,omitempty"`
+	LastUpdate        time.Time `json:"lastUpdate"`
+	SyncBoxAvailable  bool      `json:"syncBoxAvailable"`
+	LastSyncBoxReboot time.Time `json:"lastSyncBoxReboot,omitempty"`
+	DailyRebootCount  int       `json:"dailyRebootCount"`
 }
 
 // ============================================================================
@@ -1128,4 +1133,53 @@ type VacuumOutputs struct {
 	// SuppressedWhileAsleepCount counts how many announcements were suppressed
 	// because master was asleep.
 	SuppressedWhileAsleepCount int `json:"suppressedWhileAsleepCount"`
+}
+
+// ============================================================================
+// Integration Watchdog Plugin Output Types
+// ============================================================================
+
+// IntegrationWatchdogOutputs tracks per-target staleness and reload bookkeeping
+// for HA integrations the watchdog plugin is monitoring.
+type IntegrationWatchdogOutputs struct {
+	// Targets maps target name → per-target state.
+	Targets map[string]IntegrationWatchdogTargetState `json:"targets"`
+}
+
+// IntegrationWatchdogTargetState captures the watchdog's view of one configured
+// target: its currently observed entity states, when it first looked stale, the
+// last reload attempt, and rate-limit counters.
+type IntegrationWatchdogTargetState struct {
+	// IntegrationName is the human-friendly label from config.
+	IntegrationName string `json:"integrationName"`
+
+	// ConfigEntryID is the HA config entry that gets reloaded.
+	ConfigEntryID string `json:"configEntryId"`
+
+	// EntityStates is the most recently observed raw state per watched entity.
+	EntityStates map[string]string `json:"entityStates"`
+
+	// CurrentlyStale is true when the staleness rule is currently satisfied.
+	CurrentlyStale bool `json:"currentlyStale"`
+
+	// FirstBadStateAt is when the current bad-state streak began (zero when good).
+	FirstBadStateAt time.Time `json:"firstBadStateAt,omitempty"`
+
+	// LastEntityUpdateAt is the latest last_updated timestamp seen across the watched entities.
+	LastEntityUpdateAt time.Time `json:"lastEntityUpdateAt,omitempty"`
+
+	// LastReloadAt is the time of the most recent reload attempt.
+	LastReloadAt time.Time `json:"lastReloadAt,omitempty"`
+
+	// LastReloadTrigger is a short description of what caused the most recent reload.
+	LastReloadTrigger string `json:"lastReloadTrigger,omitempty"`
+
+	// LastReloadFailed is true when the most recent reload attempt errored.
+	LastReloadFailed bool `json:"lastReloadFailed"`
+
+	// DailyReloadCount counts reload attempts within the current 24-hour window.
+	DailyReloadCount int `json:"dailyReloadCount"`
+
+	// DailyResetAt is when the daily counter window started.
+	DailyResetAt time.Time `json:"dailyResetAt,omitempty"`
 }

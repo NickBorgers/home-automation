@@ -26,6 +26,7 @@ import (
 	_ "homeautomation/internal/plugins/environmental"
 	_ "homeautomation/internal/plugins/evcharger"
 	_ "homeautomation/internal/plugins/infrastructure"
+	_ "homeautomation/internal/plugins/integrationwatchdog"
 	_ "homeautomation/internal/plugins/lighting"
 	_ "homeautomation/internal/plugins/loadshedding"
 	_ "homeautomation/internal/plugins/music"

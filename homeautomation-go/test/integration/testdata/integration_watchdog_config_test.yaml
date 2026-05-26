@@ -1,0 +1,19 @@
+# Test config for the integrationwatchdog plugin scenario tests.
+# Uses short windows so tests can advance through the staleness window
+# without waiting real minutes.
+check_interval_sec: 1
+
+watch_targets:
+  - name: test_target
+    integration_name: "Test Integration"
+    entities:
+      - sensor.scenario_test_entity
+    config_entry_id: "test_entry_id"
+    detection:
+      bad_states: ["unknown", "unavailable"]
+      bad_state_duration_min: 0
+      stale_last_updated_min: 0
+    reload:
+      cooldown_min: 1
+      daily_max: 5
+      post_reload_delay_sec: 0
