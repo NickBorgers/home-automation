@@ -35,21 +35,21 @@ energy:
         green: 255
         blue: 0
         brightness_pct: 80
-    - condition_name: red
-      battery_minimum_percentage: 30.0
-      energy_production_minimum_kw: 0.5
-      remaining_energy_production_minimum_kwh: 2.0
+    - condition_name: yellow
+      battery_minimum_percentage: 15.0
+      energy_production_minimum_kw: 0.1
+      remaining_energy_production_minimum_kwh: 0.0
       light_config:
         red: 255
-        green: 0
+        green: 255
         blue: 0
         brightness_pct: 60
-    - condition_name: black
+    - condition_name: red
       battery_minimum_percentage: 0.0
       energy_production_minimum_kw: 0.0
       remaining_energy_production_minimum_kwh: 0.0
       light_config:
-        red: 0
+        red: 255
         green: 0
         blue: 0
         brightness_pct: 40
@@ -111,28 +111,28 @@ energy:
 		t.Errorf("Expected Red 0, got %d", green.LightConfig.Red)
 	}
 
-	// Check red state
-	red := config.Energy.EnergyStates[2]
+	// Check yellow state
+	yellow := config.Energy.EnergyStates[2]
+	if yellow.ConditionName != "yellow" {
+		t.Errorf("Expected ConditionName 'yellow', got '%s'", yellow.ConditionName)
+	}
+	if yellow.BatteryMinimumPercentage != 15.0 {
+		t.Errorf("Expected BatteryMinimumPercentage 15.0, got %f", yellow.BatteryMinimumPercentage)
+	}
+	if yellow.LightConfig.Red != 255 || yellow.LightConfig.Green != 255 {
+		t.Errorf("Expected yellow RGB (255,255,*), got (%d,%d,%d)", yellow.LightConfig.Red, yellow.LightConfig.Green, yellow.LightConfig.Blue)
+	}
+
+	// Check red state (lowest)
+	red := config.Energy.EnergyStates[3]
 	if red.ConditionName != "red" {
 		t.Errorf("Expected ConditionName 'red', got '%s'", red.ConditionName)
 	}
-	if red.LightConfig.Red != 255 {
-		t.Errorf("Expected Red 255, got %d", red.LightConfig.Red)
+	if red.BatteryMinimumPercentage != 0.0 {
+		t.Errorf("Expected BatteryMinimumPercentage 0.0, got %f", red.BatteryMinimumPercentage)
 	}
-	if red.LightConfig.Green != 0 {
-		t.Errorf("Expected Green 0, got %d", red.LightConfig.Green)
-	}
-
-	// Check black state
-	black := config.Energy.EnergyStates[3]
-	if black.ConditionName != "black" {
-		t.Errorf("Expected ConditionName 'black', got '%s'", black.ConditionName)
-	}
-	if black.BatteryMinimumPercentage != 0.0 {
-		t.Errorf("Expected BatteryMinimumPercentage 0.0, got %f", black.BatteryMinimumPercentage)
-	}
-	if black.LightConfig.BrightnessPct != 40 {
-		t.Errorf("Expected BrightnessPct 40, got %d", black.LightConfig.BrightnessPct)
+	if red.LightConfig.BrightnessPct != 40 {
+		t.Errorf("Expected BrightnessPct 40, got %d", red.LightConfig.BrightnessPct)
 	}
 }
 

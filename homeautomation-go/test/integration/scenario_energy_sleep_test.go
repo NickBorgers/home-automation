@@ -28,7 +28,7 @@ import (
 // hygiene plugins during wake sequences and battery state transitions.
 //
 // The energy plugin monitors battery percentage and sets batteryEnergyLevel
-// ("green", "yellow", "red", "black"). The sleep hygiene plugin manages
+// ("white", "green", "yellow", "red"). The sleep hygiene plugin manages
 // wake sequences (begin_wake -> fade-out -> lights -> wake music).
 //
 // INVARIANTS:
@@ -137,7 +137,7 @@ func TestScenario_BatteryDropsDuringWakeSequence(t *testing.T) {
 	env.server.SetState("input_text.day_phase", "morning", map[string]interface{}{})
 
 	// Battery starts at healthy level
-	env.server.SetState("sensor.span_panel_span_storage_battery_percentage_2", "85.0", map[string]interface{}{
+	env.server.SetState("sensor.span_panel_span_storage_battery_percentage_2", "65.0", map[string]interface{}{
 		"unit_of_measurement": "%",
 	})
 
@@ -150,16 +150,16 @@ func TestScenario_BatteryDropsDuringWakeSequence(t *testing.T) {
 	waitForProcessing(t, env.manager)
 
 	// ========== WHEN ==========
-	t.Log("WHEN: Battery drops to critical level (15%) during wake sequence")
+	t.Log("WHEN: Battery drops to critical level (10%) during wake sequence")
 
-	env.server.SetState("sensor.span_panel_span_storage_battery_percentage_2", "15.0", map[string]interface{}{
+	env.server.SetState("sensor.span_panel_span_storage_battery_percentage_2", "10.0", map[string]interface{}{
 		"unit_of_measurement": "%",
 	})
 
 	// Wait for energy plugin to process the battery change
-	// Battery at 15% is below red threshold (20%) so it should be "black" per test config
-	waitForStringStateOneOf(t, env.manager, "batteryEnergyLevel", []string{"red", "black"},
-		"Battery level should update to red or black")
+	// Battery at 10% is below yellow threshold (15%) so it should be "red"
+	waitForStringState(t, env.manager, "batteryEnergyLevel", "red",
+		"Battery level should update to red")
 
 	// ========== THEN ==========
 	t.Log("THEN: Wake sequence continues AND energy level updates")
@@ -175,7 +175,7 @@ func TestScenario_BatteryDropsDuringWakeSequence(t *testing.T) {
 	assert.NoError(t, err)
 	t.Logf("Battery energy level after drop: %s", batteryLevel)
 	assert.NotEqual(t, "green", batteryLevel,
-		"Energy level should have changed from green after battery dropped to 15%")
+		"Energy level should have changed from green after battery dropped to 10%")
 
 	t.Log("SUCCESS: Energy and wake sequence operated independently")
 }
@@ -209,13 +209,13 @@ func TestScenario_WakeSequenceStartsWithLowBattery(t *testing.T) {
 	env.server.SetState("input_text.music_playback_type", "sleep", map[string]interface{}{})
 
 	// Battery already low
-	env.server.SetState("sensor.span_panel_span_storage_battery_percentage_2", "15.0", map[string]interface{}{
+	env.server.SetState("sensor.span_panel_span_storage_battery_percentage_2", "10.0", map[string]interface{}{
 		"unit_of_measurement": "%",
 	})
 
-	// Wait for energy plugin to finish computing battery level from the 15% sensor reading
-	waitForStringStateOneOf(t, env.manager, "batteryEnergyLevel", []string{"red", "black"},
-		"Battery level should settle to red or black at 15%")
+	// Wait for energy plugin to finish computing battery level from the 10% sensor reading
+	waitForStringState(t, env.manager, "batteryEnergyLevel", "red",
+		"Battery level should settle to red at 10%")
 
 	// Record battery level after it has settled
 	batteryLevel, err := env.manager.GetString("batteryEnergyLevel")
@@ -287,7 +287,7 @@ func TestScenario_EnergyTransitions_SleepStateUnaffected(t *testing.T) {
 	env.server.SetState("input_text.music_playback_type", "sleep", map[string]interface{}{})
 
 	// Battery starts healthy
-	env.server.SetState("sensor.span_panel_span_storage_battery_percentage_2", "90.0", map[string]interface{}{
+	env.server.SetState("sensor.span_panel_span_storage_battery_percentage_2", "70.0", map[string]interface{}{
 		"unit_of_measurement": "%",
 	})
 
@@ -303,7 +303,7 @@ func TestScenario_EnergyTransitions_SleepStateUnaffected(t *testing.T) {
 	t.Log("WHEN: Battery drops through multiple levels: green -> yellow -> red")
 
 	// Simulate battery draining overnight
-	batteryLevels := []string{"75.0", "45.0", "15.0"}
+	batteryLevels := []string{"50.0", "20.0", "10.0"}
 	for _, level := range batteryLevels {
 		env.server.SetState("sensor.span_panel_span_storage_battery_percentage_2", level, map[string]interface{}{
 			"unit_of_measurement": "%",
@@ -340,7 +340,7 @@ func TestScenario_EnergyTransitions_SleepStateUnaffected(t *testing.T) {
 	assert.NoError(t, err)
 	t.Logf("Final battery energy level: %s", batteryLevel)
 	assert.NotEqual(t, "green", batteryLevel,
-		"Battery level should have changed from green after dropping to 15%")
+		"Battery level should have changed from green after dropping to 10%")
 
 	t.Log("SUCCESS: Energy transitions did not affect sleep state")
 }

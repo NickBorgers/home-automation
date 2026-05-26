@@ -36,6 +36,15 @@ const (
 	// SyncBoxMaxDailyReboots is the maximum number of reboots allowed per day
 	SyncBoxMaxDailyReboots = 10
 
+	// ManualResetAppleTVBootDelay is how long to wait after a manual sync box
+	// power cycle before turning Apple TV back on. Gives the sync box time to
+	// finish booting and re-establish the HDMI signal so the Apple TV's wake-up
+	// command actually reaches the TV.
+	ManualResetAppleTVBootDelay = 10 * time.Second
+
+	// AppleTVEntity is the Home Assistant media_player entity for the Apple TV.
+	AppleTVEntity = "media_player.big_beautiful_oled"
+
 	// Entity IDs for sync box recovery
 	SyncBoxSoftwarePowerEntity = "switch.sync_box_power"
 	SyncBoxPhysicalPowerEntity = "switch.hue_sync_box_power"
@@ -146,6 +155,12 @@ func (m *Manager) Start() error {
 	// Subscribe to isAppleTVPlaying state changes to recalculate isTVPlaying
 	if err := m.subHelper.SubscribeToState("isAppleTVPlaying", m.handleAppleTVPlayingChange); err != nil {
 		return fmt.Errorf("failed to subscribe to isAppleTVPlaying: %w", err)
+	}
+
+	// Subscribe to resetTV for the manual "Reset TV" HomeKit button. When the
+	// boolean flips on we power-cycle the sync box and bounce the Apple TV.
+	if err := m.subHelper.SubscribeToState("resetTV", m.handleResetTVChange); err != nil {
+		return fmt.Errorf("failed to subscribe to resetTV: %w", err)
 	}
 
 	// Initialize shadow state with current input values (after subscriptions registered)
@@ -851,6 +866,99 @@ func (m *Manager) ensurePhysicalPowerOn() {
 
 	m.logger.Error("CRITICAL: All attempts to turn on sync box physical power failed",
 		zap.Int("attempts", SyncBoxPowerOnMaxRetries))
+}
+
+// handleResetTVChange responds to the manual TV reset trigger
+// (input_boolean.reset_tv, exposed to HomeKit via the Home Assistant bridge).
+// Edge-detects false → true, immediately clears the boolean to prevent the
+// reset from re-firing across restarts, then kicks off the reset sequence
+// asynchronously so the state subscription handler returns promptly.
+func (m *Manager) handleResetTVChange(key string, oldValue, newValue interface{}) {
+	newReset, ok := newValue.(bool)
+	if !ok {
+		m.logger.Warn("resetTV value is not a boolean", zap.Any("value", newValue))
+		return
+	}
+	if !newReset {
+		return
+	}
+
+	m.logger.Info("Manual TV reset triggered via resetTV state variable")
+
+	if m.readOnly {
+		m.logger.Info("READ-ONLY: Would turn resetTV boolean off")
+	} else if err := m.stateManager.SetBool("resetTV", false); err != nil {
+		m.logger.Error("Failed to turn resetTV off", zap.Error(err))
+	}
+
+	go m.PerformManualReset()
+}
+
+// PerformManualReset is the user-triggered counterpart to performPowerCycleRecovery.
+// It restarts the Apple TV in addition to power-cycling the Hue Sync Box, recovering
+// from a locked-up TV stack without waiting for the automatic unavailable-detection
+// path. Unlike automatic recovery, this bypasses the cooldown/daily safeguards (the
+// user is explicitly asking for action), but the daily reboot counter inside
+// performPowerCycleRecovery still increments so excessive activity is visible in logs.
+//
+// Sequence:
+//  1. Turn off Apple TV (media_player.turn_off)
+//  2. Power-cycle the sync box via performPowerCycleRecovery
+//  3. Wait ManualResetAppleTVBootDelay for the sync box to finish booting
+//  4. Turn the Apple TV back on (media_player.turn_on)
+func (m *Manager) PerformManualReset() {
+	m.logger.Info("Beginning manual TV reset sequence")
+
+	if m.readOnly {
+		m.logger.Info("READ-ONLY: Would manually reset TV (Apple TV power cycle + sync box power cycle)")
+		return
+	}
+
+	// Take the recovery-in-progress flag so we don't collide with an in-flight
+	// automatic recovery (or another manual press). Matches the gate used by
+	// checkAndRecoverSyncBox.
+	m.recoveryMu.Lock()
+	if m.recoveryInProgress {
+		m.recoveryMu.Unlock()
+		m.logger.Info("Recovery already in progress, skipping manual reset")
+		return
+	}
+	m.recoveryInProgress = true
+	m.recoveryMu.Unlock()
+
+	defer func() {
+		m.recoveryMu.Lock()
+		m.recoveryInProgress = false
+		m.recoveryMu.Unlock()
+	}()
+
+	// Step 1: turn off Apple TV. Continue on error — sync box power cycle is
+	// the load-bearing part of the fix.
+	m.logger.Info("Turning off Apple TV", zap.String("entity_id", AppleTVEntity))
+	if err := m.haClient.CallService(m.ctx, "media_player", "turn_off", map[string]interface{}{
+		"entity_id": AppleTVEntity,
+	}); err != nil {
+		m.logger.Error("Failed to turn off Apple TV (continuing with sync box reset)", zap.Error(err))
+	}
+
+	// Step 2: power-cycle the sync box (reuses existing recovery logic).
+	m.performPowerCycleRecovery()
+
+	// Step 3: let the sync box finish booting before restoring the HDMI source.
+	m.logger.Info("Waiting for sync box to finish booting before restoring Apple TV",
+		zap.Duration("delay", ManualResetAppleTVBootDelay))
+	m.sleepFunc(ManualResetAppleTVBootDelay)
+
+	// Step 4: turn Apple TV back on.
+	m.logger.Info("Turning Apple TV back on", zap.String("entity_id", AppleTVEntity))
+	if err := m.haClient.CallService(m.ctx, "media_player", "turn_on", map[string]interface{}{
+		"entity_id": AppleTVEntity,
+	}); err != nil {
+		m.logger.Error("Failed to turn on Apple TV after sync box reset", zap.Error(err))
+		return
+	}
+
+	m.logger.Info("Manual TV reset sequence complete")
 }
 
 // GetRecoveryState returns the current recovery state for testing

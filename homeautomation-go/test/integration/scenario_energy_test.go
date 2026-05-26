@@ -79,34 +79,34 @@ func TestScenario_BatteryLevelChanges_UpdateEnergyLevels(t *testing.T) {
 	server, _, manager, _, cleanup := setupEnergyScenarioTest(t)
 	defer cleanup()
 
-	// GIVEN: Battery is at 85% (green level - threshold is 80%)
-	t.Log("GIVEN: Battery is at 85% (green level)")
+	// GIVEN: Battery is at 85% (white level - threshold is 80%)
+	t.Log("GIVEN: Battery is at 85% (white level)")
 	server.SetState("sensor.span_panel_span_storage_battery_percentage_2", "85.0", map[string]interface{}{
 		"unit_of_measurement": "%",
 	})
 
-	// Verify initial state is green
-	waitForStringState(t, manager, "batteryEnergyLevel", "green", "Battery level should be green at 85%")
+	// Verify initial state is white
+	waitForStringState(t, manager, "batteryEnergyLevel", "white", "Battery level should be white at 85%")
 
-	// WHEN: Battery drops to 55% (yellow level - threshold is 50%)
-	t.Log("WHEN: Battery drops to 55% (yellow level)")
-	server.SetState("sensor.span_panel_span_storage_battery_percentage_2", "55.0", map[string]interface{}{
+	// WHEN: Battery drops to 30% (yellow level - threshold is 15%)
+	t.Log("WHEN: Battery drops to 30% (yellow level)")
+	server.SetState("sensor.span_panel_span_storage_battery_percentage_2", "30.0", map[string]interface{}{
 		"unit_of_measurement": "%",
 	})
 
 	// THEN: Battery level should be yellow
 	t.Log("THEN: Battery level should be yellow")
-	waitForStringState(t, manager, "batteryEnergyLevel", "yellow", "Battery level should be yellow at 55%")
+	waitForStringState(t, manager, "batteryEnergyLevel", "yellow", "Battery level should be yellow at 30%")
 
-	// WHEN: Battery drops to 15% (black level - below 20% red threshold)
-	t.Log("WHEN: Battery drops to 15% (black level)")
-	server.SetState("sensor.span_panel_span_storage_battery_percentage_2", "15.0", map[string]interface{}{
+	// WHEN: Battery drops to 10% (red level - below 15% yellow threshold)
+	t.Log("WHEN: Battery drops to 10% (red level)")
+	server.SetState("sensor.span_panel_span_storage_battery_percentage_2", "10.0", map[string]interface{}{
 		"unit_of_measurement": "%",
 	})
 
-	// THEN: Battery level should be black
-	t.Log("THEN: Battery level should be black")
-	waitForStringState(t, manager, "batteryEnergyLevel", "black", "Battery level should be black at 15%")
+	// THEN: Battery level should be red
+	t.Log("THEN: Battery level should be red")
+	waitForStringState(t, manager, "batteryEnergyLevel", "red", "Battery level should be red at 10%")
 }
 
 // TestScenario_SolarProductionUpdates_CalculatesEnergyLevel validates that
@@ -116,8 +116,8 @@ func TestScenario_SolarProductionUpdates_CalculatesEnergyLevel(t *testing.T) {
 	server, _, manager, _, cleanup := setupEnergyScenarioTest(t)
 	defer cleanup()
 
-	// GIVEN: No solar production (yellow level - meets yellow threshold but not green)
-	t.Log("GIVEN: No solar production (yellow level)")
+	// GIVEN: No solar production (red level - lowest)
+	t.Log("GIVEN: No solar production (red level)")
 	server.SetState("sensor.energy_next_hour", "0.0", map[string]interface{}{
 		"unit_of_measurement": "kW",
 	})
@@ -126,7 +126,7 @@ func TestScenario_SolarProductionUpdates_CalculatesEnergyLevel(t *testing.T) {
 	})
 
 	// Verify initial state
-	waitForStringState(t, manager, "solarProductionEnergyLevel", "yellow", "Solar level should be yellow with no production (meets yellow threshold)")
+	waitForStringState(t, manager, "solarProductionEnergyLevel", "red", "Solar level should be red with no production")
 
 	// WHEN: Solar production increases (this hour = 2kW, remaining = 15kWh -> green)
 	t.Log("WHEN: Solar production increases to green level")
@@ -137,22 +137,22 @@ func TestScenario_SolarProductionUpdates_CalculatesEnergyLevel(t *testing.T) {
 		"unit_of_measurement": "kWh",
 	})
 
-	// THEN: Solar level should be green (threshold: 0 kW, 10 kWh)
+	// THEN: Solar level should be green (threshold: 1 kW, 5 kWh)
 	t.Log("THEN: Solar level should be green")
 	waitForStringState(t, manager, "solarProductionEnergyLevel", "green", "Solar level should be green with 2kW/15kWh")
 
-	// WHEN: Solar production drops (this hour = 1kW, remaining = 5kWh -> yellow)
+	// WHEN: Solar production drops (this hour = 0.5kW, remaining = 2kWh -> yellow)
 	t.Log("WHEN: Solar production drops to yellow level")
-	server.SetState("sensor.energy_next_hour", "1.0", map[string]interface{}{
+	server.SetState("sensor.energy_next_hour", "0.5", map[string]interface{}{
 		"unit_of_measurement": "kW",
 	})
-	server.SetState("sensor.energy_production_today_remaining", "5.0", map[string]interface{}{
+	server.SetState("sensor.energy_production_today_remaining", "2.0", map[string]interface{}{
 		"unit_of_measurement": "kWh",
 	})
 
-	// THEN: Solar level should be yellow (threshold: 0 kW, 0 kWh)
+	// THEN: Solar level should be yellow (threshold: 0.1 kW, 0 kWh; below green's 1 kW)
 	t.Log("THEN: Solar level should be yellow")
-	waitForStringState(t, manager, "solarProductionEnergyLevel", "yellow", "Solar level should be yellow with 1kW/5kWh")
+	waitForStringState(t, manager, "solarProductionEnergyLevel", "yellow", "Solar level should be yellow with 0.5kW/2kWh")
 }
 
 // TestScenario_GridAvailability_DoesNotEnableFreeEnergy validates that grid
@@ -259,9 +259,9 @@ func TestScenario_OverallEnergyLevel_ReflectsWorstState(t *testing.T) {
 	// Wait for startup goroutines to complete initial work
 	energyMgr.WaitForStartup()
 
-	// GIVEN: Battery at green (85%), solar at green (2kW, 15kWh)
+	// GIVEN: Battery at green (65%), solar at green (2kW, 15kWh)
 	t.Log("GIVEN: Battery green, solar green")
-	server.SetState("sensor.span_panel_span_storage_battery_percentage_2", "85.0", map[string]interface{}{
+	server.SetState("sensor.span_panel_span_storage_battery_percentage_2", "65.0", map[string]interface{}{
 		"unit_of_measurement": "%",
 	})
 	server.SetState("sensor.energy_next_hour", "2.0", map[string]interface{}{
@@ -275,22 +275,21 @@ func TestScenario_OverallEnergyLevel_ReflectsWorstState(t *testing.T) {
 	waitForProcessing(t, manager)
 	waitForStringState(t, manager, "currentEnergyLevel", "green", "Overall level should be green when both are green")
 
-	// WHEN: Battery drops to black (15%), solar still green
-	t.Log("WHEN: Battery drops to black, solar stays green")
-	server.SetState("sensor.span_panel_span_storage_battery_percentage_2", "15.0", map[string]interface{}{
+	// WHEN: Battery drops to red (10%), solar still green
+	t.Log("WHEN: Battery drops to red, solar stays green")
+	server.SetState("sensor.span_panel_span_storage_battery_percentage_2", "10.0", map[string]interface{}{
 		"unit_of_measurement": "%",
 	})
 
-	// THEN: Overall level should reflect the lower state
-	// According to the algorithm, solar can boost the battery-derived result by at most one level.
+	// THEN: Overall level should reflect the lower state.
+	// Solar can boost the battery-derived result by at most one level: red + green → yellow.
 	t.Log("THEN: Overall level should reflect worst state")
-	waitForStringState(t, manager, "batteryEnergyLevel", "black", "Battery level should settle before checking overall level")
+	waitForStringState(t, manager, "batteryEnergyLevel", "red", "Battery level should settle before checking overall level")
 	waitForProcessing(t, manager)
-	// The overall level should be exactly one level higher than the battery input
-	waitForStringState(t, manager, "currentEnergyLevel", "red",
-		"Overall level should be red when battery is black and solar is green")
+	waitForStringState(t, manager, "currentEnergyLevel", "yellow",
+		"Overall level should be yellow when battery is red and solar is green (boost by 1)")
 
-	// WHEN: Solar drops to the floor of the test config (0kW, 0kWh -> yellow)
+	// WHEN: Solar drops to the floor of the test config (0kW, 0kWh -> red)
 	t.Log("WHEN: Solar drops to the floor of the test config")
 	server.SetState("sensor.energy_next_hour", "0.0", map[string]interface{}{
 		"unit_of_measurement": "kW",
@@ -299,12 +298,12 @@ func TestScenario_OverallEnergyLevel_ReflectsWorstState(t *testing.T) {
 		"unit_of_measurement": "kWh",
 	})
 
-	// THEN: Solar should settle to yellow for this test config, and overall should stay red
-	t.Log("THEN: Overall level should stay low")
-	waitForStringState(t, manager, "solarProductionEnergyLevel", "yellow", "Solar level should settle before checking overall level")
+	// THEN: Solar should settle to red, and overall should be red too.
+	t.Log("THEN: Overall level should drop to red")
+	waitForStringState(t, manager, "solarProductionEnergyLevel", "red", "Solar level should settle before checking overall level")
 	waitForProcessing(t, manager)
 	waitForStringState(t, manager, "currentEnergyLevel", "red",
-		"Overall level should stay red when battery is black and solar is at the lowest configured solar tier")
+		"Overall level should be red when battery and solar are both red")
 }
 
 // TestScenario_MeteredGridFreeEnergyWindow_DoesNotOverrideEnergyLevel validates
@@ -349,9 +348,9 @@ func TestScenario_MeteredGridFreeEnergyWindow_DoesNotOverrideEnergyLevel(t *test
 	// Wait for startup goroutines to complete initial work
 	energyMgr.WaitForStartup()
 
-	// GIVEN: Battery at black (15%) and grid available during the old free grid window
-	t.Log("GIVEN: Battery black and grid available during the old free grid window")
-	server.SetState("sensor.span_panel_span_storage_battery_percentage_2", "15.0", map[string]interface{}{
+	// GIVEN: Battery at red (10%) and grid available during the old free grid window
+	t.Log("GIVEN: Battery red and grid available during the old free grid window")
+	server.SetState("sensor.span_panel_span_storage_battery_percentage_2", "10.0", map[string]interface{}{
 		"unit_of_measurement": "%",
 	})
 	err = manager.SetBool("isGridAvailable", true)
@@ -364,12 +363,12 @@ func TestScenario_MeteredGridFreeEnergyWindow_DoesNotOverrideEnergyLevel(t *test
 	t.Logf("Free energy available: %v", isFreeEnergy)
 
 	t.Log("THEN: Overall level should not be white from metered grid time")
-	waitForStringState(t, manager, "batteryEnergyLevel", "black", "Battery level should settle before checking overall level")
+	waitForStringState(t, manager, "batteryEnergyLevel", "red", "Battery level should settle before checking overall level")
 	waitForProcessing(t, manager)
 	overallLevel, err := manager.GetString("currentEnergyLevel")
 	require.NoError(t, err)
-	// setupTest initializes solar to "white"; the combine logic takes the worst non-white level
-	// ("black" battery), then the white solar boosts it one step to "red". So "red" is correct.
+	// Without any solar production set, solar resolves to the lowest level (red).
+	// Battery red + solar red → red. The retired metered-grid override no longer forces white.
 	assert.Equal(t, "red", overallLevel, "Overall level should follow battery and solar without metered grid override")
 }
 
@@ -398,6 +397,33 @@ func TestScenario_HighSolarProduction_CanStillSetWhiteEnergyLevel(t *testing.T) 
 	waitForStringState(t, manager, "currentEnergyLevel", "white", "Overall level should be white from solar boost")
 }
 
+// TestScenario_HighBatteryWeakSolar_DoesNotSetWhiteEnergyLevel validates that a
+// high battery alone does not activate white-level behavior when solar is weak.
+func TestScenario_HighBatteryWeakSolar_DoesNotSetWhiteEnergyLevel(t *testing.T) {
+	t.Parallel()
+	server, _, manager, _, cleanup := setupEnergyScenarioTest(t)
+	defer cleanup()
+
+	// GIVEN: Battery is at the white threshold, but solar production is only yellow.
+	t.Log("GIVEN: Battery white and solar production yellow")
+	server.SetState("sensor.span_panel_span_storage_battery_percentage_2", "80.0", map[string]interface{}{
+		"unit_of_measurement": "%",
+	})
+	server.SetState("sensor.energy_next_hour", "0.908", map[string]interface{}{
+		"unit_of_measurement": "kW",
+	})
+	server.SetState("sensor.energy_production_today_remaining", "1.149", map[string]interface{}{
+		"unit_of_measurement": "kWh",
+	})
+
+	// THEN: The overall level stays below white. White requires high stored energy
+	// and active solar production, so downstream thermal battery behavior does not activate.
+	t.Log("THEN: Overall level is not white")
+	waitForStringState(t, manager, "batteryEnergyLevel", "white", "Battery level should be white at 80%")
+	waitForStringState(t, manager, "solarProductionEnergyLevel", "yellow", "Solar level should be yellow")
+	waitForStringState(t, manager, "currentEnergyLevel", "green", "Overall level should be capped by weak solar")
+}
+
 // TestScenario_ThresholdBoundaries_HandlesExactValues validates that energy
 // levels are calculated correctly at exact threshold boundaries
 func TestScenario_ThresholdBoundaries_HandlesExactValues(t *testing.T) {
@@ -405,53 +431,53 @@ func TestScenario_ThresholdBoundaries_HandlesExactValues(t *testing.T) {
 	server, _, manager, _, cleanup := setupEnergyScenarioTest(t)
 	defer cleanup()
 
-	// Test exact boundary: 80% (green threshold)
-	t.Log("Testing exact boundary: 80% (green threshold)")
+	// Test exact boundary: 80% (white threshold)
+	t.Log("Testing exact boundary: 80% (white threshold)")
 	server.SetState("sensor.span_panel_span_storage_battery_percentage_2", "80.0", map[string]interface{}{
 		"unit_of_measurement": "%",
 	})
 
-	waitForStringState(t, manager, "batteryEnergyLevel", "green", "Battery level should be green at exactly 80%")
+	waitForStringState(t, manager, "batteryEnergyLevel", "white", "Battery level should be white at exactly 80%")
 
-	// Test just below boundary: 79.9% (yellow)
-	t.Log("Testing just below boundary: 79.9% (yellow)")
+	// Test just below boundary: 79.9% (green)
+	t.Log("Testing just below boundary: 79.9% (green)")
 	server.SetState("sensor.span_panel_span_storage_battery_percentage_2", "79.9", map[string]interface{}{
 		"unit_of_measurement": "%",
 	})
 
-	waitForStringState(t, manager, "batteryEnergyLevel", "yellow", "Battery level should be yellow at 79.9%")
+	waitForStringState(t, manager, "batteryEnergyLevel", "green", "Battery level should be green at 79.9%")
 
-	// Test exact boundary: 50% (yellow threshold)
-	t.Log("Testing exact boundary: 50% (yellow threshold)")
-	server.SetState("sensor.span_panel_span_storage_battery_percentage_2", "50.0", map[string]interface{}{
+	// Test exact boundary: 60% (green threshold)
+	t.Log("Testing exact boundary: 60% (green threshold)")
+	server.SetState("sensor.span_panel_span_storage_battery_percentage_2", "60.0", map[string]interface{}{
 		"unit_of_measurement": "%",
 	})
 
-	waitForStringState(t, manager, "batteryEnergyLevel", "yellow", "Battery level should be yellow at exactly 50%")
+	waitForStringState(t, manager, "batteryEnergyLevel", "green", "Battery level should be green at exactly 60%")
 
-	// Test just below boundary: 49.9% (red)
-	t.Log("Testing just below boundary: 49.9% (red)")
-	server.SetState("sensor.span_panel_span_storage_battery_percentage_2", "49.9", map[string]interface{}{
+	// Test just below boundary: 59.9% (yellow)
+	t.Log("Testing just below boundary: 59.9% (yellow)")
+	server.SetState("sensor.span_panel_span_storage_battery_percentage_2", "59.9", map[string]interface{}{
 		"unit_of_measurement": "%",
 	})
 
-	waitForStringState(t, manager, "batteryEnergyLevel", "red", "Battery level should be red at 49.9%")
+	waitForStringState(t, manager, "batteryEnergyLevel", "yellow", "Battery level should be yellow at 59.9%")
 
-	// Test exact boundary: 20% (red threshold)
-	t.Log("Testing exact boundary: 20% (red threshold)")
-	server.SetState("sensor.span_panel_span_storage_battery_percentage_2", "20.0", map[string]interface{}{
+	// Test exact boundary: 15% (yellow threshold)
+	t.Log("Testing exact boundary: 15% (yellow threshold)")
+	server.SetState("sensor.span_panel_span_storage_battery_percentage_2", "15.0", map[string]interface{}{
 		"unit_of_measurement": "%",
 	})
 
-	waitForStringState(t, manager, "batteryEnergyLevel", "red", "Battery level should be red at exactly 20%")
+	waitForStringState(t, manager, "batteryEnergyLevel", "yellow", "Battery level should be yellow at exactly 15%")
 
-	// Test just below boundary: 19.9% (black)
-	t.Log("Testing just below boundary: 19.9% (black)")
-	server.SetState("sensor.span_panel_span_storage_battery_percentage_2", "19.9", map[string]interface{}{
+	// Test just below boundary: 14.9% (red)
+	t.Log("Testing just below boundary: 14.9% (red)")
+	server.SetState("sensor.span_panel_span_storage_battery_percentage_2", "14.9", map[string]interface{}{
 		"unit_of_measurement": "%",
 	})
 
-	waitForStringState(t, manager, "batteryEnergyLevel", "black", "Battery level should be black at 19.9%")
+	waitForStringState(t, manager, "batteryEnergyLevel", "red", "Battery level should be red at 14.9%")
 }
 
 // TestScenario_MultipleConcurrentChanges_HandlesCorrectly validates that
@@ -462,8 +488,8 @@ func TestScenario_MultipleConcurrentChanges_HandlesCorrectly(t *testing.T) {
 	defer cleanup()
 
 	// GIVEN: Initial state
-	t.Log("GIVEN: Initial state - battery at 85%, solar at high production")
-	server.SetState("sensor.span_panel_span_storage_battery_percentage_2", "85.0", map[string]interface{}{
+	t.Log("GIVEN: Initial state - battery at 65%, solar at high production")
+	server.SetState("sensor.span_panel_span_storage_battery_percentage_2", "65.0", map[string]interface{}{
 		"unit_of_measurement": "%",
 	})
 	server.SetState("sensor.energy_next_hour", "3.0", map[string]interface{}{
@@ -474,7 +500,7 @@ func TestScenario_MultipleConcurrentChanges_HandlesCorrectly(t *testing.T) {
 	})
 
 	// Wait for initial state to stabilize
-	waitForStringState(t, manager, "batteryEnergyLevel", "green", "Battery should be green at 85%")
+	waitForStringState(t, manager, "batteryEnergyLevel", "green", "Battery should be green at 65%")
 	waitForStringState(t, manager, "solarProductionEnergyLevel", "green", "Solar should be green with high production")
 
 	batteryLevel, err := manager.GetString("batteryEnergyLevel")
@@ -491,7 +517,7 @@ func TestScenario_MultipleConcurrentChanges_HandlesCorrectly(t *testing.T) {
 	t.Log("WHEN: Multiple rapid changes occur simultaneously")
 
 	// Change battery
-	server.SetState("sensor.span_panel_span_storage_battery_percentage_2", "25.0", map[string]interface{}{
+	server.SetState("sensor.span_panel_span_storage_battery_percentage_2", "10.0", map[string]interface{}{
 		"unit_of_measurement": "%",
 	})
 
@@ -510,9 +536,9 @@ func TestScenario_MultipleConcurrentChanges_HandlesCorrectly(t *testing.T) {
 	// THEN: All changes should be processed without errors
 	t.Log("THEN: All changes should be processed without errors")
 
-	waitForStringState(t, manager, "batteryEnergyLevel", "red", "Battery level should be red at 25%")
+	waitForStringState(t, manager, "batteryEnergyLevel", "red", "Battery level should be red at 10%")
 
-	waitForStringStateOneOf(t, manager, "solarProductionEnergyLevel", []string{"black", "red", "yellow"},
+	waitForStringStateOneOf(t, manager, "solarProductionEnergyLevel", []string{"red", "yellow"},
 		"Solar level should be low with 0.5kW/2kWh")
 
 	overallLevel, err = manager.GetString("currentEnergyLevel")

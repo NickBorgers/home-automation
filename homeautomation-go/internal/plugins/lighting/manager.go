@@ -6,13 +6,29 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"time"
 
+	"homeautomation/internal/clock"
 	"homeautomation/internal/ha"
 	"homeautomation/internal/shadowstate"
 	"homeautomation/internal/state"
 
 	"go.uber.org/zap"
 )
+
+// defaultLightingDebounceDelay is how long evaluateAndActivateRoom waits for
+// further trigger changes before actually running the room's scene logic.
+// Arrival flips multiple presence variables in a ~500ms burst; without
+// coalescing, the lighting plugin fires the same scene recall several times
+// in quick succession and confuses the Hue Bridge's dynamic palette setup
+// (see plan: 2026-05-25 incident).
+const defaultLightingDebounceDelay = 300 * time.Millisecond
+
+// twoStepRecallGap is the pause between the static and dynamic phases of a
+// two-step scene recall on rooms with HasDynamics=true. Long enough for the
+// bridge to settle the static recall on cold bulbs; short enough to feel
+// instant to a person watching the room.
+const twoStepRecallGap = 500 * time.Millisecond
 
 // Manager handles lighting control and scene activation
 type Manager struct {
@@ -39,6 +55,25 @@ type Manager struct {
 	// caused by unreliable presence sensors.
 	lastRoomAction   map[string]string
 	lastRoomActionMu sync.Mutex
+
+	// clock abstracts time operations for testability. Defaults to RealClock;
+	// override with SetClock for tests.
+	clock clock.Clock
+
+	// Per-room debounce coalesces rapid evaluateAndActivateRoom calls into a
+	// single delayed evaluation. Arrival flips multiple presence variables in
+	// a sub-second burst; without this, the same scene fires several times
+	// back-to-back and destabilizes the Hue Bridge.
+	debounceMu    sync.Mutex
+	roomDebounces map[string]*roomDebounce
+	debounceDelay time.Duration
+}
+
+// roomDebounce tracks a pending coalesced evaluation for a single room.
+type roomDebounce struct {
+	timer           clock.Timer
+	pendingDayPhase string
+	pendingTriggers []string
 }
 
 // NewManager creates a new Lighting Control manager
@@ -56,7 +91,26 @@ func NewManager(ctx context.Context, haClient ha.HAClient, stateManager *state.M
 		ctx:            ctx,
 		roomContexts:   make(map[string]context.CancelFunc),
 		lastRoomAction: make(map[string]string),
+		clock:          clock.NewRealClock(),
+		roomDebounces:  make(map[string]*roomDebounce),
+		// Default 0 means "fire synchronously"; the plugin adapter's Start()
+		// sets the production delay so tests that don't go through the adapter
+		// stay deterministic (no timer coordination required).
+		debounceDelay: 0,
 	}
+}
+
+// SetClock overrides the time source. Intended for tests using clock.MockClock.
+func (m *Manager) SetClock(c clock.Clock) {
+	m.clock = c
+}
+
+// SetDebounceDelay overrides the per-room debounce delay. Intended for tests.
+// Set to 0 to disable coalescing (each evaluateAndActivateRoom fires synchronously).
+func (m *Manager) SetDebounceDelay(d time.Duration) {
+	m.debounceMu.Lock()
+	defer m.debounceMu.Unlock()
+	m.debounceDelay = d
 }
 
 // Start begins monitoring lighting state and triggers
@@ -121,6 +175,15 @@ func (m *Manager) Start() error {
 // Stop stops the Lighting Control Manager and cleans up subscriptions
 func (m *Manager) Stop() {
 	m.logger.Info("Stopping Lighting Control Manager")
+
+	// Cancel all pending debounce timers so callbacks don't fire after Stop.
+	m.debounceMu.Lock()
+	for _, rd := range m.roomDebounces {
+		if rd.timer != nil {
+			rd.timer.Stop()
+		}
+	}
+	m.debounceMu.Unlock()
 
 	// Cancel all in-flight room operations
 	m.cancelAllRoomContexts()
@@ -332,8 +395,78 @@ func (m *Manager) evaluateAllRooms(dayPhase string, trigger string) {
 	}
 }
 
-// evaluateAndActivateRoom evaluates a room's conditions and activates the appropriate scene
+// evaluateAndActivateRoom is the public entry point. It debounces evaluations
+// per room so a burst of rapid trigger changes (e.g. multiple presence
+// variables flipping during arrival) collapses to a single scene activation.
 func (m *Manager) evaluateAndActivateRoom(room *RoomConfig, dayPhase string, trigger string) {
+	m.debounceMu.Lock()
+	delay := m.debounceDelay
+	rd, exists := m.roomDebounces[room.HueGroup]
+	if !exists {
+		rd = &roomDebounce{}
+		m.roomDebounces[room.HueGroup] = rd
+	}
+	rd.pendingDayPhase = dayPhase
+	rd.pendingTriggers = append(rd.pendingTriggers, trigger)
+
+	if delay <= 0 {
+		// Fire synchronously — used by tests that don't want timer coordination.
+		m.debounceMu.Unlock()
+		m.fireRoomDebounce(room)
+		return
+	}
+
+	// Stop the previous timer. If the RealClock goroutine is mid-fire it blocks on
+	// debounceMu and exits cleanly once we release — no deadlock.
+	if rd.timer != nil {
+		rd.timer.Stop()
+	}
+	roomCopy := room
+	rd.timer = m.clock.AfterFunc(delay, func() {
+		m.fireRoomDebounce(roomCopy)
+	})
+	m.logger.Debug("Debounce: scheduled room evaluation",
+		zap.String("room", room.HueGroup),
+		zap.String("trigger", trigger),
+		zap.Duration("delay", delay))
+	m.debounceMu.Unlock()
+}
+
+// fireRoomDebounce runs the actual evaluation for a room using whatever
+// dayPhase and triggers accumulated during the debounce window.
+func (m *Manager) fireRoomDebounce(room *RoomConfig) {
+	m.debounceMu.Lock()
+	rd, exists := m.roomDebounces[room.HueGroup]
+	if !exists || rd == nil {
+		m.debounceMu.Unlock()
+		return
+	}
+	dayPhase := rd.pendingDayPhase
+	triggers := rd.pendingTriggers
+	rd.pendingDayPhase = ""
+	rd.pendingTriggers = nil
+	rd.timer = nil
+	m.debounceMu.Unlock()
+
+	if len(triggers) == 0 {
+		// Nothing pending (timer stopped before fire); skip.
+		return
+	}
+
+	combinedTrigger := triggers[len(triggers)-1]
+	if len(triggers) > 1 {
+		combinedTrigger = "debounced:" + strings.Join(triggers, "+")
+		m.logger.Info("Debounce: firing coalesced room evaluation",
+			zap.String("room", room.HueGroup),
+			zap.String("trigger", combinedTrigger),
+			zap.Int("coalesced_count", len(triggers)))
+	}
+
+	m.doEvaluateAndActivateRoom(room, dayPhase, combinedTrigger)
+}
+
+// doEvaluateAndActivateRoom evaluates a room's conditions and activates the appropriate scene
+func (m *Manager) doEvaluateAndActivateRoom(room *RoomConfig, dayPhase string, trigger string) {
 	// Cancel any in-flight operation for this room - new evaluation supersedes
 	roomCtx := m.getRoomContext(room.HueGroup)
 
@@ -392,6 +525,9 @@ func (m *Manager) evaluateAndActivateRoom(room *RoomConfig, dayPhase string, tri
 		m.logger.Info("Skipping room - external control active",
 			zap.String("room", room.HueGroup),
 			zap.String("matched_condition", matchedVar))
+		if room.SkipReactivationWhenOn {
+			m.setLastRoomAction(room.HueGroup, "")
+		}
 	default:
 		m.logger.Debug("No action needed for room",
 			zap.String("room", room.HueGroup))
@@ -572,12 +708,48 @@ func (m *Manager) activateScene(ctx context.Context, room *RoomConfig, dayPhase 
 		serviceData["transition"] = transition
 	}
 
-	// The Nook doesn't do well with dynamics because of its lights
-	if room.HueGroup == "Nook" {
-		serviceData["dynamic"] = false
+	// For rooms whose Hue scene has `auto_dynamic: true`, do a two-step recall:
+	// first activate the scene as static so the bulbs settle at the scene's
+	// base colors/brightness, then re-activate with dynamics so the animated
+	// palette starts from a stable state. The bridge has been observed to
+	// fail to start the dynamic palette on bulbs mid-transition (2026-05-25
+	// incident); the pre-settle eliminates that race. The dynamic phase fires
+	// asynchronously via a timer callback so this function does not block.
+	if room.HasDynamics {
+		staticData := copyServiceData(serviceData)
+		staticData["dynamic"] = false
+		if err := m.haClient.CallService(ctx, "scene", "turn_on", staticData); err != nil {
+			if ctx.Err() != nil {
+				m.logger.Info("Scene activation superseded by newer evaluation",
+					zap.String("room", room.HueGroup),
+					zap.String("scene", dayPhase),
+					zap.String("entity_id", sceneEntityID))
+				return
+			}
+			m.logger.Error("Failed to activate static phase of dynamic scene",
+				zap.String("room", room.HueGroup),
+				zap.String("scene", dayPhase),
+				zap.String("entity_id", sceneEntityID),
+				zap.Error(err))
+			return
+		}
+		m.logger.Info("Static phase of dynamic scene activated; scheduling dynamic phase",
+			zap.String("room", room.HueGroup),
+			zap.String("entity_id", sceneEntityID),
+			zap.Duration("gap", twoStepRecallGap))
+
+		// dynamicData is a fresh copy; copyServiceData ensures the static-phase
+		// payload is not mutated when dynamic=true is added below.
+		dynamicData := copyServiceData(serviceData)
+		dynamicData["dynamic"] = true
+		roomName := room.HueGroup
+		m.clock.AfterFunc(twoStepRecallGap, func() {
+			m.activateSceneDynamicPhase(ctx, roomName, sceneEntityID, dayPhase, trigger, dynamicData)
+		})
+		return
 	}
 
-	// Call the service with the room-scoped context (cancelled if room is re-evaluated)
+	// Single-step recall (no dynamics).
 	err := m.haClient.CallService(ctx, "scene", "turn_on", serviceData)
 	if err != nil {
 		if ctx.Err() != nil {
@@ -604,6 +776,51 @@ func (m *Manager) activateScene(ctx context.Context, room *RoomConfig, dayPhase 
 	m.recordAction(room.HueGroup, "activate_scene",
 		fmt.Sprintf("Activated scene '%s'", dayPhase),
 		dayPhase, false, trigger)
+}
+
+// activateSceneDynamicPhase issues the second `scene.turn_on` call of a
+// two-step recall, with `dynamic: true`, after the inter-phase gap has
+// elapsed. If the room-scoped context has been cancelled by a newer
+// evaluation in the meantime, the dynamic phase is skipped.
+func (m *Manager) activateSceneDynamicPhase(ctx context.Context, roomName, sceneEntityID, dayPhase, trigger string, dynamicData map[string]interface{}) {
+	if ctx.Err() != nil {
+		m.logger.Info("Two-step recall aborted before dynamic phase",
+			zap.String("room", roomName),
+			zap.String("entity_id", sceneEntityID))
+		return
+	}
+	if err := m.haClient.CallService(ctx, "scene", "turn_on", dynamicData); err != nil {
+		if ctx.Err() != nil {
+			m.logger.Info("Dynamic phase superseded by newer evaluation",
+				zap.String("room", roomName),
+				zap.String("entity_id", sceneEntityID))
+			return
+		}
+		m.logger.Error("Failed to activate dynamic phase of scene",
+			zap.String("room", roomName),
+			zap.String("scene", dayPhase),
+			zap.String("entity_id", sceneEntityID),
+			zap.Error(err))
+		return
+	}
+	m.logger.Info("Scene activated successfully (dynamic phase)",
+		zap.String("room", roomName),
+		zap.String("scene", dayPhase),
+		zap.String("entity_id", sceneEntityID))
+	m.recordAction(roomName, "activate_scene",
+		fmt.Sprintf("Activated scene '%s' (with dynamics)", dayPhase),
+		dayPhase, false, trigger)
+}
+
+// copyServiceData returns a shallow copy of a service data map. Used by the
+// two-step recall to keep the static-phase call's payload independent from
+// the dynamic-phase call's payload.
+func copyServiceData(src map[string]interface{}) map[string]interface{} {
+	dst := make(map[string]interface{}, len(src))
+	for k, v := range src {
+		dst[k] = v
+	}
+	return dst
 }
 
 // turnOffRoom turns off lights in a room

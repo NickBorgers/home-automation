@@ -124,6 +124,15 @@ func NewTestFixture(t *testing.T, handler RequestHandler) *TestFixture {
 				// Respond to application-level pings with pongs
 				conn.WriteJSON(Message{ID: msg.ID, Type: "pong"})
 				continue
+			case "subscribe_events":
+				// sendPings may race with subscribeToStateChanges during Connect(),
+				// causing the setup-phase ReadJSON to consume the immediate ping
+				// instead of subscribe_events. Handle subscribe_events here so the
+				// client's subscribeToStateChanges call doesn't time out when it
+				// arrives after the setup phase.
+				success := true
+				conn.WriteJSON(Message{ID: msg.ID, Type: "result", Success: &success})
+				continue
 			default:
 				continue
 			}

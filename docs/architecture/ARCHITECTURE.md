@@ -498,6 +498,8 @@ Each plugin corresponds to a Node-RED flow and implements domain-specific automa
 
 **Key Automations:**
 - **Error Announcement**: On error sensor transition from "No error" to a real error → TTS to common-area speakers
+- **Unavailable Debounce**: Hold transient `"unavailable"` / `"unknown"` error
+  sensor states for 60 seconds; discard them if Casper recovers inside the window
 - **Clear Confirmation**: On real error transition back to "No error" while
   `isAnyoneHome=true` → TTS to the sitting room speaker by default
 - **Quiet Hours**: When `isMasterAsleep=true` → notifier returns `ErrSuppressedAsleep`;
@@ -685,6 +687,9 @@ homeautomation-go/
 │   │   ├── alert.go                 # ✅ Alerter interface and Manager implementation
 │   │   ├── alert_test.go            # ✅ Unit tests
 │   │   └── mock.go                  # ✅ MockAlerter for unit tests
+│   ├── debounce/                    # ✅ Shared UnavailableDebouncer — debounces transient unavailable/unknown HA states
+│   │   ├── unavailable.go           # ✅ UnavailableDebouncer implementation
+│   │   └── unavailable_test.go      # ✅ Unit tests
 │   ├── notify/                      # ✅ Shared verbal (TTS) notifier
 │   │   ├── notify.go                # ✅ Notifier implementation (Kokoro TTS + media_player.play_media announce:true)
 │   │   ├── config.go                # ✅ Config loader (notification_config.yaml)

@@ -852,45 +852,37 @@ flowchart TD
 
     UpdateShadow1 --> CheckLevels{Compare Battery %<br/>to Thresholds}
 
-    CheckLevels -->|< critical_threshold| SetCritical[batteryEnergyLevel = 'critical']
-    CheckLevels -->|< low_threshold| SetLow[batteryEnergyLevel = 'low']
-    CheckLevels -->|< medium_threshold| SetMedium[batteryEnergyLevel = 'medium']
-    CheckLevels -->|< high_threshold| SetHigh[batteryEnergyLevel = 'high']
-    CheckLevels -->|>= high_threshold| SetFull[batteryEnergyLevel = 'full']
+    CheckLevels -->|< 15%| SetRed[batteryEnergyLevel = 'red']
+    CheckLevels -->|< 60%| SetYellow[batteryEnergyLevel = 'yellow']
+    CheckLevels -->|< 80%| SetGreen[batteryEnergyLevel = 'green']
+    CheckLevels -->|>= 80%| SetWhite[batteryEnergyLevel = 'white']
 
-    SetCritical --> UpdateBattery1[Update Shadow State:<br/>Battery Level]
-    SetLow --> UpdateBattery2[Update Shadow State:<br/>Battery Level]
-    SetMedium --> UpdateBattery3[Update Shadow State:<br/>Battery Level]
-    SetHigh --> UpdateBattery4[Update Shadow State:<br/>Battery Level]
-    SetFull --> UpdateBattery5[Update Shadow State:<br/>Battery Level]
+    SetRed --> UpdateBattery1[Update Shadow State:<br/>Battery Level]
+    SetYellow --> UpdateBattery2[Update Shadow State:<br/>Battery Level]
+    SetGreen --> UpdateBattery3[Update Shadow State:<br/>Battery Level]
+    SetWhite --> UpdateBattery4[Update Shadow State:<br/>Battery Level]
 
     UpdateBattery1 --> SyncToHA1[Sync to HA:<br/>input_text.battery_energy_level]
     UpdateBattery2 --> SyncToHA2[Sync to HA:<br/>input_text.battery_energy_level]
     UpdateBattery3 --> SyncToHA3[Sync to HA:<br/>input_text.battery_energy_level]
     UpdateBattery4 --> SyncToHA4[Sync to HA:<br/>input_text.battery_energy_level]
-    UpdateBattery5 --> SyncToHA5[Sync to HA:<br/>input_text.battery_energy_level]
 
     SyncToHA1 --> CalculateCurrent
     SyncToHA2 --> CalculateCurrent
     SyncToHA3 --> CalculateCurrent
     SyncToHA4 --> CalculateCurrent
-    SyncToHA5 --> CalculateCurrent
 
-    CalculateCurrent[Calculate currentEnergyLevel] --> CompareSolar{Solar level > battery level?}
+    CalculateCurrent[Calculate currentEnergyLevel] --> FindMinMax[Find weaker and stronger inputs]
 
-    CompareSolar -->|Yes| BoostSolar[currentEnergyLevel = battery + 1<br/>capped at solar level]
-    CompareSolar -->|No| UseBattery[currentEnergyLevel = batteryEnergyLevel]
+    FindMinMax --> Cap[Output = stronger input<br/>capped at weaker + 1]
 
-    BoostSolar --> UpdateOverall[Update Shadow State:<br/>Overall Level]
-    UseBattery --> UpdateOverall
+    Cap --> UpdateOverall[Update Shadow State:<br/>Overall Level]
 
     UpdateOverall --> End([End])
 
     style Start fill:#e1f5ff
     style CheckLevels fill:#fff3e0
-    style CompareSolar fill:#fff3e0
-    style BoostSolar fill:#e8f5e9
-    style UseBattery fill:#ffebee
+    style Cap fill:#e8f5e9
     style UpdateShadow1 fill:#f3e5f5
     style UpdateBattery1 fill:#f3e5f5
     style UpdateOverall fill:#f3e5f5
@@ -918,6 +910,7 @@ graph LR
         GuestDoor[isGuestBedroomDoorOpen]
         HaveGuests[isHaveGuests]
         Reset[reset]
+        ResetTV[resetTV]
         NickNearHome[isNickNearHome]
         CarolineNearHome[isCarolineNearHome]
         NickOffice[isNickOfficeOccupied]
@@ -1046,6 +1039,7 @@ graph LR
     SleepHygiene -.->|Triggers| Music
     SleepHygiene -.->|Triggers| Lighting
 
+    ResetTV --> TV
     TV --> AppleTVPlaying
     TV --> TVon
     TV --> TVPlaying

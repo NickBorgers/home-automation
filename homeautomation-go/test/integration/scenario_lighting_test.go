@@ -481,8 +481,20 @@ func TestScenario_PersonDetectionOverridesSuneventTurnOff(t *testing.T) {
 	t.Log("AND THEN: Person detected at front of house")
 	server.SetState("input_boolean.front_of_house_person_present", "on", map[string]interface{}{})
 
-	// Wait for the person detection to trigger scene activation
-	waitForServiceCallSince(t, server, snapshot, "scene", "turn_on", "person detection should trigger scene activation for Front of House")
+	// Wait specifically for a Front of House service call, not just any scene.turn_on.
+	// This prevents a rare race where another room's scene.turn_on satisfies the generic
+	// waitForServiceCallSince before the front_of_house call is recorded in the log.
+	require.Eventually(t, func() bool {
+		for _, call := range server.GetServiceCallsSince(snapshot) {
+			if entityID, ok := call.ServiceData["entity_id"].(string); ok && contains(entityID, "front_of_house") {
+				return true
+			}
+			if areaID, ok := call.ServiceData["area_id"].(string); ok && areaID == "front_of_house" {
+				return true
+			}
+		}
+		return false
+	}, stateWaitTimeout, statePollInterval, "person detection should trigger scene activation for Front of House")
 
 	// THEN: The last service action for Front of House should be a scene activation (turn-on),
 	// not a turn-off. The sunevent turn-off should have been superseded.

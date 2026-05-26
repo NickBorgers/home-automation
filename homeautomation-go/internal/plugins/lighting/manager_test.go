@@ -3,7 +3,9 @@ package lighting
 import (
 	"context"
 	"testing"
+	"time"
 
+	"homeautomation/internal/clock"
 	"homeautomation/internal/ha"
 	"homeautomation/pkg/testutil"
 
@@ -344,6 +346,46 @@ func TestEvaluateAndActivateRoom(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestEvaluateAndActivateRoomSkipClearsLastRoomActionForSkipReactivationRoom(t *testing.T) {
+	t.Parallel()
+	env := testutil.NewEnv(t)
+	config := &HueConfig{
+		Rooms: []RoomConfig{
+			{
+				HueGroup:   "Kitchen",
+				HASSAreaID: "kitchen",
+				Conditions: []LightingCondition{
+					{Action: "skip", Variable: "isTVPlaying", Value: true},
+					{Action: "on", Variable: "isKitchenOccupied", Value: true},
+				},
+				SkipReactivationWhenOn: true,
+			},
+		},
+	}
+	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, false, nil)
+	room := &config.Rooms[0]
+
+	assert.NoError(t, env.StateMgr.SetBool("isTVPlaying", true))
+	assert.NoError(t, env.StateMgr.SetBool("isKitchenOccupied", true))
+	manager.setLastRoomAction(room.HueGroup, "on")
+
+	snapshot := env.MockHA.ServiceCallCount()
+	manager.evaluateAndActivateRoom(room, "Day", "isTVPlaying")
+	assert.Equal(t, 0, len(env.MockHA.GetServiceCallsSince(snapshot)), "skip should not call Home Assistant")
+
+	assert.NoError(t, env.StateMgr.SetBool("isTVPlaying", false))
+	snapshot = env.MockHA.ServiceCallCount()
+	manager.evaluateAndActivateRoom(room, "Day", "isKitchenOccupied")
+
+	calls := env.MockHA.GetServiceCallsSince(snapshot)
+	if !assert.Len(t, calls, 1) {
+		return
+	}
+	assert.Equal(t, "scene", calls[0].Domain)
+	assert.Equal(t, "turn_on", calls[0].Service)
+	assert.Equal(t, "scene.kitchen_day", calls[0].Data["entity_id"])
 }
 
 func TestStart(t *testing.T) {
@@ -791,4 +833,258 @@ func TestActivateSceneContextCancellation(t *testing.T) {
 	// No service calls should be made since context was already cancelled
 	calls := env.MockHA.GetServiceCalls()
 	assert.Equal(t, 0, len(calls), "No service calls expected with cancelled context")
+}
+
+// dynamicScenesConfig returns a config where the room at index 0 ("Primary
+// Suite") has HasDynamics=true. Used by the two-step and debounce regression
+// tests added for the 2026-05-25 arrival incident.
+func dynamicScenesConfig() *HueConfig {
+	transition := 180
+	return &HueConfig{
+		Rooms: []RoomConfig{
+			{
+				HueGroup:   "Primary Suite",
+				HASSAreaID: "master_bedroom",
+				Conditions: []LightingCondition{
+					{Action: "on", Variable: "isMasterAsleep", Value: false},
+				},
+				TransitionSeconds: &transition,
+				HasDynamics:       true,
+			},
+			{
+				HueGroup:   "Kitchen",
+				HASSAreaID: "kitchen",
+				Conditions: []LightingCondition{
+					{Action: "on", Variable: "isAnyoneHome", Value: true},
+				},
+				TransitionSeconds: &transition,
+				HasDynamics:       false,
+			},
+		},
+	}
+}
+
+// TestEvaluateAndActivateRoom_DebounceCoalesces verifies that a burst of
+// rapid trigger changes for the same room is coalesced into a single scene
+// activation after the debounce delay. Regression test for the 2026-05-25
+// arrival bug, where the lighting plugin fired three scene recalls in 474ms
+// and destabilized the Hue Bridge.
+func TestEvaluateAndActivateRoom_DebounceCoalesces(t *testing.T) {
+	t.Parallel()
+	env := testutil.NewEnv(t)
+	cfg := dynamicScenesConfig()
+	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, cfg, env.Logger, false, nil)
+
+	mockClock := clock.NewMockClock(time.Now())
+	manager.SetClock(mockClock)
+	manager.SetDebounceDelay(300 * time.Millisecond)
+
+	// State that makes the Primary Suite condition resolve to "on".
+	_ = env.StateMgr.SetBool("isMasterAsleep", false)
+
+	// Use the Kitchen (HasDynamics=false) to keep the scene call count
+	// straightforward — one call per fired evaluation.
+	room := &cfg.Rooms[1]
+	_ = env.StateMgr.SetBool("isAnyoneHome", true)
+
+	// Three rapid evaluations, all within the debounce window.
+	manager.evaluateAndActivateRoom(room, "Day", "trigger1")
+	manager.evaluateAndActivateRoom(room, "Day", "trigger2")
+	manager.evaluateAndActivateRoom(room, "Day", "trigger3")
+
+	// Before the debounce fires, no scene service calls.
+	calls := filterSceneCalls(env.MockHA.GetServiceCalls())
+	assert.Equal(t, 0, len(calls), "no scene calls before debounce delay elapses")
+
+	// Advance past the delay — debounce timer fires the coalesced evaluation.
+	mockClock.AdvanceAndProcess(310 * time.Millisecond)
+
+	calls = filterSceneCalls(env.MockHA.GetServiceCalls())
+	assert.Equal(t, 1, len(calls), "three rapid evaluations should coalesce to a single scene activation")
+}
+
+// TestEvaluateAndActivateRoom_DebounceIsolatesRooms verifies that each room's
+// debounce window is independent — coalescing within a room must not affect
+// other rooms' evaluations.
+func TestEvaluateAndActivateRoom_DebounceIsolatesRooms(t *testing.T) {
+	t.Parallel()
+	env := testutil.NewEnv(t)
+	cfg := dynamicScenesConfig()
+	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, cfg, env.Logger, false, nil)
+
+	mockClock := clock.NewMockClock(time.Now())
+	manager.SetClock(mockClock)
+	manager.SetDebounceDelay(300 * time.Millisecond)
+
+	// Both rooms resolve to "on".
+	_ = env.StateMgr.SetBool("isMasterAsleep", false)
+	_ = env.StateMgr.SetBool("isAnyoneHome", true)
+
+	primarySuite := &cfg.Rooms[0]
+	kitchen := &cfg.Rooms[1]
+
+	manager.evaluateAndActivateRoom(primarySuite, "Day", "trigger-a")
+	manager.evaluateAndActivateRoom(primarySuite, "Day", "trigger-b")
+	manager.evaluateAndActivateRoom(kitchen, "Day", "trigger-c")
+
+	mockClock.AdvanceAndProcess(310 * time.Millisecond)
+	// Both debounces have fired the room evaluation.
+	// Primary Suite (HasDynamics=true) only fires its static phase here;
+	// the dynamic phase needs another advance past twoStepRecallGap.
+	calls := filterSceneCalls(env.MockHA.GetServiceCalls())
+	if !assert.Equal(t, 2, len(calls), "each room's debounce fires independently") {
+		return
+	}
+
+	// Confirm both rooms were targeted (order is not guaranteed).
+	seenScenes := map[string]bool{}
+	for _, c := range calls {
+		seenScenes[c.Data["entity_id"].(string)] = true
+	}
+	assert.True(t, seenScenes["scene.primary_suite_day"], "Primary Suite scene fired")
+	assert.True(t, seenScenes["scene.kitchen_day"], "Kitchen scene fired")
+}
+
+// TestActivateScene_TwoStepForDynamicRoom verifies that activating a scene on
+// a room with HasDynamics=true issues two scene.turn_on calls: first with
+// dynamic=false (static recall), then after twoStepRecallGap with dynamic=true.
+func TestActivateScene_TwoStepForDynamicRoom(t *testing.T) {
+	t.Parallel()
+	env := testutil.NewEnv(t)
+	cfg := dynamicScenesConfig()
+	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, cfg, env.Logger, false, nil)
+
+	mockClock := clock.NewMockClock(time.Now())
+	manager.SetClock(mockClock)
+
+	room := &cfg.Rooms[0] // Primary Suite, HasDynamics=true
+	manager.activateScene(context.Background(), room, "Day", "dayPhase")
+
+	// Static phase should have fired synchronously.
+	calls := filterSceneCalls(env.MockHA.GetServiceCalls())
+	if !assert.Equal(t, 1, len(calls), "static phase fires immediately") {
+		return
+	}
+	assert.Equal(t, "scene.primary_suite_day", calls[0].Data["entity_id"])
+	assert.Equal(t, false, calls[0].Data["dynamic"], "first call is dynamic=false (static recall)")
+
+	// Dynamic phase should NOT have fired yet.
+	mockClock.AdvanceAndProcess(twoStepRecallGap - 100*time.Millisecond)
+	calls = filterSceneCalls(env.MockHA.GetServiceCalls())
+	assert.Equal(t, 1, len(calls), "dynamic phase has not fired before gap elapses")
+
+	// Advance past the gap — dynamic phase fires.
+	mockClock.AdvanceAndProcess(200 * time.Millisecond)
+	calls = filterSceneCalls(env.MockHA.GetServiceCalls())
+	if !assert.Equal(t, 2, len(calls), "dynamic phase fires after twoStepRecallGap") {
+		return
+	}
+	assert.Equal(t, "scene.primary_suite_day", calls[1].Data["entity_id"])
+	assert.Equal(t, true, calls[1].Data["dynamic"], "second call is dynamic=true (palette enabled)")
+}
+
+// TestActivateScene_SingleStepForNonDynamicRoom verifies that rooms without
+// HasDynamics fall back to the previous single-call behavior (no dynamic key
+// passed at all, so the Hue scene's own setting takes effect).
+func TestActivateScene_SingleStepForNonDynamicRoom(t *testing.T) {
+	t.Parallel()
+	env := testutil.NewEnv(t)
+	cfg := dynamicScenesConfig()
+	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, cfg, env.Logger, false, nil)
+
+	room := &cfg.Rooms[1] // Kitchen, HasDynamics=false
+	manager.activateScene(context.Background(), room, "Day", "dayPhase")
+
+	calls := filterSceneCalls(env.MockHA.GetServiceCalls())
+	if !assert.Equal(t, 1, len(calls), "non-dynamic room makes a single scene call") {
+		return
+	}
+	_, hasDynamic := calls[0].Data["dynamic"]
+	assert.False(t, hasDynamic, "non-dynamic room must not pass `dynamic` key")
+}
+
+// TestActivateScene_TwoStepAbortsOnContextCancel verifies that cancelling the
+// room-scoped context during the gap suppresses the dynamic phase.
+func TestActivateScene_TwoStepAbortsOnContextCancel(t *testing.T) {
+	t.Parallel()
+	env := testutil.NewEnv(t)
+	cfg := dynamicScenesConfig()
+	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, cfg, env.Logger, false, nil)
+
+	mockClock := clock.NewMockClock(time.Now())
+	manager.SetClock(mockClock)
+
+	room := &cfg.Rooms[0] // Primary Suite, HasDynamics=true
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	manager.activateScene(ctx, room, "Day", "dayPhase")
+
+	// Static phase fired.
+	if !assert.Equal(t, 1, len(filterSceneCalls(env.MockHA.GetServiceCalls()))) {
+		return
+	}
+
+	// Cancel BEFORE the gap elapses; the dynamic phase must not fire.
+	cancel()
+	mockClock.AdvanceAndProcess(twoStepRecallGap + 100*time.Millisecond)
+
+	calls := filterSceneCalls(env.MockHA.GetServiceCalls())
+	assert.Equal(t, 1, len(calls), "dynamic phase suppressed when context cancelled during gap")
+}
+
+// TestEvaluateAndActivateRoom_DebounceAndTwoStepEndToEnd is the integration
+// of the two mechanisms: a burst of three rapid evaluations on a dynamic room
+// should coalesce to a single doEvaluateAndActivateRoom call, which then
+// triggers a two-step recall — yielding exactly two scene.turn_on calls
+// total (one static + one dynamic). Six recalls in 500ms collapse to two,
+// matching the production timing the fix is designed to repair.
+func TestEvaluateAndActivateRoom_DebounceAndTwoStepEndToEnd(t *testing.T) {
+	t.Parallel()
+	env := testutil.NewEnv(t)
+	cfg := dynamicScenesConfig()
+	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, cfg, env.Logger, false, nil)
+
+	mockClock := clock.NewMockClock(time.Now())
+	manager.SetClock(mockClock)
+	manager.SetDebounceDelay(300 * time.Millisecond)
+
+	_ = env.StateMgr.SetBool("isMasterAsleep", false)
+
+	room := &cfg.Rooms[0] // Primary Suite
+	// Simulate the arrival burst — three near-simultaneous trigger changes.
+	manager.evaluateAndActivateRoom(room, "Day", "isAnyoneHome")
+	manager.evaluateAndActivateRoom(room, "Day", "isAnyOwnerHome")
+	manager.evaluateAndActivateRoom(room, "Day", "isAnyoneHomeAndAwake")
+
+	// No scene calls yet (debounce still pending).
+	assert.Equal(t, 0, len(filterSceneCalls(env.MockHA.GetServiceCalls())))
+
+	// Advance past the debounce — coalesced evaluation runs, static phase fires.
+	mockClock.AdvanceAndProcess(310 * time.Millisecond)
+	calls := filterSceneCalls(env.MockHA.GetServiceCalls())
+	if !assert.Equal(t, 1, len(calls), "exactly one static call after debounce coalesces") {
+		return
+	}
+	assert.Equal(t, false, calls[0].Data["dynamic"])
+
+	// Advance past the two-step gap — dynamic phase fires.
+	mockClock.AdvanceAndProcess(twoStepRecallGap + 50*time.Millisecond)
+	calls = filterSceneCalls(env.MockHA.GetServiceCalls())
+	if !assert.Equal(t, 2, len(calls), "static + dynamic = exactly 2 scene calls total") {
+		return
+	}
+	assert.Equal(t, true, calls[1].Data["dynamic"])
+}
+
+// filterSceneCalls returns only the `scene.turn_on` calls from a slice of
+// recorded service calls, so tests assert on scene activations without being
+// disturbed by unrelated state-sync writes.
+func filterSceneCalls(calls []ha.ServiceCall) []ha.ServiceCall {
+	out := make([]ha.ServiceCall, 0, len(calls))
+	for _, c := range calls {
+		if c.Domain == "scene" && c.Service == "turn_on" {
+			out = append(out, c)
+		}
+	}
+	return out
 }

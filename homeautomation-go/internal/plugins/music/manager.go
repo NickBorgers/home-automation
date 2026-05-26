@@ -106,6 +106,11 @@ type Manager struct {
 	zoneManager      *ZoneManager
 	debounceDelay    time.Duration // debounce delay for zone trigger changes
 	debounceDelaySet bool          // true if SetDebounceDelay was called explicitly
+
+	// Startup reconciliation: cache of m3u playlist contents (URI -> set of track URIs).
+	// Populated lazily on first lookup, kept for Manager lifetime — restart re-fetches.
+	m3uCache   map[string]map[string]struct{}
+	m3uCacheMu sync.Mutex
 }
 
 // NewManager creates a new Music manager
@@ -134,6 +139,7 @@ func NewManager(ctx context.Context, haClient ha.HAClient, stateManager *state.M
 		playbackInProgress: false,
 		availableSpeakers:  make(map[string]bool),
 		fadeInContexts:     make(map[string]context.CancelFunc),
+		m3uCache:           make(map[string]map[string]struct{}),
 	}
 }
 

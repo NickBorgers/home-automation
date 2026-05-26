@@ -61,8 +61,11 @@ func RegisterSolarEnergyLevelProvider(
 				return nil, err
 			}
 
-			// Default to black (lowest level)
-			level := "black"
+			// Default to the first configured level (lowest)
+			level := ""
+			if len(energyStates) > 0 {
+				level = energyStates[0].ConditionName
+			}
 
 			// Check each energy state in order
 			// Level is the highest where both conditions are met
@@ -95,9 +98,8 @@ func RegisterSolarEnergyLevelProvider(
 // Formula: level = combineEnergyLevels(batteryEnergyLevel, solarProductionEnergyLevel)
 //
 // The combination logic:
-//   - Solar can only boost, never drag down the battery level
-//   - The overall level is at least the battery level
-//   - If solar is higher, it can boost by at most 1 level
+//   - The overall level follows the stronger input, capped at one level above the weaker input
+//   - This allows active solar to boost a low battery without letting either input mask a weak other input
 //
 // Dependencies:
 //   - batteryEnergyLevel
@@ -140,25 +142,31 @@ func RegisterCurrentEnergyLevelProvider(
 				}
 			}
 
-			// Handle invalid levels
+			// Handle invalid levels — return the lowest configured level as a safe default
 			if batteryIndex == -1 || solarIndex == -1 {
 				ctx.Logger().Warn("Invalid battery or solar level",
 					zap.String("batteryLevel", batteryLevel),
 					zap.String("solarLevel", solarLevel))
-				return "black", nil
+				if len(levelNames) > 0 {
+					return levelNames[0], nil
+				}
+				return "", nil
 			}
 
-			// Solar can only boost, never drag down the battery level.
-			// The overall level is:
-			// - At least the battery level (solar never penalizes)
-			// - At most battery + 1 (solar can boost by one level if it's higher)
-			outputIndex := batteryIndex
-			if solarIndex > batteryIndex {
-				// Solar is higher, boost by at most 1
-				outputIndex = batteryIndex + 1
-				if solarIndex < outputIndex {
-					outputIndex = solarIndex
-				}
+			// Overall energy follows the stronger input, capped at one level above
+			// the weaker input. This prevents a high battery from producing white
+			// when solar is weak, while still allowing active solar to boost.
+			minIndex := batteryIndex
+			maxIndex := solarIndex
+			if solarIndex < batteryIndex {
+				minIndex = solarIndex
+				maxIndex = batteryIndex
+			}
+
+			outputIndex := maxIndex
+			maxAllowedIndex := minIndex + 1
+			if outputIndex > maxAllowedIndex {
+				outputIndex = maxAllowedIndex
 			}
 
 			// Clamp to valid range
