@@ -144,7 +144,7 @@ func TestScenario_LightingArrival_DebouncedTwoStepRecall(t *testing.T) {
 	// list update happens through normal service-call recording).
 	require.Eventually(t, func() bool {
 		return len(filterServiceCalls(server.GetServiceCallsSince(snapshot), "scene", "turn_on")) >= 2
-	}, 3*time.Second, 10*time.Millisecond, "dynamic phase should land")
+	}, stateWaitTimeout, 10*time.Millisecond, "dynamic phase should land")
 
 	sceneCallsAfterDynamic := filterServiceCalls(server.GetServiceCallsSince(snapshot), "scene", "turn_on")
 	require.Equal(t, 2, len(sceneCallsAfterDynamic),

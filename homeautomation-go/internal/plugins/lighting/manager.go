@@ -416,6 +416,8 @@ func (m *Manager) evaluateAndActivateRoom(room *RoomConfig, dayPhase string, tri
 		return
 	}
 
+	// Stop the previous timer. If the RealClock goroutine is mid-fire it blocks on
+	// debounceMu and exits cleanly once we release — no deadlock.
 	if rd.timer != nil {
 		rd.timer.Stop()
 	}
@@ -736,7 +738,9 @@ func (m *Manager) activateScene(ctx context.Context, room *RoomConfig, dayPhase 
 			zap.String("entity_id", sceneEntityID),
 			zap.Duration("gap", twoStepRecallGap))
 
-		dynamicData := serviceData
+		// dynamicData is a fresh copy; copyServiceData ensures the static-phase
+		// payload is not mutated when dynamic=true is added below.
+		dynamicData := copyServiceData(serviceData)
 		dynamicData["dynamic"] = true
 		roomName := room.HueGroup
 		m.clock.AfterFunc(twoStepRecallGap, func() {
