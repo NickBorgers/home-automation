@@ -244,6 +244,51 @@ flowchart LR
     style end_ fill:#ffd93d,color:#000
 ```
 
+## Scene Activation Reliability
+
+The lighting plugin protects against two Hue Bridge interaction quirks that
+manifest when a person arrives home from an "away" state:
+
+### Per-room debounce of evaluations
+
+Arrival flips several presence variables in a sub-second burst — `isNickHome`,
+`isAnyOwnerHome`, `isAnyoneHome`, `didOwnerJustReturnHome`,
+`isAnyoneHomeAndAwake`. Each one triggers a room re-evaluation. Without
+coalescing, the lighting plugin fires the same `scene.turn_on` several times
+back-to-back, which destabilizes Hue scenes with `auto_dynamic: true`.
+
+`evaluateAndActivateRoom` debounces per-room: subsequent calls within
+`defaultLightingDebounceDelay` (300ms) reset the timer and accumulate the
+trigger names. When the timer fires, a single evaluation runs against the
+most recent state, with a `debounced:...` trigger string for log
+observability. This mirrors the music plugin's zone-resolution debounce.
+
+### Two-step recall for dynamic scenes
+
+Rooms with `has_dynamics: true` in `hue_config.yaml` (e.g. Primary Suite)
+use Hue scenes whose `auto_dynamic` flag is on — the bridge runs an animated
+palette autonomously after recall. The bridge can fail to start the palette
+on bulbs that were off pre-recall (still mid-transition from the on
+command), leaving each bulb reverted to off at staggered times.
+
+`activateScene` works around this by issuing two calls:
+
+1. `scene.turn_on` with `dynamic: false` — static recall; bulbs settle at the
+   scene's base colors and brightness.
+2. After `twoStepRecallGap` (500ms), `scene.turn_on` with `dynamic: true` —
+   palette starts from a stable known state.
+
+The dynamic phase fires asynchronously via a timer callback. If the
+room-scoped context is cancelled during the gap (a newer evaluation came
+in), the dynamic phase is skipped.
+
+Rooms without `has_dynamics` make a single recall, with no `dynamic` key,
+deferring to the scene's own configuration.
+
+The 2026-05-25 production incident — three rapid scene recalls during
+arrival, dynamic palette failure, bedroom lights going off, statetracking
+incorrectly marking the occupants as asleep — drove both protections.
+
 ## Away Mode Lighting
 
 When no one is home, lighting enters away mode:
