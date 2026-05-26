@@ -64,6 +64,13 @@ type Manager struct {
 	stopOnce sync.Once
 	doneChan chan struct{}
 
+	// reloadWG tracks in-flight reload goroutines so Stop() can drain them
+	// before returning. Without this, Stop() returns while reload goroutines
+	// are still sleeping in the post-reload delay and touching m.haClient /
+	// ts.mu — benign at process shutdown, but a footgun for tests or any
+	// future caller that tears down shared objects after Stop().
+	reloadWG sync.WaitGroup
+
 	// Injectable for tests.
 	timeNow   func() time.Time
 	sleepFunc func(time.Duration)
@@ -175,6 +182,7 @@ func (m *Manager) Stop() {
 		close(m.stopChan)
 	})
 	<-m.doneChan
+	m.reloadWG.Wait()
 	m.subHelper.UnsubscribeAll()
 }
 
@@ -301,12 +309,15 @@ func (m *Manager) evaluateTarget(name string) {
 	}
 
 	// Trigger reload (async — caller may be a subscription handler we mustn't block).
+	m.reloadWG.Add(1)
 	go m.reloadIntegration(name, reason)
 }
 
 // reloadIntegration performs a reload attempt subject to cooldown, daily-cap,
 // in-progress, and read-only safeguards.
 func (m *Manager) reloadIntegration(name, trigger string) {
+	defer m.reloadWG.Done()
+
 	ts, ok := m.targets[name]
 	if !ok {
 		return
