@@ -536,7 +536,9 @@ func TestEvaluateAllRooms_IsAnyoneHomeTriggersAnyoneHomeAndAwakeRooms(t *testing
 	manager.evaluateAllRooms("Day", "isAnyoneHome")
 
 	calls := env.MockHA.GetServiceCallsSince(snapshot)
-	assert.Len(t, calls, 1, "isAnyoneHome should re-evaluate rooms that depend on isAnyoneHomeAndAwake")
+	if !assert.Len(t, calls, 1, "isAnyoneHome should re-evaluate rooms that depend on isAnyoneHomeAndAwake") {
+		return
+	}
 	assert.Equal(t, "scene", calls[0].Domain)
 	assert.Equal(t, "turn_on", calls[0].Service)
 	assert.Equal(t, "scene.sitting_room_day", calls[0].Data["entity_id"])
