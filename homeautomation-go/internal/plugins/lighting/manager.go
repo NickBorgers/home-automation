@@ -749,7 +749,7 @@ func (m *Manager) activateScene(ctx context.Context, room *RoomConfig, dayPhase 
 					zap.Error(fallbackErr))
 				return
 			}
-			m.logger.Warn("Applied basic scene activation after dynamic recall failed",
+			m.logger.Warn("Applied basic scene activation; hue.activate_scene unavailable",
 				zap.String("room", room.HueGroup),
 				zap.String("scene", dayPhase),
 				zap.String("entity_id", sceneEntityID))
@@ -814,6 +814,10 @@ func (m *Manager) activateSceneDynamicPhase(ctx context.Context, roomName, scene
 			zap.String("entity_id", sceneEntityID))
 		return
 	}
+	// No scene.turn_on fallback here: scene.turn_on cannot start a Hue dynamic
+	// palette, so falling back would just silently leave the room with static
+	// colors — the same outcome as a do-nothing. The static phase already
+	// ensured the room is lit; this failure only means the palette won't animate.
 	if err := m.haClient.CallService(ctx, "hue", "activate_scene", dynamicData); err != nil {
 		if ctx.Err() != nil {
 			m.logger.Info("Dynamic phase superseded by newer evaluation",
