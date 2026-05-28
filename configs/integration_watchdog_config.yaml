@@ -15,18 +15,21 @@ watch_targets:
   # Span Panel — Most of House (the "left" / kitchen-side panel).
   # Battery percentage feeds the energy plugin; when it goes "unknown" the energy
   # state silently degrades to red and load shedding engages on a healthy house.
+  #
+  # Entity list intentionally excludes:
+  #   - cellular_link: normally off (backup radio, only powered on during outages)
+  #   - wi_fi_link: flaps from intermittent wifi without indicating integration health
+  # The battery sensor + panel_status are the real health signals.
   - name: span_left
     integration_name: "Span Panel — Most of House"
     entities:
       - sensor.span_panel_span_storage_battery_percentage_2
       - binary_sensor.span_left_most_of_house_panel_status
-      - binary_sensor.span_left_most_of_house_cellular_link
-      - binary_sensor.span_left_most_of_house_wi_fi_link
     config_entry_id: "01JSB74PV6YA6AH8KMQ76744JV"
     detection:
       bad_states: ["unknown", "unavailable"]
       bad_state_duration_min: 10
-      stale_last_updated_min: 60
+      stale_last_updated_min: 0  # disabled: our last_updated only ticks on state-change subscriptions, so stable-state entities false-positive
     reload:
       cooldown_min: 15
       daily_max: 6
@@ -38,21 +41,19 @@ watch_targets:
     entities:
       - sensor.span_panel_span_storage_battery_percentage
       - binary_sensor.span_right_hvac_and_well_panel_status
-      - binary_sensor.span_right_hvac_and_well_cellular_link
-      - binary_sensor.span_right_hvac_and_well_wi_fi_link
     config_entry_id: "01JSCAXC40GQ548TRDTNC9YZ34"
     detection:
       bad_states: ["unknown", "unavailable"]
       bad_state_duration_min: 10
-      stale_last_updated_min: 60
+      stale_last_updated_min: 0  # disabled: see span_left note
     reload:
       cooldown_min: 15
       daily_max: 6
       post_reload_delay_sec: 10
 
-  # Apple TV media player. When the integration freezes, media_player state stops
-  # advancing — give it a wide last_updated window because legitimate idle TV can
-  # be quiet for hours.
+  # Apple TV media player. When the integration freezes HA marks the entity
+  # unavailable; that's the signal we trust. A legitimately off/idle TV is not a
+  # broken integration.
   - name: apple_tv
     integration_name: "Apple TV"
     entities:
@@ -61,7 +62,7 @@ watch_targets:
     detection:
       bad_states: ["unavailable"]
       bad_state_duration_min: 30
-      stale_last_updated_min: 360
+      stale_last_updated_min: 0  # disabled: idle/off TVs don't tick last_updated and aren't broken
     reload:
       cooldown_min: 30
       daily_max: 4
@@ -77,7 +78,7 @@ watch_targets:
     detection:
       bad_states: ["unavailable"]
       bad_state_duration_min: 10
-      stale_last_updated_min: 30
+      stale_last_updated_min: 0  # disabled: off TVs don't tick last_updated and aren't broken
     reload:
       cooldown_min: 5
       daily_max: 10
