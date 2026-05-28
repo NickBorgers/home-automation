@@ -1407,8 +1407,10 @@ func TestGetGroupCoordinator_NoSocoURL(t *testing.T) {
 	}
 }
 
-func TestAnnounceArrivalDirect_UsesGroupCoordinator(t *testing.T) {
-	// Set up a mock SoCo server that reports Front Room as group coordinator
+func TestAnnounceArrivalDirect_PreservesSpeakersWhenGrouped(t *testing.T) {
+	// Set up a mock SoCo server that reports Front Room as group coordinator.
+	// Arrival TTS uses HA announce mode, so the target list must not collapse to
+	// a single coordinator when Sonos is grouped.
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(socoGroupsResponse{
 			ExitCode: 0,
@@ -1426,15 +1428,30 @@ func TestAnnounceArrivalDirect_UsesGroupCoordinator(t *testing.T) {
 	manager.announceArrivalDirect("Nick", "Nick is home", []string{
 		"media_player.kitchen",
 		"media_player.sitting_room",
-		"media_player.soundbar",
+		"media_player.front_room",
+		"media_player.kids_bathroom",
+		"media_player.office",
 	})
 
 	calls := mockAlerter.Calls()
 	if len(calls) != 1 {
 		t.Fatalf("Expected exactly 1 announcement, got %d", len(calls))
 	}
-	if len(calls[0].Speakers) != 1 || calls[0].Speakers[0] != "media_player.front_room" {
-		t.Errorf("Expected announcement to target [media_player.front_room], got %v", calls[0].Speakers)
+	expectedSpeakers := []string{
+		"media_player.kitchen",
+		"media_player.sitting_room",
+		"media_player.front_room",
+		"media_player.kids_bathroom",
+		"media_player.office",
+	}
+	if len(calls[0].Speakers) != len(expectedSpeakers) {
+		t.Fatalf("Expected %d speakers, got %d: %v",
+			len(expectedSpeakers), len(calls[0].Speakers), calls[0].Speakers)
+	}
+	for i, expected := range expectedSpeakers {
+		if calls[0].Speakers[i] != expected {
+			t.Errorf("Expected speaker %d to be %q, got %q", i, expected, calls[0].Speakers[i])
+		}
 	}
 }
 

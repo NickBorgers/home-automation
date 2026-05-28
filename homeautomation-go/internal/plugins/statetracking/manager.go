@@ -787,15 +787,6 @@ func (m *Manager) getGroupCoordinator(speakerEntityID string) string {
 // announceArrivalDirect makes an arrival announcement via the shared alerter
 // (caller has already checked if someone is home).
 func (m *Manager) announceArrivalDirect(person, message string, mediaPlayers []string) {
-	// Check if any target speaker is in a Sonos group; if so, send TTS to the
-	// group coordinator only (sending to individual group members breaks playback).
-	if coordinator := m.getGroupCoordinator(mediaPlayers[0]); coordinator != "" {
-		m.logger.Info("TTS targeting Sonos group coordinator instead of default speakers",
-			zap.String("coordinator", coordinator),
-			zap.Strings("original_speakers", mediaPlayers))
-		mediaPlayers = []string{coordinator}
-	}
-
 	m.logger.Info("Announcing arrival",
 		zap.String("person", person),
 		zap.String("message", message),
