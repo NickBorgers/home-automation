@@ -271,12 +271,16 @@ palette autonomously after recall. The bridge can fail to start the palette
 on bulbs that were off pre-recall (still mid-transition from the on
 command), leaving each bulb reverted to off at staggered times.
 
-`activateScene` works around this by issuing two calls:
+`activateScene` works around this by issuing two Hue integration calls:
 
-1. `scene.turn_on` with `dynamic: false` — static recall; bulbs settle at the
+1. `hue.activate_scene` with `dynamic: false` — static recall; bulbs settle at the
    scene's base colors and brightness.
-2. After `twoStepRecallGap` (500ms), `scene.turn_on` with `dynamic: true` —
+2. After `twoStepRecallGap` (500ms), `hue.activate_scene` with `dynamic: true` —
    palette starts from a stable known state.
+
+If the first Hue-specific call fails, the plugin falls back to a basic
+`scene.turn_on` without Hue-only dynamic options so the room still receives
+the requested scene.
 
 The dynamic phase fires asynchronously via a timer callback. If the
 room-scoped context is cancelled during the gap (a newer evaluation came

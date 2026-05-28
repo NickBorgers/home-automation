@@ -711,17 +711,17 @@ func (m *Manager) activateScene(ctx context.Context, room *RoomConfig, dayPhase 
 		serviceData["transition"] = transition
 	}
 
-	// For rooms whose Hue scene has `auto_dynamic: true`, do a two-step recall:
-	// first activate the scene as static so the bulbs settle at the scene's
-	// base colors/brightness, then re-activate with dynamics so the animated
-	// palette starts from a stable state. The bridge has been observed to
-	// fail to start the dynamic palette on bulbs mid-transition (2026-05-25
-	// incident); the pre-settle eliminates that race. The dynamic phase fires
-	// asynchronously via a timer callback so this function does not block.
+	// For rooms whose Hue scene has `auto_dynamic: true`, do a two-step Hue
+	// recall: first activate the scene as static so the bulbs settle at the
+	// scene's base colors/brightness, then re-activate with dynamics so the
+	// animated palette starts from a stable state. Generic scene.turn_on does
+	// not accept Hue dynamic options; use hue.activate_scene for those phases.
+	// The dynamic phase fires asynchronously via a timer callback so this
+	// function does not block.
 	if room.HasDynamics {
 		staticData := copyServiceData(serviceData)
 		staticData["dynamic"] = false
-		if err := m.haClient.CallService(ctx, "scene", "turn_on", staticData); err != nil {
+		if err := m.haClient.CallService(ctx, "hue", "activate_scene", staticData); err != nil {
 			if ctx.Err() != nil {
 				m.logger.Info("Scene activation superseded by newer evaluation",
 					zap.String("room", room.HueGroup),
@@ -729,11 +729,33 @@ func (m *Manager) activateScene(ctx context.Context, room *RoomConfig, dayPhase 
 					zap.String("entity_id", sceneEntityID))
 				return
 			}
-			m.logger.Error("Failed to activate static phase of dynamic scene",
+			m.logger.Warn("Failed to activate static phase of dynamic scene; falling back to basic scene activation",
 				zap.String("room", room.HueGroup),
 				zap.String("scene", dayPhase),
 				zap.String("entity_id", sceneEntityID),
 				zap.Error(err))
+			if fallbackErr := m.haClient.CallService(ctx, "scene", "turn_on", serviceData); fallbackErr != nil {
+				if ctx.Err() != nil {
+					m.logger.Info("Scene activation fallback superseded by newer evaluation",
+						zap.String("room", room.HueGroup),
+						zap.String("scene", dayPhase),
+						zap.String("entity_id", sceneEntityID))
+					return
+				}
+				m.logger.Error("Failed to activate fallback scene",
+					zap.String("room", room.HueGroup),
+					zap.String("scene", dayPhase),
+					zap.String("entity_id", sceneEntityID),
+					zap.Error(fallbackErr))
+				return
+			}
+			m.logger.Warn("Applied basic scene activation after dynamic recall failed",
+				zap.String("room", room.HueGroup),
+				zap.String("scene", dayPhase),
+				zap.String("entity_id", sceneEntityID))
+			m.recordAction(room.HueGroup, "activate_scene",
+				fmt.Sprintf("Activated scene '%s' (dynamic fallback)", dayPhase),
+				dayPhase, false, trigger)
 			return
 		}
 		m.logger.Info("Static phase of dynamic scene activated; scheduling dynamic phase",
@@ -781,7 +803,7 @@ func (m *Manager) activateScene(ctx context.Context, room *RoomConfig, dayPhase 
 		dayPhase, false, trigger)
 }
 
-// activateSceneDynamicPhase issues the second `scene.turn_on` call of a
+// activateSceneDynamicPhase issues the second `hue.activate_scene` call of a
 // two-step recall, with `dynamic: true`, after the inter-phase gap has
 // elapsed. If the room-scoped context has been cancelled by a newer
 // evaluation in the meantime, the dynamic phase is skipped.
@@ -792,7 +814,7 @@ func (m *Manager) activateSceneDynamicPhase(ctx context.Context, roomName, scene
 			zap.String("entity_id", sceneEntityID))
 		return
 	}
-	if err := m.haClient.CallService(ctx, "scene", "turn_on", dynamicData); err != nil {
+	if err := m.haClient.CallService(ctx, "hue", "activate_scene", dynamicData); err != nil {
 		if ctx.Err() != nil {
 			m.logger.Info("Dynamic phase superseded by newer evaluation",
 				zap.String("room", roomName),

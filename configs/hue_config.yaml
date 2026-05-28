@@ -28,8 +28,9 @@ rooms:
     # The "day"/"evening"/etc Hue scenes for this room have `auto_dynamic: true`
     # (animated palette). The bridge's autonomous palette has been observed to
     # fail to start when bulbs are mid-transition or cold, leaving bulbs off.
-    # `has_dynamics: true` opts this room into two-step recall (static first,
-    # then dynamic) so the palette starts from a stable known state.
+    # `has_dynamics: true` opts this room into hue.activate_scene two-step
+    # recall (static first, then dynamic) so the palette starts from a stable
+    # known state.
     has_dynamics: true
     conditions:
       # CRITICAL: isWakeSequenceActive and isMasterAsleep MUST be checked
