@@ -2,9 +2,6 @@ package statetracking
 
 import (
 	"context"
-	"encoding/json"
-	"net/http"
-	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -1284,146 +1281,14 @@ func TestStateTrackingManager_ArrivalDebounce_FirstArrivalNotSuppressed(t *testi
 	}
 }
 
-func TestEntityIDToSpeakerName(t *testing.T) {
-	tests := []struct {
-		entityID string
-		expected string
-	}{
-		{"media_player.kitchen", "Kitchen"},
-		{"media_player.front_room", "Front Room"},
-		{"media_player.kids_bathroom", "Kids Bathroom"},
-		{"media_player.primary_bathroom", "Primary Bathroom"},
-	}
-	for _, tt := range tests {
-		if got := entityIDToSpeakerName(tt.entityID); got != tt.expected {
-			t.Errorf("entityIDToSpeakerName(%q) = %q, want %q", tt.entityID, got, tt.expected)
-		}
-	}
-}
-
-func TestSpeakerNameToEntityID(t *testing.T) {
-	tests := []struct {
-		name     string
-		expected string
-	}{
-		{"Kitchen", "media_player.kitchen"},
-		{"Front Room", "media_player.front_room"},
-		{"Kids Bathroom", "media_player.kids_bathroom"},
-	}
-	for _, tt := range tests {
-		if got := speakerNameToEntityID(tt.name); got != tt.expected {
-			t.Errorf("speakerNameToEntityID(%q) = %q, want %q", tt.name, got, tt.expected)
-		}
-	}
-}
-
-func TestGetGroupCoordinator(t *testing.T) {
-	tests := []struct {
-		name          string
-		socoResponse  socoGroupsResponse
-		speakerEntity string
-		wantCoord     string
-		socoDown      bool
-	}{
-		{
-			name: "speaker is group member - returns coordinator",
-			socoResponse: socoGroupsResponse{
-				ExitCode: 0,
-				Result:   "\nFront Room: Primary Bathroom, Kitchen, Bedroom, Kids Bathroom, Sitting Room\nSoundbar: \nBarn:\n",
-			},
-			speakerEntity: "media_player.kitchen",
-			wantCoord:     "media_player.front_room",
-		},
-		{
-			name: "speaker is the coordinator - returns itself",
-			socoResponse: socoGroupsResponse{
-				ExitCode: 0,
-				Result:   "\nFront Room: Primary Bathroom, Kitchen\nSoundbar: \n",
-			},
-			speakerEntity: "media_player.front_room",
-			wantCoord:     "media_player.front_room",
-		},
-		{
-			name: "speaker is standalone - returns empty",
-			socoResponse: socoGroupsResponse{
-				ExitCode: 0,
-				Result:   "\nFront Room: Kitchen\nSoundbar: \nBarn:\n",
-			},
-			speakerEntity: "media_player.barn",
-			wantCoord:     "",
-		},
-		{
-			name: "soco error - returns empty for graceful fallback",
-			socoResponse: socoGroupsResponse{
-				ExitCode: 1,
-				ErrorMsg: "speaker not found",
-			},
-			speakerEntity: "media_player.kitchen",
-			wantCoord:     "",
-		},
-		{
-			name:          "soco unavailable - returns empty for graceful fallback",
-			speakerEntity: "media_player.kitchen",
-			wantCoord:     "",
-			socoDown:      true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			var serverURL string
-			if tt.socoDown {
-				serverURL = "http://127.0.0.1:1" // unreachable
-			} else {
-				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-					json.NewEncoder(w).Encode(tt.socoResponse)
-				}))
-				defer server.Close()
-				serverURL = server.URL
-			}
-
-			logger := zap.NewNop()
-			mockHA := ha.NewMockClient()
-			stateMgr := state.NewManager(mockHA, logger, false)
-			manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil, serverURL, &alert.MockAlerter{})
-
-			got := manager.getGroupCoordinator(tt.speakerEntity)
-			if got != tt.wantCoord {
-				t.Errorf("getGroupCoordinator(%q) = %q, want %q", tt.speakerEntity, got, tt.wantCoord)
-			}
-		})
-	}
-}
-
-func TestGetGroupCoordinator_NoSocoURL(t *testing.T) {
-	logger := zap.NewNop()
-	mockHA := ha.NewMockClient()
-	stateMgr := state.NewManager(mockHA, logger, false)
-	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil, "", &alert.MockAlerter{})
-
-	got := manager.getGroupCoordinator("media_player.kitchen")
-	if got != "" {
-		t.Errorf("expected empty string when socoCliURL is empty, got %q", got)
-	}
-}
-
 func TestAnnounceArrivalDirect_PreservesSpeakersWhenGrouped(t *testing.T) {
-	// Set up a mock SoCo server that reports Front Room as group coordinator.
-	// Arrival TTS uses HA announce mode, so the target list must not collapse to
-	// a single coordinator when Sonos is grouped.
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(socoGroupsResponse{
-			ExitCode: 0,
-			Result:   "\nFront Room: Primary Bathroom, Kitchen, Bedroom\nSoundbar: \n",
-		})
-	}))
-	defer server.Close()
-
+	// Arrival TTS uses HA announce mode; the target list must not be rewritten
+	// even when Sonos speakers are grouped (regression: #1145).
 	logger := zap.NewNop()
 	mockHA := ha.NewMockClient()
 	stateMgr := state.NewManager(mockHA, logger, false)
 	mockAlerter := &alert.MockAlerter{}
-	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil, server.URL, mockAlerter)
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil, "", mockAlerter)
 
 	manager.announceArrivalDirect("Nick", "Nick is home", []string{
 		"media_player.kitchen",
@@ -1452,28 +1317,5 @@ func TestAnnounceArrivalDirect_PreservesSpeakersWhenGrouped(t *testing.T) {
 		if calls[0].Speakers[i] != expected {
 			t.Errorf("Expected speaker %d to be %q, got %q", i, expected, calls[0].Speakers[i])
 		}
-	}
-}
-
-func TestAnnounceArrivalDirect_FallsBackWhenSocoDown(t *testing.T) {
-	logger := zap.NewNop()
-	mockHA := ha.NewMockClient()
-	stateMgr := state.NewManager(mockHA, logger, false)
-	mockAlerter := &alert.MockAlerter{}
-	// Use unreachable URL to simulate SoCo being down
-	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil, "http://127.0.0.1:1", mockAlerter)
-
-	defaultSpeakers := []string{
-		"media_player.kitchen",
-		"media_player.sitting_room",
-	}
-	manager.announceArrivalDirect("Nick", "Nick is home", defaultSpeakers)
-
-	calls := mockAlerter.Calls()
-	if len(calls) != 1 {
-		t.Fatalf("Expected exactly 1 announcement even when SoCo is down, got %d", len(calls))
-	}
-	if len(calls[0].Speakers) != 2 {
-		t.Errorf("Expected fallback to default speakers (2), got %v", calls[0].Speakers)
 	}
 }
