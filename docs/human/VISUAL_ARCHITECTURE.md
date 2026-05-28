@@ -786,9 +786,9 @@ flowchart TD
     GetSceneOn2 --> FormatScene2[Format Scene Name:<br/>room/dayPhase]
     GetSceneDefault --> FormatScene3[Format Scene Name:<br/>room/dayPhase]
 
-    FormatScene1 --> ActivateScene1[Call scene.turn_on<br/>entity_id: scene.ROOM_SCENE]
-    FormatScene2 --> ActivateScene2[Call scene.turn_on<br/>entity_id: scene.ROOM_SCENE]
-    FormatScene3 --> ActivateScene3[Call scene.turn_on<br/>entity_id: scene.ROOM_SCENE]
+    FormatScene1 --> ActivateScene1[activateScene()<br/>hue or scene]
+    FormatScene2 --> ActivateScene2[activateScene()<br/>hue or scene]
+    FormatScene3 --> ActivateScene3[activateScene()<br/>hue or scene]
 
     TurnOff1 --> CallLightOff1[Call light.turn_off<br/>for room entities]
     TurnOff2 --> CallLightOff2[Call light.turn_off<br/>for room entities]

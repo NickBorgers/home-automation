@@ -32,10 +32,10 @@ type RoomConfig struct {
 	// HasDynamics opts the room into two-step scene recall for Hue scenes that
 	// have `auto_dynamic: true` (an animated palette). The bridge can fail to
 	// start the dynamic palette when bulbs are mid-transition or cold; each
-	// affected bulb reverts to its pre-recall state. Two-step recall sends the
-	// scene first with `dynamic: false` (lights settle at the scene's static
-	// colors), waits briefly, then sends it again with `dynamic: true` so the
-	// palette starts from a stable known state.
+	// affected bulb reverts to its pre-recall state. Two-step recall uses
+	// hue.activate_scene first with `dynamic: false` (lights settle at the
+	// scene's static colors), waits briefly, then sends it again with
+	// `dynamic: true` so the palette starts from a stable known state.
 	HasDynamics bool `yaml:"has_dynamics"`
 }
 
