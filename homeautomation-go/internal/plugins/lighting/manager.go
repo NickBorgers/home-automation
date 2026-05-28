@@ -547,6 +547,9 @@ func (m *Manager) isTopicRelevant(room *RoomConfig, trigger string) bool {
 		if cond.Variable == trigger {
 			return true
 		}
+		if trigger == "isAnyoneHome" && cond.Variable == "isAnyoneHomeAndAwake" {
+			return true
+		}
 	}
 
 	return false

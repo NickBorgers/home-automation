@@ -478,6 +478,14 @@ func TestIsTopicRelevant(t *testing.T) {
 	t.Parallel()
 	env := testutil.NewEnv(t)
 	config := createTestConfig()
+	config.Rooms = append(config.Rooms, RoomConfig{
+		HueGroup:   "Sitting Room",
+		HASSAreaID: "dining_room",
+		Conditions: []LightingCondition{
+			{Action: "off", Variable: "isAnyoneHomeAndAwake", Value: false},
+			{Action: "on", Variable: "isAnyoneHomeAndAwake", Value: true},
+		},
+	})
 	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, false, nil)
 
 	tests := []struct {
@@ -491,6 +499,7 @@ func TestIsTopicRelevant(t *testing.T) {
 		{"reset is always relevant", 0, "reset", true},
 		{"empty trigger is always relevant", 0, "", true},
 		{"isAnyoneHome relevant to Living Room", 0, "isAnyoneHome", true},
+		{"isAnyoneHome relevant to rooms using isAnyoneHomeAndAwake", 3, "isAnyoneHome", true},
 		{"isMasterAsleep not relevant to Living Room", 0, "isMasterAsleep", false},
 		{"isMasterAsleep relevant to Primary Suite", 1, "isMasterAsleep", true},
 		{"unrelated variable not relevant", 0, "isKitchenOccupied", false},
@@ -502,6 +511,37 @@ func TestIsTopicRelevant(t *testing.T) {
 			assert.Equal(t, tt.expected, result)
 		})
 	}
+}
+
+func TestEvaluateAllRooms_IsAnyoneHomeTriggersAnyoneHomeAndAwakeRooms(t *testing.T) {
+	t.Parallel()
+	env := testutil.NewEnv(t)
+	config := &HueConfig{
+		Rooms: []RoomConfig{
+			{
+				HueGroup:   "Sitting Room",
+				HASSAreaID: "dining_room",
+				Conditions: []LightingCondition{
+					{Action: "off", Variable: "isAnyoneHomeAndAwake", Value: false},
+					{Action: "on", Variable: "isAnyoneHomeAndAwake", Value: true},
+				},
+			},
+		},
+	}
+	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, false, nil)
+
+	_ = env.StateMgr.SetBool("isAnyoneHomeAndAwake", true)
+	snapshot := env.MockHA.ServiceCallCount()
+
+	manager.evaluateAllRooms("Day", "isAnyoneHome")
+
+	calls := env.MockHA.GetServiceCallsSince(snapshot)
+	if !assert.Len(t, calls, 1, "isAnyoneHome should re-evaluate rooms that depend on isAnyoneHomeAndAwake") {
+		return
+	}
+	assert.Equal(t, "scene", calls[0].Domain)
+	assert.Equal(t, "turn_on", calls[0].Service)
+	assert.Equal(t, "scene.sitting_room_day", calls[0].Data["entity_id"])
 }
 
 func TestGetStateValue(t *testing.T) {
