@@ -437,14 +437,27 @@ func (m *Manager) checkTimeTriggers() {
 		}
 	}
 
-	// Check go_to_bed trigger
+	// Check go_to_bed trigger.
+	//
+	// Sleep prep is gated on isAnyoneHome: starting it with an empty house
+	// sets isSleepPrepActive=true, which causes the lighting plugin to skip
+	// the bedroom when the owner later arrives — no welcome scene. Skipping
+	// without marking triggered lets the next 1-min tick fire it once
+	// someone is home (still within the 1-hour window).
 	if now.After(schedule.GoToBed) && now.Before(schedule.GoToBed.Add(ONE_HOUR)) {
 		if _, triggered := m.triggeredToday["go_to_bed"]; !triggered {
-			m.logger.Info("Triggering go_to_bed",
-				zap.Time("go_to_bed_time", schedule.GoToBed),
-				zap.Time("now", now))
-			m.triggeredToday["go_to_bed"] = now
-			m.handleGoToBed()
+			isAnyoneHome, _ := m.stateManager.GetBool("isAnyoneHome")
+			if !isAnyoneHome {
+				m.logger.Debug("Deferring go_to_bed: no one home",
+					zap.Time("go_to_bed_time", schedule.GoToBed),
+					zap.Time("now", now))
+			} else {
+				m.logger.Info("Triggering go_to_bed",
+					zap.Time("go_to_bed_time", schedule.GoToBed),
+					zap.Time("now", now))
+				m.triggeredToday["go_to_bed"] = now
+				m.handleGoToBed()
+			}
 		}
 	}
 
