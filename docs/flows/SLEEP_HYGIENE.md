@@ -22,13 +22,12 @@ flowchart TD
 
     subgraph Actions["Triggered Actions"]
         flashLights1["Flash common area lights"]
+        checkHome{"isAnyoneHome?"}
         flashLights2["Flash common area lights"]
         startSleep["Set musicPlaybackType = sleep"]
         triggerWake["Trigger wake sequence"]
         defer["Defer: retry next 1-min tick"]
     end
-
-    checkHome{"isAnyoneHome?"}
 
     stopScreens --> flashLights1
     goToBed --> checkHome
@@ -50,6 +49,13 @@ flowchart TD
 | `stop_screens` | `schedule_config.yaml` | Reminder to turn off screens |
 | `go_to_bed` | `schedule_config.yaml` | Bedtime reminder + sleep music; deferred when no one is home |
 | `begin_backup_wake` | `schedule_config.yaml` | Backup wake if Eight Sleep unavailable |
+
+### Presence Gate
+
+`go_to_bed` checks `isAnyoneHome` before marking the scheduled trigger as fired. If no one is home, the trigger is left unmarked so the normal 1-minute tick retries while the trigger remains inside its 1-hour window.
+
+This avoids setting `isSleepPrepActive=true` with an empty house. If sleep prep were active before anyone arrived, the lighting plugin would suppress the bedroom welcome scene on arrival.
+
 ## Wake-Up Sequence
 
 The primary wake trigger comes from Eight Sleep Pod alarm sensors. A backup time-based trigger activates only when Eight Sleep is unavailable.
