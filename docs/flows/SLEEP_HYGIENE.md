@@ -20,6 +20,11 @@ flowchart TD
         backupWake["begin_backup_wake<br/>(~07:00)"]
     end
 
+    subgraph Gate["Presence Gate"]
+        checkHome{"isAnyoneHome?"}
+        deferGoToBed["Defer go_to_bed<br/>(retry next tick)"]
+    end
+
     subgraph Actions["Triggered Actions"]
         flashLights1["Flash common area lights"]
         flashLights2["Flash common area lights"]
@@ -28,8 +33,10 @@ flowchart TD
     end
 
     stopScreens --> flashLights1
-    goToBed --> flashLights2
-    goToBed --> startSleep
+    goToBed --> checkHome
+    checkHome -->|Yes| flashLights2
+    checkHome -->|Yes| startSleep
+    checkHome -->|No| deferGoToBed
     backupWake --> triggerWake
 
     style stopScreens fill:#f39c12,color:#fff
@@ -44,6 +51,14 @@ flowchart TD
 | `stop_screens` | `schedule_config.yaml` | Reminder to turn off screens |
 | `go_to_bed` | `schedule_config.yaml` | Bedtime reminder + sleep music |
 | `begin_backup_wake` | `schedule_config.yaml` | Backup wake if Eight Sleep unavailable |
+
+### Presence Gate
+
+`go_to_bed` checks `isAnyoneHome` before marking the scheduled trigger as fired. If no one is home, the trigger is left unmarked so the normal 1-minute tick retries while the trigger remains inside its 1-hour window.
+
+This avoids setting `isSleepPrepActive=true` with an empty house. If sleep prep were active before anyone arrived, the lighting plugin would suppress the bedroom welcome scene on arrival.
+
+If no one arrives within the 1-hour window, `go_to_bed` is skipped for the night and clears at midnight with the other triggers.
 
 ## Wake-Up Sequence
 
