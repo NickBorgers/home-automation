@@ -7,6 +7,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
+	"homeautomation/internal/clock"
 	"homeautomation/internal/config"
 	"homeautomation/internal/ha"
 	"homeautomation/internal/state"
@@ -528,6 +529,7 @@ func TestCheckTimeTriggers_GoToBed_DeferredWhenEmpty(t *testing.T) {
 	// Inside the go_to_bed trigger window (schedule is 22:30, window is 1h).
 	now := time.Date(2024, 1, 15, 23, 0, 0, 0, time.UTC)
 	manager, _, stateManager, configLoader := setupTest(t, now)
+	configLoader.SetClock(clock.NewMockClock(now))
 	if err := configLoader.LoadScheduleConfig(); err != nil {
 		t.Skipf("Skipping test: schedule config not available: %v", err)
 	}
