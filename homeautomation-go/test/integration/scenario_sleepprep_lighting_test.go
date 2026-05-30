@@ -6,11 +6,13 @@ import (
 	"testing"
 	"time"
 
+	"homeautomation/internal/clock"
 	"homeautomation/internal/config"
 	"homeautomation/internal/plugins/lighting"
 	"homeautomation/internal/plugins/sleephygiene"
 	"homeautomation/internal/state"
 	"homeautomation/internal/testlogger"
+	"homeautomation/pkg/plugin"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -168,4 +170,89 @@ func TestScenario_SleepPrepNotActive_LightingControlsBedroom(t *testing.T) {
 	sceneActivations := filterServiceCalls(calls, "scene", "turn_on")
 	assert.Greater(t, len(sceneActivations), 0,
 		"Should activate scenes when isSleepPrepActive=false")
+}
+
+// TestScenario_GoToBedDeferredUntilArrival_BedroomWelcomeNotSuppressed validates
+// the production invariant from the empty-house bedtime incident:
+//
+// GIVEN no one is home at go_to_bed time, sleep prep must defer and leave
+// isSleepPrepActive=false.
+// WHEN someone arrives inside the 1-hour go_to_bed window, the lighting plugin
+// must run the bedroom welcome scene while isSleepPrepActive is still false.
+// THEN the next scheduled sleep hygiene tick may fire go_to_bed and set
+// isSleepPrepActive=true without having suppressed the arrival lighting.
+func TestScenario_GoToBedDeferredUntilArrival_BedroomWelcomeNotSuppressed(t *testing.T) {
+	t.Parallel()
+
+	server, client, stateManager, baseCleanup := setupTest(t)
+	defer baseCleanup()
+
+	logger := testlogger.New()
+	goToBedWindow := time.Date(2024, 1, 15, 23, 0, 0, 0, time.UTC)
+
+	require.NoError(t, stateManager.SetString("dayPhase", "night"))
+	require.NoError(t, stateManager.SetString("sunevent", "night"))
+	require.NoError(t, stateManager.SetString("musicPlaybackType", "winddown"))
+	require.NoError(t, stateManager.SetBool("isAnyoneHome", false))
+	require.NoError(t, stateManager.SetBool("isAnyoneHomeAndAwake", false))
+	require.NoError(t, stateManager.SetBool("isMasterAsleep", false))
+	require.NoError(t, stateManager.SetBool("isEveryoneAsleep", false))
+	require.NoError(t, stateManager.SetBool("isSleepPrepActive", false))
+	require.NoError(t, stateManager.SetBool("isWakeSequenceActive", false))
+	waitForProcessing(t, stateManager)
+
+	configPath := filepath.Join("testdata", "hue_config_test.yaml")
+	lightingConfig, err := lighting.LoadConfig(configPath)
+	require.NoError(t, err, "Failed to load test lighting config")
+
+	lightingMgr := lighting.NewManager(context.Background(), client, stateManager, lightingConfig, logger, false, nil)
+	require.NoError(t, lightingMgr.Start(), "Failed to start lighting manager")
+	defer lightingMgr.Stop()
+
+	configLoader := config.NewLoader("../../../configs", logger)
+	configLoader.SetClock(clock.NewMockClock(goToBedWindow))
+	require.NoError(t, configLoader.LoadScheduleConfig(), "Failed to load schedule config")
+	sleepMgr := sleephygiene.NewManager(
+		context.Background(),
+		client,
+		stateManager,
+		configLoader,
+		logger,
+		false,
+		plugin.FixedTimeProvider{FixedTime: goToBedWindow},
+		time.UTC,
+	)
+	require.NoError(t, sleepMgr.Start(), "Failed to start sleep hygiene manager")
+	defer sleepMgr.Stop()
+
+	t.Log("GIVEN: No one home at go_to_bed time; sleep prep defers")
+	waitForBoolState(t, stateManager, "isSleepPrepActive", false,
+		"isSleepPrepActive must remain false while go_to_bed is deferred for an empty house")
+	musicType, err := stateManager.GetString("musicPlaybackType")
+	require.NoError(t, err)
+	assert.Equal(t, "winddown", musicType, "go_to_bed should not start sleep music while no one is home")
+
+	snapshot := server.ServiceCallCount()
+
+	t.Log("WHEN: Someone arrives home within the 1-hour go_to_bed window")
+	require.NoError(t, stateManager.SetBool("isAnyoneHome", true))
+	require.NoError(t, stateManager.SetBool("isAnyoneHomeAndAwake", true))
+	waitForProcessing(t, stateManager)
+
+	t.Log("THEN: Bedroom welcome lighting runs before sleep prep becomes active")
+	waitForServiceCallWithEntitySince(t, server, snapshot, "scene", "turn_on", "scene.master_bedroom_night",
+		"arrival should activate the bedroom scene before deferred go_to_bed sets isSleepPrepActive")
+	isSleepPrep, err := stateManager.GetBool("isSleepPrepActive")
+	require.NoError(t, err)
+	assert.False(t, isSleepPrep,
+		"isSleepPrepActive must still be false immediately after arrival lighting runs")
+
+	t.Log("WHEN: The next scheduled sleep hygiene tick runs")
+	sleepMgr.TriggerScheduledCheckForTest()
+
+	t.Log("THEN: Deferred go_to_bed fires after arrival without suppressing the bedroom scene")
+	waitForBoolState(t, stateManager, "isSleepPrepActive", true,
+		"isSleepPrepActive should become true after the deferred go_to_bed trigger fires")
+	waitForStringState(t, stateManager, "musicPlaybackType", "sleep",
+		"deferred go_to_bed should start sleep music after arrival")
 }

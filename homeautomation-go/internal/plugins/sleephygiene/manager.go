@@ -1277,6 +1277,13 @@ func (m *Manager) TriggerWakeForTest() {
 	m.handleWake()
 }
 
+// TriggerScheduledCheckForTest runs the same scheduled trigger check that the
+// background timer runs once per minute.
+func (m *Manager) TriggerScheduledCheckForTest() {
+	m.logger.Info("Test: Triggering scheduled check directly")
+	m.checkTimeTriggers()
+}
+
 // TriggerBeginWakeForTest is a test helper that directly triggers the begin_wake sequence.
 // This allows tests to exercise the fade-out logic without waiting for time triggers.
 // Note: This runs the fade-out synchronously (not in a goroutine) for easier testing.
