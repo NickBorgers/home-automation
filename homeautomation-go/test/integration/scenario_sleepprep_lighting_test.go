@@ -209,6 +209,8 @@ func TestScenario_GoToBedDeferredUntilArrival_BedroomWelcomeNotSuppressed(t *tes
 	require.NoError(t, lightingMgr.Start(), "Failed to start lighting manager")
 	defer lightingMgr.Stop()
 
+	// ../../../configs: integration tests live two levels deep (test/integration),
+	// so reaching the top-level configs dir requires three parent hops.
 	configLoader := config.NewLoader("../../../configs", logger)
 	configLoader.SetClock(clock.NewMockClock(goToBedWindow))
 	require.NoError(t, configLoader.LoadScheduleConfig(), "Failed to load schedule config")
@@ -226,8 +228,14 @@ func TestScenario_GoToBedDeferredUntilArrival_BedroomWelcomeNotSuppressed(t *tes
 	defer sleepMgr.Stop()
 
 	t.Log("GIVEN: No one home at go_to_bed time; sleep prep defers")
-	waitForBoolState(t, stateManager, "isSleepPrepActive", false,
-		"isSleepPrepActive must remain false while go_to_bed is deferred for an empty house")
+	// Explicitly run a scheduled check while no one is home to prove the defer
+	// branch fires and leaves isSleepPrepActive=false. Without this call the
+	// assertions below would only confirm the initial setup values.
+	sleepMgr.TriggerScheduledCheckForTest()
+	isSleepPrepGiven, err := stateManager.GetBool("isSleepPrepActive")
+	require.NoError(t, err)
+	require.False(t, isSleepPrepGiven,
+		"isSleepPrepActive must remain false when the defer branch ran with no one home")
 	musicType, err := stateManager.GetString("musicPlaybackType")
 	require.NoError(t, err)
 	assert.Equal(t, "winddown", musicType, "go_to_bed should not start sleep music while no one is home")
@@ -244,6 +252,8 @@ func TestScenario_GoToBedDeferredUntilArrival_BedroomWelcomeNotSuppressed(t *tes
 		"arrival should activate the bedroom scene before deferred go_to_bed sets isSleepPrepActive")
 	isSleepPrep, err := stateManager.GetBool("isSleepPrepActive")
 	require.NoError(t, err)
+	// The 1-minute ticker can't fire within a single waitForProcessing cycle at
+	// test speed, so this snapshot assert is safe — no racy true→false flip.
 	assert.False(t, isSleepPrep,
 		"isSleepPrepActive must still be false immediately after arrival lighting runs")
 
