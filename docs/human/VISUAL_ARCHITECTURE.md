@@ -1031,6 +1031,7 @@ graph LR
 
     AlarmTime --> SleepHygiene
     MasterAsleep --> SleepHygiene
+    AnyoneHome --> SleepHygiene
     SleepHygiene --> FadeOut
     SleepHygiene --> WakeActive
     SleepHygiene --> SleepPrep
