@@ -68,6 +68,7 @@ type Manager struct {
 	timeProvider    plugin.TimeProvider
 	timezone        *time.Location
 	stopChan        chan struct{}
+	triggerCheckCh  chan chan struct{} // routes test-initiated checks through the timer goroutine to avoid races on triggeredToday
 	ticker          *time.Ticker
 	subscriptions   []state.Subscription
 	haSubscriptions []ha.Subscription
@@ -107,6 +108,7 @@ func NewManager(ctx context.Context, haClient ha.HAClient, stateManager *state.M
 		timeProvider:    timeProvider,
 		timezone:        timezone,
 		stopChan:        make(chan struct{}),
+		triggerCheckCh:  make(chan chan struct{}),
 		subscriptions:   make([]state.Subscription, 0),
 		haSubscriptions: make([]ha.Subscription, 0),
 		triggeredToday:  make(map[string]time.Time),
@@ -403,6 +405,10 @@ func (m *Manager) runTimerLoop() {
 			// Check time triggers
 			m.checkTimeTriggers()
 
+		case done := <-m.triggerCheckCh:
+			m.checkTimeTriggers()
+			close(done)
+
 		case <-m.stopChan:
 			return
 		}
@@ -448,6 +454,8 @@ func (m *Manager) checkTimeTriggers() {
 		if _, triggered := m.triggeredToday["go_to_bed"]; !triggered {
 			isAnyoneHome, _ := m.stateManager.GetBool("isAnyoneHome")
 			if !isAnyoneHome {
+				// If no one arrives before the 1-hour window closes, go_to_bed
+				// simply does not fire that night — by design.
 				m.logger.Debug("Deferring go_to_bed: no one home",
 					zap.Time("go_to_bed_time", schedule.GoToBed),
 					zap.Time("now", now))
@@ -1275,6 +1283,18 @@ func (m *Manager) GetShadowState() *shadowstate.SleepHygieneShadowState {
 func (m *Manager) TriggerWakeForTest() {
 	m.logger.Info("Test: Triggering wake sequence directly via handleWake()")
 	m.handleWake()
+}
+
+// TriggerScheduledCheckForTest runs the same scheduled trigger check that the
+// background timer runs once per minute. It routes the call through the timer
+// goroutine so that checkTimeTriggers() is never called concurrently from two
+// goroutines — the same reason we send a signal rather than calling directly.
+// Requires Start() to have been called (the timer goroutine must be running).
+func (m *Manager) TriggerScheduledCheckForTest() {
+	m.logger.Info("Test: Triggering scheduled check directly")
+	done := make(chan struct{})
+	m.triggerCheckCh <- done
+	<-done
 }
 
 // TriggerBeginWakeForTest is a test helper that directly triggers the begin_wake sequence.
