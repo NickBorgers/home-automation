@@ -29,16 +29,20 @@
   "forwardPorts": [],
   "portsAttributes": {},
   "mounts": [
-    // Live read-write bind-mount of the developer's host ~/.claude so their
+    // Live read-only bind-mount of the developer's host ~/.claude so their
     // global Claude Code customizations (CLAUDE.md, settings.json, hooks/,
-    // agents/, skills/, output-styles/) and their per-project state (memory,
-    // sessions, plans) follow them into the devcontainer. Mounted at the same
-    // absolute path as on the host so absolute paths inside settings.json
-    // resolve verbatim. Writable because Claude Code writes memory and session
-    // files as it works; a read-only mount fails every one of those writes.
-    // On CI runners without ~/.claude, Docker creates an empty directory and
-    // post-create.sh no-ops.
-    "source=${localEnv:HOME}/.claude,target=${localEnv:HOME}/.claude,type=bind,consistency=cached",
+    // agents/, skills/, output-styles/) follow them into the devcontainer.
+    // Mounted at the same absolute path as on the host so absolute paths
+    // inside settings.json resolve verbatim. Read-only on purpose: this
+    // container runs repo-controlled code, which must not be able to write a
+    // hook that the host agent later runs. On CI runners without ~/.claude,
+    // Docker creates an empty directory and post-create.sh no-ops.
+    "source=${localEnv:HOME}/.claude,target=${localEnv:HOME}/.claude,type=bind,readonly,consistency=cached",
+    // Per-project state -- memory, sessions, plans -- is the one part Claude
+    // Code writes as it works, so it gets its own writable mount. These are
+    // data files, not executable configuration. post-create.sh links this
+    // project's directory out of it.
+    "source=${localEnv:HOME}/.claude/projects,target=/tmp/devcontainer-host/claude-projects,type=bind,consistency=cached",
     // Same pattern for the developer's host ~/.bashrc and the external
     // util/profile file it sources (shell functions, mise activation, the
     // claude-yolo alias, etc.). Mounting at the same absolute path lets the
@@ -56,6 +60,7 @@
     "TERM": "xterm-256color",
     "LANG": "en_US.UTF-8",
     "CLAUDE_HOST_CONFIG_DIR": "${localEnv:HOME}/.claude",
+    "CLAUDE_HOST_PROJECTS_DIR": "/tmp/devcontainer-host/claude-projects",
     "HOST_BASHRC": "${localEnv:HOME}/.bashrc"
   },
   "updateRemoteUserUID": true,

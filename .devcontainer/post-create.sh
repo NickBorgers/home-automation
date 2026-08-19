@@ -103,13 +103,14 @@ CLAUDE_CREDS_FILE="$SCRIPT_DIR/.claude-credentials"
 if [ -s "$CLAUDE_CREDS_FILE" ]; then
     echo "Setting up Claude Code credentials..."
     if [ "${CLAUDE_HOST_CONFIG_DIR:-}" = "$HOME/.claude" ]; then
-        # Host ~/.claude is bind-mounted on top of the container's
+        # Host ~/.claude is bind-mounted read-only on top of the container's
         # $HOME/.claude (happens when devcontainer up is invoked with
-        # HOME=/home/vscode, e.g., from inside another devcontainer). The
-        # host's .credentials.json is already visible through the mount, so
-        # copying the staged file over it would only overwrite the same
-        # credentials.
-        echo "Host ~/.claude shadows \$HOME/.claude. Using host credentials in place."
+        # HOME=/home/vscode, e.g., from inside another devcontainer). We can't
+        # write credentials here, but the host's .credentials.json is already
+        # visible via the mount. OAuth token refresh will not work while the
+        # credentials file is read-only; re-run `claude login` on the host if
+        # the token expires.
+        echo "Host ~/.claude shadows \$HOME/.claude (read-only mount). Using host credentials in place; token refresh disabled."
         rm -f "$CLAUDE_CREDS_FILE"
     else
         mkdir -p "$HOME/.claude"
@@ -164,14 +165,9 @@ else
 fi
 
 # Link developer's host ~/.claude user-level customizations into the container.
-# The host directory is bind-mounted read-write at the same absolute path via
+# The host directory is bind-mounted read-only at the same absolute path via
 # devcontainer.json; this links the pieces we want into the container user's
 # $HOME/.claude. Missing pieces (or an empty mount on a CI runner) are a no-op.
-#
-# `projects` carries per-project state: memory, sessions, and plans. Claude Code
-# names each project directory after the working directory, and devcontainer.json
-# mounts the repo at its host path, so both sides derive the same name. The mount
-# is writable, so memory written inside the container persists back to the host.
 #
 # `plugins` is deliberately absent. The image installs its own plugin set at
 # build time, and linking the host directory over it would hide those. Host
@@ -181,13 +177,25 @@ if [ -n "${CLAUDE_HOST_CONFIG_DIR:-}" ] \
    && [ -d "$CLAUDE_HOST_CONFIG_DIR" ] \
    && [ "$CLAUDE_HOST_CONFIG_DIR" != "$HOME/.claude" ]; then
     mkdir -p "$HOME/.claude"
-    for item in CLAUDE.md settings.json hooks agents skills output-styles projects; do
+    for item in CLAUDE.md settings.json hooks agents skills output-styles; do
         src="$CLAUDE_HOST_CONFIG_DIR/$item"
         if [ -e "$src" ]; then
             ln -sfn "$src" "$HOME/.claude/$item"
             echo "Linked host Claude Code $item from $src"
         fi
     done
+fi
+
+# Link this project's state -- memory, sessions, plans -- into the writable
+# mount of the host ~/.claude/projects. Claude Code names each project
+# directory after the working directory, and devcontainer.json mounts the repo
+# at its host path, so both sides derive the same name. Only this directory is
+# writable from the container; the rest of the host ~/.claude stays read-only.
+if [ -n "${CLAUDE_HOST_PROJECTS_DIR:-}" ] && [ -d "$CLAUDE_HOST_PROJECTS_DIR" ]; then
+    project_slug=$(printf '%s' "$REPO_ROOT" | sed 's/[^a-zA-Z0-9]/-/g')
+    mkdir -p "$HOME/.claude/projects" "$CLAUDE_HOST_PROJECTS_DIR/$project_slug"
+    ln -sfn "$CLAUDE_HOST_PROJECTS_DIR/$project_slug" "$HOME/.claude/projects/$project_slug"
+    echo "Linked project state $HOME/.claude/projects/$project_slug to the writable host mount"
 fi
 
 # Append a source line to the container user's .bashrc so the host ~/.bashrc
