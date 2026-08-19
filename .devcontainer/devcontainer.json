@@ -17,19 +17,28 @@
       ]
     }
   },
-  "onCreateCommand": "bash .devcontainer/setup-user.sh \"${localEnv:USER}\"",
+  // Mount the checkout at its *host* path rather than the default
+  // /workspaces/<repo>. Claude Code names per-project state (memory, sessions,
+  // plans) after the working directory, so a container that saw a different
+  // path would look up a project that was never written.
+  "workspaceMount": "source=${localWorkspaceFolder},target=${localWorkspaceFolder},type=bind,consistency=cached",
+  "workspaceFolder": "${localWorkspaceFolder}",
+  "onCreateCommand": "bash .devcontainer/setup-user.sh \"${localEnv:USER}\" \"${containerWorkspaceFolder}\"",
   "postCreateCommand": "bash .devcontainer/post-create.sh",
-  "postStartCommand": "bash .devcontainer/fix-dns-order.sh && sudo chown -R \"$(id -u):$(id -g)\" /workspaces 2>/dev/null || true",
+  "postStartCommand": "bash .devcontainer/fix-dns-order.sh && sudo chown -R \"$(id -u):$(id -g)\" \"${containerWorkspaceFolder}\" 2>/dev/null || true",
   "forwardPorts": [],
   "portsAttributes": {},
   "mounts": [
-    // Live read-only bind-mount of the developer's host ~/.claude so their
-    // global Claude Code customizations (CLAUDE.md, settings.json, hooks/)
-    // follow them into the devcontainer. Mounted at the same absolute path
-    // as on the host so absolute paths inside settings.json resolve verbatim.
+    // Live read-write bind-mount of the developer's host ~/.claude so their
+    // global Claude Code customizations (CLAUDE.md, settings.json, hooks/,
+    // agents/, skills/, output-styles/) and their per-project state (memory,
+    // sessions, plans) follow them into the devcontainer. Mounted at the same
+    // absolute path as on the host so absolute paths inside settings.json
+    // resolve verbatim. Writable because Claude Code writes memory and session
+    // files as it works; a read-only mount fails every one of those writes.
     // On CI runners without ~/.claude, Docker creates an empty directory and
     // post-create.sh no-ops.
-    "source=${localEnv:HOME}/.claude,target=${localEnv:HOME}/.claude,type=bind,readonly,consistency=cached",
+    "source=${localEnv:HOME}/.claude,target=${localEnv:HOME}/.claude,type=bind,consistency=cached",
     // Same pattern for the developer's host ~/.bashrc and the external
     // util/profile file it sources (shell functions, mise activation, the
     // claude-yolo alias, etc.). Mounting at the same absolute path lets the
