@@ -41,8 +41,10 @@
     // Per-project state -- memory, sessions, plans -- is the one part Claude
     // Code writes as it works, so it gets its own writable mount. These are
     // data files, not executable configuration. post-create.sh links this
-    // project's directory out of it.
-    "source=${localEnv:HOME}/.claude/projects,target=/tmp/devcontainer-host/claude-projects,type=bind,consistency=cached",
+    // project's directory out of it. Staged under /mnt, not /tmp: the
+    // docker-in-docker feature's init script mounts a tmpfs over /tmp at
+    // container start, which would hide this mount from every process.
+    "source=${localEnv:HOME}/.claude/projects,target=/mnt/devcontainer-host/claude-projects,type=bind,consistency=cached",
     // Same pattern for the developer's host ~/.bashrc and the external
     // util/profile file it sources (shell functions, mise activation, the
     // claude-yolo alias, etc.). Mounting at the same absolute path lets the
@@ -60,7 +62,7 @@
     "TERM": "xterm-256color",
     "LANG": "en_US.UTF-8",
     "CLAUDE_HOST_CONFIG_DIR": "${localEnv:HOME}/.claude",
-    "CLAUDE_HOST_PROJECTS_DIR": "/tmp/devcontainer-host/claude-projects",
+    "CLAUDE_HOST_PROJECTS_DIR": "/mnt/devcontainer-host/claude-projects",
     "HOST_BASHRC": "${localEnv:HOME}/.bashrc"
   },
   "updateRemoteUserUID": true,
