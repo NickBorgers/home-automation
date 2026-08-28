@@ -382,6 +382,23 @@ defer stateTrackingManager.Stop()  // Stops first (registered first)
 - Calls `Reset()` on all registered plugins
 - Auto-clears the reset flag after execution
 
+### Tesla Fleet API Plugin (`tesla`)
+
+**Purpose:** Polls the Tesla Fleet API for vehicle and charge state, holds OAuth tokens, and signs vehicle commands on request. The plugin never issues commands autonomously.
+
+**State Variables Managed:** None. Reads from and writes to Tesla directly; does not read or write Home Assistant state.
+
+**HA Entities Subscribed:** None.
+
+**HTTP Endpoints:**
+- `GET /api/tesla/login` — starts OAuth authorization flow
+- `GET /api/tesla/callback` — completes authorization, stores tokens
+- `GET /api/shadow/tesla` — returns shadow state (vehicle state, charge state, Fleet API usage)
+
+**Cost note:** Tesla bills per request against a monthly credit. The poll interval (`TESLA_POLL_MINUTES`, default 5) is a recurring charge. `/api/shadow/tesla` exposes `requestCount` and `commandCount` to track spend.
+
+**Configuration:** Environment only — see `.env.example` for `TESLA_CLIENT_ID`, `TESLA_CLIENT_SECRET`, `TESLA_DOMAIN`, `TESLA_REDIRECT_URI`, `TESLA_PRIVATE_KEY`, `TESLA_TOKEN_STORE`, `TESLA_VIN`.
+
 ---
 
 ## Creating New Plugins
