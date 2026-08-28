@@ -2,7 +2,9 @@ package tesla
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sync"
@@ -48,7 +50,7 @@ func (s *TokenStore) Load() (*Tokens, error) {
 	defer s.mu.Unlock()
 
 	data, err := os.ReadFile(s.path)
-	if os.IsNotExist(err) {
+	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
 	}
 	if err != nil {

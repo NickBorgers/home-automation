@@ -75,6 +75,11 @@ func newTokenServer(t *testing.T) *tokenServer {
 		ts.mu.Unlock()
 
 		if delay > 0 {
+			// A sleep, not a channel: the point is to keep this handler from
+			// returning, so the HTTP response stays unwritten while other
+			// callers pile up behind the refresh. Signalling on a channel would
+			// need a response-writer shim to achieve the same thing, and the
+			// wait is bounded and local to one test.
 			time.Sleep(delay)
 		}
 

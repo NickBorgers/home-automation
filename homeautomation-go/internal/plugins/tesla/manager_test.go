@@ -3,6 +3,7 @@ package tesla
 import (
 	"context"
 	"errors"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -256,4 +257,67 @@ func TestStartPollsImmediatelyThenStops(t *testing.T) {
 
 	m.Stop()
 	require.NoError(t, m.Reset())
+}
+
+// blockingFleet holds the vehicle list open until released, so a second Poll()
+// arrives while the first is still in flight.
+type blockingFleet struct {
+	entered  chan struct{}
+	release  chan struct{}
+	calls    atomic.Int64
+	vehicles []teslaapi.VehicleSummary
+}
+
+func (f *blockingFleet) Vehicles(context.Context) ([]teslaapi.VehicleSummary, error) {
+	f.calls.Add(1)
+	select {
+	case f.entered <- struct{}{}:
+	default:
+	}
+	<-f.release
+	return f.vehicles, nil
+}
+
+func (f *blockingFleet) VehicleData(_ context.Context, _ string) (*teslaapi.VehicleData, error) {
+	return &teslaapi.VehicleData{}, nil
+}
+
+func (f *blockingFleet) RequestCount() int64 { return f.calls.Load() }
+
+// Reset() can land while the ticker is mid-poll. Two polls at once would read
+// the same state twice and pay Tesla twice for it, so the second is dropped.
+func TestPollAdmitsOneAtATime(t *testing.T) {
+	fleet := &blockingFleet{
+		entered:  make(chan struct{}, 1),
+		release:  make(chan struct{}),
+		vehicles: []teslaapi.VehicleSummary{{VIN: "BBB", State: "asleep"}},
+	}
+	m := newPollingManager(fleet, true)
+
+	first := make(chan struct{})
+	go func() {
+		defer close(first)
+		m.Poll()
+	}()
+
+	// Wait until the first poll is inside the Fleet API call.
+	select {
+	case <-fleet.entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("first poll never reached the Fleet API")
+	}
+
+	// This one arrives mid-flight and must be dropped, not queued.
+	m.Poll()
+
+	close(fleet.release)
+	<-first
+
+	assert.Equal(t, int64(1), fleet.RequestCount(), "a poll arriving mid-poll must not spend a second request")
+
+	// Once the first finishes, polling is allowed again.
+	fleet.release = make(chan struct{})
+	close(fleet.release)
+	m.Poll()
+	assert.Equal(t, int64(2), fleet.RequestCount(), "the guard must clear after a poll finishes")
 }

@@ -11,6 +11,7 @@ package tesla
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"homeautomation/internal/shadowstate"
@@ -47,10 +48,15 @@ type Manager struct {
 
 	shadowTracker *shadowstate.TeslaTracker
 
-	// pollNow lets tests drive a single poll without waiting for the ticker.
 	mu       sync.Mutex
 	stopPoll chan struct{}
 	stopped  bool
+
+	// polling admits one poll at a time. Reset() can fire while the ticker is
+	// mid-poll, and every poll spends Fleet API requests, so a second one is
+	// dropped rather than queued — it would only re-read what the first is
+	// already fetching, at twice the price.
+	polling atomic.Bool
 }
 
 // NewManager creates a Tesla manager. When the Tesla environment variables are
@@ -178,6 +184,12 @@ func (m *Manager) Poll() {
 	if !m.enabled {
 		return
 	}
+	if !m.polling.CompareAndSwap(false, true) {
+		m.logger.Debug("Skipping Tesla poll: one is already running")
+		return
+	}
+	defer m.polling.Store(false)
+
 	if !m.authorized.Authorized() {
 		m.shadowTracker.UpdateAvailability(true, false, m.cfg.VIN)
 		m.logger.Debug("Skipping Tesla poll: account not authorized yet")
