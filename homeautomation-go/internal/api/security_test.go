@@ -45,6 +45,7 @@ var allEndpoints = []string{
 	"/api/shadow/statetracking",
 	"/api/shadow/dayphase",
 	"/api/shadow/tv",
+	"/api/shadow/tesla",
 	"/health",
 	"/dashboard",
 	"/timeline",
@@ -84,6 +85,7 @@ func createTestServer(t *testing.T) *Server {
 	shadowTracker.RegisterPlugin("statetracking", shadowstate.NewStateTrackingShadowState())
 	shadowTracker.RegisterPlugin("dayphase", shadowstate.NewDayPhaseShadowState())
 	shadowTracker.RegisterPlugin("tv", shadowstate.NewTVShadowState())
+	shadowTracker.RegisterPlugin("tesla", shadowstate.NewTeslaShadowState())
 
 	buffer := logbuffer.NewBuffer(100)
 	return NewServer(mockClient, stateManager, shadowTracker, buffer, logger, 8080, time.UTC, &alert.MockAlerter{})

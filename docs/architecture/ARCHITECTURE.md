@@ -531,6 +531,39 @@ room sequencing, and per-room vacuum/mop parameters)
 
 **Config File:** `configs/integration_watchdog_config.yaml`
 
+### 17. Tesla Plugin ✅
+
+**Responsibilities:**
+- Poll the Tesla Fleet API for the car's sleep state and charge state
+- Hold the OAuth tokens, refreshing them before they expire
+- Sign vehicle commands with the EC key Tesla registered for our domain
+
+**Key Automations:**
+- **Cheap Poll First**: Each cycle reads the vehicle list (one request) to learn
+  whether the car is online, asleep, or offline
+- **Read Only When Awake**: `vehicle_data` is requested only when the car is
+  already online. A sleeping car is left alone — waking it is billed separately
+  and is never done on a timer
+- **Idle Without Credentials**: With no `TESLA_CLIENT_ID` the plugin starts,
+  records that it is unconfigured, and does nothing else
+- **Commands On Request Only**: The plugin issues no commands by itself. Charge
+  start/stop, charge limit, wake, and flash-lights are available through the
+  Commander for callers acting on a person's request
+
+**Entities Monitored:** None. This plugin talks to Tesla directly and does not
+read or write Home Assistant state.
+
+**Endpoints:** `/api/tesla/login` starts authorization, `/api/tesla/callback`
+completes it, `/api/shadow/tesla` shows what the plugin knows.
+
+**Cost note:** Tesla bills per request against a small monthly credit, so the
+poll interval (`TESLA_POLL_MINUTES`, default 5) is a recurring charge. Shadow
+state reports the running request and command counts.
+
+**Configuration:** environment only — `TESLA_CLIENT_ID`, `TESLA_CLIENT_SECRET`,
+`TESLA_DOMAIN`, `TESLA_REDIRECT_URI`, `TESLA_PRIVATE_KEY`, `TESLA_TOKEN_STORE`,
+`TESLA_VIN`.
+
 ---
 
 ## Data Flow

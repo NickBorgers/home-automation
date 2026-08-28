@@ -40,6 +40,7 @@ The system is organized into plugins, each handling a specific automation domain
 | **Sleep Hygiene** | Manages wake-up sequences, bedtime reminders, and sleep music fade-out |
 | **Security** | Handles door locks, garage automation, and arrival notifications |
 | **Christmas** | Seasonal holiday automations |
+| **Tesla** | Reads vehicle and charge state from the Tesla Fleet API, and signs vehicle commands |
 | **Reset** | Coordinates system-wide state resets |
 
 ## Configuration

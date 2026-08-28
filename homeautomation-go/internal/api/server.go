@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -38,7 +39,30 @@ type Server struct {
 	server        *http.Server
 	timezone      *time.Location
 	alertNotifier alert.Alerter
+
+	// Tesla OAuth. teslaAuth is nil unless the Tesla plugin found credentials.
+	// oauthState is the single-use nonce handed to Tesla by /api/tesla/login and
+	// checked when Tesla redirects the browser back to /api/tesla/callback.
+	teslaMu       sync.Mutex
+	teslaAuth     TeslaAuthenticator
+	oauthState    string
+	oauthStateExp time.Time
 }
+
+// TeslaAuthenticator is the part of the Tesla OAuth handler this server needs.
+// Keeping it an interface lets the API package stay independent of the Tesla
+// client, and lets tests supply a stub.
+type TeslaAuthenticator interface {
+	// AuthorizeURL builds the URL the owner opens to grant access.
+	AuthorizeURL(state string) string
+	// Exchange trades an authorization code for tokens and stores them.
+	Exchange(ctx context.Context, code string) error
+	// Authorized reports whether tokens are already on hand.
+	Authorized() bool
+}
+
+// oauthStateTTL bounds how long an authorization attempt may stay open.
+const oauthStateTTL = 10 * time.Minute
 
 // NewServer creates a new API server
 func NewServer(
@@ -75,6 +99,9 @@ func NewServer(
 	mux.HandleFunc("/api/shadow/statetracking", s.handleGetStateTrackingShadowState)
 	mux.HandleFunc("/api/shadow/dayphase", s.handleGetDayPhaseShadowState)
 	mux.HandleFunc("/api/shadow/tv", s.handleGetTVShadowState)
+	mux.HandleFunc("/api/shadow/tesla", s.handleGetTeslaShadowState)
+	mux.HandleFunc("/api/tesla/login", s.handleTeslaLogin)
+	mux.HandleFunc("/api/tesla/callback", s.handleTeslaCallback)
 	mux.HandleFunc("/api/notify", s.handleNotify)
 	mux.HandleFunc("/health", s.handleHealth)
 	mux.HandleFunc("/dashboard", s.handleDashboard)
@@ -580,6 +607,21 @@ func (s *Server) handleSitemap(w http.ResponseWriter, r *http.Request) {
 			Path:        "/api/shadow/tv",
 			Method:      "GET",
 			Description: "Get shadow state for TV plugin - shows Apple TV state, TV power, HDMI input, and playback status",
+		},
+		{
+			Path:        "/api/shadow/tesla",
+			Method:      "GET",
+			Description: "Get shadow state for Tesla plugin - shows vehicle sleep state, charge state, and Fleet API usage",
+		},
+		{
+			Path:        "/api/tesla/login",
+			Method:      "GET",
+			Description: "Start Tesla Fleet API authorization - redirects to Tesla sign-in",
+		},
+		{
+			Path:        "/api/tesla/callback",
+			Method:      "GET",
+			Description: "Tesla OAuth redirect target - exchanges the authorization code for tokens",
 		},
 		{
 			Path:        "/health",

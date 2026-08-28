@@ -2476,3 +2476,104 @@ func (w *IntegrationWatchdogTracker) GetState() *IntegrationWatchdogShadowState 
 		Metadata: s.Metadata,
 	}
 }
+
+// ============================================================================
+// Tesla Tracker
+// ============================================================================
+
+// TeslaTracker manages shadow state for the Tesla Fleet API plugin
+type TeslaTracker struct {
+	ReadOnlyTracker[TeslaOutputs]
+}
+
+// NewTeslaTracker creates a new Tesla shadow state tracker
+func NewTeslaTracker() *TeslaTracker {
+	return &TeslaTracker{
+		ReadOnlyTracker: NewReadOnlyTracker(NewTeslaShadowState()),
+	}
+}
+
+// UpdateAvailability records whether the plugin has credentials and whether the
+// account has completed the browser authorization.
+func (tt *TeslaTracker) UpdateAvailability(configured, authorized bool, vin string) {
+	tt.Lock()
+	defer tt.Unlock()
+
+	tt.State().Outputs.Configured = configured
+	tt.State().Outputs.Authorized = authorized
+	tt.State().Outputs.VIN = vin
+	tt.State().Metadata.LastUpdated = time.Now()
+}
+
+// UpdateVehicleState records Tesla's sleep state for the car and the time of
+// the poll that produced it.
+func (tt *TeslaTracker) UpdateVehicleState(state string, polledAt time.Time) {
+	tt.Lock()
+	defer tt.Unlock()
+
+	tt.State().Outputs.VehicleState = state
+	tt.State().Outputs.LastPoll = polledAt
+	tt.State().Metadata.LastUpdated = time.Now()
+}
+
+// UpdateChargeState records the charging picture.
+func (tt *TeslaTracker) UpdateChargeState(batteryLevel, chargeLimitSOC, minutesToFull int, chargingState string, pluggedIn bool) {
+	tt.Lock()
+	defer tt.Unlock()
+
+	tt.State().Outputs.BatteryLevel = batteryLevel
+	tt.State().Outputs.ChargeLimitSOC = chargeLimitSOC
+	tt.State().Outputs.MinutesToFullCharge = minutesToFull
+	tt.State().Outputs.ChargingState = chargingState
+	tt.State().Outputs.PluggedIn = pluggedIn
+	tt.State().Outputs.LastDataUpdate = time.Now()
+	tt.State().Metadata.LastUpdated = time.Now()
+}
+
+// UpdateCabinState records cabin temperature and lock state.
+func (tt *TeslaTracker) UpdateCabinState(insideTemp float64, locked bool) {
+	tt.Lock()
+	defer tt.Unlock()
+
+	tt.State().Outputs.InsideTemp = insideTemp
+	tt.State().Outputs.Locked = locked
+	tt.State().Metadata.LastUpdated = time.Now()
+}
+
+// UpdateUsage records how many Fleet API requests and commands have been spent.
+// Tesla bills per request, so this is the number to watch.
+func (tt *TeslaTracker) UpdateUsage(requests, commands int64) {
+	tt.Lock()
+	defer tt.Unlock()
+
+	tt.State().Outputs.RequestCount = requests
+	tt.State().Outputs.CommandCount = commands
+	tt.State().Metadata.LastUpdated = time.Now()
+}
+
+// UpdateLastError records the most recent failure, or clears it when message is
+// empty.
+func (tt *TeslaTracker) UpdateLastError(message string) {
+	tt.Lock()
+	defer tt.Unlock()
+
+	tt.State().Outputs.LastError = message
+	tt.State().Metadata.LastUpdated = time.Now()
+}
+
+// GetState returns the current shadow state (thread-safe copy).
+// TeslaOutputs holds only value types, so copying the struct is enough.
+func (tt *TeslaTracker) GetState() *TeslaShadowState {
+	tt.RLock()
+	defer tt.RUnlock()
+
+	s := tt.State()
+	return &TeslaShadowState{
+		Plugin: s.Plugin,
+		Inputs: ReadOnlyInputs{
+			Current: copyInputMap(s.Inputs.Current),
+		},
+		Outputs:  s.Outputs,
+		Metadata: s.Metadata,
+	}
+}
