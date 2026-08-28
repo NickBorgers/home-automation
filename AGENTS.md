@@ -545,6 +545,75 @@ These speakers are discovered by SoCo and match the `player_name` values in `con
 - **Retries:** Network errors and HTTP 5xx/429 retry up to 3 total attempts with 500ms delay. Application errors (`exit_code != 0`) and HTTP 4xx do not retry.
 - **Read-only mode:** When `READ_ONLY=true`, all SoCo commands are logged but not executed.
 
+## Testing Tesla Fleet API Changes
+
+The Tesla plugin (`homeautomation-go/internal/plugins/tesla/`) and the Fleet API client (`homeautomation-go/internal/tesla/`) talk to Tesla directly. There is no Home Assistant involvement.
+
+**Every Fleet API request costs money.** Tesla bills per request against a small monthly credit. Prefer the shadow state endpoint, which is free, over anything that reaches Tesla.
+
+### Read-only checks (free)
+
+The shadow state endpoint reports what the last poll found. It does not call Tesla.
+
+```bash
+curl -s https://home-automation.featherback-mermaid.ts.net/api/shadow/tesla | jq
+```
+
+Fields worth knowing:
+
+| Field | Meaning |
+|-------|---------|
+| `configured` | Credentials were found in the environment |
+| `authorized` | Someone completed the browser authorization |
+| `vehicleState` | Tesla's own word: `online`, `asleep`, or `offline` |
+| `requestCount` | Fleet API requests this process has spent |
+| `commandCount` | Commands this process has attempted |
+| `lastError` | Most recent failure, empty when healthy |
+
+`configured: true` with `authorized: false` is the usual reason the integration looks dead. It means nobody has run the login flow since the token file was lost.
+
+### Authorizing
+
+Tesla rejects a redirect host that does not resolve in public DNS, so a tailnet hostname does not work. Reach the callback through an SSH tunnel:
+
+```bash
+ssh -L 8081:localhost:8081 dockergeneric
+```
+
+Then open `http://localhost:8081/api/tesla/login` in a browser and sign in. The callback writes the tokens to `TESLA_TOKEN_STORE` and answers with a plain-text confirmation.
+
+Tesla rotates the refresh token on every refresh. If the token file is lost, this flow has to be repeated.
+
+### Checking the logs
+
+```bash
+curl -s -X POST \
+  -H "Gravwell-Token: $(tr -d '\n' < ./gravwell.token)" \
+  -H 'query: tag=home-automation json logger=="tesla"' \
+  -H 'duration: 1h' \
+  -H 'format: text' \
+  'https://gravwell.featherback-mermaid.ts.net/api/search/direct'
+```
+
+### Local testing
+
+The unit tests cover the whole client against a fake Tesla, so no credentials are needed:
+
+```bash
+cd homeautomation-go
+go test -race ./internal/tesla/... ./internal/plugins/tesla/...
+```
+
+With `TESLA_CLIENT_ID` unset the plugin starts, records that it is unconfigured, and does nothing else. That is the normal state for a checkout without Tesla credentials.
+
+### Key implementation details
+
+- **Poll shape:** Each cycle reads the vehicle list first, which is one request and reports the sleep state. `vehicle_data` follows only when the car is already online. A sleeping car is never woken on a timer — waking is billed separately.
+- **Retries:** One retry, 500ms apart. On the Fleet API path only transport failures are retried, because a response Tesla already sent has already been billed. The token endpoint is not billed, so a 5xx there is retried too; a 4xx is not.
+- **Token storage:** Written atomically at mode 0600 — temp file, chmod, rename. A process that dies mid-write leaves the previous tokens intact.
+- **Command signing:** Cars built since 2021 reject unsigned commands. The EC key is loaded once and cached. The car must also have the virtual key paired, which is a one-time step in the Tesla phone app.
+- **Read-only by design:** The plugin issues no commands on its own. `Commander` is only reachable by callers acting on a person's request.
+
 ## Testing UI Changes
 
 The Go application includes a dashboard at `/dashboard` for viewing shadow state. To test UI changes without requiring a real Home Assistant instance, use **DEV_MODE**.
