@@ -58,6 +58,7 @@ graph TB
             ResetCoord[Reset Coordinator<br/>internal/plugins/reset/]
             SensorConfig[Sensor Config<br/>internal/plugins/sensorconfig/]
             IntegrationWatchdog[Integration Watchdog<br/>internal/plugins/integrationwatchdog/]
+            Tesla[Tesla Fleet API<br/>internal/plugins/tesla/]
         end
 
         subgraph "Public Interfaces"
@@ -182,6 +183,9 @@ graph TB
     IntegrationWatchdog -->|Reload Config Entry| HAClient
     IntegrationWatchdog -.->|Register Shadow| ShadowTracker
 
+    Tesla -->|Poll Fleet API / Signed Commands| TeslaCloud[Tesla Fleet API<br/>outbound HTTPS only]
+    Tesla -.->|Register Shadow| ShadowTracker
+
     HA -->|Control| Sonos
     HA -->|Control| Hue
     HA -->|Monitor| TV_Ext
@@ -210,6 +214,7 @@ graph TB
     style ResetCoord fill:#ffebee
     style SensorConfig fill:#f3e5f5
     style IntegrationWatchdog fill:#f3e5f5
+    style Tesla fill:#f3e5f5
 ```
 
 ---

@@ -56,6 +56,7 @@ graph LR
         sexmode["sexmode"]
         sleephygiene["sleephygiene"]
         statetracking["statetracking"]
+        tesla["tesla"]
         tv["tv"]
         vacuum["vacuum"]
         waterflow["waterflow"]
