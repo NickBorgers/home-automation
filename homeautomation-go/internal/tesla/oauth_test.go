@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -18,9 +19,33 @@ import (
 // received so tests can assert on the grant that was sent.
 type tokenServer struct {
 	*httptest.Server
+
+	mu       sync.Mutex
 	lastForm url.Values
+	requests int
+	// statuses is served one entry per request, then status is used for the
+	// rest. It lets a test make the first attempt fail and the second succeed.
+	statuses []int
 	status   int
 	body     map[string]any
+
+	// delay holds each response open, widening the window in which a second
+	// caller can observe a refresh already in flight.
+	delay time.Duration
+}
+
+// Requests returns how many times the token endpoint was called.
+func (ts *tokenServer) Requests() int {
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
+	return ts.requests
+}
+
+// Form returns the most recent posted form.
+func (ts *tokenServer) Form() url.Values {
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
+	return ts.lastForm
 }
 
 func newTokenServer(t *testing.T) *tokenServer {
@@ -36,11 +61,26 @@ func newTokenServer(t *testing.T) *tokenServer {
 	}
 	ts.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.NoError(t, r.ParseForm())
+
+		ts.mu.Lock()
 		ts.lastForm = r.PostForm
+		ts.requests++
+		status := ts.status
+		if len(ts.statuses) > 0 {
+			status = ts.statuses[0]
+			ts.statuses = ts.statuses[1:]
+		}
+		body := ts.body
+		delay := ts.delay
+		ts.mu.Unlock()
+
+		if delay > 0 {
+			time.Sleep(delay)
+		}
 
 		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(ts.status)
-		require.NoError(t, json.NewEncoder(w).Encode(ts.body))
+		w.WriteHeader(status)
+		require.NoError(t, json.NewEncoder(w).Encode(body))
 	}))
 	t.Cleanup(ts.Close)
 	return ts
@@ -85,9 +125,9 @@ func TestExchangeStoresTokens(t *testing.T) {
 
 	require.NoError(t, auth.Exchange(context.Background(), "the-code"))
 
-	assert.Equal(t, "authorization_code", server.lastForm.Get("grant_type"))
-	assert.Equal(t, "the-code", server.lastForm.Get("code"))
-	assert.Equal(t, DefaultAudience, server.lastForm.Get("audience"))
+	assert.Equal(t, "authorization_code", server.Form().Get("grant_type"))
+	assert.Equal(t, "the-code", server.Form().Get("code"))
+	assert.Equal(t, DefaultAudience, server.Form().Get("audience"))
 
 	stored, err := store.Load()
 	require.NoError(t, err)
@@ -125,8 +165,8 @@ func TestAccessTokenRefreshesAndRotates(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, "access-1", token)
-	assert.Equal(t, "refresh_token", server.lastForm.Get("grant_type"))
-	assert.Equal(t, "refresh-0", server.lastForm.Get("refresh_token"))
+	assert.Equal(t, "refresh_token", server.Form().Get("grant_type"))
+	assert.Equal(t, "refresh-0", server.Form().Get("refresh_token"))
 
 	stored, err := store.Load()
 	require.NoError(t, err)
@@ -166,7 +206,7 @@ func TestAccessTokenReusesValidToken(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, "still-good", token)
-	assert.Nil(t, server.lastForm, "a valid token must not cost a refresh call")
+	assert.Nil(t, server.Form(), "a valid token must not cost a refresh call")
 }
 
 func TestAccessTokenFailsBeforeAuthorization(t *testing.T) {

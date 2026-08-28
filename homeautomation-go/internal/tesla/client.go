@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sync/atomic"
+	"time"
 
 	"github.com/teslamotors/vehicle-command/pkg/account"
 )
@@ -119,6 +120,10 @@ func (c *Client) VehicleData(ctx context.Context, vin string) (*VehicleData, err
 // get issues one authenticated Fleet API GET. The account package picks the
 // regional Fleet API host out of the access token, so no base URL is hardcoded
 // on this path.
+//
+// A dropped connection gets one more attempt. An answer from Tesla does not,
+// even a 500: Tesla has already billed that request, and paying twice for the
+// same read is worse than waiting for the next poll.
 func (c *Client) get(ctx context.Context, endpoint string) ([]byte, error) {
 	token, err := c.auth.AccessToken(ctx)
 	if err != nil {
@@ -128,10 +133,28 @@ func (c *Client) get(ctx context.Context, endpoint string) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("build fleet api account: %w", err)
 	}
-	c.requests.Add(1)
-	body, err := acct.Get(ctx, endpoint)
-	if err != nil {
-		return nil, fmt.Errorf("fleet api GET %s: %w", endpoint, err)
+
+	var lastErr error
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		if attempt > 0 {
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(retryDelay):
+			}
+		}
+
+		body, err := acct.Get(ctx, endpoint)
+		if err == nil {
+			c.requests.Add(1)
+			return body, nil
+		}
+		lastErr = err
+		if !transport(ctx, err) {
+			// Tesla answered, just not with a 200. That request was billed.
+			c.requests.Add(1)
+			break
+		}
 	}
-	return body, nil
+	return nil, fmt.Errorf("fleet api GET %s: %w", endpoint, lastErr)
 }

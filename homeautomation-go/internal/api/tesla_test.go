@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -185,4 +186,73 @@ func TestTeslaShadowStateEndpoint(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, recorder.Code)
 	assert.Contains(t, recorder.Body.String(), "vehicleState")
+}
+
+// A callback with no state parameter must not throw away a login the owner has
+// just started. Stray hits happen: a stale bookmark, a link prefetch, a browser
+// retry. Any of them consuming the pending state would send the owner back to
+// the start for no reason.
+func TestTeslaCallbackWithoutStateLeavesPendingLoginIntact(t *testing.T) {
+	server := createTestServer(t)
+	auth := &stubTeslaAuth{}
+	server.SetTeslaAuthenticator(auth)
+	state := startLogin(t, server)
+
+	stray := httptest.NewRecorder()
+	server.server.Handler.ServeHTTP(stray, httptest.NewRequest(http.MethodGet, "/api/tesla/callback?code=abc", nil))
+	require.Equal(t, http.StatusBadRequest, stray.Code)
+	require.Zero(t, auth.exchanges)
+
+	// The real callback still works.
+	real := httptest.NewRecorder()
+	target := "/api/tesla/callback?code=the-code&state=" + url.QueryEscape(state)
+	server.server.Handler.ServeHTTP(real, httptest.NewRequest(http.MethodGet, target, nil))
+
+	assert.Equal(t, http.StatusOK, real.Code)
+	assert.Equal(t, 1, auth.exchanges)
+}
+
+// A forged state must not consume the pending one either. The nonce is 24
+// random bytes behind a ten-minute window, so guessing is not a threat, but a
+// stray guess should not cost the owner their login.
+func TestTeslaCallbackForgedStateLeavesPendingLoginIntact(t *testing.T) {
+	server := createTestServer(t)
+	auth := &stubTeslaAuth{}
+	server.SetTeslaAuthenticator(auth)
+	state := startLogin(t, server)
+
+	forged := httptest.NewRecorder()
+	server.server.Handler.ServeHTTP(forged, httptest.NewRequest(http.MethodGet, "/api/tesla/callback?code=abc&state=forged", nil))
+	require.Equal(t, http.StatusBadRequest, forged.Code)
+
+	real := httptest.NewRecorder()
+	target := "/api/tesla/callback?code=the-code&state=" + url.QueryEscape(state)
+	server.server.Handler.ServeHTTP(real, httptest.NewRequest(http.MethodGet, target, nil))
+
+	assert.Equal(t, http.StatusOK, real.Code)
+	assert.Equal(t, 1, auth.exchanges)
+}
+
+// An expired state is refused, and is cleared rather than left to linger.
+func TestTeslaCallbackRejectsExpiredState(t *testing.T) {
+	server := createTestServer(t)
+	auth := &stubTeslaAuth{}
+	server.SetTeslaAuthenticator(auth)
+	state := startLogin(t, server)
+
+	server.teslaMu.Lock()
+	server.oauthStateExp = time.Now().Add(-time.Second)
+	server.teslaMu.Unlock()
+
+	recorder := httptest.NewRecorder()
+	target := "/api/tesla/callback?code=the-code&state=" + url.QueryEscape(state)
+	server.server.Handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, target, nil))
+
+	assert.Equal(t, http.StatusBadRequest, recorder.Code)
+	assert.Zero(t, auth.exchanges)
+
+	server.teslaMu.Lock()
+	pending := server.oauthState
+	server.teslaMu.Unlock()
+	assert.Empty(t, pending, "an expired state should be cleared, not left behind")
 }

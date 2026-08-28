@@ -3,6 +3,7 @@ package tesla
 import (
 	"context"
 	"fmt"
+	"sync"
 	"sync/atomic"
 
 	"github.com/teslamotors/vehicle-command/pkg/account"
@@ -20,6 +21,9 @@ type Commander struct {
 	auth     *Authenticator
 	keyPath  string
 	commands atomic.Int64
+
+	keyMu  sync.Mutex
+	keyPEM protocol.ECDHPrivateKey
 }
 
 // NewCommander returns a Commander that signs with the key at keyPath.
@@ -29,6 +33,24 @@ func NewCommander(auth *Authenticator, keyPath string) *Commander {
 
 // CommandCount returns how many commands have been attempted.
 func (c *Commander) CommandCount() int64 { return c.commands.Load() }
+
+// privateKey loads the signing key on first use and keeps it. The key does not
+// change while the process runs, and re-reading it per command would turn a
+// misconfigured path into an intermittent command failure.
+func (c *Commander) privateKey() (protocol.ECDHPrivateKey, error) {
+	c.keyMu.Lock()
+	defer c.keyMu.Unlock()
+
+	if c.keyPEM != nil {
+		return c.keyPEM, nil
+	}
+	key, err := protocol.LoadPrivateKey(c.keyPath)
+	if err != nil {
+		return nil, fmt.Errorf("load tesla private key %s: %w", c.keyPath, err)
+	}
+	c.keyPEM = key
+	return key, nil
+}
 
 // Wake wakes a sleeping car. Tesla bills wakes separately from commands, so
 // call this only in response to something a person did.
@@ -89,9 +111,9 @@ func (c *Commander) withVehicle(ctx context.Context, vin string, needSession boo
 		return fmt.Errorf("build fleet api account: %w", err)
 	}
 
-	privateKey, err := protocol.LoadPrivateKey(c.keyPath)
+	privateKey, err := c.privateKey()
 	if err != nil {
-		return fmt.Errorf("load tesla private key %s: %w", c.keyPath, err)
+		return err
 	}
 
 	car, err := acct.GetVehicle(ctx, vin, privateKey, nil)

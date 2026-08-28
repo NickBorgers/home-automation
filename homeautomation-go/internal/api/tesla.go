@@ -128,24 +128,34 @@ func (s *Server) handleTeslaCallback(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintln(w, "Tesla authorization complete. You can close this tab.")
 }
 
-// consumeOAuthState checks the returned state against the pending one and
-// clears it, so a state can be used at most once.
+// consumeOAuthState checks the returned state against the pending one. A state
+// is cleared only when it matches, or when it has expired.
+//
+// Clearing on every call would let one stray request to /api/tesla/callback —
+// a missing state parameter, a stale bookmark, a link prefetch — throw away a
+// login the owner had just started, forcing them to begin again. A mismatch
+// cannot be brute-forced past the 24 random bytes and the ten-minute window,
+// so leaving the pending state alone costs nothing.
 func (s *Server) consumeOAuthState(returned string) bool {
 	s.teslaMu.Lock()
 	defer s.teslaMu.Unlock()
 
 	pending := s.oauthState
-	expiry := s.oauthStateExp
-	s.oauthState = ""
-	s.oauthStateExp = time.Time{}
-
 	if pending == "" || returned == "" {
 		return false
 	}
-	if time.Now().After(expiry) {
+	if time.Now().After(s.oauthStateExp) {
+		s.oauthState = ""
+		s.oauthStateExp = time.Time{}
 		return false
 	}
-	return subtle.ConstantTimeCompare([]byte(pending), []byte(returned)) == 1
+	if subtle.ConstantTimeCompare([]byte(pending), []byte(returned)) != 1 {
+		return false
+	}
+
+	s.oauthState = ""
+	s.oauthStateExp = time.Time{}
+	return true
 }
 
 func newOAuthState() (string, error) {

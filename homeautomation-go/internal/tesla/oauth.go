@@ -51,7 +51,10 @@ func (a *Authenticator) AuthorizeURL(state string) string {
 
 // Authorized reports whether a refresh token is on hand.
 func (a *Authenticator) Authorized() bool {
-	tokens, err := a.current()
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	tokens, err := a.currentLocked()
 	if err != nil {
 		return false
 	}
@@ -68,35 +71,49 @@ func (a *Authenticator) Exchange(ctx context.Context, code string) error {
 	form.Set("audience", a.cfg.Audience)
 	form.Set("redirect_uri", a.cfg.RedirectURI)
 
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
 	tokens, err := a.postToken(ctx, form)
 	if err != nil {
 		return fmt.Errorf("exchange authorization code: %w", err)
 	}
-	return a.persist(tokens)
+	return a.persistLocked(tokens)
 }
 
 // AccessToken returns a usable access token, refreshing it when needed.
+//
+// The expiry check and the refresh happen under one lock. Tesla invalidates a
+// refresh token the moment it issues a replacement, so two callers refreshing
+// at the same time would leave one of them holding a dead token and the
+// integration needing a fresh browser authorization. A caller that arrives
+// mid-refresh waits, then reuses the token the first caller fetched.
 func (a *Authenticator) AccessToken(ctx context.Context) (string, error) {
-	tokens, err := a.current()
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	tokens, err := a.currentLocked()
 	if err != nil {
 		return "", err
 	}
 	if tokens == nil || tokens.RefreshToken == "" {
-		return "", fmt.Errorf("tesla account is not authorized yet: open %s", a.cfg.RedirectURI)
+		return "", fmt.Errorf("tesla account is not authorized yet: start at /api/tesla/login")
 	}
 	if tokens.Valid(a.now(), refreshSkew) {
 		return tokens.AccessToken, nil
 	}
-	refreshed, err := a.refresh(ctx, tokens.RefreshToken)
+	refreshed, err := a.refreshLocked(ctx, tokens.RefreshToken)
 	if err != nil {
 		return "", err
 	}
 	return refreshed.AccessToken, nil
 }
 
-// refresh swaps the refresh token for a new pair. Tesla rotates the refresh
-// token, so the new one is persisted before it is used.
-func (a *Authenticator) refresh(ctx context.Context, refreshToken string) (*Tokens, error) {
+// refreshLocked swaps the refresh token for a new pair. Tesla rotates the
+// refresh token, so the new one is persisted before it is used.
+//
+// The caller must hold a.mu.
+func (a *Authenticator) refreshLocked(ctx context.Context, refreshToken string) (*Tokens, error) {
 	form := url.Values{}
 	form.Set("grant_type", "refresh_token")
 	form.Set("client_id", a.cfg.ClientID)
@@ -111,7 +128,7 @@ func (a *Authenticator) refresh(ctx context.Context, refreshToken string) (*Toke
 		// than writing an empty value that would strand the integration.
 		tokens.RefreshToken = refreshToken
 	}
-	if err := a.persist(tokens); err != nil {
+	if err := a.persistLocked(tokens); err != nil {
 		return nil, err
 	}
 	return tokens, nil
@@ -124,34 +141,63 @@ type tokenResponse struct {
 	TokenType    string `json:"token_type"`
 }
 
+// postToken calls the token endpoint, retrying once on a failure that looks
+// transient. Tesla does not bill the auth endpoint, so retrying a 5xx here
+// costs nothing — unlike the Fleet API, where a retry is a second charge.
 func (a *Authenticator) postToken(ctx context.Context, form url.Values) (*Tokens, error) {
+	var lastErr error
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		if attempt > 0 {
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(retryDelay):
+			}
+		}
+
+		tokens, retry, err := a.postTokenOnce(ctx, form)
+		if err == nil {
+			return tokens, nil
+		}
+		lastErr = err
+		if !retry || ctx.Err() != nil {
+			break
+		}
+	}
+	return nil, lastErr
+}
+
+// postTokenOnce makes a single token request. It reports retry=true when the
+// call never got an answer, or when Tesla answered with a server-side error.
+func (a *Authenticator) postTokenOnce(ctx context.Context, form url.Values) (tokens *Tokens, retry bool, err error) {
 	endpoint := a.cfg.AuthBase + "/oauth2/v3/token"
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, strings.NewReader(form.Encode()))
 	if err != nil {
-		return nil, fmt.Errorf("build token request: %w", err)
+		return nil, false, fmt.Errorf("build token request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
 	resp, err := a.client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("call token endpoint: %w", err)
+		return nil, true, fmt.Errorf("call token endpoint: %w", err)
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
-		return nil, fmt.Errorf("read token response: %w", err)
+		return nil, true, fmt.Errorf("read token response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("token endpoint returned %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+		return nil, resp.StatusCode >= 500,
+			fmt.Errorf("token endpoint returned %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 
 	var parsed tokenResponse
 	if err := json.Unmarshal(body, &parsed); err != nil {
-		return nil, fmt.Errorf("parse token response: %w", err)
+		return nil, false, fmt.Errorf("parse token response: %w", err)
 	}
 	if parsed.AccessToken == "" {
-		return nil, fmt.Errorf("token response contained no access token")
+		return nil, false, fmt.Errorf("token response contained no access token")
 	}
 
 	expiresIn := parsed.ExpiresIn
@@ -162,14 +208,12 @@ func (a *Authenticator) postToken(ctx context.Context, form url.Values) (*Tokens
 		AccessToken:  parsed.AccessToken,
 		RefreshToken: parsed.RefreshToken,
 		Expiry:       a.now().Add(time.Duration(expiresIn) * time.Second),
-	}, nil
+	}, false, nil
 }
 
-// current returns the in-memory tokens, loading them from disk on first use.
-func (a *Authenticator) current() (*Tokens, error) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-
+// currentLocked returns the in-memory tokens, loading them from disk on first
+// use. The caller must hold a.mu.
+func (a *Authenticator) currentLocked() (*Tokens, error) {
 	if a.tokens != nil {
 		return a.tokens, nil
 	}
@@ -181,12 +225,12 @@ func (a *Authenticator) current() (*Tokens, error) {
 	return a.tokens, nil
 }
 
-func (a *Authenticator) persist(tokens *Tokens) error {
+// persistLocked writes tokens to disk and adopts them in memory. The caller
+// must hold a.mu.
+func (a *Authenticator) persistLocked(tokens *Tokens) error {
 	if err := a.store.Save(tokens); err != nil {
 		return err
 	}
-	a.mu.Lock()
 	a.tokens = tokens
-	a.mu.Unlock()
 	return nil
 }
