@@ -46,6 +46,7 @@ var allEndpoints = []string{
 	"/api/shadow/dayphase",
 	"/api/shadow/tv",
 	"/api/shadow/tesla",
+	"/api/tesla/energy/sites",
 	"/health",
 	"/dashboard",
 	"/timeline",
@@ -88,7 +89,9 @@ func createTestServer(t *testing.T) *Server {
 	shadowTracker.RegisterPlugin("tesla", shadowstate.NewTeslaShadowState())
 
 	buffer := logbuffer.NewBuffer(100)
-	return NewServer(mockClient, stateManager, shadowTracker, buffer, logger, 8080, time.UTC, &alert.MockAlerter{})
+	server := NewServer(mockClient, stateManager, shadowTracker, buffer, logger, 8080, time.UTC, &alert.MockAlerter{})
+	server.SetTeslaEnergyController(&stubEnergyController{})
+	return server
 }
 
 // TestAllReadEndpointsRejectNonGetMethods verifies that every read endpoint rejects

@@ -156,6 +156,7 @@ func (m *Manager) SetBackupReserve(ctx context.Context, siteID int64, percent in
 	if err := m.energy.SetBackupReserve(ctx, siteID, percent); err != nil {
 		m.logger.Warn("Powerwall backup reserve change failed",
 			zap.Int64("siteId", siteID), zap.Int("percent", percent), zap.Error(err))
+		m.recordUsage()
 		return 0, err
 	}
 

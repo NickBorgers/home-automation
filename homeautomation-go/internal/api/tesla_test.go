@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -261,18 +262,23 @@ func TestTeslaCallbackRejectsExpiredState(t *testing.T) {
 
 // stubEnergyController stands in for the Powerwall site lookup.
 type stubEnergyController struct {
+	mu        sync.Mutex
 	siteCalls int
 	sites     []teslaapi.EnergySite
 	sitesErr  error
 }
 
 func (s *stubEnergyController) EnergySites(_ context.Context) ([]teslaapi.EnergySite, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.siteCalls++
 	return s.sites, s.sitesErr
 }
 
+
 func TestEnergySitesUnavailableWithoutController(t *testing.T) {
 	server := createTestServer(t)
+	server.SetTeslaEnergyController(nil)
 
 	recorder := httptest.NewRecorder()
 	server.server.Handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/tesla/energy/sites", nil))
