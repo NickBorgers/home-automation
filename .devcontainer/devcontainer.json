@@ -17,19 +17,34 @@
       ]
     }
   },
-  "onCreateCommand": "bash .devcontainer/setup-user.sh \"${localEnv:USER}\"",
+  // Mount the checkout at its *host* path rather than the default
+  // /workspaces/<repo>. Claude Code names per-project state (memory, sessions,
+  // plans) after the working directory, so a container that saw a different
+  // path would look up a project that was never written.
+  "workspaceMount": "source=${localWorkspaceFolder},target=${localWorkspaceFolder},type=bind,consistency=cached",
+  "workspaceFolder": "${localWorkspaceFolder}",
+  "onCreateCommand": "bash .devcontainer/setup-user.sh \"${localEnv:USER}\" \"${containerWorkspaceFolder}\"",
   "postCreateCommand": "bash .devcontainer/post-create.sh",
-  "postStartCommand": "bash .devcontainer/fix-dns-order.sh && sudo chown -R \"$(id -u):$(id -g)\" /workspaces 2>/dev/null || true",
+  "postStartCommand": "bash .devcontainer/fix-dns-order.sh && sudo chown -R \"$(id -u):$(id -g)\" \"${containerWorkspaceFolder}\" 2>/dev/null || true",
   "forwardPorts": [],
   "portsAttributes": {},
   "mounts": [
     // Live read-only bind-mount of the developer's host ~/.claude so their
-    // global Claude Code customizations (CLAUDE.md, settings.json, hooks/)
-    // follow them into the devcontainer. Mounted at the same absolute path
-    // as on the host so absolute paths inside settings.json resolve verbatim.
-    // On CI runners without ~/.claude, Docker creates an empty directory and
-    // post-create.sh no-ops.
+    // global Claude Code customizations (CLAUDE.md, settings.json, hooks/,
+    // agents/, skills/, output-styles/) follow them into the devcontainer.
+    // Mounted at the same absolute path as on the host so absolute paths
+    // inside settings.json resolve verbatim. Read-only on purpose: this
+    // container runs repo-controlled code, which must not be able to write a
+    // hook that the host agent later runs. On CI runners without ~/.claude,
+    // Docker creates an empty directory and post-create.sh no-ops.
     "source=${localEnv:HOME}/.claude,target=${localEnv:HOME}/.claude,type=bind,readonly,consistency=cached",
+    // Per-project state -- memory, sessions, plans -- is the one part Claude
+    // Code writes as it works, so it gets its own writable mount. These are
+    // data files, not executable configuration. post-create.sh links this
+    // project's directory out of it. Staged under /mnt, not /tmp: the
+    // docker-in-docker feature's init script mounts a tmpfs over /tmp at
+    // container start, which would hide this mount from every process.
+    "source=${localEnv:HOME}/.claude/projects,target=/mnt/devcontainer-host/claude-projects,type=bind,consistency=cached",
     // Same pattern for the developer's host ~/.bashrc and the external
     // util/profile file it sources (shell functions, mise activation, the
     // claude-yolo alias, etc.). Mounting at the same absolute path lets the
@@ -47,6 +62,7 @@
     "TERM": "xterm-256color",
     "LANG": "en_US.UTF-8",
     "CLAUDE_HOST_CONFIG_DIR": "${localEnv:HOME}/.claude",
+    "CLAUDE_HOST_PROJECTS_DIR": "/mnt/devcontainer-host/claude-projects",
     "HOST_BASHRC": "${localEnv:HOME}/.bashrc"
   },
   "updateRemoteUserUID": true,

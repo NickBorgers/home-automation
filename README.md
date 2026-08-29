@@ -70,6 +70,7 @@ The devcontainer automatically:
 - Installs GitHub CLI, Claude Code CLI, and Playwright (with Chromium)
 - Configures VS Code extensions for Go and Mermaid
 - Imports your host GitHub CLI token and Claude Code credentials into the container so long as you are logged in locally before opening the devcontainer (you will see warnings during startup if host credentials are missing)
+- Carries your host Claude Code setup into the container: `CLAUDE.md`, `settings.json`, `hooks/`, `agents/`, `skills/`, and `output-styles/` read-only, plus this project's state (memory, sessions, plans) on a writable mount so work done in the container persists. The repo is mounted at its host path, which is what lets the container find that project state — Claude Code names it after the working directory
 
 ### Manual Setup (Without Devcontainer)
 

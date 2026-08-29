@@ -166,20 +166,51 @@ fi
 
 # Link developer's host ~/.claude user-level customizations into the container.
 # The host directory is bind-mounted read-only at the same absolute path via
-# devcontainer.json; this just links the three pieces we want into the
-# container user's $HOME/.claude. Missing pieces (or an empty mount on a CI
-# runner) are a no-op.
+# devcontainer.json; this links the pieces we want into the container user's
+# $HOME/.claude. Missing pieces (or an empty mount on a CI runner) are a no-op.
+#
+# `plugins` is deliberately absent. The image installs its own plugin set at
+# build time, and linking the host directory over it would hide those. Host
+# plugin hooks named in settings.json still resolve, because the host ~/.claude
+# is mounted at its own absolute path.
 if [ -n "${CLAUDE_HOST_CONFIG_DIR:-}" ] \
    && [ -d "$CLAUDE_HOST_CONFIG_DIR" ] \
    && [ "$CLAUDE_HOST_CONFIG_DIR" != "$HOME/.claude" ]; then
     mkdir -p "$HOME/.claude"
-    for item in CLAUDE.md settings.json hooks; do
+    for item in CLAUDE.md settings.json hooks agents skills output-styles; do
         src="$CLAUDE_HOST_CONFIG_DIR/$item"
         if [ -e "$src" ]; then
+            # `ln -sfn` into an existing real directory creates the link
+            # *inside* it and still exits 0, which would leave the image's own
+            # copy in place while reporting success. Clear the path first.
+            if [ -e "$HOME/.claude/$item" ] && [ ! -L "$HOME/.claude/$item" ]; then
+                rm -rf "$HOME/.claude/$item"
+            fi
             ln -sfn "$src" "$HOME/.claude/$item"
             echo "Linked host Claude Code $item from $src"
         fi
     done
+fi
+
+# Link this project's state -- memory, sessions, plans -- into the writable
+# mount of the host ~/.claude/projects. Claude Code names each project
+# directory after the working directory, and devcontainer.json mounts the repo
+# at its host path, so both sides derive the same name. Only this directory is
+# writable from the container; the rest of the host ~/.claude stays read-only.
+if [ -n "${CLAUDE_HOST_PROJECTS_DIR:-}" ] && [ -d "$CLAUDE_HOST_PROJECTS_DIR" ]; then
+    project_slug=$(printf '%s' "$REPO_ROOT" | sed 's/[^a-zA-Z0-9]/-/g')
+    project_link="$HOME/.claude/projects/$project_slug"
+    mkdir -p "$HOME/.claude/projects" "$CLAUDE_HOST_PROJECTS_DIR/$project_slug"
+    # A real directory here holds state Claude Code wrote before the link
+    # existed. Carry it into the host mount rather than dropping it, then clear
+    # the path so the symlink can take it. `-n` keeps the host's copy of any
+    # file that exists on both sides.
+    if [ -d "$project_link" ] && [ ! -L "$project_link" ]; then
+        cp -rn "$project_link/." "$CLAUDE_HOST_PROJECTS_DIR/$project_slug/" 2>/dev/null || true
+        rm -rf "$project_link"
+    fi
+    ln -sfn "$CLAUDE_HOST_PROJECTS_DIR/$project_slug" "$project_link"
+    echo "Linked project state $HOME/.claude/projects/$project_slug to the writable host mount"
 fi
 
 # Append a source line to the container user's .bashrc so the host ~/.bashrc
