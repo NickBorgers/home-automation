@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	teslaapi "homeautomation/internal/tesla"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -255,4 +257,61 @@ func TestTeslaCallbackRejectsExpiredState(t *testing.T) {
 	pending := server.oauthState
 	server.teslaMu.Unlock()
 	assert.Empty(t, pending, "an expired state should be cleared, not left behind")
+}
+
+// stubEnergyController stands in for the Powerwall site lookup.
+type stubEnergyController struct {
+	siteCalls int
+	sites     []teslaapi.EnergySite
+	sitesErr  error
+}
+
+func (s *stubEnergyController) EnergySites(_ context.Context) ([]teslaapi.EnergySite, error) {
+	s.siteCalls++
+	return s.sites, s.sitesErr
+}
+
+func TestEnergySitesUnavailableWithoutController(t *testing.T) {
+	server := createTestServer(t)
+
+	recorder := httptest.NewRecorder()
+	server.server.Handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/tesla/energy/sites", nil))
+
+	assert.Equal(t, http.StatusServiceUnavailable, recorder.Code)
+}
+
+func TestEnergySitesRejectsNonGet(t *testing.T) {
+	server := createTestServer(t)
+	server.SetTeslaEnergyController(&stubEnergyController{})
+
+	recorder := httptest.NewRecorder()
+	server.server.Handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/api/tesla/energy/sites", nil))
+
+	assert.Equal(t, http.StatusMethodNotAllowed, recorder.Code)
+}
+
+func TestEnergySitesReturnsSiteIDs(t *testing.T) {
+	server := createTestServer(t)
+	server.SetTeslaEnergyController(&stubEnergyController{sites: []teslaapi.EnergySite{
+		{ID: 1234567890123456, Name: "Left Powerwall", ResourceType: "battery"},
+		{ID: 1234567890123457, Name: "Right Powerwall", ResourceType: "battery"},
+	}})
+
+	recorder := httptest.NewRecorder()
+	server.server.Handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/tesla/energy/sites", nil))
+
+	require.Equal(t, http.StatusOK, recorder.Code)
+	assert.Contains(t, recorder.Body.String(), `"site_id":1234567890123456`)
+	assert.Contains(t, recorder.Body.String(), "Right Powerwall")
+}
+
+func TestEnergySitesSurfacesFailure(t *testing.T) {
+	server := createTestServer(t)
+	server.SetTeslaEnergyController(&stubEnergyController{sitesErr: errors.New("fleet api down")})
+
+	recorder := httptest.NewRecorder()
+	server.server.Handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/tesla/energy/sites", nil))
+
+	assert.Equal(t, http.StatusBadGateway, recorder.Code)
+	assert.Contains(t, recorder.Body.String(), "fleet api down")
 }

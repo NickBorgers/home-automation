@@ -449,6 +449,17 @@ func Run() {
 			}
 		}
 
+		// The Powerwall site lookup answers a question shadow state cannot:
+		// which systems exist on the account. Shadow state reports what the
+		// plugin already knows, so a live lookup belongs at an endpoint.
+		if energyPlugin, ok := p.(interface {
+			EnergySites(ctx context.Context) ([]tesla.EnergySite, error)
+			Enabled() bool
+		}); ok && energyPlugin.Enabled() {
+			apiServer.SetTeslaEnergyController(energyPlugin)
+			logger.Info("Tesla Powerwall site lookup endpoint enabled")
+		}
+
 		// Collect resettable plugins for the reset coordinator
 		if resettable, ok := p.(plugin.Resettable); ok {
 			resettablePlugins = append(resettablePlugins, reset.PluginWithName{
