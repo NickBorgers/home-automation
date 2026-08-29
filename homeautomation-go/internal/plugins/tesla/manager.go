@@ -10,6 +10,7 @@ package tesla
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -33,17 +34,30 @@ type authChecker interface {
 	Authorized() bool
 }
 
+// energyCommander is the Powerwall control surface. Telemetry is deliberately
+// not part of it: Powerwall data is meant to come from the gateways on the LAN,
+// which is free and higher resolution, so nothing here polls Tesla's cloud for
+// it. BackupReserve exists only to confirm a command took effect, and
+// EnergySites only so an operator can look up a site id.
+type energyCommander interface {
+	SetBackupReserve(ctx context.Context, siteID int64, percent int) error
+	BackupReserve(ctx context.Context, siteID int64) (int, error)
+	EnergySites(ctx context.Context) ([]teslaapi.EnergySite, error)
+}
+
 // Manager polls the Fleet API on a timer.
 type Manager struct {
 	ctx    context.Context
 	logger *zap.Logger
 
-	cfg     teslaapi.Config
-	enabled bool
+	cfg      teslaapi.Config
+	enabled  bool
+	readOnly bool
 
 	auth       *teslaapi.Authenticator
 	authorized authChecker
 	client     fleetReader
+	energy     energyCommander
 	commander  *teslaapi.Commander
 
 	shadowTracker *shadowstate.TeslaTracker
@@ -57,12 +71,19 @@ type Manager struct {
 	// dropped rather than queued — it would only re-read what the first is
 	// already fetching, at twice the price.
 	polling atomic.Bool
+
+	// energyCommands counts Powerwall commands. The vehicle Commander keeps its
+	// own count, and the two are summed for shadow state.
+	energyCommands atomic.Int64
 }
 
 // NewManager creates a Tesla manager. When the Tesla environment variables are
 // absent the manager still starts, but it does nothing except record that it is
 // unconfigured — that keeps a deployment without Tesla credentials quiet.
-func NewManager(ctx context.Context, logger *zap.Logger) *Manager {
+//
+// readOnly mirrors the application-wide READ_ONLY setting. When it is set the
+// manager still reads from Tesla, but refuses to send any command.
+func NewManager(ctx context.Context, logger *zap.Logger, readOnly bool) *Manager {
 	log := logger.Named("tesla")
 
 	tracker := shadowstate.NewTeslaTracker()
@@ -71,24 +92,28 @@ func NewManager(ctx context.Context, logger *zap.Logger) *Manager {
 	if err != nil {
 		log.Error("Tesla configuration is invalid, plugin disabled", zap.Error(err))
 		tracker.UpdateLastError(err.Error())
-		return &Manager{ctx: ctx, logger: log, shadowTracker: tracker}
+		return &Manager{ctx: ctx, logger: log, readOnly: readOnly, shadowTracker: tracker}
 	}
 	if !enabled {
 		log.Info("Tesla Fleet API not configured (TESLA_CLIENT_ID unset), plugin idle")
-		return &Manager{ctx: ctx, logger: log, shadowTracker: tracker}
+		return &Manager{ctx: ctx, logger: log, readOnly: readOnly, shadowTracker: tracker}
 	}
 
 	store := teslaapi.NewTokenStore(cfg.TokenStorePath)
 	auth := teslaapi.NewAuthenticator(cfg, store)
+
+	client := teslaapi.NewClient(auth)
 
 	m := &Manager{
 		ctx:           ctx,
 		logger:        log,
 		cfg:           cfg,
 		enabled:       true,
+		readOnly:      readOnly,
 		auth:          auth,
 		authorized:    auth,
-		client:        teslaapi.NewClient(auth),
+		client:        client,
+		energy:        client,
 		commander:     teslaapi.NewCommander(auth, cfg.PrivateKeyPath),
 		shadowTracker: tracker,
 	}
@@ -103,6 +128,89 @@ func (m *Manager) Authenticator() *teslaapi.Authenticator { return m.auth }
 // Commander exposes signed vehicle commands. It is nil when Tesla is not
 // configured.
 func (m *Manager) Commander() *teslaapi.Commander { return m.commander }
+
+// SetBackupReserve sets how much charge a Powerwall system holds back for an
+// outage — the closest thing a Powerwall has to a target charge level.
+//
+// This is the one Powerwall operation that must go through Tesla's cloud. The
+// local gateway API is read-only, so reserve changes have no local path.
+// Unlike vehicle commands it needs no signing and no virtual key, but it does
+// need a token carrying the energy_cmds scope.
+//
+// Like Commander, this has no HTTP surface. This system decides its own
+// behavior, so the reserve is for an automation to set, not for a caller
+// outside the process to set on request.
+//
+// It reads the value back afterwards to report what actually landed; Tesla
+// clamps and rounds, so the applied value is not always the requested one.
+func (m *Manager) SetBackupReserve(ctx context.Context, siteID int64, percent int) (applied int, err error) {
+	if err := m.energyReady(); err != nil {
+		return 0, err
+	}
+	if m.readOnly {
+		m.logger.Info("Read-only mode: skipping Powerwall backup reserve change",
+			zap.Int64("siteId", siteID), zap.Int("percent", percent))
+		return 0, teslaapi.ErrReadOnly
+	}
+
+	if err := m.energy.SetBackupReserve(ctx, siteID, percent); err != nil {
+		m.logger.Warn("Powerwall backup reserve change failed",
+			zap.Int64("siteId", siteID), zap.Int("percent", percent), zap.Error(err))
+		m.recordUsage()
+		return 0, err
+	}
+
+	m.energyCommands.Add(1)
+
+	applied, err = m.energy.BackupReserve(ctx, siteID)
+	if err != nil {
+		// The command went through; only the confirmation failed.
+		m.logger.Warn("Powerwall backup reserve set, but reading it back failed",
+			zap.Int64("siteId", siteID), zap.Int("percent", percent), zap.Error(err))
+		m.recordUsage()
+		return percent, nil
+	}
+
+	m.logger.Info("Powerwall backup reserve set",
+		zap.Int64("siteId", siteID),
+		zap.Int("requested", percent),
+		zap.Int("applied", applied),
+	)
+	m.recordUsage()
+	return applied, nil
+}
+
+// EnergySites lists the Powerwall systems on the account, so an operator can
+// look up the site id that SetBackupReserve needs. It costs one billed Fleet
+// API request, so it is meant for occasional use rather than polling.
+func (m *Manager) EnergySites(ctx context.Context) ([]teslaapi.EnergySite, error) {
+	if err := m.energyReady(); err != nil {
+		return nil, err
+	}
+
+	sites, err := m.energy.EnergySites(ctx)
+	m.recordUsage()
+	if err != nil {
+		m.logger.Warn("Listing Powerwall systems failed", zap.Error(err))
+		return nil, err
+	}
+	return sites, nil
+}
+
+// energyReady reports why the Powerwall surface cannot be used, or nil when it
+// can.
+func (m *Manager) energyReady() error {
+	if !m.enabled {
+		return fmt.Errorf("tesla is not configured")
+	}
+	if m.energy == nil {
+		return fmt.Errorf("tesla energy control is unavailable")
+	}
+	if !m.authorized.Authorized() {
+		return fmt.Errorf("tesla account is not authorized yet")
+	}
+	return nil
+}
 
 // VIN returns the configured vehicle identifier.
 func (m *Manager) VIN() string { return m.cfg.VIN }
@@ -252,9 +360,9 @@ func (m *Manager) Poll() {
 }
 
 func (m *Manager) recordUsage() {
-	var commands int64
+	commands := m.energyCommands.Load()
 	if m.commander != nil {
-		commands = m.commander.CommandCount()
+		commands += m.commander.CommandCount()
 	}
 	m.shadowTracker.UpdateUsage(m.client.RequestCount(), commands)
 }

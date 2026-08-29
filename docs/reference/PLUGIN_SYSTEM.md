@@ -384,7 +384,9 @@ defer stateTrackingManager.Stop()  // Stops first (registered first)
 
 ### Tesla Fleet API Plugin (`tesla`)
 
-**Purpose:** Polls the Tesla Fleet API for vehicle and charge state, holds OAuth tokens, and signs vehicle commands on request. The plugin never issues commands autonomously.
+**Purpose:** Polls the Tesla Fleet API for vehicle and charge state, holds OAuth tokens, signs vehicle commands on request, and sets the backup reserve on the Powerwall systems. The plugin never issues commands autonomously.
+
+Setting the backup reserve is the one Powerwall operation with no local path: the gateway API on the house LAN only reads, so the command has to go through Tesla's cloud. Powerwall telemetry is the opposite and is deliberately absent here — the gateways are free and higher resolution, so nothing in this plugin polls Tesla for energy data.
 
 **State Variables Managed:** None. Reads from and writes to Tesla directly; does not read or write Home Assistant state.
 
@@ -394,10 +396,13 @@ defer stateTrackingManager.Stop()  // Stops first (registered first)
 - `GET /api/tesla/login` — starts OAuth authorization flow
 - `GET /api/tesla/callback` — completes authorization, stores tokens
 - `GET /api/shadow/tesla` — returns shadow state (vehicle state, charge state, Fleet API usage)
+- `GET /api/tesla/energy/sites` — lists the Powerwall systems and their site ids
 
-**Cost note:** Tesla bills per request against a monthly credit. The poll interval (`TESLA_POLL_MINUTES`, default 5) is a recurring charge. `/api/shadow/tesla` exposes `requestCount` and `commandCount` to track spend.
+No endpoint changes home state. Setting a backup reserve is a capability on the Manager, next to the vehicle Commander, and is not reachable over HTTP. `READ_ONLY=true` refuses the change and logs what it would have sent.
 
-**Configuration:** Environment only — see `.env.example` for `TESLA_CLIENT_ID`, `TESLA_CLIENT_SECRET`, `TESLA_DOMAIN`, `TESLA_REDIRECT_URI`, `TESLA_PRIVATE_KEY`, `TESLA_TOKEN_STORE`, `TESLA_VIN`.
+**Cost note:** Tesla bills per request against a monthly credit. The poll interval (`TESLA_POLL_MINUTES`, default 5) is a recurring charge. `/api/shadow/tesla` exposes `requestCount` and `commandCount` to track spend. Listing sites and changing a reserve each cost a request too, so they are meant for occasional use rather than polling.
+
+**Configuration:** Environment only — see `.env.example` for `TESLA_CLIENT_ID`, `TESLA_CLIENT_SECRET`, `TESLA_DOMAIN`, `TESLA_REDIRECT_URI`, `TESLA_PRIVATE_KEY`, `TESLA_TOKEN_STORE`, `TESLA_VIN`. Powerwall site ids are not configured; the caller passes one per command.
 
 ---
 

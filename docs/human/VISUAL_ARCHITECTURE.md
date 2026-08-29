@@ -183,7 +183,7 @@ graph TB
     IntegrationWatchdog -->|Reload Config Entry| HAClient
     IntegrationWatchdog -.->|Register Shadow| ShadowTracker
 
-    Tesla -->|Poll Fleet API / Signed Commands| TeslaCloud[Tesla Fleet API<br/>outbound HTTPS only]
+    Tesla -->|Poll Fleet API / Signed Vehicle Commands<br/>Powerwall Backup Reserve| TeslaCloud[Tesla Fleet API<br/>outbound HTTPS only]
     Tesla -.->|Register Shadow| ShadowTracker
 
     HA -->|Control| Sonos

@@ -584,6 +584,22 @@ Then open `http://localhost:8081/api/tesla/login` in a browser and sign in. The 
 
 Tesla rotates the refresh token on every refresh. If the token file is lost, this flow has to be repeated.
 
+A token carries the scopes that were requested when it was issued, and those never change afterwards. A deployment authorized before Powerwall support was added holds a token without `energy_cmds`, so the reserve endpoint fails until this flow is run again.
+
+### Powerwall
+
+Setting the backup reserve is the one Powerwall operation with no local path. The gateway API on the house LAN only reads, so the command goes through Tesla's cloud.
+
+**No endpoint changes the reserve.** `Manager.SetBackupReserve` is a capability, like the vehicle `Commander`, and nothing reaches it over HTTP. This system decides its own behavior, so the reserve is for an automation to set. `READ_ONLY=true` refuses the change and logs what it would have sent.
+
+One endpoint exists, and it only reads. It costs a billed request, so call it when you need a site id, not on a timer.
+
+```bash
+curl -s http://localhost:8081/api/tesla/energy/sites | jq
+```
+
+Site ids are not configured. A property can have several systems, so a caller names one per call.
+
 ### Checking the logs
 
 ```bash
@@ -612,7 +628,8 @@ With `TESLA_CLIENT_ID` unset the plugin starts, records that it is unconfigured,
 - **Retries:** One retry, 500ms apart. On the Fleet API path only transport failures are retried, because a response Tesla already sent has already been billed. The token endpoint is not billed, so a 5xx there is retried too; a 4xx is not.
 - **Token storage:** Written atomically at mode 0600 — temp file, chmod, rename. A process that dies mid-write leaves the previous tokens intact.
 - **Command signing:** Cars built since 2021 reject unsigned commands. The EC key is loaded once and cached. The car must also have the virtual key paired, which is a one-time step in the Tesla phone app.
-- **Read-only by design:** The plugin issues no commands on its own. `Commander` is only reachable by callers acting on a person's request.
+- **Read-only by design:** The plugin issues no commands on its own. `Commander` and the reserve endpoint are only reachable by callers acting on a person's request, and `READ_ONLY=true` blocks the reserve change outright.
+- **Energy vs vehicle commands:** Energy commands need no signing and no virtual key. They are plain authenticated REST, and only need a token carrying `energy_cmds`.
 
 ## Testing UI Changes
 

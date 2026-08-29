@@ -45,6 +45,7 @@ type Server struct {
 	// checked when Tesla redirects the browser back to /api/tesla/callback.
 	teslaMu       sync.Mutex
 	teslaAuth     TeslaAuthenticator
+	teslaEnergy   TeslaEnergyController
 	oauthState    string
 	oauthStateExp time.Time
 }
@@ -102,6 +103,7 @@ func NewServer(
 	mux.HandleFunc("/api/shadow/tesla", s.handleGetTeslaShadowState)
 	mux.HandleFunc("/api/tesla/login", s.handleTeslaLogin)
 	mux.HandleFunc("/api/tesla/callback", s.handleTeslaCallback)
+	mux.HandleFunc("/api/tesla/energy/sites", s.handleTeslaEnergySites)
 	mux.HandleFunc("/api/notify", s.handleNotify)
 	mux.HandleFunc("/health", s.handleHealth)
 	mux.HandleFunc("/dashboard", s.handleDashboard)
@@ -622,6 +624,11 @@ func (s *Server) handleSitemap(w http.ResponseWriter, r *http.Request) {
 			Path:        "/api/tesla/callback",
 			Method:      "GET",
 			Description: "Tesla OAuth redirect target - exchanges the authorization code for tokens",
+		},
+		{
+			Path:        "/api/tesla/energy/sites",
+			Method:      "GET",
+			Description: "List Powerwall systems and their site ids - costs one billed Fleet API request",
 		},
 		{
 			Path:        "/health",

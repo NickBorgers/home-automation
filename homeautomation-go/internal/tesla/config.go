@@ -18,7 +18,8 @@ import (
 
 // Scopes requested during the OAuth flow. These must also be selected on the
 // application in the Tesla developer portal, or authorization fails.
-const Scopes = "openid offline_access vehicle_device_data vehicle_location vehicle_cmds vehicle_charging_cmds"
+const Scopes = "openid offline_access vehicle_device_data vehicle_location " +
+	"vehicle_cmds vehicle_charging_cmds energy_device_data energy_cmds"
 
 // Defaults for the North America / Asia-Pacific region.
 const (

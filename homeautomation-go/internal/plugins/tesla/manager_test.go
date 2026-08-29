@@ -59,7 +59,7 @@ func clearTeslaEnv(t *testing.T) {
 func TestManagerIdleWithoutCredentials(t *testing.T) {
 	clearTeslaEnv(t)
 
-	m := NewManager(context.Background(), testlogger.New())
+	m := NewManager(context.Background(), testlogger.New(), false)
 
 	assert.False(t, m.Enabled())
 	assert.Nil(t, m.Authenticator())
@@ -80,7 +80,7 @@ func TestManagerRecordsInvalidConfiguration(t *testing.T) {
 	// A client ID with nothing else is the classic half-finished setup.
 	t.Setenv("TESLA_CLIENT_ID", "client-id")
 
-	m := NewManager(context.Background(), testlogger.New())
+	m := NewManager(context.Background(), testlogger.New(), false)
 
 	assert.False(t, m.Enabled())
 	assert.Contains(t, m.GetShadowState().Outputs.LastError, "TESLA_CLIENT_SECRET")
@@ -95,7 +95,7 @@ func TestManagerConfiguredButUnauthorized(t *testing.T) {
 	t.Setenv("TESLA_TOKEN_STORE", t.TempDir()+"/tokens.json")
 	t.Setenv("TESLA_VIN", "5YJ3E1EA1JF000000")
 
-	m := NewManager(context.Background(), testlogger.New())
+	m := NewManager(context.Background(), testlogger.New(), false)
 
 	require.True(t, m.Enabled())
 	require.NotNil(t, m.Authenticator())
@@ -115,7 +115,7 @@ func TestManagerConfiguredButUnauthorized(t *testing.T) {
 func TestManagerStopIsIdempotent(t *testing.T) {
 	clearTeslaEnv(t)
 
-	m := NewManager(context.Background(), testlogger.New())
+	m := NewManager(context.Background(), testlogger.New(), false)
 	m.Stop()
 	m.Stop()
 }
@@ -320,4 +320,161 @@ func TestPollAdmitsOneAtATime(t *testing.T) {
 	close(fleet.release)
 	m.Poll()
 	assert.Equal(t, int64(2), fleet.RequestCount(), "the guard must clear after a poll finishes")
+}
+
+// fakeEnergy stands in for the Powerwall control surface.
+type fakeEnergy struct {
+	setCalls  int
+	lastSite  int64
+	lastPct   int
+	setErr    error
+	readValue int
+	readErr   error
+	siteCalls int
+	sites     []teslaapi.EnergySite
+	sitesErr  error
+}
+
+func (f *fakeEnergy) SetBackupReserve(_ context.Context, siteID int64, percent int) error {
+	f.setCalls++
+	f.lastSite = siteID
+	f.lastPct = percent
+	return f.setErr
+}
+
+func (f *fakeEnergy) BackupReserve(_ context.Context, _ int64) (int, error) {
+	return f.readValue, f.readErr
+}
+
+func (f *fakeEnergy) EnergySites(_ context.Context) ([]teslaapi.EnergySite, error) {
+	f.siteCalls++
+	return f.sites, f.sitesErr
+}
+
+func newEnergyManager(energy energyCommander, authorized bool) *Manager {
+	return newEnergyManagerReadOnly(energy, authorized, false)
+}
+
+func newEnergyManagerReadOnly(energy energyCommander, authorized, readOnly bool) *Manager {
+	return &Manager{
+		ctx:           context.Background(),
+		logger:        testlogger.New(),
+		enabled:       true,
+		readOnly:      readOnly,
+		authorized:    fakeAuth{authorized: authorized},
+		client:        &fakeFleet{},
+		energy:        energy,
+		shadowTracker: shadowstate.NewTeslaTracker(),
+	}
+}
+
+func TestSetBackupReserveReportsAppliedValue(t *testing.T) {
+	// Tesla clamps and rounds, so what landed is not always what was asked.
+	energy := &fakeEnergy{readValue: 35}
+	m := newEnergyManager(energy, true)
+
+	applied, err := m.SetBackupReserve(context.Background(), 42, 37)
+
+	require.NoError(t, err)
+	assert.Equal(t, 35, applied)
+	assert.Equal(t, int64(42), energy.lastSite)
+	assert.Equal(t, 37, energy.lastPct)
+}
+
+func TestSetBackupReserveFallsBackToRequestedWhenReadbackFails(t *testing.T) {
+	// The command landed; only the confirmation failed. Reporting an error
+	// would wrongly suggest the reserve is unchanged.
+	energy := &fakeEnergy{readErr: errors.New("read timeout")}
+	m := newEnergyManager(energy, true)
+
+	applied, err := m.SetBackupReserve(context.Background(), 42, 60)
+
+	require.NoError(t, err)
+	assert.Equal(t, 60, applied)
+}
+
+func TestSetBackupReserveSurfacesCommandFailure(t *testing.T) {
+	energy := &fakeEnergy{setErr: errors.New("missing scopes")}
+	m := newEnergyManager(energy, true)
+
+	_, err := m.SetBackupReserve(context.Background(), 42, 60)
+
+	assert.ErrorContains(t, err, "missing scopes")
+}
+
+func TestSetBackupReserveRefusedWhenUnauthorized(t *testing.T) {
+	energy := &fakeEnergy{}
+	m := newEnergyManager(energy, false)
+
+	_, err := m.SetBackupReserve(context.Background(), 42, 60)
+
+	assert.ErrorContains(t, err, "not authorized")
+	assert.Zero(t, energy.setCalls)
+}
+
+func TestSetBackupReserveRefusedWhenUnconfigured(t *testing.T) {
+	clearTeslaEnv(t)
+	m := NewManager(context.Background(), testlogger.New(), false)
+
+	_, err := m.SetBackupReserve(context.Background(), 42, 60)
+
+	assert.ErrorContains(t, err, "not configured")
+}
+
+func TestSetBackupReserveRefusedInReadOnlyMode(t *testing.T) {
+	// READ_ONLY must stop a real Powerwall from moving, the same way it stops
+	// every other write in the application.
+	energy := &fakeEnergy{}
+	m := newEnergyManagerReadOnly(energy, true, true)
+
+	_, err := m.SetBackupReserve(context.Background(), 42, 60)
+
+	assert.ErrorIs(t, err, teslaapi.ErrReadOnly)
+	assert.Zero(t, energy.setCalls, "read-only mode must not reach Tesla")
+}
+
+func TestSetBackupReserveCountsAsACommand(t *testing.T) {
+	energy := &fakeEnergy{readValue: 40}
+	m := newEnergyManager(energy, true)
+
+	_, err := m.SetBackupReserve(context.Background(), 42, 40)
+
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), m.GetShadowState().Outputs.CommandCount,
+		"a reserve change is a billed command and belongs in shadow state")
+}
+
+func TestEnergySitesListsBatteries(t *testing.T) {
+	energy := &fakeEnergy{sites: []teslaapi.EnergySite{
+		{ID: 1, Name: "Left Powerwall", ResourceType: "battery"},
+	}}
+	m := newEnergyManager(energy, true)
+
+	sites, err := m.EnergySites(context.Background())
+
+	require.NoError(t, err)
+	require.Len(t, sites, 1)
+	assert.Equal(t, "Left Powerwall", sites[0].Name)
+	assert.Equal(t, 1, energy.siteCalls)
+}
+
+// Listing sites is a read, so read-only mode allows it.
+func TestEnergySitesAllowedInReadOnlyMode(t *testing.T) {
+	energy := &fakeEnergy{sites: []teslaapi.EnergySite{{ID: 1, ResourceType: "battery"}}}
+	m := newEnergyManagerReadOnly(energy, true, true)
+
+	sites, err := m.EnergySites(context.Background())
+
+	require.NoError(t, err)
+	assert.Len(t, sites, 1)
+}
+
+func TestEnergySitesRefusedWhenUnauthorized(t *testing.T) {
+	energy := &fakeEnergy{}
+	m := newEnergyManager(energy, false)
+
+	_, err := m.EnergySites(context.Background())
+
+	assert.ErrorContains(t, err, "not authorized")
+	assert.Zero(t, energy.siteCalls)
 }

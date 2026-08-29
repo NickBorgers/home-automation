@@ -1,12 +1,16 @@
 package api
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"time"
+
+	teslaapi "homeautomation/internal/tesla"
 
 	"go.uber.org/zap"
 )
@@ -164,4 +168,73 @@ func newOAuthState() (string, error) {
 		return "", fmt.Errorf("generate oauth state: %w", err)
 	}
 	return base64.RawURLEncoding.EncodeToString(buf), nil
+}
+
+// TeslaEnergyController is the Powerwall surface this server exposes, and it
+// only reads. Changing a Powerwall setting is not offered over HTTP: this
+// system decides its own behavior, so a reserve change belongs to an
+// automation, not to a request from outside.
+//
+// There is no telemetry endpoint either. Powerwall data is meant to come from
+// the gateways on the LAN, not from Tesla's cloud.
+type TeslaEnergyController interface {
+	// EnergySites lists the Powerwall systems on the account, so a site id can
+	// be looked up when configuring an automation.
+	EnergySites(ctx context.Context) ([]teslaapi.EnergySite, error)
+}
+
+// SetTeslaEnergyController wires the Powerwall site lookup into the API server.
+func (s *Server) SetTeslaEnergyController(controller TeslaEnergyController) {
+	s.teslaMu.Lock()
+	defer s.teslaMu.Unlock()
+	s.teslaEnergy = controller
+}
+
+func (s *Server) teslaEnergyController() TeslaEnergyController {
+	s.teslaMu.Lock()
+	defer s.teslaMu.Unlock()
+	return s.teslaEnergy
+}
+
+type energySiteResponse struct {
+	SiteID int64  `json:"site_id"`
+	Name   string `json:"site_name"`
+}
+
+// handleTeslaEnergySites lists the Powerwall systems on the account.
+//
+//	GET /api/tesla/energy/sites
+//
+// It answers a question shadow state cannot: which systems exist on the
+// account. Shadow state reports what the plugin already knows, so a live
+// lookup belongs here instead. It costs one billed Fleet API request, so call
+// it when you need a site id, not on a timer.
+func (s *Server) handleTeslaEnergySites(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	controller := s.teslaEnergyController()
+	if controller == nil {
+		http.Error(w, "Tesla energy control is not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	sites, err := controller.EnergySites(r.Context())
+	if err != nil {
+		s.logger.Error("Listing Powerwall systems failed", zap.Error(err))
+		writeAPIError(w, http.StatusBadGateway, "Listing Powerwall systems failed: "+err.Error())
+		return
+	}
+
+	response := make([]energySiteResponse, 0, len(sites))
+	for _, site := range sites {
+		response = append(response, energySiteResponse{SiteID: site.ID, Name: site.Name})
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		s.logger.Error("Failed to encode Powerwall system list", zap.Error(err))
+	}
 }
