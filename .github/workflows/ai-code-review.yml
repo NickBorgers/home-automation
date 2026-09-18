@@ -1276,7 +1276,7 @@ jobs:
             HEAD_REF=${{ needs.get-context.outputs.head_ref }}
             REPO=${{ github.repository }}
             AI_TOOL=codex
-            CODEX_MODEL=gpt-5.5
+            CODEX_MODEL=gpt-5.6-terra
           pre_script: |
             PR_JSON=$(gh api "repos/${REPO}/pulls/${PR_NUMBER}")
             PR_TITLE=$(echo "$PR_JSON" | jq -r '.title')
