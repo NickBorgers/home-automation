@@ -7,6 +7,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
+	"homeautomation/internal/clock"
 	"homeautomation/internal/config"
 	"homeautomation/internal/ha"
 	"homeautomation/internal/state"
@@ -511,6 +512,48 @@ func TestHandleGoToBed_ReadOnly(t *testing.T) {
 	calls := env.MockHA.GetServiceCallsSince(snapshot)
 	if len(calls) > 0 {
 		t.Errorf("Expected no service calls in read-only mode, got %d", len(calls))
+	}
+}
+
+// TestCheckTimeTriggers_GoToBed_DeferredWhenEmpty verifies that go_to_bed does
+// not fire when no one is home, and that it is not marked triggered — so a
+// subsequent tick (after arrival, still inside the 1-hour window) will fire it.
+//
+// Why: starting sleep prep with an empty house sets isSleepPrepActive=true,
+// which causes the lighting plugin to skip the bedroom when the owner later
+// arrives, leaving them without a welcome scene (production incident
+// 2026-05-29).
+func TestCheckTimeTriggers_GoToBed_DeferredWhenEmpty(t *testing.T) {
+	t.Parallel()
+
+	// Inside the go_to_bed trigger window (schedule is 22:30, window is 1h).
+	now := time.Date(2024, 1, 15, 23, 0, 0, 0, time.UTC)
+	manager, _, stateManager, configLoader := setupTest(t, now)
+	configLoader.SetClock(clock.NewMockClock(now))
+	if err := configLoader.LoadScheduleConfig(); err != nil {
+		t.Skipf("Skipping test: schedule config not available: %v", err)
+	}
+
+	// No one home at scheduled bedtime.
+	stateManager.SetBool("isAnyoneHome", false)
+
+	manager.checkTimeTriggers()
+
+	if _, triggered := manager.triggeredToday["go_to_bed"]; triggered {
+		t.Error("go_to_bed must not be marked triggered when no one is home, so a later tick can fire it on arrival")
+	}
+
+	isSleepPrep, _ := stateManager.GetBool("isSleepPrepActive")
+	if isSleepPrep {
+		t.Error("isSleepPrepActive must remain false when no one is home")
+	}
+
+	// Now someone arrives. Next tick should fire go_to_bed.
+	stateManager.SetBool("isAnyoneHome", true)
+	manager.checkTimeTriggers()
+
+	if _, triggered := manager.triggeredToday["go_to_bed"]; !triggered {
+		t.Error("go_to_bed should fire on the tick after arrival, while still inside the 1-hour window")
 	}
 }
 
