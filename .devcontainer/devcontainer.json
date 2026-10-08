@@ -29,6 +29,9 @@
     // as on the host so absolute paths inside settings.json resolve verbatim.
     // On CI runners without ~/.claude, Docker creates an empty directory and
     // post-create.sh no-ops.
+    // The mount also exposes .credentials.json, but post-create.sh never links or
+    // copies it: Claude's refresh token rotates, so a container that used it could
+    // log the host out. Claude authenticates from CLAUDE_CODE_OAUTH_TOKEN instead.
     "source=${localEnv:HOME}/.claude,target=${localEnv:HOME}/.claude,type=bind,readonly,consistency=cached",
     // Same pattern for the developer's host ~/.bashrc and the external
     // util/profile file it sources (shell functions, mise activation, the
