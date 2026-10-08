@@ -27,7 +27,7 @@ token_file="$TMP/dc/.claude-oauth-token"
 new_world 3600; echo "$REFRESH" >"$TMP/dc/.claude-credentials"
 out="$(run_init)"
 [ "$(cat "$token_file")" = "$ACCESS" ] || fail "token file should hold the access token"
-[ "$(stat -c %a "$token_file")" = 600 ] || fail "token file should be mode 600"
+find "$token_file" -perm 600 | grep -q . || fail "token file should be mode 600"
 [ ! -e "$TMP/dc/.claude-credentials" ] || fail "old credentials copy should be removed"
 if grep -rqF "$REFRESH" "$TMP/dc"; then fail "refresh token leaked into .devcontainer"; fi
 if printf '%s' "$out" | grep -qF "$REFRESH"; then fail "refresh token printed"; fi

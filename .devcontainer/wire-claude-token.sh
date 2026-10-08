@@ -19,6 +19,11 @@
 set -euo pipefail
 
 TOKEN_FILE="${1:?usage: wire-claude-token.sh <token-file>}"
+# Assumption: Claude Code gives CLAUDE_CODE_OAUTH_TOKEN precedence over
+# ~/.claude/.credentials.json when both are present (tested as of Claude Code
+# 1.x). If a future release changes this precedence, the refresh-token-leak
+# protection silently breaks, especially when the host ~/.claude is mounted
+# over $HOME/.claude. If that regression appears, re-test and update this script.
 MARK="# claude-oauth-token-export: $TOKEN_FILE"
 
 for rc in .bashrc .profile .zshrc; do

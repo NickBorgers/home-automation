@@ -38,13 +38,15 @@ rm -f .claude-credentials   # earlier revisions copied the whole file here
 
 claude_json_field() {
     # $1 = field under claudeAiOauth; JSON on stdin; prints nothing on failure.
+    # || true: if python3 is absent, degrade gracefully instead of aborting
+    # (bash 4.4+ propagates subshell failures through $() under set -e).
     python3 -c '
 import json, sys
 try:
     print(json.load(sys.stdin).get("claudeAiOauth", {}).get(sys.argv[1], ""))
 except Exception:
     pass
-' "$1" 2>/dev/null
+' "$1" 2>/dev/null || true
 }
 
 claude_json=""
