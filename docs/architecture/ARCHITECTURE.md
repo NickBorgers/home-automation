@@ -531,6 +531,59 @@ room sequencing, and per-room vacuum/mop parameters)
 
 **Config File:** `configs/integration_watchdog_config.yaml`
 
+### 17. Tesla Plugin ✅
+
+**Responsibilities:**
+- Poll the Tesla Fleet API for the car's sleep state and charge state
+- Hold the OAuth tokens, refreshing them before they expire
+- Sign vehicle commands with the EC key Tesla registered for our domain
+
+**Key Automations:**
+- **Cheap Poll First**: Each cycle reads the vehicle list (one request) to learn
+  whether the car is online, asleep, or offline
+- **Read Only When Awake**: `vehicle_data` is requested only when the car is
+  already online. A sleeping car is left alone — waking it is billed separately
+  and is never done on a timer
+- **Idle Without Credentials**: With no `TESLA_CLIENT_ID` the plugin starts,
+  records that it is unconfigured, and does nothing else
+- **Commands On Request Only**: The plugin issues no commands by itself. Charge
+  start/stop, charge limit, wake, and flash-lights are available through the
+  Commander for callers acting on a person's request
+
+**Entities Monitored:** None. This plugin talks to Tesla directly and does not
+read or write Home Assistant state.
+
+**Endpoints:** `/api/tesla/login` starts authorization, `/api/tesla/callback`
+completes it, `/api/shadow/tesla` shows what the plugin knows, and
+`GET /api/tesla/energy/sites` lists the Powerwall systems and their site ids.
+
+**No endpoint changes home state.** Setting a backup reserve is a capability on
+the Manager, next to the vehicle Commander, and it is not reachable over HTTP.
+This system decides its own behavior, so a reserve change belongs to an
+automation rather than to a request from outside. `READ_ONLY=true` refuses the
+change and logs what it would have sent.
+
+**Powerwall control (cloud) vs Powerwall data (local).** Reserve changes are the one
+Powerwall operation with no local path: the gateway API on the LAN is read-only, so
+commands must go through Tesla's cloud. Data is the opposite — the local gateways are
+free, higher resolution, and independent of Tesla's cloud, so this plugin deliberately
+does **not** poll Tesla for energy data. Powerwall telemetry belongs to whatever reads
+the gateways directly once they are back on the house LAN.
+
+Energy commands need no signing and no virtual key, unlike vehicle commands, but they do
+need a token carrying `energy_cmds`. Scopes are fixed at token issue, so adding energy
+support to an already-authorized deployment requires re-running `/api/tesla/login`.
+
+**Cost note:** Tesla bills per request against a small monthly credit, so the
+poll interval (`TESLA_POLL_MINUTES`, default 5) is a recurring charge. Shadow
+state reports the running request and command counts.
+
+**Configuration:** environment only — `TESLA_CLIENT_ID`, `TESLA_CLIENT_SECRET`,
+`TESLA_DOMAIN`, `TESLA_REDIRECT_URI`, `TESLA_PRIVATE_KEY`, `TESLA_TOKEN_STORE`,
+`TESLA_VIN`, `TESLA_POLL_MINUTES`. Powerwall site ids are not configured: the caller
+passes one per call, since a property can have several systems. Look them up with
+`GET /api/tesla/energy/sites`, which costs one billed request.
+
 ---
 
 ## Data Flow

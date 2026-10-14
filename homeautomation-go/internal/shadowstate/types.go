@@ -117,6 +117,7 @@ type WaterFlowShadowState = ShadowState[ReadOnlyInputs, WaterFlowOutputs]
 type EVChargerShadowState = ShadowState[ReadOnlyInputs, EVChargerOutputs]
 type VacuumShadowState = ShadowState[ReadOnlyInputs, VacuumOutputs]
 type IntegrationWatchdogShadowState = ShadowState[ReadOnlyInputs, IntegrationWatchdogOutputs]
+type TeslaShadowState = ShadowState[ReadOnlyInputs, TeslaOutputs]
 
 // SystemInputs is used by cmd/app/run.go for system plugin shadow state.
 type SystemInputs = ReadOnlyInputs
@@ -304,6 +305,13 @@ func NewEVChargerShadowState() *EVChargerShadowState {
 // NewVacuumShadowState creates a new vacuum shadow state.
 func NewVacuumShadowState() *VacuumShadowState {
 	return newReadOnlyShadowState("vacuum", VacuumOutputs{})
+}
+
+// NewTeslaShadowState creates a new Tesla shadow state.
+func NewTeslaShadowState() *TeslaShadowState {
+	return newReadOnlyShadowState("tesla", TeslaOutputs{
+		VehicleState: "unknown",
+	})
 }
 
 // NewIntegrationWatchdogShadowState creates a new integration-watchdog shadow state.
@@ -1182,4 +1190,35 @@ type IntegrationWatchdogTargetState struct {
 
 	// DailyResetAt is when the daily counter window started.
 	DailyResetAt time.Time `json:"dailyResetAt,omitempty"`
+}
+
+// TeslaOutputs tracks what the Tesla Fleet API integration knows about the car.
+//
+// Configured and Authorized are separate on purpose: the plugin can be fully
+// configured but still waiting for someone to complete the browser
+// authorization, and that distinction is the first thing to check when the
+// integration looks dead.
+type TeslaOutputs struct {
+	Configured bool   `json:"configured"`
+	Authorized bool   `json:"authorized"`
+	VIN        string `json:"vin,omitempty"`
+
+	// VehicleState is Tesla's own word for it: online, asleep, or offline.
+	VehicleState string `json:"vehicleState"`
+
+	BatteryLevel        int     `json:"batteryLevel"`
+	ChargeLimitSOC      int     `json:"chargeLimitSoc"`
+	ChargingState       string  `json:"chargingState,omitempty"`
+	PluggedIn           bool    `json:"pluggedIn"`
+	MinutesToFullCharge int     `json:"minutesToFullCharge"`
+	InsideTemp          float64 `json:"insideTemp"`
+	Locked              bool    `json:"locked"`
+
+	LastPoll       time.Time `json:"lastPoll,omitempty"`
+	LastDataUpdate time.Time `json:"lastDataUpdate,omitempty"`
+	LastError      string    `json:"lastError,omitempty"`
+
+	// RequestCount and CommandCount exist because Tesla bills per request.
+	RequestCount int64 `json:"requestCount"`
+	CommandCount int64 `json:"commandCount"`
 }

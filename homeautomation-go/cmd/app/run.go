@@ -24,6 +24,7 @@ import (
 	"homeautomation/internal/plugins/reset"
 	"homeautomation/internal/shadowstate"
 	"homeautomation/internal/state"
+	"homeautomation/internal/tesla"
 	"homeautomation/internal/tts"
 	"homeautomation/internal/version"
 	pkgha "homeautomation/pkg/ha"
@@ -434,6 +435,29 @@ func Run() {
 				return provider.GetShadowState()
 			})
 			logger.Info("Registered shadow state provider", zap.String("plugin", name))
+		}
+
+		// The Tesla plugin owns the OAuth tokens. Hand its authenticator to the
+		// API server so /api/tesla/login and /api/tesla/callback work. The
+		// accessor returns nil when Tesla credentials are absent.
+		if teslaPlugin, ok := p.(interface {
+			TeslaAuthenticator() *tesla.Authenticator
+		}); ok {
+			if auth := teslaPlugin.TeslaAuthenticator(); auth != nil {
+				apiServer.SetTeslaAuthenticator(auth)
+				logger.Info("Tesla OAuth endpoints enabled")
+			}
+		}
+
+		// The Powerwall site lookup answers a question shadow state cannot:
+		// which systems exist on the account. Shadow state reports what the
+		// plugin already knows, so a live lookup belongs at an endpoint.
+		if energyPlugin, ok := p.(interface {
+			EnergySites(ctx context.Context) ([]tesla.EnergySite, error)
+			Enabled() bool
+		}); ok && energyPlugin.Enabled() {
+			apiServer.SetTeslaEnergyController(energyPlugin)
+			logger.Info("Tesla Powerwall site lookup endpoint enabled")
 		}
 
 		// Collect resettable plugins for the reset coordinator

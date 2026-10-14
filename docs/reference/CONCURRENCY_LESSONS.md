@@ -1509,7 +1509,85 @@ The copy-under-lock pattern is important: holding the read lock across the entir
 
 ---
 
+## Lesson 22: Hold the Lock Across Network I/O When the Remote Side Rotates a Credential
+
+**Pattern**: Holding a mutex across an HTTP call is normally a bug — it blocks every other caller for the length of a network round trip. It is the right call when the remote service invalidates the old credential the moment it issues a new one. Then a second concurrent call does not just waste a request: it destroys the credential the first call is about to store.
+
+**Why**: Tesla's OAuth refresh rotates the refresh token. The moment Tesla issues a replacement, the token used to request it stops working. Two callers that both see an expired access token both send the same refresh token. Tesla serves the first and rejects the second, and the loser is left holding a token that no longer exists. Recovering means a person opening a browser and authorizing again.
+
+**Race Scenario (Before Fix)**:
+```
+Poll loop goroutine:                     Reset() goroutine:
+AccessToken()                            AccessToken()
+  mu.Lock(); read tokens; mu.Unlock()      mu.Lock(); read tokens; mu.Unlock()
+  → sees expired, refresh_token = R0       → sees expired, refresh_token = R0
+  POST /token (refresh_token=R0)           POST /token (refresh_token=R0)
+  ← 200, new pair (R1)                     ← 400, R0 was just invalidated
+  persist(R1)                              integration is now broken until
+                                           someone re-authorizes in a browser
+```
+
+This is reachable, not theoretical: `Reset()` calls `Poll()` from the reset coordinator's goroutine while the plugin's own ticker is running.
+
+**Correct Approach**:
+```go
+// The expiry check and the refresh happen under ONE lock. A caller that
+// arrives mid-refresh waits, then re-reads and reuses the fresh token.
+func (a *Authenticator) AccessToken(ctx context.Context) (string, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	tokens, err := a.currentLocked()
+	if err != nil {
+		return "", err
+	}
+	if tokens.Valid(a.now(), refreshSkew) {
+		return tokens.AccessToken, nil
+	}
+	refreshed, err := a.refreshLocked(ctx, tokens.RefreshToken)  // network I/O, lock held
+	if err != nil {
+		return "", err
+	}
+	return refreshed.AccessToken, nil
+}
+```
+
+Two things make the held lock affordable:
+
+- It is rare. Tesla's access tokens last 8 hours, so the refresh path runs about three times a day.
+- The HTTP client has a 30-second timeout, so the worst-case wait is bounded. A lock held across an *unbounded* network call would still be a bug.
+
+**Naming convention**: helpers that assume the caller already holds the lock are suffixed `Locked` (`currentLocked`, `persistLocked`, `refreshLocked`) and say so in their doc comment. Without that, someone calls `current()` from inside `AccessToken()` and self-deadlocks on the next edit.
+
+**Testing it**: a test that merely starts N goroutines will pass against the broken code, because the first caller finishes before the others begin. The test needs two things to have teeth — a start barrier so every caller enters at once, and a delayed response from the fake server so the window stays open:
+
+```go
+server.delay = 100 * time.Millisecond   // hold the refresh in flight
+ready.Wait()                            // every caller is parked
+close(start)                            // release them together
+done.Wait()
+
+assert.Equal(t, 1, server.Requests())   // reports 16 without the fix
+```
+
+**Related — single-flight on the expensive operation**: `Manager.Poll()` carries an `atomic.Bool` for the same reason at a coarser grain. `Reset()` and the ticker can both call it, and each poll spends billable Fleet API requests. The second caller is dropped rather than queued, because it would only re-read what the first is already fetching.
+
+**Where Applied**: `internal/tesla/oauth.go` — `AccessToken`, `Exchange`, `Authorized`, and the `*Locked` helpers. `internal/plugins/tesla/manager.go` — `Poll`.
+
+**Discovered By**: AI code review on PR #1157; four independent reviewers flagged the same window.
+
+**References**: PR #1157
+
+---
+
 ## Change Log
+
+### 2026-08-28
+- **Added Lesson 22**: Hold the Lock Across Network I/O When the Remote Side Rotates a Credential
+  - Tesla OAuth refresh: concurrent refreshes strand the integration, since Tesla invalidates the old refresh token on issue
+  - Pattern: one lock spanning the expiry check and the refresh; `*Locked` suffix for helpers that assume it is held
+  - Also covers single-flight on `Poll()`, where a duplicate run costs real money
+  - Notes why a naive concurrency test passes against the broken code (PR #1157)
 
 ### 2026-05-17
 - **Added Lesson 21**: Copy-Under-Read-Lock to Protect Slices Appended During Setup

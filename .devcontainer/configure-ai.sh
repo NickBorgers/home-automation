@@ -41,7 +41,7 @@ case "$AI_TOOL" in
     # the run-ci-agent composite action's env-file plumbing). Falling back
     # to the default lets local devcontainer work without a workflow
     # context.
-    CODEX_MODEL="${CODEX_MODEL:-gpt-5.5}"
+    CODEX_MODEL="${CODEX_MODEL:-gpt-5.6-sol}"
     mkdir -p "$HOME/.codex"
     cat > "$HOME/.codex/config.toml" <<EOF
 model = "${CODEX_MODEL}"

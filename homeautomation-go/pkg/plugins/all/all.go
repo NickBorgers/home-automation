@@ -36,6 +36,7 @@ import (
 	_ "homeautomation/internal/plugins/sexmode"
 	_ "homeautomation/internal/plugins/sleephygiene"
 	_ "homeautomation/internal/plugins/statetracking"
+	_ "homeautomation/internal/plugins/tesla"
 	_ "homeautomation/internal/plugins/tv"
 	_ "homeautomation/internal/plugins/vacuum"
 	_ "homeautomation/internal/plugins/waterflow"

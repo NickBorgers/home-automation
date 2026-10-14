@@ -211,7 +211,7 @@ jobs:
             ISSUE_TITLE=${{ github.event.issue.title }}
             REPO=${{ github.repository }}
             AI_TOOL=codex
-            CODEX_MODEL=gpt-5.5
+            CODEX_MODEL=gpt-5.6-sol
           # Fetch issue body and comments inside the container (gh is on PATH
           # there with GH_TOKEN already injected via --env-file). The exported
           # vars are picked up by envsubst when it expands the prompt template.
@@ -405,7 +405,7 @@ jobs:
             HEAD_REF=${{ matrix.target.head_ref }}
             REPO=${{ github.repository }}
             AI_TOOL=codex
-            CODEX_MODEL=gpt-5.5
+            CODEX_MODEL=gpt-5.6-terra
           # Fetch PR metadata inside the container so the prompt template
           # has PR, issue, and review context available without passing
           # multi-line strings through the workflow YAML.
