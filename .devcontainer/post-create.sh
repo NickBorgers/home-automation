@@ -98,30 +98,11 @@ else
     echo "Warning: No gh token found; gh CLI credentials not available."
 fi
 
-# Set up Claude Code credentials from host (written by initializeCommand)
-CLAUDE_CREDS_FILE="$SCRIPT_DIR/.claude-credentials"
-if [ -s "$CLAUDE_CREDS_FILE" ]; then
-    echo "Setting up Claude Code credentials..."
-    if [ "${CLAUDE_HOST_CONFIG_DIR:-}" = "$HOME/.claude" ]; then
-        # Host ~/.claude is bind-mounted read-only on top of the container's
-        # $HOME/.claude (happens when devcontainer up is invoked with
-        # HOME=/home/vscode, e.g., from inside another devcontainer). We can't
-        # write credentials here, but the host's .credentials.json is already
-        # visible via the mount. OAuth token refresh will not work while the
-        # credentials file is read-only; re-run `claude login` on the host if
-        # the token expires.
-        echo "Host ~/.claude shadows \$HOME/.claude (read-only mount). Using host credentials in place; token refresh disabled."
-        rm -f "$CLAUDE_CREDS_FILE"
-    else
-        mkdir -p "$HOME/.claude"
-        cp "$CLAUDE_CREDS_FILE" "$HOME/.claude/.credentials.json"
-        chmod 600 "$HOME/.claude/.credentials.json"
-        echo "Claude Code credentials configured."
-        rm -f "$CLAUDE_CREDS_FILE"
-    fi
-else
-    echo "Warning: No Claude credentials found; Claude Code credentials not available."
-fi
+# Claude Code login: the container gets only the host's short-lived access
+# token (CLAUDE_CODE_OAUTH_TOKEN, exported from .claude-oauth-token), never
+# ~/.claude/.credentials.json. That file carries a refresh token, which rotates
+# on use and would log the host out if the container refreshed it.
+bash "$SCRIPT_DIR/wire-claude-token.sh" "$SCRIPT_DIR/.claude-oauth-token"
 
 # Merge host Claude Code config into container config (written by initializeCommand)
 # The container .claude.json has plugin settings from the Dockerfile build;
