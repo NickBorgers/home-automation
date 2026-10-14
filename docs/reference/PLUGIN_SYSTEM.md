@@ -612,7 +612,7 @@ func (m *Manager) handleStateChange(key string, oldValue, newValue interface{}) 
 // Context-aware handler for cross-plugin correlation tracking (added in PR #572).
 // The EventContext contains a CorrelationID for tracing event chains across plugins.
 func (m *Manager) handleStateChangeWithContext(ctx *state.EventContext, key string, oldValue, newValue interface{}) {
-    // Log with correlation ID for cross-plugin tracing in Gravwell
+    // Log with correlation ID for cross-plugin tracing in Loki
     m.logger.Debug("Handling state change with context",
         zap.String("correlation_id", ctx.CorrelationID),
         zap.String("key", key),

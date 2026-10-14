@@ -275,7 +275,6 @@ func (s *stubEnergyController) EnergySites(_ context.Context) ([]teslaapi.Energy
 	return s.sites, s.sitesErr
 }
 
-
 func TestEnergySitesUnavailableWithoutController(t *testing.T) {
 	server := createTestServer(t)
 	server.SetTeslaEnergyController(nil)

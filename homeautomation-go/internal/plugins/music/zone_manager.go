@@ -65,7 +65,7 @@ type TriggerGroupResult struct {
 
 // ZoneResolutionAudit captures a complete zone resolution cycle for audit logging.
 // This consolidates state snapshot, zone evaluations, and speaker assignments
-// into a single log entry for easier debugging via Gravwell queries.
+// into a single log entry for easier debugging via Loki queries.
 type ZoneResolutionAudit struct {
 	// CorrelationID links this resolution to the triggering state change event.
 	// Format: {timestamp_ms}-{counter} for uniqueness and chronological ordering.
@@ -765,7 +765,7 @@ func (zm *ZoneManager) ResolveZonesWithContext(eventCtx *state.EventContext, tri
 
 	// Build and log comprehensive zone resolution audit
 	// This consolidates state snapshot, zone evaluations, speaker assignments, and zone changes
-	// into a single log entry for easier debugging via Gravwell queries
+	// into a single log entry for easier debugging via Loki queries
 	audit := ZoneResolutionAudit{
 		Trigger:           trigger,
 		Timestamp:         resolutionTime,
@@ -784,7 +784,7 @@ func (zm *ZoneManager) ResolveZonesWithContext(eventCtx *state.EventContext, tri
 		audit.CorrelationID = eventCtx.CorrelationID
 	}
 
-	// Log comprehensive audit at Debug level for Gravwell queries
+	// Log comprehensive audit at Debug level for Loki queries
 	zm.logger.Debug("Zone resolution audit", zap.Any("audit", audit))
 
 	// Also log zone changes at Info level for operational visibility

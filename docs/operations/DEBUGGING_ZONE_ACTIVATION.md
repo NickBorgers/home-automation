@@ -14,34 +14,19 @@ Music zones are activated based on trigger conditions defined in `music_config.y
 
 ## Viewing Zone Resolution Logs
 
-### Via Gravwell (Production)
+### Via Loki (Production)
 
 Query home-automation logs for zone resolution events:
 
 ```bash
 # Query zone resolution audit logs (last hour)
-curl -s -X POST \
-  -H "Gravwell-Token: $(tr -d '\n' < ./gravwell.token)" \
-  -H "query: tag=home-automation json msg==\"Zone resolution audit\"" \
-  -H "duration: 1h" \
-  -H "format: text" \
-  "https://gravwell.featherback-mermaid.ts.net/api/search/direct"
+scripts/loki-query.sh '{service="home-automation"} | json | msg="Zone resolution audit"' 1h
 
 # Query zone trigger changes
-curl -s -X POST \
-  -H "Gravwell-Token: $(tr -d '\n' < ./gravwell.token)" \
-  -H "query: tag=home-automation json msg==\"Zone trigger variable changed\"" \
-  -H "duration: 1h" \
-  -H "format: text" \
-  "https://gravwell.featherback-mermaid.ts.net/api/search/direct"
+scripts/loki-query.sh '{service="home-automation"} | json | msg="Zone trigger variable changed"' 1h
 
 # Track events across plugins using correlation ID (added in #572)
-curl -s -X POST \
-  -H "Gravwell-Token: $(tr -d '\n' < ./gravwell.token)" \
-  -H "query: tag=home-automation json correlation_id | table timestamp logger msg correlation_id" \
-  -H "duration: 1h" \
-  -H "format: text" \
-  "https://gravwell.featherback-mermaid.ts.net/api/search/direct"
+scripts/loki-query.sh '{service="home-automation"} | json | correlation_id!=""' 1h
 ```
 
 ### Via Local Logs
@@ -83,16 +68,11 @@ The audit log now includes:
 
 ### Correlation ID (Added in #572)
 
-The `correlationId` field links this zone resolution to the state change that triggered it. This enables tracking events across plugins in Gravwell:
+The `correlationId` field links this zone resolution to the state change that triggered it. This enables tracking events across plugins in Loki:
 
 ```bash
 # Find all log entries for a specific event chain
-curl -s -X POST \
-  -H "Gravwell-Token: $(tr -d '\n' < ./gravwell.token)" \
-  -H "query: tag=home-automation json correlation_id==\"1706000000000-1\"" \
-  -H "duration: 1h" \
-  -H "format: text" \
-  "https://gravwell.featherback-mermaid.ts.net/api/search/direct"
+scripts/loki-query.sh '{service="home-automation"} | json | correlation_id="1706000000000-1"' 1h
 ```
 
 The correlation ID format is `{timestamp_ms}-{counter}`, which allows:

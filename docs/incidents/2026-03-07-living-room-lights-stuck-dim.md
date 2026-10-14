@@ -66,7 +66,7 @@ This is a separate networking issue (possibly Tailscale-related) and was not add
 
 2. **Entity names can drift**: The Sony TV entity was renamed from `remote.big_beautiful_oled` to `media_player.sony_xr_65a80k` at some point, silently breaking TV detection. Entity IDs should be validated against HA periodically.
 
-3. **HA syslog doesn't capture brightness changes**: The Gravwell `home-assistant` tag only logs on/off state transitions, not attribute-only changes like brightness. This made diagnosis difficult. Consider logging brightness changes for key entities.
+3. **HA syslog doesn't capture brightness changes**: The Gravwell `home-assistant` tag (now Loki `service="home-assistant"`) only logs on/off state transitions, not attribute-only changes like brightness. This made diagnosis difficult. Consider logging brightness changes for key entities.
 
 4. **Reactive-only lighting has no self-healing**: The lighting plugin only applies scenes in response to state changes. If all states are unchanged (e.g., after app restart), lights are never corrected. Consider adding periodic scene re-application or a manual trigger.
 

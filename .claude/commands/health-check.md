@@ -8,20 +8,10 @@ Query for any error-level logs in the past hour:
 
 ```bash
 # Error logs
-curl -s -X POST \
-  -H "Gravwell-Token: $(tr -d '\n' < ./gravwell.token)" \
-  -H "query: tag=home-automation json level==error" \
-  -H "duration: 1h" \
-  -H "format: text" \
-  "https://gravwell.featherback-mermaid.ts.net/api/search/direct"
+scripts/loki-query.sh '{service="home-automation"} | json | level="error"' 1h
 
 # Warning logs
-curl -s -X POST \
-  -H "Gravwell-Token: $(tr -d '\n' < ./gravwell.token)" \
-  -H "query: tag=home-automation json level==warn" \
-  -H "duration: 1h" \
-  -H "format: text" \
-  "https://gravwell.featherback-mermaid.ts.net/api/search/direct"
+scripts/loki-query.sh '{service="home-automation"} | json | level="warn"' 1h
 ```
 
 ## Step 2: Review Shadow State for All Plugins
@@ -58,12 +48,7 @@ curl -s -H "Authorization: Bearer $HA_TOKEN" \
   "https://home-assistant.featherback-mermaid.ts.net/api/states/sensor.span_panel_current_power_production" | jq '{entity_id, state}'
 
 # Check if HA WebSocket is connected by looking at recent activity
-curl -s -X POST \
-  -H "Gravwell-Token: $(tr -d '\n' < ./gravwell.token)" \
-  -H "query: tag=home-automation grep websocket" \
-  -H "duration: 30m" \
-  -H "format: text" \
-  "https://gravwell.featherback-mermaid.ts.net/api/search/direct"
+scripts/loki-query.sh '{service="home-automation"} |~ "(?i)websocket"' 30m
 ```
 
 ## Step 4: Check Recent Entity State Changes
@@ -71,12 +56,7 @@ curl -s -X POST \
 Verify Home Assistant is sending state changes:
 
 ```bash
-curl -s -X POST \
-  -H "Gravwell-Token: $(tr -d '\n' < ./gravwell.token)" \
-  -H "query: tag=home-assistant" \
-  -H "duration: 15m" \
-  -H "format: text" \
-  "https://gravwell.featherback-mermaid.ts.net/api/search/direct"
+scripts/loki-query.sh '{service="home-assistant"}' 15m
 ```
 
 If no recent changes, the WebSocket connection may be down.
@@ -135,12 +115,7 @@ For a fast overview:
 
 ```bash
 echo "=== Errors (last hour) ===" && \
-curl -s -X POST \
-  -H "Gravwell-Token: $(tr -d '\n' < ./gravwell.token)" \
-  -H "query: tag=home-automation json level==error" \
-  -H "duration: 1h" \
-  -H "format: text" \
-  "https://gravwell.featherback-mermaid.ts.net/api/search/direct" && \
+scripts/loki-query.sh '{service="home-automation"} | json | level="error"' 1h && \
 echo -e "\n=== Shadow State Summary ===" && \
 curl -s "https://home-automation.featherback-mermaid.ts.net/api/shadow" | jq 'to_entries | .[] | {plugin: .key, last_updated: .value.metadata.last_updated}'
 ```
