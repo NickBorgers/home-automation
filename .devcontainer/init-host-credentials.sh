@@ -17,6 +17,7 @@ cd "$(dirname "$0")"
 # before wiring anything in, so empty placeholders are installed but
 # never activated.
 [ -e "$HOME/.claude"           ] || mkdir -p "$HOME/.claude"
+[ -e "$HOME/.claude/projects"  ] || mkdir -p "$HOME/.claude/projects"
 [ -e "$HOME/.bashrc"           ] || touch    "$HOME/.bashrc"
 [ -d "$HOME/code/util"         ] || mkdir -p "$HOME/code/util"
 [ -e "$HOME/code/util/profile" ] || touch    "$HOME/code/util/profile"
