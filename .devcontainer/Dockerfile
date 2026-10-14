@@ -37,6 +37,20 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | d
     && apt-get install -y gh \
     && rm -rf /var/lib/apt/lists/*
 
+# Install the Docker engine for running containers inside the devcontainer.
+# This replaces the docker-in-docker feature, which forces --privileged and
+# breaks under the Kata runtime. start-dockerd.sh launches the daemon at
+# container start; e2fsprogs is needed there to format /var/lib/docker.
+RUN install -m 0755 -d /etc/apt/keyrings \
+    && curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc \
+    && chmod a+r /etc/apt/keyrings/docker.asc \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian $(. /etc/os-release && echo "$VERSION_CODENAME") stable" > /etc/apt/sources.list.d/docker.list \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends \
+        docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin \
+        iptables e2fsprogs \
+    && rm -rf /var/lib/apt/lists/*
+
 # Pin AI CLI versions so Dockerfile, post-create script, and updater workflow stay in sync
 ARG CLAUDE_CODE_VERSION=2.1.296
 ARG CODEX_CLI_VERSION=0.162.1

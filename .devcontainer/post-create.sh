@@ -182,16 +182,23 @@ if [ -n "${CLAUDE_HOST_PROJECTS_DIR:-}" ] && [ -d "$CLAUDE_HOST_PROJECTS_DIR" ];
     project_slug=$(printf '%s' "$REPO_ROOT" | sed 's/[^a-zA-Z0-9]/-/g')
     project_link="$HOME/.claude/projects/$project_slug"
     mkdir -p "$HOME/.claude/projects" "$CLAUDE_HOST_PROJECTS_DIR/$project_slug"
-    # A real directory here holds state Claude Code wrote before the link
-    # existed. Carry it into the host mount rather than dropping it, then clear
-    # the path so the symlink can take it. `-n` keeps the host's copy of any
-    # file that exists on both sides.
-    if [ -d "$project_link" ] && [ ! -L "$project_link" ]; then
-        cp -rn "$project_link/." "$CLAUDE_HOST_PROJECTS_DIR/$project_slug/" 2>/dev/null || true
-        rm -rf "$project_link"
+    if awk -v p="$project_link/" 'index($5, p) == 1 { found = 1 } END { exit !found }' /proc/self/mountinfo; then
+        # The launcher (dcr/dcs in util/profile) already bind-mounts this
+        # project's memory directory, writable, under this path. A mount point
+        # cannot be removed or replaced by a symlink, so leave the path alone.
+        echo "Project state at $project_link is already mounted; not linking"
+    else
+        # A real directory here holds state Claude Code wrote before the link
+        # existed. Carry it into the host mount rather than dropping it, then
+        # clear the path so the symlink can take it. `-n` keeps the host's copy
+        # of any file that exists on both sides.
+        if [ -d "$project_link" ] && [ ! -L "$project_link" ]; then
+            cp -rn "$project_link/." "$CLAUDE_HOST_PROJECTS_DIR/$project_slug/" 2>/dev/null || true
+            rm -rf "$project_link"
+        fi
+        ln -sfn "$CLAUDE_HOST_PROJECTS_DIR/$project_slug" "$project_link"
+        echo "Linked project state $HOME/.claude/projects/$project_slug to the writable host mount"
     fi
-    ln -sfn "$CLAUDE_HOST_PROJECTS_DIR/$project_slug" "$project_link"
-    echo "Linked project state $HOME/.claude/projects/$project_slug to the writable host mount"
 fi
 
 # Append a source line to the container user's .bashrc so the host ~/.bashrc
