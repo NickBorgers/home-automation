@@ -124,7 +124,7 @@ See [homeautomation-go/README.md](homeautomation-go/README.md) for detailed setu
 
 - **Dashboard**: View current state at `/dashboard` (port 8080)
 - **API**: Query state via `/api/state`, `/api/shadow/{plugin}`
-- **Logs**: Centralized in [Gravwell](https://gravwell.featherback-mermaid.ts.net/) with tags `home-automation` and `home-assistant`
+- **Logs**: Centralized in [Loki](https://loki.featherback-mermaid.ts.net/) with `service` labels `home-automation` and `home-assistant` (query with `scripts/loki-query.sh`)
 
 ## Development
 

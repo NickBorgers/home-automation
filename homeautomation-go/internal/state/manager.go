@@ -966,7 +966,7 @@ func (m *Manager) Subscribe(key string, handler StateChangeHandler) (Subscriptio
 
 // SubscribeWithContext subscribes to state changes with event correlation context.
 // The handler receives an EventContext that contains a correlation ID and timestamp,
-// allowing cross-plugin event tracking in logs (e.g., Gravwell queries).
+// allowing cross-plugin event tracking in logs (e.g., Loki queries).
 func (m *Manager) SubscribeWithContext(key string, handler StateChangeHandlerWithContext) (Subscription, error) {
 	variable, canonicalKey, ok := m.canonicalVariable(key)
 	if !ok {

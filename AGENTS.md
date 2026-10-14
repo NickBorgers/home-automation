@@ -332,14 +332,9 @@ Self-hosted GitHub Actions runner on `dockergeneric` for home-automation CI. Two
 - **Deployment:** `make deploy-dockergeneric`
 - **Details:** See `services/dockergeneric/ci-runner/README.md`
 
-**Query CI runner logs in Gravwell:**
+**Query CI runner logs in Loki:**
 ```bash
-curl -s -X POST \
-  -H "Gravwell-Token: $(tr -d '\n' < ./gravwell.token)" \
-  -H 'query: tag=ci-runner | text' \
-  -H 'duration: 1h' \
-  -H 'format: text' \
-  'https://gravwell.featherback-mermaid.ts.net/api/search/direct'
+scripts/loki-query.sh '{service="ci-runner"}' 1h
 ```
 
 ## Production Debugging
@@ -348,29 +343,28 @@ curl -s -X POST \
 
 **SoCo-CLI HTTP API (Sonos speaker control):** https://soco-cli.featherback-mermaid.ts.net/
 
-**View logs via Gravwell:** https://gravwell.featherback-mermaid.ts.net/
+**View logs via Loki:** https://loki.featherback-mermaid.ts.net/
 
-Logs are centralized in Gravwell. Authenticate using the token stored in `./gravwell.token`.
+Logs are centralized in Loki. It needs tailnet access and no token. Use the helper, which prints lines oldest-first as `<UTC time> <line>`:
 
-**Log tags:**
-| Tag | Description |
-|-----|-------------|
-| `tag=home-automation` | Home automation Go application logs |
-| `tag=home-assistant` | Home Assistant entity state changes (excludes `sensor.*` entities - too noisy) |
-| `tag=soco` | SoCo-CLI HTTP API server logs (Tidal playback via Sonos) |
-| `tag=ci-runner` | Self-hosted GitHub Actions runner logs |
+```bash
+scripts/loki-query.sh '<LogQL>' [since] [limit]     # since defaults to 1h, limit to 500
+```
+
+**Log streams** (select with the `service` label):
+| Selector | Description |
+|----------|-------------|
+| `{service="home-automation"}` | Home automation Go application logs (JSON) |
+| `{service="home-assistant"}` | Home Assistant entity state changes (excludes `sensor.*` entities - too noisy) |
+| `{service="soco-cli"}` | SoCo-CLI HTTP API server logs (Tidal playback via Sonos) |
+| `{service="ci-runner"}` | Self-hosted GitHub Actions runner logs |
 
 **Version Verification (first debugging step):**
 
 When debugging production issues, first confirm the running code matches what you expect:
 
 ```bash
-curl -s -X POST \
-  -H "Gravwell-Token: $(tr -d '\n' < ./gravwell.token)" \
-  -H "query: tag=home-automation grep \"Home Automation starting\"" \
-  -H "duration: 24h" \
-  -H "format: text" \
-  "https://gravwell.featherback-mermaid.ts.net/api/search/direct"
+scripts/loki-query.sh '{service="home-automation"} |= "Home Automation starting"' 24h
 ```
 
 Example output:
@@ -384,50 +378,22 @@ Example output:
 - **`dirty`**: If `true`, the binary was built from a working tree with uncommitted changes — the `commit` hash alone won't fully represent what's running
 
 **Example queries:**
-```
-tag=home-automation
-tag=home-assistant
-tag=soco                            # SoCo-CLI logs
-tag=home-automation,home-assistant  # Both sources
-```
-
-**API Access (for Claude/programmatic use):**
-
-Use the Direct Query API to fetch logs programmatically. Documentation: https://docs.gravwell.io/search/directquery/directquery.html
-
 ```bash
-# Query home-automation logs (last hour, text format)
-curl -s -X POST \
-  -H "Gravwell-Token: $(tr -d '\n' < ./gravwell.token)" \
-  -H "query: tag=home-automation" \
-  -H "duration: 1h" \
-  -H "format: text" \
-  "https://gravwell.featherback-mermaid.ts.net/api/search/direct"
-
-# Query home-assistant logs (last 5 minutes)
-curl -s -X POST \
-  -H "Gravwell-Token: $(tr -d '\n' < ./gravwell.token)" \
-  -H "query: tag=home-assistant" \
-  -H "duration: 5m" \
-  -H "format: text" \
-  "https://gravwell.featherback-mermaid.ts.net/api/search/direct"
-
-# Query SoCo-CLI logs (last 30 minutes)
-curl -s -X POST \
-  -H "Gravwell-Token: $(tr -d '\n' < ./gravwell.token)" \
-  -H "query: tag=soco" \
-  -H "duration: 30m" \
-  -H "format: text" \
-  "https://gravwell.featherback-mermaid.ts.net/api/search/direct"
-
-# Filter for error-level logs using JSON field extraction
-curl -s -X POST \
-  -H "Gravwell-Token: $(tr -d '\n' < ./gravwell.token)" \
-  -H "query: tag=home-automation json level==error" \
-  -H "duration: 1h" \
-  -H "format: text" \
-  "https://gravwell.featherback-mermaid.ts.net/api/search/direct"
+scripts/loki-query.sh '{service="home-automation"}' 1h                              # app logs
+scripts/loki-query.sh '{service="home-assistant"}' 5m                               # HA state changes
+scripts/loki-query.sh '{service="soco-cli"}' 30m                                    # SoCo-CLI logs
+scripts/loki-query.sh '{service=~"home-automation|home-assistant"} |= "Kitchen"' 2h # both sources
+scripts/loki-query.sh '{service="home-automation"} | json | level="error"' 1h       # errors only
+scripts/loki-query.sh '{service="home-automation"} | json | correlation_id="..."' 1h # one event chain
 ```
+
+LogQL basics: `|=` contains, `!=` excludes, `|~` regex (`(?i)` for case-insensitive), `| json | field="value"` filters on a parsed JSON field. Add `| json | level=~"warn|error"` to see problems.
+
+**Gotchas:**
+- The leading time is when Loki ingested the line and can trail the app's `ts` by a few seconds. Order events by `ts` inside the line.
+- If more than `limit` lines match, the helper keeps the newest `limit` and drops older ones. Raise `limit` or narrow `since` to see more.
+- Retention is finite. Query soon after an incident.
+- Under the hood this is `GET /loki/api/v1/query_range`; `LOKI_URL` overrides the server for the helper.
 
 **Example output (home-automation):** Structured JSON logs from the Go application
 ```json
@@ -438,24 +404,16 @@ curl -s -X POST \
 
 **Example output (home-assistant):** Entity state changes from Home Assistant (excludes `sensor.*`)
 ```
-<14>1 2026-01-03T10:47:31-06:00 home-assistant homeassistant - - - media_player.sony_xr_65a80k: on → off
-<14>1 2026-01-03T10:46:52-06:00 home-assistant homeassistant - - - select.span_right_hvac_and_well_kids_hot_water_heater_circuit_priority: unavailable → Nice To Have
-<14>1 2026-01-03T10:45:37-06:00 home-assistant homeassistant - - - binary_sensor.span_right_hvac_and_well_door_state: unavailable → unknown
+2026-10-14T02:17:52Z light.kitchen: on -> off
+2026-10-14T02:22:32Z light.kitchen_main_lights: off -> on
+2026-10-14T03:02:50Z input_text.day_phase: winddown -> night
 ```
 
-**Example output (soco):** SoCo-CLI HTTP API server logs
+**Example output (soco-cli):** SoCo-CLI HTTP API server logs
 ```
-<27>1 2026-03-09T00:33:43Z dockergeneric soco 875 soco - INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
-<27>1 2026-03-09T00:33:43Z dockergeneric soco 875 soco - INFO:     Application startup complete.
-<27>1 2026-03-09T00:33:43Z dockergeneric soco 875 soco - INFO:     Started server process [1]
+2026-10-13T14:02:46Z SoCo-CLI: Starting SoCo-CLI HTTP API Server v0.4.82
+2026-10-13T14:02:46Z SoCo-CLI: Macro: Attempting to (re)load macros from '/macros.txt'
 ```
-
-**API Parameters:**
-| Parameter | Description |
-|-----------|-------------|
-| `query` | Gravwell query (e.g., `tag=home-automation grep pattern`) |
-| `duration` | Time range using Go duration syntax (`5m`, `1h`, `24h`) |
-| `format` | Output format: `text`, `json`, `csv` |
 
 ## Testing SoCo-CLI Changes
 
@@ -603,12 +561,7 @@ Site ids are not configured. A property can have several systems, so a caller na
 ### Checking the logs
 
 ```bash
-curl -s -X POST \
-  -H "Gravwell-Token: $(tr -d '\n' < ./gravwell.token)" \
-  -H 'query: tag=home-automation json logger=="tesla"' \
-  -H 'duration: 1h' \
-  -H 'format: text' \
-  'https://gravwell.featherback-mermaid.ts.net/api/search/direct'
+scripts/loki-query.sh '{service="home-automation"} | json | logger="tesla"' 1h
 ```
 
 ### Local testing

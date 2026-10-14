@@ -7,7 +7,6 @@ coverage.out
 
 # Test cache (for git hook optimization)
 .test-cache/
-gravwell.token
 
 # Build artifacts (copied from root at build time)
 config-test/.yamllint

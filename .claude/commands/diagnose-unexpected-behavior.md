@@ -12,35 +12,23 @@ Follow this order strictly - production evidence first, then code investigation:
 
 ### Step 1: Gather Production Logs
 
-Query Gravwell for recent logs from both the Go application and Home Assistant:
+Query Loki for recent logs from both the Go application and Home Assistant (needs tailnet access, no token):
 
 ```bash
 # Home automation Go application logs (last 1 hour)
-curl -s -X POST \
-  -H "Gravwell-Token: $(tr -d '\n' < ./gravwell.token)" \
-  -H "query: tag=home-automation" \
-  -H "duration: 1h" \
-  -H "format: text" \
-  "https://gravwell.featherback-mermaid.ts.net/api/search/direct"
+scripts/loki-query.sh '{service="home-automation"}' 1h
 
 # Home Assistant entity state changes (last 1 hour)
-curl -s -X POST \
-  -H "Gravwell-Token: $(tr -d '\n' < ./gravwell.token)" \
-  -H "query: tag=home-assistant" \
-  -H "duration: 1h" \
-  -H "format: text" \
-  "https://gravwell.featherback-mermaid.ts.net/api/search/direct"
+scripts/loki-query.sh '{service="home-assistant"}' 1h
 ```
 
-If looking for specific patterns, use grep in the query:
+If looking for specific patterns, add a line filter (`|=` contains, `|~` regex) or parse the JSON fields:
 ```bash
-curl -s -X POST \
-  -H "Gravwell-Token: $(tr -d '\n' < ./gravwell.token)" \
-  -H "query: tag=home-automation grep KEYWORD" \
-  -H "duration: 2h" \
-  -H "format: text" \
-  "https://gravwell.featherback-mermaid.ts.net/api/search/direct"
+scripts/loki-query.sh '{service="home-automation"} |= "KEYWORD"' 2h
+scripts/loki-query.sh '{service="home-automation"} | json | logger="lighting" | room="Kitchen"' 2h
 ```
+
+Output is oldest-first. The leading time is when Loki ingested the line and can trail the app's own `ts` by a few seconds, so trust `ts` inside the line when ordering events.
 
 ### Step 2: Check Current Shadow State
 
