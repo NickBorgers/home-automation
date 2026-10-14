@@ -25,16 +25,22 @@ flowchart TD
         flashLights2["Flash common area lights"]
         startSleep["Set musicPlaybackType = sleep"]
         triggerWake["Trigger wake sequence"]
+        defer["Defer: retry next 1-min tick"]
     end
 
+    checkHome{"isAnyoneHome?"}
+
     stopScreens --> flashLights1
-    goToBed --> flashLights2
-    goToBed --> startSleep
+    goToBed --> checkHome
+    checkHome -->|Yes| flashLights2
+    checkHome -->|Yes| startSleep
+    checkHome -->|No| defer
     backupWake --> triggerWake
 
     style stopScreens fill:#f39c12,color:#fff
     style goToBed fill:#6c5ce7,color:#fff
     style backupWake fill:#ffd93d,color:#000
+    style defer fill:#b2bec3,color:#000
 ```
 
 ### Schedule Time Sources
@@ -42,9 +48,8 @@ flowchart TD
 | Trigger | Time Source | Purpose |
 |---------|-------------|---------|
 | `stop_screens` | `schedule_config.yaml` | Reminder to turn off screens |
-| `go_to_bed` | `schedule_config.yaml` | Bedtime reminder + sleep music |
+| `go_to_bed` | `schedule_config.yaml` | Bedtime reminder + sleep music; deferred when no one is home |
 | `begin_backup_wake` | `schedule_config.yaml` | Backup wake if Eight Sleep unavailable |
-
 ## Wake-Up Sequence
 
 The primary wake trigger comes from Eight Sleep Pod alarm sensors. A backup time-based trigger activates only when Eight Sleep is unavailable.

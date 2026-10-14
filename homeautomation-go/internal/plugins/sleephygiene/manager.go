@@ -68,6 +68,7 @@ type Manager struct {
 	timeProvider    plugin.TimeProvider
 	timezone        *time.Location
 	stopChan        chan struct{}
+	triggerCheckCh  chan chan struct{} // routes test-initiated checks through the timer goroutine to avoid races on triggeredToday
 	ticker          *time.Ticker
 	subscriptions   []state.Subscription
 	haSubscriptions []ha.Subscription
@@ -107,6 +108,7 @@ func NewManager(ctx context.Context, haClient ha.HAClient, stateManager *state.M
 		timeProvider:    timeProvider,
 		timezone:        timezone,
 		stopChan:        make(chan struct{}),
+		triggerCheckCh:  make(chan chan struct{}),
 		subscriptions:   make([]state.Subscription, 0),
 		haSubscriptions: make([]ha.Subscription, 0),
 		triggeredToday:  make(map[string]time.Time),
@@ -403,6 +405,10 @@ func (m *Manager) runTimerLoop() {
 			// Check time triggers
 			m.checkTimeTriggers()
 
+		case done := <-m.triggerCheckCh:
+			m.checkTimeTriggers()
+			close(done)
+
 		case <-m.stopChan:
 			return
 		}
@@ -437,14 +443,29 @@ func (m *Manager) checkTimeTriggers() {
 		}
 	}
 
-	// Check go_to_bed trigger
+	// Check go_to_bed trigger.
+	//
+	// Sleep prep is gated on isAnyoneHome: starting it with an empty house
+	// sets isSleepPrepActive=true, which causes the lighting plugin to skip
+	// the bedroom when the owner later arrives — no welcome scene. Skipping
+	// without marking triggered lets the next 1-min tick fire it once
+	// someone is home (still within the 1-hour window).
 	if now.After(schedule.GoToBed) && now.Before(schedule.GoToBed.Add(ONE_HOUR)) {
 		if _, triggered := m.triggeredToday["go_to_bed"]; !triggered {
-			m.logger.Info("Triggering go_to_bed",
-				zap.Time("go_to_bed_time", schedule.GoToBed),
-				zap.Time("now", now))
-			m.triggeredToday["go_to_bed"] = now
-			m.handleGoToBed()
+			isAnyoneHome, _ := m.stateManager.GetBool("isAnyoneHome")
+			if !isAnyoneHome {
+				// If no one arrives before the 1-hour window closes, go_to_bed
+				// simply does not fire that night — by design.
+				m.logger.Debug("Deferring go_to_bed: no one home",
+					zap.Time("go_to_bed_time", schedule.GoToBed),
+					zap.Time("now", now))
+			} else {
+				m.logger.Info("Triggering go_to_bed",
+					zap.Time("go_to_bed_time", schedule.GoToBed),
+					zap.Time("now", now))
+				m.triggeredToday["go_to_bed"] = now
+				m.handleGoToBed()
+			}
 		}
 	}
 
@@ -1262,6 +1283,18 @@ func (m *Manager) GetShadowState() *shadowstate.SleepHygieneShadowState {
 func (m *Manager) TriggerWakeForTest() {
 	m.logger.Info("Test: Triggering wake sequence directly via handleWake()")
 	m.handleWake()
+}
+
+// TriggerScheduledCheckForTest runs the same scheduled trigger check that the
+// background timer runs once per minute. It routes the call through the timer
+// goroutine so that checkTimeTriggers() is never called concurrently from two
+// goroutines — the same reason we send a signal rather than calling directly.
+// Requires Start() to have been called (the timer goroutine must be running).
+func (m *Manager) TriggerScheduledCheckForTest() {
+	m.logger.Info("Test: Triggering scheduled check directly")
+	done := make(chan struct{})
+	m.triggerCheckCh <- done
+	<-done
 }
 
 // TriggerBeginWakeForTest is a test helper that directly triggers the begin_wake sequence.
