@@ -59,6 +59,7 @@ func TestScenario_ConcurrentZoneResolution_IsSerialized(t *testing.T) {
 		}()
 	}
 	ready.Wait()
+	snapshot := server.ServiceCallCount()
 	close(start)
 
 	require.NoError(t, <-errs)
@@ -70,8 +71,9 @@ func TestScenario_ConcurrentZoneResolution_IsSerialized(t *testing.T) {
 	require.Len(t, zones[0].Participants, 1)
 	assert.Equal(t, "Kitchen", zones[0].Participants[0].PlayerName)
 
+	// No stabilization fence is needed: startZone calls setMusicPlaybackType synchronously before resolution returns.
 	playbackTypeWrites := 0
-	for _, call := range server.GetServiceCallsSince(0) {
+	for _, call := range server.GetServiceCallsSince(snapshot) {
 		if call.Domain == "input_text" && call.Service == "set_value" &&
 			call.ServiceData["entity_id"] == "input_text.music_playback_type" {
 			playbackTypeWrites++
