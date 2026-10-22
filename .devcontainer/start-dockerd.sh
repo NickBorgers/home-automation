@@ -43,7 +43,11 @@ if ! mountpoint -q /var/lib/docker; then
         sudo mkfs.ext4 -q -F "$STORE_IMG" || { sudo rm -f "$STORE_IMG"; warn "mkfs.ext4 failed"; }
     fi
     sudo mkdir -p /var/lib/docker
-    sudo mount -o loop "$STORE_IMG" /var/lib/docker || warn "loop mount failed; Docker unavailable"
+    # nobarrier: this ext4 only holds pulled images and build cache, which can be
+    # rebuilt. Without it, every dockerd fsync becomes a flush on the loop device,
+    # then an fsync of docker.img on the host. Image builds then saturated the
+    # host disk. After a crash the store may be corrupt: delete docker.img to reset.
+    sudo mount -o loop,nobarrier "$STORE_IMG" /var/lib/docker || warn "loop mount failed; Docker unavailable"
 fi
 
 sudo sh -c "nohup dockerd >$LOG 2>&1 &"
