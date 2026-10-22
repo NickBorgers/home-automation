@@ -119,9 +119,10 @@ const defaultDebounceDelay = 500 * time.Millisecond
 
 // ZoneManager coordinates multiple concurrent music zones
 type ZoneManager struct {
-	mu          sync.RWMutex
-	activeZones map[string]*Zone  // keyed by zone name
-	speakerZone map[string]string // speaker -> zone name
+	mu           sync.RWMutex
+	resolutionMu sync.Mutex
+	activeZones  map[string]*Zone  // keyed by zone name
+	speakerZone  map[string]string // speaker -> zone name
 
 	// resolving is set to true during ResolveZones to prevent re-entrant calls.
 	// startZone calls setMusicPlaybackType which triggers handleMusicPlaybackTypeChange,
@@ -646,6 +647,11 @@ func (zm *ZoneManager) ResolveZones(trigger string) error {
 // ResolveZonesWithContext evaluates zone triggers and updates active zones accordingly.
 // If an EventContext is provided, it will be included in audit logs for cross-plugin correlation.
 func (zm *ZoneManager) ResolveZonesWithContext(eventCtx *state.EventContext, trigger string) error {
+	// Debounced timers and direct callers can fire at the same time. Serialize the
+	// full read/plan/update cycle so each resolution observes the previous result.
+	zm.resolutionMu.Lock()
+	defer zm.resolutionMu.Unlock()
+
 	// Set resolving flag to prevent re-entrant calls from handleMusicPlaybackTypeChange.
 	// startZone → setMusicPlaybackType → handleMusicPlaybackTypeChange → ResolveZones
 	// would cause infinite recursion without this guard.
