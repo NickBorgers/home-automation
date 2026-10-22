@@ -95,6 +95,11 @@ const (
 	// playbackMonitorPollInterval is how often to check speaker state during monitoring.
 	playbackMonitorPollInterval = 10 * time.Second
 
+	// playbackMonitorMinPollGap is a real-time floor between polls. Tests inject a no-op
+	// sleepFunc, which would otherwise turn the monitor into a busy loop for its full
+	// duration (logging and allocating on every pass). Negligible next to the 10s interval.
+	playbackMonitorMinPollGap = 50 * time.Millisecond
+
 	// playbackRecoveryDelay is how long to wait before attempting recovery.
 	// Prevents reacting to transient state changes.
 	playbackRecoveryDelay = 2 * time.Second

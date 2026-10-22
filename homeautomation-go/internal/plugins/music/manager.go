@@ -284,6 +284,10 @@ func (m *Manager) Stop() {
 	}
 	m.subscriptions = nil
 
+	// Stop the playback health monitor. Without this the goroutine outlives the Manager
+	// (and, with a no-op sleepFunc in tests, busy-polls for its full duration).
+	m.cancelPlaybackMonitor()
+
 	m.logger.Info("Music Manager stopped")
 }
 

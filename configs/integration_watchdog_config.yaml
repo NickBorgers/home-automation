@@ -29,7 +29,9 @@ watch_targets:
     detection:
       bad_states: ["unknown", "unavailable"]
       bad_state_duration_min: 10
-      stale_last_updated_min: 0  # disabled: our last_updated only ticks on state-change subscriptions, so stable-state entities false-positive
+      # disabled (0): our last_updated only ticks on state-change subscriptions,
+      # so stable-state entities false-positive
+      stale_last_updated_min: 0
     reload:
       cooldown_min: 15
       daily_max: 6

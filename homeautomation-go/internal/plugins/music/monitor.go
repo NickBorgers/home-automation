@@ -3,6 +3,7 @@ package music
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"go.uber.org/zap"
 )
@@ -99,6 +100,12 @@ func (m *Manager) monitorPlaybackHealth(ctx context.Context, leadEntityID, leadS
 
 		// Wait for poll interval (uses injectable sleep for testability)
 		m.sleepFunc(playbackMonitorPollInterval)
+
+		// Never poll faster than the real-time floor (see playbackMonitorMinPollGap)
+		select {
+		case <-ctx.Done():
+		case <-time.After(playbackMonitorMinPollGap):
+		}
 
 		// Check for cancellation after sleeping
 		select {

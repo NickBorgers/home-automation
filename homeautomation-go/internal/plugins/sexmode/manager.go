@@ -141,6 +141,11 @@ func (m *Manager) handleSexModeOn() {
 		m.logger.Debug("Sex mode already active, ignoring duplicate activation")
 		return
 	}
+	// Claim activation before running the side effects. Checking here and setting the flag
+	// only after the service calls let a concurrent trigger (e.g. Reset, or a second HA event)
+	// pass the guard and repeat every call.
+	m.isActive = true
+	m.activatedAt = time.Now()
 	m.mu.Unlock()
 
 	m.logger.Info("Activating sex mode")
@@ -157,12 +162,6 @@ func (m *Manager) handleSexModeOn() {
 
 	// 3. Set Eight Sleep to coldest setting
 	m.setEightSleepToColdest()
-
-	// Update state tracking
-	m.mu.Lock()
-	m.isActive = true
-	m.activatedAt = time.Now()
-	m.mu.Unlock()
 
 	// Record action in shadow state
 	m.recordAction("activate", "Sex mode activated", "input_boolean.sex")

@@ -512,6 +512,7 @@ func (m *Manager) fadeInSpeaker(ctx context.Context, speaker string, target int)
 - Operations that can be superseded by newer requests
 - Retry/polling loops that should stop when conditions change
 - Background tasks that should abort when parent operation completes
+- `Stop()` methods on managers with background goroutines — always cancel their contexts before returning, or the goroutines outlive the manager and busy-poll in tests with a no-op sleepFunc (e.g., `cancelPlaybackMonitor()` added to `Manager.Stop()` in `internal/plugins/music/manager.go`)
 
 **Test That Validates This**:
 - `TestFadeInCancellation_NewPlaybackCancelsActiveFadeIns`
@@ -906,6 +907,9 @@ Go's runtime only detects deadlocks when **all** goroutines are blocked. If even
 18. **Use `waitForServiceCallQuiescenceSince` for absence assertions** - `waitForProcessing` only covers the HA handler fence; fire-and-forget goroutines require quiescence polling
 19. **Fence between GIVEN and WHEN phases** - always call `waitForProcessing` or `waitForBoolState` after GIVEN-phase `SetState` calls; only `input_boolean.*` entities have `MockHAServer` defaults and can be omitted when their default matches the test's starting value
 20. **Serialize per-entity event handlers via channel queues** - prevents out-of-order execution while preserving cross-entity parallelism; use a non-blocking send with drop to avoid blocking `receiveMessages`
+21. **Copy under read-lock to protect slices appended during setup** - take RLock, copy the slice, release, then iterate the copy; avoids holding the lock across slow I/O
+22. **Hold the lock across network I/O when the remote side rotates a credential** - acceptable when the bounded critical section prevents a concurrent caller from burning the token being refreshed
+23. **Claim guard state before releasing the lock** - set guard flags in the same critical section as the check, before running side effects outside the lock; prevents concurrent callers from passing the guard and repeating every side effect
 
 ---
 
@@ -1580,7 +1584,67 @@ assert.Equal(t, 1, server.Requests())   // reports 16 without the fix
 
 ---
 
-## Lesson 23: Serialize Stateful Read/Plan/Update Cycles
+## Lesson 23: Claim Guard State Before Releasing the Lock
+
+**Pattern**: When a boolean flag guards against duplicate execution, set it to the "claimed" state within the same critical section as the check — not after releasing the lock and running side effects.
+
+**Why**: If the guard is checked under the lock but set only after the lock is released and side effects have run, a concurrent caller can pass the guard check before the flag is claimed. Both callers then run every side effect, defeating the guard entirely.
+
+**Race Scenario (Before Fix)**:
+```
+Goroutine A (first HA event):     Goroutine B (concurrent HA event / Reset):
+─────────────────────────────     ────────────────────────────────────────────
+mu.Lock()                         mu.Lock() ← waits for A
+isActive == false → proceed
+mu.Unlock()                       isActive == false → proceed (PASSES GUARD!)
+saveMusicState()                  mu.Unlock()
+setScene()                        saveMusicState()  ← duplicate!
+setEightSleep()                   setScene()        ← duplicate!
+                                  setEightSleep()   ← duplicate!
+mu.Lock()
+isActive = true   ← too late
+mu.Unlock()
+```
+
+**Error Symptoms**:
+- Every service call (scene, music, device) runs twice on a duplicate activation event
+- No log indication because the guard check passes correctly on each goroutine individually
+
+**Correct Approach**:
+```go
+// ✅ GOOD: Claim before unlock — concurrent callers see isActive=true and exit early
+func (m *Manager) handleSexModeOn() {
+    m.mu.Lock()
+    if m.isActive {
+        m.mu.Unlock()
+        return
+    }
+    // Claim activation BEFORE running side effects.
+    m.isActive = true
+    m.activatedAt = time.Now()
+    m.mu.Unlock()  // Now safe to unlock — concurrent callers see isActive=true
+
+    m.saveMusicStateAndActivate()
+    m.setScene()
+    m.setEightSleepToColdest()
+    // ...
+}
+```
+
+**Key Insight**: The side effects happen outside the lock (correct — lock must not be held across I/O), but the guard flag is set inside the lock before the side effects run. The lock window is briefly expanded to cover the flag assignment, not the I/O.
+
+**Trade-off**: If a side effect panics or fails partway through, `isActive` remains `true` and the handler is permanently blocked until the next deactivation event. This is strictly better than the old behavior (where a partial execution left `isActive=false` and would repeat everything on the next trigger), but callers that want retry-on-failure would be blocked.
+
+**Where to Apply**:
+- Any guard flag that protects against duplicate execution of expensive or stateful operations
+- `Start()` / `Activate()` / `Enable()` patterns where concurrent triggers should be idempotent
+- Handlers where the flag is set inside a critical section but the work runs outside
+
+**Applied In**: `internal/plugins/sexmode/manager.go` — `handleSexModeOn()` (PR #1173)
+
+**Related**: The mirror pattern — `handleSexModeOff` has the same shape; a concurrent "on" during deactivation is silently dropped. Not fixed in this PR but worth knowing.
+
+## Lesson 24: Serialize Stateful Read/Plan/Update Cycles
 
 **Pattern**: Protect the entire operation when it reads shared state, plans mutations, and then applies them. Locking the individual map accesses is insufficient because another operation can build a conflicting plan between those steps.
 
@@ -1595,7 +1659,14 @@ assert.Equal(t, 1, server.Requests())   // reports 16 without the fix
 ## Change Log
 
 ### 2026-10-22
-- **Added Lesson 23**: Serialize Stateful Read/Plan/Update Cycles
+- **Added Lesson 23**: Claim Guard State Before Releasing the Lock
+  - Sexmode TOCTOU fix: `isActive` was checked under the lock but set only after unlock and all service calls; a concurrent trigger could pass the guard and repeat every call
+  - Pattern: set the guard flag in the same critical section as the check, before releasing the lock; run side effects outside the lock after the flag is claimed
+  - Applied to `handleSexModeOn()` in `internal/plugins/sexmode/manager.go` (PR #1173)
+- **Updated Lesson 9 "Where to Apply"**: Added `Stop()` lifecycle bullet
+  - `Manager.Stop()` in music plugin now calls `cancelPlaybackMonitor()` to prevent the health monitor goroutine from outliving the manager — and from busy-polling in tests with a no-op sleepFunc
+
+- **Added Lesson 24**: Serialize Stateful Read/Plan/Update Cycles
   - Prevents concurrent music zone resolutions from applying plans built from stale zone state (Issue #1171)
 
 ### 2026-08-28
