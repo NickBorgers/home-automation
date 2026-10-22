@@ -19,5 +19,7 @@ curl -sf -m 60 -G "${loki_url}/loki/api/v1/query_range" \
   --data-urlencode "since=${since}" \
   --data-urlencode "limit=${limit}" \
   --data-urlencode "direction=backward" |
-  jq -r '[.data.result[].values[]] | sort_by(.[0] | tonumber)[]
-         | "\(.[0] | tonumber / 1e9 | strftime("%Y-%m-%dT%H:%M:%SZ")) \(.[1])"'
+  jq -r 'if .status == "error" then error("Loki query error: \(.error)")
+         else [.data.result[].values[]] | sort_by(.[0] | tonumber)[]
+           | "\(.[0] | tonumber / 1e9 | strftime("%Y-%m-%dT%H:%M:%SZ")) \(.[1])"
+         end'
