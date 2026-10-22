@@ -135,6 +135,12 @@ jobs:
           set -euo pipefail
           OUTPUT_DIR="${{ runner.temp }}/diagnose-output"
           mkdir -p "$OUTPUT_DIR"
+          # The runner (UID 1001) creates this directory, but the CI image's
+          # `ci` user (UID 1000) writes into it via tee. Without this, tee
+          # fails with "Permission denied" and pipefail fails the step after
+          # the agent has done its work. Same fix run-ci-agent applies to its
+          # output staging dir.
+          chmod 777 "$OUTPUT_DIR"
 
           # Run the agent inside the CI image. The prompt lives in the repo
           # at .github/ci/prompts/diagnose-workflow-failure.md and uses shell
