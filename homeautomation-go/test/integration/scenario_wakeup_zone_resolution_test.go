@@ -2,6 +2,7 @@ package integration
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -17,6 +18,67 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 )
+
+// TestScenario_ConcurrentZoneResolution_IsSerialized documents the invariant
+// that direct callers cannot apply plans built from the same stale zone state.
+func TestScenario_ConcurrentZoneResolution_IsSerialized(t *testing.T) {
+	t.Parallel()
+	server, client, stateManager, cleanup := setupTest(t)
+	defer cleanup()
+
+	logger := testlogger.New()
+	musicConfig := &music.MusicConfig{
+		Zones: []music.ZoneConfig{{
+			Name:     "morning",
+			Priority: 50,
+			Triggers: []music.TriggerCondition{{Variable: "dayPhase", Value: "morning"}},
+		}},
+		Music: map[string]music.MusicMode{
+			"morning": {
+				Participants:    []music.Participant{{PlayerName: "Kitchen", BaseVolume: 9}},
+				PlaybackOptions: []music.PlaybackOption{{URI: "test://morning", MediaType: "music", VolumeMultiplier: 1}},
+			},
+		},
+	}
+	manager := music.NewManager(context.Background(), client, stateManager, musicConfig, logger, false, nil, nil)
+	manager.SetSleepFunc(func(time.Duration) {})
+	zoneManager := music.NewZoneManager(manager, musicConfig, logger)
+
+	server.SetState("media_player.kitchen", "idle", map[string]interface{}{"friendly_name": "Kitchen"})
+	require.NoError(t, stateManager.SetString("dayPhase", "morning"))
+
+	start := make(chan struct{})
+	errs := make(chan error, 2)
+	var ready sync.WaitGroup
+	ready.Add(2)
+	for range 2 {
+		go func() {
+			ready.Done()
+			<-start
+			errs <- zoneManager.ResolveZonesWithContext(nil, "concurrent-test")
+		}()
+	}
+	ready.Wait()
+	close(start)
+
+	require.NoError(t, <-errs)
+	require.NoError(t, <-errs)
+
+	zones := zoneManager.GetActiveZones()
+	require.Len(t, zones, 1, "concurrent resolutions must not apply duplicate start plans")
+	assert.Equal(t, "morning", zones[0].Name)
+	require.Len(t, zones[0].Participants, 1)
+	assert.Equal(t, "Kitchen", zones[0].Participants[0].PlayerName)
+
+	playbackTypeWrites := 0
+	for _, call := range server.GetServiceCallsSince(0) {
+		if call.Domain == "input_text" && call.Service == "set_value" &&
+			call.ServiceData["entity_id"] == "input_text.music_playback_type" {
+			playbackTypeWrites++
+		}
+	}
+	assert.Equal(t, 1, playbackTypeWrites, "the morning zone must be started from only one resolution plan")
+}
 
 // ============================================================================
 // Wake-Up Zone Resolution Debounce Tests

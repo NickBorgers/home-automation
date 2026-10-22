@@ -1650,7 +1650,7 @@ func (m *Manager) handleSexModeOn() {
 
 **Why**: Music zone resolution can be triggered both by a debounce timer and by direct callers. Concurrent resolutions could both read the sleep-prep zone, then one perform a seamless sleep transition while the other applied a stale full stop/start plan. The stale plan faded out and regrouped speakers that should have continued playing.
 
-**Where Applied**: `internal/plugins/music/zone_manager.go` — `resolutionMu` serializes `ResolveZonesWithContext` while the existing `mu` continues to protect individual zone-state accesses.
+**Where Applied**: `internal/plugins/music/zone_manager.go` — `resolutionMu` serializes `ResolveZonesWithContext` while the existing `mu` continues to protect individual zone-state accesses. The companion `resolving` flag prevents synchronous same-goroutine re-entry from deadlocking on `resolutionMu`.
 
 **References**: Issue #1171
 

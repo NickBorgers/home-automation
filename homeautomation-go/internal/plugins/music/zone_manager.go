@@ -656,6 +656,8 @@ func (zm *ZoneManager) ResolveZonesWithContext(eventCtx *state.EventContext, tri
 	// startZone → setMusicPlaybackType → handleMusicPlaybackTypeChange → ResolveZones
 	// would cause infinite recursion without this guard.
 	zm.mu.Lock()
+	// This must be true before any startZone call so synchronous state-change
+	// handlers cannot re-enter ResolveZones and deadlock on resolutionMu.
 	zm.resolving = true
 	zm.mu.Unlock()
 	defer func() {
