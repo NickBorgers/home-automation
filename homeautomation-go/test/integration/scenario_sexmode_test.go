@@ -441,6 +441,9 @@ func TestScenario_SexModeDuplicateActivation_Ignored(t *testing.T) {
 		eightSleepCalls := FilterServiceCalls(allCalls, "climate", "set_temperature")
 		return len(eightSleepCalls) >= 2
 	}, stateWaitTimeout, statePollInterval, "Both Eight Sleep beds should be adjusted")
+	require.Eventually(t, func() bool {
+		return sexModeManager.GetShadowState().Outputs.IsActive
+	}, stateWaitTimeout, statePollInterval, "Sex mode activation should finish before duplicate activation")
 
 	// Count initial service calls
 	initialCalls := len(server.GetServiceCalls())

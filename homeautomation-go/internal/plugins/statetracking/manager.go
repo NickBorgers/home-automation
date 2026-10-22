@@ -23,8 +23,14 @@ const (
 	// SleepDetectionDelay is how long lights must be off before marking master asleep
 	SleepDetectionDelay = 1 * time.Minute
 
-	// WakeDetectionDelay is how long bedroom door must be open before marking master awake
-	WakeDetectionDelay = 20 * time.Second
+	// WakeDetectionDelay is how long both Eight Sleep sides must report no bed presence
+	// before marking master awake. The pod's presence sensor drops to "off" for about
+	// 30 seconds every ~5 minutes while someone is in bed, so the delay must exceed that.
+	WakeDetectionDelay = 5 * time.Minute
+
+	// Eight Sleep bed presence sensors (one per side of the bed)
+	nickBedPresenceEntity     = "binary_sensor.nick_s_eight_sleep_side_bed_presence"
+	carolineBedPresenceEntity = "binary_sensor.caroline_s_eight_sleep_side_bed_presence"
 
 	// OwnerReturnHomeResetDelay is how long before didOwnerJustReturnHome auto-resets
 	OwnerReturnHomeResetDelay = 10 * time.Minute
@@ -53,7 +59,7 @@ const (
 //
 // Additional features:
 //   - Automatic master sleep detection when primary suite lights off for 1 minute
-//   - Automatic master wake detection when bedroom door open for 20 seconds
+//   - Automatic master wake detection when both Eight Sleep sides show no bed presence for 5 minutes
 //   - Automatic guest sleep detection when guest bedroom door closes
 type Manager struct {
 	ctx          context.Context
@@ -141,9 +147,11 @@ func (m *Manager) Start() error {
 		return fmt.Errorf("failed to subscribe to light.primary_suite: %w", err)
 	}
 
-	// Subscribe to primary bedroom door for master wake detection
-	if err := m.subHelper.SubscribeToEntity("input_boolean.primary_bedroom_door_open", m.handlePrimaryBedroomDoorChange); err != nil {
-		return fmt.Errorf("failed to subscribe to input_boolean.primary_bedroom_door_open: %w", err)
+	// Subscribe to Eight Sleep bed presence (both sides) for master wake detection
+	for _, entityID := range []string{nickBedPresenceEntity, carolineBedPresenceEntity} {
+		if err := m.subHelper.SubscribeToEntity(entityID, m.handleBedPresenceChange); err != nil {
+			return fmt.Errorf("failed to subscribe to %s: %w", entityID, err)
+		}
 	}
 
 	// Subscribe to Nick's presence for arrival announcements
@@ -182,7 +190,7 @@ func (m *Manager) Start() error {
 		}),
 		zap.Strings("sleepDetection", []string{
 			"light.primary_suite (1min off → asleep)",
-			"input_boolean.primary_bedroom_door_open (20sec open → awake)",
+			"Eight Sleep bed presence, both sides (5min off → awake)",
 		}),
 		zap.Strings("presenceAnnouncements", []string{
 			"input_boolean.nick_home (arrival → TTS)",
@@ -319,63 +327,65 @@ func (m *Manager) detectMasterAsleep() {
 	}
 }
 
-// handlePrimaryBedroomDoorChange processes primary bedroom door state changes
-func (m *Manager) handlePrimaryBedroomDoorChange(entityID string, oldState, newState *ha.State) {
+// handleBedPresenceChange processes Eight Sleep bed presence changes for either side.
+// Any "off" transition (re)starts the wake timer. Any other state cancels it.
+// The timer callback re-reads both sides, so the master wakes only when nobody is in bed.
+func (m *Manager) handleBedPresenceChange(entityID string, oldState, newState *ha.State) {
 	if newState == nil {
 		return
 	}
 
-	// Update shadow state inputs
 	// Shadow state inputs are automatically captured by SubscriptionHelper
 
-	doorOpen := newState.State == "on"
-
-	m.logger.Debug("Primary bedroom door changed",
+	m.logger.Debug("Bed presence changed",
 		zap.String("entity_id", entityID),
-		zap.String("new_state", newState.State),
-		zap.Bool("door_open", doorOpen))
+		zap.String("new_state", newState.State))
 
 	m.timerMutex.Lock()
 	defer m.timerMutex.Unlock()
 
-	// Cancel existing wake timer if any
 	if m.masterWakeTimer != nil {
 		m.masterWakeTimer.Stop()
 		m.masterWakeTimer = nil
 	}
 
-	if doorOpen {
-		// Start 20-second timer for wake detection
-		m.logger.Info("Primary bedroom door opened, starting 20-second wake detection timer")
+	if newState.State == "off" {
+		m.logger.Info("Bed presence off, starting wake detection timer",
+			zap.String("entity_id", entityID),
+			zap.Duration("delay", WakeDetectionDelay))
 		m.masterWakeTimer = m.clock.AfterFunc(WakeDetectionDelay, func() {
 			m.detectMasterAwake()
 		})
-		// Update shadow state
 		m.shadowTracker.UpdateWakeDetectionTimer(true)
 	} else {
-		m.logger.Info("Primary bedroom door closed, canceling wake detection")
-		// Update shadow state
+		m.logger.Info("Bed presence on, canceling wake detection",
+			zap.String("entity_id", entityID),
+			zap.String("new_state", newState.State))
 		m.shadowTracker.UpdateWakeDetectionTimer(false)
 	}
 }
 
-// detectMasterAwake runs after door has been open for 20 seconds
+// detectMasterAwake runs after bed presence has been off for WakeDetectionDelay.
 func (m *Manager) detectMasterAwake() {
-	m.logger.Info("20-second timer expired, checking if should mark master awake")
-	// Re-validate trigger condition: confirm the bedroom door is still open before marking awake.
-	// The door may have been closed again during the 20-second delay. (#1017)
-	doorState, err := m.haClient.GetState("input_boolean.primary_bedroom_door_open")
-	if err != nil {
-		m.logger.Warn("Failed to re-read primary_bedroom_door_open, aborting wake detection", zap.Error(err))
-		return
-	}
-	if doorState.State != "on" {
-		m.logger.Warn("Primary bedroom door no longer open, aborting wake detection",
-			zap.String("door_state", doorState.State))
-		return
+	m.logger.Info("Wake detection timer expired, checking if should mark master awake")
+	// Re-validate trigger condition: both sides must still read "off". An unreadable or
+	// unavailable sensor counts as "not confirmed absent", so we abort. (#1017)
+	for _, entityID := range []string{nickBedPresenceEntity, carolineBedPresenceEntity} {
+		presence, err := m.haClient.GetState(entityID)
+		if err != nil {
+			m.logger.Warn("Failed to re-read bed presence, aborting wake detection",
+				zap.String("entity_id", entityID), zap.Error(err))
+			return
+		}
+		if presence.State != "off" {
+			m.logger.Info("Bed presence not off, aborting wake detection",
+				zap.String("entity_id", entityID),
+				zap.String("state", presence.State))
+			return
+		}
 	}
 
-	m.logger.Info("Marking master as awake (bedroom door open for 20 seconds)")
+	m.logger.Info("Marking master as awake (no bed presence on either side)")
 
 	if err := m.stateManager.SetBool("isMasterAsleep", false); err != nil {
 		if errors.Is(err, state.ErrReadOnlyMode) {

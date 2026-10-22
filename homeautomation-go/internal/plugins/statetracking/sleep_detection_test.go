@@ -35,9 +35,9 @@ func TestSleepDetection_HandlersInitialized(t *testing.T) {
 	}
 	defer manager.Stop()
 
-	// Verify HA subscriptions were created (2 for sleep detection + 3 for arrival announcements + 2 for near_home)
-	if len(manager.subHelper.GetHASubscriptions()) != 7 {
-		t.Errorf("Expected 7 HA subscriptions, got %d", len(manager.subHelper.GetHASubscriptions()))
+	// Verify HA subscriptions were created (1 for sleep + 2 for wake detection + 3 for arrival announcements + 2 for near_home)
+	if len(manager.subHelper.GetHASubscriptions()) != 8 {
+		t.Errorf("Expected 8 HA subscriptions, got %d", len(manager.subHelper.GetHASubscriptions()))
 	}
 }
 
@@ -83,7 +83,7 @@ func TestSleepDetection_LightsTimerControl(t *testing.T) {
 	manager.handlePrimarySuiteLightsChange("light.primary_suite", lightOffState, lightOnState)
 }
 
-func TestWakeDetection_DoorTimerControl(t *testing.T) {
+func TestWakeDetection_BedPresenceTimerControl(t *testing.T) {
 	t.Parallel()
 
 	mockHA := ha.NewMockClient()
@@ -100,26 +100,28 @@ func TestWakeDetection_DoorTimerControl(t *testing.T) {
 	}
 	defer manager.Stop()
 
-	// Verify no wake timer initially
-	manager.timerMutex.Lock()
-	if manager.masterWakeTimer != nil {
+	hasTimer := func() bool {
+		manager.timerMutex.Lock()
+		defer manager.timerMutex.Unlock()
+		return manager.masterWakeTimer != nil
+	}
+
+	if hasTimer() {
 		t.Error("Expected no wake timer initially")
 	}
-	manager.timerMutex.Unlock()
 
-	// Door open starts timer
-	doorOpenState := &ha.State{EntityID: "input_boolean.primary_bedroom_door_open", State: "on"}
-	manager.handlePrimaryBedroomDoorChange("input_boolean.primary_bedroom_door_open", nil, doorOpenState)
+	off := &ha.State{EntityID: nickBedPresenceEntity, State: "off"}
+	on := &ha.State{EntityID: nickBedPresenceEntity, State: "on"}
 
-	manager.timerMutex.Lock()
-	if manager.masterWakeTimer == nil {
-		t.Error("Expected wake timer to be started after door opened")
+	manager.handleBedPresenceChange(nickBedPresenceEntity, on, off)
+	if !hasTimer() {
+		t.Error("Expected wake timer after presence went off")
 	}
-	manager.timerMutex.Unlock()
 
-	// Door closed cancels timer
-	doorClosedState := &ha.State{EntityID: "input_boolean.primary_bedroom_door_open", State: "off"}
-	manager.handlePrimaryBedroomDoorChange("input_boolean.primary_bedroom_door_open", doorOpenState, doorClosedState)
+	manager.handleBedPresenceChange(nickBedPresenceEntity, off, on)
+	if hasTimer() {
+		t.Error("Expected wake timer canceled after presence came back")
+	}
 }
 
 func TestDetectMasterAsleep_Conditions(t *testing.T) {
@@ -203,63 +205,52 @@ func TestDetectMasterAsleep_Conditions(t *testing.T) {
 	}
 }
 
-func TestDetectMasterAwake_SetsAwake(t *testing.T) {
+func TestDetectMasterAwake_Conditions(t *testing.T) {
 	t.Parallel()
-
-	mockHA := ha.NewMockClient()
-	logger := zap.NewNop()
-	stateMgr := state.NewManager(mockHA, logger, false)
-
-	// Set initial state - asleep, door still open
-	if err := stateMgr.SetBool("isMasterAsleep", true); err != nil {
-		t.Fatalf("Failed to set isMasterAsleep: %v", err)
+	tests := []struct {
+		name           string
+		nickPresence   string // empty = entity not set (read fails)
+		carolinePres   string
+		expectedAsleep bool
+	}{
+		{name: "Wakes when both sides off", nickPresence: "off", carolinePres: "off", expectedAsleep: false},
+		{name: "Stays asleep when Nick in bed", nickPresence: "on", carolinePres: "off", expectedAsleep: true},
+		{name: "Stays asleep when Caroline in bed", nickPresence: "off", carolinePres: "on", expectedAsleep: true},
+		{name: "Stays asleep when a sensor is unavailable", nickPresence: "off", carolinePres: "unavailable", expectedAsleep: true},
+		{name: "Stays asleep when a sensor cannot be read", nickPresence: "off", carolinePres: "", expectedAsleep: true},
 	}
-	mockHA.SetState("input_boolean.primary_bedroom_door_open", "on", nil)
 
-	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil, "", &alert.MockAlerter{})
-	if err := manager.Start(); err != nil {
-		t.Fatalf("Failed to start manager: %v", err)
-	}
-	defer manager.Stop()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockHA := ha.NewMockClient()
+			logger := zap.NewNop()
+			stateMgr := state.NewManager(mockHA, logger, false)
 
-	manager.detectMasterAwake()
+			if err := stateMgr.SetBool("isMasterAsleep", true); err != nil {
+				t.Fatalf("Failed to set isMasterAsleep: %v", err)
+			}
+			if tt.nickPresence != "" {
+				mockHA.SetState(nickBedPresenceEntity, tt.nickPresence, nil)
+			}
+			if tt.carolinePres != "" {
+				mockHA.SetState(carolineBedPresenceEntity, tt.carolinePres, nil)
+			}
 
-	isMasterAsleep, err := stateMgr.GetBool("isMasterAsleep")
-	if err != nil {
-		t.Fatalf("Failed to get isMasterAsleep: %v", err)
-	}
-	if isMasterAsleep {
-		t.Error("Expected isMasterAsleep to be false after wake detection")
-	}
-}
+			manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil, "", &alert.MockAlerter{})
+			if err := manager.Start(); err != nil {
+				t.Fatalf("Failed to start manager: %v", err)
+			}
+			defer manager.Stop()
 
-func TestDetectMasterAwake_AbortsIfDoorClosed(t *testing.T) {
-	t.Parallel()
+			manager.detectMasterAwake()
 
-	mockHA := ha.NewMockClient()
-	logger := zap.NewNop()
-	stateMgr := state.NewManager(mockHA, logger, false)
-
-	// Set initial state - asleep, but door closed again during the delay
-	if err := stateMgr.SetBool("isMasterAsleep", true); err != nil {
-		t.Fatalf("Failed to set isMasterAsleep: %v", err)
-	}
-	mockHA.SetState("input_boolean.primary_bedroom_door_open", "off", nil)
-
-	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil, "", &alert.MockAlerter{})
-	if err := manager.Start(); err != nil {
-		t.Fatalf("Failed to start manager: %v", err)
-	}
-	defer manager.Stop()
-
-	manager.detectMasterAwake()
-
-	// Door closed during delay - master should remain asleep
-	isMasterAsleep, err := stateMgr.GetBool("isMasterAsleep")
-	if err != nil {
-		t.Fatalf("Failed to get isMasterAsleep: %v", err)
-	}
-	if !isMasterAsleep {
-		t.Error("Expected isMasterAsleep to remain true when door closed during wake delay")
+			isMasterAsleep, err := stateMgr.GetBool("isMasterAsleep")
+			if err != nil {
+				t.Fatalf("Failed to get isMasterAsleep: %v", err)
+			}
+			if isMasterAsleep != tt.expectedAsleep {
+				t.Errorf("Expected isMasterAsleep=%v, got %v", tt.expectedAsleep, isMasterAsleep)
+			}
+		})
 	}
 }

@@ -1644,6 +1644,16 @@ func (m *Manager) handleSexModeOn() {
 
 **Related**: The mirror pattern — `handleSexModeOff` has the same shape; a concurrent "on" during deactivation is silently dropped. Not fixed in this PR but worth knowing.
 
+## Lesson 24: Serialize Stateful Read/Plan/Update Cycles
+
+**Pattern**: Protect the entire operation when it reads shared state, plans mutations, and then applies them. Locking the individual map accesses is insufficient because another operation can build a conflicting plan between those steps.
+
+**Why**: Music zone resolution can be triggered both by a debounce timer and by direct callers. Concurrent resolutions could both read the sleep-prep zone, then one perform a seamless sleep transition while the other applied a stale full stop/start plan. The stale plan faded out and regrouped speakers that should have continued playing.
+
+**Where Applied**: `internal/plugins/music/zone_manager.go` — `resolutionMu` serializes `ResolveZonesWithContext` while the existing `mu` continues to protect individual zone-state accesses.
+
+**References**: Issue #1171
+
 ---
 
 ## Change Log
@@ -1655,6 +1665,9 @@ func (m *Manager) handleSexModeOn() {
   - Applied to `handleSexModeOn()` in `internal/plugins/sexmode/manager.go` (PR #1173)
 - **Updated Lesson 9 "Where to Apply"**: Added `Stop()` lifecycle bullet
   - `Manager.Stop()` in music plugin now calls `cancelPlaybackMonitor()` to prevent the health monitor goroutine from outliving the manager — and from busy-polling in tests with a no-op sleepFunc
+
+- **Added Lesson 24**: Serialize Stateful Read/Plan/Update Cycles
+  - Prevents concurrent music zone resolutions from applying plans built from stale zone state (Issue #1171)
 
 ### 2026-08-28
 - **Added Lesson 22**: Hold the Lock Across Network I/O When the Remote Side Rotates a Credential

@@ -7,7 +7,7 @@ This document describes the state tracking automation flow, which computes deriv
 The state tracking plugin provides:
 1. Derived presence states (isAnyoneHome, isAnyOwnerHome)
 2. Derived sleep states (isAnyoneAsleep, isEveryoneAsleep)
-3. Automatic sleep/wake detection from lights and doors
+3. Automatic sleep/wake detection from lights and Eight Sleep bed presence
 4. Arrival announcements via TTS
 5. Owner return detection for garage automation
 
@@ -110,20 +110,24 @@ The timer cancels on two events: lights turning back on (normal wake-up) and an 
 
 ### Master Awake Detection
 
+The Eight Sleep pod reports bed presence for each side of the bed. The master wakes when both sides show no presence for 5 minutes.
+
+The pod drops presence to `off` for about 30 seconds every 5 minutes while someone lies in bed. The 5-minute delay outlasts those drops.
+
 ```mermaid
 flowchart TD
-    subgraph Trigger["Trigger: Bedroom Door Opens"]
-        doorOpen["input_boolean.primary_bedroom_door_open<br/>state = on"]
+    subgraph Trigger["Trigger: Bed Presence Goes Off"]
+        presenceOff["binary_sensor.nick_s_eight_sleep_side_bed_presence<br/>or caroline_s_..._bed_presence<br/>state = off"]
     end
 
-    subgraph Timer["20-Second Timer"]
-        start["Start timer"]
-        cancel["Cancel timer<br/>(door closes)"]
+    subgraph Timer["5-Minute Timer"]
+        start["Start (or restart) timer"]
+        cancel["Cancel timer<br/>(presence changes to any other state)"]
         expire["Timer expires"]
     end
 
     subgraph Check["Condition Check"]
-        checkDoor{"Door still open?<br/>(re-validate #1017)"}
+        checkBoth{"Both sides still off?<br/>(re-read, unavailable = no)"}
     end
 
     subgraph Action["Action"]
@@ -131,12 +135,12 @@ flowchart TD
         skipWake["No action"]
     end
 
-    doorOpen --> start
-    start -->|Door closes| cancel
-    start -->|20 seconds pass| expire
-    expire --> checkDoor
-    checkDoor -->|No| skipWake
-    checkDoor -->|Yes| setAwake
+    presenceOff --> start
+    start -->|Presence returns| cancel
+    start -->|5 minutes pass| expire
+    expire --> checkBoth
+    checkBoth -->|No| skipWake
+    checkBoth -->|Yes| setAwake
 
     style setAwake fill:#ffd93d,color:#000
     style cancel fill:#e74c3c,color:#fff
@@ -281,7 +285,7 @@ flowchart TD
 | Entity | Timer | Action |
 |--------|-------|--------|
 | `light.primary_suite` | 1 minute off | Mark master asleep |
-| `input_boolean.primary_bedroom_door_open` | 20 seconds open | Mark master awake |
+| `binary_sensor.nick_s_eight_sleep_side_bed_presence`, `binary_sensor.caroline_s_eight_sleep_side_bed_presence` | 5 minutes both off | Mark master awake |
 | `input_boolean.nick_near_home` | Immediate | Set didOwnerJustReturnHome |
 | `input_boolean.caroline_near_home` | Immediate | Set didOwnerJustReturnHome |
 
