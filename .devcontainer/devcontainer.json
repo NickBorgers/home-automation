@@ -3,12 +3,15 @@
   "build": {
     "dockerfile": "Dockerfile"
   },
-  "features": {
-    "ghcr.io/devcontainers/features/docker-in-docker:2": {
-      "version": "latest",
-      "moby": "false"
-    }
-  },
+  // No docker-in-docker feature: it forces --privileged, which Kata cannot
+  // start on hosts with stale /dev nodes. The microVM already isolates the
+  // guest kernel, so these capabilities are enough for start-dockerd.sh to
+  // run a daemon inside it (see that script for the details).
+  "runArgs": [
+    "--cap-add=SYS_ADMIN",
+    "--cap-add=NET_ADMIN",
+    "--security-opt=apparmor=unconfined"
+  ],
   "customizations": {
     "vscode": {
       "extensions": [
@@ -25,10 +28,13 @@
   "workspaceFolder": "${localWorkspaceFolder}",
   "onCreateCommand": "bash .devcontainer/setup-user.sh \"${localEnv:USER}\" \"${containerWorkspaceFolder}\"",
   "postCreateCommand": "bash .devcontainer/post-create.sh",
-  "postStartCommand": "bash .devcontainer/fix-dns-order.sh && sudo chown -R \"$(id -u):$(id -g)\" \"${containerWorkspaceFolder}\" 2>/dev/null || true",
+  "postStartCommand": "bash .devcontainer/start-dockerd.sh; bash .devcontainer/fix-dns-order.sh && sudo chown -R \"$(id -u):$(id -g)\" \"${containerWorkspaceFolder}\" 2>/dev/null || true",
   "forwardPorts": [],
   "portsAttributes": {},
   "mounts": [
+    // Backing store for the loop-mounted ext4 that holds /var/lib/docker, so
+    // pulled images survive container recreation.
+    "source=home-automation-docker-store,target=/var/lib/docker-store,type=volume",
     // Live read-only bind-mount of the developer's host ~/.claude so their
     // global Claude Code customizations (CLAUDE.md, settings.json, hooks/,
     // agents/, skills/, output-styles/) follow them into the devcontainer.
