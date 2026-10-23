@@ -122,5 +122,5 @@ reverse order, so each name is free before you take it. Set `"name": null` to re
 - Deploy order matters. If the plugin config names a companion scene that does not exist yet, the plugin
   logs a warning for it and carries on. If you rename a scene before the plugin change ships, the plugin
   runs only the scene that now holds the plain name.
-- `HA_URL` in `homeautomation-go/.env` is an `https://` base. The helper converts it to `wss://`.
+- `HA_URL` in `homeautomation-go/.env` may be `wss://host/api/websocket` or `https://host`. The helper normalises either form to a `wss://` websocket URL.
 - `READ_ONLY=true` stops the plugin from sending commands. It does not limit this helper. The token has full access.
