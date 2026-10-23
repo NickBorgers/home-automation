@@ -293,6 +293,31 @@ The 2026-05-25 production incident — three rapid scene recalls during
 arrival, dynamic palette failure, bedroom lights going off, statetracking
 incorrectly marking the occupants as asleep — drove both protections.
 
+### Companion scenes
+
+A room can list extra scenes in `companion_scenes` in `hue_config.yaml`. They
+are activated right after the room's main scene, for the same day phase. Home
+Assistant cannot nest scenes, so the plugin calls each one itself.
+
+Each entry is a scene base name. Its entity ID is
+`scene.` + snake_case(entry + " " + dayPhase). For example, the Kitchen entry
+`"Kitchen Under Cabinet"` in the `morning` phase activates
+`scene.kitchen_under_cabinet_morning` after `scene.kitchen_morning`.
+
+- Companions run only after the main scene succeeded. This includes the
+  `has_dynamics` static phase and its `scene.turn_on` fallback; they do not
+  wait for the dynamic phase.
+- They use `scene.turn_on` with the same `transition` as the main scene,
+  including the presence-trigger cap.
+- A failing companion is logged at warn level and skipped. Later companions
+  still run, and the main scene is never undone. A cancelled context stops
+  the loop quietly.
+- In `READ_ONLY` mode each companion is only logged ("Would activate").
+- Shadow state: the room's single `activate_scene` action reason lists the
+  companions that were activated (`... + companions: scene.x_morning`).
+  The `has_dynamics` path logs them but does not list them, because the
+  dynamic phase records that action.
+
 ## Away Mode Lighting
 
 When no one is home, lighting enters away mode:

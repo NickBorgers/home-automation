@@ -677,6 +677,7 @@ func (m *Manager) activateScene(ctx context.Context, room *RoomConfig, dayPhase 
 		m.recordAction(room.HueGroup, "activate_scene",
 			fmt.Sprintf("Would activate scene '%s'", dayPhase),
 			dayPhase, false, trigger)
+		m.activateCompanionScenes(ctx, room, dayPhase, nil)
 		return
 	}
 
@@ -753,8 +754,9 @@ func (m *Manager) activateScene(ctx context.Context, room *RoomConfig, dayPhase 
 				zap.String("room", room.HueGroup),
 				zap.String("scene", dayPhase),
 				zap.String("entity_id", sceneEntityID))
+			activated := m.activateCompanionScenes(ctx, room, dayPhase, serviceData["transition"])
 			m.recordAction(room.HueGroup, "activate_scene",
-				fmt.Sprintf("Activated scene '%s' (dynamic fallback)", dayPhase),
+				fmt.Sprintf("Activated scene '%s' (dynamic fallback)%s", dayPhase, companionSuffix(activated)),
 				dayPhase, false, trigger)
 			return
 		}
@@ -762,6 +764,11 @@ func (m *Manager) activateScene(ctx context.Context, room *RoomConfig, dayPhase 
 			zap.String("room", room.HueGroup),
 			zap.String("entity_id", sceneEntityID),
 			zap.Duration("gap", twoStepRecallGap))
+
+		// The main scene's static phase succeeded, so companions run now rather than
+		// after the dynamic phase. Their outcome is logged but not added to the
+		// shadow action, which the dynamic phase records.
+		m.activateCompanionScenes(ctx, room, dayPhase, serviceData["transition"])
 
 		// dynamicData is a fresh copy; copyServiceData ensures the static-phase
 		// payload is not mutated when dynamic=true is added below.
@@ -797,10 +804,65 @@ func (m *Manager) activateScene(ctx context.Context, room *RoomConfig, dayPhase 
 		zap.String("scene", dayPhase),
 		zap.String("entity_id", sceneEntityID))
 
+	activated := m.activateCompanionScenes(ctx, room, dayPhase, serviceData["transition"])
+
 	// Record action in shadow state
 	m.recordAction(room.HueGroup, "activate_scene",
-		fmt.Sprintf("Activated scene '%s'", dayPhase),
+		fmt.Sprintf("Activated scene '%s'%s", dayPhase, companionSuffix(activated)),
 		dayPhase, false, trigger)
+}
+
+// companionSuffix formats the companion scenes that were activated for the shadow
+// state action description. It returns an empty string when there were none.
+func companionSuffix(activated []string) string {
+	if len(activated) == 0 {
+		return ""
+	}
+	return " + companions: " + strings.Join(activated, ", ")
+}
+
+// activateCompanionScenes activates each of the room's companion_scenes for the
+// given day phase with scene.turn_on, using the same transition (nil for none)
+// as the main scene. It must only be called after the main scene succeeded.
+// A failing companion is logged at warn level and skipped; the remaining
+// companions still run. If ctx is cancelled it stops quietly. In READ_ONLY mode
+// it only logs. It returns the entity IDs that were activated.
+func (m *Manager) activateCompanionScenes(ctx context.Context, room *RoomConfig, dayPhase string,
+	transition interface{}) []string {
+	var activated []string
+	for _, base := range room.CompanionScenes {
+		entityID := "scene." + toSnakeCase(base+" "+dayPhase)
+
+		if m.readOnly {
+			m.logger.Info("READ-ONLY: Would activate companion scene",
+				zap.String("room", room.HueGroup),
+				zap.String("entity_id", entityID))
+			continue
+		}
+
+		data := map[string]interface{}{"entity_id": entityID}
+		if transition != nil {
+			data["transition"] = transition
+		}
+		if err := m.haClient.CallService(ctx, "scene", "turn_on", data); err != nil {
+			if ctx.Err() != nil {
+				m.logger.Info("Companion scene activation superseded by newer evaluation",
+					zap.String("room", room.HueGroup),
+					zap.String("entity_id", entityID))
+				return activated
+			}
+			m.logger.Warn("Failed to activate companion scene",
+				zap.String("room", room.HueGroup),
+				zap.String("entity_id", entityID),
+				zap.Error(err))
+			continue
+		}
+		m.logger.Info("Companion scene activated",
+			zap.String("room", room.HueGroup),
+			zap.String("entity_id", entityID))
+		activated = append(activated, entityID)
+	}
+	return activated
 }
 
 // activateSceneDynamicPhase issues the second `hue.activate_scene` call of a

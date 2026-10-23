@@ -37,6 +37,13 @@ type RoomConfig struct {
 	// scene's static colors), waits briefly, then sends it again with
 	// `dynamic: true` so the palette starts from a stable known state.
 	HasDynamics bool `yaml:"has_dynamics"`
+
+	// CompanionScenes lists extra scene base names to activate right after the
+	// room's main scene, for the same day phase. Each entry becomes the entity ID
+	// `scene.` + snake_case(entry + " " + dayPhase), e.g. "Kitchen Under Cabinet"
+	// in phase "morning" gives scene.kitchen_under_cabinet_morning. Companions use
+	// the same transition as the main scene and never undo it if they fail.
+	CompanionScenes []string `yaml:"companion_scenes"`
 }
 
 // GetConditionVariables returns a list of all unique state variable names used in conditions
