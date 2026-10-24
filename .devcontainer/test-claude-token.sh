@@ -44,6 +44,19 @@ out="$(run_init)"
 printf '%s' "$out" | grep -q "No Claude login" || fail "missing login should warn"
 [ ! -s "$token_file" ] || fail "no token expected"
 
+# 3b. Long-lived token wins over the host login and is the only thing written.
+new_world 3600
+mkdir -p "$TMP/home/.config/claude-devcontainer"
+echo "fake-long-lived-LLLL" >"$TMP/home/.config/claude-devcontainer/oauth-token"
+out="$(run_init)"
+[ "$(cat "$token_file")" = "fake-long-lived-LLLL" ] || fail "long-lived token should win"
+if grep -rqF "$REFRESH" "$TMP/dc"; then fail "refresh token leaked"; fi
+new_world -60   # expired host login must not matter when a long-lived token exists
+mkdir -p "$TMP/home/.config/claude-devcontainer"
+echo "fake-long-lived-LLLL" >"$TMP/home/.config/claude-devcontainer/oauth-token"
+run_init >/dev/null
+[ "$(cat "$token_file")" = "fake-long-lived-LLLL" ] || fail "long-lived token should work with expired login"
+
 # 4. Wiring twice exports once; login and interactive shells see the token.
 new_world 3600; run_init >/dev/null
 for _ in 1 2; do HOME="$TMP/home" bash "$TMP/dc/wire-claude-token.sh" "$token_file" >/dev/null 2>&1; done

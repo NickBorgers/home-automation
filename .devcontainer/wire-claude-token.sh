@@ -1,15 +1,17 @@
 #!/bin/bash
 # Run inside the container (from post-create.sh).
 #
-# Makes Claude Code authenticate with the short-lived OAuth ACCESS token that
-# init-host-credentials.sh wrote on the host, by exporting it as
+# Makes Claude Code authenticate with the OAuth token that
+# init-host-credentials.sh wrote on the host (a long-lived `claude setup-token`
+# token if the host has one, else the short-lived ACCESS token), by exporting it as
 # CLAUDE_CODE_OAUTH_TOKEN from login and interactive shells.
 #
 # Why not copy ~/.claude/.credentials.json: Claude's refresh token rotates on
 # use. A container holding its own copy can refresh it and invalidate the
 # host's, which logs the host (and every other session) out. The access token
-# cannot refresh anything; when it expires (about 7-8 hours) the container
-# simply needs the host to run claude and the devcontainer to be restarted.
+# cannot refresh anything. A setup-token token lasts about a year; an access
+# token expires in about 7-8 hours, after which the host must run claude and the
+# devcontainer be restarted.
 #
 # The export line reads the token file when each shell starts, so a refreshed
 # file (rewritten in place by init-host-credentials.sh on the next start) is

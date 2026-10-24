@@ -26,13 +26,19 @@ cd "$(dirname "$0")"
 # GitHub CLI token
 gh auth token > .gh-token 2>/dev/null || true
 
-# Claude Code OAuth access token.
+# Claude Code OAuth token.
 #
-# Only the short-lived ACCESS token leaves the host. Claude's refresh token
-# rotates on use, so a container holding it can refresh and invalidate the
-# host's login (and every other session). The container exports the access
-# token as CLAUDE_CODE_OAUTH_TOKEN (see wire-claude-token.sh); it cannot
-# refresh anything. The file is rewritten in place on every start so the
+# Preferred: a long-lived token from `claude setup-token` (valid about a year,
+# no refresh token, nothing rotates). Save it on the host in
+# ~/.config/claude-devcontainer/oauth-token (mode 600), or export it as
+# CLAUDE_DEVCONTAINER_OAUTH_TOKEN. The container never sees a refresh token.
+#
+# Fallback: the host login's short-lived ACCESS token (about 8 hours). Claude's
+# refresh token rotates on use, so it must not enter the container: a refresh
+# there would invalidate the host's login (and every other session).
+#
+# Either way the container exports the token as CLAUDE_CODE_OAUTH_TOKEN (see
+# wire-claude-token.sh). The file is rewritten in place on every start so the
 # bind-mounted workspace always sees the current token.
 CLAUDE_TOKEN_FILE=".claude-oauth-token"
 rm -f .claude-credentials   # earlier revisions copied the whole file here
@@ -49,6 +55,19 @@ except Exception:
     pass
 ' "$1" 2>/dev/null || true
 }
+
+long_lived_file="${XDG_CONFIG_HOME:-$HOME/.config}/claude-devcontainer/oauth-token"
+long_lived="${CLAUDE_DEVCONTAINER_OAUTH_TOKEN:-}"
+if [ -z "$long_lived" ] && [ -s "$long_lived_file" ]; then
+    long_lived="$(tr -d '[:space:]' < "$long_lived_file")"
+fi
+if [ -n "$long_lived" ]; then
+    : > "$CLAUDE_TOKEN_FILE"
+    chmod 600 "$CLAUDE_TOKEN_FILE"
+    printf '%s\n' "$long_lived" > "$CLAUDE_TOKEN_FILE"
+    unset long_lived
+    echo "[init-host-credentials] Claude long-lived token captured." >&2
+else
 
 claude_json=""
 if [ -f "$HOME/.claude/.credentials.json" ]; then
@@ -70,6 +89,8 @@ else
     echo "[init-host-credentials] Claude access token captured (no refresh token)." >&2
 fi
 unset claude_token
+
+fi
 
 CLAUDE_CONFIG_FILE=".claude-config"
 rm -f "$CLAUDE_CONFIG_FILE"
