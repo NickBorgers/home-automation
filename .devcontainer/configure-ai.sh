@@ -52,7 +52,7 @@ case "$AI_TOOL" in
     # AI_BASE_URL is the Anthropic path here, so name the OpenAI-compatible one
     # explicitly.
     if command -v codex &>/dev/null; then
-      write_codex_config "https://llm.featherback-mermaid.ts.net/v1"
+      write_codex_config "${CODEX_LITELLM_URL}"
     fi
     ;;
   codex)
