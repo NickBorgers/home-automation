@@ -28,9 +28,22 @@ const (
 	// 30 seconds every ~5 minutes while someone is in bed, so the delay must exceed that.
 	WakeDetectionDelay = 5 * time.Minute
 
+	// WakeFallbackDelay is how long both sides must report no bed presence before the master
+	// wakes even if a sleep stage still reads as asleep. The pod's cloud feed can stall and
+	// leave a stage stuck on "light" or "rem" after a real exit, so the stage veto must expire.
+	// It is measured from the last presence "off" event, like WakeDetectionDelay. History
+	// (Jun-Oct 2026) shows the stage rarely reads awake/out in time on real exits, so this
+	// delay decides most of them. The one confirmed false "off" span lasted 7 minutes.
+	WakeFallbackDelay = 15 * time.Minute
+
 	// Eight Sleep bed presence sensors (one per side of the bed)
 	nickBedPresenceEntity     = "binary_sensor.nick_s_eight_sleep_side_bed_presence"
 	carolineBedPresenceEntity = "binary_sensor.caroline_s_eight_sleep_side_bed_presence"
+
+	// Eight Sleep sleep stage sensors (one per side of the bed). The pod reports "awake" or
+	// "out" when someone leaves; a stage of "light", "deep" or "rem" means still in bed.
+	nickSleepStageEntity     = "sensor.nick_s_eight_sleep_side_sleep_stage"
+	carolineSleepStageEntity = "sensor.caroline_s_eight_sleep_side_sleep_stage"
 
 	// OwnerReturnHomeResetDelay is how long before didOwnerJustReturnHome auto-resets
 	OwnerReturnHomeResetDelay = 10 * time.Minute
@@ -60,6 +73,7 @@ const (
 // Additional features:
 //   - Automatic master sleep detection when primary suite lights off for 1 minute
 //   - Automatic master wake detection when both Eight Sleep sides show no bed presence for 5 minutes
+//     and both sleep stages read awake/out (or 15 minutes of no presence, whatever the stage)
 //   - Automatic guest sleep detection when guest bedroom door closes
 type Manager struct {
 	ctx          context.Context
@@ -77,6 +91,12 @@ type Manager struct {
 
 	// Timer for owner return home auto-reset
 	ownerReturnHomeTimer clock.Timer
+
+	// wakeGen changes on every bed presence event so a stale wake timer callback can tell it
+	// was superseded. wakeVetoed is true while the 30-minute fallback waits after a stage veto.
+	// Both are guarded by timerMutex.
+	wakeGen    uint64
+	wakeVetoed bool
 
 	timerMutex sync.Mutex
 
@@ -154,6 +174,13 @@ func (m *Manager) Start() error {
 		}
 	}
 
+	// Subscribe to Eight Sleep sleep stages (both sides): a stage change ends a pending stage veto
+	for _, entityID := range []string{nickSleepStageEntity, carolineSleepStageEntity} {
+		if err := m.subHelper.SubscribeToEntity(entityID, m.handleSleepStageChange); err != nil {
+			return fmt.Errorf("failed to subscribe to %s: %w", entityID, err)
+		}
+	}
+
 	// Subscribe to Nick's presence for arrival announcements
 	if err := m.subHelper.SubscribeToEntity("input_boolean.nick_home", m.handleNickHomeChange); err != nil {
 		return fmt.Errorf("failed to subscribe to input_boolean.nick_home: %w", err)
@@ -190,7 +217,7 @@ func (m *Manager) Start() error {
 		}),
 		zap.Strings("sleepDetection", []string{
 			"light.primary_suite (1min off → asleep)",
-			"Eight Sleep bed presence, both sides (5min off → awake)",
+			"Eight Sleep bed presence, both sides (5min off + stage awake/out → awake; 15min off → awake)",
 		}),
 		zap.Strings("presenceAnnouncements", []string{
 			"input_boolean.nick_home (arrival → TTS)",
@@ -348,13 +375,16 @@ func (m *Manager) handleBedPresenceChange(entityID string, oldState, newState *h
 		m.masterWakeTimer.Stop()
 		m.masterWakeTimer = nil
 	}
+	m.wakeGen++
+	m.wakeVetoed = false
 
 	if newState.State == "off" {
 		m.logger.Info("Bed presence off, starting wake detection timer",
 			zap.String("entity_id", entityID),
 			zap.Duration("delay", WakeDetectionDelay))
+		gen := m.wakeGen
 		m.masterWakeTimer = m.clock.AfterFunc(WakeDetectionDelay, func() {
-			m.detectMasterAwake()
+			m.detectMasterAwake(gen, false)
 		})
 		m.shadowTracker.UpdateWakeDetectionTimer(true)
 	} else {
@@ -365,9 +395,40 @@ func (m *Manager) handleBedPresenceChange(entityID string, oldState, newState *h
 	}
 }
 
-// detectMasterAwake runs after bed presence has been off for WakeDetectionDelay.
-func (m *Manager) detectMasterAwake() {
-	m.logger.Info("Wake detection timer expired, checking if should mark master awake")
+// handleSleepStageChange re-checks a pending stage veto. When the stage moves to awake or out
+// while both sides are still absent, the master wakes without waiting for the fallback.
+func (m *Manager) handleSleepStageChange(entityID string, oldState, newState *ha.State) {
+	if newState == nil {
+		return
+	}
+
+	m.timerMutex.Lock()
+	vetoed, gen := m.wakeVetoed, m.wakeGen
+	m.timerMutex.Unlock()
+
+	if !vetoed {
+		return
+	}
+
+	m.logger.Info("Sleep stage changed during wake veto, re-checking",
+		zap.String("entity_id", entityID),
+		zap.String("new_state", newState.State))
+	m.detectMasterAwake(gen, false)
+}
+
+// detectMasterAwake runs after bed presence has been off for WakeDetectionDelay. gen is the
+// wakeGen the caller saw; a newer presence event makes the call stale and it does nothing.
+// With skipStageCheck set (the fallback), the sleep stage is ignored.
+func (m *Manager) detectMasterAwake(gen uint64, skipStageCheck bool) {
+	m.timerMutex.Lock()
+	stale := gen != m.wakeGen
+	m.timerMutex.Unlock()
+	if stale {
+		return
+	}
+
+	m.logger.Info("Wake detection timer expired, checking if should mark master awake",
+		zap.Bool("stage_check_skipped", skipStageCheck))
 	// Re-validate trigger condition: both sides must still read "off". An unreadable or
 	// unavailable sensor counts as "not confirmed absent", so we abort. (#1017)
 	for _, entityID := range []string{nickBedPresenceEntity, carolineBedPresenceEntity} {
@@ -385,7 +446,31 @@ func (m *Manager) detectMasterAwake() {
 		}
 	}
 
+	// The pod can report "off" for several minutes while its cloud feed stalls (2026-10-25).
+	// A person who really left shows a stage of awake or out. Anything else keeps the master
+	// asleep until a stage changes or WakeFallbackDelay passes.
+	if !skipStageCheck {
+		if entityID, stage, vetoed := m.sleepStageVeto(); vetoed {
+			m.logger.Info("Sleep stage still in bed, deferring wake detection",
+				zap.String("entity_id", entityID),
+				zap.String("stage", stage),
+				zap.Duration("fallback_in", WakeFallbackDelay-WakeDetectionDelay))
+			m.armWakeFallback(gen)
+			return
+		}
+	}
+
 	m.logger.Info("Marking master as awake (no bed presence on either side)")
+
+	m.timerMutex.Lock()
+	if gen == m.wakeGen {
+		if m.masterWakeTimer != nil {
+			m.masterWakeTimer.Stop()
+			m.masterWakeTimer = nil
+		}
+		m.wakeVetoed = false
+	}
+	m.timerMutex.Unlock()
 
 	if err := m.stateManager.SetBool("isMasterAsleep", false); err != nil {
 		if errors.Is(err, state.ErrReadOnlyMode) {
@@ -394,6 +479,39 @@ func (m *Manager) detectMasterAwake() {
 			m.logger.Error("Failed to set isMasterAsleep to false", zap.Error(err))
 		}
 	}
+}
+
+// sleepStageVeto reports the first side whose sleep stage is not awake or out. An unreadable
+// or unavailable stage counts as a veto, like a presence sensor that cannot be confirmed.
+func (m *Manager) sleepStageVeto() (entityID, stage string, vetoed bool) {
+	for _, id := range []string{nickSleepStageEntity, carolineSleepStageEntity} {
+		s, err := m.haClient.GetState(id)
+		if err != nil {
+			m.logger.Warn("Failed to read sleep stage, treating as in bed",
+				zap.String("entity_id", id), zap.Error(err))
+			return id, "", true
+		}
+		if s.State != "awake" && s.State != "out" {
+			return id, s.State, true
+		}
+	}
+	return "", "", false
+}
+
+// armWakeFallback waits out the rest of WakeFallbackDelay after a stage veto, then wakes the
+// master if both sides are still absent. It does nothing if a newer presence event arrived or
+// the fallback is already pending.
+func (m *Manager) armWakeFallback(gen uint64) {
+	m.timerMutex.Lock()
+	defer m.timerMutex.Unlock()
+
+	if gen != m.wakeGen || m.wakeVetoed {
+		return
+	}
+	m.wakeVetoed = true
+	m.masterWakeTimer = m.clock.AfterFunc(WakeFallbackDelay-WakeDetectionDelay, func() {
+		m.detectMasterAwake(gen, true)
+	})
 }
 
 // handleNickHomeChange processes Nick's presence state changes for TTS announcements
