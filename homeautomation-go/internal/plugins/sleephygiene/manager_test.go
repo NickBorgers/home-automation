@@ -858,11 +858,13 @@ func TestFadeOutBedroomSpeaker_AbortedByFlag(t *testing.T) {
 		done <- true
 	}()
 
-	// Wait for the first sleep call (proves fade loop started and did 1 volume step)
+	// Wait for the first sleep call (proves fade loop started and did 1 volume step).
+	// 30s timeout: the goroutine is fast (microseconds normally) but CI runners under
+	// heavy load can take several seconds to schedule a new goroutine.
 	select {
 	case <-sleepCalled:
 		// Fade out started, unblock the sleep
-	case <-time.After(5 * time.Second):
+	case <-time.After(30 * time.Second):
 		t.Fatal("Fade out did not start")
 	}
 
@@ -876,7 +878,7 @@ func TestFadeOutBedroomSpeaker_AbortedByFlag(t *testing.T) {
 	select {
 	case <-done:
 		// Fade out aborted
-	case <-time.After(5 * time.Second):
+	case <-time.After(30 * time.Second):
 		t.Fatal("Fade out did not abort within timeout")
 	}
 
@@ -923,10 +925,12 @@ func TestFadeOutBedroomSpeaker_CancelledByWakeSequenceEnd(t *testing.T) {
 		done <- true
 	}()
 
-	// Wait for the first sleep call (proves fade loop started)
+	// Wait for the first sleep call (proves fade loop started).
+	// 30s timeout: the goroutine is fast normally but CI runners under heavy
+	// load can take several seconds to schedule a new goroutine.
 	select {
 	case <-sleepCalled:
-	case <-time.After(5 * time.Second):
+	case <-time.After(30 * time.Second):
 		t.Fatal("Fade out did not start")
 	}
 
@@ -940,7 +944,7 @@ func TestFadeOutBedroomSpeaker_CancelledByWakeSequenceEnd(t *testing.T) {
 	select {
 	case <-done:
 		// Fade out cancelled
-	case <-time.After(5 * time.Second):
+	case <-time.After(30 * time.Second):
 		t.Fatal("Fade out did not cancel within timeout")
 	}
 
@@ -1004,7 +1008,7 @@ func TestFadeOutBedroomSpeaker_VolumeSequence(t *testing.T) {
 		select {
 		case <-stepDone:
 			stepGate <- struct{}{} // Allow next step
-		case <-time.After(5 * time.Second):
+		case <-time.After(30 * time.Second):
 			t.Fatalf("Timed out waiting for volume step %d", i+1)
 		}
 	}
@@ -1012,7 +1016,7 @@ func TestFadeOutBedroomSpeaker_VolumeSequence(t *testing.T) {
 	// Wait for one more step to start, then abort
 	select {
 	case <-stepDone:
-	case <-time.After(5 * time.Second):
+	case <-time.After(30 * time.Second):
 		t.Fatal("Timed out waiting for step after desired count")
 	}
 
@@ -1023,7 +1027,7 @@ func TestFadeOutBedroomSpeaker_VolumeSequence(t *testing.T) {
 	// Wait for completion
 	select {
 	case <-done:
-	case <-time.After(5 * time.Second):
+	case <-time.After(30 * time.Second):
 		t.Fatal("Fade out did not complete after abort")
 	}
 
@@ -1081,10 +1085,12 @@ func TestBeginWake_LaunchesFadeOut(t *testing.T) {
 	// Trigger begin_wake
 	manager.handleBeginWake()
 
-	// Wait for the first sleep call (proves fade goroutine started and did 1 step)
+	// Wait for the first sleep call (proves fade goroutine started and did 1 step).
+	// 30s timeout: the goroutine is fast normally but CI runners under heavy
+	// load can take several seconds to schedule a new goroutine.
 	select {
 	case <-sleepCalled:
-	case <-time.After(5 * time.Second):
+	case <-time.After(30 * time.Second):
 		t.Fatal("Fade out goroutine did not start after begin_wake")
 	}
 
