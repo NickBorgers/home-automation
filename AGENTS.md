@@ -581,7 +581,8 @@ With `TESLA_CLIENT_ID` unset the plugin starts, records that it is unconfigured,
 - **Retries:** One retry, 500ms apart. On the Fleet API path only transport failures are retried, because a response Tesla already sent has already been billed. The token endpoint is not billed, so a 5xx there is retried too; a 4xx is not.
 - **Token storage:** Written atomically at mode 0600 — temp file, chmod, rename. A process that dies mid-write leaves the previous tokens intact.
 - **Command signing:** Cars built since 2021 reject unsigned commands. The EC key is loaded once and cached. The car must also have the virtual key paired, which is a one-time step in the Tesla phone app.
-- **Read-only by design:** The plugin issues no commands on its own. `Commander` and the reserve endpoint are only reachable by callers acting on a person's request, and `READ_ONLY=true` blocks the reserve change outright.
+- **Energy-level charging:** The plugin starts, stops, and throttles charging to follow `currentEnergyLevel` while the car is plugged in at home. It is always on when the home location is configured. A 100% charge limit set in the Tesla app is the override: the car then charges at full speed whatever the energy level. This is its only autonomous behavior. Logic is in `internal/plugins/tesla/charging.go`; behavior is in `docs/flows/TESLA_ENERGY_CHARGING.md`. Check `energyCharging.decision` in shadow state to see why it did or did not act.
+- **Otherwise read-only:** Apart from energy-level charging, the plugin issues no commands on its own. `Commander` and the reserve capability are only reachable by callers acting on a person's request. `READ_ONLY=true` blocks every command, including energy-level charging, and logs what it would have sent.
 - **Energy vs vehicle commands:** Energy commands need no signing and no virtual key. They are plain authenticated REST, and only need a token carrying `energy_cmds`.
 
 ## Testing UI Changes

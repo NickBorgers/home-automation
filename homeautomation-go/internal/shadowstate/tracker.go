@@ -2530,6 +2530,35 @@ func (tt *TeslaTracker) UpdateChargeState(batteryLevel, chargeLimitSOC, minutesT
 	tt.State().Metadata.LastUpdated = time.Now()
 }
 
+// UpdateChargeCurrent records the charging speed the car is set to and the most
+// its charger allows.
+func (tt *TeslaTracker) UpdateChargeCurrent(amps, maxAmps int) {
+	tt.Lock()
+	defer tt.Unlock()
+
+	tt.State().Outputs.ChargeAmps = amps
+	tt.State().Outputs.ChargeAmpsMax = maxAmps
+	tt.State().Metadata.LastUpdated = time.Now()
+}
+
+// UpdateAtHome records whether the car was last seen near the house.
+func (tt *TeslaTracker) UpdateAtHome(atHome bool) {
+	tt.Lock()
+	defer tt.Unlock()
+
+	tt.State().Outputs.AtHome = atHome
+	tt.State().Metadata.LastUpdated = time.Now()
+}
+
+// UpdateEnergyCharging replaces the energy-level charging record.
+func (tt *TeslaTracker) UpdateEnergyCharging(ec TeslaEnergyCharging) {
+	tt.Lock()
+	defer tt.Unlock()
+
+	tt.State().Outputs.EnergyCharging = ec
+	tt.State().Metadata.LastUpdated = time.Now()
+}
+
 // UpdateCabinState records cabin temperature and lock state.
 func (tt *TeslaTracker) UpdateCabinState(insideTemp float64, locked bool) {
 	tt.Lock()

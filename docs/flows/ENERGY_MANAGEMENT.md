@@ -200,6 +200,8 @@ When energy is abundant (white level), the load shedding plugin activates **ther
 
 See [LOAD_SHEDDING.md](./LOAD_SHEDDING.md) for thermostat control and thermal battery details.
 
+The Tesla plugin also reads `currentEnergyLevel`. It holds the car's charging at red and yellow, charges slowly at green, and charges at full speed at white. See [TESLA_ENERGY_CHARGING.md](./TESLA_ENERGY_CHARGING.md).
+
 ## State Variables
 
 ### Inputs (from Home Assistant)
