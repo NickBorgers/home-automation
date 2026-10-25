@@ -59,12 +59,29 @@ runs:
         GHCR_TOKEN: ${{ github.token }}
       run: |
         set -euo pipefail
-        printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USERNAME" --password-stdin
+        # ghcr.io sometimes times out (TLS handshake). Retry before failing.
+        for attempt in 1 2 3; do
+          if printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USERNAME" --password-stdin; then
+            exit 0
+          fi
+          echo "docker login failed (attempt $attempt/3)"
+          [ "$attempt" -lt 3 ] && sleep $((attempt * 10))
+        done
+        exit 1
 
     - name: Pull CI image
       if: inputs.pull == 'true'
       shell: bash
-      run: docker pull "${{ inputs.image }}"
+      run: |
+        # ghcr.io sometimes times out (TLS handshake). Retry before failing.
+        for attempt in 1 2 3; do
+          if docker pull "${{ inputs.image }}"; then
+            exit 0
+          fi
+          echo "docker pull failed (attempt $attempt/3)"
+          [ "$attempt" -lt 3 ] && sleep $((attempt * 10))
+        done
+        exit 1
 
     - name: Stage env + pre-script files
       id: stage-files
