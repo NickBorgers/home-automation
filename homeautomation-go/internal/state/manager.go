@@ -157,9 +157,11 @@ func (m *Manager) setEffectiveEntityID(key, entityID string) {
 func (m *Manager) SyncFromHA() error {
 	m.logger.Info("Syncing state from Home Assistant...")
 
-	// Clear all pending writes - SyncFromHA establishes HA's state as the
-	// authoritative baseline, so any prior pending writes are now obsolete.
+	// Preserve pending values for comparison before clearing them. A failed
+	// setter can roll the cache back while this sync is reading HA, but the
+	// pending value still represents the logical pre-sync cache state.
 	m.cacheMu.Lock()
+	pendingWrites := m.pendingWrites
 	m.pendingWrites = make(map[string]interface{})
 	m.cacheMu.Unlock()
 
@@ -235,6 +237,10 @@ func (m *Manager) SyncFromHA() error {
 		oldValue, hadOldValue := m.cache[variable.Key]
 		m.cache[variable.Key] = value
 		m.cacheMu.Unlock()
+		if pendingValue, hadPendingWrite := pendingWrites[variable.Key]; hadPendingWrite {
+			oldValue = pendingValue
+			hadOldValue = true
+		}
 		m.setEffectiveEntityID(variable.Key, entityID)
 		syncCount++
 

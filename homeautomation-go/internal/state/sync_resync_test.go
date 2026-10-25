@@ -136,3 +136,68 @@ func TestManager_SetString_WriteReachesHAButCallFails_ResyncNotifies(t *testing.
 	defer mu.Unlock()
 	assert.Equal(t, []string{"dusk"}, seen, "lighting must hear about dusk after the resync")
 }
+
+type blockingGetAllStatesClient struct {
+	ha.HAClient
+	started chan struct{}
+	release chan struct{}
+}
+
+func (c *blockingGetAllStatesClient) GetAllStates() ([]*ha.State, error) {
+	close(c.started)
+	<-c.release
+	return c.HAClient.GetAllStates()
+}
+
+// TestManager_SyncFromHA_PendingWriteSurvivesConcurrentRollback covers the
+// rollback-before-resync comparison race from issue #1185.
+func TestManager_SyncFromHA_PendingWriteSurvivesConcurrentRollback(t *testing.T) {
+	t.Parallel()
+	mockClient := ha.NewMockClient()
+	mockClient.SetState("input_text.day_phase", "sunset", map[string]interface{}{})
+	mockClient.Connect()
+
+	manager := NewManager(mockClient, testlogger.New(), false)
+	require.NoError(t, manager.SyncFromHA())
+
+	var mu sync.Mutex
+	var calls [][2]interface{}
+	_, err := manager.Subscribe("dayPhase", func(key string, oldValue, newValue interface{}) {
+		mu.Lock()
+		defer mu.Unlock()
+		calls = append(calls, [2]interface{}{oldValue, newValue})
+	})
+	require.NoError(t, err)
+
+	// GIVEN: A write to dusk is pending when reconnect resync begins.
+	manager.cacheMu.Lock()
+	manager.cache["dayPhase"] = "dusk"
+	manager.pendingWrites["dayPhase"] = "dusk"
+	manager.cacheMu.Unlock()
+
+	blockingClient := &blockingGetAllStatesClient{
+		HAClient: mockClient,
+		started:  make(chan struct{}),
+		release:  make(chan struct{}),
+	}
+	manager.client = blockingClient
+	syncDone := make(chan error, 1)
+	go func() {
+		syncDone <- manager.SyncFromHA()
+	}()
+	<-blockingClient.started
+
+	// WHEN: The failed setter rolls back before resync compares the cache.
+	manager.cacheMu.Lock()
+	manager.cache["dayPhase"] = "sunset"
+	delete(manager.pendingWrites, "dayPhase")
+	manager.cacheMu.Unlock()
+	close(blockingClient.release)
+	require.NoError(t, <-syncDone)
+
+	// THEN: Resync compares HA with the pending pre-sync value and notifies.
+	mu.Lock()
+	defer mu.Unlock()
+	require.Len(t, calls, 1)
+	assert.Equal(t, [2]interface{}{"dusk", "sunset"}, calls[0])
+}
