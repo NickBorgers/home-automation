@@ -107,19 +107,10 @@ func (h *SubscriptionHelper) captureInputs() {
 	}
 
 	// Capture HA entity states
-	// One get_states call serves every entity. GetState fetches all entities on each call.
-	if h.haClient != nil && len(haEntities) > 0 {
-		if states, err := h.haClient.GetAllStates(); err != nil {
-			h.logger.Warn("Failed to fetch HA states for shadow inputs", zap.Error(err))
-		} else {
-			byID := make(map[string]*ha.State, len(states))
-			for _, state := range states {
-				byID[state.EntityID] = state
-			}
-			for _, entityID := range haEntities {
-				if state := byID[entityID]; state != nil {
-					inputs[entityID] = state.State
-				}
+	if h.haClient != nil {
+		for _, entityID := range haEntities {
+			if state, err := h.haClient.GetState(entityID); err == nil && state != nil {
+				inputs[entityID] = state.State
 			}
 		}
 	}

@@ -1308,6 +1308,8 @@ func TestDeadlineExtendingConn_ExtendsOnlyWhenArmed(t *testing.T) {
 	if _, err := conn.Read(buf); err != nil {
 		t.Fatalf("read failed: %v", err)
 	}
+	// Sleep is intentional: there is nothing to poll. We need wall-clock time to pass so
+	// the original 50ms deadline expires, proving that the read above extended it.
 	time.Sleep(100 * time.Millisecond)
 	go func() { _, _ = server.Write([]byte("c")) }()
 	if _, err := conn.Read(buf); err != nil {
