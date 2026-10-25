@@ -161,7 +161,7 @@ func (m *Manager) SyncFromHA() error {
 	// setter can roll the cache back while this sync is reading HA, but the
 	// pending value still represents the logical pre-sync cache state.
 	m.cacheMu.Lock()
-	pendingWrites := m.pendingWrites
+	pendingWrites := m.pendingWrites // old map isolated by next line; no defensive clone needed
 	m.pendingWrites = make(map[string]interface{})
 	m.cacheMu.Unlock()
 
