@@ -8,7 +8,7 @@ The load shedding plugin controls thermostats, EV charger, and dehumidifier base
 1. Restrict HVAC, disable EV charger, and disable dehumidifier when battery is low (red, <15%)
 2. Return to normal schedules and re-enable EV charger and dehumidifier when energy is available (green/white)
 3. **Thermal battery**: Pre-condition the house by shifting HVAC setpoints when energy is abundant (white)
-4. Shed non-HVAC loads (EV charger, dehumidifier) at yellow while maintaining HVAC hysteresis
+4. Turn off the dehumidifier at yellow. It runs only at green/white. HVAC and the EV charger keep their hysteresis state
 
 ## Energy Level Response
 
@@ -29,7 +29,7 @@ flowchart TD
     checkLevel -->|red| enableLS
     checkLevel -->|green| greenAction["Disable load shedding<br/>+ Thermal battery: enter hysteresis if active"]
     checkLevel -->|white| thermalBattery["Disable load shedding<br/>+ Activate thermal battery"]
-    checkLevel -->|yellow| maintain["Maintain current load-shed state<br/>(hysteresis carry)<br/>Deactivate thermal battery"]
+    checkLevel -->|yellow| maintain["Turn off dehumidifier<br/>Maintain HVAC and EV charger state<br/>(hysteresis carry)<br/>Deactivate thermal battery"]
 
     style enableLS fill:#e74c3c,color:#fff
     style greenAction fill:#27ae60,color:#fff
@@ -266,12 +266,14 @@ Any in-progress stepping goroutine and any deferred-activation recheck timer are
 
 ## Yellow State — Hysteresis Carry
 
-The yellow (15-59%) energy state is the wide hysteresis band that covers normal nightly arbitrage operation. It does **not** trigger any new load-shed action — it just carries whatever load-shed state was last established by red (engage) or green (release).
+The yellow (15-59%) energy state is the wide hysteresis band that covers normal nightly arbitrage operation. It does **not** shed HVAC or the EV charger — it carries whatever state red (engage) or green (release) last set. The one exception is the dehumidifier, which runs only at green/white.
 
 **Yellow actions:**
 - Deactivate thermal battery (energy is declining, stop pre-conditioning)
-- No change to load-shed state (red's holds stay engaged; green's restored state stays)
-- No change to non-HVAC loads
+- Turn off the dehumidifier (`switch.barn_dehumidifier_power_control`)
+- No change to HVAC holds or the EV charger (red's holds stay engaged; green's restored state stays)
+
+**Dehumidifier restore:** Green and white turn the dehumidifier on when it may be off. The restore is not rate limited. After a restart the plug state is unknown, so the first green or white level turns it on. A green or white level that follows an already-restored dehumidifier sends no command, so a manual "off" is not overridden.
 
 ```mermaid
 sequenceDiagram
@@ -292,8 +294,8 @@ sequenceDiagram
 
     Battery->>EM: Battery = 25% (yellow)
     EM->>LS: currentEnergyLevel = yellow
-    LS->>LS: Load-shed state unchanged<br/>(hysteresis carry)
-    LS->>NonHVAC: Remain off<br/>(red's action persists)
+    LS->>LS: HVAC and EV charger state unchanged<br/>(hysteresis carry)
+    LS->>NonHVAC: Dehumidifier stays off<br/>EV charger stays off<br/>(red's action persists)
 
     Note over Battery: Battery recovers to 65%
 
@@ -303,7 +305,7 @@ sequenceDiagram
     LS->>NonHVAC: Turn on<br/>(restore loads)
 ```
 
-The wide yellow band (15-59%) absorbs normal arbitrage cycling without engaging load shed. HVAC and non-HVAC loads are only shed when battery actually crosses the 15% floor into red.
+The wide yellow band (15-59%) absorbs normal arbitrage cycling without engaging load shed. HVAC and the EV charger are only shed when battery actually crosses the 15% floor into red. The dehumidifier is shed at yellow and below.
 
 ## Controlled Entities
 
