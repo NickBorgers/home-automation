@@ -59,7 +59,7 @@ func clearTeslaEnv(t *testing.T) {
 func TestManagerIdleWithoutCredentials(t *testing.T) {
 	clearTeslaEnv(t)
 
-	m := NewManager(context.Background(), testlogger.New(), false)
+	m := NewManager(context.Background(), testlogger.New(), false, nil, nil, 0, 0)
 
 	assert.False(t, m.Enabled())
 	assert.Nil(t, m.Authenticator())
@@ -80,7 +80,7 @@ func TestManagerRecordsInvalidConfiguration(t *testing.T) {
 	// A client ID with nothing else is the classic half-finished setup.
 	t.Setenv("TESLA_CLIENT_ID", "client-id")
 
-	m := NewManager(context.Background(), testlogger.New(), false)
+	m := NewManager(context.Background(), testlogger.New(), false, nil, nil, 0, 0)
 
 	assert.False(t, m.Enabled())
 	assert.Contains(t, m.GetShadowState().Outputs.LastError, "TESLA_CLIENT_SECRET")
@@ -95,7 +95,7 @@ func TestManagerConfiguredButUnauthorized(t *testing.T) {
 	t.Setenv("TESLA_TOKEN_STORE", t.TempDir()+"/tokens.json")
 	t.Setenv("TESLA_VIN", "5YJ3E1EA1JF000000")
 
-	m := NewManager(context.Background(), testlogger.New(), false)
+	m := NewManager(context.Background(), testlogger.New(), false, nil, nil, 0, 0)
 
 	require.True(t, m.Enabled())
 	require.NotNil(t, m.Authenticator())
@@ -115,7 +115,7 @@ func TestManagerConfiguredButUnauthorized(t *testing.T) {
 func TestManagerStopIsIdempotent(t *testing.T) {
 	clearTeslaEnv(t)
 
-	m := NewManager(context.Background(), testlogger.New(), false)
+	m := NewManager(context.Background(), testlogger.New(), false, nil, nil, 0, 0)
 	m.Stop()
 	m.Stop()
 }
@@ -414,7 +414,7 @@ func TestSetBackupReserveRefusedWhenUnauthorized(t *testing.T) {
 
 func TestSetBackupReserveRefusedWhenUnconfigured(t *testing.T) {
 	clearTeslaEnv(t)
-	m := NewManager(context.Background(), testlogger.New(), false)
+	m := NewManager(context.Background(), testlogger.New(), false, nil, nil, 0, 0)
 
 	_, err := m.SetBackupReserve(context.Background(), 42, 60)
 

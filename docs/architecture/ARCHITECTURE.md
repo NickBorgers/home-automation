@@ -546,12 +546,19 @@ room sequencing, and per-room vacuum/mop parameters)
   and is never done on a timer
 - **Idle Without Credentials**: With no `TESLA_CLIENT_ID` the plugin starts,
   records that it is unconfigured, and does nothing else
-- **Commands On Request Only**: The plugin issues no commands by itself. Charge
-  start/stop, charge limit, wake, and flash-lights are available through the
-  Commander for callers acting on a person's request
+- **Energy-Level Charging**: While the
+  car is plugged in at home, charging follows `currentEnergyLevel` — hold at
+  red and yellow, 8 A at green, full speed at white, always charge below 50%.
+  A 100% charge limit set in the Tesla app overrides the energy level. A
+  sleeping car is woken to resume charging at most 3 times per 24 hours. See
+  [TESLA_ENERGY_CHARGING.md](../flows/TESLA_ENERGY_CHARGING.md)
+- **Other Commands On Request Only**: Apart from energy-level charging, the
+  plugin issues no commands by itself. Charge limit, wake, and flash-lights are
+  available through the Commander for callers acting on a person's request
 
-**Entities Monitored:** None. This plugin talks to Tesla directly and does not
-read or write Home Assistant state.
+**Entities Monitored:** None in Home Assistant. This plugin talks to Tesla
+directly. It reads one state variable, `currentEnergyLevel`, for energy-level
+charging.
 
 **Endpoints:** `/api/tesla/login` starts authorization, `/api/tesla/callback`
 completes it, `/api/shadow/tesla` shows what the plugin knows, and

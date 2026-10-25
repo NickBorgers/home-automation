@@ -6,6 +6,7 @@ import (
 	teslaapi "homeautomation/internal/tesla"
 	"homeautomation/pkg/plugin"
 	"homeautomation/pkg/shadowstate"
+	pkgstate "homeautomation/pkg/state"
 )
 
 func init() {
@@ -13,16 +14,19 @@ func init() {
 		Name:        "tesla",
 		Description: "Tesla Fleet API: polls vehicle and charge state, and signs vehicle commands",
 		Priority:    plugin.PriorityDefault,
-		Order:       96, // Independent: no other plugin reads anything this one produces
+		Order:       96, // No other plugin reads anything this one produces
 		Factory:     createPlugin,
 	})
 }
 
-// createPlugin builds the Tesla plugin. Unlike most plugins it needs neither
-// Home Assistant nor the state manager: it talks straight to Tesla and keeps
-// what it learns in shadow state.
+// createPlugin builds the Tesla plugin. It needs no Home Assistant: it talks
+// straight to Tesla and keeps what it learns in shadow state. It reads the
+// state manager only for currentEnergyLevel, which drives energy-level
+// charging.
 func createPlugin(ctx *plugin.Context) (plugin.Plugin, error) {
-	manager := NewManager(ctx.ShutdownCtx, ctx.Logger, ctx.ReadOnly)
+	stateManager := pkgstate.UnwrapManager(ctx.StateManager)
+	manager := NewManager(ctx.ShutdownCtx, ctx.Logger, ctx.ReadOnly, stateManager, ctx.Registry,
+		ctx.Latitude, ctx.Longitude)
 	return &pluginAdapter{manager: manager}, nil
 }
 

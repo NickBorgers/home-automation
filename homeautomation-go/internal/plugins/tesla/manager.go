@@ -1,11 +1,12 @@
 // Package tesla polls the Tesla Fleet API for vehicle state and exposes signed
 // vehicle commands to the rest of the system.
 //
-// The plugin is deliberately read-only on its own: it polls, records what it
-// sees in shadow state, and never issues a command by itself. Commands are
-// available through the Commander accessor for callers that act on a person's
-// request. Tesla bills per request against a small monthly credit, so every
-// call this plugin makes on a timer is a recurring cost.
+// The plugin polls and records what it sees in shadow state. It issues commands
+// on its own in one case only: energy-level charging (see charging.go). Other
+// commands are available
+// through the Commander accessor for callers that act on a person's request.
+// Tesla bills per request against a small monthly credit, so every call this
+// plugin makes on a timer is a recurring cost.
 package tesla
 
 import (
@@ -16,6 +17,7 @@ import (
 	"time"
 
 	"homeautomation/internal/shadowstate"
+	"homeautomation/internal/state"
 	teslaapi "homeautomation/internal/tesla"
 
 	"go.uber.org/zap"
@@ -75,6 +77,20 @@ type Manager struct {
 	// energyCommands counts Powerwall commands. The vehicle Commander keeps its
 	// own count, and the two are summed for shadow state.
 	energyCommands atomic.Int64
+
+	// Home coordinates, used to decide whether the car is at home. Both are
+	// zero when unknown.
+	homeLat, homeLon float64
+
+	// Energy-level charging. charger is nil when it is off.
+	charger      chargeCommander
+	levels       levelReader
+	subHelper    *shadowstate.SubscriptionHelper
+	now          func() time.Time
+	schedulePoll func(time.Duration)
+
+	chargeMu sync.Mutex
+	charge   chargeMemory
 }
 
 // NewManager creates a Tesla manager. When the Tesla environment variables are
@@ -83,7 +99,18 @@ type Manager struct {
 //
 // readOnly mirrors the application-wide READ_ONLY setting. When it is set the
 // manager still reads from Tesla, but refuses to send any command.
-func NewManager(ctx context.Context, logger *zap.Logger, readOnly bool) *Manager {
+//
+// stateManager supplies currentEnergyLevel for energy-level charging, and
+// homeLat and homeLon locate the house. Energy-level charging stays off when
+// either is missing.
+func NewManager(
+	ctx context.Context,
+	logger *zap.Logger,
+	readOnly bool,
+	stateManager *state.Manager,
+	registry *shadowstate.SubscriptionRegistry,
+	homeLat, homeLon float64,
+) *Manager {
 	log := logger.Named("tesla")
 
 	tracker := shadowstate.NewTeslaTracker()
@@ -116,8 +143,26 @@ func NewManager(ctx context.Context, logger *zap.Logger, readOnly bool) *Manager
 		energy:        client,
 		commander:     teslaapi.NewCommander(auth, cfg.PrivateKeyPath),
 		shadowTracker: tracker,
+		homeLat:       homeLat,
+		homeLon:       homeLon,
 	}
 	tracker.UpdateAvailability(true, auth.Authorized(), cfg.VIN)
+
+	switch {
+	case stateManager == nil:
+		log.Error("Energy-level charging needs the state manager, leaving it off")
+	case homeLat == 0 && homeLon == 0:
+		log.Error("Energy-level charging needs the home location, leaving it off")
+	default:
+		m.charger = m.commander
+		m.levels = stateManager
+		m.subHelper = shadowstate.NewSubscriptionHelper(nil, stateManager, registry, tracker, "tesla", log)
+		tracker.UpdateEnergyCharging(shadowstate.TeslaEnergyCharging{
+			Enabled:  true,
+			Decision: "waiting for the first poll",
+		})
+		log.Info("Energy-level charging is on")
+	}
 	return m
 }
 
@@ -233,7 +278,15 @@ func (m *Manager) Start() error {
 		zap.String("vin", m.cfg.VIN),
 		zap.Duration("pollInterval", m.cfg.PollInterval),
 		zap.Bool("authorized", m.authorized.Authorized()),
+		zap.Bool("energyCharging", m.charger != nil),
 	)
+
+	if m.subHelper != nil {
+		if err := m.subHelper.SubscribeToState("currentEnergyLevel", m.handleEnergyLevelChange); err != nil {
+			return fmt.Errorf("subscribe to currentEnergyLevel: %w", err)
+		}
+		m.subHelper.CaptureInitialInputs()
+	}
 
 	m.mu.Lock()
 	m.stopPoll = make(chan struct{})
@@ -251,6 +304,9 @@ func (m *Manager) Stop() {
 
 	if m.stopped || m.stopPoll == nil {
 		return
+	}
+	if m.subHelper != nil {
+		m.subHelper.UnsubscribeAll()
 	}
 	close(m.stopPoll)
 	m.stopped = true
@@ -330,6 +386,7 @@ func (m *Manager) Poll() {
 		// extra, so stop here and keep the last known values.
 		m.shadowTracker.UpdateLastError("")
 		m.logger.Debug("Tesla vehicle is not online, skipping data read", zap.String("state", vehicle.State))
+		m.maybeWakeToCharge(ctx, vehicle.VIN, vehicle.State)
 		return
 	}
 
@@ -348,8 +405,23 @@ func (m *Manager) Poll() {
 		data.ChargeState.ChargingState,
 		data.ChargeState.Plugged(),
 	)
+	m.shadowTracker.UpdateChargeCurrent(data.ChargeState.ChargeCurrentRequest, data.ChargeState.ChargeCurrentRequestMax)
 	m.shadowTracker.UpdateCabinState(data.ClimateState.InsideTemp, data.VehicleState.Locked)
 	m.shadowTracker.UpdateLastError("")
+
+	hasLocation := data.DriveState.HasLocation()
+	atHome := hasLocation && (m.homeLat != 0 || m.homeLon != 0) &&
+		distanceMeters(m.homeLat, m.homeLon, data.DriveState.Latitude, data.DriveState.Longitude) <= homeRadiusMeters
+	m.shadowTracker.UpdateAtHome(atHome)
+
+	m.controlCharging(ctx, vehicle.VIN, atHome, hasLocation, chargeSnapshot{
+		plugged:       data.ChargeState.Plugged(),
+		chargingState: data.ChargeState.ChargingState,
+		battery:       data.ChargeState.BatteryLevel,
+		limit:         data.ChargeState.ChargeLimitSOC,
+		amps:          data.ChargeState.ChargeCurrentRequest,
+		maxAmps:       data.ChargeState.ChargeCurrentRequestMax,
+	})
 
 	m.logger.Info("Tesla state updated",
 		zap.String("vin", vehicle.VIN),

@@ -31,6 +31,11 @@ type ChargeState struct {
 	MinutesToFullCharge int     `json:"minutes_to_full_charge"`
 	ChargerPower        float64 `json:"charger_power"`
 	BatteryRange        float64 `json:"battery_range"`
+
+	// ChargeCurrentRequest is the charging speed the car is set to, in amps.
+	// ChargeCurrentRequestMax is the most the connected charger allows.
+	ChargeCurrentRequest    int `json:"charge_current_request"`
+	ChargeCurrentRequestMax int `json:"charge_current_request_max"`
 }
 
 // Plugged reports whether a cable is connected. Tesla reports "Disconnected"
@@ -52,6 +57,17 @@ type VehicleState struct {
 	Odometer float64 `json:"odometer"`
 }
 
+// DriveState is the subset of Tesla's drive_state that is useful here. Tesla
+// fills in the coordinates only when the location_data endpoint is requested
+// and the token carries the vehicle_location scope. Otherwise both are zero.
+type DriveState struct {
+	Latitude  float64 `json:"latitude"`
+	Longitude float64 `json:"longitude"`
+}
+
+// HasLocation reports whether Tesla returned coordinates.
+func (d DriveState) HasLocation() bool { return d.Latitude != 0 || d.Longitude != 0 }
+
 // VehicleData is one vehicle_data response.
 type VehicleData struct {
 	VIN          string       `json:"vin"`
@@ -59,6 +75,7 @@ type VehicleData struct {
 	ChargeState  ChargeState  `json:"charge_state"`
 	ClimateState ClimateState `json:"climate_state"`
 	VehicleState VehicleState `json:"vehicle_state"`
+	DriveState   DriveState   `json:"drive_state"`
 }
 
 // Client reads vehicle data from the Fleet API.
@@ -98,9 +115,13 @@ func (c *Client) Vehicles(ctx context.Context) ([]VehicleSummary, error) {
 // VehicleData fetches live data for one vehicle. It fails when the car is
 // asleep; Tesla answers 408 rather than waking it, which is the behaviour we
 // want — waking a car is a separate, billable action.
+//
+// Location rides along in the same request, so knowing whether the car is at
+// home costs nothing extra.
 func (c *Client) VehicleData(ctx context.Context, vin string) (*VehicleData, error) {
 	endpoint := fmt.Sprintf(
-		"api/1/vehicles/%s/vehicle_data?endpoints=charge_state%%3Bclimate_state%%3Bvehicle_state",
+		"api/1/vehicles/%s/vehicle_data?endpoints="+
+			"charge_state%%3Bclimate_state%%3Bdrive_state%%3Blocation_data%%3Bvehicle_state",
 		vin,
 	)
 	body, err := c.get(ctx, endpoint)

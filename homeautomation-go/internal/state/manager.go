@@ -157,9 +157,11 @@ func (m *Manager) setEffectiveEntityID(key, entityID string) {
 func (m *Manager) SyncFromHA() error {
 	m.logger.Info("Syncing state from Home Assistant...")
 
-	// Clear all pending writes - SyncFromHA establishes HA's state as the
-	// authoritative baseline, so any prior pending writes are now obsolete.
+	// Preserve pending values for comparison before clearing them. A failed
+	// setter can roll the cache back while this sync is reading HA, but the
+	// pending value still represents the logical pre-sync cache state.
 	m.cacheMu.Lock()
+	pendingWrites := m.pendingWrites // old map isolated by next line; no defensive clone needed
 	m.pendingWrites = make(map[string]interface{})
 	m.cacheMu.Unlock()
 
@@ -175,6 +177,12 @@ func (m *Manager) SyncFromHA() error {
 	}
 
 	// Sync each variable
+	type missedChange struct {
+		key      string
+		oldValue interface{}
+		newValue interface{}
+	}
+	var missed []missedChange
 	syncCount := 0
 	localCount := 0
 	for _, variable := range AllVariables {
@@ -226,10 +234,21 @@ func (m *Manager) SyncFromHA() error {
 		}
 
 		m.cacheMu.Lock()
+		oldValue, hadOldValue := m.cache[variable.Key]
 		m.cache[variable.Key] = value
 		m.cacheMu.Unlock()
+		if pendingValue, hadPendingWrite := pendingWrites[variable.Key]; hadPendingWrite {
+			oldValue = pendingValue
+			hadOldValue = true
+		}
 		m.setEffectiveEntityID(variable.Key, entityID)
 		syncCount++
+
+		// A value that differs from the cache changed while events were not reaching us.
+		// The first sync has no earlier value, so it stays silent.
+		if hadOldValue && !reflect.DeepEqual(oldValue, value) {
+			missed = append(missed, missedChange{key: variable.Key, oldValue: oldValue, newValue: value})
+		}
 
 		// Subscribe to state changes
 		if err := m.subscribeToEntity(entityID, variable.Key); err != nil {
@@ -243,6 +262,15 @@ func (m *Manager) SyncFromHA() error {
 		zap.Int("synced", syncCount),
 		zap.Int("local_only", localCount),
 		zap.Int("total", len(AllVariables)))
+
+	// Tell subscribers only after the whole cache is current, so handlers read consistent state.
+	for _, change := range missed {
+		m.logger.Info("State changed while disconnected, notifying subscribers",
+			zap.String("key", change.key),
+			zap.Any("old", change.oldValue),
+			zap.Any("new", change.newValue))
+		m.notifySubscribers(change.key, change.oldValue, change.newValue)
+	}
 
 	return nil
 }

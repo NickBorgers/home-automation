@@ -20,7 +20,7 @@ new_world() {   # $1 = expiry offset in seconds, or "none" for no login
       "$ACCESS" "$REFRESH" "$(( ($(date +%s) + $1) * 1000 ))" >"$TMP/home/.claude/.credentials.json"
   fi
 }
-run_init() { HOME="$TMP/home" PATH="$PATH" bash "$TMP/dc/init-host-credentials.sh" 2>&1; }
+run_init() { HOME="$TMP/home" XDG_CONFIG_HOME="$TMP/home/.config" PATH="$PATH" bash "$TMP/dc/init-host-credentials.sh" 2>&1; }
 token_file="$TMP/dc/.claude-oauth-token"
 
 # 1. Valid login: access token only, mode 600, no refresh token anywhere.
@@ -57,6 +57,11 @@ echo "fake-long-lived-LLLL" >"$TMP/home/.config/claude-devcontainer/oauth-token"
 run_init >/dev/null
 [ "$(cat "$token_file")" = "fake-long-lived-LLLL" ] || fail "long-lived token should work with expired login"
 
+# 3c. Long-lived token from the environment has whitespace stripped.
+new_world 3600
+CLAUDE_DEVCONTAINER_OAUTH_TOKEN=$' \n fake-env-long-lived-EEEE\t ' run_init >/dev/null
+[ "$(cat "$token_file")" = "fake-env-long-lived-EEEE" ] || fail "environment token should have whitespace stripped"
+
 # 4. Wiring twice exports once; login and interactive shells see the token.
 new_world 3600; run_init >/dev/null
 for _ in 1 2; do HOME="$TMP/home" bash "$TMP/dc/wire-claude-token.sh" "$token_file" >/dev/null 2>&1; done
@@ -67,4 +72,4 @@ for rc in .profile .bashrc; do
   got="$(HOME="$TMP/home" bash -c ". '$TMP/home/$rc'; printf %s \"\$CLAUDE_CODE_OAUTH_TOKEN\"")"
   [ "$got" = "$ACCESS" ] || fail "$rc should export the access token"
 done
-echo "OK: container receives the access token only"
+echo "OK: all token cases passed"

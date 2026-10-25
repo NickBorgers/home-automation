@@ -1221,4 +1221,25 @@ type TeslaOutputs struct {
 	// RequestCount and CommandCount exist because Tesla bills per request.
 	RequestCount int64 `json:"requestCount"`
 	CommandCount int64 `json:"commandCount"`
+
+	// AtHome is true when the last location Tesla reported is near the house.
+	AtHome bool `json:"atHome"`
+	// ChargeAmps is the charging speed the car is set to. ChargeAmpsMax is the
+	// most the connected charger allows.
+	ChargeAmps    int `json:"chargeAmps"`
+	ChargeAmpsMax int `json:"chargeAmpsMax"`
+
+	EnergyCharging TeslaEnergyCharging `json:"energyCharging"`
+}
+
+// TeslaEnergyCharging records what the energy-level charging control decided,
+// and why. Decision is written on every evaluation. LastAction is written only
+// when a command was sent, or would have been in read-only mode.
+type TeslaEnergyCharging struct {
+	Enabled      bool      `json:"enabled"`
+	EnergyLevel  string    `json:"energyLevel,omitempty"`
+	Decision     string    `json:"decision,omitempty"`
+	LastAction   string    `json:"lastAction,omitempty"`
+	LastActionAt time.Time `json:"lastActionAt,omitempty"`
+	WakesLast24h int       `json:"wakesLast24h"`
 }

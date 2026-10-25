@@ -57,7 +57,7 @@ except Exception:
 }
 
 long_lived_file="${XDG_CONFIG_HOME:-$HOME/.config}/claude-devcontainer/oauth-token"
-long_lived="${CLAUDE_DEVCONTAINER_OAUTH_TOKEN:-}"
+long_lived="$(printf '%s' "${CLAUDE_DEVCONTAINER_OAUTH_TOKEN:-}" | tr -d '[:space:]')"
 if [ -z "$long_lived" ] && [ -s "$long_lived_file" ]; then
     long_lived="$(tr -d '[:space:]' < "$long_lived_file")"
 fi

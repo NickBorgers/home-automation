@@ -1182,8 +1182,13 @@ type Manager struct {
 **Key Details**:
 - `pendingWrites` is protected by `cacheMu` (same lock as cache) for atomicity
 - Only record pending writes when there's an active HA subscription (`hasActiveHASub`)
-- `SyncFromHA` clears all pending writes (authoritative baseline reset)
+- `SyncFromHA` snapshots pending writes before clearing them. The snapshot remains the pre-sync value if
+  a failed setter concurrently rolls the cache back before HA values are compared.
 - Rapid writes update the pending value to the latest (last write wins)
+- `SyncFromHA` notifies subscribers of values that differ from the cache. A write can reach HA while the
+  call still fails (connection drops before the reply). The rollback then hides the change, and HA's
+  event never arrives. Without this notification, plugins such as lighting never hear about the change.
+  The first sync is silent because the cache is empty.
 
 **Where Applied**:
 - `internal/state/manager.go` - All Set* methods and subscription callback
@@ -1198,6 +1203,10 @@ type Manager struct {
 - `TestManager_EchoBackSuppression_HAFailureRollback` - Failure clears pending
 - `TestManager_SetString_NoPendingWriteWithoutSub` - No pending without subscription
 - `TestManager_SyncFromHA_ClearsPendingWrites` - SyncFromHA resets pending state
+- `TestManager_SetString_WriteReachesHAButCallFails_ResyncNotifies` - Missed change reaches subscribers after resync
+- `TestManager_SyncFromHA_NotifiesSubscribersOfMissedChanges` - Only changed values notify
+- `TestManager_SyncFromHA_FirstSyncDoesNotNotify` - Startup sync stays silent
+- `TestManager_SyncFromHA_PendingWriteSurvivesConcurrentRollback` - Resync retains the pre-rollback comparison value
 
 ---
 
@@ -1677,6 +1686,8 @@ func (m *Manager) handleSexModeOn() {
 ### 2026-10-25
 - **Added Lesson 25**: A Local State Cache Is Only Valid While Subscribed and Seeded
   - `GetState` served from an event-maintained cache instead of a full `get_states` per call
+- **Updated Lesson 15**: Snapshot pending writes before reconnect resync clears them
+  - Prevents a concurrent failed-write rollback from hiding the transition to HA's authoritative value (Issue #1185)
 
 ### 2026-10-22
 - **Added Lesson 23**: Claim Guard State Before Releasing the Lock
