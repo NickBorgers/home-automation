@@ -384,11 +384,11 @@ defer stateTrackingManager.Stop()  // Stops first (registered first)
 
 ### Tesla Fleet API Plugin (`tesla`)
 
-**Purpose:** Polls the Tesla Fleet API for vehicle and charge state, holds OAuth tokens, signs vehicle commands on request, and sets the backup reserve on the Powerwall systems. The plugin never issues commands autonomously.
+**Purpose:** Polls the Tesla Fleet API for vehicle and charge state, holds OAuth tokens, signs vehicle commands on request, and sets the backup reserve on the Powerwall systems. Its one autonomous behavior is energy-level charging: while the car is plugged in at home, charging follows `currentEnergyLevel`. See [TESLA_ENERGY_CHARGING.md](../flows/TESLA_ENERGY_CHARGING.md).
 
 Setting the backup reserve is the one Powerwall operation with no local path: the gateway API on the house LAN only reads, so the command has to go through Tesla's cloud. Powerwall telemetry is the opposite and is deliberately absent here — the gateways are free and higher resolution, so nothing in this plugin polls Tesla for energy data.
 
-**State Variables Managed:** None. Reads from and writes to Tesla directly; does not read or write Home Assistant state.
+**State Variables Managed:** None. Reads `currentEnergyLevel` for energy-level charging. Otherwise talks to Tesla directly and does not read or write Home Assistant state.
 
 **HA Entities Subscribed:** None.
 

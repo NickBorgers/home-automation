@@ -84,6 +84,17 @@ func (c *Commander) SetChargeLimit(ctx context.Context, vin string, percent int3
 	})
 }
 
+// SetChargingAmps sets the charging speed in amps. The car clamps the value to
+// what the connected charger allows.
+func (c *Commander) SetChargingAmps(ctx context.Context, vin string, amps int32) error {
+	if amps < 1 || amps > 80 {
+		return fmt.Errorf("charging current %dA is outside the supported 1-80A range", amps)
+	}
+	return c.withVehicle(ctx, vin, true, func(car *vehicle.Vehicle) error {
+		return car.SetChargingAmps(ctx, amps)
+	})
+}
+
 // FlashLights flashes the headlights. It is the cheapest way to prove that
 // command signing and virtual key pairing both work.
 func (c *Commander) FlashLights(ctx context.Context, vin string) error {

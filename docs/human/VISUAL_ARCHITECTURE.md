@@ -184,6 +184,7 @@ graph TB
     IntegrationWatchdog -.->|Register Shadow| ShadowTracker
 
     Tesla -->|Poll Fleet API / Signed Vehicle Commands<br/>Powerwall Backup Reserve| TeslaCloud[Tesla Fleet API<br/>outbound HTTPS only]
+    Tesla -->|Subscribe currentEnergyLevel| StateManager
     Tesla -.->|Register Shadow| ShadowTracker
 
     HA -->|Control| Sonos
@@ -971,6 +972,7 @@ graph LR
         VacuumPlugin[Casper Vacuum Plugin<br/>Order: 60]
         InfrastructurePlugin[Infrastructure Plugin]
         ResetCoord[Reset Coordinator<br/>Order: 90]
+        TeslaPlugin[Tesla Plugin<br/>Order: 96]
     end
 
     subgraph "HA Entities (Sensors)"
@@ -1071,6 +1073,9 @@ graph LR
     AnyoneHome --> LoadShedding
     EveryoneAsleep --> LoadShedding
     RemainingSolar --> LoadShedding
+
+    CurrentEnergy --> TeslaPlugin
+    TeslaPlugin -.->|Charge start/stop/amps| TeslaCar[Tesla vehicle]
 
     DayPhase --> ChristmasPlugin
     AnyoneHome --> ChristmasPlugin

@@ -23,6 +23,7 @@ As the system migrates from Node-RED to Golang, we lose the inherent visual repr
 | [SECURITY.md](./SECURITY.md) | security | Lockdown, garage, doorbell notifications |
 | [ENERGY_MANAGEMENT.md](./ENERGY_MANAGEMENT.md) | energy | Battery/solar monitoring, indicator lights |
 | [LOAD_SHEDDING.md](./LOAD_SHEDDING.md) | loadshedding | HVAC control based on energy levels |
+| [TESLA_ENERGY_CHARGING.md](./TESLA_ENERGY_CHARGING.md) | tesla | Car charging based on energy levels |
 
 ### Reference
 
