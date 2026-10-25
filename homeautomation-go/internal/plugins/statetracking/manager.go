@@ -93,7 +93,7 @@ type Manager struct {
 	ownerReturnHomeTimer clock.Timer
 
 	// wakeGen changes on every bed presence event so a stale wake timer callback can tell it
-	// was superseded. wakeVetoed is true while the 30-minute fallback waits after a stage veto.
+	// was superseded. wakeVetoed is true while the 15-minute fallback waits after a stage veto.
 	// Both are guarded by timerMutex.
 	wakeGen    uint64
 	wakeVetoed bool
