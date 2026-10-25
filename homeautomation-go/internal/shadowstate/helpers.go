@@ -39,9 +39,18 @@ func (h *InputCaptureHelper) CaptureInputs(pluginName string) map[string]interfa
 	inputs := make(map[string]interface{})
 
 	// Capture all HA entity subscriptions
-	for _, entityID := range h.registry.GetHASubscriptions(pluginName) {
-		if state, err := h.haClient.GetState(entityID); err == nil && state != nil {
-			inputs[entityID] = state.State
+	// One get_states call serves every entity. GetState fetches all entities on each call.
+	if entityIDs := h.registry.GetHASubscriptions(pluginName); len(entityIDs) > 0 {
+		if states, err := h.haClient.GetAllStates(); err == nil {
+			byID := make(map[string]*ha.State, len(states))
+			for _, state := range states {
+				byID[state.EntityID] = state
+			}
+			for _, entityID := range entityIDs {
+				if state := byID[entityID]; state != nil {
+					inputs[entityID] = state.State
+				}
+			}
 		}
 	}
 

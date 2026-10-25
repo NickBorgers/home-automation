@@ -226,6 +226,7 @@ type entityEventJob struct {
 //  7. entityDispatchMu - per-entity event queues
 //  8. nextSubIDMu - subscription ID counter
 //  9. healthMu - health tracking (acquired last, never held while acquiring others)
+//  10. stateCache.mu - leaf lock; may be taken under connMu, never held across I/O
 //
 // Note: msgIDMu has been eliminated; msgID is now protected by writeMu to ensure
 // message IDs are allocated and sent atomically, preventing out-of-order sends.
@@ -293,6 +294,10 @@ type Client struct {
 	// eventProcessed is signaled after each state_changed event's handlers
 	// complete, allowing WaitForHandlers to wake up without polling.
 	eventProcessed chan struct{}
+
+	// stateCache serves GetState from memory while it is valid. Its zero value
+	// is a disconnected cache. See state_cache.go for the invalidation rules.
+	stateCache stateCache
 }
 
 func (c *Client) clearSubscribers() {
@@ -367,6 +372,7 @@ func (c *Client) Connect() error {
 	// because Go's net.Dialer.KeepAlive only sets the interval but NOT the idle time
 	// before the first probe (TCP_KEEPIDLE defaults to 2 hours on Linux).
 	// See: https://github.com/golang/go/issues/62254
+	var dialedConn *deadlineExtendingConn
 	dialer := websocket.Dialer{
 		NetDialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
 			d := net.Dialer{}
@@ -383,7 +389,10 @@ func (c *Client) Connect() error {
 				// than fail completely
 			}
 
-			return conn, nil
+			// Wrap after the keepalive call, which needs the raw *net.TCPConn.
+			wrapped := &deadlineExtendingConn{Conn: conn, idle: pongWait}
+			dialedConn = wrapped
+			return wrapped, nil
 		},
 		HandshakeTimeout: 45 * time.Second,
 	}
@@ -391,6 +400,11 @@ func (c *Client) Connect() error {
 	if err != nil {
 		c.connMu.Unlock()
 		return fmt.Errorf("failed to connect to WebSocket: %w", err)
+	}
+
+	// Arm only after the handshake, so it keeps its own HandshakeTimeout deadline.
+	if dialedConn != nil {
+		dialedConn.armed.Store(true)
 	}
 
 	// Wrap connection with lifecycle management
@@ -456,6 +470,9 @@ func (c *Client) Connect() error {
 	c.resetContext()
 	c.connected = true
 	c.reconnect = true
+	// Fence the cache to this connection before any of its events are read. The
+	// subscription below can only make the cache seedable within this epoch.
+	cacheEpoch, _, _ := c.stateCache.invalidate(cacheDisconnected)
 	c.logger.Info("Connected to Home Assistant")
 
 	// Set up keepalive with application-level pings
@@ -482,7 +499,10 @@ func (c *Client) Connect() error {
 
 	// Subscribe to state_changed events
 	if err := c.subscribeToStateChanges(); err != nil {
-		c.logger.Warn("Failed to subscribe to state changes", zap.Error(err))
+		c.logger.Warn("Failed to subscribe to state changes; state cache disabled for this connection",
+			zap.Error(err))
+	} else if c.stateCache.markSubscribed(cacheEpoch) {
+		c.logger.Debug("State cache ready to seed on first GetState")
 	}
 
 	return nil
@@ -517,6 +537,7 @@ func (c *Client) Disconnect() error {
 	c.ctxMu.Unlock()
 
 	c.connected = false
+	c.invalidateStateCache("client disconnect")
 
 	if c.conn != nil {
 		// Send close message (protected by writeMu)
@@ -920,8 +941,18 @@ func (c *Client) handleEvent(msg *Message) {
 	var eventData StateChangedEvent
 	if err := json.Unmarshal(msg.Event.Data, &eventData); err != nil {
 		c.logger.Error("Failed to unmarshal state_changed event", zap.Error(err))
+		// The cache may now be missing this change, so stop trusting it.
+		if prev, changed := c.stateCache.markUnseeded(); changed {
+			c.logger.Warn("State cache invalidated",
+				zap.String("reason", "undecodable state_changed event"),
+				zap.String("previous_status", prev.String()))
+		}
 		return
 	}
+
+	// Update the cache for every event, before subscribers are queued, so a
+	// handler that calls GetState for this entity sees the new value.
+	c.stateCache.applyEvent(eventData.EntityID, eventData.NewState)
 
 	// Notify subscribers
 	c.subsMu.RLock()
@@ -935,6 +966,9 @@ func (c *Client) handleEvent(msg *Message) {
 	if len(entries) == 0 {
 		return
 	}
+
+	// The cache now holds eventData.NewState, so handlers get their own copy.
+	newState := cloneState(eventData.NewState)
 
 	for range entries {
 		c.handlerCount.Add(1)
@@ -955,7 +989,7 @@ func (c *Client) handleEvent(msg *Message) {
 	case queue <- entityEventJob{
 		entityID: eventData.EntityID,
 		oldState: eventData.OldState,
-		newState: eventData.NewState,
+		newState: newState,
 		entries:  entries,
 	}:
 	default:
@@ -972,6 +1006,9 @@ func (c *Client) handleDisconnect() {
 	c.connMu.Lock()
 	wasConnected := c.connected
 	c.connected = false
+	// Invalidate before attemptReconnect is started below, so no reconnect can
+	// complete while the cache still claims to be valid.
+	c.invalidateStateCache("connection lost")
 
 	// Cancel ping goroutine to prevent it from using the closing connection
 	if c.pingCancel != nil {
@@ -1140,24 +1177,110 @@ func (c *Client) subscribeToStateChanges() error {
 	return err
 }
 
-// GetState retrieves the state of an entity
+// GetState retrieves the state of an entity.
+//
+// While the state cache is valid the answer comes from memory with no round
+// trip. Otherwise the first caller seeds the cache with a get_states request,
+// concurrent callers wait for that seed, and if the cache still is not valid
+// they fall back to a live get_states as before. The returned State is a copy
+// the caller may modify.
 func (c *Client) GetState(entityID string) (*State, error) {
-	states, err := c.GetAllStates()
+	if state, ok, err := c.getCachedState(entityID); ok {
+		return state, err
+	}
+
+	epoch, done, owner := c.stateCache.beginSeed()
+	if owner {
+		start := time.Now()
+		states, err := c.fetchAllStates()
+		applied, merged := c.stateCache.finishSeed(epoch, done, states, err)
+		switch {
+		case applied:
+			c.logger.Info("State cache seeded",
+				zap.Int("entities", len(states)),
+				zap.Int("events_during_seed", merged),
+				zap.Duration("duration", time.Since(start)))
+			if state, ok, err := c.getCachedState(entityID); ok {
+				return state, err
+			}
+		case err != nil:
+			c.logger.Warn("State cache seed failed; will retry on next GetState", zap.Error(err))
+		}
+		c.stateCache.fallbacks.Add(1)
+		if err != nil {
+			return nil, err
+		}
+		return findState(states, entityID)
+	}
+
+	if done != nil {
+		// Another caller is seeding. Its request is bounded by sendMessage's
+		// timeout and finishSeed always closes done.
+		<-done
+		if state, ok, err := c.getCachedState(entityID); ok {
+			return state, err
+		}
+	}
+
+	c.stateCache.fallbacks.Add(1)
+	states, err := c.fetchAllStates()
 	if err != nil {
 		return nil, err
 	}
+	return findState(states, entityID)
+}
 
+// getCachedState answers from the state cache. ok is false when the cache is
+// not valid and the caller must fetch live instead.
+func (c *Client) getCachedState(entityID string) (*State, bool, error) {
+	state, exists, ok := c.stateCache.lookup(entityID)
+	if !ok {
+		return nil, false, nil
+	}
+	c.stateCache.hits.Add(1)
+	if !exists {
+		return nil, true, fmt.Errorf("entity %s not found", entityID)
+	}
+	return state, true, nil
+}
+
+// findState returns the state for entityID from a get_states result.
+func findState(states []*State, entityID string) (*State, error) {
 	for _, state := range states {
 		if state.EntityID == entityID {
 			return state, nil
 		}
 	}
-
 	return nil, fmt.Errorf("entity %s not found", entityID)
 }
 
-// GetAllStates retrieves all entity states
+// invalidateStateCache marks the cache disconnected and logs if it held data.
+func (c *Client) invalidateStateCache(reason string) {
+	_, prev, dropped := c.stateCache.invalidate(cacheDisconnected)
+	if prev == cacheValid || prev == cacheWarming {
+		c.logger.Info("State cache invalidated",
+			zap.String("reason", reason),
+			zap.String("previous_status", prev.String()),
+			zap.Int("entities_dropped", dropped))
+	}
+}
+
+// StateCacheStats returns the state cache's status and hit/fallback counters.
+func (c *Client) StateCacheStats() StateCacheStats {
+	return c.stateCache.stats()
+}
+
+// GetAllStates retrieves all entity states with a live get_states request.
+//
+// It deliberately does not use the state cache. Callers such as
+// state.Manager.SyncFromHA run it after a reconnect to resynchronize, possibly
+// before the cache is re-seeded, and expect a fresh view of HA.
 func (c *Client) GetAllStates() ([]*State, error) {
+	return c.fetchAllStates()
+}
+
+// fetchAllStates sends get_states and decodes the result.
+func (c *Client) fetchAllStates() ([]*State, error) {
 	req := &GetStatesRequest{
 		Type: "get_states",
 	}
@@ -1592,4 +1715,21 @@ func (c *Client) reloadConfigEntryREST(ctx context.Context, entryID string) erro
 	}
 
 	return nil
+}
+
+// deadlineExtendingConn pushes the read deadline forward each time bytes arrive.
+// ReadJSON sets one deadline per message, so a large message that arrives slowly
+// would otherwise expire it while data is still flowing.
+type deadlineExtendingConn struct {
+	net.Conn
+	idle  time.Duration
+	armed atomic.Bool
+}
+
+func (c *deadlineExtendingConn) Read(b []byte) (int, error) {
+	n, err := c.Conn.Read(b)
+	if n > 0 && c.armed.Load() {
+		_ = c.Conn.SetReadDeadline(time.Now().Add(c.idle))
+	}
+	return n, err
 }
