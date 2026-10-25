@@ -256,11 +256,13 @@ func analyzeFile(filename, pluginName string) (PluginAnalysis, error) {
 func isStateManagerCall(sel *ast.SelectorExpr) bool {
 	// Look for patterns like:
 	// - m.stateManager.Method()
+	// - m.levels.GetString() -> levelReader interface
 	// - m.subHelper.SubscribeToState() -> treat as Subscribe
 
 	if innerSel, ok := sel.X.(*ast.SelectorExpr); ok {
 		fieldName := innerSel.Sel.Name
-		return fieldName == "stateManager" || fieldName == "subHelper"
+		// "levels" is Tesla-only: wraps the levelReader interface in charging.go
+		return fieldName == "stateManager" || fieldName == "levels" || fieldName == "subHelper"
 	}
 	return false
 }
