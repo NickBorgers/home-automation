@@ -985,6 +985,8 @@ graph LR
         EVChargerSensors[binary_sensor.leaf_charger_*<br/>sensor.leaf_charger_*<br/>switch.leaf_charger]
         VacuumErrorSensor[sensor.valetudo_*_error]
         SepticAlarmSensor[event.septic_alarm_going_off]
+        EightSleepPresence[binary_sensor.*_eight_sleep_side_bed_presence]
+        EightSleepStage[sensor.*_eight_sleep_side_sleep_stage]
     end
 
     NickHome --> StateTracking
@@ -996,6 +998,8 @@ graph LR
     HaveGuests --> StateTracking
     NickNearHome --> StateTracking
     CarolineNearHome --> StateTracking
+    EightSleepPresence --> StateTracking
+    EightSleepStage --> StateTracking
 
     StateTracking --> AnyOwnerHome
     StateTracking --> AnyoneHome
