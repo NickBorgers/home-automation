@@ -314,7 +314,7 @@ The wide yellow band (15-59%) absorbs normal arbitrage cycling without engaging 
 | `climate.most_of_house_thermostat` | Thermostat | Main zone climate control |
 | `climate.primary_suite_thermostat` | Thermostat | Primary suite climate control |
 | `switch.leaf_charger` | EV Charger | Nissan Leaf charger plug |
-| `switch.dehumidifier_power_control` | Dehumidifier | Whole-house dehumidifier |
+| `switch.barn_dehumidifier_power_control` | Dehumidifier | Barn dehumidifier (Shelly Plug US Gen4, WiFi) |
 
 ## Temperature Range
 

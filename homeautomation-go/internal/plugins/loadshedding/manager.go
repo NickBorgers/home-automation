@@ -34,7 +34,7 @@ const (
 	evChargerSwitch = "switch.leaf_charger"
 
 	// Dehumidifier entity
-	dehumidifierSwitch = "switch.dehumidifier_power_control"
+	dehumidifierSwitch = "switch.barn_dehumidifier_power_control"
 
 	// Temperature ranges
 	tempLowRestricted  = 65.0
