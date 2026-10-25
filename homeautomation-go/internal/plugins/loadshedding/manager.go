@@ -400,6 +400,9 @@ func (m *Manager) shedDehumidifier(energyLevel string) {
 	if m.readOnly {
 		m.logger.Info("READ-ONLY: Would turn off dehumidifier",
 			zap.String("dehumidifier_entity", dehumidifierSwitch))
+		m.stateMu.Lock()
+		m.dehumidifierOff = true
+		m.stateMu.Unlock()
 		return
 	}
 
@@ -560,6 +563,9 @@ func (m *Manager) executeEnableLoadShedding(energyLevel string, trigger string) 
 		// Record shadow state even in read-only mode for consistency
 		reason := fmt.Sprintf("Energy state is %s (low battery) - would restrict HVAC, disable EV charger, and disable dehumidifier", energyLevel)
 		m.recordAction(true, "enable", reason, true, tempLowRestricted, tempHighRestricted, trigger)
+		m.stateMu.Lock()
+		m.dehumidifierOff = true
+		m.stateMu.Unlock()
 		return
 	}
 

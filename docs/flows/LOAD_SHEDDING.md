@@ -375,7 +375,8 @@ flowchart LR
 | Variable | Type | Description |
 |----------|------|-------------|
 | `loadSheddingOn` | bool | Current full load shedding state (HVAC + non-HVAC) |
-| `nonHVACLoadsShed` | bool | Whether non-HVAC loads (EV charger, dehumidifier) are shed |
+| `nonHVACLoadsShed` | bool | Whether the EV charger is shed (red level) |
+| `dehumidifierOff` | bool | Whether the dehumidifier may be off; starts `true` (plug state unknown after restart); cleared on first successful turn-on at green/white |
 | `lastAction` | time | Timestamp of last action (rate limiting) |
 | `thermalBatteryActive` | bool | Whether thermal battery is currently active |
 | `thermalBatteryHysteresisActive` | bool | Whether thermal battery is in wide-band hysteresis after a green dip |

@@ -188,7 +188,7 @@ func TestLoadShedding_RateLimiting(t *testing.T) {
 	// The thermostat and EV charger restore is rate limited. The dehumidifier restore is not,
 	// because it does not touch the thermostats the rate limit protects.
 	calls := env.MockHA.GetServiceCallsSince(snapshot)
-	assert.Len(t, calls, 2, "Should only have the SetString and dehumidifier calls")
+	assert.Len(t, calls, 2, "Expected: input_text.set_value for currentEnergyLevel + switch.turn_on for dehumidifier; thermostat/EV restore is rate limited")
 	assert.NotNil(t, testutil.FindServiceCallWithEntity(calls, "switch", "turn_on", dehumidifierSwitch))
 	assert.Nil(t, testutil.FindServiceCallWithEntity(calls, "switch", "turn_on", evChargerSwitch),
 		"EV charger restore should be rate limited")
