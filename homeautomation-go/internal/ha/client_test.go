@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"homeautomation/internal/testlogger"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"sort"
@@ -1280,4 +1281,38 @@ func TestClient_IsHealthy(t *testing.T) {
 		}
 		assert.True(t, client.IsHealthy())
 	})
+}
+
+func TestDeadlineExtendingConn_ExtendsOnlyWhenArmed(t *testing.T) {
+	server, client := net.Pipe()
+	defer server.Close()
+	defer client.Close()
+
+	conn := &deadlineExtendingConn{Conn: client, idle: time.Hour}
+	go func() { _, _ = server.Write([]byte("a")) }()
+
+	buf := make([]byte, 1)
+	if _, err := conn.Read(buf); err != nil {
+		t.Fatalf("read failed: %v", err)
+	}
+	// An unarmed conn leaves the deadline alone, so a read must time out immediately.
+	_ = conn.SetReadDeadline(time.Now().Add(-time.Second))
+	if _, err := conn.Read(buf); err == nil {
+		t.Fatal("expected deadline error from unarmed conn")
+	}
+
+	// An armed conn pushes the deadline forward after bytes arrive.
+	conn.armed.Store(true)
+	_ = conn.SetReadDeadline(time.Now().Add(50 * time.Millisecond))
+	go func() { _, _ = server.Write([]byte("b")) }()
+	if _, err := conn.Read(buf); err != nil {
+		t.Fatalf("read failed: %v", err)
+	}
+	// Sleep is intentional: there is nothing to poll. We need wall-clock time to pass so
+	// the original 50ms deadline expires, proving that the read above extended it.
+	time.Sleep(100 * time.Millisecond)
+	go func() { _, _ = server.Write([]byte("c")) }()
+	if _, err := conn.Read(buf); err != nil {
+		t.Fatalf("deadline was not extended: %v", err)
+	}
 }

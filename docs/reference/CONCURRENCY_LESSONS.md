@@ -1663,11 +1663,29 @@ func (m *Manager) handleSexModeOn() {
 
 **References**: Issue #1171
 
+## Lesson 25: A Local State Cache Is Only Valid While Subscribed and Seeded
+
+**Pattern**: `ha.Client.GetState` answers from an in-memory copy of every entity, kept current by `state_changed` events. It trusts that copy only in the `valid` state. In any other state it falls back to a live `get_states`, so it is slow but never stale.
+
+**Why**: Each `get_states` returns all ~1,800 entities (~0.9 MB). Callers use `GetState` in loops and handlers, and bursts of 350-430 MB overflowed a network receive ring and stalled the connection.
+
+**Rules** (`internal/ha/state_cache.go`):
+- States: `disconnected` (no confirmed subscription) → `unseeded` (subscribed) → `warming` (one GetState caller owns the seed fetch; others wait for it) → `valid`.
+- Every disconnect, explicit or detected, drops to `disconnected` before a reconnect can start. An undecodable event drops to `unseeded`, and the next `GetState` re-seeds.
+- Events that arrive during the seed are recorded and merged over the snapshot. The event wins unless the snapshot's `last_updated` is strictly newer, and removals always win. An old snapshot never overwrites a newer event.
+- An epoch counter fences each connection, so a seed or subscription ack from a dropped connection cannot validate a newer one.
+- The cache is updated in `handleEvent` before subscribers are queued, so a handler calling `GetState` sees the value that woke it.
+- Stored states are never mutated. Readers and subscribers receive deep copies.
+- The cache lock is a leaf lock: no I/O and no other locks while it is held.
+- `GetAllStates` stays a live fetch on purpose. `SyncFromHA` relies on a fresh view after reconnect.
+
 ---
 
 ## Change Log
 
 ### 2026-10-25
+- **Added Lesson 25**: A Local State Cache Is Only Valid While Subscribed and Seeded
+  - `GetState` served from an event-maintained cache instead of a full `get_states` per call
 - **Updated Lesson 15**: Snapshot pending writes before reconnect resync clears them
   - Prevents a concurrent failed-write rollback from hiding the transition to HA's authoritative value (Issue #1185)
 

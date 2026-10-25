@@ -41,11 +41,17 @@ func newMockHAClient() *mockHAClient {
 	}
 }
 
-func (m *mockHAClient) Connect() error                     { return nil }
-func (m *mockHAClient) Disconnect() error                  { return nil }
-func (m *mockHAClient) IsConnected() bool                  { return true }
-func (m *mockHAClient) IsHealthy() bool                    { return true }
-func (m *mockHAClient) GetAllStates() ([]*ha.State, error) { return nil, nil }
+func (m *mockHAClient) Connect() error    { return nil }
+func (m *mockHAClient) Disconnect() error { return nil }
+func (m *mockHAClient) IsConnected() bool { return true }
+func (m *mockHAClient) IsHealthy() bool   { return true }
+func (m *mockHAClient) GetAllStates() ([]*ha.State, error) {
+	states := make([]*ha.State, 0, len(m.states))
+	for _, state := range m.states {
+		states = append(states, state)
+	}
+	return states, nil
+}
 func (m *mockHAClient) CallService(ctx context.Context, domain, service string, data map[string]interface{}) error {
 	return nil
 }
@@ -270,6 +276,7 @@ func TestSubscriptionHelper_NilRegistry(t *testing.T) {
 	t.Parallel()
 	logger := zap.NewNop()
 	haClient := newMockHAClient()
+	haClient.states["sensor.test"] = &ha.State{EntityID: "sensor.test", State: "42.5"}
 	tracker := newMockShadowTracker()
 
 	// Create helper with nil registry
