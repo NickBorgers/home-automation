@@ -261,6 +261,7 @@ func isStateManagerCall(sel *ast.SelectorExpr) bool {
 
 	if innerSel, ok := sel.X.(*ast.SelectorExpr); ok {
 		fieldName := innerSel.Sel.Name
+		// "levels" is Tesla-only: wraps the levelReader interface in charging.go
 		return fieldName == "stateManager" || fieldName == "levels" || fieldName == "subHelper"
 	}
 	return false
