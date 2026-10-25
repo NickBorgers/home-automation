@@ -1184,6 +1184,10 @@ type Manager struct {
 - Only record pending writes when there's an active HA subscription (`hasActiveHASub`)
 - `SyncFromHA` clears all pending writes (authoritative baseline reset)
 - Rapid writes update the pending value to the latest (last write wins)
+- `SyncFromHA` notifies subscribers of values that differ from the cache. A write can reach HA while the
+  call still fails (connection drops before the reply). The rollback then hides the change, and HA's
+  event never arrives. Without this notification, plugins such as lighting never hear about the change.
+  The first sync is silent because the cache is empty.
 
 **Where Applied**:
 - `internal/state/manager.go` - All Set* methods and subscription callback
@@ -1198,6 +1202,9 @@ type Manager struct {
 - `TestManager_EchoBackSuppression_HAFailureRollback` - Failure clears pending
 - `TestManager_SetString_NoPendingWriteWithoutSub` - No pending without subscription
 - `TestManager_SyncFromHA_ClearsPendingWrites` - SyncFromHA resets pending state
+- `TestManager_SetString_WriteReachesHAButCallFails_ResyncNotifies` - Missed change reaches subscribers after resync
+- `TestManager_SyncFromHA_NotifiesSubscribersOfMissedChanges` - Only changed values notify
+- `TestManager_SyncFromHA_FirstSyncDoesNotNotify` - Startup sync stays silent
 
 ---
 

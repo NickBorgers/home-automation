@@ -175,6 +175,12 @@ func (m *Manager) SyncFromHA() error {
 	}
 
 	// Sync each variable
+	type missedChange struct {
+		key      string
+		oldValue interface{}
+		newValue interface{}
+	}
+	var missed []missedChange
 	syncCount := 0
 	localCount := 0
 	for _, variable := range AllVariables {
@@ -226,10 +232,17 @@ func (m *Manager) SyncFromHA() error {
 		}
 
 		m.cacheMu.Lock()
+		oldValue, hadOldValue := m.cache[variable.Key]
 		m.cache[variable.Key] = value
 		m.cacheMu.Unlock()
 		m.setEffectiveEntityID(variable.Key, entityID)
 		syncCount++
+
+		// A value that differs from the cache changed while events were not reaching us.
+		// The first sync has no earlier value, so it stays silent.
+		if hadOldValue && !reflect.DeepEqual(oldValue, value) {
+			missed = append(missed, missedChange{key: variable.Key, oldValue: oldValue, newValue: value})
+		}
 
 		// Subscribe to state changes
 		if err := m.subscribeToEntity(entityID, variable.Key); err != nil {
@@ -243,6 +256,15 @@ func (m *Manager) SyncFromHA() error {
 		zap.Int("synced", syncCount),
 		zap.Int("local_only", localCount),
 		zap.Int("total", len(AllVariables)))
+
+	// Tell subscribers only after the whole cache is current, so handlers read consistent state.
+	for _, change := range missed {
+		m.logger.Info("State changed while disconnected, notifying subscribers",
+			zap.String("key", change.key),
+			zap.Any("old", change.oldValue),
+			zap.Any("new", change.newValue))
+		m.notifySubscribers(change.key, change.oldValue, change.newValue)
+	}
 
 	return nil
 }
