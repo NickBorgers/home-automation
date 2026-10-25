@@ -7,6 +7,25 @@ source "$(dirname "${BASH_SOURCE[0]}")/ai-tool.env"
 
 export PATH="$HOME/.local/bin:$PATH"
 
+# Codex reads its provider config from ~/.codex/config.toml. The model is
+# settable per-workflow via the CODEX_MODEL env var (passed through the
+# run-ci-agent composite action's env-file plumbing). Falling back to the
+# default lets local devcontainer work without a workflow context.
+write_codex_config() {
+  local base_url="$1"
+  local codex_model="${CODEX_MODEL:-gpt-5.6-sol}"
+  mkdir -p "$HOME/.codex"
+  cat > "$HOME/.codex/config.toml" <<EOF
+model = "${codex_model}"
+model_provider = "litellm"
+
+[model_providers.litellm]
+name = "LiteLLM"
+base_url = "${base_url}"
+env_key = "OPENAI_API_KEY"
+EOF
+}
+
 # Dispatch per selected tool: verify the binary is available, pick a bot git
 # identity that matches the tool actually running, and write any on-disk config
 # the CLI requires.
@@ -26,6 +45,15 @@ case "$AI_TOOL" in
     AI_GIT_EMAIL_DEFAULT="claude-bot@ci.invalid"
     # Claude Code reads ANTHROPIC_API_KEY / ANTHROPIC_BASE_URL straight from the
     # environment — run-ai.sh sets those at invocation time. Nothing to write here.
+    #
+    # Codex is also used interactively in the devcontainer (for example as a
+    # second-opinion reviewer), and AI_TOOL defaults to claude there. Without a
+    # config it falls back to a ChatGPT login instead of the LiteLLM proxy.
+    # AI_BASE_URL is the Anthropic path here, so name the OpenAI-compatible one
+    # explicitly.
+    if command -v codex &>/dev/null; then
+      write_codex_config "${CODEX_LITELLM_URL}"
+    fi
     ;;
   codex)
     if ! command -v codex &>/dev/null; then
@@ -36,22 +64,7 @@ case "$AI_TOOL" in
     # `@users.noreply.github.com`.
     AI_GIT_NAME_DEFAULT="codex[bot]"
     AI_GIT_EMAIL_DEFAULT="codex-bot@ci.invalid"
-    # Codex reads its provider config from ~/.codex/config.toml. The model
-    # is settable per-workflow via the CODEX_MODEL env var (passed through
-    # the run-ci-agent composite action's env-file plumbing). Falling back
-    # to the default lets local devcontainer work without a workflow
-    # context.
-    CODEX_MODEL="${CODEX_MODEL:-gpt-5.6-sol}"
-    mkdir -p "$HOME/.codex"
-    cat > "$HOME/.codex/config.toml" <<EOF
-model = "${CODEX_MODEL}"
-model_provider = "litellm"
-
-[model_providers.litellm]
-name = "LiteLLM"
-base_url = "${AI_BASE_URL}"
-env_key = "OPENAI_API_KEY"
-EOF
+    write_codex_config "${AI_BASE_URL}"
     ;;
   *)
     echo "ERROR: unknown AI_TOOL='${AI_TOOL}' (expected 'claude' or 'codex')" >&2
