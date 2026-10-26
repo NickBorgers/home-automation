@@ -107,8 +107,11 @@ type Manager struct {
 	enabled          bool
 	loadSheddingOn   bool
 	nonHVACLoadsShed bool // Whether non-HVAC loads (EV charger, dehumidifier) are shed
-	stateMu          sync.Mutex
-	shadowTracker    *shadowstate.LoadSheddingTracker
+	// dehumidifierOff is true when the dehumidifier may be off and green/white must turn it on.
+	// It starts true because the plug state is unknown after a restart.
+	dehumidifierOff bool
+	stateMu         sync.Mutex
+	shadowTracker   *shadowstate.LoadSheddingTracker
 
 	// Subscription helper for automatic shadow state input capture
 	subHelper *shadowstate.SubscriptionHelper
@@ -182,6 +185,7 @@ func NewManager(ctx context.Context, haClient ha.HAClient, stateManager *state.M
 		logger:                                logger.Named("loadshedding"),
 		readOnly:                              readOnly,
 		enabled:                               false,
+		dehumidifierOff:                       true,
 		shadowTracker:                         shadowTracker,
 		subHelper:                             shadowstate.NewSubscriptionHelper(haClient, stateManager, registry, shadowTracker, "loadshedding", logger.Named("loadshedding")),
 		rateLimitInterval:                     minActionInterval,
@@ -355,12 +359,14 @@ func (m *Manager) handleEnergyChangeWithTrigger(key string, oldValue, newValue i
 	// Red triggers full load shedding (HVAC band + non-HVAC off) — battery is below the
 	// arbitrage floor (<15%) and we need to conserve aggressively.
 	// Yellow is the wide hysteresis band covering normal arbitrage operation: no change
-	// to load-shed state (carry whatever red/green set), thermal battery off.
+	// to HVAC or EV charger load-shed state (carry whatever red/green set), thermal
+	// battery off. The dehumidifier runs only at green/white, so yellow turns it off.
 	switch newLevel {
 	case energyStateRed:
 		m.deactivateThermalBattery("energy level dropped to red")
 		m.enableLoadShedding(newLevel, trigger)
 	case energyStateGreen:
+		m.restoreDehumidifier(newLevel)
 		// Green is still a healthy state. Don't snap thermostats back — entering
 		// hysteresis widens the setpoint band so HVAC stays idle, avoiding counter-runs
 		// from a transient white→green oscillation. If thermal battery isn't active,
@@ -369,12 +375,14 @@ func (m *Manager) handleEnergyChangeWithTrigger(key string, oldValue, newValue i
 		m.restoreNonHVACLoads(newLevel)
 		m.disableLoadShedding(newLevel, trigger)
 	case energyStateWhite:
+		m.restoreDehumidifier(newLevel)
 		m.restoreNonHVACLoads(newLevel)
 		m.disableLoadShedding(newLevel, trigger)
 		m.activateThermalBattery()
 	case energyStateYellow:
 		m.deactivateThermalBattery("energy level dropped to yellow")
-		m.logger.Info("Energy state is yellow - hysteresis carry on load-shed state, thermal battery off",
+		m.shedDehumidifier(newLevel)
+		m.logger.Info("Energy state is yellow - dehumidifier off, hysteresis carry on other load-shed state, thermal battery off",
 			zap.String("reason", "Wide hysteresis band covering normal arbitrage operation"))
 	default:
 		m.logger.Warn("Unknown energy state",
@@ -382,7 +390,72 @@ func (m *Manager) handleEnergyChangeWithTrigger(key string, oldValue, newValue i
 	}
 }
 
-// restoreNonHVACLoads turns on non-essential loads (EV charger, dehumidifier).
+// shedDehumidifier turns the dehumidifier off. The dehumidifier runs only at green/white,
+// so this runs when the energy level enters yellow. Red turns it off in executeEnableLoadShedding.
+func (m *Manager) shedDehumidifier(energyLevel string) {
+	m.logger.Info("=== DEHUMIDIFIER: OFF ===",
+		zap.String("energy_level", energyLevel),
+		zap.String("reason", "Dehumidifier runs only at green/white energy levels"))
+
+	if m.readOnly {
+		m.logger.Info("READ-ONLY: Would turn off dehumidifier",
+			zap.String("dehumidifier_entity", dehumidifierSwitch))
+		m.stateMu.Lock()
+		m.dehumidifierOff = true
+		m.stateMu.Unlock()
+		return
+	}
+
+	if err := m.haClient.CallService(m.ctx, "switch", "turn_off", map[string]interface{}{
+		"entity_id": dehumidifierSwitch,
+	}); err != nil {
+		m.logger.Error("Failed to turn off dehumidifier", zap.Error(err))
+		return
+	}
+
+	m.logger.Info("✓ Successfully turned off dehumidifier")
+	m.stateMu.Lock()
+	m.dehumidifierOff = true
+	m.stateMu.Unlock()
+}
+
+// restoreDehumidifier turns the dehumidifier on at green/white if it may be off.
+func (m *Manager) restoreDehumidifier(energyLevel string) {
+	m.stateMu.Lock()
+	needsRestore := m.dehumidifierOff
+	m.stateMu.Unlock()
+
+	if !needsRestore {
+		return
+	}
+
+	m.logger.Info("=== DEHUMIDIFIER: ON ===",
+		zap.String("energy_level", energyLevel),
+		zap.String("reason", "Dehumidifier runs at green/white energy levels"))
+
+	if m.readOnly {
+		m.logger.Info("READ-ONLY: Would turn on dehumidifier",
+			zap.String("dehumidifier_entity", dehumidifierSwitch))
+		m.stateMu.Lock()
+		m.dehumidifierOff = false
+		m.stateMu.Unlock()
+		return
+	}
+
+	if err := m.haClient.CallService(m.ctx, "switch", "turn_on", map[string]interface{}{
+		"entity_id": dehumidifierSwitch,
+	}); err != nil {
+		m.logger.Error("Failed to turn on dehumidifier", zap.Error(err))
+		return
+	}
+
+	m.logger.Info("✓ Successfully turned on dehumidifier")
+	m.stateMu.Lock()
+	m.dehumidifierOff = false
+	m.stateMu.Unlock()
+}
+
+// restoreNonHVACLoads turns on the EV charger.
 // Called at green/white energy levels to restore loads shed by red-level load shedding.
 func (m *Manager) restoreNonHVACLoads(energyLevel string) {
 	m.stateMu.Lock()
@@ -398,9 +471,8 @@ func (m *Manager) restoreNonHVACLoads(energyLevel string) {
 		zap.String("reason", "Restoring non-essential loads at "+energyLevel+" energy level"))
 
 	if m.readOnly {
-		m.logger.Info("READ-ONLY: Would turn on EV charger and dehumidifier",
-			zap.String("ev_charger_entity", evChargerSwitch),
-			zap.String("dehumidifier_entity", dehumidifierSwitch))
+		m.logger.Info("READ-ONLY: Would turn on EV charger",
+			zap.String("ev_charger_entity", evChargerSwitch))
 		m.stateMu.Lock()
 		m.nonHVACLoadsShed = false
 		m.stateMu.Unlock()
@@ -416,21 +488,12 @@ func (m *Manager) restoreNonHVACLoads(energyLevel string) {
 		m.logger.Info("✓ Successfully turned on EV charger")
 	}
 
-	// Turn on dehumidifier
-	if err := m.haClient.CallService(m.ctx, "switch", "turn_on", map[string]interface{}{
-		"entity_id": dehumidifierSwitch,
-	}); err != nil {
-		m.logger.Error("Failed to turn on dehumidifier", zap.Error(err))
-	} else {
-		m.logger.Info("✓ Successfully turned on dehumidifier")
-	}
-
 	m.stateMu.Lock()
 	m.nonHVACLoadsShed = false
 	m.stateMu.Unlock()
 
 	m.logger.Info("=== NON-HVAC LOADS RESTORED ===",
-		zap.String("action", "EV charger and dehumidifier re-enabled"))
+		zap.String("action", "EV charger re-enabled"))
 }
 
 // enableLoadShedding activates load shedding (energy state red)
@@ -500,6 +563,9 @@ func (m *Manager) executeEnableLoadShedding(energyLevel string, trigger string) 
 		// Record shadow state even in read-only mode for consistency
 		reason := fmt.Sprintf("Energy state is %s (low battery) - would restrict HVAC, disable EV charger, and disable dehumidifier", energyLevel)
 		m.recordAction(true, "enable", reason, true, tempLowRestricted, tempHighRestricted, trigger)
+		m.stateMu.Lock()
+		m.dehumidifierOff = true
+		m.stateMu.Unlock()
 		return
 	}
 
@@ -559,6 +625,9 @@ func (m *Manager) executeEnableLoadShedding(energyLevel string, trigger string) 
 		// Continue - previous controls already succeeded
 	} else {
 		m.logger.Info("✓ Successfully turned off dehumidifier")
+		m.stateMu.Lock()
+		m.dehumidifierOff = true
+		m.stateMu.Unlock()
 	}
 
 	m.logger.Info("=== LOAD SHEDDING ACTIVATED ===",
@@ -603,9 +672,9 @@ func (m *Manager) disableLoadShedding(energyLevel string, trigger string) {
 	// Note: we used to bail here if HA showed holds already off, on the assumption
 	// "holds off → load shedding fully disabled". That assumption no longer holds —
 	// thermal-battery hysteresis and the Start() stale-hold cleanup can independently
-	// turn holds off, leaving EV/dehumidifier still shed. executeDisableLoadShedding
+	// turn holds off, leaving the EV charger still shed. executeDisableLoadShedding
 	// is idempotent on holds (turn_off-when-off is a no-op in HA), so we always run
-	// the full disable to guarantee EV/dehumidifier get restored.
+	// the full disable to guarantee the EV charger gets restored.
 
 	// Check rate limiting - if rate limited, schedule deferred action
 	passed, timeRemaining := m.checkRateLimit()
@@ -631,12 +700,11 @@ func (m *Manager) executeDisableLoadShedding(energyLevel string, trigger string)
 	}
 
 	if m.readOnly {
-		m.logger.Info("READ-ONLY: Would disable thermostat hold mode, turn on EV charger, and turn on dehumidifier (restore schedule)",
+		m.logger.Info("READ-ONLY: Would disable thermostat hold mode and turn on EV charger (restore schedule)",
 			zap.Strings("thermostat_entities", []string{thermostatHoldHouse, thermostatHoldSuite}),
-			zap.String("ev_charger_entity", evChargerSwitch),
-			zap.String("dehumidifier_entity", dehumidifierSwitch))
+			zap.String("ev_charger_entity", evChargerSwitch))
 		// Record shadow state even in read-only mode for consistency
-		reason := fmt.Sprintf("Energy state is %s (battery restored) - would return to normal HVAC, re-enable EV charger, and re-enable dehumidifier", energyLevel)
+		reason := fmt.Sprintf("Energy state is %s (battery restored) - would return to normal HVAC and re-enable EV charger", energyLevel)
 		m.recordAction(false, "disable", reason, false, 0, 0, trigger)
 		return
 	}
@@ -668,21 +736,8 @@ func (m *Manager) executeDisableLoadShedding(energyLevel string, trigger string)
 		m.logger.Info("✓ Successfully turned on EV charger")
 	}
 
-	// Turn on dehumidifier (restore normal operation)
-	m.logger.Info("Executing: Turn on dehumidifier",
-		zap.String("entity", dehumidifierSwitch))
-
-	if err := m.haClient.CallService(m.ctx, "switch", "turn_on", map[string]interface{}{
-		"entity_id": dehumidifierSwitch,
-	}); err != nil {
-		m.logger.Error("Failed to turn on dehumidifier", zap.Error(err))
-		// Continue - previous controls already succeeded
-	} else {
-		m.logger.Info("✓ Successfully turned on dehumidifier")
-	}
-
 	m.logger.Info("=== LOAD SHEDDING DEACTIVATED ===",
-		zap.String("action", "HVAC returned to normal schedule, EV charger re-enabled, and dehumidifier re-enabled"))
+		zap.String("action", "HVAC returned to normal schedule and EV charger re-enabled"))
 
 	// Update state tracking and last action time
 	m.stateMu.Lock()
