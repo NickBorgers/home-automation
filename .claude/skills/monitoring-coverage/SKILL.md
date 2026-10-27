@@ -68,7 +68,7 @@ Labels such as `indoor` and `unconditioned` control humidity alerts. Dropping th
 
 ```bash
 node --env-file=$ENVF --experimental-websocket ../scripts/ha-ws.mjs \
-  '[{"type":"config/device_registry/update","device_id":"<device id>","labels":["indoor"]}]'
+  '[{"type":"config/device_registry/update","device_id":"<device id>","labels":["indoor"]}]'  # Replace ["indoor"] with the Step 1 labels, minus monitoring_ignore
 ```
 
 The reply must say `"success": true`.
@@ -78,7 +78,7 @@ The reply must say `"success": true`.
 Deploy or restart the app. Then confirm the plugin no longer skips the device.
 
 ```bash
-scripts/loki-query.sh '{service="home-automation"} |= "monitoring_ignore label"' 30m
+../scripts/loki-query.sh '{service="home-automation"} |= "monitoring_ignore label"' 30m
 ```
 
 The device's entity ID must **not** appear in that output. The plugin logs one line per skipped entity.
