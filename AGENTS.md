@@ -181,6 +181,12 @@ When modifying function signatures:
 3. **Compile check**: `go build ./...`
 4. **Run ALL tests**: `make unit-tests && make integration-tests` (uses caching)
 
+### Sensor Monitoring Coverage
+
+Many devices carry the Home Assistant label `monitoring_ignore`. It turns off battery, offline, lockup, and
+water-leak monitoring for that device. **When code starts to read a sensor, run the `monitoring-coverage`
+skill** (`.claude/skills/monitoring-coverage/SKILL.md`). It checks that the sensor's device is monitored.
+
 ### Documentation Maintenance
 
 Update docs when making changes:
