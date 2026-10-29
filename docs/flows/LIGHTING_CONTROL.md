@@ -6,7 +6,7 @@ This document describes the lighting automation flow, which manages whole-home l
 
 The lighting plugin provides intelligent lighting control by:
 1. Calculating scenes based on day phase and context
-2. Respecting manual overrides and protection modes
+2. Protecting special modes, with per-room manual override holds planned for lux-target lighting
 3. Managing transitions for natural light progression
 4. Supporting special scenarios (wake-up, away mode)
 
@@ -167,41 +167,33 @@ sequenceDiagram
     Note over LM: Bedroom lights now<br/>follow normal automation
 ```
 
-## Manual Override Detection
+## Manual Override Holds (Proposed)
 
-The lighting plugin respects manual changes:
+> **Not yet implemented:** The current lighting plugin does not detect manual overrides. Lux-target lighting will add
+> the per-room hold behavior below.
+
+The plugin will compare Home Assistant updates for a room's controlled lights with its last commanded brightness and
+color temperature. A difference outside the transition window and configured tolerances will put the whole room into
+a held state.
 
 ```mermaid
 flowchart TD
-    subgraph Detection["Override Detection"]
-        expected["Expected state<br/>(from last command)"]
-        actual["Actual state<br/>(from HA)"]
-        compare{"States<br/>match?"}
-    end
+    manual["Manual change detected<br/>for controlled lights"] --> hold["Hold the whole room"]
+    hold --> skipCans["Lux loop skips cans"]
+    hold --> skipScenes["Day phase and sun events<br/>do not re-fire accent scenes"]
+    hold --> offConditions["Existing off conditions<br/>still apply"]
 
-    subgraph Response["Response"]
-        normal["Continue<br/>normal automation"]
-        override["Mark as<br/>manually overridden"]
-        protect["Skip automation<br/>for this light"]
-    end
+    roomRestart["Room turns off,<br/>then on"] --> clear["Clear room hold"]
+    everyoneAsleep["isEveryoneAsleep<br/>becomes true"] --> clear
+    nobodyHome["isAnyoneHome<br/>becomes false"] --> clear
+    dayPhase["Day phase changes"] --> keep["Keep room held"]
 
-    subgraph Reset["Override Reset"]
-        dayPhaseChange["Day phase<br/>changes"]
-        clearOverride["Clear override<br/>flag"]
-    end
-
-    expected --> compare
-    actual --> compare
-    compare -->|Yes| normal
-    compare -->|No| override
-    override --> protect
-
-    dayPhaseChange --> clearOverride
-    clearOverride --> normal
-
-    style override fill:#f39c12,color:#fff
-    style protect fill:#e74c3c,color:#fff
+    style hold fill:#f39c12,color:#fff
+    style keep fill:#f39c12,color:#fff
 ```
+
+A day phase change does **not** clear the hold. See [Lux-Target Lighting](./LUX_LIGHTING.md#manual-override) for
+detection tolerances and transition handling.
 
 ## Edge-Triggered Activation (skip_reactivation_when_on)
 
