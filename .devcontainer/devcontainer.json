@@ -28,7 +28,7 @@
   "workspaceFolder": "${localWorkspaceFolder}",
   "onCreateCommand": "bash .devcontainer/setup-user.sh \"${localEnv:USER}\" \"${containerWorkspaceFolder}\"",
   "postCreateCommand": "bash .devcontainer/post-create.sh",
-  "postStartCommand": "bash .devcontainer/start-dockerd.sh; bash .devcontainer/fix-dns-order.sh && sudo chown -R \"$(id -u):$(id -g)\" \"${containerWorkspaceFolder}\" 2>/dev/null || true",
+  "postStartCommand": "bash .devcontainer/start-dockerd.sh; bash .devcontainer/link-claude-project.sh; bash .devcontainer/fix-dns-order.sh && sudo chown -R \"$(id -u):$(id -g)\" \"${containerWorkspaceFolder}\" 2>/dev/null || true",
   "forwardPorts": [],
   "portsAttributes": {},
   "mounts": [
@@ -49,8 +49,9 @@
     "source=${localEnv:HOME}/.claude,target=${localEnv:HOME}/.claude,type=bind,readonly,consistency=cached",
     // Per-project state -- memory, sessions, plans -- is the one part Claude
     // Code writes as it works, so it gets its own writable mount. These are
-    // data files, not executable configuration. post-create.sh links this
-    // project's directory out of it. Staged under /mnt, not /tmp: the
+    // data files, not executable configuration. link-claude-project.sh
+    // (run by postStartCommand) links this project's directory out of it.
+    // Staged under /mnt, not /tmp: the
     // docker-in-docker feature's init script mounts a tmpfs over /tmp at
     // container start, which would hide this mount from every process.
     "source=${localEnv:HOME}/.claude/projects,target=/mnt/devcontainer-host/claude-projects,type=bind,consistency=cached",
