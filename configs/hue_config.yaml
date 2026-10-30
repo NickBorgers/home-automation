@@ -1,12 +1,24 @@
 ---
 lux_curve:
   points:
-    - { anchor: sun.dawn,          lux: 300, kelvin: 4000 }
-    - { anchor: sun.noon,          lux: 300, kelvin: 4000 }
-    - { anchor: sun.goldenHour,    lux: 150, kelvin: 3000 }
-    - { anchor: schedule.dusk,     lux: 100, kelvin: 3000 }
-    - { anchor: schedule.winddown, lux: 30,  kelvin: 3000 }
-    - { anchor: schedule.night,    lux: 5,   kelvin: 3000 }
+    - anchor: sun.dawn
+      lux: 300
+      kelvin: 4000
+    - anchor: sun.noon
+      lux: 300
+      kelvin: 4000
+    - anchor: sun.goldenHour
+      lux: 150
+      kelvin: 3000
+    - anchor: schedule.dusk
+      lux: 100
+      kelvin: 3000
+    - anchor: schedule.winddown
+      lux: 30
+      kelvin: 3000
+    - anchor: schedule.night
+      lux: 5
+      kelvin: 3000
   outdoor_sensor: sensor.weather_station_illuminance
   smoothing_minutes: 5
   tick_seconds: 60
@@ -50,9 +62,12 @@ rooms:
       lux_scale: 0.5          # GUESS. Four Hue downlights likely give far less than the 300 lux curve
       calibrated: true
       calibration:            # GUESS: lux at working height, cans only, at night
-        - { brightness_pct: 25, lux: 12 }
-        - { brightness_pct: 50, lux: 30 }
-        - { brightness_pct: 100, lux: 70 }
+        - brightness_pct: 25
+          lux: 12
+        - brightness_pct: 50
+          lux: 30
+        - brightness_pct: 100
+          lux: 70
 
   - hue_group: Primary Suite
     hass_area_id: master_bedroom
