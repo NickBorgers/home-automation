@@ -53,8 +53,8 @@ The zone resolution audit log contains comprehensive information in a single con
     "timestamp": "2026-01-23T10:00:00Z",
     "stateSnapshot": { ... },
     "zoneEvaluations": [ ... ],
-    "zoneToSpeakers": { "morning": ["Kitchen", "Bedroom"] },
-    "speakersToTurnOff": ["Front Room"],
+    "zoneToSpeakers": { "morning": ["Pantry", "Bedroom"] },
+    "speakersToTurnOff": ["Lounge"],
     "zoneChanges": {
       "start": ["morning"],
       "stop": ["sleep"],

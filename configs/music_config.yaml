@@ -105,21 +105,19 @@ zones:
 music:
   morning:
     participants:
-      - player_name: "Front Room"
+      - player_name: "Pantry"
         base_volume: 8
         leave_muted_if: []
-      - player_name: "Kitchen"
-        base_volume: 9
-        leave_muted_if:
-          - variable: isTVPlaying
-            value: true
+      - player_name: "Lounge"
+        base_volume: 8
+        leave_muted_if: []
       - player_name: "Kids Bathroom"
         base_volume: 7
         leave_muted_if:
           - variable: isTVPlaying
             value: true
       - player_name: "Bedroom"
-        base_volume: 9
+        base_volume: 7
         # Exclude during wake sequence (bedroom stays on sleep zone)
         exclude_if:
           - variable: isMasterAsleep
@@ -128,11 +126,6 @@ music:
         base_volume: 8
         leave_muted_if:
           - variable: isTVPlaying
-            value: true
-      - player_name: "Primary Bathroom"
-        base_volume: 9
-        exclude_if:
-          - variable: isMasterAsleep
             value: true
     playback_options:
       # Beatport Best New Melodic House & Techno (Tidal)
@@ -162,21 +155,19 @@ music:
         volume_multiplier: 1.3
   day:
     participants:
-      - player_name: "Front Room"
+      - player_name: "Pantry"
         base_volume: 9
         leave_muted_if: []
-      - player_name: "Kitchen"
+      - player_name: "Lounge"
         base_volume: 9
-        leave_muted_if:
-          - variable: isTVPlaying
-            value: true
+        leave_muted_if: []
       - player_name: "Kids Bathroom"
         base_volume: 7
         leave_muted_if:
           - variable: isTVPlaying
             value: true
       - player_name: "Bedroom"
-        base_volume: 9
+        base_volume: 7
         leave_muted_if:
           - variable: isMasterAsleep
             value: true
@@ -184,11 +175,6 @@ music:
         base_volume: 9
         leave_muted_if:
           - variable: isTVPlaying
-            value: true
-      - player_name: "Primary Bathroom"
-        base_volume: 9
-        leave_muted_if:
-          - variable: isMasterAsleep
             value: true
     playback_options:
       # Tropical House (Tidal) - tropical/chill house, Kygo & Robin Schulz style
@@ -238,21 +224,19 @@ music:
         volume_multiplier: 1.8
   evening:
     participants:
-      - player_name: "Front Room"
+      - player_name: "Pantry"
         base_volume: 8
         leave_muted_if: []
-      - player_name: "Kitchen"
-        base_volume: 9
-        leave_muted_if:
-          - variable: isTVPlaying
-            value: true
+      - player_name: "Lounge"
+        base_volume: 8
+        leave_muted_if: []
       - player_name: "Kids Bathroom"
         base_volume: 8
         leave_muted_if:
           - variable: isTVPlaying
             value: true
       - player_name: "Bedroom"
-        base_volume: 6
+        base_volume: 5
         exclude_if:
           - variable: isMasterAsleep
             value: true
@@ -260,11 +244,6 @@ music:
         base_volume: 8
         leave_muted_if:
           - variable: isTVPlaying
-            value: true
-      - player_name: "Primary Bathroom"
-        base_volume: 6
-        exclude_if:
-          - variable: isMasterAsleep
             value: true
     playback_options:
       # BRAIN & FOCUS INSTRUMENTALS (Tidal equivalent of Instrumental Study)
@@ -370,21 +349,19 @@ music:
         volume_multiplier: 2.5
   winddown:
     participants:
-      - player_name: "Front Room"
+      - player_name: "Pantry"
         base_volume: 7
         leave_muted_if: []
-      - player_name: "Kitchen"
-        base_volume: 10
-        leave_muted_if:
-          - variable: isTVPlaying
-            value: true
+      - player_name: "Lounge"
+        base_volume: 7
+        leave_muted_if: []
       - player_name: "Kids Bathroom"
         base_volume: 8
         leave_muted_if:
           - variable: isTVPlaying
             value: true
       - player_name: "Bedroom"
-        base_volume: 6
+        base_volume: 5
         exclude_if:
           - variable: isMasterAsleep
             value: true
@@ -392,11 +369,6 @@ music:
         base_volume: 7
         leave_muted_if:
           - variable: isTVPlaying
-            value: true
-      - player_name: "Primary Bathroom"
-        base_volume: 8
-        exclude_if:
-          - variable: isMasterAsleep
             value: true
     playback_options:
       # Floating Ambient (Tidal) — ambient/space atmosphere, replaces Spotify "Floating Through Space"
@@ -421,30 +393,25 @@ music:
         volume_multiplier: 1.0
   # sleep-prep: Whole-house rain sounds before master goes to bed
   # Plays during night phase to help direct people to bed
-  # NOTE: Front Room must be first (leader/coordinator). Bedroom wifi is too
-  # unreliable to coordinate a whole-house Sonos group. The zone_manager handles
-  # the leader change to Bedroom during sleep-prep → sleep transition.
+  # NOTE: Pantry must be first (leader/coordinator). Lounge is too far from the
+  # WAP to lead. The zone_manager handles the leader change during the
+  # sleep-prep → sleep transition.
   sleep-prep:
     participants:
-      - player_name: "Front Room"
+      - player_name: "Pantry"
+        base_volume: 9
+        leave_muted_if: []
+      - player_name: "Lounge"
         base_volume: 9
         leave_muted_if: []
       - player_name: "Bedroom"
-        base_volume: 16
+        base_volume: 12
         leave_muted_if: []
       - player_name: "Sitting Room"
         base_volume: 9
         leave_muted_if:
           - variable: isTVPlaying
             value: true
-      - player_name: "Kitchen"
-        base_volume: 16
-        leave_muted_if:
-          - variable: isTVPlaying
-            value: true
-      - player_name: "Primary Bathroom"
-        base_volume: 16
-        leave_muted_if: []
     playback_options:
       # Rain sounds - 2h composite playlists (avoids Sonos loop degradation)
       # Volume multipliers bumped after 2h re-encoding
@@ -463,19 +430,10 @@ music:
 
   # sleep: Bedroom-only rain sounds after master goes to bed
   # Rest of house doesn't need sleep sounds once master is in bed
-  # NOTE: Primary Bathroom must be first (leader/coordinator). Bedroom wifi is too
-  # unreliable to coordinate a Sonos group. If Bedroom drops as a follower, only
-  # Bedroom loses audio; if it drops as leader, the entire group dies.
   sleep:
     participants:
-      - player_name: "Primary Bathroom"
-        base_volume: 16
-        leave_muted_if: []
       - player_name: "Bedroom"
-        base_volume: 16
-        leave_muted_if: []
-      - player_name: "Kitchen"
-        base_volume: 16
+        base_volume: 12
         leave_muted_if: []
     playback_options:
       # Rain sounds - 2h composite playlists (avoids Sonos loop degradation)
@@ -495,10 +453,7 @@ music:
   sex:
     participants:
       - player_name: "Bedroom"
-        base_volume: 10
-        leave_muted_if: []
-      - player_name: "Primary Bathroom"
-        base_volume: 10
+        base_volume: 8
         leave_muted_if: []
     playback_options:
       # Sensual songs for naughty times (Tidal) — 256 tracks, sensual mood
@@ -509,10 +464,7 @@ music:
   wakeup:
     participants:
       - player_name: "Bedroom"
-        base_volume: 6
-        leave_muted_if: []
-      - player_name: "Primary Bathroom"
-        base_volume: 6
+        base_volume: 5
         leave_muted_if: []
     playback_options:
       # Soft Soundtracks (Tidal) — gentle ambient/modern classical, replaces Spotify "Ambient Relaxation"

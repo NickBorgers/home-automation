@@ -683,46 +683,10 @@ func TestLoadMusicConfig(t *testing.T) {
 	}
 }
 
-// TestProductionConfig_PrimaryBathroomFollowsBedroom validates that the Primary Bathroom
-// speaker is included in every music mode where Bedroom appears. This ensures the two
-// speakers in the primary suite are always grouped together.
-//
-// Issue #739: User observed winddown music playing without Primary Bathroom.
-func TestProductionConfig_PrimaryBathroomFollowsBedroom(t *testing.T) {
-	t.Parallel()
-
-	repoRoot := findRepoRoot(t)
-	configPath := filepath.Join(repoRoot, "configs", "music_config.yaml")
-
-	config, err := LoadConfig(configPath)
-	require.NoError(t, err, "Failed to load production music config")
-
-	// For every mode where Bedroom appears, Primary Bathroom must also appear
-	for modeName, mode := range config.Music {
-		bedroomFound := false
-		bathroomFound := false
-
-		for _, p := range mode.Participants {
-			if p.PlayerName == "Bedroom" {
-				bedroomFound = true
-			}
-			if p.PlayerName == "Primary Bathroom" {
-				bathroomFound = true
-			}
-		}
-
-		if bedroomFound {
-			assert.True(t, bathroomFound,
-				"Mode %q includes Bedroom but not Primary Bathroom — "+
-					"Primary Bathroom should follow Bedroom in all modes", modeName)
-		}
-	}
-}
-
 // TestProductionConfig_WinddownZoneAssignment validates that when dayPhase=winddown,
-// both Bedroom and Primary Bathroom are assigned to the winddown zone.
+// Bedroom is assigned to the winddown zone.
 //
-// Issue #739: Primary Bathroom speaker not included in winddown music.
+// Issue #739: a primary suite speaker was missing from winddown music.
 func TestProductionConfig_WinddownZoneAssignment(t *testing.T) {
 	t.Parallel()
 
@@ -763,7 +727,7 @@ func TestProductionConfig_WinddownZoneAssignment(t *testing.T) {
 	winddownSpeakers, winddownActive := zoneToSpeakers["winddown"]
 	require.True(t, winddownActive, "Winddown zone should be active when dayPhase=winddown")
 
-	// Both Bedroom and Primary Bathroom must be in the winddown zone
+	// Bedroom must be in the winddown zone
 	speakerSet := make(map[string]bool)
 	for _, s := range winddownSpeakers {
 		speakerSet[s] = true
@@ -771,8 +735,6 @@ func TestProductionConfig_WinddownZoneAssignment(t *testing.T) {
 
 	assert.True(t, speakerSet["Bedroom"],
 		"Bedroom should be assigned to winddown zone, got speakers: %v", winddownSpeakers)
-	assert.True(t, speakerSet["Primary Bathroom"],
-		"Primary Bathroom should be assigned to winddown zone (follows Bedroom), got speakers: %v", winddownSpeakers)
 }
 
 func TestMusicManager_ReadOnlyMode(t *testing.T) {
