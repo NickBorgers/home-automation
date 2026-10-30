@@ -36,12 +36,13 @@ rooms:
     transition_seconds: 30
     # Lux-target control for the ceiling cans. See docs/flows/LUX_LIGHTING.md.
     # log_only: scenes still drive the room; shadow state shows what lux control would do.
-    # Before switching to active: create the `Living Cans` and `Living Accent` Hue zones,
-    # calibrate, measure daylight_factor, and set calibrated: true.
+    # Before switching to active: create the six white `Main Living Accent` phase scenes
+    # (scene.main_living_accent_<phase>), calibrate, measure daylight_factor, and set
+    # calibrated: true. The `Living Cans` zone (light.living_cans) already exists.
     lux_control:
       mode: log_only
       cans: light.living_cans
-      accent_scene_group: Living Accent
+      accent_scene_group: Main Living Accent
       daylight_factor: 0.02   # ESTIMATE, not measured
       lux_scale: 1.0
       calibrated: false

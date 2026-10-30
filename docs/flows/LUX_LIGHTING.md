@@ -175,7 +175,7 @@ rooms:
     lux_control:
       mode: log_only            # log_only | active
       cans: light.living_cans
-      accent_scene_group: Living Accent
+      accent_scene_group: Main Living Accent
       daylight_factor: 0.02     # measured during calibration
       lux_scale: 1.0
       calibration:              # lux at working height, cans only, at night
@@ -211,7 +211,7 @@ The cans stay in their Hue rooms. A Hue light belongs to one room but can sit in
 
 | Room | Hue groups | Hue work |
 |------|------------|----------|
-| Living Room | Room = 4 cans + TV. Zones `Living Cans` and `Living Accent` (TV, window wall). | Create six scenes on the `Living Accent` zone: `morning`, `day`, `sunset`, `dusk`, `winddown`, `night`. This gives `scene.living_accent_<phase>`. |
+| Living Room | Room = 4 cans + TV. Zones `Living Cans` and `Main Living Accent` (couch, floor gradient, kids hall, TV). | Create six scenes on the `Main Living Accent` zone: `morning`, `day`, `sunset`, `dusk`, `winddown`, `night`. This gives `scene.main_living_accent_<phase>`. |
 | Kitchen | Room = 7 cans only. Under-cabinet is a separate Home Assistant light. | None. The plugin stops recalling `scene.kitchen_<phase>`. |
 | Sitting Room, N Office | Lamps, candles, a floor gradient. No cans. | None. They stay on scenes. |
 | Main Living Space (zone) | Kitchen cans, living cans and accents together | None. Its scenes reset the cans, so avoid recalling them by hand. |
