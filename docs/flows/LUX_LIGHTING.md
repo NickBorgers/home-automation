@@ -141,7 +141,8 @@ A day phase change does **not** clear the hold. This replaces today's behavior, 
 
 ### Note on existing documentation
 
-`LIGHTING_CONTROL.md` has a "Manual Override Detection" section, which says overrides clear on a day phase change. The current code (`manager.go`) has no override detection at all. That section describes behavior that does not exist. It will be rewritten to match this design.
+`LIGHTING_CONTROL.md` documents the same per-room hold behavior. Rooms in `active` mode use it. Before lux-target
+lighting, the code (`manager.go`) had no override detection.
 
 ## Interaction with existing behavior
 
@@ -179,9 +180,10 @@ rooms:
       daylight_factor: 0.02     # measured during calibration
       lux_scale: 1.0
       calibration:              # lux at working height, cans only, at night
-        - { brightness_pct: 25,  lux: 0 }
-        - { brightness_pct: 50,  lux: 0 }
-        - { brightness_pct: 100, lux: 0 }
+        # WARNING: Leaving these at zero makes the cans ignore daylight and never dim in sunlight.
+        - { brightness_pct: 25,  lux: 0 } # TODO: fill in from calibration
+        - { brightness_pct: 50,  lux: 0 } # TODO: fill in from calibration
+        - { brightness_pct: 100, lux: 0 } # TODO: fill in from calibration
 ```
 
 ## Shadow state

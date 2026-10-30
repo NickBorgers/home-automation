@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -43,7 +44,7 @@ type SoCoResponse struct {
 // SoCoClient is an HTTP client for the SoCo-CLI HTTP API.
 // It provides direct Sonos speaker control via UPnP, bypassing Home Assistant
 // for time-sensitive operations like volume fades, group join/unjoin, and playback.
-// State reads (current volume, playback status) still go through HA.
+// It also reads current volume and playback status, so speakers need no HA entity.
 type SoCoClient struct {
 	baseURL    string
 	httpClient *http.Client
@@ -316,6 +317,35 @@ func (c *SoCoClient) SetShuffle(speakerName string, enabled bool) error {
 	return c.doGet(endpoint, "shuffle", speakerName)
 }
 
+// =============================================================================
+// State Reads (safe in READ_ONLY mode)
+// =============================================================================
+
+// GetVolume returns the speaker volume as a percentage (0-100).
+func (c *SoCoClient) GetVolume(speakerName string) (int, error) {
+	// GET /{speaker}/volume
+	endpoint := fmt.Sprintf("%s/%s/volume", c.baseURL, url.PathEscape(speakerName))
+
+	result, err := c.getResult(endpoint, "volume", speakerName)
+	if err != nil {
+		return 0, err
+	}
+	volume, err := strconv.Atoi(result)
+	if err != nil {
+		return 0, fmt.Errorf("sococli volume: unexpected result %q for %s: %w", result, speakerName, err)
+	}
+	return volume, nil
+}
+
+// GetPlaybackState returns the Sonos transport state, such as "PLAYING",
+// "PAUSED_PLAYBACK", "STOPPED" or "TRANSITIONING".
+func (c *SoCoClient) GetPlaybackState(speakerName string) (string, error) {
+	// GET /{speaker}/playback
+	endpoint := fmt.Sprintf("%s/%s/playback", c.baseURL, url.PathEscape(speakerName))
+
+	return c.getResult(endpoint, "playback", speakerName)
+}
+
 // SetRepeat sets the repeat mode on a speaker.
 // mode should be "all", "one", or "off".
 func (c *SoCoClient) SetRepeat(speakerName string, mode string) error {
@@ -405,6 +435,12 @@ func isRetryableError(err error) bool {
 // doGetCtx performs a GET request with context support.
 // Use this for operations that need custom timeouts (e.g., best-effort unjoin).
 func (c *SoCoClient) doGetCtx(ctx context.Context, endpoint, action, speaker string) error {
+	_, err := c.doGetResultCtx(ctx, endpoint, action, speaker)
+	return err
+}
+
+// doGetResultCtx performs a GET request and returns the parsed SoCo-CLI response.
+func (c *SoCoClient) doGetResultCtx(ctx context.Context, endpoint, action, speaker string) (*SoCoResponse, error) {
 	c.logger.Debug("SoCo-CLI request",
 		zap.String("action", action),
 		zap.String("speaker", speaker),
@@ -412,31 +448,31 @@ func (c *SoCoClient) doGetCtx(ctx context.Context, endpoint, action, speaker str
 
 	req, err := http.NewRequestWithContext(ctx, "GET", endpoint, nil)
 	if err != nil {
-		return fmt.Errorf("sococli %s: failed to create request: %w", action, err)
+		return nil, fmt.Errorf("sococli %s: failed to create request: %w", action, err)
 	}
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("sococli %s request failed: %w", action, err)
+		return nil, fmt.Errorf("sococli %s request failed: %w", action, err)
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return fmt.Errorf("sococli %s: failed to read response body: %w", action, err)
+		return nil, fmt.Errorf("sococli %s: failed to read response body: %w", action, err)
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("sococli %s returned HTTP %d: %s", action, resp.StatusCode, string(body))
+		return nil, fmt.Errorf("sococli %s returned HTTP %d: %s", action, resp.StatusCode, string(body))
 	}
 
 	var socoResp SoCoResponse
 	if err := json.Unmarshal(body, &socoResp); err != nil {
-		return fmt.Errorf("sococli %s: failed to parse response: %w", action, err)
+		return nil, fmt.Errorf("sococli %s: failed to parse response: %w", action, err)
 	}
 
 	if socoResp.ExitCode != 0 {
-		return fmt.Errorf("sococli %s failed (exit_code=%d): %s", action, socoResp.ExitCode, socoResp.ErrorMsg)
+		return nil, fmt.Errorf("sococli %s failed (exit_code=%d): %s", action, socoResp.ExitCode, socoResp.ErrorMsg)
 	}
 
 	c.logger.Debug("SoCo-CLI response",
@@ -444,5 +480,29 @@ func (c *SoCoClient) doGetCtx(ctx context.Context, endpoint, action, speaker str
 		zap.String("speaker", speaker),
 		zap.String("result", socoResp.Result))
 
-	return nil
+	return &socoResp, nil
+}
+
+// getResult performs a GET with retries and returns the SoCo-CLI result string.
+// Used by state reads, which are safe in READ_ONLY mode.
+func (c *SoCoClient) getResult(endpoint, action, speaker string) (string, error) {
+	var lastErr error
+	for attempt := 0; attempt <= socoMaxRetries; attempt++ {
+		if attempt > 0 {
+			time.Sleep(socoRetryDelay)
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), socoAttemptTimeout)
+		resp, err := c.doGetResultCtx(ctx, endpoint, action, speaker)
+		cancel()
+		if err == nil {
+			return strings.TrimSpace(resp.Result), nil
+		}
+
+		lastErr = err
+		if !isRetryableError(err) {
+			return "", err
+		}
+	}
+	return "", fmt.Errorf("sococli %s: all %d attempts failed: %w", action, socoMaxRetries+1, lastErr)
 }

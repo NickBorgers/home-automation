@@ -1,4 +1,7 @@
 ---
+# TEMPORARY: The Lounge speaker is out of every mode. It gets too little WiFi
+# signal until the WiFi rollout is complete. To restore it, revert the commit
+# that removed it, or add it back to each mode's participants.
 # Phase 2: Zone definitions for multi-zone music playback
 # Zones are evaluated in priority order.
 # Higher priority zones claim speakers first.
@@ -108,9 +111,6 @@ music:
       - player_name: "Pantry"
         base_volume: 8
         leave_muted_if: []
-      - player_name: "Lounge"
-        base_volume: 8
-        leave_muted_if: []
       - player_name: "Kids Bathroom"
         base_volume: 7
         leave_muted_if:
@@ -156,9 +156,6 @@ music:
   day:
     participants:
       - player_name: "Pantry"
-        base_volume: 9
-        leave_muted_if: []
-      - player_name: "Lounge"
         base_volume: 9
         leave_muted_if: []
       - player_name: "Kids Bathroom"
@@ -225,9 +222,6 @@ music:
   evening:
     participants:
       - player_name: "Pantry"
-        base_volume: 8
-        leave_muted_if: []
-      - player_name: "Lounge"
         base_volume: 8
         leave_muted_if: []
       - player_name: "Kids Bathroom"
@@ -352,9 +346,6 @@ music:
       - player_name: "Pantry"
         base_volume: 7
         leave_muted_if: []
-      - player_name: "Lounge"
-        base_volume: 7
-        leave_muted_if: []
       - player_name: "Kids Bathroom"
         base_volume: 8
         leave_muted_if:
@@ -401,9 +392,6 @@ music:
       - player_name: "Pantry"
         base_volume: 9
         leave_muted_if: []
-      - player_name: "Lounge"
-        base_volume: 9
-        leave_muted_if: []
       - player_name: "Bedroom"
         base_volume: 12
         leave_muted_if: []
@@ -419,10 +407,6 @@ music:
       - uri: "http://rain-sounds.nickborgers.net:8080/playlists/sleep-rain-1.m3u"
         media_type: music
         volume_multiplier: 1.6
-      # yamllint disable-line rule:line-length
-      - uri: "http://rain-sounds.nickborgers.net:8080/playlists/sleep-rain-2.m3u"
-        media_type: music
-        volume_multiplier: 1.45
       # yamllint disable-line rule:line-length
       - uri: "http://rain-sounds.nickborgers.net:8080/playlists/sleep-rain-4.m3u"
         media_type: music
@@ -442,10 +426,6 @@ music:
       - uri: "http://rain-sounds.nickborgers.net:8080/playlists/sleep-rain-1.m3u"
         media_type: music
         volume_multiplier: 1.6
-      # yamllint disable-line rule:line-length
-      - uri: "http://rain-sounds.nickborgers.net:8080/playlists/sleep-rain-2.m3u"
-        media_type: music
-        volume_multiplier: 1.45
       # yamllint disable-line rule:line-length
       - uri: "http://rain-sounds.nickborgers.net:8080/playlists/sleep-rain-4.m3u"
         media_type: music

@@ -6,7 +6,7 @@ This document describes the lighting automation flow, which manages whole-home l
 
 The lighting plugin provides intelligent lighting control by:
 1. Calculating scenes based on day phase and context
-2. Respecting manual overrides and protection modes
+2. Respecting manual overrides (rooms with active lux control) and protecting special modes
 3. Managing transitions for natural light progression
 4. Supporting special scenarios (wake-up, away mode)
 
@@ -167,7 +167,7 @@ sequenceDiagram
     Note over LM: Bedroom lights now<br/>follow normal automation
 ```
 
-## Manual Override Detection
+## Manual Override Holds
 
 Rooms with `lux_control.mode: active` hold after a manual change. Rooms without lux control, and rooms in `log_only` mode, have no hold. See [LUX_LIGHTING.md](./LUX_LIGHTING.md).
 
