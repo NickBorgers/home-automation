@@ -3036,33 +3036,33 @@ func TestPlaybackVerification(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name           string
-		speakerState   string   // Single state (used if stateSequence is nil)
-		stateSequence  []string // State sequence for recovery scenarios
+		speakerState   string   // Single SoCo transport state (used if stateSequence is nil)
+		stateSequence  []string // SoCo transport state sequence for recovery scenarios
 		expectAttempts int
 		expectError    bool
 	}{
 		{
 			name:           "Speaker playing on first try",
-			speakerState:   "playing",
+			speakerState:   "PLAYING",
 			expectAttempts: 1,
 		},
 		{
 			name:           "Speaker paused - requires retry",
-			speakerState:   "paused",
+			speakerState:   "PAUSED_PLAYBACK",
 			expectAttempts: 3,
 			expectError:    true,
 		},
 		{
-			name:           "Speaker idle - requires retry",
-			speakerState:   "idle",
+			name:           "Speaker stopped - requires retry",
+			speakerState:   "STOPPED",
 			expectAttempts: 3,
 			expectError:    true,
 		},
 		{
 			// Tidal path retries PlayShareLink on failure, no HA nudge mechanism.
-			// State goes idle → playing on second attempt.
+			// State goes stopped → playing on second attempt.
 			name:           "Recovery after retry via SoCo-CLI",
-			stateSequence:  []string{"idle", "playing"},
+			stateSequence:  []string{"STOPPED", "PLAYING"},
 			expectAttempts: 2,
 		},
 	}
@@ -3074,14 +3074,13 @@ func TestPlaybackVerification(t *testing.T) {
 			manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, false, nil, nil)
 			manager.SetSleepFunc(func(d time.Duration) {})
 
-			// Wire up mock SoCo server for Tidal playback path
-			setupSoCoForTest(t, manager, false)
-
-			if tt.stateSequence != nil {
-				env.MockHA.SetStateSequence("media_player.kitchen", tt.stateSequence)
-			} else {
-				env.MockHA.SetState("media_player.kitchen", tt.speakerState, nil)
+			// Wire up mock SoCo server for Tidal playback path. It also answers the
+			// playback state reads, so no Home Assistant entity is involved.
+			states := tt.stateSequence
+			if states == nil {
+				states = []string{tt.speakerState}
 			}
+			setupSoCoWithPlayback(t, manager, states, "10")
 
 			option := PlaybackOption{URI: "https://tidal.com/browse/playlist/test", MediaType: "tidal", VolumeMultiplier: 1.0}
 			attempts, err := manager.startPlaybackWithVerification("media_player.kitchen", "Kitchen", option)
@@ -3111,10 +3110,15 @@ func TestStartPlaybackWithVerification_TidalDispatch(t *testing.T) {
 				actions = append(actions, "clear_queue")
 			case r.URL.Path == "/Kitchen/play_from_queue":
 				actions = append(actions, "play_from_queue")
+			case r.URL.Path == "/Kitchen/playback":
+				// State read: the speaker reports it is playing
 			default:
 				actions = append(actions, "sharelink")
 			}
 			resp := SoCoResponse{Result: "ok", ExitCode: 0}
+			if r.URL.Path == "/Kitchen/playback" {
+				resp.Result = "PLAYING"
+			}
 			json.NewEncoder(w).Encode(resp)
 		}))
 		defer server.Close()
@@ -3124,9 +3128,6 @@ func TestStartPlaybackWithVerification_TidalDispatch(t *testing.T) {
 		manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, false, nil, nil)
 		manager.SetSleepFunc(func(d time.Duration) {})
 		manager.SetSoCoClient(NewSoCoClient(server.URL, env.Logger, false))
-
-		// Set speaker to "playing" so verification passes on first attempt
-		env.MockHA.SetState("media_player.kitchen", "playing", nil)
 
 		option := PlaybackOption{
 			URI:              "https://tidal.com/browse/playlist/abc123",
@@ -3186,7 +3187,7 @@ func TestIsPlaybackActive(t *testing.T) {
 			manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, false, nil, nil)
 			env.MockHA.SetState("media_player.kitchen", tt.speakerState, nil)
 
-			isPlaying, err := manager.isPlaybackActive("media_player.kitchen")
+			isPlaying, err := manager.isPlaybackActive("Kitchen")
 			if err != nil {
 				t.Fatalf("Unexpected error: %v", err)
 			}

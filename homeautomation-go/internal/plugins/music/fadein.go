@@ -28,11 +28,9 @@ func (m *Manager) fadeOutSpeakers() {
 		zap.Int("speaker_count", len(currentlyPlaying.Participants)))
 
 	// Get current volumes for each speaker to fade from
-	// Key is speaker name for SoCo routing; HA state reads use entity IDs
 	speakerVolumes := make(map[string]int)
 	for _, p := range currentlyPlaying.Participants {
-		entityID := m.getSpeakerEntityID(p.PlayerName)
-		currentVolume := m.getSpeakerVolume(entityID)
+		currentVolume := m.getSpeakerVolume(p.PlayerName)
 		if currentVolume > 0 {
 			speakerVolumes[p.PlayerName] = currentVolume
 		}
@@ -721,7 +719,7 @@ func (m *Manager) fadeInSpeaker(ctx context.Context, speakerName string, targetV
 		// IMPORTANT: Skip this check if context is cancelled - the volume change was from
 		// the new playback sequence, not a human
 		if lastSuccessfulVolume > 0 && currentVolume < targetVolume {
-			actualVolume := m.getSpeakerVolume(entityID)
+			actualVolume := m.getSpeakerVolume(speakerName)
 			// Skip check if we couldn't get the volume (returns -1)
 			// For fade-in: if actual volume is significantly LOWER than what we set,
 			// someone is fighting the fade-in (turning it down)
@@ -766,9 +764,22 @@ func (m *Manager) fadeInSpeaker(ctx context.Context, speakerName string, targetV
 	m.clearFadeInProgress(entityID)
 }
 
-// getSpeakerVolume queries the current volume from Home Assistant
-// Returns volume as percentage (0-100)
-func (m *Manager) getSpeakerVolume(speakerEntityID string) int {
+// getSpeakerVolume queries the current volume of a speaker by name.
+// Reads from SoCo-CLI when configured, otherwise from the Home Assistant entity.
+// Returns volume as percentage (0-100), or -1 if it cannot be read.
+func (m *Manager) getSpeakerVolume(speakerName string) int {
+	if m.socoClient != nil {
+		volume, err := m.socoClient.GetVolume(speakerName)
+		if err != nil {
+			m.logger.Warn("Failed to get speaker volume for override detection",
+				zap.String("speaker", speakerName),
+				zap.Error(err))
+			return -1
+		}
+		return volume
+	}
+
+	speakerEntityID := m.getSpeakerEntityID(speakerName)
 	state, err := m.haClient.GetState(speakerEntityID)
 	if err != nil {
 		m.logger.Warn("Failed to get speaker state for override detection",

@@ -86,6 +86,36 @@ func mockSoCoServer(t *testing.T) (*httptest.Server, *threadSafePaths) {
 	return server, recorded
 }
 
+// setupSoCoWithPlayback wires a mock SoCo-CLI server into the manager whose /playback
+// and /volume reads are scripted. Each /playback call returns the next transport state
+// (such as "PLAYING" or "STOPPED"), repeating the last one. Every other path succeeds.
+func setupSoCoWithPlayback(t *testing.T, manager *Manager, transportStates []string, volume string) *threadSafePaths {
+	t.Helper()
+	recorded := &threadSafePaths{}
+	var mu sync.Mutex
+	next := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		recorded.Append(r.URL.Path)
+		resp := SoCoResponse{Result: "success", ExitCode: 0}
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/playback"):
+			mu.Lock()
+			resp.Result = transportStates[next]
+			if next < len(transportStates)-1 {
+				next++
+			}
+			mu.Unlock()
+		case strings.HasSuffix(r.URL.Path, "/volume"):
+			resp.Result = volume
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(resp)
+	}))
+	t.Cleanup(server.Close)
+	manager.SetSoCoClient(NewSoCoClient(server.URL, zap.NewNop(), false))
+	return recorded
+}
+
 // setupSoCoForTest creates a mock SoCo-CLI server and wires it into the manager.
 // Use this for tests with media_type "tidal" to exercise the production code path.
 // Uses zap.NewNop() to avoid panics when goroutines spawned by executePlayback

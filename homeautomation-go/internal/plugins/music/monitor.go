@@ -9,8 +9,27 @@ import (
 )
 
 // isPlaybackActive checks if the speaker is currently in a playing state.
-// Returns true if state is "playing", false for "paused", "idle", "off", etc.
-func (m *Manager) isPlaybackActive(entityID string) (bool, error) {
+// Reads from SoCo-CLI when configured, otherwise from the Home Assistant entity.
+// Returns true if the speaker is playing, false for paused, stopped, idle, off, etc.
+func (m *Manager) isPlaybackActive(speakerName string) (bool, error) {
+	if m.socoClient != nil {
+		transport, err := m.socoClient.GetPlaybackState(speakerName)
+		if err != nil {
+			return false, fmt.Errorf("failed to get speaker state: %w", err)
+		}
+
+		// Sonos transport states: PLAYING, PAUSED_PLAYBACK, STOPPED, TRANSITIONING
+		isPlaying := transport == "PLAYING"
+
+		m.logger.Debug("Checked playback state",
+			zap.String("speaker", speakerName),
+			zap.String("state", transport),
+			zap.Bool("is_playing", isPlaying))
+
+		return isPlaying, nil
+	}
+
+	entityID := m.getSpeakerEntityID(speakerName)
 	state, err := m.haClient.GetState(entityID)
 	if err != nil {
 		return false, fmt.Errorf("failed to get speaker state: %w", err)
@@ -46,7 +65,7 @@ func (m *Manager) cancelPlaybackMonitor() {
 // startPlaybackMonitor starts a new playback health monitor goroutine.
 // It cancels any existing monitor first, then launches a new one.
 // The monitor polls the lead speaker state and attempts recovery if auto-pause is detected.
-// leadEntityID is used for state reads (via HA), leadSpeakerName for commands (via SoCo/HA).
+// leadEntityID labels shadow state, leadSpeakerName is used for state reads and commands.
 func (m *Manager) startPlaybackMonitor(leadEntityID, leadSpeakerName, musicType string) {
 	m.playbackMonitorMu.Lock()
 	defer m.playbackMonitorMu.Unlock()
@@ -76,7 +95,7 @@ func (m *Manager) startPlaybackMonitor(leadEntityID, leadSpeakerName, musicType 
 // monitorPlaybackHealth polls the lead speaker state and detects auto-pause.
 // If auto-pause is detected (playing -> paused), it attempts recovery ONCE via media_play.
 // The monitor exits after: recovery attempt, timeout, or cancellation.
-// leadEntityID is used for state reads, leadSpeakerName for recovery commands.
+// leadEntityID labels shadow state, leadSpeakerName is used for state reads and recovery commands.
 func (m *Manager) monitorPlaybackHealth(ctx context.Context, leadEntityID, leadSpeakerName, musicType string) {
 	// Signal completion for test synchronization (if callback is set)
 	defer func() {
@@ -125,7 +144,7 @@ func (m *Manager) monitorPlaybackHealth(ctx context.Context, leadEntityID, leadS
 		}
 
 		// Get current speaker state (state read via HA)
-		playing, err := m.isPlaybackActive(leadEntityID)
+		playing, err := m.isPlaybackActive(leadSpeakerName)
 		if err != nil {
 			m.logger.Warn("Failed to check playback state during health monitor",
 				zap.String("lead_speaker", leadSpeakerName),
@@ -150,7 +169,7 @@ func (m *Manager) monitorPlaybackHealth(ctx context.Context, leadEntityID, leadS
 			m.sleepFunc(playbackRecoveryDelay)
 
 			// Re-check state after delay
-			resumedOnItsOwn, checkErr := m.isPlaybackActive(leadEntityID)
+			resumedOnItsOwn, checkErr := m.isPlaybackActive(leadSpeakerName)
 			if checkErr == nil && resumedOnItsOwn {
 				// Speaker resumed on its own (transient state)
 				m.logger.Debug("Speaker resumed on its own, continuing monitoring",
@@ -185,7 +204,7 @@ func (m *Manager) monitorPlaybackHealth(ctx context.Context, leadEntityID, leadS
 
 // attemptPlaybackRecovery sends a play command to resume playback.
 // Returns true if playback resumed successfully, false otherwise.
-// leadEntityID is used for state verification, leadSpeakerName for the play command.
+// leadSpeakerName is used for the play command and the state verification.
 func (m *Manager) attemptPlaybackRecovery(leadEntityID, leadSpeakerName string) bool {
 	// Send play command (routed to SoCo or HA)
 	if err := m.speakerPlay(leadSpeakerName); err != nil {
@@ -199,7 +218,7 @@ func (m *Manager) attemptPlaybackRecovery(leadEntityID, leadSpeakerName string) 
 	m.sleepFunc(playbackRecoveryDelay)
 
 	// Verify playback resumed (state read via HA)
-	playing, err := m.isPlaybackActive(leadEntityID)
+	playing, err := m.isPlaybackActive(leadSpeakerName)
 	if err != nil {
 		m.logger.Warn("Failed to verify recovery",
 			zap.String("speaker", leadSpeakerName),
