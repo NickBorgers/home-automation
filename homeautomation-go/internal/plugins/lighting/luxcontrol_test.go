@@ -96,6 +96,7 @@ func canReport(state string, brightness255 float64, kelvin float64) *ha.State {
 }
 
 func TestStartLux_ConfiguresOutdoorSmoothingWindow(t *testing.T) {
+	t.Parallel()
 	f := newLuxFixture(t, LuxModeLogOnly, false)
 	f.manager.config.LuxCurve.SmoothingMinutes = 12
 
