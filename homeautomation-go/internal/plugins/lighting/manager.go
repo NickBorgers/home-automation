@@ -1034,6 +1034,10 @@ func (m *Manager) Reset() error {
 	m.logger.Info("Re-activating scenes for current day phase",
 		zap.String("day_phase", dayPhase))
 
+	// Reset acts like turning every room off and on: end manual holds and forget the last
+	// lux command, so scenes and the next lux tick apply fresh values.
+	m.clearAllLuxHolds("reset")
+
 	// Re-apply scenes for all rooms (like the comment says: "like reset in Node-RED")
 	m.activateScenesForAllRooms(dayPhase, "reset")
 

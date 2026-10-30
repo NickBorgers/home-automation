@@ -341,6 +341,39 @@ func TestLux_HoldSurvivesDayPhaseAndSunEventChanges(t *testing.T) {
 	assert.True(t, f.manager.luxHeld(f.room))
 }
 
+func TestLux_ResetClearsHold(t *testing.T) {
+	t.Parallel()
+	// USER STORY: I ran reset. The room must behave as if its lights were turned off and on again.
+	tests := []struct {
+		name   string
+		report *ha.State
+	}{
+		{"brightness turned up", canReport("on", 255, 3000)},
+		{"color temperature moved", canReport("on", 112, 3000)},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := heldFixtureAfterCommand(t)
+			require.NoError(t, f.env.StateMgr.SetString("dayPhase", "day"))
+			f.manager.handleCansChange(f.room, tt.report)
+			require.True(t, f.manager.luxHeld(f.room))
+
+			// WHEN: reset runs
+			f.env.MockHA.ClearServiceCalls()
+			require.NoError(t, f.manager.Reset())
+
+			// THEN: the hold is gone, and the cans got lux values (as after off then on)
+			assert.False(t, f.manager.luxHeld(f.room))
+			assert.NotEmpty(t, f.lightCalls(), "cans commanded after reset")
+
+			// AND: the next tick re-evaluates the room instead of leaving it alone
+			f.clock.Advance(time.Minute)
+			f.manager.luxTick()
+			assert.NotContains(t, f.decision(), "held")
+		})
+	}
+}
+
 func TestLux_HoldClearsWhenRoomCyclesOffAndOn(t *testing.T) {
 	t.Parallel()
 	f := heldFixtureAfterCommand(t)
