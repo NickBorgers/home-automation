@@ -95,6 +95,18 @@ func canReport(state string, brightness255 float64, kelvin float64) *ha.State {
 	return &ha.State{EntityID: luxTestCans, State: state, Attributes: attrs}
 }
 
+func TestStartLux_ConfiguresOutdoorSmoothingWindow(t *testing.T) {
+	t.Parallel()
+	f := newLuxFixture(t, LuxModeLogOnly, false)
+	f.manager.config.LuxCurve.SmoothingMinutes = 12
+
+	require.NoError(t, f.manager.startLux())
+	t.Cleanup(f.manager.stopLux)
+
+	require.NotNil(t, f.manager.luxOutdoor)
+	assert.Equal(t, 12*time.Minute, f.manager.luxOutdoor.window)
+}
+
 func TestLux_CloudyNoonSendsFillInBrightness(t *testing.T) {
 	t.Parallel()
 	// GIVEN: noon (target 300 lux, 5000 K), outdoor 10,000 lux × 0.02 = 200 lux of daylight
