@@ -431,7 +431,7 @@ The SoCo-CLI HTTP API (v0.4.82) provides direct UPnP control of Sonos speakers. 
 
 **Response format** (Go struct `SoCoResponse` in `sococli.go` captures all fields except `args`):
 ```json
-{"speaker": "Kitchen", "action": "volume", "args": [], "exit_code": 0, "result": "9", "error_msg": ""}
+{"speaker": "Pantry", "action": "volume", "args": [], "exit_code": 0, "result": "9", "error_msg": ""}
 ```
 
 ### Read-Only Test Commands
@@ -443,14 +443,14 @@ These commands query state without modifying anything:
 curl -s https://soco-cli.featherback-mermaid.ts.net/speakers | jq
 
 # Get current volume (read-only)
-curl -s https://soco-cli.featherback-mermaid.ts.net/Kitchen/volume | jq
-curl -s "https://soco-cli.featherback-mermaid.ts.net/Front%20Room/volume" | jq
+curl -s https://soco-cli.featherback-mermaid.ts.net/Pantry/volume | jq
+curl -s "https://soco-cli.featherback-mermaid.ts.net/Sitting%20Room/volume" | jq
 
 # Check playback status
 curl -s https://soco-cli.featherback-mermaid.ts.net/Bedroom/playback | jq
 
 # View speaker groups
-curl -s https://soco-cli.featherback-mermaid.ts.net/Kitchen/groups | jq
+curl -s https://soco-cli.featherback-mermaid.ts.net/Pantry/groups | jq
 
 # Force speaker rediscovery
 curl -s https://soco-cli.featherback-mermaid.ts.net/rediscover | jq
@@ -462,28 +462,28 @@ These commands change speaker state. Use only when actively testing:
 
 ```bash
 # Set volume (0-100)
-curl -s https://soco-cli.featherback-mermaid.ts.net/Kitchen/volume/10 | jq
+curl -s https://soco-cli.featherback-mermaid.ts.net/Pantry/volume/10 | jq
 
 # Mute / unmute
-curl -s https://soco-cli.featherback-mermaid.ts.net/Kitchen/mute | jq
-curl -s https://soco-cli.featherback-mermaid.ts.net/Kitchen/mute/off | jq
+curl -s https://soco-cli.featherback-mermaid.ts.net/Pantry/mute | jq
+curl -s https://soco-cli.featherback-mermaid.ts.net/Pantry/mute/off | jq
 
 # Group / ungroup speakers
-curl -s "https://soco-cli.featherback-mermaid.ts.net/Kitchen/group/Front%20Room" | jq
-curl -s https://soco-cli.featherback-mermaid.ts.net/Kitchen/ungroup | jq
+curl -s "https://soco-cli.featherback-mermaid.ts.net/Pantry/group/Lounge" | jq
+curl -s https://soco-cli.featherback-mermaid.ts.net/Pantry/ungroup | jq
 
 # Playback control
-curl -s https://soco-cli.featherback-mermaid.ts.net/Kitchen/play | jq
-curl -s https://soco-cli.featherback-mermaid.ts.net/Kitchen/pause | jq
+curl -s https://soco-cli.featherback-mermaid.ts.net/Pantry/play | jq
+curl -s https://soco-cli.featherback-mermaid.ts.net/Pantry/pause | jq
 
 # Shuffle / repeat
-curl -s https://soco-cli.featherback-mermaid.ts.net/Kitchen/shuffle/on | jq
-curl -s https://soco-cli.featherback-mermaid.ts.net/Kitchen/repeat/all | jq
+curl -s https://soco-cli.featherback-mermaid.ts.net/Pantry/shuffle/on | jq
+curl -s https://soco-cli.featherback-mermaid.ts.net/Pantry/repeat/all | jq
 
 # Tidal playback (the full sequence used by PlayShareLink)
-curl -s "https://soco-cli.featherback-mermaid.ts.net/Front%20Room/clear_queue" | jq
-curl -s "https://soco-cli.featherback-mermaid.ts.net/Front%20Room/sharelink/https%3A%2F%2Ftidal.com%2Fbrowse%2Fplaylist%2F..." | jq
-curl -s "https://soco-cli.featherback-mermaid.ts.net/Front%20Room/play_from_queue" | jq
+curl -s "https://soco-cli.featherback-mermaid.ts.net/Sitting%20Room/clear_queue" | jq
+curl -s "https://soco-cli.featherback-mermaid.ts.net/Sitting%20Room/sharelink/https%3A%2F%2Ftidal.com%2Fbrowse%2Fplaylist%2F..." | jq
+curl -s "https://soco-cli.featherback-mermaid.ts.net/Sitting%20Room/play_from_queue" | jq
 ```
 
 ### Available Speakers
@@ -492,18 +492,19 @@ These speakers are discovered by SoCo and match the `player_name` values in `con
 
 | Speaker | In Music Config | Notes |
 |---------|----------------|-------|
-| Front Room | Yes | Typical group leader |
-| Kitchen | Yes | |
+| Pantry | Yes | Group leader in most zones |
+| Lounge | Yes | Replaces the old Front Room. Too far from the WAP to lead |
 | Kids Bathroom | Yes | |
-| Bedroom | Yes | Excluded from some zones when master is asleep |
+| Bedroom | Yes | 5 GHz capable. Excluded from some zones when master is asleep |
 | Sitting Room | Yes | |
-| Primary Bathroom | Yes | |
 | Barn | No | Not used in music automation |
-| Soundbar | No | Not used in music automation |
+
+The old Front Room, Kitchen, Primary Bathroom and Soundbar speakers are offline and not in the config.
+Run `curl -s https://soco-cli.featherback-mermaid.ts.net/rediscover` before you trust the list. A stale cache can hide speakers.
 
 ### Key Implementation Details
 
-- **URL encoding:** Speaker names with spaces use `url.PathEscape()` (e.g., `Front%20Room`). The API handles this correctly.
+- **URL encoding:** Speaker names with spaces use `url.PathEscape()` (e.g., `Sitting%20Room`). The API handles this correctly.
 - **Fallback:** If `SOCO_CLI_URL` env var is unset, all speaker commands fall back to Home Assistant WebSocket API (`speaker_commands.go` dual-path routing).
 - **Timeouts:** Standard operations use 5s per-attempt timeout; `sharelink` uses 30s (downloads and enqueues content).
 - **Retries:** Network errors and HTTP 5xx/429 retry up to 3 total attempts with 500ms delay. Application errors (`exit_code != 0`) and HTTP 4xx do not retry.

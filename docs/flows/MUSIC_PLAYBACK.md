@@ -300,7 +300,7 @@ flowchart TD
 ```yaml
 # From music_config.yaml - example using TV-based muting
 participants:
-  - player_name: "Kitchen"
+  - player_name: "Sitting Room"
     base_volume: 9
     leave_muted_if:
       - variable: "isTVPlaying"
@@ -310,7 +310,7 @@ participants:
 When `isTVPlaying` changes from `true` to `false`:
 1. Music plugin detects the mute condition variable change
 2. Re-evaluates the speaker's mute conditions
-3. Unmutes the Kitchen speaker (already at target volume)
+3. Unmutes the Sitting Room speaker (already at target volume)
 
 ## Volume Fade-In
 

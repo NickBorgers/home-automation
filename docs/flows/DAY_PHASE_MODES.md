@@ -312,7 +312,7 @@ flowchart TB
 
     subgraph WakeSequence["Wake Sequence Active"]
         fadeBed["Bedroom: Fade-out<br/>(managed by sleephygiene)"]
-        morningRest["Kitchen, Primary Bathroom: Morning music<br/>(priority 50)"]
+        morningRest["Pantry, Lounge, Sitting Room, Kids Bathroom: Morning music<br/>(priority 50)"]
     end
 
     subgraph FullyAwake["Person Wakes Up"]
@@ -332,9 +332,9 @@ flowchart TB
 
 | Zone | Priority | Trigger Conditions | Speakers |
 |------|----------|-------------------|----------|
-| `sleep-prep` | 90 | `dayPhase=night` + `isAnyoneHome=true` + `isMasterAsleep=false` | Bedroom, Kitchen, Primary Bathroom (whole house) |
-| `sleep` | 100 | `isMasterAsleep=true` + `isAnyoneHome=true` + `isWakeSequenceActive=false` | Bedroom, Kitchen, Primary Bathroom |
-| `morning` | 50 | `dayPhase=morning` + `isAnyoneAsleep=false` + `isAnyoneHome=true` **OR** `isWakeSequenceActive=true` + `dayPhase=morning` + `isAnyoneHome=true` **OR** `dayPhase=morning` + `isAnyoneHomeAndAwake=true` (wake latch) | Kitchen (Bedroom + Primary Bathroom excluded via `exclude_if: isMasterAsleep=true`) |
+| `sleep-prep` | 90 | `dayPhase=night` + `isAnyoneHome=true` + `isMasterAsleep=false` | Pantry, Lounge, Bedroom, Sitting Room (whole house) |
+| `sleep` | 100 | `isMasterAsleep=true` + `isAnyoneHome=true` + `isWakeSequenceActive=false` | Bedroom only |
+| `morning` | 50 | `dayPhase=morning` + `isAnyoneAsleep=false` + `isAnyoneHome=true` **OR** `isWakeSequenceActive=true` + `dayPhase=morning` + `isAnyoneHome=true` **OR** `dayPhase=morning` + `isAnyoneHomeAndAwake=true` (wake latch) | Pantry, Lounge, Kids Bathroom, Sitting Room (Bedroom excluded via `exclude_if: isMasterAsleep=true`) |
 
 ### Key Behaviors
 
@@ -354,10 +354,10 @@ flowchart TB
 ### Timeline Example
 
 ```
-Time    Event                           Bedroom              Kitchen
-────    ─────                           ───────              ───────
-T0      Night, isMasterAsleep=true      Sleep music          Sleep music
-        isWakeSequenceActive=false      (sleep zone)         (sleep zone)
+Time    Event                           Bedroom              Pantry
+────    ─────                           ───────              ──────
+T0      Night, isMasterAsleep=true      Sleep music          (silent)
+        isWakeSequenceActive=false      (sleep zone)
 
 T1      Alarm triggers                  Fade-out             Morning music
         isWakeSequenceActive=true       (sleephygiene)       (morning zone)
