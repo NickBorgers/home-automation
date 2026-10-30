@@ -169,39 +169,31 @@ sequenceDiagram
 
 ## Manual Override Detection
 
-The lighting plugin respects manual changes:
+Rooms with `lux_control.mode: active` hold after a manual change. Rooms without lux control, and rooms in `log_only` mode, have no hold. See [LUX_LIGHTING.md](./LUX_LIGHTING.md).
+
+The plugin remembers the last brightness and kelvin it sent to the room's cans. A report from Home Assistant that differs from that command, after the command's transition ends, counts as a manual change.
 
 ```mermaid
 flowchart TD
-    subgraph Detection["Override Detection"]
-        expected["Expected state<br/>(from last command)"]
-        actual["Actual state<br/>(from HA)"]
-        compare{"States<br/>match?"}
-    end
+    report["HA reports cans state"] --> window{"Inside the command's<br/>transition window?"}
+    window -->|Yes| ignore["Ignore"]
+    window -->|No| owned{"Room 'on'?<br/>(not TV / sleep)"}
+    owned -->|No| ignore
+    owned -->|Yes| compare{"Differs from last command?<br/>(5% brightness, 150 K)"}
+    compare -->|No| ignore
+    compare -->|Yes| held["Room held"]
 
-    subgraph Response["Response"]
-        normal["Continue<br/>normal automation"]
-        override["Mark as<br/>manually overridden"]
-        protect["Skip automation<br/>for this light"]
-    end
+    held --> keep["Lux loop and scene recalls<br/>leave the room alone"]
 
-    subgraph Reset["Override Reset"]
-        dayPhaseChange["Day phase<br/>changes"]
-        clearOverride["Clear override<br/>flag"]
-    end
+    cycle["Room turns off, then on"] --> clear["Hold cleared"]
+    asleep["Everyone asleep"] --> clear
+    away["Nobody home"] --> clear
 
-    expected --> compare
-    actual --> compare
-    compare -->|Yes| normal
-    compare -->|No| override
-    override --> protect
-
-    dayPhaseChange --> clearOverride
-    clearOverride --> normal
-
-    style override fill:#f39c12,color:#fff
-    style protect fill:#e74c3c,color:#fff
+    style held fill:#f39c12,color:#fff
+    style keep fill:#e74c3c,color:#fff
 ```
+
+A day phase or sun event change does **not** clear the hold.
 
 ## Edge-Triggered Activation (skip_reactivation_when_on)
 

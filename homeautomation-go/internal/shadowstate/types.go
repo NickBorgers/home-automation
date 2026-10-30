@@ -329,6 +329,26 @@ func NewIntegrationWatchdogShadowState() *IntegrationWatchdogShadowState {
 type LightingOutputs struct {
 	Rooms          map[string]RoomState `json:"rooms"`
 	LastActionTime time.Time            `json:"lastActionTime"`
+	// LuxControl holds the latest lux-target decision for each lux-controlled room.
+	LuxControl map[string]LuxControlState `json:"luxControl,omitempty"`
+}
+
+// LuxControlState records the last lux-control tick for one room.
+// See docs/flows/LUX_LIGHTING.md, "Shadow state".
+type LuxControlState struct {
+	Mode             string    `json:"mode"`
+	CurvePoint       string    `json:"curvePoint"` // e.g. "sun.noon -> sun.goldenHour @ 0.42"
+	TargetLux        float64   `json:"targetLux"`
+	TargetKelvin     int       `json:"targetKelvin"`
+	OutdoorLux       float64   `json:"outdoorLux"`
+	DaylightEstimate float64   `json:"daylightEstimate"`
+	NeededLux        float64   `json:"neededLux"`
+	BrightnessPct    float64   `json:"brightnessPct"`
+	Held             bool      `json:"held"`
+	HeldSince        time.Time `json:"heldSince,omitempty"`
+	HeldReason       string    `json:"heldReason,omitempty"`
+	Decision         string    `json:"decision"`
+	UpdatedAt        time.Time `json:"updatedAt"`
 }
 
 // RoomState represents the state of a single room

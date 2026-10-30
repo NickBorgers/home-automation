@@ -206,6 +206,19 @@ func (lt *LightingTracker) RecordRoomAction(roomName string, actionType string, 
 	lt.State().Metadata.LastUpdated = now
 }
 
+// RecordLuxControl stores the latest lux-control decision for a room.
+func (lt *LightingTracker) RecordLuxControl(roomName string, s LuxControlState) {
+	lt.Lock()
+	defer lt.Unlock()
+
+	if lt.State().Outputs.LuxControl == nil {
+		lt.State().Outputs.LuxControl = make(map[string]LuxControlState)
+	}
+	s.UpdatedAt = time.Now()
+	lt.State().Outputs.LuxControl[roomName] = s
+	lt.State().Metadata.LastUpdated = s.UpdatedAt
+}
+
 // GetState returns the current shadow state (thread-safe copy)
 func (lt *LightingTracker) GetState() *LightingShadowState {
 	lt.RLock()
@@ -227,6 +240,12 @@ func (lt *LightingTracker) GetState() *LightingShadowState {
 
 	for k, v := range s.Outputs.Rooms {
 		stateCopy.Outputs.Rooms[k] = v
+	}
+	if len(s.Outputs.LuxControl) > 0 {
+		stateCopy.Outputs.LuxControl = make(map[string]LuxControlState, len(s.Outputs.LuxControl))
+		for k, v := range s.Outputs.LuxControl {
+			stateCopy.Outputs.LuxControl[k] = v
+		}
 	}
 
 	return stateCopy

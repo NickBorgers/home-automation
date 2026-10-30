@@ -1,6 +1,6 @@
 # Lux-Target Lighting (Design)
 
-**Status:** Proposed, 2026-10-29. Nothing in this document is built yet.
+**Status:** Rollout steps 1 and 5 are built; the Living Room ships in `log_only` mode (2026-10-30). Calibration, the Hue zones and the switch to `active` are still manual work. See "Implementation notes" at the end.
 
 ## Summary
 
@@ -227,6 +227,19 @@ Turn off any Hue-bridge automation on a controlled room: the "Natural light" sch
 5. Turn on the manual hold for every room, including rooms still on scenes. This fixes the evening problem everywhere, even before every room has lux control.
 
 Step 5 does not depend on the lux loop. It could ship first.
+
+## Implementation notes
+
+What the code does, where it differs from the text above, and what is left.
+
+- **Code:** `luxcurve.go` (curve and math), `luxcontrol.go` (loop, hold, shadow state), `luxanchors.go` (sun and schedule times), all in `internal/plugins/lighting/`.
+- **Living Room is `log_only`.** Scenes still drive the room. Shadow state shows what the loop would send. The config values for `daylight_factor` and `calibration` are estimates, and `calibrated: false` marks them so. Config loading refuses `mode: active` until `calibrated: true`.
+- **Hold applies in `active` mode only.** In `log_only` the plugin sends no commands, so it has nothing to compare against. Rooms without `lux_control` (step 5 for rooms still on scenes) have no light entity to watch and are not covered yet.
+- **Manual changes are found by comparing values.** The design also named `context.user_id`. The code does not use it. The Home Assistant token belongs to a person, so the plugin's own calls and that person's manual changes carry the same user ID.
+- **A TV session is not a manual change.** Reports from the cans are ignored while the room's conditions say `skip`. The plugin forgets its last command, so it sends fresh values when the TV stops.
+- **Before the first dawn point of the day, and after `schedule.night`, the target holds the night values.** The curve jumps to the dawn values at dawn. Open question 3 covers whether it should wait for someone to wake.
+- **A missing outdoor reading counts as zero daylight.** The smoother also forgets its old samples, so the room is lit to the full target.
+- **Not built:** Hue zones, calibration, other rooms, a dashboard hint for held rooms.
 
 ## Open questions
 

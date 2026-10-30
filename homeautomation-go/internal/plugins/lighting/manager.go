@@ -67,6 +67,14 @@ type Manager struct {
 	debounceMu    sync.Mutex
 	roomDebounces map[string]*roomDebounce
 	debounceDelay time.Duration
+
+	// Lux-target control (see luxcontrol.go). luxMu guards luxRooms and luxOutdoor.
+	anchorResolver AnchorResolver
+	luxMu          sync.Mutex
+	luxRooms       map[string]*luxRoomState
+	luxOutdoor     *smoother
+	luxStop        chan struct{}
+	luxDone        chan struct{}
 }
 
 // roomDebounce tracks a pending coalesced evaluation for a single room.
@@ -93,6 +101,7 @@ func NewManager(ctx context.Context, haClient ha.HAClient, stateManager *state.M
 		lastRoomAction: make(map[string]string),
 		clock:          clock.NewRealClock(),
 		roomDebounces:  make(map[string]*roomDebounce),
+		luxRooms:       make(map[string]*luxRoomState),
 		// Default 0 means "fire synchronously"; the plugin adapter's Start()
 		// sets the production delay so tests that don't go through the adapter
 		// stay deterministic (no timer coordination required).
@@ -166,6 +175,10 @@ func (m *Manager) Start() error {
 	}
 
 	// Initialize shadow state with current input values (after all subscriptions registered)
+	if err := m.startLux(); err != nil {
+		return fmt.Errorf("failed to start lux control: %w", err)
+	}
+
 	m.subHelper.CaptureInitialInputs()
 
 	m.logger.Info("Lighting Control Manager started successfully")
@@ -184,6 +197,8 @@ func (m *Manager) Stop() {
 		}
 	}
 	m.debounceMu.Unlock()
+
+	m.stopLux()
 
 	// Cancel all in-flight room operations
 	m.cancelAllRoomContexts()
@@ -271,6 +286,11 @@ func (m *Manager) handlePresenceChange(key string, oldValue, newValue interface{
 		zap.Any("old", oldValue),
 		zap.Any("new", newValue))
 
+	// The house is empty: the day is over for manual holds.
+	if key == "isAnyoneHome" && newValue == false {
+		m.clearAllLuxHolds("everyone left")
+	}
+
 	// Re-evaluate all rooms, filtering by relevance
 	dayPhase, err := m.stateManager.GetString("dayPhase")
 	if err != nil {
@@ -307,6 +327,11 @@ func (m *Manager) handleSleepStateChange(key string, oldValue, newValue interfac
 		zap.String("key", key),
 		zap.Any("old", oldValue),
 		zap.Any("new", newValue))
+
+	// Everyone asleep ends the day, and with it every manual hold.
+	if key == "isEveryoneAsleep" && newValue == true {
+		m.clearAllLuxHolds("everyone asleep")
+	}
 
 	// Re-evaluate all rooms, filtering by relevance
 	dayPhase, err := m.stateManager.GetString("dayPhase")
@@ -505,6 +530,30 @@ func (m *Manager) doEvaluateAndActivateRoom(room *RoomConfig, dayPhase string, t
 		}
 	}
 
+	// A new "session" in the room (off, then on) ends a manual hold.
+	if action == "on" {
+		m.lastRoomActionMu.Lock()
+		lastAction := m.lastRoomAction[room.HueGroup]
+		m.lastRoomActionMu.Unlock()
+		// Only an explicit "off" counts. "" means no evaluation has run yet (the lux loop
+		// can command the cans before the first one), which is not a new session.
+		if lastAction == "off" {
+			m.clearLuxHold(room, "room turned on again")
+		}
+	}
+
+	// A held room keeps the person's setting. Day phase and sun events do not undo it.
+	if action == "on" && m.luxHeld(room) {
+		m.logger.Info("Skipping scene activation - room held after manual change",
+			zap.String("room", room.HueGroup),
+			zap.String("trigger", trigger))
+		m.recordAction(room.HueGroup, "held",
+			fmt.Sprintf("Room held after manual change; skipping scene (trigger=%s)", trigger),
+			"", false, trigger)
+		m.setLastRoomAction(room.HueGroup, "on")
+		return
+	}
+
 	switch action {
 	case "on":
 		m.logger.Info("Room should be turned on with scene",
@@ -513,11 +562,15 @@ func (m *Manager) doEvaluateAndActivateRoom(room *RoomConfig, dayPhase string, t
 			zap.String("matched_condition", matchedVar))
 		m.activateScene(roomCtx, room, dayPhase, trigger)
 		m.setLastRoomAction(room.HueGroup, "on")
+		if luxManaged(room) {
+			m.luxEvaluate(room, trigger)
+		}
 	case "off":
 		m.logger.Info("Room should be turned off",
 			zap.String("room", room.HueGroup),
 			zap.String("matched_condition", matchedVar))
 		m.turnOffRoom(roomCtx, room, trigger)
+		m.noteLuxRoomOff(room)
 		m.setLastRoomAction(room.HueGroup, "off")
 	case "skip":
 		// Skip action: do nothing for this room (e.g., when Hue Sync is controlling the lights)
@@ -528,6 +581,7 @@ func (m *Manager) doEvaluateAndActivateRoom(room *RoomConfig, dayPhase string, t
 		if room.SkipReactivationWhenOn {
 			m.setLastRoomAction(room.HueGroup, "")
 		}
+		m.forgetLuxCommand(room)
 	default:
 		m.logger.Debug("No action needed for room",
 			zap.String("room", room.HueGroup))
@@ -663,7 +717,12 @@ func isPresenceTrigger(trigger string) bool {
 // activateScene activates a Hue scene for a room
 func (m *Manager) activateScene(ctx context.Context, room *RoomConfig, dayPhase string, trigger string) {
 	// Construct scene entity ID: scene.{snake_case(hue_group + " " + day_phase)}
-	sceneName := room.HueGroup + " " + dayPhase
+	// In active lux mode the cans follow the lux curve, so the scene covers only the accent lights.
+	sceneGroup := room.HueGroup
+	if luxActive(room) {
+		sceneGroup = room.LuxControl.AccentSceneGroup
+	}
+	sceneName := sceneGroup + " " + dayPhase
 	sceneEntityID := "scene." + toSnakeCase(sceneName)
 
 	if m.readOnly {

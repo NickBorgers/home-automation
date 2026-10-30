@@ -44,6 +44,100 @@ type RoomConfig struct {
 	// in phase "morning" gives scene.kitchen_under_cabinet_morning. Companions use
 	// the same transition as the main scene and never undo it if they fail.
 	CompanionScenes []string `yaml:"companion_scenes"`
+
+	// LuxControl opts the room's ceiling cans into lux-target control.
+	// See docs/flows/LUX_LIGHTING.md. Nil means the room stays on scenes.
+	LuxControl *LuxControlConfig `yaml:"lux_control"`
+}
+
+// Lux control modes. In log_only mode the plugin computes and records what it would
+// send, but scenes still drive the room. In active mode the plugin drives the cans.
+const (
+	LuxModeLogOnly = "log_only"
+	LuxModeActive  = "active"
+)
+
+// LuxControlConfig configures lux-target control for one room.
+type LuxControlConfig struct {
+	Mode             string             `yaml:"mode"`               // log_only | active
+	Cans             string             `yaml:"cans"`               // light entity for the ceiling cans
+	AccentSceneGroup string             `yaml:"accent_scene_group"` // Hue group whose per-phase scenes drive accents
+	DaylightFactor   float64            `yaml:"daylight_factor"`    // share of outdoor lux that reaches the room
+	LuxScale         float64            `yaml:"lux_scale"`          // scales the whole curve for this room (0 means 1)
+	GuestFactor      float64            `yaml:"guest_factor"`       // lux multiplier when increase_brightness_if_true holds (0 means 1.5)
+	Calibrated       bool               `yaml:"calibrated"`         // true once calibration values were measured
+	Calibration      []CalibrationPoint `yaml:"calibration"`        // cans-only lux at night, by brightness
+}
+
+// CalibrationPoint is the lux the cans give at one brightness, measured at night with no daylight.
+type CalibrationPoint struct {
+	BrightnessPct int     `yaml:"brightness_pct"`
+	Lux           float64 `yaml:"lux"`
+}
+
+// LuxCurvePoint is one point of the daily target curve.
+type LuxCurvePoint struct {
+	Anchor string  `yaml:"anchor"` // sun.<event> or schedule.<time>
+	Lux    float64 `yaml:"lux"`
+	Kelvin int     `yaml:"kelvin"`
+}
+
+// LuxCurveConfig is the daily target curve shared by all lux-controlled rooms.
+type LuxCurveConfig struct {
+	Points           []LuxCurvePoint `yaml:"points"`
+	OutdoorSensor    string          `yaml:"outdoor_sensor"`
+	SmoothingMinutes int             `yaml:"smoothing_minutes"`
+	TickSeconds      int             `yaml:"tick_seconds"`
+}
+
+// validateLux checks the curve and every lux-controlled room. It returns the first problem.
+func (c *HueConfig) validateLux() error {
+	controlled := false
+	for _, r := range c.Rooms {
+		if r.LuxControl != nil {
+			controlled = true
+			break
+		}
+	}
+	if !controlled {
+		return nil
+	}
+	if c.LuxCurve == nil || len(c.LuxCurve.Points) == 0 {
+		return fmt.Errorf("lux_control is set on a room but lux_curve has no points")
+	}
+	if c.LuxCurve.OutdoorSensor == "" {
+		return fmt.Errorf("lux_curve.outdoor_sensor is required")
+	}
+	for _, p := range c.LuxCurve.Points {
+		if p.Anchor == "" || p.Lux <= 0 || p.Kelvin <= 0 {
+			return fmt.Errorf("lux_curve point %q needs an anchor, lux > 0 and kelvin > 0", p.Anchor)
+		}
+	}
+	for _, r := range c.Rooms {
+		lc := r.LuxControl
+		if lc == nil {
+			continue
+		}
+		if lc.Mode != LuxModeLogOnly && lc.Mode != LuxModeActive {
+			return fmt.Errorf("room %q: lux_control.mode must be %q or %q", r.HueGroup, LuxModeLogOnly, LuxModeActive)
+		}
+		if lc.Cans == "" || lc.DaylightFactor < 0 {
+			return fmt.Errorf("room %q: lux_control needs cans and a non-negative daylight_factor", r.HueGroup)
+		}
+		prevPct, prevLux := 0, 0.0
+		for _, cp := range lc.Calibration {
+			if cp.BrightnessPct <= prevPct || cp.BrightnessPct > 100 || cp.Lux < prevLux {
+				return fmt.Errorf("room %q: calibration must rise in brightness_pct (1-100) and lux", r.HueGroup)
+			}
+			prevPct, prevLux = cp.BrightnessPct, cp.Lux
+		}
+		if lc.Mode == LuxModeActive {
+			if !lc.Calibrated || len(lc.Calibration) == 0 || lc.AccentSceneGroup == "" {
+				return fmt.Errorf("room %q: active mode needs calibrated: true, a calibration table and accent_scene_group", r.HueGroup)
+			}
+		}
+	}
+	return nil
 }
 
 // GetConditionVariables returns a list of all unique state variable names used in conditions
@@ -101,7 +195,8 @@ func valuesMatch(a, b interface{}) bool {
 
 // HueConfig represents the Hue lighting configuration
 type HueConfig struct {
-	Rooms []RoomConfig `yaml:"rooms"`
+	Rooms    []RoomConfig    `yaml:"rooms"`
+	LuxCurve *LuxCurveConfig `yaml:"lux_curve"`
 }
 
 // LoadConfig loads the Hue configuration from a YAML file
@@ -114,6 +209,10 @@ func LoadConfig(path string) (*HueConfig, error) {
 	var config HueConfig
 	if err := yaml.Unmarshal(data, &config); err != nil {
 		return nil, err
+	}
+
+	if err := config.validateLux(); err != nil {
+		return nil, fmt.Errorf("invalid lux config: %w", err)
 	}
 
 	return &config, nil

@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"path/filepath"
 
+	cfgpkg "homeautomation/internal/config"
+	dayphaselib "homeautomation/internal/dayphase"
 	pkgha "homeautomation/pkg/ha"
 	"homeautomation/pkg/plugin"
 	"homeautomation/pkg/shadowstate"
@@ -41,6 +43,17 @@ func createPlugin(ctx *plugin.Context) (plugin.Plugin, error) {
 	}
 
 	manager := NewManager(ctx.ShutdownCtx, haClient, stateManager, config, ctx.Logger, ctx.ReadOnly, ctx.Registry)
+
+	// Lux-target control needs sun and schedule times for its curve anchors.
+	if config.LuxCurve != nil {
+		loader := cfgpkg.NewLoader(ctx.ConfigDir, ctx.Logger)
+		loader.SetTimezone(ctx.Timezone)
+		if err := loader.LoadScheduleConfig(); err != nil {
+			return nil, fmt.Errorf("failed to load schedule config for lux curve: %w", err)
+		}
+		calc := dayphaselib.NewCalculator(ctx.Latitude, ctx.Longitude, ctx.Timezone, ctx.Logger.Named("lighting"))
+		manager.SetAnchorResolver(newSolarAnchors(calc, loader, ctx.Timezone, ctx.Logger.Named("lighting")).resolve)
+	}
 	return &pluginAdapter{manager: manager}, nil
 }
 
