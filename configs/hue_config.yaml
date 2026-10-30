@@ -2,11 +2,11 @@
 lux_curve:
   points:
     - { anchor: sun.dawn,          lux: 300, kelvin: 4000 }
-    - { anchor: sun.noon,          lux: 300, kelvin: 5000 }
+    - { anchor: sun.noon,          lux: 300, kelvin: 4000 }
     - { anchor: sun.goldenHour,    lux: 150, kelvin: 3000 }
-    - { anchor: schedule.dusk,     lux: 100, kelvin: 2700 }
-    - { anchor: schedule.winddown, lux: 30,  kelvin: 2200 }
-    - { anchor: schedule.night,    lux: 5,   kelvin: 2000 }
+    - { anchor: schedule.dusk,     lux: 100, kelvin: 3000 }
+    - { anchor: schedule.winddown, lux: 30,  kelvin: 3000 }
+    - { anchor: schedule.night,    lux: 5,   kelvin: 3000 }
   outdoor_sensor: sensor.weather_station_illuminance
   smoothing_minutes: 5
   tick_seconds: 60

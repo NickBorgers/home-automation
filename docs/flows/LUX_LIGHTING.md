@@ -44,12 +44,14 @@ The curve is a list of points. Each point is tied to a sun event or a schedule t
 | Point | Anchor | Target lux | Kelvin |
 |-------|--------|-----------:|-------:|
 | Dawn | sun `dawn` | 300 | 4000 |
-| Noon | sun `noon` | 300 | 5000 |
+| Noon | sun `noon` | 300 | 4000 |
 | Golden hour | sun `goldenHour` | 150 | 3000 |
-| Dusk (after dinner) | schedule `dusk` | 100 | 2700 |
-| Wind-down | schedule `winddown` | 30 | 2200 |
-| Night, awake | schedule `night` | 5 | 2000 |
+| Dusk (after dinner) | schedule `dusk` | 100 | 3000 |
+| Wind-down | schedule `winddown` | 30 | 3000 |
+| Night, awake | schedule `night` | 5 | 3000 |
 | Asleep | `isEveryoneAsleep` | 0 (off) | — |
+
+The kelvin range is 3000 K to 4000 K on purpose. The cans are fully tunable, but the other lights in these rooms are fixed at 3000 K, and the under-cabinet strips fade between 3000 K and 4000 K. Matching that range keeps the room one color. At night, the dimming does the circadian work: color temperature has a smaller effect than brightness.
 
 The 100 → 30 slide from `dusk` to `winddown` is a compromise. It keeps the room comfortable after dinner. It reaches the circadian limit (about 30 lux at warm color) before bed.
 
@@ -158,11 +160,11 @@ A day phase change does **not** clear the hold. This replaces today's behavior, 
 lux_curve:
   points:
     - { anchor: sun.dawn,          lux: 300, kelvin: 4000 }
-    - { anchor: sun.noon,          lux: 300, kelvin: 5000 }
+    - { anchor: sun.noon,          lux: 300, kelvin: 4000 }
     - { anchor: sun.goldenHour,    lux: 150, kelvin: 3000 }
-    - { anchor: schedule.dusk,     lux: 100, kelvin: 2700 }
-    - { anchor: schedule.winddown, lux: 30,  kelvin: 2200 }
-    - { anchor: schedule.night,    lux: 5,   kelvin: 2000 }
+    - { anchor: schedule.dusk,     lux: 100, kelvin: 3000 }
+    - { anchor: schedule.winddown, lux: 30,  kelvin: 3000 }
+    - { anchor: schedule.night,    lux: 5,   kelvin: 3000 }
   outdoor_sensor: sensor.weather_station_illuminance
   smoothing_minutes: 5
   tick_seconds: 60
