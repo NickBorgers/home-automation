@@ -1671,6 +1671,7 @@ func (m *Manager) handleSexModeOn() {
 
 **Rules** (`internal/ha/state_cache.go`):
 - States: `disconnected` (no confirmed subscription) → `unseeded` (subscribed) → `warming` (one GetState caller owns the seed fetch; others wait for it) → `valid`.
+- `GetState` re-checks the cache after `beginSeed` regardless of whether `done` is nil. When `beginSeed` returns `done==nil`, it means the cache is already valid (common case) or another goroutine finished seeding between the caller's initial miss and the `beginSeed` call (warming→valid race window). Skipping this re-check in the `done==nil` path caused an unnecessary live `get_states` fallback. Fixed in PR #1214.
 - Every disconnect, explicit or detected, drops to `disconnected` before a reconnect can start. An undecodable event drops to `unseeded`, and the next `GetState` re-seeds.
 - Events that arrive during the seed are recorded and merged over the snapshot. The event wins unless the snapshot's `last_updated` is strictly newer, and removals always win. An old snapshot never overwrites a newer event.
 - An epoch counter fences each connection, so a seed or subscription ack from a dropped connection cannot validate a newer one.
@@ -1682,6 +1683,11 @@ func (m *Manager) handleSexModeOn() {
 ---
 
 ## Change Log
+
+### 2026-10-30
+- **Updated Lesson 25**: Document `GetState` post-`beginSeed` cache re-check
+  - `beginSeed` returning `done==nil` no longer bypasses the cache re-check; covers both the common `cacheValid` path and the warming→valid race window
+  - Fixed in `internal/ha/client.go` (PR #1214)
 
 ### 2026-10-25
 - **Added Lesson 25**: A Local State Cache Is Only Valid While Subscribed and Seeded

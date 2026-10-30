@@ -1218,9 +1218,9 @@ func (c *Client) GetState(entityID string) (*State, error) {
 		// timeout and finishSeed always closes done.
 		<-done
 	}
-	// Check cache again: either the seed we waited for completed, or the
-	// cache became valid between our initial check and beginSeed (race window
-	// where a warming→valid transition returns done==nil but cache is now ok).
+	// Re-check cache in both paths where beginSeed returns done==nil:
+	// common case (cacheValid — beginSeed returns immediately) and race window
+	// (warming→valid transition between our initial miss and beginSeed).
 	if state, ok, err := c.getCachedState(entityID); ok {
 		return state, err
 	}
