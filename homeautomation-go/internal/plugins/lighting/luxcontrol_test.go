@@ -474,9 +474,12 @@ func TestProductionHueConfigLoads(t *testing.T) {
 		assert.Contains(t, []string{"sun", "schedule"}, kind, p.Anchor)
 		assert.NotEmpty(t, name, p.Anchor)
 	}
+	// Active rooms must carry a calibration table: validateLux enforces it, so this also
+	// documents that the shipped Living Room config is one the plugin accepts.
 	for _, r := range cfg.Rooms {
-		if r.LuxControl != nil {
-			assert.Equal(t, LuxModeLogOnly, r.LuxControl.Mode, "%s must ship in log_only until calibrated", r.HueGroup)
+		if r.LuxControl != nil && r.LuxControl.Mode == LuxModeActive {
+			assert.True(t, r.LuxControl.Calibrated, r.HueGroup)
+			assert.NotEmpty(t, r.LuxControl.Calibration, r.HueGroup)
 		}
 	}
 }

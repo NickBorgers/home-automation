@@ -1,6 +1,6 @@
 # Lux-Target Lighting (Design)
 
-**Status:** Rollout steps 1 and 5 are built; the Living Room ships in `log_only` mode (2026-10-30). Calibration, the Hue zones and the switch to `active` are still manual work. See "Implementation notes" at the end.
+**Status:** Rollout steps 1 to 3 and 5 are built. The Living Room ships in `active` mode with guessed calibration numbers (2026-10-30). Measuring them is still manual work. See "Implementation notes" at the end.
 
 ## Summary
 
@@ -222,7 +222,7 @@ Without a meter, tune `daylight_factor` by eye. In `log_only`, shadow state show
 
 **Check that the cans can reach the target.** If 100% gives far less than the 300 lux target, the cans sit at 100% all day and the curve has no effect. Set `lux_scale` below 1 so the curve fits what the cans can do.
 
-The values that ship in `hue_config.yaml` are rough estimates, so the Living Room stays in `log_only` with `calibrated: false`.
+The values that ship in `hue_config.yaml` are rough guesses. Replace them with measurements.
 
 Indoor sensors, when they come back, read light at the ceiling or wall, not at the working height. They would need the same comparison against a hand-held meter.
 
@@ -256,7 +256,7 @@ Step 5 does not depend on the lux loop. It could ship first.
 What the code does, where it differs from the text above, and what is left.
 
 - **Code:** `luxcurve.go` (curve and math), `luxcontrol.go` (loop, hold, shadow state), `luxanchors.go` (sun and schedule times), all in `internal/plugins/lighting/`.
-- **Living Room is `log_only`.** Scenes still drive the room. Shadow state shows what the loop would send. The config values for `daylight_factor` and `calibration` are estimates, and `calibrated: false` marks them so. Config loading refuses `mode: active` until `calibrated: true`.
+- **Living Room is `active` with guessed numbers.** `daylight_factor`, `lux_scale` and `calibration` in `hue_config.yaml` are guesses. `calibrated: true` only lets the config load, because the loader refuses `mode: active` without it. Replace the guesses with measurements. `log_only` remains for testing a new room.
 - **Hold applies in `active` mode only.** In `log_only` the plugin sends no commands, so it has nothing to compare against. Rooms without `lux_control` (step 5 for rooms still on scenes) have no light entity to watch and are not covered yet.
 - **Manual changes are found by comparing values.** The design also named `context.user_id`. The code does not use it. The Home Assistant token belongs to a person, so the plugin's own calls and that person's manual changes carry the same user ID.
 - **A TV session is not a manual change.** Reports from the cans are ignored while the room's conditions say `skip`. The plugin forgets its last command, so it sends fresh values when the TV stops.

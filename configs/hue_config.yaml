@@ -35,21 +35,24 @@ rooms:
     increase_brightness_if_true: isHaveGuests
     transition_seconds: 30
     # Lux-target control for the ceiling cans. See docs/flows/LUX_LIGHTING.md.
-    # log_only: scenes still drive the room; shadow state shows what lux control would do.
-    # Before switching to active: create the six white `Main Living Accent` phase scenes
-    # (scene.main_living_accent_<phase>), calibrate, measure daylight_factor, and set
-    # calibrated: true. The `Living Cans` zone (light.living_cans) already exists.
+    # active: the plugin drives the cans (light.living_cans) from the lux curve. The accent
+    # lights stay on per-phase scenes: scene.main_living_accent_<phase>. Until those six
+    # scenes exist in Hue, the scene call fails and logs an error, and the accents stay as they are.
+    # log_only (for testing): scenes drive the whole room; shadow state shows what lux control would do.
+    #
+    # THE NUMBERS BELOW ARE GUESSES, NOT MEASUREMENTS. calibrated: true only lets the config load.
+    # Measure them with the steps in docs/flows/LUX_LIGHTING.md ("Calibration").
     lux_control:
-      mode: log_only
+      mode: active
       cans: light.living_cans
       accent_scene_group: Main Living Accent
-      daylight_factor: 0.02   # ESTIMATE, not measured
-      lux_scale: 1.0
-      calibrated: false
-      calibration:            # ESTIMATE, not measured: lux at working height, cans only, at night
-        - { brightness_pct: 25, lux: 40 }
-        - { brightness_pct: 50, lux: 120 }
-        - { brightness_pct: 100, lux: 300 }
+      daylight_factor: 0.02   # GUESS. Cans switch off near 7,500 outdoor lux at lux_scale 0.5
+      lux_scale: 0.5          # GUESS. Four Hue downlights likely give far less than the 300 lux curve
+      calibrated: true
+      calibration:            # GUESS: lux at working height, cans only, at night
+        - { brightness_pct: 25, lux: 12 }
+        - { brightness_pct: 50, lux: 30 }
+        - { brightness_pct: 100, lux: 70 }
 
   - hue_group: Primary Suite
     hass_area_id: master_bedroom
