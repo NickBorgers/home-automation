@@ -1217,9 +1217,12 @@ func (c *Client) GetState(entityID string) (*State, error) {
 		// Another caller is seeding. Its request is bounded by sendMessage's
 		// timeout and finishSeed always closes done.
 		<-done
-		if state, ok, err := c.getCachedState(entityID); ok {
-			return state, err
-		}
+	}
+	// Check cache again: either the seed we waited for completed, or the
+	// cache became valid between our initial check and beginSeed (race window
+	// where a warming→valid transition returns done==nil but cache is now ok).
+	if state, ok, err := c.getCachedState(entityID); ok {
+		return state, err
 	}
 
 	c.stateCache.fallbacks.Add(1)
