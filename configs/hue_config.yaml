@@ -226,11 +226,62 @@ rooms:
     # re-detection re-activates the scene and overrides any manual brightness
     # the user dialed in. Edge-trigger so on→on reactivations are skipped.
     skip_reactivation_when_on: true
-    # The Hue room scene (scene.kitchen_<phase>) does not cover the under-cabinet
-    # light, which has a native Home Assistant scene. Home Assistant cannot nest
-    # scenes, so activate it too: scene.kitchen_under_cabinet_<phase>.
+    # The under-cabinet light has a native Home Assistant scene. Home Assistant cannot
+    # nest scenes, so activate it on its own: scene.kitchen_under_cabinet_<phase>.
+    # The cans are driven by lux_control below, so scene.kitchen_<phase> is no longer recalled.
     companion_scenes:
       - Kitchen Under Cabinet
+    # Lux-target control for the 7 ceiling cans. See docs/flows/LUX_LIGHTING.md.
+    # There is no accent_scene_group: the Kitchen Hue room holds only the cans.
+    #
+    # TEMPORARY phone-app calibration, MEASURED 2026-10-30 evening with an iPhone lux app
+    # (rough, about +/-30%), in daylight at about 7,500 outdoor lux. Replace with real lux
+    # sensor values when they arrive. The cans-only values are the reading minus the room's
+    # cans-off baseline of 12 lux. Cans were at 4000 K.
+    lux_control:
+      mode: active
+      cans: light.kitchen_cans
+      daylight_factor: 0.0016 # MEASURED: 12 lux indoors (cans off) / 7,500 outdoor lux
+      lux_scale: 0.5          # GUESS, same as the Living Room. The cans reach only about 54 lux
+      calibrated: true
+      calibration:            # MEASURED at 4000 K: reading (16 / 26 / 66) minus the 12 lux baseline
+        - brightness_pct: 25
+          lux: 4
+        - brightness_pct: 50
+          lux: 14
+        - brightness_pct: 100
+          lux: 54
+
+  # The Pantry has no Hue scene group and no occupancy sensor. Its cans follow the Kitchen's
+  # conditions. There is no hass_area_id: turn-off targets the cans entity directly, so it does
+  # not depend on which Home Assistant area the pantry cans sit in.
+  - hue_group: Pantry
+    conditions:
+      # Same as the Kitchen
+      - action: off
+        variable: isAnyoneHomeAndAwake
+        value: false
+      - action: on
+        variable: isKitchenOccupied
+        value: true
+    increase_brightness_if_true: ~
+    transition_seconds: 5
+    # TEMPORARY phone-app calibration, MEASURED 2026-10-30 evening with an iPhone lux app
+    # (rough, about +/-30%), in daylight at about 7,600 outdoor lux. Replace with real lux
+    # sensor values when they arrive. Cans-only = reading minus the cans-off baseline of 26 lux.
+    lux_control:
+      mode: active
+      cans: light.pantry_cans # 8 cans
+      daylight_factor: 0.0034 # MEASURED: 26 lux indoors (cans off) / 7,600 outdoor lux
+      lux_scale: 0.5          # GUESS, same as the Living Room
+      calibrated: true
+      calibration:            # MEASURED at 4000 K: reading (37 / 67 / 188) minus the 26 lux baseline
+        - brightness_pct: 25
+          lux: 11
+        - brightness_pct: 50
+          lux: 41
+        - brightness_pct: 100
+          lux: 162
 
   - hue_group: C Office
     hass_area_id: c_office

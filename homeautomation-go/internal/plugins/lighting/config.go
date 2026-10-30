@@ -61,7 +61,7 @@ const (
 type LuxControlConfig struct {
 	Mode             string             `yaml:"mode"`               // log_only | active
 	Cans             string             `yaml:"cans"`               // light entity for the ceiling cans
-	AccentSceneGroup string             `yaml:"accent_scene_group"` // Hue group whose per-phase scenes drive accents
+	AccentSceneGroup string             `yaml:"accent_scene_group"` // Hue group whose per-phase scenes drive accents (empty: no accent lights)
 	DaylightFactor   float64            `yaml:"daylight_factor"`    // share of outdoor lux that reaches the room
 	LuxScale         float64            `yaml:"lux_scale"`          // scales the whole curve for this room (0 means 1)
 	GuestFactor      float64            `yaml:"guest_factor"`       // lux multiplier when increase_brightness_if_true holds (0 means 1.5)
@@ -132,8 +132,8 @@ func (c *HueConfig) validateLux() error {
 			prevPct, prevLux = cp.BrightnessPct, cp.Lux
 		}
 		if lc.Mode == LuxModeActive {
-			if !lc.Calibrated || len(lc.Calibration) == 0 || lc.AccentSceneGroup == "" {
-				return fmt.Errorf("room %q: active mode needs calibrated: true, a calibration table and accent_scene_group", r.HueGroup)
+			if !lc.Calibrated || len(lc.Calibration) == 0 {
+				return fmt.Errorf("room %q: active mode needs calibrated: true and a calibration table", r.HueGroup)
 			}
 		}
 	}

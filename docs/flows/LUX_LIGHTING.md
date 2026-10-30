@@ -1,6 +1,6 @@
 # Lux-Target Lighting (Design)
 
-**Status:** Rollout steps 1 to 3 and 5 are built. The Living Room ships in `active` mode. Its `daylight_factor` and `calibration` were measured on 2026-10-30 with a phone app, in daylight, so they are rough. `lux_scale` is still a guess. See "Implementation notes" at the end.
+**Status:** Rollout steps 1 to 3 and 5 are built. Step 4 is done for the Kitchen and the Pantry. The Living Room, Kitchen and Pantry ship in `active` mode. Their `daylight_factor` and `calibration` were measured on 2026-10-30 with a phone app, in daylight, so they are rough and temporary until real lux sensors arrive. `lux_scale` is still a guess. See "Implementation notes" at the end.
 
 ## Summary
 
@@ -29,11 +29,13 @@ Each room splits its lights into three roles.
 
 | Role | Controlled by | Examples |
 |------|---------------|----------|
-| Cans (ambient) | Lux target. White light only, brightness and kelvin. | `light.living_cans`, `light.kitchen` |
+| Cans (ambient) | Lux target. White light only, brightness and kelvin. | `light.living_cans`, `light.kitchen_cans`, `light.pantry_cans` |
 | Accent | Per-phase Hue scene, as today | `light.living_accent` (TV, window wall) |
 | Task | Companion scene, as today | Kitchen under-cabinet |
 
-Pilot room: **Living Room** (`light.living_cans`). Next: Kitchen, Sitting Room, N Office.
+Controlled rooms: **Living Room** (`light.living_cans`), **Kitchen** (`light.kitchen_cans`, 7 cans) and **Pantry** (`light.pantry_cans`, 8 cans). Next: Sitting Room, N Office.
+
+The Pantry has no occupancy sensor and no Hue scene group. It is its own room entry with the Kitchen's `conditions` copied, so it turns on when the Kitchen is occupied and off when nobody is home and awake.
 
 The room's existing `conditions` (presence, TV, sleep, wake sequence) still decide `on`, `off` or `skip`. The lux target only decides *how bright and how warm* the cans are when the room is `on`.
 
@@ -236,7 +238,8 @@ The cans stay in their Hue rooms. A Hue light belongs to one room but can sit in
 | Room | Hue groups | Hue work |
 |------|------------|----------|
 | Living Room | Room = 4 cans + TV. Zones `Living Cans` and `Main Living Accent` (couch, floor gradient, kids hall, TV). | Create six scenes on the `Main Living Accent` zone: `morning`, `day`, `sunset`, `dusk`, `winddown`, `night`. This gives `scene.main_living_accent_<phase>`. |
-| Kitchen | Room = 7 cans only. Under-cabinet is a separate Home Assistant light. | None. The plugin stops recalling `scene.kitchen_<phase>`. |
+| Kitchen | Room = 7 cans only. Under-cabinet is a separate Home Assistant light. | None. The plugin stops recalling `scene.kitchen_<phase>`. It still recalls the companion scene `scene.kitchen_under_cabinet_<phase>`. |
+| Pantry | 8 cans. No scenes are used. | None. The room entry has no `accent_scene_group` and no `hass_area_id`. Turn-off targets `light.pantry_cans` directly. |
 | Sitting Room, N Office | Lamps, candles, a floor gradient. No cans. | None. They stay on scenes. |
 | Main Living Space (zone) | Kitchen cans, living cans and accents together | None. Its scenes reset the cans, so avoid recalling them by hand. |
 
@@ -249,7 +252,7 @@ Turn off any Hue-bridge automation on a controlled room: the "Natural light" sch
 1. Build the curve, the loop, the hold logic and shadow state. Living Room runs in `log_only`.
 2. Calibrate the Living Room. Watch shadow state for a few days, sunny and cloudy.
 3. Switch the Living Room to `active`.
-4. Add the Kitchen, Sitting Room and N Office one at a time.
+4. Add the Kitchen, Pantry, Sitting Room and N Office one at a time. The Kitchen and the Pantry are done (phone-app calibration, `active`). Sitting Room and N Office remain.
 5. Turn on the manual hold for every room, including rooms still on scenes. This fixes the evening problem everywhere, even before every room has lux control.
 
 Step 5 does not depend on the lux loop. It could ship first.
@@ -260,6 +263,16 @@ What the code does, where it differs from the text above, and what is left.
 
 - **Code:** `luxcurve.go` (curve and math), `luxcontrol.go` (loop, hold, shadow state), `luxanchors.go` (sun and schedule times), all in `internal/plugins/lighting/`.
 - **Living Room is `active`.** `daylight_factor` and `calibration` in `hue_config.yaml` come from a rough phone-app measurement (2026-10-30). `lux_scale` is a guess. `calibrated: true` only lets the config load, because the loader refuses `mode: active` without it. Replace the guesses with measurements. `log_only` remains for testing a new room.
+- **Kitchen and Pantry are `active`.** Measured 2026-10-30 evening with an iPhone lux app (rough, about +/-30%) at 4000 K, with about 7,500 lux outside. Cans-only lux is the reading minus the room's cans-off baseline. These numbers are temporary until real lux sensors arrive. `lux_scale: 0.5` is a guess for both rooms, copied from the Living Room.
+
+  | Room | Cans-off baseline | Readings at 25 / 50 / 100% | Cans-only at 25 / 50 / 100% | `daylight_factor` |
+  |------|------------------:|---------------------------:|----------------------------:|------------------:|
+  | Living Room | 24 | not recorded | 3 / 9 / 36 | 0.0025 |
+  | Kitchen | 12 | 16 / 26 / 66 | 4 / 14 / 54 | 0.0016 (12 / 7,500) |
+  | Pantry | 26 | 37 / 67 / 188 | 11 / 41 / 162 | 0.0034 (26 / 7,600) |
+- **`accent_scene_group` is optional.** A room with only cans (Kitchen, Pantry) leaves it empty. The plugin then recalls no Hue scene for the room, only its companion scenes. The Kitchen keeps `Kitchen Under Cabinet` as a companion.
+- **The Pantry is a room entry, not a second entity under the Kitchen.** A room holds one `lux_control` block, and the Pantry needs its own calibration and `daylight_factor`. Its entry has no `hass_area_id`; when that is empty, turn-off calls `light.turn_off` on the cans entity instead of an area, so it does not depend on which Home Assistant area the pantry cans sit in.
+- **The Kitchen keeps `skip_reactivation_when_on`.** The hold covers the cans only. Without the flag, every mmWave re-detection would recall the under-cabinet companion scene and undo a manual change to that strip. Remove the flag if that is not wanted.
 - **Hold applies in `active` mode only.** In `log_only` the plugin sends no commands, so it has nothing to compare against. Rooms without `lux_control` (step 5 for rooms still on scenes) have no light entity to watch and are not covered yet.
 - **Manual changes are found by comparing values.** The design also named `context.user_id`. The code does not use it. The Home Assistant token belongs to a person, so the plugin's own calls and that person's manual changes carry the same user ID.
 - **A TV session is not a manual change.** Reports from the cans are ignored while the room's conditions say `skip`. The plugin forgets its last command, so it sends fresh values when the TV stops.

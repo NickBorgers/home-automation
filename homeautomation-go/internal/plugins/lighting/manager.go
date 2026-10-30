@@ -721,6 +721,11 @@ func (m *Manager) activateScene(ctx context.Context, room *RoomConfig, dayPhase 
 	sceneGroup := room.HueGroup
 	if luxActive(room) {
 		sceneGroup = room.LuxControl.AccentSceneGroup
+		if sceneGroup == "" {
+			// A room with only cans (Kitchen, Pantry) has no accent scene. Only companions remain.
+			m.activateCompanionScenes(ctx, room, dayPhase, nil)
+			return
+		}
 	}
 	sceneName := sceneGroup + " " + dayPhase
 	sceneEntityID := "scene." + toSnakeCase(sceneName)
@@ -996,6 +1001,11 @@ func (m *Manager) turnOffRoom(ctx context.Context, room *RoomConfig, trigger str
 	// but when turning off (especially for sleep), users expect immediate darkness.
 	serviceData := map[string]interface{}{
 		"area_id": room.HASSAreaID,
+	}
+	if room.HASSAreaID == "" && luxManaged(room) {
+		// A room with no Home Assistant area (the Pantry) turns off its cans directly.
+		delete(serviceData, "area_id")
+		serviceData["entity_id"] = room.LuxControl.Cans
 	}
 
 	// Call the service with the room-scoped context (cancelled if room is re-evaluated)
