@@ -1,4 +1,28 @@
 ---
+lux_curve:
+  points:
+    - anchor: sun.dawn
+      lux: 300
+      kelvin: 4000
+    - anchor: sun.noon
+      lux: 300
+      kelvin: 4000
+    - anchor: sun.goldenHour
+      lux: 150
+      kelvin: 3000
+    - anchor: schedule.dusk
+      lux: 100
+      kelvin: 3000
+    - anchor: schedule.winddown
+      lux: 30
+      kelvin: 3000
+    - anchor: schedule.night
+      lux: 5
+      kelvin: 3000
+  outdoor_sensor: sensor.weather_station_illuminance
+  smoothing_minutes: 5
+  tick_seconds: 60
+
 rooms:
   - hue_group: Living Room
     hass_area_id: living_room_2
@@ -22,6 +46,28 @@ rooms:
         value: false
     increase_brightness_if_true: isHaveGuests
     transition_seconds: 30
+    # Lux-target control for the ceiling cans. See docs/flows/LUX_LIGHTING.md.
+    # active: the plugin drives the cans (light.living_cans) from the lux curve. The accent
+    # lights stay on per-phase scenes: scene.main_living_accent_<phase>. Until those six
+    # scenes exist in Hue, the scene call fails and logs an error, and the accents stay as they are.
+    # log_only (for testing): scenes drive the whole room; shadow state shows what lux control would do.
+    #
+    # THE NUMBERS BELOW ARE GUESSES, NOT MEASUREMENTS. calibrated: true only lets the config load.
+    # Measure them with the steps in docs/flows/LUX_LIGHTING.md ("Calibration").
+    lux_control:
+      mode: active
+      cans: light.living_cans
+      accent_scene_group: Main Living Accent
+      daylight_factor: 0.02   # GUESS. Cans switch off near 7,500 outdoor lux at lux_scale 0.5
+      lux_scale: 0.5          # GUESS. Four Hue downlights likely give far less than the 300 lux curve
+      calibrated: true
+      calibration:            # GUESS: lux at working height, cans only, at night
+        - brightness_pct: 25
+          lux: 12
+        - brightness_pct: 50
+          lux: 30
+        - brightness_pct: 100
+          lux: 70
 
   - hue_group: Primary Suite
     hass_area_id: master_bedroom

@@ -1,6 +1,6 @@
 # Lux-Target Lighting (Design)
 
-**Status:** Proposed, 2026-10-29. Nothing in this document is built yet.
+**Status:** Rollout steps 1 to 3 and 5 are built. The Living Room ships in `active` mode with guessed calibration numbers (2026-10-30). Measuring them is still manual work. See "Implementation notes" at the end.
 
 ## Summary
 
@@ -44,12 +44,14 @@ The curve is a list of points. Each point is tied to a sun event or a schedule t
 | Point | Anchor | Target lux | Kelvin |
 |-------|--------|-----------:|-------:|
 | Dawn | sun `dawn` | 300 | 4000 |
-| Noon | sun `noon` | 300 | 5000 |
+| Noon | sun `noon` | 300 | 4000 |
 | Golden hour | sun `goldenHour` | 150 | 3000 |
-| Dusk (after dinner) | schedule `dusk` | 100 | 2700 |
-| Wind-down | schedule `winddown` | 30 | 2200 |
-| Night, awake | schedule `night` | 5 | 2000 |
+| Dusk (after dinner) | schedule `dusk` | 100 | 3000 |
+| Wind-down | schedule `winddown` | 30 | 3000 |
+| Night, awake | schedule `night` | 5 | 3000 |
 | Asleep | `isEveryoneAsleep` | 0 (off) | — |
+
+The kelvin range is 3000 K to 4000 K on purpose. The cans are fully tunable, but the other lights in these rooms are fixed at 3000 K, and the under-cabinet strips fade between 3000 K and 4000 K. Matching that range keeps the room one color. At night, the dimming does the circadian work: color temperature has a smaller effect than brightness.
 
 The 100 → 30 slide from `dusk` to `winddown` is a compromise. It keeps the room comfortable after dinner. It reaches the circadian limit (about 30 lux at warm color) before bed.
 
@@ -139,8 +141,8 @@ A day phase change does **not** clear the hold. This replaces today's behavior, 
 
 ### Note on existing documentation
 
-`LIGHTING_CONTROL.md` documents the same proposed per-room hold behavior. The current code (`manager.go`) has no
-override detection; both documents describe behavior to be implemented with lux-target lighting.
+`LIGHTING_CONTROL.md` documents the same per-room hold behavior. Rooms in `active` mode use it. Before lux-target
+lighting, the code (`manager.go`) had no override detection.
 
 ## Interaction with existing behavior
 
@@ -159,11 +161,11 @@ override detection; both documents describe behavior to be implemented with lux-
 lux_curve:
   points:
     - { anchor: sun.dawn,          lux: 300, kelvin: 4000 }
-    - { anchor: sun.noon,          lux: 300, kelvin: 5000 }
+    - { anchor: sun.noon,          lux: 300, kelvin: 4000 }
     - { anchor: sun.goldenHour,    lux: 150, kelvin: 3000 }
-    - { anchor: schedule.dusk,     lux: 100, kelvin: 2700 }
-    - { anchor: schedule.winddown, lux: 30,  kelvin: 2200 }
-    - { anchor: schedule.night,    lux: 5,   kelvin: 2000 }
+    - { anchor: schedule.dusk,     lux: 100, kelvin: 3000 }
+    - { anchor: schedule.winddown, lux: 30,  kelvin: 3000 }
+    - { anchor: schedule.night,    lux: 5,   kelvin: 3000 }
   outdoor_sensor: sensor.weather_station_illuminance
   smoothing_minutes: 5
   tick_seconds: 60
@@ -174,7 +176,7 @@ rooms:
     lux_control:
       mode: log_only            # log_only | active
       cans: light.living_cans
-      accent_scene_group: Living Accent
+      accent_scene_group: Main Living Accent
       daylight_factor: 0.02     # measured during calibration
       lux_scale: 1.0
       calibration:              # lux at working height, cans only, at night
@@ -199,9 +201,30 @@ rooms:
 
 ## Calibration (once per room)
 
-1. **At night, no daylight.** Set the cans to 25%, 50% and 100% at 4000 K. Measure lux at working height with a phone lux meter. Record the three readings.
-2. **On a bright overcast day, cans off.** Read the indoor lux and the weather station value at the same time. Do this three or four times. `daylight_factor` is the average of indoor divided by outdoor.
-3. Put both into the room's config.
+Aim for ±20% to ±30%, not more. The eye reads brightness on a log scale, so a small error is hard to see.
+
+**Tools.** A handheld lux meter (about $15 to $30) is the most reliable. An Android phone app is good enough, because Android gives apps the light sensor. iPhone apps estimate from the camera and are rougher.
+
+**1. Calibration table (at night, no daylight)**
+
+1. Turn off every other light, including accents and the TV. Close the blinds.
+2. Set the cans to 4000 K at 25%, 50% and 100% brightness.
+3. Hold the sensor flat and facing up, at table or sofa-seat height.
+4. Read three or four spots where people sit. Average them. Record one lux value for each brightness.
+
+**2. `daylight_factor` (bright overcast day, cans off)**
+
+1. Read the indoor lux where people sit. At the same moment, read `sensor.weather_station_illuminance` in Home Assistant.
+2. Divide indoor by outdoor.
+3. Repeat three or four times and average. Typical values are 0.005 to 0.05.
+
+Without a meter, tune `daylight_factor` by eye. In `log_only`, shadow state shows when the cans would switch off. Adjust the number until that matches when the room feels bright enough on a sunny day.
+
+**3. Put the values in the room's config**, then set `calibrated: true`.
+
+**Check that the cans can reach the target.** If 100% gives far less than the 300 lux target, the cans sit at 100% all day and the curve has no effect. Set `lux_scale` below 1 so the curve fits what the cans can do.
+
+The values that ship in `hue_config.yaml` are rough guesses. Replace them with measurements.
 
 Indoor sensors, when they come back, read light at the ceiling or wall, not at the working height. They would need the same comparison against a hand-held meter.
 
@@ -211,7 +234,7 @@ The cans stay in their Hue rooms. A Hue light belongs to one room but can sit in
 
 | Room | Hue groups | Hue work |
 |------|------------|----------|
-| Living Room | Room = 4 cans + TV. Zones `Living Cans` and `Living Accent` (TV, window wall). | Create six scenes on the `Living Accent` zone: `morning`, `day`, `sunset`, `dusk`, `winddown`, `night`. This gives `scene.living_accent_<phase>`. |
+| Living Room | Room = 4 cans + TV. Zones `Living Cans` and `Main Living Accent` (couch, floor gradient, kids hall, TV). | Create six scenes on the `Main Living Accent` zone: `morning`, `day`, `sunset`, `dusk`, `winddown`, `night`. This gives `scene.main_living_accent_<phase>`. |
 | Kitchen | Room = 7 cans only. Under-cabinet is a separate Home Assistant light. | None. The plugin stops recalling `scene.kitchen_<phase>`. |
 | Sitting Room, N Office | Lamps, candles, a floor gradient. No cans. | None. They stay on scenes. |
 | Main Living Space (zone) | Kitchen cans, living cans and accents together | None. Its scenes reset the cans, so avoid recalling them by hand. |
@@ -229,6 +252,19 @@ Turn off any Hue-bridge automation on a controlled room: the "Natural light" sch
 5. Turn on the manual hold for every room, including rooms still on scenes. This fixes the evening problem everywhere, even before every room has lux control.
 
 Step 5 does not depend on the lux loop. It could ship first.
+
+## Implementation notes
+
+What the code does, where it differs from the text above, and what is left.
+
+- **Code:** `luxcurve.go` (curve and math), `luxcontrol.go` (loop, hold, shadow state), `luxanchors.go` (sun and schedule times), all in `internal/plugins/lighting/`.
+- **Living Room is `active` with guessed numbers.** `daylight_factor`, `lux_scale` and `calibration` in `hue_config.yaml` are guesses. `calibrated: true` only lets the config load, because the loader refuses `mode: active` without it. Replace the guesses with measurements. `log_only` remains for testing a new room.
+- **Hold applies in `active` mode only.** In `log_only` the plugin sends no commands, so it has nothing to compare against. Rooms without `lux_control` (step 5 for rooms still on scenes) have no light entity to watch and are not covered yet.
+- **Manual changes are found by comparing values.** The design also named `context.user_id`. The code does not use it. The Home Assistant token belongs to a person, so the plugin's own calls and that person's manual changes carry the same user ID.
+- **A TV session is not a manual change.** Reports from the cans are ignored while the room's conditions say `skip`. The plugin forgets its last command, so it sends fresh values when the TV stops.
+- **Before the first dawn point of the day, and after `schedule.night`, the target holds the night values.** The curve jumps to the dawn values at dawn. Open question 3 covers whether it should wait for someone to wake.
+- **A missing outdoor reading counts as zero daylight.** The smoother also forgets its old samples, so the room is lit to the full target.
+- **Not built:** Hue zones, calibration, other rooms, a dashboard hint for held rooms.
 
 ## Open questions
 

@@ -6,7 +6,7 @@ This document describes the lighting automation flow, which manages whole-home l
 
 The lighting plugin provides intelligent lighting control by:
 1. Calculating scenes based on day phase and context
-2. Protecting special modes, with per-room manual override holds planned for lux-target lighting
+2. Respecting manual overrides (rooms with active lux control) and protecting special modes
 3. Managing transitions for natural light progression
 4. Supporting special scenarios (wake-up, away mode)
 
@@ -167,33 +167,33 @@ sequenceDiagram
     Note over LM: Bedroom lights now<br/>follow normal automation
 ```
 
-## Manual Override Holds (Proposed)
+## Manual Override Holds
 
-> **Not yet implemented:** The current lighting plugin does not detect manual overrides. Lux-target lighting will add
-> the per-room hold behavior below.
+Rooms with `lux_control.mode: active` hold after a manual change. Rooms without lux control, and rooms in `log_only` mode, have no hold. See [LUX_LIGHTING.md](./LUX_LIGHTING.md).
 
-The plugin will compare Home Assistant updates for a room's controlled lights with its last commanded brightness and
-color temperature. A difference outside the transition window and configured tolerances will put the whole room into
-a held state.
+The plugin remembers the last brightness and kelvin it sent to the room's cans. A report from Home Assistant that differs from that command, after the command's transition ends, counts as a manual change.
 
 ```mermaid
 flowchart TD
-    manual["Manual change detected<br/>for controlled lights"] --> hold["Hold the whole room"]
-    hold --> skipCans["Lux loop skips cans"]
-    hold --> skipScenes["Day phase and sun events<br/>do not re-fire accent scenes"]
-    hold --> offConditions["Existing off conditions<br/>still apply"]
+    report["HA reports cans state"] --> window{"Inside the command's<br/>transition window?"}
+    window -->|Yes| ignore["Ignore"]
+    window -->|No| owned{"Room 'on'?<br/>(not TV / sleep)"}
+    owned -->|No| ignore
+    owned -->|Yes| compare{"Differs from last command?<br/>(5% brightness, 150 K)"}
+    compare -->|No| ignore
+    compare -->|Yes| held["Room held"]
 
-    roomRestart["Room turns off,<br/>then on"] --> clear["Clear room hold"]
-    everyoneAsleep["isEveryoneAsleep<br/>becomes true"] --> clear
-    nobodyHome["isAnyoneHome<br/>becomes false"] --> clear
-    dayPhase["Day phase changes"] --> keep["Keep room held"]
+    held --> keep["Lux loop and scene recalls<br/>leave the room alone"]
 
-    style hold fill:#f39c12,color:#fff
-    style keep fill:#f39c12,color:#fff
+    cycle["Room turns off, then on"] --> clear["Hold cleared"]
+    asleep["Everyone asleep"] --> clear
+    away["Nobody home"] --> clear
+
+    style held fill:#f39c12,color:#fff
+    style keep fill:#e74c3c,color:#fff
 ```
 
-A day phase change does **not** clear the hold. See [Lux-Target Lighting](./LUX_LIGHTING.md#manual-override) for
-detection tolerances and transition handling.
+A day phase or sun event change does **not** clear the hold.
 
 ## Edge-Triggered Activation (skip_reactivation_when_on)
 

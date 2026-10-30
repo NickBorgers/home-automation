@@ -432,7 +432,7 @@ graph TB
     end
 
     subgraph "Plugin Shadow States"
-        LightingShadow[LightingShadowState<br/>- Inputs: current, atLastAction<br/>- Outputs: rooms, scenes<br/>- Metadata]
+        LightingShadow[LightingShadowState<br/>- Inputs: current, atLastAction<br/>- Outputs: rooms, scenes, luxControl<br/>- Metadata]
 
         MusicShadow[MusicShadowState<br/>- Inputs: current, atLastAction<br/>- Outputs: mode, playlist, speakers<br/>- Metadata]
 
@@ -978,6 +978,7 @@ graph LR
     subgraph "HA Entities (Sensors)"
         HumiditySensors[sensor.*_humidity]
         WeatherStationHumidity[sensor.weather_station_humidity]
+        WeatherStationIlluminance[sensor.weather_station_illuminance]
         WaterLeakSensors[binary_sensor.*water_leak*]
         BatteryStateSensors[sensor.*_battery]
         NodeStatusSensors[sensor.*_node_status]
@@ -987,6 +988,7 @@ graph LR
         SepticAlarmSensor[event.septic_alarm_going_off]
         EightSleepPresence[binary_sensor.*_eight_sleep_side_bed_presence]
         EightSleepStage[sensor.*_eight_sleep_side_sleep_stage]
+        LivingCans[light.living_cans]
     end
 
     NickHome --> StateTracking
@@ -1033,6 +1035,8 @@ graph LR
     NickOffice --> Lighting
     Kitchen --> Lighting
     PrimaryDoor --> Lighting
+    WeatherStationIlluminance -->|Outdoor Lux Reference| Lighting
+    LivingCans -->|Manual Override Detection| Lighting
 
     BatteryPercent --> Energy
     Energy --> BatteryLevel
