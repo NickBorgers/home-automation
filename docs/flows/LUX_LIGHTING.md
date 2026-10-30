@@ -1,6 +1,6 @@
 # Lux-Target Lighting (Design)
 
-**Status:** Rollout steps 1 to 3 and 5 are built. The Living Room ships in `active` mode with guessed calibration numbers (2026-10-30). Measuring them is still manual work. See "Implementation notes" at the end.
+**Status:** Rollout steps 1 to 3 and 5 are built. The Living Room ships in `active` mode. Its `daylight_factor` and `calibration` were measured on 2026-10-30 with a phone app, in daylight, so they are rough. `lux_scale` is still a guess. See "Implementation notes" at the end.
 
 ## Summary
 
@@ -258,7 +258,7 @@ Step 5 does not depend on the lux loop. It could ship first.
 What the code does, where it differs from the text above, and what is left.
 
 - **Code:** `luxcurve.go` (curve and math), `luxcontrol.go` (loop, hold, shadow state), `luxanchors.go` (sun and schedule times), all in `internal/plugins/lighting/`.
-- **Living Room is `active` with guessed numbers.** `daylight_factor`, `lux_scale` and `calibration` in `hue_config.yaml` are guesses. `calibrated: true` only lets the config load, because the loader refuses `mode: active` without it. Replace the guesses with measurements. `log_only` remains for testing a new room.
+- **Living Room is `active`.** `daylight_factor` and `calibration` in `hue_config.yaml` come from a rough phone-app measurement (2026-10-30). `lux_scale` is a guess. `calibrated: true` only lets the config load, because the loader refuses `mode: active` without it. Replace the guesses with measurements. `log_only` remains for testing a new room.
 - **Hold applies in `active` mode only.** In `log_only` the plugin sends no commands, so it has nothing to compare against. Rooms without `lux_control` (step 5 for rooms still on scenes) have no light entity to watch and are not covered yet.
 - **Manual changes are found by comparing values.** The design also named `context.user_id`. The code does not use it. The Home Assistant token belongs to a person, so the plugin's own calls and that person's manual changes carry the same user ID.
 - **A TV session is not a manual change.** Reports from the cans are ignored while the room's conditions say `skip`. The plugin forgets its last command, so it sends fresh values when the TV stops.
