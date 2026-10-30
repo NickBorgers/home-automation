@@ -31,8 +31,14 @@ CACHE_FILE="${CACHE_DIR}/${CACHE_NAME}.hash"
 # Ensure we're at repo root
 cd "$(git rev-parse --show-toplevel)"
 
-# Create cache directory if it doesn't exist
-mkdir -p "$CACHE_DIR"
+# Create cache directory if it doesn't exist.
+# In CI agent containers the checkout is owned by another user, so the repo root
+# is not writable. Fall back to a temp directory so the tests still run.
+if ! mkdir -p "$CACHE_DIR" 2>/dev/null; then
+    CACHE_DIR="${TMPDIR:-/tmp}/home-automation-test-cache"
+    CACHE_FILE="${CACHE_DIR}/${CACHE_NAME}.hash"
+    mkdir -p "$CACHE_DIR"
+fi
 
 # Compute current state hash based on CONTENT, not commit metadata
 # This ensures the hash is the same before and after commit if file contents match
