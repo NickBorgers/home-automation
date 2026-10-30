@@ -762,7 +762,7 @@ flowchart TD
 6. Enable shuffle for playlists (SoCo-CLI shuffle)
 7. Fade in eligible speakers (SoCo-CLI volume)
 
-> **Note:** All speaker commands route through SoCo-CLI (direct UPnP) when configured. State reads (current volume, playback status) still go through Home Assistant.
+> **Note:** All speaker commands and state reads (current volume, playback status) route through SoCo-CLI (direct UPnP) when configured, with fallback to Home Assistant. Startup reconciliation still reads Home Assistant.
 
 ---
 

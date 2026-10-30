@@ -201,13 +201,7 @@ func (m *Manager) removeSpeakersFromZone(zone *Zone, speakers []string, trigger 
 // Used during seamless zone transitions where speakers continue playing
 // but need a volume change (e.g., sleep-prep multiplier 1.3 → sleep multiplier 1.45).
 func (m *Manager) smoothVolumeAdjust(speakerName string, targetVolume int) {
-	entityID := m.getSpeakerEntityID(speakerName)
-	if entityID == "" {
-		return
-	}
-
-	// State read via HA (getSpeakerVolume queries HA entity state)
-	currentVolume := m.getSpeakerVolume(entityID)
+	currentVolume := m.getSpeakerVolume(speakerName)
 	if currentVolume < 0 {
 		// Can't read current volume, set target directly
 		if err := m.speakerSetVolume(speakerName, targetVolume); err != nil {

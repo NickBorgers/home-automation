@@ -403,8 +403,8 @@ func (m *Manager) startPlaybackWithVerification(leadEntityID string, leadPlayerN
 		// Wait for speaker to start playing
 		m.sleepFunc(playbackVerificationDelay)
 
-		// Check if playback actually started (state read still goes through HA)
-		playing, checkErr := m.isPlaybackActive(leadEntityID)
+		// Check if playback actually started
+		playing, checkErr := m.isPlaybackActive(leadPlayerName)
 		if checkErr != nil {
 			m.logger.Warn("Failed to verify playback state",
 				zap.String("entity_id", leadEntityID),
@@ -436,7 +436,7 @@ func (m *Manager) startPlaybackWithVerification(leadEntityID string, leadPlayerN
 
 		// Brief wait and re-check before retry
 		m.sleepFunc(1 * time.Second)
-		playing, _ = m.isPlaybackActive(leadEntityID)
+		playing, _ = m.isPlaybackActive(leadPlayerName)
 		if playing {
 			m.logger.Info("Playback started after play nudge",
 				zap.String("entity_id", leadEntityID),
@@ -470,7 +470,7 @@ func (m *Manager) startTidalPlayback(leadEntityID string, leadPlayerName string,
 		m.sleepFunc(playbackVerificationDelay)
 
 		// Check if playback actually started
-		playing, checkErr := m.isPlaybackActive(leadEntityID)
+		playing, checkErr := m.isPlaybackActive(leadPlayerName)
 		if checkErr != nil {
 			m.logger.Warn("Failed to verify Tidal playback state",
 				zap.String("entity_id", leadEntityID),

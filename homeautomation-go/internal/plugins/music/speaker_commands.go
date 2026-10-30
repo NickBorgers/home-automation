@@ -20,8 +20,8 @@ import (
 // When SoCo-CLI is not configured (fallback):
 //   Go service → HA WebSocket → HA Sonos Integration → UPnP → Speaker
 //
-// State reads (current volume, playback status) always go through HA regardless
-// of whether SoCo-CLI is configured.
+// State reads (current volume, playback status) follow the same routing. See
+// getSpeakerVolume and isPlaybackActive. Startup reconciliation still reads HA.
 //
 // All methods take speaker names ("Kitchen", "Front Room") not entity IDs.
 // =============================================================================

@@ -506,6 +506,7 @@ Run `curl -s https://soco-cli.featherback-mermaid.ts.net/rediscover` before you 
 
 - **URL encoding:** Speaker names with spaces use `url.PathEscape()` (e.g., `Sitting%20Room`). The API handles this correctly.
 - **Fallback:** If `SOCO_CLI_URL` env var is unset, all speaker commands fall back to Home Assistant WebSocket API (`speaker_commands.go` dual-path routing).
+- **State reads:** With `SOCO_CLI_URL` set, volume and playback state also come from SoCo by speaker name. A speaker needs no `media_player` entity in Home Assistant. Startup reconciliation (`startup_reconciliation.go`) still reads Home Assistant.
 - **Timeouts:** Standard operations use 5s per-attempt timeout; `sharelink` uses 30s (downloads and enqueues content).
 - **Retries:** Network errors and HTTP 5xx/429 retry up to 3 total attempts with 500ms delay. Application errors (`exit_code != 0`) and HTTP 4xx do not retry.
 - **Read-only mode:** When `READ_ONLY=true`, all SoCo commands are logged but not executed.

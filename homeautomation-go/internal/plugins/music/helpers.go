@@ -88,8 +88,12 @@ func (m *Manager) isSpeakerAvailable(entityID string) bool {
 	return m.availableSpeakers[entityID]
 }
 
-// validateConfiguredSpeakers logs warnings for any configured speakers not found in Home Assistant
+// validateConfiguredSpeakers logs warnings for any configured speakers not found in Home Assistant.
+// Skipped when SoCo-CLI is configured: it addresses speakers by name, so no HA entity is needed.
 func (m *Manager) validateConfiguredSpeakers() {
+	if m.socoClient != nil {
+		return
+	}
 	for modeName, mode := range m.config.Music {
 		for _, participant := range mode.Participants {
 			entityID := m.getSpeakerEntityID(participant.PlayerName)
