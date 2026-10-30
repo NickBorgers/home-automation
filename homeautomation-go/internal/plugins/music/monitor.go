@@ -19,7 +19,10 @@ func (m *Manager) isPlaybackActive(speakerName string) (bool, error) {
 		}
 
 		// Sonos transport states: PLAYING, PAUSED_PLAYBACK, STOPPED, TRANSITIONING
-		isPlaying := transport == "PLAYING"
+		// TRANSITIONING is counted as playing: it occurs during normal track changes
+		// and while content loads after play_from_queue; treating it as paused would
+		// trigger spurious retries and health-monitor false positives.
+		isPlaying := transport == "PLAYING" || transport == "TRANSITIONING"
 
 		m.logger.Debug("Checked playback state",
 			zap.String("speaker", speakerName),
@@ -143,7 +146,7 @@ func (m *Manager) monitorPlaybackHealth(ctx context.Context, leadEntityID, leadS
 			return
 		}
 
-		// Get current speaker state (state read via HA)
+		// Get current speaker state
 		playing, err := m.isPlaybackActive(leadSpeakerName)
 		if err != nil {
 			m.logger.Warn("Failed to check playback state during health monitor",
@@ -182,7 +185,7 @@ func (m *Manager) monitorPlaybackHealth(ctx context.Context, leadEntityID, leadS
 			m.logger.Info("Attempting playback recovery after auto-pause",
 				zap.String("lead_speaker", leadSpeakerName))
 
-			success := m.attemptPlaybackRecovery(leadEntityID, leadSpeakerName)
+			success := m.attemptPlaybackRecovery(leadSpeakerName)
 			if success {
 				m.logger.Info("Playback recovery successful",
 					zap.String("lead_speaker", leadSpeakerName))
@@ -205,7 +208,7 @@ func (m *Manager) monitorPlaybackHealth(ctx context.Context, leadEntityID, leadS
 // attemptPlaybackRecovery sends a play command to resume playback.
 // Returns true if playback resumed successfully, false otherwise.
 // leadSpeakerName is used for the play command and the state verification.
-func (m *Manager) attemptPlaybackRecovery(leadEntityID, leadSpeakerName string) bool {
+func (m *Manager) attemptPlaybackRecovery(leadSpeakerName string) bool {
 	// Send play command (routed to SoCo or HA)
 	if err := m.speakerPlay(leadSpeakerName); err != nil {
 		m.logger.Error("Failed to send recovery play command",
@@ -217,7 +220,7 @@ func (m *Manager) attemptPlaybackRecovery(leadEntityID, leadSpeakerName string) 
 	// Wait for command to take effect
 	m.sleepFunc(playbackRecoveryDelay)
 
-	// Verify playback resumed (state read via HA)
+	// Verify playback resumed
 	playing, err := m.isPlaybackActive(leadSpeakerName)
 	if err != nil {
 		m.logger.Warn("Failed to verify recovery",
