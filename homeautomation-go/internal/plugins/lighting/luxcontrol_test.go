@@ -497,7 +497,6 @@ func TestLuxConfigValidation(t *testing.T) {
 			c.Rooms[0].LuxControl.Calibration = []CalibrationPoint{{BrightnessPct: 50, Lux: 100}, {BrightnessPct: 25, Lux: 40}}
 		}},
 		{"active but uncalibrated", func(c *HueConfig) { c.Rooms[0].LuxControl.Calibrated = false }},
-		{"active without accent group", func(c *HueConfig) { c.Rooms[0].LuxControl.AccentSceneGroup = "" }},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

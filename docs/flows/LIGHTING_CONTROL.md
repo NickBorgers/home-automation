@@ -207,7 +207,7 @@ The per-room `skip_reactivation_when_on: true` config flag makes activation **ed
 - `sunevent` changes
 - Empty/reset triggers (startup initialization)
 
-Currently used by: Kitchen (Apollo MTR mmWave radar)
+Currently used by: Kitchen (Apollo MTR mmWave radar). The flag stays on for the Kitchen's under-cabinet companion scene, which the manual hold does not cover.
 
 ## Transition Timing
 
@@ -296,6 +296,7 @@ Each entry is a scene base name. Its entity ID is
 `scene.` + snake_case(entry + " " + dayPhase). For example, the Kitchen entry
 `"Kitchen Under Cabinet"` in the `morning` phase activates
 `scene.kitchen_under_cabinet_morning` after `scene.kitchen_morning`.
+Since the Kitchen runs lux control, with no `accent_scene_group`, the plugin no longer recalls `scene.kitchen_<phase>` and the companion is activated alone. The Pantry (cans only, same conditions as the Kitchen) recalls no scene at all.
 
 - Companions run only after the main scene succeeded. This includes the
   `has_dynamics` static phase and its `scene.turn_on` fallback; they do not
