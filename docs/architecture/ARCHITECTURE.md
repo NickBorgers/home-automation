@@ -301,7 +301,7 @@ Each plugin corresponds to a Node-RED flow and implements domain-specific automa
 **Responsibilities:**
 - Activate lighting scenes based on day phase
 - Respond to sun events (sunrise, sunset, dusk)
-- Handle manual overrides
+- Protect special modes (manual override holds planned, not yet implemented)
 - Manage Christmas tree seasonal lighting
 
 **Key Automations:**
