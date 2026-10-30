@@ -7,7 +7,7 @@ This document describes the phased implementation plan for enabling multiple sim
 Today the music system plays exactly one "zone" of music at a time. All speakers participating in a music type (e.g., "morning", "sleep") form a single Sonos group controlled by one lead speaker.
 
 **Desired behavior:**
-- Multiple zones can play different music types simultaneously (e.g., "sleep" in Bedroom while "morning" in Kitchen)
+- Multiple zones can play different music types simultaneously (e.g., "sleep" in Bedroom while "morning" in Pantry)
 - Speakers can dynamically move between zones based on state changes (e.g., when `isMasterAsleep` becomes false, Bedroom joins the "morning" zone)
 - Volume reset and fade-in when a speaker joins a new zone
 
@@ -44,8 +44,8 @@ flowchart TB
         zoneManager["Zone Manager"]
 
         subgraph Zones["Active Zones"]
-            zone1["Zone 1: morning<br/>Kitchen (lead), Sitting Room"]
-            zone2["Zone 2: sleep<br/>Primary Bathroom (lead)"]
+            zone1["Zone 1: morning<br/>Pantry (lead), Sitting Room"]
+            zone2["Zone 2: sleep<br/>Bedroom (lead)"]
         end
 
         subgraph SpeakerAssignment["Speaker Assignment"]
@@ -79,7 +79,7 @@ flowchart TB
 music:
   morning:
     participants:
-      - player_name: "Kitchen"
+      - player_name: "Sitting Room"
         base_volume: 9
         leave_muted_if:
           - variable: isTVPlaying
@@ -94,7 +94,7 @@ music:
 music:
   morning:
     participants:
-      - player_name: "Kitchen"
+      - player_name: "Sitting Room"
         base_volume: 9
         leave_muted_if:           # Keep in zone but muted (existing behavior)
           - variable: isTVPlaying
@@ -111,7 +111,7 @@ music:
 - `exclude_if`: Speaker is excluded from the zone entirely and does not join the Sonos group. Use when you want the speaker to be available for other zones (Phase 2+) or to completely detach from playback.
 
 **Use Case Examples:**
-- **`leave_muted_if`**: Kitchen speaker when TV is playing - stays grouped, unmutes instantly when TV turns off
+- **`leave_muted_if`**: Sitting Room speaker when TV is playing - stays grouped, unmutes instantly when TV turns off
 - **`exclude_if`**: Bedroom speaker when someone is asleep - excluded from "morning" zone so it can play "sleep" music in Phase 2
 
 **Code Changes:**
@@ -193,12 +193,12 @@ music:
 **Goal**: Allow speakers to move between zones when conditions change.
 
 **Scenario:**
-1. Kitchen playing "morning" music
+1. Pantry playing "morning" music
 2. Bedroom playing "sleep" music (isMasterAsleep=true)
 3. isMasterAsleep becomes false
 4. Bedroom should:
    - Leave "sleep" zone
-   - Join "morning" zone with Kitchen
+   - Join "morning" zone with Pantry
    - Fade in at appropriate volume
 
 **Migration Sequence:**
@@ -208,16 +208,16 @@ sequenceDiagram
     participant SM as State Manager
     participant ZM as Zone Manager
     participant Bedroom
-    participant Kitchen
+    participant Pantry
 
     Note over Bedroom: In "sleep" zone
-    Note over Kitchen: In "morning" zone (lead)
+    Note over Pantry: In "morning" zone (lead)
 
     SM->>ZM: isMasterAsleep = false
     ZM->>ZM: Re-evaluate zone eligibility
     ZM->>Bedroom: unjoin (leave sleep zone)
     ZM->>Bedroom: volume_set(0)
-    ZM->>Kitchen: join(group_members: [Bedroom])
+    ZM->>Pantry: join(group_members: [Bedroom])
     ZM->>Bedroom: fade_in to target_volume
 ```
 
@@ -282,14 +282,14 @@ flowchart LR
     "activeZones": [
       {
         "musicType": "morning",
-        "leadSpeaker": "Kitchen",
-        "participants": ["Kitchen", "Sitting Room"],
+        "leadSpeaker": "Pantry",
+        "participants": ["Pantry", "Sitting Room"],
         "startedAt": "2026-01-06T08:30:00Z"
       },
       {
         "musicType": "sleep",
-        "leadSpeaker": "Primary Bathroom",
-        "participants": ["Primary Bathroom", "Bedroom", "Kitchen"],
+        "leadSpeaker": "Bedroom",
+        "participants": ["Bedroom"],
         "startedAt": "2026-01-06T07:00:00Z"
       }
     ]
