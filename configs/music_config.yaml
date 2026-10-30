@@ -394,8 +394,8 @@ music:
   # sleep-prep: Whole-house rain sounds before master goes to bed
   # Plays during night phase to help direct people to bed
   # NOTE: Pantry must be first (leader/coordinator). Lounge is too far from the
-  # WAP to lead. The zone_manager handles the leader change during the
-  # sleep-prep → sleep transition.
+  # WAP to lead. When transitioning to sleep, the whole-house group stops and
+  # Bedroom continues solo (no leader handoff needed).
   sleep-prep:
     participants:
       - player_name: "Pantry"
