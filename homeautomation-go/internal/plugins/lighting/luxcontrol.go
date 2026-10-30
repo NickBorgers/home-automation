@@ -87,6 +87,11 @@ func (m *Manager) startLux() error {
 		m.logger.Warn("Lux control configured but no anchor resolver set; lux control disabled")
 		return nil
 	}
+	window := luxDefaultSmoothing
+	if mins := m.config.LuxCurve.SmoothingMinutes; mins > 0 {
+		window = time.Duration(mins) * time.Minute
+	}
+	m.luxOutdoor = &smoother{window: window}
 
 	for _, room := range rooms {
 		if !luxActive(room) {
@@ -151,18 +156,10 @@ func (m *Manager) luxTick() {
 // and false when the reading is missing. A missing reading clears the smoother so old
 // data cannot hide the gap; the caller then treats daylight as 0.
 func (m *Manager) sampleOutdoor(now time.Time) (float64, bool) {
+	st, err := m.haClient.GetState(m.config.LuxCurve.OutdoorSensor)
+
 	m.luxMu.Lock()
 	defer m.luxMu.Unlock()
-
-	if m.luxOutdoor == nil {
-		window := luxDefaultSmoothing
-		if mins := m.config.LuxCurve.SmoothingMinutes; mins > 0 {
-			window = time.Duration(mins) * time.Minute
-		}
-		m.luxOutdoor = &smoother{window: window}
-	}
-
-	st, err := m.haClient.GetState(m.config.LuxCurve.OutdoorSensor)
 	if err != nil || st == nil {
 		m.luxOutdoor.reset()
 		return 0, false

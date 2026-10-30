@@ -55,6 +55,7 @@ func newLuxFixture(t *testing.T, mode string, readOnly bool) *luxFixture {
 	require.NoError(t, cfg.validateLux())
 
 	m := NewManager(context.Background(), env.MockHA, env.StateMgr, cfg, env.Logger, readOnly, nil)
+	m.luxOutdoor = &smoother{window: luxDefaultSmoothing}
 	clk := clock.NewMockClock(at(12, 0))
 	m.SetClock(clk)
 	m.SetAnchorResolver(luxTestAnchors)
