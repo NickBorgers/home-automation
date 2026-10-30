@@ -52,22 +52,22 @@ rooms:
     # scenes exist in Hue, the scene call fails and logs an error, and the accents stay as they are.
     # log_only (for testing): scenes drive the whole room; shadow state shows what lux control would do.
     #
-    # THE NUMBERS BELOW ARE GUESSES, NOT MEASUREMENTS. calibrated: true only lets the config load.
-    # Measure them with the steps in docs/flows/LUX_LIGHTING.md ("Calibration").
+    # MEASURED 2026-10-30 with an iPhone lux app (rough, about +/-30%). Re-measure with a real lux meter.
+    # See docs/flows/LUX_LIGHTING.md ("Calibration"). lux_scale is still a GUESS.
     lux_control:
       mode: active
       cans: light.living_cans
       accent_scene_group: Main Living Accent
-      daylight_factor: 0.02   # GUESS. Cans switch off near 7,500 outdoor lux at lux_scale 0.5
-      lux_scale: 0.5          # GUESS. Four Hue downlights likely give far less than the 300 lux curve
+      daylight_factor: 0.0025 # MEASURED: 24 lux indoors (cans off) at about 9,500 outdoor lux, cloudy
+      lux_scale: 0.5          # GUESS. The cans reach only about 36 lux, far below the 300 lux curve
       calibrated: true
-      calibration:            # GUESS: lux at working height, cans only, at night
+      calibration:            # MEASURED at 4000 K in daylight: reading minus the 24 lux of daylight
         - brightness_pct: 25
-          lux: 12
+          lux: 3
         - brightness_pct: 50
-          lux: 30
+          lux: 9
         - brightness_pct: 100
-          lux: 70
+          lux: 36
 
   - hue_group: Primary Suite
     hass_area_id: master_bedroom
