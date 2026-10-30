@@ -199,9 +199,30 @@ rooms:
 
 ## Calibration (once per room)
 
-1. **At night, no daylight.** Set the cans to 25%, 50% and 100% at 4000 K. Measure lux at working height with a phone lux meter. Record the three readings.
-2. **On a bright overcast day, cans off.** Read the indoor lux and the weather station value at the same time. Do this three or four times. `daylight_factor` is the average of indoor divided by outdoor.
-3. Put both into the room's config.
+Aim for ±20% to ±30%, not more. The eye reads brightness on a log scale, so a small error is hard to see.
+
+**Tools.** A handheld lux meter (about $15 to $30) is the most reliable. An Android phone app is good enough, because Android gives apps the light sensor. iPhone apps estimate from the camera and are rougher.
+
+**1. Calibration table (at night, no daylight)**
+
+1. Turn off every other light, including accents and the TV. Close the blinds.
+2. Set the cans to 4000 K at 25%, 50% and 100% brightness.
+3. Hold the sensor flat and facing up, at table or sofa-seat height.
+4. Read three or four spots where people sit. Average them. Record one lux value for each brightness.
+
+**2. `daylight_factor` (bright overcast day, cans off)**
+
+1. Read the indoor lux where people sit. At the same moment, read `sensor.weather_station_illuminance` in Home Assistant.
+2. Divide indoor by outdoor.
+3. Repeat three or four times and average. Typical values are 0.005 to 0.05.
+
+Without a meter, tune `daylight_factor` by eye. In `log_only`, shadow state shows when the cans would switch off. Adjust the number until that matches when the room feels bright enough on a sunny day.
+
+**3. Put the values in the room's config**, then set `calibrated: true`.
+
+**Check that the cans can reach the target.** If 100% gives far less than the 300 lux target, the cans sit at 100% all day and the curve has no effect. Set `lux_scale` below 1 so the curve fits what the cans can do.
+
+The values that ship in `hue_config.yaml` are rough estimates, so the Living Room stays in `log_only` with `calibrated: false`.
 
 Indoor sensors, when they come back, read light at the ceiling or wall, not at the working height. They would need the same comparison against a hand-held meter.
 
