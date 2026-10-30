@@ -8,7 +8,7 @@ The ceiling cans stop recalling a Hue scene for each day phase. Instead, each ro
 
 Accent lights keep their per-phase scenes. Task lights (under-cabinet) keep their companion scenes.
 
-A manual change to a room's lights now holds until that room goes off and on again, or until everyone is asleep. Day phase changes no longer undo it. This fixes the evening problem, where someone turns the lights up and the system turns them back down at `dusk`, `winddown` and `night`.
+A manual change to a room's lights now holds until that room goes off and on again, until everyone is asleep, or until reset runs. Day phase changes no longer undo it. This fixes the evening problem, where someone turns the lights up and the system turns them back down at `dusk`, `winddown` and `night`.
 
 ## Goals
 
@@ -136,6 +136,7 @@ The room enters **held** state. While held:
 | The room turns off and then on again, by any cause | A new "session" in the room. |
 | `isEveryoneAsleep` becomes true | The day is over. |
 | `isAnyoneHome` becomes false | The house is empty. |
+| `reset` runs | Reset acts as if every room's lights went off and on again. The last command is forgotten, so the next tick sends fresh values. |
 
 A day phase change does **not** clear the hold. This replaces today's behavior, where every phase change re-fires every room.
 
