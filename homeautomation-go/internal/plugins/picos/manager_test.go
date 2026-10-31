@@ -425,6 +425,9 @@ func TestLoadConfig_ShippedConfigIsValid(t *testing.T) {
 	assert.Equal(t, "pantry", byDevice["53029c3f27ec026f77bdaa7057187bbe"])
 	assert.Equal(t, "pantry", byDevice["7565da047cf5f8cd4a788e13b640cd6d"])
 	assert.Equal(t, "kitchen", byDevice["cc81d6bde6cb377b0be9f9108735779d"])
+	assert.Equal(t, "kids hall", byDevice["80f92d7f29fdbef7643ed1b002532267"])
+	assert.Equal(t, "kids hall", byDevice["94ac4ddc87211f92e2ea35444a567bc5"])
+	assert.Equal(t, "living", byDevice["b24af62680f649083e66166fc40faf76"])
 }
 
 func TestConfigValidation(t *testing.T) {
