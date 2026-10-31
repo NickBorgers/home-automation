@@ -32,6 +32,15 @@ targets:
       - light.kitchen_cans
       - light.kitchen_main_lights  # Kitchen Under Cabinet (Lutron)
 
+  # The kids hallway down light. The up light is left out until the accent group exists.
+  - name: kids hall
+    lights:
+      - light.kids_hall_bottom
+
+  - name: living
+    lights:
+      - light.living_cans
+
 buttons:
   # By the primary suite door. Lights the way for someone walking into the pantry.
   - name: Pantry Primary Suite Door
@@ -47,3 +56,18 @@ buttons:
   - name: Pantry Kitchen Lights
     device_id: cc81d6bde6cb377b0be9f9108735779d
     target: kitchen
+
+  # Hallway between the bedrooms. A 2-button Pico, formerly "Living Room Remote on Kitchen Wall".
+  - name: Hallway Between Bedrooms
+    device_id: 80f92d7f29fdbef7643ed1b002532267
+    target: kids hall
+
+  # Hallway, by the living room. Same effect as the Pico between the bedrooms.
+  - name: Hallway Hall Light Switch by Living
+    device_id: 94ac4ddc87211f92e2ea35444a567bc5
+    target: kids hall
+
+  # Hallway, for the living space. Steps the living cans Hue group like the pantry Picos do.
+  - name: Hallway Living Switch
+    device_id: b24af62680f649083e66166fc40faf76
+    target: living

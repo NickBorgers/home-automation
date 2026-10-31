@@ -1,6 +1,6 @@
 # Pico Buttons
 
-Three Lutron Pico rockers in the pantry step the brightness of the pantry and kitchen lights.
+Six Lutron Picos step the brightness of light groups: three in the pantry and three in the hallway.
 The Picos control nothing inside Lutron. Home Assistant reports each press as a
 `lutron_caseta_button_event`, and the `picos` plugin answers it.
 
@@ -11,10 +11,16 @@ The Picos control nothing inside Lutron. Home Assistant reports each press as a
 | Pantry Primary Suite Door | By the primary suite door | pantry | `light.pantry_area`, `light.pantry_under_cabinet` |
 | Pantry Pantry Lights Pico | In the pantry | pantry | same as above |
 | Pantry Kitchen Lights Pico | In the pantry | kitchen | `light.kitchen_cans`, `light.kitchen_main_lights` |
+| Hallway Between Bedrooms (2-button Pico) | Hallway between the bedrooms | kids hall | `light.kids_hall_bottom` |
+| Hallway Hall Light Switch by Living | Hallway, by the living room | kids hall | same as above |
+| Hallway Living Switch | Hallway | living | `light.living_cans` |
 
 The pantry Picos light the way for someone who walks into the pantry. The kitchen Pico lights the
 next room for someone who walks on through. `light.pantry_area` is the Hue zone of the pantry cans
 plus the hall light by the primary suite.
+
+The two kids hall Picos step only the down light. `light.kids_hall_top` (the up light) is not
+controlled yet. It is meant to join an accent group later.
 
 ## What a press does
 
@@ -47,7 +53,7 @@ reference light again, so a change made in the Hue app is respected.
 
 ## Interaction with lux control
 
-Kitchen and Pantry cans run under lux control (see [LUX_LIGHTING.md](./LUX_LIGHTING.md)). A Pico
+Kitchen, Pantry, and Living cans run under lux control (see [LUX_LIGHTING.md](./LUX_LIGHTING.md)). A Pico
 press changes the cans to a level lux control did not send. Lux control sees a manual change and
 holds the room. The hold ends when everyone is asleep or the house is empty.
 
