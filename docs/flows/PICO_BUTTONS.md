@@ -51,6 +51,12 @@ Kitchen and Pantry cans run under lux control (see [LUX_LIGHTING.md](./LUX_LIGHT
 press changes the cans to a level lux control did not send. Lux control sees a manual change and
 holds the room. The hold ends when everyone is asleep or the house is empty.
 
+The Pantry Primary Suite Door Pico targets both `light.pantry_area` and `light.pantry_under_cabinet`.
+A press on `light.pantry_under_cabinet` triggers a **per-strip** follower hold, not a room hold. The
+cans keep following the lux curve; only that strip is left alone. The strip hold clears with the same
+events that end a room hold (everyone asleep, nobody home, or reset) — not by a Hue Sync takeover
+(which only clears the cans command history, not the manual strip hold).
+
 Lux control ignores a report that arrives within about 10 seconds of its own command. A press in
 that window can be overwritten at the next lux tick.
 

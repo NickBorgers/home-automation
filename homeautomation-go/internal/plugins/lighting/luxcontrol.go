@@ -564,6 +564,8 @@ func (m *Manager) clearAllLuxHolds(reason string) {
 
 // forgetLuxCommand drops the remembered command, so the next tick sends fresh values.
 // Used when another controller (Hue Sync) has had the lights.
+// followerHeld is intentionally kept: a strip hold set by a person survives a Hue Sync takeover.
+// Only clearLuxHold resets followerHeld, matching the room-hold semantics.
 func (m *Manager) forgetLuxCommand(room *RoomConfig) {
 	if !luxManaged(room) {
 		return
