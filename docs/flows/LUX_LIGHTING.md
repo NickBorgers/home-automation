@@ -280,6 +280,7 @@ Step 5 does not depend on the lux loop. It could ship first.
 What the code does, where it differs from the text above, and what is left.
 
 - **Code:** `luxcurve.go` (curve and math), `luxcontrol.go` (loop, hold, shadow state), `luxanchors.go` (sun and schedule times), all in `internal/plugins/lighting/`.
+- **Sun times are for the local calendar day.** The sun calculator asks suncalc for local noon of the local date, and the anchors reload when the local date changes. suncalc's own day rolls over at solar midnight (about 01:30 local here), so asking with "now" returned yesterday's sun times from 00:00 to about 01:30 and lifted the target to about 150 lux (fixed 2026-10-31). The target must never rise between 22:00 and sunrise.
 - **Living Room is `active`.** `daylight_factor` and `calibration` in `hue_config.yaml` come from a rough phone-app measurement (2026-10-30). `lux_scale` is a guess. `calibrated: true` only lets the config load, because the loader refuses `mode: active` without it. Replace the guesses with measurements. `log_only` remains for testing a new room.
 - **Kitchen and Pantry are `active`.** Measured 2026-10-30 evening with an iPhone lux app (rough, about +/-30%) at 4000 K, with about 7,500 lux outside. Cans-only lux is the reading minus the room's cans-off baseline. These numbers are temporary until real lux sensors arrive. `lux_scale: 0.5` is a guess for both rooms, copied from the Living Room.
 
