@@ -213,7 +213,11 @@ func (m *Manager) luxEvaluate(room *RoomConfig, trigger string) {
 		scale = 1
 	}
 	rec.TargetLux = target.Lux * scale
-	rec.TargetKelvin = target.Kelvin
+	kelvin := target.Kelvin
+	if !lc.HasColorTemp() {
+		kelvin = 0 // brightness-only light: no kelvin is sent, compared or recorded
+	}
+	rec.TargetKelvin = kelvin
 	rec.CurvePoint = fmt.Sprintf("%s -> %s @ %.2f", target.From, target.To, target.Pos)
 
 	if m.luxGuestsBoost(room) {
@@ -247,7 +251,7 @@ func (m *Manager) luxEvaluate(room *RoomConfig, trigger string) {
 	m.luxMu.Unlock()
 
 	wantOn := shouldBeOn(lc.Calibration, rec.NeededLux, prev != nil && prev.on)
-	cmd := &luxCommand{at: now, transition: luxTransition, on: wantOn, kelvin: target.Kelvin}
+	cmd := &luxCommand{at: now, transition: luxTransition, on: wantOn, kelvin: kelvin}
 	if wantOn {
 		cmd.pct = math.Max(1, math.Min(100, math.Round(luxToBrightness(lc.Calibration, rec.NeededLux))))
 		rec.BrightnessPct = cmd.pct
@@ -257,6 +261,7 @@ func (m *Manager) luxEvaluate(room *RoomConfig, trigger string) {
 		cmd.transition = maxReturnHomeTransition * time.Second
 	}
 
+	// For brightness-only rooms cmd.kelvin == prev.kelvin == 0, so the kelvin delta is always zero.
 	if prev != nil && prev.on == cmd.on &&
 		(!cmd.on || (math.Abs(prev.pct-cmd.pct) < minBrightnessDelta && abs(prev.kelvin-cmd.kelvin) < minKelvinDelta)) {
 		finish("no change: below minimum step" + note)
@@ -292,6 +297,9 @@ func describeLuxCommand(c *luxCommand) string {
 	if !c.on {
 		return fmt.Sprintf("off, transition %s", c.transition)
 	}
+	if c.kelvin == 0 {
+		return fmt.Sprintf("%.0f%%, transition %s", c.pct, c.transition)
+	}
 	return fmt.Sprintf("%.0f%% at %dK, transition %s", c.pct, c.kelvin, c.transition)
 }
 
@@ -315,7 +323,9 @@ func (m *Manager) sendLuxCommand(room *RoomConfig, cmd *luxCommand) error {
 	if cmd.on {
 		service = "turn_on"
 		data["brightness_pct"] = int(cmd.pct)
-		data["color_temp_kelvin"] = cmd.kelvin
+		if room.LuxControl.HasColorTemp() {
+			data["color_temp_kelvin"] = cmd.kelvin
+		}
 	}
 	m.logger.Info("Lux control sending command",
 		zap.String("room", room.HueGroup),
@@ -348,7 +358,7 @@ func (m *Manager) handleCansChange(room *RoomConfig, newState *ha.State) {
 		return
 	}
 
-	reason := manualChangeReason(cmd, newState)
+	reason := manualChangeReason(cmd, newState, room.LuxControl.HasColorTemp())
 	if reason == "" {
 		return
 	}
@@ -359,7 +369,7 @@ func (m *Manager) handleCansChange(room *RoomConfig, newState *ha.State) {
 }
 
 // manualChangeReason compares a cans report with the last command. It returns "" when they agree.
-func manualChangeReason(cmd *luxCommand, s *ha.State) string {
+func manualChangeReason(cmd *luxCommand, s *ha.State, colorTemp bool) string {
 	switch s.State {
 	case "on":
 		if !cmd.on {
@@ -369,6 +379,9 @@ func manualChangeReason(cmd *luxCommand, s *ha.State) string {
 			if pct := b / 255 * 100; math.Abs(pct-cmd.pct) > manualBrightnessTolerance {
 				return fmt.Sprintf("brightness %.0f%% differs from commanded %.0f%%", pct, cmd.pct)
 			}
+		}
+		if !colorTemp {
+			return ""
 		}
 		if k, ok := numberAttr(s.Attributes, "color_temp_kelvin"); ok {
 			if math.Abs(k-float64(cmd.kelvin)) > manualKelvinTolerance {

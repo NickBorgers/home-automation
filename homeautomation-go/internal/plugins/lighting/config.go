@@ -65,9 +65,13 @@ type LuxControlConfig struct {
 	DaylightFactor   float64            `yaml:"daylight_factor"`    // share of outdoor lux that reaches the room
 	LuxScale         float64            `yaml:"lux_scale"`          // scales the whole curve for this room (0 means 1)
 	GuestFactor      float64            `yaml:"guest_factor"`       // lux multiplier when increase_brightness_if_true holds (0 means 1.5)
+	ColorTemp        *bool              `yaml:"color_temp"`         // false for brightness-only lights (omitted means true)
 	Calibrated       bool               `yaml:"calibrated"`         // true once calibration values were measured
 	Calibration      []CalibrationPoint `yaml:"calibration"`        // cans-only lux at night, by brightness
 }
+
+// HasColorTemp reports whether the light has adjustable color temperature. It defaults to true.
+func (c *LuxControlConfig) HasColorTemp() bool { return c.ColorTemp == nil || *c.ColorTemp }
 
 // CalibrationPoint is the lux the cans give at one brightness, measured at night with no daylight.
 type CalibrationPoint struct {

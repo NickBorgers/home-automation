@@ -296,7 +296,7 @@ Each entry is a scene base name. Its entity ID is
 `scene.` + snake_case(entry + " " + dayPhase). For example, the Kitchen entry
 `"Kitchen Under Cabinet"` in the `morning` phase activates
 `scene.kitchen_under_cabinet_morning` after `scene.kitchen_morning`.
-Since the Kitchen runs lux control, with no `accent_scene_group`, the plugin no longer recalls `scene.kitchen_<phase>` and the companion is activated alone. The Pantry (cans only, same conditions as the Kitchen) recalls no scene at all.
+Since the Kitchen runs lux control, with no `accent_scene_group`, the plugin no longer recalls `scene.kitchen_<phase>` and the companion is activated alone. The Pantry (cans only, same conditions as the Kitchen) recalls no scene at all. The Front Foyer and Front Room chandeliers (brightness only, on when someone is home and awake) also recall no scene.
 
 - Companions run only after the main scene succeeded. This includes the
   `has_dynamics` static phase and its `scene.turn_on` fallback; they do not

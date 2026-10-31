@@ -283,6 +283,75 @@ rooms:
         - brightness_pct: 100
           lux: 162
 
+  # The two entryway chandeliers are Lutron Diva dimmers: brightness only, no color temperature
+  # (color_temp: false), so the plugin sends brightness_pct and transition and never kelvin.
+  # Like the Pantry they have no Hue scene group and no hass_area_id: turn-off targets the light
+  # entity directly. They are on whenever someone is home and awake, with no occupancy sensor.
+  #
+  # TEMPORARY phone-app calibration, MEASURED 2026-10-31 at night with an iPhone lux app
+  # (rough, about +/-30%), baseline 0 lux, the fixture alone. Replace with real lux sensor
+  # values when they arrive. There is no 100% reading. The loader does not need one: above the
+  # last point the table gives 100%, and the curve (at most 300 x 0.2 = 60 lux, 90 with guests)
+  # stays well under the 50% point. Below the first point brightness is interpolated from
+  # 0% = 0 lux, so a small target still gives a small brightness (sent as at least 1%).
+  - hue_group: Front Foyer
+    conditions:
+      - action: off
+        variable: isAnyoneHomeAndAwake
+        value: false
+      - action: on
+        variable: isAnyoneHomeAndAwake
+        value: true
+    increase_brightness_if_true: ~
+    transition_seconds: 5
+    lux_control:
+      mode: active
+      cans: light.front_foyer_chandelier
+      color_temp: false
+      # GUESS. The entryway has more windows than the cans rooms (0.0016 to 0.0034 measured).
+      # STILL NEEDED: a daytime reading with the chandelier off, next to
+      # sensor.weather_station_illuminance, to measure it.
+      daylight_factor: 0.01
+      lux_scale: 0.2 # GUESS, lower than the cans rooms (0.5); tune later
+      calibrated: true
+      calibration: # MEASURED 2026-10-31, phone app, rough
+        - brightness_pct: 5
+          lux: 15
+        - brightness_pct: 10
+          lux: 32
+        - brightness_pct: 25
+          lux: 92
+        - brightness_pct: 50
+          lux: 353
+
+  - hue_group: Front Room
+    conditions:
+      - action: off
+        variable: isAnyoneHomeAndAwake
+        value: false
+      - action: on
+        variable: isAnyoneHomeAndAwake
+        value: true
+    increase_brightness_if_true: ~
+    transition_seconds: 5
+    lux_control:
+      mode: active
+      cans: light.front_room_chandelier
+      color_temp: false
+      # GUESS. The entryway has more windows than the cans rooms (0.0016 to 0.0034 measured).
+      # STILL NEEDED: a daytime reading with the chandelier off, next to
+      # sensor.weather_station_illuminance, to measure it.
+      daylight_factor: 0.01
+      lux_scale: 0.2 # GUESS, lower than the cans rooms (0.5); tune later
+      calibrated: true
+      calibration: # MEASURED 2026-10-31, phone app, rough. 5% read 0 lux (too faint), so it is left out
+        - brightness_pct: 10
+          lux: 8
+        - brightness_pct: 25
+          lux: 47
+        - brightness_pct: 50
+          lux: 228
+
   - hue_group: C Office
     hass_area_id: c_office
     conditions:
