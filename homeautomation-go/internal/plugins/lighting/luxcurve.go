@@ -139,6 +139,11 @@ const (
 	turnOnHysteresis   = 1.5 // cans turn back on above threshold × this
 	minBrightnessDelta = 3.0 // percentage points
 	minKelvinDelta     = 100
+	// Slew limit: the most one command may move a lit room's cans from the last command. A larger
+	// gap closes over several ticks, so a change is never a visible step. Each must stay above its
+	// minimum delta, or a gap smaller than the minimum could never close.
+	maxBrightnessStep = 5.0 // percentage points per tick
+	maxKelvinStep     = 200
 )
 
 // shouldBeOn applies the off threshold with hysteresis.

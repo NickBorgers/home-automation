@@ -111,6 +111,8 @@ Each room has a short calibration table: the lux the cans give at a few brightne
 - **Off threshold with hysteresis.** The cans turn off when the needed lux falls below the lux at 1% brightness. They turn back on only when it rises 50% above that level.
 - **Minimum change.** The plugin sends a command only when brightness moves by at least 3 percentage points, or kelvin by at least 100 K.
 - **Long transitions.** Each command uses a 60-second transition, so changes are not visible as steps.
+- **Slew limit.** A lit room never moves more than 5 percentage points or 200 K from the last command in one tick (`maxBrightnessStep`, `maxKelvinStep`). A bigger gap closes over several ticks. The minimum-change rule applies after the limit. Turning on from dark and turning off are not limited. Follower strips follow the limited cans value.
+- **Restart and reset fade.** The plugin forgets its last command on restart and on reset. If the cans are already on, it starts from their reported brightness and color temperature, so the room fades with the normal 60-second transition and the slew limit instead of jumping to the target. A room that is really off, or whose cans report no brightness, still turns on with the short transition. A follower strip that is already on also keeps the long transition.
 - **Presence arrivals.** When a room turns on because someone arrived, the first command uses the existing short transition (`maxReturnHomeTransition`). Long transitions on lights that are off can fail on the Hue bridge.
 
 ## Manual override
@@ -141,7 +143,7 @@ The room enters **held** state. While held:
 | The room turns off and then on again, by any cause | A new "session" in the room. |
 | `isEveryoneAsleep` becomes true | The day is over. |
 | `isAnyoneHome` becomes false | The house is empty. |
-| `reset` runs | Reset acts as if every room's lights went off and on again. The last command is forgotten, so the next tick sends fresh values. |
+| `reset` runs | Reset acts as if every room's lights went off and on again. The last command is forgotten, so the next tick starts from the cans' reported state and fades to fresh values. |
 
 A day phase change does **not** clear the hold. This replaces today's behavior, where every phase change re-fires every room.
 
@@ -201,7 +203,7 @@ rooms:
 | `curvePoint` | The two points the curve is between, and the position |
 | `targetLux`, `targetKelvin` | Target from the curve |
 | `outdoorLux`, `daylightEstimate` | Smoothed outdoor reading, and the room estimate |
-| `neededLux`, `brightnessPct` | What the cans must supply, and the brightness it maps to |
+| `neededLux`, `brightnessPct`, `goalBrightnessPct` | What the cans must supply, the brightness last commanded (after the slew limit), and the brightness the target asks for |
 | `held`, `heldSince`, `heldReason` | Manual override state |
 | `followers` | Per follower light: `pct` (last commanded percent, 0 = off) and `held` (a person changed that strip) |
 | `decision` | Why the last tick did or did not send a command |

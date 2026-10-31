@@ -260,11 +260,27 @@ func (m *Manager) luxEvaluate(room *RoomConfig, trigger string) {
 	m.luxMu.Lock()
 	prev := st.cmd
 	m.luxMu.Unlock()
+	if prev == nil {
+		// After a restart or reset the last command is gone. Lights that are already on are the
+		// starting point, so the room fades from where it is instead of popping to the target.
+		if prev = m.adoptLuxState(room, now, kelvin); prev != nil {
+			m.luxMu.Lock()
+			st.cmd = prev
+			m.luxMu.Unlock()
+		}
+	}
 
 	wantOn := shouldBeOn(lc.Calibration, rec.NeededLux, prev != nil && prev.on)
 	cmd := &luxCommand{at: now, transition: luxTransition, on: wantOn, kelvin: kelvin}
 	if wantOn {
 		cmd.pct = math.Max(1, math.Min(100, math.Round(luxToBrightness(lc.Calibration, rec.NeededLux))))
+		rec.GoalBrightnessPct = cmd.pct
+		if prev != nil && prev.on {
+			cmd.pct = clampStep(prev.pct, cmd.pct, maxBrightnessStep)
+			if kelvin != 0 {
+				cmd.kelvin = int(clampStep(float64(prev.kelvin), float64(kelvin), maxKelvinStep))
+			}
+		}
 		rec.BrightnessPct = cmd.pct
 	}
 	if prev == nil || !prev.on {
@@ -298,6 +314,36 @@ func (m *Manager) luxEvaluate(room *RoomConfig, trigger string) {
 	m.luxMu.Unlock()
 	m.luxDriveFollowers(room, st, cmd)
 	finish("sent " + describeLuxCommand(cmd) + note)
+}
+
+// clampStep moves from toward goal by at most step.
+func clampStep(from, goal, step float64) float64 {
+	return from + math.Max(-step, math.Min(step, goal-from))
+}
+
+// adoptLuxState turns the cans' reported state into a starting command when the plugin has none
+// (after a restart or reset). It returns nil when the cans are off or the report has no usable
+// brightness, and the room is then treated as dark. A missing color temperature takes the
+// target's, so it is not slewed. The command is stamped now with no transition, so manual-change
+// detection compares later reports with what the lights were already showing.
+func (m *Manager) adoptLuxState(room *RoomConfig, now time.Time, targetKelvin int) *luxCommand {
+	s, err := m.haClient.GetState(room.LuxControl.Cans)
+	if err != nil || s == nil || s.State != "on" {
+		return nil
+	}
+	b, ok := numberAttr(s.Attributes, "brightness")
+	if !ok || b <= 0 {
+		return nil
+	}
+	cmd := &luxCommand{at: now, on: true, pct: math.Max(1, math.Min(100, b/255*100)), kelvin: targetKelvin}
+	if room.LuxControl.HasColorTemp() {
+		if k, ok := numberAttr(s.Attributes, "color_temp_kelvin"); ok && k > 0 {
+			cmd.kelvin = int(k)
+		}
+	} else {
+		cmd.kelvin = 0
+	}
+	return cmd
 }
 
 func abs(v int) int {
@@ -431,7 +477,7 @@ func (m *Manager) luxDriveFollowers(room *RoomConfig, st *luxRoomState, cans *lu
 		if held {
 			continue
 		}
-		if prev == nil || !prev.on {
+		if (prev == nil && !m.luxLightIsOn(f.Entity)) || (prev != nil && !prev.on) {
 			next.transition = maxReturnHomeTransition * time.Second // a dark strip lights up quickly
 		}
 		if prev != nil && prev.on == next.on && (!next.on || math.Abs(prev.pct-next.pct) < minBrightnessDelta) {
@@ -448,6 +494,13 @@ func (m *Manager) luxDriveFollowers(room *RoomConfig, st *luxRoomState, cans *lu
 		st.followers[f.Entity] = next
 		m.luxMu.Unlock()
 	}
+}
+
+// luxLightIsOn reports whether Home Assistant shows the light on. A strip already lit after a
+// restart keeps the cans' long transition instead of popping.
+func (m *Manager) luxLightIsOn(entity string) bool {
+	s, err := m.haClient.GetState(entity)
+	return err == nil && s != nil && s.State == "on"
 }
 
 // sendFollowerCommand sends a follower light a light.turn_on (brightness only) or light.turn_off.
