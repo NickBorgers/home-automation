@@ -107,6 +107,10 @@ type PingRequest struct {
 // StateChangeHandler is called when a state change event is received
 type StateChangeHandler func(entityID string, oldState, newState *State)
 
+// EventHandler is called when an event of a subscribed type (other than state_changed) is received.
+// data is the raw JSON of the event's data object.
+type EventHandler func(eventType string, data json.RawMessage)
+
 // Subscription represents an active event subscription
 type Subscription interface {
 	Unsubscribe() error

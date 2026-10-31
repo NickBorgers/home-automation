@@ -87,6 +87,9 @@ type HAClient interface {
 	CallServiceWithResponse(ctx context.Context, domain, service string, data map[string]interface{}) (json.RawMessage, error)
 	CallServiceWithTarget(ctx context.Context, domain, service string, target *ServiceTarget, data map[string]interface{}) error
 	SubscribeStateChanges(entityID string, handler StateChangeHandler) (Subscription, error)
+	// SubscribeEvents delivers events of one type other than state_changed, such as
+	// lutron_caseta_button_event. Events of one type reach handlers in the order Home Assistant sent them.
+	SubscribeEvents(eventType string, handler EventHandler) (Subscription, error)
 	SetInputBoolean(name string, value bool) error
 	SetInputNumber(name string, value float64) error
 	SetInputText(name string, value string) error
@@ -256,13 +259,18 @@ type Client struct {
 	subsMu            sync.RWMutex
 	entityDispatchMu  sync.Mutex
 	entityEventQueues map[string]chan entityEventJob
-	nextSubID         int
-	nextSubIDMu       sync.Mutex
-	ctx               context.Context
-	cancel            context.CancelFunc
-	ctxMu             sync.RWMutex // Protects ctx and cancel
-	reconnect         bool
-	writeMu           sync.Mutex // Protects websocket writes AND msgID counter
+	// Subscriptions to event types other than state_changed. See events.go.
+	eventSubs        map[string][]eventSubscriberEntry
+	eventServerTypes map[string]bool // types subscribed on the current connection
+	eventSubsMu      sync.Mutex
+	eventQueues      map[string]chan customEventJob // guarded by entityDispatchMu
+	nextSubID        int
+	nextSubIDMu      sync.Mutex
+	ctx              context.Context
+	cancel           context.CancelFunc
+	ctxMu            sync.RWMutex // Protects ctx and cancel
+	reconnect        bool
+	writeMu          sync.Mutex // Protects websocket writes AND msgID counter
 
 	// Ping goroutine lifecycle management
 	pingCancel  context.CancelFunc // Cancels the ping goroutine; protected by connMu
@@ -334,6 +342,9 @@ func NewClient(url, token string, logger *zap.Logger) *Client {
 		pending:           make(map[int]chan Message),
 		subscribers:       make(map[string][]subscriberEntry),
 		entityEventQueues: make(map[string]chan entityEventJob),
+		eventSubs:         make(map[string][]eventSubscriberEntry),
+		eventServerTypes:  make(map[string]bool),
+		eventQueues:       make(map[string]chan customEventJob),
 		ctx:               ctx,
 		cancel:            cancel,
 		reconnect:         true,
@@ -470,6 +481,7 @@ func (c *Client) Connect() error {
 	c.resetContext()
 	c.connected = true
 	c.reconnect = true
+	c.resetEventServerTypes()
 	// Fence the cache to this connection before any of its events are read. The
 	// subscription below can only make the cache seedable within this epoch.
 	cacheEpoch, _, _ := c.stateCache.invalidate(cacheDisconnected)
@@ -504,6 +516,8 @@ func (c *Client) Connect() error {
 	} else if c.stateCache.markSubscribed(cacheEpoch) {
 		c.logger.Debug("State cache ready to seed on first GetState")
 	}
+
+	c.subscribeRegisteredEvents()
 
 	return nil
 }
@@ -560,6 +574,7 @@ func (c *Client) Disconnect() error {
 	}
 
 	c.clearSubscribers()
+	c.clearEventSubscribers()
 
 	// Close entity queue channels so processEntityEventQueue goroutines exit.
 	c.entityDispatchMu.Lock()
@@ -567,6 +582,10 @@ func (c *Client) Disconnect() error {
 		close(ch)
 	}
 	c.entityEventQueues = make(map[string]chan entityEventJob)
+	for _, ch := range c.eventQueues {
+		close(ch)
+	}
+	c.eventQueues = make(map[string]chan customEventJob)
 	c.entityDispatchMu.Unlock()
 
 	c.logger.Info("Disconnected from Home Assistant")
@@ -933,8 +952,8 @@ func (c *Client) handleEvent(msg *Message) {
 		return
 	}
 
-	// Only handle state_changed events
 	if msg.Event.EventType != "state_changed" {
+		c.dispatchEvent(msg.Event)
 		return
 	}
 
