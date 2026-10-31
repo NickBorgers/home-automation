@@ -46,7 +46,7 @@ type Calculator struct {
 	// Mutex protects sunTimes and lastUpdate from concurrent access
 	mu sync.RWMutex
 
-	// Cached sun times from suncalc (updated every 6 hours)
+	// Cached sun times from suncalc for one local calendar day (updated every 6 hours and on a new local date)
 	// These match Node-RED's suncalc exactly
 	sunTimes   map[string]time.Time
 	lastUpdate time.Time
@@ -86,7 +86,13 @@ func (c *Calculator) UpdateSunTimes() error {
 	// - nauticalDawn/nauticalDusk: -12°
 	// - nightEnd/night: -18° (astronomical twilight)
 	// - goldenHourEnd/goldenHour: 6°
-	times := suncalc.GetTimes(now, c.latitude, c.longitude)
+	//
+	// Ask for the LOCAL calendar day by passing local noon. suncalc rolls its "day" over at solar
+	// midnight (about 01:30 local at this site), so passing "now" returns the previous day's
+	// times between 00:00 and then. Noon is far from either rollover.
+	nowLocal := now.In(c.timezone)
+	localNoon := time.Date(nowLocal.Year(), nowLocal.Month(), nowLocal.Day(), 12, 0, 0, 0, c.timezone)
+	times := suncalc.GetTimes(localNoon, c.latitude, c.longitude)
 
 	// Lock for writing to sunTimes map
 	c.mu.Lock()
@@ -153,7 +159,9 @@ func (c *Calculator) GetSunEvent() SunEvent {
 
 	// Check if update is needed (read lock)
 	c.mu.RLock()
-	needsUpdate := c.lastUpdate.IsZero() || c.clock.Since(c.lastUpdate) > 6*time.Hour
+	// The cached times belong to one local calendar day, so a new local date also needs an update.
+	needsUpdate := c.lastUpdate.IsZero() || c.clock.Since(c.lastUpdate) > 6*time.Hour ||
+		!sameLocalDate(c.lastUpdate, now, c.timezone)
 	c.mu.RUnlock()
 
 	// Ensure we have recent sun times
@@ -202,6 +210,13 @@ func (c *Calculator) GetSunEvent() SunEvent {
 	default:
 		return SunEventNight
 	}
+}
+
+// sameLocalDate reports whether a and b fall on the same calendar date in tz.
+func sameLocalDate(a, b time.Time, tz *time.Location) bool {
+	ay, am, ad := a.In(tz).Date()
+	by, bm, bd := b.In(tz).Date()
+	return ay == by && am == bm && ad == bd
 }
 
 // GetSunTimes returns a copy of the cached sun times for debugging/logging

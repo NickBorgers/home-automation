@@ -56,6 +56,8 @@ flowchart TB
     style DayPhases fill:#0f3460
 ```
 
+**Sun times are for the local calendar day.** The calculator asks suncalc for local noon of the local date and refreshes its cache every 6 hours and whenever the local date changes. suncalc's own day rolls over at solar midnight (about 01:30 local), so asking with "now" gave yesterday's times between 00:00 and then, and the sun event flipped from `night` to `morning` at 00:04.
+
 ## Day Phase Cycle
 
 The daily cycle of phases based on astronomical events and schedule configuration:
