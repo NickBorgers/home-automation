@@ -261,6 +261,7 @@ func (m *Manager) luxEvaluate(room *RoomConfig, trigger string) {
 		cmd.transition = maxReturnHomeTransition * time.Second
 	}
 
+	// For brightness-only rooms cmd.kelvin == prev.kelvin == 0, so the kelvin delta is always zero.
 	if prev != nil && prev.on == cmd.on &&
 		(!cmd.on || (math.Abs(prev.pct-cmd.pct) < minBrightnessDelta && abs(prev.kelvin-cmd.kelvin) < minKelvinDelta)) {
 		finish("no change: below minimum step" + note)
