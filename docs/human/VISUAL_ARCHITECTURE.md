@@ -59,6 +59,7 @@ graph TB
             SensorConfig[Sensor Config<br/>internal/plugins/sensorconfig/]
             IntegrationWatchdog[Integration Watchdog<br/>internal/plugins/integrationwatchdog/]
             Tesla[Tesla Fleet API<br/>internal/plugins/tesla/]
+            Picos[Picos<br/>internal/plugins/picos/]
         end
 
         subgraph "Public Interfaces"
@@ -183,6 +184,10 @@ graph TB
     IntegrationWatchdog -->|Reload Config Entry| HAClient
     IntegrationWatchdog -.->|Register Shadow| ShadowTracker
 
+    Picos -->|Button Events| HAClient
+    Picos -->|Set Light Brightness| HAClient
+    Picos -.->|Register Shadow| ShadowTracker
+
     Tesla -->|Poll Fleet API / Signed Vehicle Commands<br/>Powerwall Backup Reserve| TeslaCloud[Tesla Fleet API<br/>outbound HTTPS only]
     Tesla -->|Subscribe currentEnergyLevel| StateManager
     Tesla -.->|Register Shadow| ShadowTracker
@@ -216,6 +221,7 @@ graph TB
     style SensorConfig fill:#f3e5f5
     style IntegrationWatchdog fill:#f3e5f5
     style Tesla fill:#f3e5f5
+    style Picos fill:#f3e5f5
 ```
 
 ---

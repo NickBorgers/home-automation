@@ -15,6 +15,8 @@ type MockClient struct {
 	statesMu       sync.RWMutex
 	subscribers    map[string][]subscriberEntry
 	subsMu         sync.RWMutex
+	eventSubs      map[string][]eventSubscriberEntry
+	eventSubsMu    sync.Mutex
 	nextSubID      int
 	nextSubIDMu    sync.Mutex
 	connected      bool
@@ -66,6 +68,10 @@ func (m *MockClient) clearSubscribers() {
 	defer m.subsMu.Unlock()
 
 	m.subscribers = make(map[string][]subscriberEntry)
+
+	m.eventSubsMu.Lock()
+	defer m.eventSubsMu.Unlock()
+	m.eventSubs = make(map[string][]eventSubscriberEntry)
 }
 
 // ServiceCall records a service call for testing
@@ -93,6 +99,7 @@ func NewMockClient() *MockClient {
 	return &MockClient{
 		states:            make(map[string]*State),
 		subscribers:       make(map[string][]subscriberEntry),
+		eventSubs:         make(map[string][]eventSubscriberEntry),
 		serviceCalls:      make([]ServiceCall, 0),
 		getStateCalls:     make(map[string]int),
 		serviceErrors:     make(map[string]error),
@@ -385,6 +392,54 @@ func (m *MockClient) SubscribeStateChanges(entityID string, handler StateChangeH
 		subID:    subID,
 		mock:     m,
 	}, nil
+}
+
+// SubscribeEvents subscribes to one event type other than state_changed
+func (m *MockClient) SubscribeEvents(eventType string, handler EventHandler) (Subscription, error) {
+	m.nextSubIDMu.Lock()
+	subID := m.nextSubID
+	m.nextSubID++
+	m.nextSubIDMu.Unlock()
+
+	m.eventSubsMu.Lock()
+	m.eventSubs[eventType] = append(m.eventSubs[eventType], eventSubscriberEntry{subID: subID, handler: handler})
+	m.eventSubsMu.Unlock()
+
+	return &mockEventSubscription{eventType: eventType, subID: subID, mock: m}, nil
+}
+
+// mockEventSubscription implements Subscription for MockClient.SubscribeEvents
+type mockEventSubscription struct {
+	eventType string
+	subID     int
+	mock      *MockClient
+}
+
+func (s *mockEventSubscription) Unsubscribe() error {
+	s.mock.eventSubsMu.Lock()
+	defer s.mock.eventSubsMu.Unlock()
+	entries := s.mock.eventSubs[s.eventType]
+	for i, e := range entries {
+		if e.subID == s.subID {
+			s.mock.eventSubs[s.eventType] = append(entries[:i], entries[i+1:]...)
+			break
+		}
+	}
+	return nil
+}
+
+// SimulateEvent delivers an event to every handler of its type. Handlers run before it returns.
+func (m *MockClient) SimulateEvent(eventType string, data map[string]interface{}) {
+	raw, err := json.Marshal(data)
+	if err != nil {
+		panic(fmt.Sprintf("SimulateEvent: cannot marshal data: %v", err))
+	}
+	m.eventSubsMu.Lock()
+	entries := append([]eventSubscriberEntry(nil), m.eventSubs[eventType]...)
+	m.eventSubsMu.Unlock()
+	for _, e := range entries {
+		e.handler(eventType, raw)
+	}
 }
 
 // unsubscribe removes a specific subscription by entity ID and subscription ID

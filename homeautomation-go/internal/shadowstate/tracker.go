@@ -2625,3 +2625,63 @@ func (tt *TeslaTracker) GetState() *TeslaShadowState {
 		Metadata: s.Metadata,
 	}
 }
+
+// ============================================================================
+// Picos Tracker
+// ============================================================================
+
+// PicosTracker manages shadow state for the Lutron Pico button plugin.
+type PicosTracker struct {
+	ReadOnlyTracker[PicosOutputs]
+}
+
+// NewPicosTracker creates a new Picos shadow state tracker.
+func NewPicosTracker() *PicosTracker {
+	return &PicosTracker{
+		ReadOnlyTracker: NewReadOnlyTracker(NewPicosShadowState()),
+	}
+}
+
+// RecordEvent records the latest button event the plugin received.
+func (pt *PicosTracker) RecordEvent(ev PicoEvent) {
+	pt.Lock()
+	defer pt.Unlock()
+
+	pt.State().Outputs.LastEvent = &ev
+	pt.State().Metadata.LastUpdated = time.Now()
+}
+
+// RecordPress records what the last press did to one target.
+func (pt *PicosTracker) RecordPress(target string, press PicoTargetState) {
+	pt.Lock()
+	defer pt.Unlock()
+
+	pt.State().Outputs.Targets[target] = press
+	pt.State().Metadata.LastUpdated = time.Now()
+}
+
+// GetState returns a thread-safe copy of the current shadow state.
+func (pt *PicosTracker) GetState() *PicosShadowState {
+	pt.RLock()
+	defer pt.RUnlock()
+
+	s := pt.State()
+	targets := make(map[string]PicoTargetState, len(s.Outputs.Targets))
+	for name, t := range s.Outputs.Targets {
+		targets[name] = t
+	}
+	var last *PicoEvent
+	if s.Outputs.LastEvent != nil {
+		ev := *s.Outputs.LastEvent
+		last = &ev
+	}
+
+	return &PicosShadowState{
+		Plugin: s.Plugin,
+		Inputs: ReadOnlyInputs{
+			Current: copyInputMap(s.Inputs.Current),
+		},
+		Outputs:  PicosOutputs{LastEvent: last, Targets: targets},
+		Metadata: s.Metadata,
+	}
+}

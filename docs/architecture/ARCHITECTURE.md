@@ -55,6 +55,7 @@
 - ✅ Water Flow plugin (complete) - pipe break detection
 - ✅ Reset Coordinator (complete)
 - ✅ Integration Watchdog plugin (complete) - periodic entity-state scanning and config-entry reload
+- ✅ Picos plugin (complete) - Lutron Pico buttons step the brightness of light groups
 
 ### Critical Bug Fixes
 
@@ -591,6 +592,20 @@ state reports the running request and command counts.
 passes one per call, since a property can have several systems. Look them up with
 `GET /api/tesla/energy/sites`, which costs one billed request.
 
+### 18. Picos Plugin ✅
+
+**Responsibilities:**
+- Listen for `lutron_caseta_button_event` events from Lutron Pico remotes (they have no Home Assistant entities)
+- Step the brightness of a group of lights up or down on each press
+- Record the last event and the last press per target in shadow state
+
+**Key Automations:**
+- **Up press**: lights off → `on_pct` (30%). Lights on → `+step_pct`, capped at 100%
+- **Down press**: lights at or below `off_at_or_below_pct` → off. Otherwise `-step_pct`
+- **Reference light**: the first light of a target decides the next level. The other lights follow it
+
+**Config File:** `configs/pico_config.yaml`. Behavior: [PICO_BUTTONS.md](../flows/PICO_BUTTONS.md)
+
 ---
 
 ## Data Flow
@@ -776,7 +791,8 @@ homeautomation-go/
 │       ├── sexmode/                 # ✅ Sex Mode plugin
 │       ├── christmas/               # ✅ Christmas plugin
 │       ├── reset/                   # ✅ Reset Coordinator
-│       └── integrationwatchdog/     # ✅ Integration Watchdog plugin
+│       ├── integrationwatchdog/     # ✅ Integration Watchdog plugin
+│       └── picos/                   # ✅ Picos plugin (Lutron Pico buttons)
 ├── test/
 │   └── integration/                 # ✅ Integration test suite
 ├── Dockerfile                       # ✅ Production container

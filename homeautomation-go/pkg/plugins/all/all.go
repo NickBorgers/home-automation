@@ -30,6 +30,7 @@ import (
 	_ "homeautomation/internal/plugins/lighting"
 	_ "homeautomation/internal/plugins/loadshedding"
 	_ "homeautomation/internal/plugins/music"
+	_ "homeautomation/internal/plugins/picos"
 	_ "homeautomation/internal/plugins/security"
 	_ "homeautomation/internal/plugins/sensorconfig"
 	_ "homeautomation/internal/plugins/sensorhealth"

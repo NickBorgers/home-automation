@@ -81,6 +81,9 @@ func (m *mockHAClient) GetDevices() ([]*ha.Device, error)              { return 
 func (m *mockHAClient) GetEntityRegistry() ([]*ha.EntityRegistryEntry, error) {
 	return nil, nil
 }
+func (m *mockHAClient) SubscribeEvents(eventType string, handler ha.EventHandler) (ha.Subscription, error) {
+	return nil, nil
+}
 func (m *mockHAClient) ReloadConfigEntry(ctx context.Context, entryID string) error { return nil }
 func (m *mockHAClient) WaitForHandlers()                                            {}
 

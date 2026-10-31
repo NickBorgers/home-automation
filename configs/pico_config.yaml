@@ -1,0 +1,49 @@
+---
+# Lutron Pico buttons that step the brightness of light groups.
+#
+# A Pico controls nothing inside Lutron. Home Assistant reports each press as a
+# lutron_caseta_button_event, and the picos plugin answers it.
+#
+# Up press:   lights off -> on_pct. Lights on -> +step_pct, up to 100%.
+# Down press: lights at or below off_at_or_below_pct -> off. Otherwise -step_pct.
+#
+# The first light of a target is the reference. Its brightness decides the next level.
+# Every other light of the target is set to that level.
+#
+# To add a Pico, press it and read /api/shadow/picos. lastEvent shows its deviceId, and
+# matched is false until the device is listed here. The device ID is also in
+# Home Assistant: Settings -> Devices -> the Pico -> the last part of the URL.
+
+on_pct: 30
+step_pct: 15
+off_at_or_below_pct: 30
+transition_seconds: 0.5
+recent_seconds: 5
+
+targets:
+  # Pantry Area is the Hue zone of the pantry cans plus the hall by the primary suite.
+  - name: pantry
+    lights:
+      - light.pantry_area
+      - light.pantry_under_cabinet
+
+  - name: kitchen
+    lights:
+      - light.kitchen_cans
+      - light.kitchen_main_lights  # Kitchen Under Cabinet (Lutron)
+
+buttons:
+  # By the primary suite door. Lights the way for someone walking into the pantry.
+  - name: Pantry Primary Suite Door
+    device_id: 53029c3f27ec026f77bdaa7057187bbe
+    target: pantry
+
+  # Inside the pantry. Same effect as the Pico by the primary suite door.
+  - name: Pantry Pantry Lights
+    device_id: 7565da047cf5f8cd4a788e13b640cd6d
+    target: pantry
+
+  # Inside the pantry, marked for the kitchen. Lights the next space for someone walking through.
+  - name: Pantry Kitchen Lights
+    device_id: cc81d6bde6cb377b0be9f9108735779d
+    target: kitchen

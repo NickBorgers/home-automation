@@ -118,6 +118,7 @@ type EVChargerShadowState = ShadowState[ReadOnlyInputs, EVChargerOutputs]
 type VacuumShadowState = ShadowState[ReadOnlyInputs, VacuumOutputs]
 type IntegrationWatchdogShadowState = ShadowState[ReadOnlyInputs, IntegrationWatchdogOutputs]
 type TeslaShadowState = ShadowState[ReadOnlyInputs, TeslaOutputs]
+type PicosShadowState = ShadowState[ReadOnlyInputs, PicosOutputs]
 
 // SystemInputs is used by cmd/app/run.go for system plugin shadow state.
 type SystemInputs = ReadOnlyInputs
@@ -311,6 +312,13 @@ func NewVacuumShadowState() *VacuumShadowState {
 func NewTeslaShadowState() *TeslaShadowState {
 	return newReadOnlyShadowState("tesla", TeslaOutputs{
 		VehicleState: "unknown",
+	})
+}
+
+// NewPicosShadowState creates a new Pico button shadow state.
+func NewPicosShadowState() *PicosShadowState {
+	return newReadOnlyShadowState("picos", PicosOutputs{
+		Targets: make(map[string]PicoTargetState),
 	})
 }
 
@@ -1262,4 +1270,40 @@ type TeslaEnergyCharging struct {
 	LastAction   string    `json:"lastAction,omitempty"`
 	LastActionAt time.Time `json:"lastActionAt,omitempty"`
 	WakesLast24h int       `json:"wakesLast24h"`
+}
+
+// ============================================================================
+// Picos Plugin Output Types
+// ============================================================================
+
+// PicosOutputs tracks Lutron Pico button events and what each target did about them.
+type PicosOutputs struct {
+	// LastEvent is the most recent button event of any device, matched or not. An event with
+	// Matched=false shows the device_id to put in the config.
+	LastEvent *PicoEvent `json:"lastEvent,omitempty"`
+
+	// Targets maps target name -> what its last press did.
+	Targets map[string]PicoTargetState `json:"targets"`
+}
+
+// PicoEvent is one lutron_caseta_button_event as the plugin saw it.
+type PicoEvent struct {
+	At         time.Time `json:"at"`
+	DeviceID   string    `json:"deviceId"`
+	DeviceName string    `json:"deviceName,omitempty"`
+	ButtonType string    `json:"buttonType"`
+	Action     string    `json:"action"`
+	Matched    bool      `json:"matched"`
+}
+
+// PicoTargetState is the outcome of the last press that reached one target.
+type PicoTargetState struct {
+	LastPressAt time.Time `json:"lastPressAt"`
+	Button      string    `json:"button"`
+	Direction   string    `json:"direction"`
+	FromPct     int       `json:"fromPct"`
+	ToPct       int       `json:"toPct"`
+	Decision    string    `json:"decision"`
+	ReadOnly    bool      `json:"readOnly,omitempty"`
+	Error       string    `json:"error,omitempty"`
 }
