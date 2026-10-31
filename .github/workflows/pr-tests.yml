@@ -381,6 +381,10 @@ jobs:
 
           failed=false
 
+          if ! check_result "${{ needs.changes.result }}"; then
+            echo "❌ Changes Classification: ${{ needs.changes.result }}"
+            failed=true
+          fi
           if ! check_result "${{ needs.style-checks.result }}"; then
             echo "❌ Style Checks: ${{ needs.style-checks.result }}"
             failed=true
@@ -415,6 +419,7 @@ jobs:
           echo "✅ All required tests passed - PR is ready to merge"
           echo ""
           echo "Job Results:"
+          echo "  Changes Classification: ${{ needs.changes.result }}"
           echo "  Style Checks: ${{ needs.style-checks.result }}"
           echo "  Unit Tests: ${{ needs.unit-tests.result }}"
           echo "  Integration Tests: ${{ needs.integration-tests.result }}"

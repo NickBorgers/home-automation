@@ -518,7 +518,7 @@ Standard test workflow that gates merging and triggers AI reviews. Runs on the s
 
 | Job | Description |
 |-----|-------------|
-| `changes` | Detects which files changed (path filtering) |
+| `changes` | Classifies changed files into a tier (docs/scoped/full) and detects code/docker paths |
 | `style-checks` | Go formatting, linting (`make ci-style-checks`) |
 | `unit-tests` | Unit tests with coverage (`make unit-tests-impl`) |
 | `integration-tests` | Integration test suite (`make integration-tests-impl`) |
@@ -537,9 +537,19 @@ The `docker-build` job includes a container startup smoke test:
 
 This catches initialization panics that wouldn't be detected by unit tests alone.
 
-### Path Filtering
+### Path Filtering and Tier Classification
 
-Only runs relevant jobs based on changed files:
+The `changes` job runs `.githooks/classify-changes.sh` (the same script the pre-push hook uses) to sort changed files into a tier:
+
+| Tier | When | What the tier skips |
+|------|------|---------------------|
+| `docs` | Only docs/markdown changed | All tests (diagram validation only) |
+| `scoped` | Only config files that no integration test reads from disk changed | Full unit and integration suites; only runs unit tests of the packages that read the changed configs |
+| `full` | Anything else, or any doubt | Nothing — runs everything |
+
+Only `tier=full` triggers both the `unit-tests` and `integration-tests` jobs. `tier=scoped` runs a narrowed unit-test step directly. `tier=docs` skips both. Any unknown or unclassified change defaults to `full`.
+
+The `changes` job also detects broader path groups for optional jobs:
 - `code`: `homeautomation-go/**`, `configs/**`, `.github/workflows/**`
 - `docker`: Dockerfile, go.mod, go.sum, *.go, configs
 
