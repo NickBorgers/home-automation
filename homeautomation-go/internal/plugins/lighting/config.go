@@ -2,7 +2,9 @@ package lighting
 
 import (
 	"fmt"
+	"math"
 	"os"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -68,6 +70,21 @@ type LuxControlConfig struct {
 	ColorTemp        *bool              `yaml:"color_temp"`         // false for brightness-only lights (omitted means true)
 	Calibrated       bool               `yaml:"calibrated"`         // true once calibration values were measured
 	Calibration      []CalibrationPoint `yaml:"calibration"`        // cans-only lux at night, by brightness
+	FollowerLights   []LuxFollower      `yaml:"follower_lights"`    // brightness-only lights that follow the cans' brightness
+}
+
+// LuxFollower is a brightness-only light (an under-cabinet strip) that follows the room's cans.
+// Each time the cans get a brightness, the follower gets clamp(floor_pct + gain * cans_pct, 1, 100),
+// with no color temperature. It is off whenever the cans are off.
+type LuxFollower struct {
+	Entity   string  `yaml:"entity"`    // light entity id
+	FloorPct float64 `yaml:"floor_pct"` // brightness when the cans are at 0%, 0-100
+	Gain     float64 `yaml:"gain"`      // follower percent added per cans percent, 0-2
+}
+
+// followerPct returns the follower's brightness for a given cans brightness.
+func (f LuxFollower) followerPct(cansPct float64) float64 {
+	return math.Max(1, math.Min(100, math.Round(f.FloorPct+f.Gain*cansPct)))
 }
 
 // HasColorTemp reports whether the light has adjustable color temperature. It defaults to true.
@@ -127,6 +144,16 @@ func (c *HueConfig) validateLux() error {
 		}
 		if lc.Cans == "" || lc.DaylightFactor < 0 {
 			return fmt.Errorf("room %q: lux_control needs cans and a non-negative daylight_factor", r.HueGroup)
+		}
+		seen := map[string]bool{lc.Cans: true}
+		for _, f := range lc.FollowerLights {
+			if !strings.HasPrefix(f.Entity, "light.") || seen[f.Entity] {
+				return fmt.Errorf("room %q: follower_lights entity %q must be a unique light.* id", r.HueGroup, f.Entity)
+			}
+			seen[f.Entity] = true
+			if f.FloorPct < 0 || f.FloorPct > 100 || f.Gain < 0 || f.Gain > 2 {
+				return fmt.Errorf("room %q: follower %q needs floor_pct 0-100 and gain 0-2", r.HueGroup, f.Entity)
+			}
 		}
 		prevPct, prevLux := 0, 0.0
 		for _, cp := range lc.Calibration {

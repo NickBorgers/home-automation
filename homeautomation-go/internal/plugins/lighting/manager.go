@@ -1007,6 +1007,17 @@ func (m *Manager) turnOffRoom(ctx context.Context, room *RoomConfig, trigger str
 		delete(serviceData, "area_id")
 		serviceData["entity_id"] = room.LuxControl.Cans
 	}
+	if luxManaged(room) && len(room.LuxControl.FollowerLights) > 0 {
+		// Follower lights are named explicitly, so turn-off does not depend on their area.
+		entities := make([]string, 0, len(room.LuxControl.FollowerLights)+1)
+		if id, ok := serviceData["entity_id"].(string); ok {
+			entities = append(entities, id)
+		}
+		for _, f := range room.LuxControl.FollowerLights {
+			entities = append(entities, f.Entity)
+		}
+		serviceData["entity_id"] = entities
+	}
 
 	// Call the service with the room-scoped context (cancelled if room is re-evaluated)
 	err := m.haClient.CallService(ctx, "light", "turn_off", serviceData)

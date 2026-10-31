@@ -341,6 +341,13 @@ type LightingOutputs struct {
 	LuxControl map[string]LuxControlState `json:"luxControl,omitempty"`
 }
 
+// FollowerState is one follower light's last commanded percent (0 = off) and whether a manual
+// change stopped the plugin driving it. A held strip does not hold the room.
+type FollowerState struct {
+	Pct  float64 `json:"pct"`
+	Held bool    `json:"held"`
+}
+
 // LuxControlState records the last lux-control tick for one room.
 // See docs/flows/LUX_LIGHTING.md, "Shadow state".
 type LuxControlState struct {
@@ -355,8 +362,10 @@ type LuxControlState struct {
 	Held             bool      `json:"held"`
 	HeldSince        time.Time `json:"heldSince,omitempty"`
 	HeldReason       string    `json:"heldReason,omitempty"`
-	Decision         string    `json:"decision"`
-	UpdatedAt        time.Time `json:"updatedAt"`
+	// Followers maps each follower light (under-cabinet strip) to its last commanded percent and hold.
+	Followers map[string]FollowerState `json:"followers,omitempty"`
+	Decision  string                   `json:"decision"`
+	UpdatedAt time.Time                `json:"updatedAt"`
 }
 
 // RoomState represents the state of a single room

@@ -42,10 +42,13 @@ type luxCommand struct {
 
 // luxRoomState is the per-room control state.
 type luxRoomState struct {
-	cmd        *luxCommand
-	held       bool
-	heldSince  time.Time
-	heldReason string
+	cmd       *luxCommand
+	followers map[string]*luxCommand // last command per follower light
+	// followerHeld marks strips a person changed by hand. Only the strip is held, never the room.
+	followerHeld map[string]bool
+	held         bool
+	heldSince    time.Time
+	heldReason   string
 }
 
 // SetAnchorResolver sets the source of sun and schedule times for the target curve.
@@ -66,7 +69,7 @@ func luxActive(room *RoomConfig) bool {
 func (m *Manager) luxRoom(name string) *luxRoomState {
 	st, ok := m.luxRooms[name]
 	if !ok {
-		st = &luxRoomState{}
+		st = &luxRoomState{followers: map[string]*luxCommand{}, followerHeld: map[string]bool{}}
 		m.luxRooms[name] = st
 	}
 	return st
@@ -102,6 +105,13 @@ func (m *Manager) startLux() error {
 			m.handleCansChange(r, newState)
 		}); err != nil {
 			return fmt.Errorf("failed to subscribe to %s: %w", r.LuxControl.Cans, err)
+		}
+		for _, f := range r.LuxControl.FollowerLights {
+			if err := m.subHelper.SubscribeToEntity(f.Entity, func(_ string, _, newState *ha.State) {
+				m.handleFollowerChange(r, newState)
+			}); err != nil {
+				return fmt.Errorf("failed to subscribe to %s: %w", f.Entity, err)
+			}
 		}
 	}
 
@@ -187,6 +197,7 @@ func (m *Manager) luxEvaluate(room *RoomConfig, trigger string) {
 
 	finish := func(decision string) {
 		rec.Decision = decision
+		rec.Followers = m.followerStates(room)
 		m.shadowTracker.RecordLuxControl(room.HueGroup, rec)
 		m.logger.Debug("Lux control decision",
 			zap.String("room", room.HueGroup),
@@ -264,6 +275,7 @@ func (m *Manager) luxEvaluate(room *RoomConfig, trigger string) {
 	// For brightness-only rooms cmd.kelvin == prev.kelvin == 0, so the kelvin delta is always zero.
 	if prev != nil && prev.on == cmd.on &&
 		(!cmd.on || (math.Abs(prev.pct-cmd.pct) < minBrightnessDelta && abs(prev.kelvin-cmd.kelvin) < minKelvinDelta)) {
+		m.luxDriveFollowers(room, st, cmd)
 		finish("no change: below minimum step" + note)
 		return
 	}
@@ -272,6 +284,7 @@ func (m *Manager) luxEvaluate(room *RoomConfig, trigger string) {
 		m.luxMu.Lock()
 		st.cmd = cmd
 		m.luxMu.Unlock()
+		m.luxDriveFollowers(room, st, cmd)
 		finish(fmt.Sprintf("would send %s (%s mode, read-only=%t)%s", describeLuxCommand(cmd), lc.Mode, m.readOnly, note))
 		return
 	}
@@ -283,6 +296,7 @@ func (m *Manager) luxEvaluate(room *RoomConfig, trigger string) {
 	m.luxMu.Lock()
 	st.cmd = cmd
 	m.luxMu.Unlock()
+	m.luxDriveFollowers(room, st, cmd)
 	finish("sent " + describeLuxCommand(cmd) + note)
 }
 
@@ -368,6 +382,112 @@ func (m *Manager) handleCansChange(room *RoomConfig, newState *ha.State) {
 		zap.String("reason", reason))
 }
 
+// handleFollowerChange is handleCansChange for a follower light: a report that differs from
+// what the plugin last sent it, after the transition has finished, holds that strip only. The
+// room and its cans keep following the curve. Followers are brightness-only, so color
+// temperature is never compared. The strip hold clears with the room hold (clearLuxHold).
+func (m *Manager) handleFollowerChange(room *RoomConfig, newState *ha.State) {
+	if newState == nil || m.readOnly || !luxActive(room) {
+		return
+	}
+	if action, _ := m.evaluateConditions(room); action != "on" {
+		return
+	}
+	now := m.clock.Now()
+
+	m.luxMu.Lock()
+	defer m.luxMu.Unlock()
+	st := m.luxRoom(room.HueGroup)
+	last := st.followers[newState.EntityID]
+	if st.followerHeld[newState.EntityID] || last == nil || now.Before(last.at.Add(last.transition+manualGrace)) {
+		return
+	}
+	reason := manualChangeReason(last, newState, false)
+	if reason == "" {
+		return
+	}
+	st.followerHeld[newState.EntityID] = true
+	m.logger.Info("Manual change to follower light detected; holding that strip only",
+		zap.String("entity_id", newState.EntityID),
+		zap.String("room", room.HueGroup),
+		zap.String("reason", reason))
+}
+
+// luxDriveFollowers sets each follower light from the cans command: floor + gain * cans percent,
+// or off when the cans are off. The minimum-step rule compares against the follower's own last
+// command, so a strip is not told to move on every tick. In log_only and READ_ONLY mode the
+// command is recorded and not sent.
+func (m *Manager) luxDriveFollowers(room *RoomConfig, st *luxRoomState, cans *luxCommand) {
+	send := luxActive(room) && !m.readOnly
+	for _, f := range room.LuxControl.FollowerLights {
+		next := &luxCommand{at: cans.at, transition: cans.transition, on: cans.on}
+		if cans.on {
+			next.pct = f.followerPct(cans.pct)
+		}
+		m.luxMu.Lock()
+		prev := st.followers[f.Entity]
+		held := st.followerHeld[f.Entity]
+		m.luxMu.Unlock()
+		if held {
+			continue
+		}
+		if prev == nil || !prev.on {
+			next.transition = maxReturnHomeTransition * time.Second // a dark strip lights up quickly
+		}
+		if prev != nil && prev.on == next.on && (!next.on || math.Abs(prev.pct-next.pct) < minBrightnessDelta) {
+			continue
+		}
+		if send {
+			if err := m.sendFollowerCommand(room, f.Entity, next); err != nil {
+				m.logger.Warn("Lux control follower command failed",
+					zap.String("room", room.HueGroup), zap.String("entity_id", f.Entity), zap.Error(err))
+				continue
+			}
+		}
+		m.luxMu.Lock()
+		st.followers[f.Entity] = next
+		m.luxMu.Unlock()
+	}
+}
+
+// sendFollowerCommand sends a follower light a light.turn_on (brightness only) or light.turn_off.
+func (m *Manager) sendFollowerCommand(room *RoomConfig, entity string, cmd *luxCommand) error {
+	data := map[string]interface{}{
+		"entity_id":  entity,
+		"transition": cmd.transition.Seconds(),
+	}
+	service := "turn_off"
+	if cmd.on {
+		service = "turn_on"
+		data["brightness_pct"] = int(cmd.pct)
+	}
+	m.logger.Info("Lux control sending follower command",
+		zap.String("room", room.HueGroup),
+		zap.String("entity_id", entity),
+		zap.String("service", service),
+		zap.Any("data", data))
+	return m.haClient.CallService(m.ctx, "light", service, data)
+}
+
+// followerStates returns each follower's last commanded percent (0 when off) and hold for shadow state.
+func (m *Manager) followerStates(room *RoomConfig) map[string]shadowstate.FollowerState {
+	if len(room.LuxControl.FollowerLights) == 0 {
+		return nil
+	}
+	m.luxMu.Lock()
+	defer m.luxMu.Unlock()
+	st := m.luxRoom(room.HueGroup)
+	out := make(map[string]shadowstate.FollowerState, len(room.LuxControl.FollowerLights))
+	for _, f := range room.LuxControl.FollowerLights {
+		fs := shadowstate.FollowerState{Held: st.followerHeld[f.Entity]}
+		if c := st.followers[f.Entity]; c != nil && c.on {
+			fs.Pct = c.pct
+		}
+		out[f.Entity] = fs
+	}
+	return out
+}
+
 // manualChangeReason compares a cans report with the last command. It returns "" when they agree.
 func manualChangeReason(cmd *luxCommand, s *ha.State, colorTemp bool) string {
 	switch s.State {
@@ -431,6 +551,8 @@ func (m *Manager) clearLuxHold(room *RoomConfig, reason string) {
 	}
 	st.held, st.heldReason, st.heldSince = false, "", time.Time{}
 	st.cmd = nil
+	st.followers = map[string]*luxCommand{}
+	st.followerHeld = map[string]bool{}
 }
 
 // clearAllLuxHolds ends every hold. Used when everyone is asleep or the house is empty.
@@ -448,7 +570,9 @@ func (m *Manager) forgetLuxCommand(room *RoomConfig) {
 	}
 	m.luxMu.Lock()
 	defer m.luxMu.Unlock()
-	m.luxRoom(room.HueGroup).cmd = nil
+	st := m.luxRoom(room.HueGroup)
+	st.cmd = nil
+	st.followers = map[string]*luxCommand{}
 }
 
 // noteLuxRoomOff records that the plugin turned the room off, so the cans going dark
@@ -459,5 +583,9 @@ func (m *Manager) noteLuxRoomOff(room *RoomConfig) {
 	}
 	m.luxMu.Lock()
 	defer m.luxMu.Unlock()
-	m.luxRoom(room.HueGroup).cmd = &luxCommand{at: m.clock.Now(), on: false, transition: 0}
+	st := m.luxRoom(room.HueGroup)
+	st.cmd = &luxCommand{at: m.clock.Now(), on: false, transition: 0}
+	for _, f := range room.LuxControl.FollowerLights {
+		st.followers[f.Entity] = &luxCommand{at: m.clock.Now(), on: false, transition: 0}
+	}
 }
