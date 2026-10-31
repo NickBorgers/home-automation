@@ -49,6 +49,7 @@ graph LR
         lighting["lighting"]
         loadshedding["loadshedding"]
         music["music"]
+        picos["picos"]
         reset["reset"]
         security["security"]
         sensorconfig["sensorconfig"]
