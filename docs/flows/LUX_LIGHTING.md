@@ -1,6 +1,6 @@
 # Lux-Target Lighting (Design)
 
-**Status:** Rollout steps 1 to 3 and 5 are built. Step 4 is done for the Kitchen and the Pantry. The Living Room, Kitchen and Pantry ship in `active` mode. Their `daylight_factor` and `calibration` were measured on 2026-10-30 with a phone app, in daylight, so they are rough and temporary until real lux sensors arrive. `lux_scale` is still a guess. See "Implementation notes" at the end.
+**Status:** Rollout steps 1 to 3 and 5 are built. Step 4 is done for the Kitchen, the Pantry and the two chandeliers. The Living Room, Kitchen, Pantry, Front Foyer and Front Room ship in `active` mode. Their `daylight_factor` and `calibration` were measured on 2026-10-30 with a phone app, in daylight, so they are rough and temporary until real lux sensors arrive. `lux_scale` is still a guess. See "Implementation notes" at the end.
 
 ## Summary
 
@@ -29,13 +29,15 @@ Each room splits its lights into three roles.
 
 | Role | Controlled by | Examples |
 |------|---------------|----------|
-| Cans (ambient) | Lux target. White light only, brightness and kelvin. | `light.living_cans`, `light.kitchen_cans`, `light.pantry_cans` |
+| Cans (ambient) | Lux target. White light only, brightness and kelvin. | `light.living_cans`, `light.kitchen_cans`, `light.pantry_cans`, `light.front_foyer_chandelier`, `light.front_room_chandelier` (brightness only) |
 | Accent | Per-phase Hue scene, as today | `light.living_accent` (TV, window wall) |
 | Task | Companion scene, as today | Kitchen under-cabinet |
 
-Controlled rooms: **Living Room** (`light.living_cans`), **Kitchen** (`light.kitchen_cans`, 7 cans) and **Pantry** (`light.pantry_cans`, 8 cans). Next: Sitting Room, N Office.
+Controlled rooms: **Living Room** (`light.living_cans`), **Kitchen** (`light.kitchen_cans`, 7 cans) and **Pantry** (`light.pantry_cans`, 8 cans). **Front Foyer** (`light.front_foyer_chandelier`) and **Front Room** (`light.front_room_chandelier`) are Lutron Diva dimmers: brightness only, no color temperature. Next: Sitting Room, N Office.
 
 The Pantry has no occupancy sensor and no Hue scene group. It is its own room entry with the Kitchen's `conditions` copied, so it turns on when the Kitchen is occupied and off when nobody is home and awake.
+
+The two chandeliers also have no scene group and no area. They are on whenever someone is home and awake (`isAnyoneHomeAndAwake`), with no occupancy sensor. Their room entries set `color_temp: false`, so the plugin sends only `brightness_pct` and `transition`, never `color_temp_kelvin`. It records no kelvin in shadow state (`targetKelvin` is 0) and compares only brightness when it looks for manual changes.
 
 The room's existing `conditions` (presence, TV, sleep, wake sequence) still decide `on`, `off` or `skip`. The lux target only decides *how bright and how warm* the cans are when the room is `on`.
 
@@ -101,7 +103,7 @@ Known limits of an outdoor estimate:
 
 ### From lux to brightness
 
-Each room has a short calibration table: the lux the cans give at a few brightness levels, measured at night with no daylight. Hue dimming is not linear, so three points (for example 25%, 50%, 100%) are better than one. The plugin interpolates between them.
+Each room has a short calibration table: the lux the cans give at a few brightness levels, measured at night with no daylight. Hue dimming is not linear, so three points (for example 25%, 50%, 100%) are better than one. The plugin interpolates between them. Below the first point it interpolates from 0% = 0 lux, and above the last point it gives 100%. A table needs no 100% point.
 
 ### Avoiding flicker and churn
 
@@ -240,6 +242,7 @@ The cans stay in their Hue rooms. A Hue light belongs to one room but can sit in
 | Living Room | Room = 4 cans + TV. Zones `Living Cans` and `Main Living Accent` (couch, floor gradient, kids hall, TV). | Create six scenes on the `Main Living Accent` zone: `morning`, `day`, `sunset`, `dusk`, `winddown`, `night`. This gives `scene.main_living_accent_<phase>`. |
 | Kitchen | Room = 7 cans only. Under-cabinet is a separate Home Assistant light. | None. The plugin stops recalling `scene.kitchen_<phase>`. It still recalls the companion scene `scene.kitchen_under_cabinet_<phase>`. |
 | Pantry | 8 cans. No scenes are used. | None. The room entry has no `accent_scene_group` and no `hass_area_id`. Turn-off targets `light.pantry_cans` directly. |
+| Front Foyer, Front Room | One Lutron Diva chandelier each. Brightness only. No scenes are used. | None. Same as the Pantry: no `accent_scene_group`, no `hass_area_id`, `color_temp: false`. Turn-off targets the chandelier entity directly. |
 | Sitting Room, N Office | Lamps, candles, a floor gradient. No cans. | None. They stay on scenes. |
 | Main Living Space (zone) | Kitchen cans, living cans and accents together | None. Its scenes reset the cans, so avoid recalling them by hand. |
 
@@ -252,7 +255,7 @@ Turn off any Hue-bridge automation on a controlled room: the "Natural light" sch
 1. Build the curve, the loop, the hold logic and shadow state. Living Room runs in `log_only`.
 2. Calibrate the Living Room. Watch shadow state for a few days, sunny and cloudy.
 3. Switch the Living Room to `active`.
-4. Add the Kitchen, Pantry, Sitting Room and N Office one at a time. The Kitchen and the Pantry are done (phone-app calibration, `active`). Sitting Room and N Office remain.
+4. Add the Kitchen, Pantry, Sitting Room and N Office one at a time. The Kitchen, the Pantry, the Front Foyer and the Front Room are done (phone-app calibration, `active`). Sitting Room and N Office remain.
 5. Turn on the manual hold for every room, including rooms still on scenes. This fixes the evening problem everywhere, even before every room has lux control.
 
 Step 5 does not depend on the lux loop. It could ship first.
@@ -270,6 +273,16 @@ What the code does, where it differs from the text above, and what is left.
   | Living Room | 24 | not recorded | 3 / 9 / 36 | 0.0025 |
   | Kitchen | 12 | 16 / 26 / 66 | 4 / 14 / 54 | 0.0016 (12 / 7,500) |
   | Pantry | 26 | 37 / 67 / 188 | 11 / 41 / 162 | 0.0034 (26 / 7,600) |
+- **Chandeliers are `active` and brightness only.** Front Foyer (`light.front_foyer_chandelier`) and Front Room (`light.front_room_chandelier`) are Lutron Diva dimmers in windowed entryways. The config key `color_temp: false` (default true) makes the plugin skip `color_temp_kelvin`, record no kelvin, and ignore kelvin when it checks for a manual change. The lux numbers come from a rough iPhone lux app reading at night (baseline 0 lux, fixture alone), so treat them as approximate.
+
+  | Room | Brightness to lux | Notes |
+  |------|-------------------|-------|
+  | Front Foyer | 5% = 15, 10% = 32, 25% = 92, 50% = 353 | No 100% reading |
+  | Front Room | 10% = 8, 25% = 47, 50% = 228 | 5% read 0 (too faint for the app), so it is left out. No 100% reading |
+
+  `lux_scale: 0.2` and `daylight_factor: 0.01` are guesses. The cans rooms measured 0.0016 to 0.0034, but entryways have more windows. A daytime reading with the chandelier off, next to `sensor.weather_station_illuminance`, is still needed.
+
+  The loader needs no 100% point, so none was invented. Above the last point the table gives 100%. The curve tops out at 300 x 0.2 = 60 lux (90 with guests), well under the 50% points (353 and 228 lux), so that range is never used. Below the first point the table runs from 0% = 0 lux, so a small target gives a small brightness, sent as at least 1%. The chandelier turns off when the needed lux falls under the lux at 1% (3 lux in the Foyer, 0.8 in the Front Room) and returns at 1.5 times that. The `winddown` target (6 lux) gives about 2% in the Foyer and 7.5% in the Front Room. The `night` target (1 lux) is under the Foyer's threshold, so the Foyer is off at night. The Front Room is borderline: it stays on at 1% if it was already on, but a dark room does not turn on until the need passes 1.2 lux.
 - **`accent_scene_group` is optional.** A room with only cans (Kitchen, Pantry) leaves it empty. The plugin then recalls no Hue scene for the room, only its companion scenes. The Kitchen keeps `Kitchen Under Cabinet` as a companion.
 - **The Pantry is a room entry, not a second entity under the Kitchen.** A room holds one `lux_control` block, and the Pantry needs its own calibration and `daylight_factor`. Its entry has no `hass_area_id`; when that is empty, turn-off calls `light.turn_off` on the cans entity instead of an area, so it does not depend on which Home Assistant area the pantry cans sit in.
 - **The Kitchen keeps `skip_reactivation_when_on`.** The hold covers the cans only. Without the flag, every mmWave re-detection would recall the under-cabinet companion scene and undo a manual change to that strip. Remove the flag if that is not wanted.
