@@ -281,6 +281,26 @@ pre-push: ## Run comprehensive pre-push validation (build, tests, race detector,
 	@echo "🎉 Pre-push validation passed!"
 	@echo "════════════════════════════════════════════════════════════════════════════"
 
+pre-push-scoped: ## Pre-push validation for config-only changes: make pre-push-scoped PKGS="./internal/plugins/picos/..."
+	@test -n "$(PKGS)" || { echo "❌ PKGS is required (Go package patterns)"; exit 1; }
+	@echo ""
+	@echo "🔍 Running pre-push validation (scoped mode: $(PKGS))..."
+	@echo "════════════════════════════════════════════════════════════════════════════"
+	@$(MAKE) yamllint-local
+	@$(MAKE) validate-diagrams
+	@echo "⏳ Running unit tests for the packages that read the changed configs..."
+	@cd homeautomation-go && go build ./... && go test -race -timeout=5m $(PKGS)
+	@echo ""
+	@echo "════════════════════════════════════════════════════════════════════════════"
+	@echo "🎉 Pre-push validation passed (scoped)!"
+	@echo ""
+	@echo "ℹ️  The full unit and integration suites were skipped because only config files"
+	@echo "   that no integration test reads from disk changed (see .githooks/classify-changes.sh)."
+	@echo "════════════════════════════════════════════════════════════════════════════"
+
+test-classify: ## Test the change classifier used by the pre-push hook and CI
+	@.githooks/test-classify-changes.sh
+
 pre-push-docs-only: ## Run lightweight pre-push validation for documentation-only changes
 	@echo ""
 	@echo "🔍 Running pre-push validation (docs-only mode)..."

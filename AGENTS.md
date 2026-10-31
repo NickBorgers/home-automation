@@ -18,13 +18,27 @@ make integration-tests # ✅ PREFERRED - uses caching
 make test-go           # For debugging cache issues (no cache)
 ```
 
-A pre-push git hook validates all changes before pushing. It runs:
+A pre-push git hook validates all changes before pushing. `.githooks/classify-changes.sh` sorts the changed
+files into a tier. CI runs the same script, so the hook and CI agree.
+
+| Tier | When | What runs |
+|------|------|-----------|
+| `docs` | Only docs changed | Diagram validation (under 30 s) |
+| `scoped` | Only `pico`, `hue`, `music`, or `energy` config changed | yamllint, diagram validation, unit tests of the packages that read that config (about 15 s) |
+| `full` | Anything else, or any doubt | Everything below |
+
+The `full` tier runs:
 - Config validation (yamllint on YAML config files)
 - Diagram validation
 - Code compilation
 - Unit tests (2-5 minutes)
 - Integration tests (2-5 minutes)
 - Coverage check (≥65%)
+
+A config file is `scoped` only if no integration test reads the real file from disk. `schedule_config.yaml` is
+read by the scenario tests, so it stays `full`. To add a config to `scoped`, check with grep which tests read it,
+then add a case to `.githooks/classify-changes.sh` and a row to `.githooks/test-classify-changes.sh`.
+Run `make test-classify` to check the classifier.
 
 **First-time contributors:** Your first push may take 15 minutes. Subsequent pushes with no code changes skip tests via caching.
 

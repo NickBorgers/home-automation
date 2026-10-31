@@ -4,9 +4,13 @@
 # This hook runs automated test validation before allowing a push.
 # It executes the same tests that CI/CD will run to catch issues early.
 #
-# PATH-BASED FILTERING: If only documentation files changed (*.md, docs/,
-# LICENSE, .github/), tests are skipped and only diagram validation runs.
-# CI always runs the full suite regardless of paths (safety net).
+# PATH-BASED FILTERING: .githooks/classify-changes.sh sorts the changed files
+# into three tiers:
+#   docs    only documentation changed -> diagram validation only
+#   scoped  only configs that no integration test reads from disk changed
+#           -> yamllint, diagrams, and unit tests of the packages that read them
+#   full    anything else (and any doubt) -> unit + integration + coverage
+# CI uses the same script, so the hook and CI cannot disagree.
 #
 # CACHING: The unit-tests and integration-tests Makefile targets use
 # test-cache.sh to skip tests if no code has changed since the last
@@ -29,68 +33,85 @@ echo ""
 cd "$(git rev-parse --show-toplevel)"
 
 # ──────────────────────────────────────────────────────────────────────
-# Path-based filtering: detect documentation-only changes
+# Path-based filtering: classify the changed files (docs / scoped / full)
 # ──────────────────────────────────────────────────────────────────────
 
-# Determine what changed between local branch and remote tracking branch
+# Collect the changed files of every pushed ref. If anything cannot be
+# determined, fall back to the full suite.
 # Read push info from stdin (format: local_ref local_sha remote_ref remote_sha)
-docs_only=true
+zero="0000000000000000000000000000000000000000"
+changed_files=""
+undetermined=false
 while read -r local_ref local_sha remote_ref remote_sha; do
     # Skip delete pushes
-    if [ "$local_sha" = "0000000000000000000000000000000000000000" ]; then
+    if [ "$local_sha" = "$zero" ]; then
         continue
     fi
 
     # For new branches, compare against the default branch (main/master)
-    if [ "$remote_sha" = "0000000000000000000000000000000000000000" ]; then
-        # New branch - compare against main
+    if [ "$remote_sha" = "$zero" ]; then
         base_ref="origin/main"
         if ! git rev-parse --verify "$base_ref" >/dev/null 2>&1; then
             base_ref="origin/master"
         fi
         if ! git rev-parse --verify "$base_ref" >/dev/null 2>&1; then
-            # Can't determine base, run full suite
-            docs_only=false
+            undetermined=true
             break
         fi
-        remote_sha=$(git rev-parse "$base_ref")
+        # Use the merge base so commits that main gained since branching do not count as changes
+        remote_sha=$(git merge-base "$base_ref" "$local_sha" 2>/dev/null) || {
+            undetermined=true
+            break
+        }
     fi
 
-    # Get the list of changed files
-    changed_files=$(git diff --name-only "$remote_sha" "$local_sha" 2>/dev/null) || {
-        # If diff fails (e.g., shallow clone, missing objects), run full suite to be safe
-        docs_only=false
+    # If diff fails (e.g., shallow clone, missing objects), run full suite to be safe
+    ref_files=$(git diff --name-only "$remote_sha" "$local_sha" 2>/dev/null) || {
+        undetermined=true
         break
     }
-
-    if [ -z "$changed_files" ]; then
-        continue
-    fi
-
-    # Check if any changed file is NOT a documentation file
-    while IFS= read -r file; do
-        case "$file" in
-            *.md|docs/*|LICENSE|LICENSE.*|.github/*|*.txt)
-                # Documentation file - OK to skip tests
-                ;;
-            *)
-                # Non-documentation file - must run full suite
-                docs_only=false
-                break 2
-                ;;
-        esac
-    done <<< "$changed_files"
+    changed_files="$changed_files
+$ref_files"
 done
+
+tier=full
+packages=""
+if [ "$undetermined" = false ]; then
+    classification=$(printf '%s\n' "$changed_files" | .githooks/classify-changes.sh) || classification=""
+    tier=$(printf '%s\n' "$classification" | sed -n 's/^tier=//p')
+    packages=$(printf '%s\n' "$classification" | sed -n 's/^packages=//p')
+    case "$tier" in
+        docs | scoped | full) ;;
+        *) tier=full ;;
+    esac
+fi
 
 # ──────────────────────────────────────────────────────────────────────
 # Run appropriate validation based on change type
 # ──────────────────────────────────────────────────────────────────────
 
-if [ "$docs_only" = true ]; then
+if [ "$tier" = scoped ]; then
+    echo ""
+    echo "⚙️  Config-only changes detected. Running scoped validation."
+    echo "   Unit tests: $packages"
+    echo "   Skipping the full unit and integration suites."
+    echo ""
+
+    if make pre-push-scoped PKGS="$packages"; then
+        echo ""
+        echo "✅ Pre-push hook passed (scoped)! Proceeding with push..."
+        exit 0
+    else
+        echo ""
+        echo "❌ Pre-push hook failed (scoped). Fix the issues above and try again."
+        exit 1
+    fi
+fi
+
+if [ "$tier" = docs ]; then
     echo ""
     echo "📝 Documentation-only changes detected. Skipping tests."
     echo "   Running diagram validation only (<30 seconds)."
-    echo "   (CI will still run the full test suite as a safety net.)"
     echo ""
 
     if make pre-push-docs-only; then

@@ -50,9 +50,30 @@ jobs:
     outputs:
       code: ${{ steps.filter.outputs.code }}
       docker: ${{ steps.filter.outputs.docker }}
+      tier: ${{ steps.tier.outputs.tier }}
+      packages: ${{ steps.tier.outputs.packages }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # the tier step needs the merge base of the PR
+
+      # Same script as the pre-push hook. tier=full runs everything. tier=scoped means only
+      # config files that no integration test reads from disk changed, so only the unit
+      # tests of the listed packages run. Anything unknown is full.
+      - name: Classify changes (docs / scoped / full)
+        id: tier
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          .githooks/test-classify-changes.sh
+          if [ "$EVENT_NAME" = "pull_request" ] && files=$(git diff --name-only "$BASE_SHA...$HEAD_SHA"); then
+            printf '%s\n' "$files" | .githooks/classify-changes.sh | tee -a "$GITHUB_OUTPUT"
+          else
+            echo "tier=full" | tee -a "$GITHUB_OUTPUT"
+          fi
 
       - name: Check for code changes
         uses: dorny/paths-filter@v3
@@ -115,12 +136,22 @@ jobs:
         run: cd homeautomation-go && go mod download
 
       - name: Run unit tests with coverage
+        if: needs.changes.outputs.tier != 'scoped'
         run: make unit-tests-impl
+
+      # Config-only change: run just the packages that read the changed configs.
+      - name: Run scoped unit tests
+        if: needs.changes.outputs.tier == 'scoped'
+        env:
+          PACKAGES: ${{ needs.changes.outputs.packages }}
+        run: cd homeautomation-go && go build ./... && go test -race -timeout=5m $PACKAGES
 
   integration-tests:
     name: Integration Tests (Required for PR Merge)
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    # Skipped for config-only changes (tier=scoped): integration tests read no changed config.
+    # Fail-safe: only an explicit tier=scoped skips this job. An empty tier runs everything.
+    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.tier != 'scoped'
     runs-on: ubuntu-latest
 
     steps:
@@ -350,6 +381,10 @@ jobs:
 
           failed=false
 
+          if ! check_result "${{ needs.changes.result }}"; then
+            echo "❌ Changes Classification: ${{ needs.changes.result }}"
+            failed=true
+          fi
           if ! check_result "${{ needs.style-checks.result }}"; then
             echo "❌ Style Checks: ${{ needs.style-checks.result }}"
             failed=true
@@ -384,6 +419,7 @@ jobs:
           echo "✅ All required tests passed - PR is ready to merge"
           echo ""
           echo "Job Results:"
+          echo "  Changes Classification: ${{ needs.changes.result }}"
           echo "  Style Checks: ${{ needs.style-checks.result }}"
           echo "  Unit Tests: ${{ needs.unit-tests.result }}"
           echo "  Integration Tests: ${{ needs.integration-tests.result }}"
