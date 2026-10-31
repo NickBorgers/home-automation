@@ -226,11 +226,9 @@ rooms:
     # re-detection re-activates the scene and overrides any manual brightness
     # the user dialed in. Edge-trigger so on→on reactivations are skipped.
     skip_reactivation_when_on: true
-    # The under-cabinet light has a native Home Assistant scene. Home Assistant cannot
-    # nest scenes, so activate it on its own: scene.kitchen_under_cabinet_<phase>.
-    # The cans are driven by lux_control below, so scene.kitchen_<phase> is no longer recalled.
-    companion_scenes:
-      - Kitchen Under Cabinet
+    # The under-cabinet strip (light.kitchen_main_lights) is no longer recalled by scene. It follows
+    # the cans through lux_control.follower_lights below. The six scene.kitchen_under_cabinet_*
+    # scenes stay in Home Assistant, unused.
     # Lux-target control for the 7 ceiling cans. See docs/flows/LUX_LIGHTING.md.
     # There is no accent_scene_group: the Kitchen Hue room holds only the cans.
     #
@@ -243,6 +241,17 @@ rooms:
       cans: light.kitchen_cans
       daylight_factor: 0.0016 # MEASURED: 12 lux indoors (cans off) / 7,500 outdoor lux
       lux_scale: 0.5          # GUESS, same as the Living Room. The cans reach only about 54 lux
+      # Task lighting: the strip is brighter than the cans, fairly flat.
+      # strip % = clamp(floor_pct + gain * cans %, 1, 100), brightness only, off when the cans are off.
+      # floor_pct 20 and gain 0.8 are USER-CHOSEN STARTING GUESSES (cans 100% -> 100%, 50% -> 60%,
+      # 10% -> 28%). Tune later.
+      # WARNING: this strip is dim-to-warm. Its color temperature follows its brightness (warmer as it
+      # dims), and the evening target is near 3000 K, which needs real dimming. Do not raise
+      # floor_pct without checking the warmth.
+      follower_lights:
+        - entity: light.kitchen_main_lights # Kitchen Under Cabinet
+          floor_pct: 20
+          gain: 0.8
       calibrated: true
       calibration:            # MEASURED at 4000 K: reading (16 / 26 / 66) minus the 12 lux baseline
         - brightness_pct: 25
@@ -274,6 +283,14 @@ rooms:
       cans: light.pantry_cans # 8 cans
       daylight_factor: 0.0034 # MEASURED: 26 lux indoors (cans off) / 7,600 outdoor lux
       lux_scale: 0.5          # GUESS, same as the Living Room
+      # Under-cabinet task strip, same shape as the Kitchen's. No scenes exist for it.
+      # A plain fixed 3000 K strip, so no warmth reason to dim it: task lighting, brighter and flatter
+      # than the Kitchen strip (cans 100% -> 100%, 50% -> 75%, 10% -> 55%).
+      # floor_pct 50 and gain 0.5 are USER-CHOSEN STARTING GUESSES. Tune later.
+      follower_lights:
+        - entity: light.pantry_under_cabinet
+          floor_pct: 50
+          gain: 0.5
       calibrated: true
       calibration:            # MEASURED at 4000 K: reading (37 / 67 / 188) minus the 26 lux baseline
         - brightness_pct: 25

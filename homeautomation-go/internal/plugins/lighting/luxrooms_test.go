@@ -98,7 +98,8 @@ func TestProductionConfig_PantryFollowsKitchenConditions(t *testing.T) {
 	require.NotNil(t, pantry)
 	assert.Equal(t, kitchen.Conditions, pantry.Conditions)
 	assert.NotEmpty(t, pantry.Conditions)
-	assert.Empty(t, pantry.CompanionScenes, "the pantry has no under-cabinet light")
+	assert.Empty(t, pantry.CompanionScenes, "the pantry strip follows the cans, no scenes")
+	assert.Empty(t, kitchen.CompanionScenes, "the kitchen strip follows the cans, no scenes")
 	assert.Empty(t, pantry.LuxControl.AccentSceneGroup, "the pantry has no accent lights")
 	assert.Empty(t, kitchen.LuxControl.AccentSceneGroup, "the kitchen has no accent lights")
 }
@@ -131,15 +132,12 @@ func TestLuxRooms_KitchenAndPantryCansAreDrivenByLuxNotScenes(t *testing.T) {
 
 	var cans []string
 	for _, c := range env.MockHA.GetServiceCalls() {
-		if c.Domain == "scene" {
-			// Only the Kitchen under-cabinet companion may be recalled, never scene.kitchen_day or scene.pantry_day.
-			assert.Equal(t, "scene.kitchen_under_cabinet_day", c.Data["entity_id"])
-		}
+		assert.NotEqual(t, "scene", c.Domain, "no scene is recalled; the strips follow the cans")
 		if c.Domain == "light" && c.Service == "turn_on" {
 			cans = append(cans, c.Data["entity_id"].(string))
 		}
 	}
-	assert.ElementsMatch(t, []string{"light.kitchen_cans", "light.pantry_cans"}, cans)
+	assert.ElementsMatch(t, []string{"light.kitchen_cans", "light.pantry_cans", "light.kitchen_main_lights", "light.pantry_under_cabinet"}, cans)
 }
 
 func TestLuxRooms_PantryTurnsOffWithKitchenConditionsWithoutAnArea(t *testing.T) {
@@ -156,7 +154,8 @@ func TestLuxRooms_PantryTurnsOffWithKitchenConditionsWithoutAnArea(t *testing.T)
 	calls := env.MockHA.GetServiceCalls()
 	require.Len(t, calls, 1)
 	assert.Equal(t, "turn_off", calls[0].Service)
-	assert.Equal(t, "light.pantry_cans", calls[0].Data["entity_id"], "no hass_area_id, so target the cans")
+	assert.Equal(t, []string{"light.pantry_cans", "light.pantry_under_cabinet"}, calls[0].Data["entity_id"],
+		"no hass_area_id, so target the cans and the strip")
 	assert.NotContains(t, calls[0].Data, "area_id")
 }
 
