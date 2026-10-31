@@ -532,20 +532,6 @@ room sequencing, and per-room vacuum/mop parameters)
 
 **Config File:** `configs/integration_watchdog_config.yaml`
 
-### 18. Picos Plugin ✅
-
-**Responsibilities:**
-- Listen for `lutron_caseta_button_event` events from Lutron Pico remotes (they have no Home Assistant entities)
-- Step the brightness of a group of lights up or down on each press
-- Record the last event and the last press per target in shadow state
-
-**Key Automations:**
-- **Up press**: lights off → `on_pct` (30%). Lights on → `+step_pct`, capped at 100%
-- **Down press**: lights at or below `off_at_or_below_pct` → off. Otherwise `-step_pct`
-- **Reference light**: the first light of a target decides the next level. The other lights follow it
-
-**Config File:** `configs/pico_config.yaml`. Behavior: [PICO_BUTTONS.md](../flows/PICO_BUTTONS.md)
-
 ### 17. Tesla Plugin ✅
 
 **Responsibilities:**
@@ -605,6 +591,20 @@ state reports the running request and command counts.
 `TESLA_VIN`, `TESLA_POLL_MINUTES`. Powerwall site ids are not configured: the caller
 passes one per call, since a property can have several systems. Look them up with
 `GET /api/tesla/energy/sites`, which costs one billed request.
+
+### 18. Picos Plugin ✅
+
+**Responsibilities:**
+- Listen for `lutron_caseta_button_event` events from Lutron Pico remotes (they have no Home Assistant entities)
+- Step the brightness of a group of lights up or down on each press
+- Record the last event and the last press per target in shadow state
+
+**Key Automations:**
+- **Up press**: lights off → `on_pct` (30%). Lights on → `+step_pct`, capped at 100%
+- **Down press**: lights at or below `off_at_or_below_pct` → off. Otherwise `-step_pct`
+- **Reference light**: the first light of a target decides the next level. The other lights follow it
+
+**Config File:** `configs/pico_config.yaml`. Behavior: [PICO_BUTTONS.md](../flows/PICO_BUTTONS.md)
 
 ---
 
