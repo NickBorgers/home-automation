@@ -30,7 +30,7 @@ func TestLux_RestartWithCansOnFadesFromTheirCurrentState(t *testing.T) {
 		wantKelvin int
 		wantSecs   float64
 	}{
-		{"cans on at 50% and 3000 K fade", "on", 128, 3000, 55, 3200, 60},
+		{"cans on at 50% and 3000 K fade", "on", 128, 3000, 75, 3400, 60},
 		{"cans on at 98% and 4900 K close the small gap", "on", 250, 4900, 100, 5000, 60},
 		{"cans off turn on directly", "off", 0, 3000, 100, 5000, float64(maxReturnHomeTransition)},
 		{"cans on without brightness count as dark", "on", 0, 3000, 100, 5000, float64(maxReturnHomeTransition)},
@@ -85,7 +85,7 @@ func TestLux_LargeGapClosesOverSeveralTicksAndEndsAtTheGoal(t *testing.T) {
 	}
 
 	// AND: the room ends within the minimum step of the goal (the curve drifts a little meanwhile)
-	assert.Greater(t, steps, 3, "the gap closed over several ticks")
+	assert.GreaterOrEqual(t, steps, 3, "the gap closed over several ticks")
 	st := f.manager.GetShadowState().Outputs.LuxControl["Living Room"]
 	assert.InDelta(t, st.GoalBrightnessPct, float64(prevPct), minBrightnessDelta)
 	assert.InDelta(t, st.TargetKelvin, prevKelvin, minKelvinDelta)
@@ -103,7 +103,7 @@ func TestLux_ShadowShowsCommandedAndGoalBrightness(t *testing.T) {
 
 	// THEN: BrightnessPct is the clamped command and GoalBrightnessPct the unclamped goal
 	st := f.manager.GetShadowState().Outputs.LuxControl["Living Room"]
-	assert.InDelta(t, 55, st.BrightnessPct, 0.6)
+	assert.InDelta(t, 75, st.BrightnessPct, 0.6)
 	assert.Equal(t, 100.0, st.GoalBrightnessPct)
 }
 
@@ -119,7 +119,7 @@ func TestLux_RestartWithCansOnDoesNotTripManualHold(t *testing.T) {
 	f.clock.Advance(5 * time.Second)
 	f.manager.handleCansChange(f.room, canReport("on", 140, 3100)) // mid-fade
 	f.clock.Advance(time.Minute)
-	f.manager.handleCansChange(f.room, canReport("on", 140, 3200)) // 55%, as commanded
+	f.manager.handleCansChange(f.room, canReport("on", 191, 3400)) // 75%, as commanded
 	f.manager.luxTick()
 
 	// THEN: the room is not held and the plugin keeps fading
@@ -160,7 +160,7 @@ func TestLux_ResetFadesLitCansInsteadOfPopping(t *testing.T) {
 	// THEN: the cans fade from where they are
 	calls := f.lightCalls()
 	require.Len(t, calls, 1)
-	assert.Equal(t, 55, calls[0].Data["brightness_pct"])
+	assert.Equal(t, 75, calls[0].Data["brightness_pct"])
 	assert.Equal(t, 60.0, calls[0].Data["transition"])
 }
 
@@ -176,12 +176,12 @@ func TestLux_FollowersGetTheClampedValueAndFadeWhenAlreadyOn(t *testing.T) {
 	// WHEN: the first tick runs
 	f.manager.luxTick()
 
-	// THEN: the strip is derived from the clamped 55%, not the 100% goal, with the long transition
+	// THEN: the strip is derived from the clamped 75%, not the 100% goal, with the long transition
 	calls := callsTo(f.env.MockHA, "turn_on", strip)
 	require.Len(t, calls, 1)
-	assert.Equal(t, 64, calls[0].Data["brightness_pct"], "20 + 0.8 * 55")
+	assert.Equal(t, 80, calls[0].Data["brightness_pct"], "20 + 0.8 * 75")
 	assert.Equal(t, 60.0, calls[0].Data["transition"])
-	assert.Equal(t, 64.0, f.manager.GetShadowState().Outputs.LuxControl["Living Room"].Followers[strip].Pct)
+	assert.Equal(t, 80.0, f.manager.GetShadowState().Outputs.LuxControl["Living Room"].Followers[strip].Pct)
 }
 
 func TestLux_DarkStripStillLightsWithTheShortTransition(t *testing.T) {

@@ -284,7 +284,8 @@ func (m *Manager) luxEvaluate(room *RoomConfig, trigger string) {
 		rec.BrightnessPct = cmd.pct
 	}
 	if prev == nil || !prev.on {
-		// A room that was dark lights up with a short transition. Long ones can fail on Hue.
+		// Fast profile: a room that was dark lights up with a short transition, so entering a room is
+		// quick. Long ones can fail on Hue.
 		cmd.transition = maxReturnHomeTransition * time.Second
 	}
 

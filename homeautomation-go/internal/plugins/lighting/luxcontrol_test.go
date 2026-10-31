@@ -195,7 +195,7 @@ func TestLux_EveningCurveDimsAndWarmsTheCans(t *testing.T) {
 	f.manager.luxTick()
 	calls = f.lightCalls()
 	require.Len(t, calls, 1)
-	// The 500 K gap is bigger than one step, so the first command is slewed toward 2200 K.
+	// The 500 K gap is bigger than one step, so the first command is slewed toward 2200 K (2700 - 400).
 	assert.Equal(t, 2700-maxKelvinStep, calls[0].Data["color_temp_kelvin"])
 	assert.Less(t, calls[0].Data["brightness_pct"].(int), duskPct, "dimmer at winddown than at dusk")
 	assert.Equal(t, 60.0, calls[0].Data["transition"], "routine changes use the long transition")
