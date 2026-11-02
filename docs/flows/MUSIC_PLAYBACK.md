@@ -18,6 +18,7 @@ flowchart TD
         dayPhase["dayPhase changed"]
         isAnyoneAsleep["isAnyoneAsleep changed"]
         isAnyoneHome["isAnyoneHome changed"]
+        musicReset["musicReset (HomeKit button)"]
     end
 
     subgraph Priority["Priority Checks (in order)"]
@@ -30,11 +31,13 @@ flowchart TD
         stopMusic["Stop music<br/>(set type = empty)"]
         sleepMode["Sleep mode<br/>(rain sounds)"]
         phaseMode["Phase-based mode"]
+        resetAction["Stop + re-resolve music"]
     end
 
     dayPhase --> checkHome
     isAnyoneAsleep --> checkHome
     isAnyoneHome --> checkHome
+    musicReset --> resetAction
 
     checkHome -->|No| stopMusic
     checkHome -->|Yes| checkSleep
@@ -45,6 +48,7 @@ flowchart TD
     style stopMusic fill:#e74c3c,color:#fff
     style sleepMode fill:#1a1a2e,color:#fff
     style phaseMode fill:#3498db,color:#fff
+    style resetAction fill:#27ae60,color:#fff
 ```
 
 ## Day Phase to Music Mode Mapping
