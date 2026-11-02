@@ -294,30 +294,39 @@ rooms:
         value: true
     increase_brightness_if_true: ~
     transition_seconds: 5
-    # TEMPORARY phone-app calibration, MEASURED 2026-10-30 evening with an iPhone lux app
-    # (rough, about +/-30%), in daylight at about 7,600 outdoor lux. Replace with real lux
-    # sensor values when they arrive. Cans-only = reading minus the cans-off baseline of 26 lux.
+    # Cans calibration MEASURED 2026-11-02 evening with a handheld lux meter: dark, ambient 0 lux,
+    # only the cans on, 4000 K. daylight_factor is still the PHONE-APP value from 2026-10-30
+    # (26 lux indoors, cans off / 7,600 outdoor lux, rough, about +/-30%). Re-measure it in daylight
+    # with the meter.
     lux_control:
       mode: active
       cans: light.pantry_cans # 8 cans
-      daylight_factor: 0.0034 # MEASURED: 26 lux indoors (cans off) / 7,600 outdoor lux
+      daylight_factor: 0.0034 # PHONE-APP value, still to be re-measured in daylight with the meter
       lux_scale: 0.5          # GUESS, same as the Living Room
       # Under-cabinet task strip, same shape as the Kitchen's. No scenes exist for it.
-      # A plain fixed 3000 K strip, so no warmth reason to dim it: task lighting, brighter and flatter
-      # than the Kitchen strip (cans 100% -> 100%, 50% -> 75%, 10% -> 55%).
-      # floor_pct 50 and gain 0.5 are USER-CHOSEN STARTING GUESSES. Tune later.
+      # The strip was not measured. The user said it is roughly as bright as the Kitchen strip, so it
+      # copies the Kitchen mapping: floor_pct 20 and gain 0.8 (cans 100% -> 100%, 50% -> 60%,
+      # 10% -> 28%). These are USER-CHOSEN STARTING GUESSES. Tune later.
+      # The Pantry strip is a plain fixed 3000 K strip (no dim-to-warm), so the Kitchen's warmth
+      # warning does not apply here. The mapping is copied by user choice.
       follower_lights:
         - entity: light.pantry_under_cabinet
-          floor_pct: 50
-          gain: 0.5
+          floor_pct: 20
+          gain: 0.8
       calibrated: true
-      calibration:            # MEASURED at 4000 K: reading (37 / 67 / 188) minus the 26 lux baseline
+      calibration:            # MEASURED 2026-11-02, handheld lux meter, 4000 K, in the dark, cans only
+        - brightness_pct: 5
+          lux: 1
+        - brightness_pct: 10
+          lux: 3
+        - brightness_pct: 15
+          lux: 6
         - brightness_pct: 25
-          lux: 11
+          lux: 16
         - brightness_pct: 50
-          lux: 41
+          lux: 64
         - brightness_pct: 100
-          lux: 162
+          lux: 263
 
   # The two entryway chandeliers are Lutron Diva dimmers: brightness only, no color temperature
   # (color_temp: false), so the plugin sends brightness_pct and transition and never kelvin.

@@ -1,6 +1,6 @@
 # Lux-Target Lighting (Design)
 
-**Status:** Rollout steps 1 to 3 and 5 are built. Step 4 is done for the Kitchen, the Pantry and the two chandeliers. The Living Room, Kitchen, Pantry, Front Foyer and Front Room ship in `active` mode. The Living Room, Kitchen, Front Foyer and Front Room `daylight_factor` and `calibration` were measured on 2026-10-31 and 2026-11-01 with a handheld lux meter. The Pantry is still on phone-app numbers (2026-10-30), which are rough. `lux_scale` is still a guess. See "Implementation notes" at the end.
+**Status:** Rollout steps 1 to 3 and 5 are built. Step 4 is done for the Kitchen, the Pantry and the two chandeliers. The Living Room, Kitchen, Pantry, Front Foyer and Front Room ship in `active` mode. The Living Room, Kitchen, Front Foyer and Front Room `daylight_factor` and `calibration` were measured on 2026-10-31 and 2026-11-01 with a handheld lux meter. The Pantry cans were measured with the meter on 2026-11-02; its `daylight_factor` is still a phone-app value (2026-10-30), which is rough. `lux_scale` is still a guess. See "Implementation notes" at the end.
 
 ## Summary
 
@@ -246,9 +246,9 @@ Indoor sensors, when they come back, read light at the ceiling or wall, not at t
 | Strip | `floor_pct` / `gain` | Cans 100% | Cans 50% | Cans 10% |
 |-------|---------------------|----------:|---------:|---------:|
 | Kitchen Under Cabinet (`light.kitchen_main_lights`), dim-to-warm | 20 / 0.8 | 100% | 60% | 28% |
-| Pantry under cabinet (`light.pantry_under_cabinet`), fixed 3000 K | 50 / 0.5 | 100% | 75% | 55% |
+| Pantry under cabinet (`light.pantry_under_cabinet`), fixed 3000 K | 20 / 0.8 | 100% | 60% | 28% |
 
-The Kitchen strip is dim-to-warm: its color temperature falls as it dims, and the evening target is near 3000 K, which needs real dimming. Do not raise its floor without checking the warmth. The Pantry strip has a fixed color, so it stays brighter and flatter.
+The Kitchen strip is dim-to-warm: its color temperature falls as it dims, and the evening target is near 3000 K, which needs real dimming. Do not raise its floor without checking the warmth. The Pantry strip has a fixed color, so the warmth reason does not apply to it. It copies the Kitchen mapping by user choice, because the user said it is roughly as bright as the Kitchen strip. It was not measured.
 
 A manual change to a strip holds that strip only. The room and its cans keep following the curve. The strip is left alone until the same events that end a room hold: the room goes off and on, everyone is asleep, nobody is home, or reset. The strip's rule for what counts as manual matches brightness-only lights: kelvin is ignored, and reports during the transition window are the plugin's own change.
 
@@ -284,7 +284,7 @@ What the code does, where it differs from the text above, and what is left.
 - **Code:** `luxcurve.go` (curve and math), `luxcontrol.go` (loop, hold, shadow state), `luxanchors.go` (sun and schedule times), all in `internal/plugins/lighting/`.
 - **Sun times are for the local calendar day.** The sun calculator asks suncalc for local noon of the local date, and the anchors reload when the local date changes. suncalc's own day rolls over at solar midnight (about 01:30 local here), so asking with "now" returned yesterday's sun times from 00:00 to about 01:30 and lifted the target to about 150 lux (fixed 2026-10-31). The target must never rise between 22:00 and sunrise.
 - **Living Room, Kitchen, Front Foyer and Front Room use handheld-meter calibration.** Measured 2026-10-31 (daylight factors, 13:10 to 13:30 local) and 2026-11-01 (dark tables, about 19:59 to 20:40 local). The meter reads about 81% of `sensor.weather_station_illuminance` outdoors, which cancels out in `daylight_factor`. Every reading is kept in [LUX_CALIBRATION_2026-10-31.md](../reference/LUX_CALIBRATION_2026-10-31.md). `calibrated: true` only lets the config load, because the loader refuses `mode: active` without it. `lux_scale` is still a guess (cans 0.5, chandeliers 0.2) and is the next decision.
-- **The Pantry is still on phone-app numbers.** It was not measured with the meter. It keeps its 2026-10-30 iPhone numbers (rough, about +/-30%, in daylight at about 7,600 lux outside, cans-only = reading minus the 26 lux baseline) and its comment in `hue_config.yaml`.
+- **The Pantry cans use meter calibration; its `daylight_factor` is still the phone-app value.** The cans table was measured with the meter on 2026-11-02 (dark, ambient 0 lux, cans only). `daylight_factor` 0.0034 is the 2026-10-30 iPhone value (26 lux indoors, cans off / 7,600 outdoor lux, rough, about +/-30%) and is to be re-measured in daylight.
 
   | Room | Source | `daylight_factor` | Calibration (brightness % = lux) |
   |------|--------|------------------:|----------------------------------|
@@ -292,7 +292,7 @@ What the code does, where it differs from the text above, and what is left.
   | Kitchen (island) | meter, dark, 4000 K | 0.0012 (39.35 lux; workspace 0.0010) | 5 = 1.3, 10 = 3.1, 15 = 5.9, 25 = 15.8, 50 = 61.1, 100 = 237 |
   | Front Foyer | meter, dark, brightness only | 0.0061 (212 lux) | 5 = 2, 10 = 4.4, 25 = 12.9, 50 = 48, 100 = 111 |
   | Front Room | meter, dark, night-use spot | 0.027 (874.5 lux, daytime spot; upper bound) | 5 = 0.8, 10 = 3.9, 25 = 23, 50 = 99, 100 = 155 |
-  | Pantry | phone app, daylight | 0.0034 (26 / 7,600) | 25 = 11, 50 = 41, 100 = 162 |
+  | Pantry | meter, dark, cans only (2026-11-02); factor from phone app | 0.0034 (26 / 7,600, phone app) | 5 = 1, 10 = 3, 15 = 6, 25 = 16, 50 = 64, 100 = 263 |
 
   Each `daylight_factor` comes from a single sky condition (sun and thin cloud, station 24,000 to 39,000 lux). Re-measure under overcast and low sun. The Front Room table was taken at the night-use spot, but its factor at the daytime spot, so 0.027 is an upper bound for the night spot (a window farther south in the room gave 0.019).
 - **Kitchen is two lighting domains.** The island (the cans) is calibrated, and the table above is for it. The workspace under the cabinet (the strip, `light.kitchen_main_lights`) is task light and is kept bright on purpose. The strip follows the cans by `follower_lights` (`floor_pct: 20`, `gain: 0.8`, strip % = clamp(floor_pct + gain x cans %, 1, 100)). No config change was made for the strip. Its dark readings at the workspace spot, for the record:
