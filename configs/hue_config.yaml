@@ -52,22 +52,32 @@ rooms:
     # scenes exist in Hue, the scene call fails and logs an error, and the accents stay as they are.
     # log_only (for testing): scenes drive the whole room; shadow state shows what lux control would do.
     #
-    # MEASURED 2026-10-30 with an iPhone lux app (rough, about +/-30%). Re-measure with a real lux meter.
+    # MEASURED with a handheld lux meter, 2026-10-31/11-01; the meter reads about 81% of
+    # sensor.weather_station_illuminance outdoors, which cancels out in daylight_factor.
+    # Calibration: lux at the spot, only the cans on, in the dark (ambient 0-2 lux), 4000 K.
     # See docs/flows/LUX_LIGHTING.md ("Calibration"). lux_scale is still a GUESS.
     lux_control:
       mode: active
       cans: light.living_cans
       accent_scene_group: Main Living Accent
-      daylight_factor: 0.0025 # MEASURED: 24 lux indoors (cans off) at about 9,500 outdoor lux, cloudy
-      lux_scale: 0.5          # GUESS. The cans reach only about 36 lux, far below the 300 lux curve
+      # MEASURED 2026-10-31 13:10-13:30: 39.45 lux indoors (cans off) / station 24,000-39,000 lux.
+      # One sky condition only (sun and thin cloud), so treat it as a single sample.
+      daylight_factor: 0.0011
+      lux_scale: 0.5          # GUESS. The cans reach about 119 lux, below the 300 lux curve
       calibrated: true
-      calibration:            # MEASURED at 4000 K in daylight: reading minus the 24 lux of daylight
+      calibration:            # MEASURED, handheld lux meter, 4000 K, in the dark
+        - brightness_pct: 5
+          lux: 0.7
+        - brightness_pct: 10
+          lux: 1.65
+        - brightness_pct: 15
+          lux: 3.0
         - brightness_pct: 25
-          lux: 3
+          lux: 7.9
         - brightness_pct: 50
-          lux: 9
+          lux: 30.1
         - brightness_pct: 100
-          lux: 36
+          lux: 119.0
 
   - hue_group: Primary Suite
     hass_area_id: master_bedroom
@@ -232,15 +242,18 @@ rooms:
     # Lux-target control for the 7 ceiling cans. See docs/flows/LUX_LIGHTING.md.
     # There is no accent_scene_group: the Kitchen Hue room holds only the cans.
     #
-    # TEMPORARY phone-app calibration, MEASURED 2026-10-30 evening with an iPhone lux app
-    # (rough, about +/-30%), in daylight at about 7,500 outdoor lux. Replace with real lux
-    # sensor values when they arrive. The cans-only values are the reading minus the room's
-    # cans-off baseline of 12 lux. Cans were at 4000 K.
+    # MEASURED with a handheld lux meter, 2026-10-31/11-01; the meter reads about 81% of
+    # sensor.weather_station_illuminance outdoors, which cancels out in daylight_factor.
+    # The Kitchen is two lighting domains. The island (cans) is calibrated here. The workspace
+    # under the cabinet (strip) is kept bright on purpose. See docs/flows/LUX_LIGHTING.md.
+    # Calibration: lux at the island, only the cans on, in the dark, 4000 K.
     lux_control:
       mode: active
       cans: light.kitchen_cans
-      daylight_factor: 0.0016 # MEASURED: 12 lux indoors (cans off) / 7,500 outdoor lux
-      lux_scale: 0.5          # GUESS, same as the Living Room. The cans reach only about 54 lux
+      # MEASURED 2026-10-31 13:10-13:30 at the island: 39.35 lux (cans off) / station 24,000-39,000 lux.
+      # The workspace by the strip gave 0.0010. One sky condition only (sun and thin cloud).
+      daylight_factor: 0.0012
+      lux_scale: 0.5          # GUESS, same as the Living Room. The cans reach about 237 lux
       # Task lighting: the strip is brighter than the cans, fairly flat.
       # strip % = clamp(floor_pct + gain * cans %, 1, 100), brightness only, off when the cans are off.
       # floor_pct 20 and gain 0.8 are USER-CHOSEN STARTING GUESSES (cans 100% -> 100%, 50% -> 60%,
@@ -253,13 +266,19 @@ rooms:
           floor_pct: 20
           gain: 0.8
       calibrated: true
-      calibration:            # MEASURED at 4000 K: reading (16 / 26 / 66) minus the 12 lux baseline
+      calibration:            # MEASURED at the island, handheld lux meter, 4000 K, in the dark
+        - brightness_pct: 5
+          lux: 1.3
+        - brightness_pct: 10
+          lux: 3.1
+        - brightness_pct: 15
+          lux: 5.9
         - brightness_pct: 25
-          lux: 4
+          lux: 15.8
         - brightness_pct: 50
-          lux: 14
+          lux: 61.1
         - brightness_pct: 100
-          lux: 54
+          lux: 237
 
   # The Pantry has no Hue scene group and no occupancy sensor. Its cans follow the Kitchen's
   # conditions. There is no hass_area_id: turn-off targets the cans entity directly, so it does
@@ -305,12 +324,13 @@ rooms:
   # Like the Pantry they have no Hue scene group and no hass_area_id: turn-off targets the light
   # entity directly. They are on whenever someone is home and awake, with no occupancy sensor.
   #
-  # TEMPORARY phone-app calibration, MEASURED 2026-10-31 at night with an iPhone lux app
-  # (rough, about +/-30%), baseline 0 lux, the fixture alone. Replace with real lux sensor
-  # values when they arrive. There is no 100% reading. The loader does not need one: above the
-  # last point the table gives 100%, and the curve (at most 300 x 0.2 = 60 lux, 90 with guests)
-  # stays well under the 50% point. Below the first point brightness is interpolated from
-  # 0% = 0 lux, so a small target still gives a small brightness (sent as at least 1%).
+  # MEASURED with a handheld lux meter, 2026-10-31/11-01; the meter reads about 81% of
+  # sensor.weather_station_illuminance outdoors, which cancels out in daylight_factor.
+  # Calibration: lux at the spot, only that chandelier on, in the dark (ambient 0-2 lux).
+  # Below the first point (5%) brightness is interpolated from 0% = 0 lux, so a small target
+  # still gives a small brightness (sent as at least 1%). No 1% point is added: the lowest need
+  # is 1 lux (night target 5 x 0.2), inside the table, and a linear extrapolation to 1% would be
+  # negative for the Front Room.
   - hue_group: Front Foyer
     conditions:
       - action: off
@@ -325,21 +345,22 @@ rooms:
       mode: active
       cans: light.front_foyer_chandelier
       color_temp: false
-      # GUESS. The entryway has more windows than the cans rooms (0.0016 to 0.0034 measured).
-      # STILL NEEDED: a daytime reading with the chandelier off, next to
-      # sensor.weather_station_illuminance, to measure it.
-      daylight_factor: 0.01
+      # MEASURED 2026-10-31 13:10-13:30: 212 lux indoors (chandelier off) / station 24,000-39,000 lux.
+      # One sky condition only (sun and thin cloud).
+      daylight_factor: 0.0061
       lux_scale: 0.2 # GUESS, lower than the cans rooms (0.5); tune later
       calibrated: true
-      calibration: # MEASURED 2026-10-31, phone app, rough
+      calibration: # MEASURED, handheld lux meter, brightness only, in the dark
         - brightness_pct: 5
-          lux: 15
+          lux: 2
         - brightness_pct: 10
-          lux: 32
+          lux: 4.4
         - brightness_pct: 25
-          lux: 92
+          lux: 12.9
         - brightness_pct: 50
-          lux: 353
+          lux: 48
+        - brightness_pct: 100
+          lux: 111
 
   - hue_group: Front Room
     conditions:
@@ -355,19 +376,24 @@ rooms:
       mode: active
       cans: light.front_room_chandelier
       color_temp: false
-      # GUESS. The entryway has more windows than the cans rooms (0.0016 to 0.0034 measured).
-      # STILL NEEDED: a daytime reading with the chandelier off, next to
-      # sensor.weather_station_illuminance, to measure it.
-      daylight_factor: 0.01
+      # MEASURED 2026-10-31 13:10-13:30: 874.5 lux at the DAYTIME spot (chandelier off) / station
+      # 24,000-39,000 lux. The calibration below was taken at the NIGHT-USE spot, which was not
+      # measured in daylight, so 0.027 is an UPPER BOUND for it. A window farther south in the room
+      # gave 0.019. One sky condition only (sun and thin cloud).
+      daylight_factor: 0.027
       lux_scale: 0.2 # GUESS, lower than the cans rooms (0.5); tune later
       calibrated: true
-      calibration: # MEASURED 2026-10-31, phone app, rough. 5% read 0 lux (too faint), so it is left out
+      calibration: # MEASURED at the night-use spot (not the daytime spot), handheld lux meter, in the dark
+        - brightness_pct: 5
+          lux: 0.8
         - brightness_pct: 10
-          lux: 8
+          lux: 3.9
         - brightness_pct: 25
-          lux: 47
+          lux: 23
         - brightness_pct: 50
-          lux: 228
+          lux: 99
+        - brightness_pct: 100
+          lux: 155
 
   - hue_group: C Office
     hass_area_id: c_office

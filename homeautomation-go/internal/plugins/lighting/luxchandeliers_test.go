@@ -11,15 +11,16 @@ import (
 )
 
 // Tests for the brightness-only Lutron Diva chandeliers (Front Foyer, Front Room).
-// The lux numbers come from a rough phone-app calibration; see docs/flows/LUX_LIGHTING.md.
+// The lux numbers come from a handheld lux meter (2026-10-31/11-01); see docs/flows/LUX_LIGHTING.md.
 
 var chandeliers = []struct {
 	room   string
 	light  string
-	points map[int]float64 // measured lux at night, by brightness
+	factor float64
+	points map[int]float64 // measured lux in the dark, by brightness
 }{
-	{"Front Foyer", "light.front_foyer_chandelier", map[int]float64{5: 15, 10: 32, 25: 92, 50: 353}},
-	{"Front Room", "light.front_room_chandelier", map[int]float64{10: 8, 25: 47, 50: 228}},
+	{"Front Foyer", "light.front_foyer_chandelier", 0.0061, map[int]float64{5: 2, 10: 4.4, 25: 12.9, 50: 48, 100: 111}},
+	{"Front Room", "light.front_room_chandelier", 0.027, map[int]float64{5: 0.8, 10: 3.9, 25: 23, 50: 99, 100: 155}},
 }
 
 func TestProductionConfig_ChandeliersAreBrightnessOnlyAndMeasured(t *testing.T) {
@@ -36,7 +37,7 @@ func TestProductionConfig_ChandeliersAreBrightnessOnlyAndMeasured(t *testing.T) 
 			assert.True(t, lc.Calibrated)
 			assert.False(t, lc.HasColorTemp(), "Diva dimmers have no color temperature")
 			assert.InDelta(t, 0.2, lc.LuxScale, 1e-9)
-			assert.InDelta(t, 0.01, lc.DaylightFactor, 1e-9)
+			assert.InDelta(t, want.factor, lc.DaylightFactor, 1e-9)
 			assert.Empty(t, room.HASSAreaID)
 			assert.Empty(t, lc.AccentSceneGroup)
 			require.Len(t, lc.Calibration, len(want.points))
@@ -74,12 +75,13 @@ func TestProductionConfig_ChandelierCalibrationMapsSanely(t *testing.T) {
 			dusk := luxToBrightness(cal, 20)
 			assert.Greater(t, winddown, 0.0)
 			assert.Less(t, winddown, dusk)
-			assert.Less(t, dusk, 25.0, "evening chandelier stays dim")
+			assert.Less(t, dusk, 50.0, "evening chandelier stays under half")
 			assert.True(t, shouldBeOn(cal, 6, false), "winddown target keeps the chandelier on")
-			// Brightest daytime target (300 x 0.2 x guests 1.5 = 90) is under the last point.
-			assert.Less(t, luxToBrightness(cal, 90), 50.0)
-			// Above the last measured point the table clamps to 100%, so no 100% point is needed.
-			assert.Equal(t, 100.0, luxToBrightness(cal, want.points[50]*2))
+			// Brightest daytime target (300 x 0.2 x guests 1.5 = 90) is above the Foyer's 100% (111 lux is
+			// the top) only in the Front Room's favor: the Foyer reaches about 80%, the Front Room about 70%.
+			assert.Less(t, luxToBrightness(cal, 90), 100.0)
+			// Above the last measured point the table clamps to 100%.
+			assert.Equal(t, 100.0, luxToBrightness(cal, want.points[100]*2))
 			// Daylight covering the target switches it off.
 			assert.False(t, shouldBeOn(cal, 0, true))
 		})
@@ -92,13 +94,14 @@ func TestChandelierBelowFirstPointInterpolatesFromZero(t *testing.T) {
 	t.Parallel()
 	cfg := loadProductionConfig(t)
 	foyer := findRoom(cfg, "Front Foyer").LuxControl.Calibration
-	assert.InDelta(t, 2.5, luxToBrightness(foyer, 7.5), 0.001, "half of 15 lux at 5%")
-	assert.True(t, shouldBeOn(foyer, 6, false), "6 lux is about 2%, still on")
+	assert.InDelta(t, 2.5, luxToBrightness(foyer, 1), 0.001, "half of 2 lux at 5%")
 	room := findRoom(cfg, "Front Room").LuxControl.Calibration
-	assert.InDelta(t, 5.0, luxToBrightness(room, 4), 0.001, "half of 8 lux at 10%")
-	// The 22:00 night target (5 x 0.2 = 1 lux) is under the foyer's 1% threshold (3 lux): off.
-	assert.False(t, shouldBeOn(foyer, 1, false))
-	assert.True(t, shouldBeOn(room, 1.5, false))
+	assert.InDelta(t, 2.5, luxToBrightness(room, 0.4), 0.001, "half of 0.8 lux at 5%")
+	// The 22:00 night target (5 x 0.2 = 1 lux) is above both 1% thresholds (0.4 and 0.16 lux): on, dim.
+	// With the phone-app tables the Foyer was off at night (its 1% threshold was 3 lux).
+	assert.True(t, shouldBeOn(foyer, 1, false))
+	assert.True(t, shouldBeOn(room, 1, false))
+	assert.False(t, shouldBeOn(foyer, 0.3, false), "under the 1% threshold the chandelier is off")
 }
 
 func TestLuxRooms_ChandeliersSendBrightnessOnlyInTheEvening(t *testing.T) {
@@ -134,7 +137,10 @@ func TestLuxRooms_ChandeliersGoOffWhenDaylightCoversTheTarget(t *testing.T) {
 	t.Parallel()
 	for _, want := range chandeliers {
 		t.Run(want.room, func(t *testing.T) {
-			m, env, _ := newProductionRoomFixture(t) // noon, 7,500 outdoor lux -> 75 lux estimate
+			m, env, _ := newProductionRoomFixture(t) // noon, 7,500 outdoor lux
+			// Daylight estimate = 7,500 x factor: Foyer 46 lux, Front Room 202 lux. Both exceed the 60 lux target
+			// (300 x 0.2). Raise the outdoor reading so the Foyer's 0.0061 still covers it with margin.
+			env.MockHA.SetState(m.config.LuxCurve.OutdoorSensor, "20000", nil)
 			room := findRoom(m.config, want.room)
 			m.evaluateAndActivateRoom(room, "day", "isAnyoneHomeAndAwake")
 			for _, c := range env.MockHA.GetServiceCalls() {

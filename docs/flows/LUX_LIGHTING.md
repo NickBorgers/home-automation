@@ -1,6 +1,6 @@
 # Lux-Target Lighting (Design)
 
-**Status:** Rollout steps 1 to 3 and 5 are built. Step 4 is done for the Kitchen, the Pantry and the two chandeliers. The Living Room, Kitchen, Pantry, Front Foyer and Front Room ship in `active` mode. Their `daylight_factor` and `calibration` were measured on 2026-10-30 with a phone app, in daylight, so they are rough and temporary until real lux sensors arrive. `lux_scale` is still a guess. See "Implementation notes" at the end.
+**Status:** Rollout steps 1 to 3 and 5 are built. Step 4 is done for the Kitchen, the Pantry and the two chandeliers. The Living Room, Kitchen, Pantry, Front Foyer and Front Room ship in `active` mode. The Living Room, Kitchen, Front Foyer and Front Room `daylight_factor` and `calibration` were measured on 2026-10-31 and 2026-11-01 with a handheld lux meter. The Pantry is still on phone-app numbers (2026-10-30), which are rough. `lux_scale` is still a guess. See "Implementation notes" at the end.
 
 ## Summary
 
@@ -214,6 +214,8 @@ Aim for ±20% to ±30%, not more. The eye reads brightness on a log scale, so a 
 
 **Tools.** A handheld lux meter (about $15 to $30) is the most reliable. An Android phone app is good enough, because Android gives apps the light sensor. iPhone apps estimate from the camera and are rougher.
 
+**Instrument used.** The four main rooms were measured with a handheld lux meter on 2026-10-31 and 2026-11-01, read at hand height, flat and facing up. The meter reads about 81% of `sensor.weather_station_illuminance` outdoors. A factor is the meter's indoor reading divided by the station value, and the code multiplies the station value by it again. So the 81% cancels and the daylight estimate is in the meter's units, the same units as the calibration tables. The raw readings are in [LUX_CALIBRATION_2026-10-31.md](../reference/LUX_CALIBRATION_2026-10-31.md).
+
 **1. Calibration table (at night, no daylight)**
 
 1. Turn off every other light, including accents and the TV. Close the blinds.
@@ -281,24 +283,28 @@ What the code does, where it differs from the text above, and what is left.
 
 - **Code:** `luxcurve.go` (curve and math), `luxcontrol.go` (loop, hold, shadow state), `luxanchors.go` (sun and schedule times), all in `internal/plugins/lighting/`.
 - **Sun times are for the local calendar day.** The sun calculator asks suncalc for local noon of the local date, and the anchors reload when the local date changes. suncalc's own day rolls over at solar midnight (about 01:30 local here), so asking with "now" returned yesterday's sun times from 00:00 to about 01:30 and lifted the target to about 150 lux (fixed 2026-10-31). The target must never rise between 22:00 and sunrise.
-- **Living Room is `active`.** `daylight_factor` and `calibration` in `hue_config.yaml` come from a rough phone-app measurement (2026-10-30). `lux_scale` is a guess. `calibrated: true` only lets the config load, because the loader refuses `mode: active` without it. Replace the guesses with measurements. `log_only` remains for testing a new room.
-- **Kitchen and Pantry are `active`.** Measured 2026-10-30 evening with an iPhone lux app (rough, about +/-30%) at 4000 K, with about 7,500 lux outside. Cans-only lux is the reading minus the room's cans-off baseline. These numbers are temporary until real lux sensors arrive. `lux_scale: 0.5` is a guess for both rooms, copied from the Living Room.
+- **Living Room, Kitchen, Front Foyer and Front Room use handheld-meter calibration.** Measured 2026-10-31 (daylight factors, 13:10 to 13:30 local) and 2026-11-01 (dark tables, about 19:59 to 20:40 local). The meter reads about 81% of `sensor.weather_station_illuminance` outdoors, which cancels out in `daylight_factor`. Every reading is kept in [LUX_CALIBRATION_2026-10-31.md](../reference/LUX_CALIBRATION_2026-10-31.md). `calibrated: true` only lets the config load, because the loader refuses `mode: active` without it. `lux_scale` is still a guess (cans 0.5, chandeliers 0.2) and is the next decision.
+- **The Pantry is still on phone-app numbers.** It was not measured with the meter. It keeps its 2026-10-30 iPhone numbers (rough, about +/-30%, in daylight at about 7,600 lux outside, cans-only = reading minus the 26 lux baseline) and its comment in `hue_config.yaml`.
 
-  | Room | Cans-off baseline | Readings at 25 / 50 / 100% | Cans-only at 25 / 50 / 100% | `daylight_factor` |
-  |------|------------------:|---------------------------:|----------------------------:|------------------:|
-  | Living Room | 24 | not recorded | 3 / 9 / 36 | 0.0025 |
-  | Kitchen | 12 | 16 / 26 / 66 | 4 / 14 / 54 | 0.0016 (12 / 7,500) |
-  | Pantry | 26 | 37 / 67 / 188 | 11 / 41 / 162 | 0.0034 (26 / 7,600) |
-- **Chandeliers are `active` and brightness only.** Front Foyer (`light.front_foyer_chandelier`) and Front Room (`light.front_room_chandelier`) are Lutron Diva dimmers in windowed entryways. The config key `color_temp: false` (default true) makes the plugin skip `color_temp_kelvin`, record no kelvin, and ignore kelvin when it checks for a manual change. The lux numbers come from a rough iPhone lux app reading at night (baseline 0 lux, fixture alone), so treat them as approximate.
+  | Room | Source | `daylight_factor` | Calibration (brightness % = lux) |
+  |------|--------|------------------:|----------------------------------|
+  | Living Room | meter, dark, 4000 K | 0.0011 (39.45 lux) | 5 = 0.7, 10 = 1.65, 15 = 3.0, 25 = 7.9, 50 = 30.1, 100 = 119.0 |
+  | Kitchen (island) | meter, dark, 4000 K | 0.0012 (39.35 lux; workspace 0.0010) | 5 = 1.3, 10 = 3.1, 15 = 5.9, 25 = 15.8, 50 = 61.1, 100 = 237 |
+  | Front Foyer | meter, dark, brightness only | 0.0061 (212 lux) | 5 = 2, 10 = 4.4, 25 = 12.9, 50 = 48, 100 = 111 |
+  | Front Room | meter, dark, night-use spot | 0.027 (874.5 lux, daytime spot; upper bound) | 5 = 0.8, 10 = 3.9, 25 = 23, 50 = 99, 100 = 155 |
+  | Pantry | phone app, daylight | 0.0034 (26 / 7,600) | 25 = 11, 50 = 41, 100 = 162 |
 
-  | Room | Brightness to lux | Notes |
-  |------|-------------------|-------|
-  | Front Foyer | 5% = 15, 10% = 32, 25% = 92, 50% = 353 | No 100% reading |
-  | Front Room | 10% = 8, 25% = 47, 50% = 228 | 5% read 0 (too faint for the app), so it is left out. No 100% reading |
+  Each `daylight_factor` comes from a single sky condition (sun and thin cloud, station 24,000 to 39,000 lux). Re-measure under overcast and low sun. The Front Room table was taken at the night-use spot, but its factor at the daytime spot, so 0.027 is an upper bound for the night spot (a window farther south in the room gave 0.019).
+- **Kitchen is two lighting domains.** The island (the cans) is calibrated, and the table above is for it. The workspace under the cabinet (the strip, `light.kitchen_main_lights`) is task light and is kept bright on purpose. The strip follows the cans by `follower_lights` (`floor_pct: 20`, `gain: 0.8`, strip % = clamp(floor_pct + gain x cans %, 1, 100)). No config change was made for the strip. Its dark readings at the workspace spot, for the record:
 
-  `lux_scale: 0.2` and `daylight_factor: 0.01` are guesses. The cans rooms measured 0.0016 to 0.0034, but entryways have more windows. A daytime reading with the chandelier off, next to `sensor.weather_station_illuminance`, is still needed.
+  | Strip brightness | 5% | 10% | 15% | 30% | 60% | 100% |
+  |------------------|---:|----:|----:|----:|----:|-----:|
+  | Lux at the workspace | 2 | 5.6 | 11.3 | 36.8 | 127.5 | 500 |
 
-  The loader needs no 100% point, so none was invented. Above the last point the table gives 100%. The curve tops out at 300 x 0.2 = 60 lux (90 with guests), well under the 50% points (353 and 228 lux), so that range is never used. Below the first point the table runs from 0% = 0 lux, so a small target gives a small brightness, sent as at least 1%. The chandelier turns off when the needed lux falls under the lux at 1% (3 lux in the Foyer, 0.8 in the Front Room) and returns at 1.5 times that. The `winddown` target (6 lux) gives about 2% in the Foyer and 7.5% in the Front Room. The `night` target (1 lux) is under the Foyer's threshold, so the Foyer is off at night. The Front Room is borderline: it stays on at 1% if it was already on, but a dark room does not turn on until the need passes 1.2 lux.
+  The strip warms as it dims. By eye it is near 3000 K at 60%. Strip lux is very sensitive to meter position.
+- **Low end of the tables.** The lowest measured point is 5%. Below it the code interpolates from 0% = 0 lux, so the 1% point (used for the off threshold) is one fifth of the 5% lux: 0.14 lux in the Living Room, 0.26 in the Kitchen, 0.4 in the Foyer, 0.16 in the Front Room. The real cans give less at 1% (the cans follow roughly lux = k x pct^2, Living Room k about 0.012, Kitchen about 0.024), so the threshold is a little high. It does not matter: the lowest need the curve ever asks for is 1 lux (night 5 x 0.2 for the chandeliers) or 2.5 lux (night 5 x 0.5 for the cans), both inside the tables. No extrapolated 1% point was added. For the chandeliers it would be unsound: a straight line through their 5% and 10% points gives a negative lux at 1% for the Front Room, and they do not follow a square law.
+- **Expect dimmer evenings.** The phone-app tables were 3 to 4 times too low, so the same target now asks for a lower brightness. For example 40 lux in the Living Room is now about 58%, not 100%. The lights will look dimmer in the evening than before. The chandeliers also change at night: the 1 lux night need is now above their 1% threshold, so they sit on at a few percent (about 2.5% in the Foyer, 5% in the Front Room) where they used to be off or borderline.
+- **Chandeliers are `active` and brightness only.** Front Foyer (`light.front_foyer_chandelier`) and Front Room (`light.front_room_chandelier`) are Lutron Diva dimmers in windowed entryways. The config key `color_temp: false` (default true) makes the plugin skip `color_temp_kelvin`, record no kelvin, and ignore kelvin when it checks for a manual change. Their tables now reach 100%.
 - **`accent_scene_group` is optional.** A room with only cans (Kitchen, Pantry) leaves it empty. The plugin then recalls no Hue scene for the room. It recalls its companion scenes, if any; no room lists one now.
 - **The Pantry is a room entry, not a second entity under the Kitchen.** A room holds one `lux_control` block, and the Pantry needs its own calibration and `daylight_factor`. Its entry has no `hass_area_id`; when that is empty, turn-off calls `light.turn_off` on the cans entity instead of an area, so it does not depend on which Home Assistant area the pantry cans sit in.
 - **The Kitchen keeps `skip_reactivation_when_on`, but it is now nearly meaningless.** Its reason was to stop mmWave re-detections from recalling the under-cabinet companion scene. That scene is gone. The flag now only skips a redundant lux evaluation on a re-detection. It is harmless, so it stays until someone decides to remove it.
