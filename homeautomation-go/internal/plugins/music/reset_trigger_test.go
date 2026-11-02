@@ -36,11 +36,10 @@ func newMusicResetTestManager(t *testing.T, readOnly bool) (*Manager, *testutil.
 // clears the boolean (loop prevention) and runs Reset, which stops music when nobody is home.
 func TestMusicReset_TriggerClearsBooleanAndRunsReset(t *testing.T) {
 	t.Parallel()
-	manager, env := newMusicResetTestManager(t, false)
+	_, env := newMusicResetTestManager(t, false)
 
 	env.StateMgr.SetString("musicPlaybackType", "morning")
 	require.NoError(t, env.StateMgr.SetBool("musicReset", true))
-	manager.handleMusicResetChange("musicReset", false, true)
 
 	val, err := env.StateMgr.GetBool("musicReset")
 	require.NoError(t, err)
@@ -69,10 +68,9 @@ func TestMusicReset_IgnoresFalseAndNonBool(t *testing.T) {
 // TestMusicReset_ReadOnlyDoesNotClearBoolean verifies read-only mode writes nothing back.
 func TestMusicReset_ReadOnlyDoesNotClearBoolean(t *testing.T) {
 	t.Parallel()
-	manager, env := newMusicResetTestManager(t, true)
+	_, env := newMusicResetTestManager(t, true)
 
 	require.NoError(t, env.StateMgr.SetBool("musicReset", true))
-	manager.handleMusicResetChange("musicReset", false, true)
 
 	val, err := env.StateMgr.GetBool("musicReset")
 	require.NoError(t, err)
