@@ -138,8 +138,8 @@ func TestLuxRooms_ChandeliersGoOffWhenDaylightCoversTheTarget(t *testing.T) {
 	for _, want := range chandeliers {
 		t.Run(want.room, func(t *testing.T) {
 			m, env, _ := newProductionRoomFixture(t) // noon, 7,500 outdoor lux
-			// Daylight estimate = 7,500 x factor: Foyer 46 lux, Front Room 202 lux. Both exceed the 60 lux target
-			// (300 x 0.2). Raise the outdoor reading so the Foyer's 0.0061 still covers it with margin.
+			// Daylight estimate = 7,500 x factor: Foyer 46 lux (below the 60 lux target), Front Room 202 lux
+			// (above). Raise to 20,000 so the Foyer's factor covers it too (20,000 x 0.0061 = 122 lux > 60).
 			env.MockHA.SetState(m.config.LuxCurve.OutdoorSensor, "20000", nil)
 			room := findRoom(m.config, want.room)
 			m.evaluateAndActivateRoom(room, "day", "isAnyoneHomeAndAwake")
