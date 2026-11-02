@@ -18,6 +18,7 @@ flowchart TD
         dayPhase["dayPhase changed"]
         isAnyoneAsleep["isAnyoneAsleep changed"]
         isAnyoneHome["isAnyoneHome changed"]
+        musicReset["musicReset (HomeKit button)"]
     end
 
     subgraph Priority["Priority Checks (in order)"]
@@ -35,6 +36,7 @@ flowchart TD
     dayPhase --> checkHome
     isAnyoneAsleep --> checkHome
     isAnyoneHome --> checkHome
+    musicReset --> resetAction["Stop + re-resolve music"]
 
     checkHome -->|No| stopMusic
     checkHome -->|Yes| checkSleep
