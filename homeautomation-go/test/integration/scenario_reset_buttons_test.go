@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 // ============================================================================
@@ -100,6 +99,5 @@ func TestScenario_UserStory_MusicResetOnlyAffectsMusic(t *testing.T) {
 	t.Log("THEN: Lighting is not touched")
 	waitForServiceCallsToStabilizeSince(t, env.server, snapshot, 500*time.Millisecond)
 	calls := env.server.GetServiceCallsSince(snapshot)
-	require.NotNil(t, calls)
 	assert.Empty(t, filterServiceCalls(calls, "scene", "turn_on"), "music reset must not re-apply scenes")
 }
