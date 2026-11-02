@@ -152,6 +152,12 @@ func (d *DevServer) populateSampleData() {
 	d.server.SetState("input_boolean.reset_tv", "off", map[string]interface{}{
 		"friendly_name": "Reset TV",
 	})
+	d.server.SetState("input_boolean.lighting_reset", "off", map[string]interface{}{
+		"friendly_name": "Lighting Reset",
+	})
+	d.server.SetState("input_boolean.music_reset", "off", map[string]interface{}{
+		"friendly_name": "Music Reset",
+	})
 
 	// Number states with realistic values
 	now := time.Now()

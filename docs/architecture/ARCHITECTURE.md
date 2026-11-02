@@ -935,6 +935,14 @@ The existing Node-RED implementation exposes 14 HomeKit accessories via NRCHKB:
 2. Configure HA HomeKit integration to expose these entities
 3. Golang plugins subscribe to entity changes and trigger actions
 
+**Reset buttons.** Three HomeKit buttons start a reset. Each is an `input_boolean` that clears itself:
+
+| Button | State variable | Effect |
+|--------|----------------|--------|
+| Reset | `reset` | Calls `Reset()` on every plugin (reset coordinator) |
+| Lighting Reset | `lightingReset` | Lighting plugin only: re-applies scenes for the current day phase |
+| Music Reset | `musicReset` | Music plugin only: stops music and re-resolves it for the current mode |
+
 ---
 
 ## Resources and References

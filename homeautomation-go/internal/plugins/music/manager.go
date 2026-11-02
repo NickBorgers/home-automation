@@ -217,6 +217,13 @@ func (m *Manager) Start() error {
 	}
 	m.subscriptions = append(m.subscriptions, sub)
 
+	// Subscribe to the manual music reset trigger (input_boolean.music_reset, exposed to HomeKit)
+	sub, err = m.stateManager.Subscribe("musicReset", m.handleMusicResetChange)
+	if err != nil {
+		return fmt.Errorf("failed to subscribe to musicReset: %w", err)
+	}
+	m.subscriptions = append(m.subscriptions, sub)
+
 	// Subscribe to all mute condition variables from participant configs
 	muteConditionVars := m.collectMuteConditionVariables()
 	for _, varName := range muteConditionVars {
@@ -272,6 +279,36 @@ func (m *Manager) Start() error {
 
 	m.logger.Info("Music Manager started successfully")
 	return nil
+}
+
+// handleMusicResetChange responds to the manual music reset trigger
+// (input_boolean.music_reset, exposed to HomeKit via the Home Assistant bridge).
+// It acts on the false → true edge only. It clears the boolean first, so the reset
+// cannot fire again after a restart. It then runs Reset in a goroutine, because
+// Reset blocks on speaker calls and the state callback must return quickly.
+func (m *Manager) handleMusicResetChange(key string, oldValue, newValue interface{}) {
+	triggered, ok := newValue.(bool)
+	if !ok {
+		m.logger.Warn("musicReset value is not a boolean", zap.Any("value", newValue))
+		return
+	}
+	if !triggered {
+		return
+	}
+
+	m.logger.Info("Manual music reset triggered via musicReset state variable")
+
+	if m.readOnly {
+		m.logger.Info("READ-ONLY: Would turn musicReset boolean off")
+	} else if err := m.stateManager.SetBool("musicReset", false); err != nil {
+		m.logger.Error("Failed to turn musicReset off", zap.Error(err))
+	}
+
+	go func() {
+		if err := m.Reset(); err != nil {
+			m.logger.Error("Music reset failed", zap.Error(err))
+		}
+	}()
 }
 
 // Stop stops the Music Manager and cleans up subscriptions

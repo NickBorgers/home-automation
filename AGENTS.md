@@ -752,7 +752,7 @@ git commit -m "docs: Add screenshot of [feature]"
 **Current Phase:** Production ✅
 
 - Go implementation is the sole automation system (Node-RED migration completed, no longer in use)
-- All 42 state variables supported
+- All 45 state variables supported
 - Some plugins live in a private downstream repository (see Project Overview)
 
 ---

@@ -906,7 +906,7 @@ flowchart TD
 
 ## State Variable Dependency Graph
 
-Shows which plugins read/write which state variables (41 total: 28 booleans, 3 numbers, 8 strings, 2 local-only).
+Shows which plugins read/write which state variables (45 total: 32 booleans, 3 numbers, 8 strings, 2 local-only).
 
 ```mermaid
 graph LR
@@ -923,6 +923,8 @@ graph LR
         HaveGuests[isHaveGuests]
         Reset[reset]
         ResetTV[resetTV]
+        LightingReset[lightingReset]
+        MusicReset[musicReset]
         NickNearHome[isNickNearHome]
         CarolineNearHome[isCarolineNearHome]
         NickOffice[isNickOfficeOccupied]
@@ -1063,6 +1065,8 @@ graph LR
 
     ResetTV --> TV
     TV --> AppleTVPlaying
+    LightingReset --> Lighting
+    MusicReset --> Music
     TV --> TVon
     TV --> TVPlaying
 

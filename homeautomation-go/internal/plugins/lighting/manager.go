@@ -160,6 +160,11 @@ func (m *Manager) Start() error {
 		return fmt.Errorf("failed to subscribe to isHaveGuests: %w", err)
 	}
 
+	// Subscribe to the manual lighting reset trigger (input_boolean.lighting_reset, exposed to HomeKit)
+	if err := m.subHelper.SubscribeToState("lightingReset", m.handleLightingResetChange); err != nil {
+		return fmt.Errorf("failed to subscribe to lightingReset: %w", err)
+	}
+
 	// Subscribe to all occupancy and condition variables from room configs
 	occupancyVars := m.collectConditionVariables()
 	for _, varName := range occupancyVars {
@@ -1040,6 +1045,36 @@ func (m *Manager) turnOffRoom(ctx context.Context, room *RoomConfig, trigger str
 
 	// Record action in shadow state
 	m.recordAction(room.HueGroup, "turn_off", "Turned off room", "", true, trigger)
+}
+
+// handleLightingResetChange responds to the manual lighting reset trigger
+// (input_boolean.lighting_reset, exposed to HomeKit via the Home Assistant bridge).
+// It acts on the false → true edge only. It clears the boolean first, so the reset
+// cannot fire again after a restart. It then runs Reset in a goroutine, so the
+// state callback returns quickly.
+func (m *Manager) handleLightingResetChange(key string, oldValue, newValue interface{}) {
+	triggered, ok := newValue.(bool)
+	if !ok {
+		m.logger.Warn("lightingReset value is not a boolean", zap.Any("value", newValue))
+		return
+	}
+	if !triggered {
+		return
+	}
+
+	m.logger.Info("Manual lighting reset triggered via lightingReset state variable")
+
+	if m.readOnly {
+		m.logger.Info("READ-ONLY: Would turn lightingReset boolean off")
+	} else if err := m.stateManager.SetBool("lightingReset", false); err != nil {
+		m.logger.Error("Failed to turn lightingReset off", zap.Error(err))
+	}
+
+	go func() {
+		if err := m.Reset(); err != nil {
+			m.logger.Error("Lighting reset failed", zap.Error(err))
+		}
+	}()
 }
 
 // Reset re-applies lighting scenes for all rooms based on current day phase
