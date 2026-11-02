@@ -3,6 +3,7 @@ package music
 import (
 	"context"
 	"testing"
+	"time"
 
 	"homeautomation/pkg/plugin"
 	"homeautomation/pkg/testutil"
@@ -48,7 +49,7 @@ func TestMusicReset_TriggerClearsBooleanAndRunsReset(t *testing.T) {
 	assert.Eventually(t, func() bool {
 		got, _ := env.StateMgr.GetString("musicPlaybackType")
 		return got == ""
-	}, 3_000_000_000, 20_000_000, "Reset() should clear musicPlaybackType")
+	}, 3*time.Second, 20*time.Millisecond, "Reset() should clear musicPlaybackType")
 }
 
 // TestMusicReset_IgnoresFalseAndNonBool verifies that false and non-bool values do nothing.
@@ -62,7 +63,7 @@ func TestMusicReset_IgnoresFalseAndNonBool(t *testing.T) {
 	assert.Never(t, func() bool {
 		got, _ := env.StateMgr.GetString("musicPlaybackType")
 		return got != "morning"
-	}, 300_000_000, 20_000_000, "musicPlaybackType must stay unchanged")
+	}, 300*time.Millisecond, 20*time.Millisecond, "musicPlaybackType must stay unchanged")
 }
 
 // TestMusicReset_ReadOnlyDoesNotClearBoolean verifies read-only mode writes nothing back.

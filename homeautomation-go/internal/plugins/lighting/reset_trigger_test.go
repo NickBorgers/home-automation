@@ -48,8 +48,9 @@ func TestLightingReset_IgnoresFalseAndNonBool(t *testing.T) {
 	manager.handleLightingResetChange("lightingReset", true, false)
 	manager.handleLightingResetChange("lightingReset", false, "on")
 
-	time.Sleep(200 * time.Millisecond)
-	assert.Equal(t, before, len(env.MockHA.GetServiceCalls()), "no scenes should be applied")
+	assert.Never(t, func() bool {
+		return len(env.MockHA.GetServiceCalls()) > before
+	}, 300*time.Millisecond, 20*time.Millisecond, "no scenes should be applied")
 }
 
 // TestLightingReset_ReadOnlyDoesNotClearBoolean verifies read-only mode writes nothing back.
