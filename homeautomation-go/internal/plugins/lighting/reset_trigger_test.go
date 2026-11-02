@@ -23,7 +23,6 @@ func TestLightingReset_TriggerClearsBooleanAndReappliesScenes(t *testing.T) {
 
 	before := len(env.MockHA.GetServiceCalls())
 	assert.NoError(t, env.StateMgr.SetBool("lightingReset", true))
-	manager.handleLightingResetChange("lightingReset", false, true)
 
 	val, err := env.StateMgr.GetBool("lightingReset")
 	assert.NoError(t, err)
@@ -64,7 +63,6 @@ func TestLightingReset_ReadOnlyDoesNotClearBoolean(t *testing.T) {
 	defer manager.Stop()
 
 	assert.NoError(t, env.StateMgr.SetBool("lightingReset", true))
-	manager.handleLightingResetChange("lightingReset", false, true)
 
 	val, err := env.StateMgr.GetBool("lightingReset")
 	assert.NoError(t, err)
