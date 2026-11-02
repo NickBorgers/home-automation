@@ -86,9 +86,19 @@ Notes:
 - The Kitchen is two lighting domains: the island (cans) is calibrated, and the workspace (strip) is kept bright.
 - The strip warms as it dims. Its color temperature was only judged by eye: near 3000 K at 60%.
 
+## 5b. Pantry cans, dark session, 2026-11-02 evening
+
+Handheld lux meter, ambient 0 lux, only the Pantry cans on (8 cans, 4000 K).
+
+| Brightness | 5% | 10% | 15% | 25% | 50% | 100% |
+|-----------:|---:|----:|----:|----:|----:|-----:|
+| Lux | 1 | 3 | 6 | 16 | 64 | 263 |
+
+The Pantry cans follow roughly 0.026 x pct^2, close to the Kitchen cans.
+
 ## 6. Not measured, and next steps
 
-- The Pantry cans and strip. The Pantry keeps its phone-app numbers.
+- The Pantry strip (not measured; it copies the Kitchen mapping by user choice), and the Pantry `daylight_factor`, which is still the phone-app value 0.0034 and needs a daylight reading with the meter.
 - A daylight reading at the Front Room night-use spot.
 - Daylight ratios under overcast or low sun. All ratios here are from one sky condition (sun and thin cloud).
 - A re-check after a few weeks.

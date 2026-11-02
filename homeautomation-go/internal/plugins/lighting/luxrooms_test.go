@@ -39,7 +39,7 @@ type luxPoint struct {
 }
 
 // productionLuxRooms lists the cans rooms with measured calibration. The Living Room and Kitchen come from a
-// handheld lux meter (2026-10-31/11-01). The Pantry was not re-measured and keeps its phone-app numbers.
+// handheld lux meter (2026-10-31/11-01). The Pantry cans were measured on 2026-11-02; its daylight factor is still the phone-app value.
 var productionLuxRooms = []struct {
 	room   string
 	cans   string
@@ -50,7 +50,8 @@ var productionLuxRooms = []struct {
 		[]luxPoint{{5, 0.7}, {10, 1.65}, {15, 3.0}, {25, 7.9}, {50, 30.1}, {100, 119.0}}},
 	{"Kitchen", "light.kitchen_cans", 0.0012,
 		[]luxPoint{{5, 1.3}, {10, 3.1}, {15, 5.9}, {25, 15.8}, {50, 61.1}, {100, 237}}},
-	{"Pantry", "light.pantry_cans", 0.0034, []luxPoint{{25, 11}, {50, 41}, {100, 162}}},
+	{"Pantry", "light.pantry_cans", 0.0034,
+		[]luxPoint{{5, 1}, {10, 3}, {15, 6}, {25, 16}, {50, 64}, {100, 263}}},
 }
 
 func TestProductionConfig_LuxRoomsAreActiveAndMeasured(t *testing.T) {
