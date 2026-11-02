@@ -28,8 +28,10 @@ graph LR
         isTVPlaying["isTVPlaying"]
         isTVon["isTVon"]
         isWakeSequenceActive["isWakeSequenceActive"]
+        lightingReset["lightingReset"]
         musicPlaybackType["musicPlaybackType"]
         musicPlaylistRotation["musicPlaylistRotation"]
+        musicReset["musicReset"]
         remainingSolarGeneration["remainingSolarGeneration"]
         reset["reset"]
         resetTV["resetTV"]
@@ -73,11 +75,13 @@ graph LR
     isHaveGuests -.-> lighting
     isMasterAsleep -.-> lighting
     isTVPlaying -.-> lighting
+    lightingReset -.-> lighting
     sunevent -.-> lighting
     currentEnergyLevel -.-> loadshedding
     isAnyoneHome -.-> loadshedding
     isEveryoneAsleep -.-> loadshedding
     musicPlaybackType -.-> music
+    musicReset -.-> music
     reset -.-> reset
     didOwnerJustReturnHome -.-> security
     isAnyoneHome -.-> security
@@ -96,9 +100,11 @@ graph LR
     energy --> isFreeEnergyAvailable
     energy --> remainingSolarGeneration
     energy --> thisHourSolarGeneration
+    lighting --> lightingReset
     music --> currentlyPlayingMusicUri
     music --> musicPlaybackType
     music --> musicPlaylistRotation
+    music --> musicReset
     reset --> reset
     sexmode --> isWakeSequenceActive
     sexmode --> musicPlaybackType

@@ -580,8 +580,8 @@ func TestMusicManager_Stop(t *testing.T) {
 	}
 
 	// Verify subscriptions were created (dayPhase, isAnyoneAsleep, isAnyoneHome, isWakeSequenceActive, musicPlaybackType)
-	if len(manager.subscriptions) != 5 {
-		t.Errorf("Expected 5 subscriptions, got %d", len(manager.subscriptions))
+	if len(manager.subscriptions) != 6 {
+		t.Errorf("Expected 6 subscriptions, got %d", len(manager.subscriptions))
 	}
 
 	// Stop manager

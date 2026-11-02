@@ -188,7 +188,7 @@ flowchart TD
     cycle["Room turns off, then on"] --> clear["Hold cleared"]
     asleep["Everyone asleep"] --> clear
     away["Nobody home"] --> clear
-    reset["Reset runs"] --> clear
+    reset["Reset or Lighting Reset runs"] --> clear
 
     style held fill:#f39c12,color:#fff
     style keep fill:#e74c3c,color:#fff

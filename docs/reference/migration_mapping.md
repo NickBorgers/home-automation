@@ -6,10 +6,10 @@ This document maps Node Red global state variables to their Home Assistant entit
 
 ## Migration Summary
 
-- **Total state variables in Go implementation**: 43
-- **Synced with Home Assistant**: 41
+- **Total state variables in Go implementation**: 45
+- **Synced with Home Assistant**: 43
 - **Local-only (memory only)**: 2
-- **Booleans**: 30
+- **Booleans**: 32
 - **Numbers**: 3
 - **Text/String**: 8
 - **JSON (local-only)**: 1
@@ -18,9 +18,9 @@ This document maps Node Red global state variables to their Home Assistant entit
 
 ## Complete State Variable Reference
 
-All 43 state variables currently implemented in the Go application, organized by type.
+All 45 state variables currently implemented in the Go application, organized by type.
 
-### Boolean Variables (30)
+### Boolean Variables (32)
 
 | Variable | Home Assistant Entity | Description | Flags |
 |----------|----------------------|-------------|-------|
@@ -53,6 +53,8 @@ All 43 state variables currently implemented in the Go application, organized by
 | isLockdown | input_boolean.lockdown | Security lockdown momentary trigger | - |
 | reset | input_boolean.reset | System reset trigger | - |
 | resetTV | input_boolean.reset_tv | Manual TV/Sync Box restart trigger (HomeKit Reset button) | - |
+| lightingReset | input_boolean.lighting_reset | Manual lighting reset trigger. Re-applies scenes for the current day phase (HomeKit "Lighting Reset" button) | - |
+| musicReset | input_boolean.music_reset | Manual music reset trigger. Stops music and re-resolves it for the current mode (HomeKit "Music Reset" button) | - |
 | isFrontOfHousePersonPresent | input_boolean.front_of_house_person_present | Front porch presence | - |
 
 ### Numeric Variables (3)

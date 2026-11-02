@@ -221,7 +221,7 @@ func (s *MockHAServer) InitializeStates() {
 		"guest_bedroom_door_open", "have_guests",
 		"apple_tv_playing", "tv_playing", "tv_on",
 		"fade_out_in_progress", "free_energy_available", "grid_available",
-		"expecting_someone", "reset",
+		"expecting_someone", "reset", "lighting_reset", "music_reset",
 		"wake_sequence_active",          // Added for wake sequence user story tests
 		"front_of_house_person_present", // Person detection at front of house
 	}

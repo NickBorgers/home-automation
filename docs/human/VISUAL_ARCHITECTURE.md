@@ -923,6 +923,8 @@ graph LR
         HaveGuests[isHaveGuests]
         Reset[reset]
         ResetTV[resetTV]
+        LightingReset[lightingReset]
+        MusicReset[musicReset]
         NickNearHome[isNickNearHome]
         CarolineNearHome[isCarolineNearHome]
         NickOffice[isNickOfficeOccupied]

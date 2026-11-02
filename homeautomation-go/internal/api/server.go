@@ -349,13 +349,13 @@ var pluginRegistry = []PluginMetadata{
 	{
 		Name:        "music",
 		Description: "Manages music playback mode and Sonos control",
-		Reads:       []string{"dayPhase", "isAnyoneAsleep", "isAnyoneHome", "musicPlaybackType"},
+		Reads:       []string{"dayPhase", "isAnyoneAsleep", "isAnyoneHome", "musicPlaybackType", "musicReset"},
 		Writes:      []string{"musicPlaybackType", "currentlyPlayingMusicUri"},
 	},
 	{
 		Name:        "lighting",
 		Description: "Controls lighting scenes based on time, presence, and activity",
-		Reads:       []string{"dayPhase", "sunevent", "isAnyoneHome", "isTVPlaying", "isEveryoneAsleep", "isMasterAsleep", "isHaveGuests"},
+		Reads:       []string{"dayPhase", "sunevent", "isAnyoneHome", "isTVPlaying", "isEveryoneAsleep", "isMasterAsleep", "isHaveGuests", "lightingReset"},
 		Writes:      []string{},
 	},
 	{
