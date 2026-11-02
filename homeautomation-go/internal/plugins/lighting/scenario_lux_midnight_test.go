@@ -18,6 +18,10 @@ import (
 // Found in production on 2026-10-31 at 00:00 CDT: the Living Room and Kitchen cans went to
 // 100% and both chandeliers turned on, because the sun times were a day stale.
 //
+// With the handheld-meter calibration (2026-11-01) the chandeliers are no longer off at night: the
+// 1 lux night need is above their 1% threshold, so they sit at a few percent. The invariant is the
+// same for them as for the cans: never above their level before midnight.
+//
 // INVARIANT: the lux target never rises between 22:00 and sunrise. Nothing but a person
 // raises the lights at night.
 //
@@ -28,8 +32,8 @@ func TestScenario_UserStory_MidnightDoesNotBrightenTheLights(t *testing.T) {
 	tz := mustChicago(t)
 
 	// GIVEN: it is 23:59 on Oct 30, Living Room and Kitchen lux control is active (production
-	// config), someone is home and awake, it is dark outside, and the chandeliers are off.
-	t.Log("GIVEN: 23:59 CDT, production lux rooms active, chandeliers off, dark outside")
+	// config), someone is home and awake, and it is dark outside.
+	t.Log("GIVEN: 23:59 CDT, production lux rooms active, dark outside")
 	site := newMidnightSite(t, time.Date(2026, 10, 30, 23, 59, 0, 0, tz))
 	env := testutil.NewEnv(t)
 	m := NewManager(context.Background(), env.MockHA, env.StateMgr, site.cfg, env.Logger, false, nil)
@@ -48,10 +52,9 @@ func TestScenario_UserStory_MidnightDoesNotBrightenTheLights(t *testing.T) {
 	require.NoError(t, phaseCalc.UpdateSunTimes())
 
 	cans := map[string]bool{}
-	for _, name := range []string{"Living Room", "Kitchen"} {
+	for _, name := range []string{"Living Room", "Kitchen", "Front Foyer", "Front Room"} {
 		cans[findRoom(site.cfg, name).LuxControl.Cans] = true
 	}
-	var chandeliersOn []string
 	maxPct := map[string]float64{} // highest brightness sent per entity
 	record := func() {
 		for _, c := range env.MockHA.GetServiceCalls() {
@@ -61,9 +64,6 @@ func TestScenario_UserStory_MidnightDoesNotBrightenTheLights(t *testing.T) {
 			entity, _ := c.Data["entity_id"].(string)
 			if pct, ok := c.Data["brightness_pct"].(int); ok && float64(pct) > maxPct[entity] {
 				maxPct[entity] = float64(pct)
-			}
-			if entity == "light.front_foyer_chandelier" || entity == "light.front_room_chandelier" {
-				chandeliersOn = append(chandeliersOn, entity)
 			}
 		}
 		env.MockHA.ClearServiceCalls()
@@ -91,10 +91,9 @@ func TestScenario_UserStory_MidnightDoesNotBrightenTheLights(t *testing.T) {
 			"sun_event flipped at %s", site.clk.Now().In(tz).Format("15:04:05"))
 	}
 
-	// THEN: no lux command raised the cans above their evening level, and the chandeliers stayed off
-	t.Log("THEN: cans never above evening level, chandeliers off")
+	// THEN: no lux command raised any light above its evening level
+	t.Log("THEN: cans and chandeliers never above evening level")
 	for e := range cans {
 		assert.LessOrEqual(t, maxPct[e], evening[e], "%s was raised after midnight", e)
 	}
-	assert.Empty(t, chandeliersOn, "chandeliers must stay off after midnight")
 }

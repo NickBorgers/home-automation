@@ -32,16 +32,25 @@ func findRoom(cfg *HueConfig, name string) *RoomConfig {
 	return nil
 }
 
-// productionLuxRooms lists the rooms with measured calibration, with the measured cans-only lux.
+// luxPoint is one measured calibration point: the lux at a brightness.
+type luxPoint struct {
+	pct int
+	lux float64
+}
+
+// productionLuxRooms lists the cans rooms with measured calibration. The Living Room and Kitchen come from a
+// handheld lux meter (2026-10-31/11-01). The Pantry was not re-measured and keeps its phone-app numbers.
 var productionLuxRooms = []struct {
 	room   string
 	cans   string
 	factor float64
-	lux    [3]float64 // cans-only lux at 25%, 50%, 100%
+	points []luxPoint
 }{
-	{"Living Room", "light.living_cans", 0.0025, [3]float64{3, 9, 36}},
-	{"Kitchen", "light.kitchen_cans", 0.0016, [3]float64{4, 14, 54}},
-	{"Pantry", "light.pantry_cans", 0.0034, [3]float64{11, 41, 162}},
+	{"Living Room", "light.living_cans", 0.0011,
+		[]luxPoint{{5, 0.7}, {10, 1.65}, {15, 3.0}, {25, 7.9}, {50, 30.1}, {100, 119.0}}},
+	{"Kitchen", "light.kitchen_cans", 0.0012,
+		[]luxPoint{{5, 1.3}, {10, 3.1}, {15, 5.9}, {25, 15.8}, {50, 61.1}, {100, 237}}},
+	{"Pantry", "light.pantry_cans", 0.0034, []luxPoint{{25, 11}, {50, 41}, {100, 162}}},
 }
 
 func TestProductionConfig_LuxRoomsAreActiveAndMeasured(t *testing.T) {
@@ -58,10 +67,10 @@ func TestProductionConfig_LuxRoomsAreActiveAndMeasured(t *testing.T) {
 			assert.True(t, lc.Calibrated)
 			assert.InDelta(t, want.factor, lc.DaylightFactor, 1e-9)
 			assert.InDelta(t, 0.5, lc.LuxScale, 1e-9)
-			require.Len(t, lc.Calibration, 3)
-			for i, pct := range []int{25, 50, 100} {
-				assert.Equal(t, pct, lc.Calibration[i].BrightnessPct)
-				assert.InDelta(t, want.lux[i], lc.Calibration[i].Lux, 1e-9)
+			require.Len(t, lc.Calibration, len(want.points))
+			for i, p := range want.points {
+				assert.Equal(t, p.pct, lc.Calibration[i].BrightnessPct)
+				assert.InDelta(t, p.lux, lc.Calibration[i].Lux, 1e-9)
 			}
 		})
 	}
@@ -74,16 +83,22 @@ func TestProductionConfig_CalibrationMapsSanely(t *testing.T) {
 		t.Run(want.room, func(t *testing.T) {
 			cal := findRoom(cfg, want.room).LuxControl.Calibration
 			prev := 0.0
-			for _, lux := range []float64{want.lux[0] / 2, want.lux[0], want.lux[1], want.lux[2]} {
-				pct := luxToBrightness(cal, lux)
+			lux := []float64{want.points[0].lux / 2}
+			for _, p := range want.points {
+				lux = append(lux, p.lux)
+			}
+			for _, l := range lux {
+				pct := luxToBrightness(cal, l)
 				assert.GreaterOrEqual(t, pct, prev, "brightness must not fall as needed lux rises")
 				assert.LessOrEqual(t, pct, 100.0)
-				assert.InDelta(t, lux, brightnessToLux(cal, pct), 0.01, "round trip")
+				assert.InDelta(t, l, brightnessToLux(cal, pct), 0.01, "round trip")
 				prev = pct
 			}
-			assert.InDelta(t, 25, luxToBrightness(cal, want.lux[0]), 0.001)
-			assert.InDelta(t, 50, luxToBrightness(cal, want.lux[1]), 0.001)
-			assert.Equal(t, 100.0, luxToBrightness(cal, want.lux[2]*2), "cans cannot give more than 100%")
+			for _, p := range want.points {
+				assert.InDelta(t, float64(p.pct), luxToBrightness(cal, p.lux), 0.001)
+			}
+			top := want.points[len(want.points)-1].lux
+			assert.Equal(t, 100.0, luxToBrightness(cal, top*2), "cans cannot give more than 100%")
 			// The scaled night target (5 lux x 0.5) must be reachable and not switch the cans off.
 			assert.True(t, shouldBeOn(cal, 2.5, false), "night target is above the off threshold")
 		})
