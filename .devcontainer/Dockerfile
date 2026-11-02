@@ -52,9 +52,9 @@ RUN install -m 0755 -d /etc/apt/keyrings \
     && rm -rf /var/lib/apt/lists/*
 
 # Pin AI CLI versions so Dockerfile, post-create script, and updater workflow stay in sync
-ARG CLAUDE_CODE_VERSION=2.1.310
-ARG CODEX_CLI_VERSION=0.164.0
-ARG CRUSH_CLI_VERSION=0.98.2
+ARG CLAUDE_CODE_VERSION=2.1.316
+ARG CODEX_CLI_VERSION=0.166.0
+ARG CRUSH_CLI_VERSION=0.99.0
 
 # Install Node.js LTS (needed for Claude Code plugins and Playwright build step)
 ARG NODE_VERSION=20
