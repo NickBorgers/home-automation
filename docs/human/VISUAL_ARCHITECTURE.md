@@ -994,7 +994,7 @@ graph LR
         EVChargerSensors[binary_sensor.leaf_charger_*<br/>sensor.leaf_charger_*<br/>switch.leaf_charger]
         VacuumErrorSensor[sensor.valetudo_*_error]
         SepticAlarmSensor[event.septic_alarm_going_off]
-        EightSleepPresence[binary_sensor.*_eight_sleep_side_bed_presence]
+        EightSleepAlarm[sensor.*_eight_sleep_side_bed_state_type]
         EightSleepStage[sensor.*_eight_sleep_side_sleep_stage]
         LivingCans[light.living_cans]
     end
@@ -1008,8 +1008,8 @@ graph LR
     HaveGuests --> StateTracking
     NickNearHome --> StateTracking
     CarolineNearHome --> StateTracking
-    EightSleepPresence --> StateTracking
-    EightSleepStage --> StateTracking
+    EightSleepAlarm --> SleepHygiene
+    EightSleepStage --> SleepHygiene
 
     StateTracking --> AnyOwnerHome
     StateTracking --> AnyoneHome

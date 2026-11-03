@@ -64,6 +64,10 @@ If no one arrives within the 1-hour window, `go_to_bed` is skipped for the night
 
 The primary wake trigger comes from Eight Sleep Pod alarm sensors. A backup time-based trigger activates only when Eight Sleep is unavailable.
 
+Eight Sleep bed-presence and sleep-stage transitions do not change `isMasterAsleep`. Master sleep
+state uses the local light/door automations; Eight Sleep participates only through its explicit
+alarm trigger and the availability check for the backup wake schedule.
+
 ```mermaid
 sequenceDiagram
     participant ES as Eight Sleep
