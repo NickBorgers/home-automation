@@ -123,7 +123,9 @@ A manual change is any change to a controlled light that this plugin did not com
 
 The plugin remembers the last brightness and kelvin it sent to each room. When Home Assistant reports a state for that room's cans, the plugin compares it with the commanded values:
 
-- During the transition window of its own command, the plugin ignores reports. Hue reports intermediate values while it fades.
+- During the transition window of its own command, the plugin ignores consistent intermediate reports. A contrary turn-on
+  after a commanded off is treated as manual immediately and repeated without a transition, preserving the reported
+  brightness and color so the stale off transition cannot win.
 - After the window, a difference larger than a tolerance (about 5% brightness or 150 K) counts as a manual change.
 - A change made through Home Assistant by another user also counts. The state's `context.user_id` names who made it. The plugin's own calls carry the plugin's user ID.
 

@@ -294,6 +294,28 @@ func TestLux_OwnCommandReportsDoNotCountAsManual(t *testing.T) {
 	assert.False(t, f.manager.luxHeld(f.room))
 }
 
+func TestLux_ManualTurnOnDuringOffTransitionHoldsAndStabilizes(t *testing.T) {
+	t.Parallel()
+	f := newLuxFixture(t, LuxModeActive, false)
+	f.manager.luxMu.Lock()
+	f.manager.luxRoom(f.room.HueGroup).cmd = &luxCommand{
+		at: f.clock.Now(), transition: luxTransition, on: false, kelvin: 5000,
+	}
+	f.manager.luxMu.Unlock()
+
+	f.clock.Advance(15 * time.Second)
+	f.manager.handleCansChange(f.room, canReport("on", 204, 4000))
+
+	assert.True(t, f.manager.luxHeld(f.room))
+	calls := f.lightCalls()
+	require.Len(t, calls, 1)
+	assert.Equal(t, "turn_on", calls[0].Service)
+	assert.Equal(t, f.room.LuxControl.Cans, calls[0].Data["entity_id"])
+	assert.Equal(t, 80, calls[0].Data["brightness_pct"])
+	assert.Equal(t, 4000, calls[0].Data["color_temp_kelvin"])
+	assert.Equal(t, float64(0), calls[0].Data["transition"])
+}
+
 func TestLux_ManualColorChangeAndPowerOffHold(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

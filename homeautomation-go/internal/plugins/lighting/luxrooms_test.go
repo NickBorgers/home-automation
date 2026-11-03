@@ -229,3 +229,51 @@ func TestLuxRooms_ManualChangeHoldsEachRoom(t *testing.T) {
 		})
 	}
 }
+
+func TestLuxRooms_PantryManualTurnOnDuringFadeToOffWins(t *testing.T) {
+	t.Parallel()
+	m, env, clk := newProductionRoomFixture(t)
+	pantry := findRoom(m.config, "Pantry")
+	env.MockHA.SetState(m.config.LuxCurve.OutdoorSensor, "0", nil)
+	m.luxTick()
+	clk.Advance(6 * time.Minute)
+
+	env.MockHA.SetState(m.config.LuxCurve.OutdoorSensor, "100000", nil)
+	env.MockHA.ClearServiceCalls()
+	m.luxTick()
+	calls := env.MockHA.GetServiceCalls()
+	offCall := -1
+	for i := range calls {
+		if calls[i].Service == "turn_off" && calls[i].Data["entity_id"] == pantry.LuxControl.Cans {
+			offCall = i
+		}
+	}
+	require.NotEqual(t, -1, offCall)
+	assert.Equal(t, float64(60), calls[offCall].Data["transition"])
+
+	clk.Advance(15 * time.Second)
+	report := canReport("on", 204, 4000)
+	report.EntityID = pantry.LuxControl.Cans
+	m.handleCansChange(pantry, report)
+	assert.True(t, m.luxHeld(pantry))
+	m.luxMu.Lock()
+	assert.Equal(t, "cans turned on by hand", m.luxRoom("Pantry").heldReason)
+	m.luxMu.Unlock()
+	calls = env.MockHA.GetServiceCalls()
+	require.Equal(t, "turn_on", calls[len(calls)-1].Service)
+	assert.Equal(t, pantry.LuxControl.Cans, calls[len(calls)-1].Data["entity_id"])
+	assert.Equal(t, 80, calls[len(calls)-1].Data["brightness_pct"])
+	assert.Equal(t, 4000, calls[len(calls)-1].Data["color_temp_kelvin"])
+	assert.Equal(t, float64(0), calls[len(calls)-1].Data["transition"])
+
+	clk.Advance(time.Minute)
+	m.handleCansChange(pantry, report)
+	assert.True(t, m.luxHeld(pantry))
+	env.MockHA.ClearServiceCalls()
+	m.evaluateAndActivateRoom(pantry, "evening", "dayPhase")
+	m.luxTick()
+	for _, call := range env.MockHA.GetServiceCalls() {
+		assert.NotEqual(t, pantry.LuxControl.Cans, call.Data["entity_id"],
+			"phase and lux evaluations must preserve the held manual state")
+	}
+}

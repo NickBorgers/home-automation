@@ -397,7 +397,8 @@ func (m *Manager) sendLuxCommand(room *RoomConfig, cmd *luxCommand) error {
 }
 
 // handleCansChange detects a manual change to the cans: any report that differs from what
-// the plugin last commanded, after the command's transition has finished.
+// the plugin last commanded, after the command's transition has finished. A turn-on after
+// a commanded off is handled immediately so the stale off transition cannot win.
 func (m *Manager) handleCansChange(room *RoomConfig, newState *ha.State) {
 	if newState == nil || m.readOnly || !luxActive(room) {
 		return
@@ -409,24 +410,44 @@ func (m *Manager) handleCansChange(room *RoomConfig, newState *ha.State) {
 	now := m.clock.Now()
 
 	m.luxMu.Lock()
-	defer m.luxMu.Unlock()
 	st := m.luxRoom(room.HueGroup)
 	if st.held || st.cmd == nil {
+		m.luxMu.Unlock()
 		return
 	}
 	cmd := st.cmd
-	if now.Before(cmd.at.Add(cmd.transition + manualGrace)) {
+	contraryTurnOn := !cmd.on && newState.State == "on"
+	if now.Before(cmd.at.Add(cmd.transition+manualGrace)) && !contraryTurnOn {
+		m.luxMu.Unlock()
 		return
 	}
 
 	reason := manualChangeReason(cmd, newState, room.LuxControl.HasColorTemp())
 	if reason == "" {
+		m.luxMu.Unlock()
 		return
 	}
 	st.held, st.heldSince, st.heldReason = true, now, reason
+	var stabilizing *luxCommand
+	if contraryTurnOn {
+		stabilizing = &luxCommand{at: now, on: true, kelvin: cmd.kelvin}
+		if b, ok := numberAttr(newState.Attributes, "brightness"); ok {
+			stabilizing.pct = math.Max(1, math.Min(100, math.Round(b/255*100)))
+		}
+		if k, ok := numberAttr(newState.Attributes, "color_temp_kelvin"); ok && k > 0 {
+			stabilizing.kelvin = int(k)
+		}
+		st.cmd = stabilizing
+	}
+	m.luxMu.Unlock()
 	m.logger.Info("Manual change detected; holding room",
 		zap.String("room", room.HueGroup),
 		zap.String("reason", reason))
+	if stabilizing != nil {
+		if err := m.sendLuxCommand(room, stabilizing); err != nil {
+			m.logger.Error("Failed to stabilize manual turn-on", zap.String("room", room.HueGroup), zap.Error(err))
+		}
+	}
 }
 
 // handleFollowerChange is handleCansChange for a follower light: a report that differs from
