@@ -21,6 +21,7 @@ type LightingCondition struct {
 type RoomConfig struct {
 	HueGroup                 string              `yaml:"hue_group"`
 	HASSAreaID               string              `yaml:"hass_area_id"`
+	TurnOffEntityID          string              `yaml:"turn_off_entity_id"`
 	Conditions               []LightingCondition `yaml:"conditions"`                  // Ordered list of conditions (first match wins)
 	IncreaseBrightnessIfTrue interface{}         `yaml:"increase_brightness_if_true"` // Can be string or []string
 	TransitionSeconds        *int                `yaml:"transition_seconds"`          // Pointer to handle nil/~ values

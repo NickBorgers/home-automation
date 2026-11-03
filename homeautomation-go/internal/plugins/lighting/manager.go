@@ -1008,11 +1008,9 @@ func (m *Manager) turnOffRoom(ctx context.Context, room *RoomConfig, trigger str
 	serviceData := map[string]interface{}{
 		"area_id": room.HASSAreaID,
 	}
-	if room.HueGroup == "Primary Suite" {
-		// Use the Hue room as the source of truth for Primary Suite membership.
-		serviceData = map[string]interface{}{"entity_id": "light.primary_suite"}
-	}
-	if room.HASSAreaID == "" && luxManaged(room) {
+	if room.TurnOffEntityID != "" {
+		serviceData = map[string]interface{}{"entity_id": room.TurnOffEntityID}
+	} else if room.HASSAreaID == "" && luxManaged(room) {
 		// A room with no Home Assistant area (the Pantry) turns off its cans directly.
 		delete(serviceData, "area_id")
 		serviceData["entity_id"] = room.LuxControl.Cans

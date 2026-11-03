@@ -40,8 +40,9 @@ func createTestConfig() *HueConfig {
 				TransitionSeconds:        &transition30,
 			},
 			{
-				HueGroup:   "Primary Suite",
-				HASSAreaID: "master_bedroom",
+				HueGroup:        "Primary Suite",
+				HASSAreaID:      "master_bedroom",
+				TurnOffEntityID: "light.primary_suite",
 				Conditions: []LightingCondition{
 					// Priority 1: No one home -> OFF
 					{Action: "off", Variable: "isNickHome", Value: false},
@@ -292,6 +293,23 @@ func TestTurnOffRoom(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestTurnOffRoomConfiguredEntityOverridesArea(t *testing.T) {
+	t.Parallel()
+	env := testutil.NewEnv(t)
+	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, &HueConfig{}, env.Logger, false, nil)
+	room := &RoomConfig{
+		HueGroup:        "Another Room",
+		HASSAreaID:      "another_area",
+		TurnOffEntityID: "light.another_room",
+	}
+
+	manager.turnOffRoom(context.Background(), room, "test_trigger")
+
+	call := env.MockHA.GetServiceCalls()[0]
+	assert.Equal(t, "light.another_room", call.Data["entity_id"])
+	assert.NotContains(t, call.Data, "area_id")
 }
 
 func TestEvaluateAndActivateRoom(t *testing.T) {
