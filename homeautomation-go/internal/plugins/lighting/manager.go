@@ -988,18 +988,27 @@ func copyServiceData(src map[string]interface{}) map[string]interface{} {
 // turnOffRoom turns off lights in a room
 func (m *Manager) turnOffRoom(ctx context.Context, room *RoomConfig, trigger string) {
 	if m.readOnly {
-		m.logger.Info("READ-ONLY: Would turn off room",
-			zap.String("room", room.HueGroup),
-			zap.String("area_id", room.HASSAreaID),
-			zap.String("trigger", trigger))
+		switch {
+		case room.TurnOffEntityID != "":
+			m.logger.Info("READ-ONLY: Would turn off room",
+				zap.String("room", room.HueGroup),
+				zap.String("entity_id", room.TurnOffEntityID),
+				zap.String("trigger", trigger))
+		case room.HASSAreaID == "" && luxManaged(room):
+			m.logger.Info("READ-ONLY: Would turn off room",
+				zap.String("room", room.HueGroup),
+				zap.String("entity_id", room.LuxControl.Cans),
+				zap.String("trigger", trigger))
+		default:
+			m.logger.Info("READ-ONLY: Would turn off room",
+				zap.String("room", room.HueGroup),
+				zap.String("area_id", room.HASSAreaID),
+				zap.String("trigger", trigger))
+		}
 		// Record shadow state even in read-only mode for consistency with music plugin
 		m.recordAction(room.HueGroup, "turn_off", "Would turn off room", "", true, trigger)
 		return
 	}
-
-	m.logger.Info("Turning off room",
-		zap.String("room", room.HueGroup),
-		zap.String("trigger", trigger))
 
 	// Use light.turn_off with area_id
 	// Note: We intentionally do NOT apply transition_seconds to turn_off commands.
@@ -1010,10 +1019,17 @@ func (m *Manager) turnOffRoom(ctx context.Context, room *RoomConfig, trigger str
 	}
 	if room.TurnOffEntityID != "" {
 		serviceData = map[string]interface{}{"entity_id": room.TurnOffEntityID}
+		m.logger.Info("Turning off room", zap.String("room", room.HueGroup),
+			zap.String("entity_id", room.TurnOffEntityID), zap.String("trigger", trigger))
 	} else if room.HASSAreaID == "" && luxManaged(room) {
 		// A room with no Home Assistant area (the Pantry) turns off its cans directly.
 		delete(serviceData, "area_id")
 		serviceData["entity_id"] = room.LuxControl.Cans
+		m.logger.Info("Turning off room", zap.String("room", room.HueGroup),
+			zap.String("entity_id", room.LuxControl.Cans), zap.String("trigger", trigger))
+	} else {
+		m.logger.Info("Turning off room", zap.String("room", room.HueGroup),
+			zap.String("area_id", room.HASSAreaID), zap.String("trigger", trigger))
 	}
 	if luxManaged(room) && len(room.LuxControl.FollowerLights) > 0 {
 		// Follower lights are named explicitly, so turn-off does not depend on their area.
