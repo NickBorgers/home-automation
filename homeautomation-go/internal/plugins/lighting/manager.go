@@ -997,7 +997,6 @@ func (m *Manager) turnOffRoom(ctx context.Context, room *RoomConfig, trigger str
 
 	m.logger.Info("Turning off room",
 		zap.String("room", room.HueGroup),
-		zap.String("area_id", room.HASSAreaID),
 		zap.String("trigger", trigger))
 
 	// Use light.turn_off with area_id
