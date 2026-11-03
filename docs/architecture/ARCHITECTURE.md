@@ -288,10 +288,10 @@ Each plugin corresponds to a Node-RED flow and implements domain-specific automa
 **Key Automations:**
 - **Presence Detection**: Listen to HA presence triggers → Update presence booleans
 - **Derived Presence**: Calculate `isAnyOwnerHome`, `isAnyoneHome` from individual states
-- **Sleep Detection**: Monitor bedroom lights, Eight Sleep bed presence and sleep stage → Update sleep states
+- **Sleep Detection**: Monitor bedroom lights → Update sleep states
 - **Arrival Notifications**: On owner arrival → Announce via TTS
 
-**Events Consumed:** `ha.binary_sensor.*.changed`, `ha.light.primary_suite.*.changed`
+**Events Consumed:** `ha.light.primary_suite.*.changed`
 
 **Events Published:** `state.presence.changed`, `state.sleep.changed`
 
