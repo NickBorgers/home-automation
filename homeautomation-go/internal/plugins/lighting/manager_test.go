@@ -725,6 +725,7 @@ func TestHandleSleepStateChange(t *testing.T) {
 		expectDomain  string
 		expectService string
 		expectAreaID  string // empty means don't check area_id
+		expectEntity  string // empty means don't check entity_id
 	}{
 		{
 			name:       "Everyone asleep turns off lights",
@@ -746,7 +747,7 @@ func TestHandleSleepStateChange(t *testing.T) {
 				"isMasterAsleep": true, "isTVPlaying": false, "isNickHome": true,
 			},
 			oldVal: false, newVal: true,
-			expectDomain: "light", expectService: "turn_off", expectAreaID: "master_bedroom",
+			expectDomain: "light", expectService: "turn_off", expectEntity: "light.primary_suite",
 		},
 		{
 			name:       "Master wakes up activates scene",
@@ -783,6 +784,10 @@ func TestHandleSleepStateChange(t *testing.T) {
 						if areaID, ok := call.Data["area_id"].(string); ok && areaID == tt.expectAreaID {
 							found = true
 						}
+					} else if tt.expectEntity != "" {
+						entityID, ok := call.Data["entity_id"].(string)
+						found = ok && entityID == tt.expectEntity
+						assert.NotContains(t, call.Data, "area_id", "Hue room shutoff must not use an area target")
 					} else {
 						found = true
 					}
