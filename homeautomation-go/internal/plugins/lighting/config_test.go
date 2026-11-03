@@ -35,6 +35,7 @@ rooms:
     transition_seconds: 30
   - hue_group: Primary Suite
     hass_area_id: master_bedroom
+    turn_off_entity_id: light.primary_suite
     conditions:
       - action: off
         variable: isAnyoneHome
@@ -108,6 +109,9 @@ rooms:
 	primarySuite := config.Rooms[1]
 	if primarySuite.HueGroup != "Primary Suite" {
 		t.Errorf("Expected HueGroup 'Primary Suite', got '%s'", primarySuite.HueGroup)
+	}
+	if primarySuite.TurnOffEntityID != "light.primary_suite" {
+		t.Errorf("Expected TurnOffEntityID 'light.primary_suite', got '%s'", primarySuite.TurnOffEntityID)
 	}
 	if *primarySuite.TransitionSeconds != 180 {
 		t.Errorf("Expected TransitionSeconds 180, got %d", *primarySuite.TransitionSeconds)
