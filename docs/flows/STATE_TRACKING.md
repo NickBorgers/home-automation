@@ -7,7 +7,7 @@ This document describes the state tracking automation flow, which computes deriv
 The state tracking plugin provides:
 1. Derived presence states (isAnyoneHome, isAnyOwnerHome)
 2. Derived sleep states (isAnyoneAsleep, isEveryoneAsleep)
-3. Automatic sleep/wake detection from lights and Eight Sleep bed presence
+3. Automatic sleep detection from primary-suite lights
 4. Arrival announcements via TTS
 5. Owner return detection for garage automation
 
@@ -110,58 +110,10 @@ The timer cancels on two events: lights turning back on (normal wake-up) and an 
 
 ### Master Awake Detection
 
-The Eight Sleep pod reports bed presence and a sleep stage for each side of the bed. The master wakes when both sides show no presence for 5 minutes and both stages read `awake` or `out`.
-
-The pod drops presence to `off` for about 30 seconds every 5 minutes while someone lies in bed. The 5-minute delay outlasts those drops.
-
-The pod can also report `off` for several minutes while its cloud feed stalls. On 2026-10-25 both sides read `off` for about 7 minutes while both people slept, and the bedroom lights came on. In that outage the stages stayed at `light` and `rem`. A person who really leaves shows `awake` or `out`. So a stage that still reads `light`, `deep` or `rem` keeps the master asleep.
-
-The stage can also stay stuck after a real exit. A fallback wakes the master after 15 minutes with no presence on either side, whatever the stage reads. Historical data (Jun–Oct 2026) shows the stage often lags a real exit, so the fallback decides most real wakes.
-
-```mermaid
-flowchart TD
-    subgraph Trigger["Trigger: Bed Presence Goes Off"]
-        presenceOff["binary_sensor.nick_s_eight_sleep_side_bed_presence<br/>or caroline_s_..._bed_presence<br/>state = off"]
-    end
-
-    subgraph Timer["5-Minute Timer"]
-        start["Start (or restart) timer"]
-        cancel["Cancel timers<br/>(presence changes to any other state)"]
-        expire["Timer expires"]
-    end
-
-    subgraph Check["Condition Check"]
-        checkBoth{"Both sides still off?<br/>(re-read, unavailable = no)"}
-        checkStage{"Both sleep stages<br/>awake or out?<br/>(unreadable = no)"}
-    end
-
-    subgraph Fallback["Stage Veto"]
-        wait["Wait for a stage change<br/>or the 15-minute fallback"]
-        stageChange["Sleep stage changes"]
-        fallback["15 minutes since last off<br/>(both sides still off)"]
-    end
-
-    subgraph Action["Action"]
-        setAwake["Set isMasterAsleep = false"]
-        skipWake["No action"]
-    end
-
-    presenceOff --> start
-    start -->|Presence returns| cancel
-    start -->|5 minutes pass| expire
-    expire --> checkBoth
-    checkBoth -->|No| skipWake
-    checkBoth -->|Yes| checkStage
-    checkStage -->|Yes| setAwake
-    checkStage -->|No| wait
-    wait --> stageChange
-    wait --> fallback
-    stageChange --> checkBoth
-    fallback -->|Stage ignored| setAwake
-
-    style setAwake fill:#ffd93d,color:#000
-    style cancel fill:#e74c3c,color:#fff
-```
+Eight Sleep bed-presence and sleep-stage sensors are deliberately not authoritative inputs to
+`isMasterAsleep`. Their transient `off`, `awake`, `out`, `unknown`, and `unavailable` readings do
+not change the master sleep state. Waking continues to use the established local bedroom-door
+automation; the Eight Sleep alarm remains a separate wake-sequence trigger in Sleep Hygiene.
 
 ## Arrival Announcements
 
@@ -302,8 +254,6 @@ flowchart TD
 | Entity | Timer | Action |
 |--------|-------|--------|
 | `light.primary_suite` | 1 minute off | Mark master asleep |
-| `binary_sensor.nick_s_eight_sleep_side_bed_presence`, `binary_sensor.caroline_s_eight_sleep_side_bed_presence` | 5 minutes both off, and both stages `awake`/`out` (or 15 minutes both off) | Mark master awake |
-| `sensor.nick_s_eight_sleep_side_sleep_stage`, `sensor.caroline_s_eight_sleep_side_sleep_stage` | Change during a stage veto | Re-check wake detection |
 | `input_boolean.nick_near_home` | Immediate | Set didOwnerJustReturnHome |
 | `input_boolean.caroline_near_home` | Immediate | Set didOwnerJustReturnHome |
 
