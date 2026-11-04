@@ -202,6 +202,44 @@ func TestManagerStartAndHandlers(t *testing.T) {
 	})
 }
 
+func TestGridAvailabilityShadowState(t *testing.T) {
+	for _, initial := range []bool{false, true} {
+		t.Run(fmt.Sprintf("startup_%t", initial), func(t *testing.T) {
+			env := testutil.NewEnv(t)
+			_ = env.StateMgr.SetBool("isGridAvailable", initial)
+
+			manager := NewManager(
+				context.Background(), env.MockHA, env.StateMgr, createTestConfig(), env.Logger, true, nil, nil,
+			)
+			assert.NoError(t, manager.Start())
+			t.Cleanup(manager.Stop)
+
+			shadow := manager.GetShadowState()
+			assert.Equal(t, initial, shadow.Inputs.Current["isGridAvailable"])
+			assert.Equal(t, initial, shadow.Outputs.SensorReadings.IsGridAvailable)
+		})
+	}
+
+	t.Run("transitions", func(t *testing.T) {
+		env := testutil.NewEnv(t)
+		_ = env.StateMgr.SetBool("isGridAvailable", true)
+
+		manager := NewManager(
+			context.Background(), env.MockHA, env.StateMgr, createTestConfig(), env.Logger, true, nil, nil,
+		)
+		assert.NoError(t, manager.Start())
+		t.Cleanup(manager.Stop)
+
+		for _, available := range []bool{false, true} {
+			assert.NoError(t, env.StateMgr.SetBool("isGridAvailable", available))
+
+			shadow := manager.GetShadowState()
+			assert.Equal(t, available, shadow.Inputs.Current["isGridAvailable"])
+			assert.Equal(t, available, shadow.Outputs.SensorReadings.IsGridAvailable)
+		}
+	})
+}
+
 // Note: TestDetermineOverallEnergyLevel_EdgeCases has been removed because this logic
 // is now handled by the ComputedStateRegistry. See computed_energy_providers_test.go.
 
