@@ -364,10 +364,10 @@ func (m *Manager) nextPollInterval() time.Duration {
 	}
 	m.chargeMu.Lock()
 	defer m.chargeMu.Unlock()
-	charging := m.charge.record.ReconciliationStatus == "pending verification that charging stopped" ||
-		m.charge.record.ReconciliationStatus == "pending verification of charging current" ||
-		m.charge.record.ReconciliationStatus == "pending verification of charging state" ||
-		m.charge.record.ReconciliationStatus == "verified charging as planned"
+	charging := m.charge.record.ReconciliationStatus == reconcilePendingStop ||
+		m.charge.record.ReconciliationStatus == reconcilePendingCurrent ||
+		m.charge.record.ReconciliationStatus == reconcilePendingState ||
+		m.charge.record.ReconciliationStatus == reconcileVerifiedChargingOK
 	if charging && chargingPollInterval < interval {
 		return chargingPollInterval
 	}

@@ -239,14 +239,14 @@ func TestEnergyChargingReconcilesStopAgainstFreshTelemetry(t *testing.T) {
 
 	// WHEN: a stop is accepted, then the verification read still says Charging.
 	m.Poll()
-	assert.Equal(t, "pending verification that charging stopped",
+	assert.Equal(t, reconcilePendingStop,
 		m.GetShadowState().Outputs.EnergyCharging.ReconciliationStatus)
 	assert.Equal(t, []time.Duration{commandVerificationDelay}, *scheduled)
 	m.Poll()
 
 	// THEN: stale/contradictory telemetry is not confirmation; stop is retried.
 	assert.Equal(t, []string{"stop", "stop"}, charger.sent())
-	assert.Equal(t, "pending verification that charging stopped",
+	assert.Equal(t, reconcilePendingStop,
 		m.GetShadowState().Outputs.EnergyCharging.ReconciliationStatus)
 
 	// WHEN: a later verification read reports Stopped at the 50% boundary.
@@ -255,7 +255,7 @@ func TestEnergyChargingReconcilesStopAgainstFreshTelemetry(t *testing.T) {
 
 	// THEN: only that fresh compliant state is considered verified.
 	state := m.GetShadowState().Outputs.EnergyCharging
-	assert.Equal(t, "verified held", state.ReconciliationStatus)
+	assert.Equal(t, reconcileVerifiedHeld, state.ReconciliationStatus)
 	assert.Contains(t, state.LastVerifiedVehicleState, "battery=50%")
 	assert.Contains(t, state.LastVerifiedVehicleState, "chargingState=Stopped")
 }
@@ -266,7 +266,7 @@ func TestEnergyChargingGreenToYellowStopsAtBoundary(t *testing.T) {
 	m, charger, levels, _ := newChargingManager(fleet, "green")
 	m.Poll()
 	require.Empty(t, charger.sent())
-	assert.Equal(t, "verified charging as planned",
+	assert.Equal(t, reconcileVerifiedChargingOK,
 		m.GetShadowState().Outputs.EnergyCharging.ReconciliationStatus)
 
 	// WHEN: the house turns yellow as the car reaches 50%.
@@ -276,7 +276,7 @@ func TestEnergyChargingGreenToYellowStopsAtBoundary(t *testing.T) {
 
 	// THEN: charging is stopped and remains pending until a read-back confirms it.
 	assert.Equal(t, []string{"stop"}, charger.sent())
-	assert.Equal(t, "pending verification that charging stopped",
+	assert.Equal(t, reconcilePendingStop,
 		m.GetShadowState().Outputs.EnergyCharging.ReconciliationStatus)
 }
 
@@ -286,17 +286,17 @@ func TestEnergyChargingPollingInterval(t *testing.T) {
 
 	assert.Equal(t, 5*time.Minute, m.nextPollInterval(), "idle charging control uses the configured interval")
 
-	m.charge.record.ReconciliationStatus = "verified charging as planned"
+	m.charge.record.ReconciliationStatus = reconcileVerifiedChargingOK
 	assert.Equal(t, chargingPollInterval, m.nextPollInterval(), "active charging uses the shorter interval")
 
-	m.charge.record.ReconciliationStatus = "pending verification that charging stopped"
+	m.charge.record.ReconciliationStatus = reconcilePendingStop
 	assert.Equal(t, chargingPollInterval, m.nextPollInterval(), "reconciliation stays on the shorter interval")
 
-	m.charge.record.ReconciliationStatus = "verified held"
+	m.charge.record.ReconciliationStatus = reconcileVerifiedHeld
 	assert.Equal(t, 5*time.Minute, m.nextPollInterval(), "verified stopped state returns to idle polling")
 
 	m.cfg.PollInterval = 30 * time.Second
-	m.charge.record.ReconciliationStatus = "verified charging as planned"
+	m.charge.record.ReconciliationStatus = reconcileVerifiedChargingOK
 	assert.Equal(t, 30*time.Second, m.nextPollInterval(), "charging never makes an already shorter interval slower")
 }
 

@@ -28,6 +28,16 @@ const (
 	// billed read-back verifies it.
 	commandVerificationDelay = 15 * time.Second
 
+	// reconciliationStatus values track whether the last command was verified.
+	reconcileNotControlled      = "not controlled"
+	reconcileVerifiedHeld       = "verified held"
+	reconcileVerifiedChargingOK = "verified charging as planned"
+	reconcilePendingStop        = "pending verification that charging stopped"
+	reconcilePendingCurrent     = "pending verification of charging current"
+	reconcilePendingState       = "pending verification of charging state"
+	reconcileCommandFailed      = "command failed; vehicle state not reconciled"
+	reconcileReadOnly           = "not verified: read-only mode"
+
 	// greenChargeAmps is the slow charging speed used at green.
 	greenChargeAmps = 8
 
@@ -177,7 +187,7 @@ func (m *Manager) controlCharging(ctx context.Context, vin string, atHome, hasLo
 	mem.record.LastVerifiedVehicleState = fmt.Sprintf("battery=%d%%, chargingState=%s, amps=%dA",
 		cs.battery, cs.chargingState, cs.amps)
 	mem.record.PlannedAction = "leave unchanged"
-	mem.record.ReconciliationStatus = "not controlled"
+	mem.record.ReconciliationStatus = reconcileNotControlled
 	mem.record.CommandResult = ""
 
 	switch {
@@ -206,11 +216,11 @@ func (m *Manager) controlCharging(ctx context.Context, vin string, atHome, hasLo
 			if m.sendChargeCommand(ctx, "stop charging", func(ctx context.Context) error {
 				return m.charger.ChargeStop(ctx, vin)
 			}) {
-				mem.record.ReconciliationStatus = "pending verification that charging stopped"
+				mem.record.ReconciliationStatus = reconcilePendingStop
 				m.schedulePollAfter(commandVerificationDelay)
 			}
 		} else {
-			mem.record.ReconciliationStatus = "verified held"
+			mem.record.ReconciliationStatus = reconcileVerifiedHeld
 		}
 	case chargeNow:
 		mem.record.PlannedAction = "charge"
@@ -219,22 +229,22 @@ func (m *Manager) controlCharging(ctx context.Context, vin string, atHome, hasLo
 			if m.sendChargeCommand(ctx, fmt.Sprintf("set charging speed to %dA", amps), func(ctx context.Context) error {
 				return m.charger.SetChargingAmps(ctx, vin, int32(amps))
 			}) {
-				mem.record.ReconciliationStatus = "pending verification of charging current"
+				mem.record.ReconciliationStatus = reconcilePendingCurrent
 				m.schedulePollAfter(commandVerificationDelay)
 			}
 		} else if cs.chargingState == "Stopped" {
 			if m.sendChargeCommand(ctx, "start charging", func(ctx context.Context) error {
 				return m.charger.ChargeStart(ctx, vin)
 			}) {
-				mem.record.ReconciliationStatus = "pending verification of charging state"
+				mem.record.ReconciliationStatus = reconcilePendingState
 				m.schedulePollAfter(commandVerificationDelay)
 			}
 		} else if charging && (plan.amps == 0 || cs.amps == plan.amps) {
-			mem.record.ReconciliationStatus = "verified charging as planned"
+			mem.record.ReconciliationStatus = reconcileVerifiedChargingOK
 		}
 	case leaveAlone:
 		mem.record.PlannedAction = "leave unchanged"
-		mem.record.ReconciliationStatus = "not controlled"
+		mem.record.ReconciliationStatus = reconcileNotControlled
 	}
 }
 
@@ -324,7 +334,7 @@ func (m *Manager) sendChargeCommand(ctx context.Context, what string, send func(
 			zap.String("command", what), zap.String("reason", rec.Decision))
 		rec.LastAction = "read-only: would " + what
 		rec.CommandResult = "read-only: command not sent"
-		rec.ReconciliationStatus = "not verified: read-only mode"
+		rec.ReconciliationStatus = reconcileReadOnly
 		return false
 	}
 
@@ -334,7 +344,7 @@ func (m *Manager) sendChargeCommand(ctx context.Context, what string, send func(
 		m.logger.Warn("Tesla charging command failed", zap.String("command", what), zap.Error(err))
 		rec.LastAction = what + " failed: " + err.Error()
 		rec.CommandResult = "failed: " + err.Error()
-		rec.ReconciliationStatus = "command failed; vehicle state not reconciled"
+		rec.ReconciliationStatus = reconcileCommandFailed
 		m.shadowTracker.UpdateLastError(err.Error())
 		return false
 	}
