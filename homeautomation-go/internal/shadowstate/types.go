@@ -1274,12 +1274,17 @@ type TeslaOutputs struct {
 // and why. Decision is written on every evaluation. LastAction is written only
 // when a command was sent, or would have been in read-only mode.
 type TeslaEnergyCharging struct {
-	Enabled      bool      `json:"enabled"`
-	EnergyLevel  string    `json:"energyLevel,omitempty"`
-	Decision     string    `json:"decision,omitempty"`
-	LastAction   string    `json:"lastAction,omitempty"`
-	LastActionAt time.Time `json:"lastActionAt,omitempty"`
-	WakesLast24h int       `json:"wakesLast24h"`
+	Enabled                  bool      `json:"enabled"`
+	EnergyLevel              string    `json:"energyLevel,omitempty"`
+	BatteryPercent           int       `json:"batteryPercent"`
+	Decision                 string    `json:"decision,omitempty"`
+	PlannedAction            string    `json:"plannedAction,omitempty"`
+	LastAction               string    `json:"lastAction,omitempty"`
+	LastActionAt             time.Time `json:"lastActionAt,omitempty"`
+	CommandResult            string    `json:"commandResult,omitempty"`
+	ReconciliationStatus     string    `json:"reconciliationStatus,omitempty"`
+	LastVerifiedVehicleState string    `json:"lastVerifiedVehicleState,omitempty"`
+	WakesLast24h             int       `json:"wakesLast24h"`
 }
 
 // ============================================================================

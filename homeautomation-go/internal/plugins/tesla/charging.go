@@ -2,11 +2,7 @@ package tesla
 
 // Energy-level charging makes the car's charging follow currentEnergyLevel
 // while it is plugged in at home: stop at red and yellow, charge slowly at
-// green, and charge at full speed at white. Below a floor the car always
-// charges, so it is never left without a usable range.
-//
-// A charge limit of 100% is the override. Setting it in the Tesla app says "I
-// need a full car", so the car charges at full speed whatever the energy level.
+// green, and charge at full speed at white.
 //
 // It is the one place this plugin sends commands on its own. Every command is
 // billed, so commands go out only when the car's state differs from what the
@@ -24,12 +20,13 @@ import (
 )
 
 const (
-	// energyChargingFloorPercent is the charge the car always gets, whatever
-	// the energy level says.
-	energyChargingFloorPercent = 50
+	// chargingPollInterval limits overshoot while charging. Each online poll
+	// costs two Fleet API requests, so idle cars retain the configured interval.
+	chargingPollInterval = time.Minute
 
-	// overrideLimitPercent is the charge limit that overrides the energy level.
-	overrideLimitPercent = 100
+	// commandVerificationDelay gives the car time to apply a command before a
+	// billed read-back verifies it.
+	commandVerificationDelay = 15 * time.Second
 
 	// greenChargeAmps is the slow charging speed used at green.
 	greenChargeAmps = 8
@@ -83,21 +80,6 @@ type chargePlan struct {
 // plan. maxAmps is the most the charger allows. It is zero when unknown, which
 // leaves the speed alone.
 func planCharging(level string, battery, limit, maxAmps int) chargePlan {
-	if limit >= overrideLimitPercent {
-		return chargePlan{
-			action: chargeNow,
-			amps:   maxAmps,
-			reason: "charge limit is 100%: charge at full speed, energy level ignored",
-		}
-	}
-	if battery < energyChargingFloorPercent {
-		return chargePlan{
-			action: chargeNow,
-			amps:   maxAmps,
-			reason: fmt.Sprintf("battery %d%% is below the %d%% floor: charge at full speed",
-				battery, energyChargingFloorPercent),
-		}
-	}
 	switch level {
 	case "white":
 		return chargePlan{action: chargeNow, amps: maxAmps, reason: "energy level white: charge at full speed"}
@@ -191,6 +173,12 @@ func (m *Manager) controlCharging(ctx context.Context, vin string, atHome, hasLo
 	mem.battery = cs.battery
 	mem.limit = cs.limit
 	mem.record.EnergyLevel = level
+	mem.record.BatteryPercent = cs.battery
+	mem.record.LastVerifiedVehicleState = fmt.Sprintf("battery=%d%%, chargingState=%s, amps=%dA",
+		cs.battery, cs.chargingState, cs.amps)
+	mem.record.PlannedAction = "leave unchanged"
+	mem.record.ReconciliationStatus = "not controlled"
+	mem.record.CommandResult = ""
 
 	switch {
 	case !hasLocation:
@@ -213,23 +201,40 @@ func (m *Manager) controlCharging(ctx context.Context, vin string, atHome, hasLo
 	mem.record.Decision = plan.reason
 	switch plan.action {
 	case holdCharge:
+		mem.record.PlannedAction = "hold charging"
 		if charging {
-			m.sendChargeCommand(ctx, "stop charging", func(ctx context.Context) error {
+			if m.sendChargeCommand(ctx, "stop charging", func(ctx context.Context) error {
 				return m.charger.ChargeStop(ctx, vin)
-			})
+			}) {
+				mem.record.ReconciliationStatus = "pending verification that charging stopped"
+				m.schedulePollAfter(commandVerificationDelay)
+			}
+		} else {
+			mem.record.ReconciliationStatus = "verified held"
 		}
 	case chargeNow:
+		mem.record.PlannedAction = "charge"
 		if plan.amps > 0 && cs.amps != plan.amps {
 			amps := plan.amps
-			m.sendChargeCommand(ctx, fmt.Sprintf("set charging speed to %dA", amps), func(ctx context.Context) error {
+			if m.sendChargeCommand(ctx, fmt.Sprintf("set charging speed to %dA", amps), func(ctx context.Context) error {
 				return m.charger.SetChargingAmps(ctx, vin, int32(amps))
-			})
-		}
-		if cs.chargingState == "Stopped" {
-			m.sendChargeCommand(ctx, "start charging", func(ctx context.Context) error {
+			}) {
+				mem.record.ReconciliationStatus = "pending verification of charging current"
+				m.schedulePollAfter(commandVerificationDelay)
+			}
+		} else if cs.chargingState == "Stopped" {
+			if m.sendChargeCommand(ctx, "start charging", func(ctx context.Context) error {
 				return m.charger.ChargeStart(ctx, vin)
-			})
+			}) {
+				mem.record.ReconciliationStatus = "pending verification of charging state"
+				m.schedulePollAfter(commandVerificationDelay)
+			}
+		} else if charging && (plan.amps == 0 || cs.amps == plan.amps) {
+			mem.record.ReconciliationStatus = "verified charging as planned"
 		}
+	case leaveAlone:
+		mem.record.PlannedAction = "leave unchanged"
+		mem.record.ReconciliationStatus = "not controlled"
 	}
 }
 
@@ -318,6 +323,8 @@ func (m *Manager) sendChargeCommand(ctx context.Context, what string, send func(
 		m.logger.Info("Read-only mode: skipping Tesla charging command",
 			zap.String("command", what), zap.String("reason", rec.Decision))
 		rec.LastAction = "read-only: would " + what
+		rec.CommandResult = "read-only: command not sent"
+		rec.ReconciliationStatus = "not verified: read-only mode"
 		return false
 	}
 
@@ -326,12 +333,15 @@ func (m *Manager) sendChargeCommand(ctx context.Context, what string, send func(
 	if err != nil {
 		m.logger.Warn("Tesla charging command failed", zap.String("command", what), zap.Error(err))
 		rec.LastAction = what + " failed: " + err.Error()
+		rec.CommandResult = "failed: " + err.Error()
+		rec.ReconciliationStatus = "command failed; vehicle state not reconciled"
 		m.shadowTracker.UpdateLastError(err.Error())
 		return false
 	}
 
 	m.logger.Info("Tesla charging command sent", zap.String("command", what), zap.String("reason", rec.Decision))
 	rec.LastAction = what
+	rec.CommandResult = "accepted by Tesla; verification pending"
 	return true
 }
 
