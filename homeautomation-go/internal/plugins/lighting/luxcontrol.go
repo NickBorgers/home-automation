@@ -200,6 +200,7 @@ func (m *Manager) updateDarkOutside(outdoorLux float64, haveOutdoor bool) {
 	source := "smoothed_outdoor_lux"
 
 	if haveOutdoor {
+		m.luxSensorOffline = false
 		if outdoorLux < darkBelow {
 			isDark = true
 		} else if outdoorLux > lightAbove {
@@ -209,8 +210,11 @@ func (m *Manager) updateDarkOutside(outdoorLux float64, haveOutdoor bool) {
 		dayPhase, err := m.stateManager.GetString("dayPhase")
 		isDark = err == nil && (dayPhase == "dusk" || dayPhase == "winddown" || dayPhase == "night")
 		source = "day_phase_fallback"
-		m.logger.Warn("Outdoor illuminance unavailable; using day phase for darkness",
-			zap.String("day_phase", dayPhase), zap.Bool("is_dark_outside", isDark))
+		if !m.luxSensorOffline {
+			m.logger.Warn("Outdoor illuminance unavailable; using day phase for darkness",
+				zap.String("day_phase", dayPhase), zap.Bool("is_dark_outside", isDark))
+			m.luxSensorOffline = true
+		}
 	}
 
 	if err := m.stateManager.SetBool("isDarkOutside", isDark); err != nil {

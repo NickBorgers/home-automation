@@ -69,12 +69,13 @@ type Manager struct {
 	debounceDelay time.Duration
 
 	// Lux-target control (see luxcontrol.go). luxMu guards luxRooms and luxOutdoor.
-	anchorResolver AnchorResolver
-	luxMu          sync.Mutex
-	luxRooms       map[string]*luxRoomState
-	luxOutdoor     *smoother
-	luxStop        chan struct{}
-	luxDone        chan struct{}
+	anchorResolver   AnchorResolver
+	luxMu            sync.Mutex
+	luxRooms         map[string]*luxRoomState
+	luxOutdoor       *smoother
+	luxSensorOffline bool
+	luxStop          chan struct{}
+	luxDone          chan struct{}
 }
 
 // roomDebounce tracks a pending coalesced evaluation for a single room.
