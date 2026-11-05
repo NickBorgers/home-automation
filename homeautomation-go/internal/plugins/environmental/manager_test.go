@@ -15,6 +15,13 @@ import (
 	"go.uber.org/zap"
 )
 
+func TestDisplayNameFromEntityID(t *testing.T) {
+	t.Parallel()
+	if got := displayNameFromEntityID("sensor.basement_humidity"); got != "basement humidity" {
+		t.Fatalf("displayNameFromEntityID() = %q", got)
+	}
+}
+
 // Test sensor entity IDs
 const (
 	testIndoorSensor1        = "sensor.indoor_humidity_1"

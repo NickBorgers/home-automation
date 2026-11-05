@@ -54,7 +54,7 @@ type Manager struct {
 
 	// Mutex protecting indicator light and lux sensor state
 	indicatorMu sync.RWMutex
-	// Discovered indicator light entities (Apollo sensors with "Radar" in friendly_name)
+	// Discovered indicator light entities (Apollo sensors with "radar" in the entity ID)
 	indicatorLightEntities []string
 
 	// Lux sensor tracking (protected by indicatorMu)
@@ -433,11 +433,11 @@ func (m *Manager) determineBatteryEnergyLevel(percentage float64) string {
 }
 
 // discoverIndicatorLights discovers light entities that should be used as energy indicators.
-// It finds all light entities whose friendly_name matches the configured pattern (default: "Radar").
+// It finds all light entities whose entity ID matches the configured pattern (default: "radar").
 func (m *Manager) discoverIndicatorLights() {
-	pattern := m.config.Energy.IndicatorLights.FriendlyNamePattern
+	pattern := m.config.Energy.IndicatorLights.EntityIDPattern
 	if pattern == "" {
-		pattern = "Radar" // Default pattern for Apollo MTR sensors
+		pattern = "radar" // Default pattern for Apollo MTR sensors
 	}
 
 	regex, err := regexp.Compile("(?i)" + pattern)
@@ -459,10 +459,8 @@ func (m *Manager) discoverIndicatorLights() {
 		if !strings.HasPrefix(state.EntityID, "light.") {
 			continue
 		}
-		if friendlyName, ok := state.Attributes["friendly_name"].(string); ok {
-			if regex.MatchString(friendlyName) {
-				discovered = append(discovered, state.EntityID)
-			}
+		if regex.MatchString(state.EntityID) {
+			discovered = append(discovered, state.EntityID)
 		}
 	}
 

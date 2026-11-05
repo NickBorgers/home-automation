@@ -115,6 +115,13 @@ type Manager struct {
 	stopLockupChecker chan struct{}
 }
 
+func displayNameFromEntityID(entityID string) string {
+	if _, name, ok := strings.Cut(entityID, "."); ok {
+		return strings.ReplaceAll(name, "_", " ")
+	}
+	return strings.ReplaceAll(entityID, "_", " ")
+}
+
 // NewManager creates a new sensor health manager
 func NewManager(haClient ha.HAClient, stateManager *state.Manager, logger *zap.Logger, readOnly bool, registry *shadowstate.SubscriptionRegistry, alerter alert.Alerter) *Manager {
 	shadowTracker := shadowstate.NewSensorHealthTracker()
@@ -298,10 +305,7 @@ func (m *Manager) discoverBatterySensors() error {
 			continue
 		}
 
-		friendlyName := state.EntityID
-		if name, ok := state.Attributes["friendly_name"].(string); ok {
-			friendlyName = name
-		}
+		friendlyName := displayNameFromEntityID(state.EntityID)
 
 		batteryLevel, err := parseBatteryLevel(state.State)
 		isUnavailable := state.State == "unavailable" || state.State == "unknown"
@@ -410,10 +414,7 @@ func (m *Manager) discoverTemperatureSensors() error {
 			continue
 		}
 
-		friendlyName := state.EntityID
-		if name, ok := state.Attributes["friendly_name"].(string); ok {
-			friendlyName = name
-		}
+		friendlyName := displayNameFromEntityID(state.EntityID)
 
 		sensor := &TemperatureSensor{
 			EntityID:        state.EntityID,
@@ -536,12 +537,7 @@ func (m *Manager) discoverNodeStatusSensors() error {
 
 		deviceName := deviceNameMap[deviceID]
 		if deviceName == "" {
-			// Use friendly_name as fallback
-			if name, ok := state.Attributes["friendly_name"].(string); ok {
-				deviceName = name
-			} else {
-				deviceName = state.EntityID
-			}
+			deviceName = displayNameFromEntityID(state.EntityID)
 		}
 
 		nodeStatus := &NodeStatus{

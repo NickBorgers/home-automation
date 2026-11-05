@@ -115,6 +115,13 @@ type Manager struct {
 	alertedSensorNames map[string]bool
 }
 
+func displayNameFromEntityID(entityID string) string {
+	if _, name, ok := strings.Cut(entityID, "."); ok {
+		return strings.ReplaceAll(name, "_", " ")
+	}
+	return strings.ReplaceAll(entityID, "_", " ")
+}
+
 // NewManager creates a new environmental monitoring manager.
 // alerter can be nil if notifications are disabled (NTFY_TOPIC_URL not set).
 func NewManager(haClient ha.HAClient, stateManager *state.Manager, logger *zap.Logger, readOnly bool, registry *shadowstate.SubscriptionRegistry, alerter alert.Alerter) *Manager {
@@ -291,10 +298,7 @@ func (m *Manager) discoverHumiditySensors() error {
 		deviceID := entityToDevice[state.EntityID]
 		isIndoor := indoorDevices[deviceID]
 
-		friendlyName := state.EntityID
-		if name, ok := state.Attributes["friendly_name"].(string); ok {
-			friendlyName = name
-		}
+		friendlyName := displayNameFromEntityID(state.EntityID)
 
 		sensor := &HumiditySensor{
 			EntityID:        state.EntityID,
@@ -425,10 +429,7 @@ func (m *Manager) discoverWaterLeakSensors() error {
 			continue
 		}
 
-		friendlyName := state.EntityID
-		if name, ok := state.Attributes["friendly_name"].(string); ok {
-			friendlyName = name
-		}
+		friendlyName := displayNameFromEntityID(state.EntityID)
 
 		sensor := &WaterLeakSensor{
 			EntityID:     state.EntityID,
