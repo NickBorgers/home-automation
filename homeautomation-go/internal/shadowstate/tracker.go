@@ -219,6 +219,15 @@ func (lt *LightingTracker) RecordLuxControl(roomName string, s LuxControlState) 
 	lt.State().Metadata.LastUpdated = s.UpdatedAt
 }
 
+// UpdateDarkOutside records the latest shared darkness decision.
+func (lt *LightingTracker) UpdateDarkOutside(s DarkOutsideState) {
+	lt.Lock()
+	defer lt.Unlock()
+
+	lt.State().Outputs.DarkOutside = s
+	lt.State().Metadata.LastUpdated = time.Now()
+}
+
 // GetState returns the current shadow state (thread-safe copy)
 func (lt *LightingTracker) GetState() *LightingShadowState {
 	lt.RLock()
@@ -234,6 +243,7 @@ func (lt *LightingTracker) GetState() *LightingShadowState {
 		Outputs: LightingOutputs{
 			Rooms:          make(map[string]RoomState),
 			LastActionTime: s.Outputs.LastActionTime,
+			DarkOutside:    s.Outputs.DarkOutside,
 		},
 		Metadata: s.Metadata,
 	}

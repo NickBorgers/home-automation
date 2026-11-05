@@ -109,6 +109,8 @@ type LuxCurveConfig struct {
 	OutdoorSensor    string          `yaml:"outdoor_sensor"`
 	SmoothingMinutes int             `yaml:"smoothing_minutes"`
 	TickSeconds      int             `yaml:"tick_seconds"`
+	DarkBelowLux     float64         `yaml:"dark_below_lux"`
+	LightAboveLux    float64         `yaml:"light_above_lux"`
 }
 
 // validateLux checks the curve and every lux-controlled room. It returns the first problem.
@@ -128,6 +130,9 @@ func (c *HueConfig) validateLux() error {
 	}
 	if c.LuxCurve.OutdoorSensor == "" {
 		return fmt.Errorf("lux_curve.outdoor_sensor is required")
+	}
+	if c.LuxCurve.darkBelowLux() < 0 || c.LuxCurve.lightAboveLux() <= c.LuxCurve.darkBelowLux() {
+		return fmt.Errorf("lux_curve dark_below_lux must be non-negative and below light_above_lux")
 	}
 	for _, p := range c.LuxCurve.Points {
 		if p.Anchor == "" || p.Lux <= 0 || p.Kelvin <= 0 {
@@ -169,6 +174,20 @@ func (c *HueConfig) validateLux() error {
 		}
 	}
 	return nil
+}
+
+func (c *LuxCurveConfig) darkBelowLux() float64 {
+	if c.DarkBelowLux == 0 {
+		return 30
+	}
+	return c.DarkBelowLux
+}
+
+func (c *LuxCurveConfig) lightAboveLux() float64 {
+	if c.LightAboveLux == 0 {
+		return 80
+	}
+	return c.LightAboveLux
 }
 
 // GetConditionVariables returns a list of all unique state variable names used in conditions

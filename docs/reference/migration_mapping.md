@@ -6,10 +6,10 @@ This document maps Node Red global state variables to their Home Assistant entit
 
 ## Migration Summary
 
-- **Total state variables in Go implementation**: 45
-- **Synced with Home Assistant**: 43
+- **Total state variables in Go implementation**: 46
+- **Synced with Home Assistant**: 44
 - **Local-only (memory only)**: 2
-- **Booleans**: 32
+- **Booleans**: 33
 - **Numbers**: 3
 - **Text/String**: 8
 - **JSON (local-only)**: 1
@@ -18,9 +18,9 @@ This document maps Node Red global state variables to their Home Assistant entit
 
 ## Complete State Variable Reference
 
-All 45 state variables currently implemented in the Go application, organized by type.
+All 46 state variables currently implemented in the Go application, organized by type.
 
-### Boolean Variables (32)
+### Boolean Variables (33)
 
 | Variable | Home Assistant Entity | Description | Flags |
 |----------|----------------------|-------------|-------|
@@ -56,6 +56,7 @@ All 45 state variables currently implemented in the Go application, organized by
 | lightingReset | input_boolean.lighting_reset | Manual lighting reset trigger. Re-applies scenes for the current day phase (HomeKit "Lighting Reset" button) | - |
 | musicReset | input_boolean.music_reset | Manual music reset trigger. Stops music and re-resolves it for the current mode (HomeKit "Music Reset" button) | - |
 | isFrontOfHousePersonPresent | input_boolean.front_of_house_person_present | Front porch presence | - |
+| isDarkOutside | input_boolean.dark_outside | Smoothed outdoor illuminance is below 30 lux; remains unchanged until above 80 lux. Falls back to dusk, winddown, or night day phases when unavailable. | ComputedOutput |
 
 ### Numeric Variables (3)
 

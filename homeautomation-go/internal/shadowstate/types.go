@@ -337,8 +337,18 @@ func NewIntegrationWatchdogShadowState() *IntegrationWatchdogShadowState {
 type LightingOutputs struct {
 	Rooms          map[string]RoomState `json:"rooms"`
 	LastActionTime time.Time            `json:"lastActionTime"`
+	DarkOutside    DarkOutsideState     `json:"darkOutside"`
 	// LuxControl holds the latest lux-target decision for each lux-controlled room.
 	LuxControl map[string]LuxControlState `json:"luxControl,omitempty"`
+}
+
+// DarkOutsideState records the shared darkness decision published by lighting.
+type DarkOutsideState struct {
+	IsDark     bool    `json:"isDark"`
+	OutdoorLux float64 `json:"outdoorLux,omitempty"`
+	Source     string  `json:"source"`
+	DarkBelow  float64 `json:"darkBelowLux"`
+	LightAbove float64 `json:"lightAboveLux"`
 }
 
 // FollowerState is one follower light's last commanded percent (0 = off) and whether a manual

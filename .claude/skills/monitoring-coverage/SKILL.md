@@ -40,6 +40,9 @@ Never print the token.
 
 ## Step 1: Check the devices your code reads
 
+Permanent dependency: `sensor.weather_station_illuminance` drives lux lighting and the shared
+`isDarkOutside` state. Its weather-station device must not carry `monitoring_ignore`.
+
 List every entity ID the new or changed code reads. Then look up the device behind each one.
 
 ```bash

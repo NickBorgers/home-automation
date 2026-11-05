@@ -179,6 +179,8 @@ lux_curve:
   outdoor_sensor: sensor.weather_station_illuminance
   smoothing_minutes: 5
   tick_seconds: 60
+  dark_below_lux: 30
+  light_above_lux: 80
 
 rooms:
   - hue_group: Living Room
@@ -198,7 +200,12 @@ rooms:
 
 ## Shadow state
 
-`/api/shadow/lighting` gains a per-room `luxControl` block:
+The lighting plugin publishes `isDarkOutside` to `input_boolean.dark_outside`. It turns on below
+`dark_below_lux` and off above `light_above_lux`; values inside that band retain the previous state.
+The same smoothed outdoor reading used by lux control drives this state. When the sensor is missing
+or non-numeric, dusk, winddown, and night are dark and the other day phases are light.
+
+`/api/shadow/lighting` exposes the shared decision in `darkOutside` and a per-room `luxControl` block:
 
 | Field | Meaning |
 |-------|---------|

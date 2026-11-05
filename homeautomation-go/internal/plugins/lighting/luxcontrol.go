@@ -95,6 +95,8 @@ func (m *Manager) startLux() error {
 		window = time.Duration(mins) * time.Minute
 	}
 	m.luxOutdoor = &smoother{window: window}
+	// Publish darkness synchronously so subscribers never observe the stale helper value at startup.
+	m.sampleOutdoor(m.clock.Now())
 
 	for _, room := range rooms {
 		if !luxActive(room) {
@@ -169,18 +171,54 @@ func (m *Manager) sampleOutdoor(now time.Time) (float64, bool) {
 	st, err := m.haClient.GetState(m.config.LuxCurve.OutdoorSensor)
 
 	m.luxMu.Lock()
-	defer m.luxMu.Unlock()
 	if err != nil || st == nil {
 		m.luxOutdoor.reset()
+		m.luxMu.Unlock()
+		m.updateDarkOutside(0, false)
 		return 0, false
 	}
 	v, perr := strconv.ParseFloat(st.State, 64)
 	if perr != nil || v < 0 || math.IsNaN(v) || math.IsInf(v, 0) {
 		m.luxOutdoor.reset()
+		m.luxMu.Unlock()
+		m.updateDarkOutside(0, false)
 		return 0, false
 	}
 	m.luxOutdoor.add(now, v)
-	return m.luxOutdoor.mean()
+	smoothed, ok := m.luxOutdoor.mean()
+	m.luxMu.Unlock()
+	m.updateDarkOutside(smoothed, ok)
+	return smoothed, ok
+}
+
+// updateDarkOutside does a GetBool → decide → SetBool without a lock. This is safe because
+// sampleOutdoor is the sole caller and runs only on the single lux-ticker goroutine.
+func (m *Manager) updateDarkOutside(outdoorLux float64, haveOutdoor bool) {
+	darkBelow := m.config.LuxCurve.darkBelowLux()
+	lightAbove := m.config.LuxCurve.lightAboveLux()
+	isDark, _ := m.stateManager.GetBool("isDarkOutside")
+	source := "smoothed_outdoor_lux"
+
+	if haveOutdoor {
+		if outdoorLux < darkBelow {
+			isDark = true
+		} else if outdoorLux > lightAbove {
+			isDark = false
+		}
+	} else {
+		dayPhase, err := m.stateManager.GetString("dayPhase")
+		isDark = err == nil && (dayPhase == "dusk" || dayPhase == "winddown" || dayPhase == "night")
+		source = "day_phase_fallback"
+		m.logger.Warn("Outdoor illuminance unavailable; using day phase for darkness",
+			zap.String("day_phase", dayPhase), zap.Bool("is_dark_outside", isDark))
+	}
+
+	if err := m.stateManager.SetBool("isDarkOutside", isDark); err != nil {
+		m.logger.Error("Failed to publish dark outside state", zap.Error(err))
+	}
+	m.shadowTracker.UpdateDarkOutside(shadowstate.DarkOutsideState{
+		IsDark: isDark, OutdoorLux: outdoorLux, Source: source, DarkBelow: darkBelow, LightAbove: lightAbove,
+	})
 }
 
 // luxEvaluate runs one control step for a room: compute the target, work out what the cans
