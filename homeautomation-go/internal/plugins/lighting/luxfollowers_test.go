@@ -25,7 +25,7 @@ var followerRooms = []struct {
 	// Kitchen strip is dim-to-warm: it needs real dimming to reach its warm evening color.
 	{"Kitchen", "light.kitchen_main_lights", "light.kitchen_cans", true, 20, 0.8},
 	// Pantry strip is a fixed 3000 K strip; the user chose to copy the Kitchen mapping.
-	{"Pantry", "light.pantry_under_cabinet", "light.pantry_cans", false, 20, 0.8},
+	{"Pantry", "light.pantry_under_cabinet", "light.pantry", false, 20, 0.8},
 }
 
 // callsTo returns the light service calls for one entity (the entity may be a list member).
