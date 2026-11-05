@@ -191,6 +191,8 @@ func (m *Manager) sampleOutdoor(now time.Time) (float64, bool) {
 	return smoothed, ok
 }
 
+// updateDarkOutside does a GetBool → decide → SetBool without a lock. This is safe because
+// sampleOutdoor is the sole caller and runs only on the single lux-ticker goroutine.
 func (m *Manager) updateDarkOutside(outdoorLux float64, haveOutdoor bool) {
 	darkBelow := m.config.LuxCurve.darkBelowLux()
 	lightAbove := m.config.LuxCurve.lightAboveLux()
