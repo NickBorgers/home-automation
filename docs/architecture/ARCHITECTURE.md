@@ -547,11 +547,10 @@ room sequencing, and per-room vacuum/mop parameters)
   and is never done on a timer
 - **Idle Without Credentials**: With no `TESLA_CLIENT_ID` the plugin starts,
   records that it is unconfigured, and does nothing else
-- **Energy-Level Charging**: While the
-  car is plugged in at home, charging follows `currentEnergyLevel` — hold at
-  red and yellow, 8 A at green, full speed at white, always charge below 50%.
-  A 100% charge limit set in the Tesla app overrides the energy level. A
-  sleeping car is woken to resume charging at most 3 times per 24 hours. See
+- **Energy-Level Charging**: While the car is plugged in at home, charging follows
+  `currentEnergyLevel` — hold at red and yellow, 8 A at green, full speed at white.
+  After each command the plugin polls after 15 s to verify the car applied it.
+  A sleeping car is woken to resume charging at most 3 times per 24 hours. See
   [TESLA_ENERGY_CHARGING.md](../flows/TESLA_ENERGY_CHARGING.md)
 - **Other Commands On Request Only**: Apart from energy-level charging, the
   plugin issues no commands by itself. Charge limit, wake, and flash-lights are

@@ -64,9 +64,10 @@ type Manager struct {
 
 	shadowTracker *shadowstate.TeslaTracker
 
-	mu       sync.Mutex
-	stopPoll chan struct{}
-	stopped  bool
+	mu          sync.Mutex
+	stopPoll    chan struct{}
+	pollChanged chan struct{}
+	stopped     bool
 
 	// polling admits one poll at a time. Reset() can fire while the ticker is
 	// mid-poll, and every poll spends Fleet API requests, so a second one is
@@ -290,10 +291,12 @@ func (m *Manager) Start() error {
 
 	m.mu.Lock()
 	m.stopPoll = make(chan struct{})
+	m.pollChanged = make(chan struct{}, 1)
 	stop := m.stopPoll
+	pollChanged := m.pollChanged
 	m.mu.Unlock()
 
-	go m.pollLoop(stop)
+	go m.pollLoop(stop, pollChanged)
 	return nil
 }
 
@@ -322,13 +325,13 @@ func (m *Manager) Reset() error {
 	return nil
 }
 
-func (m *Manager) pollLoop(stop <-chan struct{}) {
+func (m *Manager) pollLoop(stop, pollChanged <-chan struct{}) {
 	// Poll once at startup so the shadow state is populated before the first
 	// tick, then settle into the configured interval.
 	m.Poll()
 
-	ticker := time.NewTicker(m.cfg.PollInterval)
-	defer ticker.Stop()
+	timer := time.NewTimer(m.nextPollInterval())
+	defer timer.Stop()
 
 	for {
 		select {
@@ -336,10 +339,39 @@ func (m *Manager) pollLoop(stop <-chan struct{}) {
 			return
 		case <-m.ctx.Done():
 			return
-		case <-ticker.C:
+		case <-timer.C:
 			m.Poll()
+			timer.Reset(m.nextPollInterval())
+		case <-pollChanged:
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
+			timer.Reset(m.nextPollInterval())
 		}
 	}
+}
+
+func (m *Manager) nextPollInterval() time.Duration {
+	interval := m.cfg.PollInterval
+	if interval <= 0 {
+		interval = teslaapi.DefaultPollInterval
+	}
+	if m.charger == nil {
+		return interval
+	}
+	m.chargeMu.Lock()
+	defer m.chargeMu.Unlock()
+	charging := m.charge.record.ReconciliationStatus == reconcilePendingStop ||
+		m.charge.record.ReconciliationStatus == reconcilePendingCurrent ||
+		m.charge.record.ReconciliationStatus == reconcilePendingState ||
+		m.charge.record.ReconciliationStatus == reconcileVerifiedChargingOK
+	if charging && chargingPollInterval < interval {
+		return chargingPollInterval
+	}
+	return interval
 }
 
 // Poll reads the current vehicle state. It costs one Fleet API request, plus a
@@ -353,6 +385,7 @@ func (m *Manager) Poll() {
 		return
 	}
 	defer m.polling.Store(false)
+	defer m.signalPollIntervalChange()
 
 	if !m.authorized.Authorized() {
 		m.shadowTracker.UpdateAvailability(true, false, m.cfg.VIN)
@@ -429,6 +462,18 @@ func (m *Manager) Poll() {
 		zap.String("chargingState", data.ChargeState.ChargingState),
 		zap.Int64("fleetApiRequests", m.client.RequestCount()),
 	)
+}
+
+func (m *Manager) signalPollIntervalChange() {
+	m.mu.Lock()
+	changed := m.pollChanged
+	m.mu.Unlock()
+	if changed != nil {
+		select {
+		case changed <- struct{}{}:
+		default:
+		}
+	}
 }
 
 func (m *Manager) recordUsage() {

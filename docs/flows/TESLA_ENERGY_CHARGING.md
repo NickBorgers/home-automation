@@ -12,15 +12,13 @@ This is always on when Tesla is configured and the home location is set. Turn of
 | `yellow` | Stop |
 | `green` | Charge slowly, at 8 A |
 | `white` | Charge at full speed (the most the charger allows) |
-| any level, battery below 50% | Charge at full speed |
-| any level, charge limit set to 100% | Charge at full speed |
 | unknown | Leave the car alone |
 
 The plugin never changes the charge limit. The car stops at whatever limit is set in the Tesla app.
 
 ## Decision Flow
 
-Each poll that finds the car online runs this check. A change in `currentEnergyLevel` triggers an immediate poll when the car was last seen plugged in at home.
+Each poll that finds the car online runs this check. Red and yellow always stop charging, including below 50%. Green or white is required to charge through and beyond the 50% policy boundary. A change in `currentEnergyLevel` triggers an immediate poll when the car was last seen plugged in at home.
 
 ```mermaid
 flowchart TD
@@ -32,22 +30,15 @@ flowchart TD
     Plug -->|No| Leave
     Plug -->|Yes| Full{Charge<br/>complete?}
     Full -->|Yes| Leave
-    Full -->|No| Limit{Charge limit<br/>100%?}
-    Limit -->|Yes| Amps
-    Limit -->|No| Plan{Plan from level<br/>and battery}
+    Full -->|No| Plan{Plan from<br/>energy level}
     Plan -->|Hold| Stop[Stop if charging]
+    Stop --> Verify[Poll after 15 s and verify stopped]
     Plan -->|Charge| Amps[Set amps if different]
-    Amps --> Start[Start if stopped]
+    Amps --> VerifyCharge[Poll after 15 s and verify current]
+    VerifyCharge --> Start[Start if stopped]
+    Start --> VerifyStart[Poll after 15 s and verify charging]
     Plan -->|Unknown level| Leave
 ```
-
-## Override: Set the Charge Limit to 100%
-
-When you need a full car, set the charge limit to 100% in the Tesla app. The plugin then ignores the energy level. It charges at full speed, and it restarts a charge it stopped earlier. Set the limit back below 100% to hand control back to the energy level.
-
-The car stores the limit, so the override survives an app restart. The plugin sees the new limit at the next poll. Changing the limit in the Tesla app usually wakes the car, but the poll can still be up to `TESLA_POLL_MINUTES` away.
-
-A manual change to the charging speed below 100% is not an override. The plugin sets the speed back on the next poll.
 
 ## Waking a Sleeping Car
 
@@ -57,7 +48,7 @@ The plugin wakes the car only when all of these are true:
 
 - The car is `asleep`. An `offline` car cannot be woken.
 - The last online poll saw it plugged in at home, below its charge limit.
-- The energy level, the 50% floor, or a 100% charge limit now says charge.
+- The energy level now says charge.
 - Fewer than 3 wakes happened in the last 24 hours.
 
 After a wake, the plugin polls again 45 seconds later. That poll starts charging.
@@ -82,7 +73,9 @@ sequenceDiagram
 
 ## Cost
 
-Every command and wake is billed by Tesla. Commands go out only when the car's state differs from the plan. A steady energy level sends nothing.
+Every command, wake, and poll is billed by Tesla. Commands go out only when the car's state differs from the plan. After a charging command, the plugin polls after 15 seconds and treats the command as pending until fresh telemetry agrees. Contradictory telemetry causes the policy command to be retried and verified again.
+
+The normal poll interval defaults to five minutes. While charging or waiting for command verification, the plugin polls every minute (or the configured interval when it is already shorter). An online poll normally spends two Fleet API requests, so continuous charging costs about 120 requests per hour instead of about 24. The faster interval is limited to active charging and reconciliation; held, unplugged, and idle cars return to the normal interval.
 
 ## Requirements
 
@@ -102,8 +95,13 @@ Every command and wake is billed by Tesla. Commands go out only when the car's s
 | `chargeAmps` / `chargeAmpsMax` | Charging speed now, and the most the charger allows |
 | `energyCharging.enabled` | Energy-level charging is on |
 | `energyCharging.energyLevel` | The level the last check used |
+| `energyCharging.batteryPercent` | Battery percentage used for the decision |
 | `energyCharging.decision` | What the last check decided, and why |
+| `energyCharging.plannedAction` | Charge, hold, or leave unchanged |
 | `energyCharging.lastAction` | The last command sent, or that would have been sent in read-only mode |
+| `energyCharging.commandResult` | Whether Tesla accepted or rejected the command; acceptance is not verification |
+| `energyCharging.reconciliationStatus` | Pending or verified result of the latest telemetry reconciliation |
+| `energyCharging.lastVerifiedVehicleState` | Battery, charging state, and current from the latest Fleet API read |
 | `energyCharging.wakesLast24h` | Wakes spent in the last 24 hours |
 
 ## Related Documentation

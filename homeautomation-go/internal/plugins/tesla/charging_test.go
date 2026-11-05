@@ -128,12 +128,13 @@ func TestPlanCharging(t *testing.T) {
 		{"green with unknown max still slows down", "green", 70, 80, 0, chargeNow, greenChargeAmps},
 		{"yellow holds", "yellow", 70, 80, 32, holdCharge, 0},
 		{"red holds", "red", 70, 80, 32, holdCharge, 0},
-		{"below the floor charges even at red", "red", 49, 80, 32, chargeNow, 32},
+		{"below the floor holds at red", "red", 49, 80, 32, holdCharge, 0},
+		{"below the floor holds at yellow", "yellow", 49, 80, 32, holdCharge, 0},
 		{"at the floor follows the level", "red", 50, 80, 32, holdCharge, 0},
 		{"unknown level leaves the car alone", "", 70, 80, 32, leaveAlone, 0},
-		{"100% limit charges at full speed at red", "red", 70, 100, 32, chargeNow, 32},
-		{"100% limit charges at full speed at green", "green", 70, 100, 32, chargeNow, 32},
-		{"100% limit charges even with unknown level", "", 70, 100, 32, chargeNow, 32},
+		{"100% limit does not override red", "red", 70, 100, 32, holdCharge, 0},
+		{"100% limit stays slow at green", "green", 70, 100, 32, chargeNow, greenChargeAmps},
+		{"100% limit does not override unknown level", "", 70, 100, 32, leaveAlone, 0},
 		{"99% limit follows the level", "red", 70, 99, 32, holdCharge, 0},
 	}
 
@@ -154,10 +155,6 @@ func TestDistanceMeters(t *testing.T) {
 }
 
 func TestEnergyChargingCommands(t *testing.T) {
-	fullAtRed := home("Stopped", 70, 8)
-	fullAtRed.limit = 100
-	fullAtGreen := home("Charging", 70, 8)
-	fullAtGreen.limit = 100
 	away := home("Charging", 70, 32)
 	away.lat = homeLat + 0.1
 	noLocation := home("Charging", 70, 32)
@@ -171,14 +168,14 @@ func TestEnergyChargingCommands(t *testing.T) {
 		want     []string
 		decision string
 	}{
-		{"white starts a stopped car at full speed", "white", home("Stopped", 70, 8), []string{"amps=32", "start"}, "white"},
+		{"white first sets a stopped car to full speed", "white", home("Stopped", 70, 8), []string{"amps=32"}, "white"},
+		{"green starts a stopped car already set to slow speed", "green", home("Stopped", 70, 8), []string{"start"}, "green"},
 		{"white leaves a car already at full speed", "white", home("Charging", 70, 32), nil, "white"},
 		{"green slows a fast charge", "green", home("Charging", 70, 32), []string{"amps=8"}, "green"},
 		{"yellow stops charging", "yellow", home("Charging", 70, 8), []string{"stop"}, "yellow"},
 		{"red with charging already stopped sends nothing", "red", home("Stopped", 70, 8), nil, "red"},
-		{"below the floor charges at red", "red", home("Stopped", 40, 8), []string{"amps=32", "start"}, "floor"},
-		{"100% limit restarts a held charge at red", "red", fullAtRed, []string{"amps=32", "start"}, "100%"},
-		{"100% limit lifts the green slowdown", "green", fullAtGreen, []string{"amps=32"}, "100%"},
+		{"below the floor holds at red", "red", home("Charging", 49, 8), []string{"stop"}, "red"},
+		{"at the floor holds at yellow", "yellow", home("Charging", 50, 8), []string{"stop"}, "yellow"},
 		{"full car is left alone", "white", home("Complete", 80, 8), nil, "limit reached"},
 		{"unknown level is left alone", "", home("Charging", 70, 32), nil, "unknown"},
 		{"away from home is left alone", "red", away, nil, "away"},
@@ -235,28 +232,72 @@ func TestEnergyChargingRecordsCommandFailure(t *testing.T) {
 	assert.Contains(t, state.Outputs.EnergyCharging.LastAction, "stop charging failed")
 }
 
-func TestEnergyChargingFullLimitOverride(t *testing.T) {
-	// GIVEN: red, the car charging at home. The plugin stops it.
-	fleet := onlineFleet(home("Charging", 70, 8))
-	m, charger, _, _ := newChargingManager(fleet, "red")
+func TestEnergyChargingReconcilesStopAgainstFreshTelemetry(t *testing.T) {
+	// GIVEN: yellow and stale telemetry says a 49% car is still charging.
+	fleet := onlineFleet(home("Charging", 49, 8))
+	m, charger, _, scheduled := newChargingManager(fleet, "yellow")
+
+	// WHEN: a stop is accepted, then the verification read still says Charging.
 	m.Poll()
-	require.Equal(t, []string{"stop"}, charger.sent())
-
-	// WHEN: someone sets the charge limit to 100% in the Tesla app.
-	full := home("Stopped", 70, 8)
-	full.limit = 100
-	fleet.data = full.data()
-	m.Poll()
-
-	// THEN: the energy level no longer matters. The car charges at full speed.
-	assert.Equal(t, []string{"stop", "amps=32", "start"}, charger.sent())
-
-	// WHEN: the limit goes back below 100%.
-	fleet.data = home("Charging", 75, 32).data()
+	assert.Equal(t, reconcilePendingStop,
+		m.GetShadowState().Outputs.EnergyCharging.ReconciliationStatus)
+	assert.Equal(t, []time.Duration{commandVerificationDelay}, *scheduled)
 	m.Poll()
 
-	// THEN: the energy level is in charge again.
-	assert.Equal(t, []string{"stop", "amps=32", "start", "stop"}, charger.sent())
+	// THEN: stale/contradictory telemetry is not confirmation; stop is retried.
+	assert.Equal(t, []string{"stop", "stop"}, charger.sent())
+	assert.Equal(t, reconcilePendingStop,
+		m.GetShadowState().Outputs.EnergyCharging.ReconciliationStatus)
+
+	// WHEN: a later verification read reports Stopped at the 50% boundary.
+	fleet.data = home("Stopped", 50, 8).data()
+	m.Poll()
+
+	// THEN: only that fresh compliant state is considered verified.
+	state := m.GetShadowState().Outputs.EnergyCharging
+	assert.Equal(t, reconcileVerifiedHeld, state.ReconciliationStatus)
+	assert.Contains(t, state.LastVerifiedVehicleState, "battery=50%")
+	assert.Contains(t, state.LastVerifiedVehicleState, "chargingState=Stopped")
+}
+
+func TestEnergyChargingGreenToYellowStopsAtBoundary(t *testing.T) {
+	// GIVEN: green allows a 49% car to charge slowly.
+	fleet := onlineFleet(home("Charging", 49, greenChargeAmps))
+	m, charger, levels, _ := newChargingManager(fleet, "green")
+	m.Poll()
+	require.Empty(t, charger.sent())
+	assert.Equal(t, reconcileVerifiedChargingOK,
+		m.GetShadowState().Outputs.EnergyCharging.ReconciliationStatus)
+
+	// WHEN: the house turns yellow as the car reaches 50%.
+	levels.level = "yellow"
+	fleet.data = home("Charging", 50, greenChargeAmps).data()
+	m.Poll()
+
+	// THEN: charging is stopped and remains pending until a read-back confirms it.
+	assert.Equal(t, []string{"stop"}, charger.sent())
+	assert.Equal(t, reconcilePendingStop,
+		m.GetShadowState().Outputs.EnergyCharging.ReconciliationStatus)
+}
+
+func TestEnergyChargingPollingInterval(t *testing.T) {
+	m, _, _, _ := newChargingManager(onlineFleet(home("Stopped", 70, 8)), "yellow")
+	m.cfg.PollInterval = 5 * time.Minute
+
+	assert.Equal(t, 5*time.Minute, m.nextPollInterval(), "idle charging control uses the configured interval")
+
+	m.charge.record.ReconciliationStatus = reconcileVerifiedChargingOK
+	assert.Equal(t, chargingPollInterval, m.nextPollInterval(), "active charging uses the shorter interval")
+
+	m.charge.record.ReconciliationStatus = reconcilePendingStop
+	assert.Equal(t, chargingPollInterval, m.nextPollInterval(), "reconciliation stays on the shorter interval")
+
+	m.charge.record.ReconciliationStatus = reconcileVerifiedHeld
+	assert.Equal(t, 5*time.Minute, m.nextPollInterval(), "verified stopped state returns to idle polling")
+
+	m.cfg.PollInterval = 30 * time.Second
+	m.charge.record.ReconciliationStatus = reconcileVerifiedChargingOK
+	assert.Equal(t, 30*time.Second, m.nextPollInterval(), "charging never makes an already shorter interval slower")
 }
 
 func TestEnergyChargingWakesSleepingCarToCharge(t *testing.T) {
@@ -277,14 +318,14 @@ func TestEnergyChargingWakesSleepingCarToCharge(t *testing.T) {
 	assert.Equal(t, 1, m.GetShadowState().Outputs.EnergyCharging.WakesLast24h)
 }
 
-func TestEnergyChargingWakesForFullLimitAtRed(t *testing.T) {
+func TestEnergyChargingDoesNotWakeForFullLimitAtRed(t *testing.T) {
 	fleet := &fakeFleet{vehicles: []teslaapi.VehicleSummary{{VIN: "BBB", State: "asleep"}}}
 	m, charger, _, _ := newChargingManager(fleet, "red")
 	m.charge = chargeMemory{seen: true, atHome: true, plugged: true, battery: 70, limit: 100}
 
 	m.Poll()
 
-	assert.Equal(t, []string{"wake"}, charger.sent())
+	assert.Empty(t, charger.sent())
 }
 
 func TestEnergyChargingWakeLimit(t *testing.T) {
