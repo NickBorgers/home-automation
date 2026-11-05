@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"homeautomation/internal/clock"
@@ -73,7 +74,7 @@ type Manager struct {
 	luxMu            sync.Mutex
 	luxRooms         map[string]*luxRoomState
 	luxOutdoor       *smoother
-	luxSensorOffline bool
+	luxSensorOffline atomic.Bool
 	luxStop          chan struct{}
 	luxDone          chan struct{}
 }
