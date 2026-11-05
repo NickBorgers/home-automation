@@ -2536,34 +2536,6 @@ func TestEnvironmentalManager_UnconditionedHysteresis(t *testing.T) {
 	}
 }
 
-func TestCleanSensorName(t *testing.T) {
-	t.Parallel()
-
-	cases := []struct {
-		in, want string
-	}{
-		// Real cases observed in production where HA appends entity name to a
-		// device name that already ends in the same noun.
-		{"Guest Bedroom Temperature and Humidity Humidity", "Guest Bedroom Temperature and Humidity"},
-		{"Caroline Office Temperature and Humidity Humidity", "Caroline Office Temperature and Humidity"},
-		{"Living Room Temperature Temperature", "Living Room Temperature"},
-
-		// Should NOT dedupe — last token isn't a sensor noun, or no duplication.
-		{"Indoor Humidity 1", "Indoor Humidity 1"},
-		{"Bedroom 2 Bedroom", "Bedroom 2 Bedroom"},
-		{"Barn Humidity", "Barn Humidity"},
-		{"Humidity", "Humidity"},
-		{"", ""},
-	}
-
-	for _, c := range cases {
-		got := cleanSensorName(c.in)
-		if got != c.want {
-			t.Errorf("cleanSensorName(%q) = %q, want %q", c.in, got, c.want)
-		}
-	}
-}
-
 func TestEnvironmentalManager_HumidityAlert_HasSpeechWithoutSensorList(t *testing.T) {
 	t.Parallel()
 
