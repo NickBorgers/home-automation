@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Tests for the production lux_control blocks of the Living Room, Kitchen and Pantry.
+// Tests for the production lux_control blocks of the Living Room, Kitchen, Pantry, and Mudroom.
 // The numbers are a temporary phone-app calibration; see docs/flows/LUX_LIGHTING.md.
 
 func loadProductionConfig(t *testing.T) *HueConfig {
@@ -144,7 +144,7 @@ func TestLuxRooms_KitchenAndPantryCansAreDrivenByLuxNotScenes(t *testing.T) {
 	t.Parallel()
 	m, env, _ := newProductionRoomFixture(t)
 
-	for _, name := range []string{"Kitchen", "Pantry"} {
+	for _, name := range []string{"Kitchen", "Pantry", "Mudroom"} {
 		m.evaluateAndActivateRoom(findRoom(m.config, name), "day", "isKitchenOccupied")
 	}
 
@@ -155,7 +155,7 @@ func TestLuxRooms_KitchenAndPantryCansAreDrivenByLuxNotScenes(t *testing.T) {
 			cans = append(cans, c.Data["entity_id"].(string))
 		}
 	}
-	assert.ElementsMatch(t, []string{"light.kitchen_cans", "light.pantry", "light.kitchen_main_lights", "light.pantry_under_cabinet"}, cans)
+	assert.ElementsMatch(t, []string{"light.kitchen_cans", "light.pantry", "light.mudroom", "light.kitchen_main_lights", "light.pantry_under_cabinet"}, cans)
 }
 
 func TestLuxRooms_PantryTurnsOffWithKitchenConditionsWithoutAnArea(t *testing.T) {
@@ -205,7 +205,7 @@ func TestLuxConfigValidation_AccentSceneGroupIsOptional(t *testing.T) {
 
 func TestLuxRooms_ManualChangeHoldsEachRoom(t *testing.T) {
 	t.Parallel()
-	for _, name := range []string{"Living Room", "Kitchen", "Pantry"} {
+	for _, name := range []string{"Living Room", "Kitchen", "Pantry", "Mudroom"} {
 		t.Run(name, func(t *testing.T) {
 			m, env, clk := newProductionRoomFixture(t)
 			room := findRoom(m.config, name)
