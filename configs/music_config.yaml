@@ -199,11 +199,6 @@ music:
       - uri: "https://tidal.com/browse/playlist/5a224abf-f6b2-4a33-918e-e33386210fac"
         media_type: tidal
         volume_multiplier: 1.0
-      # Pop Party Hits (Tidal) - upbeat summer/party hits
-      # yamllint disable-line rule:line-length
-      - uri: "https://tidal.com/browse/playlist/230b543f-8395-47dc-b3d5-958f39154e4d"
-        media_type: tidal
-        volume_multiplier: 1.0
       # lofi hip hop / chill beats / instrumentals (Tidal) — replaces Blockheady Instrumental
       # yamllint disable-line rule:line-length
       - uri: "https://tidal.com/browse/playlist/188fc182-623c-49ca-8874-dd79e4009fa6"
