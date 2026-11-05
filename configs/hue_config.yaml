@@ -295,13 +295,15 @@ rooms:
     increase_brightness_if_true: ~
     transition_seconds: 5
     # Cans calibration MEASURED 2026-11-02 evening with a handheld lux meter: dark, ambient 0 lux,
-    # only the cans on, 4000 K. daylight_factor is still the PHONE-APP value from 2026-10-30
-    # (26 lux indoors, cans off / 7,600 outdoor lux, rough, about +/-30%). Re-measure it in daylight
-    # with the meter.
+    # only the cans on, 4000 K. The Mudroom cans were in the same group (light.pantry_cans) at
+    # the time, but a wall separates the rooms, so the table is unaffected. The Mudroom cans are
+    # their own room below.
     lux_control:
       mode: active
-      cans: light.pantry_cans # 8 cans
-      daylight_factor: 0.0034 # PHONE-APP value, still to be re-measured in daylight with the meter
+      cans: light.pantry # 6 cans (the 2 Mudroom cans are the Mudroom room)
+      # MEASURED 2026-11-05 in daylight with the handheld lux meter: 50.0 lux indoors (average of
+      # 50.4 and 49.6), cans off / station 61,311 lux.
+      daylight_factor: 0.00082
       lux_scale: 0.5          # GUESS, same as the Living Room
       # Under-cabinet task strip, same shape as the Kitchen's. No scenes exist for it.
       # The strip was not measured. The user said it is roughly as bright as the Kitchen strip, so it
@@ -327,6 +329,45 @@ rooms:
           lux: 64
         - brightness_pct: 100
           lux: 263
+
+  # The Mudroom was split out of the Pantry on 2026-11-05: light.mudroom is its 2 cans
+  # (light.mudroom_door_can + light.mudroom_cabinet_can). Like the Pantry it has no Hue scene group
+  # and no hass_area_id, so turn-off targets the cans entity directly. Same conditions as the Pantry
+  # (which follow the Kitchen), no strip or followers.
+  - hue_group: Mudroom
+    conditions:
+      - action: off
+        variable: isAnyoneHomeAndAwake
+        value: false
+      - action: on
+        variable: isKitchenOccupied
+        value: true
+    increase_brightness_if_true: ~
+    transition_seconds: 5
+    lux_control:
+      mode: active
+      cans: light.mudroom # 2 cans
+      # MEASURED 2026-11-05 in daylight: ambient 8.3 lux, cans off / station 61,615 lux.
+      # A SINGLE reading, so treat it as rough.
+      daylight_factor: 0.00013
+      lux_scale: 0.5 # GUESS, same as the Pantry
+      calibrated: true
+      # MEASURED 2026-11-05 in DAYLIGHT (not in the dark), 4000 K, brightness only, by subtracting the
+      # 8.3 lux ambient from each reading. Low steps are therefore noisy (meter resolution 0.1 lux).
+      # A re-check in the dark is welcome.
+      calibration:
+        - brightness_pct: 5
+          lux: 0.8
+        - brightness_pct: 10
+          lux: 1.8
+        - brightness_pct: 15
+          lux: 3.1
+        - brightness_pct: 25
+          lux: 8.5
+        - brightness_pct: 50
+          lux: 33.7
+        - brightness_pct: 100
+          lux: 131.4
 
   # The two entryway chandeliers are Lutron Diva dimmers: brightness only, no color temperature
   # (color_temp: false), so the plugin sends brightness_pct and transition and never kelvin.

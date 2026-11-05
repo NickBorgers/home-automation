@@ -88,7 +88,7 @@ Notes:
 
 ## 5b. Pantry cans, dark session, 2026-11-02 evening
 
-Handheld lux meter, ambient 0 lux, only the Pantry cans on (8 cans, 4000 K).
+Handheld lux meter, ambient 0 lux, only the Pantry cans on (4000 K). The Mudroom cans were in the same group (`light.pantry_cans`, 8 cans) at the time. A wall separates the rooms, so the table is unaffected.
 
 | Brightness | 5% | 10% | 15% | 25% | 50% | 100% |
 |-----------:|---:|----:|----:|----:|----:|-----:|
@@ -96,9 +96,27 @@ Handheld lux meter, ambient 0 lux, only the Pantry cans on (8 cans, 4000 K).
 
 The Pantry cans follow roughly 0.026 x pct^2, close to the Kitchen cans.
 
+## 5c. Daylight session, 2026-11-05 (Pantry factor, Mudroom split)
+
+Handheld lux meter, in daylight. The Mudroom was split out of the Pantry (`light.mudroom` = `light.mudroom_door_can` + `light.mudroom_cabinet_can`; `light.pantry` = the 6 Pantry cans).
+
+| Room | Indoor, cans off | Station (outdoor) | `daylight_factor` |
+|------|-----------------:|------------------:|------------------:|
+| Pantry | 50.4 and 49.6, average 50.0 lux | 61,311 lux | 0.00082 |
+| Mudroom | 8.3 lux (one reading) | 61,615 lux | 0.00013 |
+
+Mudroom cans, 4000 K, brightness only. Net lux is the reading minus the 8.3 lux ambient, so low steps are noisy (meter resolution 0.1 lux).
+
+| Brightness | 5% | 10% | 15% | 25% | 50% | 100% |
+|-----------:|---:|----:|----:|----:|----:|-----:|
+| Net lux | 0.8 | 1.8 | 3.1 | 8.5 | 33.7 | 131.4 |
+
+Mudroom `lux_scale` is 0.5, a guess (same as the Pantry).
+
 ## 6. Not measured, and next steps
 
-- The Pantry strip (not measured; it copies the Kitchen mapping by user choice), and the Pantry `daylight_factor`, which is still the phone-app value 0.0034 and needs a daylight reading with the meter.
+- The Pantry strip (not measured; it copies the Kitchen mapping by user choice).
+- A dark re-check of the Mudroom table, and more than one daylight reading for the Mudroom `daylight_factor`.
 - A daylight reading at the Front Room night-use spot.
 - Daylight ratios under overcast or low sun. All ratios here are from one sky condition (sun and thin cloud).
 - A re-check after a few weeks.

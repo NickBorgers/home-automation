@@ -39,7 +39,7 @@ type luxPoint struct {
 }
 
 // productionLuxRooms lists the cans rooms with measured calibration. The Living Room and Kitchen come from a
-// handheld lux meter (2026-10-31/11-01). The Pantry cans were measured on 2026-11-02; its daylight factor is still the phone-app value.
+// handheld lux meter (2026-10-31/11-01). The Pantry cans were measured on 2026-11-02 and its factor on 2026-11-05. The Mudroom (2026-11-05, daylight) is a single factor reading.
 var productionLuxRooms = []struct {
 	room   string
 	cans   string
@@ -50,8 +50,10 @@ var productionLuxRooms = []struct {
 		[]luxPoint{{5, 0.7}, {10, 1.65}, {15, 3.0}, {25, 7.9}, {50, 30.1}, {100, 119.0}}},
 	{"Kitchen", "light.kitchen_cans", 0.0012,
 		[]luxPoint{{5, 1.3}, {10, 3.1}, {15, 5.9}, {25, 15.8}, {50, 61.1}, {100, 237}}},
-	{"Pantry", "light.pantry_cans", 0.0034,
+	{"Pantry", "light.pantry", 0.00082,
 		[]luxPoint{{5, 1}, {10, 3}, {15, 6}, {25, 16}, {50, 64}, {100, 263}}},
+	{"Mudroom", "light.mudroom", 0.00013,
+		[]luxPoint{{5, 0.8}, {10, 1.8}, {15, 3.1}, {25, 8.5}, {50, 33.7}, {100, 131.4}}},
 }
 
 func TestProductionConfig_LuxRoomsAreActiveAndMeasured(t *testing.T) {
@@ -153,7 +155,7 @@ func TestLuxRooms_KitchenAndPantryCansAreDrivenByLuxNotScenes(t *testing.T) {
 			cans = append(cans, c.Data["entity_id"].(string))
 		}
 	}
-	assert.ElementsMatch(t, []string{"light.kitchen_cans", "light.pantry_cans", "light.kitchen_main_lights", "light.pantry_under_cabinet"}, cans)
+	assert.ElementsMatch(t, []string{"light.kitchen_cans", "light.pantry", "light.kitchen_main_lights", "light.pantry_under_cabinet"}, cans)
 }
 
 func TestLuxRooms_PantryTurnsOffWithKitchenConditionsWithoutAnArea(t *testing.T) {
@@ -170,7 +172,7 @@ func TestLuxRooms_PantryTurnsOffWithKitchenConditionsWithoutAnArea(t *testing.T)
 	calls := env.MockHA.GetServiceCalls()
 	require.Len(t, calls, 1)
 	assert.Equal(t, "turn_off", calls[0].Service)
-	assert.Equal(t, []string{"light.pantry_cans", "light.pantry_under_cabinet"}, calls[0].Data["entity_id"],
+	assert.Equal(t, []string{"light.pantry", "light.pantry_under_cabinet"}, calls[0].Data["entity_id"],
 		"no hass_area_id, so target the cans and the strip")
 	assert.NotContains(t, calls[0].Data, "area_id")
 }
@@ -185,7 +187,7 @@ func TestLuxRooms_PantryStaysQuietWhenKitchenIsNotOccupied(t *testing.T) {
 
 	for _, c := range env.MockHA.GetServiceCalls() {
 		if c.Domain == "light" && c.Service == "turn_on" {
-			assert.NotEqual(t, "light.pantry_cans", c.Data["entity_id"])
+			assert.NotEqual(t, "light.pantry", c.Data["entity_id"])
 		}
 	}
 }
@@ -238,7 +240,8 @@ func TestLuxRooms_PantryManualTurnOnDuringFadeToOffWins(t *testing.T) {
 	m.luxTick()
 	clk.Advance(6 * time.Minute)
 
-	env.MockHA.SetState(m.config.LuxCurve.OutdoorSensor, "100000", nil)
+	// Pantry factor 0.00082: 300,000 outdoor lux gives about 246 indoor lux, above the scaled day target.
+	env.MockHA.SetState(m.config.LuxCurve.OutdoorSensor, "300000", nil)
 	env.MockHA.ClearServiceCalls()
 	m.luxTick()
 	calls := env.MockHA.GetServiceCalls()
@@ -276,4 +279,36 @@ func TestLuxRooms_PantryManualTurnOnDuringFadeToOffWins(t *testing.T) {
 		assert.NotEqual(t, pantry.LuxControl.Cans, call.Data["entity_id"],
 			"phase and lux evaluations must preserve the held manual state")
 	}
+}
+
+func TestProductionConfig_MudroomIsSeparateFromPantryButSharesConditions(t *testing.T) {
+	t.Parallel()
+	cfg := loadProductionConfig(t)
+	pantry, mudroom := findRoom(cfg, "Pantry"), findRoom(cfg, "Mudroom")
+	require.NotNil(t, pantry)
+	require.NotNil(t, mudroom)
+	assert.Equal(t, "light.pantry", pantry.LuxControl.Cans)
+	assert.Equal(t, "light.mudroom", mudroom.LuxControl.Cans)
+	assert.NotEqual(t, pantry.LuxControl.Cans, mudroom.LuxControl.Cans, "separate cans entities")
+	assert.Equal(t, pantry.Conditions, mudroom.Conditions)
+	assert.Empty(t, mudroom.HASSAreaID)
+	assert.Empty(t, mudroom.LuxControl.AccentSceneGroup)
+	assert.Empty(t, mudroom.LuxControl.FollowerLights, "the mudroom has no strip")
+	assert.Equal(t, pantry.LuxControl.LuxScale, mudroom.LuxControl.LuxScale)
+	assert.Equal(t, pantry.TransitionSeconds, mudroom.TransitionSeconds)
+}
+
+func TestLuxRooms_MudroomTurnsOffOnItsOwnWithoutAnArea(t *testing.T) {
+	t.Parallel()
+	m, env, _ := newProductionRoomFixture(t)
+	mudroom := findRoom(m.config, "Mudroom")
+	m.evaluateAndActivateRoom(mudroom, "day", "isKitchenOccupied")
+	require.NoError(t, env.StateMgr.SetBool("isAnyoneHomeAndAwake", false))
+	env.MockHA.ClearServiceCalls()
+	m.evaluateAndActivateRoom(mudroom, "day", "isAnyoneHomeAndAwake")
+	calls := env.MockHA.GetServiceCalls()
+	require.Len(t, calls, 1)
+	assert.Equal(t, "turn_off", calls[0].Service)
+	assert.Equal(t, "light.mudroom", calls[0].Data["entity_id"], "no hass_area_id, so target the cans")
+	assert.NotContains(t, calls[0].Data, "area_id")
 }
