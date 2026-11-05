@@ -16,6 +16,7 @@ graph LR
         isAppleTVPlaying["isAppleTVPlaying"]
         isAssistantHere["isAssistantHere"]
         isCarolineHome["isCarolineHome"]
+        isDarkOutside["isDarkOutside"]
         isEveryoneAsleep["isEveryoneAsleep"]
         isExpectingSomeone["isExpectingSomeone"]
         isFadeOutInProgress["isFadeOutInProgress"]
@@ -100,6 +101,7 @@ graph LR
     energy --> isFreeEnergyAvailable
     energy --> remainingSolarGeneration
     energy --> thisHourSolarGeneration
+    lighting --> isDarkOutside
     lighting --> lightingReset
     music --> currentlyPlayingMusicUri
     music --> musicPlaybackType

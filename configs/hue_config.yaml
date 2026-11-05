@@ -22,6 +22,8 @@ lux_curve:
   outdoor_sensor: sensor.weather_station_illuminance
   smoothing_minutes: 5
   tick_seconds: 60
+  dark_below_lux: 30
+  light_above_lux: 80
 
 rooms:
   - hue_group: Living Room

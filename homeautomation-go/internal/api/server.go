@@ -356,7 +356,7 @@ var pluginRegistry = []PluginMetadata{
 		Name:        "lighting",
 		Description: "Controls lighting scenes based on time, presence, and activity",
 		Reads:       []string{"dayPhase", "sunevent", "isAnyoneHome", "isTVPlaying", "isEveryoneAsleep", "isMasterAsleep", "isHaveGuests", "lightingReset"},
-		Writes:      []string{},
+		Writes:      []string{"isDarkOutside"},
 	},
 	{
 		Name:        "tv",

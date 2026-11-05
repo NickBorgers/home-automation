@@ -162,6 +162,48 @@ func TestLux_MissingOutdoorSensorLightsRoomToFullTarget(t *testing.T) {
 	assert.Contains(t, f.decision(), "outdoor sensor missing")
 }
 
+func TestDarkOutside_ThresholdsHysteresisAndFallback(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		initial    bool
+		lux        string
+		dayPhase   string
+		wantDark   bool
+		wantSource string
+	}{
+		{name: "below dark threshold", lux: "29", wantDark: true, wantSource: "smoothed_outdoor_lux"},
+		{name: "above light threshold", initial: true, lux: "81", wantDark: false, wantSource: "smoothed_outdoor_lux"},
+		{name: "band stays dark", initial: true, lux: "50", wantDark: true, wantSource: "smoothed_outdoor_lux"},
+		{name: "band stays light", lux: "50", wantDark: false, wantSource: "smoothed_outdoor_lux"},
+		{name: "unavailable falls back to dark phase", lux: "unavailable", dayPhase: "night", wantDark: true, wantSource: "day_phase_fallback"},
+		{name: "non-numeric falls back to light phase", lux: "unknown", dayPhase: "day", wantDark: false, wantSource: "day_phase_fallback"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newLuxFixture(t, LuxModeLogOnly, false)
+			require.NoError(t, f.env.StateMgr.SetBool("isDarkOutside", tt.initial))
+			if tt.dayPhase != "" {
+				require.NoError(t, f.env.StateMgr.SetString("dayPhase", tt.dayPhase))
+			}
+			f.setOutdoor(tt.lux)
+
+			f.manager.sampleOutdoor(f.clock.Now())
+
+			got, err := f.env.StateMgr.GetBool("isDarkOutside")
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantDark, got)
+			shadow := f.manager.GetShadowState().Outputs.DarkOutside
+			assert.Equal(t, tt.wantDark, shadow.IsDark)
+			assert.Equal(t, tt.wantSource, shadow.Source)
+			assert.Equal(t, 30.0, shadow.DarkBelow)
+			assert.Equal(t, 80.0, shadow.LightAbove)
+		})
+	}
+}
+
 func TestLux_SmallChangesDoNotSendCommands(t *testing.T) {
 	t.Parallel()
 	f := newLuxFixture(t, LuxModeActive, false)
@@ -513,6 +555,9 @@ func TestLuxConfigValidation(t *testing.T) {
 	}{
 		{"no curve", func(c *HueConfig) { c.LuxCurve = nil }},
 		{"no outdoor sensor", func(c *HueConfig) { c.LuxCurve.OutdoorSensor = "" }},
+		{"dark threshold above light threshold", func(c *HueConfig) {
+			c.LuxCurve.DarkBelowLux, c.LuxCurve.LightAboveLux = 90, 80
+		}},
 		{"bad point", func(c *HueConfig) { c.LuxCurve.Points[0].Lux = 0 }},
 		{"bad mode", func(c *HueConfig) { c.Rooms[0].LuxControl.Mode = "sometimes" }},
 		{"no cans", func(c *HueConfig) { c.Rooms[0].LuxControl.Cans = "" }},

@@ -906,7 +906,7 @@ flowchart TD
 
 ## State Variable Dependency Graph
 
-Shows which plugins read/write which state variables (45 total: 32 booleans, 3 numbers, 8 strings, 2 local-only).
+Shows which plugins read/write which state variables (46 total: 33 booleans, 3 numbers, 8 strings, 2 local-only).
 
 ```mermaid
 graph LR
@@ -946,6 +946,7 @@ graph LR
         CurrentEnergy[currentEnergyLevel]
         OwnerJustReturned[didOwnerJustReturnHome]
         RemainingSolar[remainingSolarGeneration]
+        DarkOutside[isDarkOutside]
     end
 
     subgraph "Output State Variables"
@@ -1044,6 +1045,7 @@ graph LR
     Kitchen --> Lighting
     PrimaryDoor --> Lighting
     WeatherStationIlluminance -->|Outdoor Lux Reference| Lighting
+    Lighting --> DarkOutside
     LivingCans -->|Manual Override Detection| Lighting
 
     BatteryPercent --> Energy
@@ -1147,6 +1149,7 @@ graph LR
     style CurrentEnergy fill:#fff3e0
     style OwnerJustReturned fill:#fff3e0
     style RemainingSolar fill:#fff3e0
+    style DarkOutside fill:#fff3e0
 
     style MusicType fill:#e8f5e9
     style MusicURI fill:#e8f5e9
@@ -1161,7 +1164,7 @@ graph LR
 | Category | Count | Examples |
 |----------|-------|----------|
 | **Boolean (input)** | 19 | isNickHome, isCarolineHome, isAssistantHere, isMasterAsleep, isHaveGuests, isNickOfficeOccupied, isKitchenOccupied, isPrimaryBedroomDoorOpen, isNickNearHome, isCarolineNearHome, isFrontOfHousePersonPresent |
-| **Boolean (computed)** | 6 | isAnyOwnerHome, isAnyoneHome, isAnyoneAsleep, isEveryoneAsleep, isAnyoneHomeAndAwake, isGuestAsleep |
+| **Boolean (computed)** | 7 | isAnyOwnerHome, isAnyoneHome, isAnyoneAsleep, isEveryoneAsleep, isAnyoneHomeAndAwake, isGuestAsleep, isDarkOutside |
 | **Boolean (output)** | 4 | isFadeOutInProgress, isWakeSequenceActive, isSleepPrepActive, isLockdown |
 | **Number** | 3 | alarmTime, remainingSolarGeneration, thisHourSolarGeneration |
 | **String (computed)** | 5 | dayPhase, sunevent, batteryEnergyLevel, currentEnergyLevel, solarProductionEnergyLevel |
