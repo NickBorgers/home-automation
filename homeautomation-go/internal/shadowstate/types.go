@@ -670,7 +670,9 @@ type EnergyComputations struct {
 	LastOverallLevelCalc time.Time `json:"lastOverallLevelCalc,omitempty"`
 }
 
-// EnergySensorReadings tracks raw sensor values from Home Assistant
+// EnergySensorReadings tracks the latest raw values observed by the energy plugin.
+// IsGridAvailable mirrors inputs.current.isGridAvailable; the input records the
+// captured state dependency, while this output groups it with other sensor readings.
 type EnergySensorReadings struct {
 	BatteryPercentage           float64   `json:"batteryPercentage"`
 	ThisHourSolarGenerationKW   float64   `json:"thisHourSolarGenerationKW"`

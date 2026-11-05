@@ -193,6 +193,9 @@ func (m *Manager) captureInitialInputs() {
 	// but we need to capture them once on startup so the shadow state isn't empty
 	// until the first event fires.
 	m.subHelper.CaptureInitialInputs()
+	if gridAvailable, err := m.stateManager.GetBool("isGridAvailable"); err == nil {
+		m.shadowTracker.UpdateGridAvailable(gridAvailable)
+	}
 }
 
 // Stop stops the Energy State Manager and cleans up subscriptions

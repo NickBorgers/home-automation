@@ -168,6 +168,11 @@ Each plugin type has a dedicated tracker in `internal/shadowstate/tracker.go`:
 | TV | `TVTracker` | TV state, HDMI input |
 | Music | Embedded in state | Playback type, current music |
 
+For the energy plugin, `inputs.current.isGridAvailable` is the captured state
+dependency. `outputs.sensorReadings.isGridAvailable` is the same latest value,
+grouped with the plugin's other raw sensor readings. They are synchronized at
+startup and on every state change.
+
 ## Tracker Methods
 
 ### Standard Methods (all trackers)
