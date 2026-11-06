@@ -241,7 +241,12 @@ func (m *Manager) handlePrimarySuiteLightsChange(entityID string, oldState, newS
 
 	if lightsOff {
 		isAnyoneHome, err := m.stateManager.GetBool("isAnyoneHome")
-		if err != nil || !isAnyoneHome {
+		if err != nil {
+			m.logger.Error("Failed to read isAnyoneHome, skipping sleep detection", zap.Error(err))
+			m.shadowTracker.UpdateSleepDetectionTimer(false)
+			return
+		}
+		if !isAnyoneHome {
 			m.logger.Info("Primary suite lights turned off while nobody is home, skipping sleep detection")
 			m.shadowTracker.UpdateSleepDetectionTimer(false)
 			return

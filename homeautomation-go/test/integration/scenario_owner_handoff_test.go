@@ -62,9 +62,9 @@ func TestScenario_OwnerHandoff_SleepTimerCancelledOnArrival(t *testing.T) {
 	t.Log("WHEN: Primary suite lights turn off (simulating lockdown/away behavior)")
 	server.SetState("light.primary_suite", "off", nil)
 	waitForProcessing(t, manager)
-	// The 1-minute sleep detection timer has now started.
+	// With the presence guard, the timer does NOT start because nobody is home.
 
-	t.Log("AND: Nick arrives 54 seconds later (before the 1-minute sleep timer fires)")
+	t.Log("AND: Nick arrives 54 seconds later (before the 1-minute sleep timer would fire)")
 	mockClock.AdvanceAndProcess(54 * time.Second)
 
 	server.SetState("input_boolean.nick_home", "on", nil)
