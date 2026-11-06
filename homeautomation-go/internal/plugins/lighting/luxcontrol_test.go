@@ -13,6 +13,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zaptest/observer"
 )
 
 const (
@@ -202,6 +204,24 @@ func TestDarkOutside_ThresholdsHysteresisAndFallback(t *testing.T) {
 			assert.Equal(t, 80.0, shadow.LightAbove)
 		})
 	}
+}
+
+func TestDarkOutside_UnavailableWarningDebouncedUntilRecovery(t *testing.T) {
+	t.Parallel()
+	f := newLuxFixture(t, LuxModeLogOnly, false)
+	core, logs := observer.New(zap.WarnLevel)
+	f.manager.logger = zap.New(core)
+
+	f.setOutdoor("unavailable")
+	f.manager.sampleOutdoor(f.clock.Now())
+	f.manager.sampleOutdoor(f.clock.Now())
+	assert.Equal(t, 1, logs.Len())
+
+	f.setOutdoor("100")
+	f.manager.sampleOutdoor(f.clock.Now())
+	f.setOutdoor("unknown")
+	f.manager.sampleOutdoor(f.clock.Now())
+	assert.Equal(t, 2, logs.Len())
 }
 
 func TestLux_SmallChangesDoNotSendCommands(t *testing.T) {

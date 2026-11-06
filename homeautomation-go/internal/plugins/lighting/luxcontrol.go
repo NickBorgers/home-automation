@@ -191,8 +191,8 @@ func (m *Manager) sampleOutdoor(now time.Time) (float64, bool) {
 	return smoothed, ok
 }
 
-// updateDarkOutside does a GetBool → decide → SetBool without a lock. This is safe because
-// sampleOutdoor is the sole caller and runs only on the single lux-ticker goroutine.
+// updateDarkOutside does a GetBool → decide → SetBool without a lock. luxSensorOffline uses
+// atomic.Bool because sampleOutdoor is also called from debounce-timer goroutines via luxEvaluate.
 func (m *Manager) updateDarkOutside(outdoorLux float64, haveOutdoor bool) {
 	darkBelow := m.config.LuxCurve.darkBelowLux()
 	lightAbove := m.config.LuxCurve.lightAboveLux()
@@ -200,6 +200,7 @@ func (m *Manager) updateDarkOutside(outdoorLux float64, haveOutdoor bool) {
 	source := "smoothed_outdoor_lux"
 
 	if haveOutdoor {
+		m.luxSensorOffline.Store(false)
 		if outdoorLux < darkBelow {
 			isDark = true
 		} else if outdoorLux > lightAbove {
@@ -209,8 +210,11 @@ func (m *Manager) updateDarkOutside(outdoorLux float64, haveOutdoor bool) {
 		dayPhase, err := m.stateManager.GetString("dayPhase")
 		isDark = err == nil && (dayPhase == "dusk" || dayPhase == "winddown" || dayPhase == "night")
 		source = "day_phase_fallback"
-		m.logger.Warn("Outdoor illuminance unavailable; using day phase for darkness",
-			zap.String("day_phase", dayPhase), zap.Bool("is_dark_outside", isDark))
+		if !m.luxSensorOffline.Load() {
+			m.logger.Warn("Outdoor illuminance unavailable; using day phase for darkness",
+				zap.String("day_phase", dayPhase), zap.Bool("is_dark_outside", isDark))
+			m.luxSensorOffline.Store(true)
+		}
 	}
 
 	if err := m.stateManager.SetBool("isDarkOutside", isDark); err != nil {
