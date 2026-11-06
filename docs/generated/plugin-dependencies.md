@@ -89,6 +89,7 @@ graph LR
     isEveryoneAsleep -.-> security
     isAnyoneAsleep -.-> sexmode
     isMasterAsleep -.-> sleephygiene
+    isAnyoneHome -.-> statetracking
     currentEnergyLevel -.-> tesla
     isAppleTVPlaying -.-> tv
     resetTV -.-> tv
