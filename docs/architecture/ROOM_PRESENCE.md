@@ -112,6 +112,9 @@ A track's first zone is known at its first `update`, not at `new`.
 4. **None of the above.** The person "appeared from nowhere". Mark the track **unconfirmed**. See
    [False people](#false-people).
 
+If a track matches both rules 2 and 3, rule 2 takes priority: a hand-off is more precise evidence of identity
+than a doorway-proximity exit window match.
+
 ### While a track runs
 
 A track that enters a room zone of another area moves its token there. Inside an open space this is how a person
@@ -137,17 +140,19 @@ them. This is where radar sensors failed, so it is the default.
 
 ### How a token goes away
 
-Without a rule, a token left behind by a missed exit would keep a room lit forever. Each area has an **idle
+Without a rule, a token left behind by a missed exit would keep a room lit forever. Areas may have an **idle
 limit** in the config. A token in a seen area expires when no camera sees a person in that area for the limit. A
 token in an unseen area expires after that area's own limit. An area that leads outside should have a short
-limit. A bedroom may have none, and be cleared by sleep and wake state instead.
+limit. A bedroom may have no `idle_limit` (field absent, parsed as nil `*time.Duration`), cleared instead by
+sleep and wake state.
 
 Other evidence also moves tokens:
 
 - **Nobody home** (`isAnyoneHome` false for 5 min): remove every token.
 - **A bed presence sensor** on: make sure the area with that bed holds at least one token.
-- **More tokens than people home**, from the home-presence variables: drop the token that was seen least
-  recently. Guests make the count unknown, so this rule only applies without guests.
+- **More tokens than people home** (counted from `isNickHome`, `isCarolineHome`, `isAssistantHere`): drop the
+  token that was seen least recently. This rule only applies when `isHaveGuests` is false, because guests make
+  the count unknown.
 
 ### False people
 
@@ -158,7 +163,7 @@ The map catches it. A real person cannot appear in the middle of a seen room wit
 starts by rule 4 is **unconfirmed**. It turns into a token only when one of these happens:
 
 - It reaches a boundary zone or another area. Real people go somewhere.
-- It lasts 60 s with a top score of 0.8 or more.
+- It has entered at least two distinct zones within the track. Real false positives are stationary.
 - The house has fewer tokens than people home, for example right after the plugin starts.
 
 An unconfirmed track does not turn on lights. A real entry almost always comes with a hand-off, so this adds no
@@ -171,6 +176,10 @@ found yet.
 
 When a camera's heartbeat stops for 30 s, its areas are marked **unknown**. Tokens in them freeze and do not
 expire. Lighting then sees the last state, not a sudden "empty room". Shadow state reports which camera is down.
+
+When the heartbeat returns, affected areas leave the unknown state. Frozen tokens resume expiry from where they
+paused — their last-seen clock does not reset. A token that was 50 minutes through a 1-hour idle limit when the
+camera failed expires 10 minutes after recovery, not 1 hour later.
 
 ## Outputs
 
@@ -186,7 +195,9 @@ The plugin also reports, in shadow state only:
 
 A short **entry signal** goes with each occupied change: "a token just arrived from outside the area". The lux
 controller can use it for a fast fade-in on room entry. A token that only expired, or the plugin starting up,
-gives the slow fade.
+gives the slow fade. The entry signal is a callback, not a state variable: `manager.go` calls a registered
+`OnEntry(area string)` function. The lux plugin registers this callback at startup, alongside its other
+subscriptions.
 
 When the plugin starts writing a variable, disable any Home Assistant automation that also writes it. Otherwise
 the two fight.
@@ -197,6 +208,10 @@ the two fight.
 
 The plugin subscribes with the Home Assistant WebSocket command `mqtt/subscribe` on the existing connection. It
 needs an admin token, which the app already has. It needs no broker credentials and no MQTT library.
+
+**Prerequisite:** The Home Assistant MQTT integration must be installed and connected to the broker. Without it,
+`mqtt/subscribe` returns an error and the plugin falls back to unconfigured mode (logs the reason, writes
+nothing).
 
 The HA client needs one new method, `SubscribeMQTT(topic string, handler MQTTHandler)`. It follows
 `SubscribeEvents` in `internal/ha/events.go`: it registers before connect, subscribes again after every
@@ -229,11 +244,11 @@ room_presence:
   exit_window: 10s
   camera_heartbeat_timeout: 30s
   areas:
-    lounge:  { seen: true }
-    kitchen: { seen: true }
-    hall:    { seen: true }
+    lounge:  { seen: true,  idle_limit: 20m }
+    kitchen: { seen: true,  idle_limit: 20m }
+    hall:    { seen: true,  idle_limit: 5m }
     study:   { seen: false, idle_limit: 3h }
-    bedroom: { seen: false, idle_limit: none }
+    bedroom: { seen: false }                # no idle_limit: absence means never expires; cleared by sleep/wake state
     porch:   { seen: false, idle_limit: 10m, leads_outside: true }
   outputs:                    # only written in active mode
     isKitchenOccupied: [kitchen]
