@@ -36,7 +36,7 @@ flowchart TD
     Plug -->|Yes| Full{Charge<br/>complete?}
     Full -->|Yes| Leave
     Full -->|No| Floor{Battery below<br/>50%?}
-    Floor -->|Yes| FullSpeed[Charge at full speed]
+    Floor -->|Yes| Amps
     Floor -->|No| Plan{Plan from<br/>energy level}
     Plan -->|Hold| Stop[Stop if charging]
     Stop --> Verify[Poll after 15 s and verify stopped]
