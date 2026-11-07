@@ -59,6 +59,18 @@ func TestReplay_ReportsFailures(t *testing.T) {
 	assert.Len(t, failures, 4, "%v", failures) // bad JSON, study, lounge, unknown zones
 }
 
+func TestReplay_PeopleCountApplies(t *testing.T) {
+	cfg := exampleConfig(t)
+	ev := func(id string) CapturedMessage {
+		return CapturedMessage{T: 100, Topic: eventsTopic, Payload: `{"type":"update","after":{"id":"` + id +
+			`","camera":"cam_kitchen","label":"person","entered_zones":["kitchen"],"current_zones":["kitchen"]}}`}
+	}
+	_, tr := Replay(cfg, []CapturedMessage{ev("a")}, &ReplayExpectations{People: &ReplayPeople{Home: 1}})
+	assert.True(t, tr.Occupied("kitchen"), "fewer tokens than people confirms the track")
+	_, tr = Replay(cfg, []CapturedMessage{ev("a")}, &ReplayExpectations{})
+	assert.False(t, tr.Occupied("kitchen"))
+}
+
 func TestReadCapture_SortsAndSkipsBlankLines(t *testing.T) {
 	msgs, err := ReadCapture(strings.NewReader(
 		`{"t":2,"topic":"b","payload":"x"}` + "\n\n" + `{"t":1,"topic":"a","payload":"y"}` + "\n"))

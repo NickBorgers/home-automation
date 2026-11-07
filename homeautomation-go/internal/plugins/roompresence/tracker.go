@@ -56,13 +56,16 @@ type track struct {
 	end        time.Time
 	zones      []string // entered zones, in entry order
 	current    []string // current zones at the last message
-	started    bool     // the first zone has been handled
-	tokenID    string
-	startArea  string
-	area       string // area at the last message
-	rule       string
-	confirmed  bool
-	outcome    string
+	// lastCurrent is the last non-empty current zones. Frigate often ends a track with none, and
+	// entered_zones lists each zone once, so its last entry is not where the person was last.
+	lastCurrent []string
+	started     bool // the first zone has been handled
+	tokenID     string
+	startArea   string
+	area        string // area at the last message
+	rule        string
+	confirmed   bool
+	outcome     string
 
 	// pendingTarget is a seen area the token moves to when no other camera picks the person up.
 	pendingTarget string
@@ -145,6 +148,9 @@ func (t *Tracker) HandleEvent(now time.Time, ev FrigateEvent) {
 	tr.lastUpdate = now
 	tr.zones = append([]string(nil), obj.EnteredZones...)
 	tr.current = append([]string(nil), obj.CurrentZones...)
+	if len(obj.CurrentZones) > 0 {
+		tr.lastCurrent = tr.current
+	}
 	t.learnZones(obj)
 
 	if obj.FalsePositive {
@@ -372,21 +378,30 @@ func (t *Tracker) startTrack(now time.Time, tr *track, first zoneInfo) {
 		return
 	}
 
-	// A person who stood still long enough for Frigate to lose them moved again.
-	if tok := t.unheldToken(first.Area); tok != nil {
+	// A person who stood still until Frigate lost them moved again, or a person came back from an unseen
+	// area and was tracked only after the doorway. When both could explain the track, the person who
+	// disappeared most recently is the one who reappeared.
+	idle := t.unheldToken(first.Area)
+	door := t.nearDoorwayToken(first.Area)
+	if idle != nil && door != nil {
+		if door.since.After(idle.lastSeen) {
+			idle = nil
+		} else {
+			door = nil
+		}
+	}
+	if idle != nil {
 		tr.rule = ruleResume
 		tr.confirmed = true
-		t.attach(tr, tok)
+		t.attach(tr, idle)
 		return
 	}
-
-	// Rule 3: a person came back from an unseen area and was tracked only after the doorway.
-	if tok := t.nearDoorwayToken(first.Area); tok != nil {
+	if door != nil {
 		tr.rule = ruleNearDoorway
 		tr.confirmed = true
-		from := tok.area
-		t.attach(tr, tok)
-		t.moveToken(now, tok, first.Area, tr.camera, "came back from "+from)
+		from := door.area
+		t.attach(tr, door)
+		t.moveToken(now, door, first.Area, tr.camera, "came back from "+from)
 		return
 	}
 
@@ -545,7 +560,7 @@ func (t *Tracker) endTrack(now time.Time, tr *track, obj FrigateObject) {
 		return
 	}
 
-	last, ok := t.lastZone(obj)
+	last, ok := t.lastZone(tr, obj)
 	if !ok || last.Kind != zoneBoundary {
 		tr.outcome = "token stays in " + tok.area
 		return
@@ -559,9 +574,13 @@ func (t *Tracker) endTrack(now time.Time, tr *track, obj FrigateObject) {
 	tr.outcome = "waiting for a hand-off to " + last.Beyond
 }
 
-// lastZone is the zone the person was in when the track ended.
-func (t *Tracker) lastZone(obj FrigateObject) (zoneInfo, bool) {
+// lastZone is the zone the person was in when the track ended: the current zones, else the last
+// non-empty current zones, else the last entered zone.
+func (t *Tracker) lastZone(tr *track, obj FrigateObject) (zoneInfo, bool) {
 	if zi, ok := t.currentZone(obj); ok {
+		return zi, true
+	}
+	if zi, ok := t.currentZone(FrigateObject{CurrentZones: tr.lastCurrent, EnteredZones: obj.EnteredZones}); ok {
 		return zi, true
 	}
 	for i := len(obj.EnteredZones) - 1; i >= 0; i-- {
@@ -694,17 +713,23 @@ func (t *Tracker) lastEvidence(tok *token) time.Time {
 	return ref
 }
 
-// enforceCount drops the least recently seen tokens while there are more tokens than people home.
+// enforceCount drops the least recently seen tokens while there are more tokens than people home. A token
+// that no camera is following goes first.
 func (t *Tracker) enforceCount(now time.Time) {
 	if !t.peopleKnown || t.guests || t.peopleHome <= 0 {
 		return
 	}
 	for len(t.tokens) > t.peopleHome {
 		var drop *token
+		dropHeld := false
 		for _, id := range sortedKeys(t.tokens) {
 			tok := t.tokens[id]
-			if drop == nil || t.lastEvidence(tok).Before(t.lastEvidence(drop)) {
-				drop = tok
+			held := t.held(id)
+			switch {
+			case drop == nil,
+				dropHeld && !held,
+				dropHeld == held && t.lastEvidence(tok).Before(t.lastEvidence(drop)):
+				drop, dropHeld = tok, held
 			}
 		}
 		t.removeToken(now, drop, "more tokens than people home")

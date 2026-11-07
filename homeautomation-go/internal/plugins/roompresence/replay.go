@@ -28,6 +28,15 @@ type ReplayExpectations struct {
 	// UnknownZones, when set, must equal the zones the log used that match no area. An empty list
 	// proves the config covers every zone in the log.
 	UnknownZones *[]string `yaml:"unknown_zones"`
+
+	// People, when set, is who was home during the log. Without it the people-count rules do not run.
+	People *ReplayPeople `yaml:"people"`
+}
+
+// ReplayPeople is who was home during a replay log.
+type ReplayPeople struct {
+	Home   int  `yaml:"home"`
+	Guests bool `yaml:"guests"`
 }
 
 // ReplayCheckpoint lists areas that must be occupied or empty at one moment.
@@ -77,6 +86,9 @@ func Replay(cfg *Config, msgs []CapturedMessage, exp *ReplayExpectations) ([]str
 		return nil, tr
 	}
 	start := unixTime(msgs[0].T)
+	if exp.People != nil {
+		tr.SetPeople(start, exp.People.Home, exp.People.Guests, exp.People.Home > 0 || exp.People.Guests)
+	}
 	checkpoints := append([]ReplayCheckpoint(nil), exp.Checkpoints...)
 	sort.SliceStable(checkpoints, func(i, j int) bool { return checkpoints[i].After < checkpoints[j].After })
 

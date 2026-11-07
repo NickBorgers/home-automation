@@ -243,6 +243,25 @@ func TestRule3_NearDoorwayMovesTokenOut(t *testing.T) {
 	assert.Equal(t, ruleNearDoorway, s.tr.active["a"].rule)
 }
 
+// When an idle token and a doorway token could both explain a new track, the latest disappearance wins.
+func TestResumeOrDoorway_MostRecentDisappearanceWins(t *testing.T) {
+	s := newScene(t)
+	s.seed(5, "lounge") // t1: sat still on the couch, last seen at 5 s
+	s.seed(13, "study") // t2: went into the study at 13 s
+
+	s.event(60, "update", "b", "cam_lounge", []string{"lounge"}, "lounge")
+	assert.Equal(t, ruleNearDoorway, s.tr.active["b"].rule, "the study entry is newer than the couch")
+	s.empty("study")
+	s.tokens(2)
+
+	s2 := newScene(t)
+	s2.seed(13, "study")
+	s2.seed(30, "lounge")
+	s2.event(60, "update", "b", "cam_lounge", []string{"lounge"}, "lounge")
+	assert.Equal(t, ruleResume, s2.tr.active["b"].rule, "the couch sitter was lost more recently")
+	s2.occupied("study")
+}
+
 // "When I walk into the study, the lounge does not go dark while someone else is on the couch."
 func TestStory_StudyEntryLeavesCouchSitter(t *testing.T) {
 	s := newScene(t)
@@ -380,6 +399,16 @@ func TestTooManyTokens_DropsLeastRecentlySeen(t *testing.T) {
 	s.empty("study")
 }
 
+func TestTooManyTokens_KeepsTokensCamerasAreFollowing(t *testing.T) {
+	s := newScene(t)
+	s.seed(0, "lounge")
+	s.event(1, "update", "a", "cam_lounge", []string{"lounge"}, "lounge") // resumes t1
+	s.seed(100, "study")                                                  // newer, but nobody follows it
+	s.tr.SetPeople(at(200), 1, false, true)
+	s.tokens(1)
+	s.occupied("lounge")
+}
+
 func TestBedSensor_EnsuresToken(t *testing.T) {
 	s := newScene(t)
 	s.tr.BedOccupied(at(0), "bedroom")
@@ -389,6 +418,19 @@ func TestBedSensor_EnsuresToken(t *testing.T) {
 	s.tick(48 * 3600)
 	s.occupied("bedroom") // no idle limit
 	assert.Empty(t, s.tr.DrainEntries(), "a bed sensor is not an entry")
+}
+
+// Frigate often ends a track with no current zones. The last zone the person stood in decides.
+func TestEnd_EmptyCurrentZonesUsesLastNonEmpty(t *testing.T) {
+	s := newScene(t)
+	s.seed(0, "lounge")
+	s.event(1, "update", "a", "cam_lounge", []string{"lounge", "kitchen"}, "kitchen")
+	s.event(2, "update", "a", "cam_lounge", []string{"lounge", "kitchen", "lounge_to_study"}, "lounge_to_study")
+	s.event(3, "update", "a", "cam_lounge", []string{"lounge", "kitchen", "lounge_to_study"}, "lounge")
+	s.event(4, "update", "a", "cam_lounge", []string{"lounge", "kitchen", "lounge_to_study"})
+	s.event(5, "end", "a", "cam_lounge", []string{"lounge", "kitchen", "lounge_to_study"})
+	s.occupied("lounge")
+	s.empty("study")
 }
 
 func TestReconnected_EndsOpenTracks(t *testing.T) {

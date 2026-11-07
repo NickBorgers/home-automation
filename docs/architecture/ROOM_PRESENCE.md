@@ -117,8 +117,9 @@ A track's first zone is known at its first `update`, not at `new`.
 5. **None of the above.** The person "appeared from nowhere". Mark the track **unconfirmed**. See
    [False people](#false-people).
 
-The rules are tried in this order. A hand-off is more precise evidence of identity than an idle token, and
-an idle token in the same area is more likely than a return from the room next door.
+Rule 2 is tried first: a hand-off is the most precise evidence of identity. When rules 3 and 4 both match,
+the person who disappeared most recently is the one who reappeared: the idle token's last sighting is
+compared with the time the other token went through the doorway.
 
 ### While a track runs
 
@@ -128,7 +129,10 @@ starts inside the hand-off window.
 
 ### When a track ends
 
-The last zone in `entered_zones` decides what happened.
+The zone the person was last in decides what happened. Frigate often ends a track with no `current_zones`,
+and `entered_zones` lists each zone once, in first-entry order. So the plugin uses the current zones, else
+the last non-empty current zones, else the last entered zone. A boundary zone wins over the room zone it is
+drawn on.
 
 ```mermaid
 flowchart TD
@@ -154,10 +158,11 @@ sleep and wake state.
 Other evidence also moves tokens:
 
 - **Nobody home** (`isAnyoneHome` false for `nobody_home_delay`, default 5 min): remove every token.
-- **A bed presence sensor** listed in the area's `bed_sensors` turns on: make sure the area holds at least one token.
+- **A bed presence sensor** listed in the area's `bed_sensors` turns on: make sure the area holds at least
+  one token.
 - **More tokens than people home** (counted from `isNickHome`, `isCarolineHome`, `isAssistantHere`): drop the
-  token that was seen least recently. This rule only applies when `isHaveGuests` is false, because guests make
-  the count unknown.
+  token that was seen least recently. A token no camera is following goes first. This rule only applies
+  when `isHaveGuests` is false, because guests make the count unknown.
 
 ### False people
 

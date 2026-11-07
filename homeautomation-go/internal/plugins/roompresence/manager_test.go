@@ -196,9 +196,9 @@ func TestManager_MQTTUnavailableIsUnconfigured(t *testing.T) {
 }
 
 func TestHeartbeatCamera(t *testing.T) {
-	cam, ok := heartbeatCamera("frigate/camera_1/status/detect")
+	cam, ok := heartbeatCamera("frigate/cam_lounge/status/detect")
 	assert.True(t, ok)
-	assert.Equal(t, "camera_1", cam)
-	_, ok = heartbeatCamera("frigate/camera_1/motion")
+	assert.Equal(t, "cam_lounge", cam)
+	_, ok = heartbeatCamera("frigate/cam_lounge/motion")
 	assert.False(t, ok)
 }
