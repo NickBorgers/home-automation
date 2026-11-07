@@ -4,11 +4,13 @@ This document describes the load shedding automation flow, which manages HVAC th
 
 ## Overview
 
-The load shedding plugin controls thermostats, EV charger, and dehumidifier based on energy levels to:
+The load shedding plugin controls thermostats, the Leaf charger, and the dehumidifier based on energy levels to:
 1. Restrict HVAC, disable EV charger, and disable dehumidifier when battery is low (red, <15%)
-2. Return to normal schedules and re-enable EV charger and dehumidifier when energy is available (green/white)
+2. Return HVAC and the Leaf charger to their existing policy when energy is available (green/white)
 3. **Thermal battery**: Pre-condition the house by shifting HVAC setpoints when energy is abundant (white)
-4. Turn off the dehumidifier at yellow. It runs only at green/white. HVAC and the EV charger keep their hysteresis state
+4. Run the dehumidifier only at white, independently of both EV charging policies
+
+The Leaf charger is the only EV controlled by this plugin (`switch.leaf_charger`). Tesla charging is controlled separately through the Tesla Fleet API: it stops at red/yellow, charges slowly at green, and charges at full speed at white. The dehumidifier policy does not change either charger policy.
 
 ## Energy Level Response
 
@@ -27,8 +29,8 @@ flowchart TD
 
     currentLevel --> checkLevel
     checkLevel -->|red| enableLS
-    checkLevel -->|green| greenAction["Disable load shedding<br/>+ Thermal battery: enter hysteresis if active"]
-    checkLevel -->|white| thermalBattery["Disable load shedding<br/>+ Activate thermal battery"]
+    checkLevel -->|green| greenAction["Turn off dehumidifier<br/>Disable load shedding<br/>+ Thermal battery: enter hysteresis if active"]
+    checkLevel -->|white| thermalBattery["Restore dehumidifier<br/>Disable load shedding<br/>+ Activate thermal battery"]
     checkLevel -->|yellow| maintain["Turn off dehumidifier<br/>Maintain HVAC and EV charger state<br/>(hysteresis carry)<br/>Deactivate thermal battery"]
 
     style enableLS fill:#e74c3c,color:#fff
@@ -99,7 +101,6 @@ flowchart TD
     subgraph Actions["Disable Actions"]
         turnOffHold["Turn off thermostat hold<br/>(both zones)"]
         turnOnEV["Turn on EV charger"]
-        turnOnDehum["Turn on dehumidifier"]
     end
 
     alreadyOff -->|Yes| skipOff
@@ -109,14 +110,12 @@ flowchart TD
     rateLimit -->|Yes| skipRate
     rateLimit -->|No| turnOffHold
     turnOffHold --> turnOnEV
-    turnOnEV --> turnOnDehum
 
     style skipOff fill:#95a5a6,color:#fff
     style skipHold fill:#95a5a6,color:#fff
     style skipRate fill:#f39c12,color:#fff
     style turnOffHold fill:#27ae60,color:#fff
     style turnOnEV fill:#27ae60,color:#fff
-    style turnOnDehum fill:#27ae60,color:#fff
 ```
 
 ## Thermal Battery (Energy Level White)
@@ -266,14 +265,14 @@ Any in-progress stepping goroutine and any deferred-activation recheck timer are
 
 ## Yellow State — Hysteresis Carry
 
-The yellow (15-59%) energy state is the wide hysteresis band that covers normal nightly arbitrage operation. It does **not** shed HVAC or the EV charger — it carries whatever state red (engage) or green (release) last set. The one exception is the dehumidifier, which runs only at green/white.
+The yellow (15-59%) energy state is the wide hysteresis band that covers normal nightly arbitrage operation. It does **not** shed HVAC or the Leaf charger — it carries whatever state red (engage) or green (release) last set. The dehumidifier runs only at white and remains off at yellow.
 
 **Yellow actions:**
 - Deactivate thermal battery (energy is declining, stop pre-conditioning)
 - Turn off the dehumidifier (`switch.barn_dehumidifier_power_control`)
 - No change to HVAC holds or the EV charger (red's holds stay engaged; green's restored state stays)
 
-**Dehumidifier restore:** Green and white turn the dehumidifier on when it may be off. The restore is not rate limited. After a restart the plug state is unknown, so the first green or white level turns it on. A green or white level that follows an already-restored dehumidifier sends no command, so a manual "off" is not overridden.
+**Dehumidifier policy:** Green, yellow, and red turn the dehumidifier off immediately, outside the HVAC/Leaf rate limit. White turns it on when it may be off. After a restart the plug state is unknown, so the first white level turns it on. A white level that follows an already-restored dehumidifier sends no command, so a manual "off" is not repeatedly overridden. Deferred HVAC/Leaf actions never restore the dehumidifier.
 
 ```mermaid
 sequenceDiagram
@@ -302,10 +301,15 @@ sequenceDiagram
     Battery->>EM: Battery = 65% (green)
     EM->>LS: currentEnergyLevel = green
     LS->>HVAC: Disable hold mode<br/>(resume schedule)
-    LS->>NonHVAC: Turn on<br/>(restore loads)
+    LS->>NonHVAC: Leaf charger on<br/>Dehumidifier stays off
+
+    Note over Battery: Energy becomes abundant
+
+    EM->>LS: currentEnergyLevel = white
+    LS->>NonHVAC: Restore dehumidifier
 ```
 
-The wide yellow band (15-59%) absorbs normal arbitrage cycling without engaging load shed. HVAC and the EV charger are only shed when battery actually crosses the 15% floor into red. The dehumidifier is shed at yellow and below.
+The wide yellow band (15-59%) absorbs normal arbitrage cycling without engaging load shed. HVAC and the Leaf charger are only shed when battery actually crosses the 15% floor into red. The dehumidifier is shed at every level below white.
 
 ## Controlled Entities
 
@@ -376,7 +380,7 @@ flowchart LR
 |----------|------|-------------|
 | `loadSheddingOn` | bool | Current full load shedding state (HVAC + non-HVAC) |
 | `nonHVACLoadsShed` | bool | Whether the EV charger is shed (red level) |
-| `dehumidifierOff` | bool | Whether the dehumidifier may be off; starts `true` (plug state unknown after restart); cleared on first successful turn-on at green/white |
+| `dehumidifierOff` | bool | Whether the dehumidifier may be off; starts `true` (plug state unknown after restart); cleared on a successful turn-on at white |
 | `lastAction` | time | Timestamp of last action (rate limiting) |
 | `thermalBatteryActive` | bool | Whether thermal battery is currently active |
 | `thermalBatteryHysteresisActive` | bool | Whether thermal battery is in wide-band hysteresis after a green dip |
