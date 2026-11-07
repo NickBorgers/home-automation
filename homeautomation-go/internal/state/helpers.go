@@ -275,6 +275,8 @@ func (h *DerivedStateHelper) updateIsAnyoneHome() {
 	}
 
 	if !currentValue {
+		// computed and stored are both false; no state change but still notify so shadow stays aligned
+		h.notifyCallback()
 		return
 	}
 
