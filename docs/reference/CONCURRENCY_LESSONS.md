@@ -1680,9 +1680,21 @@ func (m *Manager) handleSexModeOn() {
 - The cache lock is a leaf lock: no I/O and no other locks while it is held.
 - `GetAllStates` stays a live fetch on purpose. `SyncFromHA` relies on a fresh view after reconnect.
 
+## Lesson 26: Observers Must Publish Even When Another Subscriber Updated the Value First
+
+**Pattern**: When multiple subscribers derive the same authoritative state, an observer must refresh its diagnostic snapshot even if its attempted write is a no-op.
+
+**Why**: The computed-state registry and State Tracking helper both react to presence and sleep inputs. The registry runs first in production and updates the shared value. State Tracking then sees the expected value already present; returning without its callback leaves shadow state stale while consumers such as Music read the current shared value.
+
+**Where Applied**: `internal/state/helpers.go` — unchanged derived values still invoke the State Tracking callback so its shadow snapshot stays aligned with the authoritative state (Issue #1265).
+
 ---
 
 ## Change Log
+
+### 2026-11-07
+- **Added Lesson 26**: Observers must publish even when another subscriber updated the value first
+  - Keeps State Tracking shadow outputs aligned with the computed-state registry and Music consumers (Issue #1265)
 
 ### 2026-10-30
 - **Updated Lesson 25**: Document `GetState` post-`beginSeed` cache re-check
