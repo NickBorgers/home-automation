@@ -61,7 +61,6 @@ flowchart TD
         turnOnHold["Turn on thermostat hold<br/>(both zones)"]
         setTemp["Set temperature range<br/>65°F - 80°F"]
         turnOffEV["Turn off EV charger"]
-        turnOffDehum["Turn off dehumidifier"]
     end
 
     alreadyOn -->|Yes| skipOn
@@ -72,14 +71,12 @@ flowchart TD
     rateLimit -->|No| turnOnHold
     turnOnHold --> setTemp
     setTemp --> turnOffEV
-    turnOffEV --> turnOffDehum
 
     style skipOn fill:#95a5a6,color:#fff
     style skipHold fill:#95a5a6,color:#fff
     style skipRate fill:#f39c12,color:#fff
     style setTemp fill:#e74c3c,color:#fff
     style turnOffEV fill:#e74c3c,color:#fff
-    style turnOffDehum fill:#e74c3c,color:#fff
 ```
 
 ### Disable Load Shedding (Energy Restored)

@@ -138,7 +138,8 @@ func TestLoadShedding_EnergyStateWhite(t *testing.T) {
 	err = env.StateMgr.SetString("currentEnergyLevel", "white")
 	assert.NoError(t, err)
 
-	// Verify service calls (should be same as green)
+	// Verify service calls: white restores HVAC, Leaf charger, and dehumidifier.
+	// Unlike green (which sheds the dehumidifier), white is the only level that turns it on.
 	calls := env.MockHA.GetServiceCalls()
 	assert.GreaterOrEqual(t, len(calls), 3, "Expected at least 3 service calls (thermostat hold off, EV charger on, dehumidifier on)")
 
@@ -607,7 +608,16 @@ func TestLoadShedding_DeferredActionCancelledByNewAction(t *testing.T) {
 	// Verify that the deferred disable did not release thermostat holds or restore
 	// the Leaf charger. The new red level does turn the dehumidifier off promptly.
 	calls := env.MockHA.GetServiceCallsSince(snapshot)
-	assert.Nil(t, testutil.FindServiceCallWithEntity(calls, "switch", "turn_off", thermostatHoldHouse))
+	// Thermostat holds are issued with entity_id as []string — FindServiceCallWithEntity
+	// only matches plain string entity_id, so check the slice form directly.
+	for _, call := range calls {
+		if call.Domain == "switch" && call.Service == "turn_off" {
+			if entities, ok := call.Data["entity_id"].([]string); ok {
+				assert.NotContains(t, entities, thermostatHoldHouse,
+					"deferred disable must not have released thermostat holds")
+			}
+		}
+	}
 	assert.Nil(t, testutil.FindServiceCallWithEntity(calls, "switch", "turn_on", evChargerSwitch))
 	assert.NotNil(t, testutil.FindServiceCallWithEntity(calls, "switch", "turn_off", dehumidifierSwitch))
 
