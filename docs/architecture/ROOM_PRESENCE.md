@@ -106,7 +106,9 @@ A track's first zone is known at its first `update`, not at `new`.
    from `study` to `lounge`. If `study` has no token, still create one in `lounge`. The plugin may have been
    wrong about where that person was.
 2. **It starts where another track just ended**, in a neighboring area within the hand-off window. This is the
-   same person moving on. Move that token.
+   same person moving on. Move that token. A track's first message can list several zones, and Frigate's
+   order is not always the order the person walked in, so every room and doorway zone in that message
+   counts as "where it starts".
 3. **It starts in an area that holds a token no track is following.** A person who sat still until Frigate
    lost them has moved again. The track takes over that token.
 4. **It starts next to a doorway to an unseen area that holds a token.** A returning person is often
@@ -120,6 +122,13 @@ A track's first zone is known at its first `update`, not at `new`.
 Rule 2 is tried first: a hand-off is the most precise evidence of identity. When rules 3 and 4 both match,
 the person who disappeared most recently is the one who reappeared: the idle token's last sighting is
 compared with the time the other token went through the doorway.
+
+**Straight back through a doorway.** Frigate ends a track 3–5 s after the person leaves view. A person who
+steps into an unseen room and comes straight back starts a new track in the same doorway before the old one
+has ended. When a new track's first message has a doorway zone to an unseen area, and an active track was
+last seen in that doorway (from either side) and has sent nothing for 2 s, the new track takes that track's
+token. The old track's end then leaves no token behind in the unseen room. Doorways between two seen areas
+are left to rule 2: a person standing near such a doorway would be mistaken for the one walking through.
 
 ### While a track runs
 
@@ -140,7 +149,9 @@ flowchart TD
     last -->|"Boundary to an unseen area"| into["Token moves into<br/>the unseen area"]
     last -->|"Boundary to a seen area"| handoff{"Picked up by<br/>another camera<br/>within the window?"}
     handoff -->|"Yes"| moved["Token follows<br/>the new track"]
-    handoff -->|"No"| gap["Token moves to<br/>the target area anyway"]
+    handoff -->|"No"| covered{"An online camera<br/>sees the target?"}
+    covered -->|"Yes"| stayDoor["Token stays.<br/>The person turned back,<br/>or stood near the doorway"]
+    covered -->|"No"| gap["Token moves to<br/>the target area"]
     last -->|"A room zone"| stay["Token stays.<br/>The person is probably<br/>still there, out of view"]
 ```
 
@@ -160,9 +171,9 @@ Other evidence also moves tokens:
 - **Nobody home** (`isAnyoneHome` false for `nobody_home_delay`, default 5 min): remove every token.
 - **A bed presence sensor** listed in the area's `bed_sensors` turns on: make sure the area holds at least
   one token.
-- **More tokens than people home** (counted from `isNickHome`, `isCarolineHome`, `isAssistantHere`): drop the
-  token that was seen least recently. A token no camera is following goes first. This rule only applies
-  when `isHaveGuests` is false, because guests make the count unknown.
+
+The number of people home never removes a token. Guests are not counted, and when the count is wrong the
+token removed can be the wrong person's. A token left by a missed exit expires under its area's idle limit.
 
 ### False people
 

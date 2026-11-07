@@ -299,9 +299,9 @@ func TestRule4_ConfirmedWhenItWalks(t *testing.T) {
 	s.empty("kitchen")
 	s.event(12, "update", "a", "cam_kitchen", []string{"kitchen", "lounge"}, "lounge")
 	s.occupied("lounge")
-	// Two people's worth of tokens with one person home: the stale hall token goes.
-	s.tokens(1)
-	s.empty("hall")
+	// The people count never removes a token: the hall token stays until its idle limit.
+	s.tokens(2)
+	s.occupied("hall")
 }
 
 func TestRule4_ConfirmedWhenFewerTokensThanPeople(t *testing.T) {
@@ -389,24 +389,77 @@ func TestNobodyHome_ClearsTokensAfterDelay(t *testing.T) {
 	s.tokens(0)
 }
 
-func TestTooManyTokens_DropsLeastRecentlySeen(t *testing.T) {
+// The people count does not cap tokens. Guests are not counted, and a dropped token can be the wrong person.
+func TestPeopleCount_DoesNotRemoveTokens(t *testing.T) {
 	s := newScene(t)
 	s.seed(0, "study")
 	s.seed(100, "kitchen")
 	s.tr.SetPeople(at(200), 1, false, true)
-	s.tokens(1)
+	s.tick(201)
+	s.tokens(2)
+	s.occupied("kitchen", "study")
+}
+
+// A track ends in a doorway to a seen area that an online camera covers, and no camera picks the person
+// up. They stepped into the doorway and back, or Frigate lost someone standing near it: the token stays.
+func TestEnd_BoundaryToCoveredAreaWithoutPickupStays(t *testing.T) {
+	s := newScene(t)
+	s.tr.addCameraArea("cam_hall", "hall") // as from a config cameras: entry or an earlier hall zone
+	for sec := 0.0; sec <= 10; sec++ {
+		s.tr.Heartbeat(at(sec), "cam_hall")
+	}
+	s.seed(0, "kitchen")
+	s.event(1, "update", "a", "cam_kitchen", []string{"kitchen"}, "kitchen")
+	s.event(2, "update", "a", "cam_kitchen", []string{"kitchen", "kitchen_to_hall"}, "kitchen_to_hall")
+	s.event(3, "end", "a", "cam_kitchen", []string{"kitchen", "kitchen_to_hall"}, "kitchen_to_hall")
+	s.tick(9)
 	s.occupied("kitchen")
+	s.empty("hall")
+	assert.Contains(t, s.tr.ended[len(s.tr.ended)-1].outcome, "token stays in kitchen")
+}
+
+// The new camera's first message lists a room and the doorway the person came through. The old track has
+// not ended yet. The token is handed over through the doorway instead of making a second one.
+func TestHandoff_ThroughDoorwayInFirstMessage(t *testing.T) {
+	s := newScene(t)
+	s.seed(0, "kitchen")
+	s.event(1, "update", "a", "cam_kitchen", []string{"kitchen"}, "kitchen")
+	s.event(2, "update", "a", "cam_kitchen", []string{"kitchen", "kitchen_to_hall"}, "kitchen", "kitchen_to_hall")
+	s.event(4, "update", "b", "cam_hall", []string{"hall", "hall_to_kitchen"}, "hall_to_kitchen")
+	s.event(5, "update", "b", "cam_hall", []string{"hall", "hall_to_kitchen"}, "hall")
+	s.event(6, "end", "a", "cam_kitchen", []string{"kitchen", "kitchen_to_hall"})
+	s.tick(20)
+	s.tokens(1)
+	s.occupied("hall")
+	s.empty("kitchen")
+	assert.Equal(t, ruleHandoff, s.tr.active["b"].rule)
+}
+
+// Frigate ends a track a few seconds after the person leaves view. A person who stepped into an unseen
+// room and came straight back starts a new track in the same doorway before the old one ends. That is one
+// person: the old track's end must not leave a token in the unseen room.
+func TestTwin_CameStraightBackBeforeOldTrackEnded(t *testing.T) {
+	s := newScene(t)
+	s.seed(0, "lounge")
+	s.event(1, "update", "a", "cam_lounge", []string{"lounge"}, "lounge")
+	s.event(2, "update", "a", "cam_lounge", []string{"lounge", "lounge_to_study"}, "lounge_to_study")
+	s.event(2.5, "update", "a", "cam_lounge", []string{"lounge", "lounge_to_study"})
+	s.event(5, "update", "b", "cam_lounge", []string{"lounge_to_study"}, "lounge_to_study")
+	s.event(5.5, "end", "a", "cam_lounge", []string{"lounge", "lounge_to_study"})
+	s.event(6, "update", "b", "cam_lounge", []string{"lounge_to_study", "lounge"}, "lounge")
+	s.tokens(1)
+	s.occupied("lounge")
 	s.empty("study")
 }
 
-func TestTooManyTokens_KeepsTokensCamerasAreFollowing(t *testing.T) {
+// A track still sending updates is a different person, even in the same doorway.
+func TestTwin_NotWhileOldTrackIsStillInView(t *testing.T) {
 	s := newScene(t)
 	s.seed(0, "lounge")
-	s.event(1, "update", "a", "cam_lounge", []string{"lounge"}, "lounge") // resumes t1
-	s.seed(100, "study")                                                  // newer, but nobody follows it
-	s.tr.SetPeople(at(200), 1, false, true)
-	s.tokens(1)
-	s.occupied("lounge")
+	s.event(1, "update", "a", "cam_lounge", []string{"lounge"}, "lounge")
+	s.event(2, "update", "a", "cam_lounge", []string{"lounge", "lounge_to_study"}, "lounge_to_study")
+	s.event(2.2, "update", "b", "cam_lounge", []string{"lounge_to_study"}, "lounge_to_study")
+	s.tokens(2)
 }
 
 func TestBedSensor_EnsuresToken(t *testing.T) {

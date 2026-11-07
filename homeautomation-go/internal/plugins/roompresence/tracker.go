@@ -15,6 +15,7 @@ const (
 	ruleResume       = "resume"        // a person who stood still in the area moved again
 	ruleNearDoorway  = "near_doorway"  // rule 3: started next to an unseen area that holds a token
 	ruleUnconfirmed  = "unconfirmed"   // rule 4: appeared from nowhere
+	ruleTwin         = "twin"          // came straight back through a doorway before the old track ended
 )
 
 // How many ended tracks and removals to keep for shadow state.
@@ -22,6 +23,10 @@ const (
 	recentTrackLimit = 30
 	removalLimit     = 20
 )
+
+// twinQuiet is how long a track must have gone without an update before a new track in its doorway is
+// taken to be the same person. A person still in view keeps sending updates.
+const twinQuiet = 2 * time.Second
 
 // FrigateEvent is one message on frigate/events.
 type FrigateEvent struct {
@@ -168,7 +173,7 @@ func (t *Tracker) HandleEvent(now time.Time, ev FrigateEvent) {
 			}
 			return
 		}
-		t.startTrack(now, tr, first)
+		t.startTrack(now, tr, first, obj)
 	} else {
 		t.followTrack(now, tr, obj)
 	}
@@ -183,7 +188,6 @@ func (t *Tracker) HandleEvent(now time.Time, ev FrigateEvent) {
 	if ev.Type == "end" {
 		t.endTrack(now, tr, obj)
 	}
-	t.enforceCount(now)
 }
 
 // Heartbeat records a frigate/<camera>/status/detect message.
@@ -213,7 +217,6 @@ func (t *Tracker) SetPeople(now time.Time, count int, guests, anyoneHome bool) {
 	t.peopleHome = count
 	t.guests = guests
 	t.anyoneHome = anyoneHome
-	t.enforceCount(now)
 }
 
 // BedOccupied makes sure an area with an occupied bed holds a token.
@@ -222,7 +225,6 @@ func (t *Tracker) BedOccupied(now time.Time, area string) {
 		return
 	}
 	t.newToken(now, area, "", "bed sensor is on", false)
-	t.enforceCount(now)
 }
 
 // Reconnected ends every open track as if Frigate had ended it. Messages may have been lost.
@@ -253,9 +255,17 @@ func (t *Tracker) Tick(now time.Time) {
 		}
 		target := tr.pendingTarget
 		tr.pendingTarget = ""
-		if tok, ok := t.tokens[tr.tokenID]; ok && !t.held(tok.id) {
-			t.moveToken(now, tok, target, tr.camera, "no camera picked the person up; moved to "+target)
+		tok, ok := t.tokens[tr.tokenID]
+		if !ok || t.held(tok.id) {
+			continue
 		}
+		// A camera that sees the target area would have picked up a person who walked in. Nobody did,
+		// so the person stepped into the doorway and back, or Frigate lost someone standing near it.
+		if t.covered(target) {
+			tr.outcome = "no camera picked the person up; token stays in " + tok.area
+			continue
+		}
+		t.moveToken(now, tok, target, tr.camera, "no camera picked the person up; moved to "+target)
 	}
 
 	for _, id := range sortedKeys(t.tokens) {
@@ -278,8 +288,6 @@ func (t *Tracker) Tick(now time.Time) {
 			t.removeToken(now, t.tokens[id], "nobody home")
 		}
 	}
-
-	t.enforceCount(now)
 }
 
 // Occupied reports whether an area holds a token.
@@ -349,7 +357,32 @@ func (t *Tracker) currentZone(obj FrigateObject) (zoneInfo, bool) {
 	return best, found
 }
 
-func (t *Tracker) startTrack(now time.Time, tr *track, first zoneInfo) {
+// firstMessageZones lists the areas and doorway zones in a track's first message. The first message can
+// list several zones, and Frigate's order is not always the order the person walked in.
+func (t *Tracker) firstMessageZones(obj FrigateObject) (areas []string, doorways []zoneInfo) {
+	seen := map[string]bool{}
+	for _, z := range append(append([]string(nil), obj.CurrentZones...), obj.EnteredZones...) {
+		if seen[z] {
+			continue
+		}
+		seen[z] = true
+		switch zi := t.cfg.resolveZone(z); zi.Kind {
+		case zoneRoom:
+			areas = append(areas, zi.Area)
+		case zoneBoundary:
+			areas = append(areas, zi.Area)
+			if t.cfg.Areas[zi.Beyond].Seen {
+				areas = append(areas, zi.Beyond)
+			}
+			doorways = append(doorways, zi)
+		}
+	}
+	return areas, doorways
+}
+
+// startTrack applies the start rules to a track's first message.
+func (t *Tracker) startTrack(now time.Time, tr *track, first zoneInfo, obj FrigateObject) {
+	near, doorways := t.firstMessageZones(obj)
 	tr.started = true
 	tr.startArea = first.Area
 	tr.area = first.Area
@@ -357,7 +390,7 @@ func (t *Tracker) startTrack(now time.Time, tr *track, first zoneInfo) {
 	if first.Kind == zoneBoundary {
 		// Rule 1: the person came out through the doorway.
 		if t.cfg.Areas[first.Beyond].Seen {
-			if t.tryHandoff(now, tr, first.Area, first.Beyond) {
+			if t.tryHandoff(now, tr, first.Area, append(near, first.Beyond)) {
 				return
 			}
 		}
@@ -369,12 +402,18 @@ func (t *Tracker) startTrack(now time.Time, tr *track, first zoneInfo) {
 			t.moveToken(now, tok, first.Area, tr.camera, reason)
 			return
 		}
+		if t.takeTwin(now, tr, first.Area, doorways) {
+			return
+		}
 		t.attach(tr, t.newToken(now, first.Area, tr.camera, reason+" (no token was there)", true))
 		return
 	}
 
 	// Rule 2: the same person, handed off from another track.
-	if t.tryHandoff(now, tr, first.Area, "") {
+	if t.tryHandoff(now, tr, first.Area, near) {
+		return
+	}
+	if t.takeTwin(now, tr, first.Area, doorways) {
 		return
 	}
 
@@ -410,9 +449,19 @@ func (t *Tracker) startTrack(now time.Time, tr *track, first zoneInfo) {
 }
 
 // tryHandoff attaches tr to the token of a track that just ended nearby, or that another camera is
-// following nearby right now. via is a seen area beyond a boundary the track started in, or "".
-func (t *Tracker) tryHandoff(now time.Time, tr *track, area, via string) bool {
-	near := func(a string) bool { return t.cfg.neighbors(a, area) || (via != "" && t.cfg.neighbors(a, via)) }
+// following nearby right now. also lists more areas the track's first message touched.
+func (t *Tracker) tryHandoff(now time.Time, tr *track, area string, also []string) bool {
+	near := func(a string) bool {
+		if t.cfg.neighbors(a, area) {
+			return true
+		}
+		for _, b := range also {
+			if t.cfg.neighbors(a, b) {
+				return true
+			}
+		}
+		return false
+	}
 
 	var best *track
 	var bestAt time.Time
@@ -454,6 +503,68 @@ func (t *Tracker) tryHandoff(now time.Time, tr *track, area, via string) bool {
 		t.moveToken(now, tok, area, tr.camera, "handed off from "+best.camera)
 	}
 	return true
+}
+
+// takeTwin handles Frigate ending a track a few seconds after the person leaves view. A new track in the
+// same doorway before the old track ends is the same person coming straight back: it takes the old
+// track's token.
+func (t *Tracker) takeTwin(now time.Time, tr *track, area string, doorways []zoneInfo) bool {
+	for _, d := range doorways {
+		twin := t.doorwayTwin(now, tr, d)
+		if twin == nil {
+			continue
+		}
+		tr.rule = ruleTwin
+		tr.confirmed = true
+		tok := t.tokens[twin.tokenID]
+		t.attach(tr, tok)
+		if tok.area != area {
+			t.moveToken(now, tok, area, tr.camera, "came straight back through "+d.Area+"_to_"+d.Beyond)
+		}
+		return true
+	}
+	return false
+}
+
+// doorwayTwin finds an active track that was last seen in the doorway, from either side, and has gone
+// quiet: Frigate has lost the person but not ended the track yet. Only a doorway to an unseen area
+// counts. Between two seen areas the hand-off rule already follows the person, and people standing near
+// such a doorway would be mistaken for each other.
+func (t *Tracker) doorwayTwin(now time.Time, tr *track, first zoneInfo) *track {
+	if t.cfg.Areas[first.Area].Seen && t.cfg.Areas[first.Beyond].Seen {
+		return nil
+	}
+	var best *track
+	for _, id := range sortedKeys(t.active) {
+		c := t.active[id]
+		if c == tr || t.tokens[c.tokenID] == nil {
+			continue
+		}
+		quiet := now.Sub(c.lastUpdate)
+		if quiet < twinQuiet || quiet > t.cfg.HandoffWindow {
+			continue
+		}
+		zi, ok := t.currentZone(FrigateObject{CurrentZones: c.lastCurrent, EnteredZones: c.zones})
+		if !ok || zi.Kind != zoneBoundary {
+			continue
+		}
+		same := zi.Area == first.Area && zi.Beyond == first.Beyond
+		opposite := zi.Area == first.Beyond && zi.Beyond == first.Area
+		if (same || opposite) && (best == nil || c.lastUpdate.After(best.lastUpdate)) {
+			best = c
+		}
+	}
+	return best
+}
+
+// covered reports whether an online camera sees the area.
+func (t *Tracker) covered(area string) bool {
+	for cam, areas := range t.cameraAreas {
+		if c := t.cameras[cam]; c != nil && c.online && areas[area] {
+			return true
+		}
+	}
+	return false
 }
 
 // nearDoorwayToken finds an unheld token in an unseen area next to area. The most recent arrival wins.
@@ -714,31 +825,6 @@ func (t *Tracker) lastEvidence(tok *token) time.Time {
 		}
 	}
 	return ref
-}
-
-// enforceCount drops the least recently seen unheld tokens while there are more tokens than people home.
-// Tokens currently held by an active track are skipped — dropping them would blank the room while the
-// camera still sees the person.
-func (t *Tracker) enforceCount(now time.Time) {
-	if !t.peopleKnown || t.guests || t.peopleHome <= 0 {
-		return
-	}
-	for len(t.tokens) > t.peopleHome {
-		var drop *token
-		for _, id := range sortedKeys(t.tokens) {
-			if t.held(id) {
-				continue
-			}
-			tok := t.tokens[id]
-			if drop == nil || t.lastEvidence(tok).Before(t.lastEvidence(drop)) {
-				drop = tok
-			}
-		}
-		if drop == nil {
-			break // all remaining tokens are held by active tracks; leave them
-		}
-		t.removeToken(now, drop, "more tokens than people home")
-	}
 }
 
 // ---------------------------------------------------------------------------
