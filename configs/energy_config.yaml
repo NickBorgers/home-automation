@@ -1,7 +1,7 @@
 ---
 energy:
   indicator_lights:
-    friendly_name_pattern: "Radar"  # Matches Apollo MTR sensors
+    entity_id_pattern: "radar"  # Matches Apollo MTR light entity IDs
     adaptive_brightness:
       enabled: true
       lux_sensor_pattern: "ltr390_light"  # Matches Apollo MSR-2 light sensors

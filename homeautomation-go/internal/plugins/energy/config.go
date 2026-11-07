@@ -78,9 +78,9 @@ type BaselineCalibrationConfig struct {
 
 // IndicatorLightsConfig represents the configuration for energy indicator lights
 type IndicatorLightsConfig struct {
-	// FriendlyNamePattern is a regex to match entities by friendly_name attribute
-	// Default: "Radar" (matches Apollo MTR sensors which have "Radar" in their names)
-	FriendlyNamePattern string `yaml:"friendly_name_pattern"`
+	// EntityIDPattern is a regex to match light entity IDs.
+	// Default: "radar" (matches Apollo MTR light entity IDs).
+	EntityIDPattern string `yaml:"entity_id_pattern"`
 
 	// AdaptiveBrightness configures lux-based brightness adjustment
 	AdaptiveBrightness AdaptiveBrightnessConfig `yaml:"adaptive_brightness"`

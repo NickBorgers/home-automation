@@ -15,6 +15,13 @@ import (
 	"go.uber.org/zap"
 )
 
+func TestDisplayNameFromEntityID(t *testing.T) {
+	t.Parallel()
+	if got := displayNameFromEntityID("sensor.basement_humidity"); got != "basement humidity" {
+		t.Fatalf("displayNameFromEntityID() = %q", got)
+	}
+}
+
 // Test sensor entity IDs
 const (
 	testIndoorSensor1        = "sensor.indoor_humidity_1"
@@ -2526,34 +2533,6 @@ func TestEnvironmentalManager_UnconditionedHysteresis(t *testing.T) {
 	manager.SimulateSensorChange(testUnconditionedSensor1, 69.0)
 	if manager.GetCurrentState() != "none" {
 		t.Error("Expected alert to resolve at 69% (below unconditioned clear threshold of 70%)")
-	}
-}
-
-func TestCleanSensorName(t *testing.T) {
-	t.Parallel()
-
-	cases := []struct {
-		in, want string
-	}{
-		// Real cases observed in production where HA appends entity name to a
-		// device name that already ends in the same noun.
-		{"Guest Bedroom Temperature and Humidity Humidity", "Guest Bedroom Temperature and Humidity"},
-		{"Caroline Office Temperature and Humidity Humidity", "Caroline Office Temperature and Humidity"},
-		{"Living Room Temperature Temperature", "Living Room Temperature"},
-
-		// Should NOT dedupe — last token isn't a sensor noun, or no duplication.
-		{"Indoor Humidity 1", "Indoor Humidity 1"},
-		{"Bedroom 2 Bedroom", "Bedroom 2 Bedroom"},
-		{"Barn Humidity", "Barn Humidity"},
-		{"Humidity", "Humidity"},
-		{"", ""},
-	}
-
-	for _, c := range cases {
-		got := cleanSensorName(c.in)
-		if got != c.want {
-			t.Errorf("cleanSensorName(%q) = %q, want %q", c.in, got, c.want)
-		}
 	}
 }
 

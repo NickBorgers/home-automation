@@ -21,7 +21,7 @@ func createTestConfig() *EnergyConfig {
 			EnergyStates    []EnergyState         `yaml:"energy_states"`
 		}{
 			IndicatorLights: IndicatorLightsConfig{
-				FriendlyNamePattern: "Radar",
+				EntityIDPattern: "apollo",
 			},
 			EnergyStates: []EnergyState{
 				{
@@ -478,15 +478,15 @@ func TestIndicatorLightsDiscovery(t *testing.T) {
 	env := testutil.NewEnv(t)
 	config := createTestConfig()
 
-	// Set up mock states for light entities - some with "Radar" in friendly_name
+	// Set up mock states for light entities, some with "apollo" in the entity ID.
 	env.MockHA.SetState("light.apollo_bedroom_rgb", "on", map[string]interface{}{
-		"friendly_name": "Apollo Bedroom Radar Light",
+		"friendly_name": "Unrelated Name",
 	})
 	env.MockHA.SetState("light.apollo_kitchen_rgb", "on", map[string]interface{}{
 		"friendly_name": "Apollo Kitchen Radar Light",
 	})
 	env.MockHA.SetState("light.living_room_lamp", "on", map[string]interface{}{
-		"friendly_name": "Living Room Lamp", // No "Radar", should not be discovered
+		"friendly_name": "Apollo Indicator Light", // Attribute must not affect discovery.
 	})
 	env.MockHA.SetState("sensor.bedroom_radar", "detected", map[string]interface{}{
 		"friendly_name": "Bedroom Radar", // Sensor, not light - should not be discovered
@@ -508,12 +508,12 @@ func TestIndicatorLightsDiscovery(t *testing.T) {
 }
 
 // TestIndicatorLightsDiscovery_InvalidPattern verifies that an invalid regex in
-// FriendlyNamePattern config doesn't crash the system — it degrades gracefully.
+// EntityIDPattern config doesn't crash the system — it degrades gracefully.
 func TestIndicatorLightsDiscovery_InvalidPattern(t *testing.T) {
 	t.Parallel()
 	env := testutil.NewEnv(t)
 	config := createTestConfig()
-	config.Energy.IndicatorLights.FriendlyNamePattern = "[invalid" // unclosed bracket
+	config.Energy.IndicatorLights.EntityIDPattern = "[invalid" // unclosed bracket
 
 	env.MockHA.SetState("light.apollo_bedroom_rgb", "on", map[string]interface{}{
 		"friendly_name": "Apollo Bedroom Radar Light",
@@ -633,14 +633,16 @@ func TestIndicatorLightsDiscoveryCaseInsensitive(t *testing.T) {
 	env := testutil.NewEnv(t)
 	config := createTestConfig()
 
-	// Set up mock light entities with different casing of "Radar"
-	env.MockHA.SetState("light.apollo_lower_case", "on", map[string]interface{}{
+	config.Energy.IndicatorLights.EntityIDPattern = "radar"
+
+	// Set up mock light entities with different casing of "radar" in their entity IDs.
+	env.MockHA.SetState("light.apollo_radar_lower_case", "on", map[string]interface{}{
 		"friendly_name": "Apollo radar sensor", // lowercase "radar"
 	})
-	env.MockHA.SetState("light.apollo_upper_case", "on", map[string]interface{}{
+	env.MockHA.SetState("light.apollo_RADAR_upper_case", "on", map[string]interface{}{
 		"friendly_name": "Apollo RADAR sensor", // uppercase "RADAR"
 	})
-	env.MockHA.SetState("light.apollo_mixed_case", "on", map[string]interface{}{
+	env.MockHA.SetState("light.apollo_RaDaR_mixed_case", "on", map[string]interface{}{
 		"friendly_name": "Apollo RaDaR sensor", // mixed case
 	})
 	env.MockHA.SetState("light.no_match", "on", map[string]interface{}{
@@ -657,9 +659,9 @@ func TestIndicatorLightsDiscoveryCaseInsensitive(t *testing.T) {
 
 	// Verify all case variations were discovered (case-insensitive matching)
 	assert.Len(t, manager.indicatorLightEntities, 3)
-	assert.Contains(t, manager.indicatorLightEntities, "light.apollo_lower_case")
-	assert.Contains(t, manager.indicatorLightEntities, "light.apollo_upper_case")
-	assert.Contains(t, manager.indicatorLightEntities, "light.apollo_mixed_case")
+	assert.Contains(t, manager.indicatorLightEntities, "light.apollo_radar_lower_case")
+	assert.Contains(t, manager.indicatorLightEntities, "light.apollo_RADAR_upper_case")
+	assert.Contains(t, manager.indicatorLightEntities, "light.apollo_RaDaR_mixed_case")
 }
 
 func TestIndicatorLightsDiscoveryCustomPattern(t *testing.T) {
@@ -668,7 +670,7 @@ func TestIndicatorLightsDiscoveryCustomPattern(t *testing.T) {
 	config := createTestConfig()
 
 	// Set a custom regex pattern
-	config.Energy.IndicatorLights.FriendlyNamePattern = "^Apollo.*RGB$"
+	config.Energy.IndicatorLights.EntityIDPattern = `^light\.apollo.*rgb$`
 
 	env.MockHA.SetState("light.apollo_bedroom_rgb", "on", map[string]interface{}{
 		"friendly_name": "Apollo Bedroom RGB", // matches pattern

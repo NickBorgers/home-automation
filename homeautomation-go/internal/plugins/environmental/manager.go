@@ -115,6 +115,13 @@ type Manager struct {
 	alertedSensorNames map[string]bool
 }
 
+func displayNameFromEntityID(entityID string) string {
+	if _, name, ok := strings.Cut(entityID, "."); ok {
+		return strings.ReplaceAll(name, "_", " ")
+	}
+	return strings.ReplaceAll(entityID, "_", " ")
+}
+
 // NewManager creates a new environmental monitoring manager.
 // alerter can be nil if notifications are disabled (NTFY_TOPIC_URL not set).
 func NewManager(haClient ha.HAClient, stateManager *state.Manager, logger *zap.Logger, readOnly bool, registry *shadowstate.SubscriptionRegistry, alerter alert.Alerter) *Manager {
@@ -291,10 +298,7 @@ func (m *Manager) discoverHumiditySensors() error {
 		deviceID := entityToDevice[state.EntityID]
 		isIndoor := indoorDevices[deviceID]
 
-		friendlyName := state.EntityID
-		if name, ok := state.Attributes["friendly_name"].(string); ok {
-			friendlyName = name
-		}
+		friendlyName := displayNameFromEntityID(state.EntityID)
 
 		sensor := &HumiditySensor{
 			EntityID:        state.EntityID,
@@ -425,10 +429,7 @@ func (m *Manager) discoverWaterLeakSensors() error {
 			continue
 		}
 
-		friendlyName := state.EntityID
-		if name, ok := state.Attributes["friendly_name"].(string); ok {
-			friendlyName = name
-		}
+		friendlyName := displayNameFromEntityID(state.EntityID)
 
 		sensor := &WaterLeakSensor{
 			EntityID:     state.EntityID,
@@ -888,7 +889,7 @@ func (m *Manager) sendAlertNotification(now time.Time, level string) {
 			threshold = UnconditionedWarningThreshold
 		}
 		if sensor.Value >= threshold {
-			sensorDetails = append(sensorDetails, fmt.Sprintf("%s: %.0f%%", cleanSensorName(sensor.FriendlyName), sensor.Value))
+			sensorDetails = append(sensorDetails, fmt.Sprintf("%s: %.0f%%", sensor.FriendlyName, sensor.Value))
 			sensorLocations = append(sensorLocations, sensor.FriendlyName)
 			if sensor.Value > maxHumidity {
 				maxHumidity = sensor.Value
@@ -1017,11 +1018,10 @@ func (m *Manager) sendResolutionNotification(now time.Time) {
 			continue
 		}
 		if m.alertedSensorNames[sensor.FriendlyName] {
-			displayName := cleanSensorName(sensor.FriendlyName)
 			if sensor.Valid {
-				sensorSummary = append(sensorSummary, fmt.Sprintf("%s: %.0f%%", displayName, sensor.Value))
+				sensorSummary = append(sensorSummary, fmt.Sprintf("%s: %.0f%%", sensor.FriendlyName, sensor.Value))
 			} else {
-				sensorSummary = append(sensorSummary, fmt.Sprintf("%s: unavailable", displayName))
+				sensorSummary = append(sensorSummary, fmt.Sprintf("%s: unavailable", sensor.FriendlyName))
 			}
 		}
 	}
@@ -1032,7 +1032,7 @@ func (m *Manager) sendResolutionNotification(now time.Time) {
 			if !sensor.IsIndoor || !sensor.Valid {
 				continue
 			}
-			sensorSummary = append(sensorSummary, fmt.Sprintf("%s: %.0f%%", cleanSensorName(sensor.FriendlyName), sensor.Value))
+			sensorSummary = append(sensorSummary, fmt.Sprintf("%s: %.0f%%", sensor.FriendlyName, sensor.Value))
 		}
 	}
 
@@ -1096,31 +1096,6 @@ func formatSensorLocations(locations []string) string {
 	}
 	// For 3+ sensors, list all names joined with commas
 	return strings.Join(locations, ", ")
-}
-
-// sensorNounsToDedupe lists trailing tokens that Home Assistant often
-// duplicates via device_name + entity_name concatenation
-// (e.g. a device named "Guest Bedroom Temperature and Humidity" with an
-// entity named "Humidity" yields friendly_name "...Humidity Humidity").
-var sensorNounsToDedupe = map[string]bool{
-	"Humidity":    true,
-	"Temperature": true,
-	"CO2":         true,
-	"VOC":         true,
-	"PM25":        true,
-}
-
-// cleanSensorName strips a redundant duplicated trailing sensor-type noun
-// from a Home Assistant friendly_name. Only triggers when the last two
-// whitespace-separated tokens are identical and match a known sensor noun.
-func cleanSensorName(name string) string {
-	tokens := strings.Fields(name)
-	if len(tokens) >= 2 &&
-		tokens[len(tokens)-1] == tokens[len(tokens)-2] &&
-		sensorNounsToDedupe[tokens[len(tokens)-1]] {
-		return strings.Join(tokens[:len(tokens)-1], " ")
-	}
-	return name
 }
 
 // formatSensorDetails formats sensor name:value pairs for display in notifications
