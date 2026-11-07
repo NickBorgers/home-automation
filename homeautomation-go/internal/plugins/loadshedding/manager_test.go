@@ -88,7 +88,7 @@ func TestLoadShedding_EnergyStateGreen(t *testing.T) {
 
 	// Verify service calls
 	calls := env.MockHA.GetServiceCalls()
-	assert.GreaterOrEqual(t, len(calls), 3, "Expected at least 3 service calls (thermostat hold off, EV charger on, dehumidifier on)")
+	assert.GreaterOrEqual(t, len(calls), 3, "Expected at least 3 service calls (thermostat hold off, EV charger on, dehumidifier off)")
 
 	// Check for switch.turn_off call (thermostat holds)
 	foundThermostatOff := false
@@ -108,9 +108,11 @@ func TestLoadShedding_EnergyStateGreen(t *testing.T) {
 	evCall := testutil.FindServiceCallWithEntity(calls, "switch", "turn_on", evChargerSwitch)
 	assert.NotNil(t, evCall, "Expected switch.turn_on service call for EV charger")
 
-	// Check for switch.turn_on call (dehumidifier)
-	dehumCall := testutil.FindServiceCallWithEntity(calls, "switch", "turn_on", dehumidifierSwitch)
-	assert.NotNil(t, dehumCall, "Expected switch.turn_on service call for dehumidifier")
+	// Green leaves both EV charging policies available, but the dehumidifier is white-only.
+	dehumCall := testutil.FindServiceCallWithEntity(calls, "switch", "turn_off", dehumidifierSwitch)
+	assert.NotNil(t, dehumCall, "Expected switch.turn_off service call for dehumidifier")
+	assert.Nil(t, testutil.FindServiceCallWithEntity(calls, "switch", "turn_on", dehumidifierSwitch),
+		"Green must not turn on the dehumidifier")
 }
 
 func TestLoadShedding_EnergyStateWhite(t *testing.T) {
@@ -136,7 +138,8 @@ func TestLoadShedding_EnergyStateWhite(t *testing.T) {
 	err = env.StateMgr.SetString("currentEnergyLevel", "white")
 	assert.NoError(t, err)
 
-	// Verify service calls (should be same as green)
+	// Verify service calls: white restores HVAC, Leaf charger, and dehumidifier.
+	// Unlike green (which sheds the dehumidifier), white is the only level that turns it on.
 	calls := env.MockHA.GetServiceCalls()
 	assert.GreaterOrEqual(t, len(calls), 3, "Expected at least 3 service calls (thermostat hold off, EV charger on, dehumidifier on)")
 
@@ -185,11 +188,13 @@ func TestLoadShedding_RateLimiting(t *testing.T) {
 	err = env.StateMgr.SetString("currentEnergyLevel", "green")
 	assert.NoError(t, err)
 
-	// The thermostat and EV charger restore is rate limited. The dehumidifier restore is not,
-	// because it does not touch the thermostats the rate limit protects.
+	// The thermostat and EV charger restore is rate limited. Dehumidifier shedding is not,
+	// because it must turn off promptly outside white.
 	calls := env.MockHA.GetServiceCallsSince(snapshot)
-	assert.Len(t, calls, 2, "Expected: input_text.set_value for currentEnergyLevel + switch.turn_on for dehumidifier; thermostat/EV restore is rate limited")
-	assert.NotNil(t, testutil.FindServiceCallWithEntity(calls, "switch", "turn_on", dehumidifierSwitch))
+	assert.Len(t, calls, 2, "Expected: input_text.set_value for currentEnergyLevel + switch.turn_off for dehumidifier; thermostat/EV restore is rate limited")
+	assert.NotNil(t, testutil.FindServiceCallWithEntity(calls, "switch", "turn_off", dehumidifierSwitch))
+	assert.Nil(t, testutil.FindServiceCallWithEntity(calls, "switch", "turn_on", dehumidifierSwitch),
+		"A deferred EV/HVAC restore must not restore the dehumidifier at green")
 	assert.Nil(t, testutil.FindServiceCallWithEntity(calls, "switch", "turn_on", evChargerSwitch),
 		"EV charger restore should be rate limited")
 }
@@ -240,7 +245,7 @@ func TestLoadShedding_UnknownState(t *testing.T) {
 }
 
 // Yellow is the wide hysteresis band covering normal arbitrage operation.
-// It sheds only the dehumidifier, which runs at green/white. HVAC and the EV
+// It sheds only the dehumidifier, which runs only at white. HVAC and the EV
 // charger are not touched.
 func TestLoadShedding_EnergyStateYellow_ShedsOnlyDehumidifier(t *testing.T) {
 	t.Parallel()
@@ -273,10 +278,10 @@ func TestLoadShedding_EnergyStateYellow_ShedsOnlyDehumidifier(t *testing.T) {
 	assert.False(t, ls.IsLoadSheddingOn(), "Load shedding should not be active at yellow")
 }
 
-// User story: the dehumidifier only runs at green/white.
-// INVARIANT: after a drop to yellow the dehumidifier is off; after a climb back
-// to green it is on again, and the EV charger is never switched by this cycle.
-func TestScenario_UserStory_DehumidifierRunsOnlyAtGreenAndWhite(t *testing.T) {
+// User story: EV charging takes priority below white.
+// INVARIANT: leaving white turns off only the dehumidifier, and only returning
+// to white restores it.
+func TestScenario_UserStory_DehumidifierRunsOnlyAtWhite(t *testing.T) {
 	t.Parallel()
 	env := setupLoadSheddingEnv(t)
 
@@ -285,33 +290,66 @@ func TestScenario_UserStory_DehumidifierRunsOnlyAtGreenAndWhite(t *testing.T) {
 	assert.NoError(t, err)
 	defer ls.Stop()
 
-	t.Log("GIVEN: Energy level is green and the dehumidifier has been restored")
-	assert.NoError(t, env.StateMgr.SetString("currentEnergyLevel", "green"))
+	t.Log("GIVEN: Energy level is white and the dehumidifier has been restored")
+	assert.NoError(t, env.StateMgr.SetString("currentEnergyLevel", "white"))
 	snapshot := env.MockHA.ServiceCallCount()
 
-	t.Log("WHEN: Energy level drops to yellow")
-	assert.NoError(t, env.StateMgr.SetString("currentEnergyLevel", "yellow"))
+	t.Log("WHEN: Energy level drops to green")
+	assert.NoError(t, env.StateMgr.SetString("currentEnergyLevel", "green"))
 
 	t.Log("THEN: The dehumidifier is turned off")
 	calls := env.MockHA.GetServiceCallsSince(snapshot)
 	assert.NotNil(t, testutil.FindServiceCallWithEntity(calls, "switch", "turn_off", dehumidifierSwitch))
+	assert.Nil(t, testutil.FindServiceCallWithEntity(calls, "switch", "turn_off", evChargerSwitch),
+		"Green must not shed the Leaf charger")
 
-	t.Log("WHEN: Energy level climbs back to green")
+	t.Log("WHEN: Energy level climbs back to white")
 	snapshot = env.MockHA.ServiceCallCount()
-	assert.NoError(t, env.StateMgr.SetString("currentEnergyLevel", "green"))
+	assert.NoError(t, env.StateMgr.SetString("currentEnergyLevel", "white"))
 
 	t.Log("THEN: The dehumidifier is turned on again")
 	calls = env.MockHA.GetServiceCallsSince(snapshot)
 	assert.NotNil(t, testutil.FindServiceCallWithEntity(calls, "switch", "turn_on", dehumidifierSwitch))
 
-	t.Log("THEN: The EV charger was never switched by this yellow cycle")
-	all := env.MockHA.GetServiceCalls()
-	assert.Nil(t, testutil.FindServiceCallWithEntity(all, "switch", "turn_off", evChargerSwitch))
+	t.Log("THEN: The Leaf charger was not shed while returning to white")
+	whiteCalls := env.MockHA.GetServiceCallsSince(snapshot)
+	assert.Nil(t, testutil.FindServiceCallWithEntity(whiteCalls, "switch", "turn_off", evChargerSwitch))
+
+	t.Log("WHEN: Energy level drops to yellow and then climbs back to white")
+	assert.NoError(t, env.StateMgr.SetString("currentEnergyLevel", "yellow"))
+	snapshot = env.MockHA.ServiceCallCount()
+	assert.NoError(t, env.StateMgr.SetString("currentEnergyLevel", "white"))
+
+	t.Log("THEN: White restores the dehumidifier without changing the Leaf charger")
+	calls = env.MockHA.GetServiceCallsSince(snapshot)
+	assert.NotNil(t, testutil.FindServiceCallWithEntity(calls, "switch", "turn_on", dehumidifierSwitch))
+	assert.Nil(t, testutil.FindServiceCallWithEntity(calls, "switch", "turn_on", evChargerSwitch))
+	assert.Nil(t, testutil.FindServiceCallWithEntity(calls, "switch", "turn_off", evChargerSwitch))
 }
 
-// Green after a dehumidifier that was never shed must not send a redundant turn_on,
-// so a manual "off" is not overridden by every green/white flap.
-func TestLoadShedding_GreenDoesNotRestoreDehumidifierTwice(t *testing.T) {
+func TestLoadShedding_WhiteToYellowOrRedShedsDehumidifier(t *testing.T) {
+	t.Parallel()
+
+	for _, level := range []string{"yellow", "red"} {
+		t.Run(level, func(t *testing.T) {
+			env := setupLoadSheddingEnv(t)
+			ls := NewManager(context.Background(), env.MockHA, env.StateMgr, env.Logger, false, nil, nil)
+			assert.NoError(t, ls.Start())
+			defer ls.Stop()
+
+			assert.NoError(t, env.StateMgr.SetString("currentEnergyLevel", "white"))
+			snapshot := env.MockHA.ServiceCallCount()
+			assert.NoError(t, env.StateMgr.SetString("currentEnergyLevel", level))
+
+			calls := env.MockHA.GetServiceCallsSince(snapshot)
+			assert.NotNil(t, testutil.FindServiceCallWithEntity(calls, "switch", "turn_off", dehumidifierSwitch))
+			assert.Nil(t, testutil.FindServiceCallWithEntity(calls, "switch", "turn_on", dehumidifierSwitch))
+		})
+	}
+}
+
+// White after an already-restored dehumidifier must not send a redundant turn_on.
+func TestLoadShedding_WhiteDoesNotRestoreDehumidifierTwice(t *testing.T) {
 	t.Parallel()
 	env := setupLoadSheddingEnv(t)
 
@@ -320,9 +358,9 @@ func TestLoadShedding_GreenDoesNotRestoreDehumidifierTwice(t *testing.T) {
 	assert.NoError(t, err)
 	defer ls.Stop()
 
-	assert.NoError(t, env.StateMgr.SetString("currentEnergyLevel", "green"))
-	snapshot := env.MockHA.ServiceCallCount()
 	assert.NoError(t, env.StateMgr.SetString("currentEnergyLevel", "white"))
+	snapshot := env.MockHA.ServiceCallCount()
+	ls.handleEnergyChange("currentEnergyLevel", "white", "white")
 
 	calls := env.MockHA.GetServiceCallsSince(snapshot)
 	assert.Nil(t, testutil.FindServiceCallWithEntity(calls, "switch", "turn_on", dehumidifierSwitch),
@@ -330,11 +368,11 @@ func TestLoadShedding_GreenDoesNotRestoreDehumidifierTwice(t *testing.T) {
 }
 
 // After a restart the manager does not know the plug state, so the first
-// green/white level turns the dehumidifier on.
-func TestLoadShedding_RestartAtGreenRestoresDehumidifier(t *testing.T) {
+// white level turns the dehumidifier on.
+func TestLoadShedding_RestartAtWhiteRestoresDehumidifier(t *testing.T) {
 	t.Parallel()
 	env := setupLoadSheddingEnv(t)
-	assert.NoError(t, env.StateMgr.SetString("currentEnergyLevel", "green"))
+	assert.NoError(t, env.StateMgr.SetString("currentEnergyLevel", "white"))
 
 	ls := NewManager(context.Background(), env.MockHA, env.StateMgr, env.Logger, false, nil, nil)
 	assert.NoError(t, ls.Start())
@@ -567,9 +605,21 @@ func TestLoadShedding_DeferredActionCancelledByNewAction(t *testing.T) {
 		// Good - deferred action did not fire
 	}
 
-	// Verify that switch.turn_off was NOT called (deferred disable was cancelled)
+	// Verify that the deferred disable did not release thermostat holds or restore
+	// the Leaf charger. The new red level does turn the dehumidifier off promptly.
 	calls := env.MockHA.GetServiceCallsSince(snapshot)
-	testutil.AssertNoServiceCall(t, calls, "switch", "turn_off")
+	// Thermostat holds are issued with entity_id as []string — FindServiceCallWithEntity
+	// only matches plain string entity_id, so check the slice form directly.
+	for _, call := range calls {
+		if call.Domain == "switch" && call.Service == "turn_off" {
+			if entities, ok := call.Data["entity_id"].([]string); ok {
+				assert.NotContains(t, entities, thermostatHoldHouse,
+					"deferred disable must not have released thermostat holds")
+			}
+		}
+	}
+	assert.Nil(t, testutil.FindServiceCallWithEntity(calls, "switch", "turn_on", evChargerSwitch))
+	assert.NotNil(t, testutil.FindServiceCallWithEntity(calls, "switch", "turn_off", dehumidifierSwitch))
 
 	// Load shedding should still be on
 	assert.True(t, ls.IsLoadSheddingOn(), "Load shedding should remain enabled")
