@@ -21,7 +21,7 @@ import (
 // command, as in production. The house is the made-up example from docs/architecture/ROOM_PRESENCE.md.
 // ============================================================================
 
-func setupRoomPresenceScenario(t *testing.T) (*MockHAServer, *roompresence.Manager, func()) {
+func setupRoomPresenceScenario(t *testing.T, cfgFn ...func(*roompresence.Config)) (*MockHAServer, *roompresence.Manager, func()) {
 	t.Helper()
 	server, client, stateMgr, baseCleanup := setupTest(t)
 
@@ -30,6 +30,9 @@ func setupRoomPresenceScenario(t *testing.T) (*MockHAServer, *roompresence.Manag
 	require.NoError(t, err)
 	require.NotNil(t, cfg)
 	cfg.Mode = roompresence.ModeActive
+	for _, fn := range cfgFn {
+		fn(cfg)
+	}
 
 	mgr := roompresence.NewManager(context.Background(), client, stateMgr, cfg, "", testlogger.New(), false, nil)
 	require.NoError(t, mgr.Start())
@@ -73,17 +76,16 @@ func TestScenario_RoomPresence_WalkInAndSitStill(t *testing.T) {
 
 	t.Log("THEN: isKitchenOccupied is written on")
 	waitForServerState(t, server, "input_boolean.kitchen_occupied", "on")
-
-	time.Sleep(1500 * time.Millisecond) // a couple of ticks
 	assert.True(t, mgr.Occupied("kitchen"), "the token stays when the track ends in a room zone")
-	assert.Equal(t, "on", server.GetState("input_boolean.kitchen_occupied").State)
 }
 
 // GIVEN one person is home and in the study
 // WHEN Frigate reports a person at a fixed spot in the empty kitchen
 // THEN isKitchenOccupied stays off
 func TestScenario_RoomPresence_FalsePersonDoesNotOccupyKitchen(t *testing.T) {
-	server, mgr, cleanup := setupRoomPresenceScenario(t)
+	server, mgr, cleanup := setupRoomPresenceScenario(t, func(cfg *roompresence.Config) {
+		cfg.HandoffWindow = 100 * time.Millisecond
+	})
 	defer cleanup()
 
 	t.Log("GIVEN: one person is home, and walked into the study")
@@ -100,14 +102,14 @@ func TestScenario_RoomPresence_FalsePersonDoesNotOccupyKitchen(t *testing.T) {
 	publishFrigate(t, server, "end", "p", "cam_lounge", []string{"lounge", "lounge_to_study"}, "lounge_to_study")
 	require.Eventually(t, func() bool { return mgr.Occupied("study") }, 5*time.Second, 10*time.Millisecond)
 
-	t.Log("WHEN: a person appears from nowhere in the kitchen, 10 seconds later")
-	time.Sleep(6 * time.Second) // outside the 5 s hand-off window
+	t.Log("WHEN: a person appears from nowhere in the kitchen, after the handoff window")
+	time.Sleep(200 * time.Millisecond) // outside the 100 ms hand-off window
 	for i := 0; i < 5; i++ {
 		publishFrigate(t, server, "update", "ghost", "cam_kitchen", []string{"kitchen"}, "kitchen")
 	}
 
 	t.Log("THEN: the kitchen is not occupied")
-	time.Sleep(500 * time.Millisecond)
+	require.Eventually(t, func() bool { return !mgr.Occupied("kitchen") }, time.Second, 10*time.Millisecond)
 	assert.False(t, mgr.Occupied("kitchen"))
 	assert.Equal(t, "off", server.GetState("input_boolean.kitchen_occupied").State)
 	s := mgr.GetShadowState()

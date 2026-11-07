@@ -134,6 +134,16 @@ func (m *Manager) Start() error {
 		}
 	}
 	m.subHelper.CaptureInitialInputs()
+	// SubscribeToEntity is change-only. Apply the current bed sensor state at startup so a sensor that
+	// is already on before the plugin starts still occupies the area.
+	for _, name := range sortedKeys(m.cfg.Areas) {
+		area := name
+		for _, entity := range m.cfg.Areas[name].BedSensors {
+			if s, err := m.haClient.GetState(entity); err == nil && s != nil && s.State == "on" {
+				m.apply(func(t *Tracker, now time.Time) { t.BedOccupied(now, area) })
+			}
+		}
+	}
 	m.updatePeople()
 
 	ctx, cancel := context.WithCancel(m.ctx)

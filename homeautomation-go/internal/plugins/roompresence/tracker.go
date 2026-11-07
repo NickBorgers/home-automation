@@ -456,7 +456,7 @@ func (t *Tracker) tryHandoff(now time.Time, tr *track, area, via string) bool {
 	return true
 }
 
-// nearDoorwayToken finds a token in an unseen area next to area. The most recent arrival wins.
+// nearDoorwayToken finds an unheld token in an unseen area next to area. The most recent arrival wins.
 func (t *Tracker) nearDoorwayToken(area string) *token {
 	var best *token
 	for _, name := range sortedKeys(t.cfg.Areas) {
@@ -464,6 +464,9 @@ func (t *Tracker) nearDoorwayToken(area string) *token {
 			continue
 		}
 		for _, tok := range t.tokensIn(name) {
+			if t.held(tok.id) {
+				continue
+			}
 			if best == nil || tok.since.After(best.since) {
 				best = tok
 			}
@@ -713,24 +716,26 @@ func (t *Tracker) lastEvidence(tok *token) time.Time {
 	return ref
 }
 
-// enforceCount drops the least recently seen tokens while there are more tokens than people home. A token
-// that no camera is following goes first.
+// enforceCount drops the least recently seen unheld tokens while there are more tokens than people home.
+// Tokens currently held by an active track are skipped — dropping them would blank the room while the
+// camera still sees the person.
 func (t *Tracker) enforceCount(now time.Time) {
 	if !t.peopleKnown || t.guests || t.peopleHome <= 0 {
 		return
 	}
 	for len(t.tokens) > t.peopleHome {
 		var drop *token
-		dropHeld := false
 		for _, id := range sortedKeys(t.tokens) {
-			tok := t.tokens[id]
-			held := t.held(id)
-			switch {
-			case drop == nil,
-				dropHeld && !held,
-				dropHeld == held && t.lastEvidence(tok).Before(t.lastEvidence(drop)):
-				drop, dropHeld = tok, held
+			if t.held(id) {
+				continue
 			}
+			tok := t.tokens[id]
+			if drop == nil || t.lastEvidence(tok).Before(t.lastEvidence(drop)) {
+				drop = tok
+			}
+		}
+		if drop == nil {
+			break // all remaining tokens are held by active tracks; leave them
 		}
 		t.removeToken(now, drop, "more tokens than people home")
 	}

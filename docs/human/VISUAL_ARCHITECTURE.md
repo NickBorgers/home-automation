@@ -60,6 +60,7 @@ graph TB
             IntegrationWatchdog[Integration Watchdog<br/>internal/plugins/integrationwatchdog/]
             Tesla[Tesla Fleet API<br/>internal/plugins/tesla/]
             Picos[Picos<br/>internal/plugins/picos/]
+            RoomPresence[Room Presence<br/>internal/plugins/roompresence/]
         end
 
         subgraph "Public Interfaces"
@@ -82,6 +83,7 @@ graph TB
         TV_Ext[Apple TV / LG TV]
         Ntfy[ntfy.sh<br/>Push Notifications]
         SoCoCLI[SoCo-CLI<br/>HTTP API]
+        Frigate[Frigate NVR<br/>MQTT]
     end
 
     Main --> HAClient
@@ -188,6 +190,11 @@ graph TB
     Picos -->|Set Light Brightness| HAClient
     Picos -.->|Register Shadow| ShadowTracker
 
+    Frigate -->|MQTT Person Events| HA
+    RoomPresence -->|Subscribe MQTT| HAClient
+    RoomPresence -->|Write Occupancy State| StateManager
+    RoomPresence -.->|Register Shadow| ShadowTracker
+
     Tesla -->|Poll Fleet API / Signed Vehicle Commands<br/>Powerwall Backup Reserve| TeslaCloud[Tesla Fleet API<br/>outbound HTTPS only]
     Tesla -->|Subscribe currentEnergyLevel| StateManager
     Tesla -.->|Register Shadow| ShadowTracker
@@ -222,6 +229,7 @@ graph TB
     style IntegrationWatchdog fill:#f3e5f5
     style Tesla fill:#f3e5f5
     style Picos fill:#f3e5f5
+    style RoomPresence fill:#f3e5f5
 ```
 
 ---
@@ -982,6 +990,7 @@ graph LR
         InfrastructurePlugin[Infrastructure Plugin]
         ResetCoord[Reset Coordinator<br/>Order: 90]
         TeslaPlugin[Tesla Plugin<br/>Order: 96]
+        RoomPresencePlugin[Room Presence Plugin]
     end
 
     subgraph "HA Entities (Sensors)"
@@ -1097,6 +1106,14 @@ graph LR
 
     CurrentEnergy --> TeslaPlugin
     TeslaPlugin -.->|Charge start/stop/amps| TeslaCar[Tesla vehicle]
+
+    FrigateNVR[Frigate NVR MQTT] -->|Person events| RoomPresencePlugin
+    AnyoneHome --> RoomPresencePlugin
+    HaveGuests --> RoomPresencePlugin
+    NickHome --> RoomPresencePlugin
+    CarolineHome --> RoomPresencePlugin
+    AssistantHere --> RoomPresencePlugin
+    RoomPresencePlugin --> Kitchen
 
     DayPhase --> ChristmasPlugin
     AnyoneHome --> ChristmasPlugin
