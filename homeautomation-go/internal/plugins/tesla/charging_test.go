@@ -334,6 +334,7 @@ func TestEnergyChargingWakesSleepingCarBelowFloorAtRed(t *testing.T) {
 	assert.Equal(t, []string{"wake"}, charger.sent())
 	assert.Equal(t, []time.Duration{wakeSettleDelay}, *scheduled)
 	assert.Contains(t, m.GetShadowState().Outputs.EnergyCharging.Decision, "below the 50% floor")
+	assert.Equal(t, 1, m.GetShadowState().Outputs.EnergyCharging.WakesLast24h)
 }
 
 func TestEnergyChargingDoesNotWakeForFullLimitAtRed(t *testing.T) {
