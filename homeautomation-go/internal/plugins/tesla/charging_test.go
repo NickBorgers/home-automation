@@ -266,7 +266,7 @@ func TestEnergyChargingReconcilesStopAgainstFreshTelemetry(t *testing.T) {
 	assert.Contains(t, state.LastVerifiedVehicleState, "chargingState=Stopped")
 }
 
-func TestEnergyChargingGreenToYellowStopsAtBoundary(t *testing.T) {
+func TestEnergyChargingFloorThenYellowStopsAt50(t *testing.T) {
 	// GIVEN: the below-50% floor allows a 49% car to charge at full speed.
 	fleet := onlineFleet(home("Charging", 49, 32))
 	m, charger, levels, _ := newChargingManager(fleet, "green")
