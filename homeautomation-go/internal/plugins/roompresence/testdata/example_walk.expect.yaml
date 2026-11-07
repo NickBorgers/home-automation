@@ -1,0 +1,20 @@
+# Checks for example_walk.jsonl, a synthetic walk through the example house.
+checkpoints:
+  - after: 20
+    note: came out of the study and walked to the kitchen
+    occupied: [kitchen]
+    empty: [study, lounge]
+  - after: 600
+    note: sat still at the counter for ten minutes
+    occupied: [kitchen]
+  - after: 720
+    note: walked through the hall into the bedroom
+    occupied: [bedroom]
+    empty: [kitchen, hall]
+  - after: 815
+    note: a false person in the empty kitchen
+    empty: [kitchen]
+  - after: 900
+    note: the bedroom has no idle limit
+    occupied: [bedroom]
+unknown_zones: []

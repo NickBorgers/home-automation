@@ -2695,3 +2695,43 @@ func (pt *PicosTracker) GetState() *PicosShadowState {
 		Metadata: s.Metadata,
 	}
 }
+
+// ============================================================================
+// Room Presence Tracker
+// ============================================================================
+
+// RoomPresenceTracker manages shadow state for the room presence plugin.
+type RoomPresenceTracker struct {
+	ReadOnlyTracker[RoomPresenceOutputs]
+}
+
+// NewRoomPresenceTracker creates a new room presence shadow state tracker.
+func NewRoomPresenceTracker() *RoomPresenceTracker {
+	return &RoomPresenceTracker{
+		ReadOnlyTracker: NewReadOnlyTracker(NewRoomPresenceShadowState()),
+	}
+}
+
+// SetOutputs replaces the outputs. The caller must not change o afterwards.
+func (rt *RoomPresenceTracker) SetOutputs(o RoomPresenceOutputs) {
+	rt.Lock()
+	defer rt.Unlock()
+
+	rt.State().Outputs = o
+	rt.State().Metadata.LastUpdated = time.Now()
+}
+
+// GetState returns a copy of the current shadow state. Outputs are replaced whole, never changed in
+// place, so sharing their slices and maps is safe.
+func (rt *RoomPresenceTracker) GetState() *RoomPresenceShadowState {
+	rt.RLock()
+	defer rt.RUnlock()
+
+	s := rt.State()
+	return &RoomPresenceShadowState{
+		Plugin:   s.Plugin,
+		Inputs:   ReadOnlyInputs{Current: copyInputMap(s.Inputs.Current)},
+		Outputs:  s.Outputs,
+		Metadata: s.Metadata,
+	}
+}

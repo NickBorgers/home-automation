@@ -90,6 +90,9 @@ type HAClient interface {
 	// SubscribeEvents delivers events of one type other than state_changed, such as
 	// lutron_caseta_button_event. Events of one type reach handlers in the order Home Assistant sent them.
 	SubscribeEvents(eventType string, handler EventHandler) (Subscription, error)
+	// SubscribeMQTT delivers MQTT messages on a topic filter through Home Assistant's mqtt/subscribe command.
+	// Messages on one filter reach handlers in the order Home Assistant sent them.
+	SubscribeMQTT(topic string, handler MQTTHandler) (Subscription, error)
 	SetInputBoolean(name string, value bool) error
 	SetInputNumber(name string, value float64) error
 	SetInputText(name string, value string) error
@@ -230,6 +233,7 @@ type entityEventJob struct {
 //  8. nextSubIDMu - subscription ID counter
 //  9. healthMu - health tracking (acquired last, never held while acquiring others)
 //  10. stateCache.mu - leaf lock; may be taken under connMu, never held across I/O
+//  11. mqttMu - leaf lock; may be taken under writeMu, never held across I/O
 //
 // Note: msgIDMu has been eliminated; msgID is now protected by writeMu to ensure
 // message IDs are allocated and sent atomically, preventing out-of-order sends.
@@ -264,13 +268,21 @@ type Client struct {
 	eventServerTypes map[string]bool // types subscribed on the current connection
 	eventSubsMu      sync.Mutex
 	eventQueues      map[string]chan customEventJob // guarded by entityDispatchMu
-	nextSubID        int
-	nextSubIDMu      sync.Mutex
-	ctx              context.Context
-	cancel           context.CancelFunc
-	ctxMu            sync.RWMutex // Protects ctx and cancel
-	reconnect        bool
-	writeMu          sync.Mutex // Protects websocket writes AND msgID counter
+	// MQTT subscriptions through mqtt/subscribe. See mqtt.go.
+	mqttSubs         map[string][]mqttSubscriberEntry
+	mqttServerTopics map[string]bool         // topic filters subscribed on the current connection
+	mqttTopicByMsgID map[int]string          // subscribe message ID -> topic filter, for the current connection
+	mqttMu           sync.Mutex              // leaf lock; may be taken under writeMu
+	mqttQueues       map[string]chan mqttJob // guarded by entityDispatchMu
+	// hasConnected is true once Connect has succeeded. Guarded by lifecycleMu.
+	hasConnected bool
+	nextSubID    int
+	nextSubIDMu  sync.Mutex
+	ctx          context.Context
+	cancel       context.CancelFunc
+	ctxMu        sync.RWMutex // Protects ctx and cancel
+	reconnect    bool
+	writeMu      sync.Mutex // Protects websocket writes AND msgID counter
 
 	// Ping goroutine lifecycle management
 	pingCancel  context.CancelFunc // Cancels the ping goroutine; protected by connMu
@@ -345,6 +357,10 @@ func NewClient(url, token string, logger *zap.Logger) *Client {
 		eventSubs:         make(map[string][]eventSubscriberEntry),
 		eventServerTypes:  make(map[string]bool),
 		eventQueues:       make(map[string]chan customEventJob),
+		mqttSubs:          make(map[string][]mqttSubscriberEntry),
+		mqttServerTopics:  make(map[string]bool),
+		mqttTopicByMsgID:  make(map[int]string),
+		mqttQueues:        make(map[string]chan mqttJob),
 		ctx:               ctx,
 		cancel:            cancel,
 		reconnect:         true,
@@ -482,6 +498,7 @@ func (c *Client) Connect() error {
 	c.connected = true
 	c.reconnect = true
 	c.resetEventServerTypes()
+	c.resetMQTTServerTopics()
 	// Fence the cache to this connection before any of its events are read. The
 	// subscription below can only make the cache seedable within this epoch.
 	cacheEpoch, _, _ := c.stateCache.invalidate(cacheDisconnected)
@@ -518,6 +535,8 @@ func (c *Client) Connect() error {
 	}
 
 	c.subscribeRegisteredEvents()
+	c.subscribeRegisteredMQTT(c.hasConnected)
+	c.hasConnected = true
 
 	return nil
 }
@@ -575,6 +594,7 @@ func (c *Client) Disconnect() error {
 
 	c.clearSubscribers()
 	c.clearEventSubscribers()
+	c.clearMQTTSubscribers()
 
 	// Close entity queue channels so processEntityEventQueue goroutines exit.
 	c.entityDispatchMu.Lock()
@@ -586,6 +606,10 @@ func (c *Client) Disconnect() error {
 		close(ch)
 	}
 	c.eventQueues = make(map[string]chan customEventJob)
+	for _, ch := range c.mqttQueues {
+		close(ch)
+	}
+	c.mqttQueues = make(map[string]chan mqttJob)
 	c.entityDispatchMu.Unlock()
 
 	c.logger.Info("Disconnected from Home Assistant")
@@ -825,6 +849,9 @@ func (c *Client) sendMessage(msg interface{}) (*Message, error) {
 		m.ID = msgID
 	case *ConfigEntryReloadRequest:
 		m.ID = msgID
+	case *MQTTSubscribeRequest:
+		m.ID = msgID
+		c.registerMQTTMsgID(msgID, m.Topic)
 	default:
 		c.writeMu.Unlock()
 		return nil, fmt.Errorf("unsupported message type")
@@ -949,6 +976,10 @@ func (c *Client) receiveMessages(done chan struct{}) {
 // handleEvent processes event messages
 func (c *Client) handleEvent(msg *Message) {
 	if msg.Event == nil {
+		return
+	}
+
+	if c.handleMQTTEvent(msg) {
 		return
 	}
 

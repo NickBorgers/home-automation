@@ -39,6 +39,12 @@ type Event struct {
 	Data      json.RawMessage `json:"data"`
 	Origin    string          `json:"origin"`
 	TimeFired time.Time       `json:"time_fired"`
+
+	// MQTT fields, set only on messages of an mqtt/subscribe subscription.
+	Topic   string `json:"topic,omitempty"`
+	Payload string `json:"payload,omitempty"`
+	QoS     int    `json:"qos,omitempty"`
+	Retain  bool   `json:"retain,omitempty"`
 }
 
 // StateChangedEvent represents a state_changed event

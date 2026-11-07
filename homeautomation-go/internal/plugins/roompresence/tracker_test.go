@@ -1,0 +1,442 @@
+package roompresence
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+var t0 = time.Date(2026, 11, 7, 12, 0, 0, 0, time.UTC)
+
+func exampleConfig(t *testing.T) *Config {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join("testdata", "example_config.yaml"))
+	require.NoError(t, err)
+	cfg, err := ParseConfig(data)
+	require.NoError(t, err)
+	return cfg
+}
+
+// scene drives a tracker with a clock measured in seconds from t0.
+type scene struct {
+	t  *testing.T
+	tr *Tracker
+}
+
+func newScene(t *testing.T) *scene {
+	return &scene{t: t, tr: NewTracker(exampleConfig(t))}
+}
+
+func at(sec float64) time.Time { return t0.Add(time.Duration(sec * float64(time.Second))) }
+
+func (s *scene) event(sec float64, typ, id, cam string, entered []string, current ...string) {
+	s.tr.HandleEvent(at(sec), FrigateEvent{Type: typ, After: FrigateObject{
+		ID: id, Camera: cam, Label: "person", EnteredZones: entered, CurrentZones: current,
+	}})
+}
+
+// walk sends new, an update in each zone, and end, one second apart, starting at sec. The person is in
+// the last zone at the end.
+func (s *scene) walk(sec float64, id, cam string, zones ...string) float64 {
+	s.event(sec, "new", id, cam, nil)
+	for i := range zones {
+		sec++
+		s.event(sec, "update", id, cam, zones[:i+1], zones[i])
+	}
+	sec++
+	s.event(sec, "end", id, cam, zones, zones[len(zones)-1])
+	return sec
+}
+
+func (s *scene) tick(sec float64) { s.tr.Tick(at(sec)) }
+
+func (s *scene) occupied(areas ...string) {
+	s.t.Helper()
+	for _, a := range areas {
+		assert.True(s.t, s.tr.Occupied(a), "%s should be occupied", a)
+	}
+}
+
+func (s *scene) empty(areas ...string) {
+	s.t.Helper()
+	for _, a := range areas {
+		assert.False(s.t, s.tr.Occupied(a), "%s should be empty", a)
+	}
+}
+
+func (s *scene) tokens(n int) {
+	s.t.Helper()
+	assert.Len(s.t, s.tr.tokens, n)
+}
+
+// seed puts one token in an area, as if a person had been seen there.
+func (s *scene) seed(sec float64, area string) {
+	s.tr.newToken(at(sec), area, "", "seeded by test", false)
+}
+
+func TestConfig_Example(t *testing.T) {
+	cfg := exampleConfig(t)
+	assert.Equal(t, ModeLogOnly, cfg.Mode)
+	assert.Equal(t, 5*time.Second, cfg.HandoffWindow)
+	require.NotNil(t, cfg.Areas["hall"].IdleLimit)
+	assert.Equal(t, 5*time.Minute, *cfg.Areas["hall"].IdleLimit)
+	assert.Nil(t, cfg.Areas["bedroom"].IdleLimit, "absent idle_limit never expires")
+
+	assert.Equal(t, zoneInfo{Kind: zoneRoom, Area: "kitchen"}, cfg.resolveZone("kitchen"))
+	assert.Equal(t, zoneInfo{Kind: zoneBoundary, Area: "lounge", Beyond: "study"}, cfg.resolveZone("lounge_to_study"))
+	assert.Equal(t, zoneInfo{Kind: zoneRoom, Area: "hall"}, cfg.resolveZone("hall_doormat"))
+	assert.Equal(t, zoneUnknown, cfg.resolveZone("garden").Kind)
+	assert.Equal(t, zoneUnknown, cfg.resolveZone("lounge_to_garden").Kind)
+	assert.True(t, cfg.neighbors("kitchen", "lounge"), "neighbors are symmetric")
+}
+
+func TestConfig_Defaults(t *testing.T) {
+	cfg, err := ParseConfig([]byte("room_presence:\n  areas:\n    den: {seen: true}\n"))
+	require.NoError(t, err)
+	assert.Equal(t, ModeLogOnly, cfg.Mode)
+	assert.Equal(t, defaultHandoffWindow, cfg.HandoffWindow)
+	assert.Equal(t, defaultCameraHeartbeatTimeout, cfg.CameraHeartbeatTimeout)
+	assert.Equal(t, defaultNobodyHomeDelay, cfg.NobodyHomeDelay)
+}
+
+func TestConfig_Invalid(t *testing.T) {
+	cases := map[string]string{
+		"bad mode":         "room_presence:\n  mode: loud\n  areas: {den: {seen: true}}\n",
+		"no areas":         "room_presence:\n  mode: log_only\n",
+		"no section":       "other: {}\n",
+		"_to_ in area":     "room_presence:\n  areas: {den_to_hall: {seen: true}}\n",
+		"unknown neighbor": "room_presence:\n  areas: {den: {neighbors: [attic]}}\n",
+		"unknown output":   "room_presence:\n  areas: {den: {}}\n  outputs: {isDen: [attic]}\n",
+		"empty output":     "room_presence:\n  areas: {den: {}}\n  outputs: {isDen: []}\n",
+		"output is input":  "room_presence:\n  areas: {den: {}}\n  outputs: {isNickHome: [den]}\n",
+		"bad override":     "room_presence:\n  areas: {den: {}}\n  zone_overrides: {z: attic}\n",
+		"unknown camera":   "room_presence:\n  areas: {den: {}}\n  cameras: {c: [attic]}\n",
+		"zero idle limit":  "room_presence:\n  areas: {den: {idle_limit: 0s}}\n",
+		"not yaml":         "room_presence: [",
+	}
+	for name, yml := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, err := ParseConfig([]byte(yml))
+			assert.Error(t, err)
+		})
+	}
+}
+
+func TestLoadConfig_MissingFileIsUnconfigured(t *testing.T) {
+	cfg, err := LoadConfig(filepath.Join(t.TempDir(), ConfigFileName))
+	assert.NoError(t, err)
+	assert.Nil(t, cfg)
+}
+
+// Rule 1: a track that starts in a boundary zone came out of the area beyond it.
+func TestRule1_BoundaryStartMovesTokenOut(t *testing.T) {
+	s := newScene(t)
+	s.seed(0, "study")
+
+	s.event(10, "new", "a", "cam_lounge", nil)
+	s.event(10.3, "update", "a", "cam_lounge", []string{"lounge_to_study"}, "lounge_to_study")
+
+	s.empty("study")
+	s.occupied("lounge")
+	s.tokens(1)
+	assert.Equal(t, []string{"lounge"}, s.tr.DrainEntries(), "coming out of the study is an entry")
+}
+
+func TestRule1_BoundaryStartWithoutTokenCreatesOne(t *testing.T) {
+	s := newScene(t)
+	s.event(10, "update", "a", "cam_lounge", []string{"lounge_to_study"}, "lounge_to_study")
+	s.occupied("lounge")
+	s.tokens(1)
+}
+
+// A track that ends in a boundary zone to an unseen area went through the doorway.
+func TestEnd_BoundaryToUnseenMovesTokenIn(t *testing.T) {
+	s := newScene(t)
+	s.event(0, "update", "a", "cam_lounge", []string{"lounge_to_study"}, "lounge_to_study")
+	s.event(2, "update", "a", "cam_lounge", []string{"lounge_to_study", "lounge"}, "lounge")
+	s.event(4, "end", "a", "cam_lounge", []string{"lounge_to_study", "lounge"}, "lounge", "lounge_to_study")
+
+	s.occupied("study")
+	s.empty("lounge")
+	s.tokens(1)
+}
+
+// "When I sit still behind the counter for 10 minutes, the kitchen stays occupied."
+func TestEnd_RoomZoneTokenStaysUntilIdleLimit(t *testing.T) {
+	s := newScene(t)
+	s.seed(0, "lounge")
+	end := s.walk(1, "a", "cam_lounge", "lounge", "kitchen")
+
+	s.tick(end + 10*60)
+	s.occupied("kitchen")
+	s.tick(end + 19*60)
+	s.occupied("kitchen")
+	s.tick(end + 21*60)
+	s.empty("kitchen")
+	require.NotEmpty(t, s.tr.removed)
+	assert.Contains(t, s.tr.removed[len(s.tr.removed)-1].Reason, "idle")
+}
+
+// Rule 2: a new track that starts where another just ended is the same person.
+func TestRule2_HandoffKeepsOneToken(t *testing.T) {
+	s := newScene(t)
+	s.seed(0, "lounge")
+	end := s.walk(1, "a", "cam_lounge", "lounge")
+	s.walk(end+1, "b", "cam_kitchen", "kitchen")
+
+	s.tokens(1)
+	s.occupied("kitchen")
+	s.empty("lounge")
+}
+
+func TestRule2_HandoffWindowExpires(t *testing.T) {
+	s := newScene(t)
+	s.seed(0, "lounge")
+	end := s.walk(1, "a", "cam_lounge", "lounge")
+
+	// Ten seconds later is outside the window. The lounge token is idle, so the person "resumes" there
+	// only if they appear in the lounge. In the kitchen they are a new, unconfirmed track.
+	s.event(end+10, "update", "b", "cam_kitchen", []string{"kitchen"}, "kitchen")
+	s.tokens(1)
+	s.empty("kitchen")
+	s.occupied("lounge")
+}
+
+// Two cameras that see the same person share one token.
+func TestRule2_OverlappingCamerasShareToken(t *testing.T) {
+	s := newScene(t)
+	s.seed(0, "lounge")
+	s.event(1, "update", "a", "cam_lounge", []string{"lounge"}, "lounge")
+	s.event(1.5, "update", "b", "cam_kitchen", []string{"lounge"}, "lounge")
+	s.event(3, "update", "a", "cam_lounge", []string{"lounge", "kitchen"}, "kitchen")
+	s.event(3.2, "update", "b", "cam_kitchen", []string{"lounge", "kitchen"}, "kitchen")
+
+	s.tokens(1)
+	s.occupied("kitchen")
+	snap := s.tr.Snapshot()
+	require.Len(t, snap.Tokens, 1)
+	assert.ElementsMatch(t, []string{"a", "b"}, snap.Tokens[0].Tracks)
+}
+
+// A person who sat still until Frigate lost them is picked up again by the same token.
+func TestResume_IdleTokenIsReused(t *testing.T) {
+	s := newScene(t)
+	s.seed(0, "kitchen")
+	s.event(300, "update", "a", "cam_kitchen", []string{"kitchen"}, "kitchen")
+	s.tokens(1)
+	assert.Equal(t, ruleResume, s.tr.active["a"].rule)
+	assert.Empty(t, s.tr.DrainEntries(), "standing up again is not an entry")
+}
+
+// Rule 3: a person who comes back from an unseen room is often tracked only after the doorway.
+func TestRule3_NearDoorwayMovesTokenOut(t *testing.T) {
+	s := newScene(t)
+	s.seed(0, "study")
+	s.event(120, "update", "a", "cam_lounge", []string{"lounge"}, "lounge")
+
+	s.empty("study")
+	s.occupied("lounge")
+	assert.Equal(t, ruleNearDoorway, s.tr.active["a"].rule)
+}
+
+// "When I walk into the study, the lounge does not go dark while someone else is on the couch."
+func TestStory_StudyEntryLeavesCouchSitter(t *testing.T) {
+	s := newScene(t)
+	s.seed(0, "lounge") // on the couch, out of Frigate's view
+	s.seed(0, "lounge") // walking
+	s.event(1, "update", "a", "cam_lounge", []string{"lounge"}, "lounge")
+	s.event(3, "update", "a", "cam_lounge", []string{"lounge", "lounge_to_study"}, "lounge_to_study")
+	s.event(5, "end", "a", "cam_lounge", []string{"lounge", "lounge_to_study"}, "lounge_to_study")
+
+	s.occupied("lounge", "study")
+	s.tokens(2)
+}
+
+// Rule 4 and the false-person check: "A false person in the kitchen does not make it occupied."
+func TestRule4_FalsePersonStaysUnconfirmed(t *testing.T) {
+	s := newScene(t)
+	s.tr.SetPeople(at(0), 1, false, true)
+	s.seed(0, "hall")
+
+	for i := 0.0; i < 30; i++ {
+		s.event(10+i, "update", "ghost", "cam_kitchen", []string{"kitchen"}, "kitchen")
+	}
+	s.empty("kitchen")
+	s.event(41, "end", "ghost", "cam_kitchen", []string{"kitchen"}, "kitchen")
+	s.empty("kitchen")
+	s.tokens(1)
+	assert.Equal(t, "dropped: never confirmed", s.tr.ended[len(s.tr.ended)-1].outcome)
+}
+
+func TestRule4_ConfirmedWhenItWalks(t *testing.T) {
+	s := newScene(t)
+	s.tr.SetPeople(at(0), 1, false, true)
+	s.seed(0, "hall")
+	s.event(10, "update", "a", "cam_kitchen", []string{"kitchen"}, "kitchen")
+	s.empty("kitchen")
+	s.event(12, "update", "a", "cam_kitchen", []string{"kitchen", "lounge"}, "lounge")
+	s.occupied("lounge")
+	// Two people's worth of tokens with one person home: the stale hall token goes.
+	s.tokens(1)
+	s.empty("hall")
+}
+
+func TestRule4_ConfirmedWhenFewerTokensThanPeople(t *testing.T) {
+	s := newScene(t)
+	s.tr.SetPeople(at(0), 2, false, true)
+	s.event(10, "update", "a", "cam_kitchen", []string{"kitchen"}, "kitchen")
+	s.occupied("kitchen")
+}
+
+func TestRule4_GuestsMakeTheCountUnknown(t *testing.T) {
+	s := newScene(t)
+	s.tr.SetPeople(at(0), 2, true, true)
+	s.event(10, "update", "a", "cam_kitchen", []string{"kitchen"}, "kitchen")
+	s.empty("kitchen")
+}
+
+// A track that ends at a boundary to a seen area moves its token there if no camera picks it up.
+func TestEnd_BoundaryToSeenWithoutPickup(t *testing.T) {
+	s := newScene(t)
+	s.seed(0, "kitchen")
+	s.event(1, "update", "a", "cam_kitchen", []string{"kitchen"}, "kitchen")
+	s.event(2, "update", "a", "cam_kitchen", []string{"kitchen", "kitchen_to_hall"}, "kitchen_to_hall")
+	s.event(3, "end", "a", "cam_kitchen", []string{"kitchen", "kitchen_to_hall"}, "kitchen_to_hall")
+	s.tick(4)
+	s.occupied("kitchen")
+	s.tick(9)
+	s.occupied("hall")
+	s.empty("kitchen")
+}
+
+func TestEnd_BoundaryToSeenWithPickup(t *testing.T) {
+	s := newScene(t)
+	s.seed(0, "kitchen")
+	s.event(1, "update", "a", "cam_kitchen", []string{"kitchen", "kitchen_to_hall"}, "kitchen_to_hall")
+	s.event(2, "end", "a", "cam_kitchen", []string{"kitchen", "kitchen_to_hall"}, "kitchen_to_hall")
+	s.event(2.4, "update", "b", "cam_hall", []string{"hall_to_kitchen"}, "hall_to_kitchen")
+	s.event(3, "update", "b", "cam_hall", []string{"hall_to_kitchen", "hall"}, "hall")
+	s.tick(10)
+
+	s.tokens(1)
+	s.occupied("hall")
+	s.empty("kitchen")
+	assert.Equal(t, ruleHandoff, s.tr.active["b"].rule)
+}
+
+// "When a camera goes offline, its rooms do not go dark."
+func TestCameraFailure_FreezesAndResumesExpiry(t *testing.T) {
+	s := newScene(t)
+	s.tr.Heartbeat(at(0), "cam_hall")
+	s.seed(0, "hall")
+	s.walk(1, "a", "cam_hall", "hall") // hall idle limit 5m; last seen at 2s
+	for sec := 10.0; sec <= 60; sec += 10 {
+		s.tr.Heartbeat(at(sec), "cam_hall")
+		s.tick(sec)
+	}
+	// 4 minutes in, the camera has stopped.
+	s.tick(60 + 31)
+	assert.True(t, s.tr.unknown("hall"))
+	s.tick(60 + 30*60)
+	s.occupied("hall")
+
+	// It comes back 30 minutes later. About 3 of the 5 minutes remain.
+	back := 60.0 + 30*60
+	s.tr.Heartbeat(at(back), "cam_hall")
+	s.tick(back)
+	assert.False(t, s.tr.unknown("hall"))
+	for sec := back + 10; sec <= back+5*60; sec += 10 {
+		s.tr.Heartbeat(at(sec), "cam_hall")
+		s.tick(sec)
+		if sec == back+60 {
+			s.occupied("hall")
+		}
+	}
+	s.empty("hall")
+}
+
+func TestNobodyHome_ClearsTokensAfterDelay(t *testing.T) {
+	s := newScene(t)
+	s.seed(0, "kitchen")
+	s.seed(0, "study")
+	s.tr.SetPeople(at(10), 0, false, false)
+	s.tick(10 + 4*60)
+	s.tokens(2)
+	s.tick(10 + 5*60)
+	s.tokens(0)
+}
+
+func TestTooManyTokens_DropsLeastRecentlySeen(t *testing.T) {
+	s := newScene(t)
+	s.seed(0, "study")
+	s.seed(100, "kitchen")
+	s.tr.SetPeople(at(200), 1, false, true)
+	s.tokens(1)
+	s.occupied("kitchen")
+	s.empty("study")
+}
+
+func TestBedSensor_EnsuresToken(t *testing.T) {
+	s := newScene(t)
+	s.tr.BedOccupied(at(0), "bedroom")
+	s.occupied("bedroom")
+	s.tr.BedOccupied(at(1), "bedroom")
+	s.tokens(1)
+	s.tick(48 * 3600)
+	s.occupied("bedroom") // no idle limit
+	assert.Empty(t, s.tr.DrainEntries(), "a bed sensor is not an entry")
+}
+
+func TestReconnected_EndsOpenTracks(t *testing.T) {
+	s := newScene(t)
+	s.seed(0, "lounge")
+	s.event(1, "update", "a", "cam_lounge", []string{"lounge", "lounge_to_study"}, "lounge_to_study")
+	s.tr.Reconnected(at(2))
+	assert.Empty(t, s.tr.active)
+	s.occupied("study")
+}
+
+func TestUnknownZonesAndFalsePositives(t *testing.T) {
+	s := newScene(t)
+	s.event(1, "update", "a", "cam_lounge", []string{"garden"}, "garden")
+	s.event(2, "end", "a", "cam_lounge", []string{"garden"}, "garden")
+	assert.Equal(t, []string{"garden"}, s.tr.Snapshot().UnknownZones)
+	s.tokens(0)
+
+	s.tr.HandleEvent(at(3), FrigateEvent{Type: "update", After: FrigateObject{
+		ID: "fp", Camera: "cam_lounge", Label: "person", FalsePositive: true,
+		EnteredZones: []string{"lounge_to_study"}, CurrentZones: []string{"lounge_to_study"},
+	}})
+	s.tokens(0)
+
+	s.tr.HandleEvent(at(4), FrigateEvent{Type: "update", After: FrigateObject{
+		ID: "cat", Camera: "cam_lounge", Label: "cat", EnteredZones: []string{"lounge_to_study"},
+	}})
+	s.tokens(0)
+}
+
+func TestOutputs(t *testing.T) {
+	s := newScene(t)
+	assert.Equal(t, map[string]bool{"isKitchenOccupied": false}, s.tr.Outputs())
+	s.seed(0, "kitchen")
+	assert.Equal(t, map[string]bool{"isKitchenOccupied": true}, s.tr.Outputs())
+}
+
+func TestSnapshot(t *testing.T) {
+	s := newScene(t)
+	s.tr.Heartbeat(at(0), "cam_lounge")
+	s.event(1, "update", "a", "cam_lounge", []string{"lounge_to_study"}, "lounge_to_study")
+	snap := s.tr.Snapshot()
+	assert.True(t, snap.Areas["lounge"].Occupied)
+	assert.Equal(t, 1, snap.EventsHandled)
+	require.Len(t, snap.ActiveTracks, 1)
+	assert.Equal(t, ruleBoundaryExit, snap.ActiveTracks[0].Rule)
+	assert.True(t, snap.Cameras["cam_lounge"].Online)
+	assert.Contains(t, snap.Cameras["cam_lounge"].Areas, "lounge")
+	require.NotNil(t, snap.LastEntry)
+	assert.Equal(t, "lounge", snap.LastEntry.Area)
+}
