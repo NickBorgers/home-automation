@@ -285,6 +285,20 @@ Adding a Frigate zone that follows the convention needs no config change. Adding
 3. **More areas.** Add outputs and lighting rules area by area.
 4. **Fast fade.** Wire the entry signal into lux control.
 
+## Logs
+
+Production keeps Info and above, so the plugin logs every real change at Info. Tune from these lines later.
+One line per change. A token whose `lastSeen` only moves logs nothing.
+
+- `Room presence token created`: `token`, `area`, `reason`, `camera`.
+- `Room presence token moved`: `token`, `from_area`, `to_area`, `reason`, `camera`.
+- `Room presence token removed`: `token`, `area`, `reason` (the removal reason).
+- `Room presence output changed`: `key`, `value`, `previous` (absent on the first value), `mode`, and
+  `written`. `written` is true only in `active` mode without read-only. In `log_only` it shows what the
+  output would have been. The first value of an output is logged only when it is true.
+- `Room presence output`: an output was written to Home Assistant (active mode).
+- `Person entered area` stays at Debug. It is the entry signal for lux control, not a state change.
+
 ## Testing
 
 - **Replay tests.** Each test replays a log of Frigate MQTT messages through the tracker with a fake clock. It

@@ -48,6 +48,10 @@ type Manager struct {
 	written       map[string]bool // last value written per output, in active mode
 	entryHandlers []func(area string)
 
+	// prevTokens and prevOutputs hold the last logged state, to log changes. Guarded by applyMu.
+	prevTokens  map[string]shadowstate.RoomPresenceToken
+	prevOutputs map[string]bool
+
 	mqttSubs []ha.Subscription
 	cancel   context.CancelFunc
 	done     chan struct{}
@@ -277,6 +281,7 @@ func (m *Manager) apply(op func(t *Tracker, now time.Time)) {
 		m.logger.Info("Room presence output", zap.String("key", w.key), zap.Bool("value", w.value))
 	}
 
+	m.logChanges(snapshot)
 	m.setShadow(snapshot)
 	m.applyMu.Unlock()
 
@@ -286,6 +291,64 @@ func (m *Manager) apply(op func(t *Tracker, now time.Time)) {
 			h(area)
 		}
 	}
+}
+
+// logChanges logs, at Info, each token that was created, moved or removed and each output whose computed
+// value changed since the last call. A token that only has a newer lastSeen logs nothing. The caller
+// holds applyMu.
+func (m *Manager) logChanges(snap shadowstate.RoomPresenceOutputs) {
+	current := make(map[string]shadowstate.RoomPresenceToken, len(snap.Tokens))
+	for _, tok := range snap.Tokens {
+		current[tok.ID] = tok
+		prev, existed := m.prevTokens[tok.ID]
+		switch {
+		case !existed:
+			m.logger.Info("Room presence token created",
+				zap.String("token", tok.ID), zap.String("area", tok.Area),
+				zap.String("reason", tok.Reason), zap.String("camera", tok.Camera))
+		case prev.Area != tok.Area:
+			m.logger.Info("Room presence token moved",
+				zap.String("token", tok.ID), zap.String("from_area", prev.Area),
+				zap.String("to_area", tok.Area), zap.String("reason", tok.Reason),
+				zap.String("camera", tok.Camera))
+		}
+	}
+	for _, id := range sortedKeys(m.prevTokens) {
+		if _, ok := current[id]; ok {
+			continue
+		}
+		prev := m.prevTokens[id]
+		area, reason := prev.Area, "unknown"
+		for i := len(snap.Removed) - 1; i >= 0; i-- { // newest removal for this token
+			if snap.Removed[i].Token == id {
+				area, reason = snap.Removed[i].Area, snap.Removed[i].Reason
+				break
+			}
+		}
+		m.logger.Info("Room presence token removed",
+			zap.String("token", id), zap.String("area", area), zap.String("reason", reason))
+	}
+	m.prevTokens = current
+
+	wrote := m.cfg.Mode == ModeActive && !m.readOnly
+	for _, key := range sortedKeys(snap.Outputs) {
+		v := snap.Outputs[key]
+		prev, known := m.prevOutputs[key]
+		if known && prev == v {
+			continue
+		}
+		if !known && !v {
+			// First value is the quiet default; only a true start is worth a line.
+			continue
+		}
+		fields := []zap.Field{zap.String("key", key), zap.Bool("value", v),
+			zap.String("mode", m.cfg.Mode), zap.Bool("written", wrote)}
+		if known {
+			fields = append(fields, zap.Bool("previous", prev))
+		}
+		m.logger.Info("Room presence output changed", fields...)
+	}
+	m.prevOutputs = snap.Outputs
 }
 
 type write struct {

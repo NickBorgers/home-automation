@@ -9,11 +9,13 @@ import (
 	"time"
 
 	"homeautomation/internal/ha"
+	"homeautomation/internal/shadowstate"
 	"homeautomation/internal/state"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zaptest/observer"
 )
 
 func newTestManager(t *testing.T, cfg *Config, readOnly bool) (*Manager, *ha.MockClient, *state.Manager) {
@@ -201,4 +203,117 @@ func TestHeartbeatCamera(t *testing.T) {
 	assert.Equal(t, "cam_lounge", cam)
 	_, ok = heartbeatCamera("frigate/cam_lounge/motion")
 	assert.False(t, ok)
+}
+
+func newObservedManager(t *testing.T, cfg *Config, readOnly bool) (*Manager, *ha.MockClient, *observer.ObservedLogs) {
+	t.Helper()
+	core, logs := observer.New(zap.InfoLevel)
+	mockHA := ha.NewMockClient()
+	mockHA.SetState("input_boolean.nick_home", "on", nil)
+	mockHA.SetState("input_boolean.kitchen_occupied", "off", nil)
+	sm := state.NewManager(mockHA, zap.NewNop(), false)
+	require.NoError(t, sm.SyncFromHA())
+	m := NewManager(context.Background(), mockHA, sm, cfg, "", zap.New(core), readOnly, nil)
+	clock := t0
+	var mu sync.Mutex
+	m.now = func() time.Time {
+		mu.Lock()
+		defer mu.Unlock()
+		clock = clock.Add(100 * time.Millisecond)
+		return clock
+	}
+	return m, mockHA, logs
+}
+
+func TestManager_LogsTokenAndOutputChanges(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		mode     string
+		readOnly bool
+		written  bool
+	}{
+		{"log_only", ModeLogOnly, false, false},
+		{"active", ModeActive, false, true},
+		{"read_only", ModeActive, true, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := exampleConfig(t)
+			cfg.Mode = tc.mode
+			m, mockHA, logs := newObservedManager(t, cfg, tc.readOnly)
+			require.NoError(t, m.Start())
+			defer m.Stop()
+
+			mockHA.SimulateMQTT(eventsTopic, frigateEvent(t, "update", "a", "cam_kitchen",
+				[]string{"kitchen_to_hall", "kitchen"}, "kitchen"))
+
+			created := logs.FilterMessage("Room presence token created").All()
+			require.Len(t, created, 1)
+			cf := created[0].ContextMap()
+			assert.Equal(t, "kitchen", cf["area"])
+			assert.Equal(t, "cam_kitchen", cf["camera"])
+			assert.NotEmpty(t, cf["token"])
+			assert.NotEmpty(t, cf["reason"])
+
+			outs := logs.FilterMessage("Room presence output changed").All()
+			require.Len(t, outs, 1)
+			of := outs[0].ContextMap()
+			assert.Equal(t, "isKitchenOccupied", of["key"])
+			assert.Equal(t, true, of["value"])
+			assert.Equal(t, tc.written, of["written"])
+			assert.Equal(t, tc.mode, of["mode"])
+
+			// A repeat update with no change logs nothing new.
+			before := logs.Len()
+			mockHA.SimulateMQTT(eventsTopic, frigateEvent(t, "update", "a", "cam_kitchen",
+				[]string{"kitchen_to_hall", "kitchen"}, "kitchen"))
+			assert.Equal(t, before, logs.Len())
+		})
+	}
+}
+
+func TestManager_LogsTokenMovedAndRemoved(t *testing.T) {
+	cfg := exampleConfig(t)
+	m, mockHA, logs := newObservedManager(t, cfg, false)
+	require.NoError(t, m.Start())
+	defer m.Stop()
+
+	mockHA.SimulateMQTT(eventsTopic, frigateEvent(t, "update", "a", "cam_kitchen",
+		[]string{"kitchen_to_hall", "kitchen"}, "kitchen"))
+	require.Len(t, logs.FilterMessage("Room presence token created").All(), 1)
+
+	// Take a snapshot-level look at move and removal by driving logChanges with edited snapshots.
+	m.applyMu.Lock()
+	snap := m.tracker.Snapshot()
+	require.Len(t, snap.Tokens, 1)
+	tok := snap.Tokens[0]
+
+	moved := snap
+	moved.Tokens = []shadowstate.RoomPresenceToken{tok}
+	moved.Tokens[0].Area = "hall"
+	moved.Tokens[0].Reason = "handoff"
+	m.logChanges(moved)
+
+	gone := snap
+	gone.Tokens = nil
+	gone.Outputs = map[string]bool{"isKitchenOccupied": false}
+	gone.Removed = []shadowstate.RoomPresenceRemoval{{Token: tok.ID, Area: "hall", Reason: "idle"}}
+	m.logChanges(gone)
+	m.applyMu.Unlock()
+
+	mv := logs.FilterMessage("Room presence token moved").All()
+	require.Len(t, mv, 1)
+	assert.Equal(t, "kitchen", mv[0].ContextMap()["from_area"])
+	assert.Equal(t, "hall", mv[0].ContextMap()["to_area"])
+	assert.Equal(t, "handoff", mv[0].ContextMap()["reason"])
+
+	rm := logs.FilterMessage("Room presence token removed").All()
+	require.Len(t, rm, 1)
+	assert.Equal(t, "idle", rm[0].ContextMap()["reason"])
+	assert.Equal(t, "hall", rm[0].ContextMap()["area"])
+
+	// Output went true to false.
+	outs := logs.FilterMessage("Room presence output changed").All()
+	require.Len(t, outs, 2)
+	assert.Equal(t, false, outs[1].ContextMap()["value"])
+	assert.Equal(t, true, outs[1].ContextMap()["previous"])
 }
