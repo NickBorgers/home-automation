@@ -9,6 +9,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -23,6 +24,9 @@ var upgrader = websocket.Upgrader{
 type connWrapper struct {
 	conn    *websocket.Conn
 	writeMu sync.Mutex
+
+	mqttMu   sync.Mutex
+	mqttSubs map[string]int // MQTT topic filter -> mqtt/subscribe message ID
 }
 
 // MockHAServer simulates a Home Assistant WebSocket server
@@ -70,10 +74,14 @@ type Message struct {
 
 // Event represents a Home Assistant event
 type Event struct {
-	EventType string          `json:"event_type"`
-	Data      json.RawMessage `json:"data"`
-	Origin    string          `json:"origin"`
+	EventType string          `json:"event_type,omitempty"`
+	Data      json.RawMessage `json:"data,omitempty"`
+	Origin    string          `json:"origin,omitempty"`
 	TimeFired time.Time       `json:"time_fired"`
+
+	// MQTT fields, set only on messages of an mqtt/subscribe subscription.
+	Topic   string `json:"topic,omitempty"`
+	Payload string `json:"payload,omitempty"`
 }
 
 // StateChangedEvent represents a state_changed event
@@ -318,6 +326,8 @@ func (s *MockHAServer) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		switch baseMsg.Type {
 		case "subscribe_events":
 			s.handleSubscribeEvents(wrapper, msg)
+		case "mqtt/subscribe":
+			s.handleMQTTSubscribe(wrapper, msg)
 		case "get_states":
 			s.handleGetStates(wrapper, msg)
 		case "call_service":
@@ -432,6 +442,87 @@ func (s *MockHAServer) handleSubscribeEvents(wrapper *connWrapper, msg json.RawM
 		Success: &success,
 	})
 	wrapper.writeMu.Unlock()
+}
+
+// handleMQTTSubscribe records an mqtt/subscribe request so PublishMQTT can reach it.
+func (s *MockHAServer) handleMQTTSubscribe(wrapper *connWrapper, msg json.RawMessage) {
+	var req struct {
+		ID    int    `json:"id"`
+		Topic string `json:"topic"`
+	}
+	if err := json.Unmarshal(msg, &req); err != nil {
+		return
+	}
+	wrapper.mqttMu.Lock()
+	if wrapper.mqttSubs == nil {
+		wrapper.mqttSubs = make(map[string]int)
+	}
+	wrapper.mqttSubs[req.Topic] = req.ID
+	wrapper.mqttMu.Unlock()
+
+	success := true
+	wrapper.writeMu.Lock()
+	wrapper.conn.WriteJSON(Message{ID: req.ID, Type: "result", Success: &success})
+	wrapper.writeMu.Unlock()
+}
+
+// PublishMQTT sends an MQTT message to every connection subscribed to a matching topic filter,
+// as Home Assistant does for mqtt/subscribe. It returns how many subscriptions received it.
+func (s *MockHAServer) PublishMQTT(topic, payload string) int {
+	s.connsMu.Lock()
+	wrappers := make([]*connWrapper, len(s.connections))
+	copy(wrappers, s.connections)
+	s.connsMu.Unlock()
+
+	sent := 0
+	for _, wrapper := range wrappers {
+		wrapper.mqttMu.Lock()
+		var ids []int
+		for filter, id := range wrapper.mqttSubs {
+			if MQTTTopicMatches(filter, topic) {
+				ids = append(ids, id)
+			}
+		}
+		wrapper.mqttMu.Unlock()
+		for _, id := range ids {
+			wrapper.writeMu.Lock()
+			wrapper.conn.WriteJSON(Message{ID: id, Type: "event", Event: &Event{Topic: topic, Payload: payload}})
+			wrapper.writeMu.Unlock()
+			sent++
+		}
+	}
+	return sent
+}
+
+// MQTTSubscriptionCount returns how many mqtt/subscribe subscriptions are open across connections.
+func (s *MockHAServer) MQTTSubscriptionCount() int {
+	s.connsMu.Lock()
+	defer s.connsMu.Unlock()
+	n := 0
+	for _, w := range s.connections {
+		w.mqttMu.Lock()
+		n += len(w.mqttSubs)
+		w.mqttMu.Unlock()
+	}
+	return n
+}
+
+// MQTTTopicMatches reports whether an MQTT topic matches a filter with + and # wildcards.
+func MQTTTopicMatches(filter, topic string) bool {
+	f := strings.Split(filter, "/")
+	t := strings.Split(topic, "/")
+	for i, part := range f {
+		if part == "#" {
+			return true
+		}
+		if i >= len(t) {
+			return false
+		}
+		if part != "+" && part != t[i] {
+			return false
+		}
+	}
+	return len(f) == len(t)
 }
 
 // handleGetStates handles get_states requests

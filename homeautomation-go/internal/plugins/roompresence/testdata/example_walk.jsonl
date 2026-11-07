@@ -1,0 +1,304 @@
+{"t": 1793900000.0, "topic": "frigate/cam_lounge/status/detect", "payload": "online"}
+{"t": 1793900000.0, "topic": "frigate/cam_kitchen/status/detect", "payload": "online"}
+{"t": 1793900000.0, "topic": "frigate/cam_hall/status/detect", "payload": "online"}
+{"t": 1793900005.0, "topic": "frigate/events", "payload": "{\"type\": \"new\", \"after\": {\"id\": \"a\", \"camera\": \"cam_lounge\", \"label\": \"person\", \"entered_zones\": [], \"current_zones\": [], \"false_positive\": false, \"stationary\": false}}"}
+{"t": 1793900005.3, "topic": "frigate/events", "payload": "{\"type\": \"update\", \"after\": {\"id\": \"a\", \"camera\": \"cam_lounge\", \"label\": \"person\", \"entered_zones\": [\"lounge_to_study\"], \"current_zones\": [\"lounge_to_study\"], \"false_positive\": false, \"stationary\": false}}"}
+{"t": 1793900006.5, "topic": "frigate/events", "payload": "{\"type\": \"update\", \"after\": {\"id\": \"a\", \"camera\": \"cam_lounge\", \"label\": \"person\", \"entered_zones\": [\"lounge_to_study\", \"lounge\"], \"current_zones\": [\"lounge\"], \"false_positive\": false, \"stationary\": false}}"}
+{"t": 1793900008.0, "topic": "frigate/events", "payload": "{\"type\": \"update\", \"after\": {\"id\": \"a\", \"camera\": \"cam_lounge\", \"label\": \"person\", \"entered_zones\": [\"lounge_to_study\", \"lounge\", \"kitchen\"], \"current_zones\": [\"kitchen\"], \"false_positive\": false, \"stationary\": false}}"}
+{"t": 1793900008.2, "topic": "frigate/events", "payload": "{\"type\": \"update\", \"after\": {\"id\": \"b\", \"camera\": \"cam_kitchen\", \"label\": \"person\", \"entered_zones\": [\"kitchen\"], \"current_zones\": [\"kitchen\"], \"false_positive\": false, \"stationary\": false}}"}
+{"t": 1793900009.0, "topic": "frigate/events", "payload": "{\"type\": \"end\", \"after\": {\"id\": \"a\", \"camera\": \"cam_lounge\", \"label\": \"person\", \"entered_zones\": [\"lounge_to_study\", \"lounge\", \"kitchen\"], \"current_zones\": [\"kitchen\"], \"false_positive\": false, \"stationary\": false}}"}
+{"t": 1793900010.0, "topic": "frigate/cam_lounge/status/detect", "payload": "online"}
+{"t": 1793900010.0, "topic": "frigate/cam_kitchen/status/detect", "payload": "online"}
+{"t": 1793900010.0, "topic": "frigate/cam_hall/status/detect", "payload": "online"}
+{"t": 1793900015.0, "topic": "frigate/events", "payload": "{\"type\": \"end\", \"after\": {\"id\": \"b\", \"camera\": \"cam_kitchen\", \"label\": \"person\", \"entered_zones\": [\"kitchen\"], \"current_zones\": [\"kitchen\"], \"false_positive\": false, \"stationary\": false}}"}
+{"t": 1793900020.0, "topic": "frigate/cam_lounge/status/detect", "payload": "online"}
+{"t": 1793900020.0, "topic": "frigate/cam_kitchen/status/detect", "payload": "online"}
+{"t": 1793900020.0, "topic": "frigate/cam_hall/status/detect", "payload": "online"}
+{"t": 1793900030.0, "topic": "frigate/cam_lounge/status/detect", "payload": "online"}
+{"t": 1793900030.0, "topic": "frigate/cam_kitchen/status/detect", "payload": "online"}
+{"t": 1793900030.0, "topic": "frigate/cam_hall/status/detect", "payload": "online"}
+{"t": 1793900040.0, "topic": "frigate/cam_lounge/status/detect", "payload": "online"}
+{"t": 1793900040.0, "topic": "frigate/cam_kitchen/status/detect", "payload": "online"}
+{"t": 1793900040.0, "topic": "frigate/cam_hall/status/detect", "payload": "online"}
+{"t": 1793900050.0, "topic": "frigate/cam_lounge/status/detect", "payload": "online"}
+{"t": 1793900050.0, "topic": "frigate/cam_kitchen/status/detect", "payload": "online"}
+{"t": 1793900050.0, "topic": "frigate/cam_hall/status/detect", "payload": "online"}
+{"t": 1793900060.0, "topic": "frigate/cam_lounge/status/detect", "payload": "online"}
+{"t": 1793900060.0, "topic": "frigate/cam_kitchen/status/detect", "payload": "online"}
+{"t": 1793900060.0, "topic": "frigate/cam_hall/status/detect", "payload": "online"}
+{"t": 1793900070.0, "topic": "frigate/cam_lounge/status/detect", "payload": "online"}
+{"t": 1793900070.0, "topic": "frigate/cam_kitchen/status/detect", "payload": "online"}
+{"t": 1793900070.0, "topic": "frigate/cam_hall/status/detect", "payload": "online"}
+{"t": 1793900080.0, "topic": "frigate/cam_lounge/status/detect", "payload": "online"}
+{"t": 1793900080.0, "topic": "frigate/cam_kitchen/status/detect", "payload": "online"}
+{"t": 1793900080.0, "topic": "frigate/cam_hall/status/detect", "payload": "online"}
+{"t": 1793900090.0, "topic": "frigate/cam_lounge/status/detect", "payload": "online"}
+{"t": 1793900090.0, "topic": "frigate/cam_kitchen/status/detect", "payload": "online"}
+{"t": 1793900090.0, "topic": "frigate/cam_hall/status/detect", "payload": "online"}
+{"t": 1793900100.0, "topic": "frigate/cam_lounge/status/detect", "payload": "online"}
+{"t": 1793900100.0, "topic": "frigate/cam_kitchen/status/detect", "payload": "online"}
+{"t": 1793900100.0, "topic": "frigate/cam_hall/status/detect", "payload": "online"}
+{"t": 1793900110.0, "topic": "frigate/cam_lounge/status/detect", "payload": "online"}
+{"t": 1793900110.0, "topic": "frigate/cam_kitchen/status/detect", "payload": "online"}
+{"t": 1793900110.0, "topic": "frigate/cam_hall/status/detect", "payload": "online"}
+{"t": 1793900120.0, "topic": "frigate/cam_lounge/status/detect", "payload": "online"}
+{"t": 1793900120.0, "topic": "frigate/cam_kitchen/status/detect", "payload": "online"}
+{"t": 1793900120.0, "topic": "frigate/cam_hall/status/detect", "payload": "online"}
+{"t": 1793900130.0, "topic": "frigate/cam_lounge/status/detect", "payload": "online"}
+{"t": 1793900130.0, "topic": "frigate/cam_kitchen/status/detect", "payload": "online"}
+{"t": 1793900130.0, "topic": "frigate/cam_hall/status/detect", "payload": "online"}
+{"t": 1793900140.0, "topic": "frigate/cam_lounge/status/detect", "payload": "online"}
+{"t": 1793900140.0, "topic": "frigate/cam_kitchen/status/detect", "payload": "online"}
+{"t": 1793900140.0, "topic": "frigate/cam_hall/status/detect", "payload": "online"}
+{"t": 1793900150.0, "topic": "frigate/cam_lounge/status/detect", "payload": "online"}
+{"t": 1793900150.0, "topic": "frigate/cam_kitchen/status/detect", "payload": "online"}
+{"t": 1793900150.0, "topic": "frigate/cam_hall/status/detect", "payload": "online"}
+{"t": 1793900160.0, "topic": "frigate/cam_lounge/status/detect", "payload": "online"}
+{"t": 1793900160.0, "topic": "frigate/cam_kitchen/status/detect", "payload": "online"}
+{"t": 1793900160.0, "topic": "frigate/cam_hall/status/detect", "payload": "online"}
+{"t": 1793900170.0, "topic": "frigate/cam_lounge/status/detect", "payload": "online"}
+{"t": 1793900170.0, "topic": "frigate/cam_kitchen/status/detect", "payload": "online"}
+{"t": 1793900170.0, "topic": "frigate/cam_hall/status/detect", "payload": "online"}
+{"t": 1793900180.0, "topic": "frigate/cam_lounge/status/detect", "payload": "online"}
+{"t": 1793900180.0, "topic": "frigate/cam_kitchen/status/detect", "payload": "online"}
+{"t": 1793900180.0, "topic": "frigate/cam_hall/status/detect", "payload": "online"}
+{"t": 1793900190.0, "topic": "frigate/cam_lounge/status/detect", "payload": "online"}
+{"t": 1793900190.0, "topic": "frigate/cam_kitchen/status/detect", "payload": "online"}
+{"t": 1793900190.0, "topic": "frigate/cam_hall/status/detect", "payload": "online"}
+{"t": 1793900200.0, "topic": "frigate/cam_lounge/status/detect", "payload": "online"}
+{"t": 1793900200.0, "topic": "frigate/cam_kitchen/status/detect", "payload": "online"}
+{"t": 1793900200.0, "topic": "frigate/cam_hall/status/detect", "payload": "online"}
+{"t": 1793900210.0, "topic": "frigate/cam_lounge/status/detect", "payload": "online"}
+{"t": 1793900210.0, "topic": "frigate/cam_kitchen/status/detect", "payload": "online"}
+{"t": 1793900210.0, "topic": "frigate/cam_hall/status/detect", "payload": "online"}
+{"t": 1793900220.0, "topic": "frigate/cam_lounge/status/detect", "payload": "online"}
+{"t": 1793900220.0, "topic": "frigate/cam_kitchen/status/detect", "payload": "online"}
+{"t": 1793900220.0, "topic": "frigate/cam_hall/status/detect", "payload": "online"}
+{"t": 1793900230.0, "topic": "frigate/cam_lounge/status/detect", "payload": "online"}
+{"t": 1793900230.0, "topic": "frigate/cam_kitchen/status/detect", "payload": "online"}
+{"t": 1793900230.0, "topic": "frigate/cam_hall/status/detect", "payload": "online"}
+{"t": 1793900240.0, "topic": "frigate/cam_lounge/status/detect", "payload": "online"}
+{"t": 1793900240.0, "topic": "frigate/cam_kitchen/status/detect", "payload": "online"}
+{"t": 1793900240.0, "topic": "frigate/cam_hall/status/detect", "payload": "online"}
+{"t": 1793900250.0, "topic": "frigate/cam_lounge/status/detect", "payload": "online"}
+{"t": 1793900250.0, "topic": "frigate/cam_kitchen/status/detect", "payload": "online"}
+{"t": 1793900250.0, "topic": "frigate/cam_hall/status/detect", "payload": "online"}
+{"t": 1793900260.0, "topic": "frigate/cam_lounge/status/detect", "payload": "online"}
+{"t": 1793900260.0, "topic": "frigate/cam_kitchen/status/detect", "payload": "online"}
+{"t": 1793900260.0, "topic": "frigate/cam_hall/status/detect", "payload": "online"}
+{"t": 1793900270.0, "topic": "frigate/cam_lounge/status/detect", "payload": "online"}
+{"t": 1793900270.0, "topic": "frigate/cam_kitchen/status/detect", "payload": "online"}
+{"t": 1793900270.0, "topic": "frigate/cam_hall/status/detect", "payload": "online"}
+{"t": 1793900280.0, "topic": "frigate/cam_lounge/status/detect", "payload": "online"}
+{"t": 1793900280.0, "topic": "frigate/cam_kitchen/status/detect", "payload": "online"}
+{"t": 1793900280.0, "topic": "frigate/cam_hall/status/detect", "payload": "online"}
+{"t": 1793900290.0, "topic": "frigate/cam_lounge/status/detect", "payload": "online"}
+{"t": 1793900290.0, "topic": "frigate/cam_kitchen/status/detect", "payload": "online"}
+{"t": 1793900290.0, "topic": "frigate/cam_hall/status/detect", "payload": "online"}
+{"t": 1793900300.0, "topic": "frigate/cam_lounge/status/detect", "payload": "online"}
+{"t": 1793900300.0, "topic": "frigate/cam_kitchen/status/detect", "payload": "online"}
+{"t": 1793900300.0, "topic": "frigate/cam_hall/status/detect", "payload": "online"}
+{"t": 1793900310.0, "topic": "frigate/cam_lounge/status/detect", "payload": "online"}
+{"t": 1793900310.0, "topic": "frigate/cam_kitchen/status/detect", "payload": "online"}
+{"t": 1793900310.0, "topic": "frigate/cam_hall/status/detect", "payload": "online"}
+{"t": 1793900320.0, "topic": "frigate/cam_lounge/status/detect", "payload": "online"}
+{"t": 1793900320.0, "topic": "frigate/cam_kitchen/status/detect", "payload": "online"}
+{"t": 1793900320.0, "topic": "frigate/cam_hall/status/detect", "payload": "online"}
+{"t": 1793900330.0, "topic": "frigate/cam_lounge/status/detect", "payload": "online"}
+{"t": 1793900330.0, "topic": "frigate/cam_kitchen/status/detect", "payload": "online"}
+{"t": 1793900330.0, "topic": "frigate/cam_hall/status/detect", "payload": "online"}
+{"t": 1793900340.0, "topic": "frigate/cam_lounge/status/detect", "payload": "online"}
+{"t": 1793900340.0, "topic": "frigate/cam_kitchen/status/detect", "payload": "online"}
+{"t": 1793900340.0, "topic": "frigate/cam_hall/status/detect", "payload": "online"}
+{"t": 1793900350.0, "topic": "frigate/cam_lounge/status/detect", "payload": "online"}
+{"t": 1793900350.0, "topic": "frigate/cam_kitchen/status/detect", "payload": "online"}
+{"t": 1793900350.0, "topic": "frigate/cam_hall/status/detect", "payload": "online"}
+{"t": 1793900360.0, "topic": "frigate/cam_lounge/status/detect", "payload": "online"}
+{"t": 1793900360.0, "topic": "frigate/cam_kitchen/status/detect", "payload": "online"}
+{"t": 1793900360.0, "topic": "frigate/cam_hall/status/detect", "payload": "online"}
+{"t": 1793900370.0, "topic": "frigate/cam_lounge/status/detect", "payload": "online"}
+{"t": 1793900370.0, "topic": "frigate/cam_kitchen/status/detect", "payload": "online"}
+{"t": 1793900370.0, "topic": "frigate/cam_hall/status/detect", "payload": "online"}
+{"t": 1793900380.0, "topic": "frigate/cam_lounge/status/detect", "payload": "online"}
+{"t": 1793900380.0, "topic": "frigate/cam_kitchen/status/detect", "payload": "online"}
+{"t": 1793900380.0, "topic": "frigate/cam_hall/status/detect", "payload": "online"}
+{"t": 1793900390.0, "topic": "frigate/cam_lounge/status/detect", "payload": "online"}
+{"t": 1793900390.0, "topic": "frigate/cam_kitchen/status/detect", "payload": "online"}
+{"t": 1793900390.0, "topic": "frigate/cam_hall/status/detect", "payload": "online"}
+{"t": 1793900400.0, "topic": "frigate/cam_lounge/status/detect", "payload": "online"}
+{"t": 1793900400.0, "topic": "frigate/cam_kitchen/status/detect", "payload": "online"}
+{"t": 1793900400.0, "topic": "frigate/cam_hall/status/detect", "payload": "online"}
+{"t": 1793900410.0, "topic": "frigate/cam_lounge/status/detect", "payload": "online"}
+{"t": 1793900410.0, "topic": "frigate/cam_kitchen/status/detect", "payload": "online"}
+{"t": 1793900410.0, "topic": "frigate/cam_hall/status/detect", "payload": "online"}
+{"t": 1793900420.0, "topic": "frigate/cam_lounge/status/detect", "payload": "online"}
+{"t": 1793900420.0, "topic": "frigate/cam_kitchen/status/detect", "payload": "online"}
+{"t": 1793900420.0, "topic": "frigate/cam_hall/status/detect", "payload": "online"}
+{"t": 1793900430.0, "topic": "frigate/cam_lounge/status/detect", "payload": "online"}
+{"t": 1793900430.0, "topic": "frigate/cam_kitchen/status/detect", "payload": "online"}
+{"t": 1793900430.0, "topic": "frigate/cam_hall/status/detect", "payload": "online"}
+{"t": 1793900440.0, "topic": "frigate/cam_lounge/status/detect", "payload": "online"}
+{"t": 1793900440.0, "topic": "frigate/cam_kitchen/status/detect", "payload": "online"}
+{"t": 1793900440.0, "topic": "frigate/cam_hall/status/detect", "payload": "online"}
+{"t": 1793900450.0, "topic": "frigate/cam_lounge/status/detect", "payload": "online"}
+{"t": 1793900450.0, "topic": "frigate/cam_kitchen/status/detect", "payload": "online"}
+{"t": 1793900450.0, "topic": "frigate/cam_hall/status/detect", "payload": "online"}
+{"t": 1793900460.0, "topic": "frigate/cam_lounge/status/detect", "payload": "online"}
+{"t": 1793900460.0, "topic": "frigate/cam_kitchen/status/detect", "payload": "online"}
+{"t": 1793900460.0, "topic": "frigate/cam_hall/status/detect", "payload": "online"}
+{"t": 1793900470.0, "topic": "frigate/cam_lounge/status/detect", "payload": "online"}
+{"t": 1793900470.0, "topic": "frigate/cam_kitchen/status/detect", "payload": "online"}
+{"t": 1793900470.0, "topic": "frigate/cam_hall/status/detect", "payload": "online"}
+{"t": 1793900480.0, "topic": "frigate/cam_lounge/status/detect", "payload": "online"}
+{"t": 1793900480.0, "topic": "frigate/cam_kitchen/status/detect", "payload": "online"}
+{"t": 1793900480.0, "topic": "frigate/cam_hall/status/detect", "payload": "online"}
+{"t": 1793900490.0, "topic": "frigate/cam_lounge/status/detect", "payload": "online"}
+{"t": 1793900490.0, "topic": "frigate/cam_kitchen/status/detect", "payload": "online"}
+{"t": 1793900490.0, "topic": "frigate/cam_hall/status/detect", "payload": "online"}
+{"t": 1793900500.0, "topic": "frigate/cam_lounge/status/detect", "payload": "online"}
+{"t": 1793900500.0, "topic": "frigate/cam_kitchen/status/detect", "payload": "online"}
+{"t": 1793900500.0, "topic": "frigate/cam_hall/status/detect", "payload": "online"}
+{"t": 1793900510.0, "topic": "frigate/cam_lounge/status/detect", "payload": "online"}
+{"t": 1793900510.0, "topic": "frigate/cam_kitchen/status/detect", "payload": "online"}
+{"t": 1793900510.0, "topic": "frigate/cam_hall/status/detect", "payload": "online"}
+{"t": 1793900520.0, "topic": "frigate/cam_lounge/status/detect", "payload": "online"}
+{"t": 1793900520.0, "topic": "frigate/cam_kitchen/status/detect", "payload": "online"}
+{"t": 1793900520.0, "topic": "frigate/cam_hall/status/detect", "payload": "online"}
+{"t": 1793900530.0, "topic": "frigate/cam_lounge/status/detect", "payload": "online"}
+{"t": 1793900530.0, "topic": "frigate/cam_kitchen/status/detect", "payload": "online"}
+{"t": 1793900530.0, "topic": "frigate/cam_hall/status/detect", "payload": "online"}
+{"t": 1793900540.0, "topic": "frigate/cam_lounge/status/detect", "payload": "online"}
+{"t": 1793900540.0, "topic": "frigate/cam_kitchen/status/detect", "payload": "online"}
+{"t": 1793900540.0, "topic": "frigate/cam_hall/status/detect", "payload": "online"}
+{"t": 1793900550.0, "topic": "frigate/cam_lounge/status/detect", "payload": "online"}
+{"t": 1793900550.0, "topic": "frigate/cam_kitchen/status/detect", "payload": "online"}
+{"t": 1793900550.0, "topic": "frigate/cam_hall/status/detect", "payload": "online"}
+{"t": 1793900560.0, "topic": "frigate/cam_lounge/status/detect", "payload": "online"}
+{"t": 1793900560.0, "topic": "frigate/cam_kitchen/status/detect", "payload": "online"}
+{"t": 1793900560.0, "topic": "frigate/cam_hall/status/detect", "payload": "online"}
+{"t": 1793900570.0, "topic": "frigate/cam_lounge/status/detect", "payload": "online"}
+{"t": 1793900570.0, "topic": "frigate/cam_kitchen/status/detect", "payload": "online"}
+{"t": 1793900570.0, "topic": "frigate/cam_hall/status/detect", "payload": "online"}
+{"t": 1793900580.0, "topic": "frigate/cam_lounge/status/detect", "payload": "online"}
+{"t": 1793900580.0, "topic": "frigate/cam_kitchen/status/detect", "payload": "online"}
+{"t": 1793900580.0, "topic": "frigate/cam_hall/status/detect", "payload": "online"}
+{"t": 1793900590.0, "topic": "frigate/cam_lounge/status/detect", "payload": "online"}
+{"t": 1793900590.0, "topic": "frigate/cam_kitchen/status/detect", "payload": "online"}
+{"t": 1793900590.0, "topic": "frigate/cam_hall/status/detect", "payload": "online"}
+{"t": 1793900600.0, "topic": "frigate/cam_lounge/status/detect", "payload": "online"}
+{"t": 1793900600.0, "topic": "frigate/cam_kitchen/status/detect", "payload": "online"}
+{"t": 1793900600.0, "topic": "frigate/cam_hall/status/detect", "payload": "online"}
+{"t": 1793900610.0, "topic": "frigate/cam_lounge/status/detect", "payload": "online"}
+{"t": 1793900610.0, "topic": "frigate/cam_kitchen/status/detect", "payload": "online"}
+{"t": 1793900610.0, "topic": "frigate/cam_hall/status/detect", "payload": "online"}
+{"t": 1793900620.0, "topic": "frigate/cam_lounge/status/detect", "payload": "online"}
+{"t": 1793900620.0, "topic": "frigate/cam_kitchen/status/detect", "payload": "online"}
+{"t": 1793900620.0, "topic": "frigate/cam_hall/status/detect", "payload": "online"}
+{"t": 1793900630.0, "topic": "frigate/cam_lounge/status/detect", "payload": "online"}
+{"t": 1793900630.0, "topic": "frigate/cam_kitchen/status/detect", "payload": "online"}
+{"t": 1793900630.0, "topic": "frigate/cam_hall/status/detect", "payload": "online"}
+{"t": 1793900640.0, "topic": "frigate/cam_lounge/status/detect", "payload": "online"}
+{"t": 1793900640.0, "topic": "frigate/cam_kitchen/status/detect", "payload": "online"}
+{"t": 1793900640.0, "topic": "frigate/cam_hall/status/detect", "payload": "online"}
+{"t": 1793900650.0, "topic": "frigate/cam_lounge/status/detect", "payload": "online"}
+{"t": 1793900650.0, "topic": "frigate/cam_kitchen/status/detect", "payload": "online"}
+{"t": 1793900650.0, "topic": "frigate/cam_hall/status/detect", "payload": "online"}
+{"t": 1793900660.0, "topic": "frigate/cam_lounge/status/detect", "payload": "online"}
+{"t": 1793900660.0, "topic": "frigate/cam_kitchen/status/detect", "payload": "online"}
+{"t": 1793900660.0, "topic": "frigate/cam_hall/status/detect", "payload": "online"}
+{"t": 1793900670.0, "topic": "frigate/cam_lounge/status/detect", "payload": "online"}
+{"t": 1793900670.0, "topic": "frigate/cam_kitchen/status/detect", "payload": "online"}
+{"t": 1793900670.0, "topic": "frigate/cam_hall/status/detect", "payload": "online"}
+{"t": 1793900680.0, "topic": "frigate/cam_lounge/status/detect", "payload": "online"}
+{"t": 1793900680.0, "topic": "frigate/cam_kitchen/status/detect", "payload": "online"}
+{"t": 1793900680.0, "topic": "frigate/cam_hall/status/detect", "payload": "online"}
+{"t": 1793900690.0, "topic": "frigate/cam_lounge/status/detect", "payload": "online"}
+{"t": 1793900690.0, "topic": "frigate/cam_kitchen/status/detect", "payload": "online"}
+{"t": 1793900690.0, "topic": "frigate/cam_hall/status/detect", "payload": "online"}
+{"t": 1793900700.0, "topic": "frigate/cam_lounge/status/detect", "payload": "online"}
+{"t": 1793900700.0, "topic": "frigate/cam_kitchen/status/detect", "payload": "online"}
+{"t": 1793900700.0, "topic": "frigate/cam_hall/status/detect", "payload": "online"}
+{"t": 1793900700.0, "topic": "frigate/events", "payload": "{\"type\": \"update\", \"after\": {\"id\": \"c\", \"camera\": \"cam_kitchen\", \"label\": \"person\", \"entered_zones\": [\"kitchen\"], \"current_zones\": [\"kitchen\"], \"false_positive\": false, \"stationary\": false}}"}
+{"t": 1793900702.0, "topic": "frigate/events", "payload": "{\"type\": \"update\", \"after\": {\"id\": \"c\", \"camera\": \"cam_kitchen\", \"label\": \"person\", \"entered_zones\": [\"kitchen\", \"kitchen_to_hall\"], \"current_zones\": [\"kitchen_to_hall\"], \"false_positive\": false, \"stationary\": false}}"}
+{"t": 1793900703.0, "topic": "frigate/events", "payload": "{\"type\": \"end\", \"after\": {\"id\": \"c\", \"camera\": \"cam_kitchen\", \"label\": \"person\", \"entered_zones\": [\"kitchen\", \"kitchen_to_hall\"], \"current_zones\": [\"kitchen_to_hall\"], \"false_positive\": false, \"stationary\": false}}"}
+{"t": 1793900703.3, "topic": "frigate/events", "payload": "{\"type\": \"update\", \"after\": {\"id\": \"d\", \"camera\": \"cam_hall\", \"label\": \"person\", \"entered_zones\": [\"hall_to_kitchen\"], \"current_zones\": [\"hall_to_kitchen\"], \"false_positive\": false, \"stationary\": false}}"}
+{"t": 1793900705.0, "topic": "frigate/events", "payload": "{\"type\": \"update\", \"after\": {\"id\": \"d\", \"camera\": \"cam_hall\", \"label\": \"person\", \"entered_zones\": [\"hall_to_kitchen\", \"hall\"], \"current_zones\": [\"hall\"], \"false_positive\": false, \"stationary\": false}}"}
+{"t": 1793900707.0, "topic": "frigate/events", "payload": "{\"type\": \"update\", \"after\": {\"id\": \"d\", \"camera\": \"cam_hall\", \"label\": \"person\", \"entered_zones\": [\"hall_to_kitchen\", \"hall\", \"hall_to_bedroom\"], \"current_zones\": [\"hall_to_bedroom\"], \"false_positive\": false, \"stationary\": false}}"}
+{"t": 1793900708.0, "topic": "frigate/events", "payload": "{\"type\": \"end\", \"after\": {\"id\": \"d\", \"camera\": \"cam_hall\", \"label\": \"person\", \"entered_zones\": [\"hall_to_kitchen\", \"hall\", \"hall_to_bedroom\"], \"current_zones\": [\"hall_to_bedroom\"], \"false_positive\": false, \"stationary\": false}}"}
+{"t": 1793900710.0, "topic": "frigate/cam_lounge/status/detect", "payload": "online"}
+{"t": 1793900710.0, "topic": "frigate/cam_kitchen/status/detect", "payload": "online"}
+{"t": 1793900710.0, "topic": "frigate/cam_hall/status/detect", "payload": "online"}
+{"t": 1793900720.0, "topic": "frigate/cam_lounge/status/detect", "payload": "online"}
+{"t": 1793900720.0, "topic": "frigate/cam_kitchen/status/detect", "payload": "online"}
+{"t": 1793900720.0, "topic": "frigate/cam_hall/status/detect", "payload": "online"}
+{"t": 1793900730.0, "topic": "frigate/cam_lounge/status/detect", "payload": "online"}
+{"t": 1793900730.0, "topic": "frigate/cam_kitchen/status/detect", "payload": "online"}
+{"t": 1793900730.0, "topic": "frigate/cam_hall/status/detect", "payload": "online"}
+{"t": 1793900740.0, "topic": "frigate/cam_lounge/status/detect", "payload": "online"}
+{"t": 1793900740.0, "topic": "frigate/cam_kitchen/status/detect", "payload": "online"}
+{"t": 1793900740.0, "topic": "frigate/cam_hall/status/detect", "payload": "online"}
+{"t": 1793900750.0, "topic": "frigate/cam_lounge/status/detect", "payload": "online"}
+{"t": 1793900750.0, "topic": "frigate/cam_kitchen/status/detect", "payload": "online"}
+{"t": 1793900750.0, "topic": "frigate/cam_hall/status/detect", "payload": "online"}
+{"t": 1793900760.0, "topic": "frigate/cam_lounge/status/detect", "payload": "online"}
+{"t": 1793900760.0, "topic": "frigate/cam_kitchen/status/detect", "payload": "online"}
+{"t": 1793900760.0, "topic": "frigate/cam_hall/status/detect", "payload": "online"}
+{"t": 1793900770.0, "topic": "frigate/cam_lounge/status/detect", "payload": "online"}
+{"t": 1793900770.0, "topic": "frigate/cam_kitchen/status/detect", "payload": "online"}
+{"t": 1793900770.0, "topic": "frigate/cam_hall/status/detect", "payload": "online"}
+{"t": 1793900780.0, "topic": "frigate/cam_lounge/status/detect", "payload": "online"}
+{"t": 1793900780.0, "topic": "frigate/cam_kitchen/status/detect", "payload": "online"}
+{"t": 1793900780.0, "topic": "frigate/cam_hall/status/detect", "payload": "online"}
+{"t": 1793900790.0, "topic": "frigate/cam_lounge/status/detect", "payload": "online"}
+{"t": 1793900790.0, "topic": "frigate/cam_kitchen/status/detect", "payload": "online"}
+{"t": 1793900790.0, "topic": "frigate/cam_hall/status/detect", "payload": "online"}
+{"t": 1793900800.0, "topic": "frigate/cam_lounge/status/detect", "payload": "online"}
+{"t": 1793900800.0, "topic": "frigate/cam_kitchen/status/detect", "payload": "online"}
+{"t": 1793900800.0, "topic": "frigate/cam_hall/status/detect", "payload": "online"}
+{"t": 1793900800.0, "topic": "frigate/events", "payload": "{\"type\": \"update\", \"after\": {\"id\": \"g\", \"camera\": \"cam_kitchen\", \"label\": \"person\", \"entered_zones\": [\"kitchen\"], \"current_zones\": [\"kitchen\"], \"false_positive\": false, \"stationary\": false}}"}
+{"t": 1793900802.0, "topic": "frigate/events", "payload": "{\"type\": \"update\", \"after\": {\"id\": \"g\", \"camera\": \"cam_kitchen\", \"label\": \"person\", \"entered_zones\": [\"kitchen\"], \"current_zones\": [\"kitchen\"], \"false_positive\": false, \"stationary\": false}}"}
+{"t": 1793900804.0, "topic": "frigate/events", "payload": "{\"type\": \"update\", \"after\": {\"id\": \"g\", \"camera\": \"cam_kitchen\", \"label\": \"person\", \"entered_zones\": [\"kitchen\"], \"current_zones\": [\"kitchen\"], \"false_positive\": false, \"stationary\": false}}"}
+{"t": 1793900806.0, "topic": "frigate/events", "payload": "{\"type\": \"update\", \"after\": {\"id\": \"g\", \"camera\": \"cam_kitchen\", \"label\": \"person\", \"entered_zones\": [\"kitchen\"], \"current_zones\": [\"kitchen\"], \"false_positive\": false, \"stationary\": false}}"}
+{"t": 1793900808.0, "topic": "frigate/events", "payload": "{\"type\": \"update\", \"after\": {\"id\": \"g\", \"camera\": \"cam_kitchen\", \"label\": \"person\", \"entered_zones\": [\"kitchen\"], \"current_zones\": [\"kitchen\"], \"false_positive\": false, \"stationary\": false}}"}
+{"t": 1793900810.0, "topic": "frigate/cam_lounge/status/detect", "payload": "online"}
+{"t": 1793900810.0, "topic": "frigate/cam_kitchen/status/detect", "payload": "online"}
+{"t": 1793900810.0, "topic": "frigate/cam_hall/status/detect", "payload": "online"}
+{"t": 1793900810.0, "topic": "frigate/events", "payload": "{\"type\": \"update\", \"after\": {\"id\": \"g\", \"camera\": \"cam_kitchen\", \"label\": \"person\", \"entered_zones\": [\"kitchen\"], \"current_zones\": [\"kitchen\"], \"false_positive\": false, \"stationary\": false}}"}
+{"t": 1793900812.0, "topic": "frigate/events", "payload": "{\"type\": \"update\", \"after\": {\"id\": \"g\", \"camera\": \"cam_kitchen\", \"label\": \"person\", \"entered_zones\": [\"kitchen\"], \"current_zones\": [\"kitchen\"], \"false_positive\": false, \"stationary\": false}}"}
+{"t": 1793900814.0, "topic": "frigate/events", "payload": "{\"type\": \"update\", \"after\": {\"id\": \"g\", \"camera\": \"cam_kitchen\", \"label\": \"person\", \"entered_zones\": [\"kitchen\"], \"current_zones\": [\"kitchen\"], \"false_positive\": false, \"stationary\": false}}"}
+{"t": 1793900816.0, "topic": "frigate/events", "payload": "{\"type\": \"update\", \"after\": {\"id\": \"g\", \"camera\": \"cam_kitchen\", \"label\": \"person\", \"entered_zones\": [\"kitchen\"], \"current_zones\": [\"kitchen\"], \"false_positive\": false, \"stationary\": false}}"}
+{"t": 1793900818.0, "topic": "frigate/events", "payload": "{\"type\": \"update\", \"after\": {\"id\": \"g\", \"camera\": \"cam_kitchen\", \"label\": \"person\", \"entered_zones\": [\"kitchen\"], \"current_zones\": [\"kitchen\"], \"false_positive\": false, \"stationary\": false}}"}
+{"t": 1793900820.0, "topic": "frigate/cam_lounge/status/detect", "payload": "online"}
+{"t": 1793900820.0, "topic": "frigate/cam_kitchen/status/detect", "payload": "online"}
+{"t": 1793900820.0, "topic": "frigate/cam_hall/status/detect", "payload": "online"}
+{"t": 1793900820.0, "topic": "frigate/events", "payload": "{\"type\": \"update\", \"after\": {\"id\": \"g\", \"camera\": \"cam_kitchen\", \"label\": \"person\", \"entered_zones\": [\"kitchen\"], \"current_zones\": [\"kitchen\"], \"false_positive\": false, \"stationary\": false}}"}
+{"t": 1793900822.0, "topic": "frigate/events", "payload": "{\"type\": \"update\", \"after\": {\"id\": \"g\", \"camera\": \"cam_kitchen\", \"label\": \"person\", \"entered_zones\": [\"kitchen\"], \"current_zones\": [\"kitchen\"], \"false_positive\": false, \"stationary\": false}}"}
+{"t": 1793900824.0, "topic": "frigate/events", "payload": "{\"type\": \"update\", \"after\": {\"id\": \"g\", \"camera\": \"cam_kitchen\", \"label\": \"person\", \"entered_zones\": [\"kitchen\"], \"current_zones\": [\"kitchen\"], \"false_positive\": false, \"stationary\": false}}"}
+{"t": 1793900826.0, "topic": "frigate/events", "payload": "{\"type\": \"update\", \"after\": {\"id\": \"g\", \"camera\": \"cam_kitchen\", \"label\": \"person\", \"entered_zones\": [\"kitchen\"], \"current_zones\": [\"kitchen\"], \"false_positive\": false, \"stationary\": false}}"}
+{"t": 1793900828.0, "topic": "frigate/events", "payload": "{\"type\": \"update\", \"after\": {\"id\": \"g\", \"camera\": \"cam_kitchen\", \"label\": \"person\", \"entered_zones\": [\"kitchen\"], \"current_zones\": [\"kitchen\"], \"false_positive\": false, \"stationary\": false}}"}
+{"t": 1793900830.0, "topic": "frigate/cam_lounge/status/detect", "payload": "online"}
+{"t": 1793900830.0, "topic": "frigate/cam_kitchen/status/detect", "payload": "online"}
+{"t": 1793900830.0, "topic": "frigate/cam_hall/status/detect", "payload": "online"}
+{"t": 1793900830.0, "topic": "frigate/events", "payload": "{\"type\": \"update\", \"after\": {\"id\": \"g\", \"camera\": \"cam_kitchen\", \"label\": \"person\", \"entered_zones\": [\"kitchen\"], \"current_zones\": [\"kitchen\"], \"false_positive\": false, \"stationary\": false}}"}
+{"t": 1793900832.0, "topic": "frigate/events", "payload": "{\"type\": \"end\", \"after\": {\"id\": \"g\", \"camera\": \"cam_kitchen\", \"label\": \"person\", \"entered_zones\": [\"kitchen\"], \"current_zones\": [\"kitchen\"], \"false_positive\": false, \"stationary\": false}}"}
+{"t": 1793900840.0, "topic": "frigate/cam_lounge/status/detect", "payload": "online"}
+{"t": 1793900840.0, "topic": "frigate/cam_kitchen/status/detect", "payload": "online"}
+{"t": 1793900840.0, "topic": "frigate/cam_hall/status/detect", "payload": "online"}
+{"t": 1793900850.0, "topic": "frigate/cam_lounge/status/detect", "payload": "online"}
+{"t": 1793900850.0, "topic": "frigate/cam_kitchen/status/detect", "payload": "online"}
+{"t": 1793900850.0, "topic": "frigate/cam_hall/status/detect", "payload": "online"}
+{"t": 1793900860.0, "topic": "frigate/cam_lounge/status/detect", "payload": "online"}
+{"t": 1793900860.0, "topic": "frigate/cam_kitchen/status/detect", "payload": "online"}
+{"t": 1793900860.0, "topic": "frigate/cam_hall/status/detect", "payload": "online"}
+{"t": 1793900870.0, "topic": "frigate/cam_lounge/status/detect", "payload": "online"}
+{"t": 1793900870.0, "topic": "frigate/cam_kitchen/status/detect", "payload": "online"}
+{"t": 1793900870.0, "topic": "frigate/cam_hall/status/detect", "payload": "online"}
+{"t": 1793900880.0, "topic": "frigate/cam_lounge/status/detect", "payload": "online"}
+{"t": 1793900880.0, "topic": "frigate/cam_kitchen/status/detect", "payload": "online"}
+{"t": 1793900880.0, "topic": "frigate/cam_hall/status/detect", "payload": "online"}
+{"t": 1793900890.0, "topic": "frigate/cam_lounge/status/detect", "payload": "online"}
+{"t": 1793900890.0, "topic": "frigate/cam_kitchen/status/detect", "payload": "online"}
+{"t": 1793900890.0, "topic": "frigate/cam_hall/status/detect", "payload": "online"}
+{"t": 1793900900.0, "topic": "frigate/cam_lounge/status/detect", "payload": "online"}
+{"t": 1793900900.0, "topic": "frigate/cam_kitchen/status/detect", "payload": "online"}
+{"t": 1793900900.0, "topic": "frigate/cam_hall/status/detect", "payload": "online"}

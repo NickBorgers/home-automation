@@ -119,6 +119,7 @@ type VacuumShadowState = ShadowState[ReadOnlyInputs, VacuumOutputs]
 type IntegrationWatchdogShadowState = ShadowState[ReadOnlyInputs, IntegrationWatchdogOutputs]
 type TeslaShadowState = ShadowState[ReadOnlyInputs, TeslaOutputs]
 type PicosShadowState = ShadowState[ReadOnlyInputs, PicosOutputs]
+type RoomPresenceShadowState = ShadowState[ReadOnlyInputs, RoomPresenceOutputs]
 
 // SystemInputs is used by cmd/app/run.go for system plugin shadow state.
 type SystemInputs = ReadOnlyInputs
@@ -320,6 +321,11 @@ func NewPicosShadowState() *PicosShadowState {
 	return newReadOnlyShadowState("picos", PicosOutputs{
 		Targets: make(map[string]PicoTargetState),
 	})
+}
+
+// NewRoomPresenceShadowState creates a new room presence shadow state.
+func NewRoomPresenceShadowState() *RoomPresenceShadowState {
+	return newReadOnlyShadowState("roompresence", RoomPresenceOutputs{})
 }
 
 // NewIntegrationWatchdogShadowState creates a new integration-watchdog shadow state.
@@ -1333,4 +1339,89 @@ type PicoTargetState struct {
 	Decision    string    `json:"decision"`
 	ReadOnly    bool      `json:"readOnly,omitempty"`
 	Error       string    `json:"error,omitempty"`
+}
+
+// ============================================================================
+// Room Presence Plugin Output Types
+// ============================================================================
+
+// RoomPresenceOutputs is what the room presence plugin knows about people in areas.
+type RoomPresenceOutputs struct {
+	// Configured is false when there is no config file, the config is invalid, or MQTT is unavailable.
+	Configured bool   `json:"configured"`
+	Reason     string `json:"reason,omitempty"`
+	Mode       string `json:"mode,omitempty"`
+	ReadOnly   bool   `json:"readOnly,omitempty"`
+
+	// Outputs are the computed state variables. They are written to Home Assistant only in active mode.
+	Outputs map[string]bool `json:"outputs,omitempty"`
+
+	Areas        map[string]RoomPresenceArea   `json:"areas,omitempty"`
+	Tokens       []RoomPresenceToken           `json:"tokens"`
+	ActiveTracks []RoomPresenceTrack           `json:"activeTracks"`
+	RecentTracks []RoomPresenceTrack           `json:"recentTracks"`
+	Removed      []RoomPresenceRemoval         `json:"removed"`
+	Cameras      map[string]RoomPresenceCamera `json:"cameras,omitempty"`
+
+	// UnknownZones are Frigate zone names that match no area, boundary or override.
+	UnknownZones []string `json:"unknownZones"`
+
+	LastEntry     *RoomPresenceEntry `json:"lastEntry,omitempty"`
+	EventsHandled int                `json:"eventsHandled"`
+	LastEventAt   time.Time          `json:"lastEventAt,omitempty"`
+}
+
+// RoomPresenceArea is one area's state.
+type RoomPresenceArea struct {
+	Occupied bool `json:"occupied"`
+	Tokens   int  `json:"tokens"`
+	Seen     bool `json:"seen"`
+	// Unknown is true while every camera that sees the area is offline. Its tokens do not expire.
+	Unknown      bool      `json:"unknown,omitempty"`
+	LastPersonAt time.Time `json:"lastPersonAt,omitempty"`
+}
+
+// RoomPresenceToken is one anonymous person.
+type RoomPresenceToken struct {
+	ID       string    `json:"id"`
+	Area     string    `json:"area"`
+	Since    time.Time `json:"since"`
+	LastSeen time.Time `json:"lastSeen"`
+	Camera   string    `json:"camera,omitempty"`
+	Reason   string    `json:"reason"`
+	Tracks   []string  `json:"tracks,omitempty"`
+}
+
+// RoomPresenceTrack is one Frigate event as the plugin read it.
+type RoomPresenceTrack struct {
+	ID        string    `json:"id"`
+	Camera    string    `json:"camera"`
+	Start     time.Time `json:"start"`
+	End       time.Time `json:"end,omitempty"`
+	Zones     []string  `json:"zones"`
+	Rule      string    `json:"rule,omitempty"`
+	Token     string    `json:"token,omitempty"`
+	Confirmed bool      `json:"confirmed"`
+	Outcome   string    `json:"outcome,omitempty"`
+}
+
+// RoomPresenceRemoval records why a token went away.
+type RoomPresenceRemoval struct {
+	Token  string    `json:"token"`
+	Area   string    `json:"area"`
+	At     time.Time `json:"at"`
+	Reason string    `json:"reason"`
+}
+
+// RoomPresenceCamera is one camera's health.
+type RoomPresenceCamera struct {
+	LastHeartbeat time.Time `json:"lastHeartbeat"`
+	Online        bool      `json:"online"`
+	Areas         []string  `json:"areas,omitempty"`
+}
+
+// RoomPresenceEntry is the latest "a person just entered this area" signal.
+type RoomPresenceEntry struct {
+	Area string    `json:"area"`
+	At   time.Time `json:"at"`
 }

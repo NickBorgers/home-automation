@@ -1,0 +1,26 @@
+# Room presence config for the made-up example house in docs/architecture/ROOM_PRESENCE.md.
+# A real house's config is private deployment data and lives in configs/room_presence_config.yaml
+# of a private deployment, not in this repository.
+#
+# Frigate zones in the example house:
+#   cam_lounge:  lounge, kitchen, lounge_to_study
+#   cam_kitchen: lounge, kitchen, kitchen_to_hall
+#   cam_hall:    hall, hall_to_kitchen, hall_to_bedroom, hall_to_porch
+room_presence:
+  mode: log_only              # log_only | active
+  handoff_window: 5s
+  camera_heartbeat_timeout: 30s
+  nobody_home_delay: 5m
+  areas:
+    lounge:  { seen: true,  idle_limit: 20m, neighbors: [kitchen] }
+    kitchen: { seen: true,  idle_limit: 20m }
+    hall:    { seen: true,  idle_limit: 5m }
+    # An unseen area lists the seen area outside its doorway as a neighbor. A person who comes back
+    # and is tracked only after the doorway then still moves the token out.
+    study:   { seen: false, idle_limit: 3h, neighbors: [lounge] }
+    bedroom: { seen: false, neighbors: [hall], bed_sensors: [binary_sensor.example_bed_presence] }
+    porch:   { seen: false, idle_limit: 10m, leads_outside: true, neighbors: [hall] }
+  outputs:                    # only written in active mode
+    isKitchenOccupied: [kitchen]
+  zone_overrides:             # zone name -> area, <area>_to_<area>, or ignore
+    hall_doormat: hall

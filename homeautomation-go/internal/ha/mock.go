@@ -17,6 +17,8 @@ type MockClient struct {
 	subsMu         sync.RWMutex
 	eventSubs      map[string][]eventSubscriberEntry
 	eventSubsMu    sync.Mutex
+	mqttSubs       map[string][]mqttSubscriberEntry
+	mqttSubsMu     sync.Mutex
 	nextSubID      int
 	nextSubIDMu    sync.Mutex
 	connected      bool
@@ -72,6 +74,10 @@ func (m *MockClient) clearSubscribers() {
 	m.eventSubsMu.Lock()
 	defer m.eventSubsMu.Unlock()
 	m.eventSubs = make(map[string][]eventSubscriberEntry)
+
+	m.mqttSubsMu.Lock()
+	defer m.mqttSubsMu.Unlock()
+	m.mqttSubs = make(map[string][]mqttSubscriberEntry)
 }
 
 // ServiceCall records a service call for testing
@@ -100,6 +106,7 @@ func NewMockClient() *MockClient {
 		states:            make(map[string]*State),
 		subscribers:       make(map[string][]subscriberEntry),
 		eventSubs:         make(map[string][]eventSubscriberEntry),
+		mqttSubs:          make(map[string][]mqttSubscriberEntry),
 		serviceCalls:      make([]ServiceCall, 0),
 		getStateCalls:     make(map[string]int),
 		serviceErrors:     make(map[string]error),
@@ -426,6 +433,53 @@ func (s *mockEventSubscription) Unsubscribe() error {
 		}
 	}
 	return nil
+}
+
+// SubscribeMQTT subscribes to an MQTT topic filter. The mock matches filters exactly, not by wildcard.
+func (m *MockClient) SubscribeMQTT(topic string, handler MQTTHandler) (Subscription, error) {
+	if topic == "" {
+		return nil, fmt.Errorf("cannot subscribe to an empty MQTT topic")
+	}
+	m.nextSubIDMu.Lock()
+	subID := m.nextSubID
+	m.nextSubID++
+	m.nextSubIDMu.Unlock()
+
+	m.mqttSubsMu.Lock()
+	m.mqttSubs[topic] = append(m.mqttSubs[topic], mqttSubscriberEntry{subID: subID, handler: handler})
+	m.mqttSubsMu.Unlock()
+
+	return &mockMQTTSubscription{topic: topic, subID: subID, mock: m}, nil
+}
+
+// mockMQTTSubscription implements Subscription for MockClient.SubscribeMQTT
+type mockMQTTSubscription struct {
+	topic string
+	subID int
+	mock  *MockClient
+}
+
+func (s *mockMQTTSubscription) Unsubscribe() error {
+	s.mock.mqttSubsMu.Lock()
+	defer s.mock.mqttSubsMu.Unlock()
+	entries := s.mock.mqttSubs[s.topic]
+	for i, e := range entries {
+		if e.subID == s.subID {
+			s.mock.mqttSubs[s.topic] = append(entries[:i], entries[i+1:]...)
+			break
+		}
+	}
+	return nil
+}
+
+// SimulateMQTT delivers a message to every handler subscribed to the filter. Handlers run before it returns.
+func (m *MockClient) SimulateMQTT(filter string, msg MQTTMessage) {
+	m.mqttSubsMu.Lock()
+	entries := append([]mqttSubscriberEntry(nil), m.mqttSubs[filter]...)
+	m.mqttSubsMu.Unlock()
+	for _, e := range entries {
+		e.handler(msg)
+	}
 }
 
 // SimulateEvent delivers an event to every handler of its type. Handlers run before it returns.

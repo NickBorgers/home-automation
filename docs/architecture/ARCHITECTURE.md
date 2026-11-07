@@ -791,7 +791,8 @@ homeautomation-go/
 │       ├── christmas/               # ✅ Christmas plugin
 │       ├── reset/                   # ✅ Reset Coordinator
 │       ├── integrationwatchdog/     # ✅ Integration Watchdog plugin
-│       └── picos/                   # ✅ Picos plugin (Lutron Pico buttons)
+│       ├── picos/                   # ✅ Picos plugin (Lutron Pico buttons)
+│       └── roompresence/            # ✅ Room presence from Frigate (see ROOM_PRESENCE.md)
 ├── test/
 │   └── integration/                 # ✅ Integration test suite
 ├── Dockerfile                       # ✅ Production container

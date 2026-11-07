@@ -54,6 +54,7 @@ graph LR
         music["music"]
         picos["picos"]
         reset["reset"]
+        roompresence["roompresence"]
         security["security"]
         sensorconfig["sensorconfig"]
         sensorhealth["sensorhealth"]

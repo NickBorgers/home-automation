@@ -1,6 +1,7 @@
 # Room Presence from Frigate Cameras
 
-**Status:** Design proposal, 2026-11-06. Nothing here is built yet.
+**Status:** Built, 2026-11-07, in `internal/plugins/roompresence/`. Runs in `log_only` mode until a deployment
+switches it to `active`. Not yet wired: the lux controller's use of the entry signal.
 
 ## Summary
 
@@ -43,7 +44,7 @@ Measured on a live install with Frigate at 5 fps. Higher frame rates shrink some
 | `current_zones` on `new` | Empty; filled 0.2–0.5 s later | Wait for the first `update` |
 | Event `end` after the person stops moving | 1.5–3 s | Ending is not leaving |
 | Camera-to-camera hand-off gap | 0.4 s or less | Hand-off window can be short |
-| Gap before a returning person is re-tracked | 1.6–3.6 s | Exit window must be longer |
+| Gap before a returning person is re-tracked | 1.6–3.6 s | Often after the doorway: see rule 4 |
 | Direction of travel | Not given; `velocity_angle` is always 0 | Use `entered_zones` order |
 | Heartbeat | `frigate/<camera>/status/detect` every 10 s | Detect a dead camera |
 | False people | Can repeat at one fixed spot, scores up to 0.9, `stationary=false` | Plausibility check needed |
@@ -106,14 +107,19 @@ A track's first zone is known at its first `update`, not at `new`.
    wrong about where that person was.
 2. **It starts where another track just ended**, in a neighboring area within the hand-off window. This is the
    same person moving on. Move that token.
-3. **It starts next to a doorway to an unseen area that holds a token**, within the exit window. A returning
-   person is often re-tracked only after they have crossed the boundary zone, so this rule catches those exits.
-   Move a token out of that area.
-4. **None of the above.** The person "appeared from nowhere". Mark the track **unconfirmed**. See
+3. **It starts in an area that holds a token no track is following.** A person who sat still until Frigate
+   lost them has moved again. The track takes over that token.
+4. **It starts next to a doorway to an unseen area that holds a token.** A returning person is often
+   re-tracked only after they have crossed the boundary zone, so this rule catches those exits. Move a token
+   out of that area. "Next to" comes from the config: the unseen area lists the seen area outside its doorway
+   under `neighbors`. The rule has no time limit, because nothing Frigate reports marks the moment the
+   person came back through the doorway.
+5. **None of the above.** The person "appeared from nowhere". Mark the track **unconfirmed**. See
    [False people](#false-people).
 
-If a track matches both rules 2 and 3, rule 2 takes priority: a hand-off is more precise evidence of identity
-than a doorway-proximity exit window match.
+Rule 2 is tried first: a hand-off is the most precise evidence of identity. When rules 3 and 4 both match,
+the person who disappeared most recently is the one who reappeared: the idle token's last sighting is
+compared with the time the other token went through the doorway.
 
 ### While a track runs
 
@@ -123,7 +129,10 @@ starts inside the hand-off window.
 
 ### When a track ends
 
-The last zone in `entered_zones` decides what happened.
+The zone the person was last in decides what happened. Frigate often ends a track with no `current_zones`,
+and `entered_zones` lists each zone once, in first-entry order. So the plugin uses the current zones, else
+the last non-empty current zones, else the last entered zone. A boundary zone wins over the room zone it is
+drawn on.
 
 ```mermaid
 flowchart TD
@@ -148,11 +157,12 @@ sleep and wake state.
 
 Other evidence also moves tokens:
 
-- **Nobody home** (`isAnyoneHome` false for 5 min): remove every token.
-- **A bed presence sensor** on: make sure the area with that bed holds at least one token.
+- **Nobody home** (`isAnyoneHome` false for `nobody_home_delay`, default 5 min): remove every token.
+- **A bed presence sensor** listed in the area's `bed_sensors` turns on: make sure the area holds at least
+  one token.
 - **More tokens than people home** (counted from `isNickHome`, `isCarolineHome`, `isAssistantHere`): drop the
-  token that was seen least recently. This rule only applies when `isHaveGuests` is false, because guests make
-  the count unknown.
+  token that was seen least recently. A token no camera is following goes first. This rule only applies
+  when `isHaveGuests` is false, because guests make the count unknown.
 
 ### False people
 
@@ -160,7 +170,7 @@ Frigate can report a person at a fixed spot where nobody is, with a high score. 
 false.
 
 The map catches it. A real person cannot appear in the middle of a seen room without walking in. So a track that
-starts by rule 4 is **unconfirmed**. It turns into a token only when one of these happens:
+starts by rule 5 is **unconfirmed**. It turns into a token only when one of these happens:
 
 - It reaches a boundary zone or another area. Real people go somewhere.
 - It has entered at least two distinct zones within the track. Real false positives are stationary.
@@ -237,23 +247,33 @@ normal state for a public checkout.
 
 The real config is private deployment data. The public repo ships only an example, for the example house above:
 
+The example is `internal/plugins/roompresence/testdata/example_config.yaml`:
+
 ```yaml
 room_presence:
   mode: log_only              # log_only | active
   handoff_window: 5s
-  exit_window: 10s
   camera_heartbeat_timeout: 30s
+  nobody_home_delay: 5m
   areas:
-    lounge:  { seen: true,  idle_limit: 20m }
+    lounge:  { seen: true,  idle_limit: 20m, neighbors: [kitchen] }
     kitchen: { seen: true,  idle_limit: 20m }
     hall:    { seen: true,  idle_limit: 5m }
-    study:   { seen: false, idle_limit: 3h }
-    bedroom: { seen: false }                # no idle_limit: absence means never expires; cleared by sleep/wake state
-    porch:   { seen: false, idle_limit: 10m, leads_outside: true }
+    study:   { seen: false, idle_limit: 3h, neighbors: [lounge] }
+    bedroom: { seen: false, neighbors: [hall], bed_sensors: [binary_sensor.example_bed_presence] }
+    porch:   { seen: false, idle_limit: 10m, leads_outside: true, neighbors: [hall] }
   outputs:                    # only written in active mode
     isKitchenOccupied: [kitchen]
-  zone_overrides: {}          # zone name -> area, for names that break the convention
+  zone_overrides:             # zone name -> area, <area>_to_<area>, or ignore
+    hall_doormat: hall
 ```
+
+- `neighbors` (symmetric) are areas a person walks between without a boundary zone: parts of one open space,
+  and the seen area outside an unseen area's doorway. Hand-offs and rule 4 use it.
+- An area with no `idle_limit` never expires. Nobody-home and the people count still remove its tokens.
+- `cameras` (optional) maps a camera to the areas it sees. The plugin also learns this from the zones each
+  camera reports. It decides which areas freeze when a camera stops.
+- A missing file leaves the plugin unconfigured. An invalid file does too, and shadow state gives the error.
 
 Adding a Frigate zone that follows the convention needs no config change. Adding an area needs one line.
 
@@ -268,8 +288,12 @@ Adding a Frigate zone that follows the convention needs no config change. Adding
 ## Testing
 
 - **Replay tests.** Each test replays a log of Frigate MQTT messages through the tracker with a fake clock. It
-  asserts where each token is after each leg of a known walk. The public tests use synthetic logs for the
-  example house. Captures from a real house stay with the private config.
+  asserts where each token is after each leg of a known walk. The public tests use a synthetic log for the
+  example house. Captures from a real house stay with the private config: a deployment puts
+  `room_presence_config.yaml` and `room_presence_fixtures/<name>.jsonl` with `<name>.expect.yaml` in the
+  workspace-root `configs/` directory, and `TestDeploymentConfig` and `TestDeploymentReplays` check them. A log
+  has one `{"t": <unix seconds>, "topic": ..., "payload": ...}` object per line. Expectations list
+  checkpoints (`after` seconds, `occupied`, `empty`) and optionally `unknown_zones`.
 - **Rule tests.** Table-driven tests for each start, end and expiry rule.
 - **User stories**, in `test/integration/scenario_roompresence_test.go`, in the GIVEN/WHEN/THEN form. For
   example:
