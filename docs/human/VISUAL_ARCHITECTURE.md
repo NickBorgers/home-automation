@@ -560,6 +560,7 @@ graph LR
         ShadowTV["GET /api/shadow/tv"]
         ShadowSexMode["GET /api/shadow/sexmode"]
         ShadowWatchdog["GET /api/shadow/integrationwatchdog"]
+        ShadowRoomPresence["GET /api/shadow/roompresence"]
         Notify["POST /api/notify"]
     end
 
@@ -589,6 +590,7 @@ graph LR
     ShadowTV --> PluginShadow
     ShadowSexMode --> PluginShadow
     ShadowWatchdog --> PluginShadow
+    ShadowRoomPresence --> PluginShadow
     Notify --> NotifyResp
 
     style Root fill:#e1f5ff
