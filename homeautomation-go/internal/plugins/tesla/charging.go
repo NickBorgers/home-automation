@@ -1,8 +1,8 @@
 package tesla
 
 // Energy-level charging makes the car's charging follow currentEnergyLevel
-// while it is plugged in at home: stop at red and yellow, charge slowly at
-// green, and charge at full speed at white.
+// while it is plugged in at home: charge at full speed below 50%, then stop at
+// red and yellow, charge slowly at green, and charge at full speed at white.
 //
 // It is the one place this plugin sends commands on its own. Every command is
 // billed, so commands go out only when the car's state differs from what the
@@ -20,6 +20,10 @@ import (
 )
 
 const (
+	// energyChargingFloorPercent is the charge the car always gets, whatever
+	// the energy level says.
+	energyChargingFloorPercent = 50
+
 	// chargingPollInterval limits overshoot while charging. Each online poll
 	// costs two Fleet API requests, so idle cars retain the configured interval.
 	chargingPollInterval = time.Minute
@@ -90,6 +94,14 @@ type chargePlan struct {
 // plan. maxAmps is the most the charger allows. It is zero when unknown, which
 // leaves the speed alone.
 func planCharging(level string, battery, limit, maxAmps int) chargePlan {
+	if battery < energyChargingFloorPercent {
+		return chargePlan{
+			action: chargeNow,
+			amps:   maxAmps,
+			reason: fmt.Sprintf("battery %d%% is below the %d%% floor: charge at full speed",
+				battery, energyChargingFloorPercent),
+		}
+	}
 	switch level {
 	case "white":
 		return chargePlan{action: chargeNow, amps: maxAmps, reason: "energy level white: charge at full speed"}

@@ -128,8 +128,9 @@ func TestPlanCharging(t *testing.T) {
 		{"green with unknown max still slows down", "green", 70, 80, 0, chargeNow, greenChargeAmps},
 		{"yellow holds", "yellow", 70, 80, 32, holdCharge, 0},
 		{"red holds", "red", 70, 80, 32, holdCharge, 0},
-		{"below the floor holds at red", "red", 49, 80, 32, holdCharge, 0},
-		{"below the floor holds at yellow", "yellow", 49, 80, 32, holdCharge, 0},
+		{"41% charges at full speed at green", "green", 41, 80, 32, chargeNow, 32},
+		{"41% charges at full speed at yellow", "yellow", 41, 80, 32, chargeNow, 32},
+		{"41% charges at full speed at red", "red", 41, 80, 32, chargeNow, 32},
 		{"at the floor follows the level", "red", 50, 80, 32, holdCharge, 0},
 		{"unknown level leaves the car alone", "", 70, 80, 32, leaveAlone, 0},
 		{"100% limit does not override red", "red", 70, 100, 32, holdCharge, 0},
@@ -146,6 +147,9 @@ func TestPlanCharging(t *testing.T) {
 			assert.NotEmpty(t, plan.reason)
 		})
 	}
+
+	plan := planCharging("green", 41, 80, 32)
+	assert.Equal(t, "battery 41% is below the 50% floor: charge at full speed", plan.reason)
 }
 
 func TestDistanceMeters(t *testing.T) {
@@ -174,7 +178,9 @@ func TestEnergyChargingCommands(t *testing.T) {
 		{"green slows a fast charge", "green", home("Charging", 70, 32), []string{"amps=8"}, "green"},
 		{"yellow stops charging", "yellow", home("Charging", 70, 8), []string{"stop"}, "yellow"},
 		{"red with charging already stopped sends nothing", "red", home("Stopped", 70, 8), nil, "red"},
-		{"below the floor holds at red", "red", home("Charging", 49, 8), []string{"stop"}, "red"},
+		{"41% at green recovers at full speed", "green", home("Charging", 41, 8), []string{"amps=32"}, "below the 50% floor"},
+		{"below the floor recovers at full speed at red", "red", home("Charging", 49, 8),
+			[]string{"amps=32"}, "below the 50% floor"},
 		{"at the floor holds at yellow", "yellow", home("Charging", 50, 8), []string{"stop"}, "yellow"},
 		{"full car is left alone", "white", home("Complete", 80, 8), nil, "limit reached"},
 		{"unknown level is left alone", "", home("Charging", 70, 32), nil, "unknown"},
@@ -233,8 +239,8 @@ func TestEnergyChargingRecordsCommandFailure(t *testing.T) {
 }
 
 func TestEnergyChargingReconcilesStopAgainstFreshTelemetry(t *testing.T) {
-	// GIVEN: yellow and stale telemetry says a 49% car is still charging.
-	fleet := onlineFleet(home("Charging", 49, 8))
+	// GIVEN: yellow and stale telemetry says a 50% car is still charging.
+	fleet := onlineFleet(home("Charging", 50, 8))
 	m, charger, _, scheduled := newChargingManager(fleet, "yellow")
 
 	// WHEN: a stop is accepted, then the verification read still says Charging.
@@ -261,8 +267,8 @@ func TestEnergyChargingReconcilesStopAgainstFreshTelemetry(t *testing.T) {
 }
 
 func TestEnergyChargingGreenToYellowStopsAtBoundary(t *testing.T) {
-	// GIVEN: green allows a 49% car to charge slowly.
-	fleet := onlineFleet(home("Charging", 49, greenChargeAmps))
+	// GIVEN: the below-50% floor allows a 49% car to charge at full speed.
+	fleet := onlineFleet(home("Charging", 49, 32))
 	m, charger, levels, _ := newChargingManager(fleet, "green")
 	m.Poll()
 	require.Empty(t, charger.sent())
