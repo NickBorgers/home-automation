@@ -48,6 +48,8 @@ func TestScenario_OwnerArrivesBeforeBedtime_SleepPrepUsesCurrentPresence(t *test
 	t.Log("WHEN: an owner arrives immediately before go_to_bed requests sleep music")
 	server.SetState("input_boolean.nick_home", "on", nil)
 	waitForBoolState(t, stateManager, "isAnyoneHome", true)
+	// Setting musicPlaybackType=sleep mirrors what the HA go_to_bed automation does; it does not
+	// activate sleep-prep (that depends on dayPhase=night + isAnyoneHome=true + isMasterAsleep=false).
 	require.NoError(t, stateManager.SetString("musicPlaybackType", "sleep"))
 
 	// THEN: The authoritative state, State Tracking shadow, and Music zone agree.
