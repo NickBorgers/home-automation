@@ -46,6 +46,7 @@ var allEndpoints = []string{
 	"/api/shadow/dayphase",
 	"/api/shadow/tv",
 	"/api/shadow/tesla",
+	"/api/shadow/roompresence",
 	"/api/tesla/energy/sites",
 	"/health",
 	"/dashboard",

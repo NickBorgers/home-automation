@@ -1567,3 +1567,50 @@ func TestHandleTimelineEvents(t *testing.T) {
 		}
 	})
 }
+
+func TestHandleGetRoomPresenceShadowState(t *testing.T) {
+	t.Parallel()
+
+	logger := testlogger.New()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	shadowTracker := shadowstate.NewTracker()
+	shadowTracker.RegisterPlugin("roompresence", shadowstate.NewRoomPresenceShadowState())
+
+	server := NewServer(mockClient, stateManager, shadowTracker, logbuffer.NewBuffer(100), logger, 8080, time.UTC, &alert.MockAlerter{})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/shadow/roompresence", nil)
+	w := httptest.NewRecorder()
+	server.handleGetRoomPresenceShadowState(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected status 200, got %d", w.Code)
+	}
+	if ct := w.Header().Get("Content-Type"); ct != "application/json" {
+		t.Errorf("Expected Content-Type application/json, got %s", ct)
+	}
+	var response shadowstate.RoomPresenceShadowState
+	if err := json.NewDecoder(w.Body).Decode(&response); err != nil {
+		t.Fatalf("Failed to decode response: %v", err)
+	}
+	if response.Plugin != "roompresence" {
+		t.Errorf("Expected plugin 'roompresence', got %q", response.Plugin)
+	}
+}
+
+func TestHandleGetRoomPresenceShadowState_NotFound(t *testing.T) {
+	t.Parallel()
+
+	logger := testlogger.New()
+	mockClient := ha.NewMockClient()
+	stateManager := state.NewManager(mockClient, logger, false)
+	server := NewServer(mockClient, stateManager, shadowstate.NewTracker(), logbuffer.NewBuffer(100), logger, 8080, time.UTC, &alert.MockAlerter{})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/shadow/roompresence", nil)
+	w := httptest.NewRecorder()
+	server.handleGetRoomPresenceShadowState(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Errorf("Expected status 404, got %d", w.Code)
+	}
+}
