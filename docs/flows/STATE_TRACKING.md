@@ -80,9 +80,11 @@ flowchart TD
     end
 
     subgraph Check["Condition Check"]
-        checkHome{"isAnyoneHome?"}
+        checkHomeAtStart{"isAnyoneHome?"}
+        checkHomeAtExpiry{"isAnyoneHome?"}
         checkAsleep{"Already<br/>isMasterAsleep?"}
         checkLights{"Lights still off?<br/>(re-validate #1017)"}
+        checkHomeFinal{"Still anyone home?"}
     end
 
     subgraph Action["Action"]
@@ -90,23 +92,30 @@ flowchart TD
         skip["No action"]
     end
 
-    lightsOff --> start
+    lightsOff --> checkHomeAtStart
+    checkHomeAtStart -->|No| skip
+    checkHomeAtStart -->|Yes| start
     start -->|Lights turn on| cancel
+    start -->|Home becomes empty| cancel
     start -->|Owner arrives home| cancel
     start -->|1 minute passes| expire
-    expire --> checkHome
-    checkHome -->|No| skip
-    checkHome -->|Yes| checkAsleep
+    expire --> checkHomeAtExpiry
+    checkHomeAtExpiry -->|No| skip
+    checkHomeAtExpiry -->|Yes| checkAsleep
     checkAsleep -->|Yes| skip
     checkAsleep -->|No| checkLights
     checkLights -->|No| skip
-    checkLights -->|Yes| setAsleep
+    checkLights -->|Yes| checkHomeFinal
+    checkHomeFinal -->|No| skip
+    checkHomeFinal -->|Yes| setAsleep
 
     style setAsleep fill:#6c5ce7,color:#fff
     style cancel fill:#e74c3c,color:#fff
 ```
 
-The timer cancels on two events: lights turning back on (normal wake-up) and an owner arriving home (issue #991 — prevents false sleep detection when lights turn off during away/lockdown behavior and an owner subsequently walks in).
+The timer does not start while the home is empty. Once active, it cancels when the lights turn back on
+(normal wake-up), the home becomes empty, or an owner arrives home. Presence and the current light state
+are checked again at expiry, with a final presence check immediately before `isMasterAsleep` is set.
 
 ### Master Awake Detection
 

@@ -1009,6 +1009,7 @@ graph LR
     HaveGuests --> StateTracking
     NickNearHome --> StateTracking
     CarolineNearHome --> StateTracking
+    AnyoneHome --> StateTracking
     EightSleepAlarm --> SleepHygiene
     EightSleepStage --> SleepHygiene
 

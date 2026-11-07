@@ -135,6 +135,9 @@ func (m *Manager) Start() error {
 	if err := m.subHelper.SubscribeToEntity("light.primary_suite", m.handlePrimarySuiteLightsChange); err != nil {
 		return fmt.Errorf("failed to subscribe to light.primary_suite: %w", err)
 	}
+	if err := m.subHelper.SubscribeToState("isAnyoneHome", m.handleAnyoneHomeChange); err != nil {
+		return fmt.Errorf("failed to subscribe to isAnyoneHome: %w", err)
+	}
 
 	// Subscribe to Nick's presence for arrival announcements
 	if err := m.subHelper.SubscribeToEntity("input_boolean.nick_home", m.handleNickHomeChange); err != nil {
@@ -237,6 +240,18 @@ func (m *Manager) handlePrimarySuiteLightsChange(entityID string, oldState, newS
 	}
 
 	if lightsOff {
+		isAnyoneHome, err := m.stateManager.GetBool("isAnyoneHome")
+		if err != nil {
+			m.logger.Error("Failed to read isAnyoneHome, skipping sleep detection", zap.Error(err))
+			m.shadowTracker.UpdateSleepDetectionTimer(false)
+			return
+		}
+		if !isAnyoneHome {
+			m.logger.Info("Primary suite lights turned off while nobody is home, skipping sleep detection")
+			m.shadowTracker.UpdateSleepDetectionTimer(false)
+			return
+		}
+
 		// Start 1-minute timer for sleep detection
 		m.logger.Info("Primary suite lights turned off, starting 1-minute sleep detection timer")
 		m.masterSleepTimer = m.clock.AfterFunc(SleepDetectionDelay, func() {
@@ -251,8 +266,30 @@ func (m *Manager) handlePrimarySuiteLightsChange(entityID string, oldState, newS
 	}
 }
 
+// handleAnyoneHomeChange cancels sleep detection as soon as the home becomes empty.
+func (m *Manager) handleAnyoneHomeChange(_ string, _, newValue interface{}) {
+	isAnyoneHome, ok := newValue.(bool)
+	if !ok || isAnyoneHome {
+		return
+	}
+
+	m.timerMutex.Lock()
+	defer m.timerMutex.Unlock()
+	if m.masterSleepTimer != nil {
+		m.logger.Info("Nobody home - cancelling pending sleep detection timer")
+		m.masterSleepTimer.Stop()
+		m.masterSleepTimer = nil
+	}
+	m.shadowTracker.UpdateSleepDetectionTimer(false)
+}
+
 // detectMasterAsleep runs after lights have been off for 1 minute
 func (m *Manager) detectMasterAsleep() {
+	m.timerMutex.Lock()
+	m.masterSleepTimer = nil
+	m.shadowTracker.UpdateSleepDetectionTimer(false)
+	m.timerMutex.Unlock()
+
 	m.logger.Info("1-minute timer expired, checking if should mark master asleep")
 
 	// Check if anyone is home
@@ -290,6 +327,18 @@ func (m *Manager) detectMasterAsleep() {
 	if lightState.State != "off" {
 		m.logger.Warn("Primary suite lights no longer off, aborting sleep detection",
 			zap.String("light_state", lightState.State))
+		return
+	}
+
+	// Presence may change while the light state is being re-read. Check it again
+	// immediately before changing the authoritative sleep state.
+	isAnyoneHome, err = m.stateManager.GetBool("isAnyoneHome")
+	if err != nil {
+		m.logger.Error("Failed to re-check isAnyoneHome", zap.Error(err))
+		return
+	}
+	if !isAnyoneHome {
+		m.logger.Info("Nobody home after final presence check, not marking master asleep")
 		return
 	}
 

@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"homeautomation/internal/plugins/statetracking"
 	"homeautomation/internal/state"
 
 	"github.com/stretchr/testify/assert"
@@ -61,9 +62,9 @@ func TestScenario_OwnerHandoff_SleepTimerCancelledOnArrival(t *testing.T) {
 	t.Log("WHEN: Primary suite lights turn off (simulating lockdown/away behavior)")
 	server.SetState("light.primary_suite", "off", nil)
 	waitForProcessing(t, manager)
-	// The 1-minute sleep detection timer has now started.
+	// With the presence guard, the timer does NOT start because nobody is home.
 
-	t.Log("AND: Nick arrives 54 seconds later (before the 1-minute sleep timer fires)")
+	t.Log("AND: Nick arrives 54 seconds later (before the 1-minute sleep timer would fire)")
 	mockClock.AdvanceAndProcess(54 * time.Second)
 
 	server.SetState("input_boolean.nick_home", "on", nil)
@@ -81,6 +82,71 @@ func TestScenario_OwnerHandoff_SleepTimerCancelledOnArrival(t *testing.T) {
 		"isMasterAsleep should be false — sleep timer must be cancelled when owner arrives home")
 
 	t.Log("✓ Sleep timer correctly cancelled on owner arrival during handoff")
+}
+
+// TestScenario_Departure_AwayLightsDoNotStartSleepDetection verifies that away
+// lighting cannot infer sleep after the departure debounce marks the home empty.
+//
+// Invariant: isAnyoneHome=false MUST never result in isMasterAsleep=true.
+func TestScenario_Departure_AwayLightsDoNotStartSleepDetection(t *testing.T) {
+	t.Parallel()
+	server, stateTracking, _, manager, mockClock, cleanup := setupSecurityScenarioTestWithMockClock(t)
+	defer cleanup()
+
+	t.Log("GIVEN: Nick is home, the primary suite lights are on, and master is awake")
+	server.SetState("input_boolean.nick_home", "on", nil)
+	server.SetState("light.primary_suite", "on", nil)
+	require.NoError(t, manager.SetBool("isMasterAsleep", false))
+	waitForBoolState(t, manager, "isAnyoneHome", true, "isAnyoneHome should be true initially")
+
+	t.Log("WHEN: Nick leaves and the five-minute departure debounce completes")
+	server.SetState("input_boolean.nick_home", "off", nil)
+	waitForBoolState(t, manager, "isNickHome", false, "isNickHome should become false after departure")
+	waitForProcessing(t, manager)
+	mockClock.AdvanceAndProcess(state.AnyoneHomeDepartureDebounceDelay)
+	waitForBoolState(t, manager, "isAnyoneHome", false, "isAnyoneHome should become false after departure debounce")
+
+	t.Log("AND: Away lighting turns off the primary suite lights")
+	server.SetState("light.primary_suite", "off", nil)
+	waitForProcessing(t, manager)
+	assert.False(t, stateTracking.GetShadowState().Outputs.TimerStates.SleepDetectionActive,
+		"away light-off must not start sleep detection while nobody is home")
+	mockClock.AdvanceAndProcess(statetracking.SleepDetectionDelay)
+
+	t.Log("THEN: The empty house is not marked asleep")
+	isMasterAsleep, err := manager.GetBool("isMasterAsleep")
+	require.NoError(t, err)
+	assert.False(t, isMasterAsleep, "isAnyoneHome=false must never result in isMasterAsleep=true")
+}
+
+// TestScenario_Departure_CancelsPendingSleepDetection verifies that presence is
+// re-evaluated at the end of the full sleep-detection timeline.
+//
+// Invariant: becoming empty MUST cancel pending sleep detection, even immediately before expiry.
+func TestScenario_Departure_CancelsPendingSleepDetection(t *testing.T) {
+	t.Parallel()
+	server, stateTracking, _, manager, mockClock, cleanup := setupSecurityScenarioTestWithMockClock(t)
+	defer cleanup()
+
+	t.Log("GIVEN: Nick is home and primary suite lights turning off starts sleep detection")
+	server.SetState("input_boolean.nick_home", "on", nil)
+	require.NoError(t, manager.SetBool("isMasterAsleep", false))
+	waitForBoolState(t, manager, "isAnyoneHome", true, "isAnyoneHome should be true initially")
+	server.SetState("light.primary_suite", "off", nil)
+	waitForProcessing(t, manager)
+
+	t.Log("WHEN: The home becomes empty one second before the sleep timer expires")
+	mockClock.AdvanceAndProcess(59 * time.Second)
+	require.NoError(t, manager.SetBool("isAnyoneHome", false))
+	waitForProcessing(t, manager)
+	assert.False(t, stateTracking.GetShadowState().Outputs.TimerStates.SleepDetectionActive,
+		"becoming empty must cancel pending sleep detection immediately")
+	mockClock.AdvanceAndProcess(2 * time.Second)
+
+	t.Log("THEN: The pending timer is cancelled and master remains awake")
+	isMasterAsleep, err := manager.GetBool("isMasterAsleep")
+	require.NoError(t, err)
+	assert.False(t, isMasterAsleep, "departure immediately before timer expiry must prevent sleep detection")
 }
 
 // TestScenario_OwnerHandoff_LockdownSuppressedDuringGracePeriod verifies that a
