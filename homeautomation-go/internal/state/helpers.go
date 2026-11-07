@@ -219,6 +219,7 @@ func (h *DerivedStateHelper) updateIsAnyOwnerHome() {
 	// Get current value to check if it changed
 	currentValue, _ := h.manager.GetBool("isAnyOwnerHome")
 	if currentValue == isAnyOwnerHome {
+		h.notifyCallback()
 		return // No change
 	}
 
@@ -255,6 +256,7 @@ func (h *DerivedStateHelper) updateIsAnyoneHome() {
 	if isAnyoneHome {
 		h.cancelAnyoneHomeDepartureDebounce()
 		if currentValue == isAnyoneHome {
+			h.notifyCallback()
 			return // No change
 		}
 		if err := h.manager.SetBool("isAnyoneHome", true); err != nil {
@@ -348,6 +350,7 @@ func (h *DerivedStateHelper) updateIsAnyoneAsleep() {
 	// Get current value to check if it changed
 	currentValue, _ := h.manager.GetBool("isAnyoneAsleep")
 	if currentValue == isAnyoneAsleep {
+		h.notifyCallback()
 		return // No change
 	}
 
@@ -382,6 +385,7 @@ func (h *DerivedStateHelper) updateIsEveryoneAsleep() {
 	// Get current value to check if it changed
 	currentValue, _ := h.manager.GetBool("isEveryoneAsleep")
 	if currentValue == isEveryoneAsleep {
+		h.notifyCallback()
 		return // No change
 	}
 
