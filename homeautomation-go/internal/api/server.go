@@ -101,6 +101,7 @@ func NewServer(
 	mux.HandleFunc("/api/shadow/dayphase", s.handleGetDayPhaseShadowState)
 	mux.HandleFunc("/api/shadow/tv", s.handleGetTVShadowState)
 	mux.HandleFunc("/api/shadow/tesla", s.handleGetTeslaShadowState)
+	mux.HandleFunc("/api/shadow/roompresence", s.handleGetRoomPresenceShadowState)
 	mux.HandleFunc("/api/tesla/login", s.handleTeslaLogin)
 	mux.HandleFunc("/api/tesla/callback", s.handleTeslaCallback)
 	mux.HandleFunc("/api/tesla/energy/sites", s.handleTeslaEnergySites)
@@ -616,6 +617,11 @@ func (s *Server) handleSitemap(w http.ResponseWriter, r *http.Request) {
 			Description: "Get shadow state for Tesla plugin - shows vehicle sleep state, charge state, and Fleet API usage",
 		},
 		{
+			Path:        "/api/shadow/roompresence",
+			Method:      "GET",
+			Description: "Get shadow state for room presence plugin - shows per-room occupancy derived from camera person events",
+		},
+		{
 			Path:        "/api/tesla/login",
 			Method:      "GET",
 			Description: "Start Tesla Fleet API authorization - redirects to Tesla sign-in",
@@ -960,6 +966,30 @@ func (s *Server) handleGetTVShadowState(w http.ResponseWriter, r *http.Request) 
 	}
 
 	s.logger.Debug("TV shadow state request served",
+		zap.String("remote_addr", r.RemoteAddr))
+}
+
+// handleGetRoomPresenceShadowState returns the room presence plugin shadow state
+func (s *Server) handleGetRoomPresenceShadowState(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	state, ok := s.shadowTracker.GetPluginState("roompresence")
+	if !ok {
+		http.Error(w, "Room presence shadow state not found", http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := s.writeJSONWithLocalTimestamps(w, state); err != nil {
+		s.logger.Error("Failed to encode shadow state response", zap.Error(err))
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	s.logger.Debug("Room presence shadow state request served",
 		zap.String("remote_addr", r.RemoteAddr))
 }
 

@@ -196,7 +196,7 @@ camera failed expires 10 minutes after recovery, not 1 hour later.
 The config maps output variables to areas. A variable is true when any of its areas holds a token. The first
 one is `isKitchenOccupied`, which today is fed by a Home Assistant automation from an mmWave radar.
 
-The plugin also reports, in shadow state only:
+The plugin also reports, in shadow state only (query in real time with `curl /api/shadow/roompresence`):
 
 - Tokens: area, when last seen, which camera, confirmed or not, and why each one last moved.
 - Recent tracks with their zone order.
