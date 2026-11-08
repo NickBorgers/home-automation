@@ -248,12 +248,24 @@ rooms:
       # floor_pct 20 and gain 0.8 are USER-CHOSEN STARTING GUESSES (cans 100% -> 100%, 50% -> 60%,
       # 10% -> 28%). Tune later.
       # WARNING: this strip is dim-to-warm. Its color temperature follows its brightness (warmer as it
-      # dims), and the evening target is near 3000 K, which needs real dimming. Do not raise
-      # floor_pct without checking the warmth.
+      # dims). cct_curve (below) lets the plugin keep the strip at least as bright as the cans'
+      # color temperature needs, so a cool target cannot leave the strip too warm.
       follower_lights:
         - entity: light.kitchen_main_lights # Kitchen Under Cabinet
           floor_pct: 20
           gain: 0.8
+          # MEASURED BY EYE 2026-11-08 (issue #1263): the cans were set to each Kelvin at 50%, and the
+          # Lutron dimmer was set until the strip looked the same. Strip brightness read back from
+          # Home Assistant. One run, no repeat, no hysteresis check, no instrument. About +-5% error.
+          # 4000 K was reached at 100%, the strip's limit, so a true 4000 K may need more. Below
+          # 3000 K is not measured: the plugin sets no floor there.
+          # Brightness in Home Assistant counts: 124, 193, 226, 242, 255 of 255.
+          cct_curve:
+            - {brightness_pct: 49, kelvin: 3000}
+            - {brightness_pct: 76, kelvin: 3250}
+            - {brightness_pct: 89, kelvin: 3500}
+            - {brightness_pct: 95, kelvin: 3750}
+            - {brightness_pct: 100, kelvin: 4000}
       calibrated: true
       calibration:            # MEASURED at the island, handheld lux meter, 4000 K, in the dark
         - brightness_pct: 5
