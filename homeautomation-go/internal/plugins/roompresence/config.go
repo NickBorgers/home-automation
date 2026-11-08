@@ -242,6 +242,13 @@ func (c *Config) resolveZone(zone string) zoneInfo {
 	return zoneInfo{Kind: zoneUnknown}
 }
 
+// BoundaryAreas reads a Frigate zone name as a boundary zone, by the naming convention and the overrides. It
+// returns the area the camera stands in and the area beyond the doorway. ok is false for any other zone.
+func (c *Config) BoundaryAreas(zone string) (area, beyond string, ok bool) {
+	z := c.resolveZone(zone)
+	return z.Area, z.Beyond, z.Kind == zoneBoundary
+}
+
 // neighbors reports whether a person can walk from area a to area b without a boundary zone.
 func (c *Config) neighbors(a, b string) bool {
 	if a == b {

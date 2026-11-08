@@ -88,6 +88,7 @@ make lint-go           # Run linters
 | [migration_mapping.md](./docs/reference/migration_mapping.md) | State variable mapping reference |
 | [CONCURRENCY_LESSONS.md](./docs/reference/CONCURRENCY_LESSONS.md) | Concurrency patterns and lessons |
 | [DAY_PHASE_MODES.md](./docs/flows/DAY_PHASE_MODES.md) | Day phase, music mode, and lighting relationships |
+| [HOUSE_MAP.md](./docs/architecture/HOUSE_MAP.md) | House map: rooms, doors, cameras; checks against room presence; `housemap-render` |
 
 ## Archived Node-RED Reference
 

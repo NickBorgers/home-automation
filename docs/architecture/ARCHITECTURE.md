@@ -749,7 +749,8 @@ The system reuses existing YAML configuration files:
 ```
 homeautomation-go/
 ├── cmd/
-│   └── main.go                      # ✅ Entry point
+│   ├── main.go                      # ✅ Entry point
+│   └── housemap-render/             # ✅ Draws a house map as SVG or an HTML review page
 ├── internal/
 │   ├── ha/                          # ✅ Home Assistant WebSocket client
 │   │   ├── client.go                # ✅ Main client (with writeMu fix)
@@ -767,6 +768,7 @@ homeautomation-go/
 │   ├── debounce/                    # ✅ Shared UnavailableDebouncer — debounces transient unavailable/unknown HA states
 │   │   ├── unavailable.go           # ✅ UnavailableDebouncer implementation
 │   │   └── unavailable_test.go      # ✅ Unit tests
+│   ├── housemap/                    # ✅ House map: geometry, checks, rendering (see HOUSE_MAP.md)
 │   ├── notify/                      # ✅ Shared verbal (TTS) notifier
 │   │   ├── notify.go                # ✅ Notifier implementation (Kokoro TTS + media_player.play_media announce:true)
 │   │   ├── config.go                # ✅ Config loader (notification_config.yaml)

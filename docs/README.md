@@ -9,7 +9,8 @@ docs/
 ├── CURRENT_BEHAVIOR.md       # Current behavior, authority boundaries, diagnostic evidence
 │
 ├── architecture/           # System design
-│   └── ARCHITECTURE.md     # Complete architecture, implementation status, roadmap
+│   ├── ARCHITECTURE.md     # Complete architecture, implementation status, roadmap
+│   └── HOUSE_MAP.md        # House map: rooms, doors and cameras as YAML
 │
 ├── flows/                  # Automation flow documentation (visual logic)
 │   ├── README.md           # Guide to automation flow documentation
@@ -48,6 +49,7 @@ docs/
 ### For Engineers / AI Agents
 Technical reference documentation for development:
 - **[architecture/ARCHITECTURE.md](./architecture/ARCHITECTURE.md)** - Complete system design
+- **[architecture/HOUSE_MAP.md](./architecture/HOUSE_MAP.md)** - House map schema, checks and renderer
 - **[reference/SHADOW_STATE.md](./reference/SHADOW_STATE.md)** - Shadow state pattern (**READ BEFORE WRITING PLUGINS**)
 - **[reference/PLUGIN_SYSTEM.md](./reference/PLUGIN_SYSTEM.md)** - Plugin interfaces
 - **[reference/migration_mapping.md](./reference/migration_mapping.md)** - State variable mapping

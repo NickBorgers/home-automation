@@ -92,6 +92,12 @@ func TestConfig_Example(t *testing.T) {
 	assert.Equal(t, zoneUnknown, cfg.resolveZone("garden").Kind)
 	assert.Equal(t, zoneUnknown, cfg.resolveZone("lounge_to_garden").Kind)
 	assert.True(t, cfg.neighbors("kitchen", "lounge"), "neighbors are symmetric")
+
+	area, beyond, ok := cfg.BoundaryAreas("lounge_to_study")
+	assert.True(t, ok)
+	assert.Equal(t, []string{"lounge", "study"}, []string{area, beyond})
+	_, _, ok = cfg.BoundaryAreas("kitchen")
+	assert.False(t, ok, "a room zone is not a boundary")
 }
 
 func TestConfig_Defaults(t *testing.T) {
