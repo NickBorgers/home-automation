@@ -233,6 +233,8 @@ func (m *Manager) controlCharging(ctx context.Context, vin string, atHome, hasLo
 		// Unplugging or leaving ends a manual override.
 		mem.override, mem.overrideReason, mem.heldVerified = false, "", false
 	}
+	// Write the post-unplug state first. The block below may set it true again
+	// for a newly detected override this poll; both writes are intentional.
 	mem.record.ManualOverride = mem.override
 	if !atHome || !cs.plugged || cs.chargingState == "Complete" {
 		return

@@ -572,6 +572,28 @@ func TestEnergyChargingManualOverrideEndsWhenUnplugged(t *testing.T) {
 	assert.Equal(t, []string{"stop"}, charger.sent())
 }
 
+func TestEnergyChargingManualOverrideRestartsWhenLimitStillHigh(t *testing.T) {
+	// GIVEN: a manual override from a raised limit, then the car is unplugged.
+	fleet := onlineFleet(home("Stopped", 60, 32))
+	m, charger, _, _ := newChargingManager(fleet, "yellow")
+	m.Poll()
+	fleet.data = home("Charging", 60, 32).withLimit(100).data()
+	m.Poll()
+	require.True(t, m.GetShadowState().Outputs.EnergyCharging.ManualOverride)
+
+	fleet.data = home("Disconnected", 65, 0).withLimit(100).data()
+	m.Poll()
+	assert.False(t, m.GetShadowState().Outputs.EnergyCharging.ManualOverride)
+
+	// WHEN: the car is plugged in again with the limit still above 80%.
+	fleet.data = home("Charging", 65, 32).withLimit(100).data()
+	m.Poll()
+
+	// THEN: the override starts again immediately — no stop command is sent.
+	assert.Empty(t, charger.sent())
+	assert.True(t, m.GetShadowState().Outputs.EnergyCharging.ManualOverride)
+}
+
 func TestEnergyChargingManualOverrideDoesNotWake(t *testing.T) {
 	// GIVEN: a manual override, then the car falls asleep.
 	fleet := onlineFleet(home("Stopped", 60, 32))
