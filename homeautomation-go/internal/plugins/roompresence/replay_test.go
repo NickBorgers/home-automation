@@ -1,6 +1,7 @@
 package roompresence
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -69,6 +70,27 @@ func TestReplay_PeopleCountApplies(t *testing.T) {
 	assert.True(t, tr.Occupied("kitchen"), "fewer tokens than people confirms the track")
 	_, tr = Replay(cfg, []CapturedMessage{ev("a")}, &ReplayExpectations{})
 	assert.False(t, tr.Occupied("kitchen"))
+}
+
+func TestReplay_StateChanges(t *testing.T) {
+	cfg := exampleConfig(t)
+	ev := func(ts float64, typ string, zones ...string) CapturedMessage {
+		z, _ := json.Marshal(zones)
+		return CapturedMessage{T: ts, Topic: eventsTopic, Payload: `{"type":"` + typ + `","after":{"id":"a",` +
+			`"camera":"cam_hall","label":"person","entered_zones":` + string(z) + `,"current_zones":` + string(z) + `}}`}
+	}
+	msgs := []CapturedMessage{
+		ev(100, "update", "hall_to_porch"),
+		ev(104, "end", "hall_to_porch"),
+		{T: 106, Topic: StateTopic, Payload: `{"entity_id":"binary_sensor.example_yard_person","from":"off","to":"on"}`},
+		{T: 107, Topic: StateTopic, Payload: `not json`},
+	}
+	failures, tr := Replay(cfg, msgs, &ReplayExpectations{Checkpoints: []ReplayCheckpoint{
+		{After: 5, Occupied: []string{"porch"}},
+		{After: 7, Empty: []string{"porch"}},
+	}})
+	assert.Len(t, failures, 1, "%v", failures) // the bad state change
+	assert.False(t, tr.Occupied("porch"))
 }
 
 func TestReadCapture_SortsAndSkipsBlankLines(t *testing.T) {

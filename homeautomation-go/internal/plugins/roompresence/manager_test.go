@@ -178,6 +178,20 @@ func TestManager_BedSensor(t *testing.T) {
 	require.Eventually(t, func() bool { return m.Occupied("bedroom") }, time.Second, 10*time.Millisecond)
 }
 
+func TestManager_ExitSensor(t *testing.T) {
+	m, mockHA, _ := newTestManager(t, exampleConfig(t), false)
+	mockHA.SetState(yardPerson, "on", nil) // already on at startup: not a person leaving
+	require.NoError(t, m.Start())
+	defer m.Stop()
+
+	m.apply(func(t *Tracker, now time.Time) { t.newToken(now, "porch", "", "seeded by test", false) })
+	assert.True(t, m.Occupied("porch"))
+	mockHA.SimulateStateChange(yardPerson, "off")
+	assert.True(t, m.Occupied("porch"))
+	mockHA.SimulateStateChange(yardPerson, "on")
+	require.Eventually(t, func() bool { return !m.Occupied("porch") }, time.Second, 10*time.Millisecond)
+}
+
 // failingMQTT is a MockClient whose MQTT subscriptions fail, as when Home Assistant has no MQTT integration.
 type failingMQTT struct{ *ha.MockClient }
 

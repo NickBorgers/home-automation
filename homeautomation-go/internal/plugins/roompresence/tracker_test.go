@@ -101,6 +101,7 @@ func TestConfig_Defaults(t *testing.T) {
 	assert.Equal(t, defaultHandoffWindow, cfg.HandoffWindow)
 	assert.Equal(t, defaultCameraHeartbeatTimeout, cfg.CameraHeartbeatTimeout)
 	assert.Equal(t, defaultNobodyHomeDelay, cfg.NobodyHomeDelay)
+	assert.Equal(t, defaultExitWindow, cfg.ExitWindow)
 }
 
 func TestConfig_Invalid(t *testing.T) {
@@ -117,6 +118,9 @@ func TestConfig_Invalid(t *testing.T) {
 		"unknown camera":   "room_presence:\n  areas: {den: {}}\n  cameras: {c: [attic]}\n",
 		"zero idle limit":  "room_presence:\n  areas: {den: {idle_limit: 0s}}\n",
 		"not yaml":         "room_presence: [",
+		"exit seen":        "room_presence:\n  areas: {den: {seen: true, leads_outside: true, exit_sensors: [b.x]}}\n",
+		"exit not outside": "room_presence:\n  areas: {den: {exit_sensors: [b.x]}}\n",
+		"negative exit":    "room_presence:\n  exit_window: -1s\n  areas: {den: {}}\n",
 	}
 	for name, yml := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -534,4 +538,91 @@ func TestSnapshot(t *testing.T) {
 	assert.Contains(t, snap.Cameras["cam_lounge"].Areas, "lounge")
 	require.NotNil(t, snap.LastEntry)
 	assert.Equal(t, "lounge", snap.LastEntry.Area)
+}
+
+const yardPerson = "binary_sensor.example_yard_person"
+
+// walkToPorch walks a person from the hall out through hall_to_porch, starting at sec. The track ends 4 s
+// after the person leaves view, as Frigate's do. It returns when the porch token arrives.
+func (s *scene) walkToPorch(sec float64, id string) float64 {
+	s.event(sec, "update", id, "cam_hall", []string{"hall"}, "hall")
+	s.event(sec+1, "update", id, "cam_hall", []string{"hall", "hall_to_porch"}, "hall_to_porch")
+	s.event(sec+5, "end", id, "cam_hall", []string{"hall", "hall_to_porch"}, "hall_to_porch")
+	s.occupied("porch")
+	return sec + 5
+}
+
+// "When I walk out the front door, the porch does not stay occupied."
+func TestExit_SensorAfterArrivalRemovesToken(t *testing.T) {
+	s := newScene(t)
+	arrived := s.walkToPorch(0, "a")
+	s.tr.SensorChanged(at(arrived+3), yardPerson, "off", "on")
+	s.empty("porch")
+	s.tokens(0)
+	assert.Contains(t, s.tr.removed[len(s.tr.removed)-1].Reason, "went outside")
+}
+
+// Frigate ends a track a few seconds late, so the yard can see the person before the token arrives.
+func TestExit_SensorJustBeforeArrivalRemovesToken(t *testing.T) {
+	s := newScene(t)
+	s.event(0, "update", "a", "cam_hall", []string{"hall"}, "hall")
+	s.event(1, "update", "a", "cam_hall", []string{"hall", "hall_to_porch"}, "hall_to_porch")
+	s.tr.SensorChanged(at(3), yardPerson, "unknown", "on")
+	s.event(5, "end", "a", "cam_hall", []string{"hall", "hall_to_porch"}, "hall_to_porch")
+	s.occupied("porch")
+	s.tick(6)
+	s.empty("porch")
+}
+
+// "When I go to the door to let a visitor in, my token stays." The visitor was outside first.
+func TestExit_VisitorAlreadyOutsideKeepsToken(t *testing.T) {
+	s := newScene(t)
+	s.tr.SensorChanged(at(0), yardPerson, "off", "on")
+	arrived := s.walkToPorch(20, "a")
+	s.tick(arrived + 1)
+	s.tick(arrived + 10)
+	s.occupied("porch")
+}
+
+// A person outside long after someone went to the porch says nothing about that person.
+func TestExit_SensorAfterWindowKeepsToken(t *testing.T) {
+	s := newScene(t)
+	arrived := s.walkToPorch(0, "a")
+	s.tr.SensorChanged(at(arrived+31), yardPerson, "off", "on")
+	s.occupied("porch")
+}
+
+// One person outside removes one token. A sensor that was already on is not a new person.
+func TestExit_OneTurnOnRemovesOneToken(t *testing.T) {
+	s := newScene(t)
+	s.seed(0, "porch")
+	s.seed(1, "porch")
+	arrived := 1.0
+	s.tokens(2)
+	s.tr.SensorChanged(at(arrived+1), yardPerson, "off", "on")
+	s.tokens(1)
+	s.tr.SensorChanged(at(arrived+2), yardPerson, "on", "on")
+	s.tokens(1)
+	s.tr.SensorChanged(at(arrived+3), yardPerson, "on", "off")
+	s.tr.SensorChanged(at(arrived+4), yardPerson, "off", "on")
+	s.tokens(0)
+}
+
+// A person who comes back in through the doorway gets a token again.
+func TestExit_ComingBackInCreatesToken(t *testing.T) {
+	s := newScene(t)
+	arrived := s.walkToPorch(0, "a")
+	s.tr.SensorChanged(at(arrived+2), yardPerson, "off", "on")
+	s.empty("porch")
+	s.event(arrived+60, "update", "b", "cam_hall", []string{"hall_to_porch"}, "hall_to_porch")
+	s.occupied("hall")
+}
+
+// A bed sensor goes through SensorChanged too.
+func TestSensorChanged_BedSensor(t *testing.T) {
+	s := newScene(t)
+	s.tr.SensorChanged(at(0), "binary_sensor.example_bed_presence", "off", "on")
+	s.occupied("bedroom")
+	s.tr.SensorChanged(at(1), "binary_sensor.unrelated", "off", "on")
+	s.tokens(1)
 }

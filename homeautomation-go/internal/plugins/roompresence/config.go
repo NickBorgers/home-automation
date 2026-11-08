@@ -33,6 +33,7 @@ const (
 	defaultHandoffWindow          = 5 * time.Second
 	defaultCameraHeartbeatTimeout = 30 * time.Second
 	defaultNobodyHomeDelay        = 5 * time.Minute
+	defaultExitWindow             = 30 * time.Second
 )
 
 // fileConfig is the YAML file.
@@ -53,6 +54,10 @@ type Config struct {
 
 	// NobodyHomeDelay is how long isAnyoneHome must stay false before every token is removed.
 	NobodyHomeDelay time.Duration `yaml:"nobody_home_delay"`
+
+	// ExitWindow is how long after a token arrives in an area with exit sensors one of them may turn on
+	// and still mean that person went outside.
+	ExitWindow time.Duration `yaml:"exit_window"`
 
 	// Areas are the units of state, by name.
 	Areas map[string]*AreaConfig `yaml:"areas"`
@@ -87,6 +92,11 @@ type AreaConfig struct {
 
 	// BedSensors are binary sensors that, when on, mean someone is in a bed in this area.
 	BedSensors []string `yaml:"bed_sensors"`
+
+	// ExitSensors are binary sensors outside the area's outside door, such as an outdoor camera's person
+	// sensor. One that turns on just after a token arrives means that person went outside. Only an unseen
+	// area that leads outside may have them.
+	ExitSensors []string `yaml:"exit_sensors"`
 }
 
 // LoadConfig reads the config file. A missing file returns (nil, nil): the plugin is unconfigured.
@@ -131,6 +141,9 @@ func (c *Config) applyDefaults() {
 	if c.NobodyHomeDelay == 0 {
 		c.NobodyHomeDelay = defaultNobodyHomeDelay
 	}
+	if c.ExitWindow == 0 {
+		c.ExitWindow = defaultExitWindow
+	}
 }
 
 func (c *Config) validate() error {
@@ -158,6 +171,14 @@ func (c *Config) validate() error {
 				errs = append(errs, fmt.Sprintf("area %q: unknown neighbor %q", name, n))
 			}
 		}
+		if len(a.ExitSensors) > 0 && (a.Seen || !a.LeadsOutside) {
+			// In a seen area a person who stands still has an unheld token too, so an exit sensor could
+			// remove the token of someone still inside.
+			errs = append(errs, fmt.Sprintf("area %q: exit_sensors needs an unseen area with leads_outside", name))
+		}
+	}
+	if c.ExitWindow < 0 {
+		errs = append(errs, "exit_window must be positive")
 	}
 	for cam, areas := range c.Cameras {
 		for _, a := range areas {
@@ -258,6 +279,38 @@ func (c *Config) neighbors(a, b string) bool {
 		}
 	}
 	return false
+}
+
+// sensorAreas lists the areas that use an entity as a bed sensor and as an exit sensor.
+func (c *Config) sensorAreas(entity string) (beds, exits []string) {
+	for _, name := range sortedKeys(c.Areas) {
+		a := c.Areas[name]
+		for _, e := range a.BedSensors {
+			if e == entity {
+				beds = append(beds, name)
+			}
+		}
+		for _, e := range a.ExitSensors {
+			if e == entity {
+				exits = append(exits, name)
+			}
+		}
+	}
+	return beds, exits
+}
+
+// sensorEntities lists every bed and exit sensor, once each.
+func (c *Config) sensorEntities() []string {
+	set := map[string]bool{}
+	for _, a := range c.Areas {
+		for _, e := range a.BedSensors {
+			set[e] = true
+		}
+		for _, e := range a.ExitSensors {
+			set[e] = true
+		}
+	}
+	return sortedKeys(set)
 }
 
 // inputVar reports whether the plugin reads a state variable.

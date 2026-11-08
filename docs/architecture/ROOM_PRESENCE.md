@@ -171,6 +171,29 @@ Other evidence also moves tokens:
 - **Nobody home** (`isAnyoneHome` false for `nobody_home_delay`, default 5 min): remove every token.
 - **A bed presence sensor** listed in the area's `bed_sensors` turns on: make sure the area holds at least
   one token.
+- **An exit sensor** listed in the area's `exit_sensors` turns on: the person who just reached the outside
+  door went out. See below.
+
+#### Leaving the house
+
+No camera watches an unseen area such as a porch, so a person who walks into it and out of the house would
+leave a token there until the idle limit. An outdoor camera's person sensor outside that door closes the
+gap. List it in the area's `exit_sensors`. Only an unseen area with `leads_outside` may have them: in a seen
+area a person who stands still also holds an unheld token, and would be removed.
+
+When an exit sensor turns on (from any state but `on`), it removes one token from the area: the most recent
+arrival that no track holds, which arrived at most `exit_window` (default 30 s) before the sensor turned on,
+or at most `handoff_window` after it. Frigate ends a track a few seconds after the person leaves view, so
+the outdoor camera often sees the person before the token reaches the porch. The tracker keeps the turn-on
+for that long and checks again each tick.
+
+The sensor must turn on after the person reaches the door. A visitor already outside when someone walks to
+the door to answer it does not remove that person's token. A wrong removal heals itself: a person who comes
+back in through the doorway gets a token again under rule 1. A missed exit costs the idle limit, as before.
+
+Sensors that pulse while a person moves, such as a garage door opener's motion sensor, turn on again and
+again. Each pulse can remove one more token, so someone who walks into the mudroom to meet a person arriving
+in the garage can lose their token until they come back through the doorway.
 
 The number of people home never removes a token. Guests are not counted, and when the count is wrong the
 token removed can be the wrong person's. A token left by a missed exit expires under its area's idle limit.
@@ -266,13 +289,15 @@ room_presence:
   handoff_window: 5s
   camera_heartbeat_timeout: 30s
   nobody_home_delay: 5m
+  exit_window: 30s
   areas:
     lounge:  { seen: true,  idle_limit: 20m, neighbors: [kitchen] }
     kitchen: { seen: true,  idle_limit: 20m }
     hall:    { seen: true,  idle_limit: 5m }
     study:   { seen: false, idle_limit: 3h, neighbors: [lounge] }
     bedroom: { seen: false, neighbors: [hall], bed_sensors: [binary_sensor.example_bed_presence] }
-    porch:   { seen: false, idle_limit: 10m, leads_outside: true, neighbors: [hall] }
+    porch:   { seen: false, idle_limit: 10m, leads_outside: true, neighbors: [hall],
+               exit_sensors: [binary_sensor.example_yard_person] }
   outputs:                    # only written in active mode
     isKitchenOccupied: [kitchen]
   zone_overrides:             # zone name -> area, <area>_to_<area>, or ignore
@@ -281,6 +306,7 @@ room_presence:
 
 - `neighbors` (symmetric) are areas a person walks between without a boundary zone: parts of one open space,
   and the seen area outside an unseen area's doorway. Hand-offs and rule 4 use it.
+- `exit_sensors` are binary sensors outside an unseen area's outside door. See "Leaving the house".
 - An area with no `idle_limit` never expires. Nobody-home and the people count still remove its tokens.
 - `cameras` (optional) maps a camera to the areas it sees. The plugin also learns this from the zones each
   camera reports. It decides which areas freeze when a camera stops.
@@ -318,7 +344,9 @@ One line per change. A token whose `lastSeen` only moves logs nothing.
   `room_presence_config.yaml` and `room_presence_fixtures/<name>.jsonl` with `<name>.expect.yaml` in the
   workspace-root `configs/` directory, and `TestDeploymentConfig` and `TestDeploymentReplays` check them. A log
   has one `{"t": <unix seconds>, "topic": ..., "payload": ...}` object per line. Expectations list
-  checkpoints (`after` seconds, `occupied`, `empty`) and optionally `unknown_zones`.
+  checkpoints (`after` seconds, `occupied`, `empty`) and optionally `unknown_zones`. A log can also hold
+  Home Assistant state changes of bed and exit sensors, with topic `ha/state` and payload
+  `{"entity_id": ..., "from": ..., "to": ...}`.
 - **Rule tests.** Table-driven tests for each start, end and expiry rule.
 - **User stories**, in `test/integration/scenario_roompresence_test.go`, in the GIVEN/WHEN/THEN form. For
   example:

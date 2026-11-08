@@ -20,6 +20,17 @@ type CapturedMessage struct {
 	Payload string  `json:"payload"`
 }
 
+// StateTopic is the replay log topic for a Home Assistant state change. Its payload is a JSON
+// StateChange. A capture script writes one for each bed or exit sensor change it sees.
+const StateTopic = "ha/state"
+
+// StateChange is the payload of a StateTopic message.
+type StateChange struct {
+	EntityID string `json:"entity_id"`
+	From     string `json:"from"`
+	To       string `json:"to"`
+}
+
 // ReplayExpectations are the checks for one replay log, read from <log>.expect.yaml.
 type ReplayExpectations struct {
 	// Checkpoints are checked in order, each at a time measured from the first message.
@@ -135,6 +146,13 @@ func Replay(cfg *Config, msgs []CapturedMessage, exp *ReplayExpectations) ([]str
 			tr.HandleEvent(now, ev)
 		case isHeartbeat && m.Payload == "online":
 			tr.Heartbeat(now, cam)
+		case m.Topic == StateTopic:
+			var sc StateChange
+			if err := json.Unmarshal([]byte(m.Payload), &sc); err != nil {
+				failures = append(failures, fmt.Sprintf("at %.3f: cannot parse state change: %v", m.T, err))
+				continue
+			}
+			tr.SensorChanged(now, sc.EntityID, sc.From, sc.To)
 		}
 	}
 	// Checkpoints after the last message: advance far enough that the tick loop checks each of them.
