@@ -266,7 +266,9 @@ func (t *Tracker) matchExits(now time.Time, area string) {
 	for _, e := range t.exitEdges[area] {
 		var best *token
 		for _, tok := range t.tokensIn(area) {
-			if t.held(tok.id) || tok.since.Before(e.at.Add(-t.cfg.ExitWindow)) || tok.since.After(e.at.Add(t.cfg.HandoffWindow)) {
+			tooOld := tok.since.Before(e.at.Add(-t.cfg.ExitWindow))
+			tooNew := tok.since.After(e.at.Add(t.cfg.HandoffWindow))
+			if t.held(tok.id) || tooOld || tooNew {
 				continue
 			}
 			if best == nil || tok.since.After(best.since) {

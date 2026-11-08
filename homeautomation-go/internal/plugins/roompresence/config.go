@@ -55,8 +55,9 @@ type Config struct {
 	// NobodyHomeDelay is how long isAnyoneHome must stay false before every token is removed.
 	NobodyHomeDelay time.Duration `yaml:"nobody_home_delay"`
 
-	// ExitWindow is how long after a token arrives in an area with exit sensors one of them may turn on
-	// and still mean that person went outside.
+	// ExitWindow is how long before or after a token arrives in an area with exit sensors one of them may
+	// turn on and still mean that person went outside. The sensor may fire before the token arrives because
+	// Frigate ends a track a few seconds after the person leaves view.
 	ExitWindow time.Duration `yaml:"exit_window"`
 
 	// Areas are the units of state, by name.
