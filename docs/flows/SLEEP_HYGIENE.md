@@ -92,6 +92,7 @@ sequenceDiagram
 
         Note over SH: Wait 25 minutes<br/>(lights fading in)
 
+        SH->>SH: Cancel any unfinished bedroom fade
         SH->>Music: Set musicPlaybackType = "wakeup"
         SH->>SH: Wake sequence complete
     else Conditions not met
@@ -204,6 +205,11 @@ flowchart TD
     style done fill:#27ae60,color:#fff
     style stop fill:#e74c3c,color:#fff
 ```
+
+Wake music takes ownership of the bedroom speaker volume. Before setting
+`musicPlaybackType` to `wakeup`, sleep hygiene invalidates the active fade generation while
+serialized with its volume commands. A stale fade therefore cannot lower the volume after
+wake music starts, even when the adaptive fade has not reached zero.
 
 ### Human Override Detection
 

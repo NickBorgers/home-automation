@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -86,6 +87,11 @@ type Manager struct {
 	// sent to light.primary_suite. Used to ignore transient "off" events from
 	// HA group entity state propagation (see lightTurnOnGracePeriod).
 	lightTurnOnNano atomic.Int64
+
+	// fadeMu serializes wake-music activation with bedroom fade volume commands.
+	// fadeGeneration invalidates goroutines left over from an older fade.
+	fadeMu         sync.Mutex
+	fadeGeneration uint64
 }
 
 // NewManager creates a new Sleep Hygiene manager
@@ -537,6 +543,11 @@ func (m *Manager) handleBeginWake() {
 	m.shadowTracker.UpdateWakeSequenceStatus("begin_wake")
 
 	if !m.readOnly {
+		m.fadeMu.Lock()
+		m.fadeGeneration++
+		fadeGeneration := m.fadeGeneration
+		m.fadeMu.Unlock()
+
 		// Set fade out in progress flag
 		if err := m.stateManager.SetBool("isFadeOutInProgress", true); err != nil {
 			m.logger.Error("Failed to set isFadeOutInProgress", zap.Error(err))
@@ -548,7 +559,7 @@ func (m *Manager) handleBeginWake() {
 			currentVolume := m.getSpeakerVolume(speaker)
 			m.shadowTracker.RecordFadeOutStart(speaker, currentVolume)
 
-			go m.fadeOutSpeaker(speaker)
+			go m.fadeOutSpeakerGeneration(speaker, fadeGeneration)
 		}
 
 		// Schedule the wake sequence (lights fade-in) after the delay
@@ -611,6 +622,13 @@ const humanOverrideThreshold = 1
 // This runs in a goroutine and implements the sleep music fade-out logic
 // matching the Node-RED "Repeat turn downs until 0" function
 func (m *Manager) fadeOutSpeaker(speakerEntityID string) {
+	m.fadeMu.Lock()
+	fadeGeneration := m.fadeGeneration
+	m.fadeMu.Unlock()
+	m.fadeOutSpeakerGeneration(speakerEntityID, fadeGeneration)
+}
+
+func (m *Manager) fadeOutSpeakerGeneration(speakerEntityID string, fadeGeneration uint64) {
 	m.logger.Info("Starting speaker fade-out", zap.String("speaker", speakerEntityID))
 
 	// Get actual current volume from Home Assistant
@@ -683,6 +701,17 @@ func (m *Manager) fadeOutSpeaker(speakerEntityID string) {
 			zap.Int("volume", currentVolume),
 			zap.Float64("volume_level", volumeLevel))
 
+		// Serialize the generation check with wake-music activation so a stale
+		// fade cannot issue a volume command after wake music takes ownership.
+		m.fadeMu.Lock()
+		if fadeGeneration != m.fadeGeneration {
+			m.fadeMu.Unlock()
+			m.logger.Info("Fade out cancelled before volume command - wake music started",
+				zap.String("speaker", speakerEntityID))
+			m.shadowTracker.UpdateFadeOutProgress(speakerEntityID, 0)
+			return
+		}
+
 		// Set volume on speaker
 		if err := m.haClient.CallService(m.ctx, "media_player", "volume_set", map[string]interface{}{
 			"entity_id":    speakerEntityID,
@@ -693,6 +722,7 @@ func (m *Manager) fadeOutSpeaker(speakerEntityID string) {
 				zap.Error(err))
 			// Continue anyway - don't abort the fade out for transient errors
 		}
+		m.fadeMu.Unlock()
 
 		// Update currentlyPlayingMusic state
 		m.updateSpeakerVolumeInState(speakerEntityID, currentVolume)
@@ -863,12 +893,21 @@ func (m *Manager) scheduleWakeMusic() {
 
 	m.logger.Info("Light fade-in complete, starting wake music")
 
-	// Start wake music - triggers music plugin to play gentle wakeup playlist
+	// Invalidate the bedroom fade while serialized with its volume commands,
+	// then start wake music while retaining ownership of the speaker volume.
+	m.fadeMu.Lock()
+	m.fadeGeneration++
+	if err := m.stateManager.SetBool("isFadeOutInProgress", false); err != nil {
+		m.logger.Error("Failed to cancel bedroom fade-out", zap.Error(err))
+	}
+
+	// Start wake music - triggers music plugin to play gentle wakeup playlist.
 	if err := m.stateManager.SetString("musicPlaybackType", "wakeup"); err != nil {
 		m.logger.Error("Failed to set wakeup music", zap.Error(err))
 	} else {
 		m.logger.Info("Wake music activated")
 	}
+	m.fadeMu.Unlock()
 
 	// Record action and update status
 	m.recordAction("wake_music", "Starting wake music after lights fully up", "wake_music_timer")
@@ -1331,6 +1370,10 @@ func (m *Manager) TriggerBeginWakeForTest() {
 
 	// Set fade out in progress flag
 	if !m.readOnly {
+		m.fadeMu.Lock()
+		m.fadeGeneration++
+		m.fadeMu.Unlock()
+
 		if err := m.stateManager.SetBool("isFadeOutInProgress", true); err != nil {
 			m.logger.Error("Test: Failed to set isFadeOutInProgress", zap.Error(err))
 		}
@@ -1342,9 +1385,13 @@ func (m *Manager) TriggerBeginWakeForTest() {
 		bedroomSpeakers = []string{"media_player.bedroom"}
 	}
 
+	m.fadeMu.Lock()
+	fadeGeneration := m.fadeGeneration
+	m.fadeMu.Unlock()
+
 	// Run fade-out SYNCHRONOUSLY for testing (not in goroutine)
 	for _, speaker := range bedroomSpeakers {
-		m.fadeOutSpeaker(speaker)
+		m.fadeOutSpeakerGeneration(speaker, fadeGeneration)
 	}
 }
 

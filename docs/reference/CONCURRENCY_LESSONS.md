@@ -910,6 +910,7 @@ Go's runtime only detects deadlocks when **all** goroutines are blocked. If even
 21. **Copy under read-lock to protect slices appended during setup** - take RLock, copy the slice, release, then iterate the copy; avoids holding the lock across slow I/O
 22. **Hold the lock across network I/O when the remote side rotates a credential** - acceptable when the bounded critical section prevents a concurrent caller from burning the token being refreshed
 23. **Claim guard state before releasing the lock** - set guard flags in the same critical section as the check, before running side effects outside the lock; prevents concurrent callers from passing the guard and repeating every side effect
+26. **Mutex-serialized generation counter for check-then-act cancellation** - hold the mutex across both the generation check and the resource command; a stale goroutine cannot act after the new owner increments the generation, closing the TOCTOU gap that `ctx.Done()` leaves open
 
 ---
 
@@ -1593,6 +1594,102 @@ assert.Equal(t, 1, server.Requests())   // reports 16 without the fix
 
 ---
 
+## Lesson 26: Mutex-Serialized Generation Counter for Check-Then-Act Cancellation
+
+**Pattern**: Hold a shared mutex across both the generation check **and** the resource command. Increment the generation counter when a new owner takes over. A goroutine that sees its generation is stale must return without acting.
+
+**Why not `context.Context`**: `ctx.Done()` leaves a window between the check and the action — a goroutine can read a live context, be pre-empted, and then issue a command after the new owner has already started. Holding the same mutex for both the check and the command closes that window entirely: the new owner cannot increment the generation until every in-flight command step has released the lock, and stale goroutines cannot issue a command step until after the owner has incremented and released.
+
+**Problem Scenario** (Fixed in [PR #1285](https://github.com/NickBorgersOnLowSecurityNode/home-automation/pull/1285), Issue #1283):
+
+The bedroom fade-out goroutine issues one `volume_set` call per step, then sleeps up to 59 seconds before the next step. Wake music starts during that sleep. With context-based cancellation, the goroutine could check `ctx.Done()`, see the context live, and then — after the scheduler switches to wake-music setup — issue a `volume_set` that undercuts the wake music volume.
+
+```
+Fade goroutine:                             scheduleWakeMusic:
+─────────────────────────────               ────────────────────────────────────
+select { case <-ctx.Done(): ... }           (not yet cancelled)
+← context is not cancelled — passes guard
+                                            cancelFunc() // cancels context
+                                            SetString("musicPlaybackType", "wakeup")
+haClient.CallService(volume_set, 0)  ← STALE COMMAND still runs!
+```
+
+**Correct Approach**:
+
+```go
+type Manager struct {
+    fadeMu         sync.Mutex
+    fadeGeneration uint64
+}
+
+// When a new fade begins:
+func (m *Manager) handleBeginWake() {
+    m.fadeMu.Lock()
+    m.fadeGeneration++
+    fadeGeneration := m.fadeGeneration
+    m.fadeMu.Unlock()
+
+    go m.fadeOutSpeakerGeneration(speaker, fadeGeneration)
+}
+
+// In the fade goroutine, before every volume command:
+func (m *Manager) fadeOutSpeakerGeneration(speaker string, fadeGeneration uint64) {
+    for each step {
+        // ... compute next volume ...
+
+        // Serialize generation check with the volume command.
+        m.fadeMu.Lock()
+        if fadeGeneration != m.fadeGeneration {
+            m.fadeMu.Unlock()
+            return  // Stale — wake music has taken over
+        }
+        m.haClient.CallService(..., "volume_set", ...)  // lock held across network call
+        m.fadeMu.Unlock()
+    }
+}
+
+// When wake music takes over — atomically bumps generation and sets state.
+func (m *Manager) scheduleWakeMusic() {
+    m.fadeMu.Lock()
+    m.fadeGeneration++                        // Stale fade goroutines will return
+    m.stateManager.SetBool("isFadeOutInProgress", false)
+    m.stateManager.SetString("musicPlaybackType", "wakeup")
+    m.fadeMu.Unlock()
+}
+```
+
+**Key Elements**:
+1. **Monotonic `uint64` counter** — simple to reason about; never wraps in practice.
+2. **Single shared mutex** — same `fadeMu` held by both the fade goroutine (around each volume command) and the new owner (around the generation bump + handoff state changes).
+3. **Lock held across the network call** — this is the deliberate choice that closes the TOCTOU window. It is acceptable when the critical section is bounded (5 s timeout per command) and contention is rare (the adaptive inter-step delay is 1–59 s, so the mutex is uncontended when wake music fires).
+4. **New owner increments before setting output state** — the state changes happen inside the same critical section, so stale goroutines can never observe a newer owner's state changes and then overwrite them.
+
+**Contrast with Lesson 23 (Claim Guard State Before Releasing the Lock)**:
+Lesson 23 prevents a concurrent second caller from *starting* the same operation. This pattern prevents an older goroutine that *already started* from completing its remaining steps after ownership transfers.
+
+**Contrast with Lesson 9 (Cancel Concurrent Goroutines with `context.Context`)**:
+`ctx.Done()` is a cooperative, non-atomic check; a goroutine that is pre-empted between the check and the action may still issue the command. Hold the shared mutex across both when even a one-step gap is unacceptable.
+
+**Side Effects to Know**:
+- **Multi-speaker commands are serialized**: each goroutine acquires `fadeMu` before its `volume_set`, so parallel bedroom-speaker goroutines queue behind each other. For one or two speakers this is harmless.
+- **Wake-music start is blocked up to one `volume_set` timeout** (5 s): `scheduleWakeMusic` blocks on `fadeMu.Lock()` until whatever fade goroutine currently holds it completes its `CallService`. No deadlock — the WebSocket receive loop is not blocked on `fadeMu`.
+
+**Where to Apply**:
+- When a goroutine issues resource commands in a loop and must not act after a newer owner has taken over.
+- When the resource is a speaker volume, motor position, or similar stateful hardware where even a single command after handoff is incorrect.
+- When context cancellation leaves an unacceptable window between the check and the action.
+
+**Where Applied**:
+- `internal/plugins/sleephygiene/manager.go` — `fadeMu` / `fadeGeneration` guards bedroom speaker volume commands during fade-out
+
+**Test That Validates This**:
+- `TestScenario_WakeMusic_CancelsStaleBedroomFade` — Runs fade to near-completion, starts wake music mid-step, asserts no subsequent bedroom `volume_set` from the stale goroutine
+
+**References**:
+- PR #1285 (Issue #1283) — Initial implementation
+
+---
+
 ## Lesson 23: Claim Guard State Before Releasing the Lock
 
 **Pattern**: When a boolean flag guards against duplicate execution, set it to the "claimed" state within the same critical section as the check — not after releasing the lock and running side effects.
@@ -1683,6 +1780,13 @@ func (m *Manager) handleSexModeOn() {
 ---
 
 ## Change Log
+
+### 2026-11-08
+- **Added Lesson 26**: Mutex-Serialized Generation Counter for Check-Then-Act Cancellation
+  - Bedroom fade-out goroutine could issue a volume command after wake music took over, because `ctx.Done()` leaves a TOCTOU window between the cancellation check and the `CallService` call
+  - Pattern: hold `fadeMu` across both the generation check and the volume command; `scheduleWakeMusic` increments the generation and sets handoff state under the same lock, so stale goroutines cannot act after ownership transfer
+  - Contrast with Lesson 9 (`ctx.Done()` cooperative) and Lesson 23 (prevents duplicate starts; this prevents stale completions)
+  - Applied to `internal/plugins/sleephygiene/manager.go` — `fadeMu` / `fadeGeneration` (PR #1285, Issue #1283)
 
 ### 2026-10-30
 - **Updated Lesson 25**: Document `GetState` post-`beginSeed` cache re-check
