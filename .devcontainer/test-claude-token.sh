@@ -68,8 +68,24 @@ for _ in 1 2; do HOME="$TMP/home" bash "$TMP/dc/wire-claude-token.sh" "$token_fi
 for rc in .bashrc .profile .zshrc; do
   [ "$(grep -c 'claude-oauth-token-export' "$TMP/home/$rc")" = 1 ] || fail "$rc should have one export block"
 done
+rm -f "$TMP/home/.claude/.credentials.json"   # the host login file is not the container login
 for rc in .profile .bashrc; do
   got="$(HOME="$TMP/home" bash -c ". '$TMP/home/$rc'; printf %s \"\$CLAUDE_CODE_OAUTH_TOKEN\"")"
   [ "$got" = "$ACCESS" ] || fail "$rc should export the access token"
 done
+# 5. Once the container has its own login, the exported token must not override
+#    it. An older block without the guard is replaced, not duplicated.
+new_world 3600; run_init >/dev/null
+printf '\n# claude-oauth-token-export: %s\n[ -s "%s" ] && CLAUDE_CODE_OAUTH_TOKEN="$(cat "%s")" && export CLAUDE_CODE_OAUTH_TOKEN\n' \
+  "$token_file" "$token_file" "$token_file" >"$TMP/home/.bashrc"
+HOME="$TMP/home" bash "$TMP/dc/wire-claude-token.sh" "$token_file" >/dev/null 2>&1
+[ "$(grep -c 'claude-oauth-token-export' "$TMP/home/.bashrc")" = 1 ] || fail "old block should be replaced"
+rm -f "$TMP/home/.claude/.credentials.json"
+src() { HOME="$TMP/home" CLAUDE_CODE_OAUTH_TOKEN="${PRESET:-}" CLAUDE_LOGIN_DIR="$TMP/login" bash -c ". '$TMP/home/.bashrc'; printf %s \"\$CLAUDE_CODE_OAUTH_TOKEN\""; }
+[ "$(src)" = "$ACCESS" ] || fail "token should be exported while there is no container login"
+echo '{"claudeAiOauth":{"refreshToken":"x"}}' >"$TMP/home/.claude/.credentials.json"
+[ -z "$(PRESET=$ACCESS src)" ] || fail "an inherited token must be cleared once a container login exists"
+rm -f "$TMP/home/.claude/.credentials.json"; mkdir -p "$TMP/login"
+echo '{"claudeAiOauth":{"refreshToken":"x"}}' >"$TMP/login/.credentials.json"
+[ -z "$(PRESET=$ACCESS src)" ] || fail "an inherited token must be cleared when the persisted login exists but is not yet linked"
 echo "OK: all token cases passed"
