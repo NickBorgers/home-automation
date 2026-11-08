@@ -81,6 +81,7 @@ make lint-go           # Run linters
 
 | Document | Purpose |
 |----------|---------|
+| [CURRENT_BEHAVIOR.md](./docs/CURRENT_BEHAVIOR.md) | Current behavior hierarchy, integration authority boundaries, and diagnostic starting point |
 | [ARCHITECTURE.md](./docs/architecture/ARCHITECTURE.md) | System design and implementation status |
 | [SHADOW_STATE.md](./docs/reference/SHADOW_STATE.md) | **READ BEFORE WRITING PLUGINS** - Shadow state pattern |
 | [PLUGIN_SYSTEM.md](./docs/reference/PLUGIN_SYSTEM.md) | Plugin interfaces and lifecycle |

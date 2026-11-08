@@ -10,7 +10,10 @@ flowchart LR
         A[Home Automation Go]
     end
     A <-->|WebSocket| B[Home Assistant]
-    B --> C[Sonos Speakers]
+    A -->|HTTP| M[SoCo-CLI]
+    M --> C[Sonos Speakers]
+    B -.->|fallback| C
+    A -->|Fleet API| T[Tesla]
     B --> D[Phillips Hue]
     B --> E[Thermostats]
     B --> F[Apple TV]
@@ -22,7 +25,10 @@ flowchart LR
     L((Device Location)) --> I
 ```
 
-The Go application connects to Home Assistant via WebSocket and orchestrates automations through a plugin-based architecture. All device control flows through Home Assistant's integrations.
+The Go application orchestrates automations through a plugin-based architecture. Most device state and control flows
+through Home Assistant's WebSocket API. Sonos uses SoCo-CLI/direct UPnP when configured (with a Home Assistant
+fallback), and Tesla uses the Fleet API directly. See [Current Behavior and Authority](docs/CURRENT_BEHAVIOR.md) for
+the current control paths and guidance on interpreting shadow state, device state, and logs.
 
 ## Plugins
 

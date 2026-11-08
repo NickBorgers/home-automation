@@ -1,10 +1,12 @@
 # Automation Flows
 
-This directory contains visual documentation of the home automation system's behavior, primarily using Mermaid diagrams. These documents serve as the "visual representation of automations" similar to what Node-RED's flow editor provided.
+This directory contains the current user-visible behavior of the home automation system, primarily using Mermaid
+diagrams. Start with the relevant flow when determining what an automation should do. For command paths and evidence
+authority, see [Current Behavior and Authority](../CURRENT_BEHAVIOR.md).
 
 ## Purpose
 
-As the system migrates from Node-RED to Golang, we lose the inherent visual representation that Node-RED's flow editor provided. These documents recreate that visual understanding through:
+These documents provide visual understanding of the current Go implementation through:
 
 - **Mermaid diagrams** showing decision trees, state transitions, and data flows
 - **Mapping tables** connecting inputs to outputs

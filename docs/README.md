@@ -6,6 +6,8 @@ This directory contains all project documentation, organized by audience and top
 
 ```
 docs/
+├── CURRENT_BEHAVIOR.md       # Current behavior, authority boundaries, diagnostic evidence
+│
 ├── architecture/           # System design
 │   └── ARCHITECTURE.md     # Complete architecture, implementation status, roadmap
 │
@@ -38,6 +40,11 @@ docs/
 
 ## Quick Links
 
+### Start Here for Current Behavior
+
+- **[CURRENT_BEHAVIOR.md](./CURRENT_BEHAVIOR.md)** - Current documentation hierarchy, integration authority boundaries,
+  and diagnostic evidence
+
 ### For Engineers / AI Agents
 Technical reference documentation for development:
 - **[architecture/ARCHITECTURE.md](./architecture/ARCHITECTURE.md)** - Complete system design
@@ -65,6 +72,8 @@ Deployment and process documentation:
 ### Archive
 Historical and proposal documents (not required reading):
 - **[archive/](./archive/)** - Old analysis, future work proposals
+
+Archived documents do not describe the current system unless a current document explicitly links to them for context.
 
 ## Root-Level Documentation
 
