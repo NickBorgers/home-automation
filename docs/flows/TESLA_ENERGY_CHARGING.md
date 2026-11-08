@@ -6,8 +6,11 @@ This is always on when Tesla is configured and the home location is set. Turn of
 
 ## What Each Energy Level Does
 
-| Energy level | Charging |
-|--------------|----------|
+Below 50%, the car charges at full speed regardless of energy level. At or above 50%, the energy level controls
+charging:
+
+| Energy level | Charging at or above 50% |
+|--------------|--------------------------|
 | `red` | Stop |
 | `yellow` | Stop |
 | `green` | Charge slowly, at 8 A |
@@ -18,7 +21,9 @@ The plugin never changes the charge limit. The car stops at whatever limit is se
 
 ## Decision Flow
 
-Each poll that finds the car online runs this check. Red and yellow always stop charging, including below 50%. Green or white is required to charge through and beyond the 50% policy boundary. A change in `currentEnergyLevel` triggers an immediate poll when the car was last seen plugged in at home.
+Each poll that finds the car online runs this check. A battery below 50% overrides the energy level and charges at full
+speed. At 50% and above, red and yellow stop charging, green charges slowly, and white charges at full speed. A change
+in `currentEnergyLevel` triggers an immediate poll when the car was last seen plugged in at home.
 
 ```mermaid
 flowchart TD
@@ -30,7 +35,9 @@ flowchart TD
     Plug -->|No| Leave
     Plug -->|Yes| Full{Charge<br/>complete?}
     Full -->|Yes| Leave
-    Full -->|No| Plan{Plan from<br/>energy level}
+    Full -->|No| Floor{Battery below<br/>50%?}
+    Floor -->|Yes| FullSpeed[Charge at full speed]
+    Floor -->|No| Plan{Plan from<br/>energy level}
     Plan -->|Hold| Stop[Stop if charging]
     Stop --> Verify[Poll after 15 s and verify stopped]
     Plan -->|Charge| Amps[Set amps if different]
