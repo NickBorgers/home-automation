@@ -124,22 +124,26 @@ func (m *Manager) Start() error {
 			m.logger.Warn("Cannot subscribe to state variable", zap.String("key", key), zap.Error(err))
 		}
 	}
-	for _, name := range sortedKeys(m.cfg.Areas) {
-		area := name
-		for _, entity := range m.cfg.Areas[name].BedSensors {
-			err := m.subHelper.SubscribeToEntity(entity, func(_ string, _, newState *ha.State) {
-				if newState != nil && newState.State == "on" {
-					m.apply(func(t *Tracker, now time.Time) { t.BedOccupied(now, area) })
-				}
-			})
-			if err != nil {
-				m.logger.Warn("Cannot subscribe to bed sensor", zap.String("entity_id", entity), zap.Error(err))
+	for _, entity := range m.cfg.sensorEntities() {
+		entity := entity
+		err := m.subHelper.SubscribeToEntity(entity, func(_ string, oldState, newState *ha.State) {
+			if newState == nil {
+				return
 			}
+			from := ""
+			if oldState != nil {
+				from = oldState.State
+			}
+			m.apply(func(t *Tracker, now time.Time) { t.SensorChanged(now, entity, from, newState.State) })
+		})
+		if err != nil {
+			m.logger.Warn("Cannot subscribe to sensor", zap.String("entity_id", entity), zap.Error(err))
 		}
 	}
 	m.subHelper.CaptureInitialInputs()
 	// SubscribeToEntity is change-only. Apply the current bed sensor state at startup so a sensor that
-	// is already on before the plugin starts still occupies the area.
+	// is already on before the plugin starts still occupies the area. An exit sensor that is already on
+	// is not a person leaving now, so it is not applied.
 	for _, name := range sortedKeys(m.cfg.Areas) {
 		area := name
 		for _, entity := range m.cfg.Areas[name].BedSensors {

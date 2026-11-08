@@ -76,6 +76,12 @@ type track struct {
 	pendingTarget string
 }
 
+// exitEdge is an exit sensor turning on.
+type exitEdge struct {
+	at     time.Time
+	entity string
+}
+
 type camera struct {
 	lastHeartbeat time.Time
 	online        bool
@@ -100,6 +106,10 @@ type Tracker struct {
 	cameraAreas map[string]map[string]bool // camera -> areas it sees, from config and from zones
 
 	unknownZones map[string]bool
+
+	// exitEdges are recent exit sensor turn-ons, by area, oldest first. A token can still arrive for a
+	// short time after the person went out, because Frigate ends a track a few seconds late.
+	exitEdges map[string][]exitEdge
 
 	peopleKnown bool
 	peopleHome  int
@@ -126,6 +136,7 @@ func NewTracker(cfg *Config) *Tracker {
 		cameras:      make(map[string]*camera),
 		cameraAreas:  make(map[string]map[string]bool),
 		unknownZones: make(map[string]bool),
+		exitEdges:    make(map[string][]exitEdge),
 		anyoneHome:   true,
 	}
 	for cam, areas := range cfg.Cameras {
@@ -227,6 +238,59 @@ func (t *Tracker) BedOccupied(now time.Time, area string) {
 	t.newToken(now, area, "", "bed sensor is on", false)
 }
 
+// SensorChanged applies a bed or exit sensor's state change. from is the old state, empty when unknown.
+func (t *Tracker) SensorChanged(now time.Time, entity, from, to string) {
+	if to != "on" {
+		return
+	}
+	beds, exits := t.cfg.sensorAreas(entity)
+	for _, area := range beds {
+		t.BedOccupied(now, area)
+	}
+	if from == "on" {
+		return
+	}
+	for _, area := range exits {
+		t.exitEdges[area] = append(t.exitEdges[area], exitEdge{at: now, entity: entity})
+		t.matchExits(now, area)
+	}
+}
+
+// matchExits removes the token of a person who went outside. An exit sensor turning on matches one token
+// that arrived in the area at most exit_window before it, or at most handoff_window after it. The sensor
+// must turn on after the person reached the door: a visitor already outside when someone walks to the
+// door to answer it does not remove that person's token. Each turn-on removes one token, the most recent
+// arrival. A token a track still holds is someone in view, so it stays.
+func (t *Tracker) matchExits(now time.Time, area string) {
+	keep := t.exitEdges[area][:0]
+	for _, e := range t.exitEdges[area] {
+		var best *token
+		for _, tok := range t.tokensIn(area) {
+			tooOld := tok.since.Before(e.at.Add(-t.cfg.ExitWindow))
+			tooNew := tok.since.After(e.at.Add(t.cfg.HandoffWindow))
+			if t.held(tok.id) || tooOld || tooNew {
+				continue
+			}
+			if best == nil || tok.since.After(best.since) {
+				best = tok
+			}
+		}
+		if best != nil {
+			t.removeToken(now, best, "went outside: "+e.entity+" turned on")
+			continue
+		}
+		// A token may still arrive. Allow one tick past the window, since Tick runs once a second.
+		if now.Sub(e.at) <= t.cfg.HandoffWindow+tickInterval {
+			keep = append(keep, e)
+		}
+	}
+	if len(keep) == 0 {
+		delete(t.exitEdges, area)
+		return
+	}
+	t.exitEdges[area] = keep
+}
+
 // Reconnected ends every open track as if Frigate had ended it. Messages may have been lost.
 func (t *Tracker) Reconnected(now time.Time) {
 	for _, id := range sortedKeys(t.active) {
@@ -248,6 +312,10 @@ func (t *Tracker) Tick(now time.Time) {
 		}
 	}
 	t.updateUnknownAreas(now)
+
+	for _, area := range sortedKeys(t.exitEdges) {
+		t.matchExits(now, area)
+	}
 
 	for _, tr := range t.ended {
 		if tr.pendingTarget == "" || now.Sub(tr.end) < t.cfg.HandoffWindow {

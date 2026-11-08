@@ -11,6 +11,7 @@ room_presence:
   handoff_window: 5s
   camera_heartbeat_timeout: 30s
   nobody_home_delay: 5m
+  exit_window: 30s
   areas:
     lounge:  { seen: true,  idle_limit: 20m, neighbors: [kitchen] }
     kitchen: { seen: true,  idle_limit: 20m }
@@ -19,7 +20,9 @@ room_presence:
     # and is tracked only after the doorway then still moves the token out.
     study:   { seen: false, idle_limit: 3h, neighbors: [lounge] }
     bedroom: { seen: false, neighbors: [hall], bed_sensors: [binary_sensor.example_bed_presence] }
-    porch:   { seen: false, idle_limit: 10m, leads_outside: true, neighbors: [hall] }
+    # An exit sensor outside the porch door turning on just after a token arrives means that person left.
+    porch:   { seen: false, idle_limit: 10m, leads_outside: true, neighbors: [hall],
+               exit_sensors: [binary_sensor.example_yard_person] }
   outputs:                    # only written in active mode
     isKitchenOccupied: [kitchen]
   zone_overrides:             # zone name -> area, <area>_to_<area>, or ignore
