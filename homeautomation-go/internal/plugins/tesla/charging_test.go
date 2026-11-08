@@ -499,10 +499,10 @@ func TestEnergyChargingManualOverride(t *testing.T) {
 		wantReason string
 	}{
 		{
-			name:       "raising the charge limit overrides a hold",
+			name:       "raising the charge limit above 80% overrides a hold",
 			polls:      []carAt{home("Stopped", 60, 32), home("Charging", 60, 32).withLimit(100)},
 			wantSent:   nil,
-			wantReason: "charge limit raised from 80% to 100%",
+			wantReason: "charge limit 100% is above the usual 80%",
 		},
 		{
 			name:       "starting charging after a verified stop overrides a hold",
@@ -518,8 +518,14 @@ func TestEnergyChargingManualOverride(t *testing.T) {
 			wantSent: []string{"stop", "stop"},
 		},
 		{
-			name:     "a 100% limit already set on arrival is not an override",
-			polls:    []carAt{home("Charging", 60, 32).withLimit(100)},
+			name:       "a limit above 80% on the first poll overrides, so it survives a restart",
+			polls:      []carAt{home("Charging", 60, 32).withLimit(81)},
+			wantSent:   nil,
+			wantReason: "charge limit 81% is above the usual 80%",
+		},
+		{
+			name:     "an 80% limit is not an override",
+			polls:    []carAt{home("Charging", 60, 32)},
 			wantSent: []string{"stop"},
 		},
 	}
@@ -545,22 +551,6 @@ func TestEnergyChargingManualOverride(t *testing.T) {
 	}
 }
 
-func TestEnergyChargingLoweredLimitIsNotOverride(t *testing.T) {
-	// GIVEN: white and a charging car.
-	fleet := onlineFleet(home("Charging", 60, 32))
-	m, charger, levels, _ := newChargingManager(fleet, "white")
-	m.Poll()
-
-	// WHEN: the house turns yellow and the limit drops.
-	levels.level = "yellow"
-	fleet.data = home("Charging", 60, 32).withLimit(70).data()
-	m.Poll()
-
-	// THEN: the plugin still stops charging.
-	assert.Equal(t, []string{"stop"}, charger.sent())
-	assert.False(t, m.GetShadowState().Outputs.EnergyCharging.ManualOverride)
-}
-
 func TestEnergyChargingManualOverrideEndsWhenUnplugged(t *testing.T) {
 	// GIVEN: a manual override from a raised limit.
 	fleet := onlineFleet(home("Stopped", 60, 32))
@@ -570,11 +560,12 @@ func TestEnergyChargingManualOverrideEndsWhenUnplugged(t *testing.T) {
 	m.Poll()
 	require.True(t, m.GetShadowState().Outputs.EnergyCharging.ManualOverride)
 
-	// WHEN: the car is unplugged, then plugged in again later.
+	// WHEN: the car is unplugged, then plugged in again later with the limit
+	// back at 80%.
 	fleet.data = home("Disconnected", 65, 0).withLimit(100).data()
 	m.Poll()
 	assert.False(t, m.GetShadowState().Outputs.EnergyCharging.ManualOverride)
-	fleet.data = home("Charging", 65, 32).withLimit(100).data()
+	fleet.data = home("Charging", 65, 32).data()
 	m.Poll()
 
 	// THEN: the energy level is back in control.

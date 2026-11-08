@@ -4,9 +4,9 @@ package tesla
 // while it is plugged in at home: charge at full speed below 50%, then stop at
 // red and yellow, charge slowly at green, and charge at full speed at white.
 //
-// A person can override it from the Tesla app. Raising the charge limit, or
-// starting charging after the plugin stopped it, puts charging in the person's
-// hands until the car is unplugged.
+// A person can override it from the Tesla app. A charge limit above the usual
+// 80%, or starting charging after the plugin stopped it, puts charging in the
+// person's hands until the car is unplugged.
 //
 // It is the one place this plugin sends commands on its own. Every command is
 // billed, so commands go out only when the car's state differs from what the
@@ -27,6 +27,11 @@ const (
 	// energyChargingFloorPercent is the minimum battery level below which the
 	// car always charges at full speed, regardless of the current energy level.
 	energyChargingFloorPercent = 50
+
+	// normalChargeLimitPercent is the charge limit the household keeps set. A
+	// higher limit means a person wants more charge than the energy level
+	// allows, so the plugin leaves charging alone.
+	normalChargeLimitPercent = 80
 
 	// chargingPollInterval limits overshoot while charging. Each online poll
 	// costs two Fleet API requests, so idle cars retain the configured interval.
@@ -200,7 +205,6 @@ func (m *Manager) controlCharging(ctx context.Context, vin string, atHome, hasLo
 	defer m.publishCharging()
 
 	mem := &m.charge
-	prevSeen, prevAtHome, prevPlugged, prevLimit := mem.seen, mem.atHome, mem.plugged, mem.limit
 	mem.seen = true
 	mem.atHome = atHome
 	mem.plugged = cs.plugged
@@ -237,9 +241,10 @@ func (m *Manager) controlCharging(ctx context.Context, vin string, atHome, hasLo
 	charging := cs.chargingState == "Charging" || cs.chargingState == "Starting"
 	if !mem.override {
 		switch {
-		case prevSeen && prevAtHome && prevPlugged && cs.limit > prevLimit:
+		case cs.limit > normalChargeLimitPercent:
 			mem.override = true
-			mem.overrideReason = fmt.Sprintf("charge limit raised from %d%% to %d%%", prevLimit, cs.limit)
+			mem.overrideReason = fmt.Sprintf("charge limit %d%% is above the usual %d%%",
+				cs.limit, normalChargeLimitPercent)
 		case mem.heldVerified && charging:
 			mem.override = true
 			mem.overrideReason = "charging started after the plugin stopped it"
