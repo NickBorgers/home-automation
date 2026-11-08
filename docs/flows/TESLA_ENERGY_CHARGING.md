@@ -55,7 +55,7 @@ The plugin wakes the car only when all of these are true:
 
 - The car is `asleep`. An `offline` car cannot be woken.
 - The last online poll saw it plugged in at home, below its charge limit.
-- The energy level now says charge.
+- The energy level now says charge, or the battery is below 50%.
 - Fewer than 3 wakes happened in the last 24 hours.
 
 After a wake, the plugin polls again 45 seconds later. That poll starts charging.
