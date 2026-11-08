@@ -54,7 +54,7 @@ const (
 )
 
 var defaultSpeakers = []string{
-	"media_player.kitchen",
+	"media_player.lounge",
 	"media_player.sitting",
 	"media_player.primary_bed",
 	"media_player.kids_bathroom",

@@ -437,7 +437,7 @@ func (m *Manager) sendRecoveryNotification() {
 func (m *Manager) sendTTSAnnouncement(message string) {
 	speakers := []string{
 		"media_player.primary_bed",
-		"media_player.kitchen",
+		"media_player.lounge",
 		"media_player.sitting",
 		"media_player.kids_bathroom",
 	}
@@ -534,7 +534,7 @@ func (m *Manager) sendSepticAlarmNotification() {
 
 	speakers := []string{
 		"media_player.primary_bed",
-		"media_player.kitchen",
+		"media_player.lounge",
 		"media_player.sitting",
 		"media_player.kids_bathroom",
 	}

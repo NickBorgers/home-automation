@@ -29,7 +29,7 @@ notification:
   # per-plugin lists in use today, so removing a plugin's hardcoded list
   # does not silence any room.
   default_speakers:
-    - media_player.kitchen
+    - media_player.lounge
     - media_player.primary_bed
     - media_player.sitting
     - media_player.bedroom
