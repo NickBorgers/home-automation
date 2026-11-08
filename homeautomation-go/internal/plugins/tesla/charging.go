@@ -4,6 +4,10 @@ package tesla
 // while it is plugged in at home: charge at full speed below 50%, then stop at
 // red and yellow, charge slowly at green, and charge at full speed at white.
 //
+// A person can override it from the Tesla app. A charge limit above the usual
+// 80%, or starting charging after the plugin stopped it, puts charging in the
+// person's hands until the car is unplugged.
+//
 // It is the one place this plugin sends commands on its own. Every command is
 // billed, so commands go out only when the car's state differs from what the
 // energy level asks for.
@@ -23,6 +27,11 @@ const (
 	// energyChargingFloorPercent is the minimum battery level below which the
 	// car always charges at full speed, regardless of the current energy level.
 	energyChargingFloorPercent = 50
+
+	// normalChargeLimitPercent is the charge limit the household keeps set. A
+	// higher limit means a person wants more charge than the energy level
+	// allows, so the plugin leaves charging alone.
+	normalChargeLimitPercent = 80
 
 	// chargingPollInterval limits overshoot while charging. Each online poll
 	// costs two Fleet API requests, so idle cars retain the configured interval.
@@ -128,6 +137,13 @@ type chargeMemory struct {
 	battery int
 	limit   int
 
+	// heldVerified is true once a poll saw the car stopped while the plan was
+	// to hold. Charging seen after that was started by a person.
+	heldVerified bool
+	// override is true while a person controls charging. reason says why.
+	override       bool
+	overrideReason string
+
 	wakes  []time.Time
 	record shadowstate.TeslaEnergyCharging
 }
@@ -213,14 +229,43 @@ func (m *Manager) controlCharging(ctx context.Context, vin string, atHome, hasLo
 	case cs.chargingState == "Complete":
 		mem.record.Decision = "charge limit reached"
 	}
+	if !atHome || !cs.plugged {
+		// Unplugging or leaving ends a manual override.
+		mem.override, mem.overrideReason, mem.heldVerified = false, "", false
+	}
+	// Write the post-unplug state first. The block below may set it true again
+	// for a newly detected override this poll; both writes are intentional.
+	mem.record.ManualOverride = mem.override
 	if !atHome || !cs.plugged || cs.chargingState == "Complete" {
 		return
 	}
 
-	plan := planCharging(level, cs.battery, cs.limit, cs.maxAmps)
 	charging := cs.chargingState == "Charging" || cs.chargingState == "Starting"
+	if !mem.override {
+		switch {
+		case cs.limit > normalChargeLimitPercent:
+			mem.override = true
+			mem.overrideReason = fmt.Sprintf("charge limit %d%% is above the usual %d%%",
+				cs.limit, normalChargeLimitPercent)
+		case mem.heldVerified && charging:
+			mem.override = true
+			mem.overrideReason = "charging started after the plugin stopped it"
+		}
+		if mem.override {
+			m.logger.Info("Tesla charging manual override: leaving charging alone until unplugged",
+				zap.String("reason", mem.overrideReason))
+		}
+	}
+	if mem.override {
+		mem.record.ManualOverride = true
+		mem.record.Decision = "manual override until unplugged: " + mem.overrideReason
+		return
+	}
+
+	plan := planCharging(level, cs.battery, cs.limit, cs.maxAmps)
 
 	mem.record.Decision = plan.reason
+	mem.heldVerified = plan.action == holdCharge && !charging
 	switch plan.action {
 	case holdCharge:
 		mem.record.PlannedAction = "hold charging"
@@ -284,7 +329,7 @@ func (m *Manager) maybeWakeToCharge(ctx context.Context, vin, vehicleState strin
 	defer m.chargeMu.Unlock()
 
 	mem := &m.charge
-	if !mem.seen || !mem.atHome || !mem.plugged || mem.battery >= mem.limit {
+	if !mem.seen || !mem.atHome || !mem.plugged || mem.override || mem.battery >= mem.limit {
 		return
 	}
 	plan := planCharging(level, mem.battery, mem.limit, 0)

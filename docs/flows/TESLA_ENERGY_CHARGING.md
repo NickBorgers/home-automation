@@ -19,6 +19,28 @@ charging:
 
 The plugin never changes the charge limit. The car stops at whatever limit is set in the Tesla app.
 
+## Manual Override
+
+You can take charging back from the plugin in the Tesla app. Do one of these while the car is plugged in at home:
+
+- Start charging after the plugin stopped it.
+- Set the charge limit above 80%, the limit the household normally keeps.
+
+The plugin then leaves charging alone until the car is unplugged or leaves home. It sends no stop, start, or speed
+commands, and it does not wake the car. Shadow state shows `manualOverride: true` and the reason in `decision`.
+
+Some actions do not count as an override:
+
+- A car that still reports `Charging` just after a stop command. Tesla telemetry can lag, so a start counts only after a
+  poll confirmed the car stopped.
+- Charging that was running when the app restarted. The plugin cannot tell who started it, so it stops it once. Start
+  it again, and the override holds. A limit above 80% survives a restart, because the plugin reads it on every poll.
+
+A limit above 80% is still set when you plug in next time, so the override starts again. Set the limit back to 80%
+to return control to the plugin.
+
+The plugin polls at the normal interval during an override. It can take up to one interval to notice an unplug.
+
 ## Decision Flow
 
 Each poll that finds the car online runs this check. A battery below 50% overrides the energy level and charges at full
@@ -35,7 +57,9 @@ flowchart TD
     Plug -->|No| Leave
     Plug -->|Yes| Full{Charge<br/>complete?}
     Full -->|Yes| Leave
-    Full -->|No| Floor{Battery below<br/>50%?}
+    Full -->|No| Override{Limit above 80%, or<br/>started after a stop?}
+    Override -->|Yes, until unplugged| Leave
+    Override -->|No| Floor{Battery below<br/>50%?}
     Floor -->|Yes| Amps
     Floor -->|No| Plan{Plan from<br/>energy level}
     Plan -->|Hold| Stop[Stop if charging]
@@ -56,6 +80,7 @@ The plugin wakes the car only when all of these are true:
 - The car is `asleep`. An `offline` car cannot be woken.
 - The last online poll saw it plugged in at home, below its charge limit.
 - The energy level now says charge, or the battery is below 50%.
+- No manual override is active.
 - Fewer than 3 wakes happened in the last 24 hours.
 
 After a wake, the plugin polls again 45 seconds later. That poll starts charging.
@@ -110,6 +135,7 @@ The normal poll interval defaults to five minutes. While charging or waiting for
 | `energyCharging.reconciliationStatus` | Pending or verified result of the latest telemetry reconciliation |
 | `energyCharging.lastVerifiedVehicleState` | Battery, charging state, and current from the latest Fleet API read |
 | `energyCharging.wakesLast24h` | Wakes spent in the last 24 hours |
+| `energyCharging.manualOverride` | A person took control in the Tesla app. The plugin leaves charging alone until unplug |
 
 ## Related Documentation
 
