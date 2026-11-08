@@ -317,7 +317,8 @@ type chargeSnapshot struct {
 }
 
 // maybeWakeToCharge wakes a sleeping car when the last online poll saw it
-// plugged in at home, below its limit, and the energy level now says charge.
+// plugged in at home, below its limit, with no manual override, and the energy
+// level says charge or the battery is below 50%.
 // Wakes are billed and capped per day.
 func (m *Manager) maybeWakeToCharge(ctx context.Context, vin, vehicleState string) {
 	if m.charger == nil || vehicleState != "asleep" {
