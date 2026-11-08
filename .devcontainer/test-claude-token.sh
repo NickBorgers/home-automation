@@ -81,11 +81,11 @@ printf '\n# claude-oauth-token-export: %s\n[ -s "%s" ] && CLAUDE_CODE_OAUTH_TOKE
 HOME="$TMP/home" bash "$TMP/dc/wire-claude-token.sh" "$token_file" >/dev/null 2>&1
 [ "$(grep -c 'claude-oauth-token-export' "$TMP/home/.bashrc")" = 1 ] || fail "old block should be replaced"
 rm -f "$TMP/home/.claude/.credentials.json"
-src() { HOME="$TMP/home" CLAUDE_LOGIN_DIR="$TMP/login" bash -c ". '$TMP/home/.bashrc'; printf %s \"\$CLAUDE_CODE_OAUTH_TOKEN\""; }
+src() { HOME="$TMP/home" CLAUDE_CODE_OAUTH_TOKEN="${PRESET:-}" CLAUDE_LOGIN_DIR="$TMP/login" bash -c ". '$TMP/home/.bashrc'; printf %s \"\$CLAUDE_CODE_OAUTH_TOKEN\""; }
 [ "$(src)" = "$ACCESS" ] || fail "token should be exported while there is no container login"
 echo '{"claudeAiOauth":{"refreshToken":"x"}}' >"$TMP/home/.claude/.credentials.json"
-[ -z "$(src)" ] || fail "token must not be exported once a container login exists"
+[ -z "$(PRESET=$ACCESS src)" ] || fail "an inherited token must be cleared once a container login exists"
 rm -f "$TMP/home/.claude/.credentials.json"; mkdir -p "$TMP/login"
 echo '{"claudeAiOauth":{"refreshToken":"x"}}' >"$TMP/login/.credentials.json"
-[ -z "$(src)" ] || fail "token must not be exported when the persisted login exists but is not yet linked"
+[ -z "$(PRESET=$ACCESS src)" ] || fail "an inherited token must be cleared when the persisted login exists but is not yet linked"
 echo "OK: all token cases passed"

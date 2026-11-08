@@ -46,7 +46,7 @@ for rc in .bashrc .profile .zshrc; do
   fi
   {
     printf '\n%s\n' "$MARK"
-    printf '[ -s "$HOME/.claude/.credentials.json" ] || [ -s "${CLAUDE_LOGIN_DIR:-/host-claude-login}/.credentials.json" ] || { [ -s "%s" ] && CLAUDE_CODE_OAUTH_TOKEN="$(cat "%s")" && export CLAUDE_CODE_OAUTH_TOKEN; }\n' \
+    printf 'if [ -s "$HOME/.claude/.credentials.json" ] || [ -s "${CLAUDE_LOGIN_DIR:-/host-claude-login}/.credentials.json" ]; then unset CLAUDE_CODE_OAUTH_TOKEN; elif [ -s "%s" ]; then CLAUDE_CODE_OAUTH_TOKEN="$(cat "%s")"; export CLAUDE_CODE_OAUTH_TOKEN; fi\n' \
       "$TOKEN_FILE" "$TOKEN_FILE"
   } >> "$target"
 done
