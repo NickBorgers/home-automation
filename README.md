@@ -10,7 +10,7 @@ flowchart LR
         A[Home Automation Go]
     end
     A <-->|WebSocket| B[Home Assistant]
-    A -->|HTTP / direct UPnP| M[SoCo-CLI]
+    A -->|HTTP| M[SoCo-CLI]
     M --> C[Sonos Speakers]
     B -.->|fallback| C
     A -->|Fleet API| T[Tesla]
