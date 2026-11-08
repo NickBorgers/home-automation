@@ -20,8 +20,8 @@ import (
 )
 
 const (
-	// energyChargingFloorPercent is the charge the car always gets, whatever
-	// the energy level says.
+	// energyChargingFloorPercent is the minimum battery level below which the
+	// car always charges at full speed, regardless of the current energy level.
 	energyChargingFloorPercent = 50
 
 	// chargingPollInterval limits overshoot while charging. Each online poll

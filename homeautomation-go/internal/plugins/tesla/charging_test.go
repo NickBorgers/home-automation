@@ -325,12 +325,15 @@ func TestEnergyChargingWakesSleepingCarToCharge(t *testing.T) {
 }
 
 func TestEnergyChargingWakesSleepingCarBelowFloorAtRed(t *testing.T) {
+	// GIVEN: red, a sleeping car plugged in at home with 41% battery (below the 50% floor).
 	fleet := &fakeFleet{vehicles: []teslaapi.VehicleSummary{{VIN: "BBB", State: "asleep"}}}
 	m, charger, _, scheduled := newChargingManager(fleet, "red")
 	m.charge = chargeMemory{seen: true, atHome: true, plugged: true, battery: 41, limit: 80}
 
+	// WHEN: a poll runs.
 	m.Poll()
 
+	// THEN: the car is woken to charge at full speed despite the red energy level.
 	assert.Equal(t, []string{"wake"}, charger.sent())
 	assert.Equal(t, []time.Duration{wakeSettleDelay}, *scheduled)
 	assert.Contains(t, m.GetShadowState().Outputs.EnergyCharging.Decision, "below the 50% floor")
