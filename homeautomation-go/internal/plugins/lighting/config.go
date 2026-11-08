@@ -81,11 +81,62 @@ type LuxFollower struct {
 	Entity   string  `yaml:"entity"`    // light entity id
 	FloorPct float64 `yaml:"floor_pct"` // brightness when the cans are at 0%, 0-100
 	Gain     float64 `yaml:"gain"`      // follower percent added per cans percent, 0-2
+	// CCTCurve is the strip's measured color temperature by brightness. When set, the strip is never
+	// dimmer than the brightness that gives the cans' color temperature. Nil means brightness only.
+	CCTCurve []StripCCTPoint `yaml:"cct_curve"`
+}
+
+// StripCCTPoint is one measured point of a dim-to-warm strip: the color temperature it shows at
+// one brightness, matched by eye against the cans.
+type StripCCTPoint struct {
+	BrightnessPct float64 `yaml:"brightness_pct"`
+	Kelvin        float64 `yaml:"kelvin"`
 }
 
 // followerPct returns the follower's brightness for a given cans brightness.
 func (f LuxFollower) followerPct(cansPct float64) float64 {
 	return math.Max(1, math.Min(100, math.Round(f.FloorPct+f.Gain*cansPct)))
+}
+
+// cctFloorPct returns the lowest strip brightness that reaches kelvin, by linear interpolation on
+// CCTCurve. It is 0 when there is no curve, no target, or the target is at or below the warmest
+// measured point (the curve says nothing about dimmer settings). Above the coolest point it is the
+// coolest point's brightness.
+func (f LuxFollower) cctFloorPct(kelvin int) float64 {
+	c := f.CCTCurve
+	if len(c) == 0 || kelvin <= 0 || float64(kelvin) <= c[0].Kelvin {
+		return 0
+	}
+	last := c[len(c)-1]
+	if float64(kelvin) >= last.Kelvin {
+		return last.BrightnessPct
+	}
+	for i := 1; i < len(c); i++ {
+		if float64(kelvin) <= c[i].Kelvin {
+			lo, hi := c[i-1], c[i]
+			return lo.BrightnessPct + (hi.BrightnessPct-lo.BrightnessPct)*(float64(kelvin)-lo.Kelvin)/(hi.Kelvin-lo.Kelvin)
+		}
+	}
+	return last.BrightnessPct
+}
+
+// estimateKelvin returns the strip's color temperature at a brightness, by linear interpolation on
+// CCTCurve, held at the end values outside the measured range. It is 0 when there is no curve.
+func (f LuxFollower) estimateKelvin(pct float64) int {
+	c := f.CCTCurve
+	if len(c) == 0 {
+		return 0
+	}
+	if pct <= c[0].BrightnessPct {
+		return int(math.Round(c[0].Kelvin))
+	}
+	for i := 1; i < len(c); i++ {
+		if pct <= c[i].BrightnessPct {
+			lo, hi := c[i-1], c[i]
+			return int(math.Round(lo.Kelvin + (hi.Kelvin-lo.Kelvin)*(pct-lo.BrightnessPct)/(hi.BrightnessPct-lo.BrightnessPct)))
+		}
+	}
+	return int(math.Round(c[len(c)-1].Kelvin))
 }
 
 // HasColorTemp reports whether the light has adjustable color temperature. It defaults to true.
@@ -159,6 +210,17 @@ func (c *HueConfig) validateLux() error {
 			seen[f.Entity] = true
 			if f.FloorPct < 0 || f.FloorPct > 100 || f.Gain < 0 || f.Gain > 2 {
 				return fmt.Errorf("room %q: follower %q needs floor_pct 0-100 and gain 0-2", r.HueGroup, f.Entity)
+			}
+			if len(f.CCTCurve) == 1 {
+				return fmt.Errorf("room %q: follower %q cct_curve needs at least 2 points", r.HueGroup, f.Entity)
+			}
+			prev := StripCCTPoint{}
+			for _, p := range f.CCTCurve {
+				if p.BrightnessPct <= prev.BrightnessPct || p.BrightnessPct > 100 || p.Kelvin <= prev.Kelvin {
+					return fmt.Errorf("room %q: follower %q cct_curve must rise in brightness_pct (1-100) and kelvin",
+						r.HueGroup, f.Entity)
+				}
+				prev = p
 			}
 		}
 		prevPct, prevLux := 0, 0.0

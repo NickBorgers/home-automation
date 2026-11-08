@@ -38,6 +38,12 @@ type luxCommand struct {
 	on         bool
 	pct        float64
 	kelvin     int
+	// Follower commands only: the cans values the strip was computed from, and the strip's
+	// estimated color temperature from its cct_curve (0 without a curve).
+	cansPct      float64
+	cansKelvin   int
+	cctFloorPct  float64
+	estimateKelv int
 }
 
 // luxRoomState is the per-room control state.
@@ -524,7 +530,7 @@ func (m *Manager) handleFollowerChange(room *RoomConfig, newState *ha.State) {
 }
 
 // luxDriveFollowers sets each follower light from the cans command: floor + gain * cans percent,
-// or off when the cans are off. The minimum-step rule compares against the follower's own last
+// raised to the brightness its cct_curve needs for the cans' color temperature, or off when the cans are off. The minimum-step rule compares against the follower's own last
 // command, so a strip is not told to move on every tick. In log_only and READ_ONLY mode the
 // command is recorded and not sent.
 func (m *Manager) luxDriveFollowers(room *RoomConfig, st *luxRoomState, cans *luxCommand) {
@@ -533,6 +539,10 @@ func (m *Manager) luxDriveFollowers(room *RoomConfig, st *luxRoomState, cans *lu
 		next := &luxCommand{at: cans.at, transition: cans.transition, on: cans.on}
 		if cans.on {
 			next.pct = f.followerPct(cans.pct)
+			next.cansPct, next.cansKelvin = cans.pct, cans.kelvin
+			next.cctFloorPct = f.cctFloorPct(cans.kelvin)
+			next.pct = math.Min(100, math.Max(next.pct, math.Round(next.cctFloorPct)))
+			next.estimateKelv = f.estimateKelvin(next.pct)
 		}
 		m.luxMu.Lock()
 		prev := st.followers[f.Entity]
@@ -582,7 +592,11 @@ func (m *Manager) sendFollowerCommand(room *RoomConfig, entity string, cmd *luxC
 		zap.String("room", room.HueGroup),
 		zap.String("entity_id", entity),
 		zap.String("service", service),
-		zap.Any("data", data))
+		zap.Any("data", data),
+		zap.Float64("cans_pct", cmd.cansPct),
+		zap.Int("target_kelvin", cmd.cansKelvin),
+		zap.Float64("cct_floor_pct", cmd.cctFloorPct),
+		zap.Int("estimated_kelvin", cmd.estimateKelv))
 	return m.haClient.CallService(m.ctx, "light", service, data)
 }
 
@@ -599,6 +613,10 @@ func (m *Manager) followerStates(room *RoomConfig) map[string]shadowstate.Follow
 		fs := shadowstate.FollowerState{Held: st.followerHeld[f.Entity]}
 		if c := st.followers[f.Entity]; c != nil && c.on {
 			fs.Pct = c.pct
+			fs.CansPct = c.cansPct
+			fs.TargetKelvin = c.cansKelvin
+			fs.CCTFloorPct = c.cctFloorPct
+			fs.EstimatedKelvin = c.estimateKelv
 		}
 		out[f.Entity] = fs
 	}

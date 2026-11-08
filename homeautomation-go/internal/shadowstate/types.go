@@ -362,6 +362,11 @@ type DarkOutsideState struct {
 type FollowerState struct {
 	Pct  float64 `json:"pct"`
 	Held bool    `json:"held"`
+	// The fields below are set for a strip with a cct_curve (and CansPct for every strip).
+	CansPct         float64 `json:"cansPct,omitempty"`         // cans brightness the strip was computed from
+	TargetKelvin    int     `json:"targetKelvin,omitempty"`    // the cans' commanded color temperature
+	CCTFloorPct     float64 `json:"cctFloorPct,omitempty"`     // lowest brightness that reaches TargetKelvin
+	EstimatedKelvin int     `json:"estimatedKelvin,omitempty"` // strip color temperature at Pct, from the curve
 }
 
 // LuxControlState records the last lux-control tick for one room.

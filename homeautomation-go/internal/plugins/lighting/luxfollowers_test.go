@@ -93,7 +93,11 @@ func TestLuxFollowers_TrackTheCansBrightness(t *testing.T) {
 			require.Len(t, cans, 1)
 			require.Len(t, strip, 1)
 			cansPct := float64(cans[0].Data["brightness_pct"].(int))
-			assert.Equal(t, math.Min(100, math.Round(want.floor+want.gain*cansPct)), float64(strip[0].Data["brightness_pct"].(int)))
+			f := room.LuxControl.FollowerLights[0]
+			// A strip with a cct_curve may be raised above the brightness curve (see luxfollowercct_test.go).
+			assert.Equal(t, math.Max(math.Min(100, math.Round(want.floor+want.gain*cansPct)),
+				math.Round(f.cctFloorPct(cans[0].Data["color_temp_kelvin"].(int)))),
+				float64(strip[0].Data["brightness_pct"].(int)))
 			assert.GreaterOrEqual(t, float64(strip[0].Data["brightness_pct"].(int)), cansPct, "strip is at least as bright as the cans")
 			assert.NotContains(t, strip[0].Data, "color_temp_kelvin")
 			assert.NotContains(t, strip[0].Data, "area_id")
