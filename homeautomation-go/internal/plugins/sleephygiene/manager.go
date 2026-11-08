@@ -535,7 +535,7 @@ func (m *Manager) handleBeginWake() {
 	bedroomSpeakers := m.getBedroomSpeakers()
 	if len(bedroomSpeakers) == 0 {
 		m.logger.Warn("No bedroom speakers found in currentlyPlayingMusic, using default")
-		bedroomSpeakers = []string{"media_player.bedroom"}
+		bedroomSpeakers = []string{defaultBedroomSpeaker}
 	}
 
 	// Record action in shadow state
@@ -575,19 +575,30 @@ func (m *Manager) handleBeginWake() {
 	}
 }
 
-// getBedroomSpeakers returns a list of bedroom speakers from currentlyPlayingMusic
-// This matches Node-RED's dynamic speaker discovery logic
+// defaultBedroomSpeaker is the Sonos speaker in the Primary Bed room.
+const defaultBedroomSpeaker = "media_player.primary_bed"
+
+// speakerEntityID turns a Sonos name ("Primary Bed") into its entity ID
+// ("media_player.primary_bed"). An entity ID is returned unchanged.
+func speakerEntityID(name string) string {
+	if strings.HasPrefix(name, "media_player.") {
+		return name
+	}
+	return "media_player." + strings.ReplaceAll(strings.ToLower(name), " ", "_")
+}
+
+// getBedroomSpeakers returns the Primary Bed speakers in currentlyPlayingMusic as entity IDs.
 func (m *Manager) getBedroomSpeakers() []string {
 	var currentMusic map[string]interface{}
 	if err := m.stateManager.GetJSON("currentlyPlayingMusic", &currentMusic); err != nil {
 		m.logger.Warn("Failed to get currentlyPlayingMusic, using default bedroom speaker", zap.Error(err))
-		return []string{"media_player.bedroom"}
+		return []string{defaultBedroomSpeaker}
 	}
 
 	participants, ok := currentMusic["participants"].([]interface{})
 	if !ok {
 		m.logger.Warn("currentlyPlayingMusic has no participants array")
-		return []string{"media_player.bedroom"}
+		return []string{defaultBedroomSpeaker}
 	}
 
 	var bedroomSpeakers []string
@@ -602,10 +613,11 @@ func (m *Manager) getBedroomSpeakers() []string {
 			continue
 		}
 
-		// Match Node-RED logic: if (target.player_name.indexOf("Bedroom") > -1)
-		// Use case-insensitive match to handle both "Bedroom" and "bedroom"
-		if strings.Contains(strings.ToLower(playerName), "bedroom") {
-			bedroomSpeakers = append(bedroomSpeakers, playerName)
+		// The music plugin stores the Sonos name ("Primary Bed"). Older state may hold the
+		// entity ID ("media_player.primary_bed"). Both become the entity ID.
+		entityID := speakerEntityID(playerName)
+		if strings.HasPrefix(entityID, defaultBedroomSpeaker) {
+			bedroomSpeakers = append(bedroomSpeakers, entityID)
 		}
 	}
 
@@ -808,11 +820,11 @@ func (m *Manager) getSpeakerVolume(speakerEntityID string) int {
 
 // updateSpeakerVolumeInState updates the volume in currentlyPlayingMusic state
 // This matches Node-RED's behavior of keeping currentlyPlayingMusic synchronized
-func (m *Manager) updateSpeakerVolumeInState(speakerEntityID string, volume int) {
+func (m *Manager) updateSpeakerVolumeInState(entityID string, volume int) {
 	var currentMusic map[string]interface{}
 	if err := m.stateManager.GetJSON("currentlyPlayingMusic", &currentMusic); err != nil {
 		m.logger.Debug("Failed to get currentlyPlayingMusic for update",
-			zap.String("speaker", speakerEntityID),
+			zap.String("speaker", entityID),
 			zap.Error(err))
 		return
 	}
@@ -835,11 +847,11 @@ func (m *Manager) updateSpeakerVolumeInState(speakerEntityID string, volume int)
 			continue
 		}
 
-		if playerName == speakerEntityID {
+		if speakerEntityID(playerName) == entityID {
 			participant["volume"] = volume
 			updated = true
 			m.logger.Debug("Updated volume in currentlyPlayingMusic",
-				zap.String("speaker", speakerEntityID),
+				zap.String("speaker", entityID),
 				zap.Int("volume", volume))
 			break
 		}
@@ -847,14 +859,14 @@ func (m *Manager) updateSpeakerVolumeInState(speakerEntityID string, volume int)
 
 	if !updated {
 		m.logger.Debug("Speaker not found in currentlyPlayingMusic participants",
-			zap.String("speaker", speakerEntityID))
+			zap.String("speaker", entityID))
 		return
 	}
 
 	// Save updated state
 	if err := m.stateManager.SetJSON("currentlyPlayingMusic", currentMusic); err != nil {
 		m.logger.Warn("Failed to update currentlyPlayingMusic",
-			zap.String("speaker", speakerEntityID),
+			zap.String("speaker", entityID),
 			zap.Error(err))
 	}
 }
@@ -1102,7 +1114,7 @@ func (m *Manager) flashCommonAreaLights() {
 	m.logger.Info("Flashing common area lights")
 
 	commonAreaLights := []string{
-		"light.living_room",
+		"light.living",
 		"light.kitchen",
 	}
 
@@ -1123,7 +1135,7 @@ func (m *Manager) turnOffBathroomLights() {
 	m.logger.Info("Turning off primary bathroom lights")
 
 	if err := m.haClient.CallService(m.ctx, "light", "turn_off", map[string]interface{}{
-		"entity_id": "light.primary_bathroom_main_lights",
+		"entity_id": "light.primary_bath_main_lights",
 	}); err != nil {
 		m.logger.Error("Failed to turn off bathroom lights", zap.Error(err))
 	}
@@ -1382,7 +1394,7 @@ func (m *Manager) TriggerBeginWakeForTest() {
 	// Get bedroom speakers from currentlyPlayingMusic
 	bedroomSpeakers := m.getBedroomSpeakers()
 	if len(bedroomSpeakers) == 0 {
-		bedroomSpeakers = []string{"media_player.bedroom"}
+		bedroomSpeakers = []string{defaultBedroomSpeaker}
 	}
 
 	m.fadeMu.Lock()

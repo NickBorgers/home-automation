@@ -727,14 +727,14 @@ func TestProductionConfig_WinddownZoneAssignment(t *testing.T) {
 	winddownSpeakers, winddownActive := zoneToSpeakers["winddown"]
 	require.True(t, winddownActive, "Winddown zone should be active when dayPhase=winddown")
 
-	// Bedroom must be in the winddown zone
+	// Primary Bed must be in the winddown zone
 	speakerSet := make(map[string]bool)
 	for _, s := range winddownSpeakers {
 		speakerSet[s] = true
 	}
 
-	assert.True(t, speakerSet["Bedroom"],
-		"Bedroom should be assigned to winddown zone, got speakers: %v", winddownSpeakers)
+	assert.True(t, speakerSet["Primary Bed"],
+		"Primary Bed should be assigned to winddown zone, got speakers: %v", winddownSpeakers)
 }
 
 func TestMusicManager_ReadOnlyMode(t *testing.T) {

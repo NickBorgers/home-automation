@@ -2,6 +2,7 @@ package integration
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -351,7 +352,14 @@ func TestScenario_SexModeDeactivation_TurnsOffLightsWhenAsleep(t *testing.T) {
 	assert.Nil(t, sceneCall, "Should not activate night scene when master is asleep")
 
 	// Should turn off lights
-	lightOffCall := FindServiceCallWithData(server.GetServiceCallsSince(snapshot), "light", "turn_off", "area_id", "master_bedroom")
+	// The Primary Suite is two Home Assistant areas: Primary Bed and Primary Bath.
+	var lightOffCall *ServiceCall
+	for _, call := range server.GetServiceCallsSince(snapshot) {
+		if call.Domain == "light" && call.Service == "turn_off" &&
+			fmt.Sprint(call.ServiceData["area_id"]) == "[primary_bed primary_bath]" {
+			lightOffCall = &call
+		}
+	}
 	assert.NotNil(t, lightOffCall, "Primary Suite lights should be turned off")
 
 	if lightOffCall != nil {
@@ -760,7 +768,7 @@ func TestScenario_SexModeDuringWakeSequence_CancelsWakeSequence(t *testing.T) {
 	require.NoError(t, stateManager.SetString("dayPhase", "morning"))
 
 	// Set up bedroom speaker for the wake sequence
-	server.SetState("media_player.bedroom", "playing", map[string]interface{}{
+	server.SetState("media_player.primary_bed", "playing", map[string]interface{}{
 		"volume_level": 0.30,
 	})
 	waitForProcessing(t, stateManager)
@@ -811,7 +819,7 @@ func TestScenario_SexModeDuringWakeSequence_PreventsWakeMusicOverride(t *testing
 	require.NoError(t, stateManager.SetString("musicPlaybackType", "sleep"))
 	require.NoError(t, stateManager.SetString("dayPhase", "morning"))
 
-	server.SetState("media_player.bedroom", "playing", map[string]interface{}{
+	server.SetState("media_player.primary_bed", "playing", map[string]interface{}{
 		"volume_level": 0.30,
 	})
 	waitForProcessing(t, stateManager)

@@ -411,8 +411,8 @@ func (m *Manager) handleNickHomeChange(entityID string, oldState, newState *ha.S
 			// Run announcement asynchronously to avoid deadlocks
 			go m.announceArrivalDirect("Nick", "Nick is home", []string{
 				"media_player.kitchen",
-				"media_player.sitting_room",
-				"media_player.front_room",
+				"media_player.sitting",
+				"media_player.primary_bed",
 				"media_player.kids_bathroom",
 			})
 		} else {
@@ -484,8 +484,8 @@ func (m *Manager) handleCarolineHomeChange(entityID string, oldState, newState *
 			// Run announcement asynchronously to avoid deadlocks
 			go m.announceArrivalDirect("Caroline", "Caroline is home", []string{
 				"media_player.kitchen",
-				"media_player.sitting_room",
-				"media_player.front_room",
+				"media_player.sitting",
+				"media_player.primary_bed",
 				"media_player.kids_bathroom",
 				"media_player.office",
 			})
@@ -543,8 +543,8 @@ func (m *Manager) handleAssistantHereChange(entityID string, oldState, newState 
 			// Run announcement asynchronously to avoid deadlocks
 			go m.announceArrivalDirect("Assistant", "Assistant is here", []string{
 				"media_player.kitchen",
-				"media_player.sitting_room",
-				"media_player.front_room",
+				"media_player.sitting",
+				"media_player.primary_bed",
 				"media_player.kids_bathroom",
 				"media_player.office",
 			})

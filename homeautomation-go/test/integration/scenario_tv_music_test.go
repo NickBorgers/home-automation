@@ -64,8 +64,8 @@ func setupTVMusicTest(t *testing.T) (*tvMusicEnv, func()) {
 		"friendly_name": "Kitchen",
 		"volume_level":  0.09,
 	})
-	server.SetState("media_player.bedroom", "idle", map[string]interface{}{
-		"friendly_name": "Bedroom",
+	server.SetState("media_player.primary_bed", "idle", map[string]interface{}{
+		"friendly_name": "Primary Bed",
 		"volume_level":  0.09,
 	})
 	server.SetState("media_player.sitting_room", "idle", map[string]interface{}{

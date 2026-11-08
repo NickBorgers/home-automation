@@ -26,8 +26,8 @@ lux_curve:
   light_above_lux: 80
 
 rooms:
-  - hue_group: Living Room
-    hass_area_id: living_room_2
+  - hue_group: Living
+    hass_area_id: living
     conditions:
       # Priority 0: TV playing -> skip (Hue Sync controls the lights)
       # When Hue Sync is active, don't override with scene activation
@@ -82,7 +82,7 @@ rooms:
           lux: 119.0
 
   - hue_group: Primary Suite
-    hass_area_id: master_bedroom
+    hass_area_id: primary_bed
     turn_off_entity_id: light.primary_suite
     # The "day"/"evening"/etc Hue scenes for this room have `auto_dynamic: true`
     # (animated palette). The bridge's autonomous palette has been observed to
@@ -129,8 +129,8 @@ rooms:
     increase_brightness_if_true: ~
     transition_seconds: 180
 
-  - hue_group: Sitting Room
-    hass_area_id: dining_room
+  - hue_group: Sitting
+    hass_area_id: sitting
     conditions:
       # Priority 1: No one home -> OFF
       - action: off
@@ -207,20 +207,6 @@ rooms:
     increase_brightness_if_true: ~
     transition_seconds: ~
 
-  - hue_group: N Office
-    hass_area_id: n_office
-    conditions:
-      # Priority 1: Office not occupied -> OFF
-      - action: off
-        variable: isNickOfficeOccupied
-        value: false
-      # Priority 2: Office occupied -> ON
-      - action: on
-        variable: isNickOfficeOccupied
-        value: true
-    increase_brightness_if_true: ~
-    transition_seconds: 2
-
   - hue_group: Kitchen
     hass_area_id: kitchen
     conditions:
@@ -256,7 +242,7 @@ rooms:
       # MEASURED 2026-10-31 13:10-13:30 at the island: 39.35 lux (cans off) / station 24,000-39,000 lux.
       # The workspace by the strip gave 0.0010. One sky condition only (sun and thin cloud).
       daylight_factor: 0.0012
-      lux_scale: 0.5          # GUESS, same as the Living Room. The cans reach about 237 lux
+      lux_scale: 0.5          # GUESS, same as Living. The cans reach about 237 lux
       # Task lighting: the strip is brighter than the cans, fairly flat.
       # strip % = clamp(floor_pct + gain * cans %, 1, 100), brightness only, off when the cans are off.
       # floor_pct 20 and gain 0.8 are USER-CHOSEN STARTING GUESSES (cans 100% -> 100%, 50% -> 60%,
@@ -298,16 +284,16 @@ rooms:
     increase_brightness_if_true: ~
     transition_seconds: 5
     # Cans calibration MEASURED 2026-11-02 evening with a handheld lux meter: dark, ambient 0 lux,
-    # only the cans on, 4000 K. The Mudroom cans were in the same group (light.pantry_cans) at
-    # the time, but a wall separates the rooms, so the table is unaffected. The Mudroom cans are
+    # only the cans on, 4000 K. The Mud cans were in the same group (light.pantry_cans) at
+    # the time, but a wall separates the rooms, so the table is unaffected. The Mud cans are
     # their own room below.
     lux_control:
       mode: active
-      cans: light.pantry # 6 cans (the 2 Mudroom cans are the Mudroom room)
+      cans: light.pantry # 6 cans (the 2 Mud cans are the Mud room)
       # MEASURED 2026-11-05 in daylight with the handheld lux meter: 50.0 lux indoors (average of
       # 50.4 and 49.6), cans off / station 61,311 lux.
       daylight_factor: 0.00082
-      lux_scale: 0.5          # GUESS, same as the Living Room
+      lux_scale: 0.5          # GUESS, same as Living
       # Under-cabinet task strip, same shape as the Kitchen's. No scenes exist for it.
       # The strip was not measured. The user said it is roughly as bright as the Kitchen strip, so it
       # copies the Kitchen mapping: floor_pct 20 and gain 0.8 (cans 100% -> 100%, 50% -> 60%,
@@ -333,11 +319,11 @@ rooms:
         - brightness_pct: 100
           lux: 263
 
-  # The Mudroom was split out of the Pantry on 2026-11-05: light.mudroom is its 2 cans
-  # (light.mudroom_door_can + light.mudroom_cabinet_can). Like the Pantry it has no Hue scene group
+  # The Mud room was split out of the Pantry on 2026-11-05: light.mud is its 2 cans
+  # (light.mud_door_can + light.mud_cabinet_can). Like the Pantry it has no Hue scene group
   # and no hass_area_id, so turn-off targets the cans entity directly. Same conditions as the Pantry
   # (which follow the Kitchen), no strip or followers.
-  - hue_group: Mudroom
+  - hue_group: Mud
     conditions:
       - action: off
         variable: isAnyoneHomeAndAwake
@@ -349,7 +335,7 @@ rooms:
     transition_seconds: 5
     lux_control:
       mode: active
-      cans: light.mudroom # 2 cans
+      cans: light.mud # 2 cans
       # MEASURED 2026-11-05 in daylight: ambient 8.3 lux, cans off / station 61,615 lux.
       # A SINGLE reading, so treat it as rough.
       daylight_factor: 0.00013
@@ -372,10 +358,12 @@ rooms:
         - brightness_pct: 100
           lux: 131.4
 
-  # The two entryway chandeliers are Lutron Diva dimmers: brightness only, no color temperature
-  # (color_temp: false), so the plugin sends brightness_pct and transition and never kelvin.
-  # Like the Pantry they have no Hue scene group and no hass_area_id: turn-off targets the light
-  # entity directly. They are on whenever someone is home and awake, with no occupancy sensor.
+  # The Entryway and Sitting chandeliers are Lutron Diva dimmers: brightness only, no color
+  # temperature (color_temp: false), so the plugin sends brightness_pct and transition and never
+  # kelvin. Like the Pantry they have no Hue scene group. The Sitting Chandelier has no
+  # hass_area_id, so turn-off targets the light entity directly. The Entryway uses its Home
+  # Assistant area, so turn-off also covers the Entryway wall light. They are on whenever someone
+  # is home and awake, with no occupancy sensor.
   #
   # MEASURED with a handheld lux meter, 2026-10-31/11-01; the meter reads about 81% of
   # sensor.weather_station_illuminance outdoors, which cancels out in daylight_factor.
@@ -383,8 +371,9 @@ rooms:
   # Below the first point (5%) brightness is interpolated from 0% = 0 lux, so a small target
   # still gives a small brightness (sent as at least 1%). No 1% point is added: the lowest need
   # is 1 lux (night target 5 x 0.2), inside the table, and a linear extrapolation to 1% would be
-  # negative for the Front Room.
-  - hue_group: Front Foyer
+  # negative for the Sitting Chandelier.
+  - hue_group: Entryway
+    hass_area_id: entryway
     conditions:
       - action: off
         variable: isAnyoneHomeAndAwake
@@ -396,7 +385,7 @@ rooms:
     transition_seconds: 5
     lux_control:
       mode: active
-      cans: light.front_foyer_chandelier
+      cans: light.entryway_chandelier
       color_temp: false
       # MEASURED 2026-10-31 13:10-13:30: 212 lux indoors (chandelier off) / station 24,000-39,000 lux.
       # One sky condition only (sun and thin cloud).
@@ -415,7 +404,7 @@ rooms:
         - brightness_pct: 100
           lux: 111
 
-  - hue_group: Front Room
+  - hue_group: Sitting Chandelier
     conditions:
       - action: off
         variable: isAnyoneHomeAndAwake
@@ -427,7 +416,7 @@ rooms:
     transition_seconds: 5
     lux_control:
       mode: active
-      cans: light.front_room_chandelier
+      cans: light.sitting_chandelier
       color_temp: false
       # MEASURED 2026-10-31 13:10-13:30: 874.5 lux at the DAYTIME spot (chandelier off) / station
       # 24,000-39,000 lux. The calibration below was taken at the NIGHT-USE spot, which was not
@@ -448,8 +437,8 @@ rooms:
         - brightness_pct: 100
           lux: 155
 
-  - hue_group: C Office
-    hass_area_id: c_office
+  - hue_group: Office
+    hass_area_id: office
     conditions:
       # Priority 1: No one home and awake -> OFF
       - action: off
@@ -457,3 +446,34 @@ rooms:
         value: false
     increase_brightness_if_true: ~
     transition_seconds: 2
+
+  # Off-only rooms. These lights have no lighting room of their own, so the plugin only turns
+  # them off when no one is home and awake. They used to be turned off with Living
+  # (Back Hall, Kids Bathroom) or the Kitchen (Breakfast Nook), when Home Assistant had them in
+  # those areas.
+  - hue_group: Back Hall
+    hass_area_id: back_hall
+    conditions:
+      - action: off
+        variable: isAnyoneHomeAndAwake
+        value: false
+    increase_brightness_if_true: ~
+    transition_seconds: ~
+
+  - hue_group: Kids Bathroom
+    hass_area_id: kids_bathroom
+    conditions:
+      - action: off
+        variable: isAnyoneHomeAndAwake
+        value: false
+    increase_brightness_if_true: ~
+    transition_seconds: ~
+
+  - hue_group: Breakfast Nook
+    hass_area_id: breakfast_nook
+    conditions:
+      - action: off
+        variable: isAnyoneHomeAndAwake
+        value: false
+    increase_brightness_if_true: ~
+    transition_seconds: ~

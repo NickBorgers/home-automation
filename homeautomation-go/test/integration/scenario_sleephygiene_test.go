@@ -104,7 +104,7 @@ func TestScenario_AlarmTimeReached_TriggersBeginWakeSequence(t *testing.T) {
 	})
 
 	// Set up currentlyPlayingMusic state with bedroom speakers via Home Assistant
-	currentMusicJSON := `{"participants":[{"player_name":"media_player.bedroom","volume":60}]}`
+	currentMusicJSON := `{"participants":[{"player_name":"media_player.primary_bed","volume":60}]}`
 	server.SetState("input_text.currently_playing_music", currentMusicJSON, map[string]interface{}{})
 
 	// Set initial fade out flag to false
@@ -163,7 +163,7 @@ func TestScenario_BeginWakeSequence_FadesOutMusic(t *testing.T) {
 	server.SetState("input_boolean.fade_out_in_progress", "on", map[string]interface{}{})
 
 	// Set up bedroom speaker with current volume
-	server.SetState("media_player.bedroom", "playing", map[string]interface{}{
+	server.SetState("media_player.primary_bed", "playing", map[string]interface{}{
 		"volume_level": 0.60, // 60% volume
 	})
 
@@ -392,7 +392,7 @@ func TestScenario_WakeCancellation_ClearsMusicPlaybackType(t *testing.T) {
 	waitForServerState(t, server, "input_text.music_playback_type", "", "musicPlaybackType should be cleared")
 
 	// Poll until bathroom light turn_off call is recorded
-	waitForServiceCallWithEntitySince(t, server, snapshot, "light", "turn_off", "light.primary_bathroom_main_lights", "bathroom lights should be turned off")
+	waitForServiceCallWithEntitySince(t, server, snapshot, "light", "turn_off", "light.primary_bath_main_lights", "bathroom lights should be turned off")
 
 	// THEN: musicPlaybackType should be cleared, bathroom lights turn off
 	t.Log("THEN: Verify musicPlaybackType is cleared and bathroom lights turn off")
@@ -411,7 +411,7 @@ func TestScenario_WakeCancellation_ClearsMusicPlaybackType(t *testing.T) {
 	for _, call := range lightOffCalls {
 		if entityID, ok := call.ServiceData["entity_id"].(string); ok {
 			t.Logf("Light turned off: %s", entityID)
-			if entityID == "light.primary_bathroom_main_lights" {
+			if entityID == "light.primary_bath_main_lights" {
 				foundBathroomOff = true
 			}
 		}
@@ -579,12 +579,12 @@ func TestScenario_WakeSequence_VolumeFadesOutMonotonically(t *testing.T) {
 	server.SetState("input_boolean.fade_out_in_progress", "off", map[string]interface{}{})
 
 	// Set up bedroom speaker with initial volume at 10%
-	server.SetState("media_player.bedroom", "playing", map[string]interface{}{
+	server.SetState("media_player.primary_bed", "playing", map[string]interface{}{
 		"volume_level": 0.10, // 10% volume = volume value of 10
 	})
 
 	// Set up currentlyPlayingMusic state with bedroom speaker
-	currentMusicJSON := `{"participants":[{"player_name":"media_player.bedroom","volume":10}]}`
+	currentMusicJSON := `{"participants":[{"player_name":"media_player.primary_bed","volume":10}]}`
 	server.SetState("input_text.currently_playing_music", currentMusicJSON, map[string]interface{}{})
 
 	// Allow async handlers to process before snapshotting
@@ -711,7 +711,7 @@ func TestScenario_SleepStateIntegration_ChecksConditions(t *testing.T) {
 	server.SetState("input_boolean.master_asleep", "on", map[string]interface{}{})
 
 	// Set currentlyPlayingMusic with bedroom speaker
-	currentMusicJSON := `{"participants":[{"player_name":"media_player.bedroom","volume":60}]}`
+	currentMusicJSON := `{"participants":[{"player_name":"media_player.primary_bed","volume":60}]}`
 	server.SetState("input_text.currently_playing_music", currentMusicJSON, map[string]interface{}{})
 
 	// Allow async handlers to process

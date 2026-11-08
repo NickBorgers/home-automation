@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Tests for the brightness-only Lutron Diva chandeliers (Front Foyer, Front Room).
+// Tests for the brightness-only Lutron Diva chandeliers (Entryway, Sitting Chandelier).
 // The lux numbers come from a handheld lux meter (2026-10-31/11-01); see docs/flows/LUX_LIGHTING.md.
 
 var chandeliers = []struct {
@@ -18,9 +18,12 @@ var chandeliers = []struct {
 	light  string
 	factor float64
 	points map[int]float64 // measured lux in the dark, by brightness
+	// area is the Home Assistant area turn-off targets. Empty means turn-off targets the light.
+	// The Entryway uses its area so turn-off also covers the Entryway wall light.
+	area string
 }{
-	{"Front Foyer", "light.front_foyer_chandelier", 0.0061, map[int]float64{5: 2, 10: 4.4, 25: 12.9, 50: 48, 100: 111}},
-	{"Front Room", "light.front_room_chandelier", 0.027, map[int]float64{5: 0.8, 10: 3.9, 25: 23, 50: 99, 100: 155}},
+	{"Entryway", "light.entryway_chandelier", 0.0061, map[int]float64{5: 2, 10: 4.4, 25: 12.9, 50: 48, 100: 111}, "entryway"},
+	{"Sitting Chandelier", "light.sitting_chandelier", 0.027, map[int]float64{5: 0.8, 10: 3.9, 25: 23, 50: 99, 100: 155}, ""},
 }
 
 func TestProductionConfig_ChandeliersAreBrightnessOnlyAndMeasured(t *testing.T) {
@@ -38,7 +41,7 @@ func TestProductionConfig_ChandeliersAreBrightnessOnlyAndMeasured(t *testing.T) 
 			assert.False(t, lc.HasColorTemp(), "Diva dimmers have no color temperature")
 			assert.InDelta(t, 0.2, lc.LuxScale, 1e-9)
 			assert.InDelta(t, want.factor, lc.DaylightFactor, 1e-9)
-			assert.Empty(t, room.HASSAreaID)
+			assert.Equal(t, want.area, room.HASSAreaID)
 			assert.Empty(t, lc.AccentSceneGroup)
 			require.Len(t, lc.Calibration, len(want.points))
 			for _, cp := range lc.Calibration {
@@ -55,7 +58,7 @@ func TestProductionConfig_ChandeliersAreBrightnessOnlyAndMeasured(t *testing.T) 
 func TestProductionConfig_OtherRoomsKeepColorTemp(t *testing.T) {
 	t.Parallel()
 	cfg := loadProductionConfig(t)
-	for _, name := range []string{"Living Room", "Kitchen", "Pantry"} {
+	for _, name := range []string{"Living", "Kitchen", "Pantry"} {
 		assert.True(t, findRoom(cfg, name).LuxControl.HasColorTemp(), name)
 	}
 }
@@ -77,8 +80,8 @@ func TestProductionConfig_ChandelierCalibrationMapsSanely(t *testing.T) {
 			assert.Less(t, winddown, dusk)
 			assert.Less(t, dusk, 50.0, "evening chandelier stays under half")
 			assert.True(t, shouldBeOn(cal, 6, false), "winddown target keeps the chandelier on")
-			// Brightest daytime target (300 x 0.2 x guests 1.5 = 90) is above the Foyer's 100% (111 lux is
-			// the top) only in the Front Room's favor: the Foyer reaches about 80%, the Front Room about 70%.
+			// Brightest daytime target (300 x 0.2 x guests 1.5 = 90) is above the Entryway's 100% (111 lux is
+			// the top) only in the Sitting Chandelier's favor: the Entryway reaches about 80%, the Sitting Chandelier about 70%.
 			assert.Less(t, luxToBrightness(cal, 90), 100.0)
 			// Above the last measured point the table clamps to 100%.
 			assert.Equal(t, 100.0, luxToBrightness(cal, want.points[100]*2))
@@ -93,15 +96,15 @@ func TestProductionConfig_ChandelierCalibrationMapsSanely(t *testing.T) {
 func TestChandelierBelowFirstPointInterpolatesFromZero(t *testing.T) {
 	t.Parallel()
 	cfg := loadProductionConfig(t)
-	foyer := findRoom(cfg, "Front Foyer").LuxControl.Calibration
-	assert.InDelta(t, 2.5, luxToBrightness(foyer, 1), 0.001, "half of 2 lux at 5%")
-	room := findRoom(cfg, "Front Room").LuxControl.Calibration
+	entryway := findRoom(cfg, "Entryway").LuxControl.Calibration
+	assert.InDelta(t, 2.5, luxToBrightness(entryway, 1), 0.001, "half of 2 lux at 5%")
+	room := findRoom(cfg, "Sitting Chandelier").LuxControl.Calibration
 	assert.InDelta(t, 2.5, luxToBrightness(room, 0.4), 0.001, "half of 0.8 lux at 5%")
 	// The 22:00 night target (5 x 0.2 = 1 lux) is above both 1% thresholds (0.4 and 0.16 lux): on, dim.
-	// With the phone-app tables the Foyer was off at night (its 1% threshold was 3 lux).
-	assert.True(t, shouldBeOn(foyer, 1, false))
+	// With the phone-app tables the Entryway was off at night (its 1% threshold was 3 lux).
+	assert.True(t, shouldBeOn(entryway, 1, false))
 	assert.True(t, shouldBeOn(room, 1, false))
-	assert.False(t, shouldBeOn(foyer, 0.3, false), "under the 1% threshold the chandelier is off")
+	assert.False(t, shouldBeOn(entryway, 0.3, false), "under the 1% threshold the chandelier is off")
 }
 
 func TestLuxRooms_ChandeliersSendBrightnessOnlyInTheEvening(t *testing.T) {
@@ -138,8 +141,8 @@ func TestLuxRooms_ChandeliersGoOffWhenDaylightCoversTheTarget(t *testing.T) {
 	for _, want := range chandeliers {
 		t.Run(want.room, func(t *testing.T) {
 			m, env, _ := newProductionRoomFixture(t) // noon, 7,500 outdoor lux
-			// Daylight estimate = 7,500 x factor: Foyer 46 lux (below the 60 lux target), Front Room 202 lux
-			// (above). Raise to 20,000 so the Foyer's factor covers it too (20,000 x 0.0061 = 122 lux > 60).
+			// Daylight estimate = 7,500 x factor: Entryway 46 lux (below the 60 lux target), Sitting Chandelier 202 lux
+			// (above). Raise to 20,000 so the Entryway's factor covers it too (20,000 x 0.0061 = 122 lux > 60).
 			env.MockHA.SetState(m.config.LuxCurve.OutdoorSensor, "20000", nil)
 			room := findRoom(m.config, want.room)
 			m.evaluateAndActivateRoom(room, "day", "isAnyoneHomeAndAwake")
@@ -150,7 +153,7 @@ func TestLuxRooms_ChandeliersGoOffWhenDaylightCoversTheTarget(t *testing.T) {
 	}
 }
 
-func TestLuxRooms_ChandeliersFollowAwakeAndHomeWithoutAnArea(t *testing.T) {
+func TestLuxRooms_ChandeliersFollowAwakeAndHome(t *testing.T) {
 	t.Parallel()
 	for _, want := range chandeliers {
 		t.Run(want.room, func(t *testing.T) {
@@ -167,8 +170,13 @@ func TestLuxRooms_ChandeliersFollowAwakeAndHomeWithoutAnArea(t *testing.T) {
 			calls := env.MockHA.GetServiceCalls()
 			require.Len(t, calls, 1)
 			assert.Equal(t, "turn_off", calls[0].Service)
-			assert.Equal(t, want.light, calls[0].Data["entity_id"])
-			assert.NotContains(t, calls[0].Data, "area_id")
+			if want.area != "" {
+				assert.Equal(t, want.area, calls[0].Data["area_id"])
+				assert.NotContains(t, calls[0].Data, "entity_id")
+			} else {
+				assert.Equal(t, want.light, calls[0].Data["entity_id"])
+				assert.NotContains(t, calls[0].Data, "area_id")
+			}
 		})
 	}
 }
@@ -178,10 +186,10 @@ func TestLuxRooms_ChandelierManualChangeHoldsOnBrightnessOnly(t *testing.T) {
 	m, env, clk := newProductionRoomFixture(t)
 	clk.Set(at(20, 0))
 	env.MockHA.SetState(m.config.LuxCurve.OutdoorSensor, "0", nil)
-	room := findRoom(m.config, "Front Room")
+	room := findRoom(m.config, "Sitting Chandelier")
 	m.evaluateAndActivateRoom(room, "evening", "isAnyoneHomeAndAwake")
 	m.luxMu.Lock()
-	cmd := m.luxRoom("Front Room").cmd
+	cmd := m.luxRoom("Sitting Chandelier").cmd
 	m.luxMu.Unlock()
 	require.NotNil(t, cmd)
 	require.True(t, cmd.on)

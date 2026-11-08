@@ -76,8 +76,8 @@ func setupWakeMusicFadeTest(t *testing.T) (*wakeMusicFadeEnv, func()) {
 	env.sleepHygiene.SetSleepFunc(func(d time.Duration) {})
 
 	// Set up media player entities that both plugins expect
-	server.SetState("media_player.bedroom", "playing", map[string]interface{}{
-		"friendly_name": "Bedroom",
+	server.SetState("media_player.primary_bed", "playing", map[string]interface{}{
+		"friendly_name": "Primary Bed",
 		"volume_level":  0.14, // 14% volume - typical sleep music level
 	})
 	server.SetState("media_player.kitchen", "idle", map[string]interface{}{
@@ -167,7 +167,7 @@ func TestScenario_WakeSequence_BedroomFadeIsGradualNotAbrupt(t *testing.T) {
 	env.server.SetState("input_boolean.fade_out_in_progress", "off", map[string]interface{}{})
 
 	// Set up currentlyPlayingMusic state with bedroom speaker at 14% volume
-	currentMusicJSON := `{"participants":[{"player_name":"media_player.bedroom","volume":14}]}`
+	currentMusicJSON := `{"participants":[{"player_name":"media_player.primary_bed","volume":14}]}`
 	env.server.SetState("input_text.currently_playing_music", currentMusicJSON, map[string]interface{}{})
 
 	// Allow all plugins to process the initial state. Use a stabilization window
@@ -223,7 +223,7 @@ func TestScenario_WakeSequence_BedroomFadeIsGradualNotAbrupt(t *testing.T) {
 	var bedroomVolumeCalls []ServiceCall
 	for _, call := range volumeCalls {
 		entityID, _ := call.ServiceData["entity_id"].(string)
-		if entityID == "media_player.bedroom" {
+		if entityID == "media_player.primary_bed" {
 			bedroomVolumeCalls = append(bedroomVolumeCalls, call)
 		}
 	}

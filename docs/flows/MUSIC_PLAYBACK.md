@@ -264,7 +264,7 @@ Monitor status is visible in the shadow state API (`/api/shadow/music`):
       "isMonitoring": true,
       "monitorStartTime": "2024-01-15T10:30:00Z",
       "monitorEndTime": "2024-01-15T10:33:00Z",
-      "leadSpeaker": "media_player.living_room",
+      "leadSpeaker": "media_player.living",
       "musicType": "day",
       "recoveryAttempted": false
     }
@@ -316,7 +316,7 @@ flowchart TD
 ```yaml
 # From music_config.yaml - example using TV-based muting
 participants:
-  - player_name: "Sitting Room"
+  - player_name: "Sitting"
     base_volume: 9
     leave_muted_if:
       - variable: "isTVPlaying"
@@ -326,7 +326,7 @@ participants:
 When `isTVPlaying` changes from `true` to `false`:
 1. Music plugin detects the mute condition variable change
 2. Re-evaluates the speaker's mute conditions
-3. Unmutes the Sitting Room speaker (already at target volume)
+3. Unmutes the Sitting speaker (already at target volume)
 
 ## Volume Fade-In
 

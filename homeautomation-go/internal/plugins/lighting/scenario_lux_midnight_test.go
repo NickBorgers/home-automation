@@ -31,7 +31,7 @@ func TestScenario_UserStory_MidnightDoesNotBrightenTheLights(t *testing.T) {
 	t.Parallel()
 	tz := mustChicago(t)
 
-	// GIVEN: it is 23:59 on Oct 30, Living Room and Kitchen lux control is active (production
+	// GIVEN: it is 23:59 on Oct 30, Living and Kitchen lux control is active (production
 	// config), someone is home and awake, and it is dark outside.
 	t.Log("GIVEN: 23:59 CDT, production lux rooms active, dark outside")
 	site := newMidnightSite(t, time.Date(2026, 10, 30, 23, 59, 0, 0, tz))
@@ -52,7 +52,7 @@ func TestScenario_UserStory_MidnightDoesNotBrightenTheLights(t *testing.T) {
 	require.NoError(t, phaseCalc.UpdateSunTimes())
 
 	cans := map[string]bool{}
-	for _, name := range []string{"Living Room", "Kitchen", "Front Foyer", "Front Room"} {
+	for _, name := range []string{"Living", "Kitchen", "Entryway", "Sitting Chandelier"} {
 		cans[findRoom(site.cfg, name).LuxControl.Cans] = true
 	}
 	maxPct := map[string]float64{} // highest brightness sent per entity

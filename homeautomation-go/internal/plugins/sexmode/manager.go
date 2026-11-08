@@ -381,7 +381,7 @@ func (m *Manager) reevaluatePrimarySuiteLighting() {
 	if isMasterAsleep {
 		// Turn off Primary Suite lights
 		err := m.haClient.CallService(m.ctx, "light", "turn_off", map[string]interface{}{
-			"area_id": "master_bedroom",
+			"area_id": []string{"primary_bed", "primary_bath"},
 		})
 		if err != nil {
 			m.logger.Error("Failed to turn off Primary Suite lights", zap.Error(err))

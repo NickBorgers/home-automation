@@ -23,7 +23,7 @@ import (
 // State reads (current volume, playback status) follow the same routing. See
 // getSpeakerVolume and isPlaybackActive. Startup reconciliation still reads HA.
 //
-// All methods take speaker names ("Kitchen", "Front Room") not entity IDs.
+// All methods take speaker names ("Kitchen", "Sitting") not entity IDs.
 // =============================================================================
 
 // speakerSetVolume sets a speaker's volume (0-100 percentage).

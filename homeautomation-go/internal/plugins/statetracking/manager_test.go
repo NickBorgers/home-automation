@@ -651,8 +651,8 @@ func TestStateTrackingManager_ArrivalAnnouncements(t *testing.T) {
 			},
 			expectedPlayers: []string{
 				"media_player.kitchen",
-				"media_player.sitting_room",
-				"media_player.front_room",
+				"media_player.sitting",
+				"media_player.primary_bed",
 				"media_player.kids_bathroom",
 			},
 		},
@@ -667,8 +667,8 @@ func TestStateTrackingManager_ArrivalAnnouncements(t *testing.T) {
 			},
 			expectedPlayers: []string{
 				"media_player.kitchen",
-				"media_player.sitting_room",
-				"media_player.front_room",
+				"media_player.sitting",
+				"media_player.primary_bed",
 				"media_player.kids_bathroom",
 				"media_player.office",
 			},
@@ -684,8 +684,8 @@ func TestStateTrackingManager_ArrivalAnnouncements(t *testing.T) {
 			},
 			expectedPlayers: []string{
 				"media_player.kitchen",
-				"media_player.sitting_room",
-				"media_player.front_room",
+				"media_player.sitting",
+				"media_player.primary_bed",
 				"media_player.kids_bathroom",
 				"media_player.office",
 			},
@@ -1292,8 +1292,8 @@ func TestAnnounceArrivalDirect_PreservesSpeakersWhenGrouped(t *testing.T) {
 
 	manager.announceArrivalDirect("Nick", "Nick is home", []string{
 		"media_player.kitchen",
-		"media_player.sitting_room",
-		"media_player.front_room",
+		"media_player.sitting",
+		"media_player.primary_bed",
 		"media_player.kids_bathroom",
 		"media_player.office",
 	})
@@ -1304,8 +1304,8 @@ func TestAnnounceArrivalDirect_PreservesSpeakersWhenGrouped(t *testing.T) {
 	}
 	expectedSpeakers := []string{
 		"media_player.kitchen",
-		"media_player.sitting_room",
-		"media_player.front_room",
+		"media_player.sitting",
+		"media_player.primary_bed",
 		"media_player.kids_bathroom",
 		"media_player.office",
 	}

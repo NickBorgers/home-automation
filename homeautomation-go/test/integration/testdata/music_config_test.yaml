@@ -86,7 +86,7 @@ music:
         leave_muted_if:
           - variable: isTVPlaying
             value: true
-      - player_name: "Bedroom"
+      - player_name: "Primary Bed"
         base_volume: 9
         exclude_if:
           - variable: isMasterAsleep
@@ -108,7 +108,7 @@ music:
         leave_muted_if:
           - variable: isTVPlaying
             value: true
-      - player_name: "Bedroom"
+      - player_name: "Primary Bed"
         base_volume: 9
         leave_muted_if:
           - variable: isMasterAsleep
@@ -130,7 +130,7 @@ music:
         leave_muted_if:
           - variable: isTVPlaying
             value: true
-      - player_name: "Bedroom"
+      - player_name: "Primary Bed"
         base_volume: 10
         exclude_if:
           - variable: isMasterAsleep
@@ -152,7 +152,7 @@ music:
         leave_muted_if:
           - variable: isTVPlaying
             value: true
-      - player_name: "Bedroom"
+      - player_name: "Primary Bed"
         base_volume: 10
         exclude_if:
           - variable: isMasterAsleep
@@ -172,7 +172,7 @@ music:
       - player_name: "Front Room"
         base_volume: 9
         leave_muted_if: []
-      - player_name: "Bedroom"
+      - player_name: "Primary Bed"
         base_volume: 16
         leave_muted_if: []
       - player_name: "Sitting Room"
@@ -196,7 +196,7 @@ music:
       - player_name: "Primary Bathroom"
         base_volume: 16
         leave_muted_if: []
-      - player_name: "Bedroom"
+      - player_name: "Primary Bed"
         base_volume: 16
         leave_muted_if: []
       - player_name: "Kitchen"
@@ -209,7 +209,7 @@ music:
 
   sex:
     participants:
-      - player_name: "Bedroom"
+      - player_name: "Primary Bed"
         base_volume: 10
         leave_muted_if: []
     playback_options:
@@ -219,7 +219,7 @@ music:
 
   wakeup:
     participants:
-      - player_name: "Bedroom"
+      - player_name: "Primary Bed"
         base_volume: 6
         leave_muted_if: []
     playback_options:

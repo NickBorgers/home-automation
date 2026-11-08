@@ -142,8 +142,8 @@ func setupWakeupZoneResolutionTest(t *testing.T) (*wakeupZoneEnv, func()) {
 		"friendly_name": "Kitchen",
 		"volume_level":  0.09,
 	})
-	server.SetState("media_player.bedroom", "playing", map[string]interface{}{
-		"friendly_name": "Bedroom",
+	server.SetState("media_player.primary_bed", "playing", map[string]interface{}{
+		"friendly_name": "Primary Bed",
 		"volume_level":  0.16, // Sleep music volume
 	})
 	server.SetState("media_player.sitting_room", "idle", map[string]interface{}{
@@ -249,14 +249,14 @@ func TestScenario_WakeUp_DebouncesRapidTriggers(t *testing.T) {
 
 	// Wait for morning zone orchestration to complete — bedroom should join once as a follower.
 	// In morning zone, Front Room is the lead speaker. Bedroom joins as a follower, so the
-	// join call is: entity_id=media_player.front_room, group_members=[media_player.bedroom].
+	// join call is: entity_id=media_player.front_room, group_members=[media_player.primary_bed].
 	// We poll until that join call appears so the assertion below is not vacuously true.
 	waitForCondition(t, func() bool {
 		for _, call := range env.server.GetServiceCallsSince(snapshot) {
 			if call.Domain == "media_player" && call.Service == "join" {
 				if members, ok := call.ServiceData["group_members"].([]interface{}); ok {
 					for _, m := range members {
-						if s, ok := m.(string); ok && s == "media_player.bedroom" {
+						if s, ok := m.(string); ok && s == "media_player.primary_bed" {
 							return true
 						}
 					}
@@ -269,10 +269,10 @@ func TestScenario_WakeUp_DebouncesRapidTriggers(t *testing.T) {
 	calls := env.server.GetServiceCallsSince(snapshot)
 
 	// Count how many times bedroom was told to join a group as a FOLLOWER
-	// (i.e., "media_player.bedroom" appears in group_members, not entity_id).
+	// (i.e., "media_player.primary_bed" appears in group_members, not entity_id).
 	//
 	// In morning zone, Front Room is the lead. Bedroom joins as a follower:
-	//   join entity_id=media_player.front_room group_members=[media_player.bedroom]
+	//   join entity_id=media_player.front_room group_members=[media_player.primary_bed]
 	//
 	// We must NOT count entity_id=bedroom, which would instead count sleep zone
 	// orchestration calls where bedroom is the lead and Kitchen/Primary Bathroom
@@ -283,7 +283,7 @@ func TestScenario_WakeUp_DebouncesRapidTriggers(t *testing.T) {
 		if call.Domain == "media_player" && call.Service == "join" {
 			if members, ok := call.ServiceData["group_members"].([]interface{}); ok {
 				for _, m := range members {
-					if s, ok := m.(string); ok && s == "media_player.bedroom" {
+					if s, ok := m.(string); ok && s == "media_player.primary_bed" {
 						bedroomJoinCount++
 					}
 				}
@@ -305,7 +305,7 @@ func TestScenario_WakeUp_DebouncesRapidTriggers(t *testing.T) {
 	for _, call := range calls {
 		if call.Domain == "media_player" && call.Service == "volume_set" {
 			if entityID, ok := call.ServiceData["entity_id"].(string); ok {
-				if entityID == "media_player.bedroom" {
+				if entityID == "media_player.primary_bed" {
 					bedroomVolumeSetCount++
 				}
 			}

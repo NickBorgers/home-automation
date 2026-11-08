@@ -510,11 +510,11 @@ These speakers are discovered by SoCo and match the `player_name` values in `con
 | Pantry | Yes | Group leader in most zones |
 | Lounge | No (temporary) | Removed from all modes until the WiFi rollout is complete. Weak signal. Too far from the WAP to lead |
 | Kids Bathroom | Yes | |
-| Bedroom | Yes | 5 GHz capable. Excluded from some zones when master is asleep |
-| Sitting Room | Yes | |
+| Primary Bed | Yes | 5 GHz capable. Excluded from some zones when master is asleep |
+| Sitting | Yes | |
 | Barn | No | Not used in music automation |
 
-The old Front Room, Kitchen, Primary Bathroom and Soundbar speakers are offline and not in the config.
+The Kitchen Speaker, Primary Bath and Soundbar speakers are not in the config. The old "Bedroom" speaker (`media_player.bedroom`) is offline.
 Run `curl -s https://soco-cli.featherback-mermaid.ts.net/rediscover` before you trust the list. A stale cache can hide speakers.
 
 ### Key Implementation Details
