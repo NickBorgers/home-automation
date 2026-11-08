@@ -2,6 +2,18 @@
 
 This document describes the music playback automation flow, which manages whole-home audio based on day phase, sleep state, and room occupancy.
 
+## Control and Evidence Authority
+
+When `SOCO_CLI_URL` is configured, SoCo-CLI is the command path for Sonos and the read path for current volume and
+playback status. It talks to speakers directly through UPnP. Home Assistant is still used for automation inputs,
+persistent helpers, and startup reconciliation, but its media-player state is corroborating evidence for this path,
+not the result of a SoCo-CLI command. Without `SOCO_CLI_URL`, speaker commands and reads fall back to Home Assistant.
+
+Use `/api/shadow/music` to see the mode, selected playlist, participants, and the automation's latest orchestration
+state. Use application and SoCo-CLI logs to establish command results and playback verification. In particular, a
+Home Assistant media-player entity that is `unavailable` does not override a contemporaneous successful SoCo-CLI
+verification. See [Current Behavior and Authority](../CURRENT_BEHAVIOR.md) for the system-wide diagnostic model.
+
 ## Overview
 
 The music plugin coordinates Sonos speaker playback by:
