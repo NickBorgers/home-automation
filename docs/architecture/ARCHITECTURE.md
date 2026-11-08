@@ -551,7 +551,9 @@ room sequencing, and per-room vacuum/mop parameters)
   `currentEnergyLevel` — below 50% the car always charges at full speed; at 50% and above,
   hold at red and yellow, 8 A at green, full speed at white.
   After each command the plugin polls after 15 s to verify the car applied it.
-  A sleeping car is woken to resume charging at most 3 times per 24 hours. See
+  A sleeping car is woken to resume charging at most 3 times per 24 hours.
+  Raising the charge limit, or starting charging after the plugin stopped it, is a
+  manual override: the plugin leaves charging alone until the car is unplugged. See
   [TESLA_ENERGY_CHARGING.md](../flows/TESLA_ENERGY_CHARGING.md)
 - **Other Commands On Request Only**: Apart from energy-level charging, the
   plugin issues no commands by itself. Charge limit, wake, and flash-lights are

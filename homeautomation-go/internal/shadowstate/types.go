@@ -1303,6 +1303,9 @@ type TeslaEnergyCharging struct {
 	ReconciliationStatus     string    `json:"reconciliationStatus,omitempty"`
 	LastVerifiedVehicleState string    `json:"lastVerifiedVehicleState,omitempty"`
 	WakesLast24h             int       `json:"wakesLast24h"`
+	// ManualOverride is true while a person's action in the Tesla app keeps the plugin from changing charging.
+	// Unplugging the car or leaving home clears it.
+	ManualOverride bool `json:"manualOverride"`
 }
 
 // ============================================================================
