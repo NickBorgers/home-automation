@@ -49,7 +49,10 @@ The three points are `[x, y]` pairs. The package checks their shape and keeps th
 ### Who writes which fields
 
 A deployment may regenerate room polygons and interior door spans from a robot vacuum map, with its own
-script and the `valetudo` block. Those fields are then machine-written. Everything else is hand-edited:
+script and the `valetudo` block. Those fields are then machine-written. A traced space says so with
+`source: valetudo`; a space a person draws, such as an open-plan area the vacuum does not split out, has
+`source: hand` or no `source`. The script redraws only `source: valetudo` spaces, and only the doors between
+two of them. Everything else is hand-edited:
 outdoor spaces, exterior doors, zones, locks, sensors, lines, cameras and notes. Edit a machine-written field
 by hand only if the deployment's script will not overwrite it.
 
@@ -70,6 +73,7 @@ house_map:
       kind: room                  # room | garage | yard | patio | deck | pool | driveway | outbuilding
       area: kitchen               # the room presence area; rooms only, and required for them
       polygon: [[6, 0], [10, 0], [10, 5], [6, 5]]
+      source: hand                # hand (default) | valetudo: who writes the polygon
       note: "free text"
 
   doors:

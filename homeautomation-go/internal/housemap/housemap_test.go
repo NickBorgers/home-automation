@@ -73,6 +73,8 @@ func TestValidate_Rules(t *testing.T) {
 		{"short polygon", "spaces: {a: {kind: yard, polygon: [[0, 0], [1, 1]]}}", "polygon needs at least 3 points"},
 		{"room without area", "spaces: {a: {kind: room, polygon: " + square + "}}", "a room needs an area"},
 		{"area outside a room", "spaces: {a: {kind: yard, area: x, polygon: " + square + "}}", "only a room has an area"},
+		{"unknown source", "spaces: {a: {kind: yard, source: lidar, polygon: " + square + "}}",
+			`source "lidar" must be hand or valetudo`},
 		{"empty door", "doors: {d: }", `door "d": empty`},
 		{"unknown door kind", "doors: {d: {kind: hatch, connects: [r1, r2], span: [[0, 0], [1, 0]]}}", `kind "hatch"`},
 		{"one-point span", "doors: {d: {kind: door, connects: [r1, r2], span: [[0, 0]]}}", "span needs 2 points"},

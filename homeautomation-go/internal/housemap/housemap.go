@@ -19,6 +19,12 @@ import (
 // FileName is the map file a deployment keeps in its config directory.
 const FileName = "house_map.yaml"
 
+// Who writes a space's polygon.
+const (
+	SourceHand     = "hand"
+	SourceValetudo = "valetudo"
+)
+
 // Space kinds. A room is part of the house that room presence knows as an area.
 const (
 	KindRoom        = "room"
@@ -119,6 +125,10 @@ type Space struct {
 
 	// Polygon is the outline, at least three points, in order.
 	Polygon []Point `yaml:"polygon"`
+
+	// Source says who writes the polygon: "valetudo" when a deployment's script traces it from a robot
+	// vacuum map, "hand" or empty when a person draws it. A tracing script leaves other spaces alone.
+	Source string `yaml:"source"`
 
 	Note string `yaml:"note"`
 }
@@ -265,6 +275,9 @@ func (m *Map) Validate() error {
 		}
 		if s.Kind != KindRoom && s.Area != "" {
 			add("space %q: only a room has an area", name)
+		}
+		if s.Source != "" && s.Source != SourceHand && s.Source != SourceValetudo {
+			add("space %q: source %q must be %s or %s", name, s.Source, SourceHand, SourceValetudo)
 		}
 	}
 
