@@ -15,7 +15,12 @@
 #
 # The export line reads the token file when each shell starts, so a refreshed
 # file (rewritten in place by init-host-credentials.sh on the next start) is
-# picked up without recreating the container. Idempotent.
+# picked up without recreating the container. It exports only while the
+# container has no login of its own: once ~/.claude/.credentials.json (or the
+# persisted copy in /host-claude-login, which the util profile symlinks it to
+# and which does not exist yet on a container's first shell) is non-empty, that
+# login refreshes itself and an exported token would override it and expire
+# within hours. Idempotent.
 #
 # Usage: wire-claude-token.sh <token-file>      (HOME selects the rc files)
 set -euo pipefail
@@ -31,20 +36,27 @@ MARK="# claude-oauth-token-export: $TOKEN_FILE"
 for rc in .bashrc .profile .zshrc; do
   target="$HOME/$rc"
   [ -e "$target" ] || touch "$target"
-  if ! grep -qF "$MARK" "$target"; then
-    {
-      printf '\n%s\n' "$MARK"
-      printf '[ -s "%s" ] && CLAUDE_CODE_OAUTH_TOKEN="$(cat "%s")" && export CLAUDE_CODE_OAUTH_TOKEN\n' \
-        "$TOKEN_FILE" "$TOKEN_FILE"
-    } >> "$target"
+  # Replace any earlier block (it may lack the login guard below): drop the
+  # marker line and the export line after it, then append the current block.
+  if grep -qF "$MARK" "$target"; then
+    tmp="$(mktemp)"
+    awk -v mark="$MARK" '$0 == mark { skip = 2 } skip > 0 { skip--; next } { print }' "$target" >"$tmp"
+    cat "$tmp" >"$target"
+    rm -f "$tmp"
   fi
+  {
+    printf '\n%s\n' "$MARK"
+    printf '[ -s "$HOME/.claude/.credentials.json" ] || [ -s "${CLAUDE_LOGIN_DIR:-/host-claude-login}/.credentials.json" ] || { [ -s "%s" ] && CLAUDE_CODE_OAUTH_TOKEN="$(cat "%s")" && export CLAUDE_CODE_OAUTH_TOKEN; }\n' \
+      "$TOKEN_FILE" "$TOKEN_FILE"
+  } >> "$target"
 done
 echo "Claude Code will use the host access token from $TOKEN_FILE (no refresh token in the container)."
 
 # A credentials file here would let the container refresh, and so rotate, a
-# refresh token. Report it by name only; never print its contents.
+# refresh token. Report it by name only; never print its contents. A symlink is
+# the per-project login persisted by the util profile, which is intended.
 stale="$HOME/.claude/.credentials.json"
-if [ -e "$stale" ] && grep -q 'refreshToken' "$stale" 2>/dev/null; then
+if [ -e "$stale" ] && [ ! -L "$stale" ] && grep -q 'refreshToken' "$stale" 2>/dev/null; then
   echo "Warning: $stale holds a refresh token, which can invalidate another login" >&2
   echo "  if refreshed here. Delete it if it is a copy; if it is the host's file" >&2
   echo "  (host ~/.claude mounted over this home), do not run claude /login here." >&2
