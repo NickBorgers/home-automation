@@ -164,12 +164,12 @@ flowchart LR
     end
 
     subgraph Examples["Example Scenes"]
-        ex1["scene.living_room_morning"]
-        ex2["scene.living_room_day"]
-        ex3["scene.living_room_sunset"]
-        ex4["scene.living_room_dusk"]
-        ex5["scene.living_room_winddown"]
-        ex6["scene.living_room_night"]
+        ex1["scene.living_morning"]
+        ex2["scene.living_day"]
+        ex3["scene.living_sunset"]
+        ex4["scene.living_dusk"]
+        ex5["scene.living_winddown"]
+        ex6["scene.living_night"]
     end
 
     DP --> construct
@@ -300,7 +300,7 @@ flowchart LR
 
 > **Note:** The sleep music system has two stages:
 > - **sleep-prep**: Whole-house rain sounds during night phase, before master goes to bed (helps direct people to bed)
-> - **sleep**: Bedroom-only rain sounds after master is asleep, but NOT during wake sequence (sleephygiene manages the bedroom fade-out during wake)
+> - **sleep**: Primary Bed-only rain sounds after master is asleep, but NOT during wake sequence (sleephygiene manages the bedroom fade-out during wake)
 
 ## Wake Sequence Multi-Zone Music
 
@@ -309,12 +309,12 @@ When the wake sequence activates (`isWakeSequenceActive=true`) during morning da
 ```mermaid
 flowchart TB
     subgraph Initial["Night State"]
-        sleepBed["Bedroom: Sleep music<br/>(isMasterAsleep=true)"]
+        sleepBed["Primary Bed: Sleep music<br/>(isMasterAsleep=true)"]
     end
 
     subgraph WakeSequence["Wake Sequence Active"]
-        fadeBed["Bedroom: Fade-out<br/>(managed by sleephygiene)"]
-        morningRest["Pantry, Sitting Room, Kids Bathroom: Morning music<br/>(priority 50)"]
+        fadeBed["Primary Bed: Fade-out<br/>(managed by sleephygiene)"]
+        morningRest["Pantry, Sitting, Kids Bathroom: Morning music<br/>(priority 50)"]
     end
 
     subgraph FullyAwake["Person Wakes Up"]
@@ -334,15 +334,15 @@ flowchart TB
 
 | Zone | Priority | Trigger Conditions | Speakers |
 |------|----------|-------------------|----------|
-| `sleep-prep` | 90 | `dayPhase=night` + `isAnyoneHome=true` + `isMasterAsleep=false` | Pantry, Bedroom, Sitting Room (whole house; Lounge temporarily excluded — see music_config.yaml) |
-| `sleep` | 100 | `isMasterAsleep=true` + `isAnyoneHome=true` + `isWakeSequenceActive=false` | Bedroom only |
-| `morning` | 50 | `dayPhase=morning` + `isAnyoneAsleep=false` + `isAnyoneHome=true` **OR** `isWakeSequenceActive=true` + `dayPhase=morning` + `isAnyoneHome=true` **OR** `dayPhase=morning` + `isAnyoneHomeAndAwake=true` (wake latch) | Pantry, Kids Bathroom, Sitting Room (Bedroom excluded via `exclude_if: isMasterAsleep=true`; Lounge temporarily excluded — see music_config.yaml) |
+| `sleep-prep` | 90 | `dayPhase=night` + `isAnyoneHome=true` + `isMasterAsleep=false` | Pantry, Primary Bed, Sitting (whole house; Lounge temporarily excluded — see music_config.yaml) |
+| `sleep` | 100 | `isMasterAsleep=true` + `isAnyoneHome=true` + `isWakeSequenceActive=false` | Primary Bed only |
+| `morning` | 50 | `dayPhase=morning` + `isAnyoneAsleep=false` + `isAnyoneHome=true` **OR** `isWakeSequenceActive=true` + `dayPhase=morning` + `isAnyoneHome=true` **OR** `dayPhase=morning` + `isAnyoneHomeAndAwake=true` (wake latch) | Pantry, Kids Bathroom, Sitting (Primary Bed excluded via `exclude_if: isMasterAsleep=true`; Lounge temporarily excluded — see music_config.yaml) |
 
 ### Key Behaviors
 
 1. **Sleep zone stops during wake**: The sleep zone requires `isWakeSequenceActive=false`, so it deactivates when the wake sequence starts. This prevents sleep music from restarting during wake.
 
-2. **Bedroom fade-out via sleephygiene**: During wake sequence, the sleephygiene plugin manages the bedroom's gentle audio fade-out (5-minute fade), independent of the music zone system.
+2. **Primary Bed fade-out via sleephygiene**: During wake sequence, the sleephygiene plugin manages the bedroom's gentle audio fade-out (5-minute fade), independent of the music zone system.
 
 3. **OR logic in morning triggers**: The morning zone uses `trigger_groups` with OR logic:
    - Group 1: Normal morning conditions (`isAnyoneAsleep=false`)
@@ -351,12 +351,12 @@ flowchart TB
 
 4. **Wake cancellation clears musicPlaybackType**: When bedroom lights are turned off during wake sequence, sleephygiene clears `musicPlaybackType` to `""` (instead of setting it to `"sleep"`). This lets zone-based resolution take over: the sleep zone activates for bedroom speakers, while the morning zone continues in common areas via the wake latch trigger group.
 
-5. **Seamless join**: When `isMasterAsleep` becomes false, the Bedroom speaker joins the existing morning zone rather than starting new playback.
+5. **Seamless join**: When `isMasterAsleep` becomes false, the Primary Bed speaker joins the existing morning zone rather than starting new playback.
 
 ### Timeline Example
 
 ```
-Time    Event                           Bedroom              Pantry
+Time    Event                           Primary Bed              Pantry
 ────    ─────                           ───────              ──────
 T0      Night, isMasterAsleep=true      Sleep music          (silent)
         isWakeSequenceActive=false      (sleep zone)

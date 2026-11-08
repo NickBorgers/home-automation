@@ -127,15 +127,15 @@ flowchart TD
 ### Doorbell Notification Targets
 
 **TTS Speakers:**
-- Bedroom
+- Primary Bed
 - Kitchen
-- Dining Room
+- Sitting
 - Kids Bathroom
 
 **Flashing Lights:**
 - Primary Suite
-- Living Room
-- Independent (office/guest area)
+- Living
+- Sitting
 
 ## Vehicle Arrival Notifications
 

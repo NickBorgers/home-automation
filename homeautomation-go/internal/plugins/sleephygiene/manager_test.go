@@ -779,7 +779,7 @@ func TestFadeOutBedroomSpeaker_Complete(t *testing.T) {
 	// Start fade out in goroutine
 	done := make(chan bool)
 	go func() {
-		manager.fadeOutSpeaker("media_player.bedroom")
+		manager.fadeOutSpeaker("media_player.primary_bed")
 		done <- true
 	}()
 
@@ -807,8 +807,8 @@ func TestFadeOutBedroomSpeaker_Complete(t *testing.T) {
 	lastVolume := 0.0
 	for _, call := range calls {
 		if call.Domain == "media_player" && call.Service == "volume_set" {
-			if entityID, ok := call.Data["entity_id"].(string); !ok || entityID != "media_player.bedroom" {
-				t.Errorf("Expected entity_id to be media_player.bedroom, got %v", call.Data["entity_id"])
+			if entityID, ok := call.Data["entity_id"].(string); !ok || entityID != "media_player.primary_bed" {
+				t.Errorf("Expected entity_id to be media_player.primary_bed, got %v", call.Data["entity_id"])
 			}
 			if volumeLevel, ok := call.Data["volume_level"].(float64); ok {
 				lastVolume = volumeLevel
@@ -854,7 +854,7 @@ func TestFadeOutBedroomSpeaker_AbortedByFlag(t *testing.T) {
 	// Start fade out in goroutine
 	done := make(chan bool)
 	go func() {
-		manager.fadeOutSpeaker("media_player.bedroom")
+		manager.fadeOutSpeaker("media_player.primary_bed")
 		done <- true
 	}()
 
@@ -921,7 +921,7 @@ func TestFadeOutBedroomSpeaker_CancelledByWakeSequenceEnd(t *testing.T) {
 	// Start fade out in goroutine
 	done := make(chan bool)
 	go func() {
-		manager.fadeOutSpeaker("media_player.bedroom")
+		manager.fadeOutSpeaker("media_player.primary_bed")
 		done <- true
 	}()
 
@@ -999,7 +999,7 @@ func TestFadeOutBedroomSpeaker_VolumeSequence(t *testing.T) {
 	// Start fade out in goroutine
 	done := make(chan bool)
 	go func() {
-		manager.fadeOutSpeaker("media_player.bedroom")
+		manager.fadeOutSpeaker("media_player.primary_bed")
 		done <- true
 	}()
 
@@ -1117,15 +1117,15 @@ func TestGetSpeakerVolume(t *testing.T) {
 	manager, mockHA, _, _ := setupTest(t, now)
 
 	// Set up mock to return a state with volume_level attribute
-	mockHA.SetMockState("media_player.bedroom", &ha.State{
-		EntityID: "media_player.bedroom",
+	mockHA.SetMockState("media_player.primary_bed", &ha.State{
+		EntityID: "media_player.primary_bed",
 		State:    "playing",
 		Attributes: map[string]interface{}{
 			"volume_level": 0.75, // 75%
 		},
 	})
 
-	volume := manager.getSpeakerVolume("media_player.bedroom")
+	volume := manager.getSpeakerVolume("media_player.primary_bed")
 
 	// Should return 75 (converted from 0.75)
 	if volume != 75 {
@@ -1159,7 +1159,7 @@ func TestUpdateSpeakerVolumeInState(t *testing.T) {
 	currentMusic := map[string]interface{}{
 		"participants": []interface{}{
 			map[string]interface{}{
-				"player_name": "media_player.bedroom",
+				"player_name": "media_player.primary_bed",
 				"volume":      80,
 			},
 			map[string]interface{}{
@@ -1171,7 +1171,7 @@ func TestUpdateSpeakerVolumeInState(t *testing.T) {
 	stateManager.SetJSON("currentlyPlayingMusic", currentMusic)
 
 	// Update bedroom volume to 45
-	manager.updateSpeakerVolumeInState("media_player.bedroom", 45)
+	manager.updateSpeakerVolumeInState("media_player.primary_bed", 45)
 
 	// Verify it was updated
 	var updatedMusic map[string]interface{}
@@ -1206,11 +1206,11 @@ func TestGetBedroomSpeakers(t *testing.T) {
 	currentMusic := map[string]interface{}{
 		"participants": []map[string]interface{}{
 			{
-				"player_name": "media_player.bedroom",
+				"player_name": "media_player.primary_bed",
 				"volume":      60,
 			},
 			{
-				"player_name": "media_player.bedroom_left",
+				"player_name": "media_player.primary_bed_left",
 				"volume":      55,
 			},
 			{
@@ -1244,19 +1244,19 @@ func TestGetBedroomSpeakers(t *testing.T) {
 	hasBedroomMain := false
 	hasBedroomLeft := false
 	for _, speaker := range bedroomSpeakers {
-		if speaker == "media_player.bedroom" {
+		if speaker == "media_player.primary_bed" {
 			hasBedroomMain = true
 		}
-		if speaker == "media_player.bedroom_left" {
+		if speaker == "media_player.primary_bed_left" {
 			hasBedroomLeft = true
 		}
 	}
 
 	if !hasBedroomMain {
-		t.Error("Expected to find media_player.bedroom")
+		t.Error("Expected to find media_player.primary_bed")
 	}
 	if !hasBedroomLeft {
-		t.Error("Expected to find media_player.bedroom_left")
+		t.Error("Expected to find media_player.primary_bed_left")
 	}
 }
 
@@ -1274,8 +1274,8 @@ func TestGetBedroomSpeakers_EmptyState(t *testing.T) {
 	if len(bedroomSpeakers) != 1 {
 		t.Errorf("Expected 1 default bedroom speaker, got %d", len(bedroomSpeakers))
 	}
-	if bedroomSpeakers[0] != "media_player.bedroom" {
-		t.Errorf("Expected default media_player.bedroom, got %s", bedroomSpeakers[0])
+	if bedroomSpeakers[0] != "media_player.primary_bed" {
+		t.Errorf("Expected default media_player.primary_bed, got %s", bedroomSpeakers[0])
 	}
 }
 
@@ -1291,8 +1291,8 @@ func TestFadeOutSpeaker_WithVolumeQuery(t *testing.T) {
 	stateManager.SetString("musicPlaybackType", "sleep")
 
 	// Set up mock to return initial volume of 58
-	mockHA.SetMockState("media_player.bedroom", &ha.State{
-		EntityID: "media_player.bedroom",
+	mockHA.SetMockState("media_player.primary_bed", &ha.State{
+		EntityID: "media_player.primary_bed",
 		State:    "playing",
 		Attributes: map[string]interface{}{
 			"volume_level": 0.58, // 58%
@@ -1303,7 +1303,7 @@ func TestFadeOutSpeaker_WithVolumeQuery(t *testing.T) {
 	currentMusic := map[string]interface{}{
 		"participants": []interface{}{
 			map[string]interface{}{
-				"player_name": "media_player.bedroom",
+				"player_name": "media_player.primary_bed",
 				"volume":      58,
 			},
 		},
@@ -1325,7 +1325,7 @@ func TestFadeOutSpeaker_WithVolumeQuery(t *testing.T) {
 	// Start fade out in goroutine
 	done := make(chan bool)
 	go func() {
-		manager.fadeOutSpeaker("media_player.bedroom")
+		manager.fadeOutSpeaker("media_player.primary_bed")
 		done <- true
 	}()
 
@@ -1341,8 +1341,8 @@ func TestFadeOutSpeaker_WithVolumeQuery(t *testing.T) {
 	}
 
 	// Verify GetState was called to query initial volume
-	if !mockHA.WasGetStateCalled("media_player.bedroom") {
-		t.Error("Expected GetState to be called for media_player.bedroom")
+	if !mockHA.WasGetStateCalled("media_player.primary_bed") {
+		t.Error("Expected GetState to be called for media_player.primary_bed")
 	}
 
 	// Verify volume_set calls were made
@@ -1393,8 +1393,8 @@ func TestFadeOutSpeaker_HumanOverrideDetection(t *testing.T) {
 	stateManager.SetString("musicPlaybackType", "sleep")
 
 	// Set up mock to return initial volume of 10 (low volume for quick test)
-	mockHA.SetMockState("media_player.bedroom", &ha.State{
-		EntityID: "media_player.bedroom",
+	mockHA.SetMockState("media_player.primary_bed", &ha.State{
+		EntityID: "media_player.primary_bed",
 		State:    "playing",
 		Attributes: map[string]interface{}{
 			"volume_level": 0.10, // 10%
@@ -1405,7 +1405,7 @@ func TestFadeOutSpeaker_HumanOverrideDetection(t *testing.T) {
 	currentMusic := map[string]interface{}{
 		"participants": []interface{}{
 			map[string]interface{}{
-				"player_name": "media_player.bedroom",
+				"player_name": "media_player.primary_bed",
 				"volume":      10,
 			},
 		},
@@ -1418,8 +1418,8 @@ func TestFadeOutSpeaker_HumanOverrideDetection(t *testing.T) {
 		volumeStep++
 		if volumeStep == 3 {
 			// Simulate human turning volume up to 50% during fade-out
-			mockHA.SetMockState("media_player.bedroom", &ha.State{
-				EntityID: "media_player.bedroom",
+			mockHA.SetMockState("media_player.primary_bed", &ha.State{
+				EntityID: "media_player.primary_bed",
 				State:    "playing",
 				Attributes: map[string]interface{}{
 					"volume_level": 0.50, // Human turned volume UP
@@ -1429,13 +1429,13 @@ func TestFadeOutSpeaker_HumanOverrideDetection(t *testing.T) {
 	})
 
 	// Run fade out
-	manager.fadeOutSpeaker("media_player.bedroom")
+	manager.fadeOutSpeaker("media_player.primary_bed")
 
 	// Verify shadow state shows human override was detected
 	shadowState := manager.GetShadowState()
-	fadeOut, exists := shadowState.Outputs.FadeOutProgress["media_player.bedroom"]
+	fadeOut, exists := shadowState.Outputs.FadeOutProgress["media_player.primary_bed"]
 	if !exists {
-		t.Fatal("Expected fade-out progress to be recorded for media_player.bedroom")
+		t.Fatal("Expected fade-out progress to be recorded for media_player.primary_bed")
 	}
 
 	if !fadeOut.HumanOverrideDetected {
@@ -1468,8 +1468,8 @@ func TestFadeOutSpeaker_NoHumanOverrideWithMatchingVolume(t *testing.T) {
 
 	// Start with volume 3 for quick fade to 0
 	startVolume := 3
-	mockHA.SetMockState("media_player.bedroom", &ha.State{
-		EntityID: "media_player.bedroom",
+	mockHA.SetMockState("media_player.primary_bed", &ha.State{
+		EntityID: "media_player.primary_bed",
 		State:    "playing",
 		Attributes: map[string]interface{}{
 			"volume_level": float64(startVolume) / 100.0,
@@ -1479,7 +1479,7 @@ func TestFadeOutSpeaker_NoHumanOverrideWithMatchingVolume(t *testing.T) {
 	currentMusic := map[string]interface{}{
 		"participants": []interface{}{
 			map[string]interface{}{
-				"player_name": "media_player.bedroom",
+				"player_name": "media_player.primary_bed",
 				"volume":      startVolume,
 			},
 		},
@@ -1494,8 +1494,8 @@ func TestFadeOutSpeaker_NoHumanOverrideWithMatchingVolume(t *testing.T) {
 			currentVolume = 0
 		}
 		// Simulate normal behavior - volume matches what automation set
-		mockHA.SetMockState("media_player.bedroom", &ha.State{
-			EntityID: "media_player.bedroom",
+		mockHA.SetMockState("media_player.primary_bed", &ha.State{
+			EntityID: "media_player.primary_bed",
 			State:    "playing",
 			Attributes: map[string]interface{}{
 				"volume_level": float64(currentVolume) / 100.0,
@@ -1504,13 +1504,13 @@ func TestFadeOutSpeaker_NoHumanOverrideWithMatchingVolume(t *testing.T) {
 	})
 
 	// Run fade out
-	manager.fadeOutSpeaker("media_player.bedroom")
+	manager.fadeOutSpeaker("media_player.primary_bed")
 
 	// Verify shadow state does NOT show human override
 	shadowState := manager.GetShadowState()
-	fadeOut, exists := shadowState.Outputs.FadeOutProgress["media_player.bedroom"]
+	fadeOut, exists := shadowState.Outputs.FadeOutProgress["media_player.primary_bed"]
 	if !exists {
-		t.Fatal("Expected fade-out progress to be recorded for media_player.bedroom")
+		t.Fatal("Expected fade-out progress to be recorded for media_player.primary_bed")
 	}
 
 	if fadeOut.HumanOverrideDetected {
@@ -1545,11 +1545,11 @@ func TestBeginWake_MultipleSpeakers(t *testing.T) {
 	currentMusic := map[string]interface{}{
 		"participants": []interface{}{
 			map[string]interface{}{
-				"player_name": "media_player.bedroom",
+				"player_name": "media_player.primary_bed",
 				"volume":      60,
 			},
 			map[string]interface{}{
-				"player_name": "media_player.bedroom_left",
+				"player_name": "media_player.primary_bed_left",
 				"volume":      55,
 			},
 		},
@@ -1557,15 +1557,15 @@ func TestBeginWake_MultipleSpeakers(t *testing.T) {
 	stateManager.SetJSON("currentlyPlayingMusic", currentMusic)
 
 	// Set up mock states for both speakers
-	mockHA.SetMockState("media_player.bedroom", &ha.State{
-		EntityID: "media_player.bedroom",
+	mockHA.SetMockState("media_player.primary_bed", &ha.State{
+		EntityID: "media_player.primary_bed",
 		State:    "playing",
 		Attributes: map[string]interface{}{
 			"volume_level": 0.60,
 		},
 	})
-	mockHA.SetMockState("media_player.bedroom_left", &ha.State{
-		EntityID: "media_player.bedroom_left",
+	mockHA.SetMockState("media_player.primary_bed_left", &ha.State{
+		EntityID: "media_player.primary_bed_left",
 		State:    "playing",
 		Attributes: map[string]interface{}{
 			"volume_level": 0.55,
@@ -1588,11 +1588,11 @@ func TestBeginWake_MultipleSpeakers(t *testing.T) {
 	time.Sleep(300 * time.Millisecond)
 
 	// Verify both speakers were queried
-	if !mockHA.WasGetStateCalled("media_player.bedroom") {
-		t.Error("Expected GetState to be called for media_player.bedroom")
+	if !mockHA.WasGetStateCalled("media_player.primary_bed") {
+		t.Error("Expected GetState to be called for media_player.primary_bed")
 	}
-	if !mockHA.WasGetStateCalled("media_player.bedroom_left") {
-		t.Error("Expected GetState to be called for media_player.bedroom_left")
+	if !mockHA.WasGetStateCalled("media_player.primary_bed_left") {
+		t.Error("Expected GetState to be called for media_player.primary_bed_left")
 	}
 
 	// Verify volume_set calls were made for both speakers
@@ -1602,9 +1602,9 @@ func TestBeginWake_MultipleSpeakers(t *testing.T) {
 	for _, call := range calls {
 		if call.Domain == "media_player" && call.Service == "volume_set" {
 			if entityID, ok := call.Data["entity_id"].(string); ok {
-				if entityID == "media_player.bedroom" {
+				if entityID == "media_player.primary_bed" {
 					bedroomCalls++
-				} else if entityID == "media_player.bedroom_left" {
+				} else if entityID == "media_player.primary_bed_left" {
 					bedroomLeftCalls++
 				}
 			}
@@ -1613,10 +1613,10 @@ func TestBeginWake_MultipleSpeakers(t *testing.T) {
 
 	// Should have at least 1 call for each speaker
 	if bedroomCalls < 1 {
-		t.Error("Expected at least 1 volume_set call for media_player.bedroom")
+		t.Error("Expected at least 1 volume_set call for media_player.primary_bed")
 	}
 	if bedroomLeftCalls < 1 {
-		t.Error("Expected at least 1 volume_set call for media_player.bedroom_left")
+		t.Error("Expected at least 1 volume_set call for media_player.primary_bed_left")
 	}
 }
 

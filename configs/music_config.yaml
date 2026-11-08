@@ -19,8 +19,8 @@ zones:
       - variable: isMasterAsleep
         value: false
 
-  # sleep: Bedroom-only sleep sounds AFTER master goes to bed
-  # Doesn't restart during wake sequence (sleephygiene manages bedroom fade-out)
+  # sleep: Primary Bed-only sleep sounds AFTER master goes to bed
+  # Doesn't restart during wake sequence (sleephygiene manages the Primary Bed fade-out)
   - name: "sleep"
     priority: 100  # Highest auto-trigger - sleep takes precedence
     trigger:
@@ -116,13 +116,13 @@ music:
         leave_muted_if:
           - variable: isTVPlaying
             value: true
-      - player_name: "Bedroom"
+      - player_name: "Primary Bed"
         base_volume: 7
-        # Exclude during wake sequence (bedroom stays on sleep zone)
+        # Exclude during wake sequence (Primary Bed stays on sleep zone)
         exclude_if:
           - variable: isMasterAsleep
             value: true
-      - player_name: "Sitting Room"
+      - player_name: "Sitting"
         base_volume: 8
         leave_muted_if:
           - variable: isTVPlaying
@@ -163,12 +163,12 @@ music:
         leave_muted_if:
           - variable: isTVPlaying
             value: true
-      - player_name: "Bedroom"
+      - player_name: "Primary Bed"
         base_volume: 7
         leave_muted_if:
           - variable: isMasterAsleep
             value: true
-      - player_name: "Sitting Room"
+      - player_name: "Sitting"
         base_volume: 9
         leave_muted_if:
           - variable: isTVPlaying
@@ -224,12 +224,12 @@ music:
         leave_muted_if:
           - variable: isTVPlaying
             value: true
-      - player_name: "Bedroom"
+      - player_name: "Primary Bed"
         base_volume: 5
         exclude_if:
           - variable: isMasterAsleep
             value: true
-      - player_name: "Sitting Room"
+      - player_name: "Sitting"
         base_volume: 8
         leave_muted_if:
           - variable: isTVPlaying
@@ -346,12 +346,12 @@ music:
         leave_muted_if:
           - variable: isTVPlaying
             value: true
-      - player_name: "Bedroom"
+      - player_name: "Primary Bed"
         base_volume: 5
         exclude_if:
           - variable: isMasterAsleep
             value: true
-      - player_name: "Sitting Room"
+      - player_name: "Sitting"
         base_volume: 7
         leave_muted_if:
           - variable: isTVPlaying
@@ -387,10 +387,10 @@ music:
       - player_name: "Pantry"
         base_volume: 9
         leave_muted_if: []
-      - player_name: "Bedroom"
+      - player_name: "Primary Bed"
         base_volume: 12
         leave_muted_if: []
-      - player_name: "Sitting Room"
+      - player_name: "Sitting"
         base_volume: 9
         leave_muted_if:
           - variable: isTVPlaying
@@ -407,11 +407,11 @@ music:
         media_type: music
         volume_multiplier: 1.3
 
-  # sleep: Bedroom-only rain sounds after master goes to bed
+  # sleep: Primary Bed-only rain sounds after master goes to bed
   # Rest of house doesn't need sleep sounds once master is in bed
   sleep:
     participants:
-      - player_name: "Bedroom"
+      - player_name: "Primary Bed"
         base_volume: 12
         leave_muted_if: []
     playback_options:
@@ -427,7 +427,7 @@ music:
         volume_multiplier: 1.3
   sex:
     participants:
-      - player_name: "Bedroom"
+      - player_name: "Primary Bed"
         base_volume: 8
         leave_muted_if: []
     playback_options:
@@ -438,7 +438,7 @@ music:
         volume_multiplier: 1.0
   wakeup:
     participants:
-      - player_name: "Bedroom"
+      - player_name: "Primary Bed"
         base_volume: 5
         leave_muted_if: []
     playback_options:

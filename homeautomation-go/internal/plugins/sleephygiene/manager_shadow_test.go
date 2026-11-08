@@ -127,17 +127,17 @@ func TestSleepHygieneShadowState_FadeOutProgress(t *testing.T) {
 	manager := NewManager(context.Background(), mockClient, stateManager, mockConfig, zap.NewNop(), true, nil, nil)
 
 	// Record fade out start
-	manager.shadowTracker.RecordFadeOutStart("media_player.bedroom", 60)
+	manager.shadowTracker.RecordFadeOutStart("media_player.primary_bed", 60)
 
 	shadowState := manager.GetShadowState()
 
 	// Verify fade out recorded
-	fadeOut, exists := shadowState.Outputs.FadeOutProgress["media_player.bedroom"]
+	fadeOut, exists := shadowState.Outputs.FadeOutProgress["media_player.primary_bed"]
 	if !exists {
-		t.Fatal("Expected fade out progress for media_player.bedroom to exist")
+		t.Fatal("Expected fade out progress for media_player.primary_bed to exist")
 	}
-	if fadeOut.SpeakerEntityID != "media_player.bedroom" {
-		t.Errorf("Expected SpeakerEntityID to be 'media_player.bedroom', got %s", fadeOut.SpeakerEntityID)
+	if fadeOut.SpeakerEntityID != "media_player.primary_bed" {
+		t.Errorf("Expected SpeakerEntityID to be 'media_player.primary_bed', got %s", fadeOut.SpeakerEntityID)
 	}
 	if fadeOut.StartVolume != 60 {
 		t.Errorf("Expected StartVolume to be 60, got %d", fadeOut.StartVolume)
@@ -150,10 +150,10 @@ func TestSleepHygieneShadowState_FadeOutProgress(t *testing.T) {
 	}
 
 	// Update progress
-	manager.shadowTracker.UpdateFadeOutProgress("media_player.bedroom", 30)
+	manager.shadowTracker.UpdateFadeOutProgress("media_player.primary_bed", 30)
 	shadowState = manager.GetShadowState()
 
-	fadeOut = shadowState.Outputs.FadeOutProgress["media_player.bedroom"]
+	fadeOut = shadowState.Outputs.FadeOutProgress["media_player.primary_bed"]
 	if fadeOut.CurrentVolume != 30 {
 		t.Errorf("Expected CurrentVolume to be 30, got %d", fadeOut.CurrentVolume)
 	}
@@ -162,10 +162,10 @@ func TestSleepHygieneShadowState_FadeOutProgress(t *testing.T) {
 	}
 
 	// Complete fade out (volume 0)
-	manager.shadowTracker.UpdateFadeOutProgress("media_player.bedroom", 0)
+	manager.shadowTracker.UpdateFadeOutProgress("media_player.primary_bed", 0)
 	shadowState = manager.GetShadowState()
 
-	fadeOut = shadowState.Outputs.FadeOutProgress["media_player.bedroom"]
+	fadeOut = shadowState.Outputs.FadeOutProgress["media_player.primary_bed"]
 	if fadeOut.CurrentVolume != 0 {
 		t.Errorf("Expected CurrentVolume to be 0, got %d", fadeOut.CurrentVolume)
 	}
@@ -198,7 +198,7 @@ func TestSleepHygieneShadowState_TTSAnnouncement(t *testing.T) {
 	}
 
 	// Record TTS announcement
-	manager.shadowTracker.RecordTTSAnnouncement("Time to cuddle", "media_player.bedroom")
+	manager.shadowTracker.RecordTTSAnnouncement("Time to cuddle", "media_player.primary_bed")
 
 	shadowState = manager.GetShadowState()
 
@@ -209,8 +209,8 @@ func TestSleepHygieneShadowState_TTSAnnouncement(t *testing.T) {
 	if shadowState.Outputs.LastTTSAnnouncement.Message != "Time to cuddle" {
 		t.Errorf("Expected Message to be 'Time to cuddle', got %s", shadowState.Outputs.LastTTSAnnouncement.Message)
 	}
-	if shadowState.Outputs.LastTTSAnnouncement.Speaker != "media_player.bedroom" {
-		t.Errorf("Expected Speaker to be 'media_player.bedroom', got %s", shadowState.Outputs.LastTTSAnnouncement.Speaker)
+	if shadowState.Outputs.LastTTSAnnouncement.Speaker != "media_player.primary_bed" {
+		t.Errorf("Expected Speaker to be 'media_player.primary_bed', got %s", shadowState.Outputs.LastTTSAnnouncement.Speaker)
 	}
 	if shadowState.Outputs.LastTTSAnnouncement.Timestamp.IsZero() {
 		t.Error("Expected Timestamp to be set")
@@ -399,7 +399,7 @@ func TestSleepHygieneShadowState_CancelWake(t *testing.T) {
 	// Set up wake sequence state
 	stateManager.SetString("musicPlaybackType", "wakeup")
 	manager.shadowTracker.UpdateWakeSequenceStatus("wake_in_progress")
-	manager.shadowTracker.RecordFadeOutStart("media_player.bedroom", 50)
+	manager.shadowTracker.RecordFadeOutStart("media_player.primary_bed", 50)
 
 	// Simulate bedroom lights turning off during wake sequence
 	manager.handleBedroomLightsOff("off")

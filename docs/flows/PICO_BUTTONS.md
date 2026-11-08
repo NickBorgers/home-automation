@@ -11,15 +11,15 @@ The Picos control nothing inside Lutron. Home Assistant reports each press as a
 | Pantry Primary Suite Door | By the primary suite door | pantry | `light.pantry_area`, `light.pantry_under_cabinet` |
 | Pantry Pantry Lights Pico | In the pantry | pantry | same as above |
 | Pantry Kitchen Lights Pico | In the pantry | kitchen | `light.kitchen_cans`, `light.kitchen_main_lights` |
-| Hallway Between Bedrooms (2-button Pico) | Hallway between the bedrooms | kids hall | `light.kids_hall_bottom` |
-| Hallway Hall Light Switch by Living | Hallway, by the living room | kids hall | same as above |
-| Hallway Living Switch | Hallway | living | `light.living_cans` |
+| Hallway Between Bedrooms (2-button Pico) | Back Hall, between the bedrooms | back hall | `light.back_hall_bottom` |
+| Hallway Hall Light Switch by Living | Back Hall, by Living | back hall | same as above |
+| Hallway Living Switch | Back Hall | living | `light.living_cans` |
 
 The pantry Picos light the way for someone who walks into the pantry. The kitchen Pico lights the
 next room for someone who walks on through. `light.pantry_area` is the Hue zone of the pantry cans
 plus the hall light by the primary suite.
 
-The two kids hall Picos step only the down light. `light.kids_hall_top` (the up light) is not
+The two Back Hall Picos step only the down light. `light.back_hall_top` (the up light) is not
 controlled yet. It is meant to join an accent group later.
 
 ## What a press does

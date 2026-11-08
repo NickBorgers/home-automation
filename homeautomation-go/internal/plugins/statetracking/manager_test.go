@@ -650,9 +650,9 @@ func TestStateTrackingManager_ArrivalAnnouncements(t *testing.T) {
 				sm.SetBool("isNickHome", false)
 			},
 			expectedPlayers: []string{
-				"media_player.kitchen",
-				"media_player.sitting_room",
-				"media_player.front_room",
+				"media_player.lounge",
+				"media_player.sitting",
+				"media_player.primary_bed",
 				"media_player.kids_bathroom",
 			},
 		},
@@ -666,9 +666,9 @@ func TestStateTrackingManager_ArrivalAnnouncements(t *testing.T) {
 				sm.SetBool("isCarolineHome", false)
 			},
 			expectedPlayers: []string{
-				"media_player.kitchen",
-				"media_player.sitting_room",
-				"media_player.front_room",
+				"media_player.lounge",
+				"media_player.sitting",
+				"media_player.primary_bed",
 				"media_player.kids_bathroom",
 				"media_player.office",
 			},
@@ -683,9 +683,9 @@ func TestStateTrackingManager_ArrivalAnnouncements(t *testing.T) {
 				sm.SetBool("isAssistantHere", false)
 			},
 			expectedPlayers: []string{
-				"media_player.kitchen",
-				"media_player.sitting_room",
-				"media_player.front_room",
+				"media_player.lounge",
+				"media_player.sitting",
+				"media_player.primary_bed",
 				"media_player.kids_bathroom",
 				"media_player.office",
 			},
@@ -1291,9 +1291,9 @@ func TestAnnounceArrivalDirect_PreservesSpeakersWhenGrouped(t *testing.T) {
 	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil, "", mockAlerter)
 
 	manager.announceArrivalDirect("Nick", "Nick is home", []string{
-		"media_player.kitchen",
-		"media_player.sitting_room",
-		"media_player.front_room",
+		"media_player.lounge",
+		"media_player.sitting",
+		"media_player.primary_bed",
 		"media_player.kids_bathroom",
 		"media_player.office",
 	})
@@ -1303,9 +1303,9 @@ func TestAnnounceArrivalDirect_PreservesSpeakersWhenGrouped(t *testing.T) {
 		t.Fatalf("Expected exactly 1 announcement, got %d", len(calls))
 	}
 	expectedSpeakers := []string{
-		"media_player.kitchen",
-		"media_player.sitting_room",
-		"media_player.front_room",
+		"media_player.lounge",
+		"media_player.sitting",
+		"media_player.primary_bed",
 		"media_player.kids_bathroom",
 		"media_player.office",
 	}

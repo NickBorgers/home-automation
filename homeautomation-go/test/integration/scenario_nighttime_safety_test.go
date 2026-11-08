@@ -103,7 +103,7 @@ func loadTestMusicConfig(t *testing.T) *music.MusicConfig {
 			"sleep": {
 				Participants: []music.Participant{
 					{
-						PlayerName:   "Bedroom",
+						PlayerName:   "Primary Bed",
 						BaseVolume:   16,
 						LeaveMutedIf: []music.MuteCondition{}, // No conditions for sleep - always plays
 					},
@@ -129,7 +129,7 @@ func loadTestMusicConfig(t *testing.T) *music.MusicConfig {
 						LeaveMutedIf: []music.MuteCondition{},
 					},
 					{
-						PlayerName: "Bedroom",
+						PlayerName: "Primary Bed",
 						BaseVolume: 9,
 						LeaveMutedIf: []music.MuteCondition{
 							{
@@ -155,7 +155,7 @@ func loadTestMusicConfig(t *testing.T) *music.MusicConfig {
 						LeaveMutedIf: []music.MuteCondition{},
 					},
 					{
-						PlayerName:   "Bedroom",
+						PlayerName:   "Primary Bed",
 						BaseVolume:   9,
 						LeaveMutedIf: []music.MuteCondition{},
 						ExcludeIf: []music.MuteCondition{
@@ -177,7 +177,7 @@ func loadTestMusicConfig(t *testing.T) *music.MusicConfig {
 			"wakeup": {
 				Participants: []music.Participant{
 					{
-						PlayerName:   "Bedroom",
+						PlayerName:   "Primary Bed",
 						BaseVolume:   6,
 						LeaveMutedIf: []music.MuteCondition{}, // Wake-up plays in bedroom
 					},
@@ -223,7 +223,7 @@ func TestScenario_SleepMusic_ContinuesWhenMasterAsleep(t *testing.T) {
 	require.NoError(t, env.stateManager.SetBool("isEveryoneAsleep", false))
 	require.NoError(t, env.stateManager.SetString("musicPlaybackType", ""))
 
-	env.server.SetState("media_player.bedroom", "idle", map[string]interface{}{})
+	env.server.SetState("media_player.primary_bed", "idle", map[string]interface{}{})
 	env.server.SetState("media_player.kitchen", "idle", map[string]interface{}{})
 
 	// Brief delay before taking snapshot to ensure setup state propagates
@@ -252,7 +252,7 @@ func TestScenario_SleepMusic_ContinuesWhenMasterAsleep(t *testing.T) {
 	for _, call := range calls {
 		if call.Domain == "media_player" {
 			entityID, _ := call.ServiceData["entity_id"].(string)
-			if entityID == "media_player.bedroom" && call.Service == "media_stop" {
+			if entityID == "media_player.primary_bed" && call.Service == "media_stop" {
 				foundBedroomStop = true
 			}
 		}
@@ -297,7 +297,7 @@ func TestScenario_MorningMusic_BedroomMutedWhenMasterAsleep(t *testing.T) {
 	require.NoError(t, env.stateManager.SetBool("isAnyoneAsleep", true))
 
 	// Set up mock speakers
-	env.server.SetState("media_player.bedroom", "idle", map[string]interface{}{
+	env.server.SetState("media_player.primary_bed", "idle", map[string]interface{}{
 		"volume_level": 0.1,
 	})
 	env.server.SetState("media_player.kitchen", "idle", map[string]interface{}{
@@ -530,7 +530,7 @@ func TestScenario_DayMusic_BedroomMutedWhenMasterAsleep(t *testing.T) {
 	require.NoError(t, env.stateManager.SetBool("isMasterAsleep", true))       // But master napping!
 	require.NoError(t, env.stateManager.SetBool("isEveryoneAsleep", false))
 
-	env.server.SetState("media_player.bedroom", "idle", map[string]interface{}{
+	env.server.SetState("media_player.primary_bed", "idle", map[string]interface{}{
 		"volume_level": 0.1,
 	})
 	env.server.SetState("media_player.kitchen", "idle", map[string]interface{}{
@@ -628,7 +628,7 @@ func TestScenario_SleepToMorningTransition_BedroomMutedUntilActualWake(t *testin
 	for _, call := range calls {
 		if call.Domain == "media_player" {
 			entityID, _ := call.ServiceData["entity_id"].(string)
-			if entityID == "media_player.bedroom" && call.Service == "volume_mute" {
+			if entityID == "media_player.primary_bed" && call.Service == "volume_mute" {
 				isMuted, _ := call.ServiceData["is_volume_muted"].(bool)
 				if !isMuted {
 					foundBedroomUnmutePhase1 = true
@@ -670,7 +670,7 @@ func TestScenario_SleepToMorningTransition_BedroomMutedUntilActualWake(t *testin
 	for _, call := range calls {
 		if call.Domain == "media_player" {
 			entityID, _ := call.ServiceData["entity_id"].(string)
-			if entityID == "media_player.bedroom" && call.Service == "volume_mute" {
+			if entityID == "media_player.primary_bed" && call.Service == "volume_mute" {
 				isMuted, _ := call.ServiceData["is_volume_muted"].(bool)
 				if isMuted {
 					foundBedroomMutePhase2 = true
@@ -805,7 +805,7 @@ func TestScenario_RapidStateChanges_NoBriefUnmute(t *testing.T) {
 	for _, call := range calls {
 		if call.Domain == "media_player" && call.Service == "volume_mute" {
 			entityID, _ := call.ServiceData["entity_id"].(string)
-			if entityID == "media_player.bedroom" {
+			if entityID == "media_player.primary_bed" {
 				isMuted, _ := call.ServiceData["is_volume_muted"].(bool)
 				if !isMuted {
 					unexpectedUnmutes++

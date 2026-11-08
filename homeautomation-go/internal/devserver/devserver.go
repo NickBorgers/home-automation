@@ -234,7 +234,7 @@ func (d *DevServer) populateSampleData() {
 	})
 
 	// Light entities for rooms
-	d.server.SetState("light.living_room", "on", map[string]interface{}{
+	d.server.SetState("light.living", "on", map[string]interface{}{
 		"friendly_name":     "Living Room Lights",
 		"brightness":        200,
 		"color_temp_kelvin": 2857,

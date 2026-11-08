@@ -21,7 +21,7 @@ These documents provide visual understanding of the current Go implementation th
 | [STATE_TRACKING.md](./STATE_TRACKING.md) | statetracking | Derived presence/sleep states, arrival announcements |
 | [MUSIC_PLAYBACK.md](./MUSIC_PLAYBACK.md) | music | Whole-home audio based on day phase and presence |
 | [LIGHTING_CONTROL.md](./LIGHTING_CONTROL.md) | lighting | Scene automation based on day phase and sleep |
-| [LUX_LIGHTING.md](./LUX_LIGHTING.md) | lighting | Lux-target ceiling cans and manual hold (Living Room active) |
+| [LUX_LIGHTING.md](./LUX_LIGHTING.md) | lighting | Lux-target ceiling cans and manual hold (Living active) |
 | [SLEEP_HYGIENE.md](./SLEEP_HYGIENE.md) | sleephygiene | Wake-up sequences, bedtime reminders |
 | [SECURITY.md](./SECURITY.md) | security | Lockdown, garage, doorbell notifications |
 | [ENERGY_MANAGEMENT.md](./ENERGY_MANAGEMENT.md) | energy | Battery/solar monitoring, indicator lights |

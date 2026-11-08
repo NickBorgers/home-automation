@@ -2,6 +2,7 @@ package sexmode
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -354,7 +355,7 @@ func TestSexModeManager_DeactivationTurnsOffLightsWhenAsleep(t *testing.T) {
 	foundTurnOff := false
 	for _, call := range calls {
 		if call.Domain == "light" && call.Service == "turn_off" {
-			if areaID, ok := call.Data["area_id"].(string); ok && areaID == "master_bedroom" {
+			if fmt.Sprint(call.Data["area_id"]) == "[primary_bed primary_bath]" {
 				foundTurnOff = true
 				break
 			}

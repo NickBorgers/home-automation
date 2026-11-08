@@ -78,8 +78,8 @@ func setupSleepPrepTransitionTest(t *testing.T) (*sleepPrepTransitionEnv, func()
 	env.music.SetDebounceDelay(500 * time.Millisecond)
 
 	// Set up all 5 media player entities used in sleep-prep and sleep zones
-	server.SetState("media_player.bedroom", "playing", map[string]interface{}{
-		"friendly_name": "Bedroom",
+	server.SetState("media_player.primary_bed", "playing", map[string]interface{}{
+		"friendly_name": "Primary Bed",
 		"volume_level":  0.20, // base 16 × 1.3 = 20.8 → 20
 	})
 	server.SetState("media_player.kitchen", "playing", map[string]interface{}{
@@ -293,7 +293,7 @@ func TestScenario_SleepPrepToSleep_NonBedroomSpeakersBehavior(t *testing.T) {
 
 	// 4. Shared speakers should NOT be torn down (no unjoin, no play_media restart)
 	sharedSpeakers := map[string]string{
-		"media_player.bedroom":          "Bedroom",
+		"media_player.primary_bed":      "Primary Bed",
 		"media_player.kitchen":          "Kitchen",
 		"media_player.primary_bathroom": "Primary Bathroom",
 	}
@@ -623,7 +623,7 @@ func TestScenario_SleepPrepToSleep_CoordinatorPreserved(t *testing.T) {
 
 	// 3. No play_media on shared speakers (Bedroom, Kitchen, Primary Bathroom)
 	sharedSpeakers := map[string]string{
-		"media_player.bedroom":          "Bedroom",
+		"media_player.primary_bed":      "Primary Bed",
 		"media_player.kitchen":          "Kitchen",
 		"media_player.primary_bathroom": "Primary Bathroom",
 	}

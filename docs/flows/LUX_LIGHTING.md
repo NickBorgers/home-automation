@@ -1,6 +1,6 @@
 # Lux-Target Lighting (Design)
 
-**Status:** Rollout steps 1 to 3 and 5 are built. Step 4 is done for the Kitchen, the Pantry and the two chandeliers. The Living Room, Kitchen, Pantry, Mudroom, Front Foyer and Front Room ship in `active` mode. The Living Room, Kitchen, Front Foyer and Front Room `daylight_factor` and `calibration` were measured on 2026-10-31 and 2026-11-01 with a handheld lux meter. The Pantry and Mudroom were measured with the meter on 2026-11-02 and 2026-11-05. The Mudroom was split out of the Pantry on 2026-11-05. `lux_scale` is still a guess. See "Implementation notes" at the end.
+**Status:** Rollout steps 1 to 3 and 5 are built. Step 4 is done for the Kitchen, the Pantry and the two chandeliers. The Living, Kitchen, Pantry, Mud, Entryway and Sitting Chandelier ship in `active` mode. The Living, Kitchen, Entryway and Sitting Chandelier `daylight_factor` and `calibration` were measured on 2026-10-31 and 2026-11-01 with a handheld lux meter. The Pantry and Mud were measured with the meter on 2026-11-02 and 2026-11-05. The Mud was split out of the Pantry on 2026-11-05. `lux_scale` is still a guess. See "Implementation notes" at the end.
 
 ## Summary
 
@@ -29,14 +29,14 @@ Each room splits its lights into three roles.
 
 | Role | Controlled by | Examples |
 |------|---------------|----------|
-| Cans (ambient) | Lux target. White light only, brightness and kelvin. | `light.living_cans`, `light.kitchen_cans`, `light.pantry`, `light.mudroom`, `light.front_foyer_chandelier`, `light.front_room_chandelier` (brightness only) |
+| Cans (ambient) | Lux target. White light only, brightness and kelvin. | `light.living_cans`, `light.kitchen_cans`, `light.pantry`, `light.mud`, `light.entryway_chandelier`, `light.sitting_chandelier` (brightness only) |
 | Accent | Per-phase Hue scene, as today | `light.living_accent` (TV, window wall) |
 | Task (follower) | Follows the cans: `floor_pct + gain * cans %`, brightness only | `light.kitchen_main_lights` (Kitchen Under Cabinet), `light.pantry_under_cabinet` |
 | Task (scene) | Companion scene, as today. No room uses it now. | none |
 
-Controlled rooms: **Living Room** (`light.living_cans`), **Kitchen** (`light.kitchen_cans`, 7 cans) and **Pantry** (`light.pantry`, 6 cans) and **Mudroom** (`light.mudroom`, 2 cans). **Front Foyer** (`light.front_foyer_chandelier`) and **Front Room** (`light.front_room_chandelier`) are Lutron Diva dimmers: brightness only, no color temperature. Next: Sitting Room, N Office.
+Controlled rooms: **Living** (`light.living_cans`), **Kitchen** (`light.kitchen_cans`, 7 cans) and **Pantry** (`light.pantry`, 6 cans) and **Mud** (`light.mud`, 2 cans). **Entryway** (`light.entryway_chandelier`) and **Sitting Chandelier** (`light.sitting_chandelier`) are Lutron Diva dimmers: brightness only, no color temperature. Next: Sitting, N Office.
 
-The Pantry has no occupancy sensor and no Hue scene group. It is its own room entry with the Kitchen's `conditions` copied, so it turns on when the Kitchen is occupied and off when nobody is home and awake. The Mudroom is the same: its own room entry, the same `conditions`, no strip. Before 2026-11-05 the Mudroom cans were part of the Pantry's 8-can entity `light.pantry_cans`. They are now a separate room, so each turns off through its own room entry.
+The Pantry has no occupancy sensor and no Hue scene group. It is its own room entry with the Kitchen's `conditions` copied, so it turns on when the Kitchen is occupied and off when nobody is home and awake. The Mud is the same: its own room entry, the same `conditions`, no strip. Before 2026-11-05 the Mud cans were part of the Pantry's 8-can entity `light.pantry_cans`. They are now a separate room, so each turns off through its own room entry.
 
 The two chandeliers also have no scene group and no area. They are on whenever someone is home and awake (`isAnyoneHomeAndAwake`), with no occupancy sensor. Their room entries set `color_temp: false`, so the plugin sends only `brightness_pct` and `transition`, never `color_temp_kelvin`. It records no kelvin in shadow state (`targetKelvin` is 0) and compares only brightness when it looks for manual changes.
 
@@ -183,7 +183,7 @@ lux_curve:
   light_above_lux: 80
 
 rooms:
-  - hue_group: Living Room
+  - hue_group: Living
     # ... existing conditions unchanged ...
     lux_control:
       mode: log_only            # log_only | active
@@ -265,24 +265,24 @@ The cans stay in their Hue rooms. A Hue light belongs to one room but can sit in
 
 | Room | Hue groups | Hue work |
 |------|------------|----------|
-| Living Room | Room = 4 cans + TV. Zones `Living Cans` and `Main Living Accent` (couch, floor gradient, kids hall, TV). | Create six scenes on the `Main Living Accent` zone: `morning`, `day`, `sunset`, `dusk`, `winddown`, `night`. This gives `scene.main_living_accent_<phase>`. |
+| Living | Room = 4 cans + TV. Zones `Living Cans` and `Main Living Accent` (couch, floor gradient, kids hall, TV). | Create six scenes on the `Main Living Accent` zone: `morning`, `day`, `sunset`, `dusk`, `winddown`, `night`. This gives `scene.main_living_accent_<phase>`. |
 | Kitchen | Room = 7 cans only. Under-cabinet is a separate Home Assistant light. | None. The plugin stops recalling `scene.kitchen_<phase>` and no longer recalls `scene.kitchen_under_cabinet_<phase>`. The six under-cabinet scenes stay in Home Assistant, unused. The strip follows the cans. |
 | Pantry | 6 cans (`light.pantry`). No scenes are used. The under-cabinet strip follows the cans. | None. The room entry has no `accent_scene_group` and no `hass_area_id`. Turn-off targets `light.pantry` (and the strip) directly. |
-| Mudroom | 2 cans (`light.mudroom`). No scenes, no strip. | None. Same as the Pantry. Turn-off targets `light.mudroom` directly. |
-| Front Foyer, Front Room | One Lutron Diva chandelier each. Brightness only. No scenes are used. | None. Same as the Pantry: no `accent_scene_group`, no `hass_area_id`, `color_temp: false`. Turn-off targets the chandelier entity directly. |
-| Sitting Room, N Office | Lamps, candles, a floor gradient. No cans. | None. They stay on scenes. |
+| Mud | 2 cans (`light.mud`). No scenes, no strip. | None. Same as the Pantry. Turn-off targets `light.mud` directly. |
+| Entryway, Sitting Chandelier | One Lutron Diva chandelier each. Brightness only. No scenes are used. | None. No `accent_scene_group`, `color_temp: false`. The Sitting Chandelier has no `hass_area_id`, so turn-off targets the chandelier entity directly. The Entryway uses `hass_area_id: entryway`, so turn-off also covers the Entryway wall light. |
+| Sitting | Lamps. No cans. | None. They stay on scenes. |
 | Main Living Space (zone) | Kitchen cans, living cans and accents together | None. Its scenes reset the cans, so avoid recalling them by hand. |
 
-Keep the old `scene.living_room_<phase>` scenes until the Living Room runs in `active` mode. In `log_only` mode the plugin still recalls them, and they allow a rollback.
+Keep the old `scene.living_<phase>` scenes until the Living runs in `active` mode. In `log_only` mode the plugin still recalls them, and they allow a rollback.
 
 Turn off any Hue-bridge automation on a controlled room: the "Natural light" schedule, timers, routines, and buttons set to "time-based light". Home Assistant cannot see these, and they would fight the lux loop. Plain button presses are fine; they count as manual changes.
 
 ## Rollout
 
-1. Build the curve, the loop, the hold logic and shadow state. Living Room runs in `log_only`.
-2. Calibrate the Living Room. Watch shadow state for a few days, sunny and cloudy.
-3. Switch the Living Room to `active`.
-4. Add the Kitchen, Pantry, Sitting Room and N Office one at a time. The Kitchen, the Pantry, the Front Foyer and the Front Room are done (phone-app calibration, `active`). Sitting Room and N Office remain. The Kitchen and Pantry under-cabinet strips now follow the cans instead of using scenes (step 4 follow-up).
+1. Build the curve, the loop, the hold logic and shadow state. Living runs in `log_only`.
+2. Calibrate the Living. Watch shadow state for a few days, sunny and cloudy.
+3. Switch the Living to `active`.
+4. Add the Kitchen, Pantry and Sitting one at a time. The Kitchen, the Pantry, the Entryway and the Sitting Chandelier are done (phone-app calibration, `active`). Sitting remains. The Kitchen and Pantry under-cabinet strips now follow the cans instead of using scenes (step 4 follow-up).
 5. Turn on the manual hold for every room, including rooms still on scenes. This fixes the evening problem everywhere, even before every room has lux control.
 
 Step 5 does not depend on the lux loop. It could ship first.
@@ -293,19 +293,19 @@ What the code does, where it differs from the text above, and what is left.
 
 - **Code:** `luxcurve.go` (curve and math), `luxcontrol.go` (loop, hold, shadow state), `luxanchors.go` (sun and schedule times), all in `internal/plugins/lighting/`.
 - **Sun times are for the local calendar day.** The sun calculator asks suncalc for local noon of the local date, and the anchors reload when the local date changes. suncalc's own day rolls over at solar midnight (about 01:30 local here), so asking with "now" returned yesterday's sun times from 00:00 to about 01:30 and lifted the target to about 150 lux (fixed 2026-10-31). The target must never rise between 22:00 and sunrise.
-- **Living Room, Kitchen, Front Foyer and Front Room use handheld-meter calibration.** Measured 2026-10-31 (daylight factors, 13:10 to 13:30 local) and 2026-11-01 (dark tables, about 19:59 to 20:40 local). The meter reads about 81% of `sensor.weather_station_illuminance` outdoors, which cancels out in `daylight_factor`. Every reading is kept in [LUX_CALIBRATION_2026-10-31.md](../reference/LUX_CALIBRATION_2026-10-31.md). `calibrated: true` only lets the config load, because the loader refuses `mode: active` without it. `lux_scale` is still a guess (cans 0.5, chandeliers 0.2) and is the next decision.
-- **The Pantry and Mudroom use meter calibration.** The Pantry cans table was measured on 2026-11-02 (dark, ambient 0 lux, cans only) while the Mudroom cans were in the same group; a wall separates the rooms, so the table is unaffected. The Pantry `daylight_factor` 0.00082 was measured on 2026-11-05 (50.0 lux indoors, cans off / station 61,311 lux). The Mudroom `daylight_factor` 0.00013 is a single reading (8.3 lux, cans off / station 61,615 lux). The Mudroom table was taken in daylight by subtracting the 8.3 lux ambient, so its low steps are noisy (meter resolution 0.1 lux). A dark re-check is welcome. The Mudroom `lux_scale` 0.5 is a guess, the same as the Pantry.
+- **Living, Kitchen, Entryway and Sitting Chandelier use handheld-meter calibration.** Measured 2026-10-31 (daylight factors, 13:10 to 13:30 local) and 2026-11-01 (dark tables, about 19:59 to 20:40 local). The meter reads about 81% of `sensor.weather_station_illuminance` outdoors, which cancels out in `daylight_factor`. Every reading is kept in [LUX_CALIBRATION_2026-10-31.md](../reference/LUX_CALIBRATION_2026-10-31.md). `calibrated: true` only lets the config load, because the loader refuses `mode: active` without it. `lux_scale` is still a guess (cans 0.5, chandeliers 0.2) and is the next decision.
+- **The Pantry and Mud use meter calibration.** The Pantry cans table was measured on 2026-11-02 (dark, ambient 0 lux, cans only) while the Mud cans were in the same group; a wall separates the rooms, so the table is unaffected. The Pantry `daylight_factor` 0.00082 was measured on 2026-11-05 (50.0 lux indoors, cans off / station 61,311 lux). The Mud `daylight_factor` 0.00013 is a single reading (8.3 lux, cans off / station 61,615 lux). The Mud table was taken in daylight by subtracting the 8.3 lux ambient, so its low steps are noisy (meter resolution 0.1 lux). A dark re-check is welcome. The Mud `lux_scale` 0.5 is a guess, the same as the Pantry.
 
   | Room | Source | `daylight_factor` | Calibration (brightness % = lux) |
   |------|--------|------------------:|----------------------------------|
-  | Living Room | meter, dark, 4000 K | 0.0011 (39.45 lux) | 5 = 0.7, 10 = 1.65, 15 = 3.0, 25 = 7.9, 50 = 30.1, 100 = 119.0 |
+  | Living | meter, dark, 4000 K | 0.0011 (39.45 lux) | 5 = 0.7, 10 = 1.65, 15 = 3.0, 25 = 7.9, 50 = 30.1, 100 = 119.0 |
   | Kitchen (island) | meter, dark, 4000 K | 0.0012 (39.35 lux; workspace 0.0010) | 5 = 1.3, 10 = 3.1, 15 = 5.9, 25 = 15.8, 50 = 61.1, 100 = 237 |
-  | Front Foyer | meter, dark, brightness only | 0.0061 (212 lux) | 5 = 2, 10 = 4.4, 25 = 12.9, 50 = 48, 100 = 111 |
-  | Front Room | meter, dark, night-use spot | 0.027 (874.5 lux, daytime spot; upper bound) | 5 = 0.8, 10 = 3.9, 25 = 23, 50 = 99, 100 = 155 |
+  | Entryway | meter, dark, brightness only | 0.0061 (212 lux) | 5 = 2, 10 = 4.4, 25 = 12.9, 50 = 48, 100 = 111 |
+  | Sitting Chandelier | meter, dark, night-use spot | 0.027 (874.5 lux, daytime spot; upper bound) | 5 = 0.8, 10 = 3.9, 25 = 23, 50 = 99, 100 = 155 |
   | Pantry | meter, dark, cans only (2026-11-02); factor 2026-11-05 | 0.00082 (50.0 / 61,311) | 5 = 1, 10 = 3, 15 = 6, 25 = 16, 50 = 64, 100 = 263 |
-  | Mudroom | meter, daylight minus 8.3 lux ambient (2026-11-05) | 0.00013 (8.3 / 61,615, one reading) | 5 = 0.8, 10 = 1.8, 15 = 3.1, 25 = 8.5, 50 = 33.7, 100 = 131.4 |
+  | Mud | meter, daylight minus 8.3 lux ambient (2026-11-05) | 0.00013 (8.3 / 61,615, one reading) | 5 = 0.8, 10 = 1.8, 15 = 3.1, 25 = 8.5, 50 = 33.7, 100 = 131.4 |
 
-  Each `daylight_factor` comes from a single sky condition (sun and thin cloud, station 24,000 to 39,000 lux). Re-measure under overcast and low sun. The Front Room table was taken at the night-use spot, but its factor at the daytime spot, so 0.027 is an upper bound for the night spot (a window farther south in the room gave 0.019).
+  Each `daylight_factor` comes from a single sky condition (sun and thin cloud, station 24,000 to 39,000 lux). Re-measure under overcast and low sun. The Sitting Chandelier table was taken at the night-use spot, but its factor at the daytime spot, so 0.027 is an upper bound for the night spot (a window farther south in the room gave 0.019).
 - **Kitchen is two lighting domains.** The island (the cans) is calibrated, and the table above is for it. The workspace under the cabinet (the strip, `light.kitchen_main_lights`) is task light and is kept bright on purpose. The strip follows the cans by `follower_lights` (`floor_pct: 20`, `gain: 0.8`, strip % = clamp(floor_pct + gain x cans %, 1, 100)). No config change was made for the strip. Its dark readings at the workspace spot, for the record:
 
   | Strip brightness | 5% | 10% | 15% | 30% | 60% | 100% |
@@ -313,10 +313,10 @@ What the code does, where it differs from the text above, and what is left.
   | Lux at the workspace | 2 | 5.6 | 11.3 | 36.8 | 127.5 | 500 |
 
   The strip warms as it dims. By eye it is near 3000 K at 60%. Strip lux is very sensitive to meter position.
-- **Low end of the tables.** The lowest measured point is 5%. Below it the code interpolates from 0% = 0 lux, so the 1% point (used for the off threshold) is one fifth of the 5% lux: 0.14 lux in the Living Room, 0.26 in the Kitchen, 0.4 in the Foyer, 0.16 in the Front Room. The real cans give less at 1% (the cans follow roughly lux = k x pct^2, Living Room k about 0.012, Kitchen about 0.024), so the threshold is a little high. It does not matter: the lowest need the curve ever asks for is 1 lux (night 5 x 0.2 for the chandeliers) or 2.5 lux (night 5 x 0.5 for the cans), both inside the tables. No extrapolated 1% point was added. For the chandeliers it would be unsound: a straight line through their 5% and 10% points gives a negative lux at 1% for the Front Room, and they do not follow a square law.
-- **Expect dimmer evenings.** The phone-app tables were 3 to 4 times too low, so the same target now asks for a lower brightness. For example 40 lux in the Living Room is now about 58%, not 100%. The lights will look dimmer in the evening than before. The chandeliers also change at night: the 1 lux night need is now above their 1% threshold, so they sit on at a few percent (about 2.5% in the Foyer, 5% in the Front Room) where they used to be off or borderline.
-- **Chandeliers are `active` and brightness only.** Front Foyer (`light.front_foyer_chandelier`) and Front Room (`light.front_room_chandelier`) are Lutron Diva dimmers in windowed entryways. The config key `color_temp: false` (default true) makes the plugin skip `color_temp_kelvin`, record no kelvin, and ignore kelvin when it checks for a manual change. Their tables now reach 100%.
-- **`accent_scene_group` is optional.** A room with only cans (Kitchen, Pantry, Mudroom) leaves it empty. The plugin then recalls no Hue scene for the room. It recalls its companion scenes, if any; no room lists one now.
+- **Low end of the tables.** The lowest measured point is 5%. Below it the code interpolates from 0% = 0 lux, so the 1% point (used for the off threshold) is one fifth of the 5% lux: 0.14 lux in Living, 0.26 in the Kitchen, 0.4 in the Entryway, 0.16 in the Sitting Chandelier. The real cans give less at 1% (the cans follow roughly lux = k x pct^2, Living k about 0.012, Kitchen about 0.024), so the threshold is a little high. It does not matter: the lowest need the curve ever asks for is 1 lux (night 5 x 0.2 for the chandeliers) or 2.5 lux (night 5 x 0.5 for the cans), both inside the tables. No extrapolated 1% point was added. For the chandeliers it would be unsound: a straight line through their 5% and 10% points gives a negative lux at 1% for the Sitting Chandelier, and they do not follow a square law.
+- **Expect dimmer evenings.** The phone-app tables were 3 to 4 times too low, so the same target now asks for a lower brightness. For example 40 lux in Living is now about 58%, not 100%. The lights will look dimmer in the evening than before. The chandeliers also change at night: the 1 lux night need is now above their 1% threshold, so they sit on at a few percent (about 2.5% in the Entryway, 5% in the Sitting Chandelier) where they used to be off or borderline.
+- **Chandeliers are `active` and brightness only.** Entryway (`light.entryway_chandelier`) and Sitting Chandelier (`light.sitting_chandelier`) are Lutron Diva dimmers in windowed entryways. The config key `color_temp: false` (default true) makes the plugin skip `color_temp_kelvin`, record no kelvin, and ignore kelvin when it checks for a manual change. Their tables now reach 100%.
+- **`accent_scene_group` is optional.** A room with only cans (Kitchen, Pantry, Mud) leaves it empty. The plugin then recalls no Hue scene for the room. It recalls its companion scenes, if any; no room lists one now.
 - **The Pantry is a room entry, not a second entity under the Kitchen.** A room holds one `lux_control` block, and the Pantry needs its own calibration and `daylight_factor`. Turn-off targeting follows three-path priority: if `turn_off_entity_id` is set, it targets that entity directly (highest priority); otherwise if `hass_area_id` is set, it targets the area; otherwise (lux-managed rooms like the Pantry with no area), it targets the lux-control cans entity. The Pantry uses the third path: its entry has no `hass_area_id`, so turn-off calls `light.turn_off` on the cans entity directly, without depending on which Home Assistant area the pantry cans sit in.
 - **The Kitchen keeps `skip_reactivation_when_on`, but it is now nearly meaningless.** Its reason was to stop mmWave re-detections from recalling the under-cabinet companion scene. That scene is gone. The flag now only skips a redundant lux evaluation on a re-detection. It is harmless, so it stays until someone decides to remove it.
 - **Follower lights are in `luxcontrol.go`** (`luxDriveFollowers`, `handleFollowerChange`). Followers get a separate per-strip hold (`followerHeld`), not the room hold.

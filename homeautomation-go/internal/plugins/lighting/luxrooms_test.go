@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Tests for the production lux_control blocks of the Living Room, Kitchen, Pantry, and Mudroom.
+// Tests for the production lux_control blocks of Living, Kitchen, Pantry, and Mud room.
 // The numbers are a temporary phone-app calibration; see docs/flows/LUX_LIGHTING.md.
 
 func loadProductionConfig(t *testing.T) *HueConfig {
@@ -38,21 +38,21 @@ type luxPoint struct {
 	lux float64
 }
 
-// productionLuxRooms lists the cans rooms with measured calibration. The Living Room and Kitchen come from a
-// handheld lux meter (2026-10-31/11-01). The Pantry cans were measured on 2026-11-02 and its factor on 2026-11-05. The Mudroom (2026-11-05, daylight) is a single factor reading.
+// productionLuxRooms lists the cans rooms with measured calibration. The Living and Kitchen come from a
+// handheld lux meter (2026-10-31/11-01). The Pantry cans were measured on 2026-11-02 and its factor on 2026-11-05. The Mud room (2026-11-05, daylight) is a single factor reading.
 var productionLuxRooms = []struct {
 	room   string
 	cans   string
 	factor float64
 	points []luxPoint
 }{
-	{"Living Room", "light.living_cans", 0.0011,
+	{"Living", "light.living_cans", 0.0011,
 		[]luxPoint{{5, 0.7}, {10, 1.65}, {15, 3.0}, {25, 7.9}, {50, 30.1}, {100, 119.0}}},
 	{"Kitchen", "light.kitchen_cans", 0.0012,
 		[]luxPoint{{5, 1.3}, {10, 3.1}, {15, 5.9}, {25, 15.8}, {50, 61.1}, {100, 237}}},
 	{"Pantry", "light.pantry", 0.00082,
 		[]luxPoint{{5, 1}, {10, 3}, {15, 6}, {25, 16}, {50, 64}, {100, 263}}},
-	{"Mudroom", "light.mudroom", 0.00013,
+	{"Mud", "light.mud", 0.00013,
 		[]luxPoint{{5, 0.8}, {10, 1.8}, {15, 3.1}, {25, 8.5}, {50, 33.7}, {100, 131.4}}},
 }
 
@@ -144,7 +144,7 @@ func TestLuxRooms_KitchenAndPantryCansAreDrivenByLuxNotScenes(t *testing.T) {
 	t.Parallel()
 	m, env, _ := newProductionRoomFixture(t)
 
-	for _, name := range []string{"Kitchen", "Pantry", "Mudroom"} {
+	for _, name := range []string{"Kitchen", "Pantry", "Mud"} {
 		m.evaluateAndActivateRoom(findRoom(m.config, name), "day", "isKitchenOccupied")
 	}
 
@@ -155,7 +155,7 @@ func TestLuxRooms_KitchenAndPantryCansAreDrivenByLuxNotScenes(t *testing.T) {
 			cans = append(cans, c.Data["entity_id"].(string))
 		}
 	}
-	assert.ElementsMatch(t, []string{"light.kitchen_cans", "light.pantry", "light.mudroom", "light.kitchen_main_lights", "light.pantry_under_cabinet"}, cans)
+	assert.ElementsMatch(t, []string{"light.kitchen_cans", "light.pantry", "light.mud", "light.kitchen_main_lights", "light.pantry_under_cabinet"}, cans)
 }
 
 func TestLuxRooms_PantryTurnsOffWithKitchenConditionsWithoutAnArea(t *testing.T) {
@@ -205,7 +205,7 @@ func TestLuxConfigValidation_AccentSceneGroupIsOptional(t *testing.T) {
 
 func TestLuxRooms_ManualChangeHoldsEachRoom(t *testing.T) {
 	t.Parallel()
-	for _, name := range []string{"Living Room", "Kitchen", "Pantry", "Mudroom"} {
+	for _, name := range []string{"Living", "Kitchen", "Pantry", "Mud"} {
 		t.Run(name, func(t *testing.T) {
 			m, env, clk := newProductionRoomFixture(t)
 			room := findRoom(m.config, name)
@@ -281,14 +281,14 @@ func TestLuxRooms_PantryManualTurnOnDuringFadeToOffWins(t *testing.T) {
 	}
 }
 
-func TestProductionConfig_MudroomIsSeparateFromPantryButSharesConditions(t *testing.T) {
+func TestProductionConfig_MudIsSeparateFromPantryButSharesConditions(t *testing.T) {
 	t.Parallel()
 	cfg := loadProductionConfig(t)
-	pantry, mudroom := findRoom(cfg, "Pantry"), findRoom(cfg, "Mudroom")
+	pantry, mudroom := findRoom(cfg, "Pantry"), findRoom(cfg, "Mud")
 	require.NotNil(t, pantry)
 	require.NotNil(t, mudroom)
 	assert.Equal(t, "light.pantry", pantry.LuxControl.Cans)
-	assert.Equal(t, "light.mudroom", mudroom.LuxControl.Cans)
+	assert.Equal(t, "light.mud", mudroom.LuxControl.Cans)
 	assert.NotEqual(t, pantry.LuxControl.Cans, mudroom.LuxControl.Cans, "separate cans entities")
 	assert.Equal(t, pantry.Conditions, mudroom.Conditions)
 	assert.Empty(t, mudroom.HASSAreaID)
@@ -298,10 +298,10 @@ func TestProductionConfig_MudroomIsSeparateFromPantryButSharesConditions(t *test
 	assert.Equal(t, pantry.TransitionSeconds, mudroom.TransitionSeconds)
 }
 
-func TestLuxRooms_MudroomTurnsOffOnItsOwnWithoutAnArea(t *testing.T) {
+func TestLuxRooms_MudTurnsOffOnItsOwnWithoutAnArea(t *testing.T) {
 	t.Parallel()
 	m, env, _ := newProductionRoomFixture(t)
-	mudroom := findRoom(m.config, "Mudroom")
+	mudroom := findRoom(m.config, "Mud")
 	m.evaluateAndActivateRoom(mudroom, "day", "isKitchenOccupied")
 	require.NoError(t, env.StateMgr.SetBool("isAnyoneHomeAndAwake", false))
 	env.MockHA.ClearServiceCalls()
@@ -309,6 +309,6 @@ func TestLuxRooms_MudroomTurnsOffOnItsOwnWithoutAnArea(t *testing.T) {
 	calls := env.MockHA.GetServiceCalls()
 	require.Len(t, calls, 1)
 	assert.Equal(t, "turn_off", calls[0].Service)
-	assert.Equal(t, "light.mudroom", calls[0].Data["entity_id"], "no hass_area_id, so target the cans")
+	assert.Equal(t, "light.mud", calls[0].Data["entity_id"], "no hass_area_id, so target the cans")
 	assert.NotContains(t, calls[0].Data, "area_id")
 }

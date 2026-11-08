@@ -32,11 +32,10 @@ const (
 // defaultSpeakers is the union of speaker lists currently used by plugins.
 // Used when no notification_config.yaml is present and no plugin override is given.
 var defaultSpeakers = []string{
-	"media_player.kitchen",
-	"media_player.front_room",
-	"media_player.sitting_room",
+	"media_player.lounge",
+	"media_player.primary_bed",
+	"media_player.sitting",
 	"media_player.bedroom",
-	"media_player.dining_room",
 	"media_player.kids_bathroom",
 }
 

@@ -50,13 +50,13 @@ const (
 	defaultRepeatInterval       = 2 * time.Hour
 	defaultMessagePrefix        = "Casper needs attention"
 	defaultClearMessage         = "You have satisfied Casper"
-	defaultClearSpeakerEntityID = "media_player.sitting_room"
+	defaultClearSpeakerEntityID = "media_player.sitting"
 )
 
 var defaultSpeakers = []string{
-	"media_player.kitchen",
-	"media_player.sitting_room",
-	"media_player.front_room",
+	"media_player.lounge",
+	"media_player.sitting",
+	"media_player.primary_bed",
 	"media_player.kids_bathroom",
 }
 

@@ -341,8 +341,8 @@ func (m *Manager) handleDoorbellPressed(entity string, oldState, newState *ha.St
 func (m *Manager) flashLightsForDoorbell() {
 	lights := []string{
 		"light.primary_suite",
-		"light.living_room",
-		"light.independent",
+		"light.living",
+		"light.sitting",
 	}
 
 	// First flash

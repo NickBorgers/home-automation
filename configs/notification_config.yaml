@@ -29,11 +29,10 @@ notification:
   # per-plugin lists in use today, so removing a plugin's hardcoded list
   # does not silence any room.
   default_speakers:
-    - media_player.kitchen
-    - media_player.front_room
-    - media_player.sitting_room
+    - media_player.lounge
+    - media_player.primary_bed
+    - media_player.sitting
     - media_player.bedroom
-    - media_player.dining_room
     - media_player.kids_bathroom
 
   # Volume (0-100, integer) the announcement is played at. Passed to
