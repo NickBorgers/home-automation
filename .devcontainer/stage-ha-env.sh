@@ -26,13 +26,12 @@ if [ ! -s "$SOURCE" ]; then
     exit 0
 fi
 
-mode="$(stat -c '%a' "$SOURCE" 2>/dev/null || stat -f '%Lp' "$SOURCE" 2>/dev/null || true)"
-if [ "$mode" != "600" ]; then
+mode_oct="$(stat -c '%a' "$SOURCE" 2>/dev/null || true)"
+mode_sym="$(stat -f '%A' "$SOURCE" 2>/dev/null || true)"
+if [ "$mode_oct" != "600" ] && [ "$mode_sym" != "-rw-------" ]; then
     echo "[stage-ha-env] Ignoring $SOURCE: it must have mode 600 (chmod 600 it)." >&2
     exit 0
 fi
 
-: > "$STAGED"
-chmod 600 "$STAGED"
-cat "$SOURCE" > "$STAGED"
+install -m 600 "$SOURCE" "$STAGED"
 echo "[stage-ha-env] Home Assistant .env staged." >&2

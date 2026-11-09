@@ -104,4 +104,4 @@ else
 fi
 
 # Home Assistant .env for homeautomation-go
-bash "$(pwd)/stage-ha-env.sh"
+bash "$(dirname "${BASH_SOURCE[0]}")/stage-ha-env.sh"

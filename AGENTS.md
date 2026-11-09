@@ -343,7 +343,7 @@ READ_ONLY=true
 ```
 
 The devcontainer installs this file for you from `~/.config/home-automation/.env`
-(mode 600) via `.devcontainer/stage-ha-env.sh` and `install-ha-env.sh`. It never
+(mode 600) via `.devcontainer/stage-ha-env.sh` and `.devcontainer/install-ha-env.sh`. It never
 overwrites an existing `.env`.
 
 ## CI Runner (Self-Hosted GitHub Actions)
