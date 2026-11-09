@@ -343,6 +343,10 @@ HA_TOKEN=your_long_lived_access_token
 READ_ONLY=true
 ```
 
+The devcontainer installs this file for you from `~/.config/home-automation/.env`
+(mode 600) via `.devcontainer/stage-ha-env.sh` and `.devcontainer/install-ha-env.sh`. It never
+overwrites an existing `.env`.
+
 ## CI Runner (Self-Hosted GitHub Actions)
 
 Self-hosted GitHub Actions runner on `dockergeneric` for home-automation CI. Two containers share a network namespace: Tailscale sidecar (`ci-runner-ts`) and the runner itself (`ci-runner`).

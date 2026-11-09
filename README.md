@@ -113,6 +113,12 @@ cp .env.example .env
 go run cmd/main.go
 ```
 
+In the devcontainer, `homeautomation-go/.env` is installed for you. Keep one copy
+on the host at `~/.config/home-automation/.env` (mode 600, or set
+`HOME_AUTOMATION_ENV_FILE`). It is staged when the devcontainer starts and
+installed only if `.env` is missing, so new clones and worktrees need no manual
+copy. Without the host file, tests still run.
+
 ### Docker
 
 ```bash

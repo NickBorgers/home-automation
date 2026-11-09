@@ -102,3 +102,6 @@ if [ -f "$CLAUDE_CONFIG" ]; then
 else
     echo "[init-host-credentials] No Claude Code config found — skipping."
 fi
+
+# Home Assistant .env for homeautomation-go
+bash "$(dirname "${BASH_SOURCE[0]}")/stage-ha-env.sh"

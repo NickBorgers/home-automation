@@ -16,6 +16,7 @@ config-test/.yamllint
 .devcontainer/.claude-credentials
 .devcontainer/.claude-oauth-token
 .devcontainer/.claude-config
+.devcontainer/.ha-env
 
 # Claude Code artifacts
 claude-review-output.jsonl

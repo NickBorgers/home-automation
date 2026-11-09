@@ -74,6 +74,9 @@ else
     echo "Warning: $REPO_ROOT/homeautomation-go not found; skipping Go module setup."
 fi
 
+# Install the Home Assistant .env staged by init-host-credentials.sh (if any).
+bash "$SCRIPT_DIR/install-ha-env.sh"
+
 # Git hooks
 echo "Installing git hooks..."
 if [ -d "$REPO_ROOT" ]; then
