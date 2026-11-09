@@ -176,6 +176,8 @@ Other evidence also moves tokens:
   one token.
 - **An exit sensor** listed in the area's `exit_sensors` turns on: the person who just reached the outside
   door went out. See below.
+- **An arrival**: an approach sensor, then an exit sensor, then an entry sensor. Someone walked up to the
+  door and came in, so the area gets a token. See "Coming in".
 
 #### Leaving the house
 
@@ -197,6 +199,31 @@ back in through the doorway gets a token again under rule 1. A missed exit costs
 Sensors that pulse while a person moves, such as a garage door opener's motion sensor, turn on again and
 again. Each pulse can remove one more token, so someone who walks into the mudroom to meet a person arriving
 in the garage can lose their token until they come back through the doorway.
+
+#### Coming in
+
+Direction comes from where outside a person shows up first. At the door, then farther out: leaving.
+Farther out, then at the door: arriving. An area's `exit_sensors` see close to the door. Its
+`approach_sensors` see the way up to it, farther out. Its `entry_sensors` are on the door itself: a lock's
+unlock helper or a contact sensor.
+
+The order the sensors turn on does not show direction alone. A camera farther out often also sees the door,
+so a person leaving turns on the approach sensor and the exit sensor together, within a second or so. So:
+
+1. An approach sensor turns on.
+2. An exit sensor turns on at least `approach_lead` (default 3 s) and at most `arrival_window` (default 60 s)
+   later. This is someone walking up. That exit sensor turn-on does not remove a token.
+3. An entry sensor turns on at most `arrival_window` after that. The person opened or unlocked the door, so
+   the area gets a token, and the area counts as entered. The camera inside then moves that token in under
+   rule 1.
+
+A visitor who walks up and stays outside never turns on an entry sensor, so gets no token. Someone inside
+unlocking the door to leave turns the entry sensor on before the exit sensor, so it does nothing. An exit
+sensor with no recent approach, or one that turned on with it, is handled as under "Leaving the house".
+
+A person leaving while someone else was farther out a few seconds earlier looks like an arrival, so that
+exit is missed until the idle limit. `approach_sensors` and `entry_sensors` go together, and only with
+`exit_sensors`. An approach sensor cannot also be an exit or entry sensor of the same area.
 
 The number of people home never removes a token. Guests are not counted, and when the count is wrong the
 token removed can be the wrong person's. A token left by a missed exit expires under its area's idle limit.
@@ -293,6 +320,8 @@ room_presence:
   camera_heartbeat_timeout: 30s
   nobody_home_delay: 5m
   exit_window: 30s
+  arrival_window: 60s         # optional
+  approach_lead: 3s           # optional
   areas:
     lounge:  { seen: true,  idle_limit: 20m, neighbors: [kitchen] }
     kitchen: { seen: true,  idle_limit: 20m }
@@ -300,7 +329,9 @@ room_presence:
     study:   { seen: false, idle_limit: 3h, neighbors: [lounge] }
     bedroom: { seen: false, neighbors: [hall], bed_sensors: [binary_sensor.example_bed_presence] }
     porch:   { seen: false, idle_limit: 10m, leads_outside: true, neighbors: [hall],
-               exit_sensors: [binary_sensor.example_yard_person] }
+               exit_sensors: [binary_sensor.example_yard_person],
+               approach_sensors: [binary_sensor.example_street_person],
+               entry_sensors: [input_boolean.example_porch_door_unlocked] }
   outputs:                    # only written in active mode
     isKitchenOccupied: [kitchen]
   zone_overrides:             # zone name -> area, <area>_to_<area>, or ignore
@@ -310,6 +341,8 @@ room_presence:
 - `neighbors` (symmetric) are areas a person walks between without a boundary zone: parts of one open space,
   and the seen area outside an unseen area's doorway. Hand-offs and rule 4 use it.
 - `exit_sensors` are binary sensors outside an unseen area's outside door. See "Leaving the house".
+- `approach_sensors` see the way up to that door, farther out, and `entry_sensors` are on the door. See
+  "Coming in".
 - An area with no `idle_limit` never expires. Nobody-home and the people count still remove its tokens.
 - `cameras` (optional) maps a camera to the areas it sees. The plugin also learns this from the zones each
   camera reports. It decides which areas freeze when a camera stops.
@@ -348,7 +381,7 @@ One line per change. A token whose `lastSeen` only moves logs nothing.
   workspace-root `configs/` directory, and `TestDeploymentConfig` and `TestDeploymentReplays` check them. A log
   has one `{"t": <unix seconds>, "topic": ..., "payload": ...}` object per line. Expectations list
   checkpoints (`after` seconds, `occupied`, `empty`) and optionally `unknown_zones`. A log can also hold
-  Home Assistant state changes of bed and exit sensors, with topic `ha/state` and payload
+  Home Assistant state changes of bed, exit, approach and entry sensors, with topic `ha/state` and payload
   `{"entity_id": ..., "from": ..., "to": ...}`.
 - **Rule tests.** Table-driven tests for each start, end and expiry rule.
 - **User stories**, in `test/integration/scenario_roompresence_test.go`, in the GIVEN/WHEN/THEN form. For

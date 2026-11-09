@@ -34,6 +34,8 @@ const (
 	defaultCameraHeartbeatTimeout = 30 * time.Second
 	defaultNobodyHomeDelay        = 5 * time.Minute
 	defaultExitWindow             = 30 * time.Second
+	defaultArrivalWindow          = 60 * time.Second
+	defaultApproachLead           = 3 * time.Second
 )
 
 // fileConfig is the YAML file.
@@ -59,6 +61,14 @@ type Config struct {
 	// turn on and still mean that person went outside. The sensor may fire before the token arrives because
 	// Frigate ends a track a few seconds after the person leaves view.
 	ExitWindow time.Duration `yaml:"exit_window"`
+
+	// ArrivalWindow is how long an arrival may take at each step: from an approach sensor turning on to an
+	// exit sensor turning on, and from that to an entry sensor turning on.
+	ArrivalWindow time.Duration `yaml:"arrival_window"`
+
+	// ApproachLead is how long before an exit sensor an approach sensor must turn on for the two to mean a
+	// person walking up to the door. A person leaving is seen by both at the door, within a second or so.
+	ApproachLead time.Duration `yaml:"approach_lead"`
 
 	// Areas are the units of state, by name.
 	Areas map[string]*AreaConfig `yaml:"areas"`
@@ -98,6 +108,17 @@ type AreaConfig struct {
 	// sensor. One that turns on just after a token arrives means that person went outside. Only an unseen
 	// area that leads outside may have them.
 	ExitSensors []string `yaml:"exit_sensors"`
+
+	// ApproachSensors are binary sensors that see the way up to the outside door, farther out than the exit
+	// sensors. An approach sensor, then an exit sensor at least approach_lead later, then an entry sensor
+	// means a person came in: the area gets a token. An approach sensor that turns on with an exit sensor is
+	// a person at the door, so a person leaving is still matched by the exit sensor alone.
+	ApproachSensors []string `yaml:"approach_sensors"`
+
+	// EntrySensors are binary sensors or helpers on the door itself, such as a lock's unlock helper or a
+	// contact sensor. One must turn on to finish an arrival, so a visitor who walks to the door and stays
+	// outside does not get a token. Needed with approach_sensors.
+	EntrySensors []string `yaml:"entry_sensors"`
 }
 
 // LoadConfig reads the config file. A missing file returns (nil, nil): the plugin is unconfigured.
@@ -145,6 +166,12 @@ func (c *Config) applyDefaults() {
 	if c.ExitWindow == 0 {
 		c.ExitWindow = defaultExitWindow
 	}
+	if c.ArrivalWindow == 0 {
+		c.ArrivalWindow = defaultArrivalWindow
+	}
+	if c.ApproachLead == 0 {
+		c.ApproachLead = defaultApproachLead
+	}
 }
 
 func (c *Config) validate() error {
@@ -177,9 +204,29 @@ func (c *Config) validate() error {
 			// remove the token of someone still inside.
 			errs = append(errs, fmt.Sprintf("area %q: exit_sensors needs an unseen area with leads_outside", name))
 		}
+		if (len(a.ApproachSensors) > 0 || len(a.EntrySensors) > 0) &&
+			(len(a.ExitSensors) == 0 || len(a.ApproachSensors) == 0 || len(a.EntrySensors) == 0) {
+			errs = append(errs, fmt.Sprintf("area %q: approach_sensors and entry_sensors go together, with exit_sensors", name))
+		}
+		for _, e := range a.ApproachSensors {
+			for _, x := range append(append([]string{}, a.ExitSensors...), a.EntrySensors...) {
+				if e == x {
+					errs = append(errs, fmt.Sprintf("area %q: %s is an approach sensor and an exit or entry sensor", name, e))
+				}
+			}
+		}
 	}
 	if c.ExitWindow < 0 {
 		errs = append(errs, "exit_window must be positive")
+	}
+	if c.ArrivalWindow < 0 {
+		errs = append(errs, "arrival_window must be positive")
+	}
+	if c.ApproachLead < 0 {
+		errs = append(errs, "approach_lead must be positive")
+	}
+	if c.ApproachLead >= c.ArrivalWindow {
+		errs = append(errs, "approach_lead must be shorter than arrival_window")
 	}
 	for cam, areas := range c.Cameras {
 		for _, a := range areas {
@@ -289,33 +336,48 @@ func (c *Config) neighbors(a, b string) bool {
 	return false
 }
 
-// sensorAreas lists the areas that use an entity as a bed sensor and as an exit sensor.
-func (c *Config) sensorAreas(entity string) (beds, exits []string) {
+// sensorAreas lists the areas that use an entity as each kind of sensor.
+func (c *Config) sensorAreas(entity string) sensorRoles {
+	var r sensorRoles
+	has := func(list []string) bool {
+		for _, e := range list {
+			if e == entity {
+				return true
+			}
+		}
+		return false
+	}
 	for _, name := range sortedKeys(c.Areas) {
 		a := c.Areas[name]
-		for _, e := range a.BedSensors {
-			if e == entity {
-				beds = append(beds, name)
-			}
+		if has(a.BedSensors) {
+			r.beds = append(r.beds, name)
 		}
-		for _, e := range a.ExitSensors {
-			if e == entity {
-				exits = append(exits, name)
-			}
+		if has(a.ExitSensors) {
+			r.exits = append(r.exits, name)
+		}
+		if has(a.ApproachSensors) {
+			r.approaches = append(r.approaches, name)
+		}
+		if has(a.EntrySensors) {
+			r.entries = append(r.entries, name)
 		}
 	}
-	return beds, exits
+	return r
 }
 
-// sensorEntities lists every bed and exit sensor, once each.
+// sensorRoles lists, for one entity, the areas where it is each kind of sensor.
+type sensorRoles struct {
+	beds, exits, approaches, entries []string
+}
+
+// sensorEntities lists every bed, exit, approach and entry sensor, once each.
 func (c *Config) sensorEntities() []string {
 	set := map[string]bool{}
 	for _, a := range c.Areas {
-		for _, e := range a.BedSensors {
-			set[e] = true
-		}
-		for _, e := range a.ExitSensors {
-			set[e] = true
+		for _, list := range [][]string{a.BedSensors, a.ExitSensors, a.ApproachSensors, a.EntrySensors} {
+			for _, e := range list {
+				set[e] = true
+			}
 		}
 	}
 	return sortedKeys(set)

@@ -108,25 +108,32 @@ func TestConfig_Defaults(t *testing.T) {
 	assert.Equal(t, defaultCameraHeartbeatTimeout, cfg.CameraHeartbeatTimeout)
 	assert.Equal(t, defaultNobodyHomeDelay, cfg.NobodyHomeDelay)
 	assert.Equal(t, defaultExitWindow, cfg.ExitWindow)
+	assert.Equal(t, defaultArrivalWindow, cfg.ArrivalWindow)
+	assert.Equal(t, defaultApproachLead, cfg.ApproachLead)
 }
 
 func TestConfig_Invalid(t *testing.T) {
 	cases := map[string]string{
-		"bad mode":         "room_presence:\n  mode: loud\n  areas: {den: {seen: true}}\n",
-		"no areas":         "room_presence:\n  mode: log_only\n",
-		"no section":       "other: {}\n",
-		"_to_ in area":     "room_presence:\n  areas: {den_to_hall: {seen: true}}\n",
-		"unknown neighbor": "room_presence:\n  areas: {den: {neighbors: [attic]}}\n",
-		"unknown output":   "room_presence:\n  areas: {den: {}}\n  outputs: {isDen: [attic]}\n",
-		"empty output":     "room_presence:\n  areas: {den: {}}\n  outputs: {isDen: []}\n",
-		"output is input":  "room_presence:\n  areas: {den: {}}\n  outputs: {isNickHome: [den]}\n",
-		"bad override":     "room_presence:\n  areas: {den: {}}\n  zone_overrides: {z: attic}\n",
-		"unknown camera":   "room_presence:\n  areas: {den: {}}\n  cameras: {c: [attic]}\n",
-		"zero idle limit":  "room_presence:\n  areas: {den: {idle_limit: 0s}}\n",
-		"not yaml":         "room_presence: [",
-		"exit seen":        "room_presence:\n  areas: {den: {seen: true, leads_outside: true, exit_sensors: [b.x]}}\n",
-		"exit not outside": "room_presence:\n  areas: {den: {exit_sensors: [b.x]}}\n",
-		"negative exit":    "room_presence:\n  exit_window: -1s\n  areas: {den: {}}\n",
+		"bad mode":               "room_presence:\n  mode: loud\n  areas: {den: {seen: true}}\n",
+		"no areas":               "room_presence:\n  mode: log_only\n",
+		"no section":             "other: {}\n",
+		"_to_ in area":           "room_presence:\n  areas: {den_to_hall: {seen: true}}\n",
+		"unknown neighbor":       "room_presence:\n  areas: {den: {neighbors: [attic]}}\n",
+		"unknown output":         "room_presence:\n  areas: {den: {}}\n  outputs: {isDen: [attic]}\n",
+		"empty output":           "room_presence:\n  areas: {den: {}}\n  outputs: {isDen: []}\n",
+		"output is input":        "room_presence:\n  areas: {den: {}}\n  outputs: {isNickHome: [den]}\n",
+		"bad override":           "room_presence:\n  areas: {den: {}}\n  zone_overrides: {z: attic}\n",
+		"unknown camera":         "room_presence:\n  areas: {den: {}}\n  cameras: {c: [attic]}\n",
+		"zero idle limit":        "room_presence:\n  areas: {den: {idle_limit: 0s}}\n",
+		"not yaml":               "room_presence: [",
+		"exit seen":              "room_presence:\n  areas: {den: {seen: true, leads_outside: true, exit_sensors: [b.x]}}\n",
+		"exit not outside":       "room_presence:\n  areas: {den: {exit_sensors: [b.x]}}\n",
+		"negative exit":          "room_presence:\n  exit_window: -1s\n  areas: {den: {}}\n",
+		"approach without entry": "room_presence:\n  areas: {den: {leads_outside: true, exit_sensors: [b.x], approach_sensors: [b.y]}}\n",
+		"entry without approach": "room_presence:\n  areas: {den: {leads_outside: true, exit_sensors: [b.x], entry_sensors: [b.z]}}\n",
+		"approach without exit":  "room_presence:\n  areas: {den: {leads_outside: true, approach_sensors: [b.y], entry_sensors: [b.z]}}\n",
+		"approach is exit":       "room_presence:\n  areas: {den: {leads_outside: true, exit_sensors: [b.x], approach_sensors: [b.x], entry_sensors: [b.z]}}\n",
+		"lead past window":       "room_presence:\n  approach_lead: 2m\n  arrival_window: 1m\n  areas: {den: {}}\n",
 	}
 	for name, yml := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -631,4 +638,76 @@ func TestSensorChanged_BedSensor(t *testing.T) {
 	s.occupied("bedroom")
 	s.tr.SensorChanged(at(1), "binary_sensor.unrelated", "off", "on")
 	s.tokens(1)
+}
+
+const (
+	streetPerson = "binary_sensor.example_street_person"
+	porchUnlock  = "input_boolean.example_porch_door_unlocked"
+)
+
+// "If they appear farther away, then right at the door, they're arriving." The door then unlocks.
+func TestArrival_FarThenNearThenUnlockCreatesToken(t *testing.T) {
+	s := newScene(t)
+	s.tr.SensorChanged(at(0), streetPerson, "off", "on")
+	s.tr.SensorChanged(at(8), yardPerson, "off", "on")
+	s.empty("porch")
+	s.tr.SensorChanged(at(15), porchUnlock, "off", "on")
+	s.occupied("porch")
+	s.tokens(1)
+	for _, tok := range s.tr.tokens {
+		assert.Contains(t, tok.reason, "came in")
+	}
+	assert.Contains(t, s.tr.DrainEntries(), "porch")
+}
+
+// The arrival token is the person the hall camera then sees come in.
+func TestArrival_TokenWalksIn(t *testing.T) {
+	s := newScene(t)
+	s.tr.Heartbeat(at(0), "cam_hall")
+	s.tr.SensorChanged(at(0), streetPerson, "off", "on")
+	s.tr.SensorChanged(at(8), yardPerson, "off", "on")
+	s.tr.SensorChanged(at(15), porchUnlock, "off", "on")
+	s.event(20, "update", "a", "cam_hall", []string{"hall_to_porch"}, "hall_to_porch")
+	s.event(21, "update", "a", "cam_hall", []string{"hall_to_porch", "hall"}, "hall")
+	s.occupied("hall")
+	s.empty("porch")
+	s.tokens(1)
+}
+
+// A visitor walks up to the door and the door is not opened: no token.
+func TestArrival_VisitorWithoutUnlockGetsNoToken(t *testing.T) {
+	s := newScene(t)
+	s.tr.SensorChanged(at(0), streetPerson, "off", "on")
+	s.tr.SensorChanged(at(8), yardPerson, "off", "on")
+	s.tick(70)
+	s.tr.SensorChanged(at(75), porchUnlock, "off", "on")
+	s.tokens(0)
+}
+
+// "If they appear right at the door, then farther away, they're leaving." Both cameras see a person at
+// the door, so the street camera turns on with the yard camera, not before it. The exit rule still applies.
+func TestArrival_LeavingStillRemovesToken(t *testing.T) {
+	s := newScene(t)
+	s.tr.SensorChanged(at(0), porchUnlock, "off", "on") // unlocked from inside: no arrival
+	arrived := s.walkToPorch(1, "a")
+	s.tr.SensorChanged(at(arrived+0.5), streetPerson, "off", "on")
+	s.tr.SensorChanged(at(arrived+1.3), yardPerson, "off", "on")
+	s.empty("porch")
+	s.tokens(0)
+}
+
+// An approach long before the door is somebody else, so the door sensor is an exit as usual.
+func TestArrival_OldApproachIsNotAnArrival(t *testing.T) {
+	s := newScene(t)
+	s.tr.SensorChanged(at(0), streetPerson, "off", "on")
+	arrived := s.walkToPorch(100, "a")
+	s.tr.SensorChanged(at(arrived+2), yardPerson, "off", "on")
+	s.tokens(0)
+}
+
+// An unlock with nobody walking up does nothing.
+func TestArrival_UnlockAloneDoesNothing(t *testing.T) {
+	s := newScene(t)
+	s.tr.SensorChanged(at(0), porchUnlock, "off", "on")
+	s.tokens(0)
 }
