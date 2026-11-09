@@ -138,7 +138,7 @@ func TestColorTracking_DoesNotMirrorPowerOrReactToTargetColorChange(t *testing.T
 	client.SetState(testColorSource, "on", map[string]interface{}{
 		"color_mode": "color_temp", "color_temp_kelvin": float64(3000), "brightness": float64(100),
 	})
-	assert.Len(t, client.GetServiceCalls(), 1, "source brightness-only changes must not overwrite a manual target color")
+	assert.Len(t, client.GetServiceCalls(), 1, "source re-fire with same color (3000K) must not trigger re-apply — DeepEqual short-circuits")
 }
 
 func TestColorFromState_PrefersActiveColorMode(t *testing.T) {
