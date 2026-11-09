@@ -1,0 +1,102 @@
+# House map for the made-up example house in docs/architecture/ROOM_PRESENCE.md and HOUSE_MAP.md. It matches
+# internal/plugins/roompresence/testdata/example_config.yaml. A real house's map is private deployment data
+# and lives in configs/house_map.yaml of a private deployment, not in this repository.
+#
+# Lounge and kitchen run along the south. Study and hall are north of them, and the porch is north of the hall.
+# The bedroom is east of the hall.
+house_map:
+  frame: {units: m, x: east, y: north, origin: "south-west corner of the lounge"}
+
+  spaces:
+    lounge:
+      kind: room
+      area: lounge
+      polygon: [[0, 0], [6, 0], [6, 5], [0, 5]]
+    kitchen:
+      kind: room
+      area: kitchen
+      polygon: [[6, 0], [10, 0], [10, 5], [6, 5]]
+    study:
+      kind: room
+      area: study
+      polygon: [[0, 5], [4, 5], [4, 9], [0, 9]]
+    hall:
+      kind: room
+      area: hall
+      polygon: [[4, 5], [10, 5], [10, 8], [4, 8]]
+    bedroom:
+      kind: room
+      area: bedroom
+      polygon: [[10, 3], [14, 3], [14, 8], [10, 8]]
+    porch:
+      kind: room
+      area: porch
+      polygon: [[5, 8], [8, 8], [8, 10], [5, 10]]
+      note: "An enclosed porch. Room presence treats it as an area that leads outside."
+    yard:
+      kind: yard
+      polygon: [[-8, -8], [22, -8], [22, 18], [-8, 18]]
+
+  doors:
+    lounge_kitchen:
+      kind: opening
+      connects: [lounge, kitchen]
+      span: [[6, 1], [6, 4]]
+    lounge_study:
+      kind: door
+      connects: [lounge, study]
+      span: [[1, 5], [2, 5]]
+      zones: {cam_lounge: lounge_to_study}
+    kitchen_hall:
+      kind: door
+      connects: [kitchen, hall]
+      span: [[7, 5], [8, 5]]
+      zones: {cam_kitchen: kitchen_to_hall, cam_hall: hall_to_kitchen}
+    hall_bedroom:
+      kind: door
+      connects: [hall, bedroom]
+      span: [[10, 6], [10, 7]]
+      zones: {cam_hall: hall_to_bedroom}
+    hall_porch:
+      kind: door
+      connects: [hall, porch]
+      span: [[6, 8], [7, 8]]
+      zones: {cam_hall: hall_to_porch}
+    front:
+      kind: door
+      exterior: true
+      connects: [porch, yard]
+      span: [[6, 10], [7, 10]]
+      lock: input_boolean.example_front_door_unlocked
+
+  lines:
+    east_fence:
+      kind: fence
+      line: [[20, -8], [20, 18]]
+
+  cameras:
+    cam_lounge:
+      frigate: cam_lounge
+      at: [0.3, 0.3]
+      heading_deg: 45
+      fov_deg: 90
+      range_m: 8
+    cam_kitchen:
+      frigate: cam_kitchen
+      at: [9.7, 0.3]
+      heading_deg: 315
+      fov_deg: 90
+      range_m: 8
+    cam_hall:
+      frigate: cam_hall
+      at: [4.3, 6.5]
+      heading_deg: 90
+      fov_deg: 90
+      range_m: 7
+    porch_cam:
+      at: [8.2, 10.2]
+      heading_deg: 0
+      fov_deg: 120
+      range_m: 12
+      entities: [binary_sensor.example_porch_person]
+      note: "On the porch's north-east corner, facing out."

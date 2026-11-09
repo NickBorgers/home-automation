@@ -1,0 +1,145 @@
+<title>House Floor Plan</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Condensed:wght@400;600&family=IBM+Plex+Mono:wght@400;500&family=Fraunces:opsz,wght@9..144,600&display=swap">
+<style>
+/* Rendered by housemap-render -format html. See docs/architecture/HOUSE_MAP.md.
+   Layout: a drafting sheet. Plan on the left, the file's contents on the right; stacks on phones. */
+:root {
+  --paper: #f3f5f2; --ink: #1f2a26; --muted: #5d6b65; --rule: #c9d2cc; --panel: #fbfcfa; --accent: #2f6f8f; --warn: #b5651d;
+  --fill-s: 38%; --fill-l: 80%; --grid: #dfe5e1;
+  --o-yard: #dfe7cf; --o-lawn: #d3e4c4; --o-drive: #d9d6cf; --o-pave: #e8e2d6; --o-water: #bcd9e6; --o-wood: #e6cdb8; --o-bldg: #cfd3d6;
+  --display: "Fraunces", Georgia, serif;
+  --body: "IBM Plex Sans Condensed", "Arial Narrow", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --paper: #141a18; --ink: #e4ebe7; --muted: #9aa8a1; --rule: #2e3a35; --panel: #1b2320; --accent: #7cb8d6; --warn: #e3a062;
+  --fill-s: 30%; --fill-l: 30%; --grid: #24302b;
+  --o-yard: #26301f; --o-lawn: #22321f; --o-drive: #2f2d29; --o-pave: #34302a; --o-water: #1f3a46; --o-wood: #3e3027; --o-bldg: #30363a; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --paper: #141a18; --ink: #e4ebe7; --muted: #9aa8a1; --rule: #2e3a35; --panel: #1b2320; --accent: #7cb8d6; --warn: #e3a062;
+  --fill-s: 30%; --fill-l: 30%; --grid: #24302b;
+  --o-yard: #26301f; --o-lawn: #22321f; --o-drive: #2f2d29; --o-pave: #34302a; --o-water: #1f3a46; --o-wood: #3e3027; --o-bldg: #30363a; color-scheme: dark }
+
+body { background: var(--paper); color: var(--ink); font-family: var(--body); font-size: 15px; line-height: 1.5; }
+.wrap { padding-block: 24px 40px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); max-width: 1280px; margin: 0 auto; display: grid; gap: 20px; }
+header { display: grid; gap: 4px; }
+h1 { font-family: var(--display); font-weight: 600; font-size: 30px; line-height: 1.1; margin: 0; text-wrap: balance; }
+.sub { color: var(--muted); max-width: 72ch; margin: 0; }
+.eyebrow { font-family: var(--mono); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--accent); }
+.grid2 { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 20px; align-items: start; }
+@media (max-width: 860px) { .grid2 { grid-template-columns: minmax(0, 1fr); } }
+.sheet { background: var(--panel); border: 1px solid var(--rule); border-radius: 4px; padding: 10px; overflow-x: auto; }
+.sheet svg { display: block; width: 100%; height: auto; max-height: 86vh; }
+.controls { display: flex; flex-wrap: wrap; gap: 8px 16px; font-size: 13px; color: var(--muted); padding: 4px 2px 8px; }
+.controls label { display: inline-flex; gap: 6px; align-items: center; cursor: pointer; }
+.controls input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.grid { stroke: var(--grid); stroke-width: 1; }
+.room { fill: hsl(var(--h) var(--fill-s) var(--fill-l)); stroke: var(--ink); stroke-width: 1.4; stroke-linejoin: round; }
+.room:hover { opacity: .8; }
+.out { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 4 3; }
+.o-yard { fill: var(--o-yard); } .o-driveway { fill: var(--o-drive); } .o-patio { fill: var(--o-pave); }
+.o-pool { fill: var(--o-water); } .o-deck { fill: var(--o-wood); } .o-outbuilding, .o-garage { fill: var(--o-bldg); stroke-dasharray: none; stroke: var(--ink); stroke-width: 1.4; }
+.door { stroke: var(--accent); stroke-width: 6; stroke-linecap: butt; }
+.door.ext { stroke: var(--warn); stroke-width: 7; }
+.fov { fill: var(--accent); fill-opacity: .10; stroke: var(--accent); stroke-opacity: .5; stroke-width: 1; }
+.cam { fill: var(--accent); stroke: var(--panel); stroke-width: 2; }
+.cn { font: 600 10px var(--mono); fill: var(--accent); pointer-events: none; }
+.fence { fill: none; stroke: var(--ink); stroke-width: 2.5; stroke-dasharray: 2 4; }
+.hide-cams .fov, .hide-cams .cam, .hide-cams .cn { display: none; }
+.opening { stroke: var(--paper); stroke-width: 6; stroke-linecap: butt; opacity: .9; }
+.rn { font: 600 11px var(--body); fill: var(--ink); text-anchor: middle; pointer-events: none; }
+.on { font: italic 400 11px var(--body); fill: var(--muted); text-anchor: middle; pointer-events: none; }
+.compass path { fill: var(--ink); } .compass text { font: 600 11px var(--body); fill: var(--ink); text-anchor: middle; }
+.scale line { stroke: var(--ink); stroke-width: 2; } .scale text { font: 400 10px var(--mono); fill: var(--muted); }
+.hide-labels .rn, .hide-labels .on, .hide-out .out, .hide-out .on { display: none; }
+
+
+aside { display: grid; gap: 16px; min-width: 0; }
+section { background: var(--panel); border: 1px solid var(--rule); border-radius: 4px; padding: 14px 16px; min-width: 0; }
+h2 { font-family: var(--body); font-weight: 600; font-size: 16px; margin: 0 0 8px; }
+p { margin: 0 0 8px; } p:last-child { margin: 0; }
+code { font-family: var(--mono); font-size: 12px; }
+.legend { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 4px 12px; font-size: 13px; }
+.legend li { display: flex; align-items: center; gap: 6px; }
+.legend em { color: var(--muted); font-style: normal; font-size: 11.5px; }
+.sw { width: 14px; height: 14px; border-radius: 2px; background: hsl(var(--h) var(--fill-s) var(--fill-l)); border: 1px solid var(--rule); flex: none; }
+.tbl { overflow-x: auto; max-height: 420px; overflow-y: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 13px; }
+th { text-align: left; font-weight: 600; color: var(--muted); font-size: 11px; letter-spacing: .06em; text-transform: uppercase; border-bottom: 1px solid var(--rule); padding: 4px 6px; position: sticky; top: 0; background: var(--panel); }
+td { border-bottom: 1px solid var(--rule); padding: 5px 6px; vertical-align: top; }
+.num { font-family: var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+ul.plain { margin: 0; padding-left: 18px; } ul.plain li { margin: 3px 0; }
+.todo h2 { color: var(--warn); }
+</style>
+
+<div class="wrap">
+  <header>
+    <span class="eyebrow">{{.Source}} · metres, north up</span>
+    <h1>House Floor Plan</h1>
+    <p class="sub">Drawn from the map file itself. It has {{.NRooms}} rooms{{if .Valetudo}}, drawn from a vacuum map turned {{.Valetudo.RotationDeg}}° to north-up{{end}}. Blue bars are doors, orange bars are outside doors, and gaps in the outline are open-plan openings. Camera wedges show each camera's field of view and range. Grid lines are 5 m apart.</p>
+  </header>
+
+  <div class="grid2">
+    <div class="sheet">
+      <div class="controls">
+        <label><input type="checkbox" id="t-labels" checked> Names</label>
+        <label><input type="checkbox" id="t-out" checked> Outdoors</label>
+        <label><input type="checkbox" id="t-cams" checked> Cameras</label>
+      </div>
+      <svg id="plan" viewBox="0 0 {{printf "%.0f" .Width}} {{printf "%.0f" .Height}}" role="img" aria-label="House map, north up">
+        <g>{{range .Grid}}<line class="grid" x1="{{f1 .X1}}" y1="{{f1 .Y1}}" x2="{{f1 .X2}}" y2="{{f1 .Y2}}"/>{{end}}</g>
+        <g>{{range .Outdoor}}<polygon class="out o-{{.Kind}}" points="{{.Points}}"><title>{{.Name}} ({{.Kind}})</title></polygon>{{end}}</g>
+        <g>{{range .Rooms}}<polygon class="room" style="--h:{{.Hue}}" points="{{.Points}}"><title>{{.Name}} · area {{.Area}}</title></polygon>{{end}}</g>
+        <g>{{range .Doors}}<line class="{{.Class}}" x1="{{f1 .X1}}" y1="{{f1 .Y1}}" x2="{{f1 .X2}}" y2="{{f1 .Y2}}"><title>{{.Name}}: {{printf "%.2f" .Width}} m</title></line>{{end}}</g>
+        <g>{{range .Lines}}<polyline class="fence" points="{{.Points}}"><title>{{.Name}}</title></polyline>{{end}}</g>
+        <g>{{range .Cameras}}<polygon class="fov" points="{{.Wedge}}"><title>{{.Name}}: {{.Heading}}°, {{.Fov}}° wide, {{.Range}} m</title></polygon><circle class="cam" cx="{{f1 .X}}" cy="{{f1 .Y}}" r="5"><title>{{.Name}}</title></circle>{{end}}</g>
+        <g>{{range .Labels}}<text class="{{.Class}}" x="{{f1 .X}}" y="{{f1 .Y}}">{{.Text}}</text>{{end}}</g>
+        <g class="compass" transform="translate({{f0 .NorthX}},26)"><path d="M0,-14 L8,8 L0,3 L-8,8 Z"/><text y="22">N</text></g>
+        <g class="scale" transform="translate(20,{{f0 .ScaleY}})"><line x1="0" y1="0" x2="{{.ScaleBar}}" y2="0"/><line x1="0" y1="-5" x2="0" y2="5"/><line x1="{{.ScaleBar}}" y1="-5" x2="{{.ScaleBar}}" y2="5"/><text x="4" y="-6">5 m</text></g>
+      </svg>
+    </div>
+
+    <aside>
+      {{- if .Unplaced}}
+      <section class="todo">
+        <h2>Still to place</h2>
+        <p>In the file without a position.</p>
+        <ul class="plain">{{range .Unplaced}}<li><code>{{.Name}}</code>: {{.A}} ↔ {{.B}}{{if .Lock}} · lock <code>{{.Lock}}</code>{{end}}</li>{{end}}</ul>
+      </section>
+      {{- end}}
+      <section>
+        <h2>Outdoor cameras</h2>
+        <div class="tbl"><table>
+          <thead><tr><th>Camera</th><th>Faces</th><th>Placement</th></tr></thead>
+          <tbody>{{range .Cameras}}{{if .Outdoor}}<tr><td><code>{{.Name}}</code></td><td class="num">{{.Heading}}°</td><td>{{.Note}}</td></tr>{{end}}{{end}}</tbody>
+        </table></div>
+      </section>
+      <section>
+        <h2>Room presence areas</h2>
+        <ul class="legend">{{range .Areas}}<li><span class="sw" style="--h:{{.Hue}}"></span><code>{{.Name}}</code>{{if .Unseen}} <em>unseen</em>{{end}}</li>{{end}}</ul>
+      </section>
+      <section>
+        <h2>{{len .Doors}} doors and openings</h2>
+        <div class="tbl"><table>
+          <thead><tr><th>Name</th><th>Kind</th><th>Width</th><th>Frigate zones</th></tr></thead>
+          <tbody>{{range .Doors}}<tr><td><code>{{.Name}}</code></td><td>{{.KindLabel}}</td><td class="num">{{printf "%.2f" .Width}} m</td><td>{{range $i, $z := .Zones}}{{if $i}}, {{end}}<code>{{$z}}</code>{{end}}</td></tr>{{end}}</tbody>
+        </table></div>
+      </section>
+    </aside>
+  </div>
+</div>
+
+<script>
+(() => {
+  const plan = document.getElementById('plan');
+  const bind = (id, cls) => {
+    const el = document.getElementById(id);
+    const apply = () => plan.classList.toggle(cls, !el.checked);
+    el.addEventListener('change', apply); apply();
+  };
+  bind('t-labels', 'hide-labels'); bind('t-out', 'hide-out'); bind('t-cams', 'hide-cams');
+})();
+</script>

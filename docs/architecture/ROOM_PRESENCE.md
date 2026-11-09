@@ -53,6 +53,9 @@ The Home Assistant Frigate integration is not needed. The plugin reads raw MQTT.
 
 ## The map
 
+The geometry of the house, with its rooms, doors and cameras, is in the house map. See
+[HOUSE_MAP.md](./HOUSE_MAP.md). Tests check that the two agree.
+
 ### Areas
 
 An **area** is the unit of state. It is one room, or several rooms the cameras cannot tell apart. An unseen
