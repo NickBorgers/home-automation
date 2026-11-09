@@ -21,8 +21,11 @@ room_presence:
     study:   { seen: false, idle_limit: 3h, neighbors: [lounge] }
     bedroom: { seen: false, neighbors: [hall], bed_sensors: [binary_sensor.example_bed_presence] }
     # An exit sensor outside the porch door turning on just after a token arrives means that person left.
+    # The street camera sees the path farther out. Street, then yard, then the door unlocked: someone came in.
     porch:   { seen: false, idle_limit: 10m, leads_outside: true, neighbors: [hall],
-               exit_sensors: [binary_sensor.example_yard_person] }
+               exit_sensors: [binary_sensor.example_yard_person],
+               approach_sensors: [binary_sensor.example_street_person],
+               entry_sensors: [input_boolean.example_porch_door_unlocked] }
   outputs:                    # only written in active mode
     isKitchenOccupied: [kitchen]
   zone_overrides:             # zone name -> area, <area>_to_<area>, or ignore

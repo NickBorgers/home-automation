@@ -82,6 +82,13 @@ type exitEdge struct {
 	entity string
 }
 
+// arrival is a person who walked up to an outside door: an approach sensor, then an exit sensor. It waits
+// for an entry sensor.
+type arrival struct {
+	approach exitEdge
+	door     exitEdge
+}
+
 type camera struct {
 	lastHeartbeat time.Time
 	online        bool
@@ -111,6 +118,11 @@ type Tracker struct {
 	// short time after the person went out, because Frigate ends a track a few seconds late.
 	exitEdges map[string][]exitEdge
 
+	// approachEdges are the last approach sensor turn-on, by area.
+	approachEdges map[string]exitEdge
+	// arrivals wait for an entry sensor, by area, oldest first.
+	arrivals map[string][]arrival
+
 	peopleKnown bool
 	peopleHome  int
 	guests      bool
@@ -128,16 +140,18 @@ type Tracker struct {
 // NewTracker builds a tracker with no tokens.
 func NewTracker(cfg *Config) *Tracker {
 	t := &Tracker{
-		cfg:          cfg,
-		tokens:       make(map[string]*token),
-		active:       make(map[string]*track),
-		areaLastSeen: make(map[string]time.Time),
-		frozenSince:  make(map[string]time.Time),
-		cameras:      make(map[string]*camera),
-		cameraAreas:  make(map[string]map[string]bool),
-		unknownZones: make(map[string]bool),
-		exitEdges:    make(map[string][]exitEdge),
-		anyoneHome:   true,
+		cfg:           cfg,
+		tokens:        make(map[string]*token),
+		active:        make(map[string]*track),
+		areaLastSeen:  make(map[string]time.Time),
+		frozenSince:   make(map[string]time.Time),
+		cameras:       make(map[string]*camera),
+		cameraAreas:   make(map[string]map[string]bool),
+		unknownZones:  make(map[string]bool),
+		exitEdges:     make(map[string][]exitEdge),
+		approachEdges: make(map[string]exitEdge),
+		arrivals:      make(map[string][]arrival),
+		anyoneHome:    true,
 	}
 	for cam, areas := range cfg.Cameras {
 		for _, a := range areas {
@@ -238,22 +252,69 @@ func (t *Tracker) BedOccupied(now time.Time, area string) {
 	t.newToken(now, area, "", "bed sensor is on", false)
 }
 
-// SensorChanged applies a bed or exit sensor's state change. from is the old state, empty when unknown.
+// SensorChanged applies a bed, exit, approach or entry sensor's state change. from is the old state,
+// empty when unknown.
 func (t *Tracker) SensorChanged(now time.Time, entity, from, to string) {
 	if to != "on" {
 		return
 	}
-	beds, exits := t.cfg.sensorAreas(entity)
-	for _, area := range beds {
+	roles := t.cfg.sensorAreas(entity)
+	for _, area := range roles.beds {
 		t.BedOccupied(now, area)
 	}
 	if from == "on" {
 		return
 	}
-	for _, area := range exits {
-		t.exitEdges[area] = append(t.exitEdges[area], exitEdge{at: now, entity: entity})
+	edge := exitEdge{at: now, entity: entity}
+	for _, area := range roles.approaches {
+		t.approachEdges[area] = edge
+	}
+	for _, area := range roles.exits {
+		if a, ok := t.approachEdges[area]; ok && now.Sub(a.at) >= t.cfg.ApproachLead && now.Sub(a.at) <= t.cfg.ArrivalWindow {
+			// Farther out, then at the door: someone walking up, not someone leaving.
+			delete(t.approachEdges, area)
+			t.arrivals[area] = append(t.arrivals[area], arrival{approach: a, door: edge})
+			continue
+		}
+		t.exitEdges[area] = append(t.exitEdges[area], edge)
 		t.matchExits(now, area)
 	}
+	for _, area := range roles.entries {
+		t.matchArrival(now, area, edge)
+	}
+}
+
+// matchArrival finishes the oldest arrival at an area's door when an entry sensor turns on: the person who
+// walked up opened or unlocked the door, so the area gets a token. An entry sensor with no arrival, such
+// as someone inside unlocking the door to leave, does nothing.
+func (t *Tracker) matchArrival(now time.Time, area string, entry exitEdge) {
+	t.expireArrivals(now, area)
+	pending := t.arrivals[area]
+	if len(pending) == 0 {
+		return
+	}
+	a := pending[0]
+	t.arrivals[area] = pending[1:]
+	if len(t.arrivals[area]) == 0 {
+		delete(t.arrivals, area)
+	}
+	t.newToken(now, area, "", fmt.Sprintf("came in: %s, then %s, then %s turned on",
+		a.approach.entity, a.door.entity, entry.entity), true)
+}
+
+// expireArrivals drops arrivals whose entry sensor did not turn on in time: a visitor who stayed outside.
+func (t *Tracker) expireArrivals(now time.Time, area string) {
+	keep := t.arrivals[area][:0]
+	for _, a := range t.arrivals[area] {
+		if now.Sub(a.door.at) <= t.cfg.ArrivalWindow {
+			keep = append(keep, a)
+		}
+	}
+	if len(keep) == 0 {
+		delete(t.arrivals, area)
+		return
+	}
+	t.arrivals[area] = keep
 }
 
 // matchExits removes the token of a person who went outside. An exit sensor turning on matches one token
@@ -315,6 +376,9 @@ func (t *Tracker) Tick(now time.Time) {
 
 	for _, area := range sortedKeys(t.exitEdges) {
 		t.matchExits(now, area)
+	}
+	for _, area := range sortedKeys(t.arrivals) {
+		t.expireArrivals(now, area)
 	}
 
 	for _, tr := range t.ended {
