@@ -14,7 +14,7 @@ fail() { echo "FAIL: $*" >&2; exit 1; }
 
 new_world() {   # $1 = expiry offset in seconds, or "none" for no login
   rm -rf "$TMP/home" "$TMP/dc"; mkdir -p "$TMP/home/.claude" "$TMP/dc"
-  cp "$SRC"/init-host-credentials.sh "$SRC"/wire-claude-token.sh "$TMP/dc/"
+  cp "$SRC"/init-host-credentials.sh "$SRC"/wire-claude-token.sh "$SRC"/stage-ha-env.sh "$TMP/dc/"
   if [ "$1" != "none" ]; then
     printf '{"claudeAiOauth":{"accessToken":"%s","refreshToken":"%s","expiresAt":%s}}' \
       "$ACCESS" "$REFRESH" "$(( ($(date +%s) + $1) * 1000 ))" >"$TMP/home/.claude/.credentials.json"
@@ -88,4 +88,7 @@ echo '{"claudeAiOauth":{"refreshToken":"x"}}' >"$TMP/home/.claude/.credentials.j
 rm -f "$TMP/home/.claude/.credentials.json"; mkdir -p "$TMP/login"
 echo '{"claudeAiOauth":{"refreshToken":"x"}}' >"$TMP/login/.credentials.json"
 [ -z "$(PRESET=$ACCESS src)" ] || fail "an inherited token must be cleared when the persisted login exists but is not yet linked"
+# A stub with empty tokens (left by a failed refresh) is not a login: the exported token must still apply.
+echo '{"claudeAiOauth":{"accessToken":"","refreshToken":"","expiresAt":0}}' >"$TMP/login/.credentials.json"
+[ "$(src)" = "$ACCESS" ] || fail "an empty stub login must not suppress the exported token"
 echo "OK: all token cases passed"

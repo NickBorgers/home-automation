@@ -18,7 +18,8 @@
 # picked up without recreating the container. It exports only while the
 # container has no login of its own: once ~/.claude/.credentials.json (or the
 # persisted copy in /host-claude-login, which the util profile symlinks it to
-# and which does not exist yet on a container's first shell) is non-empty, that
+# and which does not exist yet on a container's first shell) holds a refresh token (an
+# empty stub left by a failed refresh does not count), that
 # login refreshes itself and an exported token would override it and expire
 # within hours. Idempotent.
 #
@@ -46,7 +47,7 @@ for rc in .bashrc .profile .zshrc; do
   fi
   {
     printf '\n%s\n' "$MARK"
-    printf 'if [ -s "$HOME/.claude/.credentials.json" ] || [ -s "${CLAUDE_LOGIN_DIR:-/host-claude-login}/.credentials.json" ]; then unset CLAUDE_CODE_OAUTH_TOKEN; elif [ -s "%s" ]; then CLAUDE_CODE_OAUTH_TOKEN="$(cat "%s")"; export CLAUDE_CODE_OAUTH_TOKEN; fi\n' \
+    printf 'if grep -Eq '"'"'"refreshToken" *: *"[^"]+"'"'"' "$HOME/.claude/.credentials.json" "${CLAUDE_LOGIN_DIR:-/host-claude-login}/.credentials.json" 2>/dev/null; then unset CLAUDE_CODE_OAUTH_TOKEN; elif [ -s "%s" ]; then CLAUDE_CODE_OAUTH_TOKEN="$(cat "%s")"; export CLAUDE_CODE_OAUTH_TOKEN; fi\n' \
       "$TOKEN_FILE" "$TOKEN_FILE"
   } >> "$target"
 done
