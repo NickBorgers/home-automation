@@ -56,7 +56,7 @@ echo "Claude Code will use the host access token from $TOKEN_FILE (no refresh to
 # refresh token. Report it by name only; never print its contents. A symlink is
 # the per-project login persisted by the util profile, which is intended.
 stale="$HOME/.claude/.credentials.json"
-if [ -e "$stale" ] && [ ! -L "$stale" ] && grep -q 'refreshToken' "$stale" 2>/dev/null; then
+if [ -e "$stale" ] && [ ! -L "$stale" ] && grep -Eq '"refreshToken" *: *"[^"]+"' "$stale" 2>/dev/null; then
   echo "Warning: $stale holds a refresh token, which can invalidate another login" >&2
   echo "  if refreshed here. Delete it if it is a copy; if it is the host's file" >&2
   echo "  (host ~/.claude mounted over this home), do not run claude /login here." >&2
