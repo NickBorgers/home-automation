@@ -27,6 +27,9 @@ func (m *Manager) startColorTracking() error {
 	if source, err := m.haClient.GetState(config.SourceEntity); err == nil {
 		m.cacheSourceColor(source)
 	}
+	if target, err := m.haClient.GetState(config.TargetEntity); err == nil {
+		m.colorTargetOn.Store(target.State == "on")
+	}
 	return nil
 }
 
