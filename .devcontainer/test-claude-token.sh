@@ -14,7 +14,7 @@ fail() { echo "FAIL: $*" >&2; exit 1; }
 
 new_world() {   # $1 = expiry offset in seconds, or "none" for no login
   rm -rf "$TMP/home" "$TMP/dc"; mkdir -p "$TMP/home/.claude" "$TMP/dc"
-  cp "$SRC"/init-host-credentials.sh "$SRC"/wire-claude-token.sh "$TMP/dc/"
+  cp "$SRC"/init-host-credentials.sh "$SRC"/wire-claude-token.sh "$SRC"/stage-ha-env.sh "$TMP/dc/"
   if [ "$1" != "none" ]; then
     printf '{"claudeAiOauth":{"accessToken":"%s","refreshToken":"%s","expiresAt":%s}}' \
       "$ACCESS" "$REFRESH" "$(( ($(date +%s) + $1) * 1000 ))" >"$TMP/home/.claude/.credentials.json"
@@ -88,4 +88,16 @@ echo '{"claudeAiOauth":{"refreshToken":"x"}}' >"$TMP/home/.claude/.credentials.j
 rm -f "$TMP/home/.claude/.credentials.json"; mkdir -p "$TMP/login"
 echo '{"claudeAiOauth":{"refreshToken":"x"}}' >"$TMP/login/.credentials.json"
 [ -z "$(PRESET=$ACCESS src)" ] || fail "an inherited token must be cleared when the persisted login exists but is not yet linked"
+# Home Assistant .env staging: no source, loose mode, then a valid 600 source.
+new_world none
+run_init >/dev/null
+[ ! -e "$TMP/dc/.ha-env" ] || fail "no .env staged when the host has none"
+mkdir -p "$TMP/home/.config/home-automation"
+echo "HA_TOKEN=fake" >"$TMP/home/.config/home-automation/.env"; chmod 644 "$TMP/home/.config/home-automation/.env"
+run_init >/dev/null
+[ ! -e "$TMP/dc/.ha-env" ] || fail "a .env that is not mode 600 must not be staged"
+chmod 600 "$TMP/home/.config/home-automation/.env"
+run_init >/dev/null
+[ "$(cat "$TMP/dc/.ha-env")" = "HA_TOKEN=fake" ] || fail "mode 600 .env should be staged"
+echo "OK: Home Assistant .env staging"
 echo "OK: all token cases passed"
