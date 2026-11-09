@@ -302,6 +302,8 @@ flowchart LR
 > - **sleep-prep**: Whole-house rain sounds during night phase, before master goes to bed (helps direct people to bed)
 > - **sleep**: Primary Bed-only rain sounds after master is asleep, but NOT during wake sequence (sleephygiene manages the bedroom fade-out during wake)
 
+The shared notifier reads the music manager's authoritative active-zone membership. While Primary Bed participates in either zone, deferable spoken announcements are suppressed even before `isMasterAsleep` becomes true. Urgent speech still plays, and push/ntfy delivery is unchanged. Suppression logs include `reason=bedroom_sleep_playback_active` (or `master_asleep`).
+
 ## Wake Sequence Multi-Zone Music
 
 When the wake sequence activates (`isWakeSequenceActive=true`) during morning dayPhase, the sleep zone **stops** (because it requires `isWakeSequenceActive=false`). The sleephygiene plugin manages the bedroom's gentle fade-out separately, while morning music plays in the rest of the house:

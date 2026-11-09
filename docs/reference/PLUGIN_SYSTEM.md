@@ -1006,7 +1006,7 @@ m.notifier.Announce(m.ctx, "Person detected outside",
 
 ### Urgency levels
 
-- **`UrgencyDeferable`** (default) — dropped entirely while master is asleep; returns `ErrSuppressedAsleep`. Use for: vacuum errors, presence announcements, EV-charger battery levels.
+- **`UrgencyDeferable`** (default) — dropped entirely while master is asleep or while Primary Bed participates in an active `sleep-prep`/`sleep` music zone; returns `ErrSuppressedAsleep`. Push delivery is unaffected. Use for: vacuum errors, presence announcements, EV-charger battery levels.
 - **`UrgencyUrgent`** — always uses `awake_volume_percent` regardless of sleep state. Use for: doorbell, vehicle arrival, intruder detection, EV-charger safety alerts, anything else that **must** be heard.
 
 ### Read-only mode

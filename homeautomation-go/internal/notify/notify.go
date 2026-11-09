@@ -17,6 +17,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 
 	"homeautomation/internal/ha"
 	"homeautomation/internal/state"
@@ -31,10 +32,16 @@ type Notifier interface {
 }
 
 // ErrSuppressedAsleep is returned by Announce when a UrgencyDeferable
-// announcement is dropped because the master is asleep. Callers that want to
+// announcement is dropped because sleep would be disturbed. Callers that want to
 // track suppressed events (e.g. for shadow-state observability) should
 // errors.Is against this sentinel; callers that don't can ignore it.
-var ErrSuppressedAsleep = errors.New("notify: announcement suppressed (master asleep)")
+var ErrSuppressedAsleep = errors.New("notify: announcement suppressed (sleep protected)")
+
+// SleepPlaybackProvider reports whether the bedroom is currently participating
+// in an active sleep-music zone.
+type SleepPlaybackProvider interface {
+	IsBedroomSleepPlaybackActive() bool
+}
 
 // UrgencyLevel controls how the notifier handles an announcement when the
 // master is asleep. Volume is always cfg.AwakeVolumePercent; urgency only
@@ -80,12 +87,22 @@ func WithUrgency(level UrgencyLevel) AnnounceOption {
 
 // Manager is the default Notifier implementation backed by Home Assistant.
 type Manager struct {
-	haClient     ha.HAClient
-	stateManager *state.Manager
-	synthesizer  tts.Synthesizer
-	cfg          Config
-	logger       *zap.Logger
-	readOnly     bool
+	haClient              ha.HAClient
+	stateManager          *state.Manager
+	synthesizer           tts.Synthesizer
+	cfg                   Config
+	logger                *zap.Logger
+	readOnly              bool
+	providerMu            sync.RWMutex
+	sleepPlaybackProvider SleepPlaybackProvider
+}
+
+// SetSleepPlaybackProvider supplies the authoritative active-zone state used
+// for pre-sleep TTS suppression. It must be called before announcements begin.
+func (m *Manager) SetSleepPlaybackProvider(provider SleepPlaybackProvider) {
+	m.providerMu.Lock()
+	defer m.providerMu.Unlock()
+	m.sleepPlaybackProvider = provider
 }
 
 // NewManager constructs a Notifier. stateManager may be nil in tests; the
@@ -122,10 +139,11 @@ func (m *Manager) Announce(ctx context.Context, message string, opts ...Announce
 		return fmt.Errorf("notify.Announce: empty message")
 	}
 
-	if o.urgency == UrgencyDeferable && m.isMasterAsleep() {
-		m.logger.Info("Announcement suppressed (master asleep)",
+	if reason := m.suppressionReason(o.urgency); reason != "" {
+		m.logger.Info("Announcement suppressed",
 			zap.String("message", message),
-			zap.Strings("speakers", o.speakers))
+			zap.Strings("speakers", o.speakers),
+			zap.String("reason", reason))
 		return ErrSuppressedAsleep
 	}
 
@@ -164,6 +182,22 @@ func (m *Manager) Announce(ctx context.Context, message string, opts ...Announce
 		zap.Int("urgency", int(o.urgency)),
 		zap.String("audio_url", url))
 	return nil
+}
+
+func (m *Manager) suppressionReason(urgency UrgencyLevel) string {
+	if urgency != UrgencyDeferable {
+		return ""
+	}
+	if m.isMasterAsleep() {
+		return "master_asleep"
+	}
+	m.providerMu.RLock()
+	provider := m.sleepPlaybackProvider
+	m.providerMu.RUnlock()
+	if provider != nil && provider.IsBedroomSleepPlaybackActive() {
+		return "bedroom_sleep_playback_active"
+	}
+	return ""
 }
 
 func (m *Manager) isMasterAsleep() bool {

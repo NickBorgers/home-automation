@@ -264,7 +264,7 @@ func (m *Manager) maybeAnnounceClear() {
 		notify.WithSpeakers(speakers))
 	switch {
 	case errors.Is(err, notify.ErrSuppressedAsleep):
-		m.logger.Info("Vacuum clear TTS suppressed (master asleep)")
+		m.logger.Info("Vacuum clear TTS suppressed (sleep protected)")
 	case err != nil:
 		m.logger.Error("Failed to send vacuum clear announcement",
 			zap.String("message", message),
@@ -299,7 +299,7 @@ func (m *Manager) maybeAnnounce(errorDesc string) {
 	})
 	switch {
 	case errors.Is(err, notify.ErrSuppressedAsleep):
-		m.logger.Info("Vacuum error TTS suppressed (master asleep)",
+		m.logger.Info("Vacuum error TTS suppressed (sleep protected)",
 			zap.String("error", errorDesc))
 		m.shadowTracker.RecordSuppressedWhileAsleep(now)
 		m.mu.Lock()

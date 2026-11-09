@@ -188,6 +188,15 @@ func (m *Manager) GetActiveZones() []*Zone {
 	return m.zoneManager.GetActiveZones()
 }
 
+// IsBedroomSleepPlaybackActive reports whether the Primary Bed speaker is in
+// an authoritative active sleep or sleep-prep zone.
+func (m *Manager) IsBedroomSleepPlaybackActive() bool {
+	if m.zoneManager == nil {
+		return false
+	}
+	return m.zoneManager.IsBedroomSleepPlaybackActive()
+}
+
 // Start begins monitoring state changes and managing music playback
 func (m *Manager) Start() error {
 	m.logger.Info("Starting Music Manager")

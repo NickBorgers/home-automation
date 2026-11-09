@@ -88,7 +88,7 @@ func (m *Manager) Send(ctx context.Context, a Alert) error {
 	}
 	if err := m.notifier.Announce(ctx, ttsBody, opts...); err != nil {
 		if errors.Is(err, notify.ErrSuppressedAsleep) {
-			m.logger.Debug("TTS announcement suppressed (master asleep)", zap.String("title", a.Title))
+			m.logger.Debug("TTS announcement suppressed (sleep protected)", zap.String("title", a.Title))
 			return notify.ErrSuppressedAsleep
 		}
 		m.logger.Error("TTS announce failed", zap.String("title", a.Title), zap.Error(err))

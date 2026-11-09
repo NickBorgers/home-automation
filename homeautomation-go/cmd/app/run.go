@@ -419,6 +419,13 @@ func Run() {
 		logger.Fatal("Failed to create plugins", zap.Error(err))
 	}
 	logger.Info("Created plugins from registry", zap.Int("count", len(plugins)))
+	for _, p := range plugins {
+		if provider, ok := p.(notify.SleepPlaybackProvider); ok {
+			notifier.SetSleepPlaybackProvider(provider)
+			logger.Info("Notifier connected to authoritative music zone state")
+			break
+		}
+	}
 
 	// Start all plugins and collect resettable ones
 	var resettablePlugins []reset.PluginWithName
