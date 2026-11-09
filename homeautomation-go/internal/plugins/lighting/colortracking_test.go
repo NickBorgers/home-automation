@@ -122,6 +122,20 @@ func TestColorTracking_SourceUpdateAppliesWhileTargetOn(t *testing.T) {
 	assert.NotContains(t, calls[0].Data, "state")
 }
 
+func TestColorTracking_SourceUpdateDoesNotApplyAfterTargetOffEvent(t *testing.T) {
+	manager, client := newColorTrackingManager(t)
+	client.SetState(testColorTarget, "on", nil)
+	client.ClearServiceCalls()
+
+	// Leave the HA cache stale at "on" while delivering the target's in-flight "off" event.
+	manager.handleColorTargetChange(testColorTarget, &ha.State{State: "on"}, &ha.State{State: "off"})
+	client.SetState(testColorSource, "on", map[string]interface{}{
+		"color_mode": "color_temp", "color_temp_kelvin": float64(2700),
+	})
+
+	assert.Empty(t, client.GetServiceCalls(), "source color changes must not turn on a target that has turned off")
+}
+
 func TestColorTracking_DoesNotMirrorPowerOrReactToTargetColorChange(t *testing.T) {
 	_, client := newColorTrackingManager(t)
 	client.SetState(testColorTarget, "off", nil)
