@@ -6,7 +6,8 @@
 # .claude-oauth-token, which every container shell reads.
 
 set -e
-cd "$(dirname "$0")"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
 
 # Ensure every devcontainer.json bind-mount source exists before Docker
 # tries to resolve it. Missing bind-mount sources are dangerous: Docker
@@ -104,4 +105,4 @@ else
 fi
 
 # Home Assistant .env for homeautomation-go
-bash "$(dirname "${BASH_SOURCE[0]}")/stage-ha-env.sh"
+bash "$SCRIPT_DIR/stage-ha-env.sh"
