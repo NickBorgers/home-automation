@@ -45,7 +45,9 @@ The plugin polls at the normal interval during an override. It can take up to on
 
 Each poll that finds the car online runs this check. A battery below 50% overrides the energy level and charges at full
 speed. At 50% and above, red and yellow stop charging, green charges slowly, and white charges at full speed. A change
-in `currentEnergyLevel` triggers an immediate poll when the car was last seen plugged in at home.
+in `currentEnergyLevel` triggers an immediate poll when the car was last seen plugged in at home. Until the first
+online vehicle-data read succeeds, and while the car was last seen unplugged at home, polls run at least every five
+minutes. This discovers a plug-in without requiring an energy-level change and retries transient `offline` responses.
 
 ```mermaid
 flowchart TD
@@ -107,7 +109,7 @@ sequenceDiagram
 
 Every command, wake, and poll is billed by Tesla. Commands go out only when the car's state differs from the plan. After a charging command, the plugin polls after 15 seconds and treats the command as pending until fresh telemetry agrees. Contradictory telemetry causes the policy command to be retried and verified again.
 
-The normal poll interval defaults to five minutes. While charging or waiting for command verification, the plugin polls every minute (or the configured interval when it is already shorter). An online poll normally spends two Fleet API requests, so continuous charging costs about 120 requests per hour instead of about 24. The faster interval is limited to active charging and reconciliation; held, unplugged, and idle cars return to the normal interval.
+The normal poll interval defaults to five minutes. While charging or waiting for command verification, the plugin polls every minute (or the configured interval when it is already shorter). An online poll normally spends two Fleet API requests, so continuous charging costs about 120 requests per hour instead of about 24. Startup reconciliation and a car last seen unplugged at home poll at least every five minutes so a new plug-in is detected; an away car, a verified hold, and other idle states use the configured interval.
 
 ## Requirements
 
