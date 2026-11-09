@@ -23,12 +23,18 @@ const (
 	luxDefaultSmoothing = 5 * time.Minute
 	// luxDefaultGuestFactor multiplies the target lux when increase_brightness_if_true holds.
 	luxDefaultGuestFactor = 1.5
-	// manualGrace is extra time after a command's transition during which state reports are ignored.
-	manualGrace = 10 * time.Second
-	// manualBrightnessTolerance and manualKelvinTolerance bound how far the cans may sit from
+	// fadeReportLag is how late a state report may describe the lights. A report may show where
+	// a fade was this long ago, or the level from just before the command.
+	fadeReportLag = 1 * time.Second
+	// manualBrightnessTolerance and manualKelvinTolerance bound how far the cans may sit past
 	// the commanded values before the change counts as manual.
 	manualBrightnessTolerance = 5.0
 	manualKelvinTolerance     = 150
+	// manualReverseBrightnessTolerance and manualReverseKelvinTolerance bound how far a report
+	// may sit behind a fade, against its direction, before the change counts as manual. They are
+	// small: a fade never moves backward, so a move against it is a person.
+	manualReverseBrightnessTolerance = 1.5
+	manualReverseKelvinTolerance     = 50
 )
 
 // luxCommand is the last command sent (or, in log_only/READ_ONLY mode, that would be sent) to a room's cans.
@@ -38,12 +44,39 @@ type luxCommand struct {
 	on         bool
 	pct        float64
 	kelvin     int
+	// Where the fade starts: the level the plugin expected the light at when it sent the command.
+	// fromKelvin is 0 when unknown (the light was off, or is brightness-only).
+	fromOn     bool
+	fromPct    float64
+	fromKelvin int
 	// Follower commands only: the cans values the strip was computed from, and the strip's
 	// estimated color temperature from its cct_curve (0 without a curve).
 	cansPct         float64
 	cansKelvin      int
 	cctFloorPct     float64
 	estimatedKelvin int
+}
+
+// levelAt returns the brightness percent and color temperature the light shows at t, on a
+// straight-line fade from the start level to the commanded one. An off light is at 0%.
+// The color temperature is the commanded one when the start color temperature is unknown.
+func (c *luxCommand) levelAt(t time.Time) (float64, int) {
+	frac := 1.0
+	if c.transition > 0 {
+		frac = math.Max(0, math.Min(1, t.Sub(c.at).Seconds()/c.transition.Seconds()))
+	}
+	from, to := 0.0, 0.0
+	if c.fromOn {
+		from = c.fromPct
+	}
+	if c.on {
+		to = c.pct
+	}
+	kelvin := c.kelvin
+	if c.fromKelvin != 0 && c.kelvin != 0 {
+		kelvin = c.fromKelvin + int(math.Round(float64(c.kelvin-c.fromKelvin)*frac))
+	}
+	return from + (to-from)*frac, kelvin
 }
 
 // luxRoomState is the per-room control state.
@@ -320,6 +353,10 @@ func (m *Manager) luxEvaluate(room *RoomConfig, trigger string) {
 
 	wantOn := shouldBeOn(lc.Calibration, rec.NeededLux, prev != nil && prev.on)
 	cmd := &luxCommand{at: now, transition: luxTransition, on: wantOn, kelvin: kelvin}
+	if prev != nil && prev.on {
+		cmd.fromOn = true
+		cmd.fromPct, cmd.fromKelvin = prev.levelAt(now)
+	}
 	if wantOn {
 		cmd.pct = math.Max(1, math.Min(100, math.Round(luxToBrightness(lc.Calibration, rec.NeededLux))))
 		rec.GoalBrightnessPct = cmd.pct
@@ -444,9 +481,10 @@ func (m *Manager) sendLuxCommand(room *RoomConfig, cmd *luxCommand) error {
 	return m.haClient.CallService(m.ctx, "light", service, data)
 }
 
-// handleCansChange detects a manual change to the cans: any report that differs from what
-// the plugin last commanded, after the command's transition has finished. A turn-on after
-// a commanded off is handled immediately so the stale off transition cannot win.
+// handleCansChange detects a manual change to the cans the moment the report arrives. No
+// window exists in which reports are ignored. During a fade, a report counts as manual when it
+// is not on the fade's path (manualChangeReason). A turn-on after a commanded off is
+// stabilized so the stale off transition cannot win.
 func (m *Manager) handleCansChange(room *RoomConfig, newState *ha.State) {
 	if newState == nil || m.readOnly || !luxActive(room) {
 		return
@@ -465,12 +503,7 @@ func (m *Manager) handleCansChange(room *RoomConfig, newState *ha.State) {
 	}
 	cmd := st.cmd
 	contraryTurnOn := !cmd.on && newState.State == "on"
-	if now.Before(cmd.at.Add(cmd.transition+manualGrace)) && !contraryTurnOn {
-		m.luxMu.Unlock()
-		return
-	}
-
-	reason := manualChangeReason(cmd, newState, room.LuxControl.HasColorTemp())
+	reason := manualChangeReason(cmd, newState, room.LuxControl.HasColorTemp(), now)
 	if reason == "" {
 		m.luxMu.Unlock()
 		return
@@ -498,8 +531,8 @@ func (m *Manager) handleCansChange(room *RoomConfig, newState *ha.State) {
 	}
 }
 
-// handleFollowerChange is handleCansChange for a follower light: a report that differs from
-// what the plugin last sent it, after the transition has finished, holds that strip only. The
+// handleFollowerChange is handleCansChange for a follower light: a report that is not on the
+// path of what the plugin last sent it holds that strip only, the moment it arrives. The
 // room and its cans keep following the curve. Followers are brightness-only, so color
 // temperature is never compared. The strip hold clears with the room hold (clearLuxHold).
 func (m *Manager) handleFollowerChange(room *RoomConfig, newState *ha.State) {
@@ -515,10 +548,10 @@ func (m *Manager) handleFollowerChange(room *RoomConfig, newState *ha.State) {
 	defer m.luxMu.Unlock()
 	st := m.luxRoom(room.HueGroup)
 	last := st.followers[newState.EntityID]
-	if st.followerHeld[newState.EntityID] || last == nil || now.Before(last.at.Add(last.transition+manualGrace)) {
+	if st.followerHeld[newState.EntityID] || last == nil {
 		return
 	}
-	reason := manualChangeReason(last, newState, false)
+	reason := manualChangeReason(last, newState, false, now)
 	if reason == "" {
 		return
 	}
@@ -552,7 +585,15 @@ func (m *Manager) luxDriveFollowers(room *RoomConfig, st *luxRoomState, cans *lu
 		if held {
 			continue
 		}
-		if (prev == nil && !m.luxLightIsOn(f.Entity)) || (prev != nil && !prev.on) {
+		if prev == nil {
+			if pct, on := m.luxLightLevel(f.Entity); on {
+				next.fromOn, next.fromPct = true, pct
+			}
+		} else if prev.on {
+			next.fromOn = true
+			next.fromPct, _ = prev.levelAt(cans.at)
+		}
+		if !next.fromOn {
 			next.transition = maxReturnHomeTransition * time.Second // a dark strip lights up quickly
 		}
 		if prev != nil && prev.on == next.on && (!next.on || math.Abs(prev.pct-next.pct) < minBrightnessDelta) {
@@ -571,11 +612,18 @@ func (m *Manager) luxDriveFollowers(room *RoomConfig, st *luxRoomState, cans *lu
 	}
 }
 
-// luxLightIsOn reports whether Home Assistant shows the light on. A strip already lit after a
-// restart keeps the cans' long transition instead of popping.
-func (m *Manager) luxLightIsOn(entity string) bool {
+// luxLightLevel returns the light's brightness percent, and whether Home Assistant shows it on.
+// A strip already lit after a restart keeps the cans' long transition instead of popping, and
+// its fade starts from that brightness (100% when the report has none).
+func (m *Manager) luxLightLevel(entity string) (float64, bool) {
 	s, err := m.haClient.GetState(entity)
-	return err == nil && s != nil && s.State == "on"
+	if err != nil || s == nil || s.State != "on" {
+		return 0, false
+	}
+	if b, ok := numberAttr(s.Attributes, "brightness"); ok {
+		return b / 255 * 100, true
+	}
+	return 100, true
 }
 
 // sendFollowerCommand sends a follower light a light.turn_on (brightness only) or light.turn_off.
@@ -624,32 +672,62 @@ func (m *Manager) followerStates(room *RoomConfig) map[string]shadowstate.Follow
 	return out
 }
 
-// manualChangeReason compares a cans report with the last command. It returns "" when they agree.
-func manualChangeReason(cmd *luxCommand, s *ha.State, colorTemp bool) string {
+// manualChangeReason compares a light's report, received at now, with the last command. It
+// returns "" when the report is on the command's fade path. That path runs from where the fade
+// was fadeReportLag ago (reports can be late) to the commanded value. A report may sit up to
+// the small reverse tolerance behind that path, or up to the normal tolerance past the target.
+// Anything else is a person. Reports are never ignored because a fade is running.
+//
+// One gap remains: when the light was off, its starting color temperature is unknown, so color
+// temperature is not compared until that turn-on fade (maxReturnHomeTransition) has ended.
+// Brightness is compared throughout.
+func manualChangeReason(cmd *luxCommand, s *ha.State, colorTemp bool, now time.Time) string {
+	// A report sent just before the command can arrive just after it.
+	early := now.Before(cmd.at.Add(fadeReportLag))
+	behindPct, behindKelvin := cmd.levelAt(now.Add(-fadeReportLag))
 	switch s.State {
 	case "on":
 		if !cmd.on {
+			if early && cmd.fromOn {
+				return ""
+			}
 			return "cans turned on by hand"
 		}
 		if b, ok := numberAttr(s.Attributes, "brightness"); ok {
-			if pct := b / 255 * 100; math.Abs(pct-cmd.pct) > manualBrightnessTolerance {
+			pct := b / 255 * 100
+			if !onFadePath(pct, behindPct, cmd.pct, manualReverseBrightnessTolerance, manualBrightnessTolerance) {
 				return fmt.Sprintf("brightness %.0f%% differs from commanded %.0f%%", pct, cmd.pct)
 			}
 		}
 		if !colorTemp {
 			return ""
 		}
+		if cmd.fromKelvin == 0 && now.Before(cmd.at.Add(cmd.transition+fadeReportLag)) {
+			return "" // turn-on fade from an unknown color temperature
+		}
 		if k, ok := numberAttr(s.Attributes, "color_temp_kelvin"); ok {
-			if math.Abs(k-float64(cmd.kelvin)) > manualKelvinTolerance {
+			if !onFadePath(k, float64(behindKelvin), float64(cmd.kelvin),
+				manualReverseKelvinTolerance, manualKelvinTolerance) {
 				return fmt.Sprintf("color %.0fK differs from commanded %dK", k, cmd.kelvin)
 			}
 		}
 	case "off":
 		if cmd.on {
+			if early && !cmd.fromOn {
+				return ""
+			}
 			return "cans turned off by hand"
 		}
 	}
 	return ""
+}
+
+// onFadePath reports whether v lies between behind (where the fade may still be) and target.
+// It allows reverse past behind, against the fade's direction, and tolerance past target.
+func onFadePath(v, behind, target, reverse, tolerance float64) bool {
+	lo := math.Min(behind-reverse, target-tolerance)
+	hi := math.Max(behind+reverse, target+tolerance)
+	return v >= lo && v <= hi
 }
 
 func numberAttr(attrs map[string]interface{}, key string) (float64, bool) {

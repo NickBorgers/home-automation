@@ -188,12 +188,13 @@ func TestLuxFollowers_ManualChangeHoldsOnlyThatStrip(t *testing.T) {
 			sent := float64(callsTo(env.MockHA, "turn_on", want.strip)[0].Data["brightness_pct"].(int))
 			held := func() bool { return m.GetShadowState().Outputs.LuxControl[want.room].Followers[want.strip].Held }
 
-			// Inside the transition window a report is ignored, whatever it says.
-			clk.Advance(5 * time.Second)
+			// Mid-fade, a report on the fade's path (the strip lights up from off over 5 s) is the
+			// plugin's own change.
+			clk.Advance(2 * time.Second)
 			m.handleFollowerChange(room, &ha.State{EntityID: want.strip, State: "on",
-				Attributes: map[string]interface{}{"brightness": 10.0}})
+				Attributes: map[string]interface{}{"brightness": 0.3 * sent / 100 * 255}})
 			m.luxEvaluate(room, "test")
-			assert.False(t, held(), "mid-transition report is the plugin's own change")
+			assert.False(t, held(), "mid-transition report on the fade path is the plugin's own change")
 
 			clk.Advance(2 * time.Minute)
 			// The commanded brightness, with a stray kelvin: brightness-only, so not manual.

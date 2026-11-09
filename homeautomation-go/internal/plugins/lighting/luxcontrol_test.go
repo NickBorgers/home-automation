@@ -345,9 +345,10 @@ func TestLux_OwnCommandReportsDoNotCountAsManual(t *testing.T) {
 	f.manager.luxTick() // 44% at 5000 K, 5 s transition
 	f.env.MockHA.ClearServiceCalls()
 
-	// Mid-transition, Hue reports intermediate values: ignored.
+	// Mid-transition, Hue reports an intermediate value on the fade's path (~18% at 2 s of a
+	// 0→44% fade). The color is not compared yet: the cans were off, so the start color is unknown.
 	f.clock.Advance(2 * time.Second)
-	f.manager.handleCansChange(f.room, canReport("on", 10, 3000))
+	f.manager.handleCansChange(f.room, canReport("on", 45, 3000))
 	assert.False(t, f.manager.luxHeld(f.room))
 
 	// After the transition, the final value matches the command (44% of 255 = 112): not manual.

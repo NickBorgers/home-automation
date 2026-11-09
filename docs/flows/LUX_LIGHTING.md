@@ -121,12 +121,13 @@ Each room has a short calibration table: the lux the cans give at a few brightne
 
 A manual change is any change to a controlled light that this plugin did not command. Examples: the Hue app, a Hue dimmer switch, the Home Assistant UI, or a voice assistant.
 
-The plugin remembers the last brightness and kelvin it sent to each room. When Home Assistant reports a state for that room's cans, the plugin compares it with the commanded values:
+The plugin remembers each command it sent: where the fade starts, where it ends, and how long it takes. It checks every report the moment it arrives. No period exists in which reports are ignored. A person who sees the lights do something wrong and turns the dial stops the plugin at once.
 
-- During the transition window of its own command, the plugin ignores consistent intermediate reports. A contrary turn-on
-  after a commanded off is treated as manual immediately and repeated without a transition, preserving the reported
-  brightness and color so the stale off transition cannot win.
-- After the window, a difference larger than a tolerance (about 5% brightness or 150 K) counts as a manual change.
+- A report counts as the plugin's own change when it is on the fade's path. The path runs from where the fade was 1 s ago (reports can arrive late) to the commanded value.
+- A report more than 1.5% brightness or 50 K behind that path is manual. A fade never moves backward, so a move against its direction is a person. Example: during a fade down, any turn up.
+- A report more than about 5% brightness or 150 K past the commanded value is manual.
+- A contrary turn-on after a commanded off is manual. The plugin repeats it without a transition and keeps the reported brightness and color, so the stale off transition cannot win.
+- Limits: a turn to the exact starting level within the first second of a fade looks the same as a late report of that level. When the cans were off, their starting color temperature is unknown, so color is not compared until the 5 s turn-on fade ends. Brightness is always compared.
 - A change made through Home Assistant by another user also counts. The state's `context.user_id` names who made it. The plugin's own calls carry the plugin's user ID.
 
 Other plugins that drive lights (`sleephygiene`, the music light show) are excluded by their user ID or because the room is in `skip`.
@@ -278,7 +279,7 @@ Kitchen strip curve, measured by eye on 2026-11-08 (issue #1263). Method: the pl
 
 Limits: 4000 K was reached only at 100%, so a true 4000 K may need more. Nothing below 3000 K was measured. No repeat run, no increasing-versus-decreasing check (hysteresis), and no check along the strip. A first 3750 K reading (224) was replaced by 242 when Nick judged it closer. The 3500 K point was not rechecked. This curve replaces the earlier estimate of about 3200 K at 60%: the curve gives about 3100 K at 60%. The Pantry strip has a fixed color, so the warmth reason does not apply to it. It copies the Kitchen mapping by user choice, because the user said it is roughly as bright as the Kitchen strip. It was not measured.
 
-A manual change to a strip holds that strip only. The room and its cans keep following the curve. The strip is left alone until the same events that end a room hold: the room goes off and on, everyone is asleep, nobody is home, or reset. The strip's rule for what counts as manual matches brightness-only lights: kelvin is ignored, and reports during the transition window are the plugin's own change.
+A manual change to a strip holds that strip only. The room and its cans keep following the curve. The strip is left alone until the same events that end a room hold: the room goes off and on, everyone is asleep, nobody is home, or reset. The strip's rule for what counts as manual matches brightness-only lights: kelvin is ignored, and a report during a fade is the plugin's own change only when it is on the fade's path.
 
 The cans stay in their Hue rooms. A Hue light belongs to one room but can sit in many zones, so the plugin drives cans and accents through separate zones.
 
