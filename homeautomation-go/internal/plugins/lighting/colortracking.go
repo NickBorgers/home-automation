@@ -38,7 +38,9 @@ func (m *Manager) handleColorSourceChange(_ string, _, newState *ha.State) {
 }
 
 func (m *Manager) handleColorTargetChange(_ string, oldState, newState *ha.State) {
-	if newState == nil || newState.State != "on" || (oldState != nil && oldState.State == "on") {
+	isOn := newState != nil && newState.State == "on"
+	m.colorTargetOn.Store(isOn)
+	if !isOn || (oldState != nil && oldState.State == "on") {
 		return
 	}
 	m.applyCachedColor("target turned on")
@@ -64,8 +66,7 @@ func (m *Manager) cacheSourceColor(source *ha.State) bool {
 }
 
 func (m *Manager) colorTargetIsOn() bool {
-	target, err := m.haClient.GetState(m.config.ColorTracking.TargetEntity)
-	return err == nil && target.State == "on"
+	return m.colorTargetOn.Load()
 }
 
 func (m *Manager) applyCachedColor(reason string) {

@@ -79,6 +79,7 @@ type Manager struct {
 	luxDone          chan struct{}
 
 	colorTrackingMu  sync.Mutex
+	colorTargetOn    atomic.Bool
 	cachedColor      *shadowstate.TrackedLightColor
 	lastAppliedColor *shadowstate.TrackedLightColor
 }
