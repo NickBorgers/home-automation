@@ -1,4 +1,10 @@
 ---
+color_tracking:
+  # These aggregate groups match the Living and Back Hall area/entity layout. Only color is copied:
+  # power and brightness remain under their existing controls.
+  source_entity: light.main_living_space
+  target_entity: light.back_hall
+
 lux_curve:
   points:
     - anchor: sun.dawn
