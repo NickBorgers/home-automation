@@ -2,12 +2,14 @@ package integration
 
 import (
 	"context"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"homeautomation/internal/alert"
 	"homeautomation/internal/clock"
 	"homeautomation/internal/notify"
+	"homeautomation/internal/ntfy"
 	"homeautomation/internal/plugins/vacuum"
 	"homeautomation/internal/state"
 	"homeautomation/internal/testlogger"
@@ -40,12 +42,18 @@ import (
 const vacuumErrorEntity = "sensor.valetudo_test_error"
 
 type vacuumEnv struct {
-	server  *MockHAServer
-	manager *state.Manager
-	logger  *zap.Logger
-	vacuum  *vacuum.Manager
-	synth   *tts.MockSynthesizer
+	server   *MockHAServer
+	manager  *state.Manager
+	logger   *zap.Logger
+	vacuum   *vacuum.Manager
+	synth    *tts.MockSynthesizer
+	notifier *notify.Manager
+	ntfy     *ntfy.MockClient
 }
+
+type sleepPlaybackState struct{ active atomic.Bool }
+
+func (s *sleepPlaybackState) IsBedroomSleepPlaybackActive() bool { return s.active.Load() }
 
 func setupVacuumTest(t *testing.T, fixedTime time.Time) (*vacuumEnv, func()) {
 	env, _, cleanup := setupVacuumTestWithDebounce(t, fixedTime, 0)
@@ -86,7 +94,8 @@ func setupVacuumTestWithDebounce(t *testing.T, fixedTime time.Time, unavailableD
 	notifyCfg := notify.DefaultConfig()
 	synth := &tts.MockSynthesizer{URL: "http://test/audio/vacuum.mp3"}
 	notifier := notify.NewManager(client, manager, synth, notifyCfg, logger, false)
-	alerter := alert.NewManager(nil, notifier, logger)
+	ntfyMock := ntfy.NewMockClient()
+	alerter := alert.NewManager(ntfyMock, notifier, logger)
 	mgr := vacuum.NewManager(context.Background(), client, manager, alerter, notifier, cfg, logger, false, tp, nil)
 	mgr.SetRepeatCheckIntervalForTest(time.Hour) // park the background ticker; tests drive ticks explicitly
 	clk := clock.NewMockClock(fixedTime)
@@ -95,7 +104,10 @@ func setupVacuumTestWithDebounce(t *testing.T, fixedTime time.Time, unavailableD
 	}
 	require.NoError(t, mgr.Start(), "vacuum plugin should start")
 
-	env := &vacuumEnv{server: server, manager: manager, logger: logger, vacuum: mgr, synth: synth}
+	env := &vacuumEnv{
+		server: server, manager: manager, logger: logger, vacuum: mgr, synth: synth,
+		notifier: notifier, ntfy: ntfyMock,
+	}
 
 	cleanup := func() {
 		mgr.Stop()
@@ -242,8 +254,49 @@ func TestScenario_VacuumError_SuppressedWhileMasterAsleep(t *testing.T) {
 	assert.Empty(t, calls, "TTS must not fire while master is asleep")
 
 	st := env.vacuum.GetShadowState()
-	assert.GreaterOrEqual(t, st.Outputs.SuppressedWhileAsleepCount, 1,
+	assert.GreaterOrEqual(t, st.Outputs.SuppressedForSleepCount, 1,
 		"shadow state should record the suppression")
+}
+
+// TestScenario_VacuumError_SleepPlaybackProtection follows the pre-sleep to
+// asleep transition. Deferable speech must stay suppressed without queuing a
+// duplicate, push must still arrive, and urgent speech must remain audible.
+func TestScenario_VacuumError_SleepPlaybackProtection(t *testing.T) {
+	t.Parallel()
+	env, cleanup := setupVacuumTest(t, time.Date(2026, 11, 9, 22, 0, 0, 0, time.UTC))
+	defer cleanup()
+
+	playback := &sleepPlaybackState{}
+	playback.active.Store(true)
+	env.notifier.SetSleepPlaybackProvider(playback)
+	require.NoError(t, env.manager.SetBool("isMasterAsleep", false))
+	snapshot := env.server.ServiceCallCount()
+
+	t.Log("GIVEN: sleep-prep playback includes the bedroom while master is still marked awake")
+	t.Log("WHEN: a deferable vacuum error is delivered")
+	env.server.SetState(vacuumErrorEntity, "Dustbin missing", nil)
+	require.Eventually(t, func() bool { return len(env.ntfy.GetCalls()) == 1 }, stateWaitTimeout, statePollInterval)
+	waitForServiceCallQuiescenceSince(t, env.server, snapshot, 200*time.Millisecond)
+	assert.Empty(t, FilterServiceCalls(env.server.GetServiceCallsSince(snapshot), "media_player", "play_media"),
+		"deferable TTS must be suppressed during bedroom sleep playback")
+	assert.Len(t, env.ntfy.GetCalls(), 1, "push delivery must be unaffected by TTS suppression")
+
+	t.Log("THEN: an urgent announcement in the same state still plays")
+	require.NoError(t, env.notifier.Announce(context.Background(), "Water leak",
+		notify.WithUrgency(notify.UrgencyUrgent)))
+	assert.Len(t, FilterServiceCalls(env.server.GetServiceCallsSince(snapshot), "media_player", "play_media"), 1)
+
+	t.Log("WHEN: playback transitions from sleep-prep to sleep and master becomes asleep")
+	require.NoError(t, env.manager.SetBool("isMasterAsleep", true))
+	env.server.SetState(vacuumErrorEntity, "Dustbin missing", nil)
+	playback.active.Store(false)
+	require.NoError(t, env.manager.SetBool("isMasterAsleep", false))
+	env.vacuum.TickRepeatForTest()
+
+	t.Log("THEN: the original deferable alert is neither duplicated nor unexpectedly replayed")
+	assert.Len(t, env.ntfy.GetCalls(), 1)
+	assert.Len(t, FilterServiceCalls(env.server.GetServiceCallsSince(snapshot), "media_player", "play_media"), 1,
+		"only the urgent announcement should have played")
 }
 
 // TestScenario_VacuumError_StopsRepeatingAfterClear verifies the repeat timer

@@ -206,7 +206,7 @@ func TestVacuum_NotifierSuppressedAsleep_RecordsAndPreservesCadence(t *testing.T
 	st := mgr.GetShadowState()
 	assert.Equal(t, "Mop Dock Clean Water Tank empty", st.Outputs.CurrentError,
 		"shadow state still tracks the error so the dashboard sees it")
-	assert.Equal(t, 1, st.Outputs.SuppressedWhileAsleepCount)
+	assert.Equal(t, 1, st.Outputs.SuppressedForSleepCount)
 }
 
 func TestVacuum_RepeatAfterInterval(t *testing.T) {

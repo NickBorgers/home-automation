@@ -2387,14 +2387,15 @@ func (vt *VacuumTracker) RecordAnnouncement(message string, at time.Time) {
 	vt.State().Metadata.LastUpdated = time.Now()
 }
 
-// RecordSuppressedWhileAsleep increments the count of announcements suppressed
-// because master was asleep. The timestamp on LastAnnouncementAt is also bumped
-// so dashboards show recent activity even when nothing was spoken.
-func (vt *VacuumTracker) RecordSuppressedWhileAsleep(at time.Time) {
+// RecordSuppressedForSleep increments the count of announcements suppressed to
+// protect sleep (master asleep or bedroom sleep-playback active). The timestamp
+// on LastAnnouncementAt is also bumped so dashboards show recent activity even
+// when nothing was spoken.
+func (vt *VacuumTracker) RecordSuppressedForSleep(at time.Time) {
 	vt.Lock()
 	defer vt.Unlock()
 
-	vt.State().Outputs.SuppressedWhileAsleepCount++
+	vt.State().Outputs.SuppressedForSleepCount++
 	atCopy := at
 	vt.State().Outputs.LastAnnouncementAt = &atCopy
 	vt.State().Metadata.LastUpdated = time.Now()
@@ -2415,7 +2416,7 @@ func (vt *VacuumTracker) GetState() *VacuumShadowState {
 			CurrentError:                 s.Outputs.CurrentError,
 			LastAnnouncementMessage:      s.Outputs.LastAnnouncementMessage,
 			AnnouncementsSinceErrorBegan: s.Outputs.AnnouncementsSinceErrorBegan,
-			SuppressedWhileAsleepCount:   s.Outputs.SuppressedWhileAsleepCount,
+			SuppressedForSleepCount:      s.Outputs.SuppressedForSleepCount,
 		},
 		Metadata: s.Metadata,
 	}

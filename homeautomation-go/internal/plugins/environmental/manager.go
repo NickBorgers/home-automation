@@ -989,7 +989,7 @@ func (m *Manager) sendAlertNotification(now time.Time, level string) {
 		Priority: priority,
 	}); err != nil {
 		if errors.Is(err, notify.ErrSuppressedAsleep) {
-			m.logger.Info("Humidity notification TTS suppressed (master asleep)",
+			m.logger.Info("Humidity notification TTS suppressed (sleep protected)",
 				zap.String("level", level))
 		} else {
 			m.logger.Error("Failed to send humidity notification",

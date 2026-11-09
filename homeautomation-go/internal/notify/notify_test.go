@@ -21,6 +21,10 @@ type fakeSynth struct {
 	messages []string
 }
 
+type fakeSleepPlaybackProvider bool
+
+func (p fakeSleepPlaybackProvider) IsBedroomSleepPlaybackActive() bool { return bool(p) }
+
 func (f *fakeSynth) SynthesizeAndServe(_ context.Context, text string) (string, error) {
 	f.mu.Lock()
 	f.messages = append(f.messages, text)
@@ -238,6 +242,39 @@ func TestAnnounce_DeferableWhileAwake_PlaysAtAwakeVolume(t *testing.T) {
 	want := defaultAwakeVolumePercent
 	if got, _ := extra["volume"].(int); got != want {
 		t.Errorf("deferable+awake: want extra.volume %v (int), got %v (%T)", want, extra["volume"], extra["volume"])
+	}
+}
+
+func TestAnnounce_DeferableWhileBedroomSleepPlaybackActive_Suppresses(t *testing.T) {
+	mockHA := ha.NewMockClient()
+	stateMgr := state.NewManager(mockHA, zaptest.NewLogger(t), false)
+	if err := stateMgr.SetBool("isMasterAsleep", false); err != nil {
+		t.Fatalf("SetBool failed: %v", err)
+	}
+	synth := &fakeSynth{url: "http://test/audio/x.mp3"}
+	m := newTestManager(t, mockHA, stateMgr, synth, false)
+	m.SetSleepPlaybackProvider(fakeSleepPlaybackProvider(true))
+	mockHA.ClearServiceCalls()
+
+	err := m.Announce(context.Background(), "Vacuum needs attention", WithUrgency(UrgencyDeferable))
+	if !errors.Is(err, ErrSuppressedAsleep) {
+		t.Fatalf("expected suppression sentinel, got %v", err)
+	}
+	if len(mockHA.GetServiceCalls()) != 0 || len(synth.Messages()) != 0 {
+		t.Fatal("sleep-playback suppression must skip synthesis and HA playback")
+	}
+}
+
+func TestAnnounce_UrgentWhileBedroomSleepPlaybackActive_Plays(t *testing.T) {
+	mockHA := ha.NewMockClient()
+	m := newTestManager(t, mockHA, nil, nil, false)
+	m.SetSleepPlaybackProvider(fakeSleepPlaybackProvider(true))
+
+	if err := m.Announce(context.Background(), "Water leak", WithUrgency(UrgencyUrgent)); err != nil {
+		t.Fatalf("urgent announcement was suppressed: %v", err)
+	}
+	if len(mockHA.GetServiceCalls()) != 1 {
+		t.Fatalf("expected one urgent TTS call, got %d", len(mockHA.GetServiceCalls()))
 	}
 }
 

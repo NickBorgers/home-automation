@@ -1216,9 +1216,9 @@ type VacuumOutputs struct {
 	// currently active error (resets when CurrentError clears).
 	AnnouncementsSinceErrorBegan int `json:"announcementsSinceErrorBegan"`
 
-	// SuppressedWhileAsleepCount counts how many announcements were suppressed
-	// because master was asleep.
-	SuppressedWhileAsleepCount int `json:"suppressedWhileAsleepCount"`
+	// SuppressedForSleepCount counts how many announcements were suppressed to
+	// protect sleep (master asleep or bedroom sleep-playback active).
+	SuppressedForSleepCount int `json:"suppressedForSleepCount"`
 }
 
 // ============================================================================

@@ -270,6 +270,25 @@ func (zm *ZoneManager) GetActiveZones() []*Zone {
 	return zones
 }
 
+// IsBedroomSleepPlaybackActive checks active zone membership while holding the
+// zone lock so notification policy cannot observe a partially updated zone.
+func (zm *ZoneManager) IsBedroomSleepPlaybackActive() bool {
+	zm.mu.RLock()
+	defer zm.mu.RUnlock()
+	for _, zoneName := range []string{"sleep", "sleep-prep"} {
+		zone, active := zm.activeZones[zoneName]
+		if !active {
+			continue
+		}
+		for _, participant := range zone.Participants {
+			if participant.PlayerName == "Primary Bed" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // GetZone returns a zone by name, if it exists
 func (zm *ZoneManager) GetZone(name string) (*Zone, bool) {
 	zm.mu.RLock()

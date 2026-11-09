@@ -91,3 +91,7 @@ func (p *pluginAdapter) GetShadowState() shadowstate.PluginShadowState {
 func (p *pluginAdapter) GetManager() *Manager {
 	return p.manager
 }
+
+func (p *pluginAdapter) IsBedroomSleepPlaybackActive() bool {
+	return p.manager.IsBedroomSleepPlaybackActive()
+}

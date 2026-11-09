@@ -419,6 +419,20 @@ func Run() {
 		logger.Fatal("Failed to create plugins", zap.Error(err))
 	}
 	logger.Info("Created plugins from registry", zap.Int("count", len(plugins)))
+	// Only one plugin is expected to implement SleepPlaybackProvider (music).
+	// If none is found, pre-sleep TTS suppression is silently disabled.
+	sleepProviderFound := false
+	for _, p := range plugins {
+		if provider, ok := p.(notify.SleepPlaybackProvider); ok {
+			notifier.SetSleepPlaybackProvider(provider)
+			logger.Info("Notifier connected to authoritative music zone state")
+			sleepProviderFound = true
+			break
+		}
+	}
+	if !sleepProviderFound {
+		logger.Warn("No SleepPlaybackProvider found — bedroom pre-sleep TTS suppression disabled")
+	}
 
 	// Start all plugins and collect resettable ones
 	var resettablePlugins []reset.PluginWithName
