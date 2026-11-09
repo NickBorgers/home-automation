@@ -254,7 +254,7 @@ func TestScenario_VacuumError_SuppressedWhileMasterAsleep(t *testing.T) {
 	assert.Empty(t, calls, "TTS must not fire while master is asleep")
 
 	st := env.vacuum.GetShadowState()
-	assert.GreaterOrEqual(t, st.Outputs.SuppressedWhileAsleepCount, 1,
+	assert.GreaterOrEqual(t, st.Outputs.SuppressedForSleepCount, 1,
 		"shadow state should record the suppression")
 }
 

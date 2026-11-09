@@ -277,8 +277,8 @@ func (m *Manager) maybeAnnounceClear() {
 }
 
 // maybeAnnounce sends an alert (TTS + push) for errorDesc as a Deferable
-// announcement. When the alerter returns notify.ErrSuppressedAsleep (master is
-// asleep), we track suppression in shadow state so the announcement replays
+// announcement. When the alerter returns notify.ErrSuppressedAsleep (sleep
+// protected), we track suppression in shadow state so the announcement replays
 // on wake.
 func (m *Manager) maybeAnnounce(errorDesc string) {
 	now := m.timeProvider.Now()
@@ -301,7 +301,7 @@ func (m *Manager) maybeAnnounce(errorDesc string) {
 	case errors.Is(err, notify.ErrSuppressedAsleep):
 		m.logger.Info("Vacuum error TTS suppressed (sleep protected)",
 			zap.String("error", errorDesc))
-		m.shadowTracker.RecordSuppressedWhileAsleep(now)
+		m.shadowTracker.RecordSuppressedForSleep(now)
 		m.mu.Lock()
 		m.lastAnnouncedAt = now
 		m.mu.Unlock()

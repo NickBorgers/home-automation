@@ -503,8 +503,7 @@ Each plugin corresponds to a Node-RED flow and implements domain-specific automa
   sensor states for 60 seconds; discard them if Casper recovers inside the window
 - **Clear Confirmation**: On real error transition back to "No error" while
   `isAnyoneHome=true` → TTS to the sitting room speaker by default
-- **Quiet Hours**: When `isMasterAsleep=true` → notifier returns `ErrSuppressedAsleep`;
-  vacuum records in shadow state and preserves repeat cadence
+- **Quiet Hours**: When `isMasterAsleep=true` *or* while Primary Bed participates in an active `sleep`/`sleep-prep` zone → notifier returns `ErrSuppressedAsleep`; vacuum records in shadow state and preserves repeat cadence
 - **Repeat Cadence**: Background ticker re-announces unresolved errors every `repeat_interval`
 - **Initial State**: On plugin start → if sensor already reports an error, announce immediately
 
