@@ -206,7 +206,8 @@ func TestLuxRooms_ChandelierManualChangeHoldsOnBrightnessOnly(t *testing.T) {
 
 func TestManualChangeReason_BrightnessOnlyIgnoresKelvin(t *testing.T) {
 	t.Parallel()
-	s := canReport("on", 102, 2000) // 40%
-	assert.Equal(t, "", manualChangeReason(&luxCommand{on: true, pct: 40}, s, false))
-	assert.Contains(t, manualChangeReason(&luxCommand{on: true, pct: 40, kelvin: 3000}, s, true), "color")
+	s := canReport("on", 102, 2000)       // 40%
+	later := time.Time{}.Add(time.Minute) // after the command, so no fade is running
+	assert.Equal(t, "", manualChangeReason(&luxCommand{on: true, pct: 40}, s, false, later))
+	assert.Contains(t, manualChangeReason(&luxCommand{on: true, pct: 40, kelvin: 3000}, s, true, later), "color")
 }
