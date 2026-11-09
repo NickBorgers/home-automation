@@ -312,6 +312,27 @@ No room in `hue_config.yaml` lists a companion now. The Kitchen did, but its und
   The `has_dynamics` path logs them but does not list them, because the
   dynamic phase records that action.
 
+## Living-to-Back-Hall Color Tracking
+
+The optional top-level `color_tracking` block in `hue_config.yaml` names one source light group and
+one target light group. Production uses `light.main_living_space` (the aggregate Living group,
+including the Living cans and accents) as the source and `light.back_hall` (the aggregate containing
+`light.back_hall_top` and `light.back_hall_bottom`) as the target.
+
+While the source is on, the lighting plugin caches its active color. Home Assistant's `color_mode`
+selects `color_temp_kelvin`, `xy_color`, or `hs_color`; when `color_mode` is absent, the precedence is
+color temperature, then XY, then HS. Only that one color field is sent in a `light.turn_on` call, so
+brightness is preserved. Null color attributes reported after the source turns off do not replace the
+cache.
+
+The cached color is applied when Back Hall changes from off to on and whenever Living's color changes
+while Back Hall is already on. Living power changes never control Back Hall power. A manual Back Hall
+color adjustment is therefore left alone until the next Living color change or the next Back Hall
+off-to-on transition. If no valid source color has been observed, activation is a no-op.
+
+The lighting shadow output `colorTracking` reports the configured entities, `cachedColor`, and
+`lastApplied` color for diagnosis.
+
 ## Away Mode Lighting
 
 When no one is home, lighting enters away mode:

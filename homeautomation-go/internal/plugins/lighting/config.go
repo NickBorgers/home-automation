@@ -308,8 +308,15 @@ func valuesMatch(a, b interface{}) bool {
 
 // HueConfig represents the Hue lighting configuration
 type HueConfig struct {
-	Rooms    []RoomConfig    `yaml:"rooms"`
-	LuxCurve *LuxCurveConfig `yaml:"lux_curve"`
+	Rooms         []RoomConfig         `yaml:"rooms"`
+	LuxCurve      *LuxCurveConfig      `yaml:"lux_curve"`
+	ColorTracking *ColorTrackingConfig `yaml:"color_tracking"`
+}
+
+// ColorTrackingConfig copies color, but not brightness or power state, between light groups.
+type ColorTrackingConfig struct {
+	SourceEntity string `yaml:"source_entity"`
+	TargetEntity string `yaml:"target_entity"`
 }
 
 // LoadConfig loads the Hue configuration from a YAML file
@@ -326,6 +333,11 @@ func LoadConfig(path string) (*HueConfig, error) {
 
 	if err := config.validateLux(); err != nil {
 		return nil, fmt.Errorf("invalid lux config: %w", err)
+	}
+	if config.ColorTracking != nil &&
+		(!strings.HasPrefix(config.ColorTracking.SourceEntity, "light.") ||
+			!strings.HasPrefix(config.ColorTracking.TargetEntity, "light.")) {
+		return nil, fmt.Errorf("invalid color tracking config: source_entity and target_entity must be light entities")
 	}
 
 	return &config, nil

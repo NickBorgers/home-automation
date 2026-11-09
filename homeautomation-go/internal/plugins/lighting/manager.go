@@ -77,6 +77,10 @@ type Manager struct {
 	luxSensorOffline atomic.Bool
 	luxStop          chan struct{}
 	luxDone          chan struct{}
+
+	colorTrackingMu  sync.Mutex
+	cachedColor      *shadowstate.TrackedLightColor
+	lastAppliedColor *shadowstate.TrackedLightColor
 }
 
 // roomDebounce tracks a pending coalesced evaluation for a single room.
@@ -184,6 +188,9 @@ func (m *Manager) Start() error {
 	// Initialize shadow state with current input values (after all subscriptions registered)
 	if err := m.startLux(); err != nil {
 		return fmt.Errorf("failed to start lux control: %w", err)
+	}
+	if err := m.startColorTracking(); err != nil {
+		return fmt.Errorf("failed to start color tracking: %w", err)
 	}
 
 	m.subHelper.CaptureInitialInputs()

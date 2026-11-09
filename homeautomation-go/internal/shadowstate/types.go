@@ -344,8 +344,25 @@ type LightingOutputs struct {
 	Rooms          map[string]RoomState `json:"rooms"`
 	LastActionTime time.Time            `json:"lastActionTime"`
 	DarkOutside    DarkOutsideState     `json:"darkOutside"`
+	ColorTracking  ColorTrackingState   `json:"colorTracking,omitempty"`
 	// LuxControl holds the latest lux-target decision for each lux-controlled room.
 	LuxControl map[string]LuxControlState `json:"luxControl,omitempty"`
+}
+
+// TrackedLightColor is one HA light color represented in the form used by light.turn_on.
+type TrackedLightColor struct {
+	Mode            string    `json:"mode"`
+	ColorTempKelvin int       `json:"colorTempKelvin,omitempty"`
+	XYColor         []float64 `json:"xyColor,omitempty"`
+	HSColor         []float64 `json:"hsColor,omitempty"`
+}
+
+// ColorTrackingState exposes the cached source color and the last color sent to the target.
+type ColorTrackingState struct {
+	SourceEntity string             `json:"sourceEntity,omitempty"`
+	TargetEntity string             `json:"targetEntity,omitempty"`
+	CachedColor  *TrackedLightColor `json:"cachedColor,omitempty"`
+	LastApplied  *TrackedLightColor `json:"lastApplied,omitempty"`
 }
 
 // DarkOutsideState records the shared darkness decision published by lighting.

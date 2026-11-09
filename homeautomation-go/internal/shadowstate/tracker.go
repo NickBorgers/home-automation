@@ -228,6 +228,31 @@ func (lt *LightingTracker) UpdateDarkOutside(s DarkOutsideState) {
 	lt.State().Metadata.LastUpdated = time.Now()
 }
 
+// UpdateColorTracking records the current color-tracking cache and last target command.
+func (lt *LightingTracker) UpdateColorTracking(s ColorTrackingState) {
+	lt.Lock()
+	defer lt.Unlock()
+
+	lt.State().Outputs.ColorTracking = copyColorTrackingState(s)
+	lt.State().Metadata.LastUpdated = time.Now()
+}
+
+func copyColorTrackingState(s ColorTrackingState) ColorTrackingState {
+	s.CachedColor = copyTrackedLightColor(s.CachedColor)
+	s.LastApplied = copyTrackedLightColor(s.LastApplied)
+	return s
+}
+
+func copyTrackedLightColor(c *TrackedLightColor) *TrackedLightColor {
+	if c == nil {
+		return nil
+	}
+	result := *c
+	result.XYColor = append([]float64(nil), c.XYColor...)
+	result.HSColor = append([]float64(nil), c.HSColor...)
+	return &result
+}
+
 // GetState returns the current shadow state (thread-safe copy)
 func (lt *LightingTracker) GetState() *LightingShadowState {
 	lt.RLock()
@@ -244,6 +269,7 @@ func (lt *LightingTracker) GetState() *LightingShadowState {
 			Rooms:          make(map[string]RoomState),
 			LastActionTime: s.Outputs.LastActionTime,
 			DarkOutside:    s.Outputs.DarkOutside,
+			ColorTracking:  copyColorTrackingState(s.Outputs.ColorTracking),
 		},
 		Metadata: s.Metadata,
 	}
