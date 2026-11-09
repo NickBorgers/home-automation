@@ -19,7 +19,7 @@ import (
 // dimming was overwritten by the next tick.
 
 // startDimmingFade returns a fixture whose cans were at 100% and that has just sent a 60 s fade
-// down to 75% at 5000 K (the goal at noon with 10,000 lux outdoors is 44%).
+// down to 75% at 5000 K.
 func startDimmingFade(t *testing.T) *luxFixture {
 	t.Helper()
 	f := newLuxFixture(t, LuxModeActive, false)
