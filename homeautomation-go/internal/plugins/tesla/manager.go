@@ -364,6 +364,13 @@ func (m *Manager) nextPollInterval() time.Duration {
 	}
 	m.chargeMu.Lock()
 	defer m.chargeMu.Unlock()
+	// Until the first online read establishes context, or while the car was
+	// last seen unplugged at home, keep checking often enough to discover a
+	// plug-in. This also retries a transient offline response after startup.
+	discoveringPlugIn := !m.charge.seen || (m.charge.atHome && !m.charge.plugged)
+	if discoveringPlugIn && teslaapi.DefaultPollInterval < interval {
+		interval = teslaapi.DefaultPollInterval
+	}
 	charging := m.charge.record.ReconciliationStatus == reconcilePendingStop ||
 		m.charge.record.ReconciliationStatus == reconcilePendingCurrent ||
 		m.charge.record.ReconciliationStatus == reconcilePendingState ||

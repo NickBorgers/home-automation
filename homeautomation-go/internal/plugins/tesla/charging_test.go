@@ -288,9 +288,17 @@ func TestEnergyChargingFloorThenYellowStopsAt50(t *testing.T) {
 
 func TestEnergyChargingPollingInterval(t *testing.T) {
 	m, _, _, _ := newChargingManager(onlineFleet(home("Stopped", 70, 8)), "yellow")
-	m.cfg.PollInterval = 5 * time.Minute
+	m.cfg.PollInterval = time.Hour
 
-	assert.Equal(t, 5*time.Minute, m.nextPollInterval(), "idle charging control uses the configured interval")
+	assert.Equal(t, teslaapi.DefaultPollInterval, m.nextPollInterval(),
+		"startup reconciliation must not wait for a long configured interval")
+
+	m.charge = chargeMemory{seen: true, atHome: true, plugged: false}
+	assert.Equal(t, teslaapi.DefaultPollInterval, m.nextPollInterval(),
+		"an unplugged car at home must be checked often enough to detect a plug-in")
+
+	m.charge = chargeMemory{seen: true, atHome: false, plugged: false}
+	assert.Equal(t, time.Hour, m.nextPollInterval(), "an away car uses the configured interval")
 
 	m.charge.record.ReconciliationStatus = reconcileVerifiedChargingOK
 	assert.Equal(t, chargingPollInterval, m.nextPollInterval(), "active charging uses the shorter interval")
@@ -299,11 +307,48 @@ func TestEnergyChargingPollingInterval(t *testing.T) {
 	assert.Equal(t, chargingPollInterval, m.nextPollInterval(), "reconciliation stays on the shorter interval")
 
 	m.charge.record.ReconciliationStatus = reconcileVerifiedHeld
-	assert.Equal(t, 5*time.Minute, m.nextPollInterval(), "verified stopped state returns to idle polling")
+	assert.Equal(t, time.Hour, m.nextPollInterval(), "verified stopped state returns to idle polling")
 
 	m.cfg.PollInterval = 30 * time.Second
 	m.charge.record.ReconciliationStatus = reconcileVerifiedChargingOK
 	assert.Equal(t, 30*time.Second, m.nextPollInterval(), "charging never makes an already shorter interval slower")
+}
+
+func TestEnergyChargingDiscoversPlugInWithoutEnergyLevelChange(t *testing.T) {
+	// GIVEN: green was already active when startup found the car unplugged at home.
+	fleet := onlineFleet(home("Disconnected", 36, 0))
+	m, charger, _, _ := newChargingManager(fleet, "green")
+	m.cfg.PollInterval = time.Hour
+	m.Poll()
+	require.Empty(t, charger.sent())
+	require.Equal(t, teslaapi.DefaultPollInterval, m.nextPollInterval())
+
+	// WHEN: the car is plugged in before the reconciliation poll, with no energy-level transition.
+	fleet.data = home("Stopped", 36, 32).data()
+	m.Poll()
+
+	// THEN: the existing below-50% plan starts charging at full available current.
+	assert.Equal(t, []string{"start"}, charger.sent())
+	assert.Contains(t, m.GetShadowState().Outputs.EnergyCharging.Decision, "below the 50% floor")
+}
+
+func TestEnergyChargingReconcilesAfterTransientOfflineAtStartup(t *testing.T) {
+	// GIVEN: the first vehicle-list response after restart is transiently offline.
+	fleet := &fakeFleet{vehicles: []teslaapi.VehicleSummary{{VIN: "BBB", State: "offline"}}}
+	m, charger, _, _ := newChargingManager(fleet, "green")
+	m.cfg.PollInterval = time.Hour
+	m.Poll()
+	require.Empty(t, charger.sent())
+	require.Equal(t, teslaapi.DefaultPollInterval, m.nextPollInterval(),
+		"offline startup must retain a bounded reconciliation interval")
+
+	// WHEN: a later poll can read the already plugged-in car below 50%.
+	fleet.vehicles = []teslaapi.VehicleSummary{{VIN: "BBB", State: "online"}}
+	fleet.data = home("Stopped", 36, 32).data()
+	m.Poll()
+
+	// THEN: charging starts without an energy-level transition or unsafe blind wake.
+	assert.Equal(t, []string{"start"}, charger.sent())
 }
 
 func TestEnergyChargingWakesSleepingCarToCharge(t *testing.T) {
