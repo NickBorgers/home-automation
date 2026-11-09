@@ -724,6 +724,9 @@ func manualChangeReason(cmd *luxCommand, s *ha.State, colorTemp bool, now time.T
 
 // onFadePath reports whether v lies between behind (where the fade may still be) and target.
 // It allows reverse past behind, against the fade's direction, and tolerance past target.
+// Note: lo = min(behind-reverse, target-tolerance). During a down-fade, the binding lower bound is
+// usually target-tolerance. So any value from target-tolerance up to the starting level counts as on
+// the path. Example: start 100%, target 75%: a turn-down to 85% is not caught until the next tick.
 func onFadePath(v, behind, target, reverse, tolerance float64) bool {
 	lo := math.Min(behind-reverse, target-tolerance)
 	hi := math.Max(behind+reverse, target+tolerance)
