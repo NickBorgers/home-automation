@@ -116,3 +116,44 @@ func TestScenario_RoomPresence_FalsePersonDoesNotOccupyKitchen(t *testing.T) {
 	require.Len(t, s.Outputs.ActiveTracks, 1)
 	assert.False(t, s.Outputs.ActiveTracks[0].Confirmed)
 }
+
+// GIVEN a person walked into the study, which no camera sees, and the plugin keeps tokens in a helper
+// WHEN the plugin restarts, as it does after an image update
+// THEN the study is still occupied, and a seen area's token is not brought back
+func TestScenario_RoomPresence_RestartKeepsUnseenTokens(t *testing.T) {
+	server, client, stateMgr, baseCleanup := setupTest(t)
+	defer baseCleanup()
+	server.SetState("input_text.room_presence_tokens", "", map[string]interface{}{})
+
+	cfg, err := roompresence.LoadConfig(filepath.Join("..", "..", "internal", "plugins", "roompresence",
+		"testdata", "example_config.yaml"))
+	require.NoError(t, err)
+	cfg.TokenStore = "input_text.room_presence_tokens"
+	start := func() *roompresence.Manager {
+		mgr := roompresence.NewManager(context.Background(), client, stateMgr, cfg, "", testlogger.New(), false, nil)
+		require.NoError(t, mgr.Start())
+		return mgr
+	}
+
+	t.Log("GIVEN: one person walks from the lounge into the study, another stands in the kitchen")
+	mgr := start()
+	require.Eventually(t, func() bool { return server.MQTTSubscriptionCount() == 2 }, 5*time.Second, 10*time.Millisecond)
+	publishFrigate(t, server, "update", "p", "cam_lounge", []string{"lounge", "lounge_to_study"}, "lounge_to_study")
+	publishFrigate(t, server, "end", "p", "cam_lounge", []string{"lounge", "lounge_to_study"}, "lounge_to_study")
+	publishFrigate(t, server, "update", "k", "cam_kitchen", []string{"kitchen_to_hall", "kitchen"}, "kitchen")
+	require.Eventually(t, func() bool { return mgr.Occupied("study") && mgr.Occupied("kitchen") },
+		5*time.Second, 10*time.Millisecond)
+
+	t.Log("WHEN: the plugin stops and starts again")
+	mgr.Stop()
+	mgr = start()
+	defer mgr.Stop()
+
+	t.Log("THEN: the study token is back; the kitchen waits for its camera")
+	require.Eventually(t, func() bool { return mgr.Occupied("study") }, 5*time.Second, 10*time.Millisecond,
+		"the person in the unseen study is not forgotten")
+	assert.False(t, mgr.Occupied("kitchen"), "seen areas are not kept: the camera reports the person again")
+	toks := mgr.GetShadowState().Outputs.Tokens
+	require.Len(t, toks, 1)
+	assert.Equal(t, "study", toks[0].Area)
+}
