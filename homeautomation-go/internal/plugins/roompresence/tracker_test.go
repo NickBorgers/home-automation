@@ -1,6 +1,7 @@
 package roompresence
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -198,6 +199,55 @@ func TestEnd_RoomZoneTokenStaysUntilIdleLimit(t *testing.T) {
 	assert.Contains(t, s.tr.removed[len(s.tr.removed)-1].Reason, "idle")
 }
 
+// "Another person sitting in the kitchen does not keep a phantom token alive." Each person's own track
+// is the evidence for their token, not any person seen in the area.
+func TestIdle_OtherPersonDoesNotKeepPhantomTokenAlive(t *testing.T) {
+	s := newScene(t)
+	limit := 10 * time.Minute
+	s.tr.cfg.Areas["kitchen"].IdleLimit = &limit
+	s.seed(0, "kitchen") // t1, the phantom: nobody holds it
+	s.seed(0, "hall")    // t2, the person who walks in
+	end := s.walk(1, "a", "cam_hall", "hall", "hall_to_kitchen")
+	s.event(end+1, "update", "b", "cam_kitchen", []string{"kitchen"}, "kitchen")
+	require.Equal(t, ruleHandoff, s.tr.active["b"].rule)
+	require.Equal(t, "t2", s.tr.active["b"].tokenID)
+	s.tokens(2)
+
+	// The person stays in view of the kitchen camera for 15 minutes.
+	for sec := end + 10; sec <= end+15*60; sec += 10 {
+		s.event(sec, "update", "b", "cam_kitchen", []string{"kitchen"}, "kitchen")
+		s.tick(sec)
+	}
+
+	s.tokens(1)
+	assert.Contains(t, s.tr.tokens, "t2")
+	require.NotEmpty(t, s.tr.removed)
+	last := s.tr.removed[len(s.tr.removed)-1]
+	assert.Equal(t, "t1", last.Token)
+	assert.Equal(t, "idle for more than 10m0s", last.Reason)
+}
+
+// A person who sits still until Frigate loses them keeps their token while new tracks keep seeing them.
+func TestIdle_NewTrackOfSamePersonKeepsToken(t *testing.T) {
+	s := newScene(t)
+	limit := 10 * time.Minute
+	s.tr.cfg.Areas["kitchen"].IdleLimit = &limit
+	s.seed(0, "kitchen")
+
+	// Frigate loses the person and finds them again with a new track every 8 minutes, for 40 minutes.
+	for i := 0; i < 5; i++ {
+		start := float64(i*8*60) + 1
+		end := s.walk(start, fmt.Sprintf("p%d", i), "cam_kitchen", "kitchen")
+		last := s.tr.ended[len(s.tr.ended)-1]
+		assert.Equal(t, ruleResume, last.rule)
+		assert.Equal(t, "t1", last.tokenID)
+		s.tick(end + 7*60)
+	}
+	s.tokens(1)
+	s.occupied("kitchen")
+	assert.Empty(t, s.tr.removed)
+}
+
 // Rule 2: a new track that starts where another just ended is the same person.
 func TestRule2_HandoffKeepsOneToken(t *testing.T) {
 	s := newScene(t)
@@ -390,6 +440,33 @@ func TestCameraFailure_FreezesAndResumesExpiry(t *testing.T) {
 		s.tick(sec)
 		if sec == back+60 {
 			s.occupied("hall")
+		}
+	}
+	s.empty("hall")
+}
+
+// The idle clock counts from the token's last sighting, and that clock also pauses while the camera is down.
+func TestCameraFailure_PausesLastSeenClock(t *testing.T) {
+	s := newScene(t)
+	s.tr.Heartbeat(at(0), "cam_hall")
+	s.seed(0, "hall")
+	end := s.walk(200, "a", "cam_hall", "hall") // resumes the token; last seen 3m22s after it arrived
+	require.Equal(t, ruleResume, s.tr.ended[len(s.tr.ended)-1].rule)
+	for sec := 10.0; sec <= end+10; sec += 10 {
+		s.tr.Heartbeat(at(sec), "cam_hall")
+		s.tick(sec)
+	}
+	s.tick(end + 10 + 31)
+	require.True(t, s.tr.unknown("hall"))
+
+	back := end + 10 + 30*60
+	s.tr.Heartbeat(at(back), "cam_hall")
+	s.tick(back)
+	for sec := back + 10; sec <= back+5*60; sec += 10 {
+		s.tr.Heartbeat(at(sec), "cam_hall")
+		s.tick(sec)
+		if sec == back+4*60 {
+			s.occupied("hall") // about 40s of the 5m limit had passed when the camera stopped
 		}
 	}
 	s.empty("hall")

@@ -948,13 +948,14 @@ func (t *Tracker) heldByOther(id string, self *track) bool {
 	return false
 }
 
-// lastEvidence is the time the idle limit counts from.
+// lastEvidence is the time the idle limit counts from. In a seen area it is the last time a track holding
+// the token reported. Another person seen in the same area is not evidence: their track holds their own
+// token, so counting it would keep a phantom token alive as long as anyone stays in the room. A person
+// whose track ended and who is seen again gets a new track, and the resume rule gives it this token back.
 func (t *Tracker) lastEvidence(tok *token) time.Time {
 	ref := tok.since
-	if t.cfg.Areas[tok.area].Seen {
-		if seen := t.areaLastSeen[tok.area]; seen.After(ref) {
-			ref = seen
-		}
+	if t.cfg.Areas[tok.area].Seen && tok.lastSeen.After(ref) {
+		ref = tok.lastSeen
 	}
 	return ref
 }
@@ -1015,6 +1016,7 @@ func (t *Tracker) updateUnknownAreas(now time.Time) {
 			delete(t.frozenSince, area)
 			for _, tok := range t.tokensIn(area) {
 				tok.since = tok.since.Add(pause)
+				tok.lastSeen = tok.lastSeen.Add(pause)
 			}
 			if seen, ok := t.areaLastSeen[area]; ok {
 				t.areaLastSeen[area] = seen.Add(pause)
