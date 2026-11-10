@@ -242,6 +242,8 @@ func (s *Scheduler) markCleaned(k itemKey, now time.Time) {
 	if !s.effectiveBool(entity, st.State == "on") {
 		return
 	}
+	// expectOff is cleared only by Home Assistant's event for this write (or by a failed write). If that
+	// event never arrives, the next "off" for this entity is taken as ours and not as the owner's.
 	s.expectOff[entity] = true
 	if err := s.setBool(entity, false); err != nil {
 		delete(s.expectOff, entity)

@@ -343,6 +343,19 @@ func TestSchedulerLogOnlyLogsButNeverCommands(t *testing.T) {
 	assert.Empty(t, e.robot.Commands())
 	assert.Nil(t, e.sched().Run)
 	assert.Equal(t, "full:kitchen", e.s.loggedWould)
+	p := e.sched().Plan
+	assert.Nil(t, p.PendingSince, "no longer pending")
+	assert.Nil(t, p.StartsAt, "no start time in the past")
+	require.NotNil(t, p.WouldStartAt)
+	assert.Equal(t, schedT0.Add(10*time.Minute), *p.WouldStartAt)
+
+	// A new plan goes through the gate again.
+	e.markDirty("office")
+	e.s.TickForTest(true)
+	p = e.sched().Plan
+	assert.Nil(t, p.WouldStartAt)
+	require.NotNil(t, p.StartsAt)
+	assert.True(t, p.StartsAt.After(e.clk.Now()), "the new plan starts in the future")
 }
 
 func TestSchedulerVacuumTreatmentPresets(t *testing.T) {
@@ -407,7 +420,8 @@ func TestSchedulerTracksOwnRun(t *testing.T) {
 	assert.NotNil(t, e.sched().Run, "one docked poll is not yet the end")
 	step("mud", 83)
 	assert.Equal(t, "off", e.state("input_boolean.vacuum_dirty_kitchen"), "kitchen done when the run ends")
-	assert.InDelta(t, 9.1, e.cost("input_number.vacuum_cost_kitchen"), 1e-9, "9.6 + 0.3 * (8 - 9.6)")
+	assert.InDelta(t, 8.8, e.cost("input_number.vacuum_cost_kitchen"), 1e-9,
+		"9.6 + 0.3 * (7 - 9.6); the drop on the dock is left out")
 	vacuumCleaned := e.cleanedAt(itemKey{"kitchen", TreatmentVacuum})
 	assert.True(t, vacuumCleaned.After(runStart), "a full clean also clears the vacuum taint")
 	assert.Nil(t, e.sched().Run)
@@ -416,7 +430,7 @@ func TestSchedulerTracksOwnRun(t *testing.T) {
 	assert.Equal(t, "completed", last.Outcome)
 	assert.Equal(t, []string{"lounge", "kitchen"}, last.Done)
 	assert.Equal(t, 100, last.StartBattery)
-	assert.InDelta(t, 4.7, e.cost(tripEntity), 1e-9, "trip sample 17 - 13 = 4: 5 + 0.3 * (4 - 5)")
+	assert.InDelta(t, 4.7, e.cost(tripEntity), 1e-9, "trip sample 16 - 12 = 4: 5 + 0.3 * (4 - 5)")
 
 	// Our own turn_off events are not mistaken for the owner turning a taint off.
 	before := e.cleanedAt(itemKey{"lounge", TreatmentFull})
@@ -648,6 +662,8 @@ func TestSchedulerNoPositionFallsBackToWholeRun(t *testing.T) {
 	e.start()
 	e.startRun("kitchen", "lounge")
 	e.moveTo("kitchen", 90)
+	e.advance(30 * time.Second)
+	e.moveTo("kitchen", 75)
 	e.advance(30 * time.Second)
 	assert.Equal(t, "on", e.state("input_boolean.vacuum_dirty_lounge"))
 	assert.False(t, e.sched().Run.PositionAvailable)

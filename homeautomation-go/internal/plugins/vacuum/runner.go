@@ -40,7 +40,14 @@ const (
 	outcomeStopped   = "stopped"
 )
 
-// commandTimeout bounds a pause or home command, so a robot that has gone silent fails fast and the next
+// withCommandTimeout runs one robot command bounded by commandTimeout.
+func (s *Scheduler) withCommandTimeout(fn func(ctx context.Context) error) error {
+	ctx, cancel := context.WithTimeout(s.ctx, commandTimeout)
+	defer cancel()
+	return fn(ctx)
+}
+
+// commandTimeout bounds every robot command (presets, segment clean, pause, home), so a robot that has gone silent fails fast and the next
 // tick can try again.
 const commandTimeout = 5 * time.Second
 
@@ -84,7 +91,8 @@ type Scheduler struct {
 	lastPlanAt     time.Time
 	pendingKey     string
 	pendingSince   time.Time
-	loggedWould    string
+	loggedWould    string    // key of the plan a passive scheduler "would have started"
+	wouldAt        time.Time // when it would have started
 	run            *run
 	lastRun        *run
 	robotState     *valetudo.State
@@ -420,9 +428,14 @@ func (s *Scheduler) replan(now time.Time) {
 		if s.pendingKey != "" {
 			s.logger.Info("Vacuum plan dropped", zap.String("reason", p.Reason))
 		}
-		s.pendingKey = ""
+		s.pendingKey, s.loggedWould, s.wouldAt = "", "", time.Time{}
 		return
 	}
+	if p.Key() == s.loggedWould {
+		// A passive scheduler already "started" this plan. It stays started until the plan changes.
+		return
+	}
+	s.loggedWould, s.wouldAt = "", time.Time{}
 	if p.Key() != s.pendingKey {
 		s.pendingKey, s.pendingSince = p.Key(), now
 		s.logger.Info("Vacuum plan pending", zap.String("plan", p.Key()), zap.Float64("cost", p.Cost),
@@ -439,13 +452,11 @@ func (s *Scheduler) replan(now time.Time) {
 // logs the run it would start.
 func (s *Scheduler) startRun(now time.Time, p Plan) {
 	if s.cfg.Mode != ModeActive || s.readOnly {
-		if s.loggedWould != p.Key() {
-			s.loggedWould = p.Key()
-			s.logger.Info("Vacuum would start a run", zap.String("mode", s.cfg.Mode),
-				zap.Bool("read_only", s.readOnly), zap.String("treatment", string(p.Treatment)),
-				zap.Strings("rooms", p.Rooms), zap.Strings("segments", p.Segments),
-				zap.Float64("cost", p.Cost), zap.Float64("budget", p.Budget))
-		}
+		s.loggedWould, s.wouldAt, s.pendingKey = p.Key(), now, ""
+		s.logger.Info("Vacuum would start a run", zap.String("mode", s.cfg.Mode),
+			zap.Bool("read_only", s.readOnly), zap.String("treatment", string(p.Treatment)),
+			zap.Strings("rooms", p.Rooms), zap.Strings("segments", p.Segments),
+			zap.Float64("cost", p.Cost), zap.Float64("budget", p.Budget))
 		return
 	}
 	tc := s.cfg.Treatments[p.Treatment]
@@ -457,12 +468,16 @@ func (s *Scheduler) startRun(now time.Time, p Plan) {
 		if preset.name == "" {
 			continue
 		}
-		if err := s.robot.SetPreset(s.ctx, preset.capability, preset.name); err != nil {
+		if err := s.withCommandTimeout(func(ctx context.Context) error {
+			return s.robot.SetPreset(ctx, preset.capability, preset.name)
+		}); err != nil {
 			s.startFailed(now, fmt.Errorf("set %s %q: %w", preset.capability, preset.name, err))
 			return
 		}
 	}
-	if err := s.robot.CleanSegments(s.ctx, p.Segments); err != nil {
+	if err := s.withCommandTimeout(func(ctx context.Context) error {
+		return s.robot.CleanSegments(ctx, p.Segments)
+	}); err != nil {
 		s.startFailed(now, fmt.Errorf("start segment clean: %w", err))
 		return
 	}
@@ -626,8 +641,12 @@ func (s *Scheduler) trackRun(now time.Time, st *valetudo.State) {
 // observe takes one poll: battery drop goes to the room the robot was in at the previous poll, and room
 // changes follow the tour. The caller holds tickMu.
 func (s *Scheduler) observe(r *run, now time.Time, st *valetudo.State, room string, posOK bool) {
+	// Battery used at the dock in the middle of a job, such as for a mop wash, is neither a room's cost nor
+	// the trip. It is left out of both.
+	atDock := st.Status == valetudo.StatusDocked || st.DockStatus == valetudo.DockStatusCleaning ||
+		(st.Status == valetudo.StatusIdle && st.Flag == valetudo.FlagResumable)
 	if st.HasBattery {
-		if r.haveBattery && st.Battery < r.lastBattery {
+		if r.haveBattery && st.Battery < r.lastBattery && !atDock {
 			drop := float64(r.lastBattery - st.Battery)
 			r.totalDrop += drop
 			if r.room != "" {
@@ -885,9 +904,7 @@ func (s *Scheduler) command(action, why string) error {
 			zap.String("mode", s.cfg.Mode), zap.Bool("read_only", s.readOnly))
 		return nil
 	}
-	ctx, cancel := context.WithTimeout(s.ctx, commandTimeout)
-	defer cancel()
-	if err := s.robot.Basic(ctx, action); err != nil {
+	if err := s.withCommandTimeout(func(ctx context.Context) error { return s.robot.Basic(ctx, action) }); err != nil {
 		s.logger.Error("Vacuum command failed", zap.String("action", action), zap.Error(err))
 		return err
 	}
@@ -955,6 +972,10 @@ func (s *Scheduler) publish(now time.Time) {
 		if s.pendingKey != "" && s.pendingKey == p.Key() {
 			since, starts := s.pendingSince, s.pendingSince.Add(s.cfg.StableFor)
 			vp.PendingSince, vp.StartsAt = &since, &starts
+		}
+		if s.loggedWould != "" && s.loggedWould == p.Key() {
+			at := s.wouldAt
+			vp.WouldStartAt = &at
 		}
 		o.Plan = vp
 	}

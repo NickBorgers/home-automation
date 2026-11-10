@@ -117,7 +117,7 @@ These variables are only referenced in disabled Node Red flows and will NOT be m
 | humidityOfOutside | Air Condition | Flow disabled |
 | isHumidifierOn | Air Condition | Flow disabled |
 | keepPoolPumpOnFor24Hours | Pool Pump | Flow disabled |
-| lastVacuumingTimestamp | Vacuum | Flow disabled |
+| lastVacuumingTimestamp | Vacuum | Replaced by the vacuum scheduler's per-room helpers (`input_datetime.vacuum_cleaned_<room>`); see [VACUUM.md](../flows/VACUUM.md) |
 | outdoorTemperature | Air Condition | Flow disabled |
 | pm25OfBedroom | Air Condition | Flow disabled |
 | pm25OfLivingRoom | Air Condition | Flow disabled |
