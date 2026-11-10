@@ -63,8 +63,6 @@ type Plan struct {
 	// Rooms are in the order the robot should clean them.
 	Rooms    []string
 	Segments []string
-	// Items are the items the run clears: the packed items, plus vacuum items of rooms a full run cleans.
-	Items []PlanItem
 	// Cost is trip plus room costs. Budget is battery minus floor.
 	Cost   float64
 	Budget float64
@@ -281,14 +279,10 @@ func BuildPlan(in PlanInput) Plan {
 		inTour[it.Room] = true
 		plan.Rooms = append(plan.Rooms, it.Room)
 		plan.Segments = append(plan.Segments, in.Segments[it.Room])
-		plan.Items = append(plan.Items, it)
 		plan.Cost += it.Cost
 	}
 	for _, room := range sortedKeys(vacuumOf) {
-		v := vacuumOf[room]
 		if inTour[room] {
-			v.Cost = 0
-			plan.Items = append(plan.Items, v)
 			continue
 		}
 		plan.Skipped = append(plan.Skipped, Skip{Room: room, Treatment: TreatmentVacuum,
@@ -297,7 +291,6 @@ func BuildPlan(in PlanInput) Plan {
 	if len(plan.Rooms) == 0 {
 		plan.Treatment = ""
 		plan.Cost = 0
-		plan.Items = nil
 		plan.Reason = "no dirty room fits a safe tour"
 	}
 	return plan

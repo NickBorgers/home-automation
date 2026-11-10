@@ -260,8 +260,11 @@ func TestBuildPlan(t *testing.T) {
 			}
 			// Every dirty item is either in the run or has a reason.
 			covered := map[string]bool{}
-			for _, it := range p.Items {
-				covered[it.Room+"/"+string(it.Treatment)] = true
+			for _, room := range p.Rooms {
+				covered[room+"/"+string(p.Treatment)] = true
+				if p.Treatment == TreatmentFull {
+					covered[room+"/"+string(TreatmentVacuum)] = true
+				}
 			}
 			for _, s := range p.Skipped {
 				k := s.Room + "/" + string(s.Treatment)
@@ -285,12 +288,10 @@ func TestBuildPlanResultDetails(t *testing.T) {
 	assert.Equal(t, []string{"office", "kitchen"}, p.Rooms)
 	assert.Equal(t, []string{"4", "3"}, p.Segments)
 	assert.Equal(t, "full:office,kitchen", p.Key())
-	assert.InDelta(t, 23.0, p.Cost, 1e-9, "trip 5 + kitchen 10 + office 8; the free vacuum item adds nothing")
+	assert.InDelta(t, 23.0, p.Cost, 1e-9, "trip 5 + kitchen 10 + office 8")
 	assert.InDelta(t, 70.0, p.Budget, 1e-9)
 	assert.Equal(t, []string{"bath", "bed"}, p.NoClean)
 	assert.Equal(t, []string{"bath"}, p.NoEnter, "a sleeper's room is not entered")
-	require.Len(t, p.Items, 3)
-	assert.Equal(t, PlanItem{Room: "kitchen", Treatment: TreatmentVacuum, Score: 4, Cost: 0}, p.Items[2])
 }
 
 func TestBuildPlanIsPure(t *testing.T) {
