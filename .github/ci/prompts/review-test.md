@@ -22,8 +22,12 @@ ANTI-PATTERNS TO FLAG AS BLOCKING:
 - time.Sleep in new test code: flag unless there is a comment explaining why polling/channels
   won't work. Check for existing helpers like waitForProcessing(), waitForServiceCallsToStabilize().
 
-If the PR modifies risky areas (sleep/wake logic, music playback, multi-plugin interactions),
-check for scenario test coverage. Reference existing patterns in test/integration/scenario_*_test.go.
+Every behavior change needs a scenario test (see "Scenario Tests First" in AGENTS.md). Flag a
+behavior change without one as BLOCKING unless the PR description names an allowed exception.
+The only allowed exceptions are changes with no runtime behavior: docs, comments, CI and tooling,
+or a refactor that existing tests already cover. If the named exception does not fit the diff,
+flag it as BLOCKING too.
+Reference existing patterns in test/integration/scenario_*_test.go.
 
 Run `make unit-tests` to verify.
 

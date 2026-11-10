@@ -21,9 +21,10 @@ IMPORTANT RULES FOR THIS REPOSITORY:
 - Follow shadow state pattern (docs/reference/SHADOW_STATE.md)
 - Never use `git push --no-verify`
 
-TDD FOR CROSS-PLUGIN FEATURES:
-- If implementing a feature that spans multiple plugins, write the user story test FIRST
-- User story tests go in test/integration/scenario_*_test.go
+SCENARIO TESTS FIRST (see AGENTS.md):
+- Every change that alters behavior starts with a failing scenario test, for bug fixes and features alike
+- Scenario tests go in test/integration/scenario_*_test.go; run the new test and confirm it fails before changing code
+- Skip only for docs, comments, CI/tooling, or refactors covered by existing tests, and say which in the PR description
 - Tests should verify behavior from the user's perspective using GIVEN/WHEN/THEN
 - Document invariants: rules that should ALWAYS hold (e.g., 'isWakeSequenceActive=true blocks sleep music')
 - Test the full timeline, not just end states (T+0, T+2min, T+5min)
