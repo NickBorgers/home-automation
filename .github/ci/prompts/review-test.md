@@ -24,6 +24,9 @@ ANTI-PATTERNS TO FLAG AS BLOCKING:
 
 Every behavior change needs a scenario test (see "Scenario Tests First" in AGENTS.md). Flag a
 behavior change without one as BLOCKING unless the PR description names an allowed exception.
+The only allowed exceptions are changes with no runtime behavior: docs, comments, CI and tooling,
+or a refactor that existing tests already cover. If the named exception does not fit the diff,
+flag it as BLOCKING too.
 Reference existing patterns in test/integration/scenario_*_test.go.
 
 Run `make unit-tests` to verify.
