@@ -47,8 +47,8 @@ func (s *Scheduler) withCommandTimeout(fn func(ctx context.Context) error) error
 	return fn(ctx)
 }
 
-// commandTimeout bounds every robot command (presets, segment clean, pause, home), so a robot that has gone silent fails fast and the next
-// tick can try again.
+// commandTimeout bounds every robot command (presets, segment clean, pause, home), so a robot that has
+// gone silent fails fast and the next tick can try again.
 const commandTimeout = 5 * time.Second
 
 // startGrace is how long a run we sent may stay docked before it counts as not started.
@@ -641,8 +641,8 @@ func (s *Scheduler) trackRun(now time.Time, st *valetudo.State) {
 // observe takes one poll: battery drop goes to the room the robot was in at the previous poll, and room
 // changes follow the tour. The caller holds tickMu.
 func (s *Scheduler) observe(r *run, now time.Time, st *valetudo.State, room string, posOK bool) {
-	// Battery used at the dock in the middle of a job, such as for a mop wash, is neither a room's cost nor
-	// the trip. It is left out of both.
+	// Battery used at the dock — during a mid-job mop wash or the final return — is neither a room's cost
+	// nor the trip. It is left out of both.
 	atDock := st.Status == valetudo.StatusDocked || st.DockStatus == valetudo.DockStatusCleaning ||
 		(st.Status == valetudo.StatusIdle && st.Flag == valetudo.FlagResumable)
 	if st.HasBattery {

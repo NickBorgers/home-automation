@@ -207,6 +207,6 @@ func TestSchedulerMidJobDockBatteryIsLeftOut(t *testing.T) {
 	step("mud", "docked", "none", 76)
 	step("mud", "docked", "none", 76)
 	require.Nil(t, e.sched().Run)
-	assert.InDelta(t, 9.7, e.cost("input_number.vacuum_cost_kitchen"), 1e-9, "9.6 + 0.3 * (10 - 9.6)")
+	assert.InDelta(t, 9.7, e.cost("input_number.vacuum_cost_kitchen"), 1e-9, "battery drop 10 (8+2)")
 	assert.InDelta(t, 3.5, e.cost(tripEntity), 1e-9, "trip sample 10 - 10 = 0: 5 + 0.3 * (0 - 5)")
 }

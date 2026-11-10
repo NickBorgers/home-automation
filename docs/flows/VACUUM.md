@@ -135,7 +135,7 @@ sequenceDiagram
 - The next room of the tour counts at once. Any other room counts only after the robot stays in it for
   `min_dwell` (2 minutes). This keeps a room the robot drives through from counting.
 - The battery drop between two polls goes to the room the robot was in at the first poll. Battery used at
-  the dock in the middle of a job, such as for a mop wash, is left out. A finished room's
+  the dock — during a mid-job mop wash or the final return — is left out. A finished room's
   drop is its cost sample. The rest of the run's drop is the trip sample. Samples move the learned cost by
   `learning_rate` (0.3).
 - Before any sample, a room's cost is its floor area times `default_cost_per_m2`.
