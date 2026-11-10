@@ -129,7 +129,7 @@ flowchart TD
         livingBehavior["Follow day phase<br/>Always respond to scene changes"]
         masterBehavior["Sleep-aware<br/>Protected during wake sequence"]
         guestBehavior["Independent<br/>Less aggressive automation"]
-        exteriorBehavior["Motion/schedule<br/>Security focused"]
+        exteriorBehavior["Presence-triggered<br/>Only active when isDarkOutside = true"]
     end
 
     living --> livingBehavior
