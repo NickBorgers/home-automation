@@ -142,26 +142,30 @@ For periodic/timer-based plugins that don't use subscriptions (e.g., `dayphase`,
 
 **Concurrency:** Protect shared state with mutexes, use `sync.RWMutex` for read-heavy ops, **serialize WebSocket writes with `writeMu`**.
 
-### TDD for Cross-Plugin Features
+### Scenario Tests First
 
-**When implementing features that span multiple plugins, write user story tests FIRST.**
+**Every change that alters behavior starts with a failing scenario test.** This applies to bug fixes
+and to features. It applies whether the change touches one plugin or several. The private downstream
+repo follows the same rule.
 
-Cross-plugin bugs often slip through unit tests because unit tests set up state atomically and don't test timing windows between state changes. User story tests validate behavior from the user's perspective.
+Unit tests set up state all at once, so they miss timing windows between state changes. Scenario
+tests check behavior from the household's point of view, over time.
 
-**When to write user story tests:**
-- Features involving 2+ plugins (e.g., sleephygiene + music, lighting + presence)
-- Features with timing dependencies (e.g., "when alarm triggers, music fades out over 5 minutes")
-- Features with invariants that must ALWAYS hold (e.g., "sleep music never restarts during wake sequence")
+**Workflow:**
 
-**TDD workflow for cross-plugin features:**
+1. **Write the story.** Example: "When my alarm goes off, I want gentle wake-up music."
+2. **Name the invariants.** Example: "Sleep music must NOT restart while `isWakeSequenceActive=true`."
+3. **Write a failing scenario test** in `homeautomation-go/test/integration/scenario_*_test.go`. Run it.
+   Check that it fails for the reason you expect.
+4. **Make the change.** The test now passes.
+5. **Clean up** while all tests stay green.
 
-```
-1. Write the user story: "When my alarm goes off, I want gentle wake-up music"
-2. Identify invariants: "sleep music must NOT restart while isWakeSequenceActive=true"
-3. Write a test in test/integration/scenario_*_test.go that will FAIL (it will)
-4. Implement the feature across plugins
-5. Test passes when user expectation is met
-```
+A bug fix's scenario test reproduces the bug before the fix. This proves the test can catch it.
+Unit tests still cover details inside one function, but they do not replace the scenario test.
+
+**Exceptions.** Skip the scenario test only when a change has no runtime behavior: docs, comments,
+CI and tooling, or a refactor that existing tests already cover. Say which exception applies in the
+PR description. A config-only change that alters behavior needs a test that shows the new behavior.
 
 **Test structure (GIVEN/WHEN/THEN):**
 
