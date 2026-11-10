@@ -91,7 +91,8 @@ type AreaConfig struct {
 	Seen bool `yaml:"seen"`
 
 	// IdleLimit is how long a token may stay without evidence. A seen area counts from the last time a
-	// camera saw a person there. An unseen area counts from when the token arrived. Absent: never expires.
+	// camera saw the token's own person there. An unseen area counts from when the token arrived. Absent:
+	// never expires.
 	IdleLimit *time.Duration `yaml:"idle_limit"`
 
 	// LeadsOutside marks an area with a door to the outside. It is reported in shadow state.

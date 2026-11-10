@@ -164,8 +164,10 @@ them. This is where radar sensors failed, so it is the default.
 ### How a token goes away
 
 Without a rule, a token left behind by a missed exit would keep a room lit forever. Areas may have an **idle
-limit** in the config. A token in a seen area expires when no camera sees a person in that area for the limit. A
-token in an unseen area expires after that area's own limit. An area that leads outside should have a short
+limit** in the config. A token in a seen area expires when no track holding that token reports for the limit.
+Another person seen in the same area does not count: their track holds their own token. A person whose track
+ended and who is seen again gets the token back through the resume rule. A token in an unseen area expires after
+that area's own limit. An area that leads outside should have a short
 limit. A bedroom may have no `idle_limit` (field absent, parsed as nil `*time.Duration`), cleared instead by
 sleep and wake state.
 
