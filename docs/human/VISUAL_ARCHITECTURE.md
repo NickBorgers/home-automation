@@ -1147,6 +1147,8 @@ graph LR
 
     VacuumErrorSensor --> VacuumPlugin
     MasterAsleep --> VacuumPlugin
+    GuestAsleep --> VacuumPlugin
+    HaveGuests --> VacuumPlugin
     AnyoneHome --> VacuumPlugin
 
     SepticAlarmSensor --> InfrastructurePlugin

@@ -25,6 +25,7 @@ type Robot struct {
 	battery   int
 	status    string
 	flag      string
+	dock      string
 	presets   map[string]string
 	pixelSize float64
 	robot     *[2]float64
@@ -61,6 +62,13 @@ func (r *Robot) SetStatus(status, flag string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.status, r.flag = status, flag
+}
+
+// SetDockStatus sets the DockStatusStateAttribute value, such as "cleaning". "" leaves it out.
+func (r *Robot) SetDockStatus(value string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.dock = value
 }
 
 // SetPreset sets a preset value, such as "operation_mode" to "vacuum".
@@ -139,6 +147,9 @@ func (r *Robot) serve(w http.ResponseWriter, req *http.Request) {
 		attrs := []map[string]any{
 			{"__class": "BatteryStateAttribute", "level": r.battery, "flag": "none"},
 			{"__class": "StatusStateAttribute", "value": r.status, "flag": r.flag},
+		}
+		if r.dock != "" {
+			attrs = append(attrs, map[string]any{"__class": "DockStatusStateAttribute", "value": r.dock})
 		}
 		for typ, v := range r.presets {
 			attrs = append(attrs, map[string]any{"__class": "PresetSelectionStateAttribute", "type": typ, "value": v})

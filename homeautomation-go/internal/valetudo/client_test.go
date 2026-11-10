@@ -20,7 +20,8 @@ const realAttributes = `[
  {"__class":"StatusStateAttribute","value":"docked","flag":"none"},
  {"__class":"PresetSelectionStateAttribute","type":"fan_speed","value":"medium"},
  {"__class":"PresetSelectionStateAttribute","type":"water_grade","value":"low"},
- {"__class":"PresetSelectionStateAttribute","type":"operation_mode","value":"vacuum_and_mop"}
+ {"__class":"PresetSelectionStateAttribute","type":"operation_mode","value":"vacuum_and_mop"},
+ {"__class":"DockStatusStateAttribute","value":"drying"}
 ]`
 
 // realMap is the shape of a real robot's /api/v2/robot/state/map reply, trimmed. Entity points are in
@@ -58,6 +59,7 @@ func TestStateParsesRealReply(t *testing.T) {
 	assert.Equal(t, 87, s.Battery)
 	assert.Equal(t, "docked", s.Status)
 	assert.True(t, s.Docked())
+	assert.Equal(t, "drying", s.DockStatus)
 	assert.Equal(t, map[string]string{"fan_speed": "medium", "water_grade": "low",
 		"operation_mode": "vacuum_and_mop"}, s.Presets)
 }

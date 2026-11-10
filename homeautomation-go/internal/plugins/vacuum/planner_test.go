@@ -149,6 +149,22 @@ func TestBuildPlan(t *testing.T) {
 			},
 		},
 		{
+			// The pantry's area is clear, but someone sleeps there. The bath is two doors from the pantry, so
+			// it may be cleaned, but its shortest way crosses the pantry.
+			name:   "rule 1: the shortest way may not cross a sleeper's room, even when its area is clear",
+			items:  []PlanItem{full("bath", 3, 5), full("office", 1, 5)},
+			mutate: func(in *PlanInput) { in.SleeperRooms = []string{"pantry"} },
+			rooms:  []string{"office"},
+			treat:  TreatmentFull,
+			skips:  map[string]string{"bath/full": "way from the dock enters pantry (sleeper room)"},
+		},
+		{
+			name:   "rule 1: no run when someone sleeps in the dock room",
+			items:  []PlanItem{full("kitchen", 2, 5)},
+			mutate: func(in *PlanInput) { in.SleeperRooms = []string{"mud"} },
+			reason: "dock room mud: sleeper room",
+		},
+		{
 			name:   "occupied wins over sleeper neighbour as reason",
 			items:  []PlanItem{full("pantry", 2, 5)},
 			mutate: func(in *PlanInput) { in.SleeperRooms = []string{"bed"}; in.BlockedAreas["pantry"] = true },
@@ -272,7 +288,7 @@ func TestBuildPlanResultDetails(t *testing.T) {
 	assert.InDelta(t, 23.0, p.Cost, 1e-9, "trip 5 + kitchen 10 + office 8; the free vacuum item adds nothing")
 	assert.InDelta(t, 70.0, p.Budget, 1e-9)
 	assert.Equal(t, []string{"bath", "bed"}, p.NoClean)
-	assert.Empty(t, p.NoEnter)
+	assert.Equal(t, []string{"bath"}, p.NoEnter, "a sleeper's room is not entered")
 	require.Len(t, p.Items, 3)
 	assert.Equal(t, PlanItem{Room: "kitchen", Treatment: TreatmentVacuum, Score: 4, Cost: 0}, p.Items[2])
 }
@@ -370,8 +386,14 @@ func TestOrderTourDropsRoomWithBlockedWayHome(t *testing.T) {
 func TestComputeRestrictions(t *testing.T) {
 	g := loadTestMap(t).Graph()
 	r := ComputeRestrictions(g, map[string]bool{"suite": true}, []string{"office"})
-	assert.Equal(t, map[string]string{"bed": "suite", "bath": "suite"}, r.NoEnter)
+	assert.Equal(t, map[string]string{
+		"bed":    "area suite is occupied or unknown",
+		"bath":   "area suite is occupied or unknown",
+		"office": "sleeper room",
+	}, r.NoEnter, "a sleeper's room is not entered, even when its area is clear")
 	assert.Equal(t, "sleeper room", r.NoClean["office"])
+	_, neighbourBlocked := r.NoEnter["mud"]
+	assert.False(t, neighbourBlocked, "a sleeper's neighbour may be driven through")
 	assert.Equal(t, "next to sleeper room office", r.NoClean["mud"])
 	assert.Equal(t, "area suite is occupied or unknown", r.NoClean["bed"], "occupied is the stronger reason")
 	_, ok := r.NoClean["kitchen"]

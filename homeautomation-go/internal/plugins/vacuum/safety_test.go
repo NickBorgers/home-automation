@@ -48,7 +48,6 @@ func TestSchedulerRechecksWayHomeOnNormalReturn(t *testing.T) {
 	e.robot.SetStatus("returning", "none")
 	e.advance(30 * time.Second)
 	e.robot.ClearCommands()
-	assert.Equal(t, "off", e.state("input_boolean.vacuum_dirty_kitchen"))
 
 	clearAreas(e.hub, "pantry")
 	e.s.TickForTest(true)
@@ -65,7 +64,9 @@ func TestSchedulerRechecksWayHomeOnNormalReturn(t *testing.T) {
 	e.robot.SetStatus("docked", "none")
 	e.moveTo("mud", 94)
 	e.advance(30 * time.Second)
+	e.advance(30 * time.Second)
 	assert.Equal(t, "completed", e.sched().LastRun.Outcome)
+	assert.Equal(t, "off", e.state("input_boolean.vacuum_dirty_kitchen"))
 }
 
 // While the robot cleans normally and nothing changes, the scheduler sends nothing.

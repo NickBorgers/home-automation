@@ -13,7 +13,8 @@ This page covers the scheduler. It is off unless `vacuum_config.yaml` sets `sche
 Every rule must hold.
 
 1. The robot never drives through a room where a person is. A room whose area room presence cannot see
-   (cameras offline, or not published) counts as occupied.
+   (cameras offline, or not published) counts as occupied. A sleeper's room counts as occupied too, whatever
+   room presence says.
 2. The robot never cleans a sleeper's room or a room one door away from it. It may drive through a room next
    to a sleeper.
 3. A run starts only at or above `battery.start_min` (70 % in the example). Rooms are packed so trip plus
@@ -38,7 +39,9 @@ Every rule must hold.
 ## Helpers
 
 Each configured room has these helpers. A room with a `vacuum` interval has a second set with a `_vacuum`
-suffix. A missing helper is reported in shadow state and its item is skipped.
+suffix. A missing taint or last-clean helper is reported in shadow state and its item is skipped. A missing
+cost helper is reported too, but the room is still cleaned with the floor-area guess: the cost helper only
+stores what was learned.
 
 | Helper | Meaning |
 |--------|---------|
@@ -60,6 +63,8 @@ stateDiagram-v2
 
 - A **full** clean vacuums and mops. It clears the full taint and the vacuum taint.
 - A **vacuum** clean only vacuums. It clears the vacuum taint.
+- Turning the full taint off by hand counts as a full clean, so it also clears the vacuum taint. Turning
+  off only the vacuum taint clears only the vacuum taint.
 - An item's score is time since clean divided by its interval. A manual taint scores at least 10. A room
   that was never cleaned scores 5.
 
@@ -74,7 +79,7 @@ flowchart TD
     B -- no --> X[No run, reason recorded]
     B -- yes --> C{Dock room clear?}
     C -- no --> X
-    C -- yes --> D[no_enter: rooms in occupied or unknown areas<br/>no_clean: no_enter + sleeper rooms + their neighbours]
+    C -- yes --> D[no_enter: rooms in occupied or unknown areas + sleeper rooms<br/>no_clean: no_enter + sleeper neighbours]
     D --> E[Drop items in no_clean]
     E --> F[Drop items whose shortest way from the dock enters no_enter]
     F --> G[Best score sets the treatment<br/>full also clears its room's vacuum taint]
@@ -124,7 +129,8 @@ sequenceDiagram
     S->>H: trip cost sample
 ```
 
-- A room is done when the robot leaves it for the next target, or heads home. It is marked clean at once.
+- A room is done when the robot leaves it for the next target. It is marked clean at once. The last room is
+  done when the run ends (see below), because heading to the dock may only be a mop wash.
 - The next room of the tour counts at once. Any other room counts only after the robot stays in it for
   `min_dwell` (2 minutes). This keeps a room the robot drives through from counting.
 - The battery drop between two polls goes to the room the robot was in at the first poll. A finished room's
@@ -135,6 +141,16 @@ sequenceDiagram
   house map has no `valetudo` frame, the pixel size differs, or the dock seems to have moved more than 0.5 m
   (the robot made a new map). Then the scheduler's own run marks every target done when it completes, and
   splits the battery drop beyond the trip by floor area.
+
+### Dock visits in the middle of a job
+
+A robot with a washing dock goes back to the dock during a job to wash its mop, and any robot may go back to
+recharge. Valetudo keeps the status flag `resumable` while a job is in progress, whether the robot is docked,
+returning, paused or idle. Its mop dock reports `DockStatusStateAttribute`, `cleaning` while it washes.
+
+- A dock visit with the flag `resumable`, or while the dock is washing, is part of the run.
+- The run ends only when the robot is docked or idle with neither, for two polls in a row.
+- Only a cleaning robot moves through the tour. Time at the dock does not count as dwelling in the dock room.
 
 ### Runs started elsewhere
 
@@ -195,6 +211,9 @@ shadow state. It never stops the error announcer.
 
 - The room graph is an approximation of the robot's own path planner. Two routes of almost equal length may
   be chosen differently by the robot.
-- A robot that goes home to recharge in the middle of a run started elsewhere may have its current room
-  counted as done.
+- The end-of-run rule relies on Valetudo's `resumable` flag and the dock status, as Valetudo's Dreame code
+  sets them. A robot that goes to the dock in the middle of a job without either, and stays there for two
+  polls, ends the run early. Its current room then counts as done. Check this during the `log_only` period.
+- A robot in `error` keeps its run open until it is docked or idle, so a stuck robot that is freed and
+  resumes is still the same run.
 - A sticky room presence token can block rooms for hours. The skip reasons show it.

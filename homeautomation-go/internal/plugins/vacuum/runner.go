@@ -40,8 +40,16 @@ const (
 	outcomeStopped   = "stopped"
 )
 
+// commandTimeout bounds a pause or home command, so a robot that has gone silent fails fast and the next
+// tick can try again.
+const commandTimeout = 5 * time.Second
+
 // startGrace is how long a run we sent may stay docked before it counts as not started.
 const startGrace = 3 * time.Minute
+
+// endConfirmPolls is how many polls in a row must show the run ended before it counts as ended. A robot
+// with a washing dock goes back to the dock in the middle of a job to wash its mop, and to recharge.
+const endConfirmPolls = 2
 
 // dockDriftM is how far the dock may seem to move before the map frame is treated as changed. It matches
 // the deployment's tracing tool.
@@ -270,17 +278,26 @@ func (s *Scheduler) poke() {
 
 // tick is one step: read the robot, track a run, update taints, plan, and maybe start a run. woke means an
 // input changed.
+//
+// tickMu is held across the robot's HTTP calls, so ticks never overlap. Stop waits for an in-flight call;
+// every call is bounded by the client timeout, and commands by commandTimeout.
 func (s *Scheduler) tick(woke bool) {
 	s.tickMu.Lock()
 	defer s.tickMu.Unlock()
 	now := s.timeProvider.Now()
 	s.warnings = map[string]string{}
+	defer s.forgetClearedWarnings()
 
 	s.processEvents()
 	st, err := s.robot.State(s.ctx)
 	if err != nil {
 		s.robotErr = err.Error()
 		s.warn("robot", "cannot read the robot: "+err.Error())
+		if r := s.run; r != nil && r.origin == originScheduler && s.robotState != nil {
+			// The robot cannot be read, but it may still take commands. Keep the safety rules working with
+			// what was last seen: the last state and the last room.
+			s.checkSafety(s.robotState, "", false)
+		}
 		s.evaluateTaints(now)
 		s.publish(now)
 		return
@@ -475,6 +492,8 @@ type run struct {
 	startedAt time.Time
 	// leftDock is true once the robot was seen anywhere but docked. Until then "docked" means "not started yet".
 	leftDock bool
+	// endPolls counts polls in a row that show the run ended.
+	endPolls int
 
 	startBattery, lastBattery int
 	haveBattery               bool
@@ -568,6 +587,15 @@ func (s *Scheduler) trackRun(now time.Time, st *valetudo.State) {
 	if st.Status != valetudo.StatusDocked {
 		r.leftDock = true
 	}
+	// A job in progress keeps the flag "resumable" while the robot is docked, returning, paused or idle, for
+	// example to wash its mop or to recharge. A dock that is washing also means the job may go on. Only a
+	// docked or idle robot with neither counts as the end, and only after endConfirmPolls polls in a row.
+	// Until then the room being cleaned is not finished: the robot may come back to it.
+	midJob := st.Flag == valetudo.FlagResumable || st.DockStatus == valetudo.DockStatusCleaning
+	ended := (st.Status == valetudo.StatusDocked || st.Status == valetudo.StatusIdle) && !midJob
+	if !ended || !r.leftDock {
+		r.endPolls = 0
+	}
 	switch {
 	case st.Status == valetudo.StatusDocked && !r.leftDock:
 		// Our run was just sent; the robot has not left the dock yet. Give it a little while.
@@ -576,21 +604,18 @@ func (s *Scheduler) trackRun(now time.Time, st *valetudo.State) {
 			s.finish(now, outcomeStopped)
 			return
 		}
-	case st.Status == valetudo.StatusDocked && st.Flag != valetudo.FlagResumable:
-		outcome := outcomeCompleted
-		if r.aborted {
-			outcome = outcomeAborted
-		}
-		s.finish(now, outcome)
-		return
-	case st.Status == valetudo.StatusIdle || st.Status == valetudo.StatusError:
-		s.finish(now, outcomeStopped)
-		return
-	case st.Status == valetudo.StatusReturning && st.Flag != valetudo.FlagResumable && !r.aborted:
-		// The robot leaves its last room for the dock: that room is done.
-		if r.current != "" {
-			s.markDone(now, r.current)
-			r.current = ""
+	case ended:
+		r.endPolls++
+		if r.endPolls >= endConfirmPolls {
+			outcome := outcomeCompleted
+			switch {
+			case r.aborted:
+				outcome = outcomeAborted
+			case st.Status == valetudo.StatusIdle:
+				outcome = outcomeStopped
+			}
+			s.finish(now, outcome)
+			return
 		}
 	}
 	if r.origin == originScheduler {
@@ -625,7 +650,13 @@ func (s *Scheduler) observe(r *run, now time.Time, st *valetudo.State, room stri
 	if room != "" {
 		r.lastKnownRoom = room
 	}
-	if r.aborted || room == "" || room == r.current || r.doneSet[room] {
+	// Only a cleaning robot moves through the tour. Time spent docked, returning or paused, such as a mop
+	// wash in the middle of a job, does not count as dwelling in a room.
+	cleaning := st.Status == valetudo.StatusCleaning && st.Flag != valetudo.FlagResumable
+	if !cleaning {
+		r.roomSince = now
+	}
+	if r.aborted || !cleaning || room == "" || room == r.current || r.doneSet[room] {
 		return
 	}
 	target := false
@@ -837,12 +868,12 @@ func (s *Scheduler) unsafeReason(st *valetudo.State, restr Restrictions, at stri
 			return "room " + room + ": " + why
 		}
 		if crossed, ok := LegCrosses(s.graph, prev, room, restr.NoEnter); !ok || crossed != "" {
-			return legReason(prev, room, crossed, ok)
+			return legReason(prev, room, crossed, restr.NoEnter[crossed], ok)
 		}
 		prev = room
 	}
 	if crossed, ok := LegCrosses(s.graph, prev, s.dockRoom, restr.NoEnter); !ok || crossed != "" {
-		return legReason(prev, s.dockRoom, crossed, ok)
+		return legReason(prev, s.dockRoom, crossed, restr.NoEnter[crossed], ok)
 	}
 	return ""
 }
@@ -854,7 +885,9 @@ func (s *Scheduler) command(action, why string) error {
 			zap.String("mode", s.cfg.Mode), zap.Bool("read_only", s.readOnly))
 		return nil
 	}
-	if err := s.robot.Basic(s.ctx, action); err != nil {
+	ctx, cancel := context.WithTimeout(s.ctx, commandTimeout)
+	defer cancel()
+	if err := s.robot.Basic(ctx, action); err != nil {
 		s.logger.Error("Vacuum command failed", zap.String("action", action), zap.Error(err))
 		return err
 	}

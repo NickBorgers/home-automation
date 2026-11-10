@@ -351,13 +351,14 @@ func TestScenario_Vacuum_RoomMarkedCleanAsRobotLeaves(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, v.clk.Now().Unix(), int64(ts))
 
-	t.Log("AND: the kitchen is clean when the robot heads home")
+	t.Log("AND: the kitchen is clean once the robot is back on the dock for good")
 	v.step("kitchen", 85)
 	v.robot.SetStatus("returning", "none")
 	v.step("kitchen", 84)
-	waitForServerState(t, v.server, "input_boolean.vacuum_dirty_kitchen", "off")
 	v.robot.SetStatus("docked", "none")
 	v.step("lounge", 83)
+	v.step("lounge", 83)
+	waitForServerState(t, v.server, "input_boolean.vacuum_dirty_kitchen", "off")
 	assert.Equal(t, "completed", v.out().LastRun.Outcome)
 	assert.Equal(t, []string{"study", "kitchen"}, v.out().LastRun.Done)
 }
@@ -385,6 +386,7 @@ func TestScenario_Vacuum_AbortWhenSomeoneWalksIntoNextRoom(t *testing.T) {
 
 	v.step("lounge", 95)
 	v.robot.SetStatus("docked", "none")
+	v.step("lounge", 95)
 	v.step("lounge", 95)
 	assert.Equal(t, "aborted", v.out().LastRun.Outcome)
 	assert.Equal(t, "on", v.server.GetState("input_boolean.vacuum_dirty_kitchen").State, "unfinished rooms stay dirty")

@@ -30,6 +30,10 @@ const (
 // recharge in the middle of a clean.
 const FlagResumable = "resumable"
 
+// DockStatusCleaning is the DockStatusStateAttribute value while a mop dock washes the pads. Other values
+// are idle, pause, emptying, drying and error.
+const DockStatusCleaning = "cleaning"
+
 // Preset types of PresetSelectionStateAttribute.
 const (
 	PresetFanSpeed      = "fan_speed"
@@ -82,6 +86,9 @@ type State struct {
 	Flag   string
 	// Presets maps a preset type, such as "operation_mode", to its current value.
 	Presets map[string]string
+	// DockStatus is the dock's own state, such as "cleaning" while it washes the mop. "" without a dock
+	// status.
+	DockStatus string
 }
 
 // Docked reports whether the robot sits on its dock.
@@ -110,6 +117,8 @@ func (c *Client) State(ctx context.Context) (*State, error) {
 			s.Battery, s.HasBattery = int(a.Level+0.5), true
 		case "StatusStateAttribute":
 			s.Status, s.Flag = a.Value, a.Flag
+		case "DockStatusStateAttribute":
+			s.DockStatus = a.Value
 		case "PresetSelectionStateAttribute":
 			if a.Type != "" {
 				s.Presets[a.Type] = a.Value

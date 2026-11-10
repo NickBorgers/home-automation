@@ -177,14 +177,19 @@ func (s *Scheduler) evaluateTaints(now time.Time) {
 		boolSt, okBool := s.getState(dirtyEntity(k))
 		dtSt, okDt := s.getState(cleanedEntity(k))
 		costSt, okCost := s.getState(costEntity(k))
+		// The taint and the last clean time are needed to decide anything. The cost helper only stores what
+		// was learned, so without it the floor-area guess is used.
 		for _, m := range []struct {
 			ok     bool
 			entity string
-		}{{okBool, dirtyEntity(k)}, {okDt, cleanedEntity(k)}, {okCost, costEntity(k)}} {
+		}{{okBool, dirtyEntity(k)}, {okDt, cleanedEntity(k)}} {
 			if !m.ok {
 				t.Missing = append(t.Missing, m.entity)
 				s.warn("missing:"+m.entity, "missing helper "+m.entity+"; "+k.String()+" is skipped")
 			}
+		}
+		if !okCost {
+			s.warn("missing:"+costEntity(k), "missing helper "+costEntity(k)+"; using the floor-area cost guess")
 		}
 
 		if okBool {
@@ -328,6 +333,10 @@ func (s *Scheduler) processEvents() {
 		}
 		s.logger.Info("Vacuum taint turned off by hand; treated as cleaned now", zap.String("item", k.String()))
 		s.setCleaned(k, ev.at)
+		if k.Treatment == TreatmentFull && s.cfg.Rooms[k.Room].Vacuum > 0 {
+			// A full clean also clears the vacuum taint.
+			s.markCleaned(itemKey{Room: k.Room, Treatment: TreatmentVacuum}, ev.at)
+		}
 	}
 }
 
@@ -337,6 +346,15 @@ func (s *Scheduler) warn(key, msg string) {
 	if !s.warnedOnce[key] {
 		s.warnedOnce[key] = true
 		s.logger.Warn("Vacuum scheduler: "+msg, zap.String("key", key))
+	}
+}
+
+// forgetClearedWarnings lets a warning that went away be logged again if it comes back.
+func (s *Scheduler) forgetClearedWarnings() {
+	for key := range s.warnedOnce {
+		if _, still := s.warnings[key]; !still {
+			delete(s.warnedOnce, key)
+		}
 	}
 }
 

@@ -278,12 +278,12 @@ func TestSchedulerReadOnlyWritesNothingButStillPlans(t *testing.T) {
 
 func TestSchedulerMissingHelperIsSkipped(t *testing.T) {
 	e := newSchedEnv(t, ModeActive)
-	e.ha.SetMockState("input_number.vacuum_cost_office", nil) // the helper does not exist
+	e.ha.SetMockState("input_datetime.vacuum_cleaned_office", nil) // the helper does not exist
 	e.start()
 	e.markDirty("office")
 	assert.NotPanics(t, e.tick)
 	o := e.sched()
-	assert.Contains(t, o.Warnings, "missing helper input_number.vacuum_cost_office; office/full is skipped")
+	assert.Contains(t, o.Warnings, "missing helper input_datetime.vacuum_cleaned_office; office/full is skipped")
 	require.NotNil(t, o.Plan)
 	assert.Empty(t, o.Plan.Rooms)
 	found := false
@@ -399,20 +399,24 @@ func TestSchedulerTracksOwnRun(t *testing.T) {
 	step("kitchen", 85)
 	e.robot.SetStatus("returning", "none")
 	step("kitchen", 84)
-	assert.Equal(t, "off", e.state("input_boolean.vacuum_dirty_kitchen"), "kitchen done when the robot heads home")
-	assert.InDelta(t, 8.8, e.cost("input_number.vacuum_cost_kitchen"), 1e-9, "9.6 + 0.3 * (7 - 9.6)")
-	vacuumCleaned := e.cleanedAt(itemKey{"kitchen", TreatmentVacuum})
-	assert.True(t, vacuumCleaned.After(runStart), "a full clean also clears the vacuum taint")
+	assert.Equal(t, "on", e.state("input_boolean.vacuum_dirty_kitchen"),
+		"heading to the dock may be a mop wash: the last room waits for the end of the run")
 
 	e.robot.SetStatus("docked", "none")
 	step("mud", 83)
+	assert.NotNil(t, e.sched().Run, "one docked poll is not yet the end")
+	step("mud", 83)
+	assert.Equal(t, "off", e.state("input_boolean.vacuum_dirty_kitchen"), "kitchen done when the run ends")
+	assert.InDelta(t, 9.1, e.cost("input_number.vacuum_cost_kitchen"), 1e-9, "9.6 + 0.3 * (8 - 9.6)")
+	vacuumCleaned := e.cleanedAt(itemKey{"kitchen", TreatmentVacuum})
+	assert.True(t, vacuumCleaned.After(runStart), "a full clean also clears the vacuum taint")
 	assert.Nil(t, e.sched().Run)
 	last := e.sched().LastRun
 	require.NotNil(t, last)
 	assert.Equal(t, "completed", last.Outcome)
 	assert.Equal(t, []string{"lounge", "kitchen"}, last.Done)
 	assert.Equal(t, 100, last.StartBattery)
-	assert.InDelta(t, 5.0, e.cost(tripEntity), 1e-9, "trip sample 17 - 12 = 5, default 5")
+	assert.InDelta(t, 4.7, e.cost(tripEntity), 1e-9, "trip sample 17 - 13 = 4: 5 + 0.3 * (4 - 5)")
 
 	// Our own turn_off events are not mistaken for the owner turning a taint off.
 	before := e.cleanedAt(itemKey{"lounge", TreatmentFull})
@@ -459,6 +463,7 @@ func TestSchedulerAbortsWhenNextRoomBecomesOccupied(t *testing.T) {
 	e.advance(30 * time.Second)
 	e.moveTo("mud", 94)
 	e.robot.SetStatus("docked", "none")
+	e.advance(30 * time.Second)
 	e.advance(30 * time.Second)
 	assert.Equal(t, "aborted", e.sched().LastRun.Outcome)
 	assert.Equal(t, "on", e.state("input_boolean.vacuum_dirty_lounge"), "unfinished rooms stay dirty")
@@ -607,6 +612,7 @@ func TestSchedulerTracksExternalRun(t *testing.T) {
 			e.robot.SetStatus("docked", "none")
 			e.moveTo("mud", 90)
 			e.advance(30 * time.Second)
+			e.advance(30 * time.Second)
 
 			last := e.sched().LastRun
 			require.NotNil(t, last)
@@ -649,6 +655,7 @@ func TestSchedulerNoPositionFallsBackToWholeRun(t *testing.T) {
 
 	e.robot.SetStatus("docked", "none")
 	e.moveTo("mud", 75)
+	e.advance(30 * time.Second)
 	e.advance(30 * time.Second)
 	assert.Equal(t, "off", e.state("input_boolean.vacuum_dirty_lounge"))
 	assert.Equal(t, "off", e.state("input_boolean.vacuum_dirty_kitchen"))

@@ -89,19 +89,21 @@ func (p Plan) Key() string {
 
 // Restrictions are the rooms the robot must not enter and must not clean.
 type Restrictions struct {
-	// NoEnter maps a room in a blocked area to its area.
+	// NoEnter maps a room the robot must not enter to the reason: its area is blocked, or someone sleeps
+	// there.
 	NoEnter map[string]string
 	// NoClean maps a room to the reason it must not be cleaned. It holds NoEnter too.
 	NoClean map[string]string
 }
 
 // ComputeRestrictions applies rules 1 and 2. A room in a blocked area must not be entered (rule 1). A
-// sleeper's room and every room one door away must not be cleaned, but may be driven through (rule 2).
+// sleeper's room holds a person, so it must not be entered either, whatever room presence says. Every room
+// one door away from a sleeper must not be cleaned, but may be driven through (rule 2).
 func ComputeRestrictions(g RoomGraph, blockedAreas map[string]bool, sleeperRooms []string) Restrictions {
 	r := Restrictions{NoEnter: map[string]string{}, NoClean: map[string]string{}}
 	for _, room := range g.Rooms() {
 		if a := g.Area(room); blockedAreas[a] {
-			r.NoEnter[room] = a
+			r.NoEnter[room] = "area " + a + " is occupied or unknown"
 		}
 	}
 	sleepers := append([]string(nil), sleeperRooms...)
@@ -114,10 +116,12 @@ func ComputeRestrictions(g RoomGraph, blockedAreas map[string]bool, sleeperRooms
 		}
 	}
 	for _, s := range sleepers {
-		r.NoClean[s] = "sleeper room"
+		if _, blocked := r.NoEnter[s]; !blocked {
+			r.NoEnter[s] = "sleeper room"
+		}
 	}
-	for room, a := range r.NoEnter {
-		r.NoClean[room] = "area " + a + " is occupied or unknown"
+	for room, why := range r.NoEnter {
+		r.NoClean[room] = why
 	}
 	return r
 }
@@ -187,8 +191,8 @@ func BuildPlan(in PlanInput) Plan {
 	case !in.Graph.Has(in.DockRoom):
 		return skipAll(fmt.Sprintf("dock room %q is not in the house map", in.DockRoom))
 	}
-	if a, blocked := restr.NoEnter[in.DockRoom]; blocked {
-		return skipAll(fmt.Sprintf("dock room %s: area %s is occupied or unknown", in.DockRoom, a))
+	if why, blocked := restr.NoEnter[in.DockRoom]; blocked {
+		return skipAll(fmt.Sprintf("dock room %s: %s", in.DockRoom, why))
 	}
 
 	// Steps 2 and 3.
@@ -212,7 +216,7 @@ func BuildPlan(in PlanInput) Plan {
 			case !ok:
 				reason = "no way from the dock"
 			case crossed != "":
-				reason = "way from the dock enters " + crossed + ", which is occupied or unknown"
+				reason = "way from the dock enters " + crossed + " (" + restr.NoEnter[crossed] + ")"
 			}
 		}
 		if reason != "" {
@@ -317,7 +321,7 @@ func orderTour(g RoomGraph, dock string, items []PlanItem, noEnter map[string]st
 		prev := dock
 		for i, it := range tour {
 			if crossed, ok := LegCrosses(g, prev, it.Room, noEnter); !ok || crossed != "" {
-				bad, reason = i, legReason(prev, it.Room, crossed, ok)
+				bad, reason = i, legReason(prev, it.Room, crossed, noEnter[crossed], ok)
 				break
 			}
 			prev = it.Room
@@ -325,7 +329,7 @@ func orderTour(g RoomGraph, dock string, items []PlanItem, noEnter map[string]st
 		if bad < 0 {
 			last := tour[len(tour)-1].Room
 			if crossed, ok := LegCrosses(g, last, dock, noEnter); !ok || crossed != "" {
-				bad, reason = len(tour)-1, legReason(last, dock, crossed, ok)
+				bad, reason = len(tour)-1, legReason(last, dock, crossed, noEnter[crossed], ok)
 			}
 		}
 		if bad < 0 {
@@ -342,11 +346,11 @@ func orderTour(g RoomGraph, dock string, items []PlanItem, noEnter map[string]st
 	return nil, dropped
 }
 
-func legReason(from, to, crossed string, ok bool) string {
+func legReason(from, to, crossed, why string, ok bool) string {
 	if !ok {
 		return fmt.Sprintf("no way from %s to %s", from, to)
 	}
-	return fmt.Sprintf("way from %s to %s enters %s, which is occupied or unknown", from, to, crossed)
+	return fmt.Sprintf("way from %s to %s enters %s (%s)", from, to, crossed, why)
 }
 
 // nearestNeighbour orders items by always driving to the closest room next. Ties go by room name.

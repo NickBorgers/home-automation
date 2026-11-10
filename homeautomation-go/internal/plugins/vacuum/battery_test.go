@@ -52,6 +52,7 @@ func TestSchedulerReadOnlyKeepsLearnedCostsInMemory(t *testing.T) {
 	e.robot.SetStatus("docked", "none")
 	e.moveTo("mud", 90)
 	e.advance(30 * time.Second)
+	e.advance(30 * time.Second)
 	require.Equal(t, []string{"office"}, e.sched().LastRun.Done)
 	assert.Empty(t, haWrites(e.ha), "read-only writes nothing")
 	assert.Less(t, itemCostOf(e, "office"), 9.6, "the sample still lowers the cost in memory")
