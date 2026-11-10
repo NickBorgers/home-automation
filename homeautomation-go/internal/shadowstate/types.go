@@ -1288,6 +1288,9 @@ type VacuumPlan struct {
 	// PendingSince is when this same plan was first seen. It starts once it has held for the stable time.
 	PendingSince *time.Time `json:"pendingSince,omitempty"`
 	StartsAt     *time.Time `json:"startsAt,omitempty"`
+	// WouldStartAt is when a log_only or read-only scheduler would have started this plan. It stays set
+	// until the plan changes.
+	WouldStartAt *time.Time `json:"wouldStartAt,omitempty"`
 }
 
 // VacuumSkip says why a dirty item is not in the plan.

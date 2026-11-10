@@ -106,7 +106,8 @@ plan's `startsAt` in shadow state shows when it will start.
 On start, the scheduler sets the treatment's presets (operation mode, fan speed, water grade) and then sends
 one segment clean with `customOrder: true`. If a preset fails, nothing starts and the wait begins again.
 
-In `log_only` mode, or when the app is read-only, it logs the run it would start and sends nothing.
+In `log_only` mode, or when the app is read-only, it logs the run it would start and sends nothing. The plan
+then shows `wouldStartAt` in shadow state until the plan changes.
 
 ## Tracking
 
@@ -133,7 +134,8 @@ sequenceDiagram
   done when the run ends (see below), because heading to the dock may only be a mop wash.
 - The next room of the tour counts at once. Any other room counts only after the robot stays in it for
   `min_dwell` (2 minutes). This keeps a room the robot drives through from counting.
-- The battery drop between two polls goes to the room the robot was in at the first poll. A finished room's
+- The battery drop between two polls goes to the room the robot was in at the first poll. Battery used at
+  the dock — during a mid-job mop wash or the final return — is left out. A finished room's
   drop is its cost sample. The rest of the run's drop is the trip sample. Samples move the learned cost by
   `learning_rate` (0.3).
 - Before any sample, a room's cost is its floor area times `default_cost_per_m2`.
@@ -197,7 +199,7 @@ memory, so shadow state shows what it would do.
 | `configured`, `reason` | Whether the scheduler runs, and why not |
 | `robot` | Status, battery, room, last poll, last error |
 | `items` | Every room and treatment: dirty, manual, last clean, score, cost, missing helpers |
-| `plan` | Latest plan, `noEnter`, `noClean`, `skipped` reasons, `pendingSince`, `startsAt` |
+| `plan` | Latest plan, `noEnter`, `noClean`, `skipped` reasons, `pendingSince`, `startsAt`, `wouldStartAt` |
 | `run`, `lastRun` | Origin, targets, done rooms, current room, abort reason, paused, outcome |
 | `tripCost` | Learned trip cost |
 | `warnings` | Missing helpers, untrusted position, unreadable sleepers |

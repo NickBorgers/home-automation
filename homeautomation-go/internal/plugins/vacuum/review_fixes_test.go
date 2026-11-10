@@ -186,3 +186,27 @@ func TestSchedulerForgetsClearedWarnings(t *testing.T) {
 	e.tick()
 	assert.False(t, e.s.warnedOnce["robot"])
 }
+
+// Battery used while the robot is docked in the middle of a job, for example for a mop wash, counts neither
+// for the room nor for the trip.
+func TestSchedulerMidJobDockBatteryIsLeftOut(t *testing.T) {
+	e := newSchedEnv(t, ModeActive)
+	e.start()
+	e.startRun("kitchen")
+	step := func(room, status, flag string, battery int) {
+		e.robot.SetStatus(status, flag)
+		e.moveTo(room, battery)
+		e.advance(30 * time.Second)
+	}
+	step("kitchen", "cleaning", "segment", 100)
+	step("kitchen", "cleaning", "segment", 92) // 8 for the kitchen
+	step("mud", "docked", "resumable", 80)     // mop wash: left out
+	step("mud", "idle", "resumable", 78)       // still washing: left out
+	step("kitchen", "cleaning", "segment", 78)
+	step("kitchen", "cleaning", "segment", 76) // 2 for the kitchen
+	step("mud", "docked", "none", 76)
+	step("mud", "docked", "none", 76)
+	require.Nil(t, e.sched().Run)
+	assert.InDelta(t, 9.7, e.cost("input_number.vacuum_cost_kitchen"), 1e-9, "battery drop 10 (8+2)")
+	assert.InDelta(t, 3.5, e.cost(tripEntity), 1e-9, "trip sample 10 - 10 = 0: 5 + 0.3 * (0 - 5)")
+}
