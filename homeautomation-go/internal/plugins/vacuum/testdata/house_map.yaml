@@ -1,0 +1,40 @@
+# A made-up house for the vacuum scheduler tests. It is not a real house.
+#
+#   y 8 +--------+--------+--------+
+#       | office |  bed   |  bath  |
+#   y 4 +--------+--------+--------+
+#       |  mud   | pantry |kitchen |
+#   y 0 +--------+--------+--------+
+#                | lounge |
+#   y-4          +--------+
+#       x 0      4        8       12
+#
+# The dock is in mud. Bed and bath share the "suite" area; every other room is its own area. The only way
+# from mud to the kitchen, the bath and the lounge is through the pantry. The office has a second door to
+# the bed, so office and bed are neighbours and the bed can also be reached through the office.
+house_map:
+  frame: {units: m, x: east, y: north, origin: "south-west corner of mud"}
+  valetudo:
+    rotation_deg: 0
+    pixel_size_m: 0.05
+    anchor_px: [0, 400]
+    anchor_m: [0, 0]
+    dock_m: [1, 1]
+  spaces:
+    mud:     {kind: room, area: mud,     polygon: [[0, 0], [4, 0], [4, 4], [0, 4]]}
+    pantry:  {kind: room, area: pantry,  polygon: [[4, 0], [8, 0], [8, 4], [4, 4]]}
+    kitchen: {kind: room, area: kitchen, polygon: [[8, 0], [12, 0], [12, 4], [8, 4]]}
+    office:  {kind: room, area: office,  polygon: [[0, 4], [4, 4], [4, 8], [0, 8]]}
+    bed:     {kind: room, area: suite,   polygon: [[4, 4], [8, 4], [8, 8], [4, 8]]}
+    bath:    {kind: room, area: suite,   polygon: [[8, 4], [12, 4], [12, 8], [8, 8]]}
+    lounge:  {kind: room, area: lounge,  polygon: [[4, -4], [8, -4], [8, 0], [4, 0]]}
+    yard:    {kind: yard, polygon: [[-10, -10], [20, -10], [20, 20], [-10, 20]]}
+  doors:
+    mud_pantry:     {kind: opening, connects: [mud, pantry],     span: [[4, 1], [4, 2]]}
+    pantry_kitchen: {kind: opening, connects: [pantry, kitchen], span: [[8, 1], [8, 2]]}
+    pantry_bed:     {kind: door,    connects: [pantry, bed],     span: [[5, 4], [6, 4]]}
+    bed_bath:       {kind: door,    connects: [bed, bath],       span: [[8, 6], [8, 7]]}
+    mud_office:     {kind: door,    connects: [mud, office],     span: [[1, 4], [2, 4]]}
+    office_bed:     {kind: door,    connects: [office, bed],     span: [[4, 6], [4, 7]]}
+    pantry_lounge:  {kind: opening, connects: [pantry, lounge],  span: [[5, 0], [6, 0]]}
+    front:          {kind: door, exterior: true, connects: [mud, yard], span: [[0, 1], [0, 2]]}

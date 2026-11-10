@@ -676,6 +676,11 @@ func (m *MockClient) updateStateFromServiceCall(entityID, domain, service string
 		if value, ok := data["value"].(string); ok {
 			newStateValue = value
 		}
+	case "input_datetime":
+		if ts, ok := data["timestamp"].(float64); ok && service == "set_datetime" {
+			newStateValue = time.Unix(int64(ts), 0).UTC().Format("2006-01-02 15:04:05")
+			attributes["timestamp"] = ts
+		}
 	}
 
 	newState := &State{

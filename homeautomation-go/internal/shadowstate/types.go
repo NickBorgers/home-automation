@@ -1196,9 +1196,8 @@ type EVChargerRecovery struct {
 // Vacuum Output Types - Casper Vacuum Error Announcements
 // ============================================================================
 
-// VacuumOutputs tracks the state of Casper vacuum error announcement handling.
-// Today this only covers error TTS; future fields for schedule/room control
-// will live alongside these.
+// VacuumOutputs tracks the vacuum plugin: error announcements and, when
+// enabled, the dirty-room scheduler.
 type VacuumOutputs struct {
 	// CurrentError is the active error description from the vacuum's error
 	// sensor, or "" when the sensor is in its no-error state.
@@ -1219,6 +1218,103 @@ type VacuumOutputs struct {
 	// SuppressedForSleepCount counts how many announcements were suppressed to
 	// protect sleep (master asleep or bedroom sleep-playback active).
 	SuppressedForSleepCount int `json:"suppressedForSleepCount"`
+
+	// Scheduler is the dirty-room scheduler's state. Nil until the scheduler
+	// publishes. It is replaced whole on every update, never changed in place.
+	Scheduler *VacuumSchedulerOutputs `json:"scheduler,omitempty"`
+}
+
+// VacuumSchedulerOutputs is the dirty-room scheduler's state.
+type VacuumSchedulerOutputs struct {
+	Mode       string `json:"mode"`
+	ReadOnly   bool   `json:"readOnly"`
+	Configured bool   `json:"configured"`
+	// Reason says why the scheduler is not configured.
+	Reason   string `json:"reason,omitempty"`
+	DockRoom string `json:"dockRoom,omitempty"`
+
+	Robot VacuumRobot `json:"robot"`
+	// Items is every room and treatment the scheduler tracks.
+	Items []VacuumItem `json:"items"`
+	// TripCost is the learned battery percent to drive out and back.
+	TripCost float64 `json:"tripCost"`
+	// Plan is the latest plan, with a reason for every dirty item left out.
+	Plan *VacuumPlan `json:"plan,omitempty"`
+	// Run is the run being tracked now. LastRun is the one before.
+	Run     *VacuumRun `json:"run,omitempty"`
+	LastRun *VacuumRun `json:"lastRun,omitempty"`
+	// Warnings lists problems such as missing helpers.
+	Warnings  []string  `json:"warnings"`
+	UpdatedAt time.Time `json:"updatedAt"`
+}
+
+// VacuumRobot is what the robot last reported.
+type VacuumRobot struct {
+	Status     string    `json:"status,omitempty"`
+	Flag       string    `json:"flag,omitempty"`
+	Battery    int       `json:"battery"`
+	HasBattery bool      `json:"hasBattery"`
+	Room       string    `json:"room,omitempty"`
+	LastPollAt time.Time `json:"lastPollAt,omitempty"`
+	LastError  string    `json:"lastError,omitempty"`
+}
+
+// VacuumItem is one room and treatment.
+type VacuumItem struct {
+	Room          string     `json:"room"`
+	Treatment     string     `json:"treatment"`
+	Dirty         bool       `json:"dirty"`
+	Manual        bool       `json:"manual"`
+	LastCleaned   *time.Time `json:"lastCleaned,omitempty"`
+	IntervalHours float64    `json:"intervalHours"`
+	Score         float64    `json:"score"`
+	Cost          float64    `json:"cost"`
+	// Missing lists Home Assistant helpers that do not exist. The item is skipped.
+	Missing []string `json:"missing,omitempty"`
+}
+
+// VacuumPlan is one plan.
+type VacuumPlan struct {
+	PlannedAt time.Time    `json:"plannedAt"`
+	Treatment string       `json:"treatment,omitempty"`
+	Rooms     []string     `json:"rooms"`
+	Segments  []string     `json:"segments"`
+	Cost      float64      `json:"cost"`
+	Budget    float64      `json:"budget"`
+	Reason    string       `json:"reason,omitempty"`
+	NoEnter   []string     `json:"noEnter"`
+	NoClean   []string     `json:"noClean"`
+	Skipped   []VacuumSkip `json:"skipped"`
+	// PendingSince is when this same plan was first seen. It starts once it has held for the stable time.
+	PendingSince *time.Time `json:"pendingSince,omitempty"`
+	StartsAt     *time.Time `json:"startsAt,omitempty"`
+}
+
+// VacuumSkip says why a dirty item is not in the plan.
+type VacuumSkip struct {
+	Room      string `json:"room"`
+	Treatment string `json:"treatment"`
+	Reason    string `json:"reason"`
+}
+
+// VacuumRun is a run the scheduler started or saw.
+type VacuumRun struct {
+	// Origin is "scheduler" for a run this plugin started and "external" for any other.
+	Origin    string     `json:"origin"`
+	Treatment string     `json:"treatment,omitempty"`
+	Targets   []string   `json:"targets,omitempty"`
+	Done      []string   `json:"done"`
+	Current   string     `json:"current,omitempty"`
+	StartedAt time.Time  `json:"startedAt"`
+	EndedAt   *time.Time `json:"endedAt,omitempty"`
+	// Outcome is how the run ended: completed, aborted or stopped.
+	Outcome           string `json:"outcome,omitempty"`
+	StartBattery      int    `json:"startBattery"`
+	Battery           int    `json:"battery"`
+	Aborted           bool   `json:"aborted"`
+	AbortReason       string `json:"abortReason,omitempty"`
+	Paused            bool   `json:"paused"`
+	PositionAvailable bool   `json:"positionAvailable"`
 }
 
 // ============================================================================

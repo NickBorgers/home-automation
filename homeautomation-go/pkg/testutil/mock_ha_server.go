@@ -609,6 +609,22 @@ func (s *MockHAServer) handleCallService(wrapper *connWrapper, msg json.RawMessa
 			}
 		}
 
+	case "input_datetime":
+		if ts, ok := req.ServiceData["timestamp"].(float64); ok && req.Service == "set_datetime" {
+			s.statesMu.RLock()
+			oldState := s.states[entityID]
+			s.statesMu.RUnlock()
+
+			if oldState != nil {
+				attrs := map[string]interface{}{}
+				for k, v := range oldState.Attributes {
+					attrs[k] = v
+				}
+				attrs["timestamp"] = ts
+				s.SetState(entityID, time.Unix(int64(ts), 0).UTC().Format("2006-01-02 15:04:05"), attrs)
+			}
+		}
+
 	case "scene":
 		// Scene activations are fire-and-forget, just acknowledge
 		// Don't need to track state changes for scenes

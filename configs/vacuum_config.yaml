@@ -1,8 +1,7 @@
 # Casper vacuum plugin configuration.
 #
-# Today this drives the error-announcement subsystem. Future fields for
-# scheduling, room sequencing, and per-room vacuum/mop parameters will be added
-# alongside these without changing the file's top-level shape.
+# The vacuum: section drives the error announcer. The scheduler: section drives
+# the dirty-room scheduler. See docs/flows/VACUUM.md.
 vacuum:
   # Home Assistant sensor exposing the vacuum's current error state. The state
   # equals no_error_value when the vacuum is healthy; any other value is treated
@@ -35,7 +34,81 @@ vacuum:
     speakers:
       - "media_player.sitting"
 
-  # Future sections (intentionally not wired today; commented stubs only):
+  # Reserved for future use:
   # entity_id: "vacuum.valetudo_mellowslimyloris"
-  # schedule: {}
-  # rooms: []
+
+  # Dirty-room scheduler. This is an example for a made-up house. A deployment
+  # writes its own rooms, segment ids and intervals. Room names are house-map
+  # room names (configs/house_map.yaml). Each room needs these Home Assistant
+  # helpers, or it is skipped with a warning:
+  #   input_boolean.vacuum_dirty_<room>      full-clean taint; turn on by hand to ask for a clean
+  #   input_datetime.vacuum_cleaned_<room>   last full clean (date and time)
+  #   input_number.vacuum_cost_<room>        learned battery % for a full clean
+  # A room with a vacuum interval also needs the same three with a _vacuum
+  # suffix. input_number.vacuum_cost_trip holds the learned trip cost.
+  scheduler:
+    # off: do nothing. log_only: track runs, learn costs and keep the taint
+    # helpers up to date, but send no robot commands. active: also start runs.
+    mode: "off"
+
+    # The robot's Valetudo base URL.
+    valetudo_url: "http://valetudo.example"
+
+    # The room the dock stands in. Leave empty to use valetudo.dock_m of the
+    # house map.
+    dock_room: ""
+
+    # Plan every replan_interval and on any input change. The same plan must
+    # hold for stable_for before a run starts. track_interval is how often the
+    # robot is polled. min_dwell is how long the robot must stay in a room it
+    # was not expected in before that room counts as being cleaned.
+    replan_interval: "5m"
+    stable_for: "10m"
+    track_interval: "30s"
+    min_dwell: "2m"
+
+    battery:
+      # Start only at or above start_min. Plan so the run ends at or above
+      # floor.
+      start_min: 70
+      floor: 30
+      # Weight of a new battery sample in the learned cost.
+      learning_rate: 0.3
+      # First guess before any sample: floor area in m² times this, per
+      # treatment.
+      default_cost_per_m2:
+        full: 0.6
+        vacuum: 0.4
+      default_trip_cost: 5
+
+    # Valetudo presets each treatment sets before a run. An empty preset is
+    # left as it is.
+    treatments:
+      full:
+        operation_mode: "vacuum_and_mop"
+        fan_speed: "medium"
+        water_grade: "medium"
+      vacuum:
+        operation_mode: "vacuum"
+        fan_speed: "medium"
+
+    # A sleeper's rooms and their door neighbours are not cleaned while the
+    # state variable is on. require is an optional second state variable that
+    # must also be on.
+    sleepers:
+      - state: "isMasterAsleep"
+        rooms: ["bedroom"]
+      - state: "isGuestAsleep"
+        require: "isHaveGuests"
+        rooms: ["guest_room"]
+
+    # Rooms to clean. full is how long after a full clean (vacuum and mop) the
+    # room is dirty again. vacuum adds a vacuum-only taint with its own
+    # interval. Use Go durations: 168h is a week. Rooms not listed are only
+    # driven through.
+    rooms:
+      kitchen: {segment_id: "1", full: "48h", vacuum: "12h"}
+      lounge: {segment_id: "2", full: "84h"}
+      hall: {segment_id: "3", full: "72h"}
+      bedroom: {segment_id: "4", full: "48h"}
+      guest_room: {segment_id: "5", full: "168h"}

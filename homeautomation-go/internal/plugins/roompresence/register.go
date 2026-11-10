@@ -42,6 +42,7 @@ func createPlugin(ctx *plugin.Context) (plugin.Plugin, error) {
 	}
 
 	m := NewManager(ctx.ShutdownCtx, haClient, stateManager, cfg, reason, ctx.Logger, ctx.ReadOnly, ctx.Registry)
+	m.SetOccupancy(ctx.Occupancy)
 	return &pluginAdapter{manager: m}, nil
 }
 

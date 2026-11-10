@@ -1,7 +1,8 @@
 # House Map
 
-**Status:** Built, 2026-11-08, in `internal/housemap/` and `cmd/housemap-render/`. No plugin reads it yet. Tests
-check a deployment's map and compare it with the room presence config.
+**Status:** Built, 2026-11-08, in `internal/housemap/` and `cmd/housemap-render/`. The vacuum scheduler reads it
+at runtime (see [VACUUM.md](../flows/VACUUM.md)). Tests check a deployment's map and compare it with the room
+presence config.
 
 ## Summary
 
@@ -44,7 +45,9 @@ A map drawn from a robot vacuum map may record how that map lands in this frame,
 - `anchor_px` is a vacuum map pixel that lands on the house point `anchor_m`.
 - `dock_m` is where the vacuum's dock lands. When a new vacuum map moves the dock, the frame changed.
 
-The three points are `[x, y]` pairs. The package checks their shape and keeps them, but does not use them.
+The three points are `[x, y]` pairs. The package checks their shape. `Valetudo.ToFrame` turns a vacuum map pixel
+into a house point with them; the vacuum scheduler uses it to find the robot's room. It is the same transform as
+a deployment's tracing script.
 
 ### Who writes which fields
 
@@ -185,9 +188,22 @@ Rooms are tinted by area. Each area's hue comes from a hash of its name, so no a
 Outdoor spaces are tinted by kind. On the review page, orange bars are exterior doors. Blue bars are doors. Pale bars are
 openings.
 
+## Room graph
+
+`Map.Graph()` builds the graph a robot vacuum drives on. Its nodes are the rooms. Its edges are the interior
+doors and openings between two rooms; exterior and overhead doors are left out.
+
+- `Neighbors(room)` lists rooms one door away. Doors that are not placed yet count, so a rule that keeps a
+  robot away from a room errs on the safe side.
+- `ShortestPath(from, to, avoid)` finds the shortest way between room centres through placed doors, measured
+  between door midpoints. `avoid` names rooms the path must not enter; the start room is exempt.
+- `Area(room)` and `FloorArea(room)` give the room presence area and the floor area.
+
+The vacuum scheduler uses the graph for its safety rules and its tour. See [VACUUM.md](../flows/VACUUM.md).
+
 ## Future uses
 
-No plugin reads the map yet. These are the uses it is meant for:
+These are other uses the map is meant for:
 
 - **Deriving neighbors.** Room presence `neighbors` could come from the map's openings, so they are written
   once.
