@@ -213,7 +213,8 @@ func (s *Scheduler) evaluateTaints(now time.Time) {
 			s.logger.Info("Vacuum item is due", zap.String("item", k.String()),
 				zap.Duration("interval", t.Interval), zap.Time("last_cleaned", t.LastCleaned))
 			s.setBool(dirtyEntity(k), true)
-			t.BoolOn = s.effectiveBool(dirtyEntity(k), true)
+			// Compare with what Home Assistant shows, so the written value is kept until it shows it too.
+			t.BoolOn = s.effectiveBool(dirtyEntity(k), boolSt.State == "on")
 		}
 		s.taints = append(s.taints, t)
 	}
