@@ -10,6 +10,7 @@ import (
 	"homeautomation/internal/ha"
 	"homeautomation/internal/shadowstate"
 	"homeautomation/internal/state"
+	"homeautomation/pkg/occupancy"
 
 	"go.uber.org/zap"
 )
@@ -51,6 +52,9 @@ type Manager struct {
 	// prevTokens and prevOutputs hold the last logged state, to log changes. Guarded by applyMu.
 	prevTokens  map[string]shadowstate.RoomPresenceToken
 	prevOutputs map[string]bool
+
+	// occupancy receives each area's state after every change, for other plugins. May be nil.
+	occupancy *occupancy.Hub
 
 	mqttSubs []ha.Subscription
 	cancel   context.CancelFunc
@@ -95,6 +99,11 @@ func (m *Manager) OnEntry(handler func(area string)) {
 	m.entryHandlers = append(m.entryHandlers, handler)
 }
 
+// SetOccupancy sets the hub that receives each area's state. Call it before Start.
+func (m *Manager) SetOccupancy(h *occupancy.Hub) {
+	m.occupancy = h
+}
+
 // Start subscribes to Frigate MQTT and the inputs, and starts the timer.
 func (m *Manager) Start() error {
 	if m.tracker == nil {
@@ -114,6 +123,7 @@ func (m *Manager) Start() error {
 			m.mu.Unlock()
 			m.logger.Error("Room presence unconfigured: MQTT subscribe failed", zap.Error(err))
 			m.publishShadow()
+			m.publishOccupancy(nil)
 			return nil
 		}
 		m.mqttSubs = append(m.mqttSubs, sub)
@@ -176,6 +186,7 @@ func (m *Manager) Stop() {
 	}
 	m.unsubscribeMQTT()
 	m.subHelper.UnsubscribeAll()
+	m.publishOccupancy(nil) // stopped: nothing is known any more
 }
 
 func (m *Manager) unsubscribeMQTT() {
@@ -287,6 +298,7 @@ func (m *Manager) apply(op func(t *Tracker, now time.Time)) {
 
 	m.logChanges(snapshot)
 	m.setShadow(snapshot)
+	m.publishOccupancy(snapshot.Areas)
 	m.applyMu.Unlock()
 
 	for _, area := range entries {
@@ -383,6 +395,19 @@ func (m *Manager) setShadow(o shadowstate.RoomPresenceOutputs) {
 	o.Mode = m.cfg.Mode
 	o.ReadOnly = m.readOnly
 	m.shadowTracker.SetOutputs(o)
+}
+
+// publishOccupancy shares each area's state with other plugins. nil areas means nothing is known. It runs
+// in every mode, like Occupied, because it writes nothing to Home Assistant.
+func (m *Manager) publishOccupancy(areas map[string]shadowstate.RoomPresenceArea) {
+	if m.occupancy == nil {
+		return
+	}
+	out := make(map[string]occupancy.Status, len(areas))
+	for name, a := range areas {
+		out[name] = occupancy.Status{Occupied: a.Occupied, Unknown: a.Unknown}
+	}
+	m.occupancy.Publish(out)
 }
 
 // publishShadow reports the unconfigured state.

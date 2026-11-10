@@ -67,6 +67,7 @@ graph TB
             PkgPlugin[pkg/plugin/interfaces.go]
             PkgHA[pkg/ha/interfaces.go]
             PkgState[pkg/state/interfaces.go]
+            OccupancyHub[Occupancy Hub<br/>pkg/occupancy/]
         end
 
         subgraph "Configuration"
@@ -84,6 +85,7 @@ graph TB
         Ntfy[ntfy.sh<br/>Push Notifications]
         SoCoCLI[SoCo-CLI<br/>HTTP API]
         Frigate[Frigate NVR<br/>MQTT]
+        Valetudo[Valetudo Robot Vacuum<br/>REST API]
     end
 
     Main --> HAClient
@@ -171,7 +173,10 @@ graph TB
 
     Vacuum -->|Entity Subscriptions| HAClient
     Vacuum -->|TTS Announcements| HAClient
-    Vacuum -->|Read isMasterAsleep/isAnyoneHome| StateManager
+    Vacuum -->|Write taint and cost helpers| HAClient
+    Vacuum -->|Read isMasterAsleep/isAnyoneHome/sleepers| StateManager
+    Vacuum -->|Read area occupancy| OccupancyHub
+    Vacuum -->|Position, battery, presets,<br/>segment clean, pause, home| Valetudo
     Vacuum -.->|Register Shadow| ShadowTracker
 
     ResetCoord -->|Subscribe to reset| StateManager
@@ -193,6 +198,7 @@ graph TB
     Frigate -->|MQTT Person Events| HA
     RoomPresence -->|Subscribe MQTT| HAClient
     RoomPresence -->|Write Occupancy State| StateManager
+    RoomPresence -->|Publish area states| OccupancyHub
     RoomPresence -.->|Register Shadow| ShadowTracker
 
     Tesla -->|Poll Fleet API / Signed Vehicle Commands<br/>Powerwall Backup Reserve| TeslaCloud[Tesla Fleet API<br/>outbound HTTPS only]
@@ -1141,6 +1147,8 @@ graph LR
 
     VacuumErrorSensor --> VacuumPlugin
     MasterAsleep --> VacuumPlugin
+    GuestAsleep --> VacuumPlugin
+    HaveGuests --> VacuumPlugin
     AnyoneHome --> VacuumPlugin
 
     SepticAlarmSensor --> InfrastructurePlugin

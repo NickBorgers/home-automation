@@ -2401,6 +2401,16 @@ func (vt *VacuumTracker) RecordSuppressedForSleep(at time.Time) {
 	vt.State().Metadata.LastUpdated = time.Now()
 }
 
+// SetScheduler replaces the scheduler's state. The caller must not change o
+// afterwards.
+func (vt *VacuumTracker) SetScheduler(o *VacuumSchedulerOutputs) {
+	vt.Lock()
+	defer vt.Unlock()
+
+	vt.State().Outputs.Scheduler = o
+	vt.State().Metadata.LastUpdated = time.Now()
+}
+
 // GetState returns a thread-safe copy of the current shadow state.
 func (vt *VacuumTracker) GetState() *VacuumShadowState {
 	vt.RLock()
@@ -2417,6 +2427,8 @@ func (vt *VacuumTracker) GetState() *VacuumShadowState {
 			LastAnnouncementMessage:      s.Outputs.LastAnnouncementMessage,
 			AnnouncementsSinceErrorBegan: s.Outputs.AnnouncementsSinceErrorBegan,
 			SuppressedForSleepCount:      s.Outputs.SuppressedForSleepCount,
+			// Replaced whole, never changed in place, so sharing it is safe.
+			Scheduler: s.Outputs.Scheduler,
 		},
 		Metadata: s.Metadata,
 	}

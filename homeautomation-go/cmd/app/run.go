@@ -28,6 +28,7 @@ import (
 	"homeautomation/internal/tts"
 	"homeautomation/internal/version"
 	pkgha "homeautomation/pkg/ha"
+	"homeautomation/pkg/occupancy"
 	"homeautomation/pkg/plugin"
 	pkgstate "homeautomation/pkg/state"
 
@@ -364,6 +365,7 @@ func Run() {
 	pluginCtx.NtfyClient = ntfyClient
 	pluginCtx.SoCoCliURL = socoCliURL
 	pluginCtx.ShutdownCtx = shutdownCtx
+	pluginCtx.Occupancy = occupancy.NewHub()
 
 	// Start TTS audio file server and build the synthesizer that notify uses.
 	// Constructed here (before the notifier) because notify.NewManager requires

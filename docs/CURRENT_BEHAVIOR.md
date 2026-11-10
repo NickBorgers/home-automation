@@ -42,6 +42,7 @@ for that device or state. Corroborate timestamps before comparing evidence from 
 | Most Home Assistant devices and helpers | Home Assistant WebSocket service calls | Home Assistant WebSocket events/state | Plugin shadow state plus application and Home Assistant logs |
 | Sonos music | SoCo-CLI HTTP API (direct UPnP) when `SOCO_CLI_URL` is set; Home Assistant fallback when it is not | SoCo-CLI for volume and playback reads when configured; startup reconciliation still reads Home Assistant | `/api/shadow/music`, application logs, and SoCo-CLI responses/logs |
 | Tesla vehicle and Powerwall | Tesla Fleet API; vehicle commands are signed where required | Tesla Fleet API polling | `/api/shadow/tesla` and Tesla plugin logs |
+| Vacuum robot (Valetudo) | Valetudo REST API (`internal/valetudo`): presets, segment clean, pause, return home. Only in scheduler `active` mode and when not `READ_ONLY` | Valetudo REST API: status, battery, presets, dock status, map position | `/api/shadow/vacuum` → `outputs.scheduler.robot` and `run`; application logs with `logger="vacuum.scheduler"` |
 | Frigate room presence | No device command path; derived occupancy may be written to Home Assistant outside `log_only` mode | MQTT messages delivered through Home Assistant's `mqtt/subscribe` WebSocket command | `/api/shadow/roompresence` and room-presence logs |
 
 These exceptions are why “Home Assistant says unavailable” is not, by itself, proof that a direct command failed. For

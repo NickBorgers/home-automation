@@ -10,9 +10,9 @@ import (
 
 // Config models the vacuum plugin's YAML configuration.
 //
-// The file is intentionally shaped to grow: today only the announcement
-// subtrees are consumed, but schedule/rooms/entity_id fields are reserved for
-// future plugin features (vacuum triggering, per-room parameters).
+// The announcement subtrees drive the error announcer. The scheduler subtree
+// drives the dirty-room scheduler (see scheduler_config.go). entity_id is
+// still reserved.
 type Config struct {
 	Vacuum struct {
 		// EntityID is reserved for future use (start/pause/stop service calls).
@@ -22,6 +22,10 @@ type Config struct {
 
 		Announcement      AnnouncementConfig      `yaml:"announcement"`
 		ClearAnnouncement ClearAnnouncementConfig `yaml:"clear_announcement"`
+
+		// Scheduler is the dirty-room scheduler. Problems in it are kept in
+		// Scheduler.Err and do not fail LoadConfig.
+		Scheduler SchedulerConfig `yaml:"scheduler"`
 	} `yaml:"vacuum"`
 }
 
@@ -112,5 +116,6 @@ func (c *Config) applyDefaultsAndValidate() error {
 		}
 		c.Vacuum.Announcement.RepeatInterval = d
 	}
+	c.Vacuum.Scheduler.applyDefaultsAndValidate()
 	return nil
 }

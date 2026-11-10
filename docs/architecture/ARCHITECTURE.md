@@ -510,8 +510,20 @@ Each plugin corresponds to a Node-RED flow and implements domain-specific automa
 **Entities Monitored:** `sensor.valetudo_mellowslimyloris_error` (configurable);
 reads `isAnyoneHome` for clear confirmations
 
-**Config File:** `vacuum_config.yaml` (also reserves shape for future schedule,
-room sequencing, and per-room vacuum/mop parameters)
+**Dirty-room scheduler** (off unless `scheduler.mode` is `log_only` or `active`; see
+[VACUUM.md](../flows/VACUUM.md)):
+- Tracks per-room "dirty" taints in Home Assistant helpers: due when the room's interval passes, or turned on by hand
+- Plans one run from rooms that are dirty, outside occupied or unknown areas (room presence, through the
+  `pkg/occupancy` hub), not a sleeper's room or its door neighbour, and that fit battery minus floor
+- Starts a run only at or above the start minimum, after the same plan held for `stable_for`
+- Talks to the robot directly over the Valetudo REST API (`internal/valetudo`): presets, segment clean, pause, home
+- Follows the robot's room from the Valetudo map and the house map frame; marks rooms clean as it leaves them;
+  learns battery costs per room and for the trip
+- Sends the robot home, or pauses it when the way home is blocked, when its run becomes unsafe
+- `log_only` keeps helpers and costs up to date but never commands the robot; `READ_ONLY` blocks every write
+
+**Config File:** `vacuum_config.yaml` (`vacuum:` for announcements, `vacuum.scheduler:` for the scheduler). The
+scheduler also reads `house_map.yaml`.
 
 ### 16. Integration Watchdog Plugin ✅
 

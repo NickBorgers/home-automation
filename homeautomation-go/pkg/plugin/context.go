@@ -9,6 +9,7 @@ import (
 	"homeautomation/internal/ntfy"
 	"homeautomation/internal/shadowstate"
 	pkgha "homeautomation/pkg/ha"
+	"homeautomation/pkg/occupancy"
 	pkgstate "homeautomation/pkg/state"
 
 	"go.uber.org/zap"
@@ -87,6 +88,11 @@ type Context struct {
 	// shutdown - when the context is cancelled, service calls with retry loops
 	// will exit quickly instead of waiting for their full retry budget.
 	ShutdownCtx context.Context
+
+	// Occupancy shares room presence between plugins. Room presence publishes each area's state into it;
+	// other plugins read it. May be nil in tests. A reader must treat a nil hub, or an area the hub does
+	// not know, as occupied when people's safety depends on it.
+	Occupancy *occupancy.Hub
 }
 
 // NewContext creates a new plugin context with all required dependencies.

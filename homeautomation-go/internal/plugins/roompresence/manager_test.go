@@ -11,6 +11,7 @@ import (
 	"homeautomation/internal/ha"
 	"homeautomation/internal/shadowstate"
 	"homeautomation/internal/state"
+	"homeautomation/pkg/occupancy"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -330,4 +331,38 @@ func TestManager_LogsTokenMovedAndRemoved(t *testing.T) {
 	require.Len(t, outs, 2)
 	assert.Equal(t, false, outs[1].ContextMap()["value"])
 	assert.Equal(t, true, outs[1].ContextMap()["previous"])
+}
+
+func TestManager_PublishesOccupancyInLogOnly(t *testing.T) {
+	cfg := exampleConfig(t)
+	m, mockHA, _ := newTestManager(t, cfg, true)
+	hub := occupancy.NewHub()
+	m.SetOccupancy(hub)
+	require.NoError(t, m.Start())
+
+	_, known := hub.Occupied("kitchen")
+	assert.True(t, known, "configured areas are published at start")
+
+	mockHA.SimulateMQTT(eventsTopic, frigateEvent(t, "update", "a", "cam_kitchen",
+		[]string{"kitchen_to_hall"}, "kitchen_to_hall"))
+	mockHA.SimulateMQTT(eventsTopic, frigateEvent(t, "update", "a", "cam_kitchen",
+		[]string{"kitchen_to_hall", "kitchen"}, "kitchen"))
+
+	occ, known := hub.Occupied("kitchen")
+	assert.True(t, known)
+	assert.True(t, occ, "the hub mirrors Occupied, also in log_only and read-only mode")
+	assert.Equal(t, m.Occupied("hall"), func() bool { o, _ := hub.Occupied("hall"); return o }())
+
+	m.Stop()
+	_, known = hub.Occupied("kitchen")
+	assert.False(t, known, "a stopped room presence plugin knows nothing")
+}
+
+func TestManager_UnconfiguredPublishesNothing(t *testing.T) {
+	m, _, _ := newTestManager(t, nil, false)
+	hub := occupancy.NewHub()
+	m.SetOccupancy(hub)
+	require.NoError(t, m.Start())
+	defer m.Stop()
+	assert.Empty(t, hub.Areas())
 }

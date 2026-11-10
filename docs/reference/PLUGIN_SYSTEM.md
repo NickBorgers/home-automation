@@ -729,6 +729,7 @@ type Context struct {
     ReadOnly     bool
     ConfigDir    string
     SoCoCliURL   string        // SoCo-CLI HTTP API base URL (optional, for direct speaker control and Tidal playback)
+    Occupancy    *occupancy.Hub // Room presence area states shared between plugins (nil in some tests)
 }
 ```
 
