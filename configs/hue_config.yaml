@@ -152,23 +152,28 @@ rooms:
   - hue_group: Front of House
     hass_area_id: front_of_house
     conditions:
-      # Priority 0: Front of house person present -> ON
+      # Priority 0: Daylight -> OFF. Exterior lights only run when dark.
+      # Without this, an owner arrival or guests turn them on in daylight.
+      - action: off
+        variable: isDarkOutside
+        value: false
+      # Priority 1: Front of house person present -> ON
       - action: on
         variable: isFrontOfHousePersonPresent
         value: true
-      # Priority 1: Owner just returned -> ON (avoids race)
+      # Priority 2: Owner just returned -> ON (avoids race)
       - action: on
         variable: didOwnerJustReturnHome
         value: true
-      # Priority 2: Guests present -> ON
+      # Priority 3: Guests present -> ON
       - action: on
         variable: isHaveGuests
         value: true
-      # Priority 3: Everyone asleep or gone -> OFF
+      # Priority 4: Everyone asleep or gone -> OFF
       - action: off
         variable: isAnyoneHomeAndAwake
         value: false
-      # Priority 4-6: No presence indicators -> OFF
+      # Priority 5-7: No presence indicators -> OFF
       - action: off
         variable: isHaveGuests
         value: false
@@ -184,23 +189,28 @@ rooms:
   - hue_group: Decorative Outdoor Lights
     hass_area_id: front_of_house
     conditions:
-      # Priority 0: Front of house person present -> ON
+      # Priority 0: Daylight -> OFF. Exterior lights only run when dark.
+      # Without this, an owner arrival or guests turn them on in daylight.
+      - action: off
+        variable: isDarkOutside
+        value: false
+      # Priority 1: Front of house person present -> ON
       - action: on
         variable: isFrontOfHousePersonPresent
         value: true
-      # Priority 1: Owner just returned -> ON (avoids race)
+      # Priority 2: Owner just returned -> ON (avoids race)
       - action: on
         variable: didOwnerJustReturnHome
         value: true
-      # Priority 2: Guests present -> ON
+      # Priority 3: Guests present -> ON
       - action: on
         variable: isHaveGuests
         value: true
-      # Priority 3: Everyone asleep or gone -> OFF
+      # Priority 4: Everyone asleep or gone -> OFF
       - action: off
         variable: isAnyoneHomeAndAwake
         value: false
-      # Priority 4-6: No presence indicators -> OFF
+      # Priority 5-7: No presence indicators -> OFF
       - action: off
         variable: isHaveGuests
         value: false

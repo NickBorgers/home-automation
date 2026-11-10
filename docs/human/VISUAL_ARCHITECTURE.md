@@ -1066,6 +1066,7 @@ graph LR
     PrimaryDoor --> Lighting
     WeatherStationIlluminance -->|Outdoor Lux Reference| Lighting
     Lighting --> DarkOutside
+    DarkOutside --> Lighting
     LivingCans -->|Manual Override Detection| Lighting
     MainLivingSpace -->|Color Tracking Source| Lighting
     BackHallLight -->|Color Tracking Target State| Lighting
