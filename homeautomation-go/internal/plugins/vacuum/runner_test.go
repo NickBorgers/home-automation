@@ -408,6 +408,8 @@ func TestSchedulerTracksOwnRun(t *testing.T) {
 	step("mud", 83)
 	assert.Equal(t, "off", e.state("input_boolean.vacuum_dirty_kitchen"), "kitchen done when the run ends")
 	assert.InDelta(t, 9.1, e.cost("input_number.vacuum_cost_kitchen"), 1e-9, "9.6 + 0.3 * (8 - 9.6)")
+	assert.InDelta(t, 6.1, e.cost("input_number.vacuum_cost_kitchen_vacuum"), 1e-9,
+		"6.4 + 0.3 * (8 * 0.4 / 0.6 - 6.4)")
 	vacuumCleaned := e.cleanedAt(itemKey{"kitchen", TreatmentVacuum})
 	assert.True(t, vacuumCleaned.After(runStart), "a full clean also clears the vacuum taint")
 	assert.Nil(t, e.sched().Run)

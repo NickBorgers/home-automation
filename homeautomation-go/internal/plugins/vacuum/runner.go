@@ -710,6 +710,11 @@ func (s *Scheduler) markDone(now time.Time, room string) {
 	r.sampled[room] = r.roomDrop[room]
 	if len(cleared) > 0 && cleared[0] == r.treatment && r.positionSeen {
 		s.learnItem(itemKey{Room: room, Treatment: r.treatment}, r.roomDrop[room])
+		primaryRate := s.cfg.Battery.DefaultCostPerM2[r.treatment]
+		for _, treatment := range cleared[1:] {
+			s.learnItem(itemKey{Room: room, Treatment: treatment},
+				r.roomDrop[room]*s.cfg.Battery.DefaultCostPerM2[treatment]/primaryRate)
+		}
 	}
 	s.logger.Info("Vacuum finished room", zap.String("room", room), zap.String("origin", r.origin),
 		zap.Strings("cleared", names), zap.Float64("battery_drop", r.roomDrop[room]),

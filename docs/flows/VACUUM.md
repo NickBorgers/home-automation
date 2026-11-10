@@ -135,7 +135,8 @@ sequenceDiagram
   `min_dwell` (2 minutes). This keeps a room the robot drives through from counting.
 - The battery drop between two polls goes to the room the robot was in at the first poll. A finished room's
   drop is its cost sample. The rest of the run's drop is the trip sample. Samples move the learned cost by
-  `learning_rate` (0.3).
+  `learning_rate` (0.3). A full clean also teaches the vacuum-only cost, prorated by the treatments'
+  `default_cost_per_m2` values.
 - Before any sample, a room's cost is its floor area times `default_cost_per_m2`.
 - If the position cannot be trusted, the run is tracked without it. The position is not trusted when the
   house map has no `valetudo` frame, the pixel size differs, or the dock seems to have moved more than 0.5 m
