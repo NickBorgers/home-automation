@@ -36,6 +36,7 @@ const (
 	defaultExitWindow             = 30 * time.Second
 	defaultArrivalWindow          = 60 * time.Second
 	defaultApproachLead           = 3 * time.Second
+	defaultTokenStoreMaxAge       = 15 * time.Minute
 )
 
 // fileConfig is the YAML file.
@@ -83,6 +84,16 @@ type Config struct {
 	// ZoneOverrides maps a Frigate zone name to an area, to a boundary written as <area>_to_<area>, or to
 	// "ignore". Use it for zone names that break the naming convention.
 	ZoneOverrides map[string]string `yaml:"zone_overrides"`
+
+	// TokenStore is an input_text helper that keeps the tokens in unseen areas across a restart. Cameras
+	// find people in seen areas again, so only unseen areas are kept. It is written in every mode, because
+	// nothing but this plugin reads it. Empty: tokens are not kept.
+	TokenStore string `yaml:"token_store"`
+
+	// TokenStoreMaxAge is how old a saved copy may be and still be loaded at startup. The plugin saves
+	// when a kept token changes and again when it stops, so a clean restart leaves a fresh copy. A crash
+	// leaves an old one, and the plugin then starts with no tokens, as it would without a store.
+	TokenStoreMaxAge time.Duration `yaml:"token_store_max_age"`
 }
 
 // AreaConfig is one area.
@@ -173,6 +184,9 @@ func (c *Config) applyDefaults() {
 	if c.ApproachLead == 0 {
 		c.ApproachLead = defaultApproachLead
 	}
+	if c.TokenStoreMaxAge == 0 {
+		c.TokenStoreMaxAge = defaultTokenStoreMaxAge
+	}
 }
 
 func (c *Config) validate() error {
@@ -228,6 +242,12 @@ func (c *Config) validate() error {
 	}
 	if c.ApproachLead >= c.ArrivalWindow {
 		errs = append(errs, "approach_lead must be shorter than arrival_window")
+	}
+	if c.TokenStore != "" && !strings.HasPrefix(c.TokenStore, "input_text.") {
+		errs = append(errs, fmt.Sprintf("token_store %q must be an input_text entity", c.TokenStore))
+	}
+	if c.TokenStoreMaxAge < 0 {
+		errs = append(errs, "token_store_max_age must be positive")
 	}
 	for cam, areas := range c.Cameras {
 		for _, a := range areas {

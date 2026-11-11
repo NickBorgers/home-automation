@@ -52,6 +52,8 @@ type Manager struct {
 	// prevTokens and prevOutputs hold the last logged state, to log changes. Guarded by applyMu.
 	prevTokens  map[string]shadowstate.RoomPresenceToken
 	prevOutputs map[string]bool
+	// storedKey is the unseen tokens last written to the token store. Guarded by applyMu.
+	storedKey string
 
 	// occupancy receives each area's state after every change, for other plugins. May be nil.
 	occupancy *occupancy.Hub
@@ -111,6 +113,9 @@ func (m *Manager) Start() error {
 		m.publishShadow()
 		return nil
 	}
+
+	// Load kept tokens before anything can save, or the first save would overwrite them.
+	m.restoreTokens()
 
 	for _, topic := range []string{eventsTopic, heartbeatTopic} {
 		sub, err := m.haClient.SubscribeMQTT(topic, m.handleMQTT)
@@ -184,9 +189,24 @@ func (m *Manager) Stop() {
 		<-m.done
 		m.cancel = nil
 	}
+	m.saveOnStop()
 	m.unsubscribeMQTT()
 	m.subHelper.UnsubscribeAll()
 	m.publishOccupancy(nil) // stopped: nothing is known any more
+}
+
+// saveOnStop writes the token store with the stop time, so the next start knows the copy is fresh.
+func (m *Manager) saveOnStop() {
+	m.applyMu.Lock()
+	defer m.applyMu.Unlock()
+	m.mu.Lock()
+	if m.tracker == nil {
+		m.mu.Unlock()
+		return
+	}
+	kept := m.tracker.UnseenTokens()
+	m.mu.Unlock()
+	m.storeTokens(m.now(), kept, true)
 }
 
 func (m *Manager) unsubscribeMQTT() {
@@ -277,8 +297,10 @@ func (m *Manager) apply(op func(t *Tracker, now time.Time)) {
 		m.applyMu.Unlock()
 		return
 	}
-	op(m.tracker, m.now())
+	now := m.now()
+	op(m.tracker, now)
 	entries := m.tracker.DrainEntries()
+	kept := m.tracker.UnseenTokens()
 	outputs := m.tracker.Outputs()
 	snapshot := m.tracker.Snapshot()
 	handlers := append([]func(string){}, m.entryHandlers...)
@@ -296,6 +318,7 @@ func (m *Manager) apply(op func(t *Tracker, now time.Time)) {
 		m.logger.Info("Room presence output", zap.String("key", w.key), zap.Bool("value", w.value))
 	}
 
+	m.storeTokens(now, kept, false)
 	m.logChanges(snapshot)
 	m.setShadow(snapshot)
 	m.publishOccupancy(snapshot.Areas)

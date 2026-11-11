@@ -257,6 +257,24 @@ When the heartbeat returns, affected areas leave the unknown state. Frozen token
 paused — their last-seen clock does not reset. A token that was 50 minutes through a 1-hour idle limit when the
 camera failed expires 10 minutes after recovery, not 1 hour later.
 
+### Restart
+
+A restart, such as an image update, starts the tracker with no tokens. Cameras find people in seen areas
+again. Nothing finds a person in an unseen area, such as a bedroom, until they walk out. So the plugin can keep
+the tokens in unseen areas in an `input_text` helper, set by `token_store`:
+
+- It writes the helper when an unseen token arrives, moves or goes away, and once more when the plugin stops.
+  It writes in `log_only` mode too, because nothing but the plugin reads the helper. It never writes in
+  read-only mode.
+- At startup, before it reads any camera, it loads the tokens back with their first arrival time. So idle limits
+  still count from the first arrival, and a bed sensor that is on adds no extra token.
+- It loads nothing when the copy is older than `token_store_max_age` (default 15 min). The stop write makes a
+  clean restart's copy fresh. A crash leaves an older copy, and the plugin starts empty, as without a store.
+- The value is `{"t":<saved, Unix s>,"k":[["<area>",<since, Unix s>],...]}`. An `input_text` holds at most 255
+  characters, about 9 tokens. When more do not fit, the newest are left out.
+
+Create the helper with max length 255. Shadow state calls a restored token's reason "restored after restart".
+
 ## Outputs
 
 The config maps output variables to areas. A variable is true when any of its areas holds a token. The first
@@ -348,6 +366,8 @@ room_presence:
 - An area with no `idle_limit` never expires. Nobody-home and the people count still remove its tokens.
 - `cameras` (optional) maps a camera to the areas it sees. The plugin also learns this from the zones each
   camera reports. It decides which areas freeze when a camera stops.
+- `token_store` (optional) is an `input_text` helper that keeps unseen tokens across a restart, and
+  `token_store_max_age` (default 15m) is how old its copy may be. See "Restart".
 - A missing file leaves the plugin unconfigured. An invalid file does too, and shadow state gives the error.
 
 Adding a Frigate zone that follows the convention needs no config change. Adding an area needs one line.

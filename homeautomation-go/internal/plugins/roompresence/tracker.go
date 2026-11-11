@@ -444,6 +444,48 @@ func (t *Tracker) Outputs() map[string]bool {
 	return out
 }
 
+// KeptToken is a token in an unseen area, as kept across a restart.
+type KeptToken struct {
+	Area  string
+	Since time.Time
+}
+
+// UnseenTokens lists the tokens in unseen areas, by area, then by arrival. Cameras find people in seen
+// areas again after a restart, so only these need keeping.
+func (t *Tracker) UnseenTokens() []KeptToken {
+	var out []KeptToken
+	for _, tok := range t.tokens {
+		if a := t.cfg.Areas[tok.area]; a != nil && !a.Seen {
+			out = append(out, KeptToken{Area: tok.area, Since: tok.since})
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Area != out[j].Area {
+			return out[i].Area < out[j].Area
+		}
+		return out[i].Since.Before(out[j].Since)
+	})
+	return out
+}
+
+// Restore puts kept tokens back, each with its first arrival time, so idle limits still count from then.
+// It skips areas that are no longer unseen areas in the config. It returns how many tokens it made.
+func (t *Tracker) Restore(now time.Time, kept []KeptToken) int {
+	n := 0
+	for _, k := range kept {
+		if a := t.cfg.Areas[k.Area]; a == nil || a.Seen {
+			continue
+		}
+		tok := t.newToken(now, k.Area, "", "restored after restart", false)
+		if k.Since.Before(now) {
+			tok.since = k.Since
+			tok.lastSeen = k.Since
+		}
+		n++
+	}
+	return n
+}
+
 // DrainEntries returns the areas a token entered since the last call, oldest first.
 func (t *Tracker) DrainEntries() []string {
 	e := t.entries
