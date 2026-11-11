@@ -4,6 +4,8 @@ import (
 	"testing"
 	"time"
 
+	"homeautomation/internal/housemap"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -67,6 +69,53 @@ func TestSchedulerRechecksWayHomeOnNormalReturn(t *testing.T) {
 	e.advance(30 * time.Second)
 	assert.Equal(t, "completed", e.sched().LastRun.Outcome)
 	assert.Equal(t, "off", e.state("input_boolean.vacuum_dirty_kitchen"))
+}
+
+// The live check uses open regions too. The robot cleans the study, whose way home runs through the open
+// family-strip-den wing. A person in the family blocks the den as well, so the robot pauses in the study
+// instead of driving home past them.
+func TestSchedulerLiveCheckBlocksWholeOpenRegion(t *testing.T) {
+	e := newSchedEnv(t, ModeActive, func(cfg *SchedulerConfig, _ *housemap.Map) {
+		cfg.Rooms["study"] = RoomConfig{SegmentID: "11", FullRaw: "48h"}
+		cfg.applyDefaultsAndValidate()
+	})
+	e.start()
+	e.startRun("study")
+	e.moveTo("study", 95)
+	e.advance(30 * time.Second)
+	e.robot.ClearCommands()
+
+	clearAreas(e.hub, "family")
+	e.s.TickForTest(true)
+	assert.Equal(t, []string{cmdPause}, e.commandPaths(), "the way home enters the den, which is open to the family")
+	assert.True(t, e.sched().Run.Paused)
+	assert.Equal(t, "way from study to mud enters den (open to family: area family is occupied or unknown)",
+		e.sched().Run.AbortReason)
+
+	clearAreas(e.hub)
+	e.s.TickForTest(true)
+	assert.Equal(t, []string{cmdPause, cmdHome}, e.commandPaths(), "home once the open region is clear")
+}
+
+// A person who walks into the far end of an open region makes its near end unsafe to clean, even though
+// the robot's way there does not touch the room they are in.
+func TestSchedulerLiveCheckAbortsWhenNextRoomIsOpenToAPerson(t *testing.T) {
+	e := newSchedEnv(t, ModeActive, func(cfg *SchedulerConfig, _ *housemap.Map) {
+		cfg.Rooms["family"] = RoomConfig{SegmentID: "8", FullRaw: "48h"}
+		cfg.applyDefaultsAndValidate()
+	})
+	e.start()
+	e.startRun("kitchen", "family")
+	require.Equal(t, []string{"kitchen", "family"}, e.sched().Run.Targets)
+	e.moveTo("kitchen", 95)
+	e.advance(30 * time.Second)
+	e.robot.ClearCommands()
+
+	clearAreas(e.hub, "den")
+	e.s.TickForTest(true)
+	assert.Equal(t, []string{cmdHome}, e.commandPaths(), "the way home from the kitchen is clear")
+	assert.True(t, e.sched().Run.Aborted)
+	assert.Equal(t, "room family: open to den: area den is occupied or unknown", e.sched().Run.AbortReason)
 }
 
 // While the robot cleans normally and nothing changes, the scheduler sends nothing.

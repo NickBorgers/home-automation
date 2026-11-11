@@ -143,3 +143,45 @@ func TestValetudoToFrame(t *testing.T) {
 	noAnchor := &Valetudo{PixelSizeM: 0.05}
 	assert.Equal(t, Point{1, -1}, noAnchor.ToFrame(Point{20, 20}), "a missing anchor is the origin")
 }
+
+func TestGraphOpenRegion(t *testing.T) {
+	g := loadGraph(t)
+
+	assert.Equal(t, []string{"hall", "kitchen", "pantry"}, g.OpenRegion("hall"),
+		"hall opens to the kitchen, and the kitchen opens to the pantry")
+	assert.Equal(t, []string{"hall", "kitchen", "pantry"}, g.OpenRegion("pantry"),
+		"the region is the same from any of its rooms")
+	assert.Equal(t, []string{"bed"}, g.OpenRegion("bed"), "doors do not join rooms, even to rooms of a region")
+	assert.Equal(t, []string{"mud"}, g.OpenRegion("mud"), "exterior and overhead doors do not join rooms")
+	assert.Nil(t, g.OpenRegion("garage"), "a garage is not in the graph")
+	assert.Nil(t, g.OpenRegion("nowhere"))
+}
+
+// Only interior openings between two rooms join rooms. An exterior opening, an opening to a space that is not
+// a room, and a door do not. An opening that is not placed yet does.
+func TestGraphOpenRegionOnlyInteriorOpenings(t *testing.T) {
+	m, err := Parse([]byte(`house_map:
+  spaces:
+    a:      {kind: room, area: a, polygon: [[0, 0], [4, 0], [4, 4], [0, 4]]}
+    b:      {kind: room, area: b, polygon: [[4, 0], [8, 0], [8, 4], [4, 4]]}
+    c:      {kind: room, area: c, polygon: [[8, 0], [12, 0], [12, 4], [8, 4]]}
+    d:      {kind: room, area: d, polygon: [[12, 0], [16, 0], [16, 4], [12, 4]]}
+    garage: {kind: garage, polygon: [[-6, 0], [0, 0], [0, 4], [-6, 4]]}
+    patio:  {kind: patio, polygon: [[0, -4], [16, -4], [16, 0], [0, 0]]}
+    yard:   {kind: yard, polygon: [[-10, -10], [20, -10], [20, 20], [-10, 20]]}
+  doors:
+    a_b:      {kind: opening, connects: [a, b]}
+    b_c:      {kind: door,    connects: [b, c], span: [[8, 1], [8, 2]]}
+    c_patio:  {kind: opening, exterior: true, connects: [c, patio], span: [[9, 0], [11, 0]]}
+    d_patio:  {kind: opening, exterior: true, connects: [d, patio], span: [[13, 0], [15, 0]]}
+    a_garage: {kind: opening, connects: [garage, a], span: [[0, 1], [0, 3]]}
+`))
+	require.NoError(t, err)
+	g := m.Graph()
+
+	assert.Equal(t, []string{"a", "b"}, g.OpenRegion("a"), "an opening that is not placed counts")
+	assert.Equal(t, []string{"a", "b"}, g.OpenRegion("b"))
+	assert.Equal(t, []string{"c"}, g.OpenRegion("c"), "a door and an opening to the outside do not join rooms")
+	assert.Equal(t, []string{"d"}, g.OpenRegion("d"), "two rooms open to the same patio are not one room")
+	assert.Nil(t, g.OpenRegion("garage"))
+}

@@ -1,17 +1,21 @@
 # A made-up house for the vacuum scheduler tests. It is not a real house.
 #
-#   y 8 +--------+--------+--------+
-#       | office |  bed   |  bath  |
-#   y 4 +--------+--------+--------+
-#       |  mud   | pantry |kitchen |
-#   y 0 +--------+--------+--------+
+#   y 8 +--------+--------+--------+     +--------+
+#       | office |  bed   |  bath  |     | study  |
+#   y 4 +--------+--------+--------+-----+-+------+
+#       |  mud   | pantry |kitchen | fam |s| den  |
+#   y 0 +--------+--------+--------+-----+-+------+
 #                | lounge |
 #   y-4          +--------+
-#       x 0      4        8       12
+#       x 0      4        8       12    16 17    21
 #
 # The dock is in mud. Bed and bath share the "suite" area; every other room is its own area. The only way
 # from mud to the kitchen, the bath and the lounge is through the pantry. The office has a second door to
 # the bed, so office and bed are neighbours and the bed can also be reached through the office.
+#
+# East of the kitchen, behind a door, is an open-plan wing: family, a strip (s) and den are joined by
+# openings, so they are one room to a person. The study is behind a door off the den, and the only way to it
+# is through the wing. Every other connection is a door.
 house_map:
   frame: {units: m, x: east, y: north, origin: "south-west corner of mud"}
   valetudo:
@@ -28,13 +32,21 @@ house_map:
     bed:     {kind: room, area: suite,   polygon: [[4, 4], [8, 4], [8, 8], [4, 8]]}
     bath:    {kind: room, area: suite,   polygon: [[8, 4], [12, 4], [12, 8], [8, 8]]}
     lounge:  {kind: room, area: lounge,  polygon: [[4, -4], [8, -4], [8, 0], [4, 0]]}
-    yard:    {kind: yard, polygon: [[-10, -10], [20, -10], [20, 20], [-10, 20]]}
+    family:  {kind: room, area: family,  polygon: [[12, 0], [16, 0], [16, 4], [12, 4]]}
+    strip:   {kind: room, area: strip,   polygon: [[16, 0], [17, 0], [17, 4], [16, 4]]}
+    den:     {kind: room, area: den,     polygon: [[17, 0], [21, 0], [21, 4], [17, 4]]}
+    study:   {kind: room, area: study,   polygon: [[17, 4], [21, 4], [21, 8], [17, 8]]}
+    yard:    {kind: yard, polygon: [[-10, -10], [30, -10], [30, 20], [-10, 20]]}
   doors:
-    mud_pantry:     {kind: opening, connects: [mud, pantry],     span: [[4, 1], [4, 2]]}
-    pantry_kitchen: {kind: opening, connects: [pantry, kitchen], span: [[8, 1], [8, 2]]}
+    mud_pantry:     {kind: door,    connects: [mud, pantry],     span: [[4, 1], [4, 2]]}
+    pantry_kitchen: {kind: door,    connects: [pantry, kitchen], span: [[8, 1], [8, 2]]}
     pantry_bed:     {kind: door,    connects: [pantry, bed],     span: [[5, 4], [6, 4]]}
     bed_bath:       {kind: door,    connects: [bed, bath],       span: [[8, 6], [8, 7]]}
     mud_office:     {kind: door,    connects: [mud, office],     span: [[1, 4], [2, 4]]}
     office_bed:     {kind: door,    connects: [office, bed],     span: [[4, 6], [4, 7]]}
-    pantry_lounge:  {kind: opening, connects: [pantry, lounge],  span: [[5, 0], [6, 0]]}
+    pantry_lounge:  {kind: door,    connects: [pantry, lounge],  span: [[5, 0], [6, 0]]}
+    kitchen_family: {kind: door,    connects: [kitchen, family], span: [[12, 1], [12, 2]]}
+    family_strip:   {kind: opening, connects: [family, strip],   span: [[16, 1], [16, 3]]}
+    strip_den:      {kind: opening, connects: [strip, den],      span: [[17, 1], [17, 3]]}
+    den_study:      {kind: door,    connects: [den, study],      span: [[18, 4], [19, 4]]}
     front:          {kind: door, exterior: true, connects: [mud, yard], span: [[0, 1], [0, 2]]}

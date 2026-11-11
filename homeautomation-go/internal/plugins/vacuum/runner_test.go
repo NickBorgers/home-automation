@@ -118,7 +118,7 @@ func pixelAtOK(x, y float64) (float64, float64, bool) {
 
 var roomCentres = map[string][2]float64{
 	"mud": {2, 2}, "pantry": {6, 2}, "kitchen": {10, 2}, "office": {2, 6}, "bed": {6, 6}, "bath": {10, 6},
-	"lounge": {6, -2},
+	"lounge": {6, -2}, "family": {14, 2}, "strip": {16.5, 2}, "den": {19, 2}, "study": {19, 6},
 }
 
 // moveTo puts the robot in a room and sets its battery.
@@ -130,7 +130,7 @@ func (e *schedEnv) moveTo(room string, battery int) {
 
 func clearAreas(hub *occupancy.Hub, occupied ...string) {
 	areas := map[string]occupancy.Status{}
-	for _, a := range []string{"mud", "pantry", "kitchen", "office", "suite", "lounge"} {
+	for _, a := range []string{"mud", "pantry", "kitchen", "office", "suite", "lounge", "family", "strip", "den", "study"} {
 		areas[a] = occupancy.Status{}
 	}
 	for _, a := range occupied {
