@@ -131,6 +131,10 @@ func (d *DevServer) populateSampleData() {
 		"friendly_name": "TV On",
 	})
 
+	d.server.SetState("input_boolean.early_wake_active", "off", map[string]interface{}{
+		"friendly_name": "Early Wake Active",
+	})
+
 	// Energy states - simulate afternoon with moderate solar
 	d.server.SetState("input_boolean.fade_out_in_progress", "off", map[string]interface{}{
 		"friendly_name": "Fade Out In Progress",

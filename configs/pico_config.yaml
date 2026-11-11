@@ -10,6 +10,18 @@
 # The first light of a target is the reference. Its brightness decides the next level.
 # Every other light of the target is set to that level.
 #
+# wakes_house (on a target): an up press that turns the target on from off while
+# someone is asleep sets isEarlyWakeActive. The common areas wake up; the bedroom
+# keeps sleeping (see early_wake_config.yaml). Only main-living-space targets get
+# it. The pantry and the back hall are night paths and must never wake the house.
+#
+# path_lights (on a button): an up press while the house is asleep
+# (isAnyoneHomeAndAwake false) also turns on these lights at brightness_pct and
+# kelvin, but only the ones that are off. A down press that turns the target off
+# turns off the path lights this plugin turned on; off_after does it if nobody
+# presses. Lights that were already on are never touched. Path lights never wake
+# the house.
+#
 # To add a Pico, press it and read /api/shadow/picos. lastEvent shows its deviceId, and
 # matched is false until the device is listed here. The device ID is also in
 # Home Assistant: Settings -> Devices -> the Pico -> the last part of the URL.
@@ -28,6 +40,7 @@ targets:
       - light.pantry_under_cabinet
 
   - name: kitchen
+    wakes_house: true
     lights:
       - light.kitchen_cans
       - light.kitchen_main_lights  # Kitchen Under Cabinet (Lutron)
@@ -38,6 +51,7 @@ targets:
       - light.back_hall_bottom
 
   - name: living
+    wakes_house: true
     lights:
       - light.living_cans
 
@@ -58,9 +72,19 @@ buttons:
     target: kitchen
 
   # Back Hall, between the bedrooms. A 2-button Pico, formerly "Living Room Remote on Kitchen Wall".
+  # It is the guest's Pico by their door: it lights the walk to the bathroom and the
+  # living room without waking the house.
   - name: Hallway Between Bedrooms
     device_id: 80f92d7f29fdbef7643ed1b002532267
     target: back hall
+    path_lights:
+      # The two north living cans. Hue names both "Living Can NE"; one is really NW.
+      lights:
+        - light.hue_color_downlight_1
+        - light.hue_color_downlight_3
+      brightness_pct: 5
+      kelvin: 2200
+      off_after: 15m
 
   # Back Hall, by Living. Same effect as the Pico between the bedrooms.
   - name: Hallway Hall Light Switch by Living

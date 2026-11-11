@@ -54,6 +54,10 @@ const (
 	// their own retry cadence and will re-announce after wake; transient
 	// events (presence arrival) accept being missed since they are stale by
 	// morning anyway.
+	//
+	// Exception: during an early wake (isEarlyWakeActive) someone is up in the
+	// common areas. The announcement plays on the requested speakers minus
+	// cfg.BedroomSpeakers. If that leaves no speaker, it is suppressed.
 	UrgencyDeferable UrgencyLevel = iota
 
 	// UrgencyUrgent: always play, even when asleep. Use for events that must
@@ -64,6 +68,10 @@ const (
 
 // MasterAsleepStateVar is the state variable consulted for the suppress check.
 const MasterAsleepStateVar = "isMasterAsleep"
+
+// EarlyWakeStateVar is the state variable that lets deferable announcements
+// play outside the bedroom while the bedroom sleeps.
+const EarlyWakeStateVar = "isEarlyWakeActive"
 
 type announceOpts struct {
 	speakers []string
@@ -140,11 +148,28 @@ func (m *Manager) Announce(ctx context.Context, message string, opts ...Announce
 	}
 
 	if reason := m.suppressionReason(o.urgency); reason != "" {
-		m.logger.Info("Announcement suppressed",
+		if !m.isEarlyWakeActive() {
+			m.logger.Info("Announcement suppressed",
+				zap.String("message", message),
+				zap.Strings("speakers", o.speakers),
+				zap.String("reason", reason))
+			return ErrSuppressedAsleep
+		}
+		awake := m.withoutBedroomSpeakers(o.speakers)
+		if len(m.cfg.BedroomSpeakers) == 0 || len(awake) == 0 {
+			m.logger.Info("Announcement suppressed during early wake",
+				zap.String("message", message),
+				zap.Strings("speakers", o.speakers),
+				zap.Strings("bedroom_speakers", m.cfg.BedroomSpeakers),
+				zap.String("reason", reason+"; no speaker outside the bedroom"))
+			return ErrSuppressedAsleep
+		}
+		m.logger.Info("early wake: announcement skips the bedroom speakers",
 			zap.String("message", message),
-			zap.Strings("speakers", o.speakers),
-			zap.String("reason", reason))
-		return ErrSuppressedAsleep
+			zap.Strings("requested_speakers", o.speakers),
+			zap.Strings("speakers", awake),
+			zap.String("asleep_reason", reason))
+		o.speakers = awake
 	}
 
 	targetVolume := m.cfg.AwakeVolumePercent
@@ -198,6 +223,34 @@ func (m *Manager) suppressionReason(urgency UrgencyLevel) string {
 		return "bedroom_sleep_playback_active"
 	}
 	return ""
+}
+
+// withoutBedroomSpeakers returns speakers minus cfg.BedroomSpeakers, in order.
+func (m *Manager) withoutBedroomSpeakers(speakers []string) []string {
+	bedroom := make(map[string]bool, len(m.cfg.BedroomSpeakers))
+	for _, s := range m.cfg.BedroomSpeakers {
+		bedroom[s] = true
+	}
+	out := make([]string, 0, len(speakers))
+	for _, s := range speakers {
+		if !bedroom[s] {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// isEarlyWakeActive reports whether someone is up while the bedroom sleeps.
+// Unknown counts as false, which keeps deferable announcements suppressed.
+func (m *Manager) isEarlyWakeActive() bool {
+	if m.stateManager == nil {
+		return false
+	}
+	v, err := m.stateManager.GetBool(EarlyWakeStateVar)
+	if err != nil {
+		return false
+	}
+	return v
 }
 
 func (m *Manager) isMasterAsleep() bool {

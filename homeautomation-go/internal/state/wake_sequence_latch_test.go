@@ -233,3 +233,94 @@ func TestWakeSequenceLatch_Stop(t *testing.T) {
 
 	assert.Equal(t, initialCount, atomic.LoadInt32(&callbackCount), "Callback should not be called after Stop()")
 }
+
+// Early wake: someone got up while a bedroom sleeps. The latch holds the house awake.
+func TestWakeSequenceLatch_ActivatesOnEarlyWakeRisingEdge(t *testing.T) {
+	t.Parallel()
+	manager, mockClient := setupTestManagerForLatch(t)
+
+	var callbackCount int32
+	latch := NewWakeSequenceLatch(manager, testlogger.New(), func() {
+		atomic.AddInt32(&callbackCount, 1)
+	})
+	require.NoError(t, latch.Start())
+	defer latch.Stop()
+	assert.False(t, latch.IsActive())
+
+	mockClient.SimulateStateChange("input_boolean.early_wake_active", "on")
+
+	assert.Eventually(t, latch.IsActive, time.Second, 5*time.Millisecond,
+		"early wake rising edge must activate the latch")
+	assert.Equal(t, int32(1), atomic.LoadInt32(&callbackCount))
+	wakeSeq, err := manager.GetBool("isWakeSequenceActive")
+	require.NoError(t, err)
+	assert.False(t, wakeSeq, "early wake must never set isWakeSequenceActive")
+}
+
+func TestWakeSequenceLatch_ActivatesIfEarlyWakeAlreadyOn(t *testing.T) {
+	t.Parallel()
+	manager, mockClient := setupTestManagerForLatch(t)
+	mockClient.SetState("input_boolean.early_wake_active", "on", map[string]interface{}{})
+	mockClient.SetState("input_boolean.anyone_asleep", "on", map[string]interface{}{})
+	require.NoError(t, manager.SyncFromHA())
+
+	var callbackCount int32
+	latch := NewWakeSequenceLatch(manager, testlogger.New(), func() {
+		atomic.AddInt32(&callbackCount, 1)
+	})
+	require.NoError(t, latch.Start())
+	defer latch.Stop()
+
+	assert.True(t, latch.IsActive(), "an early wake already in progress must hold the latch at start")
+	assert.Equal(t, int32(1), atomic.LoadInt32(&callbackCount))
+}
+
+// Early wake ends at a normal wake or at bedtime. Its end releases the latch,
+// unless the alarm wake sequence is running and owns the latch.
+func TestWakeSequenceLatch_EarlyWakeFallingEdge(t *testing.T) {
+	tests := []struct {
+		name         string
+		wakeSequence string
+		wantActive   bool
+		why          string
+	}{
+		{"clears the latch", "off", false, "isEarlyWakeActive true->false must clear the latch"},
+		{"kept while wake sequence runs", "on", true, "the wake sequence owns the latch while it runs"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			manager, mockClient := setupTestManagerForLatch(t)
+			mockClient.SetState("input_boolean.anyone_asleep", "on", map[string]interface{}{})
+			mockClient.SetState("input_boolean.wake_sequence_active", tc.wakeSequence, map[string]interface{}{})
+			require.NoError(t, manager.SyncFromHA())
+
+			var callbackCount int32
+			latch := NewWakeSequenceLatch(manager, testlogger.New(), func() {
+				atomic.AddInt32(&callbackCount, 1)
+			})
+			require.NoError(t, latch.Start())
+			defer latch.Stop()
+
+			mockClient.SimulateStateChange("input_boolean.early_wake_active", "on")
+			assert.Eventually(t, latch.IsActive, time.Second, 5*time.Millisecond)
+			countAfterActivate := atomic.LoadInt32(&callbackCount)
+
+			mockClient.SimulateStateChange("input_boolean.early_wake_active", "off")
+
+			if tc.wantActive {
+				time.Sleep(10 * time.Millisecond)
+				assert.True(t, latch.IsActive(), tc.why)
+				assert.Equal(t, countAfterActivate, atomic.LoadInt32(&callbackCount))
+
+				mockClient.SimulateStateChange("input_boolean.anyone_asleep", "off")
+				assert.Eventually(t, func() bool { return !latch.IsActive() }, time.Second, 5*time.Millisecond,
+					"isAnyoneAsleep true->false must still clear the latch")
+				return
+			}
+			assert.Eventually(t, func() bool { return !latch.IsActive() }, time.Second, 5*time.Millisecond, tc.why)
+			assert.Greater(t, atomic.LoadInt32(&callbackCount), countAfterActivate,
+				"clearing the latch must trigger a recompute")
+		})
+	}
+}

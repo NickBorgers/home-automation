@@ -2736,6 +2736,86 @@ func (pt *PicosTracker) GetState() *PicosShadowState {
 }
 
 // ============================================================================
+// Early Wake Tracker
+// ============================================================================
+
+// EarlyWakeTracker manages shadow state for the early wake plugin.
+type EarlyWakeTracker struct {
+	ActionTracker[EarlyWakeOutputs]
+}
+
+// NewEarlyWakeTracker creates a new early wake shadow state tracker.
+func NewEarlyWakeTracker() *EarlyWakeTracker {
+	return &EarlyWakeTracker{
+		ActionTracker: NewActionTracker(NewEarlyWakeShadowState()),
+	}
+}
+
+// SetConfig records the app user ID, the wake lights, and read-only mode.
+func (et *EarlyWakeTracker) SetConfig(appUserID string, wakeLights []string, readOnly bool) {
+	et.Lock()
+	defer et.Unlock()
+
+	s := et.State()
+	s.Outputs.AppUserID = appUserID
+	s.Outputs.WakeLights = append([]string(nil), wakeLights...)
+	s.Outputs.ReadOnly = readOnly
+	s.Metadata.LastUpdated = time.Now()
+}
+
+// RecordLightChange records a judged wake light change.
+func (et *EarlyWakeTracker) RecordLightChange(change EarlyWakeLightChange) {
+	et.Lock()
+	defer et.Unlock()
+
+	et.State().Outputs.LastLightChange = &change
+	et.State().Metadata.LastUpdated = time.Now()
+}
+
+// RecordActivated records that the detector turned early wake on.
+func (et *EarlyWakeTracker) RecordActivated(at time.Time, entityID string) {
+	et.Lock()
+	defer et.Unlock()
+
+	et.State().Outputs.LastActivatedAt = at
+	et.State().Outputs.LastActivatedBy = entityID
+	et.State().Metadata.LastUpdated = time.Now()
+}
+
+// RecordCleared records that a normal wake cleared early wake.
+func (et *EarlyWakeTracker) RecordCleared(at time.Time) {
+	et.Lock()
+	defer et.Unlock()
+
+	et.State().Outputs.LastClearedAt = at
+	et.State().Metadata.LastUpdated = time.Now()
+}
+
+// GetState returns a thread-safe copy of the current shadow state.
+func (et *EarlyWakeTracker) GetState() *EarlyWakeShadowState {
+	et.RLock()
+	defer et.RUnlock()
+
+	s := et.State()
+	out := s.Outputs
+	out.WakeLights = append([]string(nil), s.Outputs.WakeLights...)
+	if s.Outputs.LastLightChange != nil {
+		change := *s.Outputs.LastLightChange
+		out.LastLightChange = &change
+	}
+
+	return &EarlyWakeShadowState{
+		Plugin: s.Plugin,
+		Inputs: ActionInputs{
+			Current:      copyInputMap(s.Inputs.Current),
+			AtLastAction: copyInputMap(s.Inputs.AtLastAction),
+		},
+		Outputs:  out,
+		Metadata: s.Metadata,
+	}
+}
+
+// ============================================================================
 // Room Presence Tracker
 // ============================================================================
 

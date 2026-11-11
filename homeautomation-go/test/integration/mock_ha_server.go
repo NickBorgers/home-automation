@@ -10,6 +10,7 @@ import (
 type MockHAServer = testutil.MockHAServer
 type EntityState = testutil.EntityState
 type ServiceCall = testutil.ServiceCall
+type StateContext = testutil.StateContext
 
 // NewMockHAServer creates a new mock HA server
 var NewMockHAServer = testutil.NewMockHAServer

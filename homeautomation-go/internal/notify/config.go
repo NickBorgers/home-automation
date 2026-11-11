@@ -19,6 +19,12 @@ type Config struct {
 	// master is asleep either play at this volume (UrgencyUrgent) or are
 	// dropped entirely (UrgencyDeferable) — there is no quieter mid-tier.
 	AwakeVolumePercent int `yaml:"awake_volume_percent"`
+
+	// BedroomSpeakers are left out of a UrgencyDeferable announcement during an
+	// early wake (isEarlyWakeActive): someone is up in the common areas while the
+	// bedroom sleeps. If empty, deferable announcements stay suppressed during an
+	// early wake, because there is no way to keep them out of the bedroom.
+	BedroomSpeakers []string `yaml:"bedroom_speakers"`
 }
 
 type fileShape struct {

@@ -57,6 +57,11 @@ type MockClient struct {
 	configReloadsMu sync.Mutex
 	reloadErrors    map[string]error // key: entry_id
 	reloadErrorsMu  sync.RWMutex
+
+	// Current user returned by GetCurrentUserID
+	currentUserID  string
+	currentUserErr error
+	currentUserMu  sync.RWMutex
 }
 
 // ConfigEntryReload records a config entry reload for testing
@@ -979,4 +984,22 @@ func (m *MockClient) ClearConfigEntryReloads() {
 	m.configReloadsMu.Lock()
 	defer m.configReloadsMu.Unlock()
 	m.configReloads = make([]ConfigEntryReload, 0)
+}
+
+// GetCurrentUserID returns the user ID set by SetCurrentUserID, or its error.
+func (m *MockClient) GetCurrentUserID() (string, error) {
+	m.currentUserMu.RLock()
+	defer m.currentUserMu.RUnlock()
+	if m.currentUserErr != nil {
+		return "", m.currentUserErr
+	}
+	return m.currentUserID, nil
+}
+
+// SetCurrentUserID sets the user ID that GetCurrentUserID returns, and an optional error.
+func (m *MockClient) SetCurrentUserID(userID string, err error) {
+	m.currentUserMu.Lock()
+	defer m.currentUserMu.Unlock()
+	m.currentUserID = userID
+	m.currentUserErr = err
 }

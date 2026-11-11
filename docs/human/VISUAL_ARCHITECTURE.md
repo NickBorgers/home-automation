@@ -60,6 +60,7 @@ graph TB
             IntegrationWatchdog[Integration Watchdog<br/>internal/plugins/integrationwatchdog/]
             Tesla[Tesla Fleet API<br/>internal/plugins/tesla/]
             Picos[Picos<br/>internal/plugins/picos/]
+            EarlyWake[Early Wake<br/>internal/plugins/earlywake/]
             RoomPresence[Room Presence<br/>internal/plugins/roompresence/]
         end
 
@@ -193,7 +194,12 @@ graph TB
 
     Picos -->|Button Events| HAClient
     Picos -->|Set Light Brightness| HAClient
+    Picos -->|Set isEarlyWakeActive| StateManager
     Picos -.->|Register Shadow| ShadowTracker
+
+    EarlyWake -->|Wake Light Changes / auth/current_user| HAClient
+    EarlyWake -->|Set / Clear isEarlyWakeActive| StateManager
+    EarlyWake -.->|Register Shadow| ShadowTracker
 
     Frigate -->|MQTT Person Events| HA
     RoomPresence -->|Subscribe MQTT| HAClient
@@ -235,6 +241,7 @@ graph TB
     style IntegrationWatchdog fill:#f3e5f5
     style Tesla fill:#f3e5f5
     style Picos fill:#f3e5f5
+    style EarlyWake fill:#f3e5f5
     style RoomPresence fill:#f3e5f5
 ```
 
@@ -402,7 +409,7 @@ flowchart TD
 
     UpdateCache[Update State Manager Cache] --> RecomputeDerived{Triggers<br/>Computed State?}
 
-    RecomputeDerived -->|Yes| Recompute[Recompute Derived Variables<br/>isAnyoneHomeAndAwake =<br/>isAnyOwnerHome AND !isAnyoneAsleep OR isAssistantHere OR wakeSequenceLatch]
+    RecomputeDerived -->|Yes| Recompute[Recompute Derived Variables<br/>isAnyoneHomeAndAwake =<br/>isAnyOwnerHome AND !isAnyoneAsleep OR isAssistantHere OR wakeSequenceLatch<br/>latch: isWakeSequenceActive or isEarlyWakeActive]
     RecomputeDerived -->|No| NotifyPlugins
 
     Recompute --> SyncDerived[Sync Derived Value to HA]
@@ -922,7 +929,7 @@ flowchart TD
 
 ## State Variable Dependency Graph
 
-Shows which plugins read/write which state variables (46 total: 33 booleans, 3 numbers, 8 strings, 2 local-only).
+Shows which plugins read/write which state variables (47 total: 34 booleans, 3 numbers, 8 strings, 2 local-only).
 
 ```mermaid
 graph LR
@@ -970,6 +977,7 @@ graph LR
         MusicURI[currentlyPlayingMusicUri]
         FadeOut[isFadeOutInProgress]
         WakeActive[isWakeSequenceActive]
+        EarlyWakeActive[isEarlyWakeActive]
         SleepPrep[isSleepPrepActive]
         Lockdown[isLockdown]
         AppleTVPlaying[isAppleTVPlaying]
@@ -999,6 +1007,8 @@ graph LR
         ResetCoord[Reset Coordinator<br/>Order: 90]
         TeslaPlugin[Tesla Plugin<br/>Order: 96]
         RoomPresencePlugin[Room Presence Plugin]
+        PicosPlugin[Picos Plugin<br/>Order: 55]
+        EarlyWakePlugin[Early Wake Plugin<br/>Order: 56]
     end
 
     subgraph "HA Entities (Sensors)"
@@ -1041,6 +1051,16 @@ graph LR
     AnyoneHome --> AnyoneHomeAndAwake
     AnyoneAsleep --> AnyoneHomeAndAwake
     WakeActive -->|latch activation| AnyoneHomeAndAwake
+    EarlyWakeActive -->|latch activation / clearing| AnyoneHomeAndAwake
+
+    AnyoneAsleep --> EarlyWakePlugin
+    MasterAsleep -->|bedtime| EarlyWakePlugin
+    EarlyWakePlugin -->|manual wake light / clear on wake or bedtime| EarlyWakeActive
+    AnyoneAsleep --> PicosPlugin
+    AnyoneHomeAndAwake -->|path lights| PicosPlugin
+    PicosPlugin -->|wakes_house target| EarlyWakeActive
+    EarlyWakeActive --> Music
+    EarlyWakeActive --> Security
     AnyoneAsleep -->|latch clearing| AnyoneHomeAndAwake
 
     DayPhasePlugin --> DayPhase
@@ -1197,7 +1217,7 @@ graph LR
 |----------|-------|----------|
 | **Boolean (input)** | 19 | isNickHome, isCarolineHome, isAssistantHere, isMasterAsleep, isHaveGuests, isNickOfficeOccupied, isKitchenOccupied, isPrimaryBedroomDoorOpen, isNickNearHome, isCarolineNearHome, isFrontOfHousePersonPresent |
 | **Boolean (computed)** | 7 | isAnyOwnerHome, isAnyoneHome, isAnyoneAsleep, isEveryoneAsleep, isAnyoneHomeAndAwake, isGuestAsleep, isDarkOutside |
-| **Boolean (output)** | 4 | isFadeOutInProgress, isWakeSequenceActive, isSleepPrepActive, isLockdown |
+| **Boolean (output)** | 5 | isFadeOutInProgress, isWakeSequenceActive, isSleepPrepActive, isLockdown, isEarlyWakeActive |
 | **Number** | 3 | alarmTime, remainingSolarGeneration, thisHourSolarGeneration |
 | **String (computed)** | 5 | dayPhase, sunevent, batteryEnergyLevel, currentEnergyLevel, solarProductionEnergyLevel |
 | **String (output)** | 3 | musicPlaybackType, currentlyPlayingMusicUri, musicPlaylistRotation |

@@ -41,6 +41,10 @@ var AllVariables = []StateVariable{
 	{Key: "isTVon", EntityID: "input_boolean.tv_on", Type: TypeBool, Default: false},
 	{Key: "isFadeOutInProgress", EntityID: "input_boolean.fade_out_in_progress", Type: TypeBool, Default: false},
 	{Key: "isWakeSequenceActive", EntityID: "input_boolean.wake_sequence_active", Type: TypeBool, Default: false},
+	// isEarlyWakeActive: someone is up while a bedroom still sleeps. It latches
+	// isAnyoneHomeAndAwake (see WakeSequenceLatch) without starting the bedroom wake
+	// sequence. Set by the earlywake and picos plugins, cleared on a normal wake.
+	{Key: "isEarlyWakeActive", EntityID: "input_boolean.early_wake_active", Type: TypeBool, Default: false},
 	{Key: "isSleepPrepActive", EntityID: "input_boolean.sleep_prep_active", Type: TypeBool, Default: false},
 	{Key: "isFreeEnergyAvailable", EntityID: "input_boolean.free_energy_available", Type: TypeBool, Default: false},
 	{Key: "isGridAvailable", EntityID: "input_boolean.grid_available", Type: TypeBool, Default: true},

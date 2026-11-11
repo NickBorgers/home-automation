@@ -110,6 +110,10 @@ type HAClient interface {
 	// ReloadConfigEntry reloads a Home Assistant config entry by its entry ID.
 	// Used to recover stale integrations (e.g., Bravia TV).
 	ReloadConfigEntry(ctx context.Context, entryID string) error
+	// GetCurrentUserID returns the ID of the Home Assistant user that owns the app's
+	// access token (auth/current_user). State changes the app causes carry this ID in
+	// their context, which lets a plugin tell the app's own changes from a person's.
+	GetCurrentUserID() (string, error)
 	// WaitForHandlers blocks until all in-flight event handler goroutines complete.
 	// Used in tests to replace time.Sleep-based synchronization with deterministic waiting.
 	WaitForHandlers()
@@ -848,6 +852,8 @@ func (c *Client) sendMessage(msg interface{}) (*Message, error) {
 	case *EntityRegistryListRequest:
 		m.ID = msgID
 	case *ConfigEntryReloadRequest:
+		m.ID = msgID
+	case *CurrentUserRequest:
 		m.ID = msgID
 	case *MQTTSubscribeRequest:
 		m.ID = msgID
@@ -1710,6 +1716,23 @@ func (c *Client) GetEntityRegistry() ([]*EntityRegistryEntry, error) {
 	}
 
 	return entities, nil
+}
+
+// GetCurrentUserID returns the ID of the Home Assistant user that owns the access token.
+func (c *Client) GetCurrentUserID() (string, error) {
+	resp, err := c.sendMessage(&CurrentUserRequest{Type: "auth/current_user"})
+	if err != nil {
+		return "", fmt.Errorf("failed to get current user: %w", err)
+	}
+
+	var user CurrentUser
+	if err := json.Unmarshal(resp.Result, &user); err != nil {
+		return "", fmt.Errorf("failed to unmarshal current user: %w", err)
+	}
+	if user.ID == "" {
+		return "", fmt.Errorf("current user has no id")
+	}
+	return user.ID, nil
 }
 
 // ReloadConfigEntry reloads a Home Assistant config entry by its entry ID.

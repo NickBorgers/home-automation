@@ -19,6 +19,10 @@ The pantry Picos light the way for someone who walks into the pantry. The kitche
 next room for someone who walks on through. `light.pantry_area` is the Hue zone of the pantry cans
 plus the hall light by the primary suite.
 
+The `kitchen` and `living` targets have `wakes_house: true`. An up-press that turns one of them on
+from off while someone is asleep sets `isEarlyWakeActive` (see [EARLY_WAKE.md](./EARLY_WAKE.md)). The
+pantry and back hall targets are night paths and never wake the house.
+
 The two Back Hall Picos step only the down light. `light.back_hall_top` (the up light) is not
 controlled yet. It is meant to join an accent group later.
 
@@ -44,6 +48,29 @@ Numbers come from `configs/pico_config.yaml` (`on_pct`, `step_pct`, `off_at_or_b
 
 From off, six up presses give 30, 45, 60, 75, 90, and 100%.
 From 100%, down presses give 85, 70, 55, 40, and 25%. The next press turns the lights off.
+
+## Path lights
+
+The Hallway Between Bedrooms Pico is the guest's Pico by their door. Its `path_lights` block lights
+the walk to the living room without waking the house.
+
+```mermaid
+flowchart TD
+    U[Up press stepped the back hall] --> A{isAnyoneHomeAndAwake?}
+    A -- yes --> S[Skip path lights]
+    A -- no --> L[For each path light that is off:<br/>turn_on brightness_pct 5, color_temp_kelvin 2200<br/>remember it]
+    L --> T[Restart the off_after timer, 15 min]
+    D[Down press turned the back hall off] --> O[Turn off the remembered path lights]
+    T -- elapsed --> O
+```
+
+- Path lights are `light.hue_color_downlight_1` and `light.hue_color_downlight_3`, the two north
+  living cans. Hue names both "Living Can NE"; one of them is really NW.
+- A light that was already on is never touched, and never turned off by the plugin.
+- A down press that only dims the back hall leaves the path lights on.
+- Path lights are the app's own commands, so they never set `isEarlyWakeActive`.
+- Without house state (no state manager) or in `READ_ONLY=true`, path lights and `wakes_house` do
+  nothing.
 
 ## Fast presses
 
@@ -87,3 +114,4 @@ scripts/loki-query.sh '{service="home-automation"} | json | logger="picos"' 1h
 ```
 
 `outputs.targets.<name>` shows the last press: levels before and after, the decision, and any error.
+`earlyWake` and `pathLights` show what the press did about early wake and path lights.

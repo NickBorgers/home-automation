@@ -1,0 +1,30 @@
+---
+# Early wake: the house wakes, the bedroom keeps sleeping.
+#
+# When someone turns on one of these lights by hand while someone is asleep
+# (isAnyoneAsleep), the earlywake plugin sets isEarlyWakeActive
+# (input_boolean.early_wake_active). That holds isAnyoneHomeAndAwake true while
+# isMasterAsleep stays true:
+#   - common-area lights follow their awake rules,
+#   - the morning music zone plays on the common speakers (any day phase),
+#   - deferable announcements play, but not on the bedroom speakers,
+#   - the Primary Suite lights and the Primary Bed rain sounds stay as they are.
+# A normal wake (isAnyoneAsleep true -> false) clears it.
+#
+# "By hand" means the Home Assistant context of the change has no parent_id
+# (not an automation) and a user_id that is not the app's own (from
+# auth/current_user). The Hue app, wall switches, HomeKit, voice and the HA
+# dashboard count. Lux control, scenes, Picos and path lights never do.
+#
+# The pantry is NOT listed: it is the night path to the bedroom and the nursery.
+# Kitchen and living Picos wake the house through pico_config.yaml
+# (wakes_house: true).
+wake_lights:
+  - light.living
+  - light.living_accent
+  - light.sitting
+  - light.sitting_chandelier
+  - light.kitchen_cans
+  - light.kitchen_main_lights
+  - light.breakfast_nook_island_can
+  - light.breakfast_nook_pantry_can

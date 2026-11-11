@@ -7,6 +7,7 @@ import (
 	pkgha "homeautomation/pkg/ha"
 	"homeautomation/pkg/plugin"
 	"homeautomation/pkg/shadowstate"
+	pkgstate "homeautomation/pkg/state"
 )
 
 func init() {
@@ -31,7 +32,12 @@ func createPlugin(ctx *plugin.Context) (plugin.Plugin, error) {
 		return nil, fmt.Errorf("load picos config: %w", err)
 	}
 
-	return &pluginAdapter{manager: NewManager(ctx.ShutdownCtx, haClient, cfg, ctx.Logger, ctx.ReadOnly)}, nil
+	manager := NewManager(ctx.ShutdownCtx, haClient, cfg, ctx.Logger, ctx.ReadOnly)
+	// House state turns on wakes_house and path_lights. Without it, Picos only step lights.
+	if sm := pkgstate.UnwrapManager(ctx.StateManager); sm != nil {
+		manager.SetStateManager(sm)
+	}
+	return &pluginAdapter{manager: manager}, nil
 }
 
 // pluginAdapter wraps Manager to satisfy plugin.Plugin.

@@ -56,6 +56,7 @@
 - ✅ Reset Coordinator (complete)
 - ✅ Integration Watchdog plugin (complete) - periodic entity-state scanning and config-entry reload
 - ✅ Picos plugin (complete) - Lutron Pico buttons step the brightness of light groups
+- ✅ Early Wake plugin (complete) - a manual living-space light turn-on while a bedroom sleeps wakes the common areas
 
 ### Critical Bug Fixes
 
@@ -617,7 +618,23 @@ passes one per call, since a property can have several systems. Look them up wit
 - **Down press**: lights at or below `off_at_or_below_pct` → off. Otherwise `-step_pct`
 - **Reference light**: the first light of a target decides the next level. The other lights follow it
 
+- **wakes_house** (target): an up-press that turns the target on from off while someone is asleep sets `isEarlyWakeActive`
+- **path_lights** (button): an up-press while the house is asleep turns on dim, warm path lights that are off; a down-press to off or `off_after` turns them off
+
 **Config File:** `configs/pico_config.yaml`. Behavior: [PICO_BUTTONS.md](../flows/PICO_BUTTONS.md)
+
+### 19. Early Wake Plugin ✅
+
+**Responsibilities:**
+- Learn the app's Home Assistant user (`auth/current_user`) at startup
+- Watch the wake lights; a manual off → on while `isAnyoneAsleep` sets `isEarlyWakeActive`
+- Clear `isEarlyWakeActive` on a normal wake (`isAnyoneAsleep` true → false)
+
+**Key Automations:**
+- **Manual detection**: the change's context has no `parent_id` and a `user_id` that is not the app's. No context, or an unknown app user, never counts
+- **Latch**: `isEarlyWakeActive` activates the wake sequence latch, so `isAnyoneHomeAndAwake` is true while `isMasterAsleep` stays true
+
+**Config File:** `configs/early_wake_config.yaml`. Behavior: [EARLY_WAKE.md](../flows/EARLY_WAKE.md)
 
 ---
 
@@ -718,7 +735,7 @@ The system includes a **ComputedStateRegistry** for managing derived state varia
 | `isAnyoneHome` | `isAnyOwnerHome OR isAssistantHere` (departure debounced 5 min) | isAnyOwnerHome, isAssistantHere |
 | `isAnyoneAsleep` | `isMasterAsleep OR isGuestAsleep` | isMasterAsleep, isGuestAsleep |
 | `isEveryoneAsleep` | `isMasterAsleep AND isGuestAsleep` | isMasterAsleep, isGuestAsleep |
-| `isAnyoneHomeAndAwake` | `(isAnyOwnerHome && !isAnyoneAsleep) \|\| isAssistantHere \|\| wakeSequenceLatch` | isAnyOwnerHome, isAnyoneAsleep, isAssistantHere, isWakeSequenceActive |
+| `isAnyoneHomeAndAwake` | `(isAnyOwnerHome && !isAnyoneAsleep) \|\| isAssistantHere \|\| wakeSequenceLatch` | isAnyOwnerHome, isAnyoneAsleep, isAssistantHere, isWakeSequenceActive, isEarlyWakeActive |
 | `solarProductionEnergyLevel` | Solar level from thresholds | thisHourSolarGeneration, remainingSolarGeneration |
 | `currentEnergyLevel` | Combined battery + solar level | batteryEnergyLevel, solarProductionEnergyLevel |
 
@@ -808,6 +825,7 @@ homeautomation-go/
 │       ├── reset/                   # ✅ Reset Coordinator
 │       ├── integrationwatchdog/     # ✅ Integration Watchdog plugin
 │       ├── picos/                   # ✅ Picos plugin (Lutron Pico buttons)
+│       ├── earlywake/               # ✅ Early Wake plugin (common areas wake while a bedroom sleeps)
 │       └── roompresence/            # ✅ Room presence from Frigate (see ROOM_PRESENCE.md)
 ├── test/
 │   └── integration/                 # ✅ Integration test suite

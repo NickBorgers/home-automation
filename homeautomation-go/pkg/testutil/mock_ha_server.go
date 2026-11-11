@@ -46,6 +46,9 @@ type MockHAServer struct {
 
 	configReloads   []ConfigEntryReload // Track config entry reloads for verification
 	configReloadsMu sync.Mutex          // Protects configReloads
+
+	currentUserID string // Returned by auth/current_user: the user that owns the app's token
+	userMu        sync.RWMutex
 }
 
 // ConfigEntryReload records a config_entries/reload request received by the mock.
@@ -61,6 +64,17 @@ type EntityState struct {
 	Attributes  map[string]interface{} `json:"attributes"`
 	LastChanged time.Time              `json:"last_changed"`
 	LastUpdated time.Time              `json:"last_updated"`
+	Context     *StateContext          `json:"context,omitempty"`
+}
+
+// StateContext is Home Assistant's record of what caused a state change.
+// UserID is set when a person or a token's user made the change. ParentID is
+// set when an automation or script made it. Both are empty for a change the
+// device reported by itself (a wall switch, the Hue app).
+type StateContext struct {
+	ID       string `json:"id"`
+	ParentID string `json:"parent_id,omitempty"`
+	UserID   string `json:"user_id,omitempty"`
 }
 
 // Message represents a WebSocket message
@@ -190,6 +204,20 @@ func (s *MockHAServer) Stop() error {
 
 // SetState sets a state and broadcasts change event
 func (s *MockHAServer) SetState(entityID, state string, attributes map[string]interface{}) {
+	s.SetStateWithContext(entityID, state, attributes, nil)
+}
+
+// SetCurrentUserID sets the user ID that auth/current_user returns. It stands
+// for the Home Assistant user that owns the app's access token.
+func (s *MockHAServer) SetCurrentUserID(userID string) {
+	s.userMu.Lock()
+	defer s.userMu.Unlock()
+	s.currentUserID = userID
+}
+
+// SetStateWithContext sets a state with the given change context and
+// broadcasts the change event. A nil context sends no context.
+func (s *MockHAServer) SetStateWithContext(entityID, state string, attributes map[string]interface{}, ctx *StateContext) {
 	s.statesMu.Lock()
 	oldState := s.states[entityID]
 
@@ -200,6 +228,7 @@ func (s *MockHAServer) SetState(entityID, state string, attributes map[string]in
 		Attributes:  attributes,
 		LastChanged: now,
 		LastUpdated: now,
+		Context:     ctx,
 	}
 
 	s.states[entityID] = newState
@@ -231,6 +260,7 @@ func (s *MockHAServer) InitializeStates() {
 		"fade_out_in_progress", "free_energy_available", "grid_available",
 		"expecting_someone", "reset", "lighting_reset", "music_reset",
 		"wake_sequence_active",          // Added for wake sequence user story tests
+		"early_wake_active",             // Common areas awake while a bedroom sleeps
 		"front_of_house_person_present", // Person detection at front of house
 	}
 
@@ -340,8 +370,34 @@ func (s *MockHAServer) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			s.handleRegistryList(wrapper, msg)
 		case "config_entries/reload":
 			s.handleConfigEntryReload(wrapper, msg)
+		case "auth/current_user":
+			s.handleCurrentUser(wrapper, msg)
 		}
 	}
+}
+
+// handleCurrentUser answers auth/current_user with the configured user ID.
+func (s *MockHAServer) handleCurrentUser(wrapper *connWrapper, msg json.RawMessage) {
+	var req struct {
+		ID int `json:"id"`
+	}
+	if err := json.Unmarshal(msg, &req); err != nil {
+		return
+	}
+	s.userMu.RLock()
+	userID := s.currentUserID
+	s.userMu.RUnlock()
+
+	result, _ := json.Marshal(map[string]interface{}{
+		"id":       userID,
+		"name":     "home-automation",
+		"is_owner": false,
+		"is_admin": true,
+	})
+	success := true
+	wrapper.writeMu.Lock()
+	wrapper.conn.WriteJSON(Message{ID: req.ID, Type: "result", Success: &success, Result: result})
+	wrapper.writeMu.Unlock()
 }
 
 // handleRegistryList handles config/entity_registry/list and config/device_registry/list requests.

@@ -89,6 +89,7 @@ func (m *mockHAClient) SubscribeMQTT(topic string, handler ha.MQTTHandler) (ha.S
 }
 func (m *mockHAClient) ReloadConfigEntry(ctx context.Context, entryID string) error { return nil }
 func (m *mockHAClient) WaitForHandlers()                                            {}
+func (m *mockHAClient) GetCurrentUserID() (string, error)                           { return "", nil }
 
 func (m *mockHAClient) GetState(entityID string) (*ha.State, error) {
 	if s, ok := m.states[entityID]; ok {
