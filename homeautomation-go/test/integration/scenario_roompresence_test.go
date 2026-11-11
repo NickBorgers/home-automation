@@ -184,8 +184,19 @@ func TestScenario_RoomPresence_KilledProcessKeepsUnseenTokens(t *testing.T) {
 	publishFrigate(t, server, "update", "p", "cam_lounge", []string{"lounge", "lounge_to_study"}, "lounge_to_study")
 	publishFrigate(t, server, "end", "p", "cam_lounge", []string{"lounge", "lounge_to_study"}, "lounge_to_study")
 	require.Eventually(t, func() bool { return mgr.Occupied("study") }, 5*time.Second, 10*time.Millisecond)
-	// Past the 10 s settle time, so the token is saved, then past token_store_max_age with no change.
-	time.Sleep(14 * time.Second)
+	// Wait for the initial settled save (storeSettle = 10 s), then for one periodic refresh
+	// (every max_age/3 = 1 s). Polling is used because the store state is directly observable.
+	var firstSave string
+	require.Eventually(t, func() bool {
+		s := server.GetState(store).State
+		if s != "" {
+			firstSave = s
+		}
+		return s != ""
+	}, 15*time.Second, 100*time.Millisecond, "waiting for token to settle and be saved")
+	require.Eventually(t, func() bool {
+		return server.GetState(store).State != firstSave
+	}, 5*time.Second, 100*time.Millisecond, "waiting for periodic store refresh")
 
 	t.Log("WHEN: the process is killed, so it never writes the store on stop, and starts again")
 	beforeKill := server.GetState(store).State

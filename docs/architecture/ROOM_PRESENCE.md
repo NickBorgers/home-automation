@@ -274,7 +274,8 @@ the tokens in unseen areas in an `input_text` helper, set by `token_store`:
   still count from the first arrival, and a bed sensor that is on adds no extra token.
 - It loads nothing when the copy is older than `token_store_max_age` (default 15 min). After a restart,
   clean or killed, the copy is at most 5 min old. Only a long outage leaves an older copy, and then the
-  plugin starts empty, as without a store.
+  plugin starts empty, as without a store. A token that arrived in the last 10 s before a kill is not in
+  the copy (see the settle rule above).
 - The value is `{"t":<saved, Unix s>,"k":[["<area>",<since, Unix s>],...]}`. An `input_text` holds at most 255
   characters, about 9 tokens. When more do not fit, the newest are left out.
 
