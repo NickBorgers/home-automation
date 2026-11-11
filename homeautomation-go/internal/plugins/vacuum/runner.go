@@ -513,6 +513,16 @@ func (s *Scheduler) startRun(now time.Time, p Plan) {
 			s.logger.Warn("Vacuum could not set the travel fan speed; the run starts at the treatment's fan speed",
 				zap.String("travel_fan_speed", fan.travel), zap.Error(err))
 			fan.lowerFailed = true
+			if err := s.withCommandTimeout(func(ctx context.Context) error {
+				return s.robot.SetPreset(ctx, preset.capability, preset.name)
+			}); err != nil {
+				s.startFailed(now, fmt.Errorf("set %s %q: %w", preset.capability, preset.name, err))
+				return
+			}
+			fanSet = preset.name
+			s.logger.Info("Vacuum treatment fan speed set after the travel fan speed failed",
+				zap.String("fan_speed", preset.name))
+			continue
 		}
 		if err := s.withCommandTimeout(func(ctx context.Context) error {
 			return s.robot.SetPreset(ctx, preset.capability, preset.name)
