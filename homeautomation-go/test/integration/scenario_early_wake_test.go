@@ -120,6 +120,11 @@ func setupEarlyWakeTest(t *testing.T) (*earlyWakeEnv, func()) {
 func requireStaysFalse(t *testing.T, manager *state.Manager, key, msg string) {
 	t.Helper()
 	waitForProcessing(t, manager)
+	// waitForProcessing waits for goroutines registered at call-time. The WebSocket
+	// event from SetStateWithContext may still be in transit on the mock server's
+	// goroutine, so the HA client's read loop may not have received it yet when
+	// WaitForHandlers returns. Sleep gives the client time to receive the event and
+	// start the handler goroutine before we check the result.
 	time.Sleep(200 * time.Millisecond)
 	got, err := manager.GetBool(key)
 	require.NoError(t, err)

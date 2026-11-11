@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"slices"
 	"sync"
 	"time"
 
@@ -259,6 +260,8 @@ func (m *Manager) step(button Button, target Target, direction string) {
 	}
 	if press.Error == "" && m.stateManager != nil {
 		if turnsOnFromOff && target.WakesHouse {
+			// wakeHouse is called with m.mu held. SetBool dispatches isEarlyWakeActive
+			// subscribers synchronously; ensure no subscriber acquires m.mu.
 			press.EarlyWake = m.wakeHouse(button, target)
 		}
 		if button.PathLights != nil {
@@ -409,7 +412,7 @@ func (m *Manager) lightPath(button Button) string {
 			continue
 		}
 		turnedOn = append(turnedOn, entityID)
-		if !contains(path.lights, entityID) {
+		if !slices.Contains(path.lights, entityID) {
 			path.lights = append(path.lights, entityID)
 		}
 	}
@@ -459,28 +462,21 @@ func (m *Manager) clearPath(deviceID, reason string) string {
 	path.gen++
 
 	var errs []error
+	var failed []string
 	for _, entityID := range path.lights {
 		if err := m.haClient.CallService(m.ctx, "light", "turn_off", map[string]interface{}{
 			"entity_id": entityID,
 		}); err != nil {
 			errs = append(errs, fmt.Errorf("turn_off %s: %w", entityID, err))
+			failed = append(failed, entityID)
 		}
 	}
 	lights := path.lights
-	path.lights = nil
+	path.lights = failed // nil when all succeeded; keeps failed lights so callers can retry
 	if err := errors.Join(errs...); err != nil {
 		m.logger.Error("Path lights turn_off failed", zap.String("reason", reason), zap.Error(err))
 		return fmt.Sprintf("turning off %v (%s) failed: %v", lights, reason, err)
 	}
 	m.logger.Info("Path lights off", zap.Strings("lights", lights), zap.String("reason", reason))
 	return fmt.Sprintf("turned off %v (%s)", lights, reason)
-}
-
-func contains(list []string, s string) bool {
-	for _, v := range list {
-		if v == s {
-			return true
-		}
-	}
-	return false
 }

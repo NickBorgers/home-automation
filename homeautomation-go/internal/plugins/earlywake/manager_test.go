@@ -173,7 +173,7 @@ func TestAnyoneAsleepFallingEdgeClearsEarlyWake(t *testing.T) {
 
 	require.NoError(t, r.sm.SetBool("isAnyoneAsleep", false))
 
-	assert.Eventually(t, func() bool { return !r.earlyWake() }, timeout, tick,
+	require.Eventually(t, func() bool { return !r.earlyWake() }, timeout, tick,
 		"a normal wake must clear early wake")
 	assert.False(t, r.m.GetShadowState().Outputs.LastClearedAt.IsZero())
 }
@@ -228,7 +228,7 @@ func TestMasterAsleepChange(t *testing.T) {
 			if tc.wantEarlyWake {
 				assert.True(t, r.earlyWake(), tc.why)
 			} else {
-				assert.Eventually(t, func() bool { return !r.earlyWake() }, timeout, tick, tc.why)
+				require.Eventually(t, func() bool { return !r.earlyWake() }, timeout, tick, tc.why)
 			}
 			assert.Equal(t, tc.wantCleared, !r.m.GetShadowState().Outputs.LastClearedAt.IsZero())
 			assert.True(t, mustBool(t, r.sm, "isAnyoneAsleep"),

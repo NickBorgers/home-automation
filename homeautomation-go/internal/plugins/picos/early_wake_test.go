@@ -137,7 +137,6 @@ func TestEarlyWake_PantryPicoDoesNotWakeHouse(t *testing.T) {
 	w.press(pantryDoorPico, "on")
 
 	w.requireTurnedOn(pantryZone, 30)
-	time.Sleep(50 * time.Millisecond)
 	assert.False(t, w.earlyWake(), "the pantry is the night path and must not wake the house")
 }
 
@@ -150,7 +149,6 @@ func TestEarlyWake_KitchenPicoWhileEveryoneAwakeDoesNothingExtra(t *testing.T) {
 	w.press(kitchenPico, "on")
 
 	w.requireTurnedOn(kitchenZone, 30)
-	time.Sleep(50 * time.Millisecond)
 	assert.False(t, w.earlyWake(), "early wake applies only while someone is asleep")
 }
 
@@ -162,7 +160,6 @@ func TestEarlyWake_KitchenPicoDownPressDoesNotWakeHouse(t *testing.T) {
 
 	w.press(kitchenPico, "off")
 
-	time.Sleep(50 * time.Millisecond)
 	assert.False(t, w.earlyWake(), "dimming is not a wake signal")
 }
 
@@ -180,7 +177,6 @@ func TestGuestPath_UpPressLightsNorthCansDimAndWarm(t *testing.T) {
 		assert.Equal(t, pathBrightness, call.Data["brightness_pct"], can)
 		assert.Equal(t, pathKelvin, call.Data["color_temp_kelvin"], can)
 	}
-	time.Sleep(50 * time.Millisecond)
 	assert.False(t, w.earlyWake(), "the guest path must never wake the house")
 }
 

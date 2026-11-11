@@ -249,7 +249,7 @@ func TestWakeSequenceLatch_ActivatesOnEarlyWakeRisingEdge(t *testing.T) {
 
 	mockClient.SimulateStateChange("input_boolean.early_wake_active", "on")
 
-	assert.Eventually(t, latch.IsActive, time.Second, 5*time.Millisecond,
+	require.Eventually(t, latch.IsActive, time.Second, 5*time.Millisecond,
 		"early wake rising edge must activate the latch")
 	assert.Equal(t, int32(1), atomic.LoadInt32(&callbackCount))
 	wakeSeq, err := manager.GetBool("isWakeSequenceActive")
@@ -303,7 +303,7 @@ func TestWakeSequenceLatch_EarlyWakeFallingEdge(t *testing.T) {
 			defer latch.Stop()
 
 			mockClient.SimulateStateChange("input_boolean.early_wake_active", "on")
-			assert.Eventually(t, latch.IsActive, time.Second, 5*time.Millisecond)
+			require.Eventually(t, latch.IsActive, time.Second, 5*time.Millisecond)
 			countAfterActivate := atomic.LoadInt32(&callbackCount)
 
 			mockClient.SimulateStateChange("input_boolean.early_wake_active", "off")
@@ -314,11 +314,11 @@ func TestWakeSequenceLatch_EarlyWakeFallingEdge(t *testing.T) {
 				assert.Equal(t, countAfterActivate, atomic.LoadInt32(&callbackCount))
 
 				mockClient.SimulateStateChange("input_boolean.anyone_asleep", "off")
-				assert.Eventually(t, func() bool { return !latch.IsActive() }, time.Second, 5*time.Millisecond,
+				require.Eventually(t, func() bool { return !latch.IsActive() }, time.Second, 5*time.Millisecond,
 					"isAnyoneAsleep true->false must still clear the latch")
 				return
 			}
-			assert.Eventually(t, func() bool { return !latch.IsActive() }, time.Second, 5*time.Millisecond, tc.why)
+			require.Eventually(t, func() bool { return !latch.IsActive() }, time.Second, 5*time.Millisecond, tc.why)
 			assert.Greater(t, atomic.LoadInt32(&callbackCount), countAfterActivate,
 				"clearing the latch must trigger a recompute")
 		})

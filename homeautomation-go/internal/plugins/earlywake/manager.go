@@ -69,7 +69,7 @@ func (m *Manager) GetShadowState() *shadowstate.EarlyWakeShadowState {
 // Start learns the app's user ID and subscribes to the wake lights, isAnyoneAsleep, and isMasterAsleep.
 //
 // If the app's user ID cannot be read, Start still succeeds. Detection then retries
-// the lookup on each light change and treats no change as manual until it succeeds,
+// the lookup on each light change and suppresses all detection until it succeeds,
 // because without the ID the app's own commands would look like a person's.
 func (m *Manager) Start() error {
 	m.subHelper = shadowstate.NewSubscriptionHelper(
@@ -110,6 +110,10 @@ func (m *Manager) Stop() {
 
 // lookupAppUserID returns the app's HA user ID, asking Home Assistant if it is not known yet.
 // It returns "" if Home Assistant cannot tell.
+//
+// userMu is held for the entire HA round-trip to serialise concurrent lookups.
+// This is safe: handlers run in separate goroutines from the HA event loop, so
+// the response message can be delivered while a handler is blocked here.
 func (m *Manager) lookupAppUserID() string {
 	m.userMu.Lock()
 	defer m.userMu.Unlock()
