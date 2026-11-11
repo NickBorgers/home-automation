@@ -107,10 +107,12 @@ type Scheduler struct {
 	warnings       map[string]string
 	warnedOnce     map[string]bool
 
-	// Quiet travel: whether travel_fan_speed was tried, and checked against the robot's fan presets, and why
-	// it is not valid.
-	travelFanTried   bool
+	// travelFanTried is set once the first tick has asked the robot for its fan presets. It keeps an
+	// unreachable robot from being asked on every poll; startRun asks again while travelFanChecked is false.
+	travelFanTried bool
+	// travelFanChecked is set once the robot answered and travel_fan_speed was checked against its list.
 	travelFanChecked bool
+	// travelFanProblem says why travel_fan_speed is not valid. "" when it is valid or not checked yet.
 	travelFanProblem string
 
 	eventsMu sync.Mutex

@@ -151,7 +151,9 @@ func (s *Scheduler) steerFan(r *run, st *valetudo.State, room string, posOK bool
 	}
 
 	if err := s.setFan(want); err != nil {
-		f.raiseFails++
+		if !f.gaveUp {
+			f.raiseFails++
+		}
 		switch {
 		case f.gaveUp:
 			s.logger.Debug("Vacuum still cannot set the treatment's fan speed", zap.String("fan_speed", want),
