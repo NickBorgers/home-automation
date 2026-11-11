@@ -148,6 +148,39 @@ func TestSegments(t *testing.T) {
 	assert.Equal(t, []valetudo.Segment{{ID: "20", Name: "Kitchen"}}, segs)
 }
 
+func TestPresets(t *testing.T) {
+	c := serveFixed(t, "/api/v2/robot/capabilities/FanSpeedControlCapability/presets",
+		`["low","medium","high","max"]`)
+	names, err := c.Presets(context.Background(), valetudo.CapabilityFanSpeed)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"low", "medium", "high", "max"}, names)
+
+	_, err = c.Presets(context.Background(), valetudo.CapabilityWaterUsage)
+	assert.ErrorContains(t, err, "HTTP 404")
+	_, err = c.Presets(context.Background(), "SpeakerVolumeControlCapability")
+	assert.ErrorContains(t, err, "unknown preset capability")
+
+	robot := valetudotest.New()
+	defer robot.Close()
+	robot.SetPresetList(valetudo.CapabilityFanSpeed, []string{"low", "max"})
+	names, err = valetudo.NewClient(robot.URL, nil).Presets(context.Background(), valetudo.CapabilityFanSpeed)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"low", "max"}, names)
+}
+
+func TestFakeFailsOnePresetName(t *testing.T) {
+	robot := valetudotest.New()
+	defer robot.Close()
+	c := valetudo.NewClient(robot.URL, nil)
+	ctx := context.Background()
+	robot.FailPreset(valetudo.CapabilityFanSpeed, "max", http.StatusBadRequest)
+	assert.ErrorContains(t, c.SetPreset(ctx, valetudo.CapabilityFanSpeed, "max"), "HTTP 400")
+	require.NoError(t, c.SetPreset(ctx, valetudo.CapabilityFanSpeed, "low"))
+	robot.FailPreset(valetudo.CapabilityFanSpeed, "max", 0)
+	require.NoError(t, c.SetPreset(ctx, valetudo.CapabilityFanSpeed, "max"))
+	require.Len(t, robot.Commands(), 2, "a failed command is not recorded")
+}
+
 func TestHTTPErrorsAreReported(t *testing.T) {
 	robot := valetudotest.New()
 	defer robot.Close()

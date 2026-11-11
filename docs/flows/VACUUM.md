@@ -104,7 +104,8 @@ The same plan must hold for `stable_for` (10 minutes) before it starts. Any chan
 plan's `startsAt` in shadow state shows when it will start.
 
 On start, the scheduler sets the treatment's presets (operation mode, fan speed, water grade) and then sends
-one segment clean with `customOrder: true`. If a preset fails, nothing starts and the wait begins again.
+one segment clean with `customOrder: true`. If a preset fails, nothing starts and the wait begins again. With
+quiet travel on, the fan is set to `travel_fan_speed` instead (see [Quiet travel](#quiet-travel)).
 
 In `log_only` mode, or when the app is read-only, it logs the run it would start and sends nothing. The plan
 then shows `wouldStartAt` in shadow state until the plan changes.
@@ -160,6 +161,52 @@ A run started by a Valetudo timer, the app or the button is tracked the same way
 `min_dwell`. The robot's operation mode decides what it clears: `vacuum_and_mop` clears both taints,
 `vacuum` clears the vacuum taint, and `mop` clears nothing. The scheduler never commands such a run.
 
+## Quiet travel
+
+The robot is loud when it drives between rooms at the cleaning fan speed. With `scheduler.travel_fan_speed`
+set, such as `low`, the fan stays at that level while the robot travels. It goes up to the treatment's
+`fan_speed` only while the robot is in the room it is cleaning now. The robot applies a fan change at once, in
+the middle of a segment clean.
+
+```mermaid
+stateDiagram-v2
+    [*] --> Travel: run starts (fan = travel_fan_speed)
+    Travel --> Cleaning: robot in the room it cleans now
+    Cleaning --> Travel: robot leaves it
+    Travel --> [*]: run ends (no fan restored)
+    Cleaning --> Travel: sent home, paused, mop wash or trip home
+    Cleaning --> Fallback: raise failed twice
+    Travel --> Fallback: raise failed twice
+    Fallback --> [*]: fan stays at the treatment level
+```
+
+- It applies only to runs the scheduler starts in `active` mode. Runs started elsewhere are never touched. In
+  `log_only` mode, or when the app is read-only, the "would start a run" log line names both fan speeds.
+- The room being cleaned now is the run's current room. The next room of the tour becomes current as soon as
+  the robot enters it. A later room of the tour, or any other room, keeps the fan low while the robot drives
+  through. A room the robot stays in for `min_dwell` counts as being cleaned, as in tracking, so its fan goes
+  up too.
+- The fan is low while the robot is not cleaning: leaving the dock, a mop wash, after the live-safety rules
+  sent it home or paused it, and the trip home at the end. After the run, no other fan level is restored. The
+  next run sets its own.
+- A fan command is sent only when the wanted level changes.
+- While the robot travels, the robot is polled every `travel_track_interval` (5 seconds) so the fan goes up
+  soon after it arrives. Otherwise `track_interval` applies. Every command still times out after 5 seconds.
+- If the position cannot be trusted while the robot cleans, the fan goes to the treatment's level. A room is
+  never cleaned at the travel level on purpose. Without a `valetudo` frame in the house map, quiet travel is
+  off.
+- If raising the fan fails, it is tried again on the next poll. If that fails too, the scheduler warns, stops
+  switching for the rest of the run, and keeps setting the treatment's level until the robot takes it.
+- If lowering the fan fails, the scheduler warns and the robot travels at the treatment's level. Cleaning goes
+  on. Lowering is tried again on the next leg. If setting the travel level fails at the start, the run starts
+  at the treatment's level.
+- At startup, `travel_fan_speed` is checked against the robot's fan presets
+  (`FanSpeedControlCapability/presets`; a Dreame L40 Ultra lists `low`, `medium`, `high`, `max`). A name the
+  robot does not list turns quiet travel off with a warning. If the robot cannot be asked, it is asked again
+  before the next run.
+- A treatment without `fan_speed`, or with the same one as `travel_fan_speed`, does not switch.
+- An empty `travel_fan_speed` turns quiet travel off. The run keeps the treatment's fan speed throughout.
+
 ## Live safety
 
 On every poll and on every occupancy or sleep change, the scheduler re-checks its own run.
@@ -200,9 +247,9 @@ memory, so shadow state shows what it would do.
 | `robot` | Status, battery, room, last poll, last error |
 | `items` | Every room and treatment: dirty, manual, last clean, score, cost, missing helpers |
 | `plan` | Latest plan, `noEnter`, `noClean`, `skipped` reasons, `pendingSince`, `startsAt`, `wouldStartAt` |
-| `run`, `lastRun` | Origin, targets, done rooms, current room, abort reason, paused, outcome |
+| `run`, `lastRun` | Origin, targets, done rooms, current room, abort reason, paused, outcome, `quietTravel` (fan switching on for the run), `fanSpeed` (fan preset the scheduler last set) |
 | `tripCost` | Learned trip cost |
-| `warnings` | Missing helpers, untrusted position, unreadable sleepers |
+| `warnings` | Missing helpers, untrusted position, unreadable sleepers, fan presets that failed or are not valid |
 
 ## Configuration
 

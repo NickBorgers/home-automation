@@ -24,6 +24,7 @@ type Robot interface {
 	Map(ctx context.Context) (*valetudo.Map, error)
 	CleanSegments(ctx context.Context, ids []string) error
 	SetPreset(ctx context.Context, capability, name string) error
+	Presets(ctx context.Context, capability string) ([]string, error)
 	Basic(ctx context.Context, action string) error
 }
 
@@ -105,6 +106,12 @@ type Scheduler struct {
 	expectOff      map[string]bool
 	warnings       map[string]string
 	warnedOnce     map[string]bool
+
+	// Quiet travel: whether travel_fan_speed was tried, and checked against the robot's fan presets, and why
+	// it is not valid.
+	travelFanTried   bool
+	travelFanChecked bool
+	travelFanProblem string
 
 	eventsMu sync.Mutex
 	events   []boolEvent
@@ -259,9 +266,18 @@ func (s *Scheduler) Stop() {
 
 func (s *Scheduler) loop() {
 	defer s.wg.Done()
-	ticker := time.NewTicker(s.cfg.TrackInterval)
+	interval := s.cfg.TrackInterval
+	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
+	// Quiet travel polls faster while the robot drives between rooms.
+	retime := func() {
+		if d := s.currentPollInterval(); d != interval {
+			interval = d
+			ticker.Reset(d)
+		}
+	}
 	s.tick(true)
+	retime()
 	for {
 		select {
 		case <-s.stopCh:
@@ -273,6 +289,7 @@ func (s *Scheduler) loop() {
 		case <-s.wake:
 			s.tick(true)
 		}
+		retime()
 	}
 }
 
@@ -297,6 +314,10 @@ func (s *Scheduler) tick(woke bool) {
 	defer s.forgetClearedWarnings()
 
 	s.processEvents()
+	if !s.travelFanTried {
+		s.travelFanTried = true
+		s.checkTravelFan()
+	}
 	st, err := s.robot.State(s.ctx)
 	if err != nil {
 		s.robotErr = err.Error()
@@ -307,6 +328,7 @@ func (s *Scheduler) tick(woke bool) {
 			s.checkSafety(s.robotState, "", false)
 		}
 		s.evaluateTaints(now)
+		s.fanWarnings()
 		s.publish(now)
 		return
 	}
@@ -321,6 +343,7 @@ func (s *Scheduler) tick(woke bool) {
 	if s.run == nil && (woke || s.pendingKey != "" || now.Sub(s.lastPlanAt) >= s.cfg.ReplanInterval) {
 		s.replan(now)
 	}
+	s.fanWarnings()
 	s.publish(now)
 }
 
@@ -450,16 +473,26 @@ func (s *Scheduler) replan(now time.Time) {
 
 // startRun sets the treatment's presets and starts a segment clean. In log_only mode or read-only, it only
 // logs the run it would start.
+//
+// With quiet travel, the run starts at travel_fan_speed instead of the treatment's fan speed. If that preset
+// fails, the run starts at the treatment's fan speed as before.
 func (s *Scheduler) startRun(now time.Time, p Plan) {
+	tc := s.cfg.Treatments[p.Treatment]
 	if s.cfg.Mode != ModeActive || s.readOnly {
 		s.loggedWould, s.wouldAt, s.pendingKey = p.Key(), now, ""
-		s.logger.Info("Vacuum would start a run", zap.String("mode", s.cfg.Mode),
+		fields := []zap.Field{zap.String("mode", s.cfg.Mode),
 			zap.Bool("read_only", s.readOnly), zap.String("treatment", string(p.Treatment)),
 			zap.Strings("rooms", p.Rooms), zap.Strings("segments", p.Segments),
-			zap.Float64("cost", p.Cost), zap.Float64("budget", p.Budget))
+			zap.Float64("cost", p.Cost), zap.Float64("budget", p.Budget)}
+		if fan := s.quietFanFor(tc); fan != nil {
+			fields = append(fields, zap.String("travel_fan_speed", fan.travel), zap.String("room_fan_speed", fan.treat))
+		}
+		s.logger.Info("Vacuum would start a run", fields...)
 		return
 	}
-	tc := s.cfg.Treatments[p.Treatment]
+	s.checkTravelFan()
+	fan := s.quietFanFor(tc)
+	fanSet := ""
 	for _, preset := range []struct{ capability, name string }{
 		{valetudo.CapabilityOperationMode, tc.OperationMode},
 		{valetudo.CapabilityFanSpeed, tc.FanSpeed},
@@ -468,11 +501,25 @@ func (s *Scheduler) startRun(now time.Time, p Plan) {
 		if preset.name == "" {
 			continue
 		}
+		isFan := preset.capability == valetudo.CapabilityFanSpeed
+		if isFan && fan != nil {
+			err := s.setFan(fan.travel)
+			if err == nil {
+				fanSet = fan.travel
+				continue
+			}
+			s.logger.Warn("Vacuum could not set the travel fan speed; the run starts at the treatment's fan speed",
+				zap.String("travel_fan_speed", fan.travel), zap.Error(err))
+			fan.lowerFailed = true
+		}
 		if err := s.withCommandTimeout(func(ctx context.Context) error {
 			return s.robot.SetPreset(ctx, preset.capability, preset.name)
 		}); err != nil {
 			s.startFailed(now, fmt.Errorf("set %s %q: %w", preset.capability, preset.name, err))
 			return
+		}
+		if isFan {
+			fanSet = preset.name
 		}
 	}
 	if err := s.withCommandTimeout(func(ctx context.Context) error {
@@ -485,6 +532,7 @@ func (s *Scheduler) startRun(now time.Time, p Plan) {
 		zap.Strings("rooms", p.Rooms), zap.Strings("segments", p.Segments),
 		zap.Float64("cost", p.Cost), zap.Float64("budget", p.Budget))
 	s.run = newRun(originScheduler, p.Treatment, p.Rooms, now, s.robotState)
+	s.run.fan, s.run.fanSpeed = fan, fanSet
 	s.pendingKey = ""
 }
 
@@ -530,6 +578,11 @@ type run struct {
 	homeSent    bool
 	endedAt     time.Time
 	outcome     string
+
+	// fan is quiet travel for this run; nil when it does not apply. fanSpeed is the fan preset the scheduler
+	// last set.
+	fan      *quietFan
+	fanSpeed string
 }
 
 func newRun(origin string, t Treatment, targets []string, now time.Time, st *valetudo.State) *run {
@@ -635,6 +688,7 @@ func (s *Scheduler) trackRun(now time.Time, st *valetudo.State) {
 	}
 	if r.origin == originScheduler {
 		s.checkSafety(st, room, posOK)
+		s.steerFan(r, st, room, posOK)
 	}
 }
 
@@ -993,6 +1047,7 @@ func runView(r *run) *shadowstate.VacuumRun {
 		Done: append([]string{}, r.done...), Current: r.current, StartedAt: r.startedAt, Outcome: r.outcome,
 		StartBattery: r.startBattery, Battery: r.lastBattery, Aborted: r.aborted, AbortReason: r.abortReason,
 		Paused: r.paused, PositionAvailable: r.positionSeen,
+		QuietTravel: r.fan != nil && !r.fan.gaveUp, FanSpeed: r.fanSpeed,
 	}
 	if !r.endedAt.IsZero() {
 		e := r.endedAt

@@ -1324,6 +1324,11 @@ type VacuumRun struct {
 	AbortReason       string `json:"abortReason,omitempty"`
 	Paused            bool   `json:"paused"`
 	PositionAvailable bool   `json:"positionAvailable"`
+	// QuietTravel is true while the scheduler switches the fan for this run: the travel fan speed between
+	// rooms, the treatment's fan speed in the room being cleaned. It turns false when switching stopped.
+	QuietTravel bool `json:"quietTravel"`
+	// FanSpeed is the fan preset the scheduler last set for this run. "" when it set none.
+	FanSpeed string `json:"fanSpeed,omitempty"`
 }
 
 // ============================================================================

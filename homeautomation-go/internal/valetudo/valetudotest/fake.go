@@ -30,7 +30,8 @@ type Robot struct {
 	pixelSize float64
 	robot     *[2]float64
 	charger   *[2]float64
-	segments  map[string]string // id -> name
+	segments  map[string]string   // id -> name
+	presetSet map[string][]string // capability -> preset names its presets endpoint lists
 	commands  []Command
 	fail      map[string]int // path -> HTTP status to answer with
 }
@@ -44,6 +45,7 @@ func New() *Robot {
 		presets:   map[string]string{},
 		pixelSize: 5,
 		segments:  map[string]string{},
+		presetSet: map[string][]string{},
 		fail:      map[string]int{},
 	}
 	r.Server = httptest.NewServer(http.HandlerFunc(r.serve))
@@ -103,6 +105,14 @@ func (r *Robot) SetChargerPixel(x, y float64) {
 	r.charger = &[2]float64{x * r.pixelSize, y * r.pixelSize}
 }
 
+// SetPresetList sets what GET /api/v2/robot/capabilities/<capability>/presets lists, such as
+// FanSpeedControlCapability and ["low", "medium", "high", "max"]. A capability without a list answers 404.
+func (r *Robot) SetPresetList(capability string, names []string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.presetSet[capability] = append([]string(nil), names...)
+}
+
 // AddSegment adds a segment layer.
 func (r *Robot) AddSegment(id, name string) {
 	r.mu.Lock()
@@ -119,6 +129,19 @@ func (r *Robot) Fail(path string, status int) {
 		return
 	}
 	r.fail[path] = status
+}
+
+// FailPreset makes a PUT that selects one preset name of a capability, such as FanSpeedControlCapability and
+// "medium", answer with an HTTP status. Other names still work. 0 stops failing.
+func (r *Robot) FailPreset(capability, name string, status int) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	key := "/api/v2/robot/capabilities/" + capability + "/preset\x00" + name
+	if status == 0 {
+		delete(r.fail, key)
+		return
+	}
+	r.fail[key] = status
 }
 
 // Commands returns a copy of the commands received so far.
@@ -178,12 +201,27 @@ func (r *Robot) serve(w http.ResponseWriter, req *http.Request) {
 			segs = append(segs, map[string]string{"__class": "ValetudoMapSegment", "id": id, "name": name})
 		}
 		writeJSON(w, segs)
+	case req.Method == http.MethodGet && strings.HasPrefix(req.URL.Path, "/api/v2/robot/capabilities/") &&
+		strings.HasSuffix(req.URL.Path, "/presets"):
+		capability := strings.TrimSuffix(strings.TrimPrefix(req.URL.Path, "/api/v2/robot/capabilities/"), "/presets")
+		names, ok := r.presetSet[capability]
+		if !ok {
+			http.NotFound(w, req)
+			return
+		}
+		writeJSON(w, names)
 	case req.Method == http.MethodPut && strings.HasPrefix(req.URL.Path, "/api/v2/robot/capabilities/"):
 		data, _ := io.ReadAll(req.Body)
 		var body map[string]any
 		if err := json.Unmarshal(data, &body); err != nil {
 			http.Error(w, "bad json", http.StatusBadRequest)
 			return
+		}
+		if name, ok := body["name"].(string); ok {
+			if code, bad := r.fail[req.URL.Path+"\x00"+name]; bad {
+				http.Error(w, "fake failure", code)
+				return
+			}
 		}
 		r.commands = append(r.commands, Command{Path: req.URL.Path, Body: body})
 		r.apply(req.URL.Path, body)

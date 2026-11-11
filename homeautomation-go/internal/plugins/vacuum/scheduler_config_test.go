@@ -44,6 +44,8 @@ vacuum:
 	assert.Equal(t, 10*time.Minute, sc.StableFor)
 	assert.Equal(t, 30*time.Second, sc.TrackInterval)
 	assert.Equal(t, 2*time.Minute, sc.MinDwell)
+	assert.Equal(t, "", sc.TravelFanSpeed, "quiet travel is off unless set")
+	assert.Equal(t, 5*time.Second, sc.TravelTrackInterval)
 	assert.Equal(t, "vacuum_and_mop", sc.Treatments[TreatmentFull].OperationMode)
 	assert.Equal(t, "vacuum", sc.Treatments[TreatmentVacuum].OperationMode)
 	assert.Equal(t, 48*time.Hour, sc.Rooms["kitchen"].Full)
@@ -79,6 +81,8 @@ func TestSchedulerConfigProblemsDoNotFailLoad(t *testing.T) {
 		{"negative trip", base + room + "    battery: {default_trip_cost: -1}\n", "default_trip_cost"},
 		{"unknown treatment", base + room + "    treatments: {mop: {}}\n", "unknown treatment"},
 		{"bad duration", base + "    stable_for: soon\n" + room, "stable_for"},
+		{"bad travel interval", base + "    travel_track_interval: 0s\n" + room, "travel_track_interval"},
+		{"spaced travel fan", base + "    travel_fan_speed: \" low\"\n" + room, "travel_fan_speed"},
 		{"no segment", base + "    rooms:\n      kitchen: {full: 48h}\n", "segment_id"},
 		{"no full", base + "    rooms:\n      kitchen: {segment_id: \"3\"}\n", "full interval is required"},
 		{"bad vacuum", base + "    rooms:\n      kitchen: {segment_id: \"3\", full: 1h, vacuum: -1h}\n", "positive"},
@@ -98,6 +102,23 @@ func TestSchedulerConfigProblemsDoNotFailLoad(t *testing.T) {
 	}
 }
 
+func TestSchedulerConfigQuietTravel(t *testing.T) {
+	cfg := loadConfigText(t, `
+vacuum:
+  scheduler:
+    mode: active
+    valetudo_url: http://robot.example
+    travel_fan_speed: low
+    travel_track_interval: 3s
+    rooms:
+      kitchen: {segment_id: "3", full: 48h}
+`)
+	sc := cfg.Vacuum.Scheduler
+	require.NoError(t, sc.Err)
+	assert.Equal(t, "low", sc.TravelFanSpeed)
+	assert.Equal(t, 3*time.Second, sc.TravelTrackInterval)
+}
+
 func TestSchedulerConfigOffSkipsRuntimeChecks(t *testing.T) {
 	cfg := loadConfigText(t, "vacuum:\n  scheduler:\n    mode: \"off\"\n")
 	assert.NoError(t, cfg.Vacuum.Scheduler.Err, "off needs no URL and no rooms")
@@ -112,5 +133,7 @@ func TestPublicExampleConfigLoads(t *testing.T) {
 	assert.Equal(t, 70.0, sc.Battery.StartMinPercent())
 	assert.Equal(t, 30.0, sc.Battery.FloorPercent())
 	assert.Equal(t, "vacuum_and_mop", sc.Treatments[TreatmentFull].OperationMode)
+	assert.Equal(t, "low", sc.TravelFanSpeed)
+	assert.Equal(t, 5*time.Second, sc.TravelTrackInterval)
 	assert.NotEmpty(t, sc.Rooms)
 }

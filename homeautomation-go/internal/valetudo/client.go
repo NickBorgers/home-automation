@@ -231,15 +231,35 @@ func (c *Client) CleanSegments(ctx context.Context, ids []string) error {
 
 // SetPreset selects a preset of a preset capability, such as CapabilityFanSpeed and "medium".
 func (c *Client) SetPreset(ctx context.Context, capability, name string) error {
-	switch capability {
-	case CapabilityFanSpeed, CapabilityWaterUsage, CapabilityOperationMode:
-	default:
-		return fmt.Errorf("unknown preset capability %q", capability)
+	if err := checkPresetCapability(capability); err != nil {
+		return err
 	}
 	if name == "" {
 		return fmt.Errorf("%s: empty preset name", capability)
 	}
 	return c.put(ctx, "/api/v2/robot/capabilities/"+capability+"/preset", map[string]string{"name": name})
+}
+
+// Presets lists the preset names of a preset capability, such as CapabilityFanSpeed. It reads
+// GET /api/v2/robot/capabilities/<capability>/presets; a Dreame L40 Ultra lists low, medium, high and max.
+func (c *Client) Presets(ctx context.Context, capability string) ([]string, error) {
+	if err := checkPresetCapability(capability); err != nil {
+		return nil, err
+	}
+	var names []string
+	if err := c.get(ctx, "/api/v2/robot/capabilities/"+capability+"/presets", &names); err != nil {
+		return nil, err
+	}
+	return names, nil
+}
+
+func checkPresetCapability(capability string) error {
+	switch capability {
+	case CapabilityFanSpeed, CapabilityWaterUsage, CapabilityOperationMode:
+		return nil
+	default:
+		return fmt.Errorf("unknown preset capability %q", capability)
+	}
 }
 
 // Basic sends a BasicControlCapability action: start, stop, pause or home.
