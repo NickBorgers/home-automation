@@ -263,13 +263,18 @@ A restart, such as an image update, starts the tracker with no tokens. Cameras f
 again. Nothing finds a person in an unseen area, such as a bedroom, until they walk out. So the plugin can keep
 the tokens in unseen areas in an `input_text` helper, set by `token_store`:
 
-- It writes the helper when an unseen token arrives, moves or goes away, and once more when the plugin stops.
-  It writes in `log_only` mode too, because nothing but the plugin reads the helper. It never writes in
+- It writes the helper when the unseen tokens change, and once more when the plugin stops. A token counts
+  only after it has stayed 10 s in its area. Frigate often loses a person in a doorway zone and finds them a
+  second later, which moves a token through the doorway and back. Those moves do not write the helper.
+- While any unseen token is kept, it also writes every third of `token_store_max_age` (every 5 min by
+  default). This keeps the save time fresh when nothing changes for hours, such as people asleep.
+- It writes in `log_only` mode too, because nothing but the plugin reads the helper. It never writes in
   read-only mode.
 - At startup, before it reads any camera, it loads the tokens back with their first arrival time. So idle limits
   still count from the first arrival, and a bed sensor that is on adds no extra token.
-- It loads nothing when the copy is older than `token_store_max_age` (default 15 min). The stop write makes a
-  clean restart's copy fresh. A crash leaves an older copy, and the plugin starts empty, as without a store.
+- It loads nothing when the copy is older than `token_store_max_age` (default 15 min). After a restart,
+  clean or killed, the copy is at most 5 min old. Only a long outage leaves an older copy, and then the
+  plugin starts empty, as without a store.
 - The value is `{"t":<saved, Unix s>,"k":[["<area>",<since, Unix s>],...]}`. An `input_text` holds at most 255
   characters, about 9 tokens. When more do not fit, the newest are left out.
 

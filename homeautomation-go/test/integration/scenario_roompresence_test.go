@@ -157,3 +157,48 @@ func TestScenario_RoomPresence_RestartKeepsUnseenTokens(t *testing.T) {
 	require.Len(t, toks, 1)
 	assert.Equal(t, "study", toks[0].Area)
 }
+
+// GIVEN a person has been in the study for a while, so the token store has not changed lately
+// WHEN the plugin is killed without a clean stop, and starts again
+// THEN the study is still occupied, because the plugin kept the store's save time fresh
+func TestScenario_RoomPresence_KilledProcessKeepsUnseenTokens(t *testing.T) {
+	server, client, stateMgr, baseCleanup := setupTest(t)
+	defer baseCleanup()
+	const store = "input_text.room_presence_tokens"
+	server.SetState(store, "", map[string]interface{}{})
+
+	cfg, err := roompresence.LoadConfig(filepath.Join("..", "..", "internal", "plugins", "roompresence",
+		"testdata", "example_config.yaml"))
+	require.NoError(t, err)
+	cfg.TokenStore = store
+	cfg.TokenStoreMaxAge = 3 * time.Second // stands in for 15 min; the save time refreshes every 1 s
+	start := func() *roompresence.Manager {
+		mgr := roompresence.NewManager(context.Background(), client, stateMgr, cfg, "", testlogger.New(), false, nil)
+		require.NoError(t, mgr.Start())
+		return mgr
+	}
+
+	t.Log("GIVEN: a person walked into the study, and nothing changed for longer than token_store_max_age")
+	mgr := start()
+	require.Eventually(t, func() bool { return server.MQTTSubscriptionCount() == 2 }, 5*time.Second, 10*time.Millisecond)
+	publishFrigate(t, server, "update", "p", "cam_lounge", []string{"lounge", "lounge_to_study"}, "lounge_to_study")
+	publishFrigate(t, server, "end", "p", "cam_lounge", []string{"lounge", "lounge_to_study"}, "lounge_to_study")
+	require.Eventually(t, func() bool { return mgr.Occupied("study") }, 5*time.Second, 10*time.Millisecond)
+	// Past the 10 s settle time, so the token is saved, then past token_store_max_age with no change.
+	time.Sleep(14 * time.Second)
+
+	t.Log("WHEN: the process is killed, so it never writes the store on stop, and starts again")
+	beforeKill := server.GetState(store).State
+	mgr.Stop()
+	server.SetState(store, beforeKill, map[string]interface{}{}) // undo the stop save: a kill makes none
+	require.Eventually(t, func() bool {
+		s, err := client.GetState(store)
+		return err == nil && s.State == beforeKill
+	}, 5*time.Second, 10*time.Millisecond)
+	mgr = start()
+	defer mgr.Stop()
+
+	t.Log("THEN: the study token is back")
+	require.Eventually(t, func() bool { return mgr.Occupied("study") }, 5*time.Second, 10*time.Millisecond,
+		"a killed process must not forget the person in the study")
+}

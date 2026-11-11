@@ -93,6 +93,13 @@ func TestManager_TokenStoreWrittenInLogOnly(t *testing.T) {
 	mockHA.SimulateMQTT(eventsTopic, frigateEvent(t, "end", "p", "cam_lounge",
 		[]string{"lounge", "lounge_to_study"}, "lounge_to_study"))
 	require.True(t, m.Occupied("study"))
+	for _, c := range mockHA.GetServiceCalls() {
+		assert.NotContains(t, c.Data["value"], "study", "a token that just arrived is not saved yet")
+	}
+
+	clock := t0.Add(time.Minute) // past the settle time
+	m.now = func() time.Time { return clock }
+	m.apply(func(tr *Tracker, now time.Time) { tr.Tick(now) })
 
 	var last string
 	for _, c := range mockHA.GetServiceCalls() {
@@ -153,4 +160,32 @@ func TestManager_TokenStoreSavedOnStop(t *testing.T) {
 	_, kept, err := decodeTokens(v)
 	require.NoError(t, err)
 	assert.Empty(t, kept)
+}
+
+func TestManager_StoreTokensSettleAndRefresh(t *testing.T) {
+	m, mockHA, _ := newTestManager(t, storeConfig(t), false)
+	m.storeTokens(t0, nil, false) // the first save writes the empty list
+	base := len(mockHA.GetServiceCalls())
+	writes := func() int { return len(mockHA.GetServiceCalls()) - base }
+	kept := []KeptToken{{Area: "study", Since: t0}}
+
+	m.storeTokens(t0.Add(2*time.Second), kept, false)
+	assert.Equal(t, 0, writes(), "a token that arrived 2 s ago may be a doorway flicker")
+
+	m.storeTokens(t0.Add(storeSettle), kept, false)
+	assert.Equal(t, 1, writes(), "settled: saved")
+
+	m.storeTokens(t0.Add(storeSettle+time.Minute), kept, false)
+	assert.Equal(t, 1, writes(), "unchanged and not yet due")
+
+	m.storeTokens(t0.Add(storeSettle+5*time.Minute), kept, false)
+	assert.Equal(t, 2, writes(), "every max_age/3 the save time is refreshed")
+
+	m.storeTokens(t0.Add(time.Hour), nil, false)
+	assert.Equal(t, 3, writes(), "the person left: saved as empty")
+	m.storeTokens(t0.Add(2*time.Hour), nil, false)
+	assert.Equal(t, 3, writes(), "an empty store needs no refresh")
+
+	m.storeTokens(t0.Add(2*time.Hour), []KeptToken{{Area: "study", Since: t0.Add(2 * time.Hour)}}, true)
+	assert.Equal(t, 4, writes(), "the stop save keeps even a token that just arrived")
 }

@@ -12,6 +12,11 @@ import (
 // maxStoreLen is the longest value an input_text helper can hold.
 const maxStoreLen = 255
 
+// storeSettle is how long a token must stay in an unseen area before a change saves it. Frigate often
+// loses a person who stands in a doorway zone and finds them again a second later, which moves a token
+// through the doorway and back. Without this, each of those writes the helper twice.
+const storeSettle = 10 * time.Second
+
 // storedTokens is the token store's JSON. Times are Unix seconds, to fit more tokens in 255 characters:
 // {"t":1793440000,"k":[["bedroom",1793430100]]}
 type storedTokens struct {
@@ -100,18 +105,24 @@ func (m *Manager) restoreTokens() {
 	m.logger.Info("Restored room presence tokens", zap.Int("tokens", n), zap.Time("saved_at", savedAt))
 }
 
-// storeTokens writes the unseen tokens to the token store when they changed since the last write, or
-// always when force is set. It writes in every mode, because nothing but this plugin reads the store,
-// and never in read-only mode. The caller holds applyMu.
+// storeTokens writes the unseen tokens to the token store. It writes when the settled tokens changed
+// since the last write, every third of token_store_max_age while any are kept, and always when force is
+// set. The regular write keeps the save time fresh, so the copy still loads after the process is killed
+// without a clean stop. It writes in every mode, because nothing but this plugin reads the store, and
+// never in read-only mode. The caller holds applyMu.
 func (m *Manager) storeTokens(now time.Time, kept []KeptToken, force bool) {
 	if m.cfg.TokenStore == "" || m.readOnly {
 		return
+	}
+	if !force {
+		kept = settled(now, kept)
 	}
 	key, _, err := encodeTokens(time.Unix(0, 0), kept) // the tokens alone, to see if they changed
 	if err != nil {
 		return
 	}
-	if !force && m.storedKey == key {
+	due := len(kept) > 0 && now.Sub(m.storedAt) >= m.cfg.TokenStoreMaxAge/3
+	if !force && !due && m.storedKey == key {
 		return
 	}
 	value, dropped, err := encodeTokens(now, kept)
@@ -128,4 +139,16 @@ func (m *Manager) storeTokens(now time.Time, kept []KeptToken, force bool) {
 		return // try again on the next change
 	}
 	m.storedKey = key
+	m.storedAt = now
+}
+
+// settled leaves out tokens that arrived in their area less than storeSettle ago.
+func settled(now time.Time, kept []KeptToken) []KeptToken {
+	var out []KeptToken
+	for _, k := range kept {
+		if now.Sub(k.Since) >= storeSettle {
+			out = append(out, k)
+		}
+	}
+	return out
 }
