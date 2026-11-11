@@ -120,6 +120,7 @@ type IntegrationWatchdogShadowState = ShadowState[ReadOnlyInputs, IntegrationWat
 type TeslaShadowState = ShadowState[ReadOnlyInputs, TeslaOutputs]
 type PicosShadowState = ShadowState[ReadOnlyInputs, PicosOutputs]
 type RoomPresenceShadowState = ShadowState[ReadOnlyInputs, RoomPresenceOutputs]
+type EarlyWakeShadowState = ShadowState[ActionInputs, EarlyWakeOutputs]
 
 // SystemInputs is used by cmd/app/run.go for system plugin shadow state.
 type SystemInputs = ReadOnlyInputs
@@ -321,6 +322,11 @@ func NewPicosShadowState() *PicosShadowState {
 	return newReadOnlyShadowState("picos", PicosOutputs{
 		Targets: make(map[string]PicoTargetState),
 	})
+}
+
+// NewEarlyWakeShadowState creates a new early wake shadow state.
+func NewEarlyWakeShadowState() *EarlyWakeShadowState {
+	return newActionShadowState("earlywake", EarlyWakeOutputs{})
 }
 
 // NewRoomPresenceShadowState creates a new room presence shadow state.
@@ -1464,6 +1470,51 @@ type PicoTargetState struct {
 	Decision    string    `json:"decision"`
 	ReadOnly    bool      `json:"readOnly,omitempty"`
 	Error       string    `json:"error,omitempty"`
+
+	// EarlyWake says whether this press started an early wake, and why not if it could have.
+	EarlyWake string `json:"earlyWake,omitempty"`
+	// PathLights says what this press did to the button's path lights.
+	PathLights string `json:"pathLights,omitempty"`
+}
+
+// ============================================================================
+// Early Wake Plugin Output Types
+// ============================================================================
+
+// EarlyWakeOutputs tracks what the early wake detector saw and did.
+type EarlyWakeOutputs struct {
+	// AppUserID is the Home Assistant user that owns the app's token. Light changes
+	// that carry it are the app's own and never count as a wake.
+	AppUserID string `json:"appUserId"`
+
+	// WakeLights are the lights whose manual turn-on wakes the house.
+	WakeLights []string `json:"wakeLights"`
+
+	// LastLightChange is the last wake light change the detector judged.
+	LastLightChange *EarlyWakeLightChange `json:"lastLightChange,omitempty"`
+
+	// LastActivatedAt is when the detector last turned isEarlyWakeActive on.
+	LastActivatedAt time.Time `json:"lastActivatedAt,omitempty"`
+	// LastActivatedBy is the light that did it.
+	LastActivatedBy string `json:"lastActivatedBy,omitempty"`
+
+	// LastClearedAt is when a normal wake last cleared isEarlyWakeActive.
+	LastClearedAt time.Time `json:"lastClearedAt,omitempty"`
+
+	ReadOnly bool `json:"readOnly,omitempty"`
+}
+
+// EarlyWakeLightChange is one wake light change and the detector's verdict.
+type EarlyWakeLightChange struct {
+	At            time.Time `json:"at"`
+	EntityID      string    `json:"entityId"`
+	OldState      string    `json:"oldState"`
+	NewState      string    `json:"newState"`
+	ContextUserID string    `json:"contextUserId,omitempty"`
+	ContextParent string    `json:"contextParentId,omitempty"`
+	Manual        bool      `json:"manual"`
+	Decision      string    `json:"decision"`
+	Error         string    `json:"error,omitempty"`
 }
 
 // ============================================================================

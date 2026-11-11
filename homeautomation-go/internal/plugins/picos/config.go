@@ -7,8 +7,16 @@ package picos
 import (
 	"fmt"
 	"os"
+	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
+)
+
+// Limits for path lights.
+const (
+	minPathKelvin = 1000
+	maxPathKelvin = 10000
 )
 
 // Defaults for the step behavior.
@@ -53,6 +61,10 @@ type Target struct {
 	// Lights are light entity IDs. The first light is the reference: its brightness decides the
 	// next level, and every other light is set to that level.
 	Lights []string `yaml:"lights"`
+
+	// WakesHouse marks a main-living-space target. An up-press that turns it on from off while
+	// someone is asleep sets isEarlyWakeActive: the person pressing is up for the day.
+	WakesHouse bool `yaml:"wakes_house"`
 }
 
 // Button is one Pico device.
@@ -65,6 +77,29 @@ type Button struct {
 
 	// Target is the name of the target this Pico steps.
 	Target string `yaml:"target"`
+
+	// PathLights, if set, light a dim night path on an up-press while the house is asleep.
+	PathLights *PathLights `yaml:"path_lights"`
+}
+
+// PathLights are extra lights a Pico turns on, dim and warm, for a walk through a sleeping house.
+//
+// On an up-press while isAnyoneHomeAndAwake is false, each listed light that is off turns on at
+// BrightnessPct and Kelvin. A down-press that turns the target off turns off the path lights this
+// plugin turned on, and OffAfter turns them off if nobody does. Lights that were already on are
+// never touched. Path lights never set isEarlyWakeActive.
+type PathLights struct {
+	// Lights are light entity IDs.
+	Lights []string `yaml:"lights"`
+
+	// BrightnessPct is the brightness (1-100) the path lights turn on at.
+	BrightnessPct int `yaml:"brightness_pct"`
+
+	// Kelvin is the color temperature the path lights turn on at.
+	Kelvin int `yaml:"kelvin"`
+
+	// OffAfter turns the path lights off if no down-press does it first. Required.
+	OffAfter time.Duration `yaml:"off_after"`
 }
 
 // LoadConfig reads, defaults, and validates a picos config file.
@@ -143,7 +178,56 @@ func (c *Config) Validate() error {
 		if !targets[b.Target] {
 			return fmt.Errorf("buttons[%d] (%s): unknown target %q", i, b.Name, b.Target)
 		}
+		if b.PathLights != nil {
+			if err := b.PathLights.validate(c.target(b.Target)); err != nil {
+				return fmt.Errorf("buttons[%d] (%s): path_lights: %w", i, b.Name, err)
+			}
+		}
 		devices[b.DeviceID] = true
+	}
+	return nil
+}
+
+// target returns the target with the given name. The name must exist.
+func (c *Config) target(name string) Target {
+	for _, t := range c.Targets {
+		if t.Name == name {
+			return t
+		}
+	}
+	return Target{}
+}
+
+// validate checks a path light block against the target its button steps.
+func (p *PathLights) validate(target Target) error {
+	if len(p.Lights) == 0 {
+		return fmt.Errorf("at least one light is required")
+	}
+	stepped := make(map[string]bool, len(target.Lights))
+	for _, l := range target.Lights {
+		stepped[l] = true
+	}
+	seen := make(map[string]bool, len(p.Lights))
+	for _, l := range p.Lights {
+		if !strings.HasPrefix(l, "light.") || len(l) == len("light.") {
+			return fmt.Errorf("%q is not a light entity ID", l)
+		}
+		if seen[l] {
+			return fmt.Errorf("duplicate light %q", l)
+		}
+		if stepped[l] {
+			return fmt.Errorf("%q is also a light of target %q", l, target.Name)
+		}
+		seen[l] = true
+	}
+	if p.BrightnessPct < 1 || p.BrightnessPct > 100 {
+		return fmt.Errorf("brightness_pct must be 1-100, got %d", p.BrightnessPct)
+	}
+	if p.Kelvin < minPathKelvin || p.Kelvin > maxPathKelvin {
+		return fmt.Errorf("kelvin must be %d-%d, got %d", minPathKelvin, maxPathKelvin, p.Kelvin)
+	}
+	if p.OffAfter <= 0 {
+		return fmt.Errorf("off_after must be positive, got %v", p.OffAfter)
 	}
 	return nil
 }

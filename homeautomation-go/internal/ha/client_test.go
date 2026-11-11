@@ -178,6 +178,45 @@ func TestClient_Connect(t *testing.T) {
 	})
 }
 
+func TestClient_GetCurrentUserID(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		resp    *Message
+		wantID  string
+		wantErr bool
+	}{
+		{"returns the token's user", currentUserResponse(`{"id":"app-user","name":"home-automation"}`), "app-user", false},
+		{"rejects a user with no id", currentUserResponse(`{"name":"nobody"}`), "", true},
+		{"passes on an error", ErrorResponse("unauthorized", "no"), "", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			fixture := NewTestFixture(t, func(req interface{}) *Message {
+				if _, ok := req.(*CurrentUserRequest); ok {
+					return tt.resp
+				}
+				return nil
+			})
+			defer fixture.Close()
+
+			id, err := fixture.Client.GetCurrentUserID()
+			if tt.wantErr {
+				assert.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantID, id)
+		})
+	}
+}
+
+func currentUserResponse(result string) *Message {
+	success := true
+	return &Message{Type: "result", Success: &success, Result: json.RawMessage(result)}
+}
+
 func TestClient_GetStates(t *testing.T) {
 	t.Parallel()
 	states := []*State{

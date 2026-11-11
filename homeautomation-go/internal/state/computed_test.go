@@ -454,6 +454,92 @@ func TestComputedState_IsAnyoneHomeAndAwake_LatchesOnWakeSequence(t *testing.T) 
 	assert.True(t, value, "isAnyoneHomeAndAwake should STILL be TRUE after wake sequence deactivates (latch held)")
 }
 
+func TestComputedState_IsAnyoneHomeAndAwake_LatchesOnEarlyWake(t *testing.T) {
+	// Early wake holds the house awake like the wake sequence, without setting it.
+	t.Parallel()
+	mockClient := ha.NewMockClient()
+	mockClient.SetState("input_boolean.anyone_home", "on", map[string]interface{}{})
+	mockClient.SetState("input_boolean.anyone_asleep", "on", map[string]interface{}{})
+	mockClient.SetState("input_boolean.assistant_here", "off", map[string]interface{}{})
+	mockClient.SetState("input_boolean.anyone_home_and_awake", "off", map[string]interface{}{})
+	mockClient.SetState("input_boolean.early_wake_active", "off", map[string]interface{}{})
+	mockClient.SetState("input_boolean.master_asleep", "on", map[string]interface{}{})
+	mockClient.Connect()
+
+	manager := NewManager(mockClient, testlogger.New(), false)
+	require.NoError(t, manager.SyncFromHA())
+	require.NoError(t, manager.SetupComputedState())
+
+	value, _ := manager.GetBool("isAnyoneHomeAndAwake")
+	assert.False(t, value)
+
+	mockClient.SimulateStateChange("input_boolean.early_wake_active", "on")
+
+	value, _ = manager.GetBool("isAnyoneHomeAndAwake")
+	assert.True(t, value, "early wake must latch isAnyoneHomeAndAwake")
+	wakeSeq, _ := manager.GetBool("isWakeSequenceActive")
+	assert.False(t, wakeSeq, "early wake must not set isWakeSequenceActive")
+}
+
+// Early wake ends at a normal wake or at bedtime. Its end releases the latch,
+// unless the alarm wake sequence is running and owns the latch.
+func TestComputedState_IsAnyoneHomeAndAwake_EarlyWakeFallingEdge(t *testing.T) {
+	tests := []struct {
+		name         string
+		wakeSequence string
+		wantAwake    bool
+		why          string
+	}{
+		{"clears the latch", "off", false, "the end of early wake must let the sleeping house sleep"},
+		{"kept while wake sequence runs", "on", true, "the wake sequence owns the latch while it runs"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			mockClient := ha.NewMockClient()
+			mockClient.SetState("input_boolean.anyone_home", "on", map[string]interface{}{})
+			mockClient.SetState("input_boolean.anyone_asleep", "on", map[string]interface{}{})
+			mockClient.SetState("input_boolean.assistant_here", "off", map[string]interface{}{})
+			mockClient.SetState("input_boolean.anyone_home_and_awake", "off", map[string]interface{}{})
+			mockClient.SetState("input_boolean.early_wake_active", "off", map[string]interface{}{})
+			mockClient.SetState("input_boolean.wake_sequence_active", tc.wakeSequence, map[string]interface{}{})
+			mockClient.SetState("input_boolean.master_asleep", "on", map[string]interface{}{})
+			mockClient.Connect()
+
+			manager := NewManager(mockClient, testlogger.New(), false)
+			require.NoError(t, manager.SyncFromHA())
+			require.NoError(t, manager.SetupComputedState())
+
+			mockClient.SimulateStateChange("input_boolean.early_wake_active", "on")
+			value, _ := manager.GetBool("isAnyoneHomeAndAwake")
+			require.True(t, value, "early wake must latch isAnyoneHomeAndAwake")
+
+			mockClient.SimulateStateChange("input_boolean.early_wake_active", "off")
+
+			value, _ = manager.GetBool("isAnyoneHomeAndAwake")
+			assert.Equal(t, tc.wantAwake, value, tc.why)
+		})
+	}
+}
+
+func TestComputedState_IsAnyoneHomeAndAwake_EarlyWakeAlreadyOnAtStart(t *testing.T) {
+	t.Parallel()
+	mockClient := ha.NewMockClient()
+	mockClient.SetState("input_boolean.anyone_home", "on", map[string]interface{}{})
+	mockClient.SetState("input_boolean.anyone_asleep", "on", map[string]interface{}{})
+	mockClient.SetState("input_boolean.assistant_here", "off", map[string]interface{}{})
+	mockClient.SetState("input_boolean.anyone_home_and_awake", "off", map[string]interface{}{})
+	mockClient.SetState("input_boolean.early_wake_active", "on", map[string]interface{}{})
+	mockClient.Connect()
+
+	manager := NewManager(mockClient, testlogger.New(), false)
+	require.NoError(t, manager.SyncFromHA())
+	require.NoError(t, manager.SetupComputedState())
+
+	value, _ := manager.GetBool("isAnyoneHomeAndAwake")
+	assert.True(t, value, "an early wake in progress at restart must keep the house awake")
+}
+
 func TestComputedState_IsAnyoneHomeAndAwake_LatchClearsOnWakeUp(t *testing.T) {
 	// The latch clears when isAnyoneAsleep becomes false (everyone wakes up).
 	// After the latch clears, normal formula takes over.

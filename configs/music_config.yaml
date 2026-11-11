@@ -53,6 +53,14 @@ zones:
             value: morning
           - variable: isAnyoneHomeAndAwake
             value: true
+      # Early wake: someone got up while the bedroom sleeps. Any day phase,
+      # because before 06:00 or dawn dayPhase is still "night". Primary Bed
+      # stays in the sleep zone (excluded below while isMasterAsleep).
+      - triggers:
+          - variable: isEarlyWakeActive
+            value: true
+          - variable: isAnyoneHome
+            value: true
   - name: "day"
     priority: 40
     trigger:

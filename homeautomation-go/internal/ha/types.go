@@ -166,6 +166,19 @@ type EntityRegistryListRequest struct {
 	Type string `json:"type"`
 }
 
+// CurrentUserRequest represents an auth/current_user request. It returns the
+// Home Assistant user that owns the access token.
+type CurrentUserRequest struct {
+	ID   int    `json:"id"`
+	Type string `json:"type"` // "auth/current_user"
+}
+
+// CurrentUser is the part of the auth/current_user result this app reads.
+type CurrentUser struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
 // ConfigEntryReloadRequest represents a config_entries/reload WebSocket command
 type ConfigEntryReloadRequest struct {
 	ID      int    `json:"id"`

@@ -5,10 +5,13 @@
 # infrastructure alerts, water-flow alerts, presence announcements).
 #
 # Each Announce call carries an UrgencyLevel:
-#   - UrgencyDeferable (default): suppressed entirely while master is asleep.
-#     Persistent-state plugins (vacuum, water-flow) own their own retry
-#     cadence and re-announce after wake; transient events (presence
-#     arrival) accept being missed.
+#   - UrgencyDeferable (default): suppressed entirely while master is asleep
+#     (or while the bedroom plays sleep music). Persistent-state plugins
+#     (vacuum, water-flow) own their own retry cadence and re-announce after
+#     wake; transient events (presence arrival) accept being missed.
+#     Exception: during an early wake (isEarlyWakeActive, someone up while
+#     the bedroom sleeps) it plays on the requested speakers minus
+#     bedroom_speakers. If that leaves no speaker, it is suppressed.
 #   - UrgencyUrgent: always plays, even while asleep. Use for events that
 #     must wake the household (security, broken-pipe water flow, EV-charger
 #     safety, infrastructure crashes).
@@ -39,3 +42,9 @@ notification:
   # media_player.play_media as extra.volume; HA restores the speaker's
   # prior volume when the announcement ends.
   awake_volume_percent: 40
+
+  # Speakers in a sleeping bedroom. During an early wake, deferable
+  # announcements skip these so they reach the person who is up without
+  # waking the bedroom. Urgent announcements still play everywhere.
+  bedroom_speakers:
+    - media_player.primary_bed

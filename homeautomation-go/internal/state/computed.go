@@ -37,11 +37,25 @@ import (
 // and clears when isAnyoneAsleep becomes false (everyone wakes up). This prevents
 // the latch from activating if isWakeSequenceActive is already true at startup.
 //
+// Early wake (isEarlyWakeActive) also activates the latch: on its rising edge, and
+// at startup if it is already true. It never sets isWakeSequenceActive, so the
+// bedroom keeps sleeping while the common areas wake up.
+// The latch also clears when isEarlyWakeActive falls (true->false), which happens
+// at a normal wake or at bedtime, unless isWakeSequenceActive is true: the alarm
+// wake sequence owns the latch while it runs.
+//
 // Note: We clear on isAnyoneAsleep (not isMasterAsleep) to avoid a race condition.
 // When isMasterAsleep changes, isAnyoneAsleep (derived from it) needs time to propagate.
 // Clearing on isAnyoneAsleep ensures state is consistent before the latch clears.
 func (m *Manager) SetupComputedState() error {
-	// Compute initial value (latch is false at startup, no edge detection on init)
+	// The latch starts off, except that an early wake already in progress
+	// (isEarlyWakeActive true, e.g. after a restart) holds it on.
+	if earlyWake, err := m.GetBool("isEarlyWakeActive"); err == nil && earlyWake {
+		m.cacheMu.Lock()
+		m.wakeSequenceLatch = true
+		m.cacheMu.Unlock()
+		m.logger.Info("Wake sequence latch activated (isEarlyWakeActive already true at start)")
+	}
 	if err := m.recomputeAnyoneHomeAndAwake(); err != nil {
 		return err
 	}
@@ -100,7 +114,53 @@ func (m *Manager) SetupComputedState() error {
 			}
 		}
 		// Note: latch does NOT clear when isWakeSequenceActive becomes false.
-		// It only clears when isAnyoneAsleep becomes false (everyone wakes up).
+		// It clears when isAnyoneAsleep becomes false (everyone wakes up), or when
+		// isEarlyWakeActive falls while the wake sequence is not active.
+	})
+	if err != nil {
+		return err
+	}
+
+	// Subscribe to isEarlyWakeActive: the rising edge activates the latch, the falling
+	// edge clears it. Early wake holds the house awake like the wake sequence, without starting it.
+	_, err = m.Subscribe("isEarlyWakeActive", func(key string, oldValue, newValue interface{}) {
+		oldBool, _ := oldValue.(bool)
+		newBool, _ := newValue.(bool)
+		if !oldBool && newBool {
+			m.cacheMu.Lock()
+			m.wakeSequenceLatch = true
+			m.cacheMu.Unlock()
+			m.logger.Info("Wake sequence latch activated by early wake",
+				zap.Bool("isEarlyWakeActive", newBool))
+			if err := m.recomputeAnyoneHomeAndAwake(); err != nil {
+				m.logger.Error("Failed to recompute isAnyoneHomeAndAwake",
+					zap.String("trigger", key),
+					zap.Error(err))
+			}
+			return
+		}
+		// Early wake ended (normal wake or bedtime): release the latch, unless the
+		// alarm wake sequence is running and owns it.
+		if oldBool && !newBool {
+			if wakeSeq, err := m.GetBool("isWakeSequenceActive"); err == nil && wakeSeq {
+				m.logger.Info("Early wake ended; wake sequence latch kept (isWakeSequenceActive is true)")
+				return
+			}
+			m.cacheMu.Lock()
+			wasLatched := m.wakeSequenceLatch
+			m.wakeSequenceLatch = false
+			m.cacheMu.Unlock()
+			if !wasLatched {
+				return
+			}
+			m.logger.Info("Wake sequence latch cleared by end of early wake",
+				zap.Bool("isEarlyWakeActive", newBool))
+			if err := m.recomputeAnyoneHomeAndAwake(); err != nil {
+				m.logger.Error("Failed to recompute isAnyoneHomeAndAwake",
+					zap.String("trigger", key),
+					zap.Error(err))
+			}
+		}
 	})
 	if err != nil {
 		return err
@@ -224,7 +284,7 @@ func (m *Manager) SetupComputedStateV2() error {
 //
 // This method registers:
 // - Basic presence/sleep computed states (isAnyOwnerHome, isAnyoneHome, etc.)
-// - isAnyoneHomeAndAwake with wake sequence latch
+// - isAnyoneHomeAndAwake with wake sequence latch (triggered by isWakeSequenceActive or isEarlyWakeActive)
 // - Energy computed states (if energyStates is provided):
 //   - solarProductionEnergyLevel = f(thisHourSolarGeneration, remainingSolarGeneration)
 //   - currentEnergyLevel = f(batteryEnergyLevel, solarProductionEnergyLevel)

@@ -359,6 +359,93 @@ func TestLoadConfig_AppliesDefaults(t *testing.T) {
 	}
 }
 
+// User story: "If the vacuum needs attention while I'm up early, tell me in the
+// kitchen, but don't wake my partner in the bedroom."
+func TestAnnounce_EarlyWake(t *testing.T) {
+	const bed = "media_player.primary_bed"
+	tests := []struct {
+		name          string
+		masterAsleep  bool
+		sleepPlayback bool
+		earlyWake     bool
+		bedroom       []string
+		speakers      []string
+		urgency       UrgencyLevel
+		wantSpeakers  []string // nil means suppressed
+	}{
+		{"deferable, master asleep, early wake: skips the bedroom", true, false, true,
+			[]string{bed}, []string{"media_player.pantry", bed, "media_player.sitting"}, UrgencyDeferable,
+			[]string{"media_player.pantry", "media_player.sitting"}},
+		{"deferable, sleep playback, early wake: skips the bedroom", false, true, true,
+			[]string{bed}, []string{bed, "media_player.sitting"}, UrgencyDeferable,
+			[]string{"media_player.sitting"}},
+		{"deferable, early wake, only the bedroom requested: suppressed", true, false, true,
+			[]string{bed}, []string{bed}, UrgencyDeferable, nil},
+		{"deferable, early wake, no bedroom speakers configured: suppressed", true, false, true,
+			nil, []string{bed, "media_player.sitting"}, UrgencyDeferable, nil},
+		{"deferable, master asleep, no early wake: suppressed", true, false, false,
+			[]string{bed}, []string{bed, "media_player.sitting"}, UrgencyDeferable, nil},
+		{"deferable, awake, early wake: plays everywhere requested", false, false, true,
+			[]string{bed}, []string{bed, "media_player.sitting"}, UrgencyDeferable,
+			[]string{bed, "media_player.sitting"}},
+		{"urgent, master asleep, early wake: plays everywhere requested", true, false, true,
+			[]string{bed}, []string{bed, "media_player.sitting"}, UrgencyUrgent,
+			[]string{bed, "media_player.sitting"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockHA := ha.NewMockClient()
+			stateMgr := state.NewManager(mockHA, zaptest.NewLogger(t), false)
+			if err := stateMgr.SetBool("isMasterAsleep", tt.masterAsleep); err != nil {
+				t.Fatalf("SetBool failed: %v", err)
+			}
+			if err := stateMgr.SetBool("isEarlyWakeActive", tt.earlyWake); err != nil {
+				t.Fatalf("SetBool failed: %v", err)
+			}
+			mockHA.ClearServiceCalls()
+
+			cfg := DefaultConfig()
+			cfg.BedroomSpeakers = tt.bedroom
+			synth := &fakeSynth{url: "http://test/audio/x.mp3"}
+			m := NewManager(mockHA, stateMgr, synth, cfg, zaptest.NewLogger(t), false)
+			m.SetSleepPlaybackProvider(fakeSleepPlaybackProvider(tt.sleepPlayback))
+
+			err := m.Announce(context.Background(), "Casper needs attention",
+				WithSpeakers(tt.speakers), WithUrgency(tt.urgency))
+
+			calls := mockHA.GetServiceCalls()
+			if tt.wantSpeakers == nil {
+				if !errors.Is(err, ErrSuppressedAsleep) {
+					t.Fatalf("expected ErrSuppressedAsleep, got %v", err)
+				}
+				if len(calls) != 0 || len(synth.Messages()) != 0 {
+					t.Fatalf("suppressed announcement must not synthesize or call HA: %+v", calls)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Announce returned error: %v", err)
+			}
+			if len(calls) != 1 {
+				t.Fatalf("expected 1 call, got %d: %+v", len(calls), calls)
+			}
+			if !equalStringSlices(tt.wantSpeakers, calls[0].Data["entity_id"]) {
+				t.Errorf("speakers: want %v, got %v", tt.wantSpeakers, calls[0].Data["entity_id"])
+			}
+		})
+	}
+}
+
+func TestLoadConfig_ShippedBedroomSpeakers(t *testing.T) {
+	cfg, err := LoadConfig("../../../configs/notification_config.yaml")
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if len(cfg.BedroomSpeakers) != 1 || cfg.BedroomSpeakers[0] != "media_player.primary_bed" {
+		t.Errorf("bedroom_speakers: want [media_player.primary_bed], got %v", cfg.BedroomSpeakers)
+	}
+}
+
 func TestConfigValidate_RejectsInvalidVolume(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.AwakeVolumePercent = 150

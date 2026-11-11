@@ -13,10 +13,12 @@ graph LR
         didOwnerJustReturnHome["didOwnerJustReturnHome"]
         isAnyoneAsleep["isAnyoneAsleep"]
         isAnyoneHome["isAnyoneHome"]
+        isAnyoneHomeAndAwake["isAnyoneHomeAndAwake"]
         isAppleTVPlaying["isAppleTVPlaying"]
         isAssistantHere["isAssistantHere"]
         isCarolineHome["isCarolineHome"]
         isDarkOutside["isDarkOutside"]
+        isEarlyWakeActive["isEarlyWakeActive"]
         isEveryoneAsleep["isEveryoneAsleep"]
         isExpectingSomeone["isExpectingSomeone"]
         isFadeOutInProgress["isFadeOutInProgress"]
@@ -44,6 +46,7 @@ graph LR
     subgraph Plugins["Plugins"]
         christmas["christmas"]
         dayphase["dayphase"]
+        earlywake["earlywake"]
         energy["energy"]
         environmental["environmental"]
         evcharger["evcharger"]
@@ -68,6 +71,8 @@ graph LR
     end
 
     %% Subscriptions (plugin listens to variable)
+    isAnyoneAsleep -.-> earlywake
+    isMasterAsleep -.-> earlywake
     currentEnergyLevel -.-> energy
     isGridAvailable -.-> energy
     solarProductionEnergyLevel -.-> energy
@@ -99,6 +104,7 @@ graph LR
     %% Writes (plugin sets variable)
     dayphase --> dayPhase
     dayphase --> sunevent
+    earlywake --> isEarlyWakeActive
     energy --> batteryEnergyLevel
     energy --> isFreeEnergyAvailable
     energy --> remainingSolarGeneration
@@ -109,6 +115,7 @@ graph LR
     music --> musicPlaybackType
     music --> musicPlaylistRotation
     music --> musicReset
+    picos --> isEarlyWakeActive
     reset --> reset
     sexmode --> isWakeSequenceActive
     sexmode --> musicPlaybackType

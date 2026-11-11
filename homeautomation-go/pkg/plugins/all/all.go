@@ -22,6 +22,7 @@ package all
 import (
 	_ "homeautomation/internal/plugins/christmas"
 	_ "homeautomation/internal/plugins/dayphase"
+	_ "homeautomation/internal/plugins/earlywake"
 	_ "homeautomation/internal/plugins/energy"
 	_ "homeautomation/internal/plugins/environmental"
 	_ "homeautomation/internal/plugins/evcharger"

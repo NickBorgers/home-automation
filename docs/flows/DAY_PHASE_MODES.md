@@ -338,7 +338,7 @@ flowchart TB
 |------|----------|-------------------|----------|
 | `sleep-prep` | 90 | `dayPhase=night` + `isAnyoneHome=true` + `isMasterAsleep=false` | Pantry, Primary Bed, Sitting (whole house; Lounge temporarily excluded — see music_config.yaml) |
 | `sleep` | 100 | `isMasterAsleep=true` + `isAnyoneHome=true` + `isWakeSequenceActive=false` | Primary Bed only |
-| `morning` | 50 | `dayPhase=morning` + `isAnyoneAsleep=false` + `isAnyoneHome=true` **OR** `isWakeSequenceActive=true` + `dayPhase=morning` + `isAnyoneHome=true` **OR** `dayPhase=morning` + `isAnyoneHomeAndAwake=true` (wake latch) | Pantry, Kids Bathroom, Sitting (Primary Bed excluded via `exclude_if: isMasterAsleep=true`; Lounge temporarily excluded — see music_config.yaml) |
+| `morning` | 50 | `dayPhase=morning` + `isAnyoneAsleep=false` + `isAnyoneHome=true` **OR** `isWakeSequenceActive=true` + `dayPhase=morning` + `isAnyoneHome=true` **OR** `dayPhase=morning` + `isAnyoneHomeAndAwake=true` (wake latch) **OR** `isEarlyWakeActive=true` + `isAnyoneHome=true` (early wake, any day phase) | Pantry, Kids Bathroom, Sitting (Primary Bed excluded via `exclude_if: isMasterAsleep=true`; Lounge temporarily excluded — see music_config.yaml) |
 
 ### Key Behaviors
 
@@ -350,6 +350,7 @@ flowchart TB
    - Group 1: Normal morning conditions (`isAnyoneAsleep=false`)
    - Group 2: Wake sequence active (`isWakeSequenceActive=true`)
    - Group 3: Wake latch (`isAnyoneHomeAndAwake=true`) — keeps morning music active in common areas after wake cancellation
+   - Group 4: Early wake (`isEarlyWakeActive=true` + `isAnyoneHome=true`, any day phase) — someone got up while the bedroom sleeps. Before 06:00 or dawn `dayPhase` is still `night`, so this group does not check it. See [EARLY_WAKE.md](./EARLY_WAKE.md)
 
 4. **Wake cancellation clears musicPlaybackType**: When bedroom lights are turned off during wake sequence, sleephygiene clears `musicPlaybackType` to `""` (instead of setting it to `"sleep"`). This lets zone-based resolution take over: the sleep zone activates for bedroom speakers, while the morning zone continues in common areas via the wake latch trigger group.
 
@@ -372,6 +373,15 @@ T2      Person wakes up                 Morning music        Morning music
         isAnyoneAsleep=false
 ```
 
+## Early Wake
+
+Someone turns on a main-living-space light by hand (or presses the kitchen or living Pico) while a
+bedroom sleeps. `isEarlyWakeActive` turns on and activates the wake latch without starting the wake
+sequence. The `sleep` zone keeps Primary Bed on rain sounds, and the `morning` zone plays on the other
+speakers whatever the day phase. Lighting wakes the common areas because `isAnyoneHomeAndAwake` is
+true; the Primary Suite skips while `isMasterAsleep`. A normal wake clears it. Details:
+[EARLY_WAKE.md](./EARLY_WAKE.md).
+
 ## Related Documentation
 
 ### Detailed Flow Documentation
@@ -379,6 +389,7 @@ T2      Person wakes up                 Morning music        Morning music
 - [MUSIC_PLAYBACK.md](./MUSIC_PLAYBACK.md) - Music playback orchestration, speaker grouping, volume fading
 - [LIGHTING_CONTROL.md](./LIGHTING_CONTROL.md) - Scene management, manual overrides, wake protection
 - [SLEEP_HYGIENE.md](./SLEEP_HYGIENE.md) - Wake sequence, Eight Sleep integration, bedtime triggers
+- [EARLY_WAKE.md](./EARLY_WAKE.md) - Common areas wake while a bedroom sleeps
 
 ### Reference
 
