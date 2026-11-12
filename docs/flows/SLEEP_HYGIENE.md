@@ -63,9 +63,6 @@ If no one arrives within the 1-hour window, `go_to_bed` is skipped for the night
 On startup inside the `go_to_bed` window, an existing `musicPlaybackType=sleep` restores the in-memory
 trigger marker. This prevents a deploy from repeating the bedtime light flash after sleep music has already started.
 
-On startup inside the `stop_screens` window, an existing `dayPhase=winddown` likewise restores its trigger marker
-so a deploy does not repeat the screen-stop light flash.
-
 ## Wake-Up Sequence
 
 The primary wake trigger comes from Eight Sleep Pod alarm sensors. A backup time-based trigger activates only when Eight Sleep is unavailable.
