@@ -86,7 +86,7 @@ func TestScenario_UserStory_RestartKeepsOurMusicPlaying(t *testing.T) {
 	defer musicManager.Stop()
 
 	t.Log("THEN: No speaker commands are sent")
-	time.Sleep(500 * time.Millisecond)
+	waitForServiceCallQuiescenceSince(t, server, snapshot, 200*time.Millisecond)
 	assert.Empty(t, speakerCommandsSince(server, snapshot), "a restart must not restart music that is already right")
 }
 
@@ -116,21 +116,21 @@ func TestScenario_UserStory_RestartDoesNotResumePausedMusic(t *testing.T) {
 	defer musicManager.Stop()
 
 	t.Log("THEN: No speaker commands are sent, so the music stays paused")
-	time.Sleep(500 * time.Millisecond)
+	waitForServiceCallQuiescenceSince(t, server, snapshot, 200*time.Millisecond)
 	assert.Empty(t, speakerCommandsSince(server, snapshot), "a restart must not resume music someone paused")
 }
 
 // TestScenario_UserStory_RestartReplacesMusicFromAnotherMode verifies that a restart
 // replaces paused music that does not belong to the current mode.
 //
-// User story: "Evening music was paused. While the app was down, night began. When
-// the app comes back, it starts the sleep-prep music."
+// User story: "Music was paused on the speakers while the app was down. The mode
+// changed to night. When the app comes back, it starts the right music for the mode."
 func TestScenario_UserStory_RestartReplacesMusicFromAnotherMode(t *testing.T) {
 	t.Parallel()
 	server, client, stateManager, cleanup := setupTest(t)
 	defer cleanup()
 
-	t.Log("GIVEN: It is night, and the sleep-prep lead speaker holds paused Tidal music from the evening")
+	t.Log("GIVEN: It is night, and the sleep-prep lead speaker holds paused Tidal music that does not match the sleep-prep playlist")
 	setMusicRestartHome(server, "night")
 	setLeadSpeaker(server, "media_player.front_room", "paused")
 
