@@ -195,6 +195,9 @@ doors and openings between two rooms; exterior and overhead doors are left out.
 
 - `Neighbors(room)` lists rooms one door away. Doors that are not placed yet count, so a rule that keeps a
   robot away from a room errs on the safe side.
+- `OpenRegion(room)` lists the rooms that are one open space with a room: every room reached through interior
+  openings, one after another, the room included. Doors, overhead doors and exterior openings do not join
+  rooms; openings that are not placed yet do. The vacuum scheduler treats a region as one room for people.
 - `ShortestPath(from, to, avoid)` finds the shortest way between room centres through placed doors, measured
   between door midpoints. `avoid` names rooms the path must not enter; the start room is exempt.
 - `Area(room)` and `FloorArea(room)` give the room presence area and the floor area.

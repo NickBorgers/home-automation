@@ -14,7 +14,10 @@ Every rule must hold.
 
 1. The robot never drives through a room where a person is. A room whose area room presence cannot see
    (cameras offline, or not published) counts as occupied. A sleeper's room counts as occupied too, whatever
-   room presence says.
+   room presence says. Rooms joined by open passages (house map doors of kind `opening`) count as one room:
+   when any room of such an open-plan region is occupied or unknown, the robot neither enters nor cleans any
+   room of the region. The block spreads from opening to opening, so it covers the whole region. Doors do not
+   spread it, and neither do exterior openings.
 2. The robot never cleans a sleeper's room or a room one door away from it. It may drive through a room next
    to a sleeper.
 3. A run starts only at or above `battery.start_min` (70 % in the example). Rooms are packed so trip plus
@@ -79,7 +82,7 @@ flowchart TD
     B -- no --> X[No run, reason recorded]
     B -- yes --> C{Dock room clear?}
     C -- no --> X
-    C -- yes --> D[no_enter: rooms in occupied or unknown areas + sleeper rooms<br/>no_clean: no_enter + sleeper neighbours]
+    C -- yes --> D[no_enter: rooms in occupied or unknown areas + rooms open to them + sleeper rooms<br/>no_clean: no_enter + sleeper neighbours]
     D --> E[Drop items in no_clean]
     E --> F[Drop items whose shortest way from the dock enters no_enter]
     F --> G[Best score sets the treatment<br/>full also clears its room's vacuum taint]

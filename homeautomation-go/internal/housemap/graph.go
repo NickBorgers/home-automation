@@ -17,6 +17,7 @@ type Graph struct {
 	rooms     map[string]bool
 	exits     map[string][]graphDoor // placed doors out of each room
 	neighbors map[string][]string    // every interior door, placed or not
+	opens     map[string][]string    // every interior opening, placed or not
 }
 
 // graphDoor is a placed door seen from one of its rooms.
@@ -33,6 +34,7 @@ func (m *Map) Graph() *Graph {
 		rooms:     make(map[string]bool),
 		exits:     make(map[string][]graphDoor),
 		neighbors: make(map[string][]string),
+		opens:     make(map[string][]string),
 	}
 	for name, s := range m.Spaces {
 		if s != nil && s.Kind == KindRoom {
@@ -40,6 +42,7 @@ func (m *Map) Graph() *Graph {
 		}
 	}
 	seen := make(map[[2]string]bool)
+	seenOpen := make(map[[2]string]bool)
 	for _, name := range sortedKeys(m.Doors) {
 		d := m.Doors[name]
 		if d == nil || d.Exterior || d.Kind == KindOverhead || len(d.Connects) != 2 {
@@ -53,6 +56,11 @@ func (m *Map) Graph() *Graph {
 			seen[[2]string{a, b}], seen[[2]string{b, a}] = true, true
 			g.neighbors[a] = append(g.neighbors[a], b)
 			g.neighbors[b] = append(g.neighbors[b], a)
+		}
+		if d.Kind == KindOpening && !seenOpen[[2]string{a, b}] {
+			seenOpen[[2]string{a, b}], seenOpen[[2]string{b, a}] = true, true
+			g.opens[a] = append(g.opens[a], b)
+			g.opens[b] = append(g.opens[b], a)
 		}
 		if d.Placed() {
 			mid := d.Midpoint()
@@ -80,6 +88,29 @@ func (g *Graph) Rooms() []string {
 // count.
 func (g *Graph) Neighbors(room string) []string {
 	return append([]string(nil), g.neighbors[room]...)
+}
+
+// OpenRegion lists the rooms that are one open space with room, sorted, room included: every room reached
+// from room through interior openings, one opening after another. Doors, overhead doors and exterior
+// openings do not join rooms. Openings that are not placed count. A room with no opening is a region on its
+// own. OpenRegion is nil when room is not in the graph.
+func (g *Graph) OpenRegion(room string) []string {
+	if !g.rooms[room] {
+		return nil
+	}
+	in := map[string]bool{room: true}
+	queue := []string{room}
+	for len(queue) > 0 {
+		r := queue[0]
+		queue = queue[1:]
+		for _, n := range g.opens[r] {
+			if !in[n] {
+				in[n] = true
+				queue = append(queue, n)
+			}
+		}
+	}
+	return sortedKeys(in)
 }
 
 // Area is the room presence area of a room, or "" when room is not in the graph.

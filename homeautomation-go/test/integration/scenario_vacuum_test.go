@@ -40,10 +40,12 @@ import (
 //   study | hall    | bedroom      The dock is in the lounge.
 //   ------+---------+              The only way from the lounge to the hall,
 //   lounge| kitchen |              the bedroom and the porch is through the
-//         (porch north of hall)    kitchen.
+//         (porch north of hall)    kitchen. The lounge and the kitchen are
+//                                  joined by an opening, so they are one room.
 //
 // INVARIANTS:
-//   - Rule 1: the robot never drives through a room where a person is.
+//   - Rule 1: the robot never drives through a room where a person is. Rooms
+//     joined by openings count as one room.
 //   - Rule 2: a sleeper's room and its door neighbours are not cleaned, but
 //     may be driven through.
 //   - Rule 3: a run starts at 70 % or more and is packed to end at 30 % or more.
@@ -219,6 +221,17 @@ func (v *vacuumScenario) walkIntoKitchen() {
 	}, 5*time.Second, 10*time.Millisecond, "room presence publishes the kitchen as occupied")
 }
 
+// walkIntoHall sends the Frigate events of a person walking from the kitchen into the hall.
+func (v *vacuumScenario) walkIntoHall() {
+	publishFrigate(v.t, v.server, "new", "p", "cam_hall", []string{})
+	publishFrigate(v.t, v.server, "update", "p", "cam_hall", []string{"hall_to_kitchen"}, "hall_to_kitchen")
+	publishFrigate(v.t, v.server, "update", "p", "cam_hall", []string{"hall_to_kitchen", "hall"}, "hall")
+	require.Eventually(v.t, func() bool {
+		occ, known := v.hub.Occupied("hall")
+		return occ && known
+	}, 5*time.Second, 10*time.Millisecond, "room presence publishes the hall as occupied")
+}
+
 // startRun lets the start gate pass for the current plan.
 func (v *vacuumScenario) startRun() {
 	v.t.Helper()
@@ -247,10 +260,29 @@ func (v *vacuumScenario) segmentCleans() []string {
 	return out
 }
 
-// GIVEN the hall, the study and the porch are dirty
-// WHEN someone walks into the kitchen
-// THEN only the study is cleaned: the hall and the porch are behind the kitchen
+// GIVEN the kitchen, the study and the porch are dirty
+// WHEN someone walks into the hall
+// THEN the study and the kitchen are cleaned: the porch is behind the hall
 func TestScenario_Vacuum_PersonBlocksPath(t *testing.T) {
+	v := setupVacuumScenario(t, nil, nil)
+
+	t.Log("GIVEN: the kitchen, the study and the porch are dirty")
+	v.markDirty("kitchen", "study", "porch")
+
+	t.Log("WHEN: a person walks into the hall")
+	v.walkIntoHall()
+	v.startRun()
+
+	t.Log("THEN: the run cleans the study and the kitchen, not the porch")
+	assert.ElementsMatch(t, []string{"study", "kitchen"}, v.out().Run.Targets)
+	assert.Contains(t, v.skipReason("porch"), "way from the dock enters hall")
+	assert.Equal(t, []string{"hall"}, v.out().Plan.NoEnter, "the hall's doors do not spread the block")
+}
+
+// GIVEN the hall, the study and the porch are dirty
+// WHEN someone walks into the kitchen, which is open to the lounge where the dock is
+// THEN nothing is cleaned: the lounge and the kitchen are one room, and the robot would start next to them
+func TestScenario_Vacuum_OpenPlanCountsAsOneRoom(t *testing.T) {
 	v := setupVacuumScenario(t, nil, nil)
 
 	t.Log("GIVEN: the hall, the study and the porch are dirty")
@@ -258,13 +290,17 @@ func TestScenario_Vacuum_PersonBlocksPath(t *testing.T) {
 
 	t.Log("WHEN: a person walks into the kitchen")
 	v.walkIntoKitchen()
-	v.startRun()
+	v.tick()
 
-	t.Log("THEN: the run cleans only the study")
-	assert.Equal(t, []string{"[3]"}, v.segmentCleans())
-	assert.Contains(t, v.skipReason("hall"), "way from the dock enters kitchen")
-	assert.Contains(t, v.skipReason("porch"), "way from the dock enters kitchen")
-	assert.Contains(t, v.out().Plan.NoEnter, "kitchen")
+	t.Log("THEN: no run; the lounge is blocked because it is open to the kitchen")
+	plan := v.out().Plan
+	assert.Nil(t, plan.PendingSince, "no plan is pending: %+v", plan)
+	assert.Equal(t, "dock room lounge: open to kitchen: area kitchen is occupied or unknown", plan.Reason)
+	assert.Equal(t, []string{"kitchen", "lounge"}, plan.NoEnter)
+	assert.Equal(t, []string{"kitchen", "lounge"}, plan.NoClean)
+	v.advance(10 * time.Minute)
+	assert.Nil(t, v.out().Run)
+	assert.Empty(t, v.segmentCleans())
 }
 
 // GIVEN the kitchen, the hall and the porch are dirty
@@ -363,18 +399,19 @@ func TestScenario_Vacuum_RoomMarkedCleanAsRobotLeaves(t *testing.T) {
 	assert.Equal(t, []string{"study", "kitchen"}, v.out().LastRun.Done)
 }
 
-// GIVEN a run of the study and then the kitchen
-// WHEN someone walks into the kitchen while the robot cleans the study
-// THEN the robot goes home at once, and the kitchen stays dirty
+// GIVEN a run of the study and then the hall
+// WHEN someone walks into the hall while the robot cleans the study
+// THEN the robot goes home at once, and the hall stays dirty
 func TestScenario_Vacuum_AbortWhenSomeoneWalksIntoNextRoom(t *testing.T) {
 	v := setupVacuumScenario(t, nil, nil)
-	v.markDirty("study", "kitchen")
+	v.markDirty("study", "hall")
 	v.startRun()
+	require.Equal(t, []string{"study", "hall"}, v.out().Run.Targets)
 	v.step("study", 97)
 	v.robot.ClearCommands()
 
-	t.Log("WHEN: a person walks into the kitchen")
-	v.walkIntoKitchen()
+	t.Log("WHEN: a person walks into the hall")
+	v.walkIntoHall()
 	v.tick()
 
 	t.Log("THEN: the robot is sent home; the way from the study through the lounge is clear")
@@ -382,14 +419,39 @@ func TestScenario_Vacuum_AbortWhenSomeoneWalksIntoNextRoom(t *testing.T) {
 	require.Len(t, cmds, 1)
 	assert.Equal(t, "/api/v2/robot/capabilities/BasicControlCapability", cmds[0].Path)
 	assert.Equal(t, "home", cmds[0].Body["action"])
-	assert.Contains(t, v.out().Run.AbortReason, "kitchen")
+	assert.Contains(t, v.out().Run.AbortReason, "hall")
 
 	v.step("lounge", 95)
 	v.robot.SetStatus("docked", "none")
 	v.step("lounge", 95)
 	v.step("lounge", 95)
 	assert.Equal(t, "aborted", v.out().LastRun.Outcome)
-	assert.Equal(t, "on", v.server.GetState("input_boolean.vacuum_dirty_kitchen").State, "unfinished rooms stay dirty")
+	assert.Equal(t, "on", v.server.GetState("input_boolean.vacuum_dirty_hall").State, "unfinished rooms stay dirty")
 	assert.Equal(t, "on", v.server.GetState("input_boolean.vacuum_dirty_study").State,
 		"the study was not finished either")
+}
+
+// GIVEN a run of the study and then the kitchen
+// WHEN someone walks into the kitchen while the robot cleans the study
+// THEN the robot stops in the study: its way home is through the lounge, which is open to the kitchen
+func TestScenario_Vacuum_PauseWhenWayHomeIsOpenToAPerson(t *testing.T) {
+	v := setupVacuumScenario(t, nil, nil)
+	v.markDirty("study", "kitchen")
+	v.startRun()
+	require.Equal(t, []string{"study", "kitchen"}, v.out().Run.Targets)
+	v.step("study", 97)
+	v.robot.ClearCommands()
+
+	t.Log("WHEN: a person walks into the kitchen")
+	v.walkIntoKitchen()
+	v.tick()
+
+	t.Log("THEN: the robot pauses rather than drive into the lounge next to them")
+	cmds := v.robot.Commands()
+	require.Len(t, cmds, 1)
+	assert.Equal(t, "/api/v2/robot/capabilities/BasicControlCapability", cmds[0].Path)
+	assert.Equal(t, "pause", cmds[0].Body["action"])
+	assert.True(t, v.out().Run.Paused)
+	assert.Contains(t, v.out().Run.AbortReason, "kitchen")
+	assert.Equal(t, "on", v.server.GetState("input_boolean.vacuum_dirty_kitchen").State, "unfinished rooms stay dirty")
 }

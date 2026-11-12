@@ -12,6 +12,7 @@ type RoomGraph interface {
 	Rooms() []string
 	Has(room string) bool
 	Neighbors(room string) []string
+	OpenRegion(room string) []string
 	Area(room string) string
 	ShortestPath(from, to string, avoid map[string]bool) (rooms []string, metres float64, ok bool)
 }
@@ -96,14 +97,26 @@ type Restrictions struct {
 	NoClean map[string]string
 }
 
-// ComputeRestrictions applies rules 1 and 2. A room in a blocked area must not be entered (rule 1). A
-// sleeper's room holds a person, so it must not be entered either, whatever room presence says. Every room
-// one door away from a sleeper must not be cleaned, but may be driven through (rule 2).
+// ComputeRestrictions applies rules 1 and 2. A room in a blocked area must not be entered (rule 1). Rooms
+// joined by open passages are one room to a person, so a blocked room blocks every room of its open region
+// too (see housemap.Graph.OpenRegion); doors do not spread the block. A sleeper's room holds a person, so it
+// must not be entered either, whatever room presence says. Every room one door away from a sleeper must not
+// be cleaned, but may be driven through (rule 2).
 func ComputeRestrictions(g RoomGraph, blockedAreas map[string]bool, sleeperRooms []string) Restrictions {
 	r := Restrictions{NoEnter: map[string]string{}, NoClean: map[string]string{}}
+	var blocked []string
 	for _, room := range g.Rooms() {
 		if a := g.Area(room); blockedAreas[a] {
 			r.NoEnter[room] = "area " + a + " is occupied or unknown"
+			blocked = append(blocked, room)
+		}
+	}
+	sort.Strings(blocked)
+	for _, b := range blocked {
+		for _, room := range g.OpenRegion(b) {
+			if _, ok := r.NoEnter[room]; !ok {
+				r.NoEnter[room] = "open to " + b + ": area " + g.Area(b) + " is occupied or unknown"
+			}
 		}
 	}
 	sleepers := append([]string(nil), sleeperRooms...)
@@ -145,7 +158,8 @@ func LegCrosses(g RoomGraph, from, to string, noEnter map[string]string) (crosse
 // BuildPlan picks the rooms for one run. It is a pure function of its input.
 //
 //  1. No run below the start minimum or when the robot is not docked.
-//  2. Rooms in blocked areas are not entered; sleeper rooms and their neighbours are not cleaned.
+//  2. Rooms in blocked areas, and rooms open to them, are not entered; sleeper rooms and their neighbours
+//     are not cleaned.
 //  3. Candidates are items that may be cleaned and whose shortest way from the dock enters no blocked room.
 //  4. The best-scoring candidate sets the run's treatment. A full run also clears the room's vacuum taint.
 //  5. Candidates are packed in score order while trip plus room costs fit in battery minus floor.
