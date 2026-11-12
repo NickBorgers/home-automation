@@ -37,8 +37,12 @@ func (m *Manager) adoptStartupZonePlayback(zone *Zone, selected PlaybackOption, 
 			zap.Error(err))
 		return false
 	}
-	if leadState.State != "playing" {
-		m.logger.Debug("Startup reconciliation skipped: lead speaker is not playing",
+	// A paused lead is adopted too. The running app never resumes music that someone
+	// paused, so a restart must not either. The mode and group checks below still apply,
+	// so paused music from another mode is replaced.
+	paused := leadState.State == "paused"
+	if leadState.State != "playing" && !paused {
+		m.logger.Debug("Startup reconciliation skipped: lead speaker is not playing or paused",
 			zap.String("speaker", zone.LeadSpeaker),
 			zap.String("state", leadState.State))
 		return false
@@ -89,8 +93,10 @@ func (m *Manager) adoptStartupZonePlayback(zone *Zone, selected PlaybackOption, 
 	m.logger.Info("Adopted existing startup playback",
 		zap.String("zone", zone.Name),
 		zap.String("lead_speaker", zone.LeadSpeaker),
-		zap.String("uri", currentURI))
-	if !m.readOnly {
+		zap.String("uri", currentURI),
+		zap.Bool("paused", paused))
+	// The health monitor resumes a paused speaker, so it must not watch a pause we adopted.
+	if !m.readOnly && !paused {
 		m.startPlaybackMonitor(leadEntityID, zone.LeadSpeaker, zone.MusicType)
 	}
 	return true
