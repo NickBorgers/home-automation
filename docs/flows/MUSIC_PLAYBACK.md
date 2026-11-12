@@ -26,7 +26,7 @@ The music plugin coordinates Sonos speaker playback by:
 
 ```mermaid
 flowchart TD
-    subgraph Triggers["State Change Triggers"]
+    subgraph Triggers["Triggers"]
         dayPhase["dayPhase changed"]
         isAnyoneAsleep["isAnyoneAsleep changed"]
         isAnyoneHome["isAnyoneHome changed"]
