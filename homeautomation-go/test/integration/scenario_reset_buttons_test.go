@@ -1,10 +1,14 @@
 package integration
 
 import (
+	"context"
 	"testing"
 	"time"
 
+	"homeautomation/internal/plugins/lighting"
+
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // ============================================================================
@@ -100,4 +104,44 @@ func TestScenario_UserStory_MusicResetOnlyAffectsMusic(t *testing.T) {
 	waitForServiceCallsToStabilizeSince(t, env.server, snapshot, 500*time.Millisecond)
 	calls := env.server.GetServiceCallsSince(snapshot)
 	assert.Empty(t, filterServiceCalls(calls, "scene", "turn_on"), "music reset must not re-apply scenes")
+}
+
+// TestScenario_UserStory_LightingResetPressedWhileAppIsDown verifies that a lighting reset
+// turned on while the app is not running still runs when the app starts.
+//
+// User story: "The lights look wrong. I say 'turn on lighting reset'. The app was
+// restarting at that moment. When it comes back, the lights return to the right
+// scene, and the button turns itself off."
+//
+// Regression: on 2026-11-12 the app crash-looped for three hours. The reset was
+// turned on during that time. Lighting reacts only to changes, so the new process
+// never saw the reset. The button stayed on and the lights stayed at the dusk scene.
+func TestScenario_UserStory_LightingResetPressedWhileAppIsDown(t *testing.T) {
+	t.Parallel()
+	env, cleanup := setupMusicLightingTest(t)
+	defer cleanup()
+
+	t.Log("GIVEN: Someone is home in the evening and the lighting plugin is not running")
+	setupResetButtonsHome(t, env)
+	env.lighting.Stop()
+
+	t.Log("WHEN: Lighting reset is turned on while the lighting plugin is down")
+	env.server.SetState("input_boolean.lighting_reset", "on", map[string]interface{}{})
+	snapshot := env.server.ServiceCallCount()
+
+	t.Log("WHEN: The app starts: it reads all state from Home Assistant, then starts lighting")
+	require.NoError(t, env.stateManager.SyncFromHA())
+	waitForBoolState(t, env.stateManager, "lightingReset", true, "startup sync should read the reset")
+	env.lighting = lighting.NewManager(context.Background(), env.client, env.stateManager,
+		loadTestLightingConfig(t), env.logger, false, nil)
+	require.NoError(t, env.lighting.Start())
+
+	t.Log("THEN: Scenes are re-applied")
+	waitForCondition(t, func() bool {
+		calls := env.server.GetServiceCallsSince(snapshot)
+		return len(filterServiceCalls(calls, "scene", "turn_on")) >= 1
+	}, "a reset that was on at startup should activate scenes")
+
+	t.Log("THEN: The button turns itself off")
+	waitForBoolState(t, env.stateManager, "lightingReset", false, "lightingReset should clear itself")
 }

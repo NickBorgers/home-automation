@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"homeautomation/internal/alert"
+	"homeautomation/internal/ha"
 	"homeautomation/internal/plugins/lighting"
 	"homeautomation/internal/plugins/music"
 	"homeautomation/internal/plugins/statetracking"
@@ -37,6 +38,7 @@ import (
 // musicLightingEnv holds plugins for music + lighting tests
 type musicLightingEnv struct {
 	server        *MockHAServer
+	client        *ha.Client
 	stateManager  *state.Manager
 	logger        *zap.Logger
 	stateTracking *statetracking.Manager
@@ -56,6 +58,7 @@ func setupMusicLightingTest(t *testing.T) (*musicLightingEnv, func()) {
 	// Create plugins
 	env := &musicLightingEnv{
 		server:        server,
+		client:        client,
 		stateManager:  manager,
 		logger:        logger,
 		stateTracking: statetracking.NewManager(context.Background(), client, manager, logger, false, nil, "", &alert.MockAlerter{}),
