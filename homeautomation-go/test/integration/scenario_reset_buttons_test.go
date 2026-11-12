@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"homeautomation/internal/plugins/lighting"
+	"homeautomation/internal/plugins/music"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -144,4 +145,41 @@ func TestScenario_UserStory_LightingResetPressedWhileAppIsDown(t *testing.T) {
 
 	t.Log("THEN: The button turns itself off")
 	waitForBoolState(t, env.stateManager, "lightingReset", false, "lightingReset should clear itself")
+}
+
+// TestScenario_UserStory_MusicResetPressedWhileAppIsDown verifies that a music reset
+// turned on while the app is not running still runs when the app starts.
+//
+// User story: "The music is stuck. I say 'turn on music reset'. The app was
+// restarting at that moment. When it comes back, the music restarts, and the
+// button turns itself off."
+func TestScenario_UserStory_MusicResetPressedWhileAppIsDown(t *testing.T) {
+	t.Parallel()
+	env, cleanup := setupMusicLightingTest(t)
+	defer cleanup()
+
+	t.Log("GIVEN: Someone is home in the evening and the music plugin is not running")
+	setupResetButtonsHome(t, env)
+	env.music.Stop()
+
+	t.Log("WHEN: Music reset is turned on while the music plugin is down")
+	env.server.SetState("input_boolean.music_reset", "on", map[string]interface{}{})
+	snapshot := env.server.ServiceCallCount()
+
+	t.Log("WHEN: The app starts: it reads all state from Home Assistant, then starts music")
+	require.NoError(t, env.stateManager.SyncFromHA())
+	waitForBoolState(t, env.stateManager, "musicReset", true, "startup sync should read the reset")
+	env.music = music.NewManager(context.Background(), env.client, env.stateManager,
+		loadTestMusicConfigFromYAML(t), env.logger, false, nil, nil)
+	require.NoError(t, env.music.Start())
+
+	t.Log("THEN: The button turns itself off after the pending reset runs")
+	waitForBoolState(t, env.stateManager, "musicReset", false, "musicReset should clear itself")
+
+	t.Log("THEN: Music re-resolves its mode")
+	waitForCondition(t, func() bool {
+		calls := env.server.GetServiceCallsSince(snapshot)
+		return len(filterServiceCalls(calls, "input_text", "set_value")) >= 1 ||
+			len(filterServiceCalls(calls, "media_player", "play_media")) >= 1
+	}, "a music reset that was on at startup should re-resolve music")
 }

@@ -268,6 +268,11 @@ func (m *Manager) Start() error {
 			zap.String("variable", varNameCopy))
 	}
 
+	if pending, err := m.stateManager.GetBool("musicReset"); err == nil && pending {
+		m.logger.Info("musicReset was already on at startup")
+		m.handleMusicResetChange("musicReset", false, true)
+	}
+
 	// Refresh available speakers from Home Assistant
 	if err := m.refreshAvailableSpeakers(); err != nil {
 		m.logger.Warn("Failed to refresh available speakers on startup", zap.Error(err))
