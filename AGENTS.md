@@ -517,7 +517,7 @@ These speakers are discovered by SoCo and match the `player_name` values in `con
 | Speaker | In Music Config | Notes |
 |---------|----------------|-------|
 | Pantry | Yes | Group leader in most zones |
-| Lounge | No (temporary) | Removed from all modes until the WiFi rollout is complete. Weak signal. Too far from the WAP to lead |
+| Lounge | Yes | Automatic-zone participant; Pantry remains the group leader |
 | Kids Bathroom | Yes | |
 | Primary Bed | Yes | 5 GHz capable. Excluded from some zones when master is asleep |
 | Sitting | Yes | |
