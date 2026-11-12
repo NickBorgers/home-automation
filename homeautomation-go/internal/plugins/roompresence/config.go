@@ -91,8 +91,9 @@ type Config struct {
 	TokenStore string `yaml:"token_store"`
 
 	// TokenStoreMaxAge is how old a saved copy may be and still be loaded at startup. The plugin saves
-	// when a kept token changes and again when it stops, so a clean restart leaves a fresh copy. A crash
-	// leaves an old one, and the plugin then starts with no tokens, as it would without a store.
+	// when a kept token changes, when it stops, and every third of this while any token is kept. So any
+	// restart, even a killed process, leaves a fresh copy. A long outage leaves an old one, and the plugin
+	// then starts with no tokens, as it would without a store.
 	TokenStoreMaxAge time.Duration `yaml:"token_store_max_age"`
 }
 

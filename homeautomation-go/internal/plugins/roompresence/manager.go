@@ -52,8 +52,9 @@ type Manager struct {
 	// prevTokens and prevOutputs hold the last logged state, to log changes. Guarded by applyMu.
 	prevTokens  map[string]shadowstate.RoomPresenceToken
 	prevOutputs map[string]bool
-	// storedKey is the unseen tokens last written to the token store. Guarded by applyMu.
+	// storedKey is the unseen tokens last written to the token store, and storedAt when. Guarded by applyMu.
 	storedKey string
+	storedAt  time.Time
 
 	// occupancy receives each area's state after every change, for other plugins. May be nil.
 	occupancy *occupancy.Hub
