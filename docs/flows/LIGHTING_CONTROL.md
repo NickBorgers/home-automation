@@ -112,6 +112,14 @@ flowchart TD
 | winddown | Winddown | 20-40% | 2200K (candle) | Pre-sleep dimming |
 | night | Night | 1-10% | 2000K (dim red) | Minimal for navigation |
 
+### Phase change during startup
+
+The day phase plugin starts before lighting. If a phase boundary passed while the app was down, the day
+phase plugin sets the new phase before lighting subscribes. Lighting therefore compares `dayPhase` and
+`sunevent` with the values Home Assistant held when the app connected. If either differs, lighting applies
+the current phase's scenes once. If neither differs, lighting does not touch scenes at startup, so a deploy
+does not undo manual light changes.
+
 ## Light Group Management
 
 Lights are organized into zones with different behaviors:

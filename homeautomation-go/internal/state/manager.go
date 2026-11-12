@@ -66,6 +66,10 @@ type Manager struct {
 	// Protected by cacheMu.
 	pendingWrites map[string]interface{}
 
+	// syncedValues holds each variable's value as read from Home Assistant by the
+	// last SyncFromHA, before any plugin wrote to it. Protected by cacheMu.
+	syncedValues map[string]interface{}
+
 	// wakeSequenceLatch is internal state for computed isAnyoneHomeAndAwake.
 	// When the wake sequence activates (isWakeSequenceActive false->true),
 	// this latch is set to keep isAnyoneHomeAndAwake=true even if someone
@@ -114,6 +118,7 @@ func NewManager(client ha.HAClient, logger *zap.Logger, readOnly bool) *Manager 
 		haSubs:                 make(map[string]ha.Subscription),
 		readOnly:               readOnly,
 		pendingWrites:          make(map[string]interface{}),
+		syncedValues:           make(map[string]interface{}),
 	}
 }
 
@@ -236,6 +241,7 @@ func (m *Manager) SyncFromHA() error {
 		m.cacheMu.Lock()
 		oldValue, hadOldValue := m.cache[variable.Key]
 		m.cache[variable.Key] = value
+		m.syncedValues[variable.Key] = value
 		m.cacheMu.Unlock()
 		if pendingValue, hadPendingWrite := pendingWrites[variable.Key]; hadPendingWrite {
 			oldValue = pendingValue
@@ -273,6 +279,21 @@ func (m *Manager) SyncFromHA() error {
 	}
 
 	return nil
+}
+
+// SyncedString returns a string variable's value as read from Home Assistant by the
+// last SyncFromHA. A plugin that starts after another plugin changed the value can
+// compare it with the current value to find a change it did not see.
+// The second result is false if the variable was not read from Home Assistant.
+func (m *Manager) SyncedString(key string) (string, bool) {
+	m.cacheMu.RLock()
+	value, ok := m.syncedValues[key]
+	m.cacheMu.RUnlock()
+	if !ok {
+		return "", false
+	}
+	str, ok := value.(string)
+	return str, ok
 }
 
 // parseStateValue parses a state string into the appropriate type

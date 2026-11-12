@@ -197,10 +197,13 @@ func (m *Manager) Start() error {
 	m.subHelper.CaptureInitialInputs()
 
 	// A reset turned on while the app was down produces no change event, so it
-	// would stay on and never run. Treat it as a fresh trigger.
+	// would stay on and never run. Treat it as a fresh trigger. The reset
+	// re-applies every scene, so the missed phase check below is not needed.
 	if pending, err := m.stateManager.GetBool("lightingReset"); err == nil && pending {
 		m.logger.Info("lightingReset was already on at startup")
 		m.handleLightingResetChange("lightingReset", false, true)
+	} else {
+		m.applyPhaseChangeMissedAtStartup()
 	}
 
 	m.logger.Info("Lighting Control Manager started successfully")
@@ -271,6 +274,35 @@ func (m *Manager) handleDayPhaseChange(key string, oldValue, newValue interface{
 	// Activate scenes for all rooms based on new day phase
 	// dayPhase changes always affect all rooms (like "reset" in Node-RED)
 	m.activateScenesForAllRooms(newPhase, key)
+}
+
+// applyPhaseChangeMissedAtStartup applies scenes once if dayPhase or sunevent changed
+// after the startup sync but before lighting subscribed. The day phase plugin starts
+// first, so a phase boundary that passed while the app was down is set before
+// lighting listens. If neither changed, it does nothing, so a restart does not undo
+// manual light changes.
+func (m *Manager) applyPhaseChangeMissedAtStartup() {
+	for _, key := range []string{"dayPhase", "sunevent"} {
+		synced, ok := m.stateManager.SyncedString(key)
+		if !ok {
+			continue
+		}
+		current, err := m.stateManager.GetString(key)
+		if err != nil || current == synced {
+			continue
+		}
+		dayPhase, err := m.stateManager.GetString("dayPhase")
+		if err != nil {
+			m.logger.Error("Failed to get dayPhase", zap.Error(err))
+			return
+		}
+		m.logger.Info("Day phase changed during startup, activating scenes",
+			zap.String("key", key),
+			zap.String("synced", synced),
+			zap.String("current", current))
+		m.activateScenesForAllRooms(dayPhase, "startup:"+key)
+		return
+	}
 }
 
 // handleSunEventChange processes sun event changes
