@@ -51,6 +51,13 @@ func (c *Coordinator) Start() error {
 	}
 	c.subscription = sub
 
+	// A reset turned on while the app was down produces no change event, so it
+	// would stay on and never run. Treat it as a fresh trigger.
+	if pending, err := c.stateManager.GetBool("reset"); err == nil && pending {
+		c.logger.Info("reset was already on at startup")
+		c.handleResetChange("reset", false, true)
+	}
+
 	c.logger.Info("Reset Coordinator started successfully")
 	return nil
 }
