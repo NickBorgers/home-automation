@@ -196,6 +196,13 @@ func (m *Manager) Start() error {
 
 	m.subHelper.CaptureInitialInputs()
 
+	// A reset turned on while the app was down produces no change event, so it
+	// would stay on and never run. Treat it as a fresh trigger.
+	if pending, err := m.stateManager.GetBool("lightingReset"); err == nil && pending {
+		m.logger.Info("lightingReset was already on at startup")
+		m.handleLightingResetChange("lightingReset", false, true)
+	}
+
 	m.logger.Info("Lighting Control Manager started successfully")
 	return nil
 }
