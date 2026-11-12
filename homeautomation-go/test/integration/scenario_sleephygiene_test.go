@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"homeautomation/internal/clock"
 	"homeautomation/internal/config"
 	"homeautomation/internal/plugins/lighting"
 	"homeautomation/internal/plugins/sleephygiene"
@@ -78,6 +79,47 @@ func setupSleepHygieneScenarioTestWithTime(t *testing.T, fixedTime time.Time) (*
 	}
 
 	return server, sleepMgr, manager, cleanup
+}
+
+// TestScenario_RestartAfterBedtime_DoesNotRepeatGoToBed verifies that a deploy
+// during the bedtime trigger window does not repeat the household reminder.
+func TestScenario_RestartAfterBedtime_DoesNotRepeatGoToBed(t *testing.T) {
+	// Wednesday's go_to_bed is 22:30. Start 30 minutes into its one-hour window.
+	now := time.Date(2025, 1, 15, 23, 0, 0, 0, time.UTC)
+	server, client, stateManager, cleanup := setupTest(t)
+	defer cleanup()
+
+	server.SetState("input_boolean.anyone_home", "on", map[string]interface{}{})
+	server.SetState("input_boolean.everyone_asleep", "off", map[string]interface{}{})
+	server.SetState("input_text.music_playback_type", "sleep", map[string]interface{}{})
+	waitForBoolState(t, stateManager, "isAnyoneHome", true)
+	waitForStringState(t, stateManager, "musicPlaybackType", "sleep")
+
+	newManager := func() *sleephygiene.Manager {
+		loader := config.NewLoader("../../../configs", testlogger.New())
+		loader.SetClock(clock.NewMockClock(now))
+		require.NoError(t, loader.LoadScheduleConfig())
+		return sleephygiene.NewManager(context.Background(), client, stateManager, loader, testlogger.New(), false,
+			plugin.FixedTimeProvider{FixedTime: now}, time.UTC)
+	}
+
+	// GIVEN: go_to_bed fired before the restart and its sleep-music effect remains in Home Assistant.
+	t.Log("GIVEN: go_to_bed has fired once during tonight's bedtime window")
+	snapshot := server.ServiceCallCount()
+
+	// WHEN: the app restarts 30 minutes after bedtime.
+	t.Log("WHEN: the app restarts 30 minutes after bedtime")
+	restarted := newManager()
+	require.NoError(t, restarted.Start())
+	defer restarted.Stop()
+	waitForProcessing(t, stateManager)
+
+	// THEN: go_to_bed must not fire again; in particular, the common-area lights never flash again.
+	t.Log("THEN: the go_to_bed reminder does not flash the lights again")
+	for _, call := range server.GetServiceCallsSince(snapshot) {
+		assert.False(t, call.Domain == "light" && call.Service == "turn_on" && call.ServiceData["flash"] == "short",
+			"restart must not repeat the go_to_bed light flash")
+	}
 }
 
 // TestScenario_AlarmTimeReached_TriggersBeginWakeSequence validates that when
