@@ -102,6 +102,29 @@ func TestManager_SyncFromHA_FirstSyncDoesNotNotify(t *testing.T) {
 	assert.Equal(t, int32(0), notified.Load())
 }
 
+// TestManager_SyncedString_KeepsValueReadAtSync verifies that SyncedString reports the
+// value read from Home Assistant, not a value a plugin wrote afterwards.
+func TestManager_SyncedString_KeepsValueReadAtSync(t *testing.T) {
+	t.Parallel()
+	mockClient := ha.NewMockClient()
+	mockClient.SetState("input_text.day_phase", "dusk", map[string]interface{}{})
+	mockClient.Connect()
+
+	manager := NewManager(mockClient, testlogger.New(), false)
+	_, ok := manager.SyncedString("dayPhase")
+	assert.False(t, ok, "nothing is synced before SyncFromHA")
+
+	require.NoError(t, manager.SyncFromHA())
+	require.NoError(t, manager.SetString("dayPhase", "night"))
+
+	synced, ok := manager.SyncedString("dayPhase")
+	assert.True(t, ok)
+	assert.Equal(t, "dusk", synced)
+	current, err := manager.GetString("dayPhase")
+	require.NoError(t, err)
+	assert.Equal(t, "night", current)
+}
+
 // TestManager_SetString_WriteReachesHAButCallFails_ResyncNotifies reproduces the 2026-10-24 dusk incident.
 // The write reaches HA, then the connection drops before HA confirms. SetString rolls back
 // and returns an error. The reconnect resync must still deliver the new value to subscribers.
