@@ -23,8 +23,10 @@ type storedTokens struct {
 // out, newest first, and counted in dropped.
 func encodeTokens(savedAt time.Time, kept []KeptToken) (value string, dropped int, err error) {
 	s := storedTokens{SavedAt: savedAt.Unix(), Tokens: [][]interface{}{}}
+	timestamps := make([]int64, 0, len(kept))
 	for _, k := range kept {
 		s.Tokens = append(s.Tokens, []interface{}{k.Area, k.Since.Unix()})
+		timestamps = append(timestamps, k.Since.Unix())
 	}
 	for {
 		b, err := json.Marshal(s)
@@ -36,12 +38,13 @@ func encodeTokens(savedAt time.Time, kept []KeptToken) (value string, dropped in
 		}
 		// The oldest tokens have stayed longest, so they are the likeliest to still be there.
 		newest := 0
-		for i, tok := range s.Tokens {
-			if tok[1].(int64) > s.Tokens[newest][1].(int64) {
+		for i := range timestamps {
+			if timestamps[i] > timestamps[newest] {
 				newest = i
 			}
 		}
 		s.Tokens = append(s.Tokens[:newest], s.Tokens[newest+1:]...)
+		timestamps = append(timestamps[:newest], timestamps[newest+1:]...)
 		dropped++
 	}
 }
