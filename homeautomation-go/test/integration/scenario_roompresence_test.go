@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -186,13 +187,15 @@ func TestScenario_RoomPresence_KilledProcessKeepsUnseenTokens(t *testing.T) {
 	require.Eventually(t, func() bool { return mgr.Occupied("study") }, 5*time.Second, 10*time.Millisecond)
 	// Wait for the initial settled save (storeSettle = 10 s), then for one periodic refresh
 	// (every max_age/3 = 1 s). Polling is used because the store state is directly observable.
+	// The plugin writes an empty list at startup, so wait for a save that holds the study token.
 	var firstSave string
 	require.Eventually(t, func() bool {
 		s := server.GetState(store).State
-		if s != "" {
+		if strings.Contains(s, "study") {
 			firstSave = s
+			return true
 		}
-		return s != ""
+		return false
 	}, 15*time.Second, 100*time.Millisecond, "waiting for token to settle and be saved")
 	require.Eventually(t, func() bool {
 		return server.GetState(store).State != firstSave
