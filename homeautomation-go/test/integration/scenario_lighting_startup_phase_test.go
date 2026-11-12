@@ -89,6 +89,8 @@ func TestScenario_UserStory_RestartWithoutPhaseChangeLeavesLightsAlone(t *testin
 	waitForStringState(t, stateManager, "dayPhase", "dusk", "startup sync should read dusk")
 
 	t.Log("WHEN: The day phase plugin starts and finds it is still dusk")
+	// SetString writes to cache but not to syncedValues, so SyncedString still returns
+	// "dusk" and current == synced — the no-op path is exercised correctly.
 	require.NoError(t, stateManager.SetString("dayPhase", "dusk"))
 	snapshot := server.ServiceCallCount()
 
@@ -99,7 +101,7 @@ func TestScenario_UserStory_RestartWithoutPhaseChangeLeavesLightsAlone(t *testin
 	defer lightingManager.Stop()
 
 	t.Log("THEN: No scenes are applied")
-	time.Sleep(500 * time.Millisecond)
+	waitForServiceCallQuiescenceSince(t, server, snapshot, 200*time.Millisecond)
 	calls := server.GetServiceCallsSince(snapshot)
 	assert.Empty(t, filterServiceCalls(calls, "scene", "turn_on"), "a restart with no phase change must not re-apply scenes")
 }

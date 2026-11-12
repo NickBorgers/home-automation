@@ -68,6 +68,8 @@ type Manager struct {
 
 	// syncedValues holds each variable's value as read from Home Assistant by the
 	// last SyncFromHA, before any plugin wrote to it. Protected by cacheMu.
+	// The map is overwritten (not merged) on each reconnect resync, so callers
+	// should not treat it as "initial startup value" after a reconnect has occurred.
 	syncedValues map[string]interface{}
 
 	// wakeSequenceLatch is internal state for computed isAnyoneHomeAndAwake.

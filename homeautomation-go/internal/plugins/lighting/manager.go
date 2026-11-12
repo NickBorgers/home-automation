@@ -291,10 +291,15 @@ func (m *Manager) applyPhaseChangeMissedAtStartup() {
 		if err != nil || current == synced {
 			continue
 		}
-		dayPhase, err := m.stateManager.GetString("dayPhase")
-		if err != nil {
-			m.logger.Error("Failed to get dayPhase", zap.Error(err))
-			return
+		// When the triggering key is "dayPhase", current already holds the phase.
+		// When it is "sunevent", we still need to read dayPhase separately.
+		dayPhase := current
+		if key != "dayPhase" {
+			dayPhase, err = m.stateManager.GetString("dayPhase")
+			if err != nil {
+				m.logger.Error("Failed to get dayPhase", zap.Error(err))
+				return
+			}
 		}
 		m.logger.Info("Day phase changed during startup, activating scenes",
 			zap.String("key", key),
