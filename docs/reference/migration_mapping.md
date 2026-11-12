@@ -52,10 +52,10 @@ All 46 state variables currently implemented in the Go application, organized by
 | isNickNearHome | input_boolean.nick_near_home | Nick proximity geofence trigger | - |
 | isCarolineNearHome | input_boolean.caroline_near_home | Caroline proximity geofence trigger | - |
 | isLockdown | input_boolean.lockdown | Security lockdown momentary trigger | - |
-| reset | input_boolean.reset | System reset trigger | - |
+| reset | input_boolean.reset | System reset trigger. A reset left on while the app was down runs at startup | - |
 | resetTV | input_boolean.reset_tv | Manual TV/Sync Box restart trigger (HomeKit Reset button) | - |
 | lightingReset | input_boolean.lighting_reset | Manual lighting reset trigger. Re-applies scenes for the current day phase (HomeKit "Lighting Reset" button). A reset left on while the app was down runs at startup | - |
-| musicReset | input_boolean.music_reset | Manual music reset trigger. Stops music and re-resolves it for the current mode (HomeKit "Music Reset" button) | - |
+| musicReset | input_boolean.music_reset | Manual music reset trigger. Stops music and re-resolves it for the current mode (HomeKit "Music Reset" button). A reset left on while the app was down runs at startup | - |
 | isFrontOfHousePersonPresent | input_boolean.front_of_house_person_present | Front porch presence | - |
 | isDarkOutside | input_boolean.dark_outside | Smoothed outdoor illuminance is below 30 lux; remains unchanged until above 80 lux. Falls back to dusk, winddown, or night day phases when unavailable. | ComputedOutput |
 

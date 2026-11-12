@@ -286,6 +286,13 @@ func (m *Manager) Start() error {
 		}
 	}
 
+	// A music reset turned on while the app was down produces no change event, so it
+	// would stay on and never run. Treat it as a fresh trigger.
+	if pending, err := m.stateManager.GetBool("musicReset"); err == nil && pending {
+		m.logger.Info("musicReset was already on at startup")
+		m.handleMusicResetChange("musicReset", false, true)
+	}
+
 	m.logger.Info("Music Manager started successfully")
 	return nil
 }

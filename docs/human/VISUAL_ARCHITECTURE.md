@@ -652,11 +652,14 @@ classDiagram
 
 ## Reset Coordinator Flow
 
-The Reset Coordinator watches for the `reset` boolean and orchestrates system-wide resets.
+The Reset Coordinator watches for the `reset` boolean and orchestrates system-wide resets. It also runs any pending reset at startup — if the boolean was turned on while the app was down, the reset fires once on the new process and the button clears itself.
 
 ```mermaid
 flowchart TD
     Start([Reset Boolean = true<br/>in Home Assistant]) --> Subscribe[Reset Coordinator<br/>Subscribed to 'reset']
+    StartupCheck([App starts: read 'reset' value]) --> AlreadyOn{Already true?}
+    AlreadyOn -->|No| Subscribe
+    AlreadyOn -->|Yes| HandleChange
 
     Subscribe --> HandleChange["handleResetChange()"]
     HandleChange --> CheckValue{newValue == true?}
