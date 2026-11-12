@@ -60,6 +60,9 @@ This avoids setting `isSleepPrepActive=true` with an empty house. If sleep prep 
 
 If no one arrives within the 1-hour window, `go_to_bed` is skipped for the night and clears at midnight with the other triggers.
 
+On startup inside the `go_to_bed` window, an existing `musicPlaybackType=sleep` restores the in-memory
+trigger marker. This prevents a deploy from repeating the bedtime light flash after sleep music has already started.
+
 ## Wake-Up Sequence
 
 The primary wake trigger comes from Eight Sleep Pod alarm sensors. A backup time-based trigger activates only when Eight Sleep is unavailable.

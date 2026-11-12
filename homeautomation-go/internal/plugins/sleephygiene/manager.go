@@ -200,6 +200,18 @@ func (m *Manager) Start() error {
 		}
 	}
 
+	// Home Assistant preserves musicPlaybackType across process restarts. If sleep
+	// music is already active inside tonight's bedtime window, go_to_bed already
+	// fired and must not repeat its light flash during the startup check.
+	now := m.timeProvider.Now()
+	if schedule, err := m.configLoader.GetTodaysScheduleInTimezone(m.timezone); err == nil &&
+		now.After(schedule.GoToBed) && now.Before(schedule.GoToBed.Add(time.Hour)) {
+		if musicType, err := m.stateManager.GetString("musicPlaybackType"); err == nil && musicType == "sleep" {
+			m.triggeredToday["go_to_bed"] = now
+			m.logger.Info("Restored go_to_bed trigger from active sleep music")
+		}
+	}
+
 	// Start ticker to check time triggers every minute
 	m.ticker = time.NewTicker(1 * time.Minute)
 	go m.runTimerLoop()
