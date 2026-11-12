@@ -84,6 +84,14 @@ func vacuumPixel(x, y float64) (float64, float64) {
 
 func setupVacuumScenario(t *testing.T, cleanedAgo map[string]time.Duration, costs map[string]float64) *vacuumScenario {
 	t.Helper()
+	return setupVacuumScenarioWith(t, cleanedAgo, costs, "", nil)
+}
+
+// setupVacuumScenarioWith is setupVacuumScenario with extra scheduler config lines, indented as keys of
+// scheduler:, and an optional hook that prepares the fake robot before the scheduler starts.
+func setupVacuumScenarioWith(t *testing.T, cleanedAgo map[string]time.Duration, costs map[string]float64,
+	extraConfig string, prepare func(robot *valetudotest.Robot)) *vacuumScenario {
+	t.Helper()
 	server, client, sm, baseCleanup := setupTest(t)
 	t.Cleanup(baseCleanup)
 
@@ -129,8 +137,11 @@ func setupVacuumScenario(t *testing.T, cleanedAgo map[string]time.Duration, cost
 	robot.SetChargerPixel(vacuumPixel(1, 1))
 	px, py := vacuumPixel(1, 1)
 	robot.SetRobotPixel(px, py, true)
+	if prepare != nil {
+		prepare(robot)
+	}
 
-	cfg := loadVacuumSchedulerConfig(t, robot.URL)
+	cfg := loadVacuumSchedulerConfig(t, robot.URL, extraConfig)
 	clk := clock.NewMockClock(vacuumT0)
 	tracker := shadowstate.NewVacuumTracker()
 	s := vacuum.NewScheduler(context.Background(), client, sm, cfg, m, valetudo.NewClient(robot.URL, nil), hub,
@@ -143,7 +154,7 @@ func setupVacuumScenario(t *testing.T, cleanedAgo map[string]time.Duration, cost
 		sched: s, shadow: tracker}
 }
 
-func loadVacuumSchedulerConfig(t *testing.T, url string) *vacuum.SchedulerConfig {
+func loadVacuumSchedulerConfig(t *testing.T, url, extra string) *vacuum.SchedulerConfig {
 	t.Helper()
 	text := `vacuum:
   scheduler:
@@ -158,7 +169,7 @@ func loadVacuumSchedulerConfig(t *testing.T, url string) *vacuum.SchedulerConfig
       hall:    {segment_id: "4", full: 24h}
       bedroom: {segment_id: "5", full: 24h}
       porch:   {segment_id: "6", full: 24h}
-`
+` + extra
 	path := filepath.Join(t.TempDir(), "vacuum_config.yaml")
 	require.NoError(t, os.WriteFile(path, []byte(text), 0o600))
 	cfg, err := vacuum.LoadConfig(path)

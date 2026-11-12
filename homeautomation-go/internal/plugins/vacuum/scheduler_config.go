@@ -36,6 +36,7 @@ const (
 	defaultReplanInterval = 5 * time.Minute
 	defaultStableFor      = 10 * time.Minute
 	defaultTrackInterval  = 30 * time.Second
+	defaultTravelTrack    = 5 * time.Second
 	defaultMinDwell       = 2 * time.Minute
 )
 
@@ -58,6 +59,14 @@ type SchedulerConfig struct {
 	TrackIntervalRaw  string `yaml:"track_interval"`
 	MinDwellRaw       string `yaml:"min_dwell"`
 
+	// TravelFanSpeed is the fan preset, such as "low", for the robot's drives between rooms on a run the
+	// scheduler started in active mode. The treatment's fan speed is set only while the robot is in the room
+	// it is cleaning. Empty turns quiet travel off: the treatment's fan speed is set for the whole run.
+	TravelFanSpeed string `yaml:"travel_fan_speed"`
+	// TravelTrackIntervalRaw is how often the robot is polled while quiet travel is on and the robot is not
+	// in the room it is cleaning, so the fan goes up soon after it arrives. Default 5s.
+	TravelTrackIntervalRaw string `yaml:"travel_track_interval"`
+
 	Battery    BatteryConfig                 `yaml:"battery"`
 	Treatments map[Treatment]TreatmentConfig `yaml:"treatments"`
 	Sleepers   []SleeperConfig               `yaml:"sleepers"`
@@ -70,6 +79,8 @@ type SchedulerConfig struct {
 	StableFor      time.Duration `yaml:"-"`
 	TrackInterval  time.Duration `yaml:"-"`
 	MinDwell       time.Duration `yaml:"-"`
+	// TravelTrackInterval is the parsed travel_track_interval.
+	TravelTrackInterval time.Duration `yaml:"-"`
 
 	// Err says why the scheduler cannot run. The error announcer keeps working either way.
 	Err error `yaml:"-"`
@@ -175,10 +186,15 @@ func (c *SchedulerConfig) validate() error {
 		{"stable_for", c.StableForRaw, defaultStableFor, &c.StableFor},
 		{"track_interval", c.TrackIntervalRaw, defaultTrackInterval, &c.TrackInterval},
 		{"min_dwell", c.MinDwellRaw, defaultMinDwell, &c.MinDwell},
+		{"travel_track_interval", c.TravelTrackIntervalRaw, defaultTravelTrack, &c.TravelTrackInterval},
 	} {
 		if *d.out, err = parseDuration("scheduler."+d.name, d.raw, d.def, false); err != nil {
 			return err
 		}
+	}
+
+	if c.TravelFanSpeed != strings.TrimSpace(c.TravelFanSpeed) {
+		return fmt.Errorf("scheduler.travel_fan_speed %q must not have leading or trailing spaces", c.TravelFanSpeed)
 	}
 
 	b := &c.Battery

@@ -67,6 +67,13 @@ vacuum:
     track_interval: "30s"
     min_dwell: "2m"
 
+    # Quiet travel: fan preset while the robot drives between rooms on a run
+    # the scheduler started; the treatment's fan_speed is set only in the room
+    # being cleaned. Leave empty to keep the treatment's fan for the whole run.
+    travel_fan_speed: "low"
+    # How often the robot is polled while it travels with quiet travel on.
+    travel_track_interval: "5s"
+
     battery:
       # Start only at or above start_min. Plan so the run ends at or above
       # floor.
