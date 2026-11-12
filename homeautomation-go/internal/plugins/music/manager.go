@@ -268,11 +268,6 @@ func (m *Manager) Start() error {
 			zap.String("variable", varNameCopy))
 	}
 
-	if pending, err := m.stateManager.GetBool("musicReset"); err == nil && pending {
-		m.logger.Info("musicReset was already on at startup")
-		m.handleMusicResetChange("musicReset", false, true)
-	}
-
 	// Refresh available speakers from Home Assistant
 	if err := m.refreshAvailableSpeakers(); err != nil {
 		m.logger.Warn("Failed to refresh available speakers on startup", zap.Error(err))
@@ -289,6 +284,15 @@ func (m *Manager) Start() error {
 		if err := m.zoneManager.ResolveZones("startup"); err != nil {
 			m.logger.Error("Failed initial zone resolution", zap.Error(err))
 		}
+	}
+
+	// A reset turned on while the app was down produces no change event, so it
+	// would stay on and never run. Treat it as a fresh trigger. Run after the
+	// startup zone resolution and speaker refresh so the reset fires with current
+	// speaker state and always follows the startup resolution.
+	if pending, err := m.stateManager.GetBool("musicReset"); err == nil && pending {
+		m.logger.Info("musicReset was already on at startup")
+		m.handleMusicResetChange("musicReset", false, true)
 	}
 
 	m.logger.Info("Music Manager started successfully")
