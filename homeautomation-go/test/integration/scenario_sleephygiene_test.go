@@ -84,6 +84,7 @@ func setupSleepHygieneScenarioTestWithTime(t *testing.T, fixedTime time.Time) (*
 // TestScenario_RestartAfterBedtime_DoesNotRepeatGoToBed verifies that a deploy
 // during the bedtime trigger window does not repeat the household reminder.
 func TestScenario_RestartAfterBedtime_DoesNotRepeatGoToBed(t *testing.T) {
+	t.Parallel()
 	// Wednesday's go_to_bed is 22:30. Start 30 minutes into its one-hour window.
 	now := time.Date(2025, 1, 15, 23, 0, 0, 0, time.UTC)
 	server, client, stateManager, cleanup := setupTest(t)
@@ -119,6 +120,45 @@ func TestScenario_RestartAfterBedtime_DoesNotRepeatGoToBed(t *testing.T) {
 	for _, call := range server.GetServiceCallsSince(snapshot) {
 		assert.False(t, call.Domain == "light" && call.Service == "turn_on" && call.ServiceData["flash"] == "short",
 			"restart must not repeat the go_to_bed light flash")
+	}
+}
+
+// TestScenario_RestartAfterStopScreens_DoesNotRepeatReminder verifies that a deploy
+// during the stop_screens trigger window does not repeat the household reminder.
+func TestScenario_RestartAfterStopScreens_DoesNotRepeatReminder(t *testing.T) {
+	t.Parallel()
+	// Wednesday's stop_screens is 21:30. Start 30 minutes into its one-hour window.
+	now := time.Date(2025, 1, 15, 22, 0, 0, 0, time.UTC)
+	server, client, stateManager, cleanup := setupTest(t)
+	defer cleanup()
+
+	server.SetState("input_boolean.anyone_home", "on", map[string]interface{}{})
+	server.SetState("input_boolean.everyone_asleep", "off", map[string]interface{}{})
+	server.SetState("input_text.day_phase", "winddown", map[string]interface{}{})
+	waitForBoolState(t, stateManager, "isAnyoneHome", true)
+	waitForStringState(t, stateManager, "dayPhase", "winddown")
+
+	loader := config.NewLoader("../../../configs", testlogger.New())
+	loader.SetClock(clock.NewMockClock(now))
+	require.NoError(t, loader.LoadScheduleConfig())
+
+	// GIVEN: stop_screens fired before the restart and the house remains in winddown.
+	t.Log("GIVEN: stop_screens has fired once during tonight's reminder window")
+	snapshot := server.ServiceCallCount()
+
+	// WHEN: the app restarts 30 minutes after stop_screens.
+	t.Log("WHEN: the app restarts during the stop_screens window")
+	restarted := sleephygiene.NewManager(context.Background(), client, stateManager, loader, testlogger.New(), false,
+		plugin.FixedTimeProvider{FixedTime: now}, time.UTC)
+	require.NoError(t, restarted.Start())
+	defer restarted.Stop()
+	waitForProcessing(t, stateManager)
+
+	// THEN: stop_screens must not fire again; the common-area lights never flash again.
+	t.Log("THEN: the stop_screens reminder does not flash the lights again")
+	for _, call := range server.GetServiceCallsSince(snapshot) {
+		assert.False(t, call.Domain == "light" && call.Service == "turn_on" && call.ServiceData["flash"] == "short",
+			"restart must not repeat the stop_screens light flash")
 	}
 }
 

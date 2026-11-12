@@ -200,15 +200,22 @@ func (m *Manager) Start() error {
 		}
 	}
 
-	// Home Assistant preserves musicPlaybackType across process restarts. If sleep
-	// music is already active inside tonight's bedtime window, go_to_bed already
-	// fired and must not repeat its light flash during the startup check.
+	// Home Assistant preserves dayPhase and musicPlaybackType across process restarts.
+	// Restore scheduled triggers whose effects are already active so the startup
+	// check does not repeat their light flashes.
 	now := m.timeProvider.Now()
-	if schedule, err := m.configLoader.GetTodaysScheduleInTimezone(m.timezone); err == nil &&
-		now.After(schedule.GoToBed) && now.Before(schedule.GoToBed.Add(time.Hour)) {
-		if musicType, err := m.stateManager.GetString("musicPlaybackType"); err == nil && musicType == "sleep" {
-			m.triggeredToday["go_to_bed"] = now
-			m.logger.Info("Restored go_to_bed trigger from active sleep music")
+	if schedule, err := m.configLoader.GetTodaysScheduleInTimezone(m.timezone); err == nil {
+		if now.After(schedule.StopScreens) && now.Before(schedule.StopScreens.Add(time.Hour)) {
+			if dayPhase, err := m.stateManager.GetString("dayPhase"); err == nil && dayPhase == "winddown" {
+				m.triggeredToday["stop_screens"] = now
+				m.logger.Info("Restored stop_screens trigger from winddown day phase")
+			}
+		}
+		if now.After(schedule.GoToBed) && now.Before(schedule.GoToBed.Add(time.Hour)) {
+			if musicType, err := m.stateManager.GetString("musicPlaybackType"); err == nil && musicType == "sleep" {
+				m.triggeredToday["go_to_bed"] = now
+				m.logger.Info("Restored go_to_bed trigger from active sleep music")
+			}
 		}
 	}
 
