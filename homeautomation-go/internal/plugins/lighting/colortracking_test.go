@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	testColorSource = "light.main_living_space"
+	testColorSource = "light.living_cans"
 	testColorTarget = "light.back_hall"
 )
 
