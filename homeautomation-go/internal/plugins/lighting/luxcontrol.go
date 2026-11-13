@@ -82,6 +82,7 @@ func (c *luxCommand) levelAt(t time.Time) (float64, int) {
 // luxRoomState is the per-room control state.
 type luxRoomState struct {
 	cmd       *luxCommand
+	previous  *luxCommand            // prior command, retained until its last delayed report can arrive
 	followers map[string]*luxCommand // last command per follower light
 	// followerHeld marks strips a person changed by hand. Only the strip is held, never the room.
 	followerHeld map[string]bool
@@ -384,6 +385,7 @@ func (m *Manager) luxEvaluate(room *RoomConfig, trigger string) {
 
 	if !luxActive(room) || m.readOnly {
 		m.luxMu.Lock()
+		st.previous = st.cmd
 		st.cmd = cmd
 		m.luxMu.Unlock()
 		m.luxDriveFollowers(room, st, cmd)
@@ -396,6 +398,7 @@ func (m *Manager) luxEvaluate(room *RoomConfig, trigger string) {
 		return
 	}
 	m.luxMu.Lock()
+	st.previous = st.cmd
 	st.cmd = cmd
 	m.luxMu.Unlock()
 	m.luxDriveFollowers(room, st, cmd)
@@ -504,6 +507,12 @@ func (m *Manager) handleCansChange(room *RoomConfig, newState *ha.State) {
 	cmd := st.cmd
 	contraryTurnOn := !cmd.on && newState.State == "on"
 	reason := manualChangeReason(cmd, newState, room.LuxControl.HasColorTemp(), now)
+	if reason != "" && st.previous != nil &&
+		now.Before(st.previous.at.Add(st.previous.transition+fadeReportLag)) &&
+		manualChangeReason(st.previous, newState, room.LuxControl.HasColorTemp(),
+			st.previous.at.Add(fadeReportLag)) == "" {
+		reason = ""
+	}
 	if reason == "" {
 		m.luxMu.Unlock()
 		return
@@ -519,6 +528,7 @@ func (m *Manager) handleCansChange(room *RoomConfig, newState *ha.State) {
 			stabilizing.kelvin = int(k)
 		}
 		st.cmd = stabilizing
+		st.previous = nil
 	}
 	m.luxMu.Unlock()
 	m.logger.Info("Manual change detected; holding room",
@@ -768,6 +778,7 @@ func (m *Manager) clearLuxHold(room *RoomConfig, reason string) {
 	}
 	st.held, st.heldReason, st.heldSince = false, "", time.Time{}
 	st.cmd = nil
+	st.previous = nil
 	st.followers = map[string]*luxCommand{}
 	st.followerHeld = map[string]bool{}
 }
@@ -791,6 +802,7 @@ func (m *Manager) forgetLuxCommand(room *RoomConfig) {
 	defer m.luxMu.Unlock()
 	st := m.luxRoom(room.HueGroup)
 	st.cmd = nil
+	st.previous = nil
 	st.followers = map[string]*luxCommand{}
 }
 
@@ -804,6 +816,7 @@ func (m *Manager) noteLuxRoomOff(room *RoomConfig) {
 	defer m.luxMu.Unlock()
 	st := m.luxRoom(room.HueGroup)
 	st.cmd = &luxCommand{at: m.clock.Now(), on: false, transition: 0}
+	st.previous = nil
 	for _, f := range room.LuxControl.FollowerLights {
 		st.followers[f.Entity] = &luxCommand{at: m.clock.Now(), on: false, transition: 0}
 	}

@@ -121,7 +121,7 @@ Each room has a short calibration table: the lux the cans give at a few brightne
 
 A manual change is any change to a controlled light that this plugin did not command. Examples: the Hue app, a Hue dimmer switch, the Home Assistant UI, or a voice assistant.
 
-The plugin remembers each command it sent: where the fade starts, where it ends, and how long it takes. It checks every report the moment it arrives. No period exists in which reports are ignored. A person who sees the lights do something wrong and turns the dial stops the plugin at once.
+The plugin remembers the current and immediately preceding commands: where each fade starts, where it ends, and how long it takes. It checks every report the moment it arrives. A report that arrives during the 1 s bridge-lag window may match either fade, so back-to-back transitions do not mistake a delayed report from the preceding fade for a manual change. After that window, a person who turns the dial stops the plugin at once.
 
 - A report counts as the plugin's own change when it is on the fade's path. The path runs from where the fade was 1 s ago (reports can arrive late) to the commanded value.
 - A report more than 1.5% brightness or 50 K behind that path is manual. A fade never moves backward, so a move against its direction is a person. Example: during a fade down, any turn up.
