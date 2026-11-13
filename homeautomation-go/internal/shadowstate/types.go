@@ -1316,8 +1316,10 @@ type VacuumRun struct {
 	Current   string     `json:"current,omitempty"`
 	StartedAt time.Time  `json:"startedAt"`
 	EndedAt   *time.Time `json:"endedAt,omitempty"`
-	// Outcome is how the run ended: completed, aborted or stopped.
-	Outcome           string `json:"outcome,omitempty"`
+	// Outcome is how the run ended: completed, aborted, stopped, stalled, error or superseded.
+	Outcome string `json:"outcome,omitempty"`
+	// EndReason says why a stalled, error or superseded run ended, such as "robot in error for 30m".
+	EndReason         string `json:"endReason,omitempty"`
 	StartBattery      int    `json:"startBattery"`
 	Battery           int    `json:"battery"`
 	Aborted           bool   `json:"aborted"`

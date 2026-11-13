@@ -139,8 +139,8 @@ sequenceDiagram
 - The next room of the tour counts at once. Any other room counts only after the robot stays in it for
   `min_dwell` (2 minutes). This keeps a room the robot drives through from counting.
 - The battery drop between two polls goes to the room the robot was in at the first poll. Battery used at
-  the dock — during a mid-job mop wash or the final return — is left out. A finished room's
-  drop is its cost sample. The rest of the run's drop is the trip sample. Samples move the learned cost by
+  the dock — during a mid-job mop wash, a recharge or the final return — is left out, and so is battery used
+  while the robot is stopped in `error`, `idle` or `paused`. A finished room's drop is its cost sample. The rest of the run's drop is the trip sample. Samples move the learned cost by
   `learning_rate` (0.3).
 - Before any sample, a room's cost is its floor area times `default_cost_per_m2`.
 - If the position cannot be trusted, the run is tracked without it. The position is not trusted when the
@@ -155,14 +155,59 @@ recharge. Valetudo keeps the status flag `resumable` while a job is in progress,
 returning, paused or idle. Its mop dock reports `DockStatusStateAttribute`, `cleaning` while it washes.
 
 - A dock visit with the flag `resumable`, or while the dock is washing, is part of the run.
-- The run ends only when the robot is docked or idle with neither, for two polls in a row.
+- The run ends when the robot is docked or idle with neither, for two polls in a row, or when it makes no
+  progress for `stall_timeout` (see below).
 - Only a cleaning robot moves through the tour. Time at the dock does not count as dwelling in the dock room.
+
+### Stalled runs
+
+A run that makes no progress for `stall_timeout` (30 minutes) ends. This covers a robot that stops with an
+error, such as a full dust bag, and stays in it for hours. Without it, the next job would be folded into the
+old run.
+
+```mermaid
+flowchart TD
+    A[Poll] --> B{No progress?<br/>see the rule below}
+    B -- no --> R[Stall clock reset]
+    B -- yes --> C{Stopped for<br/>stall_timeout?}
+    C -- no --> W[Run goes on]
+    C -- yes --> D{Error seen<br/>in the stall?}
+    D -- yes --> E[Run ends: error]
+    D -- no --> F[Run ends: stalled]
+```
+
+What counts as no progress:
+
+- Status `error` always counts.
+- Status `idle` or `paused` counts, even with the flag `resumable`. It does not count while the dock washes
+  the mop, or while the robot is paused by the live-safety rules waiting for its way home to clear.
+- Status `docked` does not count, even with the flag `resumable`. A robot that goes back to recharge in the
+  middle of a job stays docked with `resumable` until it has enough charge to go on, which can take hours. A
+  docked robot with neither `resumable` nor a washing dock ends the run by the usual rule above. The one
+  exception: once a stall began with an error, a docked robot keeps the clock running.
+- `cleaning`, `returning` and `moving` are progress and reset the clock.
+
+When a stalled run ends:
+
+- The room the robot was in stays unfinished and dirty. Rooms it finished before stay finished.
+- No trip cost is learned. Room samples already taken stand; no sample includes stopped time.
+- The next `cleaning` starts a new run. A run started elsewhere reads its treatment from the operation mode
+  at that time.
+- `lastRun` shows the outcome, `error` or `stalled`, and `endReason`, such as
+  `robot in error for 30m: status error, flag none`. The "Vacuum run ended" log line has the same `reason`.
+- If it was the scheduler's own run, the scheduler plans again. A plan needs a docked robot, so nothing
+  starts while the robot is still in error.
 
 ### Runs started elsewhere
 
 A run started by a Valetudo timer, the app or the button is tracked the same way. Its rooms count after
 `min_dwell`. The robot's operation mode decides what it clears: `vacuum_and_mop` clears both taints,
 `vacuum` clears the vacuum taint, and `mop` clears nothing. The scheduler never commands such a run.
+
+If the robot stopped (docked, idle, paused or in error) and then cleans again with a different operation
+mode, that is a new job, such as another timer. The old run ends as `superseded`, with its current room
+unfinished and no trip sample, and a new run starts with the new mode. This holds even within
+`stall_timeout`.
 
 ## Quiet travel
 
@@ -250,7 +295,7 @@ memory, so shadow state shows what it would do.
 | `robot` | Status, battery, room, last poll, last error |
 | `items` | Every room and treatment: dirty, manual, last clean, score, cost, missing helpers |
 | `plan` | Latest plan, `noEnter`, `noClean`, `skipped` reasons, `pendingSince`, `startsAt`, `wouldStartAt` |
-| `run`, `lastRun` | Origin, targets, done rooms, current room, abort reason, paused, outcome, `quietTravel` (fan switching on for the run), `fanSpeed` (fan preset the scheduler last set) |
+| `run`, `lastRun` | Origin, targets, done rooms, current room, abort reason, paused, outcome (`completed`, `aborted`, `stopped`, `stalled`, `error`, `superseded`), `endReason` (why a run ended early), `quietTravel` (fan switching on for the run), `fanSpeed` (fan preset the scheduler last set) |
 | `tripCost` | Learned trip cost |
 | `warnings` | Missing helpers, untrusted position, unreadable sleepers, fan presets that failed or are not valid |
 
@@ -266,6 +311,9 @@ shadow state. It never stops the error announcer.
 - The end-of-run rule relies on Valetudo's `resumable` flag and the dock status, as Valetudo's Dreame code
   sets them. A robot that goes to the dock in the middle of a job without either, and stays there for two
   polls, ends the run early. Its current room then counts as done. Check this during the `log_only` period.
-- A robot in `error` keeps its run open until it is docked or idle, so a stuck robot that is freed and
-  resumes is still the same run.
+- A robot in `error` for less than `stall_timeout` keeps its run open, so a stuck robot that is freed and
+  resumes soon is still the same run. One freed later is a new run. If that was the scheduler's own run, the
+  resumed job is watched as a run started elsewhere: the live-safety rules no longer apply to it.
+- A run started elsewhere is split when the reported operation mode differs after a stop. A robot that
+  reported another mode while it washed its mop would split one job into two; its current room stays dirty.
 - A sticky room presence token can block rooms for hours. The skip reasons show it.
