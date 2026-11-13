@@ -1064,6 +1064,10 @@ func TestBeginWake_LaunchesFadeOut(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2024, 1, 15, 9, 5, 0, 0, time.UTC)
 	manager, mockHA, stateManager, _ := setupTest(t, now)
+	// Stop closes stopChan so the scheduleWakeSequence goroutine (launched by
+	// handleBeginWake) exits via the stopChan case instead of waiting the full
+	// 5-minute real timer, preventing a goroutine leak after the test ends.
+	defer manager.Stop()
 
 	// Set conditions for begin_wake
 	stateManager.SetBool("isAnyoneHome", true)
