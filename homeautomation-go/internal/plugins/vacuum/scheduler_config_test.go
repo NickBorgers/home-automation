@@ -44,6 +44,7 @@ vacuum:
 	assert.Equal(t, 10*time.Minute, sc.StableFor)
 	assert.Equal(t, 30*time.Second, sc.TrackInterval)
 	assert.Equal(t, 2*time.Minute, sc.MinDwell)
+	assert.Equal(t, 30*time.Minute, sc.StallTimeout)
 	assert.Equal(t, "", sc.TravelFanSpeed, "quiet travel is off unless set")
 	assert.Equal(t, 5*time.Second, sc.TravelTrackInterval)
 	assert.Equal(t, "vacuum_and_mop", sc.Treatments[TreatmentFull].OperationMode)
@@ -81,6 +82,7 @@ func TestSchedulerConfigProblemsDoNotFailLoad(t *testing.T) {
 		{"negative trip", base + room + "    battery: {default_trip_cost: -1}\n", "default_trip_cost"},
 		{"unknown treatment", base + room + "    treatments: {mop: {}}\n", "unknown treatment"},
 		{"bad duration", base + "    stable_for: soon\n" + room, "stable_for"},
+		{"bad stall timeout", base + "    stall_timeout: -5m\n" + room, "stall_timeout"},
 		{"bad travel interval", base + "    travel_track_interval: 0s\n" + room, "travel_track_interval"},
 		{"spaced travel fan", base + "    travel_fan_speed: \" low\"\n" + room, "travel_fan_speed"},
 		{"no segment", base + "    rooms:\n      kitchen: {full: 48h}\n", "segment_id"},
@@ -135,5 +137,6 @@ func TestPublicExampleConfigLoads(t *testing.T) {
 	assert.Equal(t, "vacuum_and_mop", sc.Treatments[TreatmentFull].OperationMode)
 	assert.Equal(t, "low", sc.TravelFanSpeed)
 	assert.Equal(t, 5*time.Second, sc.TravelTrackInterval)
+	assert.Equal(t, 30*time.Minute, sc.StallTimeout)
 	assert.NotEmpty(t, sc.Rooms)
 }

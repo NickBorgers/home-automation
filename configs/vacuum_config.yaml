@@ -67,6 +67,12 @@ vacuum:
     track_interval: "30s"
     min_dwell: "2m"
 
+    # A run that makes no progress for stall_timeout ends as "error" (the
+    # robot reported an error) or "stalled", and its current room stays
+    # dirty. No progress means error, or idle or paused without a washing
+    # dock. A docked robot recharging in the middle of a job is not a stall.
+    stall_timeout: "30m"
+
     # Quiet travel: fan preset while the robot drives between rooms on a run
     # the scheduler started; the treatment's fan_speed is set only in the room
     # being cleaned. Leave empty to keep the treatment's fan for the whole run.

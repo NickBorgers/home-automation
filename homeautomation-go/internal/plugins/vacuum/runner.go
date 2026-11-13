@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"strings"
 	"sync"
 	"time"
 
@@ -39,6 +40,13 @@ const (
 	outcomeCompleted = "completed"
 	outcomeAborted   = "aborted"
 	outcomeStopped   = "stopped"
+	// outcomeStalled and outcomeError end a run that made no progress for stall_timeout. outcomeError is used
+	// when the robot reported an error during the stall.
+	outcomeStalled = "stalled"
+	outcomeError   = "error"
+	// outcomeSuperseded ends a run someone else started when a new job, with another operation mode, starts
+	// after the robot stopped.
+	outcomeSuperseded = "superseded"
 )
 
 // withCommandTimeout runs one robot command bounded by commandTimeout.
@@ -559,6 +567,14 @@ type run struct {
 	leftDock bool
 	// endPolls counts polls in a row that show the run ended.
 	endPolls int
+	// stallSince is when the current stretch without progress began; zero while the robot makes progress.
+	// stallErr is true once the robot reported an error in that stretch.
+	stallSince time.Time
+	stallErr   bool
+	// operationMode is the robot's operation mode when the run started. stopped is true once the robot was
+	// docked, idle, paused or in error after it last cleaned. Together they tell a new job from a resumed one.
+	operationMode string
+	stopped       bool
 
 	startBattery, lastBattery int
 	haveBattery               bool
@@ -580,6 +596,7 @@ type run struct {
 	homeSent    bool
 	endedAt     time.Time
 	outcome     string
+	endReason   string
 
 	// fan is quiet travel for this run; nil when it does not apply. fanSpeed is the fan preset the scheduler
 	// last set.
@@ -593,8 +610,11 @@ func newRun(origin string, t Treatment, targets []string, now time.Time, st *val
 		doneSet: map[string]bool{}, roomDrop: map[string]float64{},
 		sampled: map[string]float64{},
 	}
-	if st != nil && st.HasBattery {
-		r.startBattery, r.lastBattery, r.haveBattery = st.Battery, st.Battery, true
+	if st != nil {
+		r.operationMode = st.Presets[valetudo.PresetOperationMode]
+		if st.HasBattery {
+			r.startBattery, r.lastBattery, r.haveBattery = st.Battery, st.Battery, true
+		}
 	}
 	return r
 }
@@ -634,6 +654,13 @@ func (r *run) remaining() []string {
 
 // trackRun starts, follows and ends runs. The caller holds tickMu.
 func (s *Scheduler) trackRun(now time.Time, st *valetudo.State) {
+	if r := s.run; r != nil && r.origin == originExternal && r.stopped && st.Status == valetudo.StatusCleaning &&
+		st.Presets[valetudo.PresetOperationMode] != r.operationMode {
+		// The robot stopped, and now cleans with another operation mode: a new job, such as another Valetudo
+		// timer. Its rooms must be judged by the new mode, so it is a new run.
+		s.finish(now, outcomeSuperseded, fmt.Sprintf("a new job started with operation mode %q after the robot "+
+			"stopped; this run had %q", st.Presets[valetudo.PresetOperationMode], r.operationMode))
+	}
 	if s.run == nil {
 		if st.Status != valetudo.StatusCleaning {
 			s.robotRoom = ""
@@ -657,6 +684,15 @@ func (s *Scheduler) trackRun(now time.Time, st *valetudo.State) {
 	if st.Status != valetudo.StatusDocked {
 		r.leftDock = true
 	}
+	switch st.Status {
+	case valetudo.StatusCleaning:
+		r.stopped = false
+	case valetudo.StatusDocked, valetudo.StatusError, valetudo.StatusIdle, valetudo.StatusPaused:
+		r.stopped = true
+	}
+	if s.checkStall(now, r, st) {
+		return
+	}
 	// A job in progress keeps the flag "resumable" while the robot is docked, returning, paused or idle, for
 	// example to wash its mop or to recharge. A dock that is washing also means the job may go on. Only a
 	// docked or idle robot with neither counts as the end, and only after endConfirmPolls polls in a row.
@@ -671,7 +707,7 @@ func (s *Scheduler) trackRun(now time.Time, st *valetudo.State) {
 		// Our run was just sent; the robot has not left the dock yet. Give it a little while.
 		if now.Sub(r.startedAt) > startGrace {
 			s.logger.Warn("Vacuum run was sent but the robot never left the dock")
-			s.finish(now, outcomeStopped)
+			s.finish(now, outcomeStopped, "")
 			return
 		}
 	case ended:
@@ -684,7 +720,7 @@ func (s *Scheduler) trackRun(now time.Time, st *valetudo.State) {
 			case st.Status == valetudo.StatusIdle:
 				outcome = outcomeStopped
 			}
-			s.finish(now, outcome)
+			s.finish(now, outcome, "")
 			return
 		}
 	}
@@ -694,15 +730,88 @@ func (s *Scheduler) trackRun(now time.Time, st *valetudo.State) {
 	}
 }
 
+// stallPoll reports whether a poll shows the run making no progress. The rule:
+//
+//   - error always counts.
+//   - idle and paused count, except while the dock washes the mop, and except a pause the live-safety rules
+//     sent: the scheduler is waiting for the way home to clear and still owns that run.
+//   - docked counts only when the stall began with an error. A robot that goes back to the dock to recharge
+//     keeps the flag "resumable" and may stay docked for hours before it goes on, so a plain docked robot is
+//     not stalled. A docked robot that is neither washing nor resumable ends the run by the end rule anyway.
+//   - cleaning, returning and moving are progress.
+//
+// The caller holds tickMu.
+func stallPoll(r *run, st *valetudo.State) bool {
+	switch st.Status {
+	case valetudo.StatusError:
+		return true
+	case valetudo.StatusIdle, valetudo.StatusPaused:
+		if st.DockStatus == valetudo.DockStatusCleaning {
+			return false
+		}
+		return !(st.Status == valetudo.StatusPaused && r.paused)
+	case valetudo.StatusDocked:
+		return r.stallErr // reset together with stallSince
+	}
+	return false
+}
+
+// checkStall ends a run that made no progress for stall_timeout, as error when the robot reported an error in
+// that time and as stalled otherwise. The room being cleaned stays unfinished and no trip is learned. It
+// reports whether the run ended. The caller holds tickMu.
+func (s *Scheduler) checkStall(now time.Time, r *run, st *valetudo.State) bool {
+	if !stallPoll(r, st) {
+		r.stallSince, r.stallErr = time.Time{}, false
+		return false
+	}
+	if r.stallSince.IsZero() {
+		r.stallSince = now
+	}
+	if st.Status == valetudo.StatusError {
+		r.stallErr = true
+	}
+	d := now.Sub(r.stallSince)
+	if d < s.cfg.StallTimeout {
+		return false
+	}
+	outcome, what := outcomeStalled, "made no progress"
+	if r.stallErr {
+		outcome, what = outcomeError, "in error"
+	}
+	flag := st.Flag
+	if flag == "" {
+		flag = "none"
+	}
+	reason := fmt.Sprintf("robot %s for %s: status %s, flag %s", what, shortDuration(d), st.Status, flag)
+	if st.DockStatus != "" {
+		reason += ", dock " + st.DockStatus
+	}
+	s.finish(now, outcome, reason)
+	return true
+}
+
+// shortDuration prints a duration without trailing zero units, such as 30m or 4h.
+func shortDuration(d time.Duration) string {
+	out := d.Truncate(time.Second).String()
+	if strings.HasSuffix(out, "m0s") {
+		out = strings.TrimSuffix(out, "0s")
+	}
+	if strings.HasSuffix(out, "h0m") {
+		out = strings.TrimSuffix(out, "0m")
+	}
+	return out
+}
+
 // observe takes one poll: battery drop goes to the room the robot was in at the previous poll, and room
 // changes follow the tour. The caller holds tickMu.
 func (s *Scheduler) observe(r *run, now time.Time, st *valetudo.State, room string, posOK bool) {
-	// Battery used at the dock — during a mid-job mop wash or the final return — is neither a room's cost
-	// nor the trip. It is left out of both.
-	atDock := st.Status == valetudo.StatusDocked || st.DockStatus == valetudo.DockStatusCleaning ||
-		(st.Status == valetudo.StatusIdle && st.Flag == valetudo.FlagResumable)
+	// Battery used while the robot makes no progress — at the dock for a mid-job mop wash, a recharge or the
+	// final return, or stopped in error, idle or paused — is neither a room's cost nor the trip. It is left
+	// out of both, so no sample spans a stall.
+	noProgress := st.Status == valetudo.StatusDocked || st.DockStatus == valetudo.DockStatusCleaning ||
+		st.Status == valetudo.StatusIdle || st.Status == valetudo.StatusPaused || st.Status == valetudo.StatusError
 	if st.HasBattery {
-		if r.haveBattery && st.Battery < r.lastBattery && !atDock {
+		if r.haveBattery && st.Battery < r.lastBattery && !noProgress {
 			drop := float64(r.lastBattery - st.Battery)
 			r.totalDrop += drop
 			if r.room != "" {
@@ -791,8 +900,10 @@ func (s *Scheduler) markDone(now time.Time, room string) {
 		zap.String("mode", s.cfg.Mode))
 }
 
-// finish ends the tracked run. A completed run finishes its current room and teaches the trip cost.
-func (s *Scheduler) finish(now time.Time, outcome string) {
+// finish ends the tracked run. A completed run finishes its current room and teaches the trip cost. Any other
+// outcome leaves the current room unfinished and teaches no trip cost. reason says why a run ended early; it
+// may be empty.
+func (s *Scheduler) finish(now time.Time, outcome, reason string) {
 	r := s.run
 	if outcome == outcomeCompleted {
 		if r.current != "" {
@@ -812,8 +923,9 @@ func (s *Scheduler) finish(now time.Time, outcome string) {
 		}
 	}
 	r.current = ""
-	r.endedAt, r.outcome = now, outcome
+	r.endedAt, r.outcome, r.endReason = now, outcome, reason
 	s.logger.Info("Vacuum run ended", zap.String("origin", r.origin), zap.String("outcome", outcome),
+		zap.String("reason", reason), zap.String("treatment", string(r.treatment)),
 		zap.Strings("done", r.done), zap.Strings("unfinished", r.remaining()),
 		zap.Float64("battery_drop", r.totalDrop), zap.String("abort_reason", r.abortReason))
 	s.lastRun, s.run = r, nil
@@ -1047,6 +1159,7 @@ func runView(r *run) *shadowstate.VacuumRun {
 	v := &shadowstate.VacuumRun{
 		Origin: r.origin, Treatment: string(r.treatment), Targets: append([]string(nil), r.targets...),
 		Done: append([]string{}, r.done...), Current: r.current, StartedAt: r.startedAt, Outcome: r.outcome,
+		EndReason:    r.endReason,
 		StartBattery: r.startBattery, Battery: r.lastBattery, Aborted: r.aborted, AbortReason: r.abortReason,
 		Paused: r.paused, PositionAvailable: r.positionSeen,
 		QuietTravel: r.fan != nil && !r.fan.gaveUp, FanSpeed: r.fanSpeed,
