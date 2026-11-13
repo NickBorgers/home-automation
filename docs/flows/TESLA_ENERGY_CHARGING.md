@@ -6,11 +6,12 @@ This is always on when Tesla is configured and the home location is set. Turn of
 
 ## What Each Energy Level Does
 
-Below 50%, the car charges at full speed regardless of energy level. At or above 50%, the energy level controls
-charging:
+Below 50%, the car charges at full speed regardless of energy level. At exactly 50%, green and white continue at full
+speed until fresh telemetry proves the car has progressed beyond the minimum reserve; red and yellow stop. Above 50%,
+the energy level controls charging:
 
-| Energy level | Charging at or above 50% |
-|--------------|--------------------------|
+| Energy level | Charging above 50% |
+|--------------|--------------------|
 | `red` | Stop |
 | `yellow` | Stop |
 | `green` | Charge slowly, at 8 A |
@@ -44,7 +45,8 @@ The plugin polls at the normal interval during an override. It can take up to on
 ## Decision Flow
 
 Each poll that finds the car online runs this check. A battery below 50% overrides the energy level and charges at full
-speed. At 50% and above, red and yellow stop charging, green charges slowly, and white charges at full speed. A change
+speed. At exactly 50%, green and white continue at full speed so the minimum reserve cannot become a ceiling; red and
+yellow stop charging. Above 50%, green charges slowly and white charges at full speed. A change
 in `currentEnergyLevel` triggers an immediate poll when the car was last seen plugged in at home. Until the first
 online vehicle-data read succeeds, and while the car was last seen unplugged at home, polls run at least every five
 minutes. This discovers a plug-in without requiring an energy-level change and retries transient `offline` responses.
@@ -61,7 +63,7 @@ flowchart TD
     Full -->|Yes| Leave
     Full -->|No| Override{Limit above 80%, or<br/>started after a stop?}
     Override -->|Yes, until unplugged| Leave
-    Override -->|No| Floor{Battery below<br/>50%?}
+    Override -->|No| Floor{Below 50%, or exactly<br/>50% with green/white?}
     Floor -->|Yes| Amps
     Floor -->|No| Plan{Plan from<br/>energy level}
     Plan -->|Hold| Stop[Stop if charging]
@@ -134,7 +136,7 @@ The normal poll interval defaults to five minutes. While charging or waiting for
 | `energyCharging.plannedAction` | Charge, hold, or leave unchanged |
 | `energyCharging.lastAction` | The last command sent, or that would have been sent in read-only mode |
 | `energyCharging.commandResult` | Whether Tesla accepted or rejected the command; acceptance is not verification |
-| `energyCharging.reconciliationStatus` | Pending or verified result of the latest telemetry reconciliation |
+| `energyCharging.reconciliationStatus` | Pending or verified result, distinguishing minimum-reserve charging from charging toward the configured limit |
 | `energyCharging.lastVerifiedVehicleState` | Battery, charging state, and current from the latest Fleet API read |
 | `energyCharging.wakesLast24h` | Wakes spent in the last 24 hours |
 | `energyCharging.manualOverride` | A person took control in the Tesla app. The plugin leaves charging alone until unplug |
