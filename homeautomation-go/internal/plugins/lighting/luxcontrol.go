@@ -507,6 +507,12 @@ func (m *Manager) handleCansChange(room *RoomConfig, newState *ha.State) {
 	cmd := st.cmd
 	contraryTurnOn := !cmd.on && newState.State == "on"
 	reason := manualChangeReason(cmd, newState, room.LuxControl.HasColorTemp(), now)
+	// Suppress a false manual-hold when a delayed bridge report from the previous
+	// fade arrives just after a new command is sent. The guard window is
+	// previous.transition + fadeReportLag, which is correct when the lux loop
+	// sends commands sequentially (new command arrives as the old one ends).
+	// A mid-transition command override would leave the window open for the
+	// remaining transition duration — today the lux loop never does this.
 	if reason != "" && st.previous != nil &&
 		now.Before(st.previous.at.Add(st.previous.transition+fadeReportLag)) &&
 		manualChangeReason(st.previous, newState, room.LuxControl.HasColorTemp(),
