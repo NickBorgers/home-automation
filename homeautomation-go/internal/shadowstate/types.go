@@ -1550,6 +1550,10 @@ type RoomPresenceOutputs struct {
 	LastEntry     *RoomPresenceEntry `json:"lastEntry,omitempty"`
 	EventsHandled int                `json:"eventsHandled"`
 	LastEventAt   time.Time          `json:"lastEventAt,omitempty"`
+
+	// VacuumArea is the area the robot vacuum was in at the last Frigate event. A track that appears from
+	// nowhere there is the robot, not a person.
+	VacuumArea string `json:"vacuumArea,omitempty"`
 }
 
 // RoomPresenceArea is one area's state.

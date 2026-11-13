@@ -263,6 +263,9 @@ func (s *Scheduler) Stop() {
 	if s.unsubOcc != nil {
 		s.unsubOcc()
 	}
+	if s.occupancy != nil {
+		s.occupancy.SetVacuum("") // stopped: the robot's area is no longer known
+	}
 	s.subHelper.UnsubscribeAll()
 }
 
@@ -968,6 +971,21 @@ func (s *Scheduler) command(action, why string) error {
 	return nil
 }
 
+// shareRobotArea tells room presence which area the robot is in, so it can tell the robot from a person.
+// It shares "" when the robot is docked, cannot be read, or is in a room with no area. It runs in every
+// mode: it only informs room presence and acts on nothing. The caller holds tickMu.
+func (s *Scheduler) shareRobotArea() {
+	if s.occupancy == nil {
+		return
+	}
+	area := ""
+	if st := s.robotState; st != nil && s.graph != nil && s.robotErr == "" && s.robotRoom != "" &&
+		st.Status != valetudo.StatusDocked {
+		area = s.graph.Area(s.robotRoom)
+	}
+	s.occupancy.SetVacuum(area)
+}
+
 // ---------------------------------------------------------------------------
 // Shadow state
 // ---------------------------------------------------------------------------
@@ -978,6 +996,7 @@ func (s *Scheduler) location() *time.Location {
 
 // publish replaces the scheduler's shadow state.
 func (s *Scheduler) publish(now time.Time) {
+	s.shareRobotArea()
 	o := &shadowstate.VacuumSchedulerOutputs{
 		Mode:       s.cfg.Mode,
 		ReadOnly:   s.readOnly,

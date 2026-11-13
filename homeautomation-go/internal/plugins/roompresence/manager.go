@@ -256,7 +256,14 @@ func (m *Manager) handleMQTT(msg ha.MQTTMessage) {
 			m.logger.Warn("Cannot parse Frigate event", zap.Error(err))
 			return
 		}
-		m.apply(func(t *Tracker, now time.Time) { t.HandleEvent(now, ev) })
+		vacuum := ""
+		if m.occupancy != nil {
+			vacuum = m.occupancy.Vacuum()
+		}
+		m.apply(func(t *Tracker, now time.Time) {
+			t.SetVacuumArea(vacuum)
+			t.HandleEvent(now, ev)
+		})
 		return
 	}
 	if cam, ok := heartbeatCamera(msg.Topic); ok && msg.Payload == "online" {

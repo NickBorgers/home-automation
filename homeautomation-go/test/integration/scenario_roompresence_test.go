@@ -10,6 +10,7 @@ import (
 
 	"homeautomation/internal/plugins/roompresence"
 	"homeautomation/internal/testlogger"
+	"homeautomation/pkg/occupancy"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -215,4 +216,77 @@ func TestScenario_RoomPresence_KilledProcessKeepsUnseenTokens(t *testing.T) {
 	t.Log("THEN: the study token is back")
 	require.Eventually(t, func() bool { return mgr.Occupied("study") }, 5*time.Second, 10*time.Millisecond,
 		"a killed process must not forget the person in the study")
+}
+
+// setupRoomPresenceWithHub starts the plugin with an occupancy hub, as production does. The vacuum
+// scheduler shares the robot's area through the same hub.
+func setupRoomPresenceWithHub(t *testing.T) (*MockHAServer, *roompresence.Manager, *occupancy.Hub, func()) {
+	t.Helper()
+	server, client, stateMgr, baseCleanup := setupTest(t)
+	cfg, err := roompresence.LoadConfig(filepath.Join("..", "..", "internal", "plugins", "roompresence",
+		"testdata", "example_config.yaml"))
+	require.NoError(t, err)
+	hub := occupancy.NewHub()
+	mgr := roompresence.NewManager(context.Background(), client, stateMgr, cfg, "", testlogger.New(), false, nil)
+	mgr.SetOccupancy(hub)
+	require.NoError(t, mgr.Start())
+	require.Eventually(t, func() bool { return server.MQTTSubscriptionCount() == 2 }, 5*time.Second, 10*time.Millisecond)
+	return server, mgr, hub, func() {
+		mgr.Stop()
+		baseCleanup()
+	}
+}
+
+// GIVEN the robot vacuum is cleaning the lounge, and nobody is in the lounge or the study
+// WHEN Frigate takes the robot for a person: a track appears from nowhere in the lounge and ends in the
+// study doorway
+// THEN nobody is put in the lounge or the study
+func TestScenario_RoomPresence_VacuumIsNotAPerson(t *testing.T) {
+	server, mgr, hub, cleanup := setupRoomPresenceWithHub(t)
+	defer cleanup()
+
+	t.Log("GIVEN: the robot vacuum is in the lounge")
+	hub.SetVacuum("lounge")
+
+	t.Log("WHEN: a track appears from nowhere in the lounge, drives around, and ends in the study doorway")
+	publishFrigate(t, server, "new", "robot", "cam_lounge", []string{}, "lounge")
+	publishFrigate(t, server, "update", "robot", "cam_lounge", []string{"lounge"}, "lounge")
+	publishFrigate(t, server, "update", "robot", "cam_lounge", []string{"lounge", "lounge_to_study"}, "lounge_to_study")
+	publishFrigate(t, server, "end", "robot", "cam_lounge", []string{"lounge", "lounge_to_study"}, "lounge_to_study")
+
+	t.Log("THEN: the track is dropped, and no area holds a token")
+	require.Eventually(t, func() bool {
+		r := mgr.GetShadowState().Outputs.RecentTracks
+		return len(r) == 1 && r[0].ID == "robot"
+	}, 5*time.Second, 10*time.Millisecond)
+	s := mgr.GetShadowState().Outputs
+	assert.Empty(t, s.Tokens, "the robot is not a person")
+	assert.False(t, s.RecentTracks[0].Confirmed)
+	assert.Contains(t, s.RecentTracks[0].Outcome, "robot vacuum")
+	occ, known := hub.Occupied("study")
+	assert.True(t, known)
+	assert.False(t, occ)
+}
+
+// GIVEN the robot vacuum is cleaning the lounge, and a person stands in the kitchen
+// WHEN the person walks from the kitchen into the lounge
+// THEN the lounge is occupied, so the vacuum scheduler sees the person and stops the run
+func TestScenario_RoomPresence_PersonWalksInWhereVacuumIs(t *testing.T) {
+	server, mgr, hub, cleanup := setupRoomPresenceWithHub(t)
+	defer cleanup()
+
+	t.Log("GIVEN: a person came into the kitchen from the hall, and the robot vacuum is in the lounge")
+	publishFrigate(t, server, "update", "k", "cam_kitchen", []string{"kitchen_to_hall", "kitchen"}, "kitchen")
+	require.Eventually(t, func() bool { return mgr.Occupied("kitchen") }, 5*time.Second, 10*time.Millisecond)
+	hub.SetVacuum("lounge")
+
+	t.Log("WHEN: the lounge camera picks the person up while the kitchen camera still follows them")
+	publishFrigate(t, server, "update", "l", "cam_lounge", []string{"lounge"}, "lounge")
+
+	t.Log("THEN: the person's token moves into the lounge")
+	require.Eventually(t, func() bool {
+		occ, known := hub.Occupied("lounge")
+		return occ && known
+	}, 5*time.Second, 10*time.Millisecond, "a person who walks in where the robot is must still be seen")
+	assert.False(t, mgr.Occupied("kitchen"))
 }
