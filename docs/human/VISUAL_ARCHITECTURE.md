@@ -1028,7 +1028,6 @@ graph LR
         EightSleepAlarm[sensor.*_eight_sleep_side_bed_state_type]
         EightSleepStage[sensor.*_eight_sleep_side_sleep_stage]
         LivingCans[light.living_cans]
-        MainLivingSpace[light.main_living_space]
         BackHallLight[light.back_hall]
     end
 
@@ -1091,7 +1090,7 @@ graph LR
     Lighting --> DarkOutside
     DarkOutside --> Lighting
     LivingCans -->|Manual Override Detection| Lighting
-    MainLivingSpace -->|Color Tracking Source| Lighting
+    LivingCans -->|Color Tracking Source| Lighting
     BackHallLight -->|Color Tracking Target State| Lighting
 
     BatteryPercent --> Energy

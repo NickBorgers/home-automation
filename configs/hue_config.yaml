@@ -1,8 +1,8 @@
 ---
 color_tracking:
-  # These aggregate groups match the Living and Back Hall area/entity layout. Only color is copied:
+  # Follow the lux-controlled Living cans into the aggregate Back Hall group. Only color is copied:
   # power and brightness remain under their existing controls.
-  source_entity: light.main_living_space
+  source_entity: light.living_cans
   target_entity: light.back_hall
 
 lux_curve:

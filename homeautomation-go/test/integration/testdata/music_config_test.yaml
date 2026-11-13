@@ -86,6 +86,9 @@ music:
         leave_muted_if:
           - variable: isTVPlaying
             value: true
+      - player_name: "Lounge"
+        base_volume: 8
+        leave_muted_if: []
       - player_name: "Primary Bed"
         base_volume: 9
         exclude_if:
@@ -108,6 +111,9 @@ music:
         leave_muted_if:
           - variable: isTVPlaying
             value: true
+      - player_name: "Lounge"
+        base_volume: 9
+        leave_muted_if: []
       - player_name: "Primary Bed"
         base_volume: 9
         leave_muted_if:
@@ -130,6 +136,9 @@ music:
         leave_muted_if:
           - variable: isTVPlaying
             value: true
+      - player_name: "Lounge"
+        base_volume: 8
+        leave_muted_if: []
       - player_name: "Primary Bed"
         base_volume: 10
         exclude_if:
@@ -152,6 +161,9 @@ music:
         leave_muted_if:
           - variable: isTVPlaying
             value: true
+      - player_name: "Lounge"
+        base_volume: 7
+        leave_muted_if: []
       - player_name: "Primary Bed"
         base_volume: 10
         exclude_if:
@@ -170,6 +182,9 @@ music:
   sleep-prep:
     participants:
       - player_name: "Front Room"
+        base_volume: 9
+        leave_muted_if: []
+      - player_name: "Lounge"
         base_volume: 9
         leave_muted_if: []
       - player_name: "Primary Bed"

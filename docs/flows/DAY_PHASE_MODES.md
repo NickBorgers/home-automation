@@ -316,7 +316,7 @@ flowchart TB
 
     subgraph WakeSequence["Wake Sequence Active"]
         fadeBed["Primary Bed: Fade-out<br/>(managed by sleephygiene)"]
-        morningRest["Pantry, Sitting, Kids Bathroom: Morning music<br/>(priority 50)"]
+        morningRest["Pantry, Lounge, Sitting, Kids Bathroom: Morning music<br/>(priority 50)"]
     end
 
     subgraph FullyAwake["Person Wakes Up"]
@@ -336,9 +336,9 @@ flowchart TB
 
 | Zone | Priority | Trigger Conditions | Speakers |
 |------|----------|-------------------|----------|
-| `sleep-prep` | 90 | `dayPhase=night` + `isAnyoneHome=true` + `isMasterAsleep=false` | Pantry, Primary Bed, Sitting (whole house; Lounge temporarily excluded — see music_config.yaml) |
+| `sleep-prep` | 90 | `dayPhase=night` + `isAnyoneHome=true` + `isMasterAsleep=false` | Pantry, Lounge, Primary Bed, Sitting (whole house) |
 | `sleep` | 100 | `isMasterAsleep=true` + `isAnyoneHome=true` + `isWakeSequenceActive=false` | Primary Bed only |
-| `morning` | 50 | `dayPhase=morning` + `isAnyoneAsleep=false` + `isAnyoneHome=true` **OR** `isWakeSequenceActive=true` + `dayPhase=morning` + `isAnyoneHome=true` **OR** `dayPhase=morning` + `isAnyoneHomeAndAwake=true` (wake latch) **OR** `isEarlyWakeActive=true` + `isAnyoneHome=true` (early wake, any day phase) | Pantry, Kids Bathroom, Sitting (Primary Bed excluded via `exclude_if: isMasterAsleep=true`; Lounge temporarily excluded — see music_config.yaml) |
+| `morning` | 50 | `dayPhase=morning` + `isAnyoneAsleep=false` + `isAnyoneHome=true` **OR** `isWakeSequenceActive=true` + `dayPhase=morning` + `isAnyoneHome=true` **OR** `dayPhase=morning` + `isAnyoneHomeAndAwake=true` (wake latch) **OR** `isEarlyWakeActive=true` + `isAnyoneHome=true` (early wake, any day phase) | Pantry, Lounge, Kids Bathroom, Sitting (Primary Bed excluded via `exclude_if: isMasterAsleep=true`) |
 
 ### Key Behaviors
 
