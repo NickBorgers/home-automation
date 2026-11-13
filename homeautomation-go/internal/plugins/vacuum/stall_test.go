@@ -291,7 +291,7 @@ func TestSchedulerStallBatteryIsLeftOut(t *testing.T) {
 	e.advance(30 * time.Second)
 	require.Nil(t, e.sched().Run)
 	assert.Equal(t, "completed", e.sched().LastRun.Outcome)
-	assert.InDelta(t, 9.1, e.cost("input_number.vacuum_cost_kitchen"), 1e-9, "9.6 + 0.3 * (8 - 9.6) = 9.12")
+	assert.InDelta(t, 9.1, e.cost("input_number.vacuum_cost_kitchen"), 1e-9, "9.6 + 0.3 * (8 - 9.6) = 9.12 -> 9.1")
 	assert.InDelta(t, 3.5, e.cost(tripEntity), 1e-9, "trip sample 0: 5 + 0.3 * (0 - 5)")
 }
 
