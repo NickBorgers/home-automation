@@ -4,6 +4,7 @@ import (
 	"context"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"homeautomation/internal/plugins/lighting"
 	"homeautomation/internal/testlogger"
@@ -33,7 +34,10 @@ func TestScenario_LivingCansColorTracksToBackHall(t *testing.T) {
 	server.SetState("light.living_cans", "on", map[string]interface{}{
 		"color_mode": "color_temp", "color_temp_kelvin": float64(3003), "brightness": float64(200),
 	})
+	waitForProcessing(t, stateManager)
+	waitForServiceCallQuiescenceSince(t, server, snapshot, 200*time.Millisecond)
 	assert.Empty(t, server.GetServiceCallsSince(snapshot), "color changes must not turn on Back Hall")
+	snapshot = server.ServiceCallCount() // fresh snapshot; WHEN block is uncontaminated
 
 	// WHEN: Back Hall turns on, THEN: the cached cans color is applied without brightness or power mirroring.
 	t.Log("WHEN: Back Hall turns on")
