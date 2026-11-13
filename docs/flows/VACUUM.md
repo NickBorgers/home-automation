@@ -38,6 +38,7 @@ Every rule must hold.
 | Presets, segment clean, pause, return home | Valetudo REST API, `active` mode only |
 | Taints, last clean, learned costs | Home Assistant helpers, `log_only` and `active` |
 | Items, plan, skip reasons, run, robot room | `/api/shadow/vacuum`, under `scheduler` |
+| The robot's area while it is out of the dock | Occupancy hub, in every mode. Room presence uses it to tell the robot from a person |
 
 ## Helpers
 

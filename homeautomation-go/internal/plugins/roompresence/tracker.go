@@ -74,6 +74,10 @@ type track struct {
 
 	// pendingTarget is a seen area the token moves to when no other camera picks the person up.
 	pendingTarget string
+
+	// vacuum is the robot vacuum's area when this unconfirmed track was taken for the robot. Such a track
+	// never gets a token.
+	vacuum string
 }
 
 // exitEdge is an exit sensor turning on.
@@ -135,6 +139,15 @@ type Tracker struct {
 
 	eventsHandled int
 	lastEventAt   time.Time
+
+	// vacuumArea is the area the robot vacuum is in, or "". People and the robot are never in the same
+	// area, so a track that appears from nowhere there is the robot.
+	vacuumArea string
+}
+
+// SetVacuumArea records the area the robot vacuum is in, or "" when it is docked or not known.
+func (t *Tracker) SetVacuumArea(area string) {
+	t.vacuumArea = area
 }
 
 // NewTracker builds a tracker with no tokens.
@@ -783,7 +796,14 @@ func (t *Tracker) followTrack(now time.Time, tr *track, obj FrigateObject) {
 
 // maybeConfirm turns an unconfirmed track into a token once it behaves like a real person.
 func (t *Tracker) maybeConfirm(now time.Time, tr *track, obj FrigateObject) {
-	if !tr.started {
+	if !tr.started || tr.vacuum != "" {
+		return
+	}
+	// A track that took over a person's token is confirmed and never gets here, so a person who walks in
+	// where the robot is still moves their token, and the vacuum scheduler still sees them.
+	if area := t.atVacuum(tr, obj); area != "" {
+		tr.vacuum = area
+		tr.outcome = vacuumOutcome(area)
 		return
 	}
 	reason := ""
@@ -819,6 +839,28 @@ func (t *Tracker) maybeConfirm(now time.Time, tr *track, obj FrigateObject) {
 	t.attach(tr, t.newToken(now, area, tr.camera, "confirmed: "+reason, true))
 }
 
+// atVacuum is the robot vacuum's area when the track started there, is there now, or stands in a doorway
+// to it. Otherwise it is "".
+func (t *Tracker) atVacuum(tr *track, obj FrigateObject) string {
+	va := t.vacuumArea
+	if va == "" {
+		return ""
+	}
+	if tr.startArea == va || tr.area == va {
+		return va
+	}
+	for _, z := range obj.CurrentZones {
+		if zi := t.cfg.resolveZone(z); zi.Area == va || (zi.Kind == zoneBoundary && zi.Beyond == va) {
+			return va
+		}
+	}
+	return ""
+}
+
+func vacuumOutcome(area string) string {
+	return "dropped: the robot vacuum is in " + area
+}
+
 // refresh records that a camera sees a person in the track's area.
 func (t *Tracker) refresh(now time.Time, tr *track) {
 	if tr.area != "" && t.cfg.Areas[tr.area].Seen {
@@ -836,6 +878,9 @@ func (t *Tracker) endTrack(now time.Time, tr *track, obj FrigateObject) {
 
 	if !tr.confirmed {
 		tr.outcome = "dropped: never confirmed"
+		if tr.vacuum != "" {
+			tr.outcome = vacuumOutcome(tr.vacuum)
+		}
 		return
 	}
 	tok := t.tokens[tr.tokenID]
@@ -1084,6 +1129,7 @@ func (t *Tracker) Snapshot() shadowstate.RoomPresenceOutputs {
 		UnknownZones:  sortedKeys(t.unknownZones),
 		EventsHandled: t.eventsHandled,
 		LastEventAt:   t.lastEventAt,
+		VacuumArea:    t.vacuumArea,
 	}
 	if t.lastEntry != nil {
 		e := *t.lastEntry

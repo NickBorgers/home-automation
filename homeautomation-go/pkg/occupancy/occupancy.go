@@ -3,6 +3,9 @@
 //
 // The hub knows nothing until a publisher fills it. An area it has not heard of, or an area whose cameras
 // are offline, is not known. A reader that must keep people safe treats "not known" as occupied.
+//
+// The vacuum scheduler also shares the area its robot is cleaning, so room presence can tell the robot
+// from a person.
 package occupancy
 
 import (
@@ -22,8 +25,24 @@ type Status struct {
 type Hub struct {
 	mu     sync.Mutex
 	areas  map[string]Status
+	vacuum string
 	subs   map[int]func()
 	nextID int
+}
+
+// SetVacuum records the area the robot vacuum is in, or "" when it is docked or its position is not known.
+// It does not run subscribers: no area's state changes.
+func (h *Hub) SetVacuum(area string) {
+	h.mu.Lock()
+	h.vacuum = area
+	h.mu.Unlock()
+}
+
+// Vacuum is the area the robot vacuum is in, or "".
+func (h *Hub) Vacuum() string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.vacuum
 }
 
 // NewHub returns an empty hub.

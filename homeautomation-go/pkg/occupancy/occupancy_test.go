@@ -83,6 +83,20 @@ func TestHubSubscriberMayReadHub(t *testing.T) {
 	assert.True(t, got, "callbacks run without the lock held")
 }
 
+func TestHubVacuum(t *testing.T) {
+	h := NewHub()
+	assert.Equal(t, "", h.Vacuum())
+	calls := 0
+	h.Subscribe(func() { calls++ })
+	h.SetVacuum("living")
+	assert.Equal(t, "living", h.Vacuum())
+	assert.Zero(t, calls, "the robot's area changes no area's state")
+	h.Clear()
+	assert.Equal(t, "living", h.Vacuum(), "room presence clearing its areas does not forget the robot")
+	h.SetVacuum("")
+	assert.Equal(t, "", h.Vacuum())
+}
+
 func TestHubConcurrentUse(t *testing.T) {
 	h := NewHub()
 	h.Subscribe(func() { h.Occupied("kitchen") })

@@ -592,6 +592,39 @@ func TestSchedulerRunThatNeverLeavesTheDock(t *testing.T) {
 	assert.Equal(t, "on", e.state("input_boolean.vacuum_dirty_kitchen"))
 }
 
+func TestSchedulerSharesRobotArea(t *testing.T) {
+	e := newSchedEnv(t, ModeLogOnly)
+	e.start()
+	e.tick()
+	assert.Equal(t, "", e.hub.Vacuum(), "a docked robot shares no area")
+
+	e.robot.SetStatus("cleaning", "segment")
+	e.moveTo("kitchen", 99)
+	e.advance(30 * time.Second)
+	want := e.s.graph.Area("kitchen")
+	require.NotEmpty(t, want)
+	assert.Equal(t, want, e.hub.Vacuum(), "log_only still shares the area: it acts on nothing")
+
+	e.robot.Fail("/api/v2/robot/state/attributes", 502)
+	e.advance(30 * time.Second)
+	assert.Equal(t, "", e.hub.Vacuum(), "a robot that cannot be read shares no area")
+	e.robot.Fail("/api/v2/robot/state/attributes", 0)
+	e.advance(30 * time.Second)
+	assert.Equal(t, want, e.hub.Vacuum())
+
+	e.robot.SetStatus("docked", "none")
+	e.moveTo("mud", 90)
+	e.advance(30 * time.Second)
+	assert.Equal(t, "", e.hub.Vacuum(), "the robot docked")
+
+	e.robot.SetStatus("cleaning", "segment")
+	e.moveTo("kitchen", 89)
+	e.advance(30 * time.Second)
+	require.Equal(t, want, e.hub.Vacuum())
+	e.s.Stop()
+	assert.Equal(t, "", e.hub.Vacuum(), "a stopped scheduler shares no area")
+}
+
 func TestSchedulerTracksExternalRun(t *testing.T) {
 	tests := []struct {
 		mode        string
