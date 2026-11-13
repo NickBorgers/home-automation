@@ -131,6 +131,7 @@ func TestPlanCharging(t *testing.T) {
 		{"41% charges at full speed at green", "green", 41, 80, 32, chargeNow, 32},
 		{"41% charges at full speed at yellow", "yellow", 41, 80, 32, chargeNow, 32},
 		{"41% charges at full speed at red", "red", 41, 80, 32, chargeNow, 32},
+		{"green charges through the floor boundary", "green", 50, 80, 32, chargeNow, 32},
 		{"at the floor follows the level", "red", 50, 80, 32, holdCharge, 0},
 		{"unknown level leaves the car alone", "", 70, 80, 32, leaveAlone, 0},
 		{"100% limit does not override red", "red", 70, 100, 32, holdCharge, 0},
@@ -272,7 +273,7 @@ func TestEnergyChargingFloorThenYellowStopsAt50(t *testing.T) {
 	m, charger, levels, _ := newChargingManager(fleet, "green")
 	m.Poll()
 	require.Empty(t, charger.sent())
-	assert.Equal(t, reconcileVerifiedChargingOK,
+	assert.Equal(t, reconcileVerifiedAtReserve,
 		m.GetShadowState().Outputs.EnergyCharging.ReconciliationStatus)
 
 	// WHEN: the house turns yellow as the car reaches 50%.
@@ -284,6 +285,52 @@ func TestEnergyChargingFloorThenYellowStopsAt50(t *testing.T) {
 	assert.Equal(t, []string{"stop"}, charger.sent())
 	assert.Equal(t, reconcilePendingStop,
 		m.GetShadowState().Outputs.EnergyCharging.ReconciliationStatus)
+}
+
+func TestScenario_EnergyCharging_GreenContinuesPast50PercentFloor(t *testing.T) {
+	// GIVEN: green energy and a car below the 50% minimum reserve.
+	t.Log("GIVEN: green energy and the car charging at 49%")
+	fleet := onlineFleet(home("Charging", 49, 32))
+	m, charger, _, _ := newChargingManager(fleet, "green")
+	m.Poll()
+	require.Empty(t, charger.sent())
+	assert.Equal(t, reconcileVerifiedAtReserve,
+		m.GetShadowState().Outputs.EnergyCharging.ReconciliationStatus)
+
+	// WHEN: the car reaches exactly 50%.
+	t.Log("WHEN: the car reaches the 50% minimum reserve")
+	fleet.data = home("Charging", 50, 32).data()
+	m.Poll()
+
+	// THEN: it must keep charging at full speed so the reserve is not an effective ceiling.
+	t.Log("THEN: charging continues at full speed beyond the reserve boundary")
+	state := m.GetShadowState().Outputs.EnergyCharging
+	assert.Empty(t, charger.sent())
+	assert.Contains(t, state.Decision, "50% minimum reserve")
+	assert.Contains(t, state.ReconciliationStatus, "minimum reserve")
+
+	// WHEN: fresh telemetry proves the car has progressed beyond the floor.
+	t.Log("WHEN: the car progresses to 51%")
+	fleet.data = home("Charging", 51, 32).data()
+	m.Poll()
+
+	// THEN: green may slow charging toward the configured Tesla limit.
+	t.Log("THEN: green charging continues toward the configured limit at 8A")
+	state = m.GetShadowState().Outputs.EnergyCharging
+	assert.Equal(t, []string{"amps=8"}, charger.sent())
+	assert.Contains(t, state.Decision, "toward the 80% charge limit")
+	assert.Equal(t, reconcilePendingCurrent, state.ReconciliationStatus)
+
+	// WHEN: a reconciliation read confirms the requested green charging speed.
+	t.Log("WHEN: fresh telemetry confirms charging at 8A")
+	fleet.data = home("Charging", 51, greenChargeAmps).data()
+	m.Poll()
+
+	// THEN: shadow state says charging is progressing toward Tesla's configured limit.
+	t.Log("THEN: reconciliation distinguishes charging toward the configured limit")
+	state = m.GetShadowState().Outputs.EnergyCharging
+	assert.Equal(t, []string{"amps=8"}, charger.sent())
+	assert.Equal(t, reconcileVerifiedTowardLimit, state.ReconciliationStatus)
 }
 
 func TestEnergyChargingPollingInterval(t *testing.T) {
@@ -300,7 +347,7 @@ func TestEnergyChargingPollingInterval(t *testing.T) {
 	m.charge = chargeMemory{seen: true, atHome: false, plugged: false}
 	assert.Equal(t, time.Hour, m.nextPollInterval(), "an away car uses the configured interval")
 
-	m.charge.record.ReconciliationStatus = reconcileVerifiedChargingOK
+	m.charge.record.ReconciliationStatus = reconcileVerifiedTowardLimit
 	assert.Equal(t, chargingPollInterval, m.nextPollInterval(), "active charging uses the shorter interval")
 
 	m.charge.record.ReconciliationStatus = reconcilePendingStop
@@ -310,7 +357,7 @@ func TestEnergyChargingPollingInterval(t *testing.T) {
 	assert.Equal(t, time.Hour, m.nextPollInterval(), "verified stopped state returns to idle polling")
 
 	m.cfg.PollInterval = 30 * time.Second
-	m.charge.record.ReconciliationStatus = reconcileVerifiedChargingOK
+	m.charge.record.ReconciliationStatus = reconcileVerifiedTowardLimit
 	assert.Equal(t, 30*time.Second, m.nextPollInterval(), "charging never makes an already shorter interval slower")
 }
 

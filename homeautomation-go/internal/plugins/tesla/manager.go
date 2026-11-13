@@ -374,7 +374,8 @@ func (m *Manager) nextPollInterval() time.Duration {
 	charging := m.charge.record.ReconciliationStatus == reconcilePendingStop ||
 		m.charge.record.ReconciliationStatus == reconcilePendingCurrent ||
 		m.charge.record.ReconciliationStatus == reconcilePendingState ||
-		m.charge.record.ReconciliationStatus == reconcileVerifiedChargingOK
+		m.charge.record.ReconciliationStatus == reconcileVerifiedAtReserve ||
+		m.charge.record.ReconciliationStatus == reconcileVerifiedTowardLimit
 	if charging && chargingPollInterval < interval {
 		return chargingPollInterval
 	}

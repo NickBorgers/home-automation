@@ -1,8 +1,9 @@
 package tesla
 
 // Energy-level charging makes the car's charging follow currentEnergyLevel
-// while it is plugged in at home: charge at full speed below 50%, then stop at
-// red and yellow, charge slowly at green, and charge at full speed at white.
+// while it is plugged in at home: charge at full speed through the 50% minimum
+// reserve when energy permits, then stop at red and yellow, charge slowly at
+// green, and charge at full speed at white.
 //
 // A person can override it from the Tesla app. A charge limit above the usual
 // 80%, or starting charging after the plugin stopped it, puts charging in the
@@ -42,14 +43,15 @@ const (
 	commandVerificationDelay = 15 * time.Second
 
 	// reconciliationStatus values track whether the last command was verified.
-	reconcileNotControlled      = "not controlled"
-	reconcileVerifiedHeld       = "verified held"
-	reconcileVerifiedChargingOK = "verified charging as planned"
-	reconcilePendingStop        = "pending verification that charging stopped"
-	reconcilePendingCurrent     = "pending verification of charging current"
-	reconcilePendingState       = "pending verification of charging state"
-	reconcileCommandFailed      = "command failed; vehicle state not reconciled"
-	reconcileReadOnly           = "not verified: read-only mode"
+	reconcileNotControlled       = "not controlled"
+	reconcileVerifiedHeld        = "verified held"
+	reconcileVerifiedAtReserve   = "verified charging at full speed through the 50% minimum reserve"
+	reconcileVerifiedTowardLimit = "verified charging toward the configured limit"
+	reconcilePendingStop         = "pending verification that charging stopped"
+	reconcilePendingCurrent      = "pending verification of charging current"
+	reconcilePendingState        = "pending verification of charging state"
+	reconcileCommandFailed       = "command failed; vehicle state not reconciled"
+	reconcileReadOnly            = "not verified: read-only mode"
 
 	// greenChargeAmps is the slow charging speed used at green.
 	greenChargeAmps = 8
@@ -111,15 +113,25 @@ func planCharging(level string, battery, limit, maxAmps int) chargePlan {
 				battery, energyChargingFloorPercent),
 		}
 	}
+	if battery == energyChargingFloorPercent && (level == "green" || level == "white") {
+		return chargePlan{
+			action: chargeNow,
+			amps:   maxAmps,
+			reason: fmt.Sprintf("battery is at the %d%% minimum reserve: charge at full speed to progress beyond the floor",
+				energyChargingFloorPercent),
+		}
+	}
 	switch level {
 	case "white":
-		return chargePlan{action: chargeNow, amps: maxAmps, reason: "energy level white: charge at full speed"}
+		return chargePlan{action: chargeNow, amps: maxAmps,
+			reason: fmt.Sprintf("energy level white: charge at full speed toward the %d%% charge limit", limit)}
 	case "green":
 		amps := greenChargeAmps
 		if maxAmps > 0 && maxAmps < amps {
 			amps = maxAmps
 		}
-		return chargePlan{action: chargeNow, amps: amps, reason: "energy level green: charge slowly"}
+		return chargePlan{action: chargeNow, amps: amps,
+			reason: fmt.Sprintf("energy level green: charge slowly toward the %d%% charge limit", limit)}
 	case "yellow", "red":
 		return chargePlan{action: holdCharge, reason: "energy level " + level + ": hold charging"}
 	default:
@@ -297,7 +309,11 @@ func (m *Manager) controlCharging(ctx context.Context, vin string, atHome, hasLo
 				m.schedulePollAfter(commandVerificationDelay)
 			}
 		} else if charging && (plan.amps == 0 || cs.amps == plan.amps) {
-			mem.record.ReconciliationStatus = reconcileVerifiedChargingOK
+			if cs.battery <= energyChargingFloorPercent {
+				mem.record.ReconciliationStatus = reconcileVerifiedAtReserve
+			} else {
+				mem.record.ReconciliationStatus = reconcileVerifiedTowardLimit
+			}
 		}
 	case leaveAlone:
 		mem.record.PlannedAction = "leave unchanged"
