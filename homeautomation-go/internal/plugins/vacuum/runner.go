@@ -847,11 +847,20 @@ func (s *Scheduler) observe(r *run, now time.Time, st *valetudo.State, room stri
 		r.roomSince = now
 		r.pendingSince = time.Time{}
 	}
-	// Cleaning in the room being cleaned again: a visit to the next room was only a blip over the boundary.
-	// Driving through it, such as on the way to a mop wash or home, is not.
-	if r.pending != "" && ((cleaning && room == r.current) || r.pending != r.nextTarget()) {
-		s.logger.Info("Vacuum next room not confirmed; the current room goes on",
-			zap.String("pending", r.pending), zap.String("room", room), zap.String("current", r.current))
+	switch {
+	case r.pending == "":
+	case cleaning && room == r.current:
+		// Cleaning in the room being cleaned again: a visit to the next room was only a blip over the
+		// boundary. Driving through it, such as on the way to a mop wash or home, is not.
+		s.logger.Info("Vacuum next room not confirmed; back in the current room",
+			zap.String("pending", r.pending), zap.String("current", r.current))
+		r.pending = ""
+	case r.pending != r.nextTarget():
+		// Defensive: r.pending is cleared whenever r.current changes, so this holds only if the tour's next
+		// room changed some other way. A pending room that is no longer next is dropped.
+		s.logger.Info("Vacuum pending room is no longer the next room; dropped",
+			zap.String("pending", r.pending), zap.String("next", r.nextTarget()),
+			zap.String("current", r.current))
 		r.pending = ""
 	}
 	if r.aborted || !cleaning || room == "" || room == r.current || r.doneSet[room] {
@@ -875,13 +884,18 @@ func (s *Scheduler) observe(r *run, now time.Time, st *valetudo.State, room stri
 	expected := r.origin == originScheduler && room == r.nextTarget()
 	switch {
 	case expected && r.current != "":
-		if r.pending != room || r.pendingSince.IsZero() {
-			if r.pending != room {
-				s.logger.Info("Vacuum may have entered the next room; waiting to confirm",
-					zap.String("room", room), zap.String("current", r.current),
-					zap.Duration("next_room_dwell", s.cfg.NextRoomDwell))
-			}
+		switch {
+		case r.pending != room:
+			s.logger.Info("Vacuum may have entered the next room; waiting to confirm",
+				zap.String("room", room), zap.String("current", r.current),
+				zap.Duration("next_room_dwell", s.cfg.NextRoomDwell))
 			r.pending, r.pendingSince = room, now
+		case r.pendingSince.IsZero():
+			// Time not cleaning, such as a mop wash, does not count. The wait starts over.
+			s.logger.Info("Vacuum cleaning in the next room again after a break; waiting to confirm from now",
+				zap.String("room", room), zap.String("current", r.current),
+				zap.Duration("next_room_dwell", s.cfg.NextRoomDwell))
+			r.pendingSince = now
 		}
 		if now.Sub(r.pendingSince) < s.cfg.NextRoomDwell {
 			return
