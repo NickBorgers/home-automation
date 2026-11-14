@@ -1206,11 +1206,16 @@ func runView(r *run) *shadowstate.VacuumRun {
 	}
 	v := &shadowstate.VacuumRun{
 		Origin: r.origin, Treatment: string(r.treatment), Targets: append([]string(nil), r.targets...),
-		Done: append([]string{}, r.done...), Current: r.current, StartedAt: r.startedAt, Outcome: r.outcome,
+		Done: append([]string{}, r.done...), Current: r.current, Pending: r.pending, StartedAt: r.startedAt,
+		Outcome:      r.outcome,
 		EndReason:    r.endReason,
 		StartBattery: r.startBattery, Battery: r.lastBattery, Aborted: r.aborted, AbortReason: r.abortReason,
 		Paused: r.paused, PositionAvailable: r.positionSeen,
 		QuietTravel: r.fan != nil && !r.fan.gaveUp, FanSpeed: r.fanSpeed,
+	}
+	if r.pending != "" && !r.pendingSince.IsZero() {
+		pendingSince := r.pendingSince
+		v.PendingSince = &pendingSince
 	}
 	if !r.endedAt.IsZero() {
 		e := r.endedAt
