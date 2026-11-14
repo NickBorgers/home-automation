@@ -56,6 +56,9 @@ func TestScenario_Vacuum_NextRoomDwell_BlipOverOpenBoundary(t *testing.T) {
 	t.Log("AND: near the opening, its position falls just inside the kitchen for two polls")
 	v.moveToPoint(6.3, 2.5, 99)
 	v.advance(30 * time.Second)
+	require.Equal(t, "kitchen", v.out().Run.Pending, "shadow state surfaces the room awaiting confirmation")
+	require.NotNil(t, v.out().Run.PendingSince)
+	assert.Equal(t, v.clk.Now(), *v.out().Run.PendingSince)
 	v.moveToPoint(6.2, 3.0, 99)
 	v.advance(30 * time.Second)
 
@@ -91,6 +94,8 @@ func TestScenario_Vacuum_NextRoomDwell_BlipOverOpenBoundary(t *testing.T) {
 	t.Log("THEN: the lounge is finished now, and the kitchen is the room being cleaned")
 	waitForServerState(t, v.server, "input_boolean.vacuum_dirty_lounge", "off")
 	assert.Equal(t, "kitchen", v.out().Run.Current)
+	assert.Empty(t, v.out().Run.Pending)
+	assert.Nil(t, v.out().Run.PendingSince)
 	assert.Equal(t, []string{"lounge"}, v.out().Run.Done)
 	assert.NotEqual(t, "0.0", v.server.GetState("input_number.vacuum_cost_lounge").State,
 		"the lounge's cost sample is learned from its real drop")
