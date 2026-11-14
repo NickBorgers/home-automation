@@ -127,6 +127,7 @@ sequenceDiagram
     R-->>S: position in study
     R-->>S: position in lounge (driving through)
     R-->>S: position in kitchen (next target)
+    R-->>S: still in kitchen after next_room_dwell
     S->>H: study cleaned now, taint off, cost sample
     R-->>S: status returning
     S->>H: kitchen cleaned now, taint off, cost sample
@@ -134,10 +135,21 @@ sequenceDiagram
     S->>H: trip cost sample
 ```
 
-- A room is done when the robot leaves it for the next target. It is marked clean at once. The last room is
-  done when the run ends (see below), because heading to the dock may only be a mop wash.
-- The next room of the tour counts at once. Any other room counts only after the robot stays in it for
-  `min_dwell` (2 minutes). This keeps a room the robot drives through from counting.
+- A room is done when the robot leaves it for the next target and stays there. It is marked clean then. The
+  last room is done when the run ends (see below), because heading to the dock may only be a mop wash.
+- The first room of the tour counts at once. The next room after it counts once the robot has been in it for
+  `next_room_dwell` (1 minute) without cleaning in the current room again. Near an open boundary, such as two
+  rooms joined by an opening, the robot's position can fall into the next room for a poll or two while
+  it still cleans the current room. Such a blip does not end the current room.
+  - Going back to the current room while cleaning restarts the wait. Driving through it while not cleaning,
+    such as on the way to a mop wash, does not.
+  - Polls in no room or in a room that is not a target do not restart the wait.
+  - Time not cleaning, such as a mop wash, does not count. The wait starts over when the robot cleans in the
+    next room again.
+  - If the run completes while the robot was cleaning in the next room, that room is done too, even if the
+    wait was not over. A small last room needs this.
+- Any other room counts only after the robot stays in it for `min_dwell` (2 minutes). This keeps a room the
+  robot drives through from counting. `next_room_dwell` must not be longer than `min_dwell`.
 - The battery drop between two polls goes to the room the robot was in at the first poll. Battery used at
   the dock — during a mid-job mop wash, a recharge or the final return — is left out, and so is battery used
   while the robot is stopped in `error`, `idle` or `paused`. A finished room's drop is its cost sample. The rest of the run's drop is the trip sample. Samples move the learned cost by
@@ -219,7 +231,7 @@ the middle of a segment clean.
 ```mermaid
 stateDiagram-v2
     [*] --> Travel: run starts (fan = travel_fan_speed)
-    Travel --> Cleaning: robot in the room it cleans now
+    Travel --> Cleaning: robot in the room it cleans now, or the next room
     Cleaning --> Travel: robot leaves it
     Travel --> [*]: run ends (no fan restored)
     Cleaning --> Travel: sent home, paused, mop wash or trip home
@@ -230,10 +242,12 @@ stateDiagram-v2
 
 - It applies only to runs the scheduler starts in `active` mode. Runs started elsewhere are never touched. In
   `log_only` mode, or when the app is read-only, the "would start a run" log line names both fan speeds.
-- The room being cleaned now is the run's current room. The next room of the tour becomes current as soon as
-  the robot enters it. A later room of the tour, or any other room, keeps the fan low while the robot drives
-  through. A room the robot stays in for `min_dwell` counts as being cleaned, as in tracking, so its fan goes
-  up too.
+- The room being cleaned now is the run's current room. The fan is at the treatment's level in the current
+  room and in the next room of the tour. In the next room, the robot is about to clean it, or is cleaning near
+  its boundary with the current room, before `next_room_dwell` confirms the move. So a blip over the boundary
+  does not change the fan, and a robot back in the current room keeps cleaning at the treatment's level. A
+  later room of the tour, or any other room, keeps the fan low while the robot drives through. A room the
+  robot stays in for `min_dwell` counts as being cleaned, as in tracking, so its fan goes up too.
 - The fan is low while the robot is not cleaning: leaving the dock, a mop wash, after the live-safety rules
   sent it home or paused it, and the trip home at the end. After the run, no other fan level is restored. The
   next run sets its own.

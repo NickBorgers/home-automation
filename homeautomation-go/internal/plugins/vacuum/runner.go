@@ -579,11 +579,17 @@ type run struct {
 	startBattery, lastBattery int
 	haveBattery               bool
 
-	current       string
-	done          []string
-	doneSet       map[string]bool
-	room          string // room at the last poll; "" when unknown
-	roomSince     time.Time
+	current   string
+	done      []string
+	doneSet   map[string]bool
+	room      string // room at the last poll; "" when unknown
+	roomSince time.Time
+	// pending is the next room of our own tour once the robot was seen cleaning in it, while that is not yet
+	// confirmed; pendingSince is when the robot was first seen cleaning there. It is cleared when the robot is
+	// seen cleaning in the current room again. Time not cleaning, such as a mop wash, zeroes pendingSince: the
+	// wait starts over the next time the robot is seen cleaning in the pending room.
+	pending       string
+	pendingSince  time.Time
 	lastKnownRoom string
 	roomDrop      map[string]float64
 	sampled       map[string]float64
@@ -839,6 +845,14 @@ func (s *Scheduler) observe(r *run, now time.Time, st *valetudo.State, room stri
 	cleaning := st.Status == valetudo.StatusCleaning && st.Flag != valetudo.FlagResumable
 	if !cleaning {
 		r.roomSince = now
+		r.pendingSince = time.Time{}
+	}
+	// Cleaning in the room being cleaned again: a visit to the next room was only a blip over the boundary.
+	// Driving through it, such as on the way to a mop wash or home, is not.
+	if r.pending != "" && ((cleaning && room == r.current) || r.pending != r.nextTarget()) {
+		s.logger.Info("Vacuum next room not confirmed; the current room goes on",
+			zap.String("pending", r.pending), zap.String("room", room), zap.String("current", r.current))
+		r.pending = ""
 	}
 	if r.aborted || !cleaning || room == "" || room == r.current || r.doneSet[room] {
 		return
@@ -854,16 +868,31 @@ func (s *Scheduler) observe(r *run, now time.Time, st *valetudo.State, room stri
 	if !target {
 		return
 	}
-	// The next room of our own tour counts at once. Any other room, such as a room the robot drives through
-	// or a room of an external run, counts once the robot has stayed in it for MinDwell.
+	// The next room of our own tour counts once the robot has been in it for NextRoomDwell without going
+	// back to the room it cleans; blips to a neighbour or to no room in between do not restart the wait. The
+	// first room of the tour counts at once: no room is finished by it. Any other room, such as a room the
+	// robot drives through or a room of an external run, counts once the robot has stayed in it for MinDwell.
 	expected := r.origin == originScheduler && room == r.nextTarget()
-	if !expected && now.Sub(r.roomSince) < s.cfg.MinDwell {
+	switch {
+	case expected && r.current != "":
+		if r.pending != room || r.pendingSince.IsZero() {
+			if r.pending != room {
+				s.logger.Info("Vacuum may have entered the next room; waiting to confirm",
+					zap.String("room", room), zap.String("current", r.current),
+					zap.Duration("next_room_dwell", s.cfg.NextRoomDwell))
+			}
+			r.pending, r.pendingSince = room, now
+		}
+		if now.Sub(r.pendingSince) < s.cfg.NextRoomDwell {
+			return
+		}
+	case !expected && now.Sub(r.roomSince) < s.cfg.MinDwell:
 		return
 	}
 	if r.current != "" {
 		s.markDone(now, r.current)
 	}
-	r.current = room
+	r.current, r.pending = room, ""
 	s.logger.Info("Vacuum entered room", zap.String("room", room), zap.String("origin", r.origin))
 }
 
@@ -909,6 +938,11 @@ func (s *Scheduler) finish(now time.Time, outcome, reason string) {
 		if r.current != "" {
 			s.markDone(now, r.current)
 		}
+		// The robot was cleaning in the next room and never went back: the job ended there, so that room was
+		// cleaned too, even if the run ended before next_room_dwell passed. A short last room needs this.
+		if r.pending != "" {
+			s.markDone(now, r.pending)
+		}
 		switch {
 		case r.origin == originScheduler && !r.positionSeen:
 			s.finishWithoutPosition(now)
@@ -922,7 +956,7 @@ func (s *Scheduler) finish(now time.Time, outcome, reason string) {
 			}
 		}
 	}
-	r.current = ""
+	r.current, r.pending = "", ""
 	r.endedAt, r.outcome, r.endReason = now, outcome, reason
 	s.logger.Info("Vacuum run ended", zap.String("origin", r.origin), zap.String("outcome", outcome),
 		zap.String("reason", reason), zap.String("treatment", string(r.treatment)),

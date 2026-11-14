@@ -133,7 +133,11 @@ func TestQuietTravelPassingThroughKeepsFanLow(t *testing.T) {
 	assert.Equal(t, []string{"low", "medium"}, e.fanCmds())
 	e.step("kitchen", 97) // the next target, next door: the fan is already up
 	assert.Equal(t, []string{"low", "medium"}, e.fanCmds())
+	assert.Equal(t, "pantry", e.sched().Run.Current, "the kitchen is not yet confirmed")
+	e.step("kitchen", 96)
+	e.step("kitchen", 95)
 	assert.Equal(t, "kitchen", e.sched().Run.Current)
+	assert.Equal(t, []string{"low", "medium"}, e.fanCmds())
 }
 
 // A later target the robot stays in for min_dwell counts as the room being cleaned, so it is not cleaned at
