@@ -788,3 +788,30 @@ func TestArrival_UnlockAloneDoesNothing(t *testing.T) {
 	s.tr.SensorChanged(at(0), porchUnlock, "off", "on")
 	s.tokens(0)
 }
+
+func TestVacuum_DoorwayIntoRobotAreaIsTheRobot(t *testing.T) {
+	s := newScene(t)
+	s.tr.SetVacuumArea("study") // no camera sees the study; the robot shows only in its doorway
+	s.walk(0, "r", "cam_lounge", "lounge", "lounge_to_study")
+	s.tokens(0)
+	s.empty("study", "lounge")
+	assert.Equal(t, "dropped: the robot vacuum is in study", s.tr.Snapshot().RecentTracks[0].Outcome)
+}
+
+func TestVacuum_TrackStaysDroppedAfterRobotMoves(t *testing.T) {
+	s := newScene(t)
+	s.tr.SetVacuumArea("lounge")
+	s.event(0, "new", "r", "cam_lounge", nil, "lounge")
+	s.event(1, "update", "r", "cam_lounge", []string{"lounge"}, "lounge")
+	s.tr.SetVacuumArea("") // the robot's next poll is late, or it docked
+	s.event(2, "update", "r", "cam_lounge", []string{"lounge", "lounge_to_study"}, "lounge_to_study")
+	s.event(3, "end", "r", "cam_lounge", []string{"lounge", "lounge_to_study"}, "lounge_to_study")
+	s.tokens(0)
+}
+
+func TestVacuum_OtherAreasUnchanged(t *testing.T) {
+	s := newScene(t)
+	s.tr.SetVacuumArea("kitchen")
+	s.walk(0, "p", "cam_lounge", "lounge", "lounge_to_study")
+	s.occupied("study")
+}
