@@ -34,19 +34,31 @@ type Robot struct {
 	presetSet map[string][]string // capability -> preset names its presets endpoint lists
 	commands  []Command
 	fail      map[string]int // path -> HTTP status to answer with
+
+	// restrictions is what CombinedVirtualRestrictionsCapability holds. ignoreRestrictions makes a PUT
+	// answer 200 but change nothing, like a robot that drops the edit.
+	restrictions       map[string]any
+	ignoreRestrictions bool
+
+	// requests logs every request as "METHOD path", in order.
+	requests []string
 }
+
+// restrictionsPath is the CombinedVirtualRestrictionsCapability endpoint.
+const restrictionsPath = "/api/v2/robot/capabilities/CombinedVirtualRestrictionsCapability"
 
 // New starts a fake robot that is docked at 100 % with a 5 cm pixel. Close it when done.
 func New() *Robot {
 	r := &Robot{
-		battery:   100,
-		status:    "docked",
-		flag:      "none",
-		presets:   map[string]string{},
-		pixelSize: 5,
-		segments:  map[string]string{},
-		presetSet: map[string][]string{},
-		fail:      map[string]int{},
+		battery:      100,
+		status:       "docked",
+		flag:         "none",
+		presets:      map[string]string{},
+		pixelSize:    5,
+		segments:     map[string]string{},
+		presetSet:    map[string][]string{},
+		fail:         map[string]int{},
+		restrictions: map[string]any{"virtualWalls": []any{}, "restrictedZones": []any{}},
 	}
 	r.Server = httptest.NewServer(http.HandlerFunc(r.serve))
 	return r
@@ -144,6 +156,52 @@ func (r *Robot) FailPreset(capability, name string, status int) {
 	r.fail[key] = status
 }
 
+// SetRestrictions sets the virtual restrictions, as JSON with virtualWalls and restrictedZones.
+func (r *Robot) SetRestrictions(js string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var v map[string]any
+	if err := json.Unmarshal([]byte(js), &v); err != nil {
+		panic("valetudotest: bad restrictions JSON: " + err.Error())
+	}
+	r.restrictions = v
+}
+
+// Restrictions returns the virtual restrictions as JSON.
+func (r *Robot) Restrictions() string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	b, _ := json.Marshal(r.restrictions)
+	return string(b)
+}
+
+// IgnoreRestrictionWrites makes a restrictions PUT answer 200 without changing anything.
+func (r *Robot) IgnoreRestrictionWrites(ignore bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.ignoreRestrictions = ignore
+}
+
+// FailMethod makes requests of one method to path, such as PUT, answer with an HTTP status. Other methods
+// still work. 0 stops failing.
+func (r *Robot) FailMethod(method, path string, status int) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	key := method + " " + path
+	if status == 0 {
+		delete(r.fail, key)
+		return
+	}
+	r.fail[key] = status
+}
+
+// Requests returns every request received so far as "METHOD path", in order.
+func (r *Robot) Requests() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]string(nil), r.requests...)
+}
+
 // Commands returns a copy of the commands received so far.
 func (r *Robot) Commands() []Command {
 	r.mu.Lock()
@@ -161,7 +219,12 @@ func (r *Robot) ClearCommands() {
 func (r *Robot) serve(w http.ResponseWriter, req *http.Request) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	r.requests = append(r.requests, req.Method+" "+req.URL.Path)
 	if code, ok := r.fail[req.URL.Path]; ok {
+		http.Error(w, "fake failure", code)
+		return
+	}
+	if code, ok := r.fail[req.Method+" "+req.URL.Path]; ok {
 		http.Error(w, "fake failure", code)
 		return
 	}
@@ -201,6 +264,8 @@ func (r *Robot) serve(w http.ResponseWriter, req *http.Request) {
 			segs = append(segs, map[string]string{"__class": "ValetudoMapSegment", "id": id, "name": name})
 		}
 		writeJSON(w, segs)
+	case req.Method == http.MethodGet && req.URL.Path == restrictionsPath:
+		writeJSON(w, r.restrictions)
 	case req.Method == http.MethodGet && strings.HasPrefix(req.URL.Path, "/api/v2/robot/capabilities/") &&
 		strings.HasSuffix(req.URL.Path, "/presets"):
 		capability := strings.TrimSuffix(strings.TrimPrefix(req.URL.Path, "/api/v2/robot/capabilities/"), "/presets")
@@ -234,6 +299,12 @@ func (r *Robot) serve(w http.ResponseWriter, req *http.Request) {
 // apply moves the status the way a robot would. The caller holds mu.
 func (r *Robot) apply(path string, body map[string]any) {
 	switch {
+	case path == restrictionsPath:
+		_, walls := body["virtualWalls"].([]any)
+		_, zones := body["restrictedZones"].([]any)
+		if walls && zones && !r.ignoreRestrictions {
+			r.restrictions = body
+		}
 	case strings.HasSuffix(path, "/MapSegmentationCapability"):
 		r.status, r.flag = "cleaning", "segment"
 	case strings.HasSuffix(path, "/BasicControlCapability"):

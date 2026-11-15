@@ -174,11 +174,11 @@ graph TB
 
     Vacuum -->|Entity Subscriptions| HAClient
     Vacuum -->|TTS Announcements| HAClient
-    Vacuum -->|Write taint and cost helpers| HAClient
+    Vacuum -->|Write taint, cost and fence helpers| HAClient
     Vacuum -->|Read isMasterAsleep/isAnyoneHome/sleepers| StateManager
     Vacuum -->|Read area occupancy| OccupancyHub
     Vacuum -->|Write robot area| OccupancyHub
-    Vacuum -->|Position, battery, presets,<br/>segment clean, pause, home| Valetudo
+    Vacuum -->|Position, battery, presets,<br/>segment clean, pause, home, virtual walls| Valetudo
     Vacuum -.->|Register Shadow| ShadowTracker
 
     ResetCoord -->|Subscribe to reset| StateManager

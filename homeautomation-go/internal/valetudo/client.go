@@ -262,6 +262,89 @@ func checkPresetCapability(capability string) error {
 	}
 }
 
+// CapabilityRestrictions is the capability that holds virtual walls and restricted zones together.
+const CapabilityRestrictions = "CombinedVirtualRestrictionsCapability"
+
+// Restricted zone types.
+const (
+	ZoneRegular = "regular"
+	ZoneMop     = "mop"
+)
+
+// RestrictionPoint is a point of a virtual restriction, in Valetudo map centimetres.
+type RestrictionPoint struct {
+	X float64 `json:"x"`
+	Y float64 `json:"y"`
+}
+
+// VirtualWall is a line the robot does not cross.
+type VirtualWall struct {
+	Points struct {
+		PA RestrictionPoint `json:"pA"`
+		PB RestrictionPoint `json:"pB"`
+	} `json:"points"`
+}
+
+// NewVirtualWall builds a wall from A to B.
+func NewVirtualWall(ax, ay, bx, by float64) VirtualWall {
+	var w VirtualWall
+	w.Points.PA = RestrictionPoint{X: ax, Y: ay}
+	w.Points.PB = RestrictionPoint{X: bx, Y: by}
+	return w
+}
+
+// RestrictedZone is an area the robot does not enter (type regular) or does not mop (type mop). Its corners
+// run A, B, C, D around the area.
+type RestrictedZone struct {
+	Points struct {
+		PA RestrictionPoint `json:"pA"`
+		PB RestrictionPoint `json:"pB"`
+		PC RestrictionPoint `json:"pC"`
+		PD RestrictionPoint `json:"pD"`
+	} `json:"points"`
+	Type string `json:"type"`
+}
+
+// Restrictions is the robot's whole set of virtual walls and restricted zones.
+type Restrictions struct {
+	VirtualWalls    []VirtualWall    `json:"virtualWalls"`
+	RestrictedZones []RestrictedZone `json:"restrictedZones"`
+}
+
+// Restrictions reads GET /api/v2/robot/capabilities/CombinedVirtualRestrictionsCapability. Valetudo answers
+// from the map it polled last, so a change it just accepted may show only a few seconds later.
+func (c *Client) Restrictions(ctx context.Context) (*Restrictions, error) {
+	var r Restrictions
+	if err := c.get(ctx, "/api/v2/robot/capabilities/"+CapabilityRestrictions, &r); err != nil {
+		return nil, err
+	}
+	if r.VirtualWalls == nil {
+		r.VirtualWalls = []VirtualWall{}
+	}
+	if r.RestrictedZones == nil {
+		r.RestrictedZones = []RestrictedZone{}
+	}
+	return &r, nil
+}
+
+// SetRestrictions replaces the robot's whole set of virtual walls and restricted zones with
+// PUT /api/v2/robot/capabilities/CombinedVirtualRestrictionsCapability. Anything not in r is removed.
+func (c *Client) SetRestrictions(ctx context.Context, r Restrictions) error {
+	// Valetudo answers 400 unless both lists are JSON arrays.
+	if r.VirtualWalls == nil {
+		r.VirtualWalls = []VirtualWall{}
+	}
+	if r.RestrictedZones == nil {
+		r.RestrictedZones = []RestrictedZone{}
+	}
+	for i, z := range r.RestrictedZones {
+		if z.Type != ZoneRegular && z.Type != ZoneMop {
+			return fmt.Errorf("restricted zone %d: unknown type %q", i, z.Type)
+		}
+	}
+	return c.put(ctx, "/api/v2/robot/capabilities/"+CapabilityRestrictions, r)
+}
+
 // Basic sends a BasicControlCapability action: start, stop, pause or home.
 func (c *Client) Basic(ctx context.Context, action string) error {
 	switch action {

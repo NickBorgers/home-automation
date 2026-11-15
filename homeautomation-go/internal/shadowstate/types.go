@@ -1271,6 +1271,9 @@ type VacuumSchedulerOutputs struct {
 	// Run is the run being tracked now. LastRun is the one before.
 	Run     *VacuumRun `json:"run,omitempty"`
 	LastRun *VacuumRun `json:"lastRun,omitempty"`
+	// FenceRestorePending is true while scheduler virtual walls may still be on the robot. No run starts
+	// until the owner's restrictions are back.
+	FenceRestorePending bool `json:"fenceRestorePending,omitempty"`
 	// Warnings lists problems such as missing helpers.
 	Warnings  []string  `json:"warnings"`
 	UpdatedAt time.Time `json:"updatedAt"`
@@ -1355,6 +1358,9 @@ type VacuumRun struct {
 	QuietTravel bool `json:"quietTravel"`
 	// FanSpeed is the fan preset the scheduler last set for this run. "" when it set none.
 	FanSpeed string `json:"fanSpeed,omitempty"`
+	// FencedDoors lists the house-map doors the scheduler walled off with Valetudo virtual walls before the
+	// run. The walls come off when the run ends.
+	FencedDoors []string `json:"fencedDoors,omitempty"`
 }
 
 // ============================================================================

@@ -518,10 +518,17 @@ reads `isAnyoneHome` for clear confirmations
 - Plans one run from rooms that are dirty, outside occupied or unknown areas (room presence, through the
   `pkg/occupancy` hub), not a sleeper's room or its door neighbour, and that fit battery minus floor
 - Starts a run only at or above the start minimum, after the same plan held for `stable_for`
-- Talks to the robot directly over the Valetudo REST API (`internal/valetudo`): presets, segment clean, pause, home
+- Talks to the robot directly over the Valetudo REST API (`internal/valetudo`): presets, segment clean, pause, home,
+  virtual walls
+- Before a run, puts a Valetudo virtual wall across every door into a `no_enter` room. It saves the owner's
+  restrictions to `input_text.vacuum_fence_saved` first and puts them back exactly when the run ends, also after
+  a restart
 - Follows the robot's room from the Valetudo map and the house map frame; marks rooms clean as it leaves them;
   learns battery costs per room and for the trip
-- Sends the robot home, or pauses it when the way home is blocked, when its run becomes unsafe
+- Sends the robot home, or pauses it when the way home is blocked, when its run becomes unsafe. A robot it
+  paused stays its pause, whether the robot reports paused or idle, until the way home clears
+- With no run tracked, sends home a robot left idle or paused away from the dock for `stranded_after`, once its
+  way home is clear
 - `log_only` keeps helpers and costs up to date but never commands the robot; `READ_ONLY` blocks every write
 
 **Config File:** `vacuum_config.yaml` (`vacuum:` for announcements, `vacuum.scheduler:` for the scheduler). The

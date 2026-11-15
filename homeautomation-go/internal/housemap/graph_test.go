@@ -144,6 +144,41 @@ func TestValetudoToFrame(t *testing.T) {
 	assert.Equal(t, Point{1, -1}, noAnchor.ToFrame(Point{20, 20}), "a missing anchor is the origin")
 }
 
+// TestValetudoFromFrame inverts the numbers of TestValetudoToFrame and checks round trips both ways.
+func TestValetudoFromFrame(t *testing.T) {
+	plain := &Valetudo{RotationDeg: 0, PixelSizeM: 0.05, AnchorPx: []float64{0, 0}, AnchorM: []float64{0, 0}}
+	got := plain.FromFrame(Point{10, -10})
+	assert.InDelta(t, 200.0, got[0], 1e-9)
+	assert.InDelta(t, 200.0, got[1], 1e-9)
+
+	turned := &Valetudo{RotationDeg: 150, PixelSizeM: 0.05, AnchorPx: []float64{400, 300.5},
+		AnchorM: []float64{10, 8}}
+	for _, tt := range []struct {
+		px Point
+		m  Point
+	}{
+		{Point{400, 300.5}, Point{10.0, 8.0}},
+		{Point{420, 300.5}, Point{9.13397459621556, 7.5}},
+		{Point{400, 320.5}, Point{9.5, 8.86602540378444}},
+		{Point{512.3, 250.0}, Point{6.399767357750379, 3.0057858554442936}},
+	} {
+		got := turned.FromFrame(tt.m)
+		assert.InDelta(t, tt.px[0], got[0], 1e-9, "x of %v", tt.m)
+		assert.InDelta(t, tt.px[1], got[1], 1e-9, "y of %v", tt.m)
+		back := turned.FromFrame(turned.ToFrame(tt.px))
+		assert.InDelta(t, tt.px[0], back[0], 1e-9, "pixel round trip of %v", tt.px)
+		assert.InDelta(t, tt.px[1], back[1], 1e-9, "pixel round trip of %v", tt.px)
+		there := turned.ToFrame(turned.FromFrame(tt.m))
+		assert.InDelta(t, tt.m[0], there[0], 1e-9, "metre round trip of %v", tt.m)
+		assert.InDelta(t, tt.m[1], there[1], 1e-9, "metre round trip of %v", tt.m)
+	}
+
+	noAnchor := &Valetudo{PixelSizeM: 0.05}
+	assert.Equal(t, Point{20, 20}, noAnchor.FromFrame(Point{1, -1}), "a missing anchor is the origin")
+	assert.Equal(t, Point{3, 4}, (&Valetudo{AnchorPx: []float64{3, 4}}).FromFrame(Point{9, 9}),
+		"no pixel size: the anchor pixel")
+}
+
 func TestGraphOpenRegion(t *testing.T) {
 	g := loadGraph(t)
 
