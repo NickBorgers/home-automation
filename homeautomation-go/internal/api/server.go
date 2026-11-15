@@ -40,6 +40,9 @@ type Server struct {
 	timezone      *time.Location
 	alertNotifier alert.Alerter
 
+	// configDir holds house_map.yaml for /map. Empty means no map page.
+	configDir string
+
 	// Tesla OAuth. teslaAuth is nil unless the Tesla plugin found credentials.
 	// oauthState is the single-use nonce handed to Tesla by /api/tesla/login and
 	// checked when Tesla redirects the browser back to /api/tesla/callback.
@@ -109,6 +112,7 @@ func NewServer(
 	mux.HandleFunc("/health", s.handleHealth)
 	mux.HandleFunc("/dashboard", s.handleDashboard)
 	mux.HandleFunc("/timeline", s.handleTimeline)
+	mux.HandleFunc("/map", s.handleMap)
 	mux.HandleFunc("/api/timeline/events", s.handleTimelineEvents)
 
 	s.server = &http.Server{
@@ -650,6 +654,11 @@ func (s *Server) handleSitemap(w http.ResponseWriter, r *http.Request) {
 			Path:        "/timeline",
 			Method:      "GET",
 			Description: "State Timeline - visualize state changes over time for debugging",
+		},
+		{
+			Path:        "/map",
+			Method:      "GET",
+			Description: "House Map - floor plan with rooms, doors and camera views, drawn from house_map.yaml",
 		},
 		{
 			Path:        "/api/timeline/events",

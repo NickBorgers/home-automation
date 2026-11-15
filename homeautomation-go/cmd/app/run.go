@@ -407,6 +407,7 @@ func Run() {
 
 	// Start HTTP API server
 	apiServer := api.NewServer(client, stateManager, shadowTracker, logBuffer, logger, httpPort, timezone, pluginCtx.AlertNotifier)
+	apiServer.SetConfigDir(configDir)
 	if err := apiServer.Start(); err != nil {
 		logger.Fatal("Failed to start HTTP API server", zap.Error(err))
 	}

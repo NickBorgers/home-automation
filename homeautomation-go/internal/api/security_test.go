@@ -51,6 +51,7 @@ var allEndpoints = []string{
 	"/health",
 	"/dashboard",
 	"/timeline",
+	"/map",
 	"/api/timeline/events",
 }
 
