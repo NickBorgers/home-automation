@@ -81,6 +81,16 @@ watch_targets:
       bad_states: ["unavailable"]
       bad_state_duration_min: 10
       stale_last_updated_min: 0  # disabled: off TVs don't tick last_updated and aren't broken
+      # The integration can freeze on "off" while the TV is in use (seen 2026-11-08 to 2026-11-15).
+      # It never reports "unavailable", so the rule above does not fire. An Apple TV that plays
+      # for 5 minutes while the panel says "off" proves the panel entity is frozen.
+      contradictions:
+        - entity: media_player.sony_xr_65a80k
+          state: "off"
+          contradicted_by:
+            entity: media_player.big_beautiful_oled
+            state: "playing"
+          duration_min: 5
     reload:
       cooldown_min: 5
       daily_max: 10

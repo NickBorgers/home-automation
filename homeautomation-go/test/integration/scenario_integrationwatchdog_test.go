@@ -135,3 +135,117 @@ func TestScenario_Watchdog_RecoveryClearsStaleness(t *testing.T) {
 	require.Equal(t, reloadCountAfterFirst, len(server.GetConfigEntryReloads()),
 		"watchdog should not re-fire after recovery; cooldown also prevents it")
 }
+
+// makeContradictionCfg builds a config like the Bravia target: the panel entity is watched,
+// and "off" is not credible while the Apple TV is "playing".
+func makeContradictionCfg(panel, appleTV string, durationMin int) *integrationwatchdog.Config {
+	return &integrationwatchdog.Config{
+		CheckIntervalSec: 1,
+		WatchTargets: []integrationwatchdog.WatchTarget{{
+			Name:            "test_target",
+			IntegrationName: "Test Bravia",
+			Entities:        []string{panel},
+			ConfigEntryID:   "test_entry_id",
+			Detection: integrationwatchdog.DetectionRule{
+				Contradictions: []integrationwatchdog.Contradiction{{
+					Entity:         panel,
+					State:          "off",
+					ContradictedBy: integrationwatchdog.EntityCondition{Entity: appleTV, State: "playing"},
+					DurationMin:    durationMin,
+				}},
+			},
+			Reload: integrationwatchdog.ReloadPolicy{
+				CooldownMin:        5,
+				DailyMax:           5,
+				PostReloadDelaySec: 0,
+			},
+		}},
+	}
+}
+
+// TestScenario_Watchdog_ContradictionTriggersReload covers the Bravia failure from production.
+//
+//	GIVEN the Bravia panel entity says "off" (frozen, never "unavailable")
+//	WHEN the Apple TV plays, which cannot happen with the TV panel off
+//	THEN the watchdog reloads the Bravia integration
+//
+// Invariant: a frozen integration that reports a plausible state is still caught when another
+// source disproves it.
+func TestScenario_Watchdog_ContradictionTriggersReload(t *testing.T) {
+	t.Parallel()
+
+	const panel = "media_player.scenario_panel"
+	const appleTV = "media_player.scenario_apple_tv"
+	server, mgr, cleanup := setupWatchdogScenarioTest(t, makeContradictionCfg(panel, appleTV, 0))
+	defer cleanup()
+
+	t.Log("GIVEN: the panel entity reports 'off' and the Apple TV reports 'idle'")
+	server.SetState(panel, "off", nil)
+	server.SetState(appleTV, "idle", nil)
+	require.NoError(t, mgr.Start(), "watchdog should start cleanly")
+
+	t.Log("WHEN: the Apple TV starts playing")
+	server.SetState(appleTV, "playing", nil)
+
+	t.Log("THEN: the mock HA server receives a config_entries/reload for test_entry_id")
+	require.Eventually(t, func() bool {
+		for _, r := range server.GetConfigEntryReloads() {
+			if r.EntryID == "test_entry_id" {
+				return true
+			}
+		}
+		return false
+	}, 5*time.Second, 50*time.Millisecond, "expected a reload of test_entry_id within 5s")
+}
+
+// TestScenario_Watchdog_NoContradiction_NoReload checks that a healthy TV is left alone.
+//
+// Invariants:
+//   - Panel "off" with an idle Apple TV is a normal evening. No reload.
+//   - Panel "on" with a playing Apple TV is a normal movie. No reload.
+func TestScenario_Watchdog_NoContradiction_NoReload(t *testing.T) {
+	t.Parallel()
+
+	const panel = "media_player.scenario_panel"
+	const appleTV = "media_player.scenario_apple_tv"
+	server, mgr, cleanup := setupWatchdogScenarioTest(t, makeContradictionCfg(panel, appleTV, 0))
+	defer cleanup()
+
+	t.Log("GIVEN: the panel is off and the Apple TV is idle")
+	server.SetState(panel, "off", nil)
+	server.SetState(appleTV, "idle", nil)
+	require.NoError(t, mgr.Start(), "watchdog should start cleanly")
+
+	t.Log("WHEN: the TV turns on and the Apple TV plays")
+	server.SetState(panel, "on", nil)
+	server.SetState(appleTV, "playing", nil)
+
+	t.Log("THEN: no reload happens across several scan intervals")
+	require.Never(t, func() bool {
+		return len(server.GetConfigEntryReloads()) > 0
+	}, 3*time.Second, 100*time.Millisecond, "a healthy TV must not be reloaded")
+}
+
+// TestScenario_Watchdog_ContradictionWaitsForDuration checks the dwell time.
+// Briefly overlapping states happen when someone turns the TV off during a show. The Apple TV
+// needs a moment to notice.
+//
+// Invariant: no reload until the contradiction has lasted duration_min.
+func TestScenario_Watchdog_ContradictionWaitsForDuration(t *testing.T) {
+	t.Parallel()
+
+	const panel = "media_player.scenario_panel"
+	const appleTV = "media_player.scenario_apple_tv"
+	server, mgr, cleanup := setupWatchdogScenarioTest(t, makeContradictionCfg(panel, appleTV, 5))
+	defer cleanup()
+
+	t.Log("GIVEN: the panel is off and the Apple TV is playing, with a 5 minute dwell time")
+	server.SetState(panel, "off", nil)
+	server.SetState(appleTV, "playing", nil)
+	require.NoError(t, mgr.Start(), "watchdog should start cleanly")
+
+	t.Log("THEN: no reload happens in the first seconds")
+	require.Never(t, func() bool {
+		return len(server.GetConfigEntryReloads()) > 0
+	}, 3*time.Second, 100*time.Millisecond, "the watchdog must wait out duration_min")
+}
