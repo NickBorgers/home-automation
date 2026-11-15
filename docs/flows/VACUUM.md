@@ -35,7 +35,7 @@ Every rule must hold.
 
 | Output | Where |
 |--------|-------|
-| Presets, segment clean, pause, return home | Valetudo REST API, `active` mode only |
+| Presets, segment clean, pause, return home, virtual walls | Valetudo REST API, `active` mode only |
 | Taints, last clean, learned costs | Home Assistant helpers, `log_only` and `active` |
 | Items, plan, skip reasons, run, robot room | `/api/shadow/vacuum`, under `scheduler` |
 | The robot's area while it is out of the dock | Occupancy hub, in every mode. Room presence uses it to tell the robot from a person |
@@ -53,6 +53,14 @@ stores what was learned.
 | `input_datetime.vacuum_cleaned_<room>` | Last full clean. It survives restarts. |
 | `input_number.vacuum_cost_<room>` | Learned battery percent for a full clean. |
 | `input_number.vacuum_cost_trip` | Learned battery percent to drive out and back. A missing trip helper uses the default. |
+
+One more helper keeps the owner's virtual walls and zones while the scheduler's walls are up (see
+[Fencing](#fencing)). Create it as a text helper with maximum length 255. Without it, the scheduler warns and runs
+without walls.
+
+| Helper | Meaning |
+|--------|---------|
+| `input_text.vacuum_fence_saved` | The owner's virtual restrictions while scheduler walls are on the robot. Empty otherwise. Do not edit it. |
 
 ## Taints
 
@@ -113,6 +121,64 @@ quiet travel on, the fan is set to `travel_fan_speed` instead (see [Quiet travel
 
 In `log_only` mode, or when the app is read-only, it logs the run it would start and sends nothing. The plan
 then shows `wouldStartAt` in shadow state until the plan changes.
+
+## Fencing
+
+The robot plans its own route. It may leave the planner's way, for example to get around a dog lying in a
+doorway, and drive into a room a person is in. A Valetudo virtual wall is the one thing its path planner obeys.
+So before a run starts, the scheduler puts a virtual wall across every door from a room the robot can reach into a
+`no_enter` room. Fencing is on by default (`fence_no_enter: true`). Set `fence_no_enter: false` to turn it off.
+
+```mermaid
+sequenceDiagram
+    participant S as Scheduler
+    participant H as Home Assistant
+    participant R as Robot
+    S->>R: read virtual restrictions
+    S->>H: save the owner's set to input_text.vacuum_fence_saved
+    S->>R: write the owner's set plus the scheduler's walls
+    S->>R: read back until it matches
+    S->>R: presets, then segment clean
+    Note over S,R: the run
+    S->>R: write the owner's set back, read back
+    S->>H: clear input_text.vacuum_fence_saved
+```
+
+- A wall goes across a house-map door or opening that joins a reachable room to a `no_enter` room. A room is
+  reachable when a way from the dock gets to it without entering a `no_enter` room. Each wall reaches
+  `fence_margin_m` (0.25 m) past both jambs. House metres become Valetudo centimetres with the inverse of the
+  house map's `valetudo` frame.
+- A door into a `no_enter` room with no span in the house map cannot be walled. It is shown in shadow
+  warnings.
+- The plan's way never enters a `no_enter` room, so walls around those rooms never cut it. The scheduler still
+  checks: if a wall would cross a door on the way to any target or back, or fence in the dock room, the run does
+  not start.
+- If any step fails, the run does not start: the robot map does not fit the frame, the restrictions cannot be
+  read, the owner's set does not fit in the helper, the helper cannot be written, the write fails, or the read
+  back does not match. The owner's set is put back if walls went up. `warnings` shows why, and the start gate
+  waits again.
+- When nothing needs a wall, nothing is read or written.
+- When the run ends, for any reason, the owner's set goes back exactly and the helper is cleared. The robot's
+  set is written only when it differs.
+- A failed restore is tried again on every poll. No run starts while scheduler walls may still be on the robot.
+  `fenceRestorePending` shows it.
+- Walls are set only before a run. Valetudo itself lets restrictions change at any time: its Dreame code sends
+  the firmware a `map_edit` action, and only the firmware's answer decides. What the firmware does with a change
+  in the middle of a job is not known, so the scheduler never changes them then. People who move during the run
+  are handled by [Live safety](#live-safety).
+- Valetudo answers a read from the map it polled last, and polls again after a change. So a change can show a
+  few seconds late. The scheduler reads back up to ten times, one second apart.
+
+### Restarts
+
+- The saved set survives a restart in the helper. At startup, once no run is tracked, a saved set is put back.
+  If the robot is on a job, such as the run from before the restart, its walls stay until that job ends.
+- If the helper is empty at startup, every wall that matches a wall the scheduler would draw across a house-map
+  door, to the centimetre, is taken away. Every other wall and every zone stays. So a lost save still leaves no
+  scheduler wall behind. An owner's wall drawn exactly on a scheduler wall would be taken away too.
+- A helper that is `unavailable` at startup is asked again on the next poll. Nothing starts until it was read.
+  Later, an `unavailable` helper only stops a run that needs walls. `warnings` shows it.
+- If the app stops during a run, the walls stay on the robot for the rest of that job.
 
 ## Tracking
 
@@ -193,7 +259,8 @@ What counts as no progress:
 
 - Status `error` always counts.
 - Status `idle` or `paused` counts, even with the flag `resumable`. It does not count while the dock washes
-  the mop, or while the robot is paused by the live-safety rules waiting for its way home to clear.
+  the mop, or after the live-safety rules paused the robot, while it waits for its way home to clear. A Dreame
+  reports `idle`, not `paused`, after a pause, with the flag `resumable` or none. Both count as that pause.
 - Status `docked` does not count, even with the flag `resumable`. A robot that goes back to recharge in the
   middle of a job stays docked with `resumable` until it has enough charge to go on, which can take hours. A
   docked robot with neither `resumable` nor a washing dock ends the run by the usual rule above. The one
@@ -286,6 +353,22 @@ flowchart TD
 ```
 
 - A paused robot goes home once the way clears. It does not resume the run.
+- A robot the scheduler paused is waiting for its way home, whether it reports `paused` or `idle`. That run never
+  ends by stall, and an `idle` robot does not end it either. Only `error` still ends it after `stall_timeout`.
+- A robot in a `no_enter` room is unsafe at once, whether it went off the planned way or someone walked in.
+- Every room change during a tracked run is logged ("Vacuum moved to another room"), with `on_route` for our own
+  runs. A room that is neither on the planned way nor a target logs "Vacuum is off its planned route".
+- From the dock to the first target, the robot is polled every `travel_track_interval` (5 seconds), so a robot
+  that leaves the planned way is seen soon. A map read is about 75 KB.
+
+### Stranded robot
+
+With no run tracked, a robot that stands `idle` or `paused` away from the dock for `stranded_after` (5 minutes)
+is sent home, if its shortest way home enters no `no_enter` room. Its room comes from the map, else from the last
+run. A robot whose room is not known stays where it is, with a warning. If it still stands there
+`stranded_after` later, it is sent home again. `error`, `docked`, `returning` and a washing dock are left alone.
+Only `active` mode sends anything. This covers a run that ended while the robot was stopped, and a job someone
+stopped by hand.
 - Unfinished rooms stay dirty.
 - Without a trusted position, the robot is assumed to be in the last room seen, or at the dock.
 
@@ -295,10 +378,14 @@ flowchart TD
 |------|-------|-------------------|----------------|--------------------|
 | `off` | no | no | no | no |
 | `log_only` | yes | yes | yes | no |
-| `active` | yes | yes | yes | yes |
+| `active` | yes | yes | yes | yes, virtual walls included |
 
 `READ_ONLY=true` blocks every write, helpers included, in every mode. The scheduler still plans and tracks in
 memory, so shadow state shows what it would do.
+
+In `log_only` mode, the "would start a run" log is followed by one "Vacuum would fence a no-enter room" line per
+wall, with the door and the wall in Valetudo centimetres. Like a real start, it reads the robot map for its
+pixel size and to check the frame. It never reads or writes the restrictions.
 
 ## Shadow state
 
@@ -310,9 +397,10 @@ memory, so shadow state shows what it would do.
 | `robot` | Status, battery, room, last poll, last error |
 | `items` | Every room and treatment: dirty, manual, last clean, score, cost, missing helpers |
 | `plan` | Latest plan, `noEnter`, `noClean`, `skipped` reasons, `pendingSince`, `startsAt`, `wouldStartAt` |
-| `run`, `lastRun` | Origin, targets, done rooms, current room, pending next room, `pendingSince` (when the robot was first seen cleaning in the pending room), abort reason, paused, outcome (`completed`, `aborted`, `stopped`, `stalled`, `error`, `superseded`), `endReason` (why a run ended early), `quietTravel` (fan switching on for the run), `fanSpeed` (fan preset the scheduler last set) |
+| `run`, `lastRun` | Origin, targets, done rooms, current room, pending next room, `pendingSince` (when the robot was first seen cleaning in the pending room), abort reason, paused, outcome (`completed`, `aborted`, `stopped`, `stalled`, `error`, `superseded`), `endReason` (why a run ended early), `quietTravel` (fan switching on for the run), `fanSpeed` (fan preset the scheduler last set), `fencedDoors` (doors walled off for the run) |
+| `fenceRestorePending` | Scheduler walls may still be on the robot. No run starts until the owner's set is back |
 | `tripCost` | Learned trip cost |
-| `warnings` | Missing helpers, untrusted position, unreadable sleepers, fan presets that failed or are not valid |
+| `warnings` | Missing helpers, untrusted position, unreadable sleepers, fan presets that failed or are not valid, fencing problems, a stranded robot that cannot go home |
 
 ## Configuration
 
@@ -332,3 +420,8 @@ shadow state. It never stops the error announcer.
 - A run started elsewhere is split when the reported operation mode differs after a stop. A robot that
   reported another mode while it washed its mop would split one job into two; its current room stays dirty.
 - A sticky room presence token can block rooms for hours. The skip reasons show it.
+- Walls are only as good as the house map's door spans and the `valetudo` frame. A frame off by more than
+  `fence_margin_m` can leave a gap at a jamb.
+- Walls are set from the occupancy at the start. A room that becomes `no_enter` during the run has no wall. If
+  the robot ends up inside a walled room anyway, the walls keep it from leaving, so it cannot obey `home`. The run
+  then ends by stall after `stall_timeout`, the walls come off, and the robot is sent home as a stranded robot.

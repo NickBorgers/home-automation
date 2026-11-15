@@ -85,6 +85,19 @@ vacuum:
     # How often the robot is polled while it travels with quiet travel on.
     travel_track_interval: "5s"
 
+    # Fencing: before a run starts, put a Valetudo virtual wall across every
+    # door into a room the robot must not enter, and take the walls away when
+    # the run ends. The owner's own walls and zones are kept and put back.
+    # Needs the helper input_text.vacuum_fence_saved (text, max length 255);
+    # without it the scheduler warns and runs without walls. fence_margin_m
+    # is how far each wall reaches past the door jambs.
+    fence_no_enter: true
+    fence_margin_m: 0.25
+
+    # With no run tracked, a robot standing idle or paused away from the dock
+    # this long is sent home once its way home is clear.
+    stranded_after: "5m"
+
     battery:
       # Start only at or above start_min. Plan so the run ends at or above
       # floor.

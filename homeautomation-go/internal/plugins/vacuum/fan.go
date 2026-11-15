@@ -199,9 +199,15 @@ func (s *Scheduler) fanWarnings() {
 }
 
 // pollInterval is how long to wait for the next poll: travel_track_interval while our run's robot travels with
-// quiet travel on, track_interval otherwise. The caller holds tickMu.
+// quiet travel on, or drives from the dock to its first target, and track_interval otherwise. The first leg
+// is where the robot's own path planner may leave the planned way, so it is watched closely. The caller holds
+// tickMu.
 func (s *Scheduler) pollInterval() time.Duration {
 	if r := s.run; r != nil && r.fan != nil && r.fan.travelling && !r.fan.gaveUp {
+		return s.cfg.TravelTrackInterval
+	}
+	if r := s.run; r != nil && r.origin == originScheduler && r.current == "" && len(r.done) == 0 &&
+		!r.aborted && !r.paused {
 		return s.cfg.TravelTrackInterval
 	}
 	return s.cfg.TrackInterval

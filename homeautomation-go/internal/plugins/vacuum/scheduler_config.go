@@ -42,6 +42,13 @@ const (
 	defaultStallTimeout   = 30 * time.Minute
 )
 
+// Fencing and stranded-robot defaults.
+const (
+	defaultFenceMarginM  = 0.25
+	maxFenceMarginM      = 1.0
+	defaultStrandedAfter = 5 * time.Minute
+)
+
 // roomNamePattern keeps room names usable inside Home Assistant entity ids.
 var roomNamePattern = regexp.MustCompile(`^[a-z0-9]+(_[a-z0-9]+)*$`)
 
@@ -82,6 +89,17 @@ type SchedulerConfig struct {
 
 	// Rooms are the rooms the scheduler cleans, by house-map room name. Other rooms are only driven through.
 	Rooms map[string]RoomConfig `yaml:"rooms"`
+
+	// FenceNoEnter puts Valetudo virtual walls across the doors into no_enter rooms before a run the
+	// scheduler starts, and takes them away when the run ends. Default true. See fence.go.
+	FenceNoEnter *bool `yaml:"fence_no_enter"`
+	// FenceMarginM is how far, in metres, each wall reaches past both door jambs. Default 0.25.
+	FenceMarginM *float64 `yaml:"fence_margin_m"`
+	// StrandedAfterRaw is how long the robot may stand idle or paused away from the dock, with no run
+	// tracked, before an active scheduler sends it home. Default 5m.
+	StrandedAfterRaw string `yaml:"stranded_after"`
+	// StrandedAfter is the parsed stranded_after.
+	StrandedAfter time.Duration `yaml:"-"`
 
 	// Parsed by validate.
 	ReplanInterval time.Duration `yaml:"-"`
@@ -139,6 +157,17 @@ type RoomConfig struct {
 
 	Full   time.Duration `yaml:"-"`
 	Vacuum time.Duration `yaml:"-"`
+}
+
+// FenceEnabled reports whether fence_no_enter is on, after defaults.
+func (c *SchedulerConfig) FenceEnabled() bool { return c.FenceNoEnter == nil || *c.FenceNoEnter }
+
+// FenceMargin is fence_margin_m after defaults.
+func (c *SchedulerConfig) FenceMargin() float64 {
+	if c.FenceMarginM == nil {
+		return defaultFenceMarginM
+	}
+	return *c.FenceMarginM
 }
 
 // StartMinPercent is the start minimum after defaults.
@@ -304,6 +333,14 @@ func (c *SchedulerConfig) validate() error {
 			return err
 		}
 		c.Rooms[name] = r
+	}
+
+	if c.StrandedAfter, err = parseDuration("scheduler.stranded_after", c.StrandedAfterRaw, defaultStrandedAfter,
+		false); err != nil {
+		return err
+	}
+	if m := c.FenceMargin(); m < 0 || m > maxFenceMarginM {
+		return fmt.Errorf("scheduler.fence_margin_m %g must be at least 0 and at most %g", m, maxFenceMarginM)
 	}
 
 	if c.Mode == ModeOff {
