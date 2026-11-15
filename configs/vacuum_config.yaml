@@ -62,10 +62,15 @@ vacuum:
     # hold for stable_for before a run starts. track_interval is how often the
     # robot is polled. min_dwell is how long the robot must stay in a room it
     # was not expected in before that room counts as being cleaned.
+    # next_room_dwell is how long the robot must stay in the next room of the
+    # tour, without cleaning the current room again, before the move counts
+    # and the current room is done. It keeps a brief blip over an open
+    # boundary from ending a room early. It must not be longer than min_dwell.
     replan_interval: "5m"
     stable_for: "10m"
     track_interval: "30s"
     min_dwell: "2m"
+    next_room_dwell: "1m"
 
     # A run that makes no progress for stall_timeout ends as "error" (the
     # robot reported an error) or "stalled", and its current room stays

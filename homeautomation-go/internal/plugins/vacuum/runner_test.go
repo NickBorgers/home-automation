@@ -405,11 +405,14 @@ func TestSchedulerTracksOwnRun(t *testing.T) {
 	step("pantry", 92) // leaving the lounge
 	assert.Equal(t, "on", e.state("input_boolean.vacuum_dirty_lounge"), "not done until the next target")
 	step("kitchen", 91)
-	assert.Equal(t, "off", e.state("input_boolean.vacuum_dirty_lounge"), "lounge done when the kitchen starts")
+	step("kitchen", 88)
+	assert.Equal(t, "on", e.state("input_boolean.vacuum_dirty_lounge"), "the kitchen is not yet confirmed")
+	step("kitchen", 85)
+	assert.Equal(t, "off", e.state("input_boolean.vacuum_dirty_lounge"),
+		"lounge done once the robot stayed in the kitchen for next_room_dwell")
 	assert.True(t, e.cleanedAt(itemKey{"lounge", TreatmentFull}).After(runStart))
 	assert.InDelta(t, 8.2, e.cost("input_number.vacuum_cost_lounge"), 1e-9, "9.6 + 0.3 * (5 - 9.6)")
 
-	step("kitchen", 85)
 	e.robot.SetStatus("returning", "none")
 	step("kitchen", 84)
 	assert.Equal(t, "on", e.state("input_boolean.vacuum_dirty_kitchen"),

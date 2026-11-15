@@ -49,7 +49,8 @@ import (
 //   - Rule 2: a sleeper's room and its door neighbours are not cleaned, but
 //     may be driven through.
 //   - Rule 3: a run starts at 70 % or more and is packed to end at 30 % or more.
-//   - A room is marked clean when the robot leaves it for the next room.
+//   - A room is marked clean when the robot leaves it for the next room and
+//     stays there for next_room_dwell (1 minute).
 //   - When someone walks into the next room, the robot goes home and the
 //     unfinished rooms stay dirty.
 // ============================================================================
@@ -336,6 +337,8 @@ func TestScenario_Vacuum_SleeperNeighbourSkippedButDrivenThrough(t *testing.T) {
 	v.step("kitchen", 95)
 	v.step("hall", 94)
 	v.step("porch", 93)
+	v.step("porch", 92)
+	v.step("porch", 91) // a minute in the porch confirms it
 	assert.False(t, v.out().Run.Aborted, "the hall may be driven through")
 	waitForServerState(t, v.server, "input_boolean.vacuum_dirty_kitchen", "off")
 	assert.Equal(t, "on", v.server.GetState("input_boolean.vacuum_dirty_hall").State, "the hall stays dirty")
@@ -376,7 +379,8 @@ func TestScenario_Vacuum_BatteryPacking(t *testing.T) {
 
 // GIVEN a run of the study and the kitchen
 // WHEN the robot leaves the study for the kitchen
-// THEN the study is marked clean at once; the kitchen stays dirty until the robot leaves it
+// THEN the study is marked clean once the robot has been in the kitchen for a minute; the kitchen stays dirty
+// until the robot leaves it
 func TestScenario_Vacuum_RoomMarkedCleanAsRobotLeaves(t *testing.T) {
 	v := setupVacuumScenario(t, nil, nil)
 	v.markDirty("study", "kitchen")
@@ -390,6 +394,10 @@ func TestScenario_Vacuum_RoomMarkedCleanAsRobotLeaves(t *testing.T) {
 	assert.Equal(t, "on", v.server.GetState("input_boolean.vacuum_dirty_study").State,
 		"the study is not done while the robot might come back")
 	v.step("kitchen", 91)
+	v.step("kitchen", 88)
+	assert.Equal(t, "on", v.server.GetState("input_boolean.vacuum_dirty_study").State,
+		"30 seconds in the kitchen do not yet confirm it")
+	v.step("kitchen", 85)
 
 	t.Log("THEN: the study is clean, the kitchen is not yet")
 	waitForServerState(t, v.server, "input_boolean.vacuum_dirty_study", "off")
@@ -399,7 +407,6 @@ func TestScenario_Vacuum_RoomMarkedCleanAsRobotLeaves(t *testing.T) {
 	assert.Equal(t, v.clk.Now().Unix(), int64(ts))
 
 	t.Log("AND: the kitchen is clean once the robot is back on the dock for good")
-	v.step("kitchen", 85)
 	v.robot.SetStatus("returning", "none")
 	v.step("kitchen", 84)
 	v.robot.SetStatus("docked", "none")

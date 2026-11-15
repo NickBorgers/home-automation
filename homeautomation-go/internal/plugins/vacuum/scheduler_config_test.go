@@ -44,6 +44,7 @@ vacuum:
 	assert.Equal(t, 10*time.Minute, sc.StableFor)
 	assert.Equal(t, 30*time.Second, sc.TrackInterval)
 	assert.Equal(t, 2*time.Minute, sc.MinDwell)
+	assert.Equal(t, time.Minute, sc.NextRoomDwell)
 	assert.Equal(t, 30*time.Minute, sc.StallTimeout)
 	assert.Equal(t, "", sc.TravelFanSpeed, "quiet travel is off unless set")
 	assert.Equal(t, 5*time.Second, sc.TravelTrackInterval)
@@ -78,6 +79,9 @@ func TestSchedulerConfigProblemsDoNotFailLoad(t *testing.T) {
 		{"bad url", "vacuum:\n  scheduler:\n    mode: active\n    valetudo_url: robot\n" + room, "valetudo_url"},
 		{"floor above start", base + room + "    battery: {start_min: 50, floor: 60}\n", "floor < start_min"},
 		{"start above 100", base + room + "    battery: {start_min: 120}\n", "start_min"},
+		{"next_room_dwell above min_dwell", base + room + "    min_dwell: 1m\n    next_room_dwell: 90s\n",
+			"next_room_dwell"},
+		{"next_room_dwell zero", base + room + "    next_room_dwell: 0s\n", "next_room_dwell"},
 		{"bad rate", base + room + "    battery: {learning_rate: 2}\n", "learning_rate"},
 		{"negative trip", base + room + "    battery: {default_trip_cost: -1}\n", "default_trip_cost"},
 		{"unknown treatment", base + room + "    treatments: {mop: {}}\n", "unknown treatment"},

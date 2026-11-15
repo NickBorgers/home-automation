@@ -38,6 +38,7 @@ const (
 	defaultTrackInterval  = 30 * time.Second
 	defaultTravelTrack    = 5 * time.Second
 	defaultMinDwell       = 2 * time.Minute
+	defaultNextRoomDwell  = time.Minute
 	defaultStallTimeout   = 30 * time.Minute
 )
 
@@ -59,6 +60,10 @@ type SchedulerConfig struct {
 	StableForRaw      string `yaml:"stable_for"`
 	TrackIntervalRaw  string `yaml:"track_interval"`
 	MinDwellRaw       string `yaml:"min_dwell"`
+	// NextRoomDwellRaw is how long the robot must stay in the next room of our own tour, without going back
+	// to the room it cleans, before that room counts and the room before it is done. It keeps a brief blip
+	// over an open boundary from ending a room early. Default 1m: two track_interval polls after the first.
+	NextRoomDwellRaw string `yaml:"next_room_dwell"`
 	// StallTimeoutRaw is how long a run may make no progress before it ends as stalled or error. See
 	// stallPoll in runner.go for what counts as no progress. Default 30m.
 	StallTimeoutRaw string `yaml:"stall_timeout"`
@@ -83,6 +88,7 @@ type SchedulerConfig struct {
 	StableFor      time.Duration `yaml:"-"`
 	TrackInterval  time.Duration `yaml:"-"`
 	MinDwell       time.Duration `yaml:"-"`
+	NextRoomDwell  time.Duration `yaml:"-"`
 	StallTimeout   time.Duration `yaml:"-"`
 	// TravelTrackInterval is the parsed travel_track_interval.
 	TravelTrackInterval time.Duration `yaml:"-"`
@@ -191,12 +197,18 @@ func (c *SchedulerConfig) validate() error {
 		{"stable_for", c.StableForRaw, defaultStableFor, &c.StableFor},
 		{"track_interval", c.TrackIntervalRaw, defaultTrackInterval, &c.TrackInterval},
 		{"min_dwell", c.MinDwellRaw, defaultMinDwell, &c.MinDwell},
+		{"next_room_dwell", c.NextRoomDwellRaw, defaultNextRoomDwell, &c.NextRoomDwell},
 		{"stall_timeout", c.StallTimeoutRaw, defaultStallTimeout, &c.StallTimeout},
 		{"travel_track_interval", c.TravelTrackIntervalRaw, defaultTravelTrack, &c.TravelTrackInterval},
 	} {
 		if *d.out, err = parseDuration("scheduler."+d.name, d.raw, d.def, false); err != nil {
 			return err
 		}
+	}
+
+	if c.NextRoomDwell > c.MinDwell {
+		return fmt.Errorf("scheduler.next_room_dwell %s must not be longer than scheduler.min_dwell %s",
+			c.NextRoomDwell, c.MinDwell)
 	}
 
 	if c.TravelFanSpeed != strings.TrimSpace(c.TravelFanSpeed) {
