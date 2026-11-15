@@ -82,6 +82,7 @@ func newSchedEnv(t *testing.T, mode string, opts ...func(cfg *SchedulerConfig, m
 		mockHA.SetState(costEntity(k), "0.0", map[string]interface{}{})
 	}
 	mockHA.SetState(tripEntity, "0.0", map[string]interface{}{})
+	mockHA.SetState(fenceEntity, "", map[string]interface{}{"max": float64(255)})
 	sm := state.NewManager(mockHA, zap.NewNop(), false)
 	require.NoError(t, sm.SyncFromHA())
 

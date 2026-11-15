@@ -199,3 +199,66 @@ func TestHTTPErrorsAreReported(t *testing.T) {
 	_, err = valetudo.NewClient("http://127.0.0.1:1", nil).State(context.Background())
 	assert.Error(t, err, "connection refused")
 }
+
+// realRestrictions is the live robot's reply to GET CombinedVirtualRestrictionsCapability: no walls and one
+// zone the owner drew.
+const realRestrictions = `{"__class":"ValetudoVirtualRestrictions","metaData":{},"virtualWalls":[],
+ "restrictedZones":[{"__class":"ValetudoRestrictedZone","metaData":{},"points":{"pA":{"x":3005,"y":4150},
+ "pB":{"x":3085,"y":4150},"pC":{"x":3085,"y":4205},"pD":{"x":3005,"y":4205}},"type":"regular"}]}`
+
+func TestRestrictionsParsesRealReply(t *testing.T) {
+	c := serveFixed(t, "/api/v2/robot/capabilities/CombinedVirtualRestrictionsCapability", realRestrictions)
+	r, err := c.Restrictions(context.Background())
+	require.NoError(t, err)
+	assert.NotNil(t, r.VirtualWalls)
+	assert.Empty(t, r.VirtualWalls)
+	require.Len(t, r.RestrictedZones, 1)
+	z := r.RestrictedZones[0]
+	assert.Equal(t, valetudo.ZoneRegular, z.Type)
+	assert.Equal(t, valetudo.RestrictionPoint{X: 3005, Y: 4150}, z.Points.PA)
+	assert.Equal(t, valetudo.RestrictionPoint{X: 3085, Y: 4150}, z.Points.PB)
+	assert.Equal(t, valetudo.RestrictionPoint{X: 3085, Y: 4205}, z.Points.PC)
+	assert.Equal(t, valetudo.RestrictionPoint{X: 3005, Y: 4205}, z.Points.PD)
+}
+
+func TestSetRestrictionsSendsValetudoShape(t *testing.T) {
+	robot := valetudotest.New()
+	defer robot.Close()
+	c := valetudo.NewClient(robot.URL, nil)
+	ctx := context.Background()
+
+	// Empty lists go out as arrays, not null: Valetudo answers 400 otherwise.
+	require.NoError(t, c.SetRestrictions(ctx, valetudo.Restrictions{}))
+	cmds := robot.Commands()
+	require.Len(t, cmds, 1)
+	assert.Equal(t, "/api/v2/robot/capabilities/CombinedVirtualRestrictionsCapability", cmds[0].Path)
+	assert.Equal(t, map[string]any{"virtualWalls": []any{}, "restrictedZones": []any{}}, cmds[0].Body)
+
+	var z valetudo.RestrictedZone
+	z.Type = valetudo.ZoneMop
+	z.Points.PA, z.Points.PB = valetudo.RestrictionPoint{X: 1, Y: 2}, valetudo.RestrictionPoint{X: 3, Y: 2}
+	z.Points.PC, z.Points.PD = valetudo.RestrictionPoint{X: 3, Y: 4}, valetudo.RestrictionPoint{X: 1, Y: 4}
+	want := valetudo.Restrictions{
+		VirtualWalls:    []valetudo.VirtualWall{valetudo.NewVirtualWall(10, 20, 30, 40)},
+		RestrictedZones: []valetudo.RestrictedZone{z},
+	}
+	require.NoError(t, c.SetRestrictions(ctx, want))
+	assert.JSONEq(t, `{"virtualWalls":[{"points":{"pA":{"x":10,"y":20},"pB":{"x":30,"y":40}}}],
+		"restrictedZones":[{"type":"mop","points":{"pA":{"x":1,"y":2},"pB":{"x":3,"y":2},"pC":{"x":3,"y":4},
+		"pD":{"x":1,"y":4}}}]}`, robot.Restrictions())
+
+	got, err := c.Restrictions(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, want, *got, "a read gives back what was written")
+}
+
+func TestSetRestrictionsRejectsUnknownZoneType(t *testing.T) {
+	robot := valetudotest.New()
+	defer robot.Close()
+	c := valetudo.NewClient(robot.URL, nil)
+	var z valetudo.RestrictedZone
+	z.Type = "lava"
+	err := c.SetRestrictions(context.Background(), valetudo.Restrictions{RestrictedZones: []valetudo.RestrictedZone{z}})
+	assert.Error(t, err)
+	assert.Empty(t, robot.Commands())
+}

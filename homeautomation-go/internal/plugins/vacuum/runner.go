@@ -27,6 +27,8 @@ type Robot interface {
 	SetPreset(ctx context.Context, capability, name string) error
 	Presets(ctx context.Context, capability string) ([]string, error)
 	Basic(ctx context.Context, action string) error
+	Restrictions(ctx context.Context) (*valetudo.Restrictions, error)
+	SetRestrictions(ctx context.Context, r valetudo.Restrictions) error
 }
 
 // Run origins.
@@ -123,6 +125,15 @@ type Scheduler struct {
 	// travelFanProblem says why travel_fan_speed is not valid. "" when it is valid or not checked yet.
 	travelFanProblem string
 
+	// fence is what the scheduler knows about its virtual walls on the robot (fence.go). fenceVerifyDelay is
+	// the wait between two read-backs of the restrictions.
+	fence            fenceState
+	fenceVerifyDelay time.Duration
+	// strandSince is when the robot was first seen idle or paused away from the dock with no run tracked;
+	// strandHomeAt is when it was last sent home for that. Both are zero otherwise.
+	strandSince  time.Time
+	strandHomeAt time.Time
+
 	eventsMu sync.Mutex
 	events   []boolEvent
 
@@ -177,6 +188,7 @@ func NewScheduler(
 		wake:           make(chan struct{}, 1),
 		stopCh:         make(chan struct{}),
 	}
+	s.fenceVerifyDelay = defaultFenceVerifyDelay
 	s.reason = s.configure()
 	return s
 }
@@ -342,6 +354,7 @@ func (s *Scheduler) tick(woke bool) {
 		}
 		s.evaluateTaints(now)
 		s.fanWarnings()
+		s.fenceWarnings()
 		s.publish(now)
 		return
 	}
@@ -352,11 +365,20 @@ func (s *Scheduler) tick(woke bool) {
 	}
 
 	s.trackRun(now, st)
+	if s.run == nil {
+		// With no run, scheduler walls must come off before anything else starts, and a robot left standing
+		// away from the dock is sent home.
+		s.settleFence()
+		s.checkStranded(now, st)
+	} else {
+		s.strandSince, s.strandHomeAt = time.Time{}, time.Time{}
+	}
 	s.evaluateTaints(now)
 	if s.run == nil && (woke || s.pendingKey != "" || now.Sub(s.lastPlanAt) >= s.cfg.ReplanInterval) {
 		s.replan(now)
 	}
 	s.fanWarnings()
+	s.fenceWarnings()
 	s.publish(now)
 }
 
@@ -501,7 +523,24 @@ func (s *Scheduler) startRun(now time.Time, p Plan) {
 			fields = append(fields, zap.String("travel_fan_speed", fan.travel), zap.String("room_fan_speed", fan.treat))
 		}
 		s.logger.Info("Vacuum would start a run", fields...)
+		if !s.readOnly {
+			s.logWouldFence(p)
+		}
 		return
+	}
+	// Fence the no_enter rooms first. If that fails, nothing starts. Once walls are up, any later failure
+	// takes them away again.
+	fenced, err := s.fenceForRun(p)
+	if err != nil {
+		s.fence.problem = "run not started: " + err.Error()
+		s.startFailed(now, fmt.Errorf("fence no-enter rooms: %w", err))
+		return
+	}
+	startFailed := func(err error) {
+		s.startFailed(now, err)
+		if fenced != nil {
+			s.undoFence()
+		}
 	}
 	s.checkTravelFan()
 	fan := s.quietFanFor(tc)
@@ -528,7 +567,7 @@ func (s *Scheduler) startRun(now time.Time, p Plan) {
 		if err := s.withCommandTimeout(func(ctx context.Context) error {
 			return s.robot.SetPreset(ctx, preset.capability, preset.name)
 		}); err != nil {
-			s.startFailed(now, fmt.Errorf("set %s %q: %w", preset.capability, preset.name, err))
+			startFailed(fmt.Errorf("set %s %q: %w", preset.capability, preset.name, err))
 			return
 		}
 		if isFan {
@@ -538,7 +577,7 @@ func (s *Scheduler) startRun(now time.Time, p Plan) {
 	if err := s.withCommandTimeout(func(ctx context.Context) error {
 		return s.robot.CleanSegments(ctx, p.Segments)
 	}); err != nil {
-		s.startFailed(now, fmt.Errorf("start segment clean: %w", err))
+		startFailed(fmt.Errorf("start segment clean: %w", err))
 		return
 	}
 	s.logger.Info("Vacuum run started", zap.String("treatment", string(p.Treatment)),
@@ -546,6 +585,9 @@ func (s *Scheduler) startRun(now time.Time, p Plan) {
 		zap.Float64("cost", p.Cost), zap.Float64("budget", p.Budget))
 	s.run = newRun(originScheduler, p.Treatment, p.Rooms, now, s.robotState)
 	s.run.fan, s.run.fanSpeed = fan, fanSet
+	s.run.route, _ = plannedRoute(s.graph, s.dockRoom, p.Rooms)
+	s.run.fenced = fenced
+	s.fence.problem = ""
 	s.pendingKey = ""
 }
 
@@ -611,6 +653,11 @@ type run struct {
 	// last set.
 	fan      *quietFan
 	fanSpeed string
+
+	// route is every room on the planned way, dock to each target and back; nil for an external run. fenced
+	// lists the doors the scheduler walled off before the run.
+	route  map[string]bool
+	fenced []string
 }
 
 func newRun(origin string, t Treatment, targets []string, now time.Time, st *valetudo.State) *run {
@@ -683,6 +730,9 @@ func (s *Scheduler) trackRun(now time.Time, st *valetudo.State) {
 	r := s.run
 
 	room, posOK := s.locate()
+	if posOK && room != r.room {
+		s.logRoomChange(r, st, room)
+	}
 	s.observe(r, now, st, room, posOK)
 	if posOK {
 		s.robotRoom = room
@@ -706,8 +756,10 @@ func (s *Scheduler) trackRun(now time.Time, st *valetudo.State) {
 	// example to wash its mop or to recharge. A dock that is washing also means the job may go on. Only a
 	// docked or idle robot with neither counts as the end, and only after endConfirmPolls polls in a row.
 	// Until then the room being cleaned is not finished: the robot may come back to it.
+	// A robot the live-safety rules paused is ours until it is home, whatever it reports: a Dreame reports
+	// idle after a pause, with or without the flag.
 	midJob := st.Flag == valetudo.FlagResumable || st.DockStatus == valetudo.DockStatusCleaning
-	ended := (st.Status == valetudo.StatusDocked || st.Status == valetudo.StatusIdle) && !midJob
+	ended := (st.Status == valetudo.StatusDocked || (st.Status == valetudo.StatusIdle && !r.paused)) && !midJob
 	if !ended || !r.leftDock {
 		r.endPolls = 0
 	}
@@ -742,8 +794,9 @@ func (s *Scheduler) trackRun(now time.Time, st *valetudo.State) {
 // stallPoll reports whether a poll shows the run making no progress. The rule:
 //
 //   - error always counts.
-//   - idle and paused count, except while the dock washes the mop, and except a pause the live-safety rules
-//     sent: the scheduler is waiting for the way home to clear and still owns that run.
+//   - idle and paused count, except while the dock washes the mop, and except after a pause the live-safety
+//     rules sent: the scheduler is waiting for the way home to clear and still owns that run. A Dreame
+//     reports idle, not paused, after a pause, so both count as that pause.
 //   - docked counts only when the stall began with an error. A robot that goes back to the dock to recharge
 //     keeps the flag "resumable" and may stay docked for hours before it goes on, so a plain docked robot is
 //     not stalled. A docked robot that is neither washing nor resumable ends the run by the end rule anyway.
@@ -758,7 +811,7 @@ func stallPoll(r *run, st *valetudo.State) bool {
 		if st.DockStatus == valetudo.DockStatusCleaning {
 			return false
 		}
-		return !(st.Status == valetudo.StatusPaused && r.paused)
+		return !r.paused
 	case valetudo.StatusDocked:
 		return r.stallErr // reset together with stallSince
 	}
@@ -1018,18 +1071,9 @@ func (s *Scheduler) locate() (room string, ok bool) {
 		s.warn("position", "cannot read the robot map: "+err.Error())
 		return "", false
 	}
-	if math.Abs(m.PixelSize*0.01-v.PixelSizeM) > 1e-9 {
-		s.warn("position", fmt.Sprintf("Valetudo pixel size %g cm does not match pixel_size_m %g", m.PixelSize,
-			v.PixelSizeM))
+	if problem := s.frameProblem(m); problem != "" {
+		s.warn("position", problem)
 		return "", false
-	}
-	if dock, has := m.ChargerPixel(); has && len(v.DockM) == 2 {
-		at := v.ToFrame(housemap.Point{dock[0], dock[1]})
-		if d := housemap.Distance(at, housemap.Point{v.DockM[0], v.DockM[1]}); d > dockDriftM {
-			s.warn("position", fmt.Sprintf("the dock moved %.1f m in the house frame; the robot probably made a "+
-				"new map. Fit the valetudo frame again", d))
-			return "", false
-		}
 	}
 	px, has := m.RobotPixel()
 	if !has {
@@ -1037,6 +1081,45 @@ func (s *Scheduler) locate() (room string, ok bool) {
 		return "", false
 	}
 	return s.houseMap.SpaceAt(v.ToFrame(housemap.Point{px[0], px[1]})), true
+}
+
+// frameProblem says why the house map's valetudo frame does not fit the robot map, or "". The caller checked
+// that the frame exists.
+func (s *Scheduler) frameProblem(m *valetudo.Map) string {
+	v := s.houseMap.Valetudo
+	if math.Abs(m.PixelSize*0.01-v.PixelSizeM) > 1e-9 {
+		return fmt.Sprintf("Valetudo pixel size %g cm does not match pixel_size_m %g", m.PixelSize, v.PixelSizeM)
+	}
+	if dock, has := m.ChargerPixel(); has && len(v.DockM) == 2 {
+		at := v.ToFrame(housemap.Point{dock[0], dock[1]})
+		if d := housemap.Distance(at, housemap.Point{v.DockM[0], v.DockM[1]}); d > dockDriftM {
+			return fmt.Sprintf("the dock moved %.1f m in the house frame; the robot probably made a new map. "+
+				"Fit the valetudo frame again", d)
+		}
+	}
+	return ""
+}
+
+// logRoomChange logs every room change of a tracked run, with whether the room is on our run's planned way.
+// A room that is neither on the way nor a target is off the route. The caller holds tickMu.
+func (s *Scheduler) logRoomChange(r *run, st *valetudo.State, room string) {
+	fields := []zap.Field{zap.String("room", room), zap.String("from", r.room), zap.String("origin", r.origin),
+		zap.String("status", st.Status), zap.String("flag", st.Flag)}
+	if r.origin != originScheduler {
+		s.logger.Info("Vacuum moved to another room", fields...)
+		return
+	}
+	target := false
+	for _, t := range r.targets {
+		target = target || t == room
+	}
+	onRoute := r.route[room]
+	fields = append(fields, zap.Bool("on_route", onRoute), zap.Bool("target", target))
+	if room != "" && !onRoute && !target {
+		s.logger.Warn("Vacuum is off its planned route", fields...)
+		return
+	}
+	s.logger.Info("Vacuum moved to another room", fields...)
 }
 
 // ---------------------------------------------------------------------------
@@ -1097,6 +1180,11 @@ func (s *Scheduler) checkSafety(st *valetudo.State, room string, posOK bool) {
 
 // unsafeReason says why the rest of the run is no longer safe, or "".
 func (s *Scheduler) unsafeReason(st *valetudo.State, restr Restrictions, at string) string {
+	if why, bad := restr.NoEnter[at]; bad {
+		// The robot is in a room it must not enter, whether its own path planner went off the planned route
+		// or someone walked in. It leaves at once.
+		return "robot is in " + at + ", which it must not enter (" + why + ")"
+	}
 	if st.HasBattery && float64(st.Battery) <= s.cfg.Battery.FloorPercent() {
 		return fmt.Sprintf("battery %d%% reached the floor %g%%", st.Battery, s.cfg.Battery.FloorPercent())
 	}
@@ -1216,6 +1304,7 @@ func (s *Scheduler) publish(now time.Time) {
 	}
 	o.Run = runView(s.run)
 	o.LastRun = runView(s.lastRun)
+	o.FenceRestorePending = s.fence.pending
 	s.shadow.SetScheduler(o)
 }
 
@@ -1231,6 +1320,7 @@ func runView(r *run) *shadowstate.VacuumRun {
 		StartBattery: r.startBattery, Battery: r.lastBattery, Aborted: r.aborted, AbortReason: r.abortReason,
 		Paused: r.paused, PositionAvailable: r.positionSeen,
 		QuietTravel: r.fan != nil && !r.fan.gaveUp, FanSpeed: r.fanSpeed,
+		FencedDoors: append([]string(nil), r.fenced...),
 	}
 	if r.pending != "" && !r.pendingSince.IsZero() {
 		pendingSince := r.pendingSince

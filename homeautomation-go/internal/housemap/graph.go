@@ -224,6 +224,23 @@ func (v *Valetudo) ToFrame(px Point) Point {
 	return Point{amx + rx*v.PixelSizeM, amy - ry*v.PixelSizeM}
 }
 
+// FromFrame is the inverse of ToFrame: it turns a point in the house frame into a Valetudo map pixel. Move
+// AnchorM back onto AnchorPx, flip y, scale by 1/PixelSizeM, then turn back by RotationDeg. A frame with no
+// pixel size has no inverse; FromFrame then returns AnchorPx.
+func (v *Valetudo) FromFrame(p Point) Point {
+	apx, apy := pair(v.AnchorPx)
+	if v.PixelSizeM <= 0 {
+		return Point{apx, apy}
+	}
+	th := v.RotationDeg * math.Pi / 180
+	amx, amy := pair(v.AnchorM)
+	rx := (p[0] - amx) / v.PixelSizeM
+	ry := -(p[1] - amy) / v.PixelSizeM
+	dx := rx*math.Cos(th) + ry*math.Sin(th)
+	dy := -rx*math.Sin(th) + ry*math.Cos(th)
+	return Point{apx + dx, apy + dy}
+}
+
 // pair reads an optional two-number field. A missing field is the origin.
 func pair(v []float64) (float64, float64) {
 	if len(v) != 2 {

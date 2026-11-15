@@ -125,6 +125,38 @@ vacuum:
 	assert.Equal(t, 3*time.Second, sc.TravelTrackInterval)
 }
 
+func TestSchedulerConfigFencing(t *testing.T) {
+	base := `
+vacuum:
+  scheduler:
+    mode: active
+    valetudo_url: http://robot.example
+    rooms:
+      kitchen: {segment_id: "3", full: 48h}
+`
+	sc := loadConfigText(t, base).Vacuum.Scheduler
+	require.NoError(t, sc.Err)
+	assert.True(t, sc.FenceEnabled(), "fencing is on unless turned off")
+	assert.Equal(t, 0.25, sc.FenceMargin())
+	assert.Equal(t, 5*time.Minute, sc.StrandedAfter)
+
+	sc = loadConfigText(t, base+"    fence_no_enter: false\n    fence_margin_m: 0.4\n    stranded_after: 10m\n").Vacuum.Scheduler
+	require.NoError(t, sc.Err)
+	assert.False(t, sc.FenceEnabled())
+	assert.Equal(t, 0.4, sc.FenceMargin())
+	assert.Equal(t, 10*time.Minute, sc.StrandedAfter)
+
+	sc = loadConfigText(t, base+"    fence_margin_m: 0\n").Vacuum.Scheduler
+	require.NoError(t, sc.Err)
+	assert.Equal(t, 0.0, sc.FenceMargin(), "0 is the bare door span")
+
+	for _, bad := range []string{"    fence_margin_m: -0.1\n", "    fence_margin_m: 1.5\n", "    stranded_after: -1m\n",
+		"    stranded_after: soon\n"} {
+		sc := loadConfigText(t, base+bad).Vacuum.Scheduler
+		assert.Error(t, sc.Err, bad)
+	}
+}
+
 func TestSchedulerConfigOffSkipsRuntimeChecks(t *testing.T) {
 	cfg := loadConfigText(t, "vacuum:\n  scheduler:\n    mode: \"off\"\n")
 	assert.NoError(t, cfg.Vacuum.Scheduler.Err, "off needs no URL and no rooms")

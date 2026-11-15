@@ -349,7 +349,12 @@ func TestQuietTravelOffKeepsTodaysBehaviour(t *testing.T) {
 	e := newSchedEnv(t, ModeActive)
 	e.start()
 	e.startRun("kitchen", "lounge")
-	for _, room := range []string{"pantry", "lounge", "lounge", "pantry", "kitchen"} {
+	// The drive from the dock to the first target is polled fast to catch the robot leaving the planned way;
+	// after that, polls are track_interval apart.
+	assert.Equal(t, 5*time.Second, e.interval(), "dock to first target")
+	e.step("pantry", 90)
+	assert.Equal(t, 5*time.Second, e.interval(), "still on the way to the first target")
+	for _, room := range []string{"lounge", "lounge", "pantry", "kitchen"} {
 		e.step(room, 90)
 		assert.Equal(t, 30*time.Second, e.interval())
 	}
