@@ -49,9 +49,10 @@ const fenceTolCm = 1.0
 // fenceVerifyTries is how many times the restrictions are read back after a change. Valetudo answers from
 // the map it polled last and polls again only after a change, so a change may show a few seconds late.
 //
-// The read-backs run in the tick and hold tickMu, so one tick may wait up to fenceVerifyTries times
-// defaultFenceVerifyDelay (10 s), and twice that when a failed fence is undone at once. That is well inside
-// track_interval (30 s). Revisit these numbers if polls ever get closer together while no run is tracked.
+// The read-backs run in the tick and hold tickMu. Normally the first or second read matches, in about a
+// second. In the worst case every read times out: fenceVerifyTries times (commandTimeout plus
+// defaultFenceVerifyDelay), about a minute, and twice that when a failed fence is undone at once. Ticks are
+// then late by that much; nothing runs meanwhile, because no run started.
 const fenceVerifyTries = 10
 
 // defaultFenceVerifyDelay is the wait between two read-backs.
@@ -339,6 +340,21 @@ func stripWalls(cur valetudo.Restrictions, ours []valetudo.VirtualWall) (valetud
 	return out, n
 }
 
+// matchedDoors names the doors whose scheduler wall is on the robot. cm holds the walls in Valetudo
+// centimetres, in the order of walls.
+func matchedDoors(cur valetudo.Restrictions, walls []doorWall, cm []valetudo.VirtualWall) []string {
+	var out []string
+	for i, w := range walls {
+		for _, c := range cur.VirtualWalls {
+			if sameWall(c, cm[i]) {
+				out = append(out, w.door)
+				break
+			}
+		}
+	}
+	return out
+}
+
 // withWalls is the owner's set plus the scheduler's walls.
 func withWalls(owner valetudo.Restrictions, walls []valetudo.VirtualWall) valetudo.Restrictions {
 	return valetudo.Restrictions{
@@ -585,11 +601,12 @@ func (s *Scheduler) fenceForRun(p Plan) ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read the robot's virtual restrictions: %w", err)
 	}
-	owner, stale := stripWalls(*cur, wallsToValetudo(v, m.PixelSize, allDoorWalls(s.houseMap, s.graph,
-		s.cfg.FenceMargin())))
+	all := allDoorWalls(s.houseMap, s.graph, s.cfg.FenceMargin())
+	allCm := wallsToValetudo(v, m.PixelSize, all)
+	owner, stale := stripWalls(*cur, allCm)
 	if stale > 0 {
 		s.logger.Warn("Vacuum found scheduler walls left on the robot; they are not saved as the owner's",
-			zap.Int("walls", stale))
+			zap.Int("walls", stale), zap.Strings("doors", matchedDoors(*cur, all, allCm)))
 	}
 	value, err := encodeFence(owner)
 	if err != nil {
@@ -737,10 +754,13 @@ func (s *Scheduler) restoreFence() error {
 		// to start unless the robot map has the same size. If the robot made a new map since, nothing matches
 		// and nothing is taken away; the walls then have to be removed by hand.
 		var n int
-		target, n = stripWalls(*cur, wallsToValetudo(v, v.PixelSizeM*100, allDoorWalls(s.houseMap, s.graph,
-			s.cfg.FenceMargin())))
+		all := allDoorWalls(s.houseMap, s.graph, s.cfg.FenceMargin())
+		allCm := wallsToValetudo(v, v.PixelSizeM*100, all)
+		target, n = stripWalls(*cur, allCm)
 		if n > 0 {
-			s.logger.Warn("Vacuum found scheduler walls with no saved copy; taking them away", zap.Int("walls", n))
+			// Named, so an owner's wall drawn exactly on a scheduler wall can be found and drawn again.
+			s.logger.Warn("Vacuum found scheduler walls with no saved copy; taking them away", zap.Int("walls", n),
+				zap.Strings("doors", matchedDoors(*cur, all, allCm)))
 		}
 	}
 	changed := !sameRestrictions(*cur, target)

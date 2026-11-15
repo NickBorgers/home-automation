@@ -248,6 +248,10 @@ func TestSameRestrictionsAndStrip(t *testing.T) {
 	got, n := stripWalls(cur, []valetudo.VirtualWall{wallOfficeBed, wallPantryBed})
 	assert.Equal(t, 1, n)
 	assert.Equal(t, withWalls(owner, []valetudo.VirtualWall{ownerWall}), got, "the owner's wall and zone stay")
+
+	m := loadTestMap(t)
+	all := allDoorWalls(m, m.Graph(), 0.25)
+	assert.Equal(t, []string{"pantry_bed"}, matchedDoors(cur, all, wallsToValetudo(m.Valetudo, 5, all)))
 }
 
 // ---------------------------------------------------------------------------
@@ -336,7 +340,7 @@ func TestFenceFailureDoesNotStart(t *testing.T) {
 		assert.False(t, segmentStarted(e))
 		assert.Zero(t, e.restrictionPuts())
 		assert.Equal(t, "", e.state(fenceEntity))
-		assert.True(t, e.hasWarning("run not started"), "%v", e.sched().Warnings)
+		assert.True(t, e.hasWarning("read the robot's virtual restrictions"), "%v", e.sched().Warnings)
 	})
 
 	t.Run("cannot save the owner's set", func(t *testing.T) {
@@ -574,6 +578,8 @@ func TestFenceRestoreRetriedAndBlocksNextRun(t *testing.T) {
 	e.tick()
 	e.advance(10 * time.Minute)
 	assert.Nil(t, e.sched().Run)
+	assert.True(t, e.hasWarning("could not restore"), "the refused start keeps the real cause: %v",
+		e.sched().Warnings)
 
 	t.Log("the robot takes writes again: the owner's set goes back on the next tick")
 	e.robot.FailMethod(http.MethodPut, restrictionsPath, 0)

@@ -532,7 +532,9 @@ func (s *Scheduler) startRun(now time.Time, p Plan) {
 	// takes them away again.
 	fenced, err := s.fenceForRun(p)
 	if err != nil {
-		s.fence.problem = "run not started: " + err.Error()
+		if !s.fence.pending { // a failed restore already says so, and matters more
+			s.fence.problem = "run not started: " + err.Error()
+		}
 		s.startFailed(now, fmt.Errorf("fence no-enter rooms: %w", err))
 		return
 	}
