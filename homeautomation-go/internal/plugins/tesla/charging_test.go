@@ -345,7 +345,11 @@ func TestEnergyChargingPollingInterval(t *testing.T) {
 		"an unplugged car at home must be checked often enough to detect a plug-in")
 
 	m.charge = chargeMemory{seen: true, atHome: false, plugged: false}
-	assert.Equal(t, time.Hour, m.nextPollInterval(), "an away car uses the configured interval")
+	assert.Equal(t, teslaapi.DefaultPollInterval, m.nextPollInterval(),
+		"an away car must be checked often enough to catch it arriving and plugging in")
+
+	m.charge = chargeMemory{seen: true, atHome: true, plugged: true}
+	assert.Equal(t, time.Hour, m.nextPollInterval(), "a car known to be plugged in at home uses the configured interval")
 
 	m.charge.record.ReconciliationStatus = reconcileVerifiedTowardLimit
 	assert.Equal(t, chargingPollInterval, m.nextPollInterval(), "active charging uses the shorter interval")
@@ -464,6 +468,43 @@ func TestEnergyChargingWakeLimit(t *testing.T) {
 	assert.Len(t, charger.sent(), maxWakesPer24h+1)
 }
 
+func TestEnergyChargingWakesToLook(t *testing.T) {
+	tests := []struct {
+		name     string
+		memory   chargeMemory
+		decision string
+	}{
+		{"never seen online", chargeMemory{}, "unseen since start"},
+		{"below floor, last seen away", chargeMemory{seen: true, battery: 37, limit: 80}, "below the 50% floor"},
+		{"below floor, last seen unplugged at home",
+			chargeMemory{seen: true, atHome: true, battery: 37, limit: 80}, "below the 50% floor"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			fleet := &fakeFleet{vehicles: []teslaapi.VehicleSummary{{VIN: "BBB", State: "asleep"}}}
+			m, charger, _, scheduled := newChargingManager(fleet, "red")
+			m.charge = tc.memory
+
+			m.Poll()
+
+			assert.Equal(t, []string{"wake"}, charger.sent())
+			assert.Equal(t, []time.Duration{wakeSettleDelay}, *scheduled)
+			assert.Contains(t, m.GetShadowState().Outputs.EnergyCharging.Decision, tc.decision)
+		})
+	}
+
+	t.Run("manual override blocks the look", func(t *testing.T) {
+		fleet := &fakeFleet{vehicles: []teslaapi.VehicleSummary{{VIN: "BBB", State: "asleep"}}}
+		m, charger, _, _ := newChargingManager(fleet, "red")
+		m.charge = chargeMemory{seen: true, override: true, battery: 37, limit: 80}
+
+		m.Poll()
+
+		assert.Empty(t, charger.sent())
+	})
+}
+
 func TestEnergyChargingDoesNotWake(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -475,7 +516,7 @@ func TestEnergyChargingDoesNotWake(t *testing.T) {
 		{"car already full", "white", chargeMemory{seen: true, atHome: true, plugged: true, battery: 80, limit: 80}, "asleep"},
 		{"car last seen away", "white", chargeMemory{seen: true, plugged: true, battery: 60, limit: 80}, "asleep"},
 		{"car last seen unplugged", "white", chargeMemory{seen: true, atHome: true, battery: 60, limit: 80}, "asleep"},
-		{"never seen online", "white", chargeMemory{}, "asleep"},
+		{"away above the floor", "red", chargeMemory{seen: true, battery: 50, limit: 80}, "asleep"},
 		{"offline car cannot be woken", "white",
 			chargeMemory{seen: true, atHome: true, plugged: true, battery: 60, limit: 80}, "offline"},
 	}

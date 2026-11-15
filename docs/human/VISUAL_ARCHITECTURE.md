@@ -177,6 +177,7 @@ graph TB
     Vacuum -->|Write taint and cost helpers| HAClient
     Vacuum -->|Read isMasterAsleep/isAnyoneHome/sleepers| StateManager
     Vacuum -->|Read area occupancy| OccupancyHub
+    Vacuum -->|Write robot area| OccupancyHub
     Vacuum -->|Position, battery, presets,<br/>segment clean, pause, home| Valetudo
     Vacuum -.->|Register Shadow| ShadowTracker
 
@@ -205,6 +206,7 @@ graph TB
     RoomPresence -->|Subscribe MQTT| HAClient
     RoomPresence -->|Write Occupancy State| StateManager
     RoomPresence -->|Publish area states| OccupancyHub
+    OccupancyHub -->|Robot vacuum area| RoomPresence
     RoomPresence -.->|Register Shadow| ShadowTracker
 
     Tesla -->|Poll Fleet API / Signed Vehicle Commands<br/>Powerwall Backup Reserve| TeslaCloud[Tesla Fleet API<br/>outbound HTTPS only]

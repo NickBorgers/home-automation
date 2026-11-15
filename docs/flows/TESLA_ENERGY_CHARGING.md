@@ -48,8 +48,9 @@ Each poll that finds the car online runs this check. A battery below 50% overrid
 speed. At exactly 50%, green and white continue at full speed so the minimum reserve cannot become a ceiling; red and
 yellow stop charging. Above 50%, green charges slowly and white charges at full speed. A change
 in `currentEnergyLevel` triggers an immediate poll when the car was last seen plugged in at home. Until the first
-online vehicle-data read succeeds, and while the car was last seen unplugged at home, polls run at least every five
-minutes. This discovers a plug-in without requiring an energy-level change and retries transient `offline` responses.
+online vehicle-data read succeeds, and whenever the car is not known to be plugged in at home, polls run at least
+every five minutes. That covers an unknown car, an away car, and a car at home unplugged. This discovers an arrival or
+a plug-in without requiring an energy-level change and retries transient `offline` responses.
 
 ```mermaid
 flowchart TD
@@ -77,17 +78,26 @@ flowchart TD
 
 ## Waking a Sleeping Car
 
-A car that is not charging falls asleep. A sleeping car answers no data requests. So the plugin decides from what the last online poll saw.
+A car that is not charging falls asleep. A sleeping car answers no data requests. So the plugin decides from what it last saw.
 
-The plugin wakes the car only when all of these are true:
+The plugin wakes the car when all of these are true:
 
 - The car is `asleep`. An `offline` car cannot be woken.
-- The last online poll saw it plugged in at home, below its charge limit.
-- The energy level now says charge, or the battery is below 50%.
 - No manual override is active.
 - Fewer than 3 wakes happened in the last 24 hours.
+- At least one of the three rules below holds.
 
-After a wake, the plugin polls again 45 seconds later. That poll starts charging.
+| Rule | Condition | Reason |
+|------|-----------|--------|
+| 1. First look | The plugin has had no online read since the app started | The plugin knows nothing about the car, so it looks once. A restart erases what the plugin knew. |
+| 2. Resume charging | The last online read saw the car plugged in at home, below its limit, and the energy level (or the 50% floor) says charge | The car must charge, but it sleeps. |
+| 3. Possible arrival | The last known battery is below 50%, and the last read did not see the car plugged in at home | The car may have come home and been plugged in while the plugin was not looking. |
+
+After a wake, the plugin polls again 45 seconds later. That poll starts charging when the car is plugged in at home.
+
+**Why rule 1 and rule 3 exist.** On 2026-11-14, the car sat asleep and plugged in at home for about 20 hours after a
+deploy restarted the app. It drained from 52% to 37% and missed a sunny day. The plugin woke only a car that it had
+already seen plugged in since the start.
 
 ```mermaid
 sequenceDiagram
@@ -96,7 +106,7 @@ sequenceDiagram
     participant T as Tesla Plugin
     participant Car as Tesla Fleet API
 
-    Note over Car: Plugged in at home, charging held at red, car asleep
+    Note over Car: Plugged in at home, charging held at red, car asleep (rule 2)
     EM->>SM: currentEnergyLevel = white
     SM->>T: level changed
     T->>Car: vehicle list (car is asleep)
@@ -111,7 +121,9 @@ sequenceDiagram
 
 Every command, wake, and poll is billed by Tesla. Commands go out only when the car's state differs from the plan. After a charging command, the plugin polls after 15 seconds and treats the command as pending until fresh telemetry agrees. Contradictory telemetry causes the policy command to be retried and verified again.
 
-The normal poll interval defaults to five minutes. While charging or waiting for command verification, the plugin polls every minute (or the configured interval when it is already shorter). An online poll normally spends two Fleet API requests, so continuous charging costs about 120 requests per hour instead of about 24. Startup reconciliation and a car last seen unplugged at home poll at least every five minutes so a new plug-in is detected; an away car, a verified hold, and other idle states use the configured interval.
+The normal poll interval defaults to five minutes. While charging or waiting for command verification, the plugin polls every minute (or the configured interval when it is already shorter). An online poll normally spends two Fleet API requests, so continuous charging costs about 120 requests per hour instead of about 24. Startup reconciliation and any car not known to be plugged in at home (unknown, away, or at home unplugged) poll at least every five minutes so an arrival or a plug-in is detected. A verified hold while plugged in at home uses the configured interval.
+
+Discovery polling costs up to about 288 vehicle-list requests a day while the car is not plugged in at home. Production already ran at this rate at home on 2026-11-14. Wakes stay capped at 3 per 24 hours per process. A restart resets the cap.
 
 ## Requirements
 

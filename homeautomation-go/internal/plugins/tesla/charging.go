@@ -9,6 +9,11 @@ package tesla
 // 80%, or starting charging after the plugin stopped it, puts charging in the
 // person's hands until the car is unplugged.
 //
+// A sleeping car is woken, within a daily cap, when the plugin has not yet seen
+// it online since start, when it was last seen plugged in at home and should
+// charge, or when it is below the 50% floor and was last seen unplugged or
+// away. A restart forgets what the plugin saw, so it must look again.
+//
 // It is the one place this plugin sends commands on its own. Every command is
 // billed, so commands go out only when the car's state differs from what the
 // energy level asks for.
@@ -17,6 +22,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"strconv"
 	"time"
 
 	"homeautomation/internal/shadowstate"
@@ -332,9 +338,14 @@ type chargeSnapshot struct {
 	maxAmps       int
 }
 
-// maybeWakeToCharge wakes a sleeping car when the last online poll saw it
-// plugged in at home, below its limit, with no manual override, and the energy
-// level says charge or the battery is below 50%.
+// maybeWakeToCharge wakes a sleeping car (never an offline one) when one of
+// these holds, and no manual override is in force:
+//   - No online read since start. The plugin knows nothing, so it looks.
+//   - The last read was plugged in at home, below its limit, and the energy
+//     level says charge or the battery is below 50%.
+//   - The last known battery is below 50% and the last read was not plugged in
+//     at home. The car may have arrived and been plugged in unseen.
+//
 // Wakes are billed and capped per day.
 func (m *Manager) maybeWakeToCharge(ctx context.Context, vin, vehicleState string) {
 	if m.charger == nil || vehicleState != "asleep" {
@@ -346,11 +357,26 @@ func (m *Manager) maybeWakeToCharge(ctx context.Context, vin, vehicleState strin
 	defer m.chargeMu.Unlock()
 
 	mem := &m.charge
-	if !mem.seen || !mem.atHome || !mem.plugged || mem.override || mem.battery >= mem.limit {
+	if mem.override {
 		return
 	}
-	plan := planCharging(level, mem.battery, mem.limit, 0)
-	if plan.action != chargeNow {
+	var decision string
+	switch {
+	case !mem.seen:
+		decision = "car is asleep and unseen since start: waking it to look"
+	case mem.atHome && mem.plugged:
+		if mem.battery >= mem.limit {
+			return
+		}
+		plan := planCharging(level, mem.battery, mem.limit, 0)
+		if plan.action != chargeNow {
+			return
+		}
+		decision = "car is asleep: waking it to charge (" + plan.reason + ")"
+	case mem.battery < energyChargingFloorPercent:
+		decision = "car is asleep below the " + strconv.Itoa(energyChargingFloorPercent) +
+			"% floor and was last seen unplugged or away: waking it to check for a plug-in"
+	default:
 		return
 	}
 	defer m.publishCharging()
@@ -359,11 +385,11 @@ func (m *Manager) maybeWakeToCharge(ctx context.Context, vin, vehicleState strin
 	now := m.clock()
 	m.pruneWakes(now)
 	if len(mem.wakes) >= maxWakesPer24h {
-		mem.record.Decision = "car is asleep and should charge, but the daily wake limit is spent"
+		mem.record.Decision = "car is asleep and should be woken, but the daily wake limit is spent: " + decision
 		return
 	}
 	mem.wakes = append(mem.wakes, now)
-	mem.record.Decision = "car is asleep: waking it to charge (" + plan.reason + ")"
+	mem.record.Decision = decision
 
 	if !m.sendChargeCommand(ctx, "wake the car to charge", func(ctx context.Context) error {
 		return m.charger.Wake(ctx, vin)
