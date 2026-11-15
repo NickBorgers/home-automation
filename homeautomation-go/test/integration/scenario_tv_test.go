@@ -3,6 +3,7 @@ package integration
 import (
 	"context"
 	"testing"
+	"time"
 
 	"homeautomation/internal/plugins/tv"
 	"homeautomation/internal/state"
@@ -424,4 +425,128 @@ func TestScenario_SyncBoxPowerOnRecalculates(t *testing.T) {
 
 	waitForBoolState(t, manager, "isTVon", true, "isTVon should be true when sync box is on")
 	waitForBoolState(t, manager, "isTVPlaying", true, "isTVPlaying should be true — sync box power-on must recalculate based on current HDMI input")
+}
+
+// ============================================================================
+// Stale TV panel: Bravia integration reports "off" while the TV is in use
+// ============================================================================
+
+// TestScenario_StalePanelOff_AppleTVStartsPlaying_SyncsLights covers a production failure.
+// The Bravia integration froze on "off" and stayed there for a week. The TV was on and the
+// Apple TV played, yet isTVPlaying stayed false and Hue Sync never started.
+//
+// Story: "When I start a show on the Apple TV, the lights sync, even if Home Assistant
+// thinks the TV panel is off."
+//
+// Invariant: a panel that went "off" BEFORE the Apple TV began playing is not credible.
+// The Apple TV began playing after, so someone is watching.
+func TestScenario_StalePanelOff_AppleTVStartsPlaying_SyncsLights(t *testing.T) {
+	t.Parallel()
+	server, manager, cleanup := setupTVScenarioTest(t)
+	defer cleanup()
+
+	t.Log("GIVEN: The panel entity has said 'off' for days, sync box is on, input is AppleTV")
+	server.SetState("media_player.sony_xr_65a80k", "off", map[string]interface{}{})
+	server.SetState("select.sync_box_hdmi_input", "AppleTV", map[string]interface{}{})
+	server.SetState("media_player.big_beautiful_oled", "idle", map[string]interface{}{
+		"friendly_name": "Apple TV",
+	})
+	server.SetState("switch.sync_box_power", "on", map[string]interface{}{})
+	waitForBoolState(t, manager, "isTVon", true, "isTVon should be true when sync box is on")
+	waitForBoolState(t, manager, "isTVPlaying", false, "nothing plays yet")
+
+	// Make sure the playback event is strictly newer than the panel's last change.
+	time.Sleep(20 * time.Millisecond)
+	snapshot := server.ServiceCallCount()
+
+	t.Log("WHEN: Apple TV starts playing (the panel entity still says 'off')")
+	server.SetState("media_player.big_beautiful_oled", "playing", map[string]interface{}{
+		"friendly_name": "Apple TV",
+	})
+
+	t.Log("THEN: isTVPlaying becomes true and light sync is switched on")
+	waitForBoolState(t, manager, "isTVPlaying", true,
+		"a panel that went off before playback began must not block light sync")
+	require.Eventually(t, func() bool {
+		for _, c := range filterServiceCalls(server.GetServiceCallsSince(snapshot), "switch", "turn_on") {
+			if c.ServiceData["entity_id"] == "switch.sync_box_light_sync" {
+				return true
+			}
+		}
+		return false
+	}, stateWaitTimeout, statePollInterval, "switch.sync_box_light_sync should be turned on")
+}
+
+// TestScenario_StalePanelOff_AfterRestart_SyncsLights covers the same failure across an app restart.
+// Deploys restart the app while a show plays. The plugin then reads the panel as "off" with an old
+// timestamp and the Apple TV as "playing". The timestamps must decide, not the restart time.
+//
+// Invariant: the decision uses the last_changed times Home Assistant reports, not the time the
+// plugin first saw each entity.
+func TestScenario_StalePanelOff_AfterRestart_SyncsLights(t *testing.T) {
+	t.Parallel()
+	server, client, manager, baseCleanup := setupTest(t)
+	defer baseCleanup()
+
+	t.Log("GIVEN: Before the app starts, the panel went off, then the Apple TV began playing")
+	server.SetState("media_player.sony_xr_65a80k", "off", map[string]interface{}{})
+	server.SetState("select.sync_box_hdmi_input", "AppleTV", map[string]interface{}{})
+	server.SetState("switch.sync_box_power", "on", map[string]interface{}{})
+	// time.Sleep needed: SetState uses time.Now() for LastChanged; consecutive calls on the same
+	// millisecond produce equal timestamps and break the ordering check in panelOffIsStale.
+	time.Sleep(20 * time.Millisecond)
+	server.SetState("media_player.big_beautiful_oled", "playing", map[string]interface{}{
+		"friendly_name": "Apple TV",
+	})
+
+	t.Log("WHEN: The TV plugin starts")
+	tvManager := tv.NewManager(context.Background(), client, manager, testlogger.New(), false, nil)
+	require.NoError(t, tvManager.Start(), "TV manager should start successfully")
+	defer tvManager.Stop()
+
+	t.Log("THEN: isTVPlaying becomes true")
+	waitForBoolState(t, manager, "isTVPlaying", true,
+		"startup must not mistake an old 'off' panel for a TV that was turned off during playback")
+}
+
+// TestScenario_PanelTurnedOffDuringPlayback_StaysOffAcrossRecalculation guards the kill switch.
+// When the panel turns off while the Apple TV plays, the Apple TV keeps reporting "playing"
+// for a while. A later recalculation must not turn light sync back on.
+//
+// Invariant: if the panel went off AFTER the Apple TV began playing, the panel is credible and
+// isTVPlaying stays false until the panel comes back.
+func TestScenario_PanelTurnedOffDuringPlayback_StaysOffAcrossRecalculation(t *testing.T) {
+	t.Parallel()
+	server, manager, cleanup := setupTVScenarioTest(t)
+	defer cleanup()
+
+	t.Log("GIVEN: Panel is on, sync box is on, Apple TV is playing on the AppleTV input")
+	server.SetState("media_player.sony_xr_65a80k", "on", map[string]interface{}{})
+	server.SetState("switch.sync_box_power", "on", map[string]interface{}{})
+	server.SetState("media_player.big_beautiful_oled", "playing", map[string]interface{}{
+		"friendly_name": "Apple TV",
+	})
+	server.SetState("select.sync_box_hdmi_input", "AppleTV", map[string]interface{}{})
+	waitForBoolState(t, manager, "isTVPlaying", true, "playback should start")
+
+	t.Log("WHEN: The panel turns off, then the input flips away and back (forces a recalculation)")
+	// time.Sleep needed: SetState uses time.Now() for LastChanged; consecutive calls on the same
+	// millisecond produce equal timestamps and break the ordering check in panelOffIsStale.
+	time.Sleep(20 * time.Millisecond)
+	server.SetState("media_player.sony_xr_65a80k", "off", map[string]interface{}{})
+	waitForBoolState(t, manager, "isTVPlaying", false, "kill switch should fire")
+
+	snapshot := server.ServiceCallCount()
+	server.SetState("select.sync_box_hdmi_input", "HDMI 2", map[string]interface{}{})
+	server.SetState("select.sync_box_hdmi_input", "AppleTV", map[string]interface{}{})
+	waitForProcessing(t, manager)
+
+	t.Log("THEN: isTVPlaying stays false and light sync is not turned on")
+	isPlaying, err := manager.GetBool("isTVPlaying")
+	require.NoError(t, err)
+	require.False(t, isPlaying, "a panel turned off during playback must keep light sync off")
+	for _, c := range filterServiceCalls(server.GetServiceCallsSince(snapshot), "switch", "turn_on") {
+		require.NotEqual(t, "switch.sync_box_light_sync", c.ServiceData["entity_id"],
+			"light sync must not turn on while the panel is off")
+	}
 }

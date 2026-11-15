@@ -433,6 +433,20 @@ func TestScenario_WakeUp_StopsWhenWakeSequenceEnds(t *testing.T) {
 	// ===== THEN: Wakeup zone should stop, morning zone should be active
 	t.Log("THEN: Wakeup zone should stop, morning zone should activate or continue")
 
+	// Wait for morning zone to become active. The wakeup zone stops in one zone
+	// resolution cycle (triggered by musicPlaybackType cleared), but the morning zone
+	// only starts after isAnyoneAsleep=false propagates through statetracking and fires
+	// a debounced zone resolution. These can be separate cycles under CI load.
+	waitForCondition(t, func() bool {
+		zones := env.music.GetActiveZones()
+		for _, z := range zones {
+			if z.Name == "morning" {
+				return true
+			}
+		}
+		return false
+	}, "morning zone should activate after wake sequence ends")
+
 	activeZones = env.music.GetActiveZones()
 
 	// Verify wakeup zone is no longer active

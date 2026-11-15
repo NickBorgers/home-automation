@@ -88,6 +88,13 @@ type Manager struct {
 	tvRemoteOn       bool   // last-known boolean state of media_player.sony_xr_65a80k
 	tvRemoteRawState string // last-known raw state ("on"/"off"/"standby"/"unavailable"/...)
 
+	// Home Assistant's last_changed times, used to tell a stale "off" panel from a real one.
+	// A panel that went off BEFORE the Apple TV began playing is not credible: the Bravia
+	// integration can freeze on "off" while the TV is in use. Both fields use HA's timestamps,
+	// not the time this process first saw the entity, so they stay valid across restarts.
+	tvRemoteChangedAt   time.Time // when the panel entity last changed state
+	appleTVPlayingSince time.Time // when the Apple TV began playing; zero when not playing
+
 	// Light sync debounce state
 	lightSyncOffMu       sync.Mutex
 	lightSyncOffPending  bool          // true if a turn_off is pending
@@ -235,6 +242,15 @@ func (m *Manager) handleAppleTVStateChange(entityID string, oldState, newState *
 	// Check if Apple TV is playing
 	isPlaying := newState.State == "playing"
 
+	// Record when playback began (HA's timestamp) before the recalculation that follows.
+	m.tvRemoteMu.Lock()
+	if isPlaying {
+		m.appleTVPlayingSince = m.stateChangedAt(newState)
+	} else {
+		m.appleTVPlayingSince = time.Time{}
+	}
+	m.tvRemoteMu.Unlock()
+
 	m.logger.Debug("Apple TV state changed",
 		zap.String("entity_id", entityID),
 		zap.String("new_state", newState.State),
@@ -269,6 +285,7 @@ func (m *Manager) handleTVRemoteChange(entityID string, oldState, newState *ha.S
 	m.tvRemoteMu.Lock()
 	m.tvRemoteOn = isOn
 	m.tvRemoteRawState = newState.State
+	m.tvRemoteChangedAt = m.stateChangedAt(newState)
 	m.tvRemoteMu.Unlock()
 
 	m.logger.Debug("TV media_player state changed",
@@ -501,6 +518,11 @@ func (m *Manager) calculateTVPlaying(hdmiInput string) {
 				zap.String("hdmi_input", hdmiInput),
 				zap.String("tv_remote_state", tvRemoteRaw))
 			// Fall through to normal HDMI input / Apple TV calculation below
+		} else if m.panelOffIsStale(hdmiInput) {
+			m.logger.Warn("TV panel says off, but the Apple TV began playing after it did — ignoring panel",
+				zap.String("hdmi_input", hdmiInput),
+				zap.String("tv_remote_state", tvRemoteRaw))
+			// Fall through to normal HDMI input / Apple TV calculation below
 		} else {
 			m.logger.Debug("TV panel is off, setting isTVPlaying to false",
 				zap.String("hdmi_input", hdmiInput))
@@ -557,6 +579,28 @@ func (m *Manager) calculateTVPlaying(hdmiInput string) {
 
 	// Control sync box light sync based on TV playing state
 	m.controlSyncBoxLightSync(isTVPlaying)
+}
+
+// stateChangedAt returns Home Assistant's last_changed time for a state, or the current
+// time when HA sent none.
+func (m *Manager) stateChangedAt(s *ha.State) time.Time {
+	if s.LastChanged.IsZero() {
+		return m.timeNow()
+	}
+	return s.LastChanged
+}
+
+// panelOffIsStale reports whether the panel's "off" is not credible. It is stale when the
+// Apple TV is the active input and began playing after the panel last changed. Someone is
+// watching, so the panel entity is frozen. When the panel turns off DURING playback, the Apple
+// TV began playing first, so the panel stays credible and the kill switch holds.
+func (m *Manager) panelOffIsStale(hdmiInput string) bool {
+	if !strings.Contains(hdmiInput, "AppleTV") {
+		return false
+	}
+	m.tvRemoteMu.RLock()
+	defer m.tvRemoteMu.RUnlock()
+	return !m.appleTVPlayingSince.IsZero() && m.appleTVPlayingSince.After(m.tvRemoteChangedAt)
 }
 
 // controlSyncBoxLightSync turns the sync box light sync on or off based on TV playing state.
