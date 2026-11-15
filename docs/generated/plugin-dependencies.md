@@ -41,6 +41,7 @@ graph LR
         solarProductionEnergyLevel["solarProductionEnergyLevel"]
         sunevent["sunevent"]
         thisHourSolarGeneration["thisHourSolarGeneration"]
+        tvRoomTargetLux["tvRoomTargetLux"]
     end
 
     subgraph Plugins["Plugins"]
@@ -99,6 +100,7 @@ graph LR
     currentEnergyLevel -.-> tesla
     isAppleTVPlaying -.-> tv
     resetTV -.-> tv
+    tvRoomTargetLux -.-> tv
     isAnyoneHome -.-> vacuum
 
     %% Writes (plugin sets variable)
@@ -111,6 +113,7 @@ graph LR
     energy --> thisHourSolarGeneration
     lighting --> isDarkOutside
     lighting --> lightingReset
+    lighting --> tvRoomTargetLux
     music --> currentlyPlayingMusicUri
     music --> musicPlaybackType
     music --> musicPlaylistRotation
