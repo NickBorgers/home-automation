@@ -492,6 +492,8 @@ func TestScenario_StalePanelOff_AfterRestart_SyncsLights(t *testing.T) {
 	server.SetState("media_player.sony_xr_65a80k", "off", map[string]interface{}{})
 	server.SetState("select.sync_box_hdmi_input", "AppleTV", map[string]interface{}{})
 	server.SetState("switch.sync_box_power", "on", map[string]interface{}{})
+	// time.Sleep needed: SetState uses time.Now() for LastChanged; consecutive calls on the same
+	// millisecond produce equal timestamps and break the ordering check in panelOffIsStale.
 	time.Sleep(20 * time.Millisecond)
 	server.SetState("media_player.big_beautiful_oled", "playing", map[string]interface{}{
 		"friendly_name": "Apple TV",
@@ -528,6 +530,8 @@ func TestScenario_PanelTurnedOffDuringPlayback_StaysOffAcrossRecalculation(t *te
 	waitForBoolState(t, manager, "isTVPlaying", true, "playback should start")
 
 	t.Log("WHEN: The panel turns off, then the input flips away and back (forces a recalculation)")
+	// time.Sleep needed: SetState uses time.Now() for LastChanged; consecutive calls on the same
+	// millisecond produce equal timestamps and break the ordering check in panelOffIsStale.
 	time.Sleep(20 * time.Millisecond)
 	server.SetState("media_player.sony_xr_65a80k", "off", map[string]interface{}{})
 	waitForBoolState(t, manager, "isTVPlaying", false, "kill switch should fire")

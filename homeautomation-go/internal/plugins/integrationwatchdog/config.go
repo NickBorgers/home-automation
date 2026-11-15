@@ -162,8 +162,8 @@ func (c *Config) Validate() error {
 
 // validate checks one contradiction against the target's own entities.
 func (c Contradiction) validate(targetEntities []string) error {
-	if c.State == "" || c.ContradictedBy.Entity == "" || c.ContradictedBy.State == "" {
-		return fmt.Errorf("state, contradicted_by.entity and contradicted_by.state are required")
+	if c.Entity == "" || c.State == "" || c.ContradictedBy.Entity == "" || c.ContradictedBy.State == "" {
+		return fmt.Errorf("entity, state, contradicted_by.entity and contradicted_by.state are required")
 	}
 	if c.DurationMin < 0 {
 		return fmt.Errorf("duration_min must not be negative")

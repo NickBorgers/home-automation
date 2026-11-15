@@ -290,11 +290,13 @@ func (m *Manager) evaluateTarget(name string) {
 		}
 	}
 	if !stale && cfg.Detection.StaleLastUpdatedMin > 0 {
-		// Use the most recent last_updated across the watched entities. If none
-		// have been observed yet, the timestamp rule is skipped.
+		// Use the most recent last_updated across the target's own entities (cfg.Entities),
+		// not ts.entityLastUpdated which may include contradiction entities. A
+		// frequently-updating contradiction entity (e.g. the Apple TV) would otherwise keep
+		// "newest" fresh and silently suppress the stale rule when the watched entity freezes.
 		var newest time.Time
-		for _, t := range ts.entityLastUpdated {
-			if t.After(newest) {
+		for _, eid := range cfg.Entities {
+			if t, ok := ts.entityLastUpdated[eid]; ok && t.After(newest) {
 				newest = t
 			}
 		}
