@@ -1213,12 +1213,15 @@ func (zm *ZoneManager) executeSeamlessTransition(st seamlessTransition, newSpeak
 	// A coordinator handoff can leave the promoted speaker idle even though all
 	// unjoin calls succeeded. Confirm continuity and use a targeted play command
 	// to preserve the current queue and position whenever recovery is needed.
+	verificationAttempts := 0
 	if leadSpeaker != oldZone.LeadSpeaker {
 		playing, checkErr := zm.manager.isPlaybackActive(leadSpeaker)
-		for attempt := 1; (checkErr != nil || !playing) && attempt <= 2; attempt++ {
+		recoveryAttempts := 0
+		for (checkErr != nil || !playing) && recoveryAttempts < 2 {
+			recoveryAttempts++
 			zm.logger.Warn("Playback inactive after seamless coordinator handoff, attempting recovery",
 				zap.String("speaker", leadSpeaker),
-				zap.Int("attempt", attempt),
+				zap.Int("attempt", recoveryAttempts),
 				zap.Error(checkErr))
 			if err := zm.manager.speakerPlay(leadSpeaker); err != nil {
 				checkErr = err
@@ -1242,6 +1245,9 @@ func (zm *ZoneManager) executeSeamlessTransition(st seamlessTransition, newSpeak
 			}
 			return fmt.Errorf("playback continuity not confirmed after coordinator handoff to %s", leadSpeaker)
 		}
+
+		// 1 initial check + however many recovery plays were needed.
+		verificationAttempts = 1 + recoveryAttempts
 
 		zm.logger.Info("Leader changed during seamless transition, re-applying playback modes",
 			zap.String("old_leader", oldZone.LeadSpeaker),
@@ -1281,10 +1287,6 @@ func (zm *ZoneManager) executeSeamlessTransition(st seamlessTransition, newSpeak
 
 	// Publish the new coordinator and participants only after continuity has
 	// been confirmed, so shadow state does not claim an idle handoff succeeded.
-	verificationAttempts := 0
-	if leadSpeaker != oldZone.LeadSpeaker {
-		verificationAttempts = 1
-	}
 	zm.manager.recordPlaybackShadowState(
 		newZone.MusicType,
 		playbackOption,

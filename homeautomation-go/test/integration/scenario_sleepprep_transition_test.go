@@ -157,6 +157,9 @@ func TestScenario_SleepPrepToSleep_IdleBedroomCoordinatorRecovers(t *testing.T) 
 		"friendly_name": "Primary Bed",
 		"volume_level":  0.20,
 	})
+	// ctx is cancelled when the test completes (pass or fail), giving the
+	// goroutine an exit path so it does not outlive the test.
+	ctx := t.Context()
 	playObserved := make(chan struct{})
 	go func() {
 		defer close(playObserved)
@@ -172,7 +175,11 @@ func TestScenario_SleepPrepToSleep_IdleBedroomCoordinatorRecovers(t *testing.T) 
 					return
 				}
 			}
-			time.Sleep(10 * time.Millisecond)
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(10 * time.Millisecond):
+			}
 		}
 	}()
 	env.server.SetState("input_boolean.master_asleep", "on", map[string]interface{}{})
