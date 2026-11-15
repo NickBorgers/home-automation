@@ -462,7 +462,9 @@ Documentation synchronization review.
 
 Final decision maker that synthesizes all reviews and makes a go/no-go call.
 
-**Condition**: Tests passed on current commit (verified via commit status check)
+**Condition**: Tests passed on current commit (verified via commit status check), and every review job
+finished with `success` or `skipped`. If a reviewer fails, times out, or is cancelled, `merge-decision` does
+not run, and `all-reviews-passed` fails. A GO without every review would be a decision made on missing input.
 
 **Pre-Flight Check**: Before running, verifies that "All Required Tests" commit status is `success` on the current HEAD.
 
@@ -485,6 +487,14 @@ Final decision maker that synthesizes all reviews and makes a go/no-go call.
 
 **Output**: The job outputs the actual decision (`GO` or `NO-GO`) which is used by `all-reviews-passed` to determine the overall workflow result
 
+#### Agent containers and timeouts
+
+`run-ci-agent` starts each agent with `docker run` on the host's Docker daemon. The container is not a child
+of the job. When a job times out or is cancelled, the runner kills only the `docker` client process. So the
+action names each container and stops it in an `if: always()` step. It also passes `--init`, so a forwarded
+SIGTERM reaches the agent. Without these, a timed-out reviewer keeps running and posts its review after the
+merge decision (this happened on PR #1366).
+
 #### 2.9 `all-reviews-passed`
 
 Aggregator job for branch protection.
@@ -494,6 +504,9 @@ Aggregator job for branch protection.
 **Creates Commit Status**: `All Required Agent Reviews` on the PR head SHA
 
 **Merge Decision Check**: This job checks the actual merge decision output from `merge-decision`, not just whether the job succeeded. If the merge decision is `NO-GO`, the workflow fails even if all review jobs completed successfully. This ensures the summary accurately reflects whether the PR is ready to merge.
+
+**Summary status line**: The summary comment says "✅ All reviews passed" only when this job's check passed.
+A GO verdict alone is not enough. If any review job failed or was cancelled, the status line shows ❌.
 
 **Post-Review Actions**:
 1. Creates the `All Required Agent Reviews` commit status

@@ -123,6 +123,12 @@ runs:
         chmod 644 "$PRE_SCRIPT_FILE"
         echo "env_file=$ENV_FILE" >> "$GITHUB_OUTPUT"
         echo "pre_script_file=$PRE_SCRIPT_FILE" >> "$GITHUB_OUTPUT"
+        # A unique container name lets the cleanup step stop this agent's
+        # container. The name is set here, in a step that always finishes,
+        # because a step that is cancelled may lose its outputs.
+        NAME_SUFFIX="$(basename "$ENV_FILE" | cut -d. -f2)"
+        CONTAINER_NAME="ci-agent-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${GITHUB_JOB}-${NAME_SUFFIX}"
+        echo "container_name=$CONTAINER_NAME" >> "$GITHUB_OUTPUT"
 
     - name: Run agent
       shell: bash
@@ -132,6 +138,7 @@ runs:
         CI_AGENT_OUTPUT_FILE: ${{ inputs.output_file }}
         CI_AGENT_ENV_FILE: ${{ steps.stage-files.outputs.env_file }}
         CI_AGENT_PRE_SCRIPT_FILE: ${{ steps.stage-files.outputs.pre_script_file }}
+        CI_AGENT_CONTAINER_NAME: ${{ steps.stage-files.outputs.container_name }}
       run: |
         set -euo pipefail
 
@@ -168,8 +175,14 @@ runs:
         # the container is stranded at $STAGED_OUTPUT_FILE and the artifact
         # upload finds nothing — exactly the diagnostic blackout the
         # 90-min inner timeout was meant to prevent.
+        #
+        # `--name` lets the cleanup step find the container. `--init` makes
+        # a real init process PID 1, so a forwarded SIGTERM stops the agent.
+        # A bare `bash` as PID 1 ignores SIGTERM.
         DOCKER_EXIT=0
         docker run --rm \
+          --name "$CI_AGENT_CONTAINER_NAME" \
+          --init \
           --network host \
           --workdir /workspace \
           -v "${{ github.workspace }}:/workspace" \
@@ -210,6 +223,22 @@ runs:
         rm -rf "$OUTPUT_STAGING_DIR"
 
         exit "$DOCKER_EXIT"
+
+    - name: Stop agent container
+      # The container runs on the host's Docker daemon, not as a child of
+      # this job. When the job times out or is cancelled, the runner kills
+      # only the `docker` client. Without this step the agent keeps running
+      # and posts its review after the job has ended (PR #1366).
+      if: always()
+      shell: bash
+      env:
+        CI_AGENT_CONTAINER_NAME: ${{ steps.stage-files.outputs.container_name }}
+      run: |
+        if [ -n "$CI_AGENT_CONTAINER_NAME" ] \
+          && docker ps -q --filter "name=^${CI_AGENT_CONTAINER_NAME}$" | grep -q .; then
+          echo "Stopping leftover agent container $CI_AGENT_CONTAINER_NAME"
+          docker rm -f "$CI_AGENT_CONTAINER_NAME"
+        fi
 
     - name: Clean up staged files
       if: always()
