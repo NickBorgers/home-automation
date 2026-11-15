@@ -133,6 +133,7 @@ func TestPlanCharging(t *testing.T) {
 		{"41% charges at full speed at red", "red", 41, 80, 32, chargeNow, 32},
 		{"green charges through the floor boundary", "green", 50, 80, 32, chargeNow, 32},
 		{"white charges through the floor boundary", "white", 50, 80, 32, chargeNow, 32},
+		{"yellow holds at the floor boundary", "yellow", 50, 80, 32, holdCharge, 0},
 		{"red holds at the floor boundary", "red", 50, 80, 32, holdCharge, 0},
 		{"unknown level leaves the car alone", "", 70, 80, 32, leaveAlone, 0},
 		{"100% limit does not override red", "red", 70, 100, 32, holdCharge, 0},
