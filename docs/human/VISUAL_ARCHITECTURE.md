@@ -175,7 +175,7 @@ graph TB
     Vacuum -->|Entity Subscriptions| HAClient
     Vacuum -->|TTS Announcements| HAClient
     Vacuum -->|Write taint, cost and fence helpers| HAClient
-    Vacuum -->|Read isMasterAsleep/isAnyoneHome/sleepers| StateManager
+    Vacuum -->|Read isMasterAsleep/isAnyoneHome/sleepers/hold_while vars| StateManager
     Vacuum -->|Read area occupancy| OccupancyHub
     Vacuum -->|Write robot area| OccupancyHub
     Vacuum -->|Position, battery, presets,<br/>segment clean, pause, home, virtual walls| Valetudo
