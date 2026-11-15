@@ -444,6 +444,27 @@ func TestFenceOffOrUnavailable(t *testing.T) {
 		e.tick()
 		e.advance(10 * time.Minute)
 		assert.Nil(t, e.sched().Run)
+		assert.True(t, e.hasWarning("input_text.vacuum_fence_saved is unavailable"), "%v", e.sched().Warnings)
+	})
+	t.Run("helper unavailable since startup: no start even without walls", func(t *testing.T) {
+		e := newSchedEnv(t, ModeActive) // nobody asleep, every area clear: no wall is needed
+		e.ha.SetState(fenceEntity, "unavailable", nil)
+		e.start()
+		e.markDirty("kitchen")
+		e.tick()
+		e.advance(10 * time.Minute)
+		assert.Nil(t, e.sched().Run, "saved walls from before the restart may still be up")
+	})
+	t.Run("helper unavailable later: a run without walls starts", func(t *testing.T) {
+		e := newSchedEnv(t, ModeActive)
+		e.start()
+		e.tick() // startup check done
+		e.ha.SetState(fenceEntity, "unavailable", nil)
+		e.markDirty("kitchen")
+		e.s.TickForTest(true)
+		e.advance(10 * time.Minute)
+		require.NotNil(t, e.sched().Run)
+		assert.Zero(t, e.restrictionPuts())
 	})
 	t.Run("log_only logs the walls and sends nothing", func(t *testing.T) {
 		e := newSchedEnv(t, ModeLogOnly)

@@ -537,15 +537,14 @@ func (s *Scheduler) fenceForRun(p Plan) ([]string, error) {
 	if !ok {
 		return nil, nil // fenceWarnings says why
 	}
+	// Scheduler walls that may still be up could cut this run's way, so they block a start even when this
+	// run needs no wall. Until the helper was read at startup, nobody knows.
+	if !s.fence.checked {
+		return nil, fmt.Errorf("%s could not be read since startup (%s); saved virtual restrictions may "+
+			"still be waiting to be put back", fenceEntity, st.State)
+	}
 	if s.fence.pending {
 		return nil, errors.New("the owner's virtual restrictions from an earlier run are not restored yet")
-	}
-	if helperUnusable(st.State) {
-		return nil, fmt.Errorf("%s is %s", fenceEntity, st.State)
-	}
-	if strings.TrimSpace(st.State) != "" {
-		return nil, fmt.Errorf("%s still holds saved restrictions; they are put back before a new run",
-			fenceEntity)
 	}
 
 	restr := ComputeRestrictions(s.graph, s.blockedAreas(), s.sleeperRooms())
@@ -556,6 +555,14 @@ func (s *Scheduler) fenceForRun(p Plan) ([]string, error) {
 	}
 	if len(walls) == 0 {
 		return nil, nil
+	}
+	// The helper matters only when walls are needed.
+	if helperUnusable(st.State) {
+		return nil, fmt.Errorf("%s is %s", fenceEntity, st.State)
+	}
+	if strings.TrimSpace(st.State) != "" {
+		return nil, fmt.Errorf("%s still holds saved restrictions; they are put back before a new run",
+			fenceEntity)
 	}
 	if err := checkFenceKeepsRoute(s.houseMap, s.graph, s.dockRoom, p.Rooms, walls); err != nil {
 		return nil, err
@@ -626,8 +633,8 @@ func (s *Scheduler) undoFence() {
 	}
 }
 
-// logWouldFence logs the walls a log_only scheduler would set. It reads nothing from the robot: it uses the
-// house map's pixel size. The caller holds tickMu.
+// logWouldFence logs the walls a log_only scheduler would set. Like a real start, it reads the robot map for
+// its pixel size and to check the frame. It never reads or writes the restrictions. The caller holds tickMu.
 func (s *Scheduler) logWouldFence(p Plan) {
 	v := s.fenceFrame()
 	if !s.cfg.FenceEnabled() || v == nil {
@@ -635,7 +642,23 @@ func (s *Scheduler) logWouldFence(p Plan) {
 	}
 	restr := ComputeRestrictions(s.graph, s.blockedAreas(), s.sleeperRooms())
 	walls, unplaced := fenceWalls(s.houseMap, s.graph, s.dockRoom, restr.NoEnter, s.cfg.FenceMargin())
-	ours := wallsToValetudo(v, v.PixelSizeM*100, walls)
+	if len(walls) == 0 && len(unplaced) == 0 {
+		return
+	}
+	var m *valetudo.Map
+	if err := s.withCommandTimeout(func(ctx context.Context) error {
+		var err error
+		m, err = s.robot.Map(ctx)
+		return err
+	}); err != nil {
+		s.logger.Warn("Vacuum would not start: cannot read the robot map to place the walls", zap.Error(err))
+		return
+	}
+	if problem := s.frameProblem(m); problem != "" {
+		s.logger.Warn("Vacuum would not start: the walls cannot be placed", zap.String("problem", problem))
+		return
+	}
+	ours := wallsToValetudo(v, m.PixelSize, walls)
 	for i, w := range walls {
 		s.logger.Info("Vacuum would fence a no-enter room", zap.String("mode", s.cfg.Mode),
 			zap.String("door", w.door), zap.String("from", w.from), zap.String("into", w.into),
@@ -710,6 +733,9 @@ func (s *Scheduler) restoreFence() error {
 		if v == nil {
 			return errors.New("house map has no valetudo frame to find scheduler walls by")
 		}
+		// The walls are rebuilt with the house map's pixel size, as the scheduler drew them: fencing refuses
+		// to start unless the robot map has the same size. If the robot made a new map since, nothing matches
+		// and nothing is taken away; the walls then have to be removed by hand.
 		var n int
 		target, n = stripWalls(*cur, wallsToValetudo(v, v.PixelSizeM*100, allDoorWalls(s.houseMap, s.graph,
 			s.cfg.FenceMargin())))
@@ -747,8 +773,10 @@ func (s *Scheduler) fenceWarnings() {
 		return
 	}
 	if s.cfg.FenceEnabled() && s.cfg.Mode == ModeActive {
-		if _, ok := s.getState(fenceEntity); !ok {
+		if st, ok := s.getState(fenceEntity); !ok {
 			s.warn("fence:helper", "missing helper "+fenceEntity+"; no-enter rooms are not fenced with virtual walls")
+		} else if helperUnusable(st.State) {
+			s.warn("fence:helper", fenceEntity+" is "+st.State+"; a run that needs virtual walls does not start")
 		}
 		if s.fenceFrame() == nil {
 			s.warn("fence:frame", "house map has no valetudo frame; no-enter rooms are not fenced with virtual walls")

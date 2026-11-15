@@ -28,16 +28,17 @@ func (s *Scheduler) checkStranded(now time.Time, st *valetudo.State) {
 	if s.strandSince.IsZero() {
 		s.strandSince = now
 	}
-	room, posOK := s.locate()
-	if posOK {
-		s.robotRoom = room
-	}
 	stood := now.Sub(s.strandSince)
 	if stood < s.cfg.StrandedAfter {
 		return
 	}
 	if !s.strandHomeAt.IsZero() && now.Sub(s.strandHomeAt) < s.cfg.StrandedAfter {
 		return
+	}
+	// The map is read only when the robot may be sent home now.
+	room, posOK := s.locate()
+	if posOK {
+		s.robotRoom = room
 	}
 	at := room
 	if (!posOK || !s.graph.Has(at)) && s.lastRun != nil {

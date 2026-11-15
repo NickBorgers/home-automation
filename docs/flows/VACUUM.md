@@ -127,7 +127,7 @@ then shows `wouldStartAt` in shadow state until the plan changes.
 The robot plans its own route. It may leave the planner's way, for example to get around a dog lying in a
 doorway, and drive into a room a person is in. A Valetudo virtual wall is the one thing its path planner obeys.
 So before a run starts, the scheduler puts a virtual wall across every door from a room the robot can reach into a
-`no_enter` room.
+`no_enter` room. Fencing is on by default (`fence_no_enter: true`). Set `fence_no_enter: false` to turn it off.
 
 ```mermaid
 sequenceDiagram
@@ -176,7 +176,8 @@ sequenceDiagram
 - If the helper is empty at startup, every wall that matches a wall the scheduler would draw across a house-map
   door, to the centimetre, is taken away. Every other wall and every zone stays. So a lost save still leaves no
   scheduler wall behind. An owner's wall drawn exactly on a scheduler wall would be taken away too.
-- A helper that is `unavailable` is asked again on the next poll. Nothing starts meanwhile.
+- A helper that is `unavailable` at startup is asked again on the next poll. Nothing starts until it was read.
+  Later, an `unavailable` helper only stops a run that needs walls. `warnings` shows it.
 - If the app stops during a run, the walls stay on the robot for the rest of that job.
 
 ## Tracking
@@ -383,7 +384,8 @@ stopped by hand.
 memory, so shadow state shows what it would do.
 
 In `log_only` mode, the "would start a run" log is followed by one "Vacuum would fence a no-enter room" line per
-wall, with the door and the wall in Valetudo centimetres. Nothing is read from or sent to the robot for it.
+wall, with the door and the wall in Valetudo centimetres. Like a real start, it reads the robot map for its
+pixel size and to check the frame. It never reads or writes the restrictions.
 
 ## Shadow state
 
