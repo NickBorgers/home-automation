@@ -550,12 +550,12 @@ func TestTVManager_Stop_CleansUpSubscriptions(t *testing.T) {
 	}
 
 	// Verify subscriptions exist: 5 HA (AppleTV, TV remote, sync box software power, physical power, HDMI input)
-	// and 2 state (isAppleTVPlaying, resetTV)
+	// and 3 state (isAppleTVPlaying, resetTV, tvRoomTargetLux)
 	if len(manager.subHelper.GetHASubscriptions()) != 5 {
 		t.Errorf("Expected 5 HA subscriptions after Start(), got %d", len(manager.subHelper.GetHASubscriptions()))
 	}
-	if len(manager.subHelper.GetStateSubscriptions()) != 2 {
-		t.Errorf("Expected 2 state subscriptions after Start(), got %d", len(manager.subHelper.GetStateSubscriptions()))
+	if len(manager.subHelper.GetStateSubscriptions()) != 3 {
+		t.Errorf("Expected 3 state subscriptions after Start(), got %d", len(manager.subHelper.GetStateSubscriptions()))
 	}
 
 	// Stop the manager
@@ -1037,12 +1037,12 @@ func TestTVManager_Start_AddsPhysicalPowerSubscription(t *testing.T) {
 	}
 
 	// Verify subscriptions exist - 5 HA (AppleTV, TV remote, sync box software power, physical power, HDMI input)
-	// and 2 state (isAppleTVPlaying, resetTV)
+	// and 3 state (isAppleTVPlaying, resetTV, tvRoomTargetLux)
 	if len(manager.subHelper.GetHASubscriptions()) != 5 {
 		t.Errorf("Expected 5 HA subscriptions after Start(), got %d", len(manager.subHelper.GetHASubscriptions()))
 	}
-	if len(manager.subHelper.GetStateSubscriptions()) != 2 {
-		t.Errorf("Expected 2 state subscriptions after Start(), got %d", len(manager.subHelper.GetStateSubscriptions()))
+	if len(manager.subHelper.GetStateSubscriptions()) != 3 {
+		t.Errorf("Expected 3 state subscriptions after Start(), got %d", len(manager.subHelper.GetStateSubscriptions()))
 	}
 
 	// Clean up

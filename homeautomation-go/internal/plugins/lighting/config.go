@@ -72,6 +72,9 @@ type LuxControlConfig struct {
 	Calibrated       bool               `yaml:"calibrated"`         // true once calibration values were measured
 	Calibration      []CalibrationPoint `yaml:"calibration"`        // cans-only lux at night, by brightness
 	FollowerLights   []LuxFollower      `yaml:"follower_lights"`    // brightness-only lights that follow the cans' brightness
+	// TVRoom publishes this room's target lux as tvRoomTargetLux, so the TV plugin can set the TV and
+	// Hue Sync box brightness from it. At most one room may set it.
+	TVRoom bool `yaml:"tv_room"`
 }
 
 // LuxFollower is a brightness-only light (an under-cabinet strip) that follows the room's cans.
@@ -190,6 +193,15 @@ func (c *HueConfig) validateLux() error {
 		if p.Anchor == "" || p.Lux <= 0 || p.Kelvin <= 0 {
 			return fmt.Errorf("lux_curve point %q needs an anchor, lux > 0 and kelvin > 0", p.Anchor)
 		}
+	}
+	tvRooms := 0
+	for _, r := range c.Rooms {
+		if r.LuxControl != nil && r.LuxControl.TVRoom {
+			tvRooms++
+		}
+	}
+	if tvRooms > 1 {
+		return fmt.Errorf("lux_control.tv_room is set on %d rooms; at most one room may set it", tvRooms)
 	}
 	for _, r := range c.Rooms {
 		lc := r.LuxControl

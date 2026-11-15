@@ -94,6 +94,9 @@ type Manager struct {
 	lightSyncOffCancel   chan struct{} // signal to cancel pending turn_off
 	lightSyncOffDebounce time.Duration // configurable debounce duration
 
+	// TV and sync box brightness that follow the room's target lux (brightness.go)
+	bright brightnessControl
+
 	// For testing: injectable time and sleep functions
 	timeNow   func() time.Time
 	sleepFunc func(time.Duration)
@@ -103,7 +106,7 @@ type Manager struct {
 func NewManager(ctx context.Context, haClient ha.HAClient, stateManager *state.Manager, logger *zap.Logger, readOnly bool, registry *shadowstate.SubscriptionRegistry) *Manager {
 	shadowTracker := shadowstate.NewTVTracker()
 
-	return &Manager{
+	m := &Manager{
 		ctx:           ctx,
 		haClient:      haClient,
 		stateManager:  stateManager,
@@ -116,6 +119,8 @@ func NewManager(ctx context.Context, haClient ha.HAClient, stateManager *state.M
 		sleepFunc:            time.Sleep,
 		lightSyncOffDebounce: LightSyncOffDebounce,
 	}
+	m.bright.powerOnDelay = BrightnessPowerOnDelay
+	return m
 }
 
 // GetShadowState returns the current shadow state
@@ -161,6 +166,11 @@ func (m *Manager) Start() error {
 	// boolean flips on we power-cycle the sync box and bounce the Apple TV.
 	if err := m.subHelper.SubscribeToState("resetTV", m.handleResetTVChange); err != nil {
 		return fmt.Errorf("failed to subscribe to resetTV: %w", err)
+	}
+
+	// Follow the TV room's target lux with TV and sync box brightness (brightness.go)
+	if err := m.subHelper.SubscribeToState("tvRoomTargetLux", m.handleTargetLuxChange); err != nil {
+		return fmt.Errorf("failed to subscribe to tvRoomTargetLux: %w", err)
 	}
 
 	// Initialize shadow state with current input values (after subscriptions registered)
@@ -267,9 +277,14 @@ func (m *Manager) handleTVRemoteChange(entityID string, oldState, newState *ha.S
 	// For Sony Bravia, "standby" means the TV screen is off (low power mode)
 	isOn := newState.State != "off" && newState.State != "standby" && newState.State != "unavailable" && newState.State != "unknown"
 	m.tvRemoteMu.Lock()
+	wasOn := m.tvRemoteOn
 	m.tvRemoteOn = isOn
 	m.tvRemoteRawState = newState.State
 	m.tvRemoteMu.Unlock()
+
+	if isOn && !wasOn {
+		m.brightnessOnPowerOn()
+	}
 
 	m.logger.Debug("TV media_player state changed",
 		zap.String("entity_id", entityID),

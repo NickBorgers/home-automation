@@ -160,7 +160,7 @@ lighting, the code (`manager.go`) had no override detection.
 | Existing feature | Behavior with lux targets |
 |------------------|---------------------------|
 | Room `conditions` | Unchanged. They decide on, off or skip. |
-| TV playing (`skip`) | Unchanged. Hue Sync owns the lights. |
+| TV playing (`skip`) | Unchanged. Hue Sync owns the lights. The room marked `tv_room` still publishes its target as `tvRoomTargetLux`, and the TV plugin sets the TV and sync box brightness from it ([TV_BRIGHTNESS.md](TV_BRIGHTNESS.md)). |
 | Primary suite, `sleephygiene` | Not converted. Sleep and wake stay as they are. |
 | `increase_brightness_if_true: isHaveGuests` | Multiplies the target lux by a factor (proposed 1.5). |
 | `skip_reactivation_when_on` (Kitchen) | Replaced by the manual hold, which covers the same need more generally. |

@@ -320,6 +320,11 @@ func (m *Manager) luxEvaluate(room *RoomConfig, trigger string) {
 		}
 		rec.TargetLux *= factor
 	}
+	if lc.TVRoom {
+		// Published before the hold and condition checks: the TV follows the target even while
+		// the room is in skip because Hue Sync owns the lights.
+		m.publishTVRoomTargetLux(rec.TargetLux)
+	}
 
 	outdoor, haveOutdoor := m.sampleOutdoor(now)
 	rec.OutdoorLux = outdoor
@@ -825,5 +830,13 @@ func (m *Manager) noteLuxRoomOff(room *RoomConfig) {
 	st.previous = nil
 	for _, f := range room.LuxControl.FollowerLights {
 		st.followers[f.Entity] = &luxCommand{at: m.clock.Now(), on: false, transition: 0}
+	}
+}
+
+// publishTVRoomTargetLux shares the TV room's target lux with the TV plugin. The value is rounded to
+// 0.1 lux, so subscribers hear about real changes, not float noise.
+func (m *Manager) publishTVRoomTargetLux(lux float64) {
+	if err := m.stateManager.SetNumber("tvRoomTargetLux", math.Round(lux*10)/10); err != nil {
+		m.logger.Warn("Failed to publish tvRoomTargetLux", zap.Error(err))
 	}
 }

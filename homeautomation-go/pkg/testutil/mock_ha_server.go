@@ -642,7 +642,7 @@ func (s *MockHAServer) handleCallService(wrapper *connWrapper, msg json.RawMessa
 			s.SetState(entityID, newState, oldState.Attributes)
 		}
 
-	case "input_number":
+	case "input_number", "number":
 		if value, ok := req.ServiceData["value"].(float64); ok {
 			s.statesMu.RLock()
 			oldState := s.states[entityID]

@@ -1188,6 +1188,15 @@ func (tvt *TVTracker) UpdateAppleTVState(isPlaying bool, state string) {
 	tvt.State().Metadata.LastUpdated = time.Now()
 }
 
+// UpdateBrightness records the latest TV and sync box brightness decision
+func (tvt *TVTracker) UpdateBrightness(s TVBrightnessState) {
+	tvt.Lock()
+	defer tvt.Unlock()
+
+	tvt.State().Outputs.Brightness = &s
+	tvt.State().Metadata.LastUpdated = time.Now()
+}
+
 // UpdateTVPower updates the TV power state
 func (tvt *TVTracker) UpdateTVPower(isOn bool) {
 	tvt.Lock()

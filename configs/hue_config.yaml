@@ -72,6 +72,8 @@ rooms:
       # One sky condition only (sun and thin cloud), so treat it as a single sample.
       daylight_factor: 0.0011
       lux_scale: 0.5          # GUESS. The cans reach about 119 lux, below the 300 lux curve
+      # The TV and the Hue Sync box brightness follow this room's target lux (docs/flows/TV_BRIGHTNESS.md).
+      tv_room: true
       calibrated: true
       calibration:            # MEASURED, handheld lux meter, 4000 K, in the dark
         - brightness_pct: 5

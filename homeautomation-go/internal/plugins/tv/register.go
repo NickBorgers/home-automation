@@ -2,11 +2,15 @@ package tv
 
 import (
 	"fmt"
+	"os"
 
+	"homeautomation/internal/bravia"
 	pkgha "homeautomation/pkg/ha"
 	"homeautomation/pkg/plugin"
 	"homeautomation/pkg/shadowstate"
 	pkgstate "homeautomation/pkg/state"
+
+	"go.uber.org/zap"
 )
 
 func init() {
@@ -33,6 +37,20 @@ func createPlugin(ctx *plugin.Context) (plugin.Plugin, error) {
 	}
 
 	manager := NewManager(ctx.ShutdownCtx, haClient, stateManager, ctx.Logger, ctx.ReadOnly, ctx.Registry)
+
+	// TV picture brightness goes straight to the TV's REST API. Home Assistant does not expose it.
+	ip, psk := os.Getenv("BRAVIA_IP"), os.Getenv("BRAVIA_PSK")
+	logger := ctx.Logger.Named("tv")
+	switch {
+	case ip != "" && psk != "":
+		manager.SetPictureClient(bravia.NewClient(ip, psk))
+		// The PSK length (never the value) shows whether quoting in .env mangled special characters.
+		logger.Info("TV brightness control enabled", zap.String("bravia_ip", ip), zap.Int("psk_length", len(psk)))
+	case ip != "" || psk != "":
+		logger.Warn("TV brightness control disabled: set both BRAVIA_IP and BRAVIA_PSK")
+	default:
+		logger.Info("TV brightness control disabled: BRAVIA_IP unset; only the sync box follows the room")
+	}
 	return &pluginAdapter{manager: manager}, nil
 }
 
