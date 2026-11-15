@@ -364,10 +364,11 @@ func (m *Manager) nextPollInterval() time.Duration {
 	}
 	m.chargeMu.Lock()
 	defer m.chargeMu.Unlock()
-	// Until the first online read establishes context, or while the car was
-	// last seen unplugged at home, keep checking often enough to discover a
-	// plug-in. This also retries a transient offline response after startup.
-	discoveringPlugIn := !m.charge.seen || (m.charge.atHome && !m.charge.plugged)
+	// Unless the car is known to be plugged in at home, keep checking often
+	// enough to discover a plug-in before the car falls asleep. That covers an
+	// unknown car (also retrying a transient offline response after startup),
+	// a car away, and a car at home unplugged.
+	discoveringPlugIn := !m.charge.seen || !m.charge.atHome || !m.charge.plugged
 	if discoveringPlugIn && teslaapi.DefaultPollInterval < interval {
 		interval = teslaapi.DefaultPollInterval
 	}

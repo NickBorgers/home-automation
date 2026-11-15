@@ -555,15 +555,17 @@ scheduler also reads `house_map.yaml`.
 - **Cheap Poll First**: Each cycle reads the vehicle list (one request) to learn
   whether the car is online, asleep, or offline
 - **Read Only When Awake**: `vehicle_data` is requested only when the car is
-  already online. A sleeping car is left alone — waking it is billed separately
-  and is never done on a timer
+  already online. A sleeping car is woken only for a stated reason (see
+  Energy-Level Charging), because waking is billed separately
 - **Idle Without Credentials**: With no `TESLA_CLIENT_ID` the plugin starts,
   records that it is unconfigured, and does nothing else
 - **Energy-Level Charging**: While the car is plugged in at home, charging follows
   `currentEnergyLevel` — below 50% the car always charges at full speed; at 50% and above,
   hold at red and yellow, 8 A at green, full speed at white.
   After each command the plugin polls after 15 s to verify the car applied it.
-  A sleeping car is woken to resume charging at most 3 times per 24 hours.
+  A sleeping car is woken at most 3 times per 24 hours: once when the plugin has no online read since start,
+  to resume charging a car last seen plugged in at home, or to look for an arrival when the last known battery is below 50%.
+  Polls run at least every 5 minutes while the car is not known to be plugged in at home.
   A charge limit above 80%, or starting charging after the plugin stopped it, is a
   manual override: the plugin leaves charging alone until the car is unplugged. See
   [TESLA_ENERGY_CHARGING.md](../flows/TESLA_ENERGY_CHARGING.md)
