@@ -248,6 +248,16 @@ delay to normal room entry.
 An object mask in Frigate is still the right fix for a known false spot. This rule catches the ones nobody has
 found yet.
 
+**The robot vacuum.** Frigate can take the robot vacuum for a person. A moving robot reaches doorways, so the
+rules above confirm it. The vacuum scheduler shares the robot's area through the occupancy hub while the robot
+is out of the dock. People and the robot are never in the same area, so an unconfirmed track in that area is
+the robot. That means a track that starts there, is there now, or stands in a doorway to it. Such a track
+never gets a token, even after the robot moves on. Its outcome is "dropped: the robot vacuum is in <area>".
+
+A person who walks in where the robot is keeps the token they already had, because their track is a hand-off
+or comes back through a doorway. That token makes the area occupied, so the vacuum scheduler still sees the
+person and stops the run. Only a track from nowhere is dropped.
+
 ### Camera failure
 
 When a camera's heartbeat stops for 30 s, its areas are marked **unknown**. Tokens in them freeze and do not
