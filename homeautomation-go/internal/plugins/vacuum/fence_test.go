@@ -714,7 +714,7 @@ func TestFenceHelperUnknown(t *testing.T) {
 		assert.True(t, sameRestrictions(withWalls(ownerSet(t), []valetudo.VirtualWall{ownerWall}), e.robotSet()),
 			"scheduler door walls are gone, the owner's zone and wall stay: %+v", e.robotSet())
 		assert.Equal(t, "", e.state(fenceEntity), "the helper now holds a real value")
-		warn := logs.FilterMessage("Vacuum treated input_text.vacuum_fence_saved as empty after 2 minutes of unknown").All()
+		warn := logs.FilterMessage("Vacuum treated input_text.vacuum_fence_saved as empty after 2m0s of unknown").All()
 		assert.Len(t, warn, 1)
 		assert.False(t, e.sched().FenceRestorePending)
 

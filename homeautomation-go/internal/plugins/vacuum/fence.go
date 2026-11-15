@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"math"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -754,8 +753,8 @@ func (s *Scheduler) settleFence() {
 			if now.Sub(s.fence.unusableSince) < s.cfg.FenceHelperGrace {
 				return // ask again on the next tick; nothing starts meanwhile
 			}
-			s.logger.Warn(fmt.Sprintf("Vacuum treated %s as empty after %s minutes of unknown", fenceEntity,
-				strconv.FormatFloat(s.cfg.FenceHelperGrace.Minutes(), 'f', -1, 64)),
+			s.logger.Warn(fmt.Sprintf("Vacuum treated %s as empty after %s of unknown", fenceEntity,
+				s.cfg.FenceHelperGrace),
 				zap.String("entity_id", fenceEntity), zap.Duration("grace", s.cfg.FenceHelperGrace))
 			// Same as an empty helper: scheduler walls found by geometry are taken away, so a lost save
 			// still leaves none behind.
