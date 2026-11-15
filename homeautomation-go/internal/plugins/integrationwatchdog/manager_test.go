@@ -104,6 +104,81 @@ func TestWatchdog_BadStateDurationTriggersReload(t *testing.T) {
 	}
 }
 
+func TestWatchdog_ContradictionDurationAndReset(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	panel, appleTV := "media_player.panel", "media_player.apple_tv"
+	cfg := buildTestConfig(panel, time.Hour) // long ticker — evaluate manually
+	cfg.WatchTargets[0].Detection = DetectionRule{Contradictions: []Contradiction{{
+		Entity:         panel,
+		State:          "off",
+		ContradictedBy: EntityCondition{Entity: appleTV, State: "playing"},
+		DurationMin:    5,
+	}}}
+	mgr := newTestManager(t, cfg, mockHA, false)
+
+	clk := newTestClock(time.Now())
+	mgr.timeNow = clk.Now
+
+	// The contradiction opens at T0. A pause at T+4m resets it.
+	mgr.recordEntityStateNoEval("test_target", panel, "off", clk.Now())
+	mgr.recordEntityStateNoEval("test_target", appleTV, "playing", clk.Now())
+	mgr.evaluateTarget("test_target")
+	clk.Advance(4 * time.Minute)
+	mgr.evaluateTarget("test_target")
+	mgr.recordEntityStateNoEval("test_target", appleTV, "paused", clk.Now())
+	mgr.evaluateTarget("test_target")
+
+	// Playback resumes at T+4m. T+6m is only 2 minutes into the new streak.
+	mgr.recordEntityStateNoEval("test_target", appleTV, "playing", clk.Now())
+	mgr.evaluateTarget("test_target")
+	clk.Advance(2 * time.Minute)
+	mgr.evaluateTarget("test_target")
+	if reloads := waitForReload(t, mockHA, 1); len(reloads) != 0 {
+		t.Fatalf("expected no reload: the streak restarted at T+4m, got %d", len(reloads))
+	}
+
+	// T+10m is 6 minutes into the new streak.
+	clk.Advance(4 * time.Minute)
+	mgr.evaluateTarget("test_target")
+	if reloads := waitForReload(t, mockHA, 1); len(reloads) != 1 {
+		t.Fatalf("expected one reload after the contradiction lasted 5 minutes, got %d", len(reloads))
+	}
+}
+
+func TestWatchdog_ContradictionEntitiesAreSubscribed(t *testing.T) {
+	t.Parallel()
+
+	target := WatchTarget{
+		Entities: []string{"media_player.panel"},
+		Detection: DetectionRule{Contradictions: []Contradiction{{
+			Entity:         "media_player.panel",
+			State:          "off",
+			ContradictedBy: EntityCondition{Entity: "media_player.apple_tv", State: "playing"},
+		}}},
+	}
+	got := target.WatchedEntities()
+	want := []string{"media_player.panel", "media_player.apple_tv"}
+	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+		t.Fatalf("WatchedEntities() = %v, want %v", got, want)
+	}
+}
+
+func TestWatchdog_RealConfigIsValid(t *testing.T) {
+	t.Parallel()
+
+	cfg, err := LoadConfig("../../../../configs/integration_watchdog_config.yaml")
+	if err != nil {
+		t.Fatalf("shipped config must load: %v", err)
+	}
+	for _, target := range cfg.WatchTargets {
+		if target.Name == "bravia_tv" && len(target.Detection.Contradictions) == 0 {
+			t.Errorf("bravia_tv must watch for a panel that is frozen on \"off\"")
+		}
+	}
+}
+
 func TestWatchdog_GoodStateClearsStreak(t *testing.T) {
 	t.Parallel()
 
@@ -349,6 +424,39 @@ func TestWatchdog_ConfigValidation(t *testing.T) {
 				c.WatchTargets[0].Detection.StaleLastUpdatedMin = 30
 			},
 			wantErr: "bad_state_duration_min set without bad_states",
+		},
+		{
+			name: "contradiction entity not watched",
+			mutate: func(c *Config) {
+				c.WatchTargets[0].Detection.Contradictions = []Contradiction{{
+					Entity:         "sensor.other",
+					State:          "off",
+					ContradictedBy: EntityCondition{Entity: "sensor.y", State: "playing"},
+				}}
+			},
+			wantErr: "must be listed in the target's entities",
+		},
+		{
+			name: "contradiction missing contradicted_by",
+			mutate: func(c *Config) {
+				c.WatchTargets[0].Detection.Contradictions = []Contradiction{{
+					Entity: "sensor.x",
+					State:  "off",
+				}}
+			},
+			wantErr: "contradicted_by.entity and contradicted_by.state are required",
+		},
+		{
+			name: "contradiction negative duration",
+			mutate: func(c *Config) {
+				c.WatchTargets[0].Detection.Contradictions = []Contradiction{{
+					Entity:         "sensor.x",
+					State:          "off",
+					ContradictedBy: EntityCondition{Entity: "sensor.y", State: "playing"},
+					DurationMin:    -1,
+				}}
+			},
+			wantErr: "duration_min must not be negative",
 		},
 		{
 			name: "zero cooldown",

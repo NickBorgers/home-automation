@@ -30,6 +30,10 @@ type targetState struct {
 	// none of the entities are currently in a bad state.
 	firstBadStateAt time.Time
 
+	// contradictionSince is when each configured contradiction (by index into
+	// cfg.Detection.Contradictions) began to hold. Absent when it does not hold.
+	contradictionSince map[int]time.Time
+
 	// lastReloadAt is when the most recent reload was attempted.
 	lastReloadAt time.Time
 
@@ -93,9 +97,10 @@ func NewManager(
 	for i := range cfg.WatchTargets {
 		t := cfg.WatchTargets[i]
 		targets[t.Name] = &targetState{
-			cfg:               t,
-			entityStates:      make(map[string]string),
-			entityLastUpdated: make(map[string]time.Time),
+			cfg:                t,
+			entityStates:       make(map[string]string),
+			entityLastUpdated:  make(map[string]time.Time),
+			contradictionSince: make(map[int]time.Time),
 		}
 		tracker.InitTarget(t.Name, t.IntegrationName, t.ConfigEntryID)
 	}
@@ -131,7 +136,7 @@ func (m *Manager) Start() error {
 	// Build a reverse index entity -> targets, then subscribe once per entity.
 	entityToTargets := make(map[string][]string)
 	for name, ts := range m.targets {
-		for _, eid := range ts.cfg.Entities {
+		for _, eid := range ts.cfg.WatchedEntities() {
 			entityToTargets[eid] = append(entityToTargets[eid], name)
 		}
 	}
@@ -296,6 +301,23 @@ func (m *Manager) evaluateTarget(name string) {
 		if !newest.IsZero() && now.Sub(newest) >= cfg.Detection.StaleLastUpdatedDuration() {
 			stale = true
 			reason = fmt.Sprintf("last_updated>=%dmin", cfg.Detection.StaleLastUpdatedMin)
+		}
+	}
+
+	// Contradiction rule. The streaks update on every pass, even when another rule
+	// already fired, so they never go stale.
+	for i, c := range cfg.Detection.Contradictions {
+		if ts.entityStates[c.Entity] == c.State && ts.entityStates[c.ContradictedBy.Entity] == c.ContradictedBy.State {
+			if ts.contradictionSince[i].IsZero() {
+				ts.contradictionSince[i] = now
+			}
+			if !stale && now.Sub(ts.contradictionSince[i]) >= c.Duration() {
+				stale = true
+				reason = fmt.Sprintf("contradiction:%s=%s while %s=%s",
+					c.Entity, c.State, c.ContradictedBy.Entity, c.ContradictedBy.State)
+			}
+		} else {
+			delete(ts.contradictionSince, i)
 		}
 	}
 

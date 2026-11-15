@@ -410,6 +410,7 @@ Each plugin corresponds to a Node-RED flow and implements domain-specific automa
 
 **Key Automations:**
 - **Playback Detection**: Monitor Apple TV state → Update `isAppleTVPlaying` and `isTVPlaying`
+- **TV Panel Kill Switch**: The Sony panel going `off` forces `isTVPlaying=false` and light sync off. The plugin ignores a panel `off` when the Apple TV is the active input and began playing *after* the panel last changed (HA `last_changed` times). That order means the Bravia integration is frozen. The Integration Watchdog then reloads it
 - **TV State Tracking**: Sync box sensors → Determine `isTVOn`
 - **Brightness Adjustment**: Day phase change → Set TV brightness level
 
@@ -537,6 +538,7 @@ scheduler also reads `house_map.yaml`.
 **Key Automations:**
 - **Bad-State Duration**: When all watched entities for a target have been in a bad state for `bad_state_duration_min` → reload
 - **Stale Timestamp**: When the newest `last_updated` across watched entities is older than `stale_last_updated_min` → reload
+- **Contradiction**: When a watched entity sits in a state that another entity disproves (the Bravia panel says `off` while the Apple TV is `playing`) for `duration_min` → reload. This catches an integration that froze on a plausible state and never reports `unavailable`
 - **Cooldown**: Block subsequent reloads for a target within `cooldown_min` after the last reload
 - **Daily Cap**: Block reloads once `daily_max` reloads have fired in the current calendar day
 
