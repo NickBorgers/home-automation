@@ -29,6 +29,7 @@ Every rule must hold.
 |-------|--------|
 | Area occupancy | Room presence, through the occupancy hub (`pkg/occupancy`) |
 | Sleepers | Boolean state variables named in `scheduler.sleepers` (for example `isMasterAsleep`) |
+| Holds | Boolean state variables named in `scheduler.hold_while` (for example `isTVPlaying`) |
 | Rooms, doors, frame | `house_map.yaml` (`internal/housemap`) |
 | Battery, status, presets, position | Valetudo REST API (`internal/valetudo`) |
 | Taints, last clean, costs | Home Assistant helpers, one set per room and treatment |
@@ -87,7 +88,9 @@ input changes.
 
 ```mermaid
 flowchart TD
-    A[Dirty items] --> B{Battery at or above start_min<br/>and robot docked?}
+    A[Dirty items] --> H{A hold_while<br/>condition holds?}
+    H -- yes --> X
+    H -- no --> B{Battery at or above start_min<br/>and robot docked?}
     B -- no --> X[No run, reason recorded]
     B -- yes --> C{Dock room clear?}
     C -- no --> X
@@ -114,6 +117,22 @@ flowchart TD
 
 The same plan must hold for `stable_for` (10 minutes) before it starts. Any change restarts the wait. The
 plan's `startsAt` in shadow state shows when it will start.
+
+### Hold while
+
+`scheduler.hold_while` lists conditions on boolean state variables, in the same shape as the music and lighting
+configs: `{variable: isTVPlaying, value: true}`. While any condition holds, no new run starts. The cleaning is
+loud, so a deployment can hold runs while the TV plays.
+
+- The plan has no rooms. Its reason, and every skipped item, says which variable holds, such as
+  `held: isTVPlaying is true`.
+- It is a start gate only. A run that is going goes on when a condition starts to hold.
+- A change of a listed variable wakes the scheduler, so the plan updates at once. When the hold ends, the plan
+  must hold for `stable_for` again before it starts.
+- A variable that cannot be read, such as a name that is not a state variable or not a boolean, does not hold.
+  `warnings` shows it.
+- It works the same in `log_only`: the plan shows the hold, and no `wouldStartAt`.
+- Without `hold_while`, nothing holds.
 
 On start, the scheduler sets the treatment's presets (operation mode, fan speed, water grade) and then sends
 one segment clean with `customOrder: true`. If a preset fails, nothing starts and the wait begins again. With

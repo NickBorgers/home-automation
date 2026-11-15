@@ -86,6 +86,9 @@ type SchedulerConfig struct {
 	Battery    BatteryConfig                 `yaml:"battery"`
 	Treatments map[Treatment]TreatmentConfig `yaml:"treatments"`
 	Sleepers   []SleeperConfig               `yaml:"sleepers"`
+	// HoldWhile lists conditions on boolean state variables, such as isTVPlaying true. While any holds, no
+	// new run starts. A run already going goes on.
+	HoldWhile []HoldCondition `yaml:"hold_while"`
 
 	// Rooms are the rooms the scheduler cleans, by house-map room name. Other rooms are only driven through.
 	Rooms map[string]RoomConfig `yaml:"rooms"`
@@ -144,6 +147,15 @@ type SleeperConfig struct {
 	Require string `yaml:"require"`
 	// Rooms are the sleeper's rooms. They and their door neighbours are not cleaned while State is on.
 	Rooms []string `yaml:"rooms"`
+}
+
+// HoldCondition holds new runs while a boolean state variable has a value. It has the shape of the
+// variable conditions in the music and lighting configs.
+type HoldCondition struct {
+	// Variable is a boolean state variable, such as isTVPlaying.
+	Variable string `yaml:"variable"`
+	// Value is the value that holds runs.
+	Value bool `yaml:"value"`
 }
 
 // RoomConfig is one cleanable room.
@@ -309,6 +321,12 @@ func (c *SchedulerConfig) validate() error {
 		}
 		if len(s.Rooms) == 0 {
 			return fmt.Errorf("scheduler.sleepers[%d] (%s): rooms are required", i, s.State)
+		}
+	}
+
+	for i, h := range c.HoldWhile {
+		if strings.TrimSpace(h.Variable) == "" {
+			return fmt.Errorf("scheduler.hold_while[%d]: variable is required", i)
 		}
 	}
 
