@@ -51,11 +51,16 @@ type sleepPrepTransitionEnv struct {
 	sleepHygiene  *sleephygiene.Manager
 }
 
-func setupSleepPrepTransitionTest(t *testing.T) (*sleepPrepTransitionEnv, func()) {
+func setupSleepPrepTransitionTest(t *testing.T, productionSleepZone ...bool) (*sleepPrepTransitionEnv, func()) {
 	server, client, stateManager, baseCleanup := setupTest(t)
 
 	logger := testlogger.New()
 	musicConfig := loadTestMusicConfigFromYAML(t)
+	if len(productionSleepZone) > 0 && productionSleepZone[0] {
+		sleepMode := musicConfig.Music["sleep"]
+		sleepMode.Participants = []music.Participant{{PlayerName: "Primary Bed", BaseVolume: 16}}
+		musicConfig.Music["sleep"] = sleepMode
+	}
 	configLoader := config.NewLoader("../../configs", logger)
 
 	env := &sleepPrepTransitionEnv{
@@ -114,6 +119,90 @@ func setupSleepPrepTransitionTest(t *testing.T) (*sleepPrepTransitionEnv, func()
 	}
 
 	return env, cleanup
+}
+
+// TestScenario_SleepPrepToSleep_IdleBedroomCoordinatorRecovers verifies the
+// production topology where the bedroom is the only shared speaker and becomes
+// coordinator after the whole-house coordinator is removed.
+//
+// INVARIANTS:
+// - A healthy promoted coordinator must not be restarted.
+// - An idle promoted coordinator must be resumed and confirmed playing.
+// - The sleep zone must not be reported active before that confirmation.
+func TestScenario_SleepPrepToSleep_IdleBedroomCoordinatorRecovers(t *testing.T) {
+	t.Parallel()
+	env, cleanup := setupSleepPrepTransitionTest(t, true)
+	defer cleanup()
+
+	t.Log("GIVEN: Whole-house sleep-prep rain is playing with Primary Bed as the only sleep-zone speaker")
+	env.server.SetState("input_boolean.anyone_home", "on", map[string]interface{}{})
+	env.server.SetState("input_text.day_phase", "night", map[string]interface{}{})
+	env.server.SetState("input_boolean.master_asleep", "off", map[string]interface{}{})
+	env.server.SetState("input_boolean.wake_sequence_active", "off", map[string]interface{}{})
+	env.server.SetState("input_boolean.anyone_asleep", "off", map[string]interface{}{})
+
+	waitForCondition(t, func() bool {
+		for _, zone := range env.music.GetActiveZones() {
+			if zone.Name == "sleep-prep" && zone.PlaylistURI != "" {
+				return true
+			}
+		}
+		return false
+	}, "sleep-prep should be playing before the handoff")
+	waitForServiceCallsToStabilize(t, env.server, 200*time.Millisecond)
+	snapshot := env.server.ServiceCallCount()
+
+	t.Log("WHEN: The master goes to sleep and Primary Bed is idle during coordinator handoff")
+	env.server.SetState("media_player.primary_bed", "idle", map[string]interface{}{
+		"friendly_name": "Primary Bed",
+		"volume_level":  0.20,
+	})
+	playObserved := make(chan struct{})
+	go func() {
+		defer close(playObserved)
+		for {
+			for _, call := range env.server.GetServiceCallsSince(snapshot) {
+				entityID, _ := call.ServiceData["entity_id"].(string)
+				if call.Domain == "media_player" && call.Service == "media_play" &&
+					entityID == "media_player.primary_bed" {
+					env.server.SetState("media_player.primary_bed", "playing", map[string]interface{}{
+						"friendly_name": "Primary Bed",
+						"volume_level":  0.20,
+					})
+					return
+				}
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	}()
+	env.server.SetState("input_boolean.master_asleep", "on", map[string]interface{}{})
+
+	waitForCondition(t, func() bool {
+		for _, call := range env.server.GetServiceCallsSince(snapshot) {
+			entityID, _ := call.ServiceData["entity_id"].(string)
+			if call.Domain == "media_player" && call.Service == "media_play" &&
+				entityID == "media_player.primary_bed" {
+				return true
+			}
+		}
+		return false
+	}, "idle bedroom coordinator should receive targeted playback recovery")
+	<-playObserved
+
+	t.Log("THEN: Primary Bed reports playing and the sleep zone reflects the real coordinator")
+	waitForCondition(t, func() bool {
+		for _, zone := range env.music.GetActiveZones() {
+			if zone.Name == "sleep" && zone.LeadSpeaker == "Primary Bed" {
+				return true
+			}
+		}
+		return false
+	}, "sleep zone should become active with the verified bedroom coordinator")
+	shadow := env.music.GetShadowState()
+	assert.Equal(t, "sleep", shadow.Outputs.CurrentMode)
+	require.NotNil(t, shadow.Outputs.PlaybackVerification)
+	assert.True(t, shadow.Outputs.PlaybackVerification.Verified)
+	assert.Equal(t, "media_player.primary_bed", shadow.Outputs.PlaybackVerification.LeadSpeaker)
 }
 
 // ============================================================================

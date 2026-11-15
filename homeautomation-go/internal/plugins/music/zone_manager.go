@@ -1182,29 +1182,6 @@ func (zm *ZoneManager) executeSeamlessTransition(st seamlessTransition, newSpeak
 	}
 	zm.manager.mu.Unlock()
 
-	// Re-apply repeat/shuffle to new leader if the leader changed.
-	// Shuffle and repeat are per-speaker Sonos properties. When the old leader
-	// (e.g., Front Room) is removed and a shared speaker (e.g., Bedroom) becomes
-	// the new leader, the new leader won't have repeat enabled — causing playback
-	// to stop at end of track instead of looping. (Issue #837)
-	if leadSpeaker != oldZone.LeadSpeaker {
-		zm.logger.Info("Leader changed during seamless transition, re-applying playback modes",
-			zap.String("old_leader", oldZone.LeadSpeaker),
-			zap.String("new_leader", leadSpeaker))
-		if err := zm.manager.speakerSetRepeat(leadSpeaker, "all"); err != nil {
-			zm.logger.Warn("Failed to set repeat on new leader",
-				zap.String("speaker", leadSpeaker),
-				zap.Error(err))
-		}
-		if oldMediaType == "playlist" || oldMediaType == "tidal" {
-			if err := zm.manager.speakerSetShuffle(leadSpeaker, true); err != nil {
-				zm.logger.Warn("Failed to set shuffle on new leader",
-					zap.String("speaker", leadSpeaker),
-					zap.Error(err))
-			}
-		}
-	}
-
 	// Handle non-shared speakers: fade out and remove from old group.
 	// If the old leader is being removed, ensure it's removed LAST so Sonos
 	// can promote a new coordinator from shared speakers before the old
@@ -1224,7 +1201,63 @@ func (zm *ZoneManager) executeSeamlessTransition(st seamlessTransition, newSpeak
 			}
 			st.removeSpeakers = reordered
 		}
-		go zm.manager.removeSpeakersFromZone(oldZone, st.removeSpeakers, trigger)
+		if leadSpeaker != oldZone.LeadSpeaker {
+			// Coordinator removal must finish before playback continuity can be
+			// verified. Other seamless removals remain asynchronous.
+			zm.manager.removeSpeakersFromZone(oldZone, st.removeSpeakers, trigger)
+		} else {
+			go zm.manager.removeSpeakersFromZone(oldZone, st.removeSpeakers, trigger)
+		}
+	}
+
+	// A coordinator handoff can leave the promoted speaker idle even though all
+	// unjoin calls succeeded. Confirm continuity and use a targeted play command
+	// to preserve the current queue and position whenever recovery is needed.
+	if leadSpeaker != oldZone.LeadSpeaker {
+		playing, checkErr := zm.manager.isPlaybackActive(leadSpeaker)
+		for attempt := 1; (checkErr != nil || !playing) && attempt <= 2; attempt++ {
+			zm.logger.Warn("Playback inactive after seamless coordinator handoff, attempting recovery",
+				zap.String("speaker", leadSpeaker),
+				zap.Int("attempt", attempt),
+				zap.Error(checkErr))
+			if err := zm.manager.speakerPlay(leadSpeaker); err != nil {
+				checkErr = err
+				continue
+			}
+			zm.manager.sleepFunc(playbackRecoveryDelay)
+			playing, checkErr = zm.manager.isPlaybackActive(leadSpeaker)
+		}
+		if checkErr != nil || !playing {
+			// Remove the optimistic zone registration so the caller's normal
+			// stop/start fallback can rebuild playback and shadow state.
+			zm.mu.Lock()
+			delete(zm.activeZones, st.startingZone)
+			for _, p := range participants {
+				delete(zm.speakerZone, p.PlayerName)
+			}
+			zm.mu.Unlock()
+			if checkErr != nil {
+				return fmt.Errorf("playback continuity not confirmed after coordinator handoff to %s: %w",
+					leadSpeaker, checkErr)
+			}
+			return fmt.Errorf("playback continuity not confirmed after coordinator handoff to %s", leadSpeaker)
+		}
+
+		zm.logger.Info("Leader changed during seamless transition, re-applying playback modes",
+			zap.String("old_leader", oldZone.LeadSpeaker),
+			zap.String("new_leader", leadSpeaker))
+		if err := zm.manager.speakerSetRepeat(leadSpeaker, "all"); err != nil {
+			zm.logger.Warn("Failed to set repeat on new leader",
+				zap.String("speaker", leadSpeaker),
+				zap.Error(err))
+		}
+		if oldMediaType == "playlist" || oldMediaType == "tidal" {
+			if err := zm.manager.speakerSetShuffle(leadSpeaker, true); err != nil {
+				zm.logger.Warn("Failed to set shuffle on new leader",
+					zap.String("speaker", leadSpeaker),
+					zap.Error(err))
+			}
+		}
 	}
 
 	// Handle shared speakers: smooth volume adjustment to new target
@@ -1245,6 +1278,22 @@ func (zm *ZoneManager) executeSeamlessTransition(st seamlessTransition, newSpeak
 	if len(st.addSpeakers) > 0 {
 		go zm.manager.addSpeakersToZone(newZone, st.addSpeakers, trigger)
 	}
+
+	// Publish the new coordinator and participants only after continuity has
+	// been confirmed, so shadow state does not claim an idle handoff succeeded.
+	verificationAttempts := 0
+	if leadSpeaker != oldZone.LeadSpeaker {
+		verificationAttempts = 1
+	}
+	zm.manager.recordPlaybackShadowState(
+		newZone.MusicType,
+		playbackOption,
+		participants,
+		leadSpeaker,
+		trigger,
+		nil,
+		verificationAttempts,
+	)
 
 	zm.logger.Info("Seamless zone transition complete",
 		zap.String("from", st.stoppingZone),

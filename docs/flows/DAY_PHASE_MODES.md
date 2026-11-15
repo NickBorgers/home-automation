@@ -356,6 +356,8 @@ flowchart TB
 
 5. **Seamless join**: When `isMasterAsleep` becomes false, the Primary Bed speaker joins the existing morning zone rather than starting new playback.
 
+6. **Verified sleep handoff**: When `isMasterAsleep` becomes true, non-bedroom speakers leave the `sleep-prep` group with Pantry removed last. The promoted Primary Bed coordinator must report `playing` before the `sleep` transition completes. If it is idle or temporarily unavailable, music sends a targeted play command and verifies recovery without replacing the rain queue or restarting a healthy speaker.
+
 ### Timeline Example
 
 ```
