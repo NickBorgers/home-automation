@@ -125,7 +125,11 @@ func TestSchedulerMidJobMopWashIsPartOfTheRun(t *testing.T) {
 	e.advance(30 * time.Second)
 	e.moveTo("kitchen", 90)
 	e.advance(30 * time.Second)
-	assert.Equal(t, "off", e.state("input_boolean.vacuum_dirty_lounge"), "lounge done when the kitchen starts")
+	e.advance(30 * time.Second)
+	assert.Equal(t, "on", e.state("input_boolean.vacuum_dirty_lounge"), "the kitchen is not yet confirmed")
+	e.advance(30 * time.Second)
+	assert.Equal(t, "off", e.state("input_boolean.vacuum_dirty_lounge"),
+		"lounge done once the robot stayed in the kitchen for next_room_dwell")
 	e.robot.SetStatus("docked", "none")
 	e.robot.SetDockStatus("cleaning") // washes the mop after the job
 	e.moveTo("mud", 88)

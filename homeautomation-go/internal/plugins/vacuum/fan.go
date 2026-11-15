@@ -11,8 +11,9 @@ import (
 )
 
 // Quiet travel keeps the fan on scheduler.travel_fan_speed while the robot drives between rooms, and sets the
-// treatment's fan speed only while the robot is in the room it is cleaning. The robot applies a fan change at
-// once, in the middle of a segment clean. It applies only to runs this scheduler started in active mode.
+// treatment's fan speed only while the robot is in the room it is cleaning or in the next room of the tour.
+// The robot applies a fan change at once, in the middle of a segment clean. It applies only to runs this
+// scheduler started in active mode.
 
 // maxRaiseFails is how many raises in a row may fail. A failed raise is tried again on the next poll; after
 // the second failure the scheduler stops switching the fan for the rest of the run.
@@ -107,9 +108,14 @@ func wantFan(r *run, st *valetudo.State, room string, posOK bool) string {
 	case room == "":
 		return ""
 	case r.current != "" && room == r.current:
+		// Still in the room being cleaned, even after a blip into the next room that was not confirmed.
+		return f.treat
+	case room == r.nextTarget():
+		// In the next room of the tour, before next_room_dwell confirms it. The robot is about to clean it,
+		// or is cleaning near its boundary with the current room. Never clean either at the travel level.
 		return f.treat
 	default:
-		// Driving to the next room, or through a room that is not being cleaned now.
+		// Driving between rooms, or through a room that is not being cleaned now or next.
 		return f.travel
 	}
 }
