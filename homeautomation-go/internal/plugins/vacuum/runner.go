@@ -258,6 +258,12 @@ func (s *Scheduler) Start() error {
 				zap.String("key", key), zap.Error(err))
 		}
 	}
+	for _, key := range s.holdVars() {
+		if err := s.subHelper.SubscribeToState(key, func(string, interface{}, interface{}) { s.poke() }); err != nil {
+			s.logger.Warn("Cannot subscribe to hold_while state variable; it does not hold runs",
+				zap.String("key", key), zap.Error(err))
+		}
+	}
 	for _, entity := range sortedKeys(s.dirtyKeys) {
 		if err := s.subHelper.SubscribeToEntity(entity, s.queueBoolEvent); err != nil {
 			s.logger.Warn("Cannot subscribe to taint helper", zap.String("entity", entity), zap.Error(err))
@@ -459,6 +465,7 @@ func (s *Scheduler) replan(now time.Time) {
 		Segments:     s.segments(),
 		BlockedAreas: s.blockedAreas(),
 		SleeperRooms: s.sleeperRooms(),
+		Hold:         s.holdReason(),
 		Battery:      st.Battery,
 		HasBattery:   st.HasBattery,
 		Docked:       st.Docked(),

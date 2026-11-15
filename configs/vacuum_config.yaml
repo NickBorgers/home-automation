@@ -98,6 +98,13 @@ vacuum:
     # this long is sent home once its way home is clear.
     stranded_after: "5m"
 
+    # Start no new run while any of these boolean state variables has the
+    # given value, for example while the TV plays. A run that is going goes
+    # on. When the hold ends, the plan must hold for stable_for again.
+    # hold_while:
+    #   - variable: "isTVPlaying"
+    #     value: true
+
     battery:
       # Start only at or above start_min. Plan so the run ends at or above
       # floor.

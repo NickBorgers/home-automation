@@ -157,6 +157,29 @@ vacuum:
 	}
 }
 
+func TestSchedulerConfigHoldWhile(t *testing.T) {
+	base := `
+vacuum:
+  scheduler:
+    mode: active
+    valetudo_url: http://robot.example
+    rooms:
+      kitchen: {segment_id: "3", full: 48h}
+`
+	sc := loadConfigText(t, base).Vacuum.Scheduler
+	require.NoError(t, sc.Err)
+	assert.Empty(t, sc.HoldWhile, "no hold unless configured")
+
+	sc = loadConfigText(t, base+"    hold_while:\n      - {variable: isTVPlaying, value: true}\n"+
+		"      - {variable: isGridAvailable, value: false}\n").Vacuum.Scheduler
+	require.NoError(t, sc.Err)
+	assert.Equal(t, []HoldCondition{{Variable: "isTVPlaying", Value: true}, {Variable: "isGridAvailable", Value: false}},
+		sc.HoldWhile)
+
+	sc = loadConfigText(t, base+"    hold_while:\n      - {value: true}\n").Vacuum.Scheduler
+	assert.ErrorContains(t, sc.Err, "hold_while[0]: variable is required")
+}
+
 func TestSchedulerConfigOffSkipsRuntimeChecks(t *testing.T) {
 	cfg := loadConfigText(t, "vacuum:\n  scheduler:\n    mode: \"off\"\n")
 	assert.NoError(t, cfg.Vacuum.Scheduler.Err, "off needs no URL and no rooms")

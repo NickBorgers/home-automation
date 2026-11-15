@@ -41,6 +41,8 @@ type PlanInput struct {
 	BlockedAreas map[string]bool
 	// SleeperRooms are the rooms of people who are asleep now.
 	SleeperRooms []string
+	// Hold says why no new run may start now, such as "held: isTVPlaying is true". "" when nothing holds.
+	Hold string
 
 	Battery    int
 	HasBattery bool
@@ -157,7 +159,7 @@ func LegCrosses(g RoomGraph, from, to string, noEnter map[string]string) (crosse
 
 // BuildPlan picks the rooms for one run. It is a pure function of its input.
 //
-//  1. No run below the start minimum or when the robot is not docked.
+//  1. No run while a hold_while condition holds, below the start minimum, or when the robot is not docked.
 //  2. Rooms in blocked areas, and rooms open to them, are not entered; sleeper rooms and their neighbours
 //     are not cleaned.
 //  3. Candidates are items that may be cleaned and whose shortest way from the dock enters no blocked room.
@@ -196,6 +198,8 @@ func BuildPlan(in PlanInput) Plan {
 	case len(items) == 0:
 		plan.Reason = "nothing is dirty"
 		return plan
+	case in.Hold != "":
+		return skipAll(in.Hold)
 	case !in.HasBattery:
 		return skipAll("battery level unknown")
 	case float64(in.Battery) < in.StartMin:
