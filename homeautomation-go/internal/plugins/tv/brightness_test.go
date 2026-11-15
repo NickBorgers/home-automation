@@ -171,13 +171,16 @@ func TestBrightnessOnPowerOn_StaleGoroutineDoesNotClearHold(t *testing.T) {
 	pic := &fakePicture{setting: bravia.Setting{Current: 25, Max: 50}}
 	m, _ := newBrightnessManager(t, false, 150, pic)
 
-	// Use a channel-controlled sleep so we can order goroutine wakeups precisely.
+	// Use a channel-controlled sleep so we can order goroutine wakeups precisely. The two
+	// goroutines may reach sleep in either order, so each power-on uses a distinct delay and
+	// the gate is keyed by that delay. That identifies which goroutine owns which gate.
+	const g1Delay, g2Delay = time.Second, 2 * time.Second
 	var mu sync.Mutex
-	var sleepGates []chan struct{}
-	m.sleepFunc = func(time.Duration) {
+	sleepGates := map[time.Duration]chan struct{}{}
+	m.sleepFunc = func(d time.Duration) {
 		ch := make(chan struct{})
 		mu.Lock()
-		sleepGates = append(sleepGates, ch)
+		sleepGates[d] = ch
 		mu.Unlock()
 		<-ch
 	}
@@ -187,9 +190,10 @@ func TestBrightnessOnPowerOn_StaleGoroutineDoesNotClearHold(t *testing.T) {
 	require.Equal(t, []int{50}, pic.sets)
 
 	// TV on twice quickly: G1 (gen=1) then G2 (gen=2).
-	m.SetBrightnessPowerOnDelay(time.Second) // non-zero so goroutines block
-	m.brightnessOnPowerOn()                  // G1
-	m.brightnessOnPowerOn()                  // G2
+	m.SetBrightnessPowerOnDelay(g1Delay)
+	m.brightnessOnPowerOn() // G1
+	m.SetBrightnessPowerOnDelay(g2Delay)
+	m.brightnessOnPowerOn() // G2
 
 	// A person changes brightness: manual hold detected.
 	pic.mu.Lock()
@@ -207,15 +211,16 @@ func TestBrightnessOnPowerOn_StaleGoroutineDoesNotClearHold(t *testing.T) {
 
 	// Wake G1 — it must detect it is superseded and not clear the hold.
 	mu.Lock()
-	g1 := sleepGates[0]
+	g1 := sleepGates[g1Delay]
 	mu.Unlock()
 	close(g1)
-	time.Sleep(100 * time.Millisecond) // let G1 goroutine run to completion
+	// Give G1 time to run to completion.
+	time.Sleep(100 * time.Millisecond)
 	require.True(t, m.GetShadowState().Outputs.Brightness.TV.Held, "G1 must not clear the manual hold")
 
 	// Wake G2 — it is the authoritative power-on; hold clears and brightness is set.
 	mu.Lock()
-	g2 := sleepGates[1]
+	g2 := sleepGates[g2Delay]
 	mu.Unlock()
 	close(g2)
 	require.Eventually(t, func() bool {
