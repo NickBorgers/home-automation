@@ -260,7 +260,8 @@ func (s *Scheduler) Start() error {
 	}
 	for _, key := range s.holdVars() {
 		if err := s.subHelper.SubscribeToState(key, func(string, interface{}, interface{}) { s.poke() }); err != nil {
-			s.logger.Warn("Cannot subscribe to hold_while state variable; it does not hold runs",
+			s.logger.Warn("Cannot subscribe to hold_while state variable; won't react to changes, "+
+				"it may still hold on each tick",
 				zap.String("key", key), zap.Error(err))
 		}
 	}
