@@ -184,6 +184,11 @@ To review a map, render it with `-format html` and publish the file as an artifa
 self-contained HTML fragment that starts with `<title>`. It loads only Google Fonts. It has light and dark
 colours. `-room-presence` is optional: with it, the legend marks the areas no camera sees.
 
+The running service also serves the review page at `/map` on its HTTP port. It reads `house_map.yaml` and
+`room_presence_config.yaml` from the config directory on every request, so the page matches the configs in the
+container. Without `house_map.yaml`, `/map` answers 404. The page shows where each camera is and which way it
+points, so keep the HTTP port off untrusted networks.
+
 Rooms are tinted by area. Each area's hue comes from a hash of its name, so no area needs a colour setting.
 Outdoor spaces are tinted by kind. On the review page, orange bars are exterior doors. Blue bars are doors. Pale bars are
 openings.
