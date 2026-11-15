@@ -934,7 +934,7 @@ flowchart TD
 
 ## State Variable Dependency Graph
 
-Shows which plugins read/write which state variables (47 total: 34 booleans, 3 numbers, 8 strings, 2 local-only).
+Shows which plugins read/write which state variables (48 total: 34 booleans, 3 numbers, 8 strings, 3 local-only).
 
 ```mermaid
 graph LR
@@ -975,6 +975,7 @@ graph LR
         OwnerJustReturned[didOwnerJustReturnHome]
         RemainingSolar[remainingSolarGeneration]
         DarkOutside[isDarkOutside]
+        TVRoomLux[tvRoomTargetLux]
     end
 
     subgraph "Output State Variables"
@@ -1091,6 +1092,8 @@ graph LR
     WeatherStationIlluminance -->|Outdoor Lux Reference| Lighting
     Lighting --> DarkOutside
     DarkOutside --> Lighting
+    Lighting --> TVRoomLux
+    TVRoomLux --> TV
     LivingCans -->|Manual Override Detection| Lighting
     LivingCans -->|Color Tracking Source| Lighting
     BackHallLight -->|Color Tracking Target State| Lighting

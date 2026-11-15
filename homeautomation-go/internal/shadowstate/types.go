@@ -791,6 +791,28 @@ type TVOutputs struct {
 	SyncBoxAvailable  bool      `json:"syncBoxAvailable"`
 	LastSyncBoxReboot time.Time `json:"lastSyncBoxReboot,omitempty"`
 	DailyRebootCount  int       `json:"dailyRebootCount"`
+	// Brightness is the last TV and sync box brightness decision (nil until the first one).
+	Brightness *TVBrightnessState `json:"brightness,omitempty"`
+}
+
+// TVBrightnessState is one decision about TV and sync box brightness.
+type TVBrightnessState struct {
+	Trigger    string                `json:"trigger"`
+	TargetLux  float64               `json:"targetLux"` // tvRoomTargetLux from the lighting plugin
+	Fraction   float64               `json:"fraction"`  // 0 = dimmest, 1 = brightest, log scale on lux
+	Decision   string                `json:"decision"`
+	TV         DeviceBrightnessState `json:"tv"`
+	SyncBox    DeviceBrightnessState `json:"syncBox"`
+	LastUpdate time.Time             `json:"lastUpdate"`
+}
+
+// DeviceBrightnessState is the brightness decision for one device.
+type DeviceBrightnessState struct {
+	Goal       int    `json:"goal"`
+	Current    int    `json:"current"`
+	Held       bool   `json:"held"`
+	HeldReason string `json:"heldReason,omitempty"`
+	Decision   string `json:"decision"`
 }
 
 // ============================================================================

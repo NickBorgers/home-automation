@@ -21,7 +21,7 @@ type StateVariable struct {
 	ComputedOutput bool        // If true, can be written even in read-only mode (for computed values)
 }
 
-// AllVariables contains all 46 state variables (44 synced with HA + 2 local-only)
+// AllVariables contains all 47 state variables (44 synced with HA + 3 local-only)
 var AllVariables = []StateVariable{
 	// Booleans (33)
 	{Key: "isNickHome", EntityID: "input_boolean.nick_home", Type: TypeBool, Default: false},
@@ -80,6 +80,8 @@ var AllVariables = []StateVariable{
 	// Local-only variables (not synced with HA)
 	{Key: "didOwnerJustReturnHome", EntityID: "", Type: TypeBool, Default: false, LocalOnly: true},
 	{Key: "currentlyPlayingMusic", EntityID: "", Type: TypeJSON, Default: map[string]interface{}{}, LocalOnly: true},
+	// tvRoomTargetLux is the lux target of the lux room marked tv_room (0 until the first tick).
+	{Key: "tvRoomTargetLux", EntityID: "", Type: TypeNumber, Default: 0.0, LocalOnly: true},
 }
 
 // keyAliases maps deprecated state keys to their canonical replacements.

@@ -586,6 +586,13 @@ func TestLuxConfigValidation(t *testing.T) {
 			c.Rooms[0].LuxControl.Calibration = []CalibrationPoint{{BrightnessPct: 50, Lux: 100}, {BrightnessPct: 25, Lux: 40}}
 		}},
 		{"active but uncalibrated", func(c *HueConfig) { c.Rooms[0].LuxControl.Calibrated = false }},
+		{"two TV rooms", func(c *HueConfig) {
+			c.Rooms[0].LuxControl.TVRoom = true
+			second := c.Rooms[0]
+			lc := *second.LuxControl
+			second.HueGroup, second.LuxControl = "S", &lc
+			c.Rooms = append(c.Rooms, second)
+		}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
