@@ -17,7 +17,7 @@ import (
 	"go.uber.org/zap/zaptest/observer"
 )
 
-const restrictionsPath = "/api/v2/robot/capabilities/CombinedVirtualRestrictionsCapability"
+const restrictionsPath = "/api/v2/robot/capabilities/" + valetudo.CapabilityRestrictions
 
 // ownerRestrictions is the live robot's set today: no walls, one zone the owner drew in the entryway.
 const ownerRestrictions = `{"virtualWalls":[],"restrictedZones":[{"points":{"pA":{"x":3005,"y":4150},

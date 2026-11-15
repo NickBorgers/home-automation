@@ -48,6 +48,10 @@ const fenceTolCm = 1.0
 
 // fenceVerifyTries is how many times the restrictions are read back after a change. Valetudo answers from
 // the map it polled last and polls again only after a change, so a change may show a few seconds late.
+//
+// The read-backs run in the tick and hold tickMu, so one tick may wait up to fenceVerifyTries times
+// defaultFenceVerifyDelay (10 s), and twice that when a failed fence is undone at once. That is well inside
+// track_interval (30 s). Revisit these numbers if polls ever get closer together while no run is tracked.
 const fenceVerifyTries = 10
 
 // defaultFenceVerifyDelay is the wait between two read-backs.
@@ -663,7 +667,9 @@ func (s *Scheduler) settleFence() {
 		case helperUnusable(st.State):
 			return // ask again on the next tick; nothing starts meanwhile
 		case strings.TrimSpace(st.State) == "":
-			// Nothing saved. Still take away any scheduler wall, in case a save was lost.
+			// Nothing saved. Still take away any scheduler wall, in case a save was lost. Scheduler walls are
+			// found by their geometry, which needs the frame. Without a frame the scheduler never set a wall,
+			// so there is nothing to take away.
 			s.fence.checked = true
 			s.fence.pending = s.fenceFrame() != nil
 		default:
