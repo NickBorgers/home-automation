@@ -128,11 +128,17 @@ func setupSleepPrepTransitionTest(t *testing.T, productionSleepZone ...bool) (*s
 // INVARIANTS:
 // - A healthy promoted coordinator must not be restarted.
 // - An idle promoted coordinator must be resumed and confirmed playing.
+// - Recovery must not fall back to a play_media restart.
 // - The sleep zone must not be reported active before that confirmation.
 func TestScenario_SleepPrepToSleep_IdleBedroomCoordinatorRecovers(t *testing.T) {
 	t.Parallel()
 	env, cleanup := setupSleepPrepTransitionTest(t, true)
 	defer cleanup()
+	env.music.SetSleepFunc(func(d time.Duration) {
+		if d == 2*time.Second {
+			time.Sleep(50 * time.Millisecond)
+		}
+	})
 
 	t.Log("GIVEN: Whole-house sleep-prep rain is playing with Primary Bed as the only sleep-zone speaker")
 	env.server.SetState("input_boolean.anyone_home", "on", map[string]interface{}{})
@@ -200,16 +206,21 @@ func TestScenario_SleepPrepToSleep_IdleBedroomCoordinatorRecovers(t *testing.T) 
 	waitForCondition(t, func() bool {
 		for _, zone := range env.music.GetActiveZones() {
 			if zone.Name == "sleep" && zone.LeadSpeaker == "Primary Bed" {
-				return true
+				shadow := env.music.GetShadowState()
+				return shadow.Outputs.CurrentMode == "sleep" &&
+					shadow.Outputs.PlaybackVerification != nil &&
+					shadow.Outputs.PlaybackVerification.Verified
 			}
 		}
 		return false
-	}, "sleep zone should become active with the verified bedroom coordinator")
+	}, "sleep zone and shadow state should reflect the verified bedroom coordinator")
 	shadow := env.music.GetShadowState()
 	assert.Equal(t, "sleep", shadow.Outputs.CurrentMode)
 	require.NotNil(t, shadow.Outputs.PlaybackVerification)
 	assert.True(t, shadow.Outputs.PlaybackVerification.Verified)
 	assert.Equal(t, "media_player.primary_bed", shadow.Outputs.PlaybackVerification.LeadSpeaker)
+	assert.Empty(t, FilterServiceCalls(env.server.GetServiceCallsSince(snapshot), "media_player", "play_media"),
+		"idle bedroom coordinator must recover seamlessly without restarting playback")
 }
 
 // ============================================================================
