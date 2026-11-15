@@ -668,6 +668,176 @@ func TestFenceRestoredAtStartup(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// A helper that reads "unknown"
+// ---------------------------------------------------------------------------
+
+var fenceHelperAttrs = map[string]interface{}{"max": float64(255)}
+
+func TestFenceHelperUnknown(t *testing.T) {
+	ownerWall := valetudo.NewVirtualWall(100, 100, 200, 100)
+	robotJSON := func(t *testing.T, walls ...valetudo.VirtualWall) string {
+		b, err := json.Marshal(withWalls(ownerSet(t), walls))
+		require.NoError(t, err)
+		return string(b)
+	}
+
+	t.Run("value restored within the grace: the saved set is put back, nothing stripped by geometry", func(t *testing.T) {
+		e := newFenceEnv(t)
+		// The owner drew a wall exactly where the scheduler would put one. The saved set keeps it.
+		owner := withWalls(ownerSet(t), []valetudo.VirtualWall{wallPantryBed})
+		saved, err := encodeFence(owner)
+		require.NoError(t, err)
+		e.robot.SetRestrictions(robotJSON(t, wallPantryBed, wallOfficeBed))
+		e.ha.SetState(fenceEntity, "unknown", fenceHelperAttrs)
+		e.start()
+		e.tick()
+		e.advance(time.Minute)
+		assert.Zero(t, e.restrictionPuts(), "nothing is touched while the helper may still be restored")
+		e.ha.SetState(fenceEntity, saved, fenceHelperAttrs)
+		e.advance(30 * time.Second)
+		assert.True(t, sameRestrictions(owner, e.robotSet()), "the owner's wall stays: %+v", e.robotSet())
+		assert.Equal(t, "", e.state(fenceEntity))
+	})
+
+	t.Run("unknown for the whole grace: treated as empty", func(t *testing.T) {
+		e := newFenceEnv(t)
+		logs := observe(e)
+		e.robot.SetRestrictions(robotJSON(t, wallOfficeBed, ownerWall, wallPantryBed))
+		e.ha.SetState(fenceEntity, "unknown", fenceHelperAttrs)
+		e.start()
+		e.tick()
+		e.advance(time.Minute + 59*time.Second)
+		assert.Zero(t, e.restrictionPuts(), "still inside the grace")
+		assert.Equal(t, "unknown", e.state(fenceEntity))
+
+		e.advance(2 * time.Second)
+		assert.True(t, sameRestrictions(withWalls(ownerSet(t), []valetudo.VirtualWall{ownerWall}), e.robotSet()),
+			"scheduler door walls are gone, the owner's zone and wall stay: %+v", e.robotSet())
+		assert.Equal(t, "", e.state(fenceEntity), "the helper now holds a real value")
+		warn := logs.FilterMessage("Vacuum treated input_text.vacuum_fence_saved as empty after 2 minutes of unknown").All()
+		assert.Len(t, warn, 1)
+		assert.False(t, e.sched().FenceRestorePending)
+
+		t.Log("a later run fences normally")
+		e.markDirty("kitchen")
+		e.s.TickForTest(true)
+		e.advance(10 * time.Minute)
+		run := e.sched().Run
+		require.NotNil(t, run, "plan: %+v", e.sched().Plan)
+		assert.Equal(t, []string{"office_bed", "pantry_bed"}, run.FencedDoors)
+		assert.Equal(t, `{"w":[[100,100,200,100]],"z":[["r",3005,4150,3085,4205]]}`, e.state(fenceEntity))
+	})
+
+	t.Run("the grace starts over when the helper was unavailable in between", func(t *testing.T) {
+		e := newFenceEnv(t)
+		e.robot.SetRestrictions(robotJSON(t, wallPantryBed))
+		e.ha.SetState(fenceEntity, "unknown", fenceHelperAttrs)
+		e.start()
+		e.tick()
+		e.advance(100 * time.Second)
+		e.ha.SetState(fenceEntity, "unavailable", fenceHelperAttrs)
+		e.advance(time.Minute)
+		e.ha.SetState(fenceEntity, "unknown", fenceHelperAttrs)
+		e.advance(time.Second)
+		e.advance(100 * time.Second)
+		assert.Zero(t, e.restrictionPuts(), "unknown has not lasted the grace since it came back")
+		e.advance(30 * time.Second)
+		assert.Equal(t, ownerSet(t), e.robotSet())
+	})
+
+	t.Run("a failed write of the empty value is logged and does not block", func(t *testing.T) {
+		e := newFenceEnv(t, func(cfg *SchedulerConfig, _ *housemap.Map) { cfg.FenceHelperGrace = 0 })
+		logs := observe(e)
+		e.robot.SetRestrictions(robotJSON(t, wallPantryBed))
+		e.ha.SetState(fenceEntity, "unknown", fenceHelperAttrs)
+		e.ha.SetServiceError("input_text", "set_value", errors.New("ha down"))
+		e.start()
+		e.tick()
+		assert.Equal(t, ownerSet(t), e.robotSet(), "the walls still go")
+		assert.False(t, e.sched().FenceRestorePending)
+		assert.NotEmpty(t, logs.FilterMessage("Vacuum could not write an empty value to the fence helper").All())
+	})
+
+	t.Run("log_only and read-only touch nothing", func(t *testing.T) {
+		for _, name := range []string{"log_only", "read-only"} {
+			e := newSchedEnv(t, ModeLogOnly)
+			if name == "read-only" {
+				e = newFenceEnv(t)
+				e.s.readOnly = true
+			}
+			e.robot.SetRestrictions(robotJSON(t, wallPantryBed))
+			e.ha.SetState(fenceEntity, "unknown", fenceHelperAttrs)
+			e.start()
+			e.tick()
+			e.advance(10 * time.Minute)
+			assert.Empty(t, e.robot.Commands(), name)
+			assert.Equal(t, "unknown", e.state(fenceEntity), name)
+		}
+	})
+}
+
+func TestFenceHelperBlockedReason(t *testing.T) {
+	t.Run("unknown: the plan says how long it waits", func(t *testing.T) {
+		e := newFenceEnv(t)
+		e.ha.SetState(fenceEntity, "unknown", fenceHelperAttrs)
+		e.start()
+		e.markDirty("kitchen")
+		e.tick()
+		e.advance(40 * time.Second)
+		plan := e.sched().Plan
+		require.NotNil(t, plan)
+		assert.Equal(t, "input_text.vacuum_fence_saved is unknown; waiting 1m20s more before treating it as empty",
+			plan.Reason)
+		assert.True(t, e.hasWarning("waiting 1m20s more"), "%v", e.sched().Warnings)
+		assert.Nil(t, e.sched().Run)
+	})
+
+	t.Run("unknown: runs start once the grace and the stable time passed", func(t *testing.T) {
+		e := newFenceEnv(t)
+		e.ha.SetState(fenceEntity, "unknown", fenceHelperAttrs)
+		e.start()
+		e.markDirty("kitchen")
+		e.tick()
+		e.advance(10 * time.Minute)
+		require.NotNil(t, e.sched().Run, "plan: %+v", e.sched().Plan)
+		assert.Empty(t, e.sched().Plan.Reason)
+	})
+
+	t.Run("unavailable stays blocked past the grace and the plan says so", func(t *testing.T) {
+		e := newFenceEnv(t)
+		e.ha.SetState(fenceEntity, "unavailable", fenceHelperAttrs)
+		e.start()
+		e.markDirty("kitchen")
+		e.tick()
+		require.NotNil(t, e.sched().Plan)
+		assert.Contains(t, e.sched().Plan.Reason, "input_text.vacuum_fence_saved is unavailable")
+		assert.NotNil(t, e.sched().Plan.PendingSince, "the plan is still timed, so it starts when the helper is back")
+		for i := 0; i < 5; i++ {
+			e.advance(10 * time.Minute)
+		}
+		assert.Nil(t, e.sched().Run)
+		assert.Contains(t, e.sched().Plan.Reason, "is unavailable")
+		assert.Empty(t, e.robot.Commands())
+		assert.True(t, e.hasWarning("is unavailable"), "%v", e.sched().Warnings)
+
+		t.Log("once it has a value the run starts at once")
+		e.ha.SetState(fenceEntity, "", fenceHelperAttrs)
+		e.advance(time.Second)
+		require.NotNil(t, e.sched().Run, "plan: %+v", e.sched().Plan)
+	})
+
+	t.Run("log_only does not claim a block", func(t *testing.T) {
+		e := newSchedEnv(t, ModeLogOnly)
+		e.ha.SetState(fenceEntity, "unavailable", fenceHelperAttrs)
+		e.start()
+		e.markDirty("kitchen")
+		e.tick()
+		require.NotNil(t, e.sched().Plan)
+		assert.Empty(t, e.sched().Plan.Reason)
+	})
+}
+
+// ---------------------------------------------------------------------------
 // Stopped after a pause, stranded robots, off-route rooms
 // ---------------------------------------------------------------------------
 

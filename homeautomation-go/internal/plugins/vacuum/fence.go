@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -67,6 +68,12 @@ type fenceState struct {
 	owner *valetudo.Restrictions
 	// checked is true once the helper was read at startup.
 	checked bool
+	// unusableSince is when the helper was first seen "unknown" while checked is false; zero when it is not
+	// "unknown". "unavailable" never starts it: that means Home Assistant is down, not that no value is set.
+	unusableSince time.Time
+	// helperEmpty is true when the helper was treated as empty after the grace period. Its value is then not
+	// a saved set, so a failed write of "" must not hold up the restore.
+	helperEmpty bool
 	// problem says why the last fencing or restore failed; "" when it worked.
 	problem string
 }
@@ -537,6 +544,35 @@ func (s *Scheduler) fenceFrame() *housemap.Valetudo {
 	return s.houseMap.Valetudo
 }
 
+// fenceHelperBlock says why no run can start while the helper was not read at startup, or "" when that does
+// not block. It follows the same conditions as fenceForRun and settleFence: an active, writable scheduler with
+// fencing on, a valetudo frame and a helper. The caller holds tickMu.
+func (s *Scheduler) fenceHelperBlock(now time.Time) string {
+	if s.cfg.Mode != ModeActive || s.readOnly || s.fence.checked || !s.cfg.FenceEnabled() || s.fenceFrame() == nil {
+		return ""
+	}
+	st, ok := s.getState(fenceEntity)
+	if !ok {
+		return ""
+	}
+	switch st.State {
+	case "unavailable":
+		return fenceEntity + " is unavailable; no run starts until Home Assistant gives it a value"
+	case "unknown":
+		if since := s.fence.unusableSince; !since.IsZero() {
+			left := s.cfg.FenceHelperGrace - now.Sub(since)
+			if left < 0 {
+				left = 0
+			}
+			return fmt.Sprintf("%s is unknown; waiting %s more before treating it as empty", fenceEntity,
+				left.Round(time.Second))
+		}
+		return fmt.Sprintf("%s is unknown; waiting %s before treating it as empty", fenceEntity,
+			s.cfg.FenceHelperGrace)
+	}
+	return fenceEntity + " has not been read since startup; no run starts yet"
+}
+
 // fenceForRun walls off the doors into no_enter rooms before our run starts. It returns the doors it walled,
 // or nil when nothing needed a wall or fencing is off. An error means the run must not start; the owner's set
 // is then back on the robot, or waiting to be put back. Only an active, writable scheduler calls it. The
@@ -704,9 +740,36 @@ func (s *Scheduler) settleFence() {
 		case !ok:
 			// No helper: the scheduler never fenced, because fencing needs it.
 			s.fence.checked = true
-		case helperUnusable(st.State):
-			return // ask again on the next tick; nothing starts meanwhile
+		case st.State == "unavailable":
+			// Home Assistant or the integration is down. A value may exist; never guess.
+			s.fence.unusableSince = time.Time{}
+			return
+		case st.State == "unknown":
+			// Right after Home Assistant starts a helper can read "unknown" until its saved value is restored,
+			// so wait. A helper nobody ever set stays "unknown" for good; after the grace it counts as empty.
+			now := s.timeProvider.Now()
+			if s.fence.unusableSince.IsZero() {
+				s.fence.unusableSince = now
+			}
+			if now.Sub(s.fence.unusableSince) < s.cfg.FenceHelperGrace {
+				return // ask again on the next tick; nothing starts meanwhile
+			}
+			s.logger.Warn(fmt.Sprintf("Vacuum treated %s as empty after %s minutes of unknown", fenceEntity,
+				strconv.FormatFloat(s.cfg.FenceHelperGrace.Minutes(), 'f', -1, 64)),
+				zap.String("entity_id", fenceEntity), zap.Duration("grace", s.cfg.FenceHelperGrace))
+			// Same as an empty helper: scheduler walls found by geometry are taken away, so a lost save
+			// still leaves none behind.
+			s.fence.checked, s.fence.helperEmpty = true, true
+			s.fence.unusableSince = time.Time{}
+			s.fence.pending = s.fenceFrame() != nil
+			if s.cfg.FenceEnabled() {
+				if err := s.setFenceStore(""); err != nil {
+					s.logger.Warn("Vacuum could not write an empty value to the fence helper",
+						zap.String("entity_id", fenceEntity), zap.Error(err))
+				}
+			}
 		case strings.TrimSpace(st.State) == "":
+			s.fence.unusableSince = time.Time{}
 			// Nothing saved. Still take away any scheduler wall, in case a save was lost. Scheduler walls are
 			// found by their geometry, which needs the frame. Without a frame the scheduler never set a wall,
 			// so there is nothing to take away.
@@ -714,6 +777,7 @@ func (s *Scheduler) settleFence() {
 			s.fence.pending = s.fenceFrame() != nil
 		default:
 			s.fence.checked, s.fence.pending = true, true
+			s.fence.unusableSince = time.Time{}
 			owner, err := decodeFence(strings.TrimSpace(st.State))
 			if err != nil {
 				s.logger.Error("Vacuum cannot read the saved virtual restrictions; taking away scheduler walls only",
@@ -776,7 +840,12 @@ func (s *Scheduler) restoreFence() error {
 	// from Home Assistant yet, and a copy left behind would be put back over the owner's later changes.
 	if _, ok := s.getState(fenceEntity); ok {
 		if err := s.setFenceStore(""); err != nil {
-			return fmt.Errorf("clear %s: %w", fenceEntity, err)
+			if !s.fence.helperEmpty {
+				return fmt.Errorf("clear %s: %w", fenceEntity, err)
+			}
+			// The helper held no saved set, so a failed write loses nothing.
+			s.logger.Warn("Vacuum could not write an empty value to the fence helper",
+				zap.String("entity_id", fenceEntity), zap.Error(err))
 		}
 	}
 	if changed {
@@ -796,7 +865,11 @@ func (s *Scheduler) fenceWarnings() {
 		if st, ok := s.getState(fenceEntity); !ok {
 			s.warn("fence:helper", "missing helper "+fenceEntity+"; no-enter rooms are not fenced with virtual walls")
 		} else if helperUnusable(st.State) {
-			s.warn("fence:helper", fenceEntity+" is "+st.State+"; a run that needs virtual walls does not start")
+			if block := s.fenceHelperBlock(s.timeProvider.Now()); block != "" {
+				s.warn("fence:helper", block)
+			} else {
+				s.warn("fence:helper", fenceEntity+" is "+st.State+"; a run that needs virtual walls does not start")
+			}
 		}
 		if s.fenceFrame() == nil {
 			s.warn("fence:frame", "house map has no valetudo frame; no-enter rooms are not fenced with virtual walls")
