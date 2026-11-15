@@ -164,6 +164,67 @@ func TestApplyBrightness(t *testing.T) {
 	}
 }
 
+func TestBrightnessOnPowerOn_StaleGoroutineDoesNotClearHold(t *testing.T) {
+	// GIVEN: G1 goroutine launched, then TV turns on again (G2 launched, superseding G1).
+	// Between G1 and G2 waking, a manual change sets the hold.
+	// THEN: G1 must exit without touching state; G2 clears the hold as expected.
+	pic := &fakePicture{setting: bravia.Setting{Current: 25, Max: 50}}
+	m, _ := newBrightnessManager(t, false, 150, pic)
+
+	// Use a channel-controlled sleep so we can order goroutine wakeups precisely.
+	var mu sync.Mutex
+	var sleepGates []chan struct{}
+	m.sleepFunc = func(time.Duration) {
+		ch := make(chan struct{})
+		mu.Lock()
+		sleepGates = append(sleepGates, ch)
+		mu.Unlock()
+		<-ch
+	}
+
+	// Apply once to establish dev.last=50.
+	m.applyBrightness("first")
+	require.Equal(t, []int{50}, pic.sets)
+
+	// TV on twice quickly: G1 (gen=1) then G2 (gen=2).
+	m.SetBrightnessPowerOnDelay(time.Second) // non-zero so goroutines block
+	m.brightnessOnPowerOn()                  // G1
+	m.brightnessOnPowerOn()                  // G2
+
+	// A person changes brightness: manual hold detected.
+	pic.mu.Lock()
+	pic.setting.Current = 40
+	pic.mu.Unlock()
+	m.applyBrightness("manual_detected")
+	require.True(t, m.GetShadowState().Outputs.Brightness.TV.Held, "must be held before G1 fires")
+
+	// Wait for both goroutines to be blocked in sleep.
+	require.Eventually(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return len(sleepGates) == 2
+	}, 2*time.Second, 5*time.Millisecond, "both goroutines must reach sleep")
+
+	// Wake G1 — it must detect it is superseded and not clear the hold.
+	mu.Lock()
+	g1 := sleepGates[0]
+	mu.Unlock()
+	close(g1)
+	time.Sleep(100 * time.Millisecond) // let G1 goroutine run to completion
+	require.True(t, m.GetShadowState().Outputs.Brightness.TV.Held, "G1 must not clear the manual hold")
+
+	// Wake G2 — it is the authoritative power-on; hold clears and brightness is set.
+	mu.Lock()
+	g2 := sleepGates[1]
+	mu.Unlock()
+	close(g2)
+	require.Eventually(t, func() bool {
+		pic.mu.Lock()
+		defer pic.mu.Unlock()
+		return len(pic.sets) == 2 && pic.sets[1] == 50
+	}, 2*time.Second, 10*time.Millisecond, "G2 must set brightness after clearing hold")
+}
+
 func TestApplyBrightness_ManualChangeHoldsUntilPowerOn(t *testing.T) {
 	pic := &fakePicture{setting: bravia.Setting{Current: 25, Max: 50}}
 	m, mockHA := newBrightnessManager(t, false, 150, pic)

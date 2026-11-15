@@ -70,8 +70,11 @@ type brightnessControl struct {
 	mu           sync.Mutex
 	client       PictureClient
 	powerOnDelay time.Duration
-	tv           deviceBrightness
-	syncBox      deviceBrightness
+	// powerOnGen is incremented each time the TV turns on, so a delayed goroutine from a prior
+	// power-on cycle can detect that it has been superseded and exit without clearing state.
+	powerOnGen uint64
+	tv         deviceBrightness
+	syncBox    deviceBrightness
 }
 
 // SetPictureClient enables TV brightness control. Without it, only the sync box follows the target.
@@ -96,9 +99,15 @@ func (m *Manager) handleTargetLuxChange(_ string, _, _ interface{}) {
 
 // brightnessOnPowerOn starts a fresh session when the TV turns on: holds and remembered values
 // are cleared, then both devices are set after the panel has had time to start.
+//
+// If the TV turns off and on again within the power-on delay, two goroutines are outstanding.
+// powerOnGen lets the earlier goroutine detect it has been superseded and exit without clearing
+// the state that the later goroutine (and any intervening lux handler) may have already set.
 func (m *Manager) brightnessOnPowerOn() {
 	m.bright.mu.Lock()
 	delay := m.bright.powerOnDelay
+	m.bright.powerOnGen++
+	gen := m.bright.powerOnGen
 	m.bright.mu.Unlock()
 	go func() {
 		if delay > 0 {
@@ -106,6 +115,9 @@ func (m *Manager) brightnessOnPowerOn() {
 		}
 		m.bright.mu.Lock()
 		defer m.bright.mu.Unlock()
+		if m.bright.powerOnGen != gen {
+			return // superseded by a later power-on
+		}
 		m.bright.tv = deviceBrightness{}
 		m.bright.syncBox = deviceBrightness{}
 		m.applyBrightnessLocked("tv_power_on")
@@ -197,6 +209,8 @@ func (m *Manager) applyTVBrightness(frac float64) shadowstate.DeviceBrightnessSt
 		return out
 	}
 	if dev.held {
+		// Goal is not set here: computing it requires a live read of the TV's range (Min/Max),
+		// which costs a network round-trip. Shadow state shows Goal=0 while held.
 		out.Held, out.HeldReason, out.Decision = true, dev.heldReason, "held: manual change"
 		return out
 	}

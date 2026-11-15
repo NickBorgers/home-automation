@@ -158,7 +158,8 @@ func TestScenario_UserStory_TVAndHueBacklightFollowRoomTargetLux(t *testing.T) {
 	writesBefore := fake.writeCount()
 
 	mockClock.AdvanceAndProcess(time.Hour)
-	time.Sleep(200 * time.Millisecond) // give a wrongful write time to happen
+	// Cannot poll for absence of writes; sleep gives any wrongful goroutine time to misbehave.
+	time.Sleep(200 * time.Millisecond)
 
 	// THEN: the night target does not undo the manual choices.
 	t.Log("THEN: at T+2h (night target) both manual values are kept")

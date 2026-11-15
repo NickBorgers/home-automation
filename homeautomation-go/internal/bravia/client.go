@@ -101,7 +101,11 @@ func (c *Client) GetBrightness(ctx context.Context) (Setting, error) {
 			if len(s.Candidate) == 0 || s.Candidate[0].Min == nil || s.Candidate[0].Max == nil {
 				return Setting{}, errors.New("bravia: brightness has no numeric range")
 			}
-			return Setting{Current: cur, Min: int(*s.Candidate[0].Min), Max: int(*s.Candidate[0].Max)}, nil
+			lo, hi := int(*s.Candidate[0].Min), int(*s.Candidate[0].Max)
+			if lo > hi {
+				return Setting{}, fmt.Errorf("bravia: brightness range is inverted (%d > %d)", lo, hi)
+			}
+			return Setting{Current: cur, Min: lo, Max: hi}, nil
 		}
 	}
 	return Setting{}, errors.New("bravia: TV did not report brightness")

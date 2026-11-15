@@ -171,7 +171,7 @@ This document describes the architecture for a Golang-based home automation syst
 │  │ - Booleans (27)  │  │ - Hue        │  │ - set_value       │   │
 │  │ - Numbers (3)    │  │ - Apple TV   │  │ - turn_on/off     │   │
 │  │ - Text (8)       │  │ - Bravia TV  │  │ - media_player.*  │   │
-│  │ - Local-only (2) │  │ - Lutron     │  │                   │   │
+│  │ - Local-only (3) │  │ - Lutron     │  │                   │   │
 │  │                  │  │ - Roborock   │  │                   │   │
 │  └──────────────────┘  │ - Thermostat │  └───────────────────┘   │
 │                        └──────────────┘                           │
@@ -196,7 +196,7 @@ Available diagrams:
 
 ### 1. State Manager
 
-**Responsibility:** Manages the 40 state variables (38 synchronized + 2 local-only) and provides thread-safe access.
+**Responsibility:** Manages the 41 state variables (38 synchronized + 3 local-only) and provides thread-safe access.
 
 **Key Features:**
 - In-memory cache of all HA input helpers
@@ -222,14 +222,14 @@ type StateManager interface {
 }
 ```
 
-**State Variables (40 total):**
+**State Variables (41 total):**
 
 See **[docs/reference/migration_mapping.md](../reference/migration_mapping.md)** for complete mapping.
 
 - **Boolean (27):** isNickHome, isCarolineHome, isAssistantHere, isAnyOwnerHome, isAnyoneHome, isAnyoneHomeAndAwake, isMasterAsleep, isGuestAsleep, isAnyoneAsleep, isEveryoneAsleep, isGuestBedroomDoorOpen, isHaveGuests, isAppleTVPlaying, isTVPlaying, isTVon, isFadeOutInProgress, isFreeEnergyAvailable, isGridAvailable, isExpectingSomeone, isNickOfficeOccupied, isKitchenOccupied, isPrimaryBedroomDoorOpen, isNickNearHome, isCarolineNearHome, isLockdown, reset, isFrontOfHousePersonPresent
 - **Number (3):** alarmTime, remainingSolarGeneration, thisHourSolarGeneration
 - **Text (8):** dayPhase, sunevent, musicPlaybackType, currentlyPlayingMusicUri, musicPlaylistRotation, batteryEnergyLevel, currentEnergyLevel, solarProductionEnergyLevel
-- **Local-only (2):** didOwnerJustReturnHome (bool), currentlyPlayingMusic (JSON)
+- **Local-only (3):** didOwnerJustReturnHome (bool), currentlyPlayingMusic (JSON), tvRoomTargetLux (number)
 
 ### 2. Home Assistant Client
 
@@ -405,16 +405,16 @@ Each plugin corresponds to a Node-RED flow and implements domain-specific automa
 **Responsibilities:**
 - Detect when TV or Apple TV is playing
 - Control soundbar input selection
-- Adjust TV brightness by time of day
+- Adjust TV and Hue Sync box brightness to follow TV room lux
 - Manage sync box state
 
 **Key Automations:**
 - **Playback Detection**: Monitor Apple TV state → Update `isAppleTVPlaying` and `isTVPlaying`
 - **TV Panel Kill Switch**: The Sony panel going `off` forces `isTVPlaying=false` and light sync off. The plugin ignores a panel `off` when the Apple TV is the active input and began playing *after* the panel last changed (HA `last_changed` times). That order means the Bravia integration is frozen. The Integration Watchdog then reloads it
 - **TV State Tracking**: Sync box sensors → Determine `isTVOn`
-- **Brightness Adjustment**: Day phase change → Set TV brightness level
+- **Brightness Adjustment**: `tvRoomTargetLux` → Set TV picture and Hue Sync box brightness on a log scale
 
-**Events Consumed:** `ha.media_player.apple_tv.changed`, `ha.sensor.hue_sync.changed`, `state.dayPhase.changed`
+**Events Consumed:** `ha.media_player.apple_tv.changed`, `ha.sensor.hue_sync.changed`, `state.tvRoomTargetLux.changed`
 
 ### 9. Day Phase Plugin ✅
 
