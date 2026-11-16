@@ -71,13 +71,13 @@ RUN set -eux; \
     install -m 0755 "${tmp}/crush_${CRUSH_CLI_VERSION}_Linux_${arch}/crush" /usr/local/bin/crush; \
     rm -rf "${tmp}"
 
-# Non-root user for the CI workload. UID 1000 matches the self-hosted
-# runner's workspace file ownership, so workspace bind-mounts write back
-# with sane permissions.
+# Non-root user for the CI workload. The image is built as `ci` (UID
+# 1000), but callers run it with `--user <runner-uid>:<runner-gid>` so
+# writes to the bind-mounted workspace stay owned by the runner. The
+# self-hosted runners use UID 1001, not 1000. No sudo: see the end of
+# this file.
 RUN groupadd --gid 1000 ci \
-    && useradd --uid 1000 --gid ci --shell /bin/bash --create-home ci \
-    && echo 'ci ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/ci \
-    && chmod 0440 /etc/sudoers.d/ci
+    && useradd --uid 1000 --gid ci --shell /bin/bash --create-home ci
 
 # Login shells re-source /etc/profile, which on Debian-based images resets
 # PATH to the minimal set and drops /go/bin:/usr/local/go/bin (inherited
@@ -122,6 +122,14 @@ RUN cd ~/.claude/plugins/cache/playwright-skill/playwright-skill/*/skills/playwr
 RUN curl -fsSL --retry 5 --retry-delay 2 --retry-connrefused \
         "https://github.com/openai/codex/releases/download/rust-v${CODEX_CLI_VERSION}/install.sh" \
     | sh -s -- --release "${CODEX_CLI_VERSION}"
+
+# Open /home/ci to any uid. Callers run the container as the runner's
+# uid, which is not 1000, so HOME (Claude/Codex config, plugin cache,
+# TMPDIR) must be writable by whoever that turns out to be. a+rwX keeps
+# execute bits on binaries.
+USER root
+RUN chmod -R a+rwX /home/ci
+USER ci
 
 # Default entrypoint is bash — callers pass `-c '…'` (or `-lc '…'` if they
 # want a login shell; either works because /etc/profile.d/ci-path.sh
