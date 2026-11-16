@@ -652,6 +652,11 @@ func (m *Manager) fadeOutSpeaker(speakerEntityID string) {
 }
 
 func (m *Manager) fadeOutSpeakerGeneration(speakerEntityID string, fadeGeneration uint64) {
+	if m.speakerClient == nil {
+		m.logger.Warn("SoCo-CLI not configured; bedroom volume fade-out is disabled",
+			zap.String("speaker", speakerEntityID))
+		return
+	}
 	m.logger.Info("Starting speaker fade-out", zap.String("speaker", speakerEntityID))
 
 	// Get actual current volume from Home Assistant
@@ -733,10 +738,7 @@ func (m *Manager) fadeOutSpeakerGeneration(speakerEntityID string, fadeGeneratio
 		}
 
 		// Set volume on speaker
-		if m.speakerClient == nil {
-			m.logger.Error("Failed to set volume: SoCo-CLI client is not configured",
-				zap.String("speaker", speakerEntityID))
-		} else if err := m.speakerClient.SetVolume(speakerEntityID, currentVolume); err != nil {
+		if err := m.speakerClient.SetVolume(speakerEntityID, currentVolume); err != nil {
 			m.logger.Error("Failed to set volume",
 				zap.String("speaker", speakerEntityID),
 				zap.Error(err))

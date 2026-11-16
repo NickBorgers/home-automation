@@ -627,14 +627,20 @@ func TestScenario_WakeSequence_VolumeFadesOutMonotonically(t *testing.T) {
 		defer volumeMu.Unlock()
 		if len(parts) == 3 {
 			level, err := strconv.Atoi(parts[2])
-			require.NoError(t, err)
+			if err != nil {
+				t.Errorf("unexpected non-numeric path segment: %v", err)
+				http.Error(w, "bad request", http.StatusBadRequest)
+				return
+			}
 			currentVolume = level
 			volumeLevels = append(volumeLevels, level)
 		}
-		require.NoError(t, json.NewEncoder(w).Encode(map[string]interface{}{
+		if err := json.NewEncoder(w).Encode(map[string]interface{}{
 			"speaker": "Primary Bed", "action": "volume", "exit_code": 0,
 			"result": strconv.Itoa(currentVolume), "error_msg": "",
-		}))
+		}); err != nil {
+			t.Errorf("failed to encode response: %v", err)
+		}
 	}))
 	defer socoServer.Close()
 	sleepMgr.SetSpeakerClient(music.NewSoCoClient(socoServer.URL, testlogger.New(), false))
