@@ -71,6 +71,16 @@ func TestScenario_KitchenCameraPresenceOverridesOnlyAutomatedLuxTarget(t *testin
 	require.NoError(t, stateManager.SetString("dayPhase", "evening"))
 	require.NoError(t, stateManager.SetString("dayPhase", "night"))
 
+	// Guard: in a non-eligible phase the override must NOT apply even when presence is true.
+	t.Log("GUARD: presence true in morning phase must leave TargetSource as lux_curve")
+	require.NoError(t, stateManager.SetString("dayPhase", "morning"))
+	require.NoError(t, stateManager.SetBool("isKitchenOccupied", true))
+	client.WaitForHandlers()
+	require.Equal(t, "lux_curve", manager.GetShadowState().Outputs.LuxControl["Kitchen"].TargetSource,
+		"presence override must not apply outside configured phases")
+	require.NoError(t, stateManager.SetBool("isKitchenOccupied", false))
+	require.NoError(t, stateManager.SetString("dayPhase", "night"))
+
 	// WHEN: camera presence turns on, then repeats the same occupied state.
 	t.Log("WHEN: camera presence turns on and bounces while someone works in the kitchen")
 	snapshot := server.ServiceCallCount()

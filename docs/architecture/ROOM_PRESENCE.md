@@ -294,7 +294,7 @@ Create the helper with max length 255. Shadow state calls a restored token's rea
 ## Outputs
 
 The config maps output variables to areas. A variable is true when any of its areas holds a token. The first
-one is `isKitchenOccupied`, which today is fed by a Home Assistant automation from an mmWave radar.
+one is `isKitchenOccupied`, which was formerly fed by a Home Assistant automation from an mmWave radar (now retired).
 
 The plugin also reports, in shadow state only (query in real time with `curl /api/shadow/roompresence`):
 
