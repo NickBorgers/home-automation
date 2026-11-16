@@ -130,6 +130,7 @@ graph TB
 
     Sleep -->|Get/Set State| StateManager
     Sleep -->|Call Services| HAClient
+    Sleep -->|Volume Fade| SoCoCLI
     Sleep -.->|Register Shadow| ShadowTracker
 
     Security -->|Get/Set State| StateManager

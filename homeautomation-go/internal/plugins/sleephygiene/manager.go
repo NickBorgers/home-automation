@@ -58,6 +58,11 @@ const (
 // SleepFunc is the type for sleep functions (for testing)
 type SleepFunc func(time.Duration)
 
+type speakerClient interface {
+	GetVolume(speakerName string) (int, error)
+	SetVolume(speakerName string, level int) error
+}
+
 // Manager handles sleep hygiene automations including wake-up sequences
 type Manager struct {
 	ctx             context.Context
@@ -81,7 +86,8 @@ type Manager struct {
 	shadowTracker *shadowstate.SleepHygieneTracker
 
 	// Injectable sleep function for testing
-	sleepFunc SleepFunc
+	sleepFunc     SleepFunc
+	speakerClient speakerClient
 
 	// lightTurnOnNano stores the UnixNano timestamp of the last turn_on command
 	// sent to light.primary_suite. Used to ignore transient "off" events from
@@ -126,6 +132,11 @@ func NewManager(ctx context.Context, haClient ha.HAClient, stateManager *state.M
 // SetSleepFunc allows overriding the sleep function for testing
 func (m *Manager) SetSleepFunc(fn SleepFunc) {
 	m.sleepFunc = fn
+}
+
+// SetSpeakerClient sets the client used to read and change Sonos volume.
+func (m *Manager) SetSpeakerClient(client speakerClient) {
+	m.speakerClient = client
 }
 
 // Start begins monitoring state changes and managing sleep hygiene
@@ -588,18 +599,9 @@ func (m *Manager) handleBeginWake() {
 }
 
 // defaultBedroomSpeaker is the Sonos speaker in the Primary Bed room.
-const defaultBedroomSpeaker = "media_player.primary_bed"
+const defaultBedroomSpeaker = "Primary Bed"
 
-// speakerEntityID turns a Sonos name ("Primary Bed") into its entity ID
-// ("media_player.primary_bed"). An entity ID is returned unchanged.
-func speakerEntityID(name string) string {
-	if strings.HasPrefix(name, "media_player.") {
-		return name
-	}
-	return "media_player." + strings.ReplaceAll(strings.ToLower(name), " ", "_")
-}
-
-// getBedroomSpeakers returns the Primary Bed speakers in currentlyPlayingMusic as entity IDs.
+// getBedroomSpeakers returns the Primary Bed speakers in currentlyPlayingMusic by Sonos name.
 func (m *Manager) getBedroomSpeakers() []string {
 	var currentMusic map[string]interface{}
 	if err := m.stateManager.GetJSON("currentlyPlayingMusic", &currentMusic); err != nil {
@@ -625,11 +627,8 @@ func (m *Manager) getBedroomSpeakers() []string {
 			continue
 		}
 
-		// The music plugin stores the Sonos name ("Primary Bed"). Older state may hold the
-		// entity ID ("media_player.primary_bed"). Both become the entity ID.
-		entityID := speakerEntityID(playerName)
-		if strings.HasPrefix(entityID, defaultBedroomSpeaker) {
-			bedroomSpeakers = append(bedroomSpeakers, entityID)
+		if strings.HasPrefix(playerName, defaultBedroomSpeaker) {
+			bedroomSpeakers = append(bedroomSpeakers, playerName)
 		}
 	}
 
@@ -653,6 +652,11 @@ func (m *Manager) fadeOutSpeaker(speakerEntityID string) {
 }
 
 func (m *Manager) fadeOutSpeakerGeneration(speakerEntityID string, fadeGeneration uint64) {
+	if m.speakerClient == nil {
+		m.logger.Warn("SoCo-CLI not configured; bedroom volume fade-out is disabled",
+			zap.String("speaker", speakerEntityID))
+		return
+	}
 	m.logger.Info("Starting speaker fade-out", zap.String("speaker", speakerEntityID))
 
 	// Get actual current volume from Home Assistant
@@ -718,12 +722,9 @@ func (m *Manager) fadeOutSpeakerGeneration(speakerEntityID string, fadeGeneratio
 
 		// Reduce volume by 1
 		currentVolume--
-		volumeLevel := float64(currentVolume) / 100.0
-
 		m.logger.Debug("Reducing speaker volume",
 			zap.String("speaker", speakerEntityID),
-			zap.Int("volume", currentVolume),
-			zap.Float64("volume_level", volumeLevel))
+			zap.Int("volume", currentVolume))
 
 		// Serialize the generation check with wake-music activation so a stale
 		// fade cannot issue a volume command after wake music takes ownership.
@@ -737,10 +738,7 @@ func (m *Manager) fadeOutSpeakerGeneration(speakerEntityID string, fadeGeneratio
 		}
 
 		// Set volume on speaker
-		if err := m.haClient.CallService(m.ctx, "media_player", "volume_set", map[string]interface{}{
-			"entity_id":    speakerEntityID,
-			"volume_level": volumeLevel,
-		}); err != nil {
+		if err := m.speakerClient.SetVolume(speakerEntityID, currentVolume); err != nil {
 			m.logger.Error("Failed to set volume",
 				zap.String("speaker", speakerEntityID),
 				zap.Error(err))
@@ -806,27 +804,21 @@ func (m *Manager) fadeOutSpeakerGeneration(speakerEntityID string, fadeGeneratio
 	}
 }
 
-// getSpeakerVolume queries the current volume from Home Assistant
+// getSpeakerVolume queries the current volume from SoCo-CLI.
 // Returns volume as percentage (0-100)
 func (m *Manager) getSpeakerVolume(speakerEntityID string) int {
-	state, err := m.haClient.GetState(speakerEntityID)
-	if err != nil {
-		m.logger.Warn("Failed to get speaker state, defaulting to volume 60",
-			zap.String("speaker", speakerEntityID),
-			zap.Error(err))
-		return 60 // Default to typical sleep music volume
-	}
-
-	// Get volume_level attribute (0.0-1.0)
-	volumeLevel, ok := state.Attributes["volume_level"].(float64)
-	if !ok {
-		m.logger.Warn("Speaker has no volume_level attribute, defaulting to volume 60",
+	if m.speakerClient == nil {
+		m.logger.Warn("SoCo-CLI client is not configured, defaulting speaker volume to 60",
 			zap.String("speaker", speakerEntityID))
 		return 60
 	}
-
-	// Convert to percentage (0-100)
-	volume := int(volumeLevel * 100)
+	volume, err := m.speakerClient.GetVolume(speakerEntityID)
+	if err != nil {
+		m.logger.Warn("Failed to get speaker volume, defaulting to volume 60",
+			zap.String("speaker", speakerEntityID),
+			zap.Error(err))
+		return 60
+	}
 	return volume
 }
 
@@ -859,7 +851,7 @@ func (m *Manager) updateSpeakerVolumeInState(entityID string, volume int) {
 			continue
 		}
 
-		if speakerEntityID(playerName) == entityID {
+		if playerName == entityID {
 			participant["volume"] = volume
 			updated = true
 			m.logger.Debug("Updated volume in currentlyPlayingMusic",
