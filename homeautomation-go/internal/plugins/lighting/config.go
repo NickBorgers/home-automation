@@ -72,8 +72,8 @@ type LuxControlConfig struct {
 	Calibrated       bool               `yaml:"calibrated"`         // true once calibration values were measured
 	Calibration      []CalibrationPoint `yaml:"calibration"`        // cans-only lux at night, by brightness
 	FollowerLights   []LuxFollower      `yaml:"follower_lights"`    // brightness-only lights that follow the cans' brightness
-	// TVRoom publishes this room's target lux as tvRoomTargetLux, so the TV plugin can set the TV and
-	// Hue Sync box brightness from it. At most one room may set it.
+	// TVRoom publishes this room's target lux and calibrated brightness percentage, so the TV plugin
+	// can set the TV and Hue Sync box brightness. At most one room may set it.
 	TVRoom bool `yaml:"tv_room"`
 }
 

@@ -68,6 +68,105 @@ func syncBoxBrightness(server *MockHAServer) int {
 	return int(v)
 }
 
+func syncBoxBrightnessWrites(server *MockHAServer) int {
+	count := 0
+	for _, call := range server.GetServiceCalls() {
+		if call.Domain == "number" && call.Service == "set_value" &&
+			call.ServiceData["entity_id"] == tv.SyncBoxBrightnessEntity {
+			count++
+		}
+	}
+	return count
+}
+
+// TestScenario_UserStory_ActiveHueSyncUsesTheTVRoomBrightnessCurve:
+// "While Hue Sync owns the TV backlight, I want it to use the same calculated percentage as
+// the Living room brightness curve, without repeated writes or overriding a manual adjustment."
+//
+// INVARIANTS:
+//   - The TV room's post-ambient, calibrated curve percentage maps directly to Hue Sync percent.
+//   - Inactive Hue Sync is left alone; becoming active applies the current curve value once.
+//   - An unchanged calculation causes no identical write.
+func TestScenario_UserStory_ActiveHueSyncUsesTheTVRoomBrightnessCurve(t *testing.T) {
+	server, client, stateManager, cleanup := setupTest(t)
+	defer cleanup()
+
+	t0 := time.Date(2026, 11, 16, 20, 0, 0, 0, time.UTC)
+	mockClock := clock.NewMockClock(t0)
+	config := &lighting.HueConfig{
+		LuxCurve: &lighting.LuxCurveConfig{
+			Points:        []lighting.LuxCurvePoint{{Anchor: "test.now", Lux: 20, Kelvin: 3000}},
+			OutdoorSensor: "sensor.outdoor_lux",
+			TickSeconds:   60,
+		},
+		Rooms: []lighting.RoomConfig{{
+			HueGroup: "Living",
+			Conditions: []lighting.LightingCondition{
+				{Action: "skip", Variable: "isTVPlaying", Value: true},
+			},
+			LuxControl: &lighting.LuxControlConfig{
+				Mode:       lighting.LuxModeActive,
+				Cans:       "light.living_cans",
+				TVRoom:     true,
+				Calibrated: true,
+				Calibration: []lighting.CalibrationPoint{
+					{BrightnessPct: 1, Lux: 1},
+					{BrightnessPct: 35, Lux: 20},
+					{BrightnessPct: 100, Lux: 100},
+				},
+			},
+		}},
+	}
+
+	// GIVEN: the TV is playing but Hue light sync is inactive, with a current curve output of 35%.
+	t.Log("GIVEN: TV playing, Hue Sync inactive, and the calibrated curve currently produces 35%")
+	require.NoError(t, stateManager.SetBool("isTVPlaying", true))
+	server.SetState("sensor.outdoor_lux", "0", nil)
+	server.SetState("light.living_cans", "off", nil)
+	server.SetState(tv.TVRemoteEntity, "on", nil)
+	server.SetState(tv.SyncBoxSoftwarePowerEntity, "on", nil)
+	server.SetState(tv.SyncBoxLightSyncEntity, "off", nil)
+	server.SetState(tv.SyncBoxBrightnessEntity, "60", map[string]interface{}{"min": 1.0, "max": 100.0})
+
+	tvMgr := tv.NewManager(context.Background(), client, stateManager, testlogger.New(), false, nil)
+	tvMgr.SetBrightnessPowerOnDelay(0)
+	require.NoError(t, tvMgr.Start())
+	defer tvMgr.Stop()
+
+	lightMgr := lighting.NewManager(context.Background(), client, stateManager, config, testlogger.New(), false, nil)
+	lightMgr.SetClock(mockClock)
+	lightMgr.SetAnchorResolver(func(string, time.Time) (time.Time, bool) { return t0, true })
+	require.NoError(t, lightMgr.Start())
+	defer lightMgr.Stop()
+
+	// THEN: inactive sync is not changed.
+	t.Log("THEN: inactive Hue Sync remains at 60%")
+	time.Sleep(100 * time.Millisecond) // Cannot poll for absence of writes; sleep gives any wrongful goroutine time to misbehave.
+	require.Equal(t, 60, syncBoxBrightness(server))
+	require.Zero(t, syncBoxBrightnessWrites(server))
+
+	// WHEN: Hue Sync becomes active.
+	t.Log("WHEN: Hue light sync becomes active")
+	server.SetState(tv.SyncBoxLightSyncEntity, "on", nil)
+	client.WaitForHandlers()
+
+	// THEN: the curve percentage is copied directly, once.
+	t.Log("THEN: Hue Sync brightness becomes 35% with one write")
+	require.Eventually(t, func() bool { return syncBoxBrightness(server) == 35 },
+		2*time.Second, 10*time.Millisecond)
+	require.Equal(t, 1, syncBoxBrightnessWrites(server))
+
+	// WHEN: the same curve point is evaluated again.
+	t.Log("WHEN: T+1m evaluates the unchanged curve again")
+	mockClock.AdvanceAndProcess(time.Minute)
+	time.Sleep(100 * time.Millisecond) // Cannot poll for absence of writes; sleep gives any wrongful goroutine time to misbehave.
+
+	// THEN: no identical command is sent.
+	t.Log("THEN: Hue Sync remains 35% and no duplicate write is sent")
+	require.Equal(t, 35, syncBoxBrightness(server))
+	require.Equal(t, 1, syncBoxBrightnessWrites(server))
+}
+
 // TestScenario_UserStory_TVAndHueBacklightFollowRoomTargetLux:
 // "As the evening gets darker, I want the TV and its Hue backlight to dim with the room,
 // so the screen never glares in a dark room. When I pick a brightness with the remote or the
@@ -121,6 +220,7 @@ func TestScenario_UserStory_TVAndHueBacklightFollowRoomTargetLux(t *testing.T) {
 	server.SetState("sensor.outdoor_lux", "0", nil)
 	server.SetState("light.living_cans", "off", nil)
 	server.SetState(tv.TVRemoteEntity, "on", nil)
+	server.SetState(tv.SyncBoxLightSyncEntity, "on", nil)
 	server.SetState(tv.SyncBoxBrightnessEntity, "46", map[string]interface{}{"min": 1.0, "max": 100.0})
 
 	fake := &fakeBraviaTV{current: 25}
@@ -145,9 +245,9 @@ func TestScenario_UserStory_TVAndHueBacklightFollowRoomTargetLux(t *testing.T) {
 	t.Log("WHEN: T+1h, target lux falls to 20")
 	mockClock.AdvanceAndProcess(time.Hour)
 
-	// THEN: both dim part of the way. 20 lux sits at about 51% of the log range 2.5-150.
-	t.Log("THEN: TV and sync box dim to mid values (TV 33, sync box 61)")
-	require.Eventually(t, func() bool { return fake.brightness() == 33 && syncBoxBrightness(server) == 61 },
+	// THEN: the TV follows its log mapping; Hue Sync gets the calibrated curve percentage directly.
+	t.Log("THEN: TV dims to 33 and sync box follows the curve at 20%")
+	require.Eventually(t, func() bool { return fake.brightness() == 33 && syncBoxBrightness(server) == 20 },
 		2*time.Second, 10*time.Millisecond, "evening: TV=%d sync=%d", fake.brightness(), syncBoxBrightness(server))
 
 	// WHEN: someone picks brighter settings by hand.
@@ -175,7 +275,7 @@ func TestScenario_UserStory_TVAndHueBacklightFollowRoomTargetLux(t *testing.T) {
 	client.WaitForHandlers()
 
 	// THEN: the hold is gone and both follow the night target.
-	t.Log("THEN: TV at night brightness 15 (30% of range) and sync box at 20%")
-	require.Eventually(t, func() bool { return fake.brightness() == 15 && syncBoxBrightness(server) == 20 },
+	t.Log("THEN: TV at night brightness 15 and sync box follows the curve at 3%")
+	require.Eventually(t, func() bool { return fake.brightness() == 15 && syncBoxBrightness(server) == 3 },
 		2*time.Second, 10*time.Millisecond, "night: TV=%d sync=%d", fake.brightness(), syncBoxBrightness(server))
 }

@@ -977,6 +977,7 @@ graph LR
         RemainingSolar[remainingSolarGeneration]
         DarkOutside[isDarkOutside]
         TVRoomLux[tvRoomTargetLux]
+		TVRoomBrightness[tvRoomBrightnessPct]
     end
 
     subgraph "Output State Variables"
@@ -1095,6 +1096,8 @@ graph LR
     DarkOutside --> Lighting
     Lighting --> TVRoomLux
     TVRoomLux --> TV
+	Lighting --> TVRoomBrightness
+	TVRoomBrightness --> TV
     LivingCans -->|Manual Override Detection| Lighting
     LivingCans -->|Color Tracking Source| Lighting
     BackHallLight -->|Color Tracking Target State| Lighting
