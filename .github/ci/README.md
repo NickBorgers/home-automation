@@ -13,7 +13,7 @@ recurring class of host-vs-runner-filesystem-namespace bugs.
 
 | File | Purpose |
 |---|---|
-| `Dockerfile` | CI agent image recipe. Installs Go, Node, `gh`, Claude Code, Codex, Crush, yamllint, ripgrep, playwright-skill, etc. Runs as UID-1000 `ci` user. |
+| `Dockerfile` | CI agent image recipe. Installs Go, Node, `gh`, Claude Code, Codex, Crush, yamllint, ripgrep, playwright-skill, etc. Built as the UID-1000 `ci` user; callers run it with `--user` set to the runner's uid. No sudo. |
 | `versions.env` | Single source of truth for CLI version pins (Claude Code, Codex, Crush, Node major). Loaded into `.github/workflows/ci-image.yml` and passed as `--build-arg`s. |
 | `README.md` | This file. |
 
@@ -27,7 +27,7 @@ recurring class of host-vs-runner-filesystem-namespace bugs.
 | Credential passthrough | Copied from host files via `init-host-credentials.sh` | `-e` env vars at `docker run` time |
 | Base image | `mcr.microsoft.com/devcontainers/go:1.24` (IDE tooling bundled) | `golang:1.24-bookworm` (leaner) |
 | Default shell | bash via base image default (zsh removed in the cleanup) | bash |
-| User | `vscode` (UID 1000 via `updateRemoteUserUID`) | `ci` (UID 1000 baked in) |
+| User | `vscode` (UID 1000 via `updateRemoteUserUID`) | Runner's uid via `--user` (HOME `/home/ci`, world-writable) |
 | Package cache | `ghcr.io/nickborgers/home-automation-devcontainer:latest` | `ghcr.io/nickborgers/home-automation-ci:latest` |
 | Build pipeline | `.github/workflows/devcontainer-cache.yml` | `.github/workflows/ci-image.yml` |
 

@@ -147,8 +147,12 @@ jobs:
           # variable references (${WORKFLOW_NAME}, etc.) so run-ai.sh can
           # expand them at invocation time via `envsubst` before passing to
           # the model.
+          # Run as the runner's uid so workspace writes stay owned by the
+          # runner. See run-ci-agent/action.yml for why.
           docker run --rm \
             --network host \
+            --user "$(id -u):$(id -g)" \
+            -e HOME=/home/ci \
             --workdir /workspace \
             -v "${{ github.workspace }}:/workspace" \
             -v "$OUTPUT_DIR:/tmp/diagnose-output" \
