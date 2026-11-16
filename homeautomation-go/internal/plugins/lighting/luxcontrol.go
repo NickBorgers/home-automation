@@ -306,12 +306,27 @@ func (m *Manager) luxEvaluate(room *RoomConfig, trigger string) {
 		scale = 1
 	}
 	rec.TargetLux = target.Lux * scale
+	rec.TargetSource = "lux_curve"
 	kelvin := target.Kelvin
 	if !lc.HasColorTemp() {
 		kelvin = 0 // brightness-only light: no kelvin is sent, compared or recorded
 	}
 	rec.TargetKelvin = kelvin
 	rec.CurvePoint = fmt.Sprintf("%s -> %s @ %.2f", target.From, target.To, target.Pos)
+	if p := lc.PresenceOverride; p != nil {
+		dayPhase, phaseErr := m.stateManager.GetString("dayPhase")
+		phaseMatches := false
+		for _, phase := range p.Phases {
+			if phase == dayPhase {
+				phaseMatches = true
+				break
+			}
+		}
+		if occupied, err := m.stateManager.GetBool(p.Variable); phaseErr == nil && err == nil && phaseMatches && occupied {
+			rec.TargetLux = p.TargetLux
+			rec.TargetSource = "presence_override"
+		}
+	}
 
 	if m.luxGuestsBoost(room) {
 		factor := lc.GuestFactor

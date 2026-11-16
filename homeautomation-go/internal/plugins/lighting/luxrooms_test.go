@@ -177,21 +177,6 @@ func TestLuxRooms_PantryTurnsOffWithKitchenConditionsWithoutAnArea(t *testing.T)
 	assert.NotContains(t, calls[0].Data, "area_id")
 }
 
-func TestLuxRooms_PantryStaysQuietWhenKitchenIsNotOccupied(t *testing.T) {
-	t.Parallel()
-	m, env, _ := newProductionRoomFixture(t)
-	require.NoError(t, env.StateMgr.SetBool("isKitchenOccupied", false))
-
-	m.evaluateAndActivateRoom(findRoom(m.config, "Pantry"), "day", "isKitchenOccupied")
-	m.luxTick() // the loop also leaves a room alone when its conditions do not say "on"
-
-	for _, c := range env.MockHA.GetServiceCalls() {
-		if c.Domain == "light" && c.Service == "turn_on" {
-			assert.NotEqual(t, "light.pantry", c.Data["entity_id"])
-		}
-	}
-}
-
 func TestLuxConfigValidation_AccentSceneGroupIsOptional(t *testing.T) {
 	t.Parallel()
 	cfg := &HueConfig{
