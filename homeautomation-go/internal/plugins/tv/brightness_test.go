@@ -66,13 +66,37 @@ func newBrightnessManager(t *testing.T, readOnly bool, lux float64, pic PictureC
 	mockHA := ha.NewMockClient()
 	stateMgr := state.NewManager(mockHA, zap.NewNop(), false)
 	require.NoError(t, stateMgr.SetNumber("tvRoomTargetLux", lux))
+	require.NoError(t, stateMgr.SetNumber("tvRoomBrightnessPct",
+		20+brightnessFraction(lux)*(100-20)))
 	mockHA.SetState(SyncBoxBrightnessEntity, "46", nil)
+	mockHA.SetState(SyncBoxLightSyncEntity, "on", nil)
 	m := NewManager(context.Background(), mockHA, stateMgr, zap.NewNop(), readOnly, nil)
 	m.tvRemoteOn = true
 	if pic != nil {
 		m.SetPictureClient(pic)
 	}
 	return m, mockHA
+}
+
+func TestSyncBoxBrightnessGoal(t *testing.T) {
+	tests := []struct {
+		name string
+		in   float64
+		want int
+	}{
+		{name: "below range", in: -4, want: 1},
+		{name: "lower point", in: 12, want: 12},
+		{name: "rounds down", in: 34.49, want: 34},
+		{name: "rounds half up", in: 34.5, want: 35},
+		{name: "current condition", in: 35, want: 35},
+		{name: "higher point", in: 87, want: 87},
+		{name: "above range", in: 120, want: 100},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, syncBoxBrightnessGoal(tt.in))
+		})
+	}
 }
 
 func syncBoxSets(mockHA *ha.MockClient) []interface{} {
@@ -244,6 +268,7 @@ func TestApplyBrightness_ManualChangeHoldsUntilPowerOn(t *testing.T) {
 	pic.setting.Current = 40
 	pic.mu.Unlock()
 	require.NoError(t, m.stateManager.SetNumber("tvRoomTargetLux", 2.5))
+	require.NoError(t, m.stateManager.SetNumber("tvRoomBrightnessPct", 20))
 	m.applyBrightness("second")
 
 	got := m.GetShadowState().Outputs.Brightness

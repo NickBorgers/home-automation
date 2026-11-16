@@ -153,6 +153,9 @@ func (m *Manager) Start() error {
 	if err := m.subHelper.SubscribeToEntity(SyncBoxSoftwarePowerEntity, m.handleSyncBoxPowerChange); err != nil {
 		return fmt.Errorf("failed to subscribe to %s: %w", SyncBoxSoftwarePowerEntity, err)
 	}
+	if err := m.subHelper.SubscribeToEntity(SyncBoxLightSyncEntity, m.handleSyncBoxLightSyncChange); err != nil {
+		return fmt.Errorf("failed to subscribe to %s: %w", SyncBoxLightSyncEntity, err)
+	}
 
 	// Subscribe to sync box physical power switch (Z-Wave smart plug)
 	if err := m.subHelper.SubscribeToEntity(SyncBoxPhysicalPowerEntity, m.handlePhysicalPowerChange); err != nil {
@@ -176,8 +179,11 @@ func (m *Manager) Start() error {
 	}
 
 	// Follow the TV room's target lux with TV and sync box brightness (brightness.go)
-	if err := m.subHelper.SubscribeToState("tvRoomTargetLux", m.handleTargetLuxChange); err != nil {
+	if err := m.subHelper.SubscribeToState("tvRoomTargetLux", func(string, interface{}, interface{}) {}); err != nil {
 		return fmt.Errorf("failed to subscribe to tvRoomTargetLux: %w", err)
+	}
+	if err := m.subHelper.SubscribeToState("tvRoomBrightnessPct", m.handleRoomBrightnessChange); err != nil {
+		return fmt.Errorf("failed to subscribe to tvRoomBrightnessPct: %w", err)
 	}
 
 	// Initialize shadow state with current input values (after subscriptions registered)
