@@ -141,7 +141,7 @@ func TestScenario_UserStory_ActiveHueSyncUsesTheTVRoomBrightnessCurve(t *testing
 
 	// THEN: inactive sync is not changed.
 	t.Log("THEN: inactive Hue Sync remains at 60%")
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond) // Cannot poll for absence of writes; sleep gives any wrongful goroutine time to misbehave.
 	require.Equal(t, 60, syncBoxBrightness(server))
 	require.Zero(t, syncBoxBrightnessWrites(server))
 
@@ -159,7 +159,7 @@ func TestScenario_UserStory_ActiveHueSyncUsesTheTVRoomBrightnessCurve(t *testing
 	// WHEN: the same curve point is evaluated again.
 	t.Log("WHEN: T+1m evaluates the unchanged curve again")
 	mockClock.AdvanceAndProcess(time.Minute)
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond) // Cannot poll for absence of writes; sleep gives any wrongful goroutine time to misbehave.
 
 	// THEN: no identical command is sent.
 	t.Log("THEN: Hue Sync remains 35% and no duplicate write is sent")

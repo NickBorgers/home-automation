@@ -178,7 +178,7 @@ func (m *Manager) Start() error {
 		return fmt.Errorf("failed to subscribe to resetTV: %w", err)
 	}
 
-	// Follow the TV room's target lux with TV and sync box brightness (brightness.go)
+	// tvRoomTargetLux is captured for shadow state only; applyBrightness is triggered by tvRoomBrightnessPct.
 	if err := m.subHelper.SubscribeToState("tvRoomTargetLux", func(string, interface{}, interface{}) {}); err != nil {
 		return fmt.Errorf("failed to subscribe to tvRoomTargetLux: %w", err)
 	}
