@@ -44,6 +44,12 @@ func setupSleepPrepLightingTest(t *testing.T) (*MockHAServer, *lighting.Manager,
 	configPath := filepath.Join("testdata", "hue_config_test.yaml")
 	lightingConfig, err := lighting.LoadConfig(configPath)
 	require.NoError(t, err, "Failed to load test lighting config")
+	// Production Primary Suite uses the Hue two-step dynamic-scene path.
+	for i := range lightingConfig.Rooms {
+		if lightingConfig.Rooms[i].HueGroup == "Master Bedroom" {
+			lightingConfig.Rooms[i].HasDynamics = true
+		}
+	}
 
 	// Create lighting plugin
 	lightingMgr := lighting.NewManager(context.Background(), client, stateManager, lightingConfig, logger, false, nil)
@@ -80,7 +86,7 @@ func TestScenario_GoToBed_LightingDoesNotReactivatePrimarySuite(t *testing.T) {
 	server.SetState("input_boolean.anyone_home", "on", map[string]interface{}{})
 	server.SetState("input_boolean.anyone_home_and_awake", "on", map[string]interface{}{})
 	server.SetState("input_boolean.master_asleep", "off", map[string]interface{}{})
-	server.SetState("input_boolean.sleep_prep_active", "on", map[string]interface{}{})
+	require.NoError(t, stateManager.SetBool("isSleepPrepActive", true))
 	server.SetState("input_boolean.wake_sequence_active", "off", map[string]interface{}{})
 	waitForProcessing(t, stateManager)
 
@@ -108,6 +114,56 @@ func TestScenario_GoToBed_LightingDoesNotReactivatePrimarySuite(t *testing.T) {
 	}
 }
 
+// TestScenario_GoToBed_RestoresPrimarySuiteSceneBeforeYielding validates the
+// sleep-prep boundary from the user's point of view. A wake sequence may have
+// left the group at its 3448 K fade color; entering sleep prep must replace
+// that stale state with the current phase scene exactly once, then yield so a
+// later state change cannot turn manually switched-off bedroom lights back on.
+func TestScenario_GoToBed_RestoresPrimarySuiteSceneBeforeYielding(t *testing.T) {
+	t.Parallel()
+	server, _, _, stateManager, cleanup := setupSleepPrepLightingTest(t)
+	defer cleanup()
+
+	// GIVEN: The house is awake at night and sleep prep has not started.
+	t.Log("GIVEN: Primary Suite may retain a stale wake color before sleep prep")
+	require.NoError(t, stateManager.SetString("dayPhase", "night"))
+	require.NoError(t, stateManager.SetBool("isAnyoneHomeAndAwake", true))
+	require.NoError(t, stateManager.SetBool("isMasterAsleep", false))
+	require.NoError(t, stateManager.SetBool("isWakeSequenceActive", false))
+	require.NoError(t, stateManager.SetBool("isSleepPrepActive", false))
+	waitForProcessing(t, stateManager)
+	snapshot := server.ServiceCallCount()
+
+	// WHEN: go_to_bed starts sleep prep.
+	t.Log("WHEN: go_to_bed sets isSleepPrepActive=true")
+	require.NoError(t, stateManager.SetBool("isSleepPrepActive", true))
+
+	// THEN: The current phase scene is recalled, with no direct white command.
+	t.Log("THEN: The night scene is restored once before lighting yields control")
+	waitForServiceCallWithEntitySince(t, server, snapshot, "hue", "activate_scene", "scene.master_bedroom_night",
+		"sleep prep should restore the current Primary Suite scene")
+	for _, call := range server.GetServiceCallsSince(snapshot) {
+		if call.Domain == "light" && call.Service == "turn_on" && call.ServiceData["entity_id"] == "light.primary_suite" {
+			t.Fatalf("go_to_bed must not directly set Primary Suite color: %+v", call.ServiceData)
+		}
+	}
+
+	// WHEN: Another lighting trigger arrives while sleep prep remains active.
+	afterRestore := server.ServiceCallCount()
+	t.Log("WHEN: a later sun event triggers lighting evaluation during sleep prep")
+	require.NoError(t, stateManager.SetString("sunevent", "astronomical_twilight"))
+	waitForServiceCallsToStabilizeSince(t, server, afterRestore, 300*time.Millisecond)
+
+	// THEN: Suppression remains in force; the scene is not recalled again.
+	t.Log("THEN: Primary Suite remains untouched for the rest of sleep prep")
+	for _, call := range server.GetServiceCallsSince(afterRestore) {
+		if entityID, ok := call.ServiceData["entity_id"].(string); ok {
+			assert.NotContains(t, entityID, "master_bedroom",
+				"sleep prep must suppress later Primary Suite scene recalls: %+v", call.ServiceData)
+		}
+	}
+}
+
 // TestScenario_SleepPrepActive_ClearedOnWakeUp validates that when a person
 // wakes up (isMasterAsleep → false), isSleepPrepActive is cleared so that
 // the lighting plugin resumes normal control of the Primary Suite.
@@ -122,7 +178,7 @@ func TestScenario_SleepPrepActive_ClearedOnWakeUp(t *testing.T) {
 	server.SetState("input_boolean.anyone_home", "on", map[string]interface{}{})
 	server.SetState("input_boolean.anyone_home_and_awake", "off", map[string]interface{}{})
 	server.SetState("input_boolean.master_asleep", "on", map[string]interface{}{})
-	server.SetState("input_boolean.sleep_prep_active", "on", map[string]interface{}{})
+	require.NoError(t, stateManager.SetBool("isSleepPrepActive", true))
 	server.SetState("input_boolean.wake_sequence_active", "off", map[string]interface{}{})
 	waitForProcessing(t, stateManager)
 
@@ -151,7 +207,7 @@ func TestScenario_SleepPrepNotActive_LightingControlsBedroom(t *testing.T) {
 	server.SetState("input_boolean.anyone_home", "on", map[string]interface{}{})
 	server.SetState("input_boolean.anyone_home_and_awake", "on", map[string]interface{}{})
 	server.SetState("input_boolean.master_asleep", "off", map[string]interface{}{})
-	server.SetState("input_boolean.sleep_prep_active", "off", map[string]interface{}{})
+	require.NoError(t, stateManager.SetBool("isSleepPrepActive", false))
 	server.SetState("input_boolean.wake_sequence_active", "off", map[string]interface{}{})
 	waitForProcessing(t, stateManager)
 

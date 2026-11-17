@@ -464,6 +464,27 @@ func (m *Manager) handleOccupancyChange(key string, oldValue, newValue interface
 		return
 	}
 
+	// Entering sleep prep is the handoff boundary: recall the current scene once
+	// before yielding control. This clears any direct color left by the wake
+	// sequence without allowing later lighting triggers to re-activate bedroom
+	// lights after somebody turns them off.
+	if key == "isSleepPrepActive" && oldValue == false && newValue == true {
+		for i := range m.config.Rooms {
+			room := &m.config.Rooms[i]
+			action, matchedVar := m.evaluateConditions(room)
+			if action != "skip" || matchedVar != key {
+				continue
+			}
+
+			m.logger.Info("Restoring current scene before sleep-prep handoff",
+				zap.String("room", room.HueGroup),
+				zap.String("day_phase", dayPhase),
+				zap.String("trigger", key))
+			m.activateScene(m.getRoomContext(room.HueGroup), room, dayPhase, key)
+		}
+		return
+	}
+
 	// Evaluate rooms that use this variable
 	m.evaluateAllRooms(dayPhase, key)
 }

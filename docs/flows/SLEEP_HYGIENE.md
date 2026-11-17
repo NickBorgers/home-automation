@@ -58,6 +58,11 @@ flowchart TD
 
 This avoids setting `isSleepPrepActive=true` with an empty house. If sleep prep were active before anyone arrived, the lighting plugin would suppress the bedroom welcome scene on arrival.
 
+`isSleepPrepActive` is transient Go-owned state; it is not synchronized to a Home Assistant
+`input_boolean`. When it changes from false to true, lighting recalls the current Primary Suite
+day-phase scene once, then yields for the rest of sleep prep. This clears the 3448 K warm-white
+color that a previous wake fade may have left without reactivating lights after a manual turn-off.
+
 If no one arrives within the 1-hour window, `go_to_bed` is skipped for the night and clears at midnight with the other triggers.
 
 On startup inside the `go_to_bed` window, an existing `musicPlaybackType=sleep` restores the in-memory

@@ -1079,6 +1079,9 @@ func (m *Manager) handleGoToBed() {
 func (m *Manager) turnOnMasterBedroomLights() {
 	transitionSeconds := int(lightFadeInDuration.Seconds())
 	m.logger.Info("Turning on master bedroom lights slowly",
+		zap.String("entity_id", "light.primary_suite"),
+		zap.String("source", "wake_sequence"),
+		zap.Int("color_temp_kelvin", 3448),
 		zap.Int("transition_seconds", transitionSeconds))
 
 	// Record that we're about to turn on lights so handleBedroomLightsOff
@@ -1096,7 +1099,11 @@ func (m *Manager) turnOnMasterBedroomLights() {
 		return
 	}
 
-	m.logger.Info("Set initial bedroom light state (1% brightness, warm white)")
+	m.logger.Info("Set initial bedroom light state",
+		zap.String("entity_id", "light.primary_suite"),
+		zap.String("source", "wake_sequence"),
+		zap.Int("color_temp_kelvin", 3448),
+		zap.Int("brightness_pct", 1))
 
 	// Then start slow transition to full brightness
 	if err := m.haClient.CallService(m.ctx, "light", "turn_on", map[string]interface{}{
@@ -1110,6 +1117,10 @@ func (m *Manager) turnOnMasterBedroomLights() {
 	}
 
 	m.logger.Info("Started bedroom light fade-in to 100% brightness",
+		zap.String("entity_id", "light.primary_suite"),
+		zap.String("source", "wake_sequence"),
+		zap.Int("color_temp_kelvin", 3448),
+		zap.Int("brightness_pct", 100),
 		zap.Duration("duration", lightFadeInDuration))
 }
 

@@ -277,6 +277,11 @@ in), the dynamic phase is skipped.
 Rooms without `has_dynamics` make a single recall, with no `dynamic` key,
 deferring to the scene's own configuration.
 
+When sleep prep begins, lighting recalls the current Primary Suite phase scene
+once before its `isSleepPrepActive` skip condition takes control. Later triggers
+remain suppressed, so manually turning the bedroom off still ends the lighting
+session without automation turning it back on.
+
 The 2026-05-25 production incident — three rapid scene recalls during
 arrival, dynamic palette failure, bedroom lights going off, statetracking
 incorrectly marking the occupants as asleep — drove both protections.

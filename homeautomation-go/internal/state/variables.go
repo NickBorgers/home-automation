@@ -45,7 +45,7 @@ var AllVariables = []StateVariable{
 	// isAnyoneHomeAndAwake (see WakeSequenceLatch) without starting the bedroom wake
 	// sequence. Set by the earlywake and picos plugins, cleared on a normal wake.
 	{Key: "isEarlyWakeActive", EntityID: "input_boolean.early_wake_active", Type: TypeBool, Default: false},
-	{Key: "isSleepPrepActive", EntityID: "input_boolean.sleep_prep_active", Type: TypeBool, Default: false},
+	{Key: "isSleepPrepActive", EntityID: "", Type: TypeBool, Default: false, LocalOnly: true},
 	{Key: "isFreeEnergyAvailable", EntityID: "input_boolean.free_energy_available", Type: TypeBool, Default: false},
 	{Key: "isGridAvailable", EntityID: "input_boolean.grid_available", Type: TypeBool, Default: true},
 	{Key: "isExpectingSomeone", EntityID: "input_boolean.expecting_someone", Type: TypeBool, Default: false},

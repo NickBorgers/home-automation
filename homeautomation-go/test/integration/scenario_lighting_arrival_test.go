@@ -97,7 +97,7 @@ func TestScenario_LightingArrival_DebouncedTwoStepRecall(t *testing.T) {
 	server.SetState("input_boolean.anyone_home_and_awake", "off", nil)
 	server.SetState("input_boolean.master_asleep", "off", nil)
 	server.SetState("input_boolean.wake_sequence_active", "off", nil)
-	server.SetState("input_boolean.sleep_prep_active", "off", nil)
+	require.NoError(t, manager.SetBool("isSleepPrepActive", false))
 	server.SetState("light.primary_suite", "off", nil)
 
 	waitForBoolState(t, manager, "isAnyoneHome", false, "isAnyoneHome should be false initially")
