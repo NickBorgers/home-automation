@@ -41,6 +41,7 @@ graph LR
         solarProductionEnergyLevel["solarProductionEnergyLevel"]
         sunevent["sunevent"]
         thisHourSolarGeneration["thisHourSolarGeneration"]
+        tvRoomBrightnessPct["tvRoomBrightnessPct"]
         tvRoomTargetLux["tvRoomTargetLux"]
     end
 
@@ -100,6 +101,7 @@ graph LR
     currentEnergyLevel -.-> tesla
     isAppleTVPlaying -.-> tv
     resetTV -.-> tv
+    tvRoomBrightnessPct -.-> tv
     tvRoomTargetLux -.-> tv
     isAnyoneHome -.-> vacuum
 
@@ -113,6 +115,7 @@ graph LR
     energy --> thisHourSolarGeneration
     lighting --> isDarkOutside
     lighting --> lightingReset
+    lighting --> tvRoomBrightnessPct
     lighting --> tvRoomTargetLux
     music --> currentlyPlayingMusicUri
     music --> musicPlaybackType

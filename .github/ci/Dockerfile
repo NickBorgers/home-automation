@@ -74,10 +74,13 @@ RUN set -eux; \
 # Non-root user for the CI workload. The image is built as `ci` (UID
 # 1000), but callers run it with `--user <runner-uid>:<runner-gid>` so
 # writes to the bind-mounted workspace stay owned by the runner. The
-# self-hosted runners use UID 1001, not 1000. No sudo: see the end of
-# this file.
+# self-hosted runners use UID 1001, not 1000. Sudo exists only for the
+# build (playwright installs browser deps with it); it is removed at the
+# end of this file.
 RUN groupadd --gid 1000 ci \
-    && useradd --uid 1000 --gid ci --shell /bin/bash --create-home ci
+    && useradd --uid 1000 --gid ci --shell /bin/bash --create-home ci \
+    && echo 'ci ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/ci \
+    && chmod 0440 /etc/sudoers.d/ci
 
 # Login shells re-source /etc/profile, which on Debian-based images resets
 # PATH to the minimal set and drops /go/bin:/usr/local/go/bin (inherited
@@ -127,8 +130,12 @@ RUN curl -fsSL --retry 5 --retry-delay 2 --retry-connrefused \
 # uid, which is not 1000, so HOME (Claude/Codex config, plugin cache,
 # TMPDIR) must be writable by whoever that turns out to be. a+rwX keeps
 # execute bits on binaries.
+#
+# Also drop passwordless sudo. With it, an agent that hit "Permission
+# denied" chowned the workspace and broke every later host step.
 USER root
-RUN chmod -R a+rwX /home/ci
+RUN rm -f /etc/sudoers.d/ci \
+    && chmod -R a+rwX /home/ci
 USER ci
 
 # Default entrypoint is bash — callers pass `-c '…'` (or `-lc '…'` if they

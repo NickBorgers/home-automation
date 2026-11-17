@@ -116,6 +116,9 @@ type Scheduler struct {
 	expectOff      map[string]bool
 	warnings       map[string]string
 	warnedOnce     map[string]bool
+	retryTarget    string
+	retryReason    string
+	retryAfter     time.Time
 
 	// travelFanTried is set once the first tick has asked the robot for its fan presets. It keeps an
 	// unreachable robot from being asked on every poll; startRun asks again while travelFanChecked is false.
@@ -488,6 +491,7 @@ func (s *Scheduler) replan(now time.Time) {
 	}
 	p := BuildPlan(in)
 	p.Skipped = append(p.Skipped, missing...)
+	s.applyRetryGuard(now, &p)
 	s.plan, s.planAt, s.lastPlanAt = &p, now, now
 
 	if p.Empty() {
@@ -512,6 +516,52 @@ func (s *Scheduler) replan(now time.Time) {
 		return
 	}
 	s.startRun(now, p)
+}
+
+// applyRetryGuard keeps a target that recently failed behind other eligible rooms. A lone failed target
+// stays dirty but waits for the stall timeout before another attempt.
+func (s *Scheduler) applyRetryGuard(now time.Time, p *Plan) {
+	if s.retryTarget == "" {
+		return
+	}
+	failed := -1
+	for i, room := range p.Rooms {
+		if room == s.retryTarget {
+			failed = i
+			break
+		}
+	}
+	if failed < 0 {
+		if !now.Before(s.retryAfter) {
+			s.logger.Info("Vacuum target retry cooldown expired", zap.String("room", s.retryTarget),
+				zap.String("failure_reason", s.retryReason))
+			s.retryTarget, s.retryReason, s.retryAfter = "", "", time.Time{}
+		}
+		return
+	}
+	// Once a rotated plan is pending, keep its order through the start gate even if the cooldown expires.
+	// Otherwise the old nearest-neighbour order would replace it and restart stable_for at the last moment.
+	if !now.Before(s.retryAfter) && (len(p.Rooms) == 1 || s.pendingKey == "") {
+		s.logger.Info("Vacuum target retry cooldown expired", zap.String("room", s.retryTarget),
+			zap.String("failure_reason", s.retryReason))
+		s.retryTarget, s.retryReason, s.retryAfter = "", "", time.Time{}
+		return
+	}
+	if len(p.Rooms) == 1 {
+		reason := fmt.Sprintf("target %s waits for retry cooldown until %s after %s", s.retryTarget,
+			s.retryAfter.Format(time.RFC3339), s.retryReason)
+		p.Skipped = append(p.Skipped, Skip{Room: s.retryTarget, Treatment: p.Treatment, Reason: reason})
+		p.Treatment, p.Rooms, p.Segments, p.Items, p.Cost, p.Reason = "", nil, nil, nil, 0, reason
+		s.logger.Info("Vacuum target retry deferred", zap.String("room", s.retryTarget),
+			zap.String("failure_reason", s.retryReason), zap.Time("retry_after", s.retryAfter))
+		return
+	}
+	room, segment := p.Rooms[failed], p.Segments[failed]
+	p.Rooms = append(append(p.Rooms[:failed], p.Rooms[failed+1:]...), room)
+	p.Segments = append(append(p.Segments[:failed], p.Segments[failed+1:]...), segment)
+	s.logger.Info("Vacuum failed target rotated to back of plan", zap.String("room", s.retryTarget),
+		zap.String("failure_reason", s.retryReason), zap.Strings("rooms", p.Rooms),
+		zap.Time("retry_after", s.retryAfter))
 }
 
 // startRun sets the treatment's presets and starts a segment clean. In log_only mode or read-only, it only
@@ -594,6 +644,7 @@ func (s *Scheduler) startRun(now time.Time, p Plan) {
 		zap.Strings("rooms", p.Rooms), zap.Strings("segments", p.Segments),
 		zap.Float64("cost", p.Cost), zap.Float64("budget", p.Budget))
 	s.run = newRun(originScheduler, p.Treatment, p.Rooms, now, s.robotState)
+	s.retryTarget, s.retryReason, s.retryAfter = "", "", time.Time{}
 	s.run.fan, s.run.fanSpeed = fan, fanSet
 	s.run.route, _ = plannedRoute(s.graph, s.dockRoom, p.Rooms)
 	s.run.fenced = fenced
@@ -1035,6 +1086,16 @@ func (s *Scheduler) finish(now time.Time, outcome, reason string) {
 				s.learnTrip(trip)
 			}
 		}
+	}
+	if (outcome == outcomeError || outcome == outcomeStalled || outcome == outcomeStopped) &&
+		len(r.remaining()) > 0 {
+		// Reuse StallTimeout as the rotation cooldown: same scale of "robot had trouble" and already tunable.
+		s.retryTarget, s.retryReason, s.retryAfter = r.remaining()[0], reason, now.Add(s.cfg.StallTimeout)
+		if s.retryReason == "" {
+			s.retryReason = "run ended with outcome " + outcome
+		}
+		s.logger.Info("Vacuum failed target will rotate on the next plan", zap.String("room", s.retryTarget),
+			zap.String("failure_reason", s.retryReason), zap.Time("retry_after", s.retryAfter))
 	}
 	r.current, r.pending = "", ""
 	r.endedAt, r.outcome, r.endReason = now, outcome, reason

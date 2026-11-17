@@ -295,7 +295,9 @@ When a stalled run ends:
 - `lastRun` shows the outcome, `error` or `stalled`, and `endReason`, such as
   `robot in error for 30m: status error, flag none`. The "Vacuum run ended" log line has the same `reason`.
 - If it was the scheduler's own run, the scheduler plans again. A plan needs a docked robot, so nothing
-  starts while the robot is still in error.
+  starts while the robot is still in error. Its first unfinished target is rotated behind other eligible
+  targets. If it is the only eligible target, it remains dirty but waits another `stall_timeout` before the
+  scheduler retries it. The rotation or deferral log includes the target, failure reason and retry time.
 
 ### Runs started elsewhere
 

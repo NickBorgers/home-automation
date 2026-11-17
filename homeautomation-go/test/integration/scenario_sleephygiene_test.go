@@ -2,7 +2,13 @@ package integration
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"strconv"
+	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -10,6 +16,7 @@ import (
 	"homeautomation/internal/clock"
 	"homeautomation/internal/config"
 	"homeautomation/internal/plugins/lighting"
+	"homeautomation/internal/plugins/music"
 	"homeautomation/internal/plugins/sleephygiene"
 	"homeautomation/internal/state"
 	"homeautomation/internal/testlogger"
@@ -611,7 +618,34 @@ func TestScenario_WakeSequence_VolumeFadesOutMonotonically(t *testing.T) {
 	// Skip internal sleeps so the fade-out completes quickly
 	sleepMgr.SetSleepFunc(func(d time.Duration) {})
 
-	// GIVEN: Conditions for begin_wake are met, bedroom speaker at 10% volume
+	var volumeMu sync.Mutex
+	currentVolume := 10
+	var volumeLevels []int
+	socoServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+		volumeMu.Lock()
+		defer volumeMu.Unlock()
+		if len(parts) == 3 {
+			level, err := strconv.Atoi(parts[2])
+			if err != nil {
+				t.Errorf("unexpected non-numeric path segment: %v", err)
+				http.Error(w, "bad request", http.StatusBadRequest)
+				return
+			}
+			currentVolume = level
+			volumeLevels = append(volumeLevels, level)
+		}
+		if err := json.NewEncoder(w).Encode(map[string]interface{}{
+			"speaker": "Primary Bed", "action": "volume", "exit_code": 0,
+			"result": strconv.Itoa(currentVolume), "error_msg": "",
+		}); err != nil {
+			t.Errorf("failed to encode response: %v", err)
+		}
+	}))
+	defer socoServer.Close()
+	sleepMgr.SetSpeakerClient(music.NewSoCoClient(socoServer.URL, testlogger.New(), false))
+
+	// GIVEN: Conditions for begin_wake are met, bedroom speaker at 10% volume through SoCo
 	t.Log("GIVEN: Someone is home, master is asleep, playing sleep music")
 	t.Log("       Bedroom speaker is at 10% volume (0.10)")
 
@@ -620,13 +654,8 @@ func TestScenario_WakeSequence_VolumeFadesOutMonotonically(t *testing.T) {
 	server.SetState("input_text.music_playback_type", "sleep", map[string]interface{}{})
 	server.SetState("input_boolean.fade_out_in_progress", "off", map[string]interface{}{})
 
-	// Set up bedroom speaker with initial volume at 10%
-	server.SetState("media_player.primary_bed", "playing", map[string]interface{}{
-		"volume_level": 0.10, // 10% volume = volume value of 10
-	})
-
 	// Set up currentlyPlayingMusic state with bedroom speaker
-	currentMusicJSON := `{"participants":[{"player_name":"media_player.primary_bed","volume":10}]}`
+	currentMusicJSON := `{"participants":[{"player_name":"Primary Bed","volume":10}]}`
 	server.SetState("input_text.currently_playing_music", currentMusicJSON, map[string]interface{}{})
 
 	// Allow async handlers to process before snapshotting
@@ -652,33 +681,21 @@ func TestScenario_WakeSequence_VolumeFadesOutMonotonically(t *testing.T) {
 		t.Fatal("Fade-out did not complete within timeout")
 	}
 
-	// Poll until volume_set calls are recorded
+	// Poll until SoCo volume calls are recorded
 	waitForCondition(t, func() bool {
-		calls := server.GetServiceCallsSince(snapshot)
-		return len(filterServiceCalls(calls, "media_player", "volume_set")) >= 2
-	}, "volume_set calls should be recorded")
+		volumeMu.Lock()
+		defer volumeMu.Unlock()
+		return len(volumeLevels) >= 2
+	}, "SoCo volume calls should be recorded")
 
 	// THEN: Verify all volume_set calls show monotonically DECREASING volume
 	t.Log("THEN: Verify all volume_set calls show monotonically decreasing volume")
 
-	calls := server.GetServiceCallsSince(snapshot)
-	volumeCalls := filterServiceCalls(calls, "media_player", "volume_set")
-
-	// Should have multiple volume_set calls (one for each step from 10 down to 0)
-	t.Logf("Total volume_set calls: %d", len(volumeCalls))
-	require.GreaterOrEqual(t, len(volumeCalls), 2,
-		"Expected at least 2 volume_set calls during fade-out")
-
-	// Extract all volume levels in order
-	var volumeLevels []float64
-	for _, call := range volumeCalls {
-		volumeLevel, ok := call.ServiceData["volume_level"].(float64)
-		if !ok {
-			t.Logf("WARNING: volume_set call missing volume_level: %+v", call.ServiceData)
-			continue
-		}
-		volumeLevels = append(volumeLevels, volumeLevel)
-	}
+	volumeMu.Lock()
+	defer volumeMu.Unlock()
+	require.GreaterOrEqual(t, len(volumeLevels), 2, "expected multiple SoCo volume calls during fade-out")
+	assert.Empty(t, filterServiceCalls(server.GetServiceCallsSince(snapshot), "media_player", "volume_set"),
+		"sleep hygiene fade must not call Home Assistant media_player services")
 
 	t.Logf("Volume levels in order: %v", volumeLevels)
 
@@ -689,22 +706,21 @@ func TestScenario_WakeSequence_VolumeFadesOutMonotonically(t *testing.T) {
 		currVolume := volumeLevels[i]
 
 		assert.Less(t, currVolume, prevVolume,
-			"Volume must DECREASE during fade-out: call %d (%.3f) should be less than call %d (%.3f)",
+			"Volume must DECREASE during fade-out: call %d (%d) should be less than call %d (%d)",
 			i+1, currVolume, i, prevVolume)
 	}
 
 	// Verify the sequence ends at 0 (complete fade-out)
 	if len(volumeLevels) > 0 {
 		finalVolume := volumeLevels[len(volumeLevels)-1]
-		assert.Equal(t, 0.0, finalVolume,
-			"Fade-out should end with volume at 0, got %.3f", finalVolume)
+		assert.Equal(t, 0, finalVolume, "Fade-out should end with volume at 0")
 	}
 
 	// Log the full fade-out sequence for debugging
 	t.Log("SUCCESS: Volume faded out monotonically from 10% to 0%")
 	t.Log("Volume sequence (should be strictly decreasing):")
 	for i, v := range volumeLevels {
-		t.Logf("  Call %d: volume_level = %.2f (%.0f%%)", i+1, v, v*100)
+		t.Logf("  Call %d: volume = %d%%", i+1, v)
 	}
 }
 
@@ -1239,12 +1255,14 @@ func TestScenario_WakeMusic_CancelsStaleBedroomFade(t *testing.T) {
 	server.SetState("input_boolean.anyone_home", "on", map[string]interface{}{})
 	server.SetState("input_boolean.master_asleep", "on", map[string]interface{}{})
 	server.SetState("input_text.music_playback_type", "sleep", map[string]interface{}{})
-	server.SetState("media_player.bedroom", "playing", map[string]interface{}{
-		"friendly_name": "Bedroom",
+	// Use the canonical bedroom speaker entity so getSpeakerVolume reads volume 3 directly
+	// (avoiding the 60-iteration fallback that makes the test slow and timing-sensitive).
+	server.SetState("media_player.primary_bed", "playing", map[string]interface{}{
+		"friendly_name": "Primary Bed",
 		"volume_level":  0.03,
 	})
 	server.SetState("input_text.currently_playing_music",
-		`{"participants":[{"player_name":"media_player.bedroom","volume":3}]}`, map[string]interface{}{})
+		`{"participants":[{"player_name":"media_player.primary_bed","volume":3}]}`, map[string]interface{}{})
 	waitForProcessing(t, stateManager)
 
 	fadeWaiting := make(chan struct{})
@@ -1272,8 +1290,8 @@ func TestScenario_WakeMusic_CancelsStaleBedroomFade(t *testing.T) {
 	sleepMgr.TriggerWakeForTest()
 	waitForServerState(t, server, "input_text.music_playback_type", "wakeup",
 		"music playback type should change to wakeup")
-	server.SetState("media_player.bedroom", "playing", map[string]interface{}{
-		"friendly_name": "Bedroom",
+	server.SetState("media_player.primary_bed", "playing", map[string]interface{}{
+		"friendly_name": "Primary Bed",
 		"volume_level":  0.05,
 	})
 	snapshot := server.ServiceCallCount()
@@ -1287,7 +1305,7 @@ func TestScenario_WakeMusic_CancelsStaleBedroomFade(t *testing.T) {
 	t.Log("THEN: The stale fade sends no subsequent volume command, especially volume zero")
 	for _, call := range server.GetServiceCallsSince(snapshot) {
 		if call.Domain == "media_player" && call.Service == "volume_set" &&
-			call.ServiceData["entity_id"] == "media_player.bedroom" {
+			call.ServiceData["entity_id"] == "media_player.primary_bed" {
 			t.Fatalf("stale fade issued a bedroom volume command after wake music started: %#v", call.ServiceData)
 		}
 	}
