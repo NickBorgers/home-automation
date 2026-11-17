@@ -1,6 +1,6 @@
 # TV and Hue Sync Brightness
 
-**Status:** Built 2026-11-15. The mapping endpoints are guesses. Tune them by eye.
+**Status:** Built 2026-11-15; Hue Sync percentage mapping corrected 2026-11-16.
 
 ## Summary
 
@@ -12,9 +12,11 @@ This replaces the Node-RED flow, which set the TV to one of three fixed levels a
 
 ```mermaid
 flowchart LR
-    Curve[Lux curve<br/>Living room] -->|every 60 s| Var[tvRoomTargetLux]
-    Var --> TVPlugin[TV plugin]
-    TVPlugin -->|on?| Map[Map lux to brightness<br/>log scale]
+    Curve[Lux curve<br/>Living room] -->|target lux| Lux[tvRoomTargetLux]
+    Curve -->|calibration after ambient light| Pct[tvRoomBrightnessPct]
+    Lux --> TVPlugin[TV plugin]
+    Pct --> TVPlugin
+    TVPlugin -->|TV on?| Map[Map lux to TV brightness<br/>log scale]
     Map -->|REST, X-Auth-PSK| TV[Bravia TV<br/>brightness 0-50]
     Map -->|number.set_value| Sync[number.sync_box_brightness<br/>1-100]
 ```
@@ -22,17 +24,12 @@ flowchart LR
 1. The lighting plugin computes the Living target lux every minute. This includes `lux_scale` and the guest boost. It publishes the value as the local-only variable `tvRoomTargetLux`. It does this even while the room is in `skip` because Hue Sync owns the lights.
 2. The TV plugin maps the target to a share between 0 and 1, on a log scale. 2.5 lux or less gives 0. 150 lux or more gives 1.
 3. The TV gets `min + (0.3 + 0.7 × share) × (max − min)`, using the range the TV reports. On the A80K that is 15 at night and 50 by day.
-4. The sync box gets `20 + 80 × share`. That is 20% at night and 100% by day.
+4. The lighting plugin converts needed lux (target minus estimated daylight) through the Living cans' calibration curve. It publishes that 0–100 output as `tvRoomBrightnessPct` even while Hue Sync causes the room to be skipped.
+5. While `switch.sync_box_light_sync` is on, the sync box gets the same percentage, rounded to the nearest integer and clamped to its 1–100 range. Lighting owns this calculated value; the TV plugin only translates and sends it.
 
-| Target lux | Share | TV (0-50) | Sync box |
-|-----------:|------:|----------:|---------:|
-| 150 (day) | 1.00 | 50 | 100 |
-| 50 | 0.73 | 41 | 79 |
-| 20 | 0.51 | 33 | 61 |
-| 7 | 0.25 | 24 | 40 |
-| 2.5 (night) | 0.00 | 15 | 20 |
+The TV and sync box mappings intentionally differ: the TV retains its log-scale picture mapping, while Hue Sync follows the active room curve percentage directly. For example, a calculated curve output of `34.5%` becomes Hue Sync brightness `35%`.
 
-The plugin acts only while the TV is on (`media_player.sony_xr_65a80k`). It reads each device first, and it sends a value only when the value changed. The TV changes in steps of 1. The sync box changes in steps of at least 2. The curve moves slowly, so a step is rare and small.
+The plugin acts only while the TV is on (`media_player.sony_xr_65a80k`). It changes Hue Sync brightness only while light sync is active and never toggles light sync as part of a brightness update. It reads each device first and sends only changed values. The TV changes in steps of 1. The sync box changes in steps of at least 2.
 
 ## Turning on
 
@@ -68,9 +65,7 @@ The constants are in `homeautomation-go/internal/plugins/tv/brightness.go`:
 | `BrightnessDarkLux` | 2.5 | Target at or below which both devices are at their dimmest |
 | `BrightnessBrightLux` | 150 | Target at or above which both devices are at their brightest |
 | `TVBrightnessDarkFraction` | 0.3 | TV's dimmest setting, as a share of its range |
-| `SyncBoxBrightnessDark` / `Bright` | 20 / 100 | Sync box range |
-
-The two lux ends match the Living curve with `lux_scale: 0.5`. If `lux_scale` changes, change them too.
+The two lux ends affect only the TV picture. Hue Sync uses the Living calibration curve directly.
 
 ## Shadow state
 

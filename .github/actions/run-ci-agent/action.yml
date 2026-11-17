@@ -179,11 +179,19 @@ runs:
         # `--name` lets the cleanup step find the container. `--init` makes
         # a real init process PID 1, so a forwarded SIGTERM stops the agent.
         # A bare `bash` as PID 1 ignores SIGTERM.
+        # Run as the RUNNER'S uid/gid, not the image's `ci` user (UID
+        # 1000). The workspace and .git/ belong to the runner (UID 1001 on
+        # the self-hosted tenants). With a mismatched uid every write fails,
+        # and the agent once "fixed" that with `sudo chown` on the
+        # workspace. That broke every later host step (git, post-checkout)
+        # with "detected dubious ownership". The image no longer has sudo.
         DOCKER_EXIT=0
         docker run --rm \
           --name "$CI_AGENT_CONTAINER_NAME" \
           --init \
           --network host \
+          --user "$(id -u):$(id -g)" \
+          -e HOME=/home/ci \
           --workdir /workspace \
           -v "${{ github.workspace }}:/workspace" \
           -v "$OUTPUT_STAGING_DIR:$OUTPUT_STAGING_DIR" \

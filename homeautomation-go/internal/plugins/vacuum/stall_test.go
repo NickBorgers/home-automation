@@ -231,8 +231,8 @@ func TestSchedulerModeChangeWhileDockedSplitsRuns(t *testing.T) {
 }
 
 // Our own run in active mode ends in error. The scheduler may plan again, but the planner needs a docked
-// robot, so nothing starts while the robot is in error. Once it is docked and clear, a new run starts, and the
-// room it stalled in is still dirty.
+// robot, so nothing starts while the robot is in error. Once it is docked and clear, a new run starts with the
+// failed room rotated behind the other target, and the room it stalled in is still dirty.
 func TestSchedulerOwnRunStallsThenPlansAgainWhenDocked(t *testing.T) {
 	e := newSchedEnv(t, ModeActive)
 	e.start()
@@ -262,7 +262,7 @@ func TestSchedulerOwnRunStallsThenPlansAgainWhenDocked(t *testing.T) {
 	e.moveTo("mud", 95)
 	e.s.TickForTest(true)
 	require.NotNil(t, e.sched().Plan.PendingSince, "plan: %+v", e.sched().Plan)
-	assert.ElementsMatch(t, []string{"lounge", "kitchen"}, e.sched().Plan.Rooms)
+	assert.Equal(t, []string{"kitchen", "lounge"}, e.sched().Plan.Rooms)
 	e.advance(10 * time.Minute)
 	require.NotNil(t, e.sched().Run)
 	assert.Equal(t, 2, e.segmentCleans(), "a new run started")

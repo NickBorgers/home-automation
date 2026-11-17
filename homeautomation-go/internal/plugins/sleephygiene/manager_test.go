@@ -2,6 +2,7 @@ package sleephygiene
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -14,6 +15,38 @@ import (
 	"homeautomation/pkg/plugin"
 	"homeautomation/pkg/testutil"
 )
+
+type testSpeakerClient struct {
+	client *ha.MockClient
+}
+
+func (c *testSpeakerClient) GetVolume(speakerName string) (int, error) {
+	speakerState, err := c.client.GetState(testSpeakerEntityID(speakerName))
+	if err != nil {
+		return 0, err
+	}
+	volumeLevel, ok := speakerState.Attributes["volume_level"].(float64)
+	if !ok {
+		return 0, fmt.Errorf("speaker has no volume_level")
+	}
+	return int(volumeLevel * 100), nil
+}
+
+func (c *testSpeakerClient) SetVolume(speakerName string, level int) error {
+	return c.client.CallService(context.Background(), "media_player", "volume_set", map[string]interface{}{
+		"entity_id": testSpeakerEntityID(speakerName), "volume_level": float64(level) / 100,
+	})
+}
+
+func testSpeakerEntityID(speakerName string) string {
+	if speakerName == "Primary Bed" {
+		return "media_player.primary_bed"
+	}
+	if speakerName == "Primary Bed Left" {
+		return "media_player.primary_bed_left"
+	}
+	return speakerName
+}
 
 // setupTest creates a test environment with mock HA client, state manager, and config loader
 func setupTest(t *testing.T, currentTime time.Time) (*Manager, *ha.MockClient, *state.Manager, *config.Loader) {
@@ -35,6 +68,7 @@ func setupTest(t *testing.T, currentTime time.Time) (*Manager, *ha.MockClient, *
 	// Create manager with fixed time provider and nil timezone (defaults to time.Local)
 	timeProvider := plugin.FixedTimeProvider{FixedTime: currentTime}
 	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, configLoader, env.Logger, false, timeProvider, nil)
+	manager.SetSpeakerClient(&testSpeakerClient{client: env.MockHA})
 
 	return manager, env.MockHA, env.StateMgr, configLoader
 }
@@ -779,7 +813,7 @@ func TestFadeOutBedroomSpeaker_Complete(t *testing.T) {
 	// Start fade out in goroutine
 	done := make(chan bool)
 	go func() {
-		manager.fadeOutSpeaker("media_player.primary_bed")
+		manager.fadeOutSpeaker("Primary Bed")
 		done <- true
 	}()
 
@@ -1163,7 +1197,7 @@ func TestUpdateSpeakerVolumeInState(t *testing.T) {
 	currentMusic := map[string]interface{}{
 		"participants": []interface{}{
 			map[string]interface{}{
-				"player_name": "media_player.primary_bed",
+				"player_name": "Primary Bed",
 				"volume":      80,
 			},
 			map[string]interface{}{
@@ -1175,7 +1209,7 @@ func TestUpdateSpeakerVolumeInState(t *testing.T) {
 	stateManager.SetJSON("currentlyPlayingMusic", currentMusic)
 
 	// Update bedroom volume to 45
-	manager.updateSpeakerVolumeInState("media_player.primary_bed", 45)
+	manager.updateSpeakerVolumeInState("Primary Bed", 45)
 
 	// Verify it was updated
 	var updatedMusic map[string]interface{}
@@ -1210,11 +1244,11 @@ func TestGetBedroomSpeakers(t *testing.T) {
 	currentMusic := map[string]interface{}{
 		"participants": []map[string]interface{}{
 			{
-				"player_name": "media_player.primary_bed",
+				"player_name": "Primary Bed",
 				"volume":      60,
 			},
 			{
-				"player_name": "media_player.primary_bed_left",
+				"player_name": "Primary Bed Left",
 				"volume":      55,
 			},
 			{
@@ -1248,19 +1282,19 @@ func TestGetBedroomSpeakers(t *testing.T) {
 	hasBedroomMain := false
 	hasBedroomLeft := false
 	for _, speaker := range bedroomSpeakers {
-		if speaker == "media_player.primary_bed" {
+		if speaker == "Primary Bed" {
 			hasBedroomMain = true
 		}
-		if speaker == "media_player.primary_bed_left" {
+		if speaker == "Primary Bed Left" {
 			hasBedroomLeft = true
 		}
 	}
 
 	if !hasBedroomMain {
-		t.Error("Expected to find media_player.primary_bed")
+		t.Error("Expected to find Primary Bed")
 	}
 	if !hasBedroomLeft {
-		t.Error("Expected to find media_player.primary_bed_left")
+		t.Error("Expected to find Primary Bed Left")
 	}
 }
 
@@ -1278,8 +1312,8 @@ func TestGetBedroomSpeakers_EmptyState(t *testing.T) {
 	if len(bedroomSpeakers) != 1 {
 		t.Errorf("Expected 1 default bedroom speaker, got %d", len(bedroomSpeakers))
 	}
-	if bedroomSpeakers[0] != "media_player.primary_bed" {
-		t.Errorf("Expected default media_player.primary_bed, got %s", bedroomSpeakers[0])
+	if bedroomSpeakers[0] != "Primary Bed" {
+		t.Errorf("Expected default Primary Bed, got %s", bedroomSpeakers[0])
 	}
 }
 
@@ -1307,7 +1341,7 @@ func TestFadeOutSpeaker_WithVolumeQuery(t *testing.T) {
 	currentMusic := map[string]interface{}{
 		"participants": []interface{}{
 			map[string]interface{}{
-				"player_name": "media_player.primary_bed",
+				"player_name": "Primary Bed",
 				"volume":      58,
 			},
 		},
@@ -1329,7 +1363,7 @@ func TestFadeOutSpeaker_WithVolumeQuery(t *testing.T) {
 	// Start fade out in goroutine
 	done := make(chan bool)
 	go func() {
-		manager.fadeOutSpeaker("media_player.primary_bed")
+		manager.fadeOutSpeaker("Primary Bed")
 		done <- true
 	}()
 
@@ -1409,7 +1443,7 @@ func TestFadeOutSpeaker_HumanOverrideDetection(t *testing.T) {
 	currentMusic := map[string]interface{}{
 		"participants": []interface{}{
 			map[string]interface{}{
-				"player_name": "media_player.primary_bed",
+				"player_name": "Primary Bed",
 				"volume":      10,
 			},
 		},
@@ -1549,11 +1583,11 @@ func TestBeginWake_MultipleSpeakers(t *testing.T) {
 	currentMusic := map[string]interface{}{
 		"participants": []interface{}{
 			map[string]interface{}{
-				"player_name": "media_player.primary_bed",
+				"player_name": "Primary Bed",
 				"volume":      60,
 			},
 			map[string]interface{}{
-				"player_name": "media_player.primary_bed_left",
+				"player_name": "Primary Bed Left",
 				"volume":      55,
 			},
 		},

@@ -66,13 +66,37 @@ func newBrightnessManager(t *testing.T, readOnly bool, lux float64, pic PictureC
 	mockHA := ha.NewMockClient()
 	stateMgr := state.NewManager(mockHA, zap.NewNop(), false)
 	require.NoError(t, stateMgr.SetNumber("tvRoomTargetLux", lux))
+	require.NoError(t, stateMgr.SetNumber("tvRoomBrightnessPct",
+		20+brightnessFraction(lux)*(100-20)))
 	mockHA.SetState(SyncBoxBrightnessEntity, "46", nil)
+	mockHA.SetState(SyncBoxLightSyncEntity, "on", nil)
 	m := NewManager(context.Background(), mockHA, stateMgr, zap.NewNop(), readOnly, nil)
 	m.tvRemoteOn = true
 	if pic != nil {
 		m.SetPictureClient(pic)
 	}
 	return m, mockHA
+}
+
+func TestSyncBoxBrightnessGoal(t *testing.T) {
+	tests := []struct {
+		name string
+		in   float64
+		want int
+	}{
+		{name: "below range", in: -4, want: 1},
+		{name: "lower point", in: 12, want: 12},
+		{name: "rounds down", in: 34.49, want: 34},
+		{name: "rounds half up", in: 34.5, want: 35},
+		{name: "current condition", in: 35, want: 35},
+		{name: "higher point", in: 87, want: 87},
+		{name: "above range", in: 120, want: 100},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, syncBoxBrightnessGoal(tt.in))
+		})
+	}
 }
 
 func syncBoxSets(mockHA *ha.MockClient) []interface{} {
@@ -171,13 +195,16 @@ func TestBrightnessOnPowerOn_StaleGoroutineDoesNotClearHold(t *testing.T) {
 	pic := &fakePicture{setting: bravia.Setting{Current: 25, Max: 50}}
 	m, _ := newBrightnessManager(t, false, 150, pic)
 
-	// Use a channel-controlled sleep so we can order goroutine wakeups precisely.
+	// Use a channel-controlled sleep so we can order goroutine wakeups precisely. The two
+	// goroutines may reach sleep in either order, so each power-on uses a distinct delay and
+	// the gate is keyed by that delay. That identifies which goroutine owns which gate.
+	const g1Delay, g2Delay = time.Second, 2 * time.Second
 	var mu sync.Mutex
-	var sleepGates []chan struct{}
-	m.sleepFunc = func(time.Duration) {
+	sleepGates := map[time.Duration]chan struct{}{}
+	m.sleepFunc = func(d time.Duration) {
 		ch := make(chan struct{})
 		mu.Lock()
-		sleepGates = append(sleepGates, ch)
+		sleepGates[d] = ch
 		mu.Unlock()
 		<-ch
 	}
@@ -187,9 +214,10 @@ func TestBrightnessOnPowerOn_StaleGoroutineDoesNotClearHold(t *testing.T) {
 	require.Equal(t, []int{50}, pic.sets)
 
 	// TV on twice quickly: G1 (gen=1) then G2 (gen=2).
-	m.SetBrightnessPowerOnDelay(time.Second) // non-zero so goroutines block
-	m.brightnessOnPowerOn()                  // G1
-	m.brightnessOnPowerOn()                  // G2
+	m.SetBrightnessPowerOnDelay(g1Delay)
+	m.brightnessOnPowerOn() // G1
+	m.SetBrightnessPowerOnDelay(g2Delay)
+	m.brightnessOnPowerOn() // G2
 
 	// A person changes brightness: manual hold detected.
 	pic.mu.Lock()
@@ -207,15 +235,16 @@ func TestBrightnessOnPowerOn_StaleGoroutineDoesNotClearHold(t *testing.T) {
 
 	// Wake G1 — it must detect it is superseded and not clear the hold.
 	mu.Lock()
-	g1 := sleepGates[0]
+	g1 := sleepGates[g1Delay]
 	mu.Unlock()
 	close(g1)
-	time.Sleep(100 * time.Millisecond) // let G1 goroutine run to completion
+	// Give G1 time to run to completion.
+	time.Sleep(100 * time.Millisecond)
 	require.True(t, m.GetShadowState().Outputs.Brightness.TV.Held, "G1 must not clear the manual hold")
 
 	// Wake G2 — it is the authoritative power-on; hold clears and brightness is set.
 	mu.Lock()
-	g2 := sleepGates[1]
+	g2 := sleepGates[g2Delay]
 	mu.Unlock()
 	close(g2)
 	require.Eventually(t, func() bool {
@@ -239,6 +268,7 @@ func TestApplyBrightness_ManualChangeHoldsUntilPowerOn(t *testing.T) {
 	pic.setting.Current = 40
 	pic.mu.Unlock()
 	require.NoError(t, m.stateManager.SetNumber("tvRoomTargetLux", 2.5))
+	require.NoError(t, m.stateManager.SetNumber("tvRoomBrightnessPct", 20))
 	m.applyBrightness("second")
 
 	got := m.GetShadowState().Outputs.Brightness
