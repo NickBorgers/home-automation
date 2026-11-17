@@ -492,6 +492,15 @@ func (s *Scheduler) replan(now time.Time) {
 	p := BuildPlan(in)
 	p.Skipped = append(p.Skipped, missing...)
 	s.applyRetryGuard(now, &p)
+	// A plan that would start is held back while the fence helper cannot be trusted. Say so in the plan,
+	// instead of letting the start fail every time.
+	fenceBlock := ""
+	if !p.Empty() {
+		fenceBlock = s.fenceHelperBlock(now)
+		if fenceBlock != "" {
+			p.Reason = fenceBlock
+		}
+	}
 	s.plan, s.planAt, s.lastPlanAt = &p, now, now
 
 	if p.Empty() {
@@ -514,6 +523,9 @@ func (s *Scheduler) replan(now time.Time) {
 	}
 	if now.Sub(s.pendingSince) < s.cfg.StableFor {
 		return
+	}
+	if fenceBlock != "" {
+		return // the plan's reason says why; the next tick asks again
 	}
 	s.startRun(now, p)
 }

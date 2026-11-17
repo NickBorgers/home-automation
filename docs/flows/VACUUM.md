@@ -177,6 +177,16 @@ sequenceDiagram
   back does not match. The owner's set is put back if walls went up. `warnings` shows why, and the start gate
   waits again.
 - When nothing needs a wall, nothing is read or written.
+- Right after Home Assistant starts, the helper can read `unknown` or `unavailable` before Home Assistant puts
+  its saved value back, and a saved set read as empty could leave scheduler walls on the robot. So until the
+  scheduler has read the helper once, no run starts. A text helper that was just created and never set stays
+  `unknown` for good, so `unknown` only waits `fence_helper_grace` (default 2m). If it is still `unknown` after
+  that, the scheduler treats it as empty: it takes away any wall that matches a scheduler door wall by geometry,
+  keeps everything else, logs a warning, and writes an empty value to the helper so Home Assistant shows a real
+  one. A failed write is logged and does not block. `unavailable` means Home Assistant or the integration is
+  down, so it keeps blocking with no grace. While blocked, the plan's `reason` says why, for example
+  `input_text.vacuum_fence_saved is unknown; waiting 1m20s more before treating it as empty`. Only an active,
+  writable scheduler does this.
 - When the run ends, for any reason, the owner's set goes back exactly and the helper is cleared. The robot's
   set is written only when it differs.
 - A failed restore is tried again on every poll. No run starts while scheduler walls may still be on the robot.

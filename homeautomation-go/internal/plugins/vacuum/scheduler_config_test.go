@@ -139,6 +139,14 @@ vacuum:
 	assert.True(t, sc.FenceEnabled(), "fencing is on unless turned off")
 	assert.Equal(t, 0.25, sc.FenceMargin())
 	assert.Equal(t, 5*time.Minute, sc.StrandedAfter)
+	assert.Equal(t, 2*time.Minute, sc.FenceHelperGrace)
+
+	sc = loadConfigText(t, base+"    fence_helper_grace: 30s\n").Vacuum.Scheduler
+	require.NoError(t, sc.Err)
+	assert.Equal(t, 30*time.Second, sc.FenceHelperGrace)
+	sc = loadConfigText(t, base+"    fence_helper_grace: 0s\n").Vacuum.Scheduler
+	require.NoError(t, sc.Err)
+	assert.Zero(t, sc.FenceHelperGrace, "0 means at once")
 
 	sc = loadConfigText(t, base+"    fence_no_enter: false\n    fence_margin_m: 0.4\n    stranded_after: 10m\n").Vacuum.Scheduler
 	require.NoError(t, sc.Err)
@@ -151,7 +159,7 @@ vacuum:
 	assert.Equal(t, 0.0, sc.FenceMargin(), "0 is the bare door span")
 
 	for _, bad := range []string{"    fence_margin_m: -0.1\n", "    fence_margin_m: 1.5\n", "    stranded_after: -1m\n",
-		"    stranded_after: soon\n"} {
+		"    stranded_after: soon\n", "    fence_helper_grace: -1s\n", "    fence_helper_grace: later\n"} {
 		sc := loadConfigText(t, base+bad).Vacuum.Scheduler
 		assert.Error(t, sc.Err, bad)
 	}

@@ -156,6 +156,40 @@ func TestScenario_Vacuum_OffRouteIntoNoEnterRoomPausesThenGoesHome(t *testing.T)
 	waitForServerState(t, v.server, "input_text.vacuum_fence_saved", "")
 }
 
+// GIVEN the study is dirty and the fence helper reads "unknown" at startup (a helper just created and never set)
+// WHEN time passes through and then past the grace period
+// THEN no run starts while the helper reads unknown within the grace,
+//
+//	and a run starts once the grace elapses and the plan has been stable for stable_for
+func TestScenario_Vacuum_FenceHelperUnknownBlocksUntilGrace(t *testing.T) {
+	const cfg = `    fence_helper_grace: 2s
+    stable_for: 2s
+`
+	v := setupVacuumScenarioWith(t, map[string]time.Duration{"study": 30 * time.Hour}, nil, cfg, nil)
+	v.server.SetState("input_text.vacuum_fence_saved", "unknown", map[string]interface{}{"max": float64(255)})
+	v.waitClient("input_text.vacuum_fence_saved", "unknown")
+
+	t.Log("GIVEN: the study is dirty and the fence helper reads unknown")
+	v.markDirty("study")
+	v.tick()
+
+	plan := v.out().Plan
+	require.NotNil(t, plan)
+	assert.Contains(t, plan.Reason, "is unknown; waiting", "plan says why the run is held")
+	assert.Nil(t, v.out().Run, "no run while helper reads unknown within the grace")
+
+	t.Log("WHEN: 1 second passes (still within the 2-second grace)")
+	v.advance(time.Second)
+	assert.Nil(t, v.out().Run, "still blocked within the grace")
+
+	t.Log("WHEN: 3 more seconds pass (past both the 2-second grace and the 2-second stable_for)")
+	v.advance(3 * time.Second)
+
+	t.Log("THEN: a run starts once the grace and stable_for have elapsed")
+	require.NotNil(t, v.out().Run, "plan: %+v", v.out().Plan)
+	assert.Equal(t, []string{"study"}, v.out().Run.Targets)
+}
+
 // GIVEN no run is tracked and the robot stands idle in the bedroom, away from the dock, with the flag
 // resumable, as it was left after tonight's pause
 // WHEN ten minutes pass while a person is in the hall, on its way home, and then the person leaves the hall

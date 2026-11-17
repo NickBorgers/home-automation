@@ -47,6 +47,9 @@ const (
 	defaultFenceMarginM  = 0.25
 	maxFenceMarginM      = 1.0
 	defaultStrandedAfter = 5 * time.Minute
+	// defaultFenceHelperGrace is how long input_text.vacuum_fence_saved may read "unknown" before the
+	// scheduler treats it as empty.
+	defaultFenceHelperGrace = 2 * time.Minute
 )
 
 // roomNamePattern keeps room names usable inside Home Assistant entity ids.
@@ -98,6 +101,11 @@ type SchedulerConfig struct {
 	FenceNoEnter *bool `yaml:"fence_no_enter"`
 	// FenceMarginM is how far, in metres, each wall reaches past both door jambs. Default 0.25.
 	FenceMarginM *float64 `yaml:"fence_margin_m"`
+	// FenceHelperGraceRaw is how long input_text.vacuum_fence_saved may read "unknown" at startup before it
+	// counts as empty. Default 2m; 0 means at once. "unavailable" is never treated as empty.
+	FenceHelperGraceRaw string `yaml:"fence_helper_grace"`
+	// FenceHelperGrace is the parsed fence_helper_grace.
+	FenceHelperGrace time.Duration `yaml:"-"`
 	// StrandedAfterRaw is how long the robot may stand idle or paused away from the dock, with no run
 	// tracked, before an active scheduler sends it home. Default 5m.
 	StrandedAfterRaw string `yaml:"stranded_after"`
@@ -356,6 +364,17 @@ func (c *SchedulerConfig) validate() error {
 	if c.StrandedAfter, err = parseDuration("scheduler.stranded_after", c.StrandedAfterRaw, defaultStrandedAfter,
 		false); err != nil {
 		return err
+	}
+	c.FenceHelperGrace = defaultFenceHelperGrace
+	if c.FenceHelperGraceRaw != "" {
+		g, perr := time.ParseDuration(c.FenceHelperGraceRaw)
+		if perr != nil {
+			return fmt.Errorf("parse scheduler.fence_helper_grace %q: %w", c.FenceHelperGraceRaw, perr)
+		}
+		if g < 0 {
+			return fmt.Errorf("scheduler.fence_helper_grace must not be negative, got %s", g)
+		}
+		c.FenceHelperGrace = g
 	}
 	if m := c.FenceMargin(); m < 0 || m > maxFenceMarginM {
 		return fmt.Errorf("scheduler.fence_margin_m %g must be at least 0 and at most %g", m, maxFenceMarginM)
