@@ -63,7 +63,9 @@ For an out-of-scope failure, do NOT edit code and do NOT push. Instead:
 
 [Name the failing test and why it is unrelated to this PR]
 
-Tracked in #<issue>. Re-ran the failed jobs. No changes pushed.'
+Tracked in #<issue>. Re-ran the failed jobs. No changes pushed.
+
+<!-- ai-fix-out-of-scope:${TRIGGERING_SHA} -->'
 
 If some failures are in scope and some are not, fix only the in-scope ones and handle the others as above.
 
