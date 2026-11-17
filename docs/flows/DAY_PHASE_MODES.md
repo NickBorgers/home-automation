@@ -336,8 +336,8 @@ flowchart TB
 
 | Zone | Priority | Trigger Conditions | Speakers |
 |------|----------|-------------------|----------|
-| `sleep-prep` | 90 | `dayPhase=night` + `isAnyoneHome=true` + `isMasterAsleep=false` | Pantry, Lounge, Primary Bed, Sitting (whole house) |
-| `sleep` | 100 | `isMasterAsleep=true` + `isAnyoneHome=true` + `isWakeSequenceActive=false` | Primary Bed only |
+| `sleep-prep` | 90 | `dayPhase=night` + `isAnyoneHome=true` + `isMasterAsleep=false` | Pantry, Lounge, Primary Bed, Primary Bath, Sitting (whole house) |
+| `sleep` | 100 | `isMasterAsleep=true` + `isAnyoneHome=true` + `isWakeSequenceActive=false` | Primary Bed, Primary Bath |
 | `morning` | 50 | `dayPhase=morning` + `isAnyoneAsleep=false` + `isAnyoneHome=true` **OR** `isWakeSequenceActive=true` + `dayPhase=morning` + `isAnyoneHome=true` **OR** `dayPhase=morning` + `isAnyoneHomeAndAwake=true` (wake latch) **OR** `isEarlyWakeActive=true` + `isAnyoneHome=true` (early wake, any day phase) | Pantry, Lounge, Kids Bathroom, Sitting (Primary Bed excluded via `exclude_if: isMasterAsleep=true`) |
 
 ### Key Behaviors

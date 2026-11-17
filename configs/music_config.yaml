@@ -449,7 +449,10 @@ music:
           - variable: isTVPlaying
             value: true
       - player_name: "Primary Bed"
-        base_volume: 12
+        base_volume: 15
+        leave_muted_if: []
+      - player_name: "Primary Bath"
+        base_volume: 9
         leave_muted_if: []
       - player_name: "Sitting"
         base_volume: 9
@@ -473,7 +476,10 @@ music:
   sleep:
     participants:
       - player_name: "Primary Bed"
-        base_volume: 12
+        base_volume: 15
+        leave_muted_if: []
+      - player_name: "Primary Bath"
+        base_volume: 9
         leave_muted_if: []
     playback_options:
       # Rain sounds - 2h composite playlists (avoids Sonos loop degradation)
