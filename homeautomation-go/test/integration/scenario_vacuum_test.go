@@ -22,6 +22,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zaptest/observer"
 )
 
 // ============================================================================
@@ -76,6 +78,7 @@ type vacuumScenario struct {
 	clk    *clock.MockClock
 	sched  *vacuum.Scheduler
 	shadow *shadowstate.VacuumTracker
+	logs   *observer.ObservedLogs
 }
 
 // vacuumPixel turns a house point into a Valetudo map pixel for the frame set below.
@@ -145,14 +148,15 @@ func setupVacuumScenarioWith(t *testing.T, cleanedAgo map[string]time.Duration, 
 	cfg := loadVacuumSchedulerConfig(t, robot.URL, extraConfig)
 	clk := clock.NewMockClock(vacuumT0)
 	tracker := shadowstate.NewVacuumTracker()
+	logCore, logs := observer.New(zap.InfoLevel)
 	s := vacuum.NewScheduler(context.Background(), client, sm, cfg, m, valetudo.NewClient(robot.URL, nil), hub,
-		tracker, nil, testlogger.New(), false, clk)
+		tracker, nil, zap.New(logCore), false, clk)
 	s.SetManualTicksForTest()
 	require.NoError(t, s.Start())
 	t.Cleanup(s.Stop)
 
 	return &vacuumScenario{t: t, server: server, client: client, sm: sm, robot: robot, hub: hub, rp: rp, clk: clk,
-		sched: s, shadow: tracker}
+		sched: s, shadow: tracker, logs: logs}
 }
 
 func loadVacuumSchedulerConfig(t *testing.T, url, extra string) *vacuum.SchedulerConfig {
@@ -471,5 +475,8 @@ func TestScenario_Vacuum_PauseWhenWayHomeIsOpenToAPerson(t *testing.T) {
 	assert.Equal(t, "pause", cmds[0].Body["action"])
 	assert.True(t, v.out().Run.Paused)
 	assert.Contains(t, v.out().Run.AbortReason, "kitchen")
+	entries := v.logs.FilterMessage("Vacuum route is no longer available").All()
+	require.Len(t, entries, 1)
+	assert.Contains(t, entries[0].ContextMap()["reason"], "area kitchen is occupied or unknown")
 	assert.Equal(t, "on", v.server.GetState("input_boolean.vacuum_dirty_kitchen").State, "unfinished rooms stay dirty")
 }

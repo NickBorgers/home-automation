@@ -65,7 +65,7 @@ var defaultSpeakers = []string{
 }
 
 // LoadConfig reads the vacuum plugin config from a YAML file. Missing fields
-// fall back to safe defaults so a partially-specified config still works.
+// fall back to conservative defaults so a partially-specified config still works.
 func LoadConfig(path string) (*Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {

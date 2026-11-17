@@ -142,7 +142,7 @@ func ComputeRestrictions(g RoomGraph, blockedAreas map[string]bool, sleeperRooms
 }
 
 // LegCrosses returns the first room in noEnter on the shortest way from one room to another, or "" when the
-// way is clear. The robot plans its own route, so the planner checks the shortest one, not any safe one.
+// way is clear. The robot plans its own route, so the planner checks the shortest one, not any alternate one.
 // The start room is exempt: the robot is already there. ok is false when there is no way at all.
 func LegCrosses(g RoomGraph, from, to string, noEnter map[string]string) (crossed string, ok bool) {
 	rooms, _, ok := g.ShortestPath(from, to, nil)
@@ -316,7 +316,7 @@ func BuildPlan(in PlanInput) Plan {
 		plan.Treatment = ""
 		plan.Cost = 0
 		plan.Items = nil
-		plan.Reason = "no dirty room fits a safe tour"
+		plan.Reason = "no dirty room fits an available tour"
 	}
 	return plan
 }

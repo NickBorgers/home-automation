@@ -29,7 +29,7 @@ import (
 // Walls are set only before the run starts. Valetudo itself lets restrictions change at any time (its Dreame
 // code sends the firmware a map_edit action and only the firmware's answer decides), but the scheduler never
 // changes them during a job: what the firmware does with a change in the middle of a job is not known.
-// Occupancy changes during a run use the live-safety rules instead (pause or return home).
+// Occupancy changes during a run use the live occupancy-routing rules instead (pause or return home).
 
 // fenceEntity holds the owner's virtual restrictions while the scheduler's walls are up. "" means nothing is
 // waiting to be restored.

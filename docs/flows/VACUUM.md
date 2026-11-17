@@ -4,7 +4,8 @@ The vacuum plugin (`homeautomation-go/internal/plugins/vacuum/`) does two things
 
 1. **Error announcer.** It speaks the robot's errors and repeats them until they clear. See
    [ARCHITECTURE.md](../architecture/ARCHITECTURE.md#15-vacuum-plugin-).
-2. **Dirty-room scheduler.** It cleans rooms when they are dirty, safe to clean, and fit in the battery.
+2. **Dirty-room scheduler.** It cleans rooms when they are dirty, available under room access constraints, and fit
+   in the battery.
 
 This page covers the scheduler. It is off unless `vacuum_config.yaml` sets `scheduler.mode`.
 
@@ -109,7 +110,7 @@ flowchart TD
 - Paths use the room graph from the house map: rooms joined by interior doors and openings, measured
   between door midpoints. A room that is not in `scheduler.rooms`, such as an open-plan link, can be driven
   through but is never cleaned.
-- The robot plans its own route. So a leg is safe only when its **shortest** way is clear. A longer safe
+- The robot plans its own route. So a leg is available only when its **shortest** way is clear. A longer available
   way does not count.
 - Every dirty item left out gets a reason in `plan.skipped`.
 
@@ -194,7 +195,7 @@ sequenceDiagram
 - Walls are set only before a run. Valetudo itself lets restrictions change at any time: its Dreame code sends
   the firmware a `map_edit` action, and only the firmware's answer decides. What the firmware does with a change
   in the middle of a job is not known, so the scheduler never changes them then. People who move during the run
-  are handled by [Live safety](#live-safety).
+  are handled by [Live occupancy-aware routing](#live-occupancy-aware-routing).
 - Valetudo answers a read from the map it polled last, and polls again after a change. So a change can show a
   few seconds late. The scheduler reads back up to ten times, one second apart.
 
@@ -288,7 +289,7 @@ What counts as no progress:
 
 - Status `error` always counts.
 - Status `idle` or `paused` counts, even with the flag `resumable`. It does not count while the dock washes
-  the mop, or after the live-safety rules paused the robot, while it waits for its way home to clear. A Dreame
+  the mop, or after the live occupancy-routing rules paused the robot, while it waits for its return path to clear. A Dreame
   reports `idle`, not `paused`, after a pause, with the flag `resumable` or none. Both count as that pause.
 - Status `docked` does not count, even with the flag `resumable`. A robot that goes back to recharge in the
   middle of a job stays docked with `resumable` until it has enough charge to go on, which can take hours. A
@@ -347,7 +348,7 @@ stateDiagram-v2
   does not change the fan, and a robot back in the current room keeps cleaning at the treatment's level. A
   later room of the tour, or any other room, keeps the fan low while the robot drives through. A room the
   robot stays in for `min_dwell` counts as being cleaned, as in tracking, so its fan goes up too.
-- The fan is low while the robot is not cleaning: leaving the dock, a mop wash, after the live-safety rules
+- The fan is low while the robot is not cleaning: leaving the dock, a mop wash, after the live occupancy-routing rules
   sent it home or paused it, and the trip home at the end. After the run, no other fan level is restored. The
   next run sets its own.
 - A fan command is sent only when the wanted level changes.
@@ -368,7 +369,7 @@ stateDiagram-v2
 - A treatment without `fan_speed`, or with the same one as `travel_fan_speed`, does not switch.
 - An empty `travel_fan_speed` turns quiet travel off. The run keeps the treatment's fan speed throughout.
 
-## Live safety
+## Live occupancy-aware routing
 
 On every poll and on every occupancy or sleep change, the scheduler re-checks its own run.
 
@@ -386,7 +387,8 @@ flowchart TD
 - A paused robot goes home once the way clears. It does not resume the run.
 - A robot the scheduler paused is waiting for its way home, whether it reports `paused` or `idle`. That run never
   ends by stall, and an `idle` robot does not end it either. Only `error` still ends it after `stall_timeout`.
-- A robot in a `no_enter` room is unsafe at once, whether it went off the planned way or someone walked in.
+- A robot in a `no_enter` room has no available onward route at once, whether it went off the planned way or
+  someone walked in.
 - Every room change during a tracked run is logged ("Vacuum moved to another room"), with `on_route` for our own
   runs. A room that is neither on the planned way nor a target logs "Vacuum is off its planned route".
 - From the dock to the first target, the robot is polled every `travel_track_interval` (5 seconds), so a robot
@@ -447,7 +449,7 @@ shadow state. It never stops the error announcer.
   polls, ends the run early. Its current room then counts as done. Check this during the `log_only` period.
 - A robot in `error` for less than `stall_timeout` keeps its run open, so a stuck robot that is freed and
   resumes soon is still the same run. One freed later is a new run. If that was the scheduler's own run, the
-  resumed job is watched as a run started elsewhere: the live-safety rules no longer apply to it.
+  resumed job is watched as a run started elsewhere: the live occupancy-routing rules no longer apply to it.
 - A run started elsewhere is split when the reported operation mode differs after a stop. A robot that
   reported another mode while it washed its mop would split one job into two; its current room stays dirty.
 - A sticky room presence token can block rooms for hours. The skip reasons show it.

@@ -142,7 +142,7 @@ func TestSchedulerMidJobMopWashIsPartOfTheRun(t *testing.T) {
 	require.Nil(t, e.sched().Run)
 	assert.Equal(t, "completed", e.sched().LastRun.Outcome)
 	assert.Equal(t, []string{"lounge", "kitchen"}, e.sched().LastRun.Done)
-	assert.Empty(t, e.robot.Commands()[4:], "no pause and no home: the wash is not a safety problem")
+	assert.Empty(t, e.robot.Commands()[4:], "no pause and no home: the wash does not affect route availability")
 }
 
 // A mid-job recharge without positions must not trigger the "mark every target done" fallback.
@@ -162,7 +162,7 @@ func TestSchedulerMidJobRechargeWithoutPositionMarksNothing(t *testing.T) {
 	assert.Equal(t, "on", e.state("input_boolean.vacuum_dirty_kitchen"))
 }
 
-// When the robot's state cannot be read during our run, the safety rules still work from the last state and
+// When the robot's state cannot be read during our run, the occupancy-routing rules still work from the last state and
 // the last room seen.
 func TestSchedulerSafetyKeepsWorkingWhenRobotStateFails(t *testing.T) {
 	e := newSchedEnv(t, ModeActive)

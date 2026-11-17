@@ -26,7 +26,7 @@ import (
 //     it is cleaning now. Travel, rooms driven through and the trip home are at
 //     the travel fan speed.
 //   - A fan command is sent only when the wanted level changes.
-//   - When the live-safety rules send the robot home, it drives home quietly.
+//   - When the live occupancy-routing rules send the robot home, it drives home quietly.
 // ============================================================================
 
 const quietTravelConfig = `    travel_fan_speed: low

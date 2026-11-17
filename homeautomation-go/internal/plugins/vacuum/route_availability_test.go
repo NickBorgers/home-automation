@@ -29,7 +29,7 @@ func TestSchedulerRechecksWayHomeAfterAbort(t *testing.T) {
 	e.s.TickForTest(true)
 	require.Equal(t, []string{cmdHome}, e.commandPaths())
 
-	clearAreas(e.hub, "kitchen", "pantry") // now the way home is blocked too
+	clearAreas(e.hub, "kitchen", "pantry") // now the return path is blocked too
 	e.s.TickForTest(true)
 	assert.Equal(t, []string{cmdHome, cmdPause}, e.commandPaths())
 	assert.True(t, e.sched().Run.Paused)
@@ -97,7 +97,7 @@ func TestSchedulerLiveCheckBlocksWholeOpenRegion(t *testing.T) {
 	assert.Equal(t, []string{cmdPause, cmdHome}, e.commandPaths(), "home once the open region is clear")
 }
 
-// A person who walks into the far end of an open region makes its near end unsafe to clean, even though
+// A person who walks into the far end of an open region makes its near end unavailable to clean, even though
 // the robot's way there does not touch the room they are in.
 func TestSchedulerLiveCheckAbortsWhenNextRoomIsOpenToAPerson(t *testing.T) {
 	e := newSchedEnv(t, ModeActive, func(cfg *SchedulerConfig, _ *housemap.Map) {
