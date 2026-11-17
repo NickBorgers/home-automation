@@ -282,6 +282,12 @@ func (m *Manager) decideAndSend(dev *deviceBrightness, out shadowstate.DeviceBri
 		return out
 	}
 	if err := send(); err != nil {
+		if errors.Is(err, bravia.ErrTurnedOff) {
+			// The display is off. That is not a fault: the next lux change tries again.
+			m.logger.Debug("TV display is off, brightness not set", zap.String("device", name))
+			out.Decision = "TV screen not ready"
+			return out
+		}
 		m.logger.Warn("Failed to set brightness", zap.String("device", name), zap.Error(err))
 		out.Decision = "send failed: " + err.Error()
 		return out

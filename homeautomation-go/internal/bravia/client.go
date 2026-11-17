@@ -159,7 +159,8 @@ func (c *Client) call(ctx context.Context, method string, param interface{}) (js
 }
 
 // rpcError turns a Bravia error array, [code, "message"], into an error.
-// A "not power-on" message means the screen is off (pybravia maps it to BraviaTurnedOff).
+// Code 40005 means the screen is off. The message differs by call: reads say "not power-on" (pybravia
+// maps that to BraviaTurnedOff), and writes on the A80K say "Display Is Turned off".
 func rpcError(method string, parts []json.RawMessage) error {
 	var code int
 	var msg string
@@ -167,7 +168,7 @@ func rpcError(method string, parts []json.RawMessage) error {
 	if len(parts) > 1 {
 		_ = json.Unmarshal(parts[1], &msg)
 	}
-	if strings.Contains(strings.ToLower(msg), "not power-on") {
+	if code == 40005 || strings.Contains(strings.ToLower(msg), "not power-on") {
 		return fmt.Errorf("%w (%s: %d %s)", ErrTurnedOff, method, code, msg)
 	}
 	if code == 401 || code == 403 {

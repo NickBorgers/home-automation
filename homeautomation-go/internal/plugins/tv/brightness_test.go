@@ -150,6 +150,11 @@ func TestApplyBrightness(t *testing.T) {
 			wantDecision: "applied", wantTV: "send failed: boom", wantSync: "set 100", wantSyncCalls: 1,
 		},
 		{
+			name: "display off at write time", lux: 150,
+			pic:          &fakePicture{setting: bravia.Setting{Current: 25, Max: 50}, setErr: fmt.Errorf("wrapped: %w", bravia.ErrTurnedOff)},
+			wantDecision: "applied", wantTV: "TV screen not ready", wantSync: "set 100", wantSyncCalls: 1,
+		},
+		{
 			name: "sync box set fails", lux: 150, syncErr: errors.New("nope"),
 			wantDecision: "applied", wantTV: "not configured (BRAVIA_IP or BRAVIA_PSK unset)", wantSync: "send failed: nope",
 		},
