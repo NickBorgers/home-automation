@@ -524,7 +524,7 @@ These speakers are discovered by SoCo and match the `player_name` values in `con
 | Primary Bath | Yes | Sleep-prep and sleep only |
 | Sitting | Yes | |
 | Barn | No | Not used in music automation |
-| Soundbar | Yes | Morning and day modes only. Not used for TTS notifications |
+| Soundbar | Yes | All Kitchen-containing zones (morning, day, evening, winddown, sleep-prep). Not used for TTS notifications |
 
 The old "Bedroom" speaker (`media_player.bedroom`) is offline.
 Run `curl -s https://soco-cli.featherback-mermaid.ts.net/rediscover` before you trust the list. A stale cache can hide speakers.

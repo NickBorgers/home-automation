@@ -328,6 +328,9 @@ When `isTVPlaying` changes from `true` to `false`:
 2. Re-evaluates the speaker's mute conditions
 3. Unmutes the Sitting speaker (already at target volume)
 
+The Soundbar is configured in every playback zone that contains Kitchen, but its mute policy is independent:
+Kitchen follows `isTVPlaying`, while the grouped Soundbar follows `isGuestAsleep`.
+
 ## Volume Fade-In
 
 Speakers fade in gradually to avoid sudden loud sounds:
