@@ -470,15 +470,19 @@ music:
             value: true
     playback_options:
       # Rain sounds - 2h composite playlists (avoids Sonos loop degradation)
-      # Volume multipliers bumped after 2h re-encoding
+      # Multiplier 1.6 chosen to hit effective volumes 14 / 16 / 24 from base volumes 9 / 10 / 15.
       # yamllint disable-line rule:line-length
       - uri: "http://rain-sounds.nickborgers.net:8080/playlists/sleep-rain-1.m3u"
         media_type: music
         volume_multiplier: 1.6
       # yamllint disable-line rule:line-length
+      - uri: "http://rain-sounds.nickborgers.net:8080/playlists/sleep-rain-2.m3u"
+        media_type: music
+        volume_multiplier: 1.6
+      # yamllint disable-line rule:line-length
       - uri: "http://rain-sounds.nickborgers.net:8080/playlists/sleep-rain-4.m3u"
         media_type: music
-        volume_multiplier: 1.3
+        volume_multiplier: 1.6
 
   # sleep: Primary Bed and Primary Bath rain sounds after master goes to bed
   # Rest of house doesn't need sleep sounds once master is in bed
@@ -492,15 +496,19 @@ music:
         leave_muted_if: []
     playback_options:
       # Rain sounds - 2h composite playlists (avoids Sonos loop degradation)
-      # Volume multipliers bumped after 2h re-encoding
+      # Multiplier 1.6 chosen to hit effective volumes 14 / 24 from base volumes 9 / 15.
       # yamllint disable-line rule:line-length
       - uri: "http://rain-sounds.nickborgers.net:8080/playlists/sleep-rain-1.m3u"
         media_type: music
         volume_multiplier: 1.6
       # yamllint disable-line rule:line-length
+      - uri: "http://rain-sounds.nickborgers.net:8080/playlists/sleep-rain-2.m3u"
+        media_type: music
+        volume_multiplier: 1.6
+      # yamllint disable-line rule:line-length
       - uri: "http://rain-sounds.nickborgers.net:8080/playlists/sleep-rain-4.m3u"
         media_type: music
-        volume_multiplier: 1.3
+        volume_multiplier: 1.6
   sex:
     participants:
       - player_name: "Primary Bed"
