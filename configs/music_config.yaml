@@ -470,8 +470,7 @@ music:
             value: true
     playback_options:
       # Rain sounds - 2h composite playlists (avoids Sonos loop degradation)
-      # A 1.6 multiplier produces the requested 1.5x reference targets after rounding:
-      # base volumes 9, 10, and 15 become effective volumes 14, 16, and 24.
+      # Multiplier 1.6 chosen to hit effective volumes 14 / 16 / 24 from base volumes 9 / 10 / 15.
       # yamllint disable-line rule:line-length
       - uri: "http://rain-sounds.nickborgers.net:8080/playlists/sleep-rain-1.m3u"
         media_type: music
@@ -497,8 +496,7 @@ music:
         leave_muted_if: []
     playback_options:
       # Rain sounds - 2h composite playlists (avoids Sonos loop degradation)
-      # A 1.6 multiplier produces the requested 1.5x reference targets after rounding:
-      # base volumes 9 and 15 become effective volumes 14 and 24.
+      # Multiplier 1.6 chosen to hit effective volumes 14 / 24 from base volumes 9 / 15.
       # yamllint disable-line rule:line-length
       - uri: "http://rain-sounds.nickborgers.net:8080/playlists/sleep-rain-1.m3u"
         media_type: music
