@@ -95,7 +95,7 @@ func TestSchedulerStallClockResetsOnProgress(t *testing.T) {
 	assert.NotNil(t, e.sched().Run, "each stretch was 20 minutes")
 }
 
-// Mop washes, recharges and a pause the live-safety rules sent are not stalls, however long they last. A
+// Mop washes, recharges and a pause the live occupancy-routing rules sent are not stalls, however long they last. A
 // recharge to resume a job can take hours, so a docked robot with a job in progress is never a stall unless
 // the stall began with an error.
 func TestSchedulerMopWashAndRechargeDoNotStall(t *testing.T) {
@@ -156,7 +156,7 @@ func TestSchedulerErrorThenDockedResumableStalls(t *testing.T) {
 	assert.Equal(t, "robot in error for 30m: status docked, flag resumable", e.sched().LastRun.EndReason)
 }
 
-// The live-safety rules paused the robot because its way home is blocked. The scheduler still owns the run:
+// The live occupancy-routing rules paused the robot because its return path is blocked. The scheduler still owns the run:
 // it is not a stall, and the robot is sent home once the way clears.
 func TestSchedulerSafetyPauseDoesNotStall(t *testing.T) {
 	e := newSchedEnv(t, ModeActive)

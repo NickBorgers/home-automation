@@ -692,7 +692,7 @@ func TestSchedulerIdleAfterSafetyPauseIsOurPause(t *testing.T) {
 			}
 			require.NotNil(t, e.sched().Run, "waiting for the way home is not a stall, nor the end of the run")
 			assert.True(t, e.sched().Run.Paused)
-			assert.Empty(t, e.robot.Commands(), "nothing is sent while the way home is blocked")
+			assert.Empty(t, e.robot.Commands(), "nothing is sent while the return path is blocked")
 
 			clearAreas(e.hub)
 			e.s.TickForTest(true)
@@ -736,7 +736,7 @@ func TestSchedulerSendsStrandedRobotHome(t *testing.T) {
 		assert.Len(t, e.robot.Commands(), 2, "again after another stranded_after")
 	})
 
-	t.Run("waits while the way home is blocked", func(t *testing.T) {
+	t.Run("waits while the return path is blocked", func(t *testing.T) {
 		e := newSchedEnv(t, ModeActive)
 		e.start()
 		clearAreas(e.hub, "pantry")

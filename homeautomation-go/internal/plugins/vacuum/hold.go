@@ -22,7 +22,7 @@ func (s *Scheduler) holdVars() []string {
 
 // holdReason says which hold_while condition holds new runs, such as "held: isTVPlaying is true", or "" when
 // none does. A variable that cannot be read does not hold; it is warned about while it cannot be read. This
-// deliberately fails open, unlike unreadable sleeper variables, which fail safe by counting as asleep: a
+// deliberately fails open, unlike unreadable sleeper variables, which are treated conservatively as asleep: a
 // misconfigured hold silently blocking cleaning forever is worse than a missed wakeup. The caller holds tickMu.
 func (s *Scheduler) holdReason() string {
 	for _, h := range s.cfg.HoldWhile {

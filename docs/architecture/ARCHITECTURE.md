@@ -525,7 +525,8 @@ reads `isAnyoneHome` for clear confirmations
   a restart
 - Follows the robot's room from the Valetudo map and the house map frame; marks rooms clean as it leaves them;
   learns battery costs per room and for the trip
-- Sends the robot home, or pauses it when the way home is blocked, when its run becomes unsafe. A robot it
+- Sends the robot home, or pauses it when the return path is blocked by an occupied or unknown room, when its
+  route becomes unavailable. A robot it
   paused stays its pause, whether the robot reports paused or idle, until the way home clears
 - With no run tracked, sends home a robot left idle or paused away from the dock for `stranded_after`, once its
   way home is clear

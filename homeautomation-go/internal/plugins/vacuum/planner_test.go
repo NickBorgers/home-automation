@@ -128,7 +128,7 @@ func TestBuildPlan(t *testing.T) {
 		},
 		{
 			// The bed can be reached through the office, but the robot's shortest way is through the pantry.
-			name:   "rule 1: the shortest way counts, not any safe way",
+			name:   "rule 1: the shortest way counts, not any alternate way",
 			items:  []PlanItem{full("bed", 3, 5)},
 			mutate: func(in *PlanInput) { in.BlockedAreas["pantry"] = true },
 			reason: "no dirty room may be cleaned now",
@@ -349,7 +349,7 @@ func (f *fakeGraph) ShortestPath(from, to string, _ map[string]bool) ([]string, 
 	return nil, 0, false
 }
 
-// TestOrderTourDropsRoomWhoseLegIsBlocked covers a room that is safe from the dock but whose way from the
+// TestOrderTourDropsRoomWhoseLegIsBlocked covers a room available from the dock but whose way from the
 // previous room in the tour crosses a blocked room.
 func TestOrderTourDropsRoomWhoseLegIsBlocked(t *testing.T) {
 	g := &fakeGraph{
@@ -389,7 +389,7 @@ func TestOrderTourDropsRoomWithBlockedWayHome(t *testing.T) {
 	}
 	p := BuildPlan(in)
 	assert.True(t, p.Empty())
-	assert.Equal(t, "no dirty room fits a safe tour", p.Reason)
+	assert.Equal(t, "no dirty room fits an available tour", p.Reason)
 	assert.Contains(t, skipReason(p, "a", TreatmentFull), "way from a to dock enters x")
 }
 

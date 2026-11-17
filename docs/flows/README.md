@@ -30,7 +30,7 @@ These documents provide visual understanding of the current Go implementation th
 | [TESLA_ENERGY_CHARGING.md](./TESLA_ENERGY_CHARGING.md) | tesla | Car charging based on energy levels |
 | [PICO_BUTTONS.md](./PICO_BUTTONS.md) | picos | Lutron Pico buttons step pantry and kitchen lights |
 | [EARLY_WAKE.md](./EARLY_WAKE.md) | earlywake | Common areas wake while a bedroom sleeps |
-| [VACUUM.md](./VACUUM.md) | vacuum | Dirty-room scheduler: safe rooms, battery packing, live safety |
+| [VACUUM.md](./VACUUM.md) | vacuum | Dirty-room scheduler: occupancy-aware routing, battery packing, live room access |
 
 ### Reference
 

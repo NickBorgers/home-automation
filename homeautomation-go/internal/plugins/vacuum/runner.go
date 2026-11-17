@@ -358,9 +358,9 @@ func (s *Scheduler) tick(woke bool) {
 		s.robotErr = err.Error()
 		s.warn("robot", "cannot read the robot: "+err.Error())
 		if r := s.run; r != nil && r.origin == originScheduler && s.robotState != nil {
-			// The robot cannot be read, but it may still take commands. Keep the safety rules working with
+			// The robot cannot be read, but it may still take commands. Keep occupancy-aware routing working with
 			// what was last seen: the last state and the last room.
-			s.checkSafety(s.robotState, "", false)
+			s.checkRouteAvailability(s.robotState, "", false)
 		}
 		s.evaluateTaints(now)
 		s.fanWarnings()
@@ -817,7 +817,7 @@ func (s *Scheduler) trackRun(now time.Time, st *valetudo.State) {
 	// example to wash its mop or to recharge. A dock that is washing also means the job may go on. Only a
 	// docked or idle robot with neither counts as the end, and only after endConfirmPolls polls in a row.
 	// Until then the room being cleaned is not finished: the robot may come back to it.
-	// A robot the live-safety rules paused is ours until it is home, whatever it reports: a Dreame reports
+	// A robot the live occupancy-routing rules paused is ours until it is home, whatever it reports: a Dreame reports
 	// idle after a pause, with or without the flag.
 	midJob := st.Flag == valetudo.FlagResumable || st.DockStatus == valetudo.DockStatusCleaning
 	ended := (st.Status == valetudo.StatusDocked || (st.Status == valetudo.StatusIdle && !r.paused)) && !midJob
@@ -847,7 +847,7 @@ func (s *Scheduler) trackRun(now time.Time, st *valetudo.State) {
 		}
 	}
 	if r.origin == originScheduler {
-		s.checkSafety(st, room, posOK)
+		s.checkRouteAvailability(st, room, posOK)
 		s.steerFan(r, st, room, posOK)
 	}
 }
@@ -855,7 +855,7 @@ func (s *Scheduler) trackRun(now time.Time, st *valetudo.State) {
 // stallPoll reports whether a poll shows the run making no progress. The rule:
 //
 //   - error always counts.
-//   - idle and paused count, except while the dock washes the mop, and except after a pause the live-safety
+//   - idle and paused count, except while the dock washes the mop, and except after a pause the occupancy-routing
 //     rules sent: the scheduler is waiting for the way home to clear and still owns that run. A Dreame
 //     reports idle, not paused, after a pause, so both count as that pause.
 //   - docked counts only when the stall began with an error. A robot that goes back to the dock to recharge
@@ -1194,16 +1194,16 @@ func (s *Scheduler) logRoomChange(r *run, st *valetudo.State, room string) {
 }
 
 // ---------------------------------------------------------------------------
-// Live safety
+// Live occupancy-aware routing
 // ---------------------------------------------------------------------------
 
-// checkSafety re-checks our own run. When the rest of the tour becomes unsafe, the robot goes home if its
-// way home is clear, and pauses where it is if not. A paused robot goes home once the way clears. The caller
-// holds tickMu.
+// checkRouteAvailability re-checks our own run against current room access constraints. When the rest of the
+// tour becomes unavailable, the robot goes home if its return path is clear, and pauses where it is if not.
+// A paused robot goes home once the path clears. The caller holds tickMu.
 //
 // The way home is checked for as long as the robot is on its way home: after an abort, after a pause, and
 // while it returns at the end of the run.
-func (s *Scheduler) checkSafety(st *valetudo.State, room string, posOK bool) {
+func (s *Scheduler) checkRouteAvailability(st *valetudo.State, room string, posOK bool) {
 	r := s.run
 	restr := ComputeRestrictions(s.graph, s.blockedAreas(), s.sleeperRooms())
 
@@ -1218,12 +1218,12 @@ func (s *Scheduler) checkSafety(st *valetudo.State, room string, posOK bool) {
 
 	goingHome := r.aborted || r.paused || st.Status == valetudo.StatusReturning
 	if !goingHome {
-		reason := s.unsafeReason(st, restr, at)
+		reason := s.routeUnavailableReason(st, restr, at)
 		if reason == "" {
 			return
 		}
 		r.aborted, r.abortReason = true, reason
-		s.logger.Warn("Vacuum run is no longer safe", zap.String("reason", reason), zap.String("robot_room", at),
+		s.logger.Warn("Vacuum route is no longer available", zap.String("reason", reason), zap.String("robot_room", at),
 			zap.Strings("unfinished", r.remaining()))
 	}
 
@@ -1233,15 +1233,15 @@ func (s *Scheduler) checkSafety(st *valetudo.State, room string, posOK bool) {
 	case clear && (r.paused || (r.aborted && !r.homeSent)):
 		why := r.abortReason
 		if r.paused {
-			why = "way home is clear again"
+			why = "return path is clear again"
 		}
 		if s.command(valetudo.ActionHome, why) == nil {
 			r.homeSent, r.paused = true, false
 		}
 	case !clear && !r.paused:
-		why := "way home is blocked"
+		why := "return path blocked"
 		if crossed != "" {
-			why += ": " + crossed
+			why += " by " + crossed + " occupancy (" + restr.NoEnter[crossed] + ")"
 		}
 		if s.command(valetudo.ActionPause, why) == nil {
 			r.paused, r.homeSent = true, false
@@ -1249,8 +1249,8 @@ func (s *Scheduler) checkSafety(st *valetudo.State, room string, posOK bool) {
 	}
 }
 
-// unsafeReason says why the rest of the run is no longer safe, or "".
-func (s *Scheduler) unsafeReason(st *valetudo.State, restr Restrictions, at string) string {
+// routeUnavailableReason says why room access constraints make the rest of the route unavailable, or "".
+func (s *Scheduler) routeUnavailableReason(st *valetudo.State, restr Restrictions, at string) string {
 	if why, bad := restr.NoEnter[at]; bad {
 		// The robot is in a room it must not enter, whether its own path planner went off the planned route
 		// or someone walked in. It leaves at once.
