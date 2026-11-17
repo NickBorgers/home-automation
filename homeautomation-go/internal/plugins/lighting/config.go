@@ -71,12 +71,17 @@ type LuxControlConfig struct {
 	TVRoom bool `yaml:"tv_room"`
 }
 
-// LuxPresenceOverride replaces the automated curve target while a configured presence signal is true
-// in one of the listed day phases. It never bypasses a manual hold.
+// LuxPresenceOverride raises the automated curve target to TargetLux while a configured presence signal
+// is true in one of the listed day phases. It never lowers the target and never bypasses a manual hold.
 type LuxPresenceOverride struct {
 	Variable  string   `yaml:"variable"`
 	Phases    []string `yaml:"phases"`
 	TargetLux float64  `yaml:"target_lux"`
+}
+
+// validDayPhases are the values the dayphase plugin writes to dayPhase.
+var validDayPhases = map[string]bool{
+	"morning": true, "day": true, "sunset": true, "dusk": true, "winddown": true, "night": true,
 }
 
 // LuxFollower is a brightness-only light (an under-cabinet strip) that follows the room's cans.
@@ -218,6 +223,13 @@ func (c *HueConfig) validateLux() error {
 		}
 		if p := lc.PresenceOverride; p != nil && (p.Variable == "" || len(p.Phases) == 0 || p.TargetLux <= 0) {
 			return fmt.Errorf("room %q: presence_override needs variable, phases and target_lux > 0", r.HueGroup)
+		}
+		if p := lc.PresenceOverride; p != nil {
+			for _, phase := range p.Phases {
+				if !validDayPhases[phase] {
+					return fmt.Errorf("room %q: presence_override phase %q is not a day phase", r.HueGroup, phase)
+				}
+			}
 		}
 		seen := map[string]bool{lc.Cans: true}
 		for _, f := range lc.FollowerLights {

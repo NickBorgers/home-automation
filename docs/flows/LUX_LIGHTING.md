@@ -163,7 +163,7 @@ lighting, the code (`manager.go`) had no override detection.
 | TV playing (`skip`) | Unchanged. Hue Sync owns the lights. The room marked `tv_room` still publishes its target as `tvRoomTargetLux`, and the TV plugin sets the TV and sync box brightness from it ([TV_BRIGHTNESS.md](TV_BRIGHTNESS.md)). |
 | Primary suite, `sleephygiene` | Not converted. Sleep and wake stay as they are. |
 | `increase_brightness_if_true: isHaveGuests` | Multiplies the target lux by a factor (proposed 1.5). |
-| Presence target override | A configured camera-presence variable can replace the curve target in selected phases. It never bypasses a manual hold or recalls a scene. |
+| Presence target override | A configured presence variable can raise the curve target in selected phases. It never lowers the target, never bypasses a manual hold, and never recalls a scene. Only the Kitchen and the Pantry use it, both on `isKitchenOccupied`. The Living room does not. |
 | `READ_ONLY=true` | Logs what it would send and records the decision in shadow state. |
 
 ## Configuration sketch
@@ -192,10 +192,6 @@ rooms:
       accent_scene_group: Main Living Accent
       daylight_factor: 0.02     # measured during calibration
       lux_scale: 1.0
-      presence_override:        # optional; signal name comes from deployment config
-        variable: isRoomOccupied
-        phases: [evening, dusk, winddown, night]
-        target_lux: 150
       calibration:              # lux at working height, cans only, at night
         # WARNING: Leaving these at zero makes the cans ignore daylight and never dim in sunlight.
         - { brightness_pct: 25,  lux: 0 } # TODO: fill in from calibration
@@ -341,7 +337,16 @@ What the code does, where it differs from the text above, and what is left.
 - **Expect dimmer evenings.** The phone-app tables were 3 to 4 times too low, so the same target now asks for a lower brightness. For example 40 lux in Living is now about 58%, not 100%. The lights will look dimmer in the evening than before. The chandeliers also change at night: the 1 lux night need is now above their 1% threshold, so they sit on at a few percent (about 2.5% in the Entryway, 5% in the Sitting Chandelier) where they used to be off or borderline.
 - **Chandeliers are `active` and brightness only.** Entryway (`light.entryway_chandelier`) and Sitting Chandelier (`light.sitting_chandelier`) are Lutron Diva dimmers in windowed entryways. The config key `color_temp: false` (default true) makes the plugin skip `color_temp_kelvin`, record no kelvin, and ignore kelvin when it checks for a manual change. Their tables now reach 100%.
 - **`accent_scene_group` is optional.** A room with only cans (Kitchen, Pantry, Mud) leaves it empty. The plugin then recalls no Hue scene for the room. It recalls its companion scenes, if any; no room lists one now.
-- **Presence overrides are config-driven.** `lux_control.presence_override` names the canonical occupancy variable, eligible phases, and working `target_lux`. A signal change runs only the lux controller. Shadow state reports `targetSource` as `presence_override` or `lux_curve`; a held room still reports that source while its decision says the lights were left alone.
+- **Presence overrides are config-driven.** `lux_control.presence_override` names the occupancy variable, eligible day phases, and working `target_lux`. The target is `max(curve, target_lux)`, so presence never dims a room. Config validation rejects a phase name that is not a day phase. Example:
+
+  ```yaml
+  presence_override:
+    variable: isKitchenOccupied
+    phases: [sunset, dusk, winddown, night]
+    target_lux: 100
+  ```
+
+  A signal change runs only the lux controller. Shadow state reports `targetSource` as `presence_override` or `lux_curve`; a held room still reports that source while its decision says the lights were left alone.
 - **The Pantry is a room entry, not a second entity under the Kitchen.** A room holds one `lux_control` block, and the Pantry needs its own calibration and `daylight_factor`. Turn-off targeting follows three-path priority: if `turn_off_entity_id` is set, it targets that entity directly (highest priority); otherwise if `hass_area_id` is set, it targets the area; otherwise (lux-managed rooms like the Pantry with no area), it targets the lux-control cans entity. The Pantry uses the third path: its entry has no `hass_area_id`, so turn-off calls `light.turn_off` on the cans entity directly, without depending on which Home Assistant area the pantry cans sit in.
 - **Follower lights are in `luxcontrol.go`** (`luxDriveFollowers`, `handleFollowerChange`). Followers get a separate per-strip hold (`followerHeld`), not the room hold.
 - **Hold applies in `active` mode only.** In `log_only` the plugin sends no commands, so it has nothing to compare against. Rooms without `lux_control` (step 5 for rooms still on scenes) have no light entity to watch and are not covered yet.

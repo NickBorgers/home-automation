@@ -44,7 +44,7 @@ func TestScenario_KitchenCameraPresenceOverridesOnlyAutomatedLuxTarget(t *testin
 				},
 				PresenceOverride: &lighting.LuxPresenceOverride{
 					Variable:  "isKitchenOccupied",
-					Phases:    []string{"evening", "night"},
+					Phases:    []string{"dusk", "night"},
 					TargetLux: 60,
 				},
 			},
@@ -68,7 +68,7 @@ func TestScenario_KitchenCameraPresenceOverridesOnlyAutomatedLuxTarget(t *testin
 	})
 	require.NoError(t, manager.Start())
 	defer manager.Stop()
-	require.NoError(t, stateManager.SetString("dayPhase", "evening"))
+	require.NoError(t, stateManager.SetString("dayPhase", "dusk"))
 	require.NoError(t, stateManager.SetString("dayPhase", "night"))
 
 	// Guard: in a non-eligible phase the override must NOT apply even when presence is true.

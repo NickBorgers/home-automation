@@ -297,3 +297,66 @@ func TestLuxRooms_MudTurnsOffOnItsOwnWithoutAnArea(t *testing.T) {
 	assert.Equal(t, "light.mud", calls[0].Data["entity_id"], "no hass_area_id, so target the cans")
 	assert.NotContains(t, calls[0].Data, "area_id")
 }
+
+// Kitchen presence brightens only the Kitchen and the Pantry. The Living room, the Mud room and the other
+// lux rooms keep their curve even while the Kitchen is occupied. Presence never dims a room below its curve.
+func TestProductionConfig_KitchenPresenceBrightensOnlyKitchenAndPantry(t *testing.T) {
+	t.Parallel()
+	brightened := map[string]bool{"Kitchen": true, "Pantry": true}
+	cases := []struct {
+		name     string
+		at       time.Time
+		dayPhase string
+		occupied bool
+		want     func(room string) bool
+	}{
+		{"night occupied", at(22, 30), "night", true, func(r string) bool { return brightened[r] }},
+		{"winddown occupied", at(21, 30), "winddown", true, func(r string) bool { return brightened[r] }},
+		{"dusk occupied", at(19, 45), "dusk", true, func(r string) bool { return brightened[r] }},
+		{"night empty", at(22, 30), "night", false, func(string) bool { return false }},
+		{"day occupied", at(12, 0), "day", true, func(string) bool { return false }},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m, env, clk := newProductionRoomFixture(t)
+			clk.Set(tc.at)
+			env.MockHA.SetState(m.config.LuxCurve.OutdoorSensor, "0", nil)
+			require.NoError(t, env.StateMgr.SetString("dayPhase", tc.dayPhase))
+			require.NoError(t, env.StateMgr.SetBool("isKitchenOccupied", tc.occupied))
+			for i := range m.config.Rooms {
+				room := &m.config.Rooms[i]
+				if room.LuxControl == nil {
+					continue
+				}
+				m.luxEvaluate(room, "test")
+				st := m.GetShadowState().Outputs.LuxControl[room.HueGroup]
+				want := "lux_curve"
+				if tc.want(room.HueGroup) {
+					want = "presence_override"
+				}
+				assert.Equal(t, want, st.TargetSource, room.HueGroup)
+			}
+		})
+	}
+}
+
+func TestLuxConfigValidation_PresenceOverrideRejectsUnknownPhase(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		phase   string
+		wantErr bool
+	}{{"night", false}, {"dusk", false}, {"evening", true}} {
+		cfg := &HueConfig{
+			LuxCurve: luxTestCurve(),
+			Rooms: []RoomConfig{{HueGroup: "R", LuxControl: &LuxControlConfig{
+				Mode: LuxModeActive, Cans: "light.x", Calibrated: true, Calibration: luxTestCalibration,
+				PresenceOverride: &LuxPresenceOverride{Variable: "isX", Phases: []string{tc.phase}, TargetLux: 50},
+			}}},
+		}
+		if tc.wantErr {
+			assert.Error(t, cfg.validateLux(), tc.phase)
+		} else {
+			assert.NoError(t, cfg.validateLux(), tc.phase)
+		}
+	}
+}

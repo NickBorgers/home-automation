@@ -322,7 +322,9 @@ func (m *Manager) luxEvaluate(room *RoomConfig, trigger string) {
 				break
 			}
 		}
-		if occupied, err := m.stateManager.GetBool(p.Variable); phaseErr == nil && err == nil && phaseMatches && occupied {
+		occupied, err := m.stateManager.GetBool(p.Variable)
+		// Presence only raises the target. It never dims a room below its curve.
+		if phaseErr == nil && err == nil && phaseMatches && occupied && p.TargetLux > rec.TargetLux {
 			rec.TargetLux = p.TargetLux
 			rec.TargetSource = "presence_override"
 		}
