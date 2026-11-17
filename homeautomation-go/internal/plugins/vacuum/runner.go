@@ -1089,6 +1089,7 @@ func (s *Scheduler) finish(now time.Time, outcome, reason string) {
 	}
 	if (outcome == outcomeError || outcome == outcomeStalled || outcome == outcomeStopped) &&
 		len(r.remaining()) > 0 {
+		// Reuse StallTimeout as the rotation cooldown: same scale of "robot had trouble" and already tunable.
 		s.retryTarget, s.retryReason, s.retryAfter = r.remaining()[0], reason, now.Add(s.cfg.StallTimeout)
 		if s.retryReason == "" {
 			s.retryReason = "run ended with outcome " + outcome
