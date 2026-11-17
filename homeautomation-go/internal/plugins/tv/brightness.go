@@ -29,8 +29,9 @@ const (
 	BrightnessBrightLux = 150.0
 
 	// TVBrightnessDarkFraction is the TV's dimmest setting, as a share of the range the TV reports
-	// (0-50 on the A80K, so 15). GUESS: tune by eye.
-	TVBrightnessDarkFraction = 0.3
+	// (0-50 on the A80K). Tuned by eye 2026-11-16: brightness 0 looks right in the dark room,
+	// because the A80K is not dark at 0.
+	TVBrightnessDarkFraction = 0.0
 
 	// syncBoxMinStep is the smallest sync box change worth a command, in percentage points.
 	syncBoxMinStep = 2
