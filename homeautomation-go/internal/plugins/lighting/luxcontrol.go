@@ -339,8 +339,7 @@ func (m *Manager) luxEvaluate(room *RoomConfig, trigger string) {
 		rec.TargetLux *= factor
 	}
 	if lc.TVRoom {
-		// Published before the hold and condition checks: the TV follows the target even while
-		// the room is in skip because Hue Sync owns the lights.
+		// The TV picture follows the target even while the room is in skip because Hue Sync owns the lights.
 		m.publishTVRoomTargetLux(rec.TargetLux)
 	}
 
@@ -348,6 +347,10 @@ func (m *Manager) luxEvaluate(room *RoomConfig, trigger string) {
 	rec.OutdoorLux = outdoor
 	rec.DaylightEstimate = outdoor * lc.DaylightFactor
 	rec.NeededLux = rec.TargetLux - rec.DaylightEstimate
+	if lc.TVRoom {
+		// Hue Sync gets the curve's calibrated, post-ambient percentage even while the cans are skipped.
+		m.publishTVRoomBrightnessPct(luxToBrightness(lc.Calibration, rec.NeededLux))
+	}
 	note := ""
 	if !haveOutdoor {
 		note = " (outdoor sensor missing; daylight treated as 0)"
@@ -856,5 +859,12 @@ func (m *Manager) noteLuxRoomOff(room *RoomConfig) {
 func (m *Manager) publishTVRoomTargetLux(lux float64) {
 	if err := m.stateManager.SetNumber("tvRoomTargetLux", math.Round(lux*10)/10); err != nil {
 		m.logger.Warn("Failed to publish tvRoomTargetLux", zap.Error(err))
+	}
+}
+
+// publishTVRoomBrightnessPct shares the TV room curve's post-ambient, calibrated output.
+func (m *Manager) publishTVRoomBrightnessPct(pct float64) {
+	if err := m.stateManager.SetNumber("tvRoomBrightnessPct", pct); err != nil {
+		m.logger.Warn("Failed to publish tvRoomBrightnessPct", zap.Error(err))
 	}
 }

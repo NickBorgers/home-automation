@@ -82,6 +82,8 @@ var AllVariables = []StateVariable{
 	{Key: "currentlyPlayingMusic", EntityID: "", Type: TypeJSON, Default: map[string]interface{}{}, LocalOnly: true},
 	// tvRoomTargetLux is the lux target of the lux room marked tv_room (0 until the first tick).
 	{Key: "tvRoomTargetLux", EntityID: "", Type: TypeNumber, Default: 0.0, LocalOnly: true},
+	// tvRoomBrightnessPct is that room's calibrated brightness after ambient light is subtracted.
+	{Key: "tvRoomBrightnessPct", EntityID: "", Type: TypeNumber, Default: 0.0, LocalOnly: true},
 }
 
 // keyAliases maps deprecated state keys to their canonical replacements.

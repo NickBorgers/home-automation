@@ -89,6 +89,7 @@ These variables exist only in memory and are not synced with Home Assistant.
 | didOwnerJustReturnHome | Boolean | Flag for owner arrival announcements |
 | currentlyPlayingMusic | JSON | Current music playback metadata |
 | tvRoomTargetLux | Number | Target lux of the lux room marked `tv_room` (Living). Written by lighting, read by tv. See [TV_BRIGHTNESS.md](../flows/TV_BRIGHTNESS.md) |
+| tvRoomBrightnessPct | Number | Calibrated post-ambient brightness percentage of the `tv_room`. Written by lighting, read by tv for Hue Sync brightness. See [TV_BRIGHTNESS.md](../flows/TV_BRIGHTNESS.md) |
 
 ---
 

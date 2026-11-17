@@ -130,6 +130,7 @@ graph TB
 
     Sleep -->|Get/Set State| StateManager
     Sleep -->|Call Services| HAClient
+    Sleep -->|Volume Fade| SoCoCLI
     Sleep -.->|Register Shadow| ShadowTracker
 
     Security -->|Get/Set State| StateManager
@@ -976,6 +977,7 @@ graph LR
         RemainingSolar[remainingSolarGeneration]
         DarkOutside[isDarkOutside]
         TVRoomLux[tvRoomTargetLux]
+		TVRoomBrightness[tvRoomBrightnessPct]
     end
 
     subgraph "Output State Variables"
@@ -1094,6 +1096,8 @@ graph LR
     DarkOutside --> Lighting
     Lighting --> TVRoomLux
     TVRoomLux --> TV
+	Lighting --> TVRoomBrightness
+	TVRoomBrightness --> TV
     LivingCans -->|Manual Override Detection| Lighting
     LivingCans -->|Color Tracking Source| Lighting
     BackHallLight -->|Color Tracking Target State| Lighting

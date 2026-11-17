@@ -2,6 +2,7 @@ package integration
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -50,6 +51,33 @@ type wakeMusicFadeEnv struct {
 	stateTracking *statetracking.Manager
 	music         *music.Manager
 	sleepHygiene  *sleephygiene.Manager
+	speaker       *recordingSpeakerClient
+}
+
+type recordingSpeakerClient struct {
+	mu     sync.Mutex
+	volume int
+	levels []int
+}
+
+func (c *recordingSpeakerClient) GetVolume(string) (int, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.volume, nil
+}
+
+func (c *recordingSpeakerClient) SetVolume(_ string, level int) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.volume = level
+	c.levels = append(c.levels, level)
+	return nil
+}
+
+func (c *recordingSpeakerClient) Levels() []int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]int(nil), c.levels...)
 }
 
 func setupWakeMusicFadeTest(t *testing.T) (*wakeMusicFadeEnv, func()) {
@@ -69,7 +97,9 @@ func setupWakeMusicFadeTest(t *testing.T) (*wakeMusicFadeEnv, func()) {
 		stateTracking: statetracking.NewManager(context.Background(), client, stateManager, logger, false, nil, "", &alert.MockAlerter{}),
 		music:         music.NewManager(context.Background(), client, stateManager, musicConfig, logger, false, nil, nil),
 		sleepHygiene:  sleephygiene.NewManager(context.Background(), client, stateManager, configLoader, logger, false, nil, nil),
+		speaker:       &recordingSpeakerClient{volume: 14},
 	}
+	env.sleepHygiene.SetSpeakerClient(env.speaker)
 
 	// Skip real delays in both plugins
 	env.music.SetSleepFunc(func(d time.Duration) {})
@@ -167,7 +197,7 @@ func TestScenario_WakeSequence_BedroomFadeIsGradualNotAbrupt(t *testing.T) {
 	env.server.SetState("input_boolean.fade_out_in_progress", "off", map[string]interface{}{})
 
 	// Set up currentlyPlayingMusic state with bedroom speaker at 14% volume
-	currentMusicJSON := `{"participants":[{"player_name":"media_player.primary_bed","volume":14}]}`
+	currentMusicJSON := `{"participants":[{"player_name":"Primary Bed","volume":14}]}`
 	env.server.SetState("input_text.currently_playing_music", currentMusicJSON, map[string]interface{}{})
 
 	// Allow all plugins to process the initial state. Use a stabilization window
@@ -216,63 +246,10 @@ func TestScenario_WakeSequence_BedroomFadeIsGradualNotAbrupt(t *testing.T) {
 	// ========== THEN ==========
 	t.Log("THEN: Verify the bedroom volume fade-out was GRADUAL, not abrupt")
 
-	calls := env.server.GetServiceCallsSince(snapshot)
-	volumeCalls := filterServiceCalls(calls, "media_player", "volume_set")
-
-	// Filter to only bedroom speaker volume calls
-	var bedroomVolumeCalls []ServiceCall
-	for _, call := range volumeCalls {
-		entityID, _ := call.ServiceData["entity_id"].(string)
-		if entityID == "media_player.primary_bed" {
-			bedroomVolumeCalls = append(bedroomVolumeCalls, call)
-		}
-	}
-
-	// Extract ALL bedroom volume levels in order
-	var allBedroomVolumes []float64
-	for _, call := range bedroomVolumeCalls {
-		volumeLevel, ok := call.ServiceData["volume_level"].(float64)
-		if !ok {
-			continue
-		}
-		allBedroomVolumes = append(allBedroomVolumes, volumeLevel)
-	}
-
-	t.Logf("Total bedroom volume_set calls: %d", len(bedroomVolumeCalls))
-	t.Logf("All bedroom volume levels: %v", allBedroomVolumes)
-
-	// Extract the FADE-OUT sequence from the interleaved calls.
-	// The bedroom receives calls from two sources concurrently:
-	//   1. sleephygiene fadeOutSpeaker: 0.13, 0.12, 0.11, ..., 0.01, 0.00 (1% steps)
-	//   2. music plugin morning zone: fade-in with small increasing values
-	//
-	// The fade-out decrements by exactly 1 percentage point per step (0.01).
-	// Extract calls that form this exact pattern: find the start (highest value
-	// >= 0.10), then match each subsequent expected value.
-	var fadeOutVolumes []float64
-	fadeOutStarted := false
-	var nextExpected float64
-	tolerance := 0.001 // float comparison tolerance
-	for _, vol := range allBedroomVolumes {
-		if !fadeOutStarted {
-			// Look for the first call at or near initial volume (>= 0.10)
-			// The fade-out starts at currentVolume - 1 = 13% = 0.13
-			if vol >= 0.10 {
-				fadeOutStarted = true
-				fadeOutVolumes = append(fadeOutVolumes, vol)
-				nextExpected = vol - 0.01
-			}
-		} else if nextExpected >= -tolerance {
-			// Match the next expected 1% step
-			diff := vol - nextExpected
-			if diff < 0 {
-				diff = -diff
-			}
-			if diff < tolerance {
-				fadeOutVolumes = append(fadeOutVolumes, vol)
-				nextExpected = vol - 0.01
-			}
-		}
+	fadeOutVolumes := env.speaker.Levels()
+	for _, call := range filterServiceCalls(env.server.GetServiceCallsSince(snapshot), "media_player", "volume_set") {
+		assert.NotEqual(t, "media_player.primary_bed", call.ServiceData["entity_id"],
+			"sleep hygiene fade must not call the bedroom Home Assistant media_player")
 	}
 
 	t.Logf("Fade-out volume sequence: %v", fadeOutVolumes)
@@ -290,26 +267,21 @@ func TestScenario_WakeSequence_BedroomFadeIsGradualNotAbrupt(t *testing.T) {
 	for i := 1; i < len(fadeOutVolumes); i++ {
 		assert.LessOrEqual(t, fadeOutVolumes[i], fadeOutVolumes[i-1],
 			"Fade-out volume must DECREASE monotonically: "+
-				"step %d (%.3f) should be <= step %d (%.3f)",
+				"step %d (%d) should be <= step %d (%d)",
 			i+1, fadeOutVolumes[i], i, fadeOutVolumes[i-1])
 	}
 
 	// ASSERTION 3: No abrupt drops > 2% (0.02) between consecutive fade-out calls
 	for i := 1; i < len(fadeOutVolumes); i++ {
 		drop := fadeOutVolumes[i-1] - fadeOutVolumes[i]
-		assert.LessOrEqual(t, drop, 0.02,
-			"ABRUPT DROP DETECTED: Fade-out volume dropped %.1f%% in a single step "+
-				"(step %d: %.3f -> step %d: %.3f). Expected <= 2%% per step.",
-			drop*100, i, fadeOutVolumes[i-1], i+1, fadeOutVolumes[i])
+		assert.LessOrEqual(t, drop, 2,
+			"ABRUPT DROP DETECTED: fade-out dropped %d%% in a single step", drop)
 	}
 
 	// ASSERTION 4: Fade completes to volume 0
 	if len(fadeOutVolumes) > 0 {
 		finalVolume := fadeOutVolumes[len(fadeOutVolumes)-1]
-		assert.Equal(t, 0.0, finalVolume,
-			"Fade-out should complete to volume 0, but got %.3f. "+
-				"This suggests the fade was aborted before completing.",
-			finalVolume)
+		assert.Equal(t, 0, finalVolume, "Fade-out should complete to volume 0")
 	}
 
 	// ASSERTION 5: Wake sequence is active (handleBeginWake ran)

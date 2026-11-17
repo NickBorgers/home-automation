@@ -16,7 +16,7 @@ zones:
       - variable: isMasterAsleep
         value: false
 
-  # sleep: Primary Bed-only sleep sounds AFTER master goes to bed
+  # sleep: Primary Bed and Primary Bath sleep sounds AFTER master goes to bed
   # Doesn't restart during wake sequence (sleephygiene manages the Primary Bed fade-out)
   - name: "sleep"
     priority: 100  # Highest auto-trigger - sleep takes precedence
@@ -449,7 +449,10 @@ music:
           - variable: isTVPlaying
             value: true
       - player_name: "Primary Bed"
-        base_volume: 12
+        base_volume: 15
+        leave_muted_if: []
+      - player_name: "Primary Bath"
+        base_volume: 9
         leave_muted_if: []
       - player_name: "Sitting"
         base_volume: 9
@@ -468,12 +471,15 @@ music:
         media_type: music
         volume_multiplier: 1.3
 
-  # sleep: Primary Bed-only rain sounds after master goes to bed
+  # sleep: Primary Bed and Primary Bath rain sounds after master goes to bed
   # Rest of house doesn't need sleep sounds once master is in bed
   sleep:
     participants:
       - player_name: "Primary Bed"
-        base_volume: 12
+        base_volume: 15
+        leave_muted_if: []
+      - player_name: "Primary Bath"
+        base_volume: 9
         leave_muted_if: []
     playback_options:
       # Rain sounds - 2h composite playlists (avoids Sonos loop degradation)

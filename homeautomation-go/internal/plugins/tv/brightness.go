@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"homeautomation/internal/bravia"
+	"homeautomation/internal/ha"
 	"homeautomation/internal/shadowstate"
 
 	"go.uber.org/zap"
@@ -30,10 +31,6 @@ const (
 	// TVBrightnessDarkFraction is the TV's dimmest setting, as a share of the range the TV reports
 	// (0-50 on the A80K, so 15). GUESS: tune by eye.
 	TVBrightnessDarkFraction = 0.3
-
-	// SyncBoxBrightnessDark and SyncBoxBrightnessBright are the sync box range used. GUESS: tune by eye.
-	SyncBoxBrightnessDark   = 20
-	SyncBoxBrightnessBright = 100
 
 	// syncBoxMinStep is the smallest sync box change worth a command, in percentage points.
 	syncBoxMinStep = 2
@@ -91,10 +88,17 @@ func (m *Manager) SetBrightnessPowerOnDelay(d time.Duration) {
 	m.bright.powerOnDelay = d
 }
 
-// handleTargetLuxChange runs when the lighting plugin publishes a new TV room target.
-// State handlers run on the publisher's goroutine, so the slow TV call runs on its own.
-func (m *Manager) handleTargetLuxChange(_ string, _, _ interface{}) {
+// handleRoomBrightnessChange runs after lighting publishes a new curve output. At that point its
+// target lux has also been published. State handlers run on the publisher's goroutine, so the slow
+// TV call runs on its own.
+func (m *Manager) handleRoomBrightnessChange(_ string, _, _ interface{}) {
 	go m.applyBrightness("target_lux")
+}
+
+func (m *Manager) handleSyncBoxLightSyncChange(_ string, _, newState *ha.State) {
+	if newState != nil && newState.State == "on" {
+		go m.applyBrightness("sync_active")
+	}
 }
 
 // brightnessOnPowerOn starts a fresh session when the TV turns on: holds and remembered values
@@ -160,7 +164,7 @@ func (m *Manager) applyBrightnessLocked(trigger string) {
 	frac := brightnessFraction(lux)
 	rec.TargetLux, rec.Fraction = lux, frac
 	rec.Decision = "applied"
-	rec.SyncBox = m.applySyncBoxBrightness(frac)
+	rec.SyncBox = m.applySyncBoxBrightness()
 	rec.TV = m.applyTVBrightness(frac)
 }
 
@@ -175,10 +179,20 @@ func brightnessFraction(lux float64) float64 {
 }
 
 // applySyncBoxBrightness sets number.sync_box_brightness through Home Assistant.
-func (m *Manager) applySyncBoxBrightness(frac float64) shadowstate.DeviceBrightnessState {
+func (m *Manager) applySyncBoxBrightness() shadowstate.DeviceBrightnessState {
 	dev := &m.bright.syncBox
-	goal := int(math.Round(SyncBoxBrightnessDark + frac*(SyncBoxBrightnessBright-SyncBoxBrightnessDark)))
+	pct, err := m.stateManager.GetNumber("tvRoomBrightnessPct")
+	if err != nil {
+		return shadowstate.DeviceBrightnessState{Decision: "no curve brightness yet"}
+	}
+	goal := syncBoxBrightnessGoal(pct)
 	out := shadowstate.DeviceBrightnessState{Goal: goal}
+
+	syncState, err := m.haClient.GetState(SyncBoxLightSyncEntity)
+	if err != nil || syncState == nil || syncState.State != "on" {
+		out.Decision = "sync inactive"
+		return out
+	}
 
 	st, err := m.haClient.GetState(SyncBoxBrightnessEntity)
 	if err != nil || st == nil {
@@ -198,6 +212,10 @@ func (m *Manager) applySyncBoxBrightness(frac float64) shadowstate.DeviceBrightn
 			"value":     goal,
 		})
 	})
+}
+
+func syncBoxBrightnessGoal(pct float64) int {
+	return int(math.Max(1, math.Min(100, math.Round(pct))))
 }
 
 // applyTVBrightness reads the TV's brightness and range, then sets it.

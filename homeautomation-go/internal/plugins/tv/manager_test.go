@@ -549,13 +549,13 @@ func TestTVManager_Stop_CleansUpSubscriptions(t *testing.T) {
 		t.Fatalf("Failed to start TV manager: %v", err)
 	}
 
-	// Verify subscriptions exist: 5 HA (AppleTV, TV remote, sync box software power, physical power, HDMI input)
-	// and 3 state (isAppleTVPlaying, resetTV, tvRoomTargetLux)
-	if len(manager.subHelper.GetHASubscriptions()) != 5 {
-		t.Errorf("Expected 5 HA subscriptions after Start(), got %d", len(manager.subHelper.GetHASubscriptions()))
+	// Verify subscriptions exist: 6 HA (including sync-box light sync) and 4 state
+	// (including both TV-room brightness inputs).
+	if len(manager.subHelper.GetHASubscriptions()) != 6 {
+		t.Errorf("Expected 6 HA subscriptions after Start(), got %d", len(manager.subHelper.GetHASubscriptions()))
 	}
-	if len(manager.subHelper.GetStateSubscriptions()) != 3 {
-		t.Errorf("Expected 3 state subscriptions after Start(), got %d", len(manager.subHelper.GetStateSubscriptions()))
+	if len(manager.subHelper.GetStateSubscriptions()) != 4 {
+		t.Errorf("Expected 4 state subscriptions after Start(), got %d", len(manager.subHelper.GetStateSubscriptions()))
 	}
 
 	// Stop the manager
@@ -1036,13 +1036,13 @@ func TestTVManager_Start_AddsPhysicalPowerSubscription(t *testing.T) {
 		t.Fatalf("Failed to start TV manager: %v", err)
 	}
 
-	// Verify subscriptions exist - 5 HA (AppleTV, TV remote, sync box software power, physical power, HDMI input)
-	// and 3 state (isAppleTVPlaying, resetTV, tvRoomTargetLux)
-	if len(manager.subHelper.GetHASubscriptions()) != 5 {
-		t.Errorf("Expected 5 HA subscriptions after Start(), got %d", len(manager.subHelper.GetHASubscriptions()))
+	// Verify subscriptions exist: 6 HA (including sync-box light sync) and 4 state
+	// (including both TV-room brightness inputs).
+	if len(manager.subHelper.GetHASubscriptions()) != 6 {
+		t.Errorf("Expected 6 HA subscriptions after Start(), got %d", len(manager.subHelper.GetHASubscriptions()))
 	}
-	if len(manager.subHelper.GetStateSubscriptions()) != 3 {
-		t.Errorf("Expected 3 state subscriptions after Start(), got %d", len(manager.subHelper.GetStateSubscriptions()))
+	if len(manager.subHelper.GetStateSubscriptions()) != 4 {
+		t.Errorf("Expected 4 state subscriptions after Start(), got %d", len(manager.subHelper.GetStateSubscriptions()))
 	}
 
 	// Clean up
