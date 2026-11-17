@@ -1252,17 +1252,38 @@ func TestScenario_WakeMusic_CancelsStaleBedroomFade(t *testing.T) {
 	server, sleepMgr, stateManager, cleanup := setupSleepHygieneScenarioTest(t)
 	defer cleanup()
 
+	var volumeMu sync.Mutex
+	currentVolume := 3
+	var volumeLevels []int
+	socoServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+		volumeMu.Lock()
+		defer volumeMu.Unlock()
+		if len(parts) == 3 {
+			level, err := strconv.Atoi(parts[2])
+			if err != nil {
+				t.Errorf("unexpected non-numeric path segment: %v", err)
+				http.Error(w, "bad request", http.StatusBadRequest)
+				return
+			}
+			currentVolume = level
+			volumeLevels = append(volumeLevels, level)
+		}
+		if err := json.NewEncoder(w).Encode(map[string]interface{}{
+			"speaker": "Primary Bed", "action": "volume", "exit_code": 0,
+			"result": strconv.Itoa(currentVolume), "error_msg": "",
+		}); err != nil {
+			t.Errorf("failed to encode response: %v", err)
+		}
+	}))
+	defer socoServer.Close()
+	sleepMgr.SetSpeakerClient(music.NewSoCoClient(socoServer.URL, testlogger.New(), false))
+
 	server.SetState("input_boolean.anyone_home", "on", map[string]interface{}{})
 	server.SetState("input_boolean.master_asleep", "on", map[string]interface{}{})
 	server.SetState("input_text.music_playback_type", "sleep", map[string]interface{}{})
-	// Use the canonical bedroom speaker entity so getSpeakerVolume reads volume 3 directly
-	// (avoiding the 60-iteration fallback that makes the test slow and timing-sensitive).
-	server.SetState("media_player.primary_bed", "playing", map[string]interface{}{
-		"friendly_name": "Primary Bed",
-		"volume_level":  0.03,
-	})
 	server.SetState("input_text.currently_playing_music",
-		`{"participants":[{"player_name":"media_player.primary_bed","volume":3}]}`, map[string]interface{}{})
+		`{"participants":[{"player_name":"Primary Bed","volume":3}]}`, map[string]interface{}{})
 	waitForProcessing(t, stateManager)
 
 	fadeWaiting := make(chan struct{})
@@ -1290,11 +1311,9 @@ func TestScenario_WakeMusic_CancelsStaleBedroomFade(t *testing.T) {
 	sleepMgr.TriggerWakeForTest()
 	waitForServerState(t, server, "input_text.music_playback_type", "wakeup",
 		"music playback type should change to wakeup")
-	server.SetState("media_player.primary_bed", "playing", map[string]interface{}{
-		"friendly_name": "Primary Bed",
-		"volume_level":  0.05,
-	})
-	snapshot := server.ServiceCallCount()
+	volumeMu.Lock()
+	snapshot := len(volumeLevels)
+	volumeMu.Unlock()
 	close(releaseFade)
 	select {
 	case <-fadeDone:
@@ -1303,12 +1322,9 @@ func TestScenario_WakeMusic_CancelsStaleBedroomFade(t *testing.T) {
 	}
 
 	t.Log("THEN: The stale fade sends no subsequent volume command, especially volume zero")
-	for _, call := range server.GetServiceCallsSince(snapshot) {
-		if call.Domain == "media_player" && call.Service == "volume_set" &&
-			call.ServiceData["entity_id"] == "media_player.primary_bed" {
-			t.Fatalf("stale fade issued a bedroom volume command after wake music started: %#v", call.ServiceData)
-		}
-	}
+	volumeMu.Lock()
+	defer volumeMu.Unlock()
+	assert.Len(t, volumeLevels, snapshot, "stale fade issued a bedroom volume command after wake music started")
 }
 
 // ============================================================================
