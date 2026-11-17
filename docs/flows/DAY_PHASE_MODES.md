@@ -300,7 +300,7 @@ flowchart LR
 
 > **Note:** The sleep music system has two stages:
 > - **sleep-prep**: Whole-house rain sounds during night phase, before master goes to bed (helps direct people to bed)
-> - **sleep**: Primary Bed-only rain sounds after master is asleep, but NOT during wake sequence (sleephygiene manages the bedroom fade-out during wake)
+> - **sleep**: Primary Bed and Primary Bath rain sounds after master is asleep, but NOT during wake sequence (sleephygiene manages the bedroom fade-out during wake)
 
 The shared notifier reads the music manager's authoritative active-zone membership. While Primary Bed participates in either zone, deferable spoken announcements are suppressed even before `isMasterAsleep` becomes true. Urgent speech still plays, and push/ntfy delivery is unchanged. Suppression logs include `reason=bedroom_sleep_playback_active` (or `master_asleep`).
 
@@ -336,8 +336,8 @@ flowchart TB
 
 | Zone | Priority | Trigger Conditions | Speakers |
 |------|----------|-------------------|----------|
-| `sleep-prep` | 90 | `dayPhase=night` + `isAnyoneHome=true` + `isMasterAsleep=false` | Pantry, Lounge, Primary Bed, Sitting (whole house) |
-| `sleep` | 100 | `isMasterAsleep=true` + `isAnyoneHome=true` + `isWakeSequenceActive=false` | Primary Bed only |
+| `sleep-prep` | 90 | `dayPhase=night` + `isAnyoneHome=true` + `isMasterAsleep=false` | Pantry, Lounge, Primary Bed, Primary Bath, Sitting (whole house) |
+| `sleep` | 100 | `isMasterAsleep=true` + `isAnyoneHome=true` + `isWakeSequenceActive=false` | Primary Bed, Primary Bath |
 | `morning` | 50 | `dayPhase=morning` + `isAnyoneAsleep=false` + `isAnyoneHome=true` **OR** `isWakeSequenceActive=true` + `dayPhase=morning` + `isAnyoneHome=true` **OR** `dayPhase=morning` + `isAnyoneHomeAndAwake=true` (wake latch) **OR** `isEarlyWakeActive=true` + `isAnyoneHome=true` (early wake, any day phase) | Pantry, Lounge, Kids Bathroom, Sitting (Primary Bed excluded via `exclude_if: isMasterAsleep=true`) |
 
 ### Key Behaviors
@@ -355,6 +355,8 @@ flowchart TB
 4. **Wake cancellation clears musicPlaybackType**: When bedroom lights are turned off during wake sequence, sleephygiene clears `musicPlaybackType` to `""` (instead of setting it to `"sleep"`). This lets zone-based resolution take over: the sleep zone activates for bedroom speakers, while the morning zone continues in common areas via the wake latch trigger group.
 
 5. **Seamless join**: When `isMasterAsleep` becomes false, the Primary Bed speaker joins the existing morning zone rather than starting new playback.
+
+6. **Verified sleep handoff**: When `isMasterAsleep` becomes true, non-bedroom speakers leave the `sleep-prep` group with Pantry removed last. The promoted Primary Bed coordinator must report `playing` before the `sleep` transition completes. If it is idle or temporarily unavailable, music sends a targeted play command and verifies recovery without replacing the rain queue or restarting a healthy speaker.
 
 ### Timeline Example
 
