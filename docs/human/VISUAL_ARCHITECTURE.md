@@ -1229,11 +1229,11 @@ graph LR
 |----------|-------|----------|
 | **Boolean (input)** | 19 | isNickHome, isCarolineHome, isAssistantHere, isMasterAsleep, isHaveGuests, isNickOfficeOccupied, isKitchenOccupied, isPrimaryBedroomDoorOpen, isNickNearHome, isCarolineNearHome, isFrontOfHousePersonPresent |
 | **Boolean (computed)** | 7 | isAnyOwnerHome, isAnyoneHome, isAnyoneAsleep, isEveryoneAsleep, isAnyoneHomeAndAwake, isGuestAsleep, isDarkOutside |
-| **Boolean (output)** | 5 | isFadeOutInProgress, isWakeSequenceActive, isSleepPrepActive, isLockdown, isEarlyWakeActive |
+| **Boolean (output)** | 4 | isFadeOutInProgress, isWakeSequenceActive, isLockdown, isEarlyWakeActive |
 | **Number** | 3 | alarmTime, remainingSolarGeneration, thisHourSolarGeneration |
 | **String (computed)** | 5 | dayPhase, sunevent, batteryEnergyLevel, currentEnergyLevel, solarProductionEnergyLevel |
 | **String (output)** | 3 | musicPlaybackType, currentlyPlayingMusicUri, musicPlaylistRotation |
-| **Local-only** | 2 | didOwnerJustReturnHome (bool), currentlyPlayingMusic (JSON) |
+| **Local-only** | 3 | didOwnerJustReturnHome (bool), currentlyPlayingMusic (JSON), isSleepPrepActive (bool) |
 
 ---
 

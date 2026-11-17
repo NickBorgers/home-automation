@@ -200,15 +200,6 @@ func (m *Manager) Start() error {
 			}
 		}
 
-		// Clear any stale isSleepPrepActive from previous run/crash.
-		// Sleep prep state can't persist across restarts.
-		isSleepPrep, _ := m.stateManager.GetBool("isSleepPrepActive")
-		if isSleepPrep {
-			m.logger.Info("Clearing stale isSleepPrepActive from previous run")
-			if err := m.stateManager.SetBool("isSleepPrepActive", false); err != nil {
-				m.logger.Error("Failed to clear stale isSleepPrepActive", zap.Error(err))
-			}
-		}
 	}
 
 	// Home Assistant preserves musicPlaybackType across process restarts. If sleep
