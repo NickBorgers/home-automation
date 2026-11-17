@@ -23,7 +23,7 @@ flowchart LR
 
 1. The lighting plugin computes the Living target lux every minute. This includes `lux_scale` and the guest boost. It publishes the value as the local-only variable `tvRoomTargetLux`. It does this even while the room is in `skip` because Hue Sync owns the lights.
 2. The TV plugin maps the target to a share between 0 and 1, on a log scale. 2.5 lux or less gives 0. 150 lux or more gives 1.
-3. The TV gets `min + (0.3 + 0.7 × share) × (max − min)`, using the range the TV reports. On the A80K that is 15 at night and 50 by day.
+3. The TV gets `min + share × (max − min)`, using the range the TV reports. On the A80K that is 0 at night and 50 by day. The A80K picture is still easy to see at 0.
 4. The lighting plugin converts needed lux (target minus estimated daylight) through the Living cans' calibration curve. It publishes that 0–100 output as `tvRoomBrightnessPct` even while Hue Sync causes the room to be skipped.
 5. While `switch.sync_box_light_sync` is on, the sync box gets the same percentage, rounded to the nearest integer and clamped to its 1–100 range. Lighting owns this calculated value; the TV plugin only translates and sends it.
 
@@ -64,7 +64,7 @@ The constants are in `homeautomation-go/internal/plugins/tv/brightness.go`:
 |----------|------:|---------|
 | `BrightnessDarkLux` | 2.5 | Target at or below which both devices are at their dimmest |
 | `BrightnessBrightLux` | 150 | Target at or above which both devices are at their brightest |
-| `TVBrightnessDarkFraction` | 0.3 | TV's dimmest setting, as a share of its range |
+| `TVBrightnessDarkFraction` | 0 | TV's dimmest setting, as a share of its range. Set by eye on 2026-11-16 |
 The two lux ends affect only the TV picture. Hue Sync uses the Living calibration curve directly.
 
 ## Shadow state

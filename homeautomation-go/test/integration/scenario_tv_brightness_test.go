@@ -246,8 +246,8 @@ func TestScenario_UserStory_TVAndHueBacklightFollowRoomTargetLux(t *testing.T) {
 	mockClock.AdvanceAndProcess(time.Hour)
 
 	// THEN: the TV follows its log mapping; Hue Sync gets the calibrated curve percentage directly.
-	t.Log("THEN: TV dims to 33 and sync box follows the curve at 20%")
-	require.Eventually(t, func() bool { return fake.brightness() == 33 && syncBoxBrightness(server) == 20 },
+	t.Log("THEN: TV dims to 25 and sync box follows the curve at 20%")
+	require.Eventually(t, func() bool { return fake.brightness() == 25 && syncBoxBrightness(server) == 20 },
 		2*time.Second, 10*time.Millisecond, "evening: TV=%d sync=%d", fake.brightness(), syncBoxBrightness(server))
 
 	// WHEN: someone picks brighter settings by hand.
@@ -275,7 +275,7 @@ func TestScenario_UserStory_TVAndHueBacklightFollowRoomTargetLux(t *testing.T) {
 	client.WaitForHandlers()
 
 	// THEN: the hold is gone and both follow the night target.
-	t.Log("THEN: TV at night brightness 15 and sync box follows the curve at 3%")
-	require.Eventually(t, func() bool { return fake.brightness() == 15 && syncBoxBrightness(server) == 3 },
+	t.Log("THEN: TV at night brightness 0 (its minimum) and sync box follows the curve at 3%")
+	require.Eventually(t, func() bool { return fake.brightness() == 0 && syncBoxBrightness(server) == 3 },
 		2*time.Second, 10*time.Millisecond, "night: TV=%d sync=%d", fake.brightness(), syncBoxBrightness(server))
 }

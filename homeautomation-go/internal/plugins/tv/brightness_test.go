@@ -155,7 +155,7 @@ func TestApplyBrightness(t *testing.T) {
 		},
 		{
 			name: "already at goal", lux: 20,
-			pic:          &fakePicture{setting: bravia.Setting{Current: 33, Max: 50}},
+			pic:          &fakePicture{setting: bravia.Setting{Current: 25, Max: 50}},
 			wantDecision: "applied", wantTV: "no change", wantSync: "set 61", wantSyncCalls: 1,
 		},
 		{name: "TV off", tvOff: true, lux: 150, wantDecision: "TV off"},
@@ -283,6 +283,6 @@ func TestApplyBrightness_ManualChangeHoldsUntilPowerOn(t *testing.T) {
 	require.Eventually(t, func() bool {
 		pic.mu.Lock()
 		defer pic.mu.Unlock()
-		return len(pic.sets) == 2 && pic.sets[1] == 15
+		return len(pic.sets) == 2 && pic.sets[1] == 0
 	}, 2*time.Second, 10*time.Millisecond)
 }
