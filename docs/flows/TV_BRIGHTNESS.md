@@ -35,6 +35,10 @@ The plugin acts only while the TV is on (`media_player.sony_xr_65a80k`). It chan
 
 When the TV turns on, the plugin waits 10 seconds. The Bravia API answers "not power-on" while the panel starts. Then it sets both devices to the current target.
 
+## Display off while Home Assistant says the TV is on
+
+The Bravia entity in Home Assistant can be stale. The plugin then tries the TV while its display is off. The TV answers error 40005: "not power-on" to a read, or "Display Is Turned off" to a write. Both mean the same thing. The plugin records the decision `TV screen not ready` and logs nothing above debug level. The next target change tries again.
+
 ## Manual changes
 
 A person can change the TV brightness with the remote, or the sync box brightness in the Hue app. The plugin keeps that choice until the TV turns off and on again.

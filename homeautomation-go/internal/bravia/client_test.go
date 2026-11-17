@@ -52,6 +52,11 @@ func TestGetBrightness(t *testing.T) {
 			off:   true,
 		},
 		{
+			name:  "screen off, write-style message",
+			reply: `{"error":[40005,"Display Is Turned off"],"id":1}`,
+			off:   true,
+		},
+		{
 			name:    "not available in picture mode",
 			reply:   `{"result":[[{"target":"brightness","currentValue":"25","isAvailable":false,"candidate":[{"max":50,"min":0,"step":1}]}]],"id":1}`,
 			wantErr: "not available",
