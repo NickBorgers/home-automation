@@ -714,7 +714,12 @@ func (m *Manager) fadeOutSpeakerGeneration(speakerEntityID string, fadeGeneratio
 			m.logger.Info("Wake sequence cancelled, stopping fade-out",
 				zap.String("speaker", speakerEntityID))
 
-			// Clear fade-out state on abort
+			// Abort path: clear the flag immediately for the whole sequence without
+			// going through finishFade(). finishFade() is for the success path and
+			// only clears the flag when the last speaker finishes. Here we want the
+			// flag gone now — the other speaker goroutines will also hit this check
+			// and abort. activeFades is left stale but is reset at the start of the
+			// next wake sequence (handleBeginWake / TriggerBeginWakeForTest).
 			if !m.readOnly {
 				if err := m.stateManager.SetBool("isFadeOutInProgress", false); err != nil {
 					m.logger.Error("Failed to clear isFadeOutInProgress", zap.Error(err))
@@ -791,7 +796,8 @@ func (m *Manager) fadeOutSpeakerGeneration(speakerEntityID string, fadeGeneratio
 				// Record human override in shadow state
 				m.shadowTracker.RecordHumanOverride(speakerEntityID, currentVolume, actualVolume)
 
-				// Clear fade-out state
+				// Abort path: same as wake-cancel above — clear the flag immediately
+				// for the whole sequence rather than per-speaker via finishFade().
 				if !m.readOnly {
 					if err := m.stateManager.SetBool("isFadeOutInProgress", false); err != nil {
 						m.logger.Error("Failed to clear isFadeOutInProgress", zap.Error(err))
