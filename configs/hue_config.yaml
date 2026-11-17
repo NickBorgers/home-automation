@@ -253,13 +253,13 @@ rooms:
     lux_control:
       mode: active
       cans: light.kitchen_cans
-      # While someone is in the kitchen in the evening or at night, raise the target to a working light.
-      # The target never goes below the curve, and a manual hold still wins. 100 lux is a STARTING GUESS
-      # (cans about 70% at the island). Tune later.
+      # While someone is in the kitchen in the evening or at night, multiply the curve's cans brightness.
+      # A manual hold still wins. 200% is a STARTING GUESS: at night the cans go from about 8% to 17%.
+      # Tune later.
       presence_override:
         variable: isKitchenOccupied
         phases: [sunset, dusk, winddown, night]
-        target_lux: 100
+        brightness_multiplier_pct: 200
       # MEASURED 2026-10-31 13:10-13:30 at the island: 39.35 lux (cans off) / station 24,000-39,000 lux.
       # The workspace by the strip gave 0.0010. One sky condition only (sun and thin cloud).
       daylight_factor: 0.0012
@@ -327,7 +327,7 @@ rooms:
       presence_override:
         variable: isKitchenOccupied
         phases: [sunset, dusk, winddown, night]
-        target_lux: 100
+        brightness_multiplier_pct: 200
       # MEASURED 2026-11-05 in daylight with the handheld lux meter: 50.0 lux indoors (average of
       # 50.4 and 49.6), cans off / station 61,311 lux.
       daylight_factor: 0.00082

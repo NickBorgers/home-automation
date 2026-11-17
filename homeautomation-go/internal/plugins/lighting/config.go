@@ -71,12 +71,12 @@ type LuxControlConfig struct {
 	TVRoom bool `yaml:"tv_room"`
 }
 
-// LuxPresenceOverride raises the automated curve target to TargetLux while a configured presence signal
-// is true in one of the listed day phases. It never lowers the target and never bypasses a manual hold.
+// LuxPresenceOverride multiplies the curve's cans brightness by BrightnessMultiplierPct/100 while a
+// configured presence signal is true in one of the listed day phases. It never bypasses a manual hold.
 type LuxPresenceOverride struct {
-	Variable  string   `yaml:"variable"`
-	Phases    []string `yaml:"phases"`
-	TargetLux float64  `yaml:"target_lux"`
+	Variable                string   `yaml:"variable"`
+	Phases                  []string `yaml:"phases"`
+	BrightnessMultiplierPct float64  `yaml:"brightness_multiplier_pct"` // above 100; 300 means 3x the curve's brightness
 }
 
 // validDayPhases are the values the dayphase plugin writes to dayPhase.
@@ -221,8 +221,10 @@ func (c *HueConfig) validateLux() error {
 		if lc.Cans == "" || lc.DaylightFactor < 0 {
 			return fmt.Errorf("room %q: lux_control needs cans and a non-negative daylight_factor", r.HueGroup)
 		}
-		if p := lc.PresenceOverride; p != nil && (p.Variable == "" || len(p.Phases) == 0 || p.TargetLux <= 0) {
-			return fmt.Errorf("room %q: presence_override needs variable, phases and target_lux > 0", r.HueGroup)
+		if p := lc.PresenceOverride; p != nil &&
+			(p.Variable == "" || len(p.Phases) == 0 || p.BrightnessMultiplierPct <= 100 || len(lc.Calibration) == 0) {
+			return fmt.Errorf("room %q: presence_override needs variable, phases, brightness_multiplier_pct > 100 "+
+				"and a calibration table", r.HueGroup)
 		}
 		if p := lc.PresenceOverride; p != nil {
 			for _, phase := range p.Phases {

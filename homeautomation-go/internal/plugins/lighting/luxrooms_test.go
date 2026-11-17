@@ -336,8 +336,23 @@ func TestProductionConfig_KitchenPresenceBrightensOnlyKitchenAndPantry(t *testin
 				}
 				assert.Equal(t, want, st.TargetSource, room.HueGroup)
 			}
+			if tc.name == "night occupied" {
+				// The night curve puts the Kitchen cans at about 8%. 200% of that is 17%.
+				assert.InDelta(t, 17, m.GetShadowState().Outputs.LuxControl["Kitchen"].GoalBrightnessPct, 1)
+			}
 		})
 	}
+}
+
+// The Mud room is not next to the Kitchen. Kitchen presence must never turn it on or brighten it.
+func TestProductionConfig_MudIgnoresKitchenPresence(t *testing.T) {
+	t.Parallel()
+	mud := findRoom(loadProductionConfig(t), "Mud")
+	require.NotNil(t, mud)
+	for _, c := range mud.Conditions {
+		assert.NotEqual(t, "isKitchenOccupied", c.Variable)
+	}
+	assert.Nil(t, mud.LuxControl.PresenceOverride)
 }
 
 func TestLuxConfigValidation_PresenceOverrideRejectsUnknownPhase(t *testing.T) {
@@ -350,7 +365,7 @@ func TestLuxConfigValidation_PresenceOverrideRejectsUnknownPhase(t *testing.T) {
 			LuxCurve: luxTestCurve(),
 			Rooms: []RoomConfig{{HueGroup: "R", LuxControl: &LuxControlConfig{
 				Mode: LuxModeActive, Cans: "light.x", Calibrated: true, Calibration: luxTestCalibration,
-				PresenceOverride: &LuxPresenceOverride{Variable: "isX", Phases: []string{tc.phase}, TargetLux: 50},
+				PresenceOverride: &LuxPresenceOverride{Variable: "isX", Phases: []string{tc.phase}, BrightnessMultiplierPct: 200},
 			}}},
 		}
 		if tc.wantErr {

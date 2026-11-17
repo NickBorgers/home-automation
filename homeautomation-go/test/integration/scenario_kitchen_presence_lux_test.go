@@ -43,9 +43,9 @@ func TestScenario_KitchenCameraPresenceOverridesOnlyAutomatedLuxTarget(t *testin
 					{BrightnessPct: 1, Lux: 1}, {BrightnessPct: 100, Lux: 100},
 				},
 				PresenceOverride: &lighting.LuxPresenceOverride{
-					Variable:  "isKitchenOccupied",
-					Phases:    []string{"dusk", "night"},
-					TargetLux: 60,
+					Variable:                "isKitchenOccupied",
+					Phases:                  []string{"dusk", "night"},
+					BrightnessMultiplierPct: 300,
 				},
 			},
 		}},
@@ -88,7 +88,8 @@ func TestScenario_KitchenCameraPresenceOverridesOnlyAutomatedLuxTarget(t *testin
 	require.Eventually(t, func() bool {
 		return manager.GetShadowState().Outputs.LuxControl["Kitchen"].TargetSource == "presence_override"
 	}, time.Second, 10*time.Millisecond)
-	require.Equal(t, 60.0, manager.GetShadowState().Outputs.LuxControl["Kitchen"].TargetLux)
+	// The curve gives 10 lux, which is 10% on this linear calibration. 300% of that is 30%, which is 30 lux.
+	require.InDelta(t, 30.0, manager.GetShadowState().Outputs.LuxControl["Kitchen"].TargetLux, 0.01)
 	require.NoError(t, stateManager.SetBool("isKitchenOccupied", true))
 	client.WaitForHandlers()
 	require.Empty(t, filterServiceCalls(server.GetServiceCallsSince(snapshot), "scene", "turn_on"),

@@ -323,9 +323,10 @@ func (m *Manager) luxEvaluate(room *RoomConfig, trigger string) {
 			}
 		}
 		occupied, err := m.stateManager.GetBool(p.Variable)
-		// Presence only raises the target. It never dims a room below its curve.
-		if phaseErr == nil && err == nil && phaseMatches && occupied && p.TargetLux > rec.TargetLux {
-			rec.TargetLux = p.TargetLux
+		if phaseErr == nil && err == nil && phaseMatches && occupied {
+			// Multiply the curve's cans brightness, then convert back to lux so daylight still counts.
+			pct := luxToBrightness(lc.Calibration, rec.TargetLux) * p.BrightnessMultiplierPct / 100
+			rec.TargetLux = brightnessToLux(lc.Calibration, math.Min(100, pct))
 			rec.TargetSource = "presence_override"
 		}
 	}
