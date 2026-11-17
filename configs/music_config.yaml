@@ -16,7 +16,7 @@ zones:
       - variable: isMasterAsleep
         value: false
 
-  # sleep: Primary Bed-only sleep sounds AFTER master goes to bed
+  # sleep: Primary Bed and Primary Bath sleep sounds AFTER master goes to bed
   # Doesn't restart during wake sequence (sleephygiene manages the Primary Bed fade-out)
   - name: "sleep"
     priority: 100  # Highest auto-trigger - sleep takes precedence
@@ -471,7 +471,7 @@ music:
         media_type: music
         volume_multiplier: 1.3
 
-  # sleep: Primary Bed-only rain sounds after master goes to bed
+  # sleep: Primary Bed and Primary Bath rain sounds after master goes to bed
   # Rest of house doesn't need sleep sounds once master is in bed
   sleep:
     participants:

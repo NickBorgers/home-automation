@@ -28,6 +28,6 @@ func TestProductionConfig_SleepProfilesPrimarySuite(t *testing.T) {
 			volumes[p.PlayerName] = p.BaseVolume
 		}
 		assert.Equal(t, 15, volumes["Primary Bed"], "%s: Primary Bed volume", mode)
-		assert.Contains(t, volumes, "Primary Bath", "%s: Primary Bath must participate", mode)
+		assert.Equal(t, 9, volumes["Primary Bath"], "%s: Primary Bath volume", mode)
 	}
 }
