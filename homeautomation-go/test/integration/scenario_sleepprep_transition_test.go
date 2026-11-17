@@ -51,12 +51,28 @@ type sleepPrepTransitionEnv struct {
 	sleepHygiene  *sleephygiene.Manager
 }
 
-func setupSleepPrepTransitionTest(t *testing.T, productionSleepZone ...bool) (*sleepPrepTransitionEnv, func()) {
+// sleepPrepTestOptions configures setupSleepPrepTransitionTest behaviour.
+type sleepPrepTestOptions struct {
+	// productionSleepZone replaces the sleep zone with the single-speaker
+	// production topology (Primary Bed only).
+	productionSleepZone bool
+	// sleepFunc overrides the music plugin's injectable sleep. Must be set here
+	// (not via a post-Start SetSleepFunc call) to avoid a data race under -race.
+	// When nil, all sleeps become no-ops.
+	sleepFunc music.SleepFunc
+}
+
+func setupSleepPrepTransitionTest(t *testing.T, opts ...sleepPrepTestOptions) (*sleepPrepTransitionEnv, func()) {
+	var opt sleepPrepTestOptions
+	if len(opts) > 0 {
+		opt = opts[0]
+	}
+
 	server, client, stateManager, baseCleanup := setupTest(t)
 
 	logger := testlogger.New()
 	musicConfig := loadTestMusicConfigFromYAML(t)
-	if len(productionSleepZone) > 0 && productionSleepZone[0] {
+	if opt.productionSleepZone {
 		sleepMode := musicConfig.Music["sleep"]
 		sleepMode.Participants = []music.Participant{{PlayerName: "Primary Bed", BaseVolume: 16}}
 		musicConfig.Music["sleep"] = sleepMode
@@ -72,8 +88,12 @@ func setupSleepPrepTransitionTest(t *testing.T, productionSleepZone ...bool) (*s
 		sleepHygiene:  sleephygiene.NewManager(context.Background(), client, stateManager, configLoader, logger, false, nil, nil),
 	}
 
-	// Skip real delays in music plugin
-	env.music.SetSleepFunc(func(d time.Duration) {})
+	// Set sleep func before Start() to avoid data races under -race.
+	if opt.sleepFunc != nil {
+		env.music.SetSleepFunc(opt.sleepFunc)
+	} else {
+		env.music.SetSleepFunc(func(d time.Duration) {})
+	}
 
 	// Enable debouncing to coalesce rapid state changes from sleephygiene plugin.
 	// When isMasterAsleep changes, sleephygiene also sets isAnyoneAsleep, isEveryoneAsleep, etc.
@@ -128,10 +148,22 @@ func setupSleepPrepTransitionTest(t *testing.T, productionSleepZone ...bool) (*s
 // INVARIANTS:
 // - A healthy promoted coordinator must not be restarted.
 // - An idle promoted coordinator must be resumed and confirmed playing.
+// - Recovery must not fall back to a play_media restart.
 // - The sleep zone must not be reported active before that confirmation.
 func TestScenario_SleepPrepToSleep_IdleBedroomCoordinatorRecovers(t *testing.T) {
 	t.Parallel()
-	env, cleanup := setupSleepPrepTransitionTest(t, true)
+	env, cleanup := setupSleepPrepTransitionTest(t, sleepPrepTestOptions{
+		productionSleepZone: true,
+		// Allow a brief real wait for 2s delays (playbackRecoveryDelay /
+		// playbackVerificationDelay) so the recovery goroutine can observe
+		// the play command and flip the speaker to "playing" before
+		// isPlaybackActive re-checks. Zero sleep would busy-poll past the window.
+		sleepFunc: func(d time.Duration) {
+			if d == 2*time.Second {
+				time.Sleep(50 * time.Millisecond)
+			}
+		},
+	})
 	defer cleanup()
 
 	t.Log("GIVEN: Whole-house sleep-prep rain is playing with Primary Bed as the only sleep-zone speaker")
@@ -200,16 +232,21 @@ func TestScenario_SleepPrepToSleep_IdleBedroomCoordinatorRecovers(t *testing.T) 
 	waitForCondition(t, func() bool {
 		for _, zone := range env.music.GetActiveZones() {
 			if zone.Name == "sleep" && zone.LeadSpeaker == "Primary Bed" {
-				return true
+				shadow := env.music.GetShadowState()
+				return shadow.Outputs.CurrentMode == "sleep" &&
+					shadow.Outputs.PlaybackVerification != nil &&
+					shadow.Outputs.PlaybackVerification.Verified
 			}
 		}
 		return false
-	}, "sleep zone should become active with the verified bedroom coordinator")
+	}, "sleep zone and shadow state should reflect the verified bedroom coordinator")
 	shadow := env.music.GetShadowState()
 	assert.Equal(t, "sleep", shadow.Outputs.CurrentMode)
 	require.NotNil(t, shadow.Outputs.PlaybackVerification)
 	assert.True(t, shadow.Outputs.PlaybackVerification.Verified)
 	assert.Equal(t, "media_player.primary_bed", shadow.Outputs.PlaybackVerification.LeadSpeaker)
+	assert.Empty(t, FilterServiceCalls(env.server.GetServiceCallsSince(snapshot), "media_player", "play_media"),
+		"idle bedroom coordinator must recover seamlessly without restarting playback")
 }
 
 // ============================================================================
