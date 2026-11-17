@@ -38,9 +38,34 @@ ${PR_BODY}
 The tests failed in the PR Tests workflow (run ID: ${RUN_ID}). Your task:
 1. Check the workflow run logs: gh run view ${RUN_ID} --log-failed
 2. Identify the root cause of failures (failing tests, coverage < 65%, style issues, etc.)
-3. Fix the issues in the code
-4. Run `make unit-tests` locally to verify your fix works
-5. Commit and push your fixes
+3. Decide whether this PR caused the failure. Follow "SCOPE" below before you change any code.
+4. Fix the issues in the code
+5. Run `make unit-tests` locally to verify your fix works
+6. Commit and push your fixes
+
+SCOPE: FIX ONLY WHAT THIS PR BROKE
+This PR's changes are the files in: gh pr diff ${PR_NUMBER} --name-only
+A failure is out of scope when both of these are true:
+- The failing test, and the package it tests, are not in that list.
+- Nothing in the PR's diff plausibly changes what that test does.
+A random (flaky) failure in another plugin is the usual case. Example: PR #1383 changed the vacuum plugin, a
+`tv` test failed at random, and a fix pushed into #1383 conflicted with a separate fix that merged to main.
+
+For an out-of-scope failure, do NOT edit code and do NOT push. Instead:
+1. Check for an open issue or PR about that test:
+   gh issue list --state open --search "<TestName>"
+   gh pr list --state open --search "<TestName>"
+2. If there is none, open an issue. Name the test, quote the failure, and link run ${RUN_ID}.
+3. Re-run only the failed jobs once: gh run rerun ${RUN_ID} --failed
+   A passing re-run lets the reviews start by themselves.
+4. Post this comment, then stop:
+   gh pr comment ${PR_NUMBER} --body '## Fix Attempt ${ATTEMPT}/3 - Not caused by this PR
+
+[Name the failing test and why it is unrelated to this PR]
+
+Tracked in #<issue>. Re-ran the failed jobs. No changes pushed.'
+
+If some failures are in scope and some are not, fix only the in-scope ones and handle the others as above.
 
 IMPORTANT RULES FOR THIS REPOSITORY:
 - Use `make unit-tests` NOT `go test` (caching)
