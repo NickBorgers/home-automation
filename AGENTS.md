@@ -521,11 +521,12 @@ These speakers are discovered by SoCo and match the `player_name` values in `con
 | Kitchen | Yes | Muted while TV plays (`isTVPlaying`) |
 | Kids Bathroom | Yes | |
 | Primary Bed | Yes | 5 GHz capable. Excluded from some zones when master is asleep |
+| Primary Bath | Yes | Sleep-prep and sleep only |
 | Sitting | Yes | |
 | Barn | No | Not used in music automation |
 | Soundbar | Yes | Morning and day modes only. Not used for TTS notifications |
 
-The Primary Bath speaker is not in the config. The old "Bedroom" speaker (`media_player.bedroom`) is offline.
+The old "Bedroom" speaker (`media_player.bedroom`) is offline.
 Run `curl -s https://soco-cli.featherback-mermaid.ts.net/rediscover` before you trust the list. A stale cache can hide speakers.
 
 ### Key Implementation Details
