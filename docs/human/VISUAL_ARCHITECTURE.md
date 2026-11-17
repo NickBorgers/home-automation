@@ -1089,7 +1089,7 @@ graph LR
     TVPlaying --> Lighting
     HaveGuests --> Lighting
     NickOffice --> Lighting
-    Kitchen --> Lighting
+    Kitchen -->|Lux Override| Lighting
     PrimaryDoor --> Lighting
     WeatherStationIlluminance -->|Outdoor Lux Reference| Lighting
     Lighting --> DarkOutside

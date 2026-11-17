@@ -25,13 +25,6 @@ type RoomConfig struct {
 	Conditions               []LightingCondition `yaml:"conditions"`                  // Ordered list of conditions (first match wins)
 	IncreaseBrightnessIfTrue interface{}         `yaml:"increase_brightness_if_true"` // Can be string or []string
 	TransitionSeconds        *int                `yaml:"transition_seconds"`          // Pointer to handle nil/~ values
-	// SkipReactivationWhenOn opts the room into edge-triggered scene activation.
-	// When true and the room's last applied action was already "on", a repeat "on"
-	// evaluation from an occupancy/condition trigger is skipped — preserving any
-	// manual brightness adjustments. Day phase and global triggers still re-fire.
-	// Used by rooms with unreliable presence sensors (e.g. mmWave radar).
-	SkipReactivationWhenOn bool `yaml:"skip_reactivation_when_on"`
-
 	// HasDynamics opts the room into two-step scene recall for Hue scenes that
 	// have `auto_dynamic: true` (an animated palette). The bridge can fail to
 	// start the dynamic palette when bulbs are mid-transition or cold; each
@@ -62,19 +55,33 @@ const (
 
 // LuxControlConfig configures lux-target control for one room.
 type LuxControlConfig struct {
-	Mode             string             `yaml:"mode"`               // log_only | active
-	Cans             string             `yaml:"cans"`               // light entity for the ceiling cans
-	AccentSceneGroup string             `yaml:"accent_scene_group"` // Hue group whose per-phase scenes drive accents (empty: no accent lights)
-	DaylightFactor   float64            `yaml:"daylight_factor"`    // share of outdoor lux that reaches the room
-	LuxScale         float64            `yaml:"lux_scale"`          // scales the whole curve for this room (0 means 1)
-	GuestFactor      float64            `yaml:"guest_factor"`       // lux multiplier when increase_brightness_if_true holds (0 means 1.5)
-	ColorTemp        *bool              `yaml:"color_temp"`         // false for brightness-only lights (omitted means true)
-	Calibrated       bool               `yaml:"calibrated"`         // true once calibration values were measured
-	Calibration      []CalibrationPoint `yaml:"calibration"`        // cans-only lux at night, by brightness
-	FollowerLights   []LuxFollower      `yaml:"follower_lights"`    // brightness-only lights that follow the cans' brightness
+	Mode             string               `yaml:"mode"`               // log_only | active
+	Cans             string               `yaml:"cans"`               // light entity for the ceiling cans
+	AccentSceneGroup string               `yaml:"accent_scene_group"` // Hue group whose per-phase scenes drive accents (empty: no accent lights)
+	DaylightFactor   float64              `yaml:"daylight_factor"`    // share of outdoor lux that reaches the room
+	LuxScale         float64              `yaml:"lux_scale"`          // scales the whole curve for this room (0 means 1)
+	GuestFactor      float64              `yaml:"guest_factor"`       // lux multiplier when increase_brightness_if_true holds (0 means 1.5)
+	ColorTemp        *bool                `yaml:"color_temp"`         // false for brightness-only lights (omitted means true)
+	Calibrated       bool                 `yaml:"calibrated"`         // true once calibration values were measured
+	Calibration      []CalibrationPoint   `yaml:"calibration"`        // cans-only lux at night, by brightness
+	FollowerLights   []LuxFollower        `yaml:"follower_lights"`    // brightness-only lights that follow the cans' brightness
+	PresenceOverride *LuxPresenceOverride `yaml:"presence_override"`  // optional occupied-room target override
 	// TVRoom publishes this room's target lux and calibrated brightness percentage, so the TV plugin
 	// can set the TV and Hue Sync box brightness. At most one room may set it.
 	TVRoom bool `yaml:"tv_room"`
+}
+
+// LuxPresenceOverride multiplies the curve's cans brightness by BrightnessMultiplierPct/100 while a
+// configured presence signal is true in one of the listed day phases. It never bypasses a manual hold.
+type LuxPresenceOverride struct {
+	Variable                string   `yaml:"variable"`
+	Phases                  []string `yaml:"phases"`
+	BrightnessMultiplierPct float64  `yaml:"brightness_multiplier_pct"` // above 100; 300 means 3x the curve's brightness
+}
+
+// validDayPhases are the values the dayphase plugin writes to dayPhase.
+var validDayPhases = map[string]bool{
+	"morning": true, "day": true, "sunset": true, "dusk": true, "winddown": true, "night": true,
 }
 
 // LuxFollower is a brightness-only light (an under-cabinet strip) that follows the room's cans.
@@ -213,6 +220,18 @@ func (c *HueConfig) validateLux() error {
 		}
 		if lc.Cans == "" || lc.DaylightFactor < 0 {
 			return fmt.Errorf("room %q: lux_control needs cans and a non-negative daylight_factor", r.HueGroup)
+		}
+		if p := lc.PresenceOverride; p != nil &&
+			(p.Variable == "" || len(p.Phases) == 0 || p.BrightnessMultiplierPct <= 100 || len(lc.Calibration) == 0) {
+			return fmt.Errorf("room %q: presence_override needs variable, phases, brightness_multiplier_pct > 100 "+
+				"and a calibration table", r.HueGroup)
+		}
+		if p := lc.PresenceOverride; p != nil {
+			for _, phase := range p.Phases {
+				if !validDayPhases[phase] {
+					return fmt.Errorf("room %q: presence_override phase %q is not a day phase", r.HueGroup, phase)
+				}
+			}
 		}
 		seen := map[string]bool{lc.Cans: true}
 		for _, f := range lc.FollowerLights {

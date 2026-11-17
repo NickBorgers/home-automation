@@ -233,17 +233,13 @@ rooms:
       - action: off
         variable: isAnyoneHomeAndAwake
         value: false
-      # Priority 2: Kitchen occupied -> ON
+      # Priority 2: Someone home and awake -> ON. Kitchen presence raises only the lux target,
+      # through lux_control.presence_override below. It never recalls a scene.
       - action: on
-        variable: isKitchenOccupied
+        variable: isAnyoneHomeAndAwake
         value: true
     increase_brightness_if_true: ~
     transition_seconds: 5
-    # The kitchen mmWave radar (Apollo MTR) is unreliable for stationary people:
-    # it briefly drops detection then re-detects. Without this flag, every
-    # re-detection re-activates the scene and overrides any manual brightness
-    # the user dialed in. Edge-trigger so on→on reactivations are skipped.
-    skip_reactivation_when_on: true
     # The under-cabinet strip (light.kitchen_main_lights) is no longer recalled by scene. It follows
     # the cans through lux_control.follower_lights below. The six scene.kitchen_under_cabinet_*
     # scenes stay in Home Assistant, unused.
@@ -258,6 +254,13 @@ rooms:
     lux_control:
       mode: active
       cans: light.kitchen_cans
+      # While someone is in the kitchen in the evening or at night, multiply the curve's cans brightness.
+      # A manual hold still wins. 200% is a STARTING GUESS: at night the cans go from about 8% to 17%.
+      # Tune later.
+      presence_override:
+        variable: isKitchenOccupied
+        phases: [sunset, dusk, winddown, night]
+        brightness_multiplier_pct: 200
       # MEASURED 2026-10-31 13:10-13:30 at the island: 39.35 lux (cans off) / station 24,000-39,000 lux.
       # The workspace by the strip gave 0.0010. One sky condition only (sun and thin cloud).
       daylight_factor: 0.0012
@@ -300,8 +303,8 @@ rooms:
         - brightness_pct: 100
           lux: 237
 
-  # The Pantry has no Hue scene group and no occupancy sensor. Its cans follow the Kitchen's
-  # conditions. There is no hass_area_id: turn-off targets the cans entity directly, so it does
+  # The Pantry has no Hue scene group. Its cans follow home/awake state. There is no hass_area_id:
+  # turn-off targets the cans entity directly, so it does
   # not depend on which Home Assistant area the pantry cans sit in.
   - hue_group: Pantry
     conditions:
@@ -310,7 +313,7 @@ rooms:
         variable: isAnyoneHomeAndAwake
         value: false
       - action: on
-        variable: isKitchenOccupied
+        variable: isAnyoneHomeAndAwake
         value: true
     increase_brightness_if_true: ~
     transition_seconds: 5
@@ -321,6 +324,11 @@ rooms:
     lux_control:
       mode: active
       cans: light.pantry # 6 cans (the 2 Mud cans are the Mud room)
+      # The Pantry has no presence signal of its own. It brightens with the Kitchen's.
+      presence_override:
+        variable: isKitchenOccupied
+        phases: [sunset, dusk, winddown, night]
+        brightness_multiplier_pct: 200
       # MEASURED 2026-11-05 in daylight with the handheld lux meter: 50.0 lux indoors (average of
       # 50.4 and 49.6), cans off / station 61,311 lux.
       daylight_factor: 0.00082
@@ -352,15 +360,15 @@ rooms:
 
   # The Mud room was split out of the Pantry on 2026-11-05: light.mud is its 2 cans
   # (light.mud_door_can + light.mud_cabinet_can). Like the Pantry it has no Hue scene group
-  # and no hass_area_id, so turn-off targets the cans entity directly. Same conditions as the Pantry
-  # (which follow the Kitchen), no strip or followers.
+  # and no hass_area_id, so turn-off targets the cans entity directly. Same home/awake conditions as
+  # the Pantry, no strip or followers.
   - hue_group: Mud
     conditions:
       - action: off
         variable: isAnyoneHomeAndAwake
         value: false
       - action: on
-        variable: isKitchenOccupied
+        variable: isAnyoneHomeAndAwake
         value: true
     increase_brightness_if_true: ~
     transition_seconds: 5

@@ -164,7 +164,7 @@ These variables are only referenced in disabled Node Red flows and will NOT be m
 **Behavior**: Direct sensor inputs for room presence
 
 - **isNickOfficeOccupied**: Used by lighting plugin to control N Office lights (2-second transition)
-- **isKitchenOccupied**: Used by lighting plugin to control Kitchen lights (5-second transition)
+- **isKitchenOccupied**: Raises the Kitchen and Pantry lux target in the evening and at night (`lux_control.presence_override` in `hue_config.yaml`). Kitchen on/off follows `isAnyoneHomeAndAwake`
 - **Purpose**: Enable instant lighting control based on room occupancy
 - **Configuration**: See `configs/hue_config.yaml` for room-specific lighting rules
 

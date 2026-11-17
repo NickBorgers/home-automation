@@ -398,6 +398,7 @@ type LuxControlState struct {
 	Mode              string    `json:"mode"`
 	CurvePoint        string    `json:"curvePoint"` // e.g. "sun.noon -> sun.goldenHour @ 0.42"
 	TargetLux         float64   `json:"targetLux"`
+	TargetSource      string    `json:"targetSource"` // lux_curve or presence_override
 	TargetKelvin      int       `json:"targetKelvin"`
 	OutdoorLux        float64   `json:"outdoorLux"`
 	DaylightEstimate  float64   `json:"daylightEstimate"`
