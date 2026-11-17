@@ -673,7 +673,7 @@ func TestFenceRestoredAtStartup(t *testing.T) {
 
 // A Dreame reports idle, not paused, after the pause command, with the flag resumable or none. The run stays
 // ours: no stall, no end, and home as soon as the way clears.
-func TestSchedulerIdleAfterSafetyPauseIsOurPause(t *testing.T) {
+func TestSchedulerIdleAfterOccupancyPauseIsOurPause(t *testing.T) {
 	for _, flag := range []string{"resumable", "none"} {
 		t.Run(flag, func(t *testing.T) {
 			e := newSchedEnv(t, ModeActive)

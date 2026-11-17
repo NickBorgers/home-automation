@@ -1241,7 +1241,7 @@ func (s *Scheduler) checkRouteAvailability(st *valetudo.State, room string, posO
 	case !clear && !r.paused:
 		why := "return path blocked"
 		if crossed != "" {
-			why += " by " + crossed + " occupancy (" + restr.NoEnter[crossed] + ")"
+			why += ": " + restr.NoEnter[crossed]
 		}
 		if s.command(valetudo.ActionPause, why) == nil {
 			r.paused, r.homeSent = true, false
