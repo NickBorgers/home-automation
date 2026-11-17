@@ -311,6 +311,7 @@ Extracts PR and issue context for downstream jobs.
 - `issue_number`, `issue_title`, `issue_body_b64`: Linked issue details
 - `tests_passed`: Whether the triggering test run passed
 - `fix_attempts`: Number of previous fix attempts (from labels)
+- `out_of_scope_triaged`: Whether this commit already had an unrelated failure triaged and re-run
 - `triggering_sha`: SHA that triggered the workflow (for conflict detection)
 - `reviews_already_passed`: Whether the `agent-reviews-passed` label exists (skips re-review)
 - `is_draft`: Whether the PR is a draft (skips auto-fix and all reviews for TDD support)
@@ -334,6 +335,16 @@ Automatically fixes failing tests (up to 3 attempts).
 7. If tests pass, triggers AI Code Review
 8. If tests still fail, triggers another fix attempt (self-retry)
 9. After 3 failed attempts, posts a comment to the PR requesting human intervention
+
+**Scope**: The agent fixes only failures that the PR caused. A failure is out of scope when the failing test
+and its package are outside the PR's diff, and nothing in the diff plausibly affects that test. For an
+out-of-scope failure (usually a flaky test elsewhere), the agent pushes nothing. It finds or opens an issue for
+the test, re-runs the failed jobs once with `gh run rerun --failed`, and comments on the PR. A passing re-run
+starts the reviews through the normal `workflow_run` trigger. If the re-run fails again on the same commit,
+the comment's commit marker prevents another fix attempt or re-run. If the re-run passes but a genuinely
+in-scope failure then appears on the same commit, the guard still blocks further fix attempts — pushing a
+new commit is the only escape hatch in that case. On PR #1383, a flaky-test fix pushed into
+an unrelated PR conflicted with a separate fix for the same test on `main`.
 
 **Self-Retry Mechanism**: Because `workflow_run` events don't fire for workflows triggered via `workflow_dispatch`, the fix job manually triggers the next fix attempt when tests still fail. This ensures the retry loop works correctly regardless of how the workflow was initiated.
 
