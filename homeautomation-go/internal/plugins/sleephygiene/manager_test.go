@@ -1308,13 +1308,8 @@ func TestGetBedroomSpeakers_EmptyState(t *testing.T) {
 
 	bedroomSpeakers := manager.getBedroomSpeakers()
 
-	// Should fall back to default
-	if len(bedroomSpeakers) != 1 {
-		t.Errorf("Expected 1 default bedroom speaker, got %d", len(bedroomSpeakers))
-	}
-	if bedroomSpeakers[0] != "Primary Bed" {
-		t.Errorf("Expected default Primary Bed, got %s", bedroomSpeakers[0])
-	}
+	// Should fall back to every sleep-zone speaker
+	assert.Equal(t, []string{"Primary Bed", "Primary Bath"}, bedroomSpeakers)
 }
 
 // TestFadeOutSpeaker_WithVolumeQuery tests fade out with actual volume query

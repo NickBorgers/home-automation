@@ -17,7 +17,7 @@ zones:
         value: false
 
   # sleep: Primary Bed and Primary Bath sleep sounds AFTER master goes to bed
-  # Doesn't restart during wake sequence (sleephygiene manages the Primary Bed fade-out)
+  # Doesn't restart during wake sequence (sleephygiene fades out Primary Bed and Primary Bath)
   - name: "sleep"
     priority: 100  # Highest auto-trigger - sleep takes precedence
     trigger:
@@ -137,6 +137,14 @@ music:
       - player_name: "Primary Bed"
         base_volume: 7
         # Exclude during wake sequence (Primary Bed stays on sleep zone)
+        exclude_if:
+          - variable: isMasterAsleep
+            value: true
+      # Follows Primary Bed out of the sleep zone once the master is awake.
+      # sleephygiene fades its rain out at the alarm, like Primary Bed.
+      - player_name: "Primary Bath"
+        base_volume: 7
+        leave_muted_if: []
         exclude_if:
           - variable: isMasterAsleep
             value: true
