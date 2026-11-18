@@ -21,6 +21,7 @@ import (
 //   - Soundbar never leads. It switches its output to the TV when TV playback starts.
 //   - Sleep sounds stay led by Primary Bed. The night rain setup depends on it.
 func TestScenario_MusicZoneLeaders(t *testing.T) {
+	t.Parallel()
 	t.Log("GIVEN: the production music playback zones")
 	config, err := music.LoadConfig(filepath.Join("..", "..", "..", "configs", "music_config.yaml"))
 	require.NoError(t, err)
@@ -50,5 +51,9 @@ func TestScenario_MusicZoneLeaders(t *testing.T) {
 				"Soundbar switches to TV audio and must never lead")
 			assert.Empty(t, leader.ExcludeIf, "an excluded leader would hand the group to another speaker")
 		})
+	}
+
+	for zone := range expectedLeaders {
+		assert.Contains(t, config.Music, zone, "expected zone %q is missing from the config", zone)
 	}
 }
