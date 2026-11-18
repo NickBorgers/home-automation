@@ -46,7 +46,7 @@ const (
 //   - isAnyOwnerHome = isNickHome OR isCarolineHome
 //   - isAnyoneHome = isAnyOwnerHome OR isAssistantHere
 //   - isAnyoneAsleep = isMasterAsleep OR isGuestAsleep
-//   - isEveryoneAsleep = isMasterAsleep AND isGuestAsleep
+//   - isEveryoneAsleep = isMasterAsleep AND (isGuestAsleep OR NOT isHaveGuests)
 //
 // Additional features:
 //   - Automatic master sleep detection when primary suite lights off for 1 minute

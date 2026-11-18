@@ -330,6 +330,37 @@ func TestSetupComputedStateV2_AssistantArrivesWhileOwnerAsleep(t *testing.T) {
 	assert.False(t, value, "isAnyoneHomeAndAwake should be false when Assistant leaves and owner is still asleep")
 }
 
+func TestSetupComputedStateV2_IsEveryoneAsleepWithAndWithoutGuests(t *testing.T) {
+	t.Parallel()
+	logger := testlogger.New()
+	mockClient := ha.NewMockClient()
+
+	// No guests, master asleep, no guest asleep
+	mockClient.SetState("input_boolean.have_guests", "off", map[string]interface{}{})
+	mockClient.SetState("input_boolean.master_asleep", "on", map[string]interface{}{})
+	mockClient.SetState("input_boolean.guest_asleep", "off", map[string]interface{}{})
+	mockClient.SetState("input_boolean.everyone_asleep", "off", map[string]interface{}{})
+	mockClient.Connect()
+
+	manager := NewManager(mockClient, logger, false)
+	require.NoError(t, manager.SyncFromHA())
+	require.NoError(t, manager.SetupComputedStateV2())
+	defer manager.StopComputedState()
+
+	value, _ := manager.GetBool("isEveryoneAsleep")
+	assert.True(t, value, "with no guests, isEveryoneAsleep should follow isMasterAsleep")
+
+	// Guests arrive and are still up
+	mockClient.SimulateStateChange("input_boolean.have_guests", "on")
+	value, _ = manager.GetBool("isEveryoneAsleep")
+	assert.False(t, value, "with guests up, not everyone is asleep")
+
+	// The guest falls asleep
+	mockClient.SimulateStateChange("input_boolean.guest_asleep", "on")
+	value, _ = manager.GetBool("isEveryoneAsleep")
+	assert.True(t, value, "master and guest asleep means everyone is asleep")
+}
+
 func TestSetupComputedStateV2_DependencyGraph(t *testing.T) {
 	t.Parallel()
 	manager, _ := setupTestManagerForV2(t)
@@ -350,6 +381,7 @@ func TestSetupComputedStateV2_DependencyGraph(t *testing.T) {
 	assert.Contains(t, graph["isAnyoneAsleep"], "isGuestAsleep")
 	assert.Contains(t, graph["isEveryoneAsleep"], "isMasterAsleep")
 	assert.Contains(t, graph["isEveryoneAsleep"], "isGuestAsleep")
+	assert.Contains(t, graph["isEveryoneAsleep"], "isHaveGuests")
 	assert.Contains(t, graph["isAnyoneHomeAndAwake"], "isAnyoneHome")
 	assert.Contains(t, graph["isAnyoneHomeAndAwake"], "isAnyoneAsleep")
 	assert.Contains(t, graph["isAnyoneHomeAndAwake"], "isAssistantHere")

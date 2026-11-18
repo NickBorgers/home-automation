@@ -91,11 +91,11 @@ func RegisterPresenceProviders(registry *ComputedStateRegistry, callbacks *Compu
 // RegisterSleepProviders registers all sleep-related computed state providers.
 // Level 1 computed states:
 //   - isAnyoneAsleep = isMasterAsleep OR isGuestAsleep
-//   - isEveryoneAsleep = isMasterAsleep AND isGuestAsleep
+//   - isEveryoneAsleep = isMasterAsleep AND (isGuestAsleep OR NOT isHaveGuests)
 //
-// Note: isGuestAsleep itself has complex auto-detection logic that is handled
-// separately by the statetracking plugin (auto-sleep when door closes, mirroring
-// master when no guests).
+// Note: isGuestAsleep itself has auto-detection logic that is handled
+// separately by the statetracking plugin (auto-sleep when the guest door closes,
+// cleared when there are no guests).
 func RegisterSleepProviders(registry *ComputedStateRegistry, callbacks *ComputedStateCallback) error {
 	// isAnyoneAsleep = isMasterAsleep OR isGuestAsleep
 	if err := registry.Register(&ComputedStateProvider{
@@ -125,10 +125,10 @@ func RegisterSleepProviders(registry *ComputedStateRegistry, callbacks *Computed
 		return err
 	}
 
-	// isEveryoneAsleep = isMasterAsleep AND isGuestAsleep
+	// isEveryoneAsleep = isMasterAsleep AND (isGuestAsleep OR NOT isHaveGuests)
 	if err := registry.Register(&ComputedStateProvider{
 		Name:         "isEveryoneAsleep",
-		Dependencies: []string{"isMasterAsleep", "isGuestAsleep"},
+		Dependencies: []string{"isMasterAsleep", "isGuestAsleep", "isHaveGuests"},
 		ComputeFunc: func(ctx *ComputeContext) (interface{}, error) {
 			isMasterAsleep, err := ctx.GetBool("isMasterAsleep")
 			if err != nil {
@@ -138,12 +138,17 @@ func RegisterSleepProviders(registry *ComputedStateRegistry, callbacks *Computed
 			if err != nil {
 				return nil, err
 			}
+			isHaveGuests, err := ctx.GetBool("isHaveGuests")
+			if err != nil {
+				return nil, err
+			}
 
-			result := isMasterAsleep && isGuestAsleep
+			result := isMasterAsleep && (isGuestAsleep || !isHaveGuests)
 
 			ctx.Logger().Debug("Computed isEveryoneAsleep",
 				zap.Bool("isMasterAsleep", isMasterAsleep),
 				zap.Bool("isGuestAsleep", isGuestAsleep),
+				zap.Bool("isHaveGuests", isHaveGuests),
 				zap.Bool("result", result))
 
 			return result, nil
