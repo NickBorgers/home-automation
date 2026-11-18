@@ -340,6 +340,9 @@ flowchart TB
 | `sleep` | 100 | `isMasterAsleep=true` + `isAnyoneHome=true` + `isWakeSequenceActive=false` | Primary Bed, Primary Bath |
 | `morning` | 50 | `dayPhase=morning` + `isAnyoneAsleep=false` + `isAnyoneHome=true` **OR** `isWakeSequenceActive=true` + `dayPhase=morning` + `isAnyoneHome=true` **OR** `dayPhase=morning` + `isAnyoneHomeAndAwake=true` (wake latch) **OR** `isEarlyWakeActive=true` + `isAnyoneHome=true` (early wake, any day phase) | Pantry, Lounge, Kids Bathroom, Sitting (Primary Bed and Primary Bath excluded via `exclude_if: isMasterAsleep=true`) |
 
+Primary Bath follows Primary Bed into every household zone: morning, day, evening, winddown, sleep-prep and sleep.
+It uses the same mute and exclude rules as Primary Bed.
+
 ### Key Behaviors
 
 1. **Sleep zone stops during wake**: The sleep zone requires `isWakeSequenceActive=false`, so it deactivates when the wake sequence starts. This prevents sleep music from restarting during wake.

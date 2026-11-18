@@ -521,7 +521,7 @@ These speakers are discovered by SoCo and match the `player_name` values in `con
 | Kitchen | Yes | Muted while TV plays (`isTVPlaying`) |
 | Kids Bathroom | Yes | |
 | Primary Bed | Yes | 5 GHz capable. Excluded from some zones when master is asleep |
-| Primary Bath | Yes | Sleep-prep and sleep only |
+| Primary Bath | Yes | Follows Primary Bed in every household zone (morning through sleep) |
 | Sitting | Yes | |
 | Barn | No | Not used in music automation |
 | Soundbar | Yes | All Kitchen-containing zones (morning, day, evening, winddown, sleep-prep). Not used for TTS notifications |
