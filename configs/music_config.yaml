@@ -207,6 +207,12 @@ music:
         leave_muted_if:
           - variable: isMasterAsleep
             value: true
+      # Follows Primary Bed so the whole suite plays the same music.
+      - player_name: "Primary Bath"
+        base_volume: 7
+        leave_muted_if:
+          - variable: isMasterAsleep
+            value: true
       - player_name: "Sitting"
         base_volume: 9
         leave_muted_if:
@@ -277,6 +283,12 @@ music:
           - variable: isTVPlaying
             value: true
       - player_name: "Primary Bed"
+        base_volume: 5
+        exclude_if:
+          - variable: isMasterAsleep
+            value: true
+      # Follows Primary Bed so the whole suite plays the same music.
+      - player_name: "Primary Bath"
         base_volume: 5
         exclude_if:
           - variable: isMasterAsleep
@@ -412,6 +424,12 @@ music:
           - variable: isTVPlaying
             value: true
       - player_name: "Primary Bed"
+        base_volume: 5
+        exclude_if:
+          - variable: isMasterAsleep
+            value: true
+      # Follows Primary Bed so the whole suite plays the same music.
+      - player_name: "Primary Bath"
         base_volume: 5
         exclude_if:
           - variable: isMasterAsleep

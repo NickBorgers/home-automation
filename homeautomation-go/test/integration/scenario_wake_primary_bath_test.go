@@ -158,3 +158,38 @@ func TestScenario_WakeSequence_PrimaryBathFadesThenJoinsMorning(t *testing.T) {
 		return false
 	}, "Primary Bath should join the morning group led by Lounge")
 }
+
+// TestScenario_PrimaryBathFollowsPrimaryBedAllDay checks that Primary Bath plays
+// with Primary Bed in every household zone, under the same rules. The bedroom
+// and bathroom are one suite, so they play the same music all day.
+func TestScenario_PrimaryBathFollowsPrimaryBedAllDay(t *testing.T) {
+	t.Log("GIVEN: the production music zones")
+	config, err := music.LoadConfig(filepath.Join("..", "..", "..", "configs", "music_config.yaml"))
+	require.NoError(t, err)
+
+	t.Log("WHEN: Primary Bed and Primary Bath are compared in each household zone")
+	t.Log("THEN: Primary Bath is in every zone that has Primary Bed, with the same rules")
+	// Rain zones set their own volumes per room (Issue #1412), so only music zones compare volume.
+	zones := map[string]bool{"morning": true, "day": true, "evening": true, "winddown": true,
+		"sleep-prep": false, "sleep": false}
+	for zone, sameVolume := range zones {
+		mode, ok := config.Music[zone]
+		require.True(t, ok, "zone %s must exist", zone)
+		var bed, bath *music.Participant
+		for i := range mode.Participants {
+			switch mode.Participants[i].PlayerName {
+			case "Primary Bed":
+				bed = &mode.Participants[i]
+			case "Primary Bath":
+				bath = &mode.Participants[i]
+			}
+		}
+		require.NotNil(t, bed, "Primary Bed must be in %s", zone)
+		require.NotNil(t, bath, "Primary Bath must follow Primary Bed into %s", zone)
+		if sameVolume {
+			assert.Equal(t, bed.BaseVolume, bath.BaseVolume, "base_volume in %s", zone)
+		}
+		assert.ElementsMatch(t, bed.LeaveMutedIf, bath.LeaveMutedIf, "leave_muted_if in %s", zone)
+		assert.ElementsMatch(t, bed.ExcludeIf, bath.ExcludeIf, "exclude_if in %s", zone)
+	}
+}
