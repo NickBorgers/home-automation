@@ -170,6 +170,7 @@ func TestScenario_PrimaryBathFollowsPrimaryBedAllDay(t *testing.T) {
 	t.Log("WHEN: Primary Bed and Primary Bath are compared in each household zone")
 	t.Log("THEN: Primary Bath is in every zone that has Primary Bed, with the same rules")
 	// Rain zones set their own volumes per room (Issue #1412), so only music zones compare volume.
+	// sex and wakeup are manually triggered zones — excluded intentionally.
 	zones := map[string]bool{"morning": true, "day": true, "evening": true, "winddown": true,
 		"sleep-prep": false, "sleep": false}
 	for zone, sameVolume := range zones {
