@@ -1386,6 +1386,32 @@ func TestFindSeamlessTransitions(t *testing.T) {
 		zm.mu.Unlock()
 	})
 
+	t.Run("returns no transitions when stopping zone failed to start", func(t *testing.T) {
+		zm.mu.Lock()
+		zm.activeZones["sleep-prep"] = &Zone{
+			Name:           "sleep-prep",
+			PlaylistURI:    "http://rain.example/1.m4a",
+			PlaybackStatus: ZonePlaybackRetrying,
+			Participants: []ParticipantWithVolume{
+				{PlayerName: "Bedroom"},
+				{PlayerName: "Sitting Room"},
+			},
+		}
+		zm.mu.Unlock()
+
+		zoneToSpeakers := map[string][]string{
+			"sleep": {"Bedroom", "Kitchen"},
+		}
+
+		transitions := zm.findSeamlessTransitions([]string{"sleep-prep"}, []string{"sleep"}, zoneToSpeakers)
+
+		assert.Empty(t, transitions, "a silent zone has no playback to hand over")
+
+		zm.mu.Lock()
+		delete(zm.activeZones, "sleep-prep")
+		zm.mu.Unlock()
+	})
+
 	t.Run("skips stopping zone not in activeZones", func(t *testing.T) {
 		// No active zone for "sleep-prep"
 		zoneToSpeakers := map[string][]string{

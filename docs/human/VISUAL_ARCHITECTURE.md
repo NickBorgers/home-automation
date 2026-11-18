@@ -756,8 +756,12 @@ flowchart TD
     MuteAll --> StartPlayback{Media Type?}
     StartPlayback -->|Spotify| SoCoPlayURI[Start via SoCo-CLI play_uri]
     StartPlayback -->|Tidal| SoCoPlay[Start via SoCo-CLI<br/>sharelink + play_from_queue]
-    SoCoPlayURI --> VerifyPlay[Verify Playback Started]
-    SoCoPlay --> VerifyPlay
+    SoCoPlayURI --> Loaded{Playlist Commands<br/>Delivered?}
+    SoCoPlay --> Loaded
+    Loaded -->|No| Retry[Mark Zone Retrying<br/>Wait 30s, 1m, 2m, then every 5m]
+    Retry -->|Zone still active| SelectPlaylist
+    Retry -->|Zone ended| Done
+    Loaded -->|Yes| VerifyPlay[Verify Playback Started]
     VerifyPlay --> EnableShuffle[Enable Shuffle for Playlists]
     EnableShuffle --> EvalConditions[Evaluate Mute Conditions<br/>for Each Speaker]
     EvalConditions --> FadeIn[Fade In Eligible Speakers<br/>Gradually 0→targetVolume]

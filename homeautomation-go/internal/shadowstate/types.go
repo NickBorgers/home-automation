@@ -453,6 +453,9 @@ type ZoneShadowState struct {
 	Participants []SpeakerState `json:"participants"`
 	PlaylistURI  string         `json:"playlistUri"`
 	StartedAt    time.Time      `json:"startedAt"`
+	// PlaybackStatus is "starting", "playing", or "retrying". "retrying" means
+	// the lead speaker could not be given its playlist and a retry is scheduled.
+	PlaybackStatus string `json:"playbackStatus,omitempty"`
 }
 
 // SpeakerFadeIn represents the fade-in state of a single speaker

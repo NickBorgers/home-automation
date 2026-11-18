@@ -105,6 +105,22 @@ const (
 	playbackRecoveryDelay = 2 * time.Second
 )
 
+// defaultZoneStartRetryDelays are the waits between attempts to start a zone
+// whose lead speaker could not be given its playlist. The last delay repeats
+// for as long as the zone stays active. A Sonos speaker has been seen to stop
+// answering for about 50 seconds (2026-11-17), so the first retries come soon.
+var defaultZoneStartRetryDelays = []time.Duration{
+	30 * time.Second,
+	1 * time.Minute,
+	2 * time.Minute,
+	5 * time.Minute,
+}
+
+// errPlaylistNotLoaded means a command that loads or starts the playlist on
+// the lead speaker could not be delivered. The speaker has nothing to play,
+// so fading it in would only raise the volume on silence.
+var errPlaylistNotLoaded = errors.New("playlist not loaded on lead speaker")
+
 // orchestratePlayback coordinates the complete playback flow
 func (m *Manager) orchestratePlayback(musicType string, trigger string) error {
 	m.logger.Info("Orchestrating playback", zap.String("type", musicType), zap.String("trigger", trigger))
@@ -248,9 +264,14 @@ func (m *Manager) executePlayback(musicType string, option PlaybackOption, parti
 
 	// Step 3: Start playback on lead player IMMEDIATELY (before building group)
 	// This is the key change - playback starts without waiting for followers
-	// IMPORTANT: Even if verification fails, we continue with fade-in. Sonos speakers
-	// at volume 0 may not report "playing" state, but the play_media command was sent.
+	// If the playlist commands could not be delivered, stop here: the caller retries
+	// the whole sequence. If they were delivered but the speaker does not report
+	// "playing", continue with fade-in. Sonos speakers at volume 0 may not report
+	// "playing" state, but the play_media command was sent.
 	attempts, verifyErr := m.startPlaybackWithVerification(leadEntityID, leadPlayer, option)
+	if errors.Is(verifyErr, errPlaylistNotLoaded) {
+		return nil, attempts, verifyErr
+	}
 	playbackVerificationFailed := verifyErr != nil
 	if playbackVerificationFailed {
 		m.logger.Warn("Playback verification failed, continuing with fade-in anyway",
@@ -397,7 +418,7 @@ func (m *Manager) startPlaybackWithVerification(leadEntityID string, leadPlayerN
 	for attempt := 1; attempt <= playbackVerificationRetries; attempt++ {
 		// Send play_media command (routed to SoCo play_uri or HA play_media)
 		if err := m.speakerPlayMedia(leadPlayerName, option.URI, option.MediaType); err != nil {
-			return attempt, fmt.Errorf("failed to send play_media: %w", err)
+			return attempt, fmt.Errorf("%w: failed to send play_media: %w", errPlaylistNotLoaded, err)
 		}
 
 		// Wait for speaker to start playing
@@ -463,7 +484,7 @@ func (m *Manager) startTidalPlayback(leadEntityID string, leadPlayerName string,
 
 	for attempt := 1; attempt <= playbackVerificationRetries; attempt++ {
 		if err := m.socoClient.PlayShareLink(leadPlayerName, option.URI); err != nil {
-			return attempt, fmt.Errorf("failed to start Tidal playback via SoCo-CLI: %w", err)
+			return attempt, fmt.Errorf("%w: failed to start Tidal playback via SoCo-CLI: %w", errPlaylistNotLoaded, err)
 		}
 
 		// Wait for speaker to start playing

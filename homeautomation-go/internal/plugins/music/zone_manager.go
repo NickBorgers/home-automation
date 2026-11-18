@@ -24,10 +24,23 @@ type Zone struct {
 	MediaType        string
 	VolumeMultiplier float64 // from active PlaybackOption; used when speakers are added dynamically
 	StartedAt        time.Time
+	PlaybackStatus   ZonePlaybackStatus
 
 	// Playback monitoring (managed by Manager)
 	monitorCancel context.CancelFunc
 }
+
+// ZonePlaybackStatus says whether a zone's lead speaker is known to be playing.
+type ZonePlaybackStatus string
+
+const (
+	// ZonePlaybackStarting means the start sequence is running.
+	ZonePlaybackStarting ZonePlaybackStatus = "starting"
+	// ZonePlaybackPlaying means the lead speaker was given its playlist.
+	ZonePlaybackPlaying ZonePlaybackStatus = "playing"
+	// ZonePlaybackRetrying means the last start failed and a retry is scheduled.
+	ZonePlaybackRetrying ZonePlaybackStatus = "retrying"
+)
 
 // ZoneEvaluation captures the result of evaluating a zone's triggers for audit logging
 type ZoneEvaluation struct {
@@ -973,6 +986,11 @@ func (zm *ZoneManager) findSeamlessTransitions(zonesToStop, zonesToStart []strin
 		if !exists {
 			continue
 		}
+		// A seamless transition keeps the current playback. If the stopping zone
+		// failed to start, there is nothing to keep, so do a full start.
+		if activeZone.PlaybackStatus == ZonePlaybackRetrying {
+			continue
+		}
 
 		// Get stopping zone's speaker names
 		stoppingSpeakers := make([]string, len(activeZone.Participants))
@@ -1142,6 +1160,7 @@ func (zm *ZoneManager) executeSeamlessTransition(st seamlessTransition, newSpeak
 		MediaType:        oldMediaType,
 		VolumeMultiplier: playbackOption.VolumeMultiplier,
 		StartedAt:        time.Now(),
+		PlaybackStatus:   ZonePlaybackPlaying, // keeps the stopping zone's playback
 	}
 
 	// Now atomically swap zones in tracking
@@ -1377,6 +1396,7 @@ func (zm *ZoneManager) startZone(zoneName string, speakers []string, trigger str
 		MediaType:        playbackOption.MediaType,
 		VolumeMultiplier: playbackOption.VolumeMultiplier,
 		StartedAt:        time.Now(),
+		PlaybackStatus:   ZonePlaybackStarting,
 	}
 
 	// Store zone state
@@ -1401,18 +1421,76 @@ func (zm *ZoneManager) startZone(zoneName string, speakers []string, trigger str
 
 	// Delegate actual playback to manager
 	if zm.manager.adoptStartupZonePlayback(zone, playbackOption, trigger) {
+		zm.setZonePlaybackStatus(zone, ZonePlaybackPlaying)
 		return nil
 	}
 
-	go func() {
-		if err := zm.manager.orchestrateZonePlayback(zone, playbackOption, trigger); err != nil {
-			zm.logger.Error("Failed to orchestrate zone playback",
-				zap.String("zone", zoneName),
-				zap.Error(err))
-		}
-	}()
+	go zm.runZoneStart(zone, playbackOption, trigger)
 
 	return nil
+}
+
+// runZoneStart runs the zone's start sequence until it succeeds. After a
+// failure it waits and runs the whole sequence again, for as long as this
+// zone stays active. Without the retry, one unresponsive lead speaker at
+// start time leaves the zone silent until its triggers next change.
+func (zm *ZoneManager) runZoneStart(zone *Zone, playbackOption PlaybackOption, trigger string) {
+	delays := zm.manager.zoneStartRetryDelays
+	if len(delays) == 0 {
+		delays = defaultZoneStartRetryDelays
+	}
+
+	for attempt := 1; ; attempt++ {
+		if !zm.isCurrentZone(zone) {
+			return
+		}
+
+		err := zm.manager.orchestrateZonePlayback(zone, playbackOption, trigger)
+		if err == nil {
+			zm.setZonePlaybackStatus(zone, ZonePlaybackPlaying)
+			zm.manager.refreshZoneShadowState()
+			if attempt > 1 {
+				zm.logger.Info("Zone playback started after retry",
+					zap.String("zone", zone.Name),
+					zap.Int("attempt", attempt))
+			}
+			return
+		}
+
+		delay := delays[min(attempt-1, len(delays)-1)]
+		zm.setZonePlaybackStatus(zone, ZonePlaybackRetrying)
+		zm.manager.refreshZoneShadowState()
+		zm.logger.Error("Failed to orchestrate zone playback, will retry",
+			zap.String("zone", zone.Name),
+			zap.Int("attempt", attempt),
+			zap.Duration("retry_in", delay),
+			zap.Error(err))
+
+		select {
+		case <-zm.manager.ctx.Done():
+			return
+		case <-zm.manager.stopped:
+			return
+		case <-time.After(delay):
+		}
+		trigger = fmt.Sprintf("retry:%s:%d", zone.Name, attempt+1)
+	}
+}
+
+// isCurrentZone reports whether zone is still the active zone under its name.
+// A stopped or replaced zone must not be started again.
+func (zm *ZoneManager) isCurrentZone(zone *Zone) bool {
+	zm.mu.RLock()
+	defer zm.mu.RUnlock()
+	return zm.activeZones[zone.Name] == zone
+}
+
+// setZonePlaybackStatus records the zone's playback status under the zone lock,
+// because GetActiveZones copies zones while holding it.
+func (zm *ZoneManager) setZonePlaybackStatus(zone *Zone, status ZonePlaybackStatus) {
+	zm.mu.Lock()
+	defer zm.mu.Unlock()
+	zone.PlaybackStatus = status
 }
 
 // stopZone stops playback for a zone

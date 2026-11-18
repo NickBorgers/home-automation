@@ -107,6 +107,14 @@ type Manager struct {
 	debounceDelay    time.Duration // debounce delay for zone trigger changes
 	debounceDelaySet bool          // true if SetDebounceDelay was called explicitly
 
+	// zoneStartRetryDelays are the waits between attempts to start a zone.
+	// nil means defaultZoneStartRetryDelays.
+	zoneStartRetryDelays []time.Duration
+
+	// stopped is closed by Stop so that waiting zone start retries exit.
+	stopped  chan struct{}
+	stopOnce sync.Once
+
 	// Startup reconciliation: cache of m3u playlist contents (URI -> set of track URIs).
 	// Populated lazily on first lookup, kept for Manager lifetime — restart re-fetches.
 	m3uCache   map[string]map[string]struct{}
@@ -125,6 +133,7 @@ func NewManager(ctx context.Context, haClient ha.HAClient, stateManager *state.M
 	}
 	return &Manager{
 		ctx:                ctx,
+		stopped:            make(chan struct{}),
 		haClient:           haClient,
 		stateManager:       stateManager,
 		config:             config,
@@ -157,6 +166,13 @@ func (m *Manager) SetMonitorDoneCallback(fn MonitorDoneCallback) {
 // SetSoCoClient sets the SoCo-CLI client for Tidal playback.
 func (m *Manager) SetSoCoClient(client *SoCoClient) {
 	m.socoClient = client
+}
+
+// SetZoneStartRetryDelays overrides the waits between attempts to start a
+// zone whose lead speaker could not be given its playlist. The last delay
+// repeats for as long as the zone stays active. Call before Start().
+func (m *Manager) SetZoneStartRetryDelays(delays []time.Duration) {
+	m.zoneStartRetryDelays = delays
 }
 
 // SetDebounceDelay overrides the zone trigger debounce delay.
@@ -340,6 +356,9 @@ func (m *Manager) Stop() {
 	// Stop the playback health monitor. Without this the goroutine outlives the Manager
 	// (and, with a no-op sleepFunc in tests, busy-polls for its full duration).
 	m.cancelPlaybackMonitor()
+
+	// End any zone start retries that are waiting for their next attempt.
+	m.stopOnce.Do(func() { close(m.stopped) })
 
 	m.logger.Info("Music Manager stopped")
 }
