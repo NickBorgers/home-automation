@@ -2,7 +2,6 @@ package integration
 
 import (
 	"context"
-	"sync"
 	"testing"
 	"time"
 
@@ -51,33 +50,7 @@ type wakeMusicFadeEnv struct {
 	stateTracking *statetracking.Manager
 	music         *music.Manager
 	sleepHygiene  *sleephygiene.Manager
-	speaker       *recordingSpeakerClient
-}
-
-type recordingSpeakerClient struct {
-	mu     sync.Mutex
-	volume int
-	levels []int
-}
-
-func (c *recordingSpeakerClient) GetVolume(string) (int, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.volume, nil
-}
-
-func (c *recordingSpeakerClient) SetVolume(_ string, level int) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.volume = level
-	c.levels = append(c.levels, level)
-	return nil
-}
-
-func (c *recordingSpeakerClient) Levels() []int {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return append([]int(nil), c.levels...)
+	speaker       *perSpeakerVolumeClient
 }
 
 func setupWakeMusicFadeTest(t *testing.T) (*wakeMusicFadeEnv, func()) {
@@ -97,7 +70,7 @@ func setupWakeMusicFadeTest(t *testing.T) (*wakeMusicFadeEnv, func()) {
 		stateTracking: statetracking.NewManager(context.Background(), client, stateManager, logger, false, nil, "", &alert.MockAlerter{}),
 		music:         music.NewManager(context.Background(), client, stateManager, musicConfig, logger, false, nil, nil),
 		sleepHygiene:  sleephygiene.NewManager(context.Background(), client, stateManager, configLoader, logger, false, nil, nil),
-		speaker:       &recordingSpeakerClient{volume: 14},
+		speaker:       newPerSpeakerVolumeClient(map[string]int{"Primary Bed": 14}),
 	}
 	env.sleepHygiene.SetSpeakerClient(env.speaker)
 
@@ -246,7 +219,7 @@ func TestScenario_WakeSequence_BedroomFadeIsGradualNotAbrupt(t *testing.T) {
 	// ========== THEN ==========
 	t.Log("THEN: Verify the bedroom volume fade-out was GRADUAL, not abrupt")
 
-	fadeOutVolumes := env.speaker.Levels()
+	fadeOutVolumes := env.speaker.Levels("Primary Bed")
 	for _, call := range filterServiceCalls(env.server.GetServiceCallsSince(snapshot), "media_player", "volume_set") {
 		assert.NotEqual(t, "media_player.primary_bed", call.ServiceData["entity_id"],
 			"sleep hygiene fade must not call the bedroom Home Assistant media_player")

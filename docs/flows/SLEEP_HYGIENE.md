@@ -209,7 +209,8 @@ flowchart TD
     style stop fill:#e74c3c,color:#fff
 ```
 
-Sleep hygiene reads and sets the volume through SoCo-CLI using the Sonos name `Primary Bed`; the fade does not use a Home Assistant `media_player` entity.
+Sleep hygiene reads and sets the volume through SoCo-CLI using the Sonos names `Primary Bed` and `Primary Bath`; the fade does not use a Home Assistant `media_player` entity.
+Each speaker fades on its own. `isFadeOutInProgress` clears only after the last speaker reaches 0, so a quieter speaker that finishes first does not stop a louder one.
 
 Wake music takes ownership of the bedroom speaker volume. Before setting
 `musicPlaybackType` to `wakeup`, sleep hygiene invalidates the active fade generation while

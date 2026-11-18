@@ -96,8 +96,11 @@ type Manager struct {
 
 	// fadeMu serializes wake-music activation with bedroom fade volume commands.
 	// fadeGeneration invalidates goroutines left over from an older fade.
+	// activeFades counts the speaker fades of the current generation that are
+	// still running, so isFadeOutInProgress clears only when the last one ends.
 	fadeMu         sync.Mutex
 	fadeGeneration uint64
+	activeFades    int
 }
 
 // NewManager creates a new Sleep Hygiene manager
@@ -557,8 +560,8 @@ func (m *Manager) handleBeginWake() {
 	// Get bedroom speakers from currentlyPlayingMusic
 	bedroomSpeakers := m.getBedroomSpeakers()
 	if len(bedroomSpeakers) == 0 {
-		m.logger.Warn("No bedroom speakers found in currentlyPlayingMusic, using default")
-		bedroomSpeakers = []string{defaultBedroomSpeaker}
+		m.logger.Warn("No bedroom speakers found in currentlyPlayingMusic, using defaults")
+		bedroomSpeakers = defaultBedroomSpeakers
 	}
 
 	// Record action in shadow state
@@ -569,6 +572,7 @@ func (m *Manager) handleBeginWake() {
 		m.fadeMu.Lock()
 		m.fadeGeneration++
 		fadeGeneration := m.fadeGeneration
+		m.activeFades = len(bedroomSpeakers)
 		m.fadeMu.Unlock()
 
 		// Set fade out in progress flag
@@ -598,21 +602,23 @@ func (m *Manager) handleBeginWake() {
 	}
 }
 
-// defaultBedroomSpeaker is the Sonos speaker in the Primary Bed room.
-const defaultBedroomSpeaker = "Primary Bed"
+// defaultBedroomSpeakers are the Sonos speakers of the sleep zone in music_config.yaml.
+// The wake fade-out owns all of them, because the music plugin skips its own
+// fade-out when it stops the sleep zone during a wake sequence.
+var defaultBedroomSpeakers = []string{"Primary Bed", "Primary Bath"}
 
-// getBedroomSpeakers returns the Primary Bed speakers in currentlyPlayingMusic by Sonos name.
+// getBedroomSpeakers returns the sleep-zone speakers in currentlyPlayingMusic by Sonos name.
 func (m *Manager) getBedroomSpeakers() []string {
 	var currentMusic map[string]interface{}
 	if err := m.stateManager.GetJSON("currentlyPlayingMusic", &currentMusic); err != nil {
-		m.logger.Warn("Failed to get currentlyPlayingMusic, using default bedroom speaker", zap.Error(err))
-		return []string{defaultBedroomSpeaker}
+		m.logger.Warn("Failed to get currentlyPlayingMusic, using default bedroom speakers", zap.Error(err))
+		return defaultBedroomSpeakers
 	}
 
 	participants, ok := currentMusic["participants"].([]interface{})
 	if !ok {
-		m.logger.Warn("currentlyPlayingMusic has no participants array")
-		return []string{defaultBedroomSpeaker}
+		m.logger.Warn("currentlyPlayingMusic has no participants array, using default bedroom speakers")
+		return defaultBedroomSpeakers
 	}
 
 	var bedroomSpeakers []string
@@ -627,8 +633,11 @@ func (m *Manager) getBedroomSpeakers() []string {
 			continue
 		}
 
-		if strings.HasPrefix(playerName, defaultBedroomSpeaker) {
-			bedroomSpeakers = append(bedroomSpeakers, playerName)
+		for _, bedroomSpeaker := range defaultBedroomSpeakers {
+			if strings.HasPrefix(playerName, bedroomSpeaker) {
+				bedroomSpeakers = append(bedroomSpeakers, playerName)
+				break
+			}
 		}
 	}
 
@@ -668,11 +677,9 @@ func (m *Manager) fadeOutSpeakerGeneration(speakerEntityID string, fadeGeneratio
 
 	if currentVolume == 0 {
 		m.logger.Info("Speaker volume already at 0, skipping fade-out", zap.String("speaker", speakerEntityID))
-		// Still need to clear isFadeOutInProgress since fade-out is effectively complete
+		// This speaker's fade-out is effectively complete
 		if !m.readOnly {
-			if err := m.stateManager.SetBool("isFadeOutInProgress", false); err != nil {
-				m.logger.Error("Failed to clear isFadeOutInProgress", zap.Error(err))
-			}
+			m.finishFade()
 		}
 		// Mark fade-out as inactive in shadow state (consistent with other abort paths)
 		m.shadowTracker.UpdateFadeOutProgress(speakerEntityID, 0)
@@ -707,7 +714,12 @@ func (m *Manager) fadeOutSpeakerGeneration(speakerEntityID string, fadeGeneratio
 			m.logger.Info("Wake sequence cancelled, stopping fade-out",
 				zap.String("speaker", speakerEntityID))
 
-			// Clear fade-out state on abort
+			// Abort path: clear the flag immediately for the whole sequence without
+			// going through finishFade(). finishFade() is for the success path and
+			// only clears the flag when the last speaker finishes. Here we want the
+			// flag gone now — the other speaker goroutines will also hit this check
+			// and abort. activeFades is left stale but is reset at the start of the
+			// next wake sequence (handleBeginWake / TriggerBeginWakeForTest).
 			if !m.readOnly {
 				if err := m.stateManager.SetBool("isFadeOutInProgress", false); err != nil {
 					m.logger.Error("Failed to clear isFadeOutInProgress", zap.Error(err))
@@ -784,7 +796,8 @@ func (m *Manager) fadeOutSpeakerGeneration(speakerEntityID string, fadeGeneratio
 				// Record human override in shadow state
 				m.shadowTracker.RecordHumanOverride(speakerEntityID, currentVolume, actualVolume)
 
-				// Clear fade-out state
+				// Abort path: same as wake-cancel above — clear the flag immediately
+				// for the whole sequence rather than per-speaker via finishFade().
 				if !m.readOnly {
 					if err := m.stateManager.SetBool("isFadeOutInProgress", false); err != nil {
 						m.logger.Error("Failed to clear isFadeOutInProgress", zap.Error(err))
@@ -798,7 +811,22 @@ func (m *Manager) fadeOutSpeakerGeneration(speakerEntityID string, fadeGeneratio
 	m.logger.Info("Fade out complete - speaker volume reached 0",
 		zap.String("speaker", speakerEntityID))
 
-	// Reset fade out flag when complete
+	m.finishFade()
+}
+
+// finishFade marks one speaker fade as complete. It clears isFadeOutInProgress
+// only when no other speaker fade is still running. Otherwise the first speaker
+// to reach 0 would abort the fade of a louder speaker.
+func (m *Manager) finishFade() {
+	m.fadeMu.Lock()
+	if m.activeFades > 0 {
+		m.activeFades--
+	}
+	remaining := m.activeFades
+	m.fadeMu.Unlock()
+	if remaining > 0 {
+		return
+	}
 	if err := m.stateManager.SetBool("isFadeOutInProgress", false); err != nil {
 		m.logger.Error("Failed to reset isFadeOutInProgress", zap.Error(err))
 	}
@@ -913,6 +941,7 @@ func (m *Manager) scheduleWakeMusic() {
 	// then start wake music while retaining ownership of the speaker volume.
 	m.fadeMu.Lock()
 	m.fadeGeneration++
+	m.activeFades = 0
 	if err := m.stateManager.SetBool("isFadeOutInProgress", false); err != nil {
 		m.logger.Error("Failed to cancel bedroom fade-out", zap.Error(err))
 	}
@@ -1398,11 +1427,12 @@ func (m *Manager) TriggerBeginWakeForTest() {
 	// Get bedroom speakers from currentlyPlayingMusic
 	bedroomSpeakers := m.getBedroomSpeakers()
 	if len(bedroomSpeakers) == 0 {
-		bedroomSpeakers = []string{defaultBedroomSpeaker}
+		bedroomSpeakers = defaultBedroomSpeakers
 	}
 
 	m.fadeMu.Lock()
 	fadeGeneration := m.fadeGeneration
+	m.activeFades = len(bedroomSpeakers)
 	m.fadeMu.Unlock()
 
 	// Run fade-out SYNCHRONOUSLY for testing (not in goroutine)
