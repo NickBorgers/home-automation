@@ -154,6 +154,11 @@ sequenceDiagram
     Music->>Lead: Break existing groups (unjoin)
     Music->>Lead: Mute lead speaker
     Music->>Lead: Start playback on lead
+
+    opt Playlist commands not delivered
+        Note over Music: Zone marked "retrying".<br/>Whole sequence runs again later<br/>(see Zone Start Retry)
+    end
+
     Music->>Lead: Enable shuffle & repeat
 
     alt Should unmute (occupancy)
@@ -190,6 +195,27 @@ The async approach provides faster perceived playback start:
 - **After**: Start playback on lead immediately → followers join in background (faster)
 
 Followers that fail to join (e.g., speaker offline) are logged but don't block playback. Followers whose mute conditions were met at playback start are pre-silenced before the join attempt, so a join failure cannot leave them playing unmuted (issue #998).
+
+## Zone Start Retry
+
+The lead speaker can stop answering at the moment a zone starts. On 2026-11-17, Pantry stopped answering for about
+50 seconds when sleep-prep started. The playlist never loaded, and the house stayed silent all night.
+
+When a command that loads or starts the playlist on the lead speaker fails, the plugin does this:
+
+1. It stops the start sequence before the fade-in. It does not raise the volume on a speaker with nothing to play.
+2. It marks the zone `retrying`. The music shadow state shows this as `activeZones[].playbackStatus`.
+3. It waits 30 seconds, then 1 minute, then 2 minutes, then every 5 minutes. After each wait it runs the whole start
+   sequence again.
+4. It stops retrying when the zone ends or is replaced, or when the plugin stops.
+
+A zone's `playbackStatus` is `starting` while its first start runs, and `playing` once the playlist commands were
+delivered. A `retrying` zone is never handed to the next zone by a seamless transition, because it has no playback to
+keep. The next zone starts in full instead.
+
+This retry covers commands that could not be delivered. If the commands were delivered but the lead speaker does not
+report `PLAYING`, the plugin still fades in. Sonos speakers at volume 0 sometimes report idle while playing
+(2026-01-03 incident).
 
 ## Post-Playback Health Monitoring
 

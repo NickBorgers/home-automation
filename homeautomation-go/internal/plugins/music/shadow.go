@@ -107,37 +107,56 @@ func (m *Manager) updateShadowOutputs(mode string, playlist *shadowstate.Playlis
 
 	// Update active zones from ZoneManager (per design review feedback)
 	if m.zoneManager != nil {
-		activeZones := m.zoneManager.GetActiveZones()
-		zoneShadowStates := make([]shadowstate.ZoneShadowState, 0, len(activeZones))
-		for _, zone := range activeZones {
-			participants := make([]shadowstate.SpeakerState, 0, len(zone.Participants))
-			for _, p := range zone.Participants {
-				participants = append(participants, shadowstate.SpeakerState{
-					PlayerName:    p.PlayerName,
-					Volume:        p.Volume,
-					BaseVolume:    p.BaseVolume,
-					DefaultVolume: p.DefaultVolume,
-					IsLeader:      p.PlayerName == zone.LeadSpeaker,
-					// Active=true here means "configured member of this active zone",
-					// not "successfully joined the Sonos group". For actual join status
-					// see SpeakerGroup which is updated by async join goroutines.
-					Active: true,
-				})
-			}
-			zoneShadowStates = append(zoneShadowStates, shadowstate.ZoneShadowState{
-				Name:         zone.Name,
-				MusicType:    zone.MusicType,
-				Priority:     zone.Priority,
-				LeadSpeaker:  zone.LeadSpeaker,
-				Participants: participants,
-				PlaylistURI:  zone.PlaylistURI,
-				StartedAt:    zone.StartedAt,
-			})
-		}
-		m.shadowState.Outputs.ActiveZones = zoneShadowStates
+		m.shadowState.Outputs.ActiveZones = zoneShadowStates(m.zoneManager.GetActiveZones())
 	}
 
 	m.shadowState.Metadata.LastUpdated = m.timeProvider.Now()
+}
+
+// refreshZoneShadowState updates only the active zones in shadow state. Use it
+// when a zone changes without a playback action, such as a failed start.
+func (m *Manager) refreshZoneShadowState() {
+	if m.zoneManager == nil {
+		return
+	}
+	zones := zoneShadowStates(m.zoneManager.GetActiveZones())
+
+	m.shadowMu.Lock()
+	defer m.shadowMu.Unlock()
+	m.shadowState.Outputs.ActiveZones = zones
+	m.shadowState.Metadata.LastUpdated = m.timeProvider.Now()
+}
+
+// zoneShadowStates converts active zones to their shadow state form.
+func zoneShadowStates(activeZones []*Zone) []shadowstate.ZoneShadowState {
+	states := make([]shadowstate.ZoneShadowState, 0, len(activeZones))
+	for _, zone := range activeZones {
+		participants := make([]shadowstate.SpeakerState, 0, len(zone.Participants))
+		for _, p := range zone.Participants {
+			participants = append(participants, shadowstate.SpeakerState{
+				PlayerName:    p.PlayerName,
+				Volume:        p.Volume,
+				BaseVolume:    p.BaseVolume,
+				DefaultVolume: p.DefaultVolume,
+				IsLeader:      p.PlayerName == zone.LeadSpeaker,
+				// Active=true here means "configured member of this active zone",
+				// not "successfully joined the Sonos group". For actual join status
+				// see SpeakerGroup which is updated by async join goroutines.
+				Active: true,
+			})
+		}
+		states = append(states, shadowstate.ZoneShadowState{
+			Name:           zone.Name,
+			MusicType:      zone.MusicType,
+			Priority:       zone.Priority,
+			LeadSpeaker:    zone.LeadSpeaker,
+			Participants:   participants,
+			PlaylistURI:    zone.PlaylistURI,
+			StartedAt:      zone.StartedAt,
+			PlaybackStatus: string(zone.PlaybackStatus),
+		})
+	}
+	return states
 }
 
 // GetShadowState returns the current shadow state (implements ShadowStateProvider)
