@@ -144,19 +144,19 @@ func TestScenario_WakeSequence_PrimaryBathFadesThenJoinsMorning(t *testing.T) {
 	server.SetState("input_boolean.anyone_asleep", "off", nil)
 	server.SetState("input_boolean.everyone_asleep", "off", nil)
 
-	// THEN: Primary Bath joins the morning group led by Lounge.
+	// THEN: Primary Bath joins the morning group led by Pantry.
 	t.Log("THEN: Primary Bath joins the morning group")
 	waitForCondition(t, func() bool {
 		for _, call := range filterServiceCalls(server.GetServiceCallsSince(snapshot), "media_player", "join") {
 			members, _ := call.ServiceData["group_members"].([]interface{})
 			for _, member := range members {
-				if member == "media_player.primary_bath" && call.ServiceData["entity_id"] == "media_player.lounge" {
+				if member == "media_player.primary_bath" && call.ServiceData["entity_id"] == "media_player.pantry" {
 					return true
 				}
 			}
 		}
 		return false
-	}, "Primary Bath should join the morning group led by Lounge")
+	}, "Primary Bath should join the morning group led by Pantry")
 }
 
 // TestScenario_PrimaryBathFollowsPrimaryBedAllDay checks that Primary Bath plays

@@ -516,15 +516,15 @@ These speakers are discovered by SoCo and match the `player_name` values in `con
 
 | Speaker | In Music Config | Notes |
 |---------|----------------|-------|
-| Pantry | Yes | Group leader in sleep-prep; follower in other zones |
-| Lounge | Yes | Group leader in morning, day, evening, and winddown |
+| Pantry | Yes | Group leader in morning, day, evening, winddown, and sleep-prep (strongest Wi-Fi link) |
+| Lounge | Yes | Follower in every zone |
 | Kitchen | Yes | Muted while TV plays (`isTVPlaying`) |
 | Kids Bathroom | Yes | |
 | Primary Bed | Yes | 5 GHz capable. Excluded from some zones when master is asleep |
 | Primary Bath | Yes | Follows Primary Bed in every household zone (morning through sleep) |
 | Sitting | Yes | |
 | Barn | No | Not used in music automation |
-| Soundbar | Yes | All Kitchen-containing zones (morning, day, evening, winddown, sleep-prep). Not used for TTS notifications |
+| Soundbar | Yes | All Kitchen-containing zones (morning, day, evening, winddown, sleep-prep). Never a leader: it switches to TV audio. Not used for TTS notifications |
 
 The old "Bedroom" speaker (`media_player.bedroom`) is offline.
 Run `curl -s https://soco-cli.featherback-mermaid.ts.net/rediscover` before you trust the list. A stale cache can hide speakers.
