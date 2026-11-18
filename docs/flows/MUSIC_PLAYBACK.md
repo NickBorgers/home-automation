@@ -356,6 +356,8 @@ When `isTVPlaying` changes from `true` to `false`:
 
 The Soundbar is configured in every playback zone that contains Kitchen, but its mute policy is independent:
 Kitchen follows `isTVPlaying`, while the grouped Soundbar follows `isGuestAsleep`.
+`isGuestAsleep` is true only when a guest is here (`isHaveGuests`) and asleep. With no guest, the Soundbar plays
+even while the master sleeps.
 
 ## Volume Fade-In
 

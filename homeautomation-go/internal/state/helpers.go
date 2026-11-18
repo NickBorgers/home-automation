@@ -66,7 +66,7 @@ func (h *DerivedStateHelper) Start() error {
 		return err
 	}
 
-	// Subscribe for guest asleep auto-sync (when no guests, mirrors master)
+	// Subscribe for guest asleep clear (when no guests, no guest is asleep)
 	if err := h.setupGuestAsleepAutoSync(); err != nil {
 		return err
 	}
@@ -76,7 +76,7 @@ func (h *DerivedStateHelper) Start() error {
 	h.updateIsAnyoneHome()
 	h.updateIsAnyoneAsleep()
 	h.updateIsEveryoneAsleep()
-	h.syncGuestAsleepIfNoGuests() // Initialize auto-sync
+	h.clearGuestAsleepIfNoGuests() // No guests means no guest is asleep
 
 	// Ensure shadow state is populated even if no values changed during init
 	h.notifyCallback()
@@ -171,6 +171,16 @@ func (h *DerivedStateHelper) setupSleepTracking() error {
 		return err
 	}
 	h.subs = append(h.subs, sub2)
+
+	// Subscribe to guest presence: with no guests, isEveryoneAsleep follows the master alone
+	sub3, err := h.manager.Subscribe("isHaveGuests", func(key string, oldValue, newValue interface{}) {
+		h.logger.Debug("Have guests state changed", zap.Any("old", oldValue), zap.Any("new", newValue))
+		h.updateIsEveryoneAsleep()
+	})
+	if err != nil {
+		return err
+	}
+	h.subs = append(h.subs, sub3)
 
 	return nil
 }
@@ -370,19 +380,21 @@ func (h *DerivedStateHelper) updateIsAnyoneAsleep() {
 	h.notifyCallback()
 }
 
-// updateIsEveryoneAsleep computes: isEveryoneAsleep = isMasterAsleep AND isGuestAsleep
+// updateIsEveryoneAsleep computes: isEveryoneAsleep = isMasterAsleep AND (isGuestAsleep OR NOT isHaveGuests)
 func (h *DerivedStateHelper) updateIsEveryoneAsleep() {
 	isMasterAsleep, err1 := h.manager.GetBool("isMasterAsleep")
 	isGuestAsleep, err2 := h.manager.GetBool("isGuestAsleep")
+	isHaveGuests, err3 := h.manager.GetBool("isHaveGuests")
 
-	if err1 != nil || err2 != nil {
+	if err1 != nil || err2 != nil || err3 != nil {
 		h.logger.Error("Failed to get sleep states",
 			zap.Error(err1),
-			zap.Error(err2))
+			zap.Error(err2),
+			zap.Error(err3))
 		return
 	}
 
-	isEveryoneAsleep := isMasterAsleep && isGuestAsleep
+	isEveryoneAsleep := isMasterAsleep && (isGuestAsleep || !isHaveGuests)
 
 	// Get current value to check if it changed
 	currentValue, _ := h.manager.GetBool("isEveryoneAsleep")
@@ -399,6 +411,7 @@ func (h *DerivedStateHelper) updateIsEveryoneAsleep() {
 	h.logger.Info("Updated isEveryoneAsleep",
 		zap.Bool("isMasterAsleep", isMasterAsleep),
 		zap.Bool("isGuestAsleep", isGuestAsleep),
+		zap.Bool("isHaveGuests", isHaveGuests),
 		zap.Bool("isEveryoneAsleep", isEveryoneAsleep))
 
 	// Notify callback with updated derived states
@@ -439,85 +452,60 @@ func (h *DerivedStateHelper) checkAutoGuestSleep() {
 	}
 }
 
-// setupGuestAsleepAutoSync subscribes to changes that should trigger guest asleep auto-sync
-// Logic: When isHaveGuests is false, isGuestAsleep should mirror isMasterAsleep
-// This matches Node-RED behavior in flows.json:2366-2396
+// setupGuestAsleepAutoSync subscribes to changes that should clear isGuestAsleep.
+// Logic: isGuestAsleep means a guest is here and asleep, so it is false when isHaveGuests is false.
+// Node-RED copied isMasterAsleep into isGuestAsleep instead. That muted guest-only speakers
+// (the Soundbar) whenever the master slept, even with no guest in the house.
 func (h *DerivedStateHelper) setupGuestAsleepAutoSync() error {
-	// Subscribe to master bedroom sleep state changes
-	sub1, err := h.manager.Subscribe("isMasterAsleep", func(key string, oldValue, newValue interface{}) {
-		h.logger.Debug("Master sleep state changed (for guest auto-sync)", zap.Any("old", oldValue), zap.Any("new", newValue))
-		h.syncGuestAsleepIfNoGuests()
+	// Subscribe to isHaveGuests changes: clear isGuestAsleep when the guests leave
+	sub1, err := h.manager.Subscribe("isHaveGuests", func(key string, oldValue, newValue interface{}) {
+		h.logger.Debug("Have guests state changed (for guest asleep clear)", zap.Any("old", oldValue), zap.Any("new", newValue))
+		h.clearGuestAsleepIfNoGuests()
 	})
 	if err != nil {
 		return err
 	}
 	h.subs = append(h.subs, sub1)
 
-	// Subscribe to isHaveGuests changes
-	sub2, err := h.manager.Subscribe("isHaveGuests", func(key string, oldValue, newValue interface{}) {
-		h.logger.Debug("Have guests state changed (for guest auto-sync)", zap.Any("old", oldValue), zap.Any("new", newValue))
-		h.syncGuestAsleepIfNoGuests()
+	// Subscribe to guest asleep changes: undo a manual toggle while there are no guests
+	sub2, err := h.manager.Subscribe("isGuestAsleep", func(key string, oldValue, newValue interface{}) {
+		h.logger.Debug("Guest sleep state changed (for guest asleep clear)", zap.Any("old", oldValue), zap.Any("new", newValue))
+		h.clearGuestAsleepIfNoGuests()
 	})
 	if err != nil {
 		return err
 	}
 	h.subs = append(h.subs, sub2)
 
-	// Subscribe to guest asleep changes (to handle edge cases)
-	sub3, err := h.manager.Subscribe("isGuestAsleep", func(key string, oldValue, newValue interface{}) {
-		h.logger.Debug("Guest sleep state changed (for guest auto-sync)", zap.Any("old", oldValue), zap.Any("new", newValue))
-		h.syncGuestAsleepIfNoGuests()
-	})
-	if err != nil {
-		return err
-	}
-	h.subs = append(h.subs, sub3)
-
 	return nil
 }
 
-// syncGuestAsleepIfNoGuests auto-syncs isGuestAsleep with isMasterAsleep when no guests are present
-// This implements the Node-RED logic: "If we don't have guests, they're asleep if master is asleep"
-func (h *DerivedStateHelper) syncGuestAsleepIfNoGuests() {
+// clearGuestAsleepIfNoGuests sets isGuestAsleep to false when no guests are present.
+func (h *DerivedStateHelper) clearGuestAsleepIfNoGuests() {
 	isHaveGuests, err := h.manager.GetBool("isHaveGuests")
 	if err != nil {
-		h.logger.Error("Failed to get isHaveGuests for auto-sync", zap.Error(err))
+		h.logger.Error("Failed to get isHaveGuests for guest asleep clear", zap.Error(err))
 		return
 	}
-
-	// Only auto-sync when there are NO guests
 	if isHaveGuests {
 		return
 	}
 
-	// Get master sleep state
-	isMasterAsleep, err := h.manager.GetBool("isMasterAsleep")
+	isGuestAsleep, err := h.manager.GetBool("isGuestAsleep")
 	if err != nil {
-		h.logger.Error("Failed to get isMasterAsleep for auto-sync", zap.Error(err))
+		h.logger.Error("Failed to get isGuestAsleep for guest asleep clear", zap.Error(err))
+		return
+	}
+	if !isGuestAsleep {
 		return
 	}
 
-	// Get current guest sleep state
-	currentGuestAsleep, err := h.manager.GetBool("isGuestAsleep")
-	if err != nil {
-		h.logger.Error("Failed to get isGuestAsleep for auto-sync", zap.Error(err))
+	if err := h.manager.SetBool("isGuestAsleep", false); err != nil {
+		h.logger.Error("Failed to clear isGuestAsleep", zap.Error(err))
 		return
 	}
 
-	// If already in sync, no need to update
-	if currentGuestAsleep == isMasterAsleep {
-		return
-	}
-
-	// Sync guest asleep state with master
-	if err := h.manager.SetBool("isGuestAsleep", isMasterAsleep); err != nil {
-		h.logger.Error("Failed to auto-sync isGuestAsleep", zap.Error(err))
-		return
-	}
-
-	h.logger.Info("Auto-synced guest asleep state (no guests present)",
-		zap.Bool("isMasterAsleep", isMasterAsleep),
-		zap.Bool("isGuestAsleep", isMasterAsleep))
+	h.logger.Info("Cleared guest asleep state (no guests present)")
 }
 
 // Recalculate forces re-computation of all derived states
@@ -529,7 +517,7 @@ func (h *DerivedStateHelper) Recalculate() error {
 	h.updateIsAnyoneHome()
 	h.updateIsAnyoneAsleep()
 	h.updateIsEveryoneAsleep()
-	h.syncGuestAsleepIfNoGuests()
+	h.clearGuestAsleepIfNoGuests()
 
 	h.logger.Info("Recalculation complete")
 	return nil

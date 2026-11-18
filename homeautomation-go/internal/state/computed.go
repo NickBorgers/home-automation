@@ -264,7 +264,7 @@ func (m *Manager) recomputeAnyoneHomeAndAwake() error {
 // - isAnyOwnerHome = isNickHome OR isCarolineHome
 // - isAnyoneHome = isAnyOwnerHome OR isAssistantHere
 // - isAnyoneAsleep = isMasterAsleep OR isGuestAsleep
-// - isEveryoneAsleep = isMasterAsleep AND isGuestAsleep
+// - isEveryoneAsleep = isMasterAsleep AND (isGuestAsleep OR NOT isHaveGuests)
 // - isAnyoneHomeAndAwake = (isAnyOwnerHome && !isAnyoneAsleep) || isAssistantHere || wakeSequenceLatch
 //
 // Note: This is distinct from SetupComputedState() which uses the legacy

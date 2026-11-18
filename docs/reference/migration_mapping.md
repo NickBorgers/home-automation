@@ -31,9 +31,9 @@ All 46 state variables currently implemented in the Go application, organized by
 | isAnyoneHome | input_boolean.anyone_home | Whether anyone is home | ComputedOutput |
 | isAnyoneHomeAndAwake | input_boolean.anyone_home_and_awake | Anyone home and not asleep | ComputedOutput |
 | isMasterAsleep | input_boolean.master_asleep | Master bedroom sleep status | - |
-| isGuestAsleep | input_boolean.guest_asleep | Guest bedroom sleep status | ComputedOutput |
+| isGuestAsleep | input_boolean.guest_asleep | A guest is here and asleep. Always false when isHaveGuests is false | ComputedOutput |
 | isAnyoneAsleep | input_boolean.anyone_asleep | Whether anyone is asleep | ComputedOutput |
-| isEveryoneAsleep | input_boolean.everyone_asleep | Everyone asleep status | ComputedOutput |
+| isEveryoneAsleep | input_boolean.everyone_asleep | isMasterAsleep AND (isGuestAsleep OR NOT isHaveGuests) | ComputedOutput |
 | isGuestBedroomDoorOpen | input_boolean.guest_bedroom_door_open | Guest bedroom door state | - |
 | isHaveGuests | input_boolean.have_guests | Guest presence flag | - |
 | isAppleTVPlaying | input_boolean.apple_tv_playing | Apple TV playback status | - |
