@@ -66,6 +66,54 @@ music:
         volume_multiplier: 1.0
 `
 
+// seamlessGuardTestConfig has sleep-prep and sleep zones that share both Pantry
+// and the same rain URI. This means findSeamlessTransitions would normally
+// consider sleep-prep→sleep a seamless transition. The guard at zone_manager.go
+// must skip the seamless path when sleep-prep is retrying.
+const seamlessGuardTestConfig = `
+zones:
+  - name: "sleep-prep"
+    priority: 90
+    trigger:
+      - variable: dayPhase
+        value: night
+      - variable: isAnyoneHome
+        value: true
+      - variable: isMasterAsleep
+        value: false
+  - name: "sleep"
+    priority: 100
+    trigger:
+      - variable: dayPhase
+        value: night
+      - variable: isAnyoneHome
+        value: true
+      - variable: isMasterAsleep
+        value: true
+music:
+  sleep-prep:
+    participants:
+      - player_name: "Pantry"
+        base_volume: 9
+        leave_muted_if: []
+      - player_name: "Lounge"
+        base_volume: 9
+        leave_muted_if: []
+    playback_options:
+      - uri: ` + startRetryRainURI + `
+        media_type: music
+        volume_multiplier: 1.0
+  sleep:
+    participants:
+      - player_name: "Pantry"
+        base_volume: 7
+        leave_muted_if: []
+    playback_options:
+      - uri: ` + startRetryRainURI + `
+        media_type: music
+        volume_multiplier: 1.0
+`
+
 // fakeSonosSpeaker is the state the fake SoCo-CLI server keeps for one speaker.
 type fakeSonosSpeaker struct {
 	queue     []string
@@ -308,4 +356,75 @@ func TestScenario_SleepPrepRain_RetryStopsWhenZoneEnds(t *testing.T) {
 	require.Never(t, func() bool {
 		return soco.isPlaying("Pantry", startRetryRainURI)
 	}, 500*time.Millisecond, 10*time.Millisecond, "a retry must not start rain after sleep-prep ended")
+}
+
+// TestScenario_SleepZoneFullStartWhenSleepPrepRetrying checks that if sleep-prep
+// is retrying when the sleep zone starts, the sleep zone runs a full start (not a
+// seamless transition). A seamless transition inherits the stopping zone's
+// playback; if the stopping zone was retrying, there is nothing to inherit, so the
+// new zone would stay silent.
+//
+// INVARIANT: A zone transition that would normally be seamless falls back to a full
+// start when the stopping zone's PlaybackStatus is ZonePlaybackRetrying.
+func TestScenario_SleepZoneFullStartWhenSleepPrepRetrying(t *testing.T) {
+	t.Parallel()
+
+	server, client, stateManager, cleanup := setupTest(t)
+	defer cleanup()
+
+	var musicConfig music.MusicConfig
+	require.NoError(t, yaml.Unmarshal([]byte(seamlessGuardTestConfig), &musicConfig))
+
+	soco := newFakeSoCoServer()
+	socoServer := httptest.NewServer(soco)
+	defer socoServer.Close()
+
+	logger := testlogger.New()
+	musicMgr := music.NewManager(context.Background(), client, stateManager, &musicConfig, logger, false, nil, nil)
+	musicMgr.SetSleepFunc(func(time.Duration) {})
+	musicMgr.SetSoCoClient(music.NewSoCoClient(socoServer.URL, logger, false))
+	musicMgr.SetZoneStartRetryDelays([]time.Duration{20 * time.Millisecond})
+
+	server.SetState("input_boolean.anyone_home", "on", map[string]interface{}{})
+	server.SetState("input_boolean.master_asleep", "off", map[string]interface{}{})
+	server.SetState("input_text.day_phase", "winddown", map[string]interface{}{})
+
+	require.NoError(t, musicMgr.Start())
+	defer musicMgr.Stop()
+	waitForProcessing(t, stateManager)
+
+	// GIVEN: sleep-prep cannot start because Pantry is unreachable when night begins.
+	// sleep-prep and sleep share both Pantry and the rain URI, so without the
+	// seamless-transition guard, findSeamlessTransitions would classify
+	// sleep-prep→sleep as seamless. The seamless path keeps the stopping zone's
+	// playback, but sleep-prep never loaded its playlist, so the speakers would
+	// remain silent.
+	t.Log("GIVEN: Pantry is unreachable when night begins — sleep-prep is retrying")
+	soco.setUnreachable("Pantry", true)
+	server.SetState("input_text.day_phase", "night", map[string]interface{}{})
+	waitForCondition(t, func() bool {
+		return zonePlaybackStatus(musicMgr, "sleep-prep") == music.ZonePlaybackRetrying
+	}, "sleep-prep should be retrying because Pantry is unreachable")
+
+	// WHEN: Master falls asleep — sleep-prep stops, sleep starts.
+	t.Log("WHEN: Master falls asleep; sleep-prep stops and sleep zone takes over")
+	server.SetState("input_boolean.master_asleep", "on", map[string]interface{}{})
+	waitForCondition(t, func() bool {
+		return zonePlaybackStatus(musicMgr, "sleep-prep") == ""
+	}, "sleep-prep should stop when master is asleep")
+
+	// Pantry recovers — the sleep zone's full start (not a seamless handoff) can succeed.
+	t.Log("AND: Pantry recovers")
+	soco.setUnreachable("Pantry", false)
+
+	// THEN: sleep zone runs a full start and rain plays on Pantry.
+	// If the seamless guard had not fired, sleep zone would have inherited
+	// sleep-prep's empty playback and Pantry would stay silent.
+	t.Log("THEN: Rain sounds play on Pantry via the sleep zone's full start")
+	waitForCondition(t, func() bool {
+		return soco.isPlaying("Pantry", startRetryRainURI)
+	}, "Pantry must play the rain playlist — sleep zone must do a full start, not a silent seamless handoff")
+	waitForCondition(t, func() bool {
+		return zonePlaybackStatus(musicMgr, "sleep") == music.ZonePlaybackPlaying
+	}, "sleep zone must be marked as playing")
 }
