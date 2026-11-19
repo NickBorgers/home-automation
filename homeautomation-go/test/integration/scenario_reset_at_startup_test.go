@@ -77,30 +77,30 @@ func TestScenario_UserStory_ResetPressedWhileAppIsDown(t *testing.T) {
 	waitForBoolState(t, stateManager, "reset", false, "reset should clear itself")
 }
 
-// TestScenario_UserStory_MusicResetPressedWhileAppIsDown verifies that the music reset
-// (input_boolean.music_reset) runs when it is already on at startup.
+// TestScenario_UserStory_AudioResetPressedWhileAppIsDown verifies that the audio reset
+// (input_boolean.audio_reset) runs when it is already on at startup.
 //
-// User story: "The music is stuck. I say 'turn on music reset'. The app was
+// User story: "The music is stuck. I say 'turn on audio reset'. The app was
 // restarting at that moment. When it comes back, the music restarts and the button
 // turns itself off, so I can use it again."
-func TestScenario_UserStory_MusicResetPressedWhileAppIsDown(t *testing.T) {
+func TestScenario_UserStory_AudioResetPressedWhileAppIsDown(t *testing.T) {
 	t.Parallel()
 	server, client, stateManager, cleanup := setupTest(t)
 	defer cleanup()
 	logger := testlogger.New()
 
-	t.Log("GIVEN: Someone is home in the evening, and music reset was turned on while the app was down")
+	t.Log("GIVEN: Someone is home in the evening, and audio reset was turned on while the app was down")
 	setResetAtStartupHome(server)
-	server.SetState("input_boolean.music_reset", "on", map[string]interface{}{})
+	server.SetState("input_boolean.audio_reset", "on", map[string]interface{}{})
 
 	t.Log("WHEN: The app starts: it reads all state from Home Assistant, then starts music")
 	require.NoError(t, stateManager.SyncFromHA())
-	waitForBoolState(t, stateManager, "musicReset", true, "startup sync should read the music reset")
+	waitForBoolState(t, stateManager, "audioReset", true, "startup sync should read the audio reset")
 	musicManager := music.NewManager(context.Background(), client, stateManager,
 		loadTestMusicConfigFromYAML(t), logger, false, nil, nil)
 	require.NoError(t, musicManager.Start())
 	defer musicManager.Stop()
 
 	t.Log("THEN: The button turns itself off")
-	waitForBoolState(t, stateManager, "musicReset", false, "musicReset should clear itself")
+	waitForBoolState(t, stateManager, "audioReset", false, "audioReset should clear itself")
 }

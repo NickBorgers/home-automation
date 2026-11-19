@@ -66,5 +66,5 @@ func TestScenario_OwnerArrivesBeforeBedtime_SleepPrepUsesCurrentPresence(t *test
 			}
 		}
 		return false
-	}, stateWaitTimeout, statePollInterval, "sleep-prep should start without a manual Music reset")
+	}, stateWaitTimeout, statePollInterval, "sleep-prep should start without a manual Audio reset")
 }

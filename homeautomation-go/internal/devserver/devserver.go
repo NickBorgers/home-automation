@@ -159,8 +159,8 @@ func (d *DevServer) populateSampleData() {
 	d.server.SetState("input_boolean.lighting_reset", "off", map[string]interface{}{
 		"friendly_name": "Lighting Reset",
 	})
-	d.server.SetState("input_boolean.music_reset", "off", map[string]interface{}{
-		"friendly_name": "Music Reset",
+	d.server.SetState("input_boolean.audio_reset", "off", map[string]interface{}{
+		"friendly_name": "Audio Reset",
 	})
 
 	// Number states with realistic values

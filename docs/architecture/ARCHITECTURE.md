@@ -987,7 +987,7 @@ The existing Node-RED implementation exposes 14 HomeKit accessories via NRCHKB:
 |--------|----------------|--------|
 | Reset | `reset` | Calls `Reset()` on every plugin (reset coordinator) |
 | Lighting Reset | `lightingReset` | Lighting plugin only: re-applies scenes for the current day phase |
-| Music Reset | `musicReset` | Music plugin only: stops music and re-resolves it for the current mode |
+| Audio Reset | `audioReset` | Music plugin only: stops music and re-resolves it for the current mode |
 
 ---
 
