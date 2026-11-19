@@ -302,7 +302,7 @@ func (m *Manager) Start() error {
 		}
 	}
 
-	// A audio reset turned on while the app was down produces no change event, so it
+	// An audio reset turned on while the app was down produces no change event, so it
 	// would stay on and never run. Treat it as a fresh trigger.
 	if pending, err := m.stateManager.GetBool("audioReset"); err == nil && pending {
 		m.logger.Info("audioReset was already on at startup")
