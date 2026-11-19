@@ -220,12 +220,14 @@ func (m *Manager) readStartupLead(leadSpeaker string) (*startupLead, error) {
 		return nil, err
 	}
 	// TRANSITIONING counts as playing, as in the health monitor: it occurs during track changes.
-	state := strings.ToLower(transport)
+	var state string
 	switch transport {
 	case "PLAYING", "TRANSITIONING":
 		state = "playing"
 	case "PAUSED_PLAYBACK":
 		state = "paused"
+	default:
+		state = strings.ToLower(transport)
 	}
 	if state != "playing" && state != "paused" {
 		return &startupLead{state: state}, nil
