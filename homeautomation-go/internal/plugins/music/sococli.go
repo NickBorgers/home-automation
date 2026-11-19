@@ -477,7 +477,8 @@ func (c *SoCoClient) doGetWithRetry(endpoint, action, speaker string, attemptTim
 // so that sending it again cannot run the command twice or overlap it.
 //
 // Retried: the client could not connect (connection refused, DNS failure), and
-// HTTP 502, 503 and 429, which a proxy or server sends without running the command.
+// HTTP 502, 503 and 429. soco-cli never ran the command for these; a proxy, if
+// one is deployed in front of soco-cli, sends them.
 //
 // Not retried: a client-side timeout, because soco-cli keeps running an abandoned
 // command; HTTP 500 and 504, because soco-cli may have started the command; any
