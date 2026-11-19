@@ -518,6 +518,7 @@ These speakers are discovered by SoCo and match the `player_name` values in `con
 |---------|----------------|-------|
 | Pantry | Yes | Group leader in morning, day, evening, winddown, and sleep-prep (strongest Wi-Fi link) |
 | Lounge | Yes | Follower in all whole-house zones (absent from sleep, sex, and wakeup) |
+| Utility | Yes | Laundry room. Plays in every zone with Pantry, one volume step quieter. Sonos One (2.4 GHz) |
 | Kitchen | Yes | Muted while TV plays (`isTVPlaying`) |
 | Kids Bathroom | Yes | |
 | Primary Bed | Yes | 5 GHz capable. Excluded from some zones when master is asleep |

@@ -27,7 +27,7 @@ func TestScenario_RainPlaybackUsesRaisedVolumeTargets(t *testing.T) {
 
 	expected := map[string]map[string]int{
 		"sleep-prep": {
-			"Pantry": 14, "Lounge": 14, "Kitchen": 14, "Soundbar": 16,
+			"Pantry": 14, "Utility": 13, "Lounge": 14, "Kitchen": 18, "Soundbar": 16,
 			"Primary Bed": 24, "Primary Bath": 14, "Sitting": 14,
 		},
 		"sleep": {"Primary Bed": 24, "Primary Bath": 14},
