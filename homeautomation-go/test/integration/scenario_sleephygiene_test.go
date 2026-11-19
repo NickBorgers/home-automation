@@ -88,11 +88,77 @@ func setupSleepHygieneScenarioTestWithTime(t *testing.T, fixedTime time.Time) (*
 	return server, sleepMgr, manager, cleanup
 }
 
+// TestScenario_UserStory_WeeknightRemindersMatchRealBedtime checks the weeknight reminder times
+// against the real schedule config.
+//
+// Story: "We turn the lights out around midnight on weeknights. Remind us to stop screens and go
+// to bed shortly before that, not two hours early."
+//
+// Logs from 2026-10-22 to 2026-11-18 show the bedroom lights go out at about 00:15 on weeknights.
+//
+// INVARIANTS (Wednesday):
+//   - No reminder fires at 21:45 or 22:35, the old stop_screens and go_to_bed windows.
+//   - stop_screens flashes the lights at 22:45 and does not start sleep music.
+//   - go_to_bed starts sleep music at 23:45.
+func TestScenario_UserStory_WeeknightRemindersMatchRealBedtime(t *testing.T) {
+	tests := []struct {
+		name           string
+		hour, minute   int
+		wantFlash      bool
+		wantSleepMusic bool
+	}{
+		{"21:45 old stop_screens window: no reminder", 21, 45, false, false},
+		{"22:35 old go_to_bed window: no reminder", 22, 35, false, false},
+		{"22:50 stop_screens: lights flash, no sleep music", 22, 50, true, false},
+		{"23:50 go_to_bed: sleep music starts", 23, 50, true, true}, // wantFlash=true: handleGoToBed calls flashCommonAreaLights unconditionally when home
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			now := time.Date(2025, 1, 15, tt.hour, tt.minute, 0, 0, time.UTC) // Wednesday
+			server, client, stateManager, cleanup := setupTest(t)
+			defer cleanup()
+
+			// GIVEN: someone is home and awake on a Wednesday evening
+			t.Logf("GIVEN: someone is home and awake on Wednesday at %02d:%02d", tt.hour, tt.minute)
+			server.SetState("input_boolean.anyone_home", "on", map[string]interface{}{})
+			server.SetState("input_boolean.everyone_asleep", "off", map[string]interface{}{})
+			server.SetState("input_text.music_playback_type", "", map[string]interface{}{})
+			waitForBoolState(t, stateManager, "isAnyoneHome", true)
+			snapshot := server.ServiceCallCount()
+
+			// WHEN: the scheduled check runs with the production schedule
+			t.Log("WHEN: the sleep hygiene schedule check runs")
+			loader := config.NewLoader("../../../configs", testlogger.New())
+			loader.SetClock(clock.NewMockClock(now))
+			require.NoError(t, loader.LoadScheduleConfig())
+			mgr := sleephygiene.NewManager(context.Background(), client, stateManager, loader, testlogger.New(), false,
+				plugin.FixedTimeProvider{FixedTime: now}, time.UTC)
+			require.NoError(t, mgr.Start())
+			defer mgr.Stop()
+			mgr.TriggerScheduledCheckForTest()
+			waitForProcessing(t, stateManager)
+
+			// THEN: only the reminder due at this time fires
+			t.Logf("THEN: flash=%v, sleep music=%v", tt.wantFlash, tt.wantSleepMusic)
+			flashed := false
+			for _, call := range server.GetServiceCallsSince(snapshot) {
+				if call.Domain == "light" && call.Service == "turn_on" && call.ServiceData["flash"] == "short" {
+					flashed = true
+				}
+			}
+			assert.Equal(t, tt.wantFlash, flashed, "common-area light flash")
+			musicType, err := stateManager.GetString("musicPlaybackType")
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantSleepMusic, musicType == "sleep", "musicPlaybackType=%q", musicType)
+		})
+	}
+}
+
 // TestScenario_RestartAfterBedtime_DoesNotRepeatGoToBed verifies that a deploy
 // during the bedtime trigger window does not repeat the household reminder.
 func TestScenario_RestartAfterBedtime_DoesNotRepeatGoToBed(t *testing.T) {
-	// Wednesday's go_to_bed is 22:30. Start 30 minutes into its one-hour window.
-	now := time.Date(2025, 1, 15, 23, 0, 0, 0, time.UTC)
+	// Wednesday's go_to_bed is 23:45. Start 10 minutes into its window, after stop_screens has closed.
+	now := time.Date(2025, 1, 15, 23, 55, 0, 0, time.UTC)
 	server, client, stateManager, cleanup := setupTest(t)
 	defer cleanup()
 
@@ -114,8 +180,8 @@ func TestScenario_RestartAfterBedtime_DoesNotRepeatGoToBed(t *testing.T) {
 	t.Log("GIVEN: go_to_bed has fired once during tonight's bedtime window")
 	snapshot := server.ServiceCallCount()
 
-	// WHEN: the app restarts 30 minutes after bedtime.
-	t.Log("WHEN: the app restarts 30 minutes after bedtime")
+	// WHEN: the app restarts 10 minutes after bedtime.
+	t.Log("WHEN: the app restarts 10 minutes after bedtime")
 	restarted := newManager()
 	require.NoError(t, restarted.Start())
 	defer restarted.Stop()
@@ -356,7 +422,8 @@ func TestScenario_MidnightReset_ResetsTriggers(t *testing.T) {
 // at the scheduled stop_screens time, a reminder notification is sent
 func TestScenario_EveningReminder_SendsStopScreensNotification(t *testing.T) {
 	t.Parallel()
-	// Set up a fixed time: 2025-01-15 (Wednesday) 22:30:00 (stop_screens time)
+	// Set up a fixed time: 2025-01-15 (Wednesday) 22:30:00 (before the new stop_screens window at 22:45;
+	// kept for historical context — WeeknightRemindersMatchRealBedtime covers the window precisely)
 	stopScreensTime := time.Date(2025, 1, 15, 22, 30, 0, 0, time.UTC)
 
 	server, sleepMgr, stateManager, cleanup := setupSleepHygieneScenarioTestWithTime(t, stopScreensTime)

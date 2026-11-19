@@ -188,7 +188,7 @@ func TestScenario_GoToBedDeferredUntilArrival_BedroomWelcomeNotSuppressed(t *tes
 	defer baseCleanup()
 
 	logger := testlogger.New()
-	goToBedWindow := time.Date(2024, 1, 15, 23, 0, 0, 0, time.UTC)
+	goToBedWindow := time.Date(2024, 1, 15, 23, 55, 0, 0, time.UTC) // Monday; go_to_bed is 23:45
 
 	require.NoError(t, stateManager.SetString("dayPhase", "night"))
 	require.NoError(t, stateManager.SetString("sunevent", "night"))

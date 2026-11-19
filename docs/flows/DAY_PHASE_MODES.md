@@ -249,15 +249,22 @@ flowchart TB
 
 The schedule config (`configs/schedule_config.yaml`) defines when phase transitions occur:
 
-| Field | Purpose | Weekday Default | Weekend Default |
-|-------|---------|-----------------|-----------------|
+| Field | Purpose | Sun–Thu | Fri–Sat |
+|-------|---------|---------|---------|
 | `dusk` | Override sunset→dusk transition | 19:30 | 19:30 |
-| `winddown` | Override dusk→winddown transition | 22:15 | 22:00 |
-| `night` | Force night phase | 23:00 | 23:59 |
-| `stop_screens` | Reminder to stop screen time | 22:30 | 22:30 |
-| `go_to_bed` | Start sleep music (rain sounds) | 23:30 | 23:59 |
-| `begin_backup_wake` | **BACKUP** start wake sequence (if Eight Sleep unavailable) | 08:50 | 09:50 |
-| `backup_wake_time` | **BACKUP** target wake time (if Eight Sleep unavailable) | 09:15 | 10:15 |
+| `winddown` | Override dusk→winddown transition | 22:30 | 22:45 |
+| `night` | Force night phase | 23:15 | 23:45 |
+| `stop_screens` | Reminder to stop screen time | 22:45 | 23:15 |
+| `go_to_bed` | Start sleep music (rain sounds) | 23:45 | 23:45 |
+| `begin_backup_wake` | **BACKUP** start wake sequence (if Eight Sleep unavailable) | 07:50 (Sun 08:50) | 07:50 (Sat 08:50) |
+| `backup_wake_time` | **BACKUP** target wake time (if Eight Sleep unavailable) | 08:15 (Sun 09:15) | 08:15 (Sat 09:15) |
+
+The evening times follow the household's measured bedtime. From 2026-10-22 to 2026-11-18, the bedroom
+lights went out at about 00:15 on Sun–Thu nights and about 00:30–01:45 on Fri–Sat nights.
+
+Each time is a clock time on that day's calendar date, so a time cannot be later than 23:59. Keep
+`go_to_bed` at 23:45 or earlier. The trigger checks once per minute and stops at local midnight, when the
+next day's schedule takes over, so a later time can miss its only check.
 
 **Phase Transition Logic:**
 - Before `dusk` time: Stay at sunset phase (even if astronomical dusk/night has occurred)

@@ -2,56 +2,56 @@ schedule:
   - begin_backup_wake: 08:50
     backup_wake_time: 09:15
     dusk: '19:30'
-    go_to_bed: '22:30'
+    go_to_bed: '23:45'
     name: Sunday
-    night: '22:00'
-    stop_screens: '21:30'
-    winddown: '21:15'
+    night: '23:15'
+    stop_screens: '22:45'
+    winddown: '22:30'
   - begin_backup_wake: 07:50
     backup_wake_time: 08:15
     dusk: '19:30'
-    go_to_bed: '22:30'
+    go_to_bed: '23:45'
     name: Monday
-    night: '22:00'
-    stop_screens: '21:30'
-    winddown: '21:15'
+    night: '23:15'
+    stop_screens: '22:45'
+    winddown: '22:30'
   - begin_backup_wake: 07:50
     backup_wake_time: 08:15
     dusk: '19:30'
-    go_to_bed: '22:30'
+    go_to_bed: '23:45'
     name: Tuesday
-    night: '22:00'
-    stop_screens: '21:30'
-    winddown: '21:15'
+    night: '23:15'
+    stop_screens: '22:45'
+    winddown: '22:30'
   - begin_backup_wake: 07:50
     backup_wake_time: 08:15
     dusk: '19:30'
-    go_to_bed: '22:30'
+    go_to_bed: '23:45'
     name: Wednesday
-    night: '22:00'
-    stop_screens: '21:30'
-    winddown: '21:15'
+    night: '23:15'
+    stop_screens: '22:45'
+    winddown: '22:30'
   - begin_backup_wake: 07:50
     backup_wake_time: 08:15
     dusk: '19:30'
-    go_to_bed: '22:30'
+    go_to_bed: '23:45'
     name: Thursday
-    night: '22:00'
-    stop_screens: '21:30'
-    winddown: '21:15'
+    night: '23:15'
+    stop_screens: '22:45'
+    winddown: '22:30'
   - begin_backup_wake: 07:50
     backup_wake_time: 08:15
     dusk: '19:30'
-    go_to_bed: '22:59'
+    go_to_bed: '23:45'
     name: Friday
-    night: '22:59'
-    stop_screens: '22:00'
-    winddown: '21:00'
+    night: '23:45'
+    stop_screens: '23:15'
+    winddown: '22:45'
   - begin_backup_wake: 08:50
     backup_wake_time: 09:15
     dusk: '19:30'
-    go_to_bed: '22:59'
+    go_to_bed: '23:45'
     name: Saturday
-    night: '22:59'
-    stop_screens: '22:00'
-    winddown: '21:00'
+    night: '23:45'
+    stop_screens: '23:15'
+    winddown: '22:45'

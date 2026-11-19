@@ -454,7 +454,7 @@ func (m *Manager) checkTimeTriggers() {
 	now := m.timeProvider.Now()
 
 	// Get today's schedule in the configured timezone
-	// This ensures schedule times (e.g., 22:30 stop_screens) are interpreted
+	// This ensures schedule times (e.g., 22:45 stop_screens) are interpreted
 	// in the correct timezone, not UTC
 	schedule, err := m.configLoader.GetTodaysScheduleInTimezone(m.timezone)
 	if err != nil {

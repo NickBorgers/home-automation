@@ -15,9 +15,9 @@ The sleep hygiene plugin provides:
 ```mermaid
 flowchart TD
     subgraph Schedule["Scheduled Events"]
-        stopScreens["stop_screens<br/>(~22:30)"]
-        goToBed["go_to_bed<br/>(~23:00)"]
-        backupWake["begin_backup_wake<br/>(~07:00)"]
+        stopScreens["stop_screens<br/>(~22:45)"]
+        goToBed["go_to_bed<br/>(~23:45)"]
+        backupWake["begin_backup_wake<br/>(~07:50)"]
     end
 
     subgraph Gate["Presence Gate"]
