@@ -200,6 +200,19 @@ func Run() {
 	if socoCliURL != "" {
 		logger.Info("SoCo-CLI URL configured for Tidal playback", zap.String("url", socoCliURL))
 	}
+	// SOCO_CLI_SERIALIZE_REQUESTS=false lets SoCo-CLI requests overlap. Only safe with
+	// a soco-cli that includes avantrec/soco-cli#90.
+	socoCliAllowOverlap := false
+	if v := os.Getenv("SOCO_CLI_SERIALIZE_REQUESTS"); v != "" {
+		serialize, err := strconv.ParseBool(v)
+		if err != nil {
+			logger.Warn("Invalid SOCO_CLI_SERIALIZE_REQUESTS, keeping one SoCo-CLI request at a time",
+				zap.String("value", v), zap.Error(err))
+		} else if !serialize {
+			socoCliAllowOverlap = true
+			logger.Warn("SoCo-CLI requests may overlap (SOCO_CLI_SERIALIZE_REQUESTS=false)")
+		}
+	}
 
 	// TTS configuration: synthesize via Kokoro, serve MP3s on a LAN port that
 	// Sonos speakers can fetch from.
@@ -364,6 +377,7 @@ func Run() {
 	pluginCtx.Longitude = longitude
 	pluginCtx.NtfyClient = ntfyClient
 	pluginCtx.SoCoCliURL = socoCliURL
+	pluginCtx.SoCoCliAllowOverlap = socoCliAllowOverlap
 	pluginCtx.ShutdownCtx = shutdownCtx
 	pluginCtx.Occupancy = occupancy.NewHub()
 

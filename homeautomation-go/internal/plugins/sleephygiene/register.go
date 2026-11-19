@@ -44,7 +44,11 @@ func createPlugin(ctx *plugin.Context) (plugin.Plugin, error) {
 	// Pass the TimeProvider directly (NewManager handles nil by defaulting to RealTimeProvider)
 	manager := NewManager(ctx.ShutdownCtx, haClient, stateManager, configLoader, ctx.Logger, ctx.ReadOnly, ctx.TimeProvider, ctx.Timezone)
 	if ctx.SoCoCliURL != "" {
-		manager.SetSpeakerClient(music.NewSoCoClient(ctx.SoCoCliURL, ctx.Logger, ctx.ReadOnly))
+		socoClient := music.NewSoCoClient(ctx.SoCoCliURL, ctx.Logger, ctx.ReadOnly)
+		if ctx.SoCoCliAllowOverlap {
+			socoClient.AllowOverlappingRequests()
+		}
+		manager.SetSpeakerClient(socoClient)
 	}
 	return &pluginAdapter{manager: manager}, nil
 }

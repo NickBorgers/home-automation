@@ -83,6 +83,11 @@ type Context struct {
 	// May be empty if SoCo-CLI is not available.
 	SoCoCliURL string
 
+	// SoCoCliAllowOverlap lets SoCo-CLI clients send requests that overlap.
+	// The zero value keeps them to one request at a time (issue #1431).
+	// Set from SOCO_CLI_SERIALIZE_REQUESTS=false.
+	SoCoCliAllowOverlap bool
+
 	// ShutdownCtx is a context that is cancelled during application shutdown.
 	// Plugins should use this context for service calls to enable graceful
 	// shutdown - when the context is cancelled, service calls with retry loops
