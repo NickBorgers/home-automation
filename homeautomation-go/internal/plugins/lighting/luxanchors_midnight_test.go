@@ -103,14 +103,14 @@ func TestSolarAnchors_CacheBuiltTheEveningBeforeIsRefreshedAtMidnight(t *testing
 	assert.Greater(t, site.targetNow(t).Lux, 5.0, "evening is above the night value")
 
 	// WHEN: the clock walks through local midnight and the solar rollover
-	// THEN: the target never rises, and from 23:00 (after Friday's 22:59 night) it is the night value
+	// THEN: the target never rises, and from 23:45 (Friday's schedule.night) it is the night value
 	prev := site.targetNow(t).Lux
 	for site.clk.Now().Before(time.Date(2026, 10, 31, 6, 0, 0, 0, tz)) {
 		site.clk.Advance(5 * time.Minute)
 		got := site.targetNow(t)
 		assert.LessOrEqual(t, got.Lux, prev+1e-9, "target rose at %s", site.clk.Now().In(tz).Format("15:04:05"))
 		prev = got.Lux
-		if !site.clk.Now().Before(time.Date(2026, 10, 30, 23, 0, 0, 0, tz)) {
+		if !site.clk.Now().Before(time.Date(2026, 10, 30, 23, 45, 0, 0, tz)) {
 			assert.InDelta(t, 5, got.Lux, 0.001, "at %s", site.clk.Now().In(tz).Format("15:04:05"))
 		}
 	}
