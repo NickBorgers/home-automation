@@ -42,6 +42,9 @@ import (
 // runs, but its reply has an empty result, as the real server's does.
 type overlapSensitiveSoCo struct {
 	hold time.Duration
+	// separateOutput makes overlapping requests keep their own result, as a
+	// soco-cli with avantrec/soco-cli#90 does.
+	separateOutput bool
 
 	mu         sync.Mutex
 	inFlight   int
@@ -84,7 +87,7 @@ func (f *overlapSensitiveSoCo) ServeHTTP(w http.ResponseWriter, r *http.Request)
 	if action == "volume" {
 		if len(args) == 0 {
 			result = strconv.Itoa(f.volumes[speaker])
-			if overlapped {
+			if overlapped && !f.separateOutput {
 				f.emptyReads++
 			}
 		} else if level, err := strconv.Atoi(args[0]); err == nil {
@@ -92,7 +95,7 @@ func (f *overlapSensitiveSoCo) ServeHTTP(w http.ResponseWriter, r *http.Request)
 			f.writes[speaker] = append(f.writes[speaker], level)
 		}
 	}
-	if overlapped {
+	if overlapped && !f.separateOutput {
 		result = "" // The command ran, but its output went to another request.
 	}
 	f.mu.Unlock()
@@ -116,24 +119,64 @@ func (f *overlapSensitiveSoCo) writesFor(speaker string) []int {
 
 func TestScenario_WakeFadeOut_SoCoRequestsDoNotOverlap(t *testing.T) {
 	t.Parallel()
-	server, client, stateManager, baseCleanup := setupTest(t)
-	defer baseCleanup()
-
 	start := map[string]int{"Primary Bed": 10, "Primary Bath": 6}
 	soco := newOverlapSensitiveSoCo(5*time.Millisecond, map[string]int{"Primary Bed": 10, "Primary Bath": 6})
+	runWakeFadeOut(t, soco, false)
+
+	// THEN: SoCo-CLI never saw two requests at once, so no read came back empty.
+	overlaps, emptyReads := soco.stats()
+	t.Logf("THEN: no overlapping SoCo-CLI requests (overlaps=%d, empty volume reads=%d)", overlaps, emptyReads)
+	assert.Zero(t, overlaps, "the client must send one SoCo-CLI request at a time")
+	assert.Zero(t, emptyReads, "no volume read may come back empty")
+	assertFadesToZero(t, soco, start)
+}
+
+// TestScenario_WakeFadeOut_OverlapAllowedWithFixedSoCo covers SOCO_CLI_SERIALIZE_REQUESTS=false.
+//
+// Story: "With a soco-cli that keeps each request's output separate, I can let
+// requests overlap again, and the wake fade still works."
+//
+// INVARIANT: With the lock off, requests really do overlap (the switch works),
+// and each sleep-zone speaker still fades from its real volume to 0.
+func TestScenario_WakeFadeOut_OverlapAllowedWithFixedSoCo(t *testing.T) {
+	t.Parallel()
+	start := map[string]int{"Primary Bed": 10, "Primary Bath": 6}
+	soco := newOverlapSensitiveSoCo(20*time.Millisecond, map[string]int{"Primary Bed": 10, "Primary Bath": 6})
+	soco.separateOutput = true
+	runWakeFadeOut(t, soco, true)
+
+	// THEN: Requests overlapped, which proves the lock was off.
+	overlaps, emptyReads := soco.stats()
+	t.Logf("THEN: SoCo-CLI requests overlapped (overlaps=%d, empty volume reads=%d)", overlaps, emptyReads)
+	assert.Positive(t, overlaps, "with the lock off, the two bedroom fades must overlap")
+	assert.Zero(t, emptyReads, "a fixed soco-cli returns every read's result")
+	assertFadesToZero(t, soco, start)
+}
+
+// runWakeFadeOut fires the wake alarm with both bedroom speakers playing sleep
+// music and waits for sleep hygiene's fade-out to finish.
+func runWakeFadeOut(t *testing.T, soco *overlapSensitiveSoCo, allowOverlap bool) {
+	t.Helper()
+	server, client, stateManager, baseCleanup := setupTest(t)
+	t.Cleanup(baseCleanup)
+
 	socoServer := httptest.NewServer(soco)
-	defer socoServer.Close()
+	t.Cleanup(socoServer.Close)
 
 	logger := testlogger.New()
 	sleepHygiene := sleephygiene.NewManager(context.Background(), client, stateManager,
 		config.NewLoader("../../configs", logger), logger, false, nil, nil)
-	sleepHygiene.SetSpeakerClient(music.NewSoCoClient(socoServer.URL, logger, false))
+	socoClient := music.NewSoCoClient(socoServer.URL, logger, false)
+	if allowOverlap {
+		socoClient.AllowOverlappingRequests()
+	}
+	sleepHygiene.SetSpeakerClient(socoClient)
 	sleepHygiene.SetSleepFunc(func(time.Duration) {})
 
 	server.SetState("sensor.nick_s_eight_sleep_side_bed_state_type", "none", nil)
 	server.SetState("sensor.caroline_s_eight_sleep_side_bed_state_type", "none", nil)
 	require.NoError(t, sleepHygiene.Start())
-	defer sleepHygiene.Stop()
+	t.Cleanup(sleepHygiene.Stop)
 	waitForProcessing(t, stateManager)
 
 	// GIVEN: Master asleep with rain on both sleep-zone speakers (Primary Bed 10, Primary Bath 6).
@@ -156,14 +199,11 @@ func TestScenario_WakeFadeOut_SoCoRequestsDoNotOverlap(t *testing.T) {
 		s := server.GetState("input_boolean.fade_out_in_progress")
 		return s != nil && s.State == "off"
 	}, "bedroom fade-out should finish")
+}
 
-	// THEN: SoCo-CLI never saw two requests at once, so no read came back empty.
-	overlaps, emptyReads := soco.stats()
-	t.Logf("THEN: no overlapping SoCo-CLI requests (overlaps=%d, empty volume reads=%d)", overlaps, emptyReads)
-	assert.Zero(t, overlaps, "the client must send one SoCo-CLI request at a time")
-	assert.Zero(t, emptyReads, "no volume read may come back empty")
-
-	// THEN: Each speaker fades 1% at a time from its real volume to 0.
+// assertFadesToZero checks that each speaker stepped down 1% at a time from its real volume to 0.
+func assertFadesToZero(t *testing.T, soco *overlapSensitiveSoCo, start map[string]int) {
+	t.Helper()
 	t.Log("THEN: each bedroom speaker fades from its real volume to 0")
 	for speaker, from := range start {
 		levels := soco.writesFor(speaker)

@@ -848,6 +848,36 @@ func TestSoCoClient_CancelledCallerIsNotSent(t *testing.T) {
 	assert.Zero(t, atomic.LoadInt32(&calls))
 }
 
+func TestSoCoClient_AllowOverlappingRequests(t *testing.T) {
+	t.Parallel()
+	logger := zaptest.NewLogger(t)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(SoCoResponse{ExitCode: 0, Result: "12"})
+	}))
+	defer server.Close()
+
+	// A serialized client of the same server holds the shared turn.
+	serialized := NewSoCoClient(server.URL, logger, false)
+	serialized.requestLock <- struct{}{}
+	defer func() { <-serialized.requestLock }()
+
+	client := NewSoCoClient(server.URL, logger, false)
+	client.AllowOverlappingRequests()
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := client.GetVolume("Kitchen")
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		assert.NoError(t, err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("a client that allows overlap must not wait for another request's turn")
+	}
+}
+
 func TestSoCoClient_NoRetryOnApplicationError(t *testing.T) {
 	t.Parallel()
 	logger := zaptest.NewLogger(t)

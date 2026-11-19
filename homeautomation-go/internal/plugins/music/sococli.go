@@ -61,7 +61,16 @@ type SoCoClient struct {
 	readOnly   bool
 	// requestLock holds one token while a request is in flight. Every client of
 	// the same baseURL shares it, because several plugins make their own client.
+	// It is nil when AllowOverlappingRequests was called.
 	requestLock chan struct{}
+}
+
+// AllowOverlappingRequests stops this client from waiting for other SoCo-CLI
+// requests to finish. Use it only with a soco-cli that captures each request's
+// output separately (avantrec/soco-cli#90); older versions return empty results
+// when requests overlap. Call it before the client is used.
+func (c *SoCoClient) AllowOverlappingRequests() {
+	c.requestLock = nil
 }
 
 // socoRequestLocks maps a SoCo-CLI base URL to the request lock its clients share.
@@ -510,12 +519,14 @@ func isRetryableError(err error) bool {
 func (c *SoCoClient) doGetResultCtx(
 	ctx context.Context, endpoint, action, speaker string, attemptTimeout time.Duration,
 ) (*SoCoResponse, error) {
-	select {
-	case c.requestLock <- struct{}{}:
-	case <-ctx.Done():
-		return nil, fmt.Errorf("sococli %s: not sent: %w", action, ctx.Err())
+	if c.requestLock != nil {
+		select {
+		case c.requestLock <- struct{}{}:
+		case <-ctx.Done():
+			return nil, fmt.Errorf("sococli %s: not sent: %w", action, ctx.Err())
+		}
+		defer func() { <-c.requestLock }()
 	}
-	defer func() { <-c.requestLock }()
 
 	c.logger.Debug("SoCo-CLI request",
 		zap.String("action", action),

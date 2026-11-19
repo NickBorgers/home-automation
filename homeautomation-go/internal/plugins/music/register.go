@@ -46,6 +46,9 @@ func createPlugin(ctx *plugin.Context) (plugin.Plugin, error) {
 	// Wire up SoCo-CLI client for Tidal playback if configured
 	if ctx.SoCoCliURL != "" {
 		socoClient := NewSoCoClient(ctx.SoCoCliURL, ctx.Logger, ctx.ReadOnly)
+		if ctx.SoCoCliAllowOverlap {
+			socoClient.AllowOverlappingRequests()
+		}
 		manager.SetSoCoClient(socoClient)
 	}
 
