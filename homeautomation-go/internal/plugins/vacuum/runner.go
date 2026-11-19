@@ -137,6 +137,13 @@ type Scheduler struct {
 	strandSince  time.Time
 	strandHomeAt time.Time
 
+	// waterErrorNow is true while the error sensor reports the water error. waterFallback holds the out-of-water
+	// state when its helper is missing. dryVacuumed is when each room last got a vacuum-only pass while out of
+	// water; it is kept in memory only. See water.go.
+	waterErrorNow bool
+	waterFallback bool
+	dryVacuumed   map[string]time.Time
+
 	eventsMu sync.Mutex
 	events   []boolEvent
 
@@ -188,6 +195,7 @@ func NewScheduler(
 		expectOff:      map[string]bool{},
 		warnings:       map[string]string{},
 		warnedOnce:     map[string]bool{},
+		dryVacuumed:    map[string]time.Time{},
 		wake:           make(chan struct{}, 1),
 		stopCh:         make(chan struct{}),
 	}
@@ -273,6 +281,7 @@ func (s *Scheduler) Start() error {
 			s.logger.Warn("Cannot subscribe to taint helper", zap.String("entity", entity), zap.Error(err))
 		}
 	}
+	s.startWater()
 	s.subHelper.CaptureInitialInputs()
 
 	s.logger.Info("Vacuum scheduler started",
@@ -472,7 +481,7 @@ func (s *Scheduler) replan(now time.Time) {
 		Hold:         s.holdReason(),
 		Battery:      st.Battery,
 		HasBattery:   st.HasBattery,
-		Docked:       st.Docked(),
+		Docked:       s.robotCanStart(),
 		TripCost:     s.tripCost(),
 		StartMin:     s.cfg.Battery.StartMinPercent(),
 		Floor:        s.cfg.Battery.FloorPercent(),
@@ -488,6 +497,13 @@ func (s *Scheduler) replan(now time.Time) {
 			in.Items = append(in.Items, PlanItem{Room: t.Key.Room, Treatment: t.Key.Treatment, Score: t.Score,
 				Manual: t.Manual, Cost: t.Cost})
 		}
+	}
+	if s.waterEmpty() {
+		var dry []Skip
+		in.Items, dry = s.vacuumOnly(now, in.Items)
+		missing = append(missing, dry...)
+	} else {
+		clear(s.dryVacuumed)
 	}
 	p := BuildPlan(in)
 	p.Skipped = append(p.Skipped, missing...)
@@ -822,6 +838,11 @@ func (s *Scheduler) trackRun(now time.Time, st *valetudo.State) {
 	case valetudo.StatusDocked, valetudo.StatusError, valetudo.StatusIdle, valetudo.StatusPaused:
 		r.stopped = true
 	}
+	if s.waterErrorNow && st.Status == valetudo.StatusError && r.treatment != TreatmentVacuum {
+		// The robot cannot mop without water. End at once, so the next run can vacuum.
+		s.finish(now, outcomeNoWater, "the clean water tank is empty")
+		return
+	}
 	if s.checkStall(now, r, st) {
 		return
 	}
@@ -1062,6 +1083,9 @@ func (s *Scheduler) markDone(now time.Time, room string) {
 	for _, t := range cleared {
 		s.markCleaned(itemKey{Room: room, Treatment: t}, now)
 		names = append(names, string(t))
+	}
+	if r.treatment == TreatmentVacuum {
+		s.dryVacuumed[room] = now
 	}
 	r.sampled[room] = r.roomDrop[room]
 	if len(cleared) > 0 && cleared[0] == r.treatment && r.positionSeen {
@@ -1388,6 +1412,7 @@ func (s *Scheduler) publish(now time.Time) {
 	o.Run = runView(s.run)
 	o.LastRun = runView(s.lastRun)
 	o.FenceRestorePending = s.fence.pending
+	o.WaterEmpty = s.waterEmpty()
 	s.shadow.SetScheduler(o)
 }
 

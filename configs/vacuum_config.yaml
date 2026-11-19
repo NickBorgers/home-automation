@@ -99,6 +99,13 @@ vacuum:
     # always blocks runs. 0s means at once. Default 2m.
     # fence_helper_grace: "2m"
 
+    # Out of water: when the error sensor above reports text containing this,
+    # case ignored, the mop dock's clean water is empty. A full run ends at
+    # once, and runs are vacuum only until someone refills the tank. Needs
+    # the helper input_boolean.vacuum_water_empty (toggle); without it the
+    # state is kept in memory only. See docs/flows/VACUUM.md.
+    water_empty_error: "Clean Water Tank empty"
+
     # With no run tracked, a robot standing idle or paused away from the dock
     # this long is sent home once its way home is clear.
     stranded_after: "5m"

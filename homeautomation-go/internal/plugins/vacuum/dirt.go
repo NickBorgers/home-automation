@@ -291,7 +291,8 @@ func (s *Scheduler) write(desc string, fn func() error) error {
 	return nil
 }
 
-// boolEvent is a change of a taint boolean seen from Home Assistant.
+// boolEvent is a change seen from Home Assistant or the state manager: a taint boolean, or an input of the
+// out-of-water rule (water.go).
 type boolEvent struct {
 	entity   string
 	from, to string
@@ -307,6 +308,11 @@ func (s *Scheduler) queueBoolEvent(entity string, oldState, newState *ha.State) 
 	if oldState != nil {
 		ev.from = oldState.State
 	}
+	s.queueEvent(ev)
+}
+
+// queueEvent records an event for the tick goroutine and wakes it.
+func (s *Scheduler) queueEvent(ev boolEvent) {
 	s.eventsMu.Lock()
 	s.events = append(s.events, ev)
 	s.eventsMu.Unlock()
@@ -322,6 +328,9 @@ func (s *Scheduler) processEvents() {
 	s.eventsMu.Unlock()
 
 	for _, ev := range events {
+		if s.handleWaterEvent(ev) {
+			continue
+		}
 		k, ok := s.dirtyKeys[ev.entity]
 		if !ok {
 			continue

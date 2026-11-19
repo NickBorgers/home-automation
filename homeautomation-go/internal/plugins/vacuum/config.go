@@ -116,6 +116,8 @@ func (c *Config) applyDefaultsAndValidate() error {
 		}
 		c.Vacuum.Announcement.RepeatInterval = d
 	}
+	c.Vacuum.Scheduler.errorSensorID = c.Vacuum.ErrorSensorID
+	c.Vacuum.Scheduler.noErrorValue = c.Vacuum.NoErrorValue
 	c.Vacuum.Scheduler.applyDefaultsAndValidate()
 	return nil
 }

@@ -42,6 +42,9 @@ const (
 	defaultStallTimeout   = 30 * time.Minute
 )
 
+// defaultWaterEmptyError is the error text of a Dreame mop dock whose clean water tank is empty.
+const defaultWaterEmptyError = "Clean Water Tank empty"
+
 // Fencing and stranded-robot defaults.
 const (
 	defaultFenceMarginM  = 0.25
@@ -111,6 +114,15 @@ type SchedulerConfig struct {
 	StrandedAfterRaw string `yaml:"stranded_after"`
 	// StrandedAfter is the parsed stranded_after.
 	StrandedAfter time.Duration `yaml:"-"`
+
+	// WaterEmptyError is text in the error sensor's state that means the mop dock's clean water tank is
+	// empty, matched without regard to case. While the tank is empty, runs are vacuum only. Default
+	// "Clean Water Tank empty". See water.go.
+	WaterEmptyError string `yaml:"water_empty_error"`
+	// errorSensorID and noErrorValue come from the vacuum: section. An empty errorSensorID turns the
+	// out-of-water rule off.
+	errorSensorID string
+	noErrorValue  string
 
 	// Parsed by validate.
 	ReplanInterval time.Duration `yaml:"-"`
@@ -253,6 +265,10 @@ func (c *SchedulerConfig) validate() error {
 		if *d.out, err = parseDuration("scheduler."+d.name, d.raw, d.def, false); err != nil {
 			return err
 		}
+	}
+
+	if c.WaterEmptyError == "" {
+		c.WaterEmptyError = defaultWaterEmptyError
 	}
 
 	if c.NextRoomDwell > c.MinDwell {
