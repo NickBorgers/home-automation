@@ -31,11 +31,12 @@ const (
 	// to allow the Sonos system to stabilize before forming new groups.
 	speakerUnjoinSettleDelay = 500 * time.Millisecond
 
-	// speakerUnjoinTimeout is the maximum time to wait for a single unjoin call.
-	// Unjoin is best-effort cleanup — if a speaker is unresponsive, we skip it
-	// rather than blocking startup or playback transitions for minutes.
-	// With serial unjoin, each call is a single UPnP request (no retries),
-	// so 3s is sufficient. Worst case = 6 × (3s + 500ms) + 500ms settle ≈ 21.5s.
+	// speakerUnjoinTimeout is the maximum time to wait for a single unjoin call
+	// through Home Assistant. Unjoin is best-effort cleanup — if a speaker is
+	// unresponsive, we skip it rather than blocking startup or playback transitions
+	// for minutes. With serial unjoin, each call is a single request (no retries).
+	// The SoCo-CLI path ignores this value and uses the client's attempt timeout,
+	// because soco-cli keeps running an abandoned ungroup (issue #1431).
 	speakerUnjoinTimeout = 3 * time.Second
 
 	// speakerUnjoinInterDelay is the delay between sequential unjoin calls.

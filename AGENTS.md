@@ -535,8 +535,9 @@ Run `curl -s https://soco-cli.featherback-mermaid.ts.net/rediscover` before you 
 - **URL encoding:** Speaker names with spaces use `url.PathEscape()` (e.g., `Sitting%20Room`). The API handles this correctly.
 - **Fallback:** If `SOCO_CLI_URL` env var is unset, all speaker commands fall back to Home Assistant WebSocket API (`speaker_commands.go` dual-path routing).
 - **State reads:** With `SOCO_CLI_URL` set, volume and playback state also come from SoCo by speaker name. A speaker needs no `media_player` entity in Home Assistant. Startup reconciliation (`startup_reconciliation.go`) reads the lead speaker's state, track URI (`get_uri`), group (`groups`) and volumes from SoCo too.
-- **Timeouts:** Standard operations use 5s per-attempt timeout; `sharelink` uses 30s (downloads and enqueues content).
-- **Retries:** Network errors and HTTP 5xx/429 retry up to 3 total attempts with 500ms delay. Application errors (`exit_code != 0`) and HTTP 4xx do not retry.
+- **One request at a time:** soco-cli loses a command's output when two requests overlap (the reply has `result: ""` with `exit_code` 0). `SoCoClient` sends one request at a time. All clients of the same `SOCO_CLI_URL` in the process share one lock, which is held for each HTTP attempt but not during retry delays. A hung speaker can therefore delay other speaker commands by up to 25s.
+- **Timeouts:** soco-cli waits up to 20s for a speaker and keeps running a command whose request was abandoned. So each attempt waits longer: standard operations 25s, `sharelink` and `add_uri_to_queue` 30s. A caller's context (best-effort unjoin) can stop a request only before it is sent.
+- **Retries:** Up to 3 total attempts with 500ms delay, only when the request surely did not run: connection refused or DNS failure, and HTTP 502, 503 or 429. A client-side timeout is not retried, because the command may still be running in soco-cli. HTTP 500 and 504, other HTTP errors, application errors (`exit_code != 0`) and unreadable responses are not retried.
 - **Read-only mode:** When `READ_ONLY=true`, all SoCo commands are logged but not executed.
 
 ## Testing Tesla Fleet API Changes
