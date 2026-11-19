@@ -47,8 +47,8 @@ func TestScenario_MusicUtilityFollowsPantry(t *testing.T) {
 			t.Log("THEN: Utility plays with Pantry, slightly quieter, and does not lead")
 			require.NotNil(t, utility, "Utility must play wherever Pantry plays")
 			assert.Equal(t, pantry.BaseVolume-1, utility.BaseVolume, "Utility is one step quieter than Pantry")
-			assert.Equal(t, pantry.LeaveMutedIf, utility.LeaveMutedIf)
-			assert.Equal(t, pantry.ExcludeIf, utility.ExcludeIf)
+			assert.ElementsMatch(t, pantry.LeaveMutedIf, utility.LeaveMutedIf)
+			assert.ElementsMatch(t, pantry.ExcludeIf, utility.ExcludeIf)
 			assert.NotEqual(t, "Utility", mode.Participants[0].PlayerName, "Utility must not lead")
 		})
 	}
