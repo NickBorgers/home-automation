@@ -178,7 +178,7 @@ func TestLuxFollowers_NotResentBelowTheMinimumStep(t *testing.T) {
 	assert.Len(t, callsTo(env.MockHA, "turn_on", strip), 1, "4 points is over the step")
 }
 
-func TestLuxFollowers_ManualChangeHoldsOnlyThatStrip(t *testing.T) {
+func TestLuxFollowers_ManualChangeHoldsTheRoom(t *testing.T) {
 	t.Parallel()
 	for _, want := range followerRooms {
 		t.Run(want.room, func(t *testing.T) {
@@ -186,7 +186,7 @@ func TestLuxFollowers_ManualChangeHoldsOnlyThatStrip(t *testing.T) {
 			room := findRoom(m.config, want.room)
 			m.evaluateAndActivateRoom(room, "day", "isKitchenOccupied")
 			sent := float64(callsTo(env.MockHA, "turn_on", want.strip)[0].Data["brightness_pct"].(int))
-			held := func() bool { return m.GetShadowState().Outputs.LuxControl[want.room].Followers[want.strip].Held }
+			held := func() bool { return m.GetShadowState().Outputs.LuxControl[want.room].Held }
 
 			// Mid-fade, a report on the fade's path (the strip lights up from off over 5 s) is the
 			// plugin's own change.
@@ -203,24 +203,24 @@ func TestLuxFollowers_ManualChangeHoldsOnlyThatStrip(t *testing.T) {
 			m.luxEvaluate(room, "test")
 			assert.False(t, held())
 
-			// A different brightness is manual. It holds the strip, never the room.
+			// A different brightness is manual. It holds the whole room.
 			m.handleFollowerChange(room, &ha.State{EntityID: want.strip, State: "on",
 				Attributes: map[string]interface{}{"brightness": 51.0}})
-			assert.False(t, m.luxHeld(room), "the room is not held")
+			assert.True(t, m.luxHeld(room), "a strip change holds its room")
 			m.luxEvaluate(room, "test")
-			assert.True(t, held(), "shadow state shows the strip held")
-			assert.False(t, m.GetShadowState().Outputs.LuxControl[want.room].Held)
+			assert.True(t, held(), "shadow state shows the room held")
+			assert.Contains(t, m.GetShadowState().Outputs.LuxControl[want.room].HeldReason, want.strip)
 
-			// The cans keep following the curve (evening: brightness changes), the strip is left alone.
+			// Neither the cans nor the strip follow the curve (evening: brightness changes).
 			env.MockHA.ClearServiceCalls()
 			clk.Set(at(20, 0))
 			env.MockHA.SetState(m.config.LuxCurve.OutdoorSensor, "0", nil)
 			m.luxTick()
-			assert.NotEmpty(t, callsTo(env.MockHA, "turn_on", want.cans), "cans still commanded")
+			assert.Empty(t, callsTo(env.MockHA, "turn_on", want.cans), "held cans are not driven")
 			assert.Empty(t, callsTo(env.MockHA, "turn_on", want.strip), "held strip is not driven")
 			assert.Empty(t, callsTo(env.MockHA, "turn_off", want.strip))
 
-			// The strip hold clears with the room hold, e.g. everyone asleep or nobody home.
+			// The hold clears like any room hold, e.g. everyone asleep or nobody home.
 			m.clearAllLuxHolds("test")
 			m.luxTick()
 			assert.NotEmpty(t, callsTo(env.MockHA, "turn_on", want.strip), "driven again after the clear")
@@ -229,16 +229,27 @@ func TestLuxFollowers_ManualChangeHoldsOnlyThatStrip(t *testing.T) {
 	}
 }
 
-func TestLuxFollowers_StripTurnedOffByHandHoldsOnlyTheStrip(t *testing.T) {
+func TestLuxFollowers_StripTurnedOffByHandHoldsTheRoom(t *testing.T) {
 	t.Parallel()
 	m, _, clk := newProductionRoomFixture(t)
 	room := findRoom(m.config, "Pantry")
 	m.evaluateAndActivateRoom(room, "day", "isKitchenOccupied")
 	clk.Advance(2 * time.Minute)
 	m.handleFollowerChange(room, &ha.State{EntityID: "light.pantry_under_cabinet", State: "off"})
-	assert.False(t, m.luxHeld(room))
+	assert.True(t, m.luxHeld(room))
 	m.luxEvaluate(room, "test")
-	assert.True(t, m.GetShadowState().Outputs.LuxControl["Pantry"].Followers["light.pantry_under_cabinet"].Held)
+	assert.True(t, m.GetShadowState().Outputs.LuxControl["Pantry"].Held)
+}
+
+func TestLuxHoldHelper_NamesOneHelperPerRoom(t *testing.T) {
+	t.Parallel()
+	for room, want := range map[string]string{
+		"Kitchen":            "input_boolean.lux_hold_kitchen",
+		"Living Room":        "input_boolean.lux_hold_living_room",
+		"Sitting Chandelier": "input_boolean.lux_hold_sitting_chandelier",
+	} {
+		assert.Equal(t, want, luxHoldHelper(&RoomConfig{HueGroup: room}))
+	}
 }
 
 func TestLuxFollowers_KitchenNoLongerRecallsTheUnderCabinetScene(t *testing.T) {

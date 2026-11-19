@@ -147,8 +147,19 @@ The room enters **held** state. While held:
 | `isEveryoneAsleep` becomes true | The day is over. |
 | `isAnyoneHome` becomes false | The house is empty. |
 | `reset` runs | Reset acts as if every room's lights went off and on again. The last command is forgotten, so the next tick starts from the cans' reported state and fades to fresh values. |
+| Someone turns the room's hold helper off in Home Assistant | A person released the hold by hand. |
 
 A day phase change does **not** clear the hold. This replaces today's behavior, where every phase change re-fires every room.
+
+### The hold survives a restart
+
+Each room in `active` mode stores its hold in a Home Assistant helper, `input_boolean.lux_hold_<room>`. The room name is lowercased, and every other character becomes `_`. For example, the Kitchen uses `input_boolean.lux_hold_kitchen` and the Sitting Chandelier uses `input_boolean.lux_hold_sitting_chandelier`.
+
+- The plugin turns the helper on when the room becomes held. It turns the helper off when the hold clears.
+- At startup, the plugin reads the helper. If the helper is on and the room's conditions still turn the room on, the hold comes back and the lights get no command. If the room's conditions say anything else, an event that ends a hold happened while the app was down, so the plugin turns the helper off.
+- Turning the helper off in Home Assistant releases the hold, and the next command follows the curve. Turning it on holds the room.
+- A missing helper only logs a warning. The hold still works in memory, but a restart forgets it.
+- In `READ_ONLY` mode the plugin reads the helper but never writes it.
 
 ### Note on existing documentation
 
@@ -215,7 +226,7 @@ or non-numeric, dusk, winddown, and night are dark and the other day phases are 
 | `outdoorLux`, `daylightEstimate` | Smoothed outdoor reading, and the room estimate |
 | `neededLux`, `brightnessPct`, `goalBrightnessPct` | What the cans must supply, the brightness last commanded (after the slew limit), and the brightness the target asks for |
 | `held`, `heldSince`, `heldReason` | Manual override state |
-| `followers` | Per follower light: `pct` (last commanded percent, 0 = off) and `held` (a person changed that strip). Also `cansPct` (cans brightness the strip was computed from). For a strip with a `cct_curve`: `targetKelvin` (the cans' commanded Kelvin), `cctFloorPct` (lowest brightness that reaches it), `cctCeilingPct` (highest brightness not cooler than it) and `estimatedKelvin` (the strip's Kelvin at `pct`, from the curve) |
+| `followers` | Per follower light: `pct` (last commanded percent, 0 = off). Also `cansPct` (cans brightness the strip was computed from). For a strip with a `cct_curve`: `targetKelvin` (the cans' commanded Kelvin), `cctFloorPct` (lowest brightness that reaches it), `cctCeilingPct` (highest brightness not cooler than it) and `estimatedKelvin` (the strip's Kelvin at `pct`, from the curve) |
 | `decision` | Why the last tick did or did not send a command |
 
 ## Calibration (once per room)
@@ -265,7 +276,7 @@ The Kitchen strip is dim-to-warm: its color temperature falls as it dims. Its `c
 - The strip is brightness-only. The plugin never sends it a Kelvin.
 - A target at or warmer than the warmest point (3000 K for the Kitchen) gives no floor and a ceiling at that point's brightness (49%). A target cooler than the coolest point gives that point's brightness.
 - Shadow state and the `Lux control sending follower command` log line carry `cans_pct`, `target_kelvin`, `cct_floor_pct`, `cct_ceiling_pct` and `estimated_kelvin`.
-- Hold behavior is unchanged: a manual strip change holds that strip only.
+- A manual strip change holds the whole room (see below).
 
 Kitchen strip curve, measured by eye on 2026-11-08 (issue #1263). Method: the plugin set the cans to each Kelvin at 50% brightness, Nick set the Lutron dimmer until the strip looked the same, and the strip brightness was read back from Home Assistant. Rounds ran in the order 3000, 4000, 3500, 3250, 3750 K. One run per point, with no instrument. Expect about 5 percentage points of error.
 
@@ -279,7 +290,7 @@ Kitchen strip curve, measured by eye on 2026-11-08 (issue #1263). Method: the pl
 
 Limits: 4000 K was reached only at 100%, so a true 4000 K may need more. Nothing below 3000 K was measured. No repeat run, no increasing-versus-decreasing check (hysteresis), and no check along the strip. A first 3750 K reading (224) was replaced by 242 when Nick judged it closer. The 3500 K point was not rechecked. This curve replaces the earlier estimate of about 3200 K at 60%: the curve gives about 3100 K at 60%. The Pantry strip has a fixed color, so the warmth reason does not apply to it. It copies the Kitchen mapping by user choice, because the user said it is roughly as bright as the Kitchen strip. It was not measured.
 
-A manual change to a strip holds that strip only. The room and its cans keep following the curve. The strip is left alone until the same events that end a room hold: the room goes off and on, everyone is asleep, nobody is home, or reset. The strip's rule for what counts as manual matches brightness-only lights: kelvin is ignored, and a report during a fade is the plugin's own change only when it is on the fade's path.
+A manual change to a strip holds its whole room, the same as a manual change to the cans. A strip is part of its room: the Kitchen under-cabinet strip follows the Kitchen. The cans and the strip are both left alone until the hold clears. The strip's rule for what counts as manual matches brightness-only lights: kelvin is ignored, and a report during a fade is the plugin's own change only when it is on the fade's path.
 
 The cans stay in their Hue rooms. A Hue light belongs to one room but can sit in many zones, so the plugin drives cans and accents through separate zones.
 
@@ -348,7 +359,7 @@ What the code does, where it differs from the text above, and what is left.
 
   A signal change runs only the lux controller. Shadow state reports `targetSource` as `presence_override` or `lux_curve`; a held room still reports that source while its decision says the lights were left alone.
 - **The Pantry is a room entry, not a second entity under the Kitchen.** A room holds one `lux_control` block, and the Pantry needs its own calibration and `daylight_factor`. Turn-off targeting follows three-path priority: if `turn_off_entity_id` is set, it targets that entity directly (highest priority); otherwise if `hass_area_id` is set, it targets the area; otherwise (lux-managed rooms like the Pantry with no area), it targets the lux-control cans entity. The Pantry uses the third path: its entry has no `hass_area_id`, so turn-off calls `light.turn_off` on the cans entity directly, without depending on which Home Assistant area the pantry cans sit in.
-- **Follower lights are in `luxcontrol.go`** (`luxDriveFollowers`, `handleFollowerChange`). Followers get a separate per-strip hold (`followerHeld`), not the room hold.
+- **Follower lights are in `luxcontrol.go`** (`luxDriveFollowers`, `handleFollowerChange`). A manual strip change sets the room hold.
 - **Hold applies in `active` mode only.** In `log_only` the plugin sends no commands, so it has nothing to compare against. Rooms without `lux_control` (step 5 for rooms still on scenes) have no light entity to watch and are not covered yet.
 - **Manual changes are found by comparing values.** The design also named `context.user_id`. The code does not use it. The Home Assistant token belongs to a person, so the plugin's own calls and that person's manual changes carry the same user ID.
 - **A TV session is not a manual change.** Reports from the cans are ignored while the room's conditions say `skip`. The plugin forgets its last command, so it sends fresh values when the TV stops.

@@ -179,7 +179,9 @@ sequenceDiagram
 
 Rooms with `lux_control.mode: active` hold after a manual change. Rooms without lux control, and rooms in `log_only` mode, have no hold. See [LUX_LIGHTING.md](./LUX_LIGHTING.md).
 
-The plugin remembers the last brightness and kelvin it sent to the room's cans. A report from Home Assistant that differs from that command, after the command's transition ends, counts as a manual change.
+The plugin remembers the last brightness and kelvin it sent to the room's cans and strips. A report from Home Assistant that differs from that command, after the command's transition ends, counts as a manual change. A change to a strip holds the whole room.
+
+Each room stores its hold in `input_boolean.lux_hold_<room>`, so a hold survives a restart. Turning that helper off in Home Assistant releases the hold. See [LUX_LIGHTING.md](./LUX_LIGHTING.md#the-hold-survives-a-restart).
 
 ```mermaid
 flowchart TD
@@ -197,6 +199,7 @@ flowchart TD
     asleep["Everyone asleep"] --> clear
     away["Nobody home"] --> clear
     reset["Reset or Lighting Reset runs"] --> clear
+    helper["Hold helper turned off in HA"] --> clear
 
     style held fill:#f39c12,color:#fff
     style keep fill:#e74c3c,color:#fff
