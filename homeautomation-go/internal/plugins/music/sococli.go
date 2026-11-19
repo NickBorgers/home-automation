@@ -3,12 +3,15 @@ package music
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"go.uber.org/zap"
@@ -16,12 +19,14 @@ import (
 
 const (
 	// socoAttemptTimeout is the per-attempt timeout for most SoCo-CLI operations.
-	// Kept short so that a hung request during volume fades (~1s steps) doesn't
-	// block the entire fade sequence.
-	socoAttemptTimeout = 5 * time.Second
+	// soco-cli waits up to 20s for a speaker and does not stop a command when we
+	// abandon its request. The attempt waits longer than that, so when it ends
+	// soco-cli has finished the command too and the next request cannot overlap it.
+	socoAttemptTimeout = 25 * time.Second
 
 	// socoLongTimeout is the per-attempt timeout for operations that are
 	// inherently slower, such as sharelink (downloads and enqueues content).
+	// Like socoAttemptTimeout, it must stay above soco-cli's 20s speaker timeout.
 	socoLongTimeout = 30 * time.Second
 
 	// socoMaxRetries is the number of retry attempts after the initial call.
@@ -45,11 +50,27 @@ type SoCoResponse struct {
 // It provides direct Sonos speaker control via UPnP, bypassing Home Assistant
 // for time-sensitive operations like volume fades, group join/unjoin, and playback.
 // It also reads current volume and playback status, so speakers need no HA entity.
+//
+// The client sends one request at a time to a SoCo-CLI server (issue #1431).
+// soco-cli captures each command's output by swapping the process-wide stdout
+// with no lock, so overlapping requests can come back with an empty result.
 type SoCoClient struct {
 	baseURL    string
 	httpClient *http.Client
 	logger     *zap.Logger
 	readOnly   bool
+	// requestLock holds one token while a request is in flight. Every client of
+	// the same baseURL shares it, because several plugins make their own client.
+	requestLock chan struct{}
+}
+
+// socoRequestLocks maps a SoCo-CLI base URL to the request lock its clients share.
+var socoRequestLocks sync.Map
+
+// socoRequestLock returns the request lock for a SoCo-CLI base URL.
+func socoRequestLock(baseURL string) chan struct{} {
+	lock, _ := socoRequestLocks.LoadOrStore(baseURL, make(chan struct{}, 1))
+	return lock.(chan struct{})
 }
 
 // NewSoCoClient creates a new SoCo-CLI HTTP client.
@@ -59,10 +80,11 @@ func NewSoCoClient(baseURL string, logger *zap.Logger, readOnly bool) *SoCoClien
 		return nil
 	}
 	return &SoCoClient{
-		baseURL:    baseURL,
-		httpClient: &http.Client{}, // Per-operation timeouts via context in doGetWithRetry
-		logger:     logger.Named("sococli"),
-		readOnly:   readOnly,
+		baseURL:     baseURL,
+		httpClient:  &http.Client{}, // Per-attempt timeouts via context in doGetResultCtx
+		logger:      logger.Named("sococli"),
+		readOnly:    readOnly,
+		requestLock: socoRequestLock(baseURL),
 	}
 }
 
@@ -227,8 +249,9 @@ func (c *SoCoClient) UngroupSpeaker(speakerName string) error {
 	return c.doGet(endpoint, "ungroup", speakerName)
 }
 
-// UngroupSpeakerCtx removes a speaker from its current group with context support.
-// Use this for best-effort operations where a timeout is preferred over extended retries.
+// UngroupSpeakerCtx removes a speaker from its current group in one attempt, with no retries.
+// ctx can stop the call only while it waits for its turn. Once sent, the request runs until
+// soco-cli answers or socoAttemptTimeout passes, because soco-cli would keep running it anyway.
 func (c *SoCoClient) UngroupSpeakerCtx(ctx context.Context, speakerName string) error {
 	if c.readOnly {
 		c.logger.Debug("READ_ONLY: Would ungroup speaker via SoCo-CLI",
@@ -241,7 +264,8 @@ func (c *SoCoClient) UngroupSpeakerCtx(ctx context.Context, speakerName string) 
 		c.baseURL,
 		url.PathEscape(speakerName))
 
-	return c.doGetCtx(ctx, endpoint, "ungroup", speakerName)
+	_, err := c.doGetResultCtx(ctx, endpoint, "ungroup", speakerName, socoAttemptTimeout)
+	return err
 }
 
 // Play resumes playback on a speaker.
@@ -422,9 +446,8 @@ func (c *SoCoClient) doGet(endpoint, action, speaker string) error {
 	return c.doGetWithRetry(endpoint, action, speaker, socoAttemptTimeout)
 }
 
-// doGetWithRetry performs a GET request with retries on transient errors.
-// Each attempt uses the specified timeout via context. Non-retryable errors
-// (SoCo application errors, HTTP 4xx) are returned immediately without retry.
+// doGetWithRetry performs a GET request and retries only when the failed attempt
+// surely did not run (see isRetryableError). Each attempt uses attemptTimeout.
 func (c *SoCoClient) doGetWithRetry(endpoint, action, speaker string, attemptTimeout time.Duration) error {
 	var lastErr error
 	for attempt := 0; attempt <= socoMaxRetries; attempt++ {
@@ -437,9 +460,7 @@ func (c *SoCoClient) doGetWithRetry(endpoint, action, speaker string, attemptTim
 			time.Sleep(socoRetryDelay)
 		}
 
-		ctx, cancel := context.WithTimeout(context.Background(), attemptTimeout)
-		lastErr = c.doGetCtx(ctx, endpoint, action, speaker)
-		cancel()
+		_, lastErr = c.doGetResultCtx(context.Background(), endpoint, action, speaker, attemptTimeout)
 
 		if lastErr == nil {
 			return nil
@@ -452,49 +473,58 @@ func (c *SoCoClient) doGetWithRetry(endpoint, action, speaker string, attemptTim
 	return fmt.Errorf("sococli %s: all %d attempts failed: %w", action, socoMaxRetries+1, lastErr)
 }
 
-// isRetryableError returns true for transient errors worth retrying:
-// network errors (connection refused, timeouts) and HTTP 5xx/429 server errors.
-// SoCo application errors (non-zero exit_code) and HTTP 4xx client errors are
-// not retried since they indicate issues that won't resolve with a retry.
+// isRetryableError reports whether a failed attempt surely did not run in soco-cli,
+// so that sending it again cannot run the command twice or overlap it.
+//
+// Retried: the client could not connect (connection refused, DNS failure), and
+// HTTP 502, 503 and 429. soco-cli never ran the command for these; a proxy, if
+// one is deployed in front of soco-cli, sends them.
+//
+// Not retried: a client-side timeout, because soco-cli keeps running an abandoned
+// command; HTTP 500 and 504, because soco-cli may have started the command; any
+// other HTTP status; SoCo application errors (non-zero exit_code); and a failure
+// to read or parse a response, because the command already ran.
 func isRetryableError(err error) bool {
 	if err == nil {
 		return false
 	}
+	var netErr net.Error
+	if errors.Is(err, context.DeadlineExceeded) || (errors.As(err, &netErr) && netErr.Timeout()) {
+		return false
+	}
+	var opErr *net.OpError
+	if errors.As(err, &opErr) && opErr.Op == "dial" {
+		return true
+	}
 	s := err.Error()
-	// Network-level errors: "sococli <action> request failed: ..."
-	if strings.Contains(s, "request failed") {
-		return true
-	}
-	// Server errors: "sococli <action> returned HTTP 5xx"
-	if strings.Contains(s, "returned HTTP 5") {
-		return true
-	}
-	// Rate limiting: "sococli <action> returned HTTP 429"
-	if strings.Contains(s, "returned HTTP 429") {
-		return true
-	}
-	// Read body failures (connection reset during read)
-	if strings.Contains(s, "failed to read response body") {
-		return true
-	}
-	return false
+	return strings.Contains(s, "returned HTTP 502") ||
+		strings.Contains(s, "returned HTTP 503") ||
+		strings.Contains(s, "returned HTTP 429")
 }
 
-// doGetCtx performs a GET request with context support.
-// Use this for operations that need custom timeouts (e.g., best-effort unjoin).
-func (c *SoCoClient) doGetCtx(ctx context.Context, endpoint, action, speaker string) error {
-	_, err := c.doGetResultCtx(ctx, endpoint, action, speaker)
-	return err
-}
+// doGetResultCtx performs one GET attempt and returns the parsed SoCo-CLI response.
+// It waits until no other request to the same SoCo-CLI server is in flight, and
+// holds that turn until the attempt ends. ctx can stop the wait. Once the request
+// is sent, only attemptTimeout ends it: soco-cli keeps running an abandoned command,
+// so giving up early would let the next request overlap it.
+func (c *SoCoClient) doGetResultCtx(
+	ctx context.Context, endpoint, action, speaker string, attemptTimeout time.Duration,
+) (*SoCoResponse, error) {
+	select {
+	case c.requestLock <- struct{}{}:
+	case <-ctx.Done():
+		return nil, fmt.Errorf("sococli %s: not sent: %w", action, ctx.Err())
+	}
+	defer func() { <-c.requestLock }()
 
-// doGetResultCtx performs a GET request and returns the parsed SoCo-CLI response.
-func (c *SoCoClient) doGetResultCtx(ctx context.Context, endpoint, action, speaker string) (*SoCoResponse, error) {
 	c.logger.Debug("SoCo-CLI request",
 		zap.String("action", action),
 		zap.String("speaker", speaker),
 		zap.String("url", endpoint))
 
-	req, err := http.NewRequestWithContext(ctx, "GET", endpoint, nil)
+	attemptCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), attemptTimeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(attemptCtx, "GET", endpoint, nil)
 	if err != nil {
 		return nil, fmt.Errorf("sococli %s: failed to create request: %w", action, err)
 	}
@@ -531,8 +561,8 @@ func (c *SoCoClient) doGetResultCtx(ctx context.Context, endpoint, action, speak
 	return &socoResp, nil
 }
 
-// getResult performs a GET with retries and returns the SoCo-CLI result string.
-// Used by state reads, which are safe in READ_ONLY mode.
+// getResult performs a GET, retrying as doGetWithRetry does, and returns the SoCo-CLI
+// result string. Used by state reads, which are safe in READ_ONLY mode.
 func (c *SoCoClient) getResult(endpoint, action, speaker string) (string, error) {
 	var lastErr error
 	for attempt := 0; attempt <= socoMaxRetries; attempt++ {
@@ -540,9 +570,7 @@ func (c *SoCoClient) getResult(endpoint, action, speaker string) (string, error)
 			time.Sleep(socoRetryDelay)
 		}
 
-		ctx, cancel := context.WithTimeout(context.Background(), socoAttemptTimeout)
-		resp, err := c.doGetResultCtx(ctx, endpoint, action, speaker)
-		cancel()
+		resp, err := c.doGetResultCtx(context.Background(), endpoint, action, speaker, socoAttemptTimeout)
 		if err == nil {
 			return strings.TrimSpace(resp.Result), nil
 		}

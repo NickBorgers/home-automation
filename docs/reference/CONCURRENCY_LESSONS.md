@@ -1787,7 +1787,41 @@ func (m *Manager) handleSexModeOn() {
 
 ---
 
+## Lesson 28: Serialize HTTP Requests to a Server That Has Internal Output-Capture Races
+
+**Pattern**: When a third-party server captures each command's output by swapping process-wide state without a lock, the client must ensure only one HTTP request is in flight at a time — across all client instances that share the same server URL.
+
+**Why**: soco-cli swaps process-wide stdout per request with no internal lock. When two requests overlap, both commands run on the speaker but one HTTP response carries an empty `result` with `exit_code 0`. For volume reads during fade-out this caused a sleep-zone speaker to fade from 0 instead of its real volume (issue #1431).
+
+**Key distinction from Lesson 17**: Lesson 17 serializes device-mesh calls (UPnP/SOAP to Sonos) to avoid overwhelming the mesh. This lesson serializes HTTP client-to-server calls because the server's internal concurrency model is broken. The fix lives in the Go client, not in inter-call delays.
+
+**Key implementation detail — why a buffered channel and not a mutex**: A `sync.Mutex` cannot be released by `ctx.Done()` while waiting to acquire it. A buffered channel of capacity 1 lets a cancelled caller bail out of the queue without holding the lock, while a caller that has acquired the token holds it for the full attempt.
+
+**Key implementation detail — `context.WithoutCancel` for in-flight requests**: Once a request is sent, the caller's context deadline must not abort it — soco-cli keeps running the command anyway. Stripping the parent context and using only `attemptTimeout` prevents the caller's short deadline from abandoning a sent request and creating an overlap for the next one.
+
+**Key implementation detail — process-wide lock map**: Multiple plugins create their own `SoCoClient` instances. If each held a separate lock they could send simultaneously. `socoRequestLocks sync.Map`, keyed by base URL, ensures all clients of the same soco-cli server share one token.
+
+**Retry policy consequence**: A client-side timeout must not be retried, because the command is still running in soco-cli and a retry would cause the overlap the lock was added to prevent. Only errors that definitively prove the request never reached soco-cli are retried: dial errors and HTTP 502/503/429.
+
+**Where Applied**: `internal/plugins/music/sococli.go` — `SoCoClient.doGetResultCtx`, `socoRequestLocks`, `socoRequestLock`
+
+**Tests**: `TestSoCoClient_OneRequestInFlight`, `TestSoCoClient_UngroupCtxHoldsTurnPastCallerDeadline`, `TestSoCoClient_CancelledCallerIsNotSent`, `TestSoCoClient_NoRetryAfterClientTimeout`, `TestScenario_WakeFadeOut_SoCoRequestsDoNotOverlap`
+
+**References**: Issue #1431, PR #1436
+
+---
+
 ## Change Log
+
+### 2026-11-19
+- **Added Lesson 28**: Serialize HTTP Requests to a Server That Has Internal Output-Capture Races
+  - soco-cli swaps process-wide stdout per request without a lock; overlapping requests silently
+    return an empty result — the command ran on the speaker but the reply is unusable
+  - Pattern: buffered channel of capacity 1 shared across all clients of the same base URL;
+    caller's ctx can cancel the wait but not an in-flight request (use `context.WithoutCancel`)
+  - Retry policy tightened: a client-side timeout is no longer retried; only dial errors and
+    HTTP 502/503/429 prove the request never reached soco-cli
+  - Applied to `internal/plugins/music/sococli.go` (Issue #1431, PR #1436)
 
 ### 2026-11-08
 - **Added Lesson 26**: Mutex-Serialized Generation Counter for Check-Then-Act Cancellation

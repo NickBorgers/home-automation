@@ -1,12 +1,19 @@
 package music
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"strings"
+	"sync"
 	"sync/atomic"
+	"syscall"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -656,12 +663,12 @@ func TestSoCoClient_RetryOnServerError(t *testing.T) {
 	t.Parallel()
 	logger := zaptest.NewLogger(t)
 
-	t.Run("retries on HTTP 500 and succeeds on second attempt", func(t *testing.T) {
+	t.Run("retries on HTTP 502 and succeeds on second attempt", func(t *testing.T) {
 		var attemptCount int32
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			attempt := atomic.AddInt32(&attemptCount, 1)
 			if attempt == 1 {
-				w.WriteHeader(http.StatusInternalServerError)
+				w.WriteHeader(http.StatusBadGateway)
 				w.Write([]byte("temporary error"))
 				return
 			}
@@ -676,11 +683,11 @@ func TestSoCoClient_RetryOnServerError(t *testing.T) {
 		assert.Equal(t, int32(2), atomic.LoadInt32(&attemptCount))
 	})
 
-	t.Run("exhausts all retries on persistent server error", func(t *testing.T) {
+	t.Run("exhausts all retries on persistent HTTP 503", func(t *testing.T) {
 		var attemptCount int32
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			atomic.AddInt32(&attemptCount, 1)
-			w.WriteHeader(http.StatusInternalServerError)
+			w.WriteHeader(http.StatusServiceUnavailable)
 			w.Write([]byte("persistent error"))
 		}))
 		defer server.Close()
@@ -691,6 +698,154 @@ func TestSoCoClient_RetryOnServerError(t *testing.T) {
 		assert.Contains(t, err.Error(), fmt.Sprintf("all %d attempts failed", socoMaxRetries+1))
 		assert.Equal(t, int32(socoMaxRetries+1), atomic.LoadInt32(&attemptCount))
 	})
+
+	t.Run("does not retry HTTP 500 because the command may have started", func(t *testing.T) {
+		var attemptCount int32
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			atomic.AddInt32(&attemptCount, 1)
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte("internal error"))
+		}))
+		defer server.Close()
+
+		client := NewSoCoClient(server.URL, logger, false)
+		err := client.SetVolume("Kitchen", 42)
+		assert.ErrorContains(t, err, "HTTP 500")
+		assert.Equal(t, int32(1), atomic.LoadInt32(&attemptCount))
+	})
+}
+
+func TestSoCoClient_NoRetryAfterClientTimeout(t *testing.T) {
+	t.Parallel()
+	logger := zaptest.NewLogger(t)
+
+	var attemptCount int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&attemptCount, 1)
+		select {
+		case <-time.After(2 * time.Second):
+		case <-r.Context().Done():
+		}
+	}))
+	defer server.Close()
+
+	client := NewSoCoClient(server.URL, logger, false)
+	err := client.doGetWithRetry(server.URL+"/Pantry/volume/0", "volume_write", "Pantry", 50*time.Millisecond)
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, context.DeadlineExceeded)
+	assert.NotContains(t, err.Error(), "attempts failed")
+	assert.Equal(t, int32(1), atomic.LoadInt32(&attemptCount),
+		"a timed-out command may still be running in soco-cli, so it must not be sent again")
+}
+
+// recordMax raises *max to n if n is larger.
+func recordMax(max *int32, n int32) {
+	for {
+		prev := atomic.LoadInt32(max)
+		if n <= prev || atomic.CompareAndSwapInt32(max, prev, n) {
+			return
+		}
+	}
+}
+
+func TestSoCoClient_OneRequestInFlight(t *testing.T) {
+	t.Parallel()
+	logger := zaptest.NewLogger(t)
+
+	var inFlight, maxInFlight, total int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		recordMax(&maxInFlight, atomic.AddInt32(&inFlight, 1))
+		atomic.AddInt32(&total, 1)
+		time.Sleep(2 * time.Millisecond)
+		atomic.AddInt32(&inFlight, -1)
+		json.NewEncoder(w).Encode(SoCoResponse{Result: "7", ExitCode: 0})
+	}))
+	defer server.Close()
+
+	// Plugins each make their own client, so two clients of one server must share the lock.
+	clients := []*SoCoClient{NewSoCoClient(server.URL, logger, false), NewSoCoClient(server.URL, logger, false)}
+
+	const callers = 16
+	var wg sync.WaitGroup
+	for i := 0; i < callers; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			c := clients[i%2]
+			switch i % 4 {
+			case 0:
+				_, err := c.GetVolume("Primary Bed")
+				assert.NoError(t, err)
+			case 1:
+				assert.NoError(t, c.SetVolume("Primary Bath", 7))
+			case 2:
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+				assert.NoError(t, c.UngroupSpeakerCtx(ctx, "Kitchen"))
+			default:
+				_, err := c.GetPlaybackState("Pantry")
+				assert.NoError(t, err)
+			}
+		}(i)
+	}
+	wg.Wait()
+
+	assert.Equal(t, int32(callers), atomic.LoadInt32(&total))
+	assert.Equal(t, int32(1), atomic.LoadInt32(&maxInFlight), "soco-cli must never see two requests at once")
+}
+
+func TestSoCoClient_UngroupCtxHoldsTurnPastCallerDeadline(t *testing.T) {
+	t.Parallel()
+	logger := zaptest.NewLogger(t)
+
+	var inFlight, maxInFlight int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		recordMax(&maxInFlight, atomic.AddInt32(&inFlight, 1))
+		if strings.HasSuffix(r.URL.Path, "/ungroup") {
+			time.Sleep(100 * time.Millisecond) // soco-cli still working on the ungroup
+		}
+		atomic.AddInt32(&inFlight, -1)
+		json.NewEncoder(w).Encode(SoCoResponse{Result: "7", ExitCode: 0})
+	}))
+	defer server.Close()
+
+	client := NewSoCoClient(server.URL, logger, false)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+
+	ungroupDone := make(chan error, 1)
+	go func() { ungroupDone <- client.UngroupSpeakerCtx(ctx, "Kitchen") }()
+	time.Sleep(10 * time.Millisecond) // let the ungroup take its turn first
+	_, readErr := client.GetVolume("Pantry")
+
+	assert.NoError(t, <-ungroupDone, "the caller's short deadline must not abandon a sent ungroup")
+	assert.NoError(t, readErr)
+	assert.Equal(t, int32(1), atomic.LoadInt32(&maxInFlight), "the read must wait for the ungroup to finish")
+}
+
+func TestSoCoClient_CancelledCallerIsNotSent(t *testing.T) {
+	t.Parallel()
+	logger := zaptest.NewLogger(t)
+
+	var calls int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&calls, 1)
+		json.NewEncoder(w).Encode(SoCoResponse{ExitCode: 0})
+	}))
+	defer server.Close()
+
+	client := NewSoCoClient(server.URL, logger, false)
+	client.requestLock <- struct{}{} // another request is in flight
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+
+	err := client.UngroupSpeakerCtx(ctx, "Kitchen")
+	<-client.requestLock
+
+	assert.ErrorContains(t, err, "not sent")
+	assert.ErrorIs(t, err, context.DeadlineExceeded)
+	assert.Zero(t, atomic.LoadInt32(&calls))
 }
 
 func TestSoCoClient_NoRetryOnApplicationError(t *testing.T) {
@@ -734,10 +889,11 @@ func TestSoCoClient_RetryOnConnectionError(t *testing.T) {
 	logger := zaptest.NewLogger(t)
 
 	t.Run("retries on connection refused", func(t *testing.T) {
-		// Point to a port that is not listening
+		// Point to a port that is not listening. The request never reached soco-cli.
 		client := NewSoCoClient("http://127.0.0.1:1", logger, false)
 		err := client.SetVolume("Kitchen", 42)
 		assert.Error(t, err)
+		assert.ErrorIs(t, err, syscall.ECONNREFUSED)
 		assert.Contains(t, err.Error(), "all 3 attempts failed")
 	})
 }
@@ -751,12 +907,23 @@ func TestIsRetryableError(t *testing.T) {
 		retryable bool
 	}{
 		{"nil error", nil, false},
-		{"network error", fmt.Errorf("sococli volume request failed: connection refused"), true},
-		{"HTTP 500", fmt.Errorf("sococli volume returned HTTP 500: error"), true},
+		{"connection refused", fmt.Errorf("sococli volume request failed: %w",
+			&url.Error{Op: "Get", Err: &net.OpError{Op: "dial", Net: "tcp", Err: syscall.ECONNREFUSED}}), true},
+		{"DNS failure", fmt.Errorf("sococli volume request failed: %w",
+			&url.Error{Op: "Get", Err: &net.OpError{Op: "dial", Net: "tcp", Err: &net.DNSError{IsNotFound: true}}}), true},
+		{"dial timeout", fmt.Errorf("sococli volume request failed: %w",
+			&url.Error{Op: "Get", Err: &net.OpError{Op: "dial", Net: "tcp", Err: &net.DNSError{IsTimeout: true}}}), false},
+		{"client timeout", fmt.Errorf("sococli volume request failed: %w",
+			&url.Error{Op: "Get", Err: context.DeadlineExceeded}), false},
+		{"caller cancelled before send", fmt.Errorf("sococli ungroup: not sent: %w", context.Canceled), false},
+		{"connection reset while reading", fmt.Errorf("sococli volume request failed: %w",
+			&url.Error{Op: "Get", Err: &net.OpError{Op: "read", Net: "tcp", Err: syscall.ECONNRESET}}), false},
+		{"HTTP 500", fmt.Errorf("sococli volume returned HTTP 500: error"), false},
 		{"HTTP 502", fmt.Errorf("sococli volume returned HTTP 502: bad gateway"), true},
 		{"HTTP 503", fmt.Errorf("sococli volume returned HTTP 503: unavailable"), true},
+		{"HTTP 504", fmt.Errorf("sococli volume returned HTTP 504: gateway timeout"), false},
 		{"HTTP 429", fmt.Errorf("sococli volume returned HTTP 429: rate limited"), true},
-		{"read body failure", fmt.Errorf("sococli volume: failed to read response body: reset"), true},
+		{"read body failure", fmt.Errorf("sococli volume: failed to read response body: reset"), false},
 		{"HTTP 404", fmt.Errorf("sococli volume returned HTTP 404: not found"), false},
 		{"HTTP 400", fmt.Errorf("sococli volume returned HTTP 400: bad request"), false},
 		{"SoCo exit_code", fmt.Errorf("sococli volume failed (exit_code=1): speaker not found"), false},

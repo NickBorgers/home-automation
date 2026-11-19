@@ -1,7 +1,6 @@
 package music
 
 import (
-	"context"
 	"fmt"
 	"time"
 
@@ -111,15 +110,14 @@ func (m *Manager) speakerUnjoin(speakerName string) error {
 	})
 }
 
-// speakerUnjoinBestEffort removes a speaker from its current group with a timeout.
-// Used for cleanup operations where blocking on unresponsive speakers would be
-// worse than skipping them. The timeout bounds the operation instead of using
-// extended retries.
+// speakerUnjoinBestEffort removes a speaker from its current group in one attempt.
+// Used for cleanup operations where a failure is logged and skipped, not retried.
+// timeout bounds the Home Assistant path. The SoCo-CLI path uses the client's own
+// attempt timeout: soco-cli keeps running an abandoned ungroup, so a shorter
+// timeout would let the next SoCo-CLI request overlap it (issue #1431).
 func (m *Manager) speakerUnjoinBestEffort(speakerName string, timeout time.Duration) error {
 	if m.socoClient != nil {
-		ctx, cancel := context.WithTimeout(m.ctx, timeout)
-		defer cancel()
-		return m.socoClient.UngroupSpeakerCtx(ctx, speakerName)
+		return m.socoClient.UngroupSpeakerCtx(m.ctx, speakerName)
 	}
 	entityID := m.getSpeakerEntityID(speakerName)
 	return m.callServiceBestEffort("media_player", "unjoin", map[string]interface{}{
