@@ -795,6 +795,14 @@ func (m *Manager) fadeInSpeaker(ctx context.Context, speakerName string, targetV
 			m.sleepFunc(socoRetryDelay)
 		}
 	}
+	if observedVolume == -1 {
+		m.logger.Warn("Fade-in commands completed; verification read failed",
+			zap.String("speaker", speakerName),
+			zap.Int("requested_volume", targetVolume),
+			zap.String("result", "verification_read_failed"))
+		m.recordFadeInVerification(entityID, "verification_read_failed", targetVolume, -1)
+		return
+	}
 	if observedVolume != targetVolume {
 		m.logger.Warn("Fade-in commands completed; verification failed",
 			zap.String("speaker", speakerName),

@@ -351,7 +351,19 @@ func (m *Manager) recordFadeInVerification(entityID, outcome string, expectedVol
 		fadeIn.LastUpdate = m.timeProvider.Now()
 		m.shadowState.Outputs.FadeInProgress[entityID] = fadeIn
 	}
-	m.shadowState.Outputs.FadeState = "idle"
+
+	// Only set global state to idle if NO fade-ins are still active
+	anyActive := false
+	for _, fadeIn := range m.shadowState.Outputs.FadeInProgress {
+		if fadeIn.IsActive {
+			anyActive = true
+			break
+		}
+	}
+	if !anyActive {
+		m.shadowState.Outputs.FadeState = "idle"
+	}
+
 	m.shadowState.Metadata.LastUpdated = m.timeProvider.Now()
 }
 
