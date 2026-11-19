@@ -171,6 +171,8 @@ func TestStripCCT_WarmTargetCapsTheBrightnessCurve(t *testing.T) {
 	floor, ceiling := f.cctFloorPct(kelvin), f.cctCeilingPct(kelvin)
 	want := min(float64(int(ceiling+0.5)), max(f.followerPct(cansPct), float64(int(floor+0.5))))
 	assert.Equal(t, want, float64(strip[0].Data["brightness_pct"].(int)))
+	// max(kelvin, 3000): a sub-3000 K target holds the strip at the warmest point (3000 K), so
+	// the invariant is estimatedKelvin ≤ 3000, not ≤ kelvin.
 	assert.LessOrEqual(t, f.estimateKelvin(want), max(kelvin, 3000), "the strip is not cooler than the cans")
 }
 

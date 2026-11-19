@@ -607,9 +607,9 @@ func (m *Manager) handleFollowerChange(room *RoomConfig, newState *ha.State) {
 
 // luxDriveFollowers sets each follower light from the cans command: floor + gain * cans percent,
 // raised to the brightness its cct_curve needs for the cans' color temperature and capped at the
-// brightest setting that is not cooler than it, or off when the cans are off. The minimum-step rule compares against the follower's own last
-// command, so a strip is not told to move on every tick. In log_only and READ_ONLY mode the
-// command is recorded and not sent.
+// brightest setting that is not cooler than it, or off when the cans are off. The minimum-step rule
+// compares against the follower's own last command, so a strip is not told to move on every tick.
+// In log_only and READ_ONLY mode the command is recorded and not sent.
 func (m *Manager) luxDriveFollowers(room *RoomConfig, st *luxRoomState, cans *luxCommand) {
 	send := luxActive(room) && !m.readOnly
 	for _, f := range room.LuxControl.FollowerLights {
@@ -710,6 +710,8 @@ func (m *Manager) followerStates(room *RoomConfig) map[string]shadowstate.Follow
 			fs.CansPct = c.cansPct
 			fs.TargetKelvin = c.cansKelvin
 			fs.CCTFloorPct = c.cctFloorPct
+			// CCTCeilingPct needs an explicit guard: cctCeilingPct returns 100 (not 0) when there
+			// is no curve, and 100 is non-zero so omitempty would not suppress it.
 			if len(f.CCTCurve) > 0 {
 				fs.CCTCeilingPct = c.cctCeilingPct
 			}
