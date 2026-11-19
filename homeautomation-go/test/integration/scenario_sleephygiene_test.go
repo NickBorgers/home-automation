@@ -110,7 +110,7 @@ func TestScenario_UserStory_WeeknightRemindersMatchRealBedtime(t *testing.T) {
 		{"21:45 old stop_screens window: no reminder", 21, 45, false, false},
 		{"22:35 old go_to_bed window: no reminder", 22, 35, false, false},
 		{"22:50 stop_screens: lights flash, no sleep music", 22, 50, true, false},
-		{"23:50 go_to_bed: sleep music starts", 23, 50, true, true},
+		{"23:50 go_to_bed: sleep music starts", 23, 50, true, true}, // wantFlash=true: handleGoToBed calls flashCommonAreaLights unconditionally when home
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -422,7 +422,8 @@ func TestScenario_MidnightReset_ResetsTriggers(t *testing.T) {
 // at the scheduled stop_screens time, a reminder notification is sent
 func TestScenario_EveningReminder_SendsStopScreensNotification(t *testing.T) {
 	t.Parallel()
-	// Set up a fixed time: 2025-01-15 (Wednesday) 22:30:00 (stop_screens time)
+	// Set up a fixed time: 2025-01-15 (Wednesday) 22:30:00 (before the new stop_screens window at 22:45;
+	// kept for historical context — WeeknightRemindersMatchRealBedtime covers the window precisely)
 	stopScreensTime := time.Date(2025, 1, 15, 22, 30, 0, 0, time.UTC)
 
 	server, sleepMgr, stateManager, cleanup := setupSleepHygieneScenarioTestWithTime(t, stopScreensTime)
