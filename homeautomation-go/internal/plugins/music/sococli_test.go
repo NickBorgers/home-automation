@@ -320,7 +320,7 @@ func TestSoCoClient_SetVolume(t *testing.T) {
 		var requestPath string
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			requestPath = r.URL.Path
-			resp := SoCoResponse{Result: "success", ExitCode: 0}
+			resp := SoCoResponse{Result: "", ExitCode: 0}
 			json.NewEncoder(w).Encode(resp)
 		}))
 		defer server.Close()
@@ -329,6 +329,18 @@ func TestSoCoClient_SetVolume(t *testing.T) {
 		err := client.SetVolume("Kitchen", 42)
 		require.NoError(t, err)
 		assert.Equal(t, "/Kitchen/volume/42", requestPath)
+	})
+
+	t.Run("returns volume write application error", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			json.NewEncoder(w).Encode(SoCoResponse{ExitCode: 1, ErrorMsg: "write rejected"})
+		}))
+		defer server.Close()
+
+		client := NewSoCoClient(server.URL, logger, false)
+		err := client.SetVolume("Kitchen", 42)
+		assert.ErrorContains(t, err, "volume_write")
+		assert.ErrorContains(t, err, "exit_code=1")
 	})
 
 	t.Run("read-only mode skips call", func(t *testing.T) {

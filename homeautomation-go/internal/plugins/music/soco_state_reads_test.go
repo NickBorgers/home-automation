@@ -38,14 +38,30 @@ func TestSoCoClient_StateReads(t *testing.T) {
 		return NewSoCoClient(server.URL, logger, false)
 	}
 
-	t.Run("GetVolume parses percentage", func(t *testing.T) {
+	t.Run("GetVolume parses zero percentage", func(t *testing.T) {
 		var path string
-		client := serve(t, "13", 0, &path)
+		client := serve(t, "0", 0, &path)
 
 		volume, err := client.GetVolume("Sitting Room")
 		require.NoError(t, err)
-		assert.Equal(t, 13, volume)
+		assert.Equal(t, 0, volume)
 		assert.Equal(t, "/Sitting Room/volume", path)
+	})
+
+	t.Run("GetVolume rejects empty result", func(t *testing.T) {
+		var path string
+		client := serve(t, "", 0, &path)
+
+		_, err := client.GetVolume("Pantry")
+		assert.ErrorContains(t, err, "volume_read")
+	})
+
+	t.Run("GetVolume rejects result outside percentage range", func(t *testing.T) {
+		var path string
+		client := serve(t, "101", 0, &path)
+
+		_, err := client.GetVolume("Pantry")
+		assert.ErrorContains(t, err, "outside range 0-100")
 	})
 
 	t.Run("GetVolume rejects non-numeric result", func(t *testing.T) {

@@ -157,7 +157,7 @@ func (c *SoCoClient) SetVolume(speakerName string, level int) error {
 		url.PathEscape(speakerName),
 		level)
 
-	return c.doGet(endpoint, "volume", speakerName)
+	return c.doGet(endpoint, "volume_write", speakerName)
 }
 
 // Mute mutes the speaker.
@@ -326,13 +326,16 @@ func (c *SoCoClient) GetVolume(speakerName string) (int, error) {
 	// GET /{speaker}/volume
 	endpoint := fmt.Sprintf("%s/%s/volume", c.baseURL, url.PathEscape(speakerName))
 
-	result, err := c.getResult(endpoint, "volume", speakerName)
+	result, err := c.getResult(endpoint, "volume_read", speakerName)
 	if err != nil {
 		return 0, err
 	}
 	volume, err := strconv.Atoi(result)
 	if err != nil {
-		return 0, fmt.Errorf("sococli volume: unexpected result %q for %s: %w", result, speakerName, err)
+		return 0, fmt.Errorf("sococli volume_read: unexpected result %q for %s: %w", result, speakerName, err)
+	}
+	if volume < 0 || volume > 100 {
+		return 0, fmt.Errorf("sococli volume_read: result %d for %s is outside range 0-100", volume, speakerName)
 	}
 	return volume, nil
 }

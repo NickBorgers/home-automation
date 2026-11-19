@@ -2,6 +2,7 @@ package integration
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -39,6 +40,7 @@ type perSpeakerVolumeClient struct {
 	mu      sync.Mutex
 	volumes map[string]int
 	levels  map[string][]int
+	readErr error
 }
 
 func newPerSpeakerVolumeClient(start map[string]int) *perSpeakerVolumeClient {
@@ -48,6 +50,9 @@ func newPerSpeakerVolumeClient(start map[string]int) *perSpeakerVolumeClient {
 func (c *perSpeakerVolumeClient) GetVolume(speaker string) (int, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if c.readErr != nil {
+		return 0, c.readErr
+	}
 	return c.volumes[speaker], nil
 }
 
@@ -57,6 +62,44 @@ func (c *perSpeakerVolumeClient) SetVolume(speaker string, level int) error {
 	c.volumes[speaker] = level
 	c.levels[speaker] = append(c.levels[speaker], level)
 	return nil
+}
+
+func TestScenario_WakeSequence_FailedVolumeReadDoesNotInventHighVolume(t *testing.T) {
+	t.Parallel()
+	server, client, stateManager, baseCleanup := setupTest(t)
+	defer baseCleanup()
+
+	logger := testlogger.New()
+	speakers := newPerSpeakerVolumeClient(nil)
+	speakers.readErr = errors.New("volume read failed")
+	sleepHygiene := sleephygiene.NewManager(context.Background(), client, stateManager,
+		config.NewLoader("../../configs", logger), logger, false, nil, nil)
+	sleepHygiene.SetSpeakerClient(speakers)
+	sleepHygiene.SetSleepFunc(func(time.Duration) {})
+
+	server.SetState("input_boolean.master_asleep", "on", nil)
+	server.SetState("input_boolean.anyone_home", "on", nil)
+	server.SetState("input_text.music_playback_type", "sleep", nil)
+	server.SetState("input_boolean.wake_sequence_active", "off", nil)
+	server.SetState("input_boolean.fade_out_in_progress", "off", nil)
+	require.NoError(t, sleepHygiene.Start())
+	defer sleepHygiene.Stop()
+	waitForProcessing(t, stateManager)
+
+	// GIVEN: Sleep music is playing, but SoCo-CLI cannot provide a valid starting volume.
+	t.Log("GIVEN: sleep music is playing and the speaker volume read fails")
+	// WHEN: The wake sequence begins and attempts its fade at T+0.
+	t.Log("WHEN: the wake sequence begins")
+	sleepHygiene.TriggerBeginWakeForTest()
+	waitForCondition(t, func() bool {
+		s := server.GetState("input_boolean.fade_out_in_progress")
+		return s != nil && s.State == "off"
+	}, "fade should safely finish after a failed volume read")
+
+	// THEN: A failed read must never invent a high starting volume or write fade steps from it.
+	t.Log("THEN: no manufactured volume is written to either sleep-zone speaker")
+	assert.Empty(t, speakers.Levels("Primary Bed"))
+	assert.Empty(t, speakers.Levels("Primary Bath"))
 }
 
 func (c *perSpeakerVolumeClient) Levels(speaker string) []int {
