@@ -809,6 +809,107 @@ func TestVacuum_TrackStaysDroppedAfterRobotMoves(t *testing.T) {
 	s.tokens(0)
 }
 
+// The robot check runs before the rules that take over a token. A track at the robot never takes a
+// person's token and never moves it into the robot's area.
+func TestVacuum_TrackAtRobotTakesOverNoToken(t *testing.T) {
+	tests := []struct {
+		name    string
+		robot   string
+		setup   func(s *scene) // leaves one token, then starts track "b"
+		tokArea string         // where the existing token must still be
+	}{
+		{
+			name:  "near doorway: a token in the unseen area next door",
+			robot: "lounge",
+			setup: func(s *scene) {
+				s.seed(0, "study")
+				s.event(120, "update", "b", "cam_lounge", []string{"lounge"}, "lounge")
+			},
+			tokArea: "study",
+		},
+		{
+			name:  "resume: an idle token where the robot is",
+			robot: "kitchen",
+			setup: func(s *scene) {
+				s.seed(0, "kitchen")
+				s.event(300, "update", "b", "cam_kitchen", []string{"kitchen"}, "kitchen")
+			},
+			tokArea: "kitchen",
+		},
+		{
+			name:  "boundary exit: out of the unseen area into the robot's area",
+			robot: "lounge",
+			setup: func(s *scene) {
+				s.seed(0, "study")
+				s.event(120, "update", "b", "cam_lounge", []string{"lounge_to_study"}, "lounge_to_study")
+			},
+			tokArea: "study",
+		},
+		{
+			name:  "boundary exit: out of the robot's unseen area",
+			robot: "study",
+			setup: func(s *scene) {
+				s.seed(0, "study")
+				s.event(120, "update", "b", "cam_lounge", []string{"lounge_to_study"}, "lounge_to_study")
+			},
+			tokArea: "study",
+		},
+		{
+			name:  "handoff: a track that just ended in the doorway to the robot's area",
+			robot: "kitchen",
+			setup: func(s *scene) {
+				s.seed(0, "hall")
+				end := s.walk(1, "a", "cam_hall", "hall", "hall_to_kitchen")
+				s.event(end+1, "update", "b", "cam_kitchen", []string{"kitchen_to_hall"}, "kitchen_to_hall")
+			},
+			tokArea: "hall",
+		},
+		{
+			name:  "twin: a quiet track in the doorway to the robot's area",
+			robot: "study",
+			setup: func(s *scene) {
+				s.seed(0, "lounge")
+				s.event(1, "update", "a", "cam_lounge", []string{"lounge"}, "lounge")
+				s.tr.SetVacuumArea("") // the robot reaches the study after the person sat down
+				s.event(2, "update", "a", "cam_lounge", []string{"lounge", "lounge_to_study"}, "lounge_to_study")
+				s.event(2.5, "update", "a", "cam_lounge", []string{"lounge", "lounge_to_study"})
+				s.tr.SetVacuumArea("study")
+				s.event(5, "update", "b", "cam_lounge", []string{"lounge_to_study"}, "lounge_to_study")
+			},
+			tokArea: "lounge",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			s := newScene(t)
+			s.tr.SetVacuumArea(tc.robot)
+			tc.setup(s)
+
+			b := s.tr.active["b"]
+			require.NotNil(t, b)
+			assert.False(t, b.confirmed)
+			assert.Empty(t, b.tokenID, "the robot's track takes no token")
+			assert.Equal(t, ruleUnconfirmed, b.rule)
+			assert.Equal(t, vacuumOutcome(tc.robot), b.outcome)
+			s.tokens(1)
+			for _, tok := range s.tr.tokens {
+				assert.Equal(t, tc.tokArea, tok.area, "the person's token does not move")
+			}
+		})
+	}
+}
+
+// While the robot is docked its area is "", so a person next to the dock still takes over their token.
+func TestVacuum_DockedRobotLeavesTakeoverAlone(t *testing.T) {
+	s := newScene(t)
+	s.tr.SetVacuumArea("")
+	s.seed(0, "study")
+	s.event(120, "update", "a", "cam_lounge", []string{"lounge"}, "lounge")
+	assert.Equal(t, ruleNearDoorway, s.tr.active["a"].rule)
+	s.empty("study")
+	s.occupied("lounge")
+}
+
 func TestVacuum_OtherAreasUnchanged(t *testing.T) {
 	s := newScene(t)
 	s.tr.SetVacuumArea("kitchen")

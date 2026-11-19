@@ -574,6 +574,13 @@ func (t *Tracker) startTrack(now time.Time, tr *track, first zoneInfo, obj Friga
 	tr.startArea = first.Area
 	tr.area = first.Area
 
+	// The robot check comes before every rule that takes over a token. A track the robot check drops must
+	// not move a person's token into the robot's area. It stays unconfirmed, and maybeConfirm drops it.
+	if t.atVacuum(tr, obj) != "" {
+		tr.rule = ruleUnconfirmed
+		return
+	}
+
 	if first.Kind == zoneBoundary {
 		// Rule 1: the person came out through the doorway.
 		if t.cfg.Areas[first.Beyond].Seen {
@@ -799,8 +806,9 @@ func (t *Tracker) maybeConfirm(now time.Time, tr *track, obj FrigateObject) {
 	if !tr.started || tr.vacuum != "" {
 		return
 	}
-	// A track that took over a person's token is confirmed and never gets here, so a person who walks in
-	// where the robot is still moves their token, and the vacuum scheduler still sees them.
+	// startTrack runs the same check before its takeover rules, so a track that starts at the robot never
+	// takes a token. A track that took over a token before it reached the robot is confirmed and never
+	// gets here: a person whose camera follows them in where the robot is still moves their token.
 	if area := t.atVacuum(tr, obj); area != "" {
 		tr.vacuum = area
 		tr.outcome = vacuumOutcome(area)
