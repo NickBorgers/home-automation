@@ -92,6 +92,17 @@ func (r *Robot) SetPreset(typ, value string) {
 	r.presets[typ] = value
 }
 
+// Presets returns a copy of the current preset values, such as "operation_mode".
+func (r *Robot) Presets() map[string]string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := make(map[string]string, len(r.presets))
+	for k, v := range r.presets {
+		out[k] = v
+	}
+	return out
+}
+
 // SetPixelSize sets the map pixel size in centimetres.
 func (r *Robot) SetPixelSize(cm float64) {
 	r.mu.Lock()

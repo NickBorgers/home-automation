@@ -112,6 +112,8 @@ func setupVacuumScenarioWith(t *testing.T, cleanedAgo map[string]time.Duration, 
 	}
 	server.SetState("input_number.vacuum_cost_trip", fmt.Sprintf("%.1f", costs["trip"]), map[string]interface{}{})
 	server.SetState("input_boolean.master_asleep", "off", map[string]interface{}{})
+	server.SetState("input_boolean.vacuum_water_empty", "off", map[string]interface{}{})
+	server.SetState("sensor.valetudo_mellowslimyloris_error", "No error", map[string]interface{}{})
 	require.Eventually(t, func() bool {
 		st, err := client.GetState("input_number.vacuum_cost_trip")
 		return err == nil && st != nil

@@ -64,6 +64,13 @@ without walls.
 |--------|---------|
 | `input_text.vacuum_fence_saved` | The owner's virtual restrictions while scheduler walls are on the robot. Empty otherwise. Do not edit it. |
 
+Another helper records that the mop dock is out of clean water (see [Out of water](#out-of-water)). Create it
+as a toggle helper. Without it, the scheduler keeps the state in memory only, and a restart forgets it.
+
+| Helper | Meaning |
+|--------|---------|
+| `input_boolean.vacuum_water_empty` | On while the clean water tank counts as empty. Runs are vacuum only. Turn it off by hand after a refill. |
+
 ## Taints
 
 ```mermaid
@@ -306,9 +313,44 @@ When a stalled run ends:
 - `lastRun` shows the outcome, `error` or `stalled`, and `endReason`, such as
   `robot in error for 30m: status error, flag none`. The "Vacuum run ended" log line has the same `reason`.
 - If it was the scheduler's own run, the scheduler plans again. A plan needs a docked robot, so nothing
-  starts while the robot is still in error. Its first unfinished target is rotated behind other eligible
+  starts while the robot is still in error. The one exception is the water error (see [Out of water](#out-of-water)). Its first unfinished target is rotated behind other eligible
   targets. If it is the only eligible target, it remains dirty but waits another `stall_timeout` before the
   scheduler retries it. The rotation or deferral log includes the target, failure reason and retry time.
+
+### Out of water
+
+When the mop dock's clean water tank runs dry, the robot reports an error and cannot mop. The scheduler reads
+the error sensor of the `vacuum:` section. When the error text contains `scheduler.water_empty_error`
+(default `Clean Water Tank empty`, case ignored):
+
+- A run that is not vacuum only ends at once as `no_water`. It does not wait for `stall_timeout`. Its current
+  room stays dirty, and no target is rotated or deferred.
+- `input_boolean.vacuum_water_empty` turns on, and every plan is vacuum only. A plan may start while the robot
+  still reports the water error, because that error does not stop a vacuum-only run.
+- A room due for a full clean gets one vacuum pass per `full` interval. The pass clears nothing: the room
+  stays dirty for its full clean, and its last full clean time does not change. The skip reason shows when the
+  next pass is due. A room with its own `vacuum` interval gets no extra pass: its vacuum taint covers it.
+
+The robot gives no signal when someone refills the tank. So the helper turns off when:
+
+- someone comes home (`isAnyoneHome` turns true),
+- the water error changes to the no-error value while someone is home and no scheduler run is going, or
+- someone turns it off by hand.
+
+If the tank is still empty, the next full run hits the error again, ends at once, and the helper turns back on.
+
+```mermaid
+flowchart TD
+    E[Error sensor reports<br/>clean water tank empty] --> R{Full run going?}
+    R -- yes --> X[Run ends: no_water]
+    R -- no --> H
+    X --> H[vacuum_water_empty on]
+    H --> P[Plans are vacuum only<br/>one pass per room per full interval]
+    P --> C{Someone home and refilled?}
+    C -- "arrival, error cleared while home, or by hand" --> F[Helper off: full runs again]
+    C -- no --> P
+    F -. tank still empty .-> E
+```
 
 ### Runs started elsewhere
 
@@ -430,8 +472,9 @@ pixel size and to check the frame. It never reads or writes the restrictions.
 | `robot` | Status, battery, room, last poll, last error |
 | `items` | Every room and treatment: dirty, manual, last clean, score, cost, missing helpers |
 | `plan` | Latest plan, `noEnter`, `noClean`, `skipped` reasons, `pendingSince`, `startsAt`, `wouldStartAt` |
-| `run`, `lastRun` | Origin, targets, done rooms, current room, pending next room, `pendingSince` (when the robot was first seen cleaning in the pending room), abort reason, paused, outcome (`completed`, `aborted`, `stopped`, `stalled`, `error`, `superseded`), `endReason` (why a run ended early), `quietTravel` (fan switching on for the run), `fanSpeed` (fan preset the scheduler last set), `fencedDoors` (doors walled off for the run) |
+| `run`, `lastRun` | Origin, targets, done rooms, current room, pending next room, `pendingSince` (when the robot was first seen cleaning in the pending room), abort reason, paused, outcome (`completed`, `aborted`, `stopped`, `stalled`, `error`, `superseded`, `no_water`), `endReason` (why a run ended early), `quietTravel` (fan switching on for the run), `fanSpeed` (fan preset the scheduler last set), `fencedDoors` (doors walled off for the run) |
 | `fenceRestorePending` | Scheduler walls may still be on the robot. No run starts until the owner's set is back |
+| `waterEmpty` | The clean water counts as empty. Plans are vacuum only |
 | `tripCost` | Learned trip cost |
 | `warnings` | Missing helpers, untrusted position, unreadable sleepers, fan presets that failed or are not valid, fencing problems, a stranded robot that cannot go home |
 
@@ -452,6 +495,8 @@ shadow state. It never stops the error announcer.
   resumed job is watched as a run started elsewhere: the live occupancy-routing rules no longer apply to it.
 - A run started elsewhere is split when the reported operation mode differs after a stop. A robot that
   reported another mode while it washed its mop would split one job into two; its current room stays dirty.
+- The times of vacuum passes made while out of water are kept in memory. After a restart, each room due for a
+  full clean gets one more vacuum pass.
 - A sticky room presence token can block rooms for hours. The skip reasons show it.
 - Walls are only as good as the house map's door spans and the `valetudo` frame. A frame off by more than
   `fence_margin_m` can leave a gap at a jamb.

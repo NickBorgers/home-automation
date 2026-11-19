@@ -1278,6 +1278,8 @@ type VacuumSchedulerOutputs struct {
 	// FenceRestorePending is true while scheduler virtual walls may still be on the robot. No run starts
 	// until the owner's restrictions are back.
 	FenceRestorePending bool `json:"fenceRestorePending,omitempty"`
+	// WaterEmpty is true while the mop dock's clean water counts as empty. Runs are vacuum only.
+	WaterEmpty bool `json:"waterEmpty,omitempty"`
 	// Warnings lists problems such as missing helpers.
 	Warnings  []string  `json:"warnings"`
 	UpdatedAt time.Time `json:"updatedAt"`
