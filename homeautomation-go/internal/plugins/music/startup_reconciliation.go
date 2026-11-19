@@ -30,7 +30,7 @@ func (m *Manager) adoptStartupZonePlayback(zone *Zone, selected PlaybackOption, 
 	}
 
 	leadEntityID := m.getSpeakerEntityID(zone.LeadSpeaker)
-	leadState, err := m.haClient.GetState(leadEntityID)
+	lead, err := m.readStartupLead(zone.LeadSpeaker)
 	if err != nil {
 		m.logger.Debug("Startup reconciliation skipped: failed to read lead speaker state",
 			zap.String("speaker", zone.LeadSpeaker),
@@ -40,16 +40,16 @@ func (m *Manager) adoptStartupZonePlayback(zone *Zone, selected PlaybackOption, 
 	// A paused lead is adopted too. The running app never resumes music that someone
 	// paused, so a restart must not either. The mode and group checks below still apply,
 	// so paused music from another mode is replaced.
-	paused := leadState.State == "paused"
-	if leadState.State != "playing" && !paused {
+	paused := lead.state == "paused"
+	if lead.state != "playing" && !paused {
 		m.logger.Debug("Startup reconciliation skipped: lead speaker is not playing or paused",
 			zap.String("speaker", zone.LeadSpeaker),
-			zap.String("state", leadState.State))
+			zap.String("state", lead.state))
 		return false
 	}
 
-	currentURI, ok := stringAttribute(leadState, "media_content_id")
-	if !ok || currentURI == "" {
+	currentURI := lead.uri
+	if currentURI == "" {
 		m.logger.Debug("Startup reconciliation skipped: lead speaker has no current media URI",
 			zap.String("speaker", zone.LeadSpeaker))
 		return false
@@ -64,7 +64,7 @@ func (m *Manager) adoptStartupZonePlayback(zone *Zone, selected PlaybackOption, 
 		return false
 	}
 
-	actualGroup := m.actualGroupMembers(leadState, leadEntityID)
+	actualGroup := lead.group
 	if !m.groupRoughlyMatches(zone, actualGroup) {
 		m.logger.Info("Startup reconciliation mismatch: speaker group does not match zone",
 			zap.String("zone", zone.Name),
@@ -194,6 +194,60 @@ func (m *Manager) loadM3UTracks(m3uURI string) (map[string]struct{}, error) {
 	return tracks, nil
 }
 
+// startupLead is what startup reconciliation knows about the lead speaker.
+type startupLead struct {
+	state string          // "playing", "paused", or another state that is not adopted
+	uri   string          // current track URI, empty when nothing is loaded
+	group map[string]bool // entity IDs of the speakers in the lead's group, lead included
+}
+
+// readStartupLead reads the lead speaker from SoCo-CLI when it is configured, because
+// SoCo-CLI addresses speakers by name and needs no Home Assistant entity. Without
+// SoCo-CLI it reads the speaker's Home Assistant entity.
+func (m *Manager) readStartupLead(leadSpeaker string) (*startupLead, error) {
+	leadEntityID := m.getSpeakerEntityID(leadSpeaker)
+	if m.socoClient == nil {
+		state, err := m.haClient.GetState(leadEntityID)
+		if err != nil {
+			return nil, err
+		}
+		uri, _ := stringAttribute(state, "media_content_id")
+		return &startupLead{state: state.State, uri: uri, group: m.actualGroupMembers(state, leadEntityID)}, nil
+	}
+
+	transport, err := m.socoClient.GetPlaybackState(leadSpeaker)
+	if err != nil {
+		return nil, err
+	}
+	// TRANSITIONING counts as playing, as in the health monitor: it occurs during track changes.
+	var state string
+	switch transport {
+	case "PLAYING", "TRANSITIONING":
+		state = "playing"
+	case "PAUSED_PLAYBACK":
+		state = "paused"
+	default:
+		state = strings.ToLower(transport)
+	}
+	if state != "playing" && state != "paused" {
+		return &startupLead{state: state}, nil
+	}
+
+	uri, err := m.socoClient.GetCurrentURI(leadSpeaker)
+	if err != nil {
+		return nil, err
+	}
+	members, err := m.socoClient.GetGroupMembers(leadSpeaker)
+	if err != nil {
+		return nil, err
+	}
+	group := map[string]bool{leadEntityID: true}
+	for _, member := range members {
+		group[m.getSpeakerEntityID(member)] = true
+	}
+	return &startupLead{state: state, uri: uri, group: group}, nil
+}
+
 func (m *Manager) actualGroupMembers(state *ha.State, leadEntityID string) map[string]bool {
 	group := make(map[string]bool)
 	if members, ok := stringSliceAttribute(state, "group_members"); ok {
@@ -224,7 +278,11 @@ func (m *Manager) participantsWithCurrentVolumes(participants []ParticipantWithV
 	result := make([]ParticipantWithVolume, 0, len(participants))
 	for _, p := range participants {
 		current := p
-		if state, err := m.haClient.GetState(m.getSpeakerEntityID(p.PlayerName)); err == nil {
+		if m.socoClient != nil {
+			if volume, err := m.socoClient.GetVolume(p.PlayerName); err == nil {
+				current.Volume = volume
+			}
+		} else if state, err := m.haClient.GetState(m.getSpeakerEntityID(p.PlayerName)); err == nil {
 			if volumeLevel, ok := floatAttribute(state, "volume_level"); ok {
 				current.Volume = int(math.Round(volumeLevel * 100))
 			}

@@ -346,6 +346,51 @@ func (c *SoCoClient) GetPlaybackState(speakerName string) (string, error) {
 	return c.getResult(endpoint, "playback", speakerName)
 }
 
+// GetCurrentURI returns the URI of the track the speaker's group is playing.
+// It is empty when nothing is loaded. For a Tidal track it looks like
+// "x-sonos-http:track%2f312527385.flac?sid=174&sn=9".
+func (c *SoCoClient) GetCurrentURI(speakerName string) (string, error) {
+	// GET /{speaker}/get_uri
+	endpoint := fmt.Sprintf("%s/%s/get_uri", c.baseURL, url.PathEscape(speakerName))
+
+	return c.getResult(endpoint, "get_uri", speakerName)
+}
+
+// GetGroupMembers returns the names of the speakers in speakerName's group, coordinator first.
+// A speaker that is not grouped returns only itself.
+func (c *SoCoClient) GetGroupMembers(speakerName string) ([]string, error) {
+	// GET /{speaker}/groups lists every group, one "Coordinator: Member, Member" line each.
+	endpoint := fmt.Sprintf("%s/%s/groups", c.baseURL, url.PathEscape(speakerName))
+
+	result, err := c.getResult(endpoint, "groups", speakerName)
+	if err != nil {
+		return nil, err
+	}
+	return parseSoCoGroup(result, speakerName), nil
+}
+
+// parseSoCoGroup finds the group that contains speakerName in the output of the groups action.
+func parseSoCoGroup(groups, speakerName string) []string {
+	for _, line := range strings.Split(groups, "\n") {
+		coordinator, rest, found := strings.Cut(line, ":")
+		if !found {
+			continue
+		}
+		members := []string{strings.TrimSpace(coordinator)}
+		for _, member := range strings.Split(rest, ",") {
+			if member = strings.TrimSpace(member); member != "" {
+				members = append(members, member)
+			}
+		}
+		for _, member := range members {
+			if member == speakerName {
+				return members
+			}
+		}
+	}
+	return []string{speakerName}
+}
+
 // SetRepeat sets the repeat mode on a speaker.
 // mode should be "all", "one", or "off".
 func (c *SoCoClient) SetRepeat(speakerName string, mode string) error {

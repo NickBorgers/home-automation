@@ -116,9 +116,10 @@ music:
 
 // fakeSonosSpeaker is the state the fake SoCo-CLI server keeps for one speaker.
 type fakeSonosSpeaker struct {
-	queue     []string
-	transport string
-	volume    int
+	queue      []string
+	transport  string
+	volume     int
+	currentURI string // what get_uri reports
 }
 
 // fakeSoCoServer imitates the SoCo-CLI HTTP API closely enough for the music
@@ -129,6 +130,8 @@ type fakeSoCoServer struct {
 	speakers    map[string]*fakeSonosSpeaker
 	unreachable map[string]bool
 	failedCalls map[string]int // "speaker/action" -> count of refused requests
+	calls       map[string]int // "speaker/action" -> count of answered requests
+	groups      string         // what the groups action reports
 }
 
 func newFakeSoCoServer() *fakeSoCoServer {
@@ -136,7 +139,29 @@ func newFakeSoCoServer() *fakeSoCoServer {
 		speakers:    make(map[string]*fakeSonosSpeaker),
 		unreachable: make(map[string]bool),
 		failedCalls: make(map[string]int),
+		calls:       make(map[string]int),
 	}
+}
+
+// setPlaying makes a speaker report that it is playing uri at the given volume.
+func (f *fakeSoCoServer) setPlaying(speaker, uri string, volume int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.speakers[speaker] = &fakeSonosSpeaker{transport: "PLAYING", volume: volume, currentURI: uri}
+}
+
+// setGroups sets the text the groups action reports, one "Coordinator: member, member" line per group.
+func (f *fakeSoCoServer) setGroups(groups string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.groups = groups
+}
+
+// callCount reports how many requests for an action the speaker answered.
+func (f *fakeSoCoServer) callCount(speaker, action string) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.calls[speaker+"/"+action]
 }
 
 func (f *fakeSoCoServer) setUnreachable(speaker string, down bool) {
@@ -196,6 +221,7 @@ func (f *fakeSoCoServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	f.calls[speaker+"/"+action]++
 	s, ok := f.speakers[speaker]
 	if !ok {
 		s = &fakeSonosSpeaker{transport: "STOPPED"}
@@ -224,6 +250,12 @@ func (f *fakeSoCoServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.transport = "STOPPED"
 	case "playback":
 		reply(0, s.transport, "")
+		return
+	case "get_uri":
+		reply(0, s.currentURI, "")
+		return
+	case "groups":
+		reply(0, f.groups, "")
 		return
 	}
 	reply(0, "", "")
