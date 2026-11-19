@@ -34,9 +34,9 @@ const (
 	// speakerUnjoinTimeout is the maximum time to wait for a single unjoin call.
 	// Unjoin is best-effort cleanup — if a speaker is unresponsive, we skip it
 	// rather than blocking startup or playback transitions for minutes.
-	// With serial unjoin, each call is a single UPnP request (no retries),
-	// so 3s is sufficient. Worst case = 6 × (3s + 500ms) + 500ms settle ≈ 21.5s.
-	speakerUnjoinTimeout = 3 * time.Second
+	// It must exceed SoCo-CLI's 20-second speaker timeout so a subsequent request
+	// cannot overlap an abandoned command that is still running there.
+	speakerUnjoinTimeout = 25 * time.Second
 
 	// speakerUnjoinInterDelay is the delay between sequential unjoin calls.
 	// Serializing with a short gap avoids flooding the Sonos mesh with

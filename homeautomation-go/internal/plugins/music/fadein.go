@@ -75,9 +75,8 @@ func (m *Manager) fadeOutSpeakers() {
 // Unjoin calls run serially with a short inter-call delay (speakerUnjoinInterDelay)
 // to avoid flooding the Sonos mesh with simultaneous UPnP SOAP requests. Parallel
 // ungroup caused ~63% HTTPConnectionPool read-timeout failures on port 1400.
-// Each call uses speakerUnjoinTimeout (3s) with no retries, so worst case is
-// 6 × (3s + 500ms) + 500ms settle ≈ 21.5s — well under the old #787 concern of
-// 18+ minutes (which required full 3-min retry budgets per speaker).
+// Each call uses speakerUnjoinTimeout with no retries. The timeout exceeds
+// SoCo-CLI's own deadline so an abandoned ungroup cannot overlap the next call.
 // See: https://github.com/NickBorgers/home-automation/issues/787
 func (m *Manager) breakSpeakerGroups(participants []ParticipantWithVolume) {
 	m.logger.Info("Breaking existing speaker groups before building new group",

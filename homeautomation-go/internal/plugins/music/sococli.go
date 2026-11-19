@@ -3,12 +3,14 @@ package music
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"go.uber.org/zap"
@@ -16,9 +18,9 @@ import (
 
 const (
 	// socoAttemptTimeout is the per-attempt timeout for most SoCo-CLI operations.
-	// Kept short so that a hung request during volume fades (~1s steps) doesn't
-	// block the entire fade sequence.
-	socoAttemptTimeout = 5 * time.Second
+	// SoCo-CLI waits up to 20 seconds for a speaker, so the client must wait longer
+	// to avoid abandoning a command that is still running there.
+	socoAttemptTimeout = 25 * time.Second
 
 	// socoLongTimeout is the per-attempt timeout for operations that are
 	// inherently slower, such as sharelink (downloads and enqueues content).
@@ -50,6 +52,7 @@ type SoCoClient struct {
 	httpClient *http.Client
 	logger     *zap.Logger
 	readOnly   bool
+	requestMu  sync.Mutex
 }
 
 // NewSoCoClient creates a new SoCo-CLI HTTP client.
@@ -457,6 +460,11 @@ func isRetryableError(err error) bool {
 	if err == nil {
 		return false
 	}
+	// A timed-out request may still be running in SoCo-CLI. Retrying it can apply
+	// the same command more than once and overlap with the abandoned request.
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+		return false
+	}
 	s := err.Error()
 	// Network-level errors: "sococli <action> request failed: ..."
 	if strings.Contains(s, "request failed") {
@@ -486,6 +494,9 @@ func (c *SoCoClient) doGetCtx(ctx context.Context, endpoint, action, speaker str
 
 // doGetResultCtx performs a GET request and returns the parsed SoCo-CLI response.
 func (c *SoCoClient) doGetResultCtx(ctx context.Context, endpoint, action, speaker string) (*SoCoResponse, error) {
+	c.requestMu.Lock()
+	defer c.requestMu.Unlock()
+
 	c.logger.Debug("SoCo-CLI request",
 		zap.String("action", action),
 		zap.String("speaker", speaker),

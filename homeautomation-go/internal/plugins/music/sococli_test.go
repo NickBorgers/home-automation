@@ -1,12 +1,14 @@
 package music
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -715,6 +717,26 @@ func TestSoCoClient_NoRetryOnApplicationError(t *testing.T) {
 		assert.Error(t, err)
 		assert.Equal(t, int32(1), atomic.LoadInt32(&attemptCount), "should not retry HTTP 4xx errors")
 	})
+}
+
+func TestSoCoClient_NoRetryAfterClientTimeout(t *testing.T) {
+	t.Parallel()
+	logger := zaptest.NewLogger(t)
+
+	var attemptCount int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&attemptCount, 1)
+		time.Sleep(50 * time.Millisecond)
+		_ = json.NewEncoder(w).Encode(SoCoResponse{ExitCode: 0})
+	}))
+	defer server.Close()
+
+	client := NewSoCoClient(server.URL, logger, false)
+	err := client.doGetWithRetry(server.URL+"/Kitchen/volume/42", "volume", "Kitchen", 10*time.Millisecond)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, context.DeadlineExceeded)
+	assert.Equal(t, int32(1), atomic.LoadInt32(&attemptCount),
+		"a request that may still be running in SoCo-CLI must not be retried")
 }
 
 func TestSoCoClient_RetryOnConnectionError(t *testing.T) {
