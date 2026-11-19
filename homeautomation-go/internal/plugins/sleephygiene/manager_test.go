@@ -61,6 +61,8 @@ func setupTest(t *testing.T, currentTime time.Time) (*Manager, *ha.MockClient, *
 	env.StateMgr.SetBool("isNickHome", true)
 	env.StateMgr.SetBool("isCarolineHome", true)
 	env.StateMgr.SetString("musicPlaybackType", "sleep")
+	env.MockHA.SetState("media_player.primary_bed", "playing", map[string]interface{}{"volume_level": 0.6})
+	env.MockHA.SetState("media_player.primary_bath", "playing", map[string]interface{}{"volume_level": 0.6})
 
 	// Create a config loader
 	configLoader := config.NewLoader("../../../configs", env.Logger)
@@ -1171,7 +1173,7 @@ func TestGetSpeakerVolume(t *testing.T) {
 	}
 }
 
-// TestGetSpeakerVolume_NoState tests fallback when state query fails
+// TestGetSpeakerVolume_NoState tests the safe fallback when a volume read fails.
 func TestGetSpeakerVolume_NoState(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2024, 1, 15, 9, 5, 0, 0, time.UTC)
@@ -1181,9 +1183,9 @@ func TestGetSpeakerVolume_NoState(t *testing.T) {
 
 	volume := manager.getSpeakerVolume("media_player.nonexistent")
 
-	// Should return default 60
-	if volume != 60 {
-		t.Errorf("Expected default volume 60, got %d", volume)
+	// A failed read must not invent a high starting volume.
+	if volume != 0 {
+		t.Errorf("Expected safe fallback volume 0, got %d", volume)
 	}
 }
 

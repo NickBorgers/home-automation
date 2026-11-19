@@ -837,15 +837,17 @@ func (m *Manager) finishFade() {
 func (m *Manager) getSpeakerVolume(speakerEntityID string) int {
 	if m.speakerClient == nil {
 		m.logger.Warn("SoCo-CLI client is not configured, defaulting speaker volume to 60",
+			zap.String("operation", "volume_read"),
 			zap.String("speaker", speakerEntityID))
 		return 60
 	}
 	volume, err := m.speakerClient.GetVolume(speakerEntityID)
 	if err != nil {
-		m.logger.Warn("Failed to get speaker volume, defaulting to volume 60",
+		m.logger.Warn("Failed to get speaker volume, skipping volume fade",
+			zap.String("operation", "volume_read"),
 			zap.String("speaker", speakerEntityID),
 			zap.Error(err))
-		return 60
+		return 0
 	}
 	return volume
 }
