@@ -128,6 +128,9 @@ func (m *Manager) setLuxHoldHelper(room *RoomConfig, held bool) {
 // restoreLuxHold reads a room's stored hold at startup. The hold comes back only while the
 // room's conditions still turn it on. Otherwise an event that ends a hold (everyone asleep,
 // nobody home, the room off) happened while the app was down, so the stored hold is cleared.
+// Assumes: called from startLux before subHelper.CaptureInitialInputs(), so the state manager
+// must already hold condition variables (e.g. isAnyoneHomeAndAwake). Start() guarantees this:
+// it populates the state manager from HA before calling startLux().
 func (m *Manager) restoreLuxHold(room *RoomConfig) {
 	helper := luxHoldHelper(room)
 	st, err := m.haClient.GetState(helper)
@@ -158,10 +161,10 @@ func (m *Manager) handleLuxHoldHelperChange(room *RoomConfig, newState *ha.State
 	if newState == nil || m.readOnly {
 		return
 	}
-	want := newState.State == "on"
 	if newState.State != "on" && newState.State != "off" {
 		return
 	}
+	want := newState.State == "on"
 	m.luxMu.Lock()
 	st := m.luxRoom(room.HueGroup)
 	if st.held == want {
