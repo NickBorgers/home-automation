@@ -195,8 +195,8 @@ func TestStripCCT_RecomputesAsTheCansKelvinMoves(t *testing.T) {
 	assert.Less(t, fs(), noon, "a warmer target needs a lower strip brightness")
 }
 
-// A manual strip change still holds only that strip, and the shadow state keeps the last estimate.
-func TestStripCCT_ManualHoldStillHoldsOnlyTheStrip(t *testing.T) {
+// A manual strip change holds the room, and the shadow state keeps the strip's last estimate.
+func TestStripCCT_ManualStripChangeHoldsTheRoom(t *testing.T) {
 	t.Parallel()
 	m, _, clk := newProductionRoomFixture(t)
 	room := findRoom(m.config, "Kitchen")
@@ -204,9 +204,9 @@ func TestStripCCT_ManualHoldStillHoldsOnlyTheStrip(t *testing.T) {
 	clk.Advance(2 * time.Minute)
 	m.handleFollowerChange(room, &ha.State{EntityID: "light.kitchen_main_lights", State: "on",
 		Attributes: map[string]interface{}{"brightness": 30.0}})
-	assert.False(t, m.luxHeld(room))
+	assert.True(t, m.luxHeld(room))
 	m.luxEvaluate(room, "test")
+	assert.True(t, m.GetShadowState().Outputs.LuxControl["Kitchen"].Held)
 	fs := m.GetShadowState().Outputs.LuxControl["Kitchen"].Followers["light.kitchen_main_lights"]
-	assert.True(t, fs.Held)
 	assert.NotZero(t, fs.TargetKelvin)
 }

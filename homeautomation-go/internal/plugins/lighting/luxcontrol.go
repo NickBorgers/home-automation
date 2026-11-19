@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"strconv"
+	"strings"
 	"time"
 
 	"homeautomation/internal/ha"
@@ -85,11 +86,100 @@ type luxRoomState struct {
 	cmd       *luxCommand
 	previous  *luxCommand            // prior command, retained until its last delayed report can arrive
 	followers map[string]*luxCommand // last command per follower light
-	// followerHeld marks strips a person changed by hand. Only the strip is held, never the room.
-	followerHeld map[string]bool
-	held         bool
-	heldSince    time.Time
-	heldReason   string
+	// held is the room's manual hold. A hand change to the cans or to a follower strip sets it.
+	// It is stored in the room's hold helper (luxHoldHelper) so that it survives a restart.
+	held       bool
+	heldSince  time.Time
+	heldReason string
+}
+
+// luxHoldHelper returns the Home Assistant input_boolean that stores a room's manual hold,
+// for example input_boolean.lux_hold_kitchen for the Kitchen.
+func luxHoldHelper(room *RoomConfig) string {
+	slug := strings.Map(func(r rune) rune {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+			return r
+		case r >= 'A' && r <= 'Z':
+			return r + ('a' - 'A')
+		}
+		return '_'
+	}, room.HueGroup)
+	return "input_boolean.lux_hold_" + slug
+}
+
+// setLuxHoldHelper stores a room's hold in its helper. A failure is logged: the hold still works
+// in memory, but it will not survive a restart. Caller must not hold luxMu.
+func (m *Manager) setLuxHoldHelper(room *RoomConfig, held bool) {
+	if m.readOnly {
+		return
+	}
+	service := "turn_off"
+	if held {
+		service = "turn_on"
+	}
+	helper := luxHoldHelper(room)
+	if err := m.haClient.CallService(m.ctx, "input_boolean", service, map[string]interface{}{"entity_id": helper}); err != nil {
+		m.logger.Warn("Failed to store manual hold in Home Assistant",
+			zap.String("room", room.HueGroup), zap.String("entity_id", helper), zap.Bool("held", held), zap.Error(err))
+	}
+}
+
+// restoreLuxHold reads a room's stored hold at startup. The hold comes back only while the
+// room's conditions still turn it on. Otherwise an event that ends a hold (everyone asleep,
+// nobody home, the room off) happened while the app was down, so the stored hold is cleared.
+// Assumes: called from startLux before subHelper.CaptureInitialInputs(), so the state manager
+// must already hold condition variables (e.g. isAnyoneHomeAndAwake). Start() guarantees this:
+// it populates the state manager from HA before calling startLux().
+func (m *Manager) restoreLuxHold(room *RoomConfig) {
+	helper := luxHoldHelper(room)
+	st, err := m.haClient.GetState(helper)
+	if err != nil || st == nil {
+		m.logger.Warn("Manual hold helper not found; holds in this room will not survive a restart",
+			zap.String("room", room.HueGroup), zap.String("entity_id", helper), zap.Error(err))
+		return
+	}
+	if st.State != "on" {
+		return
+	}
+	if action, _ := m.evaluateConditions(room); action != "on" {
+		m.logger.Info("Clearing stored manual hold: the room is not on",
+			zap.String("room", room.HueGroup), zap.String("action", action))
+		m.setLuxHoldHelper(room, false)
+		return
+	}
+	m.luxMu.Lock()
+	rs := m.luxRoom(room.HueGroup)
+	rs.held, rs.heldSince, rs.heldReason = true, st.LastChanged, "restored from "+helper
+	m.luxMu.Unlock()
+	m.logger.Info("Restored manual hold", zap.String("room", room.HueGroup), zap.Time("held_since", st.LastChanged))
+}
+
+// handleLuxHoldHelperChange follows a person's change to the hold helper in Home Assistant:
+// off releases the room, on holds it. The plugin's own writes find the hold already matching.
+func (m *Manager) handleLuxHoldHelperChange(room *RoomConfig, newState *ha.State) {
+	if newState == nil || m.readOnly {
+		return
+	}
+	if newState.State != "on" && newState.State != "off" {
+		return
+	}
+	want := newState.State == "on"
+	m.luxMu.Lock()
+	st := m.luxRoom(room.HueGroup)
+	if st.held == want {
+		m.luxMu.Unlock()
+		return
+	}
+	if want {
+		st.held, st.heldSince, st.heldReason = true, m.clock.Now(), "hold helper turned on"
+		m.luxMu.Unlock()
+		m.logger.Info("Manual hold set from Home Assistant", zap.String("room", room.HueGroup))
+		return
+	}
+	m.luxMu.Unlock()
+	m.clearLuxHold(room, "hold helper turned off")
+	m.luxEvaluate(room, luxHoldHelper(room))
 }
 
 // SetAnchorResolver sets the source of sun and schedule times for the target curve.
@@ -110,7 +200,7 @@ func luxActive(room *RoomConfig) bool {
 func (m *Manager) luxRoom(name string) *luxRoomState {
 	st, ok := m.luxRooms[name]
 	if !ok {
-		st = &luxRoomState{followers: map[string]*luxCommand{}, followerHeld: map[string]bool{}}
+		st = &luxRoomState{followers: map[string]*luxCommand{}}
 		m.luxRooms[name] = st
 	}
 	return st
@@ -144,6 +234,12 @@ func (m *Manager) startLux() error {
 			continue
 		}
 		r := room
+		m.restoreLuxHold(r)
+		if err := m.subHelper.SubscribeToEntity(luxHoldHelper(r), func(_ string, _, newState *ha.State) {
+			m.handleLuxHoldHelperChange(r, newState)
+		}); err != nil {
+			return fmt.Errorf("failed to subscribe to %s: %w", luxHoldHelper(r), err)
+		}
 		if err := m.subHelper.SubscribeToEntity(r.LuxControl.Cans, func(_ string, _, newState *ha.State) {
 			m.handleCansChange(r, newState)
 		}); err != nil {
@@ -567,6 +663,7 @@ func (m *Manager) handleCansChange(room *RoomConfig, newState *ha.State) {
 	m.logger.Info("Manual change detected; holding room",
 		zap.String("room", room.HueGroup),
 		zap.String("reason", reason))
+	m.setLuxHoldHelper(room, true)
 	if stabilizing != nil {
 		if err := m.sendLuxCommand(room, stabilizing); err != nil {
 			m.logger.Error("Failed to stabilize manual turn-on", zap.String("room", room.HueGroup), zap.Error(err))
@@ -575,9 +672,8 @@ func (m *Manager) handleCansChange(room *RoomConfig, newState *ha.State) {
 }
 
 // handleFollowerChange is handleCansChange for a follower light: a report that is not on the
-// path of what the plugin last sent it holds that strip only, the moment it arrives. The
-// room and its cans keep following the curve. Followers are brightness-only, so color
-// temperature is never compared. The strip hold clears with the room hold (clearLuxHold).
+// path of what the plugin last sent it holds the whole room, the moment it arrives. A strip is
+// part of its room. Followers are brightness-only, so color temperature is never compared.
 func (m *Manager) handleFollowerChange(room *RoomConfig, newState *ha.State) {
 	if newState == nil || m.readOnly || !luxActive(room) {
 		return
@@ -588,21 +684,25 @@ func (m *Manager) handleFollowerChange(room *RoomConfig, newState *ha.State) {
 	now := m.clock.Now()
 
 	m.luxMu.Lock()
-	defer m.luxMu.Unlock()
 	st := m.luxRoom(room.HueGroup)
 	last := st.followers[newState.EntityID]
-	if st.followerHeld[newState.EntityID] || last == nil {
+	if st.held || last == nil {
+		m.luxMu.Unlock()
 		return
 	}
 	reason := manualChangeReason(last, newState, false, now)
 	if reason == "" {
+		m.luxMu.Unlock()
 		return
 	}
-	st.followerHeld[newState.EntityID] = true
-	m.logger.Info("Manual change to follower light detected; holding that strip only",
+	reason = newState.EntityID + ": " + reason
+	st.held, st.heldSince, st.heldReason = true, now, reason
+	m.luxMu.Unlock()
+	m.logger.Info("Manual change to follower light detected; holding room",
 		zap.String("entity_id", newState.EntityID),
 		zap.String("room", room.HueGroup),
 		zap.String("reason", reason))
+	m.setLuxHoldHelper(room, true)
 }
 
 // luxDriveFollowers sets each follower light from the cans command: floor + gain * cans percent,
@@ -624,11 +724,7 @@ func (m *Manager) luxDriveFollowers(room *RoomConfig, st *luxRoomState, cans *lu
 		}
 		m.luxMu.Lock()
 		prev := st.followers[f.Entity]
-		held := st.followerHeld[f.Entity]
 		m.luxMu.Unlock()
-		if held {
-			continue
-		}
 		if prev == nil {
 			if pct, on := m.luxLightLevel(f.Entity); on {
 				next.fromOn, next.fromPct = true, pct
@@ -704,7 +800,7 @@ func (m *Manager) followerStates(room *RoomConfig) map[string]shadowstate.Follow
 	st := m.luxRoom(room.HueGroup)
 	out := make(map[string]shadowstate.FollowerState, len(room.LuxControl.FollowerLights))
 	for _, f := range room.LuxControl.FollowerLights {
-		fs := shadowstate.FollowerState{Held: st.followerHeld[f.Entity]}
+		fs := shadowstate.FollowerState{}
 		if c := st.followers[f.Entity]; c != nil && c.on {
 			fs.Pct = c.pct
 			fs.CansPct = c.cansPct
@@ -809,18 +905,19 @@ func (m *Manager) clearLuxHold(room *RoomConfig, reason string) {
 		return
 	}
 	m.luxMu.Lock()
-	defer m.luxMu.Unlock()
 	st := m.luxRoom(room.HueGroup)
-	if st.held {
-		m.logger.Info("Clearing manual hold",
-			zap.String("room", room.HueGroup),
-			zap.String("reason", reason))
-	}
+	wasHeld := st.held
 	st.held, st.heldReason, st.heldSince = false, "", time.Time{}
 	st.cmd = nil
 	st.previous = nil
 	st.followers = map[string]*luxCommand{}
-	st.followerHeld = map[string]bool{}
+	m.luxMu.Unlock()
+	if wasHeld {
+		m.logger.Info("Clearing manual hold",
+			zap.String("room", room.HueGroup),
+			zap.String("reason", reason))
+		m.setLuxHoldHelper(room, false)
+	}
 }
 
 // clearAllLuxHolds ends every hold. Used when everyone is asleep or the house is empty.
@@ -832,8 +929,6 @@ func (m *Manager) clearAllLuxHolds(reason string) {
 
 // forgetLuxCommand drops the remembered command, so the next tick sends fresh values.
 // Used when another controller (Hue Sync) has had the lights.
-// followerHeld is intentionally kept: a strip hold set by a person survives a Hue Sync takeover.
-// Only clearLuxHold resets followerHeld, matching the room-hold semantics.
 func (m *Manager) forgetLuxCommand(room *RoomConfig) {
 	if !luxManaged(room) {
 		return

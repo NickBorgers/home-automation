@@ -380,11 +380,10 @@ type DarkOutsideState struct {
 	LightAbove float64 `json:"lightAboveLux"`
 }
 
-// FollowerState is one follower light's last commanded percent (0 = off) and whether a manual
-// change stopped the plugin driving it. A held strip does not hold the room.
+// FollowerState is one follower light's last commanded percent (0 = off). A hand change to the
+// strip holds its room (LuxControlState.Held).
 type FollowerState struct {
-	Pct  float64 `json:"pct"`
-	Held bool    `json:"held"`
+	Pct float64 `json:"pct"`
 	// The fields below are set for a strip with a cct_curve (and CansPct for every strip).
 	CansPct         float64 `json:"cansPct,omitempty"`         // cans brightness the strip was computed from
 	TargetKelvin    int     `json:"targetKelvin,omitempty"`    // the cans' commanded color temperature
