@@ -186,12 +186,14 @@ runs:
         # workspace. That broke every later host step (git, post-checkout)
         # with "detected dubious ownership". The image no longer has sudo.
         DOCKER_EXIT=0
+        # LOKI_URL comes from the calling workflow's env (vars.LOKI_URL).
         docker run --rm \
           --name "$CI_AGENT_CONTAINER_NAME" \
           --init \
           --network host \
           --user "$(id -u):$(id -g)" \
           -e HOME=/home/ci \
+          -e LOKI_URL \
           --workdir /workspace \
           -v "${{ github.workspace }}:/workspace" \
           -v "$OUTPUT_STAGING_DIR:$OUTPUT_STAGING_DIR" \

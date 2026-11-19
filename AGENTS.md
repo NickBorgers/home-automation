@@ -424,6 +424,7 @@ LogQL basics: `|=` contains, `!=` excludes, `|~` regex (`(?i)` for case-insensit
 - If more than `limit` lines match, the helper keeps the newest `limit` and drops older ones. Raise `limit` or narrow `since` to see more.
 - Retention is finite. Query soon after an incident.
 - Under the hood this is `GET /loki/api/v1/query_range`; `LOKI_URL` overrides the server for the helper.
+- In CI agent jobs, `LOKI_URL` is already set to an address the runner can reach. Use the helper as normal. Do not override `LOKI_URL` there.
 
 **Example output (home-automation):** Structured JSON logs from the Go application
 ```json
