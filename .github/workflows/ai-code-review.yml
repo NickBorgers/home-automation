@@ -59,6 +59,11 @@ concurrency:
 env:
   # CI agent image — see .github/ci/Dockerfile and .github/workflows/ci-image.yml
   CI_IMAGE: ghcr.io/nickborgers/home-automation-ci:latest
+  # Loki address for scripts/loki-query.sh inside agent containers. A repo
+  # variable, not source: the runner may reach only Loki's direct API, and
+  # that address stays out of this public repo. Unset means the helper's
+  # default, which the runner cannot reach.
+  LOKI_URL: ${{ vars.LOKI_URL }}
 
 jobs:
   # Extract PR and Issue context from workflow_run or workflow_dispatch event

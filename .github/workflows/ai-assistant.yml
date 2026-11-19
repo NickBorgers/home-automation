@@ -19,6 +19,11 @@ on:
 env:
   # Note: must be lowercase for Docker compatibility
   CI_IMAGE: ghcr.io/nickborgers/home-automation-ci:latest
+  # Loki address for scripts/loki-query.sh inside agent containers. A repo
+  # variable, not source: the runner may reach only Loki's direct API, and
+  # that address stays out of this public repo. Unset means the helper's
+  # default, which the runner cannot reach.
+  LOKI_URL: ${{ vars.LOKI_URL }}
 
 jobs:
   # Security gate: Check if the actor is authorized to trigger the AI assistant
