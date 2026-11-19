@@ -215,7 +215,7 @@ or non-numeric, dusk, winddown, and night are dark and the other day phases are 
 | `outdoorLux`, `daylightEstimate` | Smoothed outdoor reading, and the room estimate |
 | `neededLux`, `brightnessPct`, `goalBrightnessPct` | What the cans must supply, the brightness last commanded (after the slew limit), and the brightness the target asks for |
 | `held`, `heldSince`, `heldReason` | Manual override state |
-| `followers` | Per follower light: `pct` (last commanded percent, 0 = off) and `held` (a person changed that strip). Also `cansPct` (cans brightness the strip was computed from). For a strip with a `cct_curve`: `targetKelvin` (the cans' commanded Kelvin), `cctFloorPct` (lowest brightness that reaches it) and `estimatedKelvin` (the strip's Kelvin at `pct`, from the curve) |
+| `followers` | Per follower light: `pct` (last commanded percent, 0 = off) and `held` (a person changed that strip). Also `cansPct` (cans brightness the strip was computed from). For a strip with a `cct_curve`: `targetKelvin` (the cans' commanded Kelvin), `cctFloorPct` (lowest brightness that reaches it), `cctCeilingPct` (highest brightness not cooler than it) and `estimatedKelvin` (the strip's Kelvin at `pct`, from the curve) |
 | `decision` | Why the last tick did or did not send a command |
 
 ## Calibration (once per room)
@@ -260,11 +260,11 @@ Indoor sensors, when they come back, read light at the ceiling or wall, not at t
 
 The Kitchen strip is dim-to-warm: its color temperature falls as it dims. Its `cct_curve` records how.
 
-**Strip color-temperature curve (`cct_curve`).** A follower may list `cct_curve`: points of brightness and the Kelvin the strip shows there. The plugin treats the cans' commanded Kelvin as the strip's target. It computes the lowest strip brightness that reaches that Kelvin (`cctFloorPct`, linear interpolation). The strip gets the larger of that value and the `floor_pct + gain * cans_pct` value. So the strip is never dimmer than its color needs, and the brightness curve still keeps it bright. The two calculations are separate: the curve changes only the floor.
+**Strip color-temperature curve (`cct_curve`).** A follower may list `cct_curve`: points of brightness and the Kelvin the strip shows there. The plugin treats the cans' commanded Kelvin as the strip's target. It computes the lowest strip brightness that reaches that Kelvin (`cctFloorPct`) and the highest brightness that is not cooler than it (`cctCeilingPct`), by linear interpolation. The strip gets the `floor_pct + gain * cans_pct` value, held between those two. So the strip is never dimmer than its color needs, and never brighter, because a brighter dim-to-warm strip is a cooler one. Between the warmest and coolest points the floor and the ceiling are the same, so the color decides the strip's brightness. At or below the warmest point the brightness curve decides, up to that point's brightness.
 
 - The strip is brightness-only. The plugin never sends it a Kelvin.
-- A target warmer than the warmest point (3000 K for the Kitchen) gives no floor. A target cooler than the coolest point gives that point's brightness.
-- Shadow state and the `Lux control sending follower command` log line carry `cans_pct`, `target_kelvin`, `cct_floor_pct` and `estimated_kelvin`.
+- A target at or warmer than the warmest point (3000 K for the Kitchen) gives no floor and a ceiling at that point's brightness (49%). A target cooler than the coolest point gives that point's brightness.
+- Shadow state and the `Lux control sending follower command` log line carry `cans_pct`, `target_kelvin`, `cct_floor_pct`, `cct_ceiling_pct` and `estimated_kelvin`.
 - Hold behavior is unchanged: a manual strip change holds that strip only.
 
 Kitchen strip curve, measured by eye on 2026-11-08 (issue #1263). Method: the plugin set the cans to each Kelvin at 50% brightness, Nick set the Lutron dimmer until the strip looked the same, and the strip brightness was read back from Home Assistant. Rounds ran in the order 3000, 4000, 3500, 3250, 3750 K. One run per point, with no instrument. Expect about 5 percentage points of error.

@@ -92,7 +92,8 @@ type LuxFollower struct {
 	FloorPct float64 `yaml:"floor_pct"` // brightness when the cans are at 0%, 0-100
 	Gain     float64 `yaml:"gain"`      // follower percent added per cans percent, 0-2
 	// CCTCurve is the strip's measured color temperature by brightness. When set, the strip is never
-	// dimmer than the brightness that gives the cans' color temperature. Nil means brightness only.
+	// dimmer than the brightness that gives the cans' color temperature, and never brighter: a
+	// brighter dim-to-warm strip is a cooler one. Nil means brightness only.
 	CCTCurve []StripCCTPoint `yaml:"cct_curve"`
 }
 
@@ -128,6 +129,20 @@ func (f LuxFollower) cctFloorPct(kelvin int) float64 {
 		}
 	}
 	return last.BrightnessPct
+}
+
+// cctCeilingPct returns the highest strip brightness that is not cooler than kelvin, by linear
+// interpolation on CCTCurve. It is 100 when there is no curve or no target. At or below the warmest
+// measured point it is that point's brightness, because any brighter setting is cooler.
+func (f LuxFollower) cctCeilingPct(kelvin int) float64 {
+	c := f.CCTCurve
+	if len(c) == 0 || kelvin <= 0 {
+		return 100
+	}
+	if float64(kelvin) <= c[0].Kelvin {
+		return c[0].BrightnessPct
+	}
+	return f.cctFloorPct(kelvin)
 }
 
 // estimateKelvin returns the strip's color temperature at a brightness, by linear interpolation on

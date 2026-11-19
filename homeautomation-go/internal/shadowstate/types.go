@@ -389,6 +389,7 @@ type FollowerState struct {
 	CansPct         float64 `json:"cansPct,omitempty"`         // cans brightness the strip was computed from
 	TargetKelvin    int     `json:"targetKelvin,omitempty"`    // the cans' commanded color temperature
 	CCTFloorPct     float64 `json:"cctFloorPct,omitempty"`     // lowest brightness that reaches TargetKelvin
+	CCTCeilingPct   float64 `json:"cctCeilingPct,omitempty"`   // highest brightness not cooler than TargetKelvin
 	EstimatedKelvin int     `json:"estimatedKelvin,omitempty"` // strip color temperature at Pct, from the curve
 }
 
