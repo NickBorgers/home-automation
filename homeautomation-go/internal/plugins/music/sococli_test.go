@@ -13,6 +13,28 @@ import (
 	"go.uber.org/zap/zaptest"
 )
 
+func TestParseSoCoGroup(t *testing.T) {
+	t.Parallel()
+	groups := "\nBarn: \nPantry: Lounge, Kitchen\nSoundbar: \n"
+
+	tests := []struct {
+		name    string
+		speaker string
+		want    []string
+	}{
+		{name: "coordinator gets its whole group", speaker: "Pantry", want: []string{"Pantry", "Lounge", "Kitchen"}},
+		{name: "member gets its whole group", speaker: "Kitchen", want: []string{"Pantry", "Lounge", "Kitchen"}},
+		{name: "standalone speaker gets itself", speaker: "Barn", want: []string{"Barn"}},
+		{name: "unlisted speaker gets itself", speaker: "Utility", want: []string{"Utility"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.want, parseSoCoGroup(groups, tt.speaker))
+		})
+	}
+}
+
 func TestNewSoCoClient(t *testing.T) {
 	t.Parallel()
 	logger := zaptest.NewLogger(t)

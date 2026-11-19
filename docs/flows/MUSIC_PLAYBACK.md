@@ -4,10 +4,10 @@ This document describes the music playback automation flow, which manages whole-
 
 ## Control and Evidence Authority
 
-When `SOCO_CLI_URL` is configured, SoCo-CLI is the command path for Sonos and the read path for current volume and
-playback status. It talks to speakers directly through UPnP. Home Assistant is still used for automation inputs,
-persistent helpers, and startup reconciliation, but its media-player state is corroborating evidence for this path,
-not the result of a SoCo-CLI command. Without `SOCO_CLI_URL`, speaker commands and reads fall back to Home Assistant.
+When `SOCO_CLI_URL` is configured, SoCo-CLI is the command path for Sonos and the read path for current volume,
+playback status, and startup reconciliation. It talks to speakers directly through UPnP. Home Assistant is still used
+for automation inputs and persistent helpers. Its media-player state is corroborating evidence for this path, not the
+result of a SoCo-CLI command. Without `SOCO_CLI_URL`, speaker commands and reads fall back to Home Assistant.
 
 Use `/api/shadow/music` to see the mode, selected playlist, participants, and the automation's latest orchestration
 state. Use application and SoCo-CLI logs to establish command results and playback verification. In particular, a
@@ -130,7 +130,7 @@ flowchart TD
 
 When a music mode is selected, the following sequence executes. The key optimization is **async speaker grouping**: the lead speaker starts playing immediately while follower speakers join the group in the background.
 
-On service startup, the plugin reconciles before orchestrating. If the lead speaker is playing a track that can be attributed to the selected mode's playlist pool — Tidal-shaped track URIs (`x-sonos-http:track…`) are accepted coarsely if the mode has a `tidal` PlaybackOption (because Sonos never reports the original sharelink, only an opaque resolved track URI); m3u playlists are fetched and checked for individual track membership (result cached for the Manager's lifetime); other media types fall back to exact URI match — and the Sonos group contains only desired zone speakers, the plugin adopts that playback into shadow state and skips the fade-out/regroup/play/fade-in sequence. Missing desired followers are tolerated and reflected as inactive in shadow; foreign group members or an unrecognised track fall back to normal orchestration. A paused lead is adopted the same way and stays paused: the running app never resumes a pause, so a restart does not either. The playback health monitor is not started for a paused adoption, because it would resume the speaker.
+On service startup, the plugin reconciles before orchestrating. With SoCo-CLI configured, it reads the lead speaker's transport state (`playback`), current track URI (`get_uri`), group (`groups`), and participant volumes from SoCo-CLI; otherwise it reads the lead's Home Assistant entity. If the lead speaker is playing a track that can be attributed to the selected mode's playlist pool — Tidal-shaped track URIs (`x-sonos-http:track…`) are accepted coarsely if the mode has a `tidal` PlaybackOption (because Sonos never reports the original sharelink, only an opaque resolved track URI); m3u playlists are fetched and checked for individual track membership (result cached for the Manager's lifetime); other media types fall back to exact URI match — and the Sonos group contains only desired zone speakers, the plugin adopts that playback into shadow state and skips the fade-out/regroup/play/fade-in sequence. Missing desired followers are tolerated and reflected as inactive in shadow; foreign group members or an unrecognised track fall back to normal orchestration. A paused lead is adopted the same way and stays paused: the running app never resumes a pause, so a restart does not either. The playback health monitor is not started for a paused adoption, because it would resume the speaker.
 
 ```mermaid
 sequenceDiagram
