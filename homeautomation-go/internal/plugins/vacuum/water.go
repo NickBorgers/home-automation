@@ -72,6 +72,10 @@ func (s *Scheduler) handleWaterEvent(ev boolEvent) bool {
 		return true
 	case ev.entity == waterEntity:
 		delete(s.boolOverlay, waterEntity) // Home Assistant has spoken
+		if ev.from == "on" && ev.to == "off" {
+			s.waterFallback = false
+			s.logger.Info("Vacuum clean water counts as refilled; full runs may start again", zap.String("why", "helper turned off by hand"))
+		}
 		return true
 	case s.cfg.errorSensorID == "" || ev.entity != s.cfg.errorSensorID:
 		return false

@@ -481,7 +481,7 @@ func (s *Scheduler) replan(now time.Time) {
 		Hold:         s.holdReason(),
 		Battery:      st.Battery,
 		HasBattery:   st.HasBattery,
-		Docked:       s.robotCanStart(),
+		Docked:       s.robotCanStart(), // also true while robot sits in the water error; see water.go
 		TripCost:     s.tripCost(),
 		StartMin:     s.cfg.Battery.StartMinPercent(),
 		Floor:        s.cfg.Battery.FloorPercent(),
