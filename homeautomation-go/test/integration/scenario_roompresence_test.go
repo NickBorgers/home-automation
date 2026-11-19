@@ -269,8 +269,12 @@ func TestScenario_RoomPresence_VacuumIsNotAPerson(t *testing.T) {
 }
 
 // GIVEN the robot vacuum is cleaning the lounge, and a person stands in the kitchen
-// WHEN the person walks from the kitchen into the lounge
+// WHEN the person walks from the kitchen into the lounge, and the kitchen camera follows them
 // THEN the lounge is occupied, so the vacuum scheduler sees the person and stops the run
+//
+// The lounge camera's own track of the person starts where the robot is, so it is dropped as the robot
+// and takes over no token. The person is still seen because the track that already holds their token
+// follows them in.
 func TestScenario_RoomPresence_PersonWalksInWhereVacuumIs(t *testing.T) {
 	server, mgr, hub, cleanup := setupRoomPresenceWithHub(t)
 	defer cleanup()
@@ -280,8 +284,9 @@ func TestScenario_RoomPresence_PersonWalksInWhereVacuumIs(t *testing.T) {
 	require.Eventually(t, func() bool { return mgr.Occupied("kitchen") }, 5*time.Second, 10*time.Millisecond)
 	hub.SetVacuum("lounge")
 
-	t.Log("WHEN: the lounge camera picks the person up while the kitchen camera still follows them")
+	t.Log("WHEN: the lounge camera picks the person up, and the kitchen camera follows them into the lounge")
 	publishFrigate(t, server, "update", "l", "cam_lounge", []string{"lounge"}, "lounge")
+	publishFrigate(t, server, "update", "k", "cam_kitchen", []string{"kitchen_to_hall", "kitchen", "lounge"}, "lounge")
 
 	t.Log("THEN: the person's token moves into the lounge")
 	require.Eventually(t, func() bool {
@@ -289,4 +294,55 @@ func TestScenario_RoomPresence_PersonWalksInWhereVacuumIs(t *testing.T) {
 		return occ && known
 	}, 5*time.Second, 10*time.Millisecond, "a person who walks in where the robot is must still be seen")
 	assert.False(t, mgr.Occupied("kitchen"))
+	require.Len(t, mgr.GetShadowState().Outputs.Tokens, 1, "the lounge camera's track adds no token")
+}
+
+// GIVEN a person is asleep in the bedroom, and the robot vacuum is cleaning the hall outside it
+// WHEN Frigate takes the robot for a person: a track appears in the hall, then another starts in the
+// bedroom doorway
+// THEN the sleeper's token stays in the bedroom and the hall stays empty, so the vacuum run goes on
+//
+// INVARIANT: a track that the robot check would drop never takes over a person's token. Before the fix
+// the near-doorway rule moved the sleeper's token into the hall ("came back from bedroom"), and the
+// vacuum scheduler stopped its run because the hall looked occupied.
+func TestScenario_RoomPresence_VacuumDoesNotTakeOverSleepersToken(t *testing.T) {
+	server, mgr, hub, cleanup := setupRoomPresenceWithHub(t)
+	defer cleanup()
+
+	t.Log("GIVEN: a person is asleep in the bedroom")
+	server.SetState("binary_sensor.example_bed_presence", "on", nil)
+	require.Eventually(t, func() bool { return mgr.Occupied("bedroom") }, 5*time.Second, 10*time.Millisecond)
+	require.Len(t, mgr.GetShadowState().Outputs.Tokens, 1)
+	sleeper := mgr.GetShadowState().Outputs.Tokens[0].ID
+
+	t.Log("AND: the robot vacuum is in the hall")
+	hub.SetVacuum("hall")
+
+	t.Log("WHEN: a track appears in the hall, next to the bedroom doorway, and drives around")
+	publishFrigate(t, server, "new", "robot1", "cam_hall", []string{})
+	publishFrigate(t, server, "update", "robot1", "cam_hall", []string{"hall"}, "hall")
+	publishFrigate(t, server, "end", "robot1", "cam_hall", []string{"hall"}, "hall")
+
+	t.Log("AND: another track starts in the bedroom doorway and goes back into the hall")
+	publishFrigate(t, server, "new", "robot2", "cam_hall", []string{})
+	publishFrigate(t, server, "update", "robot2", "cam_hall", []string{"hall_to_bedroom"}, "hall_to_bedroom")
+	publishFrigate(t, server, "update", "robot2", "cam_hall", []string{"hall_to_bedroom", "hall"}, "hall")
+	publishFrigate(t, server, "end", "robot2", "cam_hall", []string{"hall_to_bedroom", "hall"}, "hall")
+
+	t.Log("THEN: both tracks are dropped as the robot")
+	require.Eventually(t, func() bool { return len(mgr.GetShadowState().Outputs.RecentTracks) == 2 },
+		5*time.Second, 10*time.Millisecond)
+	s := mgr.GetShadowState().Outputs
+	for _, r := range s.RecentTracks {
+		assert.False(t, r.Confirmed, "track %s is the robot", r.ID)
+		assert.Equal(t, "dropped: the robot vacuum is in hall", r.Outcome, "track %s", r.ID)
+	}
+
+	t.Log("AND: the sleeper's token has not moved, and the hall is empty")
+	require.Len(t, s.Tokens, 1)
+	assert.Equal(t, sleeper, s.Tokens[0].ID)
+	assert.Equal(t, "bedroom", s.Tokens[0].Area)
+	occ, known := hub.Occupied("hall")
+	assert.True(t, known)
+	assert.False(t, occ, "the robot does not make the hall occupied")
 }

@@ -105,6 +105,9 @@ The plugin keeps one **track** per Frigate event id. It only acts on a few momen
 
 A track's first zone is known at its first `update`, not at `new`.
 
+The robot check comes first, before any rule below. A track that starts where the robot vacuum is, or in a
+doorway to that area, takes no token. See [The robot vacuum](#false-people).
+
 1. **It starts in a boundary zone** such as `lounge_to_study`. A person came out of the unseen area. Move a token
    from `study` to `lounge`. If `study` has no token, still create one in `lounge`. The plugin may have been
    wrong about where that person was.
@@ -254,9 +257,19 @@ is out of the dock. People and the robot are never in the same area, so an uncon
 the robot. That means a track that starts there, is there now, or stands in a doorway to it. Such a track
 never gets a token, even after the robot moves on. Its outcome is "dropped: the robot vacuum is in <area>".
 
-A person who walks in where the robot is keeps the token they already had, because their track is a hand-off
-or comes back through a doorway. That token makes the area occupied, so the vacuum scheduler still sees the
-person and stops the run. Only a track from nowhere is dropped.
+The check runs when a track starts, before the rules that take over a token: hand-off, straight back
+through a doorway, out of a doorway, resume, and near a doorway. Without this order, a robot track could take
+over a person's token and move it into the robot's area. For example, a sleeper's token in an unseen bedroom
+would move into the hall outside it ("came back from bedroom"). The hall would then look occupied, and the
+vacuum scheduler would stop its run. Now the track stays unconfirmed and the bedroom token stays where it is.
+Like any track the robot check drops, it never gets a token, even if it later walks away from the robot.
+
+A person who walks in where the robot is keeps their token while a track that already holds it follows them
+in. That token makes the area occupied, so the vacuum scheduler still sees the person and stops the run. A
+new track that starts in the robot's area does not take a token, even when it is a real person picked up by
+a second camera. If the old track ended in a doorway to that area, the token still moves there after the
+hand-off window, but only when no online camera sees the area (see [When a track ends](#when-a-track-ends)).
+While the robot is docked its area is empty, so none of this applies near the dock.
 
 ### Camera failure
 
