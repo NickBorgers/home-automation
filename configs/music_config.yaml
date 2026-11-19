@@ -120,11 +120,15 @@ music:
       - player_name: "Pantry"
         base_volume: 8
         leave_muted_if: []
+      # Follows Pantry, one step quieter.
+      - player_name: "Utility"
+        base_volume: 7
+        leave_muted_if: []
       - player_name: "Lounge"
         base_volume: 8
         leave_muted_if: []
       - player_name: "Kitchen"
-        base_volume: 8
+        base_volume: 10
         leave_muted_if:
           - variable: isTVPlaying
             value: true
@@ -189,11 +193,15 @@ music:
       - player_name: "Pantry"
         base_volume: 9
         leave_muted_if: []
+      # Follows Pantry, one step quieter.
+      - player_name: "Utility"
+        base_volume: 8
+        leave_muted_if: []
       - player_name: "Lounge"
         base_volume: 9
         leave_muted_if: []
       - player_name: "Kitchen"
-        base_volume: 9
+        base_volume: 11
         leave_muted_if:
           - variable: isTVPlaying
             value: true
@@ -270,11 +278,15 @@ music:
       - player_name: "Pantry"
         base_volume: 8
         leave_muted_if: []
+      # Follows Pantry, one step quieter.
+      - player_name: "Utility"
+        base_volume: 7
+        leave_muted_if: []
       - player_name: "Lounge"
         base_volume: 8
         leave_muted_if: []
       - player_name: "Kitchen"
-        base_volume: 8
+        base_volume: 10
         leave_muted_if:
           - variable: isTVPlaying
             value: true
@@ -412,11 +424,15 @@ music:
       - player_name: "Pantry"
         base_volume: 7
         leave_muted_if: []
+      # Follows Pantry, one step quieter.
+      - player_name: "Utility"
+        base_volume: 6
+        leave_muted_if: []
       - player_name: "Lounge"
         base_volume: 7
         leave_muted_if: []
       - player_name: "Kitchen"
-        base_volume: 7
+        base_volume: 9
         leave_muted_if:
           - variable: isTVPlaying
             value: true
@@ -477,11 +493,15 @@ music:
       - player_name: "Pantry"
         base_volume: 9
         leave_muted_if: []
+      # Follows Pantry, one step quieter.
+      - player_name: "Utility"
+        base_volume: 8
+        leave_muted_if: []
       - player_name: "Lounge"
         base_volume: 9
         leave_muted_if: []
       - player_name: "Kitchen"
-        base_volume: 9
+        base_volume: 11
         leave_muted_if:
           - variable: isTVPlaying
             value: true
@@ -504,6 +524,7 @@ music:
     playback_options:
       # Rain sounds - 2h composite playlists (avoids Sonos loop degradation)
       # Multiplier 1.6 chosen to hit effective volumes 14 / 16 / 24 from base volumes 9 / 10 / 15.
+      # Kitchen (base 11) reaches 18 and Utility (base 8) reaches 13.
       # yamllint disable-line rule:line-length
       - uri: "http://rain-sounds.nickborgers.net:8080/playlists/sleep-rain-1.m3u"
         media_type: music
